@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ventas por Hora — Apidelta</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Arial, sans-serif;
+    background: #f0f4f8;
+    color: #1a2332;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #1F4E79;
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 1.15rem; font-weight: 700; }
+  header a { color: #9fc5e8; font-size: .82rem; text-decoration: none; margin-left: auto; }
+  header a:hover { text-decoration: underline; }
+
+  .controls {
+    background: #fff;
+    border-bottom: 1px solid #dce3ec;
+    padding: 14px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: .75rem; font-weight: 700; color: #5a6a7e; text-transform: uppercase; letter-spacing: .04em; }
+  .field input[type=date] {
+    border: 1px solid #c5cfe0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: .9rem;
+    background: #fff;
+    color: #1a2332;
+    outline: none;
+    height: 36px;
+  }
+  .field input[type=date]:focus { border-color: #2E75B6; }
+
+  .sucursales-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .sucursales-wrap label { font-size: .75rem; font-weight: 700; color: #5a6a7e; text-transform: uppercase; letter-spacing: .04em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: 720px; }
+  .chip {
+    cursor: pointer;
+    border: 2px solid #c5cfe0;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: .82rem;
+    background: #fff;
+    color: #5a6a7e;
+    transition: all .15s;
+    user-select: none;
+  }
+  .chip.active { background: #1F4E79; border-color: #1F4E79; color: #fff; font-weight: 700; }
+  .chip:hover:not(.active) { border-color: #2E75B6; color: #2E75B6; }
+
+  .btn {
+    height: 36px; padding: 0 20px;
+    background: #2E75B6; color: #fff;
+    border: none; border-radius: 6px;
+    font-size: .9rem; font-weight: 700;
+    cursor: pointer; transition: background .15s;
+    align-self: flex-end;
+  }
+  .btn:hover { background: #1F4E79; }
+  .btn:disabled { background: #a0b4c8; cursor: not-allowed; }
+  .btn-outline {
+    height: 36px; padding: 0 14px;
+    background: #fff; color: #2E75B6;
+    border: 2px solid #2E75B6; border-radius: 6px;
+    font-size: .85rem; font-weight: 700;
+    cursor: pointer; transition: all .15s; align-self: flex-end;
+  }
+  .btn-outline:hover { background: #e8f0f9; }
+
+  .main { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .kpi {
+    background: #fff; border-radius: 10px; padding: 16px;
+    border-left: 4px solid #2E75B6; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .kpi .label { font-size: .72rem; font-weight: 700; color: #5a6a7e; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .kpi .value { font-size: 1.35rem; font-weight: 700; color: #1F4E79; }
+  .kpi .sub   { font-size: .78rem; color: #5a6a7e; margin-top: 3px; }
+
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); overflow: hidden; }
+  .card-header {
+    padding: 14px 20px; border-bottom: 1px solid #eef1f5;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .card-header h2 { font-size: .95rem; font-weight: 700; color: #1a2332; flex: 1; }
+
+  .mode-toggle { display: flex; gap: 4px; }
+  .mode-btn {
+    padding: 4px 12px; border: 1px solid #c5cfe0; border-radius: 4px;
+    font-size: .78rem; cursor: pointer; background: #fff; color: #5a6a7e; transition: all .1s;
+  }
+  .mode-btn.active { background: #1F4E79; border-color: #1F4E79; color: #fff; font-weight: 700; }
+
+  .chart-wrap { padding: 16px 20px; }
+  .chart-wrap canvas { max-height: 420px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  thead th {
+    background: #1F4E79; color: #fff;
+    padding: 9px 14px; text-align: right;
+    font-weight: 700; white-space: nowrap;
+  }
+  thead th:first-child { text-align: center; }
+  tbody tr:nth-child(even) { background: #f5f8fc; }
+  tbody td { padding: 8px 14px; text-align: right; border-bottom: 1px solid #eef1f5; }
+  tbody td:first-child { text-align: center; font-weight: 700; color: #2E75B6; }
+  tfoot td { padding: 9px 14px; font-weight: 700; background: #2E75B6; color: #fff; text-align: right; }
+  tfoot td:first-child { text-align: center; }
+  tr.peak td { background: #fff3cd !important; font-weight: 700; }
+
+  .loading { text-align: center; padding: 60px; color: #5a6a7e; font-size: .95rem; }
+  .error { background: #fff0f0; border: 1px solid #f5c6cb; color: #721c24; padding: 14px 20px; border-radius: 8px; font-size: .9rem; }
+
+  @media (max-width: 640px) { .controls { padding: 12px 16px; } .main { padding: 16px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <img src="/favicon.png" style="height:28px" onerror="this.style.display='none'">
+  <h1>Ventas por Hora</h1>
+  <a href="/">← Inicio</a>
+</header>
+
+<div class="controls">
+  <div class="field">
+    <label>Desde</label>
+    <input type="date" id="desde">
+  </div>
+  <div class="field">
+    <label>Hasta</label>
+    <input type="date" id="hasta">
+  </div>
+  <div class="sucursales-wrap">
+    <label>Sucursales</label>
+    <div class="chips" id="chips"><span style="color:#5a6a7e;font-size:.85rem;padding:4px 0">Cargando...</span></div>
+  </div>
+  <button class="btn" id="btnConsultar" onclick="consultar()">Consultar</button>
+  <button class="btn-outline" onclick="selAll()">Todas</button>
+  <button class="btn-outline" onclick="selNone()">Ninguna</button>
+</div>
+
+<div class="main">
+  <div id="kpis" class="kpis"></div>
+  <div id="resultado"></div>
+</div>
+
+<script>
+const PALETTE = ['#2E75B6','#ED7D31','#A9D18E','#FF0000','#9DC3E6','#FFD966','#7030A0','#00B0F0','#92D050','#FF7C80'];
+const HORAS   = Array.from({length: 16}, (_, i) => i + 6); // 6..21
+
+let sucursales = [];
+let sel = new Set();
+let chart = null;
+let modo = 'monto';
+let lastRows = null;
+
+async function init() {
+  const hoy = new Date();
+  const d30 = new Date(hoy); d30.setDate(hoy.getDate() - 30);
+  document.getElementById('desde').value = d30.toISOString().slice(0,10);
+  document.getElementById('hasta').value = hoy.toISOString().slice(0,10);
+
+  try {
+    const r = await fetch('/api/ventas-hora/sucursales');
+    const data = await r.json();
+    sucursales = Array.isArray(data) ? data : [];
+    if (!sucursales.length && data.error) throw new Error(data.error);
+    sel = new Set(sucursales.map(s => s.IdSucursal));
+    renderChips();
+    consultar();
+  } catch(e) {
+    document.getElementById('chips').innerHTML = `<span style="color:red">Error: ${e.message}</span>`;
+  }
+}
+
+function renderChips() {
+  const wrap = document.getElementById('chips');
+  wrap.innerHTML = '';
+  sucursales.forEach(s => {
+    const c = document.createElement('span');
+    c.className = 'chip' + (sel.has(s.IdSucursal) ? ' active' : '');
+    c.textContent = s.NombreSucursal || `Suc. ${s.IdSucursal}`;
+    c.onclick = () => {
+      sel.has(s.IdSucursal) ? sel.delete(s.IdSucursal) : sel.add(s.IdSucursal);
+      c.classList.toggle('active');
+    };
+    wrap.appendChild(c);
+  });
+}
+
+function selAll()  { sel = new Set(sucursales.map(s => s.IdSucursal)); renderChips(); }
+function selNone() { sel.clear(); renderChips(); }
+
+function fmt(n) { return '$' + Math.round(n).toLocaleString('es-AR'); }
+
+async function consultar() {
+  if (!sel.size) {
+    document.getElementById('resultado').innerHTML = '<div class="error">Seleccioná al menos una sucursal.</div>';
+    return;
+  }
+  const btn = document.getElementById('btnConsultar');
+  btn.disabled = true; btn.textContent = 'Consultando...';
+  document.getElementById('kpis').innerHTML = '';
+  document.getElementById('resultado').innerHTML = '<div class="loading">Cargando datos...</div>';
+
+  const desde = document.getElementById('desde').value;
+  const hasta  = document.getElementById('hasta').value;
+  const url = `/api/ventas-hora?desde=${desde}&hasta=${hasta}&sucursales=${[...sel].join(',')}`;
+
+  try {
+    const r = await fetch(url);
+    const rows = await r.json();
+    if (rows.error) throw new Error(rows.error);
+    lastRows = rows;
+    renderDashboard(rows, desde, hasta);
+  } catch(e) {
+    document.getElementById('resultado').innerHTML = `<div class="error">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Consultar';
+  }
+}
+
+function renderDashboard(rows, desde, hasta) {
+  // Agrupar
+  const sucMap = new Map();
+  for (const r of rows) {
+    if (!sucMap.has(r.IdSucursal))
+      sucMap.set(r.IdSucursal, { nombre: r.NombreSucursal || `Suc.${r.IdSucursal}`, horas: new Map() });
+    sucMap.get(r.IdSucursal).horas.set(+r.Hora, { total: +r.Total, tickets: +r.CantTickets });
+  }
+  const sucList = [...sucMap.entries()].sort((a,b) => a[0]-b[0]);
+
+  // KPIs
+  const totalG   = rows.reduce((a,r) => a + +r.Total, 0);
+  const ticketsG = rows.reduce((a,r) => a + +r.CantTickets, 0);
+  const topHora  = calcTopHora(rows);
+  const topSuc   = calcTopSuc(rows);
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total Ventas</div><div class="value">${fmt(totalG)}</div><div class="sub">${desde} → ${hasta}</div></div>
+    <div class="kpi"><div class="label">Tickets</div><div class="value">${ticketsG.toLocaleString('es-AR')}</div><div class="sub">comprobantes</div></div>
+    <div class="kpi"><div class="label">Hora Pico</div><div class="value">${topHora.hora !== null ? topHora.hora+':00' : '—'}</div><div class="sub">${topHora.hora!==null?fmt(topHora.total):''}</div></div>
+    <div class="kpi"><div class="label">Mayor Sucursal</div><div class="value" style="font-size:1rem">${topSuc.nombre||'—'}</div><div class="sub">${topSuc.nombre?fmt(topSuc.total):''}</div></div>
+    <div class="kpi"><div class="label">Ticket Promedio</div><div class="value">${ticketsG?fmt(totalG/ticketsG):'—'}</div><div class="sub">por comprobante</div></div>
+  `;
+
+  // Tabla
+  const colTotals = new Array(sucList.length).fill(0);
+  let peakVal = 0;
+  const rowData = HORAS.map(h => {
+    const cols = sucList.map(([,suc]) => { const v = suc.horas.get(h); return v ? v.total : 0; });
+    const rowTotal = cols.reduce((a,b)=>a+b,0);
+    cols.forEach((v,i) => colTotals[i] += v);
+    if (rowTotal > peakVal) peakVal = rowTotal;
+    return { h, cols, rowTotal };
+  });
+
+  const tbody = rowData.map(({h, cols, rowTotal}) => `
+    <tr class="${rowTotal===peakVal&&peakVal>0?'peak':''}">
+      <td>${h}:00</td>
+      ${cols.map(v=>`<td>${v>0?fmt(v):'—'}</td>`).join('')}
+      <td>${rowTotal>0?fmt(rowTotal):'—'}</td>
+    </tr>`).join('');
+
+  const totalGeneral = colTotals.reduce((a,b)=>a+b,0);
+  const thSucs = sucList.map(([,s])=>`<th>${s.nombre}</th>`).join('');
+
+  document.getElementById('resultado').innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>Gráfico de Líneas</h2>
+        <div class="mode-toggle">
+          <button class="mode-btn ${modo==='monto'?'active':''}" onclick="setModo('monto')">$ Monto</button>
+          <button class="mode-btn ${modo==='tickets'?'active':''}" onclick="setModo('tickets')"># Tickets</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chartHora"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Detalle por Hora</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Hora</th>${thSucs}<th>TOTAL</th></tr></thead>
+          <tbody>${tbody}</tbody>
+          <tfoot><tr>
+            <td>TOTAL</td>
+            ${colTotals.map(v=>`<td>${fmt(v)}</td>`).join('')}
+            <td>${fmt(totalGeneral)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+
+  renderChart(sucList);
+}
+
+function renderChart(sucList) {
+  if (chart) chart.destroy();
+  const ctx = document.getElementById('chartHora').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: HORAS.map(h=>`${h}:00`),
+      datasets: sucList.map(([,suc], i) => ({
+        label: suc.nombre,
+        data: HORAS.map(h => {
+          const v = suc.horas.get(h);
+          return modo==='monto' ? (v?v.total:0) : (v?v.tickets:0);
+        }),
+        borderColor: PALETTE[i % PALETTE.length],
+        backgroundColor: PALETTE[i % PALETTE.length] + '22',
+        borderWidth: 2.5,
+        pointRadius: 4,
+        pointHoverRadius: 7,
+        tension: 0.35,
+        fill: false,
+      }))
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: {family:'Arial', size:12}, padding:16 } },
+        tooltip: {
+          callbacks: {
+            label: c => ` ${c.dataset.label}: ${modo==='monto'?fmt(c.parsed.y):c.parsed.y+' tickets'}`
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: '#eef1f5' },
+          ticks: {
+            font: {family:'Arial', size:11},
+            callback: v => modo==='monto' ? '$'+(v/1000).toFixed(0)+'k' : v
+          }
+        },
+        x: { grid: {display:false}, ticks: {font:{family:'Arial',size:11}} }
+      }
+    }
+  });
+}
+
+function setModo(m) {
+  modo = m;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.textContent.includes(m==='monto'?'$':'#')));
+  if (lastRows) renderDashboard(lastRows,
+    document.getElementById('desde').value,
+    document.getElementById('hasta').value);
+}
+
+function calcTopHora(rows) {
+  const m = {};
+  for (const r of rows) m[r.Hora] = (m[r.Hora]||0) + +r.Total;
+  let best = {hora:null, total:0};
+  for (const [h,t] of Object.entries(m)) if (t>best.total) best={hora:+h,total:t};
+  return best;
+}
+function calcTopSuc(rows) {
+  const m={}, n={};
+  for (const r of rows) { m[r.IdSucursal]=(m[r.IdSucursal]||0)+ +r.Total; n[r.IdSucursal]=r.NombreSucursal||`Suc.${r.IdSucursal}`; }
+  let best={nombre:null,total:0};
+  for (const [id,t] of Object.entries(m)) if(t>best.total) best={nombre:n[id],total:t};
+  return best;
+}
+
+init();
+</script>
+</body>
+</html>

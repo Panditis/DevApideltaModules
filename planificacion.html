@@ -1,0 +1,3654 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planificación de Producción — Apidelta</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* ── Color roles (Material 3) mapeados a Apidelta ── */
+  --md-primary:#405936; --md-on-primary:#ffffff;
+  --md-primary-container:#cfe0c2; --md-on-primary-container:#0c1f06;
+  --md-secondary:#FFCC00; --md-on-secondary:#3a2f00;
+  --md-secondary-container:#fff1bf; --md-on-secondary-container:#241a00;
+  --md-surface:#ffffff;
+  --md-surface-1:#f1f5ec; --md-surface-2:#eaf0e4; --md-surface-3:#e3ebdb;
+  --md-surface-variant:#dfe5d8; --md-on-surface:#1a1c18; --md-on-surface-variant:#434840;
+  --md-outline:#73796d; --md-outline-variant:#c3c9bc;
+  --md-error:#ba1a1a; --md-error-container:#ffdad6;
+  --md-info:#1e40af; --md-info-container:#dbe7ff;
+
+  /* ── Alias legacy (los usa el HTML/JS inline) ── */
+  --verde:#405936; --verde-dark:#2e4027; --verde-hover:#4f6e42; --amarillo:#FFCC00;
+  --bg:#eef2e9; --card:#ffffff; --text:#1a1c18; --muted:#434840; --border:#c3c9bc;
+  --radius:12px; --radius-sm:8px; --radius-lg:16px; --radius-xl:24px; --radius-full:999px;
+  --shadow:var(--elev-1);
+  --red-bg:#fef2f2; --red-text:#991b1b; --red-border:#fecaca;
+  --amb-bg:#fffbeb; --amb-text:#92400e; --amb-border:#fde68a;
+  --grn-bg:#f0fdf4; --grn-text:#166534; --grn-border:#bbf7d0;
+
+  /* ── Elevación MD3 ── */
+  --elev-1:0 1px 2px rgba(0,0,0,.18), 0 1px 3px 1px rgba(0,0,0,.10);
+  --elev-2:0 1px 2px rgba(0,0,0,.18), 0 2px 6px 2px rgba(0,0,0,.10);
+  --elev-3:0 4px 8px 3px rgba(0,0,0,.12), 0 1px 3px rgba(0,0,0,.18);
+  --elev-4:0 6px 10px 4px rgba(0,0,0,.12), 0 2px 3px rgba(0,0,0,.18);
+  --elev-5:0 8px 12px 6px rgba(0,0,0,.12), 0 4px 4px rgba(0,0,0,.18);
+
+  /* state layer opacities */
+  --state-hover:.08; --state-press:.12;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Roboto', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+/* ── TOP APP BAR ── */
+.app-bar {
+  background: var(--md-primary); color: #fff;
+  padding: 0 24px; display: flex; align-items: center; gap: 16px;
+  height: 56px; position: sticky; top: 0; z-index: 100;
+  box-shadow: var(--elev-2);
+}
+.app-bar h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; letter-spacing:.15px; flex: 1; }
+.app-bar .fecha-hoy { font-size: 13px; opacity: 0.85; font-weight:500; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.4); flex-shrink: 0; transition: background 0.3s; }
+.status-dot.ok { background: #7ee08a; box-shadow:0 0 0 3px rgba(126,224,138,.25); }
+.status-dot.err { background: #ff8a80; box-shadow:0 0 0 3px rgba(255,138,128,.25); }
+
+/* ── TABS (MD primary tabs) ── */
+.tab-nav { background: var(--md-primary); display: flex; gap: 2px; padding: 0 16px; box-shadow: var(--elev-1); position:sticky; top:56px; z-index:99; }
+.tab-btn {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 600; letter-spacing:.4px;
+  color: rgba(255,255,255,0.72); background: none; border: none;
+  padding: 0 18px; height:48px; cursor: pointer; position: relative; overflow: hidden;
+  border-radius: 8px 8px 0 0; transition: color 0.15s;
+}
+.tab-btn:hover { color: #fff; }
+.tab-btn::after { content:''; position:absolute; left:50%; right:50%; bottom:0; height:3px; background:var(--amarillo); border-radius:3px 3px 0 0; transition:left .2s, right .2s; }
+.tab-btn.active { color: var(--amarillo); }
+.tab-btn.active::after { left:10px; right:10px; }
+
+.tab-panel { display: none; padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
+.tab-panel.active { display: block; }
+
+/* ── FILTER BAR (surface) ── */
+.filter-bar {
+  background: var(--card); border: none; border-radius: var(--radius);
+  padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+  margin-bottom: 16px; flex-wrap: wrap; box-shadow: var(--elev-1);
+}
+.filter-bar label { font-size: 13px; color: var(--muted); }
+.filter-bar input, .filter-bar select {
+  border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm); padding: 9px 12px;
+  font-size: 13px; color: var(--text); background: var(--card); font-family: 'Roboto', sans-serif; transition:border-color .15s, box-shadow .15s;
+}
+.filter-bar input:focus, .filter-bar select:focus { outline: none; border-color: var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.filter-bar .sep { flex: 1; }
+.toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; }
+.toggle-label input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--md-primary); }
+
+/* ── METRIC CARDS (filled tonal) ── */
+.metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+.metric-card {
+  background: var(--md-surface-2); border: none;
+  border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: none; position:relative; overflow:hidden;
+}
+.metric-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--md-primary); }
+.metric-card.red::before { background:var(--md-error); }
+.metric-card.amb::before { background:var(--amarillo); }
+.metric-card .m-val { font-family: 'Barlow Condensed', sans-serif; font-size: 34px; font-weight: 700; line-height: 1; color:var(--md-primary); }
+.metric-card .m-lbl { font-size: 12px; color: var(--muted); margin-top: 6px; letter-spacing:.3px; }
+.metric-card.red .m-val { color: var(--red-text); }
+.metric-card.amb .m-val { color: var(--amb-text); }
+
+/* ── BUTTONS (MD3 filled / tonal / text) ── */
+.btn {
+  font-family: 'Roboto', sans-serif; font-size: 14px; font-weight: 500; letter-spacing:.1px;
+  border: none; border-radius: var(--radius-full); padding: 9px 20px; cursor: pointer;
+  transition: box-shadow 0.15s, background 0.15s; white-space: nowrap; position: relative; overflow: hidden;
+  display:inline-flex; align-items:center; gap:6px; line-height:1.2;
+}
+.btn::before { content:''; position:absolute; inset:0; background:currentColor; opacity:0; transition:opacity .15s; }
+.btn:hover:not(:disabled)::before { opacity:var(--state-hover); }
+.btn:active:not(:disabled)::before { opacity:var(--state-press); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn-primary { background: var(--md-primary); color: var(--md-on-primary); }
+.btn-secondary { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.btn-danger { background: var(--md-error-container); color: #410002; }
+.btn-sm { font-size: 13px; padding: 6px 14px; }
+.btn-enviar { background: var(--md-info); color: #fff; font-size: 14px; font-weight: 600; padding: 10px 22px; }
+.btn-enviar:disabled { opacity: 0.4; cursor: default; }
+.btn-add { background: var(--md-primary); color: #fff; border: none; border-radius: var(--radius-full); padding: 6px 14px; font-size: 13px; font-family: 'Roboto', sans-serif; font-weight: 500; cursor: pointer; position:relative; overflow:hidden; }
+.btn-add::before { content:''; position:absolute; inset:0; background:#fff; opacity:0; transition:opacity .15s; }
+.btn-add:hover::before { opacity:var(--state-hover); }
+.btn-add:active::before { opacity:var(--state-press); }
+
+/* ── CHIPS / BADGES ── */
+.badge { display: inline-block; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.5px; white-space: nowrap; }
+.badge.RED    { background: var(--red-bg); color: var(--red-text); border: 1px solid var(--red-border); }
+.badge.YELLOW { background: var(--amb-bg); color: var(--amb-text); border: 1px solid var(--amb-border); }
+.badge.GREEN  { background: var(--grn-bg); color: var(--grn-text); border: 1px solid var(--grn-border); }
+.badge.URGENT { background:#FF1744; color:#fff; border:1px solid #FF1744; font-weight:800; letter-spacing:.5px; animation:urgentePulsePlan 1.1s ease-in-out infinite; }
+@keyframes urgentePulsePlan{0%{box-shadow:0 0 0 0 rgba(255,23,68,.6)}70%{box-shadow:0 0 0 7px rgba(255,23,68,0)}100%{box-shadow:0 0 0 0 rgba(255,23,68,0)}}
+
+.dias-badge { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: var(--radius-full); display: inline-block; }
+.dias-badge.RED    { background: var(--red-bg); color: var(--red-text); }
+.dias-badge.YELLOW { background: var(--amb-bg); color: var(--amb-text); }
+.dias-badge.GREEN  { background: var(--grn-bg); color: var(--grn-text); }
+
+/* ── CARDS ── */
+.card { background: var(--card); border: none; border-radius: var(--radius); box-shadow: var(--elev-1); overflow: hidden; }
+.card-header {
+  background: var(--md-primary); color: #fff; padding: 14px 18px;
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 700; letter-spacing:.3px;
+}
+.card-header .spacer { flex: 1; }
+
+/* ── DATA TABLE ── */
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  background: var(--md-surface-1); border-bottom: 1px solid var(--md-outline-variant); padding: 12px 12px;
+  text-align: left; font-family: 'Roboto', sans-serif; font-size: 11px;
+  font-weight: 700; letter-spacing: 0.6px; text-transform:uppercase; color: var(--muted); white-space: nowrap;
+}
+tbody tr { border-bottom: 1px solid var(--md-outline-variant); transition: background .12s; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: rgba(64,89,54,.05); }
+tbody td { padding: 11px 12px; vertical-align: middle; }
+td.nombre-col { font-weight: 500; max-width: 240px; }
+td.rubro-col  { color: var(--muted); font-size: 12px; max-width: 110px; }
+.text-right  { text-align: right; }
+.text-center { text-align: center; }
+.font-bold   { font-weight: 600; }
+.text-sm     { font-size: 12px; color: var(--muted); }
+
+.granel-ok   { color: var(--grn-text); font-size: 13px; }
+.granel-warn { color: var(--red-text); font-size: 13px; }
+.granel-info { font-size: 11px; color: var(--muted); }
+
+/* ── ESTADO CHIPS (filter chips) ── */
+.estado-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.estado-chip {
+  font-family: 'Roboto', sans-serif; font-size: 12px; font-weight: 500;
+  padding: 5px 12px; border-radius: var(--radius-full); border: 1px solid var(--md-outline-variant);
+  cursor: pointer; background: var(--card); color: var(--muted); transition: all 0.12s;
+}
+.estado-chip:hover { background: var(--md-surface-2); }
+.estado-chip.active[data-estado=pendiente]  { background: var(--amb-bg);  color: var(--amb-text);  border-color: var(--amb-border); }
+.estado-chip.active[data-estado=en_proceso] { background: var(--md-info-container); color: #1e40af; border-color: #bfdbfe; }
+.estado-chip.active[data-estado=listo]      { background: var(--grn-bg); color: var(--grn-text); border-color: var(--grn-border); }
+
+/* ── DÍA SELECTOR ── */
+.dia-selector-bar { background: var(--card); border: none; border-radius: var(--radius); padding: 10px 12px; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; box-shadow: var(--elev-1); }
+.dia-chips { display: flex; gap: 6px; flex: 1; justify-content: center; flex-wrap: wrap; }
+.dia-chip { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; padding: 8px 12px; border: 1px solid var(--md-outline-variant); border-radius: var(--radius); background: var(--card); cursor: pointer; text-align: center; min-width: 60px; transition: all 0.12s; line-height: 1; position:relative; overflow:hidden; }
+.dia-chip:hover { border-color: var(--md-primary); color: var(--md-primary); background: var(--md-surface-2); }
+.dia-chip.active { background: var(--md-primary); color: #fff; border-color: var(--md-primary); box-shadow:var(--elev-1); }
+.dia-chip .dia-nom { font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; display: block; opacity: 0.75; }
+.dia-chip .dia-num { font-size: 22px; display: block; margin: 2px 0; }
+.dia-chip .dia-hoy { font-size: 9px; font-weight: 800; color: var(--amarillo); display: block; }
+.dia-chip.active .dia-nom { opacity: 0.9; }
+.dia-chip.active .dia-hoy { color: var(--amarillo); }
+.dia-chip.fin-semana { opacity: 0.65; }
+.dia-nav { padding: 8px 12px; font-size: 14px; }
+.selecciona-dia-prompt { text-align: center; padding: 56px 20px; color: var(--muted); }
+.selecciona-dia-prompt .sdp-icon { font-size: 48px; margin-bottom: 12px; }
+.selecciona-dia-prompt p { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 600; }
+.drag-handle { cursor: grab; color: var(--muted); font-size: 16px; padding: 0 6px; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
+tr.dragging  { opacity: 0.4; }
+tr.drag-over { border-top: 2px solid var(--md-primary); }
+
+/* ── INPUTS MD (outlined-ish) ── */
+.qty-input {
+  width: 72px; border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm);
+  padding: 7px 8px; font-size: 13px; font-family: 'Roboto', sans-serif;
+  text-align: center; background: var(--card); transition:border-color .15s, box-shadow .15s;
+}
+.qty-input:focus { outline: none; border-color: var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.resp-multi { position:relative; }
+.resp-multi-display { cursor:pointer; border:1px solid var(--border); border-radius:4px; padding:3px 6px 3px 6px; min-height:28px; display:flex; flex-wrap:wrap; gap:3px; align-items:center; background:#fff; font-size:12px; user-select:none; }
+.resp-multi-display:hover { border-color:var(--md-primary); }
+.resp-chip-sm { background:#d1fae5; color:#065f46; font-size:10px; font-weight:700; padding:1px 6px; border-radius:10px; white-space:nowrap; }
+.rm-arrow { margin-left:auto; color:var(--muted); font-size:10px; flex-shrink:0; }
+.resp-dropdown { position:fixed; min-width:160px; background:#fff; border:1px solid var(--border); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); z-index:9999; max-height:180px; overflow-y:auto; }
+.resp-select {
+  min-width: 110px; max-width: 160px; border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm);
+  padding: 7px 8px; font-size: 12px; background: var(--card); font-family: 'Roboto', sans-serif;
+}
+.resp-select:focus { outline: none; border-color: var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+
+/* ── DIALOGS (MD) ── */
+.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(1px); }
+.overlay.open { display: flex; animation: md-scrim .15s ease; }
+@keyframes md-scrim { from { opacity:0; } to { opacity:1; } }
+.modal { background: var(--card); border-radius: var(--radius-xl); box-shadow: var(--elev-4); width: 520px; max-height: 84vh; display: flex; flex-direction: column; overflow: hidden; animation: md-dialog .2s cubic-bezier(.2,0,0,1); }
+@keyframes md-dialog { from { opacity:0; transform:translateY(12px) scale(.98); } to { opacity:1; transform:none; } }
+.modal-header { background: var(--md-primary); color: #fff; padding: 16px 20px; font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; letter-spacing:.3px; display: flex; align-items: center; gap: 10px; }
+.modal-header .close { margin-left: auto; cursor: pointer; font-size: 20px; opacity: 0.85; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; transition:background .15s; }
+.modal-header .close:hover { opacity: 1; background:rgba(255,255,255,.15); }
+.modal-tab { border:none;background:none;padding:10px 20px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap; }
+.modal-tab:hover { color:var(--md-primary); }
+.modal-tab-active { color:var(--md-primary)!important;border-bottom-color:var(--md-primary)!important; }
+.modal-search { padding: 14px 18px; border-bottom: 1px solid var(--md-outline-variant); }
+.modal-search input { width: 100%; border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 14px; font-family: 'Roboto', sans-serif; outline: none; transition:border-color .15s, box-shadow .15s; }
+.modal-search input:focus { border-color: var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.modal-results { flex: 1; overflow-y: auto; }
+.search-result { padding: 12px 18px; border-bottom: 1px solid var(--md-outline-variant); cursor: pointer; display: flex; align-items: center; gap: 10px; transition:background .12s; }
+.search-result:hover { background: rgba(64,89,54,.06); }
+.search-result .prod-name { font-weight: 500; flex: 1; }
+.search-result .prod-rubro { font-size: 11px; color: var(--muted); }
+.search-result .prod-sug { font-size: 12px; color: var(--md-primary); font-weight: 600; }
+
+/* ── RESUMEN LAYOUT ── */
+.resumen-layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
+.granel-panel { display: flex; flex-direction: column; gap: 8px; }
+.granel-row { background: var(--card); border: 1px solid var(--md-outline-variant); border-radius: var(--radius); padding: 12px 14px; }
+.granel-row.warn { border-color: var(--red-border); background: var(--red-bg); }
+.granel-row .g-nombre { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.granel-row .g-stock  { font-size: 12px; color: var(--muted); }
+
+/* ── CALENDARIO ── */
+.cal-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.cal-nav h3 { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; flex: 1; text-align: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.day-card.fuera-mes { opacity: .42; }
+.day-card { background: var(--card); border: none; border-radius: var(--radius); padding: 12px; cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; min-height: 120px; box-shadow: var(--elev-1); }
+.day-card:hover { box-shadow: var(--elev-3); transform: translateY(-2px); }
+.day-card.today { box-shadow: 0 0 0 2px var(--md-primary), var(--elev-1); }
+.day-card .day-head { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 14px; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+.day-card .day-head .day-num { font-size: 22px; color: var(--text); line-height: 1; }
+.day-card .day-stats { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.day-card .day-items { display: flex; flex-direction: column; gap: 3px; }
+.day-item-chip { font-size: 11px; padding: 3px 8px; border-radius: var(--radius-full); background: var(--md-surface-2); border: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.day-item-chip.RED    { background: var(--red-bg); color: var(--red-text); }
+.day-item-chip.YELLOW { background: var(--amb-bg); color: var(--amb-text); }
+.day-item-chip.empty  { color: var(--muted); font-style: italic; background:none; border: 1px dashed var(--md-outline-variant); }
+
+/* ── PLAN FOOTER ── */
+.plan-footer { padding: 14px 16px; border-top: 1px solid var(--md-outline-variant); display: flex; gap: 10px; align-items: center; background: var(--md-surface-1); }
+.plan-footer .spacer { flex: 1; }
+.notas-input { width: 100%; border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13px; font-family: 'Roboto', sans-serif; resize: vertical; background: var(--card); }
+.notas-input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.empty-plan { padding: 48px; text-align: center; color: var(--muted); }
+.empty-plan .big { font-size: 48px; margin-bottom: 8px; }
+.empty-plan p { font-size: 15px; }
+
+/* ── SNACKBAR ── */
+#toast { position: fixed; bottom: 24px; right: 24px; background: #2e3329; color: #eef2e9; padding: 14px 18px; border-radius: var(--radius-sm); font-size: 14px; box-shadow: var(--elev-3); transform: translateY(80px); opacity: 0; transition: all 0.25s cubic-bezier(.2,0,0,1); z-index: 300; max-width: 340px; }
+#toast.show { transform: translateY(0); opacity: 1; }
+#toast.err  { background: #93000a; }
+.loading { text-align: center; padding: 36px; color: var(--muted); font-style: italic; }
+
+/* ── PRES CHIPS ── */
+.pres-chip { display:inline-block; font-size:11px; padding:3px 9px; border-radius:var(--radius-full); font-family:'Barlow Condensed',sans-serif; font-weight:600; }
+.pres-chip.RED    { background:var(--red-bg);  color:var(--red-text);  border:1px solid var(--red-border); }
+.pres-chip.YELLOW { background:var(--amb-bg);  color:var(--amb-text);  border:1px solid var(--amb-border); }
+.pres-chip.GREEN  { background:var(--grn-bg);  color:var(--grn-text);  border:1px solid var(--grn-border); }
+.expand-btn { background:none; border:none; cursor:pointer; color:var(--muted); font-size:11px; padding:2px 4px; }
+.grupo-row:hover { background:rgba(64,89,54,.05) !important; }
+.sort-th { cursor:pointer; user-select:none; white-space:nowrap; }
+.sort-th:hover { background:rgba(64,89,54,.08); color:var(--verde); }
+#tablaSugerencias thead th { position:sticky; top:0; z-index:2; background:var(--md-surface-1); box-shadow:0 1px 0 var(--md-outline-variant); }
+.col-sug { background:rgba(64,89,54,.07); border-left:2px solid rgba(64,89,54,.18); }
+thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde); font-weight:700; }
+.sug-input { width:60px; text-align:right; border:1px solid var(--md-outline-variant); border-radius:var(--radius-sm); padding:6px 8px; font-size:13px; font-family:'Barlow Condensed',sans-serif; font-weight:700; background:var(--card); transition:border-color .15s, box-shadow .15s; }
+.sug-input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.btn-formula { background:none;border:none;cursor:pointer;font-size:13px;padding:0 2px;opacity:.55;vertical-align:middle;line-height:1; }
+.btn-formula:hover { opacity:1; }
+.prio-badge { display:inline-block; min-width:26px; text-align:center; font-family:'Barlow Condensed',sans-serif; font-weight:800; font-size:12px; padding:2px 8px; border-radius:var(--radius-full); background:var(--md-primary-container); color:var(--md-on-primary-container); margin-right:8px; }
+.prio-badge.RED    { background:var(--red-bg); color:var(--red-text); }
+.prio-badge.YELLOW { background:var(--amb-bg); color:var(--amb-text); }
+
+/* ── PLU TABLA (modal editar grupo) ── */
+.plu-tabla { width:100%; border-collapse:collapse; font-size:13px; }
+.plu-tabla thead th { position:sticky; top:0; z-index:2; padding:8px; text-align:left; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.5px; background:var(--md-surface-1); border-bottom:1px solid var(--md-outline-variant); white-space:nowrap; }
+.plu-tabla tbody tr { border-bottom:1px solid var(--md-outline-variant); }
+.plu-tabla tbody tr:hover:not(.pres-group-row) { background:rgba(64,89,54,.05); }
+.plu-tabla td { padding:6px 8px; vertical-align:middle; }
+.pres-group-row td { padding:8px; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:13px; color:var(--md-on-primary-container); background:var(--md-primary-container); border-top:none; }
+.plu-input { border:1px solid var(--md-outline-variant); border-radius:var(--radius-sm); padding:6px 8px; font-size:13px; font-family:'Roboto',sans-serif; background:var(--card); width:100%; transition:border-color .15s, box-shadow .15s; }
+.plu-input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.plu-input-plu { width:76px; text-align:center; }
+.plu-input-pres { width:100px; }
+
+/* ── SWITCH (MD3) ── */
+.toggle-switch { position:relative; display:inline-block; width:52px; height:32px; flex-shrink:0; }
+.toggle-switch input { opacity:0; width:0; height:0; }
+.toggle-slider { position:absolute; inset:0; background:var(--md-surface-variant); border:2px solid var(--md-outline); border-radius:var(--radius-full); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+.toggle-slider:before { content:''; position:absolute; width:16px; height:16px; left:6px; top:6px; background:var(--md-outline); border-radius:50%; transition:transform 0.2s, width 0.2s, height 0.2s, left 0.2s, top 0.2s, background 0.2s; }
+.toggle-switch input:checked + .toggle-slider { background:var(--md-primary); border-color:var(--md-primary); }
+.toggle-switch input:checked + .toggle-slider:before { transform:translateX(20px); width:24px; height:24px; left:2px; top:2px; background:#fff; }
+
+/* ── CATÁLOGO ROWS ── */
+.grupo-cat-row { display:flex; align-items:center; gap:12px; padding:11px 16px; border-bottom:1px solid var(--md-outline-variant); }
+.grupo-cat-row:last-child { border-bottom:none; }
+.grupo-cat-row:hover { background:rgba(64,89,54,.05); }
+.grupo-cat-nombre { flex:1; font-weight:500; font-size:14px; }
+.grupo-cat-nombre.inactivo { color:var(--muted); font-weight:400; }
+.grupo-cat-meta { font-size:12px; color:var(--muted); display:flex; gap:14px; }
+.grupo-cat-meta span { white-space:nowrap; }
+
+/* ── RIPPLE ── */
+.md-ripple { position:absolute; border-radius:50%; background:currentColor; opacity:.25; transform:scale(0); animation:md-ripple .55s ease-out; pointer-events:none; }
+@keyframes md-ripple { to { transform:scale(2.2); opacity:0; } }
+
+@media (max-width: 900px) {
+  .resumen-layout { grid-template-columns: 1fr; }
+  .metrics-row    { grid-template-columns: repeat(2, 1fr); }
+  .cal-grid       { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-bar">
+  <h1>Planificación de Producción</h1>
+  <span class="fecha-hoy" id="fechaHoy"></span>
+  <div class="status-dot" id="statusDot" title="Conexión al servidor"></div>
+</div>
+
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="resumen">Resumen</button>
+  <button class="tab-btn"        data-tab="plan">Plan del día</button>
+  <button class="tab-btn"        data-tab="calendario">Calendario semanal</button>
+  <button class="tab-btn"        data-tab="catalogo">Catálogo</button>
+  <button class="tab-btn"        data-tab="envases">📦 Envases</button>
+</div>
+
+<!-- TAB 1: RESUMEN -->
+<div class="tab-panel active" id="tab-resumen">
+  <div class="filter-bar">
+    <label>Buscar:</label>
+    <input type="text" id="filtroQ" placeholder="producto o rubro…" style="width:200px">
+    <label class="toggle-label">
+      <input type="checkbox" id="filtroSoloRojos"> Solo críticos (Alto)
+    </label>
+    <button class="btn btn-secondary btn-sm" id="btnSortRanking" onclick="setSort('ranking')" title="Ordenar por ranking (facturación + cantidad)">🏆 Ranking</button>
+    <button class="btn btn-secondary btn-sm" id="btnSortUrgencia" onclick="setSort('urgencia')" title="Ordenar por urgencia de stock">🚨 Urgencia</button>
+    <span class="sep"></span>
+    <button class="btn btn-secondary btn-sm" id="btnRecargar">Recargar</button>
+    <label class="btn btn-secondary btn-sm" id="btnImportarCatalogo" title="Actualizar catálogo desde Excel" style="cursor:pointer;margin-left:4px">
+      📥 Actualizar catálogo
+      <input type="file" id="inputCatalogo" accept=".xlsx" style="display:none">
+    </label>
+  </div>
+
+  <div class="metrics-row">
+    <div class="metric-card red"><div class="m-val" id="mRed">—</div><div class="m-lbl">Críticos (Alto)</div></div>
+    <div class="metric-card amb"><div class="m-val" id="mAmb">—</div><div class="m-lbl">Próximos (Medio)</div></div>
+    <div class="metric-card red"><div class="m-val" id="mGranel">—</div><div class="m-lbl">Riesgo materia prima</div></div>
+    <div class="metric-card">    <div class="m-val" id="mPend" style="color:#1e40af">—</div><div class="m-lbl">Ped. mayoristas (7d)</div></div>
+  </div>
+
+  <div class="resumen-layout">
+    <div class="card" id="cardSugerencias">
+      <div class="card-header">
+        Productos que necesitan producción
+        <span class="spacer"></span>
+        <span id="countSugerencias" class="text-sm" style="opacity:0.8"></span>
+      </div>
+      <div id="tablaSugerencias"><div class="loading">Cargando datos desde Siga…</div></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="card-header">Envases</div>
+        <div id="panelEnvases" style="max-height:600px;overflow-y:auto"><div class="loading">Cargando…</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 2: PLAN DÍA -->
+<div class="tab-panel" id="tab-plan">
+
+  <!-- Selector de día -->
+  <div class="dia-selector-bar">
+    <button class="btn btn-secondary btn-sm dia-nav" id="btnSemPlanAnt" title="Semana anterior">◀</button>
+    <div class="dia-chips" id="diaChips"></div>
+    <button class="btn btn-secondary btn-sm dia-nav" id="btnSemPlanSig" title="Semana siguiente">▶</button>
+  </div>
+
+  <!-- Acciones -->
+  <div class="filter-bar">
+    <button class="btn btn-secondary btn-sm" id="btnAgregarProducto" disabled>+ Agregar producto</button>
+    <button class="btn btn-secondary btn-sm" id="btnGestionResp">Responsables</button>
+    <button class="btn btn-danger btn-sm"    id="btnBorrarPlan"    disabled>🗑 Borrar todo</button>
+    <button class="btn btn-secondary btn-sm" id="btnResumenMP"     disabled title="Ver resumen de materia prima del plan">📦 Resumen MP</button>
+    <button class="btn btn-secondary btn-sm" id="btnMoverTodoDia" disabled title="Mover todo el día a otra fecha">📅 Mover día</button>
+    <button class="btn btn-enviar"           id="btnEnviarProd"    disabled title="Enviar plan a Producción del Día">📤 Enviar a Producción</button>
+  </div>
+
+  <div class="card" id="cardPlan">
+    <div class="card-header">
+      <span id="tituloPlan" style="flex:1">Seleccioná un día</span>
+      <span id="resumePlan" class="text-sm" style="opacity:0.8"></span>
+    </div>
+    <div id="tablaPlan">
+      <div class="selecciona-dia-prompt">
+        <div class="sdp-icon">📅</div>
+        <p>Tocá un día arriba para ver o cargar el plan</p>
+      </div>
+    </div>
+    <div class="plan-footer" id="planFooter" style="display:none">
+      <textarea class="notas-input" id="notasPlan" rows="1" placeholder="Notas del día…" style="max-width:400px"></textarea>
+      <span class="spacer"></span>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: ENVASES -->
+<div class="tab-panel" id="tab-envases">
+  <div class="filter-bar">
+    <label>Código de sistema:</label>
+    <input type="text" id="envCodigo" placeholder="IdProducto…" style="width:150px">
+    <input type="text" id="envNombre" placeholder="Nombre (autocompleta)…" readonly style="width:260px;background:var(--bg)">
+    <span class="text-sm" id="envStock" style="min-width:90px">Stock: —</span>
+    <button class="btn btn-primary btn-sm" id="btnEnvAgregar" disabled>Agregar envase</button>
+    <span class="text-sm" id="envMsg" style="color:var(--muted)"></span>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      Envases cargados
+      <span class="spacer"></span>
+      <button class="btn btn-secondary btn-sm" id="btnEnvRefrescar" title="Actualizar stock desde Siga">↻ Refrescar stock</button>
+    </div>
+    <div id="tablaEnvasesReg"><div class="loading">Cargando…</div></div>
+  </div>
+</div>
+
+<!-- TAB 3: CALENDARIO -->
+<div class="tab-panel" id="tab-calendario">
+  <div class="cal-nav">
+    <button class="btn btn-secondary btn-sm" id="btnSemAnt">◀ Anterior</button>
+    <h3 id="tituloSemana"></h3>
+    <button class="btn btn-secondary btn-sm" id="btnSemSig">Siguiente ▶</button>
+  </div>
+  <div class="cal-grid" id="calGrid"><div class="loading">Cargando calendario…</div></div>
+</div>
+
+<!-- MODAL BUSCAR PRODUCTO -->
+<div class="overlay" id="overlayBuscar">
+  <div class="modal">
+    <div class="modal-header">
+      Agregar producto al plan
+      <span class="close" id="cerrarBuscar">✕</span>
+    </div>
+    <div class="modal-search">
+      <input type="text" id="inputBuscar" placeholder="Escribí para buscar…">
+    </div>
+    <div class="modal-results" id="resultadosBuscar"></div>
+  </div>
+</div>
+
+<!-- MODAL GRANEL (cantidad manual) -->
+<div class="overlay" id="overlayGranel">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <span id="granelModalTitulo">Agregar producción</span>
+      <span class="close" id="cerrarGranel">✕</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="background:var(--bg);border-radius:6px;padding:12px;font-size:13px">
+        <div style="color:var(--muted);font-size:11px;margin-bottom:4px">REFERENCIA (últimos 30 días)</div>
+        <div id="granelRefInfo" style="display:flex;gap:16px"></div>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Cantidad a producir</label>
+        <input type="number" id="granelCantidad" min="0" step="0.1"
+          style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:16px;font-family:'Barlow Condensed',sans-serif;font-weight:600"
+          placeholder="0">
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Unidad</label>
+        <select id="granelUnidad" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px;font-family:'Barlow',sans-serif">
+          <option value="Kg">Kg</option>
+          <option value="unidades">unidades</option>
+          <option value="bolsas">bolsas</option>
+          <option value="bandejas">bandejas</option>
+        </select>
+      </div>
+      <div id="granelBOM" style="display:none;background:var(--bg);border-radius:6px;padding:12px">
+        <div style="color:var(--muted);font-size:11px;margin-bottom:8px;font-weight:700;letter-spacing:.5px">MATERIA PRIMA NECESARIA</div>
+        <div id="granelBOMBody" style="max-height:220px;overflow-y:auto;padding-right:4px"></div>
+      </div>
+      <button class="btn btn-primary" id="btnConfirmarGranel" style="width:100%;padding:10px;font-size:15px">
+        Agregar al plan
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE DE STOCK -->
+<div class="overlay" id="overlayStockDet">
+  <div class="modal" style="width:min(880px,94vw)">
+    <div class="modal-header">
+      <span>📊 Detalle de stock — <span id="stockDetTitulo"></span></span>
+      <span class="close" onclick="document.getElementById('overlayStockDet').classList.remove('open')">✕</span>
+    </div>
+    <div style="padding:18px 20px;overflow:auto" id="stockDetBody">
+      <div class="loading">Cargando…</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RESPONSABLES -->
+<div class="overlay" id="overlayResp">
+  <div class="modal">
+    <div class="modal-header">
+      Gestionar responsables
+      <span class="close" id="cerrarResp">✕</span>
+    </div>
+    <div style="padding:16px">
+      <div id="listaResp" style="margin-bottom:12px;display:flex;flex-direction:column;gap:6px"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="nuevoResp" placeholder="Nombre del responsable"
+          style="flex:1;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:13px;font-family:'Barlow',sans-serif">
+        <input type="text" id="nuevoRespCorto" placeholder="Abrev." maxlength="12"
+          style="width:90px;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:13px;font-family:'Barlow',sans-serif">
+        <button class="btn btn-primary btn-sm" id="btnAgregarResp">Agregar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMACIÓN GENÉRICO -->
+<div class="overlay" id="overlayConfirm" style="z-index:400">
+  <div class="modal" style="width:440px">
+    <div class="modal-header" id="confirmHeader">
+      <span id="confirmTitulo">Confirmar</span>
+      <span class="close" id="cerrarConfirm">✕</span>
+    </div>
+    <div style="padding:20px 18px;font-size:14px;line-height:1.5" id="confirmMsg"></div>
+    <div style="padding:0 18px 16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" id="btnConfirmCancel">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmOk">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DÍA PICKER -->
+<div class="overlay" id="overlayDiaPicker">
+  <div class="modal" style="width:460px">
+    <div class="modal-header">
+      <span id="diaPicTitulo">¿Para qué día?</span>
+      <span class="close" id="cerrarDiaPicker">✕</span>
+    </div>
+    <div style="padding:16px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-secondary btn-sm dia-nav" id="btnDiaPicAnt">◀</button>
+        <div class="dia-chips" id="diaPickerChips" style="flex:1"></div>
+        <button class="btn btn-secondary btn-sm dia-nav" id="btnDiaPicSig">▶</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NÚMERO DE TAMBOR (solo mieles) -->
+<div class="overlay" id="overlayTambor">
+  <div class="modal" style="width:380px">
+    <div class="modal-header">
+      <span>🛢 Número de tambor</span>
+      <span class="close" id="cerrarTambor">✕</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:13px;color:var(--muted)">
+        ¿De qué tambor sale esta miel? <strong id="tamborSub" style="color:var(--text)"></strong>
+      </div>
+      <input type="text" id="inputTambor" inputmode="numeric" autocomplete="off" placeholder="Ej: 12"
+        style="width:100%;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:20px;font-family:'Barlow Condensed',sans-serif;font-weight:700;text-align:center">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" id="btnTamborOmitir" style="flex:1">Omitir</button>
+        <button class="btn btn-primary" id="btnTamborOk" style="flex:2">Agregar al plan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ¿VARIEDAD DE MIEL? (al crear grupo general con "miel" en el nombre) -->
+<div class="overlay" id="overlaySeccionMiel" style="z-index:500">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <span>🍯 ¿Variedad de miel?</span>
+      <span class="close" id="cerrarSeccionMiel">✕</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:13px;color:var(--muted)">
+        El grupo <strong id="smNombre" style="color:var(--text)"></strong> tiene "miel" en el nombre.
+        ¿Llevarlo a la sección <strong>Variedades de Miel</strong>? (habilita la carga de tambor)
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" id="btnSmNo" style="flex:1">No, dejar en Otros</button>
+        <button class="btn btn-primary" id="btnSmSi" style="flex:1">Sí, a Mieles</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ENVIAR A PRODUCCIÓN -->
+<div class="overlay" id="overlayEnviar">
+  <div class="modal" style="width:600px;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header" style="background:#1e40af">
+      📤 Enviar a Producción del Día
+      <span class="close" id="cerrarEnviar">✕</span>
+    </div>
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:#eff6ff;font-size:13px;color:#1e40af;flex-shrink:0">
+      Se crearán estas órdenes en <strong>Producción del Día</strong>. Las órdenes quedan en estado <strong>Pendiente</strong>.
+    </div>
+    <!-- tabs -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);flex-shrink:0;background:#f9fafb">
+      <button id="eTabBtnOrdenes" onclick="eTabSwitch('ordenes')"
+        style="padding:8px 18px;font-size:13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;border:none;cursor:pointer;border-bottom:2px solid #1e40af;background:transparent;color:#1e40af;margin-bottom:-2px">
+        Órdenes
+      </button>
+      <button id="eTabBtnMP" onclick="eTabSwitch('mp')"
+        style="padding:8px 18px;font-size:13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;border:none;cursor:pointer;border-bottom:2px solid transparent;background:transparent;color:var(--muted);margin-bottom:-2px">
+        📦 Materia Prima
+      </button>
+    </div>
+    <div id="enviarLista" style="flex:1;overflow-y:auto;max-height:55vh;padding:12px 16px;display:flex;flex-direction:column;gap:8px"></div>
+    <div id="enviarMP" style="flex:1;overflow-y:auto;max-height:55vh;padding:12px 16px;display:none">
+      <div id="enviarMPBody"><div style="color:var(--muted);font-size:13px">Calculando…</div></div>
+    </div>
+    <div style="padding:14px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-shrink:0">
+      <span id="enviarCount" style="font-size:12px;color:var(--muted);flex:1"></span>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('overlayEnviar').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-enviar" id="btnConfirmarEnviar">✓ Confirmar y enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR GRUPO -->
+<div class="overlay" id="overlayEditarGrupo">
+  <div class="modal" style="width:760px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <span id="editarGrupoTitulo" style="flex:1"></span>
+      <input type="text" id="inputNombreGrupo" placeholder="Nombre del grupo (ej: Miel pradera)…"
+        style="flex:1;display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.5);border-radius:4px;padding:4px 10px;font-size:15px;font-weight:700;font-family:'Barlow Condensed',sans-serif;color:#fff;outline:none">
+      <span class="close" id="cerrarEditarGrupo">✕</span>
+    </div>
+    <!-- Tab strip -->
+    <div style="display:flex;border-bottom:2px solid var(--border);background:#f9fafb;flex-shrink:0">
+      <button class="modal-tab modal-tab-active" id="mTabPres" onclick="setModalTab('pres')">📦 Presentaciones</button>
+      <button class="modal-tab" id="mTabMP" onclick="setModalTab('mp')">🧪 MP Granel</button>
+      <button class="modal-tab" id="mTabFormulas" onclick="setModalTab('formulas')">📋 Fórmulas</button>
+    </div>
+    <!-- Tab: Presentaciones -->
+    <div id="mPanelPres" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden">
+      <div style="padding:8px 16px;border-bottom:1px solid var(--border);background:#f9fafb;display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--muted)" id="editarGrupoMeta"></span>
+        <span style="flex:1"></span>
+        <input type="text" id="inputNuevaPres" placeholder="Nueva presentación (ej: 500G)"
+          style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;width:180px;font-family:'Barlow',sans-serif">
+        <button class="btn btn-secondary btn-sm" id="btnAgregarPresentacion">+ Presentación</button>
+        <button class="btn btn-secondary btn-sm" id="btnToggleBuscarSiga" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe">🔍 Buscar en Siga</button>
+      </div>
+      <div id="panelBuscarSiga" style="display:none;flex-shrink:0;border-bottom:1px solid var(--border);background:#f8fbff">
+        <div style="display:flex;gap:8px;align-items:center;padding:8px 16px">
+          <input type="text" id="inputBuscarSiga" placeholder="Nombre o PLU del producto en Siga…"
+            style="flex:1;border:1px solid #bfdbfe;border-radius:4px;padding:5px 10px;font-size:13px;font-family:'Barlow',sans-serif;outline:none">
+          <select id="selectPresBuscar"
+            style="border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-size:12px;font-family:'Barlow',sans-serif;max-width:140px">
+            <option value="">Auto-detectar</option>
+          </select>
+          <span style="font-size:11px;color:var(--muted)">Presentación</span>
+        </div>
+        <div id="resultadosBuscarSiga" style="max-height:180px;overflow-y:auto;border-top:1px solid #e0eaff"></div>
+      </div>
+      <div id="editarGrupoBody" style="overflow:auto;flex:1;min-height:0"></div>
+      <div id="panelGranelMP" style="padding:10px 16px;border-top:2px solid var(--amb-border);background:#fffbf0;flex-shrink:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--amb-text);white-space:nowrap">🛢 Granel (MP)</span>
+        <input type="text" id="inputGranelPlu" inputmode="numeric" placeholder="PLU del granel…"
+          style="width:110px;border:1px solid var(--amb-border);border-radius:6px;padding:5px 9px;font-size:14px;font-family:'Barlow Condensed',sans-serif;font-weight:700;text-align:center;background:#fff"
+          oninput="onGranelPluInput()">
+        <span id="granelNombreDisplay" style="font-size:12px;color:var(--muted);flex:1;font-style:italic">Sin granel asignado</span>
+        <button class="btn btn-secondary btn-sm" id="btnBuscarGranelPlu" style="background:#fffbeb;color:var(--amb-text);border:1px solid var(--amb-border)">🔍 Buscar en Siga</button>
+        <button class="btn btn-secondary btn-sm" id="btnLimpiarGranelPlu" style="color:var(--red-text)">✕ Quitar</button>
+        <div id="resultadosGranelPlu" style="width:100%;max-height:140px;overflow-y:auto;display:none;border:1px solid var(--amb-border);border-radius:6px;background:#fff;margin-top:2px"></div>
+      </div>
+    </div>
+    <!-- Tab: Materia Prima -->
+    <div id="mPanelMP" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;background:#f7faf6">
+      <div style="padding:12px 16px;flex:1;overflow-y:auto;min-height:0">
+        <div id="mpBody" style="margin-bottom:12px"></div>
+        <div style="border-top:1px solid #c8dfc4;padding-top:10px">
+          <div style="font-size:12px;font-weight:600;color:#2d6a4f;margin-bottom:6px">Agregar componente manual:</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="mpInputBuscar" placeholder="Nombre o PLU del componente…"
+              style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;font-family:'Barlow',sans-serif"
+              onfocus="if(!this.value)mpBuscarComp()"
+              onkeydown="if(event.key==='Enter')mpBuscarComp()">
+            <input type="number" id="mpInputCant" placeholder="Cant/KG" min="0.001" step="0.001"
+              style="width:80px;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px">
+            <button class="btn btn-secondary btn-sm" onclick="mpBuscarComp()">🔍 Buscar</button>
+            <button class="btn btn-primary btn-sm" onclick="mpAgregarComp()">+ Agregar</button>
+          </div>
+          <div id="mpResultados" style="max-height:130px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#fff;display:none;margin-top:6px"></div>
+        </div>
+      </div>
+      <div style="padding:6px 16px;border-top:1px solid #c8dfc4;font-size:11px;color:var(--muted);flex-shrink:0;background:#eaf2e7">
+        <span id="mpBadge"></span>
+      </div>
+    </div>
+    <!-- Tab: Fórmulas por presentación -->
+    <div id="mPanelFormulas" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;background:#f7faf6">
+      <div style="padding:10px 16px;border-bottom:1px solid #c8dfc4;flex-shrink:0">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:700;letter-spacing:.5px">PRESENTACIÓN</div>
+        <select id="formulaPresSelect"
+          style="width:100%;border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:13px;font-family:'Barlow Condensed',sans-serif;background:#fff"
+          onchange="formulaSelectPres(this.value)">
+          <option value="">— seleccioná —</option>
+        </select>
+      </div>
+      <div style="padding:12px 16px;flex:1;overflow-y:auto;min-height:0">
+        <div id="formulaBody" style="margin-bottom:12px"></div>
+        <div id="formulaAddForm" style="display:none;border-top:1px solid #c8dfc4;padding-top:10px">
+          <div style="font-size:12px;font-weight:600;color:#2d6a4f;margin-bottom:6px">Agregar componente:</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="formulaInputBuscar" placeholder="Nombre o PLU…"
+              style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;font-family:'Barlow',sans-serif"
+              onfocus="if(!this.value)formulaBuscarComp()"
+              onkeydown="if(event.key==='Enter')formulaBuscarComp()">
+            <input type="number" id="formulaInputCant" placeholder="Cant/unidad" min="0.0001" step="0.0001"
+              style="width:90px;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px">
+            <button class="btn btn-secondary btn-sm" onclick="formulaBuscarComp()">🔍</button>
+            <button class="btn btn-primary btn-sm" onclick="formulaAgregarComp()">+ Agregar</button>
+          </div>
+          <div id="formulaResultados" style="max-height:130px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#fff;display:none;margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+      <button class="btn btn-secondary" id="btnCancelarGrupo">Cancelar</button>
+      <button class="btn btn-primary" id="btnGuardarGrupo">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RESUMEN MP (+ Todo) -->
+<div class="overlay" id="overlayMPResumen">
+  <div class="modal" style="width:520px;max-height:82vh;display:flex;flex-direction:column">
+    <div class="modal-header" style="background:var(--md-primary)">
+      <span id="mpResumenTitulo">Materia Prima requerida</span>
+      <span class="close" id="cerrarMPResumen">✕</span>
+    </div>
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border);background:#f0fdf4;font-size:12px;color:#166534;flex-shrink:0">
+      Materiales necesarios para producir las cantidades indicadas.
+    </div>
+    <div id="mpResumenBody" style="flex:1;overflow-y:auto;max-height:52vh;padding:12px 16px">
+      <div style="color:var(--muted);font-size:13px">Calculando…</div>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+      <button class="btn btn-secondary btn-sm" id="btnMPResumenCancelar">Cancelar</button>
+      <button class="btn btn-primary" id="btnMPResumenContinuar">Continuar →</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VER FÓRMULA (planificación) -->
+<div class="overlay" id="overlayFormulaView">
+  <div class="modal" style="width:440px">
+    <div class="modal-header">
+      <span id="fvTitulo">Fórmula</span>
+      <span class="close" id="cerrarFormulaView">✕</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="background:var(--bg);border-radius:6px;padding:10px 12px;font-size:13px">
+        <span id="fvCantInfo" style="color:var(--muted)"></span>
+      </div>
+      <div id="fvBOM" style="max-height:280px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 4: CATÁLOGO -->
+<div class="tab-panel" id="tab-catalogo">
+  <div class="filter-bar">
+    <label>Buscar grupo:</label>
+    <input type="text" id="filtroCatalogo" placeholder="nombre…" style="width:200px">
+    <span class="sep"></span>
+    <label class="btn btn-secondary btn-sm" id="btnImportarCatalogoTab" title="Actualizar catálogo desde Excel" style="cursor:pointer">
+      📥 Actualizar catálogo
+      <input type="file" id="inputCatalogoTab" accept=".xlsx" style="display:none">
+    </label>
+    <button class="btn btn-secondary btn-sm" id="btnRecargarCatalogo">Recargar</button>
+    <button class="btn btn-primary btn-sm" id="btnNuevoGrupo">➕ Nuevo grupo</button>
+  </div>
+
+  <div class="metrics-row" style="grid-template-columns:repeat(3,1fr)">
+    <div class="metric-card"><div class="m-val" id="cTotalGrupos">—</div><div class="m-lbl">Grupos totales</div></div>
+    <div class="metric-card"><div class="m-val" id="cActivosGrupos" style="color:var(--verde)">—</div><div class="m-lbl">Grupos activos</div></div>
+    <div class="metric-card"><div class="m-val" id="cTotalPlu">—</div><div class="m-lbl">PLUs en catálogo</div></div>
+  </div>
+
+  <!-- Mieles -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      Variedades de Miel
+      <span class="spacer"></span>
+      <button class="btn btn-primary btn-sm" id="btnNuevaVariedadMiel" style="font-size:11px">+ Agregar variedad</button>
+      <button class="btn btn-secondary btn-sm" id="btnActivarTodasMieles" style="font-size:11px;margin-left:4px">Activar todas</button>
+      <button class="btn btn-secondary btn-sm" id="btnDesactivarTodasMieles" style="font-size:11px;margin-left:4px">Desactivar todas</button>
+    </div>
+    <div id="tablaMieles"></div>
+  </div>
+
+  <!-- Resto de grupos -->
+  <div class="card">
+    <div class="card-header">
+      Otros grupos
+      <span class="spacer"></span>
+      <button class="btn btn-secondary btn-sm" id="btnActivarTodos" style="font-size:11px">Activar todos</button>
+      <button class="btn btn-secondary btn-sm" id="btnDesactivarTodos" style="font-size:11px;margin-left:4px">Desactivar todos</button>
+    </div>
+    <div id="tablaOtros"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+const SERVER_URL = location.protocol === 'file:'
+  ? 'http://dev.local:8081'
+  : '';
+
+const HOY = new Date().toISOString().slice(0, 10);
+document.getElementById('fechaHoy').textContent = formatFecha(HOY);
+
+let sugerenciasCache = [];
+let responsablesCache = [];
+// Un responsable puede ser string (legado) u objeto {nombre, corto}. Mostrar SOLO el nombre.
+const respNombre = r => (typeof r === 'string' ? r : (r && r.nombre) || '');
+const respCorto  = r => (typeof r === 'string' ? '' : (r && (r.corto || r.abrev)) || '');
+let planCache = null;
+let fechaPlanActual = null;
+let semPlanBase       = lunesDeEstaFecha(HOY);
+let semCalendarioBase = lunesDeEstaFecha(HOY);
+let calMesActual = HOY.slice(0, 7); // YYYY-MM del mes mostrado en el calendario
+let dragSrcRow = null;
+let buscarDebounce = null;
+let buscarProdDebounce = null;
+let notasDebounce = null;
+const SEM_LABEL = { GREEN: 'Bajo', YELLOW: 'Medio', RED: 'Alto', URGENT: 'Urgente' };
+function semLabel(s){ return SEM_LABEL[s] || s || ''; }
+
+// ── API ─────────────────────────────────────────────────────────
+async function api(method, ruta, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(SERVER_URL + ruta, opts);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status}: ${txt}`);
+  }
+  return res.json();
+}
+
+// ── Toast ────────────────────────────────────────────────────────
+function toast(msg, isErr) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ''; }, 3200);
+}
+
+// ── Helpers fecha ────────────────────────────────────────────────
+function formatFecha(iso) {
+  const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const d    = new Date(iso + 'T00:00:00');
+  const [, m, dd] = iso.split('-');
+  return `${dias[d.getDay()]} ${dd}/${m}`;
+}
+function lunesDeEstaFecha(iso) {
+  const d   = new Date(iso + 'T00:00:00');
+  const dow = d.getDay();
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return d.toISOString().slice(0, 10);
+}
+function addDias(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'plan')       { renderDiaSelector(); cargarEnvasesReg(); if (fechaPlanActual) cargarPlan(fechaPlanActual); }
+    if (btn.dataset.tab === 'calendario') cargarCalendario(calMesActual + '-01');
+    if (btn.dataset.tab === 'catalogo')   cargarCatalogo();
+    if (btn.dataset.tab === 'envases')    cargarEnvasesReg();
+  });
+});
+
+// ── Conexión ─────────────────────────────────────────────────────
+async function checkConnection() {
+  try {
+    await api('GET', '/api/health');
+    document.getElementById('statusDot').className = 'status-dot ok';
+  } catch {
+    document.getElementById('statusDot').className = 'status-dot err';
+  }
+}
+
+// ══════════════════ TAB 1: RESUMEN ══════════════════════════════
+
+let gruposCache = [];
+let gruposSorted = [];
+let sortCol = 'urgencia', sortDir = -1; // -1=desc
+function sortGrupos(lista) {
+  const SEMORD = { URGENT:4, RED:3, YELLOW:2, GREEN:1 };
+  return [...lista].sort((a,b) => {
+    let va, vb;
+    if (sortCol==='semaforo') { va=SEMORD[a.semaforo]||0; vb=SEMORD[b.semaforo]||0; }
+    else if (sortCol==='nombre') { va=a.productoRef.toLowerCase(); vb=b.productoRef.toLowerCase(); return va<vb?-sortDir:va>vb?sortDir:0; }
+    else if (sortCol==='sugerido') { va=a.totalSugerido||0; vb=b.totalSugerido||0; }
+    else if (sortCol==='stock') { va=a.granelStockGrupo||0; vb=b.granelStockGrupo||0; }
+    else if (sortCol==='prom') { va=a.totalPromMes||(a.presentaciones||[]).reduce((s,p)=>s+(p.promDiario||0),0)*30||0; vb=b.totalPromMes||(b.presentaciones||[]).reduce((s,p)=>s+(p.promDiario||0),0)*30||0; }
+    else if (sortCol==='dias') {
+      va = a.esGranel ? 9999 : Math.min(...((a.presentaciones||[]).length ? (a.presentaciones||[]).map(p=>p.diasStock||9999) : [9999]));
+      vb = b.esGranel ? 9999 : Math.min(...((b.presentaciones||[]).length ? (b.presentaciones||[]).map(p=>p.diasStock||9999) : [9999]));
+    } else if (sortCol==='ranking') { va=a.rankingScore||0; vb=b.rankingScore||0; }
+    else { va=a.urgencia||0; vb=b.urgencia||0; }
+    return (vb-va)*sortDir;
+  });
+}
+function setSort(col) {
+  if (sortCol===col) sortDir*=-1; else { sortCol=col; sortDir=(col==='nombre'?1:-1); }
+  renderGrupos();
+}
+function sortArrow(col) { return sortCol===col?(sortDir<0?' ▼':' ▲'):' ⇅'; }
+function rankBadge(pos, fact) {
+  if (!pos) return '';
+  const medals = {1:'🥇',2:'🥈',3:'🥉'};
+  const factK = fact ? ` $${Math.round(fact/1000)}k` : '';
+  if (medals[pos]) return `<span title="Ranking #${pos} por facturación+cantidad${factK}" style="margin-right:4px;font-size:14px">${medals[pos]}</span>`;
+  if (pos <= 10) return `<span title="Ranking #${pos} por facturación+cantidad${factK}" style="margin-right:4px;font-size:11px;font-weight:700;color:var(--muted);background:#f1f5f9;border-radius:4px;padding:1px 5px">#${pos}</span>`;
+  return `<span title="Ranking #${pos}${factK}" style="margin-right:4px;font-size:10px;color:var(--muted)">#${pos}</span>`;
+}
+
+async function cargarSugerencias() {
+  const q       = document.getElementById('filtroQ').value.trim();
+  const soloRed = document.getElementById('filtroSoloRojos').checked ? '1' : '0';
+  let url       = `/api/plan/sugerencias-grupos?soloRojos=${soloRed}`;
+  if (q) url   += `&q=${encodeURIComponent(q)}`;
+  document.getElementById('tablaSugerencias').innerHTML = '<div class="loading">Calculando sugerencias…</div>';
+  try {
+    gruposCache = await api('GET', url);
+    renderGrupos();
+  } catch (e) {
+    document.getElementById('tablaSugerencias').innerHTML =
+      `<div class="loading" style="color:red">Error: ${escHtml(e.message)}</div>`;
+    toast('Error al cargar sugerencias', true);
+  }
+  try { cargarEnvases(); } catch {}
+}
+
+function renderGrupos() {
+  const grupos  = gruposCache;
+  const allPres = grupos.flatMap(g => g.presentaciones);
+  document.getElementById('mRed').textContent    = grupos.filter(g => g.semaforo === 'RED').length;
+  document.getElementById('mAmb').textContent    = grupos.filter(g => g.semaforo === 'YELLOW').length;
+  document.getElementById('mGranel').textContent = allPres.filter(p => !p.granelOk).length;
+  document.getElementById('mPend').textContent   = Math.round(allPres.reduce((s,p)=>s+(p.pendientes||0),0));
+  const conSugerido = grupos.filter(g => g.totalSugerido > 0).length;
+  document.getElementById('countSugerencias').textContent = conSugerido + ' grupos para producir';
+
+  if (!grupos.length) {
+    document.getElementById('tablaSugerencias').innerHTML = '<div class="loading">Sin grupos que requieran producción.</div>';
+    return;
+  }
+
+  const grupos_sorted = sortGrupos(grupos);
+  gruposSorted = grupos_sorted;
+  const rows = grupos_sorted.map((g, gi) => {
+    // ── MODO GRANEL: fila única, cantidad manual ─────────────────────────────
+    if (g.esGranel) {
+      return `<tr class="grupo-row granel-row">
+        <td style="width:28px;text-align:center"><span style="color:var(--muted);font-size:12px">⚙</span></td>
+        <td><span class="badge ${g.semaforo}">${semLabel(g.semaforo)}</span></td>
+        <td class="nombre-col font-bold">
+          ${rankBadge(g.rankingPos, g.facturacionMensual)}${escHtml(g.productoRef)}
+          <span style="display:inline-block;font-size:10px;font-weight:700;font-family:'Barlow Condensed',sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
+        </td>
+        <td class="text-right text-sm">${g.totalPend>0?g.totalPend:'—'}</td>
+        <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
+        <td class="text-right text-sm" style="color:var(--muted)">—</td>
+        <td class="text-right text-sm" style="color:var(--muted)">${g.stockSucGrupo>0?g.stockSucGrupo:'—'}</td>
+        <td class="text-right">${g.granelStockGrupo !== null ? `<span class="${g.granelStockGrupo > 0 ? 'granel-ok' : 'granel-warn'}" title="${escHtml(g.nombreGranelGrupo)}">${g.granelStockGrupo}</span>` : '—'}</td>
+        <td style="white-space:nowrap"><button class="btn-add btn-sm" title="Ver detalle de stock" onclick="event.stopPropagation();abrirStockDetalle(${gi})">📊</button> <button class="btn-add" onclick="abrirModalGranel(${gi})">+ Agregar</button></td>
+      </tr>`;
+    }
+
+    // ── MODO FRACCIONADO: expandible por presentación ────────────────────────
+    const granelWarn = g.presentaciones.some(p => !p.granelOk);
+    const resumen    = g.presentaciones.filter(p => p.cantSugerida > 0)
+      .map(p => `<span class="pres-chip ${p.semaforo}">${escHtml(p.presentacion)}: <strong>${p.cantSugerida}</strong></span>`).join(' ');
+
+    const _pend = (g.presentaciones||[]).reduce((s,p)=>s+(p.pendientes||0),0);
+    const _stockGrupo = Math.round((g.presentaciones||[]).reduce((s,p)=>s+(p.stockActual||0),0)*100)/100;
+    const _stockSucGrupo = Math.round((g.presentaciones||[]).reduce((s,p)=>s+(p.stockSucursales||0),0)*100)/100;
+    const grupoRow = `<tr class="grupo-row" data-gi="${gi}" style="cursor:pointer" onclick="toggleGrupo(${gi})">
+      <td style="width:28px;text-align:center"><span class="expand-btn" id="ebtn-${gi}">▶</span></td>
+      <td><span class="badge ${g.semaforo}">${semLabel(g.semaforo)}</span></td>
+      <td class="nombre-col font-bold">${rankBadge(g.rankingPos, g.facturacionMensual)}${escHtml(g.productoRef)}</td>
+      <td class="text-right text-sm">${_pend||'—'}</td>
+      <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
+      <td class="text-right text-sm" title="Cuenta al 60% en el sugerido: ${Math.round(_stockGrupo*0.6*100)/100}">${_stockGrupo>0?_stockGrupo:'—'}</td>
+      <td class="text-right text-sm" style="color:var(--muted)">${_stockSucGrupo>0?_stockSucGrupo:'—'}</td>
+      <td class="text-right">${g.granelStockGrupo !== null ? `<span class="${g.granelStockGrupo > 0 ? 'granel-ok' : 'granel-warn'}" title="${escHtml(g.nombreGranelGrupo)}">${g.granelStockGrupo}</span>` : '—'}</td>
+      <td onclick="event.stopPropagation()" style="white-space:nowrap">
+        <button class="btn-add btn-sm" title="Ver detalle de stock" onclick="abrirStockDetalle(${gi})">📊</button>
+        <button class="btn-add" onclick="agregarGrupoAlPlan(${gi})">+ Todo</button>
+      </td>
+    </tr>`;
+
+    const headerRow = `<tr class="sub-${gi} sub-header" style="display:none;background:#dde8d8">
+      <td></td><td></td>
+      <td style="padding-left:28px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.4px">PRESENTACIÓN</td>
+      <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">PED.MAY.</td>
+      <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">SUGERIDO</td>
+      <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK</td>
+      <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK SUC</td>
+      <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">GRANEL</td>
+      <td></td>
+    </tr>`;
+
+    const subRows = g.presentaciones.map((p, pi) => {
+      const granelH = p.nombreGranel?`<span class="${p.granelOk?'granel-ok':'granel-warn'}" title="${escHtml(p.nombreGranel.replace(/ DEPOSITO GRANEL.*/i,'').trim())}">${p.granelOk?'✓':'⚠'}</span>`:'';
+      const _pProm = p.promMes ?? Math.round((p.promDiario||0)*30*10)/10;
+      const _dias = p.diasStock>=9999?'∞':(p.diasStock+'d');
+      return `<tr class="sub-${gi}" style="display:none;background:#f7faf6">
+        <td></td>
+        <td><span class="badge ${p.semaforo}" style="font-size:10px">${semLabel(p.semaforo)}</span></td>
+        <td class="nombre-col" style="padding-left:28px;font-size:13px">
+          ${escHtml(p.presentacion)}
+          <div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">cob: ${_dias}${_pProm?` · prom: ${_pProm}/mes`:''}</div>
+        </td>
+        <td class="text-right">${p.pendientes>0?p.pendientes:'—'}</td>
+        <td class="text-right col-sug" style="white-space:nowrap"><input class="sug-input" id="sug-${gi}-${pi}" type="number" min="0" step="1" value="${p.cantSugerida||0}" title="Sugerido por el sistema: ${p.cantSugerida}"><button class="btn-formula" onclick="event.stopPropagation();abrirFormulaView('${p.plu}','${escHtml(p.baseNombre).replace(/'/g,"\\'")}',parseFloat(document.getElementById('sug-${gi}-${pi}').value)||0)" title="Ver fórmula">📋</button></td>
+        <td class="text-right" title="Cuenta al 60% en el sugerido: ${p.stockEfectivo ?? Math.round((p.stockActual||0)*0.6*100)/100}">${p.stockActual||0}</td>
+        <td class="text-right" style="color:var(--muted)">${p.stockSucursales||0}</td>
+        <td class="text-center">${granelH}</td>
+        <td onclick="event.stopPropagation()">
+          <button class="btn-add btn-sm" onclick="agregarPresAlPlan(${gi},${pi})">+</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    return grupoRow + headerRow + subRows;
+  }).join('');
+
+  document.getElementById('tablaSugerencias').innerHTML = `
+    <div style="overflow-x:auto"><table>
+      <thead><tr>
+        <th style="width:28px"></th>
+        <th class="sort-th" onclick="setSort('semaforo')" title="Ordenar por estado">Estado${sortArrow('semaforo')}</th>
+        <th class="sort-th" onclick="setSort('nombre')" title="Ordenar por nombre">Producto${sortArrow('nombre')}</th>
+        <th class="sort-th text-right" onclick="setSort('urgencia')" title="Ordenar por pedidos mayoristas" style="font-size:11px">PED.MAY.${sortArrow('urgencia')}</th>
+        <th class="sort-th text-right col-sug" onclick="setSort('sugerido')" title="Ordenar por sugerido">Sugerido${sortArrow('sugerido')}</th>
+        <th class="text-right" title="Stock de presentaciones en Casa Central (en planificación cuenta al 60%)" style="font-size:11px">STOCK</th>
+        <th class="text-right" title="Stock en sucursales (todas menos Casa Central)" style="font-size:11px">STOCK SUC</th>
+        <th class="sort-th text-right" onclick="setSort('stock')" title="Ordenar por stock granel" style="font-size:11px">STOCK GRANEL${sortArrow('stock')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function toggleGrupo(gi) {
+  const subs = document.querySelectorAll(`.sub-${gi}`);
+  const btn  = document.getElementById(`ebtn-${gi}`);
+  const open = subs[0]?.style.display !== 'none';
+  subs.forEach(r => r.style.display = open ? 'none' : 'table-row');
+  if (btn) btn.textContent = open ? '▶' : '▼';
+}
+
+// ── DETALLE DE STOCK (granel + por sucursal por presentación) ──────────────
+async function abrirStockDetalle(gi) {
+  const g = gruposSorted[gi];
+  if (!g) return;
+  let plus = [], graneles = [];
+  if (g.esGranel) {
+    plus = (g.plus || []).map(String);
+    graneles = g.granelId ? [String(g.granelId)] : [];
+  } else {
+    plus = (g.presentaciones || []).map(p => String(p.plu));
+    graneles = [...new Set((g.presentaciones || []).map(p => p.idGranel).filter(Boolean).map(String))];
+  }
+  document.getElementById('stockDetTitulo').textContent = g.productoRef;
+  document.getElementById('stockDetBody').innerHTML = '<div class="loading">Cargando…</div>';
+  document.getElementById('overlayStockDet').classList.add('open');
+  try {
+    const qs = `plus=${encodeURIComponent(plus.join(','))}&graneles=${encodeURIComponent(graneles.join(','))}`;
+    const data = await api('GET', `/api/plan/stock-detalle?${qs}`);
+    document.getElementById('stockDetBody').innerHTML = renderStockDetalle(data);
+  } catch (e) {
+    document.getElementById('stockDetBody').innerHTML = `<div style="color:var(--rojo);padding:10px">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderStockDetalle(data) {
+  const sucs = data.sucursales || [];
+  const fmt = n => (n || n === 0) ? Math.round(n * 100) / 100 : '';
+  const cell = v => v ? `<td class="text-right">${fmt(v)}</td>` : `<td class="text-right" style="color:var(--border)">·</td>`;
+  const matrix = (titulo, rows) => {
+    if (!rows || !rows.length) return '';
+    const head = sucs.map(s => `<th class="text-right" style="font-size:11px;padding:4px 8px;${s.central ? 'color:var(--md-primary);font-weight:700' : 'color:var(--muted)'}">${escHtml(s.nombre)}</th>`).join('');
+    const body = rows.map(r => {
+      const tds = sucs.map(s => cell(r.porSuc[s.id])).join('');
+      return `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 8px">${escHtml(r.nombre)}</td>${tds}<td class="text-right font-bold" style="padding:5px 8px">${fmt(r.total)}</td></tr>`;
+    }).join('');
+    return `<div style="margin-bottom:18px">
+      <div style="font-weight:700;font-family:'Barlow Condensed',sans-serif;font-size:14px;margin-bottom:6px;color:var(--md-primary)">${titulo}</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="text-align:left;font-size:11px;color:var(--muted);padding:4px 8px">PRODUCTO</th>${head}<th class="text-right" style="font-size:11px;padding:4px 8px">TOTAL</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table></div></div>`;
+  };
+  const granelM = matrix('🌾 Granel (depósitos granel)', data.graneles);
+  const presM   = matrix('📦 Presentaciones (stock de venta)', data.presentaciones);
+  if (!granelM && !presM) return '<div style="padding:10px;color:var(--muted)">Sin datos de stock.</div>';
+  return granelM + presM;
+}
+
+function renderPanelGranel(granel) {
+  const necMap = {};
+  for (const g of gruposCache)
+    for (const p of g.presentaciones)
+      if (p.idGranel && p.cantSugerida > 0)
+        necMap[p.idGranel] = (necMap[p.idGranel]||0) + (p.granelNecesario||0);
+
+  const html = granel.map(g => {
+    const nec  = necMap[String(g.IdProducto)] || 0;
+    const warn = nec > 0 && g.StockGranel < nec;
+    const nom  = g.NombreProducto.replace(/ DEPOSITO GRANEL.*/i,'').trim();
+    return `<div class="granel-row${warn?' warn':''}">
+      <div class="g-nombre">${warn?'⚠ ':''}${escHtml(nom)}</div>
+      <div class="g-stock">Stock: <strong>${g.StockGranel}</strong>${nec>0?` | Nec: <strong>${nec.toFixed(1)}</strong>`:''}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('panelGranel').innerHTML = html || '<div class="loading">Sin datos.</div>';
+}
+
+function presToItem(p, productoRef) {
+  return { idProducto: p.plu, producto: p.baseNombre, presentacion: p.presentacion, rubro: productoRef,
+    stockActual: p.stockActual, promDiario: p.promDiario, diasStock: p.diasStock,
+    semaforo: p.semaforo, pendientes: p.pendientes, cantSugerida: p.cantSugerida,
+    cantConfirmada: p.cantSugerida, idGranel: p.idGranel, nombreGranel: p.nombreGranel,
+    cantPorUnidad: p.cantPorUnidad, granelNecesario: p.granelNecesario,
+    granelDisponible: p.granelDisponible, granelOk: p.granelOk };
+}
+
+// Lee la cantidad editada en el Resumen (cae al sugerido si no hay input)
+function leerCantSug(gi, pi, fallback) {
+  const inp = document.getElementById(`sug-${gi}-${pi}`);
+  if (!inp) return fallback;
+  return Math.max(0, parseFloat(inp.value) || 0);
+}
+
+function agregarPresAlPlan(gi, pi) {
+  const g = gruposSorted[gi], p = g.presentaciones[pi];
+  const cant = leerCantSug(gi, pi, p.cantSugerida);
+  if (cant <= 0) { toast('Ingresá una cantidad mayor a 0', true); return; }
+  const item = presToItem(p, g.productoRef);
+  item.cantConfirmada = cant;
+  abrirDiaPicker(`+ ${escHtml(p.presentacion)}`, fecha =>
+    finalizarAgregado(g.productoRef, fecha, [item],
+      `"${p.presentacion}" → plan ${formatFecha(fecha)}`));
+}
+
+async function agregarGrupoAlPlan(gi) {
+  const g = gruposSorted[gi];
+  const items = [];
+  g.presentaciones.forEach((p, pi) => {
+    const cant = leerCantSug(gi, pi, p.cantSugerida);
+    if (cant > 0) { const it = presToItem(p, g.productoRef); it.cantConfirmada = cant; items.push(it); }
+  });
+  if (!items.length) { toast('No hay cantidades para agregar (escribí una cantidad > 0)', true); return; }
+  const ok = await mostrarMPResumen(`📦 ${g.productoRef}`, items);
+  if (!ok) return;
+  abrirDiaPicker(`+ Todo: ${escHtml(g.productoRef)}`, fecha =>
+    finalizarAgregado(g.productoRef, fecha, items,
+      `${items.length} pres. de "${g.productoRef}" → plan ${formatFecha(fecha)}`));
+}
+
+// ¿La referencia es una variedad de miel del catálogo? Usa el flag esMiel (default: nombre arranca con "Miel").
+function esVariedadMiel(ref) {
+  return cfgGetEsMiel(ref);
+}
+
+// ¿El ítem es una variedad de miel? (decide si pedir el número de tambor) — solo las del catálogo
+function esItemMiel(it) {
+  return esVariedadMiel(it.rubro) || esVariedadMiel(it.producto);
+}
+
+// Tras elegir el día: si es miel pide el número de tambor, luego agrega al plan
+function finalizarAgregado(productoRef, fecha, items, labelOk) {
+  const aplicar = tambor => {
+    if (tambor) {
+      items.forEach(it => it.tambor = tambor);
+      labelOk += ` — tambor ${tambor}`;
+    }
+    agregarItemsConCheck(fecha, items, labelOk);
+  };
+  if (esVariedadMiel(productoRef)) pedirTambor(productoRef, aplicar);
+  else aplicar(null);
+}
+
+document.getElementById('filtroQ').addEventListener('input', () => {
+  clearTimeout(buscarDebounce); buscarDebounce = setTimeout(cargarSugerencias, 400);
+});
+document.getElementById('filtroSoloRojos').addEventListener('change', cargarSugerencias);
+document.getElementById('btnRecargar').addEventListener('click', cargarSugerencias);
+
+
+// ══════════════════ TAB 2: PLAN DÍA ════════════════════════════
+
+async function cargarPlan(fecha) {
+  fechaPlanActual = fecha;
+  document.getElementById('tituloPlan').textContent = formatFecha(fecha);
+  document.getElementById('tablaPlan').innerHTML = '<div class="loading">Cargando plan…</div>';
+  try {
+    planCache = await api('GET', `/api/plan/${fecha}`);
+    document.getElementById('notasPlan').value = planCache.notas || '';
+    renderPlan();
+  } catch (e) {
+    document.getElementById('tablaPlan').innerHTML =
+      `<div class="loading" style="color:red">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderPlan() {
+  const items = planCache?.items || [];
+  const listos = items.filter(i => i.estado === 'listo').length;
+  document.getElementById('resumePlan').textContent =
+    items.length ? `${listos}/${items.length} listos` : '';
+  document.getElementById('btnEnviarProd').disabled   = items.length === 0;
+  document.getElementById('btnResumenMP').disabled    = items.length === 0;
+  document.getElementById('btnMoverTodoDia').disabled = items.length === 0;
+
+  if (!items.length) {
+    document.getElementById('tablaPlan').innerHTML = `
+      <div class="empty-plan">
+        <div class="big">📋</div>
+        <p>No hay ítems en el plan de este día.</p>
+        <p style="margin-top:8px;font-size:13px">Agregá productos manualmente con "+ Agregar producto".</p>
+      </div>`;
+    return;
+  }
+
+  const rows = items.map(it => {
+    // normalizar: responsables[] (nuevo) o responsable (legado)
+    if (!Array.isArray(it.responsables)) it.responsables = it.responsable ? [it.responsable] : [];
+    const cantPU = it.cantPorUnidad || 0;
+    const granelH = it.nombreGranel
+      ? `<small class="${it.granelOk?'granel-ok':'granel-warn'}">${it.granelOk?'✓':'⚠'}</small>`
+      : '';
+
+    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}">
+      <td style="text-align:center;white-space:nowrap;padding:0">
+        <button onclick="event.stopPropagation();moverPrioridad(${it.id},-1)" title="Subir prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▲</button>
+        <button onclick="event.stopPropagation();moverPrioridad(${it.id},1)" title="Bajar prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▼</button>
+        <span class="drag-handle" title="Arrastrar para reordenar" style="font-size:13px">⠿</span>
+      </td>
+      <td><button class="badge ${it.semaforo}" style="border:none;cursor:pointer" onclick="cambiarSemaforo(${it.id})" title="Click para cambiar prioridad: Urgente → Alto → Medio → Bajo">${semLabel(it.semaforo)}</button></td>
+      <td class="nombre-col" title="${escHtml(it.producto)}">
+        ${escHtml(it.producto)}<br>
+        <span class="text-sm">${escHtml(it.rubro)}</span>
+        ${esItemMiel(it) ? `
+        <div style="margin-top:4px;display:flex;align-items:center;gap:4px">
+          <span class="text-sm" style="color:var(--muted)">🛢 Tambor</span>
+          <input type="text" inputmode="numeric" value="${escHtml(it.tambor||'')}" placeholder="—"
+            onchange="actualizarItem(${it.id},'tambor',this.value)"
+            style="width:62px;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;text-align:center">
+        </div>` : ''}
+      </td>
+      <td>
+        <input class="qty-input" type="number" min="0" value="${it.cantConfirmada??it.cantSugerida??0}"
+          title="${it.esGranel ? '' : 'Sugerido: '+it.cantSugerida}"
+          data-id="${it.id}"
+          onchange="actualizarItem(${it.id},'cantConfirmada',+this.value,this)">
+        ${it.esGranel
+          ? `<div class="text-sm" style="color:var(--muted)">${escHtml(it.unidadGranel||'Kg')}</div>`
+          : `<div id="granel-${it.id}" class="text-sm">${renderGranelNec(it.cantConfirmada??it.cantSugerida??0, cantPU, it.granelDisponible)}</div>`
+        }
+      </td>
+      <td onclick="event.stopPropagation()">
+        ${renderRespMulti(it)}
+      </td>
+      <td onclick="event.stopPropagation()">
+        <select onchange="actualizarItem(${it.id},'envase',this.value)" title="Envase asignado"
+          style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
+          <option value="">— Envase —</option>
+          ${envasesReg.map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.envase||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <div class="estado-chips">
+          ${['pendiente','en_proceso','listo'].map(e =>
+            `<span class="estado-chip${it.estado===e?' active':''}" data-estado="${e}"
+              onclick="setEstado(${it.id},'${e}',this)">${e==='pendiente'?'Pendiente':e==='en_proceso'?'En proceso':'Listo'}</span>`
+          ).join('')}
+        </div>
+      </td>
+      <td class="text-center" style="white-space:nowrap">
+        ${granelH}
+        <button class="btn-formula" title="Ver materias primas"
+          onclick="event.stopPropagation();mostrarMPResumen('📦 ${escHtml(it.producto).replace(/'/g,"\\'")} — ${escHtml(it.presentacion||'').replace(/'/g,"\\'")}', [{idProducto:${it.idProducto||0},cantConfirmada:${it.cantConfirmada??it.cantSugerida??0}}])">📦</button>
+      </td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="moverItem(${it.id})" title="Reasignar fecha">📅</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarItem(${it.id})">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tablaPlan').innerHTML = `
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th style="width:54px;text-align:center" title="Prioridad (▲▼ o arrastrar)">Prior.</th><th>Estado</th><th>Producto</th>
+        <th>Cantidad</th><th>Responsable</th><th>Envase</th><th>Estado tarea</th>
+        <th>MP</th><th></th>
+      </tr></thead>
+      <tbody id="tbodyPlan">${rows}</tbody>
+    </table></div>`;
+
+  initDragDrop();
+}
+
+function renderGranelNec(cant, cantPU, disp) {
+  if (!cantPU) return '';
+  const nec = Math.round(cant * cantPU * 100) / 100;
+  const ok  = disp == null || disp >= nec;
+  return `<span style="color:${ok?'var(--grn-text)':'var(--red-text)'}">${nec}${ok?'':'⚠'}</span>`;
+}
+
+async function actualizarItem(id, campo, valor, el) {
+  const item = planCache?.items.find(i => i.id == id);
+  if (!item) return;
+  item[campo] = valor;
+
+  if (campo === 'cantConfirmada' && el) {
+    const cantPU = parseFloat(el.closest('tr').dataset.cantPu) || 0;
+    document.getElementById('granel-' + id).innerHTML =
+      renderGranelNec(valor, cantPU, item.granelDisponible);
+    item.granelNecesario = Math.round(valor * cantPU * 100) / 100;
+    item.granelOk = !cantPU || item.granelDisponible == null || item.granelDisponible >= item.granelNecesario;
+  }
+
+  try {
+    await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, item);
+  } catch (e) { toast('Error al guardar: ' + e.message, true); }
+}
+
+async function cambiarSemaforo(id) {
+  const item = planCache?.items.find(i => i.id == id);
+  if (!item) return;
+  const ciclo = { URGENT: 'RED', RED: 'YELLOW', YELLOW: 'GREEN', GREEN: 'URGENT' };
+  item.semaforo = ciclo[item.semaforo] || 'RED';
+  renderPlan();
+  try { await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, { semaforo: item.semaforo }); }
+  catch (e) { toast('Error al actualizar', true); }
+}
+
+async function setEstado(id, estado, chipEl) {
+  const item = planCache?.items.find(i => i.id == id);
+  if (!item) return;
+  item.estado = estado;
+  chipEl.closest('.estado-chips').querySelectorAll('.estado-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.estado === estado);
+  });
+  try {
+    await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, { estado });
+    const listos = planCache.items.filter(i => i.estado === 'listo').length;
+    document.getElementById('resumePlan').textContent =
+      `${listos}/${planCache.items.length} listos`;
+  } catch (e) { toast('Error al actualizar estado', true); }
+}
+
+function moverItem(id) {
+  const it = (planCache?.items || []).find(i => i.id == id);
+  if (!it) return;
+  abrirDiaPicker(`📅 Mover: ${escHtml(it.producto)}`, async nuevaFecha => {
+    if (nuevaFecha === fechaPlanActual) { toast('Es el mismo día', true); return; }
+    try {
+      await api('POST', `/api/plan/${nuevaFecha}/item`, { ...it, fecha: nuevaFecha });
+      await api('DELETE', `/api/plan/${fechaPlanActual}/item/${id}`);
+      planCache.items = planCache.items.filter(i => i.id != id);
+      renderPlan();
+      toast(`"${it.producto}" → ${formatFecha(nuevaFecha)}`);
+    } catch (e) { toast('Error al mover: ' + e.message, true); }
+  });
+}
+
+async function moverTodoDia() {
+  const items = planCache?.items || [];
+  if (!items.length) return;
+  abrirDiaPicker(`📅 Mover todo el plan (${items.length} ítems)`, async nuevaFecha => {
+    if (nuevaFecha === fechaPlanActual) { toast('Es el mismo día', true); return; }
+    try {
+      for (const it of items) await api('POST', `/api/plan/${nuevaFecha}/item`, { ...it, fecha: nuevaFecha });
+      await api('DELETE', `/api/plan/${fechaPlanActual}`);
+      planCache = { items: [], notas: '' };
+      renderPlan();
+      toast(`${items.length} ítems movidos a ${formatFecha(nuevaFecha)}`);
+    } catch (e) { toast('Error al mover: ' + e.message, true); }
+  });
+}
+
+function eliminarItem(id) {
+  const it = (planCache?.items || []).find(i => i.id == id);
+  const nombre = it ? it.producto : 'este ítem';
+  confirmarModal('Eliminar ítem',
+    `¿Eliminar <strong>${escHtml(nombre)}</strong> del plan de ${formatFecha(fechaPlanActual)}?`,
+    'Eliminar',
+    async () => {
+      try {
+        await api('DELETE', `/api/plan/${fechaPlanActual}/item/${id}`);
+        planCache.items = planCache.items.filter(i => i.id != id);
+        renderPlan();
+        toast('Ítem eliminado');
+      } catch (e) { toast('Error al eliminar: ' + e.message, true); }
+    }, true);
+}
+
+document.getElementById('notasPlan').addEventListener('input', () => {
+  clearTimeout(notasDebounce);
+  notasDebounce = setTimeout(async () => {
+    try {
+      await api('POST', `/api/plan/${fechaPlanActual}`, {
+        notas: document.getElementById('notasPlan').value,
+        items: planCache?.items || []
+      });
+    } catch {}
+  }, 800);
+});
+
+// ── Selector de día (semana) ─────────────────────────────────────
+const DIAS_NOM = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+
+function renderDiaSelector() {
+  const chips = document.getElementById('diaChips');
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    const fecha  = addDias(semPlanBase, i);
+    const dd     = parseInt(fecha.split('-')[2]);
+    const esHoy  = fecha === HOY;
+    const active = fecha === fechaPlanActual;
+    const finde  = i >= 5 ? ' fin-semana' : '';
+    html += `<button class="dia-chip${active?' active':''}${esHoy?' hoy':''}${finde}"
+        onclick="seleccionarDia('${fecha}')">
+      <span class="dia-nom">${DIAS_NOM[i]}</span>
+      <span class="dia-num">${dd}</span>
+      ${esHoy ? '<span class="dia-hoy">HOY</span>' : ''}
+    </button>`;
+  }
+  chips.innerHTML = html;
+}
+
+function seleccionarDia(fecha) {
+  fechaPlanActual = fecha;
+  renderDiaSelector();
+  document.getElementById('btnAgregarProducto').disabled = false;
+  document.getElementById('btnBorrarPlan').disabled = false;
+  document.getElementById('planFooter').style.display = '';
+  cargarPlan(fecha);
+}
+
+document.getElementById('btnSemPlanAnt').addEventListener('click', () => {
+  semPlanBase = addDias(semPlanBase, -7); renderDiaSelector();
+});
+document.getElementById('btnSemPlanSig').addEventListener('click', () => {
+  semPlanBase = addDias(semPlanBase, 7); renderDiaSelector();
+});
+
+document.getElementById('btnBorrarPlan').addEventListener('click', () => {
+  const n = planCache?.items?.length || 0;
+  if (!n) { toast('El plan ya está vacío'); return; }
+  confirmarModal('Borrar todo el plan',
+    `¿Borrar <strong>${n === 1 ? 'el ítem' : 'los ' + n + ' ítems'}</strong> del plan de ${formatFecha(fechaPlanActual)}? Esta acción no se puede deshacer.`,
+    'Borrar todo',
+    async () => {
+      try {
+        await api('DELETE', `/api/plan/${fechaPlanActual}`);
+        planCache = { items: [], notas: '' };
+        renderPlan();
+        toast('Plan borrado');
+      } catch (e) { toast('Error: ' + e.message, true); }
+    }, true);
+});
+
+
+// ── Drag & Drop ──────────────────────────────────────────────────
+function initDragDrop() {
+  const tbody = document.getElementById('tbodyPlan');
+  if (!tbody) return;
+  tbody.querySelectorAll('tr').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      dragSrcRow = row;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      dragSrcRow = null;
+      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('dragging','drag-over'));
+      guardarOrden();
+    });
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
+      if (row !== dragSrcRow) row.classList.add('drag-over');
+    });
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      if (dragSrcRow && dragSrcRow !== row) {
+        const rows = [...tbody.querySelectorAll('tr')];
+        if (rows.indexOf(dragSrcRow) < rows.indexOf(row)) row.after(dragSrcRow);
+        else row.before(dragSrcRow);
+      }
+    });
+  });
+}
+
+async function moverPrioridad(id, dir) {
+  if (!planCache || !Array.isArray(planCache.items)) return;
+  const items = planCache.items;
+  const i = items.findIndex(x => x.id == id); if (i < 0) return;
+  const j = i + dir; if (j < 0 || j >= items.length) return;
+  [items[i], items[j]] = [items[j], items[i]];
+  items.forEach((x, k) => { x.prioridad = k + 1; });
+  renderPlan();
+  try { await api('POST', `/api/plan/${fechaPlanActual}`, planCache); }
+  catch (e) { toast('Error al guardar orden: ' + e.message, true); }
+}
+
+async function guardarOrden() {
+  const tbody = document.getElementById('tbodyPlan');
+  if (!tbody || !planCache) return;
+  const ids    = [...tbody.querySelectorAll('tr')].map(r => parseInt(r.dataset.id));
+  const mapa   = new Map(planCache.items.map(i => [i.id, i]));
+  planCache.items = ids.map((id, i) => { const it = mapa.get(id); if (it) it.prioridad = i+1; return it; }).filter(Boolean);
+  try { await api('POST', `/api/plan/${fechaPlanActual}`, planCache); } catch {}
+}
+
+// ── Modal buscar ─────────────────────────────────────────────────
+document.getElementById('btnAgregarProducto').addEventListener('click', () => {
+  document.getElementById('overlayBuscar').classList.add('open');
+  document.getElementById('inputBuscar').value = '';
+  document.getElementById('resultadosBuscar').innerHTML = '';
+  setTimeout(() => document.getElementById('inputBuscar').focus(), 80);
+});
+document.getElementById('cerrarBuscar').addEventListener('click', () =>
+  document.getElementById('overlayBuscar').classList.remove('open'));
+document.getElementById('overlayBuscar').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+document.getElementById('inputBuscar').addEventListener('input', e => {
+  clearTimeout(buscarProdDebounce);
+  buscarProdDebounce = setTimeout(() => buscarProductos(e.target.value), 350);
+});
+
+async function buscarProductos(q) {
+  if (q.length < 2) { document.getElementById('resultadosBuscar').innerHTML = ''; return; }
+  try {
+    const res = await api('GET', `/api/plan/sugerencias?q=${encodeURIComponent(q)}`);
+    const html = res.slice(0, 20).map(r => `
+      <div class="search-result" onclick='agregarDesdeModal(${JSON.stringify(r)})'>
+        <span class="badge ${r.semaforo}" style="flex-shrink:0">${semLabel(r.semaforo)}</span>
+        <span class="prod-name">${escHtml(r.producto)}</span>
+        <span class="prod-rubro">${escHtml(r.rubro)}</span>
+        ${r.cantSugerida > 0 ? `<span class="prod-sug">Sug: ${r.cantSugerida}</span>` : ''}
+      </div>`).join('') || '<div class="loading">Sin resultados.</div>';
+    document.getElementById('resultadosBuscar').innerHTML = html;
+  } catch {}
+}
+
+function sugToItem(s) {
+  return {
+    idProducto:    s.idProducto ?? s.plu ?? null,
+    producto:      s.producto,
+    rubro:         s.rubro || '',
+    stockActual:   s.stockActual ?? 0,
+    promDiario:    s.promDiario ?? 0,
+    promMes:       s.promMes ?? Math.round((s.promDiario || 0) * 30 * 10) / 10,
+    diasStock:     s.diasStock ?? 0,
+    semaforo:      s.semaforo || 'GREEN',
+    pendientes:    s.pendientes ?? 0,
+    cantSugerida:  s.cantSugerida ?? 0,
+    cantConfirmada: s.cantSugerida ?? 0,
+    idGranel:      s.idGranel ?? '', nombreGranel: s.nombreGranel ?? '',
+    cantPorUnidad: s.cantPorUnidad ?? 0, granelNecesario: s.granelNecesario ?? 0,
+    granelDisponible: s.granelDisponible ?? null, granelOk: s.granelOk ?? true
+  };
+}
+
+async function agregarDesdeModal(sug) {
+  document.getElementById('overlayBuscar').classList.remove('open');
+  if (!fechaPlanActual) { toast('Seleccioná un día primero', true); return; }
+  await agregarItemsConCheck(fechaPlanActual, [sugToItem(sug)],
+    `"${sug.producto}" agregado al plan`);
+}
+
+// ── Modal responsables ────────────────────────────────────────────
+// ── Panel envases ─────────────────────────────────────────────────
+async function cargarEnvases() {
+  try {
+    const data = await api('GET', '/api/envases');
+    const html = data.map(e => {
+      const warn = e.StockActual <= 0;
+      return `<div class="granel-row${warn ? ' warn' : ''}">
+        <div class="g-nombre">${warn ? '⚠ ' : ''}${escHtml(e.NombreProducto)}</div>
+        <div class="g-stock">Stock: <strong>${e.StockActual}</strong></div>
+      </div>`;
+    }).join('');
+    document.getElementById('panelEnvases').innerHTML =
+      html || '<div class="loading">Sin envases registrados.</div>';
+  } catch (e) {
+    document.getElementById('panelEnvases').innerHTML =
+      `<div class="loading" style="color:red">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Tab Envases (registro persistente con autocompletar Siga) ────
+let envasesReg = [];
+async function cargarEnvasesReg() {
+  try { envasesReg = await api('GET', '/api/envases-registro') || []; }
+  catch { envasesReg = []; }
+  const cont = document.getElementById('tablaEnvasesReg');
+  if (!cont) return;
+  if (!envasesReg.length) {
+    cont.innerHTML = '<div class="loading">Sin envases cargados. Ingresá un código de sistema arriba.</div>';
+    return;
+  }
+  cont.innerHTML = `<div style="overflow-x:auto"><table>
+    <thead><tr><th style="width:120px">Código</th><th>Nombre</th><th style="width:110px">Stock</th><th style="width:50px"></th></tr></thead>
+    <tbody>${envasesReg.map(e => `<tr>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700">${escHtml(String(e.codigo))}</td>
+      <td>${escHtml(e.nombre || '')}</td>
+      <td style="font-weight:700;color:${(e.stock || 0) <= 0 ? 'var(--red-text)' : 'var(--grn-text)'}">${e.stock ?? 0}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarEnvaseReg('${String(e.codigo).replace(/'/g, "\\'")}')">✕</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+let envLookupDebounce = null;
+function _envLookup() {
+  const cod = document.getElementById('envCodigo').value.trim();
+  const nom = document.getElementById('envNombre');
+  const stk = document.getElementById('envStock');
+  const btn = document.getElementById('btnEnvAgregar');
+  const msg = document.getElementById('envMsg');
+  if (!cod) { nom.value = ''; stk.textContent = 'Stock: —'; btn.disabled = true; msg.textContent = ''; return; }
+  clearTimeout(envLookupDebounce);
+  envLookupDebounce = setTimeout(async () => {
+    try {
+      const e = await api('GET', `/api/envase-lookup?codigo=${encodeURIComponent(cod)}`);
+      if (e && !e.error) { nom.value = e.nombre; stk.textContent = 'Stock: ' + e.stock; btn.disabled = false; msg.textContent = ''; }
+      else { nom.value = ''; stk.textContent = 'Stock: —'; btn.disabled = true; msg.textContent = 'Producto no encontrado'; }
+    } catch { btn.disabled = true; }
+  }, 350);
+}
+async function agregarEnvaseReg() {
+  const cod = document.getElementById('envCodigo').value.trim();
+  if (!cod) return;
+  try {
+    const r = await api('POST', '/api/envases-registro', { codigo: cod });
+    if (r.error) { toast(r.error, true); return; }
+    document.getElementById('envCodigo').value = '';
+    document.getElementById('envNombre').value = '';
+    document.getElementById('envStock').textContent = 'Stock: —';
+    document.getElementById('btnEnvAgregar').disabled = true;
+    await cargarEnvasesReg();
+    if (typeof renderPlan === 'function' && planCache) renderPlan();
+    toast(`Envase "${r.envase?.nombre || cod}" agregado`);
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+async function eliminarEnvaseReg(cod) {
+  try { await api('DELETE', '/api/envases-registro/' + encodeURIComponent(cod)); }
+  catch (e) { toast('Error al eliminar', true); }
+  await cargarEnvasesReg();
+  if (typeof renderPlan === 'function' && planCache) renderPlan();
+}
+document.getElementById('envCodigo')?.addEventListener('input', _envLookup);
+document.getElementById('envCodigo')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('btnEnvAgregar').disabled) agregarEnvaseReg();
+});
+document.getElementById('btnEnvAgregar')?.addEventListener('click', agregarEnvaseReg);
+document.getElementById('btnEnvRefrescar')?.addEventListener('click', async () => {
+  try { const r = await api('POST', '/api/envases-registro/refrescar', {}); envasesReg = r.envases || []; await cargarEnvasesReg(); toast('Stock actualizado'); }
+  catch (e) { toast('Error al refrescar', true); }
+});
+cargarEnvasesReg();
+
+// ── Modal granel (cantidad manual) ───────────────────────────────
+let granelGiActual = null;
+
+let granelBOMData = []; // [{nombre, cantPorKg}]
+
+async function cargarGruposCfgSiVacio() {
+  if (Object.keys(gruposCfgLocal).length) return;
+  try {
+    const grupos = await api('GET', '/api/catalogo/grupos');
+    gruposCfgLocal = {};
+    for (const g of grupos) {
+      const gp = g.granelPlu || '', mp = Array.isArray(g.mpManual) ? g.mpManual : [];
+      const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
+      const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}) }
+        : g.activo;
+    }
+  } catch (e) { /* silencioso, BOM quedará vacío */ }
+}
+
+async function abrirModalGranel(gi) {
+  // gi indexes gruposSorted, not gruposCache
+  granelGiActual = gi;
+  const g = gruposSorted[gi];
+  document.getElementById('granelModalTitulo').textContent = g.productoRef;
+  document.getElementById('granelRefInfo').innerHTML = `
+    <span><strong>${g.totalPromMes||0}</strong> <span style="color:var(--muted)">prom/mes</span></span>
+    <span><strong>${g.totalPend||0}</strong> <span style="color:var(--muted)">ped. mayoristas</span></span>`;
+  document.getElementById('granelCantidad').value = '';
+  document.getElementById('granelBOM').style.display = 'none';
+  document.getElementById('granelBOMBody').innerHTML = '';
+  granelBOMData = [];
+  document.getElementById('overlayGranel').classList.add('open');
+  setTimeout(() => document.getElementById('granelCantidad').focus(), 80);
+
+  await cargarGruposCfgSiVacio();
+  const gp  = cfgGetGranelPlu(g.productoRef);
+  const mp  = cfgGetMpManual(g.productoRef);
+  const bom = [];
+  if (gp) {
+    try {
+      const rows = await api('GET', `/api/bom/producto/${gp}`);
+      for (const r of rows) bom.push({ plu: String(r.plu), nombre: r.nombre, cantPorKg: parseFloat(r.cantPorUnidad) || 0 });
+    } catch (e) { /* sin BOM de Siga */ }
+  }
+  // mpManual sobreescribe o complementa (por nombre)
+  for (const m of mp) {
+    const idx = bom.findIndex(b => b.nombre === m.nombre);
+    if (idx >= 0) { bom[idx].cantPorKg = parseFloat(m.cantPorKg) || 0; if (m.plu) bom[idx].plu = String(m.plu); }
+    else bom.push({ plu: m.plu ? String(m.plu) : '', nombre: m.nombre, cantPorKg: parseFloat(m.cantPorKg) || 0 });
+  }
+  const validBom = bom.filter(b => b.cantPorKg > 0);
+  // Fetchear stock de cada componente
+  const plusParaStock = validBom.map(b => b.plu).filter(Boolean);
+  const stockMap = new Map();
+  if (plusParaStock.length) {
+    try {
+      const stockRows = await api('GET', `/api/stock/plus?ids=${plusParaStock.join(',')}`);
+      for (const r of stockRows) stockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
+    } catch (e) { /* sin stock */ }
+  }
+  granelBOMData = validBom.map(b => ({ ...b, stock: b.plu ? (stockMap.get(b.plu) ?? null) : null }));
+  if (granelBOMData.length) recalcBOM(parseFloat(document.getElementById('granelCantidad').value) || 0);
+}
+
+function recalcBOM(cant) {
+  if (!granelBOMData.length) return;
+  const bomDiv = document.getElementById('granelBOM');
+  const bomBody = document.getElementById('granelBOMBody');
+  bomDiv.style.display = 'block';
+  if (!cant || cant <= 0) {
+    bomBody.innerHTML = '<span style="font-size:12px;color:var(--muted)">Ingresá una cantidad para calcular</span>';
+    return;
+  }
+  bomBody.innerHTML = granelBOMData.map(c => {
+    const total = Math.round(c.cantPorKg * cant * 1000) / 1000;
+    const falta  = c.stock !== null && c.stock < total;
+    const colorCant = falta ? 'var(--red-text)' : 'var(--verde)';
+    const stockTxt  = c.stock !== null
+      ? `<span style="font-size:11px;color:${falta ? 'var(--red-text)' : 'var(--muted)'}">stock: ${c.stock} kg${falta ? ` · falta ${Math.round((total - c.stock)*1000)/1000} kg` : ''}</span>`
+      : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--md-outline-variant);gap:8px">
+      <div style="font-size:13px${falta?' font-weight:600':''}">
+        ${falta ? '<span style="color:var(--red-text);margin-right:4px">⚠</span>' : ''}${escHtml(c.nombre)}
+        ${stockTxt ? `<div>${stockTxt}</div>` : ''}
+      </div>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;white-space:nowrap;color:${colorCant}">${total} kg</span>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('cerrarGranel').addEventListener('click', () =>
+  document.getElementById('overlayGranel').classList.remove('open'));
+document.getElementById('overlayGranel').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+document.getElementById('btnConfirmarGranel').addEventListener('click', () => {
+  const cant   = parseFloat(document.getElementById('granelCantidad').value);
+  const unidad = document.getElementById('granelUnidad').value;
+  if (!cant || cant <= 0) { toast('Ingresá una cantidad mayor a 0', true); return; }
+  const g = gruposSorted[granelGiActual];
+  document.getElementById('overlayGranel').classList.remove('open');
+  const item = {
+    idProducto:    null,
+    producto:      g.productoRef,
+    rubro:         'Granel',
+    esGranel:      true,
+    cantSugerida:  0,
+    cantConfirmada: cant,
+    unidadGranel:  unidad,
+    semaforo:      g.semaforo,
+    pendientes:    g.totalPend || 0,
+    promMes:       g.totalPromMes || 0,
+    idGranel:      g.granelId ? String(g.granelId) : '',
+    nombreGranel:  g.nombreGranelGrupo || '', cantPorUnidad: 0,
+    granelNecesario: 0, granelDisponible: null, granelOk: true
+  };
+  abrirDiaPicker(`+ ${escHtml(g.productoRef)} — ${cant} ${unidad}`, fecha =>
+    finalizarAgregado(g.productoRef, fecha, [item],
+      `"${g.productoRef}" → plan ${formatFecha(fecha)} — ${cant} ${unidad}`));
+});
+
+document.getElementById('granelCantidad').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btnConfirmarGranel').click();
+});
+document.getElementById('granelCantidad').addEventListener('input', e => {
+  recalcBOM(parseFloat(e.target.value) || 0);
+});
+
+document.getElementById('btnGestionResp').addEventListener('click', () => {
+  document.getElementById('overlayResp').classList.add('open');
+  renderListaResp();
+});
+document.getElementById('cerrarResp').addEventListener('click', () =>
+  document.getElementById('overlayResp').classList.remove('open'));
+document.getElementById('overlayResp').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+function renderListaResp() {
+  const html = responsablesCache.map((r, i) => {
+    const c = respCorto(r);
+    return `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1;font-size:14px">${escHtml(respNombre(r))}${c ? ` <span style="color:var(--muted);font-size:12px">(${escHtml(c)})</span>` : ''}</span>
+      <button class="btn btn-danger btn-sm" onclick="eliminarResp(${i})">✕</button>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin responsables cargados.</div>';
+  document.getElementById('listaResp').innerHTML = html;
+}
+
+async function eliminarResp(i) {
+  responsablesCache.splice(i, 1);
+  await api('POST', '/api/responsables', responsablesCache).catch(()=>{});
+  renderListaResp();
+  renderPlan();
+}
+
+document.getElementById('btnAgregarResp').addEventListener('click', async () => {
+  const input  = document.getElementById('nuevoResp');
+  const inputC = document.getElementById('nuevoRespCorto');
+  const nombre = input.value.trim();
+  const corto  = inputC.value.trim();
+  if (!nombre) return;
+  responsablesCache.push(corto ? { nombre, corto } : { nombre });
+  input.value = '';
+  inputC.value = '';
+  await api('POST', '/api/responsables', responsablesCache).catch(()=>{});
+  renderListaResp();
+  renderPlan();
+  toast(`Responsable "${nombre}"${corto ? ` (${corto})` : ''} agregado`);
+});
+
+['nuevoResp', 'nuevoRespCorto'].forEach(id =>
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btnAgregarResp').click();
+  }));
+
+// ══════════════════ TAB 3: CALENDARIO ═══════════════════════════
+
+const MESES_NOM = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+// Recibe cualquier fecha del mes a mostrar; arma una grilla mensual (filas = semanas,
+// columnas = Lun-Vie). Empieza el lunes de la semana del día 1 y pide 6 semanas (42 días).
+async function cargarCalendario(fechaEnMes) {
+  semCalendarioBase = fechaEnMes;
+  calMesActual = fechaEnMes.slice(0, 7);
+  const primero = `${calMesActual}-01`;
+  const desde = lunesDeEstaFecha(primero);
+  const [yy, mm] = calMesActual.split('-');
+  document.getElementById('tituloSemana').textContent = `${MESES_NOM[+mm - 1]} ${yy}`;
+  document.getElementById('calGrid').innerHTML = '<div class="loading">Cargando…</div>';
+  try {
+    const cal = await api('GET', `/api/calendario?desde=${desde}&dias=42`);
+    renderCalendario(cal);
+  } catch (e) {
+    document.getElementById('calGrid').innerHTML =
+      `<div class="loading" style="color:red">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderCalendario(cal) {
+  const DOW = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const html = Object.entries(cal).map(([fecha, data]) => {
+    const dow = new Date(fecha + 'T00:00:00').getDay();
+    if (dow === 0 || dow === 6) return ''; // sin sábados ni domingos
+    const [,, dd] = fecha.split('-');
+    const esHoy = fecha === HOY;
+    const fuera = fecha.slice(0, 7) !== calMesActual;
+    const items5 = data.items.slice(0, 5);
+    const chips = data.totalItems > 0
+      ? items5.map(it => `<div class="day-item-chip ${it.semaforo||''}">${escHtml(it.producto)}</div>`).join('')
+        + (data.totalItems > 5 ? `<div class="day-item-chip">+${data.totalItems-5} más</div>` : '')
+      : '<div class="day-item-chip empty">Sin plan</div>';
+
+    return `<div class="day-card${esHoy?' today':''}${fuera?' fuera-mes':''}" onclick="irAlDia('${fecha}')">
+      <div class="day-head">
+        <span>${DOW[dow]}</span>
+        <span class="day-num">${dd}</span>
+        ${data.tieneRiesgoGranel ? '<span title="Riesgo MP" style="color:var(--red-text)">⚠</span>' : ''}
+      </div>
+      <div class="day-stats">${data.totalItems} ítems · ${data.totalUnidades} u.</div>
+      <div class="day-items">${chips}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('calGrid').innerHTML = html;
+}
+
+function irAlDia(fecha) {
+  semPlanBase = lunesDeEstaFecha(fecha);
+  fechaPlanActual = fecha;
+  document.querySelector('[data-tab=plan]').click();
+}
+
+function calMesOffset(n) {
+  const [y, m] = calMesActual.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+document.getElementById('btnSemAnt').addEventListener('click', () =>
+  cargarCalendario(calMesOffset(-1)));
+document.getElementById('btnSemSig').addEventListener('click', () =>
+  cargarCalendario(calMesOffset(1)));
+
+// ── Modal de confirmación genérico ───────────────────────────────
+let confirmCallback = null;
+
+function confirmarModal(titulo, mensajeHtml, textoOk, callback, peligro) {
+  document.getElementById('confirmTitulo').textContent = titulo;
+  document.getElementById('confirmMsg').innerHTML = mensajeHtml;
+  const btn = document.getElementById('btnConfirmOk');
+  btn.textContent = textoOk;
+  btn.className = 'btn ' + (peligro ? 'btn-danger' : 'btn-primary');
+  document.getElementById('confirmHeader').style.background = peligro ? '#991b1b' : 'var(--verde)';
+  confirmCallback = callback;
+  document.getElementById('overlayConfirm').classList.add('open');
+}
+function cerrarConfirmModal() {
+  document.getElementById('overlayConfirm').classList.remove('open');
+  confirmCallback = null;
+}
+document.getElementById('btnConfirmOk').addEventListener('click', () => {
+  const cb = confirmCallback;
+  cerrarConfirmModal();
+  if (cb) cb();
+});
+document.getElementById('btnConfirmCancel').addEventListener('click', cerrarConfirmModal);
+document.getElementById('cerrarConfirm').addEventListener('click', cerrarConfirmModal);
+document.getElementById('overlayConfirm').addEventListener('click', e => {
+  if (e.target === e.currentTarget) cerrarConfirmModal();
+});
+
+// ── Alta de ítems ─────────────────────────────────────────────────────────────
+// Los que no existen se agregan directo. Si alguno ya está en el día → modal preguntando;
+// al confirmar, suma la cantidad nueva a la ya cargada (una sola fila). Clave: idProducto o nombre+presentación.
+async function agregarItemsConCheck(fecha, items, labelOk) {
+  const keyOf = it => (it.idProducto != null && String(it.idProducto) !== '')
+    ? 'id:' + String(it.idProducto)
+    : 'nom:' + (it.producto || '').trim().toLowerCase() + '|' + (it.presentacion || '').trim().toLowerCase();
+  const cantOf = it => (it.cantConfirmada ?? it.cantSugerida ?? 0);
+
+  const altaDirecta = async (lista) => {
+    for (const it of lista) await api('POST', `/api/plan/${fecha}/item`, it);
+  };
+
+  let plan;
+  try { plan = await api('GET', `/api/plan/${fecha}`); }
+  catch {
+    try { await altaDirecta(items); toast(labelOk); if (fecha === fechaPlanActual) await cargarPlan(fecha); }
+    catch (e) { toast('Error: ' + e.message, true); }
+    return;
+  }
+
+  // Mapa de ítems vigentes por clave → { id, cant }.
+  const existMap = new Map();
+  for (const ex of (plan.items || [])) existMap.set(keyOf(ex), { id: ex.id, cant: cantOf(ex) });
+
+  // Partir en nuevos vs ya existentes.
+  const nuevos = [], dups = [];
+  for (const it of items) (existMap.has(keyOf(it)) ? dups : nuevos).push(it);
+
+  const aplicar = async () => {
+    try {
+      for (const it of nuevos) {
+        const creado = await api('POST', `/api/plan/${fecha}/item`, it);
+        existMap.set(keyOf(it), { id: creado?.id, cant: cantOf(it) });
+      }
+      for (const it of dups) {
+        const k = keyOf(it), ex = existMap.get(k);
+        if (!ex) { const creado = await api('POST', `/api/plan/${fecha}/item`, it); existMap.set(k, { id: creado?.id, cant: cantOf(it) }); continue; }
+        const nuevaCant = (ex.cant || 0) + cantOf(it);
+        await api('PUT', `/api/plan/${fecha}/item/${ex.id}`, { cantConfirmada: nuevaCant });
+        existMap.set(k, { id: ex.id, cant: nuevaCant }); // acumula si el lote repite el ítem
+      }
+      const extra = dups.length ? ` · ${dups.length} sumada${dups.length > 1 ? 's' : ''} a lo ya cargado` : '';
+      toast(labelOk + extra);
+      if (fecha === fechaPlanActual) await cargarPlan(fecha);
+    } catch (e) { toast('Error: ' + e.message, true); }
+  };
+
+  if (!dups.length) { await aplicar(); return; }
+
+  const nombres = [...new Set(dups.map(d => `${d.producto}${d.presentacion ? ' ' + d.presentacion : ''}`))]
+    .map(n => `<li style="margin:2px 0">${escHtml(n)}</li>`).join('');
+  const msg = `${dups.length === 1 ? 'Este producto ya está' : 'Estos productos ya están'} en el plan de <strong>${formatFecha(fecha)}</strong>:
+    <ul style="margin:8px 0 0;padding-left:20px;color:var(--amb-text)">${nombres}</ul>
+    <div style="margin-top:12px;color:var(--muted);font-size:13px">¿Agregar igual? Se sumará la cantidad nueva a la que ya está cargada.</div>`;
+  confirmarModal('⚠ Producto ya en el plan', msg, 'Agregar y sumar', aplicar);
+}
+
+// ── Día Picker (selector rápido antes de agregar al plan) ────────
+let semDiaPicker  = lunesDeEstaFecha(HOY);
+let diaPicCallback = null;
+
+function abrirDiaPicker(titulo, callback) {
+  semDiaPicker   = lunesDeEstaFecha(fechaPlanActual || HOY);
+  diaPicCallback = callback;
+  document.getElementById('diaPicTitulo').textContent = titulo;
+  renderDiaPicker();
+  document.getElementById('overlayDiaPicker').classList.add('open');
+}
+
+function renderDiaPicker() {
+  const chips = document.getElementById('diaPickerChips');
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    const fecha = addDias(semDiaPicker, i);
+    const dd    = parseInt(fecha.split('-')[2]);
+    const esHoy = fecha === HOY;
+    const sel   = fecha === fechaPlanActual;
+    html += `<button class="dia-chip${esHoy?' hoy':''}${sel?' active':''}${i>=5?' fin-semana':''}"
+        onclick="seleccionarDiaPicker('${fecha}')">
+      <span class="dia-nom">${DIAS_NOM[i]}</span>
+      <span class="dia-num">${dd}</span>
+      ${esHoy ? '<span class="dia-hoy">HOY</span>' : ''}
+    </button>`;
+  }
+  chips.innerHTML = html;
+}
+
+function seleccionarDiaPicker(fecha) {
+  document.getElementById('overlayDiaPicker').classList.remove('open');
+  if (diaPicCallback) { const cb = diaPicCallback; diaPicCallback = null; cb(fecha); }
+}
+
+document.getElementById('btnDiaPicAnt').addEventListener('click', () => {
+  semDiaPicker = addDias(semDiaPicker, -7); renderDiaPicker();
+});
+document.getElementById('btnDiaPicSig').addEventListener('click', () => {
+  semDiaPicker = addDias(semDiaPicker, 7); renderDiaPicker();
+});
+document.getElementById('cerrarDiaPicker').addEventListener('click', () =>
+  document.getElementById('overlayDiaPicker').classList.remove('open'));
+document.getElementById('overlayDiaPicker').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+// ── Número de tambor (solo mieles) ───────────────────────────────
+let tamborCallback = null;
+
+function pedirTambor(nombreMiel, callback) {
+  tamborCallback = callback;
+  document.getElementById('tamborSub').textContent = nombreMiel || '';
+  document.getElementById('inputTambor').value = '';
+  document.getElementById('overlayTambor').classList.add('open');
+  setTimeout(() => document.getElementById('inputTambor').focus(), 80);
+}
+
+function resolverTambor(valor) {
+  document.getElementById('overlayTambor').classList.remove('open');
+  if (tamborCallback) { const cb = tamborCallback; tamborCallback = null; cb(valor); }
+}
+
+document.getElementById('btnTamborOk').addEventListener('click', () => {
+  const v = document.getElementById('inputTambor').value.trim();
+  if (!v) { toast('Ingresá el número de tambor o tocá Omitir', true); return; }
+  resolverTambor(v);
+});
+document.getElementById('btnTamborOmitir').addEventListener('click', () => resolverTambor(''));
+document.getElementById('inputTambor').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btnTamborOk').click();
+});
+document.getElementById('cerrarTambor').addEventListener('click', () => {
+  tamborCallback = null;
+  document.getElementById('overlayTambor').classList.remove('open');
+});
+document.getElementById('overlayTambor').addEventListener('click', e => {
+  if (e.target === e.currentTarget) { tamborCallback = null; e.currentTarget.classList.remove('open'); }
+});
+
+// ── Enviar a Producción del Día ──────────────────────────────────
+
+const CRITICIDAD = { URGENT: 'Urgente', RED: 'Alta', YELLOW: 'Media', GREEN: 'Baja' };
+
+function seccionParaGrupo(productoRef) {
+  const n = (productoRef || '').toUpperCase();
+  if (/^G\.\s|GRANOLA/.test(n))            return 'GRANOLAS';
+  if (/^MIX\b/.test(n))                    return 'MIX';
+  if (/MIEL|HONEY|ARROYO|CITRUS|TREBOL|EUCALIPTUS|LAPACHO|MULTIFLORAL/.test(n)) return 'MIELES';
+  if (/APIMANI/.test(n))                   return 'APIMANI';
+  if (/PEPAS/.test(n))                     return 'PEPAS';
+  if (/FRUTOS/.test(n))                    return 'FRUTOS SECOS';
+  return 'PRODUCCIÓN';
+}
+
+// Código de catálogo del granel para una orden granel.
+// Prioridad: campo del ítem → grupo del catálogo (por productoRef) → config granelPlu.
+function codigoGranelItem(it) {
+  if (it.idGranel) return String(it.idGranel);
+  if (it.granelId) return String(it.granelId);
+  const g = (gruposSorted || []).find(x => x.productoRef === it.producto)
+         || (gruposCatCache || []).find(x => x.productoRef === it.producto);
+  if (g && (g.granelId || g.granelPlu)) return String(g.granelId || g.granelPlu);
+  const gp = cfgGetGranelPlu(it.producto);
+  return gp ? String(gp) : '';
+}
+
+function construirOrdenes() {
+  const items = planCache?.items || [];
+  if (!items.length) return [];
+
+  const CRIT_ORDER = { URGENT: 4, RED: 3, YELLOW: 2, GREEN: 1 };
+  const ordenes    = [];
+
+  // ── Granel: cada ítem es 1 orden ──────────────────────────────
+  for (const it of items.filter(i => i.esGranel)) {
+    const cant = it.cantConfirmada ?? it.cantSugerida ?? 0;
+    if (cant <= 0) continue;
+    ordenes.push({
+      id:           0,
+      codigo:       codigoGranelItem(it),
+      idProducto:   (it.idProducto ?? it.plu) ?? null,
+      seccion:      seccionParaGrupo(it.producto),
+      producto:     it.producto,
+      presentacion: `${cant} ${it.unidadGranel || 'Kg'}${it.tambor ? ` · Tambor ${it.tambor}` : ''}`,
+      cantidad:     cant,
+      criticidad:   CRITICIDAD[it.semaforo] || 'Media',
+      prioridad:    it.prioridad,
+      envase:       it.envase || '',
+      estado:       'pendiente',
+      encargados:   it.responsables || (it.responsable ? [it.responsable] : []),
+      encargado:    (it.responsables||[it.responsable||'']).filter(Boolean).join(' / '),
+      tambor:       it.tambor || '',
+      fecha:        fechaPlanActual
+    });
+  }
+
+  // ── Fraccionado: agrupar por rubro → 1 orden por familia ──────
+  const byRubro = {};
+  for (const it of items.filter(i => !i.esGranel)) {
+    const key = it.rubro || it.producto;
+    if (!byRubro[key]) byRubro[key] = [];
+    byRubro[key].push(it);
+  }
+
+  for (const [rubro, its] of Object.entries(byRubro)) {
+    const conCant = its.filter(it => (it.cantConfirmada ?? it.cantSugerida ?? 0) > 0);
+    if (!conCant.length) continue;
+
+    const totalCant = conCant.reduce((s, it) => s + (it.cantConfirmada ?? it.cantSugerida ?? 0), 0);
+    const semaforo  = conCant.reduce((w, it) =>
+      (CRIT_ORDER[it.semaforo] || 0) > (CRIT_ORDER[w] || 0) ? it.semaforo : w, 'GREEN');
+
+    const presentaciones = conCant.map(it => {
+      const cant = it.cantConfirmada ?? it.cantSugerida ?? 0;
+      const pres = it.presentacion || it.producto || '';
+      return { presentacion: pres, cantidad: cant, plu: (it.idProducto ?? it.plu) != null ? String(it.idProducto ?? it.plu) : '', envase: it.envase || '' };
+    });
+    const presStr  = presentaciones.map(p => `${p.presentacion}: ${p.cantidad}`).join(' / ');
+    const tambores = [...new Set(conCant.map(it => it.tambor).filter(Boolean))].join(', ');
+
+    ordenes.push({
+      id:           0,
+      codigo:       presentaciones.map(p => p.plu).filter(Boolean).join(', '),
+      seccion:      seccionParaGrupo(rubro),
+      producto:     rubro,
+      presentacion: presStr + (tambores ? ` · Tambor ${tambores}` : ''),
+      presentaciones,
+      cantidad:     totalCant,
+      criticidad:   CRITICIDAD[semaforo] || 'Media',
+      prioridad:    Math.min(...conCant.map(it => it.prioridad ?? 9999)),
+      envase:       conCant.find(it => it.envase)?.envase || '',
+      estado:       'pendiente',
+      encargados:   [...new Set(conCant.flatMap(it => it.responsables||[]))],
+      encargado:    [...new Set(conCant.flatMap(it => it.responsables||[]))].join(' / '),
+      tambor:       tambores,
+      fecha:        fechaPlanActual
+    });
+  }
+
+  ordenes.forEach((o, i) => { o.id = Date.now() + i; });
+  return ordenes;
+}
+
+function eTabSwitch(tab) {
+  const isOrdenes = tab === 'ordenes';
+  document.getElementById('enviarLista').style.display = isOrdenes ? 'flex' : 'none';
+  document.getElementById('enviarMP').style.display    = isOrdenes ? 'none' : 'block';
+  const btnO = document.getElementById('eTabBtnOrdenes');
+  const btnM = document.getElementById('eTabBtnMP');
+  btnO.style.borderBottomColor = isOrdenes ? '#1e40af' : 'transparent';
+  btnO.style.color = isOrdenes ? '#1e40af' : 'var(--muted)';
+  btnM.style.borderBottomColor = isOrdenes ? 'transparent' : '#1e40af';
+  btnM.style.color = isOrdenes ? 'var(--muted)' : '#1e40af';
+}
+
+async function calcularYRenderizarMP() {
+  const items = planCache?.items || [];
+  const mpMap = {};
+  for (const it of items) {
+    const cant = it.cantConfirmada ?? it.cantSugerida ?? 0;
+    if (cant <= 0) continue;
+    const plu = String(it.idProducto);
+    // intentar cargar fórmula si no está en cache
+    if (!formulasAllCache[plu]) {
+      try {
+        const bom = await api('GET', `/api/bom/producto/${plu}`);
+        if (bom.length) formulasAllCache[plu] = bom.map(c => ({ ...c, _fromSiga: true }));
+      } catch(e) {}
+    }
+    const formula = formulasAllCache[plu] || [];
+    for (const c of formula) {
+      const k = String(c.plu);
+      if (!mpMap[k]) mpMap[k] = { nombre: c.nombre, total: 0 };
+      mpMap[k].total = Math.round((mpMap[k].total + c.cantPorUnidad * cant) * 10000) / 10000;
+    }
+  }
+  const mpList = Object.entries(mpMap).map(([plu, v]) => ({ plu, ...v }));
+  const body = document.getElementById('enviarMPBody');
+  if (!mpList.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin fórmulas definidas para las presentaciones del plan.</div>';
+    return;
+  }
+  body.innerHTML = '<div style="color:var(--muted);font-size:11px;margin-bottom:6px">Cargando stock…</div>';
+  const stockMap = new Map();
+  try {
+    const rows = await api('GET', `/api/stock/plus?ids=${mpList.map(r=>r.plu).join(',')}`);
+    for (const r of rows) stockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
+  } catch(e) {}
+  body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#f1f5f9">
+      <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Componente</th>
+      <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Necesario</th>
+      <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Stock</th>
+      <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Diferencia</th>
+    </tr></thead><tbody>
+    ${mpList.map(r => {
+      const stock = stockMap.has(r.plu) ? stockMap.get(r.plu) : null;
+      const diff  = stock !== null ? Math.round((stock - r.total) * 10000) / 10000 : null;
+      const falta = diff !== null && diff < 0;
+      return `<tr style="border-bottom:1px solid var(--md-outline-variant)${falta?';background:#fff5f5':''}">
+        <td style="padding:6px 8px${falta?';font-weight:600':''}">
+          ${falta?'<span style="color:var(--red-text);margin-right:4px">⚠</span>':''}${escHtml(r.nombre)}
+          <span style="font-size:10px;color:var(--muted);margin-left:4px">PLU ${escHtml(String(r.plu))}</span>
+        </td>
+        <td style="text-align:right;padding:6px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${r.total}</td>
+        <td style="text-align:right;padding:6px 8px;color:${stock===null?'var(--muted)':falta?'var(--red-text)':'var(--verde)'}">${stock!==null?stock:'—'}</td>
+        <td style="text-align:right;padding:6px 8px;font-weight:700;color:${diff===null?'var(--muted)':falta?'var(--red-text)':'var(--verde)'}">
+          ${diff!==null?(diff>=0?'+':'')+diff:'—'}
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`;
+}
+
+async function abrirModalEnviar() {
+  try {
+  const ordenes = construirOrdenes();
+  if (!ordenes.length) { toast('Sin grupos con cantidad sugerida', true); return; }
+
+  eTabSwitch('ordenes');
+  const CRIT_COLOR = { Urgente: '#FF1744', Alta: 'var(--red-text)', Media: 'var(--amb-text)', Baja: 'var(--grn-text)' };
+  const html = ordenes.map(o => `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px">
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14px">${escHtml(o.producto)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${escHtml(o.presentacion)}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:11px;font-weight:700;color:${CRIT_COLOR[o.criticidad]||'#555'}">${o.criticidad}</div>
+        <div style="font-size:11px;color:var(--muted)">${o.seccion}</div>
+      </div>
+    </div>`).join('');
+
+  document.getElementById('enviarLista').innerHTML = html;
+  document.getElementById('enviarCount').textContent = `${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} a crear`;
+  document.getElementById('enviarMPBody').innerHTML = '<div style="color:var(--muted);font-size:13px">Calculando…</div>';
+  document.getElementById('overlayEnviar').classList.add('open');
+  calcularYRenderizarMP(); // async, no await — se llena en background
+  } catch(err) { toast('Error abriendo modal: ' + err.message, true); console.error(err); }
+}
+
+async function confirmarEnviarProduccion() {
+  const ordenes = construirOrdenes();
+  if (!ordenes.length) return;
+  const sinResp = ordenes.filter(o => !o.encargados?.length);
+  if (sinResp.length) {
+    const nombres = sinResp.map(o => o.producto).join('\n· ');
+    const ok = await showConfirm(
+      '⚠ Órdenes sin responsable',
+      `${sinResp.length} orden${sinResp.length>1?'es':''} no tienen responsable asignado:\n\n· ${nombres}\n\n¿Enviar igual?`,
+      'Enviar igual'
+    );
+    if (!ok) return;
+  }
+  // Validación: presentaciones sin código (PLU) → no se podrían identificar en Producción
+  const sinCodigo = [];
+  for (const o of ordenes) {
+    if (Array.isArray(o.presentaciones) && o.presentaciones.length) {
+      const faltan = o.presentaciones.filter(p => !p.plu);
+      if (faltan.length) sinCodigo.push(`${o.producto} (${faltan.map(p => p.presentacion).join(', ')})`);
+    } else if (!o.codigo) {
+      sinCodigo.push(o.producto);
+    }
+  }
+  if (sinCodigo.length) {
+    const nombres = sinCodigo.join('\n· ');
+    const ok = await showConfirm(
+      '⚠ Presentaciones sin código',
+      `${sinCodigo.length} ${sinCodigo.length>1?'productos no tienen':'producto no tiene'} código (PLU) y no se ${sinCodigo.length>1?'podrán':'podrá'} identificar en Producción:\n\n· ${nombres}\n\n¿Enviar igual?`,
+      'Enviar igual'
+    );
+    if (!ok) return;
+  }
+  // Aviso de duplicados: órdenes con mismo producto + fecha ya enviadas a producción
+  try {
+    const existentes = (await api('GET', '/api/ordenes-produccion')) || [];
+    const k = o => `${o.fecha||''}|${(o.producto||'').trim().toLowerCase()}`;
+    const prevMap = new Map((existentes || []).map(o => [k(o), o]));
+    const esCompleta = o => { const e = prevMap.get(k(o)); return !!e && (e.terminado === true || e.estado === 'listo'); };
+    const dup = ordenes.filter(o => prevMap.has(k(o)));
+    if (dup.length) {
+      const aSobre = dup.filter(o => !esCompleta(o));
+      const completas = dup.filter(esCompleta);
+      const bloques = [];
+      if (aSobre.length) bloques.push(`Se sobreescribirá${aSobre.length>1?'n':''} con los datos nuevos:\n· ${aSobre.map(o=>o.producto).join('\n· ')}`);
+      if (completas.length) bloques.push(`Ya completada${completas.length>1?'s':''} → se verifica${completas.length>1?'n':''} y se mantiene${completas.length>1?'n':''} oculta${completas.length>1?'s':''} (no se sobreescribe${completas.length>1?'n':''}):\n· ${completas.map(o=>o.producto).join('\n· ')}`);
+      const ok = await showConfirm(
+        '⚠ Ya enviadas hoy',
+        `${bloques.join('\n\n')}\n\n¿Continuar?`,
+        'Sobreescribir y enviar'
+      );
+      if (!ok) return;
+    }
+  } catch (e) { /* si la consulta falla, continúa el envío normal */ }
+  const btn = document.getElementById('btnConfirmarEnviar');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  try {
+    await api('POST', '/api/enviar-produccion', ordenes);
+    document.getElementById('overlayEnviar').classList.remove('open');
+    toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+  } catch (e) {
+    toast('Error al enviar: ' + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Confirmar y enviar';
+  }
+}
+
+document.getElementById('btnEnviarProd').addEventListener('click', abrirModalEnviar);
+document.getElementById('btnMoverTodoDia').addEventListener('click', moverTodoDia);
+document.getElementById('btnResumenMP').addEventListener('click', () => {
+  const items = planCache?.items || [];
+  if (!items.length) return;
+  mostrarMPResumen(`📦 Materia Prima — ${fechaPlanActual || 'plan'}`, items);
+});
+document.getElementById('cerrarEnviar').addEventListener('click', () =>
+  document.getElementById('overlayEnviar').classList.remove('open'));
+document.getElementById('btnConfirmarEnviar').addEventListener('click', confirmarEnviarProduccion);
+document.getElementById('overlayEnviar').addEventListener('click', e => {
+  if (e.target === document.getElementById('overlayEnviar'))
+    document.getElementById('overlayEnviar').classList.remove('open');
+});
+
+// ══════════════════ MODAL EDITAR GRUPO ══════════════════════════
+
+let editarGrupoRef    = null;
+let editarGrupoRefId  = null;
+let editarGrupoEsNuevo = false;
+let nuevoGrupoEsMiel   = false; // true si el alta viene del botón "Agregar variedad" (sección Mieles)
+
+const PRES_RE_JS = /(\d+(?:[.,]\d+)?\s*(?:G|Kg|Ml|L|g|kg|ml|l))(?:\s+\w+)*$/i;
+function normalizarNombreJS(nombre) {
+  let n = nombre.trim();
+  n = n.replace(/\s+pack\b.*$/i,  '').trim();
+  n = n.replace(/\s+bulto\b.*$/i, '').trim();
+  n = n.replace(/\bvid\s+/i,      '').trim();
+  n = n.replace(/\s+vid$/i,       '').trim();
+  return n.trim();
+}
+function extraerPresentacionJS(base) {
+  const m = PRES_RE_JS.exec(base);
+  if (!m) return base;
+  return m[0].trim().replace(/\bkg\b/i, 'Kg').replace(/\bg\b/i, 'G');
+}
+
+function abrirModalNuevoGrupo() {
+  editarGrupoRef     = null;
+  editarGrupoRefId   = null;
+  editarGrupoEsNuevo = true;
+  nuevoGrupoEsMiel   = false;
+  document.getElementById('editarGrupoTitulo').style.display  = 'none';
+  document.getElementById('inputNombreGrupo').style.display   = '';
+  document.getElementById('inputNombreGrupo').value           = '';
+  document.getElementById('editarGrupoMeta').textContent      = '0 presentaciones · 0 PLUs';
+  document.getElementById('editarGrupoBody').innerHTML =
+    '<div class="loading" style="padding:32px">Escribí el nombre del grupo arriba y buscá productos en Siga para agregarlos.</div>';
+  document.getElementById('inputNuevaPres').value = '';
+  document.getElementById('panelBuscarSiga').style.display = 'none';
+  document.getElementById('overlayEditarGrupo').classList.add('open');
+  setTimeout(() => document.getElementById('inputNombreGrupo').focus(), 80);
+}
+
+// Alta de variedad de miel: reusa el modal de nuevo grupo, con el nombre pre-cargado "Miel "
+// para que quede en la sección Variedades de Miel y habilite la carga de tambor.
+function abrirModalNuevaVariedadMiel() {
+  abrirModalNuevoGrupo();
+  nuevoGrupoEsMiel = true;
+  const inp = document.getElementById('inputNombreGrupo');
+  inp.value = 'Miel ';
+  setTimeout(() => { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }, 100);
+}
+
+// Pregunta (Promise) si un grupo con "miel" en el nombre va a la sección Mieles.
+let _seccionMielResolve = null;
+function preguntarSeccionMiel(nombre) {
+  document.getElementById('smNombre').textContent = nombre || '';
+  document.getElementById('overlaySeccionMiel').classList.add('open');
+  return new Promise(resolve => { _seccionMielResolve = resolve; });
+}
+function _resolverSeccionMiel(val) {
+  document.getElementById('overlaySeccionMiel').classList.remove('open');
+  if (_seccionMielResolve) { const r = _seccionMielResolve; _seccionMielResolve = null; r(val); }
+}
+document.getElementById('btnSmSi').addEventListener('click', () => _resolverSeccionMiel(true));
+document.getElementById('btnSmNo').addEventListener('click', () => _resolverSeccionMiel(false));
+document.getElementById('cerrarSeccionMiel').addEventListener('click', () => _resolverSeccionMiel(false));
+document.getElementById('overlaySeccionMiel').addEventListener('click', e => { if (e.target === e.currentTarget) _resolverSeccionMiel(false); });
+
+async function abrirModalGrupo(productoRef) {
+  editarGrupoRef     = productoRef;
+  editarGrupoRefId   = null;
+  editarGrupoEsNuevo = false;
+  document.getElementById('editarGrupoTitulo').textContent    = productoRef;
+  document.getElementById('editarGrupoTitulo').style.display  = '';
+  const _gp = cfgGetGranelPlu(productoRef);
+  document.getElementById('inputGranelPlu').value = _gp;
+  setGranelNomDisplay(_gp, null);
+  mpManualData = cfgGetMpManual(productoRef).map(x=>({...x}));
+  mpSelectedComp = null;
+  document.getElementById('mpBody').innerHTML = '';
+  document.getElementById('mpResultados').style.display = 'none';
+  document.getElementById('mpInputBuscar').value = '';
+  document.getElementById('mpInputCant').value = '';
+  setModalTab('pres');
+  document.getElementById('inputNombreGrupo').style.display   = 'none';
+  document.getElementById('editarGrupoMeta').textContent      = 'Cargando…';
+  document.getElementById('editarGrupoBody').innerHTML        = '<div class="loading">Cargando…</div>';
+  document.getElementById('inputNuevaPres').value             = '';
+  document.getElementById('panelBuscarSiga').style.display    = 'none';
+  document.getElementById('overlayEditarGrupo').classList.add('open');
+  try {
+    const items = await api('GET', `/api/catalogo/grupo/${encodeURIComponent(productoRef)}`);
+    if (items.length) editarGrupoRefId = items[0].refId;
+    renderModalGrupoBody(items);
+    await cargarFormulasGrupo(items); // cargar fórmulas en paralelo
+  } catch (e) {
+    document.getElementById('editarGrupoBody').innerHTML =
+      `<div class="loading" style="color:red">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function buildTablaHTML(bodyRows) {
+  return `<table class="plu-tabla" style="min-width:520px">
+    <thead><tr>
+      <th style="width:86px">PLU</th>
+      <th>Nombre en Siga</th>
+      <th style="width:118px">Presentación</th>
+      <th style="width:56px;text-align:center">Variante</th>
+      <th style="width:38px"></th>
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>`;
+}
+
+function renderModalGrupoBody(items) {
+  const porPres = {};
+  for (const item of items) {
+    const p = item.presentacion || '(sin presentación)';
+    if (!porPres[p]) porPres[p] = [];
+    porPres[p].push(item);
+  }
+  const presentaciones = Object.keys(porPres).sort((a, b) => a.localeCompare(b));
+  document.getElementById('editarGrupoMeta').textContent =
+    `${presentaciones.length} presentaciones · ${items.length} PLUs`;
+
+  if (!items.length) {
+    document.getElementById('editarGrupoBody').innerHTML =
+      '<div class="loading" style="padding:32px">Sin PLUs. Usá "+ Presentación" para agregar.</div>';
+    return;
+  }
+
+  const bodyRows = presentaciones.flatMap(p => {
+    const its  = porPres[p];
+    const safe = p.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return [
+      `<tr class="pres-group-row" data-group="${escHtml(p)}">
+        <td colspan="3">${escHtml(p)}
+          <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px">${its.length} PLU${its.length!==1?'s':''}</span>
+        </td>
+        <td></td>
+        <td><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 7px"
+          onclick="agregarFilaPlu('${safe}')">+ PLU</button></td>
+      </tr>`,
+      ...its.map(item => renderFilaPlu(item))
+    ];
+  }).join('');
+
+  document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML(bodyRows);
+}
+
+function renderFilaPlu(item) {
+  return `<tr data-plu-row>
+    <td><input class="plu-input plu-input-plu" type="number" min="1"
+      value="${item.plu||''}" data-field="plu"></td>
+    <td><input class="plu-input" type="text"
+      value="${escHtml(item.producto||item.baseNombre||'')}" data-field="producto"></td>
+    <td><input class="plu-input plu-input-pres" type="text"
+      value="${escHtml(item.presentacion||'')}" data-field="presentacion"></td>
+    <td style="text-align:center">
+      <input type="checkbox" ${item.esVariante?'checked':''} data-field="esVariante"
+        style="width:16px;height:16px;accent-color:var(--verde)">
+    </td>
+    <td><button class="btn btn-danger btn-sm" style="padding:2px 7px"
+      onclick="this.closest('tr').remove();actualizarMetaModal()">✕</button></td>
+  </tr>`;
+}
+
+function agregarFilaPlu(presentacion) {
+  let tbody = document.querySelector('#editarGrupoBody tbody');
+  if (!tbody) {
+    document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML('');
+    tbody = document.querySelector('#editarGrupoBody tbody');
+  }
+  let insertAfter = null;
+  for (const tr of tbody.querySelectorAll('tr.pres-group-row')) {
+    if (tr.dataset.group === presentacion) {
+      insertAfter = tr;
+      let next = tr.nextElementSibling;
+      while (next && !next.classList.contains('pres-group-row')) {
+        insertAfter = next;
+        next = next.nextElementSibling;
+      }
+      break;
+    }
+  }
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-plu-row', '');
+  tr.innerHTML = `
+    <td><input class="plu-input plu-input-plu" type="number" min="1" value="" data-field="plu" placeholder="PLU"></td>
+    <td><input class="plu-input" type="text" value="" data-field="producto" placeholder="Nombre del producto"></td>
+    <td><input class="plu-input plu-input-pres" type="text" value="${escHtml(presentacion)}" data-field="presentacion"></td>
+    <td style="text-align:center">
+      <input type="checkbox" data-field="esVariante" style="width:16px;height:16px;accent-color:var(--verde)">
+    </td>
+    <td><button class="btn btn-danger btn-sm" style="padding:2px 7px"
+      onclick="this.closest('tr').remove();actualizarMetaModal()">✕</button></td>`;
+  if (insertAfter) insertAfter.after(tr); else tbody.appendChild(tr);
+  tr.querySelector('[data-field=plu]').focus();
+  actualizarMetaModal();
+}
+
+function actualizarMetaModal() {
+  const total  = document.querySelectorAll('#editarGrupoBody [data-plu-row]').length;
+  const grupos = document.querySelectorAll('#editarGrupoBody tr.pres-group-row').length;
+  document.getElementById('editarGrupoMeta').textContent = `${grupos} presentaciones · ${total} PLUs`;
+}
+
+document.getElementById('btnAgregarPresentacion').addEventListener('click', () => {
+  const nombre = document.getElementById('inputNuevaPres').value.trim();
+  if (!nombre) { document.getElementById('inputNuevaPres').focus(); return; }
+  document.getElementById('inputNuevaPres').value = '';
+
+  let tbody = document.querySelector('#editarGrupoBody tbody');
+  if (!tbody) {
+    document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML('');
+    tbody = document.querySelector('#editarGrupoBody tbody');
+  }
+  const safe = nombre.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const tr = document.createElement('tr');
+  tr.className = 'pres-group-row';
+  tr.dataset.group = nombre;
+  tr.innerHTML = `
+    <td colspan="3">${escHtml(nombre)}
+      <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px">0 PLUs</span>
+    </td>
+    <td></td>
+    <td><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 7px"
+      onclick="agregarFilaPlu('${safe}')">+ PLU</button></td>`;
+  tbody.appendChild(tr);
+  agregarFilaPlu(nombre);
+});
+
+document.getElementById('inputNuevaPres').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btnAgregarPresentacion').click();
+});
+
+async function guardarGrupo() {
+  // Resolver nombre del grupo
+  if (editarGrupoEsNuevo) {
+    const nombre = document.getElementById('inputNombreGrupo').value.trim();
+    if (!nombre) {
+      document.getElementById('inputNombreGrupo').focus();
+      toast('Escribí un nombre para el grupo antes de guardar', true);
+      return;
+    }
+    const yaExiste = gruposCatCache.some(g => g.productoRef.toLowerCase() === nombre.toLowerCase());
+    if (yaExiste) {
+      toast(`Ya existe un grupo llamado "${nombre}"`, true);
+      document.getElementById('inputNombreGrupo').focus();
+      return;
+    }
+    editarGrupoRef = nombre;
+  }
+
+  const rows = [...document.getElementById('editarGrupoBody').querySelectorAll('[data-plu-row]')];
+  const items = [];
+  for (const row of rows) {
+    const plu          = parseInt(row.querySelector('[data-field=plu]').value);
+    const producto     = row.querySelector('[data-field=producto]').value.trim();
+    const presentacion = row.querySelector('[data-field=presentacion]').value.trim();
+    const esVariante   = row.querySelector('[data-field=esVariante]').checked;
+    if (!plu || !producto) continue;
+    items.push({
+      plu, producto,
+      baseNombre:   normalizarNombreJS(producto),
+      presentacion: presentacion || extraerPresentacionJS(normalizarNombreJS(producto)),
+      esVariante,
+      refId:       editarGrupoRefId,
+      productoRef: editarGrupoRef
+    });
+  }
+
+  // Grupo nuevo: decidir si es variedad de miel (sección Mieles + tambor).
+  if (editarGrupoEsNuevo) {
+    if (nuevoGrupoEsMiel) {
+      cfgSetEsMiel(editarGrupoRef, true);               // vino del botón "Agregar variedad"
+    } else if (/miel/i.test(editarGrupoRef)) {
+      const llevar = await preguntarSeccionMiel(editarGrupoRef); // grupo general con "miel" → preguntar
+      cfgSetEsMiel(editarGrupoRef, !!llevar);
+    }
+  }
+
+  const btn = document.getElementById('btnGuardarGrupo');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const _gPlu = document.getElementById('inputGranelPlu').value.trim();
+    cfgSetGranelPlu(editarGrupoRef, _gPlu);
+    // Persist mpManual into cfg entry (preserves activo + granelPlu already set above)
+    const _cfgEntry = gruposCfgLocal[editarGrupoRef];
+    if (mpManualData.length > 0) {
+      if (_cfgEntry && typeof _cfgEntry === 'object') { _cfgEntry.mpManual = mpManualData; }
+      else { gruposCfgLocal[editarGrupoRef] = { activo: _cfgEntry !== false, mpManual: mpManualData }; }
+    } else if (_cfgEntry && typeof _cfgEntry === 'object') {
+      delete _cfgEntry.mpManual;
+    }
+    await Promise.all([
+      api('PUT', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}`, items),
+      guardarGruposCfg(),
+      guardarFormulasGrupo()
+    ]);
+    toast(`✓ "${editarGrupoRef}" — ${items.length} PLUs${_gPlu ? ' · Granel PLU '+_gPlu : ''}`);
+    document.getElementById('overlayEditarGrupo').classList.remove('open');
+    cargarCatalogo();
+  } catch (e) {
+    toast('Error al guardar: ' + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Guardar cambios';
+  }
+}
+
+// ── Buscar en Siga ───────────────────────────────────────────────
+let buscarSigaTimer = null;
+
+document.getElementById('btnToggleBuscarSiga').addEventListener('click', () => {
+  const panel = document.getElementById('panelBuscarSiga');
+  const visible = panel.style.display !== 'none';
+  panel.style.display = visible ? 'none' : 'block';
+  if (!visible) {
+    actualizarSelectPres();
+    document.getElementById('inputBuscarSiga').focus();
+  }
+});
+
+function actualizarSelectPres() {
+  const sel = document.getElementById('selectPresBuscar');
+  const grupos = [...document.querySelectorAll('#editarGrupoBody tr.pres-group-row')];
+  sel.innerHTML = '<option value="">Auto-detectar</option>' +
+    grupos.map(g => `<option value="${escHtml(g.dataset.group)}">${escHtml(g.dataset.group)}</option>`).join('');
+}
+
+document.getElementById('inputBuscarSiga').addEventListener('input', function () {
+  clearTimeout(buscarSigaTimer);
+  const q = this.value.trim();
+  if (q.length < 2) { document.getElementById('resultadosBuscarSiga').innerHTML = ''; return; }
+  document.getElementById('resultadosBuscarSiga').innerHTML =
+    '<div style="padding:8px 16px;font-size:12px;color:var(--muted)">Buscando…</div>';
+  buscarSigaTimer = setTimeout(() => buscarEnSiga(q), 350);
+});
+
+document.getElementById('inputBuscarSiga').addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('panelBuscarSiga').style.display = 'none';
+  }
+});
+
+async function buscarEnSiga(q) {
+  try {
+    const rows = await api('GET', `/api/siga/buscar?q=${encodeURIComponent(q)}`);
+    const enCatalogo = new Set(
+      [...document.querySelectorAll('#editarGrupoBody [data-field=plu]')].map(i => i.value)
+    );
+    if (!rows.length) {
+      document.getElementById('resultadosBuscarSiga').innerHTML =
+        '<div style="padding:8px 16px;font-size:12px;color:var(--muted)">Sin resultados.</div>';
+      return;
+    }
+    const html = rows.map(r => {
+      const yaAgregado = enCatalogo.has(String(r.plu));
+      return `<div class="search-result${yaAgregado?' siga-ya-cargado':''}"
+          style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid #e0eaff;cursor:${yaAgregado?'default':'pointer'};background:${yaAgregado?'#f0fdf4':'#fff'}"
+          ${yaAgregado ? '' : `onclick="agregarDesdeSiga(${r.plu},'${escHtml(r.producto).replace(/'/g,"\\'")}','${escHtml(r.rubro).replace(/'/g,"\\'")}')"`}>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--muted);width:60px;flex-shrink:0">${escHtml(String(r.plu))}</span>
+        <span style="flex:1;font-size:13px;${yaAgregado?'color:var(--grn-text)':''}">${escHtml(r.producto)}${yaAgregado?' <span style="font-size:11px">✓ ya cargado</span>':''}</span>
+        <span style="font-size:11px;color:var(--muted)">${escHtml(r.rubro)}</span>
+      </div>`;
+    }).join('');
+    document.getElementById('resultadosBuscarSiga').innerHTML = html;
+  } catch (e) {
+    document.getElementById('resultadosBuscarSiga').innerHTML =
+      `<div style="padding:8px 16px;font-size:12px;color:red">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function agregarDesdeSiga(plu, producto, rubro) {
+  const base         = normalizarNombreJS(producto);
+  const presDetected = extraerPresentacionJS(base);
+  const presManual   = document.getElementById('selectPresBuscar').value;
+  const presentacion = presManual || presDetected;
+
+  // Buscar o crear el grupo
+  let tbody = document.querySelector('#editarGrupoBody tbody');
+  if (!tbody) {
+    document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML('');
+    tbody = document.querySelector('#editarGrupoBody tbody');
+  }
+
+  let groupHeader = [...tbody.querySelectorAll('tr.pres-group-row')]
+    .find(tr => tr.dataset.group === presentacion);
+
+  if (!groupHeader) {
+    // Crear grupo nuevo
+    const safe = presentacion.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const tr = document.createElement('tr');
+    tr.className = 'pres-group-row';
+    tr.dataset.group = presentacion;
+    tr.innerHTML = `
+      <td colspan="3">${escHtml(presentacion)}
+        <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px">0 PLUs</span>
+      </td>
+      <td></td>
+      <td><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 7px"
+        onclick="agregarFilaPlu('${safe}')">+ PLU</button></td>`;
+    tbody.appendChild(tr);
+    groupHeader = tr;
+    actualizarSelectPres();
+  }
+
+  // Insertar PLU después del último row del grupo
+  let insertAfter = groupHeader;
+  let next = groupHeader.nextElementSibling;
+  while (next && !next.classList.contains('pres-group-row')) {
+    insertAfter = next;
+    next = next.nextElementSibling;
+  }
+
+  const esVariante = /\b(pack|bulto|vid)\b/i.test(producto);
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-plu-row', '');
+  tr.innerHTML = `
+    <td><input class="plu-input plu-input-plu" type="number" min="1" value="${plu}" data-field="plu"></td>
+    <td><input class="plu-input" type="text" value="${escHtml(producto)}" data-field="producto"></td>
+    <td><input class="plu-input plu-input-pres" type="text" value="${escHtml(presentacion)}" data-field="presentacion"></td>
+    <td style="text-align:center">
+      <input type="checkbox" ${esVariante?'checked':''} data-field="esVariante"
+        style="width:16px;height:16px;accent-color:var(--verde)">
+    </td>
+    <td><button class="btn btn-danger btn-sm" style="padding:2px 7px"
+      onclick="this.closest('tr').remove();actualizarMetaModal()">✕</button></td>`;
+  insertAfter.after(tr);
+
+  // Marcar como ya cargado en los resultados
+  document.getElementById('inputBuscarSiga').dispatchEvent(new Event('input'));
+  tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  actualizarMetaModal();
+  toast(`✓ PLU ${plu} agregado en "${presentacion}"`);
+}
+
+document.getElementById('btnGuardarGrupo').addEventListener('click', guardarGrupo);
+document.getElementById('btnCancelarGrupo').addEventListener('click', () =>
+  document.getElementById('overlayEditarGrupo').classList.remove('open'));
+document.getElementById('cerrarEditarGrupo').addEventListener('click', () =>
+  document.getElementById('overlayEditarGrupo').classList.remove('open'));
+document.getElementById('overlayEditarGrupo').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+// ══════════════════ TAB 4: CATÁLOGO ════════════════════════════
+
+let gruposCatCache = [];
+let gruposCfgLocal = {};
+function cfgGetActivo(ref){const v=gruposCfgLocal[ref];if(v===undefined)return true;if(typeof v==='boolean')return v;return v.activo!==false;}
+function cfgGetGranelPlu(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object')?(v.granelPlu||''):''}
+function cfgGetMpManual(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&Array.isArray(v.mpManual))?v.mpManual:[];}
+function cfgRawGranelDirecto(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&typeof v.granelDirecto==='boolean')?v.granelDirecto:null;}
+function cfgGetGranelDirecto(ref){const o=cfgRawGranelDirecto(ref);if(o!==null)return o;const g=gruposCatCache.find(x=>x.productoRef===ref);return g?!!g.esGranel:false;}
+function cfgRawEsMiel(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&typeof v.esMiel==='boolean')?v.esMiel:null;}
+// Por defecto (sin override) cae al nombre que arranca con "Miel".
+function cfgGetEsMiel(ref){const o=cfgRawEsMiel(ref);if(o!==null)return o;return /^miel\b/i.test((ref||'').trim());}
+function cfgEntry(ref,{activo,granelPlu,mpManual,granelDirecto,esMiel}){const obj={activo};if(granelPlu)obj.granelPlu=granelPlu;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined;return extra?obj:activo;}
+function cfgSetActivo(ref,a){gruposCfgLocal[ref]=cfgEntry(ref,{activo:a,granelPlu:cfgGetGranelPlu(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref)});}
+function cfgSetGranelPlu(ref,plu){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlu:plu,mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref)});}
+function cfgSetGranelDirecto(ref,val){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlu:cfgGetGranelPlu(ref),mpManual:cfgGetMpManual(ref),granelDirecto:val,esMiel:cfgRawEsMiel(ref)});}
+function cfgSetEsMiel(ref,val){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlu:cfgGetGranelPlu(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:val});}
+
+async function cargarCatalogo() {
+  try {
+    gruposCatCache = await api('GET', '/api/catalogo/grupos');
+    gruposCfgLocal = {};
+    for (const g of gruposCatCache) {
+      const gp = g.granelPlu || '';
+      const mp = Array.isArray(g.mpManual) ? g.mpManual : [];
+      const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
+      const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}) }
+        : g.activo;
+    }
+    renderCatalogo();
+  } catch (e) {
+    toast('Error al cargar catálogo: ' + e.message, true);
+  }
+}
+
+function renderCatalogo() {
+  const q = document.getElementById('filtroCatalogo').value.trim().toLowerCase();
+  const filtrado = q
+    ? gruposCatCache.filter(g => g.productoRef.toLowerCase().includes(q))
+    : gruposCatCache;
+
+  const mieles = filtrado.filter(g => cfgGetEsMiel(g.productoRef));
+  const otros  = filtrado.filter(g => !cfgGetEsMiel(g.productoRef));
+
+  const activos   = gruposCatCache.filter(g => cfgGetActivo(g.productoRef)).length;
+  const totalPlu  = gruposCatCache.reduce((s, g) => s + g.totalPlu, 0);
+  document.getElementById('cTotalGrupos').textContent  = gruposCatCache.length;
+  document.getElementById('cActivosGrupos').textContent = activos;
+  document.getElementById('cTotalPlu').textContent      = totalPlu;
+
+  document.getElementById('tablaMieles').innerHTML = renderGrupoRows(mieles) || '<div class="loading">Sin variedades de miel en el catálogo.</div>';
+  document.getElementById('tablaOtros').innerHTML  = renderGrupoRows(otros)  || '<div class="loading">Sin grupos.</div>';
+}
+
+function renderGrupoRows(grupos) {
+  if (!grupos.length) return '';
+  return grupos.map(g => {
+    const activo = cfgGetActivo(g.productoRef);
+    const gPlu   = cfgGetGranelPlu(g.productoRef);
+    const esGranelG = cfgGetGranelDirecto(g.productoRef);
+    const id     = 'tog-' + g.productoRef.replace(/\W+/g, '_');
+    const idG    = 'tggran-' + g.productoRef.replace(/\W+/g, '_');
+    const ref    = g.productoRef.replace(/'/g, "\\'");
+    return `<div class="grupo-cat-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="${id}" ${activo ? 'checked' : ''}
+          onchange="toggleGrupoActivo('${ref}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="grupo-cat-nombre${activo ? '' : ' inactivo'}">${escHtml(g.productoRef)}</span>
+      <div class="grupo-cat-meta">
+        <span title="Presentaciones base">${g.presentaciones} presentaciones</span>
+        <span title="Total PLUs">${g.totalPlu} PLUs</span>
+        ${g.variantes ? `<span title="Packs y bultos">${g.variantes} variantes</span>` : ''}
+        ${gPlu ? `<span title="Granel (MP)" style="color:var(--amb-text);font-weight:700">🛢 ${gPlu}</span>` : ''}
+      </div>
+      <label class="toggle-switch" title="Producir como granel (bulk). Off = planificar por presentaciones." style="transform:scale(.8)">
+        <input type="checkbox" id="${idG}" ${esGranelG ? 'checked' : ''}
+          onchange="toggleGrupoGranel('${ref}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span style="font-size:11px;color:${esGranelG?'#065f46':'var(--muted)'};font-weight:${esGranelG?'700':'400'};margin-right:6px">granel</span>
+      <button class="btn btn-secondary btn-sm" style="font-size:11px;margin-left:8px"
+        onclick="abrirModalGrupo('${ref}')">Ver / Editar</button>
+    </div>`;
+  }).join('');
+}
+
+async function toggleGrupoActivo(productoRef, activo) {
+  cfgSetActivo(productoRef, activo);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function toggleGrupoGranel(productoRef, esGranel) {
+  cfgSetGranelDirecto(productoRef, esGranel);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function guardarGruposCfg() {
+  try {
+    await api('POST', '/api/catalogo/grupos-config', gruposCfgLocal);
+  } catch (e) { toast('Error al guardar config: ' + e.message, true); }
+}
+
+async function toggleTodasMieles(activo) {
+  for (const g of gruposCatCache)
+    if (cfgGetEsMiel(g.productoRef)) cfgSetActivo(g.productoRef, activo);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function toggleTodosOtros(activo) {
+  for (const g of gruposCatCache)
+    if (!cfgGetEsMiel(g.productoRef)) cfgSetActivo(g.productoRef, activo);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+document.getElementById('filtroCatalogo').addEventListener('input', renderCatalogo);
+document.getElementById('btnRecargarCatalogo').addEventListener('click', cargarCatalogo);
+document.getElementById('btnNuevoGrupo').addEventListener('click', abrirModalNuevoGrupo);
+document.getElementById('btnNuevaVariedadMiel').addEventListener('click', abrirModalNuevaVariedadMiel);
+document.getElementById('btnActivarTodasMieles').addEventListener('click',    () => toggleTodasMieles(true));
+document.getElementById('btnDesactivarTodasMieles').addEventListener('click', () => toggleTodasMieles(false));
+document.getElementById('btnActivarTodos').addEventListener('click',    () => toggleTodosOtros(true));
+document.getElementById('btnDesactivarTodos').addEventListener('click', () => toggleTodosOtros(false));
+
+// ── Importar catálogo (tab Catálogo) ──────────────────────────────
+document.getElementById('inputCatalogoTab').addEventListener('change', async function () {
+  const file = this.files[0];
+  if (!file) return;
+  this.disabled = true;
+  document.getElementById('btnImportarCatalogoTab').childNodes[0].textContent = '⏳ Importando… ';
+  try {
+    const fd = new FormData();
+    fd.append('archivo', file);
+    const res  = await fetch(SERVER_URL + '/api/catalogo/importar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    toast(`✓ Catálogo actualizado — ${data.productos} productos`);
+    cargarCatalogo();
+  } catch (err) {
+    toast('Error al importar: ' + err.message, true);
+  } finally {
+    document.getElementById('btnImportarCatalogoTab').childNodes[0].textContent = '📥 Actualizar catálogo ';
+    this.value = '';
+    this.disabled = false;
+  }
+});
+
+// ── Importar catálogo ─────────────────────────────────────────────
+document.getElementById('inputCatalogo').addEventListener('change', async function () {
+  const file = this.files[0];
+  if (!file) return;
+  const label = document.getElementById('btnImportarCatalogo');
+  const textoOriginal = '📥 Actualizar catálogo';
+  label.childNodes[0].textContent = '⏳ Importando… ';
+  this.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('archivo', file);
+    const res  = await fetch(SERVER_URL + '/api/catalogo/importar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    toast(`✓ Catálogo actualizado — ${data.productos} productos`);
+    cargarSugerencias();
+  } catch (err) {
+    toast('Error al importar: ' + err.message, true);
+  } finally {
+    label.childNodes[0].textContent = textoOriginal + ' ';
+    this.value = '';
+    this.disabled = false;
+  }
+});
+
+// ── Init ─────────────────────────────────────────────────────────
+(async () => {
+  await checkConnection();
+  try { responsablesCache = await api('GET', '/api/responsables'); } catch {}
+  cargarSugerencias();
+})();
+</script>
+<script>/*md-ripple-init*/(function(){document.addEventListener("pointerdown",function(e){var t=e.target.closest(".btn,.btn-add,.tab-btn,.dia-chip");if(!t||t.disabled)return;var r=t.getBoundingClientRect(),d=Math.max(r.width,r.height),s=document.createElement("span");s.className="md-ripple";s.style.width=s.style.height=d+"px";s.style.left=(e.clientX-r.left-d/2)+"px";s.style.top=(e.clientY-r.top-d/2)+"px";t.appendChild(s);setTimeout(function(){s.remove();},560);});})();
+// ── Panel Granel MP (modal catálogo) ────────────────────────────
+function setGranelNomDisplay(plu, nombre) {
+  const el = document.getElementById('granelNombreDisplay');
+  if (!plu) { el.textContent = 'Sin granel asignado'; el.style.color = 'var(--muted)'; el.style.fontStyle = 'italic'; return; }
+  el.textContent = nombre || ('PLU ' + plu);
+  el.style.color = 'var(--amb-text)'; el.style.fontStyle = 'normal';
+}
+function onGranelPluInput() {
+  const plu = document.getElementById('inputGranelPlu').value.trim();
+  document.getElementById('resultadosGranelPlu').style.display = 'none';
+  setGranelNomDisplay(plu, null);
+}
+async function buscarGranelPlu() {
+  const q = document.getElementById('inputGranelPlu').value.trim();
+  if (!q) { toast('Escribí PLU o nombre para buscar', true); return; }
+  try {
+    const rows = await api('GET', '/api/siga/buscar?q=' + encodeURIComponent(q));
+    renderResultadosGranel(rows);
+  } catch (e) { toast('Error al buscar: ' + e.message, true); }
+}
+function renderResultadosGranel(rows) {
+  const c = document.getElementById('resultadosGranelPlu');
+  c.innerHTML = '';
+  if (!rows.length) {
+    c.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:var(--muted)">Sin resultados</div>';
+    c.style.display = 'block'; return;
+  }
+  rows.forEach(r => {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding:8px 14px;border-bottom:1px solid #fde68a;cursor:pointer;font-size:13px;display:flex;gap:10px;align-items:baseline';
+    const pluS = String(r.plu);
+    d.innerHTML = '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:700;color:var(--amb-text);flex-shrink:0">' + escHtml(pluS) + '</span>'
+                + '<span>' + escHtml(r.producto) + '</span>'
+                + '<span style="font-size:11px;color:var(--muted);margin-left:auto">' + escHtml(r.rubro||'') + '</span>';
+    d.addEventListener('mousedown', () => seleccionarGranelPlu(pluS, r.producto));
+    c.appendChild(d);
+  });
+  c.style.display = 'block';
+}
+function seleccionarGranelPlu(plu, nombre) {
+  document.getElementById('inputGranelPlu').value = plu;
+  document.getElementById('resultadosGranelPlu').style.display = 'none';
+  setGranelNomDisplay(plu, nombre);
+}
+document.getElementById('btnBuscarGranelPlu').addEventListener('click', buscarGranelPlu);
+document.getElementById('inputGranelPlu').addEventListener('keydown', e => {
+  if (e.key === 'Enter') buscarGranelPlu();
+  if (e.key === 'Escape') document.getElementById('resultadosGranelPlu').style.display = 'none';
+});
+document.getElementById('btnLimpiarGranelPlu').addEventListener('click', () => {
+  document.getElementById('inputGranelPlu').value = '';
+  document.getElementById('resultadosGranelPlu').style.display = 'none';
+  setGranelNomDisplay('', null);
+});
+
+// ── Panel Materia Prima ──────────────────────────────────────────
+let mpManualData = [];
+let mpSelectedComp = null;
+let mpPanelOpen = false;
+
+function setModalTab(tab) {
+  document.getElementById('mPanelPres').style.display     = tab==='pres'     ? 'flex' : 'none';
+  document.getElementById('mPanelMP').style.display       = tab==='mp'        ? 'flex' : 'none';
+  document.getElementById('mPanelFormulas').style.display = tab==='formulas'  ? 'flex' : 'none';
+  document.getElementById('mTabPres').className     = 'modal-tab' + (tab==='pres'    ? ' modal-tab-active' : '');
+  document.getElementById('mTabMP').className       = 'modal-tab' + (tab==='mp'      ? ' modal-tab-active' : '');
+  document.getElementById('mTabFormulas').className = 'modal-tab' + (tab==='formulas'? ' modal-tab-active' : '');
+  if (tab==='mp') cargarBOM();
+  if (tab==='formulas') renderFormulasPanel();
+}
+
+async function cargarBOM() {
+  const plu = document.getElementById('inputGranelPlu').value.trim();
+  document.getElementById('mpBody').innerHTML = '<div style="font-size:12px;color:var(--muted)">Cargando…</div>';
+  let bomSiga = [];
+  if (plu) {
+    try {
+      bomSiga = await api('GET', '/api/bom/producto/' + encodeURIComponent(plu));
+    } catch(e) { bomSiga = []; }
+  }
+  renderBOM(bomSiga);
+}
+
+function renderBOM(bomSiga) {
+  const allRows = [
+    ...bomSiga.map(r =>
+      '<tr style="border-bottom:1px solid #eee">' +
+      '<td style="padding:4px 8px;font-size:12px">' + escHtml(r.nombre) + '</td>' +
+      '<td style="padding:4px 8px;font-size:11px;color:var(--muted);text-align:right">' + r.plu + '</td>' +
+      '<td style="padding:4px 8px;font-size:12px;text-align:right">' + r.cantPorUnidad + '</td>' +
+      '<td style="padding:4px 6px;font-size:11px;color:var(--muted);text-align:center">Siga</td>' +
+      '<td></td></tr>'
+    ),
+    ...mpManualData.map((r, i) =>
+      '<tr style="border-bottom:1px solid #eee;background:#fffbf0">' +
+      '<td style="padding:4px 8px;font-size:12px">' + escHtml(r.nombre) + '</td>' +
+      '<td style="padding:4px 8px;font-size:11px;color:var(--muted);text-align:right">' + (r.plu||'—') + '</td>' +
+      '<td style="padding:4px 8px;font-size:12px;text-align:right">' + r.cantPorKg + '</td>' +
+      '<td style="padding:4px 6px;font-size:11px;color:var(--amb-text);text-align:center">manual</td>' +
+      '<td style="padding:2px 4px"><button onclick="mpQuitarManual(' + i + ')" style="border:none;background:none;color:var(--red-text);cursor:pointer;font-size:13px;line-height:1" title="Quitar">✕</button></td></tr>'
+    )
+  ];
+  const total = bomSiga.length + mpManualData.length;
+  const plu = document.getElementById('inputGranelPlu').value.trim();
+  if (!allRows.length) {
+    document.getElementById('mpBody').innerHTML =
+      '<div style="font-size:12px;color:var(--muted);padding:4px 0">' +
+      (plu ? 'Sin fórmula en Siga para PLU ' + escHtml(plu) + '. Agregá componentes manualmente:' :
+             'Asigná un PLU de granel arriba, o agregá componentes manualmente:') + '</div>';
+  } else {
+    document.getElementById('mpBody').innerHTML =
+      '<table style="width:100%;border-collapse:collapse">' +
+      '<thead><tr style="font-size:11px;color:var(--muted)">' +
+      '<th style="text-align:left;padding:3px 8px">Componente</th>' +
+      '<th style="text-align:right;padding:3px 8px">PLU</th>' +
+      '<th style="text-align:right;padding:3px 8px">Cant/KG</th>' +
+      '<th style="text-align:center;padding:3px 8px">Origen</th>' +
+      '<th></th></tr></thead><tbody>' + allRows.join('') + '</tbody></table>';
+  }
+  document.getElementById('mpBadge').textContent = total
+    ? total + ' componente' + (total > 1 ? 's' : '') + (bomSiga.length ? ' (Siga)' : '') + (mpManualData.length ? ' +' + mpManualData.length + ' manual' + (mpManualData.length>1?'es':'') : '')
+    : '';
+}
+
+function mpQuitarManual(i) {
+  mpManualData.splice(i, 1);
+  cargarBOM();
+}
+
+function parsePeso(str) {
+  if (!str) return 0;
+  const m = str.toUpperCase().match(/(\d+(?:[.,]\d+)?)\s*(KG|G|L|ML)/);
+  if (!m) return 0;
+  let v = parseFloat(m[1].replace(',','.'));
+  if (m[2]==='G'||m[2]==='ML') v /= 1000;
+  return v;
+}
+function buildDefaultMPList() {
+  const res = [];
+  for (const g of (gruposCache||[])) {
+    if (!g.presentaciones?.length) continue;
+    const best = g.presentaciones.reduce((a,b) => parsePeso(b.presentacion) > parsePeso(a.presentacion) ? b : a);
+    if (best.plu) res.push({ plu: best.plu, nombre: best.baseNombre || g.productoRef });
+  }
+  return res;
+}
+function renderDefaultMP(divId, selectFn) {
+  const defaults = buildDefaultMPList();
+  const div = document.getElementById(divId);
+  if (!defaults.length) { div.style.display='none'; return; }
+  div.innerHTML = '<div style="padding:4px 10px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;background:#f7faf6;border-bottom:1px solid #e0eaff">PRESENTACIÓN MÁS GRANDE POR GRUPO</div>' +
+    defaults.map(r =>
+      `<div style="padding:6px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #eee;display:flex;gap:8px"
+        onmousedown="${selectFn}('${r.plu}','${escHtml(r.nombre).replace(/'/g,"\\'")}')">
+        <strong style="font-family:'Barlow Condensed',sans-serif;flex-shrink:0">${escHtml(String(r.plu))}</strong>
+        <span>${escHtml(r.nombre)}</span>
+      </div>`
+    ).join('');
+  div.style.display = 'block';
+}
+
+async function mpBuscarComp() {
+  const q = document.getElementById('mpInputBuscar').value.trim();
+  if (!q) { renderDefaultMP('mpResultados','mpSeleccionar'); return; }
+  try {
+    const rows = await api('GET', '/api/siga/buscar?q=' + encodeURIComponent(q));
+    const div = document.getElementById('mpResultados');
+    if (!rows.length) {
+      div.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--muted)">Sin resultados</div>';
+      div.style.display = 'block'; return;
+    }
+    div.innerHTML = rows.map(r =>
+      '<div style="padding:6px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #eee;display:flex;gap:8px" ' +
+      'onmousedown="mpSeleccionar(\'' + r.plu + '\',\'' + escHtml(r.producto).replace(/'/g,"\\'") + '\')">' +
+      '<strong style="font-family:\'Barlow Condensed\',sans-serif;flex-shrink:0">' + escHtml(String(r.plu)) + '</strong>' +
+      '<span>' + escHtml(r.producto) + '</span>' +
+      '<span style="margin-left:auto;color:var(--muted);font-size:11px">' + escHtml(r.rubro||'') + '</span></div>'
+    ).join('');
+    div.style.display = 'block';
+  } catch(e) { toast('Error: ' + e.message, true); }
+}
+
+function mpSeleccionar(plu, nombre) {
+  mpSelectedComp = { plu, nombre };
+  document.getElementById('mpInputBuscar').value = plu + ' – ' + nombre;
+  document.getElementById('mpResultados').style.display = 'none';
+}
+
+function mpAgregarComp() {
+  const cant = parseFloat(document.getElementById('mpInputCant').value);
+  if (!mpSelectedComp) { toast('Buscá y seleccioná un producto primero', true); return; }
+  if (!cant || cant <= 0) { toast('Ingresá la cantidad por KG', true); return; }
+  mpManualData.push({ plu: mpSelectedComp.plu, nombre: mpSelectedComp.nombre, cantPorKg: cant });
+  mpSelectedComp = null;
+  document.getElementById('mpInputBuscar').value = '';
+  document.getElementById('mpInputCant').value = '';
+  document.getElementById('mpResultados').style.display = 'none';
+  cargarBOM();
+}
+
+// ══════════════════ FÓRMULAS POR PRESENTACIÓN ══════════════════════
+
+let formulasData       = {};   // { plu: [{plu,nombre,cantPorUnidad}] }
+let formulasPresItems  = [];   // items del grupo actual (no-variante)
+let formulasActivePlu  = null;
+let formulasSelComp    = null;
+let formulasAllCache   = {};   // cache global para la vista en planificación
+
+async function cargarFormulasGrupo(items) {
+  formulasPresItems = (items || []).filter(i => !i.esVariante && i.plu);
+  formulasActivePlu = null;
+  formulasData = {};
+  try {
+    const all = await api('GET', '/api/formulas');
+    for (const item of formulasPresItems) {
+      const plu = String(item.plu);
+      formulasData[plu] = Array.isArray(all[plu]) ? all[plu] : [];
+    }
+    formulasAllCache = { ...formulasAllCache, ...all };
+  } catch(e) {}
+  // Auto-completar desde Siga para presentaciones sin fórmula manual
+  await Promise.all(formulasPresItems.map(async item => {
+    const plu = String(item.plu);
+    if (!formulasData[plu]?.length) {
+      try {
+        const bom = await api('GET', `/api/bom/producto/${plu}`);
+        if (bom.length) {
+          const comps = bom.map(c => ({ ...c, _fromSiga: true }));
+          formulasData[plu] = comps;
+          formulasAllCache[plu] = comps;
+        }
+      } catch(e) {}
+    }
+  }));
+}
+
+function renderFormulasPanel() {
+  const sel = document.getElementById('formulaPresSelect');
+  const prev = formulasActivePlu;
+  sel.innerHTML = '<option value="">— seleccioná presentación —</option>' +
+    formulasPresItems.map(i => {
+      const comps = formulasData[String(i.plu)] || [];
+      const tag = comps.length ? (comps[0]._fromSiga ? ' [Siga]' : ' [✓]') : '';
+      return `<option value="${i.plu}"${String(i.plu)===prev?' selected':''}>${escHtml(i.baseNombre)}${tag} (PLU: ${i.plu})</option>`;
+    }).join('');
+  formulaSelectPres(prev || '');
+}
+
+function formulaSelectPres(plu) {
+  formulasActivePlu = plu || null;
+  const addForm = document.getElementById('formulaAddForm');
+  const body    = document.getElementById('formulaBody');
+  document.getElementById('formulaResultados').style.display = 'none';
+  document.getElementById('formulaInputBuscar').value = '';
+  document.getElementById('formulaInputCant').value = '';
+  formulasSelComp = null;
+  if (!plu) { body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Seleccioná una presentación para editar su fórmula.</div>'; addForm.style.display='none'; return; }
+  addForm.style.display = 'block';
+  renderFormulaBody();
+}
+
+function renderFormulaBody() {
+  const plu   = formulasActivePlu;
+  const comps = formulasData[plu] || [];
+  const body  = document.getElementById('formulaBody');
+  if (!comps.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:4px 0">Sin componentes. Agregá los ingredientes/insumos necesarios para producir 1 unidad.</div>';
+    return;
+  }
+  const fromSiga = comps.some(c => c._fromSiga);
+  body.innerHTML = (fromSiga ? '<div style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:4px;padding:3px 8px;margin-bottom:6px;display:inline-block">📡 Cargado desde Siga</div>' : '') +
+  `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr>
+      <th style="text-align:left;padding:4px 6px;font-size:11px;color:var(--muted);font-weight:700">Componente</th>
+      <th style="text-align:right;padding:4px 6px;font-size:11px;color:var(--muted);font-weight:700">Cant/unidad</th>
+      <th style="width:28px"></th>
+    </tr></thead>
+    <tbody>
+    ${comps.map((c,i) => `<tr style="border-bottom:1px solid var(--md-outline-variant)">
+      <td style="padding:5px 6px">${escHtml(c.nombre)}<br><span style="font-size:10px;color:var(--muted)">PLU: ${c.plu||'—'}</span></td>
+      <td style="text-align:right;padding:5px 6px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${c.cantPorUnidad}</td>
+      <td><button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px" onclick="formulaQuitarComp(${i})" title="Quitar">🗑</button></td>
+    </tr>`).join('')}
+    </tbody></table>`;
+}
+
+function formulaQuitarComp(idx) {
+  const plu = formulasActivePlu; if (!plu) return;
+  formulasData[plu] = (formulasData[plu]||[]).filter((_,i) => i!==idx);
+  renderFormulaBody();
+}
+
+async function formulaBuscarComp() {
+  const q = document.getElementById('formulaInputBuscar').value.trim();
+  if (!q) { renderDefaultMP('formulaResultados','formulaSeleccionar'); return; }
+  try {
+    const rows = await api('GET', '/api/siga/buscar?q=' + encodeURIComponent(q));
+    const div  = document.getElementById('formulaResultados');
+    if (!rows.length) { div.innerHTML='<div style="padding:8px 12px;font-size:12px;color:var(--muted)">Sin resultados</div>'; div.style.display='block'; return; }
+    div.innerHTML = rows.map(r =>
+      `<div style="padding:6px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #eee;display:flex;gap:8px"
+        onmousedown="formulaSeleccionar('${r.plu}','${escHtml(r.producto).replace(/'/g,"\\'")}')">
+        <strong style="font-family:'Barlow Condensed',sans-serif;flex-shrink:0">${escHtml(String(r.plu))}</strong>
+        <span>${escHtml(r.producto)}</span>
+        <span style="margin-left:auto;color:var(--muted);font-size:11px">${escHtml(r.rubro||'')}</span>
+      </div>`
+    ).join('');
+    div.style.display = 'block';
+  } catch(e) { toast('Error: '+e.message, true); }
+}
+
+function formulaSeleccionar(plu, nombre) {
+  formulasSelComp = { plu, nombre };
+  document.getElementById('formulaInputBuscar').value = plu + ' – ' + nombre;
+  document.getElementById('formulaResultados').style.display = 'none';
+}
+
+function formulaAgregarComp() {
+  const cant = parseFloat(document.getElementById('formulaInputCant').value);
+  if (!formulasSelComp) { toast('Buscá y seleccioná un componente primero', true); return; }
+  if (!cant || cant <= 0) { toast('Ingresá la cantidad por unidad', true); return; }
+  const plu = formulasActivePlu; if (!plu) return;
+  if (!formulasData[plu]) formulasData[plu] = [];
+  formulasData[plu].push({ plu: formulasSelComp.plu, nombre: formulasSelComp.nombre, cantPorUnidad: cant });
+  formulasSelComp = null;
+  document.getElementById('formulaInputBuscar').value = '';
+  document.getElementById('formulaInputCant').value = '';
+  document.getElementById('formulaResultados').style.display = 'none';
+  renderFormulaBody();
+}
+
+// Guardar fórmulas junto con el grupo (llamado desde guardarGrupo)
+async function guardarFormulasGrupo() {
+  for (const item of formulasPresItems) {
+    const plu  = String(item.plu);
+    const data = formulasData[plu] || [];
+    await api('POST', `/api/formulas/${plu}`, data);
+  }
+}
+
+// ══════════════════ VISTA FÓRMULA EN PLANIFICACIÓN ══════════════════
+
+let fvStockMap = new Map();
+
+async function abrirFormulaView(plu, nombre, cant) {
+  if (!plu) return;
+  // Refresh cache si está vacío
+  if (!Object.keys(formulasAllCache).length) {
+    try { formulasAllCache = await api('GET', '/api/formulas'); } catch(e) {}
+  }
+  let formula = formulasAllCache[String(plu)] || [];
+  document.getElementById('fvTitulo').textContent = nombre;
+  document.getElementById('fvCantInfo').textContent = cant
+    ? `Cantidad a producir: ${cant} unidades`
+    : 'Ingresá cantidad en el campo Sugerido para ver totales';
+  document.getElementById('overlayFormulaView').classList.add('open');
+  if (!formula.length) {
+    document.getElementById('fvBOM').innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">Buscando en Siga…</div>';
+    try {
+      const bom = await api('GET', `/api/bom/producto/${plu}`);
+      if (bom.length) {
+        formula = bom.map(c => ({ ...c, _fromSiga: true }));
+        formulasAllCache[String(plu)] = formula;
+      }
+    } catch(e) {}
+    if (!formula.length) {
+      document.getElementById('fvBOM').innerHTML =
+        '<div style="color:var(--muted);font-size:13px;padding:12px 0">Sin fórmula en Siga ni definida manualmente.</div>';
+      return;
+    }
+  }
+  document.getElementById('fvBOM').innerHTML = '<div style="color:var(--muted);font-size:12px">Cargando stock…</div>';
+  // Fetch stock de componentes
+  const plusList = formula.map(c=>c.plu).filter(Boolean);
+  fvStockMap = new Map();
+  if (plusList.length) {
+    try {
+      const rows = await api('GET', `/api/stock/plus?ids=${plusList.join(',')}`);
+      for (const r of rows) fvStockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
+    } catch(e) {}
+  }
+  renderFvBOM(formula, cant);
+}
+
+function renderFvBOM(formula, cant) {
+  const bom = document.getElementById('fvBOM');
+  const sigatag = formula.some(c=>c._fromSiga) ? '<div style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:4px;padding:2px 8px;margin-bottom:6px;display:inline-block">📡 Siga</div>' : '';
+  bom.innerHTML = sigatag + formula.map(c => {
+    const total    = cant ? Math.round(c.cantPorUnidad * cant * 10000) / 10000 : null;
+    const stock    = c.plu ? (fvStockMap.get(String(c.plu)) ?? null) : null;
+    const falta    = total !== null && stock !== null && stock < total;
+    const colorCant= falta ? 'var(--red-text)' : 'var(--verde)';
+    const stockTxt = stock !== null
+      ? `<span style="font-size:11px;color:${falta?'var(--red-text)':'var(--muted)'}">stock: ${stock}${falta?` · falta ${Math.round((total-stock)*10000)/10000}`:''}</span>`
+      : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--md-outline-variant);gap:8px">
+      <div style="font-size:13px${falta?' font-weight:600':''}">
+        ${falta?'<span style="color:var(--red-text);margin-right:4px">⚠</span>':''}${escHtml(c.nombre)}
+        ${stockTxt?`<div>${stockTxt}</div>`:''}
+      </div>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;white-space:nowrap;color:${colorCant}">
+        ${total!==null?total+' u':'—'}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('cerrarFormulaView').addEventListener('click', () =>
+  document.getElementById('overlayFormulaView').classList.remove('open'));
+document.getElementById('overlayFormulaView').addEventListener('click', e => {
+  if (e.target===e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+// ══════════════════ RESUMEN MP (+Todo) ══════════════════════
+
+let _mpResumenResolve = null;
+
+document.getElementById('cerrarMPResumen').addEventListener('click', () => {
+  document.getElementById('overlayMPResumen').classList.remove('open');
+  if (_mpResumenResolve) { _mpResumenResolve(false); _mpResumenResolve = null; }
+});
+document.getElementById('btnMPResumenCancelar').addEventListener('click', () => {
+  document.getElementById('overlayMPResumen').classList.remove('open');
+  if (_mpResumenResolve) { _mpResumenResolve(false); _mpResumenResolve = null; }
+});
+document.getElementById('btnMPResumenContinuar').addEventListener('click', () => {
+  document.getElementById('overlayMPResumen').classList.remove('open');
+  if (_mpResumenResolve) { _mpResumenResolve(true); _mpResumenResolve = null; }
+});
+document.getElementById('overlayMPResumen').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    e.currentTarget.classList.remove('open');
+    if (_mpResumenResolve) { _mpResumenResolve(false); _mpResumenResolve = null; }
+  }
+});
+
+async function calcularMPParaItems(items) {
+  const mpMap = {};
+  for (const it of items) {
+    const cant = it.cantConfirmada ?? it.cantSugerida ?? 0;
+    if (cant <= 0) continue;
+    const plu = String(it.idProducto);
+    if (!formulasAllCache[plu]) {
+      try {
+        const bom = await api('GET', `/api/bom/producto/${plu}`);
+        if (bom.length) formulasAllCache[plu] = bom.map(c => ({ ...c, _fromSiga: true }));
+      } catch(e) {}
+    }
+    for (const c of (formulasAllCache[plu] || [])) {
+      const k = String(c.plu);
+      if (!mpMap[k]) mpMap[k] = { nombre: c.nombre, total: 0 };
+      mpMap[k].total = Math.round((mpMap[k].total + c.cantPorUnidad * cant) * 10000) / 10000;
+    }
+  }
+  return Object.entries(mpMap).map(([plu, v]) => ({ plu, ...v }));
+}
+
+async function mostrarMPResumen(titulo, items) {
+  document.getElementById('mpResumenTitulo').textContent = titulo;
+  document.getElementById('mpResumenBody').innerHTML = '<div style="color:var(--muted);font-size:13px">Calculando…</div>';
+  document.getElementById('overlayMPResumen').classList.add('open');
+
+  const mpList = await calcularMPParaItems(items);
+  const body = document.getElementById('mpResumenBody');
+
+  if (!mpList.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin fórmulas definidas para estas presentaciones.</div>';
+  } else {
+    const stockMap = new Map();
+    try {
+      const rows = await api('GET', `/api/stock/plus?ids=${mpList.map(r => r.plu).join(',')}`);
+      for (const r of rows) stockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
+    } catch(e) {}
+
+    body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f1f5f9">
+        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Componente</th>
+        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Necesario</th>
+        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Stock</th>
+        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Dif.</th>
+      </tr></thead><tbody>
+      ${mpList.map(r => {
+        const stock = stockMap.has(r.plu) ? stockMap.get(r.plu) : null;
+        const diff  = stock !== null ? Math.round((stock - r.total) * 10000) / 10000 : null;
+        const falta = diff !== null && diff < 0;
+        return `<tr style="border-bottom:1px solid var(--md-outline-variant)${falta ? ';background:#fff5f5' : ''}">
+          <td style="padding:6px 8px${falta ? ';font-weight:600' : ''}">
+            ${falta ? '<span style="color:var(--red-text);margin-right:4px">⚠</span>' : ''}${escHtml(r.nombre)}
+            <span style="font-size:10px;color:var(--muted);margin-left:4px">PLU ${escHtml(String(r.plu))}</span>
+          </td>
+          <td style="text-align:right;padding:6px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${r.total}</td>
+          <td style="text-align:right;padding:6px 8px;color:${stock === null ? 'var(--muted)' : falta ? 'var(--red-text)' : 'var(--verde)'}">
+            ${stock !== null ? stock : '—'}
+          </td>
+          <td style="text-align:right;padding:6px 8px;font-weight:700;color:${diff === null ? 'var(--muted)' : falta ? 'var(--red-text)' : 'var(--verde)'}">
+            ${diff !== null ? (diff >= 0 ? '+' : '') + diff : '—'}
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>`;
+  }
+
+  return new Promise(resolve => { _mpResumenResolve = resolve; });
+}
+
+// ══════════════════ MULTI-RESPONSABLE WIDGET ══════════════════════
+
+function renderRespMulti(it) {
+  const resps = Array.isArray(it.responsables) ? it.responsables : (it.responsable ? [it.responsable] : []);
+  const chips = resps.length
+    ? resps.map(r => `<span class="resp-chip-sm">${escHtml(r)}</span>`).join('')
+    : `<span style="color:var(--muted);font-size:11px">Sin asignar</span>`;
+  const opts = responsablesCache.map(r => {
+    const nom = respNombre(r);
+    return `<label style="display:flex;align-items:center;gap:7px;padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0;hover:background:#f5f5f5">
+      <input type="checkbox" ${resps.includes(nom)?'checked':''} style="accent-color:var(--md-primary)"
+        onchange="toggleResp(${it.id},'${escHtml(nom).replace(/'/g,"\\'")}')">
+      ${escHtml(nom)}
+    </label>`;
+  }).join('');
+  return `<div class="resp-multi" onclick="event.stopPropagation()">
+    <div class="resp-multi-display" id="rdsp-${it.id}" onclick="toggleRespDrop('rmd-${it.id}')">
+      ${chips}<span class="rm-arrow">▾</span>
+    </div>
+    <div class="resp-dropdown" id="rmd-${it.id}" style="display:none">
+      ${opts || '<div style="padding:8px 10px;color:var(--muted);font-size:12px">Sin responsables cargados.</div>'}
+    </div>
+  </div>`;
+}
+
+let _openRespDrop = null;
+function toggleRespDrop(id) {
+  if (_openRespDrop && _openRespDrop !== id) {
+    const prev = document.getElementById(_openRespDrop);
+    if (prev) prev.style.display = 'none';
+  }
+  const dd = document.getElementById(id);
+  if (!dd) return;
+  const show = dd.style.display === 'none';
+  if (show) {
+    const trigger = document.getElementById(id.replace('rmd-', 'rdsp-'));
+    if (trigger) {
+      const r = trigger.getBoundingClientRect();
+      dd.style.top  = (r.bottom + 2) + 'px';
+      dd.style.left = r.left + 'px';
+      dd.style.minWidth = r.width + 'px';
+    }
+    dd.style.display = 'block';
+  } else {
+    dd.style.display = 'none';
+  }
+  _openRespDrop = show ? id : null;
+}
+document.addEventListener('click', () => {
+  if (_openRespDrop) {
+    const el = document.getElementById(_openRespDrop);
+    if (el) el.style.display = 'none';
+    _openRespDrop = null;
+  }
+});
+
+function toggleResp(itemId, nombre) {
+  const item = planCache?.items?.find(i => i.id === itemId);
+  if (!item) return;
+  if (!Array.isArray(item.responsables)) item.responsables = item.responsable ? [item.responsable] : [];
+  const idx = item.responsables.indexOf(nombre);
+  if (idx >= 0) item.responsables.splice(idx, 1); else item.responsables.push(nombre);
+  actualizarItem(itemId, 'responsables', [...item.responsables]);
+  // Actualizar solo el display (sin cerrar el dropdown)
+  const dsp = document.getElementById(`rdsp-${itemId}`);
+  if (dsp) {
+    const resps = item.responsables;
+    const chips = resps.length
+      ? resps.map(r => `<span class="resp-chip-sm">${escHtml(r)}</span>`).join('')
+      : `<span style="color:var(--muted);font-size:11px">Sin asignar</span>`;
+    dsp.innerHTML = chips + '<span class="rm-arrow">▾</span>';
+  }
+}
+
+// showConfirm — wrapper Promise sobre confirmarModal existente
+function showConfirm(titulo, mensajeTexto, btnSiLabel = 'Confirmar') {
+  return new Promise(resolve => {
+    const html = mensajeTexto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    confirmarModal(titulo, html, btnSiLabel, () => resolve(true));
+    // Cancelar → resolve(false): parchear btnConfirmCancel temporalmente
+    const cancel = document.getElementById('btnConfirmCancel');
+    const orig = cancel.onclick;
+    cancel.onclick = () => { cerrarConfirmModal(); resolve(false); cancel.onclick = orig; };
+  });
+}
+
+</script>
+</body>
+</html>
+

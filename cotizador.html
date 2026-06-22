@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cotizador Mercado Libre</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 1300px; margin: 0 auto; padding: 20px; }
+    header { background: #fff; border-bottom: 3px solid #ff6f00; padding: 16px 0; margin-bottom: 24px; }
+    header .inner { max-width: 1300px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; }
+    h1 { font-size: 22px; color: #333; }
+    .tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 2px solid #ddd; }
+    .tab { padding: 12px 22px; cursor: pointer; border: none; background: none; font-size: 14px; color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+    .tab.active { color: #ff6f00; border-bottom-color: #ff6f00; font-weight: 600; }
+    .tab:hover:not(.active) { color: #333; background: #f9f9f9; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card { background: white; border-radius: 6px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-weight: 500; margin-bottom: 6px; font-size: 13px; color: #555; }
+    input[type="file"], input[type="text"], select { width: 100%; padding: 9px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    input:focus, select:focus { outline: none; border-color: #ff6f00; box-shadow: 0 0 0 3px rgba(255,111,0,0.08); }
+    .btn { padding: 9px 18px; background: #ff6f00; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 14px; transition: background 0.15s; }
+    .btn:hover { background: #e55f00; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-outline { background: white; color: #ff6f00; border: 1px solid #ff6f00; }
+    .btn-outline:hover { background: #fff4ec; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #f5f5f5; padding: 10px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #e0e0e0; color: #555; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+    tr:hover td { background: #fafafa; }
+    .price { font-weight: 700; color: #ff6f00; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge-ok { background: #e6f4ea; color: #1e7e34; }
+    .badge-warn { background: #fff3cd; color: #856404; }
+    .alert { padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
+    .alert-success { background: #d4edda; color: #155724; }
+    .alert-error { background: #f8d7da; color: #721c24; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #f3f3f3; border-top: 2px solid #ff6f00; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .empty { text-align: center; padding: 40px; color: #999; }
+    input.inline { width: 90px; padding: 4px 6px; font-size: 13px; border: 1px solid #ddd; border-radius: 3px; }
+    .nota { font-size: 12px; color: #888; margin-top: 6px; }
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+    .stat-box { background: #fff; border-radius: 6px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; }
+    .stat-box .num { font-size: 28px; font-weight: 700; color: #ff6f00; }
+    .stat-box .lbl { font-size: 12px; color: #888; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>🛒 Cotizador Mercado Libre</h1>
+    <a href="/" style="font-size:13px;color:#666;text-decoration:none;">← Inicio</a>
+  </div>
+</header>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" data-tab="publicaciones">Publicaciones</button>
+    <button class="tab" data-tab="importar">Importar CSV/Excel</button>
+    <button class="tab" data-tab="comisiones">Comisiones</button>
+  </div>
+
+  <!-- ── Publicaciones ── -->
+  <div class="panel active" id="panel-publicaciones">
+    <div id="msg-pub"></div>
+    <div class="stats-row" id="stats-row" style="display:none">
+      <div class="stat-box"><div class="num" id="stat-total">0</div><div class="lbl">Publicaciones</div></div>
+      <div class="stat-box"><div class="num" id="stat-sinvincular">0</div><div class="lbl">Sin vincular</div></div>
+      <div class="stat-box"><div class="num" id="stat-calculadas">0</div><div class="lbl">Con precio ML</div></div>
+    </div>
+    <div class="card">
+      <div class="btn-group" style="margin-bottom:16px">
+        <button class="btn" id="btn-calcular-todos">Calcular precios para todos</button>
+        <button class="btn btn-outline" id="btn-descargar" disabled>Descargar CSV</button>
+        <button class="btn btn-outline btn-sm" id="btn-recargar">↺ Recargar</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>SKU MercadoLibre</th>
+              <th>Producto</th>
+              <th>Código SIGA</th>
+              <th>Categoría</th>
+              <th>Cuotas</th>
+              <th>Envío $</th>
+              <th>Precio SIGA</th>
+              <th>Comisión</th>
+              <th>Cuotas $</th>
+              <th>IVA</th>
+              <th>Precio ML</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody-pub">
+            <tr><td colspan="12" class="empty">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Importar ── -->
+  <div class="panel" id="panel-importar">
+    <div class="card">
+      <h3 style="margin-bottom:12px">Importar publicaciones desde Mercado Libre</h3>
+      <p class="nota" style="margin-bottom:16px">Columnas reconocidas: <strong>SKU</strong>, <strong>Nombre</strong>, <strong>Categoría</strong>, <strong>Provincia</strong>.</p>
+      <div id="msg-imp"></div>
+      <form id="form-importar">
+        <div class="form-group">
+          <label>Archivo (.xlsx, .csv)</label>
+          <input type="file" id="file-importar" accept=".xlsx,.csv,.xls" required>
+        </div>
+        <div class="grid2">
+          <div class="form-group">
+            <label>Categoría por defecto</label>
+            <select id="cat-default">
+              <option value="Alimentos y Bebidas">Alimentos y Bebidas</option>
+              <option value="Supermercado">Supermercado</option>
+              <option value="Electrónica">Electrónica</option>
+              <option value="Hogar">Hogar</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Provincia por defecto</label>
+            <select id="prov-default">
+              <option value="Buenos Aires">Buenos Aires</option>
+              <option value="CABA">CABA</option>
+              <option value="Córdoba">Córdoba</option>
+              <option value="Corrientes">Corrientes</option>
+              <option value="Mendoza">Mendoza</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn">Importar</button>
+      </form>
+    </div>
+
+    <div class="card" id="card-vincular" style="display:none">
+      <h3 style="margin-bottom:4px">Vincular códigos SIGA</h3>
+      <p class="nota" style="margin-bottom:16px">Ingresá el IdProducto de SIGA para cada publicación nueva.</p>
+      <div id="msg-vinc"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SKU ML</th><th>Nombre</th><th>Categoría</th><th>Provincia</th><th>Código SIGA</th></tr></thead>
+          <tbody id="tbody-vincular"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn" id="btn-guardar-vincular">Guardar vínculos</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Comisiones ── -->
+  <div class="panel" id="panel-comisiones">
+    <div class="card">
+      <h3 style="margin-bottom:12px">Tabla de comisiones — Mercado Libre Argentina 2026</h3>
+      <p class="nota" style="margin-bottom:16px">Rango 11.80%–17.14% según provincia e Ingresos Brutos (desde julio 2025).</p>
+      <div id="tabla-comisiones"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let resultados = [];
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Publicaciones ──────────────────────────────────────────────────────────────
+async function cargarPublicaciones() {
+  try {
+    const res = await fetch('/api/cotizador/vinculaciones');
+    const datos = await res.json();
+    renderTabla(datos);
+  } catch(e) {
+    $('msg-pub').innerHTML = `<div class="alert alert-error">✗ ${e.message}</div>`;
+  }
+}
+
+function renderTabla(datos) {
+  const sinVincular = datos.filter(d => !d.idProductoSIGA).length;
+  $('stats-row').style.display = '';
+  $('stat-total').textContent = datos.length;
+  $('stat-sinvincular').textContent = sinVincular;
+  $('stat-calculadas').textContent = resultados.length;
+
+  const tbody = $('tbody-pub');
+  if (!datos.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">Sin publicaciones. Importá desde "Importar CSV/Excel".</td></tr>';
+    return;
+  }
+
+  const resMap = new Map(resultados.map(r => [r.skuMercadoLibre, r]));
+  tbody.innerHTML = datos.map(v => {
+    const r = resMap.get(v.skuMercadoLibre);
+    const cuotasOpts = [
+      ['0','Sin cuotas'],['7.5','3 cuotas'],['13.5','6 cuotas'],['22','12 cuotas']
+    ].map(([val,lbl]) => `<option value="${val}" ${String(v.cuotasPct||0)===val?'selected':''}>${lbl}</option>`).join('');
+    return `<tr>
+      <td><code style="font-size:11px">${v.skuMercadoLibre}</code></td>
+      <td style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${v.nombreProducto || '—'}</td>
+      <td><input class="inline siga-input" data-sku="${v.skuMercadoLibre}" value="${v.idProductoSIGA || ''}" placeholder="código"></td>
+      <td style="font-size:11px">${v.categoriaMercadoLibre}</td>
+      <td><select class="cuotas-sel" data-sku="${v.skuMercadoLibre}" style="padding:3px 5px;font-size:12px;border:1px solid #ddd;border-radius:3px">${cuotasOpts}</select></td>
+      <td><input class="inline envio-input" data-sku="${v.skuMercadoLibre}" value="${v.costoEnvio||0}" style="width:65px" type="number" min="0" step="any"></td>
+      <td>${r ? `$ ${r.precioVentaSIGA.toFixed(2)}` : '—'}</td>
+      <td style="font-size:11px">${r ? `${r.comisionPct}%·$${r.comisionMonto.toFixed(2)}` : '—'}</td>
+      <td style="font-size:11px">${r && r.cuotasPct > 0 ? `$${r.cuotasMonto.toFixed(2)}` : '—'}</td>
+      <td>${r ? `$ ${r.ivaMonto.toFixed(2)}` : '—'}</td>
+      <td>${r ? `<span class="price">$ ${r.precioFinalMercadoLibre.toFixed(2)}</span>` : '—'}</td>
+      <td>${!v.idProductoSIGA ? '<span class="badge badge-warn">Sin vincular</span>' : (r ? '<span class="badge badge-ok">✓</span>' : '')}</td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('.siga-input').forEach(inp => {
+    inp.addEventListener('change', () => guardarCampoVinculacion(inp.dataset.sku, 'idProductoSIGA', inp.value.trim()));
+  });
+  document.querySelectorAll('.cuotas-sel').forEach(sel => {
+    sel.addEventListener('change', () => guardarCampoVinculacion(sel.dataset.sku, 'cuotasPct', parseFloat(sel.value)));
+  });
+  document.querySelectorAll('.envio-input').forEach(inp => {
+    inp.addEventListener('change', () => guardarCampoVinculacion(inp.dataset.sku, 'costoEnvio', parseFloat(inp.value)||0));
+  });
+}
+
+async function guardarCampoVinculacion(sku, campo, valor) {
+  const res = await fetch('/api/cotizador/vinculaciones');
+  const datos = await res.json();
+  const v = datos.find(d => d.skuMercadoLibre === sku);
+  if (!v) return;
+  v[campo] = valor;
+  v.ultimaActualizacion = new Date().toISOString();
+  await fetch('/api/cotizador/vinculaciones', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(datos)
+  });
+}
+
+$('btn-calcular-todos').addEventListener('click', async () => {
+  const btn = $('btn-calcular-todos');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Calculando...';
+  $('msg-pub').innerHTML = '';
+  try {
+    const res = await fetch('/api/cotizador/calcular-todos');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    resultados = data;
+    $('btn-descargar').disabled = false;
+    await cargarPublicaciones();
+    $('msg-pub').innerHTML = `<div class="alert alert-success">✓ ${data.length} precios calculados</div>`;
+  } catch(e) {
+    $('msg-pub').innerHTML = `<div class="alert alert-error">✗ ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Calcular precios para todos';
+  }
+});
+
+$('btn-recargar').addEventListener('click', cargarPublicaciones);
+
+$('btn-descargar').addEventListener('click', () => {
+  if (!resultados.length) return;
+  const rows = [
+    ['SKU MercadoLibre','Producto','Código SIGA','Categoría','Provincia','Cuotas %','Envío $','Precio SIGA','Comisión %','Comisión $','Cuotas $','IVA $','Precio ML'],
+    ...resultados.map(r => [
+      r.skuMercadoLibre, r.nombreProducto, r.idProductoSIGA,
+      r.categoriaMercadoLibre, r.provincia,
+      r.cuotasPct || 0, r.costoEnvio || 0,
+      r.precioVentaSIGA, r.comisionPct, r.comisionMonto, r.cuotasMonto || 0, r.ivaMonto, r.precioFinalMercadoLibre
+    ])
+  ];
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cotizacion_ml_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+});
+
+// ── Importar ───────────────────────────────────────────────────────────────────
+$('form-importar').addEventListener('submit', async e => {
+  e.preventDefault();
+  const file = $('file-importar').files[0];
+  $('msg-imp').innerHTML = '<span class="spinner"></span>Importando...';
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('catDefault', $('cat-default').value);
+  fd.append('provDefault', $('prov-default').value);
+  try {
+    const res = await fetch('/api/cotizador/importar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    $('msg-imp').innerHTML = `<div class="alert alert-success">✓ ${data.agregadas} publicaciones nuevas. Total: ${data.total}</div>`;
+    cargarEditorVincular();
+    cargarPublicaciones();
+  } catch(e) {
+    $('msg-imp').innerHTML = `<div class="alert alert-error">✗ ${e.message}</div>`;
+  }
+});
+
+async function cargarEditorVincular() {
+  const res = await fetch('/api/cotizador/vinculaciones');
+  const datos = await res.json();
+  const sinVincular = datos.filter(d => !d.idProductoSIGA);
+  if (!sinVincular.length) { $('card-vincular').style.display = 'none'; return; }
+  $('card-vincular').style.display = '';
+  $('tbody-vincular').innerHTML = sinVincular.map(v => `
+    <tr>
+      <td><code style="font-size:11px">${v.skuMercadoLibre}</code></td>
+      <td>${v.nombreProducto}</td>
+      <td style="font-size:12px">${v.categoriaMercadoLibre}</td>
+      <td style="font-size:12px">${v.provincia}</td>
+      <td><input type="text" class="vinc-siga inline" data-sku="${v.skuMercadoLibre}" value="" placeholder="Ej: 5670"></td>
+    </tr>
+  `).join('');
+}
+
+$('btn-guardar-vincular').addEventListener('click', async () => {
+  const inputs = document.querySelectorAll('.vinc-siga');
+  const cambios = {};
+  inputs.forEach(inp => { if (inp.value.trim()) cambios[inp.dataset.sku] = inp.value.trim(); });
+
+  const res = await fetch('/api/cotizador/vinculaciones');
+  const datos = await res.json();
+  Object.entries(cambios).forEach(([sku, codigo]) => {
+    const v = datos.find(d => d.skuMercadoLibre === sku);
+    if (v) { v.idProductoSIGA = codigo; v.ultimaActualizacion = new Date().toISOString(); }
+  });
+  await fetch('/api/cotizador/vinculaciones', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(datos)
+  });
+  $('msg-vinc').innerHTML = `<div class="alert alert-success">✓ Vínculos guardados</div>`;
+  $('card-vincular').style.display = 'none';
+  cargarPublicaciones();
+});
+
+// ── Comisiones ─────────────────────────────────────────────────────────────────
+async function cargarComisiones() {
+  const res = await fetch('/api/cotizador/comisiones');
+  const data = await res.json();
+  const provincias = Object.keys(data.provincias).filter(p => p !== 'DEFAULT');
+  const categorias = Object.keys(data.provincias[provincias[0]] || {}).filter(c => c !== 'DEFAULT');
+  let html = `<div class="table-wrap"><table>
+    <thead><tr><th>Categoría</th>${provincias.map(p => `<th>${p}</th>`).join('')}</tr></thead><tbody>`;
+  categorias.forEach(cat => {
+    html += `<tr><td><strong>${cat}</strong></td>`;
+    provincias.forEach(prov => {
+      const pct = data.provincias[prov][cat] || data.provincias[prov].DEFAULT;
+      html += `<td>${pct}%</td>`;
+    });
+    html += '</tr>';
+  });
+  html += `</tbody></table></div>
+    <p class="nota" style="margin-top:12px">IVA: ${data.metadata.iva_aplicable}% aplicado sobre base post-comisión.</p>`;
+  $('tabla-comisiones').innerHTML = html;
+}
+
+// Init
+cargarPublicaciones();
+cargarComisiones();
+</script>
+</body>
+</html>

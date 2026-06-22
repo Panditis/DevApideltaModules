@@ -1,0 +1,24 @@
+{
+  "ventanaMeses": 12,
+  "sucursales": {
+    "riv":       { "idSucursal": 5,  "idCliente": 979,  "T": 9, "L": 0 },
+    "urq":       { "idSucursal": 2,  "idCliente": 618,  "T": 9, "L": 0 },
+    "nacion":    { "idSucursal": 3,  "idCliente": 749,  "T": 7, "L": 0 },
+    "chaca":     { "idSucursal": 4,  "idCliente": 845,  "T": 9, "L": 0 },
+    "pergamino": { "idSucursal": 10, "idCliente": 1672, "T": 7, "L": 0 },
+    "sanpedro":  { "idSucursal": 7,  "idCliente": 1147, "T": 5, "L": 0 },
+    "logia":     { "idSucursal": 8,  "idCliente": 1423, "T": 0, "L": 0 },
+    "ramallo":   { "idSucursal": 9,  "idCliente": 1671, "T": 7, "L": 0 },
+    "sucu11":    { "idSucursal": 11, "idCliente": null, "T": 0, "L": 0 }
+  },
+  "servicio": { "A": 2.05, "B": 1.645, "C": 1.28 },
+  "abc": { "metrica": "facturacion", "corteA": 0.80, "corteB": 0.95 },
+  "techoDefault": 10000,
+  "umbralMicroEnvio": 0.10,
+  "factorABC": { "A": 1.0, "B": 0.7, "C": 0.4 },
+  "nivelacion": {
+    "minDiasConVenta": 15,
+    "sucursales": ["ramallo", "logia", "sanpedro", "sucu11"],
+    "baseSucursal": { "ramallo": "sanpedro" }
+  }
+}

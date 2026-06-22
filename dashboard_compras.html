@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apidelta — Panel de Compras</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --green:#405936;--green-dark:#2E4027;--green-mid:#4E6B43;--green-light:#E8F0E4;
+  --yellow:#FFCC00;--yellow-dark:#B8920A;--yellow-pale:#FFFDE8;
+  --bg:#F5F5F5;--surface:#FFFFFF;--text:#1C1B1F;--muted:#6B6B6B;--border:#E6E6E6;
+  --red:#D32F2F;--red-bg:#FFEBEE;--orange:#E65100;--orange-bg:#FFF3E0;
+  --amber:#F57F17;--amber-bg:#FFFDE7;
+  --ok:#388E3C;--ok-bg:#EDF7ED;
+  --radius:10px;--radius-sm:7px;
+}
+body{font-family:'Barlow',sans-serif;font-size:14px;background:var(--bg);color:var(--text);min-height:100vh}
+.cond{font-family:'Barlow Condensed',sans-serif}
+a{color:var(--green);text-decoration:none}
+
+/* ── Header ── */
+header{background:var(--green);position:sticky;top:0;z-index:200;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.header-inner{display:flex;align-items:center;gap:10px;padding:10px 20px;max-width:1800px;margin:0 auto}
+.logo-mark{width:28px;height:28px;border-radius:6px;background:var(--yellow);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-text{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:20px;color:var(--yellow);letter-spacing:-.3px}
+.logo-sub{font-size:10px;color:rgba(255,255,255,.55);letter-spacing:1.6px;text-transform:uppercase;margin-left:8px;padding-left:8px;border-left:1px solid rgba(255,255,255,.2)}
+.dev-badge{background:#1a237e;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;border-radius:4px;padding:2px 7px;flex-shrink:0}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.update-info{font-size:11px;color:rgba(255,255,255,.55);text-align:right;line-height:1.4}
+.btn-hdr{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);color:#fff;border-radius:var(--radius-sm);padding:6px 13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;transition:.12s;white-space:nowrap}
+.btn-hdr:hover{background:rgba(255,255,255,.22)}
+.btn-hdr:disabled{opacity:.5;cursor:not-allowed}
+.stripe{height:3px;background:var(--yellow)}
+
+/* ── Loading overlay ── */
+#loadingOverlay{position:fixed;inset:0;background:rgba(245,245,245,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:1000}
+.spin-big{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#loadMsg{font-size:13px;color:var(--muted);font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px}
+#loadTitle{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--green-dark)}
+
+/* ── Summary bar ── */
+.summary-bar{display:grid;grid-template-columns:repeat(4,1fr) 1.6fr;gap:10px;padding:14px 20px;max-width:1800px;margin:0 auto}
+@media(max-width:700px){.summary-bar{grid-template-columns:repeat(2,1fr)}}
+.s-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;border-left:4px solid var(--border);cursor:pointer;transition:.12s;user-select:none}
+.s-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.s-card.active{box-shadow:inset 0 0 0 1.5px currentColor}
+.s-n{font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:800;line-height:1}
+.s-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;font-weight:600}
+.s-crit{border-left-color:var(--red)} .s-crit .s-n{color:var(--red)}
+.s-alert{border-left-color:var(--orange)} .s-alert .s-n{color:var(--orange)}
+.s-rev{border-left-color:var(--amber)} .s-rev .s-n{color:var(--amber)}
+.s-ok{border-left-color:var(--ok)} .s-ok .s-n{color:var(--ok)}
+.s-total{background:var(--green-light);border:1px solid #C5DDB9;border-radius:var(--radius);padding:12px 18px;display:flex;flex-direction:column;justify-content:center}
+.s-total .s-amt{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;color:var(--green-dark);line-height:1}
+.s-total .s-lbl{font-size:11px;color:var(--green-mid);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;font-weight:600}
+
+/* ── Toolbar ── */
+.toolbar{display:flex;align-items:center;gap:10px;padding:0 20px 12px;max-width:1800px;margin:0 auto;flex-wrap:wrap}
+.search-wrap{flex:1;min-width:200px;position:relative}
+.search-wrap input{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px 8px 32px;font-family:'Barlow',sans-serif;font-size:13.5px;background:var(--surface)}
+.search-wrap input:focus{outline:none;border-color:var(--green)}
+.search-wrap::before{content:'🔍';position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;opacity:.5}
+.seg{display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px}
+.seg button{padding:5px 12px;border:none;background:transparent;color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:.5px;border-radius:5px;cursor:pointer;transition:.1s;text-transform:uppercase}
+.seg button.on{background:var(--green);color:#fff}
+.seg button.on.s-crit{background:var(--red)} .seg button.on.s-alert{background:var(--orange)} .seg button.on.s-rev{background:var(--amber)} .seg button.on.s-ok{background:var(--ok)}
+
+/* ── Main content ── */
+#appMain{max-width:1800px;margin:0 auto;padding:0 20px 40px}
+
+/* ── Panel table ── */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.tw-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{position:sticky;top:54px;z-index:10}
+th{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);background:#FAFAFA;padding:9px 12px;text-align:left;border-bottom:1.5px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{background:#F0F0F0}
+th.sort-asc::after{content:' ▲'}
+th.sort-desc::after{content:' ▼'}
+td{padding:9px 12px;border-bottom:1px solid #F2F2F2;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+td small{color:var(--muted);font-size:11px;display:block;line-height:1.3}
+.muted{color:var(--muted)}
+
+/* Row states */
+tr.r-CRITICO{background:rgba(211,47,47,.04)} tr.r-CRITICO td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+tr.r-ALERTA{background:rgba(230,81,0,.04)} tr.r-ALERTA td:first-child{box-shadow:inset 3px 0 0 var(--orange)}
+tr.r-REVISAR{background:rgba(245,127,23,.03)} tr.r-REVISAR td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
+tr.r-CRITICO:hover{background:rgba(211,47,47,.08)} tr.r-ALERTA:hover{background:rgba(230,81,0,.08)} tr.r-REVISAR:hover{background:rgba(245,127,23,.06)}
+
+/* Semaforo badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:.5px;text-transform:uppercase;white-space:nowrap}
+.b-critico{background:var(--red-bg);color:var(--red)}
+.b-alerta{background:var(--orange-bg);color:var(--orange)}
+.b-revisar{background:var(--amber-bg);color:var(--amber)}
+.b-ok{background:var(--ok-bg);color:var(--ok)}
+
+/* Coverage bar */
+.cov-wrap{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.cov-bar{width:44px;height:5px;background:#EFEFEF;border-radius:3px;overflow:hidden;flex-shrink:0}
+.cov-fill{height:100%;border-radius:3px}
+.cov-n{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;min-width:28px;text-align:right}
+
+/* ── Pedido view ── */
+.prov-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden}
+.prov-header{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#FAFAFA;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+.prov-header:hover{background:#F4F4F4}
+.prov-name{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;flex:1}
+.prov-n{font-size:12px;color:var(--muted)}
+.prov-lt{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 7px}
+.prov-amt{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:var(--green-dark)}
+.prov-chevron{font-size:12px;color:var(--muted);transition:.2s}
+.prov-body{display:none}
+.prov-body.open{display:block}
+.prov-body table{font-size:12.5px}
+.prov-body th{top:0;background:#F8FBFA}
+.prov-total-row td{background:#EEF5EC!important;font-weight:600;border-top:1.5px solid var(--border)}
+
+/* ── No data ── */
+.empty{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+
+/* ── Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-box{background:var(--surface);border-radius:var(--radius);width:min(640px,100%);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.2)}
+.modal-hdr{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}
+.modal-hdr span{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;flex:1}
+.modal-hdr button{background:none;border:none;font-size:18px;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:4px}
+.modal-hdr button:hover{background:var(--bg);color:var(--text)}
+.modal-body{flex:1;overflow:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.modal-ftr{padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+.lt-default-row{display:flex;align-items:center;gap:12px;background:var(--green-light);border:1px solid #C5DDB9;border-radius:var(--radius-sm);padding:10px 14px}
+.lt-default-row label{font-size:13px;font-weight:500;flex:1}
+.lt-default-row input{width:70px;border:1.5px solid var(--border);border-radius:5px;padding:5px 8px;text-align:center;font-size:14px}
+.lt-search input{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:7px 11px;font-size:13px}
+.lt-search input:focus{outline:none;border-color:var(--green)}
+.lt-table-wrap{overflow:auto;flex:1;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.lt-table-wrap table{font-size:13px}
+.lt-table-wrap th{background:#FAFAFA;font-size:11px;letter-spacing:.8px}
+.lt-table-wrap td{padding:6px 12px}
+.lt-table-wrap input[type=number]{width:64px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;text-align:center;font-size:13px}
+.lt-table-wrap input[type=number]:focus{outline:none;border-color:var(--green)}
+.btn-primary{background:var(--green);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 18px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:.5px;text-transform:uppercase;cursor:pointer}
+.btn-primary:hover{background:var(--green-dark)}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.4px;cursor:pointer}
+.btn-ghost:hover{background:var(--bg)}
+
+/* Print */
+@media print{
+  header,.toolbar,.summary-bar .s-card,.btn-hdr,#loadingOverlay{display:none!important}
+  .prov-body{display:block!important}
+  .prov-header{cursor:default}
+  body{background:#fff}
+  .prov-section{break-inside:avoid;border:1px solid #CCC}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo-mark">
+      <svg width="16" height="16" viewBox="0 0 22 22" fill="none"><rect x="3" y="11" width="3.5" height="8" rx="1.2" fill="#405936"/><rect x="9.25" y="6" width="3.5" height="13" rx="1.2" fill="#405936"/><rect x="15.5" y="3" width="3.5" height="16" rx="1.2" fill="#405936"/></svg>
+    </div>
+    <span class="logo-text">Apidelta</span>
+    <span class="logo-sub">Compras</span>
+    <span class="dev-badge">DEV</span>
+    <div class="header-right">
+      <div class="update-info" id="updateInfo">—</div>
+      <button class="btn-hdr" id="btnLT" onclick="openLT()">Lead Times</button>
+      <button class="btn-hdr" id="btnRefresh" onclick="cargarPanel()">↺ Actualizar</button>
+    </div>
+  </div>
+</header>
+<div style="height:3px;background:var(--yellow)"></div>
+
+<!-- Loading -->
+<div id="loadingOverlay">
+  <div class="spin-big"></div>
+  <div id="loadTitle">Consultando SIGA…</div>
+  <div id="loadMsg" class="muted">Stock · Consumo 12 meses · Proveedores · Pedidos</div>
+</div>
+
+<!-- App -->
+<div id="appMain" style="display:none">
+
+  <!-- Summary -->
+  <div class="summary-bar" id="summaryBar">
+    <div class="s-card s-crit" id="sc-todos" onclick="filtrarSem('todos')">
+      <div class="s-n" id="nTodos">—</div><div class="s-lbl">Total</div>
+    </div>
+    <div class="s-card s-crit" id="sc-CRITICO" onclick="filtrarSem('CRITICO')">
+      <div class="s-n" id="nCritico">—</div><div class="s-lbl">Crítico</div>
+    </div>
+    <div class="s-card s-alert" id="sc-ALERTA" onclick="filtrarSem('ALERTA')">
+      <div class="s-n" id="nAlerta">—</div><div class="s-lbl">Alerta</div>
+    </div>
+    <div class="s-card s-rev" id="sc-REVISAR" onclick="filtrarSem('REVISAR')">
+      <div class="s-n" id="nRevisar">—</div><div class="s-lbl">A revisar</div>
+    </div>
+    <div class="s-total">
+      <div class="s-amt" id="totalImp">—</div>
+      <div class="s-lbl" id="totalLbl">Compras sugeridas</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <input id="searchInp" placeholder="Buscar producto o proveedor…" autocomplete="off" oninput="filtrar()">
+    </div>
+    <div class="seg" id="segSem">
+      <button class="on" data-s="todos" onclick="filtrarSem('todos')">Todos</button>
+      <button class="s-crit" data-s="CRITICO" onclick="filtrarSem('CRITICO')">Crítico</button>
+      <button class="s-alert" data-s="ALERTA" onclick="filtrarSem('ALERTA')">Alerta</button>
+      <button class="s-rev" data-s="REVISAR" onclick="filtrarSem('REVISAR')">Revisar</button>
+      <button class="s-ok" data-s="OK" onclick="filtrarSem('OK')">OK</button>
+    </div>
+    <div class="seg" id="segView">
+      <button class="on" data-v="panel" onclick="setView('panel')">Panel</button>
+      <button data-v="pedido" onclick="setView('pedido')">Pedido</button>
+    </div>
+  </div>
+
+  <!-- Panel view -->
+  <div id="viewPanel" style="padding:0 20px">
+    <div class="table-wrap">
+      <div class="tw-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortBy('semaforo')">Estado</th>
+              <th onclick="sortBy('nombre')">Producto</th>
+              <th onclick="sortBy('proveedor')">Proveedor</th>
+              <th class="num" onclick="sortBy('stockTotal')">Stock</th>
+              <th class="num" onclick="sortBy('coberturaActual')">Cob. días</th>
+              <th class="num" onclick="sortBy('leadTime')">LT</th>
+              <th class="num" onclick="sortBy('enPedido')">En pedido</th>
+              <th class="num" onclick="sortBy('consumoTotal')">Cons./mes</th>
+              <th class="num" onclick="sortBy('sugeridoTotal')">Sugerido</th>
+              <th class="num" onclick="sortBy('importeSugerido')">Importe $</th>
+            </tr>
+          </thead>
+          <tbody id="panelBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pedido view -->
+  <div id="viewPedido" style="display:none;padding:0 20px">
+    <div id="pedidoContent"></div>
+  </div>
+
+</div>
+
+<!-- Lead Times Modal -->
+<div class="modal-overlay" id="ltModal" style="display:none" onclick="if(event.target===this)closeLT()">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span>Lead Times por Proveedor</span>
+      <button onclick="closeLT()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="lt-default-row">
+        <label>Lead time por defecto (días sin dato)</label>
+        <input type="number" id="ltDefault" min="1" max="365" value="14">
+      </div>
+      <div class="lt-search">
+        <input id="ltSearchInp" placeholder="Filtrar proveedor…" oninput="renderLTRows()">
+      </div>
+      <div class="lt-table-wrap">
+        <table>
+          <thead><tr><th>Proveedor</th><th class="num">Lead time (días)</th></tr></thead>
+          <tbody id="ltBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <button class="btn-ghost" onclick="closeLT()">Cancelar</button>
+      <button class="btn-primary" onclick="saveLT()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const fmt = (n, d=0) => n == null ? '—' : Number(n).toLocaleString('es-AR', {minimumFractionDigits:d,maximumFractionDigits:d});
+const $id = id => document.getElementById(id);
+
+let panelData = null, ltData = null;
+let filtroSem = 'todos', filtroTxt = '', currentView = 'panel';
+let sortCol = 'semaforo', sortDir = 1;
+
+// ── Data loading ──
+async function cargarPanel() {
+  $id('loadingOverlay').style.display = 'flex';
+  $id('appMain').style.display = 'none';
+  $id('btnRefresh').disabled = true;
+  $id('loadMsg').textContent = 'Stock · Consumo 12 meses · Proveedores · Pedidos';
+  try {
+    const t0 = Date.now();
+    panelData = await (await fetch('/api/panel/datos')).json();
+    const secs = ((Date.now() - t0)/1000).toFixed(1);
+    $id('updateInfo').innerHTML = `${panelData.total} productos · ${new Date(panelData.fechaCalculo).toLocaleTimeString('es-AR')} <small style="opacity:.6">(${secs}s)</small>`;
+    renderSummary();
+    renderPanel();
+    renderPedido();
+    $id('loadingOverlay').style.display = 'none';
+    $id('appMain').style.display = 'block';
+  } catch(e) {
+    $id('loadTitle').textContent = 'Error al cargar';
+    $id('loadMsg').textContent = e.message;
+  }
+  $id('btnRefresh').disabled = false;
+}
+
+// ── Summary ──
+function renderSummary() {
+  if (!panelData) return;
+  const {conteo, totalImporte, total} = panelData;
+  $id('nTodos').textContent    = total;
+  $id('nCritico').textContent  = conteo.CRITICO;
+  $id('nAlerta').textContent   = conteo.ALERTA;
+  $id('nRevisar').textContent  = conteo.REVISAR;
+  $id('totalImp').textContent  = '$' + Number(totalImporte).toLocaleString('es-AR');
+  const nPed = panelData.productos.filter(p=>p.sugeridoTotal>0).length;
+  $id('totalLbl').textContent  = `${nPed} productos a pedir`;
+}
+
+// ── Filters / sort ──
+function filtrar() { filtroTxt = $id('searchInp').value.toLowerCase(); renderPanel(); }
+function filtrarSem(s) {
+  filtroSem = s;
+  document.querySelectorAll('#segSem button').forEach(b => b.classList.toggle('on', b.dataset.s === s));
+  document.querySelectorAll('.s-card').forEach(c => {
+    const key = c.id.replace('sc-','');
+    c.classList.toggle('active', key === s);
+  });
+  renderPanel();
+}
+function sortBy(col) {
+  if (sortCol === col) sortDir = -sortDir;
+  else { sortCol = col; sortDir = col === 'nombre' || col === 'proveedor' ? 1 : -1; }
+  document.querySelectorAll('th').forEach(th => { th.classList.remove('sort-asc','sort-desc'); });
+  const th = document.querySelector(`th[onclick="sortBy('${col}')"]`);
+  if (th) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  renderPanel();
+}
+
+function getFiltered() {
+  if (!panelData) return [];
+  const semOrd = {CRITICO:0,ALERTA:1,REVISAR:2,OK:3};
+  return [...panelData.productos]
+    .filter(p => {
+      if (filtroSem !== 'todos' && p.semaforo !== filtroSem) return false;
+      if (filtroTxt && !p.nombre.toLowerCase().includes(filtroTxt) && !p.proveedor.toLowerCase().includes(filtroTxt)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      if (sortCol === 'semaforo') { va = semOrd[a.semaforo]; vb = semOrd[b.semaforo]; }
+      if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+      return sortDir * ((va || 0) - (vb || 0));
+    });
+}
+
+// ── Panel render ──
+function semColor(s){return s==='CRITICO'?'var(--red)':s==='ALERTA'?'var(--orange)':s==='REVISAR'?'var(--amber)':'var(--ok)'}
+function covColor(cob, lt){ return cob <= lt ? 'var(--red)' : cob <= 30 ? 'var(--orange)' : cob <= 45 ? 'var(--amber)' : 'var(--ok)'; }
+
+function renderPanel() {
+  const rows = getFiltered();
+  const tbody = $id('panelBody');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="10" class="empty">Sin resultados</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(p => {
+    const clr = semColor(p.semaforo);
+    const cobClr = covColor(p.coberturaActual, p.leadTime);
+    const cobPct = Math.min(100, p.coberturaActual >= 999 ? 100 : Math.round(p.coberturaActual / 45 * 100));
+    const cobTxt = p.coberturaActual >= 999 ? '∞' : fmt(p.coberturaActual, 0) + 'd';
+    const sugTxt = p.sugeridoTotal > 0
+      ? `<b>${fmt(p.sugeridoTotal,0)}</b><small>${fmt(p.sugeridoMin,0)} Min / ${fmt(p.sugeridoMay,0)} May</small>`
+      : `<span class="muted">—</span>`;
+    const impTxt = p.importeSugerido > 0
+      ? `<b>$${Number(p.importeSugerido).toLocaleString('es-AR')}</b>`
+      : `<span class="muted">—</span>`;
+    return `<tr class="r-${p.semaforo}">
+      <td><span class="badge b-${p.semaforo.toLowerCase()}">${p.semaforo}</span></td>
+      <td>${p.nombre}<small>ID ${p.id}</small></td>
+      <td style="max-width:170px"><span title="${p.proveedor}" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.proveedor||'<span class=muted>—</span>'}</span></td>
+      <td class="num">${fmt(p.stockTotal,1)}<small>CC ${fmt(p.stockCC,1)} · Suc ${fmt(p.stockSuc,1)}</small></td>
+      <td class="num">
+        <div class="cov-wrap">
+          <div class="cov-bar"><div class="cov-fill" style="width:${cobPct}%;background:${cobClr}"></div></div>
+          <span class="cov-n" style="color:${cobClr}">${cobTxt}</span>
+        </div>
+      </td>
+      <td class="num" style="color:var(--muted)">${p.leadTime}d</td>
+      <td class="num">${p.enPedido > 0 ? fmt(p.enPedido,1) : '<span class=muted>—</span>'}</td>
+      <td class="num">${fmt(p.consumoTotal,1)}<small>Min ${fmt(p.consumoMin,1)} / May ${fmt(p.consumoMay,1)}</small></td>
+      <td class="num">${sugTxt}</td>
+      <td class="num">${impTxt}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Pedido view ──
+function renderPedido() {
+  if (!panelData) return;
+  const semOrd = {CRITICO:0,ALERTA:1,REVISAR:2,OK:3};
+  const ped = panelData.productos.filter(p => p.sugeridoTotal > 0);
+  const byProv = {};
+  for (const p of ped) {
+    const k = p.proveedor || '(Sin proveedor)';
+    if (!byProv[k]) byProv[k] = {items:[], total:0, worstSem:'OK', lt: p.leadTime};
+    byProv[k].items.push(p);
+    byProv[k].total += p.importeSugerido;
+    if (semOrd[p.semaforo] < semOrd[byProv[k].worstSem]) byProv[k].worstSem = p.semaforo;
+  }
+  const provs = Object.entries(byProv).sort(([,a],[,b]) => semOrd[a.worstSem]-semOrd[b.worstSem] || b.total-a.total);
+  const totalPedido = provs.reduce((s,[,g])=>s+g.total,0);
+
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">${provs.length} proveedores · ${ped.length} productos</div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--green-dark)">Total: $${Number(totalPedido).toLocaleString('es-AR')}</div>
+  </div>`;
+
+  html += provs.map(([prov, info], gi) => {
+    const clr = semColor(info.worstSem);
+    const rows = info.items.map(p => `<tr>
+      <td>${p.nombre}<small>ID ${p.id}</small></td>
+      <td><span class="badge b-${p.semaforo.toLowerCase()}">${p.semaforo}</span></td>
+      <td class="num">${fmt(p.stockTotal,1)}</td>
+      <td class="num" style="color:${covColor(p.coberturaActual,p.leadTime)};font-weight:600">${p.coberturaActual>=999?'∞':fmt(p.coberturaActual,0)+'d'}</td>
+      <td class="num">${fmt(p.consumoTotal,1)}</td>
+      <td class="num">${fmt(p.sugeridoMin,0)}</td>
+      <td class="num">${fmt(p.sugeridoMay,0)}</td>
+      <td class="num"><b>${fmt(p.sugeridoTotal,0)}</b></td>
+      <td class="num">${p.precio>0?'$'+Number(p.precio).toLocaleString('es-AR'):'—'}</td>
+      <td class="num">${p.importeSugerido>0?'<b>$'+Number(p.importeSugerido).toLocaleString('es-AR')+'</b>':'—'}</td>
+    </tr>`).join('');
+    const totRow = `<tr class="prov-total-row">
+      <td colspan="7">Total ${prov}</td>
+      <td class="num">${fmt(info.items.reduce((s,p)=>s+p.sugeridoTotal,0),0)}</td>
+      <td></td>
+      <td class="num">$${Number(info.total).toLocaleString('es-AR')}</td>
+    </tr>`;
+    return `<div class="prov-section" style="border-top:3px solid ${clr}">
+      <div class="prov-header" onclick="toggleProv(${gi})">
+        <span class="prov-name">${prov}</span>
+        <span class="prov-n">${info.items.length} prod.</span>
+        <span class="prov-lt">LT ${info.lt}d</span>
+        <span class="prov-amt">$${Number(info.total).toLocaleString('es-AR')}</span>
+        <span class="prov-chevron" id="chev-${gi}">▶</span>
+      </div>
+      <div class="prov-body" id="pb-${gi}">
+        <div class="tw-scroll">
+          <table>
+            <thead><tr>
+              <th>Producto</th><th>Estado</th><th class="num">Stock</th><th class="num">Cob.</th>
+              <th class="num">Cons/mes</th><th class="num">Min</th><th class="num">May</th>
+              <th class="num">Total</th><th class="num">Precio</th><th class="num">Importe</th>
+            </tr></thead>
+            <tbody>${rows}${totRow}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  $id('pedidoContent').innerHTML = html;
+  // Auto-open critical providers
+  provs.forEach(([,g], i) => { if (g.worstSem === 'CRITICO' || g.worstSem === 'ALERTA') toggleProv(i); });
+}
+
+function toggleProv(i) {
+  const pb = $id('pb-'+i), chev = $id('chev-'+i);
+  if (!pb) return;
+  pb.classList.toggle('open');
+  if (chev) chev.textContent = pb.classList.contains('open') ? '▼' : '▶';
+}
+
+function setView(v) {
+  currentView = v;
+  $id('viewPanel').style.display  = v === 'panel'  ? 'block' : 'none';
+  $id('viewPedido').style.display = v === 'pedido' ? 'block' : 'none';
+  document.querySelectorAll('#segView button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+}
+
+// ── Lead times modal ──
+async function openLT() {
+  try {
+    ltData = await (await fetch('/api/panel/lead-times')).json();
+    $id('ltDefault').value = ltData.default;
+    renderLTRows();
+    $id('ltModal').style.display = 'flex';
+  } catch(e) { alert('Error: ' + e.message); }
+}
+function renderLTRows() {
+  if (!ltData) return;
+  const q = $id('ltSearchInp').value.toLowerCase();
+  const items = ltData.items.filter(i => !q || i.proveedor.toLowerCase().includes(q));
+  $id('ltBody').innerHTML = items.map(i =>
+    `<tr><td>${i.proveedor}</td><td class="num"><input type="number" class="lt-inp" data-p="${i.proveedor.replace(/"/g,'')}" value="${i.leadTime}" min="0" max="999"></td></tr>`
+  ).join('');
+}
+async function saveLT() {
+  const def = parseInt($id('ltDefault').value) || 14;
+  const items = ltData.items.map(i => {
+    const inp = document.querySelector(`.lt-inp[data-p="${i.proveedor.replace(/"/g,'')}"]`);
+    return { proveedor: i.proveedor, leadTime: inp ? parseInt(inp.value) || 14 : i.leadTime };
+  });
+  await fetch('/api/panel/lead-times', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ items, default: def })
+  });
+  closeLT();
+}
+function closeLT() { $id('ltModal').style.display = 'none'; }
+
+// ── Init ──
+cargarPanel();
+</script>
+</body>
+</html>

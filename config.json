@@ -1,0 +1,26 @@
+{
+  "umbralRojo": 3,
+  "umbralAmarillo": 7,
+  "diasObjetivo": 15,
+  "ventanaConsumoDias": 30,
+  "rubrosPlanificables": [21, 25],
+  "rubrosGranel": [22, 23],
+  "depositoGranelLike": "%GRANEL%",
+  "minDiasParaSugerir": 7,
+  "incidenciaStockPlanif": 0.6,
+  "comprasLeadTimeDias": 7,
+  "comprasStockSeguridadPct": 20,
+  "comprasCoberturaMeses": 1,
+  "puerto": 8081,
+  "hostname": "dev",
+  "produccionHtml": "apidelta_produccion_dev.html",
+  "gruposGranelEnKg": [
+    "G. Chocolate Gold","G. Crunch","G. KETO","G. Super Alimentos","G. Tradicional"
+  ],
+  "gruposGranel": [
+    "G. Chocolate Gold","G. Crunch","G. KETO","G. Super Alimentos","G. Tradicional",
+    "Pepas Apidelta Integrales Membrillo y Batata","Mix Cervecero","Mix Cerv. Prem.",
+    "Mix Europeo","Mix Cuatro Semillas","Mix F.S N&P","Mix F.S Sin Pasas","Mix Tropic.",
+    "Frutos Rojos Iqf Premium","Apimani Clasico","Apimani Finas Hierbas"
+  ]
+}

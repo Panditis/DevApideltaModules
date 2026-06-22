@@ -1,0 +1,531 @@
+[
+  {
+    "id": 1781795024873,
+    "fecha": "2026-06-18",
+    "fechaHora": "2026-06-18T15:03:44.873Z",
+    "ordenes": [
+      {
+        "id": 1781794561157,
+        "codigo": "30055",
+        "idProducto": null,
+        "seccion": "GRANOLAS",
+        "producto": "G. Tradicional",
+        "presentacion": "100 Kg",
+        "cantidad": 100,
+        "criticidad": "Alta",
+        "prioridad": 2,
+        "estado": "listo",
+        "encargados": [
+          "Bruno"
+        ],
+        "encargado": "Bruno",
+        "tambor": "",
+        "fecha": "2026-06-18",
+        "terminado": true
+      },
+      {
+        "id": 1781794561158,
+        "codigo": "7482",
+        "idProducto": null,
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "500 Kg",
+        "cantidad": 500,
+        "criticidad": "Alta",
+        "prioridad": 2,
+        "estado": "pendiente",
+        "encargados": [],
+        "encargado": "Bruno",
+        "tambor": "",
+        "fecha": "2026-06-18",
+        "presentaciones": [],
+        "terminado": false
+      }
+    ],
+    "resumen": {
+      "total": 2,
+      "completadas": 1,
+      "enProceso": 0,
+      "pendientes": 1,
+      "pctCompletado": 50,
+      "totalUnidades": 600,
+      "unidadesCompletadas": 100,
+      "porSeccion": [
+        {
+          "seccion": "GRANOLAS",
+          "total": 2,
+          "completadas": 1,
+          "unidades": 600
+        }
+      ]
+    }
+  },
+  {
+    "id": 1781015771342,
+    "fecha": "2026-06-09",
+    "fechaHora": "2026-06-09T14:36:11.342Z",
+    "ordenes": [
+      {
+        "id": 1780947042988,
+        "codigo": "",
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "granel",
+        "cantidad": 800,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "Analia",
+        "tambor": "",
+        "fecha": "2026-06-12",
+        "presentaciones": []
+      },
+      {
+        "id": 1781011844255,
+        "codigo": "",
+        "seccion": "MIELES",
+        "producto": "Miel Acacia",
+        "presentacion": "1Kg: 23 · Tambor 123",
+        "presentaciones": [
+          {
+            "presentacion": "1Kg",
+            "cantidad": 23
+          }
+        ],
+        "cantidad": 23,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargados": [
+          "Bruno",
+          "Analia",
+          "Micaela"
+        ],
+        "encargado": "Bruno / Analia / Micaela",
+        "tambor": "123",
+        "fecha": "2026-06-09"
+      },
+      {
+        "id": 1781015582033,
+        "codigo": "",
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "800 Kg",
+        "cantidad": 800,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargados": [
+          "Micaela",
+          "Bruno"
+        ],
+        "encargado": "Micaela / Bruno",
+        "tambor": "",
+        "fecha": "2026-06-09"
+      },
+      {
+        "id": 1781015582034,
+        "codigo": "",
+        "seccion": "PRODUCCIÓN",
+        "producto": "Apimax",
+        "presentacion": "250G: 1 / 250G: 1",
+        "presentaciones": [
+          {
+            "presentacion": "250G",
+            "cantidad": 1
+          },
+          {
+            "presentacion": "250G",
+            "cantidad": 1
+          }
+        ],
+        "cantidad": 2,
+        "criticidad": "Baja",
+        "estado": "pendiente",
+        "encargados": [
+          "Bruno",
+          "Analia"
+        ],
+        "encargado": "Bruno / Analia",
+        "tambor": "",
+        "fecha": "2026-06-09"
+      },
+      {
+        "id": 1781015582035,
+        "codigo": "",
+        "seccion": "PRODUCCIÓN",
+        "producto": "Apinuez Fit Blanco",
+        "presentacion": "Apinuez Fit Blanco x6 Unidades: 1",
+        "presentaciones": [
+          {
+            "presentacion": "Apinuez Fit Blanco x6 Unidades",
+            "cantidad": 1
+          }
+        ],
+        "cantidad": 1,
+        "criticidad": "Media",
+        "estado": "pendiente",
+        "encargados": [
+          "Analia"
+        ],
+        "encargado": "Analia",
+        "tambor": "",
+        "fecha": "2026-06-09"
+      },
+      {
+        "id": 1781015582036,
+        "codigo": "",
+        "seccion": "PRODUCCIÓN",
+        "producto": "Aceite Coco Apidelta Neutro",
+        "presentacion": "155G: 471 / 290G: 374",
+        "presentaciones": [
+          {
+            "presentacion": "155G",
+            "cantidad": 471
+          },
+          {
+            "presentacion": "290G",
+            "cantidad": 374
+          }
+        ],
+        "cantidad": 845,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargados": [
+          "Micaela",
+          "Bruno",
+          "Analia"
+        ],
+        "encargado": "Micaela / Bruno / Analia",
+        "tambor": "",
+        "fecha": "2026-06-09"
+      }
+    ],
+    "resumen": {
+      "total": 6,
+      "completadas": 0,
+      "enProceso": 0,
+      "pendientes": 6,
+      "pctCompletado": 0,
+      "totalUnidades": 2471,
+      "unidadesCompletadas": 0,
+      "porSeccion": [
+        {
+          "seccion": "GRANOLAS",
+          "total": 2,
+          "completadas": 0,
+          "unidades": 1600
+        },
+        {
+          "seccion": "MIELES",
+          "total": 1,
+          "completadas": 0,
+          "unidades": 23
+        },
+        {
+          "seccion": "PRODUCCIÓN",
+          "total": 3,
+          "completadas": 0,
+          "unidades": 848
+        }
+      ]
+    }
+  },
+  {
+    "id": 1780947044005,
+    "fecha": "2026-06-08",
+    "fechaHora": "2026-06-08T19:30:44.005Z",
+    "ordenes": [
+      {
+        "id": 1780939526273,
+        "codigo": "",
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "granel",
+        "cantidad": 800,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "Analia",
+        "tambor": "",
+        "fecha": "2026-06-11",
+        "presentaciones": []
+      }
+    ],
+    "resumen": {
+      "total": 1,
+      "completadas": 0,
+      "enProceso": 0,
+      "pendientes": 1,
+      "pctCompletado": 0,
+      "totalUnidades": 800,
+      "unidadesCompletadas": 0,
+      "porSeccion": [
+        {
+          "seccion": "GRANOLAS",
+          "total": 1,
+          "completadas": 0,
+          "unidades": 800
+        }
+      ]
+    }
+  },
+  {
+    "id": 1780939526267,
+    "fecha": "2026-06-08",
+    "fechaHora": "2026-06-08T17:25:26.267Z",
+    "ordenes": [
+      {
+        "id": 1780937001964,
+        "codigo": "",
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "granel",
+        "cantidad": 800,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "Analia",
+        "tambor": "",
+        "fecha": "2026-06-10",
+        "presentaciones": []
+      }
+    ],
+    "resumen": {
+      "total": 1,
+      "completadas": 0,
+      "enProceso": 0,
+      "pendientes": 1,
+      "pctCompletado": 0,
+      "totalUnidades": 800,
+      "unidadesCompletadas": 0,
+      "porSeccion": [
+        {
+          "seccion": "GRANOLAS",
+          "total": 1,
+          "completadas": 0,
+          "unidades": 800
+        }
+      ]
+    }
+  },
+  {
+    "id": 1780937001962,
+    "fecha": "2026-06-08",
+    "fechaHora": "2026-06-08T16:43:21.962Z",
+    "ordenes": [
+      {
+        "id": 1780936865752,
+        "codigo": "",
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "granel",
+        "cantidad": 800,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "Analia",
+        "tambor": "",
+        "fecha": "2026-06-09",
+        "presentaciones": []
+      }
+    ],
+    "resumen": {
+      "total": 1,
+      "completadas": 0,
+      "enProceso": 0,
+      "pendientes": 1,
+      "pctCompletado": 0,
+      "totalUnidades": 800,
+      "unidadesCompletadas": 0,
+      "porSeccion": [
+        {
+          "seccion": "GRANOLAS",
+          "total": 1,
+          "completadas": 0,
+          "unidades": 800
+        }
+      ]
+    }
+  },
+  {
+    "id": 1780936865748,
+    "fecha": "2026-06-08",
+    "fechaHora": "2026-06-08T16:41:05.748Z",
+    "ordenes": [
+      {
+        "id": 1780931431897,
+        "codigo": "",
+        "seccion": "GRANOLAS",
+        "producto": "G. Chocolate Gold",
+        "presentacion": "granel",
+        "cantidad": 800,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "Analia",
+        "tambor": "",
+        "fecha": "2026-06-08",
+        "presentaciones": []
+      }
+    ],
+    "resumen": {
+      "total": 1,
+      "completadas": 0,
+      "enProceso": 0,
+      "pendientes": 1,
+      "pctCompletado": 0,
+      "totalUnidades": 800,
+      "unidadesCompletadas": 0,
+      "porSeccion": [
+        {
+          "seccion": "GRANOLAS",
+          "total": 1,
+          "completadas": 0,
+          "unidades": 800
+        }
+      ]
+    }
+  },
+  {
+    "id": 1780597454048,
+    "fecha": "2026-06-04",
+    "fechaHora": "2026-06-04T18:24:14.048Z",
+    "ordenes": [
+      {
+        "id": 1780584314465,
+        "codigo": "",
+        "seccion": "MIELES",
+        "producto": "Miel acacia",
+        "presentacion": "Miel Acacia Apidelta 1Kg: 35 / Miel Acacia Apidelta 250G: 9 / Miel Acacia Apidelta 28Kg Granel: 5 / Miel Acacia Apidelta 2Kg: 2 / Miel Acacia Apidelta 4Kg: 1 / Miel Acacia Apidelta 500G: 12 / Miel Granel En Tambor Alfalfa: 162 · Tambor 123p",
+        "presentaciones": [
+          {
+            "presentacion": "Miel Acacia Apidelta 1Kg",
+            "cantidad": 35
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 250G",
+            "cantidad": 9
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 28Kg Granel",
+            "cantidad": 5
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 2Kg",
+            "cantidad": 2
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 4Kg",
+            "cantidad": 1
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 500G",
+            "cantidad": 12
+          },
+          {
+            "presentacion": "Miel Granel En Tambor Alfalfa",
+            "cantidad": 162
+          }
+        ],
+        "cantidad": 226,
+        "criticidad": "Alta",
+        "estado": "listo",
+        "encargado": "",
+        "tambor": "123p",
+        "fecha": "2026-06-04"
+      },
+      {
+        "id": 1780597407237,
+        "codigo": "",
+        "seccion": "MIX",
+        "producto": "Mix Cerv. Prem.",
+        "presentacion": "500 Kg",
+        "cantidad": 500,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "",
+        "tambor": "",
+        "fecha": "2026-06-04"
+      },
+      {
+        "id": 1780597407238,
+        "codigo": "",
+        "seccion": "MIELES",
+        "producto": "Miel acacia",
+        "presentacion": "Miel Acacia Apidelta 1Kg: 35 / Miel Acacia Apidelta 250G: 9 / Miel Acacia Apidelta 28Kg Granel: 5 / Miel Acacia Apidelta 2Kg: 2 / Miel Acacia Apidelta 4Kg: 1 / Miel Acacia Apidelta 500G: 12 / Miel Granel En Tambor Alfalfa: 162 · Tambor 123p",
+        "presentaciones": [
+          {
+            "presentacion": "Miel Acacia Apidelta 1Kg",
+            "cantidad": 35
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 250G",
+            "cantidad": 9
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 28Kg Granel",
+            "cantidad": 5
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 2Kg",
+            "cantidad": 2
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 4Kg",
+            "cantidad": 1
+          },
+          {
+            "presentacion": "Miel Acacia Apidelta 500G",
+            "cantidad": 12
+          },
+          {
+            "presentacion": "Miel Granel En Tambor Alfalfa",
+            "cantidad": 162
+          }
+        ],
+        "cantidad": 226,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "",
+        "tambor": "123p",
+        "fecha": "2026-06-04"
+      },
+      {
+        "id": 1780597407239,
+        "codigo": "",
+        "seccion": "MIELES",
+        "producto": "Miel trebol",
+        "presentacion": "Miel Trebol Apidelta 1Kg: 40 · Tambor 13213",
+        "presentaciones": [
+          {
+            "presentacion": "Miel Trebol Apidelta 1Kg",
+            "cantidad": 40
+          }
+        ],
+        "cantidad": 40,
+        "criticidad": "Alta",
+        "estado": "pendiente",
+        "encargado": "",
+        "tambor": "13213",
+        "fecha": "2026-06-04"
+      }
+    ],
+    "resumen": {
+      "total": 4,
+      "completadas": 1,
+      "enProceso": 0,
+      "pendientes": 3,
+      "pctCompletado": 25,
+      "totalUnidades": 992,
+      "unidadesCompletadas": 226,
+      "porSeccion": [
+        {
+          "seccion": "MIELES",
+          "total": 3,
+          "completadas": 1,
+          "unidades": 492
+        },
+        {
+          "seccion": "MIX",
+          "total": 1,
+          "completadas": 0,
+          "unidades": 500
+        }
+      ]
+    }
+  }
+]

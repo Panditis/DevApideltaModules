@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A8020 calculado · Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --verde:#405936;--verde-dark:#2e4027;--verde-hover:#4f6e42;--verde-cont:#cfe0c2;--verde-on-cont:#0c1f06;
+    --amarillo:#FFCC00;--amarillo-on:#3a2f00;--amarillo-cont:#fff1bf;
+    --bg:#eef2e9;--card:#fff;--surface1:#f1f5ec;--surface2:#eaf0e4;--surface3:#e3ebdb;
+    --text:#1a1c18;--muted:#434840;--faint:#73796d;--border:#c3c9bc;--line:#dfe5d8;--error:#ba1a1a;
+    --disp:'Barlow Condensed',sans-serif;--body:'Roboto',sans-serif;
+    --shadow:0 1px 3px rgba(46,64,39,.12);--shadow-lg:0 6px 18px rgba(46,64,39,.16);
+  }
+  *{box-sizing:border-box}html,body{margin:0;height:100%}
+  body{font-family:var(--body);background:var(--bg);color:var(--text);font-size:13px;overflow:hidden;-webkit-font-smoothing:antialiased}
+  .app{display:flex;flex-direction:column;height:100vh}
+  header{background:var(--verde);color:#fff;padding:11px 22px;box-shadow:var(--shadow-lg);z-index:30}
+  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .brand{font-family:var(--disp);font-weight:700;font-size:23px;letter-spacing:.3px}
+  .brand b{color:var(--amarillo)}
+  .brand .sub{font-weight:500;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-left:10px}
+  .sp{flex:1}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:9px 22px;background:var(--card);border-bottom:1px solid var(--border);min-height:46px}
+  input[type=search]{font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;width:240px;font-size:13px;outline:none}
+  input[type=search]:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+  button{font-family:var(--body);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:500}
+  button.primary{background:var(--verde);color:#fff;border:0;box-shadow:var(--shadow)}
+  button.primary:hover{background:var(--verde-hover)}
+  button:disabled{opacity:.5;cursor:default}
+  .stat{font-size:11.5px;background:var(--surface1);border:1px solid var(--line);border-radius:7px;padding:4px 10px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .stat b{color:var(--text);font-weight:700}
+  .div{width:1px;height:18px;background:var(--border);margin:0 3px}
+  main{flex:1;overflow:auto;position:relative}
+  main::-webkit-scrollbar{width:12px;height:12px}main::-webkit-scrollbar-thumb{background:var(--border);border:3px solid var(--bg);border-radius:8px}
+  table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums;background:var(--card)}
+  thead th{position:sticky;top:0;z-index:5;background:var(--verde);color:#fff;padding:9px 8px;text-align:right;white-space:nowrap;font-family:var(--disp);font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-bottom:2px solid var(--verde-dark);cursor:pointer}
+  thead th:hover{background:var(--verde-hover)}
+  thead th.l{text-align:left}thead th.suc{color:var(--amarillo)}
+  thead th small{display:block;font-family:var(--body);font-size:9.5px;font-weight:400;color:rgba(255,255,255,.6);text-transform:none;letter-spacing:0}
+  tbody td{padding:0 8px;height:31px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);font-size:12.5px}
+  tbody td.l{text-align:left}
+  tbody td.nombre{max-width:320px;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  tbody tr:nth-child(even){background:var(--surface1)}
+  tbody tr:hover{background:var(--verde-cont)}
+  .plu{color:var(--faint)}
+  td.s.pos span{background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 8px;border-radius:6px;display:inline-block;min-width:24px;cursor:help}
+  td.s.boot span{background:var(--amarillo-cont);color:var(--amarillo-on);font-weight:700;padding:2px 8px;border-radius:6px;display:inline-block;min-width:24px;cursor:help;font-style:italic}
+  td.s{color:var(--faint)}
+  .abc{font-weight:700;font-size:11px;padding:2px 8px;border-radius:5px;display:inline-block;width:22px;text-align:center}
+  .abc.A{background:var(--verde);color:#fff}.abc.B{background:var(--amarillo-cont);color:var(--amarillo-on)}.abc.C{background:var(--surface3);color:var(--faint)}
+  .state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:70vh;gap:14px;color:var(--muted)}
+  .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--verde);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .ts{font-size:11px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <span class="brand">api<b>delta</b><span class="sub">A8020 calculado</span></span>
+      <span class="sp"></span>
+      <a href="/distribucion" style="font-family:var(--body);font-size:12px;font-weight:500;color:#fff;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);padding:7px 14px;border-radius:8px;text-decoration:none">← Distribución</a>
+    </div>
+  </header>
+  <div class="meta">
+    <input type="search" id="q" placeholder="Buscar PLU o producto…">
+    <button class="primary" id="recalc">↻ Recalcular desde Siga</button>
+    <span class="div"></span>
+    <span id="resumen" class="ts">cargando…</span>
+  </div>
+  <main>
+    <div class="state" id="state"><div class="spinner"></div><div id="stmsg">Cargando A8020…</div></div>
+    <table id="tabla" style="display:none"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table>
+  </main>
+</div>
+<script>
+const SUC = [['riv','Rivadavia'],['urq','Urquiza'],['nacion','Nación'],['chaca','Chacabuco'],['pergamino','Pergamino'],['sanpedro','San Pedro'],['ramallo','Villa Ramallo']];
+const SUC_ID = {riv:5,urq:2,nacion:3,chaca:4,pergamino:10,sanpedro:7,ramallo:9};
+let cache = {}, filas = [], orden = {col:'tot',dir:-1};
+const fmt = (n)=> (n==null||n===0)?'·':(Math.round(n*100)/100).toLocaleString('es-AR');
+const sumS = (r)=> SUC.reduce((s,[k])=> s+(r.mins[k]||0),0);
+
+function construir(){
+  const opsTxt = (k)=>{ const id=SUC_ID[k]; const n=(cache.opsDays||{})[id]; return n?`<small>${n}d op.</small>`:''; };
+  const cols = [['plu','PLU','l'],['nombre','Producto','l'],['abc','ABC','']]
+    .concat(SUC.map(([k,n])=>[k,n,'suc']))
+    .concat([['tot','Σ S','']]);
+  document.getElementById('head').innerHTML = cols.map(([k,n,cls])=>{
+    const ar = orden.col===k ? (orden.dir<0?' ▼':' ▲') : '';
+    const sub = cls==='suc' ? opsTxt(k) : '';
+    return `<th class="${cls||''}" data-col="${k}">${n}${ar}${sub}</th>`;
+  }).join('');
+  document.querySelectorAll('#head th').forEach(th=> th.onclick = ()=>{
+    const c=th.dataset.col;
+    if(orden.col===c) orden.dir*=-1; else {orden.col=c; orden.dir=(c==='plu'||c==='nombre'||c==='abc')?1:-1;}
+    render();
+  });
+}
+function valor(r,c){
+  if(c==='tot') return sumS(r);
+  if(SUC.some(([k])=>k===c)) return r.mins[c]||0;
+  if(c==='nombre') return (r.nombre||'').toLowerCase();
+  if(c==='abc') return ({A:0,B:1,C:2})[r.abc] ?? 3;
+  return r[c]??0;
+}
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  let rows = filas.filter(r=> !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
+  rows.sort((a,b)=>{const va=valor(a,orden.col),vb=valor(b,orden.col);return (va<vb?-1:va>vb?1:0)*orden.dir;});
+  document.getElementById('body').innerHTML = rows.slice(0,1500).map(r=>{
+    const celdas = SUC.map(([k])=>{ const s=r.mins[k]; const d=(r.detalle||{})[k]||{};
+      const boot = d.bootstrap===true;
+      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}μ=${d.mu}  σ=${d.sigma}`:'';
+      if(s>0 && boot) return `<td class="s boot"><span title="${tip}">~${fmt(s)}</span></td>`;
+      return s>0 ? `<td class="s pos"><span title="${tip}">${fmt(s)}</span></td>` : `<td class="s">·</td>`; }).join('');
+    return `<tr><td class="l plu">${r.plu}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
+      `<td><span class="abc ${r.abc}">${r.abc}</span></td>${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
+  }).join('');
+  document.getElementById('resumen').innerHTML =
+    `<span class="stat">${rows.length} productos</span>`+
+    `<span class="stat">A <b>${filas.filter(r=>r.abc==='A').length}</b> · B <b>${filas.filter(r=>r.abc==='B').length}</b> · C <b>${filas.filter(r=>r.abc==='C').length}</b></span>`+
+    ((cache.bootstrapped||[]).length ? `<span class="stat" style="background:var(--amarillo-cont);border-color:var(--amarillo);color:var(--amarillo-on)">~ bootstrap <b>${(cache.bootstrapped||[]).length}</b></span>` : '')+
+    `<span class="div"></span><span class="ts">ventana ${cache.ventanaMeses}m · ${cache.timestamp? new Date(cache.timestamp).toLocaleString('es-AR'):'—'} ${rows.length>1500?'· mostrando 1500':''}</span>`;
+}
+async function cargar(){
+  const r = await fetch('/api/distribucion/a8020'); cache = await r.json();
+  if(cache.vacio || !cache.mins){ document.getElementById('stmsg').innerHTML='Sin caché. Tocá <b>Recalcular desde Siga</b>.'; document.querySelector('.spinner').style.display='none'; return; }
+  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', mins:cache.mins[plu]||{}, detalle:(cache.detalle||{})[plu]||{} }));
+  construir(); render();
+  document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';
+}
+document.getElementById('q').oninput = render;
+document.getElementById('recalc').onclick = async (e)=>{
+  const b=e.target; b.disabled=true; const txt=b.textContent; b.textContent='Calculando… (puede tardar)';
+  document.getElementById('tabla').style.display='none';
+  const st=document.getElementById('state'); st.style.display='flex'; document.querySelector('.spinner').style.display='';
+  document.getElementById('stmsg').textContent='Recalculando desde Siga…';
+  try{ const r=await fetch('/api/distribucion/a8020/recalcular'); if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status)); await cargar(); }
+  catch(err){ document.getElementById('stmsg').textContent='Error: '+err.message; }
+  b.disabled=false; b.textContent=txt;
+};
+cargar();
+</script>
+</body>
+</html>

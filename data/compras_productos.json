@@ -1,0 +1,230 @@
+[
+  {
+    "id": "30201",
+    "nombre": "Aceite Coco Apidelta Neutro DEPOSITO GRANEL (x Kg)"
+  },
+  {
+    "id": "2909",
+    "nombre": "Aceite Girasol Produccion Alto Oleico"
+  },
+  {
+    "id": "1767",
+    "nombre": "Aceite Oliva Apidelta 1Lt"
+  },
+  {
+    "id": "1770",
+    "nombre": "Aceite Oliva Apidelta 2Lt"
+  },
+  {
+    "id": "1771",
+    "nombre": "Aceite Oliva Apidelta 500Cc"
+  },
+  {
+    "id": "1774",
+    "nombre": "Aceite Oliva Apidelta 5Lt"
+  },
+  {
+    "id": "1777",
+    "nombre": "Aceite Oliva Apidelta Vid 500Cc"
+  },
+  {
+    "id": "5027",
+    "nombre": "Aceto Balsamico Apidelta 500Cc"
+  },
+  {
+    "id": "5231",
+    "nombre": "Agua 1500Ml Aguas Misioneras"
+  },
+  {
+    "id": "5232",
+    "nombre": "Agua 6500Ml Aguas Misioneras"
+  },
+  {
+    "id": "7013",
+    "nombre": "Almendra Carmel DEPOSITO GRANEL"
+  },
+  {
+    "id": "7015",
+    "nombre": "Almendra Non Pareil Grande DEPOSITO GRANEL"
+  },
+  {
+    "id": "7020",
+    "nombre": "Almendra Non Pareil Mediana DEPOSITO GRANEL"
+  },
+  {
+    "id": "7019",
+    "nombre": "Almendra Partida DEPOSITO GRANEL"
+  },
+  {
+    "id": "8101",
+    "nombre": "Arandanos Iqf DEPOSITO GRANEL"
+  },
+  {
+    "id": "4304",
+    "nombre": "Avellanas 9/11 (Solo Produccion) DEPOSITO GRANEL"
+  },
+  {
+    "id": "6011",
+    "nombre": "Azucar Blanco Produccion 1Kg"
+  },
+  {
+    "id": "7069",
+    "nombre": "Azucar Mascabo DEPOSITO GRANEL"
+  },
+  {
+    "id": "7076",
+    "nombre": "Banana En Chips DEPOSITO GRANEL"
+  },
+  {
+    "id": "6010",
+    "nombre": "Dulce Batata Produccion 1Kg"
+  },
+  {
+    "id": "6009",
+    "nombre": "Dulce Membrillo Produccion 1Kg"
+  },
+  {
+    "id": "3430",
+    "nombre": "Escencia Limon Natural DEPOSITO GRANEL"
+  },
+  {
+    "id": "2433",
+    "nombre": "Esencia Vainilla 5L (Por Litro) DEPOSITO GRANEL"
+  },
+  {
+    "id": "8154",
+    "nombre": "Frambuesas Block DEPOSITO GRANEL"
+  },
+  {
+    "id": "8155",
+    "nombre": "Frambuesas Iqf DEPOSITO GRANEL"
+  },
+  {
+    "id": "7192",
+    "nombre": "Frutillas Block DEPOSITO GRANEL"
+  },
+  {
+    "id": "8119",
+    "nombre": "Frutillas Iqf DEPOSITO GRANEL"
+  },
+  {
+    "id": "7239",
+    "nombre": "Hari Mani DEPOSITO GRANEL"
+  },
+  {
+    "id": "1580",
+    "nombre": "Jalea Real 1Kg Deposito Ventas"
+  },
+  {
+    "id": "91319",
+    "nombre": "Leche Purisima DEPOSITO GRANEL"
+  },
+  {
+    "id": "1263",
+    "nombre": "Manteca Clarificada DEPOSITO GRANEL"
+  },
+  {
+    "id": "642",
+    "nombre": "Manteca Suelta"
+  },
+  {
+    "id": "8134",
+    "nombre": "Maracuya Pulpa C/ Semilla DEPOSITO GRANEL"
+  },
+  {
+    "id": "8137",
+    "nombre": "Maracuya Pulpa S/ Semilla DEPOSITO GRANEL"
+  },
+  {
+    "id": "9513",
+    "nombre": "Mentol 1Kg St"
+  },
+  {
+    "id": "8135",
+    "nombre": "Mora Iqf DEPOSITO GRANEL"
+  },
+  {
+    "id": "7328",
+    "nombre": "Nuez Con Cascara DEPOSITO GRANEL"
+  },
+  {
+    "id": "8136",
+    "nombre": "Nuez Cuartillo DEPOSITO GRANEL"
+  },
+  {
+    "id": "7330",
+    "nombre": "Nuez Cuarto Extra Light DEPOSITO GRANEL"
+  },
+  {
+    "id": "7333",
+    "nombre": "Nuez Mariposa Extra Light DEPOSITO GRANEL"
+  },
+  {
+    "id": "5594",
+    "nombre": "Nuez Pecan Pelada Cuarto DEPOSITO GRANEL"
+  },
+  {
+    "id": "7338",
+    "nombre": "Nuez Pecan Pelada Entera DEPOSITO GRANEL"
+  },
+  {
+    "id": "7353",
+    "nombre": "Pasa Uva Jumbo S/Sem DEPOSITO GRANEL"
+  },
+  {
+    "id": "7354",
+    "nombre": "Pasa Uva Rubia DEPOSITO GRANEL"
+  },
+  {
+    "id": "7355",
+    "nombre": "Pasa Uva Sulta S/Sem DEPOSITO GRANEL"
+  },
+  {
+    "id": "3530",
+    "nombre": "Polen DEPOSITO GRANEL"
+  },
+  {
+    "id": "4888",
+    "nombre": "Polvillo Polen 1Kg"
+  },
+  {
+    "id": "6029",
+    "nombre": "Sorbato de Potasio DEPOSITO GRANEL"
+  },
+  {
+    "id": "5278",
+    "nombre": "Tomate al Natural Apidelta 1Kg"
+  },
+  {
+    "id": "7457",
+    "nombre": "Tomates Secos DEPOSITO GRANEL"
+  },
+  {
+    "id": "5298",
+    "nombre": "Vinagre Sidra Manzana Apidelta 500Cc"
+  },
+  {
+    "id": "3671",
+    "nombre": "Yerba Apidelta Molienda Fina DEPOSITO GRANEL"
+  },
+  {
+    "id": "7474",
+    "nombre": "Yerba Apidelta Molienda Gruesa DEPOSITO GRANEL"
+  },
+  {
+    "id": "5233",
+    "nombre": "Yerba Apidelta Molienda Tradicional DEPOSITO GRANEL"
+  },
+  {
+    "id": "7296",
+    "nombre": "Mani Repelado Con Sal DEPOSITO GRANEL"
+  },
+  {
+    "id": "7437",
+    "nombre": "Sem. Zapallo Verde DEPOSITO GRANEL"
+  },
+  {
+    "id": "7140",
+    "nombre": "Ciruela Presidente Grande DEPOSITO GRANEL"
+  }
+]

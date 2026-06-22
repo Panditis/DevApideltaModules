@@ -1,0 +1,142 @@
+[
+  {
+    "id": 1781796621659,
+    "codigo": "30055",
+    "idProducto": null,
+    "seccion": "GRANOLAS",
+    "producto": "G. Tradicional",
+    "presentacion": "100 Kg",
+    "cantidad": 100,
+    "criticidad": "Alta",
+    "prioridad": 2,
+    "estado": "pendiente",
+    "encargados": [
+      "Bruno",
+      "Micaela"
+    ],
+    "encargado": "Bruno / Micaela",
+    "tambor": "",
+    "fecha": "2026-06-18",
+    "terminado": false
+  },
+  {
+    "id": 1781796621660,
+    "codigo": "7482",
+    "idProducto": null,
+    "seccion": "GRANOLAS",
+    "producto": "G. Chocolate Gold",
+    "presentacion": "500 Kg",
+    "cantidad": 500,
+    "criticidad": "Alta",
+    "prioridad": 2,
+    "estado": "pendiente",
+    "encargados": [
+      "Micaela",
+      "Bruno",
+      "Analia"
+    ],
+    "encargado": "Micaela / Bruno / Analia",
+    "tambor": "",
+    "fecha": "2026-06-18",
+    "terminado": false
+  },
+  {
+    "id": 1781893760920,
+    "codigo": "2279, 2288, 2291, 91441, 2276, 2282, 2294",
+    "seccion": "MIELES",
+    "producto": "Miel Pradera",
+    "presentacion": "10Kg: 2 / 1Kg: 179 / 250G: 106 / 28Kg: 1 / 2Kg: 3 / 4Kg: 3 / 500G: 6 · Tambor 67",
+    "presentaciones": [
+      {
+        "presentacion": "10Kg",
+        "cantidad": 2,
+        "plu": "2279",
+        "envase": "493",
+        "cargado": true,
+        "cantProducida": 2
+      },
+      {
+        "presentacion": "1Kg",
+        "cantidad": 179,
+        "plu": "2288",
+        "envase": "493",
+        "cargado": true,
+        "cantProducida": 179
+      },
+      {
+        "presentacion": "250G",
+        "cantidad": 106,
+        "plu": "2291",
+        "envase": "493",
+        "cargado": true,
+        "cantProducida": 106
+      },
+      {
+        "presentacion": "28Kg",
+        "cantidad": 1,
+        "plu": "91441",
+        "envase": "493",
+        "cargado": true,
+        "cantProducida": 1
+      },
+      {
+        "presentacion": "2Kg",
+        "cantidad": 3,
+        "plu": "2276",
+        "envase": "493",
+        "cargado": true,
+        "cantProducida": 3
+      },
+      {
+        "presentacion": "4Kg",
+        "cantidad": 3,
+        "plu": "2282",
+        "envase": "492",
+        "cargado": true,
+        "cantProducida": 3
+      },
+      {
+        "presentacion": "500G",
+        "cantidad": 6,
+        "plu": "2294",
+        "envase": "492",
+        "cargado": true,
+        "cantProducida": 6
+      }
+    ],
+    "cantidad": 300,
+    "criticidad": "Alta",
+    "prioridad": 1,
+    "envase": "493",
+    "estado": "listo",
+    "encargados": [
+      "Micaela",
+      "test",
+      "Bruno"
+    ],
+    "encargado": "Micaela / test / Bruno",
+    "tambor": "67",
+    "fecha": "2026-06-19",
+    "terminado": true
+  },
+  {
+    "id": 1781893817191,
+    "codigo": "7194",
+    "idProducto": null,
+    "seccion": "FRUTOS SECOS",
+    "producto": "Frutos Rojos Iqf Premium",
+    "presentacion": "500 Kg",
+    "cantidad": 500,
+    "criticidad": "Alta",
+    "prioridad": 8,
+    "envase": "",
+    "estado": "en_proceso",
+    "encargados": [
+      "Bruno",
+      "Micaela"
+    ],
+    "encargado": "Bruno / Micaela",
+    "tambor": "",
+    "fecha": "2026-06-19"
+  }
+]

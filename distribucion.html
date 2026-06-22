@@ -1,0 +1,2215 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distribución · Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Paleta Apidelta (verde + amarillo) — consistente con planificación */
+    --verde:#405936; --verde-dark:#2e4027; --verde-hover:#4f6e42;
+    --verde-cont:#cfe0c2; --verde-on-cont:#0c1f06;
+    --amarillo:#FFCC00; --amarillo-on:#3a2f00; --amarillo-cont:#fff1bf;
+    --bg:#eef2e9; --card:#ffffff;
+    --surface1:#f1f5ec; --surface2:#eaf0e4; --surface3:#e3ebdb;
+    --text:#1a1c18; --muted:#434840; --faint:#73796d; --border:#c3c9bc; --line:#dfe5d8;
+    --grn-bg:#e8f3df; --grn-text:#1f5117;
+    --error:#ba1a1a; --info:#1e40af;
+    --disp:'Barlow Condensed',sans-serif; --body:'Roboto',sans-serif;
+    --shadow:0 1px 3px rgba(46,64,39,.12),0 1px 2px rgba(46,64,39,.08);
+    --shadow-lg:0 6px 18px rgba(46,64,39,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:var(--body);background:var(--bg);color:var(--text);font-size:13px;-webkit-font-smoothing:antialiased;overflow:hidden}
+  .app{display:flex;flex-direction:column;height:100vh}
+
+  /* ── Header (verde marca) ── */
+  header{background:var(--verde);color:#fff;padding:0 22px;box-shadow:var(--shadow-lg);position:relative;z-index:30}
+  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0 0}
+  .brand{display:flex;align-items:baseline;gap:11px}
+  .brand .mark{font-family:var(--disp);font-weight:700;font-size:24px;letter-spacing:.3px;line-height:1}
+  .brand .mark b{color:var(--amarillo)}
+  .brand .sub{font-family:var(--disp);font-weight:500;font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+  .top .sp{flex:1}
+
+  /* ── Tabs (sobre el verde, indicador amarillo) ── */
+  .tabs{display:flex;gap:4px;margin-top:10px;padding:0 4px;position:relative;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+  .tabs::-webkit-scrollbar{height:5px}
+  .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:3px}
+  .tab{font-family:var(--disp);font-weight:700;font-size:15px;letter-spacing:.4px;color:rgba(255,255,255,.78);
+    background:rgba(255,255,255,.08);border:0;padding:9px 18px 12px;cursor:pointer;position:relative;display:flex;align-items:center;gap:9px;transition:background .15s,color .15s;text-transform:uppercase;border-radius:8px 8px 0 0;flex:0 0 auto}
+  .tab:hover{background:rgba(255,255,255,.18);color:#fff}
+  .tab.on{background:var(--amarillo);color:var(--amarillo-on)}
+  .tab .pill{font-family:var(--body);font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:rgba(255,255,255,.25);color:rgba(255,255,255,.9)}
+  .tab.on .pill{background:rgba(58,47,0,.18);color:var(--amarillo-on)}
+  #ink{display:none}
+  .tab-cfg-toggle{font-family:var(--disp);font-weight:700;font-size:16px;color:rgba(255,255,255,.55);background:none;border:0;padding:9px 12px 12px;cursor:pointer;margin-left:auto;border-radius:8px 8px 0 0;transition:background .15s,color .15s}
+  .tab-cfg-toggle:hover{background:rgba(255,255,255,.15);color:#fff}
+  .tab-cfg-toggle.cfg-visible{color:var(--amarillo)}
+  .cfg-tab{display:none}
+  .cfg-tabs-on .cfg-tab{display:flex}
+
+  /* ── Meta / controls ── */
+  .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:9px 22px;background:var(--card);border-bottom:1px solid var(--border);min-height:46px}
+  .controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  input[type=search]{font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);
+    padding:8px 12px 8px 32px;border-radius:8px;width:240px;max-width:100%;font-size:13px;outline:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' fill='none' stroke='%23434840' stroke-width='2'%3E%3Ccircle cx='6.5' cy='6.5' r='5'/%3E%3Cpath d='M11 11l3 3'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:10px center;transition:border-color .15s,box-shadow .15s}
+  input[type=search]:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+  label.chk{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
+  label.chk input{accent-color:var(--verde)}
+  button{font-family:var(--body);background:var(--surface2);border:1px solid var(--border);color:var(--text);
+    padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s;white-space:nowrap}
+  button:hover{background:var(--surface3);border-color:var(--faint)}
+  button.primary{background:var(--verde);color:#fff;border:0;font-weight:500;box-shadow:var(--shadow)}
+  button.primary:hover{background:var(--verde-hover)}
+  .stat{font-family:var(--body);font-size:11.5px;background:var(--surface1);border:1px solid var(--line);border-radius:7px;padding:4px 10px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .stat b{color:var(--text);font-weight:700}
+  .stat.key{background:var(--amarillo-cont);border-color:var(--amarillo)}
+  .stat.key b{color:var(--amarillo-on)}
+  .meta .div{width:1px;height:18px;background:var(--border);margin:0 3px}
+  .sucstat{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .sucstat b{color:var(--verde-dark);font-weight:700}
+
+  /* ── Panels ── */
+  main{flex:1;overflow:hidden;position:relative;background:var(--bg)}
+  .panel{position:absolute;inset:0;overflow:auto;opacity:0;pointer-events:none;transform:translateY(6px);transition:opacity .25s,transform .25s}
+  .panel.on{opacity:1;pointer-events:auto;transform:none}
+  .panel::-webkit-scrollbar{width:12px;height:12px}
+  .panel::-webkit-scrollbar-track{background:var(--bg)}
+  .panel::-webkit-scrollbar-thumb{background:var(--border);border:3px solid var(--bg);border-radius:8px}
+  .panel::-webkit-scrollbar-thumb:hover{background:var(--faint)}
+
+  /* ── Table ── */
+  table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums;background:var(--card)}
+  thead th{position:sticky;top:0;z-index:5;background:var(--verde);color:#fff;padding:10px 8px;text-align:right;white-space:nowrap;
+    font-family:var(--disp);font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+    border-bottom:2px solid var(--verde-dark);cursor:pointer;user-select:none}
+  thead th:hover{background:var(--verde-hover)}
+  thead th.l{text-align:left}
+  thead th.suc{color:var(--amarillo)}
+  thead th .ar{font-size:10px}
+  tbody td{padding:0 8px;height:33px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);font-size:12.5px}
+  tbody td.l{text-align:left}
+  tbody td.nombre{max-width:340px;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  tbody tr:nth-child(even){background:var(--surface1)}
+  tbody tr{transition:background .1s}
+  tbody tr:hover{background:var(--verde-cont)}
+  tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--amarillo)}
+  .plu{color:var(--faint)}
+  td.central{color:var(--muted)}
+  td.env{color:var(--faint)}
+  td.env.pos span{background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:3px 9px;border-radius:6px;display:inline-block;min-width:26px}
+  td.tot{font-weight:700;color:var(--verde-dark)}
+  td.meses{color:var(--faint)}
+  td.imp{color:var(--muted)}
+  .impbar{display:inline-block;height:7px;border-radius:2px;background:var(--amarillo);vertical-align:middle;margin-right:6px}
+  tbody tr{animation:rise .35s both}
+  @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ── States ── */
+  .state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--muted);padding:40px;text-align:center}
+  .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--verde);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .state.err{color:var(--error)}
+  .state code{font-family:var(--body);background:var(--surface2);padding:2px 7px;border-radius:5px;color:var(--verde-dark);font-size:12px;font-weight:500}
+
+  /* ── Pesables: select de ruteo + badges ── */
+  select{font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);
+    padding:7px 28px 7px 11px;border-radius:8px;font-size:12px;outline:none;cursor:pointer;
+    appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23434840' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+  select:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+  td.gran{color:var(--verde-dark);font-weight:600}
+  td.envasar.si span{background:#dbe7ff;color:#1e40af;font-weight:700;padding:3px 9px;border-radius:6px;display:inline-block;min-width:30px}
+  td.ruteo{text-align:left}
+  td.ruteo span{font-size:11px;font-weight:700;padding:2px 9px;border-radius:5px;display:inline-block;white-space:nowrap}
+  .rt-Envasado{background:#dbe7ff;color:#1e40af}
+  .rt-Fraccionado{background:var(--verde-cont);color:var(--verde-on-cont)}
+  .rt-FraccionadoRevisar{background:#ffe2c2;color:#8a4b00}
+  .rt-SoloPreparacion{background:var(--amarillo-cont);color:var(--amarillo-on)}
+
+  /* ── Editor de listas ── */
+  .listpanel{padding:22px}
+  .lista-editor{max-width:780px;margin:0 auto}
+  .lista-head{display:flex;align-items:baseline;gap:12px;margin-bottom:2px}
+  .lista-head h2{font-family:var(--disp);font-weight:700;font-size:24px;color:var(--verde-dark);margin:0}
+  .lista-count{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .lista-editor .hint{color:var(--muted);font-size:13px;margin:4px 0 16px}
+  .lista-add{position:relative;margin-bottom:18px}
+  .lsearch{width:100%;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:9px;font-size:14px;outline:none}
+  .lsearch:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+  .resultados{position:absolute;top:46px;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow-lg);max-height:320px;overflow:auto;z-index:10}
+  .resultados:empty{display:none}
+  .res{padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);display:flex;gap:8px}
+  .res:hover{background:var(--verde-cont)}
+  .res b{color:var(--faint);font-weight:600;min-width:48px}
+  .vacio{padding:14px;color:var(--faint);font-size:13px;text-align:center}
+  .lista-items{display:flex;flex-direction:column;gap:5px}
+  .chip{display:flex;align-items:center;gap:8px;background:var(--surface1);border:1px solid var(--line);border-radius:8px;padding:7px 10px 7px 12px;font-size:13px}
+  .chip b{color:var(--faint);font-weight:600;min-width:48px}
+  .chip .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip .rm{background:none;border:0;color:var(--error);font-size:14px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1}
+  .chip .rm:hover{background:#fde7e7}
+  /* ── Fact (ya facturado desde última recepción) ── */
+  td.env.fact span{background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em}
+  .suc-tog{font-size:11px;padding:4px 9px;border-radius:5px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);color:var(--muted);opacity:.55;transition:opacity .15s,background .15s}
+  .suc-tog.on{opacity:1;background:var(--verde);color:#fff;border-color:var(--verde-dark)}
+  /* ── Rubro multiselect ── */
+  .rubro-btn{font-size:12px;font-weight:600;padding:7px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;white-space:nowrap}
+  .rubro-btn.active{background:var(--verde-cont);border-color:var(--verde);color:var(--verde-dark)}
+  .rubro-drop{position:absolute;top:38px;left:0;z-index:50;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);min-width:240px;max-height:340px;overflow-y:auto;padding:8px 0}
+  .rubro-opt{display:flex;align-items:center;gap:8px;padding:7px 14px;cursor:pointer;font-size:12px;white-space:nowrap}
+  .rubro-opt:hover{background:var(--verde-cont)}
+  .rubro-opt input{accent-color:var(--verde);width:14px;height:14px;flex-shrink:0}
+  .rubro-opt-clear{padding:6px 14px;font-size:11px;color:var(--faint);cursor:pointer;border-bottom:1px solid var(--line);margin-bottom:4px}
+  .rubro-opt-clear:hover{color:var(--error)}
+
+  /* ── Fraccionado lista compacta ── */
+  .frac-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);font-variant-numeric:tabular-nums;font-size:12.5px}
+  .frac-table thead th{position:sticky;top:0;z-index:5;background:var(--verde);color:#fff;padding:9px 10px;text-align:right;white-space:nowrap;font-family:var(--disp);font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-bottom:2px solid var(--verde-dark)}
+  .frac-table thead th.l{text-align:left}
+  .frac-table tbody td{padding:0 10px;height:36px;border-bottom:1px solid var(--line);vertical-align:middle;text-align:right;white-space:nowrap}
+  .frac-table tbody td.l{text-align:left}
+  .frac-table tbody tr.main-row:nth-child(4n+1),.frac-table tbody tr.main-row:nth-child(4n+2){background:var(--surface1)}
+  .frac-table tbody tr.main-row:hover td{background:var(--verde-cont)}
+  .frac-expand-btn{background:none;border:1px solid var(--border);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:11px;color:var(--faint);line-height:1.4}
+  .frac-expand-btn:hover{background:var(--surface3)}
+  .frac-expand-btn.open{background:var(--verde-cont);color:var(--verde-dark);border-color:var(--verde)}
+  .detail-row td{background:var(--surface2)!important;padding:10px 14px;border-bottom:2px solid var(--border)}
+  .detail-row{display:none}
+  .detail-row.open{display:table-row}
+  .detail-inner{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .detail-sucs{display:flex;gap:6px;flex-wrap:wrap}
+  .detail-suc{font-size:11.5px;background:var(--verde-cont);color:var(--verde-on-cont);padding:3px 10px;border-radius:5px;font-weight:700;white-space:nowrap}
+  .emp-chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+  .emp-chip{display:inline-flex;align-items:center;gap:3px;background:var(--amarillo-cont);color:var(--amarillo-on);border-radius:12px;padding:2px 8px 2px 7px;font-size:11.5px;font-weight:600}
+  .emp-chip button{background:none;border:0;cursor:pointer;color:var(--amarillo-on);font-size:12px;padding:0 0 0 1px;line-height:1}
+  .frac-asig-row{display:flex;gap:6px;align-items:center;margin-top:6px}
+  .emp-select{font-size:12px;padding:4px 8px;border-radius:6px;background:var(--surface1);border:1px solid var(--border);color:var(--text)}
+  .emp-add-btn{font-size:12px;padding:4px 10px;border-radius:6px}
+
+  /* ── Config ruteos form ── */
+  .param-group{margin-bottom:20px}
+  .param-group h3{font-family:var(--disp);font-weight:700;font-size:16px;color:var(--verde-dark);margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .param-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+  .param-label{flex:1;font-size:13px;color:var(--text)}
+  .param-label small{display:block;color:var(--faint);font-size:11px}
+  .param-input{width:90px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:8px;font-size:13px;outline:none;text-align:right}
+  .param-input:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+  .param-default{font-size:11px;color:var(--faint);white-space:nowrap}
+  .param-input.changed{border-color:var(--amarillo);background:var(--amarillo-cont)}
+
+  /* ── Envasado chips ── */
+  .chip-apidelta{background:var(--verde-cont);border-color:var(--verde)}
+  .chip-externo{background:#dbe7ff;border-color:#93b4f7}
+  .chip-move{background:none;border:0;font-size:12px;color:var(--faint);cursor:pointer;padding:2px 5px;border-radius:4px;white-space:nowrap}
+  .chip-move:hover{background:var(--surface3)}
+
+  /* ── Modal registro de producción ── */
+  .modal-reg-form{padding:20px 25px;display:flex;flex-direction:column;gap:14px}
+  .reg-field{display:flex;align-items:center;gap:12px}
+  .reg-field label{font-size:12px;font-weight:600;color:var(--muted);min-width:160px;flex-shrink:0}
+  .reg-field .val{font-size:13px;color:var(--text)}
+  .reg-field input,.reg-field select{font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:8px;font-size:13px;outline:none}
+  .reg-field input:focus,.reg-field select:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+  .reg-field input[type=number]{width:120px;text-align:right}
+  .reg-field input[type=time]{width:110px}
+  .reg-consumo{font-size:18px;font-weight:700;color:var(--verde-dark);background:var(--grn-bg);padding:8px 16px;border-radius:9px}
+  .reg-consumo small{font-size:12px;font-weight:400;color:var(--muted);margin-left:6px}
+  td.envasar-d{font-weight:700;font-size:13px}
+  td.envasar-d span{background:#dbe7ff;color:#1e40af;padding:3px 10px;border-radius:6px;display:inline-block}
+  .resp-select{font-size:11px;padding:3px 6px;border-radius:6px;background:var(--surface1);border:1px solid var(--border);color:var(--text);max-width:110px}
+  /* ── Tab Producción resumen ── */
+  .prod-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;font-variant-numeric:tabular-nums;background:var(--card)}
+  .prod-table thead th{position:sticky;top:53px;z-index:5;background:var(--verde);color:#fff;padding:7px 8px;text-align:right;white-space:nowrap;font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-bottom:2px solid var(--verde-dark)}
+  .prod-table thead th.l{text-align:left}
+  .prod-table tbody td{padding:0 8px;height:30px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;font-size:12px}
+  .prod-table tbody td.l{text-align:left}
+  .prod-table tbody td.obs-cell{max-width:160px;overflow:hidden;text-overflow:ellipsis;color:var(--faint);font-size:11px}
+  .prod-table tbody tr:nth-child(even){background:var(--surface1)}
+  .prod-table tbody tr:hover{background:var(--verde-cont)}
+  #tabla-a,#tabla-p{margin-top:14px}
+  .hist-card{background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
+  .hist-head{display:flex;align-items:center;gap:12px;padding:12px 16px;flex-wrap:wrap}
+  .hist-fecha{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--text);min-width:90px}
+  .hist-exportado{font-size:11px;color:var(--faint)}
+  .hist-prog-wrap{flex:1;min-width:160px;display:flex;align-items:center;gap:8px}
+  .hist-prog-bar{flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden}
+  .hist-prog-fill{height:100%;background:var(--verde);border-radius:4px;transition:width .4s}
+  .hist-prog-pct{font-size:12px;font-weight:700;color:var(--verde-dark);white-space:nowrap;min-width:38px}
+  .hist-toggle{font-size:12px;padding:4px 10px;border-radius:6px}
+  .hist-del{font-size:12px;padding:4px 10px;border-radius:6px;color:var(--error);border-color:transparent;background:none}
+  .hist-del:hover{background:var(--surface2)}
+  .hist-body{border-top:1px solid var(--border);padding:10px 16px 14px;display:none}
+  .hist-body.open{display:block}
+  .hist-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;font-variant-numeric:tabular-nums}
+  .hist-table th{background:var(--verde);color:#fff;padding:6px 8px;text-align:right;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;border-bottom:2px solid var(--verde-dark)}
+  .hist-filter-bar{display:flex;gap:8px;align-items:center;padding:8px 0 10px;flex-wrap:wrap}
+  .hist-filter-btn{font-size:11px;padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:var(--surface1);cursor:pointer;color:var(--text)}
+  .hist-filter-btn.active{background:var(--verde-cont);border-color:var(--verde);color:var(--verde-dark);font-weight:700}
+  .hist-table th.l{text-align:left}
+  .hist-table td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  .hist-table td.l{text-align:left}
+  .hist-table td:not(:last-child),.hist-table th:not(:last-child){border-right:1px solid var(--line)}
+  .hist-mini-bar{display:inline-block;width:60px;height:5px;background:var(--surface2);border-radius:3px;vertical-align:middle;margin-right:4px}
+  .hist-mini-fill{display:inline-block;height:100%;background:var(--verde);border-radius:3px}
+  .prod-ind{margin-left:7px;background:#d1fae5;color:#065f46;border-radius:5px;padding:1px 6px;font-size:10.5px;font-weight:700;white-space:nowrap;vertical-align:middle}
+  table td:not(:last-child),table th:not(:last-child){border-right:1px solid var(--line)}
+  .prod-table td:not(:last-child),.prod-table th:not(:last-child){border-right:1px solid var(--line)}
+  .prod-act{display:flex;gap:3px;justify-content:flex-end}
+  .prod-act button{padding:2px 7px;font-size:11px;border-radius:5px}
+  .prod-act .del-btn{color:var(--error);border-color:transparent;background:none}
+  .prod-act .del-btn:hover{background:#fde7e7;border-color:var(--error)}
+  .prod-act .edit-btn{color:var(--info);border-color:transparent;background:none}
+  .prod-act .edit-btn:hover{background:#dbe7ff;border-color:var(--info)}
+
+  /* ── Modal granel ── */
+  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--card);border-radius:14px;box-shadow:var(--shadow-lg);max-width:820px;width:95vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+  .modal-head{padding:18px 22px 12px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px}
+  .modal-head h3{margin:0;font-family:var(--disp);font-weight:700;font-size:22px;color:var(--verde-dark)}
+  .modal-head .mg-stock{font-size:13px;color:var(--muted)}
+  .modal-head .mg-stock b{color:var(--text)}
+  .modal-close{margin-left:auto;background:none;border:0;font-size:22px;color:var(--faint);cursor:pointer;line-height:1;padding:2px 6px;border-radius:6px}
+  .modal-close:hover{background:var(--surface2);color:var(--text)}
+  .modal-body{overflow:auto;padding:0}
+  .modal-body table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .modal-body thead th{position:sticky;top:0;background:var(--verde);color:#fff;padding:8px 10px;text-align:right;white-space:nowrap;font-family:var(--disp);font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-bottom:2px solid var(--verde-dark)}
+  .modal-body thead th.l{text-align:left}
+  .modal-body thead th.suc{color:var(--amarillo)}
+  .modal-body tbody td{padding:5px 10px;text-align:right;border-bottom:1px solid var(--line)}
+  .modal-body tbody td.l{text-align:left}
+  .modal-body tbody td.plu{color:var(--faint)}
+  .modal-body tbody tr:nth-child(even){background:var(--surface1)}
+  .modal-body tbody tr.total-row td{font-weight:700;background:var(--surface2);border-top:2px solid var(--border);color:var(--verde-dark)}
+  .modal-foot{padding:12px 22px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);background:var(--surface1)}
+
+  /* ── Tab Config ── */
+  .tabs-cfg-panel{padding:22px;max-width:680px;margin:0 auto}
+  .tabs-cfg-panel h2{font-family:var(--disp);font-weight:700;font-size:22px;color:var(--verde-dark);margin:0 0 6px}
+  .tabs-cfg-panel .hint{font-size:12px;color:var(--faint);margin:0 0 20px}
+  .tabs-cfg-table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+  .tabs-cfg-table th{text-align:left;padding:7px 10px;font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;border-bottom:2px solid var(--border);background:var(--surface1)}
+  .tabs-cfg-table th.c{text-align:center}
+  .tabs-cfg-table td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .tabs-cfg-table td.c{text-align:center}
+  .tabs-cfg-table tr:last-child td{border-bottom:none}
+  .tabs-cfg-table tr:nth-child(even) td{background:var(--surface1)}
+  .tabs-cfg-table tr:hover td{background:var(--verde-cont)}
+  .tab-grp-radio{display:flex;justify-content:center}
+  .tab-grp-radio input[type=radio]{accent-color:var(--verde);width:15px;height:15px;cursor:pointer}
+  .tab-fixed-badge{font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--faint);white-space:nowrap}
+  .tabs-cfg-save{display:flex;gap:10px;align-items:center;margin-top:18px}
+  .tabs-cfg-reset{font-size:12px;color:var(--faint);cursor:pointer;background:none;border:none;text-decoration:underline}
+  .tabs-cfg-reset:hover{color:var(--error)}
+
+  /* ── Responsive: pantallas chicas ── */
+  @media (max-width:640px){
+    header{padding:0 12px}
+    .brand .mark{font-size:20px}
+    .brand .sub{display:none}
+    .tab{font-size:13px;padding:8px 12px 10px}
+    .meta{padding:8px 12px;gap:6px}
+    input[type=search]{flex:1 1 140px;width:auto}
+    .meta .div{display:none}
+    .stat{font-size:11px;padding:3px 8px}
+    thead th{padding:8px 6px;font-size:12px}
+    tbody td{padding:0 6px;font-size:12px}
+    .modal{width:97vw;max-height:88vh}
+    .reg-field{flex-wrap:wrap}
+    .reg-field label{min-width:0}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <div class="brand">
+        <span class="mark">api<b>delta</b></span>
+        <span class="sub">distribución</span>
+      </div>
+      <span class="sp"></span>
+    </div>
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-tab="almacen">Almacen <span class="pill" id="pillA">—</span></button>
+      <button class="tab" data-tab="pesables">Pesables <span class="pill" id="pillP">kg</span></button>
+      <button class="tab" data-tab="envasar">Envasar <span class="pill" id="pillEnv">0</span></button>
+      <button class="tab" data-tab="pedidos">Pedidos <span class="pill" id="pillPed">—</span></button>
+      <button class="tab" data-tab="produccion">Producción <span class="pill" id="pillProd">0</span></button>
+      <button class="tab" data-tab="historial">Historial <span class="pill" id="pillHist">0</span></button>
+      <button class="tab cfg-tab" data-tab="config-ruteos">Config Ruteos</button>
+      <button class="tab cfg-tab" data-tab="excluir">No envasa <span class="pill" id="pillExcluir">⊘</span></button>
+      <button class="tab cfg-tab" data-tab="forzar-almacen">Siempre Almacén <span class="pill" id="pillForzarAlmacen">+</span></button>
+      <button class="tab cfg-tab" data-tab="forzar-pesable">Siempre Pesable <span class="pill" id="pillForzarPesable">+</span></button>
+      <button class="tab cfg-tab" data-tab="tipo-almacen">Tipo Almacén</button>
+      <button class="tab cfg-tab" data-tab="tabs-config">Tabs</button>
+      <button class="tab-cfg-toggle" id="cfgToggle" onclick="toggleCfgTabs()" title="Mostrar/ocultar configuración">⚙</button>
+      <div id="ink"></div>
+    </div>
+  </header>
+
+  <div class="meta" id="meta">
+    <div class="controls">
+      <input type="search" id="q" placeholder="Buscar PLU o producto…">
+      <label class="chk"><input type="checkbox" id="soloEnvio" checked> Solo con envío</label>
+      <select id="fEnvasar" style="display:none">
+        <option value="">Envasar: Todos</option>
+        <option value="Si" selected>Envasar: Sí</option>
+        <option value="No">Envasar: No</option>
+      </select>
+      <div class="rubro-filter" id="rubroFilter" style="display:none;position:relative">
+        <button class="rubro-btn" id="rubroBtn" onclick="toggleRubroDropdown()">Rubro <span id="rubroBtnCount"></span>▾</button>
+        <div class="rubro-drop" id="rubroDrop" style="display:none"></div>
+      </div>
+      <div id="sucFiltros" style="display:none;position:relative">
+        <button class="rubro-btn" id="sucBtnA" onclick="toggleSucDropdownA()">Sucursales <span id="sucBtnACount"></span>▾</button>
+        <div class="rubro-drop" id="sucDropA" style="display:none"></div>
+      </div>
+      <div id="sucFiltrosP" style="display:none;position:relative">
+        <button class="rubro-btn" id="sucBtnP" onclick="toggleSucDropdown()">Sucursales <span id="sucBtnPCount"></span>▾</button>
+        <div class="rubro-drop" id="sucDropP" style="display:none"></div>
+      </div>
+      <div id="tipoFiltro" style="display:none;gap:4px;align-items:center">
+        <span style="font-size:11px;color:var(--muted)">Tipo:</span>
+        <button class="suc-tog on" data-tipo="">Todos</button>
+        <button class="suc-tog" data-tipo="Deposito">Depósito</button>
+        <button class="suc-tog" data-tipo="MiniDeposito">MiniDepósito</button>
+      </div>
+      <button id="pdfA" style="display:none">📄 PDF</button>
+      <button id="pdfP" style="display:none">📄 PDF</button>
+      <button id="pdfEnv" style="display:none">📄 PDF</button>
+      <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
+      <button class="primary" id="reload">↻ Recalcular</button>
+      <button onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
+      <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
+        <span style="font-size:11px;color:var(--muted)">Modo:</span>
+        <button class="suc-tog on" data-modo="sala" onclick="setPesablesModo('sala')" title="Habilita el modal de carga de producción">🏭 Sala</button>
+        <button class="suc-tog" data-modo="preparacion" onclick="setPesablesModo('preparacion')" title="Deshabilita el modal de carga de producción">📋 Preparación</button>
+      </div>
+    </div>
+    <span class="div"></span>
+    <span id="resumen"></span>
+    <!-- controles reubicados: Pedidos / Producción / Historial -->
+    <div class="controls" id="ctrl-pedidos" style="display:none">
+      <input type="search" id="qPed" placeholder="Buscar PLU o nombre…" style="width:220px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:8px;font-size:13px;outline:none">
+      <span id="pedResumen"></span>
+    </div>
+    <div class="controls" id="ctrl-produccion" style="display:none">
+      <label style="font-size:12px;color:var(--muted)">Fecha</label>
+      <input type="date" id="prodFecha" style="font-family:var(--body);padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+      <button class="primary" onclick="cargarProduccion()">↻ Actualizar</button>
+      <button id="prodCSV" onclick="exportarCSVProduccion()">⬇ CSV</button>
+      <button onclick="archivarProduccion()" title="Guardar en historial y limpiar registros">📥 Archivar</button>
+      <button onclick="abrirModalResponsables()" title="Gestionar nombres de responsables">👤 Responsables</button>
+      <span id="prodResumen"></span>
+    </div>
+    <div class="controls" id="ctrl-historial" style="display:none">
+      <input type="date" id="histFiltroFecha" oninput="renderHistorial()" style="font-family:var(--body);padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+      <button onclick="document.getElementById('histFiltroFecha').value='';renderHistorial()" style="font-size:12px;padding:5px 10px">Todas</button>
+      <input type="search" id="histFiltroProd" placeholder="Buscar producto en todas las fechas…" oninput="renderHistorial()" style="width:250px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;outline:none">
+      <span id="histResumen" style="font-size:11px;color:var(--faint)"></span>
+    </div>
+  </div>
+
+  <main>
+    <!-- ALMACEN -->
+    <section class="panel on" id="panel-almacen">
+      <div class="state" id="state-a"><div class="spinner"></div><div>Calculando distribución…</div></div>
+      <table id="tabla-a" style="display:none">
+        <thead><tr id="head-a"></tr></thead>
+        <tbody id="body-a"></tbody>
+      </table>
+    </section>
+
+    <!-- PESABLES -->
+    <section class="panel" id="panel-pesables">
+      <div class="state" id="state-p"><div class="spinner"></div><div>Calculando pesables…</div></div>
+      <table id="tabla-p" style="display:none">
+        <thead><tr id="head-p"></tr></thead>
+        <tbody id="body-p"></tbody>
+      </table>
+    </section>
+
+    <!-- ENVASAR -->
+    <section class="panel" id="panel-envasar">
+      <div class="state" id="state-env"><div class="spinner"></div><div>Cargando envasar…</div></div>
+      <table id="tabla-env" style="display:none">
+        <thead><tr id="head-env"></tr></thead>
+        <tbody id="body-env"></tbody>
+      </table>
+    </section>
+
+    <!-- LISTAS EDITABLES -->
+    <section class="panel listpanel" id="panel-excluir"></section>
+    <section class="panel listpanel" id="panel-forzar-almacen"></section>
+    <section class="panel listpanel" id="panel-forzar-pesable"></section>
+
+    <!-- removed fraccionado/envasado panels -->
+    <!-- FRACCIONADO ORDENES (placeholder, tab removed) -->
+    <section class="panel" id="panel-fraccionado-ordenes" style="display:none"></section>
+    <!-- ENVASADO (placeholder) -->
+    <section class="panel" id="panel-envasado" style="display:none"></section>
+
+    <!-- PEDIDOS -->
+    <section class="panel" id="panel-pedidos">
+      <div id="ped-state" class="state" style="display:none"><div class="spinner"></div><div>Cargando…</div></div>
+      <div style="max-width:680px;margin:0 auto;padding:14px 16px 0">
+        <table id="tabla-ped" style="display:none;width:100%">
+          <thead><tr>
+            <th class="l" style="width:64px">PLU</th>
+            <th class="l">Nombre</th>
+            <th class="l" style="width:120px">Rubro</th>
+            <th style="width:90px">Compuesto</th>
+            <th style="width:110px"></th>
+          </tr></thead>
+          <tbody id="body-ped"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PRODUCCIÓN RESUMEN -->
+    <section class="panel" id="panel-produccion">
+      <div id="prod-state" class="state" style="display:none"><div class="spinner"></div><div>Cargando…</div></div>
+      <div id="prod-empty" class="state" style="display:none"><div>Sin registros para esta fecha.</div></div>
+      <div style="max-width:960px;margin:0 auto;padding:14px 16px 0">
+        <table class="prod-table" id="prod-tabla" style="display:none;width:100%">
+          <thead><tr>
+            <th class="l" style="width:90px">Hora</th>
+            <th class="l">Producto (PLU)</th>
+            <th style="width:72px">kg fracc.</th>
+            <th class="l">Granel</th>
+            <th style="width:72px">kg gran.</th>
+            <th class="l" style="width:90px">Empleado</th>
+            <th class="l" style="width:130px">Lote</th>
+            <th class="l">Obs.</th>
+            <th style="width:60px"></th>
+          </tr></thead>
+          <tbody id="prod-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- HISTORIAL PRODUCCIÓN -->
+    <section class="panel" id="panel-historial">
+      <div id="hist-state" class="state" style="display:none"><div class="spinner"></div><div>Cargando…</div></div>
+      <div id="hist-empty" class="state" style="display:none"><div>Sin registros de historial.</div></div>
+      <div id="hist-list" style="max-width:1100px;margin:14px auto;padding:0 16px;display:none"></div>
+    </section>
+
+    <!-- TIPO ALMACEN -->
+    <section class="panel listpanel" id="panel-tipo-almacen">
+      <div style="padding:10px 22px;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="search" id="tipoQ" placeholder="Buscar PLU o producto…" oninput="renderTipoAlmacen()"
+          style="width:240px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;outline:none">
+        <div id="tipoTabFiltros" style="display:flex;gap:4px;align-items:center">
+          <button class="suc-tog on" data-tf="" onclick="setTipoTabFiltro(this)">Todos</button>
+          <button class="suc-tog" data-tf="sin" onclick="setTipoTabFiltro(this)">Sin asignar</button>
+          <button class="suc-tog" data-tf="Deposito" onclick="setTipoTabFiltro(this)">Depósito</button>
+          <button class="suc-tog" data-tf="MiniDeposito" onclick="setTipoTabFiltro(this)">MiniDepósito</button>
+        </div>
+        <span id="tipo-resumen" style="font-size:11px;color:var(--faint)"></span>
+      </div>
+      <div id="tipo-state" class="state" style="display:none"><div class="spinner"></div><div>Cargando…</div></div>
+      <div style="max-width:800px;margin:0 auto;padding:10px 16px">
+        <table class="frac-table" id="tipo-tabla" style="display:none;width:100%">
+          <thead><tr>
+            <th class="l" style="width:70px">PLU</th>
+            <th class="l">Producto</th>
+            <th style="width:170px">Tipo</th>
+          </tr></thead>
+          <tbody id="tipo-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TABS CONFIG -->
+    <section class="panel listpanel" id="panel-tabs-config">
+      <div class="tabs-cfg-panel" id="tabs-cfg-inner"></div>
+    </section>
+
+    <!-- CONFIG RUTEOS FRACCIONADO -->
+    <section class="panel listpanel" id="panel-config-ruteos">
+      <div class="lista-editor" style="max-width:700px">
+        <div class="lista-head"><h2>Config Ruteos Fraccionado</h2></div>
+        <p class="hint">Parámetros del motor de pesables que determinan el ruteo. Vacío = usa valor por defecto de la planilla.</p>
+        <div id="ruteos-form"></div>
+        <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
+          <button class="primary" id="saveRuteos">Guardar cambios</button>
+          <button id="resetRuteos">Restaurar defaults</button>
+          <span id="ruteosSaved" style="color:var(--verde-dark);font-size:12px;display:none">✓ Guardado</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal registro producción -->
+  <div class="modal-bg" id="modal-registro">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-head">
+        <h3>Registro de Producción</h3>
+        <button class="modal-close" id="mr-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-reg-form" id="mr-form"></div>
+      </div>
+      <div class="modal-foot" style="display:flex;gap:10px;align-items:center">
+        <button class="primary" id="mr-save">Guardar</button>
+        <button id="mr-cancel">Cancelar</button>
+        <span id="mr-err" style="color:var(--error);font-size:12px;display:none"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal granel -->
+  <!-- Modal limpiar producción -->
+  <div class="modal-bg" id="modal-limpiar-prod">
+    <div class="modal" style="min-width:340px;max-width:420px">
+      <div class="modal-head"><h3>Limpiar registros</h3><button class="modal-close" onclick="document.getElementById('modal-limpiar-prod').classList.remove('open')">✕</button></div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
+        <p style="margin:0;font-size:13px;line-height:1.5">¿Eliminar todos los registros de producción del día <b id="clr-fecha-label"></b>?</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="document.getElementById('modal-limpiar-prod').classList.remove('open')">Cancelar</button>
+          <button class="primary" style="background:var(--error)" onclick="limpiarProduccion()">Sí, eliminar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal confirmación borrado -->
+  <div class="modal-bg" id="modal-confirm-del">
+    <div class="modal" style="min-width:320px;max-width:400px">
+      <div class="modal-head"><h3 id="confirm-del-title">Eliminar</h3><button class="modal-close" onclick="cerrarConfirmDel()">✕</button></div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
+        <p id="confirm-del-msg" style="margin:0;font-size:13px;line-height:1.5"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="cerrarConfirmDel()">Cancelar</button>
+          <button class="primary" style="background:var(--error)" onclick="ejecutarConfirmDel()">Sí, eliminar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal responsables -->
+  <div class="modal-bg" id="modal-responsables">
+    <div class="modal" style="max-width:380px">
+      <div class="modal-head">
+        <h3>Responsables</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-responsables').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="resp-nuevo" type="text" placeholder="Nombre completo…" style="flex:1;min-width:130px;font-family:var(--body);padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1);color:var(--text)">
+          <input id="resp-corto" type="text" placeholder="Abrev." maxlength="6" style="width:72px;font-family:var(--body);padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1);color:var(--text);text-transform:uppercase" title="Nombre corto para el lote (ej: BRUN)">
+          <button class="primary" onclick="agregarResponsable()">Agregar</button>
+        </div>
+        <div style="font-size:11px;color:var(--faint)">El nombre corto se usa en el número de lote.</div>
+        <div id="resp-lista" style="display:flex;flex-direction:column;gap:5px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal fórmula pedido -->
+  <div class="modal-bg" id="modal-formula-ped">
+    <div class="modal" style="min-width:420px;max-width:600px">
+      <div class="modal-head">
+        <h3 id="mfp-title">Fórmula</h3>
+        <button class="modal-close" id="mfp-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <table>
+          <thead><tr><th class="l" style="width:72px">PLU</th><th class="l">Producto fraccionado</th><th style="width:100px">kg/unidad</th></tr></thead>
+          <tbody id="mfp-tbody"></tbody>
+        </table>
+        <div id="mfp-empty" class="state" style="display:none">Sin fórmula registrada para este producto.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="modal-granel">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="mg-title"></h3>
+        <span class="mg-stock" id="mg-stock"></span>
+        <button class="modal-close" id="mg-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <table>
+          <thead><tr id="mg-head-row"></tr></thead>
+          <tbody id="mg-tbody"></tbody>
+        </table>
+      </div>
+      <div class="modal-foot" id="mg-foot"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Sucursales por vista (Pesables incluye Logia; Almacen no la despacha).
+const SUC_A = [
+  ['riv','Rivadavia'], ['urq','Urquiza'], ['nacion','Nación'], ['chaca','Chacabuco'],
+  ['pergamino','Pergamino'], ['sanPedro','San Pedro'], ['sucursal9','Villa Ramallo'],
+];
+const SUC_P = [
+  ['riv','Rivadavia'], ['urq','Urquiza'], ['nacion','Nación'], ['chaca','Chacabuco'],
+  ['pergamino','Pergamino'], ['sanpedro','San Pedro'], ['ramallo','Villa Ramallo'],
+];
+
+function fmt(n) {
+  if (n === 0 || n == null) return '·';
+  const v = Math.round(n * 100) / 100;
+  const [ent, dec] = v.toFixed(2).split('.');
+  const miles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return dec === '00' ? miles : `${miles},${dec}`;
+}
+const esNum = (v) => typeof v === 'number' && isFinite(v);
+
+// ════════════════ ALMACEN ════════════════
+let sucVis = new Set(SUC_A.map(([k]) => k));
+let almacenTipo = {}, tipoFiltroActual = '', tipoTabFiltro = '';
+const tipoTag = (plu) => {
+  const t = almacenTipo[String(plu)];
+  if (t === 'Deposito')    return '<span style="margin-left:5px;background:#d1fae5;color:#065f46;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;white-space:nowrap;vertical-align:middle">DEP</span>';
+  if (t === 'MiniDeposito') return '<span style="margin-left:5px;background:#dbe7ff;color:#1e40af;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;white-space:nowrap;vertical-align:middle">MINI</span>';
+  return '';
+};
+// Filtro de columnas por sucursal (Almacén) — dropdown
+let sucDesplegadoA = false;
+function renderSucDropA() {
+  document.getElementById('sucDropA').innerHTML =
+    `<div class="rubro-opt-clear" onclick="todasSucA()">Mostrar todas</div>` +
+    SUC_A.map(([k, n]) => `<label class="rubro-opt"><input type="checkbox" ${sucVis.has(k) ? 'checked' : ''} onchange="toggleSucA('${k}',this.checked)"><span>${n}</span></label>`).join('');
+}
+function toggleSucA(k, on) { on ? sucVis.add(k) : sucVis.delete(k); actualizarSucBtnA(); construirHead(); render(); }
+function todasSucA() { SUC_A.forEach(([k]) => sucVis.add(k)); renderSucDropA(); actualizarSucBtnA(); construirHead(); render(); }
+function actualizarSucBtnA() {
+  const oculto = SUC_A.length - sucVis.size;
+  document.getElementById('sucBtnACount').textContent = oculto ? `(${sucVis.size}/${SUC_A.length}) ` : '';
+  document.getElementById('sucBtnA').classList.toggle('active', oculto > 0);
+}
+function toggleSucDropdownA() {
+  sucDesplegadoA = !sucDesplegadoA;
+  document.getElementById('sucDropA').style.display = sucDesplegadoA ? '' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('sucFiltros').contains(e.target)) {
+    sucDesplegadoA = false;
+    document.getElementById('sucDropA').style.display = 'none';
+  }
+});
+function buildTipoFilter() {
+  const el = document.getElementById('tipoFiltro');
+  el.style.display = 'flex';
+  el.querySelectorAll('.suc-tog').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.tipo === tipoFiltroActual);
+    btn.onclick = () => {
+      tipoFiltroActual = btn.dataset.tipo;
+      el.querySelectorAll('.suc-tog').forEach(b => b.classList.toggle('on', b.dataset.tipo === tipoFiltroActual));
+      render();
+    };
+  });
+}
+let datos = [], orden = { col: 'importancia', dir: -1 };
+const totalEnviar = (r) => SUC_A.reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
+
+function construirHead() {
+  const cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['central','Depósito','']]
+    .concat(SUC_A.filter(([k]) => sucVis.has(k)).map(([k, n]) => [k, n, 'suc']))
+    .concat([['total','Total',''], ['importancia','Imp.','']]);
+  document.getElementById('head-a').innerHTML = cols.map(([k, n, cls]) => {
+    const ar = orden.col === k ? `<span class="ar">${orden.dir < 0 ? '▼' : '▲'}</span>` : '';
+    return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
+  }).join('');
+  document.querySelectorAll('#head-a th').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (orden.col === c) orden.dir *= -1; else { orden.col = c; orden.dir = (c === 'plu' || c === 'nombre') ? 1 : -1; }
+    render();
+  });
+}
+function valor(r, col) {
+  if (col === 'total') return totalEnviar(r);
+  if (SUC_A.some(([k]) => k === col)) return r.enviar[col] || 0;
+  if (col === 'nombre') return (r.nombre || '').toLowerCase();
+  return r[col] ?? 0;
+}
+// render() defined below with rubro filter
+async function cargar() {
+  const st = document.getElementById('state-a'), tb = document.getElementById('tabla-a');
+  tb.style.display = 'none'; st.style.display = 'flex'; st.className = 'state';
+  st.innerHTML = '<div class="spinner"></div><div>Calculando distribución…</div>';
+  try {
+    const [r, tr] = await Promise.all([
+      fetch('/api/distribucion/almacen'),
+      fetch('/api/distribucion/almacen-tipo').then(x=>x.json()).catch(()=>({}))
+    ]);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ('HTTP ' + r.status));
+    datos = await r.json();
+    almacenTipo = tr;
+    renderSucDropA(); actualizarSucBtnA(); buildTipoFilter(); construirHead(); render();
+    document.getElementById('pdfA').style.display = '';
+    st.style.display = 'none'; tb.style.display = '';
+  } catch (e) {
+    st.className = 'state err';
+    st.innerHTML = errHTML(e.message);
+  }
+}
+
+// ════════════════ PESABLES ════════════════
+let datosP = [], ordenP = { col: 'BG', dir: -1 }, pCargado = false;
+const RT_CLASE = { 'Envasado':'rt-Envasado','Fraccionado':'rt-Fraccionado','Fraccionado Revisar':'rt-FraccionadoRevisar','Solo Preparacion':'rt-SoloPreparacion' };
+const sumEnvP = (r) => SUC_P.reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
+const sumEnvVisP = (r) => SUC_P.filter(([k]) => sucVisP.has(k)).reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
+
+// Filtro múltiple de columnas por sucursal (Pesables) — dropdown
+let sucVisP = new Set(SUC_P.map(([k]) => k));
+let sucDesplegadoP = false;
+function renderSucDropP() {
+  document.getElementById('sucDropP').innerHTML =
+    `<div class="rubro-opt-clear" onclick="todasSucP()">Mostrar todas</div>` +
+    SUC_P.map(([k, n]) => `<label class="rubro-opt"><input type="checkbox" ${sucVisP.has(k) ? 'checked' : ''} onchange="toggleSucP('${k}',this.checked)"><span>${n}</span></label>`).join('');
+}
+function toggleSucP(k, on) { on ? sucVisP.add(k) : sucVisP.delete(k); actualizarSucBtnP(); construirHeadP(); renderP(); }
+function todasSucP() { SUC_P.forEach(([k]) => sucVisP.add(k)); renderSucDropP(); actualizarSucBtnP(); construirHeadP(); renderP(); }
+function actualizarSucBtnP() {
+  const oculto = SUC_P.length - sucVisP.size;
+  document.getElementById('sucBtnPCount').textContent = oculto ? `(${sucVisP.size}/${SUC_P.length}) ` : '';
+  document.getElementById('sucBtnP').classList.toggle('active', oculto > 0);
+}
+function toggleSucDropdown() {
+  sucDesplegadoP = !sucDesplegadoP;
+  document.getElementById('sucDropP').style.display = sucDesplegadoP ? '' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('sucFiltrosP').contains(e.target)) {
+    sucDesplegadoP = false;
+    document.getElementById('sucDropP').style.display = 'none';
+  }
+});
+
+function construirHeadP() {
+  const prep = pesablesModo === 'preparacion';
+  let cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel',''], ['H','Depósito','']];
+  cols.push(['D','Envasar','']);
+  cols = cols.concat(SUC_P.filter(([k]) => sucVisP.has(k)).map(([k, n]) => [k, n, 'suc']));
+  if (!prep) cols.push(['resp','Responsable','l']);
+  cols.push(['BG','Imp.','']);
+  document.getElementById('head-p').innerHTML = cols.map(([k, n, cls]) => {
+    const ar = ordenP.col === k ? `<span class="ar">${ordenP.dir < 0 ? '▼' : '▲'}</span>` : '';
+    return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
+  }).join('');
+  document.querySelectorAll('#head-p th').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (ordenP.col === c) ordenP.dir *= -1; else { ordenP.col = c; ordenP.dir = (c === 'plu' || c === 'nombre' || c === 'BL') ? 1 : -1; }
+    renderP();
+  });
+}
+function valorP(r, col) {
+  if (col === 'CG') return sumEnvP(r);
+  if (SUC_P.some(([k]) => k === col)) return esNum(r.enviar[col]) ? r.enviar[col] : 0;
+  if (col === 'nombre') return (r.nombre || '').toLowerCase();
+  if (col === 'BL') return (r.BL || '').toLowerCase();
+  return r[col] ?? 0;
+}
+// renderP() defined below with rubro filter
+let prodHoyMap = {}, prodHoyCount = {};
+async function cargarProdHoy() {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const regs = await fetch('/api/distribucion/fraccionado-registros').then(r => r.json()).catch(() => []);
+  prodHoyMap = {}; prodHoyCount = {};
+  for (const r of regs) {
+    if (r.fecha === hoy) {
+      const k = String(r.plu);
+      prodHoyMap[k] = (prodHoyMap[k] || 0) + (r.cantFraccionada || 0);
+      prodHoyCount[k] = (prodHoyCount[k] || 0) + 1;
+    }
+  }
+}
+function generarLote(plu, empleado) {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  const emp = fracEmpleados.find(e => e.nombre === empleado);
+  const ini = (emp ? emp.corto : (empleado || '').slice(0, 4)).toUpperCase().padEnd(4, 'X').slice(0, 4);
+  const count = (prodHoyCount[String(plu)] || 0) + 1;
+  return `${dd}${mm}${yy}${ini}${count}-${plu}`;
+}
+async function cargarP() {
+  const st = document.getElementById('state-p'), tb = document.getElementById('tabla-p');
+  tb.style.display = 'none'; st.style.display = 'flex'; st.className = 'state';
+  st.innerHTML = '<div class="spinner"></div><div>Calculando pesables…</div>';
+  try {
+    const [rP, asigR, empR] = await Promise.all([
+      fetch('/api/distribucion/pesables'),
+      fetch('/api/distribucion/fraccionado-asignaciones').then(r => r.json()).catch(() => ({})),
+      fetch('/api/responsables').then(r => r.json()).catch(() => []),
+      cargarProdHoy(),
+    ]);
+    if (!rP.ok) throw new Error((await rP.json().catch(() => ({}))).error || ('HTTP ' + rP.status));
+    datosP = await rP.json(); pCargado = true;
+    fracAsig = asigR || {};
+    fracEmpleados = (empR.length ? empR : [{nombre:'Analia',corto:'ANAL'},{nombre:'Bruno',corto:'BRUN'},{nombre:'Micaela',corto:'MICA'}])
+  .map(e => typeof e === 'string' ? {nombre: e, corto: e.slice(0,4).toUpperCase()} : e);
+    construirHeadP(); renderP();
+    if (tabActual === 'envasar') renderEnvasar();
+    st.style.display = 'none'; tb.style.display = '';
+  } catch (e) {
+    st.className = 'state err';
+    st.innerHTML = errHTML(e.message);
+  }
+}
+
+// ════════════════ Común (tabs, controles, CSV) ════════════════
+const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
+  <div style="color:var(--faint);font-size:12px">¿Corriste <code>python importar_distribucion.py</code> y está Siga accesible?</div>`;
+let tabActual = 'almacen';
+// ── Modo pesables: Sala (habilita modal carga producción) / Preparación (lo deshabilita) ──
+let pesablesModo = localStorage.getItem('pesablesModo') || 'sala';
+function aplicarPesablesModo(){
+  document.querySelectorAll('#pesablesModoTog .suc-tog').forEach(b => b.classList.toggle('on', b.dataset.modo === pesablesModo));
+}
+function setPesablesModo(m){
+  pesablesModo = (m === 'preparacion') ? 'preparacion' : 'sala';
+  localStorage.setItem('pesablesModo', pesablesModo);
+  aplicarPesablesModo();
+  if (tabActual === 'pesables' && pCargado) { construirHeadP(); renderP(); }
+}
+const tabsEl = document.getElementById('tabs');
+function moverInk(btn){ const i=document.getElementById('ink'); i.style.left=btn.offsetLeft+'px'; i.style.width=btn.offsetWidth+'px'; }
+const LISTAS = {
+  'excluir':         {key:'noEnvasa',       titulo:'No se envasa / no se reparte', hint:'Productos excluidos de Almacén y Pesables (no aparecen en ninguna lista).'},
+  'forzar-almacen':  {key:'siempreAlmacen', titulo:'Siempre en Almacén',           hint:'Productos que aparecen siempre en la lista de Almacén, aunque no estén en la base.'},
+  'forzar-pesable':  {key:'siemprePesable', titulo:'Siempre en Pesable',           hint:'Productos que aparecen siempre en la lista de Pesables, aunque no estén en la base.'},
+};
+const PILL = {noEnvasa:'pillExcluir', siempreAlmacen:'pillForzarAlmacen', siemprePesable:'pillForzarPesable'};
+let listasData = null;
+const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar';
+
+function activarTab(name){
+  tabActual = name;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='panel-'+name));
+  moverInk(document.querySelector('.tab.on'));
+  document.querySelector('.controls').style.display = esDataTab(name) ? '' : 'none';
+  document.getElementById('fEnvasar').style.display = name==='pesables' ? '' : 'none';
+  document.getElementById('sucFiltrosP').style.display = name==='pesables' ? 'flex' : 'none';
+  if (name==='pesables') { renderSucDropP(); actualizarSucBtnP(); }
+  document.getElementById('rubroFilter').style.display = 'none';
+  document.getElementById('pdfA').style.display = name==='almacen' ? '' : 'none';
+  document.getElementById('sucFiltros').style.display = name==='almacen' ? 'flex' : 'none';
+  document.getElementById('tipoFiltro').style.display = name==='almacen' ? 'flex' : 'none';
+  document.getElementById('pdfP').style.display = name==='pesables' ? '' : 'none';
+  document.getElementById('pdfEnv').style.display = name==='envasar' ? '' : 'none';
+  document.getElementById('btn-actividad').style.display = name==='pesables' ? '' : 'none';
+  document.getElementById('pesablesModoTog').style.display = name==='pesables' ? 'flex' : 'none';
+  if (name==='pesables') aplicarPesablesModo();
+  document.getElementById('ctrl-pedidos').style.display = name==='pedidos' ? 'flex' : 'none';
+  document.getElementById('ctrl-produccion').style.display = name==='produccion' ? 'flex' : 'none';
+  document.getElementById('ctrl-historial').style.display = name==='historial' ? 'flex' : 'none';
+  if (name==='almacen') { cargar(); }
+  else if (name==='pesables') { cargarP(); }
+  else if (name==='envasar') { document.getElementById('state-env').style.display='flex'; document.getElementById('tabla-env').style.display='none'; cargarP(); }
+  else if (name==='pedidos') { cargarPedidos(); }
+  else if (name==='config-ruteos') { cargarConfigRuteos(); }
+  else if (name==='produccion') { cargarProduccion(); }
+  else if (name==='historial') { cargarHistorial(); }
+  else if (name==='tipo-almacen') { cargarTipoAlmacen(); }
+  else if (name==='tabs-config') { renderTabsConfig(); }
+  else { construirEditor(name); if(!listasData) cargarListas().then(()=>renderLista(name)); else renderLista(name); }
+}
+function construirEditor(tab){
+  const cont=document.getElementById('panel-'+tab); if(cont.dataset.built) return;
+  const cfg=LISTAS[tab];
+  cont.innerHTML = `<div class="lista-editor">
+    <div class="lista-head"><h2>${cfg.titulo}</h2><span class="lista-count"></span></div>
+    <p class="hint">${cfg.hint}</p>
+    <div class="lista-add"><input class="lsearch" placeholder="Buscar PLU o producto para agregar…"><div class="resultados"></div></div>
+    <div class="lista-items"></div></div>`;
+  const inp=cont.querySelector('.lsearch'); let tmr;
+  inp.oninput=()=>{ clearTimeout(tmr); tmr=setTimeout(()=>buscarProducto(tab,inp.value),220); };
+  document.addEventListener('click',e=>{ if(!cont.contains(e.target)) cont.querySelector('.resultados').innerHTML=''; });
+  cont.dataset.built='1';
+}
+async function cargarListas(){ const r=await fetch('/api/distribucion/listas'); listasData=await r.json();
+  for(const [k,id] of Object.entries(PILL)) document.getElementById(id).textContent=(listasData[k]||[]).length; }
+function renderLista(tab){
+  const cfg=LISTAS[tab], cont=document.getElementById('panel-'+tab);
+  const items=(listasData[cfg.key]||[]).map(plu=>({plu, nombre:(listasData.nombres||{})[plu]||''}));
+  cont.querySelector('.lista-count').textContent=items.length+' productos';
+  cont.querySelector('.lista-items').innerHTML = items.length
+    ? items.map(it=>`<div class="chip"><b>${it.plu}</b><span class="nom">${it.nombre||'<sin nombre>'}</span><button class="rm" data-plu="${it.plu}" title="Quitar">✕</button></div>`).join('')
+    : '<div class="vacio">Lista vacía. Buscá un producto arriba para agregarlo.</div>';
+  cont.querySelectorAll('.rm').forEach(b=> b.onclick=()=>modificarLista(cfg.key,'remove',b.dataset.plu));
+}
+async function buscarProducto(tab,q){
+  const box=document.querySelector('#panel-'+tab+' .resultados'); const cfg=LISTAS[tab];
+  if(q.trim().length<2){ box.innerHTML=''; return; }
+  const r=await fetch('/api/distribucion/buscar?q='+encodeURIComponent(q.trim())); const rows=await r.json();
+  const ya=new Set((listasData[cfg.key]||[]).map(Number));
+  box.innerHTML = rows.length ? rows.map(p=>`<div class="res" data-plu="${p.IdProducto}"><b>${p.IdProducto}</b><span>${p.NombreProducto}${ya.has(Number(p.IdProducto))?' ✓':''}</span></div>`).join('') : '<div class="vacio">Sin resultados</div>';
+  box.querySelectorAll('.res').forEach(d=> d.onclick=()=>{ modificarLista(cfg.key,'add',d.dataset.plu); box.innerHTML=''; document.querySelector('#panel-'+tab+' .lsearch').value=''; });
+}
+async function modificarLista(key,accion,plu){
+  await fetch('/api/distribucion/listas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lista:key,accion,plu:Number(plu)})});
+  await cargarListas(); renderLista(tabActual);
+  datos=[]; datosP=[]; pCargado=false;   // invalida data principal: refleja el cambio al volver
+}
+// ── Config tabs toggle ────────────────────────────────────────────────────────
+let cfgVisible = localStorage.getItem('cfgTabsVisible') === '1';
+function applyConfigTabsState() {
+  document.getElementById('tabs').classList.toggle('cfg-tabs-on', cfgVisible);
+  document.getElementById('cfgToggle').classList.toggle('cfg-visible', cfgVisible);
+  if (!cfgVisible && ['config-ruteos','excluir','forzar-almacen','forzar-pesable','tipo-almacen'].includes(tabActual)) activarTab('almacen');
+}
+function toggleCfgTabs() { cfgVisible = !cfgVisible; localStorage.setItem('cfgTabsVisible', cfgVisible ? '1' : '0'); applyConfigTabsState(); }
+applyConfigTabsState();
+
+tabsEl.addEventListener('click', e=>{ const b=e.target.closest('.tab'); if(b) activarTab(b.dataset.tab); });
+window.addEventListener('resize',()=>moverInk(document.querySelector('.tab.on')));
+
+function exportarCSV() {
+  if (tabActual === 'pesables') return exportarCSVPesables();
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const soloEnvio = document.getElementById('soloEnvio').checked;
+  const rows = datos.filter(r => (!soloEnvio || totalEnviar(r) > 0) &&
+    (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
+  const head = ['PLU', 'Producto', 'Depósito', ...SUC_A.map(s => s[1]), 'Total', 'Meses', 'Importancia'];
+  const lines = [head.join(';')].concat(rows.map(r => [
+    r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.central,
+    ...SUC_A.map(([k]) => r.enviar[k] || 0), totalEnviar(r), r.meses || 0, (r.importancia || 0).toFixed(4)].join(';')));
+  descargar(lines, 'distribucion_almacen.csv');
+}
+function exportarCSVPesables() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const soloEnvio = document.getElementById('soloEnvio').checked;
+  const cell = (v) => esNum(v) ? v : (v || '');
+  const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || r.J === 'Si') &&
+    (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
+  const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'Ruteo', 'Importancia'];
+  const lines = [head.join(';')].concat(rows.map(r => [
+    r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.F, r.H,
+    ...SUC_P.map(([k]) => cell(r.enviar[k])), sumEnvP(r), r.J, r.J === 'Si' ? r.D : 0, r.BL || '', (r.BG || 0).toFixed(4)].join(';')));
+  descargar(lines, 'distribucion_pesables.csv');
+}
+function exportarPDFAlmacen() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const soloEnvio = document.getElementById('soloEnvio').checked;
+  const sucVisPDF = SUC_A.filter(([k]) => sucVis.has(k));
+  const totalVis = (r) => sucVisPDF.reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
+  let rows = datos.filter(r => {
+    if (soloEnvio && totalVis(r) <= 0) return false;
+    if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
+    if (rubrosSeleccionados.size && !rubrosSeleccionados.has(r.rubro)) return false;
+    if (tipoFiltroActual && (almacenTipo[String(r.plu)] || '') !== tipoFiltroActual) return false;
+    return true;
+  });
+  rows.sort((a, b) => {
+    const va = orden.col === 'total' ? totalVis(a) : valor(a, orden.col);
+    const vb = orden.col === 'total' ? totalVis(b) : valor(b, orden.col);
+    return (va < vb ? -1 : va > vb ? 1 : 0) * orden.dir;
+  });
+  const fecha = new Date().toLocaleDateString('es-AR');
+  const hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+  const totUnid = rows.reduce((s, r) => s + totalVis(r), 0);
+  const maxImp = Math.max(0.0001, ...datos.map(r => r.importancia || 0));
+  const landscapeA = sucVisPDF.length > 2;
+  const headSucs = sucVisPDF.map(([,n]) => `<th class="r">${n}<br><span style="font-weight:400;font-size:8px;opacity:.75">envío · stk</span></th>`).join('');
+  const filas = rows.map((r, i) => {
+    const bg = i % 2 === 0 ? '#fff' : '#f7f9f5';
+    const sucs = sucVisPDF.map(([k]) => {
+      const v = r.enviar[k]; const s = (r.stkSuc||{})[k]||0;
+      const vTxt = v === 'Fact'
+        ? '<span style="background:#fff3cd;color:#6b4c00;padding:1px 5px;border-radius:4px;font-size:9px">Fact</span>'
+        : ((v||0) > 0 ? `<b style="color:#2e4027">${v}</b>` : '<span style="color:#bbb">·</span>');
+      return `<td style="text-align:right">${vTxt}<div style="font-size:8px;color:#999">stk ${s ? (+s).toFixed(2) : 0}</div></td>`;
+    }).join('');
+    return `<tr style="background:${bg}">
+      <td style="color:#888;font-size:10px">${r.plu}</td>
+      <td style="font-weight:500">${r.nombre||''}</td>
+      <td style="text-align:right;color:#555">${r.central||'·'}</td>
+      ${sucs}
+    </tr>`;
+  }).join('');
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Almacen ${fecha}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#1a1c18}
+    .header{background:#405936;color:#fff;padding:10px 18px;display:flex;align-items:center}
+    .brand{font-size:18px;font-weight:700} .brand b{color:#FFCC00}
+    .header-sub{font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.7;margin-top:1px}
+    .header-right{margin-left:auto;text-align:right;font-size:10px;opacity:.85}
+    .stats{display:flex;gap:14px;padding:7px 18px;background:#eef2e9;border-bottom:1px solid #c3c9bc;font-size:10px;color:#434840}
+    .stats b{color:#2e4027;font-weight:700}
+    table{border-collapse:collapse;width:100%}
+    th{background:#405936;color:#fff;padding:5px 7px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:2px solid #2e4027}
+    th.r{text-align:right} th.suc{color:#FFCC00;text-align:right}
+    td{padding:4px 7px;border-bottom:1px solid #e8ede4;vertical-align:middle}
+    .footer{padding:6px 18px;font-size:9px;color:#aaa;border-top:1px solid #e0e0e0;display:flex;justify-content:space-between}
+    @page{size:A4 ${landscapeA ? 'landscape' : 'portrait'};margin:8mm}
+    @media print{.header,.stats,th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body>
+  <div class="header">
+    <div><div class="brand">api<b>delta</b></div><div class="header-sub">distribución · almacen</div></div>
+    <div class="header-right">${fecha} ${hora}</div>
+  </div>
+  <div class="stats">
+    <span>Productos: <b>${rows.length}</b></span>
+    <span>Σ enviar: <b>${totUnid.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}</b> unidades</span>
+  </div>
+  <table>
+    <thead><tr><th>PLU</th><th>Producto</th><th class="r">Depósito</th>${headSucs}</tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+  <div class="footer"><span>api<b>delta</b> — distribución almacen</span><span>${rows.length} productos · ${fecha} ${hora}</span></div>
+  <script>window.onload=()=>{window.print()}<\/script>
+  </body></html>`;
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
+function exportarPDFPesables() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const soloEnvio = document.getElementById('soloEnvio').checked;
+  const envasarFiltro = document.getElementById('fEnvasar').value;
+  const visSucs = SUC_P.filter(([k]) => sucVisP.has(k));
+  const prep = pesablesModo === 'preparacion';
+  const landscape = visSucs.length > 2;
+  let rows = datosP.filter(r => {
+    if (soloEnvio && sumEnvVisP(r) <= 0 && (pesablesModo === 'preparacion' || r.J !== 'Si')) return false;
+    if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
+    if (envasarFiltro === 'No' && r.J === 'Si') return false;
+    if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  rows.sort((a, b) => { const va = valorP(a, ordenP.col), vb = valorP(b, ordenP.col); return (va < vb ? -1 : va > vb ? 1 : 0) * ordenP.dir; });
+  const fecha = new Date().toLocaleDateString('es-AR');
+  const hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+  const aEnvasar = rows.filter(r => r.J === 'Si').length;
+  const totalKg = rows.reduce((s,r) => s + (r.J === 'Si' ? (r.D||0) : 0), 0);
+  const filtrosActivos = [
+    envasarFiltro === 'Si' ? 'Solo a envasar' : envasarFiltro === 'No' ? 'Solo sin envasar' : '',
+    visSucs.length < SUC_P.length ? `Sucursales: ${visSucs.map(([,n]) => n).join(', ')}` : '',
+    q ? `Buscar: "${q}"` : ''
+  ].filter(Boolean).join(' · ');
+
+  const filas = rows.map((r, i) => {
+    const resp = (fracAsig[String(r.plu)]||[])[0]||'';
+    const envCell = r.J === 'Si'
+      ? `<span style="background:#dbe7ff;color:#1e40af;font-weight:700;padding:2px 8px;border-radius:5px;display:inline-block">${+(r.D||0).toFixed(2)}</span>`
+      : '<span style="color:#bbb">—</span>';
+    const sucCells = visSucs.map(([k]) => {
+      const v = r.enviar[k]; const s = (r.stkSuc||{})[k]||0;
+      const vTxt = v === 'Fact' ? 'Fact' : (esNum(v) && v > 0 ? (+v).toFixed(2) : '·');
+      return `<td style="text-align:right"><b style="color:#2e4027">${vTxt}</b><div style="font-size:8px;color:#999">stk ${s ? (+s).toFixed(2) : 0}</div></td>`;
+    }).join('');
+    const cuartaCell = prep
+      ? `<td style="text-align:right;color:#555">${+(r.H||0).toFixed(2)}</td>`
+      : `<td style="text-align:center">${envCell}</td>`;
+    const bg = i % 2 === 0 ? '#fff' : '#f7f9f5';
+    return `<tr style="background:${bg}">
+      <td style="color:#888;font-size:10px">${r.plu}</td>
+      <td style="font-weight:${r.J==='Si'?'600':'400'}">${r.nombre||''}</td>
+      <td style="text-align:right">${+(r.F||0).toFixed(2)}</td>
+      ${cuartaCell}
+      ${sucCells}
+      ${prep ? '' : `<td style="color:#555">${resp}</td>`}
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Pesables ${fecha}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1a1c18;background:#fff}
+    .page{padding:18px 22px}
+    .header{background:#405936;color:#fff;padding:12px 22px;display:flex;align-items:center;gap:16px}
+    .brand{font-size:20px;font-weight:700;letter-spacing:.3px}
+    .brand b{color:#FFCC00}
+    .header-sub{font-size:11px;letter-spacing:.2em;text-transform:uppercase;opacity:.7;margin-top:2px}
+    .header-right{margin-left:auto;text-align:right;font-size:11px;opacity:.85}
+    .stats{display:flex;gap:14px;padding:10px 22px;background:#eef2e9;border-bottom:1px solid #c3c9bc}
+    .stat{font-size:11px;color:#434840}
+    .stat b{color:#2e4027;font-weight:700}
+    .filters{padding:6px 22px;font-size:10px;color:#73796d;background:#f7f9f5;border-bottom:1px solid #e0e0e0;min-height:24px}
+    table{border-collapse:collapse;width:100%;margin:0}
+    thead th{background:#405936;color:#fff;padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:2px solid #2e4027}
+    thead th.r{text-align:right}
+    thead th.c{text-align:center}
+    tbody td{padding:5px 10px;border-bottom:1px solid #e8ede4;vertical-align:middle;font-size:11px}
+    .footer{padding:8px 22px;font-size:9px;color:#aaa;border-top:1px solid #e0e0e0;margin-top:4px;display:flex;justify-content:space-between}
+    @page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:8mm}
+    @media print{.header{-webkit-print-color-adjust:exact;print-color-adjust:exact} thead th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body>
+  <div class="header">
+    <div><div class="brand">api<b>delta</b></div><div class="header-sub">distribución · pesables</div></div>
+    <div class="header-right">Lista generada ${fecha} ${hora}</div>
+  </div>
+  <div class="stats">
+    <span class="stat">Total: <b>${rows.length}</b> productos</span>
+    <span class="stat">A envasar: <b>${aEnvasar}</b> productos</span>
+    <span class="stat">Kg totales: <b>${totalKg.toFixed(2)} kg</b></span>
+  </div>
+  ${filtrosActivos ? `<div class="filters">Filtros activos: ${filtrosActivos}</div>` : '<div class="filters"></div>'}
+  <table>
+    <thead><tr><th>PLU</th><th>Producto</th><th class="r">Granel kg</th><th class="${prep?'r':'c'}">${prep?'Depósito kg':'Envasar kg'}</th>${visSucs.map(([,n]) => `<th class="r">${n}<br><span style="font-weight:400;font-size:8px;opacity:.75">envío · stk</span></th>`).join('')}${prep ? '' : '<th>Responsable</th>'}</tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+  <div class="footer"><span>api<b>delta</b> — Sistema de distribución</span><span>${rows.length} productos · impreso ${fecha} ${hora}</span></div>
+  <script>window.onload=()=>{window.print()}<\/script>
+  </body></html>`;
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
+function descargar(lines, nombre) {
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+}
+function reRender(){ if(tabActual==='almacen') render(); else if(tabActual==='pesables') renderP(); else if(tabActual==='envasar') renderEnvasar(); }
+
+async function cargarTipoAlmacen() {
+  const st = document.getElementById('tipo-state'), tb = document.getElementById('tipo-tabla');
+  st.style.display = 'flex'; tb.style.display = 'none';
+  if (!datos.length) {
+    const [r, tr] = await Promise.all([
+      fetch('/api/distribucion/almacen').then(x=>x.json()).catch(()=>[]),
+      fetch('/api/distribucion/almacen-tipo').then(x=>x.json()).catch(()=>({}))
+    ]);
+    datos = r; almacenTipo = tr;
+  } else {
+    const tr = await fetch('/api/distribucion/almacen-tipo').then(x=>x.json()).catch(()=>({}));
+    almacenTipo = tr;
+  }
+  st.style.display = 'none'; tb.style.display = '';
+  renderTipoAlmacen();
+}
+function setTipoTabFiltro(btn) {
+  tipoTabFiltro = btn.dataset.tf;
+  document.querySelectorAll('#tipoTabFiltros .suc-tog').forEach(b => b.classList.toggle('on', b.dataset.tf === tipoTabFiltro));
+  renderTipoAlmacen();
+}
+function renderTipoAlmacen() {
+  const q = (document.getElementById('tipoQ')?.value || '').trim().toLowerCase();
+  const opts = ['', 'Deposito', 'MiniDeposito'];
+  let rows = datos.filter(r => !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
+  if (tipoTabFiltro === 'sin') rows = rows.filter(r => !(almacenTipo[String(r.plu)]));
+  else if (tipoTabFiltro) rows = rows.filter(r => (almacenTipo[String(r.plu)] || '') === tipoTabFiltro);
+  const sinAsignar = datos.filter(r => !almacenTipo[String(r.plu)]).length;
+  document.getElementById('tipo-tbody').innerHTML = rows.map(r => {
+    const cur = almacenTipo[String(r.plu)] || '';
+    return `<tr>
+      <td class="l">${r.plu}</td>
+      <td class="l" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nombre||''}</td>
+      <td><select data-plu="${r.plu}" onchange="guardarTipo(this)" style="font-family:var(--body);font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);color:var(--text);outline:none">
+        ${opts.map(t=>`<option value="${t}"${cur===t?' selected':''}>${t||'Sin asignar'}</option>`).join('')}
+      </select></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tipo-resumen').textContent =
+    `${rows.length} productos${sinAsignar ? ` · ${sinAsignar} sin asignar` : ''}`;
+}
+async function guardarTipo(sel) {
+  const plu = sel.dataset.plu, tipo = sel.value;
+  almacenTipo[String(plu)] = tipo;
+  await fetch('/api/distribucion/almacen-tipo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plu, tipo })
+  });
+}
+document.getElementById('q').oninput = reRender;
+document.getElementById('soloEnvio').onchange = reRender;
+document.getElementById('fEnvasar').onchange = renderP;
+document.getElementById('reload').onclick = () => tabActual==='almacen' ? cargar() : (tabActual==='pesables' ? cargarP() : (tabActual==='envasar' ? (pCargado ? renderEnvasar() : cargarP().then(renderEnvasar)) : null));
+document.getElementById('pdfA').onclick = exportarPDFAlmacen;
+document.getElementById('pdfP').onclick = exportarPDFPesables;
+window.addEventListener('load', () => moverInk(document.querySelector('.tab.on')));
+moverInk(document.querySelector('.tab.on'));
+cargar();
+
+// ════════════════ RUBRO MULTISELECT ════════════════
+let rubrosSeleccionados = new Set();
+let rubrosLista = [];
+let rubroDesplegado = false;
+
+async function cargarRubros() {
+  if (rubrosLista.length) return;
+  try {
+    const r = await fetch('/api/distribucion/rubros-lista');
+    const rows = await r.json();
+    rubrosLista = rows.map(x => x.NombreRubro).filter(Boolean);
+    renderRubroDrop();
+  } catch {}
+}
+function renderRubroDrop() {
+  const drop = document.getElementById('rubroDrop');
+  drop.innerHTML = `<div class="rubro-opt-clear" onclick="limpiarRubros()">Limpiar filtro</div>` +
+    rubrosLista.map(r => `<label class="rubro-opt"><input type="checkbox" ${rubrosSeleccionados.has(r)?'checked':''} onchange="toggleRubro('${r.replace(/'/g,"\\'")}',this.checked)"><span>${r}</span></label>`).join('');
+}
+function toggleRubro(r, on) { on ? rubrosSeleccionados.add(r) : rubrosSeleccionados.delete(r); actualizarRubroBtn(); reRender(); }
+function limpiarRubros() { rubrosSeleccionados.clear(); renderRubroDrop(); actualizarRubroBtn(); reRender(); }
+function actualizarRubroBtn() {
+  const btn = document.getElementById('rubroBtn');
+  const cnt = document.getElementById('rubroBtnCount');
+  cnt.textContent = rubrosSeleccionados.size ? `(${rubrosSeleccionados.size}) ` : '';
+  btn.classList.toggle('active', rubrosSeleccionados.size > 0);
+}
+function toggleRubroDropdown() {
+  rubroDesplegado = !rubroDesplegado;
+  document.getElementById('rubroDrop').style.display = rubroDesplegado ? '' : 'none';
+  if (rubroDesplegado) cargarRubros();
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('rubroFilter').contains(e.target)) {
+    rubroDesplegado = false;
+    document.getElementById('rubroDrop').style.display = 'none';
+  }
+});
+
+// render con filtro rubro
+function render() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const soloEnvio = document.getElementById('soloEnvio').checked;
+  const totalVis = (r) => SUC_A.filter(([k]) => sucVis.has(k)).reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
+  let rows = datos.filter(r => {
+    if (soloEnvio && totalVis(r) <= 0) return false;
+    if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
+    if (rubrosSeleccionados.size && !rubrosSeleccionados.has(r.rubro)) return false;
+    if (tipoFiltroActual && (almacenTipo[String(r.plu)] || '') !== tipoFiltroActual) return false;
+    return true;
+  });
+  rows.sort((a, b) => {
+    const va = orden.col === 'total' ? totalVis(a) : valor(a, orden.col);
+    const vb = orden.col === 'total' ? totalVis(b) : valor(b, orden.col);
+    return (va < vb ? -1 : va > vb ? 1 : 0) * orden.dir;
+  });
+  const maxImp = Math.max(0.0001, ...datos.map(r => r.importancia || 0));
+  document.getElementById('body-a').innerHTML = rows.map((r, i) => {
+    const celdas = SUC_A.filter(([k]) => sucVis.has(k)).map(([k]) => { const v = r.enviar[k];
+      const stk = (r.stkSuc || {})[k] || 0;
+      const stkL = `<span style="font-size:10px;color:var(--faint);background:none">S:${stk ? fmt(stk) : 0}</span>`;
+      const wrap = (right) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">${stkL}${right}</div>`;
+      if (v === 'Fact') return `<td class="env fact">${wrap('<span>Fact</span>')}</td>`;
+      const n = v || 0;
+      return `<td class="env ${n > 0 ? 'pos' : ''}">${wrap(n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(n)}</span>` : '<span>·</span>')}</td>`; }).join('');
+    const impPct = ((r.importancia || 0) / maxImp) * 100;
+    const d = Math.min(i * 6, 360);
+    return `<tr style="animation-delay:${d}ms">
+      <td class="l plu">${r.plu}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}</td>
+      <td class="central">${fmt(r.central)}</td>
+      ${celdas}
+      <td class="tot">${fmt(totalVis(r))}</td>
+      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${(r.importancia||0).toFixed(3)}</td>
+    </tr>`;
+  }).join('');
+  const totUnid = rows.reduce((s, r) => s + totalVis(r), 0);
+  document.getElementById('pillA').textContent = datos.length;
+  document.getElementById('resumen').innerHTML = '';
+}
+function renderP() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const soloEnvio = document.getElementById('soloEnvio').checked;
+  const envasarFiltro = document.getElementById('fEnvasar').value;
+  let rows = datosP.filter(r => {
+    if (soloEnvio && sumEnvVisP(r) <= 0 && (pesablesModo === 'preparacion' || r.J !== 'Si')) return false;
+    if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
+    if (envasarFiltro === 'No' && r.J === 'Si') return false;
+    if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  rows.sort((a, b) => { const va = valorP(a, ordenP.col), vb = valorP(b, ordenP.col); return (va < vb ? -1 : va > vb ? 1 : 0) * ordenP.dir; });
+  const maxImp = Math.max(0.0001, ...datosP.map(r => r.BG || 0));
+  document.getElementById('body-p').innerHTML = rows.map((r, i) => {
+    const celdas = SUC_P.filter(([k]) => sucVisP.has(k)).map(([k]) => { const v = r.enviar[k];
+      const stk = (r.stkSuc || {})[k] || 0;
+      const stkL = `<span style="font-size:10px;color:var(--faint);background:none">S:${stk ? fmt(stk) : 0}</span>`;
+      const wrap = (right) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">${stkL}${right}</div>`;
+      if (v === 'Fact') return `<td class="env fact">${wrap('<span>Fact</span>')}</td>`;
+      return esNum(v) && v > 0
+        ? `<td class="env pos">${wrap(`<span>${fmt(v)}</span>`)}</td>`
+        : `<td class="env" title="${esNum(v) ? '' : (v||'')}">${wrap('<span>·</span>')}</td>`; }).join('');
+    const prep = pesablesModo === 'preparacion';
+    const impPct = ((r.BG || 0) / maxImp) * 100;
+    const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
+    const envD = r.J === 'Si' ? `<td class="envasar-d"><span>${fmt(r.D)}</span></td>` : `<td class="env">·</td>`;
+    const cur = (fracAsig[String(r.plu)]||[])[0]||'';
+    const respOpts = `<option value="">—</option>${fracEmpleados.map(e=>`<option value="${e.nombre}"${cur===e.nombre?' selected':''}>${e.nombre}</option>`).join('')}`;
+    const respSel = `<td class="l"><select class="resp-select" onchange="guardarRespP(${r.plu},this.value)">${respOpts}</select></td>`;
+    const d = Math.min(i * 6, 360);
+    return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
+      <td class="l plu">${r.plu}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
+      <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
+      <td class="central">${fmt(r.H)}</td>
+      ${envD}
+      ${celdas}
+      ${prep ? '' : respSel}
+      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${(r.BG||0).toFixed(3)}</td>
+    </tr>`;
+  }).join('');
+  const totKg = rows.reduce((s, r) => s + sumEnvP(r), 0);
+  const aEnvasar = rows.filter(r => r.J === 'Si').length;
+  document.getElementById('pillP').textContent = datosP.length;
+  document.getElementById('resumen').innerHTML = '';
+}
+
+// ════════════════ ENVASAR ════════════════
+let ordenEnv = { col: 'D', dir: -1 };
+function construirHeadEnv() {
+  const cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel kg',''], ['H','Depósito kg',''], ['D','A Envasar kg',''], ['BL','Ruteo','l'], ['BG','Imp.','']];
+  document.getElementById('head-env').innerHTML = cols.map(([k, n, cls]) => {
+    const ar = ordenEnv.col === k ? `<span class="ar">${ordenEnv.dir < 0 ? '▼' : '▲'}</span>` : '';
+    return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
+  }).join('');
+  document.querySelectorAll('#head-env th').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (ordenEnv.col === c) ordenEnv.dir *= -1; else { ordenEnv.col = c; ordenEnv.dir = (c==='plu'||c==='nombre'||c==='BL') ? 1 : -1; }
+    renderEnvasar();
+  });
+}
+function renderEnvasar() {
+  const st = document.getElementById('state-env'), tb = document.getElementById('tabla-env');
+  if (!pCargado) { st.style.display='flex'; tb.style.display='none'; return; }
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  let rows = datosP.filter(r => r.J === 'Si' &&
+    (!q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q)));
+  rows.sort((a, b) => {
+    const va = a[ordenEnv.col] ?? 0, vb = b[ordenEnv.col] ?? 0;
+    const sa = typeof va==='string' ? va.toLowerCase() : va;
+    const sb = typeof vb==='string' ? vb.toLowerCase() : vb;
+    return (sa < sb ? -1 : sa > sb ? 1 : 0) * ordenEnv.dir;
+  });
+  const maxImp = Math.max(0.0001, ...datosP.map(r => r.BG || 0));
+  document.getElementById('body-env').innerHTML = rows.map((r, i) => {
+    const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
+    const impPct = ((r.BG || 0) / maxImp) * 100;
+    const d = Math.min(i * 6, 360);
+    return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
+      <td class="l plu">${r.plu}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>
+      <td class="gran">${fmt(r.F)}</td>
+      <td class="central">${fmt(r.H)}</td>
+      <td class="envasar-d"><span>${fmt(r.D)}</span></td>
+      <td class="ruteo">${rt}</td>
+      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct*0.45)}px"></span>${(r.BG||0).toFixed(3)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('pillEnv').textContent = rows.length;
+  const totD = rows.reduce((s, r) => s + (r.D || 0), 0);
+  document.getElementById('resumen').innerHTML = '';
+  if (!document.getElementById('head-env').children.length) construirHeadEnv();
+  st.style.display = 'none'; tb.style.display = '';
+}
+function exportarPDFEnvasar() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  let rows = datosP.filter(r => r.J === 'Si' &&
+    (!q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q)));
+  rows.sort((a, b) => { const va=a[ordenEnv.col]??0, vb=b[ordenEnv.col]??0; return (va<vb?-1:va>vb?1:0)*ordenEnv.dir; });
+  const fecha = new Date().toLocaleDateString('es-AR');
+  const hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+  const totD = rows.reduce((s, r) => s + (r.D || 0), 0);
+  const filas = rows.map((r, i) => {
+    const bg = i%2===0 ? '#fff' : '#f7f9f5';
+    const rt = r.BL || '—';
+    return `<tr style="background:${bg}">
+      <td style="color:#888;font-size:10px">${r.plu}</td>
+      <td style="font-weight:500">${r.nombre||''}</td>
+      <td style="text-align:right;color:#555">${fmt(r.F)}</td>
+      <td style="text-align:right;color:#555">${fmt(r.H)}</td>
+      <td style="text-align:right;font-weight:700;color:#1e40af">${fmt(r.D)}</td>
+      <td style="font-size:10px;color:#555">${rt}</td>
+    </tr>`;
+  }).join('');
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Envasar ${fecha}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#1a1c18}
+  .header{background:#405936;color:#fff;padding:10px 18px;display:flex;align-items:center}
+  .brand{font-size:18px;font-weight:700}.brand b{color:#FFCC00}
+  .header-sub{font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.7;margin-top:1px}
+  .header-right{margin-left:auto;text-align:right;font-size:10px;opacity:.85}
+  .stats{display:flex;gap:14px;padding:7px 18px;background:#eef2e9;border-bottom:1px solid #c3c9bc;font-size:10px;color:#434840}
+  .stats b{color:#2e4027;font-weight:700}
+  table{border-collapse:collapse;width:100%}
+  th{background:#405936;color:#fff;padding:5px 7px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:2px solid #2e4027}
+  th.r{text-align:right}
+  td{padding:4px 7px;border-bottom:1px solid #e8ede4;vertical-align:middle}
+  .footer{padding:6px 18px;font-size:9px;color:#aaa;border-top:1px solid #e0e0e0;display:flex;justify-content:space-between}
+  @page{size:A4 portrait;margin:8mm}
+  @media print{.header,.stats,th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+  <div class="header"><div><div class="brand">api<b>delta</b></div><div class="header-sub">distribución · envasar</div></div><div class="header-right">${fecha} ${hora}</div></div>
+  <div class="stats"><span>Productos: <b>${rows.length}</b></span><span>Σ a envasar: <b>${fmt(totD)} kg</b></span></div>
+  <table><thead><tr><th>PLU</th><th>Producto</th><th class="r">Granel kg</th><th class="r">Depósito kg</th><th class="r">A Envasar kg</th><th>Ruteo</th></tr></thead>
+  <tbody>${filas}</tbody></table>
+  <div class="footer"><span>Generado ${fecha} ${hora}</span><span>apidelta distribución</span></div>
+  </body></html>`;
+  const w = window.open('','_blank');
+  w.document.write(html); w.document.close(); w.focus(); setTimeout(()=>w.print(),400);
+}
+document.getElementById('pdfEnv').onclick = exportarPDFEnvasar;
+
+// ════════════════ TABS CONFIG ════════════════
+const TAB_REGISTRY = [
+  { id:'almacen',        label:'Almacen',         def:'main', fixed:true },
+  { id:'pesables',       label:'Pesables',         def:'main' },
+  { id:'envasar',        label:'Envasar',          def:'main' },
+  { id:'pedidos',        label:'Pedidos',          def:'main' },
+  { id:'produccion',     label:'Producción',       def:'main' },
+  { id:'historial',      label:'Historial',        def:'main' },
+  { id:'config-ruteos',  label:'Config Ruteos',    def:'cfg'  },
+  { id:'excluir',        label:'No envasa',        def:'cfg'  },
+  { id:'forzar-almacen', label:'Siempre Almacén',  def:'cfg'  },
+  { id:'forzar-pesable', label:'Siempre Pesable',  def:'cfg'  },
+  { id:'tipo-almacen',   label:'Tipo Almacén',     def:'cfg'  },
+];
+const TABS_CFG_KEY = 'tabsGroupConfig';
+function loadTabsConfig() {
+  try { return JSON.parse(localStorage.getItem(TABS_CFG_KEY) || '{}'); } catch { return {}; }
+}
+function applyTabsConfig() {
+  const cfg = loadTabsConfig();
+  for (const t of TAB_REGISTRY) {
+    const btn = document.querySelector(`.tab[data-tab="${t.id}"]`);
+    if (!btn) continue;
+    const group = cfg[t.id] || t.def;
+    if (group === 'hidden') {
+      btn.style.display = 'none';
+      btn.classList.remove('cfg-tab');
+    } else if (group === 'cfg') {
+      btn.style.display = '';
+      btn.classList.add('cfg-tab');
+    } else {
+      btn.style.display = '';
+      btn.classList.remove('cfg-tab');
+    }
+  }
+}
+function renderTabsConfig() {
+  const cfg = loadTabsConfig();
+  const rows = TAB_REGISTRY.map(t => {
+    const cur = cfg[t.id] || t.def;
+    if (t.fixed) {
+      return `<tr>
+        <td>${t.label}</td>
+        <td class="c"><span class="tab-fixed-badge">Fijo</span></td>
+        <td class="c">—</td>
+        <td class="c">—</td>
+      </tr>`;
+    }
+    const r = (val) => `<td class="c"><div class="tab-grp-radio"><input type="radio" name="tg_${t.id}" value="${val}"${cur===val?' checked':''}></div></td>`;
+    return `<tr data-tid="${t.id}">
+      <td>${t.label}</td>
+      ${r('main')}${r('cfg')}${r('hidden')}
+    </tr>`;
+  }).join('');
+  document.getElementById('tabs-cfg-inner').innerHTML = `
+    <h2>Configuración de Tabs</h2>
+    <p class="hint">Elegí cómo aparece cada tab. "Principal" = siempre visible; "Opciones (⚙)" = visible al activar el botón de config; "Oculto" = no aparece.</p>
+    <table class="tabs-cfg-table">
+      <thead><tr><th>Tab</th><th class="c">Principal</th><th class="c">Opciones (⚙)</th><th class="c">Oculto</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="tabs-cfg-save">
+      <button class="primary" onclick="guardarTabsConfig()">Guardar</button>
+      <button onclick="resetTabsConfig()">Restaurar defaults</button>
+      <span id="tabsCfgMsg" style="font-size:12px;color:var(--verde-dark);display:none">✓ Guardado</span>
+    </div>`;
+}
+function guardarTabsConfig() {
+  const cfg = {};
+  document.querySelectorAll('#tabs-cfg-inner [data-tid]').forEach(row => {
+    const id = row.dataset.tid;
+    const sel = row.querySelector('input[type=radio]:checked');
+    if (sel) cfg[id] = sel.value;
+  });
+  localStorage.setItem(TABS_CFG_KEY, JSON.stringify(cfg));
+  applyTabsConfig();
+  applyConfigTabsState();
+  const msg = document.getElementById('tabsCfgMsg');
+  msg.style.display = ''; setTimeout(() => msg.style.display = 'none', 2000);
+}
+function resetTabsConfig() {
+  localStorage.removeItem(TABS_CFG_KEY);
+  applyTabsConfig();
+  applyConfigTabsState();
+  renderTabsConfig();
+}
+applyTabsConfig();
+
+// ════════════════ CONFIG RUTEOS FRACCIONADO ════════════════
+const PARAMS_DEF = [
+  { grupo:'Generales', params:[
+    { key:'pocoGranel', label:'Poco granel (kg)', desc:'Umbral granel central para Riv y "poco para envasar"', def:0.2 },
+    { key:'factorMinSuc', label:'Factor min sucursal', desc:'stock_min_suc × factor > stock central ⇒ no enviar', def:1.2 },
+    { key:'pctImp', label:'% importancia', desc:'Umbral importancia 15 vs 30 días', def:0.8 },
+    { key:'multAlta', label:'Mult. alta importancia', desc:'Multiplicador días alta importancia', def:2 },
+    { key:'multBaja', label:'Mult. baja importancia', desc:'Multiplicador días baja importancia', def:3 },
+    { key:'pctSobrante', label:'% sobrante', desc:'Fracción sobrante para distribuir', def:0.5 },
+    { key:'maxEnviar', label:'Máx enviar (kg)', desc:'Máximo kg a enviar por sucursal', def:50 },
+  ]},
+  { grupo:'Envasado', params:[
+    { key:'kgMin', label:'Kg mínimo fraccionado', desc:'Kg granel mínimo para fraccionar', def:20 },
+    { key:'kgMaquina', label:'Kg mínimo envasado', desc:'Kg granel mínimo para ruteo Envasado', def:10 },
+    { key:'pctCubre', label:'% cubre demanda', desc:'Fracción de demanda que debe cubrirse para envasar', def:0.85 },
+  ]},
+  { grupo:'Mínimos por sucursal (minPP)', params:[
+    { key:'minPP_riv',   label:'Min Rivadavia', desc:'', def:0.3 },
+    { key:'minPP_urq',   label:'Min Urquiza', desc:'', def:0.4 },
+    { key:'minPP_nacion',label:'Min Nación', desc:'', def:0.4 },
+    { key:'minPP_chaca', label:'Min Chacabuco', desc:'', def:0.4 },
+    { key:'minPP_savio', label:'Min Savio', desc:'', def:0.4 },
+  ]},
+];
+let ruteosParams = {};
+let ruteosCargado = false;
+async function cargarConfigRuteos() {
+  if (ruteosCargado) return;
+  try {
+    const r = await fetch('/api/distribucion/pesables-params');
+    ruteosParams = await r.json() || {};
+    ruteosCargado = true;
+  } catch { ruteosParams = {}; ruteosCargado = true; }
+  renderConfigRuteos();
+}
+function renderConfigRuteos() {
+  const form = document.getElementById('ruteos-form');
+  form.innerHTML = PARAMS_DEF.map(g => `
+    <div class="param-group">
+      <h3>${g.grupo}</h3>
+      ${g.params.map(p => {
+        const val = ruteosParams[p.key] != null ? ruteosParams[p.key] : '';
+        const changed = ruteosParams[p.key] != null;
+        return `<div class="param-row">
+          <div class="param-label">${p.label}${p.desc?`<small>${p.desc}</small>`:''}
+          </div>
+          <input class="param-input${changed?' changed':''}" type="number" step="0.01"
+            id="param_${p.key}" value="${val}" placeholder="${p.def}"
+            oninput="onParamChange('${p.key}',this)">
+          <span class="param-default">def: ${p.def}</span>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+function onParamChange(key, input) {
+  input.classList.toggle('changed', input.value !== '');
+}
+async function guardarRuteos() {
+  const out = {};
+  PARAMS_DEF.forEach(g => g.params.forEach(p => {
+    const inp = document.getElementById('param_'+p.key);
+    if (inp && inp.value !== '') out[p.key] = parseFloat(inp.value);
+  }));
+  ruteosParams = out;
+  await fetch('/api/distribucion/pesables-params', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(out) });
+  const ok = document.getElementById('ruteosSaved');
+  ok.style.display = ''; setTimeout(() => ok.style.display = 'none', 2000);
+  renderConfigRuteos();
+}
+function resetRuteos() {
+  ruteosParams = {};
+  guardarRuteos();
+}
+document.getElementById('saveRuteos').onclick = guardarRuteos;
+document.getElementById('resetRuteos').onclick = resetRuteos;
+
+// ════════════════ PESABLES RESPONSABLE ════════════════
+async function guardarRespP(plu, emp) {
+  const cur = emp ? [emp] : [];
+  fracAsig[String(plu)] = cur;
+  await fetch('/api/distribucion/fraccionado-asignaciones', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ plu: String(plu), empleados: cur })
+  });
+}
+
+// ════════════════ MODAL REGISTRO PRODUCCIÓN ════════════════
+let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
+function _buildModalForm(vals) {
+  const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}"${vals.empleado===e.nombre?' selected':''}>${e.nombre}</option>`).join('');
+  document.getElementById('mr-form').innerHTML = `
+    <div class="reg-field"><label>Producto</label><span class="val">${vals.plu} – ${vals.nombre||''}</span></div>
+    <div class="reg-field"><label>Granel</label><span class="val">${vals.granel||'–'}${vals.nombreGranel?' – '+vals.nombreGranel:''}</span></div>
+    ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
+    <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${vals.cantFraccionada||''}" min="0"></div>
+    <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${vals.granelConsumido!=null?vals.granelConsumido:(vals.cantFraccionada?+((vals.cantFraccionada)*_mrCantFormula).toFixed(2):'')}" min="0"></div>
+    <div class="reg-field"><label>Empleado</label><select id="mr-emp"><option value="">— seleccionar —</option>${empOpts}</select></div>
+    <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value="${vals.desde||''}"></div>
+    <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value="${vals.hasta||''}"></div>
+    <div class="reg-field"><label>Observación</label><textarea id="mr-obs" rows="2" style="font-family:var(--body);resize:vertical;width:100%;max-width:280px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1)">${vals.observacion||''}</textarea></div>
+    <div class="reg-consumo"><small>Sugerido = cantidad × fórmula ${_mrCantFormula}. Editá «Granel utilizado» si el consumo real difiere.</small></div>`;
+  const _gcEl = document.getElementById('mr-granel-cons');
+  const _cantEl = document.getElementById('mr-cant');
+  let _gcManual = false;
+  if (_gcEl) _gcEl.oninput = () => { _gcManual = true; };
+  if (_cantEl) _cantEl.oninput = () => {
+    if (!_gcManual && _gcEl) {
+      const c = parseFloat(_cantEl.value) || 0;
+      _gcEl.value = c ? +(c * _mrCantFormula).toFixed(2) : '';
+    }
+  };
+}
+async function abrirModalRegistro(plu, force) {
+  if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
+  let r = datosP.find(x => String(x.plu) === String(plu));
+  if (!r) {
+    const ped = datosPed.find(x => String(x.plu) === String(plu));
+    if (!ped) return;
+    const formula = await fetch(`/api/distribucion/pedido-formula/${plu}`).then(x => x.json()).catch(() => []);
+    const comp = formula[0] || {};
+    r = { plu: ped.plu, nombre: ped.nombre, granel: comp.plu || null, nombreGranel: comp.nombre || '', cantFormula: comp.cantidad || 1, D: null };
+  }
+  _mrPlu = String(plu); _mrEditId = null;
+  _mrCantFormula = r.cantFormula || 1;
+  _mrGranel = r.granel; _mrNombreGranel = r.nombreGranel || ''; _mrNombre = r.nombre || '';
+  document.getElementById('modal-registro').querySelector('h3').textContent = 'Registro de Producción';
+  _buildModalForm({ plu: r.plu, nombre: r.nombre, granel: r.granel, nombreGranel: r.nombreGranel,
+    D: r.D, cantFraccionada: '', empleado: (fracAsig[String(r.plu)]||[])[0]||'', desde:'', hasta:'', observacion:'' });
+  document.getElementById('mr-err').style.display = 'none';
+  document.getElementById('modal-registro').classList.add('open');
+}
+function abrirModalEdicion(reg) {
+  _mrPlu = String(reg.plu); _mrEditId = reg.id;
+  _mrCantFormula = reg.cantFormula || 1;
+  document.getElementById('modal-registro').querySelector('h3').textContent = 'Editar Registro';
+  _buildModalForm({ plu: reg.plu, nombre: reg.nombre, granel: reg.granel, nombreGranel: reg.nombreGranel,
+    D: null, cantFraccionada: reg.cantFraccionada, granelConsumido: reg.granelConsumido, empleado: reg.empleado||'',
+    desde: reg.desde||'', hasta: reg.hasta||'', observacion: reg.observacion||'' });
+  document.getElementById('mr-err').style.display = 'none';
+  document.getElementById('modal-registro').classList.add('open');
+}
+let _mrActividadMode = false;
+function abrirModalActividad() {
+  if (!pCargado) return;
+  _mrActividadMode = true;
+  _mrPlu = 'ACT'; _mrEditId = null; _mrCantFormula = 0; _mrGranel = null; _mrNombreGranel = ''; _mrNombre = 'Actividad';
+  const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}">${e.nombre}</option>`).join('');
+  document.getElementById('mr-form').innerHTML = `
+    <div class="reg-field"><label>Empleado</label><select id="mr-emp"><option value="">— seleccionar —</option>${empOpts}</select></div>
+    <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value=""></div>
+    <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value=""></div>
+    <div class="reg-field"><label>Observación</label><textarea id="mr-obs" rows="3" style="font-family:var(--body);resize:vertical;width:100%;max-width:280px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1)"></textarea></div>`;
+  document.getElementById('modal-registro').querySelector('h3').textContent = '⚡ Registrar Actividad';
+  document.getElementById('modal-registro').querySelector('h3').style.color = '#7c3aed';
+  document.getElementById('mr-err').style.display = 'none';
+  document.getElementById('modal-registro').classList.add('open');
+}
+async function guardarRegistro() {
+  const cantEl = document.getElementById('mr-cant');
+  let cant = 0, granelCons = 0;
+  if (_mrActividadMode) {
+    cant = 0;
+    granelCons = 0;
+  } else {
+    cant = parseFloat(cantEl ? cantEl.value : '');
+    if (isNaN(cant) || cant <= 0) {
+      document.getElementById('mr-err').textContent = 'Ingresá una cantidad válida.';
+      document.getElementById('mr-err').style.display = '';
+      return;
+    }
+    const gcEl = document.getElementById('mr-granel-cons');
+    granelCons = parseFloat(gcEl ? gcEl.value : '');
+    if (isNaN(granelCons) || granelCons < 0) granelCons = +(cant * _mrCantFormula).toFixed(2);
+  }
+  const payload = {
+    cantFraccionada: cant,
+    granelConsumido: granelCons,
+    empleado: document.getElementById('mr-emp').value,
+    desde: document.getElementById('mr-desde').value,
+    hasta: document.getElementById('mr-hasta').value,
+    observacion: document.getElementById('mr-obs').value,
+  };
+  if (!_mrEditId) {
+    const r = datosP.find(x => String(x.plu) === _mrPlu);
+    const emp = payload.empleado;
+    Object.assign(payload, {
+      plu: _mrPlu,
+      nombre: r ? r.nombre : _mrNombre,
+      granel: r ? r.granel : _mrGranel,
+      nombreGranel: r ? r.nombreGranel : _mrNombreGranel,
+      cantFormula: _mrCantFormula,
+      cantSolicitada: r ? r.D : null,
+      fecha: new Date().toISOString().slice(0,10),
+      lote: generarLote(_mrPlu, emp),
+    });
+  }
+  const url = _mrEditId
+    ? `/api/distribucion/fraccionado-registros/${_mrEditId}`
+    : '/api/distribucion/fraccionado-registros';
+  const res = await fetch(url, { method: _mrEditId ? 'PUT' : 'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  if (!res.ok) {
+    document.getElementById('mr-err').textContent = 'Error al guardar.';
+    document.getElementById('mr-err').style.display = '';
+    return;
+  }
+  _mrActividadMode = false;
+  document.getElementById('modal-registro').querySelector('h3').style.color = '';
+  document.getElementById('modal-registro').classList.remove('open');
+  if (tabActual === 'produccion') cargarProduccion();
+  else document.getElementById('pillProd').textContent = '+';
+  await cargarProdHoy();
+  if (pCargado) renderP();
+}
+function cerrarModalRegistro() {
+  _mrActividadMode = false;
+  document.getElementById('modal-registro').querySelector('h3').style.color = '';
+  document.getElementById('modal-registro').classList.remove('open');
+}
+document.getElementById('mr-close').addEventListener('click', cerrarModalRegistro);
+document.getElementById('mr-cancel').addEventListener('click', cerrarModalRegistro);
+document.getElementById('mr-save').addEventListener('click', guardarRegistro);
+document.getElementById('modal-registro').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalRegistro(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('modal-registro').classList.remove('open'); });
+
+// ════════════════ RESPONSABLES ════════════════
+function renderResponsablesLista() {
+  document.getElementById('resp-lista').innerHTML = fracEmpleados.map(e =>
+    `<div style="display:flex;align-items:center;gap:8px;background:var(--surface1);border:1px solid var(--line);border-radius:8px;padding:7px 10px">
+      <span style="flex:1;font-size:13px">${e.nombre}</span>
+      <span style="font-size:11px;font-weight:700;background:var(--amarillo-cont);color:var(--amarillo-on);border-radius:4px;padding:1px 6px;white-space:nowrap">${e.corto}</span>
+      <button style="background:none;border:0;color:var(--error);font-size:14px;cursor:pointer;padding:2px 6px;border-radius:5px" onclick="quitarResponsable('${e.nombre.replace(/'/g,"\\'")}')" title="Eliminar">✕</button>
+    </div>`
+  ).join('') || '<div style="color:var(--faint);font-size:12px;text-align:center">Sin responsables</div>';
+}
+async function guardarResponsables() {
+  await fetch('/api/responsables', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fracEmpleados) });
+}
+function abrirModalResponsables() {
+  renderResponsablesLista();
+  document.getElementById('resp-nuevo').value = '';
+  document.getElementById('modal-responsables').classList.add('open');
+}
+function agregarResponsable() {
+  const inp = document.getElementById('resp-nuevo');
+  const inpC = document.getElementById('resp-corto');
+  const nombre = inp.value.trim();
+  const corto = (inpC.value.trim() || nombre.slice(0,4)).toUpperCase().slice(0,6);
+  if (!nombre || fracEmpleados.some(e => e.nombre === nombre)) { inp.focus(); return; }
+  fracEmpleados = [...fracEmpleados, {nombre, corto}];
+  inp.value = ''; inpC.value = '';
+  guardarResponsables();
+}
+function quitarResponsable(nombre) {
+  fracEmpleados = fracEmpleados.filter(e => e.nombre !== nombre);
+  renderResponsablesLista();
+  guardarResponsables();
+}
+document.getElementById('resp-nuevo').addEventListener('keydown', e => { if (e.key === 'Enter') agregarResponsable(); });
+document.getElementById('resp-corto').addEventListener('keydown', e => { if (e.key === 'Enter') agregarResponsable(); });
+document.getElementById('modal-responsables').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.classList.remove('open'); });
+
+// ════════════════ TAB PEDIDOS ════════════════
+let datosPed = [], pedCargado = false;
+function renderPedidos() {
+  const q = (document.getElementById('qPed').value||'').trim().toLowerCase();
+  const rows = datosPed.filter(r => !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
+  document.getElementById('pillPed').textContent = rows.length;
+  document.getElementById('pedResumen').innerHTML = `<span class="stat"><b>${rows.length}</b> productos</span>`;
+  const st = document.getElementById('ped-state');
+  const tb = document.getElementById('tabla-ped');
+  if (!rows.length) { tb.style.display='none'; st.style.display='flex'; st.className='state'; st.innerHTML='<div>Sin resultados</div>'; return; }
+  st.style.display = 'none'; tb.style.display = '';
+  document.getElementById('body-ped').innerHTML = rows.map(r => {
+    return `<tr data-plu="${r.plu}" style="cursor:pointer">
+      <td class="l plu">${r.plu}</td>
+      <td class="l nombre">${r.nombre||''}</td>
+      <td class="l" style="color:var(--muted);font-size:12px">${r.rubro||'·'}</td>
+      <td style="text-align:center">${r.esCompuesto ? '✓' : '·'}</td>
+      <td><button class="frac-expand-btn" onclick="event.stopPropagation();modalFormulaPedido('${r.plu}','${(r.nombre||'').replace(/'/g,'')}')">Ver fórmula</button></td>
+    </tr>`;
+  }).join('');
+}
+async function cargarPedidos() {
+  if (pedCargado) { renderPedidos(); return; }
+  if (!pCargado) cargarP();
+  const st = document.getElementById('ped-state');
+  const tb = document.getElementById('tabla-ped');
+  st.style.display = 'flex'; st.className = 'state';
+  st.innerHTML = '<div class="spinner"></div><div>Cargando…</div>';
+  tb.style.display = 'none';
+  try {
+    datosPed = await fetch('/api/distribucion/pedidos').then(r => r.json());
+    pedCargado = true;
+    renderPedidos();
+  } catch(e) { st.className='state err'; st.innerHTML=errHTML(e.message); }
+}
+document.getElementById('qPed').oninput = renderPedidos;
+document.getElementById('tabla-ped').addEventListener('click', e => {
+  if (e.target.closest('button')) return;
+  const tr = e.target.closest('tr[data-plu]');
+  if (tr) abrirModalRegistro(tr.dataset.plu, true);
+});
+
+// ════════════════ TAB PRODUCCIÓN ════════════════
+let prodRegistros = [];
+async function cargarProduccion() {
+  const fechaInp = document.getElementById('prodFecha');
+  if (!fechaInp.value) fechaInp.value = new Date().toISOString().slice(0,10);
+  const fecha = fechaInp.value;
+  const st = document.getElementById('prod-state');
+  const tb = document.getElementById('prod-tabla');
+  const emp = document.getElementById('prod-empty');
+  st.style.display = 'flex'; tb.style.display = 'none'; emp.style.display = 'none';
+  try {
+    const all = await fetch('/api/distribucion/fraccionado-registros').then(r => r.json());
+    prodRegistros = all.filter(x => !fecha || x.fecha === fecha);
+    st.style.display = 'none';
+    renderProduccion();
+  } catch(e) { st.className='state err'; st.innerHTML=errHTML(e.message); }
+}
+function renderProduccion() {
+  const tb = document.getElementById('prod-tabla');
+  const emp = document.getElementById('prod-empty');
+  if (!prodRegistros.length) { tb.style.display='none'; emp.style.display='flex'; document.getElementById('pillProd').textContent=0; return; }
+  emp.style.display = 'none'; tb.style.display = '';
+  document.getElementById('prod-tbody').innerHTML = prodRegistros.map(r => `<tr>
+    <td class="l" style="font-size:11px;color:var(--faint)">${r.desde||''}${r.hasta?' – '+r.hasta:''}</td>
+    <td class="l"><span style="color:var(--faint);font-size:11px">${r.plu} </span>${r.nombre||''}</td>
+    <td>${fmt(r.cantFraccionada)}</td>
+    <td class="l"><span style="color:var(--faint);font-size:11px">${r.granel||''} </span>${r.nombreGranel||''}</td>
+    <td>${fmt(r.granelConsumido)}</td>
+    <td class="l" style="font-size:11px">${r.empleado||''}</td>
+    <td class="l" style="font-size:11px;font-family:monospace">${r.lote||''}</td>
+    <td class="l obs-cell" title="${(r.observacion||'').replace(/"/g,'&quot;')}">${r.observacion||''}</td>
+    <td><div class="prod-act">
+      <button class="edit-btn" onclick="abrirModalEdicion(prodRegistros.find(x=>x.id===${r.id}))">✎</button>
+      <button class="del-btn" onclick="eliminarRegistro(${r.id})">✕</button>
+    </div></td>
+  </tr>`).join('');
+  const totFrac = prodRegistros.reduce((s,r) => s+(r.cantFraccionada||0), 0);
+  document.getElementById('pillProd').textContent = prodRegistros.length;
+  document.getElementById('prodResumen').innerHTML = '';
+}
+let _confirmDelFn = null;
+function abrirConfirmDel(titulo, msg, fn) {
+  _confirmDelFn = fn;
+  document.getElementById('confirm-del-title').textContent = titulo;
+  document.getElementById('confirm-del-msg').textContent = msg;
+  document.getElementById('modal-confirm-del').classList.add('open');
+}
+function cerrarConfirmDel() {
+  _confirmDelFn = null;
+  document.getElementById('modal-confirm-del').classList.remove('open');
+}
+async function ejecutarConfirmDel() {
+  const fn = _confirmDelFn;
+  cerrarConfirmDel();
+  if (fn) await fn();
+}
+document.getElementById('modal-confirm-del').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarConfirmDel(); });
+
+async function eliminarRegistro(id) {
+  const reg = prodRegistros.find(x => x.id === id);
+  const nombre = reg ? (reg.nombre || `PLU ${reg.plu}`) : `ID ${id}`;
+  abrirConfirmDel('Eliminar registro', `¿Eliminar el registro de "${nombre}"?`, async () => {
+    const res = await fetch(`/api/distribucion/fraccionado-registros/${id}`, { method:'DELETE' });
+    if (res.ok) { prodRegistros = prodRegistros.filter(x => x.id !== id); renderProduccion(); }
+  });
+}
+async function exportarCSVProduccion() {
+  if (!prodRegistros.length) return;
+  const esc = s => String(s||'').replace(/"/g,'""');
+  const lines = prodRegistros.filter(r => String(r.plu) !== 'ACT').flatMap(r => [
+    `1;${r.plu};"${esc(r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
+    `1;${r.granel||''};"${esc(r.nombreGranel)}";${-(+(Math.abs(r.granelConsumido||0)).toFixed(2))};1;${r.granel||''}`
+  ]);
+  descargar(lines, 'produccion.csv');
+}
+async function archivarProduccion() {
+  if (!prodRegistros.length) return;
+  const fecha = document.getElementById('prodFecha').value;
+  await guardarHistorial(fecha);
+  document.getElementById('clr-fecha-label').textContent = fecha || 'esta fecha';
+  document.getElementById('modal-limpiar-prod').classList.add('open');
+}
+async function limpiarProduccion() {
+  const fecha = document.getElementById('prodFecha').value;
+  document.getElementById('modal-limpiar-prod').classList.remove('open');
+  const url = fecha ? `/api/distribucion/fraccionado-registros-fecha?fecha=${encodeURIComponent(fecha)}` : '/api/distribucion/fraccionado-registros-fecha';
+  await fetch(url, { method: 'DELETE' });
+  prodRegistros = prodRegistros.filter(r => r.fecha !== fecha);
+  renderProduccion();
+  await cargarProdHoy();
+  if (pCargado) renderP();
+}
+
+// ── Historial ────────────────────────────────────────────────────────────────
+async function guardarHistorial(fecha) {
+  let pesablesSnap = datosP.filter(r => r.J === 'Si').map(r => ({ plu: r.plu, nombre: r.nombre, D: r.D, granel: r.granel, nombreGranel: r.nombreGranel }));
+  // Si el tab Pesables no estaba cargado al archivar, derivar el snapshot de los
+  // registros de producción para que el historial nunca quede sin detalle.
+  if (!pesablesSnap.length) {
+    const seen = new Set();
+    pesablesSnap = (prodRegistros || []).filter(r => {
+      const k = String(r.plu);
+      if (k === 'ACT' || seen.has(k)) return false;
+      seen.add(k); return true;
+    }).map(r => ({ plu: r.plu, nombre: r.nombre, D: 0, granel: r.granel, nombreGranel: r.nombreGranel }));
+  }
+  await fetch('/api/distribucion/historial', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fecha, produccion: prodRegistros, pesables: pesablesSnap }) });
+  document.getElementById('pillHist').textContent = '+';
+}
+let histData = [], histCargado = false;
+async function cargarHistorial() {
+  const st = document.getElementById('hist-state'), emp = document.getElementById('hist-empty'), lst = document.getElementById('hist-list');
+  st.style.display = 'flex'; emp.style.display = 'none'; lst.style.display = 'none';
+  try {
+    histData = await fetch('/api/distribucion/historial').then(r => r.json());
+    histCargado = true;
+    renderHistorial();
+  } catch(e) { st.className = 'state err'; st.innerHTML = errHTML(e.message); }
+}
+// Lista de productos de una entrada de historial: pesables snapshot + cualquier PLU
+// con registro de producción que no esté en el snapshot. Así los registros de
+// producción se muestran aunque el snapshot de pesables haya quedado vacío al archivar.
+function histProductos(h) {
+  const pes = h.pesables || [];
+  const seen = new Set(pes.map(p => String(p.plu)));
+  const extra = [];
+  for (const r of (h.produccion || [])) {
+    const k = String(r.plu);
+    if (k === 'ACT' || seen.has(k)) continue;
+    seen.add(k);
+    extra.push({ plu: r.plu, nombre: r.nombre, D: 0, granel: r.granel, nombreGranel: r.nombreGranel });
+  }
+  return pes.concat(extra);
+}
+function renderHistorial() {
+  const st = document.getElementById('hist-state'), emp = document.getElementById('hist-empty'), lst = document.getElementById('hist-list');
+  st.style.display = 'none';
+  document.getElementById('pillHist').textContent = histData.length;
+  if (!histData.length) { emp.style.display = 'flex'; lst.style.display = 'none'; return; }
+  const gFecha = (document.getElementById('histFiltroFecha')?.value || '');
+  const gProd = (document.getElementById('histFiltroProd')?.value || '').trim().toLowerCase();
+  let filtered = histData;
+  if (gFecha) filtered = filtered.filter(h => h.fecha === gFecha);
+  if (gProd) filtered = filtered.filter(h =>
+    h.pesables.some(p => (p.nombre||'').toLowerCase().includes(gProd) || String(p.plu).includes(gProd)) ||
+    h.produccion.some(r => (r.nombre||'').toLowerCase().includes(gProd) || String(r.plu).includes(gProd))
+  );
+  document.getElementById('histResumen').textContent = filtered.length !== histData.length
+    ? `${filtered.length} de ${histData.length} registros` : `${histData.length} registros`;
+  emp.style.display = 'none'; lst.style.display = 'block';
+  lst.innerHTML = filtered.map(h => {
+    const envMap = {};
+    for (const r of h.produccion) envMap[String(r.plu)] = (envMap[String(r.plu)] || 0) + (r.cantFraccionada || 0);
+    const prods = histProductos(h);
+    const totalProd = prods.length;
+    const prodConReg = prods.filter(p => (envMap[String(p.plu)] || 0) > 0).length;
+    const pct = totalProd > 0 ? Math.min(100, (prodConReg / totalProd) * 100) : 0;
+    const exp = new Date(h.exportadoEn).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return `<div class="hist-card" data-id="${h.id}">
+      <div class="hist-head">
+        <span class="hist-fecha">${h.fecha}</span>
+        <span class="hist-exportado">exportado ${exp}</span>
+        <div class="hist-prog-wrap">
+          <div class="hist-prog-bar"><div class="hist-prog-fill" style="width:${pct.toFixed(1)}%"></div></div>
+          <span class="hist-prog-pct">${prodConReg}/${totalProd} (${pct.toFixed(0)}%)</span>
+        </div>
+        <button class="hist-toggle" onclick="toggleHistCard(${h.id})">Pesables ▾</button>
+        <button class="hist-toggle" onclick="descargarCSVHistorial(${h.id})" title="Descargar CSV de producción">⬇ CSV</button>
+        <button class="hist-del" onclick="eliminarHistorial(${h.id})">✕ Eliminar</button>
+      </div>
+      <div class="hist-body" id="hist-body-${h.id}">
+        <div class="hist-filter-bar">
+          <input type="search" id="hist-q-${h.id}" placeholder="Buscar nombre…" oninput="renderHistBody(${h.id})"
+            style="font-family:var(--body);padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;width:180px;background:var(--surface1);color:var(--text)">
+          <button class="hist-filter-btn active" id="hist-fb-todos-${h.id}" onclick="setHistFiltro(${h.id},'todos')">Todos</button>
+          <button class="hist-filter-btn" id="hist-fb-env-${h.id}" onclick="setHistFiltro(${h.id},'envasado')">Con registro</button>
+          <button class="hist-filter-btn" id="hist-fb-noenv-${h.id}" onclick="setHistFiltro(${h.id},'sinregistro')">Sin registro</button>
+          <span id="hist-count-${h.id}" style="font-size:11px;color:var(--faint)"></span>
+        </div>
+        <table class="hist-table">
+          <thead><tr><th class="l">PLU</th><th class="l">Producto</th><th>Cantidad</th><th class="l">Horario</th><th class="l">Responsable</th><th class="l">Cód. granel</th><th class="l">Producto granel</th><th>Granel kg</th><th class="l">Lote</th></tr></thead>
+          <tbody id="hist-tbody-${h.id}"></tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+  // auto-expand when global product filter active; render all open/expanded bodies
+  const gProdActive = (document.getElementById('histFiltroProd')?.value || '').trim().length > 0;
+  filtered.forEach(h => {
+    if (gProdActive) document.getElementById(`hist-body-${h.id}`)?.classList.add('open');
+    renderHistBody(h.id);
+  });
+}
+const _histFiltro = {};
+function setHistFiltro(id, filtro) {
+  _histFiltro[id] = filtro;
+  ['todos','env','noenv'].forEach(k => document.getElementById(`hist-fb-${k === 'env' ? 'env' : k === 'noenv' ? 'noenv' : 'todos'}-${id}`)?.classList.remove('active'));
+  const map = { todos: 'todos', envasado: 'env', sinregistro: 'noenv' };
+  document.getElementById(`hist-fb-${map[filtro]}-${id}`)?.classList.add('active');
+  renderHistBody(id);
+}
+function renderHistBody(id) {
+  const tbody = document.getElementById(`hist-tbody-${id}`);
+  if (!tbody) return;
+  const h = histData.find(x => x.id === id);
+  if (!h) return;
+  const localQ = (document.getElementById(`hist-q-${id}`)?.value || '').trim().toLowerCase();
+  const gProd = (document.getElementById('histFiltroProd')?.value || '').trim().toLowerCase();
+  const q = gProd || localQ;
+  const filtro = _histFiltro[id] || 'todos';
+  // Detalle sin agrupar: una fila por cada carga (registro de producción).
+  // Varias cargas de un mismo producto se muestran por separado.
+  const conRegistro = new Set();
+  let rows = (h.produccion || [])
+    .filter(r => String(r.plu) !== 'ACT')
+    .map(r => {
+      conRegistro.add(String(r.plu));
+      const horario = (r.desde || '') + (r.hasta ? ' – ' + r.hasta : '');
+      return { plu: r.plu, nombre: r.nombre, cant: r.cantFraccionada, horario, empleado: r.empleado, granel: r.granel, nombreGranel: r.nombreGranel, granelCons: r.granelConsumido, lote: r.lote, esCarga: true };
+    });
+  // Pesables solicitados que todavía no tienen ninguna carga (pendientes).
+  for (const p of histProductos(h)) {
+    if (conRegistro.has(String(p.plu))) continue;
+    rows.push({ plu: p.plu, nombre: p.nombre, cant: null, horario: '', empleado: '', granel: p.granel, nombreGranel: p.nombreGranel, granelCons: null, lote: '', esCarga: false });
+  }
+  if (q) rows = rows.filter(p => (p.nombre||'').toLowerCase().includes(q) || String(p.plu).includes(q));
+  if (filtro === 'envasado') rows = rows.filter(p => p.esCarga);
+  if (filtro === 'sinregistro') rows = rows.filter(p => !p.esCarga);
+  document.getElementById(`hist-count-${id}`).textContent = `${rows.length} carga${rows.length!==1?'s':''}`;
+  tbody.innerHTML = rows.map(p => `<tr${p.esCarga ? '' : ' style="opacity:.55"'}>
+      <td class="l plu">${p.plu}</td>
+      <td class="l" style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${(p.nombre||'').replace(/"/g,'&quot;')}">${p.nombre||''}</td>
+      <td>${p.cant!=null?fmt(p.cant):''}</td>
+      <td class="l" style="font-size:11px;color:var(--faint)">${p.horario || (p.esCarga ? '' : '— sin carga —')}</td>
+      <td class="l" style="font-size:11px">${p.empleado||''}</td>
+      <td class="l" style="font-size:11px;color:var(--faint)">${p.granel||''}</td>
+      <td class="l" style="max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${(p.nombreGranel||'').replace(/"/g,'&quot;')}">${p.nombreGranel||''}</td>
+      <td>${p.granelCons!=null?fmt(p.granelCons):''}</td>
+      <td class="l" style="font-size:10px;font-family:monospace;color:var(--faint)">${p.lote||''}</td>
+    </tr>`).join('');
+}
+function toggleHistCard(id) {
+  const body = document.getElementById(`hist-body-${id}`);
+  const wasOpen = body.classList.contains('open');
+  body.classList.toggle('open');
+  if (!wasOpen) renderHistBody(id);
+}
+function descargarCSVHistorial(id) {
+  const h = histData.find(x => x.id === id);
+  if (!h || !h.produccion.length) return;
+  const esc = s => String(s||'').replace(/"/g,'""');
+  const lines = h.produccion.filter(r => String(r.plu) !== 'ACT').flatMap(r => [
+    `1;${r.plu};"${esc(r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
+    `1;${r.granel||''};"${esc(r.nombreGranel)}";${-(+(Math.abs(r.granelConsumido||0)).toFixed(2))};1;${r.granel||''}`
+  ]);
+  descargar(lines, `produccion_${h.fecha}.csv`);
+}
+async function eliminarHistorial(id) {
+  const h = histData.find(x => x.id === id);
+  const label = h ? `del ${h.fecha}` : `ID ${id}`;
+  abrirConfirmDel('Eliminar historial', `¿Eliminar el historial ${label}?`, async () => {
+    await fetch(`/api/distribucion/historial/${id}`, { method: 'DELETE' });
+    histData = histData.filter(h => h.id !== id);
+    renderHistorial();
+  });
+}
+
+// ── Modal granel ──────────────────────────────────────────────────────────────
+function modalGranel(granelCode) {
+  const grupo = datosP.filter(r => String(r.granel) === String(granelCode));
+  if (!grupo.length) return;
+  const F = grupo[0].F;
+  const sucKeys = SUC_P.map(([k]) => k);
+  const totalD = grupo.reduce((s, r) => s + (r.J === 'Si' ? (r.D || 0) : 0), 0);
+  const overD = totalD > F + 0.01;
+
+  const headSuc = SUC_P.map(([k, n]) => `<th class="suc">${n}<br><span style="font-size:9px;font-weight:400;opacity:.75">stk · cant</span></th>`).join('');
+  const rowsSuc = (r) => SUC_P.map(([k]) => {
+    const v = r.enviar[k];
+    const stk = (r.stkSuc || {})[k] || 0;
+    const stkL = `<span style="font-size:10px;color:var(--faint)">stk:${fmt(stk)}</span>`;
+    const wrap = (right) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">${stkL}${right}</div>`;
+    return esNum(v) && v > 0
+      ? `<td>${wrap(`<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(v)}</span>`)}</td>`
+      : `<td style="color:var(--faint)" title="${esNum(v)?'':v||''}">${wrap(`<span>${esNum(v)?fmt(v):(v||'·')}</span>`)}</td>`;
+  }).join('');
+  const totalSuc = (k) => grupo.reduce((s, r) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
+
+  const filas = grupo.map(r => `<tr>
+    <td class="l plu">${r.plu}</td>
+    <td class="l" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>
+    <td>${fmt(r.CG)}</td>
+    <td style="${r.J==='Si'?'font-weight:700;color:var(--verde-dark)':''}">${r.J==='Si'?fmt(r.D):'·'}</td>
+    ${rowsSuc(r)}
+  </tr>`).join('');
+
+  const totalRow = `<tr class="total-row">
+    <td class="l" colspan="2">TOTAL grupo</td>
+    <td>${fmt(grupo.reduce((s,r)=>s+r.CG,0))}</td>
+    <td style="${overD?'color:var(--error)':''}">${fmt(totalD)}${overD?' ⚠':''}</td>
+    ${sucKeys.map(k=>`<td>${fmt(totalSuc(k))}</td>`).join('')}
+  </tr>`;
+
+  document.getElementById('mg-title').textContent = `Granel ${granelCode}${grupo[0].nombreGranel ? ' — ' + grupo[0].nombreGranel : ''}`;
+  document.getElementById('mg-stock').innerHTML = `Stock disponible: <b>${fmt(F)} kg</b> · ${grupo.length} PLU${grupo.length>1?'s':''} comparten este granel`;
+  document.getElementById('mg-tbody').innerHTML = filas + totalRow;
+  document.getElementById('mg-head-row').innerHTML =
+    `<th class="l">PLU</th><th class="l">Producto</th><th>Σ Enviar</th><th>Envasar (D)</th>${headSuc}`;
+  document.getElementById('mg-foot').textContent = overD
+    ? `⚠ La suma de Envasar (${fmt(totalD)} kg) supera el granel disponible (${fmt(F)} kg). El motor prorratea D automáticamente por el factor K.`
+    : `La suma de Envasar (${fmt(totalD)} kg) está dentro del granel disponible (${fmt(F)} kg).`;
+  document.getElementById('modal-granel').classList.add('open');
+}
+document.getElementById('modal-granel').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+document.getElementById('mg-close').addEventListener('click', () => {
+  document.getElementById('modal-granel').classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('modal-granel').classList.remove('open');
+    document.getElementById('modal-formula-ped').classList.remove('open');
+  }
+});
+document.getElementById('modal-formula-ped').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+document.getElementById('modal-limpiar-prod').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+document.getElementById('mfp-close').addEventListener('click', () => {
+  document.getElementById('modal-formula-ped').classList.remove('open');
+});
+async function modalFormulaPedido(plu, nombre) {
+  const modal = document.getElementById('modal-formula-ped');
+  const tbody = document.getElementById('mfp-tbody');
+  const empty = document.getElementById('mfp-empty');
+  document.getElementById('mfp-title').textContent = `Fórmula — ${nombre || plu}`;
+  tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--faint)">Cargando…</td></tr>';
+  empty.style.display = 'none';
+  modal.classList.add('open');
+  try {
+    const data = await fetch(`/api/distribucion/pedido-formula/${plu}`).then(r => r.json());
+    if (!data.length) {
+      tbody.innerHTML = '';
+      empty.style.display = 'flex';
+      empty.innerHTML = `Sin fórmula en Siga para PLU <b>${plu}</b>. <a href="/api/distribucion/pedido-formula/${plu}" target="_blank" style="color:var(--info);margin-left:6px">Ver respuesta API ↗</a>`;
+      return;
+    }
+    tbody.innerHTML = data.map(r =>
+      `<tr><td class="l plu">${r.plu}</td><td class="l">${r.nombre||''}</td><td>${Number(r.cantidad||0).toFixed(4)}</td></tr>`
+    ).join('');
+  } catch(e) { tbody.innerHTML = `<tr><td colspan="3" style="color:var(--error)">${e.message}</td></tr>`; }
+}
+// delegación: click en tabla pesables
+document.getElementById('tabla-p').addEventListener('click', e => {
+  if (e.target.closest('.resp-select')) return;
+  const td = e.target.closest('td.gran');
+  if (td) { modalGranel(td.dataset.granel); return; }
+  const tr = e.target.closest('tr[data-plu]');
+  if (tr) abrirModalRegistro(tr.dataset.plu);
+});
+</script>
+
+</body>
+</html>
