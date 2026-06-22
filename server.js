@@ -1559,10 +1559,11 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     if (!stocks.has(plu)) stocks.set(plu, {});
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
   }
+  const siemprePesableSet = new Set(ed.siemprePesable.map(String));
   const productos = plus.map(plu => {
     const st = stocks.get(plu) || {};
     const granel = (formulas[plu] || {}).granel;
-    st.granel = granel != null ? (granelMap.get(String(granel)) || 0) : 0;
+    st.granel = (granel != null && !siemprePesableSet.has(String(plu))) ? (granelMap.get(String(granel)) || 0) : 0;
     return { plu, stocks: st };
   });
   const recKeys = new Set(Object.keys(fact.recByKey));
