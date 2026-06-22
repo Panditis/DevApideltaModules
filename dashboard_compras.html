@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Apidelta — Panel de Compras</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!-- MERGE: Chart.js incorporado desde PROD para la vista Análisis (gráficos de sobrecompra granel) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -148,6 +150,33 @@ tr.r-CRITICO:hover{background:rgba(211,47,47,.08)} tr.r-ALERTA:hover{background:
 .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.4px;cursor:pointer}
 .btn-ghost:hover{background:var(--bg)}
 
+/* ── Vista Análisis (merge desde PROD, adaptada a tema claro) ── */
+#viewAnalisis .an-section-title{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:14px 0 8px}
+#viewAnalisis .an-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+#viewAnalisis .an-card h3{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;margin-bottom:12px;color:var(--green-dark)}
+#viewAnalisis .an-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin-bottom:4px}
+#viewAnalisis .an-kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);border-left:4px solid var(--border);padding:14px}
+#viewAnalisis .an-kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;font-weight:600}
+#viewAnalisis .an-kpi-value{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;line-height:1}
+#viewAnalisis .an-kpi-sub{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4}
+#viewAnalisis .an-kpi.danger{border-left-color:var(--red)} #viewAnalisis .an-kpi.danger .an-kpi-value{color:var(--red)}
+#viewAnalisis .an-kpi.warn{border-left-color:var(--orange)} #viewAnalisis .an-kpi.warn .an-kpi-value{color:var(--orange)}
+#viewAnalisis .an-kpi.ok{border-left-color:var(--ok)} #viewAnalisis .an-kpi.ok .an-kpi-value{color:var(--ok)}
+#viewAnalisis .an-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){#viewAnalisis .an-grid-2{grid-template-columns:1fr}}
+#viewAnalisis .an-tbl-wrap{overflow-x:auto}
+#viewAnalisis table{width:100%;border-collapse:collapse;font-size:12.5px}
+#viewAnalisis .an-tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+#viewAnalisis .an-tab{padding:5px 13px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+#viewAnalisis .an-tab.active{background:var(--green);color:#fff;border-color:var(--green)}
+#viewAnalisis .an-alert-list{display:flex;flex-direction:column;gap:8px}
+#viewAnalisis .an-alert{border-radius:8px;padding:11px 14px;border-left:3px solid}
+#viewAnalisis .an-alert-d{background:var(--red-bg);border-color:var(--red)}
+#viewAnalisis .an-alert-w{background:var(--orange-bg);border-color:var(--orange)}
+#viewAnalisis .an-alert strong{display:block;font-size:12.5px;margin-bottom:3px;color:var(--text)}
+#viewAnalisis .an-alert span{font-size:11.5px;color:var(--muted);line-height:1.45}
+#viewAnalisis .an-note{font-size:11px;color:var(--muted);font-style:italic;margin:2px 0 6px}
+
 /* Print */
 @media print{
   header,.toolbar,.summary-bar .s-card,.btn-hdr,#loadingOverlay{display:none!important}
@@ -222,6 +251,7 @@ tr.r-CRITICO:hover{background:rgba(211,47,47,.08)} tr.r-ALERTA:hover{background:
     <div class="seg" id="segView">
       <button class="on" data-v="panel" onclick="setView('panel')">Panel</button>
       <button data-v="pedido" onclick="setView('pedido')">Pedido</button>
+      <button data-v="analisis" onclick="setView('analisis')">Análisis</button>
     </div>
   </div>
 
@@ -253,6 +283,182 @@ tr.r-CRITICO:hover{background:rgba(211,47,47,.08)} tr.r-ALERTA:hover{background:
   <!-- Pedido view -->
   <div id="viewPedido" style="display:none;padding:0 20px">
     <div id="pedidoContent"></div>
+  </div>
+
+  <!-- Análisis view (MERGE desde PROD: snapshot de análisis sobrecompra granel vs demanda sucursales) -->
+  <div id="viewAnalisis" style="display:none;padding:0 20px">
+
+    <div class="an-card" style="background:var(--yellow-pale);border-color:#E8D98A">
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <span style="font-size:16px">📊</span>
+        <div>
+          <strong style="font-family:'Barlow Condensed',sans-serif;font-size:14px;color:var(--green-dark)">Análisis histórico — snapshot</strong>
+          <div class="an-note" style="margin-top:2px">Granel comprado en Casa Central vs demanda real de sucursales (ventas fraccionado, excl. CC) · Últimos 12 meses. Datos de un corte de análisis SQL puntual; <b>no se actualizan en vivo</b> como el Panel/Pedido.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="an-kpi-row">
+      <div class="an-kpi danger">
+        <div class="an-kpi-label">Almendra Non Pareil</div>
+        <div class="an-kpi-value">21.1&times;</div>
+        <div class="an-kpi-sub">Comprado 24.1t &middot; Demanda sucs 1.1t &middot; <b>241 meses stock</b></div>
+      </div>
+      <div class="an-kpi danger">
+        <div class="an-kpi-label">Yerba Granel Gruesa</div>
+        <div class="an-kpi-value">6.2&times;</div>
+        <div class="an-kpi-sub">17.1t comprado &middot; 2.7t demanda &middot; <b>63 meses stock</b></div>
+      </div>
+      <div class="an-kpi danger">
+        <div class="an-kpi-label">Arandanos IQF</div>
+        <div class="an-kpi-value">11.9&times;</div>
+        <div class="an-kpi-sub">12.9t comprado &middot; 1.1t demanda &middot; <b>131 meses stock</b></div>
+      </div>
+      <div class="an-kpi warn">
+        <div class="an-kpi-label">Mani c/Sal Granel</div>
+        <div class="an-kpi-value">4.4&times;</div>
+        <div class="an-kpi-sub">13.6t comprado &middot; 3.1t demanda &middot; <b>41 meses stock</b></div>
+      </div>
+      <div class="an-kpi warn">
+        <div class="an-kpi-label">Mani s/Sal Granel</div>
+        <div class="an-kpi-value">2.3&times;</div>
+        <div class="an-kpi-sub">12t comprado &middot; 5.2t demanda &middot; <b>16 meses stock</b></div>
+      </div>
+      <div class="an-kpi ok">
+        <div class="an-kpi-label">Coco Rallado</div>
+        <div class="an-kpi-value">1.66&times;</div>
+        <div class="an-kpi-sub">1.75t &middot; 1.05t demanda &middot; 8 meses stock</div>
+      </div>
+    </div>
+
+    <!-- Grafico meses de stock -->
+    <div class="an-section-title">Meses de stock acumulado (comprado &minus; demanda sucursales) — rojo = critico</div>
+    <div class="an-card">
+      <h3>Meses de stock acumulado por granel — solo productos con demanda medible</h3>
+      <div style="position:relative;height:320px"><canvas id="chartMeses"></canvas></div>
+    </div>
+
+    <!-- Ratio compra/demanda -->
+    <div class="an-section-title">Ratio Compra / Demanda real (ventas fraccionado sucursales)</div>
+    <div class="an-card">
+      <h3>Ratio 1x = alineado &middot; rojo &gt;5x = sobrecompra severa &middot; verde &lt;1x = riesgo desabastecimiento</h3>
+      <div style="position:relative;height:300px"><canvas id="chartRatio"></canvas></div>
+    </div>
+
+    <!-- Volumen mensual + irregularidad -->
+    <div class="an-section-title">Volumen mensual de compras y regularidad</div>
+    <div class="an-grid-2">
+      <div class="an-card">
+        <h3>Monto total comprado por mes en CC ($)</h3>
+        <div style="position:relative;height:240px"><canvas id="chartMensual"></canvas></div>
+      </div>
+      <div class="an-card">
+        <h3>Dias entre compras: desvio estandar (mayor = mas caotico)</h3>
+        <div style="position:relative;height:240px"><canvas id="chartIrregular"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Ventas por sucursal -->
+    <div class="an-section-title">Ventas por sucursal — ultimos 12 meses (excl. CC)</div>
+    <div class="an-card">
+      <h3>Monto de ventas por sucursal</h3>
+      <div style="position:relative;height:200px"><canvas id="chartSucs"></canvas></div>
+    </div>
+
+    <!-- Tabla detalle -->
+    <div class="an-section-title">Tabla detallada — Granel: compra CC vs demanda sucursales</div>
+    <div class="an-card">
+      <div class="an-tabs">
+        <button class="an-tab active" onclick="showAnTab('all', this)">Todos</button>
+        <button class="an-tab" onclick="showAnTab('critico', this)">Critico</button>
+        <button class="an-tab" onclick="showAnTab('atencion', this)">Atencion</button>
+        <button class="an-tab" onclick="showAnTab('ok', this)">OK</button>
+      </div>
+      <div class="an-tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Producto</th>
+            <th class="num">Kg Comprado</th>
+            <th class="num">Kg Demanda Sucs</th>
+            <th class="num">N° Compras</th>
+            <th class="num">Dias entre compras</th>
+            <th class="num">Monto ($M)</th>
+            <th class="num">Ratio</th>
+            <th class="num">Stock acum. (kg)</th>
+            <th class="num">Meses stock</th>
+            <th>Estado</th>
+          </tr></thead>
+          <tbody id="tablaBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Almacen -->
+    <div class="an-section-title">Almacen — Comprado CC vs Vendido en Sucursales</div>
+    <div class="an-card">
+      <div class="an-tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Producto Almacen</th>
+            <th class="num">Unid. Compradas</th>
+            <th class="num">Unid. Vendidas Sucs</th>
+            <th class="num">Ratio</th>
+            <th class="num">Monto ($M)</th>
+            <th>Estado</th>
+          </tr></thead>
+          <tbody id="tablaAlmacen"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Diagnostico -->
+    <div class="an-section-title">Diagnostico</div>
+    <div class="an-grid-2">
+      <div class="an-card">
+        <h3>Problemas criticos</h3>
+        <div class="an-alert-list">
+          <div class="an-alert an-alert-d">
+            <strong>Almendra Non Pareil &mdash; 241 meses de stock acumulado</strong>
+            <span>24.148 kg comprados en 12 meses. Sucursales solo demandan 1.147 kg/año fracionados. A 5 compras (intervalos de 61 dias), cada lote es ~5 toneladas cuando la demanda anual es 1 tonelada. Comprando 21x lo que se vende.</span>
+          </div>
+          <div class="an-alert an-alert-d">
+            <strong>Arandanos IQF &mdash; 131 meses de stock acumulado</strong>
+            <span>12.851 kg comprados. Demanda sucs: 1.080 kg (incluye Frutos Rojos mix). Solo 4 compras pero enormes. El producto va mayoritariamente a mezclados, no fraccionado puro — la demanda real es mayor pero no se puede medir sin formulas de los mix.</span>
+          </div>
+          <div class="an-alert an-alert-d">
+            <strong>Yerba Granel Gruesa &mdash; 63 meses de stock visible</strong>
+            <span>17.100 kg comprados en 3 compras (intervalo promedio 96 dias, maximo 189 dias). Demanda medible: 2.744 kg/año en fraccionado. Pero la yerba envasada (Apidelta 500G y 1Kg) no esta en el denominador — la demanda real es mucho mayor.</span>
+          </div>
+          <div class="an-alert an-alert-d">
+            <strong>Banana en Chips, Almendra Banada, Cajú variantes &mdash; sin demanda medible</strong>
+            <span>Van a productos mix (granolas, mixes frutos secos) cuyas formulas no registran consumo. Imposible calcular ratio real sin habilitar VentasProductosFormulas en sucursales.</span>
+          </div>
+        </div>
+      </div>
+      <div class="an-card">
+        <h3>Causas raiz y acciones</h3>
+        <div class="an-alert-list">
+          <div class="an-alert an-alert-d">
+            <strong>Causa 1: VentasProductosFormulas no se usa en sucursales (0%)</strong>
+            <span>Ninguna sucursal registra el granel consumido al vender fraccionado. Sin esto, el 60% de los graneles no tienen demanda medible en el sistema. Accion: habilitar y forzar la funcion de formula en el POS de sucursales para rubros 21 y 23.</span>
+          </div>
+          <div class="an-alert an-alert-w">
+            <strong>Causa 2: Compras de granel sin relacion con demanda de sucursales</strong>
+            <span>Los lotes de compra se deciden por precio/disponibilidad del proveedor, no por stock de cobertura. Almendra: 5 compras de ~5 toneladas cuando la demanda es 1.1 ton/año. Accion: definir stock de cobertura maximo por producto (sugerido: 3 meses) y nunca comprar mas alla de eso.</span>
+          </div>
+          <div class="an-alert an-alert-w">
+            <strong>Causa 3: Compra reactiva sin calendario en graneles criticos</strong>
+            <span>Yerba Granel: 96 dias promedio entre compras (rango 3-189 dias). Nueces: 44 dias promedio (rango 5-119 dias). No hay punto de reorden definido. Accion: establecer ROP = consumo durante lead time + 2 semanas de seguridad.</span>
+          </div>
+          <div class="an-alert an-alert-w">
+            <strong>Causa 4: Yerba envasada (500G, 1Kg) comprada en CC sin stock tracking</strong>
+            <span>20.372 unidades de Yerba 500G compradas, 0 demanda identificada en sucursales (no fraccionado). La yerba envasada se vende via VENTA directa en sucursales pero la traccion CC&rarr;sucursales no esta en ENV-SUC. El stock de 20.372 unidades (20 toneladas?) parece excesivo.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -487,9 +693,11 @@ function toggleProv(i) {
 
 function setView(v) {
   currentView = v;
-  $id('viewPanel').style.display  = v === 'panel'  ? 'block' : 'none';
-  $id('viewPedido').style.display = v === 'pedido' ? 'block' : 'none';
+  $id('viewPanel').style.display    = v === 'panel'    ? 'block' : 'none';
+  $id('viewPedido').style.display   = v === 'pedido'   ? 'block' : 'none';
+  $id('viewAnalisis').style.display = v === 'analisis' ? 'block' : 'none';
   document.querySelectorAll('#segView button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  if (v === 'analisis') initAnalisis();
 }
 
 // ── Lead times modal ──
@@ -522,6 +730,140 @@ async function saveLT() {
   closeLT();
 }
 function closeLT() { $id('ltModal').style.display = 'none'; }
+
+// ═══════════════════════════════════════════════════════════════
+// Vista Análisis (MERGE desde PROD) — datos estáticos del snapshot
+// Inicialización lazy: charts/tablas se montan al abrir la vista.
+// ═══════════════════════════════════════════════════════════════
+let analisisInit = false;
+
+const granelData = [
+  {n:'Almendra Non Pareil G.',   kgC:24148, kgD:1147,  nc:5,  dc:61, monto:349.04, ratio:21.05, stock:23001, meses:240.6, d:'danger'},
+  {n:'Arandanos IQF G.',         kgC:12851, kgD:1080,  nc:4,  dc:41, monto:95.33,  ratio:11.90, stock:11771, meses:130.8, d:'danger'},
+  {n:'Yerba Granel Gruesa',      kgC:17100, kgD:2744,  nc:3,  dc:96, monto:29.60,  ratio:6.23,  stock:14356, meses:62.8,  d:'danger'},
+  {n:'Almendra Partida G.',      kgC:7613,  kgD:901,   nc:17, dc:20, monto:84.17,  ratio:8.45,  stock:6711,  meses:89.4,  d:'danger'},
+  {n:'Cajú Crudo W4 G.',         kgC:2458,  kgD:502,   nc:10, dc:33, monto:32.08,  ratio:4.90,  stock:1956,  meses:46.8,  d:'danger'},
+  {n:'Pasa Uva Sulta G.',        kgC:7402,  kgD:1294,  nc:10, dc:32, monto:21.82,  ratio:5.72,  stock:6108,  meses:56.6,  d:'danger'},
+  {n:'Yerba G.Tradicional',      kgC:12930, kgD:764,   nc:3,  dc:18, monto:22.24,  ratio:16.93, stock:12166, meses:191.1, d:'danger'},
+  {n:'Mani c/Sal G.',            kgC:13609, kgD:3076,  nc:18, dc:19, monto:22.78,  ratio:4.42,  stock:10533, meses:41.1,  d:'danger'},
+  {n:'Sem. Zapallo Verde G.',    kgC:1352,  kgD:95,    nc:14, dc:25, monto:12.52,  ratio:14.26, stock:1257,  meses:159.2, d:'danger'},
+  {n:'Sem. Chia G.',             kgC:2527,  kgD:381,   nc:14, dc:27, monto:12.64,  ratio:6.64,  stock:2146,  meses:67.7,  d:'danger'},
+  {n:'Nuez Mariposa G.',         kgC:5823,  kgD:1828,  nc:17, dc:19, monto:64.58,  ratio:3.19,  stock:3995,  meses:26.2,  d:'warn'},
+  {n:'Nuez Cuarto EL G.',        kgC:4854,  kgD:1298,  nc:8,  dc:44, monto:51.38,  ratio:3.74,  stock:3556,  meses:32.9,  d:'warn'},
+  {n:'Nuez Cuartillo G.',        kgC:3987,  kgD:1192,  nc:7,  dc:46, monto:34.44,  ratio:3.35,  stock:2795,  meses:28.2,  d:'warn'},
+  {n:'Hari Alm S/Piel G.',       kgC:2107,  kgD:901,   nc:13, dc:28, monto:34.40,  ratio:2.34,  stock:1206,  meses:16.0,  d:'warn'},
+  {n:'Mani s/Sal G.',            kgC:11956, kgD:5191,  nc:14, dc:23, monto:19.74,  ratio:2.30,  stock:6765,  meses:15.6,  d:'warn'},
+  {n:'Avena Trad G.',            kgC:7275,  kgD:2559,  nc:16, dc:21, monto:9.76,   ratio:2.84,  stock:4716,  meses:22.1,  d:'warn'},
+  {n:'Sem. Girasol G.',          kgC:3781,  kgD:1092,  nc:16, dc:22, monto:10.13,  ratio:3.46,  stock:2689,  meses:29.5,  d:'warn'},
+  {n:'Ciruela Dagen G.',         kgC:2500,  kgD:1654,  nc:9,  dc:43, monto:15.94,  ratio:1.51,  stock:846,   meses:6.1,   d:'ok'},
+  {n:'Coco Rallado G.',          kgC:1751,  kgD:1054,  nc:8,  dc:41, monto:11.94,  ratio:1.66,  stock:697,   meses:7.9,   d:'ok'},
+  {n:'Avellanas G.',             kgC:505,   kgD:281,   nc:10, dc:33, monto:11.09,  ratio:1.80,  stock:224,   meses:9.6,   d:'ok'},
+];
+
+const almacenData = [
+  {n:'Aceite Oliva 1lt',          uc:6946,  uv:2922, r:2.38, monto:55.98, d:'warn'},
+  {n:'Aceite Oliva 500cc',        uc:7742,  uv:2793, r:2.77, monto:32.72, d:'warn'},
+  {n:'Vinagre Sidra 500cc',       uc:10780, uv:7442, r:1.45, monto:22.56, d:'ok'},
+  {n:'Pan Sus Panes H.Alm',       uc:4348,  uv:4260, r:1.02, monto:28.99, d:'ok'},
+  {n:'Crackers H.Alm 250g',       uc:4949,  uv:5069, r:0.98, monto:25.00, d:'ok'},
+  {n:'Pan Molens Mix Semillas',   uc:8198,  uv:3831, r:2.14, monto:22.28, d:'warn'},
+  {n:'Yerba Apidelta 500G',       uc:20372, uv:1631, r:12.49,monto:21.36, d:'danger'},
+  {n:'Aceite Oliva VID 500cc',    uc:4171,  uv:2253, r:1.85, monto:20.32, d:'ok'},
+  {n:'Aceite Oliva 2lt',          uc:760,   uv:594,  r:1.28, monto:12.30, d:'ok'},
+  {n:'Pasta Mani King 485g',      uc:6012,  uv:5947, r:1.01, monto:9.39,  d:'ok'},
+  {n:'Pan Molens Integral',       uc:7025,  uv:3453, r:2.03, monto:17.21, d:'warn'},
+  {n:'Huevos Maple',              uc:1934,  uv:1154, r:1.68, monto:11.73, d:'ok'},
+  {n:'Aceite Oliva 5lt',          uc:301,   uv:198,  r:1.52, monto:11.70, d:'ok'},
+  {n:'Cera Operculo 1kg',         uc:2945,  uv:45,   r:65.3, monto:20.64, d:'danger'},
+  {n:'Pan Molens Mix s/Sal',      uc:4304,  uv:1751, r:2.46, monto:11.66, d:'warn'},
+  {n:'Pan Molens Integral s/Sal', uc:4080,  uv:1598, r:2.55, monto:10.02, d:'warn'},
+];
+
+const anMeses = ['May-25','Jun-25','Jul-25','Ago-25','Sep-25','Oct-25','Nov-25','Dic-25','Ene-26','Feb-26','Mar-26','Abr-26','May-26'];
+const anMontos = [335789595,241316170,424060343,375364630,281446401,352255463,372433860,411048574,199169513,726284964,343490236,549770400,307204238];
+
+const irregLabels = ['Manteca Clarif.G.','Yerba G.Gruesa','Aceite 2lt','Arandanos IQF G.','Nuez Cuarto G.','Almendra Non Pareil','Almendra Partida','Cajú Tostado S/Sal','Cajú Tostado C/Sal','Cajú Crudo W4','Ciruela Dagen G.','Yerba G.Trad.','Mani s/Sal G.','Aceite 500cc','Mani c/Sal G.','Yerba 1kg','Aceite 1lt','Nuez Mariposa G.','Vinagre Sidra','Yerba 500G','MIEL','Huevos Maple'];
+const irregDesv = [null,131.5,55.2,41.2,41.1,26.3,24.4,null,null,21.8,null,24.0,21.8,20.2,18.6,17.8,16.8,15.0,14.1,10.5,3.8,3.6];
+
+const sucLabels = ['Rivadavia','Chacabuco','Nacion','Urquiza','San Pedro','Savio','Pergamino','V.Ramallo'];
+const sucVentas = [848.35,685.59,629.09,601.39,361.22,211.00,144.73,33.24];
+
+function initAnalisis() {
+  if (analisisInit) return;
+  analisisInit = true;
+
+  // Paleta adaptada al tema claro de DEV
+  const C = {
+    blue:'rgba(64,89,54,.85)', orange:'rgba(230,81,0,.85)', green:'rgba(56,142,60,.85)',
+    red:'rgba(211,47,47,.85)', border:'rgba(230,230,230,1)', text:'#6B6B6B'
+  };
+  Chart.defaults.color = C.text;
+  Chart.defaults.borderColor = C.border;
+  Chart.defaults.font.family = "'Barlow', sans-serif";
+
+  // MESES DE STOCK
+  const sorted = [...granelData].filter(x=>x.meses).sort((a,b)=>b.meses-a.meses);
+  new Chart(document.getElementById('chartMeses'),{
+    type:'bar',
+    data:{labels:sorted.map(x=>x.n),datasets:[{label:'Meses de stock',data:sorted.map(x=>x.meses),backgroundColor:sorted.map(x=>x.meses>50?C.red:x.meses>15?C.orange:C.green),borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.raw.toFixed(1)} meses`}}},scales:{x:{grid:{color:C.border},ticks:{callback:v=>v+'m'}},y:{grid:{color:C.border}}}}
+  });
+
+  // RATIO
+  const rsorted = [...granelData].filter(x=>x.ratio).sort((a,b)=>b.ratio-a.ratio);
+  new Chart(document.getElementById('chartRatio'),{
+    type:'bar',
+    data:{labels:rsorted.map(x=>x.n),datasets:[{label:'Ratio',data:rsorted.map(x=>Math.min(x.ratio,25)),backgroundColor:rsorted.map(x=>x.ratio>5?C.red:x.ratio>2?C.orange:x.ratio<1?C.green:C.blue),borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${rsorted[ctx.dataIndex].ratio.toFixed(2)}x`}}},scales:{x:{grid:{color:C.border},ticks:{callback:v=>v+'x'}},y:{grid:{color:C.border}}}}
+  });
+
+  // MONTO MENSUAL
+  new Chart(document.getElementById('chartMensual'),{
+    type:'bar',
+    data:{labels:anMeses,datasets:[{label:'Monto ($)',data:anMontos,backgroundColor:anMontos.map(v=>v>500000000?C.red:v>400000000?C.orange:C.blue),borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` $${(ctx.raw/1e6).toFixed(1)}M`}}},scales:{y:{ticks:{callback:v=>'$'+(v/1e6).toFixed(0)+'M'},grid:{color:C.border}},x:{grid:{color:C.border}}}}
+  });
+
+  // DESVIO / IRREGULARIDAD
+  const iValid = irregLabels.map((l,i)=>({l,v:irregDesv[i]})).filter(x=>x.v!=null);
+  new Chart(document.getElementById('chartIrregular'),{
+    type:'bar',
+    data:{labels:iValid.map(x=>x.l),datasets:[{label:'Desvio (dias)',data:iValid.map(x=>x.v),backgroundColor:iValid.map(x=>x.v>40?C.red:x.v>20?C.orange:C.blue),borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:C.border},ticks:{callback:v=>v+'d'}},y:{grid:{color:C.border}}}}
+  });
+
+  // SUCURSALES
+  new Chart(document.getElementById('chartSucs'),{
+    type:'bar',
+    data:{labels:sucLabels,datasets:[{label:'Ventas ($M)',data:sucVentas,backgroundColor:C.blue,borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` $${ctx.raw.toFixed(2)}M`}}},scales:{y:{ticks:{callback:v=>'$'+v+'M'},grid:{color:C.border}},x:{grid:{color:C.border}}}}
+  });
+
+  // TABLA GRANEL — clave de fila alineada con los tabs (critico/atencion/ok)
+  const tabKey = {danger:'critico', warn:'atencion', ok:'ok'};
+  const tbody = $id('tablaBody');
+  tbody.innerHTML = granelData.map(r => {
+    const badge = r.d==='danger'?'<span class="badge b-critico">Critico</span>':r.d==='warn'?'<span class="badge b-alerta">Atencion</span>':'<span class="badge b-ok">OK</span>';
+    return `<tr class="an-row-${tabKey[r.d]}"><td>${r.n}</td><td class="num">${r.kgC.toLocaleString('es-AR')}</td><td class="num">${r.kgD.toLocaleString('es-AR')}</td><td class="num">${r.nc}</td><td class="num">${r.dc}d</td><td class="num">$${r.monto}M</td><td class="num">${r.ratio}x</td><td class="num">${r.stock.toLocaleString('es-AR')}</td><td class="num">${r.meses}</td><td>${badge}</td></tr>`;
+  }).join('');
+
+  // TABLA ALMACEN
+  const ta = $id('tablaAlmacen');
+  ta.innerHTML = almacenData.map(r => {
+    const badge = r.d==='danger'?'<span class="badge b-critico">Critico</span>':r.d==='warn'?'<span class="badge b-alerta">Atencion</span>':'<span class="badge b-ok">OK</span>';
+    return `<tr><td>${r.n}</td><td class="num">${r.uc.toLocaleString('es-AR')}</td><td class="num">${r.uv.toLocaleString('es-AR')}</td><td class="num">${r.r}x</td><td class="num">$${r.monto}M</td><td>${badge}</td></tr>`;
+  }).join('');
+}
+
+// Tabs de la tabla de granel en la vista Análisis
+function showAnTab(t, btn) {
+  document.querySelectorAll('#viewAnalisis .an-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('#tablaBody tr').forEach(tr => {
+    if (t === 'all') { tr.style.display = ''; return; }
+    tr.style.display = tr.classList.contains('an-row-' + t) ? '' : 'none';
+  });
+}
 
 // ── Init ──
 cargarPanel();

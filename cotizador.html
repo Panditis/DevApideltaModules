@@ -51,6 +51,13 @@
     .stat-box { background: #fff; border-radius: 6px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; }
     .stat-box .num { font-size: 28px; font-weight: 700; color: #ff6f00; }
     .stat-box .lbl { font-size: 12px; color: #888; margin-top: 4px; }
+    /* Desglose de cálculo individual (heredado de prod, adaptado a estilos dev) */
+    .desglose { width: 100%; margin-top: 20px; }
+    .desglose td { border-bottom: none; padding: 10px 0; }
+    .desglose tr.sub td { background: #f9f9f9; padding: 10px 12px; }
+    .desglose tr.total td { border-top: 2px solid #ddd; border-bottom: 2px solid #ddd; }
+    .desglose .lbl-uc { font-size: 12px; color: #666; text-transform: uppercase; }
+    .desglose .resta { color: #e55f00; text-align: right; font-size: 14px; }
   </style>
 </head>
 <body>
@@ -66,6 +73,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="publicaciones">Publicaciones</button>
     <button class="tab" data-tab="importar">Importar CSV/Excel</button>
+    <button class="tab" data-tab="calcular">Calcular individual</button>
     <button class="tab" data-tab="comisiones">Comisiones</button>
   </div>
 
@@ -161,6 +169,115 @@
     </div>
   </div>
 
+  <!-- ── Calcular individual (heredado de prod, adaptado) ── -->
+  <div class="panel" id="panel-calcular">
+    <div class="card">
+      <h3 style="margin-bottom:12px">Calcular precio de un producto</h3>
+      <p class="nota" style="margin-bottom:16px">Cálculo puntual sin necesidad de importar. Usá el código SIGA del producto.</p>
+      <div id="msg-calc"></div>
+      <div class="grid2">
+        <div class="form-group">
+          <label>Código SIGA (IdProducto) *</label>
+          <input type="text" id="calc-codigo" placeholder="Ej: 5670">
+        </div>
+        <div class="form-group">
+          <label>Categoría Mercado Libre *</label>
+          <select id="calc-categoria">
+            <option value="">-- Seleccionar --</option>
+            <option value="Alimentos y Bebidas">Alimentos y Bebidas</option>
+            <option value="Electrónica">Electrónica</option>
+            <option value="Computación">Computación</option>
+            <option value="Supermercado">Supermercado</option>
+            <option value="Moda">Moda</option>
+            <option value="Hogar">Hogar</option>
+            <option value="Deportes">Deportes</option>
+            <option value="Juguetes">Juguetes</option>
+            <option value="Libros">Libros</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label>Provincia *</label>
+          <select id="calc-provincia">
+            <option value="">-- Seleccionar --</option>
+            <option value="Buenos Aires">Buenos Aires</option>
+            <option value="CABA">CABA</option>
+            <option value="Córdoba">Córdoba</option>
+            <option value="Corrientes">Corrientes</option>
+            <option value="Mendoza">Mendoza</option>
+            <option value="Santa Fe">Santa Fe</option>
+            <option value="Tucumán">Tucumán</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Cuotas</label>
+          <select id="calc-cuotas">
+            <option value="0">Sin cuotas</option>
+            <option value="7.5">3 cuotas</option>
+            <option value="13.5">6 cuotas</option>
+            <option value="22">12 cuotas</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label>Costo de envío $</label>
+          <input type="number" id="calc-envio" value="0" min="0" step="any">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end">
+          <button type="button" class="btn" id="btn-calcular-individual">Calcular precio final</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="card-resultado" style="display:none">
+      <h3 style="margin-bottom:16px">Resultado del cálculo</h3>
+      <div class="grid2">
+        <div>
+          <p class="nota" style="text-transform:uppercase">Producto</p>
+          <p id="res-nombre" style="font-size:18px;font-weight:600;margin:6px 0"></p>
+          <p style="font-size:12px;color:#999">Código SIGA: <span id="res-codigo"></span></p>
+        </div>
+        <div>
+          <p class="nota" style="text-transform:uppercase">Categoría / Provincia</p>
+          <p style="font-size:14px;margin:6px 0"><span id="res-categoria"></span> / <span id="res-provincia"></span></p>
+        </div>
+      </div>
+
+      <table class="desglose">
+        <tr>
+          <td class="lbl-uc">Precio venta SIGA</td>
+          <td style="text-align:right;font-size:16px;font-weight:600" class="price">$ <span id="res-precio-siga"></span></td>
+        </tr>
+        <tr class="sub">
+          <td style="font-size:12px;color:#666">Comisión Mercado Libre (<span id="res-comision-pct"></span>%)</td>
+          <td class="resta">- $ <span id="res-comision-monto"></span></td>
+        </tr>
+        <tr class="sub" id="row-cuotas" style="display:none">
+          <td style="font-size:12px;color:#666">Cuotas (<span id="res-cuotas-pct"></span>%)</td>
+          <td class="resta">- $ <span id="res-cuotas-monto"></span></td>
+        </tr>
+        <tr class="sub" id="row-envio" style="display:none">
+          <td style="font-size:12px;color:#666">Costo de envío</td>
+          <td class="resta">- $ <span id="res-envio-monto"></span></td>
+        </tr>
+        <tr class="sub">
+          <td style="font-size:12px;color:#666">IVA <span id="res-iva-pct">21</span>%</td>
+          <td class="resta">- $ <span id="res-iva-monto"></span></td>
+        </tr>
+        <tr class="total">
+          <td class="lbl-uc" style="font-weight:600">Precio final para Mercado Libre</td>
+          <td style="text-align:right;font-size:20px;font-weight:600" class="price">$ <span id="res-precio-final"></span></td>
+        </tr>
+        <tr>
+          <td style="font-size:12px;color:#999">Margen neto</td>
+          <td style="text-align:right;font-size:12px;color:#999">Equivalente a venta local sin comisiones</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
   <!-- ── Comisiones ── -->
   <div class="panel" id="panel-comisiones">
     <div class="card">
@@ -205,7 +322,7 @@ function renderTabla(datos) {
 
   const tbody = $('tbody-pub');
   if (!datos.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">Sin publicaciones. Importá desde "Importar CSV/Excel".</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="empty">Sin publicaciones. Importá desde "Importar CSV/Excel".</td></tr>';
     return;
   }
 
@@ -354,6 +471,62 @@ $('btn-guardar-vincular').addEventListener('click', async () => {
   $('msg-vinc').innerHTML = `<div class="alert alert-success">✓ Vínculos guardados</div>`;
   $('card-vincular').style.display = 'none';
   cargarPublicaciones();
+});
+
+// ── Calcular individual (heredado de prod, adaptado a backend dev con cuotas/envío) ──
+$('btn-calcular-individual').addEventListener('click', async () => {
+  const idProductoSIGA = $('calc-codigo').value.trim();
+  const categoriaMercadoLibre = $('calc-categoria').value;
+  const provincia = $('calc-provincia').value;
+  const cuotasPct = parseFloat($('calc-cuotas').value) || 0;
+  const costoEnvio = parseFloat($('calc-envio').value) || 0;
+
+  if (!idProductoSIGA || !categoriaMercadoLibre || !provincia) {
+    $('msg-calc').innerHTML = '<div class="alert alert-error">✗ Completá código, categoría y provincia</div>';
+    return;
+  }
+
+  $('msg-calc').innerHTML = '<span class="spinner"></span>Calculando...';
+  try {
+    const res = await fetch('/api/cotizador/calcular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idProductoSIGA, categoriaMercadoLibre, provincia, cuotasPct, costoEnvio })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    $('msg-calc').innerHTML = '';
+    $('card-resultado').style.display = '';
+    $('res-nombre').textContent = data.nombreProducto;
+    $('res-codigo').textContent = data.idProductoSIGA;
+    $('res-categoria').textContent = data.categoriaMercadoLibre;
+    $('res-provincia').textContent = data.provincia;
+    $('res-precio-siga').textContent = data.precioVentaSIGA.toFixed(2);
+    $('res-comision-pct').textContent = data.comisionPct;
+    $('res-comision-monto').textContent = data.comisionMonto.toFixed(2);
+    $('res-iva-monto').textContent = data.ivaMonto.toFixed(2);
+    $('res-precio-final').textContent = data.precioFinalMercadoLibre.toFixed(2);
+
+    const cuotasMonto = data.cuotasMonto || 0;
+    if ((data.cuotasPct || 0) > 0) {
+      $('row-cuotas').style.display = '';
+      $('res-cuotas-pct').textContent = data.cuotasPct;
+      $('res-cuotas-monto').textContent = cuotasMonto.toFixed(2);
+    } else {
+      $('row-cuotas').style.display = 'none';
+    }
+
+    const envio = data.costoEnvio || 0;
+    if (envio > 0) {
+      $('row-envio').style.display = '';
+      $('res-envio-monto').textContent = envio.toFixed(2);
+    } else {
+      $('row-envio').style.display = 'none';
+    }
+  } catch(e) {
+    $('msg-calc').innerHTML = `<div class="alert alert-error">✗ ${e.message}</div>`;
+  }
 });
 
 // ── Comisiones ─────────────────────────────────────────────────────────────────
