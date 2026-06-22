@@ -839,6 +839,8 @@ async function cargar() {
     datos = await r.json();
     almacenTipo = tr;
     renderSucDropA(); actualizarSucBtnA(); buildTipoFilter(); construirHead(); render();
+    document.getElementById('sucFiltros').style.display = 'flex';
+    document.getElementById('tipoFiltro').style.display = 'flex';
     document.getElementById('pdfA').style.display = '';
     st.style.display = 'none'; tb.style.display = '';
   } catch (e) {
