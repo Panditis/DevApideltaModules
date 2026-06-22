@@ -158,6 +158,17 @@
   .chip .rm:hover{background:#fde7e7}
   /* ── Fact (ya facturado desde última recepción) ── */
   td.env.fact span{background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em}
+  /* ── Columna sucursal partida: nombre arriba (colspan) + Stock/Enviar abajo ── */
+  td.env.stk{color:var(--muted)}
+  #tabla-a thead th[colspan],#tabla-p thead th[colspan]{text-align:center}
+  #tabla-a thead .subh,#tabla-p thead .subh{top:36px;font-size:11px;padding:5px 8px;font-weight:600}
+  /* ── Filtro de productos estilo Excel (header Producto) ── */
+  .prod-filter-btn{background:none;border:0;color:rgba(255,255,255,.65);cursor:pointer;font-size:11px;padding:0 4px;margin-left:2px;border-radius:4px;vertical-align:middle}
+  .prod-filter-btn:hover{color:#fff;background:rgba(255,255,255,.18)}
+  .prod-filter-btn.on{color:var(--amarillo)}
+  #prodFilterDrop{position:fixed;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);min-width:280px;max-width:340px;z-index:300;overflow:hidden;font-family:var(--body)}
+  #prodFilterList{max-height:300px;overflow:auto}
+  #prodFilterList .rubro-opt b{color:var(--faint);font-weight:600;font-variant-numeric:tabular-nums}
   .suc-tog{font-size:11px;padding:4px 9px;border-radius:5px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);color:var(--muted);opacity:.55;transition:opacity .15s,background .15s}
   .suc-tog.on{opacity:1;background:var(--verde);color:#fff;border-color:var(--verde-dark)}
   /* ── Rubro multiselect ── */
@@ -349,6 +360,7 @@
       <button class="tab cfg-tab" data-tab="excluir">No envasa <span class="pill" id="pillExcluir">⊘</span></button>
       <button class="tab cfg-tab" data-tab="forzar-almacen">Siempre Almacén <span class="pill" id="pillForzarAlmacen">+</span></button>
       <button class="tab cfg-tab" data-tab="forzar-pesable">Siempre Pesable <span class="pill" id="pillForzarPesable">+</span></button>
+      <button class="tab cfg-tab" data-tab="ocultar-pesable">Ocultar Pesable <span class="pill" id="pillOcultarPesable">🚫</span></button>
       <button class="tab cfg-tab" data-tab="tipo-almacen">Tipo Almacén</button>
       <button class="tab cfg-tab" data-tab="tabs-config">Tabs</button>
       <button class="tab-cfg-toggle" id="cfgToggle" onclick="toggleCfgTabs()" title="Mostrar/ocultar configuración">⚙</button>
@@ -365,6 +377,7 @@
         <option value="Si" selected>Envasar: Sí</option>
         <option value="No">Envasar: No</option>
       </select>
+      <label class="chk" id="filtrarOcultarWrap" style="display:none" title="Oculta los códigos cargados en la tab Ocultar Pesable"><input type="checkbox" id="filtrarOcultar" checked> Ocultar códigos</label>
       <div class="rubro-filter" id="rubroFilter" style="display:none;position:relative">
         <button class="rubro-btn" id="rubroBtn" onclick="toggleRubroDropdown()">Rubro <span id="rubroBtnCount"></span>▾</button>
         <div class="rubro-drop" id="rubroDrop" style="display:none"></div>
@@ -451,6 +464,7 @@
     <section class="panel listpanel" id="panel-excluir"></section>
     <section class="panel listpanel" id="panel-forzar-almacen"></section>
     <section class="panel listpanel" id="panel-forzar-pesable"></section>
+    <section class="panel listpanel" id="panel-ocultar-pesable"></section>
 
     <!-- removed fraccionado/envasado panels -->
     <!-- FRACCIONADO ORDENES (placeholder, tab removed) -->
@@ -651,6 +665,8 @@
   </div>
 </div>
 
+<div id="prodFilterDrop" style="display:none"></div>
+
 <script>
 // Sucursales por vista (Pesables incluye Logia; Almacen no la despacha).
 const SUC_A = [
@@ -716,18 +732,86 @@ function buildTipoFilter() {
     };
   });
 }
+// ── Filtro de productos estilo Excel (header "Producto") ──
+const filtroProd = { a: new Set(), p: new Set() };   // PLUs ocultos por tab
+let prodFilterTab = 'a';
+const prodFunnel = tab => `<button class="prod-filter-btn${filtroProd[tab].size ? ' on' : ''}" data-tab="${tab}" onclick="event.stopPropagation();toggleProdFilter('${tab}',this)" title="Filtrar productos">▾</button>`;
+function prodFilterData() { return prodFilterTab === 'a' ? datos : datosP; }
+function toggleProdFilter(tab, btn) {
+  const drop = document.getElementById('prodFilterDrop');
+  if (drop.style.display !== 'none' && drop.dataset.tab === tab) { drop.style.display = 'none'; return; }
+  prodFilterTab = tab; drop.dataset.tab = tab;
+  drop.innerHTML = `
+    <div style="padding:8px 10px;border-bottom:1px solid var(--line)"><input type="search" id="prodFilterSearch" placeholder="Buscar producto…" oninput="renderProdFilterList(this.value)" style="width:100%;background:var(--surface1);border:1px solid var(--border);border-radius:7px;padding:6px 9px;font-size:12px;outline:none;color:var(--text)"></div>
+    <div style="display:flex;gap:6px;padding:7px 10px;border-bottom:1px solid var(--line)">
+      <button onclick="prodFilterAll(true)" style="flex:1;font-size:11px;padding:4px">Todos</button>
+      <button onclick="prodFilterAll(false)" style="flex:1;font-size:11px;padding:4px">Ninguno</button>
+    </div>
+    <div id="prodFilterList"></div>`;
+  renderProdFilterList('');
+  const r = btn.getBoundingClientRect();
+  drop.style.display = '';
+  const w = drop.offsetWidth;
+  drop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+  drop.style.top = (r.bottom + 4) + 'px';
+  setTimeout(() => { const s = document.getElementById('prodFilterSearch'); if (s) s.focus(); }, 0);
+}
+function renderProdFilterList(q) {
+  const hidden = filtroProd[prodFilterTab];
+  const ql = (q || '').trim().toLowerCase();
+  const seen = new Set(), uniq = [];
+  for (const r of prodFilterData()) {
+    const plu = String(r.plu); if (seen.has(plu)) continue; seen.add(plu);
+    if (ql && !((r.nombre || '').toLowerCase().includes(ql) || plu.includes(ql))) continue;
+    uniq.push({ plu, nombre: r.nombre || '' });
+  }
+  uniq.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const el = document.getElementById('prodFilterList');
+  el.innerHTML = uniq.length
+    ? uniq.map(it => `<label class="rubro-opt"><input type="checkbox" ${hidden.has(it.plu) ? '' : 'checked'} onchange="prodFilterToggle('${it.plu}',this.checked)"><span>${(it.nombre || '·').replace(/</g, '&lt;')} <b>${it.plu}</b></span></label>`).join('')
+    : '<div class="vacio">Sin resultados</div>';
+}
+function prodFilterToggle(plu, checked) {
+  const h = filtroProd[prodFilterTab];
+  if (checked) h.delete(plu); else h.add(plu);
+  aplicarFiltroProd();
+}
+function prodFilterAll(visible) {
+  const h = filtroProd[prodFilterTab];
+  const ql = (document.getElementById('prodFilterSearch')?.value || '').trim().toLowerCase();
+  const seen = new Set();
+  for (const r of prodFilterData()) {
+    const plu = String(r.plu); if (seen.has(plu)) continue; seen.add(plu);
+    if (ql && !((r.nombre || '').toLowerCase().includes(ql) || plu.includes(ql))) continue;
+    if (visible) h.delete(plu); else h.add(plu);
+  }
+  renderProdFilterList(ql);
+  aplicarFiltroProd();
+}
+function aplicarFiltroProd() {
+  document.querySelectorAll(`.prod-filter-btn[data-tab="${prodFilterTab}"]`).forEach(b => b.classList.toggle('on', filtroProd[prodFilterTab].size > 0));
+  if (prodFilterTab === 'a') render(); else renderP();
+}
+document.addEventListener('click', e => {
+  const drop = document.getElementById('prodFilterDrop');
+  if (drop.style.display !== 'none' && !drop.contains(e.target) && !e.target.closest('.prod-filter-btn')) drop.style.display = 'none';
+});
+
 let datos = [], orden = { col: 'importancia', dir: -1 };
 const totalEnviar = (r) => SUC_A.reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
 
 function construirHead() {
-  const cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['central','Depósito','']]
-    .concat(SUC_A.filter(([k]) => sucVis.has(k)).map(([k, n]) => [k, n, 'suc']))
-    .concat([['total','Total',''], ['importancia','Imp.','']]);
-  document.getElementById('head-a').innerHTML = cols.map(([k, n, cls]) => {
-    const ar = orden.col === k ? `<span class="ar">${orden.dir < 0 ? '▼' : '▲'}</span>` : '';
-    return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
-  }).join('');
-  document.querySelectorAll('#head-a th').forEach(th => th.onclick = () => {
+  const pre = [['plu','PLU','l'], ['nombre','Producto','l'], ['central','Depósito','']];
+  const sucCols = SUC_A.filter(([k]) => sucVis.has(k));
+  const post = [['total','Total',''], ['importancia','Imp.','']];
+  const arOf = k => orden.col === k ? `<span class="ar">${orden.dir < 0 ? '▼' : '▲'}</span>` : '';
+  const thR = ([k, n, cls]) => `<th class="${cls||''}" data-col="${k}" rowspan="2">${n} ${arOf(k)}${k === 'nombre' ? prodFunnel('a') : ''}</th>`;
+  const fila1 = pre.map(thR).join('')
+    + sucCols.map(([k, n]) => `<th class="suc" data-col="${k}" colspan="2">${n} ${arOf(k)}</th>`).join('')
+    + post.map(thR).join('');
+  const fila2 = sucCols.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
+  document.querySelector('#tabla-a thead').innerHTML = `<tr>${fila1}</tr><tr>${fila2}</tr>`;
+  document.querySelectorAll('#tabla-a thead th[data-col]').forEach(th => th.onclick = () => {
     const c = th.dataset.col;
     if (orden.col === c) orden.dir *= -1; else { orden.col = c; orden.dir = (c === 'plu' || c === 'nombre') ? 1 : -1; }
     render();
@@ -795,16 +879,19 @@ document.addEventListener('click', e => {
 
 function construirHeadP() {
   const prep = pesablesModo === 'preparacion';
-  let cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel',''], ['H','Depósito','']];
-  cols.push(['D','Envasar','']);
-  cols = cols.concat(SUC_P.filter(([k]) => sucVisP.has(k)).map(([k, n]) => [k, n, 'suc']));
-  if (!prep) cols.push(['resp','Responsable','l']);
-  cols.push(['BG','Imp.','']);
-  document.getElementById('head-p').innerHTML = cols.map(([k, n, cls]) => {
-    const ar = ordenP.col === k ? `<span class="ar">${ordenP.dir < 0 ? '▼' : '▲'}</span>` : '';
-    return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
-  }).join('');
-  document.querySelectorAll('#head-p th').forEach(th => th.onclick = () => {
+  const pre = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel',''], ['H','Depósito',''], ['D','Envasar','']];
+  const sucCols = SUC_P.filter(([k]) => sucVisP.has(k));
+  const post = [];
+  if (!prep) post.push(['resp','Responsable','l']);
+  post.push(['BG','Imp.','']);
+  const arOf = k => ordenP.col === k ? `<span class="ar">${ordenP.dir < 0 ? '▼' : '▲'}</span>` : '';
+  const thR = ([k, n, cls]) => `<th class="${cls||''}" data-col="${k}" rowspan="2">${n} ${arOf(k)}${k === 'nombre' ? prodFunnel('p') : ''}</th>`;
+  const fila1 = pre.map(thR).join('')
+    + sucCols.map(([k, n]) => `<th class="suc" data-col="${k}" colspan="2">${n} ${arOf(k)}</th>`).join('')
+    + post.map(thR).join('');
+  const fila2 = sucCols.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
+  document.querySelector('#tabla-p thead').innerHTML = `<tr>${fila1}</tr><tr>${fila2}</tr>`;
+  document.querySelectorAll('#tabla-p thead th[data-col]').forEach(th => th.onclick = () => {
     const c = th.dataset.col;
     if (ordenP.col === c) ordenP.dir *= -1; else { ordenP.col = c; ordenP.dir = (c === 'plu' || c === 'nombre' || c === 'BL') ? 1 : -1; }
     renderP();
@@ -847,7 +934,7 @@ async function cargarP() {
   st.innerHTML = '<div class="spinner"></div><div>Calculando pesables…</div>';
   try {
     const [rP, asigR, empR] = await Promise.all([
-      fetch('/api/distribucion/pesables'),
+      fetch('/api/distribucion/pesables' + (document.getElementById('filtrarOcultar').checked ? '' : '?ocultar=0')),
       fetch('/api/distribucion/fraccionado-asignaciones').then(r => r.json()).catch(() => ({})),
       fetch('/api/responsables').then(r => r.json()).catch(() => []),
       cargarProdHoy(),
@@ -887,8 +974,9 @@ const LISTAS = {
   'excluir':         {key:'noEnvasa',       titulo:'No se envasa / no se reparte', hint:'Productos excluidos de Almacén y Pesables (no aparecen en ninguna lista).'},
   'forzar-almacen':  {key:'siempreAlmacen', titulo:'Siempre en Almacén',           hint:'Productos que aparecen siempre en la lista de Almacén, aunque no estén en la base.'},
   'forzar-pesable':  {key:'siemprePesable', titulo:'Siempre en Pesable',           hint:'Productos que aparecen siempre en la lista de Pesables, aunque no estén en la base.'},
+  'ocultar-pesable': {key:'ocultarPesable',  titulo:'Ocultar de Pesables',          hint:'Códigos que se ocultan por completo de la lista de Pesables (no afecta Almacén).'},
 };
-const PILL = {noEnvasa:'pillExcluir', siempreAlmacen:'pillForzarAlmacen', siemprePesable:'pillForzarPesable'};
+const PILL = {noEnvasa:'pillExcluir', siempreAlmacen:'pillForzarAlmacen', siemprePesable:'pillForzarPesable', ocultarPesable:'pillOcultarPesable'};
 let listasData = null;
 const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar';
 
@@ -899,6 +987,7 @@ function activarTab(name){
   moverInk(document.querySelector('.tab.on'));
   document.querySelector('.controls').style.display = esDataTab(name) ? '' : 'none';
   document.getElementById('fEnvasar').style.display = name==='pesables' ? '' : 'none';
+  document.getElementById('filtrarOcultarWrap').style.display = 'none';
   document.getElementById('sucFiltrosP').style.display = name==='pesables' ? 'flex' : 'none';
   if (name==='pesables') { renderSucDropP(); actualizarSucBtnP(); }
   document.getElementById('rubroFilter').style.display = 'none';
@@ -966,7 +1055,7 @@ let cfgVisible = localStorage.getItem('cfgTabsVisible') === '1';
 function applyConfigTabsState() {
   document.getElementById('tabs').classList.toggle('cfg-tabs-on', cfgVisible);
   document.getElementById('cfgToggle').classList.toggle('cfg-visible', cfgVisible);
-  if (!cfgVisible && ['config-ruteos','excluir','forzar-almacen','forzar-pesable','tipo-almacen'].includes(tabActual)) activarTab('almacen');
+  if (!cfgVisible && ['config-ruteos','excluir','forzar-almacen','forzar-pesable','ocultar-pesable','tipo-almacen'].includes(tabActual)) activarTab('almacen');
 }
 function toggleCfgTabs() { cfgVisible = !cfgVisible; localStorage.setItem('cfgTabsVisible', cfgVisible ? '1' : '0'); applyConfigTabsState(); }
 applyConfigTabsState();
@@ -1004,6 +1093,7 @@ function exportarPDFAlmacen() {
   const sucVisPDF = SUC_A.filter(([k]) => sucVis.has(k));
   const totalVis = (r) => sucVisPDF.reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
   let rows = datos.filter(r => {
+    if (filtroProd.a.has(String(r.plu))) return false;
     if (soloEnvio && totalVis(r) <= 0) return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
     if (rubrosSeleccionados.size && !rubrosSeleccionados.has(r.rubro)) return false;
@@ -1020,7 +1110,8 @@ function exportarPDFAlmacen() {
   const totUnid = rows.reduce((s, r) => s + totalVis(r), 0);
   const maxImp = Math.max(0.0001, ...datos.map(r => r.importancia || 0));
   const landscapeA = sucVisPDF.length > 2;
-  const headSucs = sucVisPDF.map(([,n]) => `<th class="r">${n}<br><span style="font-weight:400;font-size:8px;opacity:.75">envío · stk</span></th>`).join('');
+  const headSucName = sucVisPDF.map(([,n]) => `<th class="suc" colspan="2" style="text-align:center">${n}</th>`).join('');
+  const headSucSub = sucVisPDF.map(() => `<th class="r" style="font-weight:600;font-size:8px">Stock</th><th class="r" style="font-size:8px">Enviar</th>`).join('');
   const filas = rows.map((r, i) => {
     const bg = i % 2 === 0 ? '#fff' : '#f7f9f5';
     const sucs = sucVisPDF.map(([k]) => {
@@ -1028,7 +1119,7 @@ function exportarPDFAlmacen() {
       const vTxt = v === 'Fact'
         ? '<span style="background:#fff3cd;color:#6b4c00;padding:1px 5px;border-radius:4px;font-size:9px">Fact</span>'
         : ((v||0) > 0 ? `<b style="color:#2e4027">${v}</b>` : '<span style="color:#bbb">·</span>');
-      return `<td style="text-align:right">${vTxt}<div style="font-size:8px;color:#999">stk ${s ? (+s).toFixed(2) : 0}</div></td>`;
+      return `<td style="text-align:right;color:#adb3a6;font-size:9px">${s ? (+s).toFixed(2) : '·'}</td><td style="text-align:right">${vTxt}</td>`;
     }).join('');
     return `<tr style="background:${bg}">
       <td style="color:#888;font-size:10px">${r.plu}</td>
@@ -1064,7 +1155,7 @@ function exportarPDFAlmacen() {
     <span>Σ enviar: <b>${totUnid.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}</b> unidades</span>
   </div>
   <table>
-    <thead><tr><th>PLU</th><th>Producto</th><th class="r">Depósito</th>${headSucs}</tr></thead>
+    <thead><tr><th rowspan="2">PLU</th><th rowspan="2">Producto</th><th class="r" rowspan="2">Depósito</th>${headSucName}</tr><tr>${headSucSub}</tr></thead>
     <tbody>${filas}</tbody>
   </table>
   <div class="footer"><span>api<b>delta</b> — distribución almacen</span><span>${rows.length} productos · ${fecha} ${hora}</span></div>
@@ -1082,6 +1173,8 @@ function exportarPDFPesables() {
   const prep = pesablesModo === 'preparacion';
   const landscape = visSucs.length > 2;
   let rows = datosP.filter(r => {
+    if (filtroProd.p.has(String(r.plu))) return false;
+    if (pesablesModo === 'preparacion' && !(r.H > 0)) return false;   // prep: ocultar sin stock de depósito
     if (soloEnvio && sumEnvVisP(r) <= 0 && (pesablesModo === 'preparacion' || r.J !== 'Si')) return false;
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
@@ -1107,7 +1200,7 @@ function exportarPDFPesables() {
     const sucCells = visSucs.map(([k]) => {
       const v = r.enviar[k]; const s = (r.stkSuc||{})[k]||0;
       const vTxt = v === 'Fact' ? 'Fact' : (esNum(v) && v > 0 ? (+v).toFixed(2) : '·');
-      return `<td style="text-align:right"><b style="color:#2e4027">${vTxt}</b><div style="font-size:8px;color:#999">stk ${s ? (+s).toFixed(2) : 0}</div></td>`;
+      return `<td style="text-align:right;color:#adb3a6;font-size:9px">${s ? (+s).toFixed(2) : '·'}</td><td style="text-align:right"><b style="color:#2e4027">${vTxt}</b></td>`;
     }).join('');
     const cuartaCell = prep
       ? `<td style="text-align:right;color:#555">${+(r.H||0).toFixed(2)}</td>`
@@ -1157,7 +1250,10 @@ function exportarPDFPesables() {
   </div>
   ${filtrosActivos ? `<div class="filters">Filtros activos: ${filtrosActivos}</div>` : '<div class="filters"></div>'}
   <table>
-    <thead><tr><th>PLU</th><th>Producto</th><th class="r">Granel kg</th><th class="${prep?'r':'c'}">${prep?'Depósito kg':'Envasar kg'}</th>${visSucs.map(([,n]) => `<th class="r">${n}<br><span style="font-weight:400;font-size:8px;opacity:.75">envío · stk</span></th>`).join('')}${prep ? '' : '<th>Responsable</th>'}</tr></thead>
+    <thead>
+      <tr><th rowspan="2">PLU</th><th rowspan="2">Producto</th><th class="r" rowspan="2">Granel kg</th><th class="${prep?'r':'c'}" rowspan="2">${prep?'Depósito kg':'Envasar kg'}</th>${visSucs.map(([,n]) => `<th class="r" colspan="2" style="text-align:center">${n}</th>`).join('')}${prep ? '' : '<th rowspan="2">Responsable</th>'}</tr>
+      <tr>${visSucs.map(() => `<th class="r" style="font-weight:600;font-size:8px">Stock</th><th class="r" style="font-size:8px">Enviar</th>`).join('')}</tr>
+    </thead>
     <tbody>${filas}</tbody>
   </table>
   <div class="footer"><span>api<b>delta</b> — Sistema de distribución</span><span>${rows.length} productos · impreso ${fecha} ${hora}</span></div>
@@ -1226,6 +1322,9 @@ async function guardarTipo(sel) {
 document.getElementById('q').oninput = reRender;
 document.getElementById('soloEnvio').onchange = reRender;
 document.getElementById('fEnvasar').onchange = renderP;
+(() => { const cb=document.getElementById('filtrarOcultar');
+  cb.checked = localStorage.getItem('filtrarOcultarPesable') !== '0';
+  cb.onchange = () => { localStorage.setItem('filtrarOcultarPesable', cb.checked ? '1' : '0'); datosP=[]; pCargado=false; cargarP(); }; })();
 document.getElementById('reload').onclick = () => tabActual==='almacen' ? cargar() : (tabActual==='pesables' ? cargarP() : (tabActual==='envasar' ? (pCargado ? renderEnvasar() : cargarP().then(renderEnvasar)) : null));
 document.getElementById('pdfA').onclick = exportarPDFAlmacen;
 document.getElementById('pdfP').onclick = exportarPDFPesables;
@@ -1278,6 +1377,7 @@ function render() {
   const soloEnvio = document.getElementById('soloEnvio').checked;
   const totalVis = (r) => SUC_A.filter(([k]) => sucVis.has(k)).reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
   let rows = datos.filter(r => {
+    if (filtroProd.a.has(String(r.plu))) return false;
     if (soloEnvio && totalVis(r) <= 0) return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
     if (rubrosSeleccionados.size && !rubrosSeleccionados.has(r.rubro)) return false;
@@ -1293,11 +1393,10 @@ function render() {
   document.getElementById('body-a').innerHTML = rows.map((r, i) => {
     const celdas = SUC_A.filter(([k]) => sucVis.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
-      const stkL = `<span style="font-size:10px;color:var(--faint);background:none">S:${stk ? fmt(stk) : 0}</span>`;
-      const wrap = (right) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">${stkL}${right}</div>`;
-      if (v === 'Fact') return `<td class="env fact">${wrap('<span>Fact</span>')}</td>`;
+      const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
+      if (v === 'Fact') return `${stkTd}<td class="env fact"><span>Fact</span></td>`;
       const n = v || 0;
-      return `<td class="env ${n > 0 ? 'pos' : ''}">${wrap(n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(n)}</span>` : '<span>·</span>')}</td>`; }).join('');
+      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}">${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
     const impPct = ((r.importancia || 0) / maxImp) * 100;
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
@@ -1318,6 +1417,8 @@ function renderP() {
   const soloEnvio = document.getElementById('soloEnvio').checked;
   const envasarFiltro = document.getElementById('fEnvasar').value;
   let rows = datosP.filter(r => {
+    if (filtroProd.p.has(String(r.plu))) return false;
+    if (pesablesModo === 'preparacion' && !(r.H > 0)) return false;   // prep: ocultar sin stock de depósito
     if (soloEnvio && sumEnvVisP(r) <= 0 && (pesablesModo === 'preparacion' || r.J !== 'Si')) return false;
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
@@ -1329,12 +1430,11 @@ function renderP() {
   document.getElementById('body-p').innerHTML = rows.map((r, i) => {
     const celdas = SUC_P.filter(([k]) => sucVisP.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
-      const stkL = `<span style="font-size:10px;color:var(--faint);background:none">S:${stk ? fmt(stk) : 0}</span>`;
-      const wrap = (right) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">${stkL}${right}</div>`;
-      if (v === 'Fact') return `<td class="env fact">${wrap('<span>Fact</span>')}</td>`;
-      return esNum(v) && v > 0
-        ? `<td class="env pos">${wrap(`<span>${fmt(v)}</span>`)}</td>`
-        : `<td class="env" title="${esNum(v) ? '' : (v||'')}">${wrap('<span>·</span>')}</td>`; }).join('');
+      const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
+      if (v === 'Fact') return `${stkTd}<td class="env fact"><span>Fact</span></td>`;
+      return stkTd + (esNum(v) && v > 0
+        ? `<td class="env pos"><span>${fmt(v)}</span></td>`
+        : `<td class="env" title="${esNum(v) ? '' : (v||'')}"><span>·</span></td>`); }).join('');
     const prep = pesablesModo === 'preparacion';
     const impPct = ((r.BG || 0) / maxImp) * 100;
     const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
@@ -1465,6 +1565,7 @@ const TAB_REGISTRY = [
   { id:'excluir',        label:'No envasa',        def:'cfg'  },
   { id:'forzar-almacen', label:'Siempre Almacén',  def:'cfg'  },
   { id:'forzar-pesable', label:'Siempre Pesable',  def:'cfg'  },
+  { id:'ocultar-pesable',label:'Ocultar Pesable',  def:'cfg'  },
   { id:'tipo-almacen',   label:'Tipo Almacén',     def:'cfg'  },
 ];
 const TABS_CFG_KEY = 'tabsGroupConfig';

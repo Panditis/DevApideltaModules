@@ -1525,14 +1525,16 @@ app.get('/api/distribucion/sucursales', apiRoute(async () =>
 // ── Distribución de pesables/granel (réplica hoja "Pesables") ───────────────────
 // IdSucursal Siga → clave motor pesables. Logia(8) SÍ se reparte en pesables; Savio(6) no.
 const PES_SUC_MAP = { 1:'central', 5:'riv', 2:'urq', 3:'nacion', 4:'chaca', 10:'pergamino', 7:'sanpedro', 8:'logia', 9:'ramallo', 11:'sucu11' };
-async function calcularDistribucionPesables() {
+async function calcularDistribucionPesables(aplicarOcultar = true) {
   const a8020   = leerJSON(A8020_PATH, {});
   const pesLis  = leerJSON(PESABLES_LISTAS_PATH, {});
   const distLis = leerJSON(DISTRIB_LISTAS_PATH, {});
   const ed = leerListasDistrib();
   distLis.noEnvasa = ed.noEnvasa;   // lista editable de exclusión
   const formulas = pesLis.formulas || {};
-  const plus = universoLista(Object.keys(pesLis.productosPesables || {}), ed.siemprePesable, ed.noEnvasa);
+  const ocultos = new Set(aplicarOcultar ? ed.ocultarPesable.map(String) : []);   // checkbox "Ocultar códigos" en Pesables
+  const plus = universoLista(Object.keys(pesLis.productosPesables || {}), ed.siemprePesable, ed.noEnvasa)
+    .filter(p => !ocultos.has(String(p)));
   if (!plus.length) throw new Error('Falta data/pesables_listas.json — corré: python importar_distribucion.py');
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
@@ -1574,7 +1576,7 @@ async function calcularDistribucionPesables() {
     peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, CG: f.CG,
     J: f.J, D: f.D, G: f.G, BL: f.BL, stkSuc: stocks.get(String(f.plu)) || {} }));
 }
-app.get('/api/distribucion/pesables', apiRoute(async () => calcularDistribucionPesables()));
+app.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
 
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
@@ -1788,12 +1790,13 @@ function leerListasDistrib() {
   let l = leerJSON(LISTAS_DISTRIB_PATH, null);
   if (!l) {   // seed: noEnvasa del snapshot de la planilla; siempre* vacíos
     const snap = leerJSON(DISTRIB_LISTAS_PATH, {});
-    l = { noEnvasa: (snap.noEnvasa || []).map(Number).sort((a, b) => a - b), siempreAlmacen: [], siemprePesable: [] };
+    l = { noEnvasa: (snap.noEnvasa || []).map(Number).sort((a, b) => a - b), siempreAlmacen: [], siemprePesable: [], ocultarPesable: [] };
     guardarJSON(LISTAS_DISTRIB_PATH, l);
   }
   l.noEnvasa = (l.noEnvasa || []).map(Number);
   l.siempreAlmacen = (l.siempreAlmacen || []).map(Number);
   l.siemprePesable = (l.siemprePesable || []).map(Number);
+  l.ocultarPesable = (l.ocultarPesable || []).map(Number);   // ocultos solo en Pesables
   return l;
 }
 // Universo de PLUs: base ∪ siempre, menos los excluidos (noEnvasa) salvo que estén en "siempre".
@@ -1899,7 +1902,7 @@ app.get('/api/distribucion/fact-debug', apiRoute(async () => {
 }));
 app.get('/api/distribucion/listas', apiRoute(async () => {
   const l = leerListasDistrib();
-  const all = [...new Set([...l.noEnvasa, ...l.siempreAlmacen, ...l.siemprePesable])];
+  const all = [...new Set([...l.noEnvasa, ...l.siempreAlmacen, ...l.siemprePesable, ...l.ocultarPesable])];
   const nombres = {};
   if (all.length) {
     const inList = all.map(p => `'${p}'`).join(',');   // IdProducto es varchar en Siga
@@ -1911,7 +1914,7 @@ app.get('/api/distribucion/listas', apiRoute(async () => {
 app.post('/api/distribucion/listas', (req, res) => {
   const cur = leerListasDistrib();
   const { lista, accion, plu } = req.body || {};
-  if (!['noEnvasa', 'siempreAlmacen', 'siemprePesable'].includes(lista) ||
+  if (!['noEnvasa', 'siempreAlmacen', 'siemprePesable', 'ocultarPesable'].includes(lista) ||
       !['add', 'remove'].includes(accion) || !Number.isFinite(Number(plu)))
     return res.status(400).json({ error: 'parámetros inválidos' });
   const set = new Set(cur[lista]);
