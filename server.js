@@ -365,7 +365,7 @@ function sqlStockTerminados(rubros) {
 SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, COALESCE(sc.Stock,0) AS StockActual, p.EsCompuesto
 FROM Productos p INNER JOIN Rubros r ON r.IdRubro=p.IdRubro
 LEFT  JOIN StockCentral sc ON sc.IdProducto=p.IdProducto
-WHERE p.Activo=1 AND p.IdRubro IN (${rubros}) ORDER BY p.NombreProducto`;
+WHERE p.Activo=1 ${rubros ? `AND p.IdRubro IN (${rubros})` : ''} ORDER BY p.NombreProducto`;
 }
 function sqlConsumo(ventana, rubros) {
   return `SELECT vp.IdProducto, SUM(vp.Cantidad) AS UnidVendidas,
@@ -376,7 +376,7 @@ INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdT
 INNER JOIN Sucursales s ON s.IdSucursal=v.IdSucursal
 INNER JOIN Productos p ON p.IdProducto=vp.IdProducto
 WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND s.SoyLaCentral=1 AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND p.IdRubro IN (${rubros})
+  AND s.SoyLaCentral=1 AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' ${rubros ? `AND p.IdRubro IN (${rubros})` : ''}
 GROUP BY vp.IdProducto`;
 }
 function sqlPendientes() {
@@ -574,9 +574,12 @@ async function calcularSugerencias(params) {
   const diasObj = parseInt(params.diasObjetivo) || c.diasObjetivo;
   const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido
   const rubrosP = c.rubrosPlanificables.join(','), rubrosG = c.rubrosGranel.join(',');
+  // Búsqueda manual del modal (params.q) trae TODOS los productos activos, no sólo
+  // los rubros planificables (bulto/caja). El sembrado automático sigue acotado a rubrosP.
+  const rubrosTerm = params.q ? null : rubrosP;
 
   const [terminados, consumo, pendientes, granel, bom] = await Promise.all([
-    query(sqlStockTerminados(rubrosP)), query(sqlConsumo(ventana, rubrosP)),
+    query(sqlStockTerminados(rubrosTerm)), query(sqlConsumo(ventana, rubrosTerm)),
     query(sqlPendientes()), query(sqlStockGranel(rubrosG)), query(sqlBOM(rubrosG))
   ]);
 
@@ -894,6 +897,7 @@ app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedi
 app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
 app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_compras.html')));
+app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');
