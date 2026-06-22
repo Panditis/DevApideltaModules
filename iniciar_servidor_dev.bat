@@ -1,5 +1,5 @@
 ﻿@echo off
-title ApideltaSubSystem — DEV (8081)
+title ApideltaSubSystem Develeper (8081)
 cd /d "%~dp0"
 node server.js
 pause
