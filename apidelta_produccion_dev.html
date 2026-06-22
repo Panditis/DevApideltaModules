@@ -1175,7 +1175,7 @@ function renderBoard(){
       if(multi){
         const det=presItemsHTML(o);
         return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}</td>
+          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}</td>
           <td>${presPillHTML(o, o.id)}</td>
           ${env}
           ${qtyTd}
@@ -1185,7 +1185,7 @@ function renderBoard(){
           <tr class="pres-detail-row" id="presdet-${o.id}" style="display:none"><td colspan="7"><div class="pres-detail">${det}</div></td></tr>`;
       }
       return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}</td>
         <td style="color:var(--text-muted)">${o.presentacion}</td>
         ${env}
         ${qtyTd}
@@ -1842,8 +1842,7 @@ async function openProdFinalModal(id, presIndex = null) {
   ]);
 
   const allComps = formulaData.componentes || [];
-  _pfEncargados = o.encargados?.length ? o.encargados
-    : (o.encargado ? o.encargado.split('/').map(s => s.trim()).filter(Boolean) : []);
+  _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   const comps = allComps.filter(c => /granel|tambor/i.test(c.Componente));
   _pfFactores = comps.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }));
 
