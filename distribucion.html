@@ -156,6 +156,8 @@
   .chip .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chip .rm{background:none;border:0;color:var(--error);font-size:14px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1}
   .chip .rm:hover{background:#fde7e7}
+  .sg-toggle{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--faint);cursor:pointer;white-space:nowrap}
+  .sg-toggle input{cursor:pointer}
   /* ── Fact (ya facturado desde última recepción) ── */
   td.env.fact span{background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em}
   /* ── Columna sucursal partida: nombre arriba (colspan) + Stock/Enviar abajo ── */
@@ -1032,10 +1034,24 @@ function renderLista(tab){
   const cfg=LISTAS[tab], cont=document.getElementById('panel-'+tab);
   const items=(listasData[cfg.key]||[]).map(plu=>({plu, nombre:(listasData.nombres||{})[plu]||''}));
   cont.querySelector('.lista-count').textContent=items.length+' productos';
-  cont.querySelector('.lista-items').innerHTML = items.length
-    ? items.map(it=>`<div class="chip"><b>${it.plu}</b><span class="nom">${it.nombre||'<sin nombre>'}</span><button class="rm" data-plu="${it.plu}" title="Quitar">✕</button></div>`).join('')
-    : '<div class="vacio">Lista vacía. Buscá un producto arriba para agregarlo.</div>';
-  cont.querySelectorAll('.rm').forEach(b=> b.onclick=()=>modificarLista(cfg.key,'remove',b.dataset.plu));
+  if(tab==='forzar-pesable'){
+    const sinGranelSet=new Set((listasData.siemprePesableSinGranel||[]).map(Number));
+    cont.querySelector('.lista-items').innerHTML = items.length
+      ? items.map(it=>{
+          const sg=sinGranelSet.has(Number(it.plu));
+          return `<div class="chip"><b>${it.plu}</b><span class="nom">${it.nombre||'<sin nombre>'}</span>`+
+            `<label class="sg-toggle" title="Sin granel: granel forzado a 0"><input type="checkbox" class="sg-chk" data-plu="${it.plu}"${sg?' checked':''}> Sin granel</label>`+
+            `<button class="rm" data-plu="${it.plu}" title="Quitar">✕</button></div>`;
+        }).join('')
+      : '<div class="vacio">Lista vacía. Buscá un producto arriba para agregarlo.</div>';
+    cont.querySelectorAll('.sg-chk').forEach(chk=> chk.onchange=()=>modificarLista('siemprePesableSinGranel', chk.checked?'add':'remove', chk.dataset.plu));
+    cont.querySelectorAll('.rm').forEach(b=> b.onclick=()=>{ modificarLista('siemprePesableSinGranel','remove',b.dataset.plu); modificarLista(cfg.key,'remove',b.dataset.plu); });
+  } else {
+    cont.querySelector('.lista-items').innerHTML = items.length
+      ? items.map(it=>`<div class="chip"><b>${it.plu}</b><span class="nom">${it.nombre||'<sin nombre>'}</span><button class="rm" data-plu="${it.plu}" title="Quitar">✕</button></div>`).join('')
+      : '<div class="vacio">Lista vacía. Buscá un producto arriba para agregarlo.</div>';
+    cont.querySelectorAll('.rm').forEach(b=> b.onclick=()=>modificarLista(cfg.key,'remove',b.dataset.plu));
+  }
 }
 async function buscarProducto(tab,q){
   const box=document.querySelector('#panel-'+tab+' .resultados'); const cfg=LISTAS[tab];

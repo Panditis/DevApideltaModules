@@ -1559,11 +1559,11 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     if (!stocks.has(plu)) stocks.set(plu, {});
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
   }
-  const siemprePesableSet = new Set(ed.siemprePesable.map(String));
+  const sinGranelSet = new Set(ed.siemprePesableSinGranel.map(String));
   const productos = plus.map(plu => {
     const st = stocks.get(plu) || {};
     const granel = (formulas[plu] || {}).granel;
-    st.granel = (granel != null && !siemprePesableSet.has(String(plu))) ? (granelMap.get(String(granel)) || 0) : 0;
+    st.granel = (granel != null && !sinGranelSet.has(String(plu))) ? (granelMap.get(String(granel)) || 0) : 0;
     return { plu, stocks: st };
   });
   const recKeys = new Set(Object.keys(fact.recByKey));
@@ -1791,12 +1791,13 @@ function leerListasDistrib() {
   let l = leerJSON(LISTAS_DISTRIB_PATH, null);
   if (!l) {   // seed: noEnvasa del snapshot de la planilla; siempre* vacíos
     const snap = leerJSON(DISTRIB_LISTAS_PATH, {});
-    l = { noEnvasa: (snap.noEnvasa || []).map(Number).sort((a, b) => a - b), siempreAlmacen: [], siemprePesable: [], ocultarPesable: [] };
+    l = { noEnvasa: (snap.noEnvasa || []).map(Number).sort((a, b) => a - b), siempreAlmacen: [], siemprePesable: [], siemprePesableSinGranel: [], ocultarPesable: [] };
     guardarJSON(LISTAS_DISTRIB_PATH, l);
   }
   l.noEnvasa = (l.noEnvasa || []).map(Number);
   l.siempreAlmacen = (l.siempreAlmacen || []).map(Number);
   l.siemprePesable = (l.siemprePesable || []).map(Number);
+  l.siemprePesableSinGranel = (l.siemprePesableSinGranel || []).map(Number);
   l.ocultarPesable = (l.ocultarPesable || []).map(Number);   // ocultos solo en Pesables
   return l;
 }
@@ -1903,7 +1904,7 @@ app.get('/api/distribucion/fact-debug', apiRoute(async () => {
 }));
 app.get('/api/distribucion/listas', apiRoute(async () => {
   const l = leerListasDistrib();
-  const all = [...new Set([...l.noEnvasa, ...l.siempreAlmacen, ...l.siemprePesable, ...l.ocultarPesable])];
+  const all = [...new Set([...l.noEnvasa, ...l.siempreAlmacen, ...l.siemprePesable, ...l.siemprePesableSinGranel, ...l.ocultarPesable])];
   const nombres = {};
   if (all.length) {
     const inList = all.map(p => `'${p}'`).join(',');   // IdProducto es varchar en Siga
@@ -1915,7 +1916,7 @@ app.get('/api/distribucion/listas', apiRoute(async () => {
 app.post('/api/distribucion/listas', (req, res) => {
   const cur = leerListasDistrib();
   const { lista, accion, plu } = req.body || {};
-  if (!['noEnvasa', 'siempreAlmacen', 'siemprePesable', 'ocultarPesable'].includes(lista) ||
+  if (!['noEnvasa', 'siempreAlmacen', 'siemprePesable', 'siemprePesableSinGranel', 'ocultarPesable'].includes(lista) ||
       !['add', 'remove'].includes(accion) || !Number.isFinite(Number(plu)))
     return res.status(400).json({ error: 'parámetros inválidos' });
   const set = new Set(cur[lista]);
