@@ -168,6 +168,11 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 // ── Catálogo de módulos. Para sumar uno nuevo: agregá una entrada acá. ───────
 const MODULOS = [
   {
+    href:'/distribucion/a8020', titulo:'A8020 Calculado', icon:'bar-chart-2',
+    desc:'Análisis ABC 80/20 de productos por sucursal: clasificación, mínimos y días de operación.',
+    accent:'#1e6e5c', soft:'#cceee7', ink:'#0a2e27'
+  },
+  {
     href:'/pedidos', titulo:'Pedidos', icon:'clipboard-list',
     desc:'Pedidos pendientes de Siga: clientes, productos y resumen por localidad.',
     accent:'#FFCC00', soft:'#FFF3B0', ink:'#1a1200'
@@ -202,6 +207,7 @@ const MODULOS = [
     desc:'Dashboard de horas pico por sucursal con filtro de rango de fechas.',
     accent:'#5c3d8f', soft:'#ece4f7', ink:'#2e1a50'
   }
+  
 ];
 
 function tileHTML(m){

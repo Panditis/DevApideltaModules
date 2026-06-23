@@ -56,6 +56,18 @@
   .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--verde);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   .ts{font-size:11px;color:var(--faint)}
+  /* ── Panel anomalías ── */
+  #anom-panel{background:var(--amarillo-cont);border-bottom:2px solid var(--amarillo);display:none}
+  .anom-hdr{display:flex;align-items:center;gap:10px;padding:9px 22px;cursor:pointer;user-select:none;color:var(--amarillo-on);font-size:12.5px;font-weight:600}
+  .anom-hdr:hover{background:rgba(255,204,0,.18)}
+  .anom-badge{background:var(--error);color:#fff;border-radius:999px;padding:1px 9px;font-size:11px;font-weight:700}
+  #anom-body{max-height:340px;overflow:auto;border-top:1px solid rgba(255,204,0,.35)}
+  #anom-tbl{width:100%;border-collapse:separate;border-spacing:0;background:var(--amarillo-cont)}
+  #anom-tbl thead th{background:rgba(255,204,0,.25);color:var(--amarillo-on);padding:7px 8px;text-align:right;font-family:var(--disp);font-size:12px;letter-spacing:.04em;text-transform:uppercase;position:sticky;top:0}
+  #anom-tbl thead th.l{text-align:left}
+  #anom-tbl tbody td{padding:0 8px;height:29px;text-align:right;border-bottom:1px solid rgba(255,204,0,.3);white-space:nowrap;font-size:12px}
+  #anom-tbl tbody td.l{text-align:left}
+  #anom-tbl tbody tr:hover td{background:rgba(255,204,0,.22);cursor:pointer}
 </style>
 </head>
 <body>
@@ -72,6 +84,24 @@
     <button class="primary" id="recalc">↻ Recalcular desde Siga</button>
     <span class="div"></span>
     <span id="resumen" class="ts">cargando…</span>
+  </div>
+  <div id="anom-panel">
+    <div class="anom-hdr" onclick="toggleAnom()">
+      <span>⚠</span>
+      <span>consumo anómalo por sucursal</span>
+      <span class="anom-badge" id="anom-badge">0</span>
+      <span style="flex:1"></span>
+      <span id="anom-chevron">▼ ver</span>
+    </div>
+    <div id="anom-body" style="display:none">
+      <table id="anom-tbl">
+        <thead><tr>
+          <th class="l">PLU</th><th class="l">Producto</th><th>ABC</th>
+          <th class="l">Sucursal baja</th><th>Min suc</th><th>Mediana otras</th><th>%</th>
+        </tr></thead>
+        <tbody id="anom-rows"></tbody>
+      </table>
+    </div>
   </div>
   <main>
     <div class="state" id="state"><div class="spinner"></div><div id="stmsg">Cargando A8020…</div></div>
@@ -131,9 +161,68 @@ async function cargar(){
   const r = await fetch('/api/distribucion/a8020'); cache = await r.json();
   if(cache.vacio || !cache.mins){ document.getElementById('stmsg').innerHTML='Sin caché. Tocá <b>Recalcular desde Siga</b>.'; document.querySelector('.spinner').style.display='none'; return; }
   filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', mins:cache.mins[plu]||{}, detalle:(cache.detalle||{})[plu]||{} }));
-  construir(); render();
+  construir(); render(); renderAnomalias();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';
 }
+// ── Detección de anomalías ────────────────────────────────────────────────────
+// Umbral: si una sucursal tiene < 15% del consumo mediano de las demás (y hay ≥3 con datos), es anómala.
+const ANOM_RATIO   = 0.15;
+const ANOM_MIN_POS = 3;    // mínimo de sucursales con datos positivos para comparar
+const ANOM_MIN_MED = 1.0;  // mediana < 1 → ruido, ignorar
+
+function detectarAnomalias() {
+  const alertas = [];
+  for (const r of filas) {
+    const vals = SUC.map(([k, n]) => ({ k, n, v: r.mins[k] || 0 }));
+    const positivas = vals.filter(x => x.v > 0);
+    if (positivas.length < ANOM_MIN_POS) continue;
+    const sorted = positivas.map(x => x.v).sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    if (med < ANOM_MIN_MED) continue;
+    for (const { k, n, v } of vals) {
+      if (v > 0 && v / med >= ANOM_RATIO) continue;
+      alertas.push({ plu: r.plu, nombre: r.nombre, abc: r.abc, sucKey: k, sucNombre: n, val: v, mediana: med, ratio: v / med });
+    }
+  }
+  return alertas.sort((a, b) => a.ratio - b.ratio);
+}
+
+let anomAbierto = false;
+function toggleAnom() {
+  anomAbierto = !anomAbierto;
+  document.getElementById('anom-body').style.display = anomAbierto ? '' : 'none';
+  document.getElementById('anom-chevron').textContent = anomAbierto ? '▲ cerrar' : '▼ ver';
+}
+function filtrarPorPlu(plu) {
+  document.getElementById('q').value = String(plu);
+  render();
+  document.getElementById('tabla').scrollIntoView({ behavior:'smooth' });
+}
+function renderAnomalias() {
+  const alertas = detectarAnomalias();
+  const panel = document.getElementById('anom-panel');
+  if (!alertas.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  document.getElementById('anom-badge').textContent = alertas.length;
+  document.getElementById('anom-rows').innerHTML = alertas.map(a => {
+    const pct = Math.round(a.ratio * 100);
+    const col = a.val === 0 ? 'var(--error)' : pct < 5 ? '#c2410c' : '#92400e';
+    const barW = Math.max(Math.round(a.ratio * 80), 1);
+    return `<tr onclick="filtrarPorPlu(${a.plu})">
+      <td class="l plu">${a.plu}</td>
+      <td class="l nombre" title="${(a.nombre||'').replace(/"/g,'&quot;')}">${a.nombre}</td>
+      <td><span class="abc ${a.abc}">${a.abc}</span></td>
+      <td class="l">${a.sucNombre}</td>
+      <td style="color:${col};font-weight:700">${a.val===0?'—':fmt(a.val)}</td>
+      <td>${fmt(a.mediana)}</td>
+      <td>
+        <span style="color:${col};font-weight:700;font-variant-numeric:tabular-nums">${a.val===0?'0%':pct+'%'}</span>
+        <span style="display:inline-block;width:${barW}px;height:4px;background:${col};border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.7"></span>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
 document.getElementById('q').oninput = render;
 document.getElementById('recalc').onclick = async (e)=>{
   const b=e.target; b.disabled=true; const txt=b.textContent; b.textContent='Calculando… (puede tardar)';
