@@ -21,13 +21,13 @@ Blanco y negro, como un panda. Pedidos, producción, planificación, compras y d
 </div>
 
 ---
-<div align="center">
+
 ```
 🐼 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 🐼
    "Como un panda: simple por fuera, todo músculo por dentro."
 🐼 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 🐼
 ```
-</div>
+
 
 ## ◼️ ¿Qué es?
 
