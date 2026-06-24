@@ -4,11 +4,14 @@
 //
 //  Replica la planilla "Listas Envasado-Almacen". Flag `corregirBugs`:
 //    false → paridad EXACTA con la planilla (incluye bugs) → para validar golden.
-//    true  → versión corregida (Pergamino y V.Ramallo leen su Min propio) → producción.
+//    true  → versión corregida → producción.
 //
-//  Bugs corregidos con flag (la planilla copiaba el bloque Chacabuco):
-//    - Pergamino: Min y flag ProductosAlmacen propios (no los de Chacabuco).
+//  Cambios corregidos con flag (la planilla copiaba el bloque Chacabuco):
+//    - Pergamino: Min propio (no el de Chacabuco).
 //    - V.Ramallo (sucu9): idem.
+//    - Flag estático ProductosAlmacen IGNORADO: no fija min=0 ni pinta 'Fact'.
+//      El 'Fact' real lo aplica server.js desde calcularFactLive() (facturado a la
+//      sucursal desde su última recepción). Todo se recalcula, nada queda estático.
 //
 //  Puntos de pedido (mins) = a8020.json → INYECTABLE: cuando llegue el A8020
 //  calculado nuevo, sólo se reemplaza esa fuente; el motor no cambia.
@@ -48,6 +51,10 @@ function minConPiso(flag, minA8020, piso) {
 function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, opts) {
   a = a || {}; pa = pa || {};
   const corregir = !opts || opts.corregirBugs !== false;   // default true
+  // Producción: ignorar el flag estático ProductosAlmacen (no fija min=0 ni pinta
+  // 'Fact'). El 'Fact' real lo aplica server.js desde facturación viva. Modo paridad
+  // conserva el flag para replicar la planilla (golden).
+  if (corregir) pa = {};
   const D = st.central || 0;
   const BB = Math.max(base8020Raw || 0, 0.01);
   const envasaSi = !noEnvasaSet.has(plu);                   // BE

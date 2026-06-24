@@ -1,7 +1,10 @@
 'use strict';
 // Valida el motor distribucion.js contra el fixture golden del .xlsm.
-//   Modo paridad  (corregirBugs:false) → debe coincidir 100%.
-//   Modo corregido (corregirBugs:true) → diffs SÓLO en pergamino y sucursal9.
+//   Modo paridad  (corregirBugs:false) → replica la planilla; debe coincidir 100%
+//     (requiere golden fresco: si se recalculó a8020.json, regenerar almacen_golden.json).
+//   Modo corregido (corregirBugs:true) → producción: ignora el flag estático
+//     ProductosAlmacen (no fija min=0 ni 'Fact'), así que difiere de la planilla en
+//     todas las sucursales con flag — esperado. El 'Fact' real lo aplica server.js (vivo).
 // Uso: node validar_almacen.js
 const fs = require('fs');
 const path = require('path');
@@ -65,10 +68,8 @@ console.log('\n===== VEREDICTO =====');
 console.log(paridad.totalEnv === 0 && paridad.totalMin === 0 && paridad.mis.importancia === 0
   ? '✓ PARIDAD 100% — el motor replica la planilla exacto.'
   : '✗ PARIDAD FALLA — revisar diffs arriba.');
-// El fix sólo cambia los MIN de pergamino y sucu9. El enviar de otras sucursales
-// puede cambiar por la cascada del racionado (pideTotal) — eso es esperado.
-const minsSoloEsperados = Object.entries(corregido.mis.mins)
-  .every(([b, n]) => n === 0 || b === 'pergamino' || b === 'sucu9');
-console.log(minsSoloEsperados
-  ? `✓ CORREGIDO — cambios de Min sólo en pergamino(${corregido.mis.mins.pergamino})/sucu9(${corregido.mis.mins.sucu9}); enviar de otras sucursales cambia por cascada del racionado (esperado).`
-  : '✗ CORREGIDO — hay cambios de Min inesperados en otras sucursales.');
+// CORREGIDO ignora el flag estático ProductosAlmacen (Opción 2): los productos que
+// antes tenían min=0/'Fact' por planilla ahora se recalculan, así que difieren del
+// golden en todas las sucursales con flag. Es divergencia intencional, no un fallo.
+console.log(`ℹ CORREGIDO — divergencias vs planilla esperadas (flag estático ignorado): ` +
+  `enviar=${corregido.totalEnv} min=${corregido.totalMin}. 'Fact' en producción sale de facturación viva (server.js).`);
