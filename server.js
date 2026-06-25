@@ -1567,7 +1567,9 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     return { plu, stocks: st };
   });
   const recKeys = new Set(Object.keys(fact.recByKey));
-  const filas = calcularPesables(productos, a8020, pesLis, distLis, { corregirBugs: true }, recKeys);
+  const pesParams = leerJSON(PESABLES_PARAMS_PATH, {});   // pesos de prioridad editables (opcional)
+  const filas = calcularPesables(productos, a8020, pesLis, distLis,
+    { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap }, recKeys);
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
     if (f.enviar[k] !== undefined && set.has(Number(f.plu))) f.enviar[k] = 'Fact';
@@ -1575,7 +1577,8 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
     cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
     peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, CG: f.CG,
-    J: f.J, D: f.D, G: f.G, BL: f.BL, stkSuc: stocks.get(String(f.plu)) || {} }));
+    J: f.J, D: f.D, G: f.G, BL: f.BL, prioridad: f.prioridad, prioridadSala: f.prioridadSala,
+    granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {} }));
 }
 app.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
 

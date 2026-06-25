@@ -850,7 +850,7 @@ async function cargar() {
 }
 
 // ════════════════ PESABLES ════════════════
-let datosP = [], ordenP = { col: 'BG', dir: -1 }, pCargado = false;
+let datosP = [], ordenP = { col: 'prioridad', dir: -1 }, pCargado = false;
 const RT_CLASE = { 'Envasado':'rt-Envasado','Fraccionado':'rt-Fraccionado','Fraccionado Revisar':'rt-FraccionadoRevisar','Solo Preparacion':'rt-SoloPreparacion' };
 const sumEnvP = (r) => SUC_P.reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
 const sumEnvVisP = (r) => SUC_P.filter(([k]) => sucVisP.has(k)).reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
@@ -887,7 +887,7 @@ function construirHeadP() {
   const sucCols = SUC_P.filter(([k]) => sucVisP.has(k));
   const post = [];
   if (!prep) post.push(['resp','Responsable','l']);
-  post.push(['BG','Imp.','']);
+  post.push(['prioridad','Imp.','']);
   const arOf = k => ordenP.col === k ? `<span class="ar">${ordenP.dir < 0 ? '▼' : '▲'}</span>` : '';
   const thR = ([k, n, cls]) => `<th class="${cls||''}" data-col="${k}" rowspan="2">${n} ${arOf(k)}${k === 'nombre' ? prodFunnel('p') : ''}</th>`;
   const fila1 = pre.map(thR).join('')
@@ -901,7 +901,10 @@ function construirHeadP() {
     renderP();
   });
 }
+// Prioridad activa según modo de la tab: en 'sala' ignora envíos (usa prioridadSala).
+const prioOf = (r) => ((pesablesModo === 'sala' ? (r.prioridadSala ?? r.prioridad) : r.prioridad) || 0);
 function valorP(r, col) {
+  if (col === 'prioridad') return prioOf(r);
   if (col === 'CG') return sumEnvP(r);
   if (SUC_P.some(([k]) => k === col)) return esNum(r.enviar[col]) ? r.enviar[col] : 0;
   if (col === 'nombre') return (r.nombre || '').toLowerCase();
@@ -1102,7 +1105,7 @@ function exportarCSVPesables() {
   const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'Ruteo', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
     r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.F, r.H,
-    ...SUC_P.map(([k]) => cell(r.enviar[k])), sumEnvP(r), r.J, r.J === 'Si' ? r.D : 0, r.BL || '', (r.BG || 0).toFixed(4)].join(';')));
+    ...SUC_P.map(([k]) => cell(r.enviar[k])), sumEnvP(r), r.J, r.J === 'Si' ? r.D : 0, r.BL || '', prioOf(r).toFixed(4)].join(';')));
   descargar(lines, 'distribucion_pesables.csv');
 }
 function exportarPDFAlmacen() {
@@ -1444,7 +1447,7 @@ function renderP() {
     return true;
   });
   rows.sort((a, b) => { const va = valorP(a, ordenP.col), vb = valorP(b, ordenP.col); return (va < vb ? -1 : va > vb ? 1 : 0) * ordenP.dir; });
-  const maxImp = Math.max(0.0001, ...datosP.map(r => r.BG || 0));
+  const maxImp = Math.max(0.0001, ...datosP.map(r => prioOf(r)));
   document.getElementById('body-p').innerHTML = rows.map((r, i) => {
     const celdas = SUC_P.filter(([k]) => sucVisP.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
@@ -1454,7 +1457,7 @@ function renderP() {
         ? `<td class="env pos"><span>${fmt(v)}</span></td>`
         : `<td class="env" title="${esNum(v) ? '' : (v||'')}"><span>·</span></td>`); }).join('');
     const prep = pesablesModo === 'preparacion';
-    const impPct = ((r.BG || 0) / maxImp) * 100;
+    const impPct = (prioOf(r) / maxImp) * 100;
     const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
     const envD = r.J === 'Si' ? `<td class="envasar-d"><span>${fmt(r.D)}</span></td>` : `<td class="env">·</td>`;
     const cur = (fracAsig[String(r.plu)]||[])[0]||'';
@@ -1469,7 +1472,7 @@ function renderP() {
       ${envD}
       ${celdas}
       ${prep ? '' : respSel}
-      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${(r.BG||0).toFixed(3)}</td>
+      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
     </tr>`;
   }).join('');
   const totKg = rows.reduce((s, r) => s + sumEnvP(r), 0);
@@ -1481,7 +1484,7 @@ function renderP() {
 // ════════════════ ENVASAR ════════════════
 let ordenEnv = { col: 'D', dir: -1 };
 function construirHeadEnv() {
-  const cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel kg',''], ['H','Depósito kg',''], ['D','A Envasar kg',''], ['BL','Ruteo','l'], ['BG','Imp.','']];
+  const cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel kg',''], ['H','Depósito kg',''], ['D','A Envasar kg',''], ['BL','Ruteo','l'], ['prioridad','Imp.','']];
   document.getElementById('head-env').innerHTML = cols.map(([k, n, cls]) => {
     const ar = ordenEnv.col === k ? `<span class="ar">${ordenEnv.dir < 0 ? '▼' : '▲'}</span>` : '';
     return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
@@ -1504,10 +1507,10 @@ function renderEnvasar() {
     const sb = typeof vb==='string' ? vb.toLowerCase() : vb;
     return (sa < sb ? -1 : sa > sb ? 1 : 0) * ordenEnv.dir;
   });
-  const maxImp = Math.max(0.0001, ...datosP.map(r => r.BG || 0));
+  const maxImp = Math.max(0.0001, ...datosP.map(r => prioOf(r)));
   document.getElementById('body-env').innerHTML = rows.map((r, i) => {
     const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
-    const impPct = ((r.BG || 0) / maxImp) * 100;
+    const impPct = (prioOf(r) / maxImp) * 100;
     const d = Math.min(i * 6, 360);
     return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
       <td class="l plu">${r.plu}</td>
@@ -1516,7 +1519,7 @@ function renderEnvasar() {
       <td class="central">${fmt(r.H)}</td>
       <td class="envasar-d"><span>${fmt(r.D)}</span></td>
       <td class="ruteo">${rt}</td>
-      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct*0.45)}px"></span>${(r.BG||0).toFixed(3)}</td>
+      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct*0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
     </tr>`;
   }).join('');
   document.getElementById('pillEnv').textContent = rows.length;

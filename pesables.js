@@ -36,6 +36,20 @@ const P = {
   kgMin: 20,         // D32
   kgMaquina: 10,     // D34  (kg granel mín → "Envasado")
   pctCubre: 0.85,    // D35
+  // Prioridad del producto (suma ponderada, normalizada 0..1). Componentes:
+  //   bg      = importancia minorista (BG) — lo que ya se calculaba.
+  //   granel  = disponibilidad de granel relativa a lo que se envía (F/CG): mucho granel
+  //             frente a la demanda a despachar ⇒ sube; poco ⇒ baja.
+  //   envasar = volumen a envasar (D): más kg a envasar ⇒ más prioridad.
+  // Pesos y tope del ratio granel sobreescribibles vía opts.prioPesos / opts.granelCap.
+  prioPesos: { bg: 0.5, granel: 0.3, envasar: 0.2 },
+  granelCap: 2,      // ratio granel/aEnviar ≥ cap ⇒ disponibilidad máxima (granelN=1)
+  // Compuerta de trabajo: si hay POCO para enviar+envasar (CG+D), baja la prioridad
+  // de forma drástica aunque la rotación (BG) sea alta. Multiplica el puntaje base.
+  //   workGate = min( (CG+D) / trabajoCap , 1 ) ^ trabajoGamma
+  // trabajoCap = kg de trabajo a partir del cual no hay penalización; gamma>1 = caída brusca.
+  trabajoCap: 20,
+  trabajoGamma: 2,
 };
 
 // Bloques sucursal (orden de la planilla).
@@ -198,6 +212,34 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new
     r.BL = rutear(r);
   }
 
+  // ── Prioridad del producto (suma ponderada de BG + granel + a-envasar) ──────
+  const w = Object.assign({}, P.prioPesos, (opts && opts.prioPesos) || {});
+  const cap = (opts && opts.granelCap) || P.granelCap;
+  const trabajoCap = (opts && opts.trabajoCap) || P.trabajoCap;
+  const trabajoGamma = (opts && opts.trabajoGamma) || P.trabajoGamma;
+  let maxBG = 0, maxD = 0;
+  for (const r of rows) { if (r.BG > maxBG) maxBG = r.BG; if (r.D > maxD) maxD = r.D; }
+  for (const r of rows) {
+    // granel disponible relativo a lo que se envía: ratio>1 = sobra granel, <1 = escaso.
+    r.granelRatio = r.CG > 0 ? r.F / r.CG : 0;
+    const granelN  = cap > 0 ? Math.min(r.granelRatio, cap) / cap : 0;
+    const bgN      = maxBG > 0 ? r.BG / maxBG : 0;
+    const envasarN = maxD > 0 ? r.D / maxD : 0;
+    const base = w.bg * bgN + w.granel * granelN + w.envasar * envasarN;
+    // Compuerta de trabajo: poco para enviar+envasar ⇒ desploma la prioridad aunque BG sea alto.
+    r.trabajo = r.CG + r.D;
+    r.workGate = trabajoCap > 0 ? Math.pow(Math.min(r.trabajo / trabajoCap, 1), trabajoGamma) : 1;
+    r.prioridad = base * r.workGate;
+
+    // Variante "Sala": ignora envíos a sucursales (CG). Solo cuenta el envasado (D):
+    // granel relativo a lo que se envasa, y compuerta de trabajo = D. Misma regla de caída.
+    const granelRatioSala = r.D > 0 ? r.F / r.D : 0;
+    const granelNSala = cap > 0 ? Math.min(granelRatioSala, cap) / cap : 0;
+    const baseSala = w.bg * bgN + w.granel * granelNSala + w.envasar * envasarN;
+    r.workGateSala = trabajoCap > 0 ? Math.pow(Math.min(r.D / trabajoCap, 1), trabajoGamma) : 1;
+    r.prioridadSala = baseSala * r.workGateSala;
+  }
+
   return rows.map(formatearFila);
 }
 
@@ -219,6 +261,8 @@ function formatearFila(r) {
     BG: r.BG, F: r.F, H: r.H, I: r.I, M: r.M, CH: r.CH, CI: r.CI, CG: r.CG,
     mins: r.mins, sn: r.sn, teorico: r.teo, enviar: r.enviar,
     J: r.J, BJ: r.BJ, BK: r.BK, L: r.L, K: r.K, D: r.D, E: r.E, BM: r.BM, G: r.G, BL: r.BL,
+    prioridad: r.prioridad, prioridadSala: r.prioridadSala,
+    granelRatio: r.granelRatio, trabajo: r.trabajo, workGate: r.workGate,
   };
 }
 
