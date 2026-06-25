@@ -108,6 +108,7 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 
 /* PRESENTACIONES (desplegable) + TAMBOR */
 .tambor-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#FFF3E0;color:#E65100;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
+.cliente-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#EDE7F6;color:#4527A0;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
 .tambor-ico{width:14px;height:14px;vertical-align:middle;margin-right:3px}
 .pres-toggle{display:inline-block;transition:transform .15s;font-size:11px;color:var(--green);font-weight:800}
 .pres-toggle.open{transform:rotate(90deg)}
@@ -1175,7 +1176,7 @@ function renderBoard(){
       if(multi){
         const det=presItemsHTML(o);
         return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}</td>
+          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}</td>
           <td>${presPillHTML(o, o.id)}</td>
           ${env}
           ${qtyTd}
@@ -1185,7 +1186,7 @@ function renderBoard(){
           <tr class="pres-detail-row" id="presdet-${o.id}" style="display:none"><td colspan="7"><div class="pres-detail">${det}</div></td></tr>`;
       }
       return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}</td>
         <td style="color:var(--text-muted)">${o.presentacion}</td>
         ${env}
         ${qtyTd}
@@ -1213,7 +1214,7 @@ function renderBoard(){
           <button class="btn-del" onclick="deleteOrder(${o.id})">🗑</button>
         </div>
       </div>
-      <div class="card-chips">${critChip(o)}${estChip(o)}</div>
+      <div class="card-chips">${critChip(o)}${estChip(o)}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}</div>
       <div class="card-bottom">
         <div><div class="card-qty-label">Cantidad</div><div class="card-qty">${o.cantidad}</div></div>
         ${o.encargado?`<div style="font-size:12px;color:var(--text-muted)">👤 ${o.encargado}</div>`:''}
@@ -1528,6 +1529,7 @@ function renderHistorial(registros) {
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
               <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Sección</th>
+              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cliente</th>
               <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Estado</th>
             </tr></thead>
             <tbody>${(reg.ordenes||[]).map(o => {
@@ -1536,6 +1538,7 @@ function renderHistorial(registros) {
                 <td style="padding:7px 10px;font-weight:500">${cleanNombre(o.producto||'')}</td>
                 <td style="padding:7px 10px;text-align:center">${o.cantidad||'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${o.seccion||'—'}</td>
+                <td style="padding:7px 10px;color:var(--text-muted)">${o.cliente||'—'}</td>
                 <td style="padding:7px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700">${eL[o.estado]||o.estado}</td>
               </tr>`;
             }).join('')}</tbody>
@@ -1968,6 +1971,7 @@ async function guardarProduccionFinal() {
         nombreGranel:    el.graneles[0]?.nombreGranel || '',
         granelConsumido: +el.graneles.reduce((s, g) => s + g.granelConsumido, 0).toFixed(2),
         observacion,
+        cliente:         _pfOrden.cliente || '',
       };
       const res = await fetch(`${SERVER_URL}/api/distribucion/fraccionado-registros`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -1975,7 +1979,7 @@ async function guardarProduccionFinal() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
     }
 
-    // Actualizar estado de la orden. Terminada sólo si TODOS los elementos están cargados.
+    // Cualquier carga marca la orden como terminada, sin importar cantidades ni presentaciones.
     const o = ORDERS.find(o => o.id == _pfOrden.id);
     const presArr = (o && Array.isArray(o.presentaciones)) ? o.presentaciones.slice() : [];
     let cambios;
@@ -1985,10 +1989,7 @@ async function guardarProduccionFinal() {
           presArr[el.presIndex] = { ...presArr[el.presIndex], cargado: true, cantProducida: el.cant };
         }
       });
-      const todos = presArr.every(p => p.cargado);
-      cambios = todos
-        ? { presentaciones: presArr, estado: 'listo', terminado: true }
-        : { presentaciones: presArr, estado: 'en_proceso' };
+      cambios = { presentaciones: presArr, estado: 'listo', terminado: true };
     } else {
       cambios = { estado: 'listo', terminado: true };
     }

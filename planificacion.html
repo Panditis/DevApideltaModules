@@ -355,6 +355,7 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
   <button class="tab-btn"        data-tab="calendario">Calendario semanal</button>
   <button class="tab-btn"        data-tab="catalogo">Catálogo</button>
   <button class="tab-btn"        data-tab="envases">📦 Envases</button>
+  <button class="tab-btn"        data-tab="clientes">👤 Clientes</button>
 </div>
 
 <!-- TAB 1: RESUMEN -->
@@ -455,6 +456,20 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
       <button class="btn btn-secondary btn-sm" id="btnEnvRefrescar" title="Actualizar stock desde Siga">↻ Refrescar stock</button>
     </div>
     <div id="tablaEnvasesReg"><div class="loading">Cargando…</div></div>
+  </div>
+</div>
+
+<!-- TAB: CLIENTES -->
+<div class="tab-panel" id="tab-clientes">
+  <div class="filter-bar">
+    <label>Nombre:</label>
+    <input type="text" id="cliNombre" placeholder="Nombre del cliente…" style="width:280px">
+    <button class="btn btn-primary btn-sm" id="btnCliAgregar">Agregar cliente</button>
+    <span class="text-sm" id="cliMsg" style="color:var(--muted)"></span>
+  </div>
+  <div class="card">
+    <div class="card-header">Clientes</div>
+    <div id="tablaClientes"><div class="loading">Cargando…</div></div>
   </div>
 </div>
 
@@ -925,10 +940,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'plan')       { renderDiaSelector(); cargarEnvasesReg(); if (fechaPlanActual) cargarPlan(fechaPlanActual); }
+    if (btn.dataset.tab === 'plan')       { renderDiaSelector(); cargarEnvasesReg(); cargarClientesReg(); if (fechaPlanActual) cargarPlan(fechaPlanActual); }
     if (btn.dataset.tab === 'calendario') cargarCalendario(calMesActual + '-01');
     if (btn.dataset.tab === 'catalogo')   cargarCatalogo();
     if (btn.dataset.tab === 'envases')    cargarEnvasesReg();
+    if (btn.dataset.tab === 'clientes')   cargarClientesReg();
   });
 });
 
@@ -1335,6 +1351,13 @@ function renderPlan() {
           ${envasesReg.map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.envase||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
         </select>
       </td>
+      <td onclick="event.stopPropagation()">
+        <select onchange="actualizarItem(${it.id},'cliente',this.value)" title="Cliente"
+          style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
+          <option value="">— Cliente —</option>
+          ${clientesReg.map(c => `<option value="${escHtml(String(c.id))}" ${String(it.cliente||'')===String(c.id)?'selected':''}>${escHtml(c.nombre)}</option>`).join('')}
+        </select>
+      </td>
       <td>
         <div class="estado-chips">
           ${['pendiente','en_proceso','listo'].map(e =>
@@ -1360,7 +1383,7 @@ function renderPlan() {
     <table>
       <thead><tr>
         <th style="width:54px;text-align:center" title="Prioridad (▲▼ o arrastrar)">Prior.</th><th>Estado</th><th>Producto</th>
-        <th>Cantidad</th><th>Responsable</th><th>Envase</th><th>Estado tarea</th>
+        <th>Cantidad</th><th>Responsable</th><th>Envase</th><th>Cliente</th><th>Estado tarea</th>
         <th>MP</th><th></th>
       </tr></thead>
       <tbody id="tbodyPlan">${rows}</tbody>
@@ -1618,10 +1641,12 @@ async function buscarProductos(q) {
 }
 
 function sugToItem(s) {
+  const _norm = normalizarNombreJS(s.producto || '');
+  const _rubro = _norm.replace(PRES_RE_JS, '').trim().toLowerCase() || s.rubro || '';
   return {
     idProducto:    s.idProducto ?? s.plu ?? null,
     producto:      s.producto,
-    rubro:         s.rubro || '',
+    rubro:         _rubro,
     stockActual:   s.stockActual ?? 0,
     promDiario:    s.promDiario ?? 0,
     promMes:       s.promMes ?? Math.round((s.promDiario || 0) * 30 * 10) / 10,
@@ -1731,6 +1756,54 @@ document.getElementById('btnEnvRefrescar')?.addEventListener('click', async () =
   catch (e) { toast('Error al refrescar', true); }
 });
 cargarEnvasesReg();
+
+// ── Tab Clientes ───────────────────────────────────────────────────
+let clientesReg = [];
+async function cargarClientesReg() {
+  try { clientesReg = await api('GET', '/api/clientes-registro') || []; }
+  catch { clientesReg = []; }
+  const cont = document.getElementById('tablaClientes');
+  if (!cont) return;
+  if (!clientesReg.length) {
+    cont.innerHTML = '<div class="loading">Sin clientes. Ingresá un nombre arriba.</div>';
+    return;
+  }
+  cont.innerHTML = `<div style="overflow-x:auto"><table>
+    <thead><tr><th>Nombre</th><th style="width:130px"></th></tr></thead>
+    <tbody>${clientesReg.map(c => `<tr>
+      <td>${escHtml(c.nombre)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-danger btn-sm" onclick="borrarCliente(${c.id})">✕</button>
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+async function borrarCliente(id) {
+  const c = clientesReg.find(x => x.id === id);
+  confirmarModal('Eliminar cliente', `¿Eliminar <strong>${escHtml(c?.nombre || '')}</strong>?`, 'Eliminar', async () => {
+    try {
+      await api('DELETE', `/api/clientes-registro/${id}`);
+      await cargarClientesReg();
+      if (typeof renderPlan === 'function' && planCache) renderPlan();
+      toast('Cliente eliminado');
+    } catch (e) { toast('Error: ' + e.message, true); }
+  }, true);
+}
+document.getElementById('cliNombre')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btnCliAgregar')?.click();
+});
+document.getElementById('btnCliAgregar')?.addEventListener('click', async () => {
+  const nombre = document.getElementById('cliNombre').value.trim();
+  if (!nombre) return;
+  try {
+    const r = await api('POST', '/api/clientes-registro', { nombre });
+    if (r.error) { toast(r.error, true); return; }
+    document.getElementById('cliNombre').value = '';
+    await cargarClientesReg();
+    if (typeof renderPlan === 'function' && planCache) renderPlan();
+    toast(`Cliente "${nombre}" agregado`);
+  } catch (e) { toast('Error: ' + e.message, true); }
+});
+cargarClientesReg();
 
 // ── Modal granel (cantidad manual) ───────────────────────────────
 let granelGiActual = null;
@@ -2197,7 +2270,8 @@ function construirOrdenes() {
       encargados:   it.responsables || (it.responsable ? [it.responsable] : []),
       encargado:    (it.responsables||[it.responsable||'']).filter(Boolean).join(' / '),
       tambor:       it.tambor || '',
-      fecha:        fechaPlanActual
+      fecha:        fechaPlanActual,
+      cliente:      clientesReg.find(c => String(c.id) === String(it.cliente))?.nombre || ''
     });
   }
 
@@ -2240,7 +2314,8 @@ function construirOrdenes() {
       encargados:   [...new Set(conCant.flatMap(it => it.responsables||[]))],
       encargado:    [...new Set(conCant.flatMap(it => it.responsables||[]))].join(' / '),
       tambor:       tambores,
-      fecha:        fechaPlanActual
+      fecha:        fechaPlanActual,
+      cliente:      clientesReg.find(c => String(c.id) === String(conCant.find(i => i.cliente)?.cliente))?.nombre || ''
     });
   }
 

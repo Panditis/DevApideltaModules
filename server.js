@@ -908,6 +908,7 @@ const RESP_PATH      = path.join(DATA_DIR, 'responsables.json');
 const CATALOGO_PATH  = path.join(DATA_DIR, 'catalogo.json');
 const GRUPOS_CFG_PATH = path.join(DATA_DIR, 'grupos_config.json');
 const ENVASES_REG_PATH = path.join(DATA_DIR, 'envases_registro.json'); // [{codigo,nombre,stock}]
+const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
 const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,nombre,cantPorUnidad}] }
 // cfg entry puede ser: true|false  o  {activo:bool, granelPlu:string, mpManual:[], granelDirecto:bool}
 function cfgActivo(cfg, ref) { const v=cfg[ref]; if(v===undefined)return true; if(typeof v==='boolean')return v; return v.activo!==false; }
@@ -1952,7 +1953,7 @@ app.post('/api/distribucion/almacen-tipo', (req, res) => {
 
 app.post('/api/distribucion/fraccionado-registros', (req, res) => {
   const b = req.body || {};
-  if (!b.plu || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
+  if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
   // Se guarda el cuerpo completo (incluye observacion, ordenId, seccion y graneles[]).
   const arr = leerJSON(FRAC_REG_PATH, []);
   arr.push({ ...b, id: Date.now() });
@@ -2194,6 +2195,21 @@ app.post('/api/envases-registro/refrescar', apiRoute(async () => {
 app.delete('/api/envases-registro/:codigo', (req, res) => {
   const cod = String(req.params.codigo);
   guardarJSON(ENVASES_REG_PATH, leerJSON(ENVASES_REG_PATH, []).filter(x => String(x.codigo) !== cod));
+  res.json({ ok: true });
+});
+app.get('/api/clientes-registro', (_req, res) => res.json(leerJSON(CLIENTES_PATH, [])));
+app.post('/api/clientes-registro', apiRoute(async req => {
+  const nombre = ((req.body && req.body.nombre) || '').toString().trim();
+  if (!nombre) return { error: 'Falta nombre' };
+  const arr = leerJSON(CLIENTES_PATH, []);
+  const id = Date.now();
+  arr.push({ id, nombre });
+  guardarJSON(CLIENTES_PATH, arr);
+  return { ok: true, cliente: { id, nombre } };
+}));
+app.delete('/api/clientes-registro/:id', (req, res) => {
+  const id = Number(req.params.id);
+  guardarJSON(CLIENTES_PATH, leerJSON(CLIENTES_PATH, []).filter(x => x.id !== id));
   res.json({ ok: true });
 });
 app.get('/api/diag/estados-venta',       apiRoute(async () => query('SELECT DISTINCT IdEstadoComprobante FROM Ventas ORDER BY IdEstadoComprobante')));
