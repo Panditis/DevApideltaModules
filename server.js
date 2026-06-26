@@ -968,6 +968,15 @@ app.get('/api/producto', apiRoute(async req => {
   const rows = await query(`SELECT TOP 1 p.IdProducto, p.NombreProducto, COALESCE(p.IdUnidadDeMedida,'') AS Unidad, p.EsCompuesto FROM dbo.Productos p WHERE p.IdProducto = '${codigo.replace(/'/g,"''")}' AND p.Activo = 1`);
   return rows.length ? rows[0] : { error: 'Producto no encontrado' };
 }));
+app.get('/api/productos/buscar', apiRoute(async req => {
+  const q = (req.query.q || '').trim();
+  if (q.length < 2) return [];
+  const words = q.split(/\s+/).filter(w => w.length > 0).map(w => w.replace(/'/g, "''"));
+  const nameConditions = words.map(w => `NombreProducto LIKE '%${w}%'`).join(' AND ');
+  const codeMatch = words.length === 1 ? `OR IdProducto LIKE '%${words[0]}%'` : '';
+  return await query(`SELECT TOP 15 IdProducto AS codigo, NombreProducto AS nombre FROM dbo.Productos WHERE ((${nameConditions}) ${codeMatch}) AND Activo = 1 ORDER BY NombreProducto`);
+}));
+
 app.get('/api/formula/schema', apiRoute(async req => {
   const codigo = (req.query.codigo || '').trim();
   const cols   = await query(`SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ProductosFormulas' ORDER BY ORDINAL_POSITION`);

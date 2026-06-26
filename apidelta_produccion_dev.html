@@ -409,6 +409,7 @@ header{box-shadow:var(--elev-2)}
 <nav class="section-nav" id="sectionNav">
   <div class="section-inner">
     <button class="nav-toggle-btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="abrirTareaExtraModal()">⚡ Tarea extra</button>
+    <button class="nav-toggle-btn" style="background:#1d4ed8;color:#fff;border-color:#1d4ed8" onclick="abrirCargaManualModal()">📦 Carga manual</button>
     <div class="nav-divider"></div>
     <div class="nav-toggle">
       <button class="nav-toggle-btn active" data-mode="categoria" onclick="setNavMode('categoria')">📦 Categoría</button>
@@ -751,6 +752,33 @@ header{box-shadow:var(--elev-2)}
         <button onclick="cerrarTareaExtraModal()" style="padding:8px 18px;border:1.5px solid var(--border);border-radius:8px;background:none;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:var(--text)">Cancelar</button>
         <button onclick="guardarTareaExtra()" style="padding:8px 18px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px">Guardar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CARGA MANUAL -->
+<div class="modal-overlay" id="cargaManualModal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-handle"><div class="modal-handle-bar"></div></div>
+    <div class="modal-stripe" style="background:#1d4ed8"></div>
+    <div class="modal-head" style="background:#1d4ed8">
+      <span style="font-size:20px">📦</span>
+      <div>
+        <h2>Carga manual</h2>
+        <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px">Buscá el producto por nombre o código</div>
+      </div>
+      <button class="modal-close" onclick="cerrarCargaManualModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Nombre o código</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="cm-query" type="text" placeholder="Ej: Yerba, 7790…" onkeydown="if(event.key==='Enter')buscarProductoManual()">
+          <button class="btn-primary" onclick="buscarProductoManual()" style="white-space:nowrap">Buscar</button>
+        </div>
+      </div>
+      <div id="cm-results"></div>
+      <div id="cm-err" style="color:var(--c-alta);font-size:12px;display:none;margin-top:6px"></div>
     </div>
   </div>
 </div>
@@ -2133,13 +2161,14 @@ function renderRegistrosCargados(registros) {
         <td>
           <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">${nombre}</strong>
           ${r.seccion ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px">${r.seccion}</div>` : ''}
+          ${r.plu === 'ACT' && r.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${r.observacion}</div>` : ''}
         </td>
         <td style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;color:var(--green-dark)">${cant}</td>
         <td style="font-size:14px">${resp}</td>
         <td style="font-size:13px;color:var(--text-muted)">${hora}</td>
         <td style="text-align:center;white-space:nowrap">
-          <button onclick="openRcCompModal(${idx})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">📦 Componentes</button>
-          <button class="btn-del" onclick="openRcEditModal(${idx})" title="Editar">✏️</button>
+          <button onclick="openRcCompModal(${idx})" ${r.plu==='ACT'?'disabled':''} style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted);${r.plu==='ACT'?'opacity:0.3;cursor:not-allowed':''}">📦 Componentes</button>
+          <button class="btn-del" onclick="openRcEditModal(${idx})" title="Editar" ${r.plu==='ACT'?'disabled style="opacity:0.3;cursor:not-allowed"':''}>✏️</button>
           <button class="btn-del" onclick="deleteRcRegistro(${idx})" title="Eliminar">🗑</button>
         </td>
       </tr>`;
@@ -2234,7 +2263,133 @@ async function guardarTareaExtra() {
   }
 }
 document.getElementById('tareaExtraModal').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarTareaExtraModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarTareaExtraModal(); });
+document.getElementById('cargaManualModal').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarCargaManualModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { cerrarTareaExtraModal(); cerrarCargaManualModal(); } });
+
+function abrirCargaManualModal() {
+  document.getElementById('cm-query').value = '';
+  document.getElementById('cm-results').innerHTML = '';
+  document.getElementById('cm-err').style.display = 'none';
+  document.getElementById('cargaManualModal').classList.add('open');
+}
+function cerrarCargaManualModal() {
+  document.getElementById('cargaManualModal').classList.remove('open');
+}
+let _cmResultados = [];
+async function buscarProductoManual() {
+  const q = document.getElementById('cm-query').value.trim();
+  if (!q) return;
+  const resEl = document.getElementById('cm-results');
+  const errEl = document.getElementById('cm-err');
+  errEl.style.display = 'none';
+  resEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:6px 0">Buscando…</div>';
+  try {
+    const resp = await fetch(`${SERVER_URL}/api/productos/buscar?q=${encodeURIComponent(q)}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    _cmResultados = Array.isArray(data) ? data : [];
+    if (!_cmResultados.length) {
+      resEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:6px 0">Sin resultados.</div>';
+      return;
+    }
+    resEl.innerHTML = '<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">' +
+      _cmResultados.map((p, i) => `<button onclick="seleccionarProductoManual(${i})"
+        style="background:#F8F8F8;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;cursor:pointer;text-align:left;font-family:'Barlow Condensed',sans-serif;width:100%">
+        <strong style="font-size:15px">${p.nombre}</strong>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:8px">${p.codigo}</span>
+      </button>`).join('') + '</div>';
+  } catch(err) {
+    errEl.textContent = 'Error al buscar: ' + err.message;
+    errEl.style.display = '';
+    resEl.innerHTML = '';
+  }
+}
+async function seleccionarProductoManual(idx) {
+  const p = _cmResultados[idx];
+  if (!p) return;
+  cerrarCargaManualModal();
+  await openProdFinalModalManual(p.nombre, p.codigo);
+}
+async function openProdFinalModalManual(nombre, codigo) {
+  _pfOrden = { id: null, producto: nombre, codigo: codigo, seccion: '', cantidad: 0, presentacion: '', cliente: '', observacion: '' };
+  _pfFactores = [];
+  _pfElementos = [{ presentacion: '', cantidad: 0, presIndex: -1, cargado: false }];
+  document.getElementById('pfTitle').textContent = cleanNombre(nombre);
+  document.getElementById('pfSubtitle').textContent = `Carga manual · ${codigo}`;
+  document.getElementById('pfBody').innerHTML = '<div class="formula-spinner">⏳ Cargando…</div>';
+  document.getElementById('prodFinalModal').classList.add('open');
+
+  const [respData, formulaData] = await Promise.all([
+    fetch(`${SERVER_URL}/api/responsables`).then(r => r.json()).catch(() => []),
+    fetch(`${SERVER_URL}/api/formula?codigo=${encodeURIComponent(codigo)}&cantidad=1`).then(r => r.json()).catch(() => ({}))
+  ]);
+
+  const allComps = formulaData.componentes || [];
+  _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
+  const comps = allComps.filter(c => /granel|tambor/i.test(c.Componente));
+  _pfFactores = comps.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }));
+
+  const ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
+  const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
+  const respRolesHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#F8F8F8">
+      <th style="padding:6px 8px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
+      <th style="padding:6px 8px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
+      <th style="padding:6px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
+      <th style="padding:6px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
+    </tr></thead>
+    <tbody>${ROLES.map(rol => `<tr style="border-bottom:1px solid #F0F0F0">
+      <td style="padding:6px 8px;font-weight:700;font-family:'Barlow Condensed',sans-serif">${rol}</td>
+      <td style="padding:4px 8px"><select class="form-select pf-rol-resp" data-rol="${rol}" style="padding:5px 8px;font-size:13px">${encOpts}</select></td>
+      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-desde" style="padding:5px 8px;font-size:13px;width:100px"></td>
+      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-hasta" style="padding:5px 8px;font-size:13px;width:100px"></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+  const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, false)).join('');
+  const formulaSection = allComps.length ? `<div class="form-group">
+    <details style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+      <summary style="padding:10px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;display:flex;align-items:center;gap:6px;list-style:none">
+        🧪 Fórmula completa <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${allComps.length} componentes)</span>
+        <span style="margin-left:auto">▾</span>
+      </summary>
+      <div style="padding:8px 14px 12px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr>
+            <th style="text-align:left;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Componente</th>
+            <th style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
+            <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Total</th>
+          </tr></thead>
+          <tbody>${allComps.map(c => {
+            const factor = parseFloat(c.CantPorUnidad) || 0;
+            const isGranel = /granel|tambor/i.test(c.Componente);
+            return `<tr style="border-bottom:1px solid #F0F0F0">
+              <td style="padding:5px 6px${isGranel ? ';font-weight:600;color:var(--green-dark)' : ''}">${c.Componente}</td>
+              <td style="text-align:right;padding:5px 6px;color:var(--text-muted)">${fmtN(c.CantPorUnidad)} ${c.Unidad}</td>
+              <td class="pf-fc-total" style="text-align:right;padding:5px 6px;font-weight:700;color:var(--green-dark)" data-factor="${factor}" data-unit="${c.Unidad}">0 ${c.Unidad}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+    </details>
+  </div>` : '';
+  document.getElementById('pfBody').innerHTML = `
+    <div class="form-group">
+      <label class="form-label">Responsables, roles y horarios</label>
+      <div id="pfRespRoles">${respRolesHTML}</div>
+    </div>
+    <div id="pfElementos">${elementosHTML}</div>
+    ${formulaSection}
+    <div class="form-group">
+      <label class="form-label">Observación</label>
+      <textarea class="form-input" id="pfObs" rows="2" placeholder="Observación (opcional)…" style="resize:vertical"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
+      <button class="btn-primary" onclick="guardarProduccionFinal()">Guardar</button>
+      <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
+      <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
+    </div>`;
+  _pfRecalcGraneles();
+}
 
 async function exportTerminadosCSV(fecha) {
   const items = _rcRaw.filter(r => {
