@@ -408,6 +408,8 @@ header{box-shadow:var(--elev-2)}
 
 <nav class="section-nav" id="sectionNav">
   <div class="section-inner">
+    <button class="nav-toggle-btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="abrirTareaExtraModal()">⚡ Tarea extra</button>
+    <div class="nav-divider"></div>
     <div class="nav-toggle">
       <button class="nav-toggle-btn active" data-mode="categoria" onclick="setNavMode('categoria')">📦 Categoría</button>
       <button class="nav-toggle-btn" data-mode="responsable" onclick="setNavMode('responsable')">👤 Responsable</button>
@@ -717,6 +719,39 @@ header{box-shadow:var(--elev-2)}
       <button class="modal-close" onclick="closeRcCompModal()">✕</button>
     </div>
     <div class="modal-body" id="rcCompBody"></div>
+  </div>
+</div>
+
+<!-- MODAL TAREA EXTRA -->
+<div class="modal-overlay" id="tareaExtraModal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-handle"><div class="modal-handle-bar"></div></div>
+    <div class="modal-stripe" style="background:#7c3aed"></div>
+    <div class="modal-head" style="background:#7c3aed">
+      <span style="font-size:20px">⚡</span>
+      <div>
+        <h2>Tarea extra</h2>
+        <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px">No se exporta al CSV</div>
+      </div>
+      <button class="modal-close" onclick="cerrarTareaExtraModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:4px">Empleado</label>
+        <select id="te-emp" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text)"><option value="">— seleccionar —</option></select></div>
+      <div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:4px">Descripción</label>
+        <textarea id="te-desc" rows="3" placeholder="Actividad realizada..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text);resize:vertical;font-family:var(--body);box-sizing:border-box"></textarea></div>
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <div style="flex:1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:4px">Desde</label>
+          <input type="time" id="te-desde" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text);box-sizing:border-box"></div>
+        <div style="flex:1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:4px">Hasta</label>
+          <input type="time" id="te-hasta" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text);box-sizing:border-box"></div>
+      </div>
+      <div id="te-err" style="display:none;color:var(--error);font-size:12px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="cerrarTareaExtraModal()" style="padding:8px 18px;border:1.5px solid var(--border);border-radius:8px;background:none;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:var(--text)">Cancelar</button>
+        <button onclick="guardarTareaExtra()" style="padding:8px 18px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px">Guardar</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2147,6 +2182,60 @@ function _parseNum(v) {
   return parseFloat(String(v ?? '').replace(',', '.')) || 0;
 }
 
+async function abrirTareaExtraModal() {
+  document.getElementById('te-err').style.display = 'none';
+  document.getElementById('te-desc').value = '';
+  document.getElementById('te-desde').value = '';
+  document.getElementById('te-hasta').value = '';
+  const empSel = document.getElementById('te-emp');
+  try {
+    const resp = await fetch(`${SERVER_URL}/api/responsables`).then(r => r.json()).catch(() => []);
+    const empleados = (Array.isArray(resp) ? resp : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
+    empSel.innerHTML = '<option value="">— seleccionar —</option>' + empleados.map(e => `<option value="${e}">${e}</option>`).join('');
+  } catch(_) {}
+  document.getElementById('tareaExtraModal').classList.add('open');
+}
+
+function cerrarTareaExtraModal() {
+  document.getElementById('tareaExtraModal').classList.remove('open');
+}
+
+async function guardarTareaExtra() {
+  const observacion = document.getElementById('te-desc').value.trim();
+  if (!observacion) {
+    const err = document.getElementById('te-err');
+    err.textContent = 'Ingresá una descripción.';
+    err.style.display = '';
+    return;
+  }
+  const payload = {
+    plu: 'ACT',
+    nombre: 'Tarea extra',
+    cantFraccionada: 0,
+    granelConsumido: 0,
+    empleado: document.getElementById('te-emp').value,
+    desde: document.getElementById('te-desde').value,
+    hasta: document.getElementById('te-hasta').value,
+    observacion,
+    fecha: new Date().toISOString().slice(0, 10),
+  };
+  try {
+    const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    cerrarTareaExtraModal();
+    showSnack('✅ Tarea extra guardada');
+    loadRegistrosCargados();
+  } catch(err) {
+    const e = document.getElementById('te-err');
+    e.textContent = 'Error al guardar: ' + err.message;
+    e.style.display = '';
+  }
+}
+document.getElementById('tareaExtraModal').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarTareaExtraModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarTareaExtraModal(); });
+
 async function exportTerminadosCSV(fecha) {
   const items = _rcRaw.filter(r => {
     const k = r.fecha || (r.fechaHora ? r.fechaHora.slice(0,10) : 'sin-fecha');
@@ -2154,8 +2243,9 @@ async function exportTerminadosCSV(fecha) {
   });
   if (!items.length) { showSnack('Sin registros para exportar'); return; }
 
-  // Ignorar órdenes sin el rol "Envasado" cargado entre sus roles asignados
+  // Ignorar tareas extra y órdenes sin el rol "Envasado" cargado
   const exportables = items.filter(r => {
+    if (r.plu === 'ACT') return false;
     const roles = Array.isArray(r.roles) ? r.roles
                 : (Array.isArray(r.responsables) ? r.responsables : []);
     return roles.some(x => /envasad/i.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
