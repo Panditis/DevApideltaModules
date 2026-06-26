@@ -1973,7 +1973,7 @@ async function guardarProduccionFinal() {
         observacion,
         cliente:         _pfOrden.cliente || '',
       };
-      const res = await fetch(`${SERVER_URL}/api/distribucion/fraccionado-registros`, {
+      const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2043,7 +2043,7 @@ async function loadRegistrosCargados() {
   const el = document.getElementById('registrosView');
   el.innerHTML = '<div class="formula-spinner">⏳ Cargando registros...</div>';
   try {
-    const data = await fetch(`${SERVER_URL}/api/distribucion/fraccionado-registros`).then(r => r.json());
+    const data = await fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json());
     const lista = Array.isArray(data) ? data : (data.data || data.registros || []);
     renderRegistrosCargados(lista);
   } catch(e) {
@@ -2273,7 +2273,7 @@ async function saveRcEdit() {
   }));
   const totalGranel = +updatedGraneles.reduce((s,g) => s + g.granelConsumido, 0).toFixed(2);
   try {
-    const res = await fetch(`${SERVER_URL}/api/distribucion/fraccionado-registros/${d.id}`, {
+    const res = await fetch(`${SERVER_URL}/api/produccion/registros/${d.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2302,7 +2302,7 @@ async function deleteRcRegistro(idx) {
   });
   if (!ok) return;
   try {
-    const res = await fetch(`${SERVER_URL}/api/distribucion/fraccionado-registros/${d.id}`, { method: 'DELETE' });
+    const res = await fetch(`${SERVER_URL}/api/produccion/registros/${d.id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     // Reactivar la orden en el board
     if (d.ordenId) {
@@ -2339,7 +2339,7 @@ async function deleteRegistrosFecha(fecha) {
   const ordenIds = [...new Set(delItems.map(r => r.ordenId).filter(v => v != null))];
   try {
     // Borra sólo los registros de esa fecha.
-    const res = await fetch(`${SERVER_URL}/api/distribucion/fraccionado-registros-fecha?fecha=${encodeURIComponent(fecha)}`, { method: 'DELETE' });
+    const res = await fetch(`${SERVER_URL}/api/produccion/registros-fecha?fecha=${encodeURIComponent(fecha)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     // Reabrir cada orden: pendiente + limpiar flags de carga por presentación.
     for (const oid of ordenIds) {

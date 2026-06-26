@@ -2025,6 +2025,42 @@ app.put('/api/distribucion/fraccionado-registros/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Producción: registros de cargas (archivo separado de distribución) ──────────
+const PROD_REG_PATH = path.join(DATA_DIR, 'produccion_registros.json');
+app.get('/api/produccion/registros', apiRoute(async () => leerJSON(PROD_REG_PATH, [])));
+app.post('/api/produccion/registros', (req, res) => {
+  const b = req.body || {};
+  if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
+  const arr = leerJSON(PROD_REG_PATH, []);
+  arr.push({ ...b, id: Date.now() });
+  guardarJSON(PROD_REG_PATH, arr);
+  res.json({ ok: true });
+});
+app.delete('/api/produccion/registros-fecha', (req, res) => {
+  const { fecha } = req.query;
+  const arr = leerJSON(PROD_REG_PATH, []);
+  const nuevo = fecha ? arr.filter(x => x.fecha !== fecha) : [];
+  guardarJSON(PROD_REG_PATH, nuevo);
+  res.json({ ok: true, eliminados: arr.length - nuevo.length });
+});
+app.delete('/api/produccion/registros/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const arr = leerJSON(PROD_REG_PATH, []);
+  const nuevo = arr.filter(x => x.id !== id);
+  if (nuevo.length === arr.length) return res.status(404).json({ error: 'no encontrado' });
+  guardarJSON(PROD_REG_PATH, nuevo);
+  res.json({ ok: true });
+});
+app.put('/api/produccion/registros/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const arr = leerJSON(PROD_REG_PATH, []);
+  const idx = arr.findIndex(x => x.id === id);
+  if (idx < 0) return res.status(404).json({ error: 'no encontrado' });
+  arr[idx] = { ...arr[idx], ...req.body, id };
+  guardarJSON(PROD_REG_PATH, arr);
+  res.json({ ok: true });
+});
+
 // ── Distribución: parámetros pesables (config motor) ────────────────────────────
 const PESABLES_PARAMS_PATH = path.join(DATA_DIR, 'pesables_params.json');
 app.get('/api/distribucion/pesables-params', apiRoute(async () => leerJSON(PESABLES_PARAMS_PATH, {})));
