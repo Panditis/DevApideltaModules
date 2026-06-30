@@ -1680,7 +1680,8 @@ async function recalcularA8020() {
   for (const f of filas) {
     (mins[f.plu] = mins[f.plu] || {})[f.sucursal] = f.S;
     (detalle[f.plu] = detalle[f.plu] || {})[f.sucursal] =
-      { mu: Math.round(f.mu * 1000) / 1000, sigma: Math.round(f.sigma * 1000) / 1000, S: f.S };
+      { mu: Math.round(f.mu * 1000) / 1000, sigma: Math.round(f.sigma * 1000) / 1000, S: f.S,
+        ...(f.propBase ? { propBase: f.propBase, propSoloBase: !!f.propSoloBase } : {}) };
   }
   // ── Bootstrap: PLUs pesables sin historial → interpola μ/σ por rubro ─────────
   const prodPesInfo = pesLis.productosPesables || {};

@@ -33,11 +33,30 @@ function clasificarABC(metricByPlu, corteA, corteB) {
 // metricByPlu: { plu: métrica ABC }   ·  pesablesSet: Set<plu> (dec=1)  ·  overrides: { plu:{pisoManual,techo,mult} }
 function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, overrides) {
   const abc = clasificarABC(metricByPlu, config.abc.corteA, config.abc.corteB);
-  const sucById = {};
-  for (const [key, c] of Object.entries(config.sucursales)) sucById[c.idSucursal] = { key, T: c.T, L: c.L };
+  const sucById = {}, sucByKey = {};
+  for (const [key, c] of Object.entries(config.sucursales)) {
+    sucById[c.idSucursal] = { key, T: c.T, L: c.L };
+    sucByKey[key] = { idSucursal: c.idSucursal, T: c.T, L: c.L };
+  }
   const z = config.servicio;
   const ovr = overrides || {};
   const techoDef = config.techoDefault != null ? config.techoDefault : 10000;
+
+  // Construye una fila (suc, plu) calculando S = μ·(T+L) + z·σ·√(T+L) con caps de override.
+  function buildFila(idSucursal, sucKey, plu, mu, sigma, cls, extra) {
+    const sc = sucById[idSucursal];
+    if (!sc) return null;
+    const zc = z[cls] != null ? z[cls] : z.C;
+    const TL = sc.T + sc.L;
+    const o = ovr[String(plu)] || {};
+    const mult = o.mult != null ? o.mult : 1;
+    const piso = o.pisoManual != null ? o.pisoManual : 0;
+    const techo = o.techo != null ? o.techo : techoDef;
+    const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
+    let S = mu * TL + zc * sigma * Math.sqrt(TL);
+    S = TL <= 0 ? 0 : roundDec(Math.min(Math.max(S * mult, piso), techo), dec);
+    return Object.assign({ idSucursal, sucursal: sucKey, plu: Number(plu), mu, sigma, abc: cls, z: zc, S }, extra || {});
+  }
 
   const filas = [];
   for (const r of stats) {
@@ -48,18 +67,42 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
     const mu = (Number(r.sumQ) || 0) / N;
     const sigma = Math.sqrt(Math.max((Number(r.sumQ2) || 0) / N - mu * mu, 0));
     const cls = abc[String(r.plu)] || 'C';
-    const zc = z[cls] != null ? z[cls] : z.C;
-    const TL = sc.T + sc.L;
-    const o = ovr[String(r.plu)] || {};
-    const mult = o.mult != null ? o.mult : 1;
-    const piso = o.pisoManual != null ? o.pisoManual : 0;
-    const techo = o.techo != null ? o.techo : techoDef;
-    const dec = pesablesSet.has(Number(r.plu)) ? 1 : 0;
-    let S = mu * TL + zc * sigma * Math.sqrt(TL);
-    S = TL <= 0 ? 0 : roundDec(Math.min(Math.max(S * mult, piso), techo), dec);
-    filas.push({ idSucursal: r.idSucursal, sucursal: sc.key, plu: Number(r.plu),
-                 mu, sigma, abc: cls, z: zc, S });
+    const f = buildFila(r.idSucursal, sc.key, r.plu, mu, sigma, cls);
+    if (f) filas.push(f);
   }
+
+  // ── Proporción de base (% de Rivadavia) ──────────────────────────────────────
+  // Para sucursales con factor f asignado: μ_final = μ_propio + f·μ_base ; idem σ.
+  // El consumo de la base (Rivadavia por defecto) se suma al real de cada sucursal.
+  const propBase = config.proporcionBase || {};
+  const baseKey = config.proporcionBaseRef || 'riv';
+  const propSucs = Object.keys(propBase).filter(k => (Number(propBase[k]) || 0) > 0 && k !== baseKey && sucByKey[k]);
+  if (propSucs.length) {
+    const baseIdx = {};   // plu → {mu, sigma} de la sucursal base
+    for (const f of filas) if (f.sucursal === baseKey) baseIdx[f.plu] = { mu: f.mu, sigma: f.sigma };
+    const have = new Set(filas.map(f => f.sucursal + '|' + f.plu));
+    // 1) Ajusta filas existentes de las sucursales con factor
+    for (const f of filas) {
+      const fct = Number(propBase[f.sucursal]) || 0;
+      if (fct <= 0) continue;
+      const b = baseIdx[f.plu];
+      if (!b) continue;
+      const nf = buildFila(f.idSucursal, f.sucursal, f.plu, f.mu + fct * b.mu, f.sigma + fct * b.sigma, f.abc, { propBase: fct });
+      if (nf) { f.mu = nf.mu; f.sigma = nf.sigma; f.S = nf.S; f.propBase = fct; }
+    }
+    // 2) Crea filas para PLUs que vende la base pero la sucursal con factor no (μ_propio=0)
+    for (const suc of propSucs) {
+      const fct = Number(propBase[suc]) || 0;
+      const sk = sucByKey[suc];
+      for (const [plu, b] of Object.entries(baseIdx)) {
+        if (have.has(suc + '|' + Number(plu))) continue;
+        const cls = abc[String(plu)] || 'C';
+        const nf = buildFila(sk.idSucursal, suc, plu, fct * b.mu, fct * b.sigma, cls, { propBase: fct, propSoloBase: true });
+        if (nf && nf.S > 0) filas.push(nf);
+      }
+    }
+  }
+
   return { abc, filas };
 }
 
