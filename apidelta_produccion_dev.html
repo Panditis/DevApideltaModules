@@ -1486,41 +1486,30 @@ async function cambiarDiaFiltro(delta) {
 
 // ── CERRAR DÍA ────────────────────────────────────────────────────────────────
 async function confirmCerrarDia() {
-  if (!ORDERS.length) { showSnack('No hay órdenes para cerrar'); return; }
   const comp = ORDERS.filter(o=>o.estado==='listo').length;
-  const pend = ORDERS.filter(o=>o.estado!=='listo');
-  const pct  = Math.round((comp/ORDERS.length)*100);
+  const pend = ORDERS.filter(o=>o.estado!=='listo').length;
+  // Todas las cargas pendientes (cualquier fecha): órdenes, manuales y tareas extra.
+  let nCargas = 0, nDias = 0;
+  try {
+    const all = await fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json());
+    const list = Array.isArray(all) ? all : [];
+    nCargas = list.length;
+    nDias = new Set(list.map(c => c.fecha)).size;
+  } catch(_) {}
+  if (!nCargas && comp === 0) { showSnack('No hay producción cargada para archivar'); return; }
   const ok1 = await showConfirm({
     icon: '✅', title: 'Cerrar día',
-    msg: `<b>${comp}</b> de <b>${ORDERS.length}</b> órdenes completadas <span style="color:var(--text-muted)">(${pct}%)</span><br><br>Se guardará el registro y se limpiarán las órdenes del día.`,
+    msg: `Se archivarán <b>${nCargas}</b> carga(s) de producción${nDias > 1 ? ` de <b>${nDias}</b> días` : ''} al historial.${ORDERS.length ? `<br><br>Se quitan las <b>${comp}</b> órdenes completadas; las <b>${pend}</b> pendientes quedan para seguir.` : ''}`,
     ok: 'Cerrar día', cancel: 'Cancelar'
   });
   if (!ok1) return;
   try {
-    let mover = false;
-    if (pend.length > 0) {
-      mover = await showConfirm({
-        icon: '📅', title: 'Órdenes sin completar',
-        msg: `Hay <b>${pend.length}</b> orden${pend.length!==1?'es':''} sin completar.<br><br>¿Moverlas al día siguiente como pendientes?`,
-        ok: 'Mover al día siguiente', cancel: 'Descartar'
-      });
-    }
-    const reg = await api('POST', '/api/registros?limpiar=1', {});
-    if (mover) {
-      const d = new Date(fechaFiltro + 'T00:00:00');
-      d.setDate(d.getDate() + 1);
-      const nextDay = d.toISOString().slice(0, 10);
-      for (let i = 0; i < pend.length; i++) {
-        const o = pend[i];
-        const nueva = { ...o, id: Date.now() + i, fecha: nextDay, estado: 'pendiente' };
-        await api('POST', '/api/ordenes', nueva);
-      }
-      showSnack(`Día cerrado · ${pend.length} orden${pend.length!==1?'es':''} movida${pend.length!==1?'s':''} al día siguiente`);
-    } else {
-      showSnack(`Día cerrado — ${reg.resumen.pctCompletado}% completado`);
-    }
-    ORDERS = [];
+    await api('POST', '/api/registros?limpiar=1', {});
+    // Recargar desde el servidor para reflejar cambios (órdenes y cargas drenadas).
+    await load();
     renderAll();
+    if (viewMode === 'cargadas') loadRegistrosCargados();
+    showSnack('Día cerrado y archivado');
   } catch(e) { showSnack('Error al cerrar el día: ' + e.message); }
 }
 
@@ -1554,9 +1543,8 @@ function renderHistorial(registros) {
 
   let html = '';
   registros.forEach((reg, idx) => {
-    const r   = reg.resumen;
-    const pct = r.pctCompletado;
-    const barColor = pct>=80 ? 'var(--c-baja)' : pct>=50 ? 'var(--c-media)' : 'var(--c-alta)';
+    const cargas = reg.cargas || [];
+    const unidadesCargadas = +cargas.reduce((s,c)=>s+(parseFloat(c.cantFraccionada)||0),0).toFixed(2);
     const fechaDisplay = new Date(reg.fechaHora).toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
     const horaDisplay  = new Date(reg.fechaHora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
 
@@ -1569,15 +1557,17 @@ function renderHistorial(registros) {
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Cerrado a las ${horaDisplay}</div>
         </div>
-        <!-- Barra progreso -->
-        <div style="flex:1;min-width:140px">
-          <div style="height:8px;background:#E8E8E8;border-radius:4px;overflow:hidden;margin-bottom:4px">
-            <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:.3s"></div>
+        <!-- Contadores -->
+        <div style="flex:1;min-width:140px;display:flex;gap:22px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${cargas.length}</div>
+            <div style="font-size:11px;color:var(--text-muted)">cargas · ${unidadesCargadas} u.</div>
           </div>
-          <div style="font-size:11px;color:var(--text-muted)">${r.completadas} de ${r.total} órdenes · ${r.unidadesCompletadas}/${r.totalUnidades} u.</div>
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${(reg.ordenes||[]).length}</div>
+            <div style="font-size:11px;color:var(--text-muted)">órdenes</div>
+          </div>
         </div>
-        <!-- % grande -->
-        <div style="font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:900;color:${barColor};min-width:56px;text-align:right">${pct}%</div>
         <!-- Botones -->
         <div style="display:flex;gap:8px;margin-left:auto">
           <button onclick="toggleDetalle('det-${reg.id}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
@@ -1606,6 +1596,30 @@ function renderHistorial(registros) {
               </tr>`;
             }).join('')}</tbody>
           </table>` : '<div style="padding:12px 0;color:var(--text-muted);font-size:13px">Sin órdenes registradas.</div>'}
+          ${cargas.length ? `<div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:18px 0 6px">Cargas de producción</div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="background:#F8F8F8">
+              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
+              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Presentación</th>
+              <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
+              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsables</th>
+              <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Horario</th>
+            </tr></thead>
+            <tbody>${cargas.map(c => {
+              const resp = Array.isArray(c.responsables) && c.responsables.length
+                ? c.responsables.map(x => x.rol ? `${x.nombre} (${x.rol})` : x.nombre).join(', ')
+                : (c.empleado || '—');
+              const hora = c.desde ? `${c.desde}–${c.hasta||'?'}` : '—';
+              const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${c.observacion}</div>` : '';
+              return `<tr style="border-bottom:1px solid #F0F0F0">
+                <td style="padding:7px 10px;font-weight:500">${cleanNombre(c.nombre||c.producto||'')}${obs}</td>
+                <td style="padding:7px 10px;color:var(--text-muted)">${c.presentacion||'—'}</td>
+                <td style="padding:7px 10px;text-align:center">${c.cantFraccionada??'—'}</td>
+                <td style="padding:7px 10px;color:var(--text-muted)">${resp}</td>
+                <td style="padding:7px 10px;text-align:center;color:var(--text-muted)">${hora}</td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table>` : ''}
         </div>
       </div>
     </div>`;
@@ -2028,7 +2042,7 @@ async function guardarProduccionFinal() {
         cantFraccionada: el.cant,
         cantSolicitada:  _pfOrden.cantidad,
         roles, responsables, desde, hasta, empleado,
-        fecha:           HOY_STR,
+        fecha:           fechaFiltro,
         graneles:        el.graneles,
         granel:          el.graneles[0]?.granel || null,
         nombreGranel:    el.graneles[0]?.nombreGranel || '',
@@ -2246,7 +2260,7 @@ async function guardarTareaExtra() {
     desde: document.getElementById('te-desde').value,
     hasta: document.getElementById('te-hasta').value,
     observacion,
-    fecha: new Date().toISOString().slice(0, 10),
+    fecha: fechaFiltro,
   };
   try {
     const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
@@ -2433,8 +2447,10 @@ async function exportTerminadosCSV(fecha) {
       : (r.nombreGranel ? [{ granel: r.granel || null, nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }] : []);
     const lookup = compMap[plu] || {};
     graneles.forEach(g => {
-      const gid = g.granel || lookup[g.nombreGranel] || '';
       const gcant = -_parseNum(g.granelConsumido);
+      // Componente modificado a 0: se ignora en el CSV.
+      if (gcant === 0) return;
+      const gid = g.granel || lookup[g.nombreGranel] || '';
       rows.push([1, esc(gid), esc(g.nombreGranel || ''), gcant, 1, esc(gid)].join(SEP));
     });
   });

@@ -1296,19 +1296,42 @@ app.delete('/api/ordenes',     (_req, res) => { guardarOrdenes([]); res.json({ o
 app.get('/api/registros',  (_req, res) => res.json(leerRegistros()));
 app.post('/api/registros', (req, res)  => {
   const ordenes = leerOrdenes();
-  if (!ordenes.length) return res.status(400).json({ error: 'No hay órdenes para registrar' });
-  const total = ordenes.length, comp = ordenes.filter(o => o.estado === 'listo').length;
-  const enProc = ordenes.filter(o => o.estado === 'en_proceso').length, pend = ordenes.filter(o => o.estado === 'pendiente').length;
-  const totUnid = ordenes.reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
-  const compUnid = ordenes.filter(o => o.estado === 'listo').reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
-  const secMap = {};
-  ordenes.forEach(o => { if (!secMap[o.seccion]) secMap[o.seccion] = { total: 0, completadas: 0, unidades: 0 }; secMap[o.seccion].total++; secMap[o.seccion].unidades += parseInt(o.cantidad) || 0; if (o.estado === 'listo') secMap[o.seccion].completadas++; });
-  const registro = { id: Date.now(), fecha: new Date().toISOString().slice(0, 10), fechaHora: new Date().toISOString(), ordenes,
-    resumen: { total, completadas: comp, enProceso: enProc, pendientes: pend, pctCompletado: Math.round((comp / total) * 100),
-               totalUnidades: totUnid, unidadesCompletadas: compUnid, porSeccion: Object.entries(secMap).map(([seccion, v]) => ({ seccion, ...v })) } };
-  const arr = leerRegistros(); arr.unshift(registro); guardarRegistros(arr);
-  if (req.query.limpiar === '1') guardarOrdenes([]);
-  res.json(registro);
+  const todasCargas = leerJSON(PROD_REG_PATH, []);
+  if (!ordenes.length && !todasCargas.length) return res.status(400).json({ error: 'No hay producción ni órdenes para registrar' });
+  // Mapa ordenId -> fecha de su carga, para ubicar cada orden en el snapshot de su día.
+  const ordenFecha = {};
+  todasCargas.forEach(c => { if (c.ordenId != null) ordenFecha[String(c.ordenId)] = c.fecha; });
+  const hoy = new Date().toISOString().slice(0, 10);
+  const ahora = new Date().toISOString();
+  // Fechas a archivar: las presentes en cargas; si no hay cargas pero sí órdenes, el día de hoy.
+  const fechas = [...new Set(todasCargas.map(c => c.fecha))];
+  if (!fechas.length && ordenes.length) fechas.push(hoy);
+  const buildResumen = (ords) => {
+    const total = ords.length, comp = ords.filter(o => o.estado === 'listo').length;
+    const enProc = ords.filter(o => o.estado === 'en_proceso').length, pend = ords.filter(o => o.estado === 'pendiente').length;
+    const totUnid = ords.reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
+    const compUnid = ords.filter(o => o.estado === 'listo').reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
+    const secMap = {};
+    ords.forEach(o => { if (!secMap[o.seccion]) secMap[o.seccion] = { total: 0, completadas: 0, unidades: 0 }; secMap[o.seccion].total++; secMap[o.seccion].unidades += parseInt(o.cantidad) || 0; if (o.estado === 'listo') secMap[o.seccion].completadas++; });
+    return { total, completadas: comp, enProceso: enProc, pendientes: pend, pctCompletado: total ? Math.round((comp / total) * 100) : 0,
+             totalUnidades: totUnid, unidadesCompletadas: compUnid, porSeccion: Object.entries(secMap).map(([seccion, v]) => ({ seccion, ...v })) };
+  };
+  const arr = leerRegistros();
+  const creados = [];
+  fechas.sort().forEach((fecha, i) => {
+    const cargas = todasCargas.filter(c => c.fecha === fecha);
+    const ords = ordenes.filter(o => ordenFecha[String(o.id)] === fecha);
+    const registro = { id: Date.now() + i, fecha, fechaHora: ahora, ordenes: ords, cargas, resumen: buildResumen(ords) };
+    arr.unshift(registro);
+    creados.push(registro);
+  });
+  guardarRegistros(arr);
+  if (req.query.limpiar === '1') {
+    // Quitar las órdenes completadas; las pendientes siguen en ordenes.json. Drenar TODAS las cargas archivadas.
+    guardarOrdenes(ordenes.filter(o => o.estado !== 'listo'));
+    guardarJSON(PROD_REG_PATH, []);
+  }
+  res.json({ ok: true, snapshots: creados.length, registros: creados });
 });
 app.delete('/api/registros/:id', (req, res) => {
   const id = Number(req.params.id);
@@ -1527,7 +1550,6 @@ async function calcularDistribucionAlmacen() {
   });
 }
 app.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'distribucion.html')));
-app.get('/carga-produccion', (_req, res) => res.sendFile(path.join(__dirname, 'carga-produccion.html')));
 app.get('/api/distribucion/almacen', apiRoute(async () => calcularDistribucionAlmacen()));
 app.get('/api/distribucion/sucursales', apiRoute(async () =>
   query('SELECT IdSucursal, Nombre, SoyLaCentral FROM Sucursales ORDER BY IdSucursal')));
@@ -1997,7 +2019,7 @@ app.delete('/api/distribucion/fraccionado-registros-fecha', (req, res) => {
   guardarJSON(FRAC_REG_PATH, nuevo);
   res.json({ ok: true, eliminados: arr.length - nuevo.length });
 });
-const HISTORIAL_PATH = path.join(DATA_DIR, 'historial_produccion.json');
+const HISTORIAL_PATH = path.join(DATA_DIR, 'historial_distribucion.json');
 app.get('/api/distribucion/historial', apiRoute(async () => leerJSON(HISTORIAL_PATH, [])));
 app.post('/api/distribucion/historial', (req, res) => {
   const b = req.body || {};

@@ -1100,7 +1100,7 @@ function exportarCSVPesables() {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const soloEnvio = document.getElementById('soloEnvio').checked;
   const cell = (v) => esNum(v) ? v : (v || '');
-  const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || r.J === 'Si') &&
+  const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || (listasData?.siemprePesable||[]).includes(Number(r.plu))) &&
     (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
   const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'Ruteo', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
@@ -1196,7 +1196,7 @@ function exportarPDFPesables() {
   let rows = datosP.filter(r => {
     if (filtroProd.p.has(String(r.plu))) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && (pesablesModo === 'preparacion' || r.J !== 'Si') && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;
+    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -1440,7 +1440,7 @@ function renderP() {
   let rows = datosP.filter(r => {
     if (filtroProd.p.has(String(r.plu))) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && (pesablesModo === 'preparacion' || r.J !== 'Si') && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;
+    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
