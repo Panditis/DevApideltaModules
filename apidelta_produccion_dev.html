@@ -1599,6 +1599,7 @@ function renderHistorial(registros) {
           ${cargas.length ? `<div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:18px 0 6px">Cargas de producción</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="background:#F8F8F8">
+              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fecha carga</th>
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Presentación</th>
               <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
@@ -1610,8 +1611,12 @@ function renderHistorial(registros) {
                 ? c.responsables.map(x => x.rol ? `${x.nombre} (${x.rol})` : x.nombre).join(', ')
                 : (c.empleado || '—');
               const hora = c.desde ? `${c.desde}–${c.hasta||'?'}` : '—';
+              const fechaC = c.fecha
+                ? new Date(c.fecha+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'})
+                : (c.fechaHora ? new Date(c.fechaHora).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—');
               const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${c.observacion}</div>` : '';
               return `<tr style="border-bottom:1px solid #F0F0F0">
+                <td style="padding:7px 10px;color:var(--text-muted);white-space:nowrap">${fechaC}</td>
                 <td style="padding:7px 10px;font-weight:500">${cleanNombre(c.nombre||c.producto||'')}${obs}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${c.presentacion||'—'}</td>
                 <td style="padding:7px 10px;text-align:center">${c.cantFraccionada??'—'}</td>
@@ -2042,7 +2047,7 @@ async function guardarProduccionFinal() {
         cantFraccionada: el.cant,
         cantSolicitada:  _pfOrden.cantidad,
         roles, responsables, desde, hasta, empleado,
-        fecha:           fechaFiltro,
+        fecha:           _pfOrden.fecha || fechaFiltro,
         graneles:        el.graneles,
         granel:          el.graneles[0]?.granel || null,
         nombreGranel:    el.graneles[0]?.nombreGranel || '',

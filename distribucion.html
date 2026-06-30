@@ -379,7 +379,6 @@
         <option value="Si" selected>Envasar: Sí</option>
         <option value="No">Envasar: No</option>
       </select>
-      <label class="chk" id="filtrarOcultarWrap" style="display:none" title="Oculta los códigos cargados en la tab Ocultar Pesable"><input type="checkbox" id="filtrarOcultar" checked> Ocultar códigos</label>
       <div class="rubro-filter" id="rubroFilter" style="display:none;position:relative">
         <button class="rubro-btn" id="rubroBtn" onclick="toggleRubroDropdown()">Rubro <span id="rubroBtnCount"></span>▾</button>
         <div class="rubro-drop" id="rubroDrop" style="display:none"></div>
@@ -941,7 +940,7 @@ async function cargarP() {
   st.innerHTML = '<div class="spinner"></div><div>Calculando pesables…</div>';
   try {
     const [rP, asigR, empR] = await Promise.all([
-      fetch('/api/distribucion/pesables' + (document.getElementById('filtrarOcultar').checked ? '' : '?ocultar=0')),
+      fetch('/api/distribucion/pesables'),
       fetch('/api/distribucion/fraccionado-asignaciones').then(r => r.json()).catch(() => ({})),
       fetch('/api/responsables').then(r => r.json()).catch(() => []),
       cargarProdHoy(),
@@ -994,7 +993,6 @@ function activarTab(name){
   moverInk(document.querySelector('.tab.on'));
   document.querySelector('.controls').style.display = esDataTab(name) ? '' : 'none';
   document.getElementById('fEnvasar').style.display = name==='pesables' ? '' : 'none';
-  document.getElementById('filtrarOcultarWrap').style.display = 'none';
   document.getElementById('sucFiltrosP').style.display = name==='pesables' ? 'flex' : 'none';
   if (name==='pesables') { renderSucDropP(); actualizarSucBtnP(); }
   document.getElementById('rubroFilter').style.display = 'none';
@@ -1343,9 +1341,6 @@ async function guardarTipo(sel) {
 document.getElementById('q').oninput = reRender;
 document.getElementById('soloEnvio').onchange = reRender;
 document.getElementById('fEnvasar').onchange = renderP;
-(() => { const cb=document.getElementById('filtrarOcultar');
-  cb.checked = localStorage.getItem('filtrarOcultarPesable') !== '0';
-  cb.onchange = () => { localStorage.setItem('filtrarOcultarPesable', cb.checked ? '1' : '0'); datosP=[]; pCargado=false; cargarP(); }; })();
 document.getElementById('reload').onclick = () => tabActual==='almacen' ? cargar() : (tabActual==='pesables' ? cargarP() : (tabActual==='envasar' ? (pCargado ? renderEnvasar() : cargarP().then(renderEnvasar)) : null));
 document.getElementById('pdfA').onclick = exportarPDFAlmacen;
 document.getElementById('pdfP').onclick = exportarPDFPesables;
