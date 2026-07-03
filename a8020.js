@@ -41,8 +41,12 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
   const z = config.servicio;
   const ovr = overrides || {};
   const techoDef = config.techoDefault != null ? config.techoDefault : 10000;
+  const kFrac = config.minFraccion || { A: 0.7, B: 0.5, C: 0.35 };   // gatillo = fracción de S por clase ABC
 
-  // Construye una fila (suc, plu) calculando S = μ·(T+L) + z·σ·√(T+L) con caps de override.
+  // Construye una fila (suc, plu). Dos niveles:
+  //   S   = μ·(T+L) + z·σ·√(T+L)   (order-up-to / objetivo al que se repone)
+  //   min = S · k[clase]           (punto de pedido / gatilla la reposición; k por ABC)
+  // Caps de override: mult y techo a S; pisoManual al min; min se clampa ≤ S.
   function buildFila(idSucursal, sucKey, plu, mu, sigma, cls, extra) {
     const sc = sucById[idSucursal];
     if (!sc) return null;
@@ -53,16 +57,21 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
     const piso = o.pisoManual != null ? o.pisoManual : 0;
     const techo = o.techo != null ? o.techo : techoDef;
     const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
+    const k = kFrac[cls] != null ? kFrac[cls] : (kFrac.C != null ? kFrac.C : 0.35);
     let S = mu * TL + zc * sigma * Math.sqrt(TL);
-    S = TL <= 0 ? 0 : roundDec(Math.min(Math.max(S * mult, piso), techo), dec);
-    return Object.assign({ idSucursal, sucursal: sucKey, plu: Number(plu), mu, sigma, abc: cls, z: zc, S }, extra || {});
+    S = TL <= 0 ? 0 : roundDec(Math.min(Math.max(S * mult, 0), techo), dec);
+    let min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
+    return Object.assign({ idSucursal, sucursal: sucKey, plu: Number(plu), mu, sigma, abc: cls, z: zc, S, min }, extra || {});
   }
 
+  // Denominador de μ/σ: 'operativos' (días operativos de la sucursal, default) o
+  // 'activos' (días-con-venta del producto → reacciona a demanda reciente/intermitente, puede sobre-stockear).
+  const denomActivos = ((config.demanda || {}).denominador === 'activos');
   const filas = [];
   for (const r of stats) {
     const sc = sucById[r.idSucursal];
     if (!sc) continue;
-    const N = opsDays[r.idSucursal] || 0;
+    const N = denomActivos ? (Number(r.dcv) || 0) : (opsDays[r.idSucursal] || 0);
     if (N <= 0) continue;
     const mu = (Number(r.sumQ) || 0) / N;
     const sigma = Math.sqrt(Math.max((Number(r.sumQ2) || 0) / N - mu * mu, 0));
@@ -88,7 +97,7 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
       const b = baseIdx[f.plu];
       if (!b) continue;
       const nf = buildFila(f.idSucursal, f.sucursal, f.plu, f.mu + fct * b.mu, f.sigma + fct * b.sigma, f.abc, { propBase: fct });
-      if (nf) { f.mu = nf.mu; f.sigma = nf.sigma; f.S = nf.S; f.propBase = fct; }
+      if (nf) { f.mu = nf.mu; f.sigma = nf.sigma; f.S = nf.S; f.min = nf.min; f.propBase = fct; }
     }
     // 2) Crea filas para PLUs que vende la base pero la sucursal con factor no (μ_propio=0)
     for (const suc of propSucs) {

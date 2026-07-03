@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan de Distribución — Actual vs Nuevo</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#171a21; --surface2:#1e222b; --border:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa3b2; --faint:#6b7280;
+    --azul:#4c8dff; --azul-bg:#12233f;
+    --verde:#3fb950; --verde-bg:#0f2417;
+    --amarillo:#e3b341; --amarillo-bg:#2a2413;
+    --rojo:#f85149; --rojo-bg:#2a1416;
+    --violeta:#a371f7; --violeta-bg:#20182f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 22px 80px}
+  header{border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:28px}
+  h1{font-size:27px;margin:0 0 6px;font-weight:750;letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:14px}
+  h2{font-size:20px;margin:38px 0 12px;font-weight:700;display:flex;align-items:center;gap:9px}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+    background:var(--azul-bg);color:var(--azul);border-radius:7px;font-size:14px;font-weight:700}
+  h3{font-size:16px;margin:22px 0 8px;font-weight:650;color:var(--text)}
+  p{margin:9px 0}
+  code{background:var(--surface2);padding:1.5px 6px;border-radius:5px;font-size:13px;
+    font-family:"JetBrains Mono",Consolas,monospace;color:#c9d3e0}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}}
+  .col-old{border-left:3px solid var(--faint)}
+  .col-new{border-left:3px solid var(--verde)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+    padding:2px 9px;border-radius:20px;margin-bottom:8px}
+  .tag-old{background:var(--surface2);color:var(--muted)}
+  .tag-new{background:var(--verde-bg);color:var(--verde)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.3px}
+  tr:last-child td{border-bottom:0}
+  .formula{background:var(--surface2);border:1px solid var(--border);border-radius:9px;
+    padding:14px 18px;margin:12px 0;font-family:"JetBrains Mono",Consolas,monospace;font-size:14.5px;color:#dbe4f0;overflow-x:auto}
+  .obs{border-left:3px solid var(--amarillo);background:var(--amarillo-bg)}
+  .obs.crit{border-left-color:var(--rojo);background:var(--rojo-bg)}
+  .obs.ok{border-left-color:var(--verde);background:var(--verde-bg)}
+  .obs .h{font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:7px}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  .pill{font-size:12px;padding:2px 8px;border-radius:6px;font-weight:600}
+  .pill.a{background:var(--rojo-bg);color:var(--rojo)}
+  .pill.b{background:var(--amarillo-bg);color:var(--amarillo)}
+  .pill.c{background:var(--azul-bg);color:var(--azul)}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0}
+  .flow .step{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 13px;font-size:13.5px}
+  .flow .arr{color:var(--faint);font-size:18px}
+  .muted{color:var(--muted)}
+  .kbd{font-family:monospace;font-size:12.5px;background:var(--surface2);border:1px solid var(--border);
+    border-radius:5px;padding:1px 6px}
+  .foot{margin-top:48px;padding-top:18px;border-top:1px solid var(--border);color:var(--faint);font-size:13px}
+  .diff-add{color:var(--verde)} .diff-del{color:var(--rojo)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Plan de Distribución de Mercadería</h1>
+  <div class="sub">Abastecimiento de las 7 sucursales activas · Comparación planteamiento <b>actual</b> vs <b>nuevo</b> · Julio 2026</div>
+</header>
+
+<div class="card">
+  <p style="margin-top:0"><b>Idea central.</b> El sistema define un <b>mínimo de stock por producto y por sucursal</b> a partir de las ventas, y decide cuánto enviar desde casa central. Ya existe un motor que hace casi todo esto (subsistema <b>A8020</b> + motores de <b>almacén</b> y <b>pesables</b>). El plan <b>no reescribe el motor</b>: lo formaliza y le agrega tres mejoras puntuales.</p>
+</div>
+
+<!-- 1 -->
+<h2><span class="n">1</span> Las 7 sucursales activas</h2>
+<p>Cada sucursal tiene su frecuencia de reposición <code>T</code> (días entre pedidos) y tránsito <code>L</code>, definidos en <code>data/distribucion_config.json</code>. Estos parámetros determinan el nivel de cobertura de cada mínimo.</p>
+<table>
+  <tr><th>Sucursal</th><th>idSucursal</th><th>T (reposición)</th><th>L (tránsito)</th></tr>
+  <tr><td>Rivadavia</td><td>5</td><td>8</td><td>0</td></tr>
+  <tr><td>Urquiza</td><td>2</td><td>8</td><td>0</td></tr>
+  <tr><td>Nación</td><td>3</td><td>8</td><td>0</td></tr>
+  <tr><td>Chacabuco</td><td>4</td><td>8</td><td>0</td></tr>
+  <tr><td>Pergamino</td><td>10</td><td>10</td><td>0</td></tr>
+  <tr><td>San Pedro</td><td>7</td><td>10</td><td>0</td></tr>
+  <tr><td>Villa Ramallo</td><td>9</td><td>10</td><td>0</td></tr>
+</table>
+<p class="muted">Rivadavia es la sucursal base: Pergamino y Villa Ramallo suman una fracción (0.4) de su consumo vía <code>proporcionBase</code>. Logia y Sucu11 existen en el motor de pesables pero no forman parte del abastecimiento primario (T=0).</p>
+
+<!-- 2 -->
+<h2><span class="n">2</span> Cómo se calcula el mínimo (método vigente)</h2>
+<p>Jerarquía de factores, en orden: <b>ventas → duración de stock hasta reposición → velocidad de rotación</b>.</p>
+
+<h3>a) Ventas → demanda</h3>
+<p>Sobre una ventana de <b>24 meses</b> se calcula, por sucursal y producto: media diaria <code>μ</code> y desvío <code>σ</code>.</p>
+
+<h3>b) Duración + rotación → nivel objetivo (S) y mínimo (min)</h3>
+<div class="formula">
+S = μ·(T+L) + z·σ·√(T+L)        <span class="muted">← nivel objetivo (order-up-to)</span><br>
+min = S · k[ABC]                 <span class="muted">← punto de pedido (gatillo)</span>
+</div>
+<p>La <b>rotación</b> entra por la clasificación <b>ABC</b> (Pareto sobre facturación, cortes 80% / 95%), que define dos cosas:</p>
+<table>
+  <tr><th>Clase</th><th>z (nivel de servicio)</th><th>k = min/S (<code>minFraccion</code>)</th><th>Interpretación</th></tr>
+  <tr><td><span class="pill a">A</span> alta rotación</td><td>2.05 (~98%)</td><td>0.70</td><td>gatilla temprano, pide seguido</td></tr>
+  <tr><td><span class="pill b">B</span> media</td><td>1.645 (~95%)</td><td>0.50</td><td>balanceado</td></tr>
+  <tr><td><span class="pill c">C</span> baja rotación</td><td>1.28 (~90%)</td><td>0.35</td><td>gatilla tarde, pide grande</td></tr>
+  <tr><td><span class="pill" style="background:var(--violeta-bg);color:var(--violeta)">F</span> viejo sin rotación <span class="tag tag-new" style="margin:0">nuevo</span></td><td>—</td><td>~0</td><td>no se stockea; se etiqueta para depurar</td></tr>
+</table>
+<p class="muted">Resultado: cada producto tiene un <code>min</code> y un <code>S</code> propios por cada sucursal, guardados en <code>data/a8020.json</code> (formato legacy <code>minRiv, SRiv, …</code>) y <code>data/a8020_calc.json</code> (con detalle μ/σ y flags).</p>
+
+<h3>c) Casos borde ya cubiertos</h3>
+<ul>
+  <li><b>Bajo consumo</b> (menos de 15 días con venta): <b>nivelación</b> — mezcla la estadística propia con el promedio del rubro (peso <code>w</code> proporcional a la falta de datos).</li>
+  <li><b>Presencia forzada</b>: <code>empujePresencia</code> (piso=6) eleva min/S para dar presencia en góndola aunque la estadística sea baja. Se auto-limita por el stock disponible en central.</li>
+  <li><b>Productos nuevos sin ventas</b>: <b>bootstrap por rubro</b> — genera min/S desde el promedio de la categoría… <span class="diff-del">pero HOY solo para pesables</span>.</li>
+</ul>
+
+<h3>d) Nuevo vs viejo sin rotación <span class="tag tag-new">nuevo</span></h3>
+<p>Entre los productos <b>sin ventas</b>, no todos son iguales. Se los separa mirando su historial en la tabla <code>MovimientosStock</code> (la misma de <code>REC-SUC</code>), <b>excluyendo</b> los movimientos tipo <b>compra</b>:</p>
+<table>
+  <tr><th>Situación (sin ventas)</th><th>Historial de movimientos</th><th>Clasificación</th><th>Acción</th></tr>
+  <tr>
+    <td><b>Producto nuevo</b></td>
+    <td>Ningún movimiento, o solo compras, o primer movimiento reciente (&lt; umbral de meses)</td>
+    <td><span class="tag tag-new" style="margin:0">Nuevo</span></td>
+    <td>Bootstrap por rubro (clase C) + <b>badge "Nuevo"</b>. Se le da presencia hasta que acumule ventas.</td>
+  </tr>
+  <tr>
+    <td><b>Viejo sin rotación</b></td>
+    <td>Varios movimientos repartidos por ≥ umbral de meses, pero cero ventas</td>
+    <td><span class="pill" style="background:var(--violeta-bg);color:var(--violeta)">F</span></td>
+    <td>Clase <b>F</b>: mínimo casi nulo, <b>sin</b> <code>empujePresencia</code>, etiquetado para depurar. Es stock muerto.</td>
+  </tr>
+</table>
+<p class="muted">Umbral (<code>antiguedadMesesNuevo</code>) y <code>minFraccion.F</code> se configuran en <code>distribucion_config.json</code>. La distinción evita darle presencia en góndola a productos que ya demostraron que no rotan.</p>
+
+<!-- 3 -->
+<h2><span class="n">3</span> Distribución: ideal teórico vs calculado</h2>
+<p>Con los mínimos definidos, el motor decide el envío en dos capas:</p>
+
+<div class="flow">
+  <span class="step"><b>Ideal teórico</b><br><span class="muted">S − stock</span></span>
+  <span class="arr">→</span>
+  <span class="step">¿central alcanza?</span>
+  <span class="arr">→</span>
+  <span class="step"><b>Calculado</b><br><span class="muted">reparto por faltante</span></span>
+</div>
+
+<div class="grid">
+  <div class="card col-old">
+    <span class="tag tag-old">Ideal teórico</span>
+    <p style="margin-top:2px">Lo que <b>debería</b> enviarse sin límites: <code>pideTeorico = max(S − stock, 0)</code> por sucursal, si el producto envasa y el stock cayó al mínimo.</p>
+    <p class="muted">Suma de todas las sucursales = <code>pideTotal</code>.</p>
+  </div>
+  <div class="card col-new">
+    <span class="tag tag-new">Calculado</span>
+    <p style="margin-top:2px">Lo que <b>realmente</b> se envía. Si <code>central ≥ pideTotal</code> → se manda el ideal completo. Si no alcanza, <code>racion()</code> reparte el stock disponible proporcional al faltante ponderado.</p>
+    <p class="muted">Sucursal con stock <b>cero pesa el doble</b> (<code>PESO_VACIO=2</code>): recibe más, pero no excluye al resto. <b>Se envía lo que hay aunque no cubra la cantidad ideal.</b></p>
+  </div>
+</div>
+
+<div class="formula">
+racion(pide, stock) = pide · PESO(stock) · central / faltanteEfectivoTotal<br>
+<span class="muted">PESO(stock) = 2 si stock==0, si no 1</span>
+</div>
+
+<h3>Facturaciones en curso</h3>
+<p>Si un producto ya fue facturado a una sucursal <b>desde su última recepción</b> (<code>MovimientosStock</code> tipo <code>REC-SUC</code>), la celda muestra <b>"Fact"</b> y no se reenvía. <b>Decisión del plan: se mantiene este comportamiento</b> (bloquea reenvío; no resta cantidades parciales).</p>
+
+<!-- 4 -->
+<h2><span class="n">4</span> Qué cambia: actual vs nuevo</h2>
+<p>El nuevo planteamiento agrega tres cosas. El resto del motor queda igual.</p>
+
+<table>
+  <tr><th style="width:22%">Aspecto</th><th style="width:39%">Actual</th><th style="width:39%">Nuevo</th></tr>
+  <tr>
+    <td><b>Productos nuevos de almacén</b></td>
+    <td class="diff-del">Sin ventas → no reciben mínimo. Dependen solo de <code>empujePresencia</code>. (ej. PLU 5681 no aparece en A8020)</td>
+    <td class="diff-add">Bootstrap por rubro también para almacén: min/S desde el promedio de la categoría, igual que pesables. Cierra el gap.</td>
+  </tr>
+  <tr>
+    <td><b>Productos sin ventas: nuevo vs viejo</b></td>
+    <td class="diff-del">Todos los productos sin ventas se tratan igual. No se distingue un lanzamiento reciente de stock muerto.</td>
+    <td class="diff-add">Se mira <code>MovimientosStock</code>: sin movimientos / solo compra / recientes → <b>badge "Nuevo"</b>; con movimientos viejos y cero ventas → <b>clase F</b> (no se empuja).</td>
+  </tr>
+  <tr>
+    <td><b>Visibilidad ideal vs calculado</b></td>
+    <td class="diff-del">La grilla muestra solo el envío calculado. El ideal se calcula internamente pero <b>no se ve</b>.</td>
+    <td class="diff-add">La celda de envío muestra el <b>calculado</b>; el <b>tooltip</b> revela el ideal teórico. Se ve cuándo y cuánto se racionó.</td>
+  </tr>
+  <tr>
+    <td><b>Facturaciones</b></td>
+    <td>Badge "Fact" bloquea reenvío.</td>
+    <td class="diff-add">Sin cambio (decisión explícita).</td>
+  </tr>
+  <tr>
+    <td><b>Documentación</b></td>
+    <td class="diff-del">Dispersa en el código.</td>
+    <td class="diff-add">Este documento como referencia del método.</td>
+  </tr>
+</table>
+
+<h3>Cómo se implementa (resumen técnico)</h3>
+<table>
+  <tr><th>Cambio</th><th>Archivo / función</th></tr>
+  <tr><td>Bootstrap por rubro para almacén</td><td><code>server.js</code> · <code>recalcularA8020()</code> — replicar el bloque de bootstrap de pesables para el universo de productos de almacén sin datos, reusando <code>rubroIdx</code>, <code>rubroOf()</code>, <code>levelsOf()</code>.</td></tr>
+  <tr><td>Clasificación Nuevo / F</td><td><code>server.js</code> · nueva query a <code>MovimientosStock</code> (excluye tipo compra) → flags <code>nuevo</code>/<code>viejo</code> y <code>abc='F'</code> en el cache. Config: <code>antiguedadMesesNuevo</code>, <code>minFraccion.F</code>. UI: badge en <code>a8020.html</code>.</td></tr>
+  <tr><td>Exponer ideal (almacén)</td><td><code>distribucion.js</code> · <code>calcularFilaAlmacen()</code> devuelve <code>ideal{}</code> → <code>server.js</code> lo propaga → <code>distribucion.html</code> lo pinta en el <code>title</code> de la celda.</td></tr>
+  <tr><td>Exponer ideal (pesables)</td><td><code>pesables.js</code> devuelve el teórico por sucursal → mismo tooltip en la celda de pesables.</td></tr>
+</table>
+
+<!-- 5 -->
+<h2><span class="n">5</span> Observaciones importantes</h2>
+
+<div class="card obs crit">
+  <div class="h">⚠ Punto único de dependencia: última recepción</div>
+  Todo el bloqueo "Fact" depende del timestamp <code>REC-SUC</code> en <code>MovimientosStock</code>. Si una recepción no se registra o llega con fecha mal, el sistema puede <b>reenviar de más</b> (cree que no se facturó) o <b>bloquear de más</b>. Vale monitorear que las recepciones se carguen bien.
+</div>
+
+<div class="card obs">
+  <div class="h">⚠ Facturaciones bloquean, no restan</div>
+  Como "Fact" es todo-o-nada, si una sucursal recibió una reposición <b>parcial</b> el sistema igual bloquea el resto del pedido hasta la próxima recepción. Es una decisión aceptada, pero conviene tenerla presente para productos de alta rotación.
+</div>
+
+<div class="card obs">
+  <div class="h">⚠ Bug histórico Pergamino / Villa Ramallo</div>
+  En la planilla original estas dos sucursales leían el mínimo de <b>Chacabuco</b> por error. El código lo corrige con el flag <code>corregirBugs</code> (activo en producción). El modo sin corrección existe solo para validar contra la planilla vieja.
+</div>
+
+<div class="card obs ok">
+  <div class="h">✓ El bootstrap no altera lo existente</div>
+  El bootstrap por rubro solo genera mínimos para productos que <b>no tenían datos</b>. Los productos con ventas reales no cambian. Por eso es un cambio de bajo riesgo: agrega cobertura sin tocar los cálculos ya validados.
+</div>
+
+<div class="card obs">
+  <div class="h">⚠ Productos nuevos entran como clase C</div>
+  Al no tener historial, todo bootstrap se clasifica <b>C</b> (baja rotación, k=0.35). Es conservador a propósito: dan presencia sin sobre-stockear. Cuando acumulen ventas reales, el recálculo los reclasifica solo.
+</div>
+
+<div class="card obs">
+  <div class="h">⚠ La frontera Nuevo / F depende del umbral de meses</div>
+  Distinguir un producto nuevo de uno viejo sin rotación se apoya en <code>antiguedadMesesNuevo</code> y en qué <code>IdTipoMovimiento</code> cuentan como "compra". Conviene confirmar los tipos reales de <code>MovimientosStock</code> (<code>SELECT DISTINCT IdTipoMovimiento</code>) y ajustar el umbral con un par de casos conocidos antes de confiar en la clase F para depurar surtido.
+</div>
+
+<div class="card obs ok">
+  <div class="h">✓ El reparto por faltante es justo, no ciego</div>
+  Cuando central no alcanza, <code>racion()</code> prioriza sucursales vacías (peso ×2) pero reparte a todas. Nadie queda en cero si hay algo para mandar — se envía lo que hay aunque no cubra el ideal, exactamente como pide el objetivo.
+</div>
+
+<div class="foot">
+  Referencias de código: <code>a8020.js</code> (mínimos), <code>distribucion.js</code> (motor almacén), <code>pesables.js</code> (motor pesables, 3 pasadas), <code>server.js</code> · <code>recalcularA8020()</code> / <code>calcularDistribucionAlmacen()</code>, <code>data/distribucion_config.json</code> (parámetros).
+</div>
+
+</div>
+</body>
+</html>

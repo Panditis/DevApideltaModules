@@ -58,14 +58,15 @@ const P = {
 //   restr = clave listas.restringidos (null si no aplica)
 //   teoFlag/envFlag = flag Fact que anula el teórico / marca "Fact" en Enviar (bugs incluidos)
 //   centralFlat = Riv usa umbral central plano D15 (resto min*D16)
+//   S/SBug = campo order-up-to propio / el que lee la planilla (mismo bug Pergamino/Ramallo = chaca)
 const SUC = [
-  { key: 'riv',       min: 'minRiv',       minBug: 'minRiv',      pmin: 0.3, fb: 0.2, restr: 'rivadavia',    teoFlag: null,        envFlag: 'rivadavia', centralFlat: true },
-  { key: 'urq',       min: 'minUrq',       minBug: 'minUrq',      pmin: 0.4, fb: 0.2, restr: 'urquiza',      teoFlag: 'urquiza',   envFlag: 'urquiza' },
-  { key: 'nacion',    min: 'minNacion',    minBug: 'minNacion',   pmin: 0.4, fb: 0.2, restr: 'nacion',       teoFlag: 'nacion',    envFlag: 'nacion' },
-  { key: 'chaca',     min: 'minChaca',     minBug: 'minChaca',    pmin: 0.4, fb: 0.2, restr: 'chacabuco',    teoFlag: 'chacabuco', envFlag: 'chacabuco' },
-  { key: 'pergamino', min: 'minPergamino', minBug: 'minChaca',    pmin: 0.4, fb: 0.2, restr: 'pergamino',    teoFlag: 'pergamino', envFlag: 'pergamino' },
-  { key: 'sanpedro',  min: 'minSanPedro',  minBug: 'minSanPedro', pmin: 0.4, fb: 0.2, restr: 'sanPedro',     teoFlag: 'pergamino', envFlag: 'sanPedro' },
-  { key: 'ramallo',   min: 'minVRamallo',  minBug: 'minChaca',    pmin: 0.4, fb: 0.2, restr: 'villaRamallo', teoFlag: 'pergamino', envFlag: 'ramallo' },
+  { key: 'riv',       min: 'minRiv',       minBug: 'minRiv',      S: 'SRiv',       SBug: 'SRiv',    pmin: 0.3, fb: 0.2, restr: 'rivadavia',    teoFlag: null,        envFlag: 'rivadavia', centralFlat: true },
+  { key: 'urq',       min: 'minUrq',       minBug: 'minUrq',      S: 'SUrq',       SBug: 'SUrq',    pmin: 0.4, fb: 0.2, restr: 'urquiza',      teoFlag: 'urquiza',   envFlag: 'urquiza' },
+  { key: 'nacion',    min: 'minNacion',    minBug: 'minNacion',   S: 'SNacion',    SBug: 'SNacion', pmin: 0.4, fb: 0.2, restr: 'nacion',       teoFlag: 'nacion',    envFlag: 'nacion' },
+  { key: 'chaca',     min: 'minChaca',     minBug: 'minChaca',    S: 'SChaca',     SBug: 'SChaca',  pmin: 0.4, fb: 0.2, restr: 'chacabuco',    teoFlag: 'chacabuco', envFlag: 'chacabuco' },
+  { key: 'pergamino', min: 'minPergamino', minBug: 'minChaca',    S: 'SPergamino', SBug: 'SChaca',  pmin: 0.4, fb: 0.2, restr: 'pergamino',    teoFlag: 'pergamino', envFlag: 'pergamino' },
+  { key: 'sanpedro',  min: 'minSanPedro',  minBug: 'minSanPedro', S: 'SSanPedro',  SBug: 'SSanPedro',pmin: 0.4, fb: 0.2, restr: 'sanPedro',     teoFlag: 'pergamino', envFlag: 'sanPedro' },
+  { key: 'ramallo',   min: 'minVRamallo',  minBug: 'minChaca',    S: 'SVRamallo',  SBug: 'SChaca',  pmin: 0.4, fb: 0.2, restr: 'villaRamallo', teoFlag: 'pergamino', envFlag: 'ramallo' },
 ];
 
 // ── Helpers estilo Excel ──────────────────────────────────────────────────────
@@ -83,6 +84,14 @@ function minSucursal(suc, a, cl, corregir) {
   return cl > 0 ? base / cl : base;
 }
 
+// Order-up-to sucursal: mismo clamp que minSucursal pero sobre el nivel objetivo S.
+function sSucursal(suc, a, cl, corregir) {
+  if (!a) return suc.fb || 0;
+  const v = a[corregir ? suc.S : suc.SBug] || 0;
+  const base = v <= 0 ? suc.fb : Math.min(Math.max(suc.pmin, v), P.maxPP);
+  return cl > 0 ? base / cl : base;
+}
+
 function enviarSN(envasable, stock, min, H, F, suc) {
   if (!envasable) return 'No';            // BK="No" gana aunque min sea #N/A
   if (!isFinite(min)) return '#N/A';      // min #N/A ⇒ N>O = #N/A ⇒ fila errónea
@@ -93,11 +102,12 @@ function enviarSN(envasable, stock, min, H, F, suc) {
   return 'Si';
 }
 
-function enviarTeorico(suc, sn, min, stock, BG, flags, recKeys) {
+// Teórico = reponer hasta S (order-up-to): MAX(S − stock, 0), con tope maxEnviar.
+// Antes: min·mult − stock/2 (mult según importancia BG) — reemplazado por modelo min/S.
+function enviarTeorico(suc, sn, S, stock, flags, recKeys) {
   if (suc.teoFlag && !(recKeys && recKeys.has(suc.key)) && (flags[suc.teoFlag] || 0) === 1) return 0;
   if (sn !== 'Si') return 0;
-  const mult = BG > P.pctImp ? P.multAlta : P.multBaja;
-  return Math.min(min * mult - half(stock), P.maxEnviar);
+  return Math.min(Math.max(S - stock, 0), P.maxEnviar);
 }
 
 function enviarFinal(suc, plu, sn, teo, M, restrSets, flags, recKeys) {
@@ -139,14 +149,15 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new
     const F = Math.max(st.granel || 0, 0), H = Math.max(st.central || 0, 0);
     const a = a8020[String(plu)];
 
-    const mins = {}, sn = {}, teo = {};
+    const mins = {}, sLev = {}, sn = {}, teo = {};
     for (const suc of SUC) {
       // Stock sucursal = MAX(stock,0), salvo Sucu11 que la planilla NO clampa (MAX de un solo valor).
       const stock = suc.key === 'sucu11' ? (st.sucu11 || 0) : Math.max(st[suc.key] || 0, 0);
       const m = minSucursal(suc, a, cl, corregir);
-      mins[suc.key] = m;
-      sn[suc.key] = enviarSN(BK === 'Si', stock, m, H, F, suc);
-      teo[suc.key] = enviarTeorico(suc, sn[suc.key], m, stock, BG, flags, recKeys);
+      const s = sSucursal(suc, a, cl, corregir);
+      mins[suc.key] = m; sLev[suc.key] = s;
+      sn[suc.key] = enviarSN(BK === 'Si', stock, m, H, F, suc);   // gatillo con min (punto de pedido)
+      teo[suc.key] = enviarTeorico(suc, sn[suc.key], s, stock, flags, recKeys);   // repone hasta S
     }
     const sumTeo = SUC.reduce((s, suc) => s + teo[suc.key], 0);
     // PLU ausente del A8020: los teóricos son #N/A ⇒ CH = SUM(#N/A) = #N/A (NaN).

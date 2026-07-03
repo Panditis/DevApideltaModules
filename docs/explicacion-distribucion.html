@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cómo funciona la Distribución — Explicación</title>
+<style>
+  :root{
+    --bg:#0f1720; --card:#18222e; --card2:#1e2a38; --line:#2a3a4d;
+    --txt:#e6edf3; --faint:#9fb0c0; --accent:#4ea1ff; --accent2:#3ddc97;
+    --warn:#ffb454; --danger:#ff6b6b; --purple:#b78cff;
+    --verde:#1f3d2f; --verde-txt:#6ee7a8; --amar:#3d3320; --amar-txt:#ffd479;
+    --azul:#17324d; --azul-txt:#7cc4ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.65}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+  header{text-align:center;padding:28px 0 8px}
+  header h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  header p{color:var(--faint);margin:0;font-size:15px}
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 22px;margin:24px 0}
+  .toc b{color:var(--accent);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  .toc ol{margin:8px 0 0;padding-left:20px;columns:2;gap:24px}
+  .toc a{color:var(--txt);text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+  section{margin:34px 0}
+  h2{font-size:22px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  h2 .n{background:var(--accent);color:#02121f;width:30px;height:30px;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex:0 0 auto}
+  h3{font-size:17px;margin:22px 0 6px;color:var(--accent2)}
+  p{margin:8px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:14px 0}
+  .lead{font-size:16px;color:var(--faint)}
+  .formula{background:#0b1219;border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:8px;padding:12px 16px;font-family:"Cascadia Code",Consolas,monospace;
+    font-size:14px;color:#dbe7f2;overflow-x:auto;margin:12px 0}
+  .formula .cm{color:var(--faint)}
+  .ex{background:var(--azul);border:1px solid #24567f;border-radius:10px;padding:16px 20px;margin:14px 0}
+  .ex b{color:var(--azul-txt)}
+  .ex .step{margin:6px 0;padding-left:14px;border-left:2px solid #2f6a9e}
+  .note{background:var(--amar);border:1px solid #5c4a1e;border-radius:10px;padding:12px 18px;margin:14px 0;color:#ffe0a3}
+  .note b{color:var(--amar-txt)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  th{color:var(--accent);font-weight:600;border-bottom:2px solid var(--line)}
+  td code,p code,li code{background:#0b1219;border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;font-family:Consolas,monospace;font-size:13px;color:#8fd0ff}
+  .tag{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600}
+  .tag.g{background:var(--verde);color:var(--verde-txt)}
+  .tag.a{background:var(--amar);color:var(--amar-txt)}
+  .tag.r{background:#3a1e1e;color:#ff9b9b}
+  .tag.b{background:var(--azul);color:var(--azul-txt)}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0;justify-content:center}
+  .flow .box{background:var(--card2);border:1px solid var(--line);border-radius:9px;
+    padding:10px 14px;font-size:13px;text-align:center;min-width:120px}
+  .flow .box b{display:block;color:var(--accent2);font-size:13px}
+  .flow .box span{color:var(--faint);font-size:12px}
+  .flow .arr{color:var(--accent);font-size:20px;font-weight:700}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){.two{grid-template-columns:1fr}.toc ol{columns:1}.flow{flex-direction:column}.flow .arr{transform:rotate(90deg)}}
+  .key{color:var(--accent2);font-weight:600}
+  footer{text-align:center;color:var(--faint);font-size:13px;margin-top:50px;padding-top:20px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Cómo decide el sistema qué mandar a cada sucursal</h1>
+  <p>Explicación simple del cálculo de mínimos, reposición y envasado</p>
+</header>
+
+<div class="toc">
+  <b>Contenido</b>
+  <ol>
+    <li><a href="#idea">La idea en 1 minuto</a></li>
+    <li><a href="#a8020">El a8020: el "cerebro" de los mínimos</a></li>
+    <li><a href="#almacen">Motor Almacén (productos secos)</a></li>
+    <li><a href="#pesables">Motor Pesables (granel / envasado)</a></li>
+    <li><a href="#estados">Los estados: qué significa cada palabra</a></li>
+    <li><a href="#prop">Proporción de Rivadavia (%)</a></li>
+  </ol>
+</div>
+
+<!-- 1 -->
+<section id="idea">
+  <h2><span class="n">1</span> La idea en 1 minuto</h2>
+  <p class="lead">El sistema mira, para cada producto y cada sucursal, tres cosas:
+    <span class="key">cuánto se vende</span>, <span class="key">cuánto stock hay</span> y
+    <span class="key">cuánto hay en el depósito central</span>. Con eso decide a quién mandarle,
+    cuánto, y —si es pesable— cuánto hay que envasar desde el granel.</p>
+
+  <div class="flow">
+    <div class="box"><b>Ventas históricas</b><span>Siga → estadística</span></div>
+    <span class="arr">→</span>
+    <div class="box"><b>a8020</b><span>calcula mínimos</span></div>
+    <span class="arr">→</span>
+    <div class="box"><b>Comparo vs stock</b><span>¿falta o sobra?</span></div>
+    <span class="arr">→</span>
+    <div class="box"><b>Reparto lo que hay</b><span>en el central</span></div>
+  </div>
+
+  <div class="note"><b>Clave:</b> el central casi nunca alcanza para llenar a todos a la vez.
+    Por eso el sistema no solo calcula "cuánto necesita cada uno", sino que
+    <b>reparte lo disponible de forma justa</b>, priorizando a quien está en cero.</div>
+</section>
+
+<!-- 2 -->
+<section id="a8020">
+  <h2><span class="n">2</span> El a8020: el "cerebro" de los mínimos</h2>
+  <p>El módulo <code>a8020</code> transforma el historial de ventas en <b>un número por
+    producto y sucursal</b>: el nivel de stock que debería tener. Ese número se llama
+    <code>S</code>, y es <b>el mismo</b> que la distribución usa como <b>mínimo</b>
+    (<code>minRiv</code>, <code>minUrq</code>, …). Son la misma cifra, solo cambia el nombre del campo.</p>
+
+  <div class="note"><b>Aclaración:</b> <code>S</code> y <code>mínimo</code> son <b>lo mismo</b>.
+    En el a8020 se llama <code>S</code>; al pasarlo a la grilla de distribución se guarda como
+    <code>min</code> de cada sucursal. Cuando el stock de la sucursal cae por debajo de ese
+    número, entra en la lista de reposición.</div>
+
+  <h3>La cuenta central</h3>
+  <div class="formula">
+S = μ·(T+L) + z·σ·√(T+L)
+<span class="cm">   └─────┬────┘   └────┬────┘</span>
+<span class="cm">  demanda esperada   colchón de seguridad</span>
+  </div>
+
+  <table>
+    <tr><th>Símbolo</th><th>Qué es</th><th>En criollo</th></tr>
+    <tr><td><code>μ</code> (mu)</td><td>Venta diaria promedio</td><td>Cuánto sale por día</td></tr>
+    <tr><td><code>σ</code> (sigma)</td><td>Variación de la venta</td><td>Qué tan parejo o irregular vende</td></tr>
+    <tr><td><code>T</code></td><td>Días de cobertura</td><td>Cada cuánto le mandás</td></tr>
+    <tr><td><code>L</code></td><td>Tránsito</td><td>Lo que tarda en llegar</td></tr>
+    <tr><td><code>z</code></td><td>Factor de servicio (ABC)</td><td>Producto importante = más colchón</td></tr>
+  </table>
+
+  <p>Los productos se clasifican <b>A / B / C</b> por Pareto (los pocos que hacen la mayor
+    parte de la venta son <b>A</b> y llevan más colchón de seguridad).</p>
+
+  <h3>De dónde salen μ y σ</h3>
+  <p>Se sacan de las ventas de los últimos <b>12 meses</b> (configurable). Por cada sucursal y
+    producto, la base de datos devuelve cuánto se vendió y en cuántos días:</p>
+  <div class="formula">
+μ = total_vendido ÷ días_operativos          <span class="cm">// venta promedio por día</span>
+σ = √( promedio_de_cantidades² − μ² )        <span class="cm">// qué tan irregular vende</span>
+  </div>
+  <ul>
+    <li><b>días_operativos</b> = días en que la sucursal facturó algo (no solo los días que vendió
+      <i>ese</i> producto). Un producto que vende salteado tiene μ más baja → mínimo más chico.</li>
+  </ul>
+
+  <h3>Ajustes finales sobre el S</h3>
+  <div class="formula">S_final = redondear( acotar( S × mult , piso , techo ) )</div>
+  <ul>
+    <li><b>mult / piso / techo</b> = ajustes manuales por producto (si querés forzar un mínimo,
+      un tope, o multiplicar).</li>
+    <li>Redondeo: 1 decimal si es pesable (kg), entero si va por unidad.</li>
+  </ul>
+
+  <h3>Rellenos para sucursales o productos con poco historial</h3>
+  <p>Si una sucursal es nueva o vende poco, calcular su mínimo solo con sus datos daría
+    números pobres. Por eso hay tres "muletas":</p>
+  <table>
+    <tr><th>Ajuste</th><th>Cuándo se aplica</th><th>Qué hace</th></tr>
+    <tr><td><b>Nivelación</b></td><td>Sucursal con pocos días de venta</td>
+      <td>Mezcla su μ/σ con una sucursal de referencia o el promedio del rubro. Menos historial
+        propio → más peso al de referencia.</td></tr>
+    <tr><td><b>Bootstrap</b></td><td>Pesable sin nada de historial</td>
+      <td>Le inventa un μ/σ desde el promedio de su rubro, lo marca como clase C.</td></tr>
+    <tr><td><b>Fill-in</b></td><td>Producto que vende en otras sucursales pero no en esta</td>
+      <td>Copia el μ/σ de la sucursal de referencia y recalcula su S.</td></tr>
+  </table>
+  <p>Además, antes de todo, se aplica la <a href="#prop">proporción de Rivadavia</a> a las
+    sucursales configuradas.</p>
+
+  <div class="note"><b>En una frase:</b> el mínimo de cada producto en cada sucursal es
+    <b>cuánto vende por día × los días que tarda en reponerse, más un colchón por si vende
+    irregular</b> — y si no hay historial suficiente, se completa con la sucursal grande o el
+    promedio del rubro.</div>
+</section>
+
+<!-- 3 -->
+<section id="almacen">
+  <h2><span class="n">3</span> Motor Almacén <span style="font-size:14px;color:var(--faint);font-weight:400">(productos secos, no pesables)</span></h2>
+
+  <h3>Paso A — El mínimo de cada sucursal</h3>
+  <p>Toma el mínimo del a8020 y le aplica un piso:</p>
+  <div class="formula">min_sucursal = MAX( min_a8020 , piso )   <span class="cm">// piso = 1 si el central tiene stock, sino 0</span></div>
+  <p>Si el producto está marcado como "no lo maneja esa sucursal", el mínimo queda en <b>0</b>
+    (no se le manda nunca).</p>
+
+  <h3>Paso B — Cuánto pediría idealmente (teórico)</h3>
+  <div class="formula">
+pide = ( rota_poco ? min×4 : min×2 ) − (stock ÷ 2)
+       <span class="cm">// solo si el stock está por debajo del min</span>
+  </div>
+  <ul>
+    <li>Si el producto <b>rota poco</b> → pide <b>4× el mínimo</b> (colchón grande, no querés quedarte sin él porque tarda en reponerse).</li>
+    <li>Si <b>rota mucho</b> → pide <b>2× el mínimo</b> (se repone seguido, no hace falta acumular).</li>
+    <li>Le resta la mitad de lo que ya tiene en góndola.</li>
+  </ul>
+
+  <h3>Paso C — Repartir lo que realmente hay en el central</h3>
+  <p>Acá está la parte inteligente. Se suma lo que "pediría" cada sucursal:</p>
+  <ul>
+    <li><b>Si el central alcanza</b> (hay más que la suma de todos los pedidos) → cada uno recibe
+      lo que pidió, completo.</li>
+    <li><b>Si NO alcanza</b> → se reparte proporcionalmente, pero
+      <b>la sucursal que está en cero pesa el doble</b>: recibe una porción más grande,
+      pero sin dejar a los demás sin nada.</li>
+  </ul>
+  <div class="formula">
+porción = pedido × (stock==0 ? ×2 : ×1) × central ÷ (suma de pedidos ponderados)
+  </div>
+
+  <div class="ex">
+    <b>Ejemplo:</b> Central tiene <b>100 u</b> de un producto. Tres sucursales lo piden:
+    <div class="step">🅐 pide 60, tiene stock → peso ×1 → cuenta como 60</div>
+    <div class="step">🅑 pide 40, está en <b>cero</b> → peso ×2 → cuenta como 80</div>
+    <div class="step">🅒 pide 50, tiene stock → peso ×1 → cuenta como 50</div>
+    <div class="step">Suma ponderada = 60 + 80 + 50 = <b>190</b></div>
+    <div class="step">🅐 recibe 60×100/190 ≈ <b>32</b> · 🅑 recibe 80×100/190 ≈ <b>42</b> · 🅒 recibe 50×100/190 ≈ <b>26</b></div>
+    <div class="step">→ 🅑 (la que estaba en cero) se lleva la porción más grande. ✅</div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="pesables">
+  <h2><span class="n">4</span> Motor Pesables <span style="font-size:14px;color:var(--faint);font-weight:400">(granel → envasado)</span></h2>
+  <p>Los pesables tienen una vuelta extra: además de <b>mandar</b> a las sucursales, hay que
+    decidir cuánto <b>envasar</b> (pasar del granel a producto terminado).</p>
+
+  <h3>Paso A — Mínimo de la sucursal</h3>
+  <div class="formula">min = clamp( a8020 , entre pmin y 100 ) ÷ CL   <span class="cm">// CL = kg por unidad de la fórmula</span></div>
+  <p>Se acota el mínimo entre un piso y un techo, y se divide por los kilos que lleva cada unidad.</p>
+
+  <h3>Paso B — ¿Le mando? (Sí / No)</h3>
+  <p>Manda solo si se cumple <b>todo</b>:</p>
+  <ul>
+    <li>El producto es envasable.</li>
+    <li>El stock de la sucursal está por debajo del mínimo.</li>
+    <li>Hay suficiente entre granel + central (<code>H+F ≥ min×1.2</code>).</li>
+  </ul>
+
+  <h3>Paso C — Cuánto enviar</h3>
+  <div class="formula">enviar = min × multiplicador − (stock ÷ 2)   <span class="cm">// con tope máximo</span></div>
+  <p>Si el granel escasea, se prorratea entre todos los productos que salen de la misma tina de granel.</p>
+
+  <h3>Paso D — ¿Cuánto envasar?</h3>
+  <p>Se envasa cuando, después de mandar a las sucursales, al <b>central le quedaría poco</b>:</p>
+  <div class="formula">
+kg_a_envasar = MIN( granel_disponible , MAX( ventas , demanda + envío_máx×2 ) )
+  </div>
+  <p>La <b>prioridad de envasado</b> sube cuanto más vacío quedaría el central: si el stock
+    central no cubre ni el primer envío, es prioridad máxima.</p>
+
+  <div class="ex">
+    <b>En palabras:</b> primero calculo cuánto sale a las sucursales. Si eso me deja el central
+    casi vacío, mando a envasar granel para reponerlo — y le doy más prioridad a los productos
+    que más se van a vender o que más volumen mueven.
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="estados">
+  <h2><span class="n">5</span> Los estados: qué significa cada palabra</h2>
+  <p>En la grilla, cada celda de sucursal muestra un número (cantidad a enviar) o una palabra:</p>
+  <table>
+    <tr><th>Estado</th><th>Significado</th></tr>
+    <tr><td><b>número</b></td><td>Cantidad a enviar a esa sucursal.</td></tr>
+    <tr><td><span class="tag b">No</span></td><td>Ya tiene stock por encima del mínimo. No necesita.</td></tr>
+    <tr><td><span class="tag r">No stock</span></td><td>El central no tiene para mandar (está en cero o negativo).</td></tr>
+    <tr><td><span class="tag a">Fact</span></td><td>La sucursal facturó (recibió) hace poco — no se le vuelve a mandar todavía.</td></tr>
+    <tr><td><span class="tag r">Restringido</span></td><td>Ese producto está bloqueado para esa sucursal por configuración.</td></tr>
+    <tr><td><span class="tag g">Si / envasar</span></td><td>(Pesables) hay que envasar granel para este producto.</td></tr>
+  </table>
+</section>
+
+<!-- 6 -->
+<section id="prop">
+  <h2><span class="n">6</span> Proporción de Rivadavia (%)</h2>
+  <p>Algunas sucursales chicas casi no tienen historial propio de venta. Para no calcularles
+    mínimos en cero, se les puede sumar un <b>porcentaje del consumo de Rivadavia</b>
+    (la sucursal de referencia):</p>
+  <div class="formula">
+μ_final = μ_propio + factor × μ_rivadavia
+<span class="cm">// ej: factor 0.30 → suma el 30% de lo que consume Rivadavia</span>
+  </div>
+  <ul>
+    <li>Se configura por sucursal (ej: <code>{ urq: 0.30, nacion: 0.25 }</code>).</li>
+    <li>Si la sucursal <b>no vende</b> un producto que Rivadavia sí, se le crea igual una fila
+      con ese % (para que arranque a recibirlo).</li>
+    <li>Las filas ajustadas quedan marcadas para poder auditarlas.</li>
+  </ul>
+  <div class="note"><b>Para qué sirve:</b> arrancar sucursales nuevas o chicas con una base
+    razonable de reposición, tomando como espejo lo que se vende en la sucursal grande.</div>
+</section>
+
+<footer>
+  Sistema Apidelta · Módulo Distribución · Explicación funcional<br>
+  Motores: <code>a8020.js</code> (mínimos) · <code>distribucion.js</code> (almacén) · <code>pesables.js</code> (granel/envasado)
+</footer>
+
+</div>
+</body>
+</html>

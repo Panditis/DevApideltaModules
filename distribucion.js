@@ -34,12 +34,11 @@ function roundup(x, d = 0) {               // ROUNDUP: aleja del cero
   return Math.sign(x) * Math.ceil(Math.abs(x) * f) / f;
 }
 
-// Pide teórico (cols I,M,Q,...): IF(AND(min>=stock, envía), (BB>0.75?min*2:min*4) - (stock>0?round(stock/2):0), 0)
-function pideTeorico(min, stock, base8020, envasaSi) {
+// Pide teórico: gatilla si stock ≤ min (punto de pedido); repone hasta S (order-up-to).
+//   pedido = MAX(S − stock, 0).  Reemplaza la vieja fórmula (BB>0.75?min*2:min*4) − stock/2.
+function pideTeorico(min, S, stock, envasaSi) {
   if (!(min >= stock && envasaSi)) return 0;
-  const mult = base8020 > 0.75 ? min * 2 : min * 4;
-  const resta = stock > 0 ? round(stock / 2, 0) : 0;
-  return mult - resta;
+  return Math.max((S || 0) - stock, 0);
 }
 
 // Min con piso: flag ProductosAlmacen>0 ⇒ 0; sino MAX(minA8020, piso)
@@ -62,6 +61,22 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const has = (set, p) => !!(set && set.has(p));
   const pisoUno = D > 0 ? 1 : 0;
 
+  // Empuje por stock en central: si hay stock en el depósito (D>0) y la demanda estadística es baja
+  // (S < presencia), eleva min y S de cada sucursal a un piso de "presencia" para impulsar el envío
+  // aunque no haya estadística que lo respalde. Se auto-limita al stock del central vía el rateo.
+  const pres = (opts && opts.empujePresencia) || 0;
+  if (pres > 0 && D > 0 && envasaSi && !a.claseF) {   // clase F (viejo sin rotación): no se empuja
+    const pares = [['minRiv','SRiv'],['minUrq','SUrq'],['minNacion','SNacion'],['minChaca','SChaca'],
+      ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],['minLogia','SLogia'],
+      ['minVRamallo','SVRamallo'],['minVConst','SVConst']];
+    const aa = { ...a };
+    for (const [mk, sk] of pares) {
+      if ((aa[sk] || 0) < pres) aa[sk] = pres;   // objetivo (S) ≥ presencia
+      if ((aa[mk] || 0) < pres) aa[mk] = pres;   // gatillo (min) ≥ presencia → topa sucursales con poco
+    }
+    a = aa;
+  }
+
   // Mins por sucursal
   const minRiv       = Math.max(a.minRiv || 0, pisoUno);                    // sin flag (planilla)
   const minUrq       = minConPiso(pa.urquiza,   a.minUrq,      pisoUno);
@@ -75,16 +90,21 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
                                 : minConPiso(pa.chacabuco,    a.minChaca,     pisoUno);   // bug planilla
   const minSucu11    = minConPiso(pa.sucursal11, a.minVConst,  0);          // piso 0 (planilla)
 
-  // Pide teórico por sucursal
-  const pRiv = pideTeorico(minRiv, st.riv||0, BB, envasaSi);
-  const pUrq = pideTeorico(minUrq, st.urq||0, BB, envasaSi);
-  const pNac = pideTeorico(minNacion, st.nacion||0, BB, envasaSi);
-  const pCha = pideTeorico(minChaca, st.chaca||0, BB, envasaSi);
-  const pPer = pideTeorico(minPergamino, st.pergamino||0, BB, envasaSi);
-  const pSan = pideTeorico(minSanPedro, st.sanpedro||0, BB, envasaSi);
-  const pSu8 = pideTeorico(minSucu8, st.sucu8||0, BB, envasaSi);
-  const pSu9 = pideTeorico(minSucu9, st.sucu9||0, BB, envasaSi);
-  const pS11 = pideTeorico(minSucu11, st.sucu11||0, BB, envasaSi);
+  // Order-up-to (S) por sucursal — nivel al que se repone (a8020.json: SRiv, SUrq, …)
+  const sRiv = a.SRiv||0, sUrq = a.SUrq||0, sNac = a.SNacion||0, sCha = a.SChaca||0,
+        sPer = (corregir ? a.SPergamino : a.SChaca)||0, sSan = a.SSanPedro||0,
+        sSu8 = a.SLogia||0, sSu9 = (corregir ? a.SVRamallo : a.SChaca)||0, sS11 = a.SVConst||0;
+
+  // Pide teórico por sucursal: gatilla con min, repone hasta S
+  const pRiv = pideTeorico(minRiv, sRiv, st.riv||0, envasaSi);
+  const pUrq = pideTeorico(minUrq, sUrq, st.urq||0, envasaSi);
+  const pNac = pideTeorico(minNacion, sNac, st.nacion||0, envasaSi);
+  const pCha = pideTeorico(minChaca, sCha, st.chaca||0, envasaSi);
+  const pPer = pideTeorico(minPergamino, sPer, st.pergamino||0, envasaSi);
+  const pSan = pideTeorico(minSanPedro, sSan, st.sanpedro||0, envasaSi);
+  const pSu8 = pideTeorico(minSucu8, sSu8, st.sucu8||0, envasaSi);
+  const pSu9 = pideTeorico(minSucu9, sSu9, st.sucu9||0, envasaSi);
+  const pS11 = pideTeorico(minSucu11, sS11, st.sucu11||0, envasaSi);
   const pideTotal = pRiv + pUrq + pNac + pCha + pPer + pSan + pSu8 + pSu9 + pS11;   // BD
 
   // Rateo ponderado: sucursal con stock=0 pesa el doble → recibe más pero no excluye al resto.
@@ -162,6 +182,8 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     mins: { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino,
             sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 },
     enviar, pideTotal, importancia, meses,
+    ideal: { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer,
+             sanPedro: pSan, sucursal9: pSu9 },   // pedido teórico (S−stock) sin límite de central
     enviarTexto: { riv: eRiv, urq: eUrq, nacion: eNac, chaca: eCha, pergamino: ePer,
                    sanPedro: eSan, sucu8: eSu8, sucu9: eSu9, sucu11: eS11 },
   };

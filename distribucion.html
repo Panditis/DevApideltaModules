@@ -403,6 +403,9 @@
       <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
       <button class="primary" id="reload">↻ Recalcular</button>
       <button onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
+      <button onclick="window.open('/docs/plan-distribucion.html','_blank')" title="Plan de distribución: método, diferencias y observaciones">📄 Plan</button>
+      <button onclick="window.open('/docs/guia-distribucion.html','_blank')" title="Guía completa: cada dato, cómo se calcula, config y cómo analizar">📘 Guía</button>
+      <button onclick="window.open('/docs/analisis-distribucion.html','_blank')" title="Análisis: fortalezas, debilidades y roadmap">📊 Análisis</button>
       <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
         <span style="font-size:11px;color:var(--muted)">Modo:</span>
         <button class="suc-tog on" data-modo="sala" onclick="setPesablesModo('sala')" title="Habilita el modal de carga de producción">🏭 Sala</button>
@@ -1409,10 +1412,12 @@ function render() {
   document.getElementById('body-a').innerHTML = rows.map((r, i) => {
     const celdas = SUC_A.filter(([k]) => sucVis.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
+      const id = (r.ideal || {})[k] || 0;   // pedido teórico (ideal) sin límite de central
       const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
-      if (v === 'Fact') return `${stkTd}<td class="env fact"><span>Fact</span></td>`;
+      if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmt(id)}"><span>Fact</span></td>`;
       const n = v || 0;
-      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}">${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
+      const tip = id > 0 ? `title="ideal ${fmt(id)}${n > 0 && id > n ? ' · racionado' : ''}"` : '';
+      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}" ${tip}>${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
     const impPct = ((r.importancia || 0) / maxImp) * 100;
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
@@ -1425,7 +1430,9 @@ function render() {
     </tr>`;
   }).join('');
   const totUnid = rows.reduce((s, r) => s + totalVis(r), 0);
-  document.getElementById('pillA').textContent = datos.length;
+  const pA = document.getElementById('pillA');
+  pA.textContent = rows.length === datos.length ? datos.length : rows.length + '/' + datos.length;
+  pA.title = rows.length + ' productos en tabla' + (rows.length !== datos.length ? ' (de ' + datos.length + ' con filtros)' : '');
   document.getElementById('resumen').innerHTML = '';
 }
 function renderP() {
@@ -1446,11 +1453,12 @@ function renderP() {
   document.getElementById('body-p').innerHTML = rows.map((r, i) => {
     const celdas = SUC_P.filter(([k]) => sucVisP.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
+      const id = (r.ideal || {})[k] || 0;   // teórico (ideal) sin límite de granel/central
       const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
-      if (v === 'Fact') return `${stkTd}<td class="env fact"><span>Fact</span></td>`;
+      if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmt(id)}"><span>Fact</span></td>`;
       return stkTd + (esNum(v) && v > 0
-        ? `<td class="env pos"><span>${fmt(v)}</span></td>`
-        : `<td class="env" title="${esNum(v) ? '' : (v||'')}"><span>·</span></td>`); }).join('');
+        ? `<td class="env pos" title="ideal ${fmt(id)}${id > v ? ' · racionado' : ''}"><span>${fmt(v)}</span></td>`
+        : `<td class="env" title="${esNum(v) ? (id > 0 ? 'ideal ' + fmt(id) : '') : (v||'')}"><span>·</span></td>`); }).join('');
     const prep = pesablesModo === 'preparacion';
     const impPct = (prioOf(r) / maxImp) * 100;
     const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
@@ -1472,7 +1480,9 @@ function renderP() {
   }).join('');
   const totKg = rows.reduce((s, r) => s + sumEnvP(r), 0);
   const aEnvasar = rows.filter(r => r.J === 'Si').length;
-  document.getElementById('pillP').textContent = datosP.length;
+  const pP = document.getElementById('pillP');
+  pP.textContent = rows.length === datosP.length ? datosP.length : rows.length + '/' + datosP.length;
+  pP.title = rows.length + ' productos en tabla' + (rows.length !== datosP.length ? ' (de ' + datosP.length + ' con filtros)' : '');
   document.getElementById('resumen').innerHTML = '';
 }
 

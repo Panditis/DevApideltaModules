@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guía de Distribución & A8020 — Referencia completa</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#171a21; --surface2:#1e222b; --border:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa3b2; --faint:#6b7280;
+    --azul:#4c8dff; --azul-bg:#12233f;
+    --verde:#3fb950; --verde-bg:#0f2417;
+    --amarillo:#e3b341; --amarillo-bg:#2a2413;
+    --rojo:#f85149; --rojo-bg:#2a1416;
+    --violeta:#a371f7; --violeta-bg:#20182f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:1120px;margin:0 auto;padding:30px 22px 90px}
+  header{border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:10px}
+  h1{font-size:27px;margin:0 0 6px;font-weight:750;letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:14px}
+  nav{position:sticky;top:0;background:rgba(15,17,21,.92);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--border);padding:10px 0;margin-bottom:26px;z-index:10;display:flex;flex-wrap:wrap;gap:6px}
+  nav a{font-size:12.5px;color:var(--muted);text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:20px}
+  nav a:hover{color:var(--text);border-color:var(--azul)}
+  h2{font-size:21px;margin:40px 0 12px;font-weight:700;display:flex;align-items:center;gap:9px;scroll-margin-top:60px}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;
+    background:var(--azul-bg);color:var(--azul);border-radius:7px;font-size:14px;font-weight:700}
+  h3{font-size:16.5px;margin:24px 0 8px;font-weight:650}
+  p{margin:9px 0}
+  code{background:var(--surface2);padding:1.5px 6px;border-radius:5px;font-size:12.5px;
+    font-family:"JetBrains Mono",Consolas,monospace;color:#c9d3e0}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px}
+  tr:last-child td{border-bottom:0}
+  td code{white-space:nowrap}
+  .formula{background:var(--surface2);border:1px solid var(--border);border-radius:9px;
+    padding:13px 17px;margin:12px 0;font-family:"JetBrains Mono",Consolas,monospace;font-size:14px;color:#dbe4f0;overflow-x:auto}
+  .obs{border-left:3px solid var(--amarillo);background:var(--amarillo-bg)}
+  .obs.crit{border-left-color:var(--rojo);background:var(--rojo-bg)}
+  .obs.ok{border-left-color:var(--verde);background:var(--verde-bg)}
+  .obs.info{border-left-color:var(--azul);background:var(--azul-bg)}
+  .obs .h{font-weight:700;margin-bottom:4px}
+  ul{margin:8px 0;padding-left:22px} li{margin:5px 0}
+  .pill{font-size:11.5px;padding:2px 8px;border-radius:6px;font-weight:700}
+  .pill.a{background:var(--rojo-bg);color:var(--rojo)} .pill.b{background:var(--amarillo-bg);color:var(--amarillo)}
+  .pill.c{background:var(--azul-bg);color:var(--azul)} .pill.f{background:var(--violeta-bg);color:var(--violeta)}
+  .muted{color:var(--muted)} .tag{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:12px;background:var(--surface2);color:var(--muted)}
+  .foot{margin-top:48px;padding-top:18px;border-top:1px solid var(--border);color:var(--faint);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Guía de Distribución &amp; A8020</h1>
+  <div class="sub">Referencia completa: cada dato, cómo se calcula, en qué afecta y qué mirar al analizar consumos y mínimos · 7 sucursales · Julio 2026</div>
+</header>
+
+<nav>
+  <a href="#flujo">Flujo general</a>
+  <a href="#fuentes">Fuentes de datos</a>
+  <a href="#a8020">A8020: mínimos</a>
+  <a href="#abc">ABC</a>
+  <a href="#casos">Casos especiales</a>
+  <a href="#dist">Distribución</a>
+  <a href="#config">Config completa</a>
+  <a href="#analizar">Cómo analizar</a>
+  <a href="#glosario">Glosario</a>
+</nav>
+
+<!-- ══════════ FLUJO ══════════ -->
+<h2 id="flujo"><span class="n">1</span> Flujo general</h2>
+<p>El sistema tiene dos motores que comparten una misma fuente de mínimos (<b>A8020</b>):</p>
+<div class="formula">
+Siga (ventas 24m)  →  A8020 (μ, σ, ABC → S, min por sucursal)  →  data/a8020.json
+                                                                        │
+                          ┌─────────────────────────────────────────────┴───────────┐
+                    Motor Almacén (distribucion.js)               Motor Pesables (pesables.js)
+                    stock vs min → repone hasta S                 3 pasadas + granel + envasado
+                    racion() reparte si falta central            M/CI reparte si falta granel/central
+</div>
+<ul>
+  <li><b>A8020</b> define <i>cuánto stock debería tener cada sucursal</i> de cada producto (S) y <i>cuándo pedir</i> (min).</li>
+  <li>Los motores comparan ese objetivo con el stock real y deciden <i>cuánto enviar</i> desde casa central.</li>
+  <li>Todo se recalcula con <code>GET /api/distribucion/a8020/recalcular</code> (lee Siga, reescribe los JSON).</li>
+</ul>
+
+<!-- ══════════ FUENTES ══════════ -->
+<h2 id="fuentes"><span class="n">2</span> Fuentes de datos</h2>
+<table>
+  <tr><th>Dato</th><th>Origen</th><th>Detalle</th></tr>
+  <tr><td>Ventas / consumo</td><td>Siga · <code>Ventas</code> + <code>VentasProductos</code></td><td>Ventana 24 meses. Excluye ANULADO y clientes categoría SUCURSAL (para no contar traspasos como venta).</td></tr>
+  <tr><td>Stock central y por sucursal</td><td>Siga · <code>ProductosDepositos</code></td><td>Solo depósitos con <code>DisponibleVenta=1</code>. Central = <code>SoyLaCentral=1</code>.</td></tr>
+  <tr><td>Stock granel</td><td>Siga · depósito <code>%GRANEL%</code></td><td>Por código componente de la fórmula del pesable.</td></tr>
+  <tr><td>Facturaciones en curso</td><td>Siga · <code>MovimientosStock</code> (REC-SUC) + <code>Ventas</code></td><td>Última recepción por sucursal → lo facturado después se marca "Fact".</td></tr>
+  <tr><td>Historial de movimientos</td><td>Siga · <code>MovimientosStockProductos</code> + header <code>MovimientosStock</code></td><td>Detalle tiene <code>IdProducto</code>; la fecha vive en el header. Usado para clasificar Nuevo/F.</td></tr>
+  <tr><td>Rubro / nombre</td><td>Siga · <code>Productos</code> + <code>Rubros</code></td><td>Categoría del producto.</td></tr>
+  <tr><td>Mínimos calculados</td><td><code>data/a8020.json</code> (legacy) + <code>data/a8020_calc.json</code> (detalle)</td><td>Salida del recálculo. Legacy = <code>minRiv, SRiv…</code>; calc = μ/σ/flags.</td></tr>
+  <tr><td>Parámetros</td><td><code>data/distribucion_config.json</code></td><td>Toda la config (sección 7).</td></tr>
+  <tr><td>Listas editables</td><td><code>data/listas_distribucion.json</code></td><td>noEnvasa, siempreAlmacen, siemprePesable, ocultarPesable.</td></tr>
+</table>
+<div class="card obs crit"><div class="h">⚠ Punto único de dependencia</div>
+  El bloqueo "Fact" depende del timestamp <code>REC-SUC</code> en <code>MovimientosStock</code>. Si una recepción no se carga o queda con fecha mal, el sistema puede reenviar de más o bloquear de más. Vale controlar que las recepciones se registren bien.</div>
+
+<!-- ══════════ A8020 ══════════ -->
+<h2 id="a8020"><span class="n">3</span> A8020 — cómo se calcula el mínimo</h2>
+<p>Por cada par <b>(producto, sucursal)</b> se calculan dos niveles con un modelo de revisión periódica (order-up-to):</p>
+<div class="formula">
+S   = μ·(T+L) + z·σ·√(T+L)      ← objetivo (order-up-to): a este nivel se repone
+min = round( S · k[ABC] )        ← gatillo (punto de pedido): cuando stock ≤ min, se pide
+</div>
+
+<h3>Los ingredientes</h3>
+<table>
+  <tr><th>Símbolo</th><th>Qué es</th><th>Cómo se calcula</th><th>En qué afecta</th></tr>
+  <tr><td><code>μ</code> (mu)</td><td>Demanda media diaria</td><td><code>SumQ / N</code> — unidades totales de la ventana ÷ N días</td><td>Corazón del cálculo: μ alto → S alto → más stock objetivo.</td></tr>
+  <tr><td><code>N</code></td><td>Denominador de días</td><td><b>Configurable</b>: días operativos de la sucursal <i>o</i> días-con-venta del producto (ver <a href="#config">config · demanda</a>)</td><td>Cambia radicalmente μ. Días-con-venta sube μ de intermitentes.</td></tr>
+  <tr><td><code>σ</code> (sigma)</td><td>Desvío de la demanda diaria</td><td><code>√(SumQ2/N − μ²)</code></td><td>Variabilidad → stock de seguridad. σ alto → S alto.</td></tr>
+  <tr><td><code>T</code></td><td>Frecuencia de reposición (días)</td><td>Fijo por sucursal en config</td><td>Cuántos días tiene que cubrir el stock hasta el próximo pedido.</td></tr>
+  <tr><td><code>L</code></td><td>Tránsito / lead time (días)</td><td>Fijo por sucursal (hoy 0)</td><td>Días extra de cobertura por demora de entrega.</td></tr>
+  <tr><td><code>z</code></td><td>Factor de nivel de servicio</td><td>Por clase ABC (config.servicio)</td><td>Cuánto colchón de seguridad. A=2.05 (~98%), B=1.645 (~95%), C=1.28 (~90%).</td></tr>
+  <tr><td><code>k</code></td><td>Fracción del gatillo</td><td>Por clase ABC (config.minFraccion)</td><td><code>min = S·k</code>. A=0.7 gatilla temprano, C=0.35 gatilla tarde.</td></tr>
+</table>
+
+<div class="card obs info"><div class="h">Ejemplo (91030 · Rivadavia, denominador operativos)</div>
+  82 unidades en 24m, N=609 días op. → μ = 82/609 = <b>0.135</b>. Con T+L=8, clase B (z=1.645):<br>
+  <code>S = 0.135·8 + 1.645·σ·√8 ≈ 3</code> · <code>min = round(3·0.5) = 2</code>.<br>
+  <span class="muted">Con denominador <b>días-activos</b> (N=50 días con venta): μ = 82/50 = <b>1.64</b> → S sube a ~13. Ver observación en §8.</span></div>
+
+<h3>Los dos números</h3>
+<table>
+  <tr><th></th><th><code>S</code> — objetivo</th><th><code>min</code> — gatillo</th></tr>
+  <tr><td>Significa</td><td>"llená hasta acá"</td><td>"cuando bajás a acá, pedí"</td></tr>
+  <tr><td>Envío ideal</td><td colspan="2"><code>S − stock actual</code> (si stock ≤ min)</td></tr>
+  <tr><td>Invariante</td><td colspan="2"><code>0 ≤ min ≤ S ≤ techo</code></td></tr>
+  <tr><td>En a8020.json</td><td><code>SRiv, SUrq…</code></td><td><code>minRiv, minUrq…</code></td></tr>
+</table>
+
+<!-- ══════════ ABC ══════════ -->
+<h2 id="abc"><span class="n">4</span> Clasificación ABC (rotación)</h2>
+<p>Pareto sobre la <b>facturación</b> de cada producto (acumulado). Define <code>z</code> y <code>k</code>:</p>
+<table>
+  <tr><th>Clase</th><th>Corte (acumulado facturación)</th><th>z (servicio)</th><th>k = min/S</th><th>Interpretación</th></tr>
+  <tr><td><span class="pill a">A</span></td><td>hasta 80%</td><td>2.05 (~98%)</td><td>0.70</td><td>alta rotación · protegido · pide seguido</td></tr>
+  <tr><td><span class="pill b">B</span></td><td>80–95%</td><td>1.645 (~95%)</td><td>0.50</td><td>media</td></tr>
+  <tr><td><span class="pill c">C</span></td><td>95–100%</td><td>1.28 (~90%)</td><td>0.35</td><td>baja rotación · pide grande y espaciado</td></tr>
+  <tr><td><span class="pill f">F</span></td><td>—</td><td>—</td><td>0</td><td>viejo sin rotación (asignado aparte, ver §5) · min/S=0</td></tr>
+</table>
+<div class="card obs"><div class="h">⚠ La ABC usa facturación, no unidades</div>
+  Un producto barato de mucha unidad puede caer en C; uno caro de poca unidad puede subir a A. Configurable en <code>abc.metrica</code>.</div>
+
+<!-- ══════════ CASOS ══════════ -->
+<h2 id="casos"><span class="n">5</span> Casos especiales (cómo se cubren los huecos)</h2>
+<p>No todos los productos tienen historia limpia en las 7 sucursales. El pipeline los resuelve en este orden:</p>
+
+<h3>a) Nivelación <span class="tag">poca venta</span></h3>
+<p>Si una sucursal tiene <b>menos de <code>minDiasConVenta</code> (15) días con venta</b>, su estadística propia se mezcla con el <b>promedio del rubro</b>:</p>
+<div class="formula">peso w = 1 − dcv/15    ·    μ_final = (1−w)·μ_propio + w·μ_rubro</div>
+<p class="muted">Menos días de venta → más peso al rubro. Marca <code>nivelado:true</code>, <code>dcv</code>, <code>w</code> en el detalle.</p>
+
+<h3>b) Bootstrap por rubro <span class="tag">sin venta en esa sucursal</span></h3>
+<p>Si un producto <b>no vendió nada</b> en una sucursal, se le genera S/min desde el <b>promedio del rubro</b> en esa sucursal (clase C). Cubre productos nuevos y también rellena sucursales faltantes de productos que sí venden en otras. Marca <code>bootstrap:true</code> (símbolo <code>~</code> en la grilla).</p>
+<div class="card obs"><div class="h">Nivelado vs bootstrap (pueden convivir en un mismo producto)</div>
+  <b>Nivelado</b> = vendió algo ahí, se estabiliza con rubro. <b>Bootstrap</b> = no vendió ahí, se toma promedio de rubro. Ej: un producto puede estar nivelado en Rivadavia y bootstrap en Urquiza.</div>
+
+<h3>c) Nuevo vs F (por historial de movimientos)</h3>
+<p>Entre los productos <b>sin ventas</b>, se miran los movimientos en <code>MovimientosStockProductos</code> (excluyendo compras):</p>
+<table>
+  <tr><th>Situación (sin ventas)</th><th>Historial (excl. compra)</th><th>Clase</th><th>Efecto</th></tr>
+  <tr><td>Producto nuevo</td><td>Sin movimientos / solo compras / primer mov &lt; 3 meses</td><td><span class="tag" style="background:var(--verde-bg);color:var(--verde)">NUEVO</span></td><td>Bootstrap por rubro + badge. Se le da presencia.</td></tr>
+  <tr><td>Viejo sin rotación</td><td>Movimientos no-compra hace ≥ 3 meses, 0 ventas</td><td><span class="pill f">F</span></td><td>min/S = 0, <b>excluido de empujePresencia</b>. Stock muerto, etiquetado para depurar.</td></tr>
+</table>
+
+<h3>d) Proporción de base <span class="tag">Ramallo / Pergamino</span></h3>
+<p>Villa Ramallo y Pergamino <b>suman el 40% del consumo de Rivadavia</b> a su propia demanda (config <code>proporcionBase</code>). Por eso pueden mostrar S más alto que su venta local. Marca <code>propBase</code> en el detalle.</p>
+
+<h3>e) Empuje de presencia</h3>
+<p><code>empujeDeposito.presencia</code> (6) eleva min/S a ese piso para dar presencia en góndola aunque la estadística sea baja — <b>salvo</b> productos clase F. Se auto-limita por el stock disponible en central.</p>
+
+<h3>f) Overrides manuales por PLU</h3>
+<p>En <code>distribucion_overrides.json</code>: <code>mult</code> (multiplica S), <code>pisoManual</code> (piso al min), <code>techo</code> (tope a S). Para ajustar casos puntuales sin tocar la fórmula global.</p>
+
+<!-- ══════════ DISTRIBUCION ══════════ -->
+<h2 id="dist"><span class="n">6</span> Distribución: del mínimo al envío</h2>
+
+<h3>Motor Almacén</h3>
+<p>Dos capas — <b>ideal</b> (sin límite) y <b>calculado</b> (con restricciones):</p>
+<table>
+  <tr><th>Paso</th><th>Cómo</th></tr>
+  <tr><td><b>Ideal teórico</b></td><td><code>pideTeorico = max(S − stock, 0)</code> por sucursal, si stock ≤ min y el producto envasa. Suma = <code>pideTotal</code>.</td></tr>
+  <tr><td><b>¿Alcanza central?</b></td><td>Si <code>central ≥ pideTotal</code> → se manda el ideal completo.</td></tr>
+  <tr><td><b>Calculado (racion)</b></td><td>Si no alcanza, reparto proporcional al faltante ponderado. Sucursal con stock <b>0 pesa el doble</b> (<code>PESO_VACIO=2</code>). Se envía lo que hay aunque no cubra el ideal.</td></tr>
+  <tr><td><b>Fact</b></td><td>Lo facturado a la sucursal desde su última recepción no se reenvía (celda "Fact").</td></tr>
+</table>
+<p class="muted">En la grilla, la celda muestra el <b>calculado</b>; el <b>tooltip</b> muestra el <b>ideal</b> (y "· racionado" si el ideal era mayor).</p>
+
+<h3>Motor Pesables</h3>
+<p>Tres pasadas. Además del envío a sucursales, decide el <b>envasado</b> (granel → producto):</p>
+<ul>
+  <li><b>Pasada 1:</b> min/S por sucursal, envío teórico (repone hasta S), CH (granel adicional necesario).</li>
+  <li><b>Pasada 2:</b> <code>CI</code> (reparto del granel del grupo), <code>M</code> (factor de escasez: si M&gt;1 se recorta), envío final, decisión de envasar (J), kg a envasar (L).</li>
+  <li><b>Pasada 3:</b> D (kg realmente envasados), ruteo (Fraccionado/Envasado/…), prioridad (BG·granel·envasar con compuerta de trabajo).</li>
+</ul>
+<p class="muted">El granel se comparte por grupo (código componente): si escasea, <code>CI/M</code> lo reparten entre los productos del grupo.</p>
+
+<!-- ══════════ CONFIG ══════════ -->
+<h2 id="config"><span class="n">7</span> Config completa — <code>distribucion_config.json</code></h2>
+<table>
+  <tr><th>Clave</th><th>Valor actual</th><th>Qué hace / en qué afecta</th></tr>
+  <tr><td><code>ventanaMeses</code></td><td>24</td><td>Meses de ventas para estadística. <b>Más corto</b> = reacciona a lo reciente pero pierde estacionalidad; <b>más largo</b> = estable pero diluye tendencias.</td></tr>
+  <tr><td><code>demanda.denominador</code></td><td><b>"activos"</b></td><td><b>Clave para analizar consumo.</b> <code>operativos</code> = μ sobre todos los días operativos (demanda diaria real, diluye intermitentes). <code>activos</code> = μ sobre días-con-venta (reacciona a productos nuevos/en ráfaga, <b>puede sobre-stockear</b>).</td></tr>
+  <tr><td><code>sucursales.{suc}.T</code></td><td>8 / 10</td><td>Frecuencia de reposición (días). Sube S linealmente.</td></tr>
+  <tr><td><code>sucursales.{suc}.L</code></td><td>0</td><td>Tránsito. Suma cobertura extra si &gt; 0.</td></tr>
+  <tr><td><code>servicio</code></td><td>A:2.05 B:1.645 C:1.28</td><td>Factor z por clase. Sube → más stock de seguridad → más S.</td></tr>
+  <tr><td><code>minFraccion</code></td><td>A:0.7 B:0.5 C:0.35 F:0</td><td>k = min/S por clase. Define qué tan temprano gatilla el pedido.</td></tr>
+  <tr><td><code>abc.metrica</code></td><td>"facturacion"</td><td>Métrica del Pareto ("facturacion" o "unidades").</td></tr>
+  <tr><td><code>abc.corteA / corteB</code></td><td>0.80 / 0.95</td><td>Cortes acumulados A/B/C.</td></tr>
+  <tr><td><code>techoDefault</code></td><td>10000</td><td>Tope de S si no hay override.</td></tr>
+  <tr><td><code>empujeDeposito.presencia</code></td><td>6</td><td>Piso de presencia (eleva min/S salvo clase F).</td></tr>
+  <tr><td><code>proporcionBase</code></td><td>ramallo:0.4 pergamino:0.4</td><td>% del consumo de Rivadavia que se suma a esas sucursales.</td></tr>
+  <tr><td><code>nivelacion.minDiasConVenta</code></td><td>15</td><td>Umbral de días-con-venta bajo el cual se mezcla con rubro.</td></tr>
+  <tr><td><code>nivelacion.sucursales</code></td><td>7 activas</td><td>Sucursales sujetas a nivelación.</td></tr>
+  <tr><td><code>antiguedadMesesNuevo</code></td><td>3</td><td>Umbral que separa Nuevo (reciente) de F (viejo sin venta).</td></tr>
+  <tr><td><code>tiposMovimientoCompra</code></td><td>["COMPRA","COMPRA-NC"]</td><td>Tipos que NO cuentan como "actividad" al clasificar Nuevo/F.</td></tr>
+  <tr><td><code>factorABC</code></td><td>A:1.0 B:0.7 C:0.4</td><td>Factor auxiliar por clase (uso en ponderaciones de distribución).</td></tr>
+  <tr><td><code>umbralMicroEnvio</code></td><td>0.10</td><td>Umbral para descartar micro-envíos.</td></tr>
+</table>
+
+<h3>Las 7 sucursales</h3>
+<table>
+  <tr><th>Sucursal</th><th>idSucursal</th><th>T</th><th>L</th><th>Nota</th></tr>
+  <tr><td>Rivadavia</td><td>5</td><td>8</td><td>0</td><td>base de <code>proporcionBase</code></td></tr>
+  <tr><td>Urquiza</td><td>2</td><td>8</td><td>0</td><td></td></tr>
+  <tr><td>Nación</td><td>3</td><td>8</td><td>0</td><td></td></tr>
+  <tr><td>Chacabuco</td><td>4</td><td>8</td><td>0</td><td></td></tr>
+  <tr><td>Pergamino</td><td>10</td><td>10</td><td>0</td><td>+40% Rivadavia</td></tr>
+  <tr><td>San Pedro</td><td>7</td><td>10</td><td>0</td><td></td></tr>
+  <tr><td>Villa Ramallo</td><td>9</td><td>10</td><td>0</td><td>+40% Rivadavia</td></tr>
+</table>
+
+<!-- ══════════ ANALIZAR ══════════ -->
+<h2 id="analizar"><span class="n">8</span> Qué tener en cuenta al analizar</h2>
+
+<div class="card obs crit"><div class="h">1 · El denominador cambia todo</div>
+  Un mínimo "bajo" casi siempre es por <b>μ diluido</b>: unidades ÷ muchos días. Preguntá siempre: ¿estoy dividiendo por días operativos (609 en 24m) o por días-con-venta? Hoy está en <b>activos</b>. Un producto nuevo/creciente se ve chico con operativos.</div>
+
+<div class="card obs"><div class="h">2 · La ventana esconde tendencias</div>
+  24 meses promedian ventas viejas con recientes. Un producto que arrancó a vender hace 4 meses tiene 20 meses de ceros arrastrándolo. Mirá las ventas <b>por mes</b> antes de concluir que el mínimo está mal.</div>
+
+<div class="card obs"><div class="h">3 · Ramallo y Pergamino vienen "inflados"</div>
+  Suman 40% de Rivadavia. Si ves un S alto ahí sin venta local que lo justifique, es <code>proporcionBase</code>, no un error.</div>
+
+<div class="card obs"><div class="h">4 · Distinguí el origen del número</div>
+  En el detalle (tooltip / a8020_calc.json) fijate los flags: <code>nivelado</code> (mezclado con rubro), <code>bootstrap</code> (promedio de rubro, sin venta propia), <code>propBase</code> (suma de Rivadavia), <code>nuevo</code>/<code>viejo</code>. Cada uno explica por qué el valor es el que es.</div>
+
+<div class="card obs"><div class="h">5 · Clase F = revisar surtido, no stockear</div>
+  Un F es un producto que se movió por meses pero no vende. min/S=0 a propósito. Si aparece algo en F que sí querés vender, revisá por qué no registra ventas (¿mal cargado? ¿otro PLU?).</div>
+
+<div class="card ok obs"><div class="h">6 · Ideal vs calculado</div>
+  Si un envío calculado es menor al ideal (tooltip "· racionado"), no es que el mínimo esté mal: es que <b>central no tenía suficiente</b> y se repartió. El cuello está en central, no en el A8020.</div>
+
+<div class="card obs"><div class="h">7 · Anomalías por sucursal</div>
+  La grilla A8020 marca sucursales con mínimo &lt; 15% de la mediana de las demás (con ≥3 con datos). Suele señalar carga de datos inconsistente o un PLU que en esa sucursal va con otro código.</div>
+
+<!-- ══════════ GLOSARIO ══════════ -->
+<h2 id="glosario"><span class="n">9</span> Glosario rápido</h2>
+<table>
+  <tr><th>Término</th><th>Qué es</th></tr>
+  <tr><td><code>S</code> / order-up-to</td><td>Nivel objetivo de stock por sucursal.</td></tr>
+  <tr><td><code>min</code> / punto de pedido</td><td>Gatillo: cuando el stock baja a esto, se repone hasta S.</td></tr>
+  <tr><td><code>μ / σ</code></td><td>Media y desvío de la demanda diaria.</td></tr>
+  <tr><td><code>T / L</code></td><td>Frecuencia de reposición / tránsito (días).</td></tr>
+  <tr><td><code>dcv</code></td><td>Días con venta del producto en la sucursal (ventana).</td></tr>
+  <tr><td><code>ideal / calculado</code></td><td>Lo que debería enviarse (S−stock) vs lo que se envía tras racionar por central.</td></tr>
+  <tr><td><code>Fact</code></td><td>Ya facturado a la sucursal desde su última recepción → no se reenvía.</td></tr>
+  <tr><td><code>racion() / PESO_VACIO</code></td><td>Reparto proporcional al faltante; sucursal en cero pesa doble.</td></tr>
+  <tr><td><code>granel / envasar</code></td><td>Pesables: materia a granel que se fracciona/envasa en producto terminado.</td></tr>
+  <tr><td><code>bootstrap / nivelado / propBase</code></td><td>Orígenes del mínimo cuando falta historia (rubro / mezcla / suma de Rivadavia).</td></tr>
+</table>
+
+<div class="foot">
+  Archivos clave: <code>a8020.js</code> (fórmula), <code>server.js · recalcularA8020()</code> (pipeline), <code>distribucion.js</code> (motor almacén), <code>pesables.js</code> (motor pesables), <code>data/distribucion_config.json</code> (parámetros), <code>data/a8020_calc.json</code> (salida con detalle).<br>
+  Recalcular: <code>GET /api/distribucion/a8020/recalcular</code> · Ver mínimos: <code>/distribucion/a8020</code> · Distribución: <code>/distribucion</code>.
+</div>
+
+</div>
+</body>
+</html>

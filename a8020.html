@@ -81,6 +81,10 @@
   </header>
   <div class="meta">
     <input type="search" id="q" placeholder="Buscar PLU o producto…">
+    <div id="rubroWrap" style="position:relative;display:inline-block">
+      <button id="rubroBtn" onclick="toggleRubroDrop()" style="font-family:var(--body);font-size:13px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--text);cursor:pointer">Rubros ▾</button>
+      <div id="rubroDrop" style="display:none;position:absolute;z-index:50;top:calc(100% + 4px);left:0;min-width:220px;max-height:340px;overflow:auto;background:var(--surface1,#fff);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px"></div>
+    </div>
     <button class="primary" id="recalc">↻ Recalcular desde Siga</button>
     <span class="div"></span>
     <span id="resumen" class="ts">cargando…</span>
@@ -108,6 +112,11 @@
     <table id="tabla" style="display:none"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table>
   </main>
 </div>
+<style>
+#rubroDrop .rubro-opt{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:13px;cursor:pointer}
+#rubroDrop .rubro-opt:hover{background:var(--surface2,#f1f1f1)}
+#rubroDrop .rubro-opt-clear{padding:5px 8px;font-size:12px;color:var(--primary,#2563eb);cursor:pointer;border-bottom:1px solid var(--border);margin-bottom:4px}
+</style>
 <script>
 const SUC = [['riv','Rivadavia'],['urq','Urquiza'],['nacion','Nación'],['chaca','Chacabuco'],['pergamino','Pergamino'],['sanpedro','San Pedro'],['ramallo','Villa Ramallo']];
 const SUC_ID = {riv:5,urq:2,nacion:3,chaca:4,pergamino:10,sanpedro:7,ramallo:9};
@@ -138,29 +147,68 @@ function valor(r,c){
   if(c==='abc') return ({A:0,B:1,C:2})[r.abc] ?? 3;
   return r[c]??0;
 }
+let filtroClase=null;
+let rubrosSel=new Set();   // vacío = todos
+function construirRubroFiltro(){
+  const set=new Set(filas.map(r=>r.rubro).filter(Boolean));
+  const rubros=[...set].sort((a,b)=>a.localeCompare(b));
+  const drop=document.getElementById('rubroDrop');
+  drop.innerHTML=`<div class="rubro-opt-clear" onclick="rubroAll()">Mostrar todos</div>`+
+    rubros.map(rb=>`<label class="rubro-opt"><input type="checkbox" ${rubrosSel.has(rb)?'checked':''} onchange="toggleRubro(this,'${rb.replace(/'/g,"\\'")}')"><span>${rb}</span></label>`).join('');
+  actualizarRubroBtn();
+}
+function actualizarRubroBtn(){ const b=document.getElementById('rubroBtn'); if(b) b.textContent=(rubrosSel.size?`Rubros (${rubrosSel.size})`:'Rubros')+' ▾'; }
+function toggleRubroDrop(){ const d=document.getElementById('rubroDrop'); d.style.display=d.style.display==='none'?'':'none'; }
+function toggleRubro(chk,rb){ chk.checked?rubrosSel.add(rb):rubrosSel.delete(rb); actualizarRubroBtn(); render(); }
+function rubroAll(){ rubrosSel.clear(); document.querySelectorAll('#rubroDrop input').forEach(c=>c.checked=false); actualizarRubroBtn(); render(); }
+document.addEventListener('click',e=>{ const w=document.getElementById('rubroWrap'); const d=document.getElementById('rubroDrop'); if(w&&d&&d.style.display!=='none'&&!w.contains(e.target)) d.style.display='none'; });
+function matchClase(r,c){
+  if(c==='A'||c==='B'||c==='C'||c==='F') return r.abc===c;
+  if(c==='nuevo') return !!r.nuevo;
+  if(c==='viejo') return !!r.viejo;
+  if(c==='bootstrap') return !!r.bootstrap;
+  return true;
+}
+function setFiltro(c){ filtroClase = (filtroClase===c) ? null : c; render(); }
 function render(){
   const q=document.getElementById('q').value.trim().toLowerCase();
   let rows = filas.filter(r=> !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
+  if(filtroClase) rows = rows.filter(r=> matchClase(r,filtroClase));
+  if(rubrosSel.size) rows = rows.filter(r=> rubrosSel.has(r.rubro));
   rows.sort((a,b)=>{const va=valor(a,orden.col),vb=valor(b,orden.col);return (va<vb?-1:va>vb?1:0)*orden.dir;});
   document.getElementById('body').innerHTML = rows.slice(0,1500).map(r=>{
     const celdas = SUC.map(([k])=>{ const s=r.mins[k]; const d=(r.detalle||{})[k]||{};
       const boot = d.bootstrap===true;
-      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}μ=${d.mu}  σ=${d.sigma}`:'';
+      const mn=(r.trig||{})[k];
+      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}`:'';
       if(s>0 && boot) return `<td class="s boot"><span title="${tip}">~${fmt(s)}</span></td>`;
       return s>0 ? `<td class="s pos"><span title="${tip}">${fmt(s)}</span></td>` : `<td class="s">·</td>`; }).join('');
+    const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas; sin movimientos o sólo compras / reciente">NUEVO</span>'
+      : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
+    const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
     return `<tr><td class="l plu">${r.plu}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
-      `<td><span class="abc ${r.abc}">${r.abc}</span></td>${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
+      `<td><span class="abc ${r.abc}"${abcStyle}>${r.abc}</span>${badge}</td>${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
   }).join('');
+  const nA=filas.filter(r=>r.abc==='A').length, nB=filas.filter(r=>r.abc==='B').length, nC=filas.filter(r=>r.abc==='C').length, nF=filas.filter(r=>r.abc==='F').length;
+  const act = c => filtroClase===c ? 'outline:2px solid currentColor;outline-offset:1px;' : '';
+  const chip = (c,label,cnt,extra='') => `<span class="stat" title="Filtrar ${label}" style="cursor:pointer;${extra}${act(c)}" onclick="setFiltro('${c}')">${label} <b>${cnt}</b></span>`;
   document.getElementById('resumen').innerHTML =
-    `<span class="stat">${rows.length} productos</span>`+
-    `<span class="stat">A <b>${filas.filter(r=>r.abc==='A').length}</b> · B <b>${filas.filter(r=>r.abc==='B').length}</b> · C <b>${filas.filter(r=>r.abc==='C').length}</b></span>`+
-    ((cache.bootstrapped||[]).length ? `<span class="stat" style="background:var(--amarillo-cont);border-color:var(--amarillo);color:var(--amarillo-on)">~ bootstrap <b>${(cache.bootstrapped||[]).length}</b></span>` : '')+
+    `<span class="stat">${rows.length} productos${filtroClase?` · <span style="color:var(--primary,#2563eb)">filtro ${filtroClase}</span> <a onclick="setFiltro('${filtroClase}')" style="cursor:pointer;text-decoration:underline">✕</a>`:''}</span>`+
+    chip('A','A',nA)+chip('B','B',nB)+chip('C','C',nC)+chip('F','F',nF,'background:#f3e8ff;border-color:#d8b4fe;color:#6b21a8;')+
+    ((cache.nuevos||[]).length ? chip('nuevo','NUEVO',(cache.nuevos||[]).length,'background:#dcfce7;border-color:#86efac;color:#166534;') : '')+
+    ((cache.viejos||[]).length ? chip('viejo','VIEJO/F',(cache.viejos||[]).length,'background:#f3e8ff;border-color:#d8b4fe;color:#6b21a8;') : '')+
+    ((cache.bootstrapped||[]).length ? chip('bootstrap','~ bootstrap',(cache.bootstrapped||[]).length,'background:var(--amarillo-cont);border-color:var(--amarillo);color:var(--amarillo-on);') : '')+
     `<span class="div"></span><span class="ts">ventana ${cache.ventanaMeses}m · ${cache.timestamp? new Date(cache.timestamp).toLocaleString('es-AR'):'—'} ${rows.length>1500?'· mostrando 1500':''}</span>`;
 }
 async function cargar(){
   const r = await fetch('/api/distribucion/a8020'); cache = await r.json();
   if(cache.vacio || !cache.mins){ document.getElementById('stmsg').innerHTML='Sin caché. Tocá <b>Recalcular desde Siga</b>.'; document.querySelector('.spinner').style.display='none'; return; }
-  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', mins:cache.mins[plu]||{}, detalle:(cache.detalle||{})[plu]||{} }));
+  // mins de la tabla = S (order-up-to, el nivel objetivo); trig = min (punto de pedido) para el tooltip.
+  const nuevosSet = new Set((cache.nuevos||[]).map(Number));
+  const viejosSet = new Set((cache.viejos||[]).map(Number));
+  const bootSet = new Set((cache.bootstrapped||[]).map(Number));
+  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
+  construirRubroFiltro();
   construir(); render(); renderAnomalias();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';
 }

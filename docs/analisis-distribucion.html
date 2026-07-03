@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análisis de la lógica de Distribución & A8020 — Fortalezas, debilidades y roadmap</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#171a21; --surface2:#1e222b; --border:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa3b2; --faint:#6b7280;
+    --azul:#4c8dff; --azul-bg:#12233f;
+    --verde:#3fb950; --verde-bg:#0f2417;
+    --amarillo:#e3b341; --amarillo-bg:#2a2413;
+    --rojo:#f85149; --rojo-bg:#2a1416;
+    --violeta:#a371f7; --violeta-bg:#20182f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:1120px;margin:0 auto;padding:30px 22px 90px}
+  header{border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:10px}
+  h1{font-size:26px;margin:0 0 6px;font-weight:750;letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:14px}
+  nav{position:sticky;top:0;background:rgba(15,17,21,.92);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--border);padding:10px 0;margin-bottom:26px;z-index:10;display:flex;flex-wrap:wrap;gap:6px}
+  nav a{font-size:12.5px;color:var(--muted);text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:20px}
+  nav a:hover{color:var(--text);border-color:var(--azul)}
+  h2{font-size:21px;margin:38px 0 12px;font-weight:700;display:flex;align-items:center;gap:9px;scroll-margin-top:60px}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;border-radius:7px;font-size:15px}
+  .n.f{background:var(--verde-bg);color:var(--verde)} .n.d{background:var(--rojo-bg);color:var(--rojo)}
+  .n.r{background:var(--azul-bg);color:var(--azul)} .n.v{background:var(--violeta-bg);color:var(--violeta)}
+  h3{font-size:16px;margin:22px 0 8px;font-weight:650}
+  p{margin:9px 0}
+  code{background:var(--surface2);padding:1.5px 6px;border-radius:5px;font-size:12.5px;
+    font-family:"JetBrains Mono",Consolas,monospace;color:#c9d3e0}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin:12px 0}
+  .card .h{font-weight:700;margin-bottom:4px;display:flex;gap:8px;align-items:center}
+  .good{border-left:3px solid var(--verde)} .bad{border-left:3px solid var(--rojo)}
+  .warn{border-left:3px solid var(--amarillo)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px}
+  tr:last-child td{border-bottom:0}
+  .sev{font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;white-space:nowrap}
+  .sev.alta{background:var(--rojo-bg);color:var(--rojo)} .sev.media{background:var(--amarillo-bg);color:var(--amarillo)}
+  .sev.baja{background:var(--azul-bg);color:var(--azul)}
+  .imp{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px}
+  .imp.alto{background:var(--verde-bg);color:var(--verde)} .imp.medio{background:var(--amarillo-bg);color:var(--amarillo)} .imp.bajo{background:var(--surface2);color:var(--muted)}
+  .muted{color:var(--muted)}
+  .foot{margin-top:46px;padding-top:18px;border-top:1px solid var(--border);color:var(--faint);font-size:13px}
+  .top3{background:var(--azul-bg);border:1px solid var(--azul);border-radius:12px;padding:16px 20px;margin:16px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Análisis de la lógica — Distribución &amp; A8020</h1>
+  <div class="sub">Fortalezas, debilidades y roadmap para hacerlo más óptimo y escalable · Julio 2026</div>
+</header>
+
+<nav>
+  <a href="#fuertes">Fuertes</a>
+  <a href="#debiles-modelo">Débiles: modelo</a>
+  <a href="#debiles-codigo">Débiles: código</a>
+  <a href="#roadmap">Roadmap</a>
+  <a href="#veredicto">Veredicto</a>
+</nav>
+
+<div class="card">
+  <p style="margin:0"><b>Resumen en una línea.</b> El <b>armazón es correcto y práctico</b> (order-up-to + servicio por ABC + racionar por faltante). Las debilidades son de <b>afinamiento estadístico y robustez de ingeniería</b>, no de concepto. Ninguna es urgente para operar.</p>
+</div>
+
+<!-- FUERTES -->
+<h2 id="fuertes"><span class="n f">✓</span> Puntos fuertes</h2>
+<div class="card good"><div class="h">Modelo order-up-to (s,S) por revisión periódica</div>
+  Es el modelo de libro para reponer cada T días. Bien elegido para el caso.</div>
+<div class="card good"><div class="h">Nivel de servicio por ABC</div>
+  z más alto para clase A protege lo que factura. Diferenciación correcta.</div>
+<div class="card good"><div class="h">Fuente única de verdad (a8020.json)</div>
+  Un solo cálculo de mínimos alimenta almacén y pesables. Evita lógica de mínimos duplicada y divergente.</div>
+<div class="card good"><div class="h">Ideal vs racionado</div>
+  Separa "cuánto debería" (S−stock) de "cuánto puedo" (reparto por central), con peso doble a la sucursal vacía. Excelente para operar con faltante real.</div>
+<div class="card good"><div class="h">Cobertura de huecos</div>
+  Bootstrap por rubro, nivelación, clasificación Nuevo/F y proporcionBase — maneja productos sin historia limpia, algo que casi ningún sistema casero hace.</div>
+<div class="card good"><div class="h">Fact en vivo + modo golden</div>
+  No reenvía lo ya facturado desde la última recepción. Y el flag <code>corregirBugs</code> permite validar contra la planilla original — buena disciplina.</div>
+
+<!-- DEBILES MODELO -->
+<h2 id="debiles-modelo"><span class="n d">!</span> Debilidades — modelo estadístico</h2>
+<table>
+  <tr><th>Debilidad</th><th>Severidad</th><th>Detalle</th></tr>
+  <tr><td>Demanda normal para todo</td><td><span class="sev alta">alta</span></td><td><code>z·σ·√(T+L)</code> asume normalidad, pero la mayoría del catálogo es <b>intermitente</b> (μ&lt;0.2, vende pocos días). El stock de seguridad queda mal calibrado para lentos.</td></tr>
+  <tr><td><code>min = S·k</code></td><td><span class="sev media">media</span></td><td>Atajo, no el punto de pedido real (<code>μ·L + z·σ·√L</code>). Puede gatillar antes/después de lo óptimo.</td></tr>
+  <tr><td>Denominador "activos" global</td><td><span class="sev alta">alta</span></td><td>μ = uds/días-con-venta mide "cuánto vende los días que vende", no demanda diaria. Multiplicado por (T+L) calendario, <b>sobre-stockea intermitentes</b>. Es global, no por producto.</td></tr>
+  <tr><td>Ventana plana de 24m</td><td><span class="sev media">media</span></td><td>Promedia viejo con nuevo; esconde tendencias y estacionalidad.</td></tr>
+  <tr><td>ABC solo por facturación</td><td><span class="sev baja">baja</span></td><td>Un lento estratégico puede caer en C injustamente.</td></tr>
+  <tr><td>proporcionBase 40% a mano</td><td><span class="sev baja">baja</span></td><td>Número puesto a ojo, no derivado de datos.</td></tr>
+</table>
+
+<!-- DEBILES CODIGO -->
+<h2 id="debiles-codigo"><span class="n d">!</span> Debilidades — código &amp; escalabilidad</h2>
+<table>
+  <tr><th>Debilidad</th><th>Severidad</th><th>Detalle</th></tr>
+  <tr><td>Recompute total en cada recálculo</td><td><span class="sev alta">alta</span></td><td>Relee 24m de Siga y recalcula TODO (~20-26s) dentro de un request HTTP bloqueante. No incremental.</td></tr>
+  <tr><td>Queries <code>IN (...)</code> por string</td><td><span class="sev alta">alta</span></td><td>Miles de PLUs concatenados: riesgo de límite de tamaño, sin parámetros y potencial inyección. Ya obligó a chunkear a 500/1000.</td></tr>
+  <tr><td>Credenciales DB hardcodeadas</td><td><span class="sev alta">alta</span></td><td><code>UID=apidelta;PWD=…</code> en <code>server.js</code>. Debería ir a variables de entorno.</td></tr>
+  <tr><td>JSON como base de datos</td><td><span class="sev media">media</span></td><td><code>a8020_calc.json</code> se reescribe entero; sin escritura atómica ni concurrencia segura. Dos recálculos simultáneos pueden corromperlo.</td></tr>
+  <tr><td>Dos motores paralelos</td><td><span class="sev media">media</span></td><td>Almacén y pesables con lógica separada; pesables arrastra "réplica de planilla con NaN", frágil de mantener.</td></tr>
+  <tr><td>Sin loop de feedback</td><td><span class="sev media">media</span></td><td>No se mide el service level real (quiebres vs S). El sistema calcula pero no aprende de lo ocurrido.</td></tr>
+  <tr><td>Punto único REC-SUC</td><td><span class="sev media">media</span></td><td>Si una recepción no se carga, "Fact" falla en silencio (reenvía o bloquea de más).</td></tr>
+  <tr><td>Grilla carga todo el JSON en el cliente</td><td><span class="sev baja">baja</span></td><td>Filtros/orden en memoria del navegador. Escala hasta miles; más allá conviene paginar/consultar server-side.</td></tr>
+</table>
+
+<!-- ROADMAP -->
+<h2 id="roadmap"><span class="n r">→</span> Roadmap priorizado</h2>
+
+<h3>Optimalidad (mejores decisiones)</h3>
+<table>
+  <tr><th>#</th><th>Cambio</th><th>Impacto</th><th>Qué resuelve</th></tr>
+  <tr><td>1</td><td><b>Segmentar por patrón de demanda</b>: rápidos (A/B) normal; lentos/intermitentes con <b>Croston/Poisson</b></td><td><span class="imp alto">alto</span></td><td>Arregla de un saque el mayor error (safety stock mal calibrado para lentos).</td></tr>
+  <tr><td>2</td><td><b>Punto de pedido real</b> <code>s = μ·L + z·σ·√L</code> en vez de <code>S·k</code></td><td><span class="imp medio">medio</span></td><td>Gatillo teóricamente correcto.</td></tr>
+  <tr><td>3</td><td><b>Demanda con peso reciente (EWMA)</b> en vez de ventana plana</td><td><span class="imp alto">alto</span></td><td>Reacciona a tendencia sin inflar por ráfaga. Reemplaza el dilema activos/operativos.</td></tr>
+  <tr><td>4</td><td><b>Denominador automático por producto</b> según intermitencia</td><td><span class="imp medio">medio</span></td><td>Deja de aplicar una regla global a productos que se comportan distinto.</td></tr>
+  <tr><td>5</td><td><b>Backtest</b>: correr el modelo sobre historia, medir quiebres/sobrestock, ajustar z/k/proporcionBase con datos</td><td><span class="imp alto">alto</span></td><td>Parámetros basados en evidencia, no a ojo.</td></tr>
+</table>
+
+<h3>Escalabilidad / ingeniería</h3>
+<table>
+  <tr><th>#</th><th>Cambio</th><th>Impacto</th><th>Qué resuelve</th></tr>
+  <tr><td>1</td><td><b>Recálculo incremental + job en background</b> (agregados diarios persistidos; cron nocturno con progreso)</td><td><span class="imp alto">alto</span></td><td>Saca los 20-26s del request; no relee 24m cada vez.</td></tr>
+  <tr><td>2</td><td><b>Queries parametrizadas</b> (table-valued params o tabla temporal)</td><td><span class="imp alto">alto</span></td><td>Elimina el chunking y el riesgo de inyección/tamaño.</td></tr>
+  <tr><td>3</td><td><b>Credenciales a variables de entorno</b></td><td><span class="imp alto">alto</span></td><td>Seguridad — sacar secretos del código.</td></tr>
+  <tr><td>4</td><td><b>Migrar el store a SQLite</b> (o tabla en Siga) con escritura atómica</td><td><span class="imp medio">medio</span></td><td>Concurrencia segura + consultar/filtrar sin cargar todo el JSON en el cliente (arregla grilla y filtro por rubro a escala).</td></tr>
+  <tr><td>5</td><td><b>Unificar los dos motores</b> en un pipeline con pasos configurables; matar la réplica NaN</td><td><span class="imp medio">medio</span></td><td>Menos superficie de bug, más fácil de mantener.</td></tr>
+  <tr><td>6</td><td><b>Cerrar el loop</b>: loguear service level y quiebres por (producto, sucursal)</td><td><span class="imp medio">medio</span></td><td>Permite tunear con evidencia y detectar degradación.</td></tr>
+</table>
+
+<!-- VEREDICTO -->
+<h2 id="veredicto"><span class="n v">★</span> Veredicto</h2>
+<p>El diseño es <b>correcto y práctico para operar hoy</b> — claramente mejor que reglas manuales. Los puntos débiles son de <b>refinamiento y robustez</b>, no de concepto.</p>
+
+<div class="top3">
+  <div style="font-weight:700;margin-bottom:8px">Top 3 por relación esfuerzo/impacto</div>
+  <ol style="margin:0;padding-left:20px">
+    <li><b>Modelo intermitente (Croston/Poisson) para lentos</b> — corrige el mayor error estadístico.</li>
+    <li><b>Recálculo incremental en background</b> — saca el bloqueo y escala el pipeline.</li>
+    <li><b>Credenciales a env + queries parametrizadas</b> — seguridad y robustez con poco esfuerzo.</li>
+  </ol>
+</div>
+
+<div class="foot">
+  Basado en la lógica de <code>a8020.js</code>, <code>server.js · recalcularA8020()</code>, <code>distribucion.js</code>, <code>pesables.js</code> y <code>data/distribucion_config.json</code>. Complementa la <a href="/docs/guia-distribucion.html" style="color:var(--azul)">Guía de Distribución</a>.
+</div>
+
+</div>
+</body>
+</html>
