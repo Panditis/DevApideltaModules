@@ -42,7 +42,7 @@ const P = {
   //             frente a la demanda a despachar ⇒ sube; poco ⇒ baja.
   //   envasar = volumen a envasar (D): más kg a envasar ⇒ más prioridad.
   // Pesos y tope del ratio granel sobreescribibles vía opts.prioPesos / opts.granelCap.
-  prioPesos: { bg: 0.5, granel: 0.3, envasar: 0.2 },
+  prioPesos: { bg: 0.5, granel: 0.3, envasar: 0.2, demanda: 0.25 },   // demanda = pedido teórico de sucursales
   granelCap: 2,      // ratio granel/aEnviar ≥ cap ⇒ disponibilidad máxima (granelN=1)
   // Compuerta de trabajo: si hay POCO para enviar+envasar (CG+D), baja la prioridad
   // de forma drástica aunque la rotación (BG) sea alta. Multiplica el puntaje base.
@@ -228,15 +228,18 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new
   const cap = (opts && opts.granelCap) || P.granelCap;
   const trabajoCap = (opts && opts.trabajoCap) || P.trabajoCap;
   const trabajoGamma = (opts && opts.trabajoGamma) || P.trabajoGamma;
-  let maxBG = 0, maxD = 0;
-  for (const r of rows) { if (r.BG > maxBG) maxBG = r.BG; if (r.D > maxD) maxD = r.D; }
+  let maxBG = 0, maxD = 0, maxTeo = 0;
+  for (const r of rows) { if (r.BG > maxBG) maxBG = r.BG; if (r.D > maxD) maxD = r.D; if ((r.sumTeo || 0) > maxTeo) maxTeo = r.sumTeo || 0; }
   for (const r of rows) {
     // granel disponible relativo a lo que se envía: ratio>1 = sobra granel, <1 = escaso.
     r.granelRatio = r.CG > 0 ? r.F / r.CG : 0;
     const granelN  = cap > 0 ? Math.min(r.granelRatio, cap) / cap : 0;
     const bgN      = maxBG > 0 ? r.BG / maxBG : 0;
     const envasarN = maxD > 0 ? r.D / maxD : 0;
-    const base = w.bg * bgN + w.granel * granelN + w.envasar * envasarN;
+    // Demanda real de las sucursales: pedido teórico total (Σ S−stock) → prioriza lo que realmente falta en góndola,
+    // no solo lo que tiene alto BG. Peso configurable (prioPesos.demanda); 0 = comportamiento anterior.
+    const demandaN = maxTeo > 0 ? (r.sumTeo || 0) / maxTeo : 0;
+    const base = w.bg * bgN + w.granel * granelN + w.envasar * envasarN + (w.demanda || 0) * demandaN;
     // Compuerta de trabajo: poco para enviar+envasar ⇒ desploma la prioridad aunque BG sea alto.
     r.trabajo = r.CG + r.D;
     r.workGate = trabajoCap > 0 ? Math.pow(Math.min(r.trabajo / trabajoCap, 1), trabajoGamma) : 1;

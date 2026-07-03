@@ -228,7 +228,7 @@ min = round( S · k[ABC] )        ← gatillo (punto de pedido): cuando stock �
   <tr><td><code>antiguedadMesesNuevo</code></td><td>3</td><td>Umbral que separa Nuevo (reciente) de F (viejo sin venta).</td></tr>
   <tr><td><code>tiposMovimientoCompra</code></td><td>["COMPRA","COMPRA-NC"]</td><td>Tipos que NO cuentan como "actividad" al clasificar Nuevo/F.</td></tr>
   <tr><td><code>factorABC</code></td><td>A:1.0 B:0.7 C:0.4</td><td>Factor auxiliar por clase (uso en ponderaciones de distribución).</td></tr>
-  <tr><td><code>umbralMicroEnvio</code></td><td>0.10</td><td>Umbral para descartar micro-envíos.</td></tr>
+  <tr><td><code>umbralMicroEnvio</code></td><td>0.20</td><td>Piso mínimo de envío en Almacén: si el envío calculado a una sucursal &lt; 20% de su S (a8020, mínimo absoluto 1u), se descarta (queda en 0, estado <code>'Micro'</code> en <code>enviarTexto</code>/<code>enviarMicro</code>). Aplica sin importar el stock propio de la sucursal.</td></tr>
 </table>
 
 <h3>Las 7 sucursales</h3>

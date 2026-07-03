@@ -1514,7 +1514,15 @@ const ALM_FACT_KEY = { riv:'riv', urq:'urq', nacion:'nacion', chaca:'chaca', per
 async function calcularDistribucionAlmacen() {
   const a8020  = leerJSON(A8020_PATH, {});
   const listas = leerJSON(DISTRIB_LISTAS_PATH, {});
-  const empujePresencia = (leerJSON(DISTRIB_CONFIG_PATH, {}).empujeDeposito || {}).presencia || 0;
+  const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
+  const empujePresencia = (distCfg.empujeDeposito || {}).presencia || 0;
+  const importanciaCfg = distCfg.importancia || {};
+  const umbralMicroEnvio = distCfg.umbralMicroEnvio || 0;
+  // BG vivo: usa facturación de Siga (a8020_calc.json) como importancia en vez de la planilla estática.
+  if ((importanciaCfg.fuente || 'siga') !== 'planilla') {
+    const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion;
+    if (impViva && Object.keys(impViva).length) listas.importanciaMinorista = impViva;
+  }
   const ed = leerListasDistrib();
   listas.noEnvasa = ed.noEnvasa;   // usa la lista editable de exclusión
   const plus = universoLista(Object.keys(listas.productosAlmacen || {}), ed.siempreAlmacen, ed.noEnvasa);
@@ -1535,7 +1543,7 @@ async function calcularDistribucionAlmacen() {
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
   }
   const productos = plus.map(plu => ({ plu, stocks: stocks.get(plu) || {} }));
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, importancia: importanciaCfg, umbralMicroEnvio });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
@@ -1548,7 +1556,7 @@ async function calcularDistribucionAlmacen() {
       chaca: rawStk.chaca||0, pergamino: rawStk.pergamino||0,
       sanPedro: rawStk.sanpedro||0, sucursal9: rawStk.sucu9||0 };
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapA.get(String(f.plu)) || '', central: f.central,
-      enviar: f.enviar, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impNorm: f.impNorm, meses: f.meses, stkSuc };
+      enviar: f.enviar, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm: f.impNorm, meses: f.meses, stkSuc };
   });
 }
 app.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'distribucion.html')));
@@ -1568,6 +1576,11 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const distLis = leerJSON(DISTRIB_LISTAS_PATH, {});
   const ed = leerListasDistrib();
   distLis.noEnvasa = ed.noEnvasa;   // lista editable de exclusión
+  // BG vivo: facturación de Siga como importancia (BG) en vez de la planilla estática.
+  if ((((leerJSON(DISTRIB_CONFIG_PATH, {}).importancia) || {}).fuente || 'siga') !== 'planilla') {
+    const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion;
+    if (impViva && Object.keys(impViva).length) distLis.importanciaMinorista = impViva;
+  }
   const formulas = pesLis.formulas || {};
   const ocultos = new Set(aplicarOcultar ? ed.ocultarPesable.map(String) : []);   // checkbox "Ocultar códigos" en Pesables
   const plus = universoLista(Object.keys(pesLis.productosPesables || {}), ed.siemprePesable, ed.noEnvasa)
@@ -1862,7 +1875,7 @@ async function recalcularA8020() {
   }
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
-    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu };
+    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu };
   guardarJSON(A8020_CALC_PATH, cache);
   // Escribir a8020.json en formato legacy para pesables.js y almacen.js.
   //   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).

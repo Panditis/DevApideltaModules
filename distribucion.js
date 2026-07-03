@@ -155,13 +155,36 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     : ((st.sucu11||0) > minSucu11 || minSucu11 === 0) ? 'No'
     : racion(pS11, st.sucu11||0, 'round');
 
+  // Piso de micro-envío: descarta envío calculado < umbral% del S de esa sucursal (opts.umbralMicroEnvio).
+  // Aplica siempre, sin importar el stock propio de la sucursal (no vale la pena logísticamente igual).
+  // No afecta a importancia (usa eXxx original, sin piso) — la prioridad no depende de si conviene enviarlo.
+  // enviarMicro guarda {qty,umbral,S,min} de las sucursales suprimidas (pre-piso), para mostrar en UI.
+  const umbralMicro = (opts && opts.umbralMicroEnvio) || 0;
+  const enviarMicro = {};
+  const piso = (valor, S, min, key) => {
+    if (!isNum(valor) || valor <= 0 || umbralMicro <= 0) return valor;
+    const umbralAbs = round(Math.max(umbralMicro * (S || 0), 1), 0);   // piso = umbral·S redondeado, mínimo absoluto 1
+    if (valor < umbralAbs) { enviarMicro[key] = { qty: valor, umbral: umbralAbs, S, min }; return 'Micro'; }   // valor >= umbralAbs para enviar
+    return valor;
+  };
+  const eRivM = piso(eRiv, sRiv, minRiv, 'riv');
+  const eUrqM = piso(eUrq, sUrq, minUrq, 'urq');
+  const eNacM = piso(eNac, sNac, minNacion, 'nacion');
+  const eChaM = piso(eCha, sCha, minChaca, 'chaca');
+  const ePerM = piso(ePer, sPer, minPergamino, 'pergamino');
+  const eSanM = piso(eSan, sSan, minSanPedro, 'sanPedro');
+  const eSu8M = piso(eSu8, sSu8, minSucu8, 'sucu8');
+  const eSu9M = piso(eSu9, sSu9, minSucu9, 'sucu9');
+  const eS11M = piso(eS11, sS11, minSucu11, 'sucu11');
+
   // Numérico final (AQ:AY): 'Fact' se preserva como string; otro no-numérico → 0; logia forzado 0
   const n = (v) => (isNum(v) ? v : 0);
   const fe = (v) => v === 'Fact' ? 'Fact' : n(v);
-  const enviar = { riv: fe(eRiv), urq: fe(eUrq), nacion: fe(eNac), chaca: fe(eCha),
-    pergamino: fe(ePer), sanPedro: fe(eSan), logia: 0, sucursal9: fe(eSu9), sucursal11: fe(eS11) };
+  const enviar = { riv: fe(eRivM), urq: fe(eUrqM), nacion: fe(eNacM), chaca: fe(eChaM),
+    pergamino: fe(ePerM), sanPedro: fe(eSanM), logia: 0, sucursal9: fe(eSu9M), sucursal11: fe(eS11M) };
 
-  // Importancia BA (excluye Rivadavia). term^1.15, penaliza 5% por enviar no-numérico.
+  // ── Importancia ──────────────────────────────────────────────────────────────
+  // Legacy (planilla, BA): MAX de una sola sucursal, term^1.15, penaliza 5% por envío no-numérico, excluye Rivadavia.
   const term = (min, stock, enviarTxt) =>
     Math.pow((min > 0 && stock <= min && isNum(enviarTxt)) ? (stock === 0 ? BB : BB * (1 - stock / min / 2)) : 0, 1.15);
   const maxTerm = Math.max(
@@ -172,7 +195,34 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   );
   const penal = 1 - [eUrq, eNac, eCha, ePer, eSan, eSu8, eSu9, eS11]
     .reduce((s, v) => s + (isNum(v) ? 0 : 0.05), 0);
-  const importancia = maxTerm * penal;
+  const importanciaLegacy = maxTerm * penal;
+
+  // Real (opts.importancia.modo==='real'): urgencia continua × demanda de la sucursal (S) agregada sobre
+  // TODAS las sucursales que pueden recibir → premia amplitud (cuántas sucursales), tamaño (S) y urgencia
+  // (qué tan bajo del min), por el valor del producto (BB = importancia minorista). Fallback = legacy.
+  const impCfg = (opts && opts.importancia) || {};
+  let importancia = importanciaLegacy;
+  let impSucOut = null;   // contribución por sucursal → el cliente suma solo las visibles y renormaliza
+  if (impCfg.modo === 'real') {
+    const valor = impCfg.usarBB === false ? 1 : (BB > 0 ? BB : 1);
+    const impSuc = {};
+    let acc = 0;
+    const addSuc = (key, mn, S, stk0, env) => {
+      if (!(mn > 0) || !isNum(env)) { impSuc[key] = 0; return; }      // solo sucursales que realmente recibirían
+      const urg = Math.max(0, Math.min((mn - (stk0 || 0)) / mn, 1));  // 0..1: qué tan por debajo del min
+      const c = (S || 0) * urg;                                       // ponderado por demanda (S) de la sucursal
+      impSuc[key] = valor * c; acc += c;
+    };
+    addSuc('urq', minUrq, sUrq, st.urq, eUrq);
+    addSuc('nacion', minNacion, sNac, st.nacion, eNac);
+    addSuc('chaca', minChaca, sCha, st.chaca, eCha);
+    addSuc('pergamino', minPergamino, sPer, st.pergamino, ePer);
+    addSuc('sanPedro', minSanPedro, sSan, st.sanpedro, eSan);
+    addSuc('sucursal9', minSucu9, sSu9, st.sucu9, eSu9);
+    if (impCfg.incluirRivadavia !== false) addSuc('riv', minRiv, sRiv, st.riv, eRiv);
+    importancia = valor * acc;
+    impSucOut = impSuc;
+  }
 
   const consumo = a.consumo || 0;
   const meses = consumo > 0 ? roundup(D / consumo, 2) : 0;
@@ -181,11 +231,12 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     plu, envasa: envasaSi ? 'Si' : 'No', central: D, base8020: BB,
     mins: { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino,
             sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 },
-    enviar, pideTotal, importancia, meses,
+    enviar, pideTotal, importancia, impSuc: impSucOut, meses,
     ideal: { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer,
              sanPedro: pSan, sucursal9: pSu9 },   // pedido teórico (S−stock) sin límite de central
-    enviarTexto: { riv: eRiv, urq: eUrq, nacion: eNac, chaca: eCha, pergamino: ePer,
-                   sanPedro: eSan, sucu8: eSu8, sucu9: eSu9, sucu11: eS11 },
+    enviarTexto: { riv: eRivM, urq: eUrqM, nacion: eNacM, chaca: eChaM, pergamino: ePerM,
+                   sanPedro: eSanM, sucu8: eSu8M, sucu9: eSu9M, sucu11: eS11M },
+    enviarMicro,
   };
 }
 

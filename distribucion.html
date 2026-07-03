@@ -374,6 +374,7 @@
     <div class="controls">
       <input type="search" id="q" placeholder="Buscar PLU o producto…">
       <label class="chk"><input type="checkbox" id="soloEnvio" checked> Solo con envío</label>
+      <label class="chk" id="soloMicroWrap" style="display:none"><input type="checkbox" id="soloMicro">Mostrar Micro Envios</label>
       <select id="fEnvasar" style="display:none">
         <option value="">Envasar: Todos</option>
         <option value="Si" selected>Envasar: Sí</option>
@@ -677,6 +678,11 @@ const SUC_A = [
   ['riv','Rivadavia'], ['urq','Urquiza'], ['nacion','Nación'], ['chaca','Chacabuco'],
   ['pergamino','Pergamino'], ['sanPedro','San Pedro'], ['sucursal9','Villa Ramallo'],
 ];
+const ETX_KEY_A = { sucursal9: 'sucu9' };   // enviar usa 'sucursal9', enviarMicro usa 'sucu9'
+const microInfo = (r, k) => (r.enviarMicro || {})[ETX_KEY_A[k] || k] || null;
+const esMicro = (r, k) => !!microInfo(r, k);
+const tieneMicro = (r) => SUC_A.some(([k]) => sucVis.has(k) && esMicro(r, k));
+const fmtA = (n) => fmt(Math.round(n || 0));   // formateo redondeado — todo valor de la tab Almacén (no pesables)
 const SUC_P = [
   ['riv','Rivadavia'], ['urq','Urquiza'], ['nacion','Nación'], ['chaca','Chacabuco'],
   ['pergamino','Pergamino'], ['sanpedro','San Pedro'], ['ramallo','Villa Ramallo'],
@@ -843,6 +849,7 @@ async function cargar() {
     renderSucDropA(); actualizarSucBtnA(); buildTipoFilter(); construirHead(); render();
     document.getElementById('sucFiltros').style.display = 'flex';
     document.getElementById('tipoFiltro').style.display = 'flex';
+    document.getElementById('soloMicroWrap').style.display = '';
     document.getElementById('pdfA').style.display = '';
     st.style.display = 'none'; tb.style.display = '';
   } catch (e) {
@@ -1002,6 +1009,7 @@ function activarTab(name){
   document.getElementById('pdfA').style.display = name==='almacen' ? '' : 'none';
   document.getElementById('sucFiltros').style.display = name==='almacen' ? 'flex' : 'none';
   document.getElementById('tipoFiltro').style.display = name==='almacen' ? 'flex' : 'none';
+  document.getElementById('soloMicroWrap').style.display = name==='almacen' ? '' : 'none';
   document.getElementById('pdfP').style.display = name==='pesables' ? '' : 'none';
   document.getElementById('pdfEnv').style.display = name==='envasar' ? '' : 'none';
   document.getElementById('btn-actividad').style.display = name==='pesables' ? '' : 'none';
@@ -1094,7 +1102,7 @@ function exportarCSV() {
   const head = ['PLU', 'Producto', 'Depósito', ...SUC_A.map(s => s[1]), 'Total', 'Meses', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
     r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.central,
-    ...SUC_A.map(([k]) => r.enviar[k] || 0), totalEnviar(r), r.meses || 0, (r.importancia || 0).toFixed(4)].join(';')));
+    ...SUC_A.map(([k]) => r.enviar[k] || 0), totalEnviar(r), r.meses || 0, (r.impNorm || 0).toFixed(4)].join(';')));
   descargar(lines, 'distribucion_almacen.csv');
 }
 function exportarCSVPesables() {
@@ -1343,6 +1351,7 @@ async function guardarTipo(sel) {
 }
 document.getElementById('q').oninput = reRender;
 document.getElementById('soloEnvio').onchange = reRender;
+document.getElementById('soloMicro').onchange = reRender;
 document.getElementById('fEnvasar').onchange = renderP;
 document.getElementById('reload').onclick = () => tabActual==='almacen' ? cargar() : (tabActual==='pesables' ? cargarP() : (tabActual==='envasar' ? (pCargado ? renderEnvasar() : cargarP().then(renderEnvasar)) : null));
 document.getElementById('pdfA').onclick = exportarPDFAlmacen;
@@ -1394,39 +1403,45 @@ document.addEventListener('click', e => {
 function render() {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const soloEnvio = document.getElementById('soloEnvio').checked;
+  const soloMicro = document.getElementById('soloMicro').checked;
   const totalVis = (r) => SUC_A.filter(([k]) => sucVis.has(k)).reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
   let rows = datos.filter(r => {
     if (filtroProd.a.has(String(r.plu))) return false;
+    if (soloMicro && !tieneMicro(r)) return false;
     if (soloEnvio && totalVis(r) <= 0) return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
     if (rubrosSeleccionados.size && !rubrosSeleccionados.has(r.rubro)) return false;
     if (tipoFiltroActual && (almacenTipo[String(r.plu)] || '') !== tipoFiltroActual) return false;
     return true;
   });
+  // Importancia reactiva al filtro de sucursal: suma la contribución (impSuc) de las sucursales visibles.
+  const impVal = (r) => r.impSuc ? SUC_A.reduce((s, [k]) => s + (sucVis.has(k) ? (r.impSuc[k] || 0) : 0), 0) : (r.importancia || 0);
   rows.sort((a, b) => {
-    const va = orden.col === 'total' ? totalVis(a) : valor(a, orden.col);
-    const vb = orden.col === 'total' ? totalVis(b) : valor(b, orden.col);
+    const va = orden.col === 'total' ? totalVis(a) : orden.col === 'importancia' ? impVal(a) : valor(a, orden.col);
+    const vb = orden.col === 'total' ? totalVis(b) : orden.col === 'importancia' ? impVal(b) : valor(b, orden.col);
     return (va < vb ? -1 : va > vb ? 1 : 0) * orden.dir;
   });
-  const maxImp = Math.max(0.0001, ...datos.map(r => r.importancia || 0));
+  const maxImp = Math.max(0.0001, ...datos.map(impVal));
   document.getElementById('body-a').innerHTML = rows.map((r, i) => {
     const celdas = SUC_A.filter(([k]) => sucVis.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
       const id = (r.ideal || {})[k] || 0;   // pedido teórico (ideal) sin límite de central
-      const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
-      if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmt(id)}"><span>Fact</span></td>`;
+      const stkTd = `<td class="env stk">${stk ? fmtA(stk) : '·'}</td>`;
+      if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmtA(id)}"><span>Fact</span></td>`;
+      if (esMicro(r, k)) { const mi = microInfo(r, k); return `${stkTd}<td class="env micro" title="Calculado: ${fmtA(mi.qty)}, MinEnvio: ${fmtA(mi.umbral)}, S: ${fmtA(mi.S)}, StockMin: ${fmtA(mi.min)}"><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
       const n = v || 0;
-      const tip = id > 0 ? `title="ideal ${fmt(id)}${n > 0 && id > n ? ' · racionado' : ''}"` : '';
-      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}" ${tip}>${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmt(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
-    const impPct = ((r.importancia || 0) / maxImp) * 100;
+      const tip = id > 0 ? `title="ideal ${fmtA(id)}${n > 0 && id > n ? ' · racionado' : ''}"` : '';
+      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}" ${tip}>${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtA(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
+    const impN = impVal(r) / maxImp;
+    const impPct = impN * 100;
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
       <td class="l plu">${r.plu}</td>
       <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}</td>
-      <td class="central">${fmt(r.central)}</td>
+      <td class="central">${fmtA(r.central)}</td>
       ${celdas}
-      <td class="tot">${fmt(totalVis(r))}</td>
-      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${(r.importancia||0).toFixed(3)}</td>
+      <td class="tot">${fmtA(totalVis(r))}</td>
+      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${impN.toFixed(3)}</td>
     </tr>`;
   }).join('');
   const totUnid = rows.reduce((s, r) => s + totalVis(r), 0);
