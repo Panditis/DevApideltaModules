@@ -1496,9 +1496,10 @@ app.get('/api/stock/granel',     apiRoute(async () => { const c = JSON.parse(fs.
 app.get('/api/stock/plus',       apiRoute(async req => { const ids = String(req.query.ids||'').split(',').map(s=>s.trim()).filter(Boolean); if (!ids.length) return []; return query(sqlStockPorPlu(ids)); }));
 
 // ── Distribución a sucursales (réplica hoja "Almacen") ──────────────────────────
-const A8020_PATH          = path.join(DATA_DIR, 'a8020.json');
-const DISTRIB_LISTAS_PATH = path.join(DATA_DIR, 'distribucion_listas.json');
+const A8020_PATH           = path.join(DATA_DIR, 'a8020.json');
+const DISTRIB_LISTAS_PATH  = path.join(DATA_DIR, 'distribucion_listas.json');
 const PESABLES_LISTAS_PATH = path.join(DATA_DIR, 'pesables_listas.json');
+const ENVIOS_MANUALES_PATH = path.join(DATA_DIR, 'envios_manuales.json');
 // IdSucursal Siga → clave de stock del motor (6=Savio no se usa en Almacen). VERIFICAR con /api/distribucion/sucursales.
 const DISTRIB_SUC_MAP = { 1:'central', 2:'urq', 3:'nacion', 4:'chaca', 5:'riv', 7:'sanpedro', 8:'sucu8', 9:'sucu9', 10:'pergamino', 11:'sucu11' };
 function sqlStockDistribucion(plus) {
@@ -1550,13 +1551,20 @@ async function calcularDistribucionAlmacen() {
     for (const [ek, fk] of Object.entries(ALM_FACT_KEY))
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(f.plu))) { f.enviar[ek] = 'Fact'; f.factSucs.push(ek); }
   }
+  const almOvr = (leerJSON(ENVIOS_MANUALES_PATH, {})).almacen || {};
+  for (const f of filas) {
+    const ovr = almOvr[String(f.plu)]; if (!ovr) continue;
+    f.enviarOverride = {};
+    for (const [suc, val] of Object.entries(ovr))
+      if (f.enviar[suc] !== 'Fact') { f.enviar[suc] = val; f.enviarOverride[suc] = true; }
+  }
   return filas.map(f => {
     const rawStk = stocks.get(String(f.plu)) || {};
     const stkSuc = { riv: rawStk.riv||0, urq: rawStk.urq||0, nacion: rawStk.nacion||0,
       chaca: rawStk.chaca||0, pergamino: rawStk.pergamino||0,
       sanPedro: rawStk.sanpedro||0, sucursal9: rawStk.sucu9||0 };
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapA.get(String(f.plu)) || '', central: f.central,
-      enviar: f.enviar, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm: f.impNorm, meses: f.meses, stkSuc };
+      enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm: f.impNorm, meses: f.meses, stkSuc };
   });
 }
 app.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'distribucion.html')));
@@ -1623,14 +1631,43 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
     if (f.enviar[k] !== undefined && set.has(Number(f.plu))) f.enviar[k] = 'Fact';
+  const pesOvr = (leerJSON(ENVIOS_MANUALES_PATH, {})).pesable || {};
+  for (const f of filas) {
+    const ovr = pesOvr[String(f.plu)]; if (!ovr) continue;
+    f.enviarOverride = {};
+    for (const [suc, val] of Object.entries(ovr))
+      if (f.enviar[suc] !== 'Fact') { f.enviar[suc] = val; f.enviarOverride[suc] = true; }
+  }
   return filas.map(f => ({ plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: f.rubro,
     granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
     cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
-    peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, ideal: f.teorico, CG: f.CG,
+    peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG,
     J: f.J, D: f.D, G: f.G, BL: f.BL, prioridad: f.prioridad, prioridadSala: f.prioridadSala,
     granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {} }));
 }
 app.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
+app.get('/api/distribucion/envios-manuales', apiRoute(async () => leerJSON(ENVIOS_MANUALES_PATH, { almacen: {}, pesable: {} })));
+app.post('/api/distribucion/envio-override', (req, res) => {
+  const { tipo, plu, suc, valor } = req.body || {};
+  if (!tipo || !plu || !suc) return res.status(400).json({ error: 'faltan campos' });
+  const d = leerJSON(ENVIOS_MANUALES_PATH, { almacen: {}, pesable: {} });
+  if (!d[tipo]) d[tipo] = {};
+  if (valor === null || valor === undefined) {
+    if (d[tipo][String(plu)]) { delete d[tipo][String(plu)][suc]; if (!Object.keys(d[tipo][String(plu)]).length) delete d[tipo][String(plu)]; }
+  } else {
+    if (!d[tipo][String(plu)]) d[tipo][String(plu)] = {};
+    d[tipo][String(plu)][suc] = Number(valor);
+  }
+  guardarJSON(ENVIOS_MANUALES_PATH, d);
+  res.json({ ok: true });
+});
+app.delete('/api/distribucion/envios-manuales', (req, res) => {
+  const { tipo } = req.body || {};
+  const d = leerJSON(ENVIOS_MANUALES_PATH, { almacen: {}, pesable: {} });
+  if (!tipo || tipo === 'todos') guardarJSON(ENVIOS_MANUALES_PATH, { almacen: {}, pesable: {} });
+  else { d[tipo] = {}; guardarJSON(ENVIOS_MANUALES_PATH, d); }
+  res.json({ ok: true });
+});
 
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md

@@ -162,6 +162,8 @@
   td.env.fact span{background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em}
   /* ── Columna sucursal partida: nombre arriba (colspan) + Stock/Enviar abajo ── */
   td.env.stk{color:var(--muted)}
+  td.env.override{background:#fff8e1}
+  td.env.override span{outline:1px dashed #f59e0b;outline-offset:-2px;border-radius:4px}
   #tabla-a thead th[colspan],#tabla-p thead th[colspan]{text-align:center}
   #tabla-a thead .subh,#tabla-p thead .subh{top:36px;font-size:11px;padding:5px 8px;font-weight:600}
   /* ── Filtro de productos estilo Excel (header Producto) ── */
@@ -402,11 +404,9 @@
       <button id="pdfP" style="display:none">📄 PDF</button>
       <button id="pdfEnv" style="display:none">📄 PDF</button>
       <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
+      <button id="btn-overrides" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOverrides()">✏ <span id="ovr-count">0</span> overrides</button>
       <button class="primary" id="reload">↻ Recalcular</button>
       <button onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
-      <button onclick="window.open('/docs/plan-distribucion.html','_blank')" title="Plan de distribución: método, diferencias y observaciones">📄 Plan</button>
-      <button onclick="window.open('/docs/guia-distribucion.html','_blank')" title="Guía completa: cada dato, cómo se calcula, config y cómo analizar">📘 Guía</button>
-      <button onclick="window.open('/docs/analisis-distribucion.html','_blank')" title="Análisis: fortalezas, debilidades y roadmap">📊 Análisis</button>
       <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
         <span style="font-size:11px;color:var(--muted)">Modo:</span>
         <button class="suc-tog on" data-modo="sala" onclick="setPesablesModo('sala')" title="Habilita el modal de carga de producción">🏭 Sala</button>
@@ -598,6 +598,31 @@
           <button onclick="document.getElementById('modal-limpiar-prod').classList.remove('open')">Cancelar</button>
           <button class="primary" style="background:var(--error)" onclick="limpiarProduccion()">Sí, eliminar</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal overrides manuales -->
+  <div class="modal-bg" id="modal-overrides">
+    <div class="modal" style="min-width:500px;max-width:700px">
+      <div class="modal-head"><h3>Envíos manuales</h3><button class="modal-close" onclick="cerrarModalOverrides()">✕</button></div>
+      <div style="padding:16px 24px;overflow-y:auto;max-height:60vh">
+        <table id="ovr-tabla" style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="border-bottom:2px solid var(--border)">
+            <th class="l" style="padding:6px 8px">Tipo</th>
+            <th class="l" style="padding:6px 8px">PLU</th>
+            <th class="l" style="padding:6px 8px">Nombre</th>
+            <th class="l" style="padding:6px 8px">Sucursal</th>
+            <th style="padding:6px 8px">Valor</th>
+            <th style="padding:6px 8px"></th>
+          </tr></thead>
+          <tbody id="ovr-body"></tbody>
+        </table>
+        <p id="ovr-empty" style="text-align:center;color:var(--muted);padding:24px 0;display:none">Sin overrides activos</p>
+      </div>
+      <div style="padding:12px 24px;display:flex;justify-content:space-between;border-top:1px solid var(--border)">
+        <button onclick="borrarTodosOverrides()" style="background:var(--error);color:#fff;border-color:var(--error)">Borrar todos</button>
+        <button onclick="cerrarModalOverrides()">Cerrar</button>
       </div>
     </div>
   </div>
@@ -1353,11 +1378,25 @@ document.getElementById('q').oninput = reRender;
 document.getElementById('soloEnvio').onchange = reRender;
 document.getElementById('soloMicro').onchange = reRender;
 document.getElementById('fEnvasar').onchange = renderP;
-document.getElementById('reload').onclick = () => tabActual==='almacen' ? cargar() : (tabActual==='pesables' ? cargarP() : (tabActual==='envasar' ? (pCargado ? renderEnvasar() : cargarP().then(renderEnvasar)) : null));
+async function _ejecutarRecalcular() {
+  await fetch('/api/distribucion/envios-manuales', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tipo:'todos' }) }).catch(()=>{});
+  actualizarBadgeOverrides();
+  tabActual==='almacen' ? cargar() : (tabActual==='pesables' ? cargarP() : (tabActual==='envasar' ? (pCargado ? renderEnvasar() : cargarP().then(renderEnvasar)) : null));
+}
+document.getElementById('reload').onclick = () => {
+  const n = parseInt(document.getElementById('ovr-count').textContent || '0', 10);
+  if (n > 0) {
+    abrirConfirmDel('Recalcular distribución', `Hay ${n} envío${n !== 1 ? 's' : ''} modificado${n !== 1 ? 's' : ''} manualmente. Al recalcular se perderán todos los cambios. ¿Continuar?`, _ejecutarRecalcular);
+  } else {
+    _ejecutarRecalcular();
+  }
+};
 document.getElementById('pdfA').onclick = exportarPDFAlmacen;
 document.getElementById('pdfP').onclick = exportarPDFPesables;
 window.addEventListener('load', () => moverInk(document.querySelector('.tab.on')));
 moverInk(document.querySelector('.tab.on'));
+_initEnvioEditListeners();
+actualizarBadgeOverrides();
 cargar();
 
 // ════════════════ RUBRO MULTISELECT ════════════════
@@ -1430,8 +1469,9 @@ function render() {
       if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmtA(id)}"><span>Fact</span></td>`;
       if (esMicro(r, k)) { const mi = microInfo(r, k); return `${stkTd}<td class="env micro" title="Calculado: ${fmtA(mi.qty)}, MinEnvio: ${fmtA(mi.umbral)}, S: ${fmtA(mi.S)}, StockMin: ${fmtA(mi.min)}"><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
       const n = v || 0;
+      const isOvr = (r.enviarOverride || {})[k];
       const tip = id > 0 ? `title="ideal ${fmtA(id)}${n > 0 && id > n ? ' · racionado' : ''}"` : '';
-      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}" ${tip}>${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtA(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
+      return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}${isOvr ? ' override' : ''}" ${tip} data-plu="${r.plu}" data-suc="${k}" data-tipo="almacen">${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtA(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
     const impN = impVal(r) / maxImp;
     const impPct = impN * 100;
     const d = Math.min(i * 6, 360);
@@ -1471,9 +1511,10 @@ function renderP() {
       const id = (r.ideal || {})[k] || 0;   // teórico (ideal) sin límite de granel/central
       const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
       if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmt(id)}"><span>Fact</span></td>`;
+      const isOvrP = (r.enviarOverride || {})[k];
       return stkTd + (esNum(v) && v > 0
-        ? `<td class="env pos" title="ideal ${fmt(id)}${id > v ? ' · racionado' : ''}"><span>${fmt(v)}</span></td>`
-        : `<td class="env" title="${esNum(v) ? (id > 0 ? 'ideal ' + fmt(id) : '') : (v||'')}"><span>·</span></td>`); }).join('');
+        ? `<td class="env pos${isOvrP ? ' override' : ''}" title="ideal ${fmt(id)}${id > v ? ' · racionado' : ''}" data-plu="${r.plu}" data-suc="${k}" data-tipo="pesable"><span>${fmt(v)}</span></td>`
+        : `<td class="env${isOvrP ? ' override' : ''}" title="${esNum(v) ? (id > 0 ? 'ideal ' + fmt(id) : '') : (v||'')}" data-plu="${r.plu}" data-suc="${k}" data-tipo="pesable"><span>·</span></td>`); }).join('');
     const prep = pesablesModo === 'preparacion';
     const impPct = (prioOf(r) / maxImp) * 100;
     const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
@@ -1769,6 +1810,81 @@ async function guardarRespP(plu, emp) {
   });
 }
 
+// ════════════════ ENVÍOS MANUALES ════════════════
+async function guardarEnvioOverride(tipo, plu, suc, valor) {
+  await fetch('/api/distribucion/envio-override', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ tipo, plu: String(plu), suc, valor: valor === '' ? null : Number(valor) })
+  });
+  actualizarBadgeOverrides();
+  tipo === 'almacen' ? cargar() : cargarP();
+}
+async function actualizarBadgeOverrides() {
+  const d = await fetch('/api/distribucion/envios-manuales').then(r=>r.json()).catch(()=>({almacen:{},pesable:{}}));
+  const total = Object.values(d.almacen||{}).reduce((s,o)=>s+Object.keys(o).length,0)
+              + Object.values(d.pesable||{}).reduce((s,o)=>s+Object.keys(o).length,0);
+  const btn = document.getElementById('btn-overrides');
+  document.getElementById('ovr-count').textContent = total;
+  btn.style.display = total > 0 ? '' : 'none';
+}
+async function abrirModalOverrides() {
+  const d = await fetch('/api/distribucion/envios-manuales').then(r=>r.json()).catch(()=>({almacen:{},pesable:{}}));
+  const rows = [];
+  const nombreDe = (plu) => { const r = datos.find(x=>String(x.plu)===String(plu)) || datosP.find(x=>String(x.plu)===String(plu)); return r ? r.nombre : ''; };
+  const SUC_LABEL = { riv:'Rivadavia',urq:'Urquiza',nacion:'Nacion',chaca:'Chacabuco',pergamino:'Pergamino',sanpedro:'San Pedro',central:'Central',logia:'Logia',ramallo:'Ramallo',sucu11:'Suc11',sucu9:'Suc9' };
+  for (const [plu, sucs] of Object.entries(d.almacen||{}))
+    for (const [suc, val] of Object.entries(sucs))
+      rows.push({ tipo:'almacen', tipoLabel:'Almacén', plu, suc, val, nombre: nombreDe(plu) });
+  for (const [plu, sucs] of Object.entries(d.pesable||{}))
+    for (const [suc, val] of Object.entries(sucs))
+      rows.push({ tipo:'pesable', tipoLabel:'Pesable', plu, suc, val, nombre: nombreDe(plu) });
+  document.getElementById('ovr-empty').style.display = rows.length ? 'none' : '';
+  document.getElementById('ovr-body').innerHTML = rows.map(r => `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 8px">${r.tipoLabel}</td>
+    <td style="padding:5px 8px">${r.plu}</td>
+    <td style="padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nombre}</td>
+    <td style="padding:5px 8px">${SUC_LABEL[r.suc]||r.suc}</td>
+    <td style="padding:5px 8px;text-align:right;font-weight:700">${r.val}</td>
+    <td style="padding:5px 8px;text-align:center"><button style="font-size:11px;padding:2px 8px" onclick="borrarOverride('${r.tipo}','${r.plu}','${r.suc}')">✕</button></td>
+  </tr>`).join('');
+  document.getElementById('modal-overrides').classList.add('open');
+}
+function cerrarModalOverrides() { document.getElementById('modal-overrides').classList.remove('open'); }
+async function borrarOverride(tipo, plu, suc) {
+  await fetch('/api/distribucion/envio-override', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ tipo, plu, suc, valor: null })
+  });
+  await abrirModalOverrides();
+  actualizarBadgeOverrides();
+  tipo === 'almacen' ? cargar() : cargarP();
+}
+async function borrarTodosOverrides() {
+  await fetch('/api/distribucion/envios-manuales', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tipo:'todos' }) });
+  cerrarModalOverrides();
+  actualizarBadgeOverrides();
+  cargar(); cargarP();
+}
+// Delegación de click en tablas para edición inline
+function _initEnvioEditListeners() {
+  ['body-a','body-p'].forEach(id => {
+    document.getElementById(id).addEventListener('click', e => {
+      const td = e.target.closest('td[data-tipo]');
+      if (!td || td.querySelector('input')) return;
+      const { plu, suc, tipo } = td.dataset;
+      const cur = td.querySelector('span')?.textContent?.trim();
+      const input = document.createElement('input');
+      input.type = 'number'; input.min = '0'; input.step = tipo==='pesable'?'0.1':'1';
+      input.value = cur === '·' ? '' : (cur || '');
+      input.style.cssText = 'width:58px;font-size:12px;padding:2px 4px;border:1px solid #f59e0b;border-radius:4px;outline:none';
+      td.innerHTML = ''; td.appendChild(input); input.focus(); input.select();
+      const commit = () => guardarEnvioOverride(tipo, plu, suc, input.value.trim());
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', ev => { if (ev.key==='Enter') { ev.preventDefault(); input.blur(); } if (ev.key==='Escape') { ev.preventDefault(); input.removeEventListener('blur',commit); tipo==='almacen'?cargar():cargarP(); } });
+    });
+  });
+}
+
 // ════════════════ MODAL REGISTRO PRODUCCIÓN ════════════════
 let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
 function _buildModalForm(vals) {
@@ -2044,6 +2160,7 @@ async function ejecutarConfirmDel() {
   if (fn) await fn();
 }
 document.getElementById('modal-confirm-del').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarConfirmDel(); });
+document.getElementById('modal-overrides').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalOverrides(); });
 
 async function eliminarRegistro(id) {
   const reg = prodRegistros.find(x => x.id === id);
