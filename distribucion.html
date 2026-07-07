@@ -365,6 +365,7 @@
       <button class="tab cfg-tab" data-tab="forzar-almacen">Siempre Almacén <span class="pill" id="pillForzarAlmacen">+</span></button>
       <button class="tab cfg-tab" data-tab="forzar-pesable">Siempre Pesable <span class="pill" id="pillForzarPesable">+</span></button>
       <button class="tab cfg-tab" data-tab="ocultar-pesable">Ocultar Pesable <span class="pill" id="pillOcultarPesable">🚫</span></button>
+      <button class="tab cfg-tab" data-tab="restringidos">Restringidos <span class="pill" id="pillRestringidos">🔒</span></button>
       <button class="tab cfg-tab" data-tab="tipo-almacen">Tipo Almacén</button>
       <button class="tab cfg-tab" data-tab="tabs-config">Tabs</button>
       <button class="tab-cfg-toggle" id="cfgToggle" onclick="toggleCfgTabs()" title="Mostrar/ocultar configuración">⚙</button>
@@ -470,6 +471,7 @@
     <section class="panel listpanel" id="panel-forzar-almacen"></section>
     <section class="panel listpanel" id="panel-forzar-pesable"></section>
     <section class="panel listpanel" id="panel-ocultar-pesable"></section>
+    <section class="panel listpanel" id="panel-restringidos"></section>
 
     <!-- removed fraccionado/envasado panels -->
     <!-- FRACCIONADO ORDENES (placeholder, tab removed) -->
@@ -996,7 +998,7 @@ async function cargarP() {
 
 // ════════════════ Común (tabs, controles, CSV) ════════════════
 const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
-  <div style="color:var(--faint);font-size:12px">¿Corriste <code>python importar_distribucion.py</code> y está Siga accesible?</div>`;
+  <div style="color:var(--faint);font-size:12px">¿Está Siga accesible?</div>`;
 let tabActual = 'almacen';
 // ── Modo pesables: Sala (habilita modal carga producción) / Preparación (lo deshabilita) ──
 let pesablesModo = localStorage.getItem('pesablesModo') || 'sala';
@@ -1052,6 +1054,7 @@ function activarTab(name){
   else if (name==='historial') { cargarHistorial(); }
   else if (name==='tipo-almacen') { cargarTipoAlmacen(); }
   else if (name==='tabs-config') { renderTabsConfig(); }
+  else if (name==='restringidos') { construirEditorRestr(); if(!listasData) cargarListas().then(()=>renderRestr()); else renderRestr(); }
   else { construirEditor(name); if(!listasData) cargarListas().then(()=>renderLista(name)); else renderLista(name); }
 }
 function construirEditor(tab){
@@ -1104,6 +1107,46 @@ async function modificarLista(key,accion,plu){
   await fetch('/api/distribucion/listas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lista:key,accion,plu:Number(plu)})});
   await cargarListas(); renderLista(tabActual);
   datos=[]; datosP=[]; pCargado=false;   // invalida data principal: refleja el cambio al volver
+}
+// ── Tab Restringidos (por sucursal) ──────────────────────────────────────────
+const RESTR_SUC_LABEL = { rivadavia:'Rivadavia', urquiza:'Urquiza', chacabuco:'Chacabuco', nacion:'Nación', pergamino:'Pergamino', sanPedro:'San Pedro', villaRamallo:'Villa Ramallo' };
+let restrSucActual = 'rivadavia';
+function construirEditorRestr(){
+  const cont=document.getElementById('panel-restringidos'); if(cont.dataset.built) return;
+  cont.innerHTML = `<div class="lista-editor">
+    <div class="lista-head"><h2>Restringidos por sucursal</h2><span class="lista-count"></span></div>
+    <p class="hint">Productos que nunca se envían a la sucursal seleccionada.</p>
+    <div class="suc-tog-row">${Object.entries(RESTR_SUC_LABEL).map(([k,l])=>`<button class="suc-tog${k==='rivadavia'?' on':''}" data-suc="${k}">${l}</button>`).join('')}</div>
+    <div class="lista-add"><input class="lsearch" placeholder="Buscar PLU o producto para agregar…"><div class="resultados"></div></div>
+    <div class="lista-items"></div></div>`;
+  cont.querySelectorAll('.suc-tog').forEach(b=> b.onclick=()=>{ restrSucActual=b.dataset.suc; cont.querySelectorAll('.suc-tog').forEach(x=>x.classList.toggle('on',x===b)); renderRestr(); });
+  const inp=cont.querySelector('.lsearch'); let tmr;
+  inp.oninput=()=>{ clearTimeout(tmr); tmr=setTimeout(()=>buscarProductoRestr(inp.value),220); };
+  document.addEventListener('click',e=>{ if(!cont.contains(e.target)) cont.querySelector('.resultados').innerHTML=''; });
+  cont.dataset.built='1';
+}
+function renderRestr(){
+  const cont=document.getElementById('panel-restringidos');
+  const plus=(listasData.restringidos && listasData.restringidos[restrSucActual]) || [];
+  const items=plus.map(plu=>({plu, nombre:(listasData.nombres||{})[plu]||''}));
+  cont.querySelector('.lista-count').textContent=items.length+' productos';
+  cont.querySelector('.lista-items').innerHTML = items.length
+    ? items.map(it=>`<div class="chip"><b>${it.plu}</b><span class="nom">${it.nombre||'<sin nombre>'}</span><button class="rm" data-plu="${it.plu}" title="Quitar">✕</button></div>`).join('')
+    : '<div class="vacio">Lista vacía. Buscá un producto arriba para agregarlo.</div>';
+  cont.querySelectorAll('.rm').forEach(b=> b.onclick=()=>modificarRestr('remove',b.dataset.plu));
+}
+async function buscarProductoRestr(q){
+  const box=document.querySelector('#panel-restringidos .resultados');
+  if(q.trim().length<2){ box.innerHTML=''; return; }
+  const r=await fetch('/api/distribucion/buscar?q='+encodeURIComponent(q.trim())); const rows=await r.json();
+  const ya=new Set(((listasData.restringidos && listasData.restringidos[restrSucActual]) || []).map(Number));
+  box.innerHTML = rows.length ? rows.map(p=>`<div class="res" data-plu="${p.IdProducto}"><b>${p.IdProducto}</b><span>${p.NombreProducto}${ya.has(Number(p.IdProducto))?' ✓':''}</span></div>`).join('') : '<div class="vacio">Sin resultados</div>';
+  box.querySelectorAll('.res').forEach(d=> d.onclick=()=>{ modificarRestr('add',d.dataset.plu); box.innerHTML=''; document.querySelector('#panel-restringidos .lsearch').value=''; });
+}
+async function modificarRestr(accion,plu){
+  await fetch('/api/distribucion/listas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lista:'restringidos',sucursal:restrSucActual,accion,plu:Number(plu)})});
+  await cargarListas(); renderRestr();
+  datos=[]; datosP=[]; pCargado=false;
 }
 // ── Config tabs toggle ────────────────────────────────────────────────────────
 let cfgVisible = localStorage.getItem('cfgTabsVisible') === '1';
