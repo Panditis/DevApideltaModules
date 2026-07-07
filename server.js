@@ -1580,19 +1580,19 @@ const PES_SUC_MAP = { 1:'central', 5:'riv', 2:'urq', 3:'nacion', 4:'chaca', 10:'
 async function calcularDistribucionPesables(aplicarOcultar = true) {
   const a8020   = leerJSON(A8020_PATH, {});
   const pesLis  = leerJSON(PESABLES_LISTAS_PATH, {});
-  const distLis = leerJSON(DISTRIB_LISTAS_PATH, {});
   const ed = leerListasDistrib();
-  distLis.noEnvasa = ed.noEnvasa;   // lista editable de exclusión
-  // BG vivo: facturación de Siga como importancia (BG) en vez de la planilla estática.
-  if ((((leerJSON(DISTRIB_CONFIG_PATH, {}).importancia) || {}).fuente || 'siga') !== 'planilla') {
-    const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion;
-    if (impViva && Object.keys(impViva).length) distLis.importanciaMinorista = impViva;
-  }
+  const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
+  const distLis = { noEnvasa: ed.noEnvasa, restringidos: ed.restringidos, importanciaMinorista: impViva };
   const formulas = pesLis.formulas || {};
   const ocultos = new Set(aplicarOcultar ? ed.ocultarPesable.map(String) : []);   // checkbox "Ocultar códigos" en Pesables
-  const plus = universoLista(Object.keys(pesLis.productosPesables || {}), ed.siemprePesable, ed.noEnvasa)
+  const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
+    FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
+    WHERE p.Activo=1 AND r.NombreRubro IN ('Pesables Fraccionado','Pesables Produccion')`);
+  const rubroMapP = new Map(rubroRows.map(r => [r.IdProducto, r.NombreRubro]));
+  const basePlus = rubroRows.map(r => r.IdProducto);
+  const plus = universoLista(basePlus, ed.siemprePesable, ed.noEnvasa)
     .filter(p => !ocultos.has(String(p)));
-  if (!plus.length) throw new Error('Falta data/pesables_listas.json — corré: python importar_distribucion.py');
+  if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado"/"Pesables Produccion" en Siga.');
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
   const granelCodes = [...new Set(plus.map(p => (formulas[p] || {}).granel).filter(g => g != null).map(String))];
@@ -1623,10 +1623,9 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     st.granel = (granel != null && !sinGranelSet.has(String(plu))) ? (granelMap.get(String(granel)) || 0) : 0;
     return { plu, stocks: st };
   });
-  const recKeys = new Set(Object.keys(fact.recByKey));
   const pesParams = leerJSON(PESABLES_PARAMS_PATH, {});   // pesos de prioridad editables (opcional)
   const filas = calcularPesables(productos, a8020, pesLis, distLis,
-    { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap }, recKeys);
+    { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
     if (f.enviar[k] !== undefined && set.has(Number(f.plu))) f.enviar[k] = 'Fact';
@@ -1637,7 +1636,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     for (const [suc, val] of Object.entries(ovr))
       if (f.enviar[suc] !== 'Fact') { f.enviar[suc] = val; f.enviarOverride[suc] = true; }
   }
-  return filas.map(f => ({ plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: f.rubro,
+  return filas.map(f => ({ plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapP.get(String(f.plu)) || '',
     granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
     cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
     peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG,
