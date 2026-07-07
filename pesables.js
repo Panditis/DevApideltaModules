@@ -104,25 +104,23 @@ function enviarSN(envasable, stock, min, H, F, suc) {
 
 // Teórico = reponer hasta S (order-up-to): MAX(S − stock, 0), con tope maxEnviar.
 // Antes: min·mult − stock/2 (mult según importancia BG) — reemplazado por modelo min/S.
-function enviarTeorico(suc, sn, S, stock, flags, recKeys) {
-  if (suc.teoFlag && !(recKeys && recKeys.has(suc.key)) && (flags[suc.teoFlag] || 0) === 1) return 0;
+function enviarTeorico(sn, S, stock) {
   if (sn !== 'Si') return 0;
   return Math.min(Math.max(S - stock, 0), P.maxEnviar);
 }
 
-function enviarFinal(suc, plu, sn, teo, M, restrSets, flags, recKeys) {
+// Fact es 100% dinámico (calcularFactLive() en server.js, post-cálculo) — no hay
+// fallback estático de planilla.
+function enviarFinal(suc, plu, sn, teo, M, restrSets) {
   if (suc.restr && restrSets[suc.restr] && restrSets[suc.restr].has(plu)) return 'Restringido';
-  // Si la sucursal tiene REC-SUC registrado, ignorar flag estático — calcularFactLive() maneja Fact en vivo
-  if (suc.envFlag && !(recKeys && recKeys.has(suc.key)) && (flags[suc.envFlag] || 0) > 0) return 'Fact';
   if (sn !== 'Si') return sn;
   return Math.min(M < 1 ? teo : teo / M, P.maxEnviar);
 }
 
 // ── Cálculo principal (3 pasadas; agrupa por código granel) ───────────────────
 // productos = [{ plu, stocks:{central,granel,riv,urq,nacion,chaca,pergamino,sanpedro,logia,ramallo,sucu11} }]
-function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new Set()) {
+function calcularPesables(productos, a8020, pesLis, distLis, opts) {
   const corregir = !opts || opts.corregirBugs !== false;
-  const prodPes = pesLis.productosPesables || {};
   const formulas = pesLis.formulas || {};
   const pesos = pesLis.pesosGranel || {};
   const fracSet = new Set((pesLis.fraccionadora || []).map(Number));
@@ -137,8 +135,6 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new
   const rows = productos.map((pp) => {
     const plu = Number(pp.plu);
     const st = pp.stocks || {};
-    const pInfo = prodPes[String(plu)] || {};
-    const flags = pInfo.flags || {};
     const fInfo = formulas[String(plu)] || {};
     const granel = fInfo.granel != null ? fInfo.granel : null;
     const gkey = gkeyOf(granel);
@@ -157,14 +153,14 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new
       const s = sSucursal(suc, a, cl, corregir);
       mins[suc.key] = m; sLev[suc.key] = s;
       sn[suc.key] = enviarSN(BK === 'Si', stock, m, H, F, suc);   // gatillo con min (punto de pedido)
-      teo[suc.key] = enviarTeorico(suc, sn[suc.key], s, stock, flags, recKeys);   // repone hasta S
+      teo[suc.key] = enviarTeorico(sn[suc.key], s, stock);   // repone hasta S
     }
     const sumTeo = SUC.reduce((s, suc) => s + teo[suc.key], 0);
     // PLU ausente del A8020: los teóricos son #N/A ⇒ CH = SUM(#N/A) = #N/A (NaN).
     // El #N/A contamina el SUMIF del grupo granel ⇒ CI=0 para todo el grupo (réplica exacta).
     const CH = a ? Math.max(sumTeo - H, 0) : NaN;
-    return { plu, granel, gkey, cl, BK, BG, F, H, flags, mins, sn, teo, sumTeo, CH,
-             rubro: pInfo.rubro || '', peso: Number(pesos[gkey]) || 0, fracOk: fracSet.has(plu) };
+    return { plu, granel, gkey, cl, BK, BG, F, H, mins, sn, teo, sumTeo, CH,
+             peso: Number(pesos[gkey]) || 0, fracOk: fracSet.has(plu) };
   });
 
   // Agregado: ΣCH por código granel (SUMIF C, CH)
@@ -182,7 +178,7 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts, recKeys = new
     r.enviar = {};
     const sends = [];
     for (const suc of SUC) {
-      const e = enviarFinal(suc, r.plu, r.sn[suc.key], r.teo[suc.key], r.M, restrSets, r.flags, recKeys);
+      const e = enviarFinal(suc, r.plu, r.sn[suc.key], r.teo[suc.key], r.M, restrSets);
       r.enviar[suc.key] = e;
       sends.push(isNum(e) ? e : 0);
     }
@@ -271,7 +267,7 @@ function rutear(r) {
 
 function formatearFila(r) {
   return {
-    plu: r.plu, granel: r.granel, rubro: r.rubro, peso: r.peso,
+    plu: r.plu, granel: r.granel, peso: r.peso,
     BG: r.BG, F: r.F, H: r.H, I: r.I, M: r.M, CH: r.CH, CI: r.CI, CG: r.CG,
     mins: r.mins, sn: r.sn, teorico: r.teo, enviar: r.enviar,
     J: r.J, BJ: r.BJ, BK: r.BK, L: r.L, K: r.K, D: r.D, E: r.E, BM: r.BM, G: r.G, BL: r.BL,
