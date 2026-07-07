@@ -1528,11 +1528,25 @@ async function calcularDistribucionAlmacen() {
   if (!plus.length) throw new Error('Sin productos activos de rubro "Almacen" en Siga.');
   const listas = { noEnvasa: ed.noEnvasa, restringidos: ed.restringidos, productosAlmacen: {}, importanciaMinorista: impViva };
   const inList = plus.map(p => `'${p}'`).join(',');   // IdProducto es varchar en Siga → citar
-  const [stockRows, nombres, fact] = await Promise.all([
+  const nuevoCfg = distCfg.nuevo || {};
+  const nuevoDias = nuevoCfg.dias || 30;
+  const pisoImportancia = nuevoCfg.pisoImportancia || 0.8;
+  const compraTipos = (distCfg.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
+  const [stockRows, nombres, fact, primeraCompraRows] = await Promise.all([
     query(sqlStockDistribucion(plus)),
     query(`SELECT p.IdProducto, p.NombreProducto, r.NombreRubro FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro WHERE p.IdProducto IN (${inList})`),
     calcularFactLive(),
+    query(`SELECT mp.IdProducto, MIN(m.FechaMovimiento) AS Primera
+      FROM MovimientosStockProductos mp
+      JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+      WHERE mp.IdProducto IN (${inList}) AND mp.IdTipoMovimiento IN (${compraTipos})
+      GROUP BY mp.IdProducto`),
   ]);
+  const primeraCompraMap = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
+  const umbralNuevo = new Date(Date.now() - nuevoDias * 24 * 60 * 60 * 1000);
+  const esNuevoSet = new Set([...primeraCompraMap.entries()]
+    .filter(([, fecha]) => new Date(fecha) >= umbralNuevo)
+    .map(([plu]) => plu));
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const rubroMapA = new Map(nombres.map(r => [String(r.IdProducto), r.NombreRubro || '']));
   const stocks = new Map();
@@ -1562,8 +1576,12 @@ async function calcularDistribucionAlmacen() {
     const stkSuc = { riv: rawStk.riv||0, urq: rawStk.urq||0, nacion: rawStk.nacion||0,
       chaca: rawStk.chaca||0, pergamino: rawStk.pergamino||0,
       sanPedro: rawStk.sanpedro||0, sucursal9: rawStk.sucu9||0 };
+    const esNuevo = esNuevoSet.has(String(f.plu));
+    const impNorm = esNuevo ? Math.max(f.impNorm, pisoImportancia) : f.impNorm;
+    const primera = primeraCompraMap.get(String(f.plu));
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapA.get(String(f.plu)) || '', central: f.central,
-      enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm: f.impNorm, meses: f.meses, stkSuc };
+      enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm, meses: f.meses, stkSuc,
+      esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
   });
 }
 app.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'distribucion.html')));
@@ -1596,7 +1614,12 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
   const granelCodes = [...new Set(plus.map(p => (formulas[p] || {}).granel).filter(g => g != null).map(String))];
-  const [stockRows, granelRows, nombres, fact] = await Promise.all([
+  const distCfgP = leerJSON(DISTRIB_CONFIG_PATH, {});
+  const nuevoCfgP = distCfgP.nuevo || {};
+  const nuevoDiasP = nuevoCfgP.dias || 30;
+  const pisoImportanciaP = nuevoCfgP.pisoImportancia || 0.8;
+  const compraTiposP = (distCfgP.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
+  const [stockRows, granelRows, nombres, fact, primeraCompraRows] = await Promise.all([
     query(sqlStockDistribucion(plus)),   // producto terminado: DisponibleVenta=1 por IdSucursal (central + sucursales)
     granelCodes.length ? query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
        FROM ProductosDepositos pd
@@ -1606,7 +1629,17 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
        GROUP BY pd.IdProducto`) : Promise.resolve([]),
     query(`SELECT IdProducto, NombreProducto FROM Productos WHERE IdProducto IN (${quote([...new Set([...plus, ...granelCodes])])})`),
     calcularFactLive(),
+    query(`SELECT mp.IdProducto, MIN(m.FechaMovimiento) AS Primera
+      FROM MovimientosStockProductos mp
+      JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+      WHERE mp.IdProducto IN (${quote(plus)}) AND mp.IdTipoMovimiento IN (${compraTiposP})
+      GROUP BY mp.IdProducto`),
   ]);
+  const primeraCompraMapP = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
+  const umbralNuevoP = new Date(Date.now() - nuevoDiasP * 24 * 60 * 60 * 1000);
+  const esNuevoSetP = new Set([...primeraCompraMapP.entries()]
+    .filter(([, fecha]) => new Date(fecha) >= umbralNuevoP)
+    .map(([plu]) => plu));
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const granelMap = new Map(granelRows.map(r => [String(r.IdProducto), parseFloat(r.Stock || 0)]));
   const stocks = new Map();
@@ -1636,12 +1669,19 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     for (const [suc, val] of Object.entries(ovr))
       if (f.enviar[suc] !== 'Fact') { f.enviar[suc] = val; f.enviarOverride[suc] = true; }
   }
-  return filas.map(f => ({ plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapP.get(String(f.plu)) || '',
-    granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
-    cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
-    peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG,
-    J: f.J, D: f.D, G: f.G, BL: f.BL, prioridad: f.prioridad, prioridadSala: f.prioridadSala,
-    granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {} }));
+  return filas.map(f => {
+    const esNuevo = esNuevoSetP.has(String(f.plu));
+    const primera = primeraCompraMapP.get(String(f.plu));
+    const prioridad = esNuevo ? Math.max(f.prioridad, pisoImportanciaP) : f.prioridad;
+    const prioridadSala = esNuevo ? Math.max(f.prioridadSala, pisoImportanciaP) : f.prioridadSala;
+    return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapP.get(String(f.plu)) || '',
+      granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
+      cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
+      peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG,
+      J: f.J, D: f.D, G: f.G, BL: f.BL, prioridad, prioridadSala,
+      granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
+      esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
+  });
 }
 app.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
 app.get('/api/distribucion/envios-manuales', apiRoute(async () => leerJSON(ENVIOS_MANUALES_PATH, { almacen: {}, pesable: {} })));
