@@ -1514,20 +1514,19 @@ GROUP BY pd.IdSucursal, pd.IdProducto`;
 const ALM_FACT_KEY = { riv:'riv', urq:'urq', nacion:'nacion', chaca:'chaca', pergamino:'pergamino', sanPedro:'sanpedro', sucursal9:'ramallo', sucursal11:'sucu11' };
 async function calcularDistribucionAlmacen() {
   const a8020  = leerJSON(A8020_PATH, {});
-  const listas = leerJSON(DISTRIB_LISTAS_PATH, {});
   const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
   const empujePresencia = (distCfg.empujeDeposito || {}).presencia || 0;
   const importanciaCfg = distCfg.importancia || {};
   const umbralMicroEnvio = distCfg.umbralMicroEnvio || 0;
-  // BG vivo: usa facturación de Siga (a8020_calc.json) como importancia en vez de la planilla estática.
-  if ((importanciaCfg.fuente || 'siga') !== 'planilla') {
-    const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion;
-    if (impViva && Object.keys(impViva).length) listas.importanciaMinorista = impViva;
-  }
+  const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
   const ed = leerListasDistrib();
-  listas.noEnvasa = ed.noEnvasa;   // usa la lista editable de exclusión
-  const plus = universoLista(Object.keys(listas.productosAlmacen || {}), ed.siempreAlmacen, ed.noEnvasa);
-  if (!plus.length) throw new Error('Falta data/distribucion_listas.json — corré: python importar_distribucion.py');
+  const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto
+    FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
+    WHERE p.Activo=1 AND r.NombreRubro='Almacen'`);
+  const basePlus = rubroRows.map(r => r.IdProducto);
+  const plus = universoLista(basePlus, ed.siempreAlmacen, ed.noEnvasa);
+  if (!plus.length) throw new Error('Sin productos activos de rubro "Almacen" en Siga.');
+  const listas = { noEnvasa: ed.noEnvasa, restringidos: ed.restringidos, productosAlmacen: {}, importanciaMinorista: impViva };
   const inList = plus.map(p => `'${p}'`).join(',');   // IdProducto es varchar en Siga → citar
   const [stockRows, nombres, fact] = await Promise.all([
     query(sqlStockDistribucion(plus)),
