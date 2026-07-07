@@ -1571,6 +1571,28 @@ async function calcularDistribucionAlmacen() {
     for (const [suc, val] of Object.entries(ovr))
       if (f.enviar[suc] !== 'Fact') { f.enviar[suc] = val; f.enviarOverride[suc] = true; }
   }
+  // Prioridad compuesta: facturación (impNorm ya normalizado) + urgencia de stock por
+  // sucursal (cuán por debajo del mínimo) + cantidad total a enviar. Ver spec
+  // 2026-07-07-prioridad-unificada-design.md.
+  const SUC_KEYS_ALM = ['riv', 'urq', 'nacion', 'chaca', 'pergamino', 'sanpedro', 'sucu8', 'sucu9', 'sucu11'];
+  let maxCantidad = 0;
+  const cantidadPorPlu = new Map();
+  for (const f of filas) {
+    const total = Object.values(f.ideal || {}).reduce((s, v) => s + (v || 0), 0);
+    cantidadPorPlu.set(f.plu, total);
+    if (total > maxCantidad) maxCantidad = total;
+  }
+  for (const f of filas) {
+    const rawStk = stocks.get(String(f.plu)) || {};
+    const urgencias = SUC_KEYS_ALM.map(k => {
+      const min = (f.mins || {})[k];
+      if (!(min > 0)) return null;
+      return Math.max(0, 1 - (rawStk[k] || 0) / min);
+    }).filter(x => x != null);
+    const urgenciaStock = urgencias.length ? urgencias.reduce((s, x) => s + x, 0) / urgencias.length : 0;
+    const cantidadN = maxCantidad > 0 ? cantidadPorPlu.get(f.plu) / maxCantidad : 0;
+    f.impNorm = 0.6 * f.impNorm + 0.25 * urgenciaStock + 0.15 * cantidadN;
+  }
   return filas.map(f => {
     const rawStk = stocks.get(String(f.plu)) || {};
     const stkSuc = { riv: rawStk.riv||0, urq: rawStk.urq||0, nacion: rawStk.nacion||0,
