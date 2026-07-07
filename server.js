@@ -1950,11 +1950,14 @@ app.get('/cotizador',         (_req, res) => res.sendFile(path.join(__dirname, '
 
 // ── Listas editables de distribución (excluir / siempre-Almacen / siempre-Pesable) ──
 const LISTAS_DISTRIB_PATH = path.join(DATA_DIR, 'listas_distribucion.json');
+const RESTR_SUCURSALES = ['rivadavia', 'urquiza', 'chacabuco', 'nacion', 'pergamino', 'sanPedro', 'villaRamallo'];
 function leerListasDistrib() {
   let l = leerJSON(LISTAS_DISTRIB_PATH, null);
-  if (!l) {   // seed: noEnvasa del snapshot de la planilla; siempre* vacíos
+  if (!l) {   // seed: noEnvasa + restringidos del snapshot de la planilla; siempre* vacíos
     const snap = leerJSON(DISTRIB_LISTAS_PATH, {});
-    l = { noEnvasa: (snap.noEnvasa || []).map(Number).sort((a, b) => a - b), siempreAlmacen: [], siemprePesable: [], siemprePesableSinGranel: [], ocultarPesable: [] };
+    const restrSnap = snap.restringidos || {};
+    l = { noEnvasa: (snap.noEnvasa || []).map(Number).sort((a, b) => a - b), siempreAlmacen: [], siemprePesable: [], siemprePesableSinGranel: [], ocultarPesable: [],
+      restringidos: Object.fromEntries(RESTR_SUCURSALES.map(k => [k, (restrSnap[k] || []).map(Number).sort((a, b) => a - b)])) };
     guardarJSON(LISTAS_DISTRIB_PATH, l);
   }
   l.noEnvasa = (l.noEnvasa || []).map(Number);
@@ -1962,6 +1965,8 @@ function leerListasDistrib() {
   l.siemprePesable = (l.siemprePesable || []).map(Number);
   l.siemprePesableSinGranel = (l.siemprePesableSinGranel || []).map(Number);
   l.ocultarPesable = (l.ocultarPesable || []).map(Number);   // ocultos solo en Pesables
+  l.restringidos = l.restringidos || {};
+  for (const k of RESTR_SUCURSALES) l.restringidos[k] = (l.restringidos[k] || []).map(Number);
   return l;
 }
 // Universo de PLUs: base ∪ siempre, menos los excluidos (noEnvasa) salvo que estén en "siempre".
