@@ -2072,7 +2072,8 @@ app.get('/api/distribucion/fact-debug', apiRoute(async () => {
 }));
 app.get('/api/distribucion/listas', apiRoute(async () => {
   const l = leerListasDistrib();
-  const all = [...new Set([...l.noEnvasa, ...l.siempreAlmacen, ...l.siemprePesable, ...l.siemprePesableSinGranel, ...l.ocultarPesable])];
+  const all = [...new Set([...l.noEnvasa, ...l.siempreAlmacen, ...l.siemprePesable, ...l.siemprePesableSinGranel, ...l.ocultarPesable,
+    ...Object.values(l.restringidos).flat()])];
   const nombres = {};
   if (all.length) {
     const inList = all.map(p => `'${p}'`).join(',');   // IdProducto es varchar en Siga
@@ -2083,9 +2084,19 @@ app.get('/api/distribucion/listas', apiRoute(async () => {
 }));
 app.post('/api/distribucion/listas', (req, res) => {
   const cur = leerListasDistrib();
-  const { lista, accion, plu } = req.body || {};
-  if (!['noEnvasa', 'siempreAlmacen', 'siemprePesable', 'siemprePesableSinGranel', 'ocultarPesable'].includes(lista) ||
-      !['add', 'remove'].includes(accion) || !Number.isFinite(Number(plu)))
+  const { lista, accion, plu, sucursal } = req.body || {};
+  if (!['add', 'remove'].includes(accion) || !Number.isFinite(Number(plu)))
+    return res.status(400).json({ error: 'parámetros inválidos' });
+  if (lista === 'restringidos') {
+    if (!RESTR_SUCURSALES.includes(sucursal))
+      return res.status(400).json({ error: 'sucursal inválida' });
+    const set = new Set(cur.restringidos[sucursal]);
+    if (accion === 'add') set.add(Number(plu)); else set.delete(Number(plu));
+    cur.restringidos[sucursal] = [...set].sort((a, b) => a - b);
+    guardarJSON(LISTAS_DISTRIB_PATH, cur);
+    return res.json({ ok: true, lista, sucursal, count: cur.restringidos[sucursal].length });
+  }
+  if (!['noEnvasa', 'siempreAlmacen', 'siemprePesable', 'siemprePesableSinGranel', 'ocultarPesable'].includes(lista))
     return res.status(400).json({ error: 'parámetros inválidos' });
   const set = new Set(cur[lista]);
   if (accion === 'add') set.add(Number(plu)); else set.delete(Number(plu));
