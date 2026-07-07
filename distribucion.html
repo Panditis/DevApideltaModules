@@ -999,6 +999,7 @@ async function cargarP() {
 // ════════════════ Común (tabs, controles, CSV) ════════════════
 const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
   <div style="color:var(--faint);font-size:12px">¿Está Siga accesible?</div>`;
+const nuevoTag = (r) => r.esNuevo ? `<span title="Primera compra: ${r.primeraCompra || '?'}" style="background:rgba(41,128,185,.15);color:#2980b9;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid rgba(41,128,185,.4);font-size:10px;margin-left:5px">NUEVO</span>` : '';
 let tabActual = 'almacen';
 // ── Modo pesables: Sala (habilita modal carga producción) / Preparación (lo deshabilita) ──
 let pesablesModo = localStorage.getItem('pesablesModo') || 'sala';
@@ -1510,6 +1511,7 @@ function render() {
       const id = (r.ideal || {})[k] || 0;   // pedido teórico (ideal) sin límite de central
       const stkTd = `<td class="env stk">${stk ? fmtA(stk) : '·'}</td>`;
       if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmtA(id)}"><span>Fact</span></td>`;
+      if (v === 'Restringido') return `${stkTd}<td class="env restr" title="Restringido para esta sucursal"><span style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid rgba(192,57,43,.4);display:inline-block">Restr.</span></td>`;
       if (esMicro(r, k)) { const mi = microInfo(r, k); return `${stkTd}<td class="env micro" title="Calculado: ${fmtA(mi.qty)}, MinEnvio: ${fmtA(mi.umbral)}, S: ${fmtA(mi.S)}, StockMin: ${fmtA(mi.min)}"><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
       const n = v || 0;
       const isOvr = (r.enviarOverride || {})[k];
@@ -1520,7 +1522,7 @@ function render() {
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
       <td class="l plu">${r.plu}</td>
-      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}${nuevoTag(r)}</td>
       <td class="central">${fmtA(r.central)}</td>
       ${celdas}
       <td class="tot">${fmtA(totalVis(r))}</td>
@@ -1554,6 +1556,7 @@ function renderP() {
       const id = (r.ideal || {})[k] || 0;   // teórico (ideal) sin límite de granel/central
       const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
       if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmt(id)}"><span>Fact</span></td>`;
+      if (v === 'Restringido') return `${stkTd}<td class="env restr" title="Restringido para esta sucursal"><span style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid rgba(192,57,43,.4);display:inline-block">Restr.</span></td>`;
       const isOvrP = (r.enviarOverride || {})[k];
       return stkTd + (esNum(v) && v > 0
         ? `<td class="env pos${isOvrP ? ' override' : ''}" title="ideal ${fmt(id)}${id > v ? ' · racionado' : ''}" data-plu="${r.plu}" data-suc="${k}" data-tipo="pesable"><span>${fmt(v)}</span></td>`
@@ -1568,7 +1571,7 @@ function renderP() {
     const d = Math.min(i * 6, 360);
     return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
       <td class="l plu">${r.plu}</td>
-      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
       <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
       <td class="central">${fmt(r.H)}</td>
       ${envD}
