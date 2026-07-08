@@ -115,4 +115,39 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
   return { abc, filas };
 }
 
-module.exports = { computeA8020, clasificarABC, roundDec };
+// metricPorSuc: { idSucursal: { plu: facturación } }  ·  statRows: mismo array que recibe computeA8020
+// (usa sumQ como volumen de desempate)  ·  sucById: { idSucursal: sucKey }
+// Retorna { sucKey: { plu: score } } — score 0-1, percentil de posición dentro de la sucursal
+// (1=más importante, ordenado por facturación desc, empate → volumen desc).
+function calcularRankingPorSucursal(metricPorSuc, statRows, sucById) {
+  const volPorSuc = {};
+  for (const r of statRows) {
+    (volPorSuc[r.idSucursal] = volPorSuc[r.idSucursal] || {})[r.plu] = Number(r.sumQ) || 0;
+  }
+  const idSucs = new Set([
+    ...Object.keys(metricPorSuc || {}),
+    ...Object.keys(volPorSuc),
+  ].map(Number));
+
+  const ranking = {};
+  for (const idSucursal of idSucs) {
+    const sucKey = sucById[idSucursal];
+    if (!sucKey) continue;
+    const fact = (metricPorSuc && metricPorSuc[idSucursal]) || {};
+    const vol = volPorSuc[idSucursal] || {};
+    const plus = new Set([...Object.keys(fact), ...Object.keys(vol)]);
+    const items = [...plus].map((plu) => ({
+      plu, fact: Number(fact[plu]) || 0, vol: Number(vol[plu]) || 0,
+    }));
+    items.sort((a, b) => (b.fact - a.fact) || (b.vol - a.vol));
+    const n = items.length;
+    const scoreByPlu = {};
+    items.forEach((it, idx) => {
+      scoreByPlu[it.plu] = n <= 1 ? 1 : roundDec(1 - idx / (n - 1), 4);
+    });
+    ranking[sucKey] = scoreByPlu;
+  }
+  return ranking;
+}
+
+module.exports = { computeA8020, calcularRankingPorSucursal, clasificarABC, roundDec };
