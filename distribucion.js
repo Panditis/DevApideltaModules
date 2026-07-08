@@ -107,53 +107,59 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pS11 = pideTeorico(minSucu11, sS11, st.sucu11||0, envasaSi);
   const pideTotal = pRiv + pUrq + pNac + pCha + pPer + pSan + pSu8 + pSu9 + pS11;   // BD
 
-  // Rateo ponderado: sucursal con stock=0 pesa el doble → recibe más pero no excluye al resto.
-  const PESO_VACIO = 2;
-  const ef = (pide, stk) => pide * (stk === 0 ? PESO_VACIO : 1);
-  const pideEf = ef(pRiv,st.riv||0) + ef(pUrq,st.urq||0) + ef(pNac,st.nacion||0) +
-                 ef(pCha,st.chaca||0) + ef(pPer,st.pergamino||0) + ef(pSan,st.sanpedro||0) +
-                 ef(pSu8,st.sucu8||0) + ef(pSu9,st.sucu9||0) + ef(pS11,st.sucu11||0);
-
-  const racion = (pide, stock, redondeo) => {
-    if (D > pideTotal) return pide;
-    if (pideEf === 0) return 'DIV0';
-    const share = ef(pide, stock) * D / pideEf;
-    return redondeo === 'up' ? roundup(share, 0) : round(share, 0);
-  };
+  // Racionamiento por prioridad fija: cuando el stock central no alcanza para todos,
+  // se llena el pedido completo de la sucursal de mayor prioridad primero, y así
+  // sucesivamente, en vez de repartir proporcional entre todas (evita mandar cantidades
+  // chicas a cada una). Orden configurable vía opts.prioridadRacionado.
+  const ORDEN_RACIONADO_DEFAULT = ['riv', 'chaca', 'nacion', 'urq', 'pergamino', 'sucu9', 'sanpedro', 'sucu8', 'sucu11'];
+  const ordenRacionado = (opts && opts.prioridadRacionado) || ORDEN_RACIONADO_DEFAULT;
+  const pidePorClave = { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer, sanpedro: pSan, sucu8: pSu8, sucu9: pSu9, sucu11: pS11 };
+  const racionPorClave = {};
+  if (D > pideTotal) {
+    for (const k of ordenRacionado) racionPorClave[k] = pidePorClave[k] || 0;
+  } else {
+    let restante = Math.max(D, 0);
+    for (const k of ordenRacionado) {
+      const asign = Math.min(pidePorClave[k] || 0, restante);
+      racionPorClave[k] = k === 'riv' ? roundup(asign, 0) : round(asign, 0);
+      restante -= asign;
+    }
+  }
+  const racion = (key) => racionPorClave[key];
   // Rivadavia (J): nostock=(D<=0 && stock<=min); redondeo UP; fact=rivadavia
   const eRiv = has(restr.rivadavia, plu) ? 'Restringido'
     : pa.rivadavia === 1 ? 'Fact'
     : (D <= 0 && (st.riv||0) <= minRiv) ? 'No stock'
     : ((st.riv||0) > minRiv || minRiv === 0) ? 'No'
-    : racion(pRiv, st.riv||0, 'up');
+    : racion('riv');
   // Genérico no-Rivadavia con chequeo Fact y nostock=(Ecentral && stock<=min)
-  const envGen = (restrSet, factFlag, stock, min, pide) =>
+  const envGen = (restrSet, factFlag, stock, min, key) =>
       has(restrSet, plu) ? 'Restringido'
     : factFlag === 1 ? 'Fact'
     : (E_noStock && stock <= min) ? 'No stock'
     : (stock > min || min === 0) ? 'No'
-    : racion(pide, stock, 'round');
-  const eUrq = envGen(restr.urquiza,   pa.urquiza,   st.urq||0,       minUrq,    pUrq);
-  const eNac = envGen(restr.nacion,    pa.nacion,    st.nacion||0,    minNacion, pNac);
-  const eCha = envGen(restr.chacabuco, pa.chacabuco, st.chaca||0,     minChaca,  pCha);
-  const ePer = envGen(restr.pergamino, pa.pergamino, st.pergamino||0, minPergamino, pPer);
-  const eSan = envGen(restr.sanPedro,  pa.sanPedro,  st.sanpedro||0,  minSanPedro, pSan);
+    : racion(key);
+  const eUrq = envGen(restr.urquiza,   pa.urquiza,   st.urq||0,       minUrq,    'urq');
+  const eNac = envGen(restr.nacion,    pa.nacion,    st.nacion||0,    minNacion, 'nacion');
+  const eCha = envGen(restr.chacabuco, pa.chacabuco, st.chaca||0,     minChaca,  'chaca');
+  const ePer = envGen(restr.pergamino, pa.pergamino, st.pergamino||0, minPergamino, 'pergamino');
+  const eSan = envGen(restr.sanPedro,  pa.sanPedro,  st.sanpedro||0,  minSanPedro, 'sanpedro');
   // Sucu8 (AH): restr=sanPedro, SIN Fact, nostock=(E && stock>min)  [vestigial, no sale]
   const eSu8 = has(restr.sanPedro, plu) ? 'Restringido'
     : (E_noStock && (st.sucu8||0) > minSucu8) ? 'No stock'
     : ((st.sucu8||0) > minSucu8 || minSucu8 === 0) ? 'No'
-    : racion(pSu8, st.sucu8||0, 'round');
+    : racion('sucu8');
   // Sucu9 (AL → sucursal9): restr/fact villaRamallo; nostock=(E && stock>min)
   const eSu9 = has(restr.villaRamallo, plu) ? 'Restringido'
     : pa.villaRamallo === 1 ? 'Fact'
     : (E_noStock && (st.sucu9||0) > minSucu9) ? 'No stock'
     : ((st.sucu9||0) > minSucu9 || minSucu9 === 0) ? 'No'
-    : racion(pSu9, st.sucu9||0, 'round');
+    : racion('sucu9');
   // Sucu11 (AP → sucursal11): restr=sanPedro, SIN Fact, nostock=(E && stock>min)
   const eS11 = has(restr.sanPedro, plu) ? 'Restringido'
     : (E_noStock && (st.sucu11||0) > minSucu11) ? 'No stock'
     : ((st.sucu11||0) > minSucu11 || minSucu11 === 0) ? 'No'
-    : racion(pS11, st.sucu11||0, 'round');
+    : racion('sucu11');
 
   // Piso de micro-envío: descarta envío calculado < umbral% del S de esa sucursal (opts.umbralMicroEnvio).
   // Aplica siempre, sin importar el stock propio de la sucursal (no vale la pena logísticamente igual).
