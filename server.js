@@ -2020,7 +2020,8 @@ async function recalcularA8020() {
   }
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
-    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu };
+    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
+    cajaPorPlu };
   guardarJSON(A8020_CALC_PATH, cache);
   // Escribir a8020.json en formato legacy para pesables.js y almacen.js.
   //   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).
