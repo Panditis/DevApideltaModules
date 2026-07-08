@@ -114,17 +114,34 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pSu8 = pideTeorico(minSucu8, sSu8, st.sucu8||0, envasaSi);
   const pSu9 = pideTeorico(minSucu9, sSu9, st.sucu9||0, envasaSi);
   const pS11 = pideTeorico(minSucu11, sS11, st.sucu11||0, envasaSi);
-  const pideTotal = pRiv + pUrq + pNac + pCha + pPer + pSan + pSu8 + pSu9 + pS11;   // BD
 
   // Racionamiento por prioridad (porcentaje con waterfall): cuando el stock central no
   // alcanza para todos, se reparte según el peso de cada sucursal; si a alguna le sobra
   // porque cubre el 100% de su pedido con su cuota, el excedente se redistribuye entre
   // el resto según sus pesos (no se pierde stock). Pesos configurables vía
   // opts.pesosRacionado.
+  // Sucursales que van a salir Fact/Restringido (no consumen stock real) se excluyen del
+  // reparto ANTES de calcularlo — si no, su "pide" fantasma le come cupo al resto del pool
+  // compartido aunque después nunca se use (bug visto en PLU 2121: Rivadavia en Fact restaba
+  // stock que le hacía falta a Chacabuco/Villa Ramallo).
+  const GATEADO = {
+    riv: has(restr.rivadavia, plu) || pa.rivadavia === 1,
+    urq: has(restr.urquiza, plu) || pa.urquiza === 1,
+    nacion: has(restr.nacion, plu) || pa.nacion === 1,
+    chaca: has(restr.chacabuco, plu) || pa.chacabuco === 1,
+    pergamino: has(restr.pergamino, plu) || pa.pergamino === 1,
+    sanpedro: has(restr.sanPedro, plu) || pa.sanPedro === 1,
+    sucu8: has(restr.sanPedro, plu),
+    sucu9: has(restr.villaRamallo, plu) || pa.villaRamallo === 1,
+    sucu11: has(restr.sanPedro, plu),
+  };
   const PESOS_RACIONADO_DEFAULT = { riv: 0.50, chaca: 0.20, nacion: 0.12, urq: 0.08, pergamino: 0.06, sucu9: 0.03, sanpedro: 0.01, sucu8: 0, sucu11: 0 };
   const pesosRacionado = (opts && opts.pesosRacionado) || PESOS_RACIONADO_DEFAULT;
   const ORDEN_CLAVES = ['riv', 'urq', 'nacion', 'chaca', 'pergamino', 'sanpedro', 'sucu8', 'sucu9', 'sucu11'];
-  const pidePorClave = { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer, sanpedro: pSan, sucu8: pSu8, sucu9: pSu9, sucu11: pS11 };
+  const pidePorClaveCruda = { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer, sanpedro: pSan, sucu8: pSu8, sucu9: pSu9, sucu11: pS11 };
+  const pidePorClave = {};
+  for (const k of ORDEN_CLAVES) pidePorClave[k] = GATEADO[k] ? 0 : pidePorClaveCruda[k];
+  const pideTotal = ORDEN_CLAVES.reduce((s, k) => s + (pidePorClave[k] || 0), 0);   // BD (ya sin gateados)
   const minPorClave = { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino, sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 };
   const stockPorClave = { riv: st.riv||0, urq: st.urq||0, nacion: st.nacion||0, chaca: st.chaca||0, pergamino: st.pergamino||0, sanpedro: st.sanpedro||0, sucu8: st.sucu8||0, sucu9: st.sucu9||0, sucu11: st.sucu11||0 };
   // Urgencia de stock (0=cómoda, 1=en/bajo mínimo) manda sobre la prioridad fija de
