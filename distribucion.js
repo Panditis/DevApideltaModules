@@ -64,9 +64,11 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   // Empuje por stock en central: si hay stock en el depósito (D>0) y la demanda estadística es baja
   // (S < presencia), eleva min y S de cada sucursal a un piso de "presencia" para impulsar el envío
   // aunque no haya estadística que lo respalde. Se auto-limita al stock del central vía el rateo.
+  // Logia(minLogia/SLogia, id 8) y Sucu11(minVConst/SVConst, id 11) están inactivas en Siga
+  // — no se empujan (quedan siempre en 0, no cuentan para nada en el reparto).
   const PARES_MIN_S = [['minRiv','SRiv'],['minUrq','SUrq'],['minNacion','SNacion'],['minChaca','SChaca'],
-    ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],['minLogia','SLogia'],
-    ['minVRamallo','SVRamallo'],['minVConst','SVConst']];
+    ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],
+    ['minVRamallo','SVRamallo']];
   const pres = (opts && opts.empujePresencia) || 0;
   if (pres > 0 && D > 0 && envasaSi && !a.claseF) {   // clase F (viejo sin rotación): no se empuja
     const aa = { ...a };
