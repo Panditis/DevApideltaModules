@@ -127,13 +127,13 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pidePorClave = { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer, sanpedro: pSan, sucu8: pSu8, sucu9: pSu9, sucu11: pS11 };
   const minPorClave = { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino, sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 };
   const stockPorClave = { riv: st.riv||0, urq: st.urq||0, nacion: st.nacion||0, chaca: st.chaca||0, pergamino: st.pergamino||0, sanpedro: st.sanpedro||0, sucu8: st.sucu8||0, sucu9: st.sucu9||0, sucu11: st.sucu11||0 };
-  // Urgencia por sucursal (0=stock cómodo respecto al min, 1=en/bajo mínimo) → multiplica el
-  // peso base: una sucursal en 0 pesa hasta el doble que una con stock cómodo, sin importar
-  // su prioridad fija (evita que Pergamino en 0 reciba menos que Chacabuco con stock).
+  // Urgencia de stock (0=cómoda, 1=en/bajo mínimo) manda sobre la prioridad fija de
+  // sucursal: una diferencia de urgencia de 0.1 ya pesa más que toda la escala de
+  // importancia (máx 0.5) — la importancia solo desempata entre urgencias parecidas.
   const pesoEfectivo = (k) => {
     const min = minPorClave[k];
-    const urgencia = min > 0 ? Math.max(0, 1 - stockPorClave[k] / min) : 0;
-    return (pesosRacionado[k] || 0) * (1 + urgencia);
+    const urgencia = min > 0 ? Math.max(0, 1 - stockPorClave[k] / min) : (stockPorClave[k] <= 0 ? 1 : 0);
+    return urgencia * 10 + (pesosRacionado[k] || 0);
   };
   const racionPorClave = {};
   if (D > pideTotal) {
