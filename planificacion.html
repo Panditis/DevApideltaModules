@@ -252,7 +252,7 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 /* ── CALENDARIO ── */
 .cal-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .cal-nav h3 { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; flex: 1; text-align: center; }
-.cal-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
 .day-card.fuera-mes { opacity: .42; }
 .day-card { background: var(--card); border: none; border-radius: var(--radius); padding: 12px; cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; min-height: 120px; box-shadow: var(--elev-1); }
 .day-card:hover { box-shadow: var(--elev-3); transform: translateY(-2px); }
@@ -337,7 +337,7 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
 @media (max-width: 900px) {
   .resumen-layout { grid-template-columns: 1fr; }
   .metrics-row    { grid-template-columns: repeat(2, 1fr); }
-  .cal-grid       { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .cal-grid       { grid-template-columns: repeat(7, 1fr); gap: 6px; }
 }
 </style>
 </head>
@@ -1506,7 +1506,7 @@ const DIAS_NOM = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 function renderDiaSelector() {
   const chips = document.getElementById('diaChips');
   let html = '';
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     const fecha  = addDias(semPlanBase, i);
     const dd     = parseInt(fecha.split('-')[2]);
     const esHoy  = fecha === HOY;
@@ -2012,7 +2012,6 @@ function renderCalendario(cal) {
   const DOW = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
   const html = Object.entries(cal).map(([fecha, data]) => {
     const dow = new Date(fecha + 'T00:00:00').getDay();
-    if (dow === 0 || dow === 6) return ''; // sin sábados ni domingos
     const [,, dd] = fecha.split('-');
     const esHoy = fecha === HOY;
     const fuera = fecha.slice(0, 7) !== calMesActual;
@@ -2152,7 +2151,7 @@ function abrirDiaPicker(titulo, callback) {
 function renderDiaPicker() {
   const chips = document.getElementById('diaPickerChips');
   let html = '';
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     const fecha = addDias(semDiaPicker, i);
     const dd    = parseInt(fecha.split('-')[2]);
     const esHoy = fecha === HOY;
