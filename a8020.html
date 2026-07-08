@@ -39,7 +39,7 @@
   table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums;background:var(--card)}
   thead th{position:sticky;top:0;z-index:5;background:var(--verde);color:#fff;padding:9px 8px;text-align:right;white-space:nowrap;font-family:var(--disp);font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-bottom:2px solid var(--verde-dark);cursor:pointer}
   thead th:hover{background:var(--verde-hover)}
-  thead th.l{text-align:left}thead th.suc{color:var(--amarillo)}
+  thead th.l{text-align:left}thead th.suc,thead th.suc-rank{color:var(--amarillo)}
   thead th small{display:block;font-family:var(--body);font-size:9.5px;font-weight:400;color:rgba(255,255,255,.6);text-transform:none;letter-spacing:0}
   tbody td{padding:0 8px;height:31px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);font-size:12.5px}
   tbody td.l{text-align:left}
@@ -125,15 +125,18 @@ const SUC_ID = {riv:5,urq:2,nacion:3,chaca:4,pergamino:10,sanpedro:7,ramallo:9};
 let cache = {}, filas = [], orden = {col:'tot',dir:-1};
 const fmt = (n)=> (n==null||n===0)?'·':(Math.round(n*100)/100).toLocaleString('es-AR');
 const sumS = (r)=> SUC.reduce((s,[k])=> s+(r.mins[k]||0),0);
+const RANK_SUFFIX = '_r';
+const rankCol = (k)=> k+RANK_SUFFIX;
+const sucOfRankCol = (c)=> c.slice(0,-RANK_SUFFIX.length);
 
 function construir(){
   const opsTxt = (k)=>{ const id=SUC_ID[k]; const n=(cache.opsDays||{})[id]; return n?`<small>${n}d op.</small>`:''; };
   const cols = [['plu','PLU','l'],['nombre','Producto','l'],['abc','ABC','']]
-    .concat(SUC.flatMap(([k,n])=>[[k,n,'suc'],[k+'_r','R','suc-rank']]))
+    .concat(SUC.flatMap(([k,n])=>[[k,n,'suc'],[rankCol(k),'R','suc-rank']]))
     .concat([['tot','Σ S','']]);
   document.getElementById('head').innerHTML = cols.map(([k,n,cls])=>{
     const ar = orden.col===k ? (orden.dir<0?' ▼':' ▲') : '';
-    const sub = cls==='suc' ? opsTxt(k) : cls==='suc-rank' ? `<small>${k.slice(0,-2)}</small>` : '';
+    const sub = cls==='suc' ? opsTxt(k) : cls==='suc-rank' ? `<small>${sucOfRankCol(k)}</small>` : '';
     return `<th class="${cls||''}" data-col="${k}">${n}${ar}${sub}</th>`;
   }).join('');
   document.querySelectorAll('#head th').forEach(th=> th.onclick = ()=>{
@@ -144,7 +147,7 @@ function construir(){
 }
 function valor(r,c){
   if(c==='tot') return sumS(r);
-  if(c.endsWith('_r')){ const k=c.slice(0,-2); const d=(r.detalle||{})[k]||{}; return d.ranking??-1; }
+  if(c.endsWith(RANK_SUFFIX)){ const k=sucOfRankCol(c); const d=(r.detalle||{})[k]||{}; return d.ranking??-1; }
   if(SUC.some(([k])=>k===c)) return r.mins[c]||0;
   if(c==='nombre') return (r.nombre||'').toLowerCase();
   if(c==='abc') return ({A:0,B:1,C:2})[r.abc] ?? 3;
