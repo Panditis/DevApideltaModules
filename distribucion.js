@@ -124,16 +124,18 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   // reparto ANTES de calcularlo — si no, su "pide" fantasma le come cupo al resto del pool
   // compartido aunque después nunca se use (bug visto en PLU 2121: Rivadavia en Fact restaba
   // stock que le hacía falta a Chacabuco/Villa Ramallo).
+  const factGateSet = (opts && opts.factGatePorPlu && opts.factGatePorPlu.get(String(plu))) || null;
+  const factGate = (k) => !!(factGateSet && factGateSet.has(k));
   const GATEADO = {
-    riv: has(restr.rivadavia, plu) || pa.rivadavia === 1,
-    urq: has(restr.urquiza, plu) || pa.urquiza === 1,
-    nacion: has(restr.nacion, plu) || pa.nacion === 1,
-    chaca: has(restr.chacabuco, plu) || pa.chacabuco === 1,
-    pergamino: has(restr.pergamino, plu) || pa.pergamino === 1,
-    sanpedro: has(restr.sanPedro, plu) || pa.sanPedro === 1,
+    riv: has(restr.rivadavia, plu) || pa.rivadavia === 1 || factGate('riv'),
+    urq: has(restr.urquiza, plu) || pa.urquiza === 1 || factGate('urq'),
+    nacion: has(restr.nacion, plu) || pa.nacion === 1 || factGate('nacion'),
+    chaca: has(restr.chacabuco, plu) || pa.chacabuco === 1 || factGate('chaca'),
+    pergamino: has(restr.pergamino, plu) || pa.pergamino === 1 || factGate('pergamino'),
+    sanpedro: has(restr.sanPedro, plu) || pa.sanPedro === 1 || factGate('sanpedro'),
     sucu8: has(restr.sanPedro, plu),
-    sucu9: has(restr.villaRamallo, plu) || pa.villaRamallo === 1,
-    sucu11: has(restr.sanPedro, plu),
+    sucu9: has(restr.villaRamallo, plu) || pa.villaRamallo === 1 || factGate('sucu9'),
+    sucu11: has(restr.sanPedro, plu) || factGate('sucu11'),
   };
   const PESOS_RACIONADO_DEFAULT = { riv: 0.50, chaca: 0.20, nacion: 0.12, urq: 0.08, pergamino: 0.06, sucu9: 0.03, sanpedro: 0.01, sucu8: 0, sucu11: 0 };
   const pesosRacionado = (opts && opts.pesosRacionado) || PESOS_RACIONADO_DEFAULT;

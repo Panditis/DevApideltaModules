@@ -1557,7 +1557,18 @@ async function calcularDistribucionAlmacen() {
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
   }
   const productos = plus.map(plu => ({ plu, stocks: stocks.get(plu) || {} }));
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet });
+  // Fact en vivo por sucursal, ANTES del cálculo: el racionamiento tiene que excluir del
+  // pool compartido a las sucursales que van a salir 'Fact' (no consumen stock real), si
+  // no le comen cupo al resto (ver spec 2026-07-07... / fix PLU 2121).
+  const ALM_FACT_KEY_INTERNO = { riv: 'riv', urq: 'urq', nacion: 'nacion', chaca: 'chaca', pergamino: 'pergamino', sanPedro: 'sanpedro', sucursal9: 'sucu9', sucursal11: 'sucu11' };
+  const factGatePorPlu = new Map();
+  for (const plu of plus) {
+    const set = new Set();
+    for (const [ek, fk] of Object.entries(ALM_FACT_KEY))
+      if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
+    if (set.size) factGatePorPlu.set(plu, set);
+  }
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
