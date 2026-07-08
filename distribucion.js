@@ -172,7 +172,20 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
       }
       restante = sobra;
     }
-    for (const k of ORDEN_CLAVES) racionPorClave[k] = k === 'riv' ? roundup(asignCrudo[k], 0) : round(asignCrudo[k], 0);
+    // Redondeo con reparto de resto (largest remainder): si cada sucursal se redondea
+    // independiente, la suma final puede no dar D exacto (queda remanente sin repartir).
+    // Se redondea todo hacia abajo y las unidades sobrantes van a quienes tengan mayor
+    // parte fraccionaria, hasta agotar el stock racionado.
+    const enteros = {}; let sumaEnteros = 0;
+    for (const k of ORDEN_CLAVES) { enteros[k] = Math.floor(asignCrudo[k]); sumaEnteros += enteros[k]; }
+    let sobranteEntero = Math.round(Math.min(D, pideTotal)) - sumaEnteros;
+    const porFraccion = ORDEN_CLAVES.filter(k => asignCrudo[k] > 0)
+      .sort((a, b) => (asignCrudo[b] - enteros[b]) - (asignCrudo[a] - enteros[a]));
+    for (const k of porFraccion) {
+      if (sobranteEntero <= 0) break;
+      enteros[k] += 1; sobranteEntero -= 1;
+    }
+    for (const k of ORDEN_CLAVES) racionPorClave[k] = enteros[k];
   }
   const racion = (key) => racionPorClave[key];
   // Rivadavia (J): nostock=(D<=0 && stock<=min); redondeo UP; fact=rivadavia
