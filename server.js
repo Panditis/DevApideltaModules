@@ -3,6 +3,7 @@
 //  ApideltaSubSystem — servidor unificado
 //  Pedidos + Planificación + Producción Día
 // ─────────────────────────────────────────────────────────────────────────────
+require('dotenv').config();
 const express    = require('express');
 const sql        = require('mssql/msnodesqlv8');
 const path       = require('path');
@@ -13,22 +14,38 @@ const multer   = require('multer');
 const XLSX     = require('xlsx');
 const { calcularAlmacen } = require('./distribucion');
 const { calcularPesables } = require('./pesables');
-const { computeA8020, roundDec } = require('./a8020');
+const { computeA8020, calcularRankingPorSucursal, roundDec } = require('./a8020');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
 const HOSTNAME = cfg.hostname || 'pedidos';
 
 // ── Conexión SQL Server ────────────────────────────────────────────────────────
+const SIGA_SERVER = process.env.SIGA_DB_SERVER || 'servidorapidelta\\SQLSTANDARD';
+const SIGA_DBNAME = process.env.SIGA_DB_NAME   || 'Siga';
+
 const DB_CONFIG = {
   connectionString:
     'Driver={ODBC Driver 17 for SQL Server};' +
-    'Server=servidorapidelta\\SQLSTANDARD;'   +
-    'Database=Siga;'                           +
-    'UID=apidelta;'                            +
-    'PWD=apd706;'                              +
+    `Server=${SIGA_SERVER};`                   +
+    `Database=${SIGA_DBNAME};`                 +
+    `UID=${process.env.SIGA_READ_UID || 'apidelta'};` +
+    `PWD=${process.env.SIGA_READ_PWD || 'apd706'};`   +
     'TrustServerCertificate=yes;',
   requestTimeout: 120000   // recálculo A8020 corre queries pesadas; techo alto (no afecta queries rápidas)
+};
+
+// Pool de escritura: usuario acotado (INSERT/UPDATE solo en tablas de movimientos de stock).
+// Ver pruebas_stock_claude/_crear_usuario_stock.sql para el detalle de permisos.
+const DB_CONFIG_STOCK = {
+  connectionString:
+    'Driver={ODBC Driver 17 for SQL Server};' +
+    `Server=${SIGA_SERVER};`                   +
+    `Database=${SIGA_DBNAME};`                 +
+    `UID=${process.env.SIGA_STOCK_UID};`       +
+    `PWD=${process.env.SIGA_STOCK_PWD};`       +
+    'TrustServerCertificate=yes;',
+  requestTimeout: 30000
 };
 
 let pool = null;
@@ -42,6 +59,17 @@ async function query(q) {
   const p = await getPool();
   const r = await p.request().query(q);
   return r.recordset;
+}
+
+let poolStock = null;
+async function getPoolStock() {
+  if (poolStock && poolStock.connected) return poolStock;
+  if (!process.env.SIGA_STOCK_UID || !process.env.SIGA_STOCK_PWD) {
+    throw new Error('Faltan SIGA_STOCK_UID / SIGA_STOCK_PWD en .env (ver .env.example)');
+  }
+  poolStock = await new sql.ConnectionPool(DB_CONFIG_STOCK).connect();
+  poolStock.on('error', () => { poolStock = null; });
+  return poolStock;
 }
 
 // ── Helpers de seguridad ───────────────────────────────────────────────────────
@@ -1777,6 +1805,13 @@ function sqlAbcMetric(idList, meses, metrica) {   // métrica ABC por PLU (factu
   WHERE ${_ventasWhere(idList, meses)}
   GROUP BY vp.IdProducto`;
 }
+function sqlAbcMetricPorSucursal(idList, meses, metrica) {   // métrica ABC por (sucursal, PLU) — ranking local
+  const col = metrica === 'unidades' ? 'vp.Cantidad' : 'vp.ImporteTotalNeto';
+  return `SELECT vp.IdSucursal, vp.IdProducto, SUM(${col}) AS Metric
+  FROM VentasProductos vp ${_ventasJoin}
+  WHERE ${_ventasWhere(idList, meses)}
+  GROUP BY vp.IdSucursal, vp.IdProducto`;
+}
 // Cantidades de compra (Almacén) para estimar unidades por caja vía MCD de cantidades históricas.
 function sqlComprasCantidadesAlmacen(meses) {
   return `SELECT cp.IdProducto, cp.Cantidad
@@ -1815,14 +1850,22 @@ async function recalcularA8020() {
   const idList = Object.values(sucs).map(s => s.idSucursal).join(',');
   if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
   const meses = config.ventanaMeses || 12;
-  const [stats, ops, abcRows, comprasCant] = await Promise.all([
+  const metrica = (config.abc || {}).metrica || 'facturacion';
+  const [stats, ops, abcRows, comprasCant, abcRowsPorSuc] = await Promise.all([
     query(sqlVentasStats(idList, meses)),
     query(sqlDiasOperativos(idList, meses)),
-    query(sqlAbcMetric(idList, meses, (config.abc || {}).metrica || 'facturacion')),
+    query(sqlAbcMetric(idList, meses, metrica)),
     query(sqlComprasCantidadesAlmacen(config.unidadesPorCajaMeses || 24)),
+    query(sqlAbcMetricPorSucursal(idList, meses, metrica)),
   ]);
   const opsDays = {}; for (const r of ops) opsDays[r.IdSucursal] = Number(r.DiasOperativos) || 0;
   const metricByPlu = {}; for (const r of abcRows) metricByPlu[String(r.IdProducto)] = Number(r.Metric) || 0;
+  const metricPorSuc = {};
+  for (const r of abcRowsPorSuc) {
+    (metricPorSuc[r.IdSucursal] = metricPorSuc[r.IdSucursal] || {})[String(r.IdProducto)] = Number(r.Metric) || 0;
+  }
+  const sucById = {};
+  for (const [key, c] of Object.entries(sucs)) sucById[c.idSucursal] = key;
   const statRows = stats.map(r => ({ idSucursal: r.IdSucursal, plu: r.IdProducto,
     sumQ: Number(r.SumQ) || 0, sumQ2: Number(r.SumQ2) || 0, dcv: Number(r.DiasConVenta) || 0 }));
   const dcvMap = {};
@@ -1843,13 +1886,16 @@ async function recalcularA8020() {
     overrides[plu] = { ...prev, pisoManual: Math.max(prev.pisoManual || 0, caja) };
   }
   const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
+  const ranking = calcularRankingPorSucursal(metricPorSuc, statRows, sucById);
 
   const mins = {}, sLevels = {}, detalle = {};
   for (const f of filas) {
     (mins[f.plu] = mins[f.plu] || {})[f.sucursal] = f.min;
     (sLevels[f.plu] = sLevels[f.plu] || {})[f.sucursal] = f.S;
+    const rk = (ranking[f.sucursal] || {})[String(f.plu)];
     (detalle[f.plu] = detalle[f.plu] || {})[f.sucursal] =
       { mu: Math.round(f.mu * 1000) / 1000, sigma: Math.round(f.sigma * 1000) / 1000, S: f.S, min: f.min,
+        ...(rk != null ? { ranking: rk } : {}),
         ...(f.propBase ? { propBase: f.propBase, propSoloBase: !!f.propSoloBase } : {}) };
   }
   // ── Bootstrap: PLUs pesables sin historial → interpola μ/σ por rubro ─────────
@@ -2926,6 +2972,128 @@ app.get('/api/ventas-hora/sucursales', apiRoute(async () => {
     WHERE s.Nombre IS NOT NULL
     ORDER BY v.IdSucursal
   `);
+}));
+
+// ── Movimientos de stock (Siga) ────────────────────────────────────────────────
+// Movimiento simple (1 línea) tipo BIENESUSO, con INSERT del renglón de stock si
+// el depósito/ubicación destino todavía no tiene fila para el producto.
+// Ver pruebas_stock_claude/README.md para el mecanismo completo investigado.
+const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO'];
+
+app.get('/api/stock/depositos', apiRoute(async req => {
+  const idSucursal = Number(req.query.idSucursal);
+  if (!Number.isInteger(idSucursal) || idSucursal <= 0) return { error: 'Falta idSucursal (entero positivo)' };
+  return query(`SELECT IdDeposito, IdSucursal, RTRIM(NombreDeposito) AS NombreDeposito, TipoDeposito, DisponibleVenta
+    FROM SucursalesDepositos WHERE IdSucursal=${idSucursal} AND Activo=1 ORDER BY IdDeposito`);
+}));
+
+async function registrarMovimientoStock(pool, m) {
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    const rq = () => new sql.Request(tx);
+    const delta = (await rq()
+      .input('tipo', sql.VarChar, m.idTipoMovimiento)
+      .query(`SELECT CoeficienteStock FROM TiposMovimientos WHERE IdTipoMovimiento=@tipo`)
+    ).recordset[0]?.CoeficienteStock;
+    if (delta === undefined) throw new Error(`Tipo de movimiento desconocido: ${m.idTipoMovimiento}`);
+    const cantidadStock = m.cantidad * delta;
+
+    const numero = (await rq()
+      .input('sucursal', sql.Int, m.idSucursal)
+      .input('tipo', sql.VarChar, m.idTipoMovimiento)
+      .query(`UPDATE MovimientosNumeros SET Numero = Numero + 1
+              OUTPUT inserted.Numero AS Numero
+              WHERE IdSucursal=@sucursal AND IdTipoMovimiento=@tipo`)
+    ).recordset[0].Numero;
+
+    await rq()
+      .input('sucursal', sql.Int, m.idSucursal)
+      .input('tipo', sql.VarChar, m.idTipoMovimiento)
+      .input('numero', sql.Int, numero)
+      .input('usuario', sql.NVarChar, m.usuario)
+      .input('observacion', sql.NVarChar, m.observacion)
+      .input('empleado', sql.Int, m.idEmpleado)
+      .query(`INSERT INTO MovimientosStock
+        (IdSucursal, IdTipoMovimiento, NumeroMovimiento, FechaMovimiento, Neto, Total, PorcentajeIVA,
+         Usuario, Observacion, IdEmpleado, PercepcionIVA, PercepcionIB, PercepcionGanancias, PercepcionVarias, ImpuestosInternos)
+        VALUES (@sucursal, @tipo, @numero, GETDATE(), 0, 0, 0, @usuario, @observacion, @empleado, 0, 0, 0, 0, 0)`);
+
+    await rq()
+      .input('sucursal', sql.Int, m.idSucursal)
+      .input('deposito', sql.Int, m.idDeposito)
+      .input('ubicacion', sql.Int, m.idUbicacion)
+      .input('tipo', sql.VarChar, m.idTipoMovimiento)
+      .input('numero', sql.Int, numero)
+      .input('producto', sql.VarChar, m.idProducto)
+      .input('cantidad', sql.Decimal(18, 4), m.cantidad)
+      .query(`INSERT INTO MovimientosStockProductos
+        (IdSucursal, IdDeposito, IdUbicacion, IdTipoMovimiento, NumeroMovimiento, IdProducto, Cantidad, Cantidad2, Precio, Orden)
+        VALUES (@sucursal, @deposito, @ubicacion, @tipo, @numero, @producto, @cantidad, 0, 0, 1)`);
+
+    await rq()
+      .input('sucursal', sql.Int, m.idSucursal)
+      .input('deposito', sql.Int, m.idDeposito)
+      .input('producto', sql.VarChar, m.idProducto)
+      .input('delta', sql.Decimal(18, 4), cantidadStock)
+      .query(`IF EXISTS (SELECT 1 FROM ProductosDepositos WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito)
+                UPDATE ProductosDepositos SET Stock = Stock + @delta
+                WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito;
+              ELSE
+                INSERT INTO ProductosDepositos (IdProducto, IdSucursal, IdDeposito, Stock, Stock2)
+                VALUES (@producto, @sucursal, @deposito, @delta, 0);`);
+
+    await rq()
+      .input('sucursal', sql.Int, m.idSucursal)
+      .input('deposito', sql.Int, m.idDeposito)
+      .input('ubicacion', sql.Int, m.idUbicacion)
+      .input('producto', sql.VarChar, m.idProducto)
+      .input('delta', sql.Decimal(18, 4), cantidadStock)
+      .query(`IF EXISTS (SELECT 1 FROM ProductosUbicaciones WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito AND IdUbicacion=@ubicacion)
+                UPDATE ProductosUbicaciones SET Stock = Stock + @delta
+                WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito AND IdUbicacion=@ubicacion;
+              ELSE
+                INSERT INTO ProductosUbicaciones (IdProducto, IdSucursal, IdDeposito, IdUbicacion, Stock, Stock2)
+                VALUES (@producto, @sucursal, @deposito, @ubicacion, @delta, 0);`);
+
+    await tx.commit();
+    return numero;
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
+}
+
+app.post('/api/stock/movimiento', apiRoute(async req => {
+  const b = req.body || {};
+  const idSucursal      = Number(b.idSucursal);
+  const idDeposito       = Number(b.idDeposito);
+  const idUbicacion      = Number(b.idUbicacion);
+  const idEmpleado       = Number(b.idEmpleado);
+  const cantidad         = Number(b.cantidad);
+  const idTipoMovimiento = String(b.idTipoMovimiento || '').trim().toUpperCase();
+  const idProducto       = String(b.idProducto || '').trim();
+  const usuario          = String(b.usuario || '').trim();
+  const observacion      = String(b.observacion || '').trim().slice(0, 200);
+
+  if (!TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.includes(idTipoMovimiento)) {
+    return { error: `idTipoMovimiento inválido. Permitidos: ${TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.join(', ')}` };
+  }
+  if (![idSucursal, idDeposito, idUbicacion, idEmpleado].every(n => Number.isInteger(n) && n > 0)) {
+    return { error: 'idSucursal, idDeposito, idUbicacion e idEmpleado deben ser enteros positivos' };
+  }
+  if (!Number.isFinite(cantidad) || cantidad === 0) {
+    return { error: 'cantidad debe ser un número distinto de 0' };
+  }
+  if (!idProducto) return { error: 'Falta idProducto' };
+  if (!usuario)    return { error: 'Falta usuario' };
+
+  const poolW = await getPoolStock();
+  const numero = await registrarMovimientoStock(poolW, {
+    idSucursal, idDeposito, idUbicacion, idEmpleado, cantidad,
+    idTipoMovimiento, idProducto, usuario, observacion
+  });
+  return { ok: true, numeroMovimiento: numero, idTipoMovimiento, idSucursal };
 }));
 
 // ── Inicio ─────────────────────────────────────────────────────────────────────
