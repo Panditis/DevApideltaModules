@@ -1557,7 +1557,7 @@ async function calcularDistribucionAlmacen() {
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
   }
   const productos = plus.map(plu => ({ plu, stocks: stocks.get(plu) || {} }));
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, importancia: importanciaCfg, umbralMicroEnvio, prioridadRacionado: distCfg.prioridadRacionado });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
