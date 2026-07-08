@@ -1777,6 +1777,36 @@ function sqlAbcMetric(idList, meses, metrica) {   // métrica ABC por PLU (factu
   WHERE ${_ventasWhere(idList, meses)}
   GROUP BY vp.IdProducto`;
 }
+// Cantidades de compra (Almacén) para estimar unidades por caja vía MCD de cantidades históricas.
+function sqlComprasCantidadesAlmacen(meses) {
+  return `SELECT cp.IdProducto, cp.Cantidad
+  FROM ComprasProductos cp
+  INNER JOIN Compras co ON co.IdSucursal=cp.IdSucursal AND co.IdTipoComprobante=cp.IdTipoComprobante
+    AND co.Letra=cp.Letra AND co.CentroEmisor=cp.CentroEmisor AND co.NumeroComprobante=cp.NumeroComprobante
+  INNER JOIN Productos p ON p.IdProducto=cp.IdProducto
+  INNER JOIN Rubros r ON r.IdRubro=p.IdRubro
+  WHERE co.Fecha >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE))
+    AND ISNULL(co.IdEstadoComprobante,'') != 'ANULADO'
+    AND cp.Cantidad > 0 AND p.Activo=1 AND r.NombreRubro='Almacen'`;
+}
+function gcdEntero(a, b) { a = Math.round(Math.abs(a)); b = Math.round(Math.abs(b)); while (b) { [a, b] = [b, a % b]; } return a; }
+// MCD de cantidades históricas de compra por PLU → tamaño de caja estimado. Requiere ≥2 compras
+// para tener confianza; MCD=1 (compran suelto, sin múltiplo común) no aporta piso.
+function estimarUnidadesPorCaja(comprasRows) {
+  const qtyByPlu = {};
+  for (const r of comprasRows) {
+    const q = Math.round(Number(r.Cantidad) || 0);
+    if (q <= 0) continue;
+    (qtyByPlu[String(r.IdProducto)] = qtyByPlu[String(r.IdProducto)] || []).push(q);
+  }
+  const cajaPorPlu = {};
+  for (const [plu, qs] of Object.entries(qtyByPlu)) {
+    if (qs.length < 2) continue;
+    const caja = qs.reduce((acc, q) => gcdEntero(acc, q), 0);
+    if (caja > 1) cajaPorPlu[plu] = caja;
+  }
+  return cajaPorPlu;
+}
 async function recalcularA8020() {
   const config = leerJSON(DISTRIB_CONFIG_PATH, {});
   const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
@@ -1785,10 +1815,11 @@ async function recalcularA8020() {
   const idList = Object.values(sucs).map(s => s.idSucursal).join(',');
   if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
   const meses = config.ventanaMeses || 12;
-  const [stats, ops, abcRows] = await Promise.all([
+  const [stats, ops, abcRows, comprasCant] = await Promise.all([
     query(sqlVentasStats(idList, meses)),
     query(sqlDiasOperativos(idList, meses)),
     query(sqlAbcMetric(idList, meses, (config.abc || {}).metrica || 'facturacion')),
+    query(sqlComprasCantidadesAlmacen(config.unidadesPorCajaMeses || 24)),
   ]);
   const opsDays = {}; for (const r of ops) opsDays[r.IdSucursal] = Number(r.DiasOperativos) || 0;
   const metricByPlu = {}; for (const r of abcRows) metricByPlu[String(r.IdProducto)] = Number(r.Metric) || 0;
@@ -1805,6 +1836,12 @@ async function recalcularA8020() {
   const edAlm = leerListasDistrib();
   const almacenSet = new Set(universoLista(Object.keys(distLis.productosAlmacen || {}), edAlm.siempreAlmacen, edAlm.noEnvasa).map(Number));
   const bootstrapSet = new Set([...pesablesSet, ...almacenSet]);
+  // Piso de caja (sólo Almacén): min ≥ 1 caja estimada por historial de compras. Pesables sigue igual.
+  const cajaPorPlu = estimarUnidadesPorCaja(comprasCant);
+  for (const [plu, caja] of Object.entries(cajaPorPlu)) {
+    const prev = overrides[plu] || {};
+    overrides[plu] = { ...prev, pisoManual: Math.max(prev.pisoManual || 0, caja) };
+  }
   const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
 
   const mins = {}, sLevels = {}, detalle = {};
