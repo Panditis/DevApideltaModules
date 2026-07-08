@@ -64,16 +64,25 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   // Empuje por stock en central: si hay stock en el depósito (D>0) y la demanda estadística es baja
   // (S < presencia), eleva min y S de cada sucursal a un piso de "presencia" para impulsar el envío
   // aunque no haya estadística que lo respalde. Se auto-limita al stock del central vía el rateo.
+  const PARES_MIN_S = [['minRiv','SRiv'],['minUrq','SUrq'],['minNacion','SNacion'],['minChaca','SChaca'],
+    ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],['minLogia','SLogia'],
+    ['minVRamallo','SVRamallo'],['minVConst','SVConst']];
   const pres = (opts && opts.empujePresencia) || 0;
   if (pres > 0 && D > 0 && envasaSi && !a.claseF) {   // clase F (viejo sin rotación): no se empuja
-    const pares = [['minRiv','SRiv'],['minUrq','SUrq'],['minNacion','SNacion'],['minChaca','SChaca'],
-      ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],['minLogia','SLogia'],
-      ['minVRamallo','SVRamallo'],['minVConst','SVConst']];
     const aa = { ...a };
-    for (const [mk, sk] of pares) {
+    for (const [mk, sk] of PARES_MIN_S) {
       if ((aa[sk] || 0) < pres) aa[sk] = pres;   // objetivo (S) ≥ presencia
       if ((aa[mk] || 0) < pres) aa[mk] = pres;   // gatillo (min) ≥ presencia → topa sucursales con poco
     }
+    a = aa;
+  }
+  // Empuje "producto nuevo": eleva min/S al propio stock de central (D) para que el
+  // racionamiento por % reparta la mayor parte del depósito entre sucursales según su
+  // peso (opts.pesosRacionado), en vez de esperar a que el min normal lo gatille.
+  const esNuevo = has(opts && opts.esNuevoSet, plu);
+  if (esNuevo && D > 0 && envasaSi && !a.claseF) {
+    const aa = { ...a };
+    for (const [mk, sk] of PARES_MIN_S) { aa[sk] = Math.max(aa[sk] || 0, D); aa[mk] = Math.max(aa[mk] || 0, D); }
     a = aa;
   }
 
