@@ -52,6 +52,8 @@
   td.s{color:var(--faint)}
   .abc{font-weight:700;font-size:11px;padding:2px 8px;border-radius:5px;display:inline-block;width:22px;text-align:center}
   .abc.A{background:var(--verde);color:#fff}.abc.B{background:var(--amarillo-cont);color:var(--amarillo-on)}.abc.C{background:var(--surface3);color:var(--faint)}
+  .rank{font-weight:700;font-size:10.5px;padding:2px 6px;border-radius:5px;display:inline-block;min-width:30px;text-align:center}
+  .rank.hi{background:var(--verde);color:#fff}.rank.mid{background:var(--amarillo-cont);color:var(--amarillo-on)}.rank.lo{background:var(--surface3);color:var(--faint)}
   .state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:70vh;gap:14px;color:var(--muted)}
   .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--verde);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
@@ -127,11 +129,11 @@ const sumS = (r)=> SUC.reduce((s,[k])=> s+(r.mins[k]||0),0);
 function construir(){
   const opsTxt = (k)=>{ const id=SUC_ID[k]; const n=(cache.opsDays||{})[id]; return n?`<small>${n}d op.</small>`:''; };
   const cols = [['plu','PLU','l'],['nombre','Producto','l'],['abc','ABC','']]
-    .concat(SUC.map(([k,n])=>[k,n,'suc']))
+    .concat(SUC.flatMap(([k,n])=>[[k,n,'suc'],[k+'_r','R','suc-rank']]))
     .concat([['tot','Σ S','']]);
   document.getElementById('head').innerHTML = cols.map(([k,n,cls])=>{
     const ar = orden.col===k ? (orden.dir<0?' ▼':' ▲') : '';
-    const sub = cls==='suc' ? opsTxt(k) : '';
+    const sub = cls==='suc' ? opsTxt(k) : cls==='suc-rank' ? `<small>${k.slice(0,-2)}</small>` : '';
     return `<th class="${cls||''}" data-col="${k}">${n}${ar}${sub}</th>`;
   }).join('');
   document.querySelectorAll('#head th').forEach(th=> th.onclick = ()=>{
@@ -142,6 +144,7 @@ function construir(){
 }
 function valor(r,c){
   if(c==='tot') return sumS(r);
+  if(c.endsWith('_r')){ const k=c.slice(0,-2); const d=(r.detalle||{})[k]||{}; return d.ranking??-1; }
   if(SUC.some(([k])=>k===c)) return r.mins[c]||0;
   if(c==='nombre') return (r.nombre||'').toLowerCase();
   if(c==='abc') return ({A:0,B:1,C:2})[r.abc] ?? 3;
@@ -180,13 +183,19 @@ function render(){
     const celdas = SUC.map(([k])=>{ const s=r.mins[k]; const d=(r.detalle||{})[k]||{};
       const boot = d.bootstrap===true;
       const mn=(r.trig||{})[k];
-      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}`:'';
-      if(s>0 && boot) return `<td class="s boot"><span title="${tip}">~${fmt(s)}</span></td>`;
-      return s>0 ? `<td class="s pos"><span title="${tip}">${fmt(s)}</span></td>` : `<td class="s">·</td>`; }).join('');
+      const cajaTip = r.caja?`  ·  caja=${r.caja}`:'';
+      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}${cajaTip}`:'';
+      const sCell = (s>0 && boot) ? `<td class="s boot"><span title="${tip}">~${fmt(s)}</span></td>`
+        : s>0 ? `<td class="s pos"><span title="${tip}">${fmt(s)}</span></td>` : `<td class="s">·</td>`;
+      const rk = d.ranking;
+      const rkCls = rk==null ? '' : rk>=0.8 ? 'hi' : rk>=0.5 ? 'mid' : 'lo';
+      const rkCell = rk==null ? '<td class="s">·</td>' : `<td><span class="rank ${rkCls}">${rk.toFixed(2)}</span></td>`;
+      return sCell + rkCell; }).join('');
     const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas; sin movimientos o sólo compras / reciente">NUEVO</span>'
       : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
     const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
-    return `<tr><td class="l plu">${r.plu}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
+    const cajaBadge = r.caja ? `<span style="margin-left:4px;background:#e0e7ff;color:#3730a3;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Unidades por caja estimadas (MCD historial de compras) — min piso a esto en Almacén">📦${r.caja}</span>` : '';
+    return `<tr><td class="l plu">${r.plu}${cajaBadge}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
       `<td><span class="abc ${r.abc}"${abcStyle}>${r.abc}</span>${badge}</td>${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
   }).join('');
   const nA=filas.filter(r=>r.abc==='A').length, nB=filas.filter(r=>r.abc==='B').length, nC=filas.filter(r=>r.abc==='C').length, nF=filas.filter(r=>r.abc==='F').length;
@@ -207,7 +216,7 @@ async function cargar(){
   const nuevosSet = new Set((cache.nuevos||[]).map(Number));
   const viejosSet = new Set((cache.viejos||[]).map(Number));
   const bootSet = new Set((cache.bootstrapped||[]).map(Number));
-  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
+  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)), caja:(cache.cajaPorPlu||{})[plu]||null }));
   construirRubroFiltro();
   construir(); render(); renderAnomalias();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';
