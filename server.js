@@ -1812,36 +1812,6 @@ function sqlAbcMetricPorSucursal(idList, meses, metrica) {   // métrica ABC por
   WHERE ${_ventasWhere(idList, meses)}
   GROUP BY vp.IdSucursal, vp.IdProducto`;
 }
-// Cantidades de compra (Almacén) para estimar unidades por caja vía MCD de cantidades históricas.
-function sqlComprasCantidadesAlmacen(meses) {
-  return `SELECT cp.IdProducto, cp.Cantidad
-  FROM ComprasProductos cp
-  INNER JOIN Compras co ON co.IdSucursal=cp.IdSucursal AND co.IdTipoComprobante=cp.IdTipoComprobante
-    AND co.Letra=cp.Letra AND co.CentroEmisor=cp.CentroEmisor AND co.NumeroComprobante=cp.NumeroComprobante
-  INNER JOIN Productos p ON p.IdProducto=cp.IdProducto
-  INNER JOIN Rubros r ON r.IdRubro=p.IdRubro
-  WHERE co.Fecha >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE))
-    AND ISNULL(co.IdEstadoComprobante,'') != 'ANULADO'
-    AND cp.Cantidad > 0 AND p.Activo=1 AND r.NombreRubro='Almacen'`;
-}
-function gcdEntero(a, b) { a = Math.round(Math.abs(a)); b = Math.round(Math.abs(b)); while (b) { [a, b] = [b, a % b]; } return a; }
-// MCD de cantidades históricas de compra por PLU → tamaño de caja estimado. Requiere ≥2 compras
-// para tener confianza; MCD=1 (compran suelto, sin múltiplo común) no aporta piso.
-function estimarUnidadesPorCaja(comprasRows) {
-  const qtyByPlu = {};
-  for (const r of comprasRows) {
-    const q = Math.round(Number(r.Cantidad) || 0);
-    if (q <= 0) continue;
-    (qtyByPlu[String(r.IdProducto)] = qtyByPlu[String(r.IdProducto)] || []).push(q);
-  }
-  const cajaPorPlu = {};
-  for (const [plu, qs] of Object.entries(qtyByPlu)) {
-    if (qs.length < 2) continue;
-    const caja = qs.reduce((acc, q) => gcdEntero(acc, q), 0);
-    if (caja > 1) cajaPorPlu[plu] = caja;
-  }
-  return cajaPorPlu;
-}
 async function recalcularA8020() {
   const config = leerJSON(DISTRIB_CONFIG_PATH, {});
   const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
@@ -1851,11 +1821,10 @@ async function recalcularA8020() {
   if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
   const meses = config.ventanaMeses || 12;
   const metrica = (config.abc || {}).metrica || 'facturacion';
-  const [stats, ops, abcRows, comprasCant, abcRowsPorSuc] = await Promise.all([
+  const [stats, ops, abcRows, abcRowsPorSuc] = await Promise.all([
     query(sqlVentasStats(idList, meses)),
     query(sqlDiasOperativos(idList, meses)),
     query(sqlAbcMetric(idList, meses, metrica)),
-    query(sqlComprasCantidadesAlmacen(config.unidadesPorCajaMeses || 24)),
     query(sqlAbcMetricPorSucursal(idList, meses, metrica)),
   ]);
   const opsDays = {}; for (const r of ops) opsDays[r.IdSucursal] = Number(r.DiasOperativos) || 0;
@@ -1879,12 +1848,6 @@ async function recalcularA8020() {
   const edAlm = leerListasDistrib();
   const almacenSet = new Set(universoLista(Object.keys(distLis.productosAlmacen || {}), edAlm.siempreAlmacen, edAlm.noEnvasa).map(Number));
   const bootstrapSet = new Set([...pesablesSet, ...almacenSet]);
-  // Piso de caja (sólo Almacén): min ≥ 1 caja estimada por historial de compras. Pesables sigue igual.
-  const cajaPorPlu = estimarUnidadesPorCaja(comprasCant);
-  for (const [plu, caja] of Object.entries(cajaPorPlu)) {
-    const prev = overrides[plu] || {};
-    overrides[plu] = { ...prev, pisoManual: Math.max(prev.pisoManual || 0, caja) };
-  }
   const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
   const ranking = calcularRankingPorSucursal(metricPorSuc, statRows, sucById);
 
@@ -2066,8 +2029,7 @@ async function recalcularA8020() {
   }
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
-    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
-    cajaPorPlu };
+    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu };
   guardarJSON(A8020_CALC_PATH, cache);
   // Escribir a8020.json en formato legacy para pesables.js y almacen.js.
   //   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).

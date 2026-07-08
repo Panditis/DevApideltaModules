@@ -183,8 +183,7 @@ function render(){
     const celdas = SUC.map(([k])=>{ const s=r.mins[k]; const d=(r.detalle||{})[k]||{};
       const boot = d.bootstrap===true;
       const mn=(r.trig||{})[k];
-      const cajaTip = r.caja?`  ·  caja=${r.caja}`:'';
-      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}${cajaTip}`:'';
+      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}`:'';
       const sCell = (s>0 && boot) ? `<td class="s boot"><span title="${tip}">~${fmt(s)}</span></td>`
         : s>0 ? `<td class="s pos"><span title="${tip}">${fmt(s)}</span></td>` : `<td class="s">·</td>`;
       const rk = d.ranking;
@@ -194,8 +193,7 @@ function render(){
     const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas; sin movimientos o sólo compras / reciente">NUEVO</span>'
       : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
     const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
-    const cajaBadge = r.caja ? `<span style="margin-left:4px;background:#e0e7ff;color:#3730a3;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Unidades por caja estimadas (MCD historial de compras) — min piso a esto en Almacén">📦${r.caja}</span>` : '';
-    return `<tr><td class="l plu">${r.plu}${cajaBadge}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
+    return `<tr><td class="l plu">${r.plu}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
       `<td><span class="abc ${r.abc}"${abcStyle}>${r.abc}</span>${badge}</td>${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
   }).join('');
   const nA=filas.filter(r=>r.abc==='A').length, nB=filas.filter(r=>r.abc==='B').length, nC=filas.filter(r=>r.abc==='C').length, nF=filas.filter(r=>r.abc==='F').length;
@@ -216,7 +214,7 @@ async function cargar(){
   const nuevosSet = new Set((cache.nuevos||[]).map(Number));
   const viejosSet = new Set((cache.viejos||[]).map(Number));
   const bootSet = new Set((cache.bootstrapped||[]).map(Number));
-  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)), caja:(cache.cajaPorPlu||{})[plu]||null }));
+  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
   construirRubroFiltro();
   construir(); render(); renderAnomalias();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';
