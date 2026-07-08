@@ -125,6 +125,16 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pesosRacionado = (opts && opts.pesosRacionado) || PESOS_RACIONADO_DEFAULT;
   const ORDEN_CLAVES = ['riv', 'urq', 'nacion', 'chaca', 'pergamino', 'sanpedro', 'sucu8', 'sucu9', 'sucu11'];
   const pidePorClave = { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer, sanpedro: pSan, sucu8: pSu8, sucu9: pSu9, sucu11: pS11 };
+  const minPorClave = { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino, sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 };
+  const stockPorClave = { riv: st.riv||0, urq: st.urq||0, nacion: st.nacion||0, chaca: st.chaca||0, pergamino: st.pergamino||0, sanpedro: st.sanpedro||0, sucu8: st.sucu8||0, sucu9: st.sucu9||0, sucu11: st.sucu11||0 };
+  // Urgencia por sucursal (0=stock cómodo respecto al min, 1=en/bajo mínimo) → multiplica el
+  // peso base: una sucursal en 0 pesa hasta el doble que una con stock cómodo, sin importar
+  // su prioridad fija (evita que Pergamino en 0 reciba menos que Chacabuco con stock).
+  const pesoEfectivo = (k) => {
+    const min = minPorClave[k];
+    const urgencia = min > 0 ? Math.max(0, 1 - stockPorClave[k] / min) : 0;
+    return (pesosRacionado[k] || 0) * (1 + urgencia);
+  };
   const racionPorClave = {};
   if (D > pideTotal) {
     for (const k of ORDEN_CLAVES) racionPorClave[k] = pidePorClave[k] || 0;
@@ -134,11 +144,11 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     let restante = Math.max(D, 0);
     let guard = 0;
     while (restante > 1e-9 && activos.size && guard++ < ORDEN_CLAVES.length + 1) {
-      const sumaPesos = [...activos].reduce((s, k) => s + (pesosRacionado[k] || 0), 0);
+      const sumaPesos = [...activos].reduce((s, k) => s + pesoEfectivo(k), 0);
       if (sumaPesos <= 0) break;
       let sobra = 0;
       for (const k of [...activos]) {
-        const cuota = restante * ((pesosRacionado[k] || 0) / sumaPesos);
+        const cuota = restante * (pesoEfectivo(k) / sumaPesos);
         const falta = (pidePorClave[k] || 0) - asignCrudo[k];
         if (cuota >= falta) { asignCrudo[k] += falta; sobra += cuota - falta; activos.delete(k); }
         else { asignCrudo[k] += cuota; }
