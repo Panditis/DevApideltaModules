@@ -1627,12 +1627,12 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const ocultos = new Set(aplicarOcultar ? ed.ocultarPesable.map(String) : []);   // checkbox "Ocultar códigos" en Pesables
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
-    WHERE p.Activo=1 AND r.NombreRubro IN ('Pesables Fraccionado','Pesables Produccion')`);
+    WHERE p.Activo=1 AND r.NombreRubro='Pesables Fraccionado'`);
   const rubroMapP = new Map(rubroRows.map(r => [r.IdProducto, r.NombreRubro]));
   const basePlus = rubroRows.map(r => r.IdProducto);
   const plus = universoLista(basePlus, ed.siemprePesable, ed.noEnvasa)
     .filter(p => !ocultos.has(String(p)));
-  if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado"/"Pesables Produccion" en Siga.');
+  if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado" en Siga.');
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
   const granelCodes = [...new Set(plus.map(p => (formulas[p] || {}).granel).filter(g => g != null).map(String))];
