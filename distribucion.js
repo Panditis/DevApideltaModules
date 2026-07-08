@@ -107,23 +107,36 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pS11 = pideTeorico(minSucu11, sS11, st.sucu11||0, envasaSi);
   const pideTotal = pRiv + pUrq + pNac + pCha + pPer + pSan + pSu8 + pSu9 + pS11;   // BD
 
-  // Racionamiento por prioridad fija: cuando el stock central no alcanza para todos,
-  // se llena el pedido completo de la sucursal de mayor prioridad primero, y así
-  // sucesivamente, en vez de repartir proporcional entre todas (evita mandar cantidades
-  // chicas a cada una). Orden configurable vía opts.prioridadRacionado.
-  const ORDEN_RACIONADO_DEFAULT = ['riv', 'chaca', 'nacion', 'urq', 'pergamino', 'sucu9', 'sanpedro', 'sucu8', 'sucu11'];
-  const ordenRacionado = (opts && opts.prioridadRacionado) || ORDEN_RACIONADO_DEFAULT;
+  // Racionamiento por prioridad (porcentaje con waterfall): cuando el stock central no
+  // alcanza para todos, se reparte según el peso de cada sucursal; si a alguna le sobra
+  // porque cubre el 100% de su pedido con su cuota, el excedente se redistribuye entre
+  // el resto según sus pesos (no se pierde stock). Pesos configurables vía
+  // opts.pesosRacionado.
+  const PESOS_RACIONADO_DEFAULT = { riv: 0.50, chaca: 0.20, nacion: 0.12, urq: 0.08, pergamino: 0.06, sucu9: 0.03, sanpedro: 0.01, sucu8: 0, sucu11: 0 };
+  const pesosRacionado = (opts && opts.pesosRacionado) || PESOS_RACIONADO_DEFAULT;
+  const ORDEN_CLAVES = ['riv', 'urq', 'nacion', 'chaca', 'pergamino', 'sanpedro', 'sucu8', 'sucu9', 'sucu11'];
   const pidePorClave = { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer, sanpedro: pSan, sucu8: pSu8, sucu9: pSu9, sucu11: pS11 };
   const racionPorClave = {};
   if (D > pideTotal) {
-    for (const k of ordenRacionado) racionPorClave[k] = pidePorClave[k] || 0;
+    for (const k of ORDEN_CLAVES) racionPorClave[k] = pidePorClave[k] || 0;
   } else {
+    const asignCrudo = {}; for (const k of ORDEN_CLAVES) asignCrudo[k] = 0;
+    let activos = new Set(ORDEN_CLAVES.filter(k => (pidePorClave[k] || 0) > 0));
     let restante = Math.max(D, 0);
-    for (const k of ordenRacionado) {
-      const asign = Math.min(pidePorClave[k] || 0, restante);
-      racionPorClave[k] = k === 'riv' ? roundup(asign, 0) : round(asign, 0);
-      restante -= asign;
+    let guard = 0;
+    while (restante > 1e-9 && activos.size && guard++ < ORDEN_CLAVES.length + 1) {
+      const sumaPesos = [...activos].reduce((s, k) => s + (pesosRacionado[k] || 0), 0);
+      if (sumaPesos <= 0) break;
+      let sobra = 0;
+      for (const k of [...activos]) {
+        const cuota = restante * ((pesosRacionado[k] || 0) / sumaPesos);
+        const falta = (pidePorClave[k] || 0) - asignCrudo[k];
+        if (cuota >= falta) { asignCrudo[k] += falta; sobra += cuota - falta; activos.delete(k); }
+        else { asignCrudo[k] += cuota; }
+      }
+      restante = sobra;
     }
+    for (const k of ORDEN_CLAVES) racionPorClave[k] = k === 'riv' ? roundup(asignCrudo[k], 0) : round(asignCrudo[k], 0);
   }
   const racion = (key) => racionPorClave[key];
   // Rivadavia (J): nostock=(D<=0 && stock<=min); redondeo UP; fact=rivadavia
