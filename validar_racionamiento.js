@@ -44,5 +44,11 @@ let r3 = racionarPorPrioridad({ riv: 3, chaca: 3 }, { riv: 3, chaca: 3 }, 20, PE
 assert.strictEqual(r3.riv, 3, 'riv recibe su pide completo (D sobra)');
 assert.strictEqual(r3.chaca, 3, 'chaca también (D sobra para ambos)');
 
+// Caso 4: pide propio por debajo del piso de la sucursal, aunque el pool (restante) sí alcance —
+// no debe asignarle igual (fragmentaría por debajo de su piso), tiene que saltarla igual que si
+// el pool no alcanzara. S=60 cae en el tramo catch-all (10%) → piso=6; pide=5 < 6.
+let r4 = racionarPorPrioridad({ riv: 5 }, { riv: 60 }, 100, PESOS, ORDEN, TRAMOS, 1);
+assert.strictEqual(r4.riv, 0, 'riv (pide=5 < piso=6 propio) no recibe, aunque el pool (100) le sobre de lejos');
+
 console.log('OK: pisoMinimo escala el piso según S (S alto → % bajo, S bajo → % alto), con piso absoluto de respaldo.');
 console.log('OK: racionarPorPrioridad sirve en orden fijo, completo o nada por sucursal, cascada hasta agotar D o la cola.');

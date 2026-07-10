@@ -71,7 +71,7 @@ function racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ordenC
     const pide = pidePorClave[k] || 0;
     if (pide <= 0) continue;
     const piso = pisoMinimo(sPorClave[k], tramos, pisoAbsoluto);
-    if (restante < piso) continue;
+    if (pide < piso || restante < piso) continue;
     const asignado = round(Math.min(pide, restante), 0);
     racionPorClave[k] = asignado;
     restante -= asignado;
