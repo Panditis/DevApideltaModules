@@ -50,5 +50,28 @@ assert.strictEqual(r3.chaca, 3, 'chaca también (D sobra para ambos)');
 let r4 = racionarPorPrioridad({ riv: 5 }, { riv: 60 }, 100, PESOS, ORDEN, TRAMOS, 1);
 assert.strictEqual(r4.riv, 0, 'riv (pide=5 < piso=6 propio) no recibe, aunque el pool (100) le sobre de lejos');
 
+// ── Integración: calcularFilaAlmacen con escasez real ──────────────────────
+// central=12, tres sucursales piden 10 cada una (pideTotal=30 > D=12) más San Pedro pide 2
+// (S bajo). Reproduce el bug reportado: hoy esto fragmenta ~4 unidades a cada una; con la cola
+// de prioridad, riv (prioridad 1) se lleva su pedido completo y el resto cascadea.
+const a8020Row = { minRiv: 5, SRiv: 10, minChaca: 5, SChaca: 10, minNacion: 5, SNacion: 10, minSanPedro: 1, SSanPedro: 2 };
+const stocks = { central: 12, riv: 0, urq: 0, nacion: 0, chaca: 0, pergamino: 0, sanpedro: 0, sucu8: 0, sucu9: 0, sucu11: 0 };
+const opts = {
+  corregirBugs: true,
+  pesosRacionado: PESOS,
+  umbralMicroEnvio: { tramos: TRAMOS, pisoAbsoluto: 1 },
+  esNuevoSet: new Set(),
+  factGatePorPlu: new Map(),
+};
+const fila = calcularFilaAlmacen(99999, stocks, a8020Row, {}, {}, new Set(), 0.5, opts);
+
+assert.strictEqual(fila.enviar.riv, 10, 'riv (prioridad 1) se lleva su pedido completo');
+assert.strictEqual(fila.enviar.chaca, 0, 'chaca no alcanza su piso con lo que sobra — no fragmenta');
+assert.strictEqual(fila.enviar.nacion, 0, 'nacion tampoco — sigue probando la cola');
+assert.strictEqual(fila.enviar.sanPedro, 2, 'sanPedro (S bajo, piso bajo) recibe el remanente — cascada hasta el final');
+assert.strictEqual(fila.pideTotal, 32, 'pideTotal sigue siendo la suma de pides crudos (10+10+10+2), sin límite de central');
+
+console.log('OK: calcularFilaAlmacen concentra en las sucursales de mayor prioridad en vez de fragmentar 1-5 unidades a todas.');
+
 console.log('OK: pisoMinimo escala el piso según S (S alto → % bajo, S bajo → % alto), con piso absoluto de respaldo.');
 console.log('OK: racionarPorPrioridad sirve en orden fijo, completo o nada por sucursal, cascada hasta agotar D o la cola.');

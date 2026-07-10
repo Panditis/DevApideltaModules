@@ -150,11 +150,12 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pSu9 = pideTeorico(minSucu9, sSu9, st.sucu9||0, envasaSi);
   const pS11 = pideTeorico(minSucu11, sS11, st.sucu11||0, envasaSi);
 
-  // Racionamiento por prioridad (porcentaje con waterfall): cuando el stock central no
-  // alcanza para todos, se reparte según el peso de cada sucursal; si a alguna le sobra
-  // porque cubre el 100% de su pedido con su cuota, el excedente se redistribuye entre
-  // el resto según sus pesos (no se pierde stock). Pesos configurables vía
-  // opts.pesosRacionado.
+  // Racionamiento por prioridad fija: cuando el stock central no alcanza para todos, NO se
+  // prorratea proporcional (fragmenta en pedazos chicos no viables logísticamente). Se sirve
+  // en orden fijo de opts.pesosRacionado (usado como ranking, no como %): cada sucursal recibe
+  // su pedido completo o nada — nunca menos que su piso mínimo (opts.umbralMicroEnvio, escalado
+  // por el S de esa sucursal). Si una no alcanza su piso, se prueba la siguiente en la cola (no
+  // corta) para no desperdiciar stock que sí le alcanza a una más chica más abajo.
   // Sucursales que van a salir Fact/Restringido (no consumen stock real) se excluyen del
   // reparto ANTES de calcularlo — si no, su "pide" fantasma le come cupo al resto del pool
   // compartido aunque después nunca se use (bug visto en PLU 2121: Rivadavia en Fact restaba
@@ -179,51 +180,13 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pidePorClave = {};
   for (const k of ORDEN_CLAVES) pidePorClave[k] = GATEADO[k] ? 0 : pidePorClaveCruda[k];
   const pideTotal = ORDEN_CLAVES.reduce((s, k) => s + (pidePorClave[k] || 0), 0);   // BD (ya sin gateados)
-  const minPorClave = { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino, sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 };
-  const stockPorClave = { riv: st.riv||0, urq: st.urq||0, nacion: st.nacion||0, chaca: st.chaca||0, pergamino: st.pergamino||0, sanpedro: st.sanpedro||0, sucu8: st.sucu8||0, sucu9: st.sucu9||0, sucu11: st.sucu11||0 };
-  // Urgencia de stock (0=cómoda, 1=en/bajo mínimo) manda sobre la prioridad fija de
-  // sucursal: una diferencia de urgencia de 0.1 ya pesa más que toda la escala de
-  // importancia (máx 0.5) — la importancia solo desempata entre urgencias parecidas.
-  const pesoEfectivo = (k) => {
-    const min = minPorClave[k];
-    const urgencia = min > 0 ? Math.max(0, 1 - stockPorClave[k] / min) : (stockPorClave[k] <= 0 ? 1 : 0);
-    return urgencia * 10 + (pesosRacionado[k] || 0);
-  };
-  const racionPorClave = {};
-  if (D > pideTotal) {
-    for (const k of ORDEN_CLAVES) racionPorClave[k] = pidePorClave[k] || 0;
-  } else {
-    const asignCrudo = {}; for (const k of ORDEN_CLAVES) asignCrudo[k] = 0;
-    let activos = new Set(ORDEN_CLAVES.filter(k => (pidePorClave[k] || 0) > 0));
-    let restante = Math.max(D, 0);
-    let guard = 0;
-    while (restante > 1e-9 && activos.size && guard++ < ORDEN_CLAVES.length + 1) {
-      const sumaPesos = [...activos].reduce((s, k) => s + pesoEfectivo(k), 0);
-      if (sumaPesos <= 0) break;
-      let sobra = 0;
-      for (const k of [...activos]) {
-        const cuota = restante * (pesoEfectivo(k) / sumaPesos);
-        const falta = (pidePorClave[k] || 0) - asignCrudo[k];
-        if (cuota >= falta) { asignCrudo[k] += falta; sobra += cuota - falta; activos.delete(k); }
-        else { asignCrudo[k] += cuota; }
-      }
-      restante = sobra;
-    }
-    // Redondeo con reparto de resto (largest remainder): si cada sucursal se redondea
-    // independiente, la suma final puede no dar D exacto (queda remanente sin repartir).
-    // Se redondea todo hacia abajo y las unidades sobrantes van a quienes tengan mayor
-    // parte fraccionaria, hasta agotar el stock racionado.
-    const enteros = {}; let sumaEnteros = 0;
-    for (const k of ORDEN_CLAVES) { enteros[k] = Math.floor(asignCrudo[k]); sumaEnteros += enteros[k]; }
-    let sobranteEntero = Math.round(Math.min(D, pideTotal)) - sumaEnteros;
-    const porFraccion = ORDEN_CLAVES.filter(k => asignCrudo[k] > 0)
-      .sort((a, b) => (asignCrudo[b] - enteros[b]) - (asignCrudo[a] - enteros[a]));
-    for (const k of porFraccion) {
-      if (sobranteEntero <= 0) break;
-      enteros[k] += 1; sobranteEntero -= 1;
-    }
-    for (const k of ORDEN_CLAVES) racionPorClave[k] = enteros[k];
-  }
+  const sPorClave = { riv: sRiv, urq: sUrq, nacion: sNac, chaca: sCha, pergamino: sPer, sanpedro: sSan, sucu8: sSu8, sucu9: sSu9, sucu11: sS11 };
+  const umbralCfg = (opts && opts.umbralMicroEnvio) || {};
+  const tramosMicro = umbralCfg.tramos || [{ hastaS: null, pct: 0.20 }];
+  const pisoAbsolutoMicro = umbralCfg.pisoAbsoluto != null ? umbralCfg.pisoAbsoluto : 1;
+  const racionPorClave = D > pideTotal
+    ? Object.fromEntries(ORDEN_CLAVES.map(k => [k, pidePorClave[k] || 0]))
+    : racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ORDEN_CLAVES, tramosMicro, pisoAbsolutoMicro);
   const racion = (key) => racionPorClave[key];
   // Rivadavia (J): nostock=(D<=0 && stock<=min); redondeo UP; fact=rivadavia
   const eRiv = has(restr.rivadavia, plu) ? 'Restringido'
@@ -260,16 +223,17 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     : ((st.sucu11||0) > minSucu11 || minSucu11 === 0) ? 'No'
     : racion('sucu11');
 
-  // Piso de micro-envío: descarta envío calculado < umbral% del S de esa sucursal (opts.umbralMicroEnvio).
-  // Aplica siempre, sin importar el stock propio de la sucursal (no vale la pena logísticamente igual).
-  // No afecta a importancia (usa eXxx original, sin piso) — la prioridad no depende de si conviene enviarlo.
-  // enviarMicro guarda {qty,umbral,S,min} de las sucursales suprimidas (pre-piso), para mostrar en UI.
-  const umbralMicro = (opts && opts.umbralMicroEnvio) || 0;
+  // Piso mínimo de envío: descarta envío calculado < pisoMinimo(S) escalonado
+  // (opts.umbralMicroEnvio.tramos) — mismo piso que ya usó racionarPorPrioridad arriba para decidir
+  // quién entra a la cola. Se reaplica acá porque D > pideTotal no pasa por esa función (cada
+  // sucursal recibe su pide crudo, que igual puede ser chico sin que haya escasez de por medio).
+  // Sí afecta a importancia (usa eXxxM post-piso) — un envío Micro no debe impulsar la importancia
+  // del producto. enviarMicro guarda {qty,umbral,S,min} de las suprimidas (pre-piso), para la UI.
   const enviarMicro = {};
   const piso = (valor, S, min, key) => {
-    if (!isNum(valor) || valor <= 0 || umbralMicro <= 0) return valor;
-    const umbralAbs = round(Math.max(umbralMicro * (S || 0), 1), 0);   // piso = umbral·S redondeado, mínimo absoluto 1
-    if (valor < umbralAbs) { enviarMicro[key] = { qty: valor, umbral: umbralAbs, S, min }; return 'Micro'; }   // valor >= umbralAbs para enviar
+    if (!isNum(valor) || valor <= 0) return valor;
+    const umbralAbs = pisoMinimo(S, tramosMicro, pisoAbsolutoMicro);
+    if (valor < umbralAbs) { enviarMicro[key] = { qty: valor, umbral: umbralAbs, S, min }; return 'Micro'; }
     return valor;
   };
   const eRivM = piso(eRiv, sRiv, minRiv, 'riv');
