@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compras · Apidelta</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { verde:'#405936', verdeDark:'#2e4027', verdeHover:'#4f6e42', amarillo:'#FFCC00',
+    bg:'#eef2e9', card:'#ffffff', borde:'#c3c9bc', ink:'#1a1c18',
+    rojo:'#D32F2F', naranja:'#E65100', ambar:'#F57F17', ok:'#388E3C' },
+  fontFamily: { disp:['"Barlow Condensed"','sans-serif'], body:['Roboto','sans-serif'] },
+  boxShadow: { fluent:'0 1px 3px rgba(26,28,24,.08), 0 4px 16px rgba(26,28,24,.06)' } } } };
+</script>
+<style>
+  body{background:#eef2e9;}
+  .acrylic{background:rgba(255,255,255,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+  .tab-btn.active{background:#405936;color:#fff;}
+  th{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.02em;}
+</style>
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-[1400px] mx-auto px-4 py-3 flex items-center gap-3">
+    <h1 class="font-disp text-2xl font-bold text-verde">COMPRAS</h1>
+    <span class="text-sm text-ink/60">Apidelta</span>
+    <a href="/" class="ml-auto text-sm text-verde hover:text-verdeHover">← Inicio</a>
+  </div>
+  <nav class="max-w-[1400px] mx-auto px-4 pb-2 flex gap-1 flex-wrap">
+    <button class="tab-btn active px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="listado">Listado</button>
+    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="proveedores">Proveedores</button>
+    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="carrito">Carrito <span id="cartBadge" class="hidden ml-1 px-2 rounded-full bg-amarillo text-ink text-xs">0</span></button>
+    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="presentaciones">Presentaciones</button>
+    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="produccion">Producción</button>
+  </nav>
+</header>
+<main class="max-w-[1400px] mx-auto px-4 py-5">
+  <section id="tab-listado" class="tab-panel">
+    <div class="flex gap-2 mb-3 items-center flex-wrap">
+      <input id="buscarListado" placeholder="Buscar producto…" class="px-3 py-2 rounded-lg border border-borde w-64">
+      <label class="text-sm flex items-center gap-1"><input type="checkbox" id="soloSugerido"> Solo con sugerido &gt; 0</label>
+      <span id="listadoCount" class="ml-auto text-sm text-ink/60"></span>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
+      <table class="w-full text-sm">
+        <thead class="bg-verde/5 text-verde"><tr>
+          <th class="text-left p-2">Producto</th><th class="p-2">Central</th><th class="p-2">Granel</th>
+          <th class="p-2">Fraccionado</th><th class="p-2">Consolidado</th>
+          <th class="p-2">Déf. A8020</th><th class="p-2">Micro</th><th class="p-2">Falt. real</th>
+          <th class="p-2 bg-amarillo/30">Sugerido</th><th class="p-2">Proveedor</th><th class="p-2">Últ. compra</th><th class="p-2"></th>
+        </tr></thead>
+        <tbody id="listadoBody"></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="tab-proveedores" class="tab-panel hidden">
+    <div class="flex gap-2 mb-3">
+      <input id="buscarProv" placeholder="Buscar proveedor (mín. 2 letras)…" class="px-3 py-2 rounded-lg border border-borde w-80">
+      <button id="btnBuscarProv" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp">Buscar</button>
+    </div>
+    <div id="provResultados" class="space-y-4"></div>
+  </section>
+  <section id="tab-carrito" class="tab-panel hidden"></section>
+  <section id="tab-presentaciones" class="tab-panel hidden"></section>
+  <section id="tab-produccion" class="tab-panel hidden"></section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => n == null ? '—' : (Math.round(n*100)/100).toLocaleString('es-AR');
+const money = n => n == null ? '—' : '$'+Math.round(n).toLocaleString('es-AR');
+const carrito = new Map();  // plu -> { plu, nombre, cantidad, proveedor, costoUnit, unidadesPorBulto }
+let listadoData = [], presentaciones = {};
+
+// ---- Tabs ----
+document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  $('#tab-'+btn.dataset.tab).classList.remove('hidden');
+  if (btn.dataset.tab === 'carrito') renderCarrito();
+  if (btn.dataset.tab === 'presentaciones') cargarPresentaciones();
+  if (btn.dataset.tab === 'produccion') cargarProduccion();
+}));
+
+// ---- Listado ----
+async function cargarListado() {
+  const [lst, pres] = await Promise.all([
+    fetch('/api/compras-modulo/listado').then(r => r.json()),
+    fetch('/api/compras-modulo/presentaciones').then(r => r.json()),
+  ]);
+  listadoData = lst.productos || []; presentaciones = pres || {};
+  renderListado();
+}
+function renderListado() {
+  const q = $('#buscarListado').value.toLowerCase();
+  const solo = $('#soloSugerido').checked;
+  const rows = listadoData.filter(p =>
+    (!q || p.nombre.toLowerCase().includes(q) || p.plu.includes(q)) &&
+    (!solo || p.sugerido > 0));
+  $('#listadoCount').textContent = rows.length + ' productos';
+  $('#listadoBody').innerHTML = rows.map(p => {
+    const sucDet = Object.entries(p.stkSuc || {}).map(([s,v]) => `${s}:${fmt(v)}`).join('  ');
+    const sugClass = p.sugerido > 0 ? 'font-bold text-verde' : 'text-ink/40';
+    return `<tr class="border-t border-borde hover:bg-verde/5">
+      <td class="p-2 text-left"><button class="text-verde hover:underline" onclick="toggleSuc('${p.plu}')">${p.nombre}</button>
+        <div id="suc-${p.plu}" class="hidden text-xs text-ink/60 mt-1">${sucDet||'sin desglose'}</div></td>
+      <td class="p-2 text-center">${fmt(p.central)}</td>
+      <td class="p-2 text-center">${p.granelCentral==null?'—':fmt(p.granelCentral)}</td>
+      <td class="p-2 text-center">${p.fraccionado==null?'—':fmt(p.fraccionado)}</td>
+      <td class="p-2 text-center">${fmt(p.consolidado)}</td>
+      <td class="p-2 text-center">${fmt(p.deficitReposicion)}</td>
+      <td class="p-2 text-center">${fmt(p.deficitMicro)}</td>
+      <td class="p-2 text-center">${fmt(p.faltanteReal)}</td>
+      <td class="p-2 text-center ${sugClass}">${fmt(p.sugerido)}</td>
+      <td class="p-2 text-left text-xs">${p.proveedor||'—'}${p.costo?`<div class="text-ink/50">${money(p.costo)}</div>`:''}</td>
+      <td class="p-2 text-center text-xs">${p.ultimaCompraFecha||'—'}${p.ultimaCompraCantidad?`<div class="text-ink/50">${fmt(p.ultimaCompraCantidad)}u</div>`:''}</td>
+      <td class="p-2 text-center"><button class="px-2 py-1 rounded bg-verde text-white text-xs hover:bg-verdeHover" onclick="addCarrito('${p.plu}')">+ carrito</button></td>
+    </tr>`;
+  }).join('');
+}
+function toggleSuc(plu){ $('#suc-'+plu).classList.toggle('hidden'); }
+$('#buscarListado').addEventListener('input', renderListado);
+$('#soloSugerido').addEventListener('change', renderListado);
+
+// ---- Carrito (agregar) ----
+function addCarrito(plu) {
+  const p = listadoData.find(x => x.plu === plu); if (!p) return;
+  const uxb = (presentaciones[plu]||{}).unidadesPorBulto || null;
+  const base = p.sugerido > 0 ? p.sugerido : 1;
+  const cantidad = uxb ? Math.ceil(base/uxb)*uxb : base;
+  carrito.set(plu, { plu, nombre: p.nombre, cantidad, proveedor: p.proveedor, costoUnit: p.costo || 0, unidadesPorBulto: uxb });
+  actualizarBadge();
+}
+function actualizarBadge(){ const b=$('#cartBadge'); b.textContent=carrito.size; b.classList.toggle('hidden', carrito.size===0); }
+
+// ---- Proveedores ----
+async function buscarProveedores() {
+  const q = $('#buscarProv').value.trim();
+  if (q.length < 2) { $('#provResultados').innerHTML = '<p class="text-ink/60">Escribí al menos 2 letras.</p>'; return; }
+  $('#provResultados').innerHTML = '<p class="text-ink/60">Buscando…</p>';
+  const r = await fetch('/api/compras-modulo/proveedores/buscar?q='+encodeURIComponent(q)).then(x=>x.json());
+  if (!r.proveedores.length) { $('#provResultados').innerHTML = '<p class="text-ink/60">Sin resultados.</p>'; return; }
+  $('#provResultados').innerHTML = r.proveedores.map(p => `
+    <div class="rounded-xl border border-borde bg-card shadow-fluent p-4">
+      <h3 class="font-disp text-xl text-verde">${p.proveedor} <span class="text-sm text-ink/50">(${p.cantProductos} productos)</span></h3>
+      <div class="overflow-x-auto mt-2"><table class="w-full text-sm">
+        <thead class="text-verde"><tr><th class="text-left p-1">Producto</th><th class="p-1">PLU</th><th class="p-1">Precio</th><th class="p-1">Fecha</th></tr></thead>
+        <tbody>${p.productos.map(x=>`<tr class="border-t border-borde"><td class="p-1 text-left">${x.nombre}</td><td class="p-1 text-center">${x.plu}</td><td class="p-1 text-center">${money(x.precio)}</td><td class="p-1 text-center">${x.fecha||'—'}</td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>`).join('');
+}
+$('#btnBuscarProv').addEventListener('click', buscarProveedores);
+$('#buscarProv').addEventListener('keydown', e => { if (e.key === 'Enter') buscarProveedores(); });
+
+// ---- Carrito (render + cobertura + orden) ----
+async function renderCarrito() {
+  const panel = $('#tab-carrito');
+  if (!carrito.size) { panel.innerHTML = '<p class="text-ink/60">Carrito vacío. Agregá productos desde el Listado.</p>'; return; }
+  const items = [...carrito.values()];
+  const filas = items.map(it => `
+    <tr class="border-t border-borde">
+      <td class="p-2 text-left">${it.nombre}${it.unidadesPorBulto?`<span class="ml-1 text-xs text-ok">bulto x${it.unidadesPorBulto}</span>`:`<span class="ml-1 text-xs text-naranja cursor-pointer" onclick="irPresentacion('${it.plu}')">sin bulto ⚠</span>`}</td>
+      <td class="p-2 text-center"><input type="number" min="0" value="${it.cantidad}" class="w-20 border border-borde rounded px-1 text-center" onchange="setCant('${it.plu}', this.value)"></td>
+      <td class="p-2 text-center text-xs">${it.proveedor||'—'}</td>
+      <td class="p-2 text-center">${money(it.costoUnit)}</td>
+      <td class="p-2 text-center">${money(it.cantidad*it.costoUnit)}</td>
+      <td class="p-2 text-center"><button class="text-rojo" onclick="delCarrito('${it.plu}')">✕</button></td>
+    </tr>`).join('');
+  const total = items.reduce((s,it)=>s+it.cantidad*it.costoUnit,0);
+  const cob = await fetch('/api/compras-modulo/carrito/cobertura', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})}).then(r=>r.json());
+  const cobHtml = cob.cobertura.map(c => `
+    <div class="rounded-lg border border-borde p-3 flex items-center gap-3">
+      <div class="flex-1"><b>${c.proveedor}</b> · cubre ${c.itemsCubiertos}/${c.totalItems} ítems · ${money(c.costoTotal)}</div>
+      <button class="px-3 py-1 rounded bg-verde text-white text-sm hover:bg-verdeHover" onclick="generarOrden('${c.proveedor.replace(/'/g,"\\'")}')">Generar orden</button>
+    </div>`).join('');
+  panel.innerHTML = `
+    <div class="overflow-x-auto rounded-xl border border-borde bg-card shadow-fluent mb-4"><table class="w-full text-sm">
+      <thead class="text-verde"><tr><th class="text-left p-2">Producto</th><th class="p-2">Cantidad</th><th class="p-2">Proveedor</th><th class="p-2">Costo u.</th><th class="p-2">Subtotal</th><th></th></tr></thead>
+      <tbody>${filas}</tbody>
+      <tfoot><tr class="border-t-2 border-verde font-bold"><td class="p-2 text-right" colspan="4">Total</td><td class="p-2 text-center">${money(total)}</td><td></td></tr></tfoot>
+    </table></div>
+    <h3 class="font-disp text-xl text-verde mb-2">Cobertura por proveedor</h3>
+    <div class="space-y-2">${cobHtml}</div>`;
+}
+function setCant(plu,v){ const it=carrito.get(plu); if(it){ it.cantidad=Math.max(0,Number(v)||0); renderCarrito(); } }
+function delCarrito(plu){ carrito.delete(plu); actualizarBadge(); renderCarrito(); }
+function irPresentacion(plu){ document.querySelector('.tab-btn[data-tab="presentaciones"]').click(); setTimeout(()=>{ const i=$('#presPlu'); if(i){i.value=plu; i.focus();} },50); }
+async function generarOrden(proveedor) {
+  const items = [...carrito.values()].filter(it => it.proveedor === proveedor)
+    .map(it => ({ plu: it.plu, nombre: it.nombre, cantidad: it.cantidad, costoUnit: it.costoUnit }));
+  if (!items.length) return;
+  const r = await fetch('/api/compras-modulo/ordenes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proveedor,items})}).then(x=>x.json());
+  if (r.ok) { imprimirOrden(r.orden); items.forEach(it => carrito.delete(it.plu)); actualizarBadge(); renderCarrito(); }
+  else alert('Error: '+(r.error||'desconocido'));
+}
+function imprimirOrden(orden) {
+  const w = window.open('', '_blank');
+  w.document.write(`<html><head><title>Orden ${orden.id}</title>
+    <style>body{font-family:Roboto,sans-serif;padding:24px;color:#1a1c18}h1{color:#405936;font-family:'Barlow Condensed',sans-serif}
+    table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #c3c9bc;padding:6px;text-align:left}
+    th{background:#eef2e9}tfoot td{font-weight:bold}@media print{button{display:none}}</style></head><body>
+    <h1>ORDEN DE PEDIDO</h1>
+    <p><b>Proveedor:</b> ${orden.proveedor}<br><b>Fecha:</b> ${orden.fecha}<br><b>N°:</b> ${orden.id}</p>
+    <table><thead><tr><th>Producto</th><th>PLU</th><th>Cantidad</th><th>Costo u.</th><th>Subtotal</th></tr></thead>
+    <tbody>${orden.items.map(it=>`<tr><td>${it.nombre}</td><td>${it.plu}</td><td>${it.cantidad}</td><td>$${it.costoUnit}</td><td>$${it.subtotal}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="4">TOTAL</td><td>$${orden.total}</td></tr></tfoot></table>
+    <button onclick="window.print()" style="margin-top:16px;padding:8px 16px;background:#405936;color:#fff;border:none;border-radius:6px;cursor:pointer">Imprimir</button>
+    </body></html>`);
+  w.document.close();
+}
+
+// ---- Presentaciones ----
+async function cargarPresentaciones() {
+  const panel = $('#tab-presentaciones');
+  presentaciones = await fetch('/api/compras-modulo/presentaciones').then(r=>r.json());
+  const sinBulto = listadoData.filter(p => p.sugerido > 0 && !presentaciones[p.plu]);
+  const cargadas = Object.entries(presentaciones);
+  panel.innerHTML = `
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="rounded-xl border border-borde bg-card shadow-fluent p-4">
+        <h3 class="font-disp text-xl text-verde mb-2">Cargar bulto</h3>
+        <div class="flex flex-col gap-2">
+          <input id="presPlu" placeholder="PLU" class="border border-borde rounded px-2 py-1" list="pluList">
+          <datalist id="pluList">${listadoData.map(p=>`<option value="${p.plu}">${p.nombre}</option>`).join('')}</datalist>
+          <input id="presUxb" type="number" min="1" placeholder="Unidades por bulto" class="border border-borde rounded px-2 py-1">
+          <input id="presNombre" placeholder="Nombre bulto (opcional)" class="border border-borde rounded px-2 py-1">
+          <button id="btnPres" class="px-4 py-2 rounded bg-verde text-white hover:bg-verdeHover font-disp">Guardar</button>
+        </div>
+        <h4 class="font-disp text-lg text-naranja mt-4 mb-1">Sin bulto (${sinBulto.length})</h4>
+        <div class="text-sm max-h-40 overflow-y-auto">${sinBulto.map(p=>`<div class="flex justify-between border-b border-borde py-1"><span>${p.nombre}</span><button class="text-verde text-xs" onclick="prefillPres('${p.plu}')">cargar</button></div>`).join('')||'<span class="text-ink/50">Todos tienen bulto.</span>'}</div>
+      </div>
+      <div class="rounded-xl border border-borde bg-card shadow-fluent p-4">
+        <h3 class="font-disp text-xl text-verde mb-2">Cargadas (${cargadas.length})</h3>
+        <div class="text-sm max-h-96 overflow-y-auto">${cargadas.map(([plu,v])=>{
+          const nom=(listadoData.find(p=>p.plu===plu)||{}).nombre||plu;
+          return `<div class="flex justify-between items-center border-b border-borde py-1"><span>${nom} · <b>x${v.unidadesPorBulto}</b>${v.nombreBulto?` (${v.nombreBulto})`:''}</span><button class="text-rojo text-xs" onclick="delPres('${plu}')">✕</button></div>`;
+        }).join('')||'<span class="text-ink/50">Ninguna.</span>'}</div>
+      </div>
+    </div>`;
+  $('#btnPres').addEventListener('click', guardarPres);
+}
+function prefillPres(plu){ $('#presPlu').value=plu; $('#presUxb').focus(); }
+async function guardarPres() {
+  const plu=$('#presPlu').value.trim(), uxb=Number($('#presUxb').value), nombreBulto=$('#presNombre').value.trim();
+  if (!plu || !(uxb>0)) { alert('PLU y unidades por bulto (>0) requeridos'); return; }
+  const r = await fetch('/api/compras-modulo/presentaciones',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plu,unidadesPorBulto:uxb,nombreBulto})}).then(x=>x.json());
+  if (r.ok){ presentaciones=r.presentaciones; cargarPresentaciones(); } else alert('Error: '+(r.error||''));
+}
+async function delPres(plu){ const r=await fetch('/api/compras-modulo/presentaciones/'+encodeURIComponent(plu),{method:'DELETE'}).then(x=>x.json()); if(r.ok){presentaciones=r.presentaciones;cargarPresentaciones();} }
+
+// ---- Producción ----
+async function cargarProduccion() {
+  const panel = $('#tab-produccion');
+  panel.innerHTML = '<p class="text-ink/60">Cargando…</p>';
+  const r = await fetch('/api/compras-modulo/produccion-deficit').then(x=>x.json());
+  if (!r.componentes.length) { panel.innerHTML = '<p class="text-ok">Sin componentes en déficit. 👍</p>'; return; }
+  panel.innerHTML = `
+    <p class="text-sm text-ink/60 mb-2">${r.total} componentes de producción por debajo del consumo proyectado.</p>
+    <div class="overflow-x-auto rounded-xl border border-borde bg-card shadow-fluent"><table class="w-full text-sm">
+      <thead class="text-verde"><tr><th class="text-left p-2">Componente</th><th class="p-2">Stock central</th><th class="p-2">Consumo proy.</th><th class="p-2 bg-amarillo/30">Déficit</th><th class="p-2">Proveedor</th><th class="text-left p-2">Usado por</th></tr></thead>
+      <tbody>${r.componentes.map(c=>`<tr class="border-t border-borde hover:bg-verde/5">
+        <td class="p-2 text-left">${c.nombre} <span class="text-xs text-ink/40">${c.plu}</span></td>
+        <td class="p-2 text-center">${fmt(c.stock)}</td><td class="p-2 text-center">${fmt(c.consumoProyectado)}</td>
+        <td class="p-2 text-center font-bold text-rojo">${fmt(c.deficit)}</td>
+        <td class="p-2 text-center text-xs">${c.proveedor||'—'}</td>
+        <td class="p-2 text-left text-xs text-ink/60">${(c.usadoPor||[]).join(', ')}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+cargarListado();
+</script>
+</body>
+</html>
