@@ -46,6 +46,17 @@ function minConPiso(flag, minA8020, piso) {
   return flag > 0 ? 0 : Math.max(minA8020 || 0, piso);
 }
 
+// Piso mínimo de envío: por debajo de esto no vale la pena mandar (abrir cajas, parada de
+// transporte extra por 1-2 unidades). Escala con S de la sucursal para ese PLU: S alto usa % más
+// bajo (no exige acumular demasiado para gatillar), S bajo usa % más alto (una unidad suelta sigue
+// sin ser viable aunque sea "20% de casi nada"). tramos: [{hastaS, pct}], ordenado asc, hastaS=null
+// es el catch-all final.
+function pisoMinimo(S, tramos, pisoAbsoluto) {
+  const s = S || 0;
+  const tramo = (tramos || []).find(t => t.hastaS == null || s <= t.hastaS) || { pct: 0 };
+  return Math.max(pisoAbsoluto || 0, round(s * (tramo.pct || 0), 0));
+}
+
 // ── Cálculo de una fila de Almacen ───────────────────────────────────────────
 function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, opts) {
   a = a || {}; pa = pa || {};
@@ -332,4 +343,7 @@ function calcularAlmacen(productos, a8020, listas, opts) {
   return filas;
 }
 
-module.exports = { calcularAlmacen, calcularFilaAlmacen, SUCURSALES_SALIDA, round, roundup };
+// racionarPorPrioridad: Tarea 2 — placeholder para evitar segundo cambio en module.exports
+const racionarPorPrioridad = undefined;
+
+module.exports = { calcularAlmacen, calcularFilaAlmacen, SUCURSALES_SALIDA, round, roundup, pisoMinimo, racionarPorPrioridad };
