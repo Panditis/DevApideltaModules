@@ -1896,6 +1896,25 @@ app.post('/api/compras-modulo/carrito/cobertura', (req, res) => {
   res.json({ cobertura: comprasModulo.coberturaPorProveedor(items) });
 });
 
+// Presentaciones de compra: { [plu]: { unidadesPorBulto:Number, nombreBulto?:String } }
+app.get('/api/compras-modulo/presentaciones', apiRoute(async () => leerJSON(PRESENTACIONES_COMPRA_PATH, {})));
+app.post('/api/compras-modulo/presentaciones', (req, res) => {
+  const b = req.body || {};
+  const plu = String(b.plu || '').trim();
+  const uxb = Number(b.unidadesPorBulto);
+  if (!plu || !(uxb > 0)) return res.status(400).json({ error: 'plu y unidadesPorBulto (>0) requeridos' });
+  const d = leerJSON(PRESENTACIONES_COMPRA_PATH, {});
+  d[plu] = { unidadesPorBulto: uxb, nombreBulto: (b.nombreBulto || '').trim() || undefined };
+  guardarJSON(PRESENTACIONES_COMPRA_PATH, d);
+  res.json({ ok: true, presentaciones: d });
+});
+app.delete('/api/compras-modulo/presentaciones/:plu', (req, res) => {
+  const d = leerJSON(PRESENTACIONES_COMPRA_PATH, {});
+  delete d[String(req.params.plu)];
+  guardarJSON(PRESENTACIONES_COMPRA_PATH, d);
+  res.json({ ok: true, presentaciones: d });
+});
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
