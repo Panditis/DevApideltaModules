@@ -1952,6 +1952,25 @@ async function calcularProduccionDeficit() {
 }
 app.get('/api/compras-modulo/produccion-deficit', apiRoute(async () => calcularProduccionDeficit()));
 
+app.get('/api/compras-modulo/ordenes', apiRoute(async () => leerJSON(ORDENES_COMPRA_PATH, [])));
+app.post('/api/compras-modulo/ordenes', (req, res) => {
+  const b = req.body || {};
+  try {
+    const orden = comprasModulo.construirOrden({
+      id: Date.now(),
+      fechaISO: new Date().toISOString().slice(0, 10),
+      proveedor: b.proveedor,
+      items: b.items,
+    });
+    const arr = leerJSON(ORDENES_COMPRA_PATH, []);
+    arr.push(orden);
+    guardarJSON(ORDENES_COMPRA_PATH, arr);
+    res.json({ ok: true, orden });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
