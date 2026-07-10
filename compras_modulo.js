@@ -42,4 +42,18 @@ function coberturaPorProveedor(items) {
     .sort((a, b) => b.itemsCubiertos - a.itemsCubiertos || b.costoTotal - a.costoTotal);
 }
 
-module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor };
+// Construye el objeto orden persistible. id y fechaISO se inyectan desde el caller (server.js) — módulo puro sin Date.now().
+function construirOrden({ id, fechaISO, proveedor, items }) {
+  const lista = Array.isArray(items) ? items : [];
+  if (!lista.length) throw new Error('La orden no tiene items');
+  if (!proveedor) throw new Error('Falta proveedor');
+  const detalle = lista.map(it => {
+    const cantidad = Number(it.cantidad) || 0;
+    const costoUnit = Number(it.costoUnit) || 0;
+    return { plu: String(it.plu), nombre: it.nombre || String(it.plu), cantidad, costoUnit, subtotal: Math.round(cantidad * costoUnit) };
+  });
+  const total = detalle.reduce((s, it) => s + it.subtotal, 0);
+  return { id, fecha: fechaISO, proveedor, items: detalle, total, estado: 'GENERADA' };
+}
+
+module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden };

@@ -74,3 +74,26 @@ test('coberturaPorProveedor agrupa items por proveedor con costo y cobertura', (
   // ordenado por itemsCubiertos desc
   assert.strictEqual(r[0].proveedor, 'ACME');
 });
+
+const { construirOrden } = require('../compras_modulo');
+
+test('construirOrden arma la orden con total y estado GENERADA', () => {
+  const orden = construirOrden({
+    id: 123, fechaISO: '2026-07-10',
+    proveedor: 'ACME',
+    items: [
+      { plu: '1', nombre: 'Prod 1', cantidad: 10, costoUnit: 2 },
+      { plu: '2', nombre: 'Prod 2', cantidad: 5,  costoUnit: 4 },
+    ],
+  });
+  assert.strictEqual(orden.id, 123);
+  assert.strictEqual(orden.fecha, '2026-07-10');
+  assert.strictEqual(orden.proveedor, 'ACME');
+  assert.strictEqual(orden.estado, 'GENERADA');
+  assert.strictEqual(orden.total, 10*2 + 5*4); // 40
+  assert.strictEqual(orden.items.length, 2);
+  assert.strictEqual(orden.items[0].subtotal, 20);
+});
+test('construirOrden lanza si no hay items', () => {
+  assert.throws(() => construirOrden({ id: 1, fechaISO: '2026-07-10', proveedor: 'X', items: [] }));
+});
