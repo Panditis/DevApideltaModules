@@ -14,4 +14,13 @@ function sugeridoCompra({ pideTotal = 0, central = 0, enviarMicro = {}, tramos =
   return { deficitReposicion, deficitMicro, faltanteReal, sugerido };
 }
 
-module.exports = { sugeridoCompra };
+// Redondea la cantidad al múltiplo de unidadesPorBulto (hacia arriba). Si no hay bulto cargado, pasa la cantidad tal cual.
+function redondearABulto(cantidad, unidadesPorBulto) {
+  const q = Math.max(0, Number(cantidad) || 0);
+  const b = Number(unidadesPorBulto);
+  if (!b || b <= 0) return { cantidad: q, bultos: null, sinBulto: true };
+  const bultos = Math.ceil(q / b);
+  return { cantidad: bultos * b, bultos, sinBulto: false };
+}
+
+module.exports = { sugeridoCompra, redondearABulto };

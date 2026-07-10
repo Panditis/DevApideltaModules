@@ -33,3 +33,23 @@ test('sugeridoCompra clampa a 0 y tolera entradas vacías', () => {
   const r = sugeridoCompra({ pideTotal: 0, central: 100, enviarMicro: {}, tramos: [], pisoAbsoluto: 0 });
   assert.strictEqual(r.sugerido, 0);
 });
+
+const { redondearABulto } = require('../compras_modulo');
+
+test('redondearABulto redondea hacia arriba al múltiplo', () => {
+  assert.strictEqual(redondearABulto(15, 12).cantidad, 24); // 2 bultos
+  assert.strictEqual(redondearABulto(15, 12).bultos, 2);
+});
+test('redondearABulto múltiplo exacto no cambia', () => {
+  assert.strictEqual(redondearABulto(24, 12).cantidad, 24);
+  assert.strictEqual(redondearABulto(24, 12).bultos, 2);
+});
+test('redondearABulto sin bulto cargado devuelve la cantidad tal cual', () => {
+  const r = redondearABulto(15, null);
+  assert.strictEqual(r.cantidad, 15);
+  assert.strictEqual(r.bultos, null);
+  assert.strictEqual(r.sinBulto, true);
+});
+test('redondearABulto 1 unidad sobre múltiplo sube un bulto', () => {
+  assert.strictEqual(redondearABulto(13, 12).cantidad, 24);
+});
