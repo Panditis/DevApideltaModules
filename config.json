@@ -11,6 +11,7 @@
   "comprasLeadTimeDias": 7,
   "comprasStockSeguridadPct": 20,
   "comprasCoberturaMeses": 1,
+  "comprasPisoCentral": { "tramos": [{ "hastaS": 20, "pct": 0.5 }, { "hastaS": null, "pct": 0.25 }], "pisoAbsoluto": 3 },
   "puerto": 8081,
   "hostname": "dev",
   "produccionHtml": "apidelta_produccion_dev.html",
