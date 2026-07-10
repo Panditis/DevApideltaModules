@@ -928,6 +928,7 @@ app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.p
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
 app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_compras.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
+app.get('/compras-modulo', (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');
