@@ -53,3 +53,24 @@ test('redondearABulto sin bulto cargado devuelve la cantidad tal cual', () => {
 test('redondearABulto 1 unidad sobre múltiplo sube un bulto', () => {
   assert.strictEqual(redondearABulto(13, 12).cantidad, 24);
 });
+
+const { coberturaPorProveedor } = require('../compras_modulo');
+
+test('coberturaPorProveedor agrupa items por proveedor con costo y cobertura', () => {
+  const items = [
+    { plu: '1', cantidad: 10, proveedor: 'ACME', costoUnit: 2 },
+    { plu: '2', cantidad: 5,  proveedor: 'ACME', costoUnit: 4 },
+    { plu: '3', cantidad: 3,  proveedor: 'BETA', costoUnit: 10 },
+    { plu: '4', cantidad: 2,  proveedor: null,   costoUnit: 0 }, // sin proveedor
+  ];
+  const r = coberturaPorProveedor(items);
+  const acme = r.find(p => p.proveedor === 'ACME');
+  assert.strictEqual(acme.itemsCubiertos, 2);
+  assert.strictEqual(acme.totalItems, 4);
+  assert.strictEqual(acme.costoTotal, 10*2 + 5*4); // 40
+  const beta = r.find(p => p.proveedor === 'BETA');
+  assert.strictEqual(beta.itemsCubiertos, 1);
+  assert.strictEqual(beta.costoTotal, 30);
+  // ordenado por itemsCubiertos desc
+  assert.strictEqual(r[0].proveedor, 'ACME');
+});

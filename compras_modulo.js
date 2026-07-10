@@ -23,4 +23,23 @@ function redondearABulto(cantidad, unidadesPorBulto) {
   return { cantidad: bultos * b, bultos, sinBulto: false };
 }
 
-module.exports = { sugeridoCompra, redondearABulto };
+// Agrupa los items del carrito por proveedor asociado → cuántos ítems cubre cada uno y su costo total.
+// totalItems = cantidad total de ítems del carrito (incluye los sin proveedor), para mostrar "X de Y".
+function coberturaPorProveedor(items) {
+  const lista = Array.isArray(items) ? items : [];
+  const totalItems = lista.length;
+  const porProv = new Map();
+  for (const it of lista) {
+    const prov = it.proveedor;
+    if (!prov) continue;
+    if (!porProv.has(prov)) porProv.set(prov, { proveedor: prov, itemsCubiertos: 0, costoTotal: 0, totalItems });
+    const p = porProv.get(prov);
+    p.itemsCubiertos += 1;
+    p.costoTotal += (Number(it.cantidad) || 0) * (Number(it.costoUnit) || 0);
+  }
+  return [...porProv.values()]
+    .map(p => ({ ...p, costoTotal: Math.round(p.costoTotal) }))
+    .sort((a, b) => b.itemsCubiertos - a.itemsCubiertos || b.costoTotal - a.costoTotal);
+}
+
+module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor };
