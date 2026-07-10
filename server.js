@@ -1867,6 +1867,28 @@ async function calcularListadoCompras() {
 }
 app.get('/api/compras-modulo/listado', apiRoute(async () => calcularListadoCompras()));
 
+// Busca proveedores por nombre parcial y devuelve los productos que maneja con último precio/fecha.
+app.get('/api/compras-modulo/proveedores/buscar', apiRoute(async (req) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return { proveedores: [] };
+  const like = q.replace(/'/g, "''");
+  const rows = await query(`SELECT pv.NombreProveedor, pp.IdProducto, p.NombreProducto,
+      CAST(pp.UltimoPrecioCompra AS FLOAT) AS Precio,
+      CONVERT(varchar(10), pp.UltimaFechaCompra, 23) AS Fecha
+    FROM ProductosProveedores pp
+    JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
+    JOIN Productos p ON p.IdProducto = pp.IdProducto
+    WHERE pv.NombreProveedor LIKE '%${like}%' AND p.Activo = 1 AND pp.UltimoPrecioCompra > 0
+    ORDER BY pv.NombreProveedor, p.NombreProducto`);
+  const porProv = new Map();
+  for (const r of rows) {
+    const nom = r.NombreProveedor;
+    if (!porProv.has(nom)) porProv.set(nom, { proveedor: nom, productos: [] });
+    porProv.get(nom).productos.push({ plu: String(r.IdProducto), nombre: r.NombreProducto, precio: r.Precio, fecha: r.Fecha });
+  }
+  return { proveedores: [...porProv.values()].map(p => ({ ...p, cantProductos: p.productos.length })) };
+}));
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
