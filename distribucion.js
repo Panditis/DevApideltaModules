@@ -57,6 +57,28 @@ function pisoMinimo(S, tramos, pisoAbsoluto) {
   return Math.max(pisoAbsoluto || 0, round(s * (tramo.pct || 0), 0));
 }
 
+// Reparte D entre sucursales activas (pide>0) en orden fijo de prioridad (pesosRacionado usado
+// como ranking, no como %): cada una recibe su pedido completo o nada — nunca una fracción por
+// debajo de su piso mínimo. Si no alcanza el piso de una, prueba la siguiente en la cola (no
+// corta el recorrido) para no desperdiciar stock que sí le alcanzaría a una sucursal más chica
+// más abajo en el orden.
+function racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ordenClaves, tramos, pisoAbsoluto) {
+  const orden = [...ordenClaves].sort((a, b) => (pesosRacionado[b] || 0) - (pesosRacionado[a] || 0));
+  const racionPorClave = {};
+  for (const k of ordenClaves) racionPorClave[k] = 0;
+  let restante = Math.max(D, 0);
+  for (const k of orden) {
+    const pide = pidePorClave[k] || 0;
+    if (pide <= 0) continue;
+    const piso = pisoMinimo(sPorClave[k], tramos, pisoAbsoluto);
+    if (restante < piso) continue;
+    const asignado = round(Math.min(pide, restante), 0);
+    racionPorClave[k] = asignado;
+    restante -= asignado;
+  }
+  return racionPorClave;
+}
+
 // ── Cálculo de una fila de Almacen ───────────────────────────────────────────
 function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, opts) {
   a = a || {}; pa = pa || {};
@@ -342,8 +364,5 @@ function calcularAlmacen(productos, a8020, listas, opts) {
   for (const f of filas) f.impNorm = f.importancia / maxBA;                 // columna C
   return filas;
 }
-
-// racionarPorPrioridad: Tarea 2 — placeholder para evitar segundo cambio en module.exports
-const racionarPorPrioridad = undefined;
 
 module.exports = { calcularAlmacen, calcularFilaAlmacen, SUCURSALES_SALIDA, round, roundup, pisoMinimo, racionarPorPrioridad };
