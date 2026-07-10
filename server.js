@@ -1809,6 +1809,64 @@ async function _provMapCompras() {
   return map;
 }
 
+// Unifica productos rubro Almacen (calcularDistribucionAlmacen) + Pesables Fraccionado (calcularDistribucionPesables),
+// enriquece con proveedor/costo/última compra y calcula las 3 señales de compra.
+async function calcularListadoCompras() {
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const pisoCfg = c.comprasPisoCentral || { tramos: [{ hastaS: null, pct: 0.25 }], pisoAbsoluto: 0 };
+  const [almacen, pesables, provMap] = await Promise.all([
+    calcularDistribucionAlmacen(),
+    calcularDistribucionPesables().catch(() => []),
+    _provMapCompras(),
+  ]);
+  // Stock central del granel por código (para columna granel de fraccionables)
+  const granelCodes = [...new Set(pesables.map(f => f.granel).filter(g => g != null).map(String))];
+  const granelMap = new Map();
+  if (granelCodes.length) {
+    const q = granelCodes.map(g => `'${String(g).replace(/'/g, "''")}'`).join(',');
+    const rows = await query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
+      FROM ProductosDepositos pd
+      INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
+      INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
+      WHERE s.SoyLaCentral=1 AND pd.IdProducto IN (${q}) GROUP BY pd.IdProducto`).catch(() => []);
+    for (const r of rows) granelMap.set(String(r.IdProducto), parseFloat(r.Stock || 0));
+  }
+
+  const filaComun = (plu, nombre, tipo, central, stkSuc, pideTotal, enviarMicro, extra) => {
+    const prov = provMap.get(String(plu)) || {};
+    const sig = comprasModulo.sugeridoCompra({ pideTotal, central, enviarMicro, tramos: pisoCfg.tramos, pisoAbsoluto: pisoCfg.pisoAbsoluto });
+    const consolidado = (central || 0) + Object.values(stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    return {
+      plu: String(plu), nombre, tipo, // 'almacen' | 'fraccionable'
+      central: central || 0, stkSuc: stkSuc || {}, consolidado,
+      deficitReposicion: sig.deficitReposicion, deficitMicro: sig.deficitMicro, faltanteReal: sig.faltanteReal, sugerido: sig.sugerido,
+      proveedor: prov.proveedor || null, costo: prov.precio || null,
+      ultimaCompraFecha: prov.ultimaFecha || prov.fecha || null, ultimaCompraCantidad: prov.ultimaCantidad || null,
+      ...extra,
+    };
+  };
+
+  const rows = [];
+  for (const f of almacen) {
+    const pideTotal = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    rows.push(filaComun(f.plu, f.nombre, 'almacen', f.central, f.stkSuc, pideTotal, f.enviarMicro, {
+      granelCentral: null, granelPlu: null, nombreGranel: '', fraccionado: null,
+    }));
+  }
+  for (const f of pesables) {
+    const pideTotal = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    const fraccionado = Object.values(f.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    const granelCentral = f.granel != null ? (granelMap.get(String(f.granel)) || 0) : null;
+    // Pesables no expone central del terminado como Almacén; se usa 0 (el stock relevante es granel + sucursales).
+    rows.push(filaComun(f.plu, f.nombre, 'fraccionable', 0, f.stkSuc, pideTotal, {}, {
+      granelCentral, granelPlu: f.granel || null, nombreGranel: f.nombreGranel || '', fraccionado,
+    }));
+  }
+  rows.sort((a, b) => b.sugerido - a.sugerido);
+  return { productos: rows, fechaCalculo: new Date().toISOString(), total: rows.length };
+}
+app.get('/api/compras-modulo/listado', apiRoute(async () => calcularListadoCompras()));
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
