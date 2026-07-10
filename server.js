@@ -1889,6 +1889,13 @@ app.get('/api/compras-modulo/proveedores/buscar', apiRoute(async (req) => {
   return { proveedores: [...porProv.values()].map(p => ({ ...p, cantProductos: p.productos.length })) };
 }));
 
+// Recibe { items:[{plu,cantidad,proveedor,costoUnit}] } y devuelve cobertura agrupada por proveedor.
+app.post('/api/compras-modulo/carrito/cobertura', (req, res) => {
+  const items = (req.body && req.body.items) || [];
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items debe ser array' });
+  res.json({ cobertura: comprasModulo.coberturaPorProveedor(items) });
+});
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
