@@ -1915,6 +1915,43 @@ app.delete('/api/compras-modulo/presentaciones/:plu', (req, res) => {
   res.json({ ok: true, presentaciones: d });
 });
 
+// Componentes de producción (formulas.json) con déficit de stock central.
+async function calcularProduccionDeficit() {
+  const formulas = leerJSON(path.join(DATA_DIR, 'formulas.json'), {});
+  const consumoPorComp = new Map();   // plu -> { plu, nombre, consumo, usadoPor:Set }
+  for (const [padre, comps] of Object.entries(formulas)) {
+    for (const c of (comps || [])) {
+      const plu = String(c.plu);
+      if (!consumoPorComp.has(plu)) consumoPorComp.set(plu, { plu, nombre: c.nombre || plu, consumo: 0, usadoPor: new Set() });
+      const rec = consumoPorComp.get(plu);
+      rec.consumo += Number(c.cantPorUnidad) || 0;   // proxy: suma de coeficientes (consumo por unidad producida)
+      rec.usadoPor.add(String(padre));
+    }
+  }
+  const plus = [...consumoPorComp.keys()];
+  if (!plus.length) return { componentes: [], total: 0 };
+  const q = plus.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
+  const stockRows = await query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
+    FROM ProductosDepositos pd
+    INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
+    INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
+    WHERE s.SoyLaCentral=1 AND pd.IdProducto IN (${q}) GROUP BY pd.IdProducto`).catch(() => []);
+  const stockMap = new Map(stockRows.map(r => [String(r.IdProducto), parseFloat(r.Stock || 0)]));
+  const provMap = await _provMapCompras();
+  const comps = plus.map(plu => {
+    const rec = consumoPorComp.get(plu);
+    const stock = stockMap.get(plu) || 0;
+    const deficit = Math.max(rec.consumo - stock, 0);
+    const prov = provMap.get(plu) || {};
+    return { plu, nombre: rec.nombre, stock, consumoProyectado: Math.round(rec.consumo * 100) / 100,
+      deficit: Math.round(deficit * 100) / 100, usadoPor: [...rec.usadoPor],
+      proveedor: prov.proveedor || null, costo: prov.precio || null };
+  }).filter(x => x.deficit > 0)
+    .sort((a, b) => b.deficit - a.deficit);
+  return { componentes: comps, total: comps.length };
+}
+app.get('/api/compras-modulo/produccion-deficit', apiRoute(async () => calcularProduccionDeficit()));
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
