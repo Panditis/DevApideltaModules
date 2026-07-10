@@ -12,9 +12,10 @@ const os         = require('os');
 
 const multer   = require('multer');
 const XLSX     = require('xlsx');
-const { calcularAlmacen } = require('./distribucion');
+const { calcularAlmacen, pisoMinimo } = require('./distribucion');
+const comprasModulo = require('./compras_modulo');
 const { calcularPesables } = require('./pesables');
-const { computeA8020, calcularRankingPorSucursal, roundDec } = require('./a8020');
+const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -950,6 +951,10 @@ function cfgMpManual(cfg, ref)  { const v=cfg[ref]; return (v&&typeof v==='objec
 function cfgEsMiel(cfg, ref)    { const v=cfg[ref]; return (v&&typeof v==='object'&&typeof v.esMiel==='boolean')?v.esMiel:null; }
 const COMPRAS_PROD_PATH  = path.join(DATA_DIR, 'compras_productos.json');
 const LEAD_TIMES_PATH    = path.join(DATA_DIR, 'lead_times.json');
+const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'presentaciones_compra.json');
+// NOTA: no se reusa ORDENES_PATH (data/ordenes.json) porque ya está en uso por /api/ordenes y
+// /api/ordenes-produccion (órdenes de producción, dominio no relacionado) — archivo dedicado para no mezclar datos.
+const ORDENES_COMPRA_PATH = path.join(DATA_DIR, 'ordenes_compra.json');
 
 function leerJSON(p, def) { try { if (!fs.existsSync(p)) return def; return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return def; } }
 function guardarJSON(p, data) { fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8'); }
@@ -1638,7 +1643,7 @@ async function calcularDistribucionAlmacen() {
       chaca: rawStk.chaca||0, pergamino: rawStk.pergamino||0,
       sanPedro: rawStk.sanpedro||0, sucursal9: rawStk.sucu9||0 };
     const esNuevo = esNuevoSet.has(String(f.plu));
-    const impNorm = esNuevo ? Math.max(f.impNorm, pisoImportancia) : f.impNorm;
+    const impNorm = esNuevo ? (pisoImportancia + f.impNorm) : f.impNorm;
     const primera = primeraCompraMap.get(String(f.plu));
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapA.get(String(f.plu)) || '', central: f.central,
       enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm, meses: f.meses, stkSuc,
@@ -1663,17 +1668,15 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
   const formulas = pesLis.formulas || {};
   const ocultos = new Set(aplicarOcultar ? ed.ocultarPesable.map(String) : []);   // checkbox "Ocultar códigos" en Pesables
+  const distLis = { noEnvasa: ed.noEnvasa, restringidos: ed.restringidos, importanciaMinorista: impViva };
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
-    WHERE p.Activo=1 AND r.NombreRubro IN ('Pesables Fraccionado','Pesables Venta Directa')`);
+    WHERE p.Activo=1 AND r.NombreRubro='Pesables Fraccionado'`);
   const rubroMapP = new Map(rubroRows.map(r => [r.IdProducto, r.NombreRubro]));
   const basePlus = rubroRows.map(r => r.IdProducto);
-  // Venta Directa: aparece en la tab pero nunca pide envasado ni genera envío (BK='No' forzado, no depende de la hoja manual).
-  const ventaDirectaPlus = rubroRows.filter(r => r.NombreRubro === 'Pesables Venta Directa').map(r => r.IdProducto);
-  const distLis = { noEnvasa: [...new Set([...ed.noEnvasa.map(String), ...ventaDirectaPlus])], restringidos: ed.restringidos, importanciaMinorista: impViva };
   const plus = universoLista(basePlus, ed.siemprePesable, ed.noEnvasa)
     .filter(p => !ocultos.has(String(p)));
-  if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado"/"Pesables Venta Directa" en Siga.');
+  if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado" en Siga.');
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
   const granelCodes = [...new Set(plus.map(p => (formulas[p] || {}).granel).filter(g => g != null).map(String))];
@@ -1770,6 +1773,42 @@ app.delete('/api/distribucion/envios-manuales', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Módulo Compras ───────────────────────────────────────────────────────────
+// Mapa IdProducto(String) -> { proveedor, precio, fecha, ultimaCantidad, ultimaFecha } desde SIGA.
+async function _provMapCompras() {
+  const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
+  const compraTipos = (distCfg.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
+  const [provRows, movRows] = await Promise.all([
+    query(`SELECT pp.IdProducto, pv.NombreProveedor,
+                  CAST(pp.UltimoPrecioCompra AS FLOAT) AS Precio,
+                  CONVERT(varchar(10), pp.UltimaFechaCompra, 23) AS FechaPrecio
+           FROM ProductosProveedores pp
+           JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
+           JOIN Productos p ON p.IdProducto = pp.IdProducto
+           WHERE pp.UltimoPrecioCompra > 0 AND p.Activo = 1
+           ORDER BY pp.IdProducto, pp.UltimaFechaCompra DESC`),
+    query(`SELECT mp.IdProducto,
+                  CONVERT(varchar(10), MAX(m.FechaMovimiento), 23) AS UltimaFecha,
+                  SUM(mp.Cantidad) AS CantTotal, COUNT(*) AS N
+           FROM MovimientosStockProductos mp
+           JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+           WHERE mp.IdTipoMovimiento IN (${compraTipos})
+           GROUP BY mp.IdProducto`).catch(() => []),
+  ]);
+  const map = new Map();
+  for (const r of provRows) {
+    const id = String(r.IdProducto);
+    if (!map.has(id)) map.set(id, { proveedor: r.NombreProveedor, precio: r.Precio, fecha: r.FechaPrecio, ultimaCantidad: null, ultimaFecha: null });
+  }
+  for (const r of movRows) {
+    const id = String(r.IdProducto);
+    const cant = r.N > 0 ? Math.round((r.CantTotal || 0) / r.N) : null; // promedio por movimiento de compra
+    if (!map.has(id)) map.set(id, { proveedor: null, precio: null, fecha: null, ultimaCantidad: cant, ultimaFecha: r.UltimaFecha });
+    else { const m = map.get(id); m.ultimaCantidad = cant; m.ultimaFecha = r.UltimaFecha; }
+  }
+  return map;
+}
+
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
@@ -1851,7 +1890,8 @@ async function recalcularA8020() {
   const almacenSet = new Set(universoLista(Object.keys(distLis.productosAlmacen || {}), edAlm.siempreAlmacen, edAlm.noEnvasa).map(Number));
   const bootstrapSet = new Set([...pesablesSet, ...almacenSet]);
   const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
-  const ranking = calcularRankingPorSucursal(metricPorSuc, statRows, sucById);
+  const ranking = calcularRankingPorSucursal(metricPorSuc, sucById);
+  const rankingGeneral = calcularRankingGlobal(metricByPlu);   // importancia general del producto (0-1, todo el catálogo, sin distinguir sucursal)
 
   const mins = {}, sLevels = {}, detalle = {};
   for (const f of filas) {
@@ -2029,9 +2069,18 @@ async function recalcularA8020() {
     const rows = await query(`SELECT IdProducto, NombreProducto FROM Productos WHERE IdProducto IN (${inList})`);
     for (const r of rows) nombres[String(r.IdProducto)] = r.NombreProducto;
   }
+  // Ranking por sucursal: mergear al final. Nivelación/bootstrap/fillIn (arriba) reconstruyen
+  // detalle[plu][sucursal] desde cero y pisan el merge inicial hecho junto con `filas` — sin este
+  // segundo pase, cualquier PLU nivelado/bootstrapped pierde su ranking en la UI aunque exista.
+  for (const [sucKey, porPlu] of Object.entries(ranking)) {
+    for (const [plu, score] of Object.entries(porPlu)) {
+      if (detalle[plu] && detalle[plu][sucKey]) detalle[plu][sucKey].ranking = score;
+    }
+  }
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
-    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu };
+    bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
+    rankingGeneral };
   guardarJSON(A8020_CALC_PATH, cache);
   // Escribir a8020.json en formato legacy para pesables.js y almacen.js.
   //   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).
@@ -2051,6 +2100,22 @@ async function recalcularA8020() {
     }
   }
   for (const plu of claseF) { (a8020Legacy[plu] = a8020Legacy[plu] || {}).claseF = true; }
+  // Ranking por sucursal (percentil 0-1 de importancia del PLU dentro de esa sucursal) → distribucion.js
+  // lo usa para ponderar la importancia del envío por sucursal en vez del BB global plano.
+  const LEGACY_KEY_RANK = { riv:'rankRiv', urq:'rankUrq', nacion:'rankNacion', chaca:'rankChaca',
+    pergamino:'rankPergamino', sanpedro:'rankSanPedro', ramallo:'rankVRamallo' };
+  for (const [sucKey, porPlu] of Object.entries(ranking)) {
+    const rk = LEGACY_KEY_RANK[sucKey]; if (!rk) continue;
+    for (const [plu, score] of Object.entries(porPlu)) {
+      (a8020Legacy[plu] = a8020Legacy[plu] || {})[rk] = score;
+    }
+  }
+  // Ranking general (mismo 0-1, todo el catálogo) → fallback en distribucion.js cuando el PLU no tiene
+  // rank en NINGUNA sucursal. Reemplaza el fallback a BB crudo (facturación en miles/millones) que
+  // mezclaba escalas con los rankXxx (0-1) y disparaba la importancia de esos PLUs muy por encima del resto.
+  for (const [plu, score] of Object.entries(rankingGeneral)) {
+    (a8020Legacy[plu] = a8020Legacy[plu] || {}).rankGeneral = score;
+  }
   guardarJSON(A8020_PATH, a8020Legacy);
 
   // Resumen para la respuesta (no vuelca todo)
