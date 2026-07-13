@@ -1551,7 +1551,7 @@ async function calcularDistribucionAlmacen() {
   const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
   const empujePresencia = (distCfg.empujeDeposito || {}).presencia || 0;
   const importanciaCfg = distCfg.importancia || {};
-  const umbralMicroEnvio = distCfg.umbralMicroEnvio || 0;
+  const umbralMicroEnvio = distCfg.umbralMicroEnvio || { tramos: [{ hastaS: null, pct: 0.20 }], pisoAbsoluto: 1 };
   const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
   const ed = leerListasDistrib();
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto
