@@ -63,10 +63,8 @@ function pisoMinimo(S, tramos, pisoAbsoluto) {
 // el stock está negativo (Siga lo permite) pide/S puede superar 1, y eso está bien: una sucursal
 // más sobrevendida ordena antes que una menos sobrevendida, en vez de empatar en un tope) — no por
 // pesosRacionado fijo. pesosRacionado solo desempata cuando dos sucursales tienen exactamente la
-// misma urgencia. Cada sucursal recibe su pedido completo o nada — nunca una fracción por debajo
-// de su piso mínimo. Si no alcanza el piso de una, prueba la siguiente en la cola (no corta el
-// recorrido) para no desperdiciar stock que sí le alcanzaría a una sucursal más chica más abajo
-// en el orden.
+// misma urgencia. Primero reparte el piso mínimo a todas las urgidas que el pool alcance, después
+// vuelca el sobrante hacia las más urgidas hasta agotar D o los pedidos.
 function racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ordenClaves, tramos, pisoAbsoluto) {
   const urgencia = (k) => {
     const S = sPorClave[k] || 0;
@@ -80,14 +78,30 @@ function racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ordenC
   const racionPorClave = {};
   for (const k of ordenClaves) racionPorClave[k] = 0;
   let restante = Math.max(D, 0);
+  // Pasada 1: piso mínimo a cada sucursal activa que el pool alcance, en orden de
+  // urgencia. Si D es "importante" (alcanza para el piso de varias), reparte primero un mínimo
+  // viable a todas antes de concentrar en la más urgida. Si no alcanza ni para el piso de una,
+  // se la salta (no corta, prueba la siguiente).
   for (const k of orden) {
     const pide = pidePorClave[k] || 0;
     if (pide <= 0) continue;
     const piso = pisoMinimo(sPorClave[k], tramos, pisoAbsoluto);
     if (pide < piso || restante < piso) continue;
-    const asignado = round(Math.min(pide, restante), 0);
-    racionPorClave[k] = asignado;
-    restante -= asignado;
+    racionPorClave[k] = piso;
+    restante -= piso;
+  }
+  // Pasada 2: con lo que sobra, completa hacia el pedido total — SOLO a las que ya limpiaron su
+  // piso en la pasada 1. Las que quedaron en 0 no se reintentan acá: con lo poco que sobre al
+  // final podría tocarles menos que su piso, y ese es justo el problema que esta función existe
+  // para evitar.
+  for (const k of orden) {
+    if (racionPorClave[k] <= 0 || restante <= 0) continue;
+    const pide = pidePorClave[k] || 0;
+    const falta = pide - racionPorClave[k];
+    if (falta <= 0) continue;
+    const dar = round(Math.min(falta, restante), 0);
+    racionPorClave[k] += dar;
+    restante -= dar;
   }
   return racionPorClave;
 }
