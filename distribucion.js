@@ -57,13 +57,23 @@ function pisoMinimo(S, tramos, pisoAbsoluto) {
   return Math.max(pisoAbsoluto || 0, round(s * (tramo.pct || 0), 0));
 }
 
-// Reparte D entre sucursales activas (pide>0) en orden fijo de prioridad (pesosRacionado usado
-// como ranking, no como %): cada una recibe su pedido completo o nada — nunca una fracción por
-// debajo de su piso mínimo. Si no alcanza el piso de una, prueba la siguiente en la cola (no
-// corta el recorrido) para no desperdiciar stock que sí le alcanzaría a una sucursal más chica
-// más abajo en el orden.
-function racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ordenClaves, tramos, pisoAbsoluto) {
-  const orden = [...ordenClaves].sort((a, b) => (pesosRacionado[b] || 0) - (pesosRacionado[a] || 0));
+// Reparte D entre sucursales activas (pide>0) en orden de URGENCIA relativa a su S (0=llena a su
+// objetivo, 1=vacía) — no por pesosRacionado fijo. pesosRacionado solo desempata cuando dos
+// sucursales tienen exactamente la misma urgencia. Cada sucursal recibe su pedido completo o
+// nada — nunca una fracción por debajo de su piso mínimo. Si no alcanza el piso de una, prueba la
+// siguiente en la cola (no corta el recorrido) para no desperdiciar stock que sí le alcanzaría a
+// una sucursal más chica más abajo en el orden.
+function racionarPorPrioridad(pidePorClave, sPorClave, stockPorClave, D, pesosRacionado, ordenClaves, tramos, pisoAbsoluto) {
+  const urgencia = (k) => {
+    const S = sPorClave[k] || 0;
+    if (S <= 0) return 0;
+    return Math.max(0, Math.min(1, (S - (stockPorClave[k] || 0)) / S));
+  };
+  const orden = [...ordenClaves].sort((a, b) => {
+    const diff = urgencia(b) - urgencia(a);
+    if (Math.abs(diff) > 1e-9) return diff;
+    return (pesosRacionado[b] || 0) - (pesosRacionado[a] || 0);
+  });
   const racionPorClave = {};
   for (const k of ordenClaves) racionPorClave[k] = 0;
   let restante = Math.max(D, 0);
@@ -181,12 +191,13 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   for (const k of ORDEN_CLAVES) pidePorClave[k] = GATEADO[k] ? 0 : pidePorClaveCruda[k];
   const pideTotal = ORDEN_CLAVES.reduce((s, k) => s + (pidePorClave[k] || 0), 0);   // BD (ya sin gateados)
   const sPorClave = { riv: sRiv, urq: sUrq, nacion: sNac, chaca: sCha, pergamino: sPer, sanpedro: sSan, sucu8: sSu8, sucu9: sSu9, sucu11: sS11 };
+  const stockPorClave = { riv: st.riv||0, urq: st.urq||0, nacion: st.nacion||0, chaca: st.chaca||0, pergamino: st.pergamino||0, sanpedro: st.sanpedro||0, sucu8: st.sucu8||0, sucu9: st.sucu9||0, sucu11: st.sucu11||0 };
   const umbralCfg = (opts && opts.umbralMicroEnvio) || {};
   const tramosMicro = umbralCfg.tramos || [{ hastaS: null, pct: 0.20 }];
   const pisoAbsolutoMicro = umbralCfg.pisoAbsoluto != null ? umbralCfg.pisoAbsoluto : 1;
   const racionPorClave = D > pideTotal
     ? Object.fromEntries(ORDEN_CLAVES.map(k => [k, pidePorClave[k] || 0]))
-    : racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ORDEN_CLAVES, tramosMicro, pisoAbsolutoMicro);
+    : racionarPorPrioridad(pidePorClave, sPorClave, stockPorClave, D, pesosRacionado, ORDEN_CLAVES, tramosMicro, pisoAbsolutoMicro);
   const racion = (key) => racionPorClave[key];
   // Rivadavia (J): nostock=(D<=0 && stock<=min); redondeo UP; fact=rivadavia
   const eRiv = has(restr.rivadavia, plu) ? 'Restringido'
