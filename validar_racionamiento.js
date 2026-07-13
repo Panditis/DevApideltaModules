@@ -53,7 +53,7 @@ assert.strictEqual(r4.riv, 0, 'riv (pide=5 < piso=6 propio) no recibe, aunque el
 
 // Caso 5: urgencia (relativa a S) prioriza sobre pesosRacionado. riv tiene el pesosRacionado más
 // alto de la config (0.50) pero solo 60% de urgencia (stock=8 de S=20); urq tiene el
-// pesosRacionado más bajo (0.08) pero 91.67% de urgencia (stock=1 de S=12, casi vacía). Antes de
+// pesosRacionado más bajo (0.08) pero 90% de urgencia (stock=1 de S=10, casi vacía). Antes de
 // este cambio riv se llevaba todo (12) por ranking fijo, dejando a urq en 0 aunque estuviera casi
 // sin stock; ahora gana urq por estar más urgida.
 let r5 = racionarPorPrioridad(
@@ -62,7 +62,7 @@ let r5 = racionarPorPrioridad(
   { riv: 8, urq: 1 },
   12, PESOS, ORDEN, TRAMOS, 1
 );
-assert.strictEqual(r5.urq, 9, 'urq (urgencia 0.9167, pide=9, piso=5) gana la cola pese a pesosRacionado bajo (0.08)');
+assert.strictEqual(r5.urq, 9, 'urq (urgencia 0.9, pide=9, piso=4) gana la cola pese a pesosRacionado bajo (0.08)');
 assert.strictEqual(r5.riv, 0, 'riv (urgencia 0.6, pesosRacionado alto) se queda sin stock — solo sobran 3, no le alcanza su piso (5)');
 
 // ── Integración: calcularFilaAlmacen con escasez real (empate en urgencia) ─────────────────
