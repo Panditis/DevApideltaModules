@@ -26,7 +26,6 @@ const ORDEN = ['riv', 'urq', 'nacion', 'chaca', 'pergamino', 'sanpedro', 'sucu8'
 let r1 = racionarPorPrioridad(
   { riv: 10, chaca: 10, nacion: 10, sanpedro: 2 },
   { riv: 10, chaca: 10, nacion: 10, sanpedro: 2 },
-  {},   // stockPorClave vacío → todas en 0 → urgencia=1.0 para las 4, empate
   12, PESOS, ORDEN, TRAMOS, 1
 );
 assert.strictEqual(r1.riv, 10, 'riv (empate de urgencia, gana por pesosRacionado) recibe su pide completo');
@@ -36,19 +35,19 @@ assert.strictEqual(r1.sanpedro, 2, 'sanpedro (S=2, piso=1) sí alcanza con el re
 assert.strictEqual(r1.urq, 0, 'sin pide (no vino en pidePorClave) — queda en 0');
 
 // Caso 2: D no alcanza ni el piso de la única sucursal activa — no se manda nada.
-let r2 = racionarPorPrioridad({ riv: 10 }, { riv: 10 }, {}, 2, PESOS, ORDEN, TRAMOS, 1);
+let r2 = racionarPorPrioridad({ riv: 10 }, { riv: 10 }, 2, PESOS, ORDEN, TRAMOS, 1);
 assert.strictEqual(r2.riv, 0, 'D=2 < piso de riv (4): no se asigna, se pierde este ciclo (se recalcula la próxima corrida)');
 
 // Caso 3: D sobra para todos los que piden (ambas en stock=0, empatan en urgencia, pero D
 // alcanza para las dos sin importar el orden) — cada uno recibe su pide completo.
-let r3 = racionarPorPrioridad({ riv: 3, chaca: 3 }, { riv: 3, chaca: 3 }, {}, 20, PESOS, ORDEN, TRAMOS, 1);
+let r3 = racionarPorPrioridad({ riv: 3, chaca: 3 }, { riv: 3, chaca: 3 }, 20, PESOS, ORDEN, TRAMOS, 1);
 assert.strictEqual(r3.riv, 3, 'riv recibe su pide completo (D sobra)');
 assert.strictEqual(r3.chaca, 3, 'chaca también (D sobra para ambos)');
 
 // Caso 4: pide propio por debajo del piso de la sucursal, aunque el pool (restante) sí alcance —
 // no debe asignarle igual, tiene que saltarla igual que si el pool no alcanzara. S=60 cae en el
 // tramo catch-all (10%) → piso=6; pide=5 < 6.
-let r4 = racionarPorPrioridad({ riv: 5 }, { riv: 60 }, {}, 100, PESOS, ORDEN, TRAMOS, 1);
+let r4 = racionarPorPrioridad({ riv: 5 }, { riv: 60 }, 100, PESOS, ORDEN, TRAMOS, 1);
 assert.strictEqual(r4.riv, 0, 'riv (pide=5 < piso=6 propio) no recibe, aunque el pool (100) le sobre de lejos');
 
 // Caso 5: urgencia (relativa a S) prioriza sobre pesosRacionado. riv tiene el pesosRacionado más
@@ -59,7 +58,6 @@ assert.strictEqual(r4.riv, 0, 'riv (pide=5 < piso=6 propio) no recibe, aunque el
 let r5 = racionarPorPrioridad(
   { riv: 12, urq: 9 },
   { riv: 20, urq: 10 },
-  { riv: 8, urq: 1 },
   12, PESOS, ORDEN, TRAMOS, 1
 );
 assert.strictEqual(r5.urq, 9, 'urq (urgencia 0.9, pide=9, piso=4) gana la cola pese a pesosRacionado bajo (0.08)');
