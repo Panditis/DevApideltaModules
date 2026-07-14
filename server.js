@@ -3447,6 +3447,37 @@ app.get('/api/precios-proveedores/listado', apiRoute(async () => {
   return { productos, total: productos.length, fechaCalculo: new Date().toISOString() };
 }));
 
+app.get('/api/precios-proveedores/proveedores', apiRoute(async () => leerPreciosProv()));
+
+app.get('/api/precios-proveedores/proveedores-siga', apiRoute(async (req) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return { proveedores: [] };
+  const like = q.replace(/'/g, "''");
+  const rows = await query(`SELECT IdProveedor, NombreProveedor FROM Proveedores
+    WHERE NombreProveedor LIKE '%${like}%' ORDER BY NombreProveedor`);
+  return { proveedores: rows.map(r => ({ idProveedorSiga: Number(r.IdProveedor), nombre: r.NombreProveedor })) };
+}));
+
+app.post('/api/precios-proveedores/proveedores', apiRoute(async (req) => {
+  const { idProveedorSiga, nombre, url } = req.body || {};
+  const idNum = Number(idProveedorSiga);
+  if (!Number.isFinite(idNum) || idNum <= 0 || !nombre) throw new Error('Proveedor inválido: falta idProveedorSiga o nombre');
+  const data = leerPreciosProv();
+  const id = `prov-${idNum}`;
+  if (data.proveedores.some(p => p.id === id)) throw new Error('El proveedor ya tiene tab');
+  const nuevo = { id, idProveedorSiga: idNum, nombre: String(nombre), url: url ? String(url) : '', listaVigente: null, matcheosManuales: {} };
+  guardarPreciosProv({ ...data, proveedores: [...data.proveedores, nuevo] });
+  return nuevo;
+}));
+
+app.delete('/api/precios-proveedores/proveedores/:id', apiRoute(async (req) => {
+  const data = leerPreciosProv();
+  const quedan = data.proveedores.filter(p => p.id !== req.params.id);
+  if (quedan.length === data.proveedores.length) throw new Error('Proveedor no encontrado');
+  guardarPreciosProv({ ...data, proveedores: quedan });
+  return { ok: true };
+}));
+
 // ── Inicio ─────────────────────────────────────────────────────────────────────
 async function start() {
   console.log('Conectando a SQL Server...');
