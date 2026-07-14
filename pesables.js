@@ -73,6 +73,13 @@ function round(x, d = 0) { const f = Math.pow(10, d); return Math.sign(x) * Math
 const half = (x) => (x > 0 ? x / 2 : 0);
 const safe = (x) => (isFinite(x) ? x : 0);   // IFERROR numérico
 
+// Redondeo a múltiplo de la presentación (bolsa). Nearest: fracción <0.5 abajo, ≥0.5 arriba.
+// presKg<=0 → sin cambio (backward-compat con tests golden). q<=0 → 0.
+function snapPres(q, presKg) {
+  if (!(presKg > 0) || !(q > 0)) return q > 0 ? q : 0;
+  return Math.round(Math.round(q / presKg) * presKg * 1000) / 1000;
+}
+
 // Min sucursal: clamp(a8020,[pmin,100])/CL; fallback fb/CL si a8020≤0.
 // PLU ausente del A8020 ⇒ la planilla da #N/A (NaN) y la fila entera queda no calculada.
 function minSucursal(suc, a, cl, corregir) {
@@ -109,10 +116,10 @@ function enviarTeorico(sn, S, stock) {
 
 // Fact es 100% dinámico (calcularFactLive() en server.js, post-cálculo) — no hay
 // fallback estático de planilla.
-function enviarFinal(suc, plu, sn, teo, M, restrSets) {
+function enviarFinal(suc, plu, sn, teo, M, restrSets, presKg) {
   if (suc.restr && restrSets[suc.restr] && restrSets[suc.restr].has(plu)) return 'Restringido';
   if (sn !== 'Si') return sn;
-  return Math.min(M < 1 ? teo : teo / M, P.maxEnviar);
+  return snapPres(Math.min(M < 1 ? teo : teo / M, P.maxEnviar), presKg);
 }
 
 // ── Cálculo principal (3 pasadas; agrupa por código granel) ───────────────────
@@ -132,6 +139,7 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
   // ── Pasada 1: bases, S/N, teóricos, CH ──────────────────────────────────────
   const rows = productos.map((pp) => {
     const plu = Number(pp.plu);
+    const presKg = (opts && opts.presPorPlu && opts.presPorPlu[String(plu)]) || 0;
     const st = pp.stocks || {};
     const fInfo = formulas[String(plu)] || {};
     const granel = fInfo.granel != null ? fInfo.granel : null;
@@ -144,21 +152,50 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
     const a = a8020[String(plu)];
 
     const mins = {}, sLev = {}, sn = {}, teo = {}, stkPorSuc = {};
+    // Empuje de presencia (piso de góndola en KG): si hay stock en central (H>0) y la demanda
+    // estadística es baja (S<presencia), fija gatillo (min)=presencia y objetivo (S)=presencia·factor
+    // → brecha (batch) para no reponer de a poco. Presencia escalada por clase ABC del PLU (A>B>C).
+    // Clase F no se empuja. Espejo de calcularFilaAlmacen (distribucion.js). En KG, no unidades.
+    // Piso de góndola (kg) elegido por el PESO DE PRESENTACIÓN (bolsa). opts.presenciaPorPresentacion =
+    // [{hastaKg, piso}] ordenado asc por hastaKg; toma el primer tramo con presKg <= hastaKg (hastaKg
+    // null = catch-all, presentaciones grandes). Reemplaza el piso por clase ABC (un 50g y un 1kg de
+    // la misma clase necesitan pisos distintos). Fallback: presenciaPorClase (ABC) → empujePresencia plano.
+    const claseAbc = (opts && opts.abcPorPlu && opts.abcPorPlu[String(plu)]) || null;
+    const presTramos = opts && opts.presenciaPorPresentacion;
+    let presRaw = 0;
+    if (Array.isArray(presTramos) && presTramos.length) {
+      const pk = presKg > 0 ? presKg : Infinity;   // sin presentación conocida → tramo catch-all
+      const tr = presTramos.find((t) => t.hastaKg == null || pk <= t.hastaKg + 1e-9);
+      presRaw = tr ? (Number(tr.piso) || 0) : 0;
+    } else if (opts && opts.presenciaPorClase) {
+      const pc = opts.presenciaPorClase;
+      presRaw = pc[claseAbc] != null ? pc[claseAbc] : (pc.C != null ? pc.C : 0);
+    } else {
+      presRaw = (opts && opts.empujePresencia) || 0;
+    }
+    const presFactorS = Math.max(1, (opts && opts.empujePresenciaFactorS) || 1);
+    const aplicaPres = presRaw > 0 && H > 0 && BK === 'Si' && claseAbc !== 'F';
+    const presObjetivo = Math.round(presRaw * presFactorS * 100) / 100;   // kg, 2 dec
     for (const suc of SUC) {
       // Stock sucursal = MAX(stock,0), salvo Sucu11 que la planilla NO clampa (MAX de un solo valor).
       const stock = suc.key === 'sucu11' ? (st.sucu11 || 0) : Math.max(st[suc.key] || 0, 0);
       stkPorSuc[suc.key] = stock;
       const m = minSucursal(suc, a, cl, corregir);
       const s = sSucursal(suc, a, cl, corregir);
-      mins[suc.key] = m; sLev[suc.key] = s;
-      sn[suc.key] = enviarSN(BK === 'Si', stock, m, H, F, suc);   // gatillo con min (punto de pedido)
-      teo[suc.key] = enviarTeorico(sn[suc.key], s, stock);   // repone hasta S
+      let mm = m, ss = s;
+      if (aplicaPres) {
+        if (mm < presRaw) mm = presRaw;              // gatillo (min) ≥ presencia (piso góndola)
+        if (ss < presObjetivo) ss = presObjetivo;    // demanda baja → objetivo = presencia·factor (brecha batch)
+      }
+      mins[suc.key] = mm; sLev[suc.key] = ss;
+      sn[suc.key] = enviarSN(BK === 'Si', stock, mm, H, F, suc);   // gatillo con min (punto de pedido)
+      teo[suc.key] = enviarTeorico(sn[suc.key], ss, stock);   // repone hasta S
     }
     const sumTeo = SUC.reduce((s, suc) => s + teo[suc.key], 0);
     // PLU ausente del A8020: los teóricos son #N/A ⇒ CH = SUM(#N/A) = #N/A (NaN).
     // El #N/A contamina el SUMIF del grupo granel ⇒ CI=0 para todo el grupo (réplica exacta).
     const CH = a ? Math.max(sumTeo - H, 0) : NaN;
-    return { plu, granel, gkey, cl, BK, BG, F, H, mins, stkPorSuc, sn, teo, sumTeo, CH,
+    return { plu, granel, gkey, cl, BK, BG, F, H, mins, sLev, stkPorSuc, sn, teo, sumTeo, CH, presKg,
              peso: Number(pesos[gkey]) || 0, fracOk: fracSet.has(plu) };
   });
 
@@ -177,7 +214,7 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
     r.enviar = {};
     const sends = [];
     for (const suc of SUC) {
-      const e = enviarFinal(suc, r.plu, r.sn[suc.key], r.teo[suc.key], r.M, restrSets);
+      const e = enviarFinal(suc, r.plu, r.sn[suc.key], r.teo[suc.key], r.M, restrSets, r.presKg);
       r.enviar[suc.key] = e;
       sends.push(isNum(e) ? e : 0);
     }
@@ -214,9 +251,17 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
     else if (r.F > r.K) r.D = r.L;
     else if (r.CI < 1 && r.CI > 0) r.D = r.F * r.CI;
     else r.D = safe((r.F > 0 ? r.F : 0) / r.K * r.L);
+    // A-envasar en múltiplos de presentación (nearest), sin superar los kg de granel disponibles.
+    if (r.J === 'Si' && r.presKg > 0) {
+      const capGranel = Math.floor(r.F / r.presKg + 1e-9) * r.presKg;
+      r.D = Math.min(snapPres(r.D, r.presKg), capGranel);
+    }
     r.G = Math.max(r.J === 'Si' ? r.D - (r.CG - r.H) : 0, 0);
     r.BL = rutear(r);
   }
+
+  // Bajo racionamiento: usar todo el granel y enviar todo lo generado + existente (grupos racionados).
+  repartirGranelRacionado(rows);
 
   // ── Prioridad del producto: importancia (BG) + urgencia de stock + cantidad ──
   // a enviar + a-envasar. Sin compuerta exponencial (aplastaba productos importantes
@@ -225,10 +270,23 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
   const wSala = Object.assign({}, P.prioPesosSala, (opts && opts.prioPesosSala) || {});
   let maxBG = 0, maxD = 0, maxTeo = 0;
   for (const r of rows) { if (r.BG > maxBG) maxBG = r.BG; if (r.D > maxD) maxD = r.D; if ((r.sumTeo || 0) > maxTeo) maxTeo = r.sumTeo || 0; }
+  // Importancia del producto = ranking A8020 (0-1, mismo criterio que Almacén: (facturación/máx)^0.2).
+  // Reemplaza el driver "bg" (importanciaMinorista cruda) por el ranking. Fallback en cascada: promedio
+  // de ranks por sucursal → BG minorista normalizado (0-1). Alineado con distribucion.js importancia.modo='real'.
+  const impRanking = (r) => {
+    const a = a8020[String(r.plu)];
+    if (a) {
+      if (isNum(a.rankGeneral) && a.rankGeneral > 0) return a.rankGeneral;
+      const rs = [a.rankRiv, a.rankUrq, a.rankNacion, a.rankChaca, a.rankPergamino, a.rankSanPedro, a.rankVRamallo]
+        .filter((x) => isNum(x) && x > 0);
+      if (rs.length) return rs.reduce((s, x) => s + x, 0) / rs.length;
+    }
+    return maxBG > 0 ? r.BG / maxBG : 0;
+  };
   for (const r of rows) {
     // granel disponible relativo a lo que se envía: informativo, ya no pesa en prioridad.
     r.granelRatio = r.CG > 0 ? r.F / r.CG : 0;
-    const bgN      = maxBG > 0 ? r.BG / maxBG : 0;
+    const bgN      = impRanking(r);   // importancia = ranking A8020 (fallback → BG minorista)
     const envasarN = maxD > 0 ? r.D / maxD : 0;
     // Cantidad: pedido teórico total de sucursales (Σ S−stock) → prioriza lo que realmente falta.
     const cantidadN = maxTeo > 0 ? (r.sumTeo || 0) / maxTeo : 0;
@@ -261,14 +319,100 @@ function rutear(r) {
   return '';
 }
 
+// Reparte el envío disponible (avail = H + D) de una fila entre sus sucursales, proporcional al
+// teórico (ideal) de cada una, en múltiplos de presentación, sin exceder el ideal de la sucursal.
+// El sobrante por redondeo se asigna por urgencia (mayor ideal-restante primero). Respeta 'Restringido'.
+function distribuirEnvioPesable(r, avail) {
+  const p = r.presKg > 0 ? r.presKg : 0;
+  const sumTeo = r.sumTeo || 0;
+  const cand = SUC.filter((suc) => (r.teo[suc.key] > 0) && r.enviar[suc.key] !== 'Restringido');
+  for (const suc of cand) r.enviar[suc.key] = 0;   // reset numéricos candidatos (mantiene Restringido)
+  if (!(sumTeo > 0) || !(avail > 0) || !cand.length) return;
+  let used = 0;
+  for (const suc of cand) {
+    const share = avail * r.teo[suc.key] / sumTeo;
+    let e = p > 0 ? Math.floor(share / p + 1e-9) * p : share;   // floor a presentación (no pasarse)
+    if (e > r.teo[suc.key]) e = p > 0 ? Math.floor(r.teo[suc.key] / p + 1e-9) * p : r.teo[suc.key];
+    e = Math.round(e * 1000) / 1000;
+    r.enviar[suc.key] = e; used += e;
+  }
+  let sobra = Math.round((Math.min(avail, sumTeo) - used) * 1000) / 1000;
+  let guard = 0;
+  while (p > 0 && sobra > 1e-6 && guard++ < 100000) {
+    let best = null;
+    for (const suc of cand) {
+      if (p <= sobra + 1e-9 && r.enviar[suc.key] + p <= r.teo[suc.key] + 1e-9) {
+        const rem = r.teo[suc.key] - r.enviar[suc.key];
+        if (!best || rem > best.rem) best = { suc, rem };
+      }
+    }
+    if (!best) break;
+    r.enviar[best.suc.key] = Math.round((r.enviar[best.suc.key] + p) * 1000) / 1000;
+    sobra = Math.round((sobra - p) * 1000) / 1000;
+  }
+}
+
+// Post-pass: bajo racionamiento (ΣCH_grupo > F) usa TODO el granel. Reparte F proporcional a la
+// demanda insatisfecha CH de cada presentación del grupo (snap a presentación, floor para no pasarse),
+// rellena el sobrante con presentaciones enteras (mayor demanda-restante primero), revive J y envía
+// todo (H + D). Solo toca grupos racionados; el resto del cálculo Excel queda intacto.
+function repartirGranelRacionado(rows) {
+  const groups = {};
+  for (const r of rows) { if (r.gkey === 'NA') continue; (groups[r.gkey] = groups[r.gkey] || []).push(r); }
+  for (const gkey of Object.keys(groups)) {
+    const grp = groups[gkey];
+    const F = grp[0].F;
+    if (!(F > P.pocoGranel)) continue;
+    const mem = grp.filter((r) => r.BK === 'Si' && isFinite(r.CH) && r.CH > 0);
+    if (!mem.length) continue;
+    const sumCH = mem.reduce((s, r) => s + r.CH, 0);
+    if (!(sumCH > F)) continue;   // NO racionado (hay granel de sobra) → dejar como está
+    // 1) reparto proporcional a CH, floor a presentación, cap ≤ CH
+    for (const r of mem) {
+      const target = F * r.CH / sumCH;   // ≤ CH porque F < sumCH
+      const p = r.presKg > 0 ? r.presKg : 0;
+      let d = p > 0 ? Math.floor(target / p + 1e-9) * p : target;
+      const capCH = p > 0 ? Math.floor(r.CH / p + 1e-9) * p : r.CH;
+      if (d > capCH) d = capCH;
+      r._D = Math.round(d * 1000) / 1000;
+    }
+    // 2) rellenar sobrante de granel con presentaciones enteras (mayor demanda-restante primero)
+    let usado = mem.reduce((s, r) => s + r._D, 0);
+    let sobra = Math.round((F - usado) * 1000) / 1000;
+    let guard = 0;
+    while (sobra > 1e-6 && guard++ < 100000) {
+      let best = null;
+      for (const r of mem) {
+        const p = r.presKg > 0 ? r.presKg : 0; if (!(p > 0)) continue;
+        if (p <= sobra + 1e-9 && r._D + p <= r.CH + 1e-9) {
+          const rem = r.CH - r._D;
+          if (!best || rem > best.rem) best = { r, p, rem };
+        }
+      }
+      if (!best) break;
+      best.r._D = Math.round((best.r._D + best.p) * 1000) / 1000;
+      sobra = Math.round((sobra - best.p) * 1000) / 1000;
+    }
+    // 3) aplicar: D, revivir J, enviar todo (H+D), recomputar CG/G/BL
+    for (const r of mem) {
+      if (!(r._D > 0)) { delete r._D; continue; }
+      r.D = r._D; delete r._D; r.J = 'Si';
+      distribuirEnvioPesable(r, r.H + r.D);
+      r.CG = SUC.reduce((s, suc) => s + (isNum(r.enviar[suc.key]) ? r.enviar[suc.key] : 0), 0);
+      r.G = Math.max(r.D - (r.CG - r.H), 0);
+      r.BL = rutear(r);
+    }
+  }
+}
+
 function formatearFila(r) {
   return {
     plu: r.plu, granel: r.granel, peso: r.peso,
     BG: r.BG, F: r.F, H: r.H, I: r.I, M: r.M, CH: r.CH, CI: r.CI, CG: r.CG,
-    mins: r.mins, sn: r.sn, teorico: r.teo, enviar: r.enviar,
+    mins: r.mins, sLev: r.sLev, sn: r.sn, teorico: r.teo, enviar: r.enviar,
     J: r.J, BJ: r.BJ, BK: r.BK, L: r.L, K: r.K, D: r.D, E: r.E, BM: r.BM, G: r.G, BL: r.BL,
     prioridad: r.prioridad, prioridadSala: r.prioridadSala,
-    granelRatio: r.granelRatio,
+    granelRatio: r.granelRatio, presKg: r.presKg,
   };
 }
 

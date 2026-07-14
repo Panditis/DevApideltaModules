@@ -122,19 +122,27 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const pisoUno = D > 0 ? 1 : 0;
 
   // Empuje por stock en central: si hay stock en el depósito (D>0) y la demanda estadística es baja
-  // (S < presencia), eleva min y S de cada sucursal a un piso de "presencia" para impulsar el envío
-  // aunque no haya estadística que lo respalde. Se auto-limita al stock del central vía el rateo.
-  // Logia(minLogia/SLogia, id 8) y Sucu11(minVConst/SVConst, id 11) están inactivas en Siga
-  // — no se empujan (quedan siempre en 0, no cuentan para nada en el reparto).
+  // (S < presencia), fija góndola mínima: gatillo (min) = presencia y objetivo (S) = presencia·factor.
+  // El factor deja brecha entre min y S (batch) para no reponer de a 1 (micro-envío). Se auto-limita
+  // al stock del central vía el rateo. Logia(minLogia/SLogia, id 8) y Sucu11(minVConst/SVConst, id 11)
+  // están inactivas en Siga — no se empujan (quedan siempre en 0, no cuentan para nada en el reparto).
   const PARES_MIN_S = [['minRiv','SRiv'],['minUrq','SUrq'],['minNacion','SNacion'],['minChaca','SChaca'],
     ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],
     ['minVRamallo','SVRamallo']];
-  const pres = (opts && opts.empujePresencia) || 0;
+  // Presencia según importancia: si hay presenciaPorClase usa el valor de la clase ABC del PLU
+  // (A lento importante → góndola más alta; C lento irrelevante → baja). Si no, presencia plana.
+  const presPorClase = opts && opts.presenciaPorClase;
+  const claseAbc = (opts && opts.abcPorPlu && opts.abcPorPlu[plu]) || null;
+  const pres = presPorClase
+    ? (presPorClase[claseAbc] != null ? presPorClase[claseAbc] : (presPorClase.C != null ? presPorClase.C : 0))
+    : ((opts && opts.empujePresencia) || 0);
+  const presFactorS = Math.max(1, (opts && opts.empujePresenciaFactorS) || 1);
   if (pres > 0 && D > 0 && envasaSi && !a.claseF) {   // clase F (viejo sin rotación): no se empuja
     const aa = { ...a };
+    const objetivo = Math.round(pres * presFactorS);   // objetivo por encima del gatillo → brecha (batch)
     for (const [mk, sk] of PARES_MIN_S) {
-      if ((aa[sk] || 0) < pres) aa[sk] = pres;   // objetivo (S) ≥ presencia
-      if ((aa[mk] || 0) < pres) aa[mk] = pres;   // gatillo (min) ≥ presencia → topa sucursales con poco
+      if ((aa[mk] || 0) < pres) aa[mk] = pres;          // gatillo (min) ≥ presencia (piso de góndola)
+      if ((aa[sk] || 0) < pres) aa[sk] = objetivo;      // demanda baja (S<presencia) → objetivo = presencia·factor (> min)
     }
     a = aa;
   }
@@ -285,39 +293,50 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const term = (min, stock, enviarTxt) =>
     Math.pow((min > 0 && stock <= min && isNum(enviarTxt)) ? (stock === 0 ? BB : BB * (1 - stock / min / 2)) : 0, 1.15);
   const maxTerm = Math.max(
-    term(minUrq, st.urq||0, eUrq), term(minNacion, st.nacion||0, eNac),
-    term(minChaca, st.chaca||0, eCha), term(minPergamino, st.pergamino||0, ePer),
-    term(minSanPedro, st.sanpedro||0, eSan), term(minSucu8, st.sucu8||0, eSu8),
-    term(minSucu9, st.sucu9||0, eSu9), term(minSucu11, st.sucu11||0, eS11),
+    term(minUrq, st.urq||0, eUrqM), term(minNacion, st.nacion||0, eNacM),
+    term(minChaca, st.chaca||0, eChaM), term(minPergamino, st.pergamino||0, ePerM),
+    term(minSanPedro, st.sanpedro||0, eSanM), term(minSucu8, st.sucu8||0, eSu8M),
+    term(minSucu9, st.sucu9||0, eSu9M), term(minSucu11, st.sucu11||0, eS11M),
   );
-  const penal = 1 - [eUrq, eNac, eCha, ePer, eSan, eSu8, eSu9, eS11]
+  const penal = 1 - [eUrqM, eNacM, eChaM, ePerM, eSanM, eSu8M, eSu9M, eS11M]
     .reduce((s, v) => s + (isNum(v) ? 0 : 0.05), 0);
   const importanciaLegacy = maxTerm * penal;
 
-  // Real (opts.importancia.modo==='real'): urgencia continua × demanda de la sucursal (S) agregada sobre
-  // TODAS las sucursales que pueden recibir → premia amplitud (cuántas sucursales), tamaño (S) y urgencia
-  // (qué tan bajo del min), por el valor del producto (BB = importancia minorista). Fallback = legacy.
+  // Real (opts.importancia.modo==='real'): importancia = venta general del producto, NO necesidad de
+  // stock de cada sucursal. Peso por sucursal = ranking A8020 de esa sucursal (a.rankXxx, 0-1: qué tan
+  // importante es el PLU ahí específicamente), tal cual — sin S (demanda), sin stock/min/urgencia.
+  // Gate = mn>0 (la sucursal tiene punto de pedido para este PLU, o sea lo vende) decide participación,
+  // no peso. Fallback en 3 pasos si falta el rank de esta sucursal, TODOS en escala 0-1 (rank/rankGeneral
+  // y BB NO se mezclan directo: BB es facturación cruda, puede ser miles — mezclar escalas dispara la
+  // importancia de esos PLUs muy por encima del resto y, al normalizar contra el máximo del catálogo,
+  // aplasta a todos los demás cerca de 0):
+  //   1) el producto SÍ tiene rank en otras sucursales → promedio de esas.
+  //   2) el producto no tiene rank en NINGUNA sucursal → rankGeneral (ranking global, mismo 0-1).
+  //   3) ni siquiera tiene rankGeneral (a8020.json viejo, sin recalcular) → BB crudo, último recurso.
   const impCfg = (opts && opts.importancia) || {};
   let importancia = importanciaLegacy;
   let impSucOut = null;   // contribución por sucursal → el cliente suma solo las visibles y renormaliza
   if (impCfg.modo === 'real') {
-    const valor = impCfg.usarBB === false ? 1 : (BB > 0 ? BB : 1);
+    const ranksProducto = [a.rankRiv, a.rankUrq, a.rankNacion, a.rankChaca, a.rankPergamino, a.rankSanPedro, a.rankVRamallo]
+      .filter((r) => isNum(r) && r > 0);
+    const rankProm = ranksProducto.length ? ranksProducto.reduce((s, r) => s + r, 0) / ranksProducto.length : null;
+    const valorGlobal = isNum(a.rankGeneral) && a.rankGeneral > 0 ? a.rankGeneral
+      : (impCfg.usarBB === false ? 1 : (BB > 0 ? BB : 1));
     const impSuc = {};
     let acc = 0;
-    const addSuc = (key, mn, S, stk0, env) => {
-      if (!(mn > 0) || !isNum(env)) { impSuc[key] = 0; return; }      // solo sucursales que realmente recibirían
-      const urg = Math.max(0, Math.min((mn - (stk0 || 0)) / mn, 1));  // 0..1: qué tan por debajo del min
-      const c = (S || 0) * urg;                                       // ponderado por demanda (S) de la sucursal
-      impSuc[key] = valor * c; acc += c;
+    const addSuc = (key, mn, rank) => {
+      if (!(mn > 0)) { impSuc[key] = 0; return; }      // sucursal sin punto de pedido para este PLU → no lo vende ahí
+      const valor = (isNum(rank) && rank > 0) ? rank : (rankProm != null ? rankProm : valorGlobal);
+      impSuc[key] = valor; acc += valor;
     };
-    addSuc('urq', minUrq, sUrq, st.urq, eUrq);
-    addSuc('nacion', minNacion, sNac, st.nacion, eNac);
-    addSuc('chaca', minChaca, sCha, st.chaca, eCha);
-    addSuc('pergamino', minPergamino, sPer, st.pergamino, ePer);
-    addSuc('sanPedro', minSanPedro, sSan, st.sanpedro, eSan);
-    addSuc('sucursal9', minSucu9, sSu9, st.sucu9, eSu9);
-    if (impCfg.incluirRivadavia !== false) addSuc('riv', minRiv, sRiv, st.riv, eRiv);
-    importancia = valor * acc;
+    addSuc('urq', minUrq, a.rankUrq);
+    addSuc('nacion', minNacion, a.rankNacion);
+    addSuc('chaca', minChaca, a.rankChaca);
+    addSuc('pergamino', minPergamino, a.rankPergamino);
+    addSuc('sanPedro', minSanPedro, a.rankSanPedro);
+    addSuc('sucursal9', minSucu9, a.rankVRamallo);
+    if (impCfg.incluirRivadavia !== false) addSuc('riv', minRiv, a.rankRiv);
+    importancia = acc;
     impSucOut = impSuc;
   }
 
@@ -328,6 +347,8 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     plu, envasa: envasaSi ? 'Si' : 'No', central: D, base8020: BB,
     mins: { riv: minRiv, urq: minUrq, nacion: minNacion, chaca: minChaca, pergamino: minPergamino,
             sanpedro: minSanPedro, sucu8: minSucu8, sucu9: minSucu9, sucu11: minSucu11 },
+    sLevels: { riv: sRiv, urq: sUrq, nacion: sNac, chaca: sCha, pergamino: sPer,
+               sanpedro: sSan, sucu8: sSu8, sucu9: sSu9, sucu11: sS11 },
     enviar, pideTotal, importancia, impSuc: impSucOut, meses,
     ideal: { riv: pRiv, urq: pUrq, nacion: pNac, chaca: pCha, pergamino: pPer,
              sanPedro: pSan, sucursal9: pSu9 },   // pedido teórico (S−stock) sin límite de central

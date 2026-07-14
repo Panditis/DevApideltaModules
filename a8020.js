@@ -64,14 +64,19 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
     return Object.assign({ idSucursal, sucursal: sucKey, plu: Number(plu), mu, sigma, abc: cls, z: zc, S, min }, extra || {});
   }
 
-  // Denominador de μ/σ: 'operativos' (días operativos de la sucursal, default) o
-  // 'activos' (días-con-venta del producto → reacciona a demanda reciente/intermitente, puede sobre-stockear).
-  const denomActivos = ((config.demanda || {}).denominador === 'activos');
+  // Denominador de μ/σ (config.demanda.denominador):
+  //   'operativos'  → días operativos de la sucursal en toda la ventana (volumen real, pero diluye productos nuevos).
+  //   'activos'     → días-con-venta del producto (reacciona a demanda intermitente/nueva; puede sobre-stockear).
+  //   'desde_alta'  → días operativos desde la 1ª venta del producto (r.opsEff, precalculado en server): volumen
+  //                   real para maduros (≈ operativos) sin castigar lanzamientos (≈ activos si vende estable).
+  const denomMode = (config.demanda || {}).denominador || 'operativos';
   const filas = [];
   for (const r of stats) {
     const sc = sucById[r.idSucursal];
     if (!sc) continue;
-    const N = denomActivos ? (Number(r.dcv) || 0) : (opsDays[r.idSucursal] || 0);
+    const N = denomMode === 'activos'    ? (Number(r.dcv)    || 0)
+            : denomMode === 'desde_alta' ? (Number(r.opsEff) || 0)
+            : (opsDays[r.idSucursal] || 0);
     if (N <= 0) continue;
     const mu = (Number(r.sumQ) || 0) / N;
     const sigma = Math.sqrt(Math.max((Number(r.sumQ2) || 0) / N - mu * mu, 0));
@@ -115,39 +120,41 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
   return { abc, filas };
 }
 
-// metricPorSuc: { idSucursal: { plu: facturación } }  ·  statRows: mismo array que recibe computeA8020
-// (usa sumQ como volumen de desempate)  ·  sucById: { idSucursal: sucKey }
-// Retorna { sucKey: { plu: score } } — score 0-1, percentil de posición dentro de la sucursal
-// (1=más importante, ordenado por facturación desc, empate → volumen desc).
-function calcularRankingPorSucursal(metricPorSuc, statRows, sucById) {
-  const volPorSuc = {};
-  for (const r of statRows) {
-    (volPorSuc[r.idSucursal] = volPorSuc[r.idSucursal] || {})[r.plu] = Number(r.sumQ) || 0;
-  }
-  const idSucs = new Set([
-    ...Object.keys(metricPorSuc || {}),
-    ...Object.keys(volPorSuc),
-  ].map(Number));
+// Exponente de compresión: score = (facturación/máxima)^RANK_POW. Percentil de posición (rank/n) da
+// SIEMPRE ~10% de items por decil sin importar el sesgo real de los datos — con facturación (Pareto,
+// pocos productos explican casi toda la plata) eso pinta como "importante" a productos que no lo son.
+// RANK_POW<1 comprime hacia 0 el grueso del catálogo y deja cerca de 1 solo a los que facturan cerca
+// del máximo. Calibrado con datos reales: 0.2 deja ~80% del catálogo por debajo de 0.5.
+const RANK_POW = 0.2;
 
+// metricPorSuc: { idSucursal: { plu: facturación } }  ·  sucById: { idSucursal: sucKey }
+// Retorna { sucKey: { plu: score } } — score 0-1 = (facturación/máxima de esa sucursal)^RANK_POW.
+function calcularRankingPorSucursal(metricPorSuc, sucById) {
   const ranking = {};
-  for (const idSucursal of idSucs) {
-    const sucKey = sucById[idSucursal];
+  for (const [idSucursalStr, porPlu] of Object.entries(metricPorSuc || {})) {
+    const sucKey = sucById[Number(idSucursalStr)];
     if (!sucKey) continue;
-    const fact = (metricPorSuc && metricPorSuc[idSucursal]) || {};
-    const vol = volPorSuc[idSucursal] || {};
-    const plus = new Set([...Object.keys(fact), ...Object.keys(vol)]);
-    const items = [...plus].map((plu) => ({
-      plu, fact: Number(fact[plu]) || 0, vol: Number(vol[plu]) || 0,
-    }));
-    items.sort((a, b) => (b.fact - a.fact) || (b.vol - a.vol));
-    const n = items.length;
+    const maxFact = Math.max(0, ...Object.values(porPlu).map((v) => Number(v) || 0));
     const scoreByPlu = {};
-    items.forEach((it, idx) => {
-      scoreByPlu[it.plu] = n <= 1 ? 1 : roundDec(1 - idx / (n - 1), 4);
-    });
+    for (const [plu, fact] of Object.entries(porPlu)) {
+      const f = Number(fact) || 0;
+      scoreByPlu[plu] = (f > 0 && maxFact > 0) ? roundDec(Math.pow(f / maxFact, RANK_POW), 4) : 0;
+    }
     ranking[sucKey] = scoreByPlu;
   }
   return ranking;
 }
 
-module.exports = { computeA8020, calcularRankingPorSucursal, clasificarABC, roundDec };
+// metricByPlu: { plu: facturación } — mismo criterio que calcularRankingPorSucursal pero sobre TODO
+// el catálogo (sin distinguir sucursal). Retorna { plu: score }.
+function calcularRankingGlobal(metricByPlu) {
+  const maxFact = Math.max(0, ...Object.values(metricByPlu || {}).map((v) => Number(v) || 0));
+  const score = {};
+  for (const [plu, fact] of Object.entries(metricByPlu || {})) {
+    const f = Number(fact) || 0;
+    score[plu] = (f > 0 && maxFact > 0) ? roundDec(Math.pow(f / maxFact, RANK_POW), 4) : 0;
+  }
+  return score;
+}
+
+module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec };

@@ -131,7 +131,7 @@ const sucOfRankCol = (c)=> c.slice(0,-RANK_SUFFIX.length);
 
 function construir(){
   const opsTxt = (k)=>{ const id=SUC_ID[k]; const n=(cache.opsDays||{})[id]; return n?`<small>${n}d op.</small>`:''; };
-  const cols = [['plu','PLU','l'],['nombre','Producto','l'],['abc','ABC','']]
+  const cols = [['plu','PLU','l'],['nombre','Producto','l'],['abc','ABC',''],['rankGeneral','Gral','']]
     .concat(SUC.flatMap(([k,n])=>[[k,n,'suc'],[rankCol(k),'R','suc-rank']]))
     .concat([['tot','Σ S','']]);
   document.getElementById('head').innerHTML = cols.map(([k,n,cls])=>{
@@ -147,6 +147,7 @@ function construir(){
 }
 function valor(r,c){
   if(c==='tot') return sumS(r);
+  if(c==='rankGeneral') return r.rankGeneral??-1;
   if(c.endsWith(RANK_SUFFIX)){ const k=sucOfRankCol(c); const d=(r.detalle||{})[k]||{}; return d.ranking??-1; }
   if(SUC.some(([k])=>k===c)) return r.mins[c]||0;
   if(c==='nombre') return (r.nombre||'').toLowerCase();
@@ -196,8 +197,11 @@ function render(){
     const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas; sin movimientos o sólo compras / reciente">NUEVO</span>'
       : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
     const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
+    const rg = r.rankGeneral;
+    const rgCls = rg==null ? '' : rg>=0.8 ? 'hi' : rg>=0.5 ? 'mid' : 'lo';
+    const rgCell = rg==null ? '<td class="s">·</td>' : `<td><span class="rank ${rgCls}" title="Percentil de facturación en TODO el catálogo (sin distinguir sucursal)">${rg.toFixed(2)}</span></td>`;
     return `<tr><td class="l plu">${r.plu}</td><td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>`+
-      `<td><span class="abc ${r.abc}"${abcStyle}>${r.abc}</span>${badge}</td>${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
+      `<td><span class="abc ${r.abc}"${abcStyle}>${r.abc}</span>${badge}</td>${rgCell}${celdas}<td style="font-weight:700;color:var(--verde-dark)">${fmt(sumS(r))}</td></tr>`;
   }).join('');
   const nA=filas.filter(r=>r.abc==='A').length, nB=filas.filter(r=>r.abc==='B').length, nC=filas.filter(r=>r.abc==='C').length, nF=filas.filter(r=>r.abc==='F').length;
   const act = c => filtroClase===c ? 'outline:2px solid currentColor;outline-offset:1px;' : '';
@@ -217,7 +221,7 @@ async function cargar(){
   const nuevosSet = new Set((cache.nuevos||[]).map(Number));
   const viejosSet = new Set((cache.viejos||[]).map(Number));
   const bootSet = new Set((cache.bootstrapped||[]).map(Number));
-  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
+  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, rankGeneral:(cache.rankingGeneral||{})[plu], nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
   construirRubroFiltro();
   construir(); render(); renderAnomalias();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';

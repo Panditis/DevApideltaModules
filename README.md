@@ -122,7 +122,7 @@ dev/
 │   └── a8020.html  · a8020.js
 │
 ├── ▸ Lógica / validación (JS)
-│   ├── pesables.js · validar_pesables.js
+│   ├── pesables.js
 │   └── validar_almacen.js
 │
 ├── ▸ Scripts (Python)

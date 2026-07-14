@@ -923,6 +923,7 @@ function construirHeadP() {
   const sucCols = SUC_P.filter(([k]) => sucVisP.has(k));
   const post = [];
   if (!prep) post.push(['resp','Responsable','l']);
+  post.push(['total','Total','']);
   post.push(['prioridad','Imp.','']);
   const arOf = k => ordenP.col === k ? `<span class="ar">${ordenP.dir < 0 ? '▼' : '▲'}</span>` : '';
   const thR = ([k, n, cls]) => `<th class="${cls||''}" data-col="${k}" rowspan="2">${n} ${arOf(k)}${k === 'nombre' ? prodFunnel('p') : ''}</th>`;
@@ -942,6 +943,7 @@ const prioOf = (r) => ((pesablesModo === 'sala' ? (r.prioridadSala ?? r.priorida
 function valorP(r, col) {
   if (col === 'prioridad') return prioOf(r);
   if (col === 'CG') return sumEnvP(r);
+  if (col === 'total') return sumEnvVisP(r);
   if (SUC_P.some(([k]) => k === col)) return esNum(r.enviar[col]) ? r.enviar[col] : 0;
   if (col === 'nombre') return (r.nombre || '').toLowerCase();
   if (col === 'BL') return (r.BL || '').toLowerCase();
@@ -1178,7 +1180,7 @@ function exportarCSVPesables() {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const soloEnvio = document.getElementById('soloEnvio').checked;
   const cell = (v) => esNum(v) ? v : (v || '');
-  const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || (listasData?.siemprePesable||[]).includes(Number(r.plu)) || r.rubro === 'Pesables Venta Directa') &&
+  const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || (listasData?.siemprePesable||[]).includes(Number(r.plu))) &&
     (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
   const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'Ruteo', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
@@ -1274,7 +1276,7 @@ function exportarPDFPesables() {
   let rows = datosP.filter(r => {
     if (filtroProd.p.has(String(r.plu))) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu)) && r.rubro !== 'Pesables Venta Directa') return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable / Venta Directa)
+    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -1499,17 +1501,21 @@ function render() {
   });
   // Importancia reactiva al filtro de sucursal: suma la contribución (impSuc) de las sucursales visibles.
   const impVal = (r) => r.impSuc ? SUC_A.reduce((s, [k]) => s + (sucVis.has(k) ? (r.impSuc[k] || 0) : 0), 0) : (r.importancia || 0);
+  const maxImp = Math.max(0.0001, ...datos.map(impVal));
+  // Piso 0.8 para productos "nuevo" (mismo piso que aplica el server en impNorm) — se recalcula acá
+  // porque impVal/maxImp son reactivos al filtro de sucursales visibles, cosa que impNorm no es.
+  const PISO_IMPORTANCIA_NUEVO = 0.8;
+  const impNormDisplay = (r) => { const n = impVal(r) / maxImp; return r.esNuevo ? (PISO_IMPORTANCIA_NUEVO + n) : n; };
   rows.sort((a, b) => {
-    const va = orden.col === 'total' ? totalVis(a) : orden.col === 'importancia' ? impVal(a) : valor(a, orden.col);
-    const vb = orden.col === 'total' ? totalVis(b) : orden.col === 'importancia' ? impVal(b) : valor(b, orden.col);
+    const va = orden.col === 'total' ? totalVis(a) : orden.col === 'importancia' ? impNormDisplay(a) : valor(a, orden.col);
+    const vb = orden.col === 'total' ? totalVis(b) : orden.col === 'importancia' ? impNormDisplay(b) : valor(b, orden.col);
     return (va < vb ? -1 : va > vb ? 1 : 0) * orden.dir;
   });
-  const maxImp = Math.max(0.0001, ...datos.map(impVal));
   document.getElementById('body-a').innerHTML = rows.map((r, i) => {
     const celdas = SUC_A.filter(([k]) => sucVis.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
       const id = (r.ideal || {})[k] || 0;   // pedido teórico (ideal) sin límite de central
-      const stkTd = `<td class="env stk">${stk ? fmtA(stk) : '·'}</td>`;
+      const stkTd = `<td class="env stk" title="Mín: ${fmtA((r.minSuc||{})[k]||0)} · S: ${fmtA((r.sSuc||{})[k]||0)}">${stk ? fmtA(stk) : '·'}</td>`;
       if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmtA(id)}"><span>Fact</span></td>`;
       if (v === 'Restringido') return `${stkTd}<td class="env restr" title="Restringido para esta sucursal"><span style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid rgba(192,57,43,.4);display:inline-block">Restr.</span></td>`;
       if (esMicro(r, k)) { const mi = microInfo(r, k); return `${stkTd}<td class="env micro" title="Calculado: ${fmtA(mi.qty)}, MinEnvio: ${fmtA(mi.umbral)}, S: ${fmtA(mi.S)}, StockMin: ${fmtA(mi.min)}"><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
@@ -1517,7 +1523,7 @@ function render() {
       const isOvr = (r.enviarOverride || {})[k];
       const tip = id > 0 ? `title="ideal ${fmtA(id)}${n > 0 && id > n ? ' · racionado' : ''}"` : '';
       return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}${isOvr ? ' override' : ''}" ${tip} data-plu="${r.plu}" data-suc="${k}" data-tipo="almacen">${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtA(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
-    const impN = impVal(r) / maxImp;
+    const impN = impNormDisplay(r);
     const impPct = impN * 100;
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
@@ -1542,7 +1548,7 @@ function renderP() {
   let rows = datosP.filter(r => {
     if (filtroProd.p.has(String(r.plu))) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu)) && r.rubro !== 'Pesables Venta Directa') return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable / Venta Directa)
+    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -1554,7 +1560,7 @@ function renderP() {
     const celdas = SUC_P.filter(([k]) => sucVisP.has(k)).map(([k]) => { const v = r.enviar[k];
       const stk = (r.stkSuc || {})[k] || 0;
       const id = (r.ideal || {})[k] || 0;   // teórico (ideal) sin límite de granel/central
-      const stkTd = `<td class="env stk">${stk ? fmt(stk) : '·'}</td>`;
+      const stkTd = `<td class="env stk" title="Mín: ${fmt((r.mins||{})[k]||0)} · S: ${fmt((r.sLev||{})[k]||0)}">${stk ? fmt(stk) : '·'}</td>`;
       if (v === 'Fact') return `${stkTd}<td class="env fact" title="ideal ${fmt(id)}"><span>Fact</span></td>`;
       if (v === 'Restringido') return `${stkTd}<td class="env restr" title="Restringido para esta sucursal"><span style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid rgba(192,57,43,.4);display:inline-block">Restr.</span></td>`;
       const isOvrP = (r.enviarOverride || {})[k];
@@ -1577,6 +1583,7 @@ function renderP() {
       ${envD}
       ${celdas}
       ${prep ? '' : respSel}
+      <td class="tot">${fmt(sumEnvVisP(r))}</td>
       <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
     </tr>`;
   }).join('');

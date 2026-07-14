@@ -1,0 +1,296 @@
+IdUsuario;Usuario;Activo;IdRol;Rol;IdSucursal
+Admin;Administrador del sistema;true;Adm;Administrador;1
+Admin;Administrador del sistema;true;Adm;Administrador;2
+Admin;Administrador del sistema;true;Adm;Administrador;3
+Admin;Administrador del sistema;true;Adm;Administrador;4
+Admin;Administrador del sistema;true;Adm;Administrador;5
+Admin;Administrador del sistema;true;Adm;Administrador;6
+Admin;Administrador del sistema;true;Adm;Administrador;7
+Admin;Administrador del sistema;true;Adm;Administrador;8
+Admin;Administrador del sistema;true;Adm;Administrador;9
+Admin;Administrador del sistema;true;Adm;Administrador;10
+Admin;Administrador del sistema;true;Adm;Administrador;11
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;1
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;2
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;3
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;4
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;5
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;6
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;7
+Admin;Administrador del sistema;true;AdmSinergia;Administradores Sinergia;8
+Admin;Administrador del sistema;true;Oficina;Oficina;1
+Admin;Administrador del sistema;true;Oficina;Oficina;2
+Admin;Administrador del sistema;true;Oficina;Oficina;3
+Admin;Administrador del sistema;true;Oficina;Oficina;4
+Admin;Administrador del sistema;true;Oficina;Oficina;5
+Admin;Administrador del sistema;true;Oficina;Oficina;6
+Admin;Administrador del sistema;true;Oficina;Oficina;7
+Adriel;Adriel Sanabria;true;Cajero;Cajero;2
+Adriel;Adriel Sanabria;true;Cajero;Cajero;3
+Adriel;Adriel Sanabria;true;Cajero;Cajero;4
+Adriel;Adriel Sanabria;true;Cajero;Cajero;5
+Adriel;Adriel Sanabria;true;Cajero;Cajero;6
+Adriel;Adriel Sanabria;true;Cajero;Cajero;7
+Adriel;Adriel Sanabria;true;Cajeroadm;Cajeroadm;1
+Adriel;Adriel Sanabria;true;Oficina;Oficina;1
+Adriel;Adriel Sanabria;true;Oficina;Oficina;2
+Adriel;Adriel Sanabria;true;Oficina;Oficina;3
+Adriel;Adriel Sanabria;true;Oficina;Oficina;5
+Adriel;Adriel Sanabria;true;Oficina;Oficina;7
+Adriel;Adriel Sanabria;true;Oficina;Oficina;9
+Adriel;Adriel Sanabria;true;Oficina;Oficina;10
+Adriel;Adriel Sanabria;true;Oficina;Oficina;11
+AgustinaA;Agustina Arroyo;true;Cajero;Cajero;4
+AgustinaA;Agustina Arroyo;true;Cajero;Cajero;5
+AgustinaA;Agustina Arroyo;true;Cajeroadm;Cajeroadm;1
+AgustinaA;Agustina Arroyo;true;Cajeroadm;Cajeroadm;5
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;1
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;2
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;3
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;4
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;5
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;6
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;7
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;9
+AgustinaA;Agustina Arroyo;true;Oficina;Oficina;10
+Aldana;Aldana Alvarez;true;Cajero;Cajero;2
+Aldana;Aldana Alvarez;true;Cajero;Cajero;3
+Aldana;Aldana Alvarez;true;Cajero;Cajero;4
+Aldana;Aldana Alvarez;true;Cajero;Cajero;5
+Aldana;Aldana Alvarez;true;Cajero;Cajero;6
+Aldana;Aldana Alvarez;true;Cajero;Cajero;7
+Aldana;Aldana Alvarez;true;Cajeroadm;Cajeroadm;1
+Aldana;Aldana Alvarez;true;Oficina;Oficina;1
+Aldana;Aldana Alvarez;true;Oficina;Oficina;9
+Aldana;Aldana Alvarez;true;Oficina;Oficina;10
+Andrea;Andrea Siboldi;true;Cajero;Cajero;5
+Andrea;Andrea Siboldi;true;Cajeroadm;Cajeroadm;5
+Carla;Carla Bellagamba;true;Cajero;Cajero;7
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;1
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;2
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;3
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;4
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;5
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;6
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;7
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;8
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;9
+Carlos;Carlos Mangiaterra;true;Adm;Administrador;10
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;1
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;2
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;3
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;4
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;5
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;6
+Carlos;Carlos Mangiaterra;true;AdmSinergia;Administradores Sinergia;7
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;1
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;2
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;3
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;4
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;5
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;6
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;7
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;8
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;9
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;10
+Carlos;Carlos Mangiaterra;true;Supervisor;Supervisor Administrativo;11
+Cecilia;Cecilia Villasboas;true;Cajero;Cajero;2
+Cecilia;Cecilia Villasboas;true;Cajero;Cajero;4
+Cecilia;Cecilia Villasboas;true;Cajero;Cajero;5
+Cintia;Cintia Romero;true;Cajero;Cajero;2
+Cintia;Cintia Romero;true;Cajero;Cajero;4
+Cintia;Cintia Romero;true;Cajeroadm;Cajeroadm;4
+DiegoSP;Diego Mangiaterra;true;Cajeroadm;Cajeroadm;7
+DiegoSP;Diego Mangiaterra;true;Oficina;Oficina;1
+Eliana;Eliana Brittes;true;Cajero;Cajero;2
+Eliana;Eliana Brittes;true;Cajero;Cajero;3
+Eliana;Eliana Brittes;true;Cajero;Cajero;4
+Eliana;Eliana Brittes;true;Cajero;Cajero;6
+Eliana;Eliana Brittes;true;Cajero;Cajero;7
+Eliana;Eliana Brittes;true;Cajeroadm;Cajeroadm;5
+Eliana;Eliana Brittes;true;Cajeroadm;Cajeroadm;11
+Eliana;Eliana Brittes;true;Oficina;Oficina;1
+Eliana;Eliana Brittes;true;Oficina;Oficina;2
+Eliana;Eliana Brittes;true;Oficina;Oficina;3
+Eliana;Eliana Brittes;true;Oficina;Oficina;4
+Eliana;Eliana Brittes;true;Oficina;Oficina;5
+Eliana;Eliana Brittes;true;Oficina;Oficina;6
+Eliana;Eliana Brittes;true;Oficina;Oficina;7
+Eliana;Eliana Brittes;true;Oficina;Oficina;8
+Eliana;Eliana Brittes;true;Oficina;Oficina;9
+Eliana;Eliana Brittes;true;Oficina;Oficina;10
+Eliana;Eliana Brittes;true;Oficina;Oficina;11
+Evelyn;Evelyn Duarte;true;Cajero;Cajero;5
+Evelyn;Evelyn Duarte;true;Cajero;Cajero;10
+fernando;Fernando Bugliot;true;Cajero;Cajero;5
+fernando;Fernando Bugliot;true;Cajero;Cajero;9
+fernando;Fernando Bugliot;true;Cajeroadm;Cajeroadm;1
+fernando;Fernando Bugliot;true;Cajeroadm;Cajeroadm;11
+fernando;Fernando Bugliot;true;Oficina;Oficina;1
+fernando;Fernando Bugliot;true;Oficina;Oficina;11
+Gisela;Gisela Ubiedo;true;Cajero;Cajero;5
+Gisela;Gisela Ubiedo;true;Cajero;Cajero;10
+Gisela;Gisela Ubiedo;true;Cajeroadm;Cajeroadm;10
+IARA;Iara Lescoulie;true;Cajeroadm;Cajeroadm;1
+IARA;Iara Lescoulie;true;Cajeroadm;Cajeroadm;5
+IARA;Iara Lescoulie;true;Oficina;Oficina;1
+IARA;Iara Lescoulie;true;Oficina;Oficina;2
+IARA;Iara Lescoulie;true;Oficina;Oficina;3
+IARA;Iara Lescoulie;true;Oficina;Oficina;4
+IARA;Iara Lescoulie;true;Oficina;Oficina;5
+IARA;Iara Lescoulie;true;Oficina;Oficina;6
+IARA;Iara Lescoulie;true;Oficina;Oficina;7
+IARA;Iara Lescoulie;true;Oficina;Oficina;8
+IARA;Iara Lescoulie;true;Oficina;Oficina;9
+IARA;Iara Lescoulie;true;Oficina;Oficina;10
+Yesica;Jesica Talavera;true;Cajero;Cajero;3
+Yesica;Jesica Talavera;true;Cajeroadm;Cajeroadm;3
+Yesica;Jesica Talavera;true;Cajeroadm;Cajeroadm;5
+Julia;Julia Ortega;true;Cajero;Cajero;2
+Julia;Julia Ortega;true;Cajero;Cajero;3
+Julia;Julia Ortega;true;Cajero;Cajero;4
+Julia;Julia Ortega;true;Cajero;Cajero;6
+Julia;Julia Ortega;true;Cajeroadm;Cajeroadm;5
+julieta;Julieta Aguero;true;Cajero;Cajero;2
+julieta;Julieta Aguero;true;Cajero;Cajero;3
+julieta;Julieta Aguero;true;Cajero;Cajero;4
+julieta;Julieta Aguero;true;Cajero;Cajero;5
+Larisa;Larisa Valentini;true;Cajero;Cajero;2
+Larisa;Larisa Valentini;true;Cajero;Cajero;3
+Larisa;Larisa Valentini;true;Cajero;Cajero;4
+Larisa;Larisa Valentini;true;Cajero;Cajero;6
+Larisa;Larisa Valentini;true;Cajero;Cajero;7
+Larisa;Larisa Valentini;true;Cajeroadm;Cajeroadm;11
+Larisa;Larisa Valentini;true;Oficina;Oficina;1
+Larisa;Larisa Valentini;true;Oficina;Oficina;2
+Larisa;Larisa Valentini;true;Oficina;Oficina;3
+Larisa;Larisa Valentini;true;Oficina;Oficina;4
+Larisa;Larisa Valentini;true;Oficina;Oficina;5
+Larisa;Larisa Valentini;true;Oficina;Oficina;6
+Larisa;Larisa Valentini;true;Oficina;Oficina;7
+Larisa;Larisa Valentini;true;Oficina;Oficina;8
+Larisa;Larisa Valentini;true;Oficina;Oficina;9
+Larisa;Larisa Valentini;true;Oficina;Oficina;10
+Larisa;Larisa Valentini;true;Oficina;Oficina;11
+Laura M;Laura Mangiaterra;true;Oficina;Oficina;1
+Laura M;Laura Mangiaterra;true;Produccion;Produccion;1
+Laura;Laura Tardivo;true;Cajero;Cajero;5
+Laura;Laura Tardivo;true;Cajero;Cajero;9
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;1
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;2
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;3
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;4
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;5
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;7
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;9
+Lautaro;Lautaro Ainsinburo;true;Oficina;Oficina;10
+Lucia;Lucia De Elizalde;true;Cajero;Cajero;7
+Malena;Malena Mariezcurrena;true;Cajero;Cajero;2
+Malena;Malena Mariezcurrena;true;Cajero;Cajero;3
+Malena;Malena Mariezcurrena;true;Cajero;Cajero;4
+Malena;Malena Mariezcurrena;true;Cajero;Cajero;5
+Malena;Malena Mariezcurrena;true;Cajero;Cajero;6
+Malena;Malena Mariezcurrena;true;Cajero;Cajero;7
+Malena;Malena Mariezcurrena;true;Oficina;Oficina;1
+Malena;Malena Mariezcurrena;true;Oficina;Oficina;9
+Malena;Malena Mariezcurrena;true;Oficina;Oficina;10
+manuela;Manuela Kemper;true;Cajero;Cajero;2
+manuela;Manuela Kemper;true;Cajero;Cajero;3
+manuela;Manuela Kemper;true;Cajero;Cajero;4
+manuela;Manuela Kemper;true;Cajero;Cajero;5
+manuela;Manuela Kemper;true;Cajero;Cajero;6
+manuela;Manuela Kemper;true;Cajero;Cajero;7
+manuela;Manuela Kemper;true;Cajeroadm;Cajeroadm;1
+manuela;Manuela Kemper;true;Cajeroadm;Cajeroadm;5
+manuela;Manuela Kemper;true;Oficina;Oficina;1
+manuela;Manuela Kemper;true;Oficina;Oficina;9
+manuela;Manuela Kemper;true;Oficina;Oficina;10
+MartinC;Martin Cardinali;true;Oficina;Oficina;1
+Martina;Martina Lemunao;true;Cajero;Cajero;1
+Martina;Martina Lemunao;true;Cajero;Cajero;2
+Martina;Martina Lemunao;true;Cajero;Cajero;3
+Martina;Martina Lemunao;true;Cajeroadm;Cajeroadm;5
+Martina;Martina Lemunao;true;Oficina;Oficina;1
+Martina;Martina Lemunao;true;Oficina;Oficina;2
+Martina;Martina Lemunao;true;Oficina;Oficina;3
+Martina;Martina Lemunao;true;Oficina;Oficina;4
+Martina;Martina Lemunao;true;Oficina;Oficina;5
+Martina;Martina Lemunao;true;Oficina;Oficina;6
+Martina;Martina Lemunao;true;Oficina;Oficina;7
+Martina;Martina Lemunao;true;Oficina;Oficina;8
+Martina;Martina Lemunao;true;Oficina;Oficina;9
+Martina;Martina Lemunao;true;Oficina;Oficina;10
+Melina;Melina Alvarez;true;Oficina;Oficina;1
+Melina;Melina Alvarez;true;Oficina;Oficina;2
+Melina;Melina Alvarez;true;Oficina;Oficina;3
+Melina;Melina Alvarez;true;Oficina;Oficina;4
+Melina;Melina Alvarez;true;Oficina;Oficina;5
+Melina;Melina Alvarez;true;Oficina;Oficina;6
+Melina;Melina Alvarez;true;Oficina;Oficina;7
+Melina;Melina Alvarez;true;Oficina;Oficina;8
+Melina;Melina Alvarez;true;Oficina;Oficina;9
+Melina;Melina Alvarez;true;Oficina;Oficina;10
+Melina;Melina Alvarez;true;Oficina;Oficina;11
+micaela;Micaela Guzman;true;Cajero;Cajero;2
+Milagros;Milagros Espinosa;true;Oficina;Oficina;1
+Milagros;Milagros Espinosa;true;Oficina;Oficina;2
+Milagros;Milagros Espinosa;true;Oficina;Oficina;3
+Milagros;Milagros Espinosa;true;Oficina;Oficina;4
+Milagros;Milagros Espinosa;true;Oficina;Oficina;5
+Milagros;Milagros Espinosa;true;Oficina;Oficina;6
+Milagros;Milagros Espinosa;true;Oficina;Oficina;7
+Milagros;Milagros Espinosa;true;Oficina;Oficina;8
+Milagros;Milagros Espinosa;true;Oficina;Oficina;9
+Milagros;Milagros Espinosa;true;Oficina;Oficina;10
+noeliab;Noelia Bettiolo;true;Cajero;Cajero;3
+Noelia;Noelia Rial;true;Cajero;Cajero;2
+Noelia;Noelia Rial;true;Cajeroadm;Cajeroadm;2
+Paula;Paula Tinarelli;true;Adm;Administrador;1
+Paula;Paula Tinarelli;true;Adm;Administrador;2
+Paula;Paula Tinarelli;true;Adm;Administrador;3
+Paula;Paula Tinarelli;true;Adm;Administrador;4
+Paula;Paula Tinarelli;true;Adm;Administrador;5
+Paula;Paula Tinarelli;true;Adm;Administrador;7
+Paula;Paula Tinarelli;true;Adm;Administrador;8
+Paula;Paula Tinarelli;true;Adm;Administrador;9
+Paula;Paula Tinarelli;true;Adm;Administrador;10
+Paula;Paula Tinarelli;true;Cajero;Cajero;4
+Paula;Paula Tinarelli;true;Oficina;Oficina;1
+Paula;Paula Tinarelli;true;Oficina;Oficina;2
+Paula;Paula Tinarelli;true;Oficina;Oficina;3
+Paula;Paula Tinarelli;true;Oficina;Oficina;4
+Paula;Paula Tinarelli;true;Oficina;Oficina;5
+Paula;Paula Tinarelli;true;Oficina;Oficina;6
+Paula;Paula Tinarelli;true;Oficina;Oficina;7
+Paula;Paula Tinarelli;true;Oficina;Oficina;8
+Paula;Paula Tinarelli;true;Oficina;Oficina;9
+Paula;Paula Tinarelli;true;Oficina;Oficina;10
+Paula;Paula Tinarelli;true;Oficina;Oficina;11
+paulina;Paulina Cano;true;Oficina;Oficina;1
+paulina;Paulina Cano;true;Oficina;Oficina;2
+paulina;Paulina Cano;true;Oficina;Oficina;3
+paulina;Paulina Cano;true;Oficina;Oficina;4
+paulina;Paulina Cano;true;Oficina;Oficina;5
+paulina;Paulina Cano;true;Oficina;Oficina;6
+paulina;Paulina Cano;true;Oficina;Oficina;7
+paulina;Paulina Cano;true;Oficina;Oficina;8
+paulina;Paulina Cano;true;Oficina;Oficina;9
+paulina;Paulina Cano;true;Oficina;Oficina;10
+Roman;Roman Araudo;true;Cajero;Cajero;2
+Roman;Roman Araudo;true;Cajero;Cajero;3
+Roman;Roman Araudo;true;Cajero;Cajero;4
+Roman;Roman Araudo;true;Cajero;Cajero;5
+Silvana;Silvana Suarez;true;Cajeroadm;Cajeroadm;5
+Silvana;Silvana Suarez;true;Oficina;Oficina;1
+Silvana;Silvana Suarez;true;Oficina;Oficina;2
+Silvana;Silvana Suarez;true;Oficina;Oficina;3
+Silvana;Silvana Suarez;true;Oficina;Oficina;4
+Silvana;Silvana Suarez;true;Oficina;Oficina;5
+Silvana;Silvana Suarez;true;Oficina;Oficina;6
+Silvana;Silvana Suarez;true;Oficina;Oficina;7
+Silvana;Silvana Suarez;true;Oficina;Oficina;8
+Silvana;Silvana Suarez;true;Oficina;Oficina;9
+Silvana;Silvana Suarez;true;Oficina;Oficina;10
+Silvana;Silvana Suarez;true;Oficina;Oficina;11
+Tatiana;Tatiana Rodriguez;true;Cajero;Cajero;7
+Tatiana;Tatiana Rodriguez;true;Cajeroadm;Cajeroadm;7

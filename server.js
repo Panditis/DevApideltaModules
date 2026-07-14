@@ -1535,7 +1535,27 @@ const DISTRIB_LISTAS_PATH  = path.join(DATA_DIR, 'distribucion_listas.json');
 const PESABLES_LISTAS_PATH = path.join(DATA_DIR, 'pesables_listas.json');
 const ENVIOS_MANUALES_PATH = path.join(DATA_DIR, 'envios_manuales.json');
 // IdSucursal Siga → clave de stock del motor (6=Savio no se usa en Almacen). VERIFICAR con /api/distribucion/sucursales.
-const DISTRIB_SUC_MAP = { 1:'central', 2:'urq', 3:'nacion', 4:'chaca', 5:'riv', 7:'sanpedro', 8:'sucu8', 9:'sucu9', 10:'pergamino', 11:'sucu11' };
+const DISTRIB_SUC_MAP = { 2:'urq', 3:'nacion', 4:'chaca', 5:'riv', 7:'sanpedro', 8:'sucu8', 9:'sucu9', 10:'pergamino', 11:'sucu11' };   // central resuelta por idCentral (config)
+// Peso de la presentación (bolsa) en kg. Prioridad: (1) marcador "por kilo"/"x kg" → 1kg suelto
+// (gana aunque el nombre tenga un número de bulto, ej "10Kg (Por Kilo)"); (2) último token de peso
+// del nombre (250G→0.25, 1Kg→1, 500Gr→0.5); (3) cantFormula del componente; (4) 1kg.
+function pesoPresentacionKg(nombre, cantFormula) {
+  const n = String(nombre || '');
+  if (/(por\s*kilo|x\s*kilo|x\s*kg|precio\s*x\s*kilo|por\s*kg)\b/i.test(n)) return 1;
+  const re = /(\d+(?:[.,]\d+)?)\s*(kgs?|gramos|grs?|gr|g)\b/gi;
+  let m, last = null;
+  while ((m = re.exec(n)) !== null) last = m;
+  if (last) {
+    const val = parseFloat(last[1].replace(',', '.'));
+    const u = last[2].toLowerCase();
+    if (val > 0) {
+      const kg = (u === 'kg' || u === 'kgs') ? val : val / 1000;   // g/gr/grs/gramos → kg
+      if (kg > 0) return Math.round(kg * 1000) / 1000;
+    }
+  }
+  const cf = Number(cantFormula);
+  return (cf > 0) ? cf : 1;
+}
 function sqlStockDistribucion(plus) {
   const inList = plus.map(p => `'${p}'`).join(',');   // IdProducto es varchar en Siga → citar
   return `SELECT pd.IdSucursal, pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
@@ -1550,9 +1570,13 @@ async function calcularDistribucionAlmacen() {
   const a8020  = leerJSON(A8020_PATH, {});
   const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
   const empujePresencia = (distCfg.empujeDeposito || {}).presencia || 0;
+  const empujePresenciaFactorS = (distCfg.empujeDeposito || {}).presenciaFactorS || 2;
+  const presenciaPorClase = (distCfg.empujeDeposito || {}).presenciaPorClase || null;   // { A, B, C } → presencia según ABC; si falta, usa presencia plana
   const importanciaCfg = distCfg.importancia || {};
   const umbralMicroEnvio = distCfg.umbralMicroEnvio || { tramos: [{ hastaS: null, pct: 0.20 }], pisoAbsoluto: 1 };
-  const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
+  const a8020Calc = leerJSON(A8020_CALC_PATH, {}) || {};
+  const impViva = a8020Calc.impFacturacion || {};
+  const abcPorPlu = a8020Calc.abc || {};   // clase ABC por PLU (para presencia escalada por importancia)
   const ed = leerListasDistrib();
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
@@ -1583,9 +1607,10 @@ async function calcularDistribucionAlmacen() {
     .map(([plu]) => plu));
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const rubroMapA = new Map(nombres.map(r => [String(r.IdProducto), r.NombreRubro || '']));
+  const idCentralA = distCfg.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
   const stocks = new Map();
   for (const r of stockRows) {
-    const key = DISTRIB_SUC_MAP[r.IdSucursal]; if (!key) continue;
+    const key = r.IdSucursal === idCentralA ? 'central' : DISTRIB_SUC_MAP[r.IdSucursal]; if (!key) continue;
     const plu = String(r.IdProducto);
     if (!stocks.has(plu)) stocks.set(plu, {});
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
@@ -1602,7 +1627,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
@@ -1643,11 +1668,16 @@ async function calcularDistribucionAlmacen() {
     const stkSuc = { riv: rawStk.riv||0, urq: rawStk.urq||0, nacion: rawStk.nacion||0,
       chaca: rawStk.chaca||0, pergamino: rawStk.pergamino||0,
       sanPedro: rawStk.sanpedro||0, sucursal9: rawStk.sucu9||0 };
+    const mnA = f.mins || {}, slA = f.sLevels || {};
+    const minSuc = { riv: mnA.riv||0, urq: mnA.urq||0, nacion: mnA.nacion||0, chaca: mnA.chaca||0,
+      pergamino: mnA.pergamino||0, sanPedro: mnA.sanpedro||0, sucursal9: mnA.sucu9||0 };
+    const sSuc = { riv: slA.riv||0, urq: slA.urq||0, nacion: slA.nacion||0, chaca: slA.chaca||0,
+      pergamino: slA.pergamino||0, sanPedro: slA.sanpedro||0, sucursal9: slA.sucu9||0 };
     const esNuevo = esNuevoSet.has(String(f.plu));
     const impNorm = esNuevo ? (pisoImportancia + f.impNorm) : f.impNorm;
     const primera = primeraCompraMap.get(String(f.plu));
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapA.get(String(f.plu)) || '', central: f.central,
-      enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm, meses: f.meses, stkSuc,
+      enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm, meses: f.meses, stkSuc, minSuc, sSuc,
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
   });
 }
@@ -1661,7 +1691,7 @@ app.get('/api/distribucion/sucursales', apiRoute(async () =>
 
 // ── Distribución de pesables/granel (réplica hoja "Pesables") ───────────────────
 // IdSucursal Siga → clave motor pesables. Logia(8) SÍ se reparte en pesables; Savio(6) no.
-const PES_SUC_MAP = { 1:'central', 5:'riv', 2:'urq', 3:'nacion', 4:'chaca', 10:'pergamino', 7:'sanpedro', 8:'logia', 9:'ramallo', 11:'sucu11' };
+const PES_SUC_MAP = { 5:'riv', 2:'urq', 3:'nacion', 4:'chaca', 10:'pergamino', 7:'sanpedro', 8:'logia', 9:'ramallo', 11:'sucu11' };   // central resuelta por idCentral (config)
 async function calcularDistribucionPesables(aplicarOcultar = true) {
   const a8020   = leerJSON(A8020_PATH, {});
   const pesLis  = leerJSON(PESABLES_LISTAS_PATH, {});
@@ -1709,9 +1739,10 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     .map(([plu]) => plu));
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const granelMap = new Map(granelRows.map(r => [String(r.IdProducto), parseFloat(r.Stock || 0)]));
+  const idCentralP = distCfgP.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
   const stocks = new Map();
   for (const r of stockRows) {
-    const key = PES_SUC_MAP[r.IdSucursal]; if (!key) continue;
+    const key = r.IdSucursal === idCentralP ? 'central' : PES_SUC_MAP[r.IdSucursal]; if (!key) continue;
     const plu = String(r.IdProducto);
     if (!stocks.has(plu)) stocks.set(plu, {});
     const s = stocks.get(plu); s[key] = (s[key] || 0) + parseFloat(r.Stock || 0);
@@ -1724,8 +1755,14 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     return { plu, stocks: st };
   });
   const pesParams = leerJSON(PESABLES_PARAMS_PATH, {});   // pesos de prioridad editables (opcional)
+  const empPes = distCfgP.empujeDepositoPesables || {};
+  const abcPorPluP = (leerJSON(A8020_CALC_PATH, {}) || {}).abc || {};   // clase ABC por PLU (presencia escalada)
+  const presPorPlu = {};
+  for (const plu of plus) presPorPlu[String(plu)] = pesoPresentacionKg(nombreMap.get(String(plu)) || '', (formulas[String(plu)] || {}).cantFormula);
   const filas = calcularPesables(productos, a8020, pesLis, distLis,
-    { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap });
+    { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap,
+      empujePresencia: empPes.presencia, empujePresenciaFactorS: empPes.presenciaFactorS,
+      presenciaPorClase: empPes.presenciaPorClase, presenciaPorPresentacion: empPes.presenciaPorPresentacion, abcPorPlu: abcPorPluP, presPorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
     if (f.enviar[k] !== undefined && set.has(Number(f.plu))) f.enviar[k] = 'Fact';
@@ -1744,7 +1781,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapP.get(String(f.plu)) || '',
       granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
       cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
-      peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG,
+      peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG, mins: f.mins, sLev: f.sLev,
       J: f.J, D: f.D, G: f.G, BL: f.BL, prioridad, prioridadSala,
       granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
@@ -1992,7 +2029,7 @@ function sqlVentasStats(idList, meses) {   // μ,σ: agrega a día, luego Σq y 
     FROM VentasProductos vp ${_ventasJoin}
     WHERE ${_ventasWhere(idList, meses)}
     GROUP BY v.IdSucursal, vp.IdProducto, CAST(v.Fecha AS DATE))
-  SELECT IdSucursal, IdProducto, COUNT(*) AS DiasConVenta, SUM(QDia) AS SumQ, SUM(QDia*QDia) AS SumQ2
+  SELECT IdSucursal, IdProducto, COUNT(*) AS DiasConVenta, MIN(Dia) AS PrimeraVenta, SUM(QDia) AS SumQ, SUM(QDia*QDia) AS SumQ2
   FROM vd GROUP BY IdSucursal, IdProducto`;
 }
 function sqlDiasOperativos(idList, meses) {   // días con algún comprobante por sucursal (denominador N)
@@ -2039,41 +2076,76 @@ async function recalcularA8020() {
   }
   const sucById = {};
   for (const [key, c] of Object.entries(sucs)) sucById[c.idSucursal] = key;
-  const statRows = stats.map(r => ({ idSucursal: r.IdSucursal, plu: r.IdProducto,
-    sumQ: Number(r.SumQ) || 0, sumQ2: Number(r.SumQ2) || 0, dcv: Number(r.DiasConVenta) || 0 }));
+  // Denominador 'desde_alta': días operativos de la sucursal escalados a la fracción de ventana en que el
+  // producto ya existía (desde su 1ª venta). Maduros → fracción≈1 → ≈ operativos; nuevos → dividido por su vida real.
+  const denomMode = (config.demanda || {}).denominador || 'operativos';
+  const MS_DIA = 86400000;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const winStart = new Date(hoy); winStart.setMonth(winStart.getMonth() - meses);
+  const winDias = Math.max(1, Math.round((hoy - winStart) / MS_DIA));
+  const statRows = stats.map(r => {
+    const dcv = Number(r.DiasConVenta) || 0;
+    const row = { idSucursal: r.IdSucursal, plu: r.IdProducto,
+      sumQ: Number(r.SumQ) || 0, sumQ2: Number(r.SumQ2) || 0, dcv,
+      opsEff: opsDays[r.IdSucursal] || 0 };
+    if (denomMode === 'desde_alta' && r.PrimeraVenta) {
+      const pv = new Date(r.PrimeraVenta); pv.setHours(0, 0, 0, 0);
+      const ini = pv < winStart ? winStart : pv;
+      const frac = Math.min(1, Math.max(1, Math.round((hoy - ini) / MS_DIA)) / winDias);
+      // opsEff nunca por debajo de dcv: los días-con-venta son subconjunto de los operativos. En sucursales
+      // nuevas (opsDays chico) la fracción-calendario subestima y dispara μ→∞, σ→0; el piso en dcv lo corrige.
+      row.opsEff = Math.max(dcv, 1, Math.round((opsDays[r.IdSucursal] || 0) * frac));
+    }
+    return row;
+  });
   const dcvMap = {};
   for (const r of stats) {
     if (!dcvMap[r.IdSucursal]) dcvMap[r.IdSucursal] = {};
     dcvMap[r.IdSucursal][r.IdProducto] = Number(r.DiasConVenta) || 0;
   }
-  const pesablesSet = new Set(Object.keys(pesLis.productosPesables || {}).map(Number));
-  // Universo almacén: habilita bootstrap por rubro y clasificación Nuevo/F también en almacén (no sólo pesables).
-  const distLis = leerJSON(DISTRIB_LISTAS_PATH, {});
   const edAlm = leerListasDistrib();
-  const almacenSet = new Set(universoLista(Object.keys(distLis.productosAlmacen || {}), edAlm.siempreAlmacen, edAlm.noEnvasa).map(Number));
-  const bootstrapSet = new Set([...pesablesSet, ...almacenSet]);
+  // Universo bootstrap = TODOS los productos activos de Siga (cualquier rubro), en vivo.
+  // Antes se derivaba de archivos estáticos (distribucion_listas/pesables_listas): productos nuevos o
+  // sin ventas en la ventana quedaban invisibles en a8020 aunque distribución sí los mostrara (p.ej. PLU 5738,
+  // rubro Almacen sin ventas + ausente del snapshot viejo → no aparecía ni recalculando).
+  const activosRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
+    FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro
+    WHERE p.Activo=1`);
+  const rubroActivo = {};   // plu → rubro Siga (semilla de rubroDePlu; evita re-consultar todo el universo)
+  for (const r of activosRows) rubroActivo[String(r.IdProducto)] = r.NombreRubro || null;
+  // Pesables (para decimales fraccionarios en min/S): rubro 'Pesables Fraccionado' en vivo + lista manual siemprePesable.
+  const pesablesSet = new Set([
+    ...activosRows.filter(r => r.NombreRubro === 'Pesables Fraccionado').map(r => Number(r.IdProducto)),
+    ...(edAlm.siemprePesable || []).map(Number),
+  ]);
+  const bootstrapSet = new Set(activosRows.map(r => Number(r.IdProducto)));
   const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
   const ranking = calcularRankingPorSucursal(metricPorSuc, sucById);
   const rankingGeneral = calcularRankingGlobal(metricByPlu);   // importancia general del producto (0-1, todo el catálogo, sin distinguir sucursal)
 
+  // Índice de crudos por (idSucursal, plu) para exponer volumen/denominador en el detalle (diagnóstico).
+  const statIdx = {};
+  for (const r of statRows) (statIdx[r.idSucursal] = statIdx[r.idSucursal] || {})[r.plu] = r;
   const mins = {}, sLevels = {}, detalle = {};
   for (const f of filas) {
     (mins[f.plu] = mins[f.plu] || {})[f.sucursal] = f.min;
     (sLevels[f.plu] = sLevels[f.plu] || {})[f.sucursal] = f.S;
     const rk = (ranking[f.sucursal] || {})[String(f.plu)];
+    const sr = (statIdx[f.idSucursal] || {})[f.plu];
     (detalle[f.plu] = detalle[f.plu] || {})[f.sucursal] =
       { mu: Math.round(f.mu * 1000) / 1000, sigma: Math.round(f.sigma * 1000) / 1000, S: f.S, min: f.min,
         ...(rk != null ? { ranking: rk } : {}),
+        ...(sr ? { sumQ: sr.sumQ, dcv: sr.dcv, opsEff: sr.opsEff } : {}),
         ...(f.propBase ? { propBase: f.propBase, propSoloBase: !!f.propSoloBase } : {}) };
   }
   // ── Bootstrap: PLUs pesables sin historial → interpola μ/σ por rubro ─────────
   const prodPesInfo = pesLis.productosPesables || {};
   // Rubro por producto (desde Siga) → habilita el promedio-por-rubro también en ALMACÉN, no sólo pesables.
-  const rubroDePlu = {};
-  // Incluye el universo bootstrap (almacén+pesables sin ventas) para resolver su rubro y poder promediar.
-  const plusRubro = [...new Set([...filas.map(f => String(f.plu)), ...[...bootstrapSet].map(String)])];
-  if (plusRubro.length) {
-    const inL = plusRubro.map(p => `'${p}'`).join(',');
+  const rubroDePlu = { ...rubroActivo };   // ya trae el rubro de TODO el universo activo (una sola query arriba)
+  // Sólo falta el rubro de PLUs con ventas pero inactivos (no vienen en activosRows): consulta acotada.
+  const plusRubroFaltante = [...new Set(filas.map(f => String(f.plu)))].filter(p => !(p in rubroDePlu));
+  if (plusRubroFaltante.length) {
+    const inL = plusRubroFaltante.map(p => `'${p}'`).join(',');
     const rr = await query(`SELECT p.IdProducto, r.NombreRubro FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro WHERE p.IdProducto IN (${inL})`);
     for (const x of rr) rubroDePlu[String(x.IdProducto)] = x.NombreRubro || null;
   }
