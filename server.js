@@ -14,6 +14,8 @@ const multer   = require('multer');
 const XLSX     = require('xlsx');
 const { calcularAlmacen, pisoMinimo } = require('./distribucion');
 const comprasModulo = require('./compras_modulo');
+const preciosProv = require('./precios_proveedores');
+const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 
@@ -3358,6 +3360,91 @@ app.post('/api/stock/movimiento', apiRoute(async req => {
     idTipoMovimiento, idProducto, usuario, observacion
   });
   return { ok: true, numeroMovimiento: numero, idTipoMovimiento, idSucursal };
+}));
+
+// ── Precios de Proveedores ─────────────────────────────────────────────────────
+const PRECIOS_PROV_PATH = path.join(DATA_DIR, 'precios_proveedores.json');
+const PRECIOS_PROV_DEF = { toleranciaPct: 2, proveedores: [] };
+function leerPreciosProv() { return leerJSON(PRECIOS_PROV_PATH, PRECIOS_PROV_DEF); }
+function guardarPreciosProv(d) { guardarJSON(PRECIOS_PROV_PATH, d); }
+
+// Universo paraCompra (EsDeCompras=1, Activo=1) + costo actual de la central + código de barras.
+async function universoParaCompra() {
+  const rows = await query(`
+    SELECT p.IdProducto, p.NombreProducto, p.CodigoDeBarras,
+           CAST(ps.PrecioCosto AS FLOAT) AS PrecioCosto
+    FROM Productos p
+    LEFT JOIN ProductosSucursales ps ON ps.IdProducto = p.IdProducto
+      AND ps.IdSucursal = (SELECT MIN(IdSucursal) FROM Sucursales WHERE SoyLaCentral = 1)
+    WHERE p.EsDeCompras = 1 AND p.Activo = 1`);
+  return rows.map(r => ({
+    plu: String(r.IdProducto), nombre: r.NombreProducto,
+    barras: String(r.CodigoDeBarras || '').trim(),
+    costo: r.PrecioCosto != null ? +r.PrecioCosto : null,
+  }));
+}
+
+// plu → { proveedor, precio, fecha } del proveedor con última fecha de compra.
+async function ultimoProveedorPorProducto() {
+  const rows = await query(`
+    SELECT pp.IdProducto, pv.NombreProveedor, CAST(pp.UltimoPrecioCompra AS FLOAT) AS Precio,
+           CONVERT(varchar(10), pp.UltimaFechaCompra, 23) AS Fecha
+    FROM ProductosProveedores pp
+    JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
+    WHERE pp.UltimaFechaCompra IS NOT NULL
+    ORDER BY pp.IdProducto, pp.UltimaFechaCompra DESC`);
+  const map = new Map();
+  for (const r of rows) {
+    const id = String(r.IdProducto);
+    if (!map.has(id)) map.set(id, { proveedor: r.NombreProveedor, precio: r.Precio, fecha: r.Fecha });
+  }
+  return map;
+}
+
+// plu → [{proveedor, fecha (última), precio (de la última compra), cantidad (total)}] del año en curso.
+async function historialComprasAnio() {
+  const inicio = `${new Date().getFullYear()}-01-01`;
+  const rows = await query(`
+    SELECT cp.IdProducto, pv.NombreProveedor,
+           CONVERT(varchar(10), c.Fecha, 23) AS Fecha,
+           CAST(cp.Precio AS FLOAT) AS Precio, CAST(cp.Cantidad AS FLOAT) AS Cantidad
+    FROM ComprasProductos cp
+    JOIN Compras c ON c.IdSucursal = cp.IdSucursal AND c.IdTipoComprobante = cp.IdTipoComprobante
+      AND c.Letra = cp.Letra AND c.CentroEmisor = cp.CentroEmisor AND c.NumeroComprobante = cp.NumeroComprobante
+    JOIN Proveedores pv ON pv.IdProveedor = c.IdProveedor
+    WHERE c.Fecha >= '${inicio}'
+    ORDER BY cp.IdProducto, c.Fecha DESC`);
+  const map = new Map();
+  for (const r of rows) {
+    const id = String(r.IdProducto);
+    if (!map.has(id)) map.set(id, new Map());
+    const prov = map.get(id);
+    if (!prov.has(r.NombreProveedor)) {
+      prov.set(r.NombreProveedor, { proveedor: r.NombreProveedor, fecha: r.Fecha, precio: r.Precio, cantidad: r.Cantidad || 0 });
+    } else {
+      prov.get(r.NombreProveedor).cantidad += r.Cantidad || 0;
+    }
+  }
+  const out = new Map();
+  for (const [id, provs] of map) out.set(id, [...provs.values()]);
+  return out;
+}
+
+app.get('/precios-proveedores', (_req, res) => res.sendFile(path.join(__dirname, 'precios_proveedores.html')));
+
+app.get('/api/precios-proveedores/listado', apiRoute(async () => {
+  const [universo, ultimo, historial] = await Promise.all([
+    universoParaCompra(), ultimoProveedorPorProducto(), historialComprasAnio(),
+  ]);
+  const productos = universo.map(p => {
+    const u = ultimo.get(p.plu) || {};
+    return {
+      plu: p.plu, nombre: p.nombre, costo: p.costo,
+      ultimoProveedor: u.proveedor || null, ultimoPrecio: u.precio || null, ultimaFecha: u.fecha || null,
+      proveedoresAnio: historial.get(p.plu) || [],
+    };
+  });
+  return { productos, total: productos.length, fechaCalculo: new Date().toISOString() };
 }));
 
 // ── Inicio ─────────────────────────────────────────────────────────────────────
