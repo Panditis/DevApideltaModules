@@ -270,9 +270,12 @@ async function buscarProvSiga(q) {
   if (q.trim().length < 2) { $('#resultProv').innerHTML = ''; return; }
   try {
     const r = await api(`/api/precios-proveedores/proveedores-siga?q=${encodeURIComponent(q.trim())}`);
-    $('#resultProv').innerHTML = r.proveedores.map(p =>
-      `<div onclick="agregarProveedor(${p.idProveedorSiga}, '${esc(p.nombre).replace(/'/g, '&#39;')}')">${esc(p.nombre)} <span class="badge badge-gris">#${p.idProveedorSiga}</span></div>`
+    const cont = $('#resultProv');
+    cont.innerHTML = r.proveedores.map(p =>
+      `<div data-id-siga="${p.idProveedorSiga}" data-nombre="${esc(p.nombre)}">${esc(p.nombre)} <span class="badge badge-gris">#${p.idProveedorSiga}</span></div>`
     ).join('') || '<div style="color:var(--gris-500)">Sin resultados</div>';
+    cont.querySelectorAll('div[data-id-siga]').forEach(el => el.addEventListener('click', () =>
+      agregarProveedor(Number(el.dataset.idSiga), el.dataset.nombre)));
   } catch (e) { banner(e.message); }
 }
 
@@ -352,7 +355,7 @@ function renderRevision() {
       <td><input class="input" style="width:100%" value="${esc(it.descripcion)}" onchange="REV.items[${i}].descripcion=this.value"></td>
       <td class="num"><input class="input" style="width:90px;text-align:right" value="${it.precio ?? ''}" onchange="REV.items[${i}].precio=parseFloat(this.value.replace(',', '.'))"></td>
       <td><input class="input" list="catalogoSiga" style="width:100%" value="${esc(it.plu || '')}" placeholder="PLU o buscar…"
-        onchange="asignarPlu(${i}, this.value)">${it.matchTipo ? `<span class="badge badge-verde">${it.matchTipo}${it.matchTipo === 'nombre' ? ' ' + Math.round(it.matchScore * 100) + '%' : ''}</span>` : ''}</td>
+        onchange="asignarPlu(${i}, this.value)">${it.matchTipo ? `<span class="badge badge-verde">${esc(it.matchTipo)}${it.matchTipo === 'nombre' ? ' ' + Math.round(it.matchScore * 100) + '%' : ''}</span>` : ''}</td>
       <td><button class="btn btn-ghost btn-sm" onclick="REV.items.splice(${i},1);renderRevision()" title="Quitar fila">✕</button></td>
     </tr>`;
   }).join('');

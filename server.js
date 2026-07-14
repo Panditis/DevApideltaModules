@@ -3493,13 +3493,46 @@ async function contextoMatching(idProveedorSiga, matcheosManuales) {
   return { matcheosManuales: matcheosManuales || {}, codigosProveedor, barras, catalogo };
 }
 
-// Solo http/https públicas — bloquea localhost y rangos privados (SSRF).
+const IPV4_PRIVADA = /^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^0\.|^169\.254\./;
+
+// "::ffff:7f00:1" (forma que usa el parser URL de Node) → "127.0.0.1", o null si no matchea.
+function ipv4DesdeMapeadaV6(h) {
+  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(h);
+  if (!m) return null;
+  const hi = parseInt(m[1], 16), lo = parseInt(m[2], 16);
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
+// Solo http/https públicas — bloquea localhost, rangos privados IPv4/IPv6 y metadata de nube (SSRF).
 function urlPermitida(u) {
   let parsed;
   try { parsed = new URL(String(u)); } catch { return false; }
   if (!/^https?:$/.test(parsed.protocol)) return false;
-  const h = parsed.hostname;
-  return !(h === 'localhost' || /^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^0\.|^\[?::1/.test(h));
+  let h = parsed.hostname.toLowerCase();
+  if (h === 'localhost') return false;
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1); // literal IPv6
+  if (IPV4_PRIVADA.test(h)) return false;
+  const v4Mapeada = ipv4DesdeMapeadaV6(h);
+  if (v4Mapeada && IPV4_PRIVADA.test(v4Mapeada)) return false;
+  if (h === '::1' || h === '::' || /^fe80:/.test(h) || /^f[cd][0-9a-f]{2}:/.test(h)) return false; // loopback/link-local/ULA IPv6
+  return true;
+}
+
+// fetch con seguimiento manual de redirects, revalidando cada salto contra urlPermitida (evita bypass de SSRF vía 3xx).
+async function fetchConRedirectSeguro(url, opts, maxRedirects = 3) {
+  let actual = url;
+  for (let i = 0; i <= maxRedirects; i++) {
+    if (!urlPermitida(actual)) throw new Error('Redirect hacia una URL no permitida');
+    const resp = await fetch(actual, { ...opts, redirect: 'manual' });
+    if ([301, 302, 303, 307, 308].includes(resp.status)) {
+      const loc = resp.headers.get('location');
+      if (!loc) throw new Error('Redirect sin encabezado Location');
+      actual = new URL(loc, actual).toString();
+      continue;
+    }
+    return resp;
+  }
+  throw new Error('Demasiados redirects');
 }
 
 const uploadPreciosPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -3532,7 +3565,7 @@ app.post('/api/precios-proveedores/parse-url', async (req, res) => {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 15000);
-      const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (ApideltaSubSystem)' } });
+      const resp = await fetchConRedirectSeguro(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (ApideltaSubSystem)' } });
       clearTimeout(t);
       if (!resp.ok) return res.status(422).json({ error: `La página respondió ${resp.status}` });
       html = await resp.text();
@@ -3543,6 +3576,8 @@ app.post('/api/precios-proveedores/parse-url', async (req, res) => {
     res.json({ items: preciosProv.matchearItems(items, ctx), descartadas });
   } catch (err) { console.error(err.message); res.status(500).json({ error: err.message }); }
 });
+
+const MATCH_TIPOS_VALIDOS = new Set(['manual', 'codigo', 'barras', 'nombre']);
 
 app.put('/api/precios-proveedores/proveedores/:id/lista', apiRoute(async (req) => {
   const { origen, items, matcheosManuales } = req.body || {};
@@ -3555,7 +3590,7 @@ app.put('/api/precios-proveedores/proveedores/:id/lista', apiRoute(async (req) =
     return {
       codigoProveedor: String(it.codigoProveedor || ''), descripcion: String(it.descripcion),
       precio, plu: it.plu != null && it.plu !== '' ? String(it.plu) : null,
-      matchTipo: it.matchTipo || null, matchScore: Number(it.matchScore) || 0,
+      matchTipo: MATCH_TIPOS_VALIDOS.has(it.matchTipo) ? it.matchTipo : null, matchScore: Number(it.matchScore) || 0,
     };
   });
   const data = leerPreciosProv();
