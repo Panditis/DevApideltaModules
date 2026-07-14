@@ -90,4 +90,43 @@ function parsearHtml(html) {
   return { items, descartadas };
 }
 
-module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml };
+// minúsculas, sin acentos, sin símbolos — para comparar nombres.
+function normalizarNombre(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Solapamiento de tokens: intersección / máx(|a|,|b|). 0..1.
+function scoreNombre(a, b) {
+  const ta = new Set(normalizarNombre(a).split(' ').filter(Boolean));
+  const tb = new Set(normalizarNombre(b).split(' ').filter(Boolean));
+  if (!ta.size || !tb.size) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  return inter / Math.max(ta.size, tb.size);
+}
+
+// Resuelve plu por: 1) matcheo manual, 2) código de proveedor SIGA, 3) código de barras,
+// 4) nombre (score >= UMBRAL_NOMBRE). Sin match → plu null.
+// ctx: { matcheosManuales: {cod→plu}, codigosProveedor: Map, barras: Map, catalogo: [{plu, nombre}] }
+function matchearItems(items, ctx = {}) {
+  const manuales = ctx.matcheosManuales || {};
+  const codigos = ctx.codigosProveedor instanceof Map ? ctx.codigosProveedor : new Map(Object.entries(ctx.codigosProveedor || {}));
+  const barras = ctx.barras instanceof Map ? ctx.barras : new Map(Object.entries(ctx.barras || {}));
+  const catalogo = Array.isArray(ctx.catalogo) ? ctx.catalogo : [];
+  return (Array.isArray(items) ? items : []).map(it => {
+    const cod = String(it.codigoProveedor || '');
+    if (cod && manuales[cod]) return { ...it, plu: String(manuales[cod]), matchTipo: 'manual', matchScore: 1 };
+    if (cod && codigos.has(cod)) return { ...it, plu: String(codigos.get(cod)), matchTipo: 'codigo', matchScore: 1 };
+    if (/^\d{8,14}$/.test(cod) && barras.has(cod)) return { ...it, plu: String(barras.get(cod)), matchTipo: 'barras', matchScore: 1 };
+    let mejor = null, mejorScore = 0;
+    for (const p of catalogo) {
+      const s = scoreNombre(it.descripcion, p.nombre);
+      if (s > mejorScore) { mejorScore = s; mejor = p; }
+    }
+    if (mejor && mejorScore >= UMBRAL_NOMBRE) return { ...it, plu: String(mejor.plu), matchTipo: 'nombre', matchScore: +mejorScore.toFixed(2) };
+    return { ...it, plu: null, matchTipo: null, matchScore: 0 };
+  });
+}
+
+module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml, normalizarNombre, scoreNombre, matchearItems };

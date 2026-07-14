@@ -52,3 +52,30 @@ test('parsearHtml sin tablas devuelve vacío', () => {
   const r = parsearHtml('<html><body><p>Sin tablas acá</p></body></html>');
   assert.strictEqual(r.items.length, 0);
 });
+
+const { matchearItems, scoreNombre, normalizarNombre } = require('../precios_proveedores');
+
+test('normalizarNombre saca acentos y símbolos', () => {
+  assert.strictEqual(normalizarNombre('Almendra Ñandú x 1kg (Prem.)'), 'almendra nandu x 1kg prem');
+});
+
+test('matchearItems prioriza manual > codigo > barras > nombre', () => {
+  const items = [
+    { codigoProveedor: 'A1', descripcion: 'Cualquiera', precio: 10 },
+    { codigoProveedor: 'B2', descripcion: 'Otra cosa', precio: 20 },
+    { codigoProveedor: '7791234567890', descripcion: 'Con barras', precio: 30 },
+    { codigoProveedor: '', descripcion: 'Almendras Nonpareil 1kg', precio: 40 },
+    { codigoProveedor: '', descripcion: 'Producto desconocido xyz', precio: 50 },
+  ];
+  const ctx = {
+    matcheosManuales: { A1: '100' },
+    codigosProveedor: new Map([['A1', '999'], ['B2', '200']]),
+    barras: new Map([['7791234567890', '300']]),
+    catalogo: [{ plu: '400', nombre: 'Almendras Nonpareil x 1kg' }, { plu: '500', nombre: 'Miel pura' }],
+  };
+  const r = matchearItems(items, ctx);
+  assert.deepStrictEqual(r.map(x => [x.plu, x.matchTipo]), [
+    ['100', 'manual'], ['200', 'codigo'], ['300', 'barras'], ['400', 'nombre'], [null, null],
+  ]);
+  assert.ok(r[3].matchScore >= 0.6);
+});
