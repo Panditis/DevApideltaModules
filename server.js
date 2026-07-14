@@ -3402,6 +3402,9 @@ async function ultimoProveedorPorProducto() {
 }
 
 // plu → [{proveedor, fecha (última), precio (de la última compra), cantidad (total)}] del año en curso.
+// Excluye COTIZACIONCOM/etc.: en SIGA las cotizaciones de compra no llevan NumeroComprobante único
+// (mismo IdSucursal/Letra/CentroEmisor/Numero se repite en decenas de cotizaciones distintas), lo que
+// multiplicaba el JOIN y devolvía cientos de "proveedores" falsos por producto.
 async function historialComprasAnio() {
   const inicio = `${new Date().getFullYear()}-01-01`;
   const rows = await query(`
@@ -3412,7 +3415,7 @@ async function historialComprasAnio() {
     JOIN Compras c ON c.IdSucursal = cp.IdSucursal AND c.IdTipoComprobante = cp.IdTipoComprobante
       AND c.Letra = cp.Letra AND c.CentroEmisor = cp.CentroEmisor AND c.NumeroComprobante = cp.NumeroComprobante
     JOIN Proveedores pv ON pv.IdProveedor = c.IdProveedor
-    WHERE c.Fecha >= '${inicio}'
+    WHERE c.Fecha >= '${inicio}' AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
     ORDER BY cp.IdProducto, c.Fecha DESC`);
   const map = new Map();
   for (const r of rows) {
