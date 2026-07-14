@@ -50,8 +50,6 @@ th{position:sticky;top:0;background:var(--verde-600);color:#fff;text-align:left;
 th.num,td.num{text-align:right}
 td{padding:7px 10px;border-bottom:1px solid var(--gris-100);vertical-align:middle}
 tbody tr:hover{background:var(--gris-50)}
-tr.expandida>td{background:var(--amarillo-100)}
-tr.detalle td{background:#fffef2;font-size:13px;color:var(--gris-600);padding-left:28px}
 .sem{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
 .sem-verde{background:var(--verde-500)}.sem-amarillo{background:var(--amarillo-500)}.sem-rojo{background:var(--rojo-500)}
 .delta-verde{color:var(--verde-600);font-weight:700}
@@ -121,6 +119,20 @@ h3.seccion{font-size:14px;color:var(--gris-600);margin:18px 0 8px}
   </div>
 </div>
 
+<!-- Modal proveedores por producto -->
+<div class="modal-bg" id="modalProvsProducto">
+  <div class="modal" style="width:min(640px,100%)">
+    <h2 id="provsProductoTitulo">Proveedores del año</h2>
+    <div class="cuerpo">
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Proveedor</th><th class="num">Precio</th><th>Últ. compra</th><th class="num">Cant. año</th></tr></thead>
+        <tbody id="provsProductoFilas"></tbody>
+      </table></div>
+    </div>
+    <div class="pie"><button class="btn btn-ghost" onclick="cerrarModales()">Cerrar</button></div>
+  </div>
+</div>
+
 <datalist id="catalogoSiga"></datalist>
 
 <script>
@@ -131,7 +143,6 @@ let CONFIG = { toleranciaPct: 2, proveedores: [] };
 let TAB = 'listado';     // 'listado' | id de proveedor
 let ORDEN = { col: 'nombre', asc: true };
 let FILTRO = '';
-let EXPANDIDAS = new Set();
 let REV = null;          // { provId, origen, items:[...] } durante revisión
 
 const $ = s => document.querySelector(s);
@@ -185,20 +196,14 @@ function renderListado() {
   const cuerpo = filas.map(p => {
     const nProv = p.proveedoresAnio.length;
     const badge = nProv > 1
-      ? `<span class="badge badge-amarillo" onclick="toggleExp('${p.plu}')">${nProv} prov.</span>`
+      ? `<span class="badge badge-amarillo" onclick="abrirProveedoresProducto('${p.plu}')">${nProv} prov.</span>`
       : '';
-    let html = `<tr class="${EXPANDIDAS.has(p.plu) ? 'expandida' : ''}">
+    return `<tr>
       <td>${esc(p.plu)}</td><td>${esc(p.nombre)} ${badge}</td>
       <td class="num">${fmt(p.costo)}</td>
       <td>${esc(p.ultimoProveedor || '—')}</td>
       <td class="num">${fmt(p.ultimoPrecio)}</td>
       <td>${esc(p.ultimaFecha || '—')}</td></tr>`;
-    if (EXPANDIDAS.has(p.plu) && nProv) {
-      html += p.proveedoresAnio.map(h => `<tr class="detalle"><td colspan="2">↳ ${esc(h.proveedor)}</td>
-        <td class="num">${fmt(h.precio)}</td><td>últ. compra ${esc(h.fecha)}</td>
-        <td class="num">${fmt(h.cantidad)}</td><td>cant. año</td></tr>`).join('');
-    }
-    return html;
   }).join('');
   cont.innerHTML = `<div class="card">
     <div class="toolbar">
@@ -220,7 +225,15 @@ function renderListado() {
   inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
 }
 
-function toggleExp(plu) { EXPANDIDAS.has(plu) ? EXPANDIDAS.delete(plu) : EXPANDIDAS.add(plu); renderListado(); }
+function abrirProveedoresProducto(plu) {
+  const p = LISTADO.find(x => x.plu === plu);
+  if (!p) return;
+  $('#provsProductoTitulo').textContent = `Proveedores del año — ${p.nombre} (${p.plu})`;
+  $('#provsProductoFilas').innerHTML = p.proveedoresAnio.map(h => `<tr>
+    <td>${esc(h.proveedor)}</td><td class="num">${fmt(h.precio)}</td>
+    <td>${esc(h.fecha)}</td><td class="num">${fmt(h.cantidad)}</td></tr>`).join('');
+  $('#modalProvsProducto').style.display = 'flex';
+}
 
 // ── Vista Proveedor ─────────────────────────────────────────────────────────
 async function renderProveedor(id) {
@@ -397,6 +410,7 @@ async function confirmarRevision() {
 function cerrarModales() {
   $('#modalProv').style.display = 'none';
   $('#modalRev').style.display = 'none';
+  $('#modalProvsProducto').style.display = 'none';
   REV = null;
 }
 
