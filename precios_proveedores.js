@@ -92,7 +92,7 @@ function parsearHtml(html) {
 
 // minúsculas, sin acentos, sin símbolos — para comparar nombres.
 function normalizarNombre(s) {
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
