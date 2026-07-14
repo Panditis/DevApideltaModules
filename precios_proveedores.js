@@ -129,4 +129,14 @@ function matchearItems(items, ctx = {}) {
   });
 }
 
-module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml, normalizarNombre, scoreNombre, matchearItems };
+// Δ% del precio de lista contra el costo actual + semáforo.
+// verde = más barato que costo-tolerancia, amarillo = dentro de ±tolerancia, rojo = más caro.
+function compararItem({ precioLista, costoActual, toleranciaPct = 2 }) {
+  const precio = Number(precioLista), costo = Number(costoActual);
+  if (!Number.isFinite(precio) || !Number.isFinite(costo) || costo <= 0) return { deltaPct: null, semaforo: null };
+  const deltaPct = +(((precio - costo) / costo) * 100).toFixed(1);
+  const tol = Number(toleranciaPct) || 0;
+  return { deltaPct, semaforo: deltaPct < -tol ? 'verde' : deltaPct > tol ? 'rojo' : 'amarillo' };
+}
+
+module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml, normalizarNombre, scoreNombre, matchearItems, compararItem };

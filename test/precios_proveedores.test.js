@@ -79,3 +79,12 @@ test('matchearItems prioriza manual > codigo > barras > nombre', () => {
   ]);
   assert.ok(r[3].matchScore >= 0.6);
 });
+
+const { compararItem } = require('../precios_proveedores');
+
+test('compararItem semáforo con tolerancia', () => {
+  assert.deepStrictEqual(compararItem({ precioLista: 90, costoActual: 100, toleranciaPct: 2 }), { deltaPct: -10, semaforo: 'verde' });
+  assert.deepStrictEqual(compararItem({ precioLista: 101, costoActual: 100, toleranciaPct: 2 }), { deltaPct: 1, semaforo: 'amarillo' });
+  assert.deepStrictEqual(compararItem({ precioLista: 110, costoActual: 100, toleranciaPct: 2 }), { deltaPct: 10, semaforo: 'rojo' });
+  assert.deepStrictEqual(compararItem({ precioLista: 110, costoActual: 0 }), { deltaPct: null, semaforo: null });
+});
