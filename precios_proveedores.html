@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Precios de Proveedores · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+/* ── Tokens estética Chakra / colores Apidelta: blanco + verde, acentos amarillos ── */
+:root{
+  --verde-600:#2f855a; --verde-500:#38a169; --verde-50:#e6f4ec;
+  --amarillo-500:#d69e2e; --amarillo-100:#fefcbf;
+  --rojo-500:#e53e3e; --rojo-50:#fed7d7;
+  --gris-900:#1a202c; --gris-600:#4a5568; --gris-500:#718096;
+  --gris-200:#e2e8f0; --gris-100:#edf2f7; --gris-50:#f7fafc;
+  --radius:8px; --sombra:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  --ring:0 0 0 3px rgba(56,161,105,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#fff;color:var(--gris-900);font-size:14px}
+a{color:var(--verde-600)}
+.wrap{max-width:1280px;margin:0 auto;padding:16px 20px 60px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:2px solid var(--verde-600);margin-bottom:14px}
+header.top h1{font-size:20px;font-weight:700;color:var(--verde-600)}
+header.top .sub{color:var(--gris-500);font-size:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:none;border-radius:var(--radius);padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+.btn:focus-visible{outline:none;box-shadow:var(--ring)}
+.btn-solid{background:var(--verde-500);color:#fff}
+.btn-solid:hover{background:var(--verde-600)}
+.btn-outline{background:#fff;color:var(--verde-600);border:1px solid var(--verde-500)}
+.btn-outline:hover{background:var(--verde-50)}
+.btn-ghost{background:transparent;color:var(--gris-600)}
+.btn-ghost:hover{background:var(--gris-100)}
+.btn-sm{padding:4px 10px;font-size:12.5px}
+.input{border:1px solid var(--gris-200);border-radius:var(--radius);padding:8px 12px;font-size:14px;background:#fff;color:var(--gris-900)}
+.input:focus{outline:none;border-color:var(--verde-500);box-shadow:var(--ring)}
+.card{background:#fff;border:1px solid var(--gris-200);border-radius:var(--radius);box-shadow:var(--sombra)}
+.badge{display:inline-block;border-radius:999px;padding:2px 10px;font-size:11.5px;font-weight:700}
+.badge-amarillo{background:var(--amarillo-100);color:#744210;cursor:pointer}
+.badge-verde{background:var(--verde-50);color:var(--verde-600)}
+.badge-gris{background:var(--gris-100);color:var(--gris-600)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:14px}
+.tab{border:none;background:transparent;border-radius:var(--radius) var(--radius) 0 0;padding:9px 16px;font-size:14px;font-weight:600;color:var(--gris-600);cursor:pointer;border-bottom:2.5px solid transparent}
+.tab:hover{color:var(--verde-600);background:var(--gris-50)}
+.tab.activa{color:var(--verde-600);border-bottom-color:var(--verde-500);background:var(--verde-50)}
+.tab .cerrar{margin-left:8px;color:var(--gris-500);font-weight:400}
+.tab .cerrar:hover{color:var(--rojo-500)}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:var(--verde-600);color:#fff;text-align:left;padding:9px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.03em;cursor:pointer;user-select:none;white-space:nowrap}
+th.num,td.num{text-align:right}
+td{padding:7px 10px;border-bottom:1px solid var(--gris-100);vertical-align:middle}
+tbody tr:hover{background:var(--gris-50)}
+tr.expandida>td{background:var(--amarillo-100)}
+tr.detalle td{background:#fffef2;font-size:13px;color:var(--gris-600);padding-left:28px}
+.sem{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.sem-verde{background:var(--verde-500)}.sem-amarillo{background:var(--amarillo-500)}.sem-rojo{background:var(--rojo-500)}
+.delta-verde{color:var(--verde-600);font-weight:700}
+.delta-amarillo{color:var(--amarillo-500);font-weight:700}
+.delta-rojo{color:var(--rojo-500);font-weight:700}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--gris-200)}
+.toolbar .info{color:var(--gris-500);font-size:12.5px;margin-left:auto}
+#banner{display:none;background:var(--rojo-50);color:#742a2a;border:1px solid var(--rojo-500);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-weight:600}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(26,32,44,.55);z-index:50;align-items:flex-start;justify-content:center;padding:40px 16px}
+.modal{background:#fff;border-radius:var(--radius);box-shadow:0 10px 40px rgba(0,0,0,.25);width:min(960px,100%);max-height:85vh;display:flex;flex-direction:column}
+.modal h2{font-size:16px;padding:14px 18px;border-bottom:1px solid var(--gris-200);color:var(--verde-600)}
+.modal .cuerpo{overflow:auto;padding:12px 18px;flex:1}
+.modal .pie{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--gris-200)}
+td .input{padding:4px 8px;font-size:13px}
+.dudosa{background:var(--amarillo-100)}
+.lista-busqueda div{padding:8px 10px;border-radius:6px;cursor:pointer}
+.lista-busqueda div:hover{background:var(--verde-50)}
+.vacio{padding:40px;text-align:center;color:var(--gris-500)}
+.tbl-scroll{overflow-x:auto}
+h3.seccion{font-size:14px;color:var(--gris-600);margin:18px 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Precios de Proveedores</h1>
+      <div class="sub">Comparación de listas contra costos SIGA · productos para compra</div>
+    </div>
+    <a class="btn btn-ghost" href="/">← Inicio</a>
+  </header>
+
+  <div id="banner"></div>
+
+  <div class="tabs" id="tabs"></div>
+  <div id="contenido"></div>
+</div>
+
+<!-- Modal agregar proveedor -->
+<div class="modal-bg" id="modalProv">
+  <div class="modal" style="width:min(520px,100%)">
+    <h2>Agregar proveedor</h2>
+    <div class="cuerpo">
+      <input class="input" id="buscaProv" placeholder="Buscar proveedor SIGA (mín. 2 letras)…" style="width:100%">
+      <div class="lista-busqueda" id="resultProv" style="margin-top:10px"></div>
+    </div>
+    <div class="pie"><button class="btn btn-ghost" onclick="cerrarModales()">Cancelar</button></div>
+  </div>
+</div>
+
+<!-- Modal revisión de lista -->
+<div class="modal-bg" id="modalRev">
+  <div class="modal">
+    <h2 id="revTitulo">Revisión de lista</h2>
+    <div class="cuerpo">
+      <div id="revInfo" style="margin-bottom:10px;color:var(--gris-500);font-size:12.5px"></div>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Código</th><th>Descripción</th><th class="num">Precio</th><th>Producto SIGA (PLU)</th><th></th></tr></thead>
+        <tbody id="revFilas"></tbody>
+      </table></div>
+      <button class="btn btn-outline btn-sm" style="margin-top:10px" onclick="revAgregarFila()">+ Agregar ítem</button>
+    </div>
+    <div class="pie">
+      <button class="btn btn-ghost" onclick="cerrarModales()">Cancelar</button>
+      <button class="btn btn-solid" onclick="confirmarRevision()">Confirmar y guardar</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="catalogoSiga"></datalist>
+
+<script>
+'use strict';
+// ── Estado ──────────────────────────────────────────────────────────────────
+let LISTADO = [];        // productos del universo paraCompra (GET /listado)
+let CONFIG = { toleranciaPct: 2, proveedores: [] };
+let TAB = 'listado';     // 'listado' | id de proveedor
+let ORDEN = { col: 'nombre', asc: true };
+let FILTRO = '';
+let EXPANDIDAS = new Set();
+let REV = null;          // { provId, origen, items:[...] } durante revisión
+
+const $ = s => document.querySelector(s);
+const fmt = n => n == null ? '—' : new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function banner(msg) {
+  const b = $('#banner');
+  if (!msg) { b.style.display = 'none'; return; }
+  b.textContent = msg; b.style.display = 'block';
+  setTimeout(() => { b.style.display = 'none'; }, 8000);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+  return j;
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+function renderTabs() {
+  const t = $('#tabs');
+  const tabs = [`<button class="tab ${TAB === 'listado' ? 'activa' : ''}" onclick="irA('listado')">Listado</button>`];
+  for (const p of CONFIG.proveedores) {
+    tabs.push(`<button class="tab ${TAB === p.id ? 'activa' : ''}" onclick="irA('${p.id}')">${esc(p.nombre)}
+      <span class="cerrar" onclick="event.stopPropagation();quitarProveedor('${p.id}')" title="Quitar tab">✕</span></button>`);
+  }
+  tabs.push(`<button class="btn btn-outline btn-sm" onclick="abrirModalProv()">+ Proveedor</button>`);
+  t.innerHTML = tabs.join('');
+}
+
+function irA(tab) { TAB = tab; renderTabs(); TAB === 'listado' ? renderListado() : renderProveedor(tab); }
+
+// ── Vista Listado ───────────────────────────────────────────────────────────
+function ordenar(col) {
+  ORDEN = { col, asc: ORDEN.col === col ? !ORDEN.asc : true };
+  renderListado();
+}
+
+function renderListado() {
+  const cont = $('#contenido');
+  const filtro = FILTRO.toLowerCase();
+  const filas = LISTADO.filter(p => !filtro || p.plu.includes(filtro) || p.nombre.toLowerCase().includes(filtro));
+  const dir = ORDEN.asc ? 1 : -1;
+  filas.sort((a, b) => {
+    const va = a[ORDEN.col], vb = b[ORDEN.col];
+    if (va == null) return 1; if (vb == null) return -1;
+    return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * dir;
+  });
+  const cuerpo = filas.map(p => {
+    const nProv = p.proveedoresAnio.length;
+    const badge = nProv > 1
+      ? `<span class="badge badge-amarillo" onclick="toggleExp('${p.plu}')">${nProv} prov.</span>`
+      : '';
+    let html = `<tr class="${EXPANDIDAS.has(p.plu) ? 'expandida' : ''}">
+      <td>${esc(p.plu)}</td><td>${esc(p.nombre)} ${badge}</td>
+      <td class="num">${fmt(p.costo)}</td>
+      <td>${esc(p.ultimoProveedor || '—')}</td>
+      <td class="num">${fmt(p.ultimoPrecio)}</td>
+      <td>${esc(p.ultimaFecha || '—')}</td></tr>`;
+    if (EXPANDIDAS.has(p.plu) && nProv) {
+      html += p.proveedoresAnio.map(h => `<tr class="detalle"><td colspan="2">↳ ${esc(h.proveedor)}</td>
+        <td class="num">${fmt(h.precio)}</td><td>últ. compra ${esc(h.fecha)}</td>
+        <td class="num">${fmt(h.cantidad)}</td><td>cant. año</td></tr>`).join('');
+    }
+    return html;
+  }).join('');
+  cont.innerHTML = `<div class="card">
+    <div class="toolbar">
+      <input class="input" id="filtro" placeholder="Buscar por código o nombre…" value="${esc(FILTRO)}" style="width:320px">
+      <span class="info">${filas.length} de ${LISTADO.length} productos · amarillo = más de un proveedor en el año</span>
+    </div>
+    <div class="tbl-scroll"><table>
+      <thead><tr>
+        <th onclick="ordenar('plu')">Código</th><th onclick="ordenar('nombre')">Nombre</th>
+        <th class="num" onclick="ordenar('costo')">Costo</th>
+        <th onclick="ordenar('ultimoProveedor')">Último proveedor</th>
+        <th class="num" onclick="ordenar('ultimoPrecio')">Últ. precio</th>
+        <th onclick="ordenar('ultimaFecha')">Fecha</th>
+      </tr></thead>
+      <tbody>${cuerpo || `<tr><td colspan="6" class="vacio">Sin resultados</td></tr>`}</tbody>
+    </table></div></div>`;
+  const inp = $('#filtro');
+  inp.addEventListener('input', () => { FILTRO = inp.value; renderListado(); });
+  inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+}
+
+function toggleExp(plu) { EXPANDIDAS.has(plu) ? EXPANDIDAS.delete(plu) : EXPANDIDAS.add(plu); renderListado(); }
+
+// ── Vista Proveedor ─────────────────────────────────────────────────────────
+async function renderProveedor(id) {
+  const prov = CONFIG.proveedores.find(p => p.id === id);
+  if (!prov) return irA('listado');
+  const cont = $('#contenido');
+  cont.innerHTML = `<div class="vacio">Cargando…</div>`;
+  let cmp;
+  try { cmp = await api(`/api/precios-proveedores/proveedores/${id}/comparacion`); }
+  catch (e) { banner(e.message); cont.innerHTML = ''; return; }
+  const acciones = `<div class="toolbar">
+    <button class="btn btn-solid btn-sm" onclick="subirPdf('${id}')">Subir PDF</button>
+    <button class="btn btn-outline btn-sm" onclick="cargarUrl('${id}')">Cargar desde URL</button>
+    <button class="btn btn-outline btn-sm" onclick="editarManual('${id}')">Editar lista</button>
+    <input type="file" id="filePdf" accept="application/pdf" style="display:none">
+    <span class="info">${cmp.fechaCarga ? `Lista vigente: ${cmp.origen} · ${new Date(cmp.fechaCarga).toLocaleString('es-AR')}` : 'Sin lista cargada'}</span>
+  </div>`;
+  const filas = cmp.filas.map(f => {
+    const cls = f.semaforo ? `delta-${f.semaforo}` : '';
+    const sem = f.semaforo ? `<span class="sem sem-${f.semaforo}"></span>` : '';
+    return `<tr><td>${esc(f.codigoProveedor)}</td><td>${esc(f.descripcion)}</td>
+      <td class="num">${fmt(f.precio)}</td>
+      <td>${esc(f.nombreSiga)} <span class="badge badge-gris">${esc(f.plu)}</span></td>
+      <td class="num">${fmt(f.costoActual)}</td><td class="num">${fmt(f.ultimoPagado)}</td>
+      <td class="num ${cls}">${sem}${f.deltaPct == null ? '—' : (f.deltaPct > 0 ? '+' : '') + f.deltaPct + '%'}</td></tr>`;
+  }).join('');
+  const sinMatch = cmp.sinMatchear.length ? `<h3 class="seccion">Sin matchear (${cmp.sinMatchear.length}) — usá "Editar lista" para asignar producto</h3>
+    <div class="card tbl-scroll"><table>
+      <thead><tr><th>Código</th><th>Descripción</th><th class="num">Precio</th></tr></thead>
+      <tbody>${cmp.sinMatchear.map(f => `<tr><td>${esc(f.codigoProveedor)}</td><td>${esc(f.descripcion)}</td><td class="num">${fmt(f.precio)}</td></tr>`).join('')}</tbody>
+    </table></div>` : '';
+  cont.innerHTML = `<div class="card">${acciones}
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Código prov.</th><th>Descripción</th><th class="num">Precio lista</th>
+        <th>Producto SIGA</th><th class="num">Costo actual</th><th class="num">Últ. pagado</th><th class="num">Δ%</th></tr></thead>
+      <tbody>${filas || `<tr><td colspan="7" class="vacio">${cmp.fechaCarga ? 'Ningún ítem matcheado todavía' : 'Cargá una lista con los botones de arriba'}</td></tr>`}</tbody>
+    </table></div></div>${sinMatch}`;
+}
+
+// ── Alta / baja de proveedores ──────────────────────────────────────────────
+function abrirModalProv() {
+  $('#modalProv').style.display = 'flex';
+  const inp = $('#buscaProv'); inp.value = ''; $('#resultProv').innerHTML = ''; inp.focus();
+}
+
+async function buscarProvSiga(q) {
+  if (q.trim().length < 2) { $('#resultProv').innerHTML = ''; return; }
+  try {
+    const r = await api(`/api/precios-proveedores/proveedores-siga?q=${encodeURIComponent(q.trim())}`);
+    $('#resultProv').innerHTML = r.proveedores.map(p =>
+      `<div onclick="agregarProveedor(${p.idProveedorSiga}, '${esc(p.nombre).replace(/'/g, '&#39;')}')">${esc(p.nombre)} <span class="badge badge-gris">#${p.idProveedorSiga}</span></div>`
+    ).join('') || '<div style="color:var(--gris-500)">Sin resultados</div>';
+  } catch (e) { banner(e.message); }
+}
+
+async function agregarProveedor(idSiga, nombre) {
+  try {
+    const nuevo = await api('/api/precios-proveedores/proveedores', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idProveedorSiga: idSiga, nombre }),
+    });
+    CONFIG.proveedores.push(nuevo);
+    cerrarModales(); irA(nuevo.id);
+  } catch (e) { banner(e.message); }
+}
+
+async function quitarProveedor(id) {
+  const prov = CONFIG.proveedores.find(p => p.id === id);
+  if (!prov || !confirm(`¿Quitar la tab de ${prov.nombre}? Se pierde su lista cargada.`)) return;
+  try {
+    await api(`/api/precios-proveedores/proveedores/${id}`, { method: 'DELETE' });
+    CONFIG.proveedores = CONFIG.proveedores.filter(p => p.id !== id);
+    if (TAB === id) TAB = 'listado';
+    renderTabs(); irA(TAB);
+  } catch (e) { banner(e.message); }
+}
+
+// ── Carga PDF / URL / manual → revisión ────────────────────────────────────
+function subirPdf(id) {
+  const file = $('#filePdf');
+  file.onchange = async () => {
+    if (!file.files[0]) return;
+    const fd = new FormData();
+    fd.append('pdf', file.files[0]); fd.append('id', id);
+    try {
+      const r = await api('/api/precios-proveedores/parse-pdf', { method: 'POST', body: fd });
+      abrirRevision(id, 'pdf', r.items, `${r.items.length} ítems detectados · ${r.descartadas} líneas descartadas`);
+    } catch (e) { banner(e.message); }
+    file.value = '';
+  };
+  file.click();
+}
+
+async function cargarUrl(id) {
+  const prov = CONFIG.proveedores.find(p => p.id === id);
+  const url = prompt('URL de la lista de precios del proveedor:', prov?.url || 'https://');
+  if (!url) return;
+  try {
+    const r = await api('/api/precios-proveedores/parse-url', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, id }),
+    });
+    prov.url = url;
+    abrirRevision(id, 'url', r.items, `${r.items.length} ítems detectados · ${r.descartadas} filas descartadas`);
+  } catch (e) { banner(e.message); }
+}
+
+function editarManual(id) {
+  const prov = CONFIG.proveedores.find(p => p.id === id);
+  const items = prov?.listaVigente?.items ? JSON.parse(JSON.stringify(prov.listaVigente.items)) : [];
+  abrirRevision(id, 'manual', items, 'Edición manual de la lista vigente');
+}
+
+// ── Modal revisión ──────────────────────────────────────────────────────────
+function abrirRevision(provId, origen, items, info) {
+  REV = { provId, origen, items };
+  const prov = CONFIG.proveedores.find(p => p.id === provId);
+  $('#revTitulo').textContent = `Revisión — ${prov ? prov.nombre : provId}`;
+  $('#revInfo').textContent = info + ' · las filas amarillas necesitan revisión (sin match o match dudoso)';
+  renderRevision();
+  $('#modalRev').style.display = 'flex';
+}
+
+function renderRevision() {
+  $('#revFilas').innerHTML = REV.items.map((it, i) => {
+    const dudosa = !it.plu || (it.matchTipo === 'nombre' && it.matchScore < 0.8);
+    return `<tr class="${dudosa ? 'dudosa' : ''}">
+      <td><input class="input" value="${esc(it.codigoProveedor)}" onchange="REV.items[${i}].codigoProveedor=this.value"></td>
+      <td><input class="input" style="width:100%" value="${esc(it.descripcion)}" onchange="REV.items[${i}].descripcion=this.value"></td>
+      <td class="num"><input class="input" style="width:90px;text-align:right" value="${it.precio ?? ''}" onchange="REV.items[${i}].precio=parseFloat(this.value.replace(',', '.'))"></td>
+      <td><input class="input" list="catalogoSiga" style="width:100%" value="${esc(it.plu || '')}" placeholder="PLU o buscar…"
+        onchange="asignarPlu(${i}, this.value)">${it.matchTipo ? `<span class="badge badge-verde">${it.matchTipo}${it.matchTipo === 'nombre' ? ' ' + Math.round(it.matchScore * 100) + '%' : ''}</span>` : ''}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="REV.items.splice(${i},1);renderRevision()" title="Quitar fila">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// El datalist muestra "PLU — Nombre"; acepta pegar el PLU solo o elegir del datalist.
+function asignarPlu(i, valor) {
+  const plu = String(valor).split('—')[0].trim();
+  const existe = LISTADO.find(p => p.plu === plu);
+  REV.items[i].plu = existe ? plu : null;
+  REV.items[i].matchTipo = existe ? 'manual' : null;
+  REV.items[i].matchScore = existe ? 1 : 0;
+  renderRevision();
+}
+
+function revAgregarFila() {
+  REV.items.push({ codigoProveedor: '', descripcion: '', precio: null, plu: null, matchTipo: null, matchScore: 0 });
+  renderRevision();
+}
+
+async function confirmarRevision() {
+  const validos = REV.items.filter(it => it.descripcion && Number(it.precio) > 0);
+  if (!validos.length) { banner('La lista no tiene ítems válidos (descripción + precio > 0)'); return; }
+  // Matcheos asignados a mano (matchTipo manual con código) se persisten para próximas cargas.
+  const manuales = {};
+  for (const it of validos) if (it.matchTipo === 'manual' && it.codigoProveedor && it.plu) manuales[it.codigoProveedor] = it.plu;
+  try {
+    const actualizado = await api(`/api/precios-proveedores/proveedores/${REV.provId}/lista`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origen: REV.origen, items: validos, matcheosManuales: manuales }),
+    });
+    const i = CONFIG.proveedores.findIndex(p => p.id === REV.provId);
+    if (i >= 0) CONFIG.proveedores[i] = actualizado;
+    const provId = REV.provId;
+    cerrarModales(); irA(provId);
+  } catch (e) { banner(e.message); }
+}
+
+function cerrarModales() {
+  $('#modalProv').style.display = 'none';
+  $('#modalRev').style.display = 'none';
+  REV = null;
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  $('#buscaProv').addEventListener('input', e => buscarProvSiga(e.target.value));
+  document.querySelectorAll('.modal-bg').forEach(m => m.addEventListener('click', e => { if (e.target === m) cerrarModales(); }));
+  try {
+    const [cfg, lst] = await Promise.all([
+      api('/api/precios-proveedores/proveedores'),
+      api('/api/precios-proveedores/listado'),
+    ]);
+    CONFIG = cfg; LISTADO = lst.productos;
+    $('#catalogoSiga').innerHTML = LISTADO.map(p => `<option value="${esc(p.plu)}">${esc(p.plu)} — ${esc(p.nombre)}</option>`).join('');
+    renderTabs(); renderListado();
+  } catch (e) {
+    banner('No se pudo cargar el módulo: ' + e.message);
+    $('#contenido').innerHTML = '<div class="vacio">Error de carga. Revisá el servidor.</div>';
+  }
+}
+init();
+</script>
+</body>
+</html>
