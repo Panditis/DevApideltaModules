@@ -32,3 +32,23 @@ test('parsearTextoPdf no confunde años con precios', () => {
   assert.strictEqual(r.items.length, 1);
   assert.strictEqual(r.items[0].precio, 4200);
 });
+
+const { parsearHtml } = require('../precios_proveedores');
+
+test('parsearHtml extrae tabla con código/descripción/precio', () => {
+  const html = `<html><body><table>
+    <tr><th>Código</th><th>Descripción</th><th>Precio</th></tr>
+    <tr><td>ALM-100</td><td>Almendras x 1kg</td><td>$ 12.500,00</td></tr>
+    <tr><td></td><td>Nueces peladas</td><td>9.800,50</td></tr>
+  </table></body></html>`;
+  const r = parsearHtml(html);
+  assert.strictEqual(r.items.length, 2);
+  assert.deepStrictEqual(r.items[0], { codigoProveedor: 'ALM-100', descripcion: 'Almendras x 1kg', precio: 12500 });
+  assert.strictEqual(r.items[1].codigoProveedor, '');
+  assert.strictEqual(r.items[1].precio, 9800.5);
+});
+
+test('parsearHtml sin tablas devuelve vacío', () => {
+  const r = parsearHtml('<html><body><p>Sin tablas acá</p></body></html>');
+  assert.strictEqual(r.items.length, 0);
+});

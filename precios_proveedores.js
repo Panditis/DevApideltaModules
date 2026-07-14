@@ -64,4 +64,30 @@ function parsearTextoPdf(texto) {
   return { items, descartadas };
 }
 
-module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf };
+// HTML → { items, descartadas }. Recorre <table>: precio = última celda numérica,
+// código = primera celda si es corta y alfanumérica, descripción = el resto.
+function parsearHtml(html) {
+  const $ = cheerio.load(String(html || ''));
+  const items = [];
+  let descartadas = 0;
+  $('table tr').each((_, tr) => {
+    const celdas = $(tr).find('td,th').toArray().map(c => $(c).text().replace(/\s+/g, ' ').trim());
+    if (celdas.length < 2) { if (celdas.length) descartadas++; return; }
+    let precio = null, iPrecio = -1;
+    for (let i = celdas.length - 1; i >= 0; i--) {
+      const v = esPrecioToken(celdas[i]);
+      if (v != null) { precio = v; iPrecio = i; break; }
+    }
+    if (precio == null) { descartadas++; return; }
+    const resto = celdas.slice(0, iPrecio).filter(Boolean);
+    if (!resto.length) { descartadas++; return; }
+    let codigoProveedor = '';
+    if (resto.length > 1 && RE_CODIGO.test(resto[0])) codigoProveedor = resto.shift();
+    const descripcion = resto.join(' ').trim();
+    if (!descripcion) { descartadas++; return; }
+    items.push({ codigoProveedor, descripcion, precio });
+  });
+  return { items, descartadas };
+}
+
+module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml };
