@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Página no encontrada · Apidelta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Paleta Apidelta (verde + amarillo) */
+    --verde:#405936; --verde-dark:#2e4027; --verde-hover:#4f6e42;
+    --verde-cont:#cfe0c2; --verde-on-cont:#0c1f06;
+    --amarillo:#FFCC00; --amarillo-on:#3a2f00; --amarillo-cont:#fff1bf;
+    --bg:#eef2e9; --card:#ffffff;
+    --surface1:#f1f5ec; --surface2:#eaf0e4; --surface3:#e3ebdb;
+    --text:#1a1c18; --muted:#434840; --faint:#73796d; --border:#c3c9bc; --line:#dfe5d8;
+    --error:#ba1a1a;
+    --disp:'Barlow Condensed',sans-serif; --body:'Roboto',sans-serif;
+    --shadow:0 1px 3px rgba(46,64,39,.12),0 1px 2px rgba(46,64,39,.08);
+    --shadow-lg:0 10px 30px rgba(46,64,39,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:var(--body);background:var(--bg);color:var(--text);
+    display:flex;align-items:center;justify-content:center;min-height:100vh;
+    padding:24px;-webkit-font-smoothing:antialiased;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:20px;
+    box-shadow:var(--shadow-lg);max-width:480px;width:100%;
+    padding:44px 40px 36px;text-align:center;position:relative;overflow:hidden;
+  }
+  .card::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:6px;
+    background:linear-gradient(90deg,var(--verde),var(--amarillo));
+  }
+  .badge{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:72px;height:72px;border-radius:50%;
+    background:var(--verde-cont);margin-bottom:18px;
+  }
+  .badge svg{width:36px;height:36px}
+  .code{
+    font-family:var(--disp);font-weight:700;font-size:76px;line-height:1;
+    color:var(--verde);letter-spacing:1px;margin:0;
+  }
+  .code span{color:var(--amarillo-on);background:var(--amarillo-cont);
+    padding:0 10px;border-radius:10px;
+  }
+  h1{
+    font-family:var(--disp);font-weight:600;font-size:22px;
+    color:var(--verde-dark);margin:14px 0 8px;
+  }
+  p{
+    color:var(--muted);font-size:14.5px;line-height:1.55;margin:0 0 28px;
+  }
+  .actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{
+    font-family:var(--body);font-weight:500;font-size:14px;
+    padding:11px 22px;border-radius:10px;text-decoration:none;
+    display:inline-flex;align-items:center;gap:8px;transition:.15s ease;border:1px solid transparent;
+    cursor:pointer;
+  }
+  .btn-primary{background:var(--verde);color:#fff}
+  .btn-primary:hover{background:var(--verde-hover)}
+  .btn-ghost{background:var(--surface1);color:var(--verde-dark);border-color:var(--border)}
+  .btn-ghost:hover{background:var(--surface2)}
+  .foot{margin-top:28px;font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#2e4027" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"></circle>
+        <line x1="21" y1="21" x2="16.2" y2="16.2"></line>
+        <path d="M8.5 11h5" stroke="#405936"></path>
+      </svg>
+    </div>
+    <p class="code">4<span>0</span>4</p>
+    <h1>No encontramos esta página</h1>
+    <p>El enlace puede estar roto, haber cambiado de lugar o ya no existir. Revisá la dirección o volvé al inicio.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="inicio.html">Ir al inicio</a>
+      <a class="btn btn-ghost" onclick="history.back()">Volver atrás</a>
+    </div>
+    <div class="foot">Apidelta · Sistema interno</div>
+  </div>
+</body>
+</html>

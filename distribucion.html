@@ -166,6 +166,11 @@
   td.env.override span{outline:1px dashed #f59e0b;outline-offset:-2px;border-radius:4px}
   #tabla-a thead th[colspan],#tabla-p thead th[colspan]{text-align:center}
   #tabla-a thead .subh,#tabla-p thead .subh{top:36px;font-size:11px;padding:5px 8px;font-weight:600}
+  /* ── Columna fina de ocultar fila ── */
+  th.oculto-col,td.oculto-col{width:16px;min-width:16px;padding:0!important;cursor:default}
+  .oculto-btn{display:block;width:100%;background:none;border:0;cursor:pointer;color:var(--faint);font-size:11px;padding:0;line-height:33px;opacity:.3}
+  tbody tr:hover .oculto-btn{opacity:.85}
+  .oculto-btn:hover{color:var(--error)}
   /* ── Filtro de productos estilo Excel (header Producto) ── */
   .prod-filter-btn{background:none;border:0;color:rgba(255,255,255,.65);cursor:pointer;font-size:11px;padding:0 4px;margin-left:2px;border-radius:4px;vertical-align:middle}
   .prod-filter-btn:hover{color:#fff;background:rgba(255,255,255,.18)}
@@ -406,6 +411,7 @@
       <button id="pdfEnv" style="display:none">📄 PDF</button>
       <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
       <button id="btn-overrides" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOverrides()">✏ <span id="ovr-count">0</span> overrides</button>
+      <button id="btn-ocultos" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOcultos()">👁 <span id="oc-count">0</span> ocultos</button>
       <button class="primary" id="reload">↻ Recalcular</button>
       <button onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
       <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
@@ -629,6 +635,29 @@
     </div>
   </div>
 
+  <!-- Modal filas ocultas -->
+  <div class="modal-bg" id="modal-ocultos">
+    <div class="modal" style="min-width:440px;max-width:600px">
+      <div class="modal-head"><h3>Filas ocultas</h3><button class="modal-close" onclick="cerrarModalOcultos()">✕</button></div>
+      <div style="padding:16px 24px;overflow-y:auto;max-height:60vh">
+        <table id="oc-tabla" style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="border-bottom:2px solid var(--border)">
+            <th class="l" style="padding:6px 8px">Tab</th>
+            <th class="l" style="padding:6px 8px">PLU</th>
+            <th class="l" style="padding:6px 8px">Nombre</th>
+            <th style="padding:6px 8px"></th>
+          </tr></thead>
+          <tbody id="oc-body"></tbody>
+        </table>
+        <p id="oc-empty" style="text-align:center;color:var(--muted);padding:24px 0;display:none">Sin filas ocultas</p>
+      </div>
+      <div style="padding:12px 24px;display:flex;justify-content:space-between;border-top:1px solid var(--border)">
+        <button onclick="mostrarTodosOcultos()" style="background:var(--error);color:#fff;border-color:var(--error)">Mostrar todas</button>
+        <button onclick="cerrarModalOcultos()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal confirmación borrado -->
   <div class="modal-bg" id="modal-confirm-del">
     <div class="modal" style="min-width:320px;max-width:400px">
@@ -837,13 +866,59 @@ document.addEventListener('click', e => {
 let datos = [], orden = { col: 'importancia', dir: -1 };
 const totalEnviar = (r) => SUC_A.reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
 
+// ── Ocultar filas (temporal, por tab, persiste en localStorage) ──
+function cargarSetOculto(key){ try{ return new Set(JSON.parse(localStorage.getItem(key)||'[]')); }catch{ return new Set(); } }
+function guardarSetOculto(key, set){ localStorage.setItem(key, JSON.stringify([...set])); }
+let ocultosA = cargarSetOculto('distOcultosA');
+let ocultosP = cargarSetOculto('distOcultosP');
+function toggleOcultoA(plu){ plu=String(plu); ocultosA.has(plu)?ocultosA.delete(plu):ocultosA.add(plu); guardarSetOculto('distOcultosA', ocultosA); actualizarBadgeOcultos(); render(); }
+function toggleOcultoP(plu){ plu=String(plu); ocultosP.has(plu)?ocultosP.delete(plu):ocultosP.add(plu); guardarSetOculto('distOcultosP', ocultosP); actualizarBadgeOcultos(); renderP(); }
+function actualizarBadgeOcultos(){
+  const total = ocultosA.size + ocultosP.size;
+  const btn = document.getElementById('btn-ocultos');
+  document.getElementById('oc-count').textContent = total;
+  btn.style.display = total > 0 ? '' : 'none';
+}
+function nombreDeOculto(plu, tipo){
+  const r = (tipo === 'almacen' ? datos : datosP).find(x => String(x.plu) === String(plu));
+  return r ? r.nombre : '';
+}
+function abrirModalOcultos(){
+  const rows = [
+    ...[...ocultosA].map(plu => ({ tipo:'almacen', tipoLabel:'Almacén', plu, nombre: nombreDeOculto(plu,'almacen') })),
+    ...[...ocultosP].map(plu => ({ tipo:'pesable', tipoLabel:'Pesable', plu, nombre: nombreDeOculto(plu,'pesable') })),
+  ];
+  document.getElementById('oc-empty').style.display = rows.length ? 'none' : '';
+  document.getElementById('oc-body').innerHTML = rows.map(r => `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 8px">${r.tipoLabel}</td>
+    <td style="padding:5px 8px">${r.plu}</td>
+    <td style="padding:5px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nombre}</td>
+    <td style="padding:5px 8px;text-align:center"><button style="font-size:11px;padding:2px 8px" onclick="restaurarOculto('${r.tipo}','${r.plu}')">↺</button></td>
+  </tr>`).join('');
+  document.getElementById('modal-ocultos').classList.add('open');
+}
+function cerrarModalOcultos(){ document.getElementById('modal-ocultos').classList.remove('open'); }
+function restaurarOculto(tipo, plu){
+  plu = String(plu);
+  if (tipo === 'almacen') { ocultosA.delete(plu); guardarSetOculto('distOcultosA', ocultosA); render(); }
+  else { ocultosP.delete(plu); guardarSetOculto('distOcultosP', ocultosP); renderP(); }
+  actualizarBadgeOcultos();
+  abrirModalOcultos();
+}
+function mostrarTodosOcultos(){
+  ocultosA.clear(); ocultosP.clear();
+  guardarSetOculto('distOcultosA', ocultosA); guardarSetOculto('distOcultosP', ocultosP);
+  actualizarBadgeOcultos();
+  cerrarModalOcultos();
+  if (tabActual === 'almacen') render(); else if (tabActual === 'pesables') renderP();
+}
 function construirHead() {
   const pre = [['plu','PLU','l'], ['nombre','Producto','l'], ['central','Depósito','']];
   const sucCols = SUC_A.filter(([k]) => sucVis.has(k));
   const post = [['total','Total',''], ['importancia','Imp.','']];
   const arOf = k => orden.col === k ? `<span class="ar">${orden.dir < 0 ? '▼' : '▲'}</span>` : '';
   const thR = ([k, n, cls]) => `<th class="${cls||''}" data-col="${k}" rowspan="2">${n} ${arOf(k)}${k === 'nombre' ? prodFunnel('a') : ''}</th>`;
-  const fila1 = pre.map(thR).join('')
+  const fila1 = `<th class="oculto-col" rowspan="2"></th>` + pre.map(thR).join('')
     + sucCols.map(([k, n]) => `<th class="suc" data-col="${k}" colspan="2">${n} ${arOf(k)}</th>`).join('')
     + post.map(thR).join('');
   const fila2 = sucCols.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
@@ -927,7 +1002,7 @@ function construirHeadP() {
   post.push(['prioridad','Imp.','']);
   const arOf = k => ordenP.col === k ? `<span class="ar">${ordenP.dir < 0 ? '▼' : '▲'}</span>` : '';
   const thR = ([k, n, cls]) => `<th class="${cls||''}" data-col="${k}" rowspan="2">${n} ${arOf(k)}${k === 'nombre' ? prodFunnel('p') : ''}</th>`;
-  const fila1 = pre.map(thR).join('')
+  const fila1 = `<th class="oculto-col" rowspan="2"></th>` + pre.map(thR).join('')
     + sucCols.map(([k, n]) => `<th class="suc" data-col="${k}" colspan="2">${n} ${arOf(k)}</th>`).join('')
     + post.map(thR).join('');
   const fila2 = sucCols.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
@@ -1492,6 +1567,8 @@ function render() {
   const totalVis = (r) => SUC_A.filter(([k]) => sucVis.has(k)).reduce((s, [k]) => { const v = r.enviar[k]; return s + (typeof v === 'number' ? v : 0); }, 0);
   let rows = datos.filter(r => {
     if (filtroProd.a.has(String(r.plu))) return false;
+    const oc = ocultosA.has(String(r.plu));
+    if (oc) return false;
     if (!soloMicro && tieneMicro(r)) return false;
     if (soloEnvio && totalVis(r) <= 0) return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -1527,6 +1604,7 @@ function render() {
     const impPct = impN * 100;
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
+      <td class="oculto-col"><button class="oculto-btn" onclick="toggleOcultoA(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
       <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}${nuevoTag(r)}</td>
       <td class="central">${fmtA(r.central)}</td>
@@ -1540,6 +1618,7 @@ function render() {
   pA.textContent = rows.length === datos.length ? datos.length : rows.length + '/' + datos.length;
   pA.title = rows.length + ' productos en tabla' + (rows.length !== datos.length ? ' (de ' + datos.length + ' con filtros)' : '');
   document.getElementById('resumen').innerHTML = '';
+  actualizarBadgeOcultos();
 }
 function renderP() {
   const q = document.getElementById('q').value.trim().toLowerCase();
@@ -1547,6 +1626,8 @@ function renderP() {
   const envasarFiltro = document.getElementById('fEnvasar').value;
   let rows = datosP.filter(r => {
     if (filtroProd.p.has(String(r.plu))) return false;
+    const oc = ocultosP.has(String(r.plu));
+    if (oc) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
     if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
@@ -1576,6 +1657,7 @@ function renderP() {
     const respSel = `<td class="l"><select class="resp-select" onchange="guardarRespP(${r.plu},this.value)">${respOpts}</select></td>`;
     const d = Math.min(i * 6, 360);
     return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
+      <td class="oculto-col"><button class="oculto-btn" onclick="toggleOcultoP(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
       <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
       <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
@@ -1593,6 +1675,7 @@ function renderP() {
   pP.textContent = rows.length === datosP.length ? datosP.length : rows.length + '/' + datosP.length;
   pP.title = rows.length + ' productos en tabla' + (rows.length !== datosP.length ? ' (de ' + datosP.length + ' con filtros)' : '');
   document.getElementById('resumen').innerHTML = '';
+  actualizarBadgeOcultos();
 }
 
 // ════════════════ ENVASAR ════════════════
@@ -2214,6 +2297,7 @@ async function ejecutarConfirmDel() {
 }
 document.getElementById('modal-confirm-del').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarConfirmDel(); });
 document.getElementById('modal-overrides').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalOverrides(); });
+document.getElementById('modal-ocultos').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalOcultos(); });
 
 async function eliminarRegistro(id) {
   const reg = prodRegistros.find(x => x.id === id);
@@ -2515,7 +2599,7 @@ async function modalFormulaPedido(plu, nombre) {
 }
 // delegación: click en tabla pesables
 document.getElementById('tabla-p').addEventListener('click', e => {
-  if (e.target.closest('.resp-select')) return;
+  if (e.target.closest('.resp-select') || e.target.closest('.oculto-btn')) return;
   const td = e.target.closest('td.gran');
   if (td) { modalGranel(td.dataset.granel); return; }
   const tr = e.target.closest('tr[data-plu]');
