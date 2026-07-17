@@ -1604,7 +1604,7 @@ function render() {
     const impPct = impN * 100;
     const d = Math.min(i * 6, 360);
     return `<tr style="animation-delay:${d}ms">
-      <td class="oculto-col"><button class="oculto-btn" onclick="toggleOcultoA(${r.plu})" title="Ocultar fila">✕</button></td>
+      <td class="oculto-col"><button class="oculto-btn" onclick="event.stopPropagation();toggleOcultoA(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
       <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}${nuevoTag(r)}</td>
       <td class="central">${fmtA(r.central)}</td>
@@ -1657,7 +1657,7 @@ function renderP() {
     const respSel = `<td class="l"><select class="resp-select" onchange="guardarRespP(${r.plu},this.value)">${respOpts}</select></td>`;
     const d = Math.min(i * 6, 360);
     return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
-      <td class="oculto-col"><button class="oculto-btn" onclick="toggleOcultoP(${r.plu})" title="Ocultar fila">✕</button></td>
+      <td class="oculto-col"><button class="oculto-btn" onclick="event.stopPropagation();toggleOcultoP(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
       <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
       <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
