@@ -1,0 +1,218 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análisis de Ventas por Sucursal — Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
+    --yellow:#FFCC00; --gold:#C98A00;
+    --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
+    --radius:12px; --radius-sm:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
+  header{background:var(--green);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
+  header .logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;letter-spacing:.5px}
+  header .logo b{color:var(--yellow)}
+  header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:auto}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  .controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .controls input[type=date]{padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;font-size:13px;cursor:pointer;user-select:none;background:#fff}
+  .chip.active{background:var(--green-light);border-color:var(--green-mid);color:var(--green-dark);font-weight:600}
+  .btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
+  .btn:disabled{opacity:.6;cursor:default}
+  .link-mini{font-size:12px;color:var(--green-mid);cursor:pointer}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+  .kpi .lbl{font-size:12px;color:var(--muted)}
+  .kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .error{background:#fdecea;color:#b3261e;border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
+  .loading{color:var(--muted);padding:20px;text-align:center}
+  .empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+</style></head><body>
+<header>
+  <span class="logo">API<b>DELTA</b></span>
+  <span style="font-size:14px;opacity:.9">Análisis de Ventas por Sucursal</span>
+  <a href="/">← Inicio</a>
+</header>
+<div class="wrap">
+  <div class="controls">
+    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
+    <div style="flex:1">
+      <label>Sucursales <span class="link-mini" id="selAll">todas</span> · <span class="link-mini" id="selNone">ninguna</span></label>
+      <div class="chips" id="chips"></div>
+    </div>
+    <button class="btn" id="btnAplicar">Aplicar</button>
+  </div>
+
+  <div id="msg"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid2">
+    <div class="card"><h3>Comparativa por sucursal</h3><canvas id="chComparativa" height="200"></canvas>
+      <div id="tblComparativa" style="margin-top:12px"></div></div>
+    <div class="card"><h3>Tendencia diaria</h3><canvas id="chTendencia" height="200"></canvas></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow" height="200"></canvas></div>
+    <div class="card"><h3>Facturación por hora</h3><canvas id="chHora" height="200"></canvas></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Top productos — unidades</h3><div id="tblTopU"></div></div>
+    <div class="card"><h3>Top productos — facturación</h3><div id="tblTopF"></div></div>
+  </div>
+</div>
+
+<script>
+// Sucursales fijas del módulo (id -> nombre). La central (1) no se incluye.
+const SUCURSALES = [
+  {id:2,nombre:'Urquiza'},{id:3,nombre:'Nación'},{id:4,nombre:'Chacabuco'},
+  {id:5,nombre:'Rivadavia'},{id:7,nombre:'San Pedro'},{id:9,nombre:'Villa Ramallo'},
+  {id:10,nombre:'Pergamino'},
+];
+const GREEN = '#405936', YELLOW = '#C98A00', MID = '#4E6B43';
+let sel = new Set(SUCURSALES.map(s => s.id));
+let charts = {};
+
+const $ = id => document.getElementById(id);
+const fmtMoney = n => '$' + Math.round(n).toLocaleString('es-AR');
+const fmtNum   = n => Math.round(n).toLocaleString('es-AR');
+
+function firstOfMonth(){ const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); }
+
+function initFechas(){
+  $('desde').value = firstOfMonth().toISOString().slice(0,10);
+  $('hasta').value = new Date().toISOString().slice(0,10);
+}
+
+function renderChips(){
+  const wrap = $('chips'); wrap.innerHTML = '';
+  SUCURSALES.forEach(s => {
+    const c = document.createElement('span');
+    c.className = 'chip' + (sel.has(s.id) ? ' active' : '');
+    c.textContent = s.nombre;
+    c.onclick = () => { sel.has(s.id) ? sel.delete(s.id) : sel.add(s.id); c.classList.toggle('active'); };
+    wrap.appendChild(c);
+  });
+}
+
+function destroyChart(key){ if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+function tabla(headers, rows){
+  if (!rows.length) return '<div class="empty">Sin datos en el rango.</div>';
+  const head = '<tr>' + headers.map(h => `<th class="${h.num?'num':''}">${h.label}</th>`).join('') + '</tr>';
+  const body = rows.map(r => '<tr>' + headers.map(h => `<td class="${h.num?'num':''}">${h.fmt ? h.fmt(r[h.key]) : r[h.key]}</td>`).join('') + '</tr>').join('');
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+function renderKpis(k){
+  $('kpis').innerHTML = [
+    ['Facturación', fmtMoney(k.facturacion)],
+    ['Tickets', fmtNum(k.tickets)],
+    ['Ticket promedio', fmtMoney(k.ticketProm)],
+    ['Unidades', fmtNum(k.unidades)],
+    ['Productos distintos', fmtNum(k.productosDistintos)],
+  ].map(([lbl,val]) => `<div class="kpi"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`).join('');
+}
+
+function renderComparativa(rows){
+  destroyChart('comp');
+  charts.comp = new Chart($('chComparativa'), {
+    type:'bar',
+    data:{ labels: rows.map(r=>r.nombre),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), backgroundColor: GREEN }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+  $('tblComparativa').innerHTML = tabla([
+    {key:'nombre',label:'Sucursal'},
+    {key:'facturacion',label:'Facturación',num:true,fmt:fmtMoney},
+    {key:'tickets',label:'Tickets',num:true,fmt:fmtNum},
+    {key:'ticketProm',label:'Ticket prom.',num:true,fmt:fmtMoney},
+  ], rows);
+}
+
+function renderTendencia(rows){
+  destroyChart('tend');
+  charts.tend = new Chart($('chTendencia'), {
+    type:'line',
+    data:{ labels: rows.map(r=>r.fecha),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), borderColor: GREEN, backgroundColor:'rgba(64,89,54,.1)', fill:true, tension:.25 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+}
+
+function renderDow(rows){
+  destroyChart('dow');
+  charts.dow = new Chart($('chDow'), {
+    type:'bar',
+    data:{ labels: rows.map(r=>r.nombre),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), backgroundColor: MID }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+}
+
+function renderHora(rows){
+  destroyChart('hora');
+  charts.hora = new Chart($('chHora'), {
+    type:'bar',
+    data:{ labels: rows.map(r=>`${r.hora}h`),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), backgroundColor: YELLOW }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+}
+
+function renderTop(rows, elId){
+  $(elId).innerHTML = tabla([
+    {key:'nombre',label:'Producto'},
+    {key:'unidades',label:'Unid.',num:true,fmt:fmtNum},
+    {key:'facturacion',label:'Facturación',num:true,fmt:fmtMoney},
+  ], rows);
+}
+
+async function consultar(){
+  if (!sel.size){ $('msg').innerHTML = '<div class="error">Seleccioná al menos una sucursal.</div>'; return; }
+  const btn = $('btnAplicar'); btn.disabled = true; btn.textContent = 'Consultando...';
+  $('msg').innerHTML = '<div class="loading">Cargando datos...</div>';
+  const desde = $('desde').value, hasta = $('hasta').value;
+  const url = `/api/analisis-ventas?desde=${desde}&hasta=${hasta}&sucursales=${[...sel].join(',')}`;
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $('msg').innerHTML = '';
+    renderKpis(d.kpis);
+    renderComparativa(d.comparativa);
+    renderTendencia(d.tendencia);
+    renderDow(d.diaSemana);
+    renderHora(d.horas);
+    renderTop(d.topUnidades, 'tblTopU');
+    renderTop(d.topFacturacion, 'tblTopF');
+  } catch(e){
+    $('msg').innerHTML = `<div class="error">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Aplicar';
+  }
+}
+
+$('btnAplicar').onclick = consultar;
+$('selAll').onclick  = () => { sel = new Set(SUCURSALES.map(s=>s.id)); renderChips(); };
+$('selNone').onclick = () => { sel.clear(); renderChips(); };
+
+initFechas(); renderChips(); consultar();
+</script>
+</body></html>
