@@ -45,7 +45,93 @@ function kpisGlobales(comparativa, resumen) {
   };
 }
 
+// Join cabecera→renglón por la clave compuesta de 5 columnas de SIGA.
+const JOIN_CLAVE5 = `INNER JOIN Ventas v
+    ON  v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
+    AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor
+    AND v.NumeroComprobante=vp.NumeroComprobante`;
+
+// Joins a Clientes/Categorias para excluir transferencias internas (categoría SUCURSAL).
+const JOIN_CLIENTE_CAT = `LEFT JOIN Clientes c ON c.IdCliente = v.IdCliente
+    LEFT JOIN Categorias cat ON cat.IdCategoria = c.IdCategoria`;
+
+// Cláusula WHERE con los filtros comunes. desde/hasta/sucIdsCsv YA saneados por el endpoint.
+function whereVentas({ desde, hasta, sucIdsCsv }) {
+  return `v.Fecha >= '${desde} 00:00:00' AND v.Fecha <= '${hasta} 23:59:59'
+      AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO'
+      AND v.IdSucursal IN (${sucIdsCsv})
+      AND ISNULL(cat.NombreCategoria,'') != 'SUCURSAL'
+      AND v.ImporteTotal > 0`;
+}
+
+// KPIs + comparativa: nivel cabecera (Ventas), 1 fila por comprobante.
+function sqlComparativa(p) {
+  return `SELECT v.IdSucursal, s.Nombre AS Nombre,
+      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+    FROM Ventas v
+    LEFT JOIN Sucursales s ON s.IdSucursal = v.IdSucursal
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}
+    GROUP BY v.IdSucursal, s.Nombre
+    ORDER BY Facturacion DESC`;
+}
+
+// Totales de unidades y productos distintos: nivel renglón (VentasProductos).
+function sqlResumenRenglon(p) {
+  return `SELECT SUM(vp.Cantidad) AS Unidades, COUNT(DISTINCT vp.IdProducto) AS ProductosDistintos
+    FROM VentasProductos vp
+    ${JOIN_CLAVE5}
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}`;
+}
+
+function sqlTendencia(p) {
+  return `SELECT CAST(v.Fecha AS DATE) AS Fecha,
+      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+    FROM Ventas v
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}
+    GROUP BY CAST(v.Fecha AS DATE)
+    ORDER BY Fecha`;
+}
+
+function sqlDiaSemana(p) {
+  return `SELECT (DATEPART(WEEKDAY, v.Fecha) + @@DATEFIRST - 2) % 7 AS Dow,
+      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+    FROM Ventas v
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}
+    GROUP BY (DATEPART(WEEKDAY, v.Fecha) + @@DATEFIRST - 2) % 7
+    ORDER BY Dow`;
+}
+
+function sqlHora(p) {
+  return `SELECT DATEPART(HOUR, v.Fecha) AS Hora,
+      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+    FROM Ventas v
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}
+    GROUP BY DATEPART(HOUR, v.Fecha)
+    ORDER BY Hora`;
+}
+
+// Top productos por 'unidades' o 'facturacion'. topN ya clampeado a entero.
+function sqlTopProductos(p, orden, topN) {
+  const col = orden === 'unidades' ? 'Unidades' : 'Facturacion';
+  return `SELECT TOP ${topN} vp.IdProducto AS IdProducto, p.Nombre AS Nombre,
+      SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotalNeto) AS Facturacion
+    FROM VentasProductos vp
+    ${JOIN_CLAVE5}
+    ${JOIN_CLIENTE_CAT}
+    INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
+    WHERE ${whereVentas(p)}
+    GROUP BY vp.IdProducto, p.Nombre
+    ORDER BY ${col} DESC`;
+}
+
 module.exports = {
   SUCURSALES_ANALISIS, NOMBRE_DIA, TOP_N_DEFAULT,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
+  whereVentas, sqlComparativa, sqlResumenRenglon,
+  sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
 };

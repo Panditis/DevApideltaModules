@@ -53,3 +53,57 @@ test('kpisGlobales agrega comparativa y suma resumen de renglón', () => {
   assert.strictEqual(k.unidades, 120);
   assert.strictEqual(k.productosDistintos, 45);
 });
+
+const {
+  whereVentas, sqlComparativa, sqlResumenRenglon,
+  sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
+} = require('../analisis_ventas');
+
+const P = { desde: '2026-07-01', hasta: '2026-07-17', sucIdsCsv: '2,3,4,5,7,9,10' };
+
+test('whereVentas incluye los filtros comunes obligatorios', () => {
+  const w = whereVentas(P);
+  assert.match(w, /v\.Fecha >= '2026-07-01 00:00:00'/);
+  assert.match(w, /v\.Fecha <= '2026-07-17 23:59:59'/);
+  assert.match(w, /IdEstadoComprobante,''\) != 'ANULADO'/);
+  assert.match(w, /v\.IdSucursal IN \(2,3,4,5,7,9,10\)/);
+  assert.match(w, /NombreCategoria,''\) != 'SUCURSAL'/);
+});
+
+test('sqlComparativa agrupa por sucursal a nivel cabecera (sin VentasProductos)', () => {
+  const s = sqlComparativa(P);
+  assert.match(s, /FROM Ventas v/);
+  assert.doesNotMatch(s, /VentasProductos/);
+  assert.match(s, /SUM\(v\.ImporteTotal\) AS Facturacion/);
+  assert.match(s, /COUNT\(\*\) AS Tickets/);
+  assert.match(s, /GROUP BY v\.IdSucursal, s\.Nombre/);
+});
+
+test('sqlResumenRenglon suma unidades y cuenta productos distintos', () => {
+  const s = sqlResumenRenglon(P);
+  assert.match(s, /FROM VentasProductos vp/);
+  assert.match(s, /SUM\(vp\.Cantidad\) AS Unidades/);
+  assert.match(s, /COUNT\(DISTINCT vp\.IdProducto\) AS ProductosDistintos/);
+});
+
+test('sqlTendencia agrupa por día calendario', () => {
+  assert.match(sqlTendencia(P), /GROUP BY CAST\(v\.Fecha AS DATE\)/);
+});
+
+test('sqlDiaSemana normaliza el día independiente de DATEFIRST (0=Lunes)', () => {
+  assert.match(sqlDiaSemana(P), /\(DATEPART\(WEEKDAY, v\.Fecha\) \+ @@DATEFIRST - 2\) % 7/);
+});
+
+test('sqlHora agrupa por hora del día', () => {
+  assert.match(sqlHora(P), /DATEPART\(HOUR, v\.Fecha\)/);
+});
+
+test('sqlTopProductos ordena por la métrica y limita con TOP', () => {
+  const u = sqlTopProductos(P, 'unidades', 20);
+  assert.match(u, /SELECT TOP 20/);
+  assert.match(u, /ORDER BY Unidades DESC/);
+  const f = sqlTopProductos(P, 'facturacion', 10);
+  assert.match(f, /SELECT TOP 10/);
+  assert.match(f, /ORDER BY Facturacion DESC/);
+  assert.match(f, /INNER JOIN Productos p ON p\.IdProducto = vp\.IdProducto/);
+});
