@@ -67,7 +67,7 @@ test('whereVentas incluye los filtros comunes obligatorios', () => {
   assert.match(w, /v\.Fecha <= '2026-07-17 23:59:59'/);
   assert.match(w, /IdEstadoComprobante,''\) != 'ANULADO'/);
   assert.match(w, /v\.IdSucursal IN \(2,3,4,5,7,9,10\)/);
-  assert.match(w, /NombreCategoria,''\) != 'SUCURSAL'/);
+  assert.match(w, /UPPER\(ISNULL\(cat\.NombreCategoria,''\)\) != 'SUCURSAL'/);
 });
 
 test('sqlComparativa agrupa por sucursal a nivel cabecera (sin VentasProductos)', () => {

@@ -60,7 +60,7 @@ function whereVentas({ desde, hasta, sucIdsCsv }) {
   return `v.Fecha >= '${desde} 00:00:00' AND v.Fecha <= '${hasta} 23:59:59'
       AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO'
       AND v.IdSucursal IN (${sucIdsCsv})
-      AND ISNULL(cat.NombreCategoria,'') != 'SUCURSAL'
+      AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
       AND v.ImporteTotal > 0`;
 }
 
