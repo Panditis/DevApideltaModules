@@ -118,14 +118,14 @@ function sqlHora(p) {
 // Top productos por 'unidades' o 'facturacion'. topN ya clampeado a entero.
 function sqlTopProductos(p, orden, topN) {
   const col = orden === 'unidades' ? 'Unidades' : 'Facturacion';
-  return `SELECT TOP ${topN} vp.IdProducto AS IdProducto, p.Nombre AS Nombre,
+  return `SELECT TOP ${topN} vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
       SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotalNeto) AS Facturacion
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
     WHERE ${whereVentas(p)}
-    GROUP BY vp.IdProducto, p.Nombre
+    GROUP BY vp.IdProducto, p.NombreProducto
     ORDER BY ${col} DESC`;
 }
 
