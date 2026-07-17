@@ -18,6 +18,7 @@ const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
+const analisisVentas = require('./analisis_ventas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -931,6 +932,7 @@ app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'plan
 app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_compras.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 app.get('/compras-modulo', (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
+app.get('/analisis-ventas', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_ventas.html')));
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');
@@ -3238,6 +3240,59 @@ app.get('/api/ventas-hora/sucursales', apiRoute(async () => {
     WHERE s.Nombre IS NOT NULL
     ORDER BY v.IdSucursal
   `);
+}));
+
+// ── Análisis de Ventas por Sucursal ──────────────────────────────────────────
+app.get('/api/analisis-ventas', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
+  const sucIdsCsv = sucIds.join(',');
+  const topN = analisisVentas.clampTopN(req.query.top);
+  const p = { desde, hasta, sucIdsCsv };
+
+  const [comparativa, resumenArr, tendencia, diaSemana, horas, topUnidades, topFacturacion] =
+    await Promise.all([
+      query(analisisVentas.sqlComparativa(p)),
+      query(analisisVentas.sqlResumenRenglon(p)),
+      query(analisisVentas.sqlTendencia(p)),
+      query(analisisVentas.sqlDiaSemana(p)),
+      query(analisisVentas.sqlHora(p)),
+      query(analisisVentas.sqlTopProductos(p, 'unidades', topN)),
+      query(analisisVentas.sqlTopProductos(p, 'facturacion', topN)),
+    ]);
+
+  const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
+
+  return {
+    rango: { desde, hasta },
+    sucursales: sucIds,
+    kpis: analisisVentas.kpisGlobales(comparativa, resumen),
+    comparativa: comparativa.map(r => ({
+      idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+      ticketProm: analisisVentas.ticketProm(Number(r.Facturacion || 0), Number(r.Tickets || 0)),
+    })),
+    tendencia: tendencia.map(r => ({
+      fecha: r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10),
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    diaSemana: diaSemana.map(r => ({
+      dow: Number(r.Dow), nombre: analisisVentas.mapDiaSemana(Number(r.Dow)),
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    horas: horas.map(r => ({
+      hora: Number(r.Hora), facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    topUnidades: topUnidades.map(r => ({
+      idProd: r.IdProducto, nombre: r.Nombre,
+      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+    })),
+    topFacturacion: topFacturacion.map(r => ({
+      idProd: r.IdProducto, nombre: r.Nombre,
+      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+    })),
+  };
 }));
 
 // ── Movimientos de stock (Siga) ────────────────────────────────────────────────
