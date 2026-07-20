@@ -355,6 +355,7 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
   <button class="tab-btn"        data-tab="calendario">Calendario semanal</button>
   <button class="tab-btn"        data-tab="catalogo">Catálogo</button>
   <button class="tab-btn"        data-tab="envases">📦 Envases</button>
+  <button class="tab-btn"        data-tab="tapas">🧴 Tapas</button>
   <button class="tab-btn"        data-tab="clientes">👤 Clientes</button>
 </div>
 
@@ -456,6 +457,26 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
       <button class="btn btn-secondary btn-sm" id="btnEnvRefrescar" title="Actualizar stock desde Siga">↻ Refrescar stock</button>
     </div>
     <div id="tablaEnvasesReg"><div class="loading">Cargando…</div></div>
+  </div>
+</div>
+
+<!-- TAB: TAPAS -->
+<div class="tab-panel" id="tab-tapas">
+  <div class="filter-bar">
+    <label>Código de sistema:</label>
+    <input type="text" id="tapCodigo" placeholder="IdProducto…" style="width:150px">
+    <input type="text" id="tapNombre" placeholder="Nombre (autocompleta)…" readonly style="width:260px;background:var(--bg)">
+    <span class="text-sm" id="tapStock" style="min-width:90px">Stock: —</span>
+    <button class="btn btn-primary btn-sm" id="btnTapAgregar" disabled>Agregar tapa</button>
+    <span class="text-sm" id="tapMsg" style="color:var(--muted)"></span>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      Tapas cargadas
+      <span class="spacer"></span>
+      <button class="btn btn-secondary btn-sm" id="btnTapRefrescar" title="Actualizar stock desde Siga">↻ Refrescar stock</button>
+    </div>
+    <div id="tablaTapasReg"><div class="loading">Cargando…</div></div>
   </div>
 </div>
 
@@ -879,6 +900,29 @@ let responsablesCache = [];
 const respNombre = r => (typeof r === 'string' ? r : (r && r.nombre) || '');
 const respCorto  = r => (typeof r === 'string' ? '' : (r && (r.corto || r.abrev)) || '');
 let planCache = null;
+let packagingCache = {}; // { plu: { envase:{codigo,nombre}|null, tapa:{codigo,nombre}|null } }
+function autofillPackaging() {
+  for (const it of (planCache?.items || [])) {
+    const pk = packagingCache[String(it.idProducto)];
+    if (!pk) continue;
+    if ((it.envase == null || it.envase === '') && pk.envase) it.envase = pk.envase.codigo;
+    if ((it.tapa   == null || it.tapa   === '') && pk.tapa)   it.tapa   = pk.tapa.codigo;
+  }
+}
+async function prefetchPackaging() {
+  const plus = [...new Set((planCache?.items || []).map(it => it.idProducto).filter(x => x != null && String(x) !== ''))].map(String);
+  const faltan = plus.filter(p => !(p in packagingCache));
+  if (!faltan.length) return false;
+  try { const pk = await api('GET', `/api/plan/packaging?plus=${encodeURIComponent(faltan.join(','))}`); Object.assign(packagingCache, pk); return true; }
+  catch { return false; }
+}
+function opcionesPack(registro, detectado) {
+  const arr = [...(registro || [])];
+  if (detectado && detectado.codigo && !arr.some(e => String(e.codigo) === String(detectado.codigo))) {
+    arr.push({ codigo: detectado.codigo, nombre: (detectado.nombre || detectado.codigo) + ' · fórmula' });
+  }
+  return arr;
+}
 let fechaPlanActual = null;
 let semPlanBase       = lunesDeEstaFecha(HOY);
 let semCalendarioBase = lunesDeEstaFecha(HOY);
@@ -940,10 +984,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'plan')       { renderDiaSelector(); cargarEnvasesReg(); cargarClientesReg(); if (fechaPlanActual) cargarPlan(fechaPlanActual); }
+    if (btn.dataset.tab === 'plan')       { renderDiaSelector(); cargarEnvasesReg(); cargarClientesReg(); cargarTapasReg(); if (fechaPlanActual) cargarPlan(fechaPlanActual); }
     if (btn.dataset.tab === 'calendario') cargarCalendario(calMesActual + '-01');
     if (btn.dataset.tab === 'catalogo')   cargarCatalogo();
     if (btn.dataset.tab === 'envases')    cargarEnvasesReg();
+    if (btn.dataset.tab === 'tapas')      cargarTapasReg();
     if (btn.dataset.tab === 'clientes')   cargarClientesReg();
   });
 });
@@ -1279,6 +1324,8 @@ async function cargarPlan(fecha) {
   try {
     planCache = await api('GET', `/api/plan/${fecha}`);
     document.getElementById('notasPlan').value = planCache.notas || '';
+    await prefetchPackaging();
+    autofillPackaging();
     renderPlan();
   } catch (e) {
     document.getElementById('tablaPlan').innerHTML =
@@ -1288,6 +1335,7 @@ async function cargarPlan(fecha) {
 
 function renderPlan() {
   const items = planCache?.items || [];
+  autofillPackaging();
   const listos = items.filter(i => i.estado === 'listo').length;
   document.getElementById('resumePlan').textContent =
     items.length ? `${listos}/${items.length} listos` : '';
@@ -1348,7 +1396,14 @@ function renderPlan() {
         <select onchange="actualizarItem(${it.id},'envase',this.value)" title="Envase asignado"
           style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
           <option value="">— Envase —</option>
-          ${envasesReg.map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.envase||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
+          ${opcionesPack(envasesReg, packagingCache[String(it.idProducto)]?.envase).map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.envase||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
+        </select>
+      </td>
+      <td onclick="event.stopPropagation()">
+        <select onchange="actualizarItem(${it.id},'tapa',this.value)" title="Tapa asignada"
+          style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
+          <option value="">— Tapa —</option>
+          ${opcionesPack(tapasReg, packagingCache[String(it.idProducto)]?.tapa).map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.tapa||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
         </select>
       </td>
       <td onclick="event.stopPropagation()">
@@ -1383,13 +1438,14 @@ function renderPlan() {
     <table>
       <thead><tr>
         <th style="width:54px;text-align:center" title="Prioridad (▲▼ o arrastrar)">Prior.</th><th>Estado</th><th>Producto</th>
-        <th>Cantidad</th><th>Responsable</th><th>Envase</th><th>Cliente</th><th>Estado tarea</th>
+        <th>Cantidad</th><th>Responsable</th><th>Envase</th><th>Tapa</th><th>Cliente</th><th>Estado tarea</th>
         <th>MP</th><th></th>
       </tr></thead>
       <tbody id="tbodyPlan">${rows}</tbody>
     </table></div>`;
 
   initDragDrop();
+  prefetchPackaging().then(changed => { if (changed) { autofillPackaging(); renderPlan(); } });
 }
 
 function renderGranelNec(cant, cantPU, disp) {
@@ -1756,6 +1812,75 @@ document.getElementById('btnEnvRefrescar')?.addEventListener('click', async () =
   catch (e) { toast('Error al refrescar', true); }
 });
 cargarEnvasesReg();
+
+// ── Tab Tapas (registro persistente con autocompletar Siga) ────
+let tapasReg = [];
+async function cargarTapasReg() {
+  try { tapasReg = await api('GET', '/api/tapas-registro') || []; }
+  catch { tapasReg = []; }
+  const cont = document.getElementById('tablaTapasReg');
+  if (!cont) return;
+  if (!tapasReg.length) {
+    cont.innerHTML = '<div class="loading">Sin tapas cargadas. Ingresá un código de sistema arriba.</div>';
+    return;
+  }
+  cont.innerHTML = `<div style="overflow-x:auto"><table>
+    <thead><tr><th style="width:120px">Código</th><th>Nombre</th><th style="width:110px">Stock</th><th style="width:50px"></th></tr></thead>
+    <tbody>${tapasReg.map(e => `<tr>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700">${escHtml(String(e.codigo))}</td>
+      <td>${escHtml(e.nombre || '')}</td>
+      <td style="font-weight:700;color:${(e.stock || 0) <= 0 ? 'var(--red-text)' : 'var(--grn-text)'}">${e.stock ?? 0}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarTapaReg('${String(e.codigo).replace(/'/g, "\\'")}')">✕</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+let tapLookupDebounce = null;
+function _tapLookup() {
+  const cod = document.getElementById('tapCodigo').value.trim();
+  const nom = document.getElementById('tapNombre');
+  const stk = document.getElementById('tapStock');
+  const btn = document.getElementById('btnTapAgregar');
+  const msg = document.getElementById('tapMsg');
+  if (!cod) { nom.value = ''; stk.textContent = 'Stock: —'; btn.disabled = true; msg.textContent = ''; return; }
+  clearTimeout(tapLookupDebounce);
+  tapLookupDebounce = setTimeout(async () => {
+    try {
+      const e = await api('GET', `/api/tapa-lookup?codigo=${encodeURIComponent(cod)}`);
+      if (e && !e.error) { nom.value = e.nombre; stk.textContent = 'Stock: ' + e.stock; btn.disabled = false; msg.textContent = ''; }
+      else { nom.value = ''; stk.textContent = 'Stock: —'; btn.disabled = true; msg.textContent = 'Producto no encontrado'; }
+    } catch { btn.disabled = true; }
+  }, 350);
+}
+async function agregarTapaReg() {
+  const cod = document.getElementById('tapCodigo').value.trim();
+  if (!cod) return;
+  try {
+    const r = await api('POST', '/api/tapas-registro', { codigo: cod });
+    if (r.error) { toast(r.error, true); return; }
+    document.getElementById('tapCodigo').value = '';
+    document.getElementById('tapNombre').value = '';
+    document.getElementById('tapStock').textContent = 'Stock: —';
+    document.getElementById('btnTapAgregar').disabled = true;
+    await cargarTapasReg();
+    if (typeof renderPlan === 'function' && planCache) renderPlan();
+    toast(`Tapa "${r.tapa?.nombre || cod}" agregada`);
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+async function eliminarTapaReg(cod) {
+  try { await api('DELETE', '/api/tapas-registro/' + encodeURIComponent(cod)); }
+  catch (e) { toast('Error al eliminar', true); }
+  await cargarTapasReg();
+  if (typeof renderPlan === 'function' && planCache) renderPlan();
+}
+document.getElementById('tapCodigo')?.addEventListener('input', _tapLookup);
+document.getElementById('tapCodigo')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('btnTapAgregar').disabled) agregarTapaReg();
+});
+document.getElementById('btnTapAgregar')?.addEventListener('click', agregarTapaReg);
+document.getElementById('btnTapRefrescar')?.addEventListener('click', async () => {
+  try { const r = await api('POST', '/api/tapas-registro/refrescar', {}); tapasReg = r.tapas || []; await cargarTapasReg(); toast('Stock actualizado'); }
+  catch (e) { toast('Error al refrescar', true); }
+});
+cargarTapasReg();
 
 // ── Tab Clientes ───────────────────────────────────────────────────
 let clientesReg = [];
@@ -2293,7 +2418,7 @@ function construirOrdenes() {
     const presentaciones = conCant.map(it => {
       const cant = it.cantConfirmada ?? it.cantSugerida ?? 0;
       const pres = it.presentacion || it.producto || '';
-      return { presentacion: pres, cantidad: cant, plu: (it.idProducto ?? it.plu) != null ? String(it.idProducto ?? it.plu) : '', envase: it.envase || '' };
+      return { presentacion: pres, cantidad: cant, plu: (it.idProducto ?? it.plu) != null ? String(it.idProducto ?? it.plu) : '', envase: it.envase || '', tapa: it.tapa || '' };
     });
     const presStr  = presentaciones.map(p => `${p.presentacion}: ${p.cantidad}`).join(' / ');
     const tambores = [...new Set(conCant.map(it => it.tambor).filter(Boolean))].join(', ');
@@ -2309,6 +2434,7 @@ function construirOrdenes() {
       criticidad:   CRITICIDAD[semaforo] || 'Media',
       prioridad:    Math.min(...conCant.map(it => it.prioridad ?? 9999)),
       envase:       conCant.find(it => it.envase)?.envase || '',
+      tapa:         conCant.find(it => it.tapa)?.tapa || '',
       estado:       'pendiente',
       encargados:   [...new Set(conCant.flatMap(it => it.responsables||[]))],
       encargado:    [...new Set(conCant.flatMap(it => it.responsables||[]))].join(' / '),

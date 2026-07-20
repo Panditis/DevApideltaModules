@@ -943,6 +943,7 @@ const RESP_PATH      = path.join(DATA_DIR, 'responsables.json');
 const CATALOGO_PATH  = path.join(DATA_DIR, 'catalogo.json');
 const GRUPOS_CFG_PATH = path.join(DATA_DIR, 'grupos_config.json');
 const ENVASES_REG_PATH = path.join(DATA_DIR, 'envases_registro.json'); // [{codigo,nombre,stock}]
+const TAPAS_REG_PATH   = path.join(DATA_DIR, 'tapas_registro.json');    // [{codigo,nombre,stock}]
 const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
 const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,nombre,cantPorUnidad}] }
 // cfg entry puede ser: true|false  o  {activo:bool, granelPlu:string, mpManual:[], granelDirecto:bool}
@@ -2786,6 +2787,33 @@ app.get('/api/bom/producto/:plu', apiRoute(async req => {
 }));
 app.get('/api/plan/sugerencias',        apiRoute(async req => calcularSugerencias(req.query)));
 app.get('/api/plan/sugerencias-grupos', apiRoute(async req => calcularSugerenciasCatalogo(req.query)));
+app.get('/api/plan/packaging', apiRoute(async req => {
+  const plus = String(req.query.plus || '').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean);
+  if (!plus.length) return {};
+  const rows = await query(`
+    SELECT pc.IdProducto AS padre, pc.IdProductoComponente AS codigo,
+           p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro
+    FROM ProductosComponentes pc
+    INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+    LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
+    WHERE pc.IdProducto IN (${plus.join(',')})
+    ORDER BY p.NombreProducto`);
+  const out = {};
+  for (const plu of plus) out[plu] = { envase: null, tapa: null };
+  for (const r of rows) {
+    const padre = String(r.padre);
+    const ru    = String(r.rubro || '').toUpperCase();
+    const nom   = String(r.nombre || '');
+    const item  = { codigo: String(r.codigo), nombre: nom };
+    if (!out[padre]) out[padre] = { envase: null, tapa: null };
+    if (!out[padre].tapa && (ru.includes('TAPA') || /^tapas?\s/i.test(nom))) {
+      out[padre].tapa = item;
+    } else if (!out[padre].envase && (ru.includes('EMBALA') || ru.includes('ENVASE') || /^envase\s/i.test(nom))) {
+      out[padre].envase = item;
+    }
+  }
+  return out;
+}));
 app.get('/api/envases', apiRoute(async () => query(`
 SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, COALESCE(SUM(pd.Stock),0) AS StockActual
 FROM Productos p INNER JOIN Rubros r ON r.IdRubro=p.IdRubro
@@ -2831,6 +2859,34 @@ app.delete('/api/envases-registro/:codigo', (req, res) => {
   guardarJSON(ENVASES_REG_PATH, leerJSON(ENVASES_REG_PATH, []).filter(x => String(x.codigo) !== cod));
   res.json({ ok: true });
 });
+app.get('/api/tapas-registro', (_req, res) => res.json(leerJSON(TAPAS_REG_PATH, [])));
+app.post('/api/tapas-registro', apiRoute(async req => {
+  const codigo = ((req.body && req.body.codigo) || '').toString().trim();
+  if (!codigo) return { error: 'Falta código' };
+  const e = await envaseLookup(codigo);
+  if (!e) return { error: 'Producto no encontrado en Siga' };
+  const arr = leerJSON(TAPAS_REG_PATH, []);
+  const i = arr.findIndex(x => String(x.codigo) === String(e.codigo));
+  if (i >= 0) arr[i] = e; else arr.push(e);
+  guardarJSON(TAPAS_REG_PATH, arr);
+  return { ok: true, tapa: e };
+}));
+app.post('/api/tapas-registro/refrescar', apiRoute(async () => {
+  const arr = leerJSON(TAPAS_REG_PATH, []);
+  for (const x of arr) { const e = await envaseLookup(x.codigo); if (e) { x.nombre = e.nombre; x.stock = e.stock; } }
+  guardarJSON(TAPAS_REG_PATH, arr);
+  return { ok: true, tapas: arr };
+}));
+app.delete('/api/tapas-registro/:codigo', (req, res) => {
+  const cod = String(req.params.codigo);
+  guardarJSON(TAPAS_REG_PATH, leerJSON(TAPAS_REG_PATH, []).filter(x => String(x.codigo) !== cod));
+  res.json({ ok: true });
+});
+app.get('/api/tapa-lookup', apiRoute(async req => {
+  const codigo = (req.query.codigo || '').trim();
+  if (!codigo) return { error: 'Falta código' };
+  return (await envaseLookup(codigo)) || { error: 'Producto no encontrado' };
+}));
 app.get('/api/clientes-registro', (_req, res) => res.json(leerJSON(CLIENTES_PATH, [])));
 app.post('/api/clientes-registro', apiRoute(async req => {
   const nombre = ((req.body && req.body.nombre) || '').toString().trim();
