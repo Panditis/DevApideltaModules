@@ -1038,12 +1038,14 @@ app.get('/api/formula', apiRoute(async req => {
   const rows = await query(`
     SELECT pc.IdProductoComponente AS IdComponente,
            p.NombreProducto AS Componente,
+           COALESCE(r.NombreRubro,'') AS Rubro,
            pc.Cantidad AS CantPorUnidad,
            CAST(pc.Cantidad * ${cantidad} AS DECIMAL(18,3)) AS CantTotal,
            COALESCE(p.IdUnidadDeMedida,'') AS Unidad,
            COALESCE((SELECT SUM(pd2.Stock) FROM dbo.ProductosDepositos pd2 JOIN dbo.SucursalesDepositos sd2 ON sd2.IdDeposito=pd2.IdDeposito AND sd2.IdSucursal=pd2.IdSucursal WHERE pd2.IdProducto=pc.IdProductoComponente AND UPPER(sd2.NombreDeposito) LIKE '%GRANEL%'),0) AS StockGranel,
            COALESCE((SELECT SUM(pd3.Stock) FROM dbo.ProductosDepositos pd3 WHERE pd3.IdProducto=pc.IdProductoComponente),0) AS StockTotal
     FROM dbo.ProductosComponentes pc JOIN dbo.Productos p ON p.IdProducto=pc.IdProductoComponente
+    LEFT JOIN dbo.Rubros r ON r.IdRubro=p.IdRubro
     WHERE pc.IdProducto='${safeId}'
     ORDER BY p.NombreProducto`);
   return { producto: nombre, idProducto: idProd, cantidad, componentes: rows };

@@ -109,6 +109,8 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 /* PRESENTACIONES (desplegable) + TAMBOR */
 .tambor-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#FFF3E0;color:#E65100;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
 .cliente-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#EDE7F6;color:#4527A0;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
+.envase-chip{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;background:var(--green-light,#E8F0E3);color:var(--green-dark,#2E4020);border:1px solid rgba(64,89,54,.3);padding:2px 10px;border-radius:999px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+.envase-chip.granel{background:#FFF3E0;color:#E65100;border-color:rgba(230,81,0,.3)}
 .tambor-ico{width:14px;height:14px;vertical-align:middle;margin-right:3px}
 .pres-toggle{display:inline-block;transition:transform .15s;font-size:11px;color:var(--green);font-weight:800}
 .pres-toggle.open{transform:rotate(90deg)}
@@ -809,7 +811,17 @@ let fechaFiltro = HOY_STR;
 let notasDia = '';
 let ENVASES_MAP = {}; // codigo de sistema → nombre del envase
 let ENVASES_LIST = []; // [{codigo,nombre,stock}]
+let TAPAS_MAP  = {}; // codigo de sistema → nombre de la tapa
+let TAPAS_LIST = []; // [{codigo,nombre,stock}]
 function envaseLabel(cod){ if(!cod) return '—'; return ENVASES_MAP[String(cod)] || String(cod); }
+function tapaLabel(cod){ if(!cod) return '—'; return TAPAS_MAP[String(cod)] || String(cod); }
+// Lista de tapas de la orden (una por presentación si existen, si no la de la orden).
+function tapasDeOrden(o){
+  if(Array.isArray(o.presentaciones) && o.presentaciones.length){
+    return [...new Set(o.presentaciones.map(p => p.tapa || ''))];
+  }
+  return [o.tapa || ''];
+}
 function escEnv(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 // Envase — SOLO LECTURA (viene asignado desde Planificación). Vacío = Granel.
 function envaseNom(cod){ return cod ? `📦 ${escEnv(envaseLabel(cod))}` : '🛢️ Granel'; }
@@ -820,13 +832,91 @@ function envasesDeOrden(o){
   }
   return [o.envase || ''];
 }
+// Chip destacado de envase (o granel si está vacío).
+function envaseChip(cod){ return `<span class="envase-chip${cod?'':' granel'}">${envaseNom(cod)}</span>`; }
 // Celda de la fila general: muestra todos los envases que tenga la orden.
 function envaseCelda(o){
-  const uniq = [...new Set(envasesDeOrden(o).map(envaseNom))];
-  return `<td style="font-size:12px;color:var(--text-muted);line-height:1.5">${uniq.join('<br>')}</td>`;
+  const uniq = [...new Set(envasesDeOrden(o).map(String))];
+  return `<td style="line-height:1.9">${uniq.map(envaseChip).join(' ')}</td>`;
 }
-// Texto plano para cards mobile.
-function envaseTexto(o){ return [...new Set(envasesDeOrden(o).map(envaseNom))].join(' · '); }
+// Chips para cards mobile.
+function envaseTexto(o){ return [...new Set(envasesDeOrden(o).map(String))].map(envaseChip).join(' '); }
+// ¿El componente es un insumo de packaging (envase/tapa/etiqueta)? Se asume disponible al producir.
+function _pfEsPackaging(c){
+  const ru = String((c && c.Rubro) || '').toUpperCase();
+  if (ru.includes('TAPA') || ru.includes('ETIQUET') || ru.includes('ENVASE') || ru.includes('EMBALA')) return true;
+  const nom = String((c && c.Componente) || '');
+  return /^\s*(tapa|tapas|etiqueta|etiquetas|envase|envases)\b/i.test(nom);
+}
+// Opciones del selector de envase en la carga (default = envase de la orden).
+function _pfEnvaseOpts(sel){
+  sel = String(sel || '');
+  const lista = ENVASES_LIST.slice();
+  if (sel && !lista.some(e => String(e.codigo) === sel)) lista.push({ codigo: sel, nombre: envaseLabel(sel) });
+  const opts = [`<option value=""${sel ? '' : ' selected'}>🛢️ Granel / ninguno</option>`];
+  lista.forEach(e => { const c = String(e.codigo); opts.push(`<option value="${escEnv(c)}"${c === sel ? ' selected' : ''}>📦 ${escEnv(e.nombre || c)}</option>`); });
+  return opts.join('');
+}
+// Completa TAPAS_MAP/ENVASES_MAP con nombres desde la fórmula (para packaging no registrado).
+function _pfEnriquecerNombres(allComps){
+  (allComps || []).forEach(c => {
+    const ru  = String(c.Rubro || '').toUpperCase();
+    const cod = String(c.IdComponente || '');
+    const nom = String(c.Componente || '');
+    if (!cod || !nom) return;
+    if ((ru.includes('TAPA') || /^\s*tapas?\b/i.test(nom)) && !TAPAS_MAP[cod]) TAPAS_MAP[cod] = nom;
+    if ((ru.includes('ENVASE') || ru.includes('EMBALA')) && !ENVASES_MAP[cod]) ENVASES_MAP[cod] = nom;
+  });
+}
+// Opciones del selector de tapa en la carga (default = tapa de la orden).
+function _pfTapaOpts(sel){
+  sel = String(sel || '');
+  const lista = TAPAS_LIST.slice();
+  if (sel && !lista.some(e => String(e.codigo) === sel)) lista.push({ codigo: sel, nombre: tapaLabel(sel) });
+  const opts = [`<option value=""${sel ? '' : ' selected'}>— sin tapa —</option>`];
+  lista.forEach(e => { const c = String(e.codigo); opts.push(`<option value="${escEnv(c)}"${c === sel ? ' selected' : ''}>🧴 ${escEnv(e.nombre || c)}</option>`); });
+  return opts.join('');
+}
+// ── Marcas de packaging (SILPLAST / MARPLAST) ──
+// Un envase de una marca no puede combinarse con una tapa de la otra.
+const _MARCAS_PACK = ['SILPLAST', 'MARPLAST'];
+function _marcaDe(nombre){
+  const s = String(nombre || '').toUpperCase();
+  return _MARCAS_PACK.find(m => s.includes(m)) || null;
+}
+// Sincroniza la tapa con la marca del envase SELECCIONADO: solo muestra tapas de esa
+// marca. Si el envase no tiene marca reconocida, muestra todas. Al cambiar de marca,
+// deselecciona la tapa (queda en blanco) hasta que se elija una.
+function _pfSyncTapa(){
+  const envSel = document.getElementById('pfEnvase');
+  const tapSel = document.getElementById('pfTapa');
+  if (!envSel || !tapSel) return;
+  const envVal = envSel.value;
+  // Granel / ninguno: no hay envase → tapa deshabilitada y vacía.
+  if (!envVal) {
+    tapSel.value = '';
+    tapSel.disabled = true;
+    [...tapSel.options].forEach(op => { op.hidden = !!op.value; }); // solo "— sin tapa —"
+    return;
+  }
+  tapSel.disabled = false;
+  const marcaEnv = _marcaDe(ENVASES_MAP[envVal] || envVal);
+  if (!marcaEnv) {                                 // envase sin marca: mostrar solo tapas sin marca
+    [...tapSel.options].forEach(op => {
+      if (!op.value) { op.hidden = false; return; }
+      op.hidden = _marcaDe(TAPAS_MAP[op.value] || op.textContent) !== null; // ocultar las de SILPLAST/MARPLAST
+    });
+    if (tapSel.value && _marcaDe(TAPAS_MAP[tapSel.value] || '') !== null) tapSel.value = '';
+    return;
+  }
+  // Envase de marca: solo tapas de esa marca.
+  [...tapSel.options].forEach(op => {
+    if (!op.value) { op.hidden = false; return; }  // "— sin tapa —" siempre disponible
+    op.hidden = _marcaDe(TAPAS_MAP[op.value] || op.textContent) !== marcaEnv;
+  });
+  // Si la tapa seleccionada no es de la marca del envase, deseleccionar (queda en blanco).
+  if (tapSel.value && _marcaDe(TAPAS_MAP[tapSel.value] || '') !== marcaEnv) tapSel.value = '';
+}
 let ORDERS=[], activeFilters=new Set(['all']), activeSection='all', navMode='categoria', viewMode='board';
 
 // Secciones predefinidas de la sala
@@ -947,6 +1037,28 @@ async function load() {
     ENVASES_MAP = {};
     ENVASES_LIST.forEach(e => { ENVASES_MAP[String(e.codigo)] = e.nombre || String(e.codigo); });
   } catch(e) { /* mantiene mapa anterior */ }
+  try {
+    const tps = await api('GET', '/api/tapas-registro');
+    TAPAS_LIST = (tps || []).slice();
+    TAPAS_MAP = {};
+    TAPAS_LIST.forEach(e => { TAPAS_MAP[String(e.codigo)] = e.nombre || String(e.codigo); });
+  } catch(e) { /* mantiene mapa anterior */ }
+  // Completar nombres de envase/tapa auto-detectados (no registrados) desde la fórmula.
+  try {
+    const plus = new Set();
+    ORDERS.forEach(o => {
+      (o.presentaciones || []).forEach(p => { if (p.plu) plus.add(String(p.plu).replace(/\D/g,'')); });
+      String(o.codigo || '').split(',').forEach(s => { const d = s.replace(/\D/g,''); if (d) plus.add(d); });
+    });
+    plus.delete('');
+    if (plus.size) {
+      const pk = await api('GET', `/api/plan/packaging?plus=${[...plus].join(',')}`);
+      Object.values(pk || {}).forEach(v => {
+        if (v && v.envase && v.envase.codigo && !ENVASES_MAP[String(v.envase.codigo)]) ENVASES_MAP[String(v.envase.codigo)] = v.envase.nombre || String(v.envase.codigo);
+        if (v && v.tapa   && v.tapa.codigo   && !TAPAS_MAP[String(v.tapa.codigo)])   TAPAS_MAP[String(v.tapa.codigo)]   = v.tapa.nombre   || String(v.tapa.codigo);
+      });
+    }
+  } catch(e) { /* nombres quedan como código si falla */ }
 }
 
 async function addOrder(d) {
@@ -1167,7 +1279,7 @@ function presItemsHTML(o){
       <span class="pi-num">${pi+1}</span>
       <span class="pi-nom">${p.presentacion}</span>
       <span class="pi-cant">${p.cantidad}<small> u.</small></span>
-      <span class="pi-env" style="font-size:11px;color:var(--text-muted);white-space:nowrap">${envaseNom(p.envase)}</span>
+      <span class="pi-env">${envaseChip(p.envase)}</span>
       ${right}
     </div>`;
   }).join('');
@@ -1927,6 +2039,9 @@ async function openProdFinalModal(id, presIndex = null) {
   ]);
 
   const allComps = formulaData.componentes || [];
+  // Excluir envase/tapa/etiqueta: son insumos disponibles al producir.
+  const compsVisibles = allComps.filter(c => !_pfEsPackaging(c));
+  _pfEnriquecerNombres(allComps);
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   const comps = allComps.filter(c => /granel|tambor/i.test(c.Componente));
   _pfFactores = comps.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }));
@@ -1949,10 +2064,10 @@ async function openProdFinalModal(id, presIndex = null) {
   </table>`;
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, multi)).join('');
 
-  const formulaSection = allComps.length ? `<div class="form-group">
+  const formulaSection = compsVisibles.length ? `<div class="form-group">
     <details style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
       <summary style="padding:10px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;display:flex;align-items:center;gap:6px;list-style:none">
-        🧪 Fórmula completa <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${allComps.length} componentes)</span>
+        🧪 Fórmula <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${compsVisibles.length} componentes · sin envase/tapa/etiqueta)</span>
         <span style="margin-left:auto">▾</span>
       </summary>
       <div style="padding:8px 14px 12px">
@@ -1962,7 +2077,7 @@ async function openProdFinalModal(id, presIndex = null) {
             <th style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
             <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Para ${o.cantidad} u.</th>
           </tr></thead>
-          <tbody>${allComps.map(c => {
+          <tbody>${compsVisibles.map(c => {
             const factor = parseFloat(c.CantPorUnidad) || 0;
             const isGranel = /granel|tambor/i.test(c.Componente);
             return `<tr style="border-bottom:1px solid #F0F0F0">
@@ -1976,6 +2091,16 @@ async function openProdFinalModal(id, presIndex = null) {
     </details>
   </div>` : '';
 
+  const pfEnvSel = String(envasesDeOrden(o)[0] || o.envase || '');
+  const pfTapSel = String(tapasDeOrden(o)[0] || o.tapa || '');
+  const pfEnvaseSection = `<div class="form-group">
+    <label class="form-label">📦 Envase</label>
+    <select class="form-select" id="pfEnvase" style="width:100%" onchange="_pfSyncTapa()">${_pfEnvaseOpts(pfEnvSel)}</select>
+  </div>
+  <div class="form-group">
+    <label class="form-label">🧴 Tapa</label>
+    <select class="form-select" id="pfTapa" style="width:100%">${_pfTapaOpts(pfTapSel)}</select>
+  </div>`;
   document.getElementById('pfBody').innerHTML = `
     <div class="form-group">
       <label class="form-label">Responsables, roles y horarios</label>
@@ -1984,6 +2109,7 @@ async function openProdFinalModal(id, presIndex = null) {
     ${multi
       ? `<div class="form-group"><label class="form-label">Elementos a cargar</label><div id="pfElementos">${elementosHTML}</div></div>`
       : `<div id="pfElementos">${elementosHTML}</div>`}
+    ${pfEnvaseSection}
     ${formulaSection}
     <div class="form-group">
       <label class="form-label">Observación</label>
@@ -1995,6 +2121,7 @@ async function openProdFinalModal(id, presIndex = null) {
       <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
     </div>`;
   _pfRecalcGraneles();
+  _pfSyncTapa();
 }
 
 async function guardarProduccionFinal() {
@@ -2016,6 +2143,8 @@ async function guardarProduccionFinal() {
   const responsables = roles.map(r => ({ nombre: r.nombre, rol: r.rol }));
   const empleado = roles.map(r => r.nombre).filter(Boolean).join(' / ');
   const observacion = (document.getElementById('pfObs')?.value || '').trim();
+  const envaseSel = document.getElementById('pfEnvase')?.value || '';
+  const tapaSel   = document.getElementById('pfTapa')?.value || '';
 
   // Un registro por elemento (cantidad > 0 y no cargado previamente).
   const elementos = [...document.querySelectorAll('#pfElementos .pf-elem')].map(blk => {
@@ -2054,6 +2183,10 @@ async function guardarProduccionFinal() {
         granelConsumido: +el.graneles.reduce((s, g) => s + g.granelConsumido, 0).toFixed(2),
         observacion,
         cliente:         _pfOrden.cliente || '',
+        envase:          envaseSel,
+        envaseNombre:    envaseSel ? envaseLabel(envaseSel) : '',
+        tapa:            tapaSel,
+        tapaNombre:      tapaSel ? tapaLabel(tapaSel) : '',
       };
       const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -2344,6 +2477,9 @@ async function openProdFinalModalManual(nombre, codigo) {
   ]);
 
   const allComps = formulaData.componentes || [];
+  // Excluir envase/tapa/etiqueta: son insumos disponibles al producir.
+  const compsVisibles = allComps.filter(c => !_pfEsPackaging(c));
+  _pfEnriquecerNombres(allComps);
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   const comps = allComps.filter(c => /granel|tambor/i.test(c.Componente));
   _pfFactores = comps.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }));
@@ -2365,10 +2501,10 @@ async function openProdFinalModalManual(nombre, codigo) {
     </tr>`).join('')}</tbody>
   </table>`;
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, false)).join('');
-  const formulaSection = allComps.length ? `<div class="form-group">
+  const formulaSection = compsVisibles.length ? `<div class="form-group">
     <details style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
       <summary style="padding:10px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;display:flex;align-items:center;gap:6px;list-style:none">
-        🧪 Fórmula completa <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${allComps.length} componentes)</span>
+        🧪 Fórmula <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${compsVisibles.length} componentes · sin envase/tapa/etiqueta)</span>
         <span style="margin-left:auto">▾</span>
       </summary>
       <div style="padding:8px 14px 12px">
@@ -2378,7 +2514,7 @@ async function openProdFinalModalManual(nombre, codigo) {
             <th style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
             <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Total</th>
           </tr></thead>
-          <tbody>${allComps.map(c => {
+          <tbody>${compsVisibles.map(c => {
             const factor = parseFloat(c.CantPorUnidad) || 0;
             const isGranel = /granel|tambor/i.test(c.Componente);
             return `<tr style="border-bottom:1px solid #F0F0F0">
@@ -2391,12 +2527,21 @@ async function openProdFinalModalManual(nombre, codigo) {
       </div>
     </details>
   </div>` : '';
+  const pfEnvaseSection = `<div class="form-group">
+    <label class="form-label">📦 Envase</label>
+    <select class="form-select" id="pfEnvase" style="width:100%" onchange="_pfSyncTapa()">${_pfEnvaseOpts('')}</select>
+  </div>
+  <div class="form-group">
+    <label class="form-label">🧴 Tapa</label>
+    <select class="form-select" id="pfTapa" style="width:100%">${_pfTapaOpts('')}</select>
+  </div>`;
   document.getElementById('pfBody').innerHTML = `
     <div class="form-group">
       <label class="form-label">Responsables, roles y horarios</label>
       <div id="pfRespRoles">${respRolesHTML}</div>
     </div>
     <div id="pfElementos">${elementosHTML}</div>
+    ${pfEnvaseSection}
     ${formulaSection}
     <div class="form-group">
       <label class="form-label">Observación</label>
@@ -2408,6 +2553,7 @@ async function openProdFinalModalManual(nombre, codigo) {
       <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
     </div>`;
   _pfRecalcGraneles();
+  _pfSyncTapa();
 }
 
 async function exportTerminadosCSV(fecha) {
@@ -2428,7 +2574,8 @@ async function exportTerminadosCSV(fecha) {
 
   // Buscar IDs de componentes por PLU en SIGA para todos los productos únicos
   const plusUnicos = [...new Set(exportables.map(r => r.plu).filter(Boolean))];
-  const compMap = {}; // plu -> { nombreGranel: id }
+  const compMap = {};     // plu -> { nombreGranel: id }
+  const etiquetaMap = {}; // plu -> { id, nombre, factor } | null
   await Promise.all(plusUnicos.map(async plu => {
     try {
       const fd = await api('GET', `/api/formula?codigo=${encodeURIComponent(plu)}&cantidad=1`);
@@ -2436,7 +2583,12 @@ async function exportTerminadosCSV(fecha) {
       (fd.componentes || []).forEach(c => {
         compMap[plu][c.Componente] = c.IdComponente;
       });
-    } catch(_) { compMap[plu] = {}; }
+      const et = (fd.componentes || []).find(c => {
+        const ru = String(c.Rubro || '').toUpperCase();
+        return ru.includes('ETIQUET') || /^\s*etiquetas?\b/i.test(String(c.Componente || ''));
+      });
+      etiquetaMap[plu] = et ? { id: et.IdComponente, nombre: et.Componente, factor: parseFloat(et.CantPorUnidad) || 1 } : null;
+    } catch(_) { compMap[plu] = {}; etiquetaMap[plu] = null; }
   }));
 
   const SEP = ';';
@@ -2458,6 +2610,12 @@ async function exportTerminadosCSV(fecha) {
       const gid = g.granel || lookup[g.nombreGranel] || '';
       rows.push([1, esc(gid), esc(g.nombreGranel || ''), gcant, 1, esc(gid)].join(SEP));
     });
+    // Insumos de packaging: envase/tapa (seleccionados en la carga) y etiqueta (de la fórmula).
+    // Van como consumo (cantidad negativa) para descontar stock, 1 por unidad.
+    if (r.envase) rows.push([1, esc(r.envase), esc(r.envaseNombre || envaseLabel(r.envase)), -cant, 1, esc(r.envase)].join(SEP));
+    if (r.tapa)   rows.push([1, esc(r.tapa),   esc(r.tapaNombre   || tapaLabel(r.tapa)),     -cant, 1, esc(r.tapa)].join(SEP));
+    const et = etiquetaMap[plu];
+    if (et) rows.push([1, esc(et.id), esc(et.nombre), -_parseNum(cant * et.factor), 1, esc(et.id)].join(SEP));
   });
 
   const bom = '﻿';
