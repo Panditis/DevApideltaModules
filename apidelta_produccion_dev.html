@@ -82,7 +82,12 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .section-count{margin-left:auto;font-family:'Barlow Condensed',sans-serif;font-size:11px;color:var(--text-muted);padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface)}
 
 /* TABLA */
-.prod-table{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08);border:1px solid var(--border)}
+/* table-layout:fixed → manda el colgroup. Sin esto, un envase/tapa largo estira su columna
+   y aplasta a Cantidad, que queda ilegible. */
+.prod-table{width:100%;table-layout:fixed;border-collapse:collapse;border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08);border:1px solid var(--border)}
+/* Red de contención: con table-layout:fixed, contenido que no encoge se derramaría sobre
+   la columna vecina. Que recorte antes que solaparse. */
+.prod-table td{overflow:hidden}
 .prod-table th{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;padding:8px 14px;text-align:left;border-bottom:1px solid var(--border)}
 .prod-table td{background:var(--surface);padding:11px 14px;font-size:14px;border-bottom:1px solid #F0F0F0;vertical-align:middle}
 .prod-table tr:last-child td{border-bottom:none}
@@ -109,7 +114,10 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 /* PRESENTACIONES (desplegable) + TAMBOR */
 .tambor-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#FFF3E0;color:#E65100;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
 .cliente-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#EDE7F6;color:#4527A0;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
-.envase-chip{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;background:var(--green-light,#E8F0E3);color:var(--green-dark,#2E4020);border:1px solid rgba(64,89,54,.3);padding:2px 10px;border-radius:999px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+/* Chip envase+tapa: inline-block con una línea por ítem. Con inline-flex el texto que
+   envuelve se salía del fondo redondeado. */
+.envase-chip{font-family:'Barlow Condensed',sans-serif;font-size:12.5px;font-weight:800;background:var(--green-light,#E8F0E3);color:var(--green-dark,#2E4020);border:1px solid rgba(64,89,54,.3);padding:3px 9px;border-radius:10px;display:inline-block;max-width:100%;line-height:1.35;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.envase-chip .pack-line{display:block}
 .envase-chip.granel{background:#FFF3E0;color:#E65100;border-color:rgba(230,81,0,.3)}
 .tambor-ico{width:14px;height:14px;vertical-align:middle;margin-right:3px}
 .pres-toggle{display:inline-block;transition:transform .15s;font-size:11px;color:var(--green);font-weight:800}
@@ -117,7 +125,8 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .pres-cell{cursor:pointer;user-select:none}
 .pres-cell:hover{color:var(--green)}
 /* Dropdown multi-producto: pill llamativo con progreso */
-.pres-pill{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;background:linear-gradient(135deg,#FFF8E1,#FFFDF5);border:1.5px solid var(--green,#43A047);border-radius:999px;padding:4px 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--green-dark,#2E7D32);transition:.15s;white-space:nowrap}
+/* Debe poder envolver: con nowrap se desbordaba de su columna y pisaba Envase/Tapa. */
+.pres-pill{display:inline-flex;flex-wrap:wrap;align-items:center;gap:3px 7px;max-width:100%;cursor:pointer;user-select:none;background:linear-gradient(135deg,#FFF8E1,#FFFDF5);border:1.5px solid var(--green,#43A047);border-radius:14px;padding:4px 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--green-dark,#2E7D32);transition:.15s;white-space:normal}
 .pres-pill:hover{background:var(--green-dark,#2E7D32);color:#fff;box-shadow:0 2px 8px rgba(67,160,71,.3)}
 .pres-pill.done{border-color:#9E9E9E;background:linear-gradient(135deg,#F1F8E9,#FAFFF5)}
 .pres-pill .pp-count{background:var(--green,#43A047);color:#fff;border-radius:999px;padding:1px 8px;font-size:11px;line-height:1.5}
@@ -127,14 +136,17 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .pres-chev.open{transform:rotate(180deg)}
 .pres-detail-row td{background:#FAFAF7;padding:8px 14px 12px}
 .pres-detail{display:flex;flex-direction:column;gap:6px;padding-left:18px}
-.pres-item{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-left:4px solid var(--green,#43A047);border-radius:8px;padding:7px 12px;max-width:460px;transition:.15s}
+.pres-item{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-left:4px solid var(--green,#43A047);border-radius:8px;padding:7px 12px;max-width:680px;transition:.15s}
 .pres-item:hover{box-shadow:0 1px 6px rgba(0,0,0,.08)}
 .pres-item.done{border-left-color:#BDBDBD;opacity:.72;background:#FAFAFA}
 .pres-item .pi-num{width:20px;height:20px;flex-shrink:0;border-radius:50%;background:var(--green,#43A047);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px}
 .pres-item.done .pi-num{background:#BDBDBD}
-.pres-item .pi-nom{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:var(--text);flex:1;min-width:0}
-.pres-item .pi-cant{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:var(--green-dark,#2E7D32);white-space:nowrap}
+/* El nombre se recorta con puntos suspensivos; la cantidad NUNCA se encoge (si no, al
+   tener nowrap su texto desborda y se superpone con el nombre). */
+.pres-item .pi-nom{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:var(--text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pres-item .pi-cant{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:var(--green-dark,#2E7D32);white-space:nowrap;flex:0 0 auto}
 .pres-item .pi-cant small{font-size:10px;color:var(--text-muted);font-weight:600}
+.pres-item .pi-env{flex:1 1 auto;min-width:0}
 .pi-badge-done{display:inline-flex;align-items:center;gap:4px;background:#E8F5E9;color:#2E7D32;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
 .pi-btn-load{display:inline-flex;align-items:center;gap:5px;background:var(--green,#43A047);color:#fff;border:none;border-radius:7px;padding:6px 13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:.15s;white-space:nowrap;animation:piPulse 2.2s ease-in-out infinite}
 .pi-btn-load:hover{background:var(--green-dark,#2E7D32);transform:translateY(-1px);animation:none}
@@ -832,15 +844,31 @@ function envasesDeOrden(o){
   }
   return [o.envase || ''];
 }
-// Chip destacado de envase (o granel si está vacío).
-function envaseChip(cod){ return `<span class="envase-chip${cod?'':' granel'}">${envaseNom(cod)}</span>`; }
-// Celda de la fila general: muestra todos los envases que tenga la orden.
+// Parte "tapa" dentro del chip (vacío si la orden no tiene tapa asignada).
+function tapaNom(cod){ return cod ? `⭕ ${escEnv(tapaLabel(cod))}` : ''; }
+// Pares envase+tapa de la orden: uno por presentación si existen, si no el de la orden.
+// Se emparejan para que se vea qué tapa corresponde a cada envase.
+function packDeOrden(o){
+  if(Array.isArray(o.presentaciones) && o.presentaciones.length){
+    return [...new Map(o.presentaciones.map(p => {
+      const e = String(p.envase||''), t = String(p.tapa||'');
+      return [e+'|'+t, {envase:e, tapa:t}];
+    })).values()];
+  }
+  return [{envase:String(o.envase||''), tapa:String(o.tapa||'')}];
+}
+// Un solo chip por par envase+tapa, para que no se mezclen entre presentaciones.
+// Cada uno en su propia línea dentro del chip.
+function packChips(pk){
+  const tap = pk.tapa ? `<span class="pack-line">${tapaNom(pk.tapa)}</span>` : '';
+  return `<span class="envase-chip${pk.envase?'':' granel'}"><span class="pack-line">${envaseNom(pk.envase)}</span>${tap}</span>`;
+}
+// Celda de la fila general: envase + tapa de cada presentación.
 function envaseCelda(o){
-  const uniq = [...new Set(envasesDeOrden(o).map(String))];
-  return `<td style="line-height:1.9">${uniq.map(envaseChip).join(' ')}</td>`;
+  return `<td style="line-height:1.9">${packDeOrden(o).map(packChips).join('<br>')}</td>`;
 }
 // Chips para cards mobile.
-function envaseTexto(o){ return [...new Set(envasesDeOrden(o).map(String))].map(envaseChip).join(' '); }
+function envaseTexto(o){ return packDeOrden(o).map(packChips).join(' '); }
 // ¿El componente es un insumo de packaging (envase/tapa/etiqueta)? Se asume disponible al producir.
 function _pfEsPackaging(c){
   const ru = String((c && c.Rubro) || '').toUpperCase();
@@ -874,7 +902,7 @@ function _pfTapaOpts(sel){
   const lista = TAPAS_LIST.slice();
   if (sel && !lista.some(e => String(e.codigo) === sel)) lista.push({ codigo: sel, nombre: tapaLabel(sel) });
   const opts = [`<option value=""${sel ? '' : ' selected'}>— sin tapa —</option>`];
-  lista.forEach(e => { const c = String(e.codigo); opts.push(`<option value="${escEnv(c)}"${c === sel ? ' selected' : ''}>🧴 ${escEnv(e.nombre || c)}</option>`); });
+  lista.forEach(e => { const c = String(e.codigo); opts.push(`<option value="${escEnv(c)}"${c === sel ? ' selected' : ''}>⭕ ${escEnv(e.nombre || c)}</option>`); });
   return opts.join('');
 }
 // ── Marcas de packaging (SILPLAST / MARPLAST) ──
@@ -1279,7 +1307,7 @@ function presItemsHTML(o){
       <span class="pi-num">${pi+1}</span>
       <span class="pi-nom">${p.presentacion}</span>
       <span class="pi-cant">${p.cantidad}<small> u.</small></span>
-      <span class="pi-env">${envaseChip(p.envase)}</span>
+      <span class="pi-env">${packChips({envase:String(p.envase||''), tapa:String(p.tapa||'')})}</span>
       ${right}
     </div>`;
   }).join('');
@@ -1340,7 +1368,7 @@ function renderBoard(){
 
     const rows=prods.map(o=>{
       const env=envaseCelda(o);
-      const acc=`<td style="text-align:center;white-space:nowrap">
+      const acc=`<td style="text-align:center">
         <button class="btn-formula" onclick="openProdFinalModal(${o.id})" title="Registrar carga de producción">📥 Cargar</button>
         <button class="btn-formula" onclick="openFormula(${o.id})" title="Ver fórmula">🧪 Fórmula</button>
         <button class="btn-del" onclick="openEditModal(${o.id})" title="Editar">✏️</button>
@@ -1355,7 +1383,7 @@ function renderBoard(){
           <td>${presPillHTML(o, o.id)}</td>
           ${env}
           ${qtyTd}
-          <td style="text-align:center;white-space:nowrap">${estChip(o)} ${critChip(o)}</td>
+          <td style="text-align:center">${estChip(o)} ${critChip(o)}</td>
           <td style="font-size:13px;color:var(--text-muted)">${o.encargado||'—'}</td>
           ${acc}</tr>
           <tr class="pres-detail-row" id="presdet-${o.id}" style="display:none"><td colspan="7"><div class="pres-detail">${det}</div></td></tr>`;
@@ -1365,7 +1393,7 @@ function renderBoard(){
         <td style="color:var(--text-muted)">${o.presentacion}</td>
         ${env}
         ${qtyTd}
-        <td style="text-align:center;white-space:nowrap">${estChip(o)} ${critChip(o)}</td>
+        <td style="text-align:center">${estChip(o)} ${critChip(o)}</td>
         <td style="font-size:13px;color:var(--text-muted)">${o.encargado||'—'}</td>
         ${acc}</tr>`;
     }).join('');
@@ -1405,10 +1433,10 @@ function renderBoard(){
         <span class="section-count">${prods.length} orden${prods.length!==1?'es':''} · ${totalSec} u.</span>
       </div>
       <table class="prod-table">
-        <colgroup><col style="width:26%"><col style="width:14%"><col style="width:12%"><col style="width:9%"><col style="width:20%"><col style="width:13%"><col style="width:6%"></colgroup>
+        <colgroup><col style="width:19%"><col style="width:13%"><col style="width:18%"><col style="width:7%"><col style="width:13%"><col style="width:11%"><col style="width:19%"></colgroup>
         <thead><tr>
           <th>Producto</th><th>Presentación</th>
-          <th>Envase</th>
+          <th>Envase / Tapa</th>
           <th style="text-align:center">Cantidad</th>
           <th style="text-align:center">Estado</th>
           <th>Encargado</th>
@@ -1951,11 +1979,14 @@ function fmtN(n) {
 }
 
 // ── MODAL PRODUCCIÓN FINAL ────────────────────────────────────────────────────
-let _pfOrden = null, _pfFactores = [], _pfEncargados = [], _pfElementos = [];
+// Cada presentación de una orden es un producto distinto con su propia fórmula, así que
+// los componentes editables van por elemento (índice eidx), no en una lista compartida.
+let _pfOrden = null, _pfFactoresPorElem = [], _pfEncargados = [], _pfElementos = [];
+function _pfFactoresDe(eidx){ return _pfFactoresPorElem[Number(eidx)] || []; }
 
 function closeProdFinalModal() {
   document.getElementById('prodFinalModal').classList.remove('open');
-  _pfOrden = null; _pfFactores = []; _pfEncargados = []; _pfElementos = [];
+  _pfOrden = null; _pfFactoresPorElem = []; _pfEncargados = []; _pfElementos = [];
 }
 
 function _pfGranelRowHTML(nombre, cant, unidad) {
@@ -1969,16 +2000,17 @@ function _pfGranelRowHTML(nombre, cant, unidad) {
 
 // Bloque de carga por elemento (cantidad producida + graneles propios).
 function _pfElemBlockHTML(el, eidx, multi) {
-  const granelRows = _pfFactores.map(f => _pfGranelRowHTML(f.nombre, +(f.factorPorUnidad * el.cantidad).toFixed(3), f.unidad)).join('');
-  const granelSection = _pfFactores.length ? `<div style="margin-top:8px">
-    <div class="form-label" style="font-size:11px;margin-bottom:4px">Graneles utilizados</div>${granelRows}</div>` : '';
+  const factores = _pfFactoresDe(eidx);
+  const granelRows = factores.map(f => _pfGranelRowHTML(f.nombre, +(f.factorPorUnidad * el.cantidad).toFixed(3), f.unidad)).join('');
+  const granelSection = factores.length ? `<div style="margin-top:8px">
+    <div class="form-label" style="font-size:11px;margin-bottom:4px">Componentes utilizados</div>${granelRows}</div>` : '';
   const dis = el.cargado ? ' disabled' : '';
   const head = multi ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
     <span style="font-weight:800;font-family:'Barlow Condensed',sans-serif;font-size:16px">${el.presentacion||'—'}</span>
     ${el.cargado ? '<span style="font-size:11px;font-weight:700;color:var(--green-dark)">✅ ya cargado</span>' : ''}
   </div>` : '';
   const pres = String(el.presentacion || '').replace(/"/g, '&quot;');
-  return `<div class="pf-elem" data-eidx="${eidx}" data-presindex="${el.presIndex}" data-presentacion="${pres}" data-cargado="${el.cargado ? '1' : '0'}" style="${multi ? 'border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px' + (el.cargado ? ';opacity:.55' : '') : ''}">
+  return `<div class="pf-elem" data-eidx="${eidx}" data-presindex="${el.presIndex}" data-presentacion="${pres}" data-plu="${String(el.plu || '').replace(/"/g, '&quot;')}" data-cargado="${el.cargado ? '1' : '0'}" style="${multi ? 'border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px' + (el.cargado ? ';opacity:.55' : '') : ''}">
     ${head}
     <div class="form-group" style="margin:4px 0 0">
       <label class="form-label">Cantidad producida</label>
@@ -1994,8 +2026,9 @@ function _pfRecalcGraneles(eidx) {
     : [...document.querySelectorAll(`.pf-elem[data-eidx="${eidx}"]`)];
   blocks.forEach(blk => {
     const cant = parseFloat(blk.querySelector('.pf-elem-cant')?.value) || 0;
+    const factores = _pfFactoresDe(blk.dataset.eidx);
     blk.querySelectorAll('.pf-grn-cant').forEach((inp, i) => {
-      const f = _pfFactores[i];
+      const f = factores[i];
       if (f) inp.value = +(f.factorPorUnidad * cant).toFixed(3);
     });
   });
@@ -2012,16 +2045,19 @@ function _pfRecalcGraneles(eidx) {
 async function openProdFinalModal(id, presIndex = null) {
   const o = ORDERS.find(o => o.id == id);
   if (!o) return;
-  _pfOrden = o; _pfFactores = [];
+  _pfOrden = o; _pfFactoresPorElem = [];
   const presArr = Array.isArray(o.presentaciones) ? o.presentaciones : [];
   const multi = presArr.length > 1;
+  // o.codigo puede ser una lista ("493, 492") en órdenes multi-presentación: para la fórmula
+  // hace falta el PLU propio de cada presentación, no el de la orden.
+  const pluOrden = String(o.codigo || '').split(',')[0].trim();
   if (multi && presIndex != null) {
     const p = presArr[presIndex] || {};
-    _pfElementos = [{ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: Number(presIndex), cargado: !!p.cargado }];
+    _pfElementos = [{ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: Number(presIndex), cargado: !!p.cargado, plu: String(p.plu || pluOrden || '') }];
   } else if (multi) {
-    _pfElementos = presArr.map((p, i) => ({ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: i, cargado: !!p.cargado }));
+    _pfElementos = presArr.map((p, i) => ({ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: i, cargado: !!p.cargado, plu: String(p.plu || '') }));
   } else {
-    _pfElementos = [{ presentacion: o.presentacion, cantidad: o.cantidad, presIndex: -1, cargado: false }];
+    _pfElementos = [{ presentacion: o.presentacion, cantidad: o.cantidad, presIndex: -1, cargado: false, plu: String((presArr[0] && presArr[0].plu) || pluOrden || '') }];
   }
   document.getElementById('pfTitle').textContent = cleanNombre(o.producto);
   document.getElementById('pfSubtitle').textContent = (multi && presIndex == null)
@@ -2030,21 +2066,37 @@ async function openProdFinalModal(id, presIndex = null) {
   document.getElementById('pfBody').innerHTML = '<div class="formula-spinner">⏳ Cargando...</div>';
   document.getElementById('prodFinalModal').classList.add('open');
 
-  const [respData, formulaData] = await Promise.all([
+  // Una fórmula por PLU distinto entre las presentaciones (en paralelo).
+  const [respData, formulasPorPlu] = await Promise.all([
     fetch(`${SERVER_URL}/api/responsables`).then(r => r.json()).catch(() => []),
-    (() => {
-      const cod = o.codigo ? `codigo=${encodeURIComponent(o.codigo)}` : `producto=${encodeURIComponent(o.producto)}`;
-      return fetch(`${SERVER_URL}/api/formula?${cod}&cantidad=1`).then(r => r.json()).catch(() => ({}));
+    (async () => {
+      const out = {};
+      const plus = [...new Set(_pfElementos.map(el => el.plu).filter(Boolean))];
+      if (!plus.length) {   // sin PLU: último recurso, buscar por nombre de producto
+        const d = await fetch(`${SERVER_URL}/api/formula?producto=${encodeURIComponent(o.producto)}&cantidad=1`).then(r => r.json()).catch(() => ({}));
+        out.__nombre__ = d.componentes || [];
+        return out;
+      }
+      await Promise.all(plus.map(async plu => {
+        const d = await fetch(`${SERVER_URL}/api/formula?codigo=${encodeURIComponent(plu)}&cantidad=1`).then(r => r.json()).catch(() => ({}));
+        out[plu] = d.componentes || [];
+      }));
+      return out;
     })()
   ]);
 
-  const allComps = formulaData.componentes || [];
-  // Excluir envase/tapa/etiqueta: son insumos disponibles al producir.
-  const compsVisibles = allComps.filter(c => !_pfEsPackaging(c));
-  _pfEnriquecerNombres(allComps);
+  const compsDe = el => formulasPorPlu[el.plu] || formulasPorPlu.__nombre__ || [];
+  Object.values(formulasPorPlu).forEach(cs => _pfEnriquecerNombres(cs));
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
-  const comps = allComps.filter(c => /granel|tambor/i.test(c.Componente));
-  _pfFactores = comps.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }));
+  // Editables por elemento: todos los componentes salvo packaging (envase/tapa/etiqueta).
+  _pfFactoresPorElem = _pfElementos.map(el => compsDe(el)
+    .filter(c => !_pfEsPackaging(c))
+    .map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' })));
+  // La tabla de fórmula de solo lectura aplica a un único producto: con varias
+  // presentaciones cada bloque ya muestra sus propios componentes.
+  const compsVisibles = _pfElementos.length === 1
+    ? compsDe(_pfElementos[0]).filter(c => !_pfEsPackaging(c))
+    : [];
 
   const ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
   const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
@@ -2098,7 +2150,7 @@ async function openProdFinalModal(id, presIndex = null) {
     <select class="form-select" id="pfEnvase" style="width:100%" onchange="_pfSyncTapa()">${_pfEnvaseOpts(pfEnvSel)}</select>
   </div>
   <div class="form-group">
-    <label class="form-label">🧴 Tapa</label>
+    <label class="form-label">⭕ Tapa</label>
     <select class="form-select" id="pfTapa" style="width:100%">${_pfTapaOpts(pfTapSel)}</select>
   </div>`;
   document.getElementById('pfBody').innerHTML = `
@@ -2149,15 +2201,17 @@ async function guardarProduccionFinal() {
   // Un registro por elemento (cantidad > 0 y no cargado previamente).
   const elementos = [...document.querySelectorAll('#pfElementos .pf-elem')].map(blk => {
     const cant = parseFloat(blk.querySelector('.pf-elem-cant')?.value);
+    const factores = _pfFactoresDe(blk.dataset.eidx);
     const graneles = [...blk.querySelectorAll('.pf-grn-cant')].map((inp, i) => ({
-      granel: _pfFactores[i]?.id || null,
-      nombreGranel: _pfFactores[i]?.nombre || '',
+      granel: factores[i]?.id || null,
+      nombreGranel: factores[i]?.nombre || '',
       granelConsumido: parseFloat(inp.value) || 0,
     })).filter(g => g.nombreGranel);
     return {
       cant,
       presIndex: Number(blk.dataset.presindex),
       presentacion: blk.dataset.presentacion || '',
+      plu: blk.dataset.plu || '',
       cargado: blk.dataset.cargado === '1',
       graneles,
     };
@@ -2169,7 +2223,7 @@ async function guardarProduccionFinal() {
     for (const el of elementos) {
       const payload = {
         ordenId:         _pfOrden.id,
-        plu:             _pfOrden.codigo || '',
+        plu:             el.plu || _pfOrden.codigo || '',
         nombre:          _pfOrden.producto,
         seccion:         _pfOrden.seccion,
         presentacion:    el.presentacion,
@@ -2464,8 +2518,8 @@ async function seleccionarProductoManual(idx) {
 }
 async function openProdFinalModalManual(nombre, codigo) {
   _pfOrden = { id: null, producto: nombre, codigo: codigo, seccion: '', cantidad: 0, presentacion: '', cliente: '', observacion: '' };
-  _pfFactores = [];
-  _pfElementos = [{ presentacion: '', cantidad: 0, presIndex: -1, cargado: false }];
+  _pfFactoresPorElem = [];
+  _pfElementos = [{ presentacion: '', cantidad: 0, presIndex: -1, cargado: false, plu: String(codigo || '') }];
   document.getElementById('pfTitle').textContent = cleanNombre(nombre);
   document.getElementById('pfSubtitle').textContent = `Carga manual · ${codigo}`;
   document.getElementById('pfBody').innerHTML = '<div class="formula-spinner">⏳ Cargando…</div>';
@@ -2481,8 +2535,8 @@ async function openProdFinalModalManual(nombre, codigo) {
   const compsVisibles = allComps.filter(c => !_pfEsPackaging(c));
   _pfEnriquecerNombres(allComps);
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
-  const comps = allComps.filter(c => /granel|tambor/i.test(c.Componente));
-  _pfFactores = comps.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }));
+  // Editables: todos los componentes salvo packaging (envase/tapa/etiqueta), no solo los graneles.
+  _pfFactoresPorElem = [compsVisibles.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }))];
 
   const ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
   const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
@@ -2532,7 +2586,7 @@ async function openProdFinalModalManual(nombre, codigo) {
     <select class="form-select" id="pfEnvase" style="width:100%" onchange="_pfSyncTapa()">${_pfEnvaseOpts('')}</select>
   </div>
   <div class="form-group">
-    <label class="form-label">🧴 Tapa</label>
+    <label class="form-label">⭕ Tapa</label>
     <select class="form-select" id="pfTapa" style="width:100%">${_pfTapaOpts('')}</select>
   </div>`;
   document.getElementById('pfBody').innerHTML = `

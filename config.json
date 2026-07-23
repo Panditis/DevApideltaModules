@@ -14,6 +14,14 @@
   "comprasPisoCentral": { "tramos": [{ "hastaS": 20, "pct": 0.5 }, { "hastaS": null, "pct": 0.25 }], "pisoAbsoluto": 3 },
   "puerto": 8081,
   "hostname": "dev",
+  "reserva": {
+    "idSucursal": 1,
+    "depositoPrincipal": 1,
+    "depositoReserva": null,
+    "idTipoMovimiento": "BIENESUSO",
+    "usuario": "Adriel",
+    "idEmpleado": 1
+  },
   "produccionHtml": "apidelta_produccion_dev.html",
   "gruposGranelEnKg": [
     "G. Chocolate Gold","G. Crunch","G. KETO","G. Super Alimentos","G. Tradicional"

@@ -2467,12 +2467,24 @@ function renderHistBody(id) {
     if (conRegistro.has(String(p.plu))) continue;
     rows.push({ plu: p.plu, nombre: p.nombre, cant: null, horario: '', empleado: '', granel: p.granel, nombreGranel: p.nombreGranel, granelCons: null, lote: '', esCarga: false });
   }
+  // Tareas extras (registros sin PLU de producto): se listan al final, no cuentan
+  // como carga de producto pero sí quedan visibles en el detalle del historial.
+  const actividades = (h.produccion || [])
+    .filter(r => String(r.plu) === 'ACT')
+    .map(r => ({ plu: 'ACT', nombre: r.observacion || 'Tarea extra', cant: null,
+      horario: (r.desde||'') + (r.hasta ? ' – ' + r.hasta : ''), empleado: r.empleado,
+      granel: '', nombreGranel: '', granelCons: null, lote: r.lote || '',
+      esCarga: true, esActividad: true }));
+  rows = rows.concat(actividades);
   if (q) rows = rows.filter(p => (p.nombre||'').toLowerCase().includes(q) || String(p.plu).includes(q));
   if (filtro === 'envasado') rows = rows.filter(p => p.esCarga);
   if (filtro === 'sinregistro') rows = rows.filter(p => !p.esCarga);
-  document.getElementById(`hist-count-${id}`).textContent = `${rows.length} carga${rows.length!==1?'s':''}`;
-  tbody.innerHTML = rows.map(p => `<tr${p.esCarga ? '' : ' style="opacity:.55"'}>
-      <td class="l plu">${p.plu}</td>
+  const nAct = rows.filter(p => p.esActividad).length;
+  const nCargas = rows.length - nAct;
+  document.getElementById(`hist-count-${id}`).textContent =
+    `${nCargas} carga${nCargas!==1?'s':''}` + (nAct ? ` · ${nAct} tarea${nAct!==1?'s':''} extra` : '');
+  tbody.innerHTML = rows.map(p => `<tr${p.esActividad ? ' style="background:rgba(124,58,237,.07)"' : p.esCarga ? '' : ' style="opacity:.55"'}>
+      <td class="l plu"${p.esActividad ? ' style="color:#7c3aed;font-weight:700"' : ''}>${p.esActividad ? '⚡' : p.plu}</td>
       <td class="l" style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${(p.nombre||'').replace(/"/g,'&quot;')}">${p.nombre||''}</td>
       <td>${p.cant!=null?fmt(p.cant):''}</td>
       <td class="l" style="font-size:11px;color:var(--faint)">${p.horario || (p.esCarga ? '' : '— sin carga —')}</td>

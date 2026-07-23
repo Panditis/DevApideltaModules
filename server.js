@@ -9,6 +9,7 @@ const sql        = require('mssql/msnodesqlv8');
 const path       = require('path');
 const fs         = require('fs');
 const os         = require('os');
+const crypto     = require('crypto');
 
 const multer   = require('multer');
 const XLSX     = require('xlsx');
@@ -164,6 +165,48 @@ const STOCK_CENTRAL_CTE = `
       AND prodComp.NombreProducto NOT LIKE 'Caja %'
       AND prodComp.NombreProducto NOT LIKE 'Cinta %'
     GROUP BY pc.IdProducto)`;
+
+// Un producto puede tener varias fórmulas en ProductosComponentes (columna IdFormula);
+// la vigente es Productos.IdFormula. Sin este filtro se mezclan componentes de fórmulas
+// viejas (ej. "Formula generico") con los de la activa.
+// Fallback: si la fórmula activa no tiene componentes (o IdFormula es NULL) se usa la de
+// menor IdFormula, para que ningún producto quede sin fórmula.
+const FORMULA_ACTIVA_SQL = `pc.IdFormula = COALESCE(
+    (SELECT TOP 1 fa.IdFormula FROM dbo.ProductosComponentes fa
+       INNER JOIN dbo.Productos fp ON fp.IdProducto = fa.IdProducto
+      WHERE fa.IdProducto = pc.IdProducto AND fa.IdFormula = fp.IdFormula),
+    (SELECT MIN(fb.IdFormula) FROM dbo.ProductosComponentes fb WHERE fb.IdProducto = pc.IdProducto))`;
+
+// La regla de fórmula activa escrita sobre otro alias. Se deriva de FORMULA_ACTIVA_SQL en vez
+// de reescribirla para que siga habiendo una sola definición: la usa el segundo nivel del BOM.
+const formulaActivaPara = alias => FORMULA_ACTIVA_SQL.replace(/\bpc\./g, `${alias}.`);
+
+// "Formula generico" es un placeholder de SIGA, nunca un insumo real: se oculta siempre.
+// Asume que el producto componente está aliasado como `p` en la query.
+const SIN_FORMULA_GENERICO_SQL = `p.NombreProducto NOT LIKE '%FORMULA GENERICO%'
+    AND p.NombreProducto NOT LIKE '%FORMULA GENÉRICO%'`;
+
+// Clasifica un componente de fórmula como envase o tapa mirando su rubro y su nombre.
+// Es la única definición de la regla: la usan /api/plan/packaging (para ofrecer el envase
+// y la tapa de la fórmula en la planificación) y componentesDePlan (para saber a qué
+// componente reemplaza lo elegido en el plan). Devuelve 'tapa' | 'envase' | null.
+// La tapa se evalúa primero porque su rubro puede mencionar también el embalaje.
+// Un mismo componente puede matchear las dos reglas a la vez (p. ej. "Tapa Grande" con rubro
+// "ENVASES"), así que se devuelven ambos flags y cada consumidor decide qué hacer.
+function tiposPackaging(nombre, rubro) {
+  const ru  = String(rubro || '').toUpperCase();
+  const nom = String(nombre || '');
+  return {
+    esTapa:   ru.includes('TAPA') || /^tapas?\s/i.test(nom),
+    esEnvase: ru.includes('EMBALA') || ru.includes('ENVASE') || /^envase\s/i.test(nom)
+  };
+}
+// Tipo único de un componente, con la tapa como prioridad. Lo usa componentesDePlan para
+// saber a qué componente de la fórmula reemplaza lo elegido en el plan.
+function clasificarPackaging(nombre, rubro) {
+  const t = tiposPackaging(nombre, rubro);
+  return t.esTapa ? 'tapa' : t.esEnvase ? 'envase' : null;
+}
 
 // ── Queries pedidos ────────────────────────────────────────────────────────────
 async function getLocalidades(desde, hasta, estados) {
@@ -428,11 +471,46 @@ LEFT  JOIN SucursalesDepositos sd ON sd.IdDeposito=pd.IdDeposito AND sd.IdSucurs
 WHERE p.Activo=1 AND p.IdRubro IN (${rubros})
 GROUP BY p.IdProducto, p.NombreProducto, p.IdRubro, r.NombreRubro ORDER BY p.NombreProducto`;
 }
+// Los pesables suelen tener la fórmula activa en dos niveles: "Adobo Para Pizza 1Kg" no apunta
+// al granel sino a "Adobo Para Pizza PEDIDOS" (rubro Producción), y recién ese resuelve a
+// "Adobo Para Pizza DEPOSITO GRANEL". Cuando el componente de la fórmula activa es uno de esos
+// intermedios se baja un nivel más y se multiplican las cantidades de los dos saltos.
+// El intermedio se detecta por nombre de rubro (igual que el resto del archivo con BULTO/CAJA),
+// así entran tanto "Produccion" como "Pesables Produccion".
+const RUBRO_INTERMEDIO_SQL = `UPPER(COALESCE(rInt.NombreRubro,'')) LIKE '%PRODUCCION%'`;
+
+// BOM de componentes granel según la fórmula activa. El segundo nivel es un fallback: solo se
+// usa para los productos que no resuelven granel en el primer nivel (NOT EXISTS), así los que
+// ya andaban devuelven exactamente las mismas filas. No hay recursión más allá del segundo
+// nivel: si ahí tampoco aparece un granel, el producto queda sin granel.
+// Un mismo granel puede llegar por dos intermedios distintos (ej. "Yogurt … c Frutilla 370G"
+// usa gelatina vía la mermelada y vía el yogur), así que el segundo nivel agrupa y suma en vez
+// de devolver una fila por camino.
+// `filtroPadre` acota por PLU y aplica a los dos niveles porque en ambos `pc` es el nivel 1.
+function sqlBOMGranel(rubros, filtroPadre = '') {
+  return `SELECT pc.IdProducto, pc.IdProductoComponente, p.NombreProducto AS NombreComponente,
+       p.IdRubro AS RubroComponente, pc.Cantidad AS CantPorUnidad
+FROM ProductosComponentes pc INNER JOIN Productos p ON p.IdProducto=pc.IdProductoComponente
+WHERE p.IdRubro IN (${rubros}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}${filtroPadre}
+UNION ALL
+SELECT pc.IdProducto, pc2.IdProductoComponente, p.NombreProducto AS NombreComponente,
+       p.IdRubro AS RubroComponente,
+       CAST(SUM(pc.Cantidad * pc2.Cantidad) AS DECIMAL(18,6)) AS CantPorUnidad
+FROM ProductosComponentes pc
+INNER JOIN Productos pInt ON pInt.IdProducto=pc.IdProductoComponente
+LEFT  JOIN Rubros    rInt ON rInt.IdRubro=pInt.IdRubro
+INNER JOIN ProductosComponentes pc2 ON pc2.IdProducto=pc.IdProductoComponente
+INNER JOIN Productos p ON p.IdProducto=pc2.IdProductoComponente
+WHERE ${RUBRO_INTERMEDIO_SQL} AND ${FORMULA_ACTIVA_SQL} AND ${formulaActivaPara('pc2')}
+  AND p.IdRubro IN (${rubros}) AND ${SIN_FORMULA_GENERICO_SQL}${filtroPadre}
+  AND NOT EXISTS (SELECT 1 FROM ProductosComponentes n1
+                  INNER JOIN Productos np ON np.IdProducto=n1.IdProductoComponente
+                  WHERE n1.IdProducto=pc.IdProducto AND np.IdRubro IN (${rubros})
+                    AND ${formulaActivaPara('n1')})
+GROUP BY pc.IdProducto, pc2.IdProductoComponente, p.NombreProducto, p.IdRubro`;
+}
 function sqlBOM(rubros) {
-  return `SELECT pc.IdProducto, pc.IdProductoComponente, comp.NombreProducto AS NombreComponente,
-       comp.IdRubro AS RubroComponente, pc.Cantidad AS CantPorUnidad
-FROM ProductosComponentes pc INNER JOIN Productos comp ON comp.IdProducto=pc.IdProductoComponente
-WHERE comp.IdRubro IN (${rubros})`;
+  return sqlBOMGranel(rubros);
 }
 
 // ── Dashboard de compras: consumo por ventas (presentaciones) vs producción (componente) ──
@@ -707,9 +785,7 @@ WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < 
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
 function sqlBOMPorPlu(pluList, rubrosG) {
-  return `SELECT pc.IdProducto, pc.IdProductoComponente, comp.NombreProducto AS NombreComponente, pc.Cantidad AS CantPorUnidad
-FROM ProductosComponentes pc INNER JOIN Productos comp ON comp.IdProducto=pc.IdProductoComponente
-WHERE comp.IdRubro IN (${rubrosG}) AND pc.IdProducto IN (${pluList.join(',')})`;
+  return sqlBOMGranel(rubrosG, `\n  AND pc.IdProducto IN (${pluList.join(',')})`);
 }
 function buildCatalogoMaps(catalogo) {
   const pluToBase = new Map(), baseMap = new Map(), refMap = new Map();
@@ -1046,7 +1122,7 @@ app.get('/api/formula', apiRoute(async req => {
            COALESCE((SELECT SUM(pd3.Stock) FROM dbo.ProductosDepositos pd3 WHERE pd3.IdProducto=pc.IdProductoComponente),0) AS StockTotal
     FROM dbo.ProductosComponentes pc JOIN dbo.Productos p ON p.IdProducto=pc.IdProductoComponente
     LEFT JOIN dbo.Rubros r ON r.IdRubro=p.IdRubro
-    WHERE pc.IdProducto='${safeId}'
+    WHERE pc.IdProducto='${safeId}' AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
     ORDER BY p.NombreProducto`);
   return { producto: nombre, idProducto: idProd, cantidad, componentes: rows };
 }));
@@ -2780,12 +2856,12 @@ app.get('/api/bom/producto/:plu', apiRoute(async req => {
   if (!plu) return [];
   return query(`
     SELECT pc.IdProductoComponente AS plu,
-           comp.NombreProducto     AS nombre,
+           p.NombreProducto        AS nombre,
            pc.Cantidad             AS cantPorUnidad
     FROM ProductosComponentes pc
-    INNER JOIN Productos comp ON comp.IdProducto = pc.IdProductoComponente
-    WHERE pc.IdProducto = ${plu}
-    ORDER BY comp.NombreProducto`);
+    INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+    WHERE pc.IdProducto = ${plu} AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
+    ORDER BY p.NombreProducto`);
 }));
 app.get('/api/plan/sugerencias',        apiRoute(async req => calcularSugerencias(req.query)));
 app.get('/api/plan/sugerencias-grupos', apiRoute(async req => calcularSugerenciasCatalogo(req.query)));
@@ -2798,21 +2874,20 @@ app.get('/api/plan/packaging', apiRoute(async req => {
     FROM ProductosComponentes pc
     INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
     LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
-    WHERE pc.IdProducto IN (${plus.join(',')})
+    WHERE pc.IdProducto IN (${plus.join(',')}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
     ORDER BY p.NombreProducto`);
   const out = {};
   for (const plu of plus) out[plu] = { envase: null, tapa: null };
   for (const r of rows) {
     const padre = String(r.padre);
-    const ru    = String(r.rubro || '').toUpperCase();
-    const nom   = String(r.nombre || '');
-    const item  = { codigo: String(r.codigo), nombre: nom };
+    const t     = tiposPackaging(r.nombre, r.rubro);
     if (!out[padre]) out[padre] = { envase: null, tapa: null };
-    if (!out[padre].tapa && (ru.includes('TAPA') || /^tapas?\s/i.test(nom))) {
-      out[padre].tapa = item;
-    } else if (!out[padre].envase && (ru.includes('EMBALA') || ru.includes('ENVASE') || /^envase\s/i.test(nom))) {
-      out[padre].envase = item;
-    }
+    const item = { codigo: String(r.codigo), nombre: String(r.nombre || '') };
+    // Se queda con el primer componente que matchea de cada tipo y descarta los siguientes.
+    // El else-if importa: un componente que matchea tapa pero llega con la tapa ya ocupada
+    // cae a envase si también matchea esa regla (caso "Envase 1kg" con rubro "TAPAS").
+    if      (!out[padre].tapa   && t.esTapa)   out[padre].tapa   = item;
+    else if (!out[padre].envase && t.esEnvase) out[padre].envase = item;
   }
   return out;
 }));
@@ -3028,12 +3103,33 @@ app.post('/api/plan/:fecha/item', apiRoute(async req => {
   const nuevoItem = { responsable: '', estado: 'pendiente', ...req.body, id: Date.now(), cantConfirmada: req.body.cantConfirmada ?? req.body.cantSugerida ?? 0, prioridad: planes[fecha].items.length + 1 };
   planes[fecha].items.push(nuevoItem); guardarJSON(PLANES_PATH, planes); return nuevoItem;
 }));
-app.put('/api/plan/:fecha/item/:id', (req, res) => {
+app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
-  const plan = planes[fecha]; if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
-  const idx = plan.items.findIndex(i => i.id === id); if (idx === -1) return res.status(404).json({ error: 'Ítem no encontrado' });
-  plan.items[idx] = { ...plan.items[idx], ...req.body, id }; guardarJSON(PLANES_PATH, planes); res.json(plan.items[idx]);
-});
+  const plan = planes[fecha]; if (!plan) return { error: 'Plan no encontrado' };
+  const idx = plan.items.findIndex(i => i.id === id); if (idx === -1) return { error: 'Ítem no encontrado' };
+  const pasaAListo = (req.body || {}).estado === 'listo' && plan.items[idx].estado !== 'listo';
+  plan.items[idx] = { ...plan.items[idx], ...req.body, id };
+
+  // Devolución automática: al terminar un ítem vuelve al depósito principal sólo su
+  // porción de la reserva. Si el traslado falla el cambio de estado NO se pierde: se
+  // guarda igual y el error viaja en reservaError para que la UI lo muestre.
+  let reservaError = null, logError = null;
+  if (pasaAListo && plan.reserva && plan.reserva.estado === 'activa' && saldoItemReserva(plan.reserva, id).length) {
+    try {
+      const r = await ejecutarDevolucionReserva(plan, id);
+      if (r.error) reservaError = r.error;
+      else {
+        logError = r.logError || null;
+        plan.reserva = r.reserva;
+        plan.items[idx] = { ...plan.items[idx], reservaDevuelta: { numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(), idRegistro: r.idRegistro ?? null, depOrigen: r.depOrigen, depDestino: r.depDestino } };
+      }
+    } catch (e) { reservaError = e.message; }
+  }
+
+  guardarJSON(PLANES_PATH, planes);
+  const item = reservaError ? { ...plan.items[idx], reservaError } : plan.items[idx];
+  return conLogError(item, logError);
+}));
 app.delete('/api/plan/:fecha/item/:id', (req, res) => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha]; if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
@@ -3359,11 +3455,19 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
 // Ver pruebas_stock_claude/README.md para el mecanismo completo investigado.
 const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO'];
 
+// Depósitos activos de una sucursal. Los nombres en SiGA vienen con espacios adelante,
+// por eso el RTRIM (el LTRIM lo hace el trim de cada consumidor si hace falta).
+async function depositosActivos(idSucursal) {
+  const suc = Number(idSucursal);
+  if (!Number.isInteger(suc) || suc <= 0) return [];
+  return query(`SELECT IdDeposito, IdSucursal, RTRIM(NombreDeposito) AS NombreDeposito, TipoDeposito, DisponibleVenta
+    FROM SucursalesDepositos WHERE IdSucursal=${suc} AND Activo=1 ORDER BY IdDeposito`);
+}
+
 app.get('/api/stock/depositos', apiRoute(async req => {
   const idSucursal = Number(req.query.idSucursal);
   if (!Number.isInteger(idSucursal) || idSucursal <= 0) return { error: 'Falta idSucursal (entero positivo)' };
-  return query(`SELECT IdDeposito, IdSucursal, RTRIM(NombreDeposito) AS NombreDeposito, TipoDeposito, DisponibleVenta
-    FROM SucursalesDepositos WHERE IdSucursal=${idSucursal} AND Activo=1 ORDER BY IdDeposito`);
+  return depositosActivos(idSucursal);
 }));
 
 async function registrarMovimientoStock(pool, m) {
@@ -3452,7 +3556,9 @@ app.post('/api/stock/movimiento', apiRoute(async req => {
   const cantidad         = Number(b.cantidad);
   const idTipoMovimiento = String(b.idTipoMovimiento || '').trim().toUpperCase();
   const idProducto       = String(b.idProducto || '').trim();
-  const usuario          = String(b.usuario || '').trim();
+  // Sin usuario en el body se firma con el de config.json (reserva.usuario): así el usuario
+  // de los movimientos se cambia en un solo lugar. Recortado por USUARIO_MOV_MAX.
+  const usuario          = String(b.usuario || cfgReserva().usuario || '').trim().slice(0, USUARIO_MOV_MAX);
   const observacion      = String(b.observacion || '').trim().slice(0, 200);
 
   if (!TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.includes(idTipoMovimiento)) {
@@ -3468,11 +3574,1305 @@ app.post('/api/stock/movimiento', apiRoute(async req => {
   if (!usuario)    return { error: 'Falta usuario' };
 
   const poolW = await getPoolStock();
-  const numero = await registrarMovimientoStock(poolW, {
+  // Movimiento de una sola línea y sin depósito destino: en el log va depDestino en null.
+  const r = await ejecutarYRegistrar({
+    origen: 'movimiento', plan: null, itemId: null,
+    idSucursal, depOrigen: idDeposito, depDestino: null, idUbicacion, idEmpleado,
+    idTipoMovimiento, usuario, observacion,
+    lineas: [{ plu: idProducto, nombre: null, cantidad }]
+  }, () => registrarMovimientoStock(poolW, {
     idSucursal, idDeposito, idUbicacion, idEmpleado, cantidad,
     idTipoMovimiento, idProducto, usuario, observacion
+  }));
+  return conLogError({ ok: true, numeroMovimiento: r.numeroMovimiento, idTipoMovimiento, idSucursal, idRegistro: r.idRegistro }, r.logError);
+}));
+
+// ── Traslados de stock entre depósitos (Siga) ──────────────────────────────────
+// Un traslado es UN comprobante con DOS líneas por producto: origen −Q y destino +Q.
+// Ver pruebas_stock_claude/README.md y pruebas_stock_claude/_traslado_REAL.js.
+
+// Ubicación activa del depósito (SiGA exige IdUbicacion en cada renglón). Fallback: 1.
+async function ubicacionDeDeposito(rq, idSucursal, idDeposito) {
+  const r = await rq()
+    .input('sucursal', sql.Int, idSucursal)
+    .input('deposito', sql.Int, idDeposito)
+    .query(`SELECT TOP 1 IdUbicacion FROM SucursalesUbicaciones
+            WHERE IdSucursal=@sucursal AND IdDeposito=@deposito AND Activo=1 ORDER BY IdUbicacion`);
+  return r.recordset.length ? Number(r.recordset[0].IdUbicacion) : 1;
+}
+
+// Renglón de MovimientosStockProductos (la cantidad ya viene con signo).
+async function insertarLineaTraslado(rq, l) {
+  await rq()
+    .input('sucursal', sql.Int, l.idSucursal)
+    .input('deposito', sql.Int, l.idDeposito)
+    .input('ubicacion', sql.Int, l.idUbicacion)
+    .input('tipo', sql.VarChar, l.idTipoMovimiento)
+    .input('numero', sql.Int, l.numero)
+    .input('producto', sql.VarChar, l.idProducto)
+    .input('cantidad', sql.Decimal(18, 4), l.cantidad)
+    .input('orden', sql.Int, l.orden)
+    .query(`INSERT INTO MovimientosStockProductos
+      (IdSucursal, IdDeposito, IdUbicacion, IdTipoMovimiento, NumeroMovimiento, IdProducto, Cantidad, Cantidad2, Precio, Orden)
+      VALUES (@sucursal, @deposito, @ubicacion, @tipo, @numero, @producto, @cantidad, 0, 0, @orden)`);
+}
+
+// Aplica el delta en las dos tablas de stock (INSERT si el producto no tiene fila).
+async function aplicarDeltaStock(rq, l) {
+  await rq()
+    .input('sucursal', sql.Int, l.idSucursal)
+    .input('deposito', sql.Int, l.idDeposito)
+    .input('producto', sql.VarChar, l.idProducto)
+    .input('delta', sql.Decimal(18, 4), l.cantidad)
+    .query(`IF EXISTS (SELECT 1 FROM ProductosDepositos WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito)
+              UPDATE ProductosDepositos SET Stock = Stock + @delta
+              WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito;
+            ELSE
+              INSERT INTO ProductosDepositos (IdProducto, IdSucursal, IdDeposito, Stock, Stock2)
+              VALUES (@producto, @sucursal, @deposito, @delta, 0);`);
+  await rq()
+    .input('sucursal', sql.Int, l.idSucursal)
+    .input('deposito', sql.Int, l.idDeposito)
+    .input('ubicacion', sql.Int, l.idUbicacion)
+    .input('producto', sql.VarChar, l.idProducto)
+    .input('delta', sql.Decimal(18, 4), l.cantidad)
+    .query(`IF EXISTS (SELECT 1 FROM ProductosUbicaciones WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito AND IdUbicacion=@ubicacion)
+              UPDATE ProductosUbicaciones SET Stock = Stock + @delta
+              WHERE IdProducto=@producto AND IdSucursal=@sucursal AND IdDeposito=@deposito AND IdUbicacion=@ubicacion;
+            ELSE
+              INSERT INTO ProductosUbicaciones (IdProducto, IdSucursal, IdDeposito, IdUbicacion, Stock, Stock2)
+              VALUES (@producto, @sucursal, @deposito, @ubicacion, @delta, 0);`);
+}
+
+// Traslado de N productos entre dos depósitos, todo en una transacción y en un
+// único comprobante. t = { idSucursal, depOrigen, depDestino, idTipoMovimiento,
+//                          lineas:[{idProducto,cantidad}], usuario, observacion, idEmpleado }
+async function trasladarStock(pool, t) {
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    const rq = () => new sql.Request(tx);
+    const ubicOrigen  = await ubicacionDeDeposito(rq, t.idSucursal, t.depOrigen);
+    const ubicDestino = await ubicacionDeDeposito(rq, t.idSucursal, t.depDestino);
+
+    const numRs = await rq()
+      .input('sucursal', sql.Int, t.idSucursal)
+      .input('tipo', sql.VarChar, t.idTipoMovimiento)
+      .query(`UPDATE MovimientosNumeros SET Numero = Numero + 1
+              OUTPUT inserted.Numero AS Numero
+              WHERE IdSucursal=@sucursal AND IdTipoMovimiento=@tipo`);
+    if (!numRs.recordset.length) {
+      throw new Error(`No hay numerador en MovimientosNumeros para sucursal ${t.idSucursal} / tipo ${t.idTipoMovimiento}`);
+    }
+    const numero = numRs.recordset[0].Numero;
+
+    await rq()
+      .input('sucursal', sql.Int, t.idSucursal)
+      .input('tipo', sql.VarChar, t.idTipoMovimiento)
+      .input('numero', sql.Int, numero)
+      .input('usuario', sql.NVarChar, t.usuario)
+      .input('observacion', sql.NVarChar, t.observacion || '')
+      .input('empleado', sql.Int, t.idEmpleado)
+      .query(`INSERT INTO MovimientosStock
+        (IdSucursal, IdTipoMovimiento, NumeroMovimiento, FechaMovimiento, Neto, Total, PorcentajeIVA,
+         Usuario, Observacion, IdEmpleado, PercepcionIVA, PercepcionIB, PercepcionGanancias, PercepcionVarias, ImpuestosInternos)
+        VALUES (@sucursal, @tipo, @numero, GETDATE(), 0, 0, 0, @usuario, @observacion, @empleado, 0, 0, 0, 0, 0)`);
+
+    // A diferencia de registrarMovimientoStock (una sola línea), acá NO se multiplica por
+    // CoeficienteStock: el traslado lleva el signo explícito en cada renglón (−origen /
+    // +destino) y el neto del comprobante es cero, así que el coeficiente del tipo de
+    // movimiento no aplica.
+    let orden = 1;
+    for (const l of t.lineas) {
+      const cantidad   = Number(l.cantidad);
+      const idProducto = String(l.idProducto);
+      const base = { idSucursal: t.idSucursal, idTipoMovimiento: t.idTipoMovimiento, numero, idProducto };
+      await insertarLineaTraslado(rq, { ...base, idDeposito: t.depOrigen,  idUbicacion: ubicOrigen,  cantidad: -cantidad, orden: orden++ });
+      await insertarLineaTraslado(rq, { ...base, idDeposito: t.depDestino, idUbicacion: ubicDestino, cantidad:  cantidad, orden: orden++ });
+      await aplicarDeltaStock(rq, { ...base, idDeposito: t.depOrigen,  idUbicacion: ubicOrigen,  cantidad: -cantidad });
+      await aplicarDeltaStock(rq, { ...base, idDeposito: t.depDestino, idUbicacion: ubicDestino, cantidad:  cantidad });
+    }
+
+    await tx.commit();
+    return numero;
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
+}
+
+// ── Log persistente de movimientos de stock ────────────────────────────────────
+// Todo movimiento que toca stock en SiGA (reserva, ajuste, devolución, traslado
+// manual o movimiento suelto) deja acá su propio registro, independiente del plan.
+// Sirve para dos cosas: que el rastro sobreviva al borrado del plan del día
+// (DELETE /api/plan/:fecha vacía los ítems) y poder revertir un movimiento que se
+// hizo por error desde POST /api/stock/movimientos/:id/revertir.
+const MOVIMIENTOS_LOG_PATH = path.join(DATA_DIR, 'movimientos_stock.json');
+const MOV_LOG_ORIGENES     = ['reserva', 'ajuste', 'devolucion', 'traslado', 'movimiento'];
+const MOV_LOG_LIMIT_DEF    = 100;
+const MOV_LOG_LIMIT_MAX    = 500;
+
+// Id único sin Math.random: milisegundos + un contador que sólo avanza dentro del
+// mismo milisegundo. Dos procesos distintos no pueden arrancar en el mismo ms.
+let movLogUltimoMs = 0, movLogSeq = 0;
+function nuevoIdMovLog() {
+  const ms = Date.now();
+  if (ms === movLogUltimoMs) movLogSeq++; else { movLogUltimoMs = ms; movLogSeq = 0; }
+  return `mov-${ms}-${String(movLogSeq).padStart(3, '0')}`;
+}
+
+function leerMovLog() { const d = leerJSON(MOVIMIENTOS_LOG_PATH, []); return Array.isArray(d) ? d : []; }
+function guardarMovLog(arr) { guardarJSON(MOVIMIENTOS_LOG_PATH, arr); }
+
+// El registro guarda todo lo necesario para reconstruir (y por lo tanto revertir) el
+// movimiento sin volver a consultar SiGA: depósitos, tipo, empleado y líneas.
+// depDestino/idUbicacion quedan en null según el tipo: un traslado tiene dos depósitos
+// y ninguna ubicación explícita, un movimiento suelto tiene un depósito y una ubicación.
+function registroMovimiento(d) {
+  return {
+    id: nuevoIdMovLog(),
+    fechaHora: new Date().toISOString(),
+    origen: d.origen,
+    plan: d.plan || null,
+    itemId: d.itemId == null ? null : Number(d.itemId),
+    idSucursal: Number(d.idSucursal),
+    depOrigen: Number(d.depOrigen),
+    depDestino: d.depDestino == null ? null : Number(d.depDestino),
+    idUbicacion: d.idUbicacion == null ? null : Number(d.idUbicacion),
+    idEmpleado: d.idEmpleado == null ? null : Number(d.idEmpleado),
+    idTipoMovimiento: String(d.idTipoMovimiento || ''),
+    usuario: String(d.usuario || ''),
+    observacion: String(d.observacion || ''),
+    numeroMovimiento: null,
+    lineas: (d.lineas || []).map(l => ({
+      plu: String(l.plu), nombre: l.nombre == null ? null : String(l.nombre), cantidad: Number(l.cantidad)
+    })),
+    estado: 'pendiente',
+    error: null,
+    revierteA: d.revierteA || null,
+    revertidoPor: null
+  };
+}
+
+// Las escrituras del log NUNCA deben tumbar un endpoint: el traslado ya ejecutado en SiGA
+// tiene prioridad sobre el archivo. Por eso devuelven el mensaje de error en vez de tirarlo,
+// y quien llama lo propaga a la respuesta como logError.
+function agregarMovLog(registro) {
+  try {
+    const log = leerMovLog();
+    guardarMovLog([...log, registro]);
+    return null;
+  } catch (e) { return `No se pudo guardar el movimiento ${registro.id} en el log: ${e.message}`; }
+}
+
+function actualizarMovLog(id, fn) {
+  try {
+    const log = leerMovLog();
+    const i = log.findIndex(r => r && r.id === id);
+    if (i === -1) return `No se encontró el movimiento ${id} en el log para actualizarlo`;
+    const copia = log.slice();
+    copia[i] = fn(copia[i]);
+    guardarMovLog(copia);
+    return null;
+  } catch (e) { return `No se pudo actualizar el movimiento ${id} del log: ${e.message}`; }
+}
+
+// MovimientosStock.Usuario tiene una FK contra dbo.Usuarios.Id: si el usuario configurado
+// no existe en SiGA, TODO movimiento falla con el mismo error crudo de ODBC. Se traduce una
+// sola vez acá (lo usan todos los endpoints a través de ejecutarYRegistrar) para que el
+// mensaje diga qué hay que corregir y no quede sólo el texto del driver en el log.
+const ERR_SQL_FK_USUARIO = 'FK_MovimientosStock_Usuarios';
+function traducirErrorMovimiento(mensaje, usuario) {
+  const txt = String(mensaje || '');
+  if (!txt.includes(ERR_SQL_FK_USUARIO)) return txt;
+  return `El usuario '${String(usuario || '').trim() || '(vacío)'}' no existe en SiGA (tabla Usuarios). `
+       + 'Cambiá reserva.usuario en config.json por un usuario válido del sistema.';
+}
+
+// Ejecución en dos fases: primero se deja el registro 'pendiente', después se toca SQL y
+// recién ahí se marca 'confirmado' o 'fallido'.
+// IMPORTANTE: un registro que queda en 'pendiente' significa que el proceso murió entre el
+// COMMIT de SQL y el guardado del JSON. No hay reconciliación automática: hay que verificar
+// A MANO en SiGA si el movimiento existe (buscando por observación, usuario y fecha) antes
+// de hacer nada con él; por eso tampoco se puede revertir un registro 'pendiente'.
+// fn() debe devolver el número de movimiento. El error se re-lanza tal cual para no cambiar
+// el comportamiento actual de los endpoints.
+async function ejecutarYRegistrar(datos, fn) {
+  const registro  = registroMovimiento(datos);
+  const errAlta   = agregarMovLog(registro);
+  let numero;
+  try {
+    numero = await fn();
+  } catch (e) {
+    // El error traducido va tanto al log como a la respuesta del endpoint: el registro
+    // fallido tiene que poder leerse sin conocer los nombres de las constraints de SiGA.
+    const mensaje = traducirErrorMovimiento(e.message, datos.usuario);
+    actualizarMovLog(registro.id, r => ({ ...r, estado: 'fallido', error: mensaje }));
+    throw mensaje === e.message ? e : new Error(mensaje);
+  }
+  const errCierre = actualizarMovLog(registro.id, r => ({ ...r, estado: 'confirmado', numeroMovimiento: numero }));
+  return { numeroMovimiento: numero, idRegistro: registro.id, logError: errAlta || errCierre || null };
+}
+
+// Agrega logError a la respuesta sólo si alguna escritura del log falló.
+function conLogError(respuesta, ...errores) {
+  const err = errores.filter(Boolean).join(' | ');
+  return err ? { ...respuesta, logError: err } : respuesta;
+}
+
+app.get('/api/stock/movimientos', apiRoute(async req => {
+  const q      = req.query || {};
+  const plan   = String(q.plan   || '').trim();
+  const origen = String(q.origen || '').trim();
+  const estado = String(q.estado || '').trim();
+  const limit  = Math.min(Math.max(parseInt(q.limit) || MOV_LOG_LIMIT_DEF, 1), MOV_LOG_LIMIT_MAX);
+  if (origen && !MOV_LOG_ORIGENES.includes(origen)) {
+    return { error: `origen inválido. Permitidos: ${MOV_LOG_ORIGENES.join(', ')}` };
+  }
+  return leerMovLog()
+    .filter(r => r && (!plan || r.plan === plan) && (!origen || r.origen === origen) && (!estado || r.estado === estado))
+    .slice()
+    .reverse()   // el log se escribe con el más nuevo al final; acá se devuelve al revés
+    .slice(0, limit);
+}));
+
+app.get('/api/stock/movimientos/:id', apiRoute(async req => {
+  const id = String(req.params.id || '').trim();
+  return leerMovLog().find(r => r && r.id === id) || { error: 'Movimiento no encontrado' };
+}));
+
+// Revierte un movimiento ya confirmado generando OTRO movimiento con los depósitos
+// invertidos (o la cantidad en negativo, para los movimientos de una sola línea).
+// IMPORTANTE: revertir desde el log NO toca plan.reserva. El estado del plan y este log son
+// dos registros distintos: el camino normal para deshacer una reserva es "Anular reserva"
+// (POST /api/plan/:fecha/reserva/devolver), que además actualiza el plan. Revertir desde acá
+// es la salida de emergencia para cuando el plan ya no existe o quedó inconsistente.
+app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
+  const id  = String(req.params.id || '').trim();
+  const b   = req.body || {};
+  const log = leerMovLog();
+  const original = log.find(r => r && r.id === id);
+  if (!original) return { error: 'Movimiento no encontrado' };
+
+  if (original.estado === 'pendiente') {
+    return { error: 'El movimiento quedó en estado pendiente: no se sabe si llegó a ejecutarse en SiGA. Verificalo a mano en SiGA antes de revertirlo.' };
+  }
+  if (original.estado === 'fallido') {
+    return { error: 'El movimiento falló y no llegó a mover stock: no hay nada que revertir.' };
+  }
+  if (original.estado === 'revertido' || original.revertidoPor) {
+    return { error: `El movimiento ya fue revertido por el registro ${original.revertidoPor || '(desconocido)'}.` };
+  }
+  if (original.estado !== 'confirmado') {
+    return { error: `Sólo se pueden revertir movimientos confirmados (estado actual: ${original.estado}).` };
+  }
+  const lineas = (original.lineas || []).filter(l => Number(l.cantidad));
+  if (!lineas.length) return { error: 'El movimiento no tiene líneas con cantidad para revertir' };
+
+  const cr          = cfgReserva();
+  // Se firma con el usuario vigente de config.json, no con el del movimiento original: la
+  // reversión la hace quien opera hoy. El usuario original queda igual en su propio registro.
+  const usuario     = String(b.usuario || cr.usuario || '').trim().slice(0, USUARIO_MOV_MAX);
+  const observacion = String(b.observacion || `Reversion de ${original.numeroMovimiento} (${original.origen})`).trim().slice(0, 200);
+  const idEmpleado  = Number.isInteger(original.idEmpleado) && original.idEmpleado > 0 ? original.idEmpleado : cr.idEmpleado;
+  if (!usuario) return { error: 'Falta usuario para registrar la reversión' };
+
+  const poolW = await getPoolStock();
+  // Sin depósito destino es un movimiento de una sola línea (registrarMovimientoStock):
+  // la reversión es el mismo movimiento con la cantidad en negativo.
+  const esMovimientoSimple = original.depDestino == null;
+  const lineasReversion = esMovimientoSimple
+    ? [{ ...lineas[0], cantidad: -Number(lineas[0].cantidad) }]
+    : lineas.map(l => ({ ...l, cantidad: Number(l.cantidad) }));
+
+  const r = await ejecutarYRegistrar({
+    origen: original.origen, plan: original.plan, itemId: original.itemId,
+    idSucursal: original.idSucursal,
+    depOrigen:  esMovimientoSimple ? original.depOrigen : original.depDestino,
+    depDestino: esMovimientoSimple ? null               : original.depOrigen,
+    idUbicacion: original.idUbicacion, idEmpleado,
+    idTipoMovimiento: original.idTipoMovimiento, usuario, observacion,
+    lineas: lineasReversion, revierteA: original.id
+  }, () => esMovimientoSimple
+    ? registrarMovimientoStock(poolW, {
+        idSucursal: original.idSucursal, idDeposito: original.depOrigen,
+        idUbicacion: Number.isInteger(original.idUbicacion) && original.idUbicacion > 0 ? original.idUbicacion : 1,
+        idEmpleado, cantidad: lineasReversion[0].cantidad,
+        idTipoMovimiento: original.idTipoMovimiento, idProducto: lineasReversion[0].plu,
+        usuario, observacion
+      })
+    : trasladarStock(poolW, {
+        idSucursal: original.idSucursal, depOrigen: original.depDestino, depDestino: original.depOrigen,
+        idTipoMovimiento: original.idTipoMovimiento, usuario, observacion, idEmpleado,
+        lineas: lineasReversion.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
+      })
+  );
+
+  // Fase de enlace: se marca el original como revertido y se enlaza con su reversión.
+  // Va ANTES de sincronizar el plan: el saldo según el log sólo descuenta la reversión una
+  // vez que el par quedó enlazado.
+  let errEnlace = null;
+  try {
+    const actual = leerMovLog();
+    const copia  = actual.map(reg => {
+      if (!reg) return reg;
+      if (reg.id === original.id) return { ...reg, estado: 'revertido', revertidoPor: r.idRegistro };
+      return reg;
+    });
+    guardarMovLog(copia);
+  } catch (e) { errEnlace = `No se pudo enlazar la reversión ${r.idRegistro} con el original ${original.id}: ${e.message}`; }
+
+  // El plan y el log son registros distintos, así que acá se pone el plan al día con lo que
+  // dice el log: si ya no queda nada en el depósito de reserva la reserva se anula sola, y
+  // si quedó saldo parcial se avisa (no se puede recalcular a qué ítem le corresponde).
+  let planSincronizado = null, advertencia = null, errPlan = null;
+  if (original.plan) {
+    try {
+      const { motivo } = sincronizarPlanConLog(original.plan);
+      if (motivo === 'anulada' || motivo === 'parcial') planSincronizado = motivo;
+      if (motivo === 'parcial') {
+        advertencia = `La reserva del plan ${original.plan} quedó con saldo parcial: según el log todavía hay componentes en el depósito de reserva, pero ya no coinciden con lo que dice el plan. Revisá la reserva y anulala antes de seguir.`;
+      }
+    } catch (e) { errPlan = `No se pudo sincronizar el plan ${original.plan} con el log: ${e.message}`; }
+  }
+
+  // La advertencia queda también en el registro de la reversión, para que se entienda
+  // después por qué el plan quedó marcado.
+  const errAdv = advertencia ? actualizarMovLog(r.idRegistro, reg => ({ ...reg, advertencia })) : null;
+
+  const resp = { ok: true, numeroMovimiento: r.numeroMovimiento, id: r.idRegistro, revierteA: original.id };
+  const conPlan = planSincronizado ? { ...resp, planSincronizado } : resp;
+  return conLogError(advertencia ? { ...conPlan, advertencia } : conPlan, r.logError, errEnlace, errPlan, errAdv);
+}));
+
+app.post('/api/stock/traslado', apiRoute(async req => {
+  const b = req.body || {};
+  const idSucursal       = Number(b.idSucursal);
+  const depOrigen        = Number(b.depOrigen);
+  const depDestino       = Number(b.depDestino);
+  const idEmpleado       = Number(b.idEmpleado);
+  const idTipoMovimiento = String(b.idTipoMovimiento || '').trim().toUpperCase();
+  // Sin usuario en el body se firma con el de config.json (reserva.usuario): así el usuario
+  // de los movimientos se cambia en un solo lugar. Recortado además porque la columna
+  // MovimientosStock.Usuario es corta y un valor largo hace fallar todo el INSERT con
+  // "String or binary data would be truncated" (ver USUARIO_MOV_MAX).
+  const usuario          = String(b.usuario || cfgReserva().usuario || '').trim().slice(0, USUARIO_MOV_MAX);
+  const observacion      = String(b.observacion || '').trim().slice(0, 200);
+  const lineas           = Array.isArray(b.lineas) ? b.lineas : [];
+
+  if (!TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.includes(idTipoMovimiento)) {
+    return { error: `idTipoMovimiento inválido. Permitidos: ${TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.join(', ')}` };
+  }
+  if (![idSucursal, depOrigen, depDestino, idEmpleado].every(n => Number.isInteger(n) && n > 0)) {
+    return { error: 'idSucursal, depOrigen, depDestino e idEmpleado deben ser enteros positivos' };
+  }
+  if (depOrigen === depDestino) return { error: 'depOrigen y depDestino deben ser distintos' };
+  if (!usuario)       return { error: 'Falta usuario' };
+  if (!lineas.length) return { error: 'Falta lineas (al menos un producto a trasladar)' };
+  for (const l of lineas) {
+    const cantidad = Number(l && l.cantidad);
+    if (!String((l && l.idProducto) || '').trim()) return { error: 'Cada línea debe tener idProducto' };
+    if (!Number.isFinite(cantidad) || cantidad <= 0) return { error: `Cantidad inválida para el producto ${l.idProducto}: debe ser un número mayor a 0` };
+  }
+
+  const poolW   = await getPoolStock();
+  const limpias = lineas.map(l => ({ idProducto: String(l.idProducto).trim(), cantidad: Number(l.cantidad) }));
+  const r = await ejecutarYRegistrar({
+    origen: 'traslado', plan: null, itemId: null,
+    idSucursal, depOrigen, depDestino, idTipoMovimiento, usuario, observacion, idEmpleado,
+    lineas: limpias.map(l => ({ plu: l.idProducto, nombre: null, cantidad: l.cantidad }))
+  }, () => trasladarStock(poolW, {
+    idSucursal, depOrigen, depDestino, idTipoMovimiento, usuario, observacion, idEmpleado,
+    lineas: limpias
+  }));
+  return conLogError({ ok: true, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro }, r.logError);
+}));
+
+// ── Reserva de mercadería del plan de producción ───────────────────────────────
+// Al reservar se trasladan al depósito de reserva TODOS los componentes de la fórmula
+// activa (granel + envase + tapa + etiquetas + lo que haya) de cada ítem del plan.
+// Al marcar un ítem como 'listo' se devuelve automáticamente su porción al principal.
+// MovimientosStock.Usuario es una columna corta: 'PLANIFICACION' (13 chars) hace fallar el
+// INSERT con "String or binary data would be truncated" (verificado en la prueba real del
+// producto 1010, movimiento 17097), mientras que 'Adriel' (6) entra sin problema.
+// Por eso el default es corto y además se trunca a USUARIO_MOV_MAX antes de insertar.
+const USUARIO_MOV_MAX = 10;
+const RESERVA_DEFAULTS = {
+  idSucursal: 1, depositoPrincipal: 1, depositoReserva: null,
+  idTipoMovimiento: 'BIENESUSO', usuario: 'Adriel', idEmpleado: 1
+};
+
+// Se relee config.json en cada llamada: el código del depósito de reserva se define
+// recién cuando el depósito exista en SiGA y no debe requerir reiniciar el servidor.
+function cfgReserva() {
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).reserva || {}; } catch { raw = {}; }
+  const c = { ...RESERVA_DEFAULTS, ...raw };
+  const depReserva = Number(c.depositoReserva);
+  return {
+    idSucursal:        Number(c.idSucursal)        || RESERVA_DEFAULTS.idSucursal,
+    depositoPrincipal: Number(c.depositoPrincipal) || RESERVA_DEFAULTS.depositoPrincipal,
+    depositoReserva:   Number.isInteger(depReserva) && depReserva > 0 ? depReserva : null,
+    idTipoMovimiento:  String(c.idTipoMovimiento || RESERVA_DEFAULTS.idTipoMovimiento).trim().toUpperCase(),
+    usuario:           String(c.usuario || RESERVA_DEFAULTS.usuario).trim().slice(0, USUARIO_MOV_MAX),
+    idEmpleado:        Number(c.idEmpleado) || RESERVA_DEFAULTS.idEmpleado
+  };
+}
+
+const ERR_RESERVA_SIN_CONFIG = 'Falta configurar el depósito de reserva (reserva.depositoReserva en config.json)';
+const ERR_RESERVA_DEPOSITOS  = 'Elegí un depósito de origen y uno de destino distintos';
+function redondear4(n) { return Math.round((Number(n) || 0) * 1e4) / 1e4; }
+
+// Los depósitos de la reserva ahora se eligen en el modal, así que hay que validarlos
+// en cada punto de entrada en vez de confiar en config.json.
+function esIdDeposito(n) { return Number.isInteger(n) && n > 0; }
+function idDepositoODefault(valor, porDefecto) {
+  const n = Number(valor);
+  return esIdDeposito(n) ? n : porDefecto;
+}
+
+// El envase y la tapa elegidos en la planificación llegan como PLU en string, pero pueden
+// venir vacíos ('') o directamente ausentes (undefined): en esos casos manda la fórmula.
+function pluSeleccionado(valor) { return String(valor ?? '').replace(/\D/g, ''); }
+
+// Aplica a los componentes de fórmula de un ítem el envase y la tapa elegidos en el plan:
+// cada elegido reemplaza al PRIMER componente de su tipo (el mismo que elegiría
+// /api/plan/packaging) conservando su cantPorUnidad; si la fórmula no tiene ninguno de ese
+// tipo, el elegido se agrega con cantPorUnidad 1. Si la fórmula tuviera más de un
+// componente del mismo tipo, los demás quedan como están.
+// No muta los componentes recibidos. Devuelve { lista, sustituciones }.
+function aplicarSeleccionPackaging(comps, seleccion, infoElegidos) {
+  const lista = comps.map(c => ({ ...c, origen: 'formula', reemplazaA: [] }));
+  const sustituciones = [];
+  const indices = { envase: -1, tapa: -1 };
+  comps.forEach((c, i) => {
+    const tipo = clasificarPackaging(c.nombre, c.rubro);
+    if (tipo && indices[tipo] < 0) indices[tipo] = i;
   });
-  return { ok: true, numeroMovimiento: numero, idTipoMovimiento, idSucursal };
+
+  for (const tipo of ['envase', 'tapa']) {
+    const plu = seleccion[tipo];
+    if (!plu) continue;
+    const i    = indices[tipo];
+    const info = infoElegidos.get(plu) || {};
+    const deFormula = i >= 0 ? { plu: comps[i].plu, nombre: comps[i].nombre } : null;
+    // Elegir exactamente lo que ya dice la fórmula no es una sustitución: se deja igual.
+    if (deFormula && deFormula.plu === plu) continue;
+    const elegido = {
+      plu,
+      nombre: String(info.nombre || `PLU ${plu}`),
+      rubro: String(info.rubro || ''),
+      cantPorUnidad: i >= 0 ? comps[i].cantPorUnidad : 1,
+      origen: 'seleccion',
+      reemplazaA: deFormula ? [deFormula] : []
+    };
+    if (i >= 0) lista[i] = elegido; else lista.push(elegido);
+    sustituciones.push({ tipo, deFormula, elegido: { plu: elegido.plu, nombre: elegido.nombre } });
+  }
+  return { lista, sustituciones };
+}
+
+// Nombre y rubro de los PLU elegidos en la planificación. Hace falta consultarlos aparte
+// porque un envase o una tapa elegidos pueden no estar en ninguna fórmula del plan.
+async function infoProductosElegidos(plus) {
+  const lista = [...new Set((plus || []).map(p => String(p).replace(/\D/g, '')).filter(Boolean))];
+  const mapa = new Map();
+  if (!lista.length) return mapa;
+  const rows = await query(`
+    SELECT p.IdProducto AS plu, p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro
+    FROM Productos p
+    LEFT JOIN Rubros r ON r.IdRubro = p.IdRubro
+    WHERE p.IdProducto IN (${lista.map(p => `'${p}'`).join(',')})`);
+  for (const r of rows) {
+    mapa.set(String(r.plu).trim(), { nombre: String(r.nombre || '').trim(), rubro: String(r.rubro || '').trim() });
+  }
+  return mapa;
+}
+
+// Componentes necesarios para todo el plan, sumados por componente, con el envase y la
+// tapa elegidos en la planificación ya sustituidos sobre la fórmula activa.
+// Devuelve { componentes: [{plu,nombre,rubro,necesario,porItem,reemplazaA,origen}],
+//            itemsSinFormula, sustituciones }.
+async function componentesDePlan(items) {
+  const validos = [], itemsSinFormula = [];
+  for (const it of (items || [])) {
+    const plu  = String(it.idProducto ?? '').replace(/\D/g, '');
+    const cant = Number(it.cantConfirmada ?? it.cantSugerida ?? 0);
+    if (!plu || !Number.isFinite(cant) || cant <= 0) {
+      itemsSinFormula.push({ id: it.id, idProducto: it.idProducto ?? null, producto: it.producto || '' });
+      continue;
+    }
+    validos.push({
+      id: it.id, plu, cant, producto: it.producto || '',
+      seleccion: { envase: pluSeleccionado(it.envase), tapa: pluSeleccionado(it.tapa) }
+    });
+  }
+  if (!validos.length) return { componentes: [], itemsSinFormula, sustituciones: [] };
+
+  const plus = [...new Set(validos.map(v => v.plu))];
+  const rows = await query(`
+    SELECT pc.IdProducto AS padre, pc.IdProductoComponente AS plu,
+           p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro,
+           CAST(pc.Cantidad AS FLOAT) AS cantPorUnidad
+    FROM ProductosComponentes pc
+    INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+    LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
+    WHERE pc.IdProducto IN (${plus.join(',')}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
+    ORDER BY p.NombreProducto`);
+
+  const porPadre = new Map();
+  for (const r of rows) {
+    const padre = String(r.padre).trim();
+    if (!porPadre.has(padre)) porPadre.set(padre, []);
+    porPadre.get(padre).push({
+      plu: String(r.plu).trim(), nombre: String(r.nombre || '').trim(),
+      rubro: String(r.rubro || '').trim(), cantPorUnidad: Number(r.cantPorUnidad) || 0
+    });
+  }
+
+  const infoElegidos = await infoProductosElegidos(validos.flatMap(v => [v.seleccion.envase, v.seleccion.tapa]));
+
+  const acum = new Map();
+  const sustituciones = [];
+  for (const v of validos) {
+    const comps = porPadre.get(v.plu) || [];
+    // Sin fórmula activa no hay nada que sustituir: el ítem se reporta como está hoy.
+    if (!comps.length) {
+      itemsSinFormula.push({ id: v.id, idProducto: v.plu, producto: v.producto });
+      continue;
+    }
+    const { lista, sustituciones: subs } = aplicarSeleccionPackaging(comps, v.seleccion, infoElegidos);
+    for (const s of subs) sustituciones.push({ itemId: v.id, producto: v.producto, ...s });
+
+    for (const c of lista) {
+      const cantidad = redondear4(c.cantPorUnidad * v.cant);
+      if (cantidad <= 0) continue;
+      const e = acum.get(c.plu) || { plu: c.plu, nombre: c.nombre, rubro: c.rubro, necesario: 0, porItem: {}, origenes: new Set(), reemplazaA: [] };
+      e.necesario     = redondear4(e.necesario + cantidad);
+      e.porItem[v.id] = redondear4((e.porItem[v.id] || 0) + cantidad);
+      e.origenes.add(c.origen);
+      // Un mismo PLU puede desplazar componentes distintos según el ítem: se acumulan sin repetir.
+      for (const d of c.reemplazaA) if (!e.reemplazaA.some(x => x.plu === d.plu)) e.reemplazaA.push(d);
+      acum.set(c.plu, e);
+    }
+  }
+  return {
+    // origen 'mixto': ese PLU llegó por fórmula en un ítem y por selección en otro.
+    componentes: [...acum.values()]
+      .map(({ origenes, ...c }) => ({ ...c, origen: origenes.size > 1 ? 'mixto' : ([...origenes][0] || 'formula') }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    itemsSinFormula,
+    sustituciones
+  };
+}
+
+// plu → { origen, destino } leyendo ProductosDepositos de los depósitos elegidos.
+// depDestino puede venir en null (todavía no se eligió): el destino queda en 0.
+async function stockDeComponentes(cr, plus, depOrigen, depDestino) {
+  const lista = [...new Set((plus || []).map(p => String(p).replace(/\D/g, '')).filter(Boolean))];
+  const mapa = new Map();
+  if (!lista.length) return mapa;
+  const idOrigen  = esIdDeposito(Number(depOrigen))  ? Number(depOrigen)  : null;
+  const idDestino = esIdDeposito(Number(depDestino)) ? Number(depDestino) : null;
+  const deps = [...new Set([idOrigen, idDestino].filter(d => d != null))];
+  if (!deps.length) return mapa;
+  const rows = await query(`SELECT IdProducto, IdDeposito, CAST(Stock AS FLOAT) AS Stock
+    FROM ProductosDepositos
+    WHERE IdSucursal=${cr.idSucursal} AND IdDeposito IN (${deps.join(',')})
+      AND IdProducto IN (${lista.map(p => `'${p}'`).join(',')})`);
+  for (const r of rows) {
+    const plu   = String(r.IdProducto).trim();
+    const idDep = Number(r.IdDeposito);
+    const e = mapa.get(plu) || { origen: 0, destino: 0 };
+    if (idDep === idOrigen)  e.origen  += Number(r.Stock) || 0;
+    if (idDep === idDestino) e.destino += Number(r.Stock) || 0;
+    mapa.set(plu, e);
+  }
+  return mapa;
+}
+
+// Cantidad ya devuelta por componente; con itemId filtra las devoluciones de ese ítem.
+function devueltoPorComponente(reserva, itemId) {
+  const m = new Map();
+  for (const d of ((reserva && reserva.devoluciones) || [])) {
+    if (itemId != null && String(d.itemId) !== String(itemId)) continue;
+    for (const l of (d.lineas || [])) {
+      const plu = String(l.plu);
+      m.set(plu, redondear4((m.get(plu) || 0) + (Number(l.cantidad) || 0)));
+    }
+  }
+  return m;
+}
+
+// Saldo pendiente de devolución de toda la reserva.
+function saldoReserva(reserva) {
+  const dev = devueltoPorComponente(reserva, null);
+  return ((reserva && reserva.lineas) || [])
+    .map(l => ({ plu: String(l.plu), nombre: l.nombre, cantidad: redondear4((Number(l.cantidad) || 0) - (dev.get(String(l.plu)) || 0)) }))
+    .filter(l => l.cantidad > 0);
+}
+
+// Saldo pendiente de la porción de un ítem, acotado al saldo global del componente
+// (si antes se anuló la reserva completa, el ítem ya no tiene nada que devolver).
+function saldoItemReserva(reserva, itemId) {
+  const devTotal = devueltoPorComponente(reserva, null);
+  const devItem  = devueltoPorComponente(reserva, itemId);
+  const out = [];
+  for (const l of ((reserva && reserva.lineas) || [])) {
+    const plu      = String(l.plu);
+    const asignado = Number((l.porItem || {})[itemId]) || 0;
+    if (asignado <= 0) continue;
+    const pendItem   = asignado - (devItem.get(plu) || 0);
+    const pendGlobal = (Number(l.cantidad) || 0) - (devTotal.get(plu) || 0);
+    const cantidad   = redondear4(Math.min(pendItem, pendGlobal));
+    if (cantidad > 0) out.push({ plu, nombre: l.nombre, cantidad });
+  }
+  return out;
+}
+
+// ── Sincronización de la reserva contra el log de movimientos ──────────────────
+// El plan y el log son dos registros distintos: revertir un movimiento desde el historial
+// (POST /api/stock/movimientos/:id/revertir) mueve el stock en SiGA pero no toca
+// plan.reserva, así que el plan puede quedar diciendo "reservado" cuando físicamente no
+// queda nada en el depósito de reserva. Estos helpers recalculan el saldo real a partir
+// del log y ponen el estado del plan al día.
+
+// Saldo neto por PLU en el depósito de reserva, según los movimientos del log.
+// Un movimiento y su reversión se cancelan entre sí, así que el par entero se descarta:
+// se excluye tanto al registro revertido como a la reversión que lo deshizo. Se excluye
+// por PAREJA (y no por "tiene revierteA") para que una reversión de una reversión —o una
+// reversión cuyo enlace no se pudo escribir— siga contando: lo que importa es qué quedó
+// físicamente en el depósito.
+function saldoReservaSegunLog(fecha, reserva) {
+  const saldo      = new Map();
+  const depReserva = Number(reserva && reserva.depDestino);
+  if (!fecha || !esIdDeposito(depReserva)) return saldo;
+
+  const log = leerMovLog();
+  const anulados = new Set();
+  for (const reg of log) {
+    if (reg && reg.revertidoPor) { anulados.add(reg.id); anulados.add(reg.revertidoPor); }
+  }
+
+  for (const reg of log) {
+    if (!reg || reg.plan !== fecha || reg.estado !== 'confirmado' || anulados.has(reg.id)) continue;
+    const signo = Number(reg.depDestino) === depReserva ?  1
+                : Number(reg.depOrigen)  === depReserva ? -1 : 0;
+    if (!signo) continue;
+    for (const l of (reg.lineas || [])) {
+      const plu = String(l.plu);
+      saldo.set(plu, redondear4((saldo.get(plu) || 0) + signo * (Number(l.cantidad) || 0)));
+    }
+  }
+  return saldo;
+}
+
+// Pone el estado de la reserva al día contra el log. NO persiste: devuelve
+// { plan, cambio, motivo } y guarda quien llama.
+// motivo ∈ 'anulada' (el log dice que ya no queda nada reservado)
+//        | 'parcial'  (queda saldo pero no es el que dice la reserva)
+//        | 'sincronizada' (volvió a coincidir: se limpia la marca anterior).
+function sincronizarReservaConLog(fecha, plan) {
+  const reserva = plan && plan.reserva;
+  if (!reserva || reserva.estado !== 'activa') return { plan, cambio: false };
+  // Sin depósito de destino no se puede calcular el saldo: el log no dice a qué depósito
+  // mirar y el saldo saldría vacío, lo que anularía la reserva por falta de datos en vez
+  // de por evidencia. Ante la duda no se toca nada.
+  if (!esIdDeposito(Number(reserva.depDestino))) return { plan, cambio: false };
+
+  const saldoLog = saldoReservaSegunLog(fecha, reserva);
+  const conSaldo = [...saldoLog.entries()]
+    .filter(([, cant]) => cant > 0)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  const ahora = new Date().toISOString();
+
+  // Nada con saldo positivo: los movimientos de la reserva se deshicieron. Se anula la
+  // reserva y se borra el sello de los ítems, que ya no está respaldado por ningún
+  // movimiento vivo en SiGA.
+  if (!conSaldo.length) {
+    const items = (plan.items || []).map(it => {
+      if (!it || !it.reservaMovimiento) return it;
+      const copia = { ...it };
+      delete copia.reservaMovimiento;
+      return copia;
+    });
+    const anulada = {
+      ...reserva,
+      estado: 'anulada',
+      anuladaPorLog: { fecha: ahora, motivo: 'Los movimientos de esta reserva fueron revertidos desde el historial' }
+    };
+    return { plan: { ...plan, items, reserva: anulada }, cambio: true, motivo: 'anulada' };
+  }
+
+  // Se compara contra el saldo pendiente de la reserva (líneas menos devoluciones), que es
+  // justamente lo que debería quedar físicamente en el depósito de reserva: comparar contra
+  // las líneas crudas marcaría como desincronizada a cualquier reserva con devoluciones.
+  const esperado = new Map(saldoReserva(reserva).map(l => [String(l.plu), redondear4(l.cantidad)]));
+  const coincide = conSaldo.length === esperado.size && conSaldo.every(([plu, cant]) => esperado.get(plu) === cant);
+
+  if (coincide) {
+    if (!reserva.desincronizada) return { plan, cambio: false };
+    const limpia = { ...reserva };
+    delete limpia.desincronizada;
+    return { plan: { ...plan, reserva: limpia }, cambio: true, motivo: 'sincronizada' };
+  }
+
+  // Saldo parcial: NO se recalcula el porItem (no hay forma de saber a qué ítem le quedó
+  // cada cosa). Se deja la reserva activa pero marcada para que la UI obligue a revisarla.
+  const nombres = new Map(((reserva.lineas) || []).map(l => [String(l.plu), String(l.nombre || '')]));
+  const saldoSegunLog = conSaldo.map(([plu, cantidad]) => ({ plu, nombre: nombres.get(plu) || '', cantidad }));
+  return {
+    plan: { ...plan, reserva: { ...reserva, desincronizada: { fecha: ahora, saldoSegunLog } } },
+    cambio: true, motivo: 'parcial'
+  };
+}
+
+// Sincroniza el plan de una fecha y lo persiste si cambió. Devuelve { plan, motivo }:
+// plan es el vigente (sincronizado o no) y motivo el de sincronizarReservaConLog.
+function sincronizarPlanConLog(fecha) {
+  const planes = leerJSON(PLANES_PATH, {});
+  const plan   = planes[fecha];
+  if (!plan) return { plan: null, motivo: null };
+  const sync = sincronizarReservaConLog(fecha, plan);
+  if (!sync.cambio) return { plan, motivo: null };
+  guardarJSON(PLANES_PATH, { ...planes, [fecha]: sync.plan });
+  return { plan: sync.plan, motivo: sync.motivo || null };
+}
+
+// ── Firma de las órdenes del plan y detección de cambios ───────────────────────
+// "Las órdenes del plan" son los ítems con cantidad > 0: id, producto, cantidad efectiva
+// y el packaging elegido. El estado NO forma parte de la orden: que un ítem pase a
+// 'listo' no es un cambio de plan (sólo dispara la devolución de su porción).
+function itemsFirmables(items) {
+  return (items || [])
+    .map(it => ({
+      id: it.id,
+      idProducto: String(it.idProducto ?? '').replace(/\D/g, ''),
+      producto: String(it.producto || ''),
+      cantidad: redondear4(it.cantConfirmada ?? it.cantSugerida ?? 0),
+      envase: pluSeleccionado(it.envase),
+      tapa: pluSeleccionado(it.tapa)
+    }))
+    .filter(it => it.cantidad > 0)
+    // Orden estable por id: el orden del array (drag & drop de prioridades) no debe
+    // cambiar la firma.
+    .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0) || String(a.id).localeCompare(String(b.id)));
+}
+
+// Hash corto y estable de las órdenes del plan.
+function firmaPlanReserva(items) {
+  const base = itemsFirmables(items).map(it => [it.id, it.idProducto, it.cantidad, it.envase, it.tapa]);
+  return crypto.createHash('sha1').update(JSON.stringify(base)).digest('hex').slice(0, 12);
+}
+
+function descripcionPackaging(envase, tapa) {
+  return `envase ${envase || '—'} / tapa ${tapa || '—'}`;
+}
+
+// Compara las órdenes de hoy contra el snapshot guardado al reservar.
+// tipo ∈ 'agregado' | 'quitado' | 'cantidad' | 'packaging'.
+function cambiosDelPlan(items, reserva) {
+  if (!reserva || reserva.estado !== 'activa') return { hayCambios: false, detalle: [] };
+  // Reserva vieja, guardada antes de que existiera la firma: no hay con qué comparar.
+  // Se considera cambiada para no dejar el plan bloqueado para siempre.
+  if (!reserva.firma || !Array.isArray(reserva.items)) return { hayCambios: true, detalle: [] };
+
+  const actual = itemsFirmables(items);
+  if (reserva.firma === firmaPlanReserva(items)) return { hayCambios: false, detalle: [] };
+
+  const antesPorId = new Map(reserva.items.map(it => [String(it.id), it]));
+  const detalle = [];
+  for (const a of actual) {
+    const p = antesPorId.get(String(a.id));
+    if (!p) {
+      detalle.push({ tipo: 'agregado', itemId: a.id, producto: a.producto, antes: null, ahora: a.cantidad });
+      continue;
+    }
+    const cantAntes = redondear4(p.cantidad);
+    if (cantAntes !== a.cantidad) {
+      detalle.push({ tipo: 'cantidad', itemId: a.id, producto: a.producto, antes: cantAntes, ahora: a.cantidad });
+    }
+    const envAntes = pluSeleccionado(p.envase), tapaAntes = pluSeleccionado(p.tapa);
+    if (envAntes !== a.envase || tapaAntes !== a.tapa) {
+      detalle.push({ tipo: 'packaging', itemId: a.id, producto: a.producto,
+                     antes: descripcionPackaging(envAntes, tapaAntes), ahora: descripcionPackaging(a.envase, a.tapa) });
+    }
+  }
+  const idsActuales = new Set(actual.map(a => String(a.id)));
+  for (const p of reserva.items) {
+    if (idsActuales.has(String(p.id))) continue;
+    detalle.push({ tipo: 'quitado', itemId: p.id, producto: String(p.producto || ''), antes: redondear4(p.cantidad), ahora: null });
+  }
+  return { hayCambios: true, detalle };
+}
+
+// Componentes que todavía deben estar en el depósito de reserva: se descuenta la porción
+// de los ítems en estado 'listo', que ya se devolvieron al origen y no se re-reservan.
+function componentesPendientes(componentes, items) {
+  const listos = new Set((items || []).filter(it => it.estado === 'listo').map(it => String(it.id)));
+  const out = [];
+  for (const c of (componentes || [])) {
+    const porItem = {};
+    let necesario = 0;
+    for (const [id, cant] of Object.entries(c.porItem || {})) {
+      if (listos.has(String(id))) continue;
+      const n = redondear4(cant);
+      if (n <= 0) continue;
+      porItem[id] = n;
+      necesario = redondear4(necesario + n);
+    }
+    if (necesario > 0) out.push({ ...c, necesario, porItem });
+  }
+  return out;
+}
+
+// Diferencia entre lo que hoy hay reservado y lo que el plan necesita.
+// delta > 0 → mover origen → destino; delta < 0 → devolver destino → origen.
+function deltaReserva(componentesObjetivo, reserva) {
+  const dev      = devueltoPorComponente(reserva, null);
+  const objetivo = new Map((componentesObjetivo || []).map(c => [String(c.plu), c]));
+  const lineas   = new Map(((reserva && reserva.lineas) || []).map(l => [String(l.plu), l]));
+  const out = [];
+  for (const plu of new Set([...objetivo.keys(), ...lineas.keys()])) {
+    const c = objetivo.get(plu), l = lineas.get(plu);
+    const obj   = redondear4(c ? c.necesario : 0);
+    const res   = redondear4((Number(l && l.cantidad) || 0) - (dev.get(plu) || 0));
+    const delta = redondear4(obj - res);
+    if (delta === 0) continue;
+    out.push({ plu, nombre: (c && c.nombre) || (l && l.nombre) || '', reservado: res, objetivo: obj, delta });
+  }
+  return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
+// Reserva reescrita después de un ajuste. IMPORTANTE: saldoReserva()/saldoItemReserva()
+// calculan el saldo como lineas[].cantidad − devoluciones. Las líneas nuevas ya vienen
+// netas (el objetivo excluye a los ítems listos, que son justamente los que generaron las
+// devoluciones), así que si se dejaran las devoluciones viejas se restarían dos veces.
+// Por eso se archivan en devolucionesPrevias y devoluciones arranca vacío: tras el ajuste
+// lineas[].cantidad es exactamente lo que quedó físicamente en el depósito de reserva.
+function reservaAjustada(reserva, { lineas, firma, items, ajustes }) {
+  return {
+    ...reserva,
+    lineas,
+    devoluciones: [],
+    devolucionesPrevias: [...(reserva.devolucionesPrevias || []), ...(reserva.devoluciones || [])],
+    ajustes: [...(reserva.ajustes || []), ...(ajustes || [])],
+    firma, items,
+    // Sin líneas no queda nada reservado: la reserva se cierra sola.
+    estado: lineas.length ? 'activa' : 'anulada'
+  };
+}
+
+// ── Sello del comprobante en cada línea del plan ───────────────────────────────
+// El número de comprobante de SiGA ya se guarda a nivel reserva; el sello lo baja al ítem
+// para poder mostrar con qué movimiento se cubrió cada línea del plan.
+// IMPORTANTE: 'reservaMovimiento' y 'reservaDevuelta' NO entran en itemsFirmables(), así
+// que sellar un ítem no altera firmaPlanReserva() ni dispara cambiosDelPlan().
+
+// Ítems que aportaron al menos un componente (los que aparecen en algún porItem).
+// Sirve tanto para los componentes del plan como para las líneas guardadas en la reserva.
+function itemsDeComponentes(lineas) {
+  const ids = new Set();
+  for (const l of (lineas || [])) {
+    for (const [id, cant] of Object.entries((l && l.porItem) || {})) {
+      if ((Number(cant) || 0) > 0) ids.add(String(id));
+    }
+  }
+  return ids;
+}
+
+// Escribe el sello en los ítems indicados. `campo` es 'reservaMovimiento' (salida hacia el
+// depósito de reserva) o 'reservaDevuelta' (vuelta al principal). Devuelve un array nuevo:
+// los ítems no sellados se conservan tal cual y nunca se muta el original.
+function sellarItems(items, ids, campo, sello, { limpiarDevuelta = false } = {}) {
+  const buscados = new Set([...(ids || [])].map(String));
+  if (!buscados.size) return items || [];
+  return (items || []).map(it => {
+    if (!buscados.has(String(it.id))) return it;
+    const sellado = { ...it, [campo]: sello };
+    // Si el ítem se vuelve a reservar, la devolución previa ya no aplica.
+    if (limpiarDevuelta) delete sellado.reservaDevuelta;
+    return sellado;
+  });
+}
+
+// Detalle por línea del plan: qué componentes le tocan de la reserva vigente y con qué
+// comprobante se movieron. Incluye a los ítems ya sellados aunque no les quede porción
+// (por ejemplo los que pasaron a 'listo' y devolvieron lo suyo).
+function detalleItemsReserva(items, reserva) {
+  const lineas = (reserva && reserva.lineas) || [];
+  const out = [];
+  for (const it of (items || [])) {
+    const id = String(it.id);
+    const componentes = lineas
+      .map(l => ({ plu: String(l.plu), nombre: String(l.nombre || ''), cantidad: redondear4(Number((l.porItem || {})[id]) || 0) }))
+      .filter(c => c.cantidad > 0);
+    if (!componentes.length && !it.reservaMovimiento && !it.reservaDevuelta) continue;
+    out.push({
+      itemId: it.id,
+      producto: String(it.producto || ''),
+      reservaMovimiento: it.reservaMovimiento || null,
+      reservaDevuelta: it.reservaDevuelta || null,
+      componentes
+    });
+  }
+  return out;
+}
+
+// Devuelve al depósito principal el saldo de la reserva (todo, o la porción de un ítem).
+// No persiste: retorna la reserva actualizada para que la guarde quien llama.
+async function ejecutarDevolucionReserva(plan, itemId) {
+  const cr = cfgReserva();
+  const reserva = plan && plan.reserva;
+  if (!reserva || reserva.estado !== 'activa') return { error: 'El plan no tiene una reserva activa' };
+
+  // La devolución invierte los depósitos con los que se hizo la reserva. El config sólo
+  // sirve de fallback para reservas viejas guardadas antes de poder elegirlos en el modal.
+  const depOrigen  = idDepositoODefault(reserva.depDestino, cr.depositoReserva);
+  const depDestino = idDepositoODefault(reserva.depOrigen,  cr.depositoPrincipal);
+  if (!esIdDeposito(depOrigen) || !esIdDeposito(depDestino)) return { error: ERR_RESERVA_SIN_CONFIG };
+
+  const lineas = itemId == null ? saldoReserva(reserva) : saldoItemReserva(reserva, itemId);
+  if (!lineas.length) {
+    return { error: itemId == null ? 'La reserva no tiene saldo pendiente de devolución'
+                                   : 'El ítem no tiene saldo pendiente de devolución' };
+  }
+
+  const poolW = await getPoolStock();
+  const observacion = `${`Devolucion reserva plan ${plan.fecha || ''}${itemId == null ? '' : ` item ${itemId}`}`.trim()} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+  const r = await ejecutarYRegistrar({
+    origen: 'devolucion', plan: plan.fecha || null, itemId,
+    idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
+    idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas
+  }, () => trasladarStock(poolW, {
+    idSucursal: cr.idSucursal, depOrigen, depDestino,
+    idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+    observacion,
+    lineas: lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
+  }));
+  const numero = r.numeroMovimiento;
+
+  const fecha = new Date().toISOString();
+  const devoluciones = [...(reserva.devoluciones || []), { numeroMovimiento: numero, fecha, itemId: itemId == null ? null : itemId, lineas }];
+  const conDevolucion = { ...reserva, devoluciones };
+  // Sin itemId es una anulación explícita; con itemId se cierra sola cuando no queda saldo.
+  const estado = (itemId == null || !saldoReserva(conDevolucion).length) ? 'anulada' : 'activa';
+  // depOrigen/depDestino son los de ESTA devolución (los de la reserva invertidos): quien
+  // llama los necesita para sellar el ítem con el movimiento completo.
+  return { numeroMovimiento: numero, lineas, reserva: { ...conDevolucion, estado },
+           depOrigen, depDestino, idRegistro: r.idRegistro, logError: r.logError };
+}
+
+app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
+  const fecha = safeDate(req.params.fecha);
+  const cr    = cfgReserva();
+  // Auto-reparación: antes de armar la respuesta se contrasta la reserva contra el log de
+  // movimientos y, si hace falta, se corrige y se persiste el plan. Así un plan que quedó
+  // marcado como reservado después de revertir sus movimientos desde el historial se
+  // arregla solo al abrir el modal, sin tocar el JSON a mano.
+  const plan  = sincronizarPlanConLog(fecha).plan || { fecha, notas: '', items: [] };
+  const { componentes, itemsSinFormula, sustituciones } = await componentesDePlan(plan.items || []);
+
+  // Depósitos efectivos del preview: los del query si son válidos, si no los de config.
+  // El destino puede quedar en null (config sin depósito de reserva y sin elección todavía).
+  const depOrigen  = idDepositoODefault(req.query.depOrigen,  cr.depositoPrincipal);
+  const depDestino = idDepositoODefault(req.query.depDestino, cr.depositoReserva);
+
+  const depositos = await depositosActivos(cr.idSucursal);
+  const stock     = await stockDeComponentes(cr, componentes.map(c => c.plu), depOrigen, depDestino);
+
+  const depReservaCfg = depositos.find(d => Number(d.IdDeposito) === cr.depositoReserva);
+  const nombreDepositoReserva = depReservaCfg ? String(depReservaCfg.NombreDeposito || '').trim() : null;
+
+  // Estado de la reserva frente a las órdenes de hoy: firma, qué cambió y qué habría que
+  // mover para poner la reserva al día.
+  const reservaActiva = !!(plan.reserva && plan.reserva.estado === 'activa');
+  const cambios = cambiosDelPlan(plan.items || [], plan.reserva);
+  const delta   = reservaActiva
+    ? deltaReserva(componentesPendientes(componentes, plan.items || []), plan.reserva)
+    : [];
+
+  return {
+    firma: {
+      actual:    firmaPlanReserva(plan.items || []),
+      reservada: reservaActiva ? (plan.reserva.firma || null) : null,
+      hayCambios: cambios.hayCambios
+    },
+    cambios: cambios.detalle,
+    delta,
+    config: {
+      idSucursal: cr.idSucursal, depositoPrincipal: cr.depositoPrincipal,
+      depositoReserva: cr.depositoReserva, configurado: cr.depositoReserva != null, nombreDepositoReserva
+    },
+    depositos: depositos.map(d => ({
+      idDeposito: Number(d.IdDeposito), nombre: String(d.NombreDeposito || '').trim(),
+      tipoDeposito: d.TipoDeposito, disponibleVenta: d.DisponibleVenta
+    })),
+    seleccion: { depOrigen, depDestino: esIdDeposito(depDestino) ? depDestino : null },
+    componentes: componentes.map(c => {
+      const s = stock.get(c.plu) || { origen: 0, destino: 0 };
+      return {
+        plu: c.plu, nombre: c.nombre, rubro: c.rubro, necesario: c.necesario,
+        stockOrigen: redondear4(s.origen), stockDestino: redondear4(s.destino),
+        faltante: redondear4(Math.max(0, c.necesario - s.origen)), porItem: c.porItem,
+        origen: c.origen, reemplazaA: c.reemplazaA
+      };
+    }),
+    reserva: plan.reserva || null,
+    // Qué se movió por cada línea del plan y con qué comprobante de SiGA.
+    porItem: detalleItemsReserva(plan.items || [], plan.reserva),
+    itemsSinFormula,
+    // Envases y tapas elegidos en la planificación que reemplazaron (o agregaron) componentes.
+    sustituciones
+  };
+}));
+
+app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
+  const fecha = safeDate(req.params.fecha);
+  const cr    = cfgReserva();
+  const b     = req.body || {};
+
+  // Depósitos elegidos en el modal; si no vienen se usan los de config. Si vienen pero
+  // son inválidos NO se cae al config: se avisa para no reservar en el depósito equivocado.
+  const vinoOrigen  = b.depOrigen  !== undefined && b.depOrigen  !== null && b.depOrigen  !== '';
+  const vinoDestino = b.depDestino !== undefined && b.depDestino !== null && b.depDestino !== '';
+  const depOrigen   = vinoOrigen  ? Number(b.depOrigen)  : cr.depositoPrincipal;
+  const depDestino  = vinoDestino ? Number(b.depDestino) : cr.depositoReserva;
+  if (!vinoDestino && !cr.depositoReserva) return { error: ERR_RESERVA_SIN_CONFIG };
+  if (!esIdDeposito(depOrigen) || !esIdDeposito(depDestino) || depOrigen === depDestino) {
+    return { error: ERR_RESERVA_DEPOSITOS };
+  }
+
+  const activos = new Set((await depositosActivos(cr.idSucursal)).map(d => Number(d.IdDeposito)));
+  if (!activos.has(depOrigen))  return { error: `El depósito de origen ${depOrigen} no existe o no está activo en la sucursal ${cr.idSucursal}` };
+  if (!activos.has(depDestino)) return { error: `El depósito de destino ${depDestino} no existe o no está activo en la sucursal ${cr.idSucursal}` };
+
+  const planes   = leerJSON(PLANES_PATH, {});
+  const guardado = planes[fecha];
+  if (!guardado || !(guardado.items || []).length) return { error: 'El plan no tiene ítems para reservar' };
+  // Auto-reparación antes de decidir si ya hay una reserva activa: si los movimientos de la
+  // reserva anterior se revirtieron desde el historial, acá queda 'anulada' y se puede
+  // volver a reservar.
+  const sync = sincronizarReservaConLog(fecha, guardado);
+  if (sync.cambio) { planes[fecha] = sync.plan; guardarJSON(PLANES_PATH, planes); }
+  const plan = planes[fecha];
+  // Con reserva activa no se vuelve a reservar, salvo que hayan cambiado las órdenes del
+  // plan del día: en ese caso se ofrece actualizar la reserva moviendo sólo la diferencia.
+  if (plan.reserva && plan.reserva.estado === 'activa') {
+    const n = plan.reserva.numeroMovimiento;
+    const { hayCambios } = cambiosDelPlan(plan.items, plan.reserva);
+    if (!hayCambios) {
+      return { error: `Este plan ya tiene la reserva #${n} hecha. Para volver a reservar, modificá las órdenes del plan del día.`,
+               yaReservado: true, numeroMovimiento: n };
+    }
+    return { error: `El plan cambió desde la reserva #${n}. Actualizá la reserva para mover solo la diferencia.`,
+             requiereActualizar: true, numeroMovimiento: n };
+  }
+
+  const { componentes } = await componentesDePlan(plan.items);
+  if (!componentes.length) return { error: 'Ningún ítem del plan tiene componentes de fórmula para reservar' };
+
+  const stock = await stockDeComponentes(cr, componentes.map(c => c.plu), depOrigen, depDestino);
+  // stockPrincipal se mantiene como alias de stockOrigen para no romper la UI vieja.
+  const faltantes = componentes.map(c => {
+    const s = stock.get(c.plu) || { origen: 0, destino: 0 };
+    return { plu: c.plu, nombre: c.nombre, necesario: c.necesario,
+             stockOrigen: redondear4(s.origen), stockPrincipal: redondear4(s.origen),
+             faltante: redondear4(Math.max(0, c.necesario - s.origen)) };
+  }).filter(f => f.faltante > 0);
+  // Con permitirFaltante se reserva igual la cantidad necesaria completa (el depósito
+  // de origen puede quedar en negativo); sin él no se escribe nada.
+  if (faltantes.length && b.permitirFaltante !== true) {
+    return { error: 'Hay componentes sin stock suficiente en el depósito de origen', faltantes };
+  }
+
+  const poolW = await getPoolStock();
+  const observacion = `Reserva plan produccion ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+  const r = await ejecutarYRegistrar({
+    origen: 'reserva', plan: fecha, itemId: null,
+    idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
+    idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion,
+    lineas: componentes.map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: c.necesario }))
+  }, () => trasladarStock(poolW, {
+    idSucursal: cr.idSucursal, depOrigen, depDestino,
+    idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+    observacion,
+    lineas: componentes.map(c => ({ idProducto: c.plu, cantidad: c.necesario }))
+  }));
+  const numero = r.numeroMovimiento;
+
+  const lineas = componentes.map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: c.necesario, porItem: c.porItem }));
+  plan.reserva = {
+    numeroMovimiento: numero, fecha: new Date().toISOString(), usuario: cr.usuario, estado: 'activa',
+    depOrigen, depDestino, lineas, devoluciones: [],
+    // Órdenes del plan al momento de reservar: sirven para detectar cambios después.
+    firma: firmaPlanReserva(plan.items), items: itemsFirmables(plan.items), ajustes: []
+  };
+  // Sello por ítem: cada línea del plan que aportó componentes queda con el comprobante que
+  // movió su porción. Los ítems que no aportaron nada (sin fórmula activa o cantidad 0) no
+  // se sellan. El sello no toca la firma, que ya quedó calculada arriba.
+  plan.items = sellarItems(plan.items, itemsDeComponentes(componentes), 'reservaMovimiento',
+    { numeroMovimiento: numero, fecha: plan.reserva.fecha, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
+    { limpiarDevuelta: true });
+  guardarJSON(PLANES_PATH, planes);
+  return conLogError({ ok: true, numeroMovimiento: numero, depOrigen, depDestino, lineas, idRegistro: r.idRegistro }, r.logError);
+}));
+
+// Pone la reserva al día cuando cambiaron las órdenes del plan: mueve sólo la diferencia
+// entre lo reservado y lo que el plan necesita ahora (puede salir un comprobante de
+// reserva y otro de devolución en la misma llamada).
+app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
+  const fecha  = safeDate(req.params.fecha);
+  const cr     = cfgReserva();
+  const b      = req.body || {};
+  const planes = leerJSON(PLANES_PATH, {});
+  const plan   = planes[fecha];
+  if (!plan) return { error: 'Plan no encontrado' };
+
+  const reserva = plan.reserva;
+  if (!reserva || reserva.estado !== 'activa') {
+    return { error: 'El plan no tiene una reserva activa; usá Reservar para crearla' };
+  }
+  const n = reserva.numeroMovimiento;
+  const { hayCambios } = cambiosDelPlan(plan.items || [], reserva);
+  if (!hayCambios) {
+    return { error: `Este plan ya tiene la reserva #${n} hecha. Para volver a reservar, modificá las órdenes del plan del día.`,
+             yaReservado: true, numeroMovimiento: n };
+  }
+
+  // Los depósitos son los de la reserva original; el config sólo es fallback de reservas
+  // viejas guardadas antes de poder elegirlos en el modal.
+  const depOrigen  = idDepositoODefault(reserva.depOrigen,  cr.depositoPrincipal);
+  const depDestino = idDepositoODefault(reserva.depDestino, cr.depositoReserva);
+  if (!esIdDeposito(depOrigen) || !esIdDeposito(depDestino) || depOrigen === depDestino) {
+    return { error: ERR_RESERVA_DEPOSITOS };
+  }
+
+  const { componentes } = await componentesDePlan(plan.items || []);
+  const objetivo = componentesPendientes(componentes, plan.items || []);
+  const delta    = deltaReserva(objetivo, reserva);
+
+  const nuevasLineas = objetivo.map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: c.necesario, porItem: c.porItem }));
+  const firma = firmaPlanReserva(plan.items || []);
+  const items = itemsFirmables(plan.items || []);
+
+  if (!delta.length) {
+    // El plan cambió de una forma que no altera los componentes (por ejemplo se eligió un
+    // envase que otro ítem ya usaba): no hay nada que mover, pero igual se refresca la
+    // firma para dejar de avisar por un cambio que la reserva ya contempla.
+    plan.reserva = reservaAjustada(reserva, { lineas: nuevasLineas, firma, items, ajustes: [] });
+    guardarJSON(PLANES_PATH, planes);
+    return { error: 'No hay diferencias que mover: la reserva ya coincide con el plan' };
+  }
+
+  const positivos = delta.filter(d => d.delta > 0);
+  const negativos = delta.filter(d => d.delta < 0);
+
+  if (positivos.length) {
+    const stock = await stockDeComponentes(cr, positivos.map(d => d.plu), depOrigen, depDestino);
+    const faltantes = positivos.map(d => {
+      const s = stock.get(d.plu) || { origen: 0, destino: 0 };
+      return { plu: d.plu, nombre: d.nombre, necesario: d.delta,
+               stockOrigen: redondear4(s.origen), stockPrincipal: redondear4(s.origen),
+               faltante: redondear4(Math.max(0, d.delta - s.origen)) };
+    }).filter(f => f.faltante > 0);
+    if (faltantes.length && b.permitirFaltante !== true) {
+      return { error: 'Hay componentes sin stock suficiente en el depósito de origen', faltantes };
+    }
+  }
+
+  const poolW  = await getPoolStock();
+  const base   = { idSucursal: cr.idSucursal, idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado };
+  const ahora  = new Date().toISOString();
+  const movimientos = [], ajustes = [], logErrores = [];
+
+  // Ítems que participan de cada sentido del ajuste. Los que suman salen por el comprobante
+  // de reserva; los que sólo intervienen en el sentido inverso quedan con el de devolución.
+  // Para el sentido inverso se miran también las líneas viejas: un componente puede bajar
+  // justamente porque el ítem que lo pedía ya no está en el objetivo.
+  const plusPositivos = new Set(positivos.map(d => String(d.plu)));
+  const plusNegativos = new Set(negativos.map(d => String(d.plu)));
+  const idsReserva    = itemsDeComponentes(objetivo.filter(c => plusPositivos.has(String(c.plu))));
+  const idsDevolucion = new Set([
+    ...itemsDeComponentes((reserva.lineas || []).filter(l => plusNegativos.has(String(l.plu)))),
+    ...itemsDeComponentes(objetivo.filter(c => plusNegativos.has(String(c.plu))))
+  ].filter(id => !idsReserva.has(id)));
+
+  // Los dos sentidos del ajuste salen como dos comprobantes distintos y por lo tanto dejan
+  // dos registros separados en el log, ambos con origen 'ajuste' (el sentido se distingue
+  // por los depósitos: el de devolución los lleva invertidos).
+  if (positivos.length) {
+    const lineasMov   = positivos.map(d => ({ plu: d.plu, nombre: d.nombre, cantidad: d.delta }));
+    const observacion = `Ajuste reserva plan ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+    const r = await ejecutarYRegistrar({
+      origen: 'ajuste', plan: fecha, itemId: null,
+      idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas: lineasMov
+    }, () => trasladarStock(poolW, {
+      ...base, depOrigen, depDestino, observacion,
+      lineas: lineasMov.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
+    }));
+    logErrores.push(r.logError);
+    movimientos.push({ numeroMovimiento: r.numeroMovimiento, sentido: 'reserva', idRegistro: r.idRegistro });
+    ajustes.push({ numeroMovimiento: r.numeroMovimiento, fecha: ahora, sentido: 'reserva', lineas: lineasMov });
+    // El ítem guarda el ÚLTIMO movimiento que lo cubre; el histórico completo queda en
+    // reserva.ajustes y en el log de movimientos.
+    plan.items = sellarItems(plan.items, idsReserva, 'reservaMovimiento',
+      { numeroMovimiento: r.numeroMovimiento, fecha: ahora, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
+      { limpiarDevuelta: true });
+  }
+
+  if (negativos.length) {
+    const lineasMov   = negativos.map(d => ({ plu: d.plu, nombre: d.nombre, cantidad: redondear4(Math.abs(d.delta)) }));
+    const observacion = `Ajuste reserva plan ${fecha} devolucion dep ${depDestino}->${depOrigen}`.slice(0, 200);
+    const r = await ejecutarYRegistrar({
+      origen: 'ajuste', plan: fecha, itemId: null,
+      idSucursal: cr.idSucursal, depOrigen: depDestino, depDestino: depOrigen, idEmpleado: cr.idEmpleado,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas: lineasMov
+    }, () => trasladarStock(poolW, {
+      ...base, depOrigen: depDestino, depDestino: depOrigen, observacion,
+      lineas: lineasMov.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
+    }));
+    logErrores.push(r.logError);
+    movimientos.push({ numeroMovimiento: r.numeroMovimiento, sentido: 'devolucion', idRegistro: r.idRegistro });
+    ajustes.push({ numeroMovimiento: r.numeroMovimiento, fecha: ahora, sentido: 'devolucion', lineas: lineasMov });
+    // Ítems que sólo intervinieron en este sentido: no recibieron nada, así que se sellan
+    // con el comprobante del ajuste pero conservan su devolución previa si la tenían.
+    plan.items = sellarItems(plan.items, idsDevolucion, 'reservaMovimiento',
+      { numeroMovimiento: r.numeroMovimiento, fecha: ahora, idRegistro: r.idRegistro ?? null, depOrigen: depDestino, depDestino: depOrigen });
+  }
+
+  plan.reserva = reservaAjustada(reserva, { lineas: nuevasLineas, firma, items, ajustes });
+  guardarJSON(PLANES_PATH, planes);
+  return conLogError({ ok: true, movimientos, delta }, ...logErrores);
+}));
+
+app.post('/api/plan/:fecha/reserva/devolver', apiRoute(async req => {
+  const fecha  = safeDate(req.params.fecha);
+  const planes = leerJSON(PLANES_PATH, {});
+  const plan   = planes[fecha];
+  if (!plan) return { error: 'Plan no encontrado' };
+
+  const b = req.body || {};
+  const itemId = b.itemId == null || b.itemId === '' ? null : parseInt(b.itemId);
+  if (itemId != null && !Number.isInteger(itemId)) return { error: 'itemId inválido' };
+
+  // El saldo por ítem se calcula ANTES de la devolución: después ya está todo devuelto.
+  const reservaPrevia = plan.reserva;
+  const r = await ejecutarDevolucionReserva(plan, itemId);
+  if (r.error) return { error: r.error };
+  plan.reserva = r.reserva;
+
+  // Anulación total: se sella la devolución en todos los ítems que tenían saldo.
+  // Con itemId el sello lo escribe quien dispara la devolución de ese ítem.
+  if (itemId == null) {
+    const conSaldo = (plan.items || []).filter(it => saldoItemReserva(reservaPrevia, it.id).length).map(it => it.id);
+    plan.items = sellarItems(plan.items, conSaldo, 'reservaDevuelta',
+      { numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(), idRegistro: r.idRegistro ?? null,
+        depOrigen: r.depOrigen, depDestino: r.depDestino });
+  }
+  guardarJSON(PLANES_PATH, planes);
+  return conLogError({ ok: true, numeroMovimiento: r.numeroMovimiento, lineas: r.lineas, idRegistro: r.idRegistro }, r.logError);
 }));
 
 // ── Precios de Proveedores ─────────────────────────────────────────────────────
