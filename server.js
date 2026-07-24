@@ -22,6 +22,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -4576,6 +4577,20 @@ function saldoReserva(reserva) {
   return ((reserva && reserva.lineas) || [])
     .map(l => ({ plu: String(l.plu), nombre: l.nombre, cantidad: redondear4((Number(l.cantidad) || 0) - (dev.get(String(l.plu)) || 0)) }))
     .filter(l => l.cantidad > 0);
+}
+
+// Lee planes.json y garantiza que cada plan tenga reservas[] (migra el formato viejo en
+// memoria; no reescribe el archivo salvo que el caller guarde). Devuelve { planes, plan }.
+function leerPlanReservas(fecha) {
+  const planes = leerJSON(PLANES_PATH, {});
+  const plan = planes[fecha] ? migrarReservas(planes[fecha]) : null;
+  return { planes, plan };
+}
+
+// Saldo total reservado del plan sobre el ledger reservas[]. Los callers viejos que pasan
+// una reserva única siguen usando saldoReserva; los nuevos pasan el plan entero.
+function saldoReservaPlan(plan) {
+  return saldoLedger(migrarReservas(plan).reservas);
 }
 
 // Saldo pendiente de la porción de un ítem, acotado al saldo global del componente
