@@ -3248,6 +3248,10 @@ app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
 app.delete('/api/plan/:fecha/item/:id', (req, res) => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha]; if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+  const itemBloq = (plan.items || []).find(it => String(it.id) === String(id));
+  if (itemBloq && itemBloq.reservaMovimiento && itemBloq.reservaMovimiento.numeroMovimiento != null) {
+    return res.status(409).json({ error: `La orden está reservada (movimiento #${itemBloq.reservaMovimiento.numeroMovimiento}) y no se puede eliminar. Anulá esa reserva primero.` });
+  }
   plan.items = plan.items.filter(i => i.id !== id); guardarJSON(PLANES_PATH, planes); res.json({ ok: true });
 });
 app.delete('/api/plan/:fecha', (req, res) => {
