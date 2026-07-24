@@ -4262,6 +4262,31 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
     } catch (e) { errPlan = `No se pudo sincronizar el plan ${original.plan} con el log: ${e.message}`; }
   }
 
+  // Revertir una reserva libera sus órdenes: se anula la entrada del ledger (plan.reservas)
+  // que corresponde a este movimiento y se limpia el sello reservaMovimiento de los ítems
+  // que cubría, re-habilitándolos para volver a reservarse. Va DESPUÉS de sincronizarPlanConLog
+  // (que sólo mira el plan.reserva viejo, único, agregado de todo el depósito) para que esta
+  // actualización puntual por movimiento sea la que quede como estado final.
+  let errLedgerReserva = null;
+  if (original.origen === 'reserva' && original.plan) {
+    try {
+      const { planes: planesReserva, plan: planReserva } = leerPlanReservas(original.plan);
+      if (planReserva) {
+        const reservas = (planReserva.reservas || []).map(rr =>
+          (rr.idRegistro === original.id || (rr.numeroMovimiento != null && rr.numeroMovimiento === original.numeroMovimiento))
+            ? { ...rr, estado: 'anulada' } : rr);
+        const items = (planReserva.items || []).map(it =>
+          (it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento === original.numeroMovimiento)
+            ? { ...it, reservaMovimiento: null } : it);
+        // Compat: si plan.reserva (single, formato viejo) apuntaba a este movimiento, marcarlo anulado.
+        const reservaCompat = (planReserva.reserva && planReserva.reserva.numeroMovimiento === original.numeroMovimiento)
+          ? { ...planReserva.reserva, estado: 'anulada' } : planReserva.reserva;
+        const planActualizado = { ...planReserva, reservas, items, reserva: reservaCompat };
+        guardarJSON(PLANES_PATH, { ...planesReserva, [original.plan]: planActualizado });
+      }
+    } catch (e) { errLedgerReserva = `No se pudo anular la reserva del ledger para el plan ${original.plan}: ${e.message}`; }
+  }
+
   // La advertencia queda también en el registro de la reversión, para que se entienda
   // después por qué el plan quedó marcado.
   const errAdv = advertencia ? actualizarMovLog(r.idRegistro, reg => ({ ...reg, advertencia })) : null;
@@ -4269,7 +4294,7 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   const resp = { ok: true, numeroMovimiento: r.numeroMovimiento, id: r.idRegistro, revierteA: original.id };
   const conPlan = planSincronizado ? { ...resp, planSincronizado } : resp;
   return conLogError(advertencia ? { ...conPlan, advertencia } : conPlan,
-    r.logError, errEnlace, errPlan, errAdv, errMarcaProduccion);
+    r.logError, errEnlace, errPlan, errAdv, errMarcaProduccion, errLedgerReserva);
 }));
 
 app.post('/api/stock/traslado', apiRoute(async req => {
