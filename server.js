@@ -3242,7 +3242,21 @@ app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha]; if (!plan) return { error: 'Plan no encontrado' };
   const idx = plan.items.findIndex(i => i.id === id); if (idx === -1) return { error: 'Ítem no encontrado' };
-  const pasaAListo = (req.body || {}).estado === 'listo' && plan.items[idx].estado !== 'listo';
+  const actual = plan.items[idx], body = req.body || {};
+  // Ya trabajado en producción: no se modifica (la página pudo quedar desactualizada).
+  if (actual.produccionMovimiento && actual.produccionMovimiento.numeroMovimiento != null) {
+    return { error: `La orden ya fue trabajada en producción (movimiento #${actual.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede modificar.`, yaProducido: true };
+  }
+  // Reservada: no se cambian cantidades ni producto (desincronizaría la reserva). El cambio de
+  // estado (que dispara la devolución al terminar) sí se permite.
+  if (actual.reservaMovimiento && actual.reservaMovimiento.numeroMovimiento != null) {
+    const cambiaContenido = ['cantConfirmada','cantSugerida','idProducto','producto','presentaciones','cantidad','idGranel']
+      .some(k => k in body && JSON.stringify(body[k]) !== JSON.stringify(actual[k]));
+    if (cambiaContenido) {
+      return { error: `La orden está reservada (movimiento #${actual.reservaMovimiento.numeroMovimiento}). Anulá la reserva antes de modificar cantidades o producto.`, yaReservado: true };
+    }
+  }
+  const pasaAListo = body.estado === 'listo' && actual.estado !== 'listo';
   plan.items[idx] = { ...plan.items[idx], ...req.body, id };
 
   // Devolución automática: al terminar un ítem vuelve al depósito principal sólo su
@@ -3269,6 +3283,9 @@ app.delete('/api/plan/:fecha/item/:id', (req, res) => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha]; if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
   const itemBloq = (plan.items || []).find(it => String(it.id) === String(id));
+  if (itemBloq && itemBloq.produccionMovimiento && itemBloq.produccionMovimiento.numeroMovimiento != null) {
+    return res.status(409).json({ error: `La orden ya fue trabajada en producción (movimiento #${itemBloq.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede eliminar.` });
+  }
   if (itemBloq && itemBloq.reservaMovimiento && itemBloq.reservaMovimiento.numeroMovimiento != null) {
     return res.status(409).json({ error: `La orden está reservada (movimiento #${itemBloq.reservaMovimiento.numeroMovimiento}) y no se puede eliminar. Anulá esa reserva primero.` });
   }
