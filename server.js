@@ -3279,18 +3279,36 @@ app.post('/api/enviar-produccion', (req, res) => {
     const arr = leerOrdenes();
     const keyOf = o => `${o.fecha || ''}|${(o.producto || '').trim().toLowerCase()}`;
     const idx = new Map(arr.map((o, i) => [keyOf(o), i]));
+    // Cada orden hereda los números de movimiento de reserva de los ítems del plan que la
+    // componen: granel es 1 ítem por orden (match por producto); fraccionado agrupa varios
+    // ítems por rubro (match por rubro, con fallback a producto si no hay rubro explícito) —
+    // misma clave que arma construirOrdenes() en planificacion.html. Cache por fecha para no
+    // releer planes.json por cada orden del envío.
+    const planItemsPorFecha = new Map();
+    const movimientosDeOrden = n => {
+      if (!planItemsPorFecha.has(n.fecha)) {
+        const { plan } = leerPlanReservas(n.fecha);
+        planItemsPorFecha.set(n.fecha, (plan && plan.items) || []);
+      }
+      const items = planItemsPorFecha.get(n.fecha).filter(it =>
+        it && (it.producto === n.producto || (it.rubro || it.producto) === n.producto));
+      return [...new Set(items
+        .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
+        .map(it => it.reservaMovimiento.numeroMovimiento))];
+    };
     let sobre = 0, nue = 0, completas = 0;
     for (const n of nuevas) {
       const k = keyOf(n), i = idx.get(k);
+      const reservaMovimientos = movimientosDeOrden(n);
       if (i != null) {
         const prev = arr[i];
         // Si la orden previa ya está completa, se verifica y se mantiene oculta:
         // no se sobreescribe (preserva registro cargado, estado 'listo' y terminado).
         if (prev.terminado === true || prev.estado === 'listo') { completas++; continue; }
-        arr[i] = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad };
+        arr[i] = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad, reservaMovimientos };
         sobre++;
       } else {
-        arr.push(n); idx.set(k, arr.length - 1); nue++;
+        arr.push({ ...n, reservaMovimientos }); idx.set(k, arr.length - 1); nue++;
       }
     }
     guardarOrdenes(arr);
