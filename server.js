@@ -2839,7 +2839,30 @@ app.put('/api/distribucion/fraccionado-registros/:id', (req, res) => {
 
 // ── Producción: registros de cargas (archivo separado de distribución) ──────────
 const PROD_REG_PATH = path.join(DATA_DIR, 'produccion_registros.json');
+// Historial: los registros ya conciliados (dados de alta en producción) se mueven acá y salen
+// del listado de Terminados. Es un archivo, no un borrado: quedan para consulta.
+const PROD_HIST_PATH = path.join(DATA_DIR, 'produccion_historial.json');
+// Mueve los registros indicados de produccion_registros.json a produccion_historial.json.
+function archivarRegistros(ids, meta) {
+  const idset = new Set((ids || []).map(String));
+  if (!idset.size) return 0;
+  const registros = leerJSON(PROD_REG_PATH, []);
+  const aMover = registros.filter(r => r && idset.has(String(r.id)));
+  if (!aMover.length) return 0;
+  const quedan = registros.filter(r => !(r && idset.has(String(r.id))));
+  const hist = leerJSON(PROD_HIST_PATH, []);
+  const sellados = aMover.map(r => ({ ...r, archivado: { ...(meta || {}), fecha: new Date().toISOString() } }));
+  guardarJSON(PROD_HIST_PATH, [...hist, ...sellados]);
+  guardarJSON(PROD_REG_PATH, quedan);
+  return aMover.length;
+}
 app.get('/api/produccion/registros', apiRoute(async () => leerJSON(PROD_REG_PATH, [])));
+// Historial: registros ya conciliados/archivados (fuera de Terminados). Filtro opcional por fecha.
+app.get('/api/produccion/historial', apiRoute(async req => {
+  const fecha = req.query.fecha ? safeDate(req.query.fecha) : null;
+  const hist = leerJSON(PROD_HIST_PATH, []);
+  return fecha ? hist.filter(r => r && r.fecha === fecha) : hist;
+}));
 app.post('/api/produccion/registros', (req, res) => {
   const b = req.body || {};
   if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
@@ -3342,15 +3365,18 @@ app.post('/api/enviar-produccion', (req, res) => {
         .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
         .map(it => it.reservaMovimiento.numeroMovimiento))];
     };
+    // Órdenes ya trabajadas (con algún registro de producción cargado): no se pisan aunque
+    // todavía no estén en 'listo'/terminado, para no borrar lo que producción ya cargó.
+    const ordenesTrabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
     let sobre = 0, nue = 0, completas = 0;
     for (const n of nuevas) {
       const k = keyOf(n), i = idx.get(k);
       const reservaMovimientos = movimientosDeOrden(n);
       if (i != null) {
         const prev = arr[i];
-        // Si la orden previa ya está completa, se verifica y se mantiene oculta:
+        // Si la orden previa ya está completa o fue trabajada en producción, se mantiene:
         // no se sobreescribe (preserva registro cargado, estado 'listo' y terminado).
-        if (prev.terminado === true || prev.estado === 'listo') { completas++; continue; }
+        if (prev.terminado === true || prev.estado === 'listo' || ordenesTrabajadas.has(String(prev.id))) { completas++; continue; }
         arr[i] = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad, reservaMovimientos };
         sobre++;
       } else {
@@ -6219,8 +6245,16 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
                  + 'Reintentá el registro: los comprobantes ya hechos no se repiten.';
   }
 
+  // Registros conciliados → historial: salen del listado de Terminados (quedan archivados para
+  // consulta). Sólo si la marca del plan se persistió (los ítems quedaron dados de alta).
+  let archivados = 0;
+  if (idsRegistrados.length && !errMarca && !avisoMarca) {
+    try { archivados = archivarRegistros(idsRegistrados, { numeroMovimiento: r.numeroMovimiento, planFecha: fecha }); }
+    catch (e) { errMarca = `No se pudieron archivar los registros conciliados: ${e.message}`; }
+  }
+
   const resp = {
-    ok: !errEscritura, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro,
+    ok: !errEscritura, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro, archivados,
     comprobantes, idSucursal: cr.idSucursal, observacion: obsBase.slice(0, 200), depositos: deps,
     lineas: todasLasLineas, resumen: { ...resto.resumen, ajustesMovimiento: ajustesMov.length },
     ...(errEscritura ? { parcial: true } : {}),
