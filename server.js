@@ -22,7 +22,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -5756,7 +5756,10 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
 
   // Sólo una reserva activa tiene stock realmente apartado en el depósito de reserva.
-  const saldo     = reserva && reserva.estado === 'activa' ? saldoReserva(reserva) : [];
+  // Saldo agregado sobre TODAS las reservas activas del ledger (no sólo plan.reserva, que es
+  // la última reserva): así `reservado` coincide con el desglose por movimiento (porMovimiento)
+  // y el comprobante "resto" no doble-cuenta el consumo cuando hay varias reservas en el día.
+  const saldo     = saldoReservaPlan(plan);
   const reservado = new Map(saldo.map(l => [String(l.plu), redondear4(l.cantidad)]));
 
   const componentes = [], conUso = new Set();
@@ -5920,7 +5923,11 @@ function depositosProduccion(cp, cr, reserva, elegidos) {
 //                      +en el depósito de DIFERENCIAS elegido.
 // Los componentes sin PLU resoluble no se pueden mover y salen aparte en `sinPlu`.
 // Función pura: no toca SQL ni archivos.
-function lineasProduccionDesdeConciliacion(c, deps) {
+function lineasProduccionDesdeConciliacion(c, deps, opts) {
+  // incluirReserva:false arma sólo el comprobante "resto" (terminados + consumo que salió de
+  // FUERA de la reserva). El consumo contra la reserva y el sobrante se registran aparte, un
+  // comprobante por movimiento de reserva (ver lineasAjusteMovimiento). Default true = comportamiento viejo.
+  const incluirReserva = !opts || opts.incluirReserva !== false;
   const lineas = [], sinPlu = [];
   let terminados = 0, componentes = 0, ajustes = 0;
 
@@ -5944,9 +5951,9 @@ function lineasProduccionDesdeConciliacion(c, deps) {
     const deSalida  = redondear4(Math.max(0, usado - reservado));    // faltante: sale del depósito elegido
     const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más: vuelve al de diferencias
 
-    if (deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
+    if (incluirReserva && deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
     if (deSalida  > 0) { lineas.push({ ...base, idDeposito: deps.salida,  cantidad: -deSalida,  concepto: 'consumo-salida'  }); componentes++; }
-    if (sobrante > 0) {
+    if (incluirReserva && sobrante > 0) {
       lineas.push({ ...base, idDeposito: deps.reserva,     cantidad: -sobrante, concepto: 'sobrante-desde-reserva' });
       lineas.push({ ...base, idDeposito: deps.diferencias, cantidad:  sobrante, concepto: 'sobrante-a-diferencias' });
       ajustes++;
@@ -6028,7 +6035,15 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   }
 
   const deps = depositosProduccion(cp, cr, c.reserva, elegidos);
-  const { lineas, sinPlu, resumen } = lineasProduccionDesdeConciliacion(c, deps);
+  // Un ajuste SiGA POR movimiento de reserva (trazabilidad 1:1 reserva→ajuste):
+  //  · "resto"    → terminados (alta de producto) + consumo que salió de FUERA de la reserva.
+  //  · por cada movimiento de reserva → consumo contra lo apartado + sobrante a diferencias.
+  const resto     = lineasProduccionDesdeConciliacion(c, deps, { incluirReserva: false });
+  const ajustesMov = (c.porMovimiento || [])
+    .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], lineas: lineasAjusteMovimiento(m.componentes, deps) }))
+    .filter(m => m.lineas.length);
+  const sinPlu = resto.sinPlu;
+  const todasLasLineas = [...resto.lineas, ...ajustesMov.flatMap(m => m.lineas)];
 
   // Sin PLU no hay forma de mover el stock: o se aborta, o el operador acepta explícitamente
   // dejarlos afuera (y se informan en la respuesta para corregirlos después).
@@ -6037,10 +6052,10 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
                   + 'Corregilos o volvé a enviar con omitirSinPlu para dejarlos afuera.',
              sinPlu };
   }
-  if (!lineas.length) return { error: 'No quedó ninguna línea para mover' };
+  if (!todasLasLineas.length) return { error: 'No quedó ninguna línea para mover' };
   // Defensa: sin depósito de reserva configurado ni reserva viva, una línea de consumo
   // reservado quedaría sin depósito. Antes de escribir, todas las líneas tienen que tenerlo.
-  const sinDeposito = lineas.filter(l => !esIdDeposito(Number(l.idDeposito)));
+  const sinDeposito = todasLasLineas.filter(l => !esIdDeposito(Number(l.idDeposito)));
   if (sinDeposito.length) {
     return { error: 'No se pudo determinar el depósito de todas las líneas '
                   + '(elegí el depósito de salida y el de recepción, y revisá reserva.depositoReserva en config.json)',
@@ -6048,22 +6063,46 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   }
 
   // La observación es la marca que identifica estos comprobantes en SiGA.
-  const observacion = `${cp.observacion} ${fecha}`.trim().slice(0, 200);
+  const obsBase = `${cp.observacion} ${fecha}`.trim();
   const poolW = await getPoolStock();
-  const r = await ejecutarYRegistrar({
-    origen: 'produccion', plan: fecha, itemId: null,
-    idSucursal: cr.idSucursal,
-    // La cabecera de un movimiento multi-depósito es sólo referencia (de dónde salió y a
-    // dónde entró la mayor parte): el depósito real de cada renglón va EN LA LÍNEA.
-    depOrigen: deps.reserva || deps.salida, depDestino: deps.recepcion,
-    idUbicacion: null, idEmpleado: cr.idEmpleado,
-    idTipoMovimiento: cp.idTipoMovimiento, usuario: cr.usuario, observacion,
-    lineas: lineas.map(l => ({ plu: l.idProducto, nombre: l.nombre || null, cantidad: l.cantidad, idDeposito: l.idDeposito }))
-  }, () => registrarMovimientoMultilinea(poolW, {
-    idSucursal: cr.idSucursal, idTipoMovimiento: cp.idTipoMovimiento,
-    usuario: cr.usuario, idEmpleado: cr.idEmpleado, observacion,
-    lineas: lineas.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
-  }));
+  const comprobantes = [], logErrores = [];
+
+  const escribirComprobante = async (lineasComp, observacion, depOrigen, depDestino) =>
+    ejecutarYRegistrar({
+      origen: 'produccion', plan: fecha, itemId: null, idSucursal: cr.idSucursal,
+      // La cabecera de un movimiento multi-depósito es sólo referencia: el depósito real de
+      // cada renglón va EN LA LÍNEA.
+      depOrigen, depDestino, idUbicacion: null, idEmpleado: cr.idEmpleado,
+      idTipoMovimiento: cp.idTipoMovimiento, usuario: cr.usuario, observacion,
+      lineas: lineasComp.map(l => ({ plu: l.idProducto, nombre: l.nombre || null, cantidad: l.cantidad, idDeposito: l.idDeposito }))
+    }, () => registrarMovimientoMultilinea(poolW, {
+      idSucursal: cr.idSucursal, idTipoMovimiento: cp.idTipoMovimiento,
+      usuario: cr.usuario, idEmpleado: cr.idEmpleado, observacion,
+      lineas: lineasComp.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
+    }));
+
+  // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
+  //    el consumo fue contra reservas y no hay alta de producto pendiente.
+  let rResto = null;
+  if (resto.lineas.length) {
+    rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+    logErrores.push(rResto.logError);
+    comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
+  }
+
+  // 2) Un comprobante de ajuste por movimiento de reserva.
+  const ajustesRegistrados = [];
+  for (const m of ajustesMov) {
+    const observacion = `${obsBase} mov ${m.numeroMovimiento}`.trim().slice(0, 200);
+    const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
+    logErrores.push(rm.logError);
+    comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
+    ajustesRegistrados.push({ numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
+  }
+
+  // Comprobante "principal" que queda en produccionRegistrada: el resto si hubo, si no el
+  // primer ajuste. Sirve para la marca del plan y el sello por ítem.
+  const r = rResto || comprobantes[0] || { numeroMovimiento: null, idRegistro: null };
 
   // Marca en el plan para que no se registre dos veces. Si el plan no existe el movimiento
   // ya se hizo igual: se avisa y queda el rastro en el log, que es el registro de verdad.
@@ -6099,17 +6138,24 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
         if (!plu || !plusProducidos.has(plu)) return it;
         return { ...it, produccionMovimiento: sello };
       });
-      guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...planActual, produccionRegistrada, items } });
+      // Sella cada movimiento de reserva conciliado con su comprobante de ajuste: la orden sale
+      // del estado "sin conciliar" (ver tab Terminados).
+      const reservas = migrarReservas(planActual).reservas.map(rr => {
+        const aj = ajustesRegistrados.find(a => a.numeroMovimientoReserva === rr.numeroMovimiento);
+        return aj ? { ...rr, ajuste: { numeroMovimiento: aj.numeroMovimiento, idRegistro: aj.idRegistro, fecha: asientoNuevo.fecha, conciliado: true } } : rr;
+      });
+      guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...planActual, produccionRegistrada, items, reservas } });
     }
   } catch (e) { errMarca = `No se pudo marcar el plan ${fecha} como registrado: ${e.message}`; }
 
   const resp = {
     ok: true, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro,
-    idSucursal: cr.idSucursal, observacion, depositos: deps, lineas, resumen,
+    comprobantes, idSucursal: cr.idSucursal, observacion: obsBase.slice(0, 200), depositos: deps,
+    lineas: todasLasLineas, resumen: { ...resto.resumen, ajustesMovimiento: ajustesMov.length },
     ...(sinPlu.length ? { omitidosSinPlu: sinPlu } : {}),
     ...(avisoMarca ? { aviso: avisoMarca } : {})
   };
-  return conLogError(resp, r.logError, errMarca);
+  return conLogError(resp, ...logErrores, errMarca);
 }));
 
 // ── Precios de Proveedores ─────────────────────────────────────────────────────

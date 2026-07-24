@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento } = require('../reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento } = require('../reservas_movimiento');
 
 test('migrarReservas: plan sin reserva devuelve reservas vacío', () => {
   assert.deepStrictEqual(migrarReservas({ fecha: '2026-07-24', items: [] }).reservas, []);
@@ -56,4 +56,35 @@ test('conciliarPorMovimiento: compara reservado vs usado por movimiento', () => 
   assert.strictEqual(m10.componentes[0].sobrante, 10);
   assert.strictEqual(m11.componentes[0].usado, 0);
   assert.strictEqual(m11.componentes[0].sobrante, 40);
+});
+
+test('lineasAjusteMovimiento: consumo contra reserva y sobrante a diferencias', () => {
+  const deps = { reserva: 5, diferencias: 1 };
+  const comps = [
+    { plu: '9', nombre: 'G', reservado: 100, usado: 90, sobrante: 10 },
+    { plu: '7', nombre: 'Envase', reservado: 50, usado: 50, sobrante: 0 },
+  ];
+  const lineas = lineasAjusteMovimiento(comps, deps);
+  // comp 9: -90 consumo-reserva (dep 5), -10 sobrante-desde-reserva (dep 5), +10 a diferencias (dep 1)
+  const c9 = lineas.filter(l => l.idProducto === '9');
+  assert.strictEqual(c9.find(l => l.concepto === 'consumo-reserva').cantidad, -90);
+  assert.strictEqual(c9.find(l => l.concepto === 'consumo-reserva').idDeposito, 5);
+  assert.strictEqual(c9.find(l => l.concepto === 'sobrante-desde-reserva').cantidad, -10);
+  assert.strictEqual(c9.find(l => l.concepto === 'sobrante-a-diferencias').cantidad, 10);
+  assert.strictEqual(c9.find(l => l.concepto === 'sobrante-a-diferencias').idDeposito, 1);
+  // comp 7: sólo consumo, sin sobrante
+  const c7 = lineas.filter(l => l.idProducto === '7');
+  assert.strictEqual(c7.length, 1);
+  assert.strictEqual(c7[0].cantidad, -50);
+});
+
+test('lineasAjusteMovimiento: usado 0 y sin sobrante no genera líneas', () => {
+  const lineas = lineasAjusteMovimiento([{ plu: '9', nombre: 'G', reservado: 40, usado: 0, sobrante: 40 }], { reserva: 5, diferencias: 1 });
+  // usado 0 → sin consumo; sobrante 40 → dos líneas (devolución)
+  assert.strictEqual(lineas.filter(l => l.concepto === 'consumo-reserva').length, 0);
+  assert.strictEqual(lineas.filter(l => l.concepto.startsWith('sobrante')).length, 2);
+});
+
+test('lineasAjusteMovimiento: componente sin plu se ignora', () => {
+  assert.strictEqual(lineasAjusteMovimiento([{ plu: '', usado: 10, sobrante: 0 }], { reserva: 5, diferencias: 1 }).length, 0);
 });
