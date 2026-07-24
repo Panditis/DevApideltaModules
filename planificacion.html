@@ -1070,6 +1070,20 @@ async function api(method, ruta, body) {
   return res.json();
 }
 
+// Los errores de api() llegan como Error("<status>: <texto>"), donde <texto>
+// suele ser el JSON crudo de la respuesta ({error, yaProducido, ...}). Estos
+// helpers extraen el mensaje legible para mostrarlo en toasts/alerts.
+function parseApiErrorBody(e) {
+  const msg = e?.message || '';
+  const i = msg.indexOf(':');
+  const body = i === -1 ? msg : msg.slice(i + 1).trim();
+  try { return JSON.parse(body); } catch { return null; }
+}
+function mensajeApiError(e) {
+  const data = parseApiErrorBody(e);
+  return (data && typeof data.error === 'string') ? data.error : (e?.message || 'Error desconocido');
+}
+
 // ── Toast ────────────────────────────────────────────────────────
 function toast(msg, isErr) {
   const el = document.getElementById('toast');
@@ -1762,8 +1776,23 @@ async function actualizarItem(id, campo, valor, el) {
   }
 
   try {
-    await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, item);
-  } catch (e) { toast('Error al guardar: ' + e.message, true); }
+    const resp = await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, item);
+    // El backend puede responder 200 con {error, yaProducido|yaReservado} en vez
+    // de un status de error: si el ítem ya se trabajó en producción o está
+    // reservado, se avisa y se descarta la edición optimista refrescando el plan.
+    if (resp && resp.error) {
+      toast(String(resp.error), true);
+      await cargarPlan(fechaPlanActual);
+      return;
+    }
+  } catch (e) {
+    // La página pudo quedar desactualizada (ítem producido/reservado en otro
+    // lado): se muestra el motivo real y se refresca para revertir el cambio
+    // optimista y reflejar el estado verdadero del servidor.
+    toast('Error al guardar: ' + mensajeApiError(e), true);
+    await cargarPlan(fechaPlanActual);
+    return;
+  }
 
   // Refrescar la fila: las opciones de tapa dependen del envase elegido.
   if (campo === 'envase') renderPlan();
@@ -1844,12 +1873,31 @@ function eliminarItem(id) {
     `¿Eliminar <strong>${escHtml(nombre)}</strong> del plan de ${formatFecha(fechaPlanActual)}?`,
     'Eliminar',
     async () => {
+      // La página puede estar desactualizada (el ítem pudo pasar a producción o
+      // quedar reservado desde otra pestaña): se refresca el plan justo antes de
+      // borrar para no operar sobre datos viejos.
+      try { await cargarPlan(fechaPlanActual); }
+      catch (e) { toast('Error al refrescar el plan: ' + mensajeApiError(e), true); return; }
+
+      const fresh = planCache?.items.find(i => i.id == id);
+      if (!fresh) { toast('El ítem ya no está en el plan', true); return; }
+      const numeroReservaFresh = fresh.reservaMovimiento?.numeroMovimiento;
+      if (numeroReservaFresh != null) {
+        toast('Orden reservada (#' + numeroReservaFresh + '): anulá la reserva primero', true);
+        return;
+      }
+
       try {
         await api('DELETE', `/api/plan/${fechaPlanActual}/item/${id}`);
         planCache.items = planCache.items.filter(i => i.id != id);
         renderPlan();
         toast('Ítem eliminado');
-      } catch (e) { toast('Error al eliminar: ' + e.message, true); }
+      } catch (e) {
+        // 409 u otro rechazo del backend (ya producido/reservado): se muestra
+        // el motivo real y se refresca para que la vista quede consistente.
+        toast('Error al eliminar: ' + mensajeApiError(e), true);
+        await cargarPlan(fechaPlanActual);
+      }
     }, true);
 }
 
@@ -2757,6 +2805,26 @@ function construirOrdenes() {
   return ordenes;
 }
 
+// POST compartido a Producción: lo usa tanto el botón "Enviar a producción"
+// como el modal que ofrece enviar las órdenes recién reservadas, para que el
+// toast de éxito y el manejo de errores sean consistentes en ambos flujos.
+async function postOrdenesProduccion(ordenes) {
+  await api('POST', '/api/enviar-produccion', ordenes);
+  toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+}
+
+// Órdenes de construirOrdenes() que corresponden a ítems sellados con el
+// movimiento de reserva recién creado. Granel: 1 orden por ítem (match por
+// producto). Fraccionado: 1 orden por rubro (match por rubro||producto).
+function ordenesRecienReservadas(numeroMovimiento) {
+  if (numeroMovimiento == null) return [];
+  const items = planCache?.items || [];
+  const reservados = items.filter(it => it.reservaMovimiento?.numeroMovimiento === numeroMovimiento);
+  if (!reservados.length) return [];
+  const claves = new Set(reservados.map(it => it.esGranel ? it.producto : (it.rubro || it.producto)));
+  return construirOrdenes().filter(o => claves.has(o.producto));
+}
+
 function eTabSwitch(tab) {
   const isOrdenes = tab === 'ordenes';
   document.getElementById('enviarLista').style.display = isOrdenes ? 'flex' : 'none';
@@ -2911,11 +2979,10 @@ async function confirmarEnviarProduccion() {
   const btn = document.getElementById('btnConfirmarEnviar');
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
-    await api('POST', '/api/enviar-produccion', ordenes);
+    await postOrdenesProduccion(ordenes);
     document.getElementById('overlayEnviar').classList.remove('open');
-    toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
   } catch (e) {
-    toast('Error al enviar: ' + e.message, true);
+    toast('Error al enviar: ' + mensajeApiError(e), true);
   } finally {
     btn.disabled = false; btn.textContent = '✓ Confirmar y enviar';
   }
@@ -4966,7 +5033,27 @@ async function confirmarReserva(permitirFaltante) {
   toast(`Reserva #${resp.numeroMovimiento} creada`);
   cerrarModalReserva();
   try { await cargarPlan(fechaPlanActual); }
-  catch (e) { toast('Error al refrescar el plan: ' + e.message, true); }
+  catch (e) { toast('Error al refrescar el plan: ' + mensajeApiError(e), true); return; }
+  // El plan ya está refrescado, así que los ítems traen su reservaMovimiento
+  // nuevo: se puede ofrecer enviar a producción sólo lo recién reservado.
+  ofrecerEnviarAProduccionTrasReserva(resp.numeroMovimiento);
+}
+
+// Tras reservar con éxito, pregunta si las órdenes recién selladas con ese
+// movimiento se envían directo a Producción del Día.
+function ofrecerEnviarAProduccionTrasReserva(numeroMovimiento) {
+  const ordenes = ordenesRecienReservadas(numeroMovimiento);
+  if (!ordenes.length) return;
+  confirmarModal(
+    'Enviar a producción',
+    `Reserva #${numeroMovimiento} hecha. ¿Enviar las órdenes recién reservadas a producción?`,
+    'Enviar a producción',
+    async () => {
+      const aEnviar = ordenesRecienReservadas(numeroMovimiento);
+      if (!aEnviar.length) { toast('No hay órdenes nuevas para enviar', true); return; }
+      try { await postOrdenesProduccion(aEnviar); }
+      catch (e) { toast('Error al enviar: ' + mensajeApiError(e), true); }
+    });
 }
 
 // El plan cambió después de reservar: se mueve sólo la diferencia (puede generar
