@@ -5189,7 +5189,7 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   // volver a reservar.
   const sync = sincronizarReservaConLog(fecha, guardado);
   if (sync.cambio) { planes[fecha] = sync.plan; guardarJSON(PLANES_PATH, planes); }
-  const plan = planes[fecha];
+  let plan = planes[fecha];
   // Una reserva activa de otra sucursal bloquea todo: no se ejecuta ningún movimiento.
   // Los depósitos y el stock son por sucursal, así que operar acá dejaría la mercadería
   // en el lugar equivocado.
@@ -5197,18 +5197,12 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   if (errSucursal) return { error: errSucursal };
   // Con reserva activa no se vuelve a reservar, salvo que hayan cambiado las órdenes del
   // plan del día: en ese caso se ofrece actualizar la reserva moviendo sólo la diferencia.
-  if (plan.reserva && plan.reserva.estado === 'activa') {
-    const n = plan.reserva.numeroMovimiento;
-    const { hayCambios } = cambiosDelPlan(plan.items, plan.reserva);
-    if (!hayCambios) {
-      return { error: `Este plan ya tiene la reserva #${n} hecha. Para volver a reservar, modificá las órdenes del plan del día.`,
-               yaReservado: true, numeroMovimiento: n };
-    }
-    return { error: `El plan cambió desde la reserva #${n}. Actualizá la reserva para mover solo la diferencia.`,
-             requiereActualizar: true, numeroMovimiento: n };
+  // Reserva incremental: sólo las órdenes que todavía no tienen sello de movimiento.
+  const sinReservar = itemsSinReservar(plan.items);
+  if (!sinReservar.length) {
+    return { error: 'Todas las órdenes del plan ya están reservadas. Agregá productos nuevos para reservar.', yaReservado: true };
   }
-
-  const { componentes } = await componentesDePlan(plan.items);
+  const { componentes } = await componentesDePlan(sinReservar);
   if (!componentes.length) {
     // Sin componentes puede ser porque el plan no tiene fórmulas, o porque TODOS los ítems
     // con fórmula ya fueron producidos y recepcionados (produccionMovimiento). Se distingue
@@ -5258,20 +5252,22 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const numero = r.numeroMovimiento;
 
   const lineas = componentes.map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: c.necesario, porItem: c.porItem }));
-  plan.reserva = {
-    numeroMovimiento: numero, fecha: new Date().toISOString(), usuario: cr.usuario, estado: 'activa',
-    // La sucursal queda congelada junto con los depósitos: devoluciones, ajustes y
-    // anulaciones se ejecutan con ésta, no con la que diga config.json más adelante.
-    idSucursal: cr.idSucursal, depOrigen, depDestino, lineas, devoluciones: [],
-    // Órdenes del plan al momento de reservar: sirven para detectar cambios después.
-    firma: firmaPlanReserva(plan.items), items: itemsFirmables(plan.items), ajustes: []
+  plan = migrarReservas(plan);
+  const ahora = new Date().toISOString();
+  const nueva = {
+    numeroMovimiento: numero, idRegistro: r.idRegistro ?? null, estado: 'activa',
+    fecha: ahora, fechaPlanificacion: fecha,
+    idSucursal: cr.idSucursal, depOrigen, depDestino,
+    ordenes: itemsDeComponentes(componentes),
+    lineas, devoluciones: [],
   };
-  // Sello por ítem: cada línea del plan que aportó componentes queda con el comprobante que
-  // movió su porción. Los ítems que no aportaron nada (sin fórmula activa o cantidad 0) no
-  // se sellan. El sello no toca la firma, que ya quedó calculada arriba.
+  plan.reservas = [...plan.reservas, nueva];
   plan.items = sellarItems(plan.items, itemsDeComponentes(componentes), 'reservaMovimiento',
-    { numeroMovimiento: numero, fecha: plan.reserva.fecha, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
+    { numeroMovimiento: numero, fecha: ahora, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
     { limpiarDevuelta: true });
+  // Compat: mantener plan.reserva apuntando a la última reserva activa para el código viejo.
+  plan.reserva = { ...nueva, usuario: cr.usuario, firma: firmaPlanReserva(plan.items), items: itemsFirmables(plan.items), ajustes: [] };
+  planes[fecha] = plan;
   guardarJSON(PLANES_PATH, planes);
   return conLogError({ ok: true, numeroMovimiento: numero, idSucursal: cr.idSucursal, depOrigen, depDestino, lineas, idRegistro: r.idRegistro }, r.logError);
 }));
