@@ -101,7 +101,7 @@ function reservadoPorMovimiento(reservas) {
     .filter(reserva => reserva && reserva.estado === 'activa')
     .map(reserva => ({
       numeroMovimiento: reserva.numeroMovimiento,
-      ordenes: reserva.ordenes || [],
+      ordenes: Array.isArray(reserva.ordenes) ? reserva.ordenes : [],
       saldo: saldoLedger([reserva]),
       // Ya conciliado = su ajuste de producción ya se registró en SiGA (no se vuelve a mover).
       conciliado: !!(reserva.ajuste && reserva.ajuste.conciliado),

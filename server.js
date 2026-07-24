@@ -5242,7 +5242,7 @@ app.get('/api/plan/:fecha/reservas-resumen', apiRoute(async req => {
     reservas: (plan.reservas || []).map(r => ({
       numeroMovimiento: r.numeroMovimiento, estado: r.estado, fecha: r.fecha,
       fechaPlanificacion: r.fechaPlanificacion, idRegistro: r.idRegistro,
-      ordenes: (r.ordenes || []).map(id => {
+      ordenes: (Array.isArray(r.ordenes) ? r.ordenes : []).map(id => {
         const it = porItem.get(String(id));
         return { id, producto: it ? (it.producto || it.nombre || '') : '' };
       }),
@@ -5353,7 +5353,7 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
     numeroMovimiento: numero, idRegistro: r.idRegistro ?? null, estado: 'activa',
     fecha: ahora, fechaPlanificacion: fecha,
     idSucursal: cr.idSucursal, depOrigen, depDestino,
-    ordenes: itemsDeComponentes(componentes),
+    ordenes: [...itemsDeComponentes(componentes)],
     lineas, devoluciones: [],
   };
   plan.reservas = [...plan.reservas, nueva];
