@@ -5825,6 +5825,13 @@ async function conciliacionProduccion(fecha, idSucursal) {
     return (depositos.length && !activos.has(n)) ? null : n;
   };
 
+  // Desglose por movimiento de reserva (para conciliar por orden y por movimiento).
+  const _pLedger   = migrarReservas(plan || {});
+  const _gruposMov = reservadoPorMovimiento(_pLedger.reservas);
+  const _usadoPorPlu = new Map([...consumo.componentes.values()]
+    .filter(u => u.plu).map(u => [String(u.plu), u.usado]));
+  const porMovimiento = conciliarPorMovimiento(_gruposMov, _usadoPorPlu);
+
   return {
     fecha,
     idSucursal: sucursalPedida,
@@ -5843,6 +5850,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     },
     productos,
     componentes,
+    // Desglose reservado-vs-usado por movimiento de reserva (misma info que "componentes",
+    // recortada por movimiento en vez de agregada por PLU).
+    porMovimiento,
     // Depósitos elegibles de la sucursal + la preselección que propone el servidor.
     depositos: depositos.map(d => ({
       idDeposito: Number(d.IdDeposito), nombre: String(d.NombreDeposito || '').trim(),
