@@ -5,3 +5,4 @@ node_modules/
 *.bak-*
 data/
 iniciar_servidor_dev.bat
+config.json
