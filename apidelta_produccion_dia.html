@@ -157,6 +157,10 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .pres-item .pi-cant small{font-size:10px;color:var(--text-muted);font-weight:600}
 .pres-item .pi-env{flex:1 1 auto;min-width:0}
 .pi-badge-done{display:inline-flex;align-items:center;gap:4px;background:#E8F5E9;color:#2E7D32;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+/* Orden terminada cuya reserva de stock todavía no fue conciliada (ajuste.conciliado
+   pendiente en el ledger de reservas). Ámbar para distinguirla de los chips de reserva
+   normales (que suelen ser verdes/neutros) y del badge verde de "cargado". */
+.badge-sin-conciliar{display:inline-flex;align-items:center;gap:4px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
 .pi-btn-load{display:inline-flex;align-items:center;gap:5px;background:var(--green,#43A047);color:#fff;border:none;border-radius:7px;padding:6px 13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:.15s;white-space:nowrap;animation:piPulse 2.2s ease-in-out infinite}
 .pi-btn-load:hover{background:var(--green-dark,#2E7D32);transform:translateY(-1px);animation:none}
 @keyframes piPulse{0%,100%{box-shadow:0 0 0 0 rgba(67,160,71,.45)}50%{box-shadow:0 0 0 6px rgba(67,160,71,0)}}
@@ -2587,15 +2591,22 @@ async function loadRegistrosCargados() {
   const el = document.getElementById('registrosView');
   el.innerHTML = '<div class="formula-spinner">⏳ Cargando registros...</div>';
   try {
-    const data = await fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json());
+    const [data, ordenes] = await Promise.all([
+      fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json()),
+      api('GET', '/api/ordenes').catch(() => []),
+    ]);
     const lista = Array.isArray(data) ? data : (data.data || data.registros || []);
-    renderRegistrosCargados(lista);
+    // Mapa ordenId → orden, para saber (por r.ordenId) si la reserva de la orden que originó
+    // este registro sigue sin conciliar y así pintar el badge de alerta correspondiente.
+    const ordenesById = {};
+    (ordenes || []).forEach(o => { if (o && o.id != null) ordenesById[o.id] = o; });
+    renderRegistrosCargados(lista, ordenesById);
   } catch(e) {
     el.innerHTML = `<div class="formula-aviso">⚠ Error al cargar registros: ${e.message}</div>`;
   }
 }
 
-function renderRegistrosCargados(registros) {
+function renderRegistrosCargados(registros, ordenesById = {}) {
   const el = document.getElementById('registrosView');
   if (!registros.length) {
     el.innerHTML = `<div class="empty-state">
@@ -2637,10 +2648,15 @@ function renderRegistrosCargados(registros) {
         ? r.graneles
         : (r.nombreGranel ? [{ nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }] : []);
       _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles };
+      const ordenReg = r.ordenId != null ? ordenesById[r.ordenId] : null;
+      const badgeSinConciliar = ordenReg && ordenReg.sinConciliar
+        ? `<span class="badge-sin-conciliar" title="La reserva de stock de esta orden todavía no fue conciliada en SiGA">⚠ sin conciliar</span>`
+        : '';
 
       return `<tr>
         <td>
           <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">${nombre}</strong>
+          ${badgeSinConciliar}
           ${r.seccion ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px">${r.seccion}</div>` : ''}
           ${r.plu === 'ACT' && r.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${r.observacion}</div>` : ''}
         </td>

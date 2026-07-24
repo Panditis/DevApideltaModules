@@ -1520,7 +1520,27 @@ app.post('/api/panel/lead-times', (req, res) => {
 });
 
 // ── Rutas API órdenes ──────────────────────────────────────────────────────────
-app.get('/api/ordenes',        (_req, res) => res.json(leerOrdenes()));
+// Un movimiento de reserva está "sin conciliar" mientras su entrada del ledger siga activa y
+// no tenga ajuste.conciliado. La orden queda marcada si alguno de sus movimientos lo está.
+app.get('/api/ordenes',        (_req, res) => {
+  const sinConciliarPorFecha = new Map();
+  const movsSinConciliar = fecha => {
+    if (!fecha) return new Set();
+    if (!sinConciliarPorFecha.has(fecha)) {
+      const { plan } = leerPlanReservas(fecha);
+      const set = new Set((plan && plan.reservas || [])
+        .filter(rr => rr && rr.estado === 'activa' && !(rr.ajuste && rr.ajuste.conciliado))
+        .map(rr => rr.numeroMovimiento).filter(n => n != null));
+      sinConciliarPorFecha.set(fecha, set);
+    }
+    return sinConciliarPorFecha.get(fecha);
+  };
+  const ordenes = leerOrdenes().map(o => ({
+    ...o,
+    sinConciliar: (o.reservaMovimientos || []).some(n => movsSinConciliar(o.fecha).has(n)),
+  }));
+  res.json(ordenes);
+});
 app.post('/api/ordenes',       (req, res)  => { const o = req.body; if (!o || !o.id) return res.status(400).json({ error: 'Falta orden' }); const arr = leerOrdenes().filter(x => x.id !== o.id); arr.push(o); guardarOrdenes(arr); res.json(o); });
 app.put('/api/ordenes/:id',    (req, res)  => { const id = parseInt(req.params.id), arr = leerOrdenes(), idx = arr.findIndex(o => o.id === id); if (idx < 0) return res.status(404).json({ error: 'No encontrado' }); arr[idx] = { ...arr[idx], ...req.body }; guardarOrdenes(arr); res.json(arr[idx]); });
 app.delete('/api/ordenes/:id', (req, res)  => { guardarOrdenes(leerOrdenes().filter(o => o.id !== parseInt(req.params.id))); res.json({ ok: true }); });
