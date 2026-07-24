@@ -5160,6 +5160,25 @@ app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
   };
 }));
 
+app.get('/api/plan/:fecha/reservas-resumen', apiRoute(async req => {
+  const fecha = safeDate(req.params.fecha);
+  const { plan } = leerPlanReservas(fecha);
+  if (!plan) return { fecha, reservas: [] };
+  const porItem = new Map((plan.items || []).map(it => [String(it.id), it]));
+  return {
+    fecha,
+    reservas: (plan.reservas || []).map(r => ({
+      numeroMovimiento: r.numeroMovimiento, estado: r.estado, fecha: r.fecha,
+      fechaPlanificacion: r.fechaPlanificacion, idRegistro: r.idRegistro,
+      ordenes: (r.ordenes || []).map(id => {
+        const it = porItem.get(String(id));
+        return { id, producto: it ? (it.producto || it.nombre || '') : '' };
+      }),
+      productos: (r.lineas || []).map(l => ({ plu: String(l.plu), nombre: l.nombre || '', cantidad: l.cantidad })),
+    })),
+  };
+}));
+
 app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha);
   const b     = req.body || {};
