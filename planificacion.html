@@ -1911,10 +1911,10 @@ document.getElementById('btnBorrarPlan').addEventListener('click', () => {
     'Borrar todo',
     async () => {
       try {
-        await api('DELETE', `/api/plan/${fechaPlanActual}`);
-        planCache = { items: [], notas: '' };
-        renderPlan();
-        toast('Plan borrado');
+        const res = await api('DELETE', `/api/plan/${fechaPlanActual}`);
+        // Las órdenes reservadas se conservan: se recarga el plan para mostrarlas con su badge.
+        await cargarPlan(fechaPlanActual);
+        toast(res && res.conservadas ? res.aviso : 'Plan borrado', !!(res && res.conservadas));
       } catch (e) { toast('Error: ' + e.message, true); }
     }, true);
 });

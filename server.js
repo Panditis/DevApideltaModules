@@ -3276,8 +3276,17 @@ app.delete('/api/plan/:fecha/item/:id', (req, res) => {
 });
 app.delete('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  if (planes[fecha]) { planes[fecha].items = []; guardarJSON(PLANES_PATH, planes); }
-  res.json({ ok: true });
+  let conservadas = 0;
+  if (planes[fecha]) {
+    // Las órdenes reservadas no se pueden borrar: se conservan. Se elimina sólo el resto.
+    const items = planes[fecha].items || [];
+    const reservadas = items.filter(it => it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+    conservadas = reservadas.length;
+    planes[fecha].items = reservadas;
+    guardarJSON(PLANES_PATH, planes);
+  }
+  res.json({ ok: true, conservadas,
+    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) reservada(s): anulá su reserva para poder eliminarlas.` } : {}) });
 });
 app.get('/api/calendario', (req, res) => {
   const desde = safeDate(req.query.desde), dias = Math.min(parseInt(req.query.dias) || 7, 42);
