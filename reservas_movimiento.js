@@ -103,6 +103,9 @@ function reservadoPorMovimiento(reservas) {
       numeroMovimiento: reserva.numeroMovimiento,
       ordenes: reserva.ordenes || [],
       saldo: saldoLedger([reserva]),
+      // Ya conciliado = su ajuste de producción ya se registró en SiGA (no se vuelve a mover).
+      conciliado: !!(reserva.ajuste && reserva.ajuste.conciliado),
+      ajuste: reserva.ajuste || null,
     }));
 }
 
@@ -137,6 +140,10 @@ function conciliarPorMovimiento(grupos, usadoPorPlu) {
       numeroMovimiento: grupo.numeroMovimiento,
       ordenes: grupo.ordenes || [],
       componentes,
+      // Se propaga el estado de conciliación del grupo para que el registro pueda saltar los
+      // movimientos ya conciliados (idempotencia ante reintentos parciales).
+      conciliado: !!grupo.conciliado,
+      ajuste: grupo.ajuste || null,
     };
   });
 }

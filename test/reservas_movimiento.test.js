@@ -43,6 +43,23 @@ test('reservadoPorMovimiento: agrupa lineas por numeroMovimiento', () => {
   assert.strictEqual(grupos.length, 2);
   assert.strictEqual(grupos.find(g => g.numeroMovimiento === 10).saldo.find(l => l.plu === '9').cantidad, 100);
   assert.deepStrictEqual(grupos.find(g => g.numeroMovimiento === 10).ordenes, [1]);
+  assert.strictEqual(grupos.find(g => g.numeroMovimiento === 10).conciliado, false);
+});
+
+test('reservadoPorMovimiento: refleja conciliado desde ajuste.conciliado', () => {
+  const reservas = [
+    { numeroMovimiento: 10, estado: 'activa', ordenes: [1], lineas: [{ plu: '9', nombre: 'G', cantidad: 100 }], devoluciones: [], ajuste: { conciliado: true, numeroMovimiento: 555 } },
+    { numeroMovimiento: 11, estado: 'activa', ordenes: [2], lineas: [{ plu: '9', nombre: 'G', cantidad: 40 }], devoluciones: [] },
+  ];
+  const grupos = reservadoPorMovimiento(reservas);
+  assert.strictEqual(grupos.find(g => g.numeroMovimiento === 10).conciliado, true);
+  assert.strictEqual(grupos.find(g => g.numeroMovimiento === 11).conciliado, false);
+});
+
+test('conciliarPorMovimiento: propaga conciliado a cada grupo', () => {
+  const grupos = [{ numeroMovimiento: 10, ordenes: [1], conciliado: true, saldo: [{ plu: '9', nombre: 'G', cantidad: 100 }] }];
+  const res = conciliarPorMovimiento(grupos, new Map([['9', 100]]));
+  assert.strictEqual(res[0].conciliado, true);
 });
 test('conciliarPorMovimiento: compara reservado vs usado por movimiento', () => {
   const grupos = [

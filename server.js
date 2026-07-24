@@ -6010,9 +6010,13 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   if (!hayProductos && !(c.componentes || []).length) {
     return { error: `No hay producción cargada para el ${fecha}: no hay nada que registrar` };
   }
-  // Si no queda nada pendiente, toda la producción de la fecha ya fue registrada: no se escribe
-  // nada (volver a hacerlo duplicaría el descuento en SiGA).
-  if (c.pendienteDeRegistrar === false) {
+  // Trabajo pendiente = producción sin registrar O ajustes de reserva sin conciliar. Con la
+  // conciliación por movimiento, una fecha "ya registrada" en terminados puede tener todavía
+  // ajustes de reserva pendientes (p. ej. un reintento tras una falla parcial): en ese caso NO
+  // se bloquea, se retoma sólo lo que falta.
+  const hayAjustesPendientes = (c.porMovimiento || [])
+    .some(m => !m.conciliado && (m.componentes || []).some(x => (x.usado > 0) || (x.sobrante > 0)));
+  if (c.pendienteDeRegistrar === false && !hayAjustesPendientes) {
     const num = c.produccionRegistrada ? (c.produccionRegistrada.numeroMovimiento ?? null) : null;
     return { error: `Toda la producción del ${fecha} ya fue registrada${num != null ? ` (movimiento #${num})` : ''}`,
              yaRegistrado: true, numeroMovimiento: num };
@@ -6037,13 +6041,29 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   const deps = depositosProduccion(cp, cr, c.reserva, elegidos);
   // Un ajuste SiGA POR movimiento de reserva (trazabilidad 1:1 reserva→ajuste):
   //  · "resto"    → terminados (alta de producto) + consumo que salió de FUERA de la reserva.
-  //  · por cada movimiento de reserva → consumo contra lo apartado + sobrante a diferencias.
+  //  · por cada movimiento de reserva NO conciliado → consumo contra lo apartado + sobrante.
   const resto     = lineasProduccionDesdeConciliacion(c, deps, { incluirReserva: false });
   const ajustesMov = (c.porMovimiento || [])
-    .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], lineas: lineasAjusteMovimiento(m.componentes, deps) }))
-    .filter(m => m.lineas.length);
+    .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], conciliado: !!m.conciliado, lineas: lineasAjusteMovimiento(m.componentes, deps) }))
+    // Los movimientos ya conciliados no se re-registran (idempotencia ante reintentos parciales).
+    .filter(m => !m.conciliado && m.lineas.length);
   const sinPlu = resto.sinPlu;
   const todasLasLineas = [...resto.lineas, ...ajustesMov.flatMap(m => m.lineas)];
+
+  // Defensa contra doble conteo: el reservado agregado (que usa el "resto" para el consumo-salida)
+  // debe coincidir con la suma por movimiento. Sólo diferirían si una reserva quedara net-negativa
+  // por PLU dentro de sí misma (devoluciones > líneas): hoy no ocurre, pero se corta por las dudas.
+  const reservadoAgg = new Map((c.componentes || []).filter(x => x.plu).map(x => [String(x.plu), redondear4(x.reservado)]));
+  const reservadoMov = new Map();
+  for (const m of (c.porMovimiento || [])) for (const x of (m.componentes || [])) {
+    reservadoMov.set(String(x.plu), redondear4((reservadoMov.get(String(x.plu)) || 0) + (Number(x.reservado) || 0)));
+  }
+  const descuadre = [...reservadoMov.entries()].filter(([plu, v]) => Math.abs(v - (reservadoAgg.get(plu) || 0)) > 1e-4);
+  if (descuadre.length) {
+    return { error: 'La reserva agregada no coincide con la suma por movimiento (posible reserva con devoluciones '
+                  + 'inconsistentes). Revisá las reservas del plan antes de registrar la producción.',
+             descuadre: descuadre.map(([plu]) => plu) };
+  }
 
   // Sin PLU no hay forma de mover el stock: o se aborta, o el operador acepta explícitamente
   // dejarlos afuera (y se informan en la respuesta para corregirlos después).
@@ -6066,6 +6086,8 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   const obsBase = `${cp.observacion} ${fecha}`.trim();
   const poolW = await getPoolStock();
   const comprobantes = [], logErrores = [];
+  let errMarca = null, avisoMarca = null, errEscritura = null;
+  let r = { numeroMovimiento: null, idRegistro: null };
 
   const escribirComprobante = async (lineasComp, observacion, depOrigen, depDestino) =>
     ejecutarYRegistrar({
@@ -6081,81 +6103,85 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
       lineas: lineasComp.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
     }));
 
-  // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
-  //    el consumo fue contra reservas y no hay alta de producto pendiente.
-  let rResto = null;
-  if (resto.lineas.length) {
-    rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
-    logErrores.push(rResto.logError);
-    comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
-  }
-
-  // 2) Un comprobante de ajuste por movimiento de reserva.
-  const ajustesRegistrados = [];
-  for (const m of ajustesMov) {
-    const observacion = `${obsBase} mov ${m.numeroMovimiento}`.trim().slice(0, 200);
-    const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
-    logErrores.push(rm.logError);
-    comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
-    ajustesRegistrados.push({ numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
-  }
-
-  // Comprobante "principal" que queda en produccionRegistrada: el resto si hubo, si no el
-  // primer ajuste. Sirve para la marca del plan y el sello por ítem.
-  const r = rResto || comprobantes[0] || { numeroMovimiento: null, idRegistro: null };
-
-  // Marca en el plan para que no se registre dos veces. Si el plan no existe el movimiento
-  // ya se hizo igual: se avisa y queda el rastro en el log, que es el registro de verdad.
-  let errMarca = null, avisoMarca = null;
-  try {
-    const planes     = leerJSON(PLANES_PATH, {});
+  // Aplica un cambio al plan y lo persiste de inmediato (re-lee para no pisar escrituras
+  // concurrentes). Se llama DESPUÉS de cada comprobante confirmado para que un reintento tras
+  // una falla parcial salte lo ya registrado (idempotencia). Devuelve {aviso} si no hay plan.
+  const aplicarAlPlan = (mutador) => {
+    const planes = leerJSON(PLANES_PATH, {});
     const planActual = planes[fecha];
-    if (!planActual) {
-      avisoMarca = `No hay plan cargado para el ${fecha}: el movimiento se registró igual, pero el plan no lleva la marca `
-                 + 'de producción registrada (el rastro queda en el log de movimientos).';
-    } else {
-      // Se acumula un asiento nuevo sobre los que ya tenía el plan (una fecha se puede
-      // registrar en varias tandas). Los campos sueltos duplican el último asiento para no
-      // romper a quien lee produccionRegistrada.numeroMovimiento directo.
-      const asientoNuevo = {
-        numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(),
-        idRegistro: r.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal,
-        registros: idsRegistrados
-      };
-      const asientos = [...asientosProduccion(planActual), asientoNuevo];
-      const produccionRegistrada = { ...asientoNuevo, asientos };
-      // Estado terminal por ítem: los ítems del plan cuyo producto (idProducto o, si es
-      // granel, idGranel) esté entre los PLU producidos por ESTE asiento quedan sellados con
-      // produccionMovimiento. El sello persiste aunque la reserva se anule; sólo se quita al
-      // revertir este movimiento (limpiarProduccionRegistrada). Sólo se sellan los ítems que
-      // cubren los registros de este asiento y que no estén ya sellados por uno anterior.
-      const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id));
-      const plusProducidos = new Set(registrosDelAsiento.flatMap(rr => plusDeRegistro(rr.plu)));
-      const sello = { numeroMovimiento: r.numeroMovimiento, fecha: asientoNuevo.fecha, idRegistro: r.idRegistro };
-      const items = (planActual.items || []).map(it => {
-        if (!it || it.produccionMovimiento) return it;
-        const plu = String(it.idProducto ?? it.idGranel ?? '').replace(/\D/g, '');
-        if (!plu || !plusProducidos.has(plu)) return it;
-        return { ...it, produccionMovimiento: sello };
-      });
-      // Sella cada movimiento de reserva conciliado con su comprobante de ajuste: la orden sale
-      // del estado "sin conciliar" (ver tab Terminados).
-      const reservas = migrarReservas(planActual).reservas.map(rr => {
-        const aj = ajustesRegistrados.find(a => a.numeroMovimientoReserva === rr.numeroMovimiento);
-        return aj ? { ...rr, ajuste: { numeroMovimiento: aj.numeroMovimiento, idRegistro: aj.idRegistro, fecha: asientoNuevo.fecha, conciliado: true } } : rr;
-      });
-      guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...planActual, produccionRegistrada, items, reservas } });
+    if (!planActual) return { aviso: `No hay plan cargado para el ${fecha}: el movimiento se registró igual, pero el plan `
+                                    + 'no lleva la marca (el rastro queda en el log de movimientos).' };
+    guardarJSON(PLANES_PATH, { ...planes, [fecha]: mutador(planActual) });
+    return { ok: true };
+  };
+
+  // Marca del asiento de producción (terminados) + sello por ítem. Se persiste apenas confirma
+  // el comprobante "resto": un reintento verá esos registros como yaRegistrados y no los repite.
+  const marcarProduccion = (planActual, rc) => {
+    const asientoNuevo = {
+      numeroMovimiento: rc.numeroMovimiento, fecha: new Date().toISOString(),
+      idRegistro: rc.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal, registros: idsRegistrados
+    };
+    const asientos = [...asientosProduccion(planActual), asientoNuevo];
+    const produccionRegistrada = { ...asientoNuevo, asientos };
+    const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id));
+    const plusProducidos = new Set(registrosDelAsiento.flatMap(rr => plusDeRegistro(rr.plu)));
+    const sello = { numeroMovimiento: rc.numeroMovimiento, fecha: asientoNuevo.fecha, idRegistro: rc.idRegistro };
+    const items = (planActual.items || []).map(it => {
+      if (!it || it.produccionMovimiento) return it;
+      const plu = String(it.idProducto ?? it.idGranel ?? '').replace(/\D/g, '');
+      if (!plu || !plusProducidos.has(plu)) return it;
+      return { ...it, produccionMovimiento: sello };
+    });
+    return { ...planActual, produccionRegistrada, items };
+  };
+
+  try {
+    // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
+    //    el consumo fue contra reservas y no hay alta de producto pendiente.
+    if (resto.lineas.length) {
+      const rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+      logErrores.push(rResto.logError);
+      comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
+      r = rResto;
+      const res = aplicarAlPlan(planActual => marcarProduccion(planActual, rResto));
+      if (res.aviso) avisoMarca = res.aviso;
     }
-  } catch (e) { errMarca = `No se pudo marcar el plan ${fecha} como registrado: ${e.message}`; }
+
+    // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
+    //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
+    for (const m of ajustesMov) {
+      const observacion = `${obsBase} mov ${m.numeroMovimiento}`.trim().slice(0, 200);
+      const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
+      logErrores.push(rm.logError);
+      comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
+      if (r.numeroMovimiento == null) r = rm;   // sin resto, el principal es el primer ajuste
+      const res = aplicarAlPlan(planActual => ({
+        ...planActual,
+        reservas: migrarReservas(planActual).reservas.map(rr =>
+          rr.numeroMovimiento === m.numeroMovimiento
+            ? { ...rr, ajuste: { numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro, fecha: new Date().toISOString(), conciliado: true } }
+            : rr),
+      }));
+      if (res.aviso && !avisoMarca) avisoMarca = res.aviso;
+    }
+  } catch (e) {
+    // ejecutarYRegistrar re-lanza si el comprobante falló en SiGA. Cada comprobante es su propia
+    // transacción, así que lo ya escrito quedó firme y marcado; se corta acá y se avisa para
+    // reintentar (el reintento salta lo confirmado).
+    errEscritura = `Se registraron ${comprobantes.length} comprobante(s); el siguiente falló: ${e.message}. `
+                 + 'Reintentá el registro: los comprobantes ya hechos no se repiten.';
+  }
 
   const resp = {
-    ok: true, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro,
+    ok: !errEscritura, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro,
     comprobantes, idSucursal: cr.idSucursal, observacion: obsBase.slice(0, 200), depositos: deps,
     lineas: todasLasLineas, resumen: { ...resto.resumen, ajustesMovimiento: ajustesMov.length },
+    ...(errEscritura ? { parcial: true } : {}),
     ...(sinPlu.length ? { omitidosSinPlu: sinPlu } : {}),
     ...(avisoMarca ? { aviso: avisoMarca } : {})
   };
-  return conLogError(resp, ...logErrores, errMarca);
+  return conLogError(resp, ...logErrores, errMarca, errEscritura);
 }));
 
 // ── Precios de Proveedores ─────────────────────────────────────────────────────
