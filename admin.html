@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apidelta — Centro de control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+// ── Paleta oficial Apidelta ─────────────────────────────────────────────────
+//   Negro #000000 · Oliva #65684C · Gris #BDBDB7 · Blanco #FFFFFF · Amarillo #FFCC00
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand:   { DEFAULT: '#FFCC00', dark: '#E6B800', soft: '#FFF3B0', ink: '#1a1200' },
+        ink:     '#000000',
+        olive:   { DEFAULT: '#65684C', soft: '#eae9e1' },
+        line:    '#BDBDB7',
+        surface: { DEFAULT:'#FFFFFF', alt:'#fafaf6', deep:'#f5f5f1' }
+      },
+      fontFamily: {
+        sans:    ['Public Sans', 'system-ui', 'sans-serif'],
+        display: ['Bricolage Grotesque', 'Public Sans', 'sans-serif'],
+        mono:    ['Spline Sans Mono', 'ui-monospace', 'monospace']
+      },
+      boxShadow: {
+        soft: '0 1px 2px rgba(15,17,21,.04), 0 2px 8px rgba(15,17,21,.04)',
+        lift: '0 4px 12px rgba(15,17,21,.06), 0 12px 32px rgba(15,17,21,.06)'
+      }
+    }
+  }
+};
+</script>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   APIDELTA · Centro de control (panel de administración)
+   Paleta oficial: #000 / #65684C / #BDBDB7 / #FFF / #FFCC00
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --p:#FFCC00; --p-dk:#E6B800; --on-surf:#1f2024; --on-svar:#6b6e55;
+  --outline:#d8d8d2; --bg:#f6f6f3; --ok:#4a7026; --err:#b53d24;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:var(--on-surf);font-size:14px;line-height:1.55}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .4s cubic-bezier(.2,.7,.2,1) both}
+
+/* App Bar — verde oliva con detalle ámbar (consistente con el resto del sistema) */
+.app-bar{
+  background:linear-gradient(180deg,#6e7152 0%,#5d6045 100%);
+  color:#fff;min-height:60px;padding:0 24px;
+  display:flex;align-items:center;gap:14px;
+  position:sticky;top:0;z-index:30;
+  box-shadow:0 1px 0 rgba(0,0,0,.08),0 10px 28px -16px rgba(101,104,76,.4);
+}
+.app-bar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent 0%,#FFCC00 30%,#FFCC00 70%,transparent 100%);opacity:.55}
+.app-bar-logo{height:34px;width:34px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
+.app-bar-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.02rem;font-weight:700;letter-spacing:.01em;line-height:1.1}
+.app-bar-sub{font-size:.72rem;opacity:.72;font-weight:500}
+
+/* Enlaces / botones del header */
+.bar-link{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#fff;text-decoration:none;padding:7px 12px;border-radius:9px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);transition:background .15s ease}
+.bar-link:hover{background:rgba(255,255,255,.2)}
+.bar-link svg{width:15px;height:15px}
+
+/* Botones */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;font-weight:600;font-size:.82rem;padding:9px 15px;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:transform .12s ease,box-shadow .15s ease,background .15s ease,border-color .15s ease;text-decoration:none;line-height:1}
+.btn svg{width:16px;height:16px}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--p);color:#1a1200;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.btn-primary:hover{background:var(--p-dk)}
+.btn-ghost{background:#fff;color:#3f4133;border-color:var(--outline)}
+.btn-ghost:hover{border-color:#b9bba2;background:#fafaf6}
+.btn-danger{background:#fff;color:#b53d24;border-color:#e6c6bd}
+.btn-danger:hover{background:#fdf1ee;border-color:#d99a89}
+.btn-sm{padding:6px 10px;font-size:.76rem;border-radius:8px;gap:5px}
+.btn-sm svg{width:14px;height:14px}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+/* Tabs */
+.tabs{display:inline-flex;gap:4px;background:#eeeee7;border:1px solid var(--outline);padding:4px;border-radius:12px}
+.tab{display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:.85rem;color:#6b6e55;padding:8px 16px;border-radius:9px;cursor:pointer;border:none;background:transparent;transition:all .15s ease}
+.tab svg{width:16px;height:16px}
+.tab:hover{color:#3f4133}
+.tab.active{background:#fff;color:#171712;box-shadow:0 1px 2px rgba(15,17,21,.06)}
+
+/* Panel / tarjeta */
+.panel{background:#fff;border:1px solid var(--outline);border-radius:16px;box-shadow:0 1px 2px rgba(15,17,21,.04),0 2px 8px rgba(15,17,21,.04);overflow:hidden}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #ecece6;flex-wrap:wrap}
+.panel-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.05rem;font-weight:700;color:#171712}
+
+/* Tabla */
+.tabla{width:100%;border-collapse:collapse}
+.tabla th{text-align:left;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8a8c78;padding:11px 16px;border-bottom:1px solid #ecece6;background:#fafaf6;white-space:nowrap}
+.tabla td{padding:12px 16px;border-bottom:1px solid #f0f0ea;vertical-align:middle}
+.tabla tr:last-child td{border-bottom:none}
+.tabla tr:hover td{background:#fcfcf9}
+.cell-user{font-weight:600;color:#171712}
+.cell-sub{font-size:.78rem;color:#8a8c78}
+.mono{font-family:'Spline Sans Mono',ui-monospace,monospace;font-size:.76rem}
+
+/* Chips estado */
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:3px 9px;border-radius:999px}
+.chip-yes{background:#e3f0d2;color:#3f5e1f}
+.chip-no{background:#f0f0ea;color:#8a8c78}
+.chip-adm{background:#fff3b0;color:#5a4300}
+.chip-mods{background:#eef0e6;color:#5c5f45;font-family:'Spline Sans Mono',ui-monospace,monospace}
+
+/* Toggle switch */
+.sw{position:relative;display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
+.sw input{position:absolute;opacity:0;width:0;height:0}
+.sw-track{width:38px;height:22px;border-radius:999px;background:#d4d4cc;transition:background .15s ease;flex-shrink:0;position:relative}
+.sw-track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .15s ease}
+.sw input:checked + .sw-track{background:#65684C}
+.sw input:checked + .sw-track::after{transform:translateX(16px)}
+.sw input:disabled + .sw-track{opacity:.45;cursor:not-allowed}
+.sw-label{font-size:.8rem;font-weight:600;color:#3f4133}
+.sw:has(input:disabled){cursor:not-allowed}
+
+/* Banner de mensajes */
+.banner{display:none;align-items:flex-start;gap:10px;padding:12px 16px;border-radius:11px;font-size:.85rem;font-weight:500;margin-bottom:16px;border:1px solid transparent}
+.banner.show{display:flex}
+.banner svg{width:18px;height:18px;flex-shrink:0;margin-top:1px}
+.banner-err{background:#fdeee9;color:#8c2f1a;border-color:#f1c9bd}
+.banner-ok{background:#eaf3dc;color:#3f5e1f;border-color:#cfe4ad}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(23,23,18,.5);backdrop-filter:blur(2px);display:none;align-items:flex-start;justify-content:center;padding:32px 16px;z-index:50;overflow-y:auto}
+.overlay.show{display:flex}
+.modal{background:#fff;border-radius:18px;width:100%;max-width:560px;box-shadow:0 20px 60px rgba(15,17,21,.28);animation:fadeUp .25s cubic-bezier(.2,.7,.2,1) both}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #ecece6}
+.modal-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.15rem;font-weight:700;color:#171712}
+.modal-body{padding:20px 22px;display:flex;flex-direction:column;gap:16px}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid #ecece6;background:#fafaf6;border-radius:0 0 18px 18px}
+.icon-btn{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;color:#8a8c78;transition:background .15s ease,color .15s ease}
+.icon-btn:hover{background:#f0f0ea;color:#3f4133}
+.icon-btn svg{width:18px;height:18px}
+
+/* Formulario */
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:.78rem;font-weight:700;color:#3f4133}
+.field input[type=text],.field input[type=password]{width:100%;padding:9px 12px;border:1px solid var(--outline);border-radius:10px;font-size:.88rem;font-family:inherit;color:#171712;background:#fff;transition:border-color .15s ease,box-shadow .15s ease}
+.field input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(255,204,0,.25)}
+.field .hint{font-size:.72rem;color:#8a8c78}
+.chk-row{display:flex;gap:20px;flex-wrap:wrap}
+.chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;font-weight:600;color:#3f4133}
+.chk input{width:17px;height:17px;accent-color:#65684C;cursor:pointer}
+.mods-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 14px}
+.mods-grid.disabled{opacity:.5;pointer-events:none}
+.mod-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.82rem;color:#3f4133;padding:4px 0}
+.mod-chk input{width:16px;height:16px;accent-color:#65684C;cursor:pointer}
+
+.empty{padding:36px 20px;text-align:center;color:#8a8c78;font-size:.88rem}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid #d4d4cc;border-top-color:#65684C;border-radius:50%;animation:rot .7s linear infinite;vertical-align:-3px}
+@keyframes rot{to{transform:rotate(360deg)}}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:640px){
+  .app-bar{padding:0 14px;gap:10px}
+  .app-bar-actions .bar-link span{display:none}
+  .tabla th:nth-child(2),.tabla td:nth-child(2){display:none}
+}
+</style>
+</head>
+<body>
+
+<header class="app-bar">
+  <svg class="app-bar-logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
+    <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
+    <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
+    <text x="16" y="23" font-family="'Bricolage Grotesque','Barlow Condensed',Arial,sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
+  </svg>
+  <div>
+    <div class="app-bar-title">Centro de control</div>
+    <div class="app-bar-sub">Administración del subsistema</div>
+  </div>
+  <div class="ml-auto flex items-center gap-2 app-bar-actions">
+    <a class="bar-link" href="/" aria-label="Volver al inicio">
+      <i data-lucide="arrow-left"></i><span>Volver al inicio</span>
+    </a>
+    <button class="bar-link" id="btn-logout" type="button" aria-label="Cerrar sesión">
+      <i data-lucide="log-out"></i><span>Cerrar sesión</span>
+    </button>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-5 sm:px-8 py-8 sm:py-10">
+
+  <div class="fade-up mb-6 flex items-end justify-between gap-4 flex-wrap">
+    <div>
+      <h1 class="font-display text-2xl sm:text-3xl font-extrabold text-[#171712] tracking-tight">Panel de administración</h1>
+      <p class="mt-1.5 text-[#5b5e4d] text-sm max-w-2xl">Gestioná usuarios, sus permisos por módulo y la disponibilidad de cada módulo del sistema.</p>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Secciones">
+      <button class="tab active" id="tab-usuarios" role="tab" aria-selected="true" type="button">
+        <i data-lucide="users"></i>Usuarios
+      </button>
+      <button class="tab" id="tab-modulos" role="tab" aria-selected="false" type="button">
+        <i data-lucide="layout-grid"></i>Módulos
+      </button>
+    </div>
+  </div>
+
+  <div class="banner" id="banner" role="alert" aria-live="assertive">
+    <i data-lucide="alert-triangle" id="banner-icon"></i>
+    <span id="banner-text"></span>
+  </div>
+
+  <!-- ── Sección Usuarios ───────────────────────────────────────────────── -->
+  <section id="sec-usuarios" class="fade-up" aria-labelledby="tab-usuarios">
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Usuarios</div>
+        <button class="btn btn-primary" id="btn-nuevo" type="button">
+          <i data-lucide="user-plus"></i>Nuevo usuario
+        </button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Nombre</th>
+              <th>Admin</th>
+              <th>Activo</th>
+              <th>Módulos</th>
+              <th style="text-align:right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tb-usuarios">
+            <tr><td colspan="6" class="empty"><span class="spin"></span> Cargando usuarios…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Sección Módulos ────────────────────────────────────────────────── -->
+  <section id="sec-modulos" class="fade-up" style="display:none" aria-labelledby="tab-modulos">
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Módulos</div>
+        <button class="btn btn-primary" id="btn-guardar-modulos" type="button">
+          <i data-lucide="save"></i>Guardar módulos
+        </button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Módulo</th>
+              <th>Ref</th>
+              <th style="text-align:center">Activo</th>
+              <th style="text-align:center">Requiere login</th>
+            </tr>
+          </thead>
+          <tbody id="tb-modulos">
+            <tr><td colspan="4" class="empty"><span class="spin"></span> Cargando módulos…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-[#8a8c78] px-5 py-3 border-t border-[#ecece6]">
+        El módulo <span class="mono">admin</span> es de sólo administradores y no puede modificarse.
+      </p>
+    </div>
+  </section>
+
+  <footer class="mt-12 pt-6 border-t border-[#e6e6df] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-[#8a8c78]">
+    <span>Apidelta · Subsistema local · Centro de control</span>
+    <span class="font-mono">v1.0</span>
+  </footer>
+</main>
+
+<!-- ── Modal usuario (crear / editar) ───────────────────────────────────── -->
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="modal-title">Nuevo usuario</div>
+      <button class="icon-btn" id="btn-cerrar-modal" type="button" aria-label="Cerrar"><i data-lucide="x"></i></button>
+    </div>
+    <form id="form-usuario">
+      <div class="modal-body">
+        <div class="banner" id="modal-banner" role="alert" aria-live="assertive">
+          <i data-lucide="alert-triangle"></i><span id="modal-banner-text"></span>
+        </div>
+        <div class="field">
+          <label for="f-usuario">Usuario</label>
+          <input type="text" id="f-usuario" autocomplete="off" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label for="f-nombre">Nombre</label>
+          <input type="text" id="f-nombre" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="f-password">Contraseña</label>
+          <input type="password" id="f-password" autocomplete="new-password">
+          <span class="hint" id="pw-hint">Dejá vacío para no cambiarla.</span>
+        </div>
+        <div class="chk-row">
+          <label class="chk"><input type="checkbox" id="f-admin"> Es administrador</label>
+          <label class="chk"><input type="checkbox" id="f-activo" checked> Activo</label>
+        </div>
+        <div class="field">
+          <label>Módulos con acceso</label>
+          <span class="hint" id="mods-hint">Un administrador tiene acceso a todos los módulos.</span>
+          <div class="mods-grid" id="mods-grid"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" type="button" id="btn-cancelar">Cancelar</button>
+        <button class="btn btn-primary" type="submit" id="btn-guardar-usuario">
+          <i data-lucide="check"></i>Guardar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ── Estado en memoria (inmutable en cada refresh; se reemplaza, no se muta) ───
+const state = { user: null, usuarios: [], modulos: [], editId: null };
+
+// ── Helper de fetch con contrato de errores {error} status 400/401/403 ────────
+async function api(url, opts) {
+  const base = { headers: { 'Content-Type': 'application/json' }, cache: 'no-store' };
+  const res = await fetch(url, Object.assign(base, opts || {}));
+  let data = null;
+  try { data = await res.json(); } catch (e) { data = null; }
+  if (!res.ok) {
+    const msg = data && data.error ? data.error : ('Error del servidor (' + res.status + ')');
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// ── Utilidades UI ─────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+function renderIcons() { if (window.lucide) lucide.createIcons(); }
+
+const banner = document.getElementById('banner');
+const bannerText = document.getElementById('banner-text');
+const bannerIcon = document.getElementById('banner-icon');
+let bannerTimer = null;
+function mostrarBanner(msg, tipo) {
+  banner.className = 'banner show ' + (tipo === 'ok' ? 'banner-ok' : 'banner-err');
+  bannerText.textContent = msg;
+  bannerIcon.setAttribute('data-lucide', tipo === 'ok' ? 'check-circle' : 'alert-triangle');
+  renderIcons();
+  if (bannerTimer) clearTimeout(bannerTimer);
+  if (tipo === 'ok') bannerTimer = setTimeout(ocultarBanner, 4000);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function ocultarBanner() { banner.className = 'banner'; }
+
+const modalBanner = document.getElementById('modal-banner');
+const modalBannerText = document.getElementById('modal-banner-text');
+function mostrarModalError(msg) {
+  modalBanner.className = 'banner show banner-err';
+  modalBannerText.textContent = msg;
+}
+function ocultarModalError() { modalBanner.className = 'banner'; }
+
+// ── Sesión: sólo admins. Si no, redirige a / ──────────────────────────────────
+async function verificarSesion() {
+  try {
+    const res = await fetch('/api/session', { cache: 'no-store' });
+    const data = res.ok ? await res.json() : null;
+    const user = data && data.user;
+    if (!user || !user.esAdmin) { location.href = '/'; return false; }
+    state.user = user;
+    return true;
+  } catch (e) {
+    location.href = '/';
+    return false;
+  }
+}
+
+// ── Cerrar sesión ─────────────────────────────────────────────────────────────
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  try { await fetch('/api/logout', { method: 'POST' }); } catch (e) { /* ignorar */ }
+  location.href = '/login';
+});
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+const tabUsuarios = document.getElementById('tab-usuarios');
+const tabModulos = document.getElementById('tab-modulos');
+const secUsuarios = document.getElementById('sec-usuarios');
+const secModulos = document.getElementById('sec-modulos');
+function activarTab(cual) {
+  const esU = cual === 'usuarios';
+  tabUsuarios.classList.toggle('active', esU);
+  tabModulos.classList.toggle('active', !esU);
+  tabUsuarios.setAttribute('aria-selected', String(esU));
+  tabModulos.setAttribute('aria-selected', String(!esU));
+  secUsuarios.style.display = esU ? '' : 'none';
+  secModulos.style.display = esU ? 'none' : '';
+}
+tabUsuarios.addEventListener('click', () => activarTab('usuarios'));
+tabModulos.addEventListener('click', () => activarTab('modulos'));
+
+// ── Usuarios: carga y render ──────────────────────────────────────────────────
+const tbUsuarios = document.getElementById('tb-usuarios');
+async function cargarUsuarios() {
+  try {
+    const lista = await api('/api/admin/usuarios');
+    state.usuarios = Array.isArray(lista) ? lista : [];
+    renderUsuarios();
+  } catch (e) {
+    tbUsuarios.innerHTML = '<tr><td colspan="6" class="empty">No se pudieron cargar los usuarios.</td></tr>';
+    mostrarBanner(e.message, 'err');
+  }
+}
+function tituloModulo(ref) {
+  const m = state.modulos.find(x => x.ref === ref);
+  return m ? m.titulo : ref;
+}
+function celdaModulos(u) {
+  if (u.esAdmin) return '<span class="chip chip-adm">Todos</span>';
+  const mods = Array.isArray(u.modulos) ? u.modulos : [];
+  if (mods.length === 0) return '<span class="cell-sub">Ninguno</span>';
+  const nombres = mods.map(tituloModulo).join(', ');
+  return '<span class="chip chip-mods" title="' + esc(nombres) + '">' + mods.length +
+         (mods.length === 1 ? ' módulo' : ' módulos') + '</span>';
+}
+function renderUsuarios() {
+  if (state.usuarios.length === 0) {
+    tbUsuarios.innerHTML = '<tr><td colspan="6" class="empty">No hay usuarios cargados.</td></tr>';
+    return;
+  }
+  tbUsuarios.innerHTML = state.usuarios.map(u => `
+    <tr data-id="${esc(u.id)}">
+      <td><span class="cell-user">${esc(u.usuario)}</span></td>
+      <td><span class="cell-sub">${esc(u.nombre || '—')}</span></td>
+      <td>${u.esAdmin ? '<span class="chip chip-adm">Sí</span>' : '<span class="chip chip-no">No</span>'}</td>
+      <td>${u.activo !== false ? '<span class="chip chip-yes">Sí</span>' : '<span class="chip chip-no">No</span>'}</td>
+      <td>${celdaModulos(u)}</td>
+      <td>
+        <div class="flex items-center justify-end gap-1.5 flex-wrap">
+          <button class="btn btn-ghost btn-sm" data-accion="editar" data-id="${esc(u.id)}"><i data-lucide="pencil"></i>Editar</button>
+          <button class="btn btn-ghost btn-sm" data-accion="reset" data-id="${esc(u.id)}"><i data-lucide="key-round"></i>Contraseña</button>
+          <button class="btn btn-danger btn-sm" data-accion="eliminar" data-id="${esc(u.id)}"><i data-lucide="trash-2"></i>Eliminar</button>
+        </div>
+      </td>
+    </tr>`).join('');
+  renderIcons();
+}
+
+// Delegación de acciones en la tabla de usuarios
+tbUsuarios.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-accion]');
+  if (!btn) return;
+  const id = Number(btn.getAttribute('data-id'));
+  const accion = btn.getAttribute('data-accion');
+  const u = state.usuarios.find(x => Number(x.id) === id);
+  if (!u) return;
+  if (accion === 'editar') abrirModal(u);
+  else if (accion === 'reset') resetearPassword(u);
+  else if (accion === 'eliminar') eliminarUsuario(u);
+});
+
+// ── Modal usuario ─────────────────────────────────────────────────────────────
+const overlay = document.getElementById('overlay');
+const form = document.getElementById('form-usuario');
+const fUsuario = document.getElementById('f-usuario');
+const fNombre = document.getElementById('f-nombre');
+const fPassword = document.getElementById('f-password');
+const fAdmin = document.getElementById('f-admin');
+const fActivo = document.getElementById('f-activo');
+const modsGrid = document.getElementById('mods-grid');
+const modalTitle = document.getElementById('modal-title');
+const pwHint = document.getElementById('pw-hint');
+
+function modulosSeleccionables() {
+  // Fuente: catálogo de módulos, excluyendo el ref 'admin'.
+  return state.modulos.filter(m => m.ref !== 'admin');
+}
+function pintarCheckboxesModulos(seleccionados) {
+  const sel = new Set(Array.isArray(seleccionados) ? seleccionados : []);
+  modsGrid.innerHTML = modulosSeleccionables().map(m => `
+    <label class="mod-chk">
+      <input type="checkbox" value="${esc(m.ref)}" ${sel.has(m.ref) ? 'checked' : ''}>
+      ${esc(m.titulo)}
+    </label>`).join('');
+}
+function sincronizarModulosSegunAdmin() {
+  // Si es admin, el acceso es total: se deshabilitan los checkboxes de módulos.
+  modsGrid.classList.toggle('disabled', fAdmin.checked);
+}
+fAdmin.addEventListener('change', sincronizarModulosSegunAdmin);
+
+function abrirModal(u) {
+  ocultarModalError();
+  state.editId = u ? Number(u.id) : null;
+  const esNuevo = !u;
+  modalTitle.textContent = esNuevo ? 'Nuevo usuario' : 'Editar usuario';
+  fUsuario.value = u ? (u.usuario || '') : '';
+  fNombre.value = u ? (u.nombre || '') : '';
+  fPassword.value = '';
+  fAdmin.checked = u ? !!u.esAdmin : false;
+  fActivo.checked = u ? (u.activo !== false) : true;
+  pwHint.textContent = esNuevo ? 'Obligatoria para un usuario nuevo.' : 'Dejá vacío para no cambiarla.';
+  pintarCheckboxesModulos(u ? u.modulos : []);
+  sincronizarModulosSegunAdmin();
+  overlay.classList.add('show');
+  renderIcons();
+  setTimeout(() => fUsuario.focus(), 50);
+}
+function cerrarModal() {
+  overlay.classList.remove('show');
+  state.editId = null;
+}
+document.getElementById('btn-nuevo').addEventListener('click', () => abrirModal(null));
+document.getElementById('btn-cerrar-modal').addEventListener('click', cerrarModal);
+document.getElementById('btn-cancelar').addEventListener('click', cerrarModal);
+overlay.addEventListener('click', (ev) => { if (ev.target === overlay) cerrarModal(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && overlay.classList.contains('show')) cerrarModal(); });
+
+function modulosMarcados() {
+  return [...modsGrid.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+}
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  ocultarModalError();
+  const usuario = fUsuario.value.trim();
+  const nombre = fNombre.value.trim();
+  const password = fPassword.value;
+  const esAdmin = fAdmin.checked;
+  const activo = fActivo.checked;
+  const modulos = esAdmin ? [] : modulosMarcados();
+
+  if (!usuario) { mostrarModalError('El usuario es obligatorio.'); fUsuario.focus(); return; }
+  if (state.editId === null && !password) { mostrarModalError('La contraseña es obligatoria para un usuario nuevo.'); fPassword.focus(); return; }
+
+  const btn = document.getElementById('btn-guardar-usuario');
+  btn.disabled = true;
+  try {
+    if (state.editId === null) {
+      await api('/api/admin/usuarios', {
+        method: 'POST',
+        body: JSON.stringify({ usuario, nombre, password, esAdmin, modulos, activo })
+      });
+      mostrarBanner('Usuario creado correctamente.', 'ok');
+    } else {
+      const cambios = { usuario, nombre, esAdmin, modulos, activo };
+      if (password) cambios.password = password; // No enviar password vacía.
+      await api('/api/admin/usuarios/' + state.editId, {
+        method: 'PUT',
+        body: JSON.stringify(cambios)
+      });
+      mostrarBanner('Usuario actualizado correctamente.', 'ok');
+    }
+    cerrarModal();
+    await cargarUsuarios();
+  } catch (e) {
+    mostrarModalError(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Resetear contraseña ───────────────────────────────────────────────────────
+async function resetearPassword(u) {
+  const nueva = window.prompt('Nueva contraseña para "' + u.usuario + '":', '');
+  if (nueva === null) return;            // cancelado
+  if (!nueva.trim()) { mostrarBanner('La contraseña no puede estar vacía.', 'err'); return; }
+  try {
+    await api('/api/admin/usuarios/' + u.id, {
+      method: 'PUT',
+      body: JSON.stringify({ password: nueva })
+    });
+    mostrarBanner('Contraseña actualizada para "' + u.usuario + '".', 'ok');
+  } catch (e) {
+    mostrarBanner(e.message, 'err');
+  }
+}
+
+// ── Eliminar usuario ──────────────────────────────────────────────────────────
+async function eliminarUsuario(u) {
+  if (!window.confirm('¿Eliminar al usuario "' + u.usuario + '"? Esta acción no se puede deshacer.')) return;
+  try {
+    await api('/api/admin/usuarios/' + u.id, { method: 'DELETE' });
+    mostrarBanner('Usuario "' + u.usuario + '" eliminado.', 'ok');
+    await cargarUsuarios();
+  } catch (e) {
+    mostrarBanner(e.message, 'err');
+  }
+}
+
+// ── Módulos: carga, render y guardado ─────────────────────────────────────────
+const tbModulos = document.getElementById('tb-modulos');
+async function cargarModulos() {
+  try {
+    const lista = await api('/api/admin/modulos');
+    state.modulos = Array.isArray(lista) ? lista : [];
+    renderModulos();
+    // Los usuarios ya cargados pueden depender de los títulos de módulo.
+    if (state.usuarios.length) renderUsuarios();
+  } catch (e) {
+    tbModulos.innerHTML = '<tr><td colspan="4" class="empty">No se pudieron cargar los módulos.</td></tr>';
+    mostrarBanner(e.message, 'err');
+  }
+}
+function renderModulos() {
+  if (state.modulos.length === 0) {
+    tbModulos.innerHTML = '<tr><td colspan="4" class="empty">No hay módulos.</td></tr>';
+    return;
+  }
+  tbModulos.innerHTML = state.modulos.map(m => {
+    const dis = m.soloAdmin ? 'disabled' : '';
+    return `
+    <tr data-ref="${esc(m.ref)}">
+      <td>
+        <div class="flex items-center gap-2.5">
+          <span class="cell-user">${esc(m.titulo)}</span>
+          ${m.soloAdmin ? '<span class="chip chip-adm">Solo admin</span>' : ''}
+        </div>
+      </td>
+      <td><span class="mono">${esc(m.ref)}</span></td>
+      <td style="text-align:center">
+        <label class="sw" style="justify-content:center">
+          <input type="checkbox" data-campo="activo" ${m.activo ? 'checked' : ''} ${dis}>
+          <span class="sw-track"></span>
+        </label>
+      </td>
+      <td style="text-align:center">
+        <label class="sw" style="justify-content:center">
+          <input type="checkbox" data-campo="requiereAuth" ${m.requiereAuth ? 'checked' : ''} ${dis}>
+          <span class="sw-track"></span>
+        </label>
+      </td>
+    </tr>`;
+  }).join('');
+  renderIcons();
+}
+
+document.getElementById('btn-guardar-modulos').addEventListener('click', async () => {
+  const filas = [...tbModulos.querySelectorAll('tr[data-ref]')];
+  const payload = filas.map(tr => ({
+    ref: tr.getAttribute('data-ref'),
+    activo: tr.querySelector('input[data-campo=activo]').checked,
+    requiereAuth: tr.querySelector('input[data-campo=requiereAuth]').checked
+  }));
+  const btn = document.getElementById('btn-guardar-modulos');
+  btn.disabled = true;
+  try {
+    await api('/api/admin/modulos', { method: 'PUT', body: JSON.stringify(payload) });
+    mostrarBanner('Configuración de módulos guardada.', 'ok');
+    await cargarModulos();
+  } catch (e) {
+    mostrarBanner(e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Arranque ──────────────────────────────────────────────────────────────────
+(async function init() {
+  renderIcons();
+  const ok = await verificarSesion();
+  if (!ok) return;
+  // Cargamos módulos primero para tener los títulos disponibles al pintar usuarios.
+  await cargarModulos();
+  await cargarUsuarios();
+})();
+</script>
+</body>
+</html>

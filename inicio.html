@@ -113,6 +113,12 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:.64rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
 .badge-live{background:#e3f0d2;color:#3f5e1f}
 .badge-soon{background:#f0f0ea;color:#8a8c78}
+.badge-lock{background:#f0e6d0;color:#7a5a12}
+.badge-public{background:#d5e8f5;color:#1c4b6e}
+.tile-locked{opacity:.62;cursor:not-allowed;background:#fbfbf8;border-style:dashed;border-color:#d8d3c4}
+.tile-locked:hover{transform:none;box-shadow:0 1px 2px rgba(15,17,21,.04),0 2px 8px rgba(15,17,21,.04);border-color:#d8d3c4}
+.tile-locked:hover::before{opacity:0}
+.tile-locked .tile-icon{filter:grayscale(.4)}
 
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
@@ -140,6 +146,18 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
       <span id="status-dot" class="status-dot loading"></span>
       <span id="status-text">Conectando…</span>
     </span>
+    <a id="admin-link" href="/admin" class="status-chip hidden" style="text-decoration:none" title="Centro de control">
+      <i data-lucide="shield" style="width:14px;height:14px"></i><span class="hidden sm:inline">Centro de control</span>
+    </a>
+    <a id="login-link" href="/login" class="status-chip hidden" style="text-decoration:none" title="Iniciar sesión">
+      <i data-lucide="log-in" style="width:14px;height:14px"></i><span class="hidden sm:inline">Iniciar sesión</span>
+    </a>
+    <span id="user-chip" class="status-chip hidden" title="Usuario conectado">
+      <i data-lucide="user" style="width:14px;height:14px"></i><span id="user-name">…</span>
+    </span>
+    <button id="btn-logout" type="button" class="status-chip hidden" style="border:none;cursor:pointer;font:inherit" title="Cerrar sesión">
+      <i data-lucide="log-out" style="width:14px;height:14px"></i><span class="hidden sm:inline">Salir</span>
+    </button>
   </div>
 </header>
 
@@ -165,75 +183,37 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 </main>
 
 <script>
-// ── Catálogo de módulos. Para sumar uno nuevo: agregá una entrada acá. ───────
-const MODULOS = [
-  {
-    href:'/distribucion/a8020', titulo:'A8020 Calculado', icon:'bar-chart-2',
-    desc:'Análisis ABC 80/20 de productos por sucursal: clasificación, mínimos y días de operación.',
-    accent:'#1e6e5c', soft:'#cceee7', ink:'#0a2e27'
-  },
-  {
-    href:'/pedidos', titulo:'Pedidos', icon:'clipboard-list',
-    desc:'Pedidos pendientes de Siga: clientes, productos y resumen por localidad.',
-    accent:'#FFCC00', soft:'#FFF3B0', ink:'#1a1200'
-  },
-  {
-    href:'/planificacion', titulo:'Planificación', icon:'calendar-range',
-    desc:'Planificación de producción a partir de demanda, stock y sugerencias.',
-    accent:'#65684C', soft:'#e7e8db', ink:'#2f3122'
-  },
-  {
-    href:'/produccion', titulo:'Producción', icon:'factory',
-    desc:'Producción del día: órdenes, granel y seguimiento de fabricación.',
-    accent:'#3f7d4e', soft:'#dcefe0', ink:'#22432b'
-  },
-  {
-    href:'/compras', titulo:'Compras', icon:'shopping-cart',
-    desc:'Panel de compras: consumo, urgencias y cobertura de insumos.',
-    accent:'#b5762a', soft:'#f5e6cf', ink:'#5a3a12'
-  },
-  {
-    href:'/compras-modulo', titulo:'Compras (Reposición)', icon:'shopping-bag',
-    desc:'Reposición unificada: déficit A8020, micro-envíos y faltantes, con carrito, proveedores y órdenes.',
-    accent:'#405936', soft:'#dfe8d6', ink:'#22331b'
-  },
-  {
-    href:'/consumo', titulo:'Compras Carlos', icon:'truck',
-    desc:'Consumo vs stock de insumos del proveedor Carlos: cobertura, urgencias y reposición.',
-    accent:'#7d6a2a', soft:'#efe7c8', ink:'#3a3110'
-  },
-  {
-    href:'/distribucion', titulo:'Distribución y Fraccionado', icon:'package',
-    desc:'Distribución a sucursales: almacén, pesables, envasado y registro de producción fraccionada.',
-    accent:'#2a6db5', soft:'#cfe1f5', ink:'#122d4c'
-  },
-  {
-    href:'/ventas-hora', titulo:'Ventas por Hora', icon:'clock',
-    desc:'Dashboard de horas pico por sucursal con filtro de rango de fechas.',
-    accent:'#5c3d8f', soft:'#ece4f7', ink:'#2e1a50'
-  },
-  {
-    href:'/precios-proveedores', titulo:'Precios de Proveedores', icon:'tags',
-    desc:'Comparación de listas de proveedores contra costos SIGA: carga por PDF, URL o manual.',
-    accent:'#2f855a', soft:'#d9f2e5', ink:'#1c3f2e'
-  },
-  {
-    href:'/analisis-ventas', titulo:'Análisis de Ventas', icon:'bar-chart-3',
-    desc:'Rendimiento por sucursal: ticket promedio, días y horas pico, top productos y comparativa entre sucursales por rango de fechas.',
-    accent:'#8f5c3d', soft:'#f3e2d6', ink:'#4c2e1a'
-  }
+// ── Estilos de módulo (color + descripción). El QUÉ mostrar (título, icono, href,
+//    y si el usuario tiene permiso) lo decide el servidor vía /api/modulos; acá
+//    solo vive la presentación por ref. Para un módulo nuevo, sumá su ref al
+//    CATALOGO_MODULOS de auth.js y, opcionalmente, un estilo acá. ───────────────
+const ESTILOS = {
+  'a8020':               { desc:'Análisis ABC 80/20 de productos por sucursal: clasificación, mínimos y días de operación.', accent:'#1e6e5c', soft:'#cceee7', ink:'#0a2e27' },
+  'pedidos':             { desc:'Pedidos pendientes de Siga: clientes, productos y resumen por localidad.', accent:'#FFCC00', soft:'#FFF3B0', ink:'#1a1200' },
+  'planificacion':       { desc:'Planificación de producción a partir de demanda, stock y sugerencias.', accent:'#65684C', soft:'#e7e8db', ink:'#2f3122' },
+  'produccion':          { desc:'Producción del día: órdenes, granel y seguimiento de fabricación.', accent:'#3f7d4e', soft:'#dcefe0', ink:'#22432b' },
+  'compras':             { desc:'Panel de compras: consumo, urgencias y cobertura de insumos.', accent:'#b5762a', soft:'#f5e6cf', ink:'#5a3a12' },
+  'compras-modulo':      { desc:'Reposición unificada: déficit A8020, micro-envíos y faltantes, con carrito, proveedores y órdenes.', accent:'#405936', soft:'#dfe8d6', ink:'#22331b' },
+  'consumo':             { desc:'Consumo vs stock de insumos del proveedor Carlos: cobertura, urgencias y reposición.', accent:'#7d6a2a', soft:'#efe7c8', ink:'#3a3110' },
+  'distribucion':        { desc:'Distribución a sucursales: almacén, pesables, envasado y registro de producción fraccionada.', accent:'#2a6db5', soft:'#cfe1f5', ink:'#122d4c' },
+  'ventas-hora':         { desc:'Dashboard de horas pico por sucursal con filtro de rango de fechas.', accent:'#5c3d8f', soft:'#ece4f7', ink:'#2e1a50' },
+  'precios-proveedores': { desc:'Comparación de listas de proveedores contra costos SIGA: carga por PDF, URL o manual.', accent:'#2f855a', soft:'#d9f2e5', ink:'#1c3f2e' },
+  'analisis-ventas':     { desc:'Rendimiento por sucursal: ticket promedio, días y horas pico, top productos y comparativa entre sucursales por rango de fechas.', accent:'#8f5c3d', soft:'#f3e2d6', ink:'#4c2e1a' },
+};
+const ESTILO_DEFAULT = { desc:'', accent:'#65684C', soft:'#e7e8db', ink:'#2f3122' };
 
-];
-
-function tileHTML(m){
-  return `
-  <li role="listitem">
-    <a class="tile fade-up h-full" href="${m.href}"
-       style="--accent:${m.accent};--accent-soft:${m.soft};--accent-ink:${m.ink}"
-       aria-label="Abrir ${m.titulo}">
+function tileHTML(m, logueado){
+  const bloqueado = m.requiereAuth && !m.permitido;
+  // Bloqueado + logueado: sin acceso (no clickeable). Bloqueado + anónimo: lleva al login.
+  const sinAcceso = bloqueado && logueado;
+  const cuerpo = `
       <div class="flex items-start justify-between gap-3">
         <span class="tile-icon" aria-hidden="true"><i data-lucide="${m.icon}"></i></span>
-        <span class="badge badge-live"><span class="status-dot ok" style="box-shadow:none"></span>Activo</span>
+        ${bloqueado
+          ? `<span class="badge badge-lock"><i data-lucide="lock" style="width:11px;height:11px"></i>${sinAcceso ? 'Sin acceso' : 'Requiere login'}</span>`
+          : (m.requiereAuth === false
+            ? `<span class="badge badge-public"><i data-lucide="globe" style="width:11px;height:11px"></i>Público</span>`
+            : `<span class="badge badge-live"><span class="status-dot ok" style="box-shadow:none"></span>Activo</span>`)}
       </div>
       <div>
         <h2 class="tile-title">${m.titulo}</h2>
@@ -241,8 +221,25 @@ function tileHTML(m){
       </div>
       <div class="tile-foot">
         <span class="tile-route">${m.href}</span>
-        <span class="tile-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span>
-      </div>
+        ${sinAcceso
+          ? `<span class="tile-arrow" aria-hidden="true"><i data-lucide="lock"></i></span>`
+          : `<span class="tile-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span>`}
+      </div>`;
+  if (sinAcceso){
+    return `
+  <li role="listitem">
+    <div class="tile tile-locked h-full" title="Tu usuario no tiene acceso a este módulo"
+         style="--accent:${m.accent};--accent-soft:${m.soft};--accent-ink:${m.ink}"
+         aria-label="${m.titulo} — sin acceso">${cuerpo}
+    </div>
+  </li>`;
+  }
+  const href = bloqueado ? ('/login?next=' + encodeURIComponent(m.href)) : m.href;
+  return `
+  <li role="listitem">
+    <a class="tile fade-up h-full" href="${href}"
+       style="--accent:${m.accent};--accent-soft:${m.soft};--accent-ink:${m.ink}"
+       aria-label="Abrir ${m.titulo}">${cuerpo}
     </a>
   </li>`;
 }
@@ -260,10 +257,58 @@ const soonHTML = `
   </li>`;
 
 const grid = document.getElementById('grid');
-grid.innerHTML = MODULOS.map(tileHTML).join('') + soonHTML;
-// stagger de entrada
-[...grid.querySelectorAll('.fade-up')].forEach((el,i)=>{ el.style.animationDelay = (i*55)+'ms'; });
-if (window.lucide) lucide.createIcons();
+
+// Cierre de sesión
+document.getElementById('btn-logout')?.addEventListener('click', async () => {
+  try { await fetch('/api/logout', { method:'POST' }); } catch(e){}
+  location.href = '/login';
+});
+
+async function initHub(){
+  // 1) Sesión: el hub es público. Si no hay usuario, se muestra igual con los
+  //    módulos abiertos; el login se ofrece pero no se fuerza.
+  let user = null;
+  try { const s = await (await fetch('/api/session')).json(); user = s && s.user; }
+  catch(e){ user = null; }
+
+  // 2) Barra: alterna entre "Iniciar sesión" (anónimo) y usuario+salir (logueado).
+  const loginLink = document.getElementById('login-link');
+  const userChip  = document.getElementById('user-chip');
+  const logoutBtn = document.getElementById('btn-logout');
+  const adminLink = document.getElementById('admin-link');
+  if (user){
+    const nameEl = document.getElementById('user-name');
+    if (nameEl) nameEl.textContent = user.nombre || user.usuario;
+    userChip?.classList.remove('hidden');
+    logoutBtn?.classList.remove('hidden');
+    if (user.esAdmin) adminLink?.classList.remove('hidden');
+  } else {
+    loginLink?.classList.remove('hidden');
+  }
+
+  // 3) Aviso si volvimos por falta de permiso a un módulo.
+  const params = new URLSearchParams(location.search);
+  if (params.get('error') === 'permiso'){
+    const b = document.createElement('div');
+    b.className = 'fade-up mb-6';
+    b.setAttribute('role', 'alert');
+    b.innerHTML = '<div style="background:#fdecec;border:1px solid #f3c0bb;color:#8a2a1c;border-radius:12px;padding:12px 16px;font-size:.9rem;display:flex;align-items:center;gap:10px">'
+      + '<i data-lucide="alert-triangle" style="width:18px;height:18px;flex-shrink:0"></i>'
+      + '<span>Tu usuario no tiene permiso para ese módulo. Estos son los módulos disponibles para vos.</span></div>';
+    grid.closest('section')?.insertAdjacentElement('beforebegin', b);
+    history.replaceState({}, '', location.pathname);
+  }
+
+  // 4) Módulos: se listan TODOS los activos; los bloqueados se muestran igual.
+  let mods = [];
+  try { const r = await fetch('/api/modulos'); if (r.ok) mods = await r.json(); } catch(e){ mods = []; }
+  const tiles = (Array.isArray(mods) ? mods : []).map(m => ({ ...(ESTILOS[m.ref] || ESTILO_DEFAULT), ...m }));
+  grid.innerHTML = tiles.map(m => tileHTML(m, !!user)).join('') + soonHTML;
+  [...grid.querySelectorAll('.fade-up')].forEach((el,i)=>{ el.style.animationDelay = (i*55)+'ms'; });
+  if (window.lucide) lucide.createIcons();
+}
+
+initHub();
 
 // ── Reloj ────────────────────────────────────────────────────────────────────
 const reloj = document.getElementById('reloj');

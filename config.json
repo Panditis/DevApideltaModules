@@ -22,6 +22,11 @@
     "usuario": "Adriel",
     "idEmpleado": 1
   },
+  "produccion": {
+    "idTipoMovimiento": "BIENESUSO",
+    "observacion": "PRODUCCION WEB",
+    "depositoTerminados": null
+  },
   "produccionHtml": "apidelta_produccion_dev.html",
   "gruposGranelEnKg": [
     "G. Chocolate Gold","G. Crunch","G. KETO","G. Super Alimentos","G. Tradicional"

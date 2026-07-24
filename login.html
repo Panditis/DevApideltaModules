@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apidelta — Acceso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+// ── Paleta oficial Apidelta ─────────────────────────────────────────────────
+//   Negro #000000 · Oliva #65684C · Gris #BDBDB7 · Blanco #FFFFFF · Amarillo #FFCC00
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand:   { DEFAULT: '#FFCC00', dark: '#E6B800', soft: '#FFF3B0', ink: '#1a1200' },
+        ink:     '#000000',
+        olive:   { DEFAULT: '#65684C', soft: '#eae9e1' },
+        line:    '#BDBDB7',
+        surface: { DEFAULT:'#FFFFFF', alt:'#fafaf6', deep:'#f5f5f1' }
+      },
+      fontFamily: {
+        sans:    ['Public Sans', 'system-ui', 'sans-serif'],
+        display: ['Bricolage Grotesque', 'Public Sans', 'sans-serif'],
+        mono:    ['Spline Sans Mono', 'ui-monospace', 'monospace']
+      },
+      boxShadow: {
+        soft: '0 1px 2px rgba(15,17,21,.04), 0 2px 8px rgba(15,17,21,.04)',
+        lift: '0 4px 12px rgba(15,17,21,.06), 0 12px 32px rgba(15,17,21,.06)'
+      }
+    }
+  }
+};
+</script>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   APIDELTA · Acceso / Login
+   Paleta oficial: #000 / #65684C / #BDBDB7 / #FFF / #FFCC00
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --p:#FFCC00; --p-dk:#E6B800; --on-surf:#1f2024; --on-svar:#6b6e55;
+  --outline:#d8d8d2; --bg:#f6f6f3; --ok:#4a7026; --err:#b53d24;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:var(--on-surf);font-size:14px;line-height:1.55}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .4s cubic-bezier(.2,.7,.2,1) both}
+
+/* Fondo tipo papel con textura sutil de acento */
+.paper{
+  min-height:100vh;display:grid;place-items:center;padding:24px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(255,204,0,.08), transparent 60%),
+    var(--bg);
+}
+
+/* Tarjeta de acceso */
+.card{
+  width:100%;max-width:400px;
+  background:#fff;border:1px solid var(--outline);border-radius:20px;
+  padding:32px 28px 28px;
+  box-shadow:0 1px 2px rgba(15,17,21,.04),0 2px 8px rgba(15,17,21,.04),0 18px 44px rgba(15,17,21,.06);
+  position:relative;overflow:hidden;
+}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:linear-gradient(90deg,transparent 0%,#FFCC00 30%,#FFCC00 70%,transparent 100%);opacity:.8}
+
+/* Logo hexagonal Apidelta */
+.brand-logo{height:56px;width:56px;display:block;filter:drop-shadow(0 2px 6px rgba(101,104,76,.2))}
+.brand-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.5rem;font-weight:800;letter-spacing:-.01em;color:#171712;line-height:1.1}
+.brand-sub{font-size:.82rem;color:#6b6e55;font-weight:500}
+
+/* Campos */
+.field-label{display:block;font-size:.78rem;font-weight:600;color:#5b5e4d;margin-bottom:6px;letter-spacing:.01em}
+.field-wrap{position:relative;display:flex;align-items:center}
+.field-wrap .field-icon{position:absolute;left:12px;color:#a3a595;pointer-events:none;display:grid;place-items:center}
+.field-wrap .field-icon svg{width:18px;height:18px}
+.input{
+  width:100%;font-family:inherit;font-size:.95rem;color:#171712;
+  background:#fafaf6;border:1px solid var(--outline);border-radius:11px;
+  padding:11px 14px 11px 38px;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease;
+}
+.input::placeholder{color:#a3a595}
+.input:hover{border-color:#c9c9c0}
+.input:focus{outline:none;border-color:var(--p);background:#fff;box-shadow:0 0 0 3px rgba(255,204,0,.28)}
+
+/* Botón */
+.btn{
+  width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  font-family:'Bricolage Grotesque','Public Sans',sans-serif;
+  font-size:.98rem;font-weight:700;letter-spacing:.01em;
+  color:#1a1200;background:linear-gradient(180deg,#FFD633 0%,#FFCC00 100%);
+  border:1px solid #e6b800;border-radius:11px;padding:12px 16px;cursor:pointer;
+  box-shadow:0 1px 2px rgba(230,184,0,.25),0 6px 16px -6px rgba(230,184,0,.5);
+  transition:transform .14s cubic-bezier(.2,.7,.2,1),box-shadow .16s ease,filter .16s ease;
+}
+.btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.02);box-shadow:0 2px 4px rgba(230,184,0,.3),0 10px 22px -8px rgba(230,184,0,.6)}
+.btn:active:not(:disabled){transform:translateY(0)}
+.btn:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(255,204,0,.4)}
+.btn:disabled{cursor:not-allowed;opacity:.7;filter:grayscale(.15)}
+.btn .spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(26,18,0,.25);border-top-color:#1a1200;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Mensaje de error */
+.error-box{
+  display:flex;align-items:flex-start;gap:9px;
+  background:#fdece9;border:1px solid #f3c7bd;border-radius:11px;
+  padding:10px 12px;color:#b53d24;font-size:.84rem;font-weight:500;line-height:1.4;
+}
+.error-box svg{width:16px;height:16px;flex-shrink:0;margin-top:1px}
+
+.foot{font-family:'Spline Sans Mono',ui-monospace,monospace;font-size:.7rem;color:#a3a595;letter-spacing:.02em}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<main class="paper">
+  <div class="card fade-up" role="dialog" aria-labelledby="acceso-titulo">
+
+    <!-- Encabezado / marca -->
+    <div class="flex items-center gap-3 mb-6">
+      <svg class="brand-logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
+        <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
+        <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
+        <text x="16" y="23" font-family="'Bricolage Grotesque','Barlow Condensed',Arial,sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
+      </svg>
+      <div>
+        <div id="acceso-titulo" class="brand-title">Apidelta</div>
+        <div class="brand-sub">Acceso al subsistema</div>
+      </div>
+    </div>
+
+    <!-- Mensaje de error (oculto por defecto) -->
+    <div id="error-box" class="error-box mb-4 hidden" role="alert" aria-live="assertive">
+      <i data-lucide="alert-circle" aria-hidden="true"></i>
+      <span id="error-text"></span>
+    </div>
+
+    <!-- Formulario -->
+    <form id="login-form" novalidate autocomplete="on">
+      <div class="mb-4">
+        <label class="field-label" for="usuario">Usuario</label>
+        <div class="field-wrap">
+          <span class="field-icon" aria-hidden="true"><i data-lucide="user"></i></span>
+          <input id="usuario" name="usuario" class="input" type="text"
+                 placeholder="Tu usuario" autocomplete="username"
+                 autofocus autocapitalize="none" spellcheck="false" required>
+        </div>
+      </div>
+
+      <div class="mb-5">
+        <label class="field-label" for="password">Contraseña</label>
+        <div class="field-wrap">
+          <span class="field-icon" aria-hidden="true"><i data-lucide="lock"></i></span>
+          <input id="password" name="password" class="input" type="password"
+                 placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+      </div>
+
+      <button id="btn-ingresar" class="btn" type="submit">
+        <span id="btn-label">Ingresar</span>
+        <i data-lucide="arrow-right" aria-hidden="true" id="btn-icon"></i>
+      </button>
+    </form>
+
+    <p class="foot mt-6 text-center">Apidelta · Subsistema local</p>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  if (window.lucide) lucide.createIcons();
+
+  var form      = document.getElementById('login-form');
+  var inpUser   = document.getElementById('usuario');
+  var inpPass   = document.getElementById('password');
+  var btn       = document.getElementById('btn-ingresar');
+  var btnLabel  = document.getElementById('btn-label');
+  var btnIcon   = document.getElementById('btn-icon');
+  var errBox    = document.getElementById('error-box');
+  var errText   = document.getElementById('error-text');
+
+  // ── Destino post-login: query param `next`, validado. ─────────────────────
+  // Válido: empieza con un solo '/' (ruta interna). Inválido → '/'.
+  function destinoSeguro() {
+    var next;
+    try {
+      next = new URLSearchParams(location.search).get('next');
+    } catch (e) {
+      next = null;
+    }
+    if (typeof next === 'string' && next.charAt(0) === '/' && next.charAt(1) !== '/') {
+      return next;
+    }
+    return '/';
+  }
+
+  function mostrarError(msg) {
+    errText.textContent = msg;
+    errBox.classList.remove('hidden');
+  }
+
+  function ocultarError() {
+    errBox.classList.add('hidden');
+    errText.textContent = '';
+  }
+
+  function setCargando(cargando) {
+    btn.disabled = cargando;
+    if (cargando) {
+      btnLabel.textContent = 'Ingresando…';
+      if (btnIcon) btnIcon.outerHTML = '<span class="spinner" id="btn-icon" aria-hidden="true"></span>';
+      btnIcon = document.getElementById('btn-icon');
+    } else {
+      btnLabel.textContent = 'Ingresar';
+      if (btnIcon) btnIcon.outerHTML = '<i data-lucide="arrow-right" aria-hidden="true" id="btn-icon"></i>';
+      btnIcon = document.getElementById('btn-icon');
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+
+  function trasFallo(msg) {
+    mostrarError(msg);
+    inpPass.value = '';
+    inpUser.focus();
+    inpUser.select();
+  }
+
+  async function enviar() {
+    if (btn.disabled) return;
+    ocultarError();
+
+    var usuario  = inpUser.value.trim();
+    var password = inpPass.value;
+
+    if (!usuario || !password) {
+      trasFallo('Ingresá usuario y contraseña.');
+      return;
+    }
+
+    setCargando(true);
+
+    var respuesta;
+    try {
+      respuesta = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: usuario, password: password })
+      });
+    } catch (e) {
+      setCargando(false);
+      trasFallo('No se pudo conectar. Verificá tu conexión e intentá de nuevo.');
+      return;
+    }
+
+    if (respuesta.ok) {
+      // Redirigir al destino validado. No re-habilitamos el botón: navegamos.
+      window.location.assign(destinoSeguro());
+      return;
+    }
+
+    // Error (401 u otro): intentar leer el mensaje del cuerpo.
+    var mensaje = 'Usuario o contraseña incorrectos.';
+    try {
+      var datos = await respuesta.json();
+      if (datos && typeof datos.error === 'string' && datos.error) {
+        mensaje = datos.error;
+      }
+    } catch (e) {
+      // Cuerpo no-JSON o vacío: usamos el mensaje por defecto.
+    }
+    setCargando(false);
+    trasFallo(mensaje);
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    enviar();
+  });
+
+  // Enter en cualquier campo envía el formulario.
+  [inpUser, inpPass].forEach(function (campo) {
+    campo.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        enviar();
+      }
+    });
+  });
+
+  // Foco inicial (por si autofocus no dispara en algún navegador).
+  try { inpUser.focus(); } catch (e) {}
+})();
+</script>
+</body>
+</html>

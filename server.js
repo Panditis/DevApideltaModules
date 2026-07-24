@@ -11,8 +11,10 @@ const fs         = require('fs');
 const os         = require('os');
 const crypto     = require('crypto');
 
+const session  = require('express-session');
 const multer   = require('multer');
 const XLSX     = require('xlsx');
+const auth     = require('./auth');
 const { calcularAlmacen, pisoMinimo } = require('./distribucion');
 const comprasModulo = require('./compras_modulo');
 const preciosProv = require('./precios_proveedores');
@@ -998,6 +1000,52 @@ app.use((req, res, next) => {
 });
 app.use((req, _res, next) => { console.log(`${new Date().toLocaleTimeString('es-AR')}  ${req.method} ${req.path}`); next(); });
 
+// ── Autenticación ────────────────────────────────────────────────────────────────
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 }, // 8 h
+}));
+
+// Rutas siempre públicas (login, favicons, health, whoami).
+const AUTH_PUBLIC = new Set([
+  '/login', '/api/login', '/api/session',
+  '/favicon.png', '/favicon.ico', '/favicon.svg', '/api/health',
+]);
+function authDenegar(req, res, code) {
+  if (req.path.startsWith('/api/')) {
+    return res.status(code).json({ error: code === 401 ? 'No autenticado' : 'Sin permiso' });
+  }
+  if (code === 401) return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl || req.path));
+  return res.redirect('/?error=permiso'); // 403 → al hub con aviso de sin permiso
+}
+app.use((req, res, next) => {
+  if (AUTH_PUBLIC.has(req.path)) return next();
+  const user = req.session && req.session.user;
+  const ref = auth.moduloDeRuta(req.path);
+  if (ref) {
+    const mod = auth.moduloEstado(ref);
+    if (mod && mod.soloAdmin) {
+      if (!user) return authDenegar(req, res, 401);
+      if (!user.esAdmin) return authDenegar(req, res, 403);
+      return next();
+    }
+    if (mod && mod.activo === false) {
+      if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Módulo no disponible' });
+      return res.redirect('/');
+    }
+    if (mod && mod.requiereAuth === false) return next(); // módulo público
+    if (!user) return authDenegar(req, res, 401);
+    if (!auth.puedeAcceder(user, ref)) return authDenegar(req, res, 403);
+    return next();
+  }
+  // Rutas sin módulo asociado (hub, endpoints compartidos): públicas.
+  // El login se exige sólo al entrar a un módulo marcado con requiereAuth.
+  return next();
+});
+
 // ── Rutas HTML ─────────────────────────────────────────────────────────────────
 app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'favicon.png')));
 app.get('/favicon.ico',   (_req, res) => res.redirect('/favicon.png'));
@@ -1009,6 +1057,72 @@ app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'dash
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 app.get('/compras-modulo', (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
 app.get('/analisis-ventas', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_ventas.html')));
+app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
+app.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+
+// ── API de autenticación / sesión ───────────────────────────────────────────────
+// Throttle simple en memoria contra fuerza bruta (por IP).
+const loginIntentos = new Map(); // ip -> { count, hasta }
+const LOGIN_MAX = 8;
+const LOGIN_BLOQUEO_MS = 15 * 60 * 1000;
+app.post('/api/login', (req, res) => {
+  const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  const ahora = Date.now();
+  const reg = loginIntentos.get(ip);
+  if (reg && reg.hasta > ahora && reg.count >= LOGIN_MAX) {
+    return res.status(429).json({ error: 'Demasiados intentos fallidos. Esperá unos minutos.' });
+  }
+  const { usuario, password } = req.body || {};
+  const user = auth.autenticar(usuario, password);
+  if (!user) {
+    const enVentana = reg && reg.hasta > ahora;
+    loginIntentos.set(ip, enVentana ? { count: reg.count + 1, hasta: reg.hasta } : { count: 1, hasta: ahora + LOGIN_BLOQUEO_MS });
+    return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
+  }
+  loginIntentos.delete(ip);
+  // Regenerar la sesión al autenticar evita fijación de sesión.
+  req.session.regenerate(err => {
+    if (err) return res.status(500).json({ error: 'No se pudo iniciar sesión.' });
+    req.session.user = user;
+    res.json({ ok: true, user });
+  });
+});
+app.post('/api/logout', (req, res) => {
+  if (req.session) return req.session.destroy(() => res.json({ ok: true }));
+  res.json({ ok: true });
+});
+app.get('/api/session', (req, res) => {
+  res.json({ user: (req.session && req.session.user) || null });
+});
+// Módulos del hub: todos los activos no-admin. Cada uno trae `permitido` (si el
+// usuario actual puede entrar) para que el front muestre los bloqueados igual.
+app.get('/api/modulos', (req, res) => {
+  const user = req.session && req.session.user;
+  const lista = auth.leerModulos()
+    .filter(m => m.activo && !m.soloAdmin)
+    .map(m => ({ ...m, permitido: m.requiereAuth === false || auth.puedeAcceder(user, m.ref) }));
+  res.json(lista);
+});
+
+// ── API del Centro de control (protegida por requireAuth: sólo admin) ────────────
+app.get('/api/admin/usuarios', (_req, res) => res.json(auth.listarUsuarios()));
+app.post('/api/admin/usuarios', (req, res) => {
+  try { res.json({ ok: true, user: auth.crearUsuario(req.body || {}) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put('/api/admin/usuarios/:id', (req, res) => {
+  try { res.json({ ok: true, user: auth.actualizarUsuario(req.params.id, req.body || {}) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/admin/usuarios/:id', (req, res) => {
+  try { auth.eliminarUsuario(req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/admin/modulos', (_req, res) => res.json(auth.leerModulos()));
+app.put('/api/admin/modulos', (req, res) => {
+  try { res.json({ ok: true, modulos: auth.guardarModulos(req.body || []) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');
@@ -2826,10 +2940,10 @@ app.get('/api/plan/stock-detalle', apiRoute(async req => {
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   const [nombres, sucs] = await Promise.all([
     query(`SELECT CAST(IdProducto AS VARCHAR) AS IdProducto, NombreProducto FROM Productos WHERE CAST(IdProducto AS VARCHAR) IN (${quote(all)})`),
-    query(`SELECT IdSucursal, Nombre, SoyLaCentral FROM Sucursales ORDER BY SoyLaCentral DESC, IdSucursal`),
+    sucursalesSiga(),
   ]);
   const nomMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
-  const sucursales = sucs.map(s => ({ id: s.IdSucursal, nombre: s.Nombre, central: !!s.SoyLaCentral }));
+  const sucursales = sucs.map(sucursalPublica);
   const stockPorSuc = async (ids, soloGranel) => ids.length ? query(`
     SELECT CAST(pd.IdProducto AS VARCHAR) AS IdProducto, pd.IdSucursal, COALESCE(SUM(pd.Stock),0) AS Stock
     FROM ProductosDepositos pd
@@ -3405,7 +3519,8 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
   const topN = analisisVentas.clampTopN(req.query.top);
   const p = { desde, hasta, sucIdsCsv };
 
-  const [comparativa, resumenArr, tendencia, diaSemana, horas, topUnidades, topFacturacion] =
+  const [comparativa, resumenArr, tendencia, diaSemana, horas, topUnidades, topFacturacion,
+         artHistograma, artPorSucursal] =
     await Promise.all([
       query(analisisVentas.sqlComparativa(p)),
       query(analisisVentas.sqlResumenRenglon(p)),
@@ -3414,14 +3529,17 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       query(analisisVentas.sqlHora(p)),
       query(analisisVentas.sqlTopProductos(p, 'unidades', topN)),
       query(analisisVentas.sqlTopProductos(p, 'facturacion', topN)),
+      query(analisisVentas.sqlArticulosHistograma(p)),
+      query(analisisVentas.sqlArticulosPorSucursal(p)),
     ]);
 
   const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
+  const articulosProm = analisisVentas.promedioArticulos(artPorSucursal);
 
   return {
     rango: { desde, hasta },
     sucursales: sucIds,
-    kpis: analisisVentas.kpisGlobales(comparativa, resumen),
+    kpis: { ...analisisVentas.kpisGlobales(comparativa, resumen), articulosProm },
     comparativa: comparativa.map(r => ({
       idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
       facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
@@ -3446,14 +3564,124 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
+    articulosPorTicket: {
+      promedio: articulosProm,
+      histograma: analisisVentas.bucketsArticulos(artHistograma),
+      porSucursal: artPorSucursal.map(r => ({
+        idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
+        tickets: Number(r.Tickets || 0), articulos: Number(r.Articulos || 0),
+        promedio: Number(r.Promedio || 0),
+      })),
+    },
   };
 }));
+
+// ── Sucursales ─────────────────────────────────────────────────────────────────
+// El sistema puede operar sobre cualquier sucursal, no sólo la de config.json: los
+// endpoints de stock y de reserva aceptan idSucursal (query en los GET, body en los POST)
+// y, si no viene, usan reserva.idSucursal del config (comportamiento histórico).
+const ERR_SUCURSAL_INVALIDA = 'Sucursal inválida';
+
+// La columna Activo no existe en todas las versiones de SiGA y nombrarla cuando no está
+// rompe la consulta entera, así que se detecta una sola vez y se cachea. Si la detección
+// falla (por permisos sobre sys.columns) se asume que todas las sucursales están activas,
+// que es exactamente lo que hacía el código antes de esta validación.
+let sucursalesTieneColumnaActivo = null;
+async function detectarColumnaActivoSucursales() {
+  if (sucursalesTieneColumnaActivo === null) {
+    try {
+      const r = await query(`SELECT COUNT(*) AS Tiene FROM sys.columns
+        WHERE object_id = OBJECT_ID('dbo.Sucursales') AND name = 'Activo'`);
+      sucursalesTieneColumnaActivo = Number(r[0] && r[0].Tiene) > 0;
+    } catch { sucursalesTieneColumnaActivo = false; }
+  }
+  return sucursalesTieneColumnaActivo;
+}
+
+// Sucursales de SiGA con la central primero. Consulta única para todos los consumidores:
+// el selector de sucursal, el detalle de stock por sucursal y la validación de idSucursal.
+async function sucursalesSiga() {
+  const conActivo = await detectarColumnaActivoSucursales();
+  const rows = await query(`SELECT IdSucursal, Nombre, SoyLaCentral, ${conActivo ? 'Activo' : '1'} AS Activa
+    FROM Sucursales ORDER BY SoyLaCentral DESC, IdSucursal`);
+  return rows.map(s => ({
+    id: Number(s.IdSucursal), nombre: s.Nombre, central: !!s.SoyLaCentral,
+    activa: s.Activa == null ? true : !!s.Activa
+  }));
+}
+
+// Forma pública: es lo que ya devolvía /api/plan/stock-detalle, así que no cambia.
+function sucursalPublica(s) { return { id: s.id, nombre: s.nombre, central: s.central }; }
+
+app.get('/api/sucursales', apiRoute(async () =>
+  (await sucursalesSiga()).filter(s => s.activa).map(sucursalPublica)));
+
+// Sucursal efectiva de una request. Sin idSucursal se usa la de config.json y NO se
+// consulta SiGA: así todo lo que hoy llama sin el parámetro se comporta igual que siempre.
+// Con idSucursal se valida que exista y esté activa. Devuelve { idSucursal, cr } —cr es la
+// config de reserva apuntando a esa sucursal— o { error }.
+async function resolverSucursal(valor) {
+  const cr = cfgReserva();
+  if (valor === undefined || valor === null || String(valor).trim() === '') {
+    return { idSucursal: cr.idSucursal, cr };
+  }
+  const id = Number(valor);
+  if (!Number.isInteger(id) || id <= 0) return { error: ERR_SUCURSAL_INVALIDA };
+  const suc = (await sucursalesSiga()).find(s => s.id === id);
+  if (!suc || !suc.activa) return { error: ERR_SUCURSAL_INVALIDA };
+  return { idSucursal: id, cr: { ...cr, idSucursal: id } };
+}
+
+// La sucursal con la que se ejecutan los movimientos de una reserva queda CONGELADA en la
+// reserva, igual que depOrigen/depDestino: cambiar de sucursal en la pantalla no puede
+// hacer que una devolución mueva stock en una sucursal distinta a la que lo reservó.
+// El config sólo es fallback para reservas viejas, guardadas antes de que se guardara.
+function sucursalDeReserva(reserva) {
+  const n = Number(reserva && reserva.idSucursal);
+  return Number.isInteger(n) && n > 0 ? n : cfgReserva().idSucursal;
+}
+
+// Devuelve null si la reserva se puede operar desde la sucursal pedida, o el mensaje de
+// error si la reserva activa es de otra (en ese caso no se ejecuta ningún movimiento).
+function chequearSucursalReserva(reserva, idSucursal) {
+  if (!reserva || reserva.estado !== 'activa') return null;
+  const deLaReserva = sucursalDeReserva(reserva);
+  if (deLaReserva === Number(idSucursal)) return null;
+  return `La reserva activa de este plan es de la sucursal ${deLaReserva}. Cambiá a esa sucursal para operarla.`;
+}
 
 // ── Movimientos de stock (Siga) ────────────────────────────────────────────────
 // Movimiento simple (1 línea) tipo BIENESUSO, con INSERT del renglón de stock si
 // el depósito/ubicación destino todavía no tiene fila para el producto.
 // Ver pruebas_stock_claude/README.md para el mecanismo completo investigado.
 const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO'];
+
+// Diagnóstico de solo lectura: qué tipos de movimiento usa SiGA y con qué frecuencia.
+// Sirve para elegir el IdTipoMovimiento correcto antes de habilitarlo para escritura
+// (hoy solo BIENESUSO está permitido). No modifica nada.
+app.get('/api/stock/tipos-movimiento', apiRoute(async req => {
+  const s = await resolverSucursal(req.query.idSucursal);
+  if (s.error) return { error: s.error };
+  const suc = s.idSucursal;
+  const [tipos, conSignoMixto] = await Promise.all([
+    query(`SELECT TOP 40 ms.IdTipoMovimiento, COUNT(*) AS Comprobantes,
+                  MAX(ms.FechaMovimiento) AS Ultimo
+             FROM MovimientosStock ms WHERE ms.IdSucursal=${suc}
+            GROUP BY ms.IdTipoMovimiento ORDER BY COUNT(*) DESC`),
+    // Patrón de producción: un mismo comprobante con líneas positivas y negativas a la vez
+    // (consume componentes y genera el terminado). Es lo que hoy NO cubre trasladarStock.
+    query(`SELECT TOP 20 d.IdTipoMovimiento,
+                  COUNT(DISTINCT d.NumeroMovimiento) AS Comprobantes,
+                  SUM(CASE WHEN d.Cantidad > 0 THEN 1 ELSE 0 END) AS LineasPositivas,
+                  SUM(CASE WHEN d.Cantidad < 0 THEN 1 ELSE 0 END) AS LineasNegativas
+             FROM MovimientosStockProductos d WHERE d.IdSucursal=${suc}
+            GROUP BY d.IdTipoMovimiento
+           HAVING SUM(CASE WHEN d.Cantidad > 0 THEN 1 ELSE 0 END) > 0
+              AND SUM(CASE WHEN d.Cantidad < 0 THEN 1 ELSE 0 END) > 0
+            ORDER BY COUNT(DISTINCT d.NumeroMovimiento) DESC`)
+  ]);
+  return { permitidosParaEscritura: TIPOS_MOVIMIENTO_STOCK_PERMITIDOS, tipos, conSignoMixto };
+}));
 
 // Depósitos activos de una sucursal. Los nombres en SiGA vienen con espacios adelante,
 // por eso el RTRIM (el LTRIM lo hace el trim de cada consumidor si hace falta).
@@ -3464,10 +3692,15 @@ async function depositosActivos(idSucursal) {
     FROM SucursalesDepositos WHERE IdSucursal=${suc} AND Activo=1 ORDER BY IdDeposito`);
 }
 
+// A diferencia del resto, acá idSucursal sigue siendo obligatorio (es un endpoint de
+// diagnóstico y pedir depósitos "de la sucursal que sea" no tiene sentido); lo que se suma
+// es la validación contra Sucursales para no devolver una lista vacía ante un id inexistente.
 app.get('/api/stock/depositos', apiRoute(async req => {
   const idSucursal = Number(req.query.idSucursal);
   if (!Number.isInteger(idSucursal) || idSucursal <= 0) return { error: 'Falta idSucursal (entero positivo)' };
-  return depositosActivos(idSucursal);
+  const s = await resolverSucursal(idSucursal);
+  if (s.error) return { error: s.error };
+  return depositosActivos(s.idSucursal);
 }));
 
 async function registrarMovimientoStock(pool, m) {
@@ -3647,6 +3880,35 @@ async function aplicarDeltaStock(rq, l) {
 // Traslado de N productos entre dos depósitos, todo en una transacción y en un
 // único comprobante. t = { idSucursal, depOrigen, depDestino, idTipoMovimiento,
 //                          lineas:[{idProducto,cantidad}], usuario, observacion, idEmpleado }
+// Cabecera del comprobante: reserva el número en MovimientosNumeros e inserta la fila de
+// MovimientosStock. Es idéntica para un traslado y para un movimiento multi-línea, así que
+// vive una sola vez acá. Devuelve el NumeroMovimiento con el que van los renglones.
+async function crearComprobanteStock(rq, m) {
+  const numRs = await rq()
+    .input('sucursal', sql.Int, m.idSucursal)
+    .input('tipo', sql.VarChar, m.idTipoMovimiento)
+    .query(`UPDATE MovimientosNumeros SET Numero = Numero + 1
+            OUTPUT inserted.Numero AS Numero
+            WHERE IdSucursal=@sucursal AND IdTipoMovimiento=@tipo`);
+  if (!numRs.recordset.length) {
+    throw new Error(`No hay numerador en MovimientosNumeros para sucursal ${m.idSucursal} / tipo ${m.idTipoMovimiento}`);
+  }
+  const numero = numRs.recordset[0].Numero;
+
+  await rq()
+    .input('sucursal', sql.Int, m.idSucursal)
+    .input('tipo', sql.VarChar, m.idTipoMovimiento)
+    .input('numero', sql.Int, numero)
+    .input('usuario', sql.NVarChar, m.usuario)
+    .input('observacion', sql.NVarChar, m.observacion || '')
+    .input('empleado', sql.Int, m.idEmpleado)
+    .query(`INSERT INTO MovimientosStock
+      (IdSucursal, IdTipoMovimiento, NumeroMovimiento, FechaMovimiento, Neto, Total, PorcentajeIVA,
+       Usuario, Observacion, IdEmpleado, PercepcionIVA, PercepcionIB, PercepcionGanancias, PercepcionVarias, ImpuestosInternos)
+      VALUES (@sucursal, @tipo, @numero, GETDATE(), 0, 0, 0, @usuario, @observacion, @empleado, 0, 0, 0, 0, 0)`);
+  return numero;
+}
+
 async function trasladarStock(pool, t) {
   const tx = new sql.Transaction(pool);
   await tx.begin();
@@ -3655,28 +3917,7 @@ async function trasladarStock(pool, t) {
     const ubicOrigen  = await ubicacionDeDeposito(rq, t.idSucursal, t.depOrigen);
     const ubicDestino = await ubicacionDeDeposito(rq, t.idSucursal, t.depDestino);
 
-    const numRs = await rq()
-      .input('sucursal', sql.Int, t.idSucursal)
-      .input('tipo', sql.VarChar, t.idTipoMovimiento)
-      .query(`UPDATE MovimientosNumeros SET Numero = Numero + 1
-              OUTPUT inserted.Numero AS Numero
-              WHERE IdSucursal=@sucursal AND IdTipoMovimiento=@tipo`);
-    if (!numRs.recordset.length) {
-      throw new Error(`No hay numerador en MovimientosNumeros para sucursal ${t.idSucursal} / tipo ${t.idTipoMovimiento}`);
-    }
-    const numero = numRs.recordset[0].Numero;
-
-    await rq()
-      .input('sucursal', sql.Int, t.idSucursal)
-      .input('tipo', sql.VarChar, t.idTipoMovimiento)
-      .input('numero', sql.Int, numero)
-      .input('usuario', sql.NVarChar, t.usuario)
-      .input('observacion', sql.NVarChar, t.observacion || '')
-      .input('empleado', sql.Int, t.idEmpleado)
-      .query(`INSERT INTO MovimientosStock
-        (IdSucursal, IdTipoMovimiento, NumeroMovimiento, FechaMovimiento, Neto, Total, PorcentajeIVA,
-         Usuario, Observacion, IdEmpleado, PercepcionIVA, PercepcionIB, PercepcionGanancias, PercepcionVarias, ImpuestosInternos)
-        VALUES (@sucursal, @tipo, @numero, GETDATE(), 0, 0, 0, @usuario, @observacion, @empleado, 0, 0, 0, 0, 0)`);
+    const numero = await crearComprobanteStock(rq, t);
 
     // A diferencia de registrarMovimientoStock (una sola línea), acá NO se multiplica por
     // CoeficienteStock: el traslado lleva el signo explícito en cada renglón (−origen /
@@ -3701,6 +3942,52 @@ async function trasladarStock(pool, t) {
   }
 }
 
+// Movimiento de N líneas con signo y depósito PROPIOS, todo en un único comprobante.
+// trasladarStock no sirve para esto: asume neto cero y un par −origen/+destino del mismo
+// producto. Una producción, en cambio, da de alta el terminado en un depósito y da de baja
+// cada componente en el suyo (reserva o principal), así que las líneas son independientes.
+// m = { idSucursal, idTipoMovimiento, usuario, idEmpleado, observacion,
+//       lineas: [{ idProducto, idDeposito, cantidad }] }  ← cantidad CON SIGNO (+ alta, − baja)
+async function registrarMovimientoMultilinea(pool, m) {
+  const lineas = m.lineas || [];
+  if (!lineas.length) throw new Error('El movimiento no tiene líneas');
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    const rq = () => new sql.Request(tx);
+    // Una consulta de ubicación por depósito distinto, no por línea: varios componentes
+    // salen del mismo depósito y la ubicación no cambia entre ellos.
+    const ubicaciones = new Map();
+    for (const l of lineas) {
+      const dep = Number(l.idDeposito);
+      if (!ubicaciones.has(dep)) ubicaciones.set(dep, await ubicacionDeDeposito(rq, m.idSucursal, dep));
+    }
+
+    const numero = await crearComprobanteStock(rq, m);
+
+    // Igual que en trasladarStock, acá NO se multiplica por CoeficienteStock: cada renglón
+    // ya trae su signo explícito. El coeficiente del tipo de movimiento sólo tiene sentido
+    // cuando la cantidad viene sin signo (registrarMovimientoStock, una sola línea).
+    let orden = 1;
+    for (const l of lineas) {
+      const idDeposito = Number(l.idDeposito);
+      const linea = {
+        idSucursal: m.idSucursal, idTipoMovimiento: m.idTipoMovimiento, numero,
+        idProducto: String(l.idProducto), idDeposito,
+        idUbicacion: ubicaciones.get(idDeposito), cantidad: Number(l.cantidad)
+      };
+      await insertarLineaTraslado(rq, { ...linea, orden: orden++ });
+      await aplicarDeltaStock(rq, linea);
+    }
+
+    await tx.commit();
+    return numero;
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
+}
+
 // ── Log persistente de movimientos de stock ────────────────────────────────────
 // Todo movimiento que toca stock en SiGA (reserva, ajuste, devolución, traslado
 // manual o movimiento suelto) deja acá su propio registro, independiente del plan.
@@ -3708,7 +3995,7 @@ async function trasladarStock(pool, t) {
 // (DELETE /api/plan/:fecha vacía los ítems) y poder revertir un movimiento que se
 // hizo por error desde POST /api/stock/movimientos/:id/revertir.
 const MOVIMIENTOS_LOG_PATH = path.join(DATA_DIR, 'movimientos_stock.json');
-const MOV_LOG_ORIGENES     = ['reserva', 'ajuste', 'devolucion', 'traslado', 'movimiento'];
+const MOV_LOG_ORIGENES     = ['reserva', 'ajuste', 'devolucion', 'traslado', 'movimiento', 'produccion'];
 const MOV_LOG_LIMIT_DEF    = 100;
 const MOV_LOG_LIMIT_MAX    = 500;
 
@@ -3745,7 +4032,12 @@ function registroMovimiento(d) {
     observacion: String(d.observacion || ''),
     numeroMovimiento: null,
     lineas: (d.lineas || []).map(l => ({
-      plu: String(l.plu), nombre: l.nombre == null ? null : String(l.nombre), cantidad: Number(l.cantidad)
+      plu: String(l.plu), nombre: l.nombre == null ? null : String(l.nombre), cantidad: Number(l.cantidad),
+      // Sólo los movimientos multi-depósito (producción) guardan el depósito EN LA LÍNEA: en
+      // un traslado el depósito está en la cabecera (depOrigen/depDestino) y repetirlo sería
+      // redundante. Su presencia es lo que después distingue a un registro multi-depósito
+      // para calcular saldos y para revertirlo.
+      ...(l.idDeposito == null ? {} : { idDeposito: Number(l.idDeposito) })
     })),
     estado: 'pendiente',
     error: null,
@@ -3829,8 +4121,14 @@ app.get('/api/stock/movimientos', apiRoute(async req => {
   if (origen && !MOV_LOG_ORIGENES.includes(origen)) {
     return { error: `origen inválido. Permitidos: ${MOV_LOG_ORIGENES.join(', ')}` };
   }
+  // Filtro por sucursal: cada registro del log ya guarda su idSucursal. Se valida sólo el
+  // formato (no se consulta SiGA): sin el parámetro se devuelven todas, como hasta ahora.
+  const filtraSuc  = String(q.idSucursal ?? '').trim() !== '';
+  const idSucursal = filtraSuc ? Number(q.idSucursal) : null;
+  if (filtraSuc && (!Number.isInteger(idSucursal) || idSucursal <= 0)) return { error: ERR_SUCURSAL_INVALIDA };
   return leerMovLog()
-    .filter(r => r && (!plan || r.plan === plan) && (!origen || r.origen === origen) && (!estado || r.estado === estado))
+    .filter(r => r && (!plan || r.plan === plan) && (!origen || r.origen === origen) && (!estado || r.estado === estado)
+              && (!filtraSuc || Number(r.idSucursal) === idSucursal))
     .slice()
     .reverse()   // el log se escribe con el más nuevo al final; acá se devuelve al revés
     .slice(0, limit);
@@ -3878,22 +4176,36 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   if (!usuario) return { error: 'Falta usuario para registrar la reversión' };
 
   const poolW = await getPoolStock();
-  // Sin depósito destino es un movimiento de una sola línea (registrarMovimientoStock):
-  // la reversión es el mismo movimiento con la cantidad en negativo.
-  const esMovimientoSimple = original.depDestino == null;
-  const lineasReversion = esMovimientoSimple
+  // Tres formas distintas de revertir, según cómo se escribió el movimiento original:
+  //  · multi-depósito (producción): cada línea tiene su propio depósito y su propio signo, y
+  //    la cabecera depOrigen/depDestino es sólo referencia. Invertir los depósitos de la
+  //    cabecera —como en un traslado— dejaría el stock en el lugar equivocado, así que la
+  //    reversión invierte el SIGNO de cada línea y la deja en SU MISMO depósito.
+  //  · sin depósito destino: movimiento de una sola línea, se repite con la cantidad negada.
+  //  · el resto: traslado, se repite con los depósitos invertidos.
+  const esMultiDeposito    = lineas.some(l => l && l.idDeposito != null);
+  const esMovimientoSimple = !esMultiDeposito && original.depDestino == null;
+  const lineasReversion = esMultiDeposito
+    ? lineas.map(l => ({ ...l, cantidad: -Number(l.cantidad) }))
+    : esMovimientoSimple
     ? [{ ...lineas[0], cantidad: -Number(lineas[0].cantidad) }]
     : lineas.map(l => ({ ...l, cantidad: Number(l.cantidad) }));
 
   const r = await ejecutarYRegistrar({
     origen: original.origen, plan: original.plan, itemId: original.itemId,
     idSucursal: original.idSucursal,
-    depOrigen:  esMovimientoSimple ? original.depOrigen : original.depDestino,
-    depDestino: esMovimientoSimple ? null               : original.depOrigen,
+    depOrigen:  esMultiDeposito ? original.depOrigen : esMovimientoSimple ? original.depOrigen : original.depDestino,
+    depDestino: esMultiDeposito ? original.depDestino : esMovimientoSimple ? null : original.depOrigen,
     idUbicacion: original.idUbicacion, idEmpleado,
     idTipoMovimiento: original.idTipoMovimiento, usuario, observacion,
     lineas: lineasReversion, revierteA: original.id
-  }, () => esMovimientoSimple
+  }, () => esMultiDeposito
+    ? registrarMovimientoMultilinea(poolW, {
+        idSucursal: original.idSucursal, idTipoMovimiento: original.idTipoMovimiento,
+        usuario, idEmpleado, observacion,
+        lineas: lineasReversion.map(l => ({ idProducto: l.plu, idDeposito: l.idDeposito, cantidad: l.cantidad }))
+      })
+    : esMovimientoSimple
     ? registrarMovimientoStock(poolW, {
         idSucursal: original.idSucursal, idDeposito: original.depOrigen,
         idUbicacion: Number.isInteger(original.idUbicacion) && original.idUbicacion > 0 ? original.idUbicacion : 1,
@@ -3922,6 +4234,15 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
     guardarMovLog(copia);
   } catch (e) { errEnlace = `No se pudo enlazar la reversión ${r.idRegistro} con el original ${original.id}: ${e.message}`; }
 
+  // Revertir el alta de producción tiene que dejar el plan como para poder volver a
+  // registrarla: se borra la marca y, si la reserva se había cerrado justamente porque ese
+  // movimiento consumió todo lo apartado, vuelve a quedar activa (la reversión devolvió los
+  // componentes al depósito de reserva). Va ANTES de sincronizar el plan: sincronizarPlanConLog
+  // sólo mira reservas activas.
+  const errMarcaProduccion = original.origen === 'produccion' && original.plan
+    ? limpiarProduccionRegistrada(original.plan, original.id)
+    : null;
+
   // El plan y el log son registros distintos, así que acá se pone el plan al día con lo que
   // dice el log: si ya no queda nada en el depósito de reserva la reserva se anula sola, y
   // si quedó saldo parcial se avisa (no se puede recalcular a qué ítem le corresponde).
@@ -3942,7 +4263,8 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
 
   const resp = { ok: true, numeroMovimiento: r.numeroMovimiento, id: r.idRegistro, revierteA: original.id };
   const conPlan = planSincronizado ? { ...resp, planSincronizado } : resp;
-  return conLogError(advertencia ? { ...conPlan, advertencia } : conPlan, r.logError, errEnlace, errPlan, errAdv);
+  return conLogError(advertencia ? { ...conPlan, advertencia } : conPlan,
+    r.logError, errEnlace, errPlan, errAdv, errMarcaProduccion);
 }));
 
 app.post('/api/stock/traslado', apiRoute(async req => {
@@ -4019,6 +4341,30 @@ function cfgReserva() {
   };
 }
 
+// ── Alta de producción ─────────────────────────────────────────────────────────
+// El movimiento que registra la producción del día usa su propio bloque de config para no
+// mezclarse con el de la reserva: el tipo de movimiento es el mismo (BIENESUSO, el único
+// habilitado para escritura) pero la OBSERVACIÓN es lo que después permite reconocer y
+// filtrar estos comprobantes en SiGA, así que se configura aparte.
+const PRODUCCION_DEFAULTS = {
+  idTipoMovimiento: 'BIENESUSO', observacion: 'PRODUCCION WEB', depositoTerminados: null
+};
+
+// Se relee config.json en cada llamada, igual que cfgReserva: cambiar la observación o el
+// depósito de terminados no debe requerir reiniciar el servidor.
+function cfgProduccion() {
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).produccion || {}; } catch { raw = {}; }
+  const c   = { ...PRODUCCION_DEFAULTS, ...raw };
+  const dep = Number(c.depositoTerminados);
+  return {
+    idTipoMovimiento:   String(c.idTipoMovimiento || PRODUCCION_DEFAULTS.idTipoMovimiento).trim().toUpperCase(),
+    observacion:        String(c.observacion || PRODUCCION_DEFAULTS.observacion).trim(),
+    // null = el terminado entra al mismo depósito principal del que salen los componentes.
+    depositoTerminados: Number.isInteger(dep) && dep > 0 ? dep : null
+  };
+}
+
 const ERR_RESERVA_SIN_CONFIG = 'Falta configurar el depósito de reserva (reserva.depositoReserva en config.json)';
 const ERR_RESERVA_DEPOSITOS  = 'Elegí un depósito de origen y uno de destino distintos';
 function redondear4(n) { return Math.round((Number(n) || 0) * 1e4) / 1e4; }
@@ -4089,6 +4435,35 @@ async function infoProductosElegidos(plus) {
   return mapa;
 }
 
+// padre → [{plu, nombre, rubro, cantPorUnidad}] según la fórmula ACTIVA de cada producto.
+// Única definición de la consulta de fórmula por lote de PLU: la usan componentesDePlan
+// (para calcular la reserva) y la conciliación de producción (para resolver la etiqueta y
+// los graneles cargados sin PLU). El filtro de fórmula activa es obligatorio: sin él la
+// misma consulta devuelve una fila por cada versión histórica de la fórmula.
+async function componentesFormulaPorPadre(plus) {
+  const lista = [...new Set((plus || []).map(p => String(p ?? '').replace(/\D/g, '')).filter(Boolean))];
+  const porPadre = new Map();
+  if (!lista.length) return porPadre;
+  const rows = await query(`
+    SELECT pc.IdProducto AS padre, pc.IdProductoComponente AS plu,
+           p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro,
+           CAST(pc.Cantidad AS FLOAT) AS cantPorUnidad
+    FROM ProductosComponentes pc
+    INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+    LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
+    WHERE pc.IdProducto IN (${lista.join(',')}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
+    ORDER BY p.NombreProducto`);
+  for (const r of rows) {
+    const padre = String(r.padre).trim();
+    if (!porPadre.has(padre)) porPadre.set(padre, []);
+    porPadre.get(padre).push({
+      plu: String(r.plu).trim(), nombre: String(r.nombre || '').trim(),
+      rubro: String(r.rubro || '').trim(), cantPorUnidad: Number(r.cantPorUnidad) || 0
+    });
+  }
+  return porPadre;
+}
+
 // Componentes necesarios para todo el plan, sumados por componente, con el envase y la
 // tapa elegidos en la planificación ya sustituidos sobre la fórmula activa.
 // Devuelve { componentes: [{plu,nombre,rubro,necesario,porItem,reemplazaA,origen}],
@@ -4096,7 +4471,17 @@ async function infoProductosElegidos(plus) {
 async function componentesDePlan(items) {
   const validos = [], itemsSinFormula = [];
   for (const it of (items || [])) {
-    const plu  = String(it.idProducto ?? '').replace(/\D/g, '');
+    // Un ítem ya producido y recepcionado como artículo final (produccionMovimiento) salió
+    // del circuito: su stock ya se movió con el alta de producción. No vuelve a aportar
+    // componentes en ningún consumidor (preview, reservar, actualizar), para no re-reservar
+    // mercadería que ya se consumió. El sello se pone en /registrar-movimiento y sólo se
+    // quita al revertir ese alta (limpiarProduccionRegistrada). Si el mismo producto se
+    // necesita de nuevo se agrega como ítem NUEVO (id distinto, sin este sello).
+    if (it && it.produccionMovimiento) continue;
+    // Los productos que se producen como granel no tienen idProducto (es una presentación
+    // terminada lo que lleva código): su fórmula vive bajo idGranel. Sin este respaldo, el
+    // ítem caía en itemsSinFormula aunque el granel sí tenga fórmula activa (ej. PLU 7482).
+    const plu  = String(it.idProducto ?? it.idGranel ?? '').replace(/\D/g, '');
     const cant = Number(it.cantConfirmada ?? it.cantSugerida ?? 0);
     if (!plu || !Number.isFinite(cant) || cant <= 0) {
       itemsSinFormula.push({ id: it.id, idProducto: it.idProducto ?? null, producto: it.producto || '' });
@@ -4109,26 +4494,7 @@ async function componentesDePlan(items) {
   }
   if (!validos.length) return { componentes: [], itemsSinFormula, sustituciones: [] };
 
-  const plus = [...new Set(validos.map(v => v.plu))];
-  const rows = await query(`
-    SELECT pc.IdProducto AS padre, pc.IdProductoComponente AS plu,
-           p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro,
-           CAST(pc.Cantidad AS FLOAT) AS cantPorUnidad
-    FROM ProductosComponentes pc
-    INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
-    LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
-    WHERE pc.IdProducto IN (${plus.join(',')}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
-    ORDER BY p.NombreProducto`);
-
-  const porPadre = new Map();
-  for (const r of rows) {
-    const padre = String(r.padre).trim();
-    if (!porPadre.has(padre)) porPadre.set(padre, []);
-    porPadre.get(padre).push({
-      plu: String(r.plu).trim(), nombre: String(r.nombre || '').trim(),
-      rubro: String(r.rubro || '').trim(), cantPorUnidad: Number(r.cantPorUnidad) || 0
-    });
-  }
+  const porPadre = await componentesFormulaPorPadre(validos.map(v => v.plu));
 
   const infoElegidos = await infoProductosElegidos(validos.flatMap(v => [v.seleccion.envase, v.seleccion.tapa]));
 
@@ -4256,10 +4622,22 @@ function saldoReservaSegunLog(fecha, reserva) {
 
   for (const reg of log) {
     if (!reg || reg.plan !== fecha || reg.estado !== 'confirmado' || anulados.has(reg.id)) continue;
+    const lineas = reg.lineas || [];
+    // Movimiento multi-depósito (el alta de producción): la cabecera no dice de dónde salió
+    // cada cosa, cada línea trae su depósito y su signo. Sólo suman al saldo las líneas del
+    // depósito de reserva, y suman tal cual (negativas = salieron de la reserva).
+    if (lineas.some(l => l && l.idDeposito != null)) {
+      for (const l of lineas) {
+        if (Number(l.idDeposito) !== depReserva) continue;
+        const plu = String(l.plu);
+        saldo.set(plu, redondear4((saldo.get(plu) || 0) + (Number(l.cantidad) || 0)));
+      }
+      continue;
+    }
     const signo = Number(reg.depDestino) === depReserva ?  1
                 : Number(reg.depOrigen)  === depReserva ? -1 : 0;
     if (!signo) continue;
-    for (const l of (reg.lineas || [])) {
+    for (const l of lineas) {
       const plu = String(l.plu);
       saldo.set(plu, redondear4((saldo.get(plu) || 0) + signo * (Number(l.cantidad) || 0)));
     }
@@ -4296,10 +4674,21 @@ function sincronizarReservaConLog(fecha, plan) {
       delete copia.reservaMovimiento;
       return copia;
     });
+    // Un caso NO es una reversión: el alta de producción consume lo reservado y devuelve el
+    // sobrante, así que también deja el depósito de reserva en cero. Se distingue con
+    // porProduccion para que el motivo no mienta y para poder reactivar la reserva si después
+    // se revierte ese alta (ver limpiarProduccionRegistrada).
+    const porProduccion = !!(plan && plan.produccionRegistrada);
     const anulada = {
       ...reserva,
       estado: 'anulada',
-      anuladaPorLog: { fecha: ahora, motivo: 'Los movimientos de esta reserva fueron revertidos desde el historial' }
+      anuladaPorLog: {
+        fecha: ahora,
+        porProduccion,
+        motivo: porProduccion
+          ? 'El alta de producción consumió lo reservado y devolvió el sobrante al depósito principal'
+          : 'Los movimientos de esta reserva fueron revertidos desde el historial'
+      }
     };
     return { plan: { ...plan, items, reserva: anulada }, cambio: true, motivo: 'anulada' };
   }
@@ -4339,12 +4728,103 @@ function sincronizarPlanConLog(fecha) {
   return { plan: sync.plan, motivo: sync.motivo || null };
 }
 
+// Borra la marca de "producción ya registrada" de un plan cuando se revierte el movimiento
+// que la puso, para que se pueda volver a registrar. Si la reserva había quedado anulada
+// justamente por ese consumo, vuelve a activa: la reversión devolvió los componentes al
+// depósito de reserva. Los sellos por ítem (reservaMovimiento) no se reconstruyen —son
+// informativos y no participan del cálculo del saldo, que sale de reserva.lineas.
+// La marca de producción registrada guarda UN asiento por cada movimiento (una fecha se puede
+// registrar en varias tandas: se carga producción nueva ese mismo día y se registra aparte).
+// Forma nueva: plan.produccionRegistrada = { ...últimoAsiento, asientos: [{ numeroMovimiento,
+// fecha, idRegistro, usuario, idSucursal, registros: [<id de produccion_registros.json>] }] }.
+// Los campos sueltos duplican el ÚLTIMO asiento para no romper a quien todavía lee
+// produccionRegistrada.numeroMovimiento directo (el front y el resumen de la conciliación).
+// Marca vieja (objeto suelto sin `asientos`): se normaliza a un único asiento sin lista de
+// registros; sin lista, el asiento cubre TODA la fecha (el bloqueo total que había antes).
+function asientosProduccion(plan) {
+  const m = plan && plan.produccionRegistrada;
+  if (!m) return [];
+  if (Array.isArray(m.asientos)) return m.asientos;
+  return [{
+    numeroMovimiento: m.numeroMovimiento ?? null, fecha: m.fecha ?? null,
+    idRegistro: m.idRegistro ?? null, usuario: m.usuario ?? null, idSucursal: m.idSucursal ?? null,
+    registros: Array.isArray(m.registros) ? m.registros : []
+  }];
+}
+
+// Set (ids en string) de los registros de producción de la fecha que ya fueron asentados. Un
+// asiento sin lista de registros (marca vieja) cubre todos los registros de la fecha.
+function registrosYaRegistrados(plan, registrosFecha) {
+  const set = new Set();
+  for (const a of asientosProduccion(plan)) {
+    const lista = (Array.isArray(a.registros) && a.registros.length) ? a.registros : registrosFecha.map(r => r.id);
+    for (const rid of lista) set.add(String(rid));
+  }
+  return set;
+}
+
+// idRegistro acota la limpieza al asiento de ESE movimiento: quita sólo ese asiento y deja los
+// demás intactos (sus registros vuelven a "pendiente de registrar" al desaparecer de la lista).
+// Si era el único asiento, el campo queda como antes de cualquier registro. Sin idRegistro se
+// borra la marca entera (compatibilidad con reversiones viejas). Devuelve null o el error.
+function limpiarProduccionRegistrada(fecha, idRegistro) {
+  try {
+    const planes = leerJSON(PLANES_PATH, {});
+    const plan   = planes[fecha];
+    const marca  = plan && plan.produccionRegistrada;
+    if (!marca) return null;
+    const asientos  = asientosProduccion(plan);
+    const restantes = idRegistro
+      ? asientos.filter(a => String(a.idRegistro) !== String(idRegistro))
+      : [];
+    // El idRegistro no correspondía a ningún asiento de este plan: no se toca nada.
+    if (idRegistro && restantes.length === asientos.length) return null;
+    const copia = { ...plan };
+    if (!restantes.length) {
+      delete copia.produccionRegistrada;
+    } else {
+      const ultimo = restantes[restantes.length - 1];
+      copia.produccionRegistrada = { ...ultimo, asientos: restantes };
+    }
+    // Se levanta el estado terminal de los ítems sellados por el movimiento revertido: con
+    // idRegistro sólo los de ESE asiento; sin idRegistro (reversión vieja que borra la marca
+    // entera) todos. Al perder produccionMovimiento vuelven a aportar componentes y a poder
+    // reservarse. El match es por el mismo idRegistro con el que se selló en /registrar-movimiento.
+    copia.items = (plan.items || []).map(it => {
+      if (!it || !it.produccionMovimiento) return it;
+      const delAsiento = idRegistro == null || String(it.produccionMovimiento.idRegistro) === String(idRegistro);
+      if (!delAsiento) return it;
+      const limpio = { ...it };
+      delete limpio.produccionMovimiento;
+      return limpio;
+    });
+    // La reserva sólo se reactiva cuando ya no queda ningún asiento (se revirtió toda la
+    // producción que la había consumido). Con asientos restantes, sigue anulada.
+    const r = copia.reserva;
+    if (!restantes.length && r && r.estado === 'anulada' && r.anuladaPorLog && r.anuladaPorLog.porProduccion) {
+      const reactivada = { ...r, estado: 'activa' };
+      delete reactivada.anuladaPorLog;
+      copia.reserva = reactivada;
+    }
+    guardarJSON(PLANES_PATH, { ...planes, [fecha]: copia });
+    return null;
+  } catch (e) {
+    return `No se pudo borrar la marca de producción registrada del plan ${fecha}: ${e.message}`;
+  }
+}
+
 // ── Firma de las órdenes del plan y detección de cambios ───────────────────────
 // "Las órdenes del plan" son los ítems con cantidad > 0: id, producto, cantidad efectiva
 // y el packaging elegido. El estado NO forma parte de la orden: que un ítem pase a
 // 'listo' no es un cambio de plan (sólo dispara la devolución de su porción).
 function itemsFirmables(items) {
   return (items || [])
+    // Los ítems ya producidos y recepcionados (produccionMovimiento) salieron del circuito:
+    // no forman parte de las órdenes a reservar, así que tampoco cuentan para la firma. Sin
+    // esto, sellar un ítem al registrar producción cambiaría la firma y dispararía un falso
+    // "el plan cambió" (el guard de reserva 'activa' lo tapa en el flujo normal, pero la
+    // firma tiene que ser coherente de todos modos).
+    .filter(it => !(it && it.produccionMovimiento))
     .map(it => ({
       id: it.id,
       idProducto: String(it.idProducto ?? '').replace(/\D/g, ''),
@@ -4399,11 +4879,20 @@ function cambiosDelPlan(items, reserva) {
     }
   }
   const idsActuales = new Set(actual.map(a => String(a.id)));
+  // Un ítem que se produjo y recepcionó después de reservar (produccionMovimiento) desaparece
+  // de `actual` (itemsFirmables lo excluye), pero eso NO es "quitar una orden": el ítem cerró
+  // su circuito. No debe reportarse como cambio para no pedir actualizar la reserva por algo
+  // que ya se consumió.
+  const sellados = new Set((items || []).filter(it => it && it.produccionMovimiento).map(it => String(it.id)));
   for (const p of reserva.items) {
-    if (idsActuales.has(String(p.id))) continue;
+    if (idsActuales.has(String(p.id)) || sellados.has(String(p.id))) continue;
     detalle.push({ tipo: 'quitado', itemId: p.id, producto: String(p.producto || ''), antes: redondear4(p.cantidad), ahora: null });
   }
-  return { hayCambios: true, detalle };
+  // hayCambios sale del detalle, no de la firma: cuando la firma difiere SÓLO porque se
+  // excluyó un ítem ya producido (itemsFirmables lo saca), el detalle queda vacío y no hay
+  // nada real que actualizar. Sin esto, sellar un ítem con la reserva aún activa dispararía
+  // un falso "el plan cambió".
+  return { hayCambios: detalle.length > 0, detalle };
 }
 
 // Componentes que todavía deben estar en el depósito de reserva: se descuenta la porción
@@ -4528,6 +5017,10 @@ async function ejecutarDevolucionReserva(plan, itemId) {
 
   // La devolución invierte los depósitos con los que se hizo la reserva. El config sólo
   // sirve de fallback para reservas viejas guardadas antes de poder elegirlos en el modal.
+  // La sucursal sale del mismo lugar: la de la reserva, NUNCA la que diga config.json hoy
+  // (si se cambió de sucursal después de reservar, devolver con la de config movería el
+  // stock en la sucursal equivocada).
+  const idSucursal = sucursalDeReserva(reserva);
   const depOrigen  = idDepositoODefault(reserva.depDestino, cr.depositoReserva);
   const depDestino = idDepositoODefault(reserva.depOrigen,  cr.depositoPrincipal);
   if (!esIdDeposito(depOrigen) || !esIdDeposito(depDestino)) return { error: ERR_RESERVA_SIN_CONFIG };
@@ -4542,10 +5035,10 @@ async function ejecutarDevolucionReserva(plan, itemId) {
   const observacion = `${`Devolucion reserva plan ${plan.fecha || ''}${itemId == null ? '' : ` item ${itemId}`}`.trim()} dep ${depOrigen}->${depDestino}`.slice(0, 200);
   const r = await ejecutarYRegistrar({
     origen: 'devolucion', plan: plan.fecha || null, itemId,
-    idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
+    idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
     idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas
   }, () => trasladarStock(poolW, {
-    idSucursal: cr.idSucursal, depOrigen, depDestino,
+    idSucursal, depOrigen, depDestino,
     idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
     observacion,
     lineas: lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
@@ -4565,11 +5058,18 @@ async function ejecutarDevolucionReserva(plan, itemId) {
 
 app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha);
-  const cr    = cfgReserva();
+  const s     = await resolverSucursal(req.query.idSucursal);
+  if (s.error) return { error: s.error };
+  const cr    = s.cr;
   // Auto-reparación: antes de armar la respuesta se contrasta la reserva contra el log de
   // movimientos y, si hace falta, se corrige y se persiste el plan. Así un plan que quedó
   // marcado como reservado después de revertir sus movimientos desde el historial se
   // arregla solo al abrir el modal, sin tocar el JSON a mano.
+  // LIMITACIÓN CONOCIDA: planes.json está indexado SÓLO por fecha, no por fecha+sucursal.
+  // Hay un único plan por día para todas las sucursales, así que cambiar de sucursal no
+  // cambia el plan que se lee acá: lo único que distingue una sucursal de otra es la
+  // reserva, que congela la suya en reserva.idSucursal (ver sucursalDeReserva). Indexar por
+  // fecha+sucursal sería una migración del archivo y queda fuera de este cambio.
   const plan  = sincronizarPlanConLog(fecha).plan || { fecha, notas: '', items: [] };
   const { componentes, itemsSinFormula, sustituciones } = await componentesDePlan(plan.items || []);
 
@@ -4592,6 +5092,18 @@ app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
     ? deltaReserva(componentesPendientes(componentes, plan.items || []), plan.reserva)
     : [];
 
+  // La reserva activa puede ser de otra sucursal. Acá NO se falla (es sólo lectura): se
+  // informa para que la pantalla avise antes de intentar reservar, actualizar o devolver.
+  const sucReserva = reservaActiva ? sucursalDeReserva(plan.reserva) : null;
+  const sucursalDistinta = reservaActiva && sucReserva !== cr.idSucursal
+    ? { deLaReserva: sucReserva, pedida: cr.idSucursal } : null;
+
+  // Los IDs de depósito son POR sucursal: el preseleccionado de config puede no existir en
+  // la sucursal pedida. En ese caso la selección vuelve a null en vez de exponer un ID que
+  // no se puede usar.
+  const activos   = new Set(depositos.map(d => Number(d.IdDeposito)));
+  const depValido = d => (esIdDeposito(d) && activos.has(d) ? d : null);
+
   return {
     firma: {
       actual:    firmaPlanReserva(plan.items || []),
@@ -4608,7 +5120,9 @@ app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
       idDeposito: Number(d.IdDeposito), nombre: String(d.NombreDeposito || '').trim(),
       tipoDeposito: d.TipoDeposito, disponibleVenta: d.DisponibleVenta
     })),
-    seleccion: { depOrigen, depDestino: esIdDeposito(depDestino) ? depDestino : null },
+    seleccion: { depOrigen: depValido(depOrigen), depDestino: depValido(depDestino) },
+    // Presente sólo cuando la reserva activa es de otra sucursal (si no, null).
+    sucursalDistinta,
     componentes: componentes.map(c => {
       const s = stock.get(c.plu) || { origen: 0, destino: 0 };
       return {
@@ -4629,8 +5143,10 @@ app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
 
 app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha);
-  const cr    = cfgReserva();
   const b     = req.body || {};
+  const s     = await resolverSucursal(b.idSucursal);
+  if (s.error) return { error: s.error };
+  const cr    = s.cr;
 
   // Depósitos elegidos en el modal; si no vienen se usan los de config. Si vienen pero
   // son inválidos NO se cae al config: se avisa para no reservar en el depósito equivocado.
@@ -4647,6 +5163,9 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   if (!activos.has(depOrigen))  return { error: `El depósito de origen ${depOrigen} no existe o no está activo en la sucursal ${cr.idSucursal}` };
   if (!activos.has(depDestino)) return { error: `El depósito de destino ${depDestino} no existe o no está activo en la sucursal ${cr.idSucursal}` };
 
+  // planes.json está indexado sólo por fecha (un plan por día para TODAS las sucursales,
+  // ver el comentario en GET /api/plan/:fecha/reserva): lo único que ata el plan a una
+  // sucursal es su reserva.
   const planes   = leerJSON(PLANES_PATH, {});
   const guardado = planes[fecha];
   if (!guardado || !(guardado.items || []).length) return { error: 'El plan no tiene ítems para reservar' };
@@ -4656,6 +5175,11 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const sync = sincronizarReservaConLog(fecha, guardado);
   if (sync.cambio) { planes[fecha] = sync.plan; guardarJSON(PLANES_PATH, planes); }
   const plan = planes[fecha];
+  // Una reserva activa de otra sucursal bloquea todo: no se ejecuta ningún movimiento.
+  // Los depósitos y el stock son por sucursal, así que operar acá dejaría la mercadería
+  // en el lugar equivocado.
+  const errSucursal = chequearSucursalReserva(plan.reserva, cr.idSucursal);
+  if (errSucursal) return { error: errSucursal };
   // Con reserva activa no se vuelve a reservar, salvo que hayan cambiado las órdenes del
   // plan del día: en ese caso se ofrece actualizar la reserva moviendo sólo la diferencia.
   if (plan.reserva && plan.reserva.estado === 'activa') {
@@ -4670,7 +5194,24 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   }
 
   const { componentes } = await componentesDePlan(plan.items);
-  if (!componentes.length) return { error: 'Ningún ítem del plan tiene componentes de fórmula para reservar' };
+  if (!componentes.length) {
+    // Sin componentes puede ser porque el plan no tiene fórmulas, o porque TODOS los ítems
+    // con fórmula ya fueron producidos y recepcionados (produccionMovimiento). Se distingue
+    // recomputando los componentes de los ítems sellados sin el sello: si ahí sí hay
+    // componentes, el plan no está vacío, simplemente ya se produjo todo.
+    const producidos = (plan.items || []).filter(it => it && it.produccionMovimiento);
+    if (producidos.length) {
+      const sinSello = producidos.map(it => { const c = { ...it }; delete c.produccionMovimiento; return c; });
+      const { componentes: hip } = await componentesDePlan(sinSello);
+      if (hip.length) {
+        const num = (plan.produccionRegistrada && plan.produccionRegistrada.numeroMovimiento)
+          ?? producidos[0].produccionMovimiento.numeroMovimiento;
+        return { error: `Todos los productos del plan ya fueron producidos y recepcionados (movimiento #${num}). Agregá productos nuevos al plan para reservar.`,
+                 todoProducido: true };
+      }
+    }
+    return { error: 'Ningún ítem del plan tiene componentes de fórmula para reservar' };
+  }
 
   const stock = await stockDeComponentes(cr, componentes.map(c => c.plu), depOrigen, depDestino);
   // stockPrincipal se mantiene como alias de stockOrigen para no romper la UI vieja.
@@ -4704,7 +5245,9 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const lineas = componentes.map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: c.necesario, porItem: c.porItem }));
   plan.reserva = {
     numeroMovimiento: numero, fecha: new Date().toISOString(), usuario: cr.usuario, estado: 'activa',
-    depOrigen, depDestino, lineas, devoluciones: [],
+    // La sucursal queda congelada junto con los depósitos: devoluciones, ajustes y
+    // anulaciones se ejecutan con ésta, no con la que diga config.json más adelante.
+    idSucursal: cr.idSucursal, depOrigen, depDestino, lineas, devoluciones: [],
     // Órdenes del plan al momento de reservar: sirven para detectar cambios después.
     firma: firmaPlanReserva(plan.items), items: itemsFirmables(plan.items), ajustes: []
   };
@@ -4715,7 +5258,7 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
     { numeroMovimiento: numero, fecha: plan.reserva.fecha, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
     { limpiarDevuelta: true });
   guardarJSON(PLANES_PATH, planes);
-  return conLogError({ ok: true, numeroMovimiento: numero, depOrigen, depDestino, lineas, idRegistro: r.idRegistro }, r.logError);
+  return conLogError({ ok: true, numeroMovimiento: numero, idSucursal: cr.idSucursal, depOrigen, depDestino, lineas, idRegistro: r.idRegistro }, r.logError);
 }));
 
 // Pone la reserva al día cuando cambiaron las órdenes del plan: mueve sólo la diferencia
@@ -4723,8 +5266,10 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
 // reserva y otro de devolución en la misma llamada).
 app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   const fecha  = safeDate(req.params.fecha);
-  const cr     = cfgReserva();
   const b      = req.body || {};
+  const s      = await resolverSucursal(b.idSucursal);
+  if (s.error) return { error: s.error };
+  const cr     = s.cr;
   const planes = leerJSON(PLANES_PATH, {});
   const plan   = planes[fecha];
   if (!plan) return { error: 'Plan no encontrado' };
@@ -4733,6 +5278,11 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   if (!reserva || reserva.estado !== 'activa') {
     return { error: 'El plan no tiene una reserva activa; usá Reservar para crearla' };
   }
+  // Igual que al reservar: si la reserva es de otra sucursal no se mueve nada.
+  const errSucursal = chequearSucursalReserva(reserva, cr.idSucursal);
+  if (errSucursal) return { error: errSucursal };
+  // Los dos comprobantes del ajuste salen en la sucursal congelada en la reserva.
+  const crReserva = { ...cr, idSucursal: sucursalDeReserva(reserva) };
   const n = reserva.numeroMovimiento;
   const { hayCambios } = cambiosDelPlan(plan.items || [], reserva);
   if (!hayCambios) {
@@ -4769,7 +5319,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   const negativos = delta.filter(d => d.delta < 0);
 
   if (positivos.length) {
-    const stock = await stockDeComponentes(cr, positivos.map(d => d.plu), depOrigen, depDestino);
+    const stock = await stockDeComponentes(crReserva, positivos.map(d => d.plu), depOrigen, depDestino);
     const faltantes = positivos.map(d => {
       const s = stock.get(d.plu) || { origen: 0, destino: 0 };
       return { plu: d.plu, nombre: d.nombre, necesario: d.delta,
@@ -4782,7 +5332,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   }
 
   const poolW  = await getPoolStock();
-  const base   = { idSucursal: cr.idSucursal, idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado };
+  const base   = { idSucursal: crReserva.idSucursal, idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado };
   const ahora  = new Date().toISOString();
   const movimientos = [], ajustes = [], logErrores = [];
 
@@ -4806,7 +5356,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
     const observacion = `Ajuste reserva plan ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
-      idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
+      idSucursal: crReserva.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
       idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas: lineasMov
     }, () => trasladarStock(poolW, {
       ...base, depOrigen, depDestino, observacion,
@@ -4827,7 +5377,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
     const observacion = `Ajuste reserva plan ${fecha} devolucion dep ${depDestino}->${depOrigen}`.slice(0, 200);
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
-      idSucursal: cr.idSucursal, depOrigen: depDestino, depDestino: depOrigen, idEmpleado: cr.idEmpleado,
+      idSucursal: crReserva.idSucursal, depOrigen: depDestino, depDestino: depOrigen, idEmpleado: cr.idEmpleado,
       idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas: lineasMov
     }, () => trasladarStock(poolW, {
       ...base, depOrigen: depDestino, depDestino: depOrigen, observacion,
@@ -4857,6 +5407,13 @@ app.post('/api/plan/:fecha/reserva/devolver', apiRoute(async req => {
   const itemId = b.itemId == null || b.itemId === '' ? null : parseInt(b.itemId);
   if (itemId != null && !Number.isInteger(itemId)) return { error: 'itemId inválido' };
 
+  const s = await resolverSucursal(b.idSucursal);
+  if (s.error) return { error: s.error };
+  // La devolución se ejecuta con la sucursal de la reserva (ver ejecutarDevolucionReserva);
+  // si la pantalla está parada en otra, no se mueve nada y se avisa.
+  const errSucursal = chequearSucursalReserva(plan.reserva, s.idSucursal);
+  if (errSucursal) return { error: errSucursal };
+
   // El saldo por ítem se calcula ANTES de la devolución: después ya está todo devuelto.
   const reservaPrevia = plan.reserva;
   const r = await ejecutarDevolucionReserva(plan, itemId);
@@ -4873,6 +5430,599 @@ app.post('/api/plan/:fecha/reserva/devolver', apiRoute(async req => {
   }
   guardarJSON(PLANES_PATH, planes);
   return conLogError({ ok: true, numeroMovimiento: r.numeroMovimiento, lineas: r.lineas, idRegistro: r.idRegistro }, r.logError);
+}));
+
+// ── Conciliación: producción cargada vs reserva del día ────────────────────────
+// Pantalla de verificación previa al alta de producción. Cruza tres registros que hoy
+// viven separados: lo que se reservó (plan.reserva), lo que efectivamente se movió
+// (movimientos_stock.json) y lo que el operario declaró haber producido y consumido
+// (produccion_registros.json), para que las diferencias se vean ANTES de tocar stock.
+// ES SÓLO LECTURA: no ejecuta ningún movimiento. Lo único que escribe es la
+// sincronización de la reserva con el log, igual que GET /api/plan/:fecha/reserva.
+
+const RE_ROL_ENVASADO    = /envasad/i;
+const RE_NOMBRE_ETIQUETA = /^\s*etiquetas?\b/i;
+
+// Un registro puede traer varios PLU juntos ("2892, 2891"): se separan y se sanitizan.
+// 'ACT' (tarea extra) no tiene dígitos, así que devuelve [].
+function plusDeRegistro(valor) {
+  return String(valor ?? '').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean);
+}
+
+// Mismo criterio que el CSV de producción (exportTerminadosCSV): el rol tiene que ser
+// de envasado Y tener a alguien cargado. roles es la clave nueva; responsables, la vieja.
+function tieneRolEnvasado(reg) {
+  const roles = Array.isArray(reg && reg.roles) ? reg.roles
+              : (Array.isArray(reg && reg.responsables) ? reg.responsables : []);
+  return roles.some(x => RE_ROL_ENVASADO.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
+}
+
+// Motivo por el que un registro NO entra al alta de producción, o null si entra.
+function motivoExclusionRegistro(reg) {
+  if (String((reg && reg.plu) || '').trim().toUpperCase() === 'ACT') return 'tarea-extra';
+  if (!tieneRolEnvasado(reg)) return 'sin-rol-envasado';
+  return null;
+}
+
+// graneles es la clave nueva (varios por registro); si viene vacía manda el par suelto
+// granel/nombreGranel/granelConsumido, que es como se cargaban antes.
+function granelesDeRegistro(reg) {
+  if (Array.isArray(reg && reg.graneles) && reg.graneles.length) return reg.graneles;
+  if (reg && reg.nombreGranel) {
+    return [{ granel: reg.granel || null, nombreGranel: reg.nombreGranel, granelConsumido: reg.granelConsumido }];
+  }
+  return [];
+}
+
+// Un granel cargado sin PLU sólo se puede resolver por nombre contra la fórmula del
+// producto. Se compara sin distinguir mayúsculas ni espacios de más.
+function pluComponentePorNombre(comps, nombre) {
+  const buscado = String(nombre || '').trim().toLowerCase();
+  if (!buscado) return '';
+  const c = (comps || []).find(x => String(x.nombre || '').trim().toLowerCase() === buscado);
+  return c ? c.plu : '';
+}
+
+// Etiqueta de la fórmula, con la misma regla que usa el CSV: rubro que contenga ETIQUET
+// o nombre que empiece con "Etiqueta".
+function etiquetaDeFormula(comps) {
+  return (comps || []).find(c =>
+    String(c.rubro || '').toUpperCase().includes('ETIQUET') || RE_NOMBRE_ETIQUETA.test(String(c.nombre || ''))
+  ) || null;
+}
+
+// Tipo de un componente que quedó reservado y no se usó: no pasó por ningún registro de
+// producción, así que sólo se lo puede clasificar por el nombre. null = no se pudo.
+function tipoComponentePorNombre(nombre) {
+  const t = tiposPackaging(nombre, '');
+  if (t.esTapa)   return 'tapa';
+  if (t.esEnvase) return 'envase';
+  if (RE_NOMBRE_ETIQUETA.test(String(nombre || '')) || String(nombre || '').toUpperCase().includes('ETIQUET')) return 'etiqueta';
+  return null;
+}
+
+function filaComponente(plu, nombre, tipo, reservado, usado) {
+  const res = redondear4(reservado), uso = redondear4(usado);
+  const diferencia = redondear4(uso - res);
+  return { plu: plu || null, nombre: String(nombre || ''), tipo,
+           reservado: res, usado: uso, diferencia,
+           falta: diferencia > 0, sobra: diferencia < 0 };
+}
+
+// Consumo real declarado por los registros que entran al alta, agregado por componente.
+// formulas es el Map padre → componentes de fórmula activa (puede venir vacío si SiGA no
+// respondió: en ese caso no hay etiquetas y los graneles sin PLU quedan sin resolver).
+// Devuelve { componentes: Map, avisos: [] }.
+function consumoRealDeRegistros(incluidos, formulas) {
+  const usados = new Map(), avisos = [];
+  const sumar = (plu, nombre, tipo, cantidad) => {
+    // Cantidad 0 (o negativa) no se acumula: es un componente que el operario puso en cero,
+    // el mismo criterio con el que el CSV lo omite.
+    if (!(cantidad > 0)) return;
+    const clave = plu ? `plu:${plu}` : `nombre:${String(nombre || '').trim().toLowerCase()}`;
+    const e = usados.get(clave) || { plu: plu || null, nombre: String(nombre || ''), tipo, usado: 0 };
+    e.usado = redondear4(e.usado + cantidad);
+    if (!e.nombre) e.nombre = String(nombre || '');
+    usados.set(clave, e);
+  };
+
+  for (const reg of incluidos) {
+    const cant     = Number(reg.cantFraccionada) || 0;
+    const pluProd  = plusDeRegistro(reg.plu)[0] || null;
+    const comps    = (pluProd && formulas.get(pluProd)) || [];
+    const etiqueta = String(reg.nombre || reg.plu || 'sin nombre');
+
+    for (const g of granelesDeRegistro(reg)) {
+      const consumido    = Number(g && g.granelConsumido) || 0;
+      const nombreGranel = String((g && g.nombreGranel) || '').trim();
+      if (!consumido) continue;
+      const pluGranel = String((g && g.granel) ?? '').replace(/\D/g, '') || pluComponentePorNombre(comps, nombreGranel);
+      if (!pluGranel) {
+        avisos.push(`Granel sin PLU: "${nombreGranel || 'sin nombre'}" (${consumido}) en ${etiqueta}. `
+                  + 'No se puede dar de baja hasta identificarlo.');
+      }
+      sumar(pluGranel || null, nombreGranel || 'Granel sin identificar', 'granel', consumido);
+    }
+
+    // Envase y tapa se eligen al cargar la producción: 1 por unidad producida.
+    if (reg.envase) sumar(String(reg.envase).replace(/\D/g, '') || null, reg.envaseNombre || `PLU ${reg.envase}`, 'envase', cant);
+    if (reg.tapa)   sumar(String(reg.tapa).replace(/\D/g, '')   || null, reg.tapaNombre   || `PLU ${reg.tapa}`,   'tapa',   cant);
+
+    const et = etiquetaDeFormula(comps);
+    if (et) sumar(et.plu, et.nombre, 'etiqueta', redondear4(cant * (Number(et.cantPorUnidad) || 1)));
+    else if (comps.length) avisos.push(`La fórmula de ${etiqueta} no tiene etiqueta: no se descuenta ninguna.`);
+  }
+  return { componentes: usados, avisos };
+}
+
+// Productos de la fecha agrupados para el alta. Los excluidos NO se esconden: se
+// devuelven marcados con su motivo para que la pantalla muestre qué queda afuera.
+// La clave incluye el motivo: un mismo PLU con registros incluidos y excluidos da dos
+// filas, porque sólo una de las dos cantidades se va a dar de alta.
+function productosDeConciliacion(registros) {
+  const grupos = new Map();
+  for (const reg of registros) {
+    const pluTexto = String(reg.plu ?? '').trim();
+    const plus     = plusDeRegistro(pluTexto);
+    const excluido = motivoExclusionRegistro(reg);
+    const clave    = `${pluTexto || `sin-plu-${reg.id}`}|${excluido || 'alta'}`;
+    const g = grupos.get(clave) || {
+      plu: plus[0] || null, pluTexto, plus, nombre: String(reg.nombre || '').trim(),
+      cantidad: 0, registros: 0, excluido, detalle: []
+    };
+    if (!g.nombre) g.nombre = String(reg.nombre || '').trim();
+    g.cantidad  = redondear4(g.cantidad + (Number(reg.cantFraccionada) || 0));
+    g.registros += 1;
+    // Detalle por registro individual (id + cantidad): sirve para separar lo ya registrado
+    // de lo pendiente cuando una misma fecha se registra en varias tandas.
+    g.detalle.push({ id: reg.id, cant: Number(reg.cantFraccionada) || 0 });
+    grupos.set(clave, g);
+  }
+  return [...grupos.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
+// idSucursal es la sucursal en la que está parada la pantalla: la conciliación es sólo
+// lectura, así que no filtra nada, pero avisa si la reserva del día es de otra sucursal
+// (planes.json tiene un único plan por fecha para todas: ver GET /api/plan/:fecha/reserva).
+async function conciliacionProduccion(fecha, idSucursal) {
+  const avisos    = [];
+  const registros = leerJSON(PROD_REG_PATH, []).filter(r => r && r.fecha === fecha);
+  if (!registros.length) avisos.push(`No hay producción cargada para el ${fecha}.`);
+
+  // Asientos ya registrados de esta fecha: mapa registroId → { numeroMovimiento, fecha } para
+  // marcar los productos y NO volver a descontar sus componentes. Se lee el plan una sola vez
+  // acá (la reserva se sincroniza más abajo con la MISMA referencia).
+  const planes = leerJSON(PLANES_PATH, {});
+  let plan     = planes[fecha] || null;
+  const regInfo = new Map();
+  for (const a of asientosProduccion(plan)) {
+    const lista = (Array.isArray(a.registros) && a.registros.length) ? a.registros : registros.map(r => r.id);
+    for (const rid of lista) if (!regInfo.has(String(rid))) regInfo.set(String(rid), { numeroMovimiento: a.numeroMovimiento ?? null, fecha: a.fecha ?? null });
+  }
+  const estaRegistrado = r => regInfo.has(String(r.id));
+
+  const productos = productosDeConciliacion(registros);
+  // Marca de cada producto según sus registros: si TODOS están asentados → yaRegistrado; si sólo
+  // algunos → parcial (y la cantidad pasa a ser sólo lo pendiente). Los ya registrados no
+  // vuelven a aportar cantidad al alta ni sus componentes al descuento.
+  for (const p of productos) {
+    if (p.excluido) continue;
+    const det = Array.isArray(p.detalle) ? p.detalle : [];
+    const reg = det.filter(d => regInfo.has(String(d.id)));
+    const pen = det.filter(d => !regInfo.has(String(d.id)));
+    if (!reg.length) continue;
+    const info = regInfo.get(String(reg[0].id)) || {};
+    const asiento = { numeroMovimiento: info.numeroMovimiento ?? null, fecha: info.fecha ?? null };
+    if (!pen.length) {
+      p.yaRegistrado = asiento;
+    } else {
+      p.parcial = { ...asiento, cantidadRegistrada: redondear4(reg.reduce((s, d) => s + d.cant, 0)), registros: reg.length };
+      p.cantidad  = redondear4(pen.reduce((s, d) => s + d.cant, 0));
+      p.registros = pen.length;
+    }
+  }
+
+  const incluidos = registros.filter(r => !motivoExclusionRegistro(r) && !estaRegistrado(r));
+  const extras    = registros.filter(r => motivoExclusionRegistro(r) === 'tarea-extra').length;
+  const sinRol    = registros.filter(r => motivoExclusionRegistro(r) === 'sin-rol-envasado').length;
+  if (extras) avisos.push(`${extras} registro(s) son tareas extra (ACT): no dan de alta ningún producto.`);
+  if (sinRol) avisos.push(`${sinRol} registro(s) no tienen el rol Envasado cargado y quedan fuera del alta.`);
+  for (const p of productos) {
+    if (p.plus.length > 1) {
+      avisos.push(`El producto "${p.nombre || p.pluTexto}" tiene varios PLU cargados (${p.pluTexto}): `
+                + `se usa ${p.plu} para la fórmula. Verificá cuál corresponde antes de dar el alta.`);
+    } else if (!p.plu && !p.excluido) {
+      avisos.push(`El producto "${p.nombre || p.pluTexto || 'sin nombre'}" no tiene un PLU numérico: no se puede dar de alta.`);
+    }
+  }
+
+  // Fórmula activa de los productos que sí entran al alta: de ahí salen la etiqueta y el
+  // PLU de los graneles cargados sólo por nombre. Si SiGA no responde la pantalla igual
+  // se arma, con un aviso: el resto de la conciliación no depende de la base.
+  let formulas = new Map();
+  const plusFormula = [...new Set(incluidos.map(r => plusDeRegistro(r.plu)[0]).filter(Boolean))];
+  if (plusFormula.length) {
+    try { formulas = await componentesFormulaPorPadre(plusFormula); }
+    catch (e) { avisos.push(`No se pudo consultar la fórmula en SiGA (${e.message}): las etiquetas quedaron fuera de la conciliación.`); }
+  }
+
+  const consumo = consumoRealDeRegistros(incluidos, formulas);
+  avisos.push(...consumo.avisos);
+
+  // La reserva se pone al día contra el log antes de comparar: si los movimientos se
+  // revirtieron desde el historial, el saldo que muestra el plan no es el real. (plan/planes
+  // ya se leyeron arriba para la marca de producción registrada.)
+  let reserva  = plan && plan.reserva ? plan.reserva : null;
+  if (plan) {
+    const sync = sincronizarReservaConLog(fecha, plan);
+    if (sync.cambio) {
+      guardarJSON(PLANES_PATH, { ...planes, [fecha]: sync.plan });
+      plan    = sync.plan;
+      reserva = sync.plan.reserva || null;
+    }
+  }
+  if (!plan)         avisos.push(`No hay plan cargado para el ${fecha}: no hay reserva contra la cual conciliar.`);
+  else if (!reserva) avisos.push(`El plan del ${fecha} no tiene reserva: todo el consumo figura como no reservado.`);
+  else if (reserva.estado !== 'activa') {
+    avisos.push(`La reserva del ${fecha} está ${reserva.estado}: no queda nada reservado y todo el consumo figura como no reservado.`);
+  }
+  if (reserva && reserva.desincronizada) {
+    avisos.push('La reserva está desincronizada con el log de movimientos: revisá el saldo antes de dar de alta la producción.');
+  }
+  const sucReserva = reserva ? sucursalDeReserva(reserva) : null;
+  const sucursalPedida = Number(idSucursal) || null;
+  const sucursalDistinta = reserva && reserva.estado === 'activa' && sucursalPedida != null && sucReserva !== sucursalPedida
+    ? { deLaReserva: sucReserva, pedida: sucursalPedida } : null;
+  if (sucursalDistinta) {
+    avisos.push(`La reserva del ${fecha} es de la sucursal ${sucReserva} y estás trabajando sobre la sucursal ${sucursalPedida}: `
+              + 'cambiá a esa sucursal para devolver o ajustar lo reservado.');
+  }
+
+  // Sólo una reserva activa tiene stock realmente apartado en el depósito de reserva.
+  const saldo     = reserva && reserva.estado === 'activa' ? saldoReserva(reserva) : [];
+  const reservado = new Map(saldo.map(l => [String(l.plu), redondear4(l.cantidad)]));
+
+  const componentes = [], conUso = new Set();
+  for (const u of consumo.componentes.values()) {
+    if (u.plu) conUso.add(u.plu);
+    componentes.push(filaComponente(u.plu, u.nombre, u.tipo, u.plu ? (reservado.get(u.plu) || 0) : 0, u.usado));
+  }
+  // Reservado y no usado: sobra entero, hay que devolverlo al depósito principal.
+  for (const l of saldo) {
+    const plu = String(l.plu);
+    if (conUso.has(plu)) continue;
+    componentes.push(filaComponente(plu, l.nombre, tipoComponentePorNombre(l.nombre), l.cantidad, 0));
+  }
+  componentes.sort((a, b) => String(a.tipo || 'zz').localeCompare(String(b.tipo || 'zz')) || a.nombre.localeCompare(b.nombre));
+
+  const movimientos = leerMovLog()
+    .filter(r => r && r.plan === fecha)
+    .map(r => ({
+      id: r.id, numeroMovimiento: r.numeroMovimiento ?? null, origen: r.origen,
+      fechaHora: r.fechaHora, estado: r.estado,
+      depOrigen: r.depOrigen ?? null, depDestino: r.depDestino ?? null,
+      lineas: (r.lineas || []).map(l => ({
+        plu: String(l.plu), nombre: l.nombre == null ? '' : String(l.nombre), cantidad: redondear4(l.cantidad)
+      })),
+      revertido: !!r.revertidoPor, revierteA: r.revierteA || null
+    }))
+    .reverse();   // el log se escribe con el más nuevo al final
+  const pendientes = movimientos.filter(m => m.estado === 'pendiente').length;
+  const fallidos   = movimientos.filter(m => m.estado === 'fallido').length;
+  if (pendientes) {
+    avisos.push(`Hay ${pendientes} movimiento(s) en estado pendiente para esta fecha: verificá a mano en SiGA si se ejecutaron antes de seguir.`);
+  }
+  if (fallidos) avisos.push(`Hay ${fallidos} movimiento(s) fallidos en el log de esta fecha (informativo: no movieron stock).`);
+
+  const sinReservar = componentes.filter(c => c.reservado === 0 && c.usado > 0).length;
+  if (sinReservar) avisos.push(`${sinReservar} componente(s) se consumieron sin estar reservados.`);
+
+  // Productos ya registrados (total o parcialmente): se avisa cuántos y con qué comprobante,
+  // y se calcula si queda algo pendiente de registrar (para bloquear exportar/registrar).
+  const yaRegistrados = productos.filter(p => !p.excluido && p.yaRegistrado);
+  const parciales     = productos.filter(p => !p.excluido && p.parcial);
+  if (yaRegistrados.length || parciales.length) {
+    const nums = [...new Set([...yaRegistrados.map(p => p.yaRegistrado.numeroMovimiento),
+                              ...parciales.map(p => p.parcial.numeroMovimiento)].filter(n => n != null))];
+    const compTxt = nums.length ? ` (movimiento${nums.length > 1 ? 's' : ''} #${nums.join(', #')})` : '';
+    if (yaRegistrados.length) avisos.push(`${yaRegistrados.length} producto(s) ya fueron registrados${compTxt} y no se vuelven a descontar.`);
+    if (parciales.length)     avisos.push(`${parciales.length} producto(s) tienen parte ya registrada${compTxt}: sólo se registrará lo pendiente.`);
+  }
+  // Hay algo pendiente si algún producto NO excluido todavía no quedó totalmente registrado.
+  const pendienteDeRegistrar = productos.some(p => !p.excluido && !p.yaRegistrado);
+
+  // Depósitos de la sucursal en la que está parada la pantalla: el modal elige de dónde salen
+  // los componentes no reservados (y a dónde vuelve el sobrante) y a dónde entran los
+  // terminados. Los IDs son POR sucursal, así que un default de config que no exista en esta
+  // sucursal se descarta en vez de exponer un ID que no se puede usar. Si SiGA no responde la
+  // lista queda vacía y los defaults se devuelven igual: la conciliación no depende de esto.
+  const cr = cfgReserva();
+  const cp = cfgProduccion();
+  let depositos = [];
+  try { depositos = await depositosActivos(sucursalPedida || cr.idSucursal); }
+  catch (e) { avisos.push(`No se pudieron consultar los depósitos en SiGA (${e.message}): elegilos a mano antes de registrar.`); }
+  const activos   = new Set(depositos.map(d => Number(d.IdDeposito)));
+  const depValido = v => {
+    const n = Number(v);
+    if (!esIdDeposito(n)) return null;
+    return (depositos.length && !activos.has(n)) ? null : n;
+  };
+
+  return {
+    fecha,
+    idSucursal: sucursalPedida,
+    // Presente sólo cuando la reserva activa es de otra sucursal (si no, null).
+    sucursalDistinta,
+    reserva: {
+      existe: !!reserva,
+      estado: reserva ? reserva.estado : null,
+      numeroMovimiento: reserva ? (reserva.numeroMovimiento ?? null) : null,
+      idSucursal: sucReserva,
+      depOrigen:  reserva ? (reserva.depOrigen  ?? null) : null,
+      depDestino: reserva ? (reserva.depDestino ?? null) : null,
+      desincronizada: (reserva && reserva.desincronizada) || null,
+      movimientos,
+      saldo: saldo.map(l => ({ plu: String(l.plu), nombre: String(l.nombre || ''), cantidad: redondear4(l.cantidad) }))
+    },
+    productos,
+    componentes,
+    // Depósitos elegibles de la sucursal + la preselección que propone el servidor.
+    depositos: depositos.map(d => ({
+      idDeposito: Number(d.IdDeposito), nombre: String(d.NombreDeposito || '').trim(),
+      tipoDeposito: d.TipoDeposito, disponibleVenta: d.DisponibleVenta
+    })),
+    seleccion: {
+      depSalida:    depValido(cr.depositoPrincipal),
+      depRecepcion: depValido(cp.depositoTerminados ?? cr.depositoPrincipal),
+      // A dónde vuelve la diferencia entre lo reservado y lo realmente consumido. Por defecto
+      // el mismo depósito de salida: sin tocar nada, el circuito queda como estaba.
+      depDiferencias: depValido(cr.depositoPrincipal),
+      // El depósito donde la mercadería está físicamente apartada: no se elige, sale de la
+      // reserva del plan (o de config si todavía no hay reserva). Puede ser null.
+      depReserva:   idDepositoODefault(reserva && reserva.depDestino, cr.depositoReserva)
+    },
+    // Marca del alta de producción de esta fecha (o null): con esto la pantalla deshabilita
+    // el botón de registrar el movimiento y muestra con qué comprobante se registró.
+    produccionRegistrada: (plan && plan.produccionRegistrada) || null,
+    // false = todo lo de la fecha ya fue registrado: la pantalla bloquea exportar y registrar.
+    pendienteDeRegistrar,
+    totales: {
+      productos:          productos.filter(p => !p.excluido).length,
+      productosExcluidos: productos.filter(p =>  p.excluido).length,
+      componentes:        componentes.length,
+      conDiferencia:      componentes.filter(c => c.diferencia !== 0).length,
+      sinReservar
+    },
+    avisos
+  };
+}
+
+app.get('/api/produccion/:fecha/conciliacion', apiRoute(async req => {
+  const s = await resolverSucursal(req.query.idSucursal);
+  if (s.error) return { error: s.error };
+  return conciliacionProduccion(safeDate(req.params.fecha), s.idSucursal);
+}));
+
+// ── Alta de producción: el movimiento de stock ─────────────────────────────────
+// Depósitos del circuito, con los tres que se eligen en la pantalla:
+//   · salida      → de dónde salen los componentes que NO cubre la reserva. Default: depOrigen
+//                   de la reserva y, si no hay reserva viva, reserva.depositoPrincipal.
+//   · recepcion   → dónde ENTRAN los productos terminados. Default: produccion.depositoTerminados
+//                   y, si no está configurado, el mismo depósito de salida.
+//   · diferencias → a dónde vuelve la diferencia entre lo reservado y lo consumido (el sobrante).
+//                   Default: el depósito de salida, que es como funcionaba antes.
+//   · reserva     → dónde está físicamente lo apartado (depDestino de la reserva del plan). NO se
+//                   elige: lo reservado sale de donde realmente está. Sin reserva viva cae a
+//                   reserva.depositoReserva de config.json y puede quedar en null.
+function depositosProduccion(cp, cr, reserva, elegidos) {
+  const e           = elegidos || {};
+  const salida      = idDepositoODefault(e.depSalida, idDepositoODefault(reserva && reserva.depOrigen, cr.depositoPrincipal));
+  const recepcion   = idDepositoODefault(e.depRecepcion, cp.depositoTerminados || salida);
+  const diferencias = idDepositoODefault(e.depDiferencias, salida);
+  return { salida, recepcion, diferencias, reserva: idDepositoODefault(reserva && reserva.depDestino, cr.depositoReserva) };
+}
+
+// Líneas del comprobante de producción a partir de la conciliación. Cada línea lleva su
+// signo y su depósito:
+//   · terminados     → +cantidad en el depósito de RECEPCIÓN (los excluidos no se dan de alta)
+//   · consumo        → −usado, primero contra lo que había reservado (depósito de reserva, que
+//                      es donde la mercadería está físicamente) y el excedente contra el
+//                      depósito de SALIDA: un componente puede dar DOS líneas negativas en
+//                      depósitos distintos.
+//   · sobrante       → la diferencia entre lo reservado y lo consumido vuelve: −en reserva y
+//                      +en el depósito de DIFERENCIAS elegido.
+// Los componentes sin PLU resoluble no se pueden mover y salen aparte en `sinPlu`.
+// Función pura: no toca SQL ni archivos.
+function lineasProduccionDesdeConciliacion(c, deps) {
+  const lineas = [], sinPlu = [];
+  let terminados = 0, componentes = 0, ajustes = 0;
+
+  for (const p of (c.productos || [])) {
+    // Excluidos no se dan de alta; los ya registrados tampoco (no se vuelven a mover). Los
+    // parciales llegan con `cantidad` = sólo lo pendiente, así que se registran normal.
+    if (p.excluido || p.yaRegistrado) continue;
+    const cantidad = redondear4(p.cantidad);
+    if (!(cantidad > 0)) continue;
+    if (!p.plu) { sinPlu.push({ tipo: 'producto', nombre: p.nombre || p.pluTexto || 'sin nombre', cantidad }); continue; }
+    lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.recepcion, cantidad, concepto: 'terminado' });
+    terminados++;
+  }
+
+  for (const comp of (c.componentes || [])) {
+    const usado = redondear4(comp.usado), reservado = redondear4(comp.reservado);
+    if (!(usado > 0) && !(reservado > 0)) continue;
+    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
+    const base        = { idProducto: String(comp.plu), nombre: comp.nombre || '' };
+    const deReserva = redondear4(Math.min(usado, reservado));        // consumido contra lo apartado
+    const deSalida  = redondear4(Math.max(0, usado - reservado));    // faltante: sale del depósito elegido
+    const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más: vuelve al de diferencias
+
+    if (deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
+    if (deSalida  > 0) { lineas.push({ ...base, idDeposito: deps.salida,  cantidad: -deSalida,  concepto: 'consumo-salida'  }); componentes++; }
+    if (sobrante > 0) {
+      lineas.push({ ...base, idDeposito: deps.reserva,     cantidad: -sobrante, concepto: 'sobrante-desde-reserva' });
+      lineas.push({ ...base, idDeposito: deps.diferencias, cantidad:  sobrante, concepto: 'sobrante-a-diferencias' });
+      ajustes++;
+    }
+  }
+  return { lineas, sinPlu, resumen: { terminados, componentes, ajustes } };
+}
+
+// Registra la producción de una fecha como UN comprobante de stock en SiGA: da de alta los
+// terminados y de baja los componentes realmente consumidos, según la conciliación.
+// El tipo es BIENESUSO (el único habilitado para escritura) y no es el tipo semánticamente
+// correcto para una producción: lo que identifica estos comprobantes es la OBSERVACIÓN
+// (produccion.observacion en config.json + la fecha), que es por donde se los filtra en SiGA.
+// Body: { idSucursal?, confirmar: true, omitirSinPlu?: true, depSalida?, depRecepcion?, depDiferencias? }
+app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
+  const fecha = safeDate(req.params.fecha);
+  const b     = req.body || {};
+  // Doble confirmación explícita: este endpoint escribe stock real y no es idempotente.
+  if (b.confirmar !== true) return { error: 'Falta confirmar el movimiento' };
+
+  const s = await resolverSucursal(b.idSucursal);
+  if (s.error) return { error: s.error };
+  const cr = s.cr;
+  const cp = cfgProduccion();
+  if (!TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.includes(cp.idTipoMovimiento)) {
+    return { error: `idTipoMovimiento inválido (produccion.idTipoMovimiento en config.json). `
+                  + `Permitidos: ${TIPOS_MOVIMIENTO_STOCK_PERMITIDOS.join(', ')}` };
+  }
+
+  // El plan previo se usa para la reserva; el bloqueo por "ya registrado" pasó a evaluarse
+  // sobre la conciliación (per-registro), porque una carga nueva del mismo día debe poder
+  // registrarse aunque la fecha ya tenga un asiento previo.
+  const planPrevio = leerJSON(PLANES_PATH, {})[fecha] || null;
+  // Una reserva activa de otra sucursal bloquea todo: los depósitos y el stock son por
+  // sucursal y el consumo saldría del lugar equivocado.
+  const errSucursal = chequearSucursalReserva(planPrevio && planPrevio.reserva, cr.idSucursal);
+  if (errSucursal) return { error: errSucursal };
+
+  // Depósitos elegidos en la pantalla. Se validan contra la sucursal ANTES de calcular o
+  // escribir nada: los IDs son por sucursal y un depósito de otra movería stock donde no va.
+  // Si no vienen se usan los defaults de siempre (config + reserva del plan).
+  const vino = v => v !== undefined && v !== null && v !== '';
+  const elegidos = { depSalida: b.depSalida, depRecepcion: b.depRecepcion, depDiferencias: b.depDiferencias };
+  if (vino(b.depSalida) || vino(b.depRecepcion) || vino(b.depDiferencias)) {
+    const activos = new Set((await depositosActivos(cr.idSucursal)).map(d => Number(d.IdDeposito)));
+    const valido  = v => esIdDeposito(Number(v)) && activos.has(Number(v));
+    if (vino(b.depSalida)      && !valido(b.depSalida))      return { error: 'Depósito de salida inválido' };
+    if (vino(b.depRecepcion)   && !valido(b.depRecepcion))   return { error: 'Depósito de recepción inválido' };
+    if (vino(b.depDiferencias) && !valido(b.depDiferencias)) return { error: 'Depósito de diferencias inválido' };
+  }
+
+  const c = await conciliacionProduccion(fecha, cr.idSucursal);
+  const hayProductos = (c.productos || []).some(p => !p.excluido);
+  if (!hayProductos && !(c.componentes || []).length) {
+    return { error: `No hay producción cargada para el ${fecha}: no hay nada que registrar` };
+  }
+  // Si no queda nada pendiente, toda la producción de la fecha ya fue registrada: no se escribe
+  // nada (volver a hacerlo duplicaría el descuento en SiGA).
+  if (c.pendienteDeRegistrar === false) {
+    const num = c.produccionRegistrada ? (c.produccionRegistrada.numeroMovimiento ?? null) : null;
+    return { error: `Toda la producción del ${fecha} ya fue registrada${num != null ? ` (movimiento #${num})` : ''}`,
+             yaRegistrado: true, numeroMovimiento: num };
+  }
+  // Registros de producción que aporta ESTE movimiento: los pendientes de la fecha, con rol de
+  // envasado y PLU resoluble (los sin PLU se omiten y quedan pendientes para corregirlos). Se
+  // guardan en el asiento para que la reversión devuelva sólo estos a "pendiente".
+  const registrosFecha  = leerJSON(PROD_REG_PATH, []).filter(r => r && r.fecha === fecha);
+  const yaAsentados     = registrosYaRegistrados(planPrevio, registrosFecha);
+  const idsRegistrados  = registrosFecha
+    .filter(r => !motivoExclusionRegistro(r) && !yaAsentados.has(String(r.id)) && plusDeRegistro(r.plu)[0])
+    .map(r => r.id);
+  // Un movimiento en 'pendiente' significa que no se sabe si llegó a ejecutarse en SiGA:
+  // registrar encima duplicaría el consumo.
+  const pendientes = ((c.reserva && c.reserva.movimientos) || []).filter(m => m.estado === 'pendiente');
+  if (pendientes.length) {
+    return { error: `Hay ${pendientes.length} movimiento(s) en estado pendiente para el ${fecha}: `
+                  + 'verificá a mano en SiGA si se ejecutaron y resolvelos antes de registrar la producción.',
+             pendientes: pendientes.map(m => m.id) };
+  }
+
+  const deps = depositosProduccion(cp, cr, c.reserva, elegidos);
+  const { lineas, sinPlu, resumen } = lineasProduccionDesdeConciliacion(c, deps);
+
+  // Sin PLU no hay forma de mover el stock: o se aborta, o el operador acepta explícitamente
+  // dejarlos afuera (y se informan en la respuesta para corregirlos después).
+  if (sinPlu.length && b.omitirSinPlu !== true) {
+    return { error: `Hay ${sinPlu.length} componente(s)/producto(s) sin PLU: no se pueden mover. `
+                  + 'Corregilos o volvé a enviar con omitirSinPlu para dejarlos afuera.',
+             sinPlu };
+  }
+  if (!lineas.length) return { error: 'No quedó ninguna línea para mover' };
+  // Defensa: sin depósito de reserva configurado ni reserva viva, una línea de consumo
+  // reservado quedaría sin depósito. Antes de escribir, todas las líneas tienen que tenerlo.
+  const sinDeposito = lineas.filter(l => !esIdDeposito(Number(l.idDeposito)));
+  if (sinDeposito.length) {
+    return { error: 'No se pudo determinar el depósito de todas las líneas '
+                  + '(elegí el depósito de salida y el de recepción, y revisá reserva.depositoReserva en config.json)',
+             sinDeposito: sinDeposito.map(l => ({ plu: l.idProducto, concepto: l.concepto })) };
+  }
+
+  // La observación es la marca que identifica estos comprobantes en SiGA.
+  const observacion = `${cp.observacion} ${fecha}`.trim().slice(0, 200);
+  const poolW = await getPoolStock();
+  const r = await ejecutarYRegistrar({
+    origen: 'produccion', plan: fecha, itemId: null,
+    idSucursal: cr.idSucursal,
+    // La cabecera de un movimiento multi-depósito es sólo referencia (de dónde salió y a
+    // dónde entró la mayor parte): el depósito real de cada renglón va EN LA LÍNEA.
+    depOrigen: deps.reserva || deps.salida, depDestino: deps.recepcion,
+    idUbicacion: null, idEmpleado: cr.idEmpleado,
+    idTipoMovimiento: cp.idTipoMovimiento, usuario: cr.usuario, observacion,
+    lineas: lineas.map(l => ({ plu: l.idProducto, nombre: l.nombre || null, cantidad: l.cantidad, idDeposito: l.idDeposito }))
+  }, () => registrarMovimientoMultilinea(poolW, {
+    idSucursal: cr.idSucursal, idTipoMovimiento: cp.idTipoMovimiento,
+    usuario: cr.usuario, idEmpleado: cr.idEmpleado, observacion,
+    lineas: lineas.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
+  }));
+
+  // Marca en el plan para que no se registre dos veces. Si el plan no existe el movimiento
+  // ya se hizo igual: se avisa y queda el rastro en el log, que es el registro de verdad.
+  let errMarca = null, avisoMarca = null;
+  try {
+    const planes     = leerJSON(PLANES_PATH, {});
+    const planActual = planes[fecha];
+    if (!planActual) {
+      avisoMarca = `No hay plan cargado para el ${fecha}: el movimiento se registró igual, pero el plan no lleva la marca `
+                 + 'de producción registrada (el rastro queda en el log de movimientos).';
+    } else {
+      // Se acumula un asiento nuevo sobre los que ya tenía el plan (una fecha se puede
+      // registrar en varias tandas). Los campos sueltos duplican el último asiento para no
+      // romper a quien lee produccionRegistrada.numeroMovimiento directo.
+      const asientoNuevo = {
+        numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(),
+        idRegistro: r.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal,
+        registros: idsRegistrados
+      };
+      const asientos = [...asientosProduccion(planActual), asientoNuevo];
+      const produccionRegistrada = { ...asientoNuevo, asientos };
+      // Estado terminal por ítem: los ítems del plan cuyo producto (idProducto o, si es
+      // granel, idGranel) esté entre los PLU producidos por ESTE asiento quedan sellados con
+      // produccionMovimiento. El sello persiste aunque la reserva se anule; sólo se quita al
+      // revertir este movimiento (limpiarProduccionRegistrada). Sólo se sellan los ítems que
+      // cubren los registros de este asiento y que no estén ya sellados por uno anterior.
+      const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id));
+      const plusProducidos = new Set(registrosDelAsiento.flatMap(rr => plusDeRegistro(rr.plu)));
+      const sello = { numeroMovimiento: r.numeroMovimiento, fecha: asientoNuevo.fecha, idRegistro: r.idRegistro };
+      const items = (planActual.items || []).map(it => {
+        if (!it || it.produccionMovimiento) return it;
+        const plu = String(it.idProducto ?? it.idGranel ?? '').replace(/\D/g, '');
+        if (!plu || !plusProducidos.has(plu)) return it;
+        return { ...it, produccionMovimiento: sello };
+      });
+      guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...planActual, produccionRegistrada, items } });
+    }
+  } catch (e) { errMarca = `No se pudo marcar el plan ${fecha} como registrado: ${e.message}`; }
+
+  const resp = {
+    ok: true, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro,
+    idSucursal: cr.idSucursal, observacion, depositos: deps, lineas, resumen,
+    ...(sinPlu.length ? { omitidosSinPlu: sinPlu } : {}),
+    ...(avisoMarca ? { aviso: avisoMarca } : {})
+  };
+  return conLogError(resp, r.logError, errMarca);
 }));
 
 // ── Precios de Proveedores ─────────────────────────────────────────────────────
@@ -5144,6 +6294,7 @@ app.get('/api/precios-proveedores/proveedores/:id/comparacion', apiRoute(async (
 
 // ── Inicio ─────────────────────────────────────────────────────────────────────
 async function start() {
+  auth.seedAdminSiVacio(); // crea admin inicial si data/usuarios.json está vacío
   console.log('Conectando a SQL Server...');
   try { await getPool(); console.log('  ✓ SQL Server conectado'); }
   catch (err) { console.error('  ✗ Error SQL:', err.message); process.exit(1); }

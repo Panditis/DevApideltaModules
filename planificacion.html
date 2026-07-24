@@ -51,6 +51,17 @@ body { font-family: 'Roboto', system-ui, sans-serif; background: var(--bg); colo
 }
 .app-bar h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; letter-spacing:.15px; flex: 1; }
 .app-bar .fecha-hoy { font-size: 13px; opacity: 0.85; font-weight:500; }
+.app-bar .suc-lbl { font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; opacity: .8; }
+.suc-select {
+  font-family: 'Roboto', sans-serif; font-size: 13px; color: #fff;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.35);
+  border-radius: var(--radius-full); padding: 6px 12px; max-width: 280px; cursor: pointer;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.suc-select:hover:not(:disabled) { background: rgba(255,255,255,.22); }
+.suc-select:focus { outline: none; border-color: var(--amarillo); box-shadow: 0 0 0 2px rgba(255,204,0,.35); }
+.suc-select:disabled { opacity: .6; cursor: not-allowed; }
+.suc-select option { color: var(--text); background: var(--card); }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.4); flex-shrink: 0; transition: background 0.3s; }
 .status-dot.ok { background: #7ee08a; box-shadow:0 0 0 3px rgba(126,224,138,.25); }
 .status-dot.err { background: #ff8a80; box-shadow:0 0 0 3px rgba(255,138,128,.25); }
@@ -846,6 +857,14 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
     </div>
     <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;flex-shrink:0">
       <div style="display:flex;flex-direction:column;gap:4px">
+        <label for="selSucursal" style="font-size:11px;color:var(--muted)">Sucursal</label>
+        <select id="selSucursal" class="dep-select"
+                title="Sucursal desde la que se consultan los depósitos y se reserva la mercadería">
+          <option value="">Cargando…</option>
+        </select>
+      </div>
+      <div style="width:1px;align-self:stretch;background:var(--border);margin:0 2px"></div>
+      <div style="display:flex;flex-direction:column;gap:4px">
         <label for="selDepOrigen" style="font-size:11px;color:var(--muted)">Depósito de origen</label>
         <select id="selDepOrigen" class="dep-select"></select>
       </div>
@@ -1076,6 +1095,152 @@ function addDias(iso, n) {
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── SUCURSAL DE TRABAJO ──────────────────────────────────────────
+// Los ids de depósito son POR SUCURSAL: el depósito 3 de una sucursal no es el
+// mismo que el 3 de otra. La sucursal elegida acá viaja en todas las consultas
+// de stock y en todas las operaciones de reserva.
+const LS_SUCURSAL = 'apidelta.sucursal';
+
+let sucursalesCache  = [];
+let idSucursalActual = leerSucursalGuardada();
+
+function leerSucursalGuardada() {
+  try {
+    const v = localStorage.getItem(LS_SUCURSAL);
+    return (v == null || v === '') ? null : String(v);
+  } catch (e) {
+    // localStorage bloqueado (modo privado / permisos): se trabaja sin persistencia.
+    return null;
+  }
+}
+
+function guardarSucursal(id) {
+  try {
+    if (id == null || id === '') localStorage.removeItem(LS_SUCURSAL);
+    else                         localStorage.setItem(LS_SUCURSAL, String(id));
+  } catch (e) {
+    toast('No se pudo recordar la sucursal elegida en este navegador', true);
+  }
+}
+
+function sucursalActual() {
+  return (idSucursalActual == null || idSucursalActual === '') ? null : String(idSucursalActual);
+}
+
+function nombreSucursal(id) {
+  const s = sucursalesCache.find(x => String(x.id) === String(id));
+  return s ? String(s.nombre || '') : '';
+}
+
+// "sucursal 5 Casa Central" (sin escapar: escapa quien lo inserta en el HTML)
+function etiquetaSucursal(id) {
+  if (id == null || id === '') return '—';
+  const nom = nombreSucursal(id);
+  return `sucursal ${id}${nom ? ' ' + nom : ''}`;
+}
+
+// Agrega idSucursal a una ruta GET respetando los parámetros que ya traiga.
+function conSucursal(ruta) {
+  const id = sucursalActual();
+  if (id == null) return ruta;
+  return ruta + (ruta.includes('?') ? '&' : '?') + 'idSucursal=' + encodeURIComponent(id);
+}
+
+// Ídem para los POST: la sucursal viaja en el cuerpo.
+function bodyConSucursal(body) {
+  const id = sucursalActual();
+  return id == null ? { ...(body || {}) } : { ...(body || {}), idSucursal: id };
+}
+
+function renderSelectSucursal() {
+  const sel = document.getElementById('selSucursal');
+  if (!sel) return;
+
+  // Sin lista (la consulta falló): se muestra la última sucursal conocida, que es
+  // la que se sigue mandando en las llamadas, para no perder el contexto de trabajo.
+  if (!sucursalesCache.length) {
+    const id = sucursalActual();
+    sel.innerHTML = id == null
+      ? '<option value="">— Sucursal del servidor —</option>'
+      : `<option value="${escHtml(id)}">${escHtml(id)} — (sin nombre)</option>`;
+    sel.value    = id ?? '';
+    sel.disabled = true;
+    sel.title    = 'No se pudo cargar la lista de sucursales: no se puede cambiar de sucursal';
+    return;
+  }
+
+  sel.disabled  = false;
+  sel.innerHTML = sucursalesCache.map(s => {
+    const suf = s.central === true ? ' ★ (central)' : '';
+    return `<option value="${escHtml(String(s.id))}">${escHtml(String(s.id))} — ${escHtml(s.nombre || '')}${suf}</option>`;
+  }).join('');
+  sel.value = sucursalActual() ?? '';
+  sel.title = `Trabajando en ${etiquetaSucursal(sucursalActual())} · desde acá se consultan los depósitos y se reserva la mercadería`;
+}
+
+async function cargarSucursales() {
+  let data;
+  try {
+    data = await api('GET', '/api/sucursales');
+  } catch (e) {
+    sucursalesCache = [];
+    renderSelectSucursal();
+    toast('Error al cargar las sucursales: ' + e.message, true);
+    return;
+  }
+
+  sucursalesCache = (Array.isArray(data) ? data : []).filter(s => s && s.id != null);
+
+  const guardada = sucursalActual();
+  const existe   = guardada != null && sucursalesCache.some(s => String(s.id) === guardada);
+  if (!existe) {
+    const porDefecto = sucursalesCache.find(s => s.central === true) || sucursalesCache[0] || null;
+    idSucursalActual = porDefecto ? String(porDefecto.id) : null;
+    guardarSucursal(idSucursalActual);
+    if (guardada != null && idSucursalActual != null) {
+      toast(`La sucursal ${guardada} ya no está disponible: se cambió a ${etiquetaSucursal(idSucursalActual)}`, true);
+    }
+  }
+
+  renderSelectSucursal();
+}
+
+// Cambiar de sucursal invalida los depósitos elegidos y el stock consultado:
+// se vuelve a pedir todo lo que dependa de la sucursal.
+async function onCambioSucursal() {
+  const sel = document.getElementById('selSucursal');
+  if (!sel) return;
+
+  const nuevo = sel.value === '' ? null : String(sel.value);
+  if (nuevo === sucursalActual()) return;
+
+  idSucursalActual = nuevo;
+  guardarSucursal(nuevo);
+  renderSelectSucursal();
+  toast(`Trabajando en ${etiquetaSucursal(nuevo)}`);
+
+  const modalReserva = document.getElementById('overlayReserva');
+  if (modalReserva && modalReserva.classList.contains('open')) {
+    try { await recargarModalReservaPorSucursal(); }
+    catch (e) { toast('Error al recargar la reserva: ' + e.message, true); }
+  } else {
+    try { await refrescarEstadoReserva(true); }
+    catch (e) { toast('Error al refrescar la reserva: ' + e.message, true); }
+  }
+
+  const modalMov = document.getElementById('overlayMovStock');
+  if (modalMov && modalMov.classList.contains('open')) {
+    try { await cargarMovStock(); }
+    catch (e) { toast('Error al recargar los movimientos: ' + e.message, true); }
+  }
+}
+
+document.getElementById('selSucursal').addEventListener('change', () => {
+  onCambioSucursal().catch(e => toast('Error al cambiar de sucursal: ' + e.message, true));
+});
+
+cargarSucursales().catch(e => toast('Error al cargar las sucursales: ' + e.message, true));
 
 // ── Tabs ─────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1467,7 +1632,11 @@ function renderPlan() {
     const envOpts = opcionesPack(envasesReg, _pk.envase);
     const tapOpts = tapasParaEnvase(envOpts, opcionesPack(tapasReg, _pk.tapa), it.envase);
 
-    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}">
+    // Ítem cerrado: ya se produjo y recepcionó como artículo final. Se atenúa y se le pone un
+    // acento verde a la izquierda para que se vea que salió del circuito (si hace falta de
+    // nuevo, se agrega como orden nueva, no se re-reserva este).
+    const cerrado = !!(it && it.produccionMovimiento);
+    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}"${cerrado ? ' style="opacity:.62;border-left:3px solid #14532d"' : ''}>
       <td style="text-align:center;white-space:nowrap;padding:0">
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},-1)" title="Subir prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▲</button>
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},1)" title="Bajar prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▼</button>
@@ -3989,6 +4158,13 @@ function reservaDesincronizada() {
   return (d && typeof d === 'object') ? d : null;
 }
 
+// La reserva activa del plan se hizo desde OTRA sucursal: se puede mirar, pero
+// el servidor rechaza reservar, actualizar y devolver hasta cambiar de sucursal.
+function sucursalDistintaReserva() {
+  const s = reservaCache?.sucursalDistinta;
+  return (s && typeof s === 'object') ? s : null;
+}
+
 function fmtCant(n) {
   const v = Number(n);
   if (!isFinite(v)) return '—';
@@ -4037,11 +4213,14 @@ function aplicarEstadoBotonReserva() {
 
   const desactualizada = reservaDesactualizada();
   const desincronizada = reservaDesincronizada();
+  const otraSucursal   = sucursalDistintaReserva();
 
   if (activa) {
     btn.textContent = `🔒 Reservado #${activa.numeroMovimiento}`;
     btn.disabled    = false;
-    btn.title       = desincronizada
+    btn.title       = otraSucursal
+      ? `La reserva #${activa.numeroMovimiento} es de la ${etiquetaSucursal(otraSucursal.deLaReserva)}: cambiá a esa sucursal para actualizarla o anularla`
+      : desincronizada
       ? `La reserva #${activa.numeroMovimiento} fue alterada desde el historial de movimientos: abrí el modal para revisarla`
       : desactualizada
         ? `El plan cambió desde la reserva #${activa.numeroMovimiento}: abrí el modal para actualizarla`
@@ -4059,14 +4238,18 @@ function aplicarEstadoBotonReserva() {
   if (chip) {
     if (activa) {
       chip.style.display     = '';
-      chip.dataset.estado    = (desactualizada || desincronizada) ? 'pendiente' : 'listo';
+      chip.dataset.estado    = (otraSucursal || desactualizada || desincronizada) ? 'pendiente' : 'listo';
       chip.textContent       = `🔒 Reserva #${activa.numeroMovimiento}`
-        + (desincronizada ? ' · desincronizada' : desactualizada ? ' · plan modificado' : '');
-      chip.title             = desincronizada
-        ? 'La reserva fue alterada desde el historial de movimientos: abrí el modal para revisarla'
-        : desactualizada
-          ? 'El plan cambió desde la reserva: abrí el modal para actualizarla'
-          : 'Ver la reserva de mercadería';
+        + (otraSucursal ? ` · sucursal ${otraSucursal.deLaReserva}`
+          : desincronizada ? ' · desincronizada'
+          : desactualizada ? ' · plan modificado' : '');
+      chip.title             = otraSucursal
+        ? `La reserva se hizo en la ${etiquetaSucursal(otraSucursal.deLaReserva)}: cambiá a esa sucursal para poder actualizarla o anularla`
+        : desincronizada
+          ? 'La reserva fue alterada desde el historial de movimientos: abrí el modal para revisarla'
+          : desactualizada
+            ? 'El plan cambió desde la reserva: abrí el modal para actualizarla'
+            : 'Ver la reserva de mercadería';
     } else {
       chip.style.display  = 'none';
       chip.textContent    = '';
@@ -4102,7 +4285,7 @@ async function cargarReserva(depOrigen, depDestino, mostrarCarga) {
   const params = [];
   if (depOrigen  != null && depOrigen  !== '') params.push('depOrigen='  + encodeURIComponent(depOrigen));
   if (depDestino != null && depDestino !== '') params.push('depDestino=' + encodeURIComponent(depDestino));
-  const ruta = `/api/plan/${fechaPlanActual}/reserva` + (params.length ? '?' + params.join('&') : '');
+  const ruta = conSucursal(`/api/plan/${fechaPlanActual}/reserva` + (params.length ? '?' + params.join('&') : ''));
   try {
     const data = await api('GET', ruta);
     if (ticket !== reservaReqTicket) return false;
@@ -4260,6 +4443,13 @@ function textoSelloMov(sello) {
 function chipMovimientoItem(it) {
   // Es sólo informativo: pase lo que pase con los datos, la fila se tiene que dibujar.
   try {
+    // Prioridad MÁXIMA: el ítem ya se produjo y recepcionó como artículo final. Este estado
+    // es terminal (no se puede volver a reservar) y gana sobre reservado/devuelto.
+    const producido = selloMovItem(it && it.produccionMovimiento);
+    if (producido) {
+      const title = `Producido y recepcionado con el movimiento #${producido.numero} el ${fmtFechaHoraMov(producido.fecha)}. No se puede volver a reservar.`;
+      return `<span class="pres-chip mov-chip" title="${escHtml(title)}" style="background:#14532d;color:#fff;border-color:#14532d">✔ Producido #${escHtml(producido.numero)}</span>`;
+    }
     const reserva  = selloMovItem(it && it.reservaMovimiento);
     const devuelto = selloMovItem(it && it.reservaDevuelta);
     if (!reserva && !devuelto) return '';
@@ -4450,18 +4640,32 @@ function bloqueDesincronizadaReserva(activa, info) {
     </div>`;
 }
 
+// La reserva pertenece a otra sucursal: se puede consultar, pero no operar.
+function bloqueSucursalDistinta(info) {
+  const dela   = info.deLaReserva;
+  const pedida = info.pedida;
+  return `<div style="${ESTILO_AVISO_AMBAR}">
+      <div style="font-weight:700;font-size:13px">⚠ La reserva activa de este plan se hizo en la ${escHtml(etiquetaSucursal(dela))}.</div>
+      <div style="margin-top:3px">Estás trabajando en la <strong>${escHtml(etiquetaSucursal(pedida))}</strong>. Cambiá a esa sucursal para poder actualizarla o anularla.</div>
+      <div style="margin-top:3px;opacity:.85">Los depósitos y el stock que se ven acá son los de la sucursal en la que estás trabajando.</div>
+    </div>`;
+}
+
 // Aviso de cabecera del modal según el estado de la reserva frente al plan actual.
 function bloqueEstadoReserva(activa) {
+  const otraSucursal = sucursalDistintaReserva();
+  const avisoSuc     = otraSucursal ? bloqueSucursalDistinta(otraSucursal) : '';
+
   if (!activa) {
     const anulada = reservaAnuladaPorLog();
-    return anulada ? bloqueAnuladaPorLog(anulada) : '';
+    return avisoSuc + (anulada ? bloqueAnuladaPorLog(anulada) : '');
   }
   // La desincronización manda sobre todo lo demás: mientras no se resuelva no tiene
   // sentido ofrecer actualizar la reserva contra un saldo que no es el real.
   const desinc = reservaDesincronizada();
-  if (desinc) return bloqueDesincronizadaReserva(activa, desinc);
-  if (!reservaDesactualizada()) return bloqueYaReservado(activa);
-  return bloqueCambiosReserva(activa) + tablaDeltaReserva();
+  if (desinc) return avisoSuc + bloqueDesincronizadaReserva(activa, desinc);
+  if (!reservaDesactualizada()) return avisoSuc + bloqueYaReservado(activa);
+  return avisoSuc + bloqueCambiosReserva(activa) + tablaDeltaReserva();
 }
 
 function renderReservaModal() {
@@ -4482,7 +4686,9 @@ function renderReservaModal() {
     ? 'El depósito de origen y el de destino deben ser distintos'
     : '');
 
-  const sucursalTxt = ` · Sucursal ${escHtml(String(cfg.idSucursal ?? '—'))}`;
+  // La sucursal elegida en la barra manda; el config del servidor sólo es el respaldo.
+  const idSuc       = sucursalActual() ?? cfg.idSucursal;
+  const sucursalTxt = ` · ${escHtml(etiquetaSucursal(idSuc))}`;
   const notaEnvases = '<div style="margin-top:2px;opacity:.85">El envase y la tapa elegidos en la planificación reemplazan a los de la fórmula.</div>';
   const info = document.getElementById('reservaInfo');
   if (completo) {
@@ -4622,6 +4828,18 @@ function renderReservaModal() {
 
   btnAnu.style.display = activa ? '' : 'none';
   btnAnu.disabled      = false;
+  btnAnu.title         = 'Devolver todo al depósito de origen';
+
+  // Reserva de otra sucursal: el servidor rechaza toda escritura, así que no se
+  // ofrece el intento (el usuario no tiene que descubrirlo con un error).
+  const otraSucursal = sucursalDistintaReserva();
+  if (otraSucursal) {
+    const motivo = `La reserva es de la ${etiquetaSucursal(otraSucursal.deLaReserva)}: cambiá a esa sucursal para operarla`;
+    btnOk.disabled  = true;
+    btnOk.title     = motivo;
+    btnAnu.disabled = true;
+    btnAnu.title    = motivo;
+  }
 }
 
 // Vuelve a pedir el estado al servidor y repinta el modal (que sigue abierto).
@@ -4634,6 +4852,28 @@ async function refrescarModalReserva() {
     vigente = await cargarReserva(selO ? selO.value : null, selD ? selD.value : null, true);
   } catch (e) {
     toast('Error al actualizar el estado de la reserva: ' + e.message, true);
+    return;
+  }
+  if (!vigente) return;
+  renderReservaModal();
+  aplicarEstadoBotonReserva();
+}
+
+// Se cambió de sucursal con el modal abierto: los ids de depósito son por sucursal,
+// así que se descarta la selección anterior y se pide la preselección de la nueva.
+async function recargarModalReservaPorSucursal() {
+  if (!fechaPlanActual) return;
+  const selO = document.getElementById('selDepOrigen');
+  const selD = document.getElementById('selDepDestino');
+  if (selO) selO.value = '';
+  if (selD) selD.value = '';
+
+  let vigente = false;
+  try {
+    vigente = await cargarReserva(null, null, true);
+  } catch (e) {
+    errorEnBodyReserva('Error al cargar la reserva de la sucursal: ' + e.message);
+    toast('Error al cargar la reserva: ' + e.message, true);
     return;
   }
   if (!vigente) return;
@@ -4660,9 +4900,9 @@ async function confirmarReserva(permitirFaltante) {
 
   let resp;
   try {
-    resp = await postReserva(`/api/plan/${fechaPlanActual}/reservar`, {
+    resp = await postReserva(`/api/plan/${fechaPlanActual}/reservar`, bodyConSucursal({
       depOrigen, depDestino, permitirFaltante: !!permitirFaltante
-    });
+    }));
   } catch (e) {
     toast('Error al reservar: ' + e.message, true);
     btn.disabled = false;
@@ -4712,9 +4952,9 @@ async function actualizarReserva(permitirFaltante) {
 
   let resp;
   try {
-    resp = await postReserva(`/api/plan/${fechaPlanActual}/reserva/actualizar`, {
+    resp = await postReserva(`/api/plan/${fechaPlanActual}/reserva/actualizar`, bodyConSucursal({
       permitirFaltante: !!permitirFaltante
-    });
+    }));
   } catch (e) {
     toast('Error al actualizar la reserva: ' + e.message, true);
     btn.disabled = false;
@@ -4770,7 +5010,7 @@ async function anularReserva() {
 
   let resp;
   try {
-    resp = await postReserva(`/api/plan/${fechaPlanActual}/reserva/devolver`, {});
+    resp = await postReserva(`/api/plan/${fechaPlanActual}/reserva/devolver`, bodyConSucursal({}));
   } catch (e) {
     toast('Error al anular: ' + e.message, true);
     btn.disabled = false;
@@ -5002,7 +5242,7 @@ async function cargarMovStock() {
 
   let data;
   try {
-    data = await api('GET', '/api/stock/movimientos?' + params.join('&'));
+    data = await api('GET', conSucursal('/api/stock/movimientos?' + params.join('&')));
   } catch (e) {
     movStockCache = [];
     renderPendientesMovStock([]);
@@ -5074,7 +5314,7 @@ async function revertirMovStock(idx) {
   try {
     resp = await postReserva(
       `/api/stock/movimientos/${encodeURIComponent(String(m.id))}/revertir`,
-      {}
+      bodyConSucursal({})
     );
   } catch (e) {
     toast('Error al revertir: ' + e.message, true);

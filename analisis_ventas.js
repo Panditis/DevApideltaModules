@@ -129,9 +129,78 @@ function sqlTopProductos(p, orden, topN) {
     ORDER BY ${col} DESC`;
 }
 
+// ── Artículos por ticket ─────────────────────────────────────────────────────
+// "Artículos" = renglones (líneas) del comprobante: cuántos ítems distintos se
+// llevó cada cliente. Se cuenta agrupando VentasProductos por la clave de 5
+// columnas del comprobante (mismo criterio que el JOIN cabecera→renglón).
+const GROUP_TICKET = `vp.IdSucursal, vp.IdTipoComprobante, vp.Letra, vp.CentroEmisor, vp.NumeroComprobante`;
+
+// Histograma: para cada N (cantidad de artículos del ticket), cuántos tickets tuvieron ese N.
+function sqlArticulosHistograma(p) {
+  return `SELECT t.Articulos AS Articulos, COUNT(*) AS Tickets FROM (
+      SELECT COUNT(*) AS Articulos
+      FROM VentasProductos vp
+      ${JOIN_CLAVE5}
+      ${JOIN_CLIENTE_CAT}
+      WHERE ${whereVentas(p)}
+      GROUP BY ${GROUP_TICKET}
+    ) t
+    GROUP BY t.Articulos
+    ORDER BY t.Articulos`;
+}
+
+// Promedio de artículos por ticket, por sucursal.
+function sqlArticulosPorSucursal(p) {
+  return `SELECT t.IdSucursal AS IdSucursal, s.Nombre AS Nombre,
+      COUNT(*) AS Tickets, SUM(t.Articulos) AS Articulos,
+      CAST(SUM(t.Articulos) AS FLOAT) / COUNT(*) AS Promedio
+    FROM (
+      SELECT vp.IdSucursal AS IdSucursal, COUNT(*) AS Articulos
+      FROM VentasProductos vp
+      ${JOIN_CLAVE5}
+      ${JOIN_CLIENTE_CAT}
+      WHERE ${whereVentas(p)}
+      GROUP BY ${GROUP_TICKET}
+    ) t
+    LEFT JOIN Sucursales s ON s.IdSucursal = t.IdSucursal
+    GROUP BY t.IdSucursal, s.Nombre
+    ORDER BY Promedio DESC`;
+}
+
+// Buckets fijos para el histograma. Los N chicos (1..5) van sueltos y el resto se
+// agrupa para que la barra de "carritos grandes" no quede pulverizada en la cola.
+const BUCKETS_ARTICULOS = [
+  { label: '1', min: 1, max: 1 },
+  { label: '2', min: 2, max: 2 },
+  { label: '3', min: 3, max: 3 },
+  { label: '4', min: 4, max: 4 },
+  { label: '5', min: 5, max: 5 },
+  { label: '6-10', min: 6, max: 10 },
+  { label: '11+', min: 11, max: Infinity },
+];
+
+// Colapsa el histograma exacto (filas {Articulos, Tickets}) en los buckets fijos.
+function bucketsArticulos(histRows) {
+  return BUCKETS_ARTICULOS.map(b => {
+    const tickets = (histRows || []).reduce((a, r) => {
+      const n = Number(r.Articulos || 0);
+      return n >= b.min && n <= b.max ? a + Number(r.Tickets || 0) : a;
+    }, 0);
+    return { label: b.label, tickets };
+  });
+}
+
+// Promedio global de artículos/ticket a partir del desglose por sucursal.
+function promedioArticulos(porSucursal) {
+  const tickets   = (porSucursal || []).reduce((a, r) => a + Number(r.Tickets || 0), 0);
+  const articulos = (porSucursal || []).reduce((a, r) => a + Number(r.Articulos || 0), 0);
+  return tickets > 0 ? articulos / tickets : 0;
+}
+
 module.exports = {
-  SUCURSALES_ANALISIS, NOMBRE_DIA, TOP_N_DEFAULT,
+  SUCURSALES_ANALISIS, NOMBRE_DIA, TOP_N_DEFAULT, BUCKETS_ARTICULOS,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
   whereVentas, sqlComparativa, sqlResumenRenglon,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
+  sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
 };

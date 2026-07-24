@@ -107,3 +107,48 @@ test('sqlTopProductos ordena por la métrica y limita con TOP', () => {
   assert.match(f, /ORDER BY Facturacion DESC/);
   assert.match(f, /INNER JOIN Productos p ON p\.IdProducto = vp\.IdProducto/);
 });
+
+const {
+  sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
+} = require('../analisis_ventas');
+
+test('sqlArticulosHistograma cuenta renglones por comprobante y agrupa por ese N', () => {
+  const s = sqlArticulosHistograma(P);
+  assert.match(s, /GROUP BY vp\.IdSucursal, vp\.IdTipoComprobante, vp\.Letra, vp\.CentroEmisor, vp\.NumeroComprobante/);
+  assert.match(s, /GROUP BY t\.Articulos/);
+  assert.match(s, /ORDER BY t\.Articulos/);
+});
+
+test('sqlArticulosPorSucursal promedia artículos/ticket por sucursal', () => {
+  const s = sqlArticulosPorSucursal(P);
+  assert.match(s, /CAST\(SUM\(t\.Articulos\) AS FLOAT\) \/ COUNT\(\*\) AS Promedio/);
+  assert.match(s, /LEFT JOIN Sucursales s ON s\.IdSucursal = t\.IdSucursal/);
+  assert.match(s, /ORDER BY Promedio DESC/);
+});
+
+test('bucketsArticulos colapsa el histograma exacto en los buckets fijos', () => {
+  const hist = [
+    { Articulos: 1, Tickets: 10 }, { Articulos: 2, Tickets: 5 },
+    { Articulos: 7, Tickets: 3 }, { Articulos: 9, Tickets: 2 },
+    { Articulos: 15, Tickets: 4 },
+  ];
+  const b = bucketsArticulos(hist);
+  assert.deepStrictEqual(b.map(x => x.label), ['1','2','3','4','5','6-10','11+']);
+  assert.strictEqual(b.find(x => x.label === '1').tickets, 10);
+  assert.strictEqual(b.find(x => x.label === '6-10').tickets, 5); // 3 + 2
+  assert.strictEqual(b.find(x => x.label === '11+').tickets, 4);
+  assert.strictEqual(b.find(x => x.label === '3').tickets, 0);
+});
+
+test('bucketsArticulos tolera entrada vacía o nula', () => {
+  assert.strictEqual(bucketsArticulos([]).reduce((a, x) => a + x.tickets, 0), 0);
+  assert.strictEqual(bucketsArticulos(null).length, 7);
+});
+
+test('promedioArticulos divide artículos totales por tickets totales', () => {
+  const porSuc = [
+    { Tickets: 4, Articulos: 12 }, { Tickets: 1, Articulos: 3 },
+  ];
+  assert.strictEqual(promedioArticulos(porSuc), 3); // 15 / 5
+  assert.strictEqual(promedioArticulos([]), 0);
+});

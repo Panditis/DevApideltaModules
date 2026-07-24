@@ -76,6 +76,10 @@
     <div class="card"><h3>Top productos — unidades</h3><div id="tblTopU"></div></div>
     <div class="card"><h3>Top productos — facturación</h3><div id="tblTopF"></div></div>
   </div>
+  <div class="grid2">
+    <div class="card"><h3>Artículos por ticket — distribución</h3><canvas id="chArtHist" height="200"></canvas></div>
+    <div class="card"><h3>Artículos por ticket — por sucursal</h3><div id="tblArtSuc"></div></div>
+  </div>
 </div>
 
 <script>
@@ -92,6 +96,7 @@ let charts = {};
 const $ = id => document.getElementById(id);
 const fmtMoney = n => '$' + Math.round(n).toLocaleString('es-AR');
 const fmtNum   = n => Math.round(n).toLocaleString('es-AR');
+const fmtDec   = n => Number(n || 0).toLocaleString('es-AR', {minimumFractionDigits:1, maximumFractionDigits:1});
 
 function firstOfMonth(){ const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); }
 
@@ -125,6 +130,7 @@ function renderKpis(k){
     ['Facturación', fmtMoney(k.facturacion)],
     ['Tickets', fmtNum(k.tickets)],
     ['Ticket promedio', fmtMoney(k.ticketProm)],
+    ['Artículos/ticket', fmtDec(k.articulosProm)],
     ['Unidades', fmtNum(k.unidades)],
     ['Productos distintos', fmtNum(k.productosDistintos)],
   ].map(([lbl,val]) => `<div class="kpi"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`).join('');
@@ -184,6 +190,23 @@ function renderTop(rows, elId){
   ], rows);
 }
 
+function renderArticulos(apt){
+  const hist = (apt && apt.histograma) || [];
+  destroyChart('artHist');
+  charts.artHist = new Chart($('chArtHist'), {
+    type:'bar',
+    data:{ labels: hist.map(r=>r.label),
+      datasets:[{ label:'Tickets', data: hist.map(r=>r.tickets), backgroundColor: MID }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtNum(v) } } } }
+  });
+  $('tblArtSuc').innerHTML = tabla([
+    {key:'nombre',label:'Sucursal'},
+    {key:'tickets',label:'Tickets',num:true,fmt:fmtNum},
+    {key:'articulos',label:'Artículos',num:true,fmt:fmtNum},
+    {key:'promedio',label:'Art./ticket',num:true,fmt:fmtDec},
+  ], (apt && apt.porSucursal) || []);
+}
+
 async function consultar(){
   if (!sel.size){ $('msg').innerHTML = '<div class="error">Seleccioná al menos una sucursal.</div>'; return; }
   const btn = $('btnAplicar'); btn.disabled = true; btn.textContent = 'Consultando...';
@@ -202,6 +225,7 @@ async function consultar(){
     renderHora(d.horas);
     renderTop(d.topUnidades, 'tblTopU');
     renderTop(d.topFacturacion, 'tblTopF');
+    renderArticulos(d.articulosPorTicket);
   } catch(e){
     $('msg').innerHTML = `<div class="error">Error: ${e.message}</div>`;
   } finally {
