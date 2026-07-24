@@ -318,6 +318,11 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
 .prio-badge.RED    { background:var(--red-bg); color:var(--red-text); }
 .prio-badge.YELLOW { background:var(--amb-bg); color:var(--amb-text); }
 
+/* Fila de una orden ya reservada (item.reservaMovimiento sellado): candado visual sutil,
+   el botón eliminar queda deshabilitado hasta anular la reserva. */
+tr.orden-reservada { background:rgba(22,101,52,.05); border-left:3px solid var(--grn-border); }
+tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
+
 /* ── PLU TABLA (modal editar grupo) ── */
 .plu-tabla { width:100%; border-collapse:collapse; font-size:13px; }
 .plu-tabla thead th { position:sticky; top:0; z-index:2; padding:8px; text-align:left; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.5px; background:var(--md-surface-1); border-bottom:1px solid var(--md-outline-variant); white-space:nowrap; }
@@ -1636,7 +1641,10 @@ function renderPlan() {
     // acento verde a la izquierda para que se vea que salió del circuito (si hace falta de
     // nuevo, se agrega como orden nueva, no se re-reserva este).
     const cerrado = !!(it && it.produccionMovimiento);
-    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}"${cerrado ? ' style="opacity:.62;border-left:3px solid #14532d"' : ''}>
+    // Orden reservada: el backend selló el ítem con un movimiento de SiGA (reserva
+    // incremental) y rechaza (409) borrarla mientras esa reserva siga activa.
+    const reservada = !!(it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}"${reservada && !cerrado ? ' class="orden-reservada"' : ''}${cerrado ? ' style="opacity:.62;border-left:3px solid #14532d"' : ''}>
       <td style="text-align:center;white-space:nowrap;padding:0">
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},-1)" title="Subir prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▲</button>
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},1)" title="Bajar prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▼</button>
@@ -1705,7 +1713,7 @@ function renderPlan() {
       </td>
       <td style="white-space:nowrap">
         <button class="btn btn-secondary btn-sm" onclick="moverItem(${it.id})" title="Reasignar fecha">📅</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarItem(${it.id})">✕</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarItem(${it.id})"${reservada ? ' disabled title="Orden reservada: anulá la reserva primero"' : ''}>✕</button>
       </td>
     </tr>`;
   }).join('');
@@ -1826,6 +1834,11 @@ async function moverTodoDia() {
 
 function eliminarItem(id) {
   const it = (planCache?.items || []).find(i => i.id == id);
+  const numeroReserva = it?.reservaMovimiento?.numeroMovimiento;
+  if (numeroReserva != null) {
+    alert('Orden reservada (#' + numeroReserva + '): anulá la reserva primero');
+    return;
+  }
   const nombre = it ? it.producto : 'este ítem';
   confirmarModal('Eliminar ítem',
     `¿Eliminar <strong>${escHtml(nombre)}</strong> del plan de ${formatFecha(fechaPlanActual)}?`,
@@ -4215,23 +4228,38 @@ function aplicarEstadoBotonReserva() {
   const desincronizada = reservaDesincronizada();
   const otraSucursal   = sucursalDistintaReserva();
 
-  if (activa) {
+  // Reserva incremental: cada orden se sella con su propio movimiento al reservarse
+  // (item.reservaMovimiento), así que el botón externo se habilita mientras queden
+  // órdenes sin sellar, no según si el plan (como un todo) tuvo alguna vez una reserva.
+  const itemReservado  = it => !!(it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+  const haySinReservar = items.some(it => !itemReservado(it));
+  const hayReservados  = items.some(itemReservado);
+
+  if (activa && (otraSucursal || desincronizada)) {
+    // Estados de excepción: la reserva vigente no se puede tocar desde acá hasta
+    // resolverlos (cambiar de sucursal o revisar la desincronización en el modal).
     btn.textContent = `🔒 Reservado #${activa.numeroMovimiento}`;
     btn.disabled    = false;
     btn.title       = otraSucursal
       ? `La reserva #${activa.numeroMovimiento} es de la ${etiquetaSucursal(otraSucursal.deLaReserva)}: cambiá a esa sucursal para actualizarla o anularla`
-      : desincronizada
-      ? `La reserva #${activa.numeroMovimiento} fue alterada desde el historial de movimientos: abrí el modal para revisarla`
-      : desactualizada
-        ? `El plan cambió desde la reserva #${activa.numeroMovimiento}: abrí el modal para actualizarla`
-        : `Este plan ya fue reservado (comprobante #${activa.numeroMovimiento}). Para volver a reservar, modificá las órdenes del plan del día. Podés verla o anularla.`;
+      : `La reserva #${activa.numeroMovimiento} fue alterada desde el historial de movimientos: abrí el modal para revisarla`;
+  } else if (items.length === 0) {
+    btn.textContent = '🔒 Reservar mercadería';
+    btn.disabled    = true;
+    btn.title       = 'No hay ítems en el plan';
+  } else if (!haySinReservar) {
+    btn.textContent = '🔒 Todo reservado';
+    btn.disabled    = true;
+    btn.title       = activa
+      ? `Todas las órdenes del plan ya están reservadas (último comprobante #${activa.numeroMovimiento}).`
+      : 'Todas las órdenes del plan ya están reservadas.';
   } else {
     // Los depósitos se eligen dentro del modal, así que el config sólo aporta
     // la preselección: no hace falta bloquear el botón si no está configurado.
-    btn.textContent = '🔒 Reservar mercadería';
-    btn.disabled    = items.length === 0;
-    btn.title       = items.length === 0
-      ? 'No hay ítems en el plan'
+    btn.textContent = hayReservados ? '🔒 Reservar órdenes nuevas' : '🔒 Reservar mercadería';
+    btn.disabled    = false;
+    btn.title       = hayReservados
+      ? 'Reservar los componentes de fórmula de las órdenes nuevas (las ya reservadas no se tocan)'
       : 'Reservar los componentes de fórmula del plan';
   }
 
