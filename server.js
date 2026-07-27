@@ -3354,22 +3354,39 @@ app.post('/api/enviar-produccion', (req, res) => {
     // misma clave que arma construirOrdenes() en planificacion.html. Cache por fecha para no
     // releer planes.json por cada orden del envío.
     const planItemsPorFecha = new Map();
-    const movimientosDeOrden = n => {
+    const itemsDeOrden = n => {
       if (!planItemsPorFecha.has(n.fecha)) {
         const { plan } = leerPlanReservas(n.fecha);
         planItemsPorFecha.set(n.fecha, (plan && plan.items) || []);
       }
-      const items = planItemsPorFecha.get(n.fecha).filter(it =>
+      return planItemsPorFecha.get(n.fecha).filter(it =>
         it && (it.producto === n.producto || (it.rubro || it.producto) === n.producto));
-      return [...new Set(items
-        .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
-        .map(it => it.reservaMovimiento.numeroMovimiento))];
+    };
+    const movimientosDeOrden = n => [...new Set(itemsDeOrden(n)
+      .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
+      .map(it => it.reservaMovimiento.numeroMovimiento))];
+    // Un ítem con produccionMovimiento ya se produjo Y se recepcionó como artículo final: su
+    // circuito cerró y la orden no se puede volver a enviar.
+    // ordenesTrabajadas NO alcanza para detectarlo: al conciliar, los registros se mueven de
+    // produccion_registros.json a produccion_historial.json, así que el Set queda vacío para
+    // esas órdenes y volvían a ser re-enviables justo después de conciliar.
+    const numeroRecepcion = n => {
+      const it = itemsDeOrden(n).find(x =>
+        x.produccionMovimiento && x.produccionMovimiento.numeroMovimiento != null);
+      return it ? it.produccionMovimiento.numeroMovimiento : null;
     };
     // Órdenes ya trabajadas (con algún registro de producción cargado): no se pisan aunque
     // todavía no estén en 'listo'/terminado, para no borrar lo que producción ya cargó.
     const ordenesTrabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
     let sobre = 0, nue = 0, completas = 0;
+    const recepcionadas = [];
     for (const n of nuevas) {
+      // Se corta ANTES del alta o la sobreescritura: la orden ya cerró su circuito en SiGA.
+      const numRecep = numeroRecepcion(n);
+      if (numRecep != null) {
+        recepcionadas.push({ producto: n.producto, numeroMovimiento: numRecep });
+        continue;
+      }
       const k = keyOf(n), i = idx.get(k);
       const reservaMovimientos = movimientosDeOrden(n);
       if (i != null) {
@@ -3384,7 +3401,8 @@ app.post('/api/enviar-produccion', (req, res) => {
       }
     }
     guardarOrdenes(arr);
-    res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue, completasOmitidas: completas });
+    res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue,
+               completasOmitidas: completas, recepcionadasOmitidas: recepcionadas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.get('/api/ordenes-produccion', (_req, res) => res.json(leerOrdenes()));
@@ -4486,7 +4504,7 @@ function cfgReserva() {
 // habilitado para escritura) pero la OBSERVACIÓN es lo que después permite reconocer y
 // filtrar estos comprobantes en SiGA, así que se configura aparte.
 const PRODUCCION_DEFAULTS = {
-  idTipoMovimiento: 'BIENESUSO', observacion: 'PRODUCCION WEB', depositoTerminados: null
+  idTipoMovimiento: 'BIENESUSO', observacion: 'PLAN', depositoTerminados: null
 };
 
 // Se relee config.json en cada llamada, igual que cfgReserva: cambiar la observación o el
@@ -5193,7 +5211,7 @@ async function ejecutarDevolucionReserva(plan, itemId) {
   }
 
   const poolW = await getPoolStock();
-  const observacion = `${`Devolucion reserva plan ${plan.fecha || ''}${itemId == null ? '' : ` item ${itemId}`}`.trim()} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+  const observacion = `PLAN ${plan.fecha || ''} DEVOL ${depOrigen}>${depDestino}${itemId == null ? '' : ` item ${itemId}`}`.trim().slice(0, 200);
   const r = await ejecutarYRegistrar({
     origen: 'devolucion', plan: plan.fecha || null, itemId,
     idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
@@ -5410,7 +5428,7 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   }
 
   const poolW = await getPoolStock();
-  const observacion = `Reserva plan produccion ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+  const observacion = `PLAN ${fecha} RESERVA ${depOrigen}>${depDestino}`.slice(0, 200);
   const r = await ejecutarYRegistrar({
     origen: 'reserva', plan: fecha, itemId: null,
     idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
@@ -5537,7 +5555,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   // por los depósitos: el de devolución los lleva invertidos).
   if (positivos.length) {
     const lineasMov   = positivos.map(d => ({ plu: d.plu, nombre: d.nombre, cantidad: d.delta }));
-    const observacion = `Ajuste reserva plan ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+    const observacion = `PLAN ${fecha} AJUSTE+ ${depOrigen}>${depDestino}`.slice(0, 200);
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
       idSucursal: crReserva.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
@@ -5558,7 +5576,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
 
   if (negativos.length) {
     const lineasMov   = negativos.map(d => ({ plu: d.plu, nombre: d.nombre, cantidad: redondear4(Math.abs(d.delta)) }));
-    const observacion = `Ajuste reserva plan ${fecha} devolucion dep ${depDestino}->${depOrigen}`.slice(0, 200);
+    const observacion = `PLAN ${fecha} AJUSTE- ${depDestino}>${depOrigen}`.slice(0, 200);
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
       idSucursal: crReserva.idSucursal, depOrigen: depDestino, depDestino: depOrigen, idEmpleado: cr.idEmpleado,
@@ -5891,7 +5909,10 @@ async function conciliacionProduccion(fecha, idSucursal) {
       lineas: (r.lineas || []).map(l => ({
         plu: String(l.plu), nombre: l.nombre == null ? '' : String(l.nombre), cantidad: redondear4(l.cantidad)
       })),
-      revertido: !!r.revertidoPor, revierteA: r.revierteA || null
+      // Una reversión se registra con el MISMO origen que el movimiento que deshace, así que
+      // sin revierteA/revertidoPor es indistinguible de una reserva normal en el listado.
+      // Se mandan los dos IDs para poder mostrar el par ("revertido por #32" / "reversión de #31").
+      revertido: !!r.revertidoPor, revertidoPor: r.revertidoPor || null, revierteA: r.revierteA || null
     }))
     .reverse();   // el log se escribe con el más nuevo al final
   const pendientes = movimientos.filter(m => m.estado === 'pendiente').length;
@@ -6190,7 +6211,7 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   }
 
   // La observación es la marca que identifica estos comprobantes en SiGA.
-  const obsBase = `${cp.observacion} ${fecha}`.trim();
+  const obsBase = `${cp.observacion} ${fecha} PRODUCCION`.trim();
   const poolW = await getPoolStock();
   const comprobantes = [], logErrores = [];
   let errMarca = null, avisoMarca = null, errEscritura = null;
@@ -6247,7 +6268,9 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
     //    el consumo fue contra reservas y no hay alta de producto pendiente.
     if (resto.lineas.length) {
-      const rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+      // "RESTO" distingue este comprobante de los que cierran cada reserva: acá va el consumo
+      // que NO salió del depósito de reserva (fórmulas sin reservar y excedentes).
+      const rResto = await escribirComprobante(resto.lineas, `${obsBase} RESTO`.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
       logErrores.push(rResto.logError);
       comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
       r = rResto;
@@ -6258,7 +6281,7 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
     //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
     for (const m of ajustesMov) {
-      const observacion = `${obsBase} mov ${m.numeroMovimiento}`.trim().slice(0, 200);
+      const observacion = obsBase.slice(0, 200);
       const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
       logErrores.push(rm.logError);
       comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });

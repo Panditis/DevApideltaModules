@@ -1865,7 +1865,7 @@ function eliminarItem(id) {
   const it = (planCache?.items || []).find(i => i.id == id);
   const numeroReserva = it?.reservaMovimiento?.numeroMovimiento;
   if (numeroReserva != null) {
-    alert('Orden reservada (#' + numeroReserva + '): anulá la reserva primero');
+    toast(`Orden reservada (#${numeroReserva}): anulá la reserva primero`, true);
     return;
   }
   const nombre = it ? it.producto : 'este ítem';
@@ -2533,9 +2533,12 @@ document.getElementById('btnSemSig').addEventListener('click', () =>
   cargarCalendario(calMesOffset(1)));
 
 // ── Modal de confirmación genérico ───────────────────────────────
+// Es el ÚNICO camino para pedir confirmación en esta pantalla: confirm() y alert() nativos
+// rompen el estilo del módulo, no se pueden formatear y bloquean el hilo.
 let confirmCallback = null;
+let confirmCancelCallback = null;
 
-function confirmarModal(titulo, mensajeHtml, textoOk, callback, peligro) {
+function confirmarModal(titulo, mensajeHtml, textoOk, callback, peligro, onCancel) {
   document.getElementById('confirmTitulo').textContent = titulo;
   document.getElementById('confirmMsg').innerHTML = mensajeHtml;
   const btn = document.getElementById('btnConfirmOk');
@@ -2543,17 +2546,50 @@ function confirmarModal(titulo, mensajeHtml, textoOk, callback, peligro) {
   btn.className = 'btn ' + (peligro ? 'btn-danger' : 'btn-primary');
   document.getElementById('confirmHeader').style.background = peligro ? '#991b1b' : 'var(--verde)';
   confirmCallback = callback;
+  // onCancel es opcional: las llamadas viejas no lo pasan y se comportan igual que antes.
+  confirmCancelCallback = onCancel || null;
   document.getElementById('overlayConfirm').classList.add('open');
 }
 function cerrarConfirmModal() {
+  // Cerrar sin confirmar (✕, Cancelar o clic afuera) cuenta como cancelación, así que el
+  // callback se dispara acá una sola vez y no en cada listener.
+  const cancelar = confirmCancelCallback;
   document.getElementById('overlayConfirm').classList.remove('open');
   confirmCallback = null;
+  confirmCancelCallback = null;
+  if (cancelar) cancelar();
 }
 document.getElementById('btnConfirmOk').addEventListener('click', () => {
   const cb = confirmCallback;
+  confirmCancelCallback = null;   // confirmar no debe disparar el callback de cancelación
   cerrarConfirmModal();
   if (cb) cb();
 });
+
+// Versión await-able del modal, para reemplazar a confirm() sin dar vuelta el flujo de las
+// funciones async: resuelve true si se confirma y false si se cancela por cualquier vía.
+function confirmarModalAsync(titulo, mensajeHtml, textoOk, peligro) {
+  return new Promise(resolve => {
+    confirmarModal(titulo, mensajeHtml, textoOk, () => resolve(true), peligro, () => resolve(false));
+  });
+}
+
+// Cuerpo del modal que lista los componentes sin stock suficiente. Tope de 15 para que no se
+// vuelva una pared de texto; el resto se resume en una línea.
+function htmlFaltantesStock(faltantes, deposito, pregunta) {
+  const filas = faltantes.slice(0, 15).map(f =>
+    `<li style="margin-top:3px"><strong>${escHtml(String(f.nombre ?? ''))}</strong>
+       <span style="opacity:.7">(PLU ${escHtml(String(f.plu ?? ''))})</span>:
+       necesita ${escHtml(String(fmtCant(f.necesario)))},
+       hay ${escHtml(String(fmtCant(f.stockOrigen ?? f.stockPrincipal)))} →
+       faltan <strong style="color:var(--red-text)">${escHtml(String(fmtCant(f.faltante)))}</strong></li>`).join('');
+  const extra = faltantes.length > 15
+    ? `<div style="margin-top:6px;opacity:.8">… y ${faltantes.length - 15} más</div>` : '';
+  return `<div>No alcanza el stock del depósito de origen
+        (<strong>${escHtml(etiquetaDeposito(deposito))}</strong>):</div>
+      <ul style="margin:8px 0 0 18px;padding:0;font-size:13px">${filas}</ul>${extra}
+      <div style="margin-top:10px"><strong>${escHtml(pregunta)}</strong></div>`;
+}
 document.getElementById('btnConfirmCancel').addEventListener('click', cerrarConfirmModal);
 document.getElementById('cerrarConfirm').addEventListener('click', cerrarConfirmModal);
 document.getElementById('overlayConfirm').addEventListener('click', e => {
@@ -2726,7 +2762,11 @@ function codigoGranelItem(it) {
 }
 
 function construirOrdenes() {
-  const items = planCache?.items || [];
+  // Un ítem con produccionMovimiento ya se produjo Y se recepcionó como artículo final: cerró
+  // su circuito. Volver a mandarlo a Producción del Día duplicaría la orden y, al conciliar de
+  // nuevo, descontaría sus componentes en SiGA por segunda vez. Se filtra acá, en el origen,
+  // así quedan cubiertos tanto el granel como el fraccionado agrupado por rubro.
+  const items = (planCache?.items || []).filter(it => !(it && it.produccionMovimiento));
   if (!items.length) return [];
 
   const CRIT_ORDER = { URGENT: 4, RED: 3, YELLOW: 2, GREEN: 1 };
@@ -2809,8 +2849,19 @@ function construirOrdenes() {
 // como el modal que ofrece enviar las órdenes recién reservadas, para que el
 // toast de éxito y el manejo de errores sean consistentes en ambos flujos.
 async function postOrdenesProduccion(ordenes) {
-  await api('POST', '/api/enviar-produccion', ordenes);
-  toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+  const resp = await api('POST', '/api/enviar-produccion', ordenes);
+  // El servidor descarta las órdenes ya recepcionadas en SiGA. Normalmente construirOrdenes()
+  // ya las filtró, así que si vuelve alguna es porque el plan en pantalla quedó viejo: se avisa
+  // en vez de dejar creer que se enviaron.
+  const omitidas = Array.isArray(resp?.recepcionadasOmitidas) ? resp.recepcionadasOmitidas : [];
+  const enviadas = ordenes.length - omitidas.length;
+  if (enviadas > 0) {
+    toast(`✓ ${enviadas} orden${enviadas !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+  }
+  if (omitidas.length) {
+    const detalle = omitidas.map(o => `${o.producto} (mov #${o.numeroMovimiento})`).join(', ');
+    toast(`${omitidas.length} orden${omitidas.length !== 1 ? 'es' : ''} ya producida${omitidas.length !== 1 ? 's' : ''} y recepcionada${omitidas.length !== 1 ? 's' : ''}, no se reenvió: ${detalle}`, true);
+  }
 }
 
 // Órdenes de construirOrdenes() que corresponden a ítems sellados con el
@@ -5044,13 +5095,10 @@ async function confirmarReserva(permitirFaltante) {
     }
     const faltantes = Array.isArray(resp.faltantes) ? resp.faltantes : [];
     if (faltantes.length && !permitirFaltante) {
-      const detalle = faltantes.slice(0, 15)
-        .map(f => `• ${f.nombre} (PLU ${f.plu}): necesita ${fmtCant(f.necesario)}, hay ${fmtCant(f.stockOrigen ?? f.stockPrincipal)} → faltan ${fmtCant(f.faltante)}`)
-        .join('\n');
-      const extra = faltantes.length > 15 ? `\n… y ${faltantes.length - 15} más` : '';
-      if (confirm(`No alcanza el stock del depósito de origen (${etiquetaDeposito(depOrigen)}):\n\n${detalle}${extra}\n\n¿Reservar igual lo disponible?`)) {
-        return confirmarReserva(true);
-      }
+      const ok = await confirmarModalAsync('Stock insuficiente',
+        htmlFaltantesStock(faltantes, depOrigen, '¿Reservar igual lo disponible?'),
+        'Reservar igual', true);
+      if (ok) return confirmarReserva(true);
       btn.disabled = false;
       return;
     }
@@ -5108,13 +5156,10 @@ async function actualizarReserva(permitirFaltante) {
   if (resp.error) {
     const faltantes = Array.isArray(resp.faltantes) ? resp.faltantes : [];
     if (faltantes.length && !permitirFaltante) {
-      const detalle = faltantes.slice(0, 15)
-        .map(f => `• ${f.nombre} (PLU ${f.plu}): necesita ${fmtCant(f.necesario)}, hay ${fmtCant(f.stockOrigen ?? f.stockPrincipal)} → faltan ${fmtCant(f.faltante)}`)
-        .join('\n');
-      const extra = faltantes.length > 15 ? `\n… y ${faltantes.length - 15} más` : '';
-      if (confirm(`No alcanza el stock del depósito de origen (${etiquetaDeposito(activa.depOrigen)}):\n\n${detalle}${extra}\n\n¿Mover igual lo disponible?`)) {
-        return actualizarReserva(true);
-      }
+      const ok = await confirmarModalAsync('Stock insuficiente',
+        htmlFaltantesStock(faltantes, activa.depOrigen, '¿Mover igual lo disponible?'),
+        'Mover igual', true);
+      if (ok) return actualizarReserva(true);
       btn.disabled = false;
       return;
     }
@@ -5152,7 +5197,12 @@ async function anularReserva() {
   const bloqueoProd = bloqueoProduccionReservaActiva();
   if (bloqueoProd) { toast(bloqueoProd, true); return; }
 
-  if (!confirm(`¿Anular la reserva #${activa.numeroMovimiento}?\n\nTodos los componentes vuelven a ${etiquetaDeposito(activa.depOrigen)}.`)) return;
+  const okAnular = await confirmarModalAsync('Anular reserva',
+    `¿Anular la reserva <strong>#${escHtml(String(activa.numeroMovimiento ?? ''))}</strong>?
+     <div style="margin-top:6px">Todos los componentes vuelven a
+       <strong>${escHtml(etiquetaDeposito(activa.depOrigen))}</strong>.</div>`,
+    'Anular reserva', true);
+  if (!okAnular) return;
 
   const btn = document.getElementById('btnAnularReserva');
   btn.disabled = true;
@@ -5472,13 +5522,16 @@ async function revertirMovStock(idx) {
     ? '(sin comprobante)' : '#' + String(r.numeroMovimiento);
   const nl = Array.isArray(r.productos) ? r.productos.length : 0;
 
-  const ok = confirm(
-    `¿Revertir la reserva ${comp}?\n\n` +
-    `Líneas: ${nl}\n` +
-    `Planificado: ${fmtFechaHoraMov(r.fechaPlanificacion)}\n\n` +
-    'Se genera un movimiento inverso en SiGA. Esta es la salida de emergencia: ' +
-    'para deshacer una reserva, el camino normal es "Anular reserva".'
-  );
+  const ok = await confirmarModalAsync('Revertir movimiento',
+    `<div>¿Revertir la reserva <strong>${escHtml(comp)}</strong>?</div>
+     <ul style="margin:8px 0 0 18px;padding:0;font-size:13px">
+       <li>Líneas: <strong>${nl}</strong></li>
+       <li>Planificado: ${escHtml(String(fmtFechaHoraMov(r.fechaPlanificacion)))}</li>
+     </ul>
+     <div style="margin-top:10px">Se genera un movimiento inverso en SiGA. Esta es la
+       <strong>salida de emergencia</strong>: para deshacer una reserva, el camino normal
+       es "Anular reserva".</div>`,
+    'Revertir', true);
   if (!ok) return;
 
   const btn = document.getElementById('movStockRev' + idx);
@@ -5541,16 +5594,13 @@ document.getElementById('overlayMovStock').addEventListener('click', e => {
   if (e.target === e.currentTarget) cerrarModalMovStock();
 });
 
-// showConfirm — wrapper Promise sobre confirmarModal existente
+// showConfirm — variante de confirmarModalAsync que recibe TEXTO PLANO en vez de HTML.
+// Delega en el mismo helper: antes parcheaba el onclick del botón Cancelar, así que cerrar
+// con ✕ o con clic afuera dejaba la promesa colgada para siempre.
 function showConfirm(titulo, mensajeTexto, btnSiLabel = 'Confirmar') {
-  return new Promise(resolve => {
-    const html = mensajeTexto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
-    confirmarModal(titulo, html, btnSiLabel, () => resolve(true));
-    // Cancelar → resolve(false): parchear btnConfirmCancel temporalmente
-    const cancel = document.getElementById('btnConfirmCancel');
-    const orig = cancel.onclick;
-    cancel.onclick = () => { cerrarConfirmModal(); resolve(false); cancel.onclick = orig; };
-  });
+  const html = String(mensajeTexto ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+  return confirmarModalAsync(titulo, html, btnSiLabel);
 }
 
 </script>

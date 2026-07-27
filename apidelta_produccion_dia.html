@@ -581,6 +581,27 @@ header{box-shadow:var(--elev-2)}
 </div>
 
 <!-- MODAL SHEETS -->
+<!-- Modal de confirmación genérico. Reemplaza a confirm() nativo, que rompe el estilo del
+     módulo y no deja formatear el detalle de lo que se va a escribir en SiGA. -->
+<div class="modal-overlay" id="confirmProdModal">
+  <div class="modal">
+    <div class="modal-handle"><div class="modal-handle-bar"></div></div>
+    <div class="modal-stripe"></div>
+    <div class="modal-head">
+      <span style="font-size:20px" id="confirmProdIcono">⚠</span>
+      <h2 id="confirmProdTitulo">Confirmar</h2>
+      <button class="modal-close" onclick="cerrarConfirmProd()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="confirmProdMsg" style="font-size:13px;line-height:1.7;color:var(--text)"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-formula" id="btnConfirmProdCancel" onclick="cerrarConfirmProd()">Cancelar</button>
+        <button class="btn-primary" id="btnConfirmProdOk">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="sheetsModal">
   <div class="modal">
     <div class="modal-handle"><div class="modal-handle-bar"></div></div>
@@ -2913,6 +2934,52 @@ function _concDif(v) {
   return (n > 0 ? '+' : '−') + fmtN(Math.abs(n));
 }
 
+// ── Modal de confirmación genérico ───────────────────────────────
+// Único camino para pedir confirmación en este módulo: confirm() nativo rompe el estilo, no
+// permite formatear el detalle y bloquea el hilo. Resuelve true/false para poder usarse con
+// await sin dar vuelta el flujo de las funciones async.
+let _confirmProdResolve = null;
+
+function cerrarConfirmProd() {
+  document.getElementById('confirmProdModal').classList.remove('open');
+  // Cerrar por ✕, Cancelar o Escape cuenta como cancelación. Se limpia antes de resolver para
+  // que una segunda llamada no reutilice el resolve viejo.
+  const resolver = _confirmProdResolve;
+  _confirmProdResolve = null;
+  if (resolver) resolver(false);
+}
+
+function confirmarProd(titulo, mensajeHtml, textoOk, icono) {
+  // Si ya había uno abierto se cancela, para no dejar la promesa anterior colgada.
+  if (_confirmProdResolve) cerrarConfirmProd();
+  document.getElementById('confirmProdTitulo').textContent = titulo;
+  document.getElementById('confirmProdIcono').textContent  = icono || '⚠';
+  document.getElementById('confirmProdMsg').innerHTML      = mensajeHtml;
+  const btn = document.getElementById('btnConfirmProdOk');
+  btn.textContent = textoOk || 'Confirmar';
+  document.getElementById('confirmProdModal').classList.add('open');
+  return new Promise(resolve => { _confirmProdResolve = resolve; });
+}
+
+document.getElementById('btnConfirmProdOk').addEventListener('click', () => {
+  const resolver = _confirmProdResolve;
+  _confirmProdResolve = null;
+  document.getElementById('confirmProdModal').classList.remove('open');
+  if (resolver) resolver(true);
+});
+document.getElementById('confirmProdModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) cerrarConfirmProd();
+});
+
+// revierteA y revertidoPor vienen como IDs internos del log de movimientos, no como número de
+// comprobante. Esto los traduce al #N que se ve en la tabla; devuelve null si el movimiento
+// enlazado no está en la lista (p. ej. quedó fuera del filtro por fecha).
+function _concNumeroDeMov(movs, id) {
+  if (id == null || id === '') return null;
+  const ref = (movs || []).find(x => x && String(x.id) === String(id));
+  return ref && ref.numeroMovimiento != null ? ref.numeroMovimiento : null;
+}
+
 function _concFechaHora(s) {
   if (!s) return '—';
   const d = new Date(s);
@@ -3012,13 +3079,23 @@ function renderConciliacion(d) {
       <tbody>${movs.map(m => {
         const est = String(m.estado || '').toLowerCase();
         const revertido = !!m.revertido;
+        // Una reversión se registra con el MISMO origen que el movimiento que deshace, así que
+        // en la columna Origen figura como "reserva" y se confunde con una reserva real. Se la
+        // reconoce por revierteA, y va tachada igual que su original: el par se anula entre sí
+        // y ninguno de los dos cuenta para la conciliación.
+        const esReversion    = m.revierteA != null && m.revierteA !== '';
+        const numRevertido   = esReversion ? _concNumeroDeMov(movs, m.revierteA)     : null;
+        const numQueRevirtio = revertido   ? _concNumeroDeMov(movs, m.revertidoPor)  : null;
+        const anulado = revertido || esReversion;
         let rowStyle = 'border-bottom:1px solid #F0F0F0';
         let badge = 'background:var(--s-done-bg);color:var(--s-done-c)';
         let nota = '';
-        if (revertido) {
+        if (anulado) {
           rowStyle += ';color:var(--text-muted);text-decoration:line-through';
           badge = 'background:#EEEEEE;color:var(--text-muted)';
-          nota = 'revertido: no cuenta';
+          nota = esReversion
+            ? `reversión de ${numRevertido ? '#' + numRevertido : 'otro movimiento'}: no cuenta`
+            : `revertido${numQueRevirtio ? ' por #' + numQueRevirtio : ''}: no cuenta`;
         } else if (est === 'fallido') {
           badge = 'background:#FFEBEE;color:var(--c-alta)';
           nota = 'no movió stock';
@@ -3027,10 +3104,13 @@ function renderConciliacion(d) {
           badge = 'background:var(--c-alta);color:#fff';
           nota = 'verificar en SiGA';
         }
-        const notaHTML = nota ? `<div style="font-size:11px;color:${est === 'pendiente' && !revertido ? 'var(--c-alta)' : 'var(--text-muted)'};text-decoration:none;margin-top:2px">${escEnv(nota)}</div>` : '';
+        const notaHTML = nota ? `<div style="font-size:11px;color:${est === 'pendiente' && !anulado ? 'var(--c-alta)' : 'var(--text-muted)'};text-decoration:none;margin-top:2px">${escEnv(nota)}</div>` : '';
+        // El backend guarda la reversión con el origen del movimiento original ('reserva'), que
+        // acá mentiría: se muestra lo que el movimiento realmente es.
+        const origenTexto = esReversion ? `reversión (${m.origen || '—'})` : (m.origen || '—');
         return `<tr style="${rowStyle}">
           <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px">#${escEnv(m.numeroMovimiento ?? m.id ?? '—')}</td>
-          <td style="padding:7px 8px">${escEnv(m.origen || '—')}</td>
+          <td style="padding:7px 8px">${escEnv(origenTexto)}</td>
           <td style="padding:7px 8px;color:var(--text-muted)">${_concFechaHora(m.fechaHora)}</td>
           <td style="padding:7px 8px;text-align:center">
             <span style="display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;text-decoration:none;${badge}">${escEnv(m.estado || '—')}</span>
@@ -3233,21 +3313,26 @@ async function registrarMovimientoProduccion() {
 
     const sinPlu = comps.filter(c => !c.plu);
     const nSuc   = sucursalProdActual();
-    const detalle = [
-      `Se va a registrar la producción del ${fecha} en SiGA.`,
-      '',
-      `Alta:  ${prods.length} producto(s) terminado(s)`,
-      `Baja:  ${comps.length - sinPlu.length} componente(s) consumido(s)`,
-      nSuc ? `Sucursal destino: ${nSuc}${nombreSucursalProd(nSuc) ? ' — ' + nombreSucursalProd(nSuc) : ''}` : '',
-      `Componentes salen de: ${etiquetaDepositoProd(depSalida)}`,
-      `Terminados entran a: ${etiquetaDepositoProd(depRecepcion)}`,
-      `Diferencias vuelven a: ${etiquetaDepositoProd(depDiferencias)}`,
-      'Lo que esté reservado sale del depósito de reserva; la diferencia contra lo consumido vuelve al de diferencias.',
-      sinPlu.length ? `\n⚠ ${sinPlu.length} componente(s) sin código: se omiten del movimiento.` : '',
-      '',
-      'Esto modifica stock real. Se puede revertir desde 🧾 Movimientos en Planificación.'
-    ].filter(Boolean).join('\n');
-    if (!confirm(detalle)) return;
+    const fila = (etiqueta, valor) => `<tr>
+        <td style="padding:3px 10px 3px 0;color:var(--text-muted);white-space:nowrap">${escEnv(etiqueta)}</td>
+        <td style="padding:3px 0;font-weight:700">${escEnv(valor)}</td></tr>`;
+    const detalle = `
+      <div>Se va a registrar la producción del <strong>${escEnv(fecha)}</strong> en SiGA.</div>
+      <table style="margin-top:10px;border-collapse:collapse;font-size:13px">
+        ${fila('Alta', `${prods.length} producto(s) terminado(s)`)}
+        ${fila('Baja', `${comps.length - sinPlu.length} componente(s) consumido(s)`)}
+        ${nSuc ? fila('Sucursal destino', `${nSuc}${nombreSucursalProd(nSuc) ? ' — ' + nombreSucursalProd(nSuc) : ''}`) : ''}
+        ${fila('Componentes salen de', etiquetaDepositoProd(depSalida))}
+        ${fila('Terminados entran a', etiquetaDepositoProd(depRecepcion))}
+        ${fila('Diferencias vuelven a', etiquetaDepositoProd(depDiferencias))}
+      </table>
+      <div style="margin-top:10px;color:var(--text-muted)">Lo que esté reservado sale del depósito
+        de reserva; la diferencia contra lo consumido vuelve al de diferencias.</div>
+      ${sinPlu.length ? `<div style="margin-top:10px;padding:8px 10px;background:#FFEBEE;border-radius:var(--radius-sm);color:var(--c-alta);font-weight:700">⚠ ${sinPlu.length} componente(s) sin código: se omiten del movimiento.</div>` : ''}
+      <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:var(--radius-sm)">
+        <strong>Esto modifica stock real.</strong> Se puede revertir desde 🧾 Movimientos en Planificación.
+      </div>`;
+    if (!await confirmarProd('Registrar producción en SiGA', detalle, 'Registrar', '📦')) return;
 
     const resp = await api('POST', `/api/produccion/${encodeURIComponent(fecha)}/registrar-movimiento`,
       { idSucursal: sucursalProdActual(), confirmar: true, omitirSinPlu: sinPlu.length > 0, depSalida, depRecepcion, depDiferencias });
