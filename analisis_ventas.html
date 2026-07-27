@@ -11,6 +11,9 @@
     --yellow:#FFCC00; --gold:#C98A00;
     --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
     --radius:12px; --radius-sm:8px;
+    /* Barra de impacto en la tabla de familias: degradado verde → dorado Apidelta, con
+       opacidad suficiente para que pese sin volver ilegible el texto encima. */
+    --barra-ini:rgba(64,89,54,.55); --barra-fin:rgba(201,138,0,.32);
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
@@ -37,16 +40,16 @@
   .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
   .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
   tr.fam{cursor:pointer}
-  tr.fam:hover{background:#F0F3EE}
+  tr.fam>td{padding-top:9px;padding-bottom:9px;font-weight:600}
+  tr.fam>td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+  /* background-color, no el shorthand: el shorthand borraría la barra (background-image). */
+  tr.fam:hover{background-color:#F0F3EE}
   tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
   tr.fam-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
   tr.fam-det>td.pres{padding-left:30px}
   th.orden{cursor:pointer;user-select:none;white-space:nowrap}
   th.orden:hover{color:var(--green-dark)}
-  td.impacto{width:190px;white-space:nowrap}
-  td.impacto .barra{display:inline-block;width:130px;height:9px;border-radius:5px;background:#E9ECE7;overflow:hidden;vertical-align:middle}
-  td.impacto .barra span{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#2563EB,#7C3AED)}
-  td.impacto em{margin-left:8px;font-style:normal;font-size:12px;color:var(--muted)}
+  td.impacto{width:110px;font-variant-numeric:tabular-nums}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
   th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
@@ -109,34 +112,52 @@ const SUCURSALES = [
   {id:10,nombre:'Pergamino'},
 ];
 const GREEN = '#405936', YELLOW = '#C98A00', MID = '#4E6B43';
-// Paleta de la torta de artículos/ticket: colores bien separados entre sí (no la paleta
-// Apidelta) para que cada porción se distinga de un vistazo.
-const PALETA_ART = ['#2563EB', '#059669', '#F59E0B', '#DC2626', '#7C3AED'];
+// Paleta de la torta de artículos/ticket: el primer bucket (1-3, los tickets más chicos)
+// va en rojo porque es el que se quiere reducir; el resto escala de verde a amarillo a
+// medida que crece el carrito.
+const PALETA_ART = ['#C62828', '#2E7D32', '#6DA340', '#B7BE33', '#F2C200'];
 
-// Chart.js 4 no trae datalabels y no se puede sumar un plugin por CDN, así que el
-// porcentaje se dibuja a mano en el centro de cada porción. Se omite en las porciones
-// muy chicas, donde el texto no entraría.
-const PCT_MIN_VISIBLE = 4;
+// Blanco sobre los tonos oscuros y gris oscuro sobre los claros: sobre el amarillo el
+// texto blanco no se lee. Umbral de luminancia percibida (ITU-R BT.601).
+function textoSobre(hex){
+  const n = parseInt(String(hex).replace('#',''), 16);
+  const lum = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
+  return lum > 150 ? '#1C1B1F' : '#FFFFFF';
+}
+
+// Chart.js 4 no trae datalabels y no se puede sumar un plugin por CDN, así que la etiqueta
+// y el porcentaje se dibujan a mano dentro de cada porción (por eso la leyenda externa está
+// apagada). En porciones muy finas no entra el texto: primero se cae la etiqueta y después
+// el porcentaje, que igual siguen disponibles en el tooltip.
+const PCT_MIN_PORCENTAJE = 3;
+const PCT_MIN_ETIQUETA = 7;
 const pluginPorcentajes = {
   id: 'porcentajes',
   afterDatasetsDraw(chart){
     const { ctx } = chart;
     const meta = chart.getDatasetMeta(0);
-    const datos = chart.data.datasets[0].data || [];
+    const ds = chart.data.datasets[0];
+    const datos = ds.data || [];
     const total = datos.reduce((a, v) => a + (Number(v) || 0), 0);
     if (!total) return;
     ctx.save();
-    ctx.font = 'bold 13px Inter, system-ui, sans-serif';
-    ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,.45)';
-    ctx.shadowBlur = 3;
     meta.data.forEach((arco, i) => {
       const pct = (Number(datos[i]) || 0) * 100 / total;
-      if (pct < PCT_MIN_VISIBLE) return;
+      if (pct < PCT_MIN_PORCENTAJE) return;
       const { x, y } = arco.getCenterPoint();
-      ctx.fillText(`${fmtDec(pct)}%`, x, y);
+      const conEtiqueta = pct >= PCT_MIN_ETIQUETA;
+      ctx.fillStyle = textoSobre(ds.backgroundColor[i]);
+      if (conEtiqueta) {
+        ctx.font = 'bold 14px Inter, system-ui, sans-serif';
+        ctx.fillText(String(chart.data.labels[i]), x, y - 9);
+        ctx.font = '13px Inter, system-ui, sans-serif';
+        ctx.fillText(`${fmtDec(pct)}%`, x, y + 9);
+      } else {
+        ctx.font = 'bold 12px Inter, system-ui, sans-serif';
+        ctx.fillText(`${fmtDec(pct)}%`, x, y);
+      }
     });
     ctx.restore();
   }
@@ -318,17 +339,17 @@ function renderFamilias(rows){
     // El ancho se escala contra la familia más grande para que la barra se vea; el número
     // que se muestra es siempre la participación real sobre el total listado.
     const ancho = maxFacturacion > 0 ? (f.facturacion || 0) * 100 / maxFacturacion : 0;
-    return `<tr class="fam" onclick="toggleFamilia(${i})">
+    // La barra es el fondo de la fila entera (no una celda aparte): así el peso de cada
+    // familia se lee de un vistazo sobre el propio registro.
+    const corte = ancho.toFixed(2);
+    const fondo = `linear-gradient(90deg, var(--barra-ini) 0%, var(--barra-fin) ${corte}%, transparent ${corte}%)`;
+    return `<tr class="fam" style="background-image:${fondo}" onclick="toggleFamilia(${i})"
+              title="${fmtDec(share)}% de la facturación listada">
         <td><span class="caret" id="cf-${i}">▶</span> ${escHtml(f.familia)}</td>
         <td class="num">${fmtNum(f.presentaciones.length)}</td>
         <td class="num">${fmtNum(f.unidades)}</td>
         <td class="num">${fmtMoney(f.facturacion)}</td>
-        <td class="impacto">
-          <div class="barra" title="${fmtDec(share)}% de la facturación listada">
-            <span style="width:${ancho.toFixed(2)}%"></span>
-          </div>
-          <em>${fmtDec(share)}%</em>
-        </td>
+        <td class="num impacto">${fmtDec(share)}%</td>
       </tr>
       ${detalle}`;
   }).join('');
@@ -356,7 +377,9 @@ function renderArticulos(apt){
       datasets:[{ label:'Tickets', data: hist.map(r=>r.tickets),
         backgroundColor: PALETA_ART, borderColor:'#fff', borderWidth:2 }] },
     options:{ plugins:{
-      legend:{ position:'right' },
+      // Las etiquetas van dentro de cada porción (pluginPorcentajes), así que la leyenda
+      // externa sólo repetiría información y le robaría ancho al gráfico.
+      legend:{ display:false },
       tooltip:{ callbacks:{ label: c => {
         const v = c.parsed || 0;
         const pct = totalTickets > 0 ? v * 100 / totalTickets : 0;
