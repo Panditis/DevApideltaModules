@@ -126,6 +126,13 @@ test('sqlArticulosPorSucursal promedia artículos/ticket por sucursal', () => {
   assert.match(s, /ORDER BY Promedio DESC/);
 });
 
+test('sqlArticulosPorSucursal calcula tickets diarios sobre los días con ventas', () => {
+  const s = sqlArticulosPorSucursal(P);
+  assert.match(s, /MIN\(CAST\(v\.Fecha AS DATE\)\) AS Fecha/);
+  assert.match(s, /COUNT\(DISTINCT t\.Fecha\) AS Dias/);
+  assert.match(s, /CAST\(COUNT\(\*\) AS FLOAT\) \/ NULLIF\(COUNT\(DISTINCT t\.Fecha\), 0\) AS TicketsDia/);
+});
+
 test('bucketsArticulos colapsa el histograma exacto en los buckets fijos', () => {
   const hist = [
     { Articulos: 1, Tickets: 10 }, { Articulos: 2, Tickets: 5 },
@@ -133,16 +140,65 @@ test('bucketsArticulos colapsa el histograma exacto en los buckets fijos', () =>
     { Articulos: 15, Tickets: 4 },
   ];
   const b = bucketsArticulos(hist);
-  assert.deepStrictEqual(b.map(x => x.label), ['1','2','3','4','5','6-10','11+']);
-  assert.strictEqual(b.find(x => x.label === '1').tickets, 10);
-  assert.strictEqual(b.find(x => x.label === '6-10').tickets, 5); // 3 + 2
-  assert.strictEqual(b.find(x => x.label === '11+').tickets, 4);
-  assert.strictEqual(b.find(x => x.label === '3').tickets, 0);
+  assert.deepStrictEqual(b.map(x => x.label), ['1-3','4-5','6-7','8-9','+10']);
+  assert.strictEqual(b.find(x => x.label === '1-3').tickets, 15); // 10 + 5
+  assert.strictEqual(b.find(x => x.label === '6-7').tickets, 3);
+  assert.strictEqual(b.find(x => x.label === '8-9').tickets, 2);
+  assert.strictEqual(b.find(x => x.label === '+10').tickets, 4);
+  assert.strictEqual(b.find(x => x.label === '4-5').tickets, 0);
 });
 
 test('bucketsArticulos tolera entrada vacía o nula', () => {
   assert.strictEqual(bucketsArticulos([]).reduce((a, x) => a + x.tickets, 0), 0);
-  assert.strictEqual(bucketsArticulos(null).length, 7);
+  assert.strictEqual(bucketsArticulos(null).length, 5);
+});
+
+const { familiaNombre, claveFamilia, agruparFamilias } = require('../analisis_ventas');
+
+test('familiaNombre recorta presentación, múltiplo y variantes pack/bulto', () => {
+  assert.strictEqual(familiaNombre('MIEL PURA 500G'), 'MIEL PURA');
+  assert.strictEqual(familiaNombre('MIEL PURA 1KG'), 'MIEL PURA');
+  assert.strictEqual(familiaNombre('MIEL PURA PACK 6'), 'MIEL PURA');
+  assert.strictEqual(familiaNombre('ALMENDRA TOSTADA X 1 KG'), 'ALMENDRA TOSTADA');
+  assert.strictEqual(familiaNombre('ALMENDRA TOSTADA X12'), 'ALMENDRA TOSTADA');
+});
+
+test('familiaNombre deja intacto lo que no tiene presentación y no devuelve vacío', () => {
+  assert.strictEqual(familiaNombre('NUEZ MARIPOSA'), 'NUEZ MARIPOSA');
+  assert.strictEqual(familiaNombre('1KG'), '1KG'); // dato sucio: no puede desaparecer
+  assert.strictEqual(familiaNombre(null), '');
+});
+
+test('claveFamilia ignora acentos, mayúsculas y espacios de más', () => {
+  assert.strictEqual(claveFamilia('Miel  Púra'), claveFamilia('MIEL PURA'));
+});
+
+test('agruparFamilias suma presentaciones y ordena por facturación', () => {
+  const rows = [
+    { IdProducto: 1, Nombre: 'MIEL PURA 500G', Unidades: 10, Facturacion: 1000 },
+    { IdProducto: 2, Nombre: 'Miel Pura 1Kg',  Unidades: 5,  Facturacion: 1500 },
+    { IdProducto: 3, Nombre: 'NUEZ MARIPOSA',  Unidades: 2,  Facturacion: 800 },
+  ];
+  const fams = agruparFamilias(rows, 10);
+  assert.strictEqual(fams.length, 2);
+  assert.strictEqual(fams[0].familia, 'MIEL PURA');
+  assert.strictEqual(fams[0].unidades, 15);
+  assert.strictEqual(fams[0].facturacion, 2500);
+  assert.strictEqual(fams[0].presentaciones.length, 2);
+  assert.strictEqual(fams[0].presentaciones[0].nombre, 'Miel Pura 1Kg'); // mayor facturación
+  assert.strictEqual(fams[1].familia, 'NUEZ MARIPOSA');
+});
+
+test('agruparFamilias respeta topN, descarta nombres vacíos y tolera nulo', () => {
+  const rows = [
+    { IdProducto: 1, Nombre: 'A 1KG', Unidades: 1, Facturacion: 300 },
+    { IdProducto: 2, Nombre: 'B 1KG', Unidades: 1, Facturacion: 200 },
+    { IdProducto: 3, Nombre: '',      Unidades: 9, Facturacion: 999 },
+  ];
+  const fams = agruparFamilias(rows, 1);
+  assert.strictEqual(fams.length, 1);
+  assert.strictEqual(fams[0].familia, 'A');
+  assert.deepStrictEqual(agruparFamilias(null, 5), []);
 });
 
 test('promedioArticulos divide artículos totales por tickets totales', () => {

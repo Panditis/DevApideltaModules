@@ -318,6 +318,11 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
 .prio-badge.RED    { background:var(--red-bg); color:var(--red-text); }
 .prio-badge.YELLOW { background:var(--amb-bg); color:var(--amb-text); }
 
+/* Fila de una orden ya reservada (item.reservaMovimiento sellado): candado visual sutil,
+   el botón eliminar queda deshabilitado hasta anular la reserva. */
+tr.orden-reservada { background:rgba(22,101,52,.05); border-left:3px solid var(--grn-border); }
+tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
+
 /* ── PLU TABLA (modal editar grupo) ── */
 .plu-tabla { width:100%; border-collapse:collapse; font-size:13px; }
 .plu-tabla thead th { position:sticky; top:0; z-index:2; padding:8px; text-align:left; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.5px; background:var(--md-surface-1); border-bottom:1px solid var(--md-outline-variant); white-space:nowrap; }
@@ -437,7 +442,7 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
     <button class="btn btn-secondary btn-sm" id="btnResumenMP"     disabled title="Ver resumen de materia prima del plan">📦 Resumen MP</button>
     <button class="btn btn-secondary btn-sm" id="btnMoverTodoDia" disabled title="Mover todo el día a otra fecha">📅 Mover día</button>
     <button class="btn btn-secondary btn-sm" id="btnReservaMerc"  disabled title="Reservar los componentes de fórmula del plan">🔒 Reservar mercadería</button>
-    <button class="btn btn-secondary btn-sm" id="btnMovStock" title="Ver el historial de movimientos de stock ejecutados y revertirlos">🧾 Movimientos</button>
+    <button class="btn btn-secondary btn-sm" id="btnMovStock" title="Ver el resumen de reservas del plan y revertirlas">🧾 Resumen de reservas</button>
     <button class="btn btn-enviar"           id="btnEnviarProd"    disabled title="Enviar plan a Producción del Día">📤 Enviar a Producción</button>
   </div>
 
@@ -891,7 +896,7 @@ thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde);
 <div class="overlay" id="overlayMovStock">
   <div class="modal" style="width:920px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column">
     <div class="modal-header" style="background:var(--md-primary)">
-      <span id="movStockTitulo">🧾 Historial de movimientos de stock</span>
+      <span id="movStockTitulo">🧾 Resumen de reservas del plan</span>
       <span class="close" id="cerrarMovStock">✕</span>
     </div>
     <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0">
@@ -1063,6 +1068,20 @@ async function api(method, ruta, body) {
     throw new Error(`${res.status}: ${txt}`);
   }
   return res.json();
+}
+
+// Los errores de api() llegan como Error("<status>: <texto>"), donde <texto>
+// suele ser el JSON crudo de la respuesta ({error, yaProducido, ...}). Estos
+// helpers extraen el mensaje legible para mostrarlo en toasts/alerts.
+function parseApiErrorBody(e) {
+  const msg = e?.message || '';
+  const i = msg.indexOf(':');
+  const body = i === -1 ? msg : msg.slice(i + 1).trim();
+  try { return JSON.parse(body); } catch { return null; }
+}
+function mensajeApiError(e) {
+  const data = parseApiErrorBody(e);
+  return (data && typeof data.error === 'string') ? data.error : (e?.message || 'Error desconocido');
 }
 
 // ── Toast ────────────────────────────────────────────────────────
@@ -1636,7 +1655,10 @@ function renderPlan() {
     // acento verde a la izquierda para que se vea que salió del circuito (si hace falta de
     // nuevo, se agrega como orden nueva, no se re-reserva este).
     const cerrado = !!(it && it.produccionMovimiento);
-    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}"${cerrado ? ' style="opacity:.62;border-left:3px solid #14532d"' : ''}>
+    // Orden reservada: el backend selló el ítem con un movimiento de SiGA (reserva
+    // incremental) y rechaza (409) borrarla mientras esa reserva siga activa.
+    const reservada = !!(it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+    return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}"${reservada && !cerrado ? ' class="orden-reservada"' : ''}${cerrado ? ' style="opacity:.62;border-left:3px solid #14532d"' : ''}>
       <td style="text-align:center;white-space:nowrap;padding:0">
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},-1)" title="Subir prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▲</button>
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},1)" title="Bajar prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▼</button>
@@ -1705,7 +1727,7 @@ function renderPlan() {
       </td>
       <td style="white-space:nowrap">
         <button class="btn btn-secondary btn-sm" onclick="moverItem(${it.id})" title="Reasignar fecha">📅</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarItem(${it.id})">✕</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarItem(${it.id})"${reservada ? ' disabled title="Orden reservada: anulá la reserva primero"' : ''}>✕</button>
       </td>
     </tr>`;
   }).join('');
@@ -1754,8 +1776,23 @@ async function actualizarItem(id, campo, valor, el) {
   }
 
   try {
-    await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, item);
-  } catch (e) { toast('Error al guardar: ' + e.message, true); }
+    const resp = await api('PUT', `/api/plan/${fechaPlanActual}/item/${id}`, item);
+    // El backend puede responder 200 con {error, yaProducido|yaReservado} en vez
+    // de un status de error: si el ítem ya se trabajó en producción o está
+    // reservado, se avisa y se descarta la edición optimista refrescando el plan.
+    if (resp && resp.error) {
+      toast(String(resp.error), true);
+      await cargarPlan(fechaPlanActual);
+      return;
+    }
+  } catch (e) {
+    // La página pudo quedar desactualizada (ítem producido/reservado en otro
+    // lado): se muestra el motivo real y se refresca para revertir el cambio
+    // optimista y reflejar el estado verdadero del servidor.
+    toast('Error al guardar: ' + mensajeApiError(e), true);
+    await cargarPlan(fechaPlanActual);
+    return;
+  }
 
   // Refrescar la fila: las opciones de tapa dependen del envase elegido.
   if (campo === 'envase') renderPlan();
@@ -1826,17 +1863,41 @@ async function moverTodoDia() {
 
 function eliminarItem(id) {
   const it = (planCache?.items || []).find(i => i.id == id);
+  const numeroReserva = it?.reservaMovimiento?.numeroMovimiento;
+  if (numeroReserva != null) {
+    alert('Orden reservada (#' + numeroReserva + '): anulá la reserva primero');
+    return;
+  }
   const nombre = it ? it.producto : 'este ítem';
   confirmarModal('Eliminar ítem',
     `¿Eliminar <strong>${escHtml(nombre)}</strong> del plan de ${formatFecha(fechaPlanActual)}?`,
     'Eliminar',
     async () => {
+      // La página puede estar desactualizada (el ítem pudo pasar a producción o
+      // quedar reservado desde otra pestaña): se refresca el plan justo antes de
+      // borrar para no operar sobre datos viejos.
+      try { await cargarPlan(fechaPlanActual); }
+      catch (e) { toast('Error al refrescar el plan: ' + mensajeApiError(e), true); return; }
+
+      const fresh = planCache?.items.find(i => i.id == id);
+      if (!fresh) { toast('El ítem ya no está en el plan', true); return; }
+      const numeroReservaFresh = fresh.reservaMovimiento?.numeroMovimiento;
+      if (numeroReservaFresh != null) {
+        toast('Orden reservada (#' + numeroReservaFresh + '): anulá la reserva primero', true);
+        return;
+      }
+
       try {
         await api('DELETE', `/api/plan/${fechaPlanActual}/item/${id}`);
         planCache.items = planCache.items.filter(i => i.id != id);
         renderPlan();
         toast('Ítem eliminado');
-      } catch (e) { toast('Error al eliminar: ' + e.message, true); }
+      } catch (e) {
+        // 409 u otro rechazo del backend (ya producido/reservado): se muestra
+        // el motivo real y se refresca para que la vista quede consistente.
+        toast('Error al eliminar: ' + mensajeApiError(e), true);
+        await cargarPlan(fechaPlanActual);
+      }
     }, true);
 }
 
@@ -1898,10 +1959,10 @@ document.getElementById('btnBorrarPlan').addEventListener('click', () => {
     'Borrar todo',
     async () => {
       try {
-        await api('DELETE', `/api/plan/${fechaPlanActual}`);
-        planCache = { items: [], notas: '' };
-        renderPlan();
-        toast('Plan borrado');
+        const res = await api('DELETE', `/api/plan/${fechaPlanActual}`);
+        // Las órdenes reservadas se conservan: se recarga el plan para mostrarlas con su badge.
+        await cargarPlan(fechaPlanActual);
+        toast(res && res.conservadas ? res.aviso : 'Plan borrado', !!(res && res.conservadas));
       } catch (e) { toast('Error: ' + e.message, true); }
     }, true);
 });
@@ -2744,6 +2805,26 @@ function construirOrdenes() {
   return ordenes;
 }
 
+// POST compartido a Producción: lo usa tanto el botón "Enviar a producción"
+// como el modal que ofrece enviar las órdenes recién reservadas, para que el
+// toast de éxito y el manejo de errores sean consistentes en ambos flujos.
+async function postOrdenesProduccion(ordenes) {
+  await api('POST', '/api/enviar-produccion', ordenes);
+  toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+}
+
+// Órdenes de construirOrdenes() que corresponden a ítems sellados con el
+// movimiento de reserva recién creado. Granel: 1 orden por ítem (match por
+// producto). Fraccionado: 1 orden por rubro (match por rubro||producto).
+function ordenesRecienReservadas(numeroMovimiento) {
+  if (numeroMovimiento == null) return [];
+  const items = planCache?.items || [];
+  const reservados = items.filter(it => it.reservaMovimiento?.numeroMovimiento === numeroMovimiento);
+  if (!reservados.length) return [];
+  const claves = new Set(reservados.map(it => it.esGranel ? it.producto : (it.rubro || it.producto)));
+  return construirOrdenes().filter(o => claves.has(o.producto));
+}
+
 function eTabSwitch(tab) {
   const isOrdenes = tab === 'ordenes';
   document.getElementById('enviarLista').style.display = isOrdenes ? 'flex' : 'none';
@@ -2898,11 +2979,10 @@ async function confirmarEnviarProduccion() {
   const btn = document.getElementById('btnConfirmarEnviar');
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
-    await api('POST', '/api/enviar-produccion', ordenes);
+    await postOrdenesProduccion(ordenes);
     document.getElementById('overlayEnviar').classList.remove('open');
-    toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
   } catch (e) {
-    toast('Error al enviar: ' + e.message, true);
+    toast('Error al enviar: ' + mensajeApiError(e), true);
   } finally {
     btn.disabled = false; btn.textContent = '✓ Confirmar y enviar';
   }
@@ -4215,23 +4295,38 @@ function aplicarEstadoBotonReserva() {
   const desincronizada = reservaDesincronizada();
   const otraSucursal   = sucursalDistintaReserva();
 
-  if (activa) {
+  // Reserva incremental: cada orden se sella con su propio movimiento al reservarse
+  // (item.reservaMovimiento), así que el botón externo se habilita mientras queden
+  // órdenes sin sellar, no según si el plan (como un todo) tuvo alguna vez una reserva.
+  const itemReservado  = it => !!(it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+  const haySinReservar = items.some(it => !itemReservado(it));
+  const hayReservados  = items.some(itemReservado);
+
+  if (activa && (otraSucursal || desincronizada)) {
+    // Estados de excepción: la reserva vigente no se puede tocar desde acá hasta
+    // resolverlos (cambiar de sucursal o revisar la desincronización en el modal).
     btn.textContent = `🔒 Reservado #${activa.numeroMovimiento}`;
     btn.disabled    = false;
     btn.title       = otraSucursal
       ? `La reserva #${activa.numeroMovimiento} es de la ${etiquetaSucursal(otraSucursal.deLaReserva)}: cambiá a esa sucursal para actualizarla o anularla`
-      : desincronizada
-      ? `La reserva #${activa.numeroMovimiento} fue alterada desde el historial de movimientos: abrí el modal para revisarla`
-      : desactualizada
-        ? `El plan cambió desde la reserva #${activa.numeroMovimiento}: abrí el modal para actualizarla`
-        : `Este plan ya fue reservado (comprobante #${activa.numeroMovimiento}). Para volver a reservar, modificá las órdenes del plan del día. Podés verla o anularla.`;
+      : `La reserva #${activa.numeroMovimiento} fue alterada desde el historial de movimientos: abrí el modal para revisarla`;
+  } else if (items.length === 0) {
+    btn.textContent = '🔒 Reservar mercadería';
+    btn.disabled    = true;
+    btn.title       = 'No hay ítems en el plan';
+  } else if (!haySinReservar) {
+    btn.textContent = '🔒 Todo reservado';
+    btn.disabled    = true;
+    btn.title       = activa
+      ? `Todas las órdenes del plan ya están reservadas (último comprobante #${activa.numeroMovimiento}).`
+      : 'Todas las órdenes del plan ya están reservadas.';
   } else {
     // Los depósitos se eligen dentro del modal, así que el config sólo aporta
     // la preselección: no hace falta bloquear el botón si no está configurado.
-    btn.textContent = '🔒 Reservar mercadería';
-    btn.disabled    = items.length === 0;
-    btn.title       = items.length === 0
-      ? 'No hay ítems en el plan'
+    btn.textContent = hayReservados ? '🔒 Reservar órdenes nuevas' : '🔒 Reservar mercadería';
+    btn.disabled    = false;
+    btn.title       = hayReservados
+      ? 'Reservar los componentes de fórmula de las órdenes nuevas (las ya reservadas no se tocan)'
       : 'Reservar los componentes de fórmula del plan';
   }
 
@@ -4830,6 +4925,16 @@ function renderReservaModal() {
   btnAnu.disabled      = false;
   btnAnu.title         = 'Devolver todo al depósito de origen';
 
+  // Anular devuelve TODO el saldo al depósito de origen. Si alguna orden reservada ya se
+  // produjo y recepcionó, sus componentes salieron del depósito de reserva al recepcionar el
+  // artículo final: devolverlos escribiría en SiGA stock que no existe. El servidor también lo
+  // rechaza, pero acá el botón directamente no se puede clickear.
+  const bloqueoProd = bloqueoProduccionReservaActiva();
+  if (activa && bloqueoProd) {
+    btnAnu.disabled = true;
+    btnAnu.title    = bloqueoProd;
+  }
+
   // Reserva de otra sucursal: el servidor rechaza toda escritura, así que no se
   // ofrece el intento (el usuario no tiene que descubrirlo con un error).
   const otraSucursal = sucursalDistintaReserva();
@@ -4840,6 +4945,25 @@ function renderReservaModal() {
     btnAnu.disabled = true;
     btnAnu.title    = motivo;
   }
+}
+
+// Motivo por el que la reserva activa no se puede anular, o '' si se puede. Mira los ítems
+// reservados que además tienen sello de producción recepcionada: son los que ya consumieron
+// sus componentes. Es el mismo criterio que la guarda del servidor en ejecutarDevolucionReserva.
+function bloqueoProduccionReservaActiva() {
+  const items = (planCache && Array.isArray(planCache.items)) ? planCache.items : [];
+  const producidas = items.filter(it =>
+    it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null &&
+    it.produccionMovimiento && it.produccionMovimiento.numeroMovimiento != null);
+  if (!producidas.length) return '';
+
+  const una     = producidas.length === 1;
+  const detalle = producidas
+    .map(it => `"${it.producto || it.id}" (movimiento #${it.produccionMovimiento.numeroMovimiento})`)
+    .join(', ');
+  return `No se puede devolver la reserva: ${una ? 'la orden' : 'las órdenes'} ${detalle} ya `
+       + `${una ? 'fue producida y recepcionada' : 'fueron producidas y recepcionadas'}. `
+       + 'Los componentes ya se consumieron.';
 }
 
 // Vuelve a pedir el estado al servidor y repinta el modal (que sigue abierto).
@@ -4938,7 +5062,27 @@ async function confirmarReserva(permitirFaltante) {
   toast(`Reserva #${resp.numeroMovimiento} creada`);
   cerrarModalReserva();
   try { await cargarPlan(fechaPlanActual); }
-  catch (e) { toast('Error al refrescar el plan: ' + e.message, true); }
+  catch (e) { toast('Error al refrescar el plan: ' + mensajeApiError(e), true); return; }
+  // El plan ya está refrescado, así que los ítems traen su reservaMovimiento
+  // nuevo: se puede ofrecer enviar a producción sólo lo recién reservado.
+  ofrecerEnviarAProduccionTrasReserva(resp.numeroMovimiento);
+}
+
+// Tras reservar con éxito, pregunta si las órdenes recién selladas con ese
+// movimiento se envían directo a Producción del Día.
+function ofrecerEnviarAProduccionTrasReserva(numeroMovimiento) {
+  const ordenes = ordenesRecienReservadas(numeroMovimiento);
+  if (!ordenes.length) return;
+  confirmarModal(
+    'Enviar a producción',
+    `Reserva #${numeroMovimiento} hecha. ¿Enviar las órdenes recién reservadas a producción?`,
+    'Enviar a producción',
+    async () => {
+      const aEnviar = ordenesRecienReservadas(numeroMovimiento);
+      if (!aEnviar.length) { toast('No hay órdenes nuevas para enviar', true); return; }
+      try { await postOrdenesProduccion(aEnviar); }
+      catch (e) { toast('Error al enviar: ' + mensajeApiError(e), true); }
+    });
 }
 
 // El plan cambió después de reservar: se mueve sólo la diferencia (puede generar
@@ -5003,6 +5147,11 @@ function onClickBotonReserva() {
 async function anularReserva() {
   const activa = reservaActiva();
   if (!activa || !fechaPlanActual) return;
+  // El botón ya sale deshabilitado en este caso; esto cubre que se haya producido con el
+  // modal abierto, para no llegar nunca al confirm.
+  const bloqueoProd = bloqueoProduccionReservaActiva();
+  if (bloqueoProd) { toast(bloqueoProd, true); return; }
+
   if (!confirm(`¿Anular la reserva #${activa.numeroMovimiento}?\n\nTodos los componentes vuelven a ${etiquetaDeposito(activa.depOrigen)}.`)) return;
 
   const btn = document.getElementById('btnAnularReserva');
@@ -5177,92 +5326,109 @@ function toggleDetalleMovStock(i) {
   }
 }
 
-function filaMovStock(m, i) {
-  const est    = estiloEstadoMovStock(m?.estado);
-  const nl     = Array.isArray(m?.lineas) ? m.lineas.length : 0;
-  const motivo = motivoNoRevertibleMovStock(m);
-  const comp   = (m?.numeroMovimiento == null || m?.numeroMovimiento === '') ? '—' : '#' + String(m.numeroMovimiento);
+// Una tarjeta por reserva: comprobante, estado, órdenes que la componen y líneas movidas.
+function reservaResumenCard(r, i) {
+  const activa = r?.estado === 'activa';
+  const est = activa
+    ? { texto: 'Activa',  bg: 'var(--grn-bg)',       color: 'var(--grn-text)', borde: 'var(--grn-border)' }
+    : { texto: 'Anulada', bg: 'var(--md-surface-2)', color: 'var(--muted)',    borde: 'var(--md-outline-variant)' };
 
-  const btnRev = motivo === null
-    ? `<button class="btn btn-danger btn-sm" id="movStockRev${i}" onclick="revertirMovStock(${i})" title="Generar el movimiento inverso en SiGA">↩ Revertir</button>`
-    : `<button class="btn btn-secondary btn-sm" id="movStockRev${i}" disabled title="${escHtml(motivo)}">↩ Revertir</button>`;
+  const ordenes = Array.isArray(r?.ordenes) ? r.ordenes : [];
+  const ordenesHtml = ordenes.length
+    ? `<ul style="margin:4px 0 0 18px;padding:0">${ordenes.map(o => {
+        // La orden ya producida y recepcionada es la que bloquea el revertir: se marca en la
+        // lista para que se vea de dónde sale el bloqueo sin tener que abrir el tooltip.
+        const prod = o?.produccionMovimiento;
+        const chip = prod == null ? ''
+          : ` <span class="pres-chip" title="Producida y recepcionada: sus componentes ya se consumieron" style="background:#14532d;color:#fff;border-color:#14532d">✔ Producida #${escHtml(String(prod))}</span>`;
+        return `<li style="margin-top:2px">${escHtml(String(o?.producto || o?.id || '—'))}${chip}</li>`;
+      }).join('')}</ul>`
+    : '<div style="opacity:.8;margin-top:4px">Sin órdenes asociadas.</div>';
 
-  return `<tr style="border-bottom:1px solid var(--md-outline-variant)">
-      <td style="padding:6px 2px 6px 4px"><button class="expand-btn" id="movStockExp${i}" onclick="toggleDetalleMovStock(${i})" title="Ver el detalle del movimiento">▸</button></td>
-      <td style="padding:6px 8px;white-space:nowrap;font-size:12px">${escHtml(fmtFechaHoraMov(m?.fechaHora))}</td>
-      <td style="padding:6px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700;white-space:nowrap">${escHtml(comp)}</td>
-      <td style="padding:6px 8px;font-size:12px">${escHtml(String(m?.origen ?? '—'))}</td>
-      <td style="padding:6px 8px;white-space:nowrap;font-size:12px">${escHtml(depositosMovStock(m))}</td>
-      <td style="padding:6px 8px;text-align:right;cursor:help" title="${escHtml(detalleLineasMovStock(m))}">${nl}</td>
-      <td style="padding:6px 8px"><span class="pres-chip" style="background:${est.bg};color:${est.color};border:1px solid ${est.borde};${est.extra}">${escHtml(est.texto)}</span></td>
-      <td style="padding:4px 8px;text-align:right">${btnRev}</td>
-    </tr>
-    <tr id="movStockDet${i}" style="display:none;background:var(--md-surface-2)">
-      <td colspan="8" style="padding:8px 12px;font-size:12px;border-bottom:1px solid var(--md-outline-variant)">${detalleMovStock(m)}</td>
-    </tr>`;
+  const productos = Array.isArray(r?.productos) ? r.productos : [];
+  const productosHtml = productos.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
+        <thead><tr style="background:var(--md-surface-2)">
+          <th style="text-align:left;padding:4px 6px;font-size:11px;color:var(--muted)">Producto</th>
+          <th style="text-align:right;padding:4px 6px;font-size:11px;color:var(--muted)">Cantidad</th>
+        </tr></thead>
+        <tbody>${productos.map(p => `<tr style="border-bottom:1px solid var(--md-outline-variant)">
+            <td style="padding:4px 6px">${escHtml(String(p?.plu ?? '—'))} ${escHtml(String(p?.nombre ?? ''))}</td>
+            <td style="padding:4px 6px;text-align:right">${escHtml(fmtCant(p?.cantidad))}</td>
+          </tr>`).join('')}</tbody>
+      </table>`
+    : '<div style="opacity:.8;margin-top:4px">Sin líneas registradas.</div>';
+
+  // El servidor manda el motivo cuando la reserva tiene órdenes ya producidas y recepcionadas.
+  // En ese caso el botón sale deshabilitado: revertir devolvería al depósito de origen
+  // componentes que ya se consumieron, dejando stock inventado en SiGA.
+  const bloqueo = typeof r?.bloqueoProduccion === 'string' ? r.bloqueoProduccion.trim() : '';
+  const puedeRevertir = activa && r?.idRegistro != null && r.idRegistro !== '';
+  const btnRev = !puedeRevertir
+    ? ''
+    : bloqueo
+    ? `<button class="btn btn-danger btn-sm" disabled title="${escHtml(bloqueo)}" style="opacity:.45;cursor:not-allowed">↩ Revertir</button>`
+    : `<button class="btn btn-danger btn-sm" id="movStockRev${i}" onclick="revertirMovStock(${i})" title="Generar el movimiento inverso en SiGA">↩ Revertir</button>`;
+
+  const avisoBloqueo = (puedeRevertir && bloqueo)
+    ? `<div style="margin-top:8px;padding:6px 8px;border:1px solid var(--md-outline-variant);background:var(--md-surface-2);border-radius:var(--radius-sm);font-size:12px;color:var(--muted)">🔒 ${escHtml(bloqueo)}</div>`
+    : '';
+
+  return `<div style="border:1px solid var(--md-outline-variant);border-radius:8px;padding:10px 12px;margin-bottom:10px;${activa ? '' : 'opacity:.6'}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px">#${escHtml(String(r?.numeroMovimiento ?? '—'))}</span>
+        <span class="pres-chip" style="background:${est.bg};color:${est.color};border:1px solid ${est.borde}">${est.texto}</span>
+        <span style="font-size:12px;color:var(--muted)">${escHtml(fmtFechaHoraMov(r?.fechaPlanificacion))}</span>
+        <span style="margin-left:auto">${btnRev}</span>
+      </div>
+      ${avisoBloqueo}
+      <div style="margin-top:8px;font-size:12px"><strong>Órdenes</strong>${ordenesHtml}</div>
+      <div style="margin-top:8px;font-size:12px"><strong>Productos</strong>${productosHtml}</div>
+    </div>`;
 }
 
-function renderMovStock(registros) {
+function renderMovStock(reservas) {
   const body = document.getElementById('movStockBody');
   if (!body) return;
-  renderPendientesMovStock(registros);
 
-  if (!registros.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin movimientos registrados.</div>';
+  if (!reservas.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin reservas registradas para este plan.</div>';
     return;
   }
 
-  body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="background:var(--md-surface-2)">
-        <th style="width:22px"></th>
-        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Fecha y hora</th>
-        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Comprobante</th>
-        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Origen</th>
-        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Depósitos</th>
-        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Líneas</th>
-        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Estado</th>
-        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Acción</th>
-      </tr></thead>
-      <tbody>${registros.map((m, i) => filaMovStock(m, i)).join('')}</tbody>
-    </table>`;
+  body.innerHTML = reservas.map((r, i) => reservaResumenCard(r, i)).join('');
 }
 
 async function cargarMovStock() {
-  const body  = document.getElementById('movStockBody');
-  const info  = document.getElementById('movStockFiltroInfo');
-  const chk   = document.getElementById('chkMovStockTodos');
-  const todos = !!(chk && chk.checked);
-  const usaPlan = !todos && !!fechaPlanActual;
+  const body = document.getElementById('movStockBody');
+  const info = document.getElementById('movStockFiltroInfo');
 
   if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px">Cargando…</div>';
   if (info) info.textContent = 'Consultando…';
 
-  const params = ['limit=' + MOV_STOCK_LIMITE];
-  if (usaPlan) params.push('plan=' + encodeURIComponent(fechaPlanActual));
-
-  let data;
-  try {
-    data = await api('GET', conSucursal('/api/stock/movimientos?' + params.join('&')));
-  } catch (e) {
+  if (!fechaPlanActual) {
     movStockCache = [];
-    renderPendientesMovStock([]);
-    if (body) body.innerHTML = `<div style="color:var(--red-text);font-size:13px">Error al cargar el historial: ${escHtml(e.message)}</div>`;
-    if (info) info.textContent = '';
-    toast('Error al cargar los movimientos: ' + e.message, true);
+    renderMovStock(movStockCache);
+    if (info) info.textContent = 'No hay un día seleccionado';
     return;
   }
 
-  movStockCache = Array.isArray(data)
-    ? data
-    : (Array.isArray(data?.movimientos) ? data.movimientos : []);
+  let data;
+  try {
+    data = await api('GET', conSucursal(`/api/plan/${encodeURIComponent(fechaPlanActual)}/reservas-resumen`));
+  } catch (e) {
+    movStockCache = [];
+    if (body) body.innerHTML = `<div style="color:var(--red-text);font-size:13px">Error al cargar el resumen: ${escHtml(e.message)}</div>`;
+    if (info) info.textContent = '';
+    toast('Error al cargar el resumen de reservas: ' + e.message, true);
+    return;
+  }
+
+  movStockCache = Array.isArray(data?.reservas) ? data.reservas : [];
 
   if (info) {
     const n = movStockCache.length;
-    const alcance = usaPlan
-      ? `plan del ${formatFecha(fechaPlanActual)}`
-      : (todos ? 'todos los planes' : 'todos los planes (no hay un día seleccionado)');
-    info.textContent = `${n} movimiento${n !== 1 ? 's' : ''} · ${alcance}`
-      + (n >= MOV_STOCK_LIMITE ? ` · se muestran los ${MOV_STOCK_LIMITE} más nuevos` : '');
+    info.textContent = `${n} reserva${n !== 1 ? 's' : ''} · plan del ${formatFecha(fechaPlanActual)}`;
   }
 
   renderMovStock(movStockCache);
@@ -5272,36 +5438,44 @@ function abrirModalMovStock() {
   const overlay = document.getElementById('overlayMovStock');
   const titulo  = document.getElementById('movStockTitulo');
   if (titulo) {
-    titulo.textContent = '🧾 Historial de movimientos de stock'
+    titulo.textContent = '🧾 Resumen de reservas del plan'
       + (fechaPlanActual ? ` — ${formatFecha(fechaPlanActual)}` : '');
   }
   setAdvertenciaMovStock('');
   overlay.classList.add('open');
-  cargarMovStock().catch(e => toast('Error al cargar los movimientos: ' + e.message, true));
+  cargarMovStock().catch(e => toast('Error al cargar el resumen de reservas: ' + e.message, true));
 }
 
 function cerrarModalMovStock() {
   document.getElementById('overlayMovStock').classList.remove('open');
 }
 
-// Salida de emergencia: genera el movimiento inverso del registro elegido.
+// Salida de emergencia: genera el movimiento inverso de la reserva elegida.
 // Recibe el índice en movStockCache para no interpolar datos del servidor en el onclick.
 async function revertirMovStock(idx) {
-  const m = movStockCache[idx];
-  if (!m) { toast('No se encontró el movimiento', true); return; }
+  const r = movStockCache[idx];
+  if (!r) { toast('No se encontró la reserva', true); return; }
 
-  const motivo = motivoNoRevertibleMovStock(m);
-  if (motivo) { toast(motivo, true); return; }
+  if (r.estado !== 'activa' || r.idRegistro == null || r.idRegistro === '') {
+    toast('Esta reserva no se puede revertir', true);
+    return;
+  }
 
-  const comp = (m.numeroMovimiento == null || m.numeroMovimiento === '')
-    ? '(sin comprobante)' : '#' + String(m.numeroMovimiento);
-  const nl = Array.isArray(m.lineas) ? m.lineas.length : 0;
+  // El botón ya sale deshabilitado en este caso; esto cubre un cache viejo (la orden se
+  // produjo con el modal abierto) para no llegar nunca al confirm.
+  if (r.bloqueoProduccion) {
+    toast(String(r.bloqueoProduccion), true);
+    return;
+  }
+
+  const comp = (r.numeroMovimiento == null || r.numeroMovimiento === '')
+    ? '(sin comprobante)' : '#' + String(r.numeroMovimiento);
+  const nl = Array.isArray(r.productos) ? r.productos.length : 0;
 
   const ok = confirm(
-    `¿Revertir el movimiento ${comp}?\n\n` +
-    `Depósitos: ${depositosMovStock(m)}\n` +
+    `¿Revertir la reserva ${comp}?\n\n` +
     `Líneas: ${nl}\n` +
-    `Origen: ${m.origen ?? '—'} · ${fmtFechaHoraMov(m.fechaHora)}\n\n` +
+    `Planificado: ${fmtFechaHoraMov(r.fechaPlanificacion)}\n\n` +
     'Se genera un movimiento inverso en SiGA. Esta es la salida de emergencia: ' +
     'para deshacer una reserva, el camino normal es "Anular reserva".'
   );
@@ -5313,7 +5487,7 @@ async function revertirMovStock(idx) {
   let resp;
   try {
     resp = await postReserva(
-      `/api/stock/movimientos/${encodeURIComponent(String(m.id))}/revertir`,
+      `/api/stock/movimientos/${encodeURIComponent(String(r.idRegistro))}/revertir`,
       bodyConSucursal({})
     );
   } catch (e) {
@@ -5344,7 +5518,7 @@ async function revertirMovStock(idx) {
   else if (resp.planSincronizado === 'parcial') toast('Atención: la reserva quedó con saldo parcial', true);
 
   try { await cargarMovStock(); }
-  catch (e) { toast('Error al recargar el historial: ' + e.message, true); }
+  catch (e) { toast('Error al recargar el resumen: ' + e.message, true); }
 
   // Se refresca el plan entero (no sólo el estado de la reserva) para que el chip del día
   // y los sellos de cada ítem reflejen la reversión. cargarPlan ya refresca la reserva.

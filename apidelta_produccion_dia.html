@@ -105,6 +105,13 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .chip-crit.baja{color:#2E7D32;background:#F1F8E9}
 .chip-crit.urgente{color:#fff;background:var(--c-urgente);font-weight:900;letter-spacing:1px;text-transform:uppercase;border:1.5px solid #fff;text-shadow:0 1px 2px rgba(0,0,0,.35);transform-origin:center;animation:urgentePulse 1s ease-in-out infinite}
 @keyframes urgentePulse{0%{box-shadow:0 0 0 0 rgba(255,23,68,.75);transform:scale(1)}50%{transform:scale(1.1)}70%{box-shadow:0 0 0 11px rgba(255,23,68,0)}100%{box-shadow:0 0 0 0 rgba(255,23,68,0);transform:scale(1)}}
+/* CONCILIACION POR MOVIMIENTO */
+.conc-mov-block{border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;background:var(--bg)}
+.conc-mov-block:last-child{margin-bottom:0}
+.conc-mov-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif}
+.conc-mov-title{font-weight:800;font-size:14px;color:var(--text)}
+.chip-mov-ok{display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;background:var(--s-done-bg);color:var(--s-done-c)}
+.chip-mov-pend{display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;background:#FFF3E0;color:#BF360C}
 /* Botones acción */
 .btn-del{background:none;border:none;cursor:pointer;font-size:16px;padding:6px 7px;border-radius:6px;transition:.12s;line-height:1;color:#9E9E9E}
 .btn-del:hover{background:#F5F5F5;color:#424242}
@@ -114,6 +121,8 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 /* PRESENTACIONES (desplegable) + TAMBOR */
 .tambor-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#FFF3E0;color:#E65100;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
 .cliente-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#EDE7F6;color:#4527A0;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
+.chips-reserva{display:inline-flex;gap:4px;margin-left:6px;flex-wrap:wrap;vertical-align:middle}
+.chip-reserva{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#E0F2F1;color:#00695C;padding:1px 7px;border-radius:10px;white-space:nowrap;display:inline-block}
 /* Chip envase+tapa: inline-block con una línea por ítem. Con inline-flex el texto que
    envuelve se salía del fondo redondeado. */
 .envase-chip{font-family:'Barlow Condensed',sans-serif;font-size:12.5px;font-weight:800;background:var(--green-light,#E8F0E3);color:var(--green-dark,#2E4020);border:1px solid rgba(64,89,54,.3);padding:3px 9px;border-radius:10px;display:inline-block;max-width:100%;line-height:1.35;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
@@ -148,6 +157,10 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .pres-item .pi-cant small{font-size:10px;color:var(--text-muted);font-weight:600}
 .pres-item .pi-env{flex:1 1 auto;min-width:0}
 .pi-badge-done{display:inline-flex;align-items:center;gap:4px;background:#E8F5E9;color:#2E7D32;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+/* Orden terminada cuya reserva de stock todavía no fue conciliada (ajuste.conciliado
+   pendiente en el ledger de reservas). Ámbar para distinguirla de los chips de reserva
+   normales (que suelen ser verdes/neutros) y del badge verde de "cargado". */
+.badge-sin-conciliar{display:inline-flex;align-items:center;gap:4px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
 .pi-btn-load{display:inline-flex;align-items:center;gap:5px;background:var(--green,#43A047);color:#fff;border:none;border-radius:7px;padding:6px 13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:.15s;white-space:nowrap;animation:piPulse 2.2s ease-in-out infinite}
 .pi-btn-load:hover{background:var(--green-dark,#2E7D32);transform:translateY(-1px);animation:none}
 @keyframes piPulse{0%,100%{box-shadow:0 0 0 0 rgba(67,160,71,.45)}50%{box-shadow:0 0 0 6px rgba(67,160,71,0)}}
@@ -1516,6 +1529,11 @@ function critChip(arg){
   if(o) return `<button class="chip-crit ${cl}" style="border:none;cursor:pointer" onclick="cycleCriticidad(${o.id})" title="Click para cambiar criticidad">${l[cl]||c}</button>`;
   return `<span class="chip-crit ${cl}">${l[cl]||c}</span>`;
 }
+function reservaChipsHTML(o){
+  const movs=Array.isArray(o&&o.reservaMovimientos)?o.reservaMovimientos:[];
+  if(!movs.length) return '';
+  return `<span class="chips-reserva">${movs.map(n=>`<span class="chip-reserva" title="Reserva SIGA">🔒 #${n}</span>`).join('')}</span>`;
+}
 function byPrioridad(a,b){ return (a.prioridad??1e9)-(b.prioridad??1e9) || a.id-b.id; }
 async function cycleCriticidad(id){
   const o=ORDERS.find(o=>o.id===id); if(!o) return;
@@ -1640,7 +1658,7 @@ function renderBoard(){
       if(multi){
         const det=presItemsHTML(o);
         return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}</td>
+          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}${reservaChipsHTML(o)}</td>
           <td>${presPillHTML(o, o.id)}</td>
           ${env}
           ${qtyTd}
@@ -1650,7 +1668,7 @@ function renderBoard(){
           <tr class="pres-detail-row" id="presdet-${o.id}" style="display:none"><td colspan="7"><div class="pres-detail">${det}</div></td></tr>`;
       }
       return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}${reservaChipsHTML(o)}</td>
         <td style="color:var(--text-muted)">${o.presentacion}</td>
         ${env}
         ${qtyTd}
@@ -1668,7 +1686,7 @@ function renderBoard(){
       return `<div class="prod-card estado-${o.estado} crit-${(o.criticidad||'media').toLowerCase()}">
       <div class="card-top">
         <div style="flex:1;min-width:0">
-          <div class="card-name">${cleanNombre(o.producto)}</div>
+          <div class="card-name">${cleanNombre(o.producto)}${reservaChipsHTML(o)}</div>
           ${presBlock}
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
@@ -2573,15 +2591,22 @@ async function loadRegistrosCargados() {
   const el = document.getElementById('registrosView');
   el.innerHTML = '<div class="formula-spinner">⏳ Cargando registros...</div>';
   try {
-    const data = await fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json());
+    const [data, ordenes] = await Promise.all([
+      fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json()),
+      api('GET', '/api/ordenes').catch(() => []),
+    ]);
     const lista = Array.isArray(data) ? data : (data.data || data.registros || []);
-    renderRegistrosCargados(lista);
+    // Mapa ordenId → orden, para saber (por r.ordenId) si la reserva de la orden que originó
+    // este registro sigue sin conciliar y así pintar el badge de alerta correspondiente.
+    const ordenesById = {};
+    (ordenes || []).forEach(o => { if (o && o.id != null) ordenesById[o.id] = o; });
+    renderRegistrosCargados(lista, ordenesById);
   } catch(e) {
     el.innerHTML = `<div class="formula-aviso">⚠ Error al cargar registros: ${e.message}</div>`;
   }
 }
 
-function renderRegistrosCargados(registros) {
+function renderRegistrosCargados(registros, ordenesById = {}) {
   const el = document.getElementById('registrosView');
   if (!registros.length) {
     el.innerHTML = `<div class="empty-state">
@@ -2623,10 +2648,15 @@ function renderRegistrosCargados(registros) {
         ? r.graneles
         : (r.nombreGranel ? [{ nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }] : []);
       _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles };
+      const ordenReg = r.ordenId != null ? ordenesById[r.ordenId] : null;
+      const badgeSinConciliar = ordenReg && ordenReg.sinConciliar
+        ? `<span class="badge-sin-conciliar" title="La reserva de stock de esta orden todavía no fue conciliada en SiGA">⚠ sin conciliar</span>`
+        : '';
 
       return `<tr>
         <td>
           <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">${nombre}</strong>
+          ${badgeSinConciliar}
           ${r.seccion ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px">${r.seccion}</div>` : ''}
           ${r.plu === 'ACT' && r.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${r.observacion}</div>` : ''}
         </td>
@@ -2947,6 +2977,7 @@ function renderConciliacion(d) {
   const movs = Array.isArray(rsv.movimientos) ? rsv.movimientos : [];
   const productos = Array.isArray(d.productos) ? d.productos : [];
   const componentes = Array.isArray(d.componentes) ? d.componentes : [];
+  const porMov = Array.isArray(d.porMovimiento) ? d.porMovimiento : [];
   const tot = d.totales || {};
 
   const TH = 'text-align:left;padding:6px 8px;font-family:\'Barlow Condensed\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
@@ -3082,6 +3113,51 @@ function renderConciliacion(d) {
         <span><b style="color:#E65100">${fmtN(tot.sinReservar ?? 0)}</b> sin reservar</span>
       </div>`;
 
+  // Desglose reservado vs. usado por cada movimiento de reserva (uno por comprobante SiGA).
+  const porMovimientoHTML = !porMov.length ? '' : `
+    <div style="${CARD}">
+      <div style="${TITLE}">🔀 Reservado vs. usado por movimiento
+        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">detalle de cada movimiento de reserva</span>
+      </div>
+      ${porMov.map(m => {
+        const comps = Array.isArray(m.componentes) ? m.componentes : [];
+        const nOrdenes = Array.isArray(m.ordenes) ? m.ordenes.length : 0;
+        const chip = m.conciliado
+          ? '<span class="chip-mov-ok">✔ conciliado</span>'
+          : '<span class="chip-mov-pend">pendiente</span>';
+        const tablaComps = !comps.length
+          ? '<div style="padding:10px 0;font-size:12px;color:var(--text-muted)">Sin componentes en este movimiento.</div>'
+          : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:420px">
+              <thead><tr>
+                <th style="${TH}">Componente</th>
+                <th style="${THR}">Reservado</th>
+                <th style="${THR}">Usado</th>
+                <th style="${THR}">Sobrante</th>
+              </tr></thead>
+              <tbody>${comps.map(c => {
+                const reservadoN = _parseNum(c.reservado);
+                const usadoN = _parseNum(c.usado);
+                const sobranteN = _parseNum(c.sobrante);
+                const alerta = sobranteN > 0 || usadoN > reservadoN;
+                return `<tr style="border-bottom:1px solid #F0F0F0${alerta ? ';background:#FFEBEE' : ''}">
+                  <td style="padding:7px 8px">${escEnv(cleanNombre(c.nombre || ''))}</td>
+                  <td style="padding:7px 8px;text-align:right">${fmtN(c.reservado)}</td>
+                  <td style="padding:7px 8px;text-align:right;font-weight:700${alerta ? ';color:var(--c-alta)' : ''}">${fmtN(c.usado)}</td>
+                  <td style="padding:7px 8px;text-align:right${alerta ? ';color:var(--c-alta);font-weight:700' : ''}">${fmtN(c.sobrante)}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table></div>`;
+        return `<div class="conc-mov-block">
+          <div class="conc-mov-header">
+            <span class="conc-mov-title">Movimiento #${escEnv(m.numeroMovimiento ?? '—')}</span>
+            ${chip}
+            <span style="font-size:12px;color:var(--text-muted)">${fmtN(nOrdenes)} orden${nOrdenes === 1 ? '' : 'es'}</span>
+          </div>
+          ${tablaComps}
+        </div>`;
+      }).join('')}
+    </div>`;
+
   // Banner de producción ya registrada: verde, arriba de todo. Distingue total de parcial.
   const marcaReg = d.produccionRegistrada || null;
   const bannerHTML = marcaReg ? (() => {
@@ -3113,7 +3189,8 @@ function renderConciliacion(d) {
         <span style="font-size:12px;font-weight:400;color:var(--text-muted)">diferencia positiva = faltó reservar · negativa = sobró en la reserva</span>
       </div>
       ${componentesHTML}
-    </div>`;
+    </div>
+    ${porMovimientoHTML}`;
 }
 
 async function exportarConciliacionCSV() {

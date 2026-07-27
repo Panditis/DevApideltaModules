@@ -22,6 +22,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -1519,7 +1520,27 @@ app.post('/api/panel/lead-times', (req, res) => {
 });
 
 // ── Rutas API órdenes ──────────────────────────────────────────────────────────
-app.get('/api/ordenes',        (_req, res) => res.json(leerOrdenes()));
+// Un movimiento de reserva está "sin conciliar" mientras su entrada del ledger siga activa y
+// no tenga ajuste.conciliado. La orden queda marcada si alguno de sus movimientos lo está.
+app.get('/api/ordenes',        (_req, res) => {
+  const sinConciliarPorFecha = new Map();
+  const movsSinConciliar = fecha => {
+    if (!fecha) return new Set();
+    if (!sinConciliarPorFecha.has(fecha)) {
+      const { plan } = leerPlanReservas(fecha);
+      const set = new Set((plan && plan.reservas || [])
+        .filter(rr => rr && rr.estado === 'activa' && !(rr.ajuste && rr.ajuste.conciliado))
+        .map(rr => rr.numeroMovimiento).filter(n => n != null));
+      sinConciliarPorFecha.set(fecha, set);
+    }
+    return sinConciliarPorFecha.get(fecha);
+  };
+  const ordenes = leerOrdenes().map(o => ({
+    ...o,
+    sinConciliar: (o.reservaMovimientos || []).some(n => movsSinConciliar(o.fecha).has(n)),
+  }));
+  res.json(ordenes);
+});
 app.post('/api/ordenes',       (req, res)  => { const o = req.body; if (!o || !o.id) return res.status(400).json({ error: 'Falta orden' }); const arr = leerOrdenes().filter(x => x.id !== o.id); arr.push(o); guardarOrdenes(arr); res.json(o); });
 app.put('/api/ordenes/:id',    (req, res)  => { const id = parseInt(req.params.id), arr = leerOrdenes(), idx = arr.findIndex(o => o.id === id); if (idx < 0) return res.status(404).json({ error: 'No encontrado' }); arr[idx] = { ...arr[idx], ...req.body }; guardarOrdenes(arr); res.json(arr[idx]); });
 app.delete('/api/ordenes/:id', (req, res)  => { guardarOrdenes(leerOrdenes().filter(o => o.id !== parseInt(req.params.id))); res.json({ ok: true }); });
@@ -2818,7 +2839,30 @@ app.put('/api/distribucion/fraccionado-registros/:id', (req, res) => {
 
 // ── Producción: registros de cargas (archivo separado de distribución) ──────────
 const PROD_REG_PATH = path.join(DATA_DIR, 'produccion_registros.json');
+// Historial: los registros ya conciliados (dados de alta en producción) se mueven acá y salen
+// del listado de Terminados. Es un archivo, no un borrado: quedan para consulta.
+const PROD_HIST_PATH = path.join(DATA_DIR, 'produccion_historial.json');
+// Mueve los registros indicados de produccion_registros.json a produccion_historial.json.
+function archivarRegistros(ids, meta) {
+  const idset = new Set((ids || []).map(String));
+  if (!idset.size) return 0;
+  const registros = leerJSON(PROD_REG_PATH, []);
+  const aMover = registros.filter(r => r && idset.has(String(r.id)));
+  if (!aMover.length) return 0;
+  const quedan = registros.filter(r => !(r && idset.has(String(r.id))));
+  const hist = leerJSON(PROD_HIST_PATH, []);
+  const sellados = aMover.map(r => ({ ...r, archivado: { ...(meta || {}), fecha: new Date().toISOString() } }));
+  guardarJSON(PROD_HIST_PATH, [...hist, ...sellados]);
+  guardarJSON(PROD_REG_PATH, quedan);
+  return aMover.length;
+}
 app.get('/api/produccion/registros', apiRoute(async () => leerJSON(PROD_REG_PATH, [])));
+// Historial: registros ya conciliados/archivados (fuera de Terminados). Filtro opcional por fecha.
+app.get('/api/produccion/historial', apiRoute(async req => {
+  const fecha = req.query.fecha ? safeDate(req.query.fecha) : null;
+  const hist = leerJSON(PROD_HIST_PATH, []);
+  return fecha ? hist.filter(r => r && r.fecha === fecha) : hist;
+}));
 app.post('/api/produccion/registros', (req, res) => {
   const b = req.body || {};
   if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
@@ -3221,7 +3265,21 @@ app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha]; if (!plan) return { error: 'Plan no encontrado' };
   const idx = plan.items.findIndex(i => i.id === id); if (idx === -1) return { error: 'Ítem no encontrado' };
-  const pasaAListo = (req.body || {}).estado === 'listo' && plan.items[idx].estado !== 'listo';
+  const actual = plan.items[idx], body = req.body || {};
+  // Ya trabajado en producción: no se modifica (la página pudo quedar desactualizada).
+  if (actual.produccionMovimiento && actual.produccionMovimiento.numeroMovimiento != null) {
+    return { error: `La orden ya fue trabajada en producción (movimiento #${actual.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede modificar.`, yaProducido: true };
+  }
+  // Reservada: no se cambian cantidades ni producto (desincronizaría la reserva). El cambio de
+  // estado (que dispara la devolución al terminar) sí se permite.
+  if (actual.reservaMovimiento && actual.reservaMovimiento.numeroMovimiento != null) {
+    const cambiaContenido = ['cantConfirmada','cantSugerida','idProducto','producto','presentaciones','cantidad','idGranel']
+      .some(k => k in body && JSON.stringify(body[k]) !== JSON.stringify(actual[k]));
+    if (cambiaContenido) {
+      return { error: `La orden está reservada (movimiento #${actual.reservaMovimiento.numeroMovimiento}). Anulá la reserva antes de modificar cantidades o producto.`, yaReservado: true };
+    }
+  }
+  const pasaAListo = body.estado === 'listo' && actual.estado !== 'listo';
   plan.items[idx] = { ...plan.items[idx], ...req.body, id };
 
   // Devolución automática: al terminar un ítem vuelve al depósito principal sólo su
@@ -3247,12 +3305,28 @@ app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
 app.delete('/api/plan/:fecha/item/:id', (req, res) => {
   const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha]; if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+  const itemBloq = (plan.items || []).find(it => String(it.id) === String(id));
+  if (itemBloq && itemBloq.produccionMovimiento && itemBloq.produccionMovimiento.numeroMovimiento != null) {
+    return res.status(409).json({ error: `La orden ya fue trabajada en producción (movimiento #${itemBloq.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede eliminar.` });
+  }
+  if (itemBloq && itemBloq.reservaMovimiento && itemBloq.reservaMovimiento.numeroMovimiento != null) {
+    return res.status(409).json({ error: `La orden está reservada (movimiento #${itemBloq.reservaMovimiento.numeroMovimiento}) y no se puede eliminar. Anulá esa reserva primero.` });
+  }
   plan.items = plan.items.filter(i => i.id !== id); guardarJSON(PLANES_PATH, planes); res.json({ ok: true });
 });
 app.delete('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  if (planes[fecha]) { planes[fecha].items = []; guardarJSON(PLANES_PATH, planes); }
-  res.json({ ok: true });
+  let conservadas = 0;
+  if (planes[fecha]) {
+    // Las órdenes reservadas no se pueden borrar: se conservan. Se elimina sólo el resto.
+    const items = planes[fecha].items || [];
+    const reservadas = items.filter(it => it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+    conservadas = reservadas.length;
+    planes[fecha].items = reservadas;
+    guardarJSON(PLANES_PATH, planes);
+  }
+  res.json({ ok: true, conservadas,
+    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) reservada(s): anulá su reserva para poder eliminarlas.` } : {}) });
 });
 app.get('/api/calendario', (req, res) => {
   const desde = safeDate(req.query.desde), dias = Math.min(parseInt(req.query.dias) || 7, 42);
@@ -3274,18 +3348,39 @@ app.post('/api/enviar-produccion', (req, res) => {
     const arr = leerOrdenes();
     const keyOf = o => `${o.fecha || ''}|${(o.producto || '').trim().toLowerCase()}`;
     const idx = new Map(arr.map((o, i) => [keyOf(o), i]));
+    // Cada orden hereda los números de movimiento de reserva de los ítems del plan que la
+    // componen: granel es 1 ítem por orden (match por producto); fraccionado agrupa varios
+    // ítems por rubro (match por rubro, con fallback a producto si no hay rubro explícito) —
+    // misma clave que arma construirOrdenes() en planificacion.html. Cache por fecha para no
+    // releer planes.json por cada orden del envío.
+    const planItemsPorFecha = new Map();
+    const movimientosDeOrden = n => {
+      if (!planItemsPorFecha.has(n.fecha)) {
+        const { plan } = leerPlanReservas(n.fecha);
+        planItemsPorFecha.set(n.fecha, (plan && plan.items) || []);
+      }
+      const items = planItemsPorFecha.get(n.fecha).filter(it =>
+        it && (it.producto === n.producto || (it.rubro || it.producto) === n.producto));
+      return [...new Set(items
+        .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
+        .map(it => it.reservaMovimiento.numeroMovimiento))];
+    };
+    // Órdenes ya trabajadas (con algún registro de producción cargado): no se pisan aunque
+    // todavía no estén en 'listo'/terminado, para no borrar lo que producción ya cargó.
+    const ordenesTrabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
     let sobre = 0, nue = 0, completas = 0;
     for (const n of nuevas) {
       const k = keyOf(n), i = idx.get(k);
+      const reservaMovimientos = movimientosDeOrden(n);
       if (i != null) {
         const prev = arr[i];
-        // Si la orden previa ya está completa, se verifica y se mantiene oculta:
+        // Si la orden previa ya está completa o fue trabajada en producción, se mantiene:
         // no se sobreescribe (preserva registro cargado, estado 'listo' y terminado).
-        if (prev.terminado === true || prev.estado === 'listo') { completas++; continue; }
-        arr[i] = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad };
+        if (prev.terminado === true || prev.estado === 'listo' || ordenesTrabajadas.has(String(prev.id))) { completas++; continue; }
+        arr[i] = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad, reservaMovimientos };
         sobre++;
       } else {
-        arr.push(n); idx.set(k, arr.length - 1); nue++;
+        arr.push({ ...n, reservaMovimientos }); idx.set(k, arr.length - 1); nue++;
       }
     }
     guardarOrdenes(arr);
@@ -3520,7 +3615,7 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
   const p = { desde, hasta, sucIdsCsv };
 
   const [comparativa, resumenArr, tendencia, diaSemana, horas, topUnidades, topFacturacion,
-         artHistograma, artPorSucursal] =
+         artHistograma, artPorSucursal, productosFamilias] =
     await Promise.all([
       query(analisisVentas.sqlComparativa(p)),
       query(analisisVentas.sqlResumenRenglon(p)),
@@ -3531,6 +3626,9 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       query(analisisVentas.sqlTopProductos(p, 'facturacion', topN)),
       query(analisisVentas.sqlArticulosHistograma(p)),
       query(analisisVentas.sqlArticulosPorSucursal(p)),
+      // Las familias se arman en JS sobre el nombre, así que se traen bastantes más
+      // productos que el top visible: agrupar sólo el top N sesgaría los totales.
+      query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS)),
     ]);
 
   const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
@@ -3564,6 +3662,7 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
+    familias: analisisVentas.agruparFamilias(productosFamilias, topN),
     articulosPorTicket: {
       promedio: articulosProm,
       histograma: analisisVentas.bucketsArticulos(artHistograma),
@@ -3571,6 +3670,7 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
         idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
         tickets: Number(r.Tickets || 0), articulos: Number(r.Articulos || 0),
         promedio: Number(r.Promedio || 0),
+        dias: Number(r.Dias || 0), ticketsDia: Number(r.TicketsDia || 0),
       })),
     },
   };
@@ -4167,6 +4267,20 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   const lineas = (original.lineas || []).filter(l => Number(l.cantidad));
   if (!lineas.length) return { error: 'El movimiento no tiene líneas con cantidad para revertir' };
 
+  // Misma guarda que "Anular reserva" y que modificar/eliminar una orden: una reserva cuyas
+  // órdenes ya se produjeron y recepcionaron no se puede revertir, porque sus componentes ya
+  // salieron del depósito de reserva. Va ANTES de escribir nada en SiGA.
+  if (original.origen === 'reserva' && original.plan) {
+    const { plan: planRev } = leerPlanReservas(original.plan);
+    const entrada = planRev && (planRev.reservas || []).find(rr => rr &&
+      (rr.idRegistro === original.id ||
+       (rr.numeroMovimiento != null && rr.numeroMovimiento === original.numeroMovimiento)));
+    const producidas = ordenesProducidasDeReserva(entrada, planRev && planRev.items);
+    if (producidas.length) {
+      return { error: motivoBloqueoProduccion(producidas, 'revertir este movimiento'), yaProducido: true };
+    }
+  }
+
   const cr          = cfgReserva();
   // Se firma con el usuario vigente de config.json, no con el del movimiento original: la
   // reversión la hace quien opera hoy. El usuario original queda igual en su propio registro.
@@ -4257,6 +4371,31 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
     } catch (e) { errPlan = `No se pudo sincronizar el plan ${original.plan} con el log: ${e.message}`; }
   }
 
+  // Revertir una reserva libera sus órdenes: se anula la entrada del ledger (plan.reservas)
+  // que corresponde a este movimiento y se limpia el sello reservaMovimiento de los ítems
+  // que cubría, re-habilitándolos para volver a reservarse. Va DESPUÉS de sincronizarPlanConLog
+  // (que sólo mira el plan.reserva viejo, único, agregado de todo el depósito) para que esta
+  // actualización puntual por movimiento sea la que quede como estado final.
+  let errLedgerReserva = null;
+  if (original.origen === 'reserva' && original.plan) {
+    try {
+      const { planes: planesReserva, plan: planReserva } = leerPlanReservas(original.plan);
+      if (planReserva) {
+        const reservas = (planReserva.reservas || []).map(rr =>
+          (rr.idRegistro === original.id || (rr.numeroMovimiento != null && rr.numeroMovimiento === original.numeroMovimiento))
+            ? { ...rr, estado: 'anulada' } : rr);
+        const items = (planReserva.items || []).map(it =>
+          (it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento === original.numeroMovimiento)
+            ? { ...it, reservaMovimiento: null } : it);
+        // Compat: si plan.reserva (single, formato viejo) apuntaba a este movimiento, marcarlo anulado.
+        const reservaCompat = (planReserva.reserva && planReserva.reserva.numeroMovimiento === original.numeroMovimiento)
+          ? { ...planReserva.reserva, estado: 'anulada' } : planReserva.reserva;
+        const planActualizado = { ...planReserva, reservas, items, reserva: reservaCompat };
+        guardarJSON(PLANES_PATH, { ...planesReserva, [original.plan]: planActualizado });
+      }
+    } catch (e) { errLedgerReserva = `No se pudo anular la reserva del ledger para el plan ${original.plan}: ${e.message}`; }
+  }
+
   // La advertencia queda también en el registro de la reversión, para que se entienda
   // después por qué el plan quedó marcado.
   const errAdv = advertencia ? actualizarMovLog(r.idRegistro, reg => ({ ...reg, advertencia })) : null;
@@ -4264,7 +4403,7 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   const resp = { ok: true, numeroMovimiento: r.numeroMovimiento, id: r.idRegistro, revierteA: original.id };
   const conPlan = planSincronizado ? { ...resp, planSincronizado } : resp;
   return conLogError(advertencia ? { ...conPlan, advertencia } : conPlan,
-    r.logError, errEnlace, errPlan, errAdv, errMarcaProduccion);
+    r.logError, errEnlace, errPlan, errAdv, errMarcaProduccion, errLedgerReserva);
 }));
 
 app.post('/api/stock/traslado', apiRoute(async req => {
@@ -4576,6 +4715,20 @@ function saldoReserva(reserva) {
   return ((reserva && reserva.lineas) || [])
     .map(l => ({ plu: String(l.plu), nombre: l.nombre, cantidad: redondear4((Number(l.cantidad) || 0) - (dev.get(String(l.plu)) || 0)) }))
     .filter(l => l.cantidad > 0);
+}
+
+// Lee planes.json y garantiza que cada plan tenga reservas[] (migra el formato viejo en
+// memoria; no reescribe el archivo salvo que el caller guarde). Devuelve { planes, plan }.
+function leerPlanReservas(fecha) {
+  const planes = leerJSON(PLANES_PATH, {});
+  const plan = planes[fecha] ? migrarReservas(planes[fecha]) : null;
+  return { planes, plan };
+}
+
+// Saldo total reservado del plan sobre el ledger reservas[]. Los callers viejos que pasan
+// una reserva única siguen usando saldoReserva; los nuevos pasan el plan entero.
+function saldoReservaPlan(plan) {
+  return saldoLedger(migrarReservas(plan).reservas);
 }
 
 // Saldo pendiente de la porción de un ítem, acotado al saldo global del componente
@@ -5015,6 +5168,14 @@ async function ejecutarDevolucionReserva(plan, itemId) {
   const reserva = plan && plan.reserva;
   if (!reserva || reserva.estado !== 'activa') return { error: 'El plan no tiene una reserva activa' };
 
+  // Sin itemId se devuelve la reserva entera, así que alcanza con que UNA de sus órdenes esté
+  // producida para que la devolución quede mal; con itemId sólo importa ese ítem.
+  const producidas = ordenesProducidasDeReserva(
+    itemId == null ? reserva : { ordenes: [itemId] }, plan && plan.items);
+  if (producidas.length) {
+    return { error: motivoBloqueoProduccion(producidas, 'devolver la reserva'), yaProducido: true };
+  }
+
   // La devolución invierte los depósitos con los que se hizo la reserva. El config sólo
   // sirve de fallback para reservas viejas guardadas antes de poder elegirlos en el modal.
   // La sucursal sale del mismo lugar: la de la reserva, NUNCA la que diga config.json hoy
@@ -5141,6 +5302,33 @@ app.get('/api/plan/:fecha/reserva', apiRoute(async req => {
   };
 }));
 
+app.get('/api/plan/:fecha/reservas-resumen', apiRoute(async req => {
+  const fecha = safeDate(req.params.fecha);
+  const { plan } = leerPlanReservas(fecha);
+  if (!plan) return { fecha, reservas: [] };
+  const porItem = new Map((plan.items || []).map(it => [String(it.id), it]));
+  return {
+    fecha,
+    reservas: (plan.reservas || []).map(r => {
+      // bloqueoProduccion viaja al frontend para que el botón Revertir salga deshabilitado con
+      // el motivo a la vista, en vez de dejar clickear y fallar recién contra el servidor.
+      const producidas = ordenesProducidasDeReserva(r, plan.items);
+      const producidasPorId = new Map(producidas.map(p => [String(p.id), p.numeroMovimiento]));
+      return {
+        numeroMovimiento: r.numeroMovimiento, estado: r.estado, fecha: r.fecha,
+        fechaPlanificacion: r.fechaPlanificacion, idRegistro: r.idRegistro,
+        ordenes: (Array.isArray(r.ordenes) ? r.ordenes : []).map(id => {
+          const it = porItem.get(String(id));
+          return { id, producto: it ? (it.producto || it.nombre || '') : '',
+                   produccionMovimiento: producidasPorId.get(String(id)) ?? null };
+        }),
+        bloqueoProduccion: motivoBloqueoProduccion(producidas, 'revertir este movimiento'),
+        productos: (r.lineas || []).map(l => ({ plu: String(l.plu), nombre: l.nombre || '', cantidad: l.cantidad })),
+      };
+    }),
+  };
+}));
+
 app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha);
   const b     = req.body || {};
@@ -5174,7 +5362,7 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   // volver a reservar.
   const sync = sincronizarReservaConLog(fecha, guardado);
   if (sync.cambio) { planes[fecha] = sync.plan; guardarJSON(PLANES_PATH, planes); }
-  const plan = planes[fecha];
+  let plan = planes[fecha];
   // Una reserva activa de otra sucursal bloquea todo: no se ejecuta ningún movimiento.
   // Los depósitos y el stock son por sucursal, así que operar acá dejaría la mercadería
   // en el lugar equivocado.
@@ -5182,18 +5370,12 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   if (errSucursal) return { error: errSucursal };
   // Con reserva activa no se vuelve a reservar, salvo que hayan cambiado las órdenes del
   // plan del día: en ese caso se ofrece actualizar la reserva moviendo sólo la diferencia.
-  if (plan.reserva && plan.reserva.estado === 'activa') {
-    const n = plan.reserva.numeroMovimiento;
-    const { hayCambios } = cambiosDelPlan(plan.items, plan.reserva);
-    if (!hayCambios) {
-      return { error: `Este plan ya tiene la reserva #${n} hecha. Para volver a reservar, modificá las órdenes del plan del día.`,
-               yaReservado: true, numeroMovimiento: n };
-    }
-    return { error: `El plan cambió desde la reserva #${n}. Actualizá la reserva para mover solo la diferencia.`,
-             requiereActualizar: true, numeroMovimiento: n };
+  // Reserva incremental: sólo las órdenes que todavía no tienen sello de movimiento.
+  const sinReservar = itemsSinReservar(plan.items);
+  if (!sinReservar.length) {
+    return { error: 'Todas las órdenes del plan ya están reservadas. Agregá productos nuevos para reservar.', yaReservado: true };
   }
-
-  const { componentes } = await componentesDePlan(plan.items);
+  const { componentes } = await componentesDePlan(sinReservar);
   if (!componentes.length) {
     // Sin componentes puede ser porque el plan no tiene fórmulas, o porque TODOS los ítems
     // con fórmula ya fueron producidos y recepcionados (produccionMovimiento). Se distingue
@@ -5243,20 +5425,22 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   const numero = r.numeroMovimiento;
 
   const lineas = componentes.map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: c.necesario, porItem: c.porItem }));
-  plan.reserva = {
-    numeroMovimiento: numero, fecha: new Date().toISOString(), usuario: cr.usuario, estado: 'activa',
-    // La sucursal queda congelada junto con los depósitos: devoluciones, ajustes y
-    // anulaciones se ejecutan con ésta, no con la que diga config.json más adelante.
-    idSucursal: cr.idSucursal, depOrigen, depDestino, lineas, devoluciones: [],
-    // Órdenes del plan al momento de reservar: sirven para detectar cambios después.
-    firma: firmaPlanReserva(plan.items), items: itemsFirmables(plan.items), ajustes: []
+  plan = migrarReservas(plan);
+  const ahora = new Date().toISOString();
+  const nueva = {
+    numeroMovimiento: numero, idRegistro: r.idRegistro ?? null, estado: 'activa',
+    fecha: ahora, fechaPlanificacion: fecha,
+    idSucursal: cr.idSucursal, depOrigen, depDestino,
+    ordenes: [...itemsDeComponentes(componentes)],
+    lineas, devoluciones: [],
   };
-  // Sello por ítem: cada línea del plan que aportó componentes queda con el comprobante que
-  // movió su porción. Los ítems que no aportaron nada (sin fórmula activa o cantidad 0) no
-  // se sellan. El sello no toca la firma, que ya quedó calculada arriba.
+  plan.reservas = [...plan.reservas, nueva];
   plan.items = sellarItems(plan.items, itemsDeComponentes(componentes), 'reservaMovimiento',
-    { numeroMovimiento: numero, fecha: plan.reserva.fecha, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
+    { numeroMovimiento: numero, fecha: ahora, idRegistro: r.idRegistro ?? null, depOrigen, depDestino },
     { limpiarDevuelta: true });
+  // Compat: mantener plan.reserva apuntando a la última reserva activa para el código viejo.
+  plan.reserva = { ...nueva, usuario: cr.usuario, firma: firmaPlanReserva(plan.items), items: itemsFirmables(plan.items), ajustes: [] };
+  planes[fecha] = plan;
   guardarJSON(PLANES_PATH, planes);
   return conLogError({ ok: true, numeroMovimiento: numero, idSucursal: cr.idSucursal, depOrigen, depDestino, lineas, idRegistro: r.idRegistro }, r.logError);
 }));
@@ -5679,7 +5863,10 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
 
   // Sólo una reserva activa tiene stock realmente apartado en el depósito de reserva.
-  const saldo     = reserva && reserva.estado === 'activa' ? saldoReserva(reserva) : [];
+  // Saldo agregado sobre TODAS las reservas activas del ledger (no sólo plan.reserva, que es
+  // la última reserva): así `reservado` coincide con el desglose por movimiento (porMovimiento)
+  // y el comprobante "resto" no doble-cuenta el consumo cuando hay varias reservas en el día.
+  const saldo     = saldoReservaPlan(plan);
   const reservado = new Map(saldo.map(l => [String(l.plu), redondear4(l.cantidad)]));
 
   const componentes = [], conUso = new Set();
@@ -5748,6 +5935,13 @@ async function conciliacionProduccion(fecha, idSucursal) {
     return (depositos.length && !activos.has(n)) ? null : n;
   };
 
+  // Desglose por movimiento de reserva (para conciliar por orden y por movimiento).
+  const _pLedger   = migrarReservas(plan || {});
+  const _gruposMov = reservadoPorMovimiento(_pLedger.reservas);
+  const _usadoPorPlu = new Map([...consumo.componentes.values()]
+    .filter(u => u.plu).map(u => [String(u.plu), u.usado]));
+  const porMovimiento = conciliarPorMovimiento(_gruposMov, _usadoPorPlu);
+
   return {
     fecha,
     idSucursal: sucursalPedida,
@@ -5766,6 +5960,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     },
     productos,
     componentes,
+    // Desglose reservado-vs-usado por movimiento de reserva (misma info que "componentes",
+    // recortada por movimiento en vez de agregada por PLU).
+    porMovimiento,
     // Depósitos elegibles de la sucursal + la preselección que propone el servidor.
     depositos: depositos.map(d => ({
       idDeposito: Number(d.IdDeposito), nombre: String(d.NombreDeposito || '').trim(),
@@ -5833,7 +6030,11 @@ function depositosProduccion(cp, cr, reserva, elegidos) {
 //                      +en el depósito de DIFERENCIAS elegido.
 // Los componentes sin PLU resoluble no se pueden mover y salen aparte en `sinPlu`.
 // Función pura: no toca SQL ni archivos.
-function lineasProduccionDesdeConciliacion(c, deps) {
+function lineasProduccionDesdeConciliacion(c, deps, opts) {
+  // incluirReserva:false arma sólo el comprobante "resto" (terminados + consumo que salió de
+  // FUERA de la reserva). El consumo contra la reserva y el sobrante se registran aparte, un
+  // comprobante por movimiento de reserva (ver lineasAjusteMovimiento). Default true = comportamiento viejo.
+  const incluirReserva = !opts || opts.incluirReserva !== false;
   const lineas = [], sinPlu = [];
   let terminados = 0, componentes = 0, ajustes = 0;
 
@@ -5857,9 +6058,9 @@ function lineasProduccionDesdeConciliacion(c, deps) {
     const deSalida  = redondear4(Math.max(0, usado - reservado));    // faltante: sale del depósito elegido
     const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más: vuelve al de diferencias
 
-    if (deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
+    if (incluirReserva && deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
     if (deSalida  > 0) { lineas.push({ ...base, idDeposito: deps.salida,  cantidad: -deSalida,  concepto: 'consumo-salida'  }); componentes++; }
-    if (sobrante > 0) {
+    if (incluirReserva && sobrante > 0) {
       lineas.push({ ...base, idDeposito: deps.reserva,     cantidad: -sobrante, concepto: 'sobrante-desde-reserva' });
       lineas.push({ ...base, idDeposito: deps.diferencias, cantidad:  sobrante, concepto: 'sobrante-a-diferencias' });
       ajustes++;
@@ -5916,9 +6117,13 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   if (!hayProductos && !(c.componentes || []).length) {
     return { error: `No hay producción cargada para el ${fecha}: no hay nada que registrar` };
   }
-  // Si no queda nada pendiente, toda la producción de la fecha ya fue registrada: no se escribe
-  // nada (volver a hacerlo duplicaría el descuento en SiGA).
-  if (c.pendienteDeRegistrar === false) {
+  // Trabajo pendiente = producción sin registrar O ajustes de reserva sin conciliar. Con la
+  // conciliación por movimiento, una fecha "ya registrada" en terminados puede tener todavía
+  // ajustes de reserva pendientes (p. ej. un reintento tras una falla parcial): en ese caso NO
+  // se bloquea, se retoma sólo lo que falta.
+  const hayAjustesPendientes = (c.porMovimiento || [])
+    .some(m => !m.conciliado && (m.componentes || []).some(x => (x.usado > 0) || (x.sobrante > 0)));
+  if (c.pendienteDeRegistrar === false && !hayAjustesPendientes) {
     const num = c.produccionRegistrada ? (c.produccionRegistrada.numeroMovimiento ?? null) : null;
     return { error: `Toda la producción del ${fecha} ya fue registrada${num != null ? ` (movimiento #${num})` : ''}`,
              yaRegistrado: true, numeroMovimiento: num };
@@ -5941,7 +6146,31 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   }
 
   const deps = depositosProduccion(cp, cr, c.reserva, elegidos);
-  const { lineas, sinPlu, resumen } = lineasProduccionDesdeConciliacion(c, deps);
+  // Un ajuste SiGA POR movimiento de reserva (trazabilidad 1:1 reserva→ajuste):
+  //  · "resto"    → terminados (alta de producto) + consumo que salió de FUERA de la reserva.
+  //  · por cada movimiento de reserva NO conciliado → consumo contra lo apartado + sobrante.
+  const resto     = lineasProduccionDesdeConciliacion(c, deps, { incluirReserva: false });
+  const ajustesMov = (c.porMovimiento || [])
+    .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], conciliado: !!m.conciliado, lineas: lineasAjusteMovimiento(m.componentes, deps) }))
+    // Los movimientos ya conciliados no se re-registran (idempotencia ante reintentos parciales).
+    .filter(m => !m.conciliado && m.lineas.length);
+  const sinPlu = resto.sinPlu;
+  const todasLasLineas = [...resto.lineas, ...ajustesMov.flatMap(m => m.lineas)];
+
+  // Defensa contra doble conteo: el reservado agregado (que usa el "resto" para el consumo-salida)
+  // debe coincidir con la suma por movimiento. Sólo diferirían si una reserva quedara net-negativa
+  // por PLU dentro de sí misma (devoluciones > líneas): hoy no ocurre, pero se corta por las dudas.
+  const reservadoAgg = new Map((c.componentes || []).filter(x => x.plu).map(x => [String(x.plu), redondear4(x.reservado)]));
+  const reservadoMov = new Map();
+  for (const m of (c.porMovimiento || [])) for (const x of (m.componentes || [])) {
+    reservadoMov.set(String(x.plu), redondear4((reservadoMov.get(String(x.plu)) || 0) + (Number(x.reservado) || 0)));
+  }
+  const descuadre = [...reservadoMov.entries()].filter(([plu, v]) => Math.abs(v - (reservadoAgg.get(plu) || 0)) > 1e-4);
+  if (descuadre.length) {
+    return { error: 'La reserva agregada no coincide con la suma por movimiento (posible reserva con devoluciones '
+                  + 'inconsistentes). Revisá las reservas del plan antes de registrar la producción.',
+             descuadre: descuadre.map(([plu]) => plu) };
+  }
 
   // Sin PLU no hay forma de mover el stock: o se aborta, o el operador acepta explícitamente
   // dejarlos afuera (y se informan en la respuesta para corregirlos después).
@@ -5950,10 +6179,10 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
                   + 'Corregilos o volvé a enviar con omitirSinPlu para dejarlos afuera.',
              sinPlu };
   }
-  if (!lineas.length) return { error: 'No quedó ninguna línea para mover' };
+  if (!todasLasLineas.length) return { error: 'No quedó ninguna línea para mover' };
   // Defensa: sin depósito de reserva configurado ni reserva viva, una línea de consumo
   // reservado quedaría sin depósito. Antes de escribir, todas las líneas tienen que tenerlo.
-  const sinDeposito = lineas.filter(l => !esIdDeposito(Number(l.idDeposito)));
+  const sinDeposito = todasLasLineas.filter(l => !esIdDeposito(Number(l.idDeposito)));
   if (sinDeposito.length) {
     return { error: 'No se pudo determinar el depósito de todas las líneas '
                   + '(elegí el depósito de salida y el de recepción, y revisá reserva.depositoReserva en config.json)',
@@ -5961,68 +6190,113 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   }
 
   // La observación es la marca que identifica estos comprobantes en SiGA.
-  const observacion = `${cp.observacion} ${fecha}`.trim().slice(0, 200);
+  const obsBase = `${cp.observacion} ${fecha}`.trim();
   const poolW = await getPoolStock();
-  const r = await ejecutarYRegistrar({
-    origen: 'produccion', plan: fecha, itemId: null,
-    idSucursal: cr.idSucursal,
-    // La cabecera de un movimiento multi-depósito es sólo referencia (de dónde salió y a
-    // dónde entró la mayor parte): el depósito real de cada renglón va EN LA LÍNEA.
-    depOrigen: deps.reserva || deps.salida, depDestino: deps.recepcion,
-    idUbicacion: null, idEmpleado: cr.idEmpleado,
-    idTipoMovimiento: cp.idTipoMovimiento, usuario: cr.usuario, observacion,
-    lineas: lineas.map(l => ({ plu: l.idProducto, nombre: l.nombre || null, cantidad: l.cantidad, idDeposito: l.idDeposito }))
-  }, () => registrarMovimientoMultilinea(poolW, {
-    idSucursal: cr.idSucursal, idTipoMovimiento: cp.idTipoMovimiento,
-    usuario: cr.usuario, idEmpleado: cr.idEmpleado, observacion,
-    lineas: lineas.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
-  }));
+  const comprobantes = [], logErrores = [];
+  let errMarca = null, avisoMarca = null, errEscritura = null;
+  let r = { numeroMovimiento: null, idRegistro: null };
 
-  // Marca en el plan para que no se registre dos veces. Si el plan no existe el movimiento
-  // ya se hizo igual: se avisa y queda el rastro en el log, que es el registro de verdad.
-  let errMarca = null, avisoMarca = null;
-  try {
-    const planes     = leerJSON(PLANES_PATH, {});
+  const escribirComprobante = async (lineasComp, observacion, depOrigen, depDestino) =>
+    ejecutarYRegistrar({
+      origen: 'produccion', plan: fecha, itemId: null, idSucursal: cr.idSucursal,
+      // La cabecera de un movimiento multi-depósito es sólo referencia: el depósito real de
+      // cada renglón va EN LA LÍNEA.
+      depOrigen, depDestino, idUbicacion: null, idEmpleado: cr.idEmpleado,
+      idTipoMovimiento: cp.idTipoMovimiento, usuario: cr.usuario, observacion,
+      lineas: lineasComp.map(l => ({ plu: l.idProducto, nombre: l.nombre || null, cantidad: l.cantidad, idDeposito: l.idDeposito }))
+    }, () => registrarMovimientoMultilinea(poolW, {
+      idSucursal: cr.idSucursal, idTipoMovimiento: cp.idTipoMovimiento,
+      usuario: cr.usuario, idEmpleado: cr.idEmpleado, observacion,
+      lineas: lineasComp.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
+    }));
+
+  // Aplica un cambio al plan y lo persiste de inmediato (re-lee para no pisar escrituras
+  // concurrentes). Se llama DESPUÉS de cada comprobante confirmado para que un reintento tras
+  // una falla parcial salte lo ya registrado (idempotencia). Devuelve {aviso} si no hay plan.
+  const aplicarAlPlan = (mutador) => {
+    const planes = leerJSON(PLANES_PATH, {});
     const planActual = planes[fecha];
-    if (!planActual) {
-      avisoMarca = `No hay plan cargado para el ${fecha}: el movimiento se registró igual, pero el plan no lleva la marca `
-                 + 'de producción registrada (el rastro queda en el log de movimientos).';
-    } else {
-      // Se acumula un asiento nuevo sobre los que ya tenía el plan (una fecha se puede
-      // registrar en varias tandas). Los campos sueltos duplican el último asiento para no
-      // romper a quien lee produccionRegistrada.numeroMovimiento directo.
-      const asientoNuevo = {
-        numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(),
-        idRegistro: r.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal,
-        registros: idsRegistrados
-      };
-      const asientos = [...asientosProduccion(planActual), asientoNuevo];
-      const produccionRegistrada = { ...asientoNuevo, asientos };
-      // Estado terminal por ítem: los ítems del plan cuyo producto (idProducto o, si es
-      // granel, idGranel) esté entre los PLU producidos por ESTE asiento quedan sellados con
-      // produccionMovimiento. El sello persiste aunque la reserva se anule; sólo se quita al
-      // revertir este movimiento (limpiarProduccionRegistrada). Sólo se sellan los ítems que
-      // cubren los registros de este asiento y que no estén ya sellados por uno anterior.
-      const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id));
-      const plusProducidos = new Set(registrosDelAsiento.flatMap(rr => plusDeRegistro(rr.plu)));
-      const sello = { numeroMovimiento: r.numeroMovimiento, fecha: asientoNuevo.fecha, idRegistro: r.idRegistro };
-      const items = (planActual.items || []).map(it => {
-        if (!it || it.produccionMovimiento) return it;
-        const plu = String(it.idProducto ?? it.idGranel ?? '').replace(/\D/g, '');
-        if (!plu || !plusProducidos.has(plu)) return it;
-        return { ...it, produccionMovimiento: sello };
-      });
-      guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...planActual, produccionRegistrada, items } });
+    if (!planActual) return { aviso: `No hay plan cargado para el ${fecha}: el movimiento se registró igual, pero el plan `
+                                    + 'no lleva la marca (el rastro queda en el log de movimientos).' };
+    guardarJSON(PLANES_PATH, { ...planes, [fecha]: mutador(planActual) });
+    return { ok: true };
+  };
+
+  // Marca del asiento de producción (terminados) + sello por ítem. Se persiste apenas confirma
+  // el comprobante "resto": un reintento verá esos registros como yaRegistrados y no los repite.
+  const marcarProduccion = (planActual, rc) => {
+    const asientoNuevo = {
+      numeroMovimiento: rc.numeroMovimiento, fecha: new Date().toISOString(),
+      idRegistro: rc.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal, registros: idsRegistrados
+    };
+    const asientos = [...asientosProduccion(planActual), asientoNuevo];
+    const produccionRegistrada = { ...asientoNuevo, asientos };
+    const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id));
+    const plusProducidos = new Set(registrosDelAsiento.flatMap(rr => plusDeRegistro(rr.plu)));
+    const sello = { numeroMovimiento: rc.numeroMovimiento, fecha: asientoNuevo.fecha, idRegistro: rc.idRegistro };
+    const items = (planActual.items || []).map(it => {
+      if (!it || it.produccionMovimiento) return it;
+      const plu = String(it.idProducto ?? it.idGranel ?? '').replace(/\D/g, '');
+      if (!plu || !plusProducidos.has(plu)) return it;
+      return { ...it, produccionMovimiento: sello };
+    });
+    return { ...planActual, produccionRegistrada, items };
+  };
+
+  try {
+    // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
+    //    el consumo fue contra reservas y no hay alta de producto pendiente.
+    if (resto.lineas.length) {
+      const rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+      logErrores.push(rResto.logError);
+      comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
+      r = rResto;
+      const res = aplicarAlPlan(planActual => marcarProduccion(planActual, rResto));
+      if (res.aviso) avisoMarca = res.aviso;
     }
-  } catch (e) { errMarca = `No se pudo marcar el plan ${fecha} como registrado: ${e.message}`; }
+
+    // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
+    //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
+    for (const m of ajustesMov) {
+      const observacion = `${obsBase} mov ${m.numeroMovimiento}`.trim().slice(0, 200);
+      const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
+      logErrores.push(rm.logError);
+      comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
+      if (r.numeroMovimiento == null) r = rm;   // sin resto, el principal es el primer ajuste
+      const res = aplicarAlPlan(planActual => ({
+        ...planActual,
+        reservas: migrarReservas(planActual).reservas.map(rr =>
+          rr.numeroMovimiento === m.numeroMovimiento
+            ? { ...rr, ajuste: { numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro, fecha: new Date().toISOString(), conciliado: true } }
+            : rr),
+      }));
+      if (res.aviso && !avisoMarca) avisoMarca = res.aviso;
+    }
+  } catch (e) {
+    // ejecutarYRegistrar re-lanza si el comprobante falló en SiGA. Cada comprobante es su propia
+    // transacción, así que lo ya escrito quedó firme y marcado; se corta acá y se avisa para
+    // reintentar (el reintento salta lo confirmado).
+    errEscritura = `Se registraron ${comprobantes.length} comprobante(s); el siguiente falló: ${e.message}. `
+                 + 'Reintentá el registro: los comprobantes ya hechos no se repiten.';
+  }
+
+  // Registros conciliados → historial: salen del listado de Terminados (quedan archivados para
+  // consulta). Sólo si la marca del plan se persistió (los ítems quedaron dados de alta).
+  let archivados = 0;
+  if (idsRegistrados.length && !errMarca && !avisoMarca) {
+    try { archivados = archivarRegistros(idsRegistrados, { numeroMovimiento: r.numeroMovimiento, planFecha: fecha }); }
+    catch (e) { errMarca = `No se pudieron archivar los registros conciliados: ${e.message}`; }
+  }
 
   const resp = {
-    ok: true, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro,
-    idSucursal: cr.idSucursal, observacion, depositos: deps, lineas, resumen,
+    ok: !errEscritura, numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro, archivados,
+    comprobantes, idSucursal: cr.idSucursal, observacion: obsBase.slice(0, 200), depositos: deps,
+    lineas: todasLasLineas, resumen: { ...resto.resumen, ajustesMovimiento: ajustesMov.length },
+    ...(errEscritura ? { parcial: true } : {}),
     ...(sinPlu.length ? { omitidosSinPlu: sinPlu } : {}),
     ...(avisoMarca ? { aviso: avisoMarca } : {})
   };
-  return conLogError(resp, r.logError, errMarca);
+  return conLogError(resp, ...logErrores, errMarca, errEscritura);
 }));
 
 // ── Precios de Proveedores ─────────────────────────────────────────────────────

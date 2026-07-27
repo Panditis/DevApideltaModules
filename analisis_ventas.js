@@ -149,13 +149,18 @@ function sqlArticulosHistograma(p) {
     ORDER BY t.Articulos`;
 }
 
-// Promedio de artículos por ticket, por sucursal.
+// Promedio de artículos por ticket, por sucursal. TicketsDia se calcula sobre los días
+// con ventas de esa sucursal (no sobre los días calendario del rango) para que los días
+// cerrados o sin actividad no hundan el promedio.
 function sqlArticulosPorSucursal(p) {
   return `SELECT t.IdSucursal AS IdSucursal, s.Nombre AS Nombre,
       COUNT(*) AS Tickets, SUM(t.Articulos) AS Articulos,
-      CAST(SUM(t.Articulos) AS FLOAT) / COUNT(*) AS Promedio
+      CAST(SUM(t.Articulos) AS FLOAT) / COUNT(*) AS Promedio,
+      COUNT(DISTINCT t.Fecha) AS Dias,
+      CAST(COUNT(*) AS FLOAT) / NULLIF(COUNT(DISTINCT t.Fecha), 0) AS TicketsDia
     FROM (
-      SELECT vp.IdSucursal AS IdSucursal, COUNT(*) AS Articulos
+      SELECT vp.IdSucursal AS IdSucursal, COUNT(*) AS Articulos,
+        MIN(CAST(v.Fecha AS DATE)) AS Fecha
       FROM VentasProductos vp
       ${JOIN_CLAVE5}
       ${JOIN_CLIENTE_CAT}
@@ -167,16 +172,14 @@ function sqlArticulosPorSucursal(p) {
     ORDER BY Promedio DESC`;
 }
 
-// Buckets fijos para el histograma. Los N chicos (1..5) van sueltos y el resto se
-// agrupa para que la barra de "carritos grandes" no quede pulverizada en la cola.
+// Buckets fijos para el histograma: rangos de a dos (salvo el primero) para que la
+// torta quede en 5 porciones legibles y la cola larga no se pulverice.
 const BUCKETS_ARTICULOS = [
-  { label: '1', min: 1, max: 1 },
-  { label: '2', min: 2, max: 2 },
-  { label: '3', min: 3, max: 3 },
-  { label: '4', min: 4, max: 4 },
-  { label: '5', min: 5, max: 5 },
-  { label: '6-10', min: 6, max: 10 },
-  { label: '11+', min: 11, max: Infinity },
+  { label: '1-3', min: 1, max: 3 },
+  { label: '4-5', min: 4, max: 5 },
+  { label: '6-7', min: 6, max: 7 },
+  { label: '8-9', min: 8, max: 9 },
+  { label: '+10', min: 10, max: Infinity },
 ];
 
 // Colapsa el histograma exacto (filas {Articulos, Tickets}) en los buckets fijos.
@@ -197,10 +200,73 @@ function promedioArticulos(porSucursal) {
   return tickets > 0 ? articulos / tickets : 0;
 }
 
+// ── Familias de producto ─────────────────────────────────────────────────────
+// Una "familia" es el producto sin su presentación: MIEL PURA 500G, MIEL PURA 1KG y
+// MIEL PURA PACK 6 son la misma familia MIEL PURA. Mismo criterio que usa el catálogo
+// (normalizarNombre + extraerPresentacion en server.js), replicado acá para no arrastrar
+// la dependencia: se corta el sufijo de peso/volumen y las variantes pack/bulto/vid.
+const LIMITE_FAMILIAS = 1000;
+const SUFIJO_VARIANTE = /\s+(pack|bulto|vid)\b.*$/i;
+const SUFIJO_MULTIPLO = /\s*[xX]\s*\d+(?:[.,]\d+)?\s*(?:kg|kgs|g|gr|grs|ml|cc|lt|l|un|u)?\s*$/i;
+// "x" huérfana que queda cuando el sufijo se cortó en dos pasos (ALMENDRA X 1 KG).
+const X_COLGANTE = /\s+x$/i;
+const SUFIJO_PRESENTACION = /\s*\d+(?:[.,]\d+)?\s*(?:kg|kgs|g|gr|grs|ml|cc|lt|l|un|u)\b.*$/i;
+
+// Nombre de familia legible. Si al recortar no queda nada, se devuelve el nombre original
+// (un producto llamado sólo "1KG" es un dato sucio, pero no puede desaparecer del reporte).
+function familiaNombre(nombre) {
+  const original = String(nombre || '').trim();
+  const base = original
+    .replace(SUFIJO_VARIANTE, '')
+    .replace(/\bvid\s+/i, '')
+    .replace(SUFIJO_MULTIPLO, '')
+    .replace(SUFIJO_PRESENTACION, '')
+    .replace(X_COLGANTE, '')
+    .replace(/[\s.,;:-]+$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return base || original;
+}
+
+// Clave de agrupación: sin acentos, sin mayúsculas y sin espacios de más, para que
+// "Miel Pura" y "MIEL  PURA" caigan en la misma fila.
+function claveFamilia(familia) {
+  return String(familia || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s{2,}/g, ' ').trim();
+}
+
+// Colapsa filas {IdProducto, Nombre, Unidades, Facturacion} en familias, sumando las
+// presentaciones. Devuelve las topN familias por facturación, cada una con su detalle.
+function agruparFamilias(rows, topN) {
+  const mapa = new Map();
+  (rows || []).forEach(r => {
+    const nombre = String(r.Nombre || '').trim();
+    if (!nombre) return;
+    const familia = familiaNombre(nombre);
+    const clave = claveFamilia(familia);
+    if (!mapa.has(clave)) mapa.set(clave, { familia, unidades: 0, facturacion: 0, presentaciones: [] });
+    const g = mapa.get(clave);
+    const unidades = Number(r.Unidades || 0);
+    const facturacion = Number(r.Facturacion || 0);
+    g.unidades += unidades;
+    g.facturacion += facturacion;
+    g.presentaciones.push({ idProd: r.IdProducto, nombre, unidades, facturacion });
+  });
+  return [...mapa.values()]
+    .map(g => ({
+      ...g,
+      presentaciones: [...g.presentaciones].sort((a, b) => b.facturacion - a.facturacion),
+    }))
+    .sort((a, b) => b.facturacion - a.facturacion)
+    .slice(0, topN || TOP_N_DEFAULT);
+}
+
 module.exports = {
-  SUCURSALES_ANALISIS, NOMBRE_DIA, TOP_N_DEFAULT, BUCKETS_ARTICULOS,
+  SUCURSALES_ANALISIS, NOMBRE_DIA, TOP_N_DEFAULT, BUCKETS_ARTICULOS, LIMITE_FAMILIAS,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
   whereVentas, sqlComparativa, sqlResumenRenglon,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
+  familiaNombre, claveFamilia, agruparFamilias,
 };
