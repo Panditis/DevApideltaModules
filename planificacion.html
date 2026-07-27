@@ -2762,7 +2762,11 @@ function codigoGranelItem(it) {
 }
 
 function construirOrdenes() {
-  const items = planCache?.items || [];
+  // Un ítem con produccionMovimiento ya se produjo Y se recepcionó como artículo final: cerró
+  // su circuito. Volver a mandarlo a Producción del Día duplicaría la orden y, al conciliar de
+  // nuevo, descontaría sus componentes en SiGA por segunda vez. Se filtra acá, en el origen,
+  // así quedan cubiertos tanto el granel como el fraccionado agrupado por rubro.
+  const items = (planCache?.items || []).filter(it => !(it && it.produccionMovimiento));
   if (!items.length) return [];
 
   const CRIT_ORDER = { URGENT: 4, RED: 3, YELLOW: 2, GREEN: 1 };
@@ -2845,8 +2849,19 @@ function construirOrdenes() {
 // como el modal que ofrece enviar las órdenes recién reservadas, para que el
 // toast de éxito y el manejo de errores sean consistentes en ambos flujos.
 async function postOrdenesProduccion(ordenes) {
-  await api('POST', '/api/enviar-produccion', ordenes);
-  toast(`✓ ${ordenes.length} orden${ordenes.length !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+  const resp = await api('POST', '/api/enviar-produccion', ordenes);
+  // El servidor descarta las órdenes ya recepcionadas en SiGA. Normalmente construirOrdenes()
+  // ya las filtró, así que si vuelve alguna es porque el plan en pantalla quedó viejo: se avisa
+  // en vez de dejar creer que se enviaron.
+  const omitidas = Array.isArray(resp?.recepcionadasOmitidas) ? resp.recepcionadasOmitidas : [];
+  const enviadas = ordenes.length - omitidas.length;
+  if (enviadas > 0) {
+    toast(`✓ ${enviadas} orden${enviadas !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+  }
+  if (omitidas.length) {
+    const detalle = omitidas.map(o => `${o.producto} (mov #${o.numeroMovimiento})`).join(', ');
+    toast(`${omitidas.length} orden${omitidas.length !== 1 ? 'es' : ''} ya producida${omitidas.length !== 1 ? 's' : ''} y recepcionada${omitidas.length !== 1 ? 's' : ''}, no se reenvió: ${detalle}`, true);
+  }
 }
 
 // Órdenes de construirOrdenes() que corresponden a ítems sellados con el

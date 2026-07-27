@@ -3354,22 +3354,39 @@ app.post('/api/enviar-produccion', (req, res) => {
     // misma clave que arma construirOrdenes() en planificacion.html. Cache por fecha para no
     // releer planes.json por cada orden del envío.
     const planItemsPorFecha = new Map();
-    const movimientosDeOrden = n => {
+    const itemsDeOrden = n => {
       if (!planItemsPorFecha.has(n.fecha)) {
         const { plan } = leerPlanReservas(n.fecha);
         planItemsPorFecha.set(n.fecha, (plan && plan.items) || []);
       }
-      const items = planItemsPorFecha.get(n.fecha).filter(it =>
+      return planItemsPorFecha.get(n.fecha).filter(it =>
         it && (it.producto === n.producto || (it.rubro || it.producto) === n.producto));
-      return [...new Set(items
-        .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
-        .map(it => it.reservaMovimiento.numeroMovimiento))];
+    };
+    const movimientosDeOrden = n => [...new Set(itemsDeOrden(n)
+      .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
+      .map(it => it.reservaMovimiento.numeroMovimiento))];
+    // Un ítem con produccionMovimiento ya se produjo Y se recepcionó como artículo final: su
+    // circuito cerró y la orden no se puede volver a enviar.
+    // ordenesTrabajadas NO alcanza para detectarlo: al conciliar, los registros se mueven de
+    // produccion_registros.json a produccion_historial.json, así que el Set queda vacío para
+    // esas órdenes y volvían a ser re-enviables justo después de conciliar.
+    const numeroRecepcion = n => {
+      const it = itemsDeOrden(n).find(x =>
+        x.produccionMovimiento && x.produccionMovimiento.numeroMovimiento != null);
+      return it ? it.produccionMovimiento.numeroMovimiento : null;
     };
     // Órdenes ya trabajadas (con algún registro de producción cargado): no se pisan aunque
     // todavía no estén en 'listo'/terminado, para no borrar lo que producción ya cargó.
     const ordenesTrabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
     let sobre = 0, nue = 0, completas = 0;
+    const recepcionadas = [];
     for (const n of nuevas) {
+      // Se corta ANTES del alta o la sobreescritura: la orden ya cerró su circuito en SiGA.
+      const numRecep = numeroRecepcion(n);
+      if (numRecep != null) {
+        recepcionadas.push({ producto: n.producto, numeroMovimiento: numRecep });
+        continue;
+      }
       const k = keyOf(n), i = idx.get(k);
       const reservaMovimientos = movimientosDeOrden(n);
       if (i != null) {
@@ -3384,7 +3401,8 @@ app.post('/api/enviar-produccion', (req, res) => {
       }
     }
     guardarOrdenes(arr);
-    res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue, completasOmitidas: completas });
+    res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue,
+               completasOmitidas: completas, recepcionadasOmitidas: recepcionadas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.get('/api/ordenes-produccion', (_req, res) => res.json(leerOrdenes()));
