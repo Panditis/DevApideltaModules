@@ -1,0 +1,38 @@
+RESUMEN DEL DÍA - 24/07/2026
+========================================
+
+MANEJO DE RESERVAS POR MOVIMIENTOS DENTRO DE SIGA
+-------------------------------------------------
+Se armó todo el circuito para reservar mercadería y que cada reserva quede
+vinculada a un número de movimiento de SIGA. Ese número acompaña la orden desde
+que se reserva hasta que se cierra, así siempre se sabe qué se apartó, con qué
+movimiento y en qué estado está. Incluye poder anular una reserva y liberar la
+mercadería si se hizo por error.
+
+MEDIDAS DE SEGURIDAD PARA EVITAR CONFLICTOS ENTRE ÓRDENES
+---------------------------------------------------------
+Se agregaron controles para que, dentro de un mismo día, las órdenes nuevas no
+pisen ni rompan a las que ya estaban reservadas o trabajadas. En concreto: no se
+puede borrar ni modificar una orden ya reservada o trabajada, al borrar un plan
+completo las reservas se conservan, y una reserva nueva solo suma las órdenes que
+todavía no tenían movimiento (no duplica las viejas).
+
+MANEJO DE CONCILIACIÓN EN PRODUCCIÓN
+------------------------------------
+Se armó el cierre de las reservas: al conciliar, el sistema compara lo reservado
+contra lo realmente usado y genera el ajuste correspondiente en SIGA (lo usado
+sale, lo sobrante vuelve). Las reservas ya cerradas pasan a un historial para no
+mezclarse con las pendientes, y el cierre es a prueba de repeticiones (no genera
+el movimiento dos veces si se reintenta).
+
+PUESTA A PUNTO DEL SISTEMA
+--------------------------
+- Acceso por usuarios: se agregó el ingreso con usuario y contraseña, y ahora se
+  pueden dar permisos a cada persona desde un centro de control (quién puede ver
+  o usar cada parte del sistema).
+
+- Refactorización del directorio de trabajo: la versión de pruebas y la de uso
+  real quedaron conectadas, para poder pasar los cambios de una a otra con mucha
+  más facilidad.
+
+========================================

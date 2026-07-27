@@ -4925,6 +4925,16 @@ function renderReservaModal() {
   btnAnu.disabled      = false;
   btnAnu.title         = 'Devolver todo al depósito de origen';
 
+  // Anular devuelve TODO el saldo al depósito de origen. Si alguna orden reservada ya se
+  // produjo y recepcionó, sus componentes salieron del depósito de reserva al recepcionar el
+  // artículo final: devolverlos escribiría en SiGA stock que no existe. El servidor también lo
+  // rechaza, pero acá el botón directamente no se puede clickear.
+  const bloqueoProd = bloqueoProduccionReservaActiva();
+  if (activa && bloqueoProd) {
+    btnAnu.disabled = true;
+    btnAnu.title    = bloqueoProd;
+  }
+
   // Reserva de otra sucursal: el servidor rechaza toda escritura, así que no se
   // ofrece el intento (el usuario no tiene que descubrirlo con un error).
   const otraSucursal = sucursalDistintaReserva();
@@ -4935,6 +4945,25 @@ function renderReservaModal() {
     btnAnu.disabled = true;
     btnAnu.title    = motivo;
   }
+}
+
+// Motivo por el que la reserva activa no se puede anular, o '' si se puede. Mira los ítems
+// reservados que además tienen sello de producción recepcionada: son los que ya consumieron
+// sus componentes. Es el mismo criterio que la guarda del servidor en ejecutarDevolucionReserva.
+function bloqueoProduccionReservaActiva() {
+  const items = (planCache && Array.isArray(planCache.items)) ? planCache.items : [];
+  const producidas = items.filter(it =>
+    it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null &&
+    it.produccionMovimiento && it.produccionMovimiento.numeroMovimiento != null);
+  if (!producidas.length) return '';
+
+  const una     = producidas.length === 1;
+  const detalle = producidas
+    .map(it => `"${it.producto || it.id}" (movimiento #${it.produccionMovimiento.numeroMovimiento})`)
+    .join(', ');
+  return `No se puede devolver la reserva: ${una ? 'la orden' : 'las órdenes'} ${detalle} ya `
+       + `${una ? 'fue producida y recepcionada' : 'fueron producidas y recepcionadas'}. `
+       + 'Los componentes ya se consumieron.';
 }
 
 // Vuelve a pedir el estado al servidor y repinta el modal (que sigue abierto).
@@ -5118,6 +5147,11 @@ function onClickBotonReserva() {
 async function anularReserva() {
   const activa = reservaActiva();
   if (!activa || !fechaPlanActual) return;
+  // El botón ya sale deshabilitado en este caso; esto cubre que se haya producido con el
+  // modal abierto, para no llegar nunca al confirm.
+  const bloqueoProd = bloqueoProduccionReservaActiva();
+  if (bloqueoProd) { toast(bloqueoProd, true); return; }
+
   if (!confirm(`¿Anular la reserva #${activa.numeroMovimiento}?\n\nTodos los componentes vuelven a ${etiquetaDeposito(activa.depOrigen)}.`)) return;
 
   const btn = document.getElementById('btnAnularReserva');
@@ -5301,8 +5335,14 @@ function reservaResumenCard(r, i) {
 
   const ordenes = Array.isArray(r?.ordenes) ? r.ordenes : [];
   const ordenesHtml = ordenes.length
-    ? `<ul style="margin:4px 0 0 18px;padding:0">${ordenes.map(o =>
-        `<li style="margin-top:2px">${escHtml(String(o?.producto || o?.id || '—'))}</li>`).join('')}</ul>`
+    ? `<ul style="margin:4px 0 0 18px;padding:0">${ordenes.map(o => {
+        // La orden ya producida y recepcionada es la que bloquea el revertir: se marca en la
+        // lista para que se vea de dónde sale el bloqueo sin tener que abrir el tooltip.
+        const prod = o?.produccionMovimiento;
+        const chip = prod == null ? ''
+          : ` <span class="pres-chip" title="Producida y recepcionada: sus componentes ya se consumieron" style="background:#14532d;color:#fff;border-color:#14532d">✔ Producida #${escHtml(String(prod))}</span>`;
+        return `<li style="margin-top:2px">${escHtml(String(o?.producto || o?.id || '—'))}${chip}</li>`;
+      }).join('')}</ul>`
     : '<div style="opacity:.8;margin-top:4px">Sin órdenes asociadas.</div>';
 
   const productos = Array.isArray(r?.productos) ? r.productos : [];
@@ -5319,9 +5359,19 @@ function reservaResumenCard(r, i) {
       </table>`
     : '<div style="opacity:.8;margin-top:4px">Sin líneas registradas.</div>';
 
+  // El servidor manda el motivo cuando la reserva tiene órdenes ya producidas y recepcionadas.
+  // En ese caso el botón sale deshabilitado: revertir devolvería al depósito de origen
+  // componentes que ya se consumieron, dejando stock inventado en SiGA.
+  const bloqueo = typeof r?.bloqueoProduccion === 'string' ? r.bloqueoProduccion.trim() : '';
   const puedeRevertir = activa && r?.idRegistro != null && r.idRegistro !== '';
-  const btnRev = puedeRevertir
-    ? `<button class="btn btn-danger btn-sm" id="movStockRev${i}" onclick="revertirMovStock(${i})" title="Generar el movimiento inverso en SiGA">↩ Revertir</button>`
+  const btnRev = !puedeRevertir
+    ? ''
+    : bloqueo
+    ? `<button class="btn btn-danger btn-sm" disabled title="${escHtml(bloqueo)}" style="opacity:.45;cursor:not-allowed">↩ Revertir</button>`
+    : `<button class="btn btn-danger btn-sm" id="movStockRev${i}" onclick="revertirMovStock(${i})" title="Generar el movimiento inverso en SiGA">↩ Revertir</button>`;
+
+  const avisoBloqueo = (puedeRevertir && bloqueo)
+    ? `<div style="margin-top:8px;padding:6px 8px;border:1px solid var(--md-outline-variant);background:var(--md-surface-2);border-radius:var(--radius-sm);font-size:12px;color:var(--muted)">🔒 ${escHtml(bloqueo)}</div>`
     : '';
 
   return `<div style="border:1px solid var(--md-outline-variant);border-radius:8px;padding:10px 12px;margin-bottom:10px;${activa ? '' : 'opacity:.6'}">
@@ -5331,6 +5381,7 @@ function reservaResumenCard(r, i) {
         <span style="font-size:12px;color:var(--muted)">${escHtml(fmtFechaHoraMov(r?.fechaPlanificacion))}</span>
         <span style="margin-left:auto">${btnRev}</span>
       </div>
+      ${avisoBloqueo}
       <div style="margin-top:8px;font-size:12px"><strong>Órdenes</strong>${ordenesHtml}</div>
       <div style="margin-top:8px;font-size:12px"><strong>Productos</strong>${productosHtml}</div>
     </div>`;
@@ -5407,6 +5458,13 @@ async function revertirMovStock(idx) {
 
   if (r.estado !== 'activa' || r.idRegistro == null || r.idRegistro === '') {
     toast('Esta reserva no se puede revertir', true);
+    return;
+  }
+
+  // El botón ya sale deshabilitado en este caso; esto cubre un cache viejo (la orden se
+  // produjo con el modal abierto) para no llegar nunca al confirm.
+  if (r.bloqueoProduccion) {
+    toast(String(r.bloqueoProduccion), true);
     return;
   }
 

@@ -22,7 +22,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -4267,6 +4267,20 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   const lineas = (original.lineas || []).filter(l => Number(l.cantidad));
   if (!lineas.length) return { error: 'El movimiento no tiene líneas con cantidad para revertir' };
 
+  // Misma guarda que "Anular reserva" y que modificar/eliminar una orden: una reserva cuyas
+  // órdenes ya se produjeron y recepcionaron no se puede revertir, porque sus componentes ya
+  // salieron del depósito de reserva. Va ANTES de escribir nada en SiGA.
+  if (original.origen === 'reserva' && original.plan) {
+    const { plan: planRev } = leerPlanReservas(original.plan);
+    const entrada = planRev && (planRev.reservas || []).find(rr => rr &&
+      (rr.idRegistro === original.id ||
+       (rr.numeroMovimiento != null && rr.numeroMovimiento === original.numeroMovimiento)));
+    const producidas = ordenesProducidasDeReserva(entrada, planRev && planRev.items);
+    if (producidas.length) {
+      return { error: motivoBloqueoProduccion(producidas, 'revertir este movimiento'), yaProducido: true };
+    }
+  }
+
   const cr          = cfgReserva();
   // Se firma con el usuario vigente de config.json, no con el del movimiento original: la
   // reversión la hace quien opera hoy. El usuario original queda igual en su propio registro.
@@ -5154,6 +5168,14 @@ async function ejecutarDevolucionReserva(plan, itemId) {
   const reserva = plan && plan.reserva;
   if (!reserva || reserva.estado !== 'activa') return { error: 'El plan no tiene una reserva activa' };
 
+  // Sin itemId se devuelve la reserva entera, así que alcanza con que UNA de sus órdenes esté
+  // producida para que la devolución quede mal; con itemId sólo importa ese ítem.
+  const producidas = ordenesProducidasDeReserva(
+    itemId == null ? reserva : { ordenes: [itemId] }, plan && plan.items);
+  if (producidas.length) {
+    return { error: motivoBloqueoProduccion(producidas, 'devolver la reserva'), yaProducido: true };
+  }
+
   // La devolución invierte los depósitos con los que se hizo la reserva. El config sólo
   // sirve de fallback para reservas viejas guardadas antes de poder elegirlos en el modal.
   // La sucursal sale del mismo lugar: la de la reserva, NUNCA la que diga config.json hoy
@@ -5287,15 +5309,23 @@ app.get('/api/plan/:fecha/reservas-resumen', apiRoute(async req => {
   const porItem = new Map((plan.items || []).map(it => [String(it.id), it]));
   return {
     fecha,
-    reservas: (plan.reservas || []).map(r => ({
-      numeroMovimiento: r.numeroMovimiento, estado: r.estado, fecha: r.fecha,
-      fechaPlanificacion: r.fechaPlanificacion, idRegistro: r.idRegistro,
-      ordenes: (Array.isArray(r.ordenes) ? r.ordenes : []).map(id => {
-        const it = porItem.get(String(id));
-        return { id, producto: it ? (it.producto || it.nombre || '') : '' };
-      }),
-      productos: (r.lineas || []).map(l => ({ plu: String(l.plu), nombre: l.nombre || '', cantidad: l.cantidad })),
-    })),
+    reservas: (plan.reservas || []).map(r => {
+      // bloqueoProduccion viaja al frontend para que el botón Revertir salga deshabilitado con
+      // el motivo a la vista, en vez de dejar clickear y fallar recién contra el servidor.
+      const producidas = ordenesProducidasDeReserva(r, plan.items);
+      const producidasPorId = new Map(producidas.map(p => [String(p.id), p.numeroMovimiento]));
+      return {
+        numeroMovimiento: r.numeroMovimiento, estado: r.estado, fecha: r.fecha,
+        fechaPlanificacion: r.fechaPlanificacion, idRegistro: r.idRegistro,
+        ordenes: (Array.isArray(r.ordenes) ? r.ordenes : []).map(id => {
+          const it = porItem.get(String(id));
+          return { id, producto: it ? (it.producto || it.nombre || '') : '',
+                   produccionMovimiento: producidasPorId.get(String(id)) ?? null };
+        }),
+        bloqueoProduccion: motivoBloqueoProduccion(producidas, 'revertir este movimiento'),
+        productos: (r.lineas || []).map(l => ({ plu: String(l.plu), nombre: l.nombre || '', cantidad: l.cantidad })),
+      };
+    }),
   };
 }));
 

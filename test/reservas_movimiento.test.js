@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento } = require('../reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('../reservas_movimiento');
 
 test('migrarReservas: plan sin reserva devuelve reservas vacío', () => {
   assert.deepStrictEqual(migrarReservas({ fecha: '2026-07-24', items: [] }).reservas, []);
@@ -104,4 +104,63 @@ test('lineasAjusteMovimiento: usado 0 y sin sobrante no genera líneas', () => {
 
 test('lineasAjusteMovimiento: componente sin plu se ignora', () => {
   assert.strictEqual(lineasAjusteMovimiento([{ plu: '', usado: 10, sobrante: 0 }], { reserva: 5, diferencias: 1 }).length, 0);
+});
+
+// ── Bloqueo por produccion ya recepcionada ───────────────────────
+// Devolver o revertir una reserva cuyas ordenes ya se produjeron devolveria al deposito de
+// origen componentes que ya se consumieron: stock inventado en SiGA.
+test('ordenesProducidasDeReserva: reserva sin ordenes producidas devuelve vacio', () => {
+  const items = [{ id: 1, producto: 'Polen 100g' }, { id: 2, producto: 'Miel 500g' }];
+  assert.deepStrictEqual(ordenesProducidasDeReserva({ ordenes: [1, 2] }, items), []);
+});
+test('ordenesProducidasDeReserva: detecta la orden con sello de produccion', () => {
+  const items = [
+    { id: 1, producto: 'Polen 100g', produccionMovimiento: { numeroMovimiento: 16480 } },
+    { id: 2, producto: 'Miel 500g' }
+  ];
+  const r = ordenesProducidasDeReserva({ ordenes: [1, 2] }, items);
+  assert.strictEqual(r.length, 1);
+  assert.deepStrictEqual(r[0], { id: 1, producto: 'Polen 100g', numeroMovimiento: 16480 });
+});
+test('ordenesProducidasDeReserva: ignora ordenes fuera de la reserva', () => {
+  const items = [{ id: 9, producto: 'Otro plan', produccionMovimiento: { numeroMovimiento: 1 } }];
+  assert.deepStrictEqual(ordenesProducidasDeReserva({ ordenes: [1] }, items), []);
+});
+test('ordenesProducidasDeReserva: sello sin numeroMovimiento no bloquea', () => {
+  const items = [{ id: 1, producto: 'Polen 100g', produccionMovimiento: { numeroMovimiento: null } }];
+  assert.deepStrictEqual(ordenesProducidasDeReserva({ ordenes: [1] }, items), []);
+});
+test('ordenesProducidasDeReserva: compara ids como string (numero vs texto)', () => {
+  const items = [{ id: '1', producto: 'Polen 100g', produccionMovimiento: { numeroMovimiento: 7 } }];
+  assert.strictEqual(ordenesProducidasDeReserva({ ordenes: [1] }, items).length, 1);
+});
+test('ordenesProducidasDeReserva: tolera reserva o items ausentes', () => {
+  assert.deepStrictEqual(ordenesProducidasDeReserva(null, null), []);
+  assert.deepStrictEqual(ordenesProducidasDeReserva({}, []), []);
+  assert.deepStrictEqual(ordenesProducidasDeReserva({ ordenes: null }, [{ id: 1 }]), []);
+});
+test('motivoBloqueoProduccion: sin producidas devuelve null', () => {
+  assert.strictEqual(motivoBloqueoProduccion([], 'devolver la reserva'), null);
+  assert.strictEqual(motivoBloqueoProduccion(null, 'devolver la reserva'), null);
+});
+test('motivoBloqueoProduccion: una orden usa singular y nombra la accion', () => {
+  const msg = motivoBloqueoProduccion(
+    [{ id: 1, producto: 'Polen 100g', numeroMovimiento: 16480 }], 'devolver la reserva');
+  assert.match(msg, /No se puede devolver la reserva/);
+  assert.match(msg, /la orden "Polen 100g" \(movimiento #16480\)/);
+  assert.match(msg, /fue producida y recepcionada/);
+});
+test('motivoBloqueoProduccion: varias ordenes usan plural y se listan todas', () => {
+  const msg = motivoBloqueoProduccion([
+    { id: 1, producto: 'Polen 100g', numeroMovimiento: 16480 },
+    { id: 2, producto: 'Miel 500g',  numeroMovimiento: 16481 }
+  ], 'revertir este movimiento');
+  assert.match(msg, /las ordenes|las órdenes/);
+  assert.match(msg, /fueron producidas y recepcionadas/);
+  assert.match(msg, /Polen 100g/);
+  assert.match(msg, /Miel 500g/);
+});
+test('motivoBloqueoProduccion: sin nombre de producto cae al id', () => {
+  const msg = motivoBloqueoProduccion([{ id: 42, producto: '', numeroMovimiento: 5 }], 'devolver la reserva');
+  assert.match(msg, /"42"/);
 });

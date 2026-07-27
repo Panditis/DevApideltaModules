@@ -181,6 +181,48 @@ function lineasAjusteMovimiento(componentes, deps) {
   return lineas;
 }
 
+/**
+ * Órdenes de una reserva que ya se produjeron y se recepcionaron como artículo final.
+ *
+ * Sus componentes salieron del depósito de reserva al recepcionar el producto terminado, así
+ * que devolver o revertir esa reserva escribiría en SiGA un traslado contra stock que ya no
+ * está: el depósito de reserva quedaría en negativo y al de origen le entraría mercadería
+ * inexistente. Quien llama usa el resultado para bloquear la operación ANTES de escribir.
+ *
+ * @param {{ordenes?:Array<number|string>}} reserva Entrada del ledger (o `{ordenes:[id]}` para mirar un solo ítem).
+ * @param {Array<{id:*, producto?:string, nombre?:string, produccionMovimiento?:{numeroMovimiento:*}}>} items Ítems del plan.
+ * @returns {Array<{id:*, producto:string, numeroMovimiento:*}>} Vacío si ninguna orden fue producida.
+ */
+function ordenesProducidasDeReserva(reserva, items) {
+  const porId = new Map((items || []).map(it => [String(it && it.id), it]));
+  const ids   = Array.isArray(reserva && reserva.ordenes) ? reserva.ordenes : [];
+  const out = [];
+  for (const id of ids) {
+    const it  = porId.get(String(id));
+    const mov = it && it.produccionMovimiento;
+    if (!mov || mov.numeroMovimiento == null) continue;
+    out.push({ id, producto: String(it.producto || it.nombre || ''), numeroMovimiento: mov.numeroMovimiento });
+  }
+  return out;
+}
+
+/**
+ * Mensaje único para todos los caminos que bloquean por producción ya recepcionada, en el
+ * mismo tono que las guardas de modificar y eliminar órdenes.
+ *
+ * @param {Array<{id:*, producto:string, numeroMovimiento:*}>} producidas Salida de ordenesProducidasDeReserva.
+ * @param {string} accion Qué se estaba intentando, p.ej. 'devolver la reserva'.
+ * @returns {string|null} null cuando no hay nada que bloquear.
+ */
+function motivoBloqueoProduccion(producidas, accion) {
+  if (!producidas || !producidas.length) return null;
+  const una     = producidas.length === 1;
+  const detalle = producidas.map(p => `"${p.producto || p.id}" (movimiento #${p.numeroMovimiento})`).join(', ');
+  return `No se puede ${accion}: ${una ? 'la orden' : 'las órdenes'} ${detalle} ya `
+       + `${una ? 'fue producida y recepcionada' : 'fueron producidas y recepcionadas'}. `
+       + 'Los componentes ya se consumieron.';
+}
+
 module.exports = {
   ordenesDeMovimiento,
   migrarReservas,
@@ -189,4 +231,6 @@ module.exports = {
   reservadoPorMovimiento,
   conciliarPorMovimiento,
   lineasAjusteMovimiento,
+  ordenesProducidasDeReserva,
+  motivoBloqueoProduccion,
 };
