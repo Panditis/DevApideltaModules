@@ -39,10 +39,14 @@
   tr.fam{cursor:pointer}
   tr.fam:hover{background:#F0F3EE}
   tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
-  tr.fam-det>td{padding:0 0 8px 24px;background:#FAFBF9}
-  table.sub{width:100%;border-collapse:collapse}
-  table.sub td{border:0;padding:3px 8px;font-size:13px;color:var(--muted)}
-  table.sub td.pres{width:60%}
+  tr.fam-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
+  tr.fam-det>td.pres{padding-left:30px}
+  th.orden{cursor:pointer;user-select:none;white-space:nowrap}
+  th.orden:hover{color:var(--green-dark)}
+  td.impacto{width:190px;white-space:nowrap}
+  td.impacto .barra{display:inline-block;width:130px;height:9px;border-radius:5px;background:#E9ECE7;overflow:hidden;vertical-align:middle}
+  td.impacto .barra span{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#2563EB,#7C3AED)}
+  td.impacto em{margin-left:8px;font-style:normal;font-size:12px;color:var(--muted)}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
   th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
@@ -105,8 +109,38 @@ const SUCURSALES = [
   {id:10,nombre:'Pergamino'},
 ];
 const GREEN = '#405936', YELLOW = '#C98A00', MID = '#4E6B43';
-// Paleta de la torta de artículos/ticket: verde → amarillo, un tono por bucket.
-const PALETA_ART = ['#405936', '#4E6B43', '#7A9163', '#B0A64A', '#C98A00'];
+// Paleta de la torta de artículos/ticket: colores bien separados entre sí (no la paleta
+// Apidelta) para que cada porción se distinga de un vistazo.
+const PALETA_ART = ['#2563EB', '#059669', '#F59E0B', '#DC2626', '#7C3AED'];
+
+// Chart.js 4 no trae datalabels y no se puede sumar un plugin por CDN, así que el
+// porcentaje se dibuja a mano en el centro de cada porción. Se omite en las porciones
+// muy chicas, donde el texto no entraría.
+const PCT_MIN_VISIBLE = 4;
+const pluginPorcentajes = {
+  id: 'porcentajes',
+  afterDatasetsDraw(chart){
+    const { ctx } = chart;
+    const meta = chart.getDatasetMeta(0);
+    const datos = chart.data.datasets[0].data || [];
+    const total = datos.reduce((a, v) => a + (Number(v) || 0), 0);
+    if (!total) return;
+    ctx.save();
+    ctx.font = 'bold 13px Inter, system-ui, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.45)';
+    ctx.shadowBlur = 3;
+    meta.data.forEach((arco, i) => {
+      const pct = (Number(datos[i]) || 0) * 100 / total;
+      if (pct < PCT_MIN_VISIBLE) return;
+      const { x, y } = arco.getCenterPoint();
+      ctx.fillText(`${fmtDec(pct)}%`, x, y);
+    });
+    ctx.restore();
+  }
+};
 let sel = new Set(SUCURSALES.map(s => s.id));
 let charts = {};
 
@@ -140,6 +174,53 @@ function tabla(headers, rows){
   const head = '<tr>' + headers.map(h => `<th class="${h.num?'num':''}">${h.label}</th>`).join('') + '</tr>';
   const body = rows.map(r => '<tr>' + headers.map(h => `<td class="${h.num?'num':''}">${h.fmt ? h.fmt(r[h.key]) : r[h.key]}</td>`).join('') + '</tr>').join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+// ── Tablas ordenables ────────────────────────────────────────────────────────
+// Estado por tabla (elId): qué columna ordena y en qué sentido. Los datos y las columnas
+// se guardan acá para poder repintar sin volver a consultar el endpoint.
+const orden = {};
+
+// Cada consulta nueva reinicia el orden al criterio inicial: los datos cambiaron, mantener
+// el orden anterior confundiría más de lo que ayuda.
+function tablaOrdenable(elId, headers, rows, inicial){
+  orden[elId] = {
+    headers, rows,
+    key: (inicial && inicial.key) || headers[0].key,
+    asc: !!(inicial && inicial.asc),
+  };
+  pintarOrdenable(elId);
+}
+
+function pintarOrdenable(elId){
+  const st = orden[elId];
+  if (!st) return;
+  if (!st.rows.length){ $(elId).innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
+  const filas = [...st.rows].sort((a, b) => cmpValores(a[st.key], b[st.key]) * (st.asc ? 1 : -1));
+  const head = '<tr>' + st.headers.map(h => {
+    const flecha = h.key === st.key ? (st.asc ? ' ▲' : ' ▼') : '';
+    return `<th class="orden ${h.num?'num':''}" onclick="ordenarPor('${elId}','${h.key}')">${h.label}${flecha}</th>`;
+  }).join('') + '</tr>';
+  const body = filas.map(r => '<tr>' + st.headers.map(h =>
+    `<td class="${h.num?'num':''}">${h.fmt ? h.fmt(r[h.key]) : escHtml(r[h.key])}</td>`
+  ).join('') + '</tr>').join('');
+  $(elId).innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+// Los textos se comparan con localeCompare (acentos) y los números como números; el
+// primer clic sobre una columna nueva ordena descendente si es numérica.
+function cmpValores(a, b){
+  const na = typeof a === 'number', nb = typeof b === 'number';
+  if (na && nb) return a - b;
+  return String(a ?? '').localeCompare(String(b ?? ''), 'es', { numeric:true, sensitivity:'base' });
+}
+
+function ordenarPor(elId, key){
+  const st = orden[elId];
+  if (!st) return;
+  if (st.key === key) st.asc = !st.asc;
+  else { st.key = key; st.asc = typeof (st.rows[0] || {})[key] !== 'number'; }
+  pintarOrdenable(elId);
 }
 
 function renderKpis(k){
@@ -217,28 +298,52 @@ function escHtml(s){
 function renderFamilias(rows){
   const fams = rows || [];
   if (!fams.length){ $('tblFamilias').innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
+  // El 100% es la facturación sumada de las familias listadas, no la del rango completo:
+  // así la barra compara cada fila contra lo que el usuario está viendo.
+  const totalListado = fams.reduce((a, f) => a + (f.facturacion || 0), 0);
+  const maxFacturacion = fams.reduce((a, f) => Math.max(a, f.facturacion || 0), 0);
   const cuerpo = fams.map((f, i) => {
+    // Las presentaciones son filas de ESTA tabla (no una tabla anidada) para que Unidades y
+    // Facturación caigan bajo las mismas columnas que la fila de la familia.
     const detalle = f.presentaciones.map(p =>
-      `<tr><td class="pres">· ${escHtml(p.nombre)}</td><td class="num">${fmtNum(p.unidades)}</td><td class="num">${fmtMoney(p.facturacion)}</td></tr>`
+      `<tr class="fam-det fd-${i}" hidden>
+        <td class="pres">· ${escHtml(p.nombre)}</td>
+        <td></td>
+        <td class="num">${fmtNum(p.unidades)}</td>
+        <td class="num">${fmtMoney(p.facturacion)}</td>
+        <td></td>
+      </tr>`
     ).join('');
+    const share = totalListado > 0 ? (f.facturacion || 0) * 100 / totalListado : 0;
+    // El ancho se escala contra la familia más grande para que la barra se vea; el número
+    // que se muestra es siempre la participación real sobre el total listado.
+    const ancho = maxFacturacion > 0 ? (f.facturacion || 0) * 100 / maxFacturacion : 0;
     return `<tr class="fam" onclick="toggleFamilia(${i})">
         <td><span class="caret" id="cf-${i}">▶</span> ${escHtml(f.familia)}</td>
         <td class="num">${fmtNum(f.presentaciones.length)}</td>
         <td class="num">${fmtNum(f.unidades)}</td>
         <td class="num">${fmtMoney(f.facturacion)}</td>
+        <td class="impacto">
+          <div class="barra" title="${fmtDec(share)}% de la facturación listada">
+            <span style="width:${ancho.toFixed(2)}%"></span>
+          </div>
+          <em>${fmtDec(share)}%</em>
+        </td>
       </tr>
-      <tr class="fam-det" id="fd-${i}" hidden><td colspan="4"><table class="sub">${detalle}</table></td></tr>`;
+      ${detalle}`;
   }).join('');
   $('tblFamilias').innerHTML = `<table><thead><tr>
       <th>Familia</th><th class="num">Present.</th><th class="num">Unidades</th><th class="num">Facturación</th>
+      <th>Impacto s/ listado</th>
     </tr></thead><tbody>${cuerpo}</tbody></table>`;
 }
 
 function toggleFamilia(i){
-  const fila = $(`fd-${i}`), caret = $(`cf-${i}`);
-  if (!fila) return;
-  fila.hidden = !fila.hidden;
-  caret.textContent = fila.hidden ? '▶' : '▼';
+  const filas = document.querySelectorAll(`tr.fd-${i}`);
+  if (!filas.length) return;
+  const abrir = filas[0].hidden;
+  filas.forEach(f => { f.hidden = !abrir; });
+  $(`cf-${i}`).textContent = abrir ? '▼' : '▶';
 }
 
 function renderArticulos(apt){
@@ -249,7 +354,7 @@ function renderArticulos(apt){
     type:'pie',
     data:{ labels: hist.map(r=>r.label),
       datasets:[{ label:'Tickets', data: hist.map(r=>r.tickets),
-        backgroundColor: PALETA_ART, borderColor:'#fff', borderWidth:1 }] },
+        backgroundColor: PALETA_ART, borderColor:'#fff', borderWidth:2 }] },
     options:{ plugins:{
       legend:{ position:'right' },
       tooltip:{ callbacks:{ label: c => {
@@ -257,15 +362,16 @@ function renderArticulos(apt){
         const pct = totalTickets > 0 ? v * 100 / totalTickets : 0;
         return `${c.label}: ${fmtNum(v)} tickets (${fmtDec(pct)}%)`;
       } } }
-    } }
+    } },
+    plugins:[pluginPorcentajes]
   });
-  $('tblArtSuc').innerHTML = tabla([
+  tablaOrdenable('tblArtSuc', [
     {key:'nombre',label:'Sucursal'},
     {key:'tickets',label:'Tickets',num:true,fmt:fmtNum},
     {key:'ticketsDia',label:'Tickets/día',num:true,fmt:fmtDec},
     {key:'articulos',label:'Artículos',num:true,fmt:fmtNum},
     {key:'promedio',label:'Art./ticket',num:true,fmt:fmtDec},
-  ], (apt && apt.porSucursal) || []);
+  ], (apt && apt.porSucursal) || [], { key:'promedio', asc:false });
 }
 
 async function consultar(){
