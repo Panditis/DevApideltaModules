@@ -5891,7 +5891,10 @@ async function conciliacionProduccion(fecha, idSucursal) {
       lineas: (r.lineas || []).map(l => ({
         plu: String(l.plu), nombre: l.nombre == null ? '' : String(l.nombre), cantidad: redondear4(l.cantidad)
       })),
-      revertido: !!r.revertidoPor, revierteA: r.revierteA || null
+      // Una reversión se registra con el MISMO origen que el movimiento que deshace, así que
+      // sin revierteA/revertidoPor es indistinguible de una reserva normal en el listado.
+      // Se mandan los dos IDs para poder mostrar el par ("revertido por #32" / "reversión de #31").
+      revertido: !!r.revertidoPor, revertidoPor: r.revertidoPor || null, revierteA: r.revierteA || null
     }))
     .reverse();   // el log se escribe con el más nuevo al final
   const pendientes = movimientos.filter(m => m.estado === 'pendiente').length;
