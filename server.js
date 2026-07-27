@@ -4486,7 +4486,7 @@ function cfgReserva() {
 // habilitado para escritura) pero la OBSERVACIÓN es lo que después permite reconocer y
 // filtrar estos comprobantes en SiGA, así que se configura aparte.
 const PRODUCCION_DEFAULTS = {
-  idTipoMovimiento: 'BIENESUSO', observacion: 'PRODUCCION WEB', depositoTerminados: null
+  idTipoMovimiento: 'BIENESUSO', observacion: 'PLAN', depositoTerminados: null
 };
 
 // Se relee config.json en cada llamada, igual que cfgReserva: cambiar la observación o el
@@ -5193,7 +5193,7 @@ async function ejecutarDevolucionReserva(plan, itemId) {
   }
 
   const poolW = await getPoolStock();
-  const observacion = `${`Devolucion reserva plan ${plan.fecha || ''}${itemId == null ? '' : ` item ${itemId}`}`.trim()} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+  const observacion = `PLAN ${plan.fecha || ''} DEVOL ${depOrigen}>${depDestino}${itemId == null ? '' : ` item ${itemId}`}`.trim().slice(0, 200);
   const r = await ejecutarYRegistrar({
     origen: 'devolucion', plan: plan.fecha || null, itemId,
     idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
@@ -5410,7 +5410,7 @@ app.post('/api/plan/:fecha/reservar', apiRoute(async req => {
   }
 
   const poolW = await getPoolStock();
-  const observacion = `Reserva plan produccion ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+  const observacion = `PLAN ${fecha} RESERVA ${depOrigen}>${depDestino}`.slice(0, 200);
   const r = await ejecutarYRegistrar({
     origen: 'reserva', plan: fecha, itemId: null,
     idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
@@ -5537,7 +5537,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   // por los depósitos: el de devolución los lleva invertidos).
   if (positivos.length) {
     const lineasMov   = positivos.map(d => ({ plu: d.plu, nombre: d.nombre, cantidad: d.delta }));
-    const observacion = `Ajuste reserva plan ${fecha} dep ${depOrigen}->${depDestino}`.slice(0, 200);
+    const observacion = `PLAN ${fecha} AJUSTE+ ${depOrigen}>${depDestino}`.slice(0, 200);
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
       idSucursal: crReserva.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
@@ -5558,7 +5558,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
 
   if (negativos.length) {
     const lineasMov   = negativos.map(d => ({ plu: d.plu, nombre: d.nombre, cantidad: redondear4(Math.abs(d.delta)) }));
-    const observacion = `Ajuste reserva plan ${fecha} devolucion dep ${depDestino}->${depOrigen}`.slice(0, 200);
+    const observacion = `PLAN ${fecha} AJUSTE- ${depDestino}>${depOrigen}`.slice(0, 200);
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
       idSucursal: crReserva.idSucursal, depOrigen: depDestino, depDestino: depOrigen, idEmpleado: cr.idEmpleado,
@@ -6190,7 +6190,7 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   }
 
   // La observación es la marca que identifica estos comprobantes en SiGA.
-  const obsBase = `${cp.observacion} ${fecha}`.trim();
+  const obsBase = `${cp.observacion} ${fecha} PRODUCCION`.trim();
   const poolW = await getPoolStock();
   const comprobantes = [], logErrores = [];
   let errMarca = null, avisoMarca = null, errEscritura = null;
@@ -6247,7 +6247,9 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
     //    el consumo fue contra reservas y no hay alta de producto pendiente.
     if (resto.lineas.length) {
-      const rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+      // "RESTO" distingue este comprobante de los que cierran cada reserva: acá va el consumo
+      // que NO salió del depósito de reserva (fórmulas sin reservar y excedentes).
+      const rResto = await escribirComprobante(resto.lineas, `${obsBase} RESTO`.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
       logErrores.push(rResto.logError);
       comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
       r = rResto;
@@ -6258,7 +6260,7 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
     //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
     for (const m of ajustesMov) {
-      const observacion = `${obsBase} mov ${m.numeroMovimiento}`.trim().slice(0, 200);
+      const observacion = obsBase.slice(0, 200);
       const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
       logErrores.push(rm.logError);
       comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
