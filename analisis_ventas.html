@@ -35,6 +35,14 @@
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
   .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+  .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
+  tr.fam{cursor:pointer}
+  tr.fam:hover{background:#F0F3EE}
+  tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
+  tr.fam-det>td{padding:0 0 8px 24px;background:#FAFBF9}
+  table.sub{width:100%;border-collapse:collapse}
+  table.sub td{border:0;padding:3px 8px;font-size:13px;color:var(--muted)}
+  table.sub td.pres{width:60%}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
   th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
@@ -76,8 +84,15 @@
     <div class="card"><h3>Top productos — unidades</h3><div id="tblTopU"></div></div>
     <div class="card"><h3>Top productos — facturación</h3><div id="tblTopF"></div></div>
   </div>
+  <div class="card">
+    <h3>Familias de producto</h3>
+    <p class="desc">Agrupa las presentaciones de un mismo producto en una sola fila (MIEL PURA 500G + MIEL PURA 1KG = MIEL PURA). Clic en la fila para ver el detalle por presentación.</p>
+    <div id="tblFamilias"></div>
+  </div>
   <div class="grid2">
-    <div class="card"><h3>Artículos por ticket — distribución</h3><canvas id="chArtHist" height="200"></canvas></div>
+    <div class="card"><h3>Artículos por ticket — distribución</h3>
+      <p class="desc">Qué porcentaje de los tickets se llevó cada cantidad de artículos distintos. Ej.: la porción "4-5" son los tickets con 4 o 5 artículos.</p>
+      <canvas id="chArtHist" height="200"></canvas></div>
     <div class="card"><h3>Artículos por ticket — por sucursal</h3><div id="tblArtSuc"></div></div>
   </div>
 </div>
@@ -90,6 +105,8 @@ const SUCURSALES = [
   {id:10,nombre:'Pergamino'},
 ];
 const GREEN = '#405936', YELLOW = '#C98A00', MID = '#4E6B43';
+// Paleta de la torta de artículos/ticket: verde → amarillo, un tono por bucket.
+const PALETA_ART = ['#405936', '#4E6B43', '#7A9163', '#B0A64A', '#C98A00'];
 let sel = new Set(SUCURSALES.map(s => s.id));
 let charts = {};
 
@@ -190,18 +207,62 @@ function renderTop(rows, elId){
   ], rows);
 }
 
+function escHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+// Cada familia es una fila clickeable seguida de una fila oculta con sus presentaciones.
+function renderFamilias(rows){
+  const fams = rows || [];
+  if (!fams.length){ $('tblFamilias').innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
+  const cuerpo = fams.map((f, i) => {
+    const detalle = f.presentaciones.map(p =>
+      `<tr><td class="pres">· ${escHtml(p.nombre)}</td><td class="num">${fmtNum(p.unidades)}</td><td class="num">${fmtMoney(p.facturacion)}</td></tr>`
+    ).join('');
+    return `<tr class="fam" onclick="toggleFamilia(${i})">
+        <td><span class="caret" id="cf-${i}">▶</span> ${escHtml(f.familia)}</td>
+        <td class="num">${fmtNum(f.presentaciones.length)}</td>
+        <td class="num">${fmtNum(f.unidades)}</td>
+        <td class="num">${fmtMoney(f.facturacion)}</td>
+      </tr>
+      <tr class="fam-det" id="fd-${i}" hidden><td colspan="4"><table class="sub">${detalle}</table></td></tr>`;
+  }).join('');
+  $('tblFamilias').innerHTML = `<table><thead><tr>
+      <th>Familia</th><th class="num">Present.</th><th class="num">Unidades</th><th class="num">Facturación</th>
+    </tr></thead><tbody>${cuerpo}</tbody></table>`;
+}
+
+function toggleFamilia(i){
+  const fila = $(`fd-${i}`), caret = $(`cf-${i}`);
+  if (!fila) return;
+  fila.hidden = !fila.hidden;
+  caret.textContent = fila.hidden ? '▶' : '▼';
+}
+
 function renderArticulos(apt){
   const hist = (apt && apt.histograma) || [];
+  const totalTickets = hist.reduce((a,r) => a + (r.tickets || 0), 0);
   destroyChart('artHist');
   charts.artHist = new Chart($('chArtHist'), {
-    type:'bar',
+    type:'pie',
     data:{ labels: hist.map(r=>r.label),
-      datasets:[{ label:'Tickets', data: hist.map(r=>r.tickets), backgroundColor: MID }] },
-    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtNum(v) } } } }
+      datasets:[{ label:'Tickets', data: hist.map(r=>r.tickets),
+        backgroundColor: PALETA_ART, borderColor:'#fff', borderWidth:1 }] },
+    options:{ plugins:{
+      legend:{ position:'right' },
+      tooltip:{ callbacks:{ label: c => {
+        const v = c.parsed || 0;
+        const pct = totalTickets > 0 ? v * 100 / totalTickets : 0;
+        return `${c.label}: ${fmtNum(v)} tickets (${fmtDec(pct)}%)`;
+      } } }
+    } }
   });
   $('tblArtSuc').innerHTML = tabla([
     {key:'nombre',label:'Sucursal'},
     {key:'tickets',label:'Tickets',num:true,fmt:fmtNum},
+    {key:'ticketsDia',label:'Tickets/día',num:true,fmt:fmtDec},
     {key:'articulos',label:'Artículos',num:true,fmt:fmtNum},
     {key:'promedio',label:'Art./ticket',num:true,fmt:fmtDec},
   ], (apt && apt.porSucursal) || []);
@@ -225,6 +286,7 @@ async function consultar(){
     renderHora(d.horas);
     renderTop(d.topUnidades, 'tblTopU');
     renderTop(d.topFacturacion, 'tblTopF');
+    renderFamilias(d.familias);
     renderArticulos(d.articulosPorTicket);
   } catch(e){
     $('msg').innerHTML = `<div class="error">Error: ${e.message}</div>`;

@@ -3615,7 +3615,7 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
   const p = { desde, hasta, sucIdsCsv };
 
   const [comparativa, resumenArr, tendencia, diaSemana, horas, topUnidades, topFacturacion,
-         artHistograma, artPorSucursal] =
+         artHistograma, artPorSucursal, productosFamilias] =
     await Promise.all([
       query(analisisVentas.sqlComparativa(p)),
       query(analisisVentas.sqlResumenRenglon(p)),
@@ -3626,6 +3626,9 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       query(analisisVentas.sqlTopProductos(p, 'facturacion', topN)),
       query(analisisVentas.sqlArticulosHistograma(p)),
       query(analisisVentas.sqlArticulosPorSucursal(p)),
+      // Las familias se arman en JS sobre el nombre, así que se traen bastantes más
+      // productos que el top visible: agrupar sólo el top N sesgaría los totales.
+      query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS)),
     ]);
 
   const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
@@ -3659,6 +3662,7 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
+    familias: analisisVentas.agruparFamilias(productosFamilias, topN),
     articulosPorTicket: {
       promedio: articulosProm,
       histograma: analisisVentas.bucketsArticulos(artHistograma),
@@ -3666,6 +3670,7 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
         idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
         tickets: Number(r.Tickets || 0), articulos: Number(r.Articulos || 0),
         promedio: Number(r.Promedio || 0),
+        dias: Number(r.Dias || 0), ticketsDia: Number(r.TicketsDia || 0),
       })),
     },
   };
