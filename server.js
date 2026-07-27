@@ -3338,17 +3338,27 @@ app.delete('/api/plan/:fecha/item/:id', (req, res) => {
 });
 app.delete('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  let conservadas = 0;
+  let conservadas = 0, porReserva = 0, porProduccion = 0;
   if (planes[fecha]) {
-    // Las órdenes reservadas no se pueden borrar: se conservan. Se elimina sólo el resto.
+    // No se borran ni las órdenes reservadas ni las ya recepcionadas: las primeras tienen
+    // mercadería apartada en SiGA y las segundas ya cerraron su circuito. Borrarlas dejaría
+    // movimientos vivos apuntando a un ítem inexistente. Se elimina sólo el resto.
+    // Antes sólo se miraba reservaMovimiento, así que un ítem recepcionado SIN reserva viva
+    // (producido sin reservar, o con su reserva revertida desde el historial) se borraba.
     const items = planes[fecha].items || [];
-    const reservadas = items.filter(it => it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
-    conservadas = reservadas.length;
-    planes[fecha].items = reservadas;
+    const tieneMov = (it, campo) => !!(it && it[campo] && it[campo].numeroMovimiento != null);
+    const conservar = items.filter(it => tieneMov(it, 'reservaMovimiento') || tieneMov(it, 'produccionMovimiento'));
+    porReserva    = conservar.filter(it => tieneMov(it, 'reservaMovimiento')).length;
+    porProduccion = conservar.filter(it => tieneMov(it, 'produccionMovimiento') && !tieneMov(it, 'reservaMovimiento')).length;
+    conservadas = conservar.length;
+    planes[fecha].items = conservar;
     guardarJSON(PLANES_PATH, planes);
   }
-  res.json({ ok: true, conservadas,
-    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) reservada(s): anulá su reserva para poder eliminarlas.` } : {}) });
+  const partes = [];
+  if (porReserva)    partes.push(`${porReserva} reservada(s): anulá su reserva para poder eliminarlas`);
+  if (porProduccion) partes.push(`${porProduccion} ya recepcionada(s): su circuito ya cerró y no se pueden eliminar`);
+  res.json({ ok: true, conservadas, porReserva, porProduccion,
+    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) — ${partes.join('; ')}.` } : {}) });
 });
 app.get('/api/calendario', (req, res) => {
   const desde = safeDate(req.query.desde), dias = Math.min(parseInt(req.query.dias) || 7, 42);
