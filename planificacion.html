@@ -1863,6 +1863,14 @@ async function moverTodoDia() {
 
 function eliminarItem(id) {
   const it = (planCache?.items || []).find(i => i.id == id);
+  // La recepción va primero: es el estado terminal y gana sobre "reservada", igual que en el
+  // chip de la fila. El servidor también lo rechaza, pero sin esta guarda se abría el modal,
+  // el usuario confirmaba y recién ahí veía el error.
+  const numeroRecepcion = it?.produccionMovimiento?.numeroMovimiento;
+  if (numeroRecepcion != null) {
+    toast(`Orden ya producida y recepcionada (#${numeroRecepcion}): no se puede eliminar`, true);
+    return;
+  }
   const numeroReserva = it?.reservaMovimiento?.numeroMovimiento;
   if (numeroReserva != null) {
     toast(`Orden reservada (#${numeroReserva}): anulá la reserva primero`, true);

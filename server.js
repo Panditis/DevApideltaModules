@@ -1546,39 +1546,49 @@ app.put('/api/ordenes/:id',    (req, res)  => { const id = parseInt(req.params.i
 app.delete('/api/ordenes/:id', (req, res)  => { guardarOrdenes(leerOrdenes().filter(o => o.id !== parseInt(req.params.id))); res.json({ ok: true }); });
 app.delete('/api/ordenes',     (_req, res) => { guardarOrdenes([]); res.json({ ok: true }); });
 
+function resumenDeOrdenes(ords) {
+  const total = ords.length, comp = ords.filter(o => o.estado === 'listo').length;
+  const enProc = ords.filter(o => o.estado === 'en_proceso').length, pend = ords.filter(o => o.estado === 'pendiente').length;
+  const totUnid = ords.reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
+  const compUnid = ords.filter(o => o.estado === 'listo').reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
+  const secMap = {};
+  ords.forEach(o => { if (!secMap[o.seccion]) secMap[o.seccion] = { total: 0, completadas: 0, unidades: 0 }; secMap[o.seccion].total++; secMap[o.seccion].unidades += parseInt(o.cantidad) || 0; if (o.estado === 'listo') secMap[o.seccion].completadas++; });
+  return { total, completadas: comp, enProceso: enProc, pendientes: pend, pctCompletado: total ? Math.round((comp / total) * 100) : 0,
+           totalUnidades: totUnid, unidadesCompletadas: compUnid, porSeccion: Object.entries(secMap).map(([seccion, v]) => ({ seccion, ...v })) };
+}
+
+// Arma los snapshots de cierre (uno por día presente en las cargas) y los deja al frente de
+// registros.json, que es lo que lista el Historial. Lo usan los DOS caminos que cierran
+// producción —el botón "Cerrar día" y la conciliación— para que el resultado sea idéntico.
+// No limpia nada: de eso se encarga quien llama, que sabe qué corresponde drenar.
+function crearSnapshotsCierre(cargasACerrar, ordenes) {
+  // Mapa ordenId -> fecha de su carga, para ubicar cada orden en el snapshot de su día.
+  const ordenFecha = {};
+  cargasACerrar.forEach(c => { if (c.ordenId != null) ordenFecha[String(c.ordenId)] = c.fecha; });
+  const ahora = new Date().toISOString();
+  // Fechas a archivar: las presentes en cargas; si no hay cargas pero sí órdenes, el día de hoy.
+  const fechas = [...new Set(cargasACerrar.map(c => c.fecha))];
+  if (!fechas.length && ordenes.length) fechas.push(new Date().toISOString().slice(0, 10));
+
+  const arr = leerRegistros();
+  const creados = [];
+  fechas.sort().forEach((fecha, i) => {
+    const cargas = cargasACerrar.filter(c => c.fecha === fecha);
+    const ords = ordenes.filter(o => ordenFecha[String(o.id)] === fecha);
+    const registro = { id: Date.now() + i, fecha, fechaHora: ahora, ordenes: ords, cargas, resumen: resumenDeOrdenes(ords) };
+    arr.unshift(registro);
+    creados.push(registro);
+  });
+  guardarRegistros(arr);
+  return creados;
+}
+
 app.get('/api/registros',  (_req, res) => res.json(leerRegistros()));
 app.post('/api/registros', (req, res)  => {
   const ordenes = leerOrdenes();
   const todasCargas = leerJSON(PROD_REG_PATH, []);
   if (!ordenes.length && !todasCargas.length) return res.status(400).json({ error: 'No hay producción ni órdenes para registrar' });
-  // Mapa ordenId -> fecha de su carga, para ubicar cada orden en el snapshot de su día.
-  const ordenFecha = {};
-  todasCargas.forEach(c => { if (c.ordenId != null) ordenFecha[String(c.ordenId)] = c.fecha; });
-  const hoy = new Date().toISOString().slice(0, 10);
-  const ahora = new Date().toISOString();
-  // Fechas a archivar: las presentes en cargas; si no hay cargas pero sí órdenes, el día de hoy.
-  const fechas = [...new Set(todasCargas.map(c => c.fecha))];
-  if (!fechas.length && ordenes.length) fechas.push(hoy);
-  const buildResumen = (ords) => {
-    const total = ords.length, comp = ords.filter(o => o.estado === 'listo').length;
-    const enProc = ords.filter(o => o.estado === 'en_proceso').length, pend = ords.filter(o => o.estado === 'pendiente').length;
-    const totUnid = ords.reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
-    const compUnid = ords.filter(o => o.estado === 'listo').reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
-    const secMap = {};
-    ords.forEach(o => { if (!secMap[o.seccion]) secMap[o.seccion] = { total: 0, completadas: 0, unidades: 0 }; secMap[o.seccion].total++; secMap[o.seccion].unidades += parseInt(o.cantidad) || 0; if (o.estado === 'listo') secMap[o.seccion].completadas++; });
-    return { total, completadas: comp, enProceso: enProc, pendientes: pend, pctCompletado: total ? Math.round((comp / total) * 100) : 0,
-             totalUnidades: totUnid, unidadesCompletadas: compUnid, porSeccion: Object.entries(secMap).map(([seccion, v]) => ({ seccion, ...v })) };
-  };
-  const arr = leerRegistros();
-  const creados = [];
-  fechas.sort().forEach((fecha, i) => {
-    const cargas = todasCargas.filter(c => c.fecha === fecha);
-    const ords = ordenes.filter(o => ordenFecha[String(o.id)] === fecha);
-    const registro = { id: Date.now() + i, fecha, fechaHora: ahora, ordenes: ords, cargas, resumen: buildResumen(ords) };
-    arr.unshift(registro);
-    creados.push(registro);
-  });
-  guardarRegistros(arr);
+  const creados = crearSnapshotsCierre(todasCargas, ordenes);
   if (req.query.limpiar === '1') {
     // Quitar las órdenes completadas; las pendientes siguen en ordenes.json. Drenar TODAS las cargas archivadas.
     guardarOrdenes(ordenes.filter(o => o.estado !== 'listo'));
@@ -2854,6 +2864,18 @@ function archivarRegistros(ids, meta) {
   const sellados = aMover.map(r => ({ ...r, archivado: { ...(meta || {}), fecha: new Date().toISOString() } }));
   guardarJSON(PROD_HIST_PATH, [...hist, ...sellados]);
   guardarJSON(PROD_REG_PATH, quedan);
+
+  // Conciliar cierra el día igual que el botón "Cerrar día": las cargas conciliadas se
+  // convierten en un snapshot de registros.json —que es lo que lista el Historial— y las
+  // órdenes que quedaron listas salen de ordenes.json. Sin esto las cargas se iban de
+  // Terminados a produccion_historial.json, que ninguna pantalla muestra: parecían borradas.
+  const ordenes = leerOrdenes();
+  const idsOrden = new Set(aMover.map(r => r && r.ordenId).filter(v => v != null).map(String));
+  crearSnapshotsCierre(aMover, ordenes.filter(o => idsOrden.has(String(o.id))));
+  if (idsOrden.size) {
+    // Sólo las órdenes de ESTE cierre y sólo si están listas: las pendientes siguen vivas.
+    guardarOrdenes(ordenes.filter(o => !(idsOrden.has(String(o.id)) && o.estado === 'listo')));
+  }
   return aMover.length;
 }
 app.get('/api/produccion/registros', apiRoute(async () => leerJSON(PROD_REG_PATH, [])));
@@ -3316,17 +3338,27 @@ app.delete('/api/plan/:fecha/item/:id', (req, res) => {
 });
 app.delete('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  let conservadas = 0;
+  let conservadas = 0, porReserva = 0, porProduccion = 0;
   if (planes[fecha]) {
-    // Las órdenes reservadas no se pueden borrar: se conservan. Se elimina sólo el resto.
+    // No se borran ni las órdenes reservadas ni las ya recepcionadas: las primeras tienen
+    // mercadería apartada en SiGA y las segundas ya cerraron su circuito. Borrarlas dejaría
+    // movimientos vivos apuntando a un ítem inexistente. Se elimina sólo el resto.
+    // Antes sólo se miraba reservaMovimiento, así que un ítem recepcionado SIN reserva viva
+    // (producido sin reservar, o con su reserva revertida desde el historial) se borraba.
     const items = planes[fecha].items || [];
-    const reservadas = items.filter(it => it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
-    conservadas = reservadas.length;
-    planes[fecha].items = reservadas;
+    const tieneMov = (it, campo) => !!(it && it[campo] && it[campo].numeroMovimiento != null);
+    const conservar = items.filter(it => tieneMov(it, 'reservaMovimiento') || tieneMov(it, 'produccionMovimiento'));
+    porReserva    = conservar.filter(it => tieneMov(it, 'reservaMovimiento')).length;
+    porProduccion = conservar.filter(it => tieneMov(it, 'produccionMovimiento') && !tieneMov(it, 'reservaMovimiento')).length;
+    conservadas = conservar.length;
+    planes[fecha].items = conservar;
     guardarJSON(PLANES_PATH, planes);
   }
-  res.json({ ok: true, conservadas,
-    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) reservada(s): anulá su reserva para poder eliminarlas.` } : {}) });
+  const partes = [];
+  if (porReserva)    partes.push(`${porReserva} reservada(s): anulá su reserva para poder eliminarlas`);
+  if (porProduccion) partes.push(`${porProduccion} ya recepcionada(s): su circuito ya cerró y no se pueden eliminar`);
+  res.json({ ok: true, conservadas, porReserva, porProduccion,
+    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) — ${partes.join('; ')}.` } : {}) });
 });
 app.get('/api/calendario', (req, res) => {
   const desde = safeDate(req.query.desde), dias = Math.min(parseInt(req.query.dias) || 7, 42);
