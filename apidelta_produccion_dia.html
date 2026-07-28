@@ -1981,21 +1981,83 @@ function renderHistorial(registros) {
     return;
   }
 
+  // Un cierre de día puede abarcar varias familias, y varios cierres pueden caer el mismo día:
+  // así aparecían 3 tarjetas separadas para una sola jornada. Se aplana todo a (día + familia)
+  // para que cada tarjeta sea un bloque homogéneo.
+  const FAMILIA_SIN = 'Sin familia';
+  const diaDe = (...valores) => {
+    for (const v of valores) {
+      if (!v) continue;
+      const s = String(v);
+      const m = s.match(/^\d{4}-\d{2}-\d{2}/);
+      if (m) return m[0];
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    return '';
+  };
+
+  const grupos = new Map();
+  const grupoDe = (dia, familia) => {
+    const clave = `${dia}|${familia}`;
+    if (!grupos.has(clave)) grupos.set(clave, { dia, familia, cargas: [], ordenes: [], registros: new Map() });
+    return grupos.get(clave);
+  };
+
+  for (const reg of registros) {
+    const diaReg = diaDe(reg.fecha, reg.fechaHora);
+    // El pie de cada bloque necesita saber de qué cierres salió, porque el borrado sigue siendo
+    // por registro: un mismo cierre puede alimentar varias familias y no se puede borrar entero
+    // desde una sola de ellas sin llevarse las otras.
+    const anotar = g => g.registros.set(reg.id, reg.fechaHora || reg.fecha || null);
+    // El día del bloque es el del CIERRE, no el de cada carga: un cierre del 30 puede archivar
+    // cargas del 26, y son justamente esos los que aparecían como tarjetas sueltas con la misma
+    // fecha. La fecha propia de cada carga no se pierde: va en la columna "Fecha carga".
+    for (const c of (reg.cargas || [])) {
+      const g = grupoDe(diaReg, String(c.seccion || '').trim() || FAMILIA_SIN);
+      g.cargas.push(c); anotar(g);
+    }
+    for (const o of (reg.ordenes || [])) {
+      const g = grupoDe(diaReg, String(o.seccion || '').trim() || FAMILIA_SIN);
+      g.ordenes.push(o); anotar(g);
+    }
+    // Un cierre vacío igual tiene que verse: si no, desaparece del historial sin dejar rastro.
+    if (!(reg.cargas || []).length && !(reg.ordenes || []).length) anotar(grupoDe(diaReg, FAMILIA_SIN));
+  }
+
+  const bloques = [...grupos.values()].sort((a, b) =>
+    String(b.dia).localeCompare(String(a.dia)) || a.familia.localeCompare(b.familia));
+
+  const cnt = document.getElementById('historialCount');
+  if (cnt) {
+    cnt.textContent = `${registros.length} registro${registros.length !== 1 ? 's' : ''} · `
+      + `${bloques.length} bloque${bloques.length !== 1 ? 's' : ''}`;
+  }
+
   let html = '';
-  registros.forEach((reg, idx) => {
-    const cargas = reg.cargas || [];
+  bloques.forEach((grupo, idx) => {
+    const reg = { ordenes: grupo.ordenes, cargas: grupo.cargas };
+    const cargas = grupo.cargas;
     const unidadesCargadas = +cargas.reduce((s,c)=>s+(parseFloat(c.cantFraccionada)||0),0).toFixed(2);
-    const fechaDisplay = new Date(reg.fechaHora).toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-    const horaDisplay  = new Date(reg.fechaHora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    const detId = `det-h${idx}`;
+    const fechaDisplay = grupo.dia
+      ? new Date(grupo.dia+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})
+      : 'Sin fecha';
+    // Cada bloque puede venir de más de un cierre: se listan todos en el pie con su hora.
+    const fuentes = [...grupo.registros.entries()].map(([id, fh]) => ({
+      id, hora: fh ? new Date(fh).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : null
+    }));
 
     html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden">
-      <!-- Header registro -->
+      <!-- Header bloque día + familia -->
       <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div>
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:800;color:var(--text)">
-            ${fechaDisplay.charAt(0).toUpperCase()+fechaDisplay.slice(1)}
+            ${escEnv(fechaDisplay.charAt(0).toUpperCase()+fechaDisplay.slice(1))}
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Cerrado a las ${horaDisplay}</div>
+          <div style="margin-top:4px">
+            <span style="display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 10px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--text)">${escEnv(grupo.familia)}</span>
+          </div>
         </div>
         <!-- Contadores -->
         <div style="flex:1;min-width:140px;display:flex;gap:22px;flex-wrap:wrap">
@@ -2004,18 +2066,17 @@ function renderHistorial(registros) {
             <div style="font-size:11px;color:var(--text-muted)">cargas · ${unidadesCargadas} u.</div>
           </div>
           <div>
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${(reg.ordenes||[]).length}</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${grupo.ordenes.length}</div>
             <div style="font-size:11px;color:var(--text-muted)">órdenes</div>
           </div>
         </div>
         <!-- Botones -->
         <div style="display:flex;gap:8px;margin-left:auto">
-          <button onclick="toggleDetalle('det-${reg.id}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
-          <button onclick="deleteRegistroHistorial(${reg.id})" style="background:none;border:1px solid #EF9A9A;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">🗑</button>
+          <button onclick="toggleDetalle('${detId}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
         </div>
       </div>
       <!-- Detalle (oculto por defecto) -->
-      <div id="det-${reg.id}" style="display:none">
+      <div id="${detId}" style="display:none">
         <div style="padding:14px 18px">
           ${(reg.ordenes||[]).length ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:4px">
             <thead><tr style="background:#F8F8F8">
@@ -2065,6 +2126,20 @@ function renderHistorial(registros) {
               </tr>`;
             }).join('')}</tbody>
           </table>` : ''}
+          ${fuentes.length ? `<div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">
+              ${fuentes.length === 1 ? 'Cierre de origen' : `Cierres de origen (${fuentes.length})`}
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+              Eliminar borra el cierre completo, con todas sus familias, no sólo este bloque.
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${fuentes.map(f => `<button onclick="deleteRegistroHistorial(${f.id})"
+                  style="background:none;border:1px solid #EF9A9A;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">
+                  🗑 ${f.hora ? 'Cierre de las ' + escEnv(f.hora) : 'Cierre #' + escEnv(String(f.id))}
+                </button>`).join('')}
+            </div>
+          </div>` : ''}
         </div>
       </div>
     </div>`;
