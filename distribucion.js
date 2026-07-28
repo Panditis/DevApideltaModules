@@ -137,10 +137,34 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     ? (presPorClase[claseAbc] != null ? presPorClase[claseAbc] : (presPorClase.C != null ? presPorClase.C : 0))
     : ((opts && opts.empujePresencia) || 0);
   const presFactorS = Math.max(1, (opts && opts.empujePresenciaFactorS) || 1);
+  // Regla "caro y lento" (opts.sinEmpujeCaroLento; sin esa clave el motor se comporta como siempre):
+  // producto de ALTA facturación (clase A por defecto) que en esa sucursal rota poco (μ < umbralMu
+  // u/día) NO recibe el empuje de góndola — ese empuje lo llevaría a presencia·factor (24u para un
+  // clase A) y son justo los que más capital inmovilizan por unidad: llenarles la góndola cuesta caro
+  // y la rotación no lo devuelve. Quedan con el min y el S del A8020, con un piso propio
+  // (pisoMin/pisoS) para no caer en cantidades testimoniales.
+  // El umbral es ABSOLUTO (u/día) y no una clase ABC: la clase por facturación no dice nada de
+  // rotación, y una por unidades sería relativa al catálogo — con una cola larga, 0,5 u/día igual
+  // saldría 'A'.
+  const clCfg = (opts && opts.sinEmpujeCaroLento) || null;
+  const clClases = new Set((clCfg && clCfg.clasesFact) || ['A']);
+  const clUmbral = clCfg && clCfg.umbralMu != null ? clCfg.umbralMu : 0;
+  const clPisoS = (clCfg && clCfg.pisoS != null) ? clCfg.pisoS : 0;
+  const clPisoMin = (clCfg && clCfg.pisoMin != null) ? clCfg.pisoMin : 0;
+  const muPorClaveS = (opts && opts.muPorPlu && opts.muPorPlu[plu]) || null;
+  const esCaroLento = (sk) => {
+    if (!clCfg || !clClases.has(claseAbc)) return false;
+    return (muPorClaveS ? (muPorClaveS[sk] || 0) : 0) < clUmbral;
+  };
   if (pres > 0 && D > 0 && envasaSi && !a.claseF) {   // clase F (viejo sin rotación): no se empuja
     const aa = { ...a };
     const objetivo = Math.round(pres * presFactorS);   // objetivo por encima del gatillo → brecha (batch)
     for (const [mk, sk] of PARES_MIN_S) {
+      if (esCaroLento(sk)) {                           // caro y lento: A8020 + piso propio, sin empuje
+        if ((aa[sk] || 0) < clPisoS) aa[sk] = clPisoS;
+        if ((aa[mk] || 0) < clPisoMin) aa[mk] = clPisoMin;
+        continue;
+      }
       if ((aa[mk] || 0) < pres) aa[mk] = pres;          // gatillo (min) ≥ presencia (piso de góndola)
       if ((aa[sk] || 0) < pres) aa[sk] = objetivo;      // demanda baja (S<presencia) → objetivo = presencia·factor (> min)
     }

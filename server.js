@@ -1794,6 +1794,25 @@ GROUP BY pd.IdSucursal, pd.IdProducto`;
 }
 // enviar-key del motor Almacen → clave canónica de Fact
 const ALM_FACT_KEY = { riv:'riv', urq:'urq', nacion:'nacion', chaca:'chaca', pergamino:'pergamino', sanPedro:'sanpedro', sucursal9:'ramallo', sucursal11:'sucu11' };
+// Sucursal (clave de a8020_calc.detalle) → clave del nivel S en a8020.json (formato legacy).
+const SUC_A_CLAVE_S = { riv: 'SRiv', urq: 'SUrq', nacion: 'SNacion', chaca: 'SChaca',
+  pergamino: 'SPergamino', sanpedro: 'SSanPedro', ramallo: 'SVRamallo' };
+
+// μ diaria por (plu, clave S) desde a8020_calc.detalle → define qué producto "rota poco" en cada
+// sucursal para la regla caro-y-lento del motor de distribución.
+function muPorPluDesdeDetalle(detalle) {
+  const out = {};
+  for (const [plu, d] of Object.entries(detalle || {})) {
+    const m = {};
+    for (const [suc, s] of Object.entries(d)) {
+      const sk = SUC_A_CLAVE_S[suc];
+      if (sk) m[sk] = Number(s.mu) || 0;
+    }
+    out[plu] = m;
+  }
+  return out;
+}
+
 async function calcularDistribucionAlmacen() {
   const a8020  = leerJSON(A8020_PATH, {});
   const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
@@ -1805,6 +1824,10 @@ async function calcularDistribucionAlmacen() {
   const a8020Calc = leerJSON(A8020_CALC_PATH, {}) || {};
   const impViva = a8020Calc.impFacturacion || {};
   const abcPorPlu = a8020Calc.abc || {};   // clase ABC por PLU (para presencia escalada por importancia)
+  // Regla caro-y-lento: μ real por sucursal + config del umbral y los pisos. Sin la clave de config
+  // el motor no la aplica (paridad con el comportamiento histórico).
+  const muPorPlu = muPorPluDesdeDetalle(a8020Calc.detalle || {});
+  const sinEmpujeCaroLento = (distCfg.empujeDeposito || {}).sinEmpujeCaroLento || null;
   const ed = leerListasDistrib();
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
@@ -1855,7 +1878,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
