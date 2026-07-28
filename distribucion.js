@@ -129,44 +129,20 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   const PARES_MIN_S = [['minRiv','SRiv'],['minUrq','SUrq'],['minNacion','SNacion'],['minChaca','SChaca'],
     ['minPergamino','SPergamino'],['minSanPedro','SSanPedro'],
     ['minVRamallo','SVRamallo']];
-  // Presencia según rotación: si hay presenciaPorClase usa el valor de la clase ABC POR UNIDADES
-  // del PLU (cuánto rota), no la de facturación — un producto caro de baja rotación clasifica como
-  // A por facturación pero no justifica góndola de clase A. Sin abcUnidadesPorPlu cae a la clase de
-  // facturación (compat). Sin presenciaPorClase, presencia plana.
-  const claseFact = (opts && opts.abcPorPlu && opts.abcPorPlu[plu]) || null;
-  const claseUnid = (opts && opts.abcUnidadesPorPlu && opts.abcUnidadesPorPlu[plu]) || claseFact;
+  // Presencia según importancia: si hay presenciaPorClase usa el valor de la clase ABC del PLU
+  // (A lento importante → góndola más alta; C lento irrelevante → baja). Si no, presencia plana.
   const presPorClase = opts && opts.presenciaPorClase;
+  const claseAbc = (opts && opts.abcPorPlu && opts.abcPorPlu[plu]) || null;
   const pres = presPorClase
-    ? (presPorClase[claseUnid] != null ? presPorClase[claseUnid] : (presPorClase.C != null ? presPorClase.C : 0))
+    ? (presPorClase[claseAbc] != null ? presPorClase[claseAbc] : (presPorClase.C != null ? presPorClase.C : 0))
     : ((opts && opts.empujePresencia) || 0);
   const presFactorS = Math.max(1, (opts && opts.empujePresenciaFactorS) || 1);
-  // Cap de cobertura (opts.capPresencia): la presencia nunca supera N ciclos de reposición (T+L) de
-  // demanda real, con un piso en unidades. N y piso escalan con la clase de FACTURACIÓN: un producto
-  // que rota poco pero factura mucho justifica más cobertura que uno barato igual de lento — que
-  // falte cuesta caro. Sin cap, la presencia plana pisaba el S del 84% del catálogo (S global x3
-  // sobre el A8020, cobertura mediana 71 días). Sin opts.capPresencia se conserva el empuje viejo
-  // (presencia·presenciaFactorS) → paridad con la planilla/golden.
-  const capCfg = (opts && opts.capPresencia) || null;
-  const muPorClaveS = (opts && opts.muPorPlu && opts.muPorPlu[plu]) || null;
-  const tlPorClaveS = (opts && opts.tlPorClaveS) || {};
-  const kFraccion = (opts && opts.minFraccion) || { A: 0.5, B: 0.3, C: 0.2 };
-  const capDe = (sk) => {
-    const mult = (capCfg.mult || {})[claseFact];
-    const pisoCap = (capCfg.piso || {})[claseFact];
-    const mu = muPorClaveS ? (muPorClaveS[sk] || 0) : 0;
-    const tl = tlPorClaveS[sk] || 0;
-    return Math.max(pisoCap != null ? pisoCap : 1, Math.round(mu * tl * (mult != null ? mult : 2)));
-  };
   if (pres > 0 && D > 0 && envasaSi && !a.claseF) {   // clase F (viejo sin rotación): no se empuja
     const aa = { ...a };
-    const k = kFraccion[claseFact] != null ? kFraccion[claseFact] : 0.2;
+    const objetivo = Math.round(pres * presFactorS);   // objetivo por encima del gatillo → brecha (batch)
     for (const [mk, sk] of PARES_MIN_S) {
-      // objetivo (S) = presencia acotada por el cap; gatillo (min) = fracción del objetivo — misma k
-      // que usa el A8020 para derivar min de S → conserva brecha min↔S (batch, no micro-envíos).
-      const objetivo = capCfg ? Math.min(pres, capDe(sk)) : Math.round(pres * presFactorS);
-      const gatillo  = capCfg ? Math.round(objetivo * k) : pres;
-      if ((aa[sk] || 0) < objetivo) aa[sk] = objetivo;
-      if ((aa[mk] || 0) < gatillo)  aa[mk] = gatillo;
+      if ((aa[mk] || 0) < pres) aa[mk] = pres;          // gatillo (min) ≥ presencia (piso de góndola)
+      if ((aa[sk] || 0) < pres) aa[sk] = objetivo;      // demanda baja (S<presencia) → objetivo = presencia·factor (> min)
     }
     a = aa;
   }

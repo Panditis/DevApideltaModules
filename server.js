@@ -1794,48 +1794,6 @@ GROUP BY pd.IdSucursal, pd.IdProducto`;
 }
 // enviar-key del motor Almacen → clave canónica de Fact
 const ALM_FACT_KEY = { riv:'riv', urq:'urq', nacion:'nacion', chaca:'chaca', pergamino:'pergamino', sanPedro:'sanpedro', sucursal9:'ramallo', sucursal11:'sucu11' };
-// Sucursal (clave de a8020_calc.detalle) → clave del nivel S en a8020.json (formato legacy).
-const SUC_A_CLAVE_S = { riv: 'SRiv', urq: 'SUrq', nacion: 'SNacion', chaca: 'SChaca',
-  pergamino: 'SPergamino', sanpedro: 'SSanPedro', ramallo: 'SVRamallo' };
-
-// ABC por UNIDADES vendidas (no facturación): misma mecánica Pareto que el A8020 pero sobre sumQ.
-// Decide la presencia de góndola — cuánto rota el producto, no cuánta plata mueve. Los F (viejos
-// sin rotación) quedan fuera: no se empujan.
-function abcPorUnidades(detalle, abcFact, cortes) {
-  const corteA = (cortes || {}).corteA != null ? cortes.corteA : 0.8;
-  const corteB = (cortes || {}).corteB != null ? cortes.corteB : 0.95;
-  const arr = [];
-  for (const [plu, d] of Object.entries(detalle || {})) {
-    if ((abcFact || {})[plu] === 'F') continue;
-    arr.push([plu, Object.values(d).reduce((s, x) => s + (Number(x.sumQ) || 0), 0)]);
-  }
-  arr.sort((a, b) => b[1] - a[1]);
-  const total = arr.reduce((s, x) => s + x[1], 0);
-  const out = {};
-  let acc = 0;
-  for (const [plu, u] of arr) {
-    if (u <= 0) { out[plu] = 'C'; continue; }
-    acc += u;
-    const share = total > 0 ? acc / total : 1;
-    out[plu] = share <= corteA ? 'A' : share <= corteB ? 'B' : 'C';
-  }
-  return out;
-}
-
-// μ diaria por (plu, clave S) desde a8020_calc.detalle → alimenta el cap de cobertura del empuje.
-function muPorPluDesdeDetalle(detalle) {
-  const out = {};
-  for (const [plu, d] of Object.entries(detalle || {})) {
-    const m = {};
-    for (const [suc, s] of Object.entries(d)) {
-      const sk = SUC_A_CLAVE_S[suc];
-      if (sk) m[sk] = Number(s.mu) || 0;
-    }
-    out[plu] = m;
-  }
-  return out;
-}
-
 async function calcularDistribucionAlmacen() {
   const a8020  = leerJSON(A8020_PATH, {});
   const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
@@ -1846,17 +1804,7 @@ async function calcularDistribucionAlmacen() {
   const umbralMicroEnvio = distCfg.umbralMicroEnvio || { tramos: [{ hastaS: null, pct: 0.20 }], pisoAbsoluto: 1 };
   const a8020Calc = leerJSON(A8020_CALC_PATH, {}) || {};
   const impViva = a8020Calc.impFacturacion || {};
-  const abcPorPlu = a8020Calc.abc || {};   // clase ABC por facturación (escala el cap de cobertura)
-  // Presencia = clase por unidades (rotación) · cap = ciclos (T+L) según clase por facturación.
-  const detalleA8020 = a8020Calc.detalle || {};
-  const abcUnidadesPorPlu = abcPorUnidades(detalleA8020, abcPorPlu, distCfg.abcUnidades);
-  const muPorPlu = muPorPluDesdeDetalle(detalleA8020);
-  const tlPorClaveS = {};
-  for (const [suc, sk] of Object.entries(SUC_A_CLAVE_S)) {
-    const sc = (distCfg.sucursales || {})[suc];
-    if (sc) tlPorClaveS[sk] = (Number(sc.T) || 0) + (Number(sc.L) || 0);
-  }
-  const capPresencia = (distCfg.empujeDeposito || {}).capPorFacturacion || null;
+  const abcPorPlu = a8020Calc.abc || {};   // clase ABC por PLU (para presencia escalada por importancia)
   const ed = leerListasDistrib();
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
@@ -1907,7 +1855,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, abcUnidadesPorPlu, capPresencia, muPorPlu, tlPorClaveS, minFraccion: distCfg.minFraccion, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
