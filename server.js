@@ -22,6 +22,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
+const cuentasCorrientes = require('./cuentas_corrientes');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -1058,6 +1059,7 @@ app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'dash
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 app.get('/compras-modulo', (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
 app.get('/analisis-ventas', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_ventas.html')));
+app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
 app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
 app.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
@@ -3746,6 +3748,55 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
         dias: Number(r.Dias || 0), ticketsDia: Number(r.TicketsDia || 0),
       })),
     },
+  };
+}));
+
+// ── Cuentas Corrientes de Clientes ───────────────────────────────────────────
+// Saldo vivo por cliente + detalle de comprobantes. Clientes.SaldoPendiente está
+// en 0 en toda la base, así que el saldo se recalcula sumando CuentasCorrientes.
+app.get('/api/cuentas-corrientes', apiRoute(async req => {
+  const csv = cuentasCorrientes.catIdsCsv(cuentasCorrientes.catIdsSeguras(req.query.categorias));
+  // Antigüedad de mora opcional: null = sin filtro (saldo total, comportamiento default).
+  const vencidoDias = cuentasCorrientes.vencidoDiasSeguro(req.query.vencidoDias);
+  const p = { csv, vencidoDias };
+
+  const [clientes, comprobantes] = await Promise.all([
+    query(cuentasCorrientes.sqlClientesConSaldo(p)),
+    query(cuentasCorrientes.sqlComprobantes(p)),
+  ]);
+
+  // IdCliente y NumeroComprobante son bigint: el driver los devuelve como string.
+  return {
+    generado: new Date().toISOString(),
+    filtros: { vencidoDias },
+    totales: cuentasCorrientes.totales(clientes),
+    clientes: clientes.map(r => ({
+      IdCliente: Number(r.IdCliente),
+      NombreCliente: r.NombreCliente || '',
+      Categoria: r.Categoria || '',
+      // Saldo = el que se muestra según el filtro de mora; SaldoTotal = el completo.
+      Saldo: Number(r.Saldo || 0),
+      SaldoSinVencer: Number(r.SaldoSinVencer || 0),
+      SaldoTotal: Number(r.SaldoTotal || 0),
+      Comprobantes: Number(r.Comprobantes || 0),
+      UltimaFecha: cuentasCorrientes.fechaISO(r.UltimaFecha),
+    })),
+    comprobantes: comprobantes.map(r => ({
+      IdCliente: Number(r.IdCliente),
+      NombreCliente: r.NombreCliente || '',
+      Categoria: r.Categoria || '',
+      IdSucursal: Number(r.IdSucursal || 0),
+      IdTipoComprobante: r.IdTipoComprobante || '',
+      Letra: r.Letra || '',
+      CentroEmisor: Number(r.CentroEmisor || 0),
+      NumeroComprobante: Number(r.NumeroComprobante || 0),
+      Fecha: cuentasCorrientes.fechaISO(r.Fecha),
+      FechaVencimiento: cuentasCorrientes.fechaISO(r.FechaVencimiento),
+      ImporteTotal: Number(r.ImporteTotal || 0),
+      Saldo: Number(r.Saldo || 0),
+      Observacion: r.Observacion || '',
+      IdEstadoComprobante: r.IdEstadoComprobante || '',
+    })),
   };
 }));
 

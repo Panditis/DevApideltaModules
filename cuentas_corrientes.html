@@ -1,0 +1,1019 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cuentas Corrientes — Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+/* Tema resuelto ANTES de pintar el body: evita el flash de tema claro.
+   Clave propia de localStorage; el filtro de mora vive en la querystring y no se toca acá. */
+(function(){
+  try{
+    var t = localStorage.getItem('apidelta-tema');
+    if (t !== 'light' && t !== 'dark'){
+      t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    document.documentElement.setAttribute('data-theme', t);
+  }catch(e){
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+})();
+</script>
+<style>
+  /* ── Identidad Apidelta (invariante en los dos temas) ─────────────────────── */
+  :root{
+    --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
+    --yellow:#FFCC00; --gold:#C98A00; --red:#b3261e;
+
+    --radius:14px; --radius-sm:10px; --radius-pill:999px;
+    /* Curvas Fluent: entrada suave y larga, salida corta y decidida. */
+    --ease-entrada:cubic-bezier(.1,.9,.2,1);
+    --ease-salida:cubic-bezier(.4,0,.9,.2);
+    --t-rapido:.12s; --t-medio:.22s; --t-lento:.4s;
+    --h-header:56px;
+  }
+
+  /* ── Tema claro ───────────────────────────────────────────────────────────── */
+  :root[data-theme="light"]{
+    color-scheme:light;
+    --bg:#EDF0EA;
+    --glow-1:rgba(64,89,54,.10); --glow-2:rgba(255,204,0,.09);
+    --surface:#FFFFFF; --surface-2:#FFFFFF; --sunken:#F6F8F4;
+    --acrylic:rgba(46,64,39,.86);
+    --border:rgba(46,64,39,.13); --border-strong:rgba(46,64,39,.24);
+    --text:#1A1E15; --muted:#5B6353; --brand:#2E4027; --kpi-val:#22301C;
+    --accent:var(--yellow); --accent-ink:#2E4027; --accent-text:#7A5400; --bar-alerta:#B87E00;
+    --btn-bg:var(--green); --btn-bg-hover:var(--green-dark); --btn-ink:#FFFFFF;
+    --btn-ghost-bg:#FFFFFF; --btn-ghost-ink:#2E4027; --btn-ghost-hover:var(--green-light);
+    --field-bg:#FFFFFF; --th-bg:#FFFFFF; --row-hover:rgba(64,89,54,.055);
+    --err-bg:#FDECEA; --err-text:#8C1D18; --err-border:#F0BDB8;
+    --mora-bg:#FFF6D6; --mora-text:#6B4A00; --mora-border:#DDAF39;
+    --chip-bg:var(--green-light); --chip-text:#2E4027; --chip-border:#9FBA92;
+    --tab-ink:#5B6353; --tab-on-bg:var(--green-light); --tab-on-ink:#2E4027;
+    --reveal-border:rgba(64,89,54,.55); --reveal-fill:rgba(64,89,54,.07);
+    --focus:#405936;
+    --skel-a:#E7EAE4; --skel-b:#F4F6F2;
+    /* Importes negativos (saldo a favor): se destacan en verde, no en rojo. */
+    --neg-bg:#DCEBD3; --neg-ink:#1F4A16;
+    --sombra-1:0 1px 2px rgba(22,30,18,.09), 0 6px 16px -8px rgba(22,30,18,.14);
+    --sombra-2:0 2px 4px rgba(22,30,18,.10), 0 18px 36px -14px rgba(22,30,18,.22);
+    --sombra-3:0 3px 6px rgba(22,30,18,.14), 0 28px 56px -18px rgba(22,30,18,.30);
+  }
+
+  /* ── Tema oscuro: diseñado, no invertido. Cada nivel de elevación es más claro. ── */
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0F1210;
+    --glow-1:rgba(78,107,67,.20); --glow-2:rgba(233,195,74,.07);
+    --surface:#191E17; --surface-2:#222820; --sunken:#141813;
+    --acrylic:rgba(25,30,23,.82);
+    --border:rgba(232,240,228,.10); --border-strong:rgba(232,240,228,.20);
+    --text:#E7ECE3; --muted:#A6B09E; --brand:#A9C99B; --kpi-val:#DCE7D4;
+    --accent:#E9C34A; --accent-ink:#141813; --accent-text:#EFC86B; --bar-alerta:#E9C34A;
+    --btn-bg:#4E6B43; --btn-bg-hover:#5E7F51; --btn-ink:#FFFFFF;
+    --btn-ghost-bg:rgba(232,240,228,.05); --btn-ghost-ink:#BBD8AC; --btn-ghost-hover:rgba(169,201,155,.16);
+    --field-bg:#141813; --th-bg:#191E17; --row-hover:rgba(232,240,228,.055);
+    --err-bg:#2A1614; --err-text:#F2B8B5; --err-border:#5C2A26;
+    --mora-bg:rgba(233,195,74,.12); --mora-text:#EFC86B; --mora-border:rgba(233,195,74,.42);
+    --chip-bg:rgba(78,107,67,.28); --chip-text:#BBD8AC; --chip-border:rgba(169,201,155,.38);
+    --tab-ink:#A6B09E; --tab-on-bg:rgba(78,107,67,.30); --tab-on-ink:#C9E0BC;
+    --reveal-border:rgba(232,240,228,.42); --reveal-fill:rgba(255,255,255,.05);
+    --focus:#FFD84D;
+    --skel-a:#20261E; --skel-b:#2A3128;
+    --neg-bg:rgba(140,200,120,.16); --neg-ink:#BBD8AC;
+    --sombra-1:0 1px 2px rgba(0,0,0,.55), 0 6px 16px -8px rgba(0,0,0,.60);
+    --sombra-2:0 2px 4px rgba(0,0,0,.55), 0 18px 36px -14px rgba(0,0,0,.70);
+    --sombra-3:0 3px 6px rgba(0,0,0,.60), 0 28px 56px -18px rgba(0,0,0,.80);
+  }
+
+  *{box-sizing:border-box}
+  html{scrollbar-gutter:stable}
+  body{
+    margin:0;color:var(--text);font-family:'Barlow',system-ui,sans-serif;font-weight:400;
+    background:var(--bg);
+    /* Textura de fondo: dos focos de luz muy tenues, la base sobre la que apoya el acrílico. */
+    background-image:
+      radial-gradient(900px 520px at 8% -10%, var(--glow-1), transparent 70%),
+      radial-gradient(760px 460px at 100% 0%, var(--glow-2), transparent 70%);
+    background-attachment:fixed;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── Header acrílico (Mica/Acrylic de Fluent) ─────────────────────────────── */
+  header{
+    position:sticky;top:0;z-index:60;
+    display:flex;align-items:center;gap:14px;padding:0 20px;height:var(--h-header);
+    background:var(--acrylic);
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    backdrop-filter:blur(22px) saturate(180%);
+    border-bottom:1px solid rgba(255,255,255,.10);
+    box-shadow:var(--sombra-1);color:#fff;
+  }
+  header .logo{
+    font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:23px;letter-spacing:.6px;
+    line-height:1;color:#fff;
+  }
+  header .logo b{color:var(--yellow)}
+  header .sep{width:1px;height:20px;background:rgba(255,255,255,.28)}
+  header .mod{
+    font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.9px;
+    text-transform:uppercase;color:rgba(255,255,255,.92);
+  }
+  header .acciones{margin-left:auto;display:flex;align-items:center;gap:8px}
+  header a{
+    color:#fff;text-decoration:none;font-size:14px;font-weight:500;padding:7px 12px;
+    border-radius:var(--radius-sm);transition:background var(--t-rapido) var(--ease-salida);
+  }
+  header a:hover{background:rgba(255,255,255,.14)}
+
+  .tema{
+    display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+    border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#fff;
+    border-radius:var(--radius-sm);cursor:pointer;padding:0;
+    transition:background var(--t-rapido) var(--ease-salida), transform var(--t-rapido) var(--ease-salida);
+  }
+  .tema:hover{background:rgba(255,255,255,.18)}
+  .tema:active{transform:scale(.94)}
+  .tema svg{width:17px;height:17px;display:block}
+  :root[data-theme="light"] .tema .i-luna{display:none}
+  :root[data-theme="dark"]  .tema .i-sol{display:none}
+
+  .wrap{max-width:1400px;margin:0 auto;padding:18px 20px 40px}
+
+  /* ── Reveal highlight: borde + halo que siguen al puntero ─────────────────── */
+  .reveal{position:relative;isolation:isolate}
+  .reveal::before,.reveal::after{
+    content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    opacity:0;transition:opacity var(--t-medio) var(--ease-salida);z-index:2;
+  }
+  /* halo interior */
+  .reveal::before{
+    background:radial-gradient(180px circle at var(--mx,50%) var(--my,50%), var(--reveal-fill), transparent 65%);
+  }
+  /* borde de 1px iluminado (máscara xor: sólo queda el marco) */
+  .reveal::after{
+    padding:1px;
+    background:radial-gradient(140px circle at var(--mx,50%) var(--my,50%), var(--reveal-border), transparent 60%);
+    -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;
+    mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite:exclude;
+  }
+  .reveal:hover::before,.reveal:hover::after{opacity:1}
+  .reveal:focus-visible::after{opacity:1}
+
+  :where(button,input,select,a,[tabindex]):focus-visible{
+    outline:2px solid var(--focus);outline-offset:2px;border-radius:var(--radius-sm);
+  }
+
+  /* ── Barra de mora: acrílico + sticky bajo el header ──────────────────────── */
+  .bar-mora{
+    position:sticky;top:var(--h-header);z-index:40;
+    margin:0 0 14px;border:1px solid var(--border);border-radius:var(--radius);
+    background:var(--surface);
+    box-shadow:var(--sombra-1);
+  }
+  @supports (backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px)){
+    :root[data-theme="light"] .bar-mora{background:rgba(255,255,255,.74)}
+    :root[data-theme="dark"]  .bar-mora{background:rgba(25,30,23,.72)}
+    .bar-mora{-webkit-backdrop-filter:blur(20px) saturate(170%);backdrop-filter:blur(20px) saturate(170%)}
+  }
+  .bar-mora-in{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:11px 14px}
+  .chk{
+    display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--brand);
+    cursor:pointer;user-select:none;padding:6px 10px;border-radius:var(--radius-sm);
+    transition:background var(--t-rapido) var(--ease-salida);
+  }
+  .chk:hover{background:var(--row-hover)}
+  /* El checkbox no hereda el chrome de los campos de texto. */
+  .chk input[type="checkbox"]{
+    width:16px;height:16px;accent-color:var(--green);cursor:pointer;margin:0;
+    padding:0;border:0;border-radius:0;background:none;box-shadow:none;
+  }
+  .lbl-inline{font-size:13px;color:var(--muted);font-weight:500}
+  .unidad{font-size:13px;color:var(--muted);margin-left:-6px}
+  .hint{margin-left:auto}
+
+  /* ── Superficies ──────────────────────────────────────────────────────────── */
+  .card{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px;margin-top:16px;box-shadow:var(--sombra-1);
+  }
+  .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--brand)}
+
+  /* ── KPIs ─────────────────────────────────────────────────────────────────── */
+  /* Se ajustan al contenido: cada card ocupa lo que mide su cifra, no una fracción
+     fija de la grilla. Así dos KPIs no se estiran a media pantalla cada uno. */
+  .kpis{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch}
+  .kpi{
+    --kpi-bar:var(--border-strong); --kpi-tinte:transparent;
+    position:relative;flex:0 0 auto;
+    background:
+      radial-gradient(120% 140% at 0% 0%, var(--kpi-tinte) 0%, transparent 62%),
+      var(--surface-2);
+    border:1px solid var(--border);border-radius:var(--radius);
+    padding:15px 22px 16px 19px;overflow:hidden;
+    box-shadow:inset 4px 0 0 var(--kpi-bar), var(--sombra-1);
+    transition:transform var(--t-medio) var(--ease-entrada), box-shadow var(--t-medio) var(--ease-entrada);
+    animation:subir var(--t-lento) var(--ease-entrada) both;
+    animation-delay:calc(var(--i,0) * 55ms);
+  }
+  .kpi:hover{transform:translateY(-3px);box-shadow:inset 4px 0 0 var(--kpi-bar), var(--sombra-2)}
+  .kpi .lbl{
+    display:flex;align-items:center;gap:7px;
+    font-size:11.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);
+    white-space:nowrap;
+  }
+  /* Punto del color del acento: repite la barra lateral y ata el rótulo a su cifra. */
+  .kpi .lbl::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--kpi-bar);flex:0 0 auto}
+  .kpi .val{
+    font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:40px;line-height:1;
+    letter-spacing:-.4px;color:var(--kpi-val);margin-top:8px;font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+  .kpi--foco{--kpi-bar:var(--green); --kpi-tinte:var(--glow-1)}
+  .kpi--foco .val{color:var(--brand)}
+  .kpi--alerta{--kpi-bar:var(--bar-alerta); --kpi-tinte:var(--mora-bg)}
+  .kpi--alerta .val{color:var(--accent-text)}
+
+  @keyframes subir{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes entrar{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .entra{animation:entrar .28s var(--ease-entrada) both}
+
+  /* ── Tabs ─────────────────────────────────────────────────────────────────── */
+  .tabs{
+    display:inline-flex;gap:4px;margin-top:18px;padding:4px;flex-wrap:wrap;align-items:center;
+    background:var(--sunken);border:1px solid var(--border);border-radius:var(--radius-pill);
+    box-shadow:var(--sombra-1);
+  }
+  .tab{
+    border:1px solid transparent;background:transparent;border-radius:var(--radius-pill);
+    padding:8px 22px;font-family:'Barlow',system-ui,sans-serif;font-size:14px;font-weight:600;
+    letter-spacing:.2px;color:var(--tab-ink);cursor:pointer;
+    transition:color var(--t-rapido) var(--ease-salida), background var(--t-rapido) var(--ease-salida);
+  }
+  .tab:hover{color:var(--tab-on-ink)}
+  .tab.activa{
+    color:var(--tab-on-ink);background:var(--tab-on-bg);border-color:var(--border-strong);
+    box-shadow:var(--sombra-1);
+  }
+
+  /* ── Controles ────────────────────────────────────────────────────────────── */
+  .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px}
+  .controls label{
+    display:block;font-size:11.5px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--muted);margin-bottom:5px;
+  }
+  input,select{
+    padding:9px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
+    font-family:'Barlow',system-ui,sans-serif;font-size:14px;background:var(--field-bg);color:var(--text);
+    transition:border-color var(--t-rapido) var(--ease-salida), box-shadow var(--t-rapido) var(--ease-salida);
+  }
+  input::placeholder{color:var(--muted);opacity:.8}
+  input:hover,select:hover{border-color:var(--green-mid)}
+  input:focus,select:focus{outline:none;border-color:var(--green-mid);box-shadow:0 0 0 3px var(--reveal-fill)}
+  input:disabled{opacity:.5;cursor:not-allowed}
+  #vencDias{width:96px;font-variant-numeric:tabular-nums}
+
+  .btn{
+    background:var(--btn-bg);color:var(--btn-ink);border:1px solid transparent;padding:9px 18px;
+    border-radius:var(--radius-sm);font-weight:600;font-size:14px;letter-spacing:.2px;cursor:pointer;
+    font-family:'Barlow',system-ui,sans-serif;box-shadow:var(--sombra-1);
+    transition:background var(--t-rapido) var(--ease-salida), transform var(--t-rapido) var(--ease-salida);
+  }
+  .btn:hover{background:var(--btn-bg-hover)}
+  .btn:active{transform:scale(.97)}
+  .btn-outline{background:var(--btn-ghost-bg);color:var(--btn-ghost-ink);border-color:var(--border-strong)}
+  .btn-outline:hover{background:var(--btn-ghost-hover)}
+  .sp{margin-left:auto}
+
+  /* ── Chips ────────────────────────────────────────────────────────────────── */
+  .filtro-cliente{
+    display:inline-flex;align-items:center;gap:9px;background:var(--chip-bg);border:1px solid var(--chip-border);
+    color:var(--chip-text);border-radius:var(--radius-pill);padding:6px 8px 6px 14px;font-size:13px;
+    font-weight:600;margin-bottom:12px;animation:entrar .24s var(--ease-entrada) both;
+  }
+  .filtro-cliente span.x{
+    cursor:pointer;font-weight:700;line-height:1;width:20px;height:20px;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;
+    transition:background var(--t-rapido) var(--ease-salida);
+  }
+  .filtro-cliente span.x:hover{background:rgba(128,128,128,.22)}
+  .chip-mora{
+    display:inline-flex;align-items:center;gap:9px;background:var(--mora-bg);border:1px solid var(--mora-border);
+    color:var(--mora-text);border-radius:var(--radius-pill);padding:7px 16px;font-size:13.5px;font-weight:600;
+    margin:0 0 14px;box-shadow:var(--sombra-1);animation:entrar .24s var(--ease-entrada) both;
+  }
+
+  /* ── Tablas ───────────────────────────────────────────────────────────────── */
+  .tbl-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+  td.obs{white-space:normal;max-width:280px;color:var(--muted);font-size:13px}
+  th{
+    color:var(--muted);font-weight:700;font-size:11px;letter-spacing:.8px;text-transform:uppercase;
+    cursor:pointer;user-select:none;position:sticky;top:0;background:var(--th-bg);z-index:1;
+    border-bottom:1px solid var(--border-strong);
+    transition:color var(--t-rapido) var(--ease-salida);
+  }
+  th:hover{color:var(--brand)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  td.money{font-weight:600;color:var(--text)}
+  /* Un importe negativo es plata a favor del cliente: se marca en verde, no en alerta. */
+  td.num.neg{background:var(--neg-bg);color:var(--neg-ink);font-weight:600}
+  tbody tr{transition:background var(--t-rapido) var(--ease-salida)}
+  tbody tr:hover{background:var(--row-hover)}
+  tr.clic{cursor:pointer}
+  tr.clic td:first-child{box-shadow:inset 3px 0 0 var(--green-mid)}
+  tr.clic:hover td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+  tfoot td{
+    font-weight:700;color:var(--brand);border-top:2px solid var(--green-mid);border-bottom:0;
+    background:var(--sunken);
+  }
+  tfoot td.money{color:var(--brand)}
+
+  /* ── Estados ──────────────────────────────────────────────────────────────── */
+  .info{color:var(--muted);font-size:12.5px}
+  #cliInfo,#cmpInfo{margin-bottom:10px}
+  .error{
+    background:var(--err-bg);color:var(--err-text);border:1px solid var(--err-border);
+    padding:14px 16px;border-radius:var(--radius);margin-bottom:16px;box-shadow:var(--sombra-1);
+    animation:entrar .24s var(--ease-entrada) both;
+  }
+  .loading{color:var(--muted);padding:28px;text-align:center;font-size:14px}
+  .empty{color:var(--muted);padding:28px;text-align:center;font-size:14px}
+  .skel{
+    height:14px;border-radius:6px;
+    background:linear-gradient(90deg,var(--skel-a) 25%,var(--skel-b) 50%,var(--skel-a) 75%);
+    background-size:400% 100%;animation:sk 1.2s ease-in-out infinite;margin:10px 0;
+  }
+  @keyframes sk{0%{background-position:100% 0}100%{background-position:0 0}}
+  .mas{text-align:center;padding:14px 12px 4px}
+
+  @media(max-width:820px){
+    .bar-mora{position:static}
+    .hint{margin-left:0;flex-basis:100%}
+    .controls input,.controls select{width:100%}
+    .controls>div{flex:1 1 100%}
+    .controls .sp{margin-left:0}
+    .kpi .val{font-size:29px}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;transition-duration:.01ms!important}
+  }
+</style></head><body>
+<header id="appHeader">
+  <span class="logo">API<b>DELTA</b></span>
+  <span class="sep"></span>
+  <span class="mod">Cuentas Corrientes</span>
+  <span class="acciones">
+    <button class="tema" id="temaToggle" type="button" title="Cambiar tema" aria-label="Cambiar tema">
+      <svg class="i-sol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"></circle>
+        <path d="M12 2.2v2.4M12 19.4v2.4M4.2 12H1.8M22.2 12h-2.4M5.6 5.6 3.9 3.9M20.1 20.1l-1.7-1.7M18.4 5.6l1.7-1.7M3.9 20.1l1.7-1.7"></path>
+      </svg>
+      <svg class="i-luna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.5 14.3A8.6 8.6 0 0 1 9.7 3.5a8.6 8.6 0 1 0 10.8 10.8Z"></path>
+      </svg>
+    </button>
+    <a href="/">← Inicio</a>
+  </span>
+</header>
+
+<div class="wrap">
+  <div id="msg"></div>
+
+  <!-- ── Antigüedad de mora: filtro global, vale para las dos tabs ─────────── -->
+  <div class="bar-mora reveal">
+    <div class="bar-mora-in">
+      <label class="chk" for="vencChk"><input type="checkbox" id="vencChk"> Separar saldo vencido</label>
+      <label class="lbl-inline" for="vencDias">Vencido hace más de</label>
+      <input type="number" id="vencDias" min="0" max="3650" step="1" value="15" disabled>
+      <span class="unidad">días</span>
+      <button class="btn reveal" id="vencAplicar" type="button">Aplicar</button>
+      <span class="info hint">Siempre se listan todos los clientes con saldo; el umbral sólo parte el saldo en vencido y sin vencer.</span>
+    </div>
+  </div>
+
+  <div id="chipMora"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="tabs">
+    <button class="tab activa" id="tabClientes" type="button">Clientes</button>
+    <button class="tab" id="tabComprobantes" type="button">Comprobantes</button>
+  </div>
+
+  <!-- ── Tab Clientes ────────────────────────────────────────────────────── -->
+  <div class="card" id="panelClientes">
+    <div class="controls">
+      <div><label for="cliQ">Buscar cliente</label><input type="text" id="cliQ" placeholder="Nombre…" style="width:260px"></div>
+      <div><label for="cliCat">Categoría</label><select id="cliCat"></select></div>
+      <div class="sp"><button class="btn btn-outline reveal" id="cliCsv" type="button">Exportar CSV</button></div>
+    </div>
+    <div class="info" id="cliInfo"></div>
+    <div class="tbl-scroll" id="tblClientes"></div>
+  </div>
+
+  <!-- ── Tab Comprobantes ───────────────────────────────────────────────── -->
+  <div class="card" id="panelComprobantes" hidden>
+    <div id="chipCliente"></div>
+    <div class="controls">
+      <div><label for="cmpQ">Buscar</label><input type="text" id="cmpQ" placeholder="Cliente o número…" style="width:230px"></div>
+      <div><label for="cmpCat">Categoría</label><select id="cmpCat"></select></div>
+      <div><label for="cmpTipo">Tipo</label><select id="cmpTipo"></select></div>
+      <div><label for="cmpDesde">Desde</label><input type="date" id="cmpDesde"></div>
+      <div><label for="cmpHasta">Hasta</label><input type="date" id="cmpHasta"></div>
+      <div><button class="btn btn-outline reveal" id="cmpLimpiar" type="button">Limpiar</button></div>
+      <div class="sp"><button class="btn btn-outline reveal" id="cmpCsv" type="button">Exportar CSV</button></div>
+    </div>
+    <div class="info" id="cmpInfo"></div>
+    <div class="tbl-scroll" id="tblComprobantes"></div>
+    <div class="mas" id="cmpMas"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// La tabla de comprobantes puede tener varios miles de filas: se pintan de a tandas
+// (una primera de CHUNK y el resto por botón "Mostrar más") para no armar un innerHTML
+// gigante ni bloquear el navegador en cada tecla de los filtros.
+const CHUNK = 300;
+// El listado del backend ya viene filtrado por categoría, pero el <select> se arma con
+// este orden fijo para que no dependa de qué categorías haya en los datos del día.
+const CATEGORIAS = ['MAYORISTA', 'MINORISTA', 'CONSUMIDOR FINAL', 'Desactivado'];
+// Mismo tope que el backend (cuentas_corrientes.js): 10 años.
+const VENCIDO_DIAS_MAX = 3650;
+// Plazo con el que se controla la cobranza: un comprobante se considera vencido
+// cuando pasaron más de estos días desde su emisión.
+const VENCIDO_DIAS_DEFAULT = 15;
+// Preferencia de tema: clave propia de localStorage. NO se mezcla con el filtro de mora,
+// que vive en la querystring.
+const TEMA_KEY = 'apidelta-tema';
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+let DATOS = null;                                  // respuesta cruda de la API
+let CLIENTES = [];                                 // filas normalizadas de clientes
+let COMPROBANTES = [];                             // filas normalizadas de comprobantes
+let ordenCli = { key: 'Saldo', asc: false };
+let ordenCmp = { key: 'Fecha', asc: false };
+let filtroCli = { q: '', cat: '' };
+let filtroCmp = { q: '', cat: '', tipo: '', desde: '', hasta: '', idCliente: null };
+let visibleCmp = CHUNK;                            // cuántas filas de comprobantes están pintadas
+let filasCmp = [];                                 // último resultado filtrado + ordenado
+// Antigüedad de mora aplicada: null = sin filtro (saldo total). El estado vive en la
+// querystring para que sobreviva al refresh y se pueda compartir el link.
+let vencidoDias = null;
+
+const $ = id => document.getElementById(id);
+
+// Misma sanitización que el backend: entero puro, recortado a 0..VENCIDO_DIAS_MAX.
+function vencidoDiasSeguro(raw){
+  if (raw === null || raw === undefined) return null;
+  const txt = String(raw).trim();
+  if (!/^[+-]?\d+$/.test(txt)) return null;
+  const n = parseInt(txt, 10);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 0), VENCIDO_DIAS_MAX) : null;
+}
+
+function guardarEnUrl(){
+  const u = new URL(window.location.href);
+  if (vencidoDias === null) u.searchParams.delete('vencidoDias');
+  else u.searchParams.set('vencidoDias', String(vencidoDias));
+  history.replaceState(null, '', u.toString());
+}
+
+// ── Formato ─────────────────────────────────────────────────────────────────
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => (
+  { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+));
+const fmtMoney = n => '$' + Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+// Marca la celda cuando el importe es negativo (saldo a favor del cliente).
+const clsNeg = n => (Number(n) < 0 ? ' neg' : '');
+const fmtNum   = n => Number(n || 0).toLocaleString('es-AR');
+
+// Las fechas llegan en ISO; se corta el string en vez de usar new Date() para que el
+// huso horario no corra el día un lugar para atrás.
+const isoDia = v => (typeof v === 'string' && v.length >= 10) ? v.slice(0, 10) : '';
+function fmtFecha(v){
+  const d = isoDia(v);
+  if (!d) return '—';
+  const [a, m, dd] = d.split('-');
+  return `${dd}/${m}/${a}`;
+}
+const pad = (v, n) => String(v ?? '').padStart(n, '0');
+
+// Número legible del comprobante: A 0001-00001234. Sin letra ni centro emisor se
+// muestra sólo lo que haya, para no inventar ceros que no están en la base.
+function numeroComprobante(c){
+  const cuerpo = `${pad(c.CentroEmisor, 4)}-${pad(c.NumeroComprobante, 8)}`;
+  const letra = String(c.Letra ?? '').trim();
+  return letra ? `${letra} ${cuerpo}` : cuerpo;
+}
+
+// ── Tema ────────────────────────────────────────────────────────────────────
+// El tema ya quedó resuelto por el script del <head> (evita el flash); acá sólo se
+// mantiene sincronizado el botón y se escucha el cambio del sistema mientras no haya
+// override manual guardado.
+function temaGuardado(){
+  try {
+    const t = localStorage.getItem(TEMA_KEY);
+    return (t === 'light' || t === 'dark') ? t : null;
+  } catch { return null; }
+}
+function temaSistema(){
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function temaActual(){
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+// Todo el color sale de variables CSS: cambiar el atributo repinta sin tocar el DOM.
+function aplicarTema(tema){
+  document.documentElement.setAttribute('data-theme', tema);
+  const b = $('temaToggle');
+  const rotulo = tema === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro';
+  b.setAttribute('aria-label', rotulo);
+  b.setAttribute('title', rotulo);
+  b.setAttribute('aria-pressed', String(tema === 'dark'));
+}
+
+// ── Reveal highlight (Fluent) ───────────────────────────────────────────────
+// Un único listener delegado actualiza la posición del puntero en variables CSS;
+// el gradiente lo dibuja el pseudo-elemento. Con rAF para no escribir estilos en
+// cada evento de pointermove.
+let revealPend = false;
+let revealUlt = null;
+document.addEventListener('pointermove', e => {
+  const el = e.target instanceof Element ? e.target.closest('.reveal') : null;
+  if (!el) return;
+  revealUlt = { el, x: e.clientX, y: e.clientY };
+  if (revealPend) return;
+  revealPend = true;
+  requestAnimationFrame(() => {
+    revealPend = false;
+    if (!revealUlt) return;
+    const { el: t, x, y } = revealUlt;
+    const r = t.getBoundingClientRect();
+    t.style.setProperty('--mx', `${x - r.left}px`);
+    t.style.setProperty('--my', `${y - r.top}px`);
+  });
+}, { passive: true });
+
+// ── Carga ───────────────────────────────────────────────────────────────────
+function mostrarCargando(){
+  $('kpis').innerHTML = ['','',''].map((_, i) =>
+    `<div class="kpi" style="--i:${i}"><div class="skel" style="width:60%"></div><div class="skel" style="width:85%;height:28px"></div></div>`
+  ).join('');
+  $('tblClientes').innerHTML = '<div class="loading">Cargando cuentas corrientes…</div>';
+}
+
+async function cargar(){
+  mostrarCargando();
+  $('msg').innerHTML = '';
+  try {
+    const url = vencidoDias === null
+      ? '/api/cuentas-corrientes'
+      : `/api/cuentas-corrientes?vencidoDias=${encodeURIComponent(vencidoDias)}`;
+    const r = await fetch(url);
+    let d;
+    try { d = await r.json(); }
+    catch { throw new Error(`Respuesta inválida del servidor (HTTP ${r.status})`); }
+    if (!r.ok) throw new Error(d && d.error ? d.error : `Error ${r.status}`);
+    if (d && d.error) throw new Error(d.error);
+    DATOS = d;
+    // El backend es la autoridad sobre el filtro efectivamente aplicado.
+    if (d && d.filtros && 'vencidoDias' in d.filtros) {
+      vencidoDias = vencidoDiasSeguro(d.filtros.vencidoDias);
+      sincronizarControlesMora();
+      guardarEnUrl();
+    }
+    CLIENTES = Array.isArray(d.clientes) ? d.clientes : [];
+    // El número legible se precalcula una vez: se usa para ordenar, buscar y exportar,
+    // y recalcularlo en cada tecla sobre miles de filas se nota.
+    COMPROBANTES = (Array.isArray(d.comprobantes) ? d.comprobantes : [])
+      .map(c => ({ ...c, _numero: numeroComprobante(c) }));
+    renderChipMora();
+    renderKpis();
+    llenarSelects();
+    renderClientes();
+    renderComprobantes();
+  } catch (e) {
+    $('kpis').innerHTML = '';
+    $('chipMora').innerHTML = '';
+    $('tblClientes').innerHTML = '';
+    $('msg').innerHTML = `<div class="error"><b>No se pudieron cargar las cuentas corrientes.</b><br>${esc(e.message)}</div>`;
+  }
+}
+
+// Con el filtro puesto lo que se ve NO es el saldo total: tiene que decirlo el chip
+// y también el propio label del KPI, que es lo que se lee de reojo.
+function textoMora(){ return `Vencido hace más de ${fmtNum(vencidoDias)} día${vencidoDias === 1 ? '' : 's'}`; }
+
+function renderChipMora(){
+  $('chipMora').innerHTML = vencidoDias === null ? ''
+    : `<div class="chip-mora">⚠ ${esc(textoMora())} — el saldo se separa en vencido y sin vencer</div>`;
+}
+
+// Deja los controles reflejando el estado real del filtro (arranque, refresh, respuesta).
+function sincronizarControlesMora(){
+  const activo = vencidoDias !== null;
+  $('vencChk').checked = activo;
+  $('vencDias').disabled = !activo;
+  if (activo) $('vencDias').value = String(vencidoDias);
+}
+
+// Cada KPI lleva su índice (para el escalonado de entrada) y, opcionalmente, un tono
+// visual: 'alerta' para la deuda vencida, 'foco' para el saldo total, 'meta' para el
+// sello de generación. Son clases fijas de este archivo, nunca datos de la base.
+function renderKpis(){
+  const t = (DATOS && DATOS.totales) || {};
+  const activo = vencidoDias !== null;
+  // El listado siempre son todos los clientes con deuda viva: el umbral de mora sólo
+  // parte ese saldo en vencido / sin vencer, no recorta la lista ni el detalle.
+  const kpis = [
+    ['Clientes con saldo', fmtNum(t.clientes != null ? t.clientes : CLIENTES.length)],
+    ['Saldo total',
+      fmtMoney(t.saldoTotalGeneral != null ? t.saldoTotalGeneral
+        : CLIENTES.reduce((a, c) => a + (c.SaldoTotal || 0), 0)), 'foco'],
+  ];
+  // Con el umbral puesto, la partición es la información nueva: cuánto de ese total
+  // está vencido. Sin umbral no hay partición que mostrar.
+  if (activo) kpis.push(
+    [`Vencido (+${fmtNum(vencidoDias)} d)`,
+      fmtMoney(t.saldoTotal != null ? t.saldoTotal : CLIENTES.reduce((a, c) => a + (c.Saldo || 0), 0)),
+      'alerta'],
+    ['Sin vencer',
+      fmtMoney(t.saldoSinVencer != null ? t.saldoSinVencer
+        : CLIENTES.reduce((a, c) => a + (c.SaldoSinVencer || 0), 0))],
+  );
+  $('kpis').innerHTML = kpis.map(([lbl, val, tono], i) =>
+    `<div class="kpi reveal${tono ? ` kpi--${tono}` : ''}" style="--i:${i}">` +
+      `<div class="lbl">${esc(lbl)}</div><div class="val">${esc(val)}</div></div>`
+  ).join('');
+}
+
+function llenarSelects(){
+  const cats = CATEGORIAS.filter(c => CLIENTES.some(x => x.Categoria === c));
+  // Cualquier categoría inesperada que llegue igual tiene que poder filtrarse.
+  CLIENTES.forEach(c => { if (c.Categoria && !cats.includes(c.Categoria)) cats.push(c.Categoria); });
+  const opciones = ['<option value="">Todas</option>']
+    .concat(cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
+  $('cliCat').innerHTML = opciones;
+  $('cmpCat').innerHTML = opciones;
+
+  const tipos = [...new Set(COMPROBANTES.map(c => String(c.IdTipoComprobante ?? '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es'));
+  $('cmpTipo').innerHTML = ['<option value="">Todos</option>']
+    .concat(tipos.map(t => `<option value="${esc(t)}">${esc(t)}</option>`)).join('');
+}
+
+// ── Orden ───────────────────────────────────────────────────────────────────
+function cmpValores(a, b){
+  const na = typeof a === 'number', nb = typeof b === 'number';
+  if (na && nb) return a - b;
+  return String(a ?? '').localeCompare(String(b ?? ''), 'es', { numeric:true, sensitivity:'base' });
+}
+
+function ordenar(filas, orden){
+  return [...filas].sort((a, b) => cmpValores(a[orden.key], b[orden.key]) * (orden.asc ? 1 : -1));
+}
+
+function flecha(orden, key){ return orden.key === key ? (orden.asc ? ' ▲' : ' ▼') : ''; }
+
+// Primer clic: descendente en las columnas numéricas, ascendente en las de texto.
+function alternarOrden(orden, key, esNumerica){
+  if (orden.key === key) orden.asc = !orden.asc;
+  else { orden.key = key; orden.asc = !esNumerica; }
+}
+
+function encabezados(cols, orden){
+  return '<tr>' + cols.map(c =>
+    `<th class="${c.num ? 'num' : ''}" data-key="${esc(c.key)}" data-num="${c.num ? '1' : ''}">${esc(c.label)}${flecha(orden, c.key)}</th>`
+  ).join('') + '</tr>';
+}
+
+function engancharOrden(contenedor, orden, repintar){
+  contenedor.querySelectorAll('th[data-key]').forEach(th => {
+    th.addEventListener('click', () => {
+      alternarOrden(orden, th.dataset.key, th.dataset.num === '1');
+      repintar();
+    });
+  });
+}
+
+// ── Tab Clientes ────────────────────────────────────────────────────────────
+// Con el filtro de mora puesto la columna Saldo es el saldo vencido y SaldoTotal el
+// saldo completo del cliente: el rótulo lo tiene que decir. Sin filtro las dos cifras
+// coinciden, así que ahí alcanza con "Saldo" y "Saldo total".
+const rotuloSaldo = () => (vencidoDias === null ? 'Saldo' : 'Saldo vencido');
+function colsCli(){
+  return [
+    { key:'NombreCliente', label:'Cliente' },
+    { key:'UltimaFecha',   label:'Última fecha' },
+    { key:'SaldoTotal',     label:'Saldo total', num:true },
+    { key:'Saldo',          label:rotuloSaldo(), num:true },
+    { key:'SaldoSinVencer', label:'Saldo sin vencer', num:true },
+  ];
+}
+
+function clientesFiltrados(){
+  const q = filtroCli.q.trim().toLowerCase();
+  return CLIENTES.filter(c =>
+    (!q || String(c.NombreCliente ?? '').toLowerCase().includes(q)) &&
+    (!filtroCli.cat || c.Categoria === filtroCli.cat)
+  );
+}
+
+function renderClientes(){
+  const filas = ordenar(clientesFiltrados(), ordenCli);
+  const total = filas.reduce((a, c) => a + (Number(c.Saldo) || 0), 0);
+  const totalGeneral = filas.reduce((a, c) => a + (Number(c.SaldoTotal) || 0), 0);
+  const totalSinVencer = filas.reduce((a, c) => a + (Number(c.SaldoSinVencer) || 0), 0);
+  $('cliInfo').textContent = `${fmtNum(filas.length)} de ${fmtNum(CLIENTES.length)} clientes · clic en una fila para ver sus comprobantes`;
+
+  if (!filas.length){
+    $('tblClientes').innerHTML = '<div class="empty">Ningún cliente coincide con los filtros.</div>';
+    return;
+  }
+  const cuerpo = filas.map(c => `<tr class="clic" data-id="${esc(c.IdCliente)}">
+      <td>${esc(c.NombreCliente)}</td>
+      <td>${esc(fmtFecha(c.UltimaFecha))}</td>
+      <td class="num money${clsNeg(c.SaldoTotal)}">${esc(fmtMoney(c.SaldoTotal))}</td>
+      <td class="num money${clsNeg(c.Saldo)}">${esc(fmtMoney(c.Saldo))}</td>
+      <td class="num money${clsNeg(c.SaldoSinVencer)}">${esc(fmtMoney(c.SaldoSinVencer))}</td>
+    </tr>`).join('');
+  $('tblClientes').innerHTML = `<table>
+    <thead>${encabezados(colsCli(), ordenCli)}</thead>
+    <tbody>${cuerpo}</tbody>
+    <tfoot><tr>
+      <td>Total (${fmtNum(filas.length)} clientes)</td><td></td>
+      <td class="num money${clsNeg(totalGeneral)}">${esc(fmtMoney(totalGeneral))}</td>
+      <td class="num money${clsNeg(total)}">${esc(fmtMoney(total))}</td>
+      <td class="num money${clsNeg(totalSinVencer)}">${esc(fmtMoney(totalSinVencer))}</td>
+    </tr></tfoot></table>`;
+
+  const cont = $('tblClientes');
+  engancharOrden(cont, ordenCli, renderClientes);
+  cont.querySelectorAll('tr.clic').forEach(tr => {
+    tr.addEventListener('click', () => verComprobantesDe(Number(tr.dataset.id)));
+  });
+}
+
+// ── Tab Comprobantes ────────────────────────────────────────────────────────
+const COLS_CMP = [
+  { key:'NombreCliente',    label:'Cliente' },
+  { key:'Categoria',        label:'Categoría' },
+  { key:'Fecha',            label:'Fecha' },
+  { key:'FechaVencimiento', label:'Vencimiento' },
+  { key:'IdTipoComprobante',label:'Tipo' },
+  { key:'_numero',          label:'Comprobante' },
+  { key:'ImporteTotal',     label:'Importe total', num:true },
+  { key:'Saldo',            label:'Saldo', num:true },
+  { key:'Observacion',      label:'Observación' },
+];
+
+function comprobantesFiltrados(){
+  const q = filtroCmp.q.trim().toLowerCase();
+  return COMPROBANTES.filter(c => {
+    if (filtroCmp.idCliente != null && Number(c.IdCliente) !== filtroCmp.idCliente) return false;
+    if (filtroCmp.cat && c.Categoria !== filtroCmp.cat) return false;
+    if (filtroCmp.tipo && String(c.IdTipoComprobante ?? '').trim() !== filtroCmp.tipo) return false;
+    const dia = isoDia(c.Fecha);
+    if (filtroCmp.desde && (!dia || dia < filtroCmp.desde)) return false;
+    if (filtroCmp.hasta && (!dia || dia > filtroCmp.hasta)) return false;
+    if (q){
+      const texto = `${c.NombreCliente ?? ''} ${c._numero ?? ''} ${c.NumeroComprobante ?? ''}`.toLowerCase();
+      if (!texto.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function filaCmp(c){
+  return `<tr>
+    <td>${esc(c.NombreCliente)}</td>
+    <td>${esc(c.Categoria)}</td>
+    <td>${esc(fmtFecha(c.Fecha))}</td>
+    <td>${esc(fmtFecha(c.FechaVencimiento))}</td>
+    <td>${esc(c.IdTipoComprobante)}</td>
+    <td>${esc(c._numero)}</td>
+    <td class="num${clsNeg(c.ImporteTotal)}">${esc(fmtMoney(c.ImporteTotal))}</td>
+    <td class="num money${clsNeg(c.Saldo)}">${esc(fmtMoney(c.Saldo))}</td>
+    <td class="obs">${esc(c.Observacion)}</td>
+  </tr>`;
+}
+
+function renderChipCliente(){
+  if (filtroCmp.idCliente == null){ $('chipCliente').innerHTML = ''; return; }
+  const cli = CLIENTES.find(c => Number(c.IdCliente) === filtroCmp.idCliente);
+  const nombre = cli ? cli.NombreCliente : `Cliente #${filtroCmp.idCliente}`;
+  $('chipCliente').innerHTML =
+    `<div class="filtro-cliente">Cliente: ${esc(nombre)} <span class="x" id="quitarCliente" title="Quitar filtro">✕</span></div>`;
+  $('quitarCliente').addEventListener('click', () => {
+    filtroCmp.idCliente = null;
+    renderComprobantes();
+  });
+}
+
+function renderComprobantes(reiniciarVisible = true){
+  if (reiniciarVisible) visibleCmp = CHUNK;
+  renderChipCliente();
+  filasCmp = ordenar(comprobantesFiltrados(), ordenCmp);
+  const totalSaldo   = filasCmp.reduce((a, c) => a + (Number(c.Saldo) || 0), 0);
+  const totalImporte = filasCmp.reduce((a, c) => a + (Number(c.ImporteTotal) || 0), 0);
+  $('cmpInfo').textContent = `${fmtNum(filasCmp.length)} de ${fmtNum(COMPROBANTES.length)} comprobantes`;
+
+  if (!filasCmp.length){
+    $('tblComprobantes').innerHTML = '<div class="empty">Ningún comprobante coincide con los filtros.</div>';
+    $('cmpMas').innerHTML = '';
+    return;
+  }
+  const cuerpo = filasCmp.slice(0, visibleCmp).map(filaCmp).join('');
+  $('tblComprobantes').innerHTML = `<table>
+    <thead>${encabezados(COLS_CMP, ordenCmp)}</thead>
+    <tbody id="cmpBody">${cuerpo}</tbody>
+    <tfoot><tr>
+      <td>Total filtrado (${fmtNum(filasCmp.length)})</td><td></td><td></td><td></td><td></td><td></td>
+      <td class="num${clsNeg(totalImporte)}">${esc(fmtMoney(totalImporte))}</td>
+      <td class="num money${clsNeg(totalSaldo)}">${esc(fmtMoney(totalSaldo))}</td>
+      <td></td>
+    </tr></tfoot></table>`;
+  engancharOrden($('tblComprobantes'), ordenCmp, renderComprobantes);
+  renderBotonMas();
+}
+
+// El resto de las filas se agrega al tbody existente en tandas: repintar la tabla entera
+// con miles de filas de una sola vez congela la pestaña.
+function renderBotonMas(){
+  const restantes = filasCmp.length - visibleCmp;
+  if (restantes <= 0){ $('cmpMas').innerHTML = ''; return; }
+  $('cmpMas').innerHTML = `<button class="btn btn-outline reveal" type="button" id="btnMas">Mostrar más (${fmtNum(restantes)} restantes)</button>`;
+  $('btnMas').addEventListener('click', () => {
+    const desde = visibleCmp;
+    visibleCmp = Math.min(visibleCmp + CHUNK, filasCmp.length);
+    const body = $('cmpBody');
+    if (body) body.insertAdjacentHTML('beforeend', filasCmp.slice(desde, visibleCmp).map(filaCmp).join(''));
+    renderBotonMas();
+  });
+}
+
+function verComprobantesDe(idCliente){
+  filtroCmp.idCliente = idCliente;
+  filtroCmp.q = ''; $('cmpQ').value = '';
+  irATab('comprobantes');
+  renderComprobantes();
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+// Reiniciar la animación exige un reflow entre quitar y poner la clase.
+function animarPanel(el){
+  el.classList.remove('entra');
+  void el.offsetWidth;
+  el.classList.add('entra');
+}
+
+function irATab(tab){
+  const esClientes = tab === 'clientes';
+  $('panelClientes').hidden = !esClientes;
+  $('panelComprobantes').hidden = esClientes;
+  $('tabClientes').classList.toggle('activa', esClientes);
+  $('tabComprobantes').classList.toggle('activa', !esClientes);
+  animarPanel(esClientes ? $('panelClientes') : $('panelComprobantes'));
+}
+
+// ── Exportar CSV ────────────────────────────────────────────────────────────
+// Excel en es-AR espera ';' como separador y coma decimal; el BOM evita que se rompan
+// los acentos al abrir el archivo directamente desde Excel.
+// Los nombres y observaciones vienen de la base: si arrancan con = + - @, Excel los
+// interpreta como fórmula al abrir el CSV. El apóstrofo los fuerza a texto.
+function csvCampo(v){
+  const crudo = String(v ?? '');
+  const s = /^[=+\-@]/.test(crudo) ? `'${crudo}` : crudo;
+  return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+const csvNum = n => Number(n || 0).toFixed(2).replace('.', ',');
+
+function bajarCsv(nombre, filas){
+  const contenido = '\uFEFF' + filas.map(f => f.map(csvCampo).join(';')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([contenido], { type:'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const hoyStamp = () => new Date().toISOString().slice(0, 10);
+// El archivo tiene que decir si son saldos vencidos: si no, dos exports del mismo día
+// con distinto filtro son indistinguibles.
+const sufijoMora = () => (vencidoDias === null ? '' : `-vencido-${vencidoDias}d`);
+
+function exportarClientes(){
+  const filas = ordenar(clientesFiltrados(), ordenCli);
+  bajarCsv(`cuentas-corrientes-clientes${sufijoMora()}-${hoyStamp()}.csv`, [
+    ['Cliente', 'Ultima fecha', 'Saldo total', rotuloSaldo(), 'Saldo sin vencer'],
+    ...filas.map(c => [c.NombreCliente, fmtFecha(c.UltimaFecha),
+      csvNum(c.SaldoTotal), csvNum(c.Saldo), csvNum(c.SaldoSinVencer)]),
+    ['TOTAL', '',
+      csvNum(filas.reduce((a, c) => a + (Number(c.SaldoTotal) || 0), 0)),
+      csvNum(filas.reduce((a, c) => a + (Number(c.Saldo) || 0), 0)),
+      csvNum(filas.reduce((a, c) => a + (Number(c.SaldoSinVencer) || 0), 0))],
+  ]);
+}
+
+function exportarComprobantes(){
+  const filas = ordenar(comprobantesFiltrados(), ordenCmp);
+  bajarCsv(`cuentas-corrientes-comprobantes${sufijoMora()}-${hoyStamp()}.csv`, [
+    ['Cliente', 'Categoria', 'Fecha', 'Vencimiento', 'Tipo', 'Comprobante', 'Importe total', 'Saldo', 'Observacion'],
+    ...filas.map(c => [
+      c.NombreCliente, c.Categoria, fmtFecha(c.Fecha), fmtFecha(c.FechaVencimiento),
+      c.IdTipoComprobante, c._numero, csvNum(c.ImporteTotal), csvNum(c.Saldo), c.Observacion,
+    ]),
+    ['TOTAL', '', '', '', '', '',
+      csvNum(filas.reduce((a, c) => a + (Number(c.ImporteTotal) || 0), 0)),
+      csvNum(filas.reduce((a, c) => a + (Number(c.Saldo) || 0), 0)), ''],
+  ]);
+}
+
+// ── Eventos ─────────────────────────────────────────────────────────────────
+$('tabClientes').addEventListener('click', () => irATab('clientes'));
+$('tabComprobantes').addEventListener('click', () => irATab('comprobantes'));
+
+$('cliQ').addEventListener('input', e => { filtroCli.q = e.target.value; renderClientes(); });
+$('cliCat').addEventListener('change', e => { filtroCli.cat = e.target.value; renderClientes(); });
+$('cliCsv').addEventListener('click', exportarClientes);
+
+$('cmpQ').addEventListener('input', e => { filtroCmp.q = e.target.value; renderComprobantes(); });
+$('cmpCat').addEventListener('change', e => { filtroCmp.cat = e.target.value; renderComprobantes(); });
+$('cmpTipo').addEventListener('change', e => { filtroCmp.tipo = e.target.value; renderComprobantes(); });
+$('cmpDesde').addEventListener('change', e => { filtroCmp.desde = e.target.value; renderComprobantes(); });
+$('cmpHasta').addEventListener('change', e => { filtroCmp.hasta = e.target.value; renderComprobantes(); });
+$('cmpCsv').addEventListener('click', exportarComprobantes);
+$('cmpLimpiar').addEventListener('click', () => {
+  filtroCmp = { q:'', cat:'', tipo:'', desde:'', hasta:'', idCliente:null };
+  $('cmpQ').value = ''; $('cmpCat').value = ''; $('cmpTipo').value = '';
+  $('cmpDesde').value = ''; $('cmpHasta').value = '';
+  renderComprobantes();
+});
+
+$('temaToggle').addEventListener('click', () => {
+  const nuevo = temaActual() === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem(TEMA_KEY, nuevo); } catch { /* modo privado: vale sólo para esta visita */ }
+  aplicarTema(nuevo);
+});
+// Mientras el usuario no haya elegido, el tema sigue al sistema en vivo.
+if (window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    if (temaGuardado() === null) aplicarTema(e.matches ? 'dark' : 'light');
+  });
+}
+
+// La barra de mora se pega justo debajo del header: su alto real se publica como
+// variable CSS para que no queden costuras si el header envuelve en pantallas chicas.
+if (window.ResizeObserver){
+  const obs = new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--h-header', `${$('appHeader').offsetHeight}px`);
+  });
+  obs.observe($('appHeader'));
+}
+
+// ── Filtro de antigüedad de mora ────────────────────────────────────────────
+$('vencChk').addEventListener('change', e => {
+  $('vencDias').disabled = !e.target.checked;
+  if (e.target.checked) $('vencDias').focus();
+});
+$('vencDias').addEventListener('keydown', e => { if (e.key === 'Enter') aplicarMora(); });
+$('vencAplicar').addEventListener('click', aplicarMora);
+
+function aplicarMora(){
+  const pedido = $('vencChk').checked
+    ? (vencidoDiasSeguro($('vencDias').value) ?? VENCIDO_DIAS_DEFAULT)
+    : null;
+  if (pedido !== null) $('vencDias').value = String(pedido);
+  if (pedido === vencidoDias) return;               // nada que recargar
+  vencidoDias = pedido;
+  guardarEnUrl();
+  cargar();
+}
+
+// Estado inicial: el tema ya lo fijó el <head>, acá sólo se sincroniza el botón.
+aplicarTema(temaGuardado() ?? temaSistema());
+
+// Estado inicial: lo que venga en la URL manda sobre el default. Sin parámetro se
+// arranca separando a VENCIDO_DIAS_DEFAULT, que es el plazo con el que se controla la
+// cobranza; para ver el saldo sin separar hay que destildar la casilla.
+const _url = new URLSearchParams(window.location.search);
+vencidoDias = _url.has('vencidoDias')
+  ? vencidoDiasSeguro(_url.get('vencidoDias'))
+  : VENCIDO_DIAS_DEFAULT;
+$('vencDias').value = String(vencidoDias === null ? VENCIDO_DIAS_DEFAULT : vencidoDias);
+sincronizarControlesMora();
+renderChipMora();
+
+cargar();
+</script>
+</body></html>
