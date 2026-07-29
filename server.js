@@ -20,7 +20,7 @@ const comprasModulo = require('./compras_modulo');
 const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
-const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
+const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020 } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
@@ -1842,6 +1842,9 @@ async function calcularDistribucionAlmacen() {
   const nuevoCfg = distCfg.nuevo || {};
   const nuevoDias = nuevoCfg.dias || 30;
   const pisoImportancia = nuevoCfg.pisoImportancia || 0.8;
+  // Piso de reposición del producto nuevo: por defecto el de un clase B (min 4 / S 8).
+  const pisosNuevo = { min: nuevoCfg.pisoMin != null ? nuevoCfg.pisoMin : 4,
+                       S:   nuevoCfg.pisoS   != null ? nuevoCfg.pisoS   : 8 };
   const compraTipos = (distCfg.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
   const [stockRows, nombres, fact, primeraCompraRows] = await Promise.all([
     query(sqlStockDistribucion(plus)),
@@ -1880,7 +1883,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, pisosNuevo, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
@@ -2267,6 +2270,71 @@ app.post('/api/compras-modulo/ordenes', (req, res) => {
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
 const DISTRIB_OVERRIDES_PATH = path.join(DATA_DIR, 'distribucion_overrides.json');
 const A8020_CALC_PATH = path.join(DATA_DIR, 'a8020_calc.json');
+// Ajustes manuales de S/min por (plu, sucursal). Persisten al recalcular: el cálculo
+// escribe lo suyo en detalle[plu][suc].S/.min y estos valores pisan mins/sLevels.
+const A8020_MANUAL_PATH = path.join(DATA_DIR, 'a8020_manual.json');
+
+// Escribe data/a8020.json en formato legacy (pesables.js / almacen.js / distribucion.js) desde el caché.
+//   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).
+const LEGACY_KEY = { riv:'minRiv', urq:'minUrq', nacion:'minNacion', chaca:'minChaca',
+  pergamino:'minPergamino', sanpedro:'minSanPedro', logia:'minLogia',
+  ramallo:'minVRamallo', sucu11:'minVConst' };
+const LEGACY_KEY_S = { riv:'SRiv', urq:'SUrq', nacion:'SNacion', chaca:'SChaca',
+  pergamino:'SPergamino', sanpedro:'SSanPedro', logia:'SLogia',
+  ramallo:'SVRamallo', sucu11:'SVConst' };
+// Ranking por sucursal (percentil 0-1 de importancia del PLU dentro de esa sucursal) → distribucion.js
+// lo usa para ponderar la importancia del envío por sucursal en vez del BB global plano.
+const LEGACY_KEY_RANK = { riv:'rankRiv', urq:'rankUrq', nacion:'rankNacion', chaca:'rankChaca',
+  pergamino:'rankPergamino', sanpedro:'rankSanPedro', ramallo:'rankVRamallo' };
+function escribirA8020Legacy(cache) {
+  const a8020Legacy = {};
+  for (const [plu, sucData] of Object.entries(cache.mins || {})) {
+    a8020Legacy[plu] = {};
+    for (const [sucKey, m] of Object.entries(sucData)) {
+      const lk = LEGACY_KEY[sucKey]; if (lk) a8020Legacy[plu][lk] = m;
+      const sk = LEGACY_KEY_S[sucKey]; const sv = ((cache.sLevels || {})[plu] || {})[sucKey];
+      if (sk && sv != null) a8020Legacy[plu][sk] = sv;
+    }
+  }
+  for (const [plu, cls] of Object.entries(cache.abc || {})) {
+    if (cls === 'F') (a8020Legacy[plu] = a8020Legacy[plu] || {}).claseF = true;
+  }
+  // Cachés previos a los ajustes manuales no traen rankingPorSucursal: se reconstruye desde detalle
+  // para no borrar los rankXxx del legacy al fijar un valor sin recalcular desde Siga.
+  let rankSuc = cache.rankingPorSucursal;
+  if (!rankSuc) {
+    rankSuc = {};
+    for (const [plu, porSuc] of Object.entries(cache.detalle || {})) {
+      for (const [suc, d] of Object.entries(porSuc)) {
+        if (d.ranking != null) (rankSuc[suc] = rankSuc[suc] || {})[plu] = d.ranking;
+      }
+    }
+  }
+  for (const [sucKey, porPlu] of Object.entries(rankSuc)) {
+    const rk = LEGACY_KEY_RANK[sucKey]; if (!rk) continue;
+    for (const [plu, score] of Object.entries(porPlu)) {
+      (a8020Legacy[plu] = a8020Legacy[plu] || {})[rk] = score;
+    }
+  }
+  // Ranking general (mismo 0-1, todo el catálogo) → fallback en distribucion.js cuando el PLU no tiene
+  // rank en NINGUNA sucursal. Reemplaza el fallback a BB crudo (facturación en miles/millones) que
+  // mezclaba escalas con los rankXxx (0-1) y disparaba la importancia de esos PLUs muy por encima del resto.
+  for (const [plu, score] of Object.entries(cache.rankingGeneral || {})) {
+    (a8020Legacy[plu] = a8020Legacy[plu] || {}).rankGeneral = score;
+  }
+  guardarJSON(A8020_PATH, a8020Legacy);
+  return a8020Legacy;
+}
+// Reaplica los ajustes manuales sobre el caché ya calculado y reescribe el legacy.
+// Evita tener que recalcular desde Siga (que tarda minutos) al fijar/quitar un valor.
+function reaplicarManualA8020() {
+  const cache = leerJSON(A8020_CALC_PATH, null);
+  if (!cache || cache.vacio || !cache.detalle) return null;
+  aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}));
+  guardarJSON(A8020_CALC_PATH, cache);
+  escribirA8020Legacy(cache);
+  return cache;
+}
 // Filtros comunes: venta al cliente final por sucursal (excluye ANULADO y comprobantes a clientes categoría SUCURSAL).
 function _ventasWhere(idList, meses) {
   return `v.Fecha >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
@@ -2536,10 +2604,10 @@ async function recalcularA8020() {
       for (const r of rows) esViejo.add(String(r.IdProducto));
     }
   }
-  const nuevos = [], viejos = [], claseF = new Set();
+  const nuevos = [], viejos = [];
   for (const plu of candNoVenta) {
     if (esViejo.has(plu)) {
-      claseF.add(plu); viejos.push(Number(plu)); abc[plu] = 'F';
+      viejos.push(Number(plu)); abc[plu] = 'F';   // escribirA8020Legacy deriva claseF de abc
       if (mins[plu]) for (const sk of Object.keys(mins[plu])) mins[plu][sk] = 0;
       if (sLevels[plu]) for (const sk of Object.keys(sLevels[plu])) sLevels[plu][sk] = 0;
       if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) { detalle[plu][sk].S = 0; detalle[plu][sk].min = 0; detalle[plu][sk].viejo = true; }
@@ -2568,43 +2636,11 @@ async function recalcularA8020() {
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
     bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
-    rankingGeneral };
+    rankingGeneral, rankingPorSucursal: ranking };
+  // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa.
+  aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}));
   guardarJSON(A8020_CALC_PATH, cache);
-  // Escribir a8020.json en formato legacy para pesables.js y almacen.js.
-  //   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).
-  const LEGACY_KEY = { riv:'minRiv', urq:'minUrq', nacion:'minNacion', chaca:'minChaca',
-    pergamino:'minPergamino', sanpedro:'minSanPedro', logia:'minLogia',
-    ramallo:'minVRamallo', sucu11:'minVConst' };
-  const LEGACY_KEY_S = { riv:'SRiv', urq:'SUrq', nacion:'SNacion', chaca:'SChaca',
-    pergamino:'SPergamino', sanpedro:'SSanPedro', logia:'SLogia',
-    ramallo:'SVRamallo', sucu11:'SVConst' };
-  const a8020Legacy = {};
-  for (const [plu, sucData] of Object.entries(mins)) {
-    a8020Legacy[plu] = {};
-    for (const [sucKey, m] of Object.entries(sucData)) {
-      const lk = LEGACY_KEY[sucKey]; if (lk) a8020Legacy[plu][lk] = m;
-      const sk = LEGACY_KEY_S[sucKey]; const sv = (sLevels[plu] || {})[sucKey];
-      if (sk && sv != null) a8020Legacy[plu][sk] = sv;
-    }
-  }
-  for (const plu of claseF) { (a8020Legacy[plu] = a8020Legacy[plu] || {}).claseF = true; }
-  // Ranking por sucursal (percentil 0-1 de importancia del PLU dentro de esa sucursal) → distribucion.js
-  // lo usa para ponderar la importancia del envío por sucursal en vez del BB global plano.
-  const LEGACY_KEY_RANK = { riv:'rankRiv', urq:'rankUrq', nacion:'rankNacion', chaca:'rankChaca',
-    pergamino:'rankPergamino', sanpedro:'rankSanPedro', ramallo:'rankVRamallo' };
-  for (const [sucKey, porPlu] of Object.entries(ranking)) {
-    const rk = LEGACY_KEY_RANK[sucKey]; if (!rk) continue;
-    for (const [plu, score] of Object.entries(porPlu)) {
-      (a8020Legacy[plu] = a8020Legacy[plu] || {})[rk] = score;
-    }
-  }
-  // Ranking general (mismo 0-1, todo el catálogo) → fallback en distribucion.js cuando el PLU no tiene
-  // rank en NINGUNA sucursal. Reemplaza el fallback a BB crudo (facturación en miles/millones) que
-  // mezclaba escalas con los rankXxx (0-1) y disparaba la importancia de esos PLUs muy por encima del resto.
-  for (const [plu, score] of Object.entries(rankingGeneral)) {
-    (a8020Legacy[plu] = a8020Legacy[plu] || {}).rankGeneral = score;
-  }
-  guardarJSON(A8020_PATH, a8020Legacy);
+  escribirA8020Legacy(cache);
 
   // Resumen para la respuesta (no vuelca todo)
   const distAbc = { A: 0, B: 0, C: 0 };
@@ -2617,6 +2653,71 @@ async function recalcularA8020() {
 }
 app.get('/api/distribucion/a8020/recalcular', apiRoute(async () => recalcularA8020()));
 app.get('/api/distribucion/a8020', apiRoute(async () => leerJSON(A8020_CALC_PATH, { vacio: true })));
+
+// ── Ajustes manuales de S/min por (plu, sucursal) ──────────────────────────────
+const MANUAL_MAX = 100000;
+function validarValorManual(v, campo) {
+  if (v === '' || v == null) return null;            // null = sin fijar (usa el calculado)
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > MANUAL_MAX) throw new Error(`Valor inválido para ${campo}`);
+  return roundDec(n, 2);
+}
+// Lista los ajustes con su valor calculado al lado, para la vista rápida de la UI.
+app.get('/api/distribucion/a8020/manual', (_req, res) => {
+  const manual = leerJSON(A8020_MANUAL_PATH, {});
+  const cache = leerJSON(A8020_CALC_PATH, {}) || {};
+  const items = [];
+  for (const [plu, porSuc] of Object.entries(manual)) {
+    for (const [sucursal, m] of Object.entries(porSuc)) {
+      const d = ((cache.detalle || {})[plu] || {})[sucursal] || {};
+      items.push({ plu: Number(plu), sucursal, S: m.S ?? null, min: m.min ?? null,
+        nota: m.nota || '', ts: m.ts || null, usuario: m.usuario || null,
+        nombre: (cache.nombres || {})[plu] || '', calcS: d.S ?? null, calcMin: d.min ?? null });
+    }
+  }
+  items.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '') || a.sucursal.localeCompare(b.sucursal));
+  res.json({ items });
+});
+app.post('/api/distribucion/a8020/manual', (req, res) => {
+  try {
+    const body = req.body || {};
+    const plu = String(body.plu || '').trim();
+    const sucursal = String(body.sucursal || '').trim();
+    if (!plu) throw new Error('Falta plu');
+    const sucs = (leerJSON(DISTRIB_CONFIG_PATH, {}).sucursales) || {};
+    if (!sucs[sucursal]) throw new Error(`Sucursal desconocida: ${sucursal}`);
+    const S = validarValorManual(body.S, 'S');
+    const min = validarValorManual(body.min, 'min');
+    if (S == null && min == null) throw new Error('Indicá al menos S o min');
+    if (S != null && min != null && min > S) throw new Error('El min no puede ser mayor que S');
+    const manual = leerJSON(A8020_MANUAL_PATH, {});
+    const prev = (manual[plu] || {})[sucursal] || {};
+    const entry = { ts: new Date().toISOString() };
+    if (S != null) entry.S = S;
+    if (min != null) entry.min = min;
+    if (body.nota != null) entry.nota = String(body.nota).slice(0, 200);
+    else if (prev.nota) entry.nota = prev.nota;
+    const usuario = req.session && req.session.user && req.session.user.usuario;
+    if (usuario) entry.usuario = usuario;
+    manual[plu] = { ...(manual[plu] || {}), [sucursal]: entry };
+    guardarJSON(A8020_MANUAL_PATH, manual);
+    reaplicarManualA8020();
+    res.json({ ok: true, plu: Number(plu), sucursal, ...entry });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/distribucion/a8020/manual/:plu/:sucursal', (req, res) => {
+  try {
+    const { plu, sucursal } = req.params;
+    const manual = leerJSON(A8020_MANUAL_PATH, {});
+    if (manual[plu]) {
+      const { [sucursal]: _quitado, ...resto } = manual[plu];
+      if (Object.keys(resto).length) manual[plu] = resto; else delete manual[plu];
+      guardarJSON(A8020_MANUAL_PATH, manual);
+      reaplicarManualA8020();
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, 'a8020.html')));
 app.get('/cotizador',         (_req, res) => res.sendFile(path.join(__dirname, 'cotizador.html')));
 

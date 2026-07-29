@@ -157,4 +157,42 @@ function calcularRankingGlobal(metricByPlu) {
   return score;
 }
 
-module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec };
+// ── Ajustes manuales (S / min fijos por sucursal) ────────────────────────────
+// manual: { plu: { sucKey: { S, min } } }  — valores fijados a mano desde la UI.
+// El cálculo NUNCA los pisa: detalle[plu][suc].S/.min conservan siempre lo calculado
+// y mins/sLevels (lo que consume distribución) quedan con el valor manual.
+// Idempotente: reaplicarla sobre un caché ya ajustado da el mismo resultado, así que
+// alcanza con volver a llamarla tras editar/borrar un ajuste, sin recalcular desde Siga.
+function aplicarManualA8020(cache, manual) {
+  const man = manual || {};
+  cache.mins = cache.mins || {};
+  cache.sLevels = cache.sLevels || {};
+  cache.detalle = cache.detalle || {};
+  for (const [plu, porSuc] of Object.entries(cache.detalle)) {
+    for (const [suc, d] of Object.entries(porSuc)) {
+      const m = (man[plu] || {})[suc];
+      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = m && m.S != null ? Number(m.S) : d.S;
+      (cache.mins[plu] = cache.mins[plu] || {})[suc] = m && m.min != null ? Number(m.min) : d.min;
+      if (m) {
+        d.manual = true;
+        // La observación viaja en el caché: la UI la precarga al reabrir la celda para editar.
+        if (m.nota) d.manualNota = m.nota; else delete d.manualNota;
+        if (m.ts) d.manualTs = m.ts; else delete d.manualTs;
+      } else { delete d.manual; delete d.manualNota; delete d.manualTs; }
+    }
+  }
+  // Pares (plu, sucursal) fijados a mano que el cálculo no produjo: se crean con calculado 0.
+  for (const [plu, porSuc] of Object.entries(man)) {
+    for (const [suc, m] of Object.entries(porSuc)) {
+      const det = cache.detalle[plu] = cache.detalle[plu] || {};
+      if (det[suc]) continue;
+      det[suc] = { mu: 0, sigma: 0, S: 0, min: 0, manual: true, soloManual: true,
+        ...(m.nota ? { manualNota: m.nota } : {}), ...(m.ts ? { manualTs: m.ts } : {}) };
+      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = m.S != null ? Number(m.S) : 0;
+      (cache.mins[plu] = cache.mins[plu] || {})[suc] = m.min != null ? Number(m.min) : 0;
+    }
+  }
+  return cache;
+}
+
+module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020 };

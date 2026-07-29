@@ -34,10 +34,12 @@ function roundup(x, d = 0) {               // ROUNDUP: aleja del cero
   return Math.sign(x) * Math.ceil(Math.abs(x) * f) / f;
 }
 
-// Pide teórico: gatilla si stock ≤ min (punto de pedido); repone hasta S (order-up-to).
+// Pide teórico: gatilla si stock < min (punto de pedido); repone hasta S (order-up-to).
 //   pedido = MAX(S − stock, 0).  Reemplaza la vieja fórmula (BB>0.75?min*2:min*4) − stock/2.
+// Estar JUSTO en el mínimo no gatilla: el min es el nivel que se quiere sostener, no un piso a
+// superar. Con stock == min pedía y reponía hasta S en cada corrida, generando envíos permanentes.
 function pideTeorico(min, S, stock, envasaSi) {
-  if (!(min >= stock && envasaSi)) return 0;
+  if (!(min > stock && envasaSi)) return 0;
   return Math.max((S || 0) - stock, 0);
 }
 
@@ -170,13 +172,19 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     }
     a = aa;
   }
-  // Empuje "producto nuevo": eleva min/S al propio stock de central (D) para que el
-  // racionamiento por % reparta la mayor parte del depósito entre sucursales según su
-  // peso (opts.pesosRacionado), en vez de esperar a que el min normal lo gatille.
-  const esNuevo = has(opts && opts.esNuevoSet, plu);
-  if (esNuevo && D > 0 && envasaSi && !a.claseF) {
+  // Producto nuevo: piso de reposición fijo (opts.pisosNuevo, por defecto el de un clase B: min 4 /
+  // S 8). Sin historial de ventas el A8020 le calcula min/S ~0 y nunca se repondría; con el piso
+  // arranca con una góndola mínima viable. Es un PISO, no un empuje: si el A8020 ya le dio más, manda
+  // el A8020. Reemplaza al viejo empuje que subía min/S al stock entero del central (D) y liquidaba
+  // el depósito completo en el racionamiento.
+  const pisosNuevo = (opts && opts.pisosNuevo) || null;
+  if (pisosNuevo && has(opts && opts.esNuevoSet, plu) && D > 0 && envasaSi && !a.claseF) {
+    const pmin = pisosNuevo.min || 0, pS = pisosNuevo.S || 0;
     const aa = { ...a };
-    for (const [mk, sk] of PARES_MIN_S) { aa[sk] = Math.max(aa[sk] || 0, D); aa[mk] = Math.max(aa[mk] || 0, D); }
+    for (const [mk, sk] of PARES_MIN_S) {
+      if ((aa[mk] || 0) < pmin) aa[mk] = pmin;
+      if ((aa[sk] || 0) < pS) aa[sk] = pS;
+    }
     a = aa;
   }
 
@@ -248,18 +256,20 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     ? Object.fromEntries(ORDEN_CLAVES.map(k => [k, pidePorClave[k] || 0]))
     : racionarPorPrioridad(pidePorClave, sPorClave, D, pesosRacionado, ORDEN_CLAVES, tramosMicro, pisoAbsolutoMicro);
   const racion = (key) => racionPorClave[key];
-  // Rivadavia (J): nostock=(D<=0 && stock<=min); redondeo UP; fact=rivadavia
+  // Rivadavia (J): nostock=(D<=0 && stock<min); redondeo UP; fact=rivadavia
+  // Los cortes usan stock >= min (no >) para acompañar a pideTeorico: estar justo en el mínimo
+  // NO pide, así que corresponde 'No', no un envío de 0.
   const eRiv = has(restr.rivadavia, plu) ? 'Restringido'
     : pa.rivadavia === 1 ? 'Fact'
-    : (D <= 0 && (st.riv||0) <= minRiv) ? 'No stock'
-    : ((st.riv||0) > minRiv || minRiv === 0) ? 'No'
+    : (D <= 0 && (st.riv||0) < minRiv) ? 'No stock'
+    : ((st.riv||0) >= minRiv || minRiv === 0) ? 'No'
     : racion('riv');
-  // Genérico no-Rivadavia con chequeo Fact y nostock=(Ecentral && stock<=min)
+  // Genérico no-Rivadavia con chequeo Fact y nostock=(Ecentral && stock<min)
   const envGen = (restrSet, factFlag, stock, min, key) =>
       has(restrSet, plu) ? 'Restringido'
     : factFlag === 1 ? 'Fact'
-    : (E_noStock && stock <= min) ? 'No stock'
-    : (stock > min || min === 0) ? 'No'
+    : (E_noStock && stock < min) ? 'No stock'
+    : (stock >= min || min === 0) ? 'No'
     : racion(key);
   const eUrq = envGen(restr.urquiza,   pa.urquiza,   st.urq||0,       minUrq,    'urq');
   const eNac = envGen(restr.nacion,    pa.nacion,    st.nacion||0,    minNacion, 'nacion');
@@ -269,18 +279,18 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   // Sucu8 (AH): restr=sanPedro, SIN Fact, nostock=(E && stock>min)  [vestigial, no sale]
   const eSu8 = has(restr.sanPedro, plu) ? 'Restringido'
     : (E_noStock && (st.sucu8||0) > minSucu8) ? 'No stock'
-    : ((st.sucu8||0) > minSucu8 || minSucu8 === 0) ? 'No'
+    : ((st.sucu8||0) >= minSucu8 || minSucu8 === 0) ? 'No'
     : racion('sucu8');
   // Sucu9 (AL → sucursal9): restr/fact villaRamallo; nostock=(E && stock>min)
   const eSu9 = has(restr.villaRamallo, plu) ? 'Restringido'
     : pa.villaRamallo === 1 ? 'Fact'
     : (E_noStock && (st.sucu9||0) > minSucu9) ? 'No stock'
-    : ((st.sucu9||0) > minSucu9 || minSucu9 === 0) ? 'No'
+    : ((st.sucu9||0) >= minSucu9 || minSucu9 === 0) ? 'No'
     : racion('sucu9');
   // Sucu11 (AP → sucursal11): restr=sanPedro, SIN Fact, nostock=(E && stock>min)
   const eS11 = has(restr.sanPedro, plu) ? 'Restringido'
     : (E_noStock && (st.sucu11||0) > minSucu11) ? 'No stock'
-    : ((st.sucu11||0) > minSucu11 || minSucu11 === 0) ? 'No'
+    : ((st.sucu11||0) >= minSucu11 || minSucu11 === 0) ? 'No'
     : racion('sucu11');
 
   // Piso mínimo de envío: descarta envío calculado < pisoMinimo(S) escalonado

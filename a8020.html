@@ -88,6 +88,7 @@
       <div id="rubroDrop" style="display:none;position:absolute;z-index:50;top:calc(100% + 4px);left:0;min-width:220px;max-height:340px;overflow:auto;background:var(--surface1,#fff);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px"></div>
     </div>
     <button class="primary" id="recalc">↻ Recalcular desde Siga</button>
+    <button id="btnFijos" onclick="abrirPanelFijos()" title="Ver y editar los valores fijados a mano">📌 Fijos</button>
     <span class="div"></span>
     <span id="resumen" class="ts">cargando…</span>
   </div>
@@ -114,10 +115,81 @@
     <table id="tabla" style="display:none"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table>
   </main>
 </div>
+<!-- Modal: fijar S/min de una celda (plu × sucursal) -->
+<div class="modal-bg" id="mFijo" onclick="if(event.target===this)cerrarFijo()">
+  <div class="modal">
+    <h3><span id="mf-titulo">Ajuste manual</span><span class="sp"></span><button onclick="cerrarFijo()">✕</button></h3>
+    <div class="cuerpo">
+      <dl class="kv" id="mf-info"></dl>
+      <div class="campos">
+        <label class="campo">S (objetivo / order-up-to)<input type="number" id="mf-S" step="0.1" min="0"></label>
+        <label class="campo">min (punto de pedido)<input type="number" id="mf-min" step="0.1" min="0"></label>
+      </div>
+      <label class="campo" style="margin-bottom:10px">Nota (opcional)<input type="text" id="mf-nota" maxlength="200" placeholder="Por qué se fija este valor"></label>
+      <div class="err" id="mf-err"></div>
+    </div>
+    <div class="pie">
+      <button class="primary" onclick="guardarFijo()">Guardar fijo</button>
+      <button id="mf-quitar" onclick="quitarFijo()" style="display:none">Quitar fijo</button>
+      <span class="sp" style="flex:1"></span>
+      <button onclick="cerrarFijo()">Cancelar</button>
+    </div>
+  </div>
+</div>
+<!-- Modal genérico: confirmación / aviso (reemplaza confirm() y alert()) -->
+<div class="modal-bg" id="mAviso" onclick="if(event.target===this)cerrarAviso()">
+  <div class="modal" style="width:min(430px,92vw)">
+    <h3><span id="ma-titulo">Confirmar</span><span class="sp"></span><button onclick="cerrarAviso()">✕</button></h3>
+    <div class="cuerpo"><p id="ma-msg" style="margin:0;font-size:13.5px;line-height:1.5"></p></div>
+    <div class="pie">
+      <button class="primary" id="ma-ok" onclick="aceptarAviso()">Aceptar</button>
+      <span style="flex:1"></span>
+      <button id="ma-cancelar" onclick="cerrarAviso()">Cancelar</button>
+    </div>
+  </div>
+</div>
+<!-- Modal: listado de todos los ajustes manuales -->
+<div class="modal-bg" id="mLista" onclick="if(event.target===this)cerrarPanelFijos()">
+  <div class="modal" style="width:min(860px,96vw)">
+    <h3>📌 Valores fijados a mano<span class="sp"></span><button onclick="cerrarPanelFijos()">✕</button></h3>
+    <div class="cuerpo" id="ml-body">cargando…</div>
+  </div>
+</div>
 <style>
 #rubroDrop .rubro-opt{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:13px;cursor:pointer}
 #rubroDrop .rubro-opt:hover{background:var(--surface2,#f1f1f1)}
 #rubroDrop .rubro-opt-clear{padding:5px 8px;font-size:12px;color:var(--primary,#2563eb);cursor:pointer;border-bottom:1px solid var(--border);margin-bottom:4px}
+/* ── Ajustes manuales (S/min fijos) ── */
+td.s{cursor:pointer}
+td.s.fijo span{box-shadow:inset 0 0 0 2px #7c3aed}
+td.s.fijo::after{content:'📌';font-size:9px;margin-left:3px;vertical-align:top}
+.modal-bg{position:fixed;inset:0;background:rgba(20,26,18,.5);display:none;align-items:center;justify-content:center;z-index:100}
+.modal-bg.open{display:flex}
+#mAviso{z-index:120}   /* confirmación/aviso siempre por encima del panel de fijos */
+.modal{background:var(--card);border-radius:14px;box-shadow:var(--shadow-lg);width:min(560px,94vw);max-height:88vh;overflow:auto}
+.modal h3{font-family:var(--disp);font-size:19px;margin:0;padding:14px 18px;background:var(--verde);color:#fff;border-radius:14px 14px 0 0;display:flex;align-items:center;gap:10px}
+.modal h3 .sp{flex:1}
+.modal h3 button{background:rgba(255,255,255,.18);border:0;color:#fff;padding:4px 10px;border-radius:7px}
+.modal .cuerpo{padding:16px 18px}
+.modal .pie{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px;margin:0 0 14px}
+.kv dt{color:var(--faint)}
+.kv dd{margin:0;font-weight:500;font-variant-numeric:tabular-nums}
+.campo{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.campo input{font-family:var(--body);font-size:14px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--text);outline:none}
+.campo input:focus{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.15)}
+.campos{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.err{color:var(--error);font-size:12px;font-weight:500}
+#fijos-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+#fijos-tbl th{position:sticky;top:0;z-index:2;text-align:left;font-family:var(--disp);font-size:12.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#fff;background:var(--verde);padding:8px 6px;border-bottom:2px solid var(--verde-dark);white-space:nowrap}
+#fijos-tbl th.num{text-align:right}
+#fijos-tbl td{padding:6px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+#fijos-tbl td.num{text-align:right}
+#fijos-tbl tbody tr:nth-child(even){background:var(--surface1)}
+#fijos-tbl button{padding:3px 8px;font-size:11px}
+#ml-scroll{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+#ml-barra{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+#ml-q{flex:1}
 </style>
 <script>
 const SUC = [['riv','Rivadavia'],['urq','Urquiza'],['nacion','Nación'],['chaca','Chacabuco'],['pergamino','Pergamino'],['sanpedro','San Pedro'],['ramallo','Villa Ramallo']];
@@ -187,9 +259,14 @@ function render(){
     const celdas = SUC.map(([k])=>{ const s=r.mins[k]; const d=(r.detalle||{})[k]||{};
       const boot = d.bootstrap===true;
       const mn=(r.trig||{})[k];
-      const tip = d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}`:'';
-      const sCell = (s>0 && boot) ? `<td class="s boot"><span title="${tip}">~${fmt(s)}</span></td>`
-        : s>0 ? `<td class="s pos"><span title="${tip}">${fmt(s)}</span></td>` : `<td class="s">·</td>`;
+      const fijo = d.manual===true;
+      const tip = (d.mu!=null?`${boot?'~bootstrap~ ':''}S=${fmt(s)}  ·  min=${fmt(mn)}  ·  μ=${d.mu}  σ=${d.sigma}`:'')
+        + (fijo?`\nFIJADO A MANO (calculado: S=${fmt(d.S)} · min=${fmt(d.min)})`:'') + '\nClick para ajustar';
+      const cls = `s${fijo?' fijo':''}`;
+      const click = ` onclick="abrirFijo(${r.plu},'${k}')"`;
+      const sCell = (s>0 && boot) ? `<td class="${cls} boot"${click}><span title="${tip}">~${fmt(s)}</span></td>`
+        : s>0 ? `<td class="${cls} pos"${click}><span title="${tip}">${fmt(s)}</span></td>`
+        : `<td class="${cls}"${click} title="Click para ajustar">·</td>`;
       const rk = d.ranking;
       const rkCls = rk==null ? '' : rk>=0.8 ? 'hi' : rk>=0.5 ? 'mid' : 'lo';
       const rkCell = rk==null ? '<td class="s">·</td>' : `<td><span class="rank ${rkCls}">${rk.toFixed(2)}</span></td>`;
@@ -223,7 +300,7 @@ async function cargar(){
   const bootSet = new Set((cache.bootstrapped||[]).map(Number));
   filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, rankGeneral:(cache.rankingGeneral||{})[plu], nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
   construirRubroFiltro();
-  construir(); render(); renderAnomalias();
+  construir(); render(); renderAnomalias(); actualizarBotonFijos();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';
 }
 // ── Detección de anomalías ────────────────────────────────────────────────────
@@ -284,6 +361,156 @@ function renderAnomalias() {
     </tr>`;
   }).join('');
 }
+
+// ── Ajustes manuales de S/min por (plu, sucursal) ─────────────────────────────
+// El backend guarda data/a8020_manual.json y lo reaplica sobre el caché: el recálculo
+// desde Siga nunca pisa estos valores (el calculado queda visible en detalle.S/.min).
+const NOMBRE_SUC = Object.fromEntries(SUC);
+let fijoActual = null;   // { plu, suc }
+
+function actualizarBotonFijos(){
+  let n=0;
+  for(const porSuc of Object.values(cache.detalle||{})) for(const d of Object.values(porSuc)) if(d.manual===true) n++;
+  const b=document.getElementById('btnFijos');
+  if(b) b.textContent = n ? `📌 Fijos (${n})` : '📌 Fijos';
+}
+function abrirFijo(plu, suc){
+  fijoActual = { plu:String(plu), suc };
+  const d = ((cache.detalle||{})[plu]||{})[suc] || {};
+  const nombre = (cache.nombres||{})[plu] || '';
+  const efS = ((cache.sLevels||{})[plu]||{})[suc];
+  const efMin = ((cache.mins||{})[plu]||{})[suc];
+  const fijo = d.manual===true;
+  document.getElementById('mf-titulo').textContent = `${nombre||'PLU '+plu} · ${NOMBRE_SUC[suc]||suc}`;
+  const orig = [
+    ['PLU', plu],
+    ['Producto', nombre||'—'],
+    ['Sucursal', NOMBRE_SUC[suc]||suc],
+    ['Clase ABC', (cache.abc||{})[plu]||'—'],
+    ['S calculado', fmt(d.S)],
+    ['min calculado', fmt(d.min)],
+    ['μ / σ diarios', d.mu!=null?`${fmt(d.mu)} / ${fmt(d.sigma)}`:'—'],
+    ['Vigente hoy', `S=${fmt(efS)} · min=${fmt(efMin)}${fijo?' (fijado a mano)':''}`],
+  ];
+  if(fijo){
+    orig.push(['Observación', (d.manualNota||'—').replace(/</g,'&lt;')]);
+    if(d.manualTs) orig.push(['Fijado el', new Date(d.manualTs).toLocaleString('es-AR')]);
+  }
+  document.getElementById('mf-info').innerHTML = orig.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('');
+  document.getElementById('mf-S').value   = efS!=null ? efS : '';
+  document.getElementById('mf-min').value = efMin!=null ? efMin : '';
+  document.getElementById('mf-nota').value = fijo ? (d.manualNota || '') : '';
+  document.getElementById('mf-err').textContent = '';
+  document.getElementById('mf-quitar').style.display = fijo ? '' : 'none';
+  document.getElementById('mFijo').classList.add('open');
+  document.getElementById('mf-S').focus();
+}
+function cerrarFijo(){ document.getElementById('mFijo').classList.remove('open'); fijoActual=null; }
+async function guardarFijo(){
+  if(!fijoActual) return;
+  const err = document.getElementById('mf-err');
+  const S = document.getElementById('mf-S').value.trim();
+  const min = document.getElementById('mf-min').value.trim();
+  if(S==='' && min===''){ err.textContent='Indicá al menos S o min.'; return; }
+  if(S!=='' && min!=='' && Number(min)>Number(S)){ err.textContent='El min no puede ser mayor que S.'; return; }
+  err.textContent='';
+  try{
+    const r = await fetch('/api/distribucion/a8020/manual', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ plu:fijoActual.plu, sucursal:fijoActual.suc, S:S===''?null:S, min:min===''?null:min,
+        nota: document.getElementById('mf-nota').value.trim() }) });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+    cerrarFijo(); await cargar();
+  }catch(e){ err.textContent='Error: '+e.message; }
+}
+// Modal genérico en lugar de confirm()/alert(): confirmar() resuelve true/false, avisar() sólo informa.
+let avisoResolve = null;
+function abrirAviso({ titulo, msg, ok='Aceptar', conCancelar=true }){
+  document.getElementById('ma-titulo').textContent = titulo;
+  document.getElementById('ma-msg').textContent = msg;
+  document.getElementById('ma-ok').textContent = ok;
+  document.getElementById('ma-cancelar').style.display = conCancelar ? '' : 'none';
+  document.getElementById('mAviso').classList.add('open');
+  document.getElementById('ma-ok').focus();
+  return new Promise(res => { avisoResolve = res; });
+}
+function cerrarAviso(){
+  document.getElementById('mAviso').classList.remove('open');
+  if(avisoResolve){ const r=avisoResolve; avisoResolve=null; r(false); }
+}
+function aceptarAviso(){
+  document.getElementById('mAviso').classList.remove('open');
+  if(avisoResolve){ const r=avisoResolve; avisoResolve=null; r(true); }
+}
+const confirmar = (msg, titulo='Confirmar', ok='Aceptar') => abrirAviso({ titulo, msg, ok });
+const avisar = (msg, titulo='Aviso') => abrirAviso({ titulo, msg, ok:'Entendido', conCancelar:false });
+
+async function quitarFijo(plu, suc){
+  const p = plu!=null ? String(plu) : (fijoActual&&fijoActual.plu);
+  const s = suc || (fijoActual&&fijoActual.suc);
+  if(!p||!s) return;
+  const listaAbierta = document.getElementById('mLista').classList.contains('open');
+  const ok = await confirmar(`¿Quitar el valor fijo del PLU ${p} en ${NOMBRE_SUC[s]||s}? Vuelve al valor calculado.`,
+    'Quitar fijo', 'Quitar fijo');
+  if(!ok) return;
+  const r = await fetch(`/api/distribucion/a8020/manual/${encodeURIComponent(p)}/${encodeURIComponent(s)}`, { method:'DELETE' });
+  if(!r.ok){ await avisar('No se pudo quitar el fijo. Probá de nuevo.', 'Error'); return; }
+  cerrarFijo(); await cargar();
+  if(listaAbierta) abrirPanelFijos();
+}
+function cerrarPanelFijos(){ document.getElementById('mLista').classList.remove('open'); }
+let fijosItems = [];
+function renderFijos(){
+  const q = (document.getElementById('ml-q')?.value || '').trim().toLowerCase();
+  const rows = fijosItems.filter(it => !q
+    || String(it.plu).includes(q)
+    || (it.nombre||'').toLowerCase().includes(q)
+    || (NOMBRE_SUC[it.sucursal]||it.sucursal).toLowerCase().includes(q)
+    || (it.nota||'').toLowerCase().includes(q));
+  document.getElementById('ml-cont').innerHTML = rows.length ? `<div id="ml-scroll"><table id="fijos-tbl"><thead><tr>
+      <th>PLU</th><th>Producto</th><th>Sucursal</th><th class="num">S fijo</th><th class="num">min fijo</th>
+      <th class="num">S calc</th><th class="num">min calc</th><th>Nota</th><th></th></tr></thead><tbody>`+
+      rows.map(it=>`<tr>
+        <td>${it.plu}</td>
+        <td>${(it.nombre||'').replace(/</g,'&lt;')}</td>
+        <td>${NOMBRE_SUC[it.sucursal]||it.sucursal}</td>
+        <td class="num"><b>${it.S!=null?fmt(it.S):'—'}</b></td>
+        <td class="num"><b>${it.min!=null?fmt(it.min):'—'}</b></td>
+        <td class="num" style="color:var(--faint)">${fmt(it.calcS)}</td>
+        <td class="num" style="color:var(--faint)">${fmt(it.calcMin)}</td>
+        <td style="color:var(--faint)">${(it.nota||'').replace(/</g,'&lt;')}</td>
+        <td style="white-space:nowrap">
+          <button onclick="cerrarPanelFijos();abrirFijo(${it.plu},'${it.sucursal}')">Editar</button>
+          <button onclick="quitarFijo(${it.plu},'${it.sucursal}')">Quitar</button>
+        </td></tr>`).join('')+`</tbody></table></div>`
+    : '<p style="color:var(--faint)">Ningún fijo coincide con la búsqueda.</p>';
+  document.getElementById('ml-cnt').textContent = `${rows.length} de ${fijosItems.length}`;
+}
+async function abrirPanelFijos(){
+  const cont = document.getElementById('ml-body');
+  document.getElementById('mLista').classList.add('open');
+  cont.textContent = 'cargando…';
+  try{
+    const r = await fetch('/api/distribucion/a8020/manual');
+    const { items } = await r.json();
+    fijosItems = items;
+    if(!items.length){ cont.innerHTML='<p style="color:var(--faint)">No hay valores fijados a mano. Hacé click en cualquier celda de sucursal para fijar uno.</p>'; return; }
+    cont.innerHTML = `<div id="ml-barra">
+        <input type="search" id="ml-q" placeholder="Buscar PLU, producto, sucursal o nota…">
+        <span class="stat" id="ml-cnt"></span>
+      </div><div id="ml-cont"></div>`;
+    const inp = document.getElementById('ml-q');
+    inp.oninput = renderFijos;
+    renderFijos();
+    inp.focus();
+  }catch(e){ cont.textContent = 'Error: '+e.message; }
+}
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape') return;
+  // Escape cierra sólo el modal de más arriba: el aviso no debe arrastrar a los de abajo.
+  if(document.getElementById('mAviso').classList.contains('open')) return cerrarAviso();
+  cerrarFijo(); cerrarPanelFijos();
+});
 
 document.getElementById('q').oninput = render;
 document.getElementById('recalc').onclick = async (e)=>{
