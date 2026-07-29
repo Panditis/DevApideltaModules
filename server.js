@@ -1858,9 +1858,15 @@ async function calcularDistribucionAlmacen() {
   ]);
   const primeraCompraMap = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
   const umbralNuevo = new Date(Date.now() - nuevoDias * 24 * 60 * 60 * 1000);
+  // "Nuevo" por compra reciente: primera COMPRA dentro de nuevo.dias. Da el piso de importancia.
   const esNuevoSet = new Set([...primeraCompraMap.entries()]
     .filter(([, fecha]) => new Date(fecha) >= umbralNuevo)
     .map(([plu]) => plu));
+  // Piso de reposición: además de los de compra reciente, los que el A8020 marca NUEVO (sin ventas
+  // y sin movimientos viejos — el badge que se ve en la UI). Son criterios distintos: un PLU puede
+  // estar marcado NUEVO en A8020 y tener su primera compra hace meses, y viceversa. Para el piso de
+  // góndola valen los dos: sin historial el A8020 les da min/S ~0 y no se reponen nunca.
+  const nuevosParaPiso = new Set([...esNuevoSet, ...(a8020Calc.nuevos || []).map(String)]);
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const rubroMapA = new Map(nombres.map(r => [String(r.IdProducto), r.NombreRubro || '']));
   const idCentralA = distCfg.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
@@ -1883,7 +1889,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, pisosNuevo, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet: nuevosParaPiso, pisosNuevo, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
