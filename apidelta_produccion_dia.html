@@ -1210,10 +1210,20 @@ function _marcaDe(nombre){
 // Sincroniza la tapa con la marca del envase SELECCIONADO: solo muestra tapas de esa
 // marca. Si el envase no tiene marca reconocida, muestra todas. Al cambiar de marca,
 // deselecciona la tapa (queda en blanco) hasta que se elija una.
-function _pfSyncTapa(){
-  const envSel = document.getElementById('pfEnvase');
-  const tapSel = document.getElementById('pfTapa');
+// Sin eidx sincroniza todos los bloques (al abrir el modal); con eidx, solo ese.
+function _pfSyncTapa(eidx){
+  if (eidx === undefined || eidx === null) {
+    document.querySelectorAll('.pf-elem').forEach(blk => _pfSyncTapaBloque(blk));
+    return;
+  }
+  const blk = document.querySelector(`.pf-elem[data-eidx="${eidx}"]`);
+  if (blk) _pfSyncTapaBloque(blk);
+}
+function _pfSyncTapaBloque(blk){
+  const envSel = blk.querySelector('.pf-elem-envase');
+  const tapSel = blk.querySelector('.pf-elem-tapa');
   if (!envSel || !tapSel) return;
+  if (blk.dataset.cargado === '1') return;   // ya cargado: los selectores quedan deshabilitados
   const envVal = envSel.value;
   // Granel / ninguno: no hay envase → tapa deshabilitada y vacía.
   if (!envVal) {
@@ -2373,7 +2383,9 @@ function _pfGranelRowHTML(nombre, cant, unidad) {
   </div>`;
 }
 
-// Bloque de carga por elemento (cantidad producida + graneles propios).
+// Bloque de carga por elemento (cantidad producida + envase/tapa + graneles propios).
+// El envase y la tapa van por elemento: una orden multi-presentación puede tener un
+// envase distinto en cada presentación, y un selector único los pisaría a todos.
 function _pfElemBlockHTML(el, eidx, multi) {
   const factores = _pfFactoresDe(eidx);
   const granelRows = factores.map(f => _pfGranelRowHTML(f.nombre, +(f.factorPorUnidad * el.cantidad).toFixed(3), f.unidad)).join('');
@@ -2385,12 +2397,23 @@ function _pfElemBlockHTML(el, eidx, multi) {
     ${el.cargado ? '<span style="font-size:11px;font-weight:700;color:var(--green-dark)">✅ ya cargado</span>' : ''}
   </div>` : '';
   const pres = String(el.presentacion || '').replace(/"/g, '&quot;');
+  const packSection = `<div style="display:flex;gap:10px;margin-top:8px">
+    <div class="form-group" style="flex:1;margin:0">
+      <label class="form-label">📦 Envase</label>
+      <select class="form-select pf-elem-envase" data-eidx="${eidx}" style="width:100%" onchange="_pfSyncTapa(${eidx})"${dis}>${_pfEnvaseOpts(String(el.envase || ''))}</select>
+    </div>
+    <div class="form-group" style="flex:1;margin:0">
+      <label class="form-label">⭕ Tapa</label>
+      <select class="form-select pf-elem-tapa" data-eidx="${eidx}" style="width:100%"${dis}>${_pfTapaOpts(String(el.tapa || ''))}</select>
+    </div>
+  </div>`;
   return `<div class="pf-elem" data-eidx="${eidx}" data-presindex="${el.presIndex}" data-presentacion="${pres}" data-plu="${String(el.plu || '').replace(/"/g, '&quot;')}" data-cargado="${el.cargado ? '1' : '0'}" style="${multi ? 'border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px' + (el.cargado ? ';opacity:.55' : '') : ''}">
     ${head}
     <div class="form-group" style="margin:4px 0 0">
       <label class="form-label">Cantidad producida</label>
       <input class="form-input pf-elem-cant" data-eidx="${eidx}" type="number" step="any" min="0" value="${el.cantidad}" oninput="_pfRecalcGraneles(${eidx})"${dis}>
     </div>
+    ${packSection}
     ${granelSection}
   </div>`;
 }
@@ -2428,11 +2451,12 @@ async function openProdFinalModal(id, presIndex = null) {
   const pluOrden = String(o.codigo || '').split(',')[0].trim();
   if (multi && presIndex != null) {
     const p = presArr[presIndex] || {};
-    _pfElementos = [{ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: Number(presIndex), cargado: !!p.cargado, plu: String(p.plu || pluOrden || '') }];
+    _pfElementos = [{ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: Number(presIndex), cargado: !!p.cargado, plu: String(p.plu || pluOrden || ''), envase: String(p.envase || o.envase || ''), tapa: String(p.tapa || o.tapa || '') }];
   } else if (multi) {
-    _pfElementos = presArr.map((p, i) => ({ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: i, cargado: !!p.cargado, plu: String(p.plu || '') }));
+    _pfElementos = presArr.map((p, i) => ({ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: i, cargado: !!p.cargado, plu: String(p.plu || ''), envase: String(p.envase || o.envase || ''), tapa: String(p.tapa || o.tapa || '') }));
   } else {
-    _pfElementos = [{ presentacion: o.presentacion, cantidad: o.cantidad, presIndex: -1, cargado: false, plu: String((presArr[0] && presArr[0].plu) || pluOrden || '') }];
+    const p0 = presArr[0] || {};
+    _pfElementos = [{ presentacion: o.presentacion, cantidad: o.cantidad, presIndex: -1, cargado: false, plu: String(p0.plu || pluOrden || ''), envase: String(p0.envase || o.envase || ''), tapa: String(p0.tapa || o.tapa || '') }];
   }
   document.getElementById('pfTitle').textContent = cleanNombre(o.producto);
   document.getElementById('pfSubtitle').textContent = (multi && presIndex == null)
@@ -2518,16 +2542,6 @@ async function openProdFinalModal(id, presIndex = null) {
     </details>
   </div>` : '';
 
-  const pfEnvSel = String(envasesDeOrden(o)[0] || o.envase || '');
-  const pfTapSel = String(tapasDeOrden(o)[0] || o.tapa || '');
-  const pfEnvaseSection = `<div class="form-group">
-    <label class="form-label">📦 Envase</label>
-    <select class="form-select" id="pfEnvase" style="width:100%" onchange="_pfSyncTapa()">${_pfEnvaseOpts(pfEnvSel)}</select>
-  </div>
-  <div class="form-group">
-    <label class="form-label">⭕ Tapa</label>
-    <select class="form-select" id="pfTapa" style="width:100%">${_pfTapaOpts(pfTapSel)}</select>
-  </div>`;
   document.getElementById('pfBody').innerHTML = `
     <div class="form-group">
       <label class="form-label">Responsables, roles y horarios</label>
@@ -2536,7 +2550,6 @@ async function openProdFinalModal(id, presIndex = null) {
     ${multi
       ? `<div class="form-group"><label class="form-label">Elementos a cargar</label><div id="pfElementos">${elementosHTML}</div></div>`
       : `<div id="pfElementos">${elementosHTML}</div>`}
-    ${pfEnvaseSection}
     ${formulaSection}
     <div class="form-group">
       <label class="form-label">Observación</label>
@@ -2570,8 +2583,6 @@ async function guardarProduccionFinal() {
   const responsables = roles.map(r => ({ nombre: r.nombre, rol: r.rol }));
   const empleado = roles.map(r => r.nombre).filter(Boolean).join(' / ');
   const observacion = (document.getElementById('pfObs')?.value || '').trim();
-  const envaseSel = document.getElementById('pfEnvase')?.value || '';
-  const tapaSel   = document.getElementById('pfTapa')?.value || '';
 
   // Un registro por elemento (cantidad > 0 y no cargado previamente).
   const elementos = [...document.querySelectorAll('#pfElementos .pf-elem')].map(blk => {
@@ -2588,6 +2599,8 @@ async function guardarProduccionFinal() {
       presentacion: blk.dataset.presentacion || '',
       plu: blk.dataset.plu || '',
       cargado: blk.dataset.cargado === '1',
+      envase: blk.querySelector('.pf-elem-envase')?.value || '',
+      tapa:   blk.querySelector('.pf-elem-tapa')?.value || '',
       graneles,
     };
   }).filter(e => !e.cargado && !isNaN(e.cant) && e.cant > 0);
@@ -2612,10 +2625,10 @@ async function guardarProduccionFinal() {
         granelConsumido: +el.graneles.reduce((s, g) => s + g.granelConsumido, 0).toFixed(2),
         observacion,
         cliente:         _pfOrden.cliente || '',
-        envase:          envaseSel,
-        envaseNombre:    envaseSel ? envaseLabel(envaseSel) : '',
-        tapa:            tapaSel,
-        tapaNombre:      tapaSel ? tapaLabel(tapaSel) : '',
+        envase:          el.envase,
+        envaseNombre:    el.envase ? envaseLabel(el.envase) : '',
+        tapa:            el.tapa,
+        tapaNombre:      el.tapa ? tapaLabel(el.tapa) : '',
       };
       const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -2968,21 +2981,12 @@ async function openProdFinalModalManual(nombre, codigo) {
       </div>
     </details>
   </div>` : '';
-  const pfEnvaseSection = `<div class="form-group">
-    <label class="form-label">📦 Envase</label>
-    <select class="form-select" id="pfEnvase" style="width:100%" onchange="_pfSyncTapa()">${_pfEnvaseOpts('')}</select>
-  </div>
-  <div class="form-group">
-    <label class="form-label">⭕ Tapa</label>
-    <select class="form-select" id="pfTapa" style="width:100%">${_pfTapaOpts('')}</select>
-  </div>`;
   document.getElementById('pfBody').innerHTML = `
     <div class="form-group">
       <label class="form-label">Responsables, roles y horarios</label>
       <div id="pfRespRoles">${respRolesHTML}</div>
     </div>
     <div id="pfElementos">${elementosHTML}</div>
-    ${pfEnvaseSection}
     ${formulaSection}
     <div class="form-group">
       <label class="form-label">Observación</label>
