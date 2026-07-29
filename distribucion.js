@@ -178,7 +178,11 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
   // el A8020. Reemplaza al viejo empuje que subía min/S al stock entero del central (D) y liquidaba
   // el depósito completo en el racionamiento.
   const pisosNuevo = (opts && opts.pisosNuevo) || null;
-  if (pisosNuevo && has(opts && opts.esNuevoSet, plu) && D > 0 && envasaSi && !a.claseF) {
+  // calcularAlmacen normaliza plu a Number, pero esNuevoSet se arma con strings en server.js:
+  // hay que probar las dos formas o el piso no se aplica nunca.
+  const nuevoSet = opts && opts.esNuevoSet;
+  const esNuevoPlu = !!(nuevoSet && (nuevoSet.has(plu) || nuevoSet.has(String(plu))));
+  if (pisosNuevo && esNuevoPlu && D > 0 && envasaSi && !a.claseF) {
     const pmin = pisosNuevo.min || 0, pS = pisosNuevo.S || 0;
     const aa = { ...a };
     for (const [mk, sk] of PARES_MIN_S) {
