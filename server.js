@@ -5895,6 +5895,13 @@ function tieneRolEnvasado(reg) {
   return roles.some(x => RE_ROL_ENVASADO.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
 }
 
+// Carga manual: producción que se cargó a mano, sin orden del plan detrás (ordenId null). Por
+// motivos externos no se planifica, así que no hay reserva contra la cual conciliarla: se
+// resuelve entera en el depósito de recepción y queda fuera del cuadro reserva-vs-producción.
+function esRegistroManual(reg) {
+  return !reg || reg.ordenId === null || reg.ordenId === undefined || reg.ordenId === '';
+}
+
 // Motivo por el que un registro NO entra al alta de producción, o null si entra.
 function motivoExclusionRegistro(reg) {
   if (String((reg && reg.plu) || '').trim().toUpperCase() === 'ACT') return 'tarea-extra';
@@ -6003,10 +6010,13 @@ function productosDeConciliacion(registros) {
     const pluTexto = String(reg.plu ?? '').trim();
     const plus     = plusDeRegistro(pluTexto);
     const excluido = motivoExclusionRegistro(reg);
-    const clave    = `${pluTexto || `sin-plu-${reg.id}`}|${excluido || 'alta'}`;
+    // La carga manual también parte la clave: un mismo PLU cargado a mano y por orden da dos
+    // filas, porque sólo una de las dos se concilia contra la reserva.
+    const manual   = esRegistroManual(reg);
+    const clave    = `${pluTexto || `sin-plu-${reg.id}`}|${excluido || 'alta'}|${manual ? 'man' : 'plan'}`;
     const g = grupos.get(clave) || {
       plu: plus[0] || null, pluTexto, plus, nombre: String(reg.nombre || '').trim(),
-      cantidad: 0, registros: 0, excluido, detalle: []
+      cantidad: 0, registros: 0, excluido, manual, detalle: []
     };
     if (!g.nombre) g.nombre = String(reg.nombre || '').trim();
     g.cantidad  = redondear4(g.cantidad + (Number(reg.cantFraccionada) || 0));
@@ -6084,8 +6094,19 @@ async function conciliacionProduccion(fecha, idSucursal) {
     catch (e) { avisos.push(`No se pudo consultar la fórmula en SiGA (${e.message}): las etiquetas quedaron fuera de la conciliación.`); }
   }
 
-  const consumo = consumoRealDeRegistros(incluidos, formulas);
-  avisos.push(...consumo.avisos);
+  // El consumo se parte en dos: lo planificado (se concilia contra la reserva) y la carga
+  // manual (no tiene reserva detrás: se resuelve en el depósito de recepción). Si se mezclaran,
+  // el consumo manual se comería la reserva de las órdenes planificadas del mismo PLU.
+  const incluidosPlan   = incluidos.filter(r => !esRegistroManual(r));
+  const incluidosManual = incluidos.filter(r =>  esRegistroManual(r));
+  const consumo       = consumoRealDeRegistros(incluidosPlan, formulas);
+  const consumoManual = consumoRealDeRegistros(incluidosManual, formulas);
+  avisos.push(...consumo.avisos, ...consumoManual.avisos);
+  if (incluidosManual.length) {
+    avisos.push(`${incluidosManual.length} registro(s) son de carga manual (sin orden planificada): sus componentes `
+              + 'se descuentan del depósito de recepción, donde también entra el terminado, y quedan fuera '
+              + 'del cuadro de reserva vs. producción.');
+  }
 
   // La reserva se pone al día contra el log antes de comparar: si los movimientos se
   // revirtieron desde el historial, el saldo que muestra el plan no es el real. (plan/planes
@@ -6117,11 +6138,27 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
 
   // Sólo una reserva activa tiene stock realmente apartado en el depósito de reserva.
-  // Saldo agregado sobre TODAS las reservas activas del ledger (no sólo plan.reserva, que es
-  // la última reserva): así `reservado` coincide con el desglose por movimiento (porMovimiento)
+  // Saldo agregado sobre las reservas activas del ledger (no sólo plan.reserva, que es la
+  // última reserva): así `reservado` coincide con el desglose por movimiento (porMovimiento)
   // y el comprobante "resto" no doble-cuenta el consumo cuando hay varias reservas en el día.
-  const saldo     = saldoReservaPlan(plan);
+  // Las reservas YA CONCILIADAS (su ajuste de producción se registró: la mercadería ya se
+  // recepcionó) salieron del circuito y quedan fuera de la conciliación. Si siguieran contando
+  // aparecerían como sobrante fantasma —reservado > 0 y usado 0, porque sus registros de
+  // producción ya están asentados— y se mezclarían con las reservas nuevas.
+  const _pLedger    = migrarReservas(plan || {});
+  const esConciliada = r => !!(r && r.ajuste && r.ajuste.conciliado);
+  const reservasVivas = (_pLedger.reservas || []).filter(r => !esConciliada(r));
+  // Comprobantes de las reservas ya conciliadas: sirven para marcarlas en el listado de
+  // movimientos del día y que no se confundan con las que todavía esperan conciliación.
+  const numsConciliados = new Set((_pLedger.reservas || [])
+    .filter(r => esConciliada(r) && r.numeroMovimiento != null)
+    .map(r => String(r.numeroMovimiento)));
+  const saldo     = saldoLedger(reservasVivas);
   const reservado = new Map(saldo.map(l => [String(l.plu), redondear4(l.cantidad)]));
+  if (numsConciliados.size) {
+    avisos.push(`${numsConciliados.size} reserva(s) ya recepcionada(s) (movimiento${numsConciliados.size > 1 ? 's' : ''} `
+              + `#${[...numsConciliados].join(', #')}) quedan fuera del resumen: su circuito ya cerró.`);
+  }
 
   const componentes = [], conUso = new Set();
   for (const u of consumo.componentes.values()) {
@@ -6136,11 +6173,19 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
   componentes.sort((a, b) => String(a.tipo || 'zz').localeCompare(String(b.tipo || 'zz')) || a.nombre.localeCompare(b.nombre));
 
+  // Componentes de la carga manual: van aparte, siempre con reservado 0 (no hay nada apartado
+  // para ellos) y se descuentan del depósito de recepción al registrar el movimiento.
+  const componentesManual = [...consumoManual.componentes.values()]
+    .map(u => filaComponente(u.plu, u.nombre, u.tipo, 0, u.usado))
+    .sort((a, b) => String(a.tipo || 'zz').localeCompare(String(b.tipo || 'zz')) || a.nombre.localeCompare(b.nombre));
+
   const movimientos = leerMovLog()
     .filter(r => r && r.plan === fecha)
     .map(r => ({
       id: r.id, numeroMovimiento: r.numeroMovimiento ?? null, origen: r.origen,
       fechaHora: r.fechaHora, estado: r.estado,
+      // Claves del comprobante en SiGA: con ellas la pantalla puede pedir su detalle real.
+      idSucursal: r.idSucursal ?? null, idTipoMovimiento: r.idTipoMovimiento || null,
       depOrigen: r.depOrigen ?? null, depDestino: r.depDestino ?? null,
       lineas: (r.lineas || []).map(l => ({
         plu: String(l.plu), nombre: l.nombre == null ? '' : String(l.nombre), cantidad: redondear4(l.cantidad)
@@ -6148,7 +6193,12 @@ async function conciliacionProduccion(fecha, idSucursal) {
       // Una reversión se registra con el MISMO origen que el movimiento que deshace, así que
       // sin revierteA/revertidoPor es indistinguible de una reserva normal en el listado.
       // Se mandan los dos IDs para poder mostrar el par ("revertido por #32" / "reversión de #31").
-      revertido: !!r.revertidoPor, revertidoPor: r.revertidoPor || null, revierteA: r.revierteA || null
+      revertido: !!r.revertidoPor, revertidoPor: r.revertidoPor || null, revierteA: r.revierteA || null,
+      // Marcas para no mezclar en el listado lo que ya cerró con lo que falta conciliar:
+      //  · esRecepcion → el movimiento ES el alta de producción (terminados que entraron).
+      //  · conciliado  → es una reserva cuyo ajuste de producción ya se registró.
+      esRecepcion: r.origen === 'produccion',
+      conciliado: r.numeroMovimiento != null && numsConciliados.has(String(r.numeroMovimiento))
     }))
     .reverse();   // el log se escribe con el más nuevo al final
   const pendientes = movimientos.filter(m => m.estado === 'pendiente').length;
@@ -6192,9 +6242,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     return (depositos.length && !activos.has(n)) ? null : n;
   };
 
-  // Desglose por movimiento de reserva (para conciliar por orden y por movimiento).
-  const _pLedger   = migrarReservas(plan || {});
-  const _gruposMov = reservadoPorMovimiento(_pLedger.reservas);
+  // Desglose por movimiento de reserva (para conciliar por orden y por movimiento). Sólo las
+  // reservas todavía sin recepción: las conciliadas ya no tienen nada que mover.
+  const _gruposMov = reservadoPorMovimiento(reservasVivas);
   const _usadoPorPlu = new Map([...consumo.componentes.values()]
     .filter(u => u.plu).map(u => [String(u.plu), u.usado]));
   const porMovimiento = conciliarPorMovimiento(_gruposMov, _usadoPorPlu);
@@ -6217,6 +6267,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     },
     productos,
     componentes,
+    // Consumo de la carga manual, fuera del cuadro reserva-vs-producción: no hay reserva contra
+    // la cual conciliarlo. Se registra íntegro contra el depósito de recepción.
+    componentesManual,
     // Desglose reservado-vs-usado por movimiento de reserva (misma info que "componentes",
     // recortada por movimiento en vez de agregada por PLU).
     porMovimiento,
@@ -6245,11 +6298,66 @@ async function conciliacionProduccion(fecha, idSucursal) {
       productosExcluidos: productos.filter(p =>  p.excluido).length,
       componentes:        componentes.length,
       conDiferencia:      componentes.filter(c => c.diferencia !== 0).length,
-      sinReservar
+      sinReservar,
+      // Reservas que ya se recepcionaron y por eso NO entran en el resumen ni se vuelven a mover.
+      reservasConciliadas: numsConciliados.size,
+      // Producción cargada a mano: no se concilia contra reserva.
+      productosManuales:   productos.filter(p => !p.excluido && p.manual).length,
+      componentesManuales: componentesManual.length
     },
     avisos
   };
 }
+
+// Qué quedó realmente escrito en SiGA para un comprobante de stock: cabecera + renglones.
+// Sólo lectura (pool de lectura, nunca el de escritura). La conciliación lo usa para poder
+// auditar un movimiento del log contra la base sin salir de la pantalla.
+// GET /api/movimientos/siga/:numero?idSucursal=1&idTipoMovimiento=BIENESUSO
+app.get('/api/movimientos/siga/:numero', apiRoute(async req => {
+  // query() no toma parámetros (interpola el string), así que lo que viene de la URL se valida
+  // a mano antes de tocar el SQL: dos enteros y un tipo de movimiento alfanumérico.
+  const numero = Number(req.params.numero);
+  const suc    = Number(req.query.idSucursal);
+  const tipo   = String(req.query.idTipoMovimiento || '').trim();
+  if (!Number.isInteger(numero) || numero <= 0) return { error: 'Número de movimiento inválido' };
+  if (!Number.isInteger(suc)    || suc    <= 0) return { error: 'Sucursal inválida' };
+  if (!/^[A-Z0-9_]{1,20}$/i.test(tipo))         return { error: 'Tipo de movimiento inválido' };
+
+  const filtro = `IdSucursal=${suc} AND IdTipoMovimiento='${tipo}' AND NumeroMovimiento=${numero}`;
+  const [cab] = await query(`SELECT TOP 1 CONVERT(varchar(19), FechaMovimiento, 120) AS Fecha,
+      Usuario, Observacion, IdEmpleado, Neto, Total
+    FROM MovimientosStock WHERE ${filtro}`);
+  if (!cab) {
+    return { encontrado: false, numeroMovimiento: numero, idSucursal: suc, idTipoMovimiento: tipo,
+             lineas: [], aviso: 'El comprobante no existe en SiGA con esa sucursal y tipo de movimiento.' };
+  }
+  const lineas = await query(`SELECT mp.Orden, mp.IdProducto, p.NombreProducto, mp.Cantidad,
+      mp.IdDeposito, sd.NombreDeposito
+    FROM MovimientosStockProductos mp
+    LEFT JOIN Productos p ON p.IdProducto=mp.IdProducto
+    LEFT JOIN SucursalesDepositos sd ON sd.IdDeposito=mp.IdDeposito AND sd.IdSucursal=mp.IdSucursal
+    WHERE mp.IdSucursal=${suc} AND mp.IdTipoMovimiento='${tipo}' AND mp.NumeroMovimiento=${numero}
+    ORDER BY mp.Orden`);
+
+  return {
+    encontrado: true,
+    numeroMovimiento: numero, idSucursal: suc, idTipoMovimiento: tipo,
+    cabecera: {
+      fecha: cab.Fecha || null, usuario: String(cab.Usuario || '').trim(),
+      observacion: String(cab.Observacion || '').trim(),
+      idEmpleado: cab.IdEmpleado ?? null,
+      neto: Number(cab.Neto) || 0, total: Number(cab.Total) || 0
+    },
+    lineas: lineas.map(l => ({
+      orden: l.Orden ?? null,
+      plu: String(l.IdProducto ?? ''),
+      nombre: String(l.NombreProducto || '').trim(),
+      cantidad: redondear4(l.Cantidad),
+      idDeposito: l.IdDeposito ?? null,
+      nombreDeposito: String(l.NombreDeposito || '').trim()
+    }))
+  };
+}));
 
 app.get('/api/produccion/:fecha/conciliacion', apiRoute(async req => {
   const s = await resolverSucursal(req.query.idSucursal);
@@ -6322,6 +6430,18 @@ function lineasProduccionDesdeConciliacion(c, deps, opts) {
       lineas.push({ ...base, idDeposito: deps.diferencias, cantidad:  sobrante, concepto: 'sobrante-a-diferencias' });
       ajustes++;
     }
+  }
+
+  // Carga manual: sin reserva detrás, el circuito entero ocurre en el depósito de RECEPCIÓN —
+  // ahí se descuentan los componentes y ahí mismo entra el terminado, igual que si se armara
+  // en el mostrador. Nunca toca el de reserva ni el de salida, y no depende de esos combos.
+  // Va siempre en el comprobante de producción, con reserva o sin ella.
+  for (const comp of (c.componentesManual || [])) {
+    const usado = redondear4(comp.usado);
+    if (!(usado > 0)) continue;
+    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
+    lineas.push({ idProducto: String(comp.plu), nombre: comp.nombre || '', idDeposito: deps.recepcion, cantidad: -usado, concepto: 'consumo-manual' });
+    componentes++;
   }
   return { lineas, sinPlu, resumen: { terminados, componentes, ajustes } };
 }
@@ -6446,8 +6566,11 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
              sinDeposito: sinDeposito.map(l => ({ plu: l.idProducto, concepto: l.concepto })) };
   }
 
-  // La observación es la marca que identifica estos comprobantes en SiGA.
-  const obsBase = `${cp.observacion} ${fecha} PRODUCCION`.trim();
+  // La observación es la marca que identifica estos comprobantes en SiGA: el prefijo
+  // (produccion.observacion + fecha) es común a todos, y después cada uno dice qué es —
+  // mismo patrón que la reserva, que escribe "<obs> <fecha> RESERVA <dep>><dep>".
+  const obsPrefijo = `${cp.observacion} ${fecha}`.trim();
+  const obsBase    = `${obsPrefijo} PRODUCCION`;
   const poolW = await getPoolStock();
   const comprobantes = [], logErrores = [];
   let errMarca = null, avisoMarca = null, errEscritura = null;
@@ -6504,9 +6627,10 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
     //    el consumo fue contra reservas y no hay alta de producto pendiente.
     if (resto.lineas.length) {
-      // "RESTO" distingue este comprobante de los que cierran cada reserva: acá va el consumo
-      // que NO salió del depósito de reserva (fórmulas sin reservar y excedentes).
-      const rResto = await escribirComprobante(resto.lineas, `${obsBase} RESTO`.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+      // Este es el comprobante de PRODUCCIÓN propiamente dicho: da de alta los terminados y
+      // descuenta el consumo que NO salió del depósito de reserva (fórmulas sin reservar,
+      // excedentes y carga manual). Los que cierran cada reserva se rotulan CONCILIACION.
+      const rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
       logErrores.push(rResto.logError);
       comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
       r = rResto;
@@ -6517,7 +6641,9 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
     //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
     for (const m of ajustesMov) {
-      const observacion = obsBase.slice(0, 200);
+      // Cada ajuste cierra UNA reserva: la observación lo dice y nombra el comprobante de
+      // reserva que concilia, para poder seguir el par reserva → conciliación desde SiGA.
+      const observacion = `${obsPrefijo} CONCILIACION RESERVA #${m.numeroMovimiento ?? '—'}`.slice(0, 200);
       const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
       logErrores.push(rm.logError);
       comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });
