@@ -271,7 +271,7 @@ function render(){
       const rkCls = rk==null ? '' : rk>=0.8 ? 'hi' : rk>=0.5 ? 'mid' : 'lo';
       const rkCell = rk==null ? '<td class="s">·</td>' : `<td><span class="rank ${rkCls}">${rk.toFixed(2)}</span></td>`;
       return sCell + rkCell; }).join('');
-    const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas; sin movimientos o sólo compras / reciente">NUEVO</span>'
+    const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Primera compra reciente (ventana nuevo.dias). Recibe el piso de reposición de producto nuevo.">NUEVO</span>'
       : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
     const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
     const rg = r.rankGeneral;

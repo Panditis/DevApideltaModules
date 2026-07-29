@@ -1858,15 +1858,11 @@ async function calcularDistribucionAlmacen() {
   ]);
   const primeraCompraMap = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
   const umbralNuevo = new Date(Date.now() - nuevoDias * 24 * 60 * 60 * 1000);
-  // "Nuevo" por compra reciente: primera COMPRA dentro de nuevo.dias. Da el piso de importancia.
+  // Producto nuevo = primera COMPRA dentro de nuevo.dias. Única definición del sistema: el A8020
+  // marca su badge con el mismo criterio. Da el piso de reposición y el de importancia.
   const esNuevoSet = new Set([...primeraCompraMap.entries()]
     .filter(([, fecha]) => new Date(fecha) >= umbralNuevo)
     .map(([plu]) => plu));
-  // Piso de reposición: además de los de compra reciente, los que el A8020 marca NUEVO (sin ventas
-  // y sin movimientos viejos — el badge que se ve en la UI). Son criterios distintos: un PLU puede
-  // estar marcado NUEVO en A8020 y tener su primera compra hace meses, y viceversa. Para el piso de
-  // góndola valen los dos: sin historial el A8020 les da min/S ~0 y no se reponen nunca.
-  const nuevosParaPiso = new Set([...esNuevoSet, ...(a8020Calc.nuevos || []).map(String)]);
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const rubroMapA = new Map(nombres.map(r => [String(r.IdProducto), r.NombreRubro || '']));
   const idCentralA = distCfg.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
@@ -1889,7 +1885,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet: nuevosParaPiso, pisosNuevo, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, pisosNuevo, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
@@ -2587,13 +2583,28 @@ async function recalcularA8020() {
     }
   }
 
-  // ── Clasificación por historial de movimientos (productos SIN ventas): Nuevo vs F ──
-  //   Nuevo  → sin movimientos, sólo compras, o primer movimiento reciente (< umbral meses) → badge "Nuevo".
-  //   F      → tiene movimientos no-compra repartidos por ≥ umbral meses y cero ventas → stock muerto (min/S=0, sin empuje).
+  // ── Clasificación: Nuevo y F ──────────────────────────────────────────────────
+  //   Nuevo → primera COMPRA dentro de nuevo.dias. Única definición de "producto nuevo" en todo el
+  //           sistema: la misma que usa distribución para el piso de reposición y de importancia.
+  //   F     → cero ventas + movimientos no-compra anteriores al umbral de meses → stock muerto
+  //           (min/S=0, sin empuje). Ser Nuevo gana sobre F.
   const salesSet = new Set(statRows.map(r => String(r.plu)));
   const compraTipos = config.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC'];
   const umbralNuevo = config.antiguedadMesesNuevo ?? 3;
-  const candNoVenta = [...bootstrapSet].map(String).filter(p => !salesSet.has(p));
+  const nuevoDias = (config.nuevo || {}).dias || 30;
+  const compraInNuevos = compraTipos.map(t => `'${t}'`).join(',') || `''`;
+  // HAVING sobre la primera compra: devuelve sólo los recién incorporados, no todo el catálogo.
+  const nuevosSet = new Set();
+  {
+    const rows = await query(`SELECT mp.IdProducto
+      FROM MovimientosStockProductos mp
+      INNER JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+      WHERE mp.IdTipoMovimiento IN (${compraInNuevos})
+      GROUP BY mp.IdProducto
+      HAVING MIN(m.FechaMovimiento) >= DATEADD(DAY, -${nuevoDias}, CAST(GETDATE() AS DATE))`);
+    for (const r of rows) nuevosSet.add(String(r.IdProducto));
+  }
+  const candNoVenta = [...bootstrapSet].map(String).filter(p => !salesSet.has(p) && !nuevosSet.has(p));
   // F = existe un movimiento NO-compra anterior al umbral (actividad vieja sin ventas). Resto = Nuevo.
   // Existence check con filtro de fecha+tipo: mucho más liviano que agregar MIN sobre toda la tabla.
   const esViejo = new Set();
@@ -2613,17 +2624,18 @@ async function recalcularA8020() {
     }
   }
   const nuevos = [], viejos = [];
+  for (const plu of nuevosSet) {
+    if (!mins[plu]) continue;   // sin niveles calculados no aparece en la tabla
+    nuevos.push(Number(plu));
+    for (const sk of Object.keys(detalle[plu] || {})) detalle[plu][sk].nuevo = true;
+  }
   for (const plu of candNoVenta) {
-    if (esViejo.has(plu)) {
-      viejos.push(Number(plu)); abc[plu] = 'F';   // escribirA8020Legacy deriva claseF de abc
-      if (mins[plu]) for (const sk of Object.keys(mins[plu])) mins[plu][sk] = 0;
-      if (sLevels[plu]) for (const sk of Object.keys(sLevels[plu])) sLevels[plu][sk] = 0;
-      if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) { detalle[plu][sk].S = 0; detalle[plu][sk].min = 0; detalle[plu][sk].viejo = true; }
-      bootstrapped.delete(plu);
-    } else {
-      nuevos.push(Number(plu));
-      if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) detalle[plu][sk].nuevo = true;
-    }
+    if (!esViejo.has(plu)) continue;
+    viejos.push(Number(plu)); abc[plu] = 'F';   // escribirA8020Legacy deriva claseF de abc
+    if (mins[plu]) for (const sk of Object.keys(mins[plu])) mins[plu][sk] = 0;
+    if (sLevels[plu]) for (const sk of Object.keys(sLevels[plu])) sLevels[plu][sk] = 0;
+    if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) { detalle[plu][sk].S = 0; detalle[plu][sk].min = 0; detalle[plu][sk].viejo = true; }
+    bootstrapped.delete(plu);
   }
 
   const plus = [...new Set([...Object.keys(mins)])];
