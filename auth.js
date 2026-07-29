@@ -40,6 +40,7 @@ const CATALOGO_MODULOS = [
   { ref: 'ventas-hora',         titulo: 'Ventas por Hora',          icon: 'clock',          href: '/ventas-hora',        rutasHtml: ['/ventas-hora'],        apiPrefijos: ['/api/ventas-hora'],               defaultRequiereAuth: true },
   { ref: 'precios-proveedores', titulo: 'Precios de Proveedores',   icon: 'tags',           href: '/precios-proveedores', rutasHtml: ['/precios-proveedores'], apiPrefijos: ['/api/precios-proveedores'],     defaultRequiereAuth: true },
   { ref: 'analisis-ventas',     titulo: 'Análisis de Ventas',       icon: 'bar-chart-3',    href: '/analisis-ventas',    rutasHtml: ['/analisis-ventas'],    apiPrefijos: ['/api/analisis-ventas'],           defaultRequiereAuth: true },
+  { ref: 'cuentas-corrientes',  titulo: 'Cuentas Corrientes',       icon: 'wallet',         href: '/cuentas-corrientes', rutasHtml: ['/cuentas-corrientes'], apiPrefijos: ['/api/cuentas-corrientes'],        defaultRequiereAuth: true },
   { ref: 'admin',               titulo: 'Centro de control',        icon: 'shield',         href: '/admin',              rutasHtml: ['/admin'],              apiPrefijos: ['/api/admin'],                     defaultRequiereAuth: true, soloAdmin: true },
 ];
 
