@@ -20,7 +20,7 @@ const comprasModulo = require('./compras_modulo');
 const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
-const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020 } = require('./a8020');
+const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
@@ -2499,9 +2499,11 @@ async function recalcularA8020() {
     const mult = o.mult ?? 1, piso = o.pisoManual ?? 0, techo = o.techo ?? techoDefault;
     const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
     const k = kFrac[cls || 'C'] ?? kFrac.C ?? 0.35;
-    let S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult, 0), techo), dec);
-    let min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
-    return { S, min };
+    const S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult, 0), techo), dec);
+    const min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
+    // El redondeo (S=1 → min=round(0.5)=1) y el pisoManual pueden dejar min == S: sin brecha el
+    // envío teórico es 0 y la sucursal gatilla sin reponer nada. asegurarBrechaMinS sube S.
+    return asegurarBrechaMinS(min, S, dec);
   };
   // ── Nivelación: sucursales con pocos días-con-venta → mezcla con base sucursal o promedio rubro ──
   const nivelCfg = config.nivelacion || {};
@@ -2689,7 +2691,16 @@ app.post('/api/distribucion/a8020/manual', (req, res) => {
     const S = validarValorManual(body.S, 'S');
     const min = validarValorManual(body.min, 'min');
     if (S == null && min == null) throw new Error('Indicá al menos S o min');
-    if (S != null && min != null && min > S) throw new Error('El min no puede ser mayor que S');
+    // S tiene que quedar SIEMPRE por encima del min: con S == min el envío teórico es 0.
+    if (S != null && min != null && min >= S) throw new Error('El S tiene que ser mayor que el min');
+    // Fijar uno solo también puede empatar contra el calculado del otro nivel.
+    if (S == null || min == null) {
+      const d = ((leerJSON(A8020_CALC_PATH, {}).detalle || {})[plu] || {})[sucursal] || {};
+      const minEf = min != null ? min : d.min, sEf = S != null ? S : d.S;
+      if (minEf != null && sEf != null && minEf >= sEf) {
+        throw new Error(`El S tiene que ser mayor que el min (quedaría min=${minEf} y S=${sEf})`);
+      }
+    }
     const manual = leerJSON(A8020_MANUAL_PATH, {});
     const prev = (manual[plu] || {})[sucursal] || {};
     const entry = { ts: new Date().toISOString() };

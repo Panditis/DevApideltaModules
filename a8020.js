@@ -157,6 +157,22 @@ function calcularRankingGlobal(metricByPlu) {
   return score;
 }
 
+// ── Brecha obligatoria entre min y S ─────────────────────────────────────────
+// min = punto de pedido, S = nivel al que se repone. Con S == min el envío teórico es 0 (o 1 por
+// redondeo): la sucursal gatilla y repone de a nada, corrida tras corrida. S SIEMPRE tiene que
+// quedar por encima del min; cuando coinciden se sube S (no se baja el min, que es la cobertura).
+// paso = 1 unidad, o 0.1 en pesables (dec=1). Con min y S ambos en 0 no hay reposición y se deja así.
+const PASO_BRECHA = { 0: 1, 1: 0.1, 2: 0.01 };
+function asegurarBrechaMinS(min, S, dec) {
+  const m = Number(min) || 0;
+  let s = Number(S) || 0;
+  if (m <= 0 && s <= 0) return { min: 0, S: 0 };
+  const d = dec != null ? dec : (Number.isInteger(m) && Number.isInteger(s) ? 0 : 1);
+  const paso = PASO_BRECHA[d] != null ? PASO_BRECHA[d] : 1;
+  if (s <= m) s = roundDec(m + paso, d);
+  return { min: m, S: s };
+}
+
 // ── Ajustes manuales (S / min fijos por sucursal) ────────────────────────────
 // manual: { plu: { sucKey: { S, min } } }  — valores fijados a mano desde la UI.
 // El cálculo NUNCA los pisa: detalle[plu][suc].S/.min conservan siempre lo calculado
@@ -171,8 +187,12 @@ function aplicarManualA8020(cache, manual) {
   for (const [plu, porSuc] of Object.entries(cache.detalle)) {
     for (const [suc, d] of Object.entries(porSuc)) {
       const m = (man[plu] || {})[suc];
-      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = m && m.S != null ? Number(m.S) : d.S;
-      (cache.mins[plu] = cache.mins[plu] || {})[suc] = m && m.min != null ? Number(m.min) : d.min;
+      // Un fijo puede tocar sólo uno de los dos niveles y quedar pegado al otro: la brecha se
+      // reasegura acá, no alcanza con validarla al guardar.
+      const brecha = asegurarBrechaMinS(m && m.min != null ? Number(m.min) : d.min,
+                                        m && m.S   != null ? Number(m.S)   : d.S);
+      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = brecha.S;
+      (cache.mins[plu] = cache.mins[plu] || {})[suc] = brecha.min;
       if (m) {
         d.manual = true;
         // La observación viaja en el caché: la UI la precarga al reabrir la celda para editar.
@@ -188,11 +208,12 @@ function aplicarManualA8020(cache, manual) {
       if (det[suc]) continue;
       det[suc] = { mu: 0, sigma: 0, S: 0, min: 0, manual: true, soloManual: true,
         ...(m.nota ? { manualNota: m.nota } : {}), ...(m.ts ? { manualTs: m.ts } : {}) };
-      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = m.S != null ? Number(m.S) : 0;
-      (cache.mins[plu] = cache.mins[plu] || {})[suc] = m.min != null ? Number(m.min) : 0;
+      const brecha = asegurarBrechaMinS(m.min != null ? Number(m.min) : 0, m.S != null ? Number(m.S) : 0);
+      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = brecha.S;
+      (cache.mins[plu] = cache.mins[plu] || {})[suc] = brecha.min;
     }
   }
   return cache;
 }
 
-module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020 };
+module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020, asegurarBrechaMinS };

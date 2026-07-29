@@ -412,7 +412,7 @@ async function guardarFijo(){
   const S = document.getElementById('mf-S').value.trim();
   const min = document.getElementById('mf-min').value.trim();
   if(S==='' && min===''){ err.textContent='Indicá al menos S o min.'; return; }
-  if(S!=='' && min!=='' && Number(min)>Number(S)){ err.textContent='El min no puede ser mayor que S.'; return; }
+  if(S!=='' && min!=='' && Number(min)>=Number(S)){ err.textContent='El S tiene que ser mayor que el min.'; return; }
   err.textContent='';
   try{
     const r = await fetch('/api/distribucion/a8020/manual', { method:'POST', headers:{'Content-Type':'application/json'},

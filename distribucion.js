@@ -188,6 +188,20 @@ function calcularFilaAlmacen(plu, st, a, pa, restr, noEnvasaSet, base8020Raw, op
     a = aa;
   }
 
+  // Brecha obligatoria min < S, después de TODOS los empujes (presencia, caro-lento, nuevo). Cada
+  // uno toca min y S por separado y puede dejarlos pegados: p.ej. si el A8020 ya daba S = presencia,
+  // el empuje sube el min a presencia y S no se mueve. Con S == min el pedido teórico es 0 — la
+  // sucursal gatilla y no repone nada. Se sube S; bajar el min recortaría la cobertura.
+  {
+    const aa = { ...a };
+    let tocado = false;
+    for (const [mk, sk] of PARES_MIN_S) {
+      const m = aa[mk] || 0, s = aa[sk] || 0;
+      if (m > 0 && s <= m) { aa[sk] = m + (Number.isInteger(m) ? 1 : 0.1); tocado = true; }
+    }
+    if (tocado) a = aa;
+  }
+
   // Mins por sucursal
   const minRiv       = Math.max(a.minRiv || 0, pisoUno);                    // sin flag (planilla)
   const minUrq       = minConPiso(pa.urquiza,   a.minUrq,      pisoUno);
