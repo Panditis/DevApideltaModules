@@ -1545,8 +1545,37 @@ app.get('/api/ordenes',        (_req, res) => {
 });
 app.post('/api/ordenes',       (req, res)  => { const o = req.body; if (!o || !o.id) return res.status(400).json({ error: 'Falta orden' }); const arr = leerOrdenes().filter(x => x.id !== o.id); arr.push(o); guardarOrdenes(arr); res.json(o); });
 app.put('/api/ordenes/:id',    (req, res)  => { const id = parseInt(req.params.id), arr = leerOrdenes(), idx = arr.findIndex(o => o.id === id); if (idx < 0) return res.status(404).json({ error: 'No encontrado' }); arr[idx] = { ...arr[idx], ...req.body }; guardarOrdenes(arr); res.json(arr[idx]); });
-app.delete('/api/ordenes/:id', (req, res)  => { guardarOrdenes(leerOrdenes().filter(o => o.id !== parseInt(req.params.id))); res.json({ ok: true }); });
-app.delete('/api/ordenes',     (_req, res) => { guardarOrdenes([]); res.json({ ok: true }); });
+// Borrar una orden con reserva activa dejaría mercadería apartada en SiGA sin dueño: se corta
+// con 409 y se pide anular la reserva primero (mismo criterio que DELETE /api/plan/:fecha/item).
+app.delete('/api/ordenes/:id', (req, res) => {
+  const id  = parseInt(req.params.id);
+  const arr = leerOrdenes();
+  const orden = arr.find(o => o.id === id);
+  const reservas = orden ? reservasActivasDeOrden(orden) : [];
+  if (reservas.length) {
+    return res.status(409).json({
+      error: `La orden tiene reserva activa (movimiento${reservas.length > 1 ? 's' : ''} #${reservas.join(', #')}) `
+           + 'y no se puede eliminar. Anulá o devolvé esa reserva primero.',
+      reservas
+    });
+  }
+  guardarOrdenes(arr.filter(o => o.id !== id));
+  res.json({ ok: true });
+});
+
+// "Limpiar todo" conserva las órdenes con reserva activa y avisa cuántas quedaron, en vez de
+// fallar entero: el resto del día sí se puede limpiar.
+app.delete('/api/ordenes', (_req, res) => {
+  const arr = leerOrdenes();
+  const cache = new Map();
+  const conservar = arr.filter(o => reservasActivasDeOrden(o, cache).length > 0);
+  guardarOrdenes(conservar);
+  res.json({
+    ok: true, conservadas: conservar.length, eliminadas: arr.length - conservar.length,
+    ...(conservar.length ? { aviso: `Se conservaron ${conservar.length} orden(es) con reserva activa: `
+                                  + 'anulá o devolvé su reserva para poder eliminarlas.' } : {})
+  });
+});
 
 function resumenDeOrdenes(ords) {
   const total = ords.length, comp = ords.filter(o => o.estado === 'listo').length;
@@ -4977,6 +5006,39 @@ function leerPlanReservas(fecha) {
   const planes = leerJSON(PLANES_PATH, {});
   const plan = planes[fecha] ? migrarReservas(planes[fecha]) : null;
   return { planes, plan };
+}
+
+// Comprobantes de reserva ACTIVA que respaldan una orden de producción. Una orden con
+// mercadería apartada en SiGA no se puede borrar: la reserva quedaría viva apuntando a una
+// orden que ya no existe y nadie podría devolverla ni conciliarla.
+// Se mira el sello reservaMovimientos que la orden guarda al enviarse Y, como red, los ítems
+// del plan que la componen — las órdenes viejas no tienen el sello, y el sello tampoco se
+// actualiza si la reserva se hizo después del envío.
+// cache: Map fecha → plan ya migrado, para no releer planes.json por cada orden del lote.
+function reservasActivasDeOrden(orden, cache) {
+  if (!orden || !orden.fecha) return [];
+  let plan;
+  if (cache && cache.has(orden.fecha)) plan = cache.get(orden.fecha);
+  else {
+    plan = leerPlanReservas(orden.fecha).plan;
+    if (cache) cache.set(orden.fecha, plan);
+  }
+  if (!plan) return [];
+  const activas = new Set((plan.reservas || [])
+    .filter(r => r && r.estado === 'activa' && r.numeroMovimiento != null)
+    .map(r => String(r.numeroMovimiento)));
+  if (!activas.size) return [];
+
+  const nums = new Set((Array.isArray(orden.reservaMovimientos) ? orden.reservaMovimientos : []).map(String));
+  // Mismo criterio de match que enviar-produccion: granel matchea por producto y fraccionado
+  // por rubro (con fallback a producto cuando el ítem no trae rubro).
+  for (const it of (plan.items || [])) {
+    if (!it || !it.reservaMovimiento || it.reservaMovimiento.numeroMovimiento == null) continue;
+    if (it.producto === orden.producto || (it.rubro || it.producto) === orden.producto) {
+      nums.add(String(it.reservaMovimiento.numeroMovimiento));
+    }
+  }
+  return [...nums].filter(n => activas.has(n));
 }
 
 // Saldo total reservado del plan sobre el ledger reservas[]. Los callers viejos que pasan
