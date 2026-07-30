@@ -1849,9 +1849,7 @@ function cargarOrdenesFracc(){
             '<button class="btn btn-ghost btn-sm" onclick="borrarOrdenFracc('+o.id+')">Borrar</button>'+
           '</td></tr>'+
           '<tr id="ord-'+o.id+'" style="display:none"><td colspan="6" style="background:#fafaf9">'+
-            o.lineas.map(function(l){
-              return escHtml(l.nombre)+': '+l.cantidad+' un. ('+l.granelNecesario+' kg de '+escHtml(l.granelNombre)+')';
-            }).join('<br>')+
+            o.lineas.map(function(l){ return lineaOrdenFracc(o.id, l); }).join('')+
           '</td></tr>';
       }).join('')+'</tbody></table>';
   });
@@ -1860,6 +1858,38 @@ function cargarOrdenesFracc(){
 function toggleDetalleOrden(id){
   var tr = $('ord-'+id);
   if(tr) tr.style.display = tr.style.display==='none' ? '' : 'none';
+}
+
+// Una línea del detalle de una orden: producto + cantidad + kg, y el desglose de clientes
+// desplegable. La orden va consolidada por producto, pero la encargada necesita ver para
+// quién es lo que fracciona.
+function lineaOrdenFracc(idOrden, l){
+  // El mismo PLU puede estar en dos órdenes: la clave del desplegable combina las dos.
+  var clave = idOrden + '-' + escHtml(l.plu).replace(/'/g,'&#39;');
+  var clientes = l.clientes || [];
+  var pedido = clientes.reduce(function(s,c){ return s + (Number(c.pendiente)||0); }, 0);
+  var cant = Number(l.cantidad) || 0;
+  var falta = pedido - cant;
+
+  var desglose = clientes.length
+    ? clientes.map(function(c){
+        return '<div>'+escHtml(c.nombre)+': '+(Number(c.pendiente)||0)+' un.</div>';
+      }).join('')
+    : '<div class="text-xs text-olive">Agregado manualmente, sin pedidos asociados.</div>';
+
+  return '<div style="padding:4px 0">'+
+    '<button class="btn btn-ghost btn-sm" onclick="toggleDetalleLineaOrden(\''+clave+'\')">Clientes ('+clientes.length+')</button> '+
+    escHtml(l.nombre)+': '+cant+' un. ('+l.granelNecesario+' kg de '+escHtml(l.granelNombre)+')'+
+    (falta > 0
+      ? '<div class="text-xs" style="color:#92400e">Se fraccionan '+cant+' de '+pedido+' pedidos: faltan '+falta+' un.</div>'
+      : '')+
+    '<div id="ordlin-'+clave+'" style="display:none;margin:4px 0 4px 16px;font-size:12px">'+desglose+'</div>'+
+  '</div>';
+}
+
+function toggleDetalleLineaOrden(clave){
+  var d = $('ordlin-'+clave);
+  if(d) d.style.display = d.style.display==='none' ? '' : 'none';
 }
 
 function borrarOrdenFracc(id){
