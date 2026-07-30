@@ -1746,6 +1746,52 @@ function agregarFraccManual(r){
   renderFraccionado();
 }
 
+function abrirModalOrden(){
+  var lineas = lineasSeleccionadas();
+  if(!lineas.length){ snack('No hay productos seleccionados'); return; }
+  var un = lineas.reduce(function(s,l){ return s + l.cantidad; }, 0);
+  var kg = Math.round(lineas.reduce(function(s,l){ return s + l.cantidad*l.cantPorUnidad; }, 0)*100)/100;
+  $('modal-fracc-sub').textContent = lineas.length+' líneas · '+un+' unidades · '+kg+' kg de granel';
+  $('modal-fracc-lista').innerHTML = lineas.map(function(l){
+    return '<div style="padding:6px 0;border-bottom:1px solid var(--outline)">'+
+           escHtml(l.nombre)+' — <strong>'+l.cantidad+' un.</strong> '+
+           '<span class="text-xs text-olive">('+escHtml(l.granelNombre)+', '+
+           (Math.round(l.cantidad*l.cantPorUnidad*100)/100)+' kg)</span></div>';
+  }).join('');
+  $('modal-fracc-err').style.display = 'none';
+  $('modal-fracc').style.display = 'flex';
+}
+
+function cerrarModalOrden(){ $('modal-fracc').style.display = 'none'; }
+
+function guardarOrdenFracc(){
+  var lineas = lineasSeleccionadas();
+  var body = { lineas: lineas, filtros: { desde: $('fechaDesde').value, hasta: $('fechaHasta').value } };
+  $('modal-fracc-ok').disabled = true;
+  fetch('/api/mayoristas/ordenes-fraccionado', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(function(r){ return r.json().then(function(j){ return {ok: r.ok, body: j}; }); })
+    .then(function(res){
+      $('modal-fracc-ok').disabled = false;
+      if(!res.ok){
+        // El modal queda abierto a propósito: si se cierra se pierde la selección.
+        $('modal-fracc-err').textContent = '⚠ '+(res.body.error || 'No se pudo guardar la orden');
+        $('modal-fracc-err').style.display = '';
+        return;
+      }
+      cerrarModalOrden();
+      seleccionFracc = {};
+      renderFraccionado();
+      snack('Orden de fraccionado generada');
+      switchSubFracc('ordenes');
+    })
+    .catch(function(e){
+      $('modal-fracc-ok').disabled = false;
+      $('modal-fracc-err').textContent = '⚠ '+e.message;
+      $('modal-fracc-err').style.display = '';
+    });
+}
+
 // ── Resumen por cliente ───────────────────────────────────────────────────────
 function cargarResumen(){
   $('resumen-cont').innerHTML = '<div class="state state-loading" style="padding:40px 0;text-align:center">Cargando resumen…</div>';
@@ -2170,6 +2216,19 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
   }).then(function(){ cargar(); });
 });
 </script>
+
+<div id="modal-fracc" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;max-width:640px;width:92%;max-height:80vh;overflow:auto;padding:24px">
+    <h3 class="font-display font-bold text-lg text-ink">Confirmar orden de fraccionado</h3>
+    <p class="text-sm text-olive" id="modal-fracc-sub"></p>
+    <div id="modal-fracc-lista" style="margin:16px 0;font-size:13px"></div>
+    <div id="modal-fracc-err" style="display:none;color:#b91c1c;font-size:13px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="cerrarModalOrden()">Cancelar</button>
+      <button class="btn btn-filled btn-sm" id="modal-fracc-ok" onclick="guardarOrdenFracc()">Generar orden</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
 
