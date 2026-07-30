@@ -242,6 +242,10 @@
   .reg-field input[type=time]{width:110px}
   .reg-consumo{font-size:18px;font-weight:700;color:var(--verde-dark);background:var(--grn-bg);padding:8px 16px;border-radius:9px}
   .reg-consumo small{font-size:12px;font-weight:400;color:var(--muted);margin-left:6px}
+  /* Origen del registro: explica por qué el producto del modal no es el de la línea de la orden. */
+  .reg-origen{font-size:12px;line-height:1.45;color:var(--muted);background:var(--surface2);border-left:3px solid var(--verde);border-radius:6px;padding:8px 12px}
+  .reg-origen b{color:var(--text)}
+  .reg-aviso{font-size:12px;line-height:1.45;color:var(--amarillo-on);background:var(--amarillo-cont);border-left:3px solid #f59e0b;border-radius:6px;padding:8px 12px;font-weight:600}
   td.envasar-d{font-weight:700;font-size:13px}
   td.envasar-d span{background:#dbe7ff;color:#1e40af;padding:3px 10px;border-radius:6px;display:inline-block}
   .resp-select{font-size:11px;padding:3px 6px;border-radius:6px;background:var(--surface1);border:1px solid var(--border);color:var(--text);max-width:110px}
@@ -352,6 +356,9 @@
   .ord-clientes summary{cursor:pointer;color:var(--faint);outline:none}
   .ord-clientes ul{margin:4px 0 0;padding-left:18px}
   .ord-manual{flex:1 1 100%;font-size:11.5px;color:var(--faint);font-style:italic}
+  .ord-linea .ord-carga{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .ord-linea .ord-carga.warn{display:inline-block;color:var(--amarillo-on);background:var(--amarillo-cont);border-radius:6px;padding:1px 7px;font-weight:600}
+  .ord-linea.sin-destino{box-shadow:inset 3px 0 0 #f59e0b}
   @media (max-width:900px){
     .ped-layout{flex-direction:column}
     .ped-col-ordenes,
@@ -2062,12 +2069,46 @@ function _initEnvioEditListeners() {
 // ════════════════ MODAL REGISTRO PRODUCCIÓN ════════════════
 let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
 let _mrDesdeOrden = false;   // true → los datos del registro salen de la orden, no de datosP
+// Secuencia de aperturas del modal: la apertura desde una orden es asíncrona (resuelve el producto
+// de carga contra el server), así que cada apertura toma un número y descarta su resultado si en el
+// medio se abrió otra. Sin esto, dos clicks seguidos podrían mezclar datos de dos líneas.
+let _mrOpenSeq = 0;
+function _mrNuevaApertura() { return ++_mrOpenSeq; }
+
+// ── Producto de carga de una línea mayorista ──
+// Cachea por PLU la respuesta del server (siempre 200, con `plu:null` + `motivo` si no resuelve).
+// Los errores de red NO se cachean, para que un reintento vuelva a consultar.
+const _destCarga = new Map();       // plu → respuesta ya resuelta del server
+const _destCargaPend = new Map();   // plu → promesa en vuelo (evita pedir dos veces el mismo PLU)
+function resolverDestinoCarga(plu) {
+  const k = String(plu == null ? '' : plu);
+  if (_destCarga.has(k)) return Promise.resolve(_destCarga.get(k));
+  if (_destCargaPend.has(k)) return _destCargaPend.get(k);
+  const p = (async () => {
+    try {
+      const res = await fetch(`/api/mayoristas/producto-carga?plu=${encodeURIComponent(k)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (!d || typeof d !== 'object') throw new Error('respuesta inesperada del servidor');
+      _destCarga.set(k, d);
+      return d;
+    } catch (e) {
+      return { plu: null, motivo: `no se pudo consultar el servidor (${e.message})` };
+    } finally {
+      _destCargaPend.delete(k);
+    }
+  })();
+  _destCargaPend.set(k, p);
+  return p;
+}
 function _buildModalForm(vals) {
   // Todo lo que viene de datos (productos, órdenes de mayoristas, responsables, texto del usuario) va escapado.
   const empOpts = fracEmpleados.map(e => `<option value="${escHtml(e.nombre)}"${vals.empleado===e.nombre?' selected':''}>${escHtml(e.nombre)}</option>`).join('');
   const granelCons = vals.granelConsumido != null ? vals.granelConsumido
     : (vals.cantFraccionada ? +((vals.cantFraccionada) * _mrCantFormula).toFixed(2) : '');
   document.getElementById('mr-form').innerHTML = `
+    ${vals.origen ? `<div class="reg-origen">${escHtml(vals.origen)}</div>` : ''}
+    ${vals.aviso ? `<div class="reg-aviso">⚠ ${escHtml(vals.aviso)}</div>` : ''}
     <div class="reg-field"><label>Producto</label><span class="val">${escHtml(vals.plu)} – ${escHtml(vals.nombre)}</span></div>
     <div class="reg-field"><label>Granel</label><span class="val">${escHtml(vals.granel||'–')}${vals.nombreGranel?' – '+escHtml(vals.nombreGranel):''}</span></div>
     ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
@@ -2091,12 +2132,14 @@ function _buildModalForm(vals) {
 }
 async function abrirModalRegistro(plu, force) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
+  const seq = _mrNuevaApertura();
   _mrDesdeOrden = false;
   let r = datosP.find(x => String(x.plu) === String(plu));
   if (!r) {
     const ped = datosPed.find(x => String(x.plu) === String(plu));
     if (!ped) return;
     const formula = await fetch(`/api/distribucion/pedido-formula/${plu}`).then(x => x.json()).catch(() => []);
+    if (seq !== _mrOpenSeq) return;   // se abrió otro modal mientras se pedía la fórmula
     const comp = formula[0] || {};
     r = { plu: ped.plu, nombre: ped.nombre, granel: comp.plu || null, nombreGranel: comp.nombre || '', cantFormula: comp.cantidad || 1, D: null };
   }
@@ -2110,26 +2153,64 @@ async function abrirModalRegistro(plu, force) {
   document.getElementById('modal-registro').classList.add('open');
 }
 // Abre el modal de registro a partir de una línea de orden de fraccionado.
-// No depende de datosP/datosPed: la línea ya trae granel, nombre de granel y cantidad por unidad.
-function abrirModalRegistroDesdeOrden(linea) {
+// El registro NO se imputa al producto mayorista de la línea sino al "producto de carga" que
+// resuelve el backend (presentación <=1kg → minorista de la misma presentación; >1kg → " PEDIDOS").
+// Si no se puede resolver se avisa y se abre con el mayorista original: el operador decide.
+async function abrirModalRegistroDesdeOrden(linea) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   if (!linea) return;
+  // Token de apertura: la resolución es async, así que si mientras tanto se abre otro modal
+  // (otra línea, la tabla lateral, edición, actividad) esta apertura se descarta y no pisa nada.
+  const seq = _mrNuevaApertura();
+  const dest = await resolverDestinoCarga(linea.plu);
+  if (seq !== _mrOpenSeq) return;
+  pintarDestinoEnLista(linea.plu, dest);
+
+  const pluLinea = String(linea.plu);
+  const nombreLinea = linea.nombre || pluLinea;
+  const resuelto = dest && dest.plu != null;
+  const mismoProducto = resuelto && String(dest.plu) === pluLinea;
+
   _mrActividadMode = false;
   _mrDesdeOrden = true;
-  _mrPlu = String(linea.plu); _mrEditId = null;
-  _mrCantFormula = linea.cantPorUnidad || 1;
-  _mrGranel = linea.granelPlu || null;
-  _mrNombreGranel = linea.granelNombre || '';
-  _mrNombre = linea.nombre || '';
+  _mrEditId = null;
+  if (resuelto) {
+    _mrPlu = String(dest.plu);
+    _mrNombre = dest.nombre || '';
+    // Granel y fórmula del destino. Si el destino no tiene fórmula activa se conserva la de la
+    // línea (mismo granel en la práctica) para no dejar el consumo sugerido en cero.
+    _mrGranel = dest.granelPlu || linea.granelPlu || null;
+    _mrNombreGranel = dest.granelNombre || linea.granelNombre || '';
+    _mrCantFormula = dest.cantPorUnidad || linea.cantPorUnidad || 1;
+  } else {
+    _mrPlu = pluLinea;
+    _mrNombre = nombreLinea;
+    _mrGranel = linea.granelPlu || null;
+    _mrNombreGranel = linea.granelNombre || '';
+    _mrCantFormula = linea.cantPorUnidad || 1;
+  }
+
+  // Cuando el destino es el mismo producto de la línea no se muestra cartel: sería confuso leer
+  // "se carga contra Ajo En Polvo 1Kg" en el modal de Ajo En Polvo 1Kg.
+  const origen = (resuelto && !mismoProducto)
+    ? `Se carga ${_mrNombre} (${_mrPlu}) por la línea mayorista ${nombreLinea} (${pluLinea}) de la orden`
+      + (dest.via === 'minorista' ? ', por presentación de venta minorista.' : ', por producto de PEDIDOS.')
+    : '';
+  const aviso = resuelto ? '' :
+    `No se pudo resolver el producto de carga de ${nombreLinea}: ${(dest && dest.motivo) || 'motivo desconocido'}. `
+    + 'Se abre con el producto de la orden — verificá antes de guardar.';
+
   const h3 = document.getElementById('modal-registro').querySelector('h3');
   h3.textContent = 'Registro de Producción';
   h3.style.color = '';
   _buildModalForm({ plu: _mrPlu, nombre: _mrNombre, granel: _mrGranel, nombreGranel: _mrNombreGranel,
-    D: null, cantFraccionada: linea.cantidad || '', empleado: (fracAsig[_mrPlu]||[])[0]||'', desde:'', hasta:'', observacion:'' });
+    D: null, cantFraccionada: linea.cantidad || '', empleado: (fracAsig[_mrPlu]||[])[0]||'', desde:'', hasta:'', observacion:'',
+    origen, aviso });
   document.getElementById('mr-err').style.display = 'none';
   document.getElementById('modal-registro').classList.add('open');
 }
 function abrirModalEdicion(reg) {
+  _mrNuevaApertura();
   _mrDesdeOrden = false;
   _mrPlu = String(reg.plu); _mrEditId = reg.id;
   _mrCantFormula = reg.cantFormula || 1;
@@ -2143,6 +2224,7 @@ function abrirModalEdicion(reg) {
 let _mrActividadMode = false;
 function abrirModalActividad() {
   if (!pCargado) return;
+  _mrNuevaApertura();
   _mrActividadMode = true;
   _mrDesdeOrden = false;
   _mrPlu = 'ACT'; _mrEditId = null; _mrCantFormula = 0; _mrGranel = null; _mrNombreGranel = ''; _mrNombre = 'Actividad';
@@ -2215,6 +2297,7 @@ async function guardarRegistro() {
   if (pCargado) renderP();
 }
 function cerrarModalRegistro() {
+  _mrNuevaApertura();   // descarta cualquier apertura async todavía en vuelo
   _mrActividadMode = false;
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
@@ -2223,7 +2306,7 @@ document.getElementById('mr-close').addEventListener('click', cerrarModalRegistr
 document.getElementById('mr-cancel').addEventListener('click', cerrarModalRegistro);
 document.getElementById('mr-save').addEventListener('click', guardarRegistro);
 document.getElementById('modal-registro').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalRegistro(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('modal-registro').classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModalRegistro(); });
 
 // ════════════════ RESPONSABLES ════════════════
 function renderResponsablesLista() {
@@ -2320,6 +2403,7 @@ function renderOrdenesFrac() {
         <div class="ord-prod">
           <b>${escHtml(l.nombre)}</b> <span style="color:var(--faint);font-size:11px">${escHtml(l.plu)}</span>
           <div class="ord-granel">Granel: ${escHtml(l.granelNombre || '–')}${l.granelPlu ? ' ('+escHtml(l.granelPlu)+')' : ''}</div>
+          <div class="ord-carga" data-carga-plu="${escHtml(l.plu)}">Producto de carga: …</div>
         </div>
         <div class="ord-nums">
           <span class="stat key"><b>${escHtml(l.cantidad)}</b> un.</span>
@@ -2340,6 +2424,51 @@ function renderOrdenesFrac() {
       ${lineas || '<div class="ord-linea" style="cursor:default;color:var(--faint)">Orden sin líneas.</div>'}
     </div>`;
   }).join('');
+  // Lo ya cacheado se pinta al instante; el resto se resuelve en una única pasada acotada.
+  _destCarga.forEach((d, plu) => pintarDestinoEnLista(plu, d));
+  precargarDestinosCarga();
+}
+
+// Pinta en la lista el producto de carga de todas las líneas con ese PLU. Se busca por dataset y
+// no por selector para no armar un selector con datos (los PLU vienen del server).
+function pintarDestinoEnLista(plu, dest) {
+  const k = String(plu);
+  const resuelto = dest && dest.plu != null;
+  const mismo = resuelto && String(dest.plu) === k;
+  document.querySelectorAll('#ord-lista .ord-carga').forEach(el => {
+    if (el.dataset.cargaPlu !== k) return;
+    const linea = el.closest('.ord-linea');
+    if (resuelto) {
+      el.className = 'ord-carga';
+      el.innerHTML = mismo
+        ? 'Se carga contra este mismo producto.'
+        : `Se carga: <b>${escHtml(dest.nombre)}</b> (${escHtml(dest.plu)})`
+          + ` <span style="color:var(--faint)">${dest.via === 'minorista' ? 'minorista' : 'PEDIDOS'}</span>`;
+      if (linea) linea.classList.remove('sin-destino');
+    } else {
+      el.className = 'ord-carga warn';
+      el.textContent = `⚠ Sin producto de carga: ${(dest && dest.motivo) || 'motivo desconocido'}`;
+      if (linea) linea.classList.add('sin-destino');
+    }
+  });
+}
+
+// Una sola pasada por PLU único de las órdenes visibles, de a 3 en paralelo. Deduplicar por PLU y
+// cachear la respuesta evita repetir consultas entre órdenes y entre re-renders; el tope de
+// paralelismo evita abrirle 30 consultas SQL simultáneas al server al pintar la lista.
+const MAX_CONSULTAS_CARGA = 3;
+async function precargarDestinosCarga() {
+  const plus = [...new Set(ordenesFrac.flatMap(o => (o.lineas || []).map(l => String(l.plu))))]
+    .filter(p => p && !_destCarga.has(p));
+  if (!plus.length) return;
+  let i = 0;
+  const worker = async () => {
+    while (i < plus.length) {
+      const plu = plus[i++];
+      pintarDestinoEnLista(plu, await resolverDestinoCarga(plu));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(MAX_CONSULTAS_CARGA, plus.length) }, worker));
 }
 
 async function cargarOrdenesFrac() {
