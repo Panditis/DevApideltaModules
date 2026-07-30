@@ -173,24 +173,52 @@ function asegurarBrechaMinS(min, S, dec) {
   return { min: m, S: s };
 }
 
+// ── Decimales permitidos por PLU ─────────────────────────────────────────────
+// Sólo los pesables admiten fracción (0.1): se venden y se envían por peso. Todo el resto
+// —almacén— va SIEMPRE en enteros: no existe medio pote, y un min fraccionado además rompe
+// el gatillo (con min 0.8 un stock de 1 nunca pide, porque la regla es stock < min).
+// Fuentes, de la más confiable a la menos: el pesablesSet en vivo (rubro Siga + lista manual
+// siemprePesable), el que quedó guardado en el caché, y el rubro del propio caché. Sin ninguna
+// de las tres devuelve null y el redondeo se infiere como antes.
+const RUBRO_PESABLE = 'Pesables Fraccionado';
+function decimalesDePlu(plu, pesablesSet, cache) {
+  if (pesablesSet) return pesablesSet.has(Number(plu)) ? 1 : 0;
+  const guardados = cache && Array.isArray(cache.pesables) ? cache.pesables : null;
+  if (guardados) return guardados.some(p => Number(p) === Number(plu)) ? 1 : 0;
+  const rubro = cache && cache.rubros ? cache.rubros[plu] : null;
+  if (rubro != null) return rubro === RUBRO_PESABLE ? 1 : 0;
+  return null;
+}
+
 // ── Ajustes manuales (S / min fijos por sucursal) ────────────────────────────
 // manual: { plu: { sucKey: { S, min } } }  — valores fijados a mano desde la UI.
 // El cálculo NUNCA los pisa: detalle[plu][suc].S/.min conservan siempre lo calculado
 // y mins/sLevels (lo que consume distribución) quedan con el valor manual.
 // Idempotente: reaplicarla sobre un caché ya ajustado da el mismo resultado, así que
 // alcanza con volver a llamarla tras editar/borrar un ajuste, sin recalcular desde Siga.
-function aplicarManualA8020(cache, manual) {
+// pesablesSet (opcional): PLUs que admiten decimales. Esta función es el único punto por el
+// que pasan TODOS los valores que consume distribución, así que el redondeo se garantiza acá:
+// da igual si el número vino del cálculo, de un fijo manual o de un caché viejo con decimales.
+function aplicarManualA8020(cache, manual, pesablesSet) {
   const man = manual || {};
   cache.mins = cache.mins || {};
   cache.sLevels = cache.sLevels || {};
   cache.detalle = cache.detalle || {};
+  // Redondea al paso del PLU y recién después asegura la brecha: redondear los dos niveles por
+  // separado puede empatarlos (min 1.6→2 y S 2.2→2) y con S == min el envío teórico queda en 0.
+  const nivelar = (plu, minCrudo, sCrudo) => {
+    const dec = decimalesDePlu(plu, pesablesSet, cache);
+    if (dec == null) return asegurarBrechaMinS(minCrudo, sCrudo);
+    return asegurarBrechaMinS(roundDec(Number(minCrudo) || 0, dec),
+                              roundDec(Number(sCrudo)   || 0, dec), dec);
+  };
   for (const [plu, porSuc] of Object.entries(cache.detalle)) {
     for (const [suc, d] of Object.entries(porSuc)) {
       const m = (man[plu] || {})[suc];
       // Un fijo puede tocar sólo uno de los dos niveles y quedar pegado al otro: la brecha se
       // reasegura acá, no alcanza con validarla al guardar.
-      const brecha = asegurarBrechaMinS(m && m.min != null ? Number(m.min) : d.min,
-                                        m && m.S   != null ? Number(m.S)   : d.S);
+      const brecha = nivelar(plu, m && m.min != null ? Number(m.min) : d.min,
+                                  m && m.S   != null ? Number(m.S)   : d.S);
       (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = brecha.S;
       (cache.mins[plu] = cache.mins[plu] || {})[suc] = brecha.min;
       if (m) {
@@ -208,7 +236,7 @@ function aplicarManualA8020(cache, manual) {
       if (det[suc]) continue;
       det[suc] = { mu: 0, sigma: 0, S: 0, min: 0, manual: true, soloManual: true,
         ...(m.nota ? { manualNota: m.nota } : {}), ...(m.ts ? { manualTs: m.ts } : {}) };
-      const brecha = asegurarBrechaMinS(m.min != null ? Number(m.min) : 0, m.S != null ? Number(m.S) : 0);
+      const brecha = nivelar(plu, m.min != null ? Number(m.min) : 0, m.S != null ? Number(m.S) : 0);
       (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = brecha.S;
       (cache.mins[plu] = cache.mins[plu] || {})[suc] = brecha.min;
     }
