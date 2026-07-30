@@ -1236,13 +1236,18 @@ async function getFaltantesFraccionado(desde, hasta, localidades, clientes, pedi
   }
   if (!bomGranel.size) return [];
 
+  // Stock del granel: se suman todos los depósitos de la central, sin filtrar por nombre de
+  // depósito. El filtro LIKE '%GRANEL%' no sirve acá (ningún depósito se llama así en Siga: el
+  // preexistente /api/stock/granel devuelve StockGranel=0 con StockTotal>0 por ese mismo motivo).
+  // El granel ya es un producto propio ("X DEPOSITO GRANEL"), así que alcanza con acotar por PLU,
+  // igual que hace el módulo de pesables al resolver su columna de granel.
   const granelCodes = [...new Set([...bomGranel.values()].map(b => b.granelPlu))].filter(g => /^\d+$/.test(g));
   const granelRows = granelCodes.length ? await query(`
     SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
     FROM ProductosDepositos pd
     INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
     INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-    WHERE s.SoyLaCentral=1 AND UPPER(sd.NombreDeposito) LIKE '%GRANEL%'
+    WHERE s.SoyLaCentral=1
       AND pd.IdProducto IN (${granelCodes.map(g => `'${g}'`).join(',')})
     GROUP BY pd.IdProducto`) : [];
   const stockGranel = new Map(granelRows.map(r => [String(r.IdProducto), Number(r.Stock) || 0]));
