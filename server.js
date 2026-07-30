@@ -23,6 +23,8 @@ const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
 const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
 const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('./producto_carga');
+const { validarLineasFraccionado, normalizarLineasFraccionado,
+        totalesOrdenFraccionado } = require('./ordenes_fraccionado');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
@@ -1323,45 +1325,8 @@ app.get('/api/mayoristas/producto-carga', apiRoute(async req => {
 
 const ORD_FRACC_PATH = path.join(DATA_DIR, 'ordenes_fraccionado.json');
 
-// Los totales los recalcula siempre el server: lo que manda el cliente es solo la selección.
-function totalesOrdenFraccionado(lineas) {
-  return {
-    lineas: lineas.length,
-    unidades: lineas.reduce((s, l) => s + (Number(l.cantidad) || 0), 0),
-    kgGranel: Math.round(lineas.reduce((s, l) => s + (Number(l.granelNecesario) || 0), 0) * 1e6) / 1e6,
-  };
-}
-
-// Devuelve un string con el error, o null si está todo bien.
-function validarLineasFraccionado(lineas) {
-  if (!Array.isArray(lineas) || !lineas.length) return 'La orden tiene que tener al menos una línea';
-  for (const l of lineas) {
-    if (!l || typeof l !== 'object')                  return 'Hay una línea inválida';
-    if (!String(l.plu || '').trim())                  return 'Hay una línea sin PLU';
-    const cant = Number(l.cantidad);
-    if (!Number.isFinite(cant) || cant <= 0)          return `Cantidad inválida en el PLU ${l.plu}`;
-    if (!String(l.granelPlu || '').trim())            return `Falta el granel del PLU ${l.plu}`;
-    const cpu = Number(l.cantPorUnidad);
-    if (!Number.isFinite(cpu) || cpu <= 0)            return `Kg por unidad inválidos en el PLU ${l.plu}`;
-  }
-  return null;
-}
-
-function normalizarLineasFraccionado(lineas) {
-  return lineas.map(l => ({
-    plu: String(l.plu).trim(),
-    nombre: String(l.nombre || ''),
-    cantidad: Number(l.cantidad),
-    granelPlu: String(l.granelPlu).trim(),
-    granelNombre: String(l.granelNombre || ''),
-    cantPorUnidad: Number(l.cantPorUnidad),
-    granelNecesario: Math.round(Number(l.cantidad) * Number(l.cantPorUnidad) * 1e6) / 1e6,
-    manual: l.manual === true,
-    clientes: Array.isArray(l.clientes) ? l.clientes.map(c => ({
-      idCliente: c.idCliente, nombre: String(c.nombre || ''), pendiente: Number(c.pendiente) || 0,
-    })) : [],
-  }));
-}
+// La validación, la normalización y los totales viven en ordenes_fraccionado.js (puro, testeado):
+// el granel es opcional porque el armado manual de órdenes incluye productos sin granel resoluble.
 
 app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
   leerJSON(ORD_FRACC_PATH, []).slice().sort((a, b) => b.id - a.id)));
