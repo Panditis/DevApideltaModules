@@ -1250,6 +1250,107 @@ app.get('/api/mayoristas/fraccionado-faltantes', apiRoute(async req => {
   const p = params(req);
   return getFaltantesFraccionado(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados);
 }));
+
+const ORD_FRACC_PATH = path.join(DATA_DIR, 'ordenes_fraccionado.json');
+
+// Los totales los recalcula siempre el server: lo que manda el cliente es solo la selección.
+function totalesOrdenFraccionado(lineas) {
+  return {
+    lineas: lineas.length,
+    unidades: lineas.reduce((s, l) => s + (Number(l.cantidad) || 0), 0),
+    kgGranel: Math.round(lineas.reduce((s, l) => s + (Number(l.granelNecesario) || 0), 0) * 1e6) / 1e6,
+  };
+}
+
+// Devuelve un string con el error, o null si está todo bien.
+function validarLineasFraccionado(lineas) {
+  if (!Array.isArray(lineas) || !lineas.length) return 'La orden tiene que tener al menos una línea';
+  for (const l of lineas) {
+    if (!l || typeof l !== 'object')                  return 'Hay una línea inválida';
+    if (!String(l.plu || '').trim())                  return 'Hay una línea sin PLU';
+    const cant = Number(l.cantidad);
+    if (!Number.isFinite(cant) || cant <= 0)          return `Cantidad inválida en el PLU ${l.plu}`;
+    if (!String(l.granelPlu || '').trim())            return `Falta el granel del PLU ${l.plu}`;
+    const cpu = Number(l.cantPorUnidad);
+    if (!Number.isFinite(cpu) || cpu <= 0)            return `Kg por unidad inválidos en el PLU ${l.plu}`;
+  }
+  return null;
+}
+
+function normalizarLineasFraccionado(lineas) {
+  return lineas.map(l => ({
+    plu: String(l.plu).trim(),
+    nombre: String(l.nombre || ''),
+    cantidad: Number(l.cantidad),
+    granelPlu: String(l.granelPlu).trim(),
+    granelNombre: String(l.granelNombre || ''),
+    cantPorUnidad: Number(l.cantPorUnidad),
+    granelNecesario: Math.round(Number(l.cantidad) * Number(l.cantPorUnidad) * 1e6) / 1e6,
+    manual: l.manual === true,
+    clientes: Array.isArray(l.clientes) ? l.clientes.map(c => ({
+      idCliente: c.idCliente, nombre: String(c.nombre || ''), pendiente: Number(c.pendiente) || 0,
+    })) : [],
+  }));
+}
+
+app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
+  leerJSON(ORD_FRACC_PATH, []).slice().sort((a, b) => b.id - a.id)));
+
+app.get('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
+  const orden = leerJSON(ORD_FRACC_PATH, []).find(o => String(o.id) === String(req.params.id));
+  if (!orden) return res.status(404).json({ error: 'Orden no encontrada' });
+  res.json(orden);
+});
+
+app.post('/api/mayoristas/ordenes-fraccionado', (req, res) => {
+  const error = validarLineasFraccionado(req.body && req.body.lineas);
+  if (error) return res.status(400).json({ error });
+  const lineas = normalizarLineasFraccionado(req.body.lineas);
+  const orden = {
+    id: Date.now(),
+    fecha: new Date().toISOString().slice(0, 10),
+    origen: 'mayorista',
+    estado: 'pendiente',
+    usuario: String((req.body && req.body.usuario) || ''),
+    filtros: (req.body && req.body.filtros) || {},
+    lineas,
+    totales: totalesOrdenFraccionado(lineas),
+  };
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  arr.push(orden);
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(orden);
+});
+
+app.put('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const i = arr.findIndex(o => String(o.id) === String(req.params.id));
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  const cambios = req.body || {};
+  const ESTADOS = ['pendiente', 'aplicada', 'anulada'];
+  if (cambios.estado !== undefined && !ESTADOS.includes(cambios.estado)) {
+    return res.status(400).json({ error: `Estado inválido: ${cambios.estado}` });
+  }
+  let lineas = arr[i].lineas;
+  if (cambios.lineas !== undefined) {
+    const error = validarLineasFraccionado(cambios.lineas);
+    if (error) return res.status(400).json({ error });
+    lineas = normalizarLineasFraccionado(cambios.lineas);
+  }
+  // id y fecha no se pisan desde el body: son la identidad de la orden.
+  arr[i] = { ...arr[i], ...cambios, id: arr[i].id, fecha: arr[i].fecha,
+             lineas, totales: totalesOrdenFraccionado(lineas) };
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(arr[i]);
+});
+
+app.delete('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const nuevo = arr.filter(o => String(o.id) !== String(req.params.id));
+  if (nuevo.length === arr.length) return res.status(404).json({ error: 'Orden no encontrada' });
+  guardarJSON(ORD_FRACC_PATH, nuevo);
+  res.json({ ok: true });
+});
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
   return getFacturasDePedido(req.query.idSucursal || 1, req.query.numeroPedido);
