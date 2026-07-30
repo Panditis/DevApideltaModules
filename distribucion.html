@@ -2062,17 +2062,20 @@ function _initEnvioEditListeners() {
 let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
 let _mrDesdeOrden = false;   // true → los datos del registro salen de la orden, no de datosP
 function _buildModalForm(vals) {
-  const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}"${vals.empleado===e.nombre?' selected':''}>${e.nombre}</option>`).join('');
+  // Todo lo que viene de datos (productos, órdenes de mayoristas, responsables, texto del usuario) va escapado.
+  const empOpts = fracEmpleados.map(e => `<option value="${escHtml(e.nombre)}"${vals.empleado===e.nombre?' selected':''}>${escHtml(e.nombre)}</option>`).join('');
+  const granelCons = vals.granelConsumido != null ? vals.granelConsumido
+    : (vals.cantFraccionada ? +((vals.cantFraccionada) * _mrCantFormula).toFixed(2) : '');
   document.getElementById('mr-form').innerHTML = `
-    <div class="reg-field"><label>Producto</label><span class="val">${vals.plu} – ${vals.nombre||''}</span></div>
-    <div class="reg-field"><label>Granel</label><span class="val">${vals.granel||'–'}${vals.nombreGranel?' – '+vals.nombreGranel:''}</span></div>
+    <div class="reg-field"><label>Producto</label><span class="val">${escHtml(vals.plu)} – ${escHtml(vals.nombre)}</span></div>
+    <div class="reg-field"><label>Granel</label><span class="val">${escHtml(vals.granel||'–')}${vals.nombreGranel?' – '+escHtml(vals.nombreGranel):''}</span></div>
     ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
-    <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${vals.cantFraccionada||''}" min="0"></div>
-    <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${vals.granelConsumido!=null?vals.granelConsumido:(vals.cantFraccionada?+((vals.cantFraccionada)*_mrCantFormula).toFixed(2):'')}" min="0"></div>
+    <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${escHtml(vals.cantFraccionada||'')}" min="0"></div>
+    <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${escHtml(granelCons)}" min="0"></div>
     <div class="reg-field"><label>Empleado</label><select id="mr-emp"><option value="">— seleccionar —</option>${empOpts}</select></div>
-    <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value="${vals.desde||''}"></div>
-    <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value="${vals.hasta||''}"></div>
-    <div class="reg-field"><label>Observación</label><textarea id="mr-obs" rows="2" style="font-family:var(--body);resize:vertical;width:100%;max-width:280px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1)">${vals.observacion||''}</textarea></div>
+    <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value="${escHtml(vals.desde||'')}"></div>
+    <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value="${escHtml(vals.hasta||'')}"></div>
+    <div class="reg-field"><label>Observación</label><textarea id="mr-obs" rows="2" style="font-family:var(--body);resize:vertical;width:100%;max-width:280px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1)">${escHtml(vals.observacion||'')}</textarea></div>
     <div class="reg-consumo"><small>Sugerido = cantidad × fórmula ${_mrCantFormula}. Editá «Granel utilizado» si el consumo real difiere.</small></div>`;
   const _gcEl = document.getElementById('mr-granel-cons');
   const _cantEl = document.getElementById('mr-cant');
@@ -2285,8 +2288,8 @@ function renderPedidos() {
       <td class="l plu">${escHtml(r.plu)}</td>
       <td class="l nombre">${escHtml(r.nombre)}${r.esCompuesto ? ' <span title="Compuesto" style="color:var(--faint)">✓</span>' : ''}
         <div style="color:var(--faint);font-size:11px">${escHtml(r.rubro || '·')}</div></td>
-      <td><button class="frac-expand-btn" title="Ver fórmula" data-nombre="${escHtml(r.nombre)}"
-        onclick="event.stopPropagation();modalFormulaPedido('${escHtml(r.plu)}', this.dataset.nombre)">ƒ</button></td>
+      <td><button class="frac-expand-btn" title="Ver fórmula" data-plu="${escHtml(r.plu)}" data-nombre="${escHtml(r.nombre)}"
+        onclick="event.stopPropagation();modalFormulaPedido(this.dataset.plu, this.dataset.nombre)">ƒ</button></td>
     </tr>`;
   }).join('');
 }
