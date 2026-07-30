@@ -33,15 +33,25 @@ function calcularFaltantesFraccionado(pendientes, bomGranel, stockGranel) {
       clientes: (p.clientes || []).map(c => ({ ...c })),
     });
   }
+  // Un mismo granel puede alimentar varias presentaciones. Se sirve primero al de mayor faltante
+  // y se descuenta de un saldo vivo, así dos presentaciones no comprometen los mismos kilos.
+  // El desempate por PLU mantiene la salida determinista ante faltantes iguales.
+  candidatos.sort((a, b) =>
+    b.faltante - a.faltante ||
+    String(a.plu).localeCompare(String(b.plu), undefined, { numeric: true }));
+
+  const saldo = new Map();
+  for (const [granelPlu, kg] of stockGranel) saldo.set(String(granelPlu), Number(kg) || 0);
+
   return candidatos.map(c => {
-    const granelStock = Number(stockGranel.get(c.granelPlu)) || 0;
+    // granelStock es el saldo AL PROCESAR ESTA FILA, no el stock total del granel: es lo que esta
+    // fila puede usar realmente una vez servidas las anteriores, y es lo que muestra la UI.
+    const granelStock = saldo.has(c.granelPlu) ? saldo.get(c.granelPlu) : 0;
     const maxPorGranel = Math.floor(granelStock / c.cantPorUnidad);
     const sugerido = Math.max(0, Math.min(c.faltante, maxPorGranel));
-    return {
-      ...c, granelStock, sugerido,
-      cubre: sugerido >= c.faltante,
-      granelNecesario: redondear(sugerido * c.cantPorUnidad),
-    };
+    const granelNecesario = redondear(sugerido * c.cantPorUnidad);
+    saldo.set(c.granelPlu, redondear(granelStock - granelNecesario));
+    return { ...c, granelStock, sugerido, cubre: sugerido >= c.faltante, granelNecesario };
   });
 }
 
