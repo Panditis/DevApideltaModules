@@ -2361,6 +2361,9 @@ function escribirA8020Legacy(cache) {
 function reaplicarManualA8020() {
   const cache = leerJSON(A8020_CALC_PATH, null);
   if (!cache || cache.vacio || !cache.detalle) return null;
+  // Sin pesablesSet en vivo (esto a propósito no consulta Siga): aplicarManualA8020 cae al
+  // cache.pesables que dejó el último recálculo y, si tampoco está, al rubro del caché.
+  // En los dos casos almacén queda en enteros.
   aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}));
   guardarJSON(A8020_CALC_PATH, cache);
   escribirA8020Legacy(cache);
@@ -2685,9 +2688,12 @@ async function recalcularA8020() {
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
     bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
+    // Qué PLUs admiten decimales, para que reaplicarManualA8020 pueda redondear sin volver a Siga.
+    pesables: [...pesablesSet],
     rankingGeneral, rankingPorSucursal: ranking };
-  // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa.
-  aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}));
+  // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa. El
+  // pesablesSet en vivo garantiza el redondeo: almacén entero, pesables con un decimal.
+  aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}), pesablesSet);
   guardarJSON(A8020_CALC_PATH, cache);
   escribirA8020Legacy(cache);
 
