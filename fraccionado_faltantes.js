@@ -4,8 +4,8 @@
 // Lo llama el endpoint /api/mayoristas/fraccionado-faltantes de server.js.
 
 // El granel se mide en kg con decimales; multiplicar y restar en punto flotante deja colas
-// (0.30000000000000004). Se recorta a 6 decimales, que es la misma precisión que usa el
-// DECIMAL(18,6) de sqlBOMGranel.
+// (3 bolsas × 0.1kg da 0.30000000000000004, y 0.3 − 0.1 da 0.19999999999999998). Se recorta a
+// 6 decimales, que es la misma precisión que usa el DECIMAL(18,6) de sqlBOMGranel.
 function redondear(n) { return Math.round(n * 1e6) / 1e6; }
 
 /**
@@ -15,6 +15,11 @@ function redondear(n) { return Math.round(n * 1e6) / 1e6; }
  * @returns {Array} filas con faltante, sugerido, cubre, granelNecesario
  */
 function calcularFaltantesFraccionado(pendientes, bomGranel, stockGranel) {
+  // Mismo criterio defensivo que el resto de la función: un llamador que todavía no resolvió el
+  // BOM o el stock manda undefined y acá reventaba con "not iterable" en vez de devolver [].
+  bomGranel = bomGranel || new Map();
+  stockGranel = stockGranel || new Map();
+
   const candidatos = [];
   for (const p of pendientes || []) {
     const plu = String(p.plu == null ? '' : p.plu).trim();
@@ -47,7 +52,10 @@ function calcularFaltantesFraccionado(pendientes, bomGranel, stockGranel) {
     // granelStock es el saldo AL PROCESAR ESTA FILA, no el stock total del granel: es lo que esta
     // fila puede usar realmente una vez servidas las anteriores, y es lo que muestra la UI.
     const granelStock = saldo.has(c.granelPlu) ? saldo.get(c.granelPlu) : 0;
-    const maxPorGranel = Math.floor(granelStock / c.cantPorUnidad);
+    // El redondeo va ANTES del floor: dividir kg por kg/unidad da cocientes que caen apenas por
+    // debajo del entero exacto (0.3 / 0.1 = 2.9999999999999996), y el floor crudo se comía una
+    // unidad entera, dejando granel sin usar. Redondear a la precisión del BOM recupera el entero.
+    const maxPorGranel = Math.floor(redondear(granelStock / c.cantPorUnidad));
     const sugerido = Math.max(0, Math.min(c.faltante, maxPorGranel));
     const granelNecesario = redondear(sugerido * c.cantPorUnidad);
     saldo.set(c.granelPlu, redondear(granelStock - granelNecesario));

@@ -182,6 +182,34 @@ test('entradas vacias o nulas devuelven lista vacia', () => {
   assert.deepStrictEqual(calcularFaltantesFraccionado(null, new Map(), new Map()), []);
 });
 
+test('bomGranel y stockGranel undefined no explotan', () => {
+  // Arrange: el resto de la función es defensiva ante entradas sucias; sin default, el .get()
+  // del BOM tiraba "Cannot read properties of undefined" y el for...of del stock "is not iterable".
+  const pendientes = [{ plu: '4467', nombre: 'N', pendiente: 10, stockCentral: 0, clientes: [] }];
+
+  // Act + Assert
+  assert.deepStrictEqual(calcularFaltantesFraccionado(pendientes, undefined, undefined), []);
+  assert.deepStrictEqual(calcularFaltantesFraccionado(pendientes, new Map(), undefined), []);
+  assert.deepStrictEqual(calcularFaltantesFraccionado(), []);
+});
+
+test('cociente de granel justo: el error de punto flotante no debe recortar el sugerido', () => {
+  // Arrange: 3 bolsas de 100g contra 0.3kg de granel alcanzan exacto. Pero 0.3/0.1 en binario da
+  // 2.9999999999999996, así que el floor crudo devolvía 2: sugería una bolsa de menos, marcaba
+  // cubre:false y dejaba 100g de granel sin usar. Es el caso común en pesables (100/300/500g).
+  const pendientes = [{ plu: '4467', nombre: 'Nuez 100G', pendiente: 3, stockCentral: 0, clientes: [] }];
+  const bomGranel = new Map([['4467', { granelPlu: '7333', granelNombre: 'Nuez GRANEL', cantPorUnidad: 0.1 }]]);
+  const stockGranel = new Map([['7333', 0.3]]);
+
+  // Act
+  const filas = calcularFaltantesFraccionado(pendientes, bomGranel, stockGranel);
+
+  // Assert
+  assert.strictEqual(filas[0].sugerido, 3);
+  assert.strictEqual(filas[0].cubre, true);
+  assert.strictEqual(filas[0].granelNecesario, 0.3);
+});
+
 test('plu vacio o nulo se descarta', () => {
   // Arrange: defensa contra IdProducto sucios en Siga, mismo criterio que listas_universo.
   const pendientes = [
