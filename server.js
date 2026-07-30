@@ -21,6 +21,7 @@ const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
+const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
@@ -1187,6 +1188,68 @@ app.get('/api/clientes',    apiRoute(async req => { const p = params(req); retur
 app.get('/api/pedidos',     apiRoute(async req => { const p = params(req); return getPedidos(p.desde, p.hasta, p.localidades, p.clientes, p.estados); }));
 app.get('/api/productos',   apiRoute(async req => { const p = params(req); return getProductos(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados); }));
 app.get('/api/resumen',     apiRoute(async req => { const p = params(req); return getResumen(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados); }));
+
+// ── Mayoristas: órdenes de fraccionado ─────────────────────────────────────────
+// Detecta productos con faltante de stock fraccionado que sí tienen granel disponible.
+// Los pendientes salen de getResumen (por cliente+producto, mismos filtros que la tab),
+// el granel de sqlBOMGranel (fórmula activa, dos niveles) y el stock de los depósitos GRANEL
+// de la central. El cálculo en sí vive en fraccionado_faltantes.js (puro, testeado).
+async function getFaltantesFraccionado(desde, hasta, localidades, clientes, pedidos, estados) {
+  const filasResumen = await getResumen(desde, hasta, localidades, clientes, pedidos, estados);
+  if (!filasResumen.length) return [];
+
+  // Agregado por PLU conservando el desglose de clientes (getResumen viene por cliente+producto).
+  const porPlu = new Map();
+  for (const r of filasResumen) {
+    const plu = String(r.IdProducto);
+    if (!porPlu.has(plu)) {
+      porPlu.set(plu, {
+        plu, nombre: r.NombreProducto, rubro: r.NombreRubro || '',
+        pendiente: 0, stockCentral: Number(r.StockCentral) || 0, clientes: [],
+      });
+    }
+    const acc = porPlu.get(plu);
+    const pend = Number(r.TotalUnidades) || 0;
+    acc.pendiente += pend;
+    acc.clientes.push({ idCliente: r.IdCliente, nombre: r.NombreCliente, pendiente: pend });
+  }
+
+  const rubrosG = cfg.rubrosGranel.join(',');
+  const plus = [...porPlu.keys()].filter(p => /^\d+$/.test(p));
+  if (!plus.length) return [];
+  const filtroPadre = ` AND pc.IdProducto IN (${plus.map(p => `'${p}'`).join(',')})`;
+
+  const bomRows = await query(sqlBOMGranel(rubrosG, filtroPadre));
+  const bomGranel = new Map();
+  for (const b of bomRows) {
+    const plu = String(b.IdProducto);
+    // sqlBOMGranel puede devolver más de un componente granel por producto; nos quedamos con
+    // el de mayor CantPorUnidad, que es el ingrediente principal (el resto son trazas).
+    const cand = { granelPlu: String(b.IdProductoComponente), granelNombre: b.NombreComponente || '',
+                   cantPorUnidad: Number(b.CantPorUnidad) || 0 };
+    const prev = bomGranel.get(plu);
+    if (!prev || cand.cantPorUnidad > prev.cantPorUnidad) bomGranel.set(plu, cand);
+  }
+  if (!bomGranel.size) return [];
+
+  const granelCodes = [...new Set([...bomGranel.values()].map(b => b.granelPlu))].filter(g => /^\d+$/.test(g));
+  const granelRows = granelCodes.length ? await query(`
+    SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
+    FROM ProductosDepositos pd
+    INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
+    INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
+    WHERE s.SoyLaCentral=1 AND UPPER(sd.NombreDeposito) LIKE '%GRANEL%'
+      AND pd.IdProducto IN (${granelCodes.map(g => `'${g}'`).join(',')})
+    GROUP BY pd.IdProducto`) : [];
+  const stockGranel = new Map(granelRows.map(r => [String(r.IdProducto), Number(r.Stock) || 0]));
+
+  return calcularFaltantesFraccionado([...porPlu.values()], bomGranel, stockGranel);
+}
+
+app.get('/api/mayoristas/fraccionado-faltantes', apiRoute(async req => {
+  const p = params(req);
+  return getFaltantesFraccionado(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados);
+}));
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
   return getFacturasDePedido(req.query.idSucursal || 1, req.query.numeroPedido);
