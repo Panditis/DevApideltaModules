@@ -684,6 +684,9 @@ async function analizarConsumoCompras(target, meses) {
   };
 }
 
+// Rubro que nunca aparece en el buscador manual del plan del día (bultos/cajas de almacén).
+const RUBRO_MANUAL_EXCLUIDO_RE = /almacen\s*bultos\s*\/?\s*cajas/i;
+
 async function calcularSugerencias(params) {
   const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
@@ -731,7 +734,12 @@ async function calcularSugerencias(params) {
   resultado.sort((a, b) => b.urgencia - a.urgencia);
   let out = resultado;
   if (params.soloRojos === '1') out = out.filter(r => r.semaforo === 'RED');
-  if (params.q) { const q = String(params.q).toLowerCase(); out = out.filter(r => r.producto.toLowerCase().includes(q) || r.rubro.toLowerCase().includes(q)); }
+  if (params.q) {
+    const q = String(params.q).toLowerCase();
+    // El buscador manual del plan del día no ofrece "Almacen Bultos/Cajas": no se producen por unidad.
+    out = out.filter(r => !RUBRO_MANUAL_EXCLUIDO_RE.test(String(r.rubro || '')));
+    out = out.filter(r => r.producto.toLowerCase().includes(q) || r.rubro.toLowerCase().includes(q));
+  }
   return out;
 }
 

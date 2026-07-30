@@ -254,6 +254,42 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 .search-result .prod-rubro { font-size: 11px; color: var(--muted); }
 .search-result .prod-sug { font-size: 12px; color: var(--md-primary); font-weight: 600; }
 
+/* ── MODAL AGREGAR PRODUCTO (destacado) ── */
+#overlayBuscar { background: rgba(12,31,6,.55); backdrop-filter: blur(3px); }
+#overlayBuscar .modal { width: 620px; box-shadow: 0 24px 48px rgba(12,31,6,.35), var(--elev-4); }
+#overlayBuscar .modal-header {
+  background: linear-gradient(135deg, #405936 0%, #6b8f57 100%);
+  padding: 20px 24px; font-size: 22px; letter-spacing: .5px;
+}
+#overlayBuscar .modal-header::before { content: '➕'; font-size: 18px; }
+#overlayBuscar .modal-search { padding: 18px 22px; background: var(--grn-bg); border-bottom: 1px solid var(--grn-border); }
+#overlayBuscar .buscar-wrap { position: relative; }
+#overlayBuscar .buscar-wrap::before {
+  content: '🔍'; position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  font-size: 15px; opacity: .55; pointer-events: none;
+}
+#overlayBuscar .modal-search input {
+  padding: 14px 16px 14px 42px; font-size: 15px; border-radius: var(--radius-full);
+  border: 2px solid var(--grn-border);
+}
+#overlayBuscar .modal-search input:focus { border-color: var(--md-primary); box-shadow: 0 0 0 4px rgba(64,89,54,.18); }
+#overlayBuscar .buscar-hint { margin-top: 8px; font-size: 11px; color: var(--muted); }
+#overlayBuscar .modal-results { min-height: 180px; }
+#overlayBuscar .search-result {
+  padding: 13px 22px; border-left: 4px solid transparent;
+  transition: background .12s, border-color .12s, transform .12s;
+}
+#overlayBuscar .search-result:hover {
+  background: var(--grn-bg); border-left-color: var(--md-primary); transform: translateX(2px);
+}
+#overlayBuscar .search-result .prod-name { font-size: 14px; font-weight: 600; }
+#overlayBuscar .search-result .prod-sug {
+  background: var(--md-primary-container); color: var(--md-on-primary-container);
+  border-radius: var(--radius-full); padding: 3px 10px; font-size: 11px; white-space: nowrap;
+}
+#overlayBuscar .buscar-empty { padding: 34px 22px; text-align: center; color: var(--muted); font-size: 13px; }
+#overlayBuscar .buscar-empty .be-icon { font-size: 34px; display: block; margin-bottom: 8px; opacity: .5; }
+
 /* ── RESUMEN LAYOUT ── */
 .resumen-layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
 .granel-panel { display: flex; flex-direction: column; gap: 8px; }
@@ -539,7 +575,10 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
       <span class="close" id="cerrarBuscar">✕</span>
     </div>
     <div class="modal-search">
-      <input type="text" id="inputBuscar" placeholder="Escribí para buscar…">
+      <div class="buscar-wrap">
+        <input type="text" id="inputBuscar" placeholder="Buscá por nombre o rubro…">
+      </div>
+      <div class="buscar-hint">Mínimo 2 letras. Clic en un resultado para agregarlo al plan.</div>
     </div>
     <div class="modal-results" id="resultadosBuscar"></div>
   </div>
@@ -2032,7 +2071,7 @@ async function guardarOrden() {
 document.getElementById('btnAgregarProducto').addEventListener('click', () => {
   document.getElementById('overlayBuscar').classList.add('open');
   document.getElementById('inputBuscar').value = '';
-  document.getElementById('resultadosBuscar').innerHTML = '';
+  document.getElementById('resultadosBuscar').innerHTML = BUSCAR_VACIO_HTML;
   setTimeout(() => document.getElementById('inputBuscar').focus(), 80);
 });
 document.getElementById('cerrarBuscar').addEventListener('click', () =>
@@ -2046,8 +2085,13 @@ document.getElementById('inputBuscar').addEventListener('input', e => {
   buscarProdDebounce = setTimeout(() => buscarProductos(e.target.value), 350);
 });
 
+const BUSCAR_VACIO_HTML =
+  '<div class="buscar-empty"><span class="be-icon">🔎</span>Escribí para buscar un producto.</div>';
+const BUSCAR_SIN_RESULTADOS_HTML =
+  '<div class="buscar-empty"><span class="be-icon">🫙</span>Sin resultados para esa búsqueda.</div>';
+
 async function buscarProductos(q) {
-  if (q.length < 2) { document.getElementById('resultadosBuscar').innerHTML = ''; return; }
+  if (q.length < 2) { document.getElementById('resultadosBuscar').innerHTML = BUSCAR_VACIO_HTML; return; }
   try {
     const res = await api('GET', `/api/plan/sugerencias?q=${encodeURIComponent(q)}`);
     const html = res.slice(0, 20).map(r => `
@@ -2056,7 +2100,7 @@ async function buscarProductos(q) {
         <span class="prod-name">${escHtml(r.producto)}</span>
         <span class="prod-rubro">${escHtml(r.rubro)}</span>
         ${r.cantSugerida > 0 ? `<span class="prod-sug">Sug: ${r.cantSugerida}</span>` : ''}
-      </div>`).join('') || '<div class="loading">Sin resultados.</div>';
+      </div>`).join('') || BUSCAR_SIN_RESULTADOS_HTML;
     document.getElementById('resultadosBuscar').innerHTML = html;
   } catch {}
 }
