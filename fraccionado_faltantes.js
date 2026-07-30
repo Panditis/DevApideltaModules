@@ -35,8 +35,13 @@ function calcularFaltantesFraccionado(pendientes, bomGranel, stockGranel) {
   }
   return candidatos.map(c => {
     const granelStock = Number(stockGranel.get(c.granelPlu)) || 0;
-    const sugerido = c.faltante;
-    return { ...c, granelStock, sugerido, cubre: true, granelNecesario: redondear(sugerido * c.cantPorUnidad) };
+    const maxPorGranel = Math.floor(granelStock / c.cantPorUnidad);
+    const sugerido = Math.max(0, Math.min(c.faltante, maxPorGranel));
+    return {
+      ...c, granelStock, sugerido,
+      cubre: sugerido >= c.faltante,
+      granelNecesario: redondear(sugerido * c.cantPorUnidad),
+    };
   });
 }
 
