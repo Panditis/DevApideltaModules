@@ -20,7 +20,7 @@ const comprasModulo = require('./compras_modulo');
 const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
-const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
+const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
@@ -1545,8 +1545,37 @@ app.get('/api/ordenes',        (_req, res) => {
 });
 app.post('/api/ordenes',       (req, res)  => { const o = req.body; if (!o || !o.id) return res.status(400).json({ error: 'Falta orden' }); const arr = leerOrdenes().filter(x => x.id !== o.id); arr.push(o); guardarOrdenes(arr); res.json(o); });
 app.put('/api/ordenes/:id',    (req, res)  => { const id = parseInt(req.params.id), arr = leerOrdenes(), idx = arr.findIndex(o => o.id === id); if (idx < 0) return res.status(404).json({ error: 'No encontrado' }); arr[idx] = { ...arr[idx], ...req.body }; guardarOrdenes(arr); res.json(arr[idx]); });
-app.delete('/api/ordenes/:id', (req, res)  => { guardarOrdenes(leerOrdenes().filter(o => o.id !== parseInt(req.params.id))); res.json({ ok: true }); });
-app.delete('/api/ordenes',     (_req, res) => { guardarOrdenes([]); res.json({ ok: true }); });
+// Borrar una orden con reserva activa dejaría mercadería apartada en SiGA sin dueño: se corta
+// con 409 y se pide anular la reserva primero (mismo criterio que DELETE /api/plan/:fecha/item).
+app.delete('/api/ordenes/:id', (req, res) => {
+  const id  = parseInt(req.params.id);
+  const arr = leerOrdenes();
+  const orden = arr.find(o => o.id === id);
+  const reservas = orden ? reservasActivasDeOrden(orden) : [];
+  if (reservas.length) {
+    return res.status(409).json({
+      error: `La orden tiene reserva activa (movimiento${reservas.length > 1 ? 's' : ''} #${reservas.join(', #')}) `
+           + 'y no se puede eliminar. Anulá o devolvé esa reserva primero.',
+      reservas
+    });
+  }
+  guardarOrdenes(arr.filter(o => o.id !== id));
+  res.json({ ok: true });
+});
+
+// "Limpiar todo" conserva las órdenes con reserva activa y avisa cuántas quedaron, en vez de
+// fallar entero: el resto del día sí se puede limpiar.
+app.delete('/api/ordenes', (_req, res) => {
+  const arr = leerOrdenes();
+  const cache = new Map();
+  const conservar = arr.filter(o => reservasActivasDeOrden(o, cache).length > 0);
+  guardarOrdenes(conservar);
+  res.json({
+    ok: true, conservadas: conservar.length, eliminadas: arr.length - conservar.length,
+    ...(conservar.length ? { aviso: `Se conservaron ${conservar.length} orden(es) con reserva activa: `
+                                  + 'anulá o devolvé su reserva para poder eliminarlas.' } : {})
+  });
+});
 
 function resumenDeOrdenes(ords) {
   const total = ords.length, comp = ords.filter(o => o.estado === 'listo').length;
@@ -1842,6 +1871,9 @@ async function calcularDistribucionAlmacen() {
   const nuevoCfg = distCfg.nuevo || {};
   const nuevoDias = nuevoCfg.dias || 30;
   const pisoImportancia = nuevoCfg.pisoImportancia || 0.8;
+  // Piso de reposición del producto nuevo: por defecto el de un clase B (min 4 / S 8).
+  const pisosNuevo = { min: nuevoCfg.pisoMin != null ? nuevoCfg.pisoMin : 4,
+                       S:   nuevoCfg.pisoS   != null ? nuevoCfg.pisoS   : 8 };
   const compraTipos = (distCfg.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
   const [stockRows, nombres, fact, primeraCompraRows] = await Promise.all([
     query(sqlStockDistribucion(plus)),
@@ -1855,6 +1887,8 @@ async function calcularDistribucionAlmacen() {
   ]);
   const primeraCompraMap = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
   const umbralNuevo = new Date(Date.now() - nuevoDias * 24 * 60 * 60 * 1000);
+  // Producto nuevo = primera COMPRA dentro de nuevo.dias. Única definición del sistema: el A8020
+  // marca su badge con el mismo criterio. Da el piso de reposición y el de importancia.
   const esNuevoSet = new Set([...primeraCompraMap.entries()]
     .filter(([, fecha]) => new Date(fecha) >= umbralNuevo)
     .map(([plu]) => plu));
@@ -1880,7 +1914,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, pisosNuevo, factGatePorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
@@ -2267,6 +2301,71 @@ app.post('/api/compras-modulo/ordenes', (req, res) => {
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
 const DISTRIB_OVERRIDES_PATH = path.join(DATA_DIR, 'distribucion_overrides.json');
 const A8020_CALC_PATH = path.join(DATA_DIR, 'a8020_calc.json');
+// Ajustes manuales de S/min por (plu, sucursal). Persisten al recalcular: el cálculo
+// escribe lo suyo en detalle[plu][suc].S/.min y estos valores pisan mins/sLevels.
+const A8020_MANUAL_PATH = path.join(DATA_DIR, 'a8020_manual.json');
+
+// Escribe data/a8020.json en formato legacy (pesables.js / almacen.js / distribucion.js) desde el caché.
+//   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).
+const LEGACY_KEY = { riv:'minRiv', urq:'minUrq', nacion:'minNacion', chaca:'minChaca',
+  pergamino:'minPergamino', sanpedro:'minSanPedro', logia:'minLogia',
+  ramallo:'minVRamallo', sucu11:'minVConst' };
+const LEGACY_KEY_S = { riv:'SRiv', urq:'SUrq', nacion:'SNacion', chaca:'SChaca',
+  pergamino:'SPergamino', sanpedro:'SSanPedro', logia:'SLogia',
+  ramallo:'SVRamallo', sucu11:'SVConst' };
+// Ranking por sucursal (percentil 0-1 de importancia del PLU dentro de esa sucursal) → distribucion.js
+// lo usa para ponderar la importancia del envío por sucursal en vez del BB global plano.
+const LEGACY_KEY_RANK = { riv:'rankRiv', urq:'rankUrq', nacion:'rankNacion', chaca:'rankChaca',
+  pergamino:'rankPergamino', sanpedro:'rankSanPedro', ramallo:'rankVRamallo' };
+function escribirA8020Legacy(cache) {
+  const a8020Legacy = {};
+  for (const [plu, sucData] of Object.entries(cache.mins || {})) {
+    a8020Legacy[plu] = {};
+    for (const [sucKey, m] of Object.entries(sucData)) {
+      const lk = LEGACY_KEY[sucKey]; if (lk) a8020Legacy[plu][lk] = m;
+      const sk = LEGACY_KEY_S[sucKey]; const sv = ((cache.sLevels || {})[plu] || {})[sucKey];
+      if (sk && sv != null) a8020Legacy[plu][sk] = sv;
+    }
+  }
+  for (const [plu, cls] of Object.entries(cache.abc || {})) {
+    if (cls === 'F') (a8020Legacy[plu] = a8020Legacy[plu] || {}).claseF = true;
+  }
+  // Cachés previos a los ajustes manuales no traen rankingPorSucursal: se reconstruye desde detalle
+  // para no borrar los rankXxx del legacy al fijar un valor sin recalcular desde Siga.
+  let rankSuc = cache.rankingPorSucursal;
+  if (!rankSuc) {
+    rankSuc = {};
+    for (const [plu, porSuc] of Object.entries(cache.detalle || {})) {
+      for (const [suc, d] of Object.entries(porSuc)) {
+        if (d.ranking != null) (rankSuc[suc] = rankSuc[suc] || {})[plu] = d.ranking;
+      }
+    }
+  }
+  for (const [sucKey, porPlu] of Object.entries(rankSuc)) {
+    const rk = LEGACY_KEY_RANK[sucKey]; if (!rk) continue;
+    for (const [plu, score] of Object.entries(porPlu)) {
+      (a8020Legacy[plu] = a8020Legacy[plu] || {})[rk] = score;
+    }
+  }
+  // Ranking general (mismo 0-1, todo el catálogo) → fallback en distribucion.js cuando el PLU no tiene
+  // rank en NINGUNA sucursal. Reemplaza el fallback a BB crudo (facturación en miles/millones) que
+  // mezclaba escalas con los rankXxx (0-1) y disparaba la importancia de esos PLUs muy por encima del resto.
+  for (const [plu, score] of Object.entries(cache.rankingGeneral || {})) {
+    (a8020Legacy[plu] = a8020Legacy[plu] || {}).rankGeneral = score;
+  }
+  guardarJSON(A8020_PATH, a8020Legacy);
+  return a8020Legacy;
+}
+// Reaplica los ajustes manuales sobre el caché ya calculado y reescribe el legacy.
+// Evita tener que recalcular desde Siga (que tarda minutos) al fijar/quitar un valor.
+function reaplicarManualA8020() {
+  const cache = leerJSON(A8020_CALC_PATH, null);
+  if (!cache || cache.vacio || !cache.detalle) return null;
+  aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}));
+  guardarJSON(A8020_CALC_PATH, cache);
+  escribirA8020Legacy(cache);
+  return cache;
+}
 // Filtros comunes: venta al cliente final por sucursal (excluye ANULADO y comprobantes a clientes categoría SUCURSAL).
 function _ventasWhere(idList, meses) {
   return `v.Fecha >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
@@ -2431,9 +2530,11 @@ async function recalcularA8020() {
     const mult = o.mult ?? 1, piso = o.pisoManual ?? 0, techo = o.techo ?? techoDefault;
     const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
     const k = kFrac[cls || 'C'] ?? kFrac.C ?? 0.35;
-    let S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult, 0), techo), dec);
-    let min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
-    return { S, min };
+    const S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult, 0), techo), dec);
+    const min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
+    // El redondeo (S=1 → min=round(0.5)=1) y el pisoManual pueden dejar min == S: sin brecha el
+    // envío teórico es 0 y la sucursal gatilla sin reponer nada. asegurarBrechaMinS sube S.
+    return asegurarBrechaMinS(min, S, dec);
   };
   // ── Nivelación: sucursales con pocos días-con-venta → mezcla con base sucursal o promedio rubro ──
   const nivelCfg = config.nivelacion || {};
@@ -2511,13 +2612,28 @@ async function recalcularA8020() {
     }
   }
 
-  // ── Clasificación por historial de movimientos (productos SIN ventas): Nuevo vs F ──
-  //   Nuevo  → sin movimientos, sólo compras, o primer movimiento reciente (< umbral meses) → badge "Nuevo".
-  //   F      → tiene movimientos no-compra repartidos por ≥ umbral meses y cero ventas → stock muerto (min/S=0, sin empuje).
+  // ── Clasificación: Nuevo y F ──────────────────────────────────────────────────
+  //   Nuevo → primera COMPRA dentro de nuevo.dias. Única definición de "producto nuevo" en todo el
+  //           sistema: la misma que usa distribución para el piso de reposición y de importancia.
+  //   F     → cero ventas + movimientos no-compra anteriores al umbral de meses → stock muerto
+  //           (min/S=0, sin empuje). Ser Nuevo gana sobre F.
   const salesSet = new Set(statRows.map(r => String(r.plu)));
   const compraTipos = config.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC'];
   const umbralNuevo = config.antiguedadMesesNuevo ?? 3;
-  const candNoVenta = [...bootstrapSet].map(String).filter(p => !salesSet.has(p));
+  const nuevoDias = (config.nuevo || {}).dias || 30;
+  const compraInNuevos = compraTipos.map(t => `'${t}'`).join(',') || `''`;
+  // HAVING sobre la primera compra: devuelve sólo los recién incorporados, no todo el catálogo.
+  const nuevosSet = new Set();
+  {
+    const rows = await query(`SELECT mp.IdProducto
+      FROM MovimientosStockProductos mp
+      INNER JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+      WHERE mp.IdTipoMovimiento IN (${compraInNuevos})
+      GROUP BY mp.IdProducto
+      HAVING MIN(m.FechaMovimiento) >= DATEADD(DAY, -${nuevoDias}, CAST(GETDATE() AS DATE))`);
+    for (const r of rows) nuevosSet.add(String(r.IdProducto));
+  }
+  const candNoVenta = [...bootstrapSet].map(String).filter(p => !salesSet.has(p) && !nuevosSet.has(p));
   // F = existe un movimiento NO-compra anterior al umbral (actividad vieja sin ventas). Resto = Nuevo.
   // Existence check con filtro de fecha+tipo: mucho más liviano que agregar MIN sobre toda la tabla.
   const esViejo = new Set();
@@ -2536,18 +2652,19 @@ async function recalcularA8020() {
       for (const r of rows) esViejo.add(String(r.IdProducto));
     }
   }
-  const nuevos = [], viejos = [], claseF = new Set();
+  const nuevos = [], viejos = [];
+  for (const plu of nuevosSet) {
+    if (!mins[plu]) continue;   // sin niveles calculados no aparece en la tabla
+    nuevos.push(Number(plu));
+    for (const sk of Object.keys(detalle[plu] || {})) detalle[plu][sk].nuevo = true;
+  }
   for (const plu of candNoVenta) {
-    if (esViejo.has(plu)) {
-      claseF.add(plu); viejos.push(Number(plu)); abc[plu] = 'F';
-      if (mins[plu]) for (const sk of Object.keys(mins[plu])) mins[plu][sk] = 0;
-      if (sLevels[plu]) for (const sk of Object.keys(sLevels[plu])) sLevels[plu][sk] = 0;
-      if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) { detalle[plu][sk].S = 0; detalle[plu][sk].min = 0; detalle[plu][sk].viejo = true; }
-      bootstrapped.delete(plu);
-    } else {
-      nuevos.push(Number(plu));
-      if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) detalle[plu][sk].nuevo = true;
-    }
+    if (!esViejo.has(plu)) continue;
+    viejos.push(Number(plu)); abc[plu] = 'F';   // escribirA8020Legacy deriva claseF de abc
+    if (mins[plu]) for (const sk of Object.keys(mins[plu])) mins[plu][sk] = 0;
+    if (sLevels[plu]) for (const sk of Object.keys(sLevels[plu])) sLevels[plu][sk] = 0;
+    if (detalle[plu]) for (const sk of Object.keys(detalle[plu])) { detalle[plu][sk].S = 0; detalle[plu][sk].min = 0; detalle[plu][sk].viejo = true; }
+    bootstrapped.delete(plu);
   }
 
   const plus = [...new Set([...Object.keys(mins)])];
@@ -2568,43 +2685,11 @@ async function recalcularA8020() {
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     metricaABC: (config.abc || {}).metrica || 'facturacion', opsDays, abc, mins, sLevels, detalle, nombres,
     bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
-    rankingGeneral };
+    rankingGeneral, rankingPorSucursal: ranking };
+  // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa.
+  aplicarManualA8020(cache, leerJSON(A8020_MANUAL_PATH, {}));
   guardarJSON(A8020_CALC_PATH, cache);
-  // Escribir a8020.json en formato legacy para pesables.js y almacen.js.
-  //   minX = punto de pedido (gatillo) · SX = order-up-to (objetivo al que se repone).
-  const LEGACY_KEY = { riv:'minRiv', urq:'minUrq', nacion:'minNacion', chaca:'minChaca',
-    pergamino:'minPergamino', sanpedro:'minSanPedro', logia:'minLogia',
-    ramallo:'minVRamallo', sucu11:'minVConst' };
-  const LEGACY_KEY_S = { riv:'SRiv', urq:'SUrq', nacion:'SNacion', chaca:'SChaca',
-    pergamino:'SPergamino', sanpedro:'SSanPedro', logia:'SLogia',
-    ramallo:'SVRamallo', sucu11:'SVConst' };
-  const a8020Legacy = {};
-  for (const [plu, sucData] of Object.entries(mins)) {
-    a8020Legacy[plu] = {};
-    for (const [sucKey, m] of Object.entries(sucData)) {
-      const lk = LEGACY_KEY[sucKey]; if (lk) a8020Legacy[plu][lk] = m;
-      const sk = LEGACY_KEY_S[sucKey]; const sv = (sLevels[plu] || {})[sucKey];
-      if (sk && sv != null) a8020Legacy[plu][sk] = sv;
-    }
-  }
-  for (const plu of claseF) { (a8020Legacy[plu] = a8020Legacy[plu] || {}).claseF = true; }
-  // Ranking por sucursal (percentil 0-1 de importancia del PLU dentro de esa sucursal) → distribucion.js
-  // lo usa para ponderar la importancia del envío por sucursal en vez del BB global plano.
-  const LEGACY_KEY_RANK = { riv:'rankRiv', urq:'rankUrq', nacion:'rankNacion', chaca:'rankChaca',
-    pergamino:'rankPergamino', sanpedro:'rankSanPedro', ramallo:'rankVRamallo' };
-  for (const [sucKey, porPlu] of Object.entries(ranking)) {
-    const rk = LEGACY_KEY_RANK[sucKey]; if (!rk) continue;
-    for (const [plu, score] of Object.entries(porPlu)) {
-      (a8020Legacy[plu] = a8020Legacy[plu] || {})[rk] = score;
-    }
-  }
-  // Ranking general (mismo 0-1, todo el catálogo) → fallback en distribucion.js cuando el PLU no tiene
-  // rank en NINGUNA sucursal. Reemplaza el fallback a BB crudo (facturación en miles/millones) que
-  // mezclaba escalas con los rankXxx (0-1) y disparaba la importancia de esos PLUs muy por encima del resto.
-  for (const [plu, score] of Object.entries(rankingGeneral)) {
-    (a8020Legacy[plu] = a8020Legacy[plu] || {}).rankGeneral = score;
-  }
-  guardarJSON(A8020_PATH, a8020Legacy);
+  escribirA8020Legacy(cache);
 
   // Resumen para la respuesta (no vuelca todo)
   const distAbc = { A: 0, B: 0, C: 0 };
@@ -2617,6 +2702,80 @@ async function recalcularA8020() {
 }
 app.get('/api/distribucion/a8020/recalcular', apiRoute(async () => recalcularA8020()));
 app.get('/api/distribucion/a8020', apiRoute(async () => leerJSON(A8020_CALC_PATH, { vacio: true })));
+
+// ── Ajustes manuales de S/min por (plu, sucursal) ──────────────────────────────
+const MANUAL_MAX = 100000;
+function validarValorManual(v, campo) {
+  if (v === '' || v == null) return null;            // null = sin fijar (usa el calculado)
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > MANUAL_MAX) throw new Error(`Valor inválido para ${campo}`);
+  return roundDec(n, 2);
+}
+// Lista los ajustes con su valor calculado al lado, para la vista rápida de la UI.
+app.get('/api/distribucion/a8020/manual', (_req, res) => {
+  const manual = leerJSON(A8020_MANUAL_PATH, {});
+  const cache = leerJSON(A8020_CALC_PATH, {}) || {};
+  const items = [];
+  for (const [plu, porSuc] of Object.entries(manual)) {
+    for (const [sucursal, m] of Object.entries(porSuc)) {
+      const d = ((cache.detalle || {})[plu] || {})[sucursal] || {};
+      items.push({ plu: Number(plu), sucursal, S: m.S ?? null, min: m.min ?? null,
+        nota: m.nota || '', ts: m.ts || null, usuario: m.usuario || null,
+        nombre: (cache.nombres || {})[plu] || '', calcS: d.S ?? null, calcMin: d.min ?? null });
+    }
+  }
+  items.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '') || a.sucursal.localeCompare(b.sucursal));
+  res.json({ items });
+});
+app.post('/api/distribucion/a8020/manual', (req, res) => {
+  try {
+    const body = req.body || {};
+    const plu = String(body.plu || '').trim();
+    const sucursal = String(body.sucursal || '').trim();
+    if (!plu) throw new Error('Falta plu');
+    const sucs = (leerJSON(DISTRIB_CONFIG_PATH, {}).sucursales) || {};
+    if (!sucs[sucursal]) throw new Error(`Sucursal desconocida: ${sucursal}`);
+    const S = validarValorManual(body.S, 'S');
+    const min = validarValorManual(body.min, 'min');
+    if (S == null && min == null) throw new Error('Indicá al menos S o min');
+    // S tiene que quedar SIEMPRE por encima del min: con S == min el envío teórico es 0.
+    if (S != null && min != null && min >= S) throw new Error('El S tiene que ser mayor que el min');
+    // Fijar uno solo también puede empatar contra el calculado del otro nivel.
+    if (S == null || min == null) {
+      const d = ((leerJSON(A8020_CALC_PATH, {}).detalle || {})[plu] || {})[sucursal] || {};
+      const minEf = min != null ? min : d.min, sEf = S != null ? S : d.S;
+      if (minEf != null && sEf != null && minEf >= sEf) {
+        throw new Error(`El S tiene que ser mayor que el min (quedaría min=${minEf} y S=${sEf})`);
+      }
+    }
+    const manual = leerJSON(A8020_MANUAL_PATH, {});
+    const prev = (manual[plu] || {})[sucursal] || {};
+    const entry = { ts: new Date().toISOString() };
+    if (S != null) entry.S = S;
+    if (min != null) entry.min = min;
+    if (body.nota != null) entry.nota = String(body.nota).slice(0, 200);
+    else if (prev.nota) entry.nota = prev.nota;
+    const usuario = req.session && req.session.user && req.session.user.usuario;
+    if (usuario) entry.usuario = usuario;
+    manual[plu] = { ...(manual[plu] || {}), [sucursal]: entry };
+    guardarJSON(A8020_MANUAL_PATH, manual);
+    reaplicarManualA8020();
+    res.json({ ok: true, plu: Number(plu), sucursal, ...entry });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/distribucion/a8020/manual/:plu/:sucursal', (req, res) => {
+  try {
+    const { plu, sucursal } = req.params;
+    const manual = leerJSON(A8020_MANUAL_PATH, {});
+    if (manual[plu]) {
+      const { [sucursal]: _quitado, ...resto } = manual[plu];
+      if (Object.keys(resto).length) manual[plu] = resto; else delete manual[plu];
+      guardarJSON(A8020_MANUAL_PATH, manual);
+      reaplicarManualA8020();
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, 'a8020.html')));
 app.get('/cotizador',         (_req, res) => res.sendFile(path.join(__dirname, 'cotizador.html')));
 
@@ -4849,6 +5008,39 @@ function leerPlanReservas(fecha) {
   return { planes, plan };
 }
 
+// Comprobantes de reserva ACTIVA que respaldan una orden de producción. Una orden con
+// mercadería apartada en SiGA no se puede borrar: la reserva quedaría viva apuntando a una
+// orden que ya no existe y nadie podría devolverla ni conciliarla.
+// Se mira el sello reservaMovimientos que la orden guarda al enviarse Y, como red, los ítems
+// del plan que la componen — las órdenes viejas no tienen el sello, y el sello tampoco se
+// actualiza si la reserva se hizo después del envío.
+// cache: Map fecha → plan ya migrado, para no releer planes.json por cada orden del lote.
+function reservasActivasDeOrden(orden, cache) {
+  if (!orden || !orden.fecha) return [];
+  let plan;
+  if (cache && cache.has(orden.fecha)) plan = cache.get(orden.fecha);
+  else {
+    plan = leerPlanReservas(orden.fecha).plan;
+    if (cache) cache.set(orden.fecha, plan);
+  }
+  if (!plan) return [];
+  const activas = new Set((plan.reservas || [])
+    .filter(r => r && r.estado === 'activa' && r.numeroMovimiento != null)
+    .map(r => String(r.numeroMovimiento)));
+  if (!activas.size) return [];
+
+  const nums = new Set((Array.isArray(orden.reservaMovimientos) ? orden.reservaMovimientos : []).map(String));
+  // Mismo criterio de match que enviar-produccion: granel matchea por producto y fraccionado
+  // por rubro (con fallback a producto cuando el ítem no trae rubro).
+  for (const it of (plan.items || [])) {
+    if (!it || !it.reservaMovimiento || it.reservaMovimiento.numeroMovimiento == null) continue;
+    if (it.producto === orden.producto || (it.rubro || it.producto) === orden.producto) {
+      nums.add(String(it.reservaMovimiento.numeroMovimiento));
+    }
+  }
+  return [...nums].filter(n => activas.has(n));
+}
+
 // Saldo total reservado del plan sobre el ledger reservas[]. Los callers viejos que pasan
 // una reserva única siguen usando saldoReserva; los nuevos pasan el plan entero.
 function saldoReservaPlan(plan) {
@@ -5765,6 +5957,13 @@ function tieneRolEnvasado(reg) {
   return roles.some(x => RE_ROL_ENVASADO.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
 }
 
+// Carga manual: producción que se cargó a mano, sin orden del plan detrás (ordenId null). Por
+// motivos externos no se planifica, así que no hay reserva contra la cual conciliarla: se
+// resuelve entera en el depósito de recepción y queda fuera del cuadro reserva-vs-producción.
+function esRegistroManual(reg) {
+  return !reg || reg.ordenId === null || reg.ordenId === undefined || reg.ordenId === '';
+}
+
 // Motivo por el que un registro NO entra al alta de producción, o null si entra.
 function motivoExclusionRegistro(reg) {
   if (String((reg && reg.plu) || '').trim().toUpperCase() === 'ACT') return 'tarea-extra';
@@ -5873,10 +6072,13 @@ function productosDeConciliacion(registros) {
     const pluTexto = String(reg.plu ?? '').trim();
     const plus     = plusDeRegistro(pluTexto);
     const excluido = motivoExclusionRegistro(reg);
-    const clave    = `${pluTexto || `sin-plu-${reg.id}`}|${excluido || 'alta'}`;
+    // La carga manual también parte la clave: un mismo PLU cargado a mano y por orden da dos
+    // filas, porque sólo una de las dos se concilia contra la reserva.
+    const manual   = esRegistroManual(reg);
+    const clave    = `${pluTexto || `sin-plu-${reg.id}`}|${excluido || 'alta'}|${manual ? 'man' : 'plan'}`;
     const g = grupos.get(clave) || {
       plu: plus[0] || null, pluTexto, plus, nombre: String(reg.nombre || '').trim(),
-      cantidad: 0, registros: 0, excluido, detalle: []
+      cantidad: 0, registros: 0, excluido, manual, detalle: []
     };
     if (!g.nombre) g.nombre = String(reg.nombre || '').trim();
     g.cantidad  = redondear4(g.cantidad + (Number(reg.cantFraccionada) || 0));
@@ -5954,8 +6156,19 @@ async function conciliacionProduccion(fecha, idSucursal) {
     catch (e) { avisos.push(`No se pudo consultar la fórmula en SiGA (${e.message}): las etiquetas quedaron fuera de la conciliación.`); }
   }
 
-  const consumo = consumoRealDeRegistros(incluidos, formulas);
-  avisos.push(...consumo.avisos);
+  // El consumo se parte en dos: lo planificado (se concilia contra la reserva) y la carga
+  // manual (no tiene reserva detrás: se resuelve en el depósito de recepción). Si se mezclaran,
+  // el consumo manual se comería la reserva de las órdenes planificadas del mismo PLU.
+  const incluidosPlan   = incluidos.filter(r => !esRegistroManual(r));
+  const incluidosManual = incluidos.filter(r =>  esRegistroManual(r));
+  const consumo       = consumoRealDeRegistros(incluidosPlan, formulas);
+  const consumoManual = consumoRealDeRegistros(incluidosManual, formulas);
+  avisos.push(...consumo.avisos, ...consumoManual.avisos);
+  if (incluidosManual.length) {
+    avisos.push(`${incluidosManual.length} registro(s) son de carga manual (sin orden planificada): sus componentes `
+              + 'se descuentan del depósito de recepción, donde también entra el terminado, y quedan fuera '
+              + 'del cuadro de reserva vs. producción.');
+  }
 
   // La reserva se pone al día contra el log antes de comparar: si los movimientos se
   // revirtieron desde el historial, el saldo que muestra el plan no es el real. (plan/planes
@@ -5987,11 +6200,27 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
 
   // Sólo una reserva activa tiene stock realmente apartado en el depósito de reserva.
-  // Saldo agregado sobre TODAS las reservas activas del ledger (no sólo plan.reserva, que es
-  // la última reserva): así `reservado` coincide con el desglose por movimiento (porMovimiento)
+  // Saldo agregado sobre las reservas activas del ledger (no sólo plan.reserva, que es la
+  // última reserva): así `reservado` coincide con el desglose por movimiento (porMovimiento)
   // y el comprobante "resto" no doble-cuenta el consumo cuando hay varias reservas en el día.
-  const saldo     = saldoReservaPlan(plan);
+  // Las reservas YA CONCILIADAS (su ajuste de producción se registró: la mercadería ya se
+  // recepcionó) salieron del circuito y quedan fuera de la conciliación. Si siguieran contando
+  // aparecerían como sobrante fantasma —reservado > 0 y usado 0, porque sus registros de
+  // producción ya están asentados— y se mezclarían con las reservas nuevas.
+  const _pLedger    = migrarReservas(plan || {});
+  const esConciliada = r => !!(r && r.ajuste && r.ajuste.conciliado);
+  const reservasVivas = (_pLedger.reservas || []).filter(r => !esConciliada(r));
+  // Comprobantes de las reservas ya conciliadas: sirven para marcarlas en el listado de
+  // movimientos del día y que no se confundan con las que todavía esperan conciliación.
+  const numsConciliados = new Set((_pLedger.reservas || [])
+    .filter(r => esConciliada(r) && r.numeroMovimiento != null)
+    .map(r => String(r.numeroMovimiento)));
+  const saldo     = saldoLedger(reservasVivas);
   const reservado = new Map(saldo.map(l => [String(l.plu), redondear4(l.cantidad)]));
+  if (numsConciliados.size) {
+    avisos.push(`${numsConciliados.size} reserva(s) ya recepcionada(s) (movimiento${numsConciliados.size > 1 ? 's' : ''} `
+              + `#${[...numsConciliados].join(', #')}) quedan fuera del resumen: su circuito ya cerró.`);
+  }
 
   const componentes = [], conUso = new Set();
   for (const u of consumo.componentes.values()) {
@@ -6006,11 +6235,19 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
   componentes.sort((a, b) => String(a.tipo || 'zz').localeCompare(String(b.tipo || 'zz')) || a.nombre.localeCompare(b.nombre));
 
+  // Componentes de la carga manual: van aparte, siempre con reservado 0 (no hay nada apartado
+  // para ellos) y se descuentan del depósito de recepción al registrar el movimiento.
+  const componentesManual = [...consumoManual.componentes.values()]
+    .map(u => filaComponente(u.plu, u.nombre, u.tipo, 0, u.usado))
+    .sort((a, b) => String(a.tipo || 'zz').localeCompare(String(b.tipo || 'zz')) || a.nombre.localeCompare(b.nombre));
+
   const movimientos = leerMovLog()
     .filter(r => r && r.plan === fecha)
     .map(r => ({
       id: r.id, numeroMovimiento: r.numeroMovimiento ?? null, origen: r.origen,
       fechaHora: r.fechaHora, estado: r.estado,
+      // Claves del comprobante en SiGA: con ellas la pantalla puede pedir su detalle real.
+      idSucursal: r.idSucursal ?? null, idTipoMovimiento: r.idTipoMovimiento || null,
       depOrigen: r.depOrigen ?? null, depDestino: r.depDestino ?? null,
       lineas: (r.lineas || []).map(l => ({
         plu: String(l.plu), nombre: l.nombre == null ? '' : String(l.nombre), cantidad: redondear4(l.cantidad)
@@ -6018,7 +6255,12 @@ async function conciliacionProduccion(fecha, idSucursal) {
       // Una reversión se registra con el MISMO origen que el movimiento que deshace, así que
       // sin revierteA/revertidoPor es indistinguible de una reserva normal en el listado.
       // Se mandan los dos IDs para poder mostrar el par ("revertido por #32" / "reversión de #31").
-      revertido: !!r.revertidoPor, revertidoPor: r.revertidoPor || null, revierteA: r.revierteA || null
+      revertido: !!r.revertidoPor, revertidoPor: r.revertidoPor || null, revierteA: r.revierteA || null,
+      // Marcas para no mezclar en el listado lo que ya cerró con lo que falta conciliar:
+      //  · esRecepcion → el movimiento ES el alta de producción (terminados que entraron).
+      //  · conciliado  → es una reserva cuyo ajuste de producción ya se registró.
+      esRecepcion: r.origen === 'produccion',
+      conciliado: r.numeroMovimiento != null && numsConciliados.has(String(r.numeroMovimiento))
     }))
     .reverse();   // el log se escribe con el más nuevo al final
   const pendientes = movimientos.filter(m => m.estado === 'pendiente').length;
@@ -6062,9 +6304,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     return (depositos.length && !activos.has(n)) ? null : n;
   };
 
-  // Desglose por movimiento de reserva (para conciliar por orden y por movimiento).
-  const _pLedger   = migrarReservas(plan || {});
-  const _gruposMov = reservadoPorMovimiento(_pLedger.reservas);
+  // Desglose por movimiento de reserva (para conciliar por orden y por movimiento). Sólo las
+  // reservas todavía sin recepción: las conciliadas ya no tienen nada que mover.
+  const _gruposMov = reservadoPorMovimiento(reservasVivas);
   const _usadoPorPlu = new Map([...consumo.componentes.values()]
     .filter(u => u.plu).map(u => [String(u.plu), u.usado]));
   const porMovimiento = conciliarPorMovimiento(_gruposMov, _usadoPorPlu);
@@ -6087,6 +6329,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     },
     productos,
     componentes,
+    // Consumo de la carga manual, fuera del cuadro reserva-vs-producción: no hay reserva contra
+    // la cual conciliarlo. Se registra íntegro contra el depósito de recepción.
+    componentesManual,
     // Desglose reservado-vs-usado por movimiento de reserva (misma info que "componentes",
     // recortada por movimiento en vez de agregada por PLU).
     porMovimiento,
@@ -6115,11 +6360,66 @@ async function conciliacionProduccion(fecha, idSucursal) {
       productosExcluidos: productos.filter(p =>  p.excluido).length,
       componentes:        componentes.length,
       conDiferencia:      componentes.filter(c => c.diferencia !== 0).length,
-      sinReservar
+      sinReservar,
+      // Reservas que ya se recepcionaron y por eso NO entran en el resumen ni se vuelven a mover.
+      reservasConciliadas: numsConciliados.size,
+      // Producción cargada a mano: no se concilia contra reserva.
+      productosManuales:   productos.filter(p => !p.excluido && p.manual).length,
+      componentesManuales: componentesManual.length
     },
     avisos
   };
 }
+
+// Qué quedó realmente escrito en SiGA para un comprobante de stock: cabecera + renglones.
+// Sólo lectura (pool de lectura, nunca el de escritura). La conciliación lo usa para poder
+// auditar un movimiento del log contra la base sin salir de la pantalla.
+// GET /api/movimientos/siga/:numero?idSucursal=1&idTipoMovimiento=BIENESUSO
+app.get('/api/movimientos/siga/:numero', apiRoute(async req => {
+  // query() no toma parámetros (interpola el string), así que lo que viene de la URL se valida
+  // a mano antes de tocar el SQL: dos enteros y un tipo de movimiento alfanumérico.
+  const numero = Number(req.params.numero);
+  const suc    = Number(req.query.idSucursal);
+  const tipo   = String(req.query.idTipoMovimiento || '').trim();
+  if (!Number.isInteger(numero) || numero <= 0) return { error: 'Número de movimiento inválido' };
+  if (!Number.isInteger(suc)    || suc    <= 0) return { error: 'Sucursal inválida' };
+  if (!/^[A-Z0-9_]{1,20}$/i.test(tipo))         return { error: 'Tipo de movimiento inválido' };
+
+  const filtro = `IdSucursal=${suc} AND IdTipoMovimiento='${tipo}' AND NumeroMovimiento=${numero}`;
+  const [cab] = await query(`SELECT TOP 1 CONVERT(varchar(19), FechaMovimiento, 120) AS Fecha,
+      Usuario, Observacion, IdEmpleado, Neto, Total
+    FROM MovimientosStock WHERE ${filtro}`);
+  if (!cab) {
+    return { encontrado: false, numeroMovimiento: numero, idSucursal: suc, idTipoMovimiento: tipo,
+             lineas: [], aviso: 'El comprobante no existe en SiGA con esa sucursal y tipo de movimiento.' };
+  }
+  const lineas = await query(`SELECT mp.Orden, mp.IdProducto, p.NombreProducto, mp.Cantidad,
+      mp.IdDeposito, sd.NombreDeposito
+    FROM MovimientosStockProductos mp
+    LEFT JOIN Productos p ON p.IdProducto=mp.IdProducto
+    LEFT JOIN SucursalesDepositos sd ON sd.IdDeposito=mp.IdDeposito AND sd.IdSucursal=mp.IdSucursal
+    WHERE mp.IdSucursal=${suc} AND mp.IdTipoMovimiento='${tipo}' AND mp.NumeroMovimiento=${numero}
+    ORDER BY mp.Orden`);
+
+  return {
+    encontrado: true,
+    numeroMovimiento: numero, idSucursal: suc, idTipoMovimiento: tipo,
+    cabecera: {
+      fecha: cab.Fecha || null, usuario: String(cab.Usuario || '').trim(),
+      observacion: String(cab.Observacion || '').trim(),
+      idEmpleado: cab.IdEmpleado ?? null,
+      neto: Number(cab.Neto) || 0, total: Number(cab.Total) || 0
+    },
+    lineas: lineas.map(l => ({
+      orden: l.Orden ?? null,
+      plu: String(l.IdProducto ?? ''),
+      nombre: String(l.NombreProducto || '').trim(),
+      cantidad: redondear4(l.Cantidad),
+      idDeposito: l.IdDeposito ?? null,
+      nombreDeposito: String(l.NombreDeposito || '').trim()
+    }))
+  };
+}));
 
 app.get('/api/produccion/:fecha/conciliacion', apiRoute(async req => {
   const s = await resolverSucursal(req.query.idSucursal);
@@ -6192,6 +6492,18 @@ function lineasProduccionDesdeConciliacion(c, deps, opts) {
       lineas.push({ ...base, idDeposito: deps.diferencias, cantidad:  sobrante, concepto: 'sobrante-a-diferencias' });
       ajustes++;
     }
+  }
+
+  // Carga manual: sin reserva detrás, el circuito entero ocurre en el depósito de RECEPCIÓN —
+  // ahí se descuentan los componentes y ahí mismo entra el terminado, igual que si se armara
+  // en el mostrador. Nunca toca el de reserva ni el de salida, y no depende de esos combos.
+  // Va siempre en el comprobante de producción, con reserva o sin ella.
+  for (const comp of (c.componentesManual || [])) {
+    const usado = redondear4(comp.usado);
+    if (!(usado > 0)) continue;
+    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
+    lineas.push({ idProducto: String(comp.plu), nombre: comp.nombre || '', idDeposito: deps.recepcion, cantidad: -usado, concepto: 'consumo-manual' });
+    componentes++;
   }
   return { lineas, sinPlu, resumen: { terminados, componentes, ajustes } };
 }
@@ -6316,8 +6628,11 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
              sinDeposito: sinDeposito.map(l => ({ plu: l.idProducto, concepto: l.concepto })) };
   }
 
-  // La observación es la marca que identifica estos comprobantes en SiGA.
-  const obsBase = `${cp.observacion} ${fecha} PRODUCCION`.trim();
+  // La observación es la marca que identifica estos comprobantes en SiGA: el prefijo
+  // (produccion.observacion + fecha) es común a todos, y después cada uno dice qué es —
+  // mismo patrón que la reserva, que escribe "<obs> <fecha> RESERVA <dep>><dep>".
+  const obsPrefijo = `${cp.observacion} ${fecha}`.trim();
+  const obsBase    = `${obsPrefijo} PRODUCCION`;
   const poolW = await getPoolStock();
   const comprobantes = [], logErrores = [];
   let errMarca = null, avisoMarca = null, errEscritura = null;
@@ -6374,9 +6689,10 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
     //    el consumo fue contra reservas y no hay alta de producto pendiente.
     if (resto.lineas.length) {
-      // "RESTO" distingue este comprobante de los que cierran cada reserva: acá va el consumo
-      // que NO salió del depósito de reserva (fórmulas sin reservar y excedentes).
-      const rResto = await escribirComprobante(resto.lineas, `${obsBase} RESTO`.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
+      // Este es el comprobante de PRODUCCIÓN propiamente dicho: da de alta los terminados y
+      // descuenta el consumo que NO salió del depósito de reserva (fórmulas sin reservar,
+      // excedentes y carga manual). Los que cierran cada reserva se rotulan CONCILIACION.
+      const rResto = await escribirComprobante(resto.lineas, obsBase.slice(0, 200), deps.reserva || deps.salida, deps.recepcion);
       logErrores.push(rResto.logError);
       comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
       r = rResto;
@@ -6387,7 +6703,9 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
     //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
     for (const m of ajustesMov) {
-      const observacion = obsBase.slice(0, 200);
+      // Cada ajuste cierra UNA reserva: la observación lo dice y nombra el comprobante de
+      // reserva que concilia, para poder seguir el par reserva → conciliación desde SiGA.
+      const observacion = `${obsPrefijo} CONCILIACION RESERVA #${m.numeroMovimiento ?? '—'}`.slice(0, 200);
       const rm = await escribirComprobante(m.lineas, observacion, deps.reserva, deps.diferencias || deps.reserva);
       logErrores.push(rm.logError);
       comprobantes.push({ tipo: 'ajuste', numeroMovimientoReserva: m.numeroMovimiento, numeroMovimiento: rm.numeroMovimiento, idRegistro: rm.idRegistro });

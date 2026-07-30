@@ -157,4 +157,63 @@ function calcularRankingGlobal(metricByPlu) {
   return score;
 }
 
-module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec };
+// ── Brecha obligatoria entre min y S ─────────────────────────────────────────
+// min = punto de pedido, S = nivel al que se repone. Con S == min el envío teórico es 0 (o 1 por
+// redondeo): la sucursal gatilla y repone de a nada, corrida tras corrida. S SIEMPRE tiene que
+// quedar por encima del min; cuando coinciden se sube S (no se baja el min, que es la cobertura).
+// paso = 1 unidad, o 0.1 en pesables (dec=1). Con min y S ambos en 0 no hay reposición y se deja así.
+const PASO_BRECHA = { 0: 1, 1: 0.1, 2: 0.01 };
+function asegurarBrechaMinS(min, S, dec) {
+  const m = Number(min) || 0;
+  let s = Number(S) || 0;
+  if (m <= 0 && s <= 0) return { min: 0, S: 0 };
+  const d = dec != null ? dec : (Number.isInteger(m) && Number.isInteger(s) ? 0 : 1);
+  const paso = PASO_BRECHA[d] != null ? PASO_BRECHA[d] : 1;
+  if (s <= m) s = roundDec(m + paso, d);
+  return { min: m, S: s };
+}
+
+// ── Ajustes manuales (S / min fijos por sucursal) ────────────────────────────
+// manual: { plu: { sucKey: { S, min } } }  — valores fijados a mano desde la UI.
+// El cálculo NUNCA los pisa: detalle[plu][suc].S/.min conservan siempre lo calculado
+// y mins/sLevels (lo que consume distribución) quedan con el valor manual.
+// Idempotente: reaplicarla sobre un caché ya ajustado da el mismo resultado, así que
+// alcanza con volver a llamarla tras editar/borrar un ajuste, sin recalcular desde Siga.
+function aplicarManualA8020(cache, manual) {
+  const man = manual || {};
+  cache.mins = cache.mins || {};
+  cache.sLevels = cache.sLevels || {};
+  cache.detalle = cache.detalle || {};
+  for (const [plu, porSuc] of Object.entries(cache.detalle)) {
+    for (const [suc, d] of Object.entries(porSuc)) {
+      const m = (man[plu] || {})[suc];
+      // Un fijo puede tocar sólo uno de los dos niveles y quedar pegado al otro: la brecha se
+      // reasegura acá, no alcanza con validarla al guardar.
+      const brecha = asegurarBrechaMinS(m && m.min != null ? Number(m.min) : d.min,
+                                        m && m.S   != null ? Number(m.S)   : d.S);
+      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = brecha.S;
+      (cache.mins[plu] = cache.mins[plu] || {})[suc] = brecha.min;
+      if (m) {
+        d.manual = true;
+        // La observación viaja en el caché: la UI la precarga al reabrir la celda para editar.
+        if (m.nota) d.manualNota = m.nota; else delete d.manualNota;
+        if (m.ts) d.manualTs = m.ts; else delete d.manualTs;
+      } else { delete d.manual; delete d.manualNota; delete d.manualTs; }
+    }
+  }
+  // Pares (plu, sucursal) fijados a mano que el cálculo no produjo: se crean con calculado 0.
+  for (const [plu, porSuc] of Object.entries(man)) {
+    for (const [suc, m] of Object.entries(porSuc)) {
+      const det = cache.detalle[plu] = cache.detalle[plu] || {};
+      if (det[suc]) continue;
+      det[suc] = { mu: 0, sigma: 0, S: 0, min: 0, manual: true, soloManual: true,
+        ...(m.nota ? { manualNota: m.nota } : {}), ...(m.ts ? { manualTs: m.ts } : {}) };
+      const brecha = asegurarBrechaMinS(m.min != null ? Number(m.min) : 0, m.S != null ? Number(m.S) : 0);
+      (cache.sLevels[plu] = cache.sLevels[plu] || {})[suc] = brecha.S;
+      (cache.mins[plu] = cache.mins[plu] || {})[suc] = brecha.min;
+    }
+  }
+  return cache;
+}
+
+module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020, asegurarBrechaMinS };

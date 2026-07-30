@@ -66,7 +66,6 @@ const opts = {
   corregirBugs: true,
   pesosRacionado: PESOS,
   umbralMicroEnvio: { tramos: TRAMOS, pisoAbsoluto: 1 },
-  esNuevoSet: new Set(),
   factGatePorPlu: new Map(),
 };
 const fila = calcularFilaAlmacen(99999, stocks, a8020Row, {}, {}, new Set(), 0.5, opts);
@@ -77,14 +76,28 @@ assert.strictEqual(fila.enviar.nacion, 4, 'nacion ídem — agota los 12');
 assert.strictEqual(fila.enviar.sanPedro, 0, 'sanPedro no llega a que le alcance ni el piso');
 assert.strictEqual(fila.pideTotal, 32, 'pideTotal sigue siendo la suma de pides crudos, sin límite de central');
 
+// ── Gatillo: estar JUSTO en el mínimo no pide (pideTeorico usa stock < min) ────────────────
+const a8020Igual = { minRiv: 3, SRiv: 15, minChaca: 4, SChaca: 14 };
+const stocksIgual = { central: 50, riv: 3, urq: 0, nacion: 0, chaca: 4, pergamino: 0, sanpedro: 0, sucu8: 0, sucu9: 0, sucu11: 0 };
+const filaIgual = calcularFilaAlmacen(77777, stocksIgual, a8020Igual, {}, {}, new Set(), 0.5, opts);
+assert.strictEqual(filaIgual.pideTotal, 0, 'stock == min en ambas sucursales → no pide nada');
+assert.strictEqual(filaIgual.enviar.riv, 0, 'riv con stock == min no recibe envío');
+assert.strictEqual(filaIgual.enviar.chaca, 0, 'chaca ídem');
+// Una unidad por debajo del mínimo sí gatilla, y repone hasta S.
+const stocksUnoMenos = { ...stocksIgual, riv: 2 };
+const filaUnoMenos = calcularFilaAlmacen(77777, stocksUnoMenos, a8020Igual, {}, {}, new Set(), 0.5, opts);
+assert.strictEqual(filaUnoMenos.enviar.riv, 13, 'riv con stock = min-1 pide hasta S (15-2=13)');
+
 // ── Integración: PLU 91298 real (D=18, 6 sucursales urgidas) ───────────────────────────────
+// Mins un punto por encima del stock de cada sucursal (stock == min ya no gatilla). Los pides
+// no cambian — pide = S - stock — y los pisos dependen de S, así que el reparto es el mismo.
 const a8020Row91298 = {
-  minRiv: 3, SRiv: 15,
-  minUrq: 1, SUrq: 12,
-  minNacion: 4, SNacion: 14,
-  minVRamallo: 4, SVRamallo: 17,   // sucursal9
-  minPergamino: 5, SPergamino: 19,
-  minSanPedro: 3, SSanPedro: 16,
+  minRiv: 4, SRiv: 15,
+  minUrq: 2, SUrq: 12,
+  minNacion: 5, SNacion: 14,
+  minVRamallo: 5, SVRamallo: 17,   // sucursal9
+  minPergamino: 6, SPergamino: 19,
+  minSanPedro: 4, SSanPedro: 16,
 };
 const stocks91298 = { central: 18, riv: 3, urq: 1, nacion: 4, chaca: 0, pergamino: 5, sanpedro: 3, sucu8: 0, sucu9: 4, sucu11: 0 };
 const fila91298 = calcularFilaAlmacen(91298, stocks91298, a8020Row91298, {}, {}, new Set(), 0.5, opts);

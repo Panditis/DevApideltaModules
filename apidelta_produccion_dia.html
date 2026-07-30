@@ -874,6 +874,23 @@ header{box-shadow:var(--elev-2)}
   </div>
 </div>
 
+<!-- MODAL DETALLE DEL MOVIMIENTO EN SIGA (sólo lectura) -->
+<div class="modal-overlay" id="movSigaModal" style="z-index:400">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-handle"><div class="modal-handle-bar"></div></div>
+    <div class="modal-stripe" style="background:#37474F"></div>
+    <div class="modal-head" style="background:#37474F">
+      <span style="font-size:20px">🔍</span>
+      <div>
+        <h2 id="msTitle">Movimiento en SiGA</h2>
+        <div id="msSubtitle" style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px">Detalle real del comprobante</div>
+      </div>
+      <button class="modal-close" onclick="cerrarMovSigaModal()">✕</button>
+    </div>
+    <div class="modal-body" id="msBody"></div>
+  </div>
+</div>
+
 <!-- MODAL CARGAR PRODUCCIÓN FINAL -->
 <div class="modal-overlay" id="prodFinalModal">
   <div class="modal" style="max-width:540px">
@@ -1349,7 +1366,14 @@ async function api(method, path, body) {
   const opts = { method, headers: {'Content-Type':'application/json'} };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(SERVER_URL + path, opts);
-  if (!r.ok) throw new Error('HTTP ' + r.status);
+  if (!r.ok) {
+    // El servidor manda el motivo en {error} (por ejemplo el 409 de una orden con reserva
+    // activa): se propaga para poder mostrarlo en vez de un "HTTP 409" mudo.
+    const d = await r.json().catch(() => null);
+    const e = new Error((d && d.error) || ('HTTP ' + r.status));
+    e.status = r.status;
+    throw e;
+  }
   return r.json();
 }
 
@@ -1463,7 +1487,7 @@ async function deleteOrder(id) {
     await api('DELETE', '/api/ordenes/'+id);
     ORDERS = ORDERS.filter(o=>o.id!==id);
     renderAll(); showSnack('Orden eliminada');
-  } catch(e) { showSnack('Error al eliminar'); }
+  } catch(e) { showSnack('⚠ ' + (e.message || 'Error al eliminar')); }
 }
 
 async function confirmClearDay() {
@@ -1475,10 +1499,15 @@ async function confirmClearDay() {
   });
   if (!ok) return;
   try {
-    await api('DELETE', '/api/ordenes');
-    ORDERS = [];
-    renderAll(); showSnack('Planilla limpiada');
-  } catch(e) { showSnack('Error al limpiar'); }
+    const r = await api('DELETE', '/api/ordenes');
+    // Las órdenes con reserva activa no se borran: se recarga para que queden a la vista.
+    if (r && r.conservadas) {
+      await load(); renderAll(); showSnack('⚠ ' + (r.aviso || 'Quedaron órdenes con reserva activa'));
+    } else {
+      ORDERS = [];
+      renderAll(); showSnack('Planilla limpiada');
+    }
+  } catch(e) { showSnack('⚠ ' + (e.message || 'Error al limpiar')); }
 }
 
 // Auto-refresh cada 30 segundos (sincroniza con otras PCs)
@@ -2870,7 +2899,8 @@ async function guardarTareaExtra() {
 }
 document.getElementById('tareaExtraModal').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarTareaExtraModal(); });
 document.getElementById('cargaManualModal').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarCargaManualModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { cerrarTareaExtraModal(); cerrarCargaManualModal(); } });
+document.getElementById('movSigaModal').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarMovSigaModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { cerrarTareaExtraModal(); cerrarCargaManualModal(); cerrarMovSigaModal(); } });
 
 function abrirCargaManualModal() {
   document.getElementById('cm-query').value = '';
@@ -3124,6 +3154,7 @@ function renderConciliacion(d) {
   const productos = Array.isArray(d.productos) ? d.productos : [];
   const componentes = Array.isArray(d.componentes) ? d.componentes : [];
   const porMov = Array.isArray(d.porMovimiento) ? d.porMovimiento : [];
+  const compManual = Array.isArray(d.componentesManual) ? d.componentesManual : [];
   const tot = d.totales || {};
 
   const TH = 'text-align:left;padding:6px 8px;font-family:\'Barlow Condensed\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
@@ -3141,6 +3172,21 @@ function renderConciliacion(d) {
     ? `<span style="font-size:12px;color:var(--text-muted)">Depósitos ${escEnv(rsv.depOrigen)} → ${escEnv(rsv.depDestino)}</span>` : '';
   const compTexto = rsv.numeroMovimiento ? `<span style="font-size:12px;color:var(--text-muted)">Comprobante #${escEnv(rsv.numeroMovimiento)}</span>` : '';
 
+  // Botón para auditar el comprobante contra SiGA. Sin número (movimiento que no llegó a
+  // numerarse) o sin sucursal/tipo no hay nada que consultar.
+  const botonSiga = m => {
+    const num  = m.numeroMovimiento;
+    const suc  = Number(m.idSucursal);
+    const tipo = String(m.idTipoMovimiento || '').replace(/[^A-Za-z0-9_]/g, '');
+    if (num == null || !Number.isFinite(suc) || !tipo) {
+      return '<span title="Sin comprobante en SiGA: el movimiento no llegó a numerarse" style="font-size:11px;color:var(--text-muted)">—</span>';
+    }
+    const n = Array.isArray(m.lineas) ? m.lineas.length : 0;
+    return `<button onclick="verMovimientoSiga(${Number(num)},${suc},'${tipo}')"
+      title="Ver en SiGA el detalle real de este comprobante (${n} línea${n === 1 ? '' : 's'} en el log)"
+      style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;color:var(--text);text-decoration:none">🔍 ver</button>`;
+  };
+
   let movsHTML;
   if (!rsv.existe) {
     movsHTML = '<div style="padding:14px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">No hubo reserva de componentes para esta fecha. Todo lo consumido figura como no reservado.</div>';
@@ -3153,7 +3199,7 @@ function renderConciliacion(d) {
         <th style="${TH}">Origen</th>
         <th style="${TH}">Fecha y hora</th>
         <th style="${THC}">Estado</th>
-        <th style="${THR}">Líneas</th>
+        <th style="${THC}">SiGA</th>
       </tr></thead>
       <tbody>${movs.map(m => {
         const est = String(m.estado || '').toLowerCase();
@@ -3163,6 +3209,10 @@ function renderConciliacion(d) {
         // reconoce por revierteA, y va tachada igual que su original: el par se anula entre sí
         // y ninguno de los dos cuenta para la conciliación.
         const esReversion    = m.revierteA != null && m.revierteA !== '';
+        // Circuito cerrado: la recepción (alta de producción) y las reservas cuyo ajuste ya se
+        // registró no esperan nada. Se marcan para no confundirlas con las reservas nuevas.
+        const esRecepcion  = !!m.esRecepcion;
+        const yaConciliado = !!m.conciliado;
         const numRevertido   = esReversion ? _concNumeroDeMov(movs, m.revierteA)     : null;
         const numQueRevirtio = revertido   ? _concNumeroDeMov(movs, m.revertidoPor)  : null;
         const anulado = revertido || esReversion;
@@ -3182,20 +3232,31 @@ function renderConciliacion(d) {
           rowStyle += ';background:#FFEBEE';
           badge = 'background:var(--c-alta);color:#fff';
           nota = 'verificar en SiGA';
+        } else if (esRecepcion || yaConciliado) {
+          // Fondo verde tenue: se lee de un vistazo qué filas ya cerraron su circuito.
+          rowStyle += ';background:#F1F8E9';
+          nota = esRecepcion
+            ? 'alta de producción: no espera conciliación'
+            : 'ya conciliada: fuera del resumen';
         }
         const notaHTML = nota ? `<div style="font-size:11px;color:${est === 'pendiente' && !anulado ? 'var(--c-alta)' : 'var(--text-muted)'};text-decoration:none;margin-top:2px">${escEnv(nota)}</div>` : '';
         // El backend guarda la reversión con el origen del movimiento original ('reserva'), que
         // acá mentiría: se muestra lo que el movimiento realmente es.
         const origenTexto = esReversion ? `reversión (${m.origen || '—'})` : (m.origen || '—');
+        // Chip de circuito cerrado. Sólo si la fila no está anulada: un movimiento revertido ya
+        // no es ni recepción válida ni reserva conciliada.
+        let marca = '';
+        if (!anulado && esRecepcion)       marca = '<span class="chip-mov-ok">📦 recepción</span>';
+        else if (!anulado && yaConciliado) marca = '<span class="chip-mov-ok">✔ conciliada</span>';
         return `<tr style="${rowStyle}">
           <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px">#${escEnv(m.numeroMovimiento ?? m.id ?? '—')}</td>
-          <td style="padding:7px 8px">${escEnv(origenTexto)}</td>
+          <td style="padding:7px 8px">${escEnv(origenTexto)} ${marca}</td>
           <td style="padding:7px 8px;color:var(--text-muted)">${_concFechaHora(m.fechaHora)}</td>
           <td style="padding:7px 8px;text-align:center">
             <span style="display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;text-decoration:none;${badge}">${escEnv(m.estado || '—')}</span>
             ${notaHTML}
           </td>
-          <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN(m.lineas)}</td>
+          <td style="padding:7px 8px;text-align:center">${botonSiga(m)}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>`;
@@ -3208,11 +3269,12 @@ function renderConciliacion(d) {
   const excluidos = productos.filter(p => p.excluido);
   const chipReg = (num, txt) => `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:var(--radius-chip);font-size:10px;font-weight:700;background:var(--s-done-bg);color:var(--s-done-c)">✔ #${escEnv(num ?? '—')}${txt ? ' ' + escEnv(txt) : ''}</span>`;
   const filaProducto = (p, modo) => {
-    const gris = modo === 'registrado' || modo === 'excluido';
+    const gris = modo === 'excluido';
     let extra = '';
     if (modo === 'excluido') extra = `<span style="font-size:11px;font-style:italic;margin-left:6px">(${escEnv(_CONC_MOTIVOS[p.excluido] || p.excluido)})</span>`;
-    else if (modo === 'registrado' && p.yaRegistrado) extra = chipReg(p.yaRegistrado.numeroMovimiento);
     else if (p.parcial) extra = chipReg(p.parcial.numeroMovimiento, 'parcial');
+    // Carga manual: no se planificó, así que no hay reserva contra la cual conciliarla.
+    if (p.manual) extra += `<span title="Carga manual: sin orden planificada. Los componentes se descuentan del depósito de recepción, donde también entra el terminado, y no se concilian contra la reserva." style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:var(--radius-chip);font-size:10px;font-weight:700;background:#E3F2FD;color:#1565C0">✋ manual</span>`;
     return `<tr style="border-bottom:1px solid #F0F0F0${gris ? ';color:var(--text-muted);background:#FAFAFA' : ''}">
       <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(p.pluTexto || p.plu || '—')}</td>
       <td style="padding:7px 8px">${escEnv(cleanNombre(p.nombre || ''))}${extra}</td>
@@ -3222,8 +3284,11 @@ function renderConciliacion(d) {
   };
   const seccionProd = (txt, n) => `<tr><td colspan="4" style="padding:8px;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);background:#F4F4F4">${escEnv(txt)} (${n})</td></tr>`;
 
+  // Los ya registrados (recepción hecha) no se listan: el resumen es lo que falta mover.
   const productosHTML = !productos.length
     ? '<div style="padding:14px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">Sin productos cargados para esta fecha.</div>'
+    : (!pendientesProd.length && !excluidos.length)
+    ? `<div style="padding:14px;background:#F1F8E9;border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">Toda la producción del día ya fue registrada (${fmtN(registradosProd.length)} producto${registradosProd.length === 1 ? '' : 's'}): no queda nada por recepcionar.</div>`
     : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
         <thead><tr>
           <th style="${TH}">PLU</th>
@@ -3233,8 +3298,6 @@ function renderConciliacion(d) {
         </tr></thead>
         <tbody>
           ${pendientesProd.map(p => filaProducto(p, 'pendiente')).join('')}
-          ${registradosProd.length ? seccionProd('Ya registrados', registradosProd.length) : ''}
-          ${registradosProd.map(p => filaProducto(p, 'registrado')).join('')}
           ${excluidos.length ? seccionProd('Excluidos del movimiento', excluidos.length) : ''}
           ${excluidos.map(p => filaProducto(p, 'excluido')).join('')}
         </tbody>
@@ -3272,11 +3335,34 @@ function renderConciliacion(d) {
         <span><b style="color:#E65100">${fmtN(tot.sinReservar ?? 0)}</b> sin reservar</span>
       </div>`;
 
+  // Carga manual: consumo sin reserva detrás. Se muestra aparte porque no hay diferencia que
+  // conciliar — todo sale del depósito principal.
+  const manualHTML = !compManual.length ? '' : `
+    <div style="${CARD};border-left:5px solid #1565C0">
+      <div style="${TITLE}">✋ Carga manual: consumo desde el depósito de recepción
+        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">sin planificar: se descuenta y se da de alta en el mismo depósito, no se concilia contra la reserva</span>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:420px">
+        <thead><tr>
+          <th style="${TH}">PLU</th>
+          <th style="${TH}">Componente</th>
+          <th style="${TH}">Tipo</th>
+          <th style="${THR}">Usado</th>
+        </tr></thead>
+        <tbody>${compManual.map(c => `<tr style="border-bottom:1px solid #F0F0F0">
+          <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
+          <td style="padding:7px 8px">${escEnv(cleanNombre(c.nombre || ''))}</td>
+          <td style="padding:7px 8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${escEnv(c.tipo || '—')}</td>
+          <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN(c.usado)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+
   // Desglose reservado vs. usado por cada movimiento de reserva (uno por comprobante SiGA).
   const porMovimientoHTML = !porMov.length ? '' : `
     <div style="${CARD}">
       <div style="${TITLE}">🔀 Reservado vs. usado por movimiento
-        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">detalle de cada movimiento de reserva</span>
+        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">sólo las reservas sin recepción${tot.reservasConciliadas ? ` · ${fmtN(tot.reservasConciliadas)} ya conciliada${tot.reservasConciliadas === 1 ? '' : 's'} fuera del resumen` : ''}</span>
       </div>
       ${porMov.map(m => {
         const comps = Array.isArray(m.componentes) ? m.componentes : [];
@@ -3339,17 +3425,81 @@ function renderConciliacion(d) {
     </div>
     <div style="${CARD}">
       <div style="${TITLE}">🏭 Productos producidos
-        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">${fmtN(pendientesProd.length)} a registrar${registradosProd.length ? ` · ${fmtN(registradosProd.length)} ya registrados` : ''} · ${fmtN(tot.productosExcluidos ?? excluidos.length)} excluidos</span>
+        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">${fmtN(pendientesProd.length)} a registrar${registradosProd.length ? ` · ${fmtN(registradosProd.length)} ya recepcionados (no se listan)` : ''} · ${fmtN(tot.productosExcluidos ?? excluidos.length)} excluidos</span>
       </div>
       ${productosHTML}
     </div>
     <div style="${CARD}">
       <div style="${TITLE}">⚖️ Componentes: reservado vs. usado
-        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">diferencia positiva = faltó reservar · negativa = sobró en la reserva</span>
+        <span style="font-size:12px;font-weight:400;color:var(--text-muted)">diferencia positiva = faltó reservar · negativa = sobró en la reserva${compManual.length ? ' · la carga manual va aparte' : ''}</span>
       </div>
       ${componentesHTML}
     </div>
+    ${manualHTML}
     ${porMovimientoHTML}`;
+}
+
+// ── Detalle de un comprobante en SiGA (sólo lectura) ──────────────────────────
+function cerrarMovSigaModal() {
+  document.getElementById('movSigaModal').classList.remove('open');
+}
+
+async function verMovimientoSiga(numero, idSucursal, idTipoMovimiento) {
+  const body = document.getElementById('msBody');
+  document.getElementById('msTitle').textContent    = `Movimiento #${numero}`;
+  document.getElementById('msSubtitle').textContent = `Sucursal ${idSucursal} · tipo ${idTipoMovimiento}`;
+  body.innerHTML = '<div class="formula-spinner">⏳ Consultando SiGA…</div>';
+  document.getElementById('movSigaModal').classList.add('open');
+
+  const err = txt => `<div style="padding:14px;background:#FFEBEE;border-radius:var(--radius-sm);font-size:13px;color:var(--c-alta)">${escEnv(txt)}</div>`;
+  let d;
+  try {
+    d = await api('GET', `/api/movimientos/siga/${encodeURIComponent(numero)}`
+                       + `?idSucursal=${encodeURIComponent(idSucursal)}&idTipoMovimiento=${encodeURIComponent(idTipoMovimiento)}`);
+  } catch (e) {
+    body.innerHTML = err('No se pudo consultar SiGA. Reintentá en un momento.');
+    return;
+  }
+  if (d && d.error)      { body.innerHTML = err(d.error); return; }
+  if (!d || !d.encontrado) {
+    body.innerHTML = err(d && d.aviso ? d.aviso : 'El comprobante no aparece en SiGA.');
+    return;
+  }
+
+  const c = d.cabecera || {};
+  const lineas = Array.isArray(d.lineas) ? d.lineas : [];
+  const dato = (k, v) => `<div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)">${escEnv(k)}</div>
+    <div style="font-size:13px;font-weight:600">${escEnv(v || '—')}</div></div>`;
+  const TH = 'text-align:left;padding:6px 8px;font-family:\'Barlow Condensed\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
+  const THR = TH.replace('text-align:left', 'text-align:right');
+
+  const tabla = !lineas.length
+    ? '<div style="padding:14px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">El comprobante existe pero no tiene renglones en SiGA.</div>'
+    : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:460px">
+        <thead><tr>
+          <th style="${TH}">PLU</th>
+          <th style="${TH}">Producto</th>
+          <th style="${TH}">Depósito</th>
+          <th style="${THR}">Cantidad</th>
+        </tr></thead>
+        <tbody>${lineas.map(l => {
+          const cant = _parseNum(l.cantidad);
+          return `<tr style="border-bottom:1px solid #F0F0F0">
+            <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(l.plu || '—')}</td>
+            <td style="padding:7px 8px">${escEnv(cleanNombre(l.nombre || ''))}</td>
+            <td style="padding:7px 8px;color:var(--text-muted)">${escEnv(l.nombreDeposito || (l.idDeposito != null ? 'Depósito ' + l.idDeposito : '—'))}</td>
+            <td style="padding:7px 8px;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${cant < 0 ? 'var(--c-alta)' : 'var(--green-dark)'}">${fmtN(cant)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>`;
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px">
+      ${dato('Fecha', c.fecha)}${dato('Usuario', c.usuario)}${dato('Empleado', c.idEmpleado == null ? '' : String(c.idEmpleado))}
+    </div>
+    <div style="margin-bottom:14px">${dato('Observación', c.observacion)}</div>
+    ${tabla}
+    <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">${fmtN(lineas.length)} renglón${lineas.length === 1 ? '' : 'es'} en SiGA</div>`;
 }
 
 async function exportarConciliacionCSV() {
