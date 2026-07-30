@@ -1214,7 +1214,11 @@ async function getFaltantesFraccionado(desde, hasta, localidades, clientes, pedi
     acc.clientes.push({ idCliente: r.IdCliente, nombre: r.NombreCliente, pendiente: pend });
   }
 
-  const rubrosG = cfg.rubrosGranel.join(',');
+  // Se relee config.json por request igual que /api/stock/granel y /api/bom, los otros dos
+  // consumidores de rubrosGranel: así editar la config no deja este endpoint desalineado
+  // con ellos hasta el próximo reinicio. Local `c` para no pisar el `cfg` global del módulo.
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const rubrosG = c.rubrosGranel.join(',');
   const plus = [...porPlu.keys()].filter(p => /^\d+$/.test(p));
   if (!plus.length) return [];
   const filtroPadre = ` AND pc.IdProducto IN (${plus.map(p => `'${p}'`).join(',')})`;
@@ -1296,6 +1300,10 @@ function normalizarLineasFraccionado(lineas) {
 app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
   leerJSON(ORD_FRACC_PATH, []).slice().sort((a, b) => b.id - a.id)));
 
+// Los cuatro handlers que siguen van con (req, res) crudo y NO con apiRoute: apiRoute hace
+// `res.json(await fn(req))`, sin forma de setear el status, así que envolverlos convertiría
+// los 400 de validación y los 404 en respuestas 200. Es el mismo criterio que el resto de las
+// rutas de escritura del archivo (ver /api/admin/modulos).
 app.get('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
   const orden = leerJSON(ORD_FRACC_PATH, []).find(o => String(o.id) === String(req.params.id));
   if (!orden) return res.status(404).json({ error: 'Orden no encontrada' });
