@@ -23,8 +23,8 @@ const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
 const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
 const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('./producto_carga');
-const { validarLineasFraccionado, normalizarLineasFraccionado,
-        totalesOrdenFraccionado } = require('./ordenes_fraccionado');
+const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
+        progresoOrdenFraccionado, marcarLineaOrden } = require('./ordenes_fraccionado');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
@@ -1328,8 +1328,12 @@ const ORD_FRACC_PATH = path.join(DATA_DIR, 'ordenes_fraccionado.json');
 // La validación, la normalización y los totales viven en ordenes_fraccionado.js (puro, testeado):
 // el granel es opcional porque el armado manual de órdenes incluye productos sin granel resoluble.
 
+// El progreso por línea se calcula al vuelo en cada respuesta y NO se persiste: así no puede
+// quedar desincronizado de `lineas` si una orden se edita por otra vía.
+const conProgreso = orden => ({ ...orden, progreso: progresoOrdenFraccionado(orden.lineas) });
+
 app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
-  leerJSON(ORD_FRACC_PATH, []).slice().sort((a, b) => b.id - a.id)));
+  leerJSON(ORD_FRACC_PATH, []).slice().sort((a, b) => b.id - a.id).map(conProgreso)));
 
 // Los cuatro handlers que siguen van con (req, res) crudo y NO con apiRoute: apiRoute hace
 // `res.json(await fn(req))`, sin forma de setear el status, así que envolverlos convertiría
@@ -1338,7 +1342,7 @@ app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
 app.get('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
   const orden = leerJSON(ORD_FRACC_PATH, []).find(o => String(o.id) === String(req.params.id));
   if (!orden) return res.status(404).json({ error: 'Orden no encontrada' });
-  res.json(orden);
+  res.json(conProgreso(orden));
 });
 
 app.post('/api/mayoristas/ordenes-fraccionado', (req, res) => {
@@ -1358,7 +1362,26 @@ app.post('/api/mayoristas/ordenes-fraccionado', (req, res) => {
   const arr = leerJSON(ORD_FRACC_PATH, []);
   arr.push(orden);
   guardarJSON(ORD_FRACC_PATH, arr);
-  res.json(orden);
+  res.json(conProgreso(orden));
+});
+
+// Va ANTES del PUT /:id sólo por claridad: Express no necesita el orden acá porque `:id` no matchea
+// barras, así que /:id/lineas/:plu nunca cae en el handler de arriba ni al revés.
+app.put('/api/mayoristas/ordenes-fraccionado/:id/lineas/:plu', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const i = arr.findIndex(o => String(o.id) === String(req.params.id));
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  const body = req.body || {};
+  // La fecha la pone el server: el cliente no puede antedatar una carga de producción.
+  const { orden, error } = marcarLineaOrden(arr[i], req.params.plu, {
+    estado: body.estado,
+    cargadoCant: body.cargadoCant,
+    fecha: new Date().toISOString().slice(0, 10),
+  });
+  if (error) return res.status(400).json({ error });
+  arr[i] = orden;
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(conProgreso(orden));
 });
 
 app.put('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
@@ -1376,11 +1399,13 @@ app.put('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
     if (error) return res.status(400).json({ error });
     lineas = normalizarLineasFraccionado(cambios.lineas);
   }
-  // id y fecha no se pisan desde el body: son la identidad de la orden.
+  // id y fecha no se pisan desde el body: son la identidad de la orden. `progreso` se descarta
+  // (JSON.stringify saltea undefined) para que el que devuelve el GET nunca termine persistido
+  // si el cliente reenvía la orden entera.
   arr[i] = { ...arr[i], ...cambios, id: arr[i].id, fecha: arr[i].fecha,
-             lineas, totales: totalesOrdenFraccionado(lineas) };
+             lineas, totales: totalesOrdenFraccionado(lineas), progreso: undefined };
   guardarJSON(ORD_FRACC_PATH, arr);
-  res.json(arr[i]);
+  res.json(conProgreso(arr[i]));
 });
 
 app.delete('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {

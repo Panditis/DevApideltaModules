@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { validarLineasFraccionado, normalizarLineasFraccionado,
-        totalesOrdenFraccionado } = require('../ordenes_fraccionado');
+const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
+        progresoOrdenFraccionado, marcarLineaOrden } = require('../ordenes_fraccionado');
 
 // ── Ordenes de fraccionado mayorista: validacion, normalizacion y totales ─────────────────────
 // Las lineas llegan del body del POST/PUT de /api/mayoristas/ordenes-fraccionado. Antes salian
@@ -227,4 +227,230 @@ test('manual y clientes conservan su forma persistida', () => {
     { idCliente: 7, nombre: 'Cliente A', pendiente: 3 },
     { idCliente: 8, nombre: '', pendiente: 0 },
   ]);
+});
+
+// ── Estado por linea: normalizacion y retrocompatibilidad ─────────────────────────────────────
+// La encargada de fraccionamiento marca cada linea desde la tab Pedidos: o carga la produccion
+// ("cargado", cualquier cantidad cierra la linea) o avisa que no la va a hacer ("sin_stock").
+
+test('linea nueva arranca pendiente, sin cantidad cargada ni fecha', () => {
+  // Arrange
+  const lineas = [lineaCompleta()];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.estado, 'pendiente');
+  assert.strictEqual(linea.cargadoCant, 0);
+  assert.strictEqual(linea.cargadoFecha, '');
+});
+
+test('orden vieja sin los campos de avance se normaliza con los defaults', () => {
+  // Arrange: las ordenes guardadas antes de este campo no deben romperse al leerlas ni al editarlas.
+  const lineas = [{ plu: '30000', nombre: 'Mix Europeo 200G', cantidad: 10 }];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.estado, 'pendiente');
+  assert.strictEqual(linea.cargadoCant, 0);
+  assert.strictEqual(linea.cargadoFecha, '');
+});
+
+test('normalizar preserva el avance ya marcado para que editar la orden no lo borre', () => {
+  // Arrange: el PUT de la orden renormaliza las lineas; lo que ya cargo la encargada tiene que sobrevivir.
+  const lineas = [lineaCompleta({ estado: 'cargado', cargadoCant: 50, cargadoFecha: '2026-07-30' })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.estado, 'cargado');
+  assert.strictEqual(linea.cargadoCant, 50);
+  assert.strictEqual(linea.cargadoFecha, '2026-07-30');
+});
+
+test('normalizar descarta un estado de linea que no sea uno de los tres validos', () => {
+  // Arrange: dato corrupto en el archivo o body malicioso; se cae al default seguro.
+  const lineas = [lineaCompleta({ estado: 'terminado', cargadoCant: 9, cargadoFecha: '2026-07-30' })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.estado, 'pendiente');
+  assert.strictEqual(linea.cargadoCant, 0);
+  assert.strictEqual(linea.cargadoFecha, '');
+});
+
+// ── marcarLineaOrden: cambios de estado ───────────────────────────────────────────────────────
+
+// Orden minima con dos lineas, el shape que devuelve el CRUD.
+function ordenDePrueba(extraLineas) {
+  return {
+    id: 1785430167930, fecha: '2026-07-30', estado: 'pendiente',
+    lineas: normalizarLineasFraccionado([
+      lineaCompleta({ plu: '30000', cantidad: 84 }),
+      lineaCompleta({ plu: '30002', cantidad: 12 }),
+      ...(extraLineas || []),
+    ]),
+  };
+}
+
+test('marcar cargado guarda la cantidad real aunque sea menor a la pedida', () => {
+  // Arrange: regla de negocio, no hay parciales: 50 de 84 igual cierra la linea.
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+    { estado: 'cargado', cargadoCant: 50, fecha: '2026-07-30' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].estado, 'cargado');
+  assert.strictEqual(nueva.lineas[0].cargadoCant, 50);
+  assert.strictEqual(nueva.lineas[0].cargadoFecha, '2026-07-30');
+  assert.strictEqual(nueva.lineas[1].estado, 'pendiente');   // las demas no se tocan
+});
+
+test('marcar sin_stock ignora cualquier cantidad porque no se produjo nada', () => {
+  // Arrange: "sin stock" es por linea y sin nota, un solo toque.
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '30002',
+    { estado: 'sin_stock', cargadoCant: 5, fecha: '2026-07-30' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[1].estado, 'sin_stock');
+  assert.strictEqual(nueva.lineas[1].cargadoCant, 0);
+  assert.strictEqual(nueva.lineas[1].cargadoFecha, '');
+});
+
+test('volver a pendiente desde cargado o sin_stock limpia cantidad y fecha', () => {
+  // Arrange: la encargada se puede equivocar y marcar de mas, tiene que poder deshacer.
+  const cargada = marcarLineaOrden(ordenDePrueba(), '30000',
+    { estado: 'cargado', cargadoCant: 84, fecha: '2026-07-30' }).orden;
+  const sinStock = marcarLineaOrden(ordenDePrueba(), '30000',
+    { estado: 'sin_stock', fecha: '2026-07-30' }).orden;
+
+  // Act + Assert
+  for (const previa of [cargada, sinStock]) {
+    const { orden: nueva, error } = marcarLineaOrden(previa, '30000',
+      { estado: 'pendiente', fecha: '2026-07-31' });
+    assert.strictEqual(error, null);
+    assert.strictEqual(nueva.lineas[0].estado, 'pendiente');
+    assert.strictEqual(nueva.lineas[0].cargadoCant, 0);
+    assert.strictEqual(nueva.lineas[0].cargadoFecha, '');
+  }
+});
+
+test('marcar una linea no muta la orden original ni sus lineas', () => {
+  // Arrange: la funcion es pura, el server persiste solo lo que devuelve.
+  const orden = ordenDePrueba();
+  const lineaOriginal = orden.lineas[0];
+
+  // Act
+  const { orden: nueva } = marcarLineaOrden(orden, '30000',
+    { estado: 'cargado', cargadoCant: 84, fecha: '2026-07-30' });
+
+  // Assert
+  assert.strictEqual(orden.lineas[0].estado, 'pendiente');
+  assert.strictEqual(orden.lineas[0].cargadoCant, 0);
+  assert.notStrictEqual(nueva, orden);
+  assert.notStrictEqual(nueva.lineas[0], lineaOriginal);
+  assert.strictEqual(nueva.lineas[1], orden.lineas[1]);   // las no tocadas se reusan
+});
+
+// ── marcarLineaOrden: validaciones ────────────────────────────────────────────────────────────
+
+test('estado de linea invalido devuelve error y no toca la orden', () => {
+  // Arrange
+  const orden = ordenDePrueba();
+
+  // Act + Assert
+  for (const estado of ['terminado', '', undefined, null, 'aplicada']) {
+    const { orden: nueva, error } = marcarLineaOrden(orden, '30000', { estado, cargadoCant: 1 });
+    assert.strictEqual(nueva, null);
+    assert.strictEqual(error, `Estado de línea inválido: ${estado}`);
+  }
+});
+
+test('PLU inexistente devuelve el error con el PLU pedido', () => {
+  // Arrange
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '99999',
+    { estado: 'cargado', cargadoCant: 1, fecha: '2026-07-30' });
+
+  // Assert
+  assert.strictEqual(nueva, null);
+  assert.strictEqual(error, 'La orden no tiene una línea con el PLU 99999');
+});
+
+test('cargadoCant negativa, no numerica o ausente devuelve error al cargar', () => {
+  // Arrange: solo se exige cantidad cuando se esta cargando produccion.
+  const orden = ordenDePrueba();
+
+  // Act + Assert
+  for (const cargadoCant of [-1, 'abc', undefined, null, NaN, Infinity]) {
+    const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+      { estado: 'cargado', cargadoCant, fecha: '2026-07-30' });
+    assert.strictEqual(nueva, null);
+    assert.strictEqual(error, 'Cantidad cargada inválida en el PLU 30000');
+  }
+});
+
+test('cargar cero unidades es valido: cierra la linea sin haber producido nada util', () => {
+  // Arrange: 0 es un valor legitimo, distinto de "no numerico".
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+    { estado: 'cargado', cargadoCant: 0, fecha: '2026-07-30' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].estado, 'cargado');
+  assert.strictEqual(nueva.lineas[0].cargadoCant, 0);
+});
+
+// ── Progreso ──────────────────────────────────────────────────────────────────────────────────
+
+test('el progreso cuenta las lineas de los tres estados por separado', () => {
+  // Arrange
+  const lineas = normalizarLineasFraccionado([
+    lineaCompleta({ plu: '1', estado: 'cargado', cargadoCant: 10 }),
+    lineaCompleta({ plu: '2', estado: 'cargado', cargadoCant: 3 }),
+    lineaCompleta({ plu: '3', estado: 'sin_stock' }),
+    lineaCompleta({ plu: '4' }),
+  ]);
+
+  // Act
+  const progreso = progresoOrdenFraccionado(lineas);
+
+  // Assert
+  assert.deepStrictEqual(progreso, { total: 4, cargadas: 2, sinStock: 1, pendientes: 1 });
+});
+
+test('las lineas viejas sin estado cuentan como pendientes aunque no se hayan normalizado', () => {
+  // Arrange: el progreso se calcula al vuelo sobre lo que haya en el archivo.
+  const lineas = [{ plu: '1', cantidad: 5 }, { plu: '2', cantidad: 5, estado: 'cargado' }];
+
+  // Act
+  const progreso = progresoOrdenFraccionado(lineas);
+
+  // Assert
+  assert.deepStrictEqual(progreso, { total: 2, cargadas: 1, sinStock: 0, pendientes: 1 });
+});
+
+test('el progreso de una orden sin lineas da todo en cero', () => {
+  // Arrange + Act + Assert
+  const cero = { total: 0, cargadas: 0, sinStock: 0, pendientes: 0 };
+  assert.deepStrictEqual(progresoOrdenFraccionado([]), cero);
+  assert.deepStrictEqual(progresoOrdenFraccionado(undefined), cero);
 });
