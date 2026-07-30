@@ -22,6 +22,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
 const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
+const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('./producto_carga');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
@@ -1260,6 +1261,66 @@ app.get('/api/mayoristas/fraccionado-faltantes', apiRoute(async req => {
   return getFaltantesFraccionado(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados);
 }));
 
+// Escapa un texto para usarlo como prefijo de un LIKE: además de duplicar la comilla simple
+// (mismo criterio que el resto del archivo), neutraliza los comodines de SQL Server con la
+// notación de corchetes, así un nombre con "%" o "_" no se convierte en un patrón abierto.
+function escaparLikePrefijo(s) {
+  return String(s || '').replace(/'/g, "''").replace(/[%_\[]/g, c => `[${c}]`);
+}
+
+// Producto contra el cual la encargada carga la producción de una línea mayorista.
+// No es el producto de la línea ni el componente del BOM: la regla es por nombre y vive en
+// producto_carga.js (puro, testeado). Acá sólo se arma el catálogo de candidatos.
+app.get('/api/mayoristas/producto-carga', apiRoute(async req => {
+  const plu = String(req.query.plu || '').trim();
+  // Siempre 200 con `motivo`: la UI tiene que poder avisar "no se pudo resolver" y seguir
+  // trabajando, no romper la pantalla de carga con un 500.
+  if (!/^\d+$/.test(plu)) return { plu: null, motivo: 'PLU inválido' };
+
+  const filas = await query(
+    `SELECT TOP 1 IdProducto, NombreProducto FROM dbo.Productos WHERE IdProducto='${plu}'`);
+  if (!filas.length) return { plu: null, motivo: `No existe el producto ${plu}` };
+  const nombreMayorista = String(filas[0].NombreProducto || '');
+
+  const info = analizarNombreCarga(nombreMayorista);
+  if (!info.base) return { plu: null, nombreMayorista, motivo: 'No se pudo derivar el nombre base' };
+
+  // Se acota por prefijo del nombre base en vez de traer los ~20k productos: tanto el minorista
+  // ("Mix Europeo 200G") como el PEDIDOS ("Mix Europeo PEDIDOS") empiezan con ese base. El TOP
+  // es un tope de seguridad para bases muy cortas; el orden lo hace determinista.
+  const candidatos = await query(
+    `SELECT TOP 300 IdProducto, NombreProducto FROM dbo.Productos
+     WHERE Activo=1 AND NombreProducto LIKE '${escaparLikePrefijo(info.base)}%'
+     ORDER BY NombreProducto`);
+
+  const destino = resolverProductoCarga(nombreMayorista,
+    candidatos.map(r => ({ plu: String(r.IdProducto), nombre: r.NombreProducto })));
+  if (!destino) {
+    const esperado = info.presentacionKg != null && info.presentacionKg <= 1
+      ? `${info.base} de ${info.presentacionKg} kg` : `${info.base} PEDIDOS`;
+    return { plu: null, nombreMayorista, base: info.base, presentacionKg: info.presentacionKg,
+             motivo: `No se encontró el producto de carga (${esperado})` };
+  }
+
+  // Granel del destino: la pantalla de carga lo necesita para mostrar los kg que consume cada
+  // unidad. Es informativo, así que si el destino no tiene fórmula activa se devuelve igual.
+  let granel = null;
+  if (/^\d+$/.test(destino.plu)) {
+    const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+    const bomRows = await query(
+      sqlBOMGranel(c.rubrosGranel.join(','), ` AND pc.IdProducto IN ('${destino.plu}')`));
+    for (const b of bomRows) {
+      const cand = { granelPlu: String(b.IdProductoComponente), granelNombre: b.NombreComponente || '',
+                     cantPorUnidad: Number(b.CantPorUnidad) || 0 };
+      // Mismo criterio que getFaltantesFraccionado: el componente principal es el de mayor
+      // CantPorUnidad, el resto son trazas.
+      if (!granel || cand.cantPorUnidad > granel.cantPorUnidad) granel = cand;
+    }
+  }
+
+  return { ...destino, nombreMayorista, base: info.base, ...(granel || {}) };
+}));
+
 const ORD_FRACC_PATH = path.join(DATA_DIR, 'ordenes_fraccionado.json');
 
 // Los totales los recalcula siempre el server: lo que manda el cliente es solo la selección.
@@ -1789,17 +1850,12 @@ const DISTRIB_SUC_MAP = { 2:'urq', 3:'nacion', 4:'chaca', 5:'riv', 7:'sanpedro',
 function pesoPresentacionKg(nombre, cantFormula) {
   const n = String(nombre || '');
   if (/(por\s*kilo|x\s*kilo|x\s*kg|precio\s*x\s*kilo|por\s*kg)\b/i.test(n)) return 1;
-  const re = /(\d+(?:[.,]\d+)?)\s*(kgs?|gramos|grs?|gr|g)\b/gi;
-  let m, last = null;
-  while ((m = re.exec(n)) !== null) last = m;
-  if (last) {
-    const val = parseFloat(last[1].replace(',', '.'));
-    const u = last[2].toLowerCase();
-    if (val > 0) {
-      const kg = (u === 'kg' || u === 'kgs') ? val : val / 1000;   // g/gr/grs/gramos → kg
-      if (kg > 0) return Math.round(kg * 1000) / 1000;
-    }
-  }
+  // El barrido del token de peso vive en producto_carga.js: lo comparten esta función y la
+  // resolución del producto de carga, y tener dos regex iguales en dos archivos ya nos había
+  // dejado criterios divergiendo. La diferencia entre ambos usos es sólo el atajo "por kilo"
+  // de arriba, que acá aplica (peso de la bolsa) y allá no (tamaño del envase).
+  const kgToken = pesoTokenKg(n);
+  if (kgToken != null) return kgToken;
   const cf = Number(cantFormula);
   return (cf > 0) ? cf : 1;
 }
