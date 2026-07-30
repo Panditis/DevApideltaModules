@@ -359,6 +359,21 @@
   .ord-linea .ord-carga{font-size:11.5px;color:var(--muted);margin-top:2px}
   .ord-linea .ord-carga.warn{display:inline-block;color:var(--amarillo-on);background:var(--amarillo-cont);border-radius:6px;padding:1px 7px;font-weight:600}
   .ord-linea.sin-destino{box-shadow:inset 3px 0 0 #f59e0b}
+  /* Estado por línea. Van DESPUÉS de .sin-destino a propósito: una línea ya resuelta manda sobre
+     el aviso naranja de "sin producto de carga", que a esa altura ya no hay que actuar. */
+  .ord-linea.lin-resuelta{cursor:default;background:var(--surface2)}
+  .ord-linea.lin-resuelta:hover{background:var(--surface2)}
+  .ord-linea.lin-resuelta .ord-prod b{color:var(--muted);font-weight:600}
+  .ord-linea.lin-cargado{box-shadow:inset 3px 0 0 var(--verde)}
+  .ord-linea.lin-sin-stock{box-shadow:inset 3px 0 0 var(--error)}
+  .ord-estado{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap}
+  .ord-estado.cargado{background:var(--verde-cont);color:var(--verde-on-cont)}
+  .ord-estado.sin-stock{background:#ffdad6;color:var(--error)}
+  .ord-linea .ord-lin-acc{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .ord-linea .ord-lin-acc button{font-size:11px;padding:3px 9px}
+  .ord-head .ord-prog{font-size:11.5px;color:var(--muted);font-weight:600}
+  #ord-aviso{display:none;align-items:flex-start;gap:8px;margin-bottom:12px;padding:9px 12px;border-radius:8px;
+    border:1px solid var(--amarillo);background:var(--amarillo-cont);color:var(--amarillo-on);font-size:12.5px;font-weight:600}
   @media (max-width:900px){
     .ped-layout{flex-direction:column}
     .ped-col-ordenes,
@@ -525,6 +540,7 @@
       <div class="ped-layout">
         <div class="ped-col-ordenes">
           <div id="ord-state" class="state" style="display:none;height:auto;min-height:180px"><div class="spinner"></div><div>Cargando órdenes…</div></div>
+          <div id="ord-aviso" role="alert"></div>
           <div id="ord-lista"></div>
         </div>
         <aside class="ped-col-sueltos">
@@ -2069,6 +2085,11 @@ function _initEnvioEditListeners() {
 // ════════════════ MODAL REGISTRO PRODUCCIÓN ════════════════
 let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
 let _mrDesdeOrden = false;   // true → los datos del registro salen de la orden, no de datosP
+// Línea de orden que originó esta apertura, para marcarla como 'cargado' al guardar. Van juntos con
+// _mrDesdeOrden y se resetean en TODAS las otras aperturas (tabla lateral, edición, actividad) y al
+// cerrar: el marcado sólo puede dispararse en el camino que efectivamente vino de una orden.
+// _mrOrdenPlu es el PLU de la LÍNEA, no el del producto de carga contra el que se imputa.
+let _mrOrdenId = null, _mrOrdenPlu = '';
 // Secuencia de aperturas del modal: la apertura desde una orden es asíncrona (resuelve el producto
 // de carga contra el server), así que cada apertura toma un número y descarta su resultado si en el
 // medio se abrió otra. Sin esto, dos clicks seguidos podrían mezclar datos de dos líneas.
@@ -2133,7 +2154,7 @@ function _buildModalForm(vals) {
 async function abrirModalRegistro(plu, force) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   const seq = _mrNuevaApertura();
-  _mrDesdeOrden = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   let r = datosP.find(x => String(x.plu) === String(plu));
   if (!r) {
     const ped = datosPed.find(x => String(x.plu) === String(plu));
@@ -2156,7 +2177,8 @@ async function abrirModalRegistro(plu, force) {
 // El registro NO se imputa al producto mayorista de la línea sino al "producto de carga" que
 // resuelve el backend (presentación <=1kg → minorista de la misma presentación; >1kg → " PEDIDOS").
 // Si no se puede resolver se avisa y se abre con el mayorista original: el operador decide.
-async function abrirModalRegistroDesdeOrden(linea) {
+// `ordenId` es el id de la orden dueña de la línea: sin él no se puede marcar la línea al guardar.
+async function abrirModalRegistroDesdeOrden(linea, ordenId) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   if (!linea) return;
   // Token de apertura: la resolución es async, así que si mientras tanto se abre otro modal
@@ -2173,6 +2195,10 @@ async function abrirModalRegistroDesdeOrden(linea) {
 
   _mrActividadMode = false;
   _mrDesdeOrden = true;
+  // Se setea DESPUÉS del chequeo de secuencia de arriba: una apertura que quedó vieja ya retornó,
+  // así que nunca puede dejar apuntada la línea equivocada.
+  _mrOrdenId = ordenId != null ? ordenId : null;
+  _mrOrdenPlu = pluLinea;
   _mrEditId = null;
   if (resuelto) {
     _mrPlu = String(dest.plu);
@@ -2211,7 +2237,7 @@ async function abrirModalRegistroDesdeOrden(linea) {
 }
 function abrirModalEdicion(reg) {
   _mrNuevaApertura();
-  _mrDesdeOrden = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   _mrPlu = String(reg.plu); _mrEditId = reg.id;
   _mrCantFormula = reg.cantFormula || 1;
   document.getElementById('modal-registro').querySelector('h3').textContent = 'Editar Registro';
@@ -2226,7 +2252,7 @@ function abrirModalActividad() {
   if (!pCargado) return;
   _mrNuevaApertura();
   _mrActividadMode = true;
-  _mrDesdeOrden = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   _mrPlu = 'ACT'; _mrEditId = null; _mrCantFormula = 0; _mrGranel = null; _mrNombreGranel = ''; _mrNombre = 'Actividad';
   const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}">${e.nombre}</option>`).join('');
   document.getElementById('mr-form').innerHTML = `
@@ -2288,17 +2314,35 @@ async function guardarRegistro() {
     document.getElementById('mr-err').style.display = '';
     return;
   }
+  // Línea de orden a marcar como cargada. Se captura ANTES de resetear el estado del modal y sólo
+  // en el alta que vino de una orden: editar un registro existente (_mrEditId) no vuelve a marcar,
+  // y la tabla lateral, la tab Producción y Actividad nunca setean _mrDesdeOrden.
+  const marcar = (!_mrEditId && _mrDesdeOrden && _mrOrdenId != null && _mrOrdenPlu)
+    ? { ordenId: _mrOrdenId, plu: _mrOrdenPlu, cant } : null;
   _mrActividadMode = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
   if (tabActual === 'produccion') cargarProduccion();
   else document.getElementById('pillProd').textContent = '+';
   await cargarProdHoy();
   if (pCargado) renderP();
+  if (marcar) {
+    // El registro de producción YA quedó guardado. Si el marcado falla no se revierte ni se pierde
+    // nada: se recarga la lista para que muestre el estado real y se avisa que la línea quedó sin
+    // marcar, así la encargada no cree que se marcó algo que no se marcó.
+    const r = await marcarLineaOrdenFrac(marcar.ordenId, marcar.plu, 'cargado', marcar.cant);
+    await cargarOrdenesFrac();
+    if (!r.ok) {
+      mostrarAvisoOrden(`La producción se guardó bien, pero la línea ${marcar.plu} de la orden `
+        + `#${marcar.ordenId} NO quedó marcada como cargada (${r.error}). Marcala a mano.`);
+    }
+  }
 }
 function cerrarModalRegistro() {
   _mrNuevaApertura();   // descarta cualquier apertura async todavía en vuelo
   _mrActividadMode = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
 }
@@ -2379,6 +2423,78 @@ function renderPedidos() {
 }
 
 // ── Órdenes de fraccionado pendientes ──
+// Espejo de ESTADOS_LINEA de ordenes_fraccionado.js: una línea con un estado desconocido (o sin
+// estado, como las órdenes guardadas antes de este campo) se muestra como pendiente.
+const ESTADOS_LINEA_ORD = ['pendiente', 'cargado', 'sin_stock'];
+
+// Aviso persistente sobre la lista de órdenes. Se usa cuando algo quedó a medias y el usuario
+// tiene que enterarse aunque la lista se recargue (no lo limpia renderOrdenesFrac).
+function mostrarAvisoOrden(msg) {
+  const el = document.getElementById('ord-aviso');
+  el.textContent = `⚠ ${msg}`;
+  el.style.display = 'flex';
+}
+function limpiarAvisoOrden() {
+  const el = document.getElementById('ord-aviso');
+  el.textContent = '';
+  el.style.display = 'none';
+}
+
+// PUT del estado de UNA línea. Nunca tira: devuelve {ok,error} porque los tres llamadores (guardar
+// producción, "sin stock", volver a pendiente) tienen que poder avisar sin romper la vista.
+async function marcarLineaOrdenFrac(ordenId, plu, estado, cargadoCant) {
+  const url = `/api/mayoristas/ordenes-fraccionado/${encodeURIComponent(ordenId)}`
+            + `/lineas/${encodeURIComponent(plu)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado, cargadoCant }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => null);
+      return { ok: false, error: (d && d.error) || `HTTP ${res.status}` };
+    }
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: e.message || 'error de red' };
+  }
+}
+
+// Aplica el cambio y refresca. Se recarga la lista incluso si falló, para que quede a la vista el
+// estado real de la orden y no el que el usuario cree que dejó.
+async function aplicarEstadoLinea(ordenId, plu, estado, cargadoCant, msgError) {
+  const r = await marcarLineaOrdenFrac(ordenId, plu, estado, cargadoCant);
+  await cargarOrdenesFrac();
+  if (!r.ok) mostrarAvisoOrden(`${msgError} (${r.error})`);
+}
+
+function _lineaDeOrden(ordenId, plu) {
+  const orden = ordenesFrac.find(o => String(o.id) === String(ordenId));
+  return orden && (orden.lineas || []).find(l => String(l.plu) === String(plu));
+}
+
+function pedirSinStockLinea(ordenId, plu) {
+  const l = _lineaDeOrden(ordenId, plu);
+  if (!l) return;
+  abrirConfirmDel('Sin stock',
+    `¿Marcar "${l.nombre || plu}" como sin stock? No se va a fraccionar en esta orden. `
+    + 'Si te equivocaste podés volverla a pendiente después.',
+    () => aplicarEstadoLinea(ordenId, plu, 'sin_stock', 0,
+      'No se pudo marcar la línea como sin stock.'),
+    'Sí, sin stock');
+}
+
+function pedirVolverPendienteLinea(ordenId, plu) {
+  const l = _lineaDeOrden(ordenId, plu);
+  if (!l) return;
+  abrirConfirmDel('Volver a pendiente',
+    `¿Volver "${l.nombre || plu}" a pendiente? Se borra el estado de la línea, pero los registros `
+    + 'de producción ya cargados no se modifican.',
+    () => aplicarEstadoLinea(ordenId, plu, 'pendiente', 0,
+      'No se pudo volver la línea a pendiente.'),
+    'Sí, volver a pendiente');
+}
+
 function renderOrdenesFrac() {
   const cont = document.getElementById('ord-lista');
   const st = document.getElementById('ord-state');
@@ -2399,23 +2515,46 @@ function renderOrdenesFrac() {
              <ul>${clientes.map(c => `<li>${escHtml(c.nombre)}: ${escHtml(c.pendiente)} un.</li>`).join('')}</ul>
            </details>`
         : (l.manual ? '<div class="ord-manual">Agregado manualmente, sin pedidos asociados.</div>' : '');
-      return `<div class="ord-linea" data-ord="${escHtml(o.id)}" data-lin="${i}" title="Cargar producción de esta línea">
+      // Una línea ya resuelta (cargada o sin stock) NO abre el modal: evita la doble carga
+      // accidental. Su única acción es volver a 'pendiente', que es el camino para corregirse.
+      const estado = ESTADOS_LINEA_ORD.includes(l.estado) ? l.estado : 'pendiente';
+      const resuelta = estado !== 'pendiente';
+      const badge = estado === 'cargado'
+        ? `<span class="ord-estado cargado">✓ Cargada: ${escHtml(l.cargadoCant)} un.`
+          + `${l.cargadoFecha ? ' · ' + escHtml(l.cargadoFecha) : ''}</span>`
+        : estado === 'sin_stock' ? '<span class="ord-estado sin-stock">✕ Sin stock</span>' : '';
+      const acciones = resuelta
+        ? `<button data-pendiente-ord="${escHtml(o.id)}" data-pendiente-plu="${escHtml(l.plu)}"
+             title="Volver la línea a pendiente">↺ Pendiente</button>`
+        : `<button data-sinstock-ord="${escHtml(o.id)}" data-sinstock-plu="${escHtml(l.plu)}"
+             title="Marcar la línea como sin stock">Sin stock</button>`;
+      const clases = 'ord-linea' + (resuelta ? ' lin-resuelta' : '')
+        + (estado === 'cargado' ? ' lin-cargado' : estado === 'sin_stock' ? ' lin-sin-stock' : '');
+      return `<div class="${clases}" data-ord="${escHtml(o.id)}" data-lin="${i}" data-estado="${escHtml(estado)}"
+        title="${resuelta ? 'Línea ya resuelta' : 'Cargar producción de esta línea'}">
         <div class="ord-prod">
           <b>${escHtml(l.nombre)}</b> <span style="color:var(--faint);font-size:11px">${escHtml(l.plu)}</span>
           <div class="ord-granel">Granel: ${escHtml(l.granelNombre || '–')}${l.granelPlu ? ' ('+escHtml(l.granelPlu)+')' : ''}</div>
-          <div class="ord-carga" data-carga-plu="${escHtml(l.plu)}">Producto de carga: …</div>
+          ${resuelta ? '' : `<div class="ord-carga" data-carga-plu="${escHtml(l.plu)}">Producto de carga: …</div>`}
         </div>
         <div class="ord-nums">
           <span class="stat key"><b>${escHtml(l.cantidad)}</b> un.</span>
           <span class="stat"><b>${fmt(l.granelNecesario)}</b> kg granel</span>
+          ${badge}
         </div>
+        <div class="ord-lin-acc">${acciones}</div>
         ${detalle}
       </div>`;
     }).join('');
+    const p = o.progreso || {};
+    const totLin = p.total != null ? p.total : (o.lineas || []).length;
+    const progreso = `${p.cargadas || 0} de ${totLin} cargada${(p.cargadas || 0) === 1 ? '' : 's'}`
+      + (p.sinStock ? ` · ${p.sinStock} sin stock` : '');
     return `<div class="ord-card">
       <div class="ord-head">
         <span class="ord-fecha">${escHtml(o.fecha)}</span>
         <span class="ord-id">#${escHtml(o.id)}</span>
+        <span class="ord-prog">${escHtml(progreso)}</span>
         <span class="stat"><b>${escHtml(t.lineas != null ? t.lineas : (o.lineas||[]).length)}</b> líneas</span>
         <span class="stat"><b>${escHtml(t.unidades != null ? t.unidades : '·')}</b> unidades</span>
         <span class="stat"><b>${fmt(t.kgGranel)}</b> kg granel</span>
@@ -2458,7 +2597,10 @@ function pintarDestinoEnLista(plu, dest) {
 // paralelismo evita abrirle 30 consultas SQL simultáneas al server al pintar la lista.
 const MAX_CONSULTAS_CARGA = 3;
 async function precargarDestinosCarga() {
-  const plus = [...new Set(ordenesFrac.flatMap(o => (o.lineas || []).map(l => String(l.plu))))]
+  // Sólo las líneas pendientes: las ya resueltas no muestran el producto de carga, así que
+  // consultarlas sería una consulta SQL al pedo.
+  const plus = [...new Set(ordenesFrac.flatMap(o => (o.lineas || [])
+    .filter(l => (l.estado || 'pendiente') === 'pendiente').map(l => String(l.plu))))]
     .filter(p => p && !_destCarga.has(p));
   if (!plus.length) return;
   let i = 0;
@@ -2475,6 +2617,7 @@ async function cargarOrdenesFrac() {
   const st = document.getElementById('ord-state');
   const cont = document.getElementById('ord-lista');
   cont.innerHTML = '';
+  limpiarAvisoOrden();
   st.style.display = 'flex'; st.className = 'state';
   st.innerHTML = '<div class="spinner"></div><div>Cargando órdenes…</div>';
   try {
@@ -2532,11 +2675,16 @@ document.getElementById('tabla-ped').addEventListener('click', e => {
 document.getElementById('ord-lista').addEventListener('click', e => {
   const btnCerrar = e.target.closest('button[data-cerrar]');
   if (btnCerrar) { cerrarOrdenFrac(btnCerrar.dataset.cerrar); return; }
+  const btnSin = e.target.closest('button[data-sinstock-ord]');
+  if (btnSin) { pedirSinStockLinea(btnSin.dataset.sinstockOrd, btnSin.dataset.sinstockPlu); return; }
+  const btnPend = e.target.closest('button[data-pendiente-ord]');
+  if (btnPend) { pedirVolverPendienteLinea(btnPend.dataset.pendienteOrd, btnPend.dataset.pendientePlu); return; }
   if (e.target.closest('button') || e.target.closest('details')) return;
   const fila = e.target.closest('.ord-linea[data-ord]');
-  if (!fila) return;
+  // Las líneas ya resueltas no abren el modal: la doble carga accidental es el error caro acá.
+  if (!fila || fila.classList.contains('lin-resuelta')) return;
   const orden = ordenesFrac.find(o => String(o.id) === String(fila.dataset.ord));
-  if (orden) abrirModalRegistroDesdeOrden((orden.lineas || [])[+fila.dataset.lin]);
+  if (orden) abrirModalRegistroDesdeOrden((orden.lineas || [])[+fila.dataset.lin], orden.id);
 });
 
 // ════════════════ TAB PRODUCCIÓN ════════════════
