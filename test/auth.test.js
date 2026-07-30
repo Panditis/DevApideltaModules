@@ -92,6 +92,13 @@ test('puedeAcceder: ref null sólo requiere estar autenticado', () => {
   assert.strictEqual(puedeAcceder(user, null), true);
 });
 
+test('las APIs de mayoristas quedan bajo el modulo pedidos', () => {
+  // Sin esto las rutas nuevas de /api/mayoristas quedan fuera de todo módulo y sin
+  // guard de acceso, que es el gap que ya apareció en el clúster distribución/producción.
+  assert.strictEqual(moduloDeRuta('/api/mayoristas/ordenes-fraccionado'), 'pedidos');
+  assert.strictEqual(moduloDeRuta('/api/mayoristas/fraccionado-faltantes'), 'pedidos');
+});
+
 // ── CATALOGO_MODULOS ─────────────────────────────────────────────────────────────
 test('CATALOGO_MODULOS es un array no vacío con la forma esperada por entrada', () => {
   assert.ok(Array.isArray(CATALOGO_MODULOS));

@@ -30,7 +30,7 @@ function guardarJSON(p, data) {
 // /api/distribucion, /api/plan, /api/produccion…) queda como "sólo requiere login".
 const CATALOGO_MODULOS = [
   { ref: 'a8020',               titulo: 'A8020 Calculado',          icon: 'bar-chart-2',   href: '/distribucion/a8020', rutasHtml: ['/distribucion/a8020'], apiPrefijos: [],                                  defaultRequiereAuth: true },
-  { ref: 'pedidos',             titulo: 'Pedidos',                  icon: 'clipboard-list', href: '/pedidos',            rutasHtml: ['/pedidos'],            apiPrefijos: ['/api/pedidos', '/api/facturas'],  defaultRequiereAuth: true },
+  { ref: 'pedidos',             titulo: 'Pedidos',                  icon: 'clipboard-list', href: '/pedidos',            rutasHtml: ['/pedidos'],            apiPrefijos: ['/api/pedidos', '/api/facturas', '/api/mayoristas'],  defaultRequiereAuth: true },
   { ref: 'planificacion',       titulo: 'Planificación',            icon: 'calendar-range', href: '/planificacion',      rutasHtml: ['/planificacion'],      apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'produccion',          titulo: 'Producción',               icon: 'factory',        href: '/produccion',         rutasHtml: ['/produccion'],         apiPrefijos: [],                                  defaultRequiereAuth: true },
   // Compras es un único módulo (el de reposición). '/compras-modulo' quedó como ruta
