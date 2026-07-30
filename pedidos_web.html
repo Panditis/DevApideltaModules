@@ -413,6 +413,12 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 .res-tbl tbody tr{transition:background .12s ease}
 .res-tbl tbody tr:hover{background:rgba(255,204,0,.05)}
 .res-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* Barra fija del pie de la solapa Fraccionado */
+.fracc-bar{position:sticky;bottom:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;margin:12px auto 0;max-width:1536px;padding:10px 16px;background:#fff;
+  border:1px solid var(--outline);border-radius:12px;box-shadow:0 -2px 12px rgba(0,0,0,.06);font-size:13px;font-weight:600}
+.fracc-corto{background:#fffbeb}
 </style>
 </head>
 <body>
@@ -523,6 +529,14 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         <span class="text-[10px] font-normal text-olive">Pedidos facturados y unidades</span>
       </span>
     </button>
+    <button id="tab-fraccionado" onclick="switchTab('fraccionado')"
+      class="tab flex-1 sm:flex-none sm:min-w-[200px] px-5 py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all">
+      <i data-lucide="scissors" class="w-5 h-5"></i>
+      <span class="flex flex-col items-start leading-tight">
+        <span>Fraccionado</span>
+        <span class="text-[10px] font-normal text-olive">Faltantes con granel disponible</span>
+      </span>
+    </button>
   </div>
 </nav>
 
@@ -622,6 +636,56 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     </div>
   </div>
 </div><!-- /#panel-entregados -->
+
+<div class="tab-panel" id="panel-fraccionado">
+  <div class="max-w-screen-2xl mx-auto px-4 pt-4 pb-2">
+    <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
+      <i data-lucide="scissors" class="w-5 h-5 text-amber-700 shrink-0 mt-0.5"></i>
+      <div class="text-amber-900">
+        <strong>Órdenes de fraccionado.</strong>
+        Productos pedidos que no tienen stock fraccionado suficiente pero sí granel disponible.
+        Tildá los que quieras fraccionar, ajustá la cantidad y generá la orden.
+      </div>
+    </div>
+    <div class="flex gap-1 mt-3">
+      <button id="subtab-faltantes" class="btn btn-tonal btn-sm" onclick="switchSubFracc('faltantes')">Faltantes</button>
+      <button id="subtab-ordenes"   class="btn btn-ghost btn-sm" onclick="switchSubFracc('ordenes')">Órdenes generadas</button>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px" id="sub-faltantes">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center"><i data-lucide="scissors" class="w-[18px] h-[18px]"></i></div>
+          <div>
+            <h3 class="font-semibold text-sm text-ink leading-tight">Faltantes fraccionables</h3>
+            <p class="text-xs text-olive leading-tight">Pendiente menos stock de la presentación, limitado por el granel disponible.</p>
+          </div>
+        </div>
+        <span class="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold" id="badge-fracc">—</span>
+      </div>
+      <div class="tbl-wrap" id="tabla-fraccionado"><div class="state state-loading">Cargando…</div></div>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px;display:none" id="sub-ordenes">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+        <h3 class="font-semibold text-sm text-ink leading-tight">Órdenes generadas</h3>
+        <p class="text-xs text-olive leading-tight">Historial de órdenes de fraccionado emitidas desde mayoristas.</p>
+      </div>
+      <div class="tbl-wrap" id="tabla-ordenes-fracc"><div class="state state-loading">Cargando…</div></div>
+    </div>
+  </div>
+
+  <div class="fracc-bar" id="fracc-bar" style="display:none">
+    <span id="fracc-resumen">0 líneas · 0 unidades · 0 kg de granel</span>
+    <button class="btn btn-filled btn-sm" onclick="abrirModalOrden()">
+      <i data-lucide="check" class="w-3.5 h-3.5"></i> Generar orden
+    </button>
+  </div>
+</div><!-- /#panel-fraccionado -->
 
 <!-- Modal Facturación de un pedido -->
 <div id="factura-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarFactura()">
@@ -923,6 +987,7 @@ function estCheck(nombre, checked){
   estUpdateBtn();
   estadoActual.resumen = null;
   estadoActual.entregados = null;
+  invalidarFraccionado();
   cargarLocalidades().then(function(){ return cargarClientes(); }).then(function(){ cargar(); });
   pushState();
 }
@@ -1309,6 +1374,7 @@ function renderProductos(data){
 
 // ── PDF ───────────────────────────────────────────────────────────────────────
 function pdfSegunTab(){
+  if(tabActiva==='fraccionado'){ snack('La solapa Fraccionado no genera PDF'); return; }
   if(tabActiva==='resumen') generarPDFResumen();
   else generarPDF();
 }
@@ -1487,6 +1553,143 @@ function switchTab(tab){
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.toggle('active', p.id==='panel-'+tab); });
   if(tab==='resumen'    && estadoActual.resumen===null)    cargarResumen();
   if(tab==='entregados' && estadoActual.entregados===null) cargarEntregados();
+  if(tab==='fraccionado' && !faltantesFracc.length) cargarFraccionado();
+}
+
+// ── Fraccionado ───────────────────────────────────────────────────────────────
+var faltantesFracc = [];      // filas del endpoint
+var seleccionFracc = {};      // plu -> cantidad elegida
+var subFraccActiva = 'faltantes';
+
+function switchSubFracc(sub){
+  subFraccActiva = sub;
+  $('sub-faltantes').style.display = sub==='faltantes' ? '' : 'none';
+  $('sub-ordenes').style.display   = sub==='ordenes'   ? '' : 'none';
+  $('subtab-faltantes').className = 'btn btn-sm ' + (sub==='faltantes' ? 'btn-tonal' : 'btn-ghost');
+  $('subtab-ordenes').className   = 'btn btn-sm ' + (sub==='ordenes'   ? 'btn-tonal' : 'btn-ghost');
+  actualizarBarraFracc();
+  if(sub==='ordenes') cargarOrdenesFracc();
+}
+
+function cargarFraccionado(){
+  $('tabla-fraccionado').innerHTML = '<div class="state state-loading">Cargando faltantes…</div>';
+  api('/api/mayoristas/fraccionado-faltantes?'+buildParams(null)).then(function(data){
+    if(data.error){
+      $('tabla-fraccionado').innerHTML =
+        '<div class="state state-err" style="padding:32px;text-align:center">⚠ '+escHtml(data.error)+
+        '<br><button class="btn btn-tonal btn-sm" style="margin-top:12px" onclick="cargarFraccionado()">Reintentar</button></div>';
+      return;
+    }
+    faltantesFracc = Array.isArray(data) ? data : [];
+    seleccionFracc = {};
+    renderFraccionado();
+  });
+}
+
+function renderFraccionado(){
+  $('badge-fracc').textContent = faltantesFracc.length + ' productos';
+  if(!faltantesFracc.length){
+    $('tabla-fraccionado').innerHTML = '<div class="state state-empty" style="padding:32px;text-align:center">No hay faltantes fraccionables con estos filtros.</div>';
+    actualizarBarraFracc();
+    return;
+  }
+  var filas = faltantesFracc.map(function(f){
+    var sel = seleccionFracc[f.plu];
+    var deficit = f.faltante - f.sugerido;
+    var plu = escHtml(f.plu);
+    return ''+
+    '<tr class="'+(f.cubre?'':'fracc-corto')+'">'+
+      '<td><input type="checkbox" id="chk-'+plu+'" '+(sel!==undefined?'checked':'')+' onchange="toggleFracc(\''+plu+'\',this.checked)"></td>'+
+      '<td class="mono">'+plu+'</td>'+
+      '<td>'+escHtml(f.nombre)+
+        '<div class="text-xs text-olive">'+escHtml(f.granelNombre)+' · '+f.granelStock+' kg</div>'+
+        (f.cubre?'':'<div class="text-xs" style="color:#92400e">Granel corto: faltan '+deficit+' un.</div>')+
+      '</td>'+
+      '<td class="num">'+f.pendiente+'</td>'+
+      '<td class="num">'+f.stockCentral+'</td>'+
+      '<td class="num">'+f.faltante+'</td>'+
+      '<td class="num">'+f.granelNecesario+'</td>'+
+      '<td class="num"><input type="number" min="0" step="1" id="cant-'+plu+'" style="width:90px;text-align:right" '+
+        'value="'+(sel!==undefined?sel:cantSugeridaFracc(f))+'" onchange="setCantFracc(\''+plu+'\',this.value)"></td>'+
+      '<td><button class="btn btn-ghost btn-sm" onclick="toggleDetalleFracc(\''+plu+'\')">Clientes</button></td>'+
+    '</tr>'+
+    '<tr id="det-'+plu+'" style="display:none"><td colspan="9" style="background:#fafaf9">'+
+      (f.clientes.length
+        ? f.clientes.map(function(c){ return escHtml(c.nombre)+': '+c.pendiente+' un.'; }).join(' · ')
+        : 'Sin desglose de clientes')+
+    '</td></tr>';
+  }).join('');
+
+  $('tabla-fraccionado').innerHTML =
+    '<table class="tbl"><thead><tr>'+
+      '<th></th><th>PLU</th><th>Producto / Granel</th><th class="num">Pendiente</th>'+
+      '<th class="num">Stock frac.</th><th class="num">Faltante</th><th class="num">Kg granel</th>'+
+      '<th class="num">A fraccionar</th><th></th>'+
+    '</tr></thead><tbody>'+filas+'</tbody></table>';
+  actualizarBarraFracc();
+}
+
+// Los faltantes dependen de los filtros de arriba: al cambiarlos se descarta el cache.
+function invalidarFraccionado(){
+  faltantesFracc = [];
+  seleccionFracc = {};
+  actualizarBarraFracc();
+}
+
+// Nunca proponemos 0: una línea en 0 la rechaza el POST de la orden.
+function cantSugeridaFracc(f){
+  var n = Math.floor(Number(f.sugerido));
+  return (isFinite(n) && n > 0) ? n : 1;
+}
+
+function buscarFilaFracc(plu){
+  return faltantesFracc.filter(function(x){ return String(x.plu)===String(plu); })[0] || null;
+}
+
+function toggleDetalleFracc(plu){
+  var tr = $('det-'+plu);
+  if(tr) tr.style.display = tr.style.display==='none' ? '' : 'none';
+}
+
+function toggleFracc(plu, checked){
+  var f = buscarFilaFracc(plu);
+  if(!f) return;
+  if(checked){
+    seleccionFracc[plu] = cantSugeridaFracc(f);
+    var inp = $('cant-'+plu);
+    if(inp) inp.value = seleccionFracc[plu];
+  } else {
+    delete seleccionFracc[plu];
+  }
+  actualizarBarraFracc();
+}
+
+// Sin re-render de la tabla: editar la cantidad no debe perder el foco ni el scroll.
+function setCantFracc(plu, valor){
+  var n = Math.floor(Number(valor));
+  if(!isFinite(n) || n <= 0){ delete seleccionFracc[plu]; }
+  else { seleccionFracc[plu] = n; }
+  var chk = $('chk-'+plu);
+  if(chk) chk.checked = seleccionFracc[plu] !== undefined;
+  actualizarBarraFracc();
+}
+
+function lineasSeleccionadas(){
+  return Object.keys(seleccionFracc).map(function(plu){
+    var f = buscarFilaFracc(plu);
+    if(!f) return null;
+    return { plu: f.plu, nombre: f.nombre, cantidad: seleccionFracc[plu],
+             granelPlu: f.granelPlu, granelNombre: f.granelNombre,
+             cantPorUnidad: f.cantPorUnidad, manual: f.manual===true, clientes: f.clientes };
+  }).filter(Boolean);
+}
+
+function actualizarBarraFracc(){
+  var lineas = lineasSeleccionadas();
+  var un = lineas.reduce(function(s,l){ return s + l.cantidad; }, 0);
+  var kg = lineas.reduce(function(s,l){ return s + l.cantidad*l.cantPorUnidad; }, 0);
+  $('fracc-resumen').textContent = lineas.length+' líneas · '+un+' unidades · '+(Math.round(kg*100)/100)+' kg de granel';
+  $('fracc-bar').style.display = (lineas.length && subFraccActiva==='faltantes') ? '' : 'none';
 }
 
 // ── Resumen por cliente ───────────────────────────────────────────────────────
@@ -1749,6 +1952,7 @@ function resetFiltros(){
   // Invalidar caches de las solapas que dependen del filtro
   estadoActual.resumen = null;
   estadoActual.entregados = null;
+  invalidarFraccionado();
   // Recargar todo con los filtros frescos
   cargarLocalidades()
     .then(function(){ return cargarClientes(); })
@@ -1756,6 +1960,7 @@ function resetFiltros(){
       cargar();
       if(tabActiva === 'resumen')    cargarResumen();
       if(tabActiva === 'entregados') cargarEntregados();
+      if(tabActiva === 'fraccionado') cargarFraccionado();
       snack('Filtros restablecidos');
     });
   pushState();
