@@ -1602,20 +1602,20 @@ function renderFraccionado(){
   }
   var filas = faltantesFracc.map(function(f){
     var sel = seleccionFracc[f.plu];
-    var deficit = f.faltante - f.sugerido;
-    var plu = escHtml(f.plu);
+    // escHtml no toca el apóstrofo y el plu viaja dentro de strings JS en atributos.
+    var plu = escHtml(f.plu).replace(/'/g,'&#39;');
     return ''+
     '<tr class="'+(f.cubre?'':'fracc-corto')+'">'+
       '<td><input type="checkbox" id="chk-'+plu+'" '+(sel!==undefined?'checked':'')+' onchange="toggleFracc(\''+plu+'\',this.checked)"></td>'+
       '<td class="mono">'+plu+'</td>'+
       '<td>'+escHtml(f.nombre)+
         '<div class="text-xs text-olive">'+escHtml(f.granelNombre)+' · '+f.granelStock+' kg</div>'+
-        (f.cubre?'':'<div class="text-xs" style="color:#92400e">Granel corto: faltan '+deficit+' un.</div>')+
+        avisoGranelCorto(f)+
       '</td>'+
       '<td class="num">'+f.pendiente+'</td>'+
       '<td class="num">'+f.stockCentral+'</td>'+
       '<td class="num">'+f.faltante+'</td>'+
-      '<td class="num">'+f.granelNecesario+'</td>'+
+      '<td class="num" id="kg-'+plu+'">'+f.granelNecesario+'</td>'+
       '<td class="num"><input type="number" min="0" step="1" id="cant-'+plu+'" style="width:90px;text-align:right" '+
         'value="'+(sel!==undefined?sel:cantSugeridaFracc(f))+'" onchange="setCantFracc(\''+plu+'\',this.value)"></td>'+
       '<td><button class="btn btn-ghost btn-sm" onclick="toggleDetalleFracc(\''+plu+'\')">Clientes</button></td>'+
@@ -1649,6 +1649,20 @@ function cantSugeridaFracc(f){
   return (isFinite(n) && n > 0) ? n : 1;
 }
 
+function kgGranelFracc(cantidad, cantPorUnidad){
+  return Math.round(Number(cantidad) * Number(cantPorUnidad) * 100) / 100;
+}
+
+// En los faltantes del endpoint el déficit es faltante−sugerido; en los ítems agregados
+// a mano no hay faltante calculado, así que se avisa hasta dónde llega el granel.
+function avisoGranelCorto(f){
+  if(f.cubre) return '';
+  var txt = f.manual
+    ? 'Granel corto: alcanza para '+f.sugerido+' un.'
+    : 'Granel corto: faltan '+(f.faltante - f.sugerido)+' un.';
+  return '<div class="text-xs" style="color:#92400e">'+escHtml(txt)+'</div>';
+}
+
 function buscarFilaFracc(plu){
   return faltantesFracc.filter(function(x){ return String(x.plu)===String(plu); })[0] || null;
 }
@@ -1668,16 +1682,21 @@ function toggleFracc(plu, checked){
   } else {
     delete seleccionFracc[plu];
   }
+  var kgTd = $('kg-'+plu);
+  if(kgTd) kgTd.textContent = kgGranelFracc(checked ? seleccionFracc[plu] : 0, f.cantPorUnidad);
   actualizarBarraFracc();
 }
 
 // Sin re-render de la tabla: editar la cantidad no debe perder el foco ni el scroll.
+// Se actualizan a mano las dos celdas que dependen de la cantidad.
 function setCantFracc(plu, valor){
   var n = Math.floor(Number(valor));
-  if(!isFinite(n) || n <= 0){ delete seleccionFracc[plu]; }
+  if(!isFinite(n) || n <= 0){ delete seleccionFracc[plu]; n = 0; }
   else { seleccionFracc[plu] = n; }
   var chk = $('chk-'+plu);
   if(chk) chk.checked = seleccionFracc[plu] !== undefined;
+  var f = buscarFilaFracc(plu), kgTd = $('kg-'+plu);
+  if(f && kgTd) kgTd.textContent = kgGranelFracc(n, f.cantPorUnidad);
   actualizarBarraFracc();
 }
 
@@ -1729,18 +1748,27 @@ function buscarFracc(q){
 function agregarFraccManual(r){
   var plu = String(r.idProducto || r.plu || '');
   if(!plu) return;
-  if(buscarFilaFracc(plu)){
+  var f = buscarFilaFracc(plu);
+  if(f){
     snack('Ese producto ya está en la lista');
   } else {
-    faltantesFracc.push({
+    // No hay faltante calculado para un ítem manual: el techo lo pone el granel disponible.
+    var cpu = Number(r.cantPorUnidad) || 0;
+    var granelStock = Number(r.granelDisponible) || 0;
+    var maxPorGranel = cpu > 0 ? Math.floor(granelStock / cpu) : 0;
+    f = {
       plu: plu, nombre: r.producto || '', pendiente: Number(r.pendientes)||0,
       stockCentral: Number(r.stockActual)||0, faltante: 0,
       granelPlu: String(r.idGranel), granelNombre: r.nombreGranel || '',
-      granelStock: Number(r.granelDisponible)||0, cantPorUnidad: Number(r.cantPorUnidad),
-      granelNecesario: 0, sugerido: 0, cubre: true, manual: true, clientes: []
-    });
+      granelStock: granelStock, cantPorUnidad: cpu,
+      sugerido: maxPorGranel, cubre: maxPorGranel >= 1, manual: true, clientes: []
+    };
+    f.granelNecesario = kgGranelFracc(cantSugeridaFracc(f), cpu);
+    faltantesFracc.push(f);
   }
-  if(seleccionFracc[plu] === undefined) seleccionFracc[plu] = 1;
+  // Si el granel no alcanza ni para una unidad, la fila entra destildada y en ámbar:
+  // el operador la ve, y si igual quiere forzarla la tilda él.
+  if(f.cubre && seleccionFracc[plu] === undefined) seleccionFracc[plu] = cantSugeridaFracc(f);
   $('fracc-buscar').value = '';
   $('fracc-resultados').innerHTML = '';
   renderFraccionado();
