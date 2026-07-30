@@ -20,6 +20,7 @@ const comprasModulo = require('./compras_modulo');
 const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
+const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
@@ -683,6 +684,9 @@ async function analizarConsumoCompras(target, meses) {
   };
 }
 
+// Rubro que nunca aparece en el buscador manual del plan del día (bultos/cajas de almacén).
+const RUBRO_MANUAL_EXCLUIDO_RE = /almacen\s*bultos\s*\/?\s*cajas/i;
+
 async function calcularSugerencias(params) {
   const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
@@ -730,7 +734,12 @@ async function calcularSugerencias(params) {
   resultado.sort((a, b) => b.urgencia - a.urgencia);
   let out = resultado;
   if (params.soloRojos === '1') out = out.filter(r => r.semaforo === 'RED');
-  if (params.q) { const q = String(params.q).toLowerCase(); out = out.filter(r => r.producto.toLowerCase().includes(q) || r.rubro.toLowerCase().includes(q)); }
+  if (params.q) {
+    const q = String(params.q).toLowerCase();
+    // El buscador manual del plan del día no ofrece "Almacen Bultos/Cajas": no se producen por unidad.
+    out = out.filter(r => !RUBRO_MANUAL_EXCLUIDO_RE.test(String(r.rubro || '')));
+    out = out.filter(r => r.producto.toLowerCase().includes(q) || r.rubro.toLowerCase().includes(q));
+  }
   return out;
 }
 
@@ -1985,15 +1994,14 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const ed = leerListasDistrib();
   const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
   const formulas = pesLis.formulas || {};
-  const ocultos = new Set(aplicarOcultar ? ed.ocultarPesable.map(String) : []);   // checkbox "Ocultar códigos" en Pesables
+  const ocultosLista = aplicarOcultar ? ed.ocultarPesable : [];   // checkbox "Ocultar códigos" en Pesables
   const distLis = { noEnvasa: ed.noEnvasa, restringidos: ed.restringidos, importanciaMinorista: impViva };
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
     WHERE p.Activo=1 AND r.NombreRubro='Pesables Fraccionado'`);
   const rubroMapP = new Map(rubroRows.map(r => [r.IdProducto, r.NombreRubro]));
   const basePlus = rubroRows.map(r => r.IdProducto);
-  const plus = universoLista(basePlus, ed.siemprePesable, ed.noEnvasa)
-    .filter(p => !ocultos.has(String(p)));
+  const plus = universoPesables(basePlus, ed.siemprePesable, ed.noEnvasa, ocultosLista);
   if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado" en Siga.');
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
@@ -2806,14 +2814,6 @@ function leerListasDistrib() {
   for (const k of RESTR_SUCURSALES) l.restringidos[k] = (l.restringidos[k] || []).map(Number);
   return l;
 }
-// Universo de PLUs: base ∪ siempre, menos los excluidos (noEnvasa) salvo que estén en "siempre".
-function universoLista(basePlus, siempre, excluir) {
-  const sSet = new Set(siempre.map(String)), exc = new Set(excluir.map(String));
-  const set = new Set(basePlus.filter(p => /^\d+$/.test(p)));
-  for (const p of siempre) set.add(String(p));
-  return [...set].filter(p => !exc.has(p) || sSet.has(p));
-}
-
 // ── Fact en vivo: productos facturados a cada sucursal desde su última recepción (REC-SUC) ──
 async function calcularFactLive() {
   const config = leerJSON(DISTRIB_CONFIG_PATH, {});

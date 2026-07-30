@@ -2,9 +2,9 @@
 // Valida racionarPorPrioridad y pisoMinimo: reparte piso mínimo a TODAS las sucursales urgidas
 // primero (pasada 1), y solo con el sobrante completa hacia el pedido total en orden de urgencia
 // (pasada 2) — las que no alcanzaron piso en la pasada 1 no se reintentan en la 2 (evita
-// fragmentos por debajo de su piso). Uso: node validar_racionamiento.js
+// fragmentos por debajo de su piso). Uso: node test/validar_racionamiento.js
 const assert = require('assert');
-const { pisoMinimo, racionarPorPrioridad, calcularFilaAlmacen } = require('./distribucion');
+const { pisoMinimo, racionarPorPrioridad, calcularFilaAlmacen } = require('../distribucion');
 
 const TRAMOS = [{ hastaS: 5, pct: 0.60 }, { hastaS: 15, pct: 0.40 }, { hastaS: 40, pct: 0.25 }, { hastaS: null, pct: 0.10 }];
 

@@ -121,9 +121,17 @@ dev/
 │   ├── ventas_hora.html
 │   └── a8020.html  · a8020.js
 │
-├── ▸ Lógica / validación (JS)
+├── ▸ Lógica (JS)
 │   ├── pesables.js
-│   └── validar_almacen.js
+│   └── listas_universo.js
+│
+├── ▸ test/                           Tests y validadores
+│   ├── *.test.js                     Suite de node:test (npm test)
+│   ├── validar_almacen.js            Paridad del motor vs fixture golden
+│   ├── validar_racionamiento.js      Piso mínimo y racionamiento por prioridad
+│   ├── validar_ranking.js            Scores de ranking A8020
+│   ├── validar_paridad_entornos.js   Diff dev(8081) vs producción(8080)
+│   └── validar_paridad_config.js     Helpers de diff de configuración
 │
 ├── ▸ Scripts (Python)
 │   ├── generar_catalogo.py

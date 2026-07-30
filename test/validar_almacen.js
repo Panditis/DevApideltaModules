@@ -5,12 +5,12 @@
 //   Modo corregido (corregirBugs:true) → producción: ignora el flag estático
 //     ProductosAlmacen (no fija min=0 ni 'Fact'), así que difiere de la planilla en
 //     todas las sucursales con flag — esperado. El 'Fact' real lo aplica server.js (vivo).
-// Uso: node validar_almacen.js
+// Uso: node test/validar_almacen.js
 const fs = require('fs');
 const path = require('path');
-const { calcularAlmacen } = require('./distribucion');
+const { calcularAlmacen } = require('../distribucion');
 
-const D = path.join(__dirname, 'data');
+const D = path.join(__dirname, '..', 'data');
 const a8020  = JSON.parse(fs.readFileSync(path.join(D, 'a8020.json'), 'utf8'));
 const listas = JSON.parse(fs.readFileSync(path.join(D, 'distribucion_listas.json'), 'utf8'));
 const golden = JSON.parse(fs.readFileSync(path.join(D, 'almacen_golden.json'), 'utf8'));

@@ -2,9 +2,9 @@
 // Valida calcularRankingPorSucursal y calcularRankingGlobal: score = (facturación/máxima)^0.2, NO
 // percentil de posición — un percentil de posición reparte SIEMPRE ~10% de items por decil sin
 // importar el sesgo real de los datos; con facturación (Pareto, pocos productos explican casi toda
-// la plata) eso pintaba como "importante" a productos que no lo son. Uso: node validar_ranking.js
+// la plata) eso pintaba como "importante" a productos que no lo son. Uso: node test/validar_ranking.js
 const assert = require('assert');
-const { calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('./a8020');
+const { calcularRankingPorSucursal, calcularRankingGlobal, roundDec } = require('../a8020');
 
 // Sucursal 'a' (idSucursal=1): maxFact=100 → esos PLUs dan score 1. plu3 (fact=50, la mitad del líder)
 // da bastante menos que 1 pero no crushed a 0 (curva de potencia<1, no lineal).
