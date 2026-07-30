@@ -130,3 +130,69 @@ test('no muta las entradas', () => {
   assert.strictEqual(pendientes[0].pendiente, 200);
   assert.deepStrictEqual(pendientes[0].clientes, [{ idCliente: 9, nombre: 'X', pendiente: 200 }]);
 });
+
+test('producto sin granel en el BOM se excluye', () => {
+  // Arrange: un producto de almacén que no se fracciona no tiene nada que hacer en esta lista.
+  const pendientes = [{ plu: '5000', nombre: 'Galletitas Bulto', pendiente: 50, stockCentral: 0, clientes: [] }];
+
+  // Act
+  const filas = calcularFaltantesFraccionado(pendientes, new Map(), new Map());
+
+  // Assert
+  assert.deepStrictEqual(filas, []);
+});
+
+test('stock central suficiente se excluye', () => {
+  // Arrange
+  const pendientes = [{ plu: '4467', nombre: 'N', pendiente: 50, stockCentral: 80, clientes: [] }];
+  const bomGranel = new Map([['4467', { granelPlu: '7333', granelNombre: 'G', cantPorUnidad: 0.2 }]]);
+
+  // Act
+  const filas = calcularFaltantesFraccionado(pendientes, bomGranel, new Map([['7333', 100]]));
+
+  // Assert
+  assert.deepStrictEqual(filas, []);
+});
+
+test('cantPorUnidad invalido se excluye', () => {
+  // Arrange: sin kg por unidad no se puede calcular consumo de granel; incluirlo daría Infinity.
+  const pendientes = [
+    { plu: '1', nombre: 'cero', pendiente: 10, stockCentral: 0, clientes: [] },
+    { plu: '2', nombre: 'negativo', pendiente: 10, stockCentral: 0, clientes: [] },
+    { plu: '3', nombre: 'no numerico', pendiente: 10, stockCentral: 0, clientes: [] },
+    { plu: '4', nombre: 'nulo', pendiente: 10, stockCentral: 0, clientes: [] },
+  ];
+  const bomGranel = new Map([
+    ['1', { granelPlu: '7333', granelNombre: 'G', cantPorUnidad: 0 }],
+    ['2', { granelPlu: '7333', granelNombre: 'G', cantPorUnidad: -1 }],
+    ['3', { granelPlu: '7333', granelNombre: 'G', cantPorUnidad: 'x' }],
+    ['4', { granelPlu: '7333', granelNombre: 'G', cantPorUnidad: null }],
+  ]);
+
+  // Act
+  const filas = calcularFaltantesFraccionado(pendientes, bomGranel, new Map([['7333', 100]]));
+
+  // Assert
+  assert.deepStrictEqual(filas, []);
+});
+
+test('entradas vacias o nulas devuelven lista vacia', () => {
+  // Arrange + Act + Assert
+  assert.deepStrictEqual(calcularFaltantesFraccionado([], new Map(), new Map()), []);
+  assert.deepStrictEqual(calcularFaltantesFraccionado(null, new Map(), new Map()), []);
+});
+
+test('plu vacio o nulo se descarta', () => {
+  // Arrange: defensa contra IdProducto sucios en Siga, mismo criterio que listas_universo.
+  const pendientes = [
+    { plu: '', nombre: 'sin plu', pendiente: 10, stockCentral: 0, clientes: [] },
+    { plu: null, nombre: 'nulo', pendiente: 10, stockCentral: 0, clientes: [] },
+  ];
+  const bomGranel = new Map([['', { granelPlu: '7333', granelNombre: 'G', cantPorUnidad: 1 }]]);
+
+  // Act
+  const filas = calcularFaltantesFraccionado(pendientes, bomGranel, new Map([['7333', 100]]));
+
+  // Assert
+  assert.deepStrictEqual(filas, []);
+});
