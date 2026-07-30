@@ -1792,6 +1792,60 @@ function guardarOrdenFracc(){
     });
 }
 
+function cargarOrdenesFracc(){
+  $('tabla-ordenes-fracc').innerHTML = '<div class="state state-loading">Cargando órdenes…</div>';
+  api('/api/mayoristas/ordenes-fraccionado').then(function(data){
+    if(data.error){
+      $('tabla-ordenes-fracc').innerHTML =
+        '<div class="state state-err" style="padding:32px;text-align:center">⚠ '+escHtml(data.error)+
+        '<br><button class="btn btn-tonal btn-sm" style="margin-top:12px" onclick="cargarOrdenesFracc()">Reintentar</button></div>';
+      return;
+    }
+    var arr = Array.isArray(data) ? data : [];
+    if(!arr.length){
+      $('tabla-ordenes-fracc').innerHTML = '<div class="state state-empty" style="padding:32px;text-align:center">Todavía no se generó ninguna orden de fraccionado.</div>';
+      return;
+    }
+    $('tabla-ordenes-fracc').innerHTML =
+      '<table class="tbl"><thead><tr><th>Fecha</th><th>Estado</th><th class="num">Líneas</th>'+
+      '<th class="num">Unidades</th><th class="num">Kg granel</th><th></th></tr></thead><tbody>'+
+      arr.map(function(o){
+        return '<tr>'+
+          '<td>'+escHtml(o.fecha)+'</td>'+
+          '<td>'+escHtml(o.estado)+'</td>'+
+          '<td class="num">'+o.totales.lineas+'</td>'+
+          '<td class="num">'+o.totales.unidades+'</td>'+
+          '<td class="num">'+o.totales.kgGranel+'</td>'+
+          '<td>'+
+            '<button class="btn btn-ghost btn-sm" onclick="toggleDetalleOrden('+o.id+')">Detalle</button> '+
+            '<button class="btn btn-ghost btn-sm" onclick="borrarOrdenFracc('+o.id+')">Borrar</button>'+
+          '</td></tr>'+
+          '<tr id="ord-'+o.id+'" style="display:none"><td colspan="6" style="background:#fafaf9">'+
+            o.lineas.map(function(l){
+              return escHtml(l.nombre)+': '+l.cantidad+' un. ('+l.granelNecesario+' kg de '+escHtml(l.granelNombre)+')';
+            }).join('<br>')+
+          '</td></tr>';
+      }).join('')+'</tbody></table>';
+  });
+}
+
+function toggleDetalleOrden(id){
+  var tr = $('ord-'+id);
+  if(tr) tr.style.display = tr.style.display==='none' ? '' : 'none';
+}
+
+function borrarOrdenFracc(id){
+  if(!confirm('¿Borrar esta orden de fraccionado? No se puede deshacer.')) return;
+  fetch('/api/mayoristas/ordenes-fraccionado/'+id, {method:'DELETE'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      if(!res.ok){ snack('⚠ '+(res.body.error||'No se pudo borrar'), true); return; }
+      snack('Orden borrada');
+      cargarOrdenesFracc();
+    })
+    .catch(function(e){ snack('⚠ '+e.message, true); });
+}
+
 // ── Resumen por cliente ───────────────────────────────────────────────────────
 function cargarResumen(){
   $('resumen-cont').innerHTML = '<div class="state state-loading" style="padding:40px 0;text-align:center">Cargando resumen…</div>';
