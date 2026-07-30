@@ -1064,9 +1064,10 @@ app.get('/',              (_req, res) => res.sendFile(path.join(__dirname, 'inic
 app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedidos_web.html')));
 app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
-app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_compras.html')));
+app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
-app.get('/compras-modulo', (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
+// Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
+app.get('/compras-modulo', (_req, res) => res.redirect(301, '/compras'));
 app.get('/analisis-ventas', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_ventas.html')));
 app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
 app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
@@ -1158,7 +1159,6 @@ function cfgMpManual(cfg, ref)  { const v=cfg[ref]; return (v&&typeof v==='objec
 // Override por grupo de "es variedad de miel" (habilita tambor + sección Mieles). null = sin override.
 function cfgEsMiel(cfg, ref)    { const v=cfg[ref]; return (v&&typeof v==='object'&&typeof v.esMiel==='boolean')?v.esMiel:null; }
 const COMPRAS_PROD_PATH  = path.join(DATA_DIR, 'compras_productos.json');
-const LEAD_TIMES_PATH    = path.join(DATA_DIR, 'lead_times.json');
 const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'presentaciones_compra.json');
 // NOTA: no se reusa ORDENES_PATH (data/ordenes.json) porque ya está en uso por /api/ordenes y
 // /api/ordenes-produccion (órdenes de producción, dominio no relacionado) — archivo dedicado para no mezclar datos.
@@ -1330,204 +1330,6 @@ app.delete('/api/compras/productos/:id', (req, res) => {
   const arr = leerJSON(COMPRAS_PROD_PATH, []).filter(x => String(x.id) !== String(req.params.id));
   guardarJSON(COMPRAS_PROD_PATH, arr);
   res.json(arr);
-});
-
-// ── Panel de compras (estadístico, por proveedor) ─────────────────────────────
-const PANEL_Z          = 1.65;   // Z normal al 90%
-const PANEL_COB_OBJ    = 45;     // días de cobertura objetivo
-
-function calcConsumoStats(entries, currentY, currentM) {
-  const lk = {};
-  for (const { Y, M, Q } of entries) {
-    const k = `${Y}_${M}`; lk[k] = (lk[k] || 0) + Q;
-  }
-  const last12 = [];
-  for (let i = 1; i <= 12; i++) {
-    let Y = currentY, M = currentM - i;
-    while (M <= 0) { M += 12; Y--; }
-    last12.push(lk[`${Y}_${M}`] || 0);
-  }
-  const total12m = last12.reduce((s, v) => s + v, 0);
-  const avg = total12m / 12;
-  const variance = last12.length > 1
-    ? last12.reduce((s, v) => s + (v - avg) ** 2, 0) / (last12.length - 1) : 0;
-  const stdDev = Math.sqrt(Math.max(0, variance));
-  let nextM = currentM + 1, nextY = currentY;
-  if (nextM > 12) { nextM = 1; nextY++; }
-  const smpy = lk[`${nextY - 1}_${nextM}`] || 0;
-  const seasonalIdx = avg > 0 && smpy > 0 ? Math.min(3, Math.max(0.1, smpy / avg)) : 1;
-  return { avg, stdDev, total12m, seasonalIdx };
-}
-
-async function calcularPanelCompras() {
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
-  const ltDefault = c.comprasLeadTimeDias || 14;
-  const cobObjDias = PANEL_COB_OBJ;
-  const leadTimes = leerJSON(LEAD_TIMES_PATH, {});
-  const getLT = prov => {
-    if (!prov) return ltDefault;
-    const key = prov.toUpperCase().trim();
-    for (const [k, v] of Object.entries(leadTimes)) {
-      if (!k.startsWith('_') && k.toUpperCase() === key) return Number(v) || ltDefault;
-    }
-    return leadTimes._default != null ? Number(leadTimes._default) : ltDefault;
-  };
-
-  const today = new Date();
-  const currentY = today.getFullYear(), currentM = today.getMonth() + 1;
-
-  const [consumoRows, stockRows, provRows, pedidoRows] = await Promise.all([
-    query(`
-      SELECT vp.IdProducto, p.NombreProducto,
-        CASE WHEN UPPER(ISNULL(cat.NombreCategoria,'')) LIKE '%MAYOR%' THEN 'Mayorista' ELSE 'Minorista' END AS Canal,
-        YEAR(v.Fecha) AS Anio, MONTH(v.Fecha) AS Mes, SUM(vp.Cantidad) AS Cantidad
-      FROM VentasProductos vp
-      JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
-                   AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
-      JOIN Productos p ON p.IdProducto=vp.IdProducto
-      LEFT JOIN Categorias cat ON cat.IdCategoria=v.IdCategoria
-      WHERE v.Fecha >= DATEADD(MONTH,-13,CAST(GETDATE() AS DATE))
-        AND v.Fecha < CAST(GETDATE() AS DATE)
-        AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO'
-        AND v.IdTipoComprobante NOT IN (${COMPRAS_EXCL_TC})
-        AND (v.IdCategoria IS NULL OR v.IdCategoria != 5)
-        AND p.Activo=1
-      GROUP BY vp.IdProducto, p.NombreProducto,
-        CASE WHEN UPPER(ISNULL(cat.NombreCategoria,'')) LIKE '%MAYOR%' THEN 'Mayorista' ELSE 'Minorista' END,
-        YEAR(v.Fecha), MONTH(v.Fecha)`),
-    query(`
-      SELECT pd.IdProducto,
-        SUM(CASE WHEN s.SoyLaCentral=1 THEN pd.Stock ELSE 0 END) AS StockCC,
-        SUM(CASE WHEN s.SoyLaCentral=0 THEN pd.Stock ELSE 0 END) AS StockSuc
-      FROM ProductosDepositos pd
-      INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
-      INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-      GROUP BY pd.IdProducto HAVING SUM(pd.Stock) > 0`),
-    query(`
-      SELECT pp.IdProducto, p.NombreProducto, pv.NombreProveedor,
-        CAST(pp.UltimoPrecioCompra AS FLOAT) AS Precio,
-        CONVERT(varchar(10),pp.UltimaFechaCompra,23) AS FechaPrecio
-      FROM ProductosProveedores pp
-      JOIN Proveedores pv ON pv.IdProveedor=pp.IdProveedor
-      JOIN Productos p ON p.IdProducto=pp.IdProducto
-      WHERE pp.UltimoPrecioCompra > 0 AND p.Activo=1
-      ORDER BY pp.IdProducto, pp.UltimaFechaCompra DESC`),
-    query(`
-      SELECT ppp.IdProducto, SUM(ppp.CantPendiente) AS EnPedido
-      FROM PedidosProductosProveedores ppp
-      WHERE ppp.CantPendiente > 0
-        AND EXISTS (
-          SELECT 1 FROM PedidosEstadosProveedores pes
-          WHERE pes.IdSucursal=ppp.IdSucursal AND pes.IdTipoComprobante=ppp.IdTipoComprobante
-            AND pes.NumeroPedido=ppp.NumeroPedido AND pes.IdProducto=ppp.IdProducto AND pes.Orden=ppp.Orden
-            AND pes.IdEstado IN ('PENDIENTE','EN PROCESO','RESERVADO','EN AGUA')
-            AND pes.FechaEstado=(SELECT MAX(pes2.FechaEstado) FROM PedidosEstadosProveedores pes2
-              WHERE pes2.IdSucursal=pes.IdSucursal AND pes2.IdTipoComprobante=pes.IdTipoComprobante
-                AND pes2.NumeroPedido=pes.NumeroPedido AND pes2.IdProducto=pes.IdProducto AND pes2.Orden=pes.Orden)
-        )
-      GROUP BY ppp.IdProducto HAVING SUM(ppp.CantPendiente) > 0`).catch(() => [])
-  ]);
-
-  // Build lookup maps
-  const nombresMap = new Map(), consumoMap = new Map();
-  for (const r of consumoRows) {
-    const id = String(r.IdProducto);
-    nombresMap.set(id, r.NombreProducto);
-    if (!consumoMap.has(id)) consumoMap.set(id, new Map());
-    const canales = consumoMap.get(id);
-    if (!canales.has(r.Canal)) canales.set(r.Canal, []);
-    canales.get(r.Canal).push({ Y: r.Anio, M: r.Mes, Q: Number(r.Cantidad) });
-  }
-  const stockMap = new Map();
-  for (const r of stockRows) {
-    stockMap.set(String(r.IdProducto), { stCC: Number(r.StockCC || 0), stSuc: Number(r.StockSuc || 0) });
-  }
-  const provMap = new Map();
-  for (const r of provRows) {
-    const id = String(r.IdProducto);
-    nombresMap.set(id, r.NombreProducto);
-    if (!provMap.has(id)) provMap.set(id, { nombre: r.NombreProveedor, precio: Number(r.Precio || 0), fecha: r.FechaPrecio || '' });
-  }
-  const enPedidoMap = new Map();
-  for (const r of pedidoRows) enPedidoMap.set(String(r.IdProducto), Number(r.EnPedido || 0));
-
-  // Only products with a provider entry (to keep panel focused and avoid noise)
-  const allIds = new Set([...provMap.keys()]);
-
-  const panel = [];
-  for (const id of allIds) {
-    const nombre = nombresMap.get(id) || id;
-    const prov = provMap.get(id);
-    const st = stockMap.get(id) || { stCC: 0, stSuc: 0 };
-    const stTotal = st.stCC + st.stSuc;
-    const enPed = enPedidoMap.get(id) || 0;
-    const lt = getLT(prov.nombre);
-
-    const canales = consumoMap.get(id) || new Map();
-    const sMin = calcConsumoStats(canales.get('Minorista') || [], currentY, currentM);
-    const sMay = calcConsumoStats(canales.get('Mayorista') || [], currentY, currentM);
-    const avgTot = sMin.avg + sMay.avg;
-
-    if (avgTot === 0 && stTotal === 0) continue;
-
-    const ltM = Math.max(0.1, lt / 30);
-    const ssMin = Math.ceil(PANEL_Z * sMin.stdDev * Math.sqrt(ltM));
-    const ssMay = Math.ceil(PANEL_Z * sMay.stdDev * Math.sqrt(ltM));
-    const demMin = Math.max(0, sMin.avg * sMin.seasonalIdx);
-    const demMay = Math.max(0, sMay.avg * sMay.seasonalIdx);
-    const demTot = demMin + demMay;
-
-    const cobDias = demTot > 0 ? +(((stTotal + enPed) / demTot * 30)).toFixed(1) : 999;
-
-    const partMin = avgTot > 0 ? sMin.avg / avgTot : 0.5;
-    const partMay = 1 - partMin;
-    const sugMin = Math.max(0, Math.ceil(demMin * (cobObjDias / 30) + ssMin - stTotal * partMin - enPed * partMin));
-    const sugMay = Math.max(0, Math.ceil(demMay * (cobObjDias / 30) + ssMay - stTotal * partMay - enPed * partMay));
-    const sugTot = sugMin + sugMay;
-
-    const semaforo = cobDias <= lt ? 'CRITICO' : cobDias <= 30 ? 'ALERTA' : cobDias <= cobObjDias ? 'REVISAR' : 'OK';
-
-    panel.push({
-      id, nombre,
-      proveedor: prov.nombre, precio: +prov.precio.toFixed(2), fechaPrecio: prov.fecha,
-      stockCC: +st.stCC.toFixed(2), stockSuc: +st.stSuc.toFixed(2), stockTotal: +stTotal.toFixed(2),
-      enPedido: +enPed.toFixed(2), leadTime: lt,
-      consumoMin: +sMin.avg.toFixed(2), consumoMay: +sMay.avg.toFixed(2), consumoTotal: +avgTot.toFixed(2),
-      indEstMin: +sMin.seasonalIdx.toFixed(2), indEstMay: +sMay.seasonalIdx.toFixed(2),
-      stockSegMin: ssMin, stockSegMay: ssMay, stockSegTotal: ssMin + ssMay,
-      demandaMin: +demMin.toFixed(2), demandaMay: +demMay.toFixed(2),
-      coberturaActual: cobDias,
-      sugeridoMin: sugMin, sugeridoMay: sugMay, sugeridoTotal: sugTot,
-      importeSugerido: Math.round(sugTot * prov.precio),
-      semaforo
-    });
-  }
-
-  const sOrd = { CRITICO: 0, ALERTA: 1, REVISAR: 2, OK: 3 };
-  panel.sort((a, b) => (sOrd[a.semaforo] - sOrd[b.semaforo]) || (b.importeSugerido - a.importeSugerido));
-
-  const conteo = { CRITICO: 0, ALERTA: 0, REVISAR: 0, OK: 0 };
-  let totalImporte = 0;
-  for (const p of panel) { conteo[p.semaforo]++; totalImporte += p.importeSugerido; }
-
-  return { productos: panel, conteo, totalImporte, total: panel.length,
-           fechaCalculo: new Date().toISOString() };
-}
-
-app.get('/api/panel/datos', apiRoute(async () => calcularPanelCompras()));
-app.get('/api/panel/lead-times', (_req, res) => {
-  const lt = leerJSON(LEAD_TIMES_PATH, {});
-  const items = Object.entries(lt).filter(([k]) => !k.startsWith('_'))
-    .map(([proveedor, leadTime]) => ({ proveedor, leadTime: Number(leadTime) }))
-    .sort((a, b) => a.proveedor.localeCompare(b.proveedor));
-  res.json({ items, default: lt._default != null ? Number(lt._default) : 14 });
-});
-app.post('/api/panel/lead-times', (req, res) => {
-  const { items, default: def } = req.body || {};
-  const obj = { _default: Number(def) || 14 };
-  if (Array.isArray(items)) for (const { proveedor, leadTime } of items) if (proveedor) obj[String(proveedor).trim()] = Number(leadTime) || 14;
-  guardarJSON(LEAD_TIMES_PATH, obj);
-  res.json({ ok: true });
 });
 
 // ── Rutas API órdenes ──────────────────────────────────────────────────────────
