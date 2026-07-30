@@ -187,6 +187,9 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
         if (mm < presRaw) mm = presRaw;              // gatillo (min) ≥ presencia (piso góndola)
         if (ss < presObjetivo) ss = presObjetivo;    // demanda baja → objetivo = presencia·factor (brecha batch)
       }
+      // S siempre por encima del min (kg, paso 0.1): con S == min el teórico da 0 y la sucursal
+      // gatilla sin reponer. Pasa si el A8020 ya traía S = presencia y el empuje sube el min.
+      if (mm > 0 && ss <= mm) ss = Math.round((mm + 0.1) * 100) / 100;
       mins[suc.key] = mm; sLev[suc.key] = ss;
       sn[suc.key] = enviarSN(BK === 'Si', stock, mm, H, F, suc);   // gatillo con min (punto de pedido)
       teo[suc.key] = enviarTeorico(sn[suc.key], ss, stock);   // repone hasta S
