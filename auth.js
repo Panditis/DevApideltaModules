@@ -33,8 +33,10 @@ const CATALOGO_MODULOS = [
   { ref: 'pedidos',             titulo: 'Pedidos',                  icon: 'clipboard-list', href: '/pedidos',            rutasHtml: ['/pedidos'],            apiPrefijos: ['/api/pedidos', '/api/facturas'],  defaultRequiereAuth: true },
   { ref: 'planificacion',       titulo: 'Planificación',            icon: 'calendar-range', href: '/planificacion',      rutasHtml: ['/planificacion'],      apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'produccion',          titulo: 'Producción',               icon: 'factory',        href: '/produccion',         rutasHtml: ['/produccion'],         apiPrefijos: [],                                  defaultRequiereAuth: true },
-  { ref: 'compras',             titulo: 'Compras',                  icon: 'shopping-cart',  href: '/compras',            rutasHtml: ['/compras'],            apiPrefijos: ['/api/compras', '/api/panel'],     defaultRequiereAuth: true },
-  { ref: 'compras-modulo',      titulo: 'Compras (Reposición)',     icon: 'shopping-bag',   href: '/compras-modulo',     rutasHtml: ['/compras-modulo'],     apiPrefijos: ['/api/compras-modulo'],            defaultRequiereAuth: true },
+  // Compras es un único módulo (el de reposición). '/compras-modulo' quedó como ruta
+  // histórica que redirige a '/compras': se mantiene acá para que la redirección
+  // siga pasando por el control de acceso.
+  { ref: 'compras',             titulo: 'Compras',                  icon: 'shopping-cart',  href: '/compras',            rutasHtml: ['/compras', '/compras-modulo'], apiPrefijos: ['/api/compras', '/api/compras-modulo'], defaultRequiereAuth: true },
   { ref: 'consumo',             titulo: 'Compras Carlos',           icon: 'truck',          href: '/consumo',            rutasHtml: ['/consumo'],            apiPrefijos: ['/api/consumo', '/api/pendientes'], defaultRequiereAuth: true },
   { ref: 'distribucion',        titulo: 'Distribución y Fraccionado', icon: 'package',      href: '/distribucion',       rutasHtml: ['/distribucion'],       apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'ventas-hora',         titulo: 'Ventas por Hora',          icon: 'clock',          href: '/ventas-hora',        rutasHtml: ['/ventas-hora'],        apiPrefijos: ['/api/ventas-hora'],               defaultRequiereAuth: true },
@@ -46,8 +48,8 @@ const CATALOGO_MODULOS = [
 
 const CATALOGO_POR_REF = new Map(CATALOGO_MODULOS.map(m => [m.ref, m]));
 
-// Índice de prefijos api ordenado por longitud desc (para que /api/compras-modulo
-// gane sobre /api/compras). El chequeo de límite ('/') evita colisiones parciales.
+// Índice de prefijos api ordenado por longitud desc: el prefijo más específico gana
+// sobre el más corto. El chequeo de límite ('/') evita colisiones parciales.
 const API_INDEX = CATALOGO_MODULOS
   .flatMap(m => m.apiPrefijos.map(pref => ({ ref: m.ref, pref })))
   .sort((a, b) => b.pref.length - a.pref.length);

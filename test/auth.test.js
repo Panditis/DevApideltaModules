@@ -46,9 +46,17 @@ test('moduloDeRuta da prioridad a la ruta HTML más específica (/distribucion/a
 });
 
 // ── moduloDeRuta: prefijos de API con límite de segmento ─────────────────────────
-test('moduloDeRuta mapea prefijos api sin que compras-modulo robe a compras', () => {
-  assert.strictEqual(moduloDeRuta('/api/compras-modulo/x'), 'compras-modulo');
+test('moduloDeRuta mapea ambos prefijos de compras al módulo unificado', () => {
+  assert.strictEqual(moduloDeRuta('/api/compras-modulo/x'), 'compras');
   assert.strictEqual(moduloDeRuta('/api/compras/y'), 'compras');
+});
+
+test('la ruta histórica /compras-modulo sigue bajo el módulo compras', () => {
+  assert.strictEqual(moduloDeRuta('/compras-modulo'), 'compras');
+});
+
+test('el prefijo /api/panel del panel viejo ya no mapea a ningún módulo', () => {
+  assert.strictEqual(moduloDeRuta('/api/panel/datos'), null);
 });
 
 test('moduloDeRuta mapea prefijos api de único segmento', () => {
