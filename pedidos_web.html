@@ -1601,7 +1601,7 @@ function formaClienteCarritoValida(c){
   return !!c && typeof c === 'object' &&
          (typeof c.idCliente === 'string' || typeof c.idCliente === 'number') &&
          typeof c.nombre === 'string' &&
-         typeof c.pendiente === 'number' && isFinite(c.pendiente) && c.pendiente > 0;
+         typeof c.pendiente === 'number' && isFinite(c.pendiente);
 }
 
 function formaLineaCarritoValida(l){
@@ -1616,6 +1616,18 @@ function formaLineaCarritoValida(l){
   if(typeof l.cargaMotivo !== 'string') return false;
   if(!Array.isArray(l.clientes)) return false;
   return l.clientes.every(formaClienteCarritoValida);
+}
+
+// Una línea con cantidad 0 pasaría la validación de forma pero no se mandaría en el POST:
+// el badge contaría más líneas de las que salen. Se purga en vez de descartar el carrito
+// entero, que sería perder todo el trabajo por una línea sola.
+function sanearLineaCarrito(l){
+  var teniaClientes = l.clientes.length > 0;
+  l.clientes = l.clientes.filter(function(c){ return c.pendiente > 0; });
+  // Una línea que venía con clientes y se quedó sin ninguno se descarta: su cantidad
+  // era la de esos clientes. Sólo las manuales de origen viven sin clientes.
+  if(teniaClientes && !l.clientes.length) return null;
+  return totalLineaCarrito(l) > 0 ? l : null;
 }
 
 function leerCarritoFracc(){
@@ -1633,7 +1645,7 @@ function leerCarritoFracc(){
     borrarCarritoFraccLS();
     return [];
   }
-  return obj.lineas;
+  return obj.lineas.map(sanearLineaCarrito).filter(Boolean);
 }
 
 function guardarCarritoFracc(){
@@ -1758,7 +1770,7 @@ function renderCarrito(){
       ? '<div class="text-xs text-olive">Granel: '+escHtml(l.granelNombre)+'</div>'
       : '';
     var celdaCant = l.clientes.length
-      ? '<strong>'+total+'</strong>'
+      ? '<strong>'+numFmt.format(total)+'</strong>'
       : '<input type="number" min="1" step="1" style="width:80px;text-align:right" value="'+total+'" '+
         'data-act="cant-manual" data-idx="'+idx+'">';
     var detalle = l.clientes.length
@@ -1776,8 +1788,8 @@ function renderCarrito(){
       '<td class="mono">'+escHtml(l.plu)+'</td>'+
       '<td>'+escHtml(l.nombre)+granelTxt+cargaTxt+'</td>'+
       '<td class="num">'+celdaCant+'</td>'+
-      '<td class="num">'+kgGranelFracc(total, l.cantPorUnidad)+'</td>'+
-      '<td class="num">'+l.clientes.length+'</td>'+
+      '<td class="num">'+numFmt.format(kgGranelFracc(total, l.cantPorUnidad))+'</td>'+
+      '<td class="num">'+numFmt.format(l.clientes.length)+'</td>'+
       '<td><button class="btn btn-ghost btn-sm" data-act="detalle" data-idx="'+idx+'">Clientes</button></td>'+
       '<td><button class="btn btn-ghost btn-sm" data-act="quitar-linea" data-idx="'+idx+'">Quitar</button></td>'+
     '</tr>'+
@@ -1807,17 +1819,29 @@ $('tabla-carrito').addEventListener('click', function(ev){
   }
   if(act === 'quitar-linea'){
     carritoFracc.splice(idx, 1);
-  } else if(act === 'quitar-cliente'){
-    var ci = Number(btn.getAttribute('data-ci'));
-    if(!l.clientes[ci]) return;
-    l.clientes.splice(ci, 1);
-    // Una línea que se queda sin clientes pasa a ser manual: si no, no se puede cargar cantidad.
-    if(!l.clientes.length){ l.manual = true; l.cantManual = 1; }
-  } else { return; }
+    guardarCarritoFracc();
+    renderCarrito();
+    marcarAgregadosResumen();
+    return;
+  }
+  if(act === 'quitar-cliente'){ quitarClienteCarrito(idx, Number(btn.getAttribute('data-ci'))); }
+});
+
+// Quitar el último cliente de una línea es sacar ese producto del carrito: su cantidad
+// era la de esos clientes, así que no tiene sentido dejarla viva con una unidad que
+// nadie pidió. Las manuales de origen (l.manual, venidas del buscador) nunca tienen
+// clientes, así que este camino no las toca.
+function quitarClienteCarrito(idx, ci){
+  var l = carritoFracc[idx];
+  if(!l || !l.clientes[ci]) return;
+  l.clientes.splice(ci, 1);
+  var lineaFuera = !l.clientes.length && !l.manual;
+  if(lineaFuera) carritoFracc.splice(idx, 1);
   guardarCarritoFracc();
   renderCarrito();
   marcarAgregadosResumen();
-});
+  snack(lineaFuera ? 'Producto quitado del carrito' : 'Cliente quitado de la línea');
+}
 
 $('tabla-carrito').addEventListener('change', function(ev){
   var inp = ev.target;
@@ -1828,11 +1852,16 @@ $('tabla-carrito').addEventListener('change', function(ev){
   var l = carritoFracc[idx];
   if(!l) return;
   var n = Math.floor(Number(inp.value));
-  if(!isFinite(n) || n <= 0){ n = 1; }
-  if(act === 'cant-manual'){ l.cantManual = n; }
-  else {
+  var vacio = String(inp.value).trim() === '' || !isFinite(n) || n <= 0;
+  if(act === 'cant-manual'){
+    // Una línea manual no tiene a quién quitar: se sostiene el mínimo de 1 y se avisa.
+    if(vacio){ snack('La cantidad mínima es 1. Usá "Quitar" para sacar la línea.'); n = 1; }
+    l.cantManual = n;
+  } else {
     var ci = Number(inp.getAttribute('data-ci'));
     if(!l.clientes[ci]) return;
+    // Poner 0 (o vaciar) la cantidad de un cliente es quitarlo, mismo camino que el botón.
+    if(vacio){ quitarClienteCarrito(idx, ci); return; }
     l.clientes[ci].pendiente = n;
   }
   guardarCarritoFracc();
@@ -1857,7 +1886,8 @@ function actualizarBarraFracc(){
   var lineas = lineasSeleccionadas();
   var un = lineas.reduce(function(s,l){ return s + l.cantidad; }, 0);
   var kg = lineas.reduce(function(s,l){ return s + l.cantidad*l.cantPorUnidad; }, 0);
-  $('fracc-resumen').textContent = lineas.length+' líneas · '+un+' unidades · '+(Math.round(kg*100)/100)+' kg de granel';
+  $('fracc-resumen').textContent = lineas.length+' líneas · '+numFmt.format(un)+' unidades · '+
+                                   numFmt.format(Math.round(kg*100)/100)+' kg de granel';
   $('fracc-bar').style.display = (lineas.length && subFraccActiva==='carrito') ? '' : 'none';
 }
 
@@ -1920,13 +1950,14 @@ function abrirModalOrden(){
   if(!lineas.length){ snack('El carrito está vacío'); return; }
   var un = lineas.reduce(function(s,l){ return s + l.cantidad; }, 0);
   var kg = Math.round(lineas.reduce(function(s,l){ return s + l.cantidad*l.cantPorUnidad; }, 0)*100)/100;
-  $('modal-fracc-sub').textContent = lineas.length+' líneas · '+un+' unidades · '+kg+' kg de granel';
+  $('modal-fracc-sub').textContent = lineas.length+' líneas · '+numFmt.format(un)+' unidades · '+
+                                     numFmt.format(kg)+' kg de granel';
   $('modal-fracc-lista').innerHTML = lineas.map(function(l){
     return '<div style="padding:6px 0;border-bottom:1px solid var(--outline)">'+
-           escHtml(l.nombre)+' — <strong>'+l.cantidad+' un.</strong> '+
+           escHtml(l.nombre)+' — <strong>'+numFmt.format(l.cantidad)+' un.</strong> '+
            (l.granelPlu
              ? '<span class="text-xs text-olive">('+escHtml(l.granelNombre)+', '+
-               (Math.round(l.cantidad*l.cantPorUnidad*100)/100)+' kg)</span>'
+               numFmt.format(Math.round(l.cantidad*l.cantPorUnidad*100)/100)+' kg)</span>'
              : '<span class="text-xs" style="color:#92400e">(sin granel imputado)</span>')+
            '</div>';
   }).join('');
