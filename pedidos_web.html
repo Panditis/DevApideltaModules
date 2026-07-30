@@ -665,6 +665,13 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         </div>
         <span class="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold" id="badge-fracc">—</span>
       </div>
+      <div class="px-5 py-3 border-b border-line/60 flex items-center gap-2">
+        <i data-lucide="search" class="w-4 h-4 text-olive"></i>
+        <input id="fracc-buscar" type="text" placeholder="Agregar un producto fraccionable que no está en la lista…"
+               style="flex:1;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;font-size:13px"
+               oninput="buscarFraccDebounce(this.value)">
+      </div>
+      <div id="fracc-resultados"></div>
       <div class="tbl-wrap" id="tabla-fraccionado"><div class="state state-loading">Cargando…</div></div>
     </div>
   </div>
@@ -1690,6 +1697,53 @@ function actualizarBarraFracc(){
   var kg = lineas.reduce(function(s,l){ return s + l.cantidad*l.cantPorUnidad; }, 0);
   $('fracc-resumen').textContent = lineas.length+' líneas · '+un+' unidades · '+(Math.round(kg*100)/100)+' kg de granel';
   $('fracc-bar').style.display = (lineas.length && subFraccActiva==='faltantes') ? '' : 'none';
+}
+
+var buscarFraccTimer = null;
+function buscarFraccDebounce(q){
+  clearTimeout(buscarFraccTimer);
+  buscarFraccTimer = setTimeout(function(){ buscarFracc(q); }, 350);
+}
+
+// Reusa /api/plan/sugerencias, que ya devuelve idGranel, cantPorUnidad y granelDisponible
+// con el mismo criterio de rubros que el buscador manual de planificación.
+function buscarFracc(q){
+  if(q.length < 2){ $('fracc-resultados').innerHTML = ''; return; }
+  api('/api/plan/sugerencias?q='+encodeURIComponent(q)).then(function(res){
+    if(res.error || !Array.isArray(res)){ $('fracc-resultados').innerHTML = ''; return; }
+    var conGranel = res.filter(function(r){ return r.idGranel && Number(r.cantPorUnidad) > 0; });
+    if(!conGranel.length){
+      $('fracc-resultados').innerHTML = '<div class="state state-empty" style="padding:12px 20px">Sin productos fraccionables para esa búsqueda.</div>';
+      return;
+    }
+    $('fracc-resultados').innerHTML = conGranel.slice(0,10).map(function(r){
+      // escHtml escapa & < > " y después reemplazamos ' → el JSON queda seguro dentro del atributo.
+      var json = escHtml(JSON.stringify(r)).replace(/'/g,'&#39;');
+      return '<div style="padding:8px 20px;border-bottom:1px solid var(--outline);cursor:pointer" '+
+             'onclick=\'agregarFraccManual('+json+')\'>'+
+             escHtml(r.producto)+' <span class="text-xs text-olive">'+escHtml(r.nombreGranel||'')+'</span></div>';
+    }).join('');
+  });
+}
+
+function agregarFraccManual(r){
+  var plu = String(r.idProducto || r.plu || '');
+  if(!plu) return;
+  if(buscarFilaFracc(plu)){
+    snack('Ese producto ya está en la lista');
+  } else {
+    faltantesFracc.push({
+      plu: plu, nombre: r.producto || '', pendiente: Number(r.pendientes)||0,
+      stockCentral: Number(r.stockActual)||0, faltante: 0,
+      granelPlu: String(r.idGranel), granelNombre: r.nombreGranel || '',
+      granelStock: Number(r.granelDisponible)||0, cantPorUnidad: Number(r.cantPorUnidad),
+      granelNecesario: 0, sugerido: 0, cubre: true, manual: true, clientes: []
+    });
+  }
+  if(seleccionFracc[plu] === undefined) seleccionFracc[plu] = 1;
+  $('fracc-buscar').value = '';
+  $('fracc-resultados').innerHTML = '';
+  renderFraccionado();
 }
 
 // ── Resumen por cliente ───────────────────────────────────────────────────────
