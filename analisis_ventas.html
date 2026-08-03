@@ -37,7 +37,24 @@
   .kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  /* El listado de productos ocupa el ancho de .wrap, igual que la tabla de familias; sólo
+     necesita el margen que el resto de las cards hereda de .grid2. */
+  .card.suelta{margin:16px 0}
   .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+  /* Header de card con buscador: el título queda a la izquierda y el input se estira
+     con lo que sobra, sin romper el layout en pantallas angostas. */
+  .card-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+  .card-head h3{margin:0;flex:0 0 auto}
+  .card-head .buscador{flex:1 1 140px;min-width:120px;padding:7px 10px;border:1px solid var(--border);
+    border-radius:var(--radius-sm);font-family:inherit;font-size:13px}
+  .card-head .buscador:focus{outline:none;border-color:var(--green-mid)}
+  .pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;
+    margin-top:10px;font-size:12px;color:var(--muted)}
+  .pager .pg-btns{display:flex;gap:6px}
+  .pager button{background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;color:var(--green-dark)}
+  .pager button:hover:not(:disabled){background:var(--green-light);border-color:var(--green-mid)}
+  .pager button:disabled{opacity:.45;cursor:default}
   .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
   tr.fam{cursor:pointer}
   tr.fam>td{padding-top:9px;padding-bottom:9px;font-weight:600}
@@ -50,6 +67,16 @@
   th.orden{cursor:pointer;user-select:none;white-space:nowrap}
   th.orden:hover{color:var(--green-dark)}
   td.impacto{width:110px;font-variant-numeric:tabular-nums}
+  /* Días en quiebre: en rojo sólo cuando hay al menos uno, para que el cero no haga ruido. */
+  td.quiebre{color:#b3261e;font-weight:600}
+  /* Columna sin calcular (más de una sucursal en el filtro): apagada, no es un valor. */
+  td.sin-dato{color:var(--muted)}
+  /* Resumen de tendencia bajo el gráfico: dos lecturas en una línea, sin robarle altura. */
+  .mini{margin-top:10px;font-size:12px;line-height:1.5;color:var(--muted)}
+  .mini b{font-weight:600}
+  .mini .nota{display:block;font-size:11px;opacity:.85}
+  /* El porcentaje va debajo del número, en chico: es contexto, no el dato principal. */
+  .pct{display:block;font-size:11px;font-weight:400;color:var(--muted)}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
   th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
@@ -81,15 +108,21 @@
   <div class="grid2">
     <div class="card"><h3>Comparativa por sucursal</h3><canvas id="chComparativa" height="200"></canvas>
       <div id="tblComparativa" style="margin-top:12px"></div></div>
-    <div class="card"><h3>Tendencia diaria</h3><canvas id="chTendencia" height="200"></canvas></div>
+    <div class="card"><h3>Tendencia diaria</h3><canvas id="chTendencia" height="200"></canvas>
+      <div id="tendResumen" class="mini"></div></div>
   </div>
   <div class="grid2">
     <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow" height="200"></canvas></div>
     <div class="card"><h3>Facturación por hora</h3><canvas id="chHora" height="200"></canvas></div>
   </div>
-  <div class="grid2">
-    <div class="card"><h3>Top productos — unidades</h3><div id="tblTopU"></div></div>
-    <div class="card"><h3>Top productos — facturación</h3><div id="tblTopF"></div></div>
+  <div class="card suelta">
+    <div class="card-head">
+      <h3>Top productos</h3>
+      <input type="search" id="buscTopF" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+    </div>
+    <div class="desc">Clic en Facturación, Unid. o Quiebres para ordenar el listado por esa columna.</div>
+    <div id="tblTopF"></div>
+    <div id="pagTopF"></div>
   </div>
   <div class="card">
     <h3>Familias de producto</h3>
@@ -112,6 +145,8 @@ const SUCURSALES = [
   {id:10,nombre:'Pergamino'},
 ];
 const GREEN = '#405936', YELLOW = '#C98A00', MID = '#4E6B43';
+// Rumbo de la línea de tendencia: verde sube, rojo baja, gris cuando queda plana.
+const GREEN_UP = '#2E7D32', RED_DOWN = '#b3261e', MUTED = '#6B6B6B';
 // Paleta de la torta de artículos/ticket: el primer bucket (1-3, los tickets más chicos)
 // va en rojo porque es el que se quiere reducir; el resto escala de verde a amarillo a
 // medida que crece el carrito.
@@ -271,13 +306,137 @@ function renderComparativa(rows){
   ], rows);
 }
 
+// Media móvil centrada, para alisar antes de buscar la tendencia. La venta diaria tiene dos
+// ciclos fuertes —el semanal y el intramensual (arranca alta con el cobro y cae al cierre)—
+// y ajustar la recta sobre la serie cruda hace que esos ciclos manden por encima del rumbo
+// real: dos meses que suben uno respecto del otro pueden dar pendiente negativa si cada uno
+// baja por dentro. Los bordes usan la ventana que alcanza, así la serie no se acorta.
+const VENTANA_SUAVIZADO = 7;
+function mediaMovil(serie, ventana = VENTANA_SUAVIZADO){
+  const radio = Math.floor(ventana / 2);
+  return serie.map((_v, i) => {
+    const tramo = serie.slice(Math.max(0, i - radio), Math.min(serie.length, i + radio + 1));
+    return tramo.reduce((a, v) => a + v, 0) / tramo.length;
+  });
+}
+
+// ── Tendencia: se mide mes contra mes, no día contra día ─────────────────────
+// Dentro de un mes la venta dibuja una U: pico de cobro al arrancar, valle al medio, otro
+// pico al cerrar. Con esa forma el signo de cualquier ajuste sobre la serie diaria lo decide
+// cuál de los dos picos es más alto, no si el negocio crece: medido sobre un mes sintético
+// con la apertura 8% más pesada que el cierre, la recta da −8,82% y la comparación entre
+// mitades −4,62%, sobre un mes que puede estar 6% arriba del anterior.
+// Comparar el promedio diario de un mes calendario contra el de otro no tiene ese problema:
+// cada mes contiene un ciclo de cobro completo, así que la forma se cancela sola.
+const NOMBRE_MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+// Un mes con pocos días en el rango es un pedazo de ciclo, no un mes: entra recortado por
+// donde cayó el filtro y su promedio diario no es comparable. Se descarta y se avisa.
+const MIN_DIAS_MES = 10;
+
+function nombreMes(clave){
+  const [anio, mes] = String(clave).split('-');
+  return `${NOMBRE_MES[Number(mes) - 1] || clave} ${anio}`;
+}
+
+// Promedio diario por mes calendario, en orden cronológico. Por día y no por total: los meses
+// traen distinta cantidad de días hábiles y los domingos cerrados ni siquiera aparecen.
+function promediosPorMes(rows){
+  const porMes = new Map();
+  (rows || []).forEach(r => {
+    const mes = String(r.fecha).slice(0, 7);
+    const acc = porMes.get(mes) || { total: 0, dias: 0 };
+    porMes.set(mes, { total: acc.total + Number(r.facturacion || 0), dias: acc.dias + 1 });
+  });
+  return [...porMes.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mes, v]) => ({ mes, dias: v.dias, promedio: v.total / v.dias }));
+}
+
+// Variación del promedio diario entre el primer y el último mes completo del rango. Con dos
+// meses es la comparación mes a mes; con más, el recorrido punta a punta del período.
+function tendenciaMensual(rows){
+  const todos = promediosPorMes(rows);
+  const meses = todos.filter(m => m.dias >= MIN_DIAS_MES);
+  const descartados = todos.filter(m => m.dias < MIN_DIAS_MES);
+  if (meses.length < 2) return { meses, descartados, variacion: null };
+  const primero = meses[0], ultimo = meses[meses.length - 1];
+  return {
+    meses, descartados, primero, ultimo,
+    variacion: primero.promedio > 0 ? (ultimo.promedio - primero.promedio) * 100 / primero.promedio : null,
+  };
+}
+
+// Recta de tendencia por mínimos cuadrados sobre los días que devuelve la consulta (los que
+// facturaron). Devuelve el valor ajustado de cada día: es la recta que mejor sigue la serie,
+// así se ve si el rango viene subiendo o cayendo, cosa que un promedio plano no muestra.
+// Con menos de dos días no hay recta posible y se devuelve vacío.
+function rectaTendencia(serie){
+  const n = serie.length;
+  if (n < 2) return [];
+  const sumX = n * (n - 1) / 2;
+  const sumY = serie.reduce((a, v) => a + v, 0);
+  const sumXY = serie.reduce((a, v, i) => a + i * v, 0);
+  const sumXX = serie.reduce((a, _v, i) => a + i * i, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (!denom) return [];
+  const pendiente = (n * sumXY - sumX * sumY) / denom;
+  const inicio = (sumY - pendiente * sumX) / n;
+  return serie.map((_v, i) => inicio + pendiente * i);
+}
+
+// Bajo el gráfico: el veredicto y de dónde sale. Se muestran los dos promedios diarios que
+// se compararon, para que el porcentaje sea auditable sin tener que creerle.
+function pintarResumenTendencia(tend){
+  const aviso = tend.descartados.length
+    ? ` <span class="nota">No entra ${tend.descartados.map(m => nombreMes(m.mes)).join(' ni ')}:
+        el rango lo corta (menos de ${MIN_DIAS_MES} días).</span>` : '';
+  if (tend.variacion === null){
+    $('tendResumen').innerHTML = `El rango no llega a dos meses completos: dentro de un mes
+      manda el ciclo de cobro, no la tendencia. Ampliá el rango para medirla.${aviso}`;
+    return;
+  }
+  const v = tend.variacion, rumbo = rumboTendencia(v);
+  const signo = v > 0 ? '+' : '';
+  $('tendResumen').innerHTML = `Las ventas vienen <b style="color:${rumbo.color}">${rumbo.txt}</b>:
+    ${nombreMes(tend.ultimo.mes)} vs ${nombreMes(tend.primero.mes)}
+    <b style="color:${rumbo.color}">${signo}${fmtDec(v)}%</b>
+    (${fmtMoney(tend.primero.promedio)} → ${fmtMoney(tend.ultimo.promedio)} por día).${aviso}`;
+}
+
+// Debajo de medio punto se llama estable: con esa diferencia el mes no se movió.
+function rumboTendencia(variacion){
+  if (variacion === null || Math.abs(variacion) < 0.5) return { txt:'estables', color: MUTED };
+  return variacion > 0 ? { txt:'↑ subiendo', color: GREEN_UP } : { txt:'↓ bajando', color: RED_DOWN };
+}
+
 function renderTendencia(rows){
   destroyChart('tend');
+  const serie = (rows || []).map(r => Number(r.facturacion || 0));
+  // La recta se ajusta sobre la serie alisada, no sobre la cruda: con menos días que la
+  // ventana no hay nada que alisar y se usa tal cual.
+  const suave = serie.length >= VENTANA_SUAVIZADO ? mediaMovil(serie) : serie;
+  const recta = rectaTendencia(suave);
+  // El veredicto sale de comparar meses calendario, nunca de la pendiente de la recta.
+  pintarResumenTendencia(tendenciaMensual(rows));
+  const datasets = [
+    { label:'Facturación', data: serie, borderColor: GREEN, backgroundColor:'rgba(64,89,54,.1)', fill:true, tension:.25 },
+  ];
+  if (recta.length){
+    // La recta queda como referencia visual de la forma de la serie, en dorado neutro: si se
+    // la pintara según el rumbo, una línea que baja en pantalla podría salir verde.
+    datasets.push({ label:`Ajuste lineal (media móvil ${VENTANA_SUAVIZADO} días)`, data: recta,
+      borderColor: YELLOW, borderDash:[6,4], borderWidth:2, pointRadius:0, pointHitRadius:0, fill:false });
+  }
   charts.tend = new Chart($('chTendencia'), {
     type:'line',
-    data:{ labels: rows.map(r=>r.fecha),
-      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), borderColor: GREEN, backgroundColor:'rgba(64,89,54,.1)', fill:true, tension:.25 }] },
-    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+    data:{ labels: (rows || []).map(r=>r.fecha), datasets },
+    options:{ plugins:{
+      // La leyenda ahora sí aporta: distingue la serie real de la recta y lleva la variación
+      // del rango, que de otro modo habría que deducir mirando el dibujo.
+      legend:{ display:true, position:'bottom', labels:{ boxWidth:18, boxHeight:2, font:{ size:11 } } },
+      tooltip:{ callbacks:{ label: c => `${c.dataset.label.split(':')[0]}: ${fmtMoney(c.parsed.y)}` } }
+    }, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
   });
 }
 
@@ -301,12 +460,119 @@ function renderHora(rows){
   });
 }
 
-function renderTop(rows, elId){
-  $(elId).innerHTML = tabla([
-    {key:'nombre',label:'Producto'},
-    {key:'unidades',label:'Unid.',num:true,fmt:fmtNum},
-    {key:'facturacion',label:'Facturación',num:true,fmt:fmtMoney},
-  ], rows);
+// ── Top productos: lista completa, ordenable, paginada y con buscador ────────
+// El endpoint manda todos los productos del rango (no un top acotado), así que ordenar,
+// filtrar y paginar se resuelve en memoria: sin viajes extra al servidor. Una sola tabla
+// con las tres métricas (facturación, unidades y quiebres) y el orden a elección.
+const FILAS_POR_PAGINA = 25;
+const ORDENES_TOP = ['facturacion', 'unidades', 'quiebres'];
+let topProd = { rows: [], filtro: '', pagina: 1, orden: 'facturacion', asc: false };
+
+// Búsqueda sin acentos ni mayúsculas y por términos sueltos: "miel 500" encuentra
+// "MIEL PURA 500G" aunque las palabras no estén pegadas.
+function normalizarBusqueda(s){
+  return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+// El puesto se numera sobre la lista completa ya ordenada por la columna elegida, así al
+// filtrar se sigue viendo en qué posición de ese ranking está cada producto.
+function filasTop(){
+  const signo = topProd.asc ? 1 : -1;
+  const ordenadas = [...topProd.rows]
+    .sort((a, b) => ((a[topProd.orden] || 0) - (b[topProd.orden] || 0)) * signo)
+    .map((r, i) => ({ ...r, puesto: i + 1 }));
+  const terminos = normalizarBusqueda(topProd.filtro).split(/\s+/).filter(Boolean);
+  if (!terminos.length) return ordenadas;
+  return ordenadas.filter(r => {
+    const nombre = normalizarBusqueda(r.nombre);
+    return terminos.every(t => nombre.includes(t));
+  });
+}
+
+function renderTop(rows){
+  topProd = { ...topProd, rows: rows || [], filtro: '', pagina: 1 };
+  $('buscTopF').value = '';
+  pintarTop();
+}
+
+// El backend manda quiebres en null cuando el filtro tiene más de una sucursal: el cálculo
+// reconstruye la serie diaria de stock y con varias sucursales tarda demasiado. Un "—" con
+// la explicación es más honesto que un 0, que se leería como "no tuvo faltantes".
+const AVISO_QUIEBRES = 'Los quiebres se calculan sólo con una sucursal seleccionada: reconstruir el stock día por día de varias sucursales hace muy lenta la consulta.';
+
+function celdaQuiebre(r){
+  if (r.quiebres === null || r.quiebres === undefined){
+    return `<td class="num sin-dato" title="${AVISO_QUIEBRES}">—</td>`;
+  }
+  const titulo = `${fmtNum(r.quiebres)} de ${fmtNum(r.quiebresBase || 0)} días evaluados (sin domingos)`;
+  return `<td class="num ${r.quiebres ? 'quiebre' : ''}" title="${titulo}">${fmtNum(r.quiebres)}<span class="pct">${fmtDec(r.quiebresPorc || 0)}%</span></td>`;
+}
+
+function thOrdenTop(key, label, titulo){
+  const flecha = key === topProd.orden ? (topProd.asc ? ' ▲' : ' ▼') : '';
+  const attrTitulo = titulo ? ` title="${escHtml(titulo)}"` : '';
+  return `<th class="orden num" onclick="ordenarTop('${key}')"${attrTitulo}>${label}${flecha}</th>`;
+}
+
+function pintarTop(){
+  const pagerEl = $('pagTopF');
+  const filas = filasTop();
+  if (!filas.length){
+    $('tblTopF').innerHTML = `<div class="empty">${topProd.filtro ? 'Ningún producto coincide con la búsqueda.' : 'Sin datos en el rango.'}</div>`;
+    pagerEl.innerHTML = '';
+    return;
+  }
+  const paginas = Math.ceil(filas.length / FILAS_POR_PAGINA);
+  // La página se acota acá: filtrar puede dejar menos páginas que la que estaba abierta.
+  const pagina = Math.min(Math.max(1, topProd.pagina), paginas);
+  topProd = { ...topProd, pagina };
+  const desde = (pagina - 1) * FILAS_POR_PAGINA;
+  const visibles = filas.slice(desde, desde + FILAS_POR_PAGINA);
+  const cuerpo = visibles.map(r => `<tr>
+      <td class="num">${fmtNum(r.puesto)}</td>
+      <td>${escHtml(r.nombre)}</td>
+      <td class="num">${fmtMoney(r.facturacion)}</td>
+      <td class="num">${fmtNum(r.unidades)}</td>
+      ${celdaQuiebre(r)}
+    </tr>`).join('');
+  $('tblTopF').innerHTML = `<table><thead><tr>
+      <th class="num">#</th><th>Producto</th>
+      ${thOrdenTop('facturacion', 'Facturación')}
+      ${thOrdenTop('unidades', 'Unid.')}
+      ${thOrdenTop('quiebres', 'Quiebres', `Días del rango que arrancaron con stock en el umbral o por debajo y no recibieron mercadería. No cuentan los domingos ni los días con reposición. Umbral: pesables 5% de la venta mensual; el resto, ese 5% con tope de 4 unidades. ${AVISO_QUIEBRES}`)}
+    </tr></thead><tbody>${cuerpo}</tbody></table>`;
+  const primera = topProd.pagina === 1, ultima = topProd.pagina === paginas;
+  pagerEl.innerHTML = `<div class="pager">
+      <span>${fmtNum(desde + 1)}–${fmtNum(desde + visibles.length)} de ${fmtNum(filas.length)} productos</span>
+      <span class="pg-btns">
+        <button onclick="irPaginaTop(1)" ${primera ? 'disabled' : ''} title="Primera">«</button>
+        <button onclick="irPaginaTop(${topProd.pagina - 1})" ${primera ? 'disabled' : ''}>‹ Anterior</button>
+        <span>Pág. ${fmtNum(topProd.pagina)} de ${fmtNum(paginas)}</span>
+        <button onclick="irPaginaTop(${topProd.pagina + 1})" ${ultima ? 'disabled' : ''}>Siguiente ›</button>
+        <button onclick="irPaginaTop(${paginas})" ${ultima ? 'disabled' : ''} title="Última">»</button>
+      </span>
+    </div>`;
+}
+
+// Las tres columnas ordenables son numéricas: la primera vez se ordena de mayor a menor,
+// que es como se lee un top; el segundo clic sobre la misma invierte.
+function ordenarTop(key){
+  if (!ORDENES_TOP.includes(key)) return;
+  topProd = key === topProd.orden
+    ? { ...topProd, asc: !topProd.asc, pagina: 1 }
+    : { ...topProd, orden: key, asc: false, pagina: 1 };
+  pintarTop();
+}
+
+function irPaginaTop(n){
+  topProd = { ...topProd, pagina: n };
+  pintarTop();
+}
+
+// Cada tecla vuelve a la página 1: filtrar y quedarse en la página 7 mostraría vacío.
+function buscarEnTop(texto){
+  topProd = { ...topProd, filtro: texto, pagina: 1 };
+  pintarTop();
 }
 
 function escHtml(s){
@@ -413,8 +679,7 @@ async function consultar(){
     renderTendencia(d.tendencia);
     renderDow(d.diaSemana);
     renderHora(d.horas);
-    renderTop(d.topUnidades, 'tblTopU');
-    renderTop(d.topFacturacion, 'tblTopF');
+    renderTop(d.topFacturacion);
     renderFamilias(d.familias);
     renderArticulos(d.articulosPorTicket);
   } catch(e){
@@ -425,6 +690,7 @@ async function consultar(){
 }
 
 $('btnAplicar').onclick = consultar;
+$('buscTopF').oninput = e => buscarEnTop(e.target.value);
 $('selAll').onclick  = () => { sel = new Set(SUCURSALES.map(s=>s.id)); renderChips(); };
 $('selNone').onclick = () => { sel.clear(); renderChips(); };
 

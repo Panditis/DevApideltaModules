@@ -423,6 +423,9 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
   font-weight:600;color:var(--on-svar);cursor:pointer;white-space:nowrap;line-height:1.6}
 .res-add:hover{background:var(--surf-lo)}
 .res-add.res-add-on{background:#ecfdf5;border-color:#6ee7b7;color:#047857;cursor:default}
+/* Producto que ya está en una orden de fraccionado generada: no se puede volver a pedir. */
+.res-add:disabled{background:var(--surf-lo);color:#9a9a92;border-style:dashed;cursor:not-allowed}
+.res-add:disabled:hover{background:var(--surf-lo)}
 .res-row-on{background:rgba(16,185,129,.06)}
 /* Línea del carrito sin producto de carga resuelto */
 .fracc-sincarga{background:#fffbeb}
@@ -1594,6 +1597,10 @@ var CARRITO_FRACC_VER = 1;
 var carritoFracc = [];        // líneas del carrito (ver formaLineaCarritoValida)
 var cargaCacheFracc = {};     // plu -> respuesta de /api/mayoristas/producto-carga
 var subFraccActiva = 'carrito';
+// PLU que ya viven en una orden de fraccionado sin anular: un artículo se manda a fraccionar una
+// sola vez. Es sólo UX (el guard real es el 409 del POST), así que si la consulta falla se deja
+// vacío y se sigue trabajando: el server frena igual lo que no corresponde.
+var plusOrdenados = {};
 
 function switchSubFracc(sub){
   subFraccActiva = sub;
@@ -1670,12 +1677,16 @@ function borrarCarritoFraccLS(){
 
 function vaciarCarritoFracc(){
   if(!carritoFracc.length){ snack('El carrito ya está vacío'); return; }
-  if(!confirm('¿Vaciar el carrito de fraccionado? Se pierden todas las líneas cargadas.')) return;
-  carritoFracc = [];
-  borrarCarritoFraccLS();
-  renderCarrito();
-  marcarAgregadosResumen();
-  snack('Carrito vaciado');
+  confirmarModal('Vaciar el carrito',
+                 'Se pierden todas las líneas cargadas en el carrito de fraccionado.',
+                 'Vaciar carrito', true).then(function(ok){
+    if(!ok) return;
+    carritoFracc = [];
+    borrarCarritoFraccLS();
+    renderCarrito();
+    marcarAgregadosResumen();
+    snack('Carrito vaciado');
+  });
 }
 
 // ── Alta de líneas ────────────────────────────────────────────────────────────
@@ -1685,6 +1696,25 @@ function buscarLineaCarrito(plu){
     if(carritoFracc[i].plu === String(plu)) return carritoFracc[i];
   }
   return null;
+}
+
+// Un artículo que ya está en una orden generada (y no anulada) no se puede volver a agregar,
+// ni desde el Resumen por cliente ni desde el buscador manual.
+function pluYaOrdenado(plu){
+  return plusOrdenados[String(plu == null ? '' : plu).trim()] === true;
+}
+
+// Refresca la lista de PLU bloqueados y vuelve a pintar lo que depende de ella. Se llama al
+// arrancar y después de cada alta/baja de órdenes: el carrito no se toca acá, sólo se marca.
+function cargarPlusOrdenados(){
+  return api('/api/mayoristas/ordenes-fraccionado/plus-activos').then(function(res){
+    if(!Array.isArray(res)) return;   // {error:...}: se deja el mapa como estaba
+    var mapa = {};
+    res.forEach(function(p){ mapa[String(p).trim()] = true; });
+    plusOrdenados = mapa;
+    renderCarrito();
+    marcarAgregadosResumen();
+  }).catch(function(){ /* sin bloqueo local: el POST igual devuelve 409 */ });
 }
 
 function clienteEnLinea(linea, idCliente){
@@ -1732,6 +1762,10 @@ function nuevaLineaCarrito(plu, nombre, carga, manual){
 function agregarRegistroAFracc(plu, nombre, idCliente, nombreCliente, cantidad){
   var cant = Math.floor(Number(cantidad));
   if(!isFinite(cant) || cant <= 0){ snack('Ese registro no tiene cantidad pendiente', true); return; }
+  if(pluYaOrdenado(plu)){
+    snack('Ese producto ya está en una orden de fraccionado generada. Anulá o borrá esa orden para volver a pedirlo.', true);
+    return;
+  }
   var linea = buscarLineaCarrito(plu);
   if(linea && clienteEnLinea(linea, idCliente)){
     snack('Ese producto ya está en el carrito para ese cliente. Cambiá la cantidad desde el carrito.');
@@ -1780,6 +1814,11 @@ function renderCarrito(){
     var granelTxt = l.granelPlu
       ? '<div class="text-xs text-olive">Granel: '+escHtml(l.granelNombre)+'</div>'
       : '';
+    // Puede pasar si la orden se generó desde otra pestaña con el producto ya en este carrito:
+    // el POST lo va a rechazar, así que se avisa acá antes de intentarlo.
+    var ordenadoTxt = pluYaOrdenado(l.plu)
+      ? '<div class="text-xs" style="color:#92400e">⚠ Ya está en una orden generada: quitalo antes de generar esta.</div>'
+      : '';
     var celdaCant = l.clientes.length
       ? '<strong>'+numFmt.format(total)+'</strong>'
       : '<input type="number" min="1" step="1" style="width:80px;text-align:right" value="'+total+'" '+
@@ -1797,7 +1836,7 @@ function renderCarrito(){
     return ''+
     '<tr'+(l.pluCarga ? '' : ' class="fracc-sincarga"')+'>'+
       '<td class="mono">'+escHtml(l.plu)+'</td>'+
-      '<td>'+escHtml(l.nombre)+granelTxt+cargaTxt+'</td>'+
+      '<td>'+escHtml(l.nombre)+granelTxt+cargaTxt+ordenadoTxt+'</td>'+
       '<td class="num">'+celdaCant+'</td>'+
       '<td class="num">'+numFmt.format(kgGranelFracc(total, l.cantPorUnidad))+'</td>'+
       '<td class="num">'+numFmt.format(l.clientes.length)+'</td>'+
@@ -1940,6 +1979,10 @@ function agregarFraccManual(plu, nombre){
   if(!plu) return;
   $('fracc-buscar').value = '';
   $('fracc-resultados').innerHTML = '';
+  if(pluYaOrdenado(plu)){
+    snack('Ese producto ya está en una orden de fraccionado generada. Anulá o borrá esa orden para volver a pedirlo.', true);
+    return;
+  }
   if(buscarLineaCarrito(plu)){ snack('Ese producto ya está en el carrito'); return; }
   resolverCargaFracc(plu).then(function(carga){
     if(buscarLineaCarrito(plu)){ snack('Ese producto ya está en el carrito'); return; }
@@ -1955,6 +1998,7 @@ function agregarFraccManual(plu, nombre){
 // El carrito sobrevive recargas y cambios de solapa.
 carritoFracc = leerCarritoFracc();
 renderCarrito();
+cargarPlusOrdenados();
 
 function abrirModalOrden(){
   var lineas = lineasSeleccionadas();
@@ -1978,25 +2022,54 @@ function abrirModalOrden(){
 
 function cerrarModalOrden(){ $('modal-fracc').style.display = 'none'; }
 
+// Reemplazo de confirm(): devuelve una promesa que resuelve true (Aceptar) o false (Cancelar,
+// ✕ del fondo o Escape). Los handlers se asignan acá y no al cargar la página porque el markup
+// del modal vive después de este <script>: al parsear todavía no existe en el DOM.
+function confirmarModal(titulo, mensaje, textoOk, peligro){
+  $('modal-confirm-titulo').textContent = titulo;
+  $('modal-confirm-msg').textContent = mensaje;
+  var ok = $('modal-confirm-ok');
+  ok.textContent = textoOk || 'Aceptar';
+  ok.style.background = peligro ? '#b91c1c' : '';
+  $('modal-confirm').style.display = 'flex';
+  ok.focus();
+  return new Promise(function(resolve){
+    var cerrar = function(valor){
+      $('modal-confirm').style.display = 'none';
+      document.removeEventListener('keydown', porTecla);
+      resolve(valor);
+    };
+    var porTecla = function(ev){ if(ev.key === 'Escape') cerrar(false); };
+    ok.onclick = function(){ cerrar(true); };
+    $('modal-confirm-no').onclick = function(){ cerrar(false); };
+    $('modal-confirm').onclick = function(ev){ if(ev.target === $('modal-confirm')) cerrar(false); };
+    document.addEventListener('keydown', porTecla);
+  });
+}
+
 function guardarOrdenFracc(){
   var lineas = lineasSeleccionadas();
   var body = { lineas: lineas, filtros: { desde: $('fechaDesde').value, hasta: $('fechaHasta').value } };
   $('modal-fracc-ok').disabled = true;
   fetch('/api/mayoristas/ordenes-fraccionado', {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
-  }).then(function(r){ return r.json().then(function(j){ return {ok: r.ok, body: j}; }); })
+  }).then(function(r){ return r.json().then(function(j){ return {ok: r.ok, status: r.status, body: j}; }); })
     .then(function(res){
       $('modal-fracc-ok').disabled = false;
       if(!res.ok){
         // El modal queda abierto a propósito: si se cierra se pierde la selección.
         $('modal-fracc-err').textContent = '⚠ '+(res.body.error || 'No se pudo guardar la orden');
         $('modal-fracc-err').style.display = '';
+        // 409 = algún producto ya está en otra orden: se refresca la lista de bloqueados para que
+        // el carrito muestre cuál es, en vez de dejar al operador adivinando por el mensaje.
+        if(res.status === 409) cargarPlusOrdenados();
         return;
       }
       cerrarModalOrden();
       carritoFracc = [];
       borrarCarritoFraccLS();
       renderCarrito();
+      cargarPlusOrdenados();
       marcarAgregadosResumen();
       snack('Orden de fraccionado generada');
       switchSubFracc('ordenes');
@@ -2104,8 +2177,10 @@ function lineaOrdenFracc(idOrden, l){
   var cargado = Number(l.cargadoCant) || 0;
   var badge, avisoParcial = '';
   if(estado === 'cargado'){
+    // Las líneas cargadas antes de que se guardara la hora no la tienen: queda sólo la fecha.
     badge = '<span class="ord-chip cargado">✓ Cargada: '+numFmt.format(cargado)+' un.'+
-      (l.cargadoFecha ? ' · '+escHtml(fmtFecha(l.cargadoFecha)) : '')+'</span>';
+      (l.cargadoFecha ? ' · '+escHtml(fmtFecha(l.cargadoFecha)) : '')+
+      (l.cargadoHora ? ' '+escHtml(l.cargadoHora)+' hs' : '')+'</span>';
     if(cargado < cant){
       avisoParcial = '<div class="text-xs" style="color:#92400e">Se cargaron '+
         numFmt.format(cargado)+' de '+numFmt.format(cant)+' un. pedidas: faltaron '+
@@ -2141,15 +2216,21 @@ function toggleDetalleLineaOrden(clave){
 }
 
 function borrarOrdenFracc(id){
-  if(!confirm('¿Borrar esta orden de fraccionado? No se puede deshacer.')) return;
-  fetch('/api/mayoristas/ordenes-fraccionado/'+id, {method:'DELETE'})
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
-    .then(function(res){
-      if(!res.ok){ snack('⚠ '+(res.body.error||'No se pudo borrar'), true); return; }
-      snack('Orden borrada');
-      cargarOrdenesFracc();
-    })
-    .catch(function(e){ snack('⚠ '+e.message, true); });
+  confirmarModal('Borrar la orden',
+                 'Se borra esta orden de fraccionado y no se puede deshacer. Sus productos vuelven a quedar disponibles para el carrito.',
+                 'Borrar orden', true).then(function(ok){
+    if(!ok) return;
+    return fetch('/api/mayoristas/ordenes-fraccionado/'+id, {method:'DELETE'})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+      .then(function(res){
+        if(!res.ok){ snack('⚠ '+(res.body.error||'No se pudo borrar'), true); return; }
+        snack('Orden borrada');
+        cargarOrdenesFracc();
+        // Sus productos vuelven a estar disponibles para el carrito.
+        cargarPlusOrdenados();
+      })
+      .catch(function(e){ snack('⚠ '+e.message, true); });
+  });
 }
 
 // ── Resumen por cliente ───────────────────────────────────────────────────────
@@ -2225,10 +2306,15 @@ function renderResumen(data){
 function marcarAgregadosResumen(){
   var botones = document.querySelectorAll('#resumen-cont button[data-act="add-fracc"]');
   Array.prototype.forEach.call(botones, function(b){
-    var linea = buscarLineaCarrito(b.getAttribute('data-plu'));
+    var plu = b.getAttribute('data-plu');
+    var linea = buscarLineaCarrito(plu);
     var puesto = !!(linea && clienteEnLinea(linea, b.getAttribute('data-idcli')));
-    b.classList.toggle('res-add-on', puesto);
-    b.textContent = puesto ? '✓ En el carrito' : '+ Fraccionar';
+    // Ya pedido gana sobre "en el carrito": el botón queda inerte y se explica por qué.
+    var ordenado = pluYaOrdenado(plu);
+    b.classList.toggle('res-add-on', puesto && !ordenado);
+    b.disabled = ordenado;
+    b.title = ordenado ? 'Ya está en una orden de fraccionado generada' : '';
+    b.textContent = ordenado ? '✓ Ya pedido' : (puesto ? '✓ En el carrito' : '+ Fraccionar');
     var tr = b.closest ? b.closest('tr') : null;
     if(tr) tr.classList.toggle('res-row-on', puesto);
   });
@@ -2606,6 +2692,19 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
   }).then(function(){ cargar(); });
 });
 </script>
+
+<!-- Confirmación genérica: reemplaza a confirm(), que rompe el estilo de la pantalla y bloquea
+     el hilo. El texto lo pone confirmarModal() por textContent, nunca por innerHTML. -->
+<div id="modal-confirm" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;max-width:420px;width:92%;padding:24px">
+    <h3 class="font-display font-bold text-lg text-ink" id="modal-confirm-titulo">Confirmar</h3>
+    <p class="text-sm text-olive" id="modal-confirm-msg" style="margin:8px 0 20px"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" id="modal-confirm-no">Cancelar</button>
+      <button class="btn btn-filled btn-sm" id="modal-confirm-ok">Aceptar</button>
+    </div>
+  </div>
+</div>
 
 <div id="modal-fracc" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;max-width:640px;width:92%;max-height:80vh;overflow:auto;padding:24px">

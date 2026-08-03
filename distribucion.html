@@ -340,18 +340,39 @@
   .ped-col-sueltos{flex:0 1 40%;width:40%;min-width:0;max-width:100%;background:var(--surface1);border:1px solid var(--line);border-radius:10px;padding:10px 12px 6px}
   .ped-col-sueltos h4{margin:0 0 2px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
   .ped-col-sueltos .ped-hint{font-size:11px;color:var(--faint);margin:0 0 8px}
-  .ord-card{border:1px solid var(--line);border-radius:10px;background:var(--surface1);margin-bottom:14px;overflow:hidden}
-  .ord-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--line)}
-  .ord-head .ord-fecha{font-weight:700;font-size:13px}
-  .ord-head .ord-id{font-size:11px;color:var(--faint)}
+  .ord-card{border:1px solid var(--line);border-radius:12px;background:var(--card);margin-bottom:16px;overflow:hidden;
+    box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.05);transition:box-shadow .18s,border-color .18s}
+  .ord-card:hover{box-shadow:0 2px 5px rgba(0,0,0,.08),0 10px 24px rgba(0,0,0,.07)}
+  .ord-card.ord-completa{border-color:var(--verde)}
+  .ord-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;
+    background:var(--surface2);border-bottom:2px solid var(--verde)}
+  .ord-card.ord-completa .ord-head{background:var(--verde-cont)}
+  .ord-head .ord-fecha{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--verde-dark);display:flex;align-items:center;gap:6px}
+  .ord-head .ord-id{font-size:11px;color:var(--faint);background:var(--surface1);border:1px solid var(--line);border-radius:20px;padding:1px 8px}
   .ord-head .ord-acc{margin-left:auto}
-  .ord-linea{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:9px 14px;border-top:1px solid var(--line);cursor:pointer}
+  /* Barra de avance: de un vistazo se ve cuánto falta sin leer los números. */
+  .ord-prog-wrap{display:flex;align-items:center;gap:8px;flex:1 1 180px;min-width:140px}
+  .ord-prog-bar{flex:1 1 auto;height:7px;border-radius:99px;background:rgba(0,0,0,.10);overflow:hidden}
+  .ord-prog-bar i{display:block;height:100%;border-radius:99px;background:var(--verde);transition:width .3s ease}
+  .ord-head .ord-prog{font-size:11.5px;color:var(--verde-dark);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .ord-linea{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:11px 14px;border-top:1px solid var(--line);cursor:pointer;
+    transition:background .12s}
   .ord-linea:first-child{border-top:none}
-  .ord-linea:hover{background:var(--surface2)}
+  .ord-linea:hover{background:var(--verde-cont)}
+  /* Número de línea: ancla visual para no perderse en órdenes largas. */
+  .ord-idx{flex:0 0 auto;width:22px;height:22px;margin-top:1px;border-radius:50%;background:var(--surface2);border:1px solid var(--line);
+    color:var(--faint);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .ord-linea.lin-cargado .ord-idx{background:var(--verde);border-color:var(--verde);color:#fff}
+  .ord-linea.lin-sin-stock .ord-idx{background:var(--error);border-color:var(--error);color:#fff}
   .ord-linea .ord-prod{flex:1 1 220px;min-width:0}
-  .ord-linea .ord-prod b{font-size:13px}
+  .ord-linea .ord-prod b{font-size:13.5px}
+  /* Llamado a la acción: sólo aparece al pasar por encima, para no ensuciar la lista. */
+  .ord-go{font-size:11px;font-weight:700;color:var(--verde-dark);opacity:0;transition:opacity .12s;white-space:nowrap}
+  .ord-linea:hover .ord-go{opacity:1}
   .ord-linea .ord-granel{font-size:11.5px;color:var(--muted);margin-top:2px}
   .ord-linea .ord-nums{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .ord-linea .ord-nums .stat.key{font-size:12.5px;padding:4px 11px}
+  .ord-linea .ord-nums .stat.key b{font-size:14px}
   .ord-clientes{flex:1 1 100%;font-size:11.5px;color:var(--muted);cursor:default}
   .ord-clientes summary{cursor:pointer;color:var(--faint);outline:none}
   .ord-clientes ul{margin:4px 0 0;padding-left:18px}
@@ -2521,17 +2542,23 @@ function renderOrdenesFrac() {
       const resuelta = estado !== 'pendiente';
       const badge = estado === 'cargado'
         ? `<span class="ord-estado cargado">✓ Cargada: ${escHtml(l.cargadoCant)} un.`
-          + `${l.cargadoFecha ? ' · ' + escHtml(l.cargadoFecha) : ''}</span>`
+          + `${l.cargadoFecha ? ' · ' + escHtml(l.cargadoFecha) : ''}`
+          // Las órdenes cargadas antes de que se guardara la hora no la tienen: se muestra
+          // sólo la fecha en vez de un horario inventado.
+          + `${l.cargadoHora ? ' ' + escHtml(l.cargadoHora) + ' hs' : ''}</span>`
         : estado === 'sin_stock' ? '<span class="ord-estado sin-stock">✕ Sin stock</span>' : '';
       const acciones = resuelta
         ? `<button data-pendiente-ord="${escHtml(o.id)}" data-pendiente-plu="${escHtml(l.plu)}"
              title="Volver la línea a pendiente">↺ Pendiente</button>`
-        : `<button data-sinstock-ord="${escHtml(o.id)}" data-sinstock-plu="${escHtml(l.plu)}"
+        : `<span class="ord-go">Cargar ▸</span>
+           <button data-sinstock-ord="${escHtml(o.id)}" data-sinstock-plu="${escHtml(l.plu)}"
              title="Marcar la línea como sin stock">Sin stock</button>`;
+      const idx = estado === 'cargado' ? '✓' : estado === 'sin_stock' ? '✕' : String(i + 1);
       const clases = 'ord-linea' + (resuelta ? ' lin-resuelta' : '')
         + (estado === 'cargado' ? ' lin-cargado' : estado === 'sin_stock' ? ' lin-sin-stock' : '');
       return `<div class="${clases}" data-ord="${escHtml(o.id)}" data-lin="${i}" data-estado="${escHtml(estado)}"
         title="${resuelta ? 'Línea ya resuelta' : 'Cargar producción de esta línea'}">
+        <span class="ord-idx">${idx}</span>
         <div class="ord-prod">
           <b>${escHtml(l.nombre)}</b> <span style="color:var(--faint);font-size:11px">${escHtml(l.plu)}</span>
           <div class="ord-granel">Granel: ${escHtml(l.granelNombre || '–')}${l.granelPlu ? ' ('+escHtml(l.granelPlu)+')' : ''}</div>
@@ -2550,11 +2577,18 @@ function renderOrdenesFrac() {
     const totLin = p.total != null ? p.total : (o.lineas || []).length;
     const progreso = `${p.cargadas || 0} de ${totLin} cargada${(p.cargadas || 0) === 1 ? '' : 's'}`
       + (p.sinStock ? ` · ${p.sinStock} sin stock` : '');
-    return `<div class="ord-card">
+    // Resueltas = cargadas + sin stock: son las líneas sobre las que ya no hay nada que hacer,
+    // así que la barra llega al 100% recién cuando la orden se puede cerrar.
+    const resueltasOrd = (p.cargadas || 0) + (p.sinStock || 0);
+    const pct = totLin ? Math.round(resueltasOrd * 100 / totLin) : 0;
+    return `<div class="ord-card${pct === 100 ? ' ord-completa' : ''}">
       <div class="ord-head">
-        <span class="ord-fecha">${escHtml(o.fecha)}</span>
+        <span class="ord-fecha">📋 ${escHtml(o.fecha)}</span>
         <span class="ord-id">#${escHtml(o.id)}</span>
-        <span class="ord-prog">${escHtml(progreso)}</span>
+        <span class="ord-prog-wrap" title="${escHtml(progreso)}">
+          <span class="ord-prog-bar"><i style="width:${pct}%"></i></span>
+          <span class="ord-prog">${escHtml(progreso)}</span>
+        </span>
         <span class="stat"><b>${escHtml(t.lineas != null ? t.lineas : (o.lineas||[]).length)}</b> líneas</span>
         <span class="stat"><b>${escHtml(t.unidades != null ? t.unidades : '·')}</b> unidades</span>
         <span class="stat"><b>${fmt(t.kgGranel)}</b> kg granel</span>

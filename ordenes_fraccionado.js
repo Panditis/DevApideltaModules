@@ -48,6 +48,13 @@ function normalizarFecha(v) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
 }
 
+// Hora de la carga, HH:MM en 24h. Las órdenes guardadas antes de este campo no la tienen y
+// quedan en '': la UI muestra sólo la fecha en ese caso, y no un "00:00" inventado.
+function normalizarHora(v) {
+  const s = String(v || '').trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(s) ? s : '';
+}
+
 /**
  * Avance de la orden, para que la tab Pedidos de distribucion.html y el módulo de Pedidos
  * mayoristas muestren lo mismo sin recalcular cada una por su lado.
@@ -75,7 +82,7 @@ function progresoOrdenFraccionado(lineas) {
  * Volver a 'pendiente' está permitido (la encargada se puede equivocar) y limpia cantidad y fecha.
  * @param {object} orden orden completa tal cual está persistida
  * @param {string|number} plu PLU de la línea a marcar
- * @param {{estado:string, cargadoCant?:*, fecha?:string}} cambio
+ * @param {{estado:string, cargadoCant?:*, fecha?:string, hora?:string}} cambio
  * @returns {{orden:object|null, error:string|null}}
  */
 function marcarLineaOrden(orden, plu, cambio) {
@@ -97,6 +104,7 @@ function marcarLineaOrden(orden, plu, cambio) {
     estado: c.estado,
     cargadoCant: c.estado === 'cargado' ? Number(c.cargadoCant) : 0,
     cargadoFecha: c.estado === 'cargado' ? normalizarFecha(c.fecha) : '',
+    cargadoHora: c.estado === 'cargado' ? normalizarHora(c.hora) : '',
   };
   const lineas = orden.lineas.map((l, idx) => (idx === i ? linea : l));
   return { orden: { ...orden, lineas }, error: null };
@@ -163,6 +171,7 @@ function normalizarLineasFraccionado(lineas) {
       cargadoCant: l.estado === 'cargado' && cantidadCargadaValida(l.cargadoCant)
         ? Number(l.cargadoCant) : 0,
       cargadoFecha: l.estado === 'cargado' ? normalizarFecha(l.cargadoFecha) : '',
+      cargadoHora: l.estado === 'cargado' ? normalizarHora(l.cargadoHora) : '',
       clientes: Array.isArray(l.clientes) ? l.clientes.map(c => ({
         idCliente: c.idCliente, nombre: String(c.nombre || ''), pendiente: Number(c.pendiente) || 0,
       })) : [],
@@ -170,8 +179,53 @@ function normalizarLineasFraccionado(lineas) {
   });
 }
 
+/**
+ * PLU que ya están comprometidos en órdenes existentes. Una orden 'anulada' no compromete nada:
+ * su producto se puede volver a mandar a fraccionar. Cualquier otro estado (pendiente, aplicada)
+ * sí bloquea, incluso si la línea ya se cargó: la regla es "un artículo, una orden viva".
+ * Tolera órdenes corruptas o sin líneas: el archivo tiene datos viejos y no puede tirar el POST.
+ * @param {Array} ordenes órdenes tal cual están persistidas
+ * @returns {Set<string>} PLU normalizados a string sin espacios
+ */
+function plusEnOrdenesActivas(ordenes) {
+  const plus = new Set();
+  for (const orden of Array.isArray(ordenes) ? ordenes : []) {
+    if (!orden || orden.estado === 'anulada' || !Array.isArray(orden.lineas)) continue;
+    for (const linea of orden.lineas) {
+      const plu = String((linea && linea.plu) || '').trim();
+      if (plu) plus.add(plu);
+    }
+  }
+  return plus;
+}
+
+/**
+ * Devuelve un string con el error, o null si está todo bien. Es el guard real de la regla
+ * "un artículo se manda a fraccionar una sola vez": el bloqueo del frontend es sólo UX y no
+ * alcanza (un carrito viejo en otra pestaña podría reenviar un producto ya pedido).
+ * @param {Array} lineas líneas del body, ya validadas por validarLineasFraccionado
+ * @param {Array} ordenes órdenes ya persistidas
+ * @returns {string|null}
+ */
+function validarLineasNoRepetidas(lineas, ordenes) {
+  const yaPedidos = plusEnOrdenesActivas(ordenes);
+  const vistos = new Set();
+  for (const l of Array.isArray(lineas) ? lineas : []) {
+    const plu = String((l && l.plu) || '').trim();
+    if (!plu) continue;                 // línea sin PLU: la rechaza validarLineasFraccionado
+    if (vistos.has(plu)) return `El PLU ${plu} está repetido en la orden`;
+    vistos.add(plu);
+    if (yaPedidos.has(plu)) {
+      return `El PLU ${plu} ya está en una orden de fraccionado que no está anulada`;
+    }
+  }
+  return null;
+}
+
 module.exports = {
   ESTADOS_LINEA,
+  plusEnOrdenesActivas,
+  validarLineasNoRepetidas,
   validarLineasFraccionado,
   normalizarLineasFraccionado,
   totalesOrdenFraccionado,

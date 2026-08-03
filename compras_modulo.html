@@ -66,12 +66,54 @@ tailwind.config = { theme: { extend: {
   <section id="tab-presentaciones" class="tab-panel hidden"></section>
   <section id="tab-produccion" class="tab-panel hidden"></section>
 </main>
+<!-- Aviso genérico: reemplaza a alert(), que rompe el estilo del módulo y bloquea el hilo. -->
+<div id="mAviso" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="mAvisoTitulo">
+  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-sm">
+    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+      <h3 id="mAvisoTitulo" class="font-disp text-xl font-bold text-verde">Aviso</h3>
+      <button id="mAvisoX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+    </div>
+    <p id="mAvisoMsg" class="px-5 py-4 text-sm leading-relaxed"></p>
+    <div class="px-5 py-3 border-t border-borde flex justify-end">
+      <button id="mAvisoOk" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp">Aceptar</button>
+    </div>
+  </div>
+</div>
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : (Math.round(n*100)/100).toLocaleString('es-AR');
 const money = n => n == null ? '—' : '$'+Math.round(n).toLocaleString('es-AR');
 const carrito = new Map();  // plu -> { plu, nombre, cantidad, proveedor, costoUnit, unidadesPorBulto }
 let listadoData = [], presentaciones = {};
+
+// ---- Aviso ----
+// Reemplazo de alert(): devuelve una promesa que resuelve al cerrarse, así el llamador puede
+// encadenar igual que con el diálogo nativo. El mensaje va por textContent y nunca por innerHTML:
+// suele venir de un `error` del server y no se interpola markup de una respuesta.
+let avisoResolver = null;
+function avisar(msg, titulo) {
+  $('#mAvisoTitulo').textContent = titulo || 'Aviso';
+  $('#mAvisoMsg').textContent = String(msg == null ? '' : msg);
+  $('#mAviso').classList.remove('hidden');
+  $('#mAviso').classList.add('flex');
+  $('#mAvisoOk').focus();
+  return new Promise(res => { avisoResolver = res; });
+}
+function cerrarAviso() {
+  $('#mAviso').classList.add('hidden');
+  $('#mAviso').classList.remove('flex');
+  // Se limpia antes de resolver: si el handler vuelve a abrir el aviso, no se pisa el resolver nuevo.
+  const resolver = avisoResolver;
+  avisoResolver = null;
+  if (resolver) resolver();
+}
+$('#mAvisoOk').addEventListener('click', cerrarAviso);
+$('#mAvisoX').addEventListener('click', cerrarAviso);
+$('#mAviso').addEventListener('click', e => { if (e.target === $('#mAviso')) cerrarAviso(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('#mAviso').classList.contains('hidden')) cerrarAviso();
+});
 
 // ---- Tabs ----
 document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
@@ -193,7 +235,7 @@ async function generarOrden(proveedor) {
   if (!items.length) return;
   const r = await fetch('/api/compras-modulo/ordenes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proveedor,items})}).then(x=>x.json());
   if (r.ok) { imprimirOrden(r.orden); items.forEach(it => carrito.delete(it.plu)); actualizarBadge(); renderCarrito(); }
-  else alert('Error: '+(r.error||'desconocido'));
+  else avisar('No se pudo generar la orden: '+(r.error||'error desconocido'), 'Error');
 }
 function imprimirOrden(orden) {
   const w = window.open('', '_blank');
@@ -244,9 +286,10 @@ async function cargarPresentaciones() {
 function prefillPres(plu){ $('#presPlu').value=plu; $('#presUxb').focus(); }
 async function guardarPres() {
   const plu=$('#presPlu').value.trim(), uxb=Number($('#presUxb').value), nombreBulto=$('#presNombre').value.trim();
-  if (!plu || !(uxb>0)) { alert('PLU y unidades por bulto (>0) requeridos'); return; }
+  if (!plu || !(uxb>0)) { avisar('Cargá el PLU y las unidades por bulto (mayor a 0).', 'Faltan datos'); return; }
   const r = await fetch('/api/compras-modulo/presentaciones',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plu,unidadesPorBulto:uxb,nombreBulto})}).then(x=>x.json());
-  if (r.ok){ presentaciones=r.presentaciones; cargarPresentaciones(); } else alert('Error: '+(r.error||''));
+  if (r.ok){ presentaciones=r.presentaciones; cargarPresentaciones(); }
+  else avisar('No se pudo guardar la presentación'+(r.error ? ': '+r.error : '.'), 'Error');
 }
 async function delPres(plu){ const r=await fetch('/api/compras-modulo/presentaciones/'+encodeURIComponent(plu),{method:'DELETE'}).then(x=>x.json()); if(r.ok){presentaciones=r.presentaciones;cargarPresentaciones();} }
 

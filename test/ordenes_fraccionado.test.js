@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
-        progresoOrdenFraccionado, marcarLineaOrden } = require('../ordenes_fraccionado');
+        progresoOrdenFraccionado, marcarLineaOrden, validarLineasNoRepetidas,
+        plusEnOrdenesActivas } = require('../ordenes_fraccionado');
 
 // ── Ordenes de fraccionado mayorista: validacion, normalizacion y totales ─────────────────────
 // Las lineas llegan del body del POST/PUT de /api/mayoristas/ordenes-fraccionado. Antes salian
@@ -315,6 +316,69 @@ test('marcar cargado guarda la cantidad real aunque sea menor a la pedida', () =
   assert.strictEqual(nueva.lineas[1].estado, 'pendiente');   // las demas no se tocan
 });
 
+test('marcar cargado guarda la hora junto con la fecha', () => {
+  // Arrange: el badge de la tab Pedidos muestra dia y hora de la carga.
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+    { estado: 'cargado', cargadoCant: 84, fecha: '2026-07-30', hora: '14:35' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].cargadoHora, '14:35');
+});
+
+test('una hora con formato invalido se guarda vacia y no rompe la carga', () => {
+  // Arrange: dato corrupto o body armado a mano; la linea igual se tiene que poder cargar.
+  const orden = ordenDePrueba();
+
+  // Act + Assert
+  for (const hora of ['25:00', '9:5', 'ayer', '', undefined]) {
+    const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+      { estado: 'cargado', cargadoCant: 84, fecha: '2026-07-30', hora });
+    assert.strictEqual(error, null);
+    assert.strictEqual(nueva.lineas[0].cargadoHora, '');
+  }
+});
+
+test('volver a pendiente o marcar sin_stock limpia la hora de carga', () => {
+  // Arrange: si no se cargo nada, no puede quedar la hora de una carga anterior.
+  const cargada = marcarLineaOrden(ordenDePrueba(), '30000',
+    { estado: 'cargado', cargadoCant: 84, fecha: '2026-07-30', hora: '14:35' }).orden;
+
+  // Act + Assert
+  for (const estado of ['pendiente', 'sin_stock']) {
+    const { orden: nueva } = marcarLineaOrden(cargada, '30000',
+      { estado, fecha: '2026-07-31', hora: '08:00' });
+    assert.strictEqual(nueva.lineas[0].cargadoHora, '');
+  }
+});
+
+test('normalizar preserva la hora de carga al editar la orden', () => {
+  // Arrange: el PUT de la orden renormaliza las lineas; la hora ya cargada tiene que sobrevivir.
+  const lineas = [lineaCompleta({ estado: 'cargado', cargadoCant: 50,
+    cargadoFecha: '2026-07-30', cargadoHora: '14:35' })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.cargadoHora, '14:35');
+});
+
+test('una linea vieja cargada sin hora se normaliza con la hora vacia', () => {
+  // Arrange: las ordenes cargadas antes de este campo se leen igual, sin inventarles un horario.
+  const lineas = [lineaCompleta({ estado: 'cargado', cargadoCant: 50, cargadoFecha: '2026-07-30' })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.cargadoFecha, '2026-07-30');
+  assert.strictEqual(linea.cargadoHora, '');
+});
+
 test('marcar sin_stock ignora cualquier cantidad porque no se produjo nada', () => {
   // Arrange: "sin stock" es por linea y sin nota, un solo toque.
   const orden = ordenDePrueba();
@@ -453,4 +517,100 @@ test('el progreso de una orden sin lineas da todo en cero', () => {
   const cero = { total: 0, cargadas: 0, sinStock: 0, pendientes: 0 };
   assert.deepStrictEqual(progresoOrdenFraccionado([]), cero);
   assert.deepStrictEqual(progresoOrdenFraccionado(undefined), cero);
+});
+
+// ── Un articulo, una sola orden ───────────────────────────────────────────────────────────────
+// Regla de negocio: un PLU no se puede volver a mandar a fraccionar mientras siga vivo en una
+// orden anterior (cualquier estado menos 'anulada'). Tampoco puede venir repetido en el mismo POST.
+
+test('validarLineasNoRepetidas acepta un PLU que no esta en ninguna orden previa', () => {
+  // Arrange
+  const ordenes = [{ estado: 'pendiente', lineas: [{ plu: '111' }] }];
+
+  // Act
+  const error = validarLineasNoRepetidas([{ plu: '222', cantidad: 5 }], ordenes);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('validarLineasNoRepetidas rechaza un PLU que ya esta en una orden pendiente', () => {
+  // Arrange
+  const ordenes = [{ estado: 'pendiente', lineas: [{ plu: '30000', nombre: 'Mix Europeo' }] }];
+
+  // Act
+  const error = validarLineasNoRepetidas([lineaCompleta()], ordenes);
+
+  // Assert
+  assert.match(String(error), /30000/);
+});
+
+test('validarLineasNoRepetidas rechaza un PLU que ya esta en una orden aplicada', () => {
+  // Arrange: 'aplicada' tambien bloquea; solo 'anulada' libera el articulo.
+  const ordenes = [{ estado: 'aplicada', lineas: [{ plu: '30000' }] }];
+
+  // Act
+  const error = validarLineasNoRepetidas([lineaCompleta()], ordenes);
+
+  // Assert
+  assert.match(String(error), /30000/);
+});
+
+test('validarLineasNoRepetidas deja volver a pedir un PLU cuya unica orden esta anulada', () => {
+  // Arrange
+  const ordenes = [{ estado: 'anulada', lineas: [{ plu: '30000' }] }];
+
+  // Act
+  const error = validarLineasNoRepetidas([lineaCompleta()], ordenes);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('validarLineasNoRepetidas rechaza el mismo PLU repetido dentro del mismo POST', () => {
+  // Arrange
+  const lineas = [lineaCompleta(), lineaCompleta({ cantidad: 3 })];
+
+  // Act
+  const error = validarLineasNoRepetidas(lineas, []);
+
+  // Assert
+  assert.match(String(error), /30000/);
+});
+
+test('validarLineasNoRepetidas compara los PLU como texto y sin espacios sobrantes', () => {
+  // Arrange: el archivo guarda strings y la UI puede mandar numeros.
+  const ordenes = [{ estado: 'pendiente', lineas: [{ plu: ' 30000 ' }] }];
+
+  // Act
+  const error = validarLineasNoRepetidas([lineaCompleta({ plu: 30000 })], ordenes);
+
+  // Assert
+  assert.match(String(error), /30000/);
+});
+
+test('validarLineasNoRepetidas tolera ordenes corruptas o sin lineas', () => {
+  // Arrange: el archivo puede tener basura vieja; no puede tirar el POST abajo.
+  const ordenes = [null, { estado: 'pendiente' }, { estado: 'pendiente', lineas: [null] }];
+
+  // Act
+  const error = validarLineasNoRepetidas([lineaCompleta()], ordenes);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('plusEnOrdenesActivas junta los PLU de todas las ordenes no anuladas', () => {
+  // Arrange
+  const ordenes = [
+    { estado: 'pendiente', lineas: [{ plu: '1' }, { plu: '2' }] },
+    { estado: 'aplicada', lineas: [{ plu: '3' }] },
+    { estado: 'anulada', lineas: [{ plu: '4' }] },
+  ];
+
+  // Act
+  const plus = plusEnOrdenesActivas(ordenes);
+
+  // Assert
+  assert.deepStrictEqual([...plus].sort(), ['1', '2', '3']);
 });

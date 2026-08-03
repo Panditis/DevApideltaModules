@@ -1,0 +1,356 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análisis de Ventas Casa Central — Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
+    --yellow:#FFCC00; --gold:#C98A00;
+    --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
+    --radius:12px; --radius-sm:8px;
+    /* Barra de impacto en la tabla de familias: degradado verde → dorado Apidelta, con
+       opacidad suficiente para que pese sin volver ilegible el texto encima. */
+    --barra-ini:rgba(64,89,54,.55); --barra-fin:rgba(201,138,0,.32);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
+  header{background:var(--green);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
+  header .logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;letter-spacing:.5px}
+  header .logo b{color:var(--yellow)}
+  header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:auto}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  .controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .controls input[type=date]{padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit}
+  .controls .nota{flex:1;min-width:220px;font-size:12px;color:var(--muted);padding-bottom:9px}
+  .btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
+  .btn:disabled{opacity:.6;cursor:default}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+  .kpi .lbl{font-size:12px;color:var(--muted)}
+  .kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px}
+  /* Dentro de la grilla el margen lo pone la grilla: si no, las dos columnas se desalinean. */
+  .grid2 .card{margin-top:0}
+  .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+  .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
+  /* Contenedor de alto fijo para el gráfico a ancho completo. Sin esto, un canvas con
+     maintainAspectRatio:false agranda a su propio padre y cada resize dispara el
+     siguiente: el gráfico se estira sin freno y la página queda trabada. */
+  .chart-box{position:relative;height:260px}
+  .chart-box canvas{position:absolute;inset:0}
+  /* Header de card con buscador: el título queda a la izquierda y el input se estira
+     con lo que sobra, sin romper el layout en pantallas angostas. */
+  .card-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+  .card-head h3{margin:0;flex:0 0 auto}
+  .card-head .buscador{flex:1 1 140px;min-width:120px;padding:7px 10px;border:1px solid var(--border);
+    border-radius:var(--radius-sm);font-family:inherit;font-size:13px}
+  .card-head .buscador:focus{outline:none;border-color:var(--green-mid)}
+  .pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;
+    margin-top:10px;font-size:12px;color:var(--muted)}
+  .pager .pg-btns{display:flex;gap:6px}
+  .pager button{background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;color:var(--green-dark)}
+  .pager button:hover:not(:disabled){background:var(--green-light);border-color:var(--green-mid)}
+  .pager button:disabled{opacity:.45;cursor:default}
+  tr.fam{cursor:pointer}
+  tr.fam>td{padding-top:9px;padding-bottom:9px;font-weight:600}
+  tr.fam>td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+  /* background-color, no el shorthand: el shorthand borraría la barra (background-image). */
+  tr.fam:hover{background-color:#F0F3EE}
+  tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
+  tr.fam-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
+  tr.fam-det>td.pres{padding-left:30px}
+  td.impacto{width:110px;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .error{background:#fdecea;color:#b3261e;border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
+  .loading{color:var(--muted);padding:20px;text-align:center}
+  .empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+</style></head><body>
+<header>
+  <span class="logo">API<b>DELTA</b></span>
+  <span style="font-size:14px;opacity:.9">Análisis de Ventas — Casa Central</span>
+  <a href="/">← Inicio</a>
+</header>
+<div class="wrap">
+  <div class="controls">
+    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
+    <div class="nota">Alcance fijo: casa central. Se excluyen comprobantes anulados y las
+      ventas a sucursales (transferencias internas).</div>
+    <button class="btn" id="btnAplicar">Aplicar</button>
+  </div>
+
+  <div id="msg"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card"><h3>Tendencia diaria</h3>
+    <div class="chart-box"><canvas id="chTendencia"></canvas></div></div>
+  <div class="grid2">
+    <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow" height="200"></canvas></div>
+    <div class="card"><h3>Facturación por hora</h3><canvas id="chHora" height="200"></canvas></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        <h3>Top productos — unidades</h3>
+        <input type="search" id="buscTopU" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+      </div>
+      <div id="tblTopU"></div>
+      <div id="pagTopU"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Top productos — facturación</h3>
+        <input type="search" id="buscTopF" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+      </div>
+      <div id="tblTopF"></div>
+      <div id="pagTopF"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Familias de producto</h3>
+    <p class="desc">Agrupa las presentaciones de un mismo producto en una sola fila (MIEL PURA 500G + MIEL PURA 1KG = MIEL PURA). Clic en la fila para ver el detalle por presentación.</p>
+    <div id="tblFamilias"></div>
+  </div>
+</div>
+
+<script>
+const GREEN = '#405936', YELLOW = '#C98A00', MID = '#4E6B43';
+let charts = {};
+
+const $ = id => document.getElementById(id);
+const fmtMoney = n => '$' + Math.round(n).toLocaleString('es-AR');
+const fmtNum   = n => Math.round(n).toLocaleString('es-AR');
+const fmtDec   = n => Number(n || 0).toLocaleString('es-AR', {minimumFractionDigits:1, maximumFractionDigits:1});
+
+function firstOfMonth(){ const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); }
+
+function initFechas(){
+  $('desde').value = firstOfMonth().toISOString().slice(0,10);
+  $('hasta').value = new Date().toISOString().slice(0,10);
+}
+
+function destroyChart(key){ if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+function escHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+function renderKpis(k){
+  $('kpis').innerHTML = [
+    ['Facturación', fmtMoney(k.facturacion)],
+    ['Tickets', fmtNum(k.tickets)],
+    ['Ticket promedio', fmtMoney(k.ticketProm)],
+    ['Unidades', fmtNum(k.unidades)],
+    ['Productos distintos', fmtNum(k.productosDistintos)],
+  ].map(([lbl,val]) => `<div class="kpi"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`).join('');
+}
+
+// La tendencia va a todo el ancho: el alto lo fija .chart-box por CSS, no la relación de
+// aspecto. Por eso maintainAspectRatio:false — pero sólo funciona dentro de ese
+// contenedor de alto fijo (ver el comentario del CSS).
+function renderTendencia(rows){
+  destroyChart('tend');
+  charts.tend = new Chart($('chTendencia'), {
+    type:'line',
+    data:{ labels: rows.map(r=>r.fecha),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), borderColor: GREEN, backgroundColor:'rgba(64,89,54,.1)', fill:true, tension:.25 }] },
+    options:{ maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+}
+
+function renderDow(rows){
+  destroyChart('dow');
+  charts.dow = new Chart($('chDow'), {
+    type:'bar',
+    data:{ labels: rows.map(r=>r.nombre),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), backgroundColor: MID }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+}
+
+function renderHora(rows){
+  destroyChart('hora');
+  charts.hora = new Chart($('chHora'), {
+    type:'bar',
+    data:{ labels: rows.map(r=>`${r.hora}h`),
+      datasets:[{ label:'Facturación', data: rows.map(r=>r.facturacion), backgroundColor: YELLOW }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+}
+
+// ── Top productos: listas completas, paginadas y con buscador ────────────────
+// El endpoint manda todos los productos del rango (no un top acotado), así que filtrar y
+// paginar se resuelve en memoria: sin viajes extra al servidor. Las dos tablas (unidades
+// y facturación) comparten comportamiento; sólo cambian los nodos y el criterio de orden
+// con el que ya vienen del backend.
+const FILAS_POR_PAGINA = 25;
+const TOPS = {
+  tblTopU: { pager: 'pagTopU', busc: 'buscTopU' },
+  tblTopF: { pager: 'pagTopF', busc: 'buscTopF' },
+};
+const tops = {};
+
+// Búsqueda sin acentos ni mayúsculas y por términos sueltos: "miel 500" encuentra
+// "MIEL PURA 500G" aunque las palabras no estén pegadas.
+function normalizarBusqueda(s){
+  return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+function filasTop(elId){
+  const st = tops[elId];
+  const terminos = normalizarBusqueda(st.filtro).split(/\s+/).filter(Boolean);
+  if (!terminos.length) return st.rows;
+  return st.rows.filter(r => {
+    const nombre = normalizarBusqueda(r.nombre);
+    return terminos.every(t => nombre.includes(t));
+  });
+}
+
+// El puesto se fija sobre la lista completa tal como la ordenó el backend, así al filtrar
+// se sigue viendo en qué posición del ranking real está cada producto.
+function renderTop(rows, elId){
+  tops[elId] = { rows: (rows || []).map((r, i) => ({ ...r, puesto: i + 1 })), filtro: '', pagina: 1 };
+  $(TOPS[elId].busc).value = '';
+  pintarTop(elId);
+}
+
+function pintarTop(elId){
+  const st = tops[elId];
+  const pagerEl = $(TOPS[elId].pager);
+  const filas = filasTop(elId);
+  if (!filas.length){
+    $(elId).innerHTML = `<div class="empty">${st.filtro ? 'Ningún producto coincide con la búsqueda.' : 'Sin datos en el rango.'}</div>`;
+    pagerEl.innerHTML = '';
+    return;
+  }
+  const paginas = Math.ceil(filas.length / FILAS_POR_PAGINA);
+  st.pagina = Math.min(Math.max(1, st.pagina), paginas);
+  const desde = (st.pagina - 1) * FILAS_POR_PAGINA;
+  const visibles = filas.slice(desde, desde + FILAS_POR_PAGINA);
+  const cuerpo = visibles.map(r => `<tr>
+      <td class="num">${fmtNum(r.puesto)}</td>
+      <td>${escHtml(r.nombre)}</td>
+      <td class="num">${fmtNum(r.unidades)}</td>
+      <td class="num">${fmtMoney(r.facturacion)}</td>
+    </tr>`).join('');
+  $(elId).innerHTML = `<table><thead><tr>
+      <th class="num">#</th><th>Producto</th><th class="num">Unid.</th><th class="num">Facturación</th>
+    </tr></thead><tbody>${cuerpo}</tbody></table>`;
+  const primera = st.pagina === 1, ultima = st.pagina === paginas;
+  pagerEl.innerHTML = `<div class="pager">
+      <span>${fmtNum(desde + 1)}–${fmtNum(desde + visibles.length)} de ${fmtNum(filas.length)} productos</span>
+      <span class="pg-btns">
+        <button onclick="irPaginaTop('${elId}',1)" ${primera ? 'disabled' : ''} title="Primera">«</button>
+        <button onclick="irPaginaTop('${elId}',${st.pagina - 1})" ${primera ? 'disabled' : ''}>‹ Anterior</button>
+        <span>Pág. ${fmtNum(st.pagina)} de ${fmtNum(paginas)}</span>
+        <button onclick="irPaginaTop('${elId}',${st.pagina + 1})" ${ultima ? 'disabled' : ''}>Siguiente ›</button>
+        <button onclick="irPaginaTop('${elId}',${paginas})" ${ultima ? 'disabled' : ''} title="Última">»</button>
+      </span>
+    </div>`;
+}
+
+function irPaginaTop(elId, n){
+  tops[elId].pagina = n;
+  pintarTop(elId);
+}
+
+// Cada tecla vuelve a la página 1: filtrar y quedarse en la página 7 mostraría vacío.
+function buscarEnTop(elId, texto){
+  tops[elId].filtro = texto;
+  tops[elId].pagina = 1;
+  pintarTop(elId);
+}
+
+// Cada familia es una fila clickeable seguida de una fila oculta con sus presentaciones.
+function renderFamilias(rows){
+  const fams = rows || [];
+  if (!fams.length){ $('tblFamilias').innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
+  // El 100% es la facturación sumada de las familias listadas, no la del rango completo:
+  // así la barra compara cada fila contra lo que el usuario está viendo.
+  const totalListado = fams.reduce((a, f) => a + (f.facturacion || 0), 0);
+  const maxFacturacion = fams.reduce((a, f) => Math.max(a, f.facturacion || 0), 0);
+  const cuerpo = fams.map((f, i) => {
+    // Las presentaciones son filas de ESTA tabla (no una tabla anidada) para que Unidades y
+    // Facturación caigan bajo las mismas columnas que la fila de la familia.
+    const detalle = f.presentaciones.map(p =>
+      `<tr class="fam-det fd-${i}" hidden>
+        <td class="pres">· ${escHtml(p.nombre)}</td>
+        <td></td>
+        <td class="num">${fmtNum(p.unidades)}</td>
+        <td class="num">${fmtMoney(p.facturacion)}</td>
+        <td></td>
+      </tr>`
+    ).join('');
+    const share = totalListado > 0 ? (f.facturacion || 0) * 100 / totalListado : 0;
+    // El ancho se escala contra la familia más grande para que la barra se vea; el número
+    // que se muestra es siempre la participación real sobre el total listado.
+    const ancho = maxFacturacion > 0 ? (f.facturacion || 0) * 100 / maxFacturacion : 0;
+    const corte = ancho.toFixed(2);
+    const fondo = `linear-gradient(90deg, var(--barra-ini) 0%, var(--barra-fin) ${corte}%, transparent ${corte}%)`;
+    return `<tr class="fam" style="background-image:${fondo}" onclick="toggleFamilia(${i})"
+              title="${fmtDec(share)}% de la facturación listada">
+        <td><span class="caret" id="cf-${i}">▶</span> ${escHtml(f.familia)}</td>
+        <td class="num">${fmtNum(f.presentaciones.length)}</td>
+        <td class="num">${fmtNum(f.unidades)}</td>
+        <td class="num">${fmtMoney(f.facturacion)}</td>
+        <td class="num impacto">${fmtDec(share)}%</td>
+      </tr>
+      ${detalle}`;
+  }).join('');
+  $('tblFamilias').innerHTML = `<table><thead><tr>
+      <th>Familia</th><th class="num">Present.</th><th class="num">Unidades</th><th class="num">Facturación</th>
+      <th>Impacto s/ listado</th>
+    </tr></thead><tbody>${cuerpo}</tbody></table>`;
+}
+
+function toggleFamilia(i){
+  const filas = document.querySelectorAll(`tr.fd-${i}`);
+  if (!filas.length) return;
+  const abrir = filas[0].hidden;
+  filas.forEach(f => { f.hidden = !abrir; });
+  $(`cf-${i}`).textContent = abrir ? '▼' : '▶';
+}
+
+async function consultar(){
+  const btn = $('btnAplicar'); btn.disabled = true; btn.textContent = 'Consultando...';
+  $('msg').innerHTML = '<div class="loading">Cargando datos...</div>';
+  const desde = $('desde').value, hasta = $('hasta').value;
+  try {
+    const r = await fetch(`/api/analisis-central?desde=${desde}&hasta=${hasta}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $('msg').innerHTML = '';
+    renderKpis(d.kpis);
+    renderTendencia(d.tendencia);
+    renderDow(d.diaSemana);
+    renderHora(d.horas);
+    renderTop(d.topUnidades, 'tblTopU');
+    renderTop(d.topFacturacion, 'tblTopF');
+    renderFamilias(d.familias);
+  } catch(e){
+    $('msg').innerHTML = `<div class="error">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Aplicar';
+  }
+}
+
+$('btnAplicar').onclick = consultar;
+Object.entries(TOPS).forEach(([elId, cfg]) => {
+  $(cfg.busc).oninput = e => buscarEnTop(elId, e.target.value);
+});
+
+initFechas(); consultar();
+</script>
+</body></html>
