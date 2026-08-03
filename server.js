@@ -21,6 +21,11 @@ const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
+const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
+const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('./producto_carga');
+const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
+        progresoOrdenFraccionado, marcarLineaOrden, validarLineasNoRepetidas,
+        plusEnOrdenesActivas } = require('./ordenes_fraccionado');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
@@ -1069,6 +1074,8 @@ app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dash
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
 app.get('/compras-modulo', (_req, res) => res.redirect(301, '/compras'));
 app.get('/analisis-ventas', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_ventas.html')));
+app.get('/analisis-central', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_central.html')));
+app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
 app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
 app.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
@@ -1187,6 +1194,246 @@ app.get('/api/clientes',    apiRoute(async req => { const p = params(req); retur
 app.get('/api/pedidos',     apiRoute(async req => { const p = params(req); return getPedidos(p.desde, p.hasta, p.localidades, p.clientes, p.estados); }));
 app.get('/api/productos',   apiRoute(async req => { const p = params(req); return getProductos(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados); }));
 app.get('/api/resumen',     apiRoute(async req => { const p = params(req); return getResumen(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados); }));
+
+// ── Mayoristas: órdenes de fraccionado ─────────────────────────────────────────
+// Detecta productos con faltante de stock fraccionado que sí tienen granel disponible.
+// Los pendientes salen de getResumen (por cliente+producto, mismos filtros que la tab),
+// el granel de sqlBOMGranel (fórmula activa, dos niveles) y el stock de los depósitos GRANEL
+// de la central. El cálculo en sí vive en fraccionado_faltantes.js (puro, testeado).
+async function getFaltantesFraccionado(desde, hasta, localidades, clientes, pedidos, estados) {
+  const filasResumen = await getResumen(desde, hasta, localidades, clientes, pedidos, estados);
+  if (!filasResumen.length) return [];
+
+  // Agregado por PLU conservando el desglose de clientes (getResumen viene por cliente+producto).
+  const porPlu = new Map();
+  for (const r of filasResumen) {
+    const plu = String(r.IdProducto);
+    if (!porPlu.has(plu)) {
+      porPlu.set(plu, {
+        plu, nombre: r.NombreProducto, rubro: r.NombreRubro || '',
+        pendiente: 0, stockCentral: Number(r.StockCentral) || 0, clientes: [],
+      });
+    }
+    const acc = porPlu.get(plu);
+    const pend = Number(r.TotalUnidades) || 0;
+    acc.pendiente += pend;
+    acc.clientes.push({ idCliente: r.IdCliente, nombre: r.NombreCliente, pendiente: pend });
+  }
+
+  // Se relee config.json por request igual que /api/stock/granel y /api/bom, los otros dos
+  // consumidores de rubrosGranel: así editar la config no deja este endpoint desalineado
+  // con ellos hasta el próximo reinicio. Local `c` para no pisar el `cfg` global del módulo.
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const rubrosG = c.rubrosGranel.join(',');
+  const plus = [...porPlu.keys()].filter(p => /^\d+$/.test(p));
+  if (!plus.length) return [];
+  const filtroPadre = ` AND pc.IdProducto IN (${plus.map(p => `'${p}'`).join(',')})`;
+
+  const bomRows = await query(sqlBOMGranel(rubrosG, filtroPadre));
+  const bomGranel = new Map();
+  for (const b of bomRows) {
+    const plu = String(b.IdProducto);
+    // sqlBOMGranel puede devolver más de un componente granel por producto; nos quedamos con
+    // el de mayor CantPorUnidad, que es el ingrediente principal (el resto son trazas).
+    const cand = { granelPlu: String(b.IdProductoComponente), granelNombre: b.NombreComponente || '',
+                   cantPorUnidad: Number(b.CantPorUnidad) || 0 };
+    const prev = bomGranel.get(plu);
+    if (!prev || cand.cantPorUnidad > prev.cantPorUnidad) bomGranel.set(plu, cand);
+  }
+  if (!bomGranel.size) return [];
+
+  // Stock del granel: se suman todos los depósitos de la central, sin filtrar por nombre de
+  // depósito. El filtro LIKE '%GRANEL%' no sirve acá (ningún depósito se llama así en Siga: el
+  // preexistente /api/stock/granel devuelve StockGranel=0 con StockTotal>0 por ese mismo motivo).
+  // El granel ya es un producto propio ("X DEPOSITO GRANEL"), así que alcanza con acotar por PLU,
+  // igual que hace el módulo de pesables al resolver su columna de granel.
+  const granelCodes = [...new Set([...bomGranel.values()].map(b => b.granelPlu))].filter(g => /^\d+$/.test(g));
+  const granelRows = granelCodes.length ? await query(`
+    SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
+    FROM ProductosDepositos pd
+    INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
+    INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
+    WHERE s.SoyLaCentral=1
+      AND pd.IdProducto IN (${granelCodes.map(g => `'${g}'`).join(',')})
+    GROUP BY pd.IdProducto`) : [];
+  const stockGranel = new Map(granelRows.map(r => [String(r.IdProducto), Number(r.Stock) || 0]));
+
+  return calcularFaltantesFraccionado([...porPlu.values()], bomGranel, stockGranel);
+}
+
+app.get('/api/mayoristas/fraccionado-faltantes', apiRoute(async req => {
+  const p = params(req);
+  return getFaltantesFraccionado(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados);
+}));
+
+// Escapa un texto para usarlo como prefijo de un LIKE: además de duplicar la comilla simple
+// (mismo criterio que el resto del archivo), neutraliza los comodines de SQL Server con la
+// notación de corchetes, así un nombre con "%" o "_" no se convierte en un patrón abierto.
+function escaparLikePrefijo(s) {
+  return String(s || '').replace(/'/g, "''").replace(/[%_\[]/g, c => `[${c}]`);
+}
+
+// Producto contra el cual la encargada carga la producción de una línea mayorista.
+// No es el producto de la línea ni el componente del BOM: la regla es por nombre y vive en
+// producto_carga.js (puro, testeado). Acá sólo se arma el catálogo de candidatos.
+app.get('/api/mayoristas/producto-carga', apiRoute(async req => {
+  const plu = String(req.query.plu || '').trim();
+  // Siempre 200 con `motivo`: la UI tiene que poder avisar "no se pudo resolver" y seguir
+  // trabajando, no romper la pantalla de carga con un 500.
+  if (!/^\d+$/.test(plu)) return { plu: null, motivo: 'PLU inválido' };
+
+  const filas = await query(
+    `SELECT TOP 1 IdProducto, NombreProducto FROM dbo.Productos WHERE IdProducto='${plu}'`);
+  if (!filas.length) return { plu: null, motivo: `No existe el producto ${plu}` };
+  const nombreMayorista = String(filas[0].NombreProducto || '');
+
+  const info = analizarNombreCarga(nombreMayorista);
+  if (!info.base) return { plu: null, nombreMayorista, motivo: 'No se pudo derivar el nombre base' };
+
+  // Se acota por prefijo del nombre base en vez de traer los ~20k productos: tanto el minorista
+  // ("Mix Europeo 200G") como el PEDIDOS ("Mix Europeo PEDIDOS") empiezan con ese base. El TOP
+  // es un tope de seguridad para bases muy cortas; el orden lo hace determinista.
+  const candidatos = await query(
+    `SELECT TOP 300 IdProducto, NombreProducto FROM dbo.Productos
+     WHERE Activo=1 AND NombreProducto LIKE '${escaparLikePrefijo(info.base)}%'
+     ORDER BY NombreProducto`);
+
+  const destino = resolverProductoCarga(nombreMayorista,
+    candidatos.map(r => ({ plu: String(r.IdProducto), nombre: r.NombreProducto })));
+  if (!destino) {
+    const esperado = info.presentacionKg != null && info.presentacionKg <= 1
+      ? `${info.base} de ${info.presentacionKg} kg` : `${info.base} PEDIDOS`;
+    return { plu: null, nombreMayorista, base: info.base, presentacionKg: info.presentacionKg,
+             motivo: `No se encontró el producto de carga (${esperado})` };
+  }
+
+  // Granel del destino: la pantalla de carga lo necesita para mostrar los kg que consume cada
+  // unidad. Es informativo, así que si el destino no tiene fórmula activa se devuelve igual.
+  let granel = null;
+  if (/^\d+$/.test(destino.plu)) {
+    const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+    const bomRows = await query(
+      sqlBOMGranel(c.rubrosGranel.join(','), ` AND pc.IdProducto IN ('${destino.plu}')`));
+    for (const b of bomRows) {
+      const cand = { granelPlu: String(b.IdProductoComponente), granelNombre: b.NombreComponente || '',
+                     cantPorUnidad: Number(b.CantPorUnidad) || 0 };
+      // Mismo criterio que getFaltantesFraccionado: el componente principal es el de mayor
+      // CantPorUnidad, el resto son trazas.
+      if (!granel || cand.cantPorUnidad > granel.cantPorUnidad) granel = cand;
+    }
+  }
+
+  return { ...destino, nombreMayorista, base: info.base, ...(granel || {}) };
+}));
+
+const ORD_FRACC_PATH = path.join(DATA_DIR, 'ordenes_fraccionado.json');
+
+// La validación, la normalización y los totales viven en ordenes_fraccionado.js (puro, testeado):
+// el granel es opcional porque el armado manual de órdenes incluye productos sin granel resoluble.
+
+// El progreso por línea se calcula al vuelo en cada respuesta y NO se persiste: así no puede
+// quedar desincronizado de `lineas` si una orden se edita por otra vía.
+const conProgreso = orden => ({ ...orden, progreso: progresoOrdenFraccionado(orden.lineas) });
+
+app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
+  leerJSON(ORD_FRACC_PATH, []).slice().sort((a, b) => b.id - a.id).map(conProgreso)));
+
+// Los cuatro handlers que siguen van con (req, res) crudo y NO con apiRoute: apiRoute hace
+// `res.json(await fn(req))`, sin forma de setear el status, así que envolverlos convertiría
+// los 400 de validación y los 404 en respuestas 200. Es el mismo criterio que el resto de las
+// rutas de escritura del archivo (ver /api/admin/modulos).
+// Va ANTES de :id (Express matchea por orden de registro y 'plus-activos' caería en el handler
+// de arriba). Es la lista de PLU que el carrito no puede volver a agregar: la usa pedidos_web.html
+// para bloquear el alta en el momento, sin bajarse todas las órdenes con sus líneas.
+app.get('/api/mayoristas/ordenes-fraccionado/plus-activos', apiRoute(async () =>
+  [...plusEnOrdenesActivas(leerJSON(ORD_FRACC_PATH, []))]));
+
+app.get('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
+  const orden = leerJSON(ORD_FRACC_PATH, []).find(o => String(o.id) === String(req.params.id));
+  if (!orden) return res.status(404).json({ error: 'Orden no encontrada' });
+  res.json(conProgreso(orden));
+});
+
+app.post('/api/mayoristas/ordenes-fraccionado', (req, res) => {
+  const error = validarLineasFraccionado(req.body && req.body.lineas);
+  if (error) return res.status(400).json({ error });
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  // Un artículo se manda a fraccionar una sola vez: si ya está en una orden sin anular (o repetido
+  // dentro del mismo body) se rechaza la orden entera. 409 y no 400 porque el body es válido: lo
+  // que choca es el estado del archivo, y el frontend lo distingue para avisar de otra manera.
+  const repetido = validarLineasNoRepetidas(req.body.lineas, arr);
+  if (repetido) return res.status(409).json({ error: repetido });
+  const lineas = normalizarLineasFraccionado(req.body.lineas);
+  const orden = {
+    id: Date.now(),
+    fecha: new Date().toISOString().slice(0, 10),
+    origen: 'mayorista',
+    estado: 'pendiente',
+    usuario: String((req.body && req.body.usuario) || ''),
+    filtros: (req.body && req.body.filtros) || {},
+    lineas,
+    totales: totalesOrdenFraccionado(lineas),
+  };
+  arr.push(orden);
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(conProgreso(orden));
+});
+
+// Va ANTES del PUT /:id sólo por claridad: Express no necesita el orden acá porque `:id` no matchea
+// barras, así que /:id/lineas/:plu nunca cae en el handler de arriba ni al revés.
+app.put('/api/mayoristas/ordenes-fraccionado/:id/lineas/:plu', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const i = arr.findIndex(o => String(o.id) === String(req.params.id));
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  const body = req.body || {};
+  // La fecha y la hora las pone el server: el cliente no puede antedatar una carga de producción.
+  // Las dos salen del MISMO Date y en hora local, no UTC: con toISOString() una carga hecha
+  // después de las 21:00 ART quedaba fechada al día siguiente, y la hora habría salido corrida.
+  const ahora = new Date();
+  const dosDig = n => String(n).padStart(2, '0');
+  const { orden, error } = marcarLineaOrden(arr[i], req.params.plu, {
+    estado: body.estado,
+    cargadoCant: body.cargadoCant,
+    fecha: `${ahora.getFullYear()}-${dosDig(ahora.getMonth() + 1)}-${dosDig(ahora.getDate())}`,
+    hora: `${dosDig(ahora.getHours())}:${dosDig(ahora.getMinutes())}`,
+  });
+  if (error) return res.status(400).json({ error });
+  arr[i] = orden;
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(conProgreso(orden));
+});
+
+app.put('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const i = arr.findIndex(o => String(o.id) === String(req.params.id));
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  const cambios = req.body || {};
+  const ESTADOS = ['pendiente', 'aplicada', 'anulada'];
+  if (cambios.estado !== undefined && !ESTADOS.includes(cambios.estado)) {
+    return res.status(400).json({ error: `Estado inválido: ${cambios.estado}` });
+  }
+  let lineas = arr[i].lineas;
+  if (cambios.lineas !== undefined) {
+    const error = validarLineasFraccionado(cambios.lineas);
+    if (error) return res.status(400).json({ error });
+    lineas = normalizarLineasFraccionado(cambios.lineas);
+  }
+  // id y fecha no se pisan desde el body: son la identidad de la orden. `progreso` se descarta
+  // (JSON.stringify saltea undefined) para que el que devuelve el GET nunca termine persistido
+  // si el cliente reenvía la orden entera.
+  arr[i] = { ...arr[i], ...cambios, id: arr[i].id, fecha: arr[i].fecha,
+             lineas, totales: totalesOrdenFraccionado(lineas), progreso: undefined };
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(conProgreso(arr[i]));
+});
+
+app.delete('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const nuevo = arr.filter(o => String(o.id) !== String(req.params.id));
+  if (nuevo.length === arr.length) return res.status(404).json({ error: 'Orden no encontrada' });
+  guardarJSON(ORD_FRACC_PATH, nuevo);
+  res.json({ ok: true });
+});
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
   return getFacturasDePedido(req.query.idSucursal || 1, req.query.numeroPedido);
@@ -1612,17 +1859,12 @@ const DISTRIB_SUC_MAP = { 2:'urq', 3:'nacion', 4:'chaca', 5:'riv', 7:'sanpedro',
 function pesoPresentacionKg(nombre, cantFormula) {
   const n = String(nombre || '');
   if (/(por\s*kilo|x\s*kilo|x\s*kg|precio\s*x\s*kilo|por\s*kg)\b/i.test(n)) return 1;
-  const re = /(\d+(?:[.,]\d+)?)\s*(kgs?|gramos|grs?|gr|g)\b/gi;
-  let m, last = null;
-  while ((m = re.exec(n)) !== null) last = m;
-  if (last) {
-    const val = parseFloat(last[1].replace(',', '.'));
-    const u = last[2].toLowerCase();
-    if (val > 0) {
-      const kg = (u === 'kg' || u === 'kgs') ? val : val / 1000;   // g/gr/grs/gramos → kg
-      if (kg > 0) return Math.round(kg * 1000) / 1000;
-    }
-  }
+  // El barrido del token de peso vive en producto_carga.js: lo comparten esta función y la
+  // resolución del producto de carga, y tener dos regex iguales en dos archivos ya nos había
+  // dejado criterios divergiendo. La diferencia entre ambos usos es sólo el atajo "por kilo"
+  // de arriba, que acá aplica (peso de la bolsa) y allá no (tamaño del envase).
+  const kgToken = pesoTokenKg(n);
+  if (kgToken != null) return kgToken;
   const cf = Number(cantFormula);
   return (cf > 0) ? cf : 1;
 }
@@ -3218,6 +3460,69 @@ app.get('/api/diag/plu-detalle', apiRoute(async req => {
     lineas: lineas.map(l => ({ fecha: l.Fecha, cant: parseFloat(l.Cantidad), importe: parseFloat(l.ImporteTotal),
       precioUnit: parseFloat(l.Cantidad) ? Math.round(parseFloat(l.ImporteTotal)/parseFloat(l.Cantidad)*100)/100 : 0 })) };
 }));
+// Auditoría del cálculo de quiebres para UN producto en UNA sucursal: devuelve el umbral
+// con sus insumos y la serie diaria de stock reconstruida, día por día. Sirve para
+// contrastar contra SIGA cuando un número de la tabla no cierra.
+app.get('/api/diag/quiebre', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const suc = String(parseInt(req.query.suc, 10) || 0);
+  const idsCsv = analisisVentas.idsCsvSeguro([req.query.plu]);
+  if (!idsCsv || suc === '0') return { error: 'Faltan plu y/o suc.' };
+  const p = { desde, hasta, sucIdsCsv: suc };
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const [nombreRows, pesablesRows, stockRows, netoRows, unidadesRows, movimientos] = await Promise.all([
+    query(`SELECT p.NombreProducto, r.NombreRubro FROM Productos p
+      LEFT JOIN Rubros r ON r.IdRubro = p.IdRubro WHERE p.IdProducto IN (${idsCsv})`),
+    query(analisisVentas.sqlPesables(idsCsv)),
+    query(analisisVentas.sqlStockPorSucursal(idsCsv, suc)),
+    query(analisisVentas.sqlNetoDiarioStock(desde, suc, idsCsv)),
+    query(analisisVentas.sqlUnidadesPorSucursal(p, idsCsv)),
+    query(analisisVentas.sqlMovimientosProducto(desde, suc, idsCsv)),
+  ]);
+
+  const netosPorFecha = {}, entradasPorFecha = {};
+  for (const r of netoRows) {
+    const f = r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10);
+    netosPorFecha[f] = Number(r.Neto || 0);
+    entradasPorFecha[f] = Number(r.Entradas || 0);
+  }
+  const esPesable = pesablesRows.length > 0;
+  const unidades = Number((unidadesRows[0] || {}).Unidades || 0);
+  const stockActual = Number((stockRows[0] || {}).Stock || 0);
+  const meses = analisisVentas.mesesDelRango(desde, hasta);
+  const umbral = analisisVentas.umbralQuiebre(unidades, meses, esPesable);
+  const serie = analisisVentas.serieStockDiaria({
+    stockActual, netosPorFecha, entradasPorFecha, desde, hasta, hoy, umbral,
+  });
+
+  return {
+    producto: (nombreRows[0] || {}).NombreProducto || null,
+    rubro: (nombreRows[0] || {}).NombreRubro || null,
+    plu: req.query.plu, sucursal: Number(suc), rango: { desde, hasta }, hoy,
+    umbral: {
+      esPesable, unidadesRango: unidades, meses,
+      ventasMes: meses > 0 ? unidades / meses : 0,
+      porcentaje: analisisVentas.UMBRAL_PORC_VENTAS,
+      topeUnidades: esPesable ? null : analisisVentas.UMBRAL_TOPE_UNIDADES,
+      valor: umbral,
+    },
+    // stockActual es el de HOY: la serie se reconstruye hacia atrás desde ahí.
+    stockActual,
+    sinFilaDeStock: stockRows.length === 0,
+    diasEnQuiebre: serie.filter(d => d.quiebre).length,
+    // Base del porcentaje: días del rango sin domingos (los que podrían haber sido quiebre).
+    diasEvaluados: analisisVentas.diasEvaluados(serie),
+    porcentaje: analisisVentas.porcentajeQuiebre(
+      serie.filter(d => d.quiebre).length, analisisVentas.diasEvaluados(serie)),
+    serie,
+    movimientos: movimientos.map(r => ({
+      fecha: r.Fecha, tipo: r.Tipo, numero: r.Numero, cantidad: Number(r.Cantidad || 0),
+    })),
+  };
+}));
+
 app.get('/api/diag/bom-source', apiRoute(async () => {
   const [comp, tablaFormulas] = await Promise.all([
     query(`SELECT COUNT(*) AS Total FROM ProductosComponentes pc INNER JOIN Productos comp ON comp.IdProducto=pc.IdProductoComponente WHERE comp.IdRubro IN (22,23)`),
@@ -3648,6 +3953,70 @@ app.get('/api/ventas-hora/sucursales', apiRoute(async () => {
 }));
 
 // ── Análisis de Ventas por Sucursal ──────────────────────────────────────────
+// Días en quiebre por producto, sumando las sucursales del filtro. El umbral se calcula
+// por producto+sucursal (las ventas de una sucursal no fijan el mínimo de otra) y la serie
+// diaria de stock se reconstruye hacia atrás desde el stock de hoy, porque SIGA no guarda
+// foto histórica. Devuelve Map idProducto -> días.
+async function quiebresPorProducto(p, idProductos) {
+  const idsCsv = analisisVentas.idsCsvSeguro(idProductos);
+  if (!idsCsv) return new Map();
+  const hoy = new Date().toISOString().slice(0, 10);
+  const [pesablesRows, stockRows, netoRows, unidadesRows] = await Promise.all([
+    query(analisisVentas.sqlPesables(idsCsv)),
+    query(analisisVentas.sqlStockPorSucursal(idsCsv, p.sucIdsCsv)),
+    query(analisisVentas.sqlNetoDiarioStock(p.desde, p.sucIdsCsv, idsCsv)),
+    query(analisisVentas.sqlUnidadesPorSucursal(p, idsCsv)),
+  ]);
+
+  const pesables = new Set(pesablesRows.map(r => String(r.IdProducto)));
+  const meses = analisisVentas.mesesDelRango(p.desde, p.hasta);
+  const clave = (prod, suc) => `${prod}|${suc}`;
+  const stock = new Map(stockRows.map(r => [clave(r.IdProducto, r.IdSucursal), Number(r.Stock || 0)]));
+  const unidades = new Map(unidadesRows.map(r => [clave(r.IdProducto, r.IdSucursal), Number(r.Unidades || 0)]));
+  // Netos y entradas indexados por producto+sucursal y, adentro, por fecha ISO.
+  const netos = new Map();
+  const entradas = new Map();
+  for (const r of netoRows) {
+    const k = clave(r.IdProducto, r.IdSucursal);
+    if (!netos.has(k)) { netos.set(k, {}); entradas.set(k, {}); }
+    const fecha = r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10);
+    netos.get(k)[fecha] = Number(r.Neto || 0);
+    entradas.get(k)[fecha] = Number(r.Entradas || 0);
+  }
+
+  // Una sucursal cuenta para un producto sólo si tuvo ventas o stock: si nunca lo trabajó,
+  // sus días vacíos no son un quiebre suyo. La base del porcentaje acompaña ese criterio:
+  // suma los días evaluables de cada sucursal que sí entró, así 8 días sobre 2 sucursales
+  // se leen contra 52 día-sucursal y no contra 26.
+  const acumulado = new Map();
+  for (const k of new Set([...stock.keys(), ...unidades.keys()])) {
+    const prod = k.split('|')[0];
+    const umbral = analisisVentas.umbralQuiebre(unidades.get(k) || 0, meses, pesables.has(prod));
+    const serie = analisisVentas.serieStockDiaria({
+      stockActual: stock.get(k) || 0, netosPorFecha: netos.get(k), entradasPorFecha: entradas.get(k),
+      desde: p.desde, hasta: p.hasta, hoy, umbral,
+    });
+    const previo = acumulado.get(prod) || { dias: 0, base: 0 };
+    acumulado.set(prod, {
+      dias: previo.dias + serie.filter(d => d.quiebre).length,
+      base: previo.base + analisisVentas.diasEvaluados(serie),
+    });
+  }
+  return acumulado;
+}
+
+// Qué tablas de clasificación (rubro/subrubro/marca) tiene esta base es fijo mientras el
+// proceso vive: se sondea una vez y se reusa la condición armada. Si el sondeo falla, se
+// cae al filtro por nombre de producto en vez de romper el reporte entero.
+let condicionInsumos = null;
+async function sinInsumosSQL() {
+  if (condicionInsumos === null) {
+    const meta = await query(analisisVentas.sqlMetaClasificacion()).catch(() => []);
+    condicionInsumos = analisisVentas.filtroSinInsumos(analisisVentas.clasificacionesDisponibles(meta));
+  }
+  return condicionInsumos;
+}
+
 app.get('/api/analisis-ventas', apiRoute(async req => {
   const desde = safeDate(req.query.desde);
   const hasta = safeDate(req.query.hasta);
@@ -3655,30 +4024,43 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
   const sucIdsCsv = sucIds.join(',');
   const topN = analisisVentas.clampTopN(req.query.top);
   const p = { desde, hasta, sucIdsCsv };
+  // Los insumos (por nombre, rubro, subrubro o marca) no son productos de venta: quedan
+  // fuera de las dos tablas de top productos y, por arrastre, de las familias.
+  const sinInsumos = await sinInsumosSQL();
 
-  const [comparativa, resumenArr, tendencia, diaSemana, horas, topUnidades, topFacturacion,
-         artHistograma, artPorSucursal, productosFamilias] =
+  const [comparativa, resumenArr, tendencia, diaSemana, horas, productosUnidades,
+         artHistograma, artPorSucursal, productosFacturacion] =
     await Promise.all([
       query(analisisVentas.sqlComparativa(p)),
       query(analisisVentas.sqlResumenRenglon(p)),
       query(analisisVentas.sqlTendencia(p)),
       query(analisisVentas.sqlDiaSemana(p)),
       query(analisisVentas.sqlHora(p)),
-      query(analisisVentas.sqlTopProductos(p, 'unidades', topN)),
-      query(analisisVentas.sqlTopProductos(p, 'facturacion', topN)),
+      query(analisisVentas.sqlTopProductos(p, 'unidades', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
       query(analisisVentas.sqlArticulosHistograma(p)),
       query(analisisVentas.sqlArticulosPorSucursal(p)),
-      // Las familias se arman en JS sobre el nombre, así que se traen bastantes más
-      // productos que el top visible: agrupar sólo el top N sesgaría los totales.
-      query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS)),
+      // Una sola consulta amplia por facturación alimenta dos vistas: la tabla de productos
+      // (paginada y con buscador, necesita todos los registros del rango) y las familias,
+      // que se arman en JS sobre el nombre y se sesgarían si sólo se agrupara el top N.
+      query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
     ]);
 
   const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
   const articulosProm = analisisVentas.promedioArticulos(artPorSucursal);
+  // Reconstruir la serie diaria de stock cuesta cuatro consultas más y un recorrido día a
+  // día por cada producto y sucursal: con varias sucursales el reporte se vuelve inusable.
+  // Por eso los quiebres se calculan sólo cuando el filtro quedó en una sola sucursal.
+  const conQuiebres = sucIds.length === 1;
+  // Va después del Promise.all: necesita los ids de los productos que se van a listar.
+  const quiebres = conQuiebres
+    ? await quiebresPorProducto(p, productosFacturacion.map(r => r.IdProducto))
+    : new Map();
 
   return {
     rango: { desde, hasta },
     sucursales: sucIds,
+    // El front necesita distinguir "cero quiebres" de "no se calcularon".
+    quiebresDisponibles: conQuiebres,
     kpis: { ...analisisVentas.kpisGlobales(comparativa, resumen), articulosProm },
     comparativa: comparativa.map(r => ({
       idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
@@ -3696,15 +4078,24 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
     horas: horas.map(r => ({
       hora: Number(r.Hora), facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
     })),
-    topUnidades: topUnidades.map(r => ({
+    // Listas completas (no un top acotado): el front las pagina y filtra en memoria.
+    topUnidades: productosUnidades.map(r => ({
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
-    topFacturacion: topFacturacion.map(r => ({
-      idProd: r.IdProducto, nombre: r.Nombre,
-      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
-    })),
-    familias: analisisVentas.agruparFamilias(productosFamilias, topN),
+    topFacturacion: productosFacturacion.map(r => {
+      const q = quiebres.get(String(r.IdProducto)) || { dias: 0, base: 0 };
+      return {
+        idProd: r.IdProducto, nombre: r.Nombre,
+        unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+        // null (y no 0) cuando el cálculo no corrió: son cosas distintas para el que lee.
+        quiebres: conQuiebres ? q.dias : null,
+        // Base en día-sucursal: los días evaluables sumados de cada sucursal del filtro.
+        quiebresBase: conQuiebres ? q.base : null,
+        quiebresPorc: conQuiebres ? analisisVentas.porcentajeQuiebre(q.dias, q.base) : null,
+      };
+    }),
+    familias: analisisVentas.agruparFamilias(productosFacturacion, topN),
     articulosPorTicket: {
       promedio: articulosProm,
       histograma: analisisVentas.bucketsArticulos(artHistograma),
@@ -3715,6 +4106,56 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
         dias: Number(r.Dias || 0), ticketsDia: Number(r.TicketsDia || 0),
       })),
     },
+  };
+}));
+
+// ── Análisis de ventas de casa central ──────────────────────────────────────
+// Mismo análisis que el módulo por sucursal pero con alcance fijo en la central, así
+// que reusa los mismos builders de SQL. Sin comparativa entre sucursales (hay una sola)
+// y sin artículos por ticket: eso vive en el módulo de sucursales.
+app.get('/api/analisis-central', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const topN = analisisVentas.clampTopN(req.query.top);
+  const p = { desde, hasta, sucIdsCsv: String(analisisVentas.SUCURSAL_CENTRAL) };
+  const sinInsumos = await sinInsumosSQL();
+
+  const [totales, resumenArr, tendencia, diaSemana, horas, productosUnidades, productosFacturacion] =
+    await Promise.all([
+      // Una sola fila (la central), pero da facturación y tickets para los KPIs.
+      query(analisisVentas.sqlComparativa(p)),
+      query(analisisVentas.sqlResumenRenglon(p)),
+      query(analisisVentas.sqlTendencia(p)),
+      query(analisisVentas.sqlDiaSemana(p)),
+      query(analisisVentas.sqlHora(p)),
+      query(analisisVentas.sqlTopProductos(p, 'unidades', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
+      query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
+    ]);
+
+  const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
+  return {
+    rango: { desde, hasta },
+    kpis: analisisVentas.kpisGlobales(totales, resumen),
+    tendencia: tendencia.map(r => ({
+      fecha: r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10),
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    diaSemana: diaSemana.map(r => ({
+      dow: Number(r.Dow), nombre: analisisVentas.mapDiaSemana(Number(r.Dow)),
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    horas: horas.map(r => ({
+      hora: Number(r.Hora), facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    topUnidades: productosUnidades.map(r => ({
+      idProd: r.IdProducto, nombre: r.Nombre,
+      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+    })),
+    topFacturacion: productosFacturacion.map(r => ({
+      idProd: r.IdProducto, nombre: r.Nombre,
+      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+    })),
+    familias: analisisVentas.agruparFamilias(productosFacturacion, topN),
   };
 }));
 

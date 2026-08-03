@@ -1,0 +1,242 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagnóstico de quiebre de stock — Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
+    --yellow:#FFCC00; --red:#b3261e; --red-soft:#fdecea;
+    --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
+    --radius:12px; --radius-sm:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
+  header{background:var(--green);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
+  header .logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;letter-spacing:.5px}
+  header .logo b{color:var(--yellow)}
+  header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:auto}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px}
+  .controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .controls input,.controls select{padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:14px}
+  .controls input[type=text]{width:120px}
+  .btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
+  .btn:disabled{opacity:.6;cursor:default}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px}
+  .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+  .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.5;color:var(--muted)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:16px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+  .kpi .lbl{font-size:12px;color:var(--muted)}
+  .kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:26px;color:var(--green-dark);margin-top:4px}
+  .kpi.alerta .val{color:var(--red)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid2 .card{margin-top:0}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  /* Un día en quiebre se marca en toda la fila: es lo que se viene a buscar acá. */
+  tr.q>td{background:var(--red-soft)}
+  tr.q>td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+  tr.dom>td{color:var(--muted);font-style:italic}
+  .pos{color:var(--green-mid);font-weight:600}
+  .neg{color:var(--red);font-weight:600}
+  .tabla-scroll{max-height:420px;overflow:auto}
+  .error{background:var(--red-soft);color:var(--red);border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
+  .aviso{background:#FFF8E1;color:#6b5200;border:1px solid #f0e0a0;padding:10px 12px;border-radius:var(--radius-sm);margin-top:12px;font-size:13px}
+  .loading{color:var(--muted);padding:20px;text-align:center}
+  .empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
+  .formula{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#FAFBF9;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;line-height:1.7}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+</style></head><body>
+<header>
+  <span class="logo">API<b>DELTA</b></span>
+  <span style="font-size:14px;opacity:.9">Diagnóstico de quiebre de stock</span>
+  <a href="/analisis-ventas">← Análisis de Ventas</a>
+</header>
+<div class="wrap">
+  <div class="controls">
+    <div><label for="plu">Producto (PLU)</label><input type="text" id="plu" placeholder="3035"></div>
+    <div><label for="suc">Sucursal</label><select id="suc"></select></div>
+    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
+    <button class="btn" id="btnVer">Ver cálculo</button>
+  </div>
+
+  <div id="msg"></div>
+  <div id="salida"></div>
+</div>
+
+<script>
+// Mismas sucursales que el módulo de análisis, más la central: acá se diagnostica un
+// producto en una sucursal puntual, así que la central también sirve.
+const SUCURSALES = [
+  {id:1,nombre:'Casa Central'},{id:2,nombre:'Urquiza'},{id:3,nombre:'Nación'},
+  {id:4,nombre:'Chacabuco'},{id:5,nombre:'Rivadavia'},{id:7,nombre:'San Pedro'},
+  {id:9,nombre:'Villa Ramallo'},{id:10,nombre:'Pergamino'},
+];
+
+const $ = id => document.getElementById(id);
+const fmtNum = n => Number(n || 0).toLocaleString('es-AR', {maximumFractionDigits:2});
+const fmtDec = n => Number(n || 0).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+function escHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+function firstOfMonth(){ const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); }
+
+function init(){
+  $('suc').innerHTML = SUCURSALES.map(s => `<option value="${s.id}">${s.nombre}</option>`).join('');
+  $('desde').value = firstOfMonth().toISOString().slice(0,10);
+  $('hasta').value = new Date().toISOString().slice(0,10);
+  // Permite entrar con la URL ya armada desde otra pantalla.
+  const q = new URLSearchParams(location.search);
+  if (q.get('plu'))   $('plu').value   = q.get('plu');
+  if (q.get('suc'))   $('suc').value   = q.get('suc');
+  if (q.get('desde')) $('desde').value = q.get('desde');
+  if (q.get('hasta')) $('hasta').value = q.get('hasta');
+  if (q.get('plu')) consultar();
+}
+
+// El signo se muestra explícito: es lo que distingue una venta de una recepción.
+function celdaCantidad(n){
+  const v = Number(n || 0);
+  if (!v) return '<td class="num">0</td>';
+  return `<td class="num ${v > 0 ? 'pos' : 'neg'}">${v > 0 ? '+' : ''}${fmtNum(v)}</td>`;
+}
+
+function renderUmbral(d){
+  const u = d.umbral;
+  const tipo = u.esPesable ? 'Pesable' : 'No pesable';
+  const tope = u.esPesable
+    ? 'sin tope (los pesables no lo tienen)'
+    : `con tope de ${fmtNum(u.topeUnidades)} unidades`;
+  return `<div class="card">
+    <h3>Cómo sale el umbral</h3>
+    <p class="desc">${escHtml(tipo)} — ${escHtml(tope)}. Los domingos no cuentan: ni como día
+      en quiebre ni en el promedio mensual.</p>
+    <div class="formula">
+      unidades vendidas en el rango = <b>${fmtNum(u.unidadesRango)}</b><br>
+      rango en meses hábiles = <b>${fmtDec(u.meses)}</b> (días sin domingos ÷ 26)<br>
+      ventas por mes = ${fmtNum(u.unidadesRango)} ÷ ${fmtDec(u.meses)} = <b>${fmtDec(u.ventasMes)}</b><br>
+      ${(u.porcentaje * 100).toFixed(0)}% de las ventas por mes = <b>${fmtDec(u.ventasMes * u.porcentaje)}</b><br>
+      ${u.esPesable ? '' : `tope = ${fmtNum(u.topeUnidades)} → se toma el menor<br>`}
+      <b>umbral = ${fmtDec(u.valor)}</b>
+    </div>
+  </div>`;
+}
+
+function renderSerie(serie, umbral){
+  if (!serie.length) return '<div class="card"><h3>Serie diaria de stock</h3><div class="empty">Sin días en el rango.</div></div>';
+  const filas = serie.map(d => {
+    const clases = [d.quiebre ? 'q' : '', d.domingo ? 'dom' : ''].filter(Boolean).join(' ');
+    // El estado explica por qué NO cuenta: domingo y reposición son las dos exclusiones.
+    let estado = 'ok';
+    if (d.quiebre) estado = 'QUIEBRE';
+    else if (d.domingo) estado = '—';
+    else if (d.entrada > 0 && d.apertura <= umbral) estado = 'repuesto';
+    return `<tr class="${clases}">
+      <td>${escHtml(d.fecha)}${d.domingo ? ' (domingo)' : ''}</td>
+      <td class="num">${fmtNum(d.apertura)}</td>
+      ${celdaCantidad(d.entrada)}
+      ${celdaCantidad(d.neto)}
+      <td class="num">${fmtNum(d.cierre)}</td>
+      <td>${estado}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="card">
+    <h3>Serie diaria de stock</h3>
+    <p class="desc">Se reconstruye hacia atrás desde el stock de hoy: apertura = cierre − neto
+      del día, y el cierre de un día es la apertura del siguiente. El quiebre se evalúa sobre
+      la <b>apertura</b>, no sobre el cierre. Un día marcado <b>repuesto</b> abrió bajo el
+      umbral pero recibió mercadería, así que no cuenta.</p>
+    <div class="tabla-scroll"><table><thead><tr>
+      <th>Fecha</th><th class="num">Apertura</th><th class="num">Entradas</th>
+      <th class="num">Neto del día</th><th class="num">Cierre</th><th>Estado</th>
+    </tr></thead><tbody>${filas}</tbody></table></div>
+  </div>`;
+}
+
+function renderMovimientos(movs){
+  if (!movs.length) return `<div class="card"><h3>Movimientos del producto en la sucursal</h3>
+    <div class="empty">Sin movimientos en el rango para este producto y sucursal.</div></div>`;
+  const filas = movs.map(m => `<tr>
+      <td>${escHtml(m.fecha)}</td>
+      <td>${escHtml(m.tipo)}</td>
+      <td>${escHtml(m.numero)}</td>
+      ${celdaCantidad(m.cantidad)}
+    </tr>`).join('');
+  return `<div class="card">
+    <h3>Movimientos del producto en la sucursal</h3>
+    <p class="desc">La cantidad ya viene firmada desde SIGA: negativo saca stock (venta),
+      positivo lo sube (recepción, ajuste). La suma de un día es el "neto" de la serie.</p>
+    <div class="tabla-scroll"><table><thead><tr>
+      <th>Fecha y hora</th><th>Tipo</th><th>Número</th><th class="num">Cantidad</th>
+    </tr></thead><tbody>${filas}</tbody></table></div>
+  </div>`;
+}
+
+function render(d){
+  // Los dos síntomas de que la reconstrucción no es confiable, arriba de todo.
+  const avisos = [];
+  if (d.sinFilaDeStock) {
+    avisos.push(`Este producto <b>no tiene stock registrado</b> en esa sucursal
+      (sin fila en ProductosDepositos). La reconstrucción arranca en 0, así que los días en
+      quiebre pueden ser un falso positivo.`);
+  }
+  if (d.serie.some(x => x.apertura < 0)) {
+    avisos.push(`Hay días con stock <b>negativo</b>. La reconstrucción no cierra contra el
+      stock de hoy: puede faltar algún movimiento en SIGA, o el stock actual no ser exacto.`);
+  }
+  return `
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Producto</div><div class="val" style="font-size:16px">${escHtml(d.producto || d.plu)}</div></div>
+      <div class="kpi"><div class="lbl">Stock hoy (${escHtml(d.hoy)})</div><div class="val">${fmtNum(d.stockActual)}</div></div>
+      <div class="kpi"><div class="lbl">Umbral</div><div class="val">${fmtDec(d.umbral.valor)}</div></div>
+      <div class="kpi ${d.diasEnQuiebre ? 'alerta' : ''}">
+        <div class="lbl">Días en quiebre</div>
+        <div class="val">${fmtNum(d.diasEnQuiebre)}<span style="font-size:15px"> de ${fmtNum(d.diasEvaluados)}</span></div>
+        <div class="lbl">${fmtDec(d.porcentaje)}% del período (sin domingos)</div>
+      </div>
+    </div>
+    ${avisos.map(a => `<div class="aviso">${a}</div>`).join('')}
+    ${renderUmbral(d)}
+    <div class="grid2" style="margin-top:16px">
+      ${renderSerie(d.serie, d.umbral.valor)}
+      ${renderMovimientos(d.movimientos || [])}
+    </div>`;
+}
+
+async function consultar(){
+  const plu = $('plu').value.trim();
+  if (!plu){ $('msg').innerHTML = '<div class="error">Ingresá un PLU.</div>'; return; }
+  const btn = $('btnVer'); btn.disabled = true; btn.textContent = 'Consultando...';
+  $('msg').innerHTML = '<div class="loading">Calculando...</div>';
+  $('salida').innerHTML = '';
+  const params = new URLSearchParams({
+    plu, suc: $('suc').value, desde: $('desde').value, hasta: $('hasta').value,
+  });
+  try {
+    const r = await fetch(`/api/diag/quiebre?${params}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $('msg').innerHTML = '';
+    $('salida').innerHTML = render(d);
+  } catch(e){
+    $('msg').innerHTML = `<div class="error">Error: ${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Ver cálculo';
+  }
+}
+
+$('btnVer').onclick = consultar;
+$('plu').addEventListener('keydown', e => { if (e.key === 'Enter') consultar(); });
+init();
+</script>
+</body></html>

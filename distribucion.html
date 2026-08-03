@@ -242,6 +242,10 @@
   .reg-field input[type=time]{width:110px}
   .reg-consumo{font-size:18px;font-weight:700;color:var(--verde-dark);background:var(--grn-bg);padding:8px 16px;border-radius:9px}
   .reg-consumo small{font-size:12px;font-weight:400;color:var(--muted);margin-left:6px}
+  /* Origen del registro: explica por qué el producto del modal no es el de la línea de la orden. */
+  .reg-origen{font-size:12px;line-height:1.45;color:var(--muted);background:var(--surface2);border-left:3px solid var(--verde);border-radius:6px;padding:8px 12px}
+  .reg-origen b{color:var(--text)}
+  .reg-aviso{font-size:12px;line-height:1.45;color:var(--amarillo-on);background:var(--amarillo-cont);border-left:3px solid #f59e0b;border-radius:6px;padding:8px 12px;font-weight:600}
   td.envasar-d{font-weight:700;font-size:13px}
   td.envasar-d span{background:#dbe7ff;color:#1e40af;padding:3px 10px;border-radius:6px;display:inline-block}
   .resp-select{font-size:11px;padding:3px 6px;border-radius:6px;background:var(--surface1);border:1px solid var(--border);color:var(--text);max-width:110px}
@@ -329,6 +333,73 @@
   .tabs-cfg-save{display:flex;gap:10px;align-items:center;margin-top:18px}
   .tabs-cfg-reset{font-size:12px;color:var(--faint);cursor:pointer;background:none;border:none;text-decoration:underline}
   .tabs-cfg-reset:hover{color:var(--error)}
+
+  /* ── Tab Pedidos: órdenes de fraccionado + carga suelta ── */
+  .ped-layout{display:flex;align-items:flex-start;gap:16px;padding:14px 16px 24px}
+  .ped-col-ordenes{flex:0 1 60%;width:60%;min-width:0}
+  .ped-col-sueltos{flex:0 1 40%;width:40%;min-width:0;max-width:100%;background:var(--surface1);border:1px solid var(--line);border-radius:10px;padding:10px 12px 6px}
+  .ped-col-sueltos h4{margin:0 0 2px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  .ped-col-sueltos .ped-hint{font-size:11px;color:var(--faint);margin:0 0 8px}
+  .ord-card{border:1px solid var(--line);border-radius:12px;background:var(--card);margin-bottom:16px;overflow:hidden;
+    box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.05);transition:box-shadow .18s,border-color .18s}
+  .ord-card:hover{box-shadow:0 2px 5px rgba(0,0,0,.08),0 10px 24px rgba(0,0,0,.07)}
+  .ord-card.ord-completa{border-color:var(--verde)}
+  .ord-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;
+    background:var(--surface2);border-bottom:2px solid var(--verde)}
+  .ord-card.ord-completa .ord-head{background:var(--verde-cont)}
+  .ord-head .ord-fecha{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--verde-dark);display:flex;align-items:center;gap:6px}
+  .ord-head .ord-id{font-size:11px;color:var(--faint);background:var(--surface1);border:1px solid var(--line);border-radius:20px;padding:1px 8px}
+  .ord-head .ord-acc{margin-left:auto}
+  /* Barra de avance: de un vistazo se ve cuánto falta sin leer los números. */
+  .ord-prog-wrap{display:flex;align-items:center;gap:8px;flex:1 1 180px;min-width:140px}
+  .ord-prog-bar{flex:1 1 auto;height:7px;border-radius:99px;background:rgba(0,0,0,.10);overflow:hidden}
+  .ord-prog-bar i{display:block;height:100%;border-radius:99px;background:var(--verde);transition:width .3s ease}
+  .ord-head .ord-prog{font-size:11.5px;color:var(--verde-dark);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .ord-linea{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:11px 14px;border-top:1px solid var(--line);cursor:pointer;
+    transition:background .12s}
+  .ord-linea:first-child{border-top:none}
+  .ord-linea:hover{background:var(--verde-cont)}
+  /* Número de línea: ancla visual para no perderse en órdenes largas. */
+  .ord-idx{flex:0 0 auto;width:22px;height:22px;margin-top:1px;border-radius:50%;background:var(--surface2);border:1px solid var(--line);
+    color:var(--faint);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .ord-linea.lin-cargado .ord-idx{background:var(--verde);border-color:var(--verde);color:#fff}
+  .ord-linea.lin-sin-stock .ord-idx{background:var(--error);border-color:var(--error);color:#fff}
+  .ord-linea .ord-prod{flex:1 1 220px;min-width:0}
+  .ord-linea .ord-prod b{font-size:13.5px}
+  /* Llamado a la acción: sólo aparece al pasar por encima, para no ensuciar la lista. */
+  .ord-go{font-size:11px;font-weight:700;color:var(--verde-dark);opacity:0;transition:opacity .12s;white-space:nowrap}
+  .ord-linea:hover .ord-go{opacity:1}
+  .ord-linea .ord-granel{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .ord-linea .ord-nums{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .ord-linea .ord-nums .stat.key{font-size:12.5px;padding:4px 11px}
+  .ord-linea .ord-nums .stat.key b{font-size:14px}
+  .ord-clientes{flex:1 1 100%;font-size:11.5px;color:var(--muted);cursor:default}
+  .ord-clientes summary{cursor:pointer;color:var(--faint);outline:none}
+  .ord-clientes ul{margin:4px 0 0;padding-left:18px}
+  .ord-manual{flex:1 1 100%;font-size:11.5px;color:var(--faint);font-style:italic}
+  .ord-linea .ord-carga{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .ord-linea .ord-carga.warn{display:inline-block;color:var(--amarillo-on);background:var(--amarillo-cont);border-radius:6px;padding:1px 7px;font-weight:600}
+  .ord-linea.sin-destino{box-shadow:inset 3px 0 0 #f59e0b}
+  /* Estado por línea. Van DESPUÉS de .sin-destino a propósito: una línea ya resuelta manda sobre
+     el aviso naranja de "sin producto de carga", que a esa altura ya no hay que actuar. */
+  .ord-linea.lin-resuelta{cursor:default;background:var(--surface2)}
+  .ord-linea.lin-resuelta:hover{background:var(--surface2)}
+  .ord-linea.lin-resuelta .ord-prod b{color:var(--muted);font-weight:600}
+  .ord-linea.lin-cargado{box-shadow:inset 3px 0 0 var(--verde)}
+  .ord-linea.lin-sin-stock{box-shadow:inset 3px 0 0 var(--error)}
+  .ord-estado{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap}
+  .ord-estado.cargado{background:var(--verde-cont);color:var(--verde-on-cont)}
+  .ord-estado.sin-stock{background:#ffdad6;color:var(--error)}
+  .ord-linea .ord-lin-acc{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .ord-linea .ord-lin-acc button{font-size:11px;padding:3px 9px}
+  .ord-head .ord-prog{font-size:11.5px;color:var(--muted);font-weight:600}
+  #ord-aviso{display:none;align-items:flex-start;gap:8px;margin-bottom:12px;padding:9px 12px;border-radius:8px;
+    border:1px solid var(--amarillo);background:var(--amarillo-cont);color:var(--amarillo-on);font-size:12.5px;font-weight:600}
+  @media (max-width:900px){
+    .ped-layout{flex-direction:column}
+    .ped-col-ordenes,
+    .ped-col-sueltos{flex:1 1 auto;width:100%}
+  }
 
   /* ── Responsive: pantallas chicas ── */
   @media (max-width:640px){
@@ -487,18 +558,25 @@
 
     <!-- PEDIDOS -->
     <section class="panel" id="panel-pedidos">
-      <div id="ped-state" class="state" style="display:none"><div class="spinner"></div><div>Cargando…</div></div>
-      <div style="max-width:680px;margin:0 auto;padding:14px 16px 0">
-        <table id="tabla-ped" style="display:none;width:100%">
-          <thead><tr>
-            <th class="l" style="width:64px">PLU</th>
-            <th class="l">Nombre</th>
-            <th class="l" style="width:120px">Rubro</th>
-            <th style="width:90px">Compuesto</th>
-            <th style="width:110px"></th>
-          </tr></thead>
-          <tbody id="body-ped"></tbody>
-        </table>
+      <div class="ped-layout">
+        <div class="ped-col-ordenes">
+          <div id="ord-state" class="state" style="display:none;height:auto;min-height:180px"><div class="spinner"></div><div>Cargando órdenes…</div></div>
+          <div id="ord-aviso" role="alert"></div>
+          <div id="ord-lista"></div>
+        </div>
+        <aside class="ped-col-sueltos">
+          <h4>Carga suelta</h4>
+          <p class="ped-hint">Productos de rubro «Pedido». Clic en una fila para cargar producción fuera de orden.</p>
+          <div id="ped-state" class="state" style="display:none;height:auto;min-height:110px;padding:20px"><div class="spinner"></div><div>Cargando…</div></div>
+          <table id="tabla-ped" style="display:none;width:100%">
+            <thead><tr>
+              <th class="l" style="width:56px">PLU</th>
+              <th class="l">Nombre</th>
+              <th style="width:44px"></th>
+            </tr></thead>
+            <tbody id="body-ped"></tbody>
+          </table>
+        </aside>
       </div>
     </section>
 
@@ -666,7 +744,7 @@
         <p id="confirm-del-msg" style="margin:0;font-size:13px;line-height:1.5"></p>
         <div style="display:flex;gap:10px;justify-content:flex-end">
           <button onclick="cerrarConfirmDel()">Cancelar</button>
-          <button class="primary" style="background:var(--error)" onclick="ejecutarConfirmDel()">Sí, eliminar</button>
+          <button class="primary" id="confirm-del-ok" style="background:var(--error)" onclick="ejecutarConfirmDel()">Sí, eliminar</button>
         </div>
       </div>
     </div>
@@ -1076,6 +1154,8 @@ async function cargarP() {
 // ════════════════ Común (tabs, controles, CSV) ════════════════
 const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
   <div style="color:var(--faint);font-size:12px">¿Está Siga accesible?</div>`;
+// Escape de texto proveniente de datos antes de inyectarlo en HTML
+const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const nuevoTag = (r) => r.esNuevo ? `<span title="Primera compra: ${r.primeraCompra || '?'}" style="background:rgba(41,128,185,.15);color:#2980b9;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid rgba(41,128,185,.4);font-size:10px;margin-left:5px">NUEVO</span>` : '';
 let tabActual = 'almacen';
 // ── Modo pesables: Sala (habilita modal carga producción) / Preparación (lo deshabilita) ──
@@ -2025,18 +2105,61 @@ function _initEnvioEditListeners() {
 
 // ════════════════ MODAL REGISTRO PRODUCCIÓN ════════════════
 let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
+let _mrDesdeOrden = false;   // true → los datos del registro salen de la orden, no de datosP
+// Línea de orden que originó esta apertura, para marcarla como 'cargado' al guardar. Van juntos con
+// _mrDesdeOrden y se resetean en TODAS las otras aperturas (tabla lateral, edición, actividad) y al
+// cerrar: el marcado sólo puede dispararse en el camino que efectivamente vino de una orden.
+// _mrOrdenPlu es el PLU de la LÍNEA, no el del producto de carga contra el que se imputa.
+let _mrOrdenId = null, _mrOrdenPlu = '';
+// Secuencia de aperturas del modal: la apertura desde una orden es asíncrona (resuelve el producto
+// de carga contra el server), así que cada apertura toma un número y descarta su resultado si en el
+// medio se abrió otra. Sin esto, dos clicks seguidos podrían mezclar datos de dos líneas.
+let _mrOpenSeq = 0;
+function _mrNuevaApertura() { return ++_mrOpenSeq; }
+
+// ── Producto de carga de una línea mayorista ──
+// Cachea por PLU la respuesta del server (siempre 200, con `plu:null` + `motivo` si no resuelve).
+// Los errores de red NO se cachean, para que un reintento vuelva a consultar.
+const _destCarga = new Map();       // plu → respuesta ya resuelta del server
+const _destCargaPend = new Map();   // plu → promesa en vuelo (evita pedir dos veces el mismo PLU)
+function resolverDestinoCarga(plu) {
+  const k = String(plu == null ? '' : plu);
+  if (_destCarga.has(k)) return Promise.resolve(_destCarga.get(k));
+  if (_destCargaPend.has(k)) return _destCargaPend.get(k);
+  const p = (async () => {
+    try {
+      const res = await fetch(`/api/mayoristas/producto-carga?plu=${encodeURIComponent(k)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (!d || typeof d !== 'object') throw new Error('respuesta inesperada del servidor');
+      _destCarga.set(k, d);
+      return d;
+    } catch (e) {
+      return { plu: null, motivo: `no se pudo consultar el servidor (${e.message})` };
+    } finally {
+      _destCargaPend.delete(k);
+    }
+  })();
+  _destCargaPend.set(k, p);
+  return p;
+}
 function _buildModalForm(vals) {
-  const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}"${vals.empleado===e.nombre?' selected':''}>${e.nombre}</option>`).join('');
+  // Todo lo que viene de datos (productos, órdenes de mayoristas, responsables, texto del usuario) va escapado.
+  const empOpts = fracEmpleados.map(e => `<option value="${escHtml(e.nombre)}"${vals.empleado===e.nombre?' selected':''}>${escHtml(e.nombre)}</option>`).join('');
+  const granelCons = vals.granelConsumido != null ? vals.granelConsumido
+    : (vals.cantFraccionada ? +((vals.cantFraccionada) * _mrCantFormula).toFixed(2) : '');
   document.getElementById('mr-form').innerHTML = `
-    <div class="reg-field"><label>Producto</label><span class="val">${vals.plu} – ${vals.nombre||''}</span></div>
-    <div class="reg-field"><label>Granel</label><span class="val">${vals.granel||'–'}${vals.nombreGranel?' – '+vals.nombreGranel:''}</span></div>
+    ${vals.origen ? `<div class="reg-origen">${escHtml(vals.origen)}</div>` : ''}
+    ${vals.aviso ? `<div class="reg-aviso">⚠ ${escHtml(vals.aviso)}</div>` : ''}
+    <div class="reg-field"><label>Producto</label><span class="val">${escHtml(vals.plu)} – ${escHtml(vals.nombre)}</span></div>
+    <div class="reg-field"><label>Granel</label><span class="val">${escHtml(vals.granel||'–')}${vals.nombreGranel?' – '+escHtml(vals.nombreGranel):''}</span></div>
     ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
-    <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${vals.cantFraccionada||''}" min="0"></div>
-    <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${vals.granelConsumido!=null?vals.granelConsumido:(vals.cantFraccionada?+((vals.cantFraccionada)*_mrCantFormula).toFixed(2):'')}" min="0"></div>
+    <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${escHtml(vals.cantFraccionada||'')}" min="0"></div>
+    <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${escHtml(granelCons)}" min="0"></div>
     <div class="reg-field"><label>Empleado</label><select id="mr-emp"><option value="">— seleccionar —</option>${empOpts}</select></div>
-    <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value="${vals.desde||''}"></div>
-    <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value="${vals.hasta||''}"></div>
-    <div class="reg-field"><label>Observación</label><textarea id="mr-obs" rows="2" style="font-family:var(--body);resize:vertical;width:100%;max-width:280px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1)">${vals.observacion||''}</textarea></div>
+    <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value="${escHtml(vals.desde||'')}"></div>
+    <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value="${escHtml(vals.hasta||'')}"></div>
+    <div class="reg-field"><label>Observación</label><textarea id="mr-obs" rows="2" style="font-family:var(--body);resize:vertical;width:100%;max-width:280px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--surface1)">${escHtml(vals.observacion||'')}</textarea></div>
     <div class="reg-consumo"><small>Sugerido = cantidad × fórmula ${_mrCantFormula}. Editá «Granel utilizado» si el consumo real difiere.</small></div>`;
   const _gcEl = document.getElementById('mr-granel-cons');
   const _cantEl = document.getElementById('mr-cant');
@@ -2051,11 +2174,14 @@ function _buildModalForm(vals) {
 }
 async function abrirModalRegistro(plu, force) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
+  const seq = _mrNuevaApertura();
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   let r = datosP.find(x => String(x.plu) === String(plu));
   if (!r) {
     const ped = datosPed.find(x => String(x.plu) === String(plu));
     if (!ped) return;
     const formula = await fetch(`/api/distribucion/pedido-formula/${plu}`).then(x => x.json()).catch(() => []);
+    if (seq !== _mrOpenSeq) return;   // se abrió otro modal mientras se pedía la fórmula
     const comp = formula[0] || {};
     r = { plu: ped.plu, nombre: ped.nombre, granel: comp.plu || null, nombreGranel: comp.nombre || '', cantFormula: comp.cantidad || 1, D: null };
   }
@@ -2068,7 +2194,71 @@ async function abrirModalRegistro(plu, force) {
   document.getElementById('mr-err').style.display = 'none';
   document.getElementById('modal-registro').classList.add('open');
 }
+// Abre el modal de registro a partir de una línea de orden de fraccionado.
+// El registro NO se imputa al producto mayorista de la línea sino al "producto de carga" que
+// resuelve el backend (presentación <=1kg → minorista de la misma presentación; >1kg → " PEDIDOS").
+// Si no se puede resolver se avisa y se abre con el mayorista original: el operador decide.
+// `ordenId` es el id de la orden dueña de la línea: sin él no se puede marcar la línea al guardar.
+async function abrirModalRegistroDesdeOrden(linea, ordenId) {
+  if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
+  if (!linea) return;
+  // Token de apertura: la resolución es async, así que si mientras tanto se abre otro modal
+  // (otra línea, la tabla lateral, edición, actividad) esta apertura se descarta y no pisa nada.
+  const seq = _mrNuevaApertura();
+  const dest = await resolverDestinoCarga(linea.plu);
+  if (seq !== _mrOpenSeq) return;
+  pintarDestinoEnLista(linea.plu, dest);
+
+  const pluLinea = String(linea.plu);
+  const nombreLinea = linea.nombre || pluLinea;
+  const resuelto = dest && dest.plu != null;
+  const mismoProducto = resuelto && String(dest.plu) === pluLinea;
+
+  _mrActividadMode = false;
+  _mrDesdeOrden = true;
+  // Se setea DESPUÉS del chequeo de secuencia de arriba: una apertura que quedó vieja ya retornó,
+  // así que nunca puede dejar apuntada la línea equivocada.
+  _mrOrdenId = ordenId != null ? ordenId : null;
+  _mrOrdenPlu = pluLinea;
+  _mrEditId = null;
+  if (resuelto) {
+    _mrPlu = String(dest.plu);
+    _mrNombre = dest.nombre || '';
+    // Granel y fórmula del destino. Si el destino no tiene fórmula activa se conserva la de la
+    // línea (mismo granel en la práctica) para no dejar el consumo sugerido en cero.
+    _mrGranel = dest.granelPlu || linea.granelPlu || null;
+    _mrNombreGranel = dest.granelNombre || linea.granelNombre || '';
+    _mrCantFormula = dest.cantPorUnidad || linea.cantPorUnidad || 1;
+  } else {
+    _mrPlu = pluLinea;
+    _mrNombre = nombreLinea;
+    _mrGranel = linea.granelPlu || null;
+    _mrNombreGranel = linea.granelNombre || '';
+    _mrCantFormula = linea.cantPorUnidad || 1;
+  }
+
+  // Cuando el destino es el mismo producto de la línea no se muestra cartel: sería confuso leer
+  // "se carga contra Ajo En Polvo 1Kg" en el modal de Ajo En Polvo 1Kg.
+  const origen = (resuelto && !mismoProducto)
+    ? `Se carga ${_mrNombre} (${_mrPlu}) por la línea mayorista ${nombreLinea} (${pluLinea}) de la orden`
+      + (dest.via === 'minorista' ? ', por presentación de venta minorista.' : ', por producto de PEDIDOS.')
+    : '';
+  const aviso = resuelto ? '' :
+    `No se pudo resolver el producto de carga de ${nombreLinea}: ${(dest && dest.motivo) || 'motivo desconocido'}. `
+    + 'Se abre con el producto de la orden — verificá antes de guardar.';
+
+  const h3 = document.getElementById('modal-registro').querySelector('h3');
+  h3.textContent = 'Registro de Producción';
+  h3.style.color = '';
+  _buildModalForm({ plu: _mrPlu, nombre: _mrNombre, granel: _mrGranel, nombreGranel: _mrNombreGranel,
+    D: null, cantFraccionada: linea.cantidad || '', empleado: (fracAsig[_mrPlu]||[])[0]||'', desde:'', hasta:'', observacion:'',
+    origen, aviso });
+  document.getElementById('mr-err').style.display = 'none';
+  document.getElementById('modal-registro').classList.add('open');
+}
 function abrirModalEdicion(reg) {
+  _mrNuevaApertura();
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   _mrPlu = String(reg.plu); _mrEditId = reg.id;
   _mrCantFormula = reg.cantFormula || 1;
   document.getElementById('modal-registro').querySelector('h3').textContent = 'Editar Registro';
@@ -2081,7 +2271,9 @@ function abrirModalEdicion(reg) {
 let _mrActividadMode = false;
 function abrirModalActividad() {
   if (!pCargado) return;
+  _mrNuevaApertura();
   _mrActividadMode = true;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   _mrPlu = 'ACT'; _mrEditId = null; _mrCantFormula = 0; _mrGranel = null; _mrNombreGranel = ''; _mrNombre = 'Actividad';
   const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}">${e.nombre}</option>`).join('');
   document.getElementById('mr-form').innerHTML = `
@@ -2120,7 +2312,7 @@ async function guardarRegistro() {
     observacion: document.getElementById('mr-obs').value,
   };
   if (!_mrEditId) {
-    const r = datosP.find(x => String(x.plu) === _mrPlu);
+    const r = _mrDesdeOrden ? null : datosP.find(x => String(x.plu) === _mrPlu);
     const emp = payload.empleado;
     Object.assign(payload, {
       plu: _mrPlu,
@@ -2143,16 +2335,35 @@ async function guardarRegistro() {
     document.getElementById('mr-err').style.display = '';
     return;
   }
+  // Línea de orden a marcar como cargada. Se captura ANTES de resetear el estado del modal y sólo
+  // en el alta que vino de una orden: editar un registro existente (_mrEditId) no vuelve a marcar,
+  // y la tabla lateral, la tab Producción y Actividad nunca setean _mrDesdeOrden.
+  const marcar = (!_mrEditId && _mrDesdeOrden && _mrOrdenId != null && _mrOrdenPlu)
+    ? { ordenId: _mrOrdenId, plu: _mrOrdenPlu, cant } : null;
   _mrActividadMode = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
   if (tabActual === 'produccion') cargarProduccion();
   else document.getElementById('pillProd').textContent = '+';
   await cargarProdHoy();
   if (pCargado) renderP();
+  if (marcar) {
+    // El registro de producción YA quedó guardado. Si el marcado falla no se revierte ni se pierde
+    // nada: se recarga la lista para que muestre el estado real y se avisa que la línea quedó sin
+    // marcar, así la encargada no cree que se marcó algo que no se marcó.
+    const r = await marcarLineaOrdenFrac(marcar.ordenId, marcar.plu, 'cargado', marcar.cant);
+    await cargarOrdenesFrac();
+    if (!r.ok) {
+      mostrarAvisoOrden(`La producción se guardó bien, pero la línea ${marcar.plu} de la orden `
+        + `#${marcar.ordenId} NO quedó marcada como cargada (${r.error}). Marcala a mano.`);
+    }
+  }
 }
 function cerrarModalRegistro() {
+  _mrNuevaApertura();   // descarta cualquier apertura async todavía en vuelo
   _mrActividadMode = false;
+  _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
 }
@@ -2160,7 +2371,7 @@ document.getElementById('mr-close').addEventListener('click', cerrarModalRegistr
 document.getElementById('mr-cancel').addEventListener('click', cerrarModalRegistro);
 document.getElementById('mr-save').addEventListener('click', guardarRegistro);
 document.getElementById('modal-registro').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalRegistro(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('modal-registro').classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModalRegistro(); });
 
 // ════════════════ RESPONSABLES ════════════════
 function renderResponsablesLista() {
@@ -2201,26 +2412,281 @@ document.getElementById('modal-responsables').addEventListener('click', e => { i
 
 // ════════════════ TAB PEDIDOS ════════════════
 let datosPed = [], pedCargado = false;
+let ordenesFrac = [];   // órdenes de fraccionado pendientes (origen mayoristas)
+
+// ── Resumen de la tab: el pill cuenta órdenes pendientes (lo accionable) ──
+function actualizarResumenPed(prodFiltrados) {
+  const lineas = ordenesFrac.reduce((s,o) => s + (o.lineas||[]).length, 0);
+  document.getElementById('pillPed').textContent = ordenesFrac.length;
+  document.getElementById('pedResumen').innerHTML =
+    `<span class="stat"><b>${ordenesFrac.length}</b> órdenes pend.</span>` +
+    `<span class="stat"><b>${lineas}</b> líneas</span>` +
+    `<span class="stat"><b>${prodFiltrados}</b> productos</span>`;
+}
+
 function renderPedidos() {
   const q = (document.getElementById('qPed').value||'').trim().toLowerCase();
   const rows = datosPed.filter(r => !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
-  document.getElementById('pillPed').textContent = rows.length;
-  document.getElementById('pedResumen').innerHTML = `<span class="stat"><b>${rows.length}</b> productos</span>`;
+  actualizarResumenPed(rows.length);
   const st = document.getElementById('ped-state');
   const tb = document.getElementById('tabla-ped');
   if (!rows.length) { tb.style.display='none'; st.style.display='flex'; st.className='state'; st.innerHTML='<div>Sin resultados</div>'; return; }
   st.style.display = 'none'; tb.style.display = '';
   document.getElementById('body-ped').innerHTML = rows.map(r => {
-    return `<tr data-plu="${r.plu}" style="cursor:pointer">
-      <td class="l plu">${r.plu}</td>
-      <td class="l nombre">${r.nombre||''}</td>
-      <td class="l" style="color:var(--muted);font-size:12px">${r.rubro||'·'}</td>
-      <td style="text-align:center">${r.esCompuesto ? '✓' : '·'}</td>
-      <td><button class="frac-expand-btn" onclick="event.stopPropagation();modalFormulaPedido('${r.plu}','${(r.nombre||'').replace(/'/g,'')}')">Ver fórmula</button></td>
+    return `<tr data-plu="${escHtml(r.plu)}" style="cursor:pointer">
+      <td class="l plu">${escHtml(r.plu)}</td>
+      <td class="l nombre">${escHtml(r.nombre)}${r.esCompuesto ? ' <span title="Compuesto" style="color:var(--faint)">✓</span>' : ''}
+        <div style="color:var(--faint);font-size:11px">${escHtml(r.rubro || '·')}</div></td>
+      <td><button class="frac-expand-btn" title="Ver fórmula" data-plu="${escHtml(r.plu)}" data-nombre="${escHtml(r.nombre)}"
+        onclick="event.stopPropagation();modalFormulaPedido(this.dataset.plu, this.dataset.nombre)">ƒ</button></td>
     </tr>`;
   }).join('');
 }
+
+// ── Órdenes de fraccionado pendientes ──
+// Espejo de ESTADOS_LINEA de ordenes_fraccionado.js: una línea con un estado desconocido (o sin
+// estado, como las órdenes guardadas antes de este campo) se muestra como pendiente.
+const ESTADOS_LINEA_ORD = ['pendiente', 'cargado', 'sin_stock'];
+
+// Aviso persistente sobre la lista de órdenes. Se usa cuando algo quedó a medias y el usuario
+// tiene que enterarse aunque la lista se recargue (no lo limpia renderOrdenesFrac).
+function mostrarAvisoOrden(msg) {
+  const el = document.getElementById('ord-aviso');
+  el.textContent = `⚠ ${msg}`;
+  el.style.display = 'flex';
+}
+function limpiarAvisoOrden() {
+  const el = document.getElementById('ord-aviso');
+  el.textContent = '';
+  el.style.display = 'none';
+}
+
+// PUT del estado de UNA línea. Nunca tira: devuelve {ok,error} porque los tres llamadores (guardar
+// producción, "sin stock", volver a pendiente) tienen que poder avisar sin romper la vista.
+async function marcarLineaOrdenFrac(ordenId, plu, estado, cargadoCant) {
+  const url = `/api/mayoristas/ordenes-fraccionado/${encodeURIComponent(ordenId)}`
+            + `/lineas/${encodeURIComponent(plu)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado, cargadoCant }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => null);
+      return { ok: false, error: (d && d.error) || `HTTP ${res.status}` };
+    }
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: e.message || 'error de red' };
+  }
+}
+
+// Aplica el cambio y refresca. Se recarga la lista incluso si falló, para que quede a la vista el
+// estado real de la orden y no el que el usuario cree que dejó.
+async function aplicarEstadoLinea(ordenId, plu, estado, cargadoCant, msgError) {
+  const r = await marcarLineaOrdenFrac(ordenId, plu, estado, cargadoCant);
+  await cargarOrdenesFrac();
+  if (!r.ok) mostrarAvisoOrden(`${msgError} (${r.error})`);
+}
+
+function _lineaDeOrden(ordenId, plu) {
+  const orden = ordenesFrac.find(o => String(o.id) === String(ordenId));
+  return orden && (orden.lineas || []).find(l => String(l.plu) === String(plu));
+}
+
+function pedirSinStockLinea(ordenId, plu) {
+  const l = _lineaDeOrden(ordenId, plu);
+  if (!l) return;
+  abrirConfirmDel('Sin stock',
+    `¿Marcar "${l.nombre || plu}" como sin stock? No se va a fraccionar en esta orden. `
+    + 'Si te equivocaste podés volverla a pendiente después.',
+    () => aplicarEstadoLinea(ordenId, plu, 'sin_stock', 0,
+      'No se pudo marcar la línea como sin stock.'),
+    'Sí, sin stock');
+}
+
+function pedirVolverPendienteLinea(ordenId, plu) {
+  const l = _lineaDeOrden(ordenId, plu);
+  if (!l) return;
+  abrirConfirmDel('Volver a pendiente',
+    `¿Volver "${l.nombre || plu}" a pendiente? Se borra el estado de la línea, pero los registros `
+    + 'de producción ya cargados no se modifican.',
+    () => aplicarEstadoLinea(ordenId, plu, 'pendiente', 0,
+      'No se pudo volver la línea a pendiente.'),
+    'Sí, volver a pendiente');
+}
+
+function renderOrdenesFrac() {
+  const cont = document.getElementById('ord-lista');
+  const st = document.getElementById('ord-state');
+  st.style.display = 'none';
+  if (!ordenesFrac.length) {
+    cont.innerHTML = '';
+    st.style.display = 'flex'; st.className = 'state';
+    st.innerHTML = '<div>No hay órdenes de fraccionado pendientes.</div>';
+    return;
+  }
+  cont.innerHTML = ordenesFrac.map(o => {
+    const t = o.totales || {};
+    const lineas = (o.lineas || []).map((l, i) => {
+      const clientes = Array.isArray(l.clientes) ? l.clientes : [];
+      const detalle = clientes.length
+        ? `<details class="ord-clientes" onclick="event.stopPropagation()">
+             <summary>${clientes.length} cliente${clientes.length===1?'':'s'}</summary>
+             <ul>${clientes.map(c => `<li>${escHtml(c.nombre)}: ${escHtml(c.pendiente)} un.</li>`).join('')}</ul>
+           </details>`
+        : (l.manual ? '<div class="ord-manual">Agregado manualmente, sin pedidos asociados.</div>' : '');
+      // Una línea ya resuelta (cargada o sin stock) NO abre el modal: evita la doble carga
+      // accidental. Su única acción es volver a 'pendiente', que es el camino para corregirse.
+      const estado = ESTADOS_LINEA_ORD.includes(l.estado) ? l.estado : 'pendiente';
+      const resuelta = estado !== 'pendiente';
+      const badge = estado === 'cargado'
+        ? `<span class="ord-estado cargado">✓ Cargada: ${escHtml(l.cargadoCant)} un.`
+          + `${l.cargadoFecha ? ' · ' + escHtml(l.cargadoFecha) : ''}`
+          // Las órdenes cargadas antes de que se guardara la hora no la tienen: se muestra
+          // sólo la fecha en vez de un horario inventado.
+          + `${l.cargadoHora ? ' ' + escHtml(l.cargadoHora) + ' hs' : ''}</span>`
+        : estado === 'sin_stock' ? '<span class="ord-estado sin-stock">✕ Sin stock</span>' : '';
+      const acciones = resuelta
+        ? `<button data-pendiente-ord="${escHtml(o.id)}" data-pendiente-plu="${escHtml(l.plu)}"
+             title="Volver la línea a pendiente">↺ Pendiente</button>`
+        : `<span class="ord-go">Cargar ▸</span>
+           <button data-sinstock-ord="${escHtml(o.id)}" data-sinstock-plu="${escHtml(l.plu)}"
+             title="Marcar la línea como sin stock">Sin stock</button>`;
+      const idx = estado === 'cargado' ? '✓' : estado === 'sin_stock' ? '✕' : String(i + 1);
+      const clases = 'ord-linea' + (resuelta ? ' lin-resuelta' : '')
+        + (estado === 'cargado' ? ' lin-cargado' : estado === 'sin_stock' ? ' lin-sin-stock' : '');
+      return `<div class="${clases}" data-ord="${escHtml(o.id)}" data-lin="${i}" data-estado="${escHtml(estado)}"
+        title="${resuelta ? 'Línea ya resuelta' : 'Cargar producción de esta línea'}">
+        <span class="ord-idx">${idx}</span>
+        <div class="ord-prod">
+          <b>${escHtml(l.nombre)}</b> <span style="color:var(--faint);font-size:11px">${escHtml(l.plu)}</span>
+          <div class="ord-granel">Granel: ${escHtml(l.granelNombre || '–')}${l.granelPlu ? ' ('+escHtml(l.granelPlu)+')' : ''}</div>
+          ${resuelta ? '' : `<div class="ord-carga" data-carga-plu="${escHtml(l.plu)}">Producto de carga: …</div>`}
+        </div>
+        <div class="ord-nums">
+          <span class="stat key"><b>${escHtml(l.cantidad)}</b> un.</span>
+          <span class="stat"><b>${fmt(l.granelNecesario)}</b> kg granel</span>
+          ${badge}
+        </div>
+        <div class="ord-lin-acc">${acciones}</div>
+        ${detalle}
+      </div>`;
+    }).join('');
+    const p = o.progreso || {};
+    const totLin = p.total != null ? p.total : (o.lineas || []).length;
+    const progreso = `${p.cargadas || 0} de ${totLin} cargada${(p.cargadas || 0) === 1 ? '' : 's'}`
+      + (p.sinStock ? ` · ${p.sinStock} sin stock` : '');
+    // Resueltas = cargadas + sin stock: son las líneas sobre las que ya no hay nada que hacer,
+    // así que la barra llega al 100% recién cuando la orden se puede cerrar.
+    const resueltasOrd = (p.cargadas || 0) + (p.sinStock || 0);
+    const pct = totLin ? Math.round(resueltasOrd * 100 / totLin) : 0;
+    return `<div class="ord-card${pct === 100 ? ' ord-completa' : ''}">
+      <div class="ord-head">
+        <span class="ord-fecha">📋 ${escHtml(o.fecha)}</span>
+        <span class="ord-id">#${escHtml(o.id)}</span>
+        <span class="ord-prog-wrap" title="${escHtml(progreso)}">
+          <span class="ord-prog-bar"><i style="width:${pct}%"></i></span>
+          <span class="ord-prog">${escHtml(progreso)}</span>
+        </span>
+        <span class="stat"><b>${escHtml(t.lineas != null ? t.lineas : (o.lineas||[]).length)}</b> líneas</span>
+        <span class="stat"><b>${escHtml(t.unidades != null ? t.unidades : '·')}</b> unidades</span>
+        <span class="stat"><b>${fmt(t.kgGranel)}</b> kg granel</span>
+        <span class="ord-acc"><button class="primary" data-cerrar="${escHtml(o.id)}">✓ Cerrar orden</button></span>
+      </div>
+      ${lineas || '<div class="ord-linea" style="cursor:default;color:var(--faint)">Orden sin líneas.</div>'}
+    </div>`;
+  }).join('');
+  // Lo ya cacheado se pinta al instante; el resto se resuelve en una única pasada acotada.
+  _destCarga.forEach((d, plu) => pintarDestinoEnLista(plu, d));
+  precargarDestinosCarga();
+}
+
+// Pinta en la lista el producto de carga de todas las líneas con ese PLU. Se busca por dataset y
+// no por selector para no armar un selector con datos (los PLU vienen del server).
+function pintarDestinoEnLista(plu, dest) {
+  const k = String(plu);
+  const resuelto = dest && dest.plu != null;
+  const mismo = resuelto && String(dest.plu) === k;
+  document.querySelectorAll('#ord-lista .ord-carga').forEach(el => {
+    if (el.dataset.cargaPlu !== k) return;
+    const linea = el.closest('.ord-linea');
+    if (resuelto) {
+      el.className = 'ord-carga';
+      el.innerHTML = mismo
+        ? 'Se carga contra este mismo producto.'
+        : `Se carga: <b>${escHtml(dest.nombre)}</b> (${escHtml(dest.plu)})`
+          + ` <span style="color:var(--faint)">${dest.via === 'minorista' ? 'minorista' : 'PEDIDOS'}</span>`;
+      if (linea) linea.classList.remove('sin-destino');
+    } else {
+      el.className = 'ord-carga warn';
+      el.textContent = `⚠ Sin producto de carga: ${(dest && dest.motivo) || 'motivo desconocido'}`;
+      if (linea) linea.classList.add('sin-destino');
+    }
+  });
+}
+
+// Una sola pasada por PLU único de las órdenes visibles, de a 3 en paralelo. Deduplicar por PLU y
+// cachear la respuesta evita repetir consultas entre órdenes y entre re-renders; el tope de
+// paralelismo evita abrirle 30 consultas SQL simultáneas al server al pintar la lista.
+const MAX_CONSULTAS_CARGA = 3;
+async function precargarDestinosCarga() {
+  // Sólo las líneas pendientes: las ya resueltas no muestran el producto de carga, así que
+  // consultarlas sería una consulta SQL al pedo.
+  const plus = [...new Set(ordenesFrac.flatMap(o => (o.lineas || [])
+    .filter(l => (l.estado || 'pendiente') === 'pendiente').map(l => String(l.plu))))]
+    .filter(p => p && !_destCarga.has(p));
+  if (!plus.length) return;
+  let i = 0;
+  const worker = async () => {
+    while (i < plus.length) {
+      const plu = plus[i++];
+      pintarDestinoEnLista(plu, await resolverDestinoCarga(plu));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(MAX_CONSULTAS_CARGA, plus.length) }, worker));
+}
+
+async function cargarOrdenesFrac() {
+  const st = document.getElementById('ord-state');
+  const cont = document.getElementById('ord-lista');
+  cont.innerHTML = '';
+  limpiarAvisoOrden();
+  st.style.display = 'flex'; st.className = 'state';
+  st.innerHTML = '<div class="spinner"></div><div>Cargando órdenes…</div>';
+  try {
+    const all = await fetch('/api/mayoristas/ordenes-fraccionado').then(r => r.json());
+    ordenesFrac = (Array.isArray(all) ? all : []).filter(o => o.estado === 'pendiente');
+    renderOrdenesFrac();
+  } catch(e) {
+    ordenesFrac = [];
+    st.style.display = 'flex'; st.className = 'state err'; st.innerHTML = errHTML(e.message);
+  }
+  actualizarResumenPed(datosPed.length);
+}
+
+function cerrarOrdenFrac(id) {
+  const orden = ordenesFrac.find(o => String(o.id) === String(id));
+  if (!orden) return;
+  abrirConfirmDel('Cerrar orden',
+    `¿Cerrar la orden del ${orden.fecha}? Dejará de aparecer en la lista de pendientes. Los registros de producción ya cargados no se modifican.`,
+    async () => {
+      const res = await fetch(`/api/mayoristas/ordenes-fraccionado/${encodeURIComponent(id)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'aplicada' }),
+      });
+      if (!res.ok) {
+        const st = document.getElementById('ord-state');
+        st.style.display = 'flex'; st.className = 'state err';
+        st.innerHTML = errHTML('No se pudo cerrar la orden.');
+        return;
+      }
+      await cargarOrdenesFrac();
+    }, 'Sí, cerrar');
+}
+
 async function cargarPedidos() {
+  cargarOrdenesFrac();
   if (pedCargado) { renderPedidos(); return; }
   if (!pCargado) cargarP();
   const st = document.getElementById('ped-state');
@@ -2239,6 +2705,20 @@ document.getElementById('tabla-ped').addEventListener('click', e => {
   if (e.target.closest('button')) return;
   const tr = e.target.closest('tr[data-plu]');
   if (tr) abrirModalRegistro(tr.dataset.plu, true);
+});
+document.getElementById('ord-lista').addEventListener('click', e => {
+  const btnCerrar = e.target.closest('button[data-cerrar]');
+  if (btnCerrar) { cerrarOrdenFrac(btnCerrar.dataset.cerrar); return; }
+  const btnSin = e.target.closest('button[data-sinstock-ord]');
+  if (btnSin) { pedirSinStockLinea(btnSin.dataset.sinstockOrd, btnSin.dataset.sinstockPlu); return; }
+  const btnPend = e.target.closest('button[data-pendiente-ord]');
+  if (btnPend) { pedirVolverPendienteLinea(btnPend.dataset.pendienteOrd, btnPend.dataset.pendientePlu); return; }
+  if (e.target.closest('button') || e.target.closest('details')) return;
+  const fila = e.target.closest('.ord-linea[data-ord]');
+  // Las líneas ya resueltas no abren el modal: la doble carga accidental es el error caro acá.
+  if (!fila || fila.classList.contains('lin-resuelta')) return;
+  const orden = ordenesFrac.find(o => String(o.id) === String(fila.dataset.ord));
+  if (orden) abrirModalRegistroDesdeOrden((orden.lineas || [])[+fila.dataset.lin], orden.id);
 });
 
 // ════════════════ TAB PRODUCCIÓN ════════════════
@@ -2282,10 +2762,11 @@ function renderProduccion() {
   document.getElementById('prodResumen').innerHTML = '';
 }
 let _confirmDelFn = null;
-function abrirConfirmDel(titulo, msg, fn) {
+function abrirConfirmDel(titulo, msg, fn, okTxt) {
   _confirmDelFn = fn;
   document.getElementById('confirm-del-title').textContent = titulo;
   document.getElementById('confirm-del-msg').textContent = msg;
+  document.getElementById('confirm-del-ok').textContent = okTxt || 'Sí, eliminar';
   document.getElementById('modal-confirm-del').classList.add('open');
 }
 function cerrarConfirmDel() {

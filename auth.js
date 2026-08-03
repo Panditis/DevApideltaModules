@@ -30,7 +30,7 @@ function guardarJSON(p, data) {
 // /api/distribucion, /api/plan, /api/produccion…) queda como "sólo requiere login".
 const CATALOGO_MODULOS = [
   { ref: 'a8020',               titulo: 'A8020 Calculado',          icon: 'bar-chart-2',   href: '/distribucion/a8020', rutasHtml: ['/distribucion/a8020'], apiPrefijos: [],                                  defaultRequiereAuth: true },
-  { ref: 'pedidos',             titulo: 'Pedidos',                  icon: 'clipboard-list', href: '/pedidos',            rutasHtml: ['/pedidos'],            apiPrefijos: ['/api/pedidos', '/api/facturas'],  defaultRequiereAuth: true },
+  { ref: 'pedidos',             titulo: 'Pedidos',                  icon: 'clipboard-list', href: '/pedidos',            rutasHtml: ['/pedidos'],            apiPrefijos: ['/api/pedidos', '/api/facturas', '/api/mayoristas'],  defaultRequiereAuth: true },
   { ref: 'planificacion',       titulo: 'Planificación',            icon: 'calendar-range', href: '/planificacion',      rutasHtml: ['/planificacion'],      apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'produccion',          titulo: 'Producción',               icon: 'factory',        href: '/produccion',         rutasHtml: ['/produccion'],         apiPrefijos: [],                                  defaultRequiereAuth: true },
   // Compras es un único módulo (el de reposición). '/compras-modulo' quedó como ruta
@@ -41,7 +41,9 @@ const CATALOGO_MODULOS = [
   { ref: 'distribucion',        titulo: 'Distribución y Fraccionado', icon: 'package',      href: '/distribucion',       rutasHtml: ['/distribucion'],       apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'ventas-hora',         titulo: 'Ventas por Hora',          icon: 'clock',          href: '/ventas-hora',        rutasHtml: ['/ventas-hora'],        apiPrefijos: ['/api/ventas-hora'],               defaultRequiereAuth: true },
   { ref: 'precios-proveedores', titulo: 'Precios de Proveedores',   icon: 'tags',           href: '/precios-proveedores', rutasHtml: ['/precios-proveedores'], apiPrefijos: ['/api/precios-proveedores'],     defaultRequiereAuth: true },
-  { ref: 'analisis-ventas',     titulo: 'Análisis de Ventas',       icon: 'bar-chart-3',    href: '/analisis-ventas',    rutasHtml: ['/analisis-ventas'],    apiPrefijos: ['/api/analisis-ventas'],           defaultRequiereAuth: true },
+  // El diagnóstico de quiebres cuelga de este módulo: mismo permiso, sin tile propio en el hub.
+  { ref: 'analisis-ventas',     titulo: 'Análisis de Ventas',       icon: 'bar-chart-3',    href: '/analisis-ventas',    rutasHtml: ['/analisis-ventas', '/diagnostico-quiebre'], apiPrefijos: ['/api/analisis-ventas'], defaultRequiereAuth: true },
+  { ref: 'analisis-central',    titulo: 'Análisis Casa Central',    icon: 'building-2',     href: '/analisis-central',   rutasHtml: ['/analisis-central'],   apiPrefijos: ['/api/analisis-central'],          defaultRequiereAuth: true },
   { ref: 'cuentas-corrientes',  titulo: 'Cuentas Corrientes',       icon: 'wallet',         href: '/cuentas-corrientes', rutasHtml: ['/cuentas-corrientes'], apiPrefijos: ['/api/cuentas-corrientes'],        defaultRequiereAuth: true },
   { ref: 'admin',               titulo: 'Centro de control',        icon: 'shield',         href: '/admin',              rutasHtml: ['/admin'],              apiPrefijos: ['/api/admin'],                     defaultRequiereAuth: true, soloAdmin: true },
 ];

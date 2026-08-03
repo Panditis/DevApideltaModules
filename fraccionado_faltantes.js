@@ -1,0 +1,66 @@
+'use strict';
+// Cálculo de faltantes fraccionables para las órdenes de fraccionado de Pedidos mayoristas.
+// Módulo puro a propósito: sin SQL ni lectura de archivos, así se puede testear con node:test.
+// Lo llama el endpoint /api/mayoristas/fraccionado-faltantes de server.js.
+
+// El granel se mide en kg con decimales; multiplicar y restar en punto flotante deja colas
+// (3 bolsas × 0.1kg da 0.30000000000000004, y 0.3 − 0.1 da 0.19999999999999998). Se recorta a
+// 6 decimales, que es la misma precisión que usa el DECIMAL(18,6) de sqlBOMGranel.
+function redondear(n) { return Math.round(n * 1e6) / 1e6; }
+
+/**
+ * @param {Array} pendientes  [{ plu, nombre, pendiente, stockCentral, clientes:[{idCliente,nombre,pendiente}] }]
+ * @param {Map}   bomGranel   plu -> { granelPlu, granelNombre, cantPorUnidad }
+ * @param {Map}   stockGranel granelPlu -> kg disponibles en la central
+ * @returns {Array} filas con faltante, sugerido, cubre, granelNecesario
+ */
+function calcularFaltantesFraccionado(pendientes, bomGranel, stockGranel) {
+  // Mismo criterio defensivo que el resto de la función: un llamador que todavía no resolvió el
+  // BOM o el stock manda undefined y acá reventaba con "not iterable" en vez de devolver [].
+  bomGranel = bomGranel || new Map();
+  stockGranel = stockGranel || new Map();
+
+  const candidatos = [];
+  for (const p of pendientes || []) {
+    const plu = String(p.plu == null ? '' : p.plu).trim();
+    if (!plu) continue;
+    const bom = bomGranel.get(plu);
+    if (!bom) continue;
+    const cantPorUnidad = Number(bom.cantPorUnidad);
+    if (!Number.isFinite(cantPorUnidad) || cantPorUnidad <= 0) continue;
+    const pendiente = Number(p.pendiente) || 0;
+    const stockCentral = Number(p.stockCentral) || 0;
+    const faltante = Math.max(0, pendiente - stockCentral);
+    if (faltante <= 0) continue;
+    candidatos.push({
+      plu, nombre: p.nombre || '', pendiente, stockCentral, faltante,
+      granelPlu: String(bom.granelPlu), granelNombre: bom.granelNombre || '', cantPorUnidad,
+      clientes: (p.clientes || []).map(c => ({ ...c })),
+    });
+  }
+  // Un mismo granel puede alimentar varias presentaciones. Se sirve primero al de mayor faltante
+  // y se descuenta de un saldo vivo, así dos presentaciones no comprometen los mismos kilos.
+  // El desempate por PLU mantiene la salida determinista ante faltantes iguales.
+  candidatos.sort((a, b) =>
+    b.faltante - a.faltante ||
+    String(a.plu).localeCompare(String(b.plu), undefined, { numeric: true }));
+
+  const saldo = new Map();
+  for (const [granelPlu, kg] of stockGranel) saldo.set(String(granelPlu), Number(kg) || 0);
+
+  return candidatos.map(c => {
+    // granelStock es el saldo AL PROCESAR ESTA FILA, no el stock total del granel: es lo que esta
+    // fila puede usar realmente una vez servidas las anteriores, y es lo que muestra la UI.
+    const granelStock = saldo.has(c.granelPlu) ? saldo.get(c.granelPlu) : 0;
+    // El redondeo va ANTES del floor: dividir kg por kg/unidad da cocientes que caen apenas por
+    // debajo del entero exacto (0.3 / 0.1 = 2.9999999999999996), y el floor crudo se comía una
+    // unidad entera, dejando granel sin usar. Redondear a la precisión del BOM recupera el entero.
+    const maxPorGranel = Math.floor(redondear(granelStock / c.cantPorUnidad));
+    const sugerido = Math.max(0, Math.min(c.faltante, maxPorGranel));
+    const granelNecesario = redondear(sugerido * c.cantPorUnidad);
+    saldo.set(c.granelPlu, redondear(granelStock - granelNecesario));
+    return { ...c, granelStock, sugerido, cubre: sugerido >= c.faltante, granelNecesario };
+  });
+}
+
+module.exports = { calcularFaltantesFraccionado };
