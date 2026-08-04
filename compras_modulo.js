@@ -59,6 +59,28 @@ function transicionValida(desde, hacia) {
   return Array.isArray(permitidos) && permitidos.includes(hacia);
 }
 
+// Fechas en 'YYYY-MM-DD' y aritmética en UTC: con hora local, un huso al oeste de
+// Greenwich corre la fecha un día para atrás al serializarla.
+const LEAD_TIME_FALLBACK = 14;
+
+function sumarDias(fechaISO, dias) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(fechaISO || ''));
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + (Number(dias) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+// data/lead_times.json: { "_default": 14, "<NOMBRE PROVEEDOR>": 4 }
+function leadTimeDeProveedor(leadTimes, proveedor) {
+  const lt = leadTimes || {};
+  const propio = Number(lt[proveedor]);
+  if (Number.isFinite(propio) && propio >= 0) return propio;
+  const def = Number(lt._default);
+  return Number.isFinite(def) && def >= 0 ? def : LEAD_TIME_FALLBACK;
+}
+
 // Construye el objeto orden persistible. id y fechaISO se inyectan desde el caller (server.js) — módulo puro sin Date.now().
 function construirOrden({ id, fechaISO, proveedor, items }) {
   const lista = Array.isArray(items) ? items : [];
@@ -74,4 +96,4 @@ function construirOrden({ id, fechaISO, proveedor, items }) {
 }
 
 module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,
-  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida };
+  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor };
