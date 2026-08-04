@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
-        progresoOrdenFraccionado, marcarLineaOrden, validarLineasNoRepetidas,
+        progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('../ordenes_fraccionado');
 
 // ── Ordenes de fraccionado mayorista: validacion, normalizacion y totales ─────────────────────
@@ -581,6 +581,141 @@ test('cargar cero unidades es valido: cierra la linea sin haber producido nada u
   assert.strictEqual(error, null);
   assert.strictEqual(nueva.lineas[0].estado, 'cargado');
   assert.strictEqual(nueva.lineas[0].cargadoCant, 0);
+});
+
+// ── editarLineaOrden: cambiar la cantidad pedida ──────────────────────────────────────────────
+// Pedidos mayoristas puede corregir la cantidad de una linea mientras la sala no la haya trabajado.
+
+test('editar la cantidad recalcula el granel necesario de la linea', () => {
+  // Arrange: 84 unidades a 0.2 kg c/u; se pasa a 100.
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = editarLineaOrden(orden, '30000',
+    { cantidad: 100, fecha: '2026-08-04', hora: '13:20' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].cantidad, 100);
+  assert.strictEqual(nueva.lineas[0].granelNecesario, 20);
+  assert.strictEqual(nueva.lineas[0].editadoFecha, '2026-08-04');
+  assert.strictEqual(nueva.lineas[0].editadoHora, '13:20');
+  assert.strictEqual(nueva.lineas[1].cantidad, 12);   // las demas no se tocan
+});
+
+test('editar con cantidad cero, negativa o no numerica devuelve error', () => {
+  // Arrange: mismo criterio que validarLineasFraccionado.
+  const orden = ordenDePrueba();
+
+  // Act + Assert
+  for (const cantidad of [0, -5, 'abc', undefined, null, NaN, Infinity]) {
+    const { orden: nueva, error } = editarLineaOrden(orden, '30000', { cantidad });
+    assert.strictEqual(nueva, null);
+    assert.strictEqual(error, 'Cantidad inválida en el PLU 30000');
+  }
+});
+
+test('editar un PLU que no esta en la orden devuelve error', () => {
+  // Arrange
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = editarLineaOrden(orden, '99999', { cantidad: 5 });
+
+  // Assert
+  assert.strictEqual(nueva, null);
+  assert.strictEqual(error, 'La orden no tiene una línea con el PLU 99999');
+});
+
+test('editar una linea ya resuelta se rechaza cualquiera sea el estado que la cerro', () => {
+  // Arrange: si la sala ya la trabajo, cambiar la cantidad desfasaria la produccion registrada.
+  // Para pedir mas se genera una orden nueva.
+  const orden = ordenDePrueba();
+
+  // Act + Assert
+  for (const estado of ['cargado', 'preparado', 'sin_stock']) {
+    const resuelta = marcarLineaOrden(orden, '30000',
+      { estado, cargadoCant: 84, fecha: '2026-08-04', hora: '09:00' }).orden;
+    const { orden: nueva, error } = editarLineaOrden(resuelta, '30000', { cantidad: 100 });
+    assert.strictEqual(nueva, null);
+    assert.strictEqual(error, 'La línea del PLU 30000 ya está resuelta y no se puede editar');
+  }
+});
+
+test('cantidadOriginal se sella en la primera edicion y no se pisa en las siguientes', () => {
+  // Arrange: Distribucion tiene que ver "pedia 84", no la penultima cantidad.
+  const orden = ordenDePrueba();
+
+  // Act
+  const primera = editarLineaOrden(orden, '30000', { cantidad: 100 }).orden;
+  const segunda = editarLineaOrden(primera, '30000', { cantidad: 120 }).orden;
+
+  // Assert
+  assert.strictEqual(primera.lineas[0].cantidadOriginal, 84);
+  assert.strictEqual(segunda.lineas[0].cantidadOriginal, 84);
+  assert.strictEqual(segunda.lineas[0].cantidad, 120);
+});
+
+test('editar reemplaza la nota si viene y la conserva si se omite', () => {
+  // Arrange: mandar '' es borrar la observacion; no mandarla es no tocarla.
+  const orden = {
+    ...ordenDePrueba(),
+    lineas: normalizarLineasFraccionado([lineaCompleta({ cantidad: 84, nota: 'bolsa chica' })]),
+  };
+
+  // Act
+  const reemplazada = editarLineaOrden(orden, '30000', { cantidad: 90, nota: 'va sin etiqueta' }).orden;
+  const borrada = editarLineaOrden(orden, '30000', { cantidad: 90, nota: '' }).orden;
+  const conservada = editarLineaOrden(orden, '30000', { cantidad: 90 }).orden;
+
+  // Assert
+  assert.strictEqual(reemplazada.lineas[0].nota, 'va sin etiqueta');
+  assert.strictEqual(borrada.lineas[0].nota, '');
+  assert.strictEqual(conservada.lineas[0].nota, 'bolsa chica');
+});
+
+test('editar una linea no muta la orden original ni sus lineas', () => {
+  // Arrange: la funcion es pura, el server persiste solo lo que devuelve.
+  const orden = ordenDePrueba();
+  const lineaOriginal = orden.lineas[0];
+
+  // Act
+  const { orden: nueva } = editarLineaOrden(orden, '30000', { cantidad: 100 });
+
+  // Assert
+  assert.strictEqual(orden.lineas[0].cantidad, 84);
+  assert.strictEqual(orden.lineas[0].granelNecesario, 16.8);
+  assert.strictEqual(orden.lineas[0].cantidadOriginal, 0);
+  assert.notStrictEqual(nueva, orden);
+  assert.notStrictEqual(nueva.lineas[0], lineaOriginal);
+  assert.strictEqual(nueva.lineas[1], orden.lineas[1]);   // las no tocadas se reusan
+});
+
+test('normalizar preserva el rastro de la edicion para que reenviar la orden no lo borre', () => {
+  // Arrange: el PUT de la orden renormaliza las lineas; el "pedia 84" tiene que sobrevivir.
+  const lineas = [lineaCompleta({ cantidad: 100, cantidadOriginal: 84,
+    editadoFecha: '2026-08-04', editadoHora: '13:20' })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.cantidadOriginal, 84);
+  assert.strictEqual(linea.editadoFecha, '2026-08-04');
+  assert.strictEqual(linea.editadoHora, '13:20');
+});
+
+test('una linea nunca editada se normaliza sin rastro de edicion', () => {
+  // Arrange: las ordenes guardadas antes de estos campos se leen igual.
+  const lineas = [lineaCompleta()];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.cantidadOriginal, 0);
+  assert.strictEqual(linea.editadoFecha, '');
+  assert.strictEqual(linea.editadoHora, '');
 });
 
 // ── Progreso ──────────────────────────────────────────────────────────────────────────────────

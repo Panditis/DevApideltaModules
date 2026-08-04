@@ -39,7 +39,7 @@
   table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums;background:var(--card)}
   thead th{position:sticky;top:0;z-index:5;background:var(--verde);color:#fff;padding:9px 8px;text-align:right;white-space:nowrap;font-family:var(--disp);font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-bottom:2px solid var(--verde-dark);cursor:pointer}
   thead th:hover{background:var(--verde-hover)}
-  thead th.l{text-align:left}thead th.suc,thead th.suc-rank{color:var(--amarillo)}
+  thead th.l{text-align:left}thead th.suc,thead th.suc-rank,thead th.suc-cons{color:var(--amarillo)}
   thead th small{display:block;font-family:var(--body);font-size:9.5px;font-weight:400;color:rgba(255,255,255,.6);text-transform:none;letter-spacing:0}
   tbody td{padding:0 8px;height:31px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);font-size:12.5px}
   tbody td.l{text-align:left}
@@ -54,6 +54,10 @@
   .abc.A{background:var(--verde);color:#fff}.abc.B{background:var(--amarillo-cont);color:var(--amarillo-on)}.abc.C{background:var(--surface3);color:var(--faint)}
   .rank{font-weight:700;font-size:10.5px;padding:2px 6px;border-radius:5px;display:inline-block;min-width:30px;text-align:center}
   .rank.hi{background:var(--verde);color:#fff}.rank.mid{background:var(--amarillo-cont);color:var(--amarillo-on)}.rank.lo{background:var(--surface3);color:var(--faint)}
+  td.cons{color:var(--muted);font-variant-numeric:tabular-nums}
+  td.cons span{cursor:help}
+  td.cons.via-bulto span{color:var(--verde-dark);font-weight:600}
+  td.cons.via-frac span{color:var(--amarillo-on);font-weight:600}
   .state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:70vh;gap:14px;color:var(--muted)}
   .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--verde);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
@@ -200,15 +204,23 @@ const sumS = (r)=> SUC.reduce((s,[k])=> s+(r.mins[k]||0),0);
 const RANK_SUFFIX = '_r';
 const rankCol = (k)=> k+RANK_SUFFIX;
 const sucOfRankCol = (c)=> c.slice(0,-RANK_SUFFIX.length);
+// Consumo real de la ventana: ventas ya imputadas al producto que sale del stock
+// (bulto → sus componentes, fraccionado → kg del granel). Informativo: no altera S ni min.
+// Rubro mayorista: se excluye del listado (su demanda vive en los componentes de su fórmula).
+const RUBRO_BULTO = 'Almacen Bultos/Cajas';
+const CONS_SUFFIX = '_c';
+const consCol = (k)=> k+CONS_SUFFIX;
+const sucOfConsCol = (c)=> c.slice(0,-CONS_SUFFIX.length);
 
 function construir(){
   const opsTxt = (k)=>{ const id=SUC_ID[k]; const n=(cache.opsDays||{})[id]; return n?`<small>${n}d op.</small>`:''; };
   const cols = [['plu','PLU','l'],['nombre','Producto','l'],['abc','ABC',''],['rankGeneral','Gral','']]
-    .concat(SUC.flatMap(([k,n])=>[[k,n,'suc'],[rankCol(k),'R','suc-rank']]))
+    .concat(SUC.flatMap(([k,n])=>[[k,n,'suc'],[rankCol(k),'R','suc-rank'],[consCol(k),'Cons','suc-cons']]))
     .concat([['tot','Σ S','']]);
   document.getElementById('head').innerHTML = cols.map(([k,n,cls])=>{
     const ar = orden.col===k ? (orden.dir<0?' ▼':' ▲') : '';
-    const sub = cls==='suc' ? opsTxt(k) : cls==='suc-rank' ? `<small>${sucOfRankCol(k)}</small>` : '';
+    const sub = cls==='suc' ? opsTxt(k) : cls==='suc-rank' ? `<small>${sucOfRankCol(k)}</small>`
+              : cls==='suc-cons' ? `<small>${sucOfConsCol(k)}</small>` : '';
     return `<th class="${cls||''}" data-col="${k}">${n}${ar}${sub}</th>`;
   }).join('');
   document.querySelectorAll('#head th').forEach(th=> th.onclick = ()=>{
@@ -220,6 +232,7 @@ function construir(){
 function valor(r,c){
   if(c==='tot') return sumS(r);
   if(c==='rankGeneral') return r.rankGeneral??-1;
+  if(c.endsWith(CONS_SUFFIX)) return (r.consumo||{})[sucOfConsCol(c)]||0;
   if(c.endsWith(RANK_SUFFIX)){ const k=sucOfRankCol(c); const d=(r.detalle||{})[k]||{}; return d.ranking??-1; }
   if(SUC.some(([k])=>k===c)) return r.mins[c]||0;
   if(c==='nombre') return (r.nombre||'').toLowerCase();
@@ -249,6 +262,21 @@ function matchClase(r,c){
   return true;
 }
 function setFiltro(c){ filtroClase = (filtroClase===c) ? null : c; render(); }
+// Celda de consumo real de la ventana para (producto, sucursal). El tooltip abre el desglose:
+// propio = ventas del PLU · bulto = ventas de bultos que lo llevan en la fórmula ·
+// fraccionado = ventas de fraccionados que salen de este granel (en kg).
+function consCell(r,k){
+  const v=(r.consumo||{})[k];
+  if(!(v>0)) return '<td class="cons">·</td>';
+  const o=(r.consumoOrigen||{})[k]||{};
+  const partes=[];
+  if(o.propio>0) partes.push(`propio ${fmt(o.propio)}`);
+  if(o.bulto>0) partes.push(`vía bultos ${fmt(o.bulto)}`);
+  if(o.fraccionado>0) partes.push(`vía fraccionado ${fmt(o.fraccionado)}`);
+  const cls = o.fraccionado>0 ? ' via-frac' : o.bulto>0 ? ' via-bulto' : '';
+  const tip = `Consumo real ventana ${cache.ventanaMeses}m: ${fmt(v)}`+(partes.length?`\n${partes.join('  ·  ')}`:'');
+  return `<td class="cons${cls}"><span title="${tip.replace(/"/g,'&quot;')}">${fmt(v)}</span></td>`;
+}
 function render(){
   const q=document.getElementById('q').value.trim().toLowerCase();
   let rows = filas.filter(r=> !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
@@ -270,7 +298,7 @@ function render(){
       const rk = d.ranking;
       const rkCls = rk==null ? '' : rk>=0.8 ? 'hi' : rk>=0.5 ? 'mid' : 'lo';
       const rkCell = rk==null ? '<td class="s">·</td>' : `<td><span class="rank ${rkCls}">${rk.toFixed(2)}</span></td>`;
-      return sCell + rkCell; }).join('');
+      return sCell + rkCell + consCell(r,k); }).join('');
     const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Primera compra reciente (ventana nuevo.dias). Recibe el piso de reposición de producto nuevo.">NUEVO</span>'
       : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
     const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
@@ -298,7 +326,14 @@ async function cargar(){
   const nuevosSet = new Set((cache.nuevos||[]).map(Number));
   const viejosSet = new Set((cache.viejos||[]).map(Number));
   const bootSet = new Set((cache.bootstrapped||[]).map(Number));
-  filas = Object.keys(cache.mins).map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, rankGeneral:(cache.rankingGeneral||{})[plu], nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
+  // Un granel puede tener consumo sin niveles propios (no se vende suelto): igual lleva fila,
+  // con las columnas S en '·' y el consumo cargado.
+  // Los bultos/cajas nunca son fila propia: su venta ya se imputó como consumo a los
+  // componentes de su fórmula, así que mostrarlos duplicaría la demanda en pantalla.
+  const plus = [...new Set([...Object.keys(cache.mins), ...Object.keys(cache.consumo||{})])]
+    .filter(plu => ((cache.rubros||{})[plu]||'') !== RUBRO_BULTO);
+  filas = plus.map(plu=>({ plu:Number(plu), nombre:(cache.nombres||{})[plu]||'', abc:(cache.abc||{})[plu]||'C', rubro:(cache.rubros||{})[plu]||'', mins:(cache.sLevels||{})[plu]||cache.mins[plu]||{}, trig:(cache.mins||{})[plu]||{}, detalle:(cache.detalle||{})[plu]||{}, rankGeneral:(cache.rankingGeneral||{})[plu],
+    consumo:(cache.consumo||{})[plu]||{}, consumoOrigen:(cache.consumoOrigen||{})[plu]||{}, nuevo:nuevosSet.has(Number(plu)), viejo:viejosSet.has(Number(plu)), bootstrap:bootSet.has(Number(plu)) }));
   construirRubroFiltro();
   construir(); render(); renderAnomalias(); actualizarBotonFijos();
   document.getElementById('state').style.display='none'; document.getElementById('tabla').style.display='';

@@ -17,6 +17,7 @@ const XLSX     = require('xlsx');
 const auth     = require('./auth');
 const { calcularAlmacen, pisoMinimo } = require('./distribucion');
 const comprasModulo = require('./compras_modulo');
+const prediccionConsumo = require('./prediccion_consumo');
 const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
@@ -24,9 +25,10 @@ const { universoLista, universoPesables } = require('./listas_universo');   // m
 const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
 const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('./producto_carga');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
-        progresoOrdenFraccionado, marcarLineaOrden, validarLineasNoRepetidas,
+        progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('./ordenes_fraccionado');
-const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS } = require('./a8020');
+const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
+        calcularConsumoReal, RUBRO_ALMACEN_BULTO } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
@@ -1184,6 +1186,7 @@ const ENVASES_REG_PATH = path.join(DATA_DIR, 'envases_registro.json'); // [{codi
 const TAPAS_REG_PATH   = path.join(DATA_DIR, 'tapas_registro.json');    // [{codigo,nombre,stock}]
 const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
 const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,nombre,cantPorUnidad}] }
+const TRACKING_PRODUCCION_PATH = path.join(DATA_DIR, 'tracking_produccion.json'); // [{plu,nombre}]
 // cfg entry puede ser: true|false  o  {activo:bool, granelPlu:string, mpManual:[], granelDirecto:bool}
 function cfgActivo(cfg, ref) { const v=cfg[ref]; if(v===undefined)return true; if(typeof v==='boolean')return v; return v.activo!==false; }
 function cfgGranelPlu(cfg, ref) { const v=cfg[ref]; return (v&&typeof v==='object')?String(v.granelPlu||'').trim():''; }
@@ -1198,6 +1201,13 @@ const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'presentaciones_compra.js
 // NOTA: no se reusa ORDENES_PATH (data/ordenes.json) porque ya está en uso por /api/ordenes y
 // /api/ordenes-produccion (órdenes de producción, dominio no relacionado) — archivo dedicado para no mezclar datos.
 const ORDENES_COMPRA_PATH = path.join(DATA_DIR, 'ordenes_compra.json');
+// Lead time por proveedor en días: { "_default": 14, "<NOMBRE PROVEEDOR>": 4 }. Se usa
+// al pasar la orden a ENVIADA para estimar la fecha de llegada. Si el archivo no existe,
+// compras_modulo cae al default (14 días), así que no hace falta crearlo a mano.
+const LEAD_TIMES_PATH = path.join(DATA_DIR, 'lead_times.json');
+// Serie mensual de consumo (24 meses) para la predicción de compra. Se recalcula
+// bajo demanda: es una consulta pesada y el dato cambia una vez por día como mucho.
+const CONSUMO_MENSUAL_PATH = path.join(DATA_DIR, 'consumo_mensual.json');
 
 function leerJSON(p, def) { try { if (!fs.existsSync(p)) return def; return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return def; } }
 function guardarJSON(p, data) { fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8'); }
@@ -1376,6 +1386,23 @@ app.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
 app.get('/api/mayoristas/ordenes-fraccionado/plus-activos', apiRoute(async () =>
   [...plusEnOrdenesActivas(leerJSON(ORD_FRACC_PATH, []))]));
 
+// También ANTES de :id, por lo mismo que plus-activos. Endpoint liviano de polling: Distribución
+// pregunta cada tanto si hay órdenes nuevas o editadas, así que devuelve sólo los sellos de tiempo
+// y la cantidad de líneas, nunca las líneas enteras.
+app.get('/api/mayoristas/ordenes-fraccionado/novedades', apiRoute(async () =>
+  leerJSON(ORD_FRACC_PATH, [])
+    .filter(o => o && o.estado === 'pendiente')
+    .map(o => {
+      // Las órdenes guardadas antes de estos campos no los tienen, pero el id ES un Date.now():
+      // alcanza para que el polling detecte un alta vieja sin tener que migrar el archivo.
+      const creadoEn = Number(o.creadoEn) || Number(o.id) || 0;
+      return {
+        id: o.id, fecha: o.fecha, estado: o.estado,
+        creadoEn, actualizadoEn: Number(o.actualizadoEn) || creadoEn,
+        lineas: Array.isArray(o.lineas) ? o.lineas.length : 0,
+      };
+    })));
+
 app.get('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
   const orden = leerJSON(ORD_FRACC_PATH, []).find(o => String(o.id) === String(req.params.id));
   if (!orden) return res.status(404).json({ error: 'Orden no encontrada' });
@@ -1392,9 +1419,14 @@ app.post('/api/mayoristas/ordenes-fraccionado', (req, res) => {
   const repetido = validarLineasNoRepetidas(req.body.lineas, arr);
   if (repetido) return res.status(409).json({ error: repetido });
   const lineas = normalizarLineasFraccionado(req.body.lineas);
+  // Un solo Date.now() para los dos: una orden recién creada nunca puede figurar como editada.
+  const ahora = Date.now();
   const orden = {
-    id: Date.now(),
+    id: ahora,
     fecha: new Date().toISOString().slice(0, 10),
+    // Sellos que consulta el polling de /novedades: alta y última modificación de la orden.
+    creadoEn: ahora,
+    actualizadoEn: ahora,
     origen: 'mayorista',
     estado: 'pendiente',
     usuario: String((req.body && req.body.usuario) || ''),
@@ -1429,6 +1461,32 @@ app.put('/api/mayoristas/ordenes-fraccionado/:id/lineas/:plu', (req, res) => {
   arr[i] = orden;
   guardarJSON(ORD_FRACC_PATH, arr);
   res.json(conProgreso(orden));
+});
+
+// Corrección de la cantidad pedida de UNA línea, desde Pedidos mayoristas. Aparte del PUT de
+// /lineas/:plu (que es el avance de la sala) porque son dos permisos y dos reglas distintas:
+// editar sólo se puede mientras la línea siga pendiente.
+app.put('/api/mayoristas/ordenes-fraccionado/:id/lineas/:plu/cantidad', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const i = arr.findIndex(o => String(o.id) === String(req.params.id));
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  const body = req.body || {};
+  // Igual que en el PUT de arriba: fecha y hora las pone el server, del MISMO Date y en hora
+  // local (con toISOString() una edición después de las 21:00 ART quedaría fechada al día siguiente).
+  const ahora = new Date();
+  const dosDig = n => String(n).padStart(2, '0');
+  const { orden, error } = editarLineaOrden(arr[i], req.params.plu, {
+    cantidad: body.cantidad,
+    nota: body.nota,
+    fecha: `${ahora.getFullYear()}-${dosDig(ahora.getMonth() + 1)}-${dosDig(ahora.getDate())}`,
+    hora: `${dosDig(ahora.getHours())}:${dosDig(ahora.getMinutes())}`,
+  });
+  if (error) return res.status(400).json({ error });
+  // Los totales cambian con la cantidad, así que se recalculan siempre acá y no en el módulo puro.
+  arr[i] = { ...orden, actualizadoEn: ahora.getTime(),
+             totales: totalesOrdenFraccionado(orden.lineas) };
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(conProgreso(arr[i]));
 });
 
 app.put('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
@@ -2214,15 +2272,24 @@ async function _provMapCompras() {
   return map;
 }
 
+// Set de IdProducto(String) marcados en SIGA como "Es de compras" y activos.
+// El listado de compras solo muestra estos: lo que no se compra no se repone por orden de compra.
+async function _productosDeCompra() {
+  const rows = await query(`SELECT IdProducto FROM Productos WHERE EsDeCompras = 1 AND Activo = 1`).catch(() => null);
+  if (!rows) return null; // sin acceso a SIGA no se filtra, para no vaciar el listado
+  return new Set(rows.map(r => String(r.IdProducto)));
+}
+
 // Unifica productos rubro Almacen (calcularDistribucionAlmacen) + Pesables Fraccionado (calcularDistribucionPesables),
 // enriquece con proveedor/costo/última compra y calcula las 3 señales de compra.
 async function calcularListadoCompras() {
   const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
   const pisoCfg = c.comprasPisoCentral || { tramos: [{ hastaS: null, pct: 0.25 }], pisoAbsoluto: 0 };
-  const [almacen, pesables, provMap] = await Promise.all([
+  const [almacen, pesables, provMap, compraSet] = await Promise.all([
     calcularDistribucionAlmacen(),
     calcularDistribucionPesables().catch(() => []),
     _provMapCompras(),
+    _productosDeCompra(),
   ]);
   // Stock central del granel por código (para columna granel de fraccionables)
   const granelCodes = [...new Set(pesables.map(f => f.granel).filter(g => g != null).map(String))];
@@ -2237,13 +2304,23 @@ async function calcularListadoCompras() {
     for (const r of rows) granelMap.set(String(r.IdProducto), parseFloat(r.Stock || 0));
   }
 
+  // Importancia y consumo salen del caché de A8020: no se recalcula nada acá.
+  // Si el caché no existe todavía, las columnas quedan en null y la UI muestra '·'.
+  const a8020Cache = leerJSON(A8020_CALC_PATH, {}) || {};
+  const rankingGeneral = a8020Cache.rankingGeneral || {};
+  const consumoA8020 = a8020Cache.consumo || {};
+  const ventanaMeses = a8020Cache.ventanaMeses || 12;
+  const gruposGranel = comprasModulo.agruparPesablesPorGranel(pesables);
+
   const filaComun = (plu, nombre, tipo, central, stkSuc, pideTotal, enviarMicro, extra) => {
     const prov = provMap.get(String(plu)) || {};
     const sig = comprasModulo.sugeridoCompra({ pideTotal, central, enviarMicro, tramos: pisoCfg.tramos, pisoAbsoluto: pisoCfg.pisoAbsoluto });
     const consolidado = (central || 0) + Object.values(stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
     return {
-      plu: String(plu), nombre, tipo, // 'almacen' | 'fraccionable'
+      plu: String(plu), nombre, tipo, // 'almacen' | 'pesable'
       central: central || 0, stkSuc: stkSuc || {}, consolidado,
+      importancia: rankingGeneral[String(plu)] ?? null,
+      consumoMensual: comprasModulo.consumoPromedioMensual(consumoA8020, plu, ventanaMeses),
       deficitReposicion: sig.deficitReposicion, deficitMicro: sig.deficitMicro, faltanteReal: sig.faltanteReal, sugerido: sig.sugerido,
       proveedor: prov.proveedor || null, costo: prov.precio || null,
       ultimaCompraFecha: prov.ultimaFecha || prov.fecha || null, ultimaCompraCantidad: prov.ultimaCantidad || null,
@@ -2251,26 +2328,62 @@ async function calcularListadoCompras() {
     };
   };
 
+  const esDeCompra = plu => !compraSet || compraSet.has(String(plu));
+
   const rows = [];
   for (const f of almacen) {
+    if (!esDeCompra(f.plu)) continue;
     const pideTotal = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
     rows.push(filaComun(f.plu, f.nombre, 'almacen', f.central, f.stkSuc, pideTotal, f.enviarMicro, {
       granelCentral: null, granelPlu: null, nombreGranel: '', fraccionado: null,
     }));
   }
-  for (const f of pesables) {
-    const pideTotal = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-    const fraccionado = Object.values(f.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-    const granelCentral = f.granel != null ? (granelMap.get(String(f.granel)) || 0) : null;
-    // Pesables no expone central del terminado como Almacén; se usa 0 (el stock relevante es granel + sucursales).
-    rows.push(filaComun(f.plu, f.nombre, 'fraccionable', 0, f.stkSuc, pideTotal, {}, {
-      granelCentral, granelPlu: f.granel || null, nombreGranel: f.nombreGranel || '', fraccionado,
+  // Una fila por granel: es el producto que se compra. Las presentaciones viajan
+  // en el detalle para poder auditar de dónde sale el pedido.
+  for (const g of gruposGranel) {
+    const pluGranel = String(g.granel);
+    if (!esDeCompra(pluGranel)) continue;
+    const central = granelMap.get(pluGranel) || 0;
+    rows.push(filaComun(pluGranel, g.nombreGranel || pluGranel, 'pesable', central, {}, g.pideTotalGranel, {}, {
+      granelCentral: central, granelPlu: g.granel, nombreGranel: g.nombreGranel || '',
+      fraccionado: g.stockPresentacionesKg,
+      presentaciones: g.presentaciones,
     }));
   }
   rows.sort((a, b) => b.sugerido - a.sugerido);
   return { productos: rows, fechaCalculo: new Date().toISOString(), total: rows.length };
 }
 app.get('/api/compras-modulo/listado', apiRoute(async () => calcularListadoCompras()));
+
+// Qué códigos alimentan el consumo de un PLU y con qué multiplicador. Es la
+// respuesta a "de dónde sale este número": sin esto el sugerido es una caja negra.
+app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
+  const plu = String(req.params.plu || '').trim();
+  const cache = leerJSON(A8020_CALC_PATH, {}) || {};
+  const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
+  const formulas = pesLis.formulas || {};
+  // Presentaciones que salen de este granel, con su multiplicador (kg por unidad).
+  const presentaciones = Object.entries(formulas)
+    .filter(([, f]) => String(f.granel) === plu)
+    .map(([pluFrac, f]) => ({
+      plu: pluFrac,
+      nombre: (cache.nombres || {})[pluFrac] || '',
+      cantFormula: Number(f.cantFormula) > 0 ? Number(f.cantFormula) : 1,
+      consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, pluFrac, cache.ventanaMeses || 12),
+    }));
+  return {
+    plu,
+    nombre: (cache.nombres || {})[plu] || '',
+    rubro: (cache.rubros || {})[plu] || '',
+    importancia: (cache.rankingGeneral || {})[plu] ?? null,
+    abc: (cache.abc || {})[plu] || null,
+    ventanaMeses: cache.ventanaMeses || 12,
+    consumoPorSucursal: (cache.consumo || {})[plu] || {},
+    consumoOrigen: (cache.consumoOrigen || {})[plu] || {},
+    consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, plu, cache.ventanaMeses || 12),
+    presentaciones,
+  };
+}));
 
 // Busca proveedores por nombre parcial y devuelve los productos que maneja con último precio/fecha.
 app.get('/api/compras-modulo/proveedores/buscar', apiRoute(async (req) => {
@@ -2283,7 +2396,7 @@ app.get('/api/compras-modulo/proveedores/buscar', apiRoute(async (req) => {
     FROM ProductosProveedores pp
     JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
     JOIN Productos p ON p.IdProducto = pp.IdProducto
-    WHERE pv.NombreProveedor LIKE '%${like}%' AND p.Activo = 1 AND pp.UltimoPrecioCompra > 0
+    WHERE pv.NombreProveedor LIKE '%${like}%' AND pv.Activo = 1 AND p.Activo = 1 AND pp.UltimoPrecioCompra > 0
     ORDER BY pv.NombreProveedor, p.NombreProducto`);
   const porProv = new Map();
   for (const r of rows) {
@@ -2320,21 +2433,37 @@ app.delete('/api/compras-modulo/presentaciones/:plu', (req, res) => {
   res.json({ ok: true, presentaciones: d });
 });
 
-// Componentes de producción (formulas.json) con déficit de stock central.
+// Productos que el usuario sigue en la pestaña Producción del módulo Compras.
+function leerTrackingProduccion() {
+  const d = leerJSON(TRACKING_PRODUCCION_PATH, []);
+  return Array.isArray(d) ? d.filter(x => x && x.plu).map(x => ({ plu: String(x.plu), nombre: String(x.nombre || x.plu) })) : [];
+}
+
+// Componentes de la fórmula ACTIVA (SIGA) de los productos en tracking, sumarizados:
+// cada componente aparece una sola vez, con el consumo acumulado y los productos que lo usan.
 async function calcularProduccionDeficit() {
-  const formulas = leerJSON(path.join(DATA_DIR, 'formulas.json'), {});
+  const tracking = leerTrackingProduccion();
+  if (!tracking.length) return { productos: [], componentes: [], total: 0 };
+  const inPadres = tracking.map(t => `'${t.plu.replace(/'/g, "''")}'`).join(',');
+  const compRows = await query(`SELECT pc.IdProducto, pc.IdProductoComponente,
+      CAST(pc.Cantidad AS FLOAT) AS Cantidad, p.NombreProducto
+    FROM dbo.ProductosComponentes pc
+    JOIN dbo.Productos p ON p.IdProducto = pc.IdProductoComponente
+    WHERE pc.IdProducto IN (${inPadres}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}`);
+  // Sin catch: si SIGA falla, el error tiene que verse en la pantalla y no confundirse
+  // con "este producto no tiene componentes".
+
+  const nombrePadre = new Map(tracking.map(t => [t.plu, t.nombre]));
   const consumoPorComp = new Map();   // plu -> { plu, nombre, consumo, usadoPor:Set }
-  for (const [padre, comps] of Object.entries(formulas)) {
-    for (const c of (comps || [])) {
-      const plu = String(c.plu);
-      if (!consumoPorComp.has(plu)) consumoPorComp.set(plu, { plu, nombre: c.nombre || plu, consumo: 0, usadoPor: new Set() });
-      const rec = consumoPorComp.get(plu);
-      rec.consumo += Number(c.cantPorUnidad) || 0;   // proxy: suma de coeficientes (consumo por unidad producida)
-      rec.usadoPor.add(String(padre));
-    }
+  for (const r of compRows) {
+    const plu = String(r.IdProductoComponente);
+    if (!consumoPorComp.has(plu)) consumoPorComp.set(plu, { plu, nombre: r.NombreProducto || plu, consumo: 0, usadoPor: new Set() });
+    const rec = consumoPorComp.get(plu);
+    rec.consumo += Number(r.Cantidad) || 0;   // consumo por unidad producida, sumado entre los productos seguidos
+    rec.usadoPor.add(nombrePadre.get(String(r.IdProducto)) || String(r.IdProducto));
   }
   const plus = [...consumoPorComp.keys()];
-  if (!plus.length) return { componentes: [], total: 0 };
+  if (!plus.length) return { productos: tracking, componentes: [], total: 0 };
   const q = plus.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   const stockRows = await query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
     FROM ProductosDepositos pd
@@ -2351,13 +2480,53 @@ async function calcularProduccionDeficit() {
     return { plu, nombre: rec.nombre, stock, consumoProyectado: Math.round(rec.consumo * 100) / 100,
       deficit: Math.round(deficit * 100) / 100, usadoPor: [...rec.usadoPor],
       proveedor: prov.proveedor || null, costo: prov.precio || null };
-  }).filter(x => x.deficit > 0)
-    .sort((a, b) => b.deficit - a.deficit);
-  return { componentes: comps, total: comps.length };
+  }).sort((a, b) => b.deficit - a.deficit || a.nombre.localeCompare(b.nombre));
+  return { productos: tracking, componentes: comps, total: comps.length };
 }
 app.get('/api/compras-modulo/produccion-deficit', apiRoute(async () => calcularProduccionDeficit()));
 
-app.get('/api/compras-modulo/ordenes', apiRoute(async () => leerJSON(ORDENES_COMPRA_PATH, [])));
+// Buscador de productos con fórmula (los que se producen), para sumarlos al tracking.
+app.get('/api/compras-modulo/productos-producibles', apiRoute(async (req) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return { productos: [] };
+  const like = q.replace(/'/g, "''");
+  // Se busca por nombre y por PLU: en pantalla el producto se identifica por su IdProducto,
+  // así que tipear el código tiene que encontrarlo igual que tipear el nombre.
+  const rows = await query(`SELECT TOP 50 p.IdProducto, p.NombreProducto
+    FROM dbo.Productos p
+    WHERE p.Activo = 1
+      AND (p.NombreProducto LIKE '%${like}%' OR CAST(p.IdProducto AS varchar(50)) LIKE '${like}%')
+      AND EXISTS (SELECT 1 FROM dbo.ProductosComponentes pc WHERE pc.IdProducto = p.IdProducto)
+    ORDER BY CASE WHEN CAST(p.IdProducto AS varchar(50)) = '${like}' THEN 0 ELSE 1 END, p.NombreProducto`);
+  return { productos: rows.map(r => ({ plu: String(r.IdProducto), nombre: r.NombreProducto })) };
+}));
+
+app.post('/api/compras-modulo/tracking-produccion', (req, res) => {
+  const b = req.body || {};
+  const plu = String(b.plu || '').trim();
+  if (!plu) return res.status(400).json({ error: 'plu requerido' });
+  const actual = leerTrackingProduccion();
+  if (actual.some(t => t.plu === plu)) return res.json({ ok: true, productos: actual });
+  const productos = [...actual, { plu, nombre: String(b.nombre || plu).trim() }];
+  guardarJSON(TRACKING_PRODUCCION_PATH, productos);
+  res.json({ ok: true, productos });
+});
+
+app.delete('/api/compras-modulo/tracking-produccion/:plu', (req, res) => {
+  const plu = String(req.params.plu);
+  const productos = leerTrackingProduccion().filter(t => t.plu !== plu);
+  guardarJSON(TRACKING_PRODUCCION_PATH, productos);
+  res.json({ ok: true, productos });
+});
+
+// ?estado=ENVIADA filtra; sin query devuelve todas, de la más nueva a la más vieja.
+// El sort va sobre una copia: el array que devuelve leerJSON no se reordena in place.
+app.get('/api/compras-modulo/ordenes', apiRoute(async (req) => {
+  const estado = String((req.query && req.query.estado) || '').trim().toUpperCase();
+  const arr = leerJSON(ORDENES_COMPRA_PATH, []);
+  const filtradas = estado ? arr.filter(o => o.estado === estado) : arr;
+  return [...filtradas].sort((a, b) => (b.id || 0) - (a.id || 0));
+}));
 app.post('/api/compras-modulo/ordenes', (req, res) => {
   const b = req.body || {};
   try {
@@ -2375,6 +2544,41 @@ app.post('/api/compras-modulo/ordenes', (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+// Cambio de estado con validación de la máquina de estados. La UI esconde los botones
+// que no corresponden, pero la regla se aplica acá: un salto inválido es 400.
+app.put('/api/compras-modulo/ordenes/:id/estado', (req, res) => {
+  const id = Number(req.params.id);
+  const nuevoEstado = String((req.body && req.body.estado) || '').trim().toUpperCase();
+  if (!comprasModulo.ESTADOS_ORDEN.includes(nuevoEstado)) {
+    return res.status(400).json({ error: `Estado inválido: ${nuevoEstado}` });
+  }
+  const arr = leerJSON(ORDENES_COMPRA_PATH, []);
+  const i = arr.findIndex(o => Number(o.id) === id);
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  const ahora = new Date();
+  try {
+    // El módulo es puro: el reloj, el usuario y los lead times se inyectan desde acá.
+    const actualizada = comprasModulo.aplicarTransicion(arr[i], nuevoEstado, {
+      ts: ahora.toISOString(),
+      fechaISO: ahora.toISOString().slice(0, 10),
+      usuario: (req.session && req.session.user && req.session.user.usuario) || null,
+      nota: req.body && req.body.nota,
+      leadTimes: leerJSON(LEAD_TIMES_PATH, {}),
+    });
+    // Copia del array y reemplazo del índice: no se muta lo leído del disco.
+    const copia = [...arr];
+    copia[i] = actualizada;
+    guardarJSON(ORDENES_COMPRA_PATH, copia);
+    res.json({ ok: true, orden: actualizada });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Lo pedido y no recibido, por PLU. Lo consume la predicción de compra.
+app.get('/api/compras-modulo/ordenes/pendiente-plu', apiRoute(async () =>
+  comprasModulo.pendientePorPlu(leerJSON(ORDENES_COMPRA_PATH, []))));
 
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
@@ -2487,6 +2691,18 @@ function sqlAbcMetricPorSucursal(idList, meses, metrica) {   // métrica ABC por
   FROM VentasProductos vp ${_ventasJoin}
   WHERE ${_ventasWhere(idList, meses)}
   GROUP BY vp.IdSucursal, vp.IdProducto`;
+}
+// Consumo real por (sucursal, producto): la imputación vive en a8020.js (pura y testeable);
+// acá sólo se resuelven las fórmulas activas de los bultos con venta, que salen de Siga.
+async function consumoRealA8020(statRows, sucById, rubroDePlu, formulasPesables) {
+  const norm = (v) => String(v == null ? '' : v).trim();
+  const bultos = [...new Set(statRows.filter(r => rubroDePlu[norm(r.plu)] === RUBRO_ALMACEN_BULTO).map(r => norm(r.plu)))];
+  let compsPorBulto = new Map();
+  if (bultos.length) {
+    try { compsPorBulto = await componentesFormulaPorPadre(bultos); }
+    catch (e) { console.error('[a8020/consumo] fórmulas de bultos:', e.message); }
+  }
+  return calcularConsumoReal(statRows, sucById, rubroDePlu, formulasPesables, compsPorBulto);
 }
 async function recalcularA8020() {
   const config = leerJSON(DISTRIB_CONFIG_PATH, {});
@@ -2750,7 +2966,12 @@ async function recalcularA8020() {
     bootstrapped.delete(plu);
   }
 
-  const plus = [...new Set([...Object.keys(mins)])];
+  // Consumo real (informativo): rastrea la venta hasta el producto que sale del stock —
+  // bultos → componentes de la fórmula, fraccionado → kg del granel.
+  const { consumo, consumoOrigen } = await consumoRealA8020(statRows, sucById, rubroDePlu, pesLis.formulas || {});
+  // Un granel puede recibir consumo sin tener niveles propios (no se vende suelto en ninguna
+  // sucursal): igual entra en `plus` para que la tabla le arme la fila y muestre su nombre.
+  const plus = [...new Set([...Object.keys(mins), ...Object.keys(consumo)])];
   const nombres = {};
   if (plus.length) {
     const inList = plus.map(p => `'${p}'`).join(',');
@@ -2770,6 +2991,7 @@ async function recalcularA8020() {
     bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
     // Qué PLUs admiten decimales, para que reaplicarManualA8020 pueda redondear sin volver a Siga.
     pesables: [...pesablesSet],
+    consumo, consumoOrigen,
     rankingGeneral, rankingPorSucursal: ranking };
   // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa. El
   // pesablesSet en vivo garantiza el redondeo: almacén entero, pesables con un decimal.
@@ -2788,6 +3010,153 @@ async function recalcularA8020() {
 }
 app.get('/api/distribucion/a8020/recalcular', apiRoute(async () => recalcularA8020()));
 app.get('/api/distribucion/a8020', apiRoute(async () => leerJSON(A8020_CALC_PATH, { vacio: true })));
+
+// ── Serie mensual de consumo (predicción de compra) ────────────────────────────
+// Ventas por (mes, sucursal, producto). Mismos filtros que el resto del sistema:
+// sin comprobantes anulados y sin clientes categoría SUCURSAL (transferencias internas).
+function sqlVentasMensuales(idList, meses) {
+  return `SELECT CONVERT(varchar(7), v.Fecha, 126) AS Mes, v.IdSucursal, vp.IdProducto,
+      SUM(vp.Cantidad) AS Cant
+    FROM VentasProductos vp ${_ventasJoin}
+    WHERE ${_ventasWhere(idList, meses)}
+    GROUP BY CONVERT(varchar(7), v.Fecha, 126), v.IdSucursal, vp.IdProducto`;
+}
+
+// Consumo de componentes por producción, por mes. En el movimiento de producción el
+// consumo se registra NEGATIVO y el alta de terminados POSITIVO (ver
+// lineasProduccionDesdeConciliacion): por eso sólo cuentan las líneas negativas.
+// Salvedad conocida: el sobrante devuelto al depósito de diferencias también es
+// positivo y no se descuenta, así que el consumo por producción queda apenas
+// sobreestimado cuando hubo devolución.
+function sqlProduccionMensual(tipoMovimiento, meses) {
+  const tipo = String(tipoMovimiento || '').replace(/'/g, "''");
+  return `SELECT CONVERT(varchar(7), m.FechaMovimiento, 126) AS Mes, mp.IdProducto,
+      SUM(CASE WHEN mp.Cantidad < 0 THEN -mp.Cantidad ELSE 0 END) AS Cant
+    FROM MovimientosStockProductos mp
+    INNER JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal
+      AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+    WHERE mp.IdTipoMovimiento = '${tipo}'
+      AND m.FechaMovimiento >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE))
+      AND m.FechaMovimiento < CAST(GETDATE() AS DATE)
+    GROUP BY CONVERT(varchar(7), m.FechaMovimiento, 126), mp.IdProducto`;
+}
+
+// Serie mensual imputada al producto que realmente sale del stock. Reusa la misma
+// imputación que A8020 (bulto → componentes, fraccionado → granel), aplicada mes a mes.
+async function recalcularConsumoMensual() {
+  const config = leerJSON(DISTRIB_CONFIG_PATH, {});
+  const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
+  const sucs = config.sucursales || {};
+  const idList = Object.values(sucs).map(s => s.idSucursal).join(',');
+  if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
+  const meses = 24;
+  const sucById = {};
+  for (const [key, c] of Object.entries(sucs)) sucById[c.idSucursal] = key;
+
+  const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
+    FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro`);
+  const rubroDePlu = {};
+  for (const r of rubroRows) rubroDePlu[String(r.IdProducto).trim()] = r.NombreRubro || null;
+
+  const tipoProd = (leerJSON(path.join(__dirname, 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
+  const [ventasRows, prodRows] = await Promise.all([
+    query(sqlVentasMensuales(idList, meses)),
+    query(sqlProduccionMensual(tipoProd, meses)).catch((e) => {
+      console.error('[consumo-mensual] producción:', e.message);
+      return [];
+    }),
+  ]);
+
+  // Ventas: se imputan mes a mes con la misma regla que A8020.
+  const porMes = {};            // mes → statRows para calcularConsumoReal
+  const ventasPorSucursal = {}; // plu → mes → suc → cantidad (crudo, sin imputar)
+  for (const r of ventasRows) {
+    const mes = String(r.Mes);
+    (porMes[mes] = porMes[mes] || []).push({ idSucursal: r.IdSucursal, plu: r.IdProducto, sumQ: Number(r.Cant) || 0 });
+    const plu = String(r.IdProducto).trim();
+    const suc = sucById[r.IdSucursal];
+    if (!suc) continue;
+    const porPlu = ventasPorSucursal[plu] = ventasPorSucursal[plu] || {};
+    (porPlu[mes] = porPlu[mes] || {})[suc] = Number(r.Cant) || 0;
+  }
+
+  // Fórmulas de los bultos con venta en cualquier mes: una sola consulta para todos.
+  const bultos = [...new Set(ventasRows
+    .filter(r => rubroDePlu[String(r.IdProducto).trim()] === RUBRO_ALMACEN_BULTO)
+    .map(r => String(r.IdProducto).trim()))];
+  let compsPorBulto = new Map();
+  if (bultos.length) {
+    try { compsPorBulto = await componentesFormulaPorPadre(bultos); }
+    catch (e) { console.error('[consumo-mensual] fórmulas de bultos:', e.message); }
+  }
+
+  const consumoMensual = {};
+  const anotar = (plu, mes, campo, cantidad) => {
+    if (!(cantidad > 0)) return;
+    const p = String(plu).trim();
+    const porPlu = consumoMensual[p] = consumoMensual[p] || {};
+    const celda = porPlu[mes] = porPlu[mes] || { ventas: 0, produccion: 0, total: 0 };
+    celda[campo] = Math.round((celda[campo] + cantidad) * 100) / 100;
+    celda.total = Math.round((celda.ventas + celda.produccion) * 100) / 100;
+  };
+  for (const [mes, filas] of Object.entries(porMes)) {
+    const { consumo } = calcularConsumoReal(filas, sucById, rubroDePlu, pesLis.formulas || {}, compsPorBulto);
+    for (const [plu, porSuc] of Object.entries(consumo)) {
+      anotar(plu, mes, 'ventas', Object.values(porSuc).reduce((s, v) => s + (Number(v) || 0), 0));
+    }
+  }
+  for (const r of prodRows) anotar(r.IdProducto, String(r.Mes), 'produccion', Number(r.Cant) || 0);
+
+  const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
+    tipoMovimientoProduccion: tipoProd, consumoMensual, ventasPorSucursal };
+  guardarJSON(CONSUMO_MENSUAL_PATH, cache);
+  return { timestamp: cache.timestamp, ventanaMeses: meses,
+    productos: Object.keys(consumoMensual).length,
+    mesesConDatos: [...new Set(Object.values(consumoMensual).flatMap(p => Object.keys(p)))].sort() };
+}
+
+app.get('/api/compras-modulo/consumo-mensual/recalcular', apiRoute(async () => recalcularConsumoMensual()));
+app.get('/api/compras-modulo/consumo-mensual', apiRoute(async () => leerJSON(CONSUMO_MENSUAL_PATH, { vacio: true })));
+
+// Recomendación de compra a un horizonte elegible. Cruza la serie mensual con el
+// stock del listado y lo pendiente de recibir de las órdenes abiertas.
+app.get('/api/compras-modulo/prediccion', apiRoute(async (req) => {
+  const dias = Math.max(1, Math.min(Number(req.query.dias) || 30, 365));
+  const serie = leerJSON(CONSUMO_MENSUAL_PATH, null);
+  if (!serie || serie.vacio || !serie.consumoMensual) {
+    return { vacio: true, mensaje: 'Sin serie mensual. Recalculá el consumo mensual primero.', dias };
+  }
+  const listado = await calcularListadoCompras();
+  const pendiente = comprasModulo.pendientePorPlu(leerJSON(ORDENES_COMPRA_PATH, []));
+  const leadTimes = leerJSON(LEAD_TIMES_PATH, {});
+  const zPorClase = leerJSON(DISTRIB_CONFIG_PATH, {}).servicio || { A: 2.05, B: 1.645, C: 1.28 };
+  const abcPorPlu = (leerJSON(A8020_CALC_PATH, {}) || {}).abc || {};
+  const mesActual = new Date().toISOString().slice(0, 7);
+
+  const productos = (listado.productos || []).map(p => {
+    // La serie guarda { ventas, produccion, total }: la proyección usa el total.
+    const porMes = serie.consumoMensual[String(p.plu)] || {};
+    const totales = {};
+    for (const [mes, v] of Object.entries(porMes)) totales[mes] = Number(v.total) || 0;
+    const clase = abcPorPlu[String(p.plu)] || 'C';
+    const z = zPorClase[clase] != null ? zPorClase[clase] : zPorClase.C;
+    const leadTimeDias = comprasModulo.leadTimeDeProveedor(leadTimes, p.proveedor);
+    const pr = prediccionConsumo.proyectar(totales, { mesActual, dias, z });
+    const stock = (Number(p.central) || 0)
+      + Object.values(p.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0)
+      + (Number(p.fraccionado) || 0);
+    const pend = Number(pendiente[String(p.plu)]) || 0;
+    const rec = prediccionConsumo.recomendar({
+      proyeccion: pr.proyeccion, seguridad: pr.seguridad, stock, pendiente: pend,
+      muDiario: pr.muDiario, leadTimeDias,
+    });
+    return { ...p, ...pr, stock, pendiente: pend, leadTimeDias, abc: clase,
+      necesidad: rec.necesidad, estado: rec.estado };
+  });
+  const orden = { CRITICO: 0, COMPRAR: 1, OK: 2, EXCESO: 3 };
+  productos.sort((a, b) => (orden[a.estado] - orden[b.estado]) || (b.necesidad - a.necesidad));
+  return { dias, mesActual, timestampSerie: serie.timestamp, total: productos.length, productos };
+}));
 
 // ── Ajustes manuales de S/min por (plu, sucursal) ──────────────────────────────
 const MANUAL_MAX = 100000;

@@ -244,4 +244,66 @@ function aplicarManualA8020(cache, manual, pesablesSet) {
   return cache;
 }
 
-module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020, asegurarBrechaMinS };
+// ── Consumo real por (sucursal, producto) ────────────────────────────────────
+// Vender un PLU no siempre consume ESE PLU. El consumo se imputa al producto que realmente
+// sale del stock:
+//   · 'Almacen Bultos/Cajas' (mayorista) → la venta consume los componentes de su fórmula
+//     activa: un bulto de 12 descuenta 12 unidades del suelto.
+//   · 'Almacen' suelto → la venta es consumo propio.
+//   · Fuera de almacén (fraccionado) → la venta consume kg del granel (cantFormula).
+// Sin fórmula ni granel que resolver el consumo queda en el propio PLU: el volumen nunca se
+// pierde. Es informativo — no entra en μ/σ y no toca S ni min.
+const RUBRO_ALMACEN = 'Almacen';
+const RUBRO_ALMACEN_BULTO = 'Almacen Bultos/Cajas';
+
+// statRows: [{ idSucursal, plu, sumQ }]  ·  sucById: { idSucursal: sucKey }
+// rubroDePlu: { plu: rubroSiga }  ·  formulasPesables: { plu: { granel, cantFormula } }
+// compsPorBulto: Map<pluBulto, [{ plu, cantPorUnidad }]> (fórmula activa desde Siga)
+// Retorna { consumo: { plu: { suc: q } }, consumoOrigen: { plu: { suc: {propio,bulto,fraccionado} } } }.
+function calcularConsumoReal(statRows, sucById, rubroDePlu, formulasPesables, compsPorBulto) {
+  const comps = compsPorBulto || new Map();
+  const forms = formulasPesables || {};
+  // IdProducto llega como char en algunas tablas de Siga: sin trim, el PLU de ventas ('100  ')
+  // no matchea la clave del rubro ni la de la fórmula y todo el consumo cae al fallback.
+  const norm = (v) => String(v == null ? '' : v).trim();
+  const consumo = {}, origen = {};
+  const imputar = (pluDestino, sucKey, q, via) => {
+    if (!(q > 0)) return;
+    const p = norm(pluDestino);
+    (consumo[p] = consumo[p] || {})[sucKey] = (consumo[p][sucKey] || 0) + q;
+    const porSuc = origen[p] = origen[p] || {};
+    const o = porSuc[sucKey] = porSuc[sucKey] || { propio: 0, bulto: 0, fraccionado: 0 };
+    o[via] += q;
+  };
+  for (const r of statRows || []) {
+    const sucKey = (sucById || {})[r.idSucursal];
+    if (!sucKey) continue;
+    const q = Number(r.sumQ) || 0;
+    if (!(q > 0)) continue;
+    const plu = norm(r.plu);
+    const rubro = (rubroDePlu || {})[plu] || null;
+    if (rubro === RUBRO_ALMACEN_BULTO) {
+      const cs = comps.get(plu) || [];
+      if (!cs.length) { imputar(plu, sucKey, q, 'propio'); continue; }
+      for (const c of cs) imputar(c.plu, sucKey, q * (Number(c.cantPorUnidad) || 0), 'bulto');
+    } else if (rubro === RUBRO_ALMACEN) {
+      imputar(plu, sucKey, q, 'propio');
+    } else {
+      const f = forms[plu] || {};
+      const cant = Number(f.cantFormula);
+      if (f.granel == null || !(cant > 0)) { imputar(plu, sucKey, q, 'propio'); continue; }
+      imputar(f.granel, sucKey, q * cant, 'fraccionado');
+    }
+  }
+  for (const porSuc of Object.values(consumo)) {
+    for (const k of Object.keys(porSuc)) porSuc[k] = roundDec(porSuc[k], 2);
+  }
+  for (const porSuc of Object.values(origen)) {
+    for (const o of Object.values(porSuc)) {
+      o.propio = roundDec(o.propio, 2); o.bulto = roundDec(o.bulto, 2); o.fraccionado = roundDec(o.fraccionado, 2);
+    }
+  }
+  return { consumo, consumoOrigen: origen };
+}
+
+module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020, asegurarBrechaMinS, calcularConsumoReal, RUBRO_ALMACEN, RUBRO_ALMACEN_BULTO };
