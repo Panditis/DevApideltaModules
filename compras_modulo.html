@@ -35,6 +35,7 @@ tailwind.config = { theme: { extend: {
     <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="presentaciones">Presentaciones</button>
     <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="produccion">Producción</button>
     <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="ordenes">Órdenes <span id="ordBadge" class="hidden ml-1 px-2 rounded-full bg-amarillo text-ink text-xs">0</span></button>
+    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="prediccion">Predicción</button>
   </nav>
 </header>
 <main class="max-w-[1400px] mx-auto px-4 py-5">
@@ -73,6 +74,7 @@ tailwind.config = { theme: { extend: {
   <section id="tab-presentaciones" class="tab-panel hidden"></section>
   <section id="tab-produccion" class="tab-panel hidden"></section>
   <section id="tab-ordenes" class="tab-panel hidden"></section>
+  <section id="tab-prediccion" class="tab-panel hidden"></section>
 </main>
 <!-- Aviso genérico: reemplaza a alert(), que rompe el estilo del módulo y bloquea el hilo. -->
 <div id="mAviso" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
@@ -192,6 +194,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click
   if (btn.dataset.tab === 'produccion') cargarProduccion();
   // Se recarga al entrar para ver el estado real de las órdenes, que cambia desde otras sesiones.
   if (btn.dataset.tab === 'ordenes') cargarOrdenes();
+  if (btn.dataset.tab === 'prediccion') cargarPrediccion();
 }));
 
 // ---- Listado ----
@@ -624,6 +627,138 @@ async function abrirDetallePlu(plu) {
           <th class="text-left">Código</th><th>Multiplicador</th><th>Consumo/mes</th></tr></thead>
           <tbody>${filasPres}</tbody></table></div>` : ''}
     </div>`;
+}
+
+// ── Predicción de compra ─────────────────────────────────────────────────────
+// La serie mensual de consumo se recalcula aparte (consulta pesada a Siga, tarda
+// minutos): esta pestaña sólo la lee y proyecta sobre el horizonte elegido.
+const PRED_ESTADOS = {
+  CRITICO: { label: 'Crítico', cls: 'bg-rojo text-white' },
+  COMPRAR: { label: 'Comprar', cls: 'bg-amarillo text-ink' },
+  OK:      { label: 'OK',      cls: 'bg-ok text-white' },
+  EXCESO:  { label: 'Exceso',  cls: 'bg-ink/20 text-ink/60' },
+};
+let predData = null;         // última respuesta del endpoint
+let predDias = 30;           // horizonte elegido
+let predEstadoSel = '';      // filtro por estado
+let predQ = '';              // buscador por nombre o PLU
+let predRecalculando = false; // bloquea el botón mientras corre la consulta a Siga
+
+async function cargarPrediccion() {
+  const panel = $('#tab-prediccion');
+  panel.innerHTML = '<p class="text-ink/60">Cargando…</p>';
+  try {
+    predData = await apiFetch('/api/compras-modulo/prediccion?dias=' + encodeURIComponent(predDias));
+  } catch (e) {
+    predData = null;
+    panel.innerHTML = `<p class="text-rojo">No se pudo cargar la predicción: ${escAttr(e.message)}</p>`;
+    return;
+  }
+  renderPrediccion();
+}
+
+function barraPrediccion() {
+  const opciones = [15, 30, 45, 60]
+    .map(d => `<option value="${d}"${d === predDias ? ' selected' : ''}>${d} días</option>`).join('');
+  const serie = predData && predData.timestampSerie
+    ? `Serie del ${escAttr(predData.timestampSerie)}`
+    : 'Sin serie calculada';
+  return `<div class="flex gap-2 mb-3 items-center flex-wrap">
+    <label class="text-sm text-ink/70">Horizonte</label>
+    <select id="predDias" class="px-3 py-2 rounded-lg border border-borde">${opciones}</select>
+    <button id="btnRecalcSerie" class="px-4 py-2 rounded-lg font-disp ${predRecalculando ? 'bg-ink/20 text-ink/50 cursor-not-allowed' : 'bg-verde text-white hover:bg-verdeHover'}"${predRecalculando ? ' disabled' : ''}>${predRecalculando ? 'Recalculando…' : 'Recalcular serie mensual'}</button>
+    <span class="text-xs text-ink/50">${predRecalculando ? 'Consultando Siga, puede tardar varios minutos…' : serie}</span>
+  </div>`;
+}
+
+function renderPrediccion() {
+  const panel = $('#tab-prediccion');
+  if (!predData) { panel.innerHTML = ''; return; }
+  if (predData.vacio) {
+    panel.innerHTML = barraPrediccion() +
+      '<p class="text-ink/60">Todavía no hay serie mensual de consumo. Usá “Recalcular serie mensual” para generarla (tarda varios minutos).</p>';
+    engancharPrediccion();
+    return;
+  }
+  const q = predQ.trim().toLowerCase();
+  const rows = (predData.productos || []).filter(p =>
+    (!predEstadoSel || p.estado === predEstadoSel) &&
+    (!q || String(p.nombre || '').toLowerCase().includes(q) || String(p.plu).includes(q)));
+  const filtros = `<div class="flex gap-2 mb-3 items-center flex-wrap">
+    <input id="predQ" placeholder="Buscar por nombre o PLU…" class="px-3 py-2 rounded-lg border border-borde w-64" value="${escAttr(predQ)}">
+    <select id="predEstado" class="px-3 py-2 rounded-lg border border-borde">
+      <option value="">Todos los estados</option>
+      ${Object.keys(PRED_ESTADOS).map(e => `<option value="${e}"${predEstadoSel === e ? ' selected' : ''}>${PRED_ESTADOS[e].label}</option>`).join('')}
+    </select>
+    <span class="ml-auto text-sm text-ink/60">${rows.length} de ${(predData.productos || []).length} productos · horizonte ${fmt(predData.dias)} días</span>
+  </div>`;
+  const cuerpo = rows.map(filaPrediccion).join('')
+    || '<tr><td colspan="11" class="p-4 text-center text-ink/60">Sin productos para este filtro.</td></tr>';
+  panel.innerHTML = barraPrediccion() + filtros + `
+    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
+      <table class="w-full text-sm">
+        <thead class="bg-verde/5 text-verde"><tr>
+          <th class="text-left p-2">Producto</th>
+          <th class="p-2">μ diario</th><th class="p-2">Estacional</th><th class="p-2">Proyección</th>
+          <th class="p-2">Seguridad</th><th class="p-2">Stock</th><th class="p-2">Pendiente</th>
+          <th class="p-2 bg-amarillo/30">Necesidad</th><th class="p-2">Estado</th>
+          <th class="p-2">Proveedor</th><th class="p-2">Lead time</th>
+        </tr></thead>
+        <tbody>${cuerpo}</tbody>
+      </table>
+    </div>`;
+  engancharPrediccion();
+}
+
+function filaPrediccion(p) {
+  // Un estado desconocido se muestra como OK para no romper la tabla.
+  const est = PRED_ESTADOS[p.estado] || PRED_ESTADOS.OK;
+  const necClass = p.necesidad > 0 ? 'font-bold text-verde' : 'text-ink/40';
+  const plu = escAttr(p.plu), pluJs = escJs(p.plu);
+  return `<tr class="border-t border-borde hover:bg-verde/5">
+    <td class="p-2 text-left"><button class="text-verde hover:underline" onclick="abrirDetallePlu('${pluJs}')">${escAttr(p.nombre)}</button>
+      <span class="text-xs text-ink/40 ml-1">${plu}${p.tipo === 'pesable' ? ' · granel' : ''}${p.abc ? ' · ' + escAttr(p.abc) : ''}</span></td>
+    <td class="p-2 text-center">${fmt(p.muDiario)}</td>
+    <td class="p-2 text-center">${p.estacional == null ? '·' : '×' + fmt(p.estacional)}</td>
+    <td class="p-2 text-center">${fmt(p.proyeccion)}</td>
+    <td class="p-2 text-center">${fmt(p.seguridad)}</td>
+    <td class="p-2 text-center">${fmt(p.stock)}</td>
+    <td class="p-2 text-center">${fmt(p.pendiente)}</td>
+    <td class="p-2 text-center ${necClass}">${fmt(p.necesidad)}</td>
+    <td class="p-2 text-center"><span class="px-2 py-0.5 rounded text-xs ${est.cls}">${est.label}</span></td>
+    <td class="p-2 text-left text-xs">${p.proveedor ? escAttr(p.proveedor) : '·'}${p.costo ? `<div class="text-ink/50">${money(p.costo)}</div>` : ''}</td>
+    <td class="p-2 text-center text-xs">${p.leadTimeDias == null ? '·' : fmt(p.leadTimeDias) + ' d'}</td>
+  </tr>`;
+}
+
+// El panel se redibuja entero, así que los listeners se vuelven a enganchar acá.
+function engancharPrediccion() {
+  const sel = $('#predDias');
+  if (sel) sel.addEventListener('change', e => { predDias = Number(e.target.value) || 30; cargarPrediccion(); });
+  const btn = $('#btnRecalcSerie');
+  if (btn) btn.addEventListener('click', recalcularSerieMensual);
+  const q = $('#predQ');
+  if (q) q.addEventListener('input', e => { predQ = e.target.value; renderPrediccion(); $('#predQ').focus(); });
+  const est = $('#predEstado');
+  if (est) est.addEventListener('change', e => { predEstadoSel = e.target.value; renderPrediccion(); });
+}
+
+// Dispara la consulta pesada a Siga. Mientras corre, el botón queda deshabilitado
+// y en "Recalculando…" para que nadie la lance dos veces.
+async function recalcularSerieMensual() {
+  if (predRecalculando) return;
+  predRecalculando = true;
+  renderPrediccion();
+  try {
+    await apiFetch('/api/compras-modulo/consumo-mensual/recalcular');
+    predRecalculando = false;
+    await cargarPrediccion();
+    avisar('La serie mensual de consumo se recalculó correctamente.', 'Serie actualizada');
+  } catch (e) {
+    predRecalculando = false;
+    renderPrediccion();
+    avisar('No se pudo recalcular la serie mensual: ' + e.message, 'Error');
+  }
 }
 
 cargarListado();
