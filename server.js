@@ -839,12 +839,11 @@ async function calcularSugerenciasCatalogo(params) {
   // PLUs de granel asignados manualmente en grupos_config
   const customGranelPlus = [...new Set(Object.keys(gruposCfg).map(r=>cfgGranelPlu(gruposCfg,r)).filter(Boolean))];
   const quotedGP = customGranelPlus.map(p => `'${p}'`).join(',');
-  const [consumoRows, pendientesRows, stockRows, stockTodosRows, stockSucRows, bomRows, granelRows, customGranelStockRows, customGranelNomRows, facturRows] = await Promise.all([
+  const [consumoRows, pendientesRows, stockRows, stockTodosRows, stockSucRows, bomRows, granelRows, customGranelNomRows, facturRows] = await Promise.all([
     queryEnLotes(l => sqlConsumoCatalogo(l, ventana)), queryEnLotes(l => sqlPendientesPorPlu(l)),
     queryEnLotes(l => sqlStockPorPlu(l)), queryEnLotes(l => sqlStockTodosDepositos(l)),
     queryEnLotes(l => sqlStockSucursales(l)),
     queryEnLotes(l => sqlBOMPorPlu(l, rubrosG)), query(sqlStockGranel(rubrosG)),
-    customGranelPlus.length ? query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock FROM ProductosDepositos pd JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal WHERE s.SoyLaCentral=1 AND pd.IdProducto IN (${customGranelPlus.join(',')}) GROUP BY pd.IdProducto`) : Promise.resolve([]),
     customGranelPlus.length ? query(`SELECT CAST(IdProducto AS VARCHAR) AS IdProducto, NombreProducto FROM Productos WHERE CAST(IdProducto AS VARCHAR) IN (${quotedGP})`) : Promise.resolve([]),
     queryEnLotes(l => sqlFacturacionPorPlu(l, ventana)),
   ]);
@@ -858,8 +857,16 @@ async function calcularSugerenciasCatalogo(params) {
   const stockSucRaw   = new Map(stockSucRows.map(r => [String(r.IdProducto), parseFloat(r.StockActual)]));
   const bomRaw     = new Map();
   for (const b of bomRows) { const k = String(b.IdProducto); if (!bomRaw.has(k)) bomRaw.set(k, b); }
+  // Stock del granel: se suman todos los depósitos de la central, sin filtrar por nombre de
+  // depósito. El LIKE '%GRANEL%' de sqlStockGranel devuelve siempre 0 (ningún depósito de Siga se
+  // llama así), así que ese valor solo sirve de fallback. El granel ya es un producto propio
+  // ("X DEPOSITO GRANEL"): alcanza con acotar por PLU, igual que fraccionado y pesables.
   const granelMap  = new Map(granelRows.map(r => [String(r.IdProducto), parseFloat(r.StockGranel)]));
-  for (const r of customGranelStockRows) if (!granelMap.has(String(r.IdProducto))) granelMap.set(String(r.IdProducto), parseFloat(r.Stock));
+  const granelPlusUsados = [...new Set([...customGranelPlus, ...bomRows.map(b => String(b.IdProductoComponente))])].filter(p => /^\d+$/.test(p));
+  for (let i = 0; i < granelPlusUsados.length; i += 1000) {
+    const rows = await query(sqlStockTodosDepositos(granelPlusUsados.slice(i, i + 1000)));
+    for (const r of rows) granelMap.set(String(r.IdProducto), parseFloat(r.StockActual) || 0);
+  }
   const customGranelNomMap = new Map(customGranelNomRows.map(r=>[String(r.IdProducto), r.NombreProducto]));
   const facturRaw = new Map(facturRows.map(r => [String(r.IdProducto), parseFloat(r.TotalFacturado) || 0]));
   // Variantes ≤200g de grupos NO enKg (mixes/FS): Cantidad SQL en unidades → convertir a kg
@@ -888,15 +895,36 @@ async function calcularSugerenciasCatalogo(params) {
     stockSucBase.set(base, (stockSucBase.get(base) || 0) + (esVar ? 0 : (stockSucRaw.get(plu)   || 0)));
     facturBase.set(base,   (facturBase.get(base)   || 0) + (facturRaw.get(plu)       || 0));
   }
+  // Granel del grupo: PLU cargado a mano en el catálogo (grupos_config.granelPlu) y, si no hay,
+  // el componente granel de la fórmula activa de sus bases (el de mayor CantPorUnidad = principal).
+  function resolverGranelGrupo(refInfo) {
+    const custom = cfgGranelPlu(gruposCfg, refInfo.productoRef);
+    if (custom) return { id: custom, nombre: customGranelNomMap.get(custom) || custom };
+    let mejor = null;
+    for (const bInfo of refInfo.bases.values()) {
+      if (!bInfo.pluBase) continue;
+      const bom = bomRaw.get(String(bInfo.pluBase));
+      if (!bom) continue;
+      const cant = parseFloat(bom.CantPorUnidad || 0);
+      if (!mejor || cant > mejor.cant) mejor = { id: String(bom.IdProductoComponente), nombre: bom.NombreComponente || '', cant };
+    }
+    return mejor ? { id: mejor.id, nombre: mejor.nombre } : null;
+  }
   const grupos = [];
   for (const [refId, refInfo] of refMap) {
     // Stock del granel del grupo (se necesita ANTES de calcular consumo para elegir denominador)
     const esGranelCheck = cfgEsGranel(gruposCfg, refInfo.productoRef, c.gruposGranel);
-    let granelStockGrupo = 0, nombreGranelGrupo = '', granelResuelto = false, granelIdGrupo = '';
-    if (esGranelCheck) {
+    let granelStockGrupo = 0, nombreGranelGrupo = '', granelIdGrupo = '';
+    const granelRef = resolverGranelGrupo(refInfo);
+    if (granelRef) {
+      // Sin fila de stock del granel → 0 (quiebre real), no el stock de los terminados.
+      granelIdGrupo     = granelRef.id;
+      nombreGranelGrupo = granelRef.nombre;
+      granelStockGrupo  = Math.round((granelMap.get(granelRef.id) || 0) * 100) / 100;
+    } else if (esGranelCheck) {
       let base10 = null;
       for (const [base, bInfo] of refInfo.bases) { if (/10\s*kg/i.test(base) && bInfo.pluBase) { base10 = base; granelIdGrupo = String(bInfo.pluBase); break; } }
-      if (base10) { granelStockGrupo = stockBaseAll.get(base10) || 0; nombreGranelGrupo = base10; granelResuelto = true; }
+      if (base10) { granelStockGrupo = stockBaseAll.get(base10) || 0; nombreGranelGrupo = base10; }
     } else {
       granelStockGrupo = Math.round([...refInfo.bases.keys()].reduce((s, base) => s + (stockBase.get(base) || 0), 0) * 100) / 100;
     }
@@ -977,7 +1005,7 @@ async function calcularSugerenciasCatalogo(params) {
     const facturGrupo  = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
     const facturMensual = Math.round(facturGrupo * (30 / ventana) * 100) / 100;
     grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgencia: urgenciaGrupo,
-      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo,
+      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo,
       facturacionMensual: facturMensual, presentaciones: presFinal });
   }
   // Ranking: score = 0.6*facturNorm + 0.4*cantNorm (facturación + cantidad vendida mensual)
@@ -3539,7 +3567,16 @@ app.get('/api/planes', (_req, res) => {
 app.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {}); res.json(planes[fecha] || { fecha, notas: '', items: [] }); });
 app.post('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  planes[fecha] = { fecha, notas: req.body.notas || planes[fecha]?.notas || '', creado: planes[fecha]?.creado || new Date().toISOString(), items: req.body.items || [] };
+  const prev = planes[fecha];
+  // Las notas se pisan con cualquier string, incluido '' (borrarlas): con `||` una nota vacía
+  // caía al valor anterior y el texto viejo volvía al recargar.
+  const notas = typeof req.body.notas === 'string' ? req.body.notas : (prev?.notas || '');
+  // Los ítems solo se reemplazan si el cuerpo los trae. Guardar una nota mandaba el cache del
+  // navegador y pisaba los ítems (con sus sellos de reserva/producción) por una versión vieja.
+  const items = Array.isArray(req.body.items) ? req.body.items : (prev?.items || []);
+  // `...prev` conserva el resto del plan (plan.reserva, el ledger de reservas), que antes se
+  // perdía porque el objeto se reconstruía desde cero en cada guardado de notas.
+  planes[fecha] = { ...prev, fecha, notas, creado: prev?.creado || new Date().toISOString(), items };
   guardarJSON(PLANES_PATH, planes); res.json(planes[fecha]);
 });
 app.post('/api/plan/:fecha/desde-sugerencias', apiRoute(async req => {
