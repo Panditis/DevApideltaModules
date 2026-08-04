@@ -109,6 +109,24 @@ function aplicarTransicion(orden, nuevoEstado, ctx) {
   return siguiente;
 }
 
+// Lo pedido y todavía no recibido, por PLU. Única definición en el sistema: la
+// predicción de compra la resta para no volver a pedir lo que ya está en camino.
+const ESTADOS_PENDIENTES = ['GENERADA', 'ENVIADA'];
+
+function pendientePorPlu(ordenes) {
+  const acc = {};
+  for (const o of (Array.isArray(ordenes) ? ordenes : [])) {
+    if (!ESTADOS_PENDIENTES.includes(o && o.estado)) continue;
+    for (const it of (Array.isArray(o.items) ? o.items : [])) {
+      const plu = String((it && it.plu) != null ? it.plu : '').trim();
+      const cant = Number(it && it.cantidad);
+      if (!plu || !Number.isFinite(cant) || cant <= 0) continue;
+      acc[plu] = (acc[plu] || 0) + cant;
+    }
+  }
+  return acc;
+}
+
 // Construye el objeto orden persistible. id y fechaISO se inyectan desde el caller (server.js) — módulo puro sin Date.now().
 function construirOrden({ id, fechaISO, proveedor, items }) {
   const lista = Array.isArray(items) ? items : [];
@@ -124,4 +142,5 @@ function construirOrden({ id, fechaISO, proveedor, items }) {
 }
 
 module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,
-  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor, aplicarTransicion };
+  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor, aplicarTransicion,
+  pendientePorPlu, ESTADOS_PENDIENTES };

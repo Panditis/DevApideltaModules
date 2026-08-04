@@ -126,3 +126,36 @@ test('orden vieja sin campos nuevos se completa al transicionar', () => {
   assert.strictEqual(r.nota, null);
   assert.strictEqual(r.historial.length, 1);
 });
+
+const { pendientePorPlu } = require('../compras_modulo');
+
+const orden = (estado, items) => ({ id: 1, fecha: '2026-08-01', proveedor: 'P', items, total: 0, estado });
+
+test('pendientePorPlu suma GENERADA y ENVIADA', () => {
+  const r = pendientePorPlu([
+    orden('GENERADA', [{ plu: '100', cantidad: 10 }]),
+    orden('ENVIADA', [{ plu: '100', cantidad: 5 }, { plu: '200', cantidad: 3 }]),
+  ]);
+  assert.deepStrictEqual(r, { 100: 15, 200: 3 });
+});
+
+test('pendientePorPlu ignora RECIBIDA y ANULADA', () => {
+  const r = pendientePorPlu([
+    orden('RECIBIDA', [{ plu: '100', cantidad: 99 }]),
+    orden('ANULADA', [{ plu: '100', cantidad: 99 }]),
+    orden('GENERADA', [{ plu: '100', cantidad: 2 }]),
+  ]);
+  assert.deepStrictEqual(r, { 100: 2 });
+});
+
+test('pendientePorPlu tolera lista vacía, items faltantes y cantidades basura', () => {
+  assert.deepStrictEqual(pendientePorPlu([]), {});
+  assert.deepStrictEqual(pendientePorPlu(null), {});
+  assert.deepStrictEqual(pendientePorPlu([orden('GENERADA', null)]), {});
+  assert.deepStrictEqual(pendientePorPlu([orden('GENERADA', [{ plu: '100', cantidad: 'x' }])]), {});
+});
+
+test('pendientePorPlu normaliza el PLU con espacios', () => {
+  const r = pendientePorPlu([orden('GENERADA', [{ plu: ' 100 ', cantidad: 4 }, { plu: '100', cantidad: 1 }])]);
+  assert.deepStrictEqual(r, { 100: 5 });
+});
