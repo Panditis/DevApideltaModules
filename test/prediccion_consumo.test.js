@@ -75,3 +75,54 @@ test('demandaDiaria sin meses devuelve ceros', () => {
   assert.deepStrictEqual(demandaDiaria({}, []), { mu: 0, sigma: 0 });
   assert.deepStrictEqual(demandaDiaria(null, null), { mu: 0, sigma: 0 });
 });
+
+const { factorEstacional, ESTACIONAL_MIN, ESTACIONAL_MAX } = require('../prediccion_consumo');
+
+// Serie con pico de diciembre, todos los años. Arranca en 2024-07 y no en 2025-01
+// porque la ventana del factor son los 12 meses móviles que terminan en el mes
+// homólogo: para junio 2026 el homólogo es junio 2025, y ahí atrás hay medio 2024.
+const serie2025 = (() => {
+  const s = {};
+  for (let m = 7; m <= 12; m++) s[`2024-${String(m).padStart(2,'0')}`] = 100;
+  for (let m = 1; m <= 12; m++) s[`2025-${String(m).padStart(2,'0')}`] = 100;
+  s['2024-12'] = 200;
+  s['2025-12'] = 200;
+  return s;
+})();
+
+test('factorEstacional compara el mes homólogo contra el promedio del año', () => {
+  // diciembre 2025 = 200 vs promedio 108,33 → ~1,846
+  const f = factorEstacional(serie2025, '2026-12');
+  assert.ok(f > 1.8 && f < 1.9, `esperaba ~1,85 y dio ${f}`);
+});
+
+test('factorEstacional da cerca de 1 en un mes normal', () => {
+  const f = factorEstacional(serie2025, '2026-06');
+  assert.ok(f > 0.9 && f < 1.0);
+});
+
+test('factorEstacional se acota en ambos extremos', () => {
+  const pico = {};
+  for (let m = 7; m <= 12; m++) pico[`2024-${String(m).padStart(2,'0')}`] = 1;
+  for (let m = 1; m <= 12; m++) pico[`2025-${String(m).padStart(2,'0')}`] = 1;
+  pico['2025-06'] = 10000;
+  assert.strictEqual(factorEstacional(pico, '2026-06'), ESTACIONAL_MAX);
+  const hueco = {};
+  for (let m = 7; m <= 12; m++) hueco[`2024-${String(m).padStart(2,'0')}`] = 100;
+  for (let m = 1; m <= 12; m++) hueco[`2025-${String(m).padStart(2,'0')}`] = 100;
+  hueco['2025-06'] = 0;
+  assert.strictEqual(factorEstacional(hueco, '2026-06'), ESTACIONAL_MIN);
+});
+
+test('factorEstacional es 1 sin 12 meses de historia', () => {
+  assert.strictEqual(factorEstacional({ '2025-12': 200 }, '2026-12'), 1);
+  assert.strictEqual(factorEstacional({}, '2026-12'), 1);
+  assert.strictEqual(factorEstacional(null, '2026-12'), 1);
+});
+
+test('factorEstacional es 1 si el año homólogo no tuvo consumo', () => {
+  const cero = {};
+  for (let m = 7; m <= 12; m++) cero[`2024-${String(m).padStart(2,'0')}`] = 0;
+  for (let m = 1; m <= 12; m++) cero[`2025-${String(m).padStart(2,'0')}`] = 0;
+  assert.strictEqual(factorEstacional(cero, '2026-06'), 1);
+});

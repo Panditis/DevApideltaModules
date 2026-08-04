@@ -83,7 +83,31 @@ function demandaDiaria(serie, meses) {
   return { mu: redondear(mu), sigma: redondear(Math.sqrt(Math.max(varianza, 0))) };
 }
 
+// Cuánto se despega el mes objetivo del promedio de su año, medido un año atrás.
+// Se acota: un mes homólogo atípico (una promoción, un faltante largo, una carga
+// mal hecha) dispara el factor y arrastra la compra entera detrás suyo.
+const ESTACIONAL_MIN = 0.5;
+const ESTACIONAL_MAX = 2.0;
+const MESES_PARA_ESTACIONALIDAD = 12;
+
+function factorEstacional(serie, mesObjetivo) {
+  const s = serie || {};
+  const homologo = mesAnterior(mesObjetivo, MESES_PARA_ESTACIONALIDAD);
+  if (!homologo) return 1;
+  // Los 12 meses del año homólogo, terminando en él.
+  const meses = [];
+  for (let i = MESES_PARA_ESTACIONALIDAD - 1; i >= 0; i--) meses.push(mesAnterior(homologo, i));
+  // Sin el año completo cargado no hay con qué comparar: mejor no ajustar que ajustar mal.
+  if (!meses.every(m => m in s)) return 1;
+  const total = meses.reduce((acc, m) => acc + (Number(s[m]) || 0), 0);
+  if (total <= 0) return 1;
+  const promedio = total / MESES_PARA_ESTACIONALIDAD;
+  const factor = (Number(s[homologo]) || 0) / promedio;
+  return redondear(Math.min(Math.max(factor, ESTACIONAL_MIN), ESTACIONAL_MAX));
+}
+
 module.exports = {
   diasDelMes, mesAnterior, mesesDeVentana, partesDeMes, redondear,
   demandaDiaria, PESOS_RECIENCIA,
+  factorEstacional, ESTACIONAL_MIN, ESTACIONAL_MAX,
 };
