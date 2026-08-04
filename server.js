@@ -2374,11 +2374,16 @@ app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
   // Otros productos (mixes, granolas, elaborados) que llevan este artículo en su fórmula
   // activa. Va aparte de `presentaciones`: eso es el mismo artículo en otro envase, esto es
   // consumo dentro de otro producto distinto.
+  // Las presentaciones fraccionadas también son padres en ProductosComponentes, así que sin
+  // este descarte cada 250G/500G/1Kg saldría listado dos veces, una en cada sección.
+  const yaEsPresentacion = new Set(presentaciones.map(p => String(p.plu)));
   const padres = await productosQueUsanComponente(plu);
-  const usadoEn = padres.map(p => ({
-    ...p,
-    consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, p.plu, cache.ventanaMeses || 12),
-  }));
+  const usadoEn = padres
+    .filter(p => !yaEsPresentacion.has(String(p.plu)))
+    .map(p => ({
+      ...p,
+      consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, p.plu, cache.ventanaMeses || 12),
+    }));
   return {
     plu,
     nombre: (cache.nombres || {})[plu] || '',
