@@ -2362,12 +2362,13 @@ app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
   const cache = leerJSON(A8020_CALC_PATH, {}) || {};
   const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
   const formulas = pesLis.formulas || {};
-  // Presentaciones que salen de este granel, con su multiplicador (kg por unidad).
-  const presentaciones = Object.entries(formulas)
+  // Candidatas a presentación: todo lo que pesables_listas mapea contra este granel.
+  // Ese archivo es un mapeo histórico y no se depura, así que arrastra productos dados de
+  // baja en SIGA (ej. 1389 "Pasa Uva Rubia 100G", Activo=0): se filtran más abajo.
+  const candidatas = Object.entries(formulas)
     .filter(([, f]) => String(f.granel) === plu)
     .map(([pluFrac, f]) => ({
       plu: pluFrac,
-      nombre: (cache.nombres || {})[pluFrac] || '',
       cantFormula: Number(f.cantFormula) > 0 ? Number(f.cantFormula) : 1,
       consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, pluFrac, cache.ventanaMeses || 12),
     }));
@@ -2376,18 +2377,41 @@ app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
   // consumo dentro de otro producto distinto.
   // Las presentaciones fraccionadas también son padres en ProductosComponentes, así que sin
   // este descarte cada 250G/500G/1Kg saldría listado dos veces, una en cada sección.
-  const yaEsPresentacion = new Set(presentaciones.map(p => String(p.plu)));
-  const padres = await productosQueUsanComponente(plu);
-  const usadoEn = padres
-    .filter(p => !yaEsPresentacion.has(String(p.plu)))
-    .map(p => ({
+  const yaEsPresentacion = new Set(candidatas.map(p => String(p.plu)));
+  const padres = (await productosQueUsanComponente(plu)).filter(p => !yaEsPresentacion.has(String(p.plu)));
+  // Un solo viaje a SIGA para el artículo, sus candidatas a presentación y los padres:
+  // resuelve los nombres que el caché de A8020 no tiene y el estado activo/inactivo.
+  const infoSIGA = await datosProductosSIGA([plu, ...candidatas.map(p => p.plu), ...padres.map(p => p.plu)]);
+  const usadoEn = padres.map(p => {
+    const siga = infoSIGA.get(String(p.plu)) || {};
+    return {
       ...p,
+      nombre: p.nombre || siga.nombre || '',
+      rubro: p.rubro || siga.rubro || '',
       consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, p.plu, cache.ventanaMeses || 12),
-    }));
+    };
+  });
+  // Criterio de filtrado: se descartan sólo las presentaciones que SIGA marca como INACTIVAS.
+  // No se exige que la fórmula activa siga llevando el granel porque en SIGA los productos
+  // discontinuados conservan la fórmula (1389 sigue apuntando a 7354 aunque esté de baja):
+  // el único dato que distingue "presentación real" de "resto histórico" es Productos.Activo.
+  // Si SIGA no devuelve la fila (o falla la consulta) se conserva la presentación, para no
+  // ocultar información por un problema de conexión.
+  const presentaciones = candidatas
+    .filter(p => (infoSIGA.get(String(p.plu)) || {}).activo !== false)
+    .map(p => {
+      const siga = infoSIGA.get(String(p.plu)) || {};
+      return {
+        ...p,
+        nombre: (cache.nombres || {})[p.plu] || siga.nombre || '',
+        rubro: (cache.rubros || {})[p.plu] || siga.rubro || '',
+      };
+    });
+  const infoPropia = infoSIGA.get(String(plu)) || {};
   return {
     plu,
-    nombre: (cache.nombres || {})[plu] || '',
-    rubro: (cache.rubros || {})[plu] || '',
+    nombre: (cache.nombres || {})[plu] || infoPropia.nombre || '',
+    rubro: (cache.rubros || {})[plu] || infoPropia.rubro || '',
     importancia: (cache.rankingGeneral || {})[plu] ?? null,
     abc: (cache.abc || {})[plu] || null,
     ventanaMeses: cache.ventanaMeses || 12,
@@ -5553,6 +5577,32 @@ async function componentesFormulaPorPadre(plus) {
     });
   }
   return porPadre;
+}
+
+// Nombre, rubro y estado (activo/inactivo) desde SIGA para un lote de PLU, en UNA sola query.
+// Hace falta porque el caché de A8020 (a8020_calc.json → nombres/rubros) sólo cubre los
+// artículos que entraron en el último recálculo: los productos dados de baja y algunos rubros
+// internos (ej. "Produccion") no están, y sin este fallback aparecen en pantalla sin nombre.
+// Si SIGA falla se devuelve un Map vacío: es un dato accesorio y no puede romper el detalle.
+async function datosProductosSIGA(plus) {
+  const ids = [...new Set((plus || []).map(p => String(p ?? '').trim()).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const inList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+  try {
+    const rows = await query(`
+      SELECT p.IdProducto, p.NombreProducto, p.Activo, COALESCE(r.NombreRubro,'') AS rubro
+      FROM dbo.Productos p
+      LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
+      WHERE p.IdProducto IN (${inList})`);
+    return new Map(rows.map(r => [String(r.IdProducto).trim(), {
+      nombre: String(r.NombreProducto || '').trim(),
+      rubro:  String(r.rubro || '').trim(),
+      activo: r.Activo === true || Number(r.Activo) === 1,
+    }]));
+  } catch (e) {
+    console.error('[detalle-plu] no se pudieron leer datos de productos desde SIGA:', e.message);
+    return new Map();
+  }
 }
 
 // componente → [{plu, nombre, rubro, cantPorUnidad}]: el camino INVERSO de

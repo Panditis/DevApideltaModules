@@ -607,6 +607,7 @@ async function abrirDetallePlu(plu) {
   const filasPres = (d.presentaciones || []).map(p => `
     <tr class="border-t border-borde">
       <td class="p-1 text-left">${escAttr(p.nombre || '')} <span class="text-ink/40">${escAttr(p.plu)}</span></td>
+      <td class="p-1 text-left text-ink/60">${escAttr(p.rubro || '')}</td>
       <td class="p-1 text-center">× ${fmt(p.cantFormula)}</td>
       <td class="p-1 text-center">${p.consumoMensual == null ? '·' : fmt(p.consumoMensual)}</td>
     </tr>`).join('');
@@ -632,7 +633,7 @@ async function abrirDetallePlu(plu) {
       ${origenes ? `<div><b>Origen del consumo:</b><div class="text-xs">${origenes}</div></div>` : ''}
       ${filasPres ? `<div><b>Presentaciones que consumen de este granel:</b>
         <table class="w-full text-xs mt-1"><thead><tr class="text-ink/60">
-          <th class="text-left">Código</th><th>Multiplicador</th><th>Consumo/mes</th></tr></thead>
+          <th class="text-left">Código</th><th class="text-left">Rubro</th><th>Multiplicador</th><th>Consumo/mes</th></tr></thead>
           <tbody>${filasPres}</tbody></table></div>` : ''}
       ${filasUsadoEn ? `<div><b>Usado en otros productos:</b>
         <table class="w-full text-xs mt-1"><thead><tr class="text-ink/60">
