@@ -142,6 +142,38 @@ function construirOrden({ id, fechaISO, proveedor, items }) {
     fechaEnvio: null, fechaRecepcion: null, fechaEstimada: null, nota: null, historial: [] };
 }
 
+// ── Pesables: una fila por granel, no por presentación ───────────────────────
+// Lo que se compra es el granel; las presentaciones son cómo se vende. Un mismo
+// granel puede salir en ocho fraccionados distintos, y con una fila por
+// presentación el sugerido de compra queda partido en ocho pedazos que nadie suma.
+// cantFormula es el multiplicador: kg de granel por unidad de esa presentación.
+function agruparPesablesPorGranel(filas) {
+  const porGranel = new Map();
+  for (const f of (Array.isArray(filas) ? filas : [])) {
+    if (!f || f.granel == null) continue;
+    const clave = String(f.granel);
+    const mult = Number(f.cantFormula) > 0 ? Number(f.cantFormula) : 1;
+    if (!porGranel.has(clave)) {
+      porGranel.set(clave, {
+        granel: f.granel, nombreGranel: f.nombreGranel || '',
+        pideTotalGranel: 0, stockPresentacionesKg: 0, presentaciones: [],
+      });
+    }
+    const g = porGranel.get(clave);
+    const pideUnidades = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    const stockUnidades = Object.values(f.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    g.pideTotalGranel += pideUnidades * mult;
+    g.stockPresentacionesKg += stockUnidades * mult;
+    g.presentaciones.push({ plu: String(f.plu), nombre: f.nombre || '', cantFormula: mult,
+      pideUnidades, stockUnidades });
+  }
+  return [...porGranel.values()].map(g => ({
+    ...g,
+    pideTotalGranel: Math.round(g.pideTotalGranel * 100) / 100,
+    stockPresentacionesKg: Math.round(g.stockPresentacionesKg * 100) / 100,
+  }));
+}
+
 module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,
   ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor, aplicarTransicion,
-  pendientePorPlu, ESTADOS_PENDIENTES };
+  pendientePorPlu, ESTADOS_PENDIENTES, agruparPesablesPorGranel };
