@@ -245,6 +245,8 @@
   /* Origen del registro: explica por qué el producto del modal no es el de la línea de la orden. */
   .reg-origen{font-size:12px;line-height:1.45;color:var(--muted);background:var(--surface2);border-left:3px solid var(--verde);border-radius:6px;padding:8px 12px}
   .reg-origen b{color:var(--text)}
+  /* Nota de la línea, repetida en el modal: la encargada la tiene que leer antes de cargar. */
+  .reg-nota{font-size:12px;line-height:1.45;color:var(--amarillo-on);background:var(--amarillo-cont);border-radius:6px;padding:8px 12px;font-weight:600}
   .reg-aviso{font-size:12px;line-height:1.45;color:var(--amarillo-on);background:var(--amarillo-cont);border-left:3px solid #f59e0b;border-radius:6px;padding:8px 12px;font-weight:600}
   td.envasar-d{font-weight:700;font-size:13px}
   td.envasar-d span{background:#dbe7ff;color:#1e40af;padding:3px 10px;border-radius:6px;display:inline-block}
@@ -378,6 +380,10 @@
   .ord-clientes summary{cursor:pointer;color:var(--faint);outline:none}
   .ord-clientes ul{margin:4px 0 0;padding-left:18px}
   .ord-manual{flex:1 1 100%;font-size:11.5px;color:var(--faint);font-style:italic}
+  /* Nota escrita en Pedidos mayoristas al armar la orden. Ámbar y con ícono: tiene que saltar a la
+     vista antes de cargar la línea, es la indicación de quien armó el pedido. */
+  .ord-linea .ord-nota{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;
+    background:var(--amarillo-cont);color:var(--amarillo-on);font-size:11.5px;font-weight:600}
   .ord-linea .ord-carga{font-size:11.5px;color:var(--muted);margin-top:2px}
   .ord-linea .ord-carga.warn{display:inline-block;color:var(--amarillo-on);background:var(--amarillo-cont);border-radius:6px;padding:1px 7px;font-weight:600}
   .ord-linea.sin-destino{box-shadow:inset 3px 0 0 #f59e0b}
@@ -2156,6 +2162,7 @@ function _buildModalForm(vals) {
   document.getElementById('mr-form').innerHTML = `
     ${vals.origen ? `<div class="reg-origen">${escHtml(vals.origen)}</div>` : ''}
     ${vals.aviso ? `<div class="reg-aviso">⚠ ${escHtml(vals.aviso)}</div>` : ''}
+    ${vals.nota ? `<div class="reg-nota">📝 ${escHtml(vals.nota)}</div>` : ''}
     <div class="reg-field"><label>Producto</label><span class="val">${escHtml(vals.plu)} – ${escHtml(vals.nombre)}</span></div>
     <div class="reg-field"><label>Granel</label><span class="val">${escHtml(vals.granel||'–')}${vals.nombreGranel?' – '+escHtml(vals.nombreGranel):''}</span></div>
     ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
@@ -2257,7 +2264,7 @@ async function abrirModalRegistroDesdeOrden(linea, ordenId) {
   h3.style.color = '';
   _buildModalForm({ plu: _mrPlu, nombre: _mrNombre, granel: _mrGranel, nombreGranel: _mrNombreGranel,
     D: null, cantFraccionada: linea.cantidad || '', empleado: (fracAsig[_mrPlu]||[])[0]||'', desde:'', hasta:'', observacion:'',
-    origen, aviso });
+    origen, aviso, nota: String(linea.nota || '').trim() });
   document.getElementById('mr-err').style.display = 'none';
   document.getElementById('modal-registro').classList.add('open');
 }
@@ -2579,6 +2586,9 @@ function renderOrdenesFrac() {
              title="Marcar la línea como preparada, sin registrar producción">✓ Preparado</button>
            <button data-sinstock-ord="${escHtml(o.id)}" data-sinstock-plu="${escHtml(l.plu)}"
              title="Marcar la línea como sin stock">Sin stock</button>`;
+      // Observación que dejó quien armó la orden en Pedidos mayoristas. Se muestra también en las
+      // líneas ya resueltas: sirve para auditar por qué se cargó como se cargó.
+      const nota = String(l.nota || '').trim();
       const idx = (estado === 'cargado' || estado === 'preparado') ? '✓'
         : estado === 'sin_stock' ? '✕' : String(i + 1);
       const clases = 'ord-linea' + (resuelta ? ' lin-resuelta' : '')
@@ -2591,6 +2601,7 @@ function renderOrdenesFrac() {
         <div class="ord-prod">
           <b>${escHtml(l.nombre)}</b> <span style="color:var(--faint);font-size:11px">${escHtml(l.plu)}</span>
           <div class="ord-granel">Granel: ${escHtml(l.granelNombre || '–')}${l.granelPlu ? ' ('+escHtml(l.granelPlu)+')' : ''}</div>
+          ${nota ? `<div class="ord-nota">📝 ${escHtml(nota)}</div>` : ''}
           ${resuelta ? '' : `<div class="ord-carga" data-carga-plu="${escHtml(l.plu)}">Producto de carga: …</div>`}
         </div>
         <div class="ord-nums">

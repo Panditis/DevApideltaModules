@@ -437,6 +437,12 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 .ordlin.est-cargado{border-left-color:#15803d;background:#f0fdf4}
 .ordlin.est-preparado{border-left-color:#1e40af;background:#eff6ff}
 .ordlin.est-sin_stock{border-left-color:#b91c1c;background:#fef2f2}
+/* Nota por producto: se escribe en el carrito y viaja con la orden hasta Distribución. */
+.fracc-nota{display:block;width:100%;max-width:320px;margin-top:4px;padding:3px 7px;font-size:11.5px;
+  border:1px solid #d6d3d1;border-radius:6px;background:#fffbeb;outline:none}
+.fracc-nota:focus{border-color:#f59e0b}
+.ordlin-nota{font-size:11.5px;color:#92400e;background:#fffbeb;border-radius:6px;padding:2px 8px;
+  display:inline-block;margin-top:3px}
 .ord-chip{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap}
 .ord-chip.pendiente,.ord-chip.parcial{background:#fef3c7;color:#92400e}
 .ord-chip.cargado{background:#dcfce7;color:#166534}
@@ -1634,6 +1640,9 @@ function formaLineaCarritoValida(l){
   if(typeof l.cantManual !== 'number' || !isFinite(l.cantManual) || l.cantManual < 0) return false;
   if(typeof l.manual !== 'boolean') return false;
   if(typeof l.cargaMotivo !== 'string') return false;
+  // `nota` se agregó después: un carrito guardado antes no la tiene y tiene que seguir siendo
+  // válido, así que sólo se rechaza si vino con un tipo que no es texto.
+  if(l.nota !== undefined && typeof l.nota !== 'string') return false;
   if(!Array.isArray(l.clientes)) return false;
   return l.clientes.every(formaClienteCarritoValida);
 }
@@ -1643,6 +1652,7 @@ function formaLineaCarritoValida(l){
 // entero, que sería perder todo el trabajo por una línea sola.
 function sanearLineaCarrito(l){
   var teniaClientes = l.clientes.length > 0;
+  l.nota = typeof l.nota === 'string' ? l.nota : '';   // carritos guardados antes de la nota
   l.clientes = l.clientes.filter(function(c){ return c.pendiente > 0; });
   // Una línea que venía con clientes y se quedó sin ninguno se descarta: su cantidad
   // era la de esos clientes. Sólo las manuales de origen viven sin clientes.
@@ -1755,6 +1765,7 @@ function nuevaLineaCarrito(plu, nombre, carga, manual){
     cargaMotivo: resuelto ? '' : String((carga && carga.motivo) || 'Sin producto de carga resuelto'),
     manual: manual === true,
     cantManual: 1,
+    nota: '',
     clientes: []
   };
 }
@@ -1821,6 +1832,11 @@ function renderCarrito(){
     var ordenadoTxt = pluYaOrdenado(l.plu)
       ? '<div class="text-xs" style="color:#92400e">⚠ Ya está en una orden generada: quitalo antes de generar esta.</div>'
       : '';
+    // La nota viaja con la orden y la lee la encargada en Distribución, así que va siempre a la
+    // vista y no escondida en el desplegable de clientes.
+    var notaTxt = '<input type="text" class="fracc-nota" maxlength="300" '+
+      'placeholder="Nota para producción (opcional)" value="'+escHtml(l.nota || '')+'" '+
+      'data-act="nota" data-idx="'+idx+'">';
     var celdaCant = l.clientes.length
       ? '<strong>'+numFmt.format(total)+'</strong>'
       : '<input type="number" min="1" step="1" style="width:80px;text-align:right" value="'+total+'" '+
@@ -1838,7 +1854,7 @@ function renderCarrito(){
     return ''+
     '<tr'+(l.pluCarga ? '' : ' class="fracc-sincarga"')+'>'+
       '<td class="mono">'+escHtml(l.plu)+'</td>'+
-      '<td>'+escHtml(l.nombre)+granelTxt+cargaTxt+ordenadoTxt+'</td>'+
+      '<td>'+escHtml(l.nombre)+granelTxt+cargaTxt+ordenadoTxt+notaTxt+'</td>'+
       '<td class="num">'+celdaCant+'</td>'+
       '<td class="num">'+numFmt.format(kgGranelFracc(total, l.cantPorUnidad))+'</td>'+
       '<td class="num">'+numFmt.format(l.clientes.length)+'</td>'+
@@ -1895,6 +1911,17 @@ function quitarClienteCarrito(idx, ci){
   snack(lineaFuera ? 'Producto quitado del carrito' : 'Cliente quitado de la línea');
 }
 
+// La nota va por 'input' y no por 'change': se guarda mientras se escribe, así no se pierde si se
+// genera la orden sin haber sacado el foco del campo. No re-dibuja la tabla, que cortaría el tipeo.
+$('tabla-carrito').addEventListener('input', function(ev){
+  var inp = ev.target;
+  if(!inp || inp.getAttribute('data-act') !== 'nota') return;
+  var l = carritoFracc[Number(inp.getAttribute('data-idx'))];
+  if(!l) return;
+  l.nota = String(inp.value || '').slice(0, 300);
+  guardarCarritoFracc();
+});
+
 $('tabla-carrito').addEventListener('change', function(ev){
   var inp = ev.target;
   if(!inp || inp.tagName !== 'INPUT') return;
@@ -1927,6 +1954,7 @@ function lineasSeleccionadas(){
       granelPlu: l.granelPlu, granelNombre: l.granelNombre, cantPorUnidad: l.cantPorUnidad,
       pluCarga: l.pluCarga, nombreCarga: l.nombreCarga,
       manual: l.manual === true,
+      nota: String(l.nota || '').trim(),
       clientes: l.clientes.map(function(c){
         return { idCliente: c.idCliente, nombre: c.nombre, pendiente: c.pendiente };
       })
@@ -2209,10 +2237,14 @@ function lineaOrdenFracc(idOrden, l){
       }).join('')
     : '<div class="text-xs text-olive">Agregado manualmente, sin pedidos asociados.</div>';
 
+  var nota = String(l.nota || '').trim();
+  var notaHtml = nota ? '<div class="ordlin-nota">📝 '+escHtml(nota)+'</div>' : '';
+
   return '<div class="ordlin est-'+estado+'">'+
     '<button class="btn btn-ghost btn-sm" onclick="toggleDetalleLineaOrden(\''+clave+'\')">Clientes ('+clientes.length+')</button> '+
     escHtml(l.nombre)+': '+cant+' un. ('+l.granelNecesario+' kg de '+escHtml(l.granelNombre)+') '+
     badge+
+    notaHtml+
     avisoParcial+
     (falta > 0
       ? '<div class="text-xs" style="color:#92400e">Se fraccionan '+cant+' de '+pedido+' pedidos: faltan '+falta+' un.</div>'
