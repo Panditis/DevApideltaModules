@@ -363,6 +363,7 @@
   .ord-idx{flex:0 0 auto;width:22px;height:22px;margin-top:1px;border-radius:50%;background:var(--surface2);border:1px solid var(--line);
     color:var(--faint);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
   .ord-linea.lin-cargado .ord-idx{background:var(--verde);border-color:var(--verde);color:#fff}
+  .ord-linea.lin-preparado .ord-idx{background:var(--info);border-color:var(--info);color:#fff}
   .ord-linea.lin-sin-stock .ord-idx{background:var(--error);border-color:var(--error);color:#fff}
   .ord-linea .ord-prod{flex:1 1 220px;min-width:0}
   .ord-linea .ord-prod b{font-size:13.5px}
@@ -386,9 +387,13 @@
   .ord-linea.lin-resuelta:hover{background:var(--surface2)}
   .ord-linea.lin-resuelta .ord-prod b{color:var(--muted);font-weight:600}
   .ord-linea.lin-cargado{box-shadow:inset 3px 0 0 var(--verde)}
+  .ord-linea.lin-preparado{box-shadow:inset 3px 0 0 var(--info)}
   .ord-linea.lin-sin-stock{box-shadow:inset 3px 0 0 var(--error)}
   .ord-estado{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap}
   .ord-estado.cargado{background:var(--verde-cont);color:var(--verde-on-cont)}
+  /* Azul y no verde: preparado cierra la línea pero SIN producción detrás; el color distinto evita
+     que se lea como una carga a la hora de auditar la orden. */
+  .ord-estado.preparado{background:#dbeafe;color:var(--info)}
   .ord-estado.sin-stock{background:#ffdad6;color:var(--error)}
   .ord-linea .ord-lin-acc{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   .ord-linea .ord-lin-acc button{font-size:11px;padding:3px 9px}
@@ -2446,7 +2451,7 @@ function renderPedidos() {
 // ── Órdenes de fraccionado pendientes ──
 // Espejo de ESTADOS_LINEA de ordenes_fraccionado.js: una línea con un estado desconocido (o sin
 // estado, como las órdenes guardadas antes de este campo) se muestra como pendiente.
-const ESTADOS_LINEA_ORD = ['pendiente', 'cargado', 'sin_stock'];
+const ESTADOS_LINEA_ORD = ['pendiente', 'cargado', 'preparado', 'sin_stock'];
 
 // Aviso persistente sobre la lista de órdenes. Se usa cuando algo quedó a medias y el usuario
 // tiene que enterarse aunque la lista se recargue (no lo limpia renderOrdenesFrac).
@@ -2505,6 +2510,20 @@ function pedirSinStockLinea(ordenId, plu) {
     'Sí, sin stock');
 }
 
+// "Preparado": la línea ya está lista y NO se va a fraccionar, así que no abre el modal de registro
+// de producción ni guarda cantidad. Cierra la línea igual que una carga y el módulo de Pedidos
+// mayoristas la cuenta como cargada.
+function pedirPreparadoLinea(ordenId, plu) {
+  const l = _lineaDeOrden(ordenId, plu);
+  if (!l) return;
+  abrirConfirmDel('Preparado',
+    `¿Marcar "${l.nombre || plu}" como preparado? La línea queda lista sin registrar producción `
+    + '(no se descuenta granel ni se genera lote). Si te equivocaste podés volverla a pendiente después.',
+    () => aplicarEstadoLinea(ordenId, plu, 'preparado', 0,
+      'No se pudo marcar la línea como preparada.'),
+    'Sí, preparado');
+}
+
 function pedirVolverPendienteLinea(ordenId, plu) {
   const l = _lineaDeOrden(ordenId, plu);
   if (!l) return;
@@ -2546,16 +2565,26 @@ function renderOrdenesFrac() {
           // Las órdenes cargadas antes de que se guardara la hora no la tienen: se muestra
           // sólo la fecha en vez de un horario inventado.
           + `${l.cargadoHora ? ' ' + escHtml(l.cargadoHora) + ' hs' : ''}</span>`
+        : estado === 'preparado'
+          // Preparada no muestra unidades: no hubo producción, sólo el sello de cuándo se resolvió.
+          ? `<span class="ord-estado preparado">✓ Preparada`
+            + `${l.cargadoFecha ? ' · ' + escHtml(l.cargadoFecha) : ''}`
+            + `${l.cargadoHora ? ' ' + escHtml(l.cargadoHora) + ' hs' : ''}</span>`
         : estado === 'sin_stock' ? '<span class="ord-estado sin-stock">✕ Sin stock</span>' : '';
       const acciones = resuelta
         ? `<button data-pendiente-ord="${escHtml(o.id)}" data-pendiente-plu="${escHtml(l.plu)}"
              title="Volver la línea a pendiente">↺ Pendiente</button>`
         : `<span class="ord-go">Cargar ▸</span>
+           <button data-preparado-ord="${escHtml(o.id)}" data-preparado-plu="${escHtml(l.plu)}"
+             title="Marcar la línea como preparada, sin registrar producción">✓ Preparado</button>
            <button data-sinstock-ord="${escHtml(o.id)}" data-sinstock-plu="${escHtml(l.plu)}"
              title="Marcar la línea como sin stock">Sin stock</button>`;
-      const idx = estado === 'cargado' ? '✓' : estado === 'sin_stock' ? '✕' : String(i + 1);
+      const idx = (estado === 'cargado' || estado === 'preparado') ? '✓'
+        : estado === 'sin_stock' ? '✕' : String(i + 1);
       const clases = 'ord-linea' + (resuelta ? ' lin-resuelta' : '')
-        + (estado === 'cargado' ? ' lin-cargado' : estado === 'sin_stock' ? ' lin-sin-stock' : '');
+        + (estado === 'cargado' ? ' lin-cargado'
+          : estado === 'preparado' ? ' lin-preparado'
+          : estado === 'sin_stock' ? ' lin-sin-stock' : '');
       return `<div class="${clases}" data-ord="${escHtml(o.id)}" data-lin="${i}" data-estado="${escHtml(estado)}"
         title="${resuelta ? 'Línea ya resuelta' : 'Cargar producción de esta línea'}">
         <span class="ord-idx">${idx}</span>
@@ -2575,11 +2604,15 @@ function renderOrdenesFrac() {
     }).join('');
     const p = o.progreso || {};
     const totLin = p.total != null ? p.total : (o.lineas || []).length;
-    const progreso = `${p.cargadas || 0} de ${totLin} cargada${(p.cargadas || 0) === 1 ? '' : 's'}`
+    // Listas = cargadas + preparadas: las dos formas de dejar la línea hecha. Las preparadas se
+    // aclaran aparte para que se vea de un vistazo cuánto de la orden no pasó por producción.
+    const listasOrd = (p.cargadas || 0) + (p.preparadas || 0);
+    const progreso = `${listasOrd} de ${totLin} lista${listasOrd === 1 ? '' : 's'}`
+      + (p.preparadas ? ` (${p.preparadas} preparada${p.preparadas === 1 ? '' : 's'})` : '')
       + (p.sinStock ? ` · ${p.sinStock} sin stock` : '');
-    // Resueltas = cargadas + sin stock: son las líneas sobre las que ya no hay nada que hacer,
+    // Resueltas = listas + sin stock: son las líneas sobre las que ya no hay nada que hacer,
     // así que la barra llega al 100% recién cuando la orden se puede cerrar.
-    const resueltasOrd = (p.cargadas || 0) + (p.sinStock || 0);
+    const resueltasOrd = listasOrd + (p.sinStock || 0);
     const pct = totLin ? Math.round(resueltasOrd * 100 / totLin) : 0;
     return `<div class="ord-card${pct === 100 ? ' ord-completa' : ''}">
       <div class="ord-head">
@@ -2709,6 +2742,8 @@ document.getElementById('tabla-ped').addEventListener('click', e => {
 document.getElementById('ord-lista').addEventListener('click', e => {
   const btnCerrar = e.target.closest('button[data-cerrar]');
   if (btnCerrar) { cerrarOrdenFrac(btnCerrar.dataset.cerrar); return; }
+  const btnPrep = e.target.closest('button[data-preparado-ord]');
+  if (btnPrep) { pedirPreparadoLinea(btnPrep.dataset.preparadoOrd, btnPrep.dataset.preparadoPlu); return; }
   const btnSin = e.target.closest('button[data-sinstock-ord]');
   if (btnSin) { pedirSinStockLinea(btnSin.dataset.sinstockOrd, btnSin.dataset.sinstockPlu); return; }
   const btnPend = e.target.closest('button[data-pendiente-ord]');

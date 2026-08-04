@@ -316,6 +316,52 @@ test('marcar cargado guarda la cantidad real aunque sea menor a la pedida', () =
   assert.strictEqual(nueva.lineas[1].estado, 'pendiente');   // las demas no se tocan
 });
 
+test('marcar preparado cierra la linea sin cantidad cargada', () => {
+  // Arrange: el producto ya estaba listo, no se fracciono nada.
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+    { estado: 'preparado', fecha: '2026-08-04', hora: '09:10' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].estado, 'preparado');
+  assert.strictEqual(nueva.lineas[0].cargadoCant, 0);
+  assert.strictEqual(nueva.lineas[0].cargadoFecha, '2026-08-04');
+  assert.strictEqual(nueva.lineas[0].cargadoHora, '09:10');
+  assert.strictEqual(nueva.lineas[1].estado, 'pendiente');   // las demas no se tocan
+});
+
+test('marcar preparado no exige cantidad ni guarda la que venga en el body', () => {
+  // Arrange: preparado no registra produccion, cualquier cantidad del body se ignora.
+  const orden = ordenDePrueba();
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(orden, '30000',
+    { estado: 'preparado', cargadoCant: 84, fecha: '2026-08-04' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].cargadoCant, 0);
+});
+
+test('volver a pendiente desde preparado limpia el sello de fecha y hora', () => {
+  // Arrange: la encargada se puede equivocar y tiene que poder deshacer.
+  const preparada = marcarLineaOrden(ordenDePrueba(), '30000',
+    { estado: 'preparado', fecha: '2026-08-04', hora: '09:10' }).orden;
+
+  // Act
+  const { orden: nueva, error } = marcarLineaOrden(preparada, '30000',
+    { estado: 'pendiente', fecha: '2026-08-05', hora: '10:00' });
+
+  // Assert
+  assert.strictEqual(error, null);
+  assert.strictEqual(nueva.lineas[0].estado, 'pendiente');
+  assert.strictEqual(nueva.lineas[0].cargadoFecha, '');
+  assert.strictEqual(nueva.lineas[0].cargadoHora, '');
+});
+
 test('marcar cargado guarda la hora junto con la fecha', () => {
   // Arrange: el badge de la tab Pedidos muestra dia y hora de la carga.
   const orden = ordenDePrueba();
@@ -485,20 +531,22 @@ test('cargar cero unidades es valido: cierra la linea sin haber producido nada u
 
 // ── Progreso ──────────────────────────────────────────────────────────────────────────────────
 
-test('el progreso cuenta las lineas de los tres estados por separado', () => {
+test('el progreso cuenta las lineas de cada estado por separado', () => {
   // Arrange
   const lineas = normalizarLineasFraccionado([
     lineaCompleta({ plu: '1', estado: 'cargado', cargadoCant: 10 }),
     lineaCompleta({ plu: '2', estado: 'cargado', cargadoCant: 3 }),
     lineaCompleta({ plu: '3', estado: 'sin_stock' }),
     lineaCompleta({ plu: '4' }),
+    lineaCompleta({ plu: '5', estado: 'preparado' }),
   ]);
 
   // Act
   const progreso = progresoOrdenFraccionado(lineas);
 
-  // Assert
-  assert.deepStrictEqual(progreso, { total: 4, cargadas: 2, sinStock: 1, pendientes: 1 });
+  // Assert: preparadas va aparte de cargadas; solo el frontend de mayoristas las suma.
+  assert.deepStrictEqual(progreso,
+    { total: 5, cargadas: 2, preparadas: 1, sinStock: 1, pendientes: 1 });
 });
 
 test('las lineas viejas sin estado cuentan como pendientes aunque no se hayan normalizado', () => {
@@ -509,12 +557,13 @@ test('las lineas viejas sin estado cuentan como pendientes aunque no se hayan no
   const progreso = progresoOrdenFraccionado(lineas);
 
   // Assert
-  assert.deepStrictEqual(progreso, { total: 2, cargadas: 1, sinStock: 0, pendientes: 1 });
+  assert.deepStrictEqual(progreso,
+    { total: 2, cargadas: 1, preparadas: 0, sinStock: 0, pendientes: 1 });
 });
 
 test('el progreso de una orden sin lineas da todo en cero', () => {
   // Arrange + Act + Assert
-  const cero = { total: 0, cargadas: 0, sinStock: 0, pendientes: 0 };
+  const cero = { total: 0, cargadas: 0, preparadas: 0, sinStock: 0, pendientes: 0 };
   assert.deepStrictEqual(progresoOrdenFraccionado([]), cero);
   assert.deepStrictEqual(progresoOrdenFraccionado(undefined), cero);
 });

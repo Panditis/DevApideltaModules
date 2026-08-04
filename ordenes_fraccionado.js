@@ -32,7 +32,14 @@ function numeroPositivoOCero(v) {
 // 'cargado' no distingue parciales a propósito: la regla de negocio es que cualquier carga cierra
 // la línea, aunque se hayan producido menos unidades de las pedidas (la cantidad real igual se
 // guarda en cargadoCant como dato). 'sin_stock' lo marca la encargada cuando no la va a hacer.
-const ESTADOS_LINEA = ['pendiente', 'cargado', 'sin_stock'];
+// 'preparado' es la línea que quedó lista SIN fraccionar: el producto ya estaba armado, así que no
+// hay registro de producción ni cantidad cargada. Cierra la línea igual que 'cargado' y para
+// Pedidos mayoristas cuenta como cargada, pero se lleva aparte para no inventar un registro de
+// producción que nunca existió.
+const ESTADOS_LINEA = ['pendiente', 'cargado', 'preparado', 'sin_stock'];
+
+// Estados que cierran la línea dejando sello de fecha/hora. La cantidad sólo la tiene 'cargado'.
+const ESTADOS_CON_SELLO = ['cargado', 'preparado'];
 
 // Cantidad realmente cargada: 0 es un valor legítimo, así que no sirve numeroPositivoOCero.
 function cantidadCargadaValida(v) {
@@ -60,20 +67,24 @@ function normalizarHora(v) {
  * mayoristas muestren lo mismo sin recalcular cada una por su lado.
  * Se calcula al vuelo (nunca se persiste) para que no pueda quedar desincronizado de `lineas`.
  * @param {Array} lineas líneas ya normalizadas
- * @returns {{total:number, cargadas:number, sinStock:number, pendientes:number}}
+ * @returns {{total:number, cargadas:number, preparadas:number, sinStock:number, pendientes:number}}
  */
 function progresoOrdenFraccionado(lineas) {
   const arr = Array.isArray(lineas) ? lineas : [];
   const cuenta = estado => arr.filter(l => (l && l.estado) === estado).length;
   const cargadas = cuenta('cargado');
+  const preparadas = cuenta('preparado');
   const sinStock = cuenta('sin_stock');
   return {
     total: arr.length,
     cargadas,
+    // Aparte de `cargadas` a propósito: la barra de avance de distribucion.html las suma, pero
+    // Pedidos mayoristas necesita poder decir "listas sin fraccionar" si alguna vez hace falta.
+    preparadas,
     sinStock,
     // Por diferencia: una línea vieja sin `estado` cuenta como pendiente aunque no se haya
     // normalizado, que es lo que corresponde para las órdenes guardadas antes de este campo.
-    pendientes: arr.length - cargadas - sinStock,
+    pendientes: arr.length - cargadas - preparadas - sinStock,
   };
 }
 
@@ -94,17 +105,20 @@ function marcarLineaOrden(orden, plu, cambio) {
   const buscado = String(plu == null ? '' : plu).trim();
   const i = orden.lineas.findIndex(l => l && String(l.plu) === buscado);
   if (i < 0) return { orden: null, error: `La orden no tiene una línea con el PLU ${buscado}` };
-  // La cantidad sólo se exige (y se guarda) cuando se está cargando producción: en 'sin_stock' y
-  // 'pendiente' no hay nada cargado, así que lo que venga en el body se ignora.
+  // La cantidad sólo se exige (y se guarda) cuando se está cargando producción: en 'preparado',
+  // 'sin_stock' y 'pendiente' no hay nada cargado, así que lo que venga en el body se ignora.
   if (c.estado === 'cargado' && !cantidadCargadaValida(c.cargadoCant)) {
     return { orden: null, error: `Cantidad cargada inválida en el PLU ${buscado}` };
   }
+  // 'preparado' también deja sello: sirve para saber cuándo se resolvió la línea, aunque no haya
+  // producción detrás.
+  const conSello = ESTADOS_CON_SELLO.includes(c.estado);
   const linea = {
     ...orden.lineas[i],
     estado: c.estado,
     cargadoCant: c.estado === 'cargado' ? Number(c.cargadoCant) : 0,
-    cargadoFecha: c.estado === 'cargado' ? normalizarFecha(c.fecha) : '',
-    cargadoHora: c.estado === 'cargado' ? normalizarHora(c.hora) : '',
+    cargadoFecha: conSello ? normalizarFecha(c.fecha) : '',
+    cargadoHora: conSello ? normalizarHora(c.hora) : '',
   };
   const lineas = orden.lineas.map((l, idx) => (idx === i ? linea : l));
   return { orden: { ...orden, lineas }, error: null };
@@ -170,8 +184,8 @@ function normalizarLineasFraccionado(lineas) {
       estado: ESTADOS_LINEA.includes(l.estado) ? l.estado : 'pendiente',
       cargadoCant: l.estado === 'cargado' && cantidadCargadaValida(l.cargadoCant)
         ? Number(l.cargadoCant) : 0,
-      cargadoFecha: l.estado === 'cargado' ? normalizarFecha(l.cargadoFecha) : '',
-      cargadoHora: l.estado === 'cargado' ? normalizarHora(l.cargadoHora) : '',
+      cargadoFecha: ESTADOS_CON_SELLO.includes(l.estado) ? normalizarFecha(l.cargadoFecha) : '',
+      cargadoHora: ESTADOS_CON_SELLO.includes(l.estado) ? normalizarHora(l.cargadoHora) : '',
       clientes: Array.isArray(l.clientes) ? l.clientes.map(c => ({
         idCliente: c.idCliente, nombre: String(c.nombre || ''), pendiente: Number(c.pendiente) || 0,
       })) : [],
