@@ -17,6 +17,7 @@ const XLSX     = require('xlsx');
 const auth     = require('./auth');
 const { calcularAlmacen, pisoMinimo } = require('./distribucion');
 const comprasModulo = require('./compras_modulo');
+const prediccionConsumo = require('./prediccion_consumo');
 const preciosProv = require('./precios_proveedores');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
@@ -3116,6 +3117,46 @@ async function recalcularConsumoMensual() {
 
 app.get('/api/compras-modulo/consumo-mensual/recalcular', apiRoute(async () => recalcularConsumoMensual()));
 app.get('/api/compras-modulo/consumo-mensual', apiRoute(async () => leerJSON(CONSUMO_MENSUAL_PATH, { vacio: true })));
+
+// Recomendación de compra a un horizonte elegible. Cruza la serie mensual con el
+// stock del listado y lo pendiente de recibir de las órdenes abiertas.
+app.get('/api/compras-modulo/prediccion', apiRoute(async (req) => {
+  const dias = Math.max(1, Math.min(Number(req.query.dias) || 30, 365));
+  const serie = leerJSON(CONSUMO_MENSUAL_PATH, null);
+  if (!serie || serie.vacio || !serie.consumoMensual) {
+    return { vacio: true, mensaje: 'Sin serie mensual. Recalculá el consumo mensual primero.', dias };
+  }
+  const listado = await calcularListadoCompras();
+  const pendiente = comprasModulo.pendientePorPlu(leerJSON(ORDENES_COMPRA_PATH, []));
+  const leadTimes = leerJSON(LEAD_TIMES_PATH, {});
+  const zPorClase = leerJSON(DISTRIB_CONFIG_PATH, {}).servicio || { A: 2.05, B: 1.645, C: 1.28 };
+  const abcPorPlu = (leerJSON(A8020_CALC_PATH, {}) || {}).abc || {};
+  const mesActual = new Date().toISOString().slice(0, 7);
+
+  const productos = (listado.productos || []).map(p => {
+    // La serie guarda { ventas, produccion, total }: la proyección usa el total.
+    const porMes = serie.consumoMensual[String(p.plu)] || {};
+    const totales = {};
+    for (const [mes, v] of Object.entries(porMes)) totales[mes] = Number(v.total) || 0;
+    const clase = abcPorPlu[String(p.plu)] || 'C';
+    const z = zPorClase[clase] != null ? zPorClase[clase] : zPorClase.C;
+    const leadTimeDias = comprasModulo.leadTimeDeProveedor(leadTimes, p.proveedor);
+    const pr = prediccionConsumo.proyectar(totales, { mesActual, dias, z });
+    const stock = (Number(p.central) || 0)
+      + Object.values(p.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0)
+      + (Number(p.fraccionado) || 0);
+    const pend = Number(pendiente[String(p.plu)]) || 0;
+    const rec = prediccionConsumo.recomendar({
+      proyeccion: pr.proyeccion, seguridad: pr.seguridad, stock, pendiente: pend,
+      muDiario: pr.muDiario, leadTimeDias,
+    });
+    return { ...p, ...pr, stock, pendiente: pend, leadTimeDias, abc: clase,
+      necesidad: rec.necesidad, estado: rec.estado };
+  });
+  const orden = { CRITICO: 0, COMPRAR: 1, OK: 2, EXCESO: 3 };
+  productos.sort((a, b) => (orden[a.estado] - orden[b.estado]) || (b.necesidad - a.necesidad));
+  return { dias, mesActual, timestampSerie: serie.timestamp, total: productos.length, productos };
+}));
 
 // ── Ajustes manuales de S/min por (plu, sucursal) ──────────────────────────────
 const MANUAL_MAX = 100000;
