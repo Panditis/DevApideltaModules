@@ -41,16 +41,22 @@ tailwind.config = { theme: { extend: {
   <section id="tab-listado" class="tab-panel">
     <div class="flex gap-2 mb-3 items-center flex-wrap">
       <input id="buscarListado" placeholder="Buscar producto…" class="px-3 py-2 rounded-lg border border-borde w-64">
+      <select id="filtroTipo" class="px-3 py-2 rounded-lg border border-borde">
+        <option value="">Almacén y pesables</option>
+        <option value="almacen">Sólo almacén</option>
+        <option value="pesable">Sólo pesables</option>
+      </select>
       <label class="text-sm flex items-center gap-1"><input type="checkbox" id="soloSugerido"> Solo con sugerido &gt; 0</label>
       <span id="listadoCount" class="ml-auto text-sm text-ink/60"></span>
     </div>
     <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
       <table class="w-full text-sm">
         <thead class="bg-verde/5 text-verde"><tr>
-          <th class="text-left p-2">Producto</th><th class="p-2">Central</th><th class="p-2">Granel</th>
-          <th class="p-2">Fraccionado</th><th class="p-2">Consolidado</th>
-          <th class="p-2">Déf. A8020</th><th class="p-2">Micro</th><th class="p-2">Falt. real</th>
-          <th class="p-2 bg-amarillo/30">Sugerido</th><th class="p-2">Proveedor</th><th class="p-2">Últ. compra</th><th class="p-2"></th>
+          <th class="text-left p-2">Producto</th>
+          <th class="p-2">Central</th><th class="p-2">Sucursales</th>
+          <th class="p-2">Importancia</th><th class="p-2">Consumo/mes</th>
+          <th class="p-2 bg-amarillo/30">Sugerido</th>
+          <th class="p-2">Proveedor</th><th class="p-2">Últ. compra</th><th class="p-2"></th>
         </tr></thead>
         <tbody id="listadoBody"></tbody>
       </table>
@@ -104,6 +110,21 @@ tailwind.config = { theme: { extend: {
     </div>
   </div>
 </div>
+<!-- Detalle de consumo de un producto: avisar() sólo muestra texto plano (textContent),
+     así que el contenido rico usa su propio modal, igual que #mTracking. -->
+<div id="mDetallePlu" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="mDetallePluTitulo">
+  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-2xl max-h-[85vh] flex flex-col">
+    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+      <h3 id="mDetallePluTitulo" class="font-disp text-xl font-bold text-verde">Detalle de consumo</h3>
+      <button id="mDetallePluX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="mDetallePluCuerpo" class="px-5 py-4 overflow-y-auto text-sm"></div>
+    <div class="px-5 py-3 border-t border-borde flex justify-end">
+      <button id="mDetallePluOk" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp">Listo</button>
+    </div>
+  </div>
+</div>
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : (Math.round(n*100)/100).toLocaleString('es-AR');
@@ -140,6 +161,7 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (!$('#mAviso').classList.contains('hidden')) cerrarAviso();
   else if (!$('#mTracking').classList.contains('hidden')) cerrarTracking();
+  else if (!$('#mDetallePlu').classList.contains('hidden')) cerrarDetallePlu();
 });
 
 // ---- Fetch con manejo de sesión ----
@@ -182,39 +204,45 @@ async function cargarListado() {
     listadoData = lst.productos || []; presentaciones = pres || {};
     renderListado();
   } catch (e) {
-    $('#listadoBody').innerHTML = `<tr><td colspan="12" class="p-4 text-center text-rojo">No se pudo cargar el listado: ${e.message}</td></tr>`;
+    $('#listadoBody').innerHTML = `<tr><td colspan="9" class="p-4 text-center text-rojo">No se pudo cargar el listado: ${escAttr(e.message)}</td></tr>`;
   }
 }
 function renderListado() {
   const q = $('#buscarListado').value.toLowerCase();
   const solo = $('#soloSugerido').checked;
+  const tipo = $('#filtroTipo').value;
   const rows = listadoData.filter(p =>
     (!q || p.nombre.toLowerCase().includes(q) || p.plu.includes(q)) &&
-    (!solo || p.sugerido > 0));
+    (!solo || p.sugerido > 0) &&
+    (!tipo || p.tipo === tipo));
   $('#listadoCount').textContent = rows.length + ' productos';
   $('#listadoBody').innerHTML = rows.map(p => {
-    const sucDet = Object.entries(p.stkSuc || {}).map(([s,v]) => `${s}:${fmt(v)}`).join('  ');
+    // En pesables el stock de sucursal viene en `fraccionado` (kg equivalentes) y `stkSuc` llega vacío.
+    const sucTotal = p.tipo === 'pesable'
+      ? (p.fraccionado || 0)
+      : Object.values(p.stkSuc || {}).reduce((s,v) => s + (Number(v)||0), 0);
     const sugClass = p.sugerido > 0 ? 'font-bold text-verde' : 'text-ink/40';
+    // La importancia es el percentil de facturación de A8020 (0 a 1).
+    const imp = p.importancia == null ? '·'
+      : `<span class="px-2 py-0.5 rounded text-xs ${p.importancia>=0.8?'bg-verde text-white':p.importancia>=0.5?'bg-amarillo text-ink':'bg-ink/10 text-ink/60'}">${p.importancia.toFixed(2)}</span>`;
+    const plu = escAttr(p.plu), pluJs = escJs(p.plu);
     return `<tr class="border-t border-borde hover:bg-verde/5">
-      <td class="p-2 text-left"><button class="text-verde hover:underline" onclick="toggleSuc('${p.plu}')">${p.nombre}</button>
-        <div id="suc-${p.plu}" class="hidden text-xs text-ink/60 mt-1">${sucDet||'sin desglose'}</div></td>
+      <td class="p-2 text-left"><button class="text-verde hover:underline" onclick="abrirDetallePlu('${pluJs}')">${escAttr(p.nombre)}</button>
+        <span class="text-xs text-ink/40 ml-1">${plu}${p.tipo==='pesable'?' · granel':''}</span></td>
       <td class="p-2 text-center">${fmt(p.central)}</td>
-      <td class="p-2 text-center">${p.granelCentral==null?'—':fmt(p.granelCentral)}</td>
-      <td class="p-2 text-center">${p.fraccionado==null?'—':fmt(p.fraccionado)}</td>
-      <td class="p-2 text-center">${fmt(p.consolidado)}</td>
-      <td class="p-2 text-center">${fmt(p.deficitReposicion)}</td>
-      <td class="p-2 text-center">${fmt(p.deficitMicro)}</td>
-      <td class="p-2 text-center">${fmt(p.faltanteReal)}</td>
+      <td class="p-2 text-center">${fmt(sucTotal)}</td>
+      <td class="p-2 text-center">${imp}</td>
+      <td class="p-2 text-center">${p.consumoMensual==null?'·':fmt(p.consumoMensual)}</td>
       <td class="p-2 text-center ${sugClass}">${fmt(p.sugerido)}</td>
-      <td class="p-2 text-left text-xs">${p.proveedor||'—'}${p.costo?`<div class="text-ink/50">${money(p.costo)}</div>`:''}</td>
-      <td class="p-2 text-center text-xs">${p.ultimaCompraFecha||'—'}${p.ultimaCompraCantidad?`<div class="text-ink/50">${fmt(p.ultimaCompraCantidad)}u</div>`:''}</td>
-      <td class="p-2 text-center"><button class="px-2 py-1 rounded bg-verde text-white text-xs hover:bg-verdeHover" onclick="addCarrito('${p.plu}')">+ carrito</button></td>
+      <td class="p-2 text-left text-xs">${p.proveedor?escAttr(p.proveedor):'·'}${p.costo?`<div class="text-ink/50">${money(p.costo)}</div>`:''}</td>
+      <td class="p-2 text-center text-xs">${p.ultimaCompraFecha?escAttr(p.ultimaCompraFecha):'·'}${p.ultimaCompraCantidad?`<div class="text-ink/50">${fmt(p.ultimaCompraCantidad)}u</div>`:''}</td>
+      <td class="p-2 text-center"><button class="px-2 py-1 rounded bg-verde text-white text-xs hover:bg-verdeHover" onclick="addCarrito('${pluJs}')">+ carrito</button></td>
     </tr>`;
   }).join('');
 }
-function toggleSuc(plu){ $('#suc-'+plu).classList.toggle('hidden'); }
 $('#buscarListado').addEventListener('input', renderListado);
 $('#soloSugerido').addEventListener('change', renderListado);
+$('#filtroTipo').addEventListener('change', renderListado);
 
 // ---- Carrito (agregar) ----
 function addCarrito(plu) {
@@ -443,6 +471,10 @@ async function buscarProducible() {
     b.addEventListener('click', () => addTracking(b.dataset.plu, b.dataset.nombre)));
 }
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+// Para valores que van dentro de un literal JS entre comillas simples en un onclick="…":
+// primero se escapa a nivel JS (el navegador decodifica las entidades antes de parsear el script)
+// y después a nivel HTML, así una comilla en el dato no rompe el handler.
+function escJs(s) { return escAttr(String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'")); }
 // Alta y baja actualizan la lista del modal sin cerrarlo; la tabla de componentes se recalcula al salir.
 async function addTracking(plu, nombre) {
   try {
@@ -545,6 +577,53 @@ async function cambiarEstadoOrden(id, estado) {
     });
     await cargarOrdenes();
   } catch (e) { avisar(e.message, 'Error'); }
+}
+
+// ---- Detalle de consumo ----
+// Muestra qué códigos alimentan el consumo de este producto y con qué multiplicador.
+// Usa su propio modal porque avisar() escribe con textContent y no renderiza HTML.
+function cerrarDetallePlu() {
+  $('#mDetallePlu').classList.add('hidden');
+  $('#mDetallePlu').classList.remove('flex');
+}
+function abrirModalDetallePlu(html) {
+  $('#mDetallePluCuerpo').innerHTML = html;
+  $('#mDetallePlu').classList.remove('hidden');
+  $('#mDetallePlu').classList.add('flex');
+  $('#mDetallePluOk').focus();
+}
+$('#mDetallePluX').addEventListener('click', cerrarDetallePlu);
+$('#mDetallePluOk').addEventListener('click', cerrarDetallePlu);
+$('#mDetallePlu').addEventListener('click', e => { if (e.target === $('#mDetallePlu')) cerrarDetallePlu(); });
+
+async function abrirDetallePlu(plu) {
+  abrirModalDetallePlu('<p class="text-ink/60">Cargando…</p>');
+  let d;
+  try { d = await apiFetch('/api/compras-modulo/detalle-plu/' + encodeURIComponent(plu)); }
+  catch (e) { $('#mDetallePluCuerpo').innerHTML = `<p class="text-rojo">No se pudo cargar el detalle: ${escAttr(e.message)}</p>`; return; }
+  const filasPres = (d.presentaciones || []).map(p => `
+    <tr class="border-t border-borde">
+      <td class="p-1 text-left">${escAttr(p.nombre || '')} <span class="text-ink/40">${escAttr(p.plu)}</span></td>
+      <td class="p-1 text-center">× ${fmt(p.cantFormula)}</td>
+      <td class="p-1 text-center">${p.consumoMensual == null ? '·' : fmt(p.consumoMensual)}</td>
+    </tr>`).join('');
+  const porSuc = Object.entries(d.consumoPorSucursal || {})
+    .map(([s, v]) => `${escAttr(s)}: ${fmt(v)}`).join('  ·  ') || 'sin consumo calculado';
+  const origenes = Object.entries(d.consumoOrigen || {}).map(([s, x]) =>
+    `${escAttr(s)}: propio ${fmt(x.propio)} · bultos ${fmt(x.bulto)} · fraccionado ${fmt(x.fraccionado)}`).join('<br>');
+  $('#mDetallePluCuerpo').innerHTML = `
+    <div class="text-left space-y-3">
+      <div><b>${escAttr(d.nombre || plu)}</b> <span class="text-ink/40">${escAttr(plu)}</span>
+        <div class="text-xs text-ink/60">${escAttr(d.rubro || '')} · ABC ${escAttr(d.abc || '·')} · importancia ${d.importancia == null ? '·' : d.importancia.toFixed(2)}</div></div>
+      <div><b>Consumo promedio mensual:</b> ${d.consumoMensual == null ? 'sin calcular' : fmt(d.consumoMensual)}
+        <div class="text-xs text-ink/60">ventana ${fmt(d.ventanaMeses)} meses</div></div>
+      <div><b>Consumo por sucursal (total de la ventana):</b><div class="text-xs">${porSuc}</div></div>
+      ${origenes ? `<div><b>Origen del consumo:</b><div class="text-xs">${origenes}</div></div>` : ''}
+      ${filasPres ? `<div><b>Presentaciones que consumen de este granel:</b>
+        <table class="w-full text-xs mt-1"><thead><tr class="text-ink/60">
+          <th class="text-left">Código</th><th>Multiplicador</th><th>Consumo/mes</th></tr></thead>
+          <tbody>${filasPres}</tbody></table></div>` : ''}
+    </div>`;
 }
 
 cargarListado();
