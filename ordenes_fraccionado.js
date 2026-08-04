@@ -133,6 +133,50 @@ function marcarLineaOrden(orden, plu, cambio) {
   return { orden: { ...orden, lineas }, error: null };
 }
 
+/**
+ * Cambia la cantidad (y opcionalmente la nota) de UNA línea ya pedida. Pura: devuelve una orden
+ * nueva, no toca la recibida.
+ * Sólo se puede editar una línea 'pendiente'. Si la sala ya la trabajó ('cargado', 'preparado' o
+ * 'sin_stock') cambiar la cantidad desfasaría la producción ya registrada contra lo pedido, así
+ * que la regla de negocio es no tocarla: para pedir más se genera una orden nueva.
+ * @param {object} orden orden completa tal cual está persistida
+ * @param {string|number} plu PLU de la línea a editar
+ * @param {{cantidad:*, nota?:string, fecha?:string, hora?:string}} cambio
+ * @returns {{orden:object|null, error:string|null}}
+ */
+function editarLineaOrden(orden, plu, cambio) {
+  const c = cambio || {};
+  if (!orden || !Array.isArray(orden.lineas)) return { orden: null, error: 'Orden inválida' };
+  const buscado = String(plu == null ? '' : plu).trim();
+  const i = orden.lineas.findIndex(l => l && String(l.plu) === buscado);
+  if (i < 0) return { orden: null, error: `La orden no tiene una línea con el PLU ${buscado}` };
+  const previa = orden.lineas[i];
+  if (previa.estado && previa.estado !== 'pendiente') {
+    return { orden: null, error: `La línea del PLU ${buscado} ya está resuelta y no se puede editar` };
+  }
+  // Mismo criterio que validarLineasFraccionado: la cantidad es lo que define cuánto se fracciona.
+  const cantidad = Number(c.cantidad);
+  if (!Number.isFinite(cantidad) || cantidad <= 0) {
+    return { orden: null, error: `Cantidad inválida en el PLU ${buscado}` };
+  }
+  const cantPorUnidad = numeroPositivoOCero(previa.cantPorUnidad);
+  const linea = {
+    ...previa,
+    cantidad,
+    granelNecesario: redondear(cantidad * cantPorUnidad),
+    // `nota` ausente significa "no la toques"; un string (incluso '') la reemplaza, así se puede
+    // borrar una observación que ya no aplica sin tener que reenviar la orden entera.
+    nota: c.nota === undefined ? normalizarNota(previa.nota) : normalizarNota(c.nota),
+    // La cantidad con la que se creó la orden, para que Distribución vea "pedía 10, ahora 15".
+    // Se sella una sola vez: en la segunda edición el original sigue siendo el de la orden.
+    cantidadOriginal: numeroPositivoOCero(previa.cantidadOriginal) || Number(previa.cantidad) || 0,
+    editadoFecha: normalizarFecha(c.fecha),
+    editadoHora: normalizarHora(c.hora),
+  };
+  const lineas = orden.lineas.map((l, idx) => (idx === i ? linea : l));
+  return { orden: { ...orden, lineas }, error: null };
+}
+
 function totalesOrdenFraccionado(lineas) {
   return {
     lineas: lineas.length,
@@ -198,6 +242,12 @@ function normalizarLineasFraccionado(lineas) {
         ? Number(l.cargadoCant) : 0,
       cargadoFecha: ESTADOS_CON_SELLO.includes(l.estado) ? normalizarFecha(l.cargadoFecha) : '',
       cargadoHora: ESTADOS_CON_SELLO.includes(l.estado) ? normalizarHora(l.cargadoHora) : '',
+      // Rastro de la edición de cantidad (ver editarLineaOrden). Se preserva igual que `estado`:
+      // reenviar o editar la orden entera no puede borrar el "pedía 10, ahora 15" que lee
+      // Distribución. Ausente en las líneas nunca editadas y en las órdenes viejas.
+      cantidadOriginal: numeroPositivoOCero(l.cantidadOriginal),
+      editadoFecha: normalizarFecha(l.editadoFecha),
+      editadoHora: normalizarHora(l.editadoHora),
       clientes: Array.isArray(l.clientes) ? l.clientes.map(c => ({
         idCliente: c.idCliente, nombre: String(c.nombre || ''), pendiente: Number(c.pendiente) || 0,
       })) : [],
@@ -257,4 +307,5 @@ module.exports = {
   totalesOrdenFraccionado,
   progresoOrdenFraccionado,
   marcarLineaOrden,
+  editarLineaOrden,
 };

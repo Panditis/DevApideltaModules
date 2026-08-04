@@ -406,6 +406,25 @@
   .ord-head .ord-prog{font-size:11.5px;color:var(--muted);font-weight:600}
   #ord-aviso{display:none;align-items:flex-start;gap:8px;margin-bottom:12px;padding:9px 12px;border-radius:8px;
     border:1px solid var(--amarillo);background:var(--amarillo-cont);color:var(--amarillo-on);font-size:12.5px;font-weight:600}
+
+  /* ── Novedades de órdenes (polling) ──
+     La encargada tiene que enterarse de una orden nueva o de una cantidad cambiada SIN recargar.
+     Se usa el azul de "preparado"/info y no el ámbar de #ord-aviso a propósito: una novedad es
+     información, no un error de operación, y los dos avisos pueden convivir en pantalla. */
+  .tab .pill.pill-nov{background:var(--error);color:#fff}
+  .tab.on .pill.pill-nov{background:var(--error);color:#fff}
+  #ord-novedades{display:none;align-items:center;gap:10px;margin-bottom:12px;padding:9px 12px;border-radius:8px;
+    border:1px solid var(--info);background:#dbeafe;color:var(--info);font-size:12.5px;font-weight:700}
+  #ord-novedades button{font-size:11.5px;padding:3px 10px;margin-left:auto}
+  /* Orden llegada después del último visto. Sólo acento lateral: el borde verde de .ord-completa
+     tiene que seguir mandando cuando la orden ya está terminada. */
+  .ord-card.ord-nueva{box-shadow:inset 4px 0 0 var(--info),0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.05)}
+  .ord-nueva-badge{font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--info);
+    background:#dbeafe;border-radius:6px;padding:2px 7px;white-space:nowrap}
+  /* Rastro de la edición hecha en Pedidos mayoristas: sin el "antes → después" la encargada no
+     puede saber si ya fraccionó de más o de menos contra la cantidad vieja. */
+  .ord-linea .ord-modificada{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;
+    background:#dbeafe;color:var(--info);font-size:11.5px;font-weight:600}
   @media (max-width:900px){
     .ped-layout{flex-direction:column}
     .ped-col-ordenes,
@@ -444,7 +463,7 @@
       <button class="tab on" data-tab="almacen">Almacen <span class="pill" id="pillA">—</span></button>
       <button class="tab" data-tab="pesables">Pesables <span class="pill" id="pillP">kg</span></button>
       <button class="tab" data-tab="envasar">Envasar <span class="pill" id="pillEnv">0</span></button>
-      <button class="tab" data-tab="pedidos">Pedidos <span class="pill" id="pillPed">—</span></button>
+      <button class="tab" data-tab="pedidos">Pedidos <span class="pill" id="pillPed">—</span><span class="pill pill-nov" id="pillPedNov" style="display:none">0</span></button>
       <button class="tab" data-tab="produccion">Producción <span class="pill" id="pillProd">0</span></button>
       <button class="tab" data-tab="historial">Historial <span class="pill" id="pillHist">0</span></button>
       <button class="tab cfg-tab" data-tab="config-ruteos">Config Ruteos</button>
@@ -573,6 +592,8 @@
         <div class="ped-col-ordenes">
           <div id="ord-state" class="state" style="display:none;height:auto;min-height:180px"><div class="spinner"></div><div>Cargando órdenes…</div></div>
           <div id="ord-aviso" role="alert"></div>
+          <!-- Banner de novedades: propio y separado de #ord-aviso, que es el error de operación. -->
+          <div id="ord-novedades" role="status"></div>
           <div id="ord-lista"></div>
         </div>
         <aside class="ped-col-sueltos">
@@ -2473,6 +2494,96 @@ function limpiarAvisoOrden() {
   el.style.display = 'none';
 }
 
+// ── Novedades de órdenes (polling) ──────────────────────────────────────────
+// El módulo de Pedidos mayoristas puede mandar una orden nueva o cambiarle la cantidad a una línea
+// en cualquier momento. Antes eso sólo se veía recargando la página; ahora se consulta un endpoint
+// liviano cada MS_POLL_NOVEDADES y se avisa con un badge en el nav + un banner dentro de la tab.
+const MS_POLL_NOVEDADES = 45000;
+const LS_ORD_VISTO = 'distrib_ord_visto';   // epoch ms del último "ya lo vi" de esta terminal
+let _novPollIniciado = false;
+// Visto congelado al momento de pedir la lista completa. El resaltado del render tiene que usar el
+// visto ANTERIOR: si se comparara contra el localStorage ya sellado, nunca se vería nada marcado.
+let _vistoOrdRender = 0;
+
+function leerVistoOrd() {
+  try { return Number(localStorage.getItem(LS_ORD_VISTO)) || 0; } catch (e) { return 0; }
+}
+function guardarVistoOrd(ts) {
+  try { localStorage.setItem(LS_ORD_VISTO, String(ts)); } catch (e) { /* modo privado: se pierde el visto, no rompe */ }
+}
+
+// Sella el visto y limpia badge + banner. Se sella con Date.now() y no con el máximo actualizadoEn:
+// en el momento en que se sella la lista completa ya se pidió, así que todo lo anterior a este
+// instante está a la vista. Con el máximo actualizadoEn quedaría marcado como "no visto" lo que
+// llegó entre el último poll y la recarga. Si el reloj del server va adelantado, a lo sumo se
+// vuelve a avisar de algo ya visto (molesto pero inofensivo); nunca se pierde una novedad.
+function marcarVistoOrd() {
+  guardarVistoOrd(Date.now());
+  pintarNovedadesOrd(0, 0);
+}
+
+// Badge del nav + banner de la tab. Con total 0 los oculta a los dos.
+function pintarNovedadesOrd(nuevas, actualizadas) {
+  const total = nuevas + actualizadas;
+  const badge = document.getElementById('pillPedNov');
+  if (badge) {
+    badge.textContent = total > 9 ? '9+' : String(total);
+    badge.style.display = total ? '' : 'none';
+  }
+  const banner = document.getElementById('ord-novedades');
+  if (!banner) return;
+  if (!total) { banner.innerHTML = ''; banner.style.display = 'none'; return; }
+  const partes = [];
+  if (nuevas) partes.push(`${nuevas} orden${nuevas === 1 ? '' : 'es'} nueva${nuevas === 1 ? '' : 's'}`);
+  if (actualizadas) partes.push(`${actualizadas} actualizada${actualizadas === 1 ? '' : 's'}`);
+  banner.innerHTML = `<span>🔔 ${escHtml(partes.join(' · '))}</span>`
+    + `<button class="primary" id="ord-nov-refresh">Actualizar</button>`;
+  banner.style.display = 'flex';
+  document.getElementById('ord-nov-refresh').onclick = () => {
+    cargarOrdenesFrac();   // congela el visto viejo de forma síncrona, antes de sellarlo
+    marcarVistoOrd();
+  };
+}
+
+// Un tick de polling. Silencioso a propósito: si el server no contesta no se toca la vista ni se
+// sella nada, y el próximo tick vuelve a intentar.
+async function chequearNovedadesOrd() {
+  if (document.hidden) return;   // pestaña en segundo plano: no tiene sentido consultar
+  try {
+    const res = await fetch('/api/mayoristas/ordenes-fraccionado/novedades');
+    if (!res.ok) return;
+    const datos = await res.json();
+    if (!Array.isArray(datos)) return;
+    const visto = leerVistoOrd();
+    // Primera vez en esta terminal: se sella el estado actual sin avisar. Avisarle de todo el
+    // histórico apenas abre la página sería ruido puro.
+    if (!visto) {
+      const maxTs = datos.reduce((m, o) => Math.max(m, Number(o.actualizadoEn) || 0), 0);
+      guardarVistoOrd(maxTs || Date.now());
+      return;
+    }
+    let nuevas = 0, actualizadas = 0;
+    datos.forEach(o => {
+      const creado = Number(o.creadoEn) || 0;
+      const actualizado = Number(o.actualizadoEn) || 0;
+      if (creado > visto) nuevas++;
+      else if (actualizado > visto) actualizadas++;
+    });
+    pintarNovedadesOrd(nuevas, actualizadas);
+  } catch (e) { /* red caída: se reintenta en el próximo tick */ }
+}
+
+// Arranca una sola vez por carga de página y corre aunque el usuario esté parado en otra tab.
+// Al volver a la pestaña se consulta enseguida en vez de esperar hasta 45 s más.
+function iniciarPollNovedadesOrd() {
+  if (_novPollIniciado) return;
+  _novPollIniciado = true;
+  chequearNovedadesOrd();
+  setInterval(chequearNovedadesOrd, MS_POLL_NOVEDADES);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) chequearNovedadesOrd(); });
+}
+iniciarPollNovedadesOrd();
+
 // PUT del estado de UNA línea. Nunca tira: devuelve {ok,error} porque los tres llamadores (guardar
 // producción, "sin stock", volver a pendiente) tienen que poder avisar sin romper la vista.
 async function marcarLineaOrdenFrac(ordenId, plu, estado, cargadoCant) {
@@ -2589,6 +2700,15 @@ function renderOrdenesFrac() {
       // Observación que dejó quien armó la orden en Pedidos mayoristas. Se muestra también en las
       // líneas ya resueltas: sirve para auditar por qué se cargó como se cargó.
       const nota = String(l.nota || '').trim();
+      // Rastro de edición: la cantidad la pueden cambiar en Pedidos mayoristas después de mandada
+      // la orden. Se compara en número para que "10" y 10 no cuenten como cambio.
+      const cantOrig = l.cantidadOriginal;
+      const editada = cantOrig != null && Number(cantOrig) !== Number(l.cantidad);
+      const selloEdicion = editada
+        ? `<div class="ord-modificada">✏ Modificada: ${escHtml(cantOrig)} → ${escHtml(l.cantidad)} un.`
+          + `${l.editadoFecha ? ' · ' + escHtml(l.editadoFecha) : ''}`
+          + `${l.editadoHora ? ' ' + escHtml(l.editadoHora) + ' hs' : ''}</div>`
+        : '';
       const idx = (estado === 'cargado' || estado === 'preparado') ? '✓'
         : estado === 'sin_stock' ? '✕' : String(i + 1);
       const clases = 'ord-linea' + (resuelta ? ' lin-resuelta' : '')
@@ -2602,6 +2722,7 @@ function renderOrdenesFrac() {
           <b>${escHtml(l.nombre)}</b> <span style="color:var(--faint);font-size:11px">${escHtml(l.plu)}</span>
           <div class="ord-granel">Granel: ${escHtml(l.granelNombre || '–')}${l.granelPlu ? ' ('+escHtml(l.granelPlu)+')' : ''}</div>
           ${nota ? `<div class="ord-nota">📝 ${escHtml(nota)}</div>` : ''}
+          ${selloEdicion}
           ${resuelta ? '' : `<div class="ord-carga" data-carga-plu="${escHtml(l.plu)}">Producto de carga: …</div>`}
         </div>
         <div class="ord-nums">
@@ -2625,10 +2746,15 @@ function renderOrdenesFrac() {
     // así que la barra llega al 100% recién cuando la orden se puede cerrar.
     const resueltasOrd = listasOrd + (p.sinStock || 0);
     const pct = totLin ? Math.round(resueltasOrd * 100 / totLin) : 0;
-    return `<div class="ord-card${pct === 100 ? ' ord-completa' : ''}">
+    // Orden llegada después del último visto. El listado completo puede no traer creadoEn (órdenes
+    // viejas), así que se cae al id igual que hace el endpoint de novedades.
+    const creadaEn = Number(o.creadoEn) || Number(o.id) || 0;
+    const esNueva = _vistoOrdRender > 0 && creadaEn > _vistoOrdRender;
+    return `<div class="ord-card${pct === 100 ? ' ord-completa' : ''}${esNueva ? ' ord-nueva' : ''}">
       <div class="ord-head">
         <span class="ord-fecha">📋 ${escHtml(o.fecha)}</span>
         <span class="ord-id">#${escHtml(o.id)}</span>
+        ${esNueva ? '<span class="ord-nueva-badge">NUEVA</span>' : ''}
         <span class="ord-prog-wrap" title="${escHtml(progreso)}">
           <span class="ord-prog-bar"><i style="width:${pct}%"></i></span>
           <span class="ord-prog">${escHtml(progreso)}</span>
@@ -2692,6 +2818,9 @@ async function precargarDestinosCarga() {
 }
 
 async function cargarOrdenesFrac() {
+  // Se congela ACÁ, antes del primer await: quien llame puede sellar el visto inmediatamente
+  // después y el render va a seguir resaltando contra el visto viejo.
+  _vistoOrdRender = leerVistoOrd();
   const st = document.getElementById('ord-state');
   const cont = document.getElementById('ord-lista');
   cont.innerHTML = '';
@@ -2731,6 +2860,9 @@ function cerrarOrdenFrac(id) {
 
 async function cargarPedidos() {
   cargarOrdenesFrac();
+  // Abrir la tab cuenta como "ya lo vi": se sella después de disparar la carga, que ya congeló el
+  // visto viejo, así que lo nuevo se sigue viendo resaltado en la lista que se está pintando.
+  marcarVistoOrd();
   if (pedCargado) { renderPedidos(); return; }
   if (!pCargado) cargarP();
   const st = document.getElementById('ped-state');

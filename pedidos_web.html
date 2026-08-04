@@ -2111,9 +2111,16 @@ function guardarOrdenFracc(){
     });
 }
 
+// Última respuesta del listado de órdenes. Se guarda en memoria para que los handlers inline
+// pasen sólo números (id de orden + índice de línea) y el nombre/nota del producto nunca viajen
+// dentro de un onclick: así no hay forma de romper el HTML con comillas que vengan del server.
+var ordenesFraccCache = [];
+
 function cargarOrdenesFracc(){
   $('tabla-ordenes-fracc').innerHTML = '<div class="state state-loading">Cargando órdenes…</div>';
-  api('/api/mayoristas/ordenes-fraccionado').then(function(data){
+  // Devuelve la promesa para que quien recarga (p. ej. la edición de una línea) pueda volver a
+  // abrir el detalle recién cuando la tabla ya está pintada.
+  return api('/api/mayoristas/ordenes-fraccionado').then(function(data){
     if(data.error){
       $('tabla-ordenes-fracc').innerHTML =
         '<div class="state state-err" style="padding:32px;text-align:center">⚠ '+escHtml(data.error)+
@@ -2121,6 +2128,7 @@ function cargarOrdenesFracc(){
       return;
     }
     var arr = Array.isArray(data) ? data : [];
+    ordenesFraccCache = arr;
     if(!arr.length){
       $('tabla-ordenes-fracc').innerHTML = '<div class="state state-empty" style="padding:32px;text-align:center">Todavía no se generó ninguna orden de fraccionado.</div>';
       return;
@@ -2141,7 +2149,7 @@ function cargarOrdenesFracc(){
             '<button class="btn btn-ghost btn-sm" onclick="borrarOrdenFracc('+o.id+')">Borrar</button>'+
           '</td></tr>'+
           '<tr id="ord-'+o.id+'" style="display:none"><td colspan="7" style="background:#fafaf9">'+
-            o.lineas.map(function(l){ return lineaOrdenFracc(o.id, l); }).join('')+
+            o.lineas.map(function(l, i){ return lineaOrdenFracc(o.id, l, i); }).join('')+
           '</td></tr>';
       }).join('')+'</tbody></table>';
   });
@@ -2195,7 +2203,7 @@ function toggleDetalleOrden(id){
 // Una línea del detalle de una orden: producto + cantidad + kg, y el desglose de clientes
 // desplegable. La orden va consolidada por producto, pero la encargada necesita ver para
 // quién es lo que fracciona.
-function lineaOrdenFracc(idOrden, l){
+function lineaOrdenFracc(idOrden, l, indice){
   // El mismo PLU puede estar en dos órdenes: la clave del desplegable combina las dos.
   var clave = idOrden + '-' + escHtml(l.plu).replace(/'/g,'&#39;');
   var clientes = l.clientes || [];
@@ -2240,11 +2248,31 @@ function lineaOrdenFracc(idOrden, l){
   var nota = String(l.nota || '').trim();
   var notaHtml = nota ? '<div class="ordlin-nota">📝 '+escHtml(nota)+'</div>' : '';
 
+  // Rastro de edición: si la cantidad ya no es la original con la que se generó la orden se deja
+  // constancia de cuánto se pidió al principio, para que la sala y el mayorista vean lo mismo.
+  var original = Number(l.cantidadOriginal);
+  var rastroHtml = '';
+  if(l.cantidadOriginal != null && isFinite(original) && original !== cant){
+    rastroHtml = '<div class="text-xs" style="color:#92400e">Modificada: '+numFmt.format(original)+
+      ' → '+numFmt.format(cant)+' un.'+
+      (l.editadoFecha ? ' · '+escHtml(fmtFecha(l.editadoFecha)) : '')+
+      (l.editadoHora ? ' '+escHtml(l.editadoHora)+' hs' : '')+'</div>';
+  }
+
+  // Sólo se edita lo pendiente: el server rechaza las líneas ya resueltas (cargada, preparada o
+  // sin stock), así que ni se ofrece el botón. Al handler viajan sólo números: el resto se busca
+  // en ordenesFraccCache para no meter texto del server dentro de un onclick.
+  var btnEditar = estado === 'pendiente'
+    ? ' <button class="btn btn-ghost btn-sm" onclick="abrirModalEditarLinea('+idOrden+','+indice+')">Editar</button>'
+    : '';
+
   return '<div class="ordlin est-'+estado+'">'+
-    '<button class="btn btn-ghost btn-sm" onclick="toggleDetalleLineaOrden(\''+clave+'\')">Clientes ('+clientes.length+')</button> '+
+    '<button class="btn btn-ghost btn-sm" onclick="toggleDetalleLineaOrden(\''+clave+'\')">Clientes ('+clientes.length+')</button>'+
+    btnEditar+' '+
     escHtml(l.nombre)+': '+cant+' un. ('+l.granelNecesario+' kg de '+escHtml(l.granelNombre)+') '+
     badge+
     notaHtml+
+    rastroHtml+
     avisoParcial+
     (falta > 0
       ? '<div class="text-xs" style="color:#92400e">Se fraccionan '+cant+' de '+pedido+' pedidos: faltan '+falta+' un.</div>'
@@ -2256,6 +2284,82 @@ function lineaOrdenFracc(idOrden, l){
 function toggleDetalleLineaOrden(clave){
   var d = $('ordlin-'+clave);
   if(d) d.style.display = d.style.display==='none' ? '' : 'none';
+}
+
+// ── Edición de una línea pendiente ────────────────────────────────────────────
+// Contexto del modal abierto: a qué línea apunta y si el detalle de la orden estaba desplegado,
+// porque al guardar se recarga toda la tabla y hay que devolver al operador donde estaba.
+var edicionLinea = null;
+
+function abrirModalEditarLinea(idOrden, indice){
+  var orden = null;
+  for(var i=0; i<ordenesFraccCache.length; i++){
+    if(ordenesFraccCache[i] && ordenesFraccCache[i].id === idOrden){ orden = ordenesFraccCache[i]; break; }
+  }
+  var linea = orden && orden.lineas ? orden.lineas[indice] : null;
+  // Si la caché quedó desfasada (otra pestaña borró la orden) no se abre un modal en el vacío.
+  if(!linea){ snack('⚠ No se encontró la línea: recargá el listado', true); return; }
+
+  var tr = $('ord-'+idOrden);
+  edicionLinea = {idOrden: idOrden, plu: linea.plu,
+                  detalleAbierto: !!(tr && tr.style.display !== 'none')};
+
+  // textContent y no innerHTML: el nombre viene del server y acá no hace falta marcado.
+  $('modal-edlin-sub').textContent = linea.nombre + ' · actualmente ' +
+                                     numFmt.format(Number(linea.cantidad) || 0) + ' un.';
+  $('modal-edlin-cant').value = Number(linea.cantidad) || '';
+  $('modal-edlin-nota').value = String(linea.nota || '');
+  $('modal-edlin-err').style.display = 'none';
+  $('modal-edlin-ok').disabled = false;
+  $('modal-edlin').style.display = 'flex';
+  $('modal-edlin-cant').focus();
+  $('modal-edlin-cant').select();
+  document.addEventListener('keydown', edicionLineaPorTecla);
+}
+
+function edicionLineaPorTecla(ev){ if(ev.key === 'Escape') cerrarModalEditarLinea(); }
+
+function cerrarModalEditarLinea(){
+  $('modal-edlin').style.display = 'none';
+  document.removeEventListener('keydown', edicionLineaPorTecla);
+  edicionLinea = null;
+}
+
+// Click en el fondo oscuro (y no en la tarjeta) cierra, igual que confirmarModal().
+function fondoModalEditarLinea(ev){ if(ev.target === $('modal-edlin')) cerrarModalEditarLinea(); }
+
+function errorEdicionLinea(msg){
+  $('modal-edlin-err').textContent = '⚠ '+msg;
+  $('modal-edlin-err').style.display = '';
+  $('modal-edlin-ok').disabled = false;
+}
+
+function guardarEdicionLinea(){
+  if(!edicionLinea) return;
+  // Se copia el contexto porque cerrarModalEditarLinea() lo limpia y la recarga es posterior.
+  var ctx = edicionLinea;
+  var cant = Number($('modal-edlin-cant').value);
+  if(!isFinite(cant) || cant <= 0){ errorEdicionLinea('La cantidad tiene que ser mayor a 0'); return; }
+
+  $('modal-edlin-ok').disabled = true;
+  $('modal-edlin-err').style.display = 'none';
+  fetch('/api/mayoristas/ordenes-fraccionado/'+ctx.idOrden+'/lineas/'+
+        encodeURIComponent(ctx.plu)+'/cantidad', {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({cantidad: cant, nota: $('modal-edlin-nota').value})
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      // El modal queda abierto ante un error (la línea pudo resolverse mientras tanto): así el
+      // operador ve el motivo sin perder lo que escribió.
+      if(!res.ok){ errorEdicionLinea(res.body.error || 'No se pudo actualizar la cantidad'); return; }
+      cerrarModalEditarLinea();
+      snack('Cantidad actualizada');
+      cargarOrdenesFracc().then(function(){
+        // La tabla se repinta con el detalle cerrado: si estaba abierto se vuelve a desplegar.
+        if(ctx.detalleAbierto) toggleDetalleOrden(ctx.idOrden);
+      });
+    })
+    .catch(function(e){ errorEdicionLinea(e.message); });
 }
 
 function borrarOrdenFracc(id){
@@ -2758,6 +2862,26 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost btn-sm" onclick="cerrarModalOrden()">Cancelar</button>
       <button class="btn btn-filled btn-sm" id="modal-fracc-ok" onclick="guardarOrdenFracc()">Generar orden</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edición de una línea pendiente de una orden ya mandada a la sala. El nombre del producto lo
+     pone abrirModalEditarLinea() por textContent, nunca por innerHTML. -->
+<div id="modal-edlin" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45);align-items:center;justify-content:center" onclick="fondoModalEditarLinea(event)">
+  <div style="background:#fff;border-radius:16px;max-width:460px;width:92%;padding:24px">
+    <h3 class="font-display font-bold text-lg text-ink">Editar la línea</h3>
+    <p class="text-sm text-olive" id="modal-edlin-sub" style="margin:8px 0 16px"></p>
+    <label class="text-xs text-olive" for="modal-edlin-cant">Cantidad (unidades)</label>
+    <input id="modal-edlin-cant" type="number" min="1" step="1" required
+           style="width:100%;margin:4px 0 12px;padding:8px;border:1px solid var(--outline);border-radius:8px">
+    <label class="text-xs text-olive" for="modal-edlin-nota">Nota para la sala (opcional)</label>
+    <textarea id="modal-edlin-nota" maxlength="300" rows="2"
+              style="width:100%;margin:4px 0 12px;padding:8px;border:1px solid var(--outline);border-radius:8px;font:inherit;resize:vertical"></textarea>
+    <div id="modal-edlin-err" style="display:none;color:#b91c1c;font-size:13px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="cerrarModalEditarLinea()">Cancelar</button>
+      <button class="btn btn-filled btn-sm" id="modal-edlin-ok" onclick="guardarEdicionLinea()">Guardar</button>
     </div>
   </div>
 </div>
