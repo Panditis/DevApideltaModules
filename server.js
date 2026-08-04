@@ -3066,14 +3066,21 @@ function sqlVentasMensuales(idList, meses) {
 // Salvedad conocida: el sobrante devuelto al depósito de diferencias también es
 // positivo y no se descuenta, así que el consumo por producción queda apenas
 // sobreestimado cuando hubo devolución.
+// tipoMovimiento acepta uno o varios tipos: la producción se registró históricamente como
+// BIENESUSO y desde el cambio de tipos va como PRODUCCION, así que la ventana de 24 meses
+// tiene que mirar los dos o el histórico desaparece de la serie.
 function sqlProduccionMensual(tipoMovimiento, meses) {
-  const tipo = String(tipoMovimiento || '').replace(/'/g, "''");
+  const tipos = (Array.isArray(tipoMovimiento) ? tipoMovimiento : [tipoMovimiento])
+    .map(t => String(t || '').trim())
+    .filter(Boolean)
+    .map(t => `'${t.replace(/'/g, "''")}'`);
+  if (!tipos.length) throw new Error('sqlProduccionMensual requiere al menos un tipo de movimiento');
   return `SELECT CONVERT(varchar(7), m.FechaMovimiento, 126) AS Mes, mp.IdProducto,
       SUM(CASE WHEN mp.Cantidad < 0 THEN -mp.Cantidad ELSE 0 END) AS Cant
     FROM MovimientosStockProductos mp
     INNER JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal
       AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
-    WHERE mp.IdTipoMovimiento = '${tipo}'
+    WHERE mp.IdTipoMovimiento IN (${tipos.join(', ')})
       AND m.FechaMovimiento >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE))
       AND m.FechaMovimiento < CAST(GETDATE() AS DATE)
     GROUP BY CONVERT(varchar(7), m.FechaMovimiento, 126), mp.IdProducto`;
@@ -3096,10 +3103,13 @@ async function recalcularConsumoMensual() {
   const rubroDePlu = {};
   for (const r of rubroRows) rubroDePlu[String(r.IdProducto).trim()] = r.NombreRubro || null;
 
-  const tipoProd = (leerJSON(path.join(__dirname, 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
+  const tipoProd  = (leerJSON(path.join(__dirname, 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
+  // BIENESUSO siempre se incluye: es el tipo con el que se registró la producción hasta el
+  // cambio a PRODUCCION y sigue siendo el único dato de los meses anteriores.
+  const tiposProd = [...new Set([tipoProd, 'BIENESUSO'])];
   const [ventasRows, prodRows] = await Promise.all([
     query(sqlVentasMensuales(idList, meses)),
-    query(sqlProduccionMensual(tipoProd, meses)).catch((e) => {
+    query(sqlProduccionMensual(tiposProd, meses)).catch((e) => {
       console.error('[consumo-mensual] producción:', e.message);
       return [];
     }),
@@ -4730,7 +4740,11 @@ function chequearSucursalReserva(reserva, idSucursal) {
 // Movimiento simple (1 línea) tipo BIENESUSO, con INSERT del renglón de stock si
 // el depósito/ubicación destino todavía no tiene fila para el producto.
 // Ver pruebas_stock_claude/README.md para el mecanismo completo investigado.
-const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO'];
+// RESERVA identifica el apartado de mercadería y su devolución/anulación (principal ↔ depósito
+// de reserva); PRODUCCION, el alta de producción, los sobrantes y los ajustes ±, para poder
+// separarlos en SiGA por tipo y no sólo por la observación. Cada tipo necesita su fila en
+// TiposMovimientos y su numerador en MovimientosNumeros por sucursal.
+const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO', 'RESERVA', 'PRODUCCION'];
 
 // Diagnóstico de solo lectura: qué tipos de movimiento usa SiGA y con qué frecuencia.
 // Sirve para elegir el IdTipoMovimiento correcto antes de habilitarlo para escritura
@@ -5436,7 +5450,7 @@ app.post('/api/stock/traslado', apiRoute(async req => {
 const USUARIO_MOV_MAX = 10;
 const RESERVA_DEFAULTS = {
   idSucursal: 1, depositoPrincipal: 1, depositoReserva: null,
-  idTipoMovimiento: 'BIENESUSO', usuario: 'Adriel', idEmpleado: 1
+  idTipoMovimiento: 'RESERVA', usuario: 'Adriel', idEmpleado: 1
 };
 
 // Se relee config.json en cada llamada: el código del depósito de reserva se define
@@ -5458,11 +5472,12 @@ function cfgReserva() {
 
 // ── Alta de producción ─────────────────────────────────────────────────────────
 // El movimiento que registra la producción del día usa su propio bloque de config para no
-// mezclarse con el de la reserva: el tipo de movimiento es el mismo (BIENESUSO, el único
-// habilitado para escritura) pero la OBSERVACIÓN es lo que después permite reconocer y
-// filtrar estos comprobantes en SiGA, así que se configura aparte.
+// mezclarse con el de la reserva: el tipo es PRODUCCION (la reserva usa RESERVA) y la
+// OBSERVACIÓN sigue siendo lo que permite reconocer a qué plan pertenece cada comprobante.
+// Cubre el alta de producción, los sobrantes y los ajustes ± de una reserva viva; el apartado
+// y su devolución/anulación van con RESERVA.
 const PRODUCCION_DEFAULTS = {
-  idTipoMovimiento: 'BIENESUSO', observacion: 'PLAN', depositoTerminados: null
+  idTipoMovimiento: 'PRODUCCION', observacion: 'PLAN', depositoTerminados: null
 };
 
 // Se relee config.json en cada llamada, igual que cfgReserva: cambiar la observación o el
@@ -5478,6 +5493,14 @@ function cfgProduccion() {
     // null = el terminado entra al mismo depósito principal del que salen los componentes.
     depositoTerminados: Number.isInteger(dep) && dep > 0 ? dep : null
   };
+}
+
+// Tipo con el que se registran los AJUSTES de una reserva ya hecha (los dos sentidos de
+// /reserva/actualizar): el mismo que la producción. La reserva y su devolución/anulación van
+// con el tipo de reserva; el ajuste no, porque no abre ni cierra un apartado sino que corrige
+// uno vivo y conviene poder separarlo en SiGA.
+function tipoMovimientoAjusteReserva() {
+  return cfgProduccion().idTipoMovimiento;
 }
 
 const ERR_RESERVA_SIN_CONFIG = 'Falta configurar el depósito de reserva (reserva.depositoReserva en config.json)';
@@ -6265,14 +6288,18 @@ async function ejecutarDevolucionReserva(plan, itemId) {
   }
 
   const poolW = await getPoolStock();
+  // La devolución es la contracara del apartado, así que va con el MISMO tipo que la reserva:
+  // el par apartado/devuelto queda emparejado en SiGA bajo RESERVA y el depósito de reserva
+  // cierra en cero con comprobantes del mismo tipo.
+  const idTipoMovimiento = cr.idTipoMovimiento;
   const observacion = `PLAN ${plan.fecha || ''} DEVOL ${depOrigen}>${depDestino}${itemId == null ? '' : ` item ${itemId}`}`.trim().slice(0, 200);
   const r = await ejecutarYRegistrar({
     origen: 'devolucion', plan: plan.fecha || null, itemId,
     idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
-    idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas
+    idTipoMovimiento, usuario: cr.usuario, observacion, lineas
   }, () => trasladarStock(poolW, {
     idSucursal, depOrigen, depDestino,
-    idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+    idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
     observacion,
     lineas: lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
   }));
@@ -6588,7 +6615,10 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
   }
 
   const poolW  = await getPoolStock();
-  const base   = { idSucursal: crReserva.idSucursal, idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado };
+  // Los dos sentidos del ajuste corrigen una reserva ya hecha, así que van con el tipo de
+  // producción (PRODUCCION), no con el del apartado y su devolución (RESERVA).
+  const tipoAjuste = tipoMovimientoAjusteReserva();
+  const base   = { idSucursal: crReserva.idSucursal, idTipoMovimiento: tipoAjuste, usuario: cr.usuario, idEmpleado: cr.idEmpleado };
   const ahora  = new Date().toISOString();
   const movimientos = [], ajustes = [], logErrores = [];
 
@@ -6613,7 +6643,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
       idSucursal: crReserva.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
-      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas: lineasMov
+      idTipoMovimiento: tipoAjuste, usuario: cr.usuario, observacion, lineas: lineasMov
     }, () => trasladarStock(poolW, {
       ...base, depOrigen, depDestino, observacion,
       lineas: lineasMov.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
@@ -6634,7 +6664,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
     const r = await ejecutarYRegistrar({
       origen: 'ajuste', plan: fecha, itemId: null,
       idSucursal: crReserva.idSucursal, depOrigen: depDestino, depDestino: depOrigen, idEmpleado: cr.idEmpleado,
-      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion, lineas: lineasMov
+      idTipoMovimiento: tipoAjuste, usuario: cr.usuario, observacion, lineas: lineasMov
     }, () => trasladarStock(poolW, {
       ...base, depOrigen: depDestino, depDestino: depOrigen, observacion,
       lineas: lineasMov.map(l => ({ idProducto: l.plu, cantidad: l.cantidad }))
