@@ -42,6 +42,23 @@ function coberturaPorProveedor(items) {
     .sort((a, b) => b.itemsCubiertos - a.itemsCubiertos || b.costoTotal - a.costoTotal);
 }
 
+// ── Ciclo de vida de la orden de compra ──────────────────────────────────────
+// GENERADA → ENVIADA → RECIBIDA, con ANULADA como salida desde cualquier estado
+// abierto. RECIBIDA y ANULADA son finales: una orden cerrada no se reabre, se
+// genera una nueva. La recepción es todo-o-nada (no hay cantidades por línea).
+const ESTADOS_ORDEN = ['GENERADA', 'ENVIADA', 'RECIBIDA', 'ANULADA'];
+const TRANSICIONES_ORDEN = {
+  GENERADA: ['ENVIADA', 'ANULADA'],
+  ENVIADA:  ['RECIBIDA', 'ANULADA'],
+  RECIBIDA: [],
+  ANULADA:  [],
+};
+
+function transicionValida(desde, hacia) {
+  const permitidos = TRANSICIONES_ORDEN[desde];
+  return Array.isArray(permitidos) && permitidos.includes(hacia);
+}
+
 // Construye el objeto orden persistible. id y fechaISO se inyectan desde el caller (server.js) — módulo puro sin Date.now().
 function construirOrden({ id, fechaISO, proveedor, items }) {
   const lista = Array.isArray(items) ? items : [];
@@ -56,4 +73,5 @@ function construirOrden({ id, fechaISO, proveedor, items }) {
   return { id, fecha: fechaISO, proveedor, items: detalle, total, estado: 'GENERADA' };
 }
 
-module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden };
+module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,
+  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida };
