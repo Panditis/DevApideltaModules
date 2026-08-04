@@ -2252,13 +2252,23 @@ async function calcularListadoCompras() {
     for (const r of rows) granelMap.set(String(r.IdProducto), parseFloat(r.Stock || 0));
   }
 
+  // Importancia y consumo salen del caché de A8020: no se recalcula nada acá.
+  // Si el caché no existe todavía, las columnas quedan en null y la UI muestra '·'.
+  const a8020Cache = leerJSON(A8020_CALC_PATH, {}) || {};
+  const rankingGeneral = a8020Cache.rankingGeneral || {};
+  const consumoA8020 = a8020Cache.consumo || {};
+  const ventanaMeses = a8020Cache.ventanaMeses || 12;
+  const gruposGranel = comprasModulo.agruparPesablesPorGranel(pesables);
+
   const filaComun = (plu, nombre, tipo, central, stkSuc, pideTotal, enviarMicro, extra) => {
     const prov = provMap.get(String(plu)) || {};
     const sig = comprasModulo.sugeridoCompra({ pideTotal, central, enviarMicro, tramos: pisoCfg.tramos, pisoAbsoluto: pisoCfg.pisoAbsoluto });
     const consolidado = (central || 0) + Object.values(stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
     return {
-      plu: String(plu), nombre, tipo, // 'almacen' | 'fraccionable'
+      plu: String(plu), nombre, tipo, // 'almacen' | 'pesable'
       central: central || 0, stkSuc: stkSuc || {}, consolidado,
+      importancia: rankingGeneral[String(plu)] ?? null,
+      consumoMensual: comprasModulo.consumoPromedioMensual(consumoA8020, plu, ventanaMeses),
       deficitReposicion: sig.deficitReposicion, deficitMicro: sig.deficitMicro, faltanteReal: sig.faltanteReal, sugerido: sig.sugerido,
       proveedor: prov.proveedor || null, costo: prov.precio || null,
       ultimaCompraFecha: prov.ultimaFecha || prov.fecha || null, ultimaCompraCantidad: prov.ultimaCantidad || null,
@@ -2276,14 +2286,16 @@ async function calcularListadoCompras() {
       granelCentral: null, granelPlu: null, nombreGranel: '', fraccionado: null,
     }));
   }
-  for (const f of pesables) {
-    if (!esDeCompra(f.plu)) continue;
-    const pideTotal = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-    const fraccionado = Object.values(f.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-    const granelCentral = f.granel != null ? (granelMap.get(String(f.granel)) || 0) : null;
-    // Pesables no expone central del terminado como Almacén; se usa 0 (el stock relevante es granel + sucursales).
-    rows.push(filaComun(f.plu, f.nombre, 'fraccionable', 0, f.stkSuc, pideTotal, {}, {
-      granelCentral, granelPlu: f.granel || null, nombreGranel: f.nombreGranel || '', fraccionado,
+  // Una fila por granel: es el producto que se compra. Las presentaciones viajan
+  // en el detalle para poder auditar de dónde sale el pedido.
+  for (const g of gruposGranel) {
+    const pluGranel = String(g.granel);
+    if (!esDeCompra(pluGranel)) continue;
+    const central = granelMap.get(pluGranel) || 0;
+    rows.push(filaComun(pluGranel, g.nombreGranel || pluGranel, 'pesable', central, {}, g.pideTotalGranel, {}, {
+      granelCentral: central, granelPlu: g.granel, nombreGranel: g.nombreGranel || '',
+      fraccionado: g.stockPresentacionesKg,
+      presentaciones: g.presentaciones,
     }));
   }
   rows.sort((a, b) => b.sugerido - a.sugerido);
