@@ -318,8 +318,17 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 /* ── PLAN FOOTER ── */
 .plan-footer { padding: 14px 16px; border-top: 1px solid var(--md-outline-variant); display: flex; gap: 10px; align-items: center; background: var(--md-surface-1); }
 .plan-footer .spacer { flex: 1; }
-.notas-input { width: 100%; border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13px; font-family: 'Roboto', sans-serif; resize: vertical; background: var(--card); }
-.notas-input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+/* Nota del día: mismo lenguaje visual que el post-it del tablero de Producción del Día,
+   que es donde este texto termina mostrándose. */
+.notas-box { flex: 0 1 520px; background: #FFF8E1; border: 1px solid #FFE082; border-left: 5px solid #FFB300; border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--elev-1); transition: box-shadow .2s, border-color .2s; }
+.notas-box:focus-within { border-color: #FFB300; box-shadow: 0 0 0 3px rgba(255,179,0,.3); }
+/* Con texto cargado la nota pesa más: es información que producción va a leer. */
+.notas-box:has(.notas-input:not(:placeholder-shown)) { box-shadow: 0 2px 10px rgba(245,127,23,.28); }
+.notas-box-tit { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: #F57F17; margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
+.notas-box-hint { font-family: 'Roboto', sans-serif; font-weight: 400; font-size: 10px; letter-spacing: 0; text-transform: none; color: #A1887F; }
+.notas-input { width: 100%; border: 1px solid #FFE082; border-radius: var(--radius-sm); padding: 9px 12px; font-size: 14px; line-height: 1.45; font-family: 'Roboto', sans-serif; resize: vertical; background: #fff; color: #5D4037; }
+.notas-input:focus { outline:none; border-color:#FFB300; box-shadow:0 0 0 2px rgba(255,179,0,.28); }
+.notas-input::placeholder { color: #BCAAA4; }
 .empty-plan { padding: 48px; text-align: center; color: var(--muted); }
 .empty-plan .big { font-size: 48px; margin-bottom: 8px; }
 .empty-plan p { font-size: 15px; }
@@ -497,7 +506,12 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
       </div>
     </div>
     <div class="plan-footer" id="planFooter" style="display:none">
-      <textarea class="notas-input" id="notasPlan" rows="1" placeholder="Notas del día…" style="max-width:400px"></textarea>
+      <div class="notas-box">
+        <div class="notas-box-tit">📌 Notas del día
+          <span class="notas-box-hint">se muestran en Producción del Día</span>
+        </div>
+        <textarea class="notas-input" id="notasPlan" rows="2" placeholder="Escribí acá lo que producción tiene que saber…"></textarea>
+      </div>
       <span class="spacer"></span>
     </div>
   </div>
@@ -1948,16 +1962,42 @@ function eliminarItem(id) {
     }, true);
 }
 
+// Solo se manda `notas`: el servidor conserva los ítems que ya tiene. Mandar el cache local
+// pisaba los sellos de reserva/producción si el plan había cambiado desde otra pestaña.
+async function guardarNotasPlan() {
+  clearTimeout(notasDebounce);
+  if (!fechaPlanActual) return;
+  const notas = document.getElementById('notasPlan').value;
+  if (planCache && planCache.notas === notas) return;
+  try {
+    const resp = await api('POST', `/api/plan/${fechaPlanActual}`, { notas });
+    // Red de seguridad: un servidor viejo (todavía sin reiniciar) toma la ausencia de `items`
+    // como lista vacía y borra el plan. Si la respuesta vuelve sin ítems y el cache sí los
+    // tenía, se reponen en el acto para no perder el plan del día.
+    if (resp && Array.isArray(resp.items) && !resp.items.length && planCache?.items?.length) {
+      await api('POST', `/api/plan/${fechaPlanActual}`, { notas, items: planCache.items });
+    }
+    if (planCache) planCache.notas = notas;
+  } catch (e) { toast('No se pudieron guardar las notas: ' + mensajeApiError(e), true); }
+}
+
 document.getElementById('notasPlan').addEventListener('input', () => {
   clearTimeout(notasDebounce);
-  notasDebounce = setTimeout(async () => {
-    try {
-      await api('POST', `/api/plan/${fechaPlanActual}`, {
-        notas: document.getElementById('notasPlan').value,
-        items: planCache?.items || []
-      });
-    } catch {}
-  }, 800);
+  notasDebounce = setTimeout(guardarNotasPlan, 800);
+});
+// Flush al salir del campo y al cerrar/recargar: con solo el debounce de 800ms, editar y
+// recargar enseguida perdía el cambio y volvía el texto anterior.
+document.getElementById('notasPlan').addEventListener('blur', guardarNotasPlan);
+window.addEventListener('beforeunload', () => {
+  clearTimeout(notasDebounce);
+  const notas = document.getElementById('notasPlan').value;
+  if (!fechaPlanActual || !planCache || planCache.notas === notas) return;
+  // sendBeacon: un fetch normal se cancela al descargar la página. Acá no se puede leer la
+  // respuesta para reparar, así que los ítems viajan siempre: es la única forma de que un
+  // servidor viejo no deje el plan vacío.
+  const cuerpo = { notas, ...(planCache.items?.length ? { items: planCache.items } : {}) };
+  navigator.sendBeacon?.(`/api/plan/${fechaPlanActual}`,
+    new Blob([JSON.stringify(cuerpo)], { type: 'application/json' }));
 });
 
 // ── Selector de día (semana) ─────────────────────────────────────
