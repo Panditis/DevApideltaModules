@@ -138,7 +138,8 @@ function construirOrden({ id, fechaISO, proveedor, items }) {
     return { plu: String(it.plu), nombre: it.nombre || String(it.plu), cantidad, costoUnit, subtotal: Math.round(cantidad * costoUnit) };
   });
   const total = detalle.reduce((s, it) => s + it.subtotal, 0);
-  return { id, fecha: fechaISO, proveedor, items: detalle, total, estado: 'GENERADA' };
+  return { id, fecha: fechaISO, proveedor, items: detalle, total, estado: 'GENERADA',
+    fechaEnvio: null, fechaRecepcion: null, fechaEstimada: null, nota: null, historial: [] };
 }
 
 module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,

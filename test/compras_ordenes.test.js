@@ -159,3 +159,19 @@ test('pendientePorPlu normaliza el PLU con espacios', () => {
   const r = pendientePorPlu([orden('GENERADA', [{ plu: ' 100 ', cantidad: 4 }, { plu: '100', cantidad: 1 }])]);
   assert.deepStrictEqual(r, { 100: 5 });
 });
+
+const { construirOrden } = require('../compras_modulo');
+
+test('construirOrden nace con los campos de seguimiento vacíos', () => {
+  const o = construirOrden({
+    id: 1, fechaISO: '2026-08-04', proveedor: 'P',
+    items: [{ plu: '100', nombre: 'X', cantidad: 2, costoUnit: 50 }],
+  });
+  assert.strictEqual(o.estado, 'GENERADA');
+  assert.strictEqual(o.fechaEnvio, null);
+  assert.strictEqual(o.fechaRecepcion, null);
+  assert.strictEqual(o.fechaEstimada, null);
+  assert.strictEqual(o.nota, null);
+  assert.deepStrictEqual(o.historial, []);
+  assert.strictEqual(o.total, 100);
+});
