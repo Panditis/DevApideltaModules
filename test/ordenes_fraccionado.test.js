@@ -18,6 +18,60 @@ function lineaCompleta(extra) {
   };
 }
 
+// ── Nota por linea ────────────────────────────────────────────────────────────────────────────
+// La escribe quien arma la orden en Pedidos mayoristas y la lee la encargada en Distribucion.
+
+test('la nota de la linea se guarda sin espacios sobrantes', () => {
+  // Arrange
+  const lineas = [lineaCompleta({ nota: '  va sin etiqueta  ' })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.nota, 'va sin etiqueta');
+});
+
+test('una linea sin nota (o con una nota no textual) queda con la nota vacia', () => {
+  // Arrange: las ordenes guardadas antes de este campo no la tienen y se leen igual.
+  const lineas = normalizarLineasFraccionado([
+    lineaCompleta({ plu: '1' }),
+    lineaCompleta({ plu: '2', nota: null }),
+    lineaCompleta({ plu: '3', nota: 42 }),
+  ]);
+
+  // Assert
+  assert.strictEqual(lineas[0].nota, '');
+  assert.strictEqual(lineas[1].nota, '');
+  assert.strictEqual(lineas[2].nota, '42');   // numero: se guarda como texto, no se pierde el dato
+});
+
+test('una nota larguisima se recorta a 300 caracteres', () => {
+  // Arrange: un pegado accidental no puede inflar el archivo ni romper la fila.
+  const lineas = [lineaCompleta({ nota: 'x'.repeat(500) })];
+
+  // Act
+  const [linea] = normalizarLineasFraccionado(lineas);
+
+  // Assert
+  assert.strictEqual(linea.nota.length, 300);
+});
+
+test('marcar una linea no pierde su nota', () => {
+  // Arrange: la nota es del pedido, el estado es del avance; no se pisan entre si.
+  const orden = {
+    id: 1, fecha: '2026-08-04', estado: 'pendiente',
+    lineas: normalizarLineasFraccionado([lineaCompleta({ nota: 'bolsa chica' })]),
+  };
+
+  // Act
+  const { orden: nueva } = marcarLineaOrden(orden, '30000',
+    { estado: 'preparado', fecha: '2026-08-04', hora: '09:10' });
+
+  // Assert
+  assert.strictEqual(nueva.lineas[0].nota, 'bolsa chica');
+});
+
 // ── Normalizacion: granel presente ────────────────────────────────────────────────────────────
 
 test('linea completa con granel calcula granelNecesario como cantidad por cantPorUnidad', () => {

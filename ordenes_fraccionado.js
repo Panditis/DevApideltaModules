@@ -50,6 +50,15 @@ function cantidadCargadaValida(v) {
   return Number.isFinite(n) && n >= 0;
 }
 
+// Nota u observación libre de la línea: la escribe quien arma la orden en Pedidos mayoristas y la
+// lee la encargada en la tab Pedidos de Distribución. Se recorta para que un pegado accidental de
+// media planilla no infle el archivo ni rompa la fila; 300 caracteres alcanzan de sobra para una
+// indicación puntual ("va sin etiqueta", "el cliente lo quiere en bolsa chica").
+const NOTA_LINEA_MAX = 300;
+function normalizarNota(v) {
+  return String(v == null ? '' : v).trim().slice(0, NOTA_LINEA_MAX);
+}
+
 function normalizarFecha(v) {
   const s = String(v || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
@@ -178,6 +187,9 @@ function normalizarLineasFraccionado(lineas) {
       pluCarga: String(l.pluCarga || ''),
       nombreCarga: String(l.nombreCarga || ''),
       manual: l.manual === true,
+      // Observación de la línea. Editar una orden puede cambiarla o borrarla: es un dato del
+      // pedido, no del avance, así que no se preserva a la fuerza como `estado`.
+      nota: normalizarNota(l.nota),
       // Avance de la línea. Se preserva si ya viene (editar una orden no puede borrar lo que la
       // encargada ya cargó) y cae a los defaults si no: las órdenes guardadas antes de este campo
       // se leen y se editan igual, quedando como 'pendiente'.
