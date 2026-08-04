@@ -126,3 +126,73 @@ test('factorEstacional es 1 si el año homólogo no tuvo consumo', () => {
   for (let m = 1; m <= 12; m++) cero[`2025-${String(m).padStart(2,'0')}`] = 0;
   assert.strictEqual(factorEstacional(cero, '2026-06'), 1);
 });
+
+const { proyectar, recomendar, SEMAFORO } = require('../prediccion_consumo');
+
+const serieEstable = (() => {   // 24 meses cerrados a 10 unidades/día
+  const s = {};
+  let m = '2026-07';
+  for (let i = 0; i < 24; i++) { s[m] = 10 * diasDelMes(m); m = mesAnterior(m, 1); }
+  return s;
+})();
+
+test('proyectar multiplica demanda diaria por el horizonte', () => {
+  const r = proyectar(serieEstable, { mesActual: '2026-08', dias: 30, z: 1.28 });
+  assert.strictEqual(r.muDiario, 10);
+  assert.strictEqual(r.estacional, 1);      // serie plana → sin estacionalidad
+  assert.strictEqual(r.proyeccion, 300);
+  assert.strictEqual(r.seguridad, 0);       // sin dispersión no hace falta colchón
+});
+
+test('proyectar suma colchón de seguridad cuando hay dispersión', () => {
+  const s = { ...serieEstable, '2026-07': 0 };
+  const r = proyectar(s, { mesActual: '2026-08', dias: 30, z: 1.28 });
+  assert.ok(r.seguridad > 0, 'con meses dispares tiene que haber colchón');
+});
+
+test('proyectar con horizonte cero o negativo da todo en cero', () => {
+  for (const dias of [0, -5]) {
+    const r = proyectar(serieEstable, { mesActual: '2026-08', dias, z: 1.28 });
+    assert.strictEqual(r.proyeccion, 0);
+    assert.strictEqual(r.seguridad, 0);
+  }
+});
+
+test('proyectar sin serie devuelve ceros sin romper', () => {
+  const r = proyectar({}, { mesActual: '2026-08', dias: 30, z: 1.28 });
+  assert.strictEqual(r.muDiario, 0);
+  assert.strictEqual(r.proyeccion, 0);
+});
+
+test('recomendar resta stock y pendiente', () => {
+  const r = recomendar({ proyeccion: 300, seguridad: 50, stock: 100, pendiente: 40 });
+  assert.strictEqual(r.necesidad, 210);
+});
+
+test('recomendar nunca devuelve necesidad negativa', () => {
+  const r = recomendar({ proyeccion: 100, seguridad: 0, stock: 500, pendiente: 0 });
+  assert.strictEqual(r.necesidad, 0);
+  assert.strictEqual(r.estado, SEMAFORO.EXCESO);
+});
+
+test('recomendar marca CRITICO cuando el stock no cubre el lead time', () => {
+  // 10/día, lead time 14 días = 140 para aguantar hasta que llegue; hay 50.
+  const r = recomendar({ proyeccion: 300, seguridad: 0, stock: 50, pendiente: 0, muDiario: 10, leadTimeDias: 14 });
+  assert.strictEqual(r.estado, SEMAFORO.CRITICO);
+});
+
+test('recomendar marca COMPRAR con necesidad positiva y stock que aguanta el lead time', () => {
+  const r = recomendar({ proyeccion: 300, seguridad: 0, stock: 200, pendiente: 0, muDiario: 10, leadTimeDias: 14 });
+  assert.strictEqual(r.estado, SEMAFORO.COMPRAR);
+});
+
+test('recomendar marca OK cuando alcanza sin sobrar', () => {
+  const r = recomendar({ proyeccion: 300, seguridad: 0, stock: 320, pendiente: 0, muDiario: 10, leadTimeDias: 14 });
+  assert.strictEqual(r.estado, SEMAFORO.OK);
+});
+
+test('recomendar cuenta el pendiente como disponible para el semáforo', () => {
+  // Sin contar el pendiente daría CRITICO; con él, ya está pedido y en camino.
+  const r = recomendar({ proyeccion: 300, seguridad: 0, stock: 50, pendiente: 300, muDiario: 10, leadTimeDias: 14 });
+  assert.notStrictEqual(r.estado, SEMAFORO.CRITICO);
+});

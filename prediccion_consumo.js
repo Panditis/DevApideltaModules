@@ -99,15 +99,71 @@ function factorEstacional(serie, mesObjetivo) {
   for (let i = MESES_PARA_ESTACIONALIDAD - 1; i >= 0; i--) meses.push(mesAnterior(homologo, i));
   // Sin el año completo cargado no hay con qué comparar: mejor no ajustar que ajustar mal.
   if (!meses.every(m => m in s)) return 1;
-  const total = meses.reduce((acc, m) => acc + (Number(s[m]) || 0), 0);
+  // Se compara consumo POR DÍA, no total del mes. Con totales, un producto de
+  // venta perfectamente pareja daría 1,02 en los meses de 31 días y 0,92 en
+  // febrero: estacionalidad inventada por el calendario, que después multiplica
+  // la compra. Además μ ya viene en unidades/día, así que las unidades cierran.
+  const diarias = meses.map(m => (Number(s[m]) || 0) / diasDelMes(m));
+  const total = diarias.reduce((acc, d) => acc + d, 0);
   if (total <= 0) return 1;
   const promedio = total / MESES_PARA_ESTACIONALIDAD;
-  const factor = (Number(s[homologo]) || 0) / promedio;
+  const factor = ((Number(s[homologo]) || 0) / diasDelMes(homologo)) / promedio;
   return redondear(Math.min(Math.max(factor, ESTACIONAL_MIN), ESTACIONAL_MAX));
+}
+
+// Ventana de análisis: 24 meses permiten comparar contra el mes homólogo del año
+// anterior. Con menos, factorEstacional devuelve 1 y la proyección sigue andando.
+const VENTANA_MESES = 24;
+
+// proyeccion = μ diario × horizonte × estacionalidad
+// seguridad  = z × σ diario × √horizonte
+// El colchón no es opcional: μ es el centro de la distribución, no el techo.
+// Comprar exactamente el promedio deja quiebre la mitad de las veces.
+function proyectar(serie, { mesActual, dias, z = 1.28, ventanaMeses = VENTANA_MESES } = {}) {
+  const horizonte = Math.max(0, Number(dias) || 0);
+  const meses = mesesDeVentana(mesActual, ventanaMeses);
+  const { mu, sigma } = demandaDiaria(serie, meses);
+  const estacional = factorEstacional(serie, mesActual);
+  if (horizonte <= 0) {
+    return { muDiario: mu, sigmaDiario: sigma, estacional, proyeccion: 0, seguridad: 0, dias: 0 };
+  }
+  return {
+    muDiario: mu,
+    sigmaDiario: sigma,
+    estacional,
+    proyeccion: redondear(mu * horizonte * estacional),
+    seguridad: redondear((Number(z) || 0) * sigma * Math.sqrt(horizonte)),
+    dias: horizonte,
+  };
+}
+
+const SEMAFORO = { CRITICO: 'CRITICO', COMPRAR: 'COMPRAR', OK: 'OK', EXCESO: 'EXCESO' };
+
+// necesidad = proyección + colchón − stock − pendiente de recibir
+// El pendiente se resta porque ya está pedido: sin eso, dos corridas seguidas
+// compran lo mismo dos veces.
+function recomendar({ proyeccion = 0, seguridad = 0, stock = 0, pendiente = 0,
+                      muDiario = 0, leadTimeDias = 0 } = {}) {
+  const disponible = (Number(stock) || 0) + (Number(pendiente) || 0);
+  const necesidad = Math.max(redondear((Number(proyeccion) || 0) + (Number(seguridad) || 0) - disponible), 0);
+  // CRÍTICO: no aguanta ni lo que tarda el proveedor en entregar. Es una rotura
+  // anunciada, no un "conviene reponer".
+  const consumoLeadTime = (Number(muDiario) || 0) * (Number(leadTimeDias) || 0);
+  if (consumoLeadTime > 0 && disponible < consumoLeadTime) {
+    return { necesidad, estado: SEMAFORO.CRITICO, disponible };
+  }
+  if (necesidad > 0) return { necesidad, estado: SEMAFORO.COMPRAR, disponible };
+  // EXCESO: cubre más de dos horizontes completos, o sea capital dormido.
+  const cobertura = (Number(proyeccion) || 0) * 2;
+  if (cobertura > 0 && disponible > cobertura) {
+    return { necesidad: 0, estado: SEMAFORO.EXCESO, disponible };
+  }
+  return { necesidad: 0, estado: SEMAFORO.OK, disponible };
 }
 
 module.exports = {
   diasDelMes, mesAnterior, mesesDeVentana, partesDeMes, redondear,
   demandaDiaria, PESOS_RECIENCIA,
   factorEstacional, ESTACIONAL_MIN, ESTACIONAL_MAX,
+  proyectar, recomendar, SEMAFORO, VENTANA_MESES,
 };
