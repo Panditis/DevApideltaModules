@@ -2303,6 +2303,36 @@ async function calcularListadoCompras() {
 }
 app.get('/api/compras-modulo/listado', apiRoute(async () => calcularListadoCompras()));
 
+// Qué códigos alimentan el consumo de un PLU y con qué multiplicador. Es la
+// respuesta a "de dónde sale este número": sin esto el sugerido es una caja negra.
+app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
+  const plu = String(req.params.plu || '').trim();
+  const cache = leerJSON(A8020_CALC_PATH, {}) || {};
+  const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
+  const formulas = pesLis.formulas || {};
+  // Presentaciones que salen de este granel, con su multiplicador (kg por unidad).
+  const presentaciones = Object.entries(formulas)
+    .filter(([, f]) => String(f.granel) === plu)
+    .map(([pluFrac, f]) => ({
+      plu: pluFrac,
+      nombre: (cache.nombres || {})[pluFrac] || '',
+      cantFormula: Number(f.cantFormula) > 0 ? Number(f.cantFormula) : 1,
+      consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, pluFrac, cache.ventanaMeses || 12),
+    }));
+  return {
+    plu,
+    nombre: (cache.nombres || {})[plu] || '',
+    rubro: (cache.rubros || {})[plu] || '',
+    importancia: (cache.rankingGeneral || {})[plu] ?? null,
+    abc: (cache.abc || {})[plu] || null,
+    ventanaMeses: cache.ventanaMeses || 12,
+    consumoPorSucursal: (cache.consumo || {})[plu] || {},
+    consumoOrigen: (cache.consumoOrigen || {})[plu] || {},
+    consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, plu, cache.ventanaMeses || 12),
+    presentaciones,
+  };
+}));
+
 // Busca proveedores por nombre parcial y devuelve los productos que maneja con último precio/fecha.
 app.get('/api/compras-modulo/proveedores/buscar', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
