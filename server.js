@@ -2371,6 +2371,14 @@ app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
       cantFormula: Number(f.cantFormula) > 0 ? Number(f.cantFormula) : 1,
       consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, pluFrac, cache.ventanaMeses || 12),
     }));
+  // Otros productos (mixes, granolas, elaborados) que llevan este artículo en su fórmula
+  // activa. Va aparte de `presentaciones`: eso es el mismo artículo en otro envase, esto es
+  // consumo dentro de otro producto distinto.
+  const padres = await productosQueUsanComponente(plu);
+  const usadoEn = padres.map(p => ({
+    ...p,
+    consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, p.plu, cache.ventanaMeses || 12),
+  }));
   return {
     plu,
     nombre: (cache.nombres || {})[plu] || '',
@@ -2382,6 +2390,7 @@ app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
     consumoOrigen: (cache.consumoOrigen || {})[plu] || {},
     consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, plu, cache.ventanaMeses || 12),
     presentaciones,
+    usadoEn,
   };
 }));
 
@@ -5539,6 +5548,43 @@ async function componentesFormulaPorPadre(plus) {
     });
   }
   return porPadre;
+}
+
+// componente → [{plu, nombre, rubro, cantPorUnidad}]: el camino INVERSO de
+// componentesFormulaPorPadre. Hace falta porque el detalle de consumo de un artículo tiene que
+// mostrar todo lo que lo consume, y un granel no sólo se fracciona en presentaciones (eso sale
+// de pesables_listas.formulas): también entra como ingrediente de mixes, granolas y otros
+// productos elaborados, y esa relación sólo vive en ProductosComponentes.
+// El filtro de fórmula activa es obligatorio: sin él la consulta devuelve una fila por cada
+// versión histórica de la fórmula, e inventa padres que hoy ya no llevan el artículo.
+// Si SIGA falla se devuelve lista vacía: es un dato accesorio y no puede romper el detalle.
+async function productosQueUsanComponente(plu) {
+  const id = String(plu ?? '').trim();
+  if (!id) return [];
+  const safeId = id.replace(/'/g, "''");
+  try {
+    const rows = await query(`
+      SELECT pc.IdProducto AS padre, p.NombreProducto AS nombre,
+             COALESCE(r.NombreRubro,'') AS rubro,
+             CAST(pc.Cantidad AS FLOAT) AS cantPorUnidad
+      FROM ProductosComponentes pc
+      INNER JOIN Productos p ON p.IdProducto = pc.IdProducto
+      LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
+      WHERE pc.IdProductoComponente = '${safeId}'
+        AND p.Activo = 1
+        AND ${FORMULA_ACTIVA_SQL}
+        AND ${SIN_FORMULA_GENERICO_SQL}
+      ORDER BY p.NombreProducto`);
+    return rows.map(r => ({
+      plu: String(r.padre).trim(),
+      nombre: String(r.nombre || '').trim(),
+      rubro: String(r.rubro || '').trim(),
+      cantPorUnidad: Number(r.cantPorUnidad) || 0
+    }));
+  } catch (e) {
+    console.error(`[detalle-plu] no se pudieron leer los productos que usan ${id}:`, e.message);
+    return [];
+  }
 }
 
 // Componentes necesarios para todo el plan, sumados por componente, con el envase y la
