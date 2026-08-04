@@ -57,3 +57,24 @@ test('suma el stock de las presentaciones convertido a kg', () => {
   const r = agruparPesablesPorGranel([fila('10', 4409, 0.5, {}, { riv: 3, urq: 1 })]);
   assert.strictEqual(r[0].stockPresentacionesKg, 2);
 });
+
+const { consumoPromedioMensual } = require('../compras_modulo');
+
+test('consumoPromedioMensual suma sucursales y divide por la ventana', () => {
+  const consumo = { 100: { riv: 120, urq: 60 } };
+  assert.strictEqual(consumoPromedioMensual(consumo, '100', 12), 15);
+});
+
+test('consumoPromedioMensual devuelve null si no hay dato del PLU', () => {
+  assert.strictEqual(consumoPromedioMensual({}, '100', 12), null);
+  assert.strictEqual(consumoPromedioMensual(null, '100', 12), null);
+});
+
+test('consumoPromedioMensual cae a 12 meses si la ventana es inválida', () => {
+  assert.strictEqual(consumoPromedioMensual({ 100: { riv: 24 } }, '100', 0), 2);
+  assert.strictEqual(consumoPromedioMensual({ 100: { riv: 24 } }, '100', null), 2);
+});
+
+test('consumoPromedioMensual redondea a 2 decimales', () => {
+  assert.strictEqual(consumoPromedioMensual({ 100: { riv: 10 } }, '100', 12), 0.83);
+});

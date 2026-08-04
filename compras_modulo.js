@@ -174,6 +174,19 @@ function agruparPesablesPorGranel(filas) {
   }));
 }
 
+// Promedio mensual del consumo real de A8020, que es el total de la ventana
+// (12 meses por defecto) sumado por sucursal. null = el PLU no tiene consumo
+// calculado todavía; la UI lo distingue de un consumo real de cero.
+const VENTANA_MESES_FALLBACK = 12;
+
+function consumoPromedioMensual(consumoPorPlu, plu, ventanaMeses) {
+  const porSuc = (consumoPorPlu || {})[String(plu)];
+  if (!porSuc) return null;
+  const total = Object.values(porSuc).reduce((s, v) => s + (Number(v) || 0), 0);
+  const meses = Number(ventanaMeses) > 0 ? Number(ventanaMeses) : VENTANA_MESES_FALLBACK;
+  return Math.round((total / meses) * 100) / 100;
+}
+
 module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,
   ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor, aplicarTransicion,
-  pendientePorPlu, ESTADOS_PENDIENTES, agruparPesablesPorGranel };
+  pendientePorPlu, ESTADOS_PENDIENTES, agruparPesablesPorGranel, consumoPromedioMensual };
