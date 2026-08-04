@@ -47,4 +47,43 @@ function mesesDeVentana(mesActual, cantidad) {
   return out;
 }
 
-module.exports = { diasDelMes, mesAnterior, mesesDeVentana, partesDeMes, redondear };
+// Los meses recientes describen mejor lo que va a pasar que los viejos: un producto
+// que arrancó a venderse hace dos meses no puede promediarse contra diez de ceros.
+// Los cortes son por posición dentro de la ventana, contando desde el más nuevo.
+const PESOS_RECIENCIA = { reciente: 3, medio: 2, viejo: 1 };
+
+function pesoDeMes(indiceDesdeElFinal) {
+  if (indiceDesdeElFinal < 3) return PESOS_RECIENCIA.reciente;
+  if (indiceDesdeElFinal < 6) return PESOS_RECIENCIA.medio;
+  return PESOS_RECIENCIA.viejo;
+}
+
+// Demanda diaria media y su desvío, ponderando por recencia.
+// serie: { 'YYYY-MM': consumoTotalDelMes }  ·  meses: los de la ventana, ascendente.
+// Un mes ausente cuenta como 0: no vender es información, no un hueco.
+function demandaDiaria(serie, meses) {
+  const s = serie || {};
+  const lista = Array.isArray(meses) ? meses : [];
+  if (!lista.length) return { mu: 0, sigma: 0 };
+  const puntos = [];
+  let sumaPesos = 0, sumaPond = 0;
+  for (let i = 0; i < lista.length; i++) {
+    const mes = lista[i];
+    const dias = diasDelMes(mes);
+    if (!dias) continue;
+    const diaria = (Number(s[mes]) || 0) / dias;
+    const peso = pesoDeMes(lista.length - 1 - i);
+    puntos.push({ diaria, peso });
+    sumaPesos += peso;
+    sumaPond += diaria * peso;
+  }
+  if (!sumaPesos) return { mu: 0, sigma: 0 };
+  const mu = sumaPond / sumaPesos;
+  const varianza = puntos.reduce((acc, p) => acc + p.peso * Math.pow(p.diaria - mu, 2), 0) / sumaPesos;
+  return { mu: redondear(mu), sigma: redondear(Math.sqrt(Math.max(varianza, 0))) };
+}
+
+module.exports = {
+  diasDelMes, mesAnterior, mesesDeVentana, partesDeMes, redondear,
+  demandaDiaria, PESOS_RECIENCIA,
+};
