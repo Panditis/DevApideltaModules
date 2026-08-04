@@ -65,3 +65,64 @@ test('leadTimeDeProveedor cae al _default y después a 14', () => {
   assert.strictEqual(leadTimeDeProveedor({}, 'PROVEEDOR NUEVO'), 14);
   assert.strictEqual(leadTimeDeProveedor(null, null), 14);
 });
+
+const { aplicarTransicion } = require('../compras_modulo');
+
+const ordenBase = () => ({
+  id: 1785415836277, fecha: '2026-07-30', proveedor: 'DISTRIBUIDORA LANIN',
+  items: [{ plu: '3035', nombre: 'Yogurt', cantidad: 10, costoUnit: 100, subtotal: 1000 }],
+  total: 1000, estado: 'GENERADA',
+});
+const ctx = { ts: '2026-08-04T12:00:00.000Z', fechaISO: '2026-08-04', usuario: 'adriel', leadTimes: { _default: 14, 'DISTRIBUIDORA LANIN': 4 } };
+
+test('ENVIADA fija fechaEnvio y fechaEstimada con el lead time del proveedor', () => {
+  const r = aplicarTransicion(ordenBase(), 'ENVIADA', ctx);
+  assert.strictEqual(r.estado, 'ENVIADA');
+  assert.strictEqual(r.fechaEnvio, '2026-08-04');
+  assert.strictEqual(r.fechaEstimada, '2026-08-08');
+  assert.strictEqual(r.fechaRecepcion, null);
+});
+
+test('RECIBIDA fija fechaRecepcion y conserva la estimada', () => {
+  const enviada = aplicarTransicion(ordenBase(), 'ENVIADA', ctx);
+  const r = aplicarTransicion(enviada, 'RECIBIDA', { ...ctx, fechaISO: '2026-08-09' });
+  assert.strictEqual(r.estado, 'RECIBIDA');
+  assert.strictEqual(r.fechaRecepcion, '2026-08-09');
+  assert.strictEqual(r.fechaEstimada, '2026-08-08');
+});
+
+test('el historial acumula cada paso con usuario y timestamp', () => {
+  const enviada = aplicarTransicion(ordenBase(), 'ENVIADA', ctx);
+  const recibida = aplicarTransicion(enviada, 'RECIBIDA', { ...ctx, usuario: 'otro' });
+  assert.strictEqual(recibida.historial.length, 2);
+  assert.deepStrictEqual(recibida.historial[0], { estado: 'ENVIADA', ts: ctx.ts, usuario: 'adriel' });
+  assert.strictEqual(recibida.historial[1].estado, 'RECIBIDA');
+  assert.strictEqual(recibida.historial[1].usuario, 'otro');
+});
+
+test('ANULADA guarda la nota', () => {
+  const r = aplicarTransicion(ordenBase(), 'ANULADA', { ...ctx, nota: 'proveedor sin stock' });
+  assert.strictEqual(r.estado, 'ANULADA');
+  assert.strictEqual(r.nota, 'proveedor sin stock');
+});
+
+test('no muta la orden original', () => {
+  const orden = ordenBase();
+  aplicarTransicion(orden, 'ENVIADA', ctx);
+  assert.strictEqual(orden.estado, 'GENERADA');
+  assert.strictEqual(orden.fechaEnvio, undefined);
+});
+
+test('una transición inválida tira error y no devuelve orden', () => {
+  assert.throws(() => aplicarTransicion(ordenBase(), 'RECIBIDA', ctx), /GENERADA.*RECIBIDA/);
+  const recibida = { ...ordenBase(), estado: 'RECIBIDA' };
+  assert.throws(() => aplicarTransicion(recibida, 'ENVIADA', ctx), /RECIBIDA.*ENVIADA/);
+});
+
+test('orden vieja sin campos nuevos se completa al transicionar', () => {
+  const vieja = { id: 1, fecha: '2026-07-01', proveedor: 'X', items: [], total: 0, estado: 'GENERADA' };
+  const r = aplicarTransicion(vieja, 'ENVIADA', ctx);
+  assert.strictEqual(r.fechaRecepcion, null);
+  assert.strictEqual(r.nota, null);
+  assert.strictEqual(r.historial.length, 1);
+});

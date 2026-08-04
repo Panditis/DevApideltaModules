@@ -81,6 +81,34 @@ function leadTimeDeProveedor(leadTimes, proveedor) {
   return Number.isFinite(def) && def >= 0 ? def : LEAD_TIME_FALLBACK;
 }
 
+// Devuelve una orden NUEVA con el estado aplicado. Nunca muta la recibida.
+// ctx: { ts, fechaISO, usuario, nota, leadTimes } — todo inyectado, el módulo no
+// conoce el reloj ni el disco.
+function aplicarTransicion(orden, nuevoEstado, ctx) {
+  const o = orden || {};
+  const desde = o.estado || 'GENERADA';
+  if (!transicionValida(desde, nuevoEstado)) {
+    throw new Error(`Transición inválida: ${desde} → ${nuevoEstado}`);
+  }
+  const c = ctx || {};
+  const historial = Array.isArray(o.historial) ? o.historial : [];
+  const siguiente = {
+    ...o,
+    estado: nuevoEstado,
+    fechaEnvio: o.fechaEnvio ?? null,
+    fechaRecepcion: o.fechaRecepcion ?? null,
+    fechaEstimada: o.fechaEstimada ?? null,
+    nota: c.nota != null && c.nota !== '' ? String(c.nota) : (o.nota ?? null),
+    historial: [...historial, { estado: nuevoEstado, ts: c.ts || null, usuario: c.usuario || null }],
+  };
+  if (nuevoEstado === 'ENVIADA') {
+    siguiente.fechaEnvio = c.fechaISO || null;
+    siguiente.fechaEstimada = sumarDias(c.fechaISO, leadTimeDeProveedor(c.leadTimes, o.proveedor));
+  }
+  if (nuevoEstado === 'RECIBIDA') siguiente.fechaRecepcion = c.fechaISO || null;
+  return siguiente;
+}
+
 // Construye el objeto orden persistible. id y fechaISO se inyectan desde el caller (server.js) — módulo puro sin Date.now().
 function construirOrden({ id, fechaISO, proveedor, items }) {
   const lista = Array.isArray(items) ? items : [];
@@ -96,4 +124,4 @@ function construirOrden({ id, fechaISO, proveedor, items }) {
 }
 
 module.exports = { sugeridoCompra, redondearABulto, coberturaPorProveedor, construirOrden,
-  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor };
+  ESTADOS_ORDEN, TRANSICIONES_ORDEN, transicionValida, sumarDias, leadTimeDeProveedor, aplicarTransicion };
