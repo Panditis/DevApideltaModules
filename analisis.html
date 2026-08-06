@@ -1,0 +1,132 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análisis de Ventas — Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/analisis.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head><body>
+<header>
+  <span class="logo">API<b>DELTA</b></span>
+  <span style="font-size:14px;opacity:.9">Análisis de Ventas</span>
+  <a href="/">← Inicio</a>
+</header>
+<div class="wrap">
+  <!-- Un solo módulo, dos alcances. La barra se oculta sola cuando el usuario tiene
+       permiso a una sola de las dos pestañas (ver permisos() en analisis_front.js). -->
+  <div class="tabs" id="tabs">
+    <button id="tab-suc">Sucursales</button>
+    <button id="tab-cen">Mayorista</button>
+    <button id="tab-fam">Portfolio</button>
+  </div>
+
+  <!-- El rango es común a las dos pestañas; los chips y la nota de alcance se muestran
+       según cuál esté abierta. -->
+  <div class="controls">
+    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
+    <div style="flex:1" id="filtroSucursales">
+      <label>Sucursales <span class="link-mini" id="selAll">todas</span> · <span class="link-mini" id="selNone">ninguna</span></label>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="nota" id="notaCentral" hidden>Alcance fijo: casa central. Se excluyen los
+      comprobantes anulados, las ventas a sucursales (transferencias internas), el rubro de
+      apicultura y los códigos que salen por caja sin ser venta real.</div>
+    <button class="btn" id="btnAplicar">Aplicar</button>
+  </div>
+
+  <!-- ── Pestaña Sucursales ─────────────────────────────────────────────── -->
+  <section id="pane-suc">
+    <div id="msg-suc"></div>
+    <div class="kpis" id="kpis-suc"></div>
+
+    <div class="grid2">
+      <div class="card"><h3>Comparativa por sucursal</h3><canvas id="chComparativa-suc" height="200"></canvas>
+        <div id="tblComparativa-suc" style="margin-top:12px"></div></div>
+      <div class="card"><h3>Tendencia diaria</h3><canvas id="chTendencia-suc" height="200"></canvas>
+        <div id="tendResumen-suc" class="mini"></div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow-suc" height="200"></canvas></div>
+      <div class="card"><h3>Facturación por hora</h3><canvas id="chHora-suc" height="200"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Top productos</h3>
+        <input type="search" id="buscTop-suc" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+      </div>
+      <div class="desc">Clic en Producto, Facturación, Unid. o Quiebres para ordenar el listado por esa columna.</div>
+      <div id="tblTop-suc"></div>
+      <div id="pagTop-suc"></div>
+    </div>
+    <div class="card">
+      <h3>Familias de producto</h3>
+      <p class="desc">Agrupa las presentaciones de un mismo producto en una sola fila (MIEL PURA 500G + MIEL PURA 1KG = MIEL PURA). Clic en la fila para ver el detalle por presentación.</p>
+      <div id="tblFamilias-suc"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Artículos por ticket — distribución</h3>
+        <p class="desc">Qué porcentaje de los tickets se llevó cada cantidad de artículos distintos. Ej.: la porción "4-5" son los tickets con 4 o 5 artículos.</p>
+        <canvas id="chArtHist-suc" height="200"></canvas></div>
+      <div class="card"><h3>Artículos por ticket — por sucursal</h3><div id="tblArtSuc-suc"></div></div>
+    </div>
+  </section>
+
+  <!-- ── Pestaña Casa Central ───────────────────────────────────────────── -->
+  <section id="pane-cen" hidden>
+    <div id="msg-cen"></div>
+    <div class="kpis" id="kpis-cen"></div>
+
+    <div class="card"><h3>Tendencia diaria</h3>
+      <div class="chart-box"><canvas id="chTendencia-cen"></canvas></div>
+      <div id="tendResumen-cen" class="mini"></div></div>
+    <div class="grid2">
+      <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow-cen" height="200"></canvas></div>
+      <div class="card"><h3>Facturación por hora</h3><canvas id="chHora-cen" height="200"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Top productos</h3>
+        <input type="search" id="buscTop-cen" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+      </div>
+      <div class="desc">Clic en Producto, Unid. o Facturación para ordenar el listado por esa columna.</div>
+      <div id="tblTop-cen"></div>
+      <div id="pagTop-cen"></div>
+    </div>
+    <div class="card">
+      <h3>Familias de producto</h3>
+      <p class="desc">Agrupa las presentaciones de un mismo producto en una sola fila (MIEL PURA 500G + MIEL PURA 1KG = MIEL PURA). Clic en la fila para ver el detalle por presentación.</p>
+      <div id="tblFamilias-cen"></div>
+    </div>
+    <div class="card">
+      <h3>Top clientes</h3>
+      <p class="desc">Quién compra y cuánto. Clic en la fila para ver qué se llevó cada cliente.</p>
+      <div id="tblClientes-cen"></div>
+    </div>
+  </section>
+
+  <!-- ── Pestaña Familias: casa central + sucursales en una sola agrupación ── -->
+  <section id="pane-fam" hidden>
+    <div id="msg-fam"></div>
+    <div class="kpis" id="kpis-fam"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Familias de producto</h3>
+        <input type="search" id="buscTop-fam" class="buscador" placeholder="Buscar familia..." autocomplete="off">
+      </div>
+      <p class="desc">Todas las familias del rango, sin recortar al top 20: suma las ventas de
+        casa central (con sus exclusiones propias) y las de las sucursales tildadas. Un producto
+        vendido en los dos lados cuenta una sola vez. Clic en la fila para ver el detalle por
+        presentación.</p>
+      <div id="tblFamilias-fam"></div>
+      <div id="pagTop-fam"></div>
+    </div>
+  </section>
+</div>
+
+<!-- Los gráficos van primero: analisis_front.js los llama al pintar cada pestaña. -->
+<script src="/analisis_graficos.js"></script>
+<script src="/analisis_front.js"></script>
+</body></html>

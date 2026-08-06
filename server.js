@@ -1103,8 +1103,15 @@ app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'comp
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
 app.get('/compras-modulo', (_req, res) => res.redirect(301, '/compras'));
-app.get('/analisis-ventas', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_ventas.html')));
-app.get('/analisis-central', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_central.html')));
+// Análisis de ventas: una sola página con pestañas (Sucursales / Casa Central). Las dos
+// rutas históricas siguen vivas porque cada una es el guard de su módulo de permiso; el
+// front abre la pestaña que corresponde al path por el que se entró.
+app.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFile(path.join(__dirname, 'analisis.html')));
+// El CSS y el JS del módulo van aparte para no repetirlos en cada pestaña. El proyecto no
+// usa express.static: cada asset se declara con su propia ruta.
+app.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, 'analisis.css')));
+app.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_graficos.js')));
+app.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_front.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
 app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
@@ -4617,6 +4624,63 @@ app.get('/api/analisis-central', apiRoute(async req => {
     })),
     familias: analisisVentas.agruparFamilias(productos, topN),
     clientes: analisisVentas.agruparClientes(ventasCliente, topN),
+  };
+}));
+
+// ── Familias de producto consolidadas (casa central + sucursales) ────────────
+// Cada alcance se consulta por separado porque tienen filtros propios —la central excluye
+// apicultura, los códigos que no son venta real y los clientes categoría sucursal— y recién
+// después se fusionan por producto. Agrupar sobre la unión y no sobre dos agrupaciones
+// sumadas es lo que hace que una familia con presentaciones en los dos lados dé bien.
+// Muestra los datos de la central, así que exige los dos permisos, no uno.
+function puedeVerFamilias(req, res, next) {
+  const user = req.session && req.session.user;
+  const ok = auth.puedeAcceder(user, 'analisis-ventas') && auth.puedeAcceder(user, 'analisis-central');
+  if (!ok) return res.status(user ? 403 : 401).json({ error: user ? 'Sin permiso' : 'No autenticado' });
+  return next();
+}
+
+app.get('/api/analisis-familias', puedeVerFamilias, apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  // Vacío ≠ ausente: destildar todos los chips deja el listado sólo con la central.
+  const sucIds = analisisVentas.sucIdsFamilias(req.query.sucursales);
+  // La central entra salvo que se la destilde explícitamente (central=0).
+  const conCentral = req.query.central !== '0';
+  if (!sucIds.length && !conCentral) {
+    return { rango: { desde, hasta }, sucursales: [], conCentral, totales: { unidades: 0, facturacion: 0 }, familias: [] };
+  }
+  const sinInsumos = await sinInsumosSQL();
+
+  const consultas = [];
+  if (sucIds.length) {
+    consultas.push(query(analisisVentas.sqlTopProductos(
+      { desde, hasta, sucIdsCsv: sucIds.join(',') },
+      'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)));
+  }
+  if (conCentral) {
+    consultas.push(query(analisisVentas.sqlTopProductos({
+      desde, hasta, sucIdsCsv: String(analisisVentas.SUCURSAL_CENTRAL),
+      excProdCsv: analisisVentas.idsCsvSeguro(analisisVentas.PRODUCTOS_EXCLUIDOS_CENTRAL),
+      rubrosExcluidos: analisisVentas.RUBROS_EXCLUIDOS_CENTRAL,
+    }, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)));
+  }
+  const listas = await Promise.all(consultas);
+  const productos = analisisVentas.fusionarProductos(...listas);
+
+  // Sin tope: se listan todas las familias y el front las pagina de a 20. El tope de 20 del
+  // resto de las vistas dejaría afuera justo la cola que esta pestaña quiere mostrar.
+  const familias = analisisVentas.agruparFamilias(productos, Infinity);
+  return {
+    rango: { desde, hasta },
+    sucursales: sucIds,
+    conCentral,
+    totales: {
+      unidades: productos.reduce((a, r) => a + Number(r.Unidades || 0), 0),
+      facturacion: productos.reduce((a, r) => a + Number(r.Facturacion || 0), 0),
+      productos: productos.length,
+    },
+    familias,
   };
 }));
 
