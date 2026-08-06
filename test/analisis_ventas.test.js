@@ -1064,3 +1064,48 @@ test('agruparFamilias junta toda la línea Molens en una fila', () => {
   assert.strictEqual(fams[0].presentaciones.length, 3);
   assert.strictEqual(fams[0].unidades, 10);
 });
+
+// ── Litros vs kilos en la venta por volumen ──────────────────────────────────
+// Lo que se vende por volumen trae la cantidad del renglón ya en litros. Antes se volcaba
+// a kilos sin mirar la unidad del nombre y los aceites de oliva sumaban como si pesaran.
+test('el aceite vendido por volumen suma litros, no kilos', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Aceite Oliva Apidelta 5L', Rubro: FRACC, Unidades: 20, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.litros, 20);
+  assert.strictEqual(f.kilos, 0);
+});
+
+test('"Lt", "ML" y "cc" también marcan volumen', () => {
+  const casos = [['Aceite Oliva Apidelta 5 Lt', 3], ['Aceite Oliva 500ML', 4], ['Esencia Vainilla 250cc', 6]];
+  casos.forEach(([nombre, cant]) => {
+    const [f] = agruparFamilias([{ IdProducto: '1', Nombre: nombre, Rubro: FRACC, Unidades: cant, Facturacion: 100 }], 10);
+    assert.strictEqual(f.litros, cant, nombre);
+    assert.strictEqual(f.kilos, 0, nombre);
+  });
+});
+
+test('el bulto por volumen se pesa por su contenido en litros', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Aceite Oliva 500ML Unidad', Rubro: FRACC, Unidades: 12, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.litros, 6); // 12 envases x 0,5 L
+  assert.strictEqual(f.kilos, 0);
+});
+
+test('una familia con volumen y peso los mantiene separados', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Aceite Oliva Apidelta 5L',  Rubro: FRACC, Unidades: 20, Facturacion: 300 },
+    { IdProducto: '2', Nombre: 'Aceite Oliva Apidelta 1KG', Rubro: FRACC, Unidades: 4,  Facturacion: 200 },
+  ], 10);
+  assert.strictEqual(f.litros, 20);
+  assert.strictEqual(f.kilos, 4);
+});
+
+test('sin unidad en el nombre la cantidad sigue contando como kilos', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Granola Suelta', Rubro: FRACC, Unidades: 7, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 7);
+  assert.strictEqual(f.litros, 0);
+});

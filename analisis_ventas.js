@@ -809,13 +809,26 @@ function seVendePorPaquete(p) {
 //    10 kg de MIX TROPIC 500G en 5, o 15 kg de 5KG en 75.
 function medirPresentacion(p) {
   const porPaquete = seVendePorPaquete(p);
-  const peso = porPaquete ? pesoPresentacion(p.nombre) : null;
-  if (!peso) return { ...p, kilos: p.unidades, litros: 0, porPaquete };
-  const equivalente = redondearMagnitud(peso.cantidad * p.unidades);
+  // La presentación se lee siempre, aunque no sea un paquete: es lo que dice si el producto
+  // se mide en kilos o en litros. Sin esto los aceites (5L, 500ML, 250cc) volcaban su
+  // cantidad en la columna de kilos.
+  const presentacion = pesoPresentacion(p.nombre);
+  const enLitros = presentacion ? presentacion.unidad === 'l' : false;
+  if (porPaquete && presentacion) {
+    const equivalente = redondearMagnitud(presentacion.cantidad * p.unidades);
+    return {
+      ...p,
+      kilos: enLitros ? 0 : equivalente,
+      litros: enLitros ? equivalente : 0,
+      porPaquete,
+    };
+  }
+  // Venta por peso o por volumen: la cantidad del renglón ya viene en la unidad del
+  // producto. Sin unidad declarada en el nombre se asume peso, que es el caso general.
   return {
     ...p,
-    kilos: peso.unidad === 'kg' ? equivalente : 0,
-    litros: peso.unidad === 'l' ? equivalente : 0,
+    kilos: enLitros ? 0 : p.unidades,
+    litros: enLitros ? p.unidades : 0,
     porPaquete,
   };
 }
