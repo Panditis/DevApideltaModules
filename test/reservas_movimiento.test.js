@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('../reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('../reservas_movimiento');
 
 test('migrarReservas: plan sin reserva devuelve reservas vacío', () => {
   assert.deepStrictEqual(migrarReservas({ fecha: '2026-07-24', items: [] }).reservas, []);
@@ -75,31 +75,125 @@ test('conciliarPorMovimiento: compara reservado vs usado por movimiento', () => 
   assert.strictEqual(m11.componentes[0].sobrante, 40);
 });
 
-test('lineasAjusteMovimiento: consumo contra reserva y sobrante a diferencias', () => {
+// Depósitos del movimiento de producción. El caso que motivó el forzado: con la reserva 1→2 y
+// el combo de salida apuntando al depósito de reserva (2), el excedente sobre lo reservado se
+// descontaba del 2 en vez del 1 (plan 2026-08-06, comprobante #5).
+const CP_PROD = { depositoTerminados: null };
+const CR_PROD = { depositoPrincipal: 1, depositoReserva: 2 };
+
+test('depositosProduccion: con reserva activa el excedente sale del origen, no del de reserva', () => {
+  const reserva = { estado: 'activa', depOrigen: 1, depDestino: 2 };
+  const deps = depositosProduccion(CP_PROD, CR_PROD, reserva, { depSalida: 2, depDiferencias: 2, depRecepcion: 1 });
+  assert.strictEqual(deps.salida, 1, 'el excedente se descuenta del depósito principal');
+  assert.strictEqual(deps.diferencias, 1, 'el sobrante vuelve al depósito principal');
+  assert.strictEqual(deps.reserva, 2);
+  assert.strictEqual(deps.forzadosPorReserva, true);
+});
+
+test('depositosProduccion: con reserva activa la recepción de terminados sigue siendo elegible', () => {
+  const reserva = { estado: 'activa', depOrigen: 1, depDestino: 2 };
+  const deps = depositosProduccion(CP_PROD, CR_PROD, reserva, { depSalida: 2, depRecepcion: 7 });
+  assert.strictEqual(deps.recepcion, 7);
+  assert.strictEqual(deps.salida, 1);
+});
+
+test('depositosProduccion: sin reserva activa se eligen salida y recepción, diferencias sigue a salida', () => {
+  const deps = depositosProduccion(CP_PROD, CR_PROD, { estado: 'anulada', depOrigen: 1, depDestino: 2 },
+    { depSalida: 3, depRecepcion: 5 });
+  assert.strictEqual(deps.salida, 3);
+  assert.strictEqual(deps.diferencias, 3);
+  assert.strictEqual(deps.recepcion, 5);
+  assert.strictEqual(deps.forzadosPorReserva, false);
+});
+
+test('depositosProduccion: depDiferencias elegido a mano se ignora siempre', () => {
+  const conReserva = depositosProduccion(CP_PROD, CR_PROD, { estado: 'activa', depOrigen: 1, depDestino: 2 },
+    { depDiferencias: 9 });
+  assert.strictEqual(conReserva.diferencias, 1, 'con reserva manda su depOrigen');
+  const sinReserva = depositosProduccion(CP_PROD, CR_PROD, null, { depSalida: 3, depDiferencias: 9 });
+  assert.strictEqual(sinReserva.diferencias, 3, 'sin reserva sigue al depósito de salida');
+});
+
+test('depositosProduccion: sin reserva y sin elección cae al principal del config', () => {
+  const deps = depositosProduccion(CP_PROD, CR_PROD, null, {});
+  assert.strictEqual(deps.salida, 1);
+  assert.strictEqual(deps.diferencias, 1);
+  assert.strictEqual(deps.recepcion, 1);
+  assert.strictEqual(deps.reserva, 2);
+  assert.strictEqual(deps.forzadosPorReserva, false);
+});
+
+test('depositosProduccion: reserva activa con depOrigen inválido no fuerza nada', () => {
+  const deps = depositosProduccion(CP_PROD, CR_PROD, { estado: 'activa', depOrigen: 0, depDestino: 2 }, { depSalida: 3 });
+  assert.strictEqual(deps.salida, 3);
+  assert.strictEqual(deps.forzadosPorReserva, false);
+});
+
+test('lineasAjusteMovimiento: sólo el consumo contra la reserva, sin las diferencias', () => {
   const deps = { reserva: 5, diferencias: 1 };
   const comps = [
     { plu: '9', nombre: 'G', reservado: 100, usado: 90, sobrante: 10 },
     { plu: '7', nombre: 'Envase', reservado: 50, usado: 50, sobrante: 0 },
   ];
   const lineas = lineasAjusteMovimiento(comps, deps);
-  // comp 9: -90 consumo-reserva (dep 5), -10 sobrante-desde-reserva (dep 5), +10 a diferencias (dep 1)
+  // El sobrante se fue al comprobante de diferencias: acá queda sólo el consumo.
   const c9 = lineas.filter(l => l.idProducto === '9');
-  assert.strictEqual(c9.find(l => l.concepto === 'consumo-reserva').cantidad, -90);
-  assert.strictEqual(c9.find(l => l.concepto === 'consumo-reserva').idDeposito, 5);
-  assert.strictEqual(c9.find(l => l.concepto === 'sobrante-desde-reserva').cantidad, -10);
-  assert.strictEqual(c9.find(l => l.concepto === 'sobrante-a-diferencias').cantidad, 10);
-  assert.strictEqual(c9.find(l => l.concepto === 'sobrante-a-diferencias').idDeposito, 1);
-  // comp 7: sólo consumo, sin sobrante
+  assert.strictEqual(c9.length, 1);
+  assert.strictEqual(c9[0].concepto, 'consumo-reserva');
+  assert.strictEqual(c9[0].cantidad, -90);
+  assert.strictEqual(c9[0].idDeposito, 5);
+  assert.strictEqual(lineas.filter(l => l.concepto.startsWith('sobrante')).length, 0);
   const c7 = lineas.filter(l => l.idProducto === '7');
   assert.strictEqual(c7.length, 1);
   assert.strictEqual(c7[0].cantidad, -50);
 });
 
-test('lineasAjusteMovimiento: usado 0 y sin sobrante no genera líneas', () => {
+test('lineasAjusteMovimiento: usado 0 no genera líneas', () => {
   const lineas = lineasAjusteMovimiento([{ plu: '9', nombre: 'G', reservado: 40, usado: 0, sobrante: 40 }], { reserva: 5, diferencias: 1 });
-  // usado 0 → sin consumo; sobrante 40 → dos líneas (devolución)
-  assert.strictEqual(lineas.filter(l => l.concepto === 'consumo-reserva').length, 0);
-  assert.strictEqual(lineas.filter(l => l.concepto.startsWith('sobrante')).length, 2);
+  assert.strictEqual(lineas.length, 0);
+});
+
+// Ajuste por diferencias: comprobante propio con lo que se desvió de lo reservado.
+test('lineasDiferenciasProduccion: se usó de más → excedente sale del depósito de origen', () => {
+  // Caso real: Almendra reservada 2, usada 10 → 8 de más salen del principal (dep 1), no del 2.
+  const lineas = lineasDiferenciasProduccion(
+    [{ plu: '7019', nombre: 'Almendra', reservado: 2, usado: 10 }], { reserva: 2, diferencias: 1 });
+  assert.strictEqual(lineas.length, 1);
+  assert.strictEqual(lineas[0].concepto, 'excedente-a-origen');
+  assert.strictEqual(lineas[0].cantidad, -8);
+  assert.strictEqual(lineas[0].idDeposito, 1);
+});
+
+test('lineasDiferenciasProduccion: se usó de menos → sobrante vuelve de reserva al origen', () => {
+  const lineas = lineasDiferenciasProduccion(
+    [{ plu: '9', nombre: 'G', reservado: 100, usado: 90 }], { reserva: 5, diferencias: 1 });
+  assert.strictEqual(lineas.length, 2);
+  assert.strictEqual(lineas.find(l => l.concepto === 'sobrante-desde-reserva').cantidad, -10);
+  assert.strictEqual(lineas.find(l => l.concepto === 'sobrante-desde-reserva').idDeposito, 5);
+  assert.strictEqual(lineas.find(l => l.concepto === 'sobrante-a-diferencias').cantidad, 10);
+  assert.strictEqual(lineas.find(l => l.concepto === 'sobrante-a-diferencias').idDeposito, 1);
+});
+
+test('lineasDiferenciasProduccion: coinciden reservado y usado → sin líneas', () => {
+  const lineas = lineasDiferenciasProduccion(
+    [{ plu: '9', nombre: 'G', reservado: 50, usado: 50 }], { reserva: 5, diferencias: 1 });
+  assert.strictEqual(lineas.length, 0);
+});
+
+test('lineasDiferenciasProduccion: consumo sin reserva detrás no es diferencia', () => {
+  const lineas = lineasDiferenciasProduccion(
+    [{ plu: '9', nombre: 'G', reservado: 0, usado: 30 }], { reserva: 5, diferencias: 1 });
+  assert.strictEqual(lineas.length, 0);
+});
+
+test('lineasDiferenciasProduccion: el neto por depósito cierra igual que el circuito viejo', () => {
+  const deps = { reserva: 2, diferencias: 1 };
+  const comps = [{ plu: '7019', nombre: 'Almendra', reservado: 2, usado: 10 }];
+  const consumo = lineasAjusteMovimiento([{ plu: '7019', nombre: 'Almendra', reservado: 2, usado: 2 }], deps);
+  const netoPorDep = [...consumo, ...lineasDiferenciasProduccion(comps, deps)]
+    .reduce((acc, l) => ({ ...acc, [l.idDeposito]: (acc[l.idDeposito] || 0) + l.cantidad }), {});
+  assert.strictEqual(netoPorDep[2], -2, 'del depósito de reserva sale lo reservado');
+  assert.strictEqual(netoPorDep[1], -8, 'del principal sale el excedente');
 });
 
 test('lineasAjusteMovimiento: componente sin plu se ignora', () => {

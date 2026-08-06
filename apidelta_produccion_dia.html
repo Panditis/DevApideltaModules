@@ -417,7 +417,7 @@ header{box-shadow:var(--elev-2)}
       <img src="/favicon.png" class="logo-svg" alt="Apidelta">
       <div style="display:flex;align-items:baseline">
         <span class="logo-text">Apidelta</span>
-        <span class="logo-sub">Producción del Día sape </span>
+        <span class="logo-sub">Producción del Día</span>
       </div>
     </div>
     <span class="header-date" style="display:flex;align-items:center;gap:4px">
@@ -669,9 +669,12 @@ header{box-shadow:var(--elev-2)}
         <span class="hdr-suc-lbl">Depósito de recepción</span>
         <select id="selDepRecepcionProd" class="hdr-suc-select"></select>
       </span>
-      <span class="hdr-suc" title="Depósito al que vuelve la diferencia entre lo reservado y lo realmente consumido">
-        <span class="hdr-suc-lbl">Depósito destino de diferencias</span>
-        <select id="selDepDiferenciasProd" class="hdr-suc-select"></select>
+      <!-- El destino de las diferencias no se elige: lo determina el sentido de la diferencia
+           (excedente o sobrante) y siempre es el depósito de origen de la reserva. Se muestra
+           como dato, no como elección. -->
+      <span class="hdr-suc" title="Se calcula solo: la diferencia contra lo reservado siempre va contra el depósito de origen de la reserva">
+        <span class="hdr-suc-lbl">Diferencias</span>
+        <span id="txtDepDiferenciasProd" style="font-size:13px;font-weight:700;padding:2px 0">—</span>
       </span>
       <button id="concRegistrarBtn"
         title="Da de alta los productos terminados y de baja los componentes usados, en un único movimiento de SiGA."
@@ -1021,12 +1024,14 @@ function onCambioSucursalProd(){
 //   · salida      → de dónde salen los componentes que NO cubre la reserva (lo reservado sale
 //                   siempre del depósito de reserva, que es donde está físicamente).
 //   · recepción   → dónde entran los productos terminados.
-//   · diferencias → a dónde vuelve la diferencia entre lo reservado y lo realmente consumido.
-// Que dos de ellos sean el mismo depósito es lo normal, no un error.
+// El destino de las diferencias ya no se elige: es siempre el depósito de origen de la reserva,
+// tanto para el excedente (sale de ahí) como para el sobrante (vuelve ahí). Se muestra como dato.
+// Que los dos sean el mismo depósito es lo normal, no un error.
+// El destino de las diferencias NO está acá: no se elige, lo deriva el servidor del sentido de
+// la diferencia (excedente contra el principal / sobrante devuelto al principal).
 const DEPS_PROD_CAMPOS = [
   { campo: 'depSalida',      sel: 'selDepSalidaProd'      },
-  { campo: 'depRecepcion',   sel: 'selDepRecepcionProd'   },
-  { campo: 'depDiferencias', sel: 'selDepDiferenciasProd' }
+  { campo: 'depRecepcion',   sel: 'selDepRecepcionProd'   }
 ];
 const DEP_PROD_STORAGE_PREFIX = 'apidelta.prod.depositos.';
 const CONC_REGISTRAR_TITULO = 'Da de alta los productos terminados y de baja los componentes usados, en un único movimiento de SiGA.';
@@ -1055,7 +1060,9 @@ function valorSelectDepProd(id){
 }
 function depSalidaProdActual(){      return valorSelectDepProd('selDepSalidaProd'); }
 function depRecepcionProdActual(){   return valorSelectDepProd('selDepRecepcionProd'); }
-function depDiferenciasProdActual(){ return valorSelectDepProd('selDepDiferenciasProd'); }
+// El de diferencias no se elige: es el que informó la última conciliación cargada.
+let _depDiferenciasProd = null;
+function depDiferenciasProdActual(){ return _depDiferenciasProd; }
 
 function nombreDepositoProd(id){
   const d = depositosProdCache.find(x => Number(x.idDeposito) === Number(id));
@@ -1078,24 +1085,43 @@ function opcionesDepositosProd(valActual){
   return vacio + lista;
 }
 
+// Campos que dejan de elegirse cuando hay una reserva activa: los componentes de más salen del
+// depósito del que salió lo apartado, así que lo fija el servidor.
+const DEPS_PROD_FORZADOS = ['depSalida'];
+const DEP_PROD_FORZADO_MSG = 'Lo fija la reserva activa: los componentes de más salen del depósito de origen de la reserva y el sobrante vuelve al mismo.';
+
 // Puebla los combos con los depósitos que devolvió la conciliación. Manda lo elegido la última
 // vez en ESTA sucursal; si ese depósito ya no existe acá se cae al default del servidor.
+// Excepción: con reserva activa, salida y diferencias los impone el servidor y lo guardado se
+// ignora — antes una elección vieja en localStorage (salida = depósito de reserva) hacía que el
+// excedente se descontara del depósito equivocado.
 function renderSelectsDepositosProd(d){
   const selects = DEPS_PROD_CAMPOS.map(c => ({ ...c, el: document.getElementById(c.sel) }));
   if (selects.some(s => !s.el)) return;
   depositosProdCache = Array.isArray(d && d.depositos) ? d.depositos : [];
   const sugerido = (d && d.seleccion) || {};
+  const forzados = sugerido.forzadosPorReserva === true;
   const guardado = leerDepositosProdGuardados(sucursalProdActual());
   const existe   = v => depositosProdCache.some(x => Number(x.idDeposito) === Number(v));
   const elegir   = (guard, def) => existe(guard) ? Number(guard) : (existe(def) ? Number(def) : null);
   const hay      = depositosProdCache.length > 0;
 
   for (const s of selects) {
-    const val = elegir(guardado[s.campo], sugerido[s.campo]);
-    s.el.disabled  = !hay;
+    const fijo = forzados && DEPS_PROD_FORZADOS.includes(s.campo);
+    const val  = fijo ? (existe(sugerido[s.campo]) ? Number(sugerido[s.campo]) : null)
+                      : elegir(guardado[s.campo], sugerido[s.campo]);
+    s.el.disabled  = !hay || fijo;
+    s.el.title     = fijo ? DEP_PROD_FORZADO_MSG : '';
     s.el.innerHTML = hay ? opcionesDepositosProd(val) : '<option value="">Sin depósitos</option>';
     s.el.value     = val == null ? '' : String(val);
   }
+
+  // Diferencias: sólo se muestra. Si el servidor no lo informó (conciliación vieja), cae al de
+  // salida, que es a donde iban antes por defecto.
+  _depDiferenciasProd = existe(sugerido.depDiferencias) ? Number(sugerido.depDiferencias) : depSalidaProdActual();
+  const txtDif = document.getElementById('txtDepDiferenciasProd');
+  if (txtDif) txtDif.textContent = _depDiferenciasProd == null ? '—' : etiquetaDepositoProd(_depDiferenciasProd);
+
   actualizarBotonRegistrarProd();
 }
 
@@ -3516,11 +3542,10 @@ async function exportarConciliacionCSV() {
 async function registrarMovimientoProduccion() {
   const fecha = _concFecha;
   if (!fecha) { showSnack('Sin fecha para registrar'); return; }
-  const depSalida      = depSalidaProdActual();
-  const depRecepcion   = depRecepcionProdActual();
-  const depDiferencias = depDiferenciasProdActual();
-  if (depSalida == null || depRecepcion == null || depDiferencias == null) {
-    showSnack('Elegí el depósito de salida, el de recepción y el de diferencias');
+  const depSalida    = depSalidaProdActual();
+  const depRecepcion = depRecepcionProdActual();
+  if (depSalida == null || depRecepcion == null) {
+    showSnack('Elegí el depósito de salida y el de recepción');
     return;
   }
   const btn = document.getElementById('concRegistrarBtn');
@@ -3542,6 +3567,8 @@ async function registrarMovimientoProduccion() {
 
     const sinPlu = comps.filter(c => !c.plu);
     const nSuc   = sucursalProdActual();
+    // Informativo: el destino de las diferencias lo decide el servidor, no la pantalla.
+    const depDif = (d.seleccion && d.seleccion.depDiferencias != null) ? Number(d.seleccion.depDiferencias) : depSalida;
     const fila = (etiqueta, valor) => `<tr>
         <td style="padding:3px 10px 3px 0;color:var(--text-muted);white-space:nowrap">${escEnv(etiqueta)}</td>
         <td style="padding:3px 0;font-weight:700">${escEnv(valor)}</td></tr>`;
@@ -3553,10 +3580,11 @@ async function registrarMovimientoProduccion() {
         ${nSuc ? fila('Sucursal destino', `${nSuc}${nombreSucursalProd(nSuc) ? ' — ' + nombreSucursalProd(nSuc) : ''}`) : ''}
         ${fila('Componentes salen de', etiquetaDepositoProd(depSalida))}
         ${fila('Terminados entran a', etiquetaDepositoProd(depRecepcion))}
-        ${fila('Diferencias vuelven a', etiquetaDepositoProd(depDiferencias))}
+        ${fila('Diferencias vuelven a', etiquetaDepositoProd(depDif))}
       </table>
       <div style="margin-top:10px;color:var(--text-muted)">Lo que esté reservado sale del depósito
-        de reserva; la diferencia contra lo consumido vuelve al de diferencias.</div>
+        de reserva. Si se usó de más, el excedente se descuenta del depósito de origen; si se usó
+        de menos, el sobrante vuelve a ese mismo depósito.</div>
       ${sinPlu.length ? `<div style="margin-top:10px;padding:8px 10px;background:#FFEBEE;border-radius:var(--radius-sm);color:var(--c-alta);font-weight:700">⚠ ${sinPlu.length} componente(s) sin código: se omiten del movimiento.</div>` : ''}
       <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:var(--radius-sm)">
         <strong>Esto modifica stock real.</strong> Se puede revertir desde 🧾 Movimientos en Planificación.
@@ -3564,7 +3592,7 @@ async function registrarMovimientoProduccion() {
     if (!await confirmarProd('Registrar producción en SiGA', detalle, 'Registrar', '📦')) return;
 
     const resp = await api('POST', `/api/produccion/${encodeURIComponent(fecha)}/registrar-movimiento`,
-      { idSucursal: sucursalProdActual(), confirmar: true, omitirSinPlu: sinPlu.length > 0, depSalida, depRecepcion, depDiferencias });
+      { idSucursal: sucursalProdActual(), confirmar: true, omitirSinPlu: sinPlu.length > 0, depSalida, depRecepcion });
 
     if (resp && resp.error) { showSnack('⚠ ' + resp.error); return; }
     showSnack(`✅ Producción registrada con el movimiento #${resp.numeroMovimiento}`);

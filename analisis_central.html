@@ -63,9 +63,16 @@
   /* background-color, no el shorthand: el shorthand borraría la barra (background-image). */
   tr.fam:hover{background-color:#F0F3EE}
   tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
-  tr.fam-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
-  tr.fam-det>td.pres{padding-left:30px}
+  tr.fam-det>td, tr.cli-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
+  tr.fam-det>td.pres, tr.cli-det>td.pres{padding-left:30px}
+  /* Headers ordenables del top: el cursor y el hover avisan que se puede clickear, y la
+     columna activa queda marcada con la flecha del sentido vigente. */
+  th.orden{cursor:pointer;user-select:none}
+  th.orden:hover{color:var(--green-mid)}
+  th.orden.activa{color:var(--green-mid)}
   td.impacto{width:110px;font-variant-numeric:tabular-nums}
+  /* Asterisco del equivalente incompleto: visible pero sin robarle peso al número. */
+  span.parcial{color:#b8860b;font-weight:700;cursor:help}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
   th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
@@ -98,28 +105,23 @@
     <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow" height="200"></canvas></div>
     <div class="card"><h3>Facturación por hora</h3><canvas id="chHora" height="200"></canvas></div>
   </div>
-  <div class="grid2">
-    <div class="card">
-      <div class="card-head">
-        <h3>Top productos — unidades</h3>
-        <input type="search" id="buscTopU" class="buscador" placeholder="Buscar producto..." autocomplete="off">
-      </div>
-      <div id="tblTopU"></div>
-      <div id="pagTopU"></div>
+  <div class="card">
+    <div class="card-head">
+      <h3>Top productos</h3>
+      <input type="search" id="buscTop" class="buscador" placeholder="Buscar producto..." autocomplete="off">
     </div>
-    <div class="card">
-      <div class="card-head">
-        <h3>Top productos — facturación</h3>
-        <input type="search" id="buscTopF" class="buscador" placeholder="Buscar producto..." autocomplete="off">
-      </div>
-      <div id="tblTopF"></div>
-      <div id="pagTopF"></div>
-    </div>
+    <div id="tblTop"></div>
+    <div id="pagTop"></div>
   </div>
   <div class="card">
     <h3>Familias de producto</h3>
     <p class="desc">Agrupa las presentaciones de un mismo producto en una sola fila (MIEL PURA 500G + MIEL PURA 1KG = MIEL PURA). Clic en la fila para ver el detalle por presentación.</p>
     <div id="tblFamilias"></div>
+  </div>
+  <div class="card">
+    <h3>Top clientes</h3>
+    <p class="desc">Quién compra y cuánto. Clic en la fila para ver qué se llevó cada cliente.</p>
+    <div id="tblClientes"></div>
   </div>
 </div>
 
@@ -197,8 +199,7 @@ function renderHora(rows){
 // con el que ya vienen del backend.
 const FILAS_POR_PAGINA = 25;
 const TOPS = {
-  tblTopU: { pager: 'pagTopU', busc: 'buscTopU' },
-  tblTopF: { pager: 'pagTopF', busc: 'buscTopF' },
+  tblTop: { pager: 'pagTop', busc: 'buscTop' },
 };
 const tops = {};
 
@@ -218,12 +219,59 @@ function filasTop(elId){
   });
 }
 
-// El puesto se fija sobre la lista completa tal como la ordenó el backend, así al filtrar
-// se sigue viendo en qué posición del ranking real está cada producto.
+// El backend manda una sola lista de productos y el orden se resuelve acá clickeando los
+// headers: son los mismos datos, cambia el criterio. El puesto se recalcula en cada
+// reordenamiento para que al filtrar se siga viendo la posición dentro del ranking vigente.
+// El nombre ordena alfabético (con locale es-AR, para que los acentos no queden al final);
+// las columnas numéricas, por valor.
+const COLUMNAS_TOP = {
+  nombre:      { etiqueta: 'Producto',    clase: '',    texto: true },
+  unidades:    { etiqueta: 'Unid.',       clase: 'num' },
+  facturacion: { etiqueta: 'Facturación', clase: 'num' },
+};
+
+function ordenarFilas(rows, criterio, desc){
+  const esTexto = COLUMNAS_TOP[criterio] && COLUMNAS_TOP[criterio].texto;
+  const signo = desc ? -1 : 1;
+  return [...(rows || [])]
+    .sort((a, b) => signo * (esTexto
+      ? String(a[criterio] || '').localeCompare(String(b[criterio] || ''), 'es-AR')
+      : (Number(a[criterio]) || 0) - (Number(b[criterio]) || 0)))
+    .map((r, i) => ({ ...r, puesto: i + 1 }));
+}
+
 function renderTop(rows, elId){
-  tops[elId] = { rows: (rows || []).map((r, i) => ({ ...r, puesto: i + 1 })), filtro: '', pagina: 1 };
+  // Arranca por facturación descendente, que es el ranking que se espera ver de entrada.
+  const st = tops[elId];
+  const criterio = st ? st.criterio : 'facturacion';
+  const desc = st ? st.desc : true;
+  tops[elId] = { origen: rows || [], rows: ordenarFilas(rows, criterio, desc), filtro: '', pagina: 1, criterio, desc };
   $(TOPS[elId].busc).value = '';
   pintarTop(elId);
+}
+
+// Clic en un header: la primera vez ordena por esa columna (descendente en las numéricas,
+// A→Z en el nombre); clic de nuevo sobre la misma, invierte. No vuelve a pedir datos ni
+// pierde la búsqueda escrita, y devuelve a la página 1, que es donde está lo que se buscó.
+function ordenarTop(criterio){
+  const st = tops.tblTop;
+  if (!st || !COLUMNAS_TOP[criterio]) return;
+  st.desc = st.criterio === criterio ? !st.desc : !COLUMNAS_TOP[criterio].texto;
+  st.criterio = criterio;
+  st.rows = ordenarFilas(st.origen, criterio, st.desc);
+  st.pagina = 1;
+  pintarTop('tblTop');
+}
+
+// Header clickeable con la flecha sólo en la columna activa: si todas la tuvieran, no se
+// distinguiría cuál manda.
+function thOrdenable(st, clave){
+  const col = COLUMNAS_TOP[clave];
+  const activa = st.criterio === clave;
+  const flecha = activa ? (st.desc ? ' ▼' : ' ▲') : '';
+  const clases = ['orden', col.clase, activa ? 'activa' : ''].filter(Boolean).join(' ');
+  return `<th class="${clases}" onclick="ordenarTop('${clave}')"
+    title="Ordenar por ${col.etiqueta.toLowerCase()}">${col.etiqueta}${flecha}</th>`;
 }
 
 function pintarTop(elId){
@@ -246,7 +294,10 @@ function pintarTop(elId){
       <td class="num">${fmtMoney(r.facturacion)}</td>
     </tr>`).join('');
   $(elId).innerHTML = `<table><thead><tr>
-      <th class="num">#</th><th>Producto</th><th class="num">Unid.</th><th class="num">Facturación</th>
+      <th class="num">#</th>
+      ${thOrdenable(st, 'nombre')}
+      ${thOrdenable(st, 'unidades')}
+      ${thOrdenable(st, 'facturacion')}
     </tr></thead><tbody>${cuerpo}</tbody></table>`;
   const primera = st.pagina === 1, ultima = st.pagina === paginas;
   pagerEl.innerHTML = `<div class="pager">
@@ -273,6 +324,23 @@ function buscarEnTop(elId, texto){
   pintarTop(elId);
 }
 
+// Magnitud real de una familia o presentación. Las unidades no son sumables entre
+// presentaciones distintas (2 tambores de 28Kg y 12 frascos de 1Kg no son "14"); los
+// kilos sí. Kilos y litros van separados: sumarlos sería la misma mentira de nuevo.
+function fmtEquivalente(o){
+  const partes = [];
+  if (o.kilos)  partes.push(fmtDec(o.kilos) + ' kg');
+  if (o.litros) partes.push(fmtDec(o.litros) + ' L');
+  return partes.length ? partes.join(' + ') : '—';
+}
+
+// Marca el equivalente que va corto porque alguna presentación no declara su peso en el
+// nombre. Se avisa en vez de estimarlo: un total inventado es peor que uno incompleto.
+function avisoParcial(f){
+  if (!f.unidadesSinEquivalencia) return '';
+  return ` <span class="parcial" title="${fmtNum(f.unidadesSinEquivalencia)} unidades sin presentación declarada en el nombre: no suman al equivalente.">*</span>`;
+}
+
 // Cada familia es una fila clickeable seguida de una fila oculta con sus presentaciones.
 function renderFamilias(rows){
   const fams = rows || [];
@@ -288,6 +356,7 @@ function renderFamilias(rows){
       `<tr class="fam-det fd-${i}" hidden>
         <td class="pres">· ${escHtml(p.nombre)}</td>
         <td></td>
+        <td class="num">${fmtEquivalente(p)}</td>
         <td class="num">${fmtNum(p.unidades)}</td>
         <td class="num">${fmtMoney(p.facturacion)}</td>
         <td></td>
@@ -303,6 +372,7 @@ function renderFamilias(rows){
               title="${fmtDec(share)}% de la facturación listada">
         <td><span class="caret" id="cf-${i}">▶</span> ${escHtml(f.familia)}</td>
         <td class="num">${fmtNum(f.presentaciones.length)}</td>
+        <td class="num">${fmtEquivalente(f)}${avisoParcial(f)}</td>
         <td class="num">${fmtNum(f.unidades)}</td>
         <td class="num">${fmtMoney(f.facturacion)}</td>
         <td class="num impacto">${fmtDec(share)}%</td>
@@ -310,7 +380,10 @@ function renderFamilias(rows){
       ${detalle}`;
   }).join('');
   $('tblFamilias').innerHTML = `<table><thead><tr>
-      <th>Familia</th><th class="num">Present.</th><th class="num">Unidades</th><th class="num">Facturación</th>
+      <th>Familia</th><th class="num">Present.</th>
+      <th class="num" title="Kilos o litros equivalentes: la presentación de cada producto por sus unidades vendidas. Es la única cantidad comparable dentro de una familia.">Equivalente</th>
+      <th class="num" title="Suma cruda de unidades. Mezcla formatos distintos (un tambor de 28Kg cuenta igual que un frasco de 250G), así que sirve como referencia, no como cantidad real.">Unidades</th>
+      <th class="num">Facturación</th>
       <th>Impacto s/ listado</th>
     </tr></thead><tbody>${cuerpo}</tbody></table>`;
 }
@@ -321,6 +394,58 @@ function toggleFamilia(i){
   const abrir = filas[0].hidden;
   filas.forEach(f => { f.hidden = !abrir; });
   $(`cf-${i}`).textContent = abrir ? '▼' : '▶';
+}
+
+// ── Top clientes ─────────────────────────────────────────────────────────────
+// Mismo patrón que familias: fila clickeable con el total del cliente y, debajo, qué
+// compró. Los productos del detalle son filas de esta misma tabla para que las columnas
+// queden alineadas con el total de arriba.
+function renderClientes(rows){
+  const cli = rows || [];
+  if (!cli.length){ $('tblClientes').innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
+  const totalListado = cli.reduce((a, c) => a + (c.facturacion || 0), 0);
+  const maxFacturacion = cli.reduce((a, c) => Math.max(a, c.facturacion || 0), 0);
+  const cuerpo = cli.map((c, i) => {
+    const detalle = c.productos.map(p =>
+      `<tr class="cli-det cd-${i}" hidden>
+        <td class="pres">· ${escHtml(p.nombre)}</td>
+        <td></td>
+        <td class="num">${fmtEquivalente(p)}</td>
+        <td class="num">${fmtNum(p.unidades)}</td>
+        <td class="num">${fmtMoney(p.facturacion)}</td>
+        <td></td>
+      </tr>`
+    ).join('');
+    const share = totalListado > 0 ? (c.facturacion || 0) * 100 / totalListado : 0;
+    const ancho = maxFacturacion > 0 ? (c.facturacion || 0) * 100 / maxFacturacion : 0;
+    const corte = ancho.toFixed(2);
+    const fondo = `linear-gradient(90deg, var(--barra-ini) 0%, var(--barra-fin) ${corte}%, transparent ${corte}%)`;
+    return `<tr class="fam" style="background-image:${fondo}" onclick="toggleCliente(${i})"
+              title="${fmtDec(share)}% de la facturación listada">
+        <td><span class="caret" id="cc-${i}">▶</span> ${escHtml(c.cliente)}</td>
+        <td class="num">${fmtNum(c.productos.length)}</td>
+        <td class="num">${fmtEquivalente(c)}${avisoParcial(c)}</td>
+        <td class="num">${fmtNum(c.unidades)}</td>
+        <td class="num">${fmtMoney(c.facturacion)}</td>
+        <td class="num impacto">${fmtDec(share)}%</td>
+      </tr>
+      ${detalle}`;
+  }).join('');
+  $('tblClientes').innerHTML = `<table><thead><tr>
+      <th>Cliente</th><th class="num">Productos</th>
+      <th class="num" title="Kilos o litros equivalentes: la presentación de cada producto por sus unidades compradas.">Equivalente</th>
+      <th class="num" title="Suma cruda de unidades. Mezcla formatos distintos, así que sirve como referencia, no como cantidad real.">Unidades</th>
+      <th class="num">Facturación</th>
+      <th>Impacto s/ listado</th>
+    </tr></thead><tbody>${cuerpo}</tbody></table>`;
+}
+
+function toggleCliente(i){
+  const filas = document.querySelectorAll(`tr.cd-${i}`);
+  if (!filas.length) return;
+  const abrir = filas[0].hidden;
+  filas.forEach(f => { f.hidden = !abrir; });
+  $(`cc-${i}`).textContent = abrir ? '▼' : '▶';
 }
 
 async function consultar(){
@@ -336,9 +461,9 @@ async function consultar(){
     renderTendencia(d.tendencia);
     renderDow(d.diaSemana);
     renderHora(d.horas);
-    renderTop(d.topUnidades, 'tblTopU');
-    renderTop(d.topFacturacion, 'tblTopF');
+    renderTop(d.topProductos, 'tblTop');
     renderFamilias(d.familias);
+    renderClientes(d.clientes);
   } catch(e){
     $('msg').innerHTML = `<div class="error">Error: ${e.message}</div>`;
   } finally {

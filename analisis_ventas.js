@@ -63,6 +63,61 @@ const JOIN_CLIENTE_CAT = `LEFT JOIN Clientes c ON c.IdCliente = v.IdCliente
 // cubre que mañana se abra otra categoría de sucursales con otro id.
 const CATEGORIA_SUCURSAL_ID = 5;
 
+// ── Productos que no son venta real (sólo casa central) ──────────────────────
+// Salen por la caja de la central pero no son venta de mostrador: el 302158 es una carga
+// interna y el 1 ("A Articulos Varios", rubro ADMINISTRACION) es el comodín administrativo
+// con el que se carga cualquier cosa. Se excluyen en los dos niveles: el renglón no
+// cuenta (unidades, tops, artículos del ticket) y su importe se descuenta del total
+// del comprobante, así la facturación tampoco los arrastra.
+// El filtro se activa pasando `excProdCsv` en los parámetros: el análisis por sucursales
+// no lo manda, así que sus consultas quedan exactamente como estaban.
+const PRODUCTOS_EXCLUIDOS_CENTRAL = ['302158', '1'];
+
+// Condición de renglón: descarta los productos excluidos. Vacía si no hay lista.
+function sinProductosExcluidos(excProdCsv) {
+  return excProdCsv ? `vp.IdProducto NOT IN (${excProdCsv})` : '';
+}
+
+// La misma condición ya lista para concatenar dentro de un WHERE (vacía = no suma nada).
+function andSinProductosExcluidos(excProdCsv, sangria = '      ') {
+  const cond = sinProductosExcluidos(excProdCsv);
+  return cond ? `\n${sangria}AND ${cond}` : '';
+}
+
+// Importe de los renglones excluidos agregado POR COMPROBANTE. Se agrupa en un derivado
+// y se engancha por la clave de 5 columnas: un JOIN directo a VentasProductos duplicaría
+// las filas de cabecera y con eso la facturación y los tickets.
+// El derivado se acota al mismo alcance de sucursales que la consulta para no barrer
+// VentasProductos entera cuando el análisis es de una sola sucursal.
+function joinImporteExcluido(excProdCsv, sucIdsCsv) {
+  if (!excProdCsv) return '';
+  return `LEFT JOIN (
+      SELECT vpe.IdSucursal, vpe.IdTipoComprobante, vpe.Letra, vpe.CentroEmisor,
+        vpe.NumeroComprobante, SUM(vpe.ImporteTotal) AS Importe
+      FROM VentasProductos vpe
+      WHERE vpe.IdProducto IN (${excProdCsv})
+        AND vpe.IdSucursal IN (${sucIdsCsv})
+      GROUP BY vpe.IdSucursal, vpe.IdTipoComprobante, vpe.Letra, vpe.CentroEmisor,
+        vpe.NumeroComprobante
+    ) exc ON exc.IdSucursal = v.IdSucursal AND exc.IdTipoComprobante = v.IdTipoComprobante
+      AND exc.Letra = v.Letra AND exc.CentroEmisor = v.CentroEmisor
+      AND exc.NumeroComprobante = v.NumeroComprobante`;
+}
+
+// Facturación de cabecera neta de los renglones excluidos. Se resta con vp.ImporteTotal,
+// que es la misma base con impuestos que v.ImporteTotal (ImporteTotalNeto quedaría corto).
+function exprFacturacion(excProdCsv) {
+  return excProdCsv ? `SUM(v.ImporteTotal - ISNULL(exc.Importe, 0))` : `SUM(v.ImporteTotal)`;
+}
+
+// Tickets: un comprobante que sólo tenía el producto excluido queda en cero al restarlo,
+// y entonces no era una venta: no se cuenta.
+function exprTickets(excProdCsv) {
+  return excProdCsv
+    ? `SUM(CASE WHEN v.ImporteTotal - ISNULL(exc.Importe, 0) > 0 THEN 1 ELSE 0 END)`
+    : `COUNT(*)`;
+}
+
 // Cláusula WHERE con los filtros comunes. desde/hasta/sucIdsCsv YA saneados por el endpoint.
 function whereVentas({ desde, hasta, sucIdsCsv }) {
   return `v.Fecha >= '${desde} 00:00:00' AND v.Fecha <= '${hasta} 23:59:59'
@@ -74,29 +129,44 @@ function whereVentas({ desde, hasta, sucIdsCsv }) {
 }
 
 // ── Rubros excluidos del análisis ────────────────────────────────────────────
-// Nada de esto es venta de mostrador: "Bultos/Cajas" y "Almacen Bultos/Cajas" son el
-// envase, "Pesables Deposito" es el granel que después se fracciona (la venta real se
-// cuenta en Pesables Fraccionado) y "Apicultura" son los insumos del apiario. Si entran,
-// inflan unidades, se cuelan en los tops y suman un artículo de más en cada ticket.
+// Alcance por defecto: el análisis por sucursales. "Pesables Deposito" es el granel que
+// después se fracciona (la venta real se cuenta en Pesables Fraccionado) y "Apicultura"
+// son los insumos del apiario. Ojo con los otros dos: "Bultos/Cajas" no existe como rubro
+// en la base (filtra cero productos) y "Almacen Bultos/Cajas" son 873 productos de venta
+// real por bulto/pack — por eso casa central usa su propia lista, más abajo.
 // Se filtra con NOT EXISTS contra el IdProducto del renglón (no con JOIN) para que la
 // condición sirva igual en las consultas que no joinean Productos y para no duplicar filas.
 const RUBROS_EXCLUIDOS = ['Bultos/Cajas', 'Almacen Bultos/Cajas', 'Pesables Deposito', 'Apicultura'];
+
+// Casa central tiene su propio criterio: ahí lo único que no es venta de mostrador son los
+// insumos del apiario. "Almacen Bultos/Cajas" son los bultos y packs de almacén (873
+// productos: es venta mayorista real, no envase) y el granel de depósito también se vende,
+// así que excluirlos escondía ventas enteras. Los códigos puntuales que no son venta real
+// se sacan uno por uno con PRODUCTOS_EXCLUIDOS_CENTRAL, no por rubro.
+const RUBROS_EXCLUIDOS_CENTRAL = ['Apicultura'];
+
 // El nombre se compara sin espacios ("Bultos / Cajas") y con collation CI_AI, que ignora
 // mayúsculas y acentos: la base puede tener "Pesables Depósito" con tilde.
-const SIN_RUBROS_EXCLUIDOS = `NOT EXISTS (SELECT 1 FROM Productos pExc
+function sinRubrosExcluidos(lista) {
+  const rubros = (lista && lista.length ? lista : RUBROS_EXCLUIDOS)
+    .map(r => `'${r.replace(/\s/g, '')}'`).join(', ');
+  return `NOT EXISTS (SELECT 1 FROM Productos pExc
       INNER JOIN Rubros rExc ON rExc.IdRubro = pExc.IdRubro
       WHERE pExc.IdProducto = vp.IdProducto
-        AND REPLACE(COALESCE(rExc.NombreRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${
-          RUBROS_EXCLUIDOS.map(r => `'${r.replace(/\s/g, '')}'`).join(', ')
-        }))`;
+        AND REPLACE(COALESCE(rExc.NombreRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`;
+}
+
+// Alcance por defecto (análisis por sucursales), que es el que se usa si p no trae lista.
+const SIN_RUBROS_EXCLUIDOS = sinRubrosExcluidos(RUBROS_EXCLUIDOS);
 
 // KPIs + comparativa: nivel cabecera (Ventas), 1 fila por comprobante.
 function sqlComparativa(p) {
   return `SELECT v.IdSucursal, s.Nombre AS Nombre,
-      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
     FROM Ventas v
     LEFT JOIN Sucursales s ON s.IdSucursal = v.IdSucursal
     ${JOIN_CLIENTE_CAT}
+    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
     WHERE ${whereVentas(p)}
     GROUP BY v.IdSucursal, s.Nombre
     ORDER BY Facturacion DESC`;
@@ -109,14 +179,15 @@ function sqlResumenRenglon(p) {
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     WHERE ${whereVentas(p)}
-      AND ${SIN_RUBROS_EXCLUIDOS}`;
+      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv)}`;
 }
 
 function sqlTendencia(p) {
   return `SELECT CAST(v.Fecha AS DATE) AS Fecha,
-      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
     FROM Ventas v
     ${JOIN_CLIENTE_CAT}
+    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
     WHERE ${whereVentas(p)}
     GROUP BY CAST(v.Fecha AS DATE)
     ORDER BY Fecha`;
@@ -124,9 +195,10 @@ function sqlTendencia(p) {
 
 function sqlDiaSemana(p) {
   return `SELECT (DATEPART(WEEKDAY, v.Fecha) + @@DATEFIRST - 2) % 7 AS Dow,
-      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
     FROM Ventas v
     ${JOIN_CLIENTE_CAT}
+    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
     WHERE ${whereVentas(p)}
     GROUP BY (DATEPART(WEEKDAY, v.Fecha) + @@DATEFIRST - 2) % 7
     ORDER BY Dow`;
@@ -134,9 +206,10 @@ function sqlDiaSemana(p) {
 
 function sqlHora(p) {
   return `SELECT DATEPART(HOUR, v.Fecha) AS Hora,
-      SUM(v.ImporteTotal) AS Facturacion, COUNT(*) AS Tickets
+      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
     FROM Ventas v
     ${JOIN_CLIENTE_CAT}
+    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
     WHERE ${whereVentas(p)}
     GROUP BY DATEPART(HOUR, v.Fecha)
     ORDER BY Hora`;
@@ -196,15 +269,73 @@ function sqlTopProductos(p, orden, topN, sinInsumos) {
   const col = orden === 'unidades' ? 'Unidades' : 'Facturacion';
   const filtro = sinInsumos ? `\n      AND ${sinInsumos}` : '';
   return `SELECT TOP ${topN} vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
-      SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotalNeto) AS Facturacion
+      SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotal) AS Facturacion
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
     WHERE ${whereVentas(p)}
-      AND ${SIN_RUBROS_EXCLUIDOS}${filtro}
+      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${filtro}${andSinProductosExcluidos(p.excProdCsv)}
     GROUP BY vp.IdProducto, p.NombreProducto
     ORDER BY ${col} DESC`;
+}
+
+// ── Ventas por cliente ───────────────────────────────────────────────────────
+// Se pide a nivel cliente×producto y el total del cliente se arma sumando su detalle:
+// así la fila del ranking y su desplegable salen del mismo dato y no pueden discrepar.
+// Los filtros son los mismos que el resto del módulo (categoría Sucursal, rubros y
+// productos excluidos), por eso reusa whereVentas y las condiciones de renglón.
+function sqlVentasPorClienteProducto(p) {
+  return `SELECT v.IdCliente AS IdCliente,
+      LTRIM(RTRIM(ISNULL(c.NombreCliente,''))) AS Cliente,
+      vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
+      SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotal) AS Facturacion
+    FROM VentasProductos vp
+    ${JOIN_CLAVE5}
+    ${JOIN_CLIENTE_CAT}
+    INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
+    WHERE ${whereVentas(p)}
+      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv)}
+    GROUP BY v.IdCliente, LTRIM(RTRIM(ISNULL(c.NombreCliente,''))), vp.IdProducto, p.NombreProducto
+    ORDER BY Facturacion DESC`;
+}
+
+// Etiqueta para las ventas sin cliente identificado (mostrador). No se descartan: son
+// venta real y hay que poder verlas en el ranking.
+const CLIENTE_SIN_NOMBRE = 'Sin cliente';
+
+// Colapsa filas cliente×producto en clientes, con el detalle de qué compró cada uno.
+// Mismo contrato que agruparFamilias: totales sumables (kilos/litros) más las unidades
+// crudas, detalle ordenado por facturación y corte en topN.
+function agruparClientes(rows, topN) {
+  const mapa = new Map();
+  (rows || []).forEach(r => {
+    const clave = String(r.IdCliente ?? '').trim() || CLIENTE_SIN_NOMBRE;
+    if (!mapa.has(clave)) mapa.set(clave, {
+      idCliente: r.IdCliente ?? null, cliente: String(r.Cliente || '').trim() || CLIENTE_SIN_NOMBRE,
+      unidades: 0, kilos: 0, litros: 0, unidadesSinEquivalencia: 0, facturacion: 0, productos: [],
+    });
+    const g = mapa.get(clave);
+    const nombre = String(r.Nombre || '').trim();
+    const unidades = Number(r.Unidades || 0);
+    const facturacion = Number(r.Facturacion || 0);
+    const peso = pesoPresentacion(nombre);
+    const equivalente = peso ? redondearMagnitud(peso.cantidad * unidades) : null;
+    g.unidades += unidades;
+    g.facturacion += facturacion;
+    if (!peso) g.unidadesSinEquivalencia += unidades;
+    else if (peso.unidad === 'kg') g.kilos = redondearMagnitud(g.kilos + equivalente);
+    else g.litros = redondearMagnitud(g.litros + equivalente);
+    g.productos.push({
+      idProd: r.IdProducto, nombre, unidades, facturacion,
+      kilos: peso && peso.unidad === 'kg' ? equivalente : null,
+      litros: peso && peso.unidad === 'l' ? equivalente : null,
+    });
+  });
+  return [...mapa.values()]
+    .map(g => ({ ...g, productos: [...g.productos].sort((a, b) => b.facturacion - a.facturacion) }))
+    .sort((a, b) => b.facturacion - a.facturacion)
+    .slice(0, topN || TOP_N_DEFAULT);
 }
 
 // ── Quiebres de stock ────────────────────────────────────────────────────────
@@ -290,7 +421,7 @@ function sqlUnidadesPorSucursal(p, idsCsv) {
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     WHERE ${whereVentas(p)}
-      AND ${SIN_RUBROS_EXCLUIDOS}${idsCsv ? ` AND vp.IdProducto IN (${idsCsv})` : ''}
+      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${idsCsv ? ` AND vp.IdProducto IN (${idsCsv})` : ''}${andSinProductosExcluidos(p.excProdCsv)}
     GROUP BY vp.IdProducto, vp.IdSucursal`;
 }
 
@@ -388,7 +519,7 @@ function sqlArticulosHistograma(p) {
       ${JOIN_CLAVE5}
       ${JOIN_CLIENTE_CAT}
       WHERE ${whereVentas(p)}
-        AND ${SIN_RUBROS_EXCLUIDOS}
+        AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv, '        ')}
       GROUP BY ${GROUP_TICKET}
     ) t
     GROUP BY t.Articulos
@@ -411,7 +542,7 @@ function sqlArticulosPorSucursal(p) {
       ${JOIN_CLAVE5}
       ${JOIN_CLIENTE_CAT}
       WHERE ${whereVentas(p)}
-        AND ${SIN_RUBROS_EXCLUIDOS}
+        AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv, '        ')}
       GROUP BY ${GROUP_TICKET}
     ) t
     LEFT JOIN Sucursales s ON s.IdSucursal = t.IdSucursal
@@ -468,10 +599,26 @@ const SUFIJO_PRESENTACION = /\s*\d+(?:[.,]\d+)?\s*(?:kg|kgs|g|gr|grs|ml|cc|lt|l|
 const MIEL_APIDELTA = /^miel\s+.+\s+apidelta\b/i;
 const FAMILIA_MIEL_APIDELTA = 'MIEL APIDELTA';
 
+// La miel a granel en tambor ("Miel Granel En Tambor Acacia", "... Trebol", y una docena
+// más) es la misma línea Apidelta: suelta arma una familia de una fila por variedad. Se
+// exige que el nombre empiece con "miel" para no arrastrar los tambores vacíos de
+// Apicultura ni el granel de aceite o vinagre, que también dicen "Tambor".
+const MIEL_TAMBOR = /^miel\b.*\btambor(es)?\b/i;
+// El tambor de Arroyo es de la línea Pago De Los Arroyos, no de la Apidelta. Es la única
+// excepción y se resuelve por código: el nombre no la distingue del resto de los tambores.
+const FAMILIA_MIEL_PAGO = 'Miel Pago De Los Arroyos';
+const TAMBOR_PAGO_ARROYOS = '9712';
+
 // Nombre de familia legible. Si al recortar no queda nada, se devuelve el nombre original
 // (un producto llamado sólo "1KG" es un dato sucio, pero no puede desaparecer del reporte).
-function familiaNombre(nombre) {
+// idProd es opcional: sólo lo necesitan las excepciones por código.
+function familiaNombre(nombre, idProd) {
   const original = String(nombre || '').trim();
+  if (MIEL_TAMBOR.test(original)) {
+    // El id viaja como número o como texto según la consulta: se compara normalizado.
+    return String(idProd ?? '').trim() === TAMBOR_PAGO_ARROYOS
+      ? FAMILIA_MIEL_PAGO : FAMILIA_MIEL_APIDELTA;
+  }
   if (MIEL_APIDELTA.test(original)) return FAMILIA_MIEL_APIDELTA;
   const base = original
     .replace(SUFIJO_VARIANTE, '')
@@ -493,22 +640,71 @@ function claveFamilia(familia) {
     .toLowerCase().replace(/\s{2,}/g, ' ').trim();
 }
 
+// ── Equivalente físico de la presentación ────────────────────────────────────
+// Las unidades de una familia no son sumables: 2 tambores de 28Kg y 12 frascos de 1Kg
+// dan "14" de nada. Con el peso de la presentación sí se llega a una magnitud real
+// (2×28 + 12×1 = 68 kg). El peso sale del nombre, que es donde SIGA lo declara.
+const FACTOR_MAGNITUD = {
+  kg: { unidad: 'kg', factor: 1 },    kgs: { unidad: 'kg', factor: 1 },
+  g:  { unidad: 'kg', factor: 0.001 }, gr: { unidad: 'kg', factor: 0.001 },
+  grs: { unidad: 'kg', factor: 0.001 },
+  l:  { unidad: 'l',  factor: 1 },    lt: { unidad: 'l',  factor: 1 },
+  ml: { unidad: 'l',  factor: 0.001 }, cc: { unidad: 'l',  factor: 0.001 },
+};
+// Primera cifra con unidad de peso/volumen del nombre: en "250G Pack (x14u)" es el 250G
+// y no el 14, que es cuántas unidades trae el pack (por decisión, el pack no multiplica).
+// Las unidades de conteo (u, un) quedan afuera a propósito: no dan magnitud física.
+const RE_PRESENTACION = /(\d+(?:[.,]\d+)?)\s*(kgs|kg|grs|gr|g|ml|cc|lt|l)\b/i;
+
+// Los equivalentes se acumulan multiplicando decimales chicos (40G = 0,04): sin redondear
+// en cada paso, la suma arrastra el error binario y termina en 12,000000000000002.
+function redondearMagnitud(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+// Devuelve { cantidad, unidad: 'kg'|'l' } o null si el nombre no declara presentación.
+function pesoPresentacion(nombre) {
+  const m = RE_PRESENTACION.exec(String(nombre || ''));
+  if (!m) return null;
+  const magnitud = FACTOR_MAGNITUD[m[2].toLowerCase()];
+  if (!magnitud) return null;
+  const valor = parseFloat(m[1].replace(',', '.'));
+  if (!Number.isFinite(valor) || valor <= 0) return null;
+  // Redondeo a 4 decimales: 40G × 0,001 arrastra basura binaria.
+  return { cantidad: Math.round(valor * magnitud.factor * 10000) / 10000, unidad: magnitud.unidad };
+}
+
 // Colapsa filas {IdProducto, Nombre, Unidades, Facturacion} en familias, sumando las
 // presentaciones. Devuelve las topN familias por facturación, cada una con su detalle.
+// La familia trae kilos/litros equivalentes (la magnitud real) y además las unidades
+// crudas como dato secundario. Lo que no declara presentación no se estima: sus unidades
+// se cuentan en unidadesSinEquivalencia para que el front avise que el total va corto.
 function agruparFamilias(rows, topN) {
   const mapa = new Map();
   (rows || []).forEach(r => {
     const nombre = String(r.Nombre || '').trim();
     if (!nombre) return;
-    const familia = familiaNombre(nombre);
+    const familia = familiaNombre(nombre, r.IdProducto);
     const clave = claveFamilia(familia);
-    if (!mapa.has(clave)) mapa.set(clave, { familia, unidades: 0, facturacion: 0, presentaciones: [] });
+    if (!mapa.has(clave)) mapa.set(clave, {
+      familia, unidades: 0, kilos: 0, litros: 0, unidadesSinEquivalencia: 0,
+      facturacion: 0, presentaciones: [],
+    });
     const g = mapa.get(clave);
     const unidades = Number(r.Unidades || 0);
     const facturacion = Number(r.Facturacion || 0);
+    const peso = pesoPresentacion(nombre);
+    const equivalente = peso ? redondearMagnitud(peso.cantidad * unidades) : null;
     g.unidades += unidades;
     g.facturacion += facturacion;
-    g.presentaciones.push({ idProd: r.IdProducto, nombre, unidades, facturacion });
+    if (!peso) g.unidadesSinEquivalencia += unidades;
+    else if (peso.unidad === 'kg') g.kilos = redondearMagnitud(g.kilos + equivalente);
+    else g.litros = redondearMagnitud(g.litros + equivalente);
+    g.presentaciones.push({
+      idProd: r.IdProducto, nombre, unidades, facturacion,
+      kilos: peso && peso.unidad === 'kg' ? equivalente : null,
+      litros: peso && peso.unidad === 'l' ? equivalente : null,
+    });
   });
   return [...mapa.values()]
     .map(g => ({
@@ -522,6 +718,9 @@ function agruparFamilias(rows, topN) {
 module.exports = {
   SUCURSALES_ANALISIS, SUCURSAL_CENTRAL, NOMBRE_DIA, TOP_N_DEFAULT, BUCKETS_ARTICULOS, LIMITE_FAMILIAS,
   PALABRA_INSUMO, CLASIFICACIONES, CATEGORIA_SUCURSAL_ID, RUBROS_EXCLUIDOS, SIN_RUBROS_EXCLUIDOS,
+  RUBROS_EXCLUIDOS_CENTRAL, sinRubrosExcluidos,
+  PRODUCTOS_EXCLUIDOS_CENTRAL, sinProductosExcluidos, joinImporteExcluido,
+  exprFacturacion, exprTickets,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
   whereVentas, sqlComparativa, sqlResumenRenglon,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
@@ -532,5 +731,6 @@ module.exports = {
   mesesDelRango, diaAnterior, umbralQuiebre, diasEnQuiebre, serieStockDiaria,
   diasEvaluados, porcentajeQuiebre,
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
-  familiaNombre, claveFamilia, agruparFamilias,
+  familiaNombre, claveFamilia, agruparFamilias, pesoPresentacion,
+  sqlVentasPorClienteProducto, agruparClientes, CLIENTE_SIN_NOMBRE,
 };
