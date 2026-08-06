@@ -31,7 +31,7 @@ const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDe
         calcularConsumoReal, RUBRO_ALMACEN_BULTO } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const cuentasCorrientes = require('./cuentas_corrientes');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, lineasAjusteMovimiento, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -3067,8 +3067,8 @@ function sqlVentasMensuales(idList, meses) {
 // positivo y no se descuenta, así que el consumo por producción queda apenas
 // sobreestimado cuando hubo devolución.
 // tipoMovimiento acepta uno o varios tipos: la producción se registró históricamente como
-// BIENESUSO y desde el cambio de tipos va como PRODUCCION, así que la ventana de 24 meses
-// tiene que mirar los dos o el histórico desaparece de la serie.
+// BIENESUSO y desde el cambio de tipos va como REC-SUC, así que la ventana de 24 meses tiene
+// que mirar los dos o el histórico desaparece de la serie.
 function sqlProduccionMensual(tipoMovimiento, meses) {
   const tipos = (Array.isArray(tipoMovimiento) ? tipoMovimiento : [tipoMovimiento])
     .map(t => String(t || '').trim())
@@ -3105,7 +3105,7 @@ async function recalcularConsumoMensual() {
 
   const tipoProd  = (leerJSON(path.join(__dirname, 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
   // BIENESUSO siempre se incluye: es el tipo con el que se registró la producción hasta el
-  // cambio a PRODUCCION y sigue siendo el único dato de los meses anteriores.
+  // cambio a REC-SUC y sigue siendo el único dato de los meses anteriores.
   const tiposProd = [...new Set([tipoProd, 'BIENESUSO'])];
   const [ventasRows, prodRows] = await Promise.all([
     query(sqlVentasMensuales(idList, meses)),
@@ -4571,10 +4571,20 @@ app.get('/api/analisis-central', apiRoute(async req => {
   const desde = safeDate(req.query.desde);
   const hasta = safeDate(req.query.hasta);
   const topN = analisisVentas.clampTopN(req.query.top);
-  const p = { desde, hasta, sucIdsCsv: String(analisisVentas.SUCURSAL_CENTRAL) };
+  // excProdCsv sólo acá: son códigos que salen por la caja de la central pero no son
+  // venta real. El análisis por sucursales no lo manda y queda como estaba.
+  const p = {
+    desde, hasta, sucIdsCsv: String(analisisVentas.SUCURSAL_CENTRAL),
+    excProdCsv: analisisVentas.idsCsvSeguro(analisisVentas.PRODUCTOS_EXCLUIDOS_CENTRAL),
+    // En la central lo único que no es venta de mostrador es el apiario: bultos, packs y
+    // granel de depósito sí se venden y quedaban afuera del análisis.
+    rubrosExcluidos: analisisVentas.RUBROS_EXCLUIDOS_CENTRAL,
+  };
   const sinInsumos = await sinInsumosSQL();
 
-  const [totales, resumenArr, tendencia, diaSemana, horas, productosUnidades, productosFacturacion] =
+  // Los productos se piden una sola vez: la tabla del front ordena por facturación o por
+  // unidades en memoria, así que no hace falta traer el mismo listado dos veces.
+  const [totales, resumenArr, tendencia, diaSemana, horas, productos, ventasCliente] =
     await Promise.all([
       // Una sola fila (la central), pero da facturación y tickets para los KPIs.
       query(analisisVentas.sqlComparativa(p)),
@@ -4582,8 +4592,8 @@ app.get('/api/analisis-central', apiRoute(async req => {
       query(analisisVentas.sqlTendencia(p)),
       query(analisisVentas.sqlDiaSemana(p)),
       query(analisisVentas.sqlHora(p)),
-      query(analisisVentas.sqlTopProductos(p, 'unidades', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
       query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
+      query(analisisVentas.sqlVentasPorClienteProducto(p)),
     ]);
 
   const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
@@ -4601,15 +4611,12 @@ app.get('/api/analisis-central', apiRoute(async req => {
     horas: horas.map(r => ({
       hora: Number(r.Hora), facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
     })),
-    topUnidades: productosUnidades.map(r => ({
+    topProductos: productos.map(r => ({
       idProd: r.IdProducto, nombre: r.Nombre,
       unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
     })),
-    topFacturacion: productosFacturacion.map(r => ({
-      idProd: r.IdProducto, nombre: r.Nombre,
-      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
-    })),
-    familias: analisisVentas.agruparFamilias(productosFacturacion, topN),
+    familias: analisisVentas.agruparFamilias(productos, topN),
+    clientes: analisisVentas.agruparClientes(ventasCliente, topN),
   };
 }));
 
@@ -4740,11 +4747,14 @@ function chequearSucursalReserva(reserva, idSucursal) {
 // Movimiento simple (1 línea) tipo BIENESUSO, con INSERT del renglón de stock si
 // el depósito/ubicación destino todavía no tiene fila para el producto.
 // Ver pruebas_stock_claude/README.md para el mecanismo completo investigado.
-// RESERVA identifica el apartado de mercadería y su devolución/anulación (principal ↔ depósito
-// de reserva); PRODUCCION, el alta de producción, los sobrantes y los ajustes ±, para poder
-// separarlos en SiGA por tipo y no sólo por la observación. Cada tipo necesita su fila en
-// TiposMovimientos y su numerador en MovimientosNumeros por sucursal.
-const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO', 'RESERVA', 'PRODUCCION'];
+// BIENESUSO cubre el apartado de mercadería y su devolución/anulación (principal ↔ depósito de
+// reserva); REC-SUC, el alta de producción, los sobrantes y los ajustes ±, para poder separarlos
+// en SiGA por tipo y no sólo por la observación.
+// Un tipo sólo sirve acá si además de existir en TiposMovimientos tiene su fila de numerador en
+// MovimientosNumeros para CADA sucursal que lo use; si falta, el movimiento aborta con
+// "No hay numerador en MovimientosNumeros para sucursal X / tipo Y". Por eso se usan tipos ya
+// operativos de SiGA en vez de tipos nuevos.
+const TIPOS_MOVIMIENTO_STOCK_PERMITIDOS = ['BIENESUSO', 'REC-SUC'];
 
 // Diagnóstico de solo lectura: qué tipos de movimiento usa SiGA y con qué frecuencia.
 // Sirve para elegir el IdTipoMovimiento correcto antes de habilitarlo para escritura
@@ -5450,7 +5460,7 @@ app.post('/api/stock/traslado', apiRoute(async req => {
 const USUARIO_MOV_MAX = 10;
 const RESERVA_DEFAULTS = {
   idSucursal: 1, depositoPrincipal: 1, depositoReserva: null,
-  idTipoMovimiento: 'RESERVA', usuario: 'Adriel', idEmpleado: 1
+  idTipoMovimiento: 'BIENESUSO', usuario: 'Adriel', idEmpleado: 1
 };
 
 // Se relee config.json en cada llamada: el código del depósito de reserva se define
@@ -5472,12 +5482,12 @@ function cfgReserva() {
 
 // ── Alta de producción ─────────────────────────────────────────────────────────
 // El movimiento que registra la producción del día usa su propio bloque de config para no
-// mezclarse con el de la reserva: el tipo es PRODUCCION (la reserva usa RESERVA) y la
+// mezclarse con el de la reserva: el tipo es REC-SUC (la reserva usa BIENESUSO) y la
 // OBSERVACIÓN sigue siendo lo que permite reconocer a qué plan pertenece cada comprobante.
 // Cubre el alta de producción, los sobrantes y los ajustes ± de una reserva viva; el apartado
-// y su devolución/anulación van con RESERVA.
+// y su devolución/anulación van con BIENESUSO.
 const PRODUCCION_DEFAULTS = {
-  idTipoMovimiento: 'PRODUCCION', observacion: 'PLAN', depositoTerminados: null
+  idTipoMovimiento: 'REC-SUC', observacion: 'PLAN', depositoTerminados: null
 };
 
 // Se relee config.json en cada llamada, igual que cfgReserva: cambiar la observación o el
@@ -6289,7 +6299,7 @@ async function ejecutarDevolucionReserva(plan, itemId) {
 
   const poolW = await getPoolStock();
   // La devolución es la contracara del apartado, así que va con el MISMO tipo que la reserva:
-  // el par apartado/devuelto queda emparejado en SiGA bajo RESERVA y el depósito de reserva
+  // el par apartado/devuelto queda emparejado en SiGA bajo BIENESUSO y el depósito de reserva
   // cierra en cero con comprobantes del mismo tipo.
   const idTipoMovimiento = cr.idTipoMovimiento;
   const observacion = `PLAN ${plan.fecha || ''} DEVOL ${depOrigen}>${depDestino}${itemId == null ? '' : ` item ${itemId}`}`.trim().slice(0, 200);
@@ -6616,7 +6626,7 @@ app.post('/api/plan/:fecha/reserva/actualizar', apiRoute(async req => {
 
   const poolW  = await getPoolStock();
   // Los dos sentidos del ajuste corrigen una reserva ya hecha, así que van con el tipo de
-  // producción (PRODUCCION), no con el del apartado y su devolución (RESERVA).
+  // producción (REC-SUC), no con el del apartado y su devolución (BIENESUSO).
   const tipoAjuste = tipoMovimientoAjusteReserva();
   const base   = { idSucursal: crReserva.idSucursal, idTipoMovimiento: tipoAjuste, usuario: cr.usuario, idEmpleado: cr.idEmpleado };
   const ahora  = new Date().toISOString();
@@ -7096,6 +7106,7 @@ async function conciliacionProduccion(fecha, idSucursal) {
   const _usadoPorPlu = new Map([...consumo.componentes.values()]
     .filter(u => u.plu).map(u => [String(u.plu), u.usado]));
   const porMovimiento = conciliarPorMovimiento(_gruposMov, _usadoPorPlu);
+  const depsPropuestos = depositosProduccion(cp, cr, reserva, {});
 
   return {
     fecha,
@@ -7126,15 +7137,19 @@ async function conciliacionProduccion(fecha, idSucursal) {
       idDeposito: Number(d.IdDeposito), nombre: String(d.NombreDeposito || '').trim(),
       tipoDeposito: d.TipoDeposito, disponibleVenta: d.DisponibleVenta
     })),
+    // La preselección la calcula la MISMA función que resuelve los depósitos del movimiento
+    // real, así la pantalla no puede mostrar una elección distinta de la que se va a escribir.
     seleccion: {
-      depSalida:    depValido(cr.depositoPrincipal),
-      depRecepcion: depValido(cp.depositoTerminados ?? cr.depositoPrincipal),
-      // A dónde vuelve la diferencia entre lo reservado y lo realmente consumido. Por defecto
-      // el mismo depósito de salida: sin tocar nada, el circuito queda como estaba.
-      depDiferencias: depValido(cr.depositoPrincipal),
+      depSalida:      depValido(depsPropuestos.salida),
+      depRecepcion:   depValido(depsPropuestos.recepcion),
+      // A dónde vuelve la diferencia entre lo reservado y lo realmente consumido.
+      depDiferencias: depValido(depsPropuestos.diferencias),
       // El depósito donde la mercadería está físicamente apartada: no se elige, sale de la
       // reserva del plan (o de config si todavía no hay reserva). Puede ser null.
-      depReserva:   idDepositoODefault(reserva && reserva.depDestino, cr.depositoReserva)
+      depReserva:     depsPropuestos.reserva,
+      // true = hay reserva activa, así que salida y diferencias las fija su depOrigen y la
+      // pantalla tiene que mostrarlos como fijos, no como elegibles.
+      forzadosPorReserva: depsPropuestos.forzadosPorReserva
     },
     // Marca del alta de producción de esta fecha (o null): con esto la pantalla deshabilita
     // el botón de registrar el movimiento y muestra con qué comprobante se registró.
@@ -7214,33 +7229,23 @@ app.get('/api/produccion/:fecha/conciliacion', apiRoute(async req => {
 }));
 
 // ── Alta de producción: el movimiento de stock ─────────────────────────────────
-// Depósitos del circuito, con los tres que se eligen en la pantalla:
-//   · salida      → de dónde salen los componentes que NO cubre la reserva. Default: depOrigen
-//                   de la reserva y, si no hay reserva viva, reserva.depositoPrincipal.
-//   · recepcion   → dónde ENTRAN los productos terminados. Default: produccion.depositoTerminados
-//                   y, si no está configurado, el mismo depósito de salida.
-//   · diferencias → a dónde vuelve la diferencia entre lo reservado y lo consumido (el sobrante).
-//                   Default: el depósito de salida, que es como funcionaba antes.
-//   · reserva     → dónde está físicamente lo apartado (depDestino de la reserva del plan). NO se
-//                   elige: lo reservado sale de donde realmente está. Sin reserva viva cae a
-//                   reserva.depositoReserva de config.json y puede quedar en null.
-function depositosProduccion(cp, cr, reserva, elegidos) {
-  const e           = elegidos || {};
-  const salida      = idDepositoODefault(e.depSalida, idDepositoODefault(reserva && reserva.depOrigen, cr.depositoPrincipal));
-  const recepcion   = idDepositoODefault(e.depRecepcion, cp.depositoTerminados || salida);
-  const diferencias = idDepositoODefault(e.depDiferencias, salida);
-  return { salida, recepcion, diferencias, reserva: idDepositoODefault(reserva && reserva.depDestino, cr.depositoReserva) };
-}
+// Los depósitos del circuito los resuelve depositosProduccion (módulo reservas_movimiento):
+//   · salida      → de dónde salen los componentes que NO cubre la reserva.
+//   · recepcion   → dónde ENTRAN los productos terminados. Lo elige el operador.
+//   · diferencias → a dónde vuelve el sobrante entre lo reservado y lo consumido.
+//   · reserva     → dónde está físicamente lo apartado (depDestino de la reserva del plan).
+// Con una reserva activa, salida y diferencias NO son elegibles: los fija el depOrigen de esa
+// reserva, porque el excedente salió del principal y el sobrante tiene que volver ahí.
 
 // Líneas del comprobante de producción a partir de la conciliación. Cada línea lleva su
 // signo y su depósito:
 //   · terminados     → +cantidad en el depósito de RECEPCIÓN (los excluidos no se dan de alta)
-//   · consumo        → −usado, primero contra lo que había reservado (depósito de reserva, que
-//                      es donde la mercadería está físicamente) y el excedente contra el
-//                      depósito de SALIDA: un componente puede dar DOS líneas negativas en
-//                      depósitos distintos.
-//   · sobrante       → la diferencia entre lo reservado y lo consumido vuelve: −en reserva y
-//                      +en el depósito de DIFERENCIAS elegido.
+//   · consumo        → −usado contra lo que había reservado (depósito de reserva, que es donde
+//                      la mercadería está físicamente) y, para lo que NO tenía reserva, contra
+//                      el depósito de SALIDA.
+// Lo que se desvía de lo reservado (excedente y sobrante) NO sale por acá: va en su propio
+// comprobante de ajuste por diferencias (ver lineasDiferenciasProduccion), para poder
+// identificarlo en SiGA por la observación.
 // Los componentes sin PLU resoluble no se pueden mover y salen aparte en `sinPlu`.
 // Función pura: no toca SQL ni archivos.
 function lineasProduccionDesdeConciliacion(c, deps, opts) {
@@ -7268,16 +7273,16 @@ function lineasProduccionDesdeConciliacion(c, deps, opts) {
     if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
     const base        = { idProducto: String(comp.plu), nombre: comp.nombre || '' };
     const deReserva = redondear4(Math.min(usado, reservado));        // consumido contra lo apartado
-    const deSalida  = redondear4(Math.max(0, usado - reservado));    // faltante: sale del depósito elegido
-    const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más: vuelve al de diferencias
+    const excedente = redondear4(Math.max(0, usado - reservado));    // usado de más respecto de lo reservado
+    const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más
+    // Sin nada reservado no hay diferencia: todo el consumo es común y sale del depósito de
+    // salida. Con reserva detrás, el desvío (excedente/sobrante) se registra en el comprobante
+    // de ajuste por diferencias, no acá.
+    const deSalida  = reservado > 0 ? 0 : excedente;
 
     if (incluirReserva && deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
     if (deSalida  > 0) { lineas.push({ ...base, idDeposito: deps.salida,  cantidad: -deSalida,  concepto: 'consumo-salida'  }); componentes++; }
-    if (incluirReserva && sobrante > 0) {
-      lineas.push({ ...base, idDeposito: deps.reserva,     cantidad: -sobrante, concepto: 'sobrante-desde-reserva' });
-      lineas.push({ ...base, idDeposito: deps.diferencias, cantidad:  sobrante, concepto: 'sobrante-a-diferencias' });
-      ajustes++;
-    }
+    if (incluirReserva && (sobrante > 0 || (reservado > 0 && excedente > 0))) ajustes++;
   }
 
   // Carga manual: sin reserva detrás, el circuito entero ocurre en el depósito de RECEPCIÓN —
@@ -7379,8 +7384,18 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], conciliado: !!m.conciliado, lineas: lineasAjusteMovimiento(m.componentes, deps) }))
     // Los movimientos ya conciliados no se re-registran (idempotencia ante reintentos parciales).
     .filter(m => !m.conciliado && m.lineas.length);
+  // Ajuste por diferencias: un único comprobante con todo lo que se desvió de lo reservado
+  // (excedente y sobrante), calculado sobre el agregado por PLU de las reservas todavía vivas.
+  const difs = lineasDiferenciasProduccion(c.componentes, deps);
+  // Reservas que cubre ese comprobante: sirven de marca de idempotencia. Si un reintento llega
+  // con las mismas reservas todavía sin conciliar, las diferencias ya se escribieron.
+  const movimientosACubrir = ajustesMov.map(m => m.numeroMovimiento);
+  const diferenciasYaRegistradas = ((planPrevio && planPrevio.ajustesDiferencias) || []).some(a =>
+    Array.isArray(a && a.reservas) && a.reservas.length === movimientosACubrir.length
+    && a.reservas.every(n => movimientosACubrir.includes(n)));
+
   const sinPlu = resto.sinPlu;
-  const todasLasLineas = [...resto.lineas, ...ajustesMov.flatMap(m => m.lineas)];
+  const todasLasLineas = [...resto.lineas, ...difs, ...ajustesMov.flatMap(m => m.lineas)];
 
   // Defensa contra doble conteo: el reservado agregado (que usa el "resto" para el consumo-salida)
   // debe coincidir con la suma por movimiento. Sólo diferirían si una reserva quedara net-negativa
@@ -7424,19 +7439,24 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   let errMarca = null, avisoMarca = null, errEscritura = null;
   let r = { numeroMovimiento: null, idRegistro: null };
 
-  const escribirComprobante = async (lineasComp, observacion, depOrigen, depDestino) =>
-    ejecutarYRegistrar({
-      origen: 'produccion', plan: fecha, itemId: null, idSucursal: cr.idSucursal,
+  // opts.tipo/opts.origen permiten que el ajuste por diferencias salga con SU tipo de movimiento
+  // (el de la reserva) y quede rotulado aparte en el log; el resto usa el de producción.
+  const escribirComprobante = async (lineasComp, observacion, depOrigen, depDestino, opts) => {
+    const tipo   = (opts && opts.tipo)   || cp.idTipoMovimiento;
+    const origen = (opts && opts.origen) || 'produccion';
+    return ejecutarYRegistrar({
+      origen, plan: fecha, itemId: null, idSucursal: cr.idSucursal,
       // La cabecera de un movimiento multi-depósito es sólo referencia: el depósito real de
       // cada renglón va EN LA LÍNEA.
       depOrigen, depDestino, idUbicacion: null, idEmpleado: cr.idEmpleado,
-      idTipoMovimiento: cp.idTipoMovimiento, usuario: cr.usuario, observacion,
+      idTipoMovimiento: tipo, usuario: cr.usuario, observacion,
       lineas: lineasComp.map(l => ({ plu: l.idProducto, nombre: l.nombre || null, cantidad: l.cantidad, idDeposito: l.idDeposito }))
     }, () => registrarMovimientoMultilinea(poolW, {
-      idSucursal: cr.idSucursal, idTipoMovimiento: cp.idTipoMovimiento,
+      idSucursal: cr.idSucursal, idTipoMovimiento: tipo,
       usuario: cr.usuario, idEmpleado: cr.idEmpleado, observacion,
       lineas: lineasComp.map(l => ({ idProducto: l.idProducto, idDeposito: l.idDeposito, cantidad: l.cantidad }))
     }));
+  };
 
   // Aplica un cambio al plan y lo persiste de inmediato (re-lee para no pisar escrituras
   // concurrentes). Se llama DESPUÉS de cada comprobante confirmado para que un reintento tras
@@ -7486,7 +7506,31 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
       if (res.aviso) avisoMarca = res.aviso;
     }
 
-    // 2) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
+    // 2) Ajuste por diferencias: TODO lo que se desvió de lo reservado, en un comprobante propio
+    //    y con el tipo de la reserva (BIENESUSO), para poder identificarlo en SiGA por la
+    //    observación en vez de que quede mezclado con el alta de producción.
+    //    Va ANTES de los ajustes por movimiento: esos cierran las reservas y, una vez cerradas,
+    //    el reservado deja de contar y la diferencia ya no se podría calcular.
+    if (difs.length && !diferenciasYaRegistradas) {
+      const observacion = `${obsPrefijo} AJUSTE POR DIFERENCIAS`.slice(0, 200);
+      const rd = await escribirComprobante(difs, observacion, deps.reserva, deps.diferencias,
+        { tipo: cr.idTipoMovimiento, origen: 'ajuste' });
+      logErrores.push(rd.logError);
+      comprobantes.push({ tipo: 'diferencias', numeroMovimiento: rd.numeroMovimiento, idRegistro: rd.idRegistro });
+      if (r.numeroMovimiento == null) r = rd;
+      // Marca de idempotencia: si un ajuste posterior falla, el reintento no vuelve a escribir
+      // las mismas diferencias (las reservas siguen vivas y se recalcularían iguales).
+      const res = aplicarAlPlan(planActual => ({
+        ...planActual,
+        ajustesDiferencias: [...(planActual.ajustesDiferencias || []), {
+          numeroMovimiento: rd.numeroMovimiento, idRegistro: rd.idRegistro ?? null,
+          fecha: new Date().toISOString(), reservas: movimientosACubrir
+        }]
+      }));
+      if (res.aviso && !avisoMarca) avisoMarca = res.aviso;
+    }
+
+    // 3) Un comprobante de ajuste por movimiento de reserva. Cada uno sella SU reserva apenas
     //    confirma, así un fallo intermedio no obliga a repetir los anteriores.
     for (const m of ajustesMov) {
       // Cada ajuste cierra UNA reserva: la observación lo dice y nombra el comprobante de

@@ -147,6 +147,80 @@ test('sqlHora agrupa por hora del día', () => {
   assert.match(sqlHora(P), /DATEPART\(HOUR, v\.Fecha\)/);
 });
 
+// ── Productos excluidos de casa central ──────────────────────────────────────
+// Ventas que no son reales (cargas internas que salen por la caja de la central).
+// El alcance es sólo el módulo de casa central: se activa pasando excProdCsv.
+const { PRODUCTOS_EXCLUIDOS_CENTRAL, idsCsvSeguro: csvSeguroCentral } = require('../analisis_ventas');
+const P_CENTRAL = {
+  desde: '2026-07-01', hasta: '2026-07-17', sucIdsCsv: '1',
+  excProdCsv: csvSeguroCentral(PRODUCTOS_EXCLUIDOS_CENTRAL),
+};
+
+// 302158: carga interna. 1 ("A Articulos Varios"): comodín administrativo.
+test('los códigos que no son venta real están excluidos de casa central', () => {
+  assert.deepStrictEqual(PRODUCTOS_EXCLUIDOS_CENTRAL, ['302158', '1']);
+});
+
+test('sin excProdCsv las consultas quedan iguales que antes (sucursales no cambian)', () => {
+  [sqlComparativa(P), sqlTendencia(P), sqlDiaSemana(P), sqlHora(P)].forEach(s => {
+    assert.match(s, /SUM\(v\.ImporteTotal\) AS Facturacion/);
+    assert.match(s, /COUNT\(\*\) AS Tickets/);
+    assert.doesNotMatch(s, /302158/);
+  });
+  [sqlResumenRenglon(P), sqlTopProductos(P, 'unidades', 20)].forEach(s => {
+    assert.doesNotMatch(s, /302158/);
+  });
+});
+
+test('las consultas de cabecera de casa central restan el importe del renglón excluido', () => {
+  [sqlComparativa(P_CENTRAL), sqlTendencia(P_CENTRAL), sqlDiaSemana(P_CENTRAL), sqlHora(P_CENTRAL)]
+    .forEach(s => {
+      // El descuento sale de un derivado por comprobante, no de un JOIN a renglones (que
+      // multiplicaría filas de cabecera y duplicaría la facturación).
+      assert.match(s, /LEFT JOIN \(\s*SELECT vpe\.IdSucursal/);
+      assert.match(s, /vpe\.IdProducto IN \('302158','1'\)/);
+      assert.match(s, /SUM\(v\.ImporteTotal - ISNULL\(exc\.Importe, 0\)\) AS Facturacion/);
+      // Un comprobante que sólo tenía el producto excluido queda en cero: no es un ticket.
+      assert.match(s, /SUM\(CASE WHEN v\.ImporteTotal - ISNULL\(exc\.Importe, 0\) > 0 THEN 1 ELSE 0 END\) AS Tickets/);
+    });
+});
+
+test('las consultas de renglón de casa central descartan el producto excluido', () => {
+  const { sqlUnidadesPorSucursal, sqlArticulosHistograma, sqlArticulosPorSucursal } = require('../analisis_ventas');
+  const consultas = [
+    sqlResumenRenglon(P_CENTRAL), sqlTopProductos(P_CENTRAL, 'unidades', 20),
+    sqlUnidadesPorSucursal(P_CENTRAL, ''), sqlArticulosHistograma(P_CENTRAL),
+    sqlArticulosPorSucursal(P_CENTRAL),
+  ];
+  consultas.forEach(s => {
+    assert.match(s, /vp\.IdProducto NOT IN \('302158','1'\)/);
+  });
+});
+
+// El importe se resta con vp.ImporteTotal, la misma base con impuestos que v.ImporteTotal
+// de la cabecera. Con ImporteTotalNeto (sin IVA) el descuento quedaría corto.
+// ── Rubros: casa central tiene su propio criterio ────────────────────────────
+// "Almacen Bultos/Cajas" son 873 productos de venta real por bulto/pack, y el granel de
+// depósito también se vende: excluirlos por rubro escondía ventas enteras del listado.
+test('casa central sólo excluye Apicultura por rubro', () => {
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  assert.deepStrictEqual(RUBROS_EXCLUIDOS_CENTRAL, ['Apicultura']);
+  const s = sqlTopProductos({ ...P_CENTRAL, rubrosExcluidos: RUBROS_EXCLUIDOS_CENTRAL }, 'facturacion', 20);
+  assert.match(s, /IN \('Apicultura'\)/);
+  assert.doesNotMatch(s, /AlmacenBultos\/Cajas/);
+  assert.doesNotMatch(s, /PesablesDeposito/);
+});
+
+test('sin lista propia se usa el criterio de sucursales, que no cambia', () => {
+  const s = sqlTopProductos(P, 'facturacion', 20);
+  assert.match(s, /IN \('Bultos\/Cajas', 'AlmacenBultos\/Cajas', 'PesablesDeposito', 'Apicultura'\)/);
+});
+
+test('el descuento de casa central usa la misma base de importe que la cabecera', () => {
+  assert.match(sqlComparativa(P_CENTRAL), /SUM\(vpe\.ImporteTotal\) AS Importe/);
+  assert.doesNotMatch(sqlComparativa(P_CENTRAL), /vpe\.ImporteTotalNeto/);
+});
+
 test('sqlTopProductos ordena por la métrica y limita con TOP', () => {
   const u = sqlTopProductos(P, 'unidades', 20);
   assert.match(u, /SELECT TOP 20/);
@@ -155,6 +229,14 @@ test('sqlTopProductos ordena por la métrica y limita con TOP', () => {
   assert.match(f, /SELECT TOP 10/);
   assert.match(f, /ORDER BY Facturacion DESC/);
   assert.match(f, /INNER JOIN Productos p ON p\.IdProducto = vp\.IdProducto/);
+});
+
+// La facturación del renglón es el total con impuestos, igual que v.ImporteTotal de la
+// cabecera: con el neto, los tops y las familias quedaban por debajo de los KPIs.
+test('sqlTopProductos factura por el importe total, no por el neto', () => {
+  const f = sqlTopProductos(P, 'facturacion', 10);
+  assert.match(f, /SUM\(vp\.ImporteTotal\) AS Facturacion/);
+  assert.doesNotMatch(f, /ImporteTotalNeto/);
 });
 
 const {
@@ -472,6 +554,51 @@ test('agruparFamilias colapsa variedades y presentaciones de miel Apidelta en un
   assert.strictEqual(fams[1].familia, 'MIEL');
 });
 
+// ── Miel a granel en tambor ──────────────────────────────────────────────────
+// Son 14 variedades ("Miel Granel En Tambor Acacia", "... Trebol", etc.) que sueltas
+// arman 14 familias de una fila cada una. Van todas a MIEL APIDELTA, salvo el tambor
+// de Arroyo (9712), que es de la línea Pago De Los Arroyos.
+test('la miel en tambor entra en MIEL APIDELTA', () => {
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Acacia', 9700), 'MIEL APIDELTA');
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Trebol', 9711), 'MIEL APIDELTA');
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor De Sauce', 91204), 'MIEL APIDELTA');
+  // Sin el id igual aplica: la excepción es por código, la regla general por nombre.
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Monte'), 'MIEL APIDELTA');
+});
+
+test('el tambor 9712 va a Miel Pago De Los Arroyos, no a MIEL APIDELTA', () => {
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Arroyo', 9712), 'Miel Pago De Los Arroyos');
+  // El id puede llegar como texto desde SQL: la comparación no puede depender del tipo.
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Arroyo', '9712'), 'Miel Pago De Los Arroyos');
+  // Y cae en la misma familia que los envasados de esa línea.
+  assert.strictEqual(claveFamilia(familiaNombre('Miel Granel En Tambor Arroyo', 9712)),
+    claveFamilia(familiaNombre('Miel Pago De Los Arroyos 250G', 2324)));
+});
+
+// La regla mira "miel ... tambor", no la palabra tambor suelta: en la base hay tambores
+// vacíos (Apicultura) y otros granel que no son miel.
+test('la regla del tambor no arrastra productos que no son miel', () => {
+  assert.strictEqual(familiaNombre('Aceite Oliva Apidelta Tambor GRANEL', 3), 'Aceite Oliva Apidelta Tambor GRANEL');
+  assert.strictEqual(familiaNombre('Tambores Usados ( 1 Uso)', 4863), 'Tambores Usados ( 1 Uso)');
+  assert.strictEqual(familiaNombre('Vinagre Sidra Manzana Apidelta Tambor GRANEL', 91200),
+    'Vinagre Sidra Manzana Apidelta Tambor GRANEL');
+});
+
+test('agruparFamilias aplica la regla del tambor con el id de cada fila', () => {
+  const rows = [
+    { IdProducto: 9700, Nombre: 'Miel Granel En Tambor Acacia', Unidades: 2, Facturacion: 500 },
+    { IdProducto: 9711, Nombre: 'Miel Granel En Tambor Trebol', Unidades: 1, Facturacion: 300 },
+    { IdProducto: 9712, Nombre: 'Miel Granel En Tambor Arroyo', Unidades: 3, Facturacion: 100 },
+  ];
+  const fams = agruparFamilias(rows, 10);
+  const apidelta = fams.find(f => f.familia === 'MIEL APIDELTA');
+  const arroyos  = fams.find(f => /Pago De Los Arroyos/i.test(f.familia));
+  assert.strictEqual(apidelta.unidades, 3);
+  assert.strictEqual(apidelta.presentaciones.length, 2);
+  assert.strictEqual(arroyos.unidades, 3);
+  assert.strictEqual(arroyos.presentaciones.length, 1);
+});
+
 test('claveFamilia ignora acentos, mayúsculas y espacios de más', () => {
   assert.strictEqual(claveFamilia('Miel  Púra'), claveFamilia('MIEL PURA'));
 });
@@ -502,6 +629,127 @@ test('agruparFamilias respeta topN, descarta nombres vacíos y tolera nulo', () 
   assert.strictEqual(fams.length, 1);
   assert.strictEqual(fams[0].familia, 'A');
   assert.deepStrictEqual(agruparFamilias(null, 5), []);
+});
+
+// ── Equivalente físico de la familia ─────────────────────────────────────────
+// Sumar unidades entre presentaciones distintas no da una magnitud real: 2 tambores de
+// 28Kg + 12 frascos de 1Kg no son "14" de nada. El equivalente en kilos sí es sumable.
+const { pesoPresentacion } = require('../analisis_ventas');
+
+test('pesoPresentacion lee la presentación del nombre y la lleva a kg o litros', () => {
+  assert.deepStrictEqual(pesoPresentacion('Miel Alfalfa Apidelta 28Kg Granel'), { cantidad: 28, unidad: 'kg' });
+  assert.deepStrictEqual(pesoPresentacion('Miel Alfalfa Apidelta 250G'), { cantidad: 0.25, unidad: 'kg' });
+  assert.deepStrictEqual(pesoPresentacion('G. Chocolate Gold 40G'), { cantidad: 0.04, unidad: 'kg' });
+  assert.deepStrictEqual(pesoPresentacion('Jugo Apidelta 900ML'), { cantidad: 0.9, unidad: 'l' });
+  assert.deepStrictEqual(pesoPresentacion('Agua 2Lt'), { cantidad: 2, unidad: 'l' });
+  // Coma decimal: "1,5Kg" es 1,5 y no 15.
+  assert.deepStrictEqual(pesoPresentacion('Mix 1,5Kg'), { cantidad: 1.5, unidad: 'kg' });
+});
+
+test('pesoPresentacion toma la presentación y no el múltiplo del pack', () => {
+  // El "x14u" es cuántas unidades trae el pack, no cuánto pesa cada una.
+  assert.deepStrictEqual(pesoPresentacion('G. Chocolate Gold 250G Pack (x14u Precio x Unidad)'),
+    { cantidad: 0.25, unidad: 'kg' });
+  assert.deepStrictEqual(pesoPresentacion('Mix Cervecero 200G Bulto'), { cantidad: 0.2, unidad: 'kg' });
+});
+
+test('pesoPresentacion devuelve null cuando el nombre no dice peso ni volumen', () => {
+  assert.strictEqual(pesoPresentacion('A Articulos Varios'), null);
+  assert.strictEqual(pesoPresentacion('Pañales X 30 U'), null);
+  assert.strictEqual(pesoPresentacion(''), null);
+  assert.strictEqual(pesoPresentacion(null), null);
+});
+
+test('agruparFamilias suma el equivalente en kilos además de las unidades', () => {
+  const rows = [
+    { IdProducto: 1, Nombre: 'Miel Trebol Apidelta 28Kg Granel', Unidades: 2,  Facturacion: 5000 },
+    { IdProducto: 2, Nombre: 'Miel Eucaliptus Apidelta 1Kg',     Unidades: 12, Facturacion: 3000 },
+    { IdProducto: 3, Nombre: 'Miel Pradera Apidelta 10Kg',       Unidades: 2,  Facturacion: 2000 },
+  ];
+  const [fam] = agruparFamilias(rows, 10);
+  assert.strictEqual(fam.familia, 'MIEL APIDELTA');
+  // 2×28 + 12×1 + 2×10 = 88 kg. Las unidades crudas (16) siguen ahí como dato secundario.
+  assert.strictEqual(fam.kilos, 88);
+  assert.strictEqual(fam.unidades, 16);
+  assert.strictEqual(fam.litros, 0);
+  assert.strictEqual(fam.unidadesSinEquivalencia, 0);
+  // Cada presentación trae su propio equivalente para el detalle desplegable.
+  const tambor = fam.presentaciones.find(p => /28Kg/.test(p.nombre));
+  assert.strictEqual(tambor.kilos, 56);
+});
+
+// Si no se puede leer el peso, no se inventa: se cuenta aparte para que el front pueda
+// avisar que el equivalente está incompleto en vez de mostrar un total corto y mentiroso.
+test('agruparFamilias no inventa kilos cuando la presentación no se puede leer', () => {
+  const rows = [
+    { IdProducto: 1, Nombre: 'Granola Suelta 1Kg', Unidades: 3, Facturacion: 900 },
+    { IdProducto: 2, Nombre: 'Granola Suelta',     Unidades: 7, Facturacion: 100 },
+  ];
+  const [fam] = agruparFamilias(rows, 10);
+  assert.strictEqual(fam.kilos, 3);
+  assert.strictEqual(fam.unidades, 10);
+  assert.strictEqual(fam.unidadesSinEquivalencia, 7);
+  assert.strictEqual(fam.presentaciones.find(p => p.nombre === 'Granola Suelta').kilos, null);
+});
+
+test('agruparFamilias separa litros de kilos en vez de mezclarlos', () => {
+  const rows = [
+    { IdProducto: 1, Nombre: 'Jugo Apidelta 900ML', Unidades: 10, Facturacion: 500 },
+    { IdProducto: 2, Nombre: 'Jugo Apidelta 2Lt',   Unidades: 3,  Facturacion: 400 },
+  ];
+  const [fam] = agruparFamilias(rows, 10);
+  assert.strictEqual(fam.litros, 15); // 10×0,9 + 3×2
+  assert.strictEqual(fam.kilos, 0);
+});
+
+// ── Top por cliente ──────────────────────────────────────────────────────────
+// Una sola consulta a nivel cliente×producto: el total del cliente sale de sumar su
+// detalle, así la fila y su desplegable no pueden discrepar.
+const { sqlVentasPorClienteProducto, agruparClientes } = require('../analisis_ventas');
+
+test('sqlVentasPorClienteProducto agrupa por cliente y producto con los filtros del módulo', () => {
+  const s = sqlVentasPorClienteProducto({ ...P_CENTRAL, rubrosExcluidos: ['Apicultura'] });
+  assert.match(s, /GROUP BY v\.IdCliente, LTRIM\(RTRIM\(ISNULL\(c\.NombreCliente,''\)\)\), vp\.IdProducto, p\.NombreProducto/);
+  assert.match(s, /SUM\(vp\.Cantidad\) AS Unidades/);
+  // Facturación por total con impuestos, igual que el resto del módulo.
+  assert.match(s, /SUM\(vp\.ImporteTotal\) AS Facturacion/);
+  assert.doesNotMatch(s, /ImporteTotalNeto/);
+  // Los tres filtros que definen el alcance de casa central.
+  assert.match(s, /ISNULL\(c\.IdCategoria, 0\) != 5/);
+  assert.match(s, /IN \('Apicultura'\)/);
+  assert.match(s, /vp\.IdProducto NOT IN \('302158','1'\)/);
+});
+
+test('agruparClientes colapsa el detalle en clientes y ordena por facturación', () => {
+  const rows = [
+    { IdCliente: 'A', Cliente: 'Distribuidora Sur', IdProducto: 1, Nombre: 'Miel Pura 1Kg',  Unidades: 10, Facturacion: 1000 },
+    { IdCliente: 'A', Cliente: 'Distribuidora Sur', IdProducto: 2, Nombre: 'Miel Pura 250G', Unidades: 4,  Facturacion: 200 },
+    { IdCliente: 'B', Cliente: 'Kiosco Centro',     IdProducto: 1, Nombre: 'Miel Pura 1Kg',  Unidades: 3,  Facturacion: 300 },
+  ];
+  const cli = agruparClientes(rows, 10);
+  assert.strictEqual(cli.length, 2);
+  assert.strictEqual(cli[0].cliente, 'Distribuidora Sur');
+  assert.strictEqual(cli[0].facturacion, 1200);
+  assert.strictEqual(cli[0].unidades, 14);
+  // Equivalente físico, mismo criterio que las familias: 10×1kg + 4×0,25kg.
+  assert.strictEqual(cli[0].kilos, 11);
+  assert.strictEqual(cli[0].productos.length, 2);
+  // Detalle ordenado por facturación, como el desplegable de familias.
+  assert.strictEqual(cli[0].productos[0].nombre, 'Miel Pura 1Kg');
+  assert.strictEqual(cli[1].cliente, 'Kiosco Centro');
+});
+
+test('agruparClientes respeta topN, tolera nulo y agrupa el cliente sin nombre', () => {
+  const rows = [
+    { IdCliente: 'A', Cliente: 'Uno',  IdProducto: 1, Nombre: 'X 1Kg', Unidades: 1, Facturacion: 900 },
+    { IdCliente: 'B', Cliente: 'Dos',  IdProducto: 1, Nombre: 'X 1Kg', Unidades: 1, Facturacion: 100 },
+    { IdCliente: 'C', Cliente: '',     IdProducto: 1, Nombre: 'X 1Kg', Unidades: 5, Facturacion: 50 },
+  ];
+  assert.strictEqual(agruparClientes(rows, 1).length, 1);
+  assert.deepStrictEqual(agruparClientes(null, 5), []);
+  // Sin nombre no se descarta la venta: se muestra con una etiqueta para poder rastrearla.
+  const sinNombre = agruparClientes(rows, 10).find(c => c.idCliente === 'C');
+  assert.strictEqual(sinNombre.cliente, 'Sin cliente');
 });
 
 test('promedioArticulos divide artículos totales por tickets totales', () => {

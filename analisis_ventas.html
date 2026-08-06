@@ -67,6 +67,8 @@
   th.orden{cursor:pointer;user-select:none;white-space:nowrap}
   th.orden:hover{color:var(--green-dark)}
   td.impacto{width:110px;font-variant-numeric:tabular-nums}
+  /* Asterisco del equivalente incompleto: visible pero sin robarle peso al número. */
+  span.parcial{color:#b8860b;font-weight:700;cursor:help}
   /* Días en quiebre: en rojo sólo cuando hay al menos uno, para que el cero no haga ruido. */
   td.quiebre{color:#b3261e;font-weight:600}
   /* Columna sin calcular (más de una sucursal en el filtro): apagada, no es un valor. */
@@ -581,6 +583,23 @@ function escHtml(s){
   ));
 }
 
+// Magnitud real de una familia o presentación. Las unidades no son sumables entre
+// presentaciones distintas (2 tambores de 28Kg y 12 frascos de 1Kg no son "14"); los
+// kilos sí. Kilos y litros van separados: sumarlos sería la misma mentira de nuevo.
+function fmtEquivalente(o){
+  const partes = [];
+  if (o.kilos)  partes.push(fmtDec(o.kilos) + ' kg');
+  if (o.litros) partes.push(fmtDec(o.litros) + ' L');
+  return partes.length ? partes.join(' + ') : '—';
+}
+
+// Marca el equivalente que va corto porque alguna presentación no declara su peso en el
+// nombre. Se avisa en vez de estimarlo: un total inventado es peor que uno incompleto.
+function avisoParcial(f){
+  if (!f.unidadesSinEquivalencia) return '';
+  return ` <span class="parcial" title="${fmtNum(f.unidadesSinEquivalencia)} unidades sin presentación declarada en el nombre: no suman al equivalente.">*</span>`;
+}
+
 // Cada familia es una fila clickeable seguida de una fila oculta con sus presentaciones.
 function renderFamilias(rows){
   const fams = rows || [];
@@ -596,6 +615,7 @@ function renderFamilias(rows){
       `<tr class="fam-det fd-${i}" hidden>
         <td class="pres">· ${escHtml(p.nombre)}</td>
         <td></td>
+        <td class="num">${fmtEquivalente(p)}</td>
         <td class="num">${fmtNum(p.unidades)}</td>
         <td class="num">${fmtMoney(p.facturacion)}</td>
         <td></td>
@@ -613,6 +633,7 @@ function renderFamilias(rows){
               title="${fmtDec(share)}% de la facturación listada">
         <td><span class="caret" id="cf-${i}">▶</span> ${escHtml(f.familia)}</td>
         <td class="num">${fmtNum(f.presentaciones.length)}</td>
+        <td class="num">${fmtEquivalente(f)}${avisoParcial(f)}</td>
         <td class="num">${fmtNum(f.unidades)}</td>
         <td class="num">${fmtMoney(f.facturacion)}</td>
         <td class="num impacto">${fmtDec(share)}%</td>
@@ -620,7 +641,10 @@ function renderFamilias(rows){
       ${detalle}`;
   }).join('');
   $('tblFamilias').innerHTML = `<table><thead><tr>
-      <th>Familia</th><th class="num">Present.</th><th class="num">Unidades</th><th class="num">Facturación</th>
+      <th>Familia</th><th class="num">Present.</th>
+      <th class="num" title="Kilos o litros equivalentes: la presentación de cada producto por sus unidades vendidas. Es la única cantidad comparable dentro de una familia.">Equivalente</th>
+      <th class="num" title="Suma cruda de unidades. Mezcla formatos distintos (un tambor de 28Kg cuenta igual que un frasco de 250G), así que sirve como referencia, no como cantidad real.">Unidades</th>
+      <th class="num">Facturación</th>
       <th>Impacto s/ listado</th>
     </tr></thead><tbody>${cuerpo}</tbody></table>`;
 }
