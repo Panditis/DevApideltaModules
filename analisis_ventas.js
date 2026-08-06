@@ -48,6 +48,18 @@ function kpisGlobales(comparativa, resumen) {
   };
 }
 
+// ── Importe facturado de un renglón ──────────────────────────────────────────
+// vp.ImporteTotal es el neto SIN impuestos (Precio × Cantidad, antes del descuento
+// general), así que sumarlo dejaba los tops ~21% por debajo de lo que muestra SIGA:
+// el código 2544 con 500 unidades daba 1.638.430 contra 1.883.375 reales.
+// El importe que ve el usuario es el neto final más los impuestos del renglón, y esa
+// suma reconstruye la cabecera Ventas.ImporteTotal al centavo.
+// ImporteTotalConImpuestos NO sirve: ignora el descuento/recargo general.
+function exprImporteRenglon(alias = 'vp') {
+  return `(${alias}.ImporteTotalNeto + ISNULL(${alias}.ImporteImpuesto, 0)`
+    + ` + ISNULL(${alias}.ImporteImpuestoInterno, 0))`;
+}
+
 // Join cabecera→renglón por la clave compuesta de 5 columnas de SIGA.
 const JOIN_CLAVE5 = `INNER JOIN Ventas v
     ON  v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
@@ -93,7 +105,7 @@ function joinImporteExcluido(excProdCsv, sucIdsCsv) {
   if (!excProdCsv) return '';
   return `LEFT JOIN (
       SELECT vpe.IdSucursal, vpe.IdTipoComprobante, vpe.Letra, vpe.CentroEmisor,
-        vpe.NumeroComprobante, SUM(vpe.ImporteTotal) AS Importe
+        vpe.NumeroComprobante, SUM(${exprImporteRenglon('vpe')}) AS Importe
       FROM VentasProductos vpe
       WHERE vpe.IdProducto IN (${excProdCsv})
         AND vpe.IdSucursal IN (${sucIdsCsv})
@@ -104,8 +116,8 @@ function joinImporteExcluido(excProdCsv, sucIdsCsv) {
       AND exc.NumeroComprobante = v.NumeroComprobante`;
 }
 
-// Facturación de cabecera neta de los renglones excluidos. Se resta con vp.ImporteTotal,
-// que es la misma base con impuestos que v.ImporteTotal (ImporteTotalNeto quedaría corto).
+// Facturación de cabecera neta de los renglones excluidos. Se resta con el importe de
+// renglón con impuestos (exprImporteRenglon), que es la misma base que v.ImporteTotal.
 function exprFacturacion(excProdCsv) {
   return excProdCsv ? `SUM(v.ImporteTotal - ISNULL(exc.Importe, 0))` : `SUM(v.ImporteTotal)`;
 }
@@ -269,7 +281,7 @@ function sqlTopProductos(p, orden, topN, sinInsumos) {
   const col = orden === 'unidades' ? 'Unidades' : 'Facturacion';
   const filtro = sinInsumos ? `\n      AND ${sinInsumos}` : '';
   return `SELECT TOP ${topN} vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
-      SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotal) AS Facturacion
+      SUM(vp.Cantidad) AS Unidades, SUM(${exprImporteRenglon()}) AS Facturacion
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
@@ -289,7 +301,7 @@ function sqlVentasPorClienteProducto(p) {
   return `SELECT v.IdCliente AS IdCliente,
       LTRIM(RTRIM(ISNULL(c.NombreCliente,''))) AS Cliente,
       vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
-      SUM(vp.Cantidad) AS Unidades, SUM(vp.ImporteTotal) AS Facturacion
+      SUM(vp.Cantidad) AS Unidades, SUM(${exprImporteRenglon()}) AS Facturacion
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
@@ -720,7 +732,7 @@ module.exports = {
   PALABRA_INSUMO, CLASIFICACIONES, CATEGORIA_SUCURSAL_ID, RUBROS_EXCLUIDOS, SIN_RUBROS_EXCLUIDOS,
   RUBROS_EXCLUIDOS_CENTRAL, sinRubrosExcluidos,
   PRODUCTOS_EXCLUIDOS_CENTRAL, sinProductosExcluidos, joinImporteExcluido,
-  exprFacturacion, exprTickets,
+  exprFacturacion, exprTickets, exprImporteRenglon,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
   whereVentas, sqlComparativa, sqlResumenRenglon,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,

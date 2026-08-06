@@ -197,8 +197,8 @@ test('las consultas de renglón de casa central descartan el producto excluido',
   });
 });
 
-// El importe se resta con vp.ImporteTotal, la misma base con impuestos que v.ImporteTotal
-// de la cabecera. Con ImporteTotalNeto (sin IVA) el descuento quedaría corto.
+// El importe se resta con el neto del renglón más sus impuestos, la misma base que
+// v.ImporteTotal de la cabecera. Con vp.ImporteTotal (sin IVA) el descuento quedaría corto.
 // ── Rubros: casa central tiene su propio criterio ────────────────────────────
 // "Almacen Bultos/Cajas" son 873 productos de venta real por bulto/pack, y el granel de
 // depósito también se vende: excluirlos por rubro escondía ventas enteras del listado.
@@ -217,8 +217,10 @@ test('sin lista propia se usa el criterio de sucursales, que no cambia', () => {
 });
 
 test('el descuento de casa central usa la misma base de importe que la cabecera', () => {
-  assert.match(sqlComparativa(P_CENTRAL), /SUM\(vpe\.ImporteTotal\) AS Importe/);
-  assert.doesNotMatch(sqlComparativa(P_CENTRAL), /vpe\.ImporteTotalNeto/);
+  const s = sqlComparativa(P_CENTRAL);
+  assert.match(s, /SUM\(\(vpe\.ImporteTotalNeto \+ ISNULL\(vpe\.ImporteImpuesto, 0\) \+ ISNULL\(vpe\.ImporteImpuestoInterno, 0\)\)\) AS Importe/);
+  // vpe.ImporteTotal es el neto sin IVA: restarlo dejaba corto el descuento del comprobante.
+  assert.doesNotMatch(s, /SUM\(vpe\.ImporteTotal\)/);
 });
 
 test('sqlTopProductos ordena por la métrica y limita con TOP', () => {
@@ -231,12 +233,16 @@ test('sqlTopProductos ordena por la métrica y limita con TOP', () => {
   assert.match(f, /INNER JOIN Productos p ON p\.IdProducto = vp\.IdProducto/);
 });
 
-// La facturación del renglón es el total con impuestos, igual que v.ImporteTotal de la
-// cabecera: con el neto, los tops y las familias quedaban por debajo de los KPIs.
-test('sqlTopProductos factura por el importe total, no por el neto', () => {
+// La facturación del renglón es el neto final más los impuestos, igual que v.ImporteTotal
+// de la cabecera. vp.ImporteTotal es Precio × Cantidad SIN IVA: con esa columna el código
+// 2544 (500 unidades) mostraba 1.638.430 contra 1.883.375 facturados en SIGA.
+const EXPR_IMPORTE_RENGLON =
+  /SUM\(\(vp\.ImporteTotalNeto \+ ISNULL\(vp\.ImporteImpuesto, 0\) \+ ISNULL\(vp\.ImporteImpuestoInterno, 0\)\)\) AS Facturacion/;
+
+test('sqlTopProductos factura por el neto más impuestos, no por vp.ImporteTotal', () => {
   const f = sqlTopProductos(P, 'facturacion', 10);
-  assert.match(f, /SUM\(vp\.ImporteTotal\) AS Facturacion/);
-  assert.doesNotMatch(f, /ImporteTotalNeto/);
+  assert.match(f, EXPR_IMPORTE_RENGLON);
+  assert.doesNotMatch(f, /SUM\(vp\.ImporteTotal\)/);
 });
 
 const {
@@ -711,9 +717,9 @@ test('sqlVentasPorClienteProducto agrupa por cliente y producto con los filtros 
   const s = sqlVentasPorClienteProducto({ ...P_CENTRAL, rubrosExcluidos: ['Apicultura'] });
   assert.match(s, /GROUP BY v\.IdCliente, LTRIM\(RTRIM\(ISNULL\(c\.NombreCliente,''\)\)\), vp\.IdProducto, p\.NombreProducto/);
   assert.match(s, /SUM\(vp\.Cantidad\) AS Unidades/);
-  // Facturación por total con impuestos, igual que el resto del módulo.
-  assert.match(s, /SUM\(vp\.ImporteTotal\) AS Facturacion/);
-  assert.doesNotMatch(s, /ImporteTotalNeto/);
+  // Facturación por neto más impuestos, igual que el resto del módulo.
+  assert.match(s, EXPR_IMPORTE_RENGLON);
+  assert.doesNotMatch(s, /SUM\(vp\.ImporteTotal\)/);
   // Los tres filtros que definen el alcance de casa central.
   assert.match(s, /ISNULL\(c\.IdCategoria, 0\) != 5/);
   assert.match(s, /IN \('Apicultura'\)/);
