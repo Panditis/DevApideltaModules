@@ -280,15 +280,20 @@ function filtroSinInsumos(disponibles) {
 function sqlTopProductos(p, orden, topN, sinInsumos) {
   const col = orden === 'unidades' ? 'Unidades' : 'Facturacion';
   const filtro = sinInsumos ? `\n      AND ${sinInsumos}` : '';
+  // El rubro viaja con cada producto porque el equivalente en kilos/litros sólo se calcula
+  // sobre fraccionado y bultos (ver equivalenteFamilia). LEFT JOIN: un producto sin rubro
+  // sigue contando en unidades y facturación, sólo se queda sin equivalente.
   return `SELECT TOP ${topN} vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
+      ISNULL(rp.NombreRubro,'') AS Rubro,
       SUM(vp.Cantidad) AS Unidades, SUM(${exprImporteRenglon()}) AS Facturacion
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
+    LEFT JOIN Rubros rp ON rp.IdRubro = p.IdRubro
     WHERE ${whereVentas(p)}
       AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${filtro}${andSinProductosExcluidos(p.excProdCsv)}
-    GROUP BY vp.IdProducto, p.NombreProducto
+    GROUP BY vp.IdProducto, p.NombreProducto, rp.NombreRubro
     ORDER BY ${col} DESC`;
 }
 
@@ -301,14 +306,17 @@ function sqlVentasPorClienteProducto(p) {
   return `SELECT v.IdCliente AS IdCliente,
       LTRIM(RTRIM(ISNULL(c.NombreCliente,''))) AS Cliente,
       vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
+      ISNULL(mp.NombreMarca,'') AS Marca,
       SUM(vp.Cantidad) AS Unidades, SUM(${exprImporteRenglon()}) AS Facturacion
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
+    LEFT JOIN Marcas mp ON mp.IdMarca = p.IdMarca
     WHERE ${whereVentas(p)}
       AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv)}
-    GROUP BY v.IdCliente, LTRIM(RTRIM(ISNULL(c.NombreCliente,''))), vp.IdProducto, p.NombreProducto
+    GROUP BY v.IdCliente, LTRIM(RTRIM(ISNULL(c.NombreCliente,''))), vp.IdProducto, p.NombreProducto,
+      ISNULL(mp.NombreMarca,'')
     ORDER BY Facturacion DESC`;
 }
 
@@ -316,16 +324,70 @@ function sqlVentasPorClienteProducto(p) {
 // venta real y hay que poder verlas en el ranking.
 const CLIENTE_SIN_NOMBRE = 'Sin cliente';
 
+// ── Producto de marca propia ─────────────────────────────────────────────────
+// Se resuelve por marca Y por nombre porque en SIGA ninguna de las dos alcanza sola: hay
+// 1.190 productos de la marca "Apidelta" que no dicen "Apidelta" en el nombre (las mieles
+// a granel en tambor, por ejemplo) y hay 82 mermeladas y 45 conservas Apidelta cargadas
+// bajo marcas genéricas ("Mermeladas y Untables", "Conservas y Salsas"). Con la unión de
+// los dos criterios no queda ningún producto propio afuera.
+// Pago De Los Arroyos es la otra línea propia de la casa y cuenta igual que Apidelta.
+const MARCAS_PROPIAS = ['apidelta', 'pago de los arroyos'];
+
+// Las granolas de elaboración propia no llevan la marca en el nombre: se cargan con el
+// prefijo "G." y la variedad ("G. Crunch 500G", "G. Chocolate Gold 250G", "G. Keto 40G").
+// Se exige el punto y que siga una letra para no confundirlo con un nombre que empiece
+// con G. La marca "Granolas" no sirve como criterio: ahí también están las granolas de
+// terceros (Natural Candy, Paqueta, Fermar).
+const GRANOLA_PROPIA = /^g\.\s*[a-záéíóúñ]/i;
+
+// Los mix de frutos secos de armado propio tampoco dicen Apidelta. Son seis variedades y
+// se listan una por una: la palabra "mix" sola no alcanza (hay Mix Tropical Iqf congelado,
+// Mix Chantilly, Mix Costa De Mar, todos de reventa) y la marca tampoco ("Mix Frutos
+// Secos" y "Apidelta" se reparten las presentaciones de un mismo mix sin criterio).
+// Los puntos son opcionales porque el catálogo tiene las dos formas ("F.S" y "F.S.") y
+// cada patrón corta con (?![a-z]) para que "Tropic" no se coma "Tropical Iqf".
+const MIX_PROPIOS = [
+  /^mix\s+europeo(?![a-z])/,
+  /^mix\s+f\.?\s*s\.?\s+sin\s+pasas(?![a-z])/,
+  /^mix\s+f\.?\s*s\.?\s+n\s*&\s*p(?![a-z])/,
+  /^mix\s+tropic(?![a-z])/,
+  /^mix\s+cerv\.?\s+prem(?![a-z])/,
+  /^mix\s+cervecero(?![a-z])/,
+];
+
+// Normaliza para comparar: sin acentos, sin mayúsculas y sin espacios de más.
+function normalizarTexto(txt) {
+  return String(txt || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s{2,}/g, ' ').trim();
+}
+
+// Un producto es propio si su marca es una de las líneas de la casa (o una variante:
+// "Apidelta Miel", "Apidelta Yerba", "Apidelta Aceite Oliva"…), si el nombre la menciona,
+// o si es una elaboración propia que no lleva la marca en el nombre: las granolas
+// (prefijo "G.") y los seis mix de frutos secos.
+function esProductoPropio(nombre, marca) {
+  const n = normalizarTexto(nombre);
+  const m = normalizarTexto(marca);
+  if (GRANOLA_PROPIA.test(n)) return true;
+  if (MIX_PROPIOS.some(re => re.test(n))) return true;
+  return MARCAS_PROPIAS.some(propia => m.startsWith(propia) || n.includes(propia));
+}
+
 // Colapsa filas cliente×producto en clientes, con el detalle de qué compró cada uno.
 // Mismo contrato que agruparFamilias: totales sumables (kilos/litros) más las unidades
 // crudas, detalle ordenado por facturación y corte en topN.
+// Además marca qué productos son de marca propia y cuenta cuántas FAMILIAS propias
+// distintas le trabaja el cliente: dos presentaciones de la misma línea (Miel Apidelta
+// 500G y 1Kg) son una sola familia, que es la pregunta comercial de verdad.
 function agruparClientes(rows, topN) {
   const mapa = new Map();
   (rows || []).forEach(r => {
     const clave = String(r.IdCliente ?? '').trim() || CLIENTE_SIN_NOMBRE;
     if (!mapa.has(clave)) mapa.set(clave, {
       idCliente: r.IdCliente ?? null, cliente: String(r.Cliente || '').trim() || CLIENTE_SIN_NOMBRE,
-      unidades: 0, kilos: 0, litros: 0, unidadesSinEquivalencia: 0, facturacion: 0, productos: [],
+      unidades: 0, kilos: 0, litros: 0, unidadesSinEquivalencia: 0, facturacion: 0,
+      facturacionPropia: 0, familiasPropias: 0, productos: [], _famPropias: new Set(),
     });
     const g = mapa.get(clave);
     const nombre = String(r.Nombre || '').trim();
@@ -333,19 +395,30 @@ function agruparClientes(rows, topN) {
     const facturacion = Number(r.Facturacion || 0);
     const peso = pesoPresentacion(nombre);
     const equivalente = peso ? redondearMagnitud(peso.cantidad * unidades) : null;
+    const propio = esProductoPropio(nombre, r.Marca);
+    const familia = familiaNombre(nombre, r.IdProducto);
     g.unidades += unidades;
     g.facturacion += facturacion;
     if (!peso) g.unidadesSinEquivalencia += unidades;
     else if (peso.unidad === 'kg') g.kilos = redondearMagnitud(g.kilos + equivalente);
     else g.litros = redondearMagnitud(g.litros + equivalente);
+    if (propio) {
+      g.facturacionPropia += facturacion;
+      g._famPropias.add(claveFamilia(familia));
+    }
     g.productos.push({
-      idProd: r.IdProducto, nombre, unidades, facturacion,
+      idProd: r.IdProducto, nombre, unidades, facturacion, propio, familia,
+      marca: String(r.Marca || '').trim(),
       kilos: peso && peso.unidad === 'kg' ? equivalente : null,
       litros: peso && peso.unidad === 'l' ? equivalente : null,
     });
   });
   return [...mapa.values()]
-    .map(g => ({ ...g, productos: [...g.productos].sort((a, b) => b.facturacion - a.facturacion) }))
+    .map(({ _famPropias, ...g }) => ({
+      ...g,
+      familiasPropias: _famPropias.size,
+      productos: [...g.productos].sort((a, b) => b.facturacion - a.facturacion),
+    }))
     .sort((a, b) => b.facturacion - a.facturacion)
     .slice(0, topN || TOP_N_DEFAULT);
 }
@@ -616,22 +689,29 @@ const FAMILIA_MIEL_APIDELTA = 'MIEL APIDELTA';
 // exige que el nombre empiece con "miel" para no arrastrar los tambores vacíos de
 // Apicultura ni el granel de aceite o vinagre, que también dicen "Tambor".
 const MIEL_TAMBOR = /^miel\b.*\btambor(es)?\b/i;
-// El tambor de Arroyo es de la línea Pago De Los Arroyos, no de la Apidelta. Es la única
-// excepción y se resuelve por código: el nombre no la distingue del resto de los tambores.
-const FAMILIA_MIEL_PAGO = 'Miel Pago De Los Arroyos';
-const TAMBOR_PAGO_ARROYOS = '9712';
+
+// Pago De Los Arroyos es la otra línea de miel de la casa y se reporta junto con Apidelta:
+// una sola familia de miel propia en todas las tablas. Antes vivían separadas y el tambor
+// de Arroyo (9712) era la excepción de la regla del tambor; al unificarse dejó de serlo,
+// así que la excepción por código desapareció.
+const MIEL_PAGO_ARROYOS = /^miel\s+pago\s+de\s+los\s+arroyos\b/i;
+
+// Línea Molens: toda la línea lleva la marca en el nombre, en cualquier posición
+// ("Galletitas Molens Vainilla", "Budin Molens"), así que alcanza con buscar la palabra.
+// Se acepta con y sin apóstrofo porque la base la escribe de las dos formas. Los límites
+// de palabra evitan arrastrar "Molensina" o "Premolens", que no son de la línea.
+const MOLENS = /\bmolen'?s\b/i;
+const FAMILIA_MOLENS = 'MOLENS';
 
 // Nombre de familia legible. Si al recortar no queda nada, se devuelve el nombre original
 // (un producto llamado sólo "1KG" es un dato sucio, pero no puede desaparecer del reporte).
 // idProd es opcional: sólo lo necesitan las excepciones por código.
 function familiaNombre(nombre, idProd) {
   const original = String(nombre || '').trim();
-  if (MIEL_TAMBOR.test(original)) {
-    // El id viaja como número o como texto según la consulta: se compara normalizado.
-    return String(idProd ?? '').trim() === TAMBOR_PAGO_ARROYOS
-      ? FAMILIA_MIEL_PAGO : FAMILIA_MIEL_APIDELTA;
-  }
+  if (MIEL_TAMBOR.test(original)) return FAMILIA_MIEL_APIDELTA;
   if (MIEL_APIDELTA.test(original)) return FAMILIA_MIEL_APIDELTA;
+  if (MIEL_PAGO_ARROYOS.test(original)) return FAMILIA_MIEL_APIDELTA;
+  if (MOLENS.test(original)) return FAMILIA_MOLENS;
   const base = original
     .replace(SUFIJO_VARIANTE, '')
     .replace(/\bvid\s+/i, '')
@@ -686,11 +766,79 @@ function pesoPresentacion(nombre) {
   return { cantidad: Math.round(valor * magnitud.factor * 10000) / 10000, unidad: magnitud.unidad };
 }
 
-// Colapsa filas {IdProducto, Nombre, Unidades, Facturacion} en familias, sumando las
+// ── Qué rubros admiten equivalente ───────────────────────────────────────────
+// El kilaje equivalente sólo significa algo donde el nombre declara el contenido real del
+// envase. Son dos rubros: el fraccionado, que se vende por peso, y el bulto, que se vende
+// por paquete cerrado. En el resto (almacén suelto, insumos, etc.) el peso del nombre no
+// es una magnitud vendida y sumarlo daría un total inventado: ahí no se muestra nada.
+const RUBRO_FRACCIONADO = 'Pesables Fraccionado';
+const RUBRO_BULTOS = 'Almacen Bultos/Cajas';
+
+// Comparación tolerante, igual que la de rubros excluidos: sin espacios, sin acentos y sin
+// distinguir mayúsculas, porque la base escribe "Bultos / Cajas" y "Depósito" con tilde.
+function claveRubro(rubro) {
+  return String(rubro || '').replace(/\s/g, '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+const CLAVE_FRACCIONADO = claveRubro(RUBRO_FRACCIONADO);
+const CLAVE_BULTOS = claveRubro(RUBRO_BULTOS);
+
+// La familia lleva equivalente si vende de alguna de las dos formas medibles. Si no tiene
+// ni fraccionado ni bulto, la cantidad del renglón no es un peso y no hay qué mostrar.
+function familiaSeMide(presentaciones) {
+  return presentaciones.some(p => p.rubro === CLAVE_BULTOS || p.rubro === CLAVE_FRACCIONADO);
+}
+
+// El rubro es la señal principal de que algo se vende por paquete, pero no alcanza: hay
+// pesables cuyas ventas son todas de bultos ("Mix Cerv.Prem") y productos con el rubro mal
+// cargado ("Mix Tropic. 200G Unidad Bulto", 98 paquetes leídos como 98 kg en vez de 19,6).
+// El nombre es la señal que sí acompaña: "Unidad" y "Bulto" marcan que el renglón cuenta
+// paquetes; sin ninguna de esas palabras, la cantidad del renglón ya está en kilos.
+const NOMBRE_POR_PAQUETE = /\b(BULTO|BULTOS|PACK|CAJA|CAJAS|UNIDAD|UNIDADES)\b/i;
+
+function seVendePorPaquete(p) {
+  return p.rubro === CLAVE_BULTOS || NOMBRE_POR_PAQUETE.test(String(p.nombre || ''));
+}
+
+// Kilos (o litros) que salieron por una presentación. Hay dos formas de vender lo mismo:
+//  · Bulto: paquete cerrado. El renglón cuenta paquetes, así que el peso sale de
+//    multiplicar el contenido declarado en el nombre por la cantidad vendida.
+//    Un bulto que no declara contenido se deja como viene: estimarlo sería inventar.
+//  · Todo lo demás: se vende por peso, o sea que la cantidad del renglón YA está en kilos.
+//    Multiplicarla por el peso del nombre —el error de la primera versión— convertía
+//    10 kg de MIX TROPIC 500G en 5, o 15 kg de 5KG en 75.
+function medirPresentacion(p) {
+  const porPaquete = seVendePorPaquete(p);
+  const peso = porPaquete ? pesoPresentacion(p.nombre) : null;
+  if (!peso) return { ...p, kilos: p.unidades, litros: 0, porPaquete };
+  const equivalente = redondearMagnitud(peso.cantidad * p.unidades);
+  return {
+    ...p,
+    kilos: peso.unidad === 'kg' ? equivalente : 0,
+    litros: peso.unidad === 'l' ? equivalente : 0,
+    porPaquete,
+  };
+}
+
+// El equivalente de la familia son todos sus kilos sumados, midiendo cada presentación como
+// corresponda. Los litros van aparte: un litro no es un kilo.
+function equivalenteFamilia(presentaciones) {
+  const seMide = familiaSeMide(presentaciones);
+  const medidas = presentaciones.map(p => seMide
+    ? medirPresentacion(p)
+    : { ...p, kilos: 0, litros: 0, porPaquete: false });
+  const acumulado = medidas.reduce((acc, p) => ({
+    kilos: redondearMagnitud(acc.kilos + (p.kilos || 0)),
+    litros: redondearMagnitud(acc.litros + (p.litros || 0)),
+  }), { kilos: 0, litros: 0 });
+  return { ...acumulado, equivalenteAplica: seMide, presentaciones: medidas };
+}
+
+// Colapsa filas {IdProducto, Nombre, Rubro, Unidades, Facturacion} en familias, sumando las
 // presentaciones. Devuelve las topN familias por facturación, cada una con su detalle.
 // La familia trae kilos/litros equivalentes (la magnitud real) y además las unidades
-// crudas como dato secundario. Lo que no declara presentación no se estima: sus unidades
-// se cuentan en unidadesSinEquivalencia para que el front avise que el total va corto.
+// crudas como dato secundario. El equivalente se calcula en una segunda pasada porque
+// depende de qué rubros tenga la familia entera, no de cada renglón por separado.
 function agruparFamilias(rows, topN) {
   const mapa = new Map();
   (rows || []).forEach(r => {
@@ -699,32 +847,69 @@ function agruparFamilias(rows, topN) {
     const familia = familiaNombre(nombre, r.IdProducto);
     const clave = claveFamilia(familia);
     if (!mapa.has(clave)) mapa.set(clave, {
-      familia, unidades: 0, kilos: 0, litros: 0, unidadesSinEquivalencia: 0,
-      facturacion: 0, presentaciones: [],
+      familia, unidades: 0, facturacion: 0, presentaciones: [],
     });
     const g = mapa.get(clave);
     const unidades = Number(r.Unidades || 0);
     const facturacion = Number(r.Facturacion || 0);
-    const peso = pesoPresentacion(nombre);
-    const equivalente = peso ? redondearMagnitud(peso.cantidad * unidades) : null;
+    // Unidades y facturación suman siempre, sea cual sea el rubro: el recorte por rubro es
+    // sólo del equivalente.
     g.unidades += unidades;
     g.facturacion += facturacion;
-    if (!peso) g.unidadesSinEquivalencia += unidades;
-    else if (peso.unidad === 'kg') g.kilos = redondearMagnitud(g.kilos + equivalente);
-    else g.litros = redondearMagnitud(g.litros + equivalente);
     g.presentaciones.push({
-      idProd: r.IdProducto, nombre, unidades, facturacion,
-      kilos: peso && peso.unidad === 'kg' ? equivalente : null,
-      litros: peso && peso.unidad === 'l' ? equivalente : null,
+      idProd: r.IdProducto, nombre, unidades, facturacion, rubro: claveRubro(r.Rubro),
     });
   });
   return [...mapa.values()]
-    .map(g => ({
-      ...g,
-      presentaciones: [...g.presentaciones].sort((a, b) => b.facturacion - a.facturacion),
-    }))
+    .map(g => {
+      const eq = equivalenteFamilia(g.presentaciones);
+      return {
+        ...g,
+        kilos: eq.kilos, litros: eq.litros,
+        equivalenteAplica: eq.equivalenteAplica,
+        presentaciones: [...eq.presentaciones].sort((a, b) => b.facturacion - a.facturacion),
+      };
+    })
     .sort((a, b) => b.facturacion - a.facturacion)
+    // Infinity deja pasar todas: la pestaña de familias consolidadas las lista completas y
+    // pagina en el front, así que el tope de acá la dejaría corta.
     .slice(0, topN || TOP_N_DEFAULT);
+}
+
+// ── Familias consolidadas (casa central + sucursales) ────────────────────────
+// Las sucursales que pide la pestaña de familias. A diferencia de sucIdsSeguras, distingue
+// "no vino el parámetro" (todas, que es como abre la pestaña) de "vino vacío" (el usuario
+// destildó todos los chips y quiere ver sólo la central).
+function sucIdsFamilias(raw) {
+  if (raw === undefined || raw === null) return [...SUCURSALES_ANALISIS];
+  const pedidos = String(raw).split(',')
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => SUCURSALES_ANALISIS.includes(n));
+  return [...new Set(pedidos)];
+}
+
+// Un mismo producto puede venderse en la central y en las sucursales, y cada alcance se
+// consulta por separado (tienen filtros distintos). Sin fusionar, la familia lo listaría dos
+// veces en el detalle y el equivalente en kilos se duplicaría. El id viene como string desde
+// el driver en una consulta y puede venir numérico en otra: se compara siempre como texto.
+function fusionarProductos(...listas) {
+  const mapa = new Map();
+  listas.forEach(lista => {
+    (lista || []).forEach(r => {
+      const clave = String(r.IdProducto);
+      const previo = mapa.get(clave);
+      if (!previo) {
+        mapa.set(clave, { ...r, Unidades: Number(r.Unidades || 0), Facturacion: Number(r.Facturacion || 0) });
+        return;
+      }
+      mapa.set(clave, {
+        ...previo,
+        Unidades: previo.Unidades + Number(r.Unidades || 0),
+        Facturacion: previo.Facturacion + Number(r.Facturacion || 0),
+      });
+    });
+  });
+  return [...mapa.values()];
 }
 
 module.exports = {
@@ -744,5 +929,8 @@ module.exports = {
   diasEvaluados, porcentajeQuiebre,
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
   familiaNombre, claveFamilia, agruparFamilias, pesoPresentacion,
+  sucIdsFamilias, fusionarProductos,
+  RUBRO_FRACCIONADO, RUBRO_BULTOS, claveRubro, familiaSeMide, medirPresentacion,
   sqlVentasPorClienteProducto, agruparClientes, CLIENTE_SIN_NOMBRE,
+  MARCAS_PROPIAS, esProductoPropio,
 };

@@ -1,0 +1,113 @@
+/* Estilos del módulo de Análisis de Ventas (pestañas Sucursales / Casa Central).
+   Antes vivían duplicados dentro de analisis_ventas.html y analisis_central.html. */
+:root{
+  --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
+  --yellow:#FFCC00; --gold:#C98A00;
+  --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
+  --radius:12px; --radius-sm:8px;
+  /* Barra de impacto en la tabla de familias: degradado verde → dorado Apidelta, con
+     opacidad suficiente para que pese sin volver ilegible el texto encima. */
+  --barra-ini:rgba(64,89,54,.55); --barra-fin:rgba(201,138,0,.32);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
+header{background:var(--green);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
+header .logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;letter-spacing:.5px}
+header .logo b{color:var(--yellow)}
+header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:auto}
+.wrap{max-width:1200px;margin:0 auto;padding:20px}
+
+/* ── Pestañas ───────────────────────────────────────────────────────────────
+   Un solo módulo con dos alcances. La pestaña activa se marca con el subrayado
+   verde; la barra entera se oculta cuando el usuario sólo tiene permiso a uno. */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:10px 16px;
+  font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:.3px;
+  color:var(--muted);cursor:pointer}
+.tabs button:hover{color:var(--green-dark)}
+.tabs button.activa{color:var(--green-dark);border-bottom-color:var(--green)}
+
+.controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.controls input[type=date]{padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit}
+.controls .nota{flex:1;min-width:220px;font-size:12px;color:var(--muted);padding-bottom:9px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;font-size:13px;cursor:pointer;user-select:none;background:#fff}
+.chip.active{background:var(--green-light);border-color:var(--green-mid);color:var(--green-dark);font-weight:600}
+.btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
+.btn:disabled{opacity:.6;cursor:default}
+.link-mini{font-size:12px;color:var(--green-mid);cursor:pointer}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+.kpi .lbl{font-size:12px;color:var(--muted)}
+.kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px}
+/* Dentro de la grilla el margen lo pone la grilla: si no, las dos columnas se desalinean. */
+.grid2 .card{margin-top:0}
+.card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+.card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
+/* Contenedor de alto fijo para el gráfico a ancho completo. Sin esto, un canvas con
+   maintainAspectRatio:false agranda a su propio padre y cada resize dispara el
+   siguiente: el gráfico se estira sin freno y la página queda trabada. */
+.chart-box{position:relative;height:260px}
+.chart-box canvas{position:absolute;inset:0}
+/* Header de card con buscador: el título queda a la izquierda y el input se estira
+   con lo que sobra, sin romper el layout en pantallas angostas. */
+.card-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.card-head h3{margin:0;flex:0 0 auto}
+.card-head .buscador{flex:1 1 140px;min-width:120px;padding:7px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);font-family:inherit;font-size:13px}
+.card-head .buscador:focus{outline:none;border-color:var(--green-mid)}
+.pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;
+  margin-top:10px;font-size:12px;color:var(--muted)}
+.pager .pg-btns{display:flex;gap:6px}
+.pager button{background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);
+  padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;color:var(--green-dark)}
+.pager button:hover:not(:disabled){background:var(--green-light);border-color:var(--green-mid)}
+.pager button:disabled{opacity:.45;cursor:default}
+tr.fam{cursor:pointer}
+tr.fam>td{padding-top:9px;padding-bottom:9px;font-weight:600}
+tr.fam>td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+/* background-color, no el shorthand: el shorthand borraría la barra (background-image). */
+tr.fam:hover{background-color:#F0F3EE}
+tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
+tr.fam-det>td, tr.cli-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
+tr.fam-det>td.pres, tr.cli-det>td.pres{padding-left:30px}
+/* Headers ordenables: el cursor y el hover avisan que se puede clickear, y la columna
+   activa queda marcada con la flecha del sentido vigente. */
+th.orden{cursor:pointer;user-select:none;white-space:nowrap}
+th.orden:hover{color:var(--green-mid)}
+th.orden.activa{color:var(--green-mid)}
+td.impacto{width:110px;font-variant-numeric:tabular-nums}
+/* Asterisco del equivalente incompleto: visible pero sin robarle peso al número. */
+span.parcial{color:#b8860b;font-weight:700;cursor:help}
+/* Días en quiebre: en rojo sólo cuando hay al menos uno, para que el cero no haga ruido. */
+td.quiebre{color:#b3261e;font-weight:600}
+/* Columna sin calcular (más de una sucursal en el filtro): apagada, no es un valor. */
+td.sin-dato{color:var(--muted)}
+/* Productos de marca propia: se remarcan en el detalle del cliente para leer de un
+   vistazo cuánto de lo que compró es Apidelta y cuánto es reventa. */
+tr.cli-det.propio>td.pres{font-weight:600}
+span.badge-propio{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:9px;
+  background:#f5c518;color:#4a3600;font-size:11px;font-weight:700;vertical-align:middle}
+/* La familia de cada producto en el desplegable: la propia resalta, la de reventa queda
+   en gris para que el ojo vaya directo a las que cuenta la columna del cliente. */
+td.fam-cel{white-space:nowrap;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+span.fam-propia{padding:1px 7px;border-radius:9px;background:#ffe27a;
+  color:#4a3600;font-weight:700;font-size:12px}
+span.fam-otra{color:#8a8a8a;font-size:12px}
+/* Resumen de tendencia bajo el gráfico: dos lecturas en una línea, sin robarle altura. */
+.mini{margin-top:10px;font-size:12px;line-height:1.5;color:var(--muted)}
+.mini b{font-weight:600}
+.mini .nota{display:block;font-size:11px;opacity:.85}
+/* El porcentaje va debajo del número, en chico: es contexto, no el dato principal. */
+.pct{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.error{background:#fdecea;color:#b3261e;border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
+.loading{color:var(--muted);padding:20px;text-align:center}
+.empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}

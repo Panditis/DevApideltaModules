@@ -572,11 +572,15 @@ test('la miel en tambor entra en MIEL APIDELTA', () => {
   assert.strictEqual(familiaNombre('Miel Granel En Tambor Monte'), 'MIEL APIDELTA');
 });
 
-test('el tambor 9712 va a Miel Pago De Los Arroyos, no a MIEL APIDELTA', () => {
-  assert.strictEqual(familiaNombre('Miel Granel En Tambor Arroyo', 9712), 'Miel Pago De Los Arroyos');
-  // El id puede llegar como texto desde SQL: la comparación no puede depender del tipo.
-  assert.strictEqual(familiaNombre('Miel Granel En Tambor Arroyo', '9712'), 'Miel Pago De Los Arroyos');
-  // Y cae en la misma familia que los envasados de esa línea.
+// Pago De Los Arroyos es la otra línea de miel de la casa y se reporta junto con Apidelta:
+// una sola familia de miel propia, en todas las tablas.
+test('la línea Pago De Los Arroyos entra en MIEL APIDELTA', () => {
+  assert.strictEqual(familiaNombre('Miel Pago De Los Arroyos 250G', 2324), 'MIEL APIDELTA');
+  assert.strictEqual(familiaNombre('Miel Pago De Los Arroyos 250G Bulto', 2325), 'MIEL APIDELTA');
+  // El tambor de Arroyo (9712) era la excepción de la regla del tambor: ya no lo es.
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Arroyo', 9712), 'MIEL APIDELTA');
+  assert.strictEqual(familiaNombre('Miel Granel En Tambor Arroyo', '9712'), 'MIEL APIDELTA');
+  // Envasados y tambores de las dos líneas caen en la misma clave.
   assert.strictEqual(claveFamilia(familiaNombre('Miel Granel En Tambor Arroyo', 9712)),
     claveFamilia(familiaNombre('Miel Pago De Los Arroyos 250G', 2324)));
 });
@@ -590,19 +594,18 @@ test('la regla del tambor no arrastra productos que no son miel', () => {
     'Vinagre Sidra Manzana Apidelta Tambor GRANEL');
 });
 
-test('agruparFamilias aplica la regla del tambor con el id de cada fila', () => {
+test('agruparFamilias junta los tambores y la línea Arroyos en una sola familia', () => {
   const rows = [
     { IdProducto: 9700, Nombre: 'Miel Granel En Tambor Acacia', Unidades: 2, Facturacion: 500 },
     { IdProducto: 9711, Nombre: 'Miel Granel En Tambor Trebol', Unidades: 1, Facturacion: 300 },
     { IdProducto: 9712, Nombre: 'Miel Granel En Tambor Arroyo', Unidades: 3, Facturacion: 100 },
+    { IdProducto: 2324, Nombre: 'Miel Pago De Los Arroyos 250G', Unidades: 4, Facturacion: 200 },
   ];
   const fams = agruparFamilias(rows, 10);
-  const apidelta = fams.find(f => f.familia === 'MIEL APIDELTA');
-  const arroyos  = fams.find(f => /Pago De Los Arroyos/i.test(f.familia));
-  assert.strictEqual(apidelta.unidades, 3);
-  assert.strictEqual(apidelta.presentaciones.length, 2);
-  assert.strictEqual(arroyos.unidades, 3);
-  assert.strictEqual(arroyos.presentaciones.length, 1);
+  assert.strictEqual(fams.length, 1);
+  assert.strictEqual(fams[0].familia, 'MIEL APIDELTA');
+  assert.strictEqual(fams[0].unidades, 10);
+  assert.strictEqual(fams[0].presentaciones.length, 4);
 });
 
 test('claveFamilia ignora acentos, mayúsculas y espacios de más', () => {
@@ -668,9 +671,9 @@ test('pesoPresentacion devuelve null cuando el nombre no dice peso ni volumen', 
 
 test('agruparFamilias suma el equivalente en kilos además de las unidades', () => {
   const rows = [
-    { IdProducto: 1, Nombre: 'Miel Trebol Apidelta 28Kg Granel', Unidades: 2,  Facturacion: 5000 },
-    { IdProducto: 2, Nombre: 'Miel Eucaliptus Apidelta 1Kg',     Unidades: 12, Facturacion: 3000 },
-    { IdProducto: 3, Nombre: 'Miel Pradera Apidelta 10Kg',       Unidades: 2,  Facturacion: 2000 },
+    { IdProducto: 1, Nombre: 'Miel Trebol Apidelta 28Kg Granel', Rubro: 'Almacen Bultos/Cajas', Unidades: 2,  Facturacion: 5000 },
+    { IdProducto: 2, Nombre: 'Miel Eucaliptus Apidelta 1Kg',     Rubro: 'Almacen Bultos/Cajas', Unidades: 12, Facturacion: 3000 },
+    { IdProducto: 3, Nombre: 'Miel Pradera Apidelta 10Kg',       Rubro: 'Almacen Bultos/Cajas', Unidades: 2,  Facturacion: 2000 },
   ];
   const [fam] = agruparFamilias(rows, 10);
   assert.strictEqual(fam.familia, 'MIEL APIDELTA');
@@ -678,30 +681,30 @@ test('agruparFamilias suma el equivalente en kilos además de las unidades', () 
   assert.strictEqual(fam.kilos, 88);
   assert.strictEqual(fam.unidades, 16);
   assert.strictEqual(fam.litros, 0);
-  assert.strictEqual(fam.unidadesSinEquivalencia, 0);
   // Cada presentación trae su propio equivalente para el detalle desplegable.
   const tambor = fam.presentaciones.find(p => /28Kg/.test(p.nombre));
   assert.strictEqual(tambor.kilos, 56);
 });
 
-// Si no se puede leer el peso, no se inventa: se cuenta aparte para que el front pueda
-// avisar que el equivalente está incompleto en vez de mostrar un total corto y mentiroso.
-test('agruparFamilias no inventa kilos cuando la presentación no se puede leer', () => {
+// El fraccionado se vende por peso: la cantidad del renglón ya son kilos, se lea o no la
+// presentación en el nombre.
+test('agruparFamilias toma la cantidad como kilos en todo lo que se vende por peso', () => {
   const rows = [
-    { IdProducto: 1, Nombre: 'Granola Suelta 1Kg', Unidades: 3, Facturacion: 900 },
-    { IdProducto: 2, Nombre: 'Granola Suelta',     Unidades: 7, Facturacion: 100 },
+    { IdProducto: 1, Nombre: 'Granola Suelta 1Kg', Rubro: 'Pesables Fraccionado', Unidades: 3, Facturacion: 900 },
+    { IdProducto: 2, Nombre: 'Granola Suelta',     Rubro: 'Pesables Fraccionado', Unidades: 7, Facturacion: 100 },
   ];
   const [fam] = agruparFamilias(rows, 10);
-  assert.strictEqual(fam.kilos, 3);
+  // 3 + 7: las dos son ventas por peso, así que la cantidad ya está en kilos.
+  assert.strictEqual(fam.kilos, 10);
   assert.strictEqual(fam.unidades, 10);
-  assert.strictEqual(fam.unidadesSinEquivalencia, 7);
-  assert.strictEqual(fam.presentaciones.find(p => p.nombre === 'Granola Suelta').kilos, null);
+  const suelta = fam.presentaciones.find(p => p.nombre === 'Granola Suelta');
+  assert.strictEqual(suelta.kilos, 7);
 });
 
 test('agruparFamilias separa litros de kilos en vez de mezclarlos', () => {
   const rows = [
-    { IdProducto: 1, Nombre: 'Jugo Apidelta 900ML', Unidades: 10, Facturacion: 500 },
-    { IdProducto: 2, Nombre: 'Jugo Apidelta 2Lt',   Unidades: 3,  Facturacion: 400 },
+    { IdProducto: 1, Nombre: 'Jugo Apidelta 900ML', Rubro: 'Almacen Bultos/Cajas', Unidades: 10, Facturacion: 500 },
+    { IdProducto: 2, Nombre: 'Jugo Apidelta 2Lt',   Rubro: 'Almacen Bultos/Cajas', Unidades: 3,  Facturacion: 400 },
   ];
   const [fam] = agruparFamilias(rows, 10);
   assert.strictEqual(fam.litros, 15); // 10×0,9 + 3×2
@@ -724,6 +727,99 @@ test('sqlVentasPorClienteProducto agrupa por cliente y producto con los filtros 
   assert.match(s, /ISNULL\(c\.IdCategoria, 0\) != 5/);
   assert.match(s, /IN \('Apicultura'\)/);
   assert.match(s, /vp\.IdProducto NOT IN \('302158','1'\)/);
+  // La marca viaja con el renglón: sin ella no se puede decir si el producto es propio.
+  assert.match(s, /ISNULL\(mp\.NombreMarca,''\) AS Marca/);
+  assert.match(s, /LEFT JOIN Marcas mp ON mp\.IdMarca = p\.IdMarca/);
+});
+
+// ── Marca propia ─────────────────────────────────────────────────────────────
+// Ni la marca ni el nombre alcanzan solos: hay productos de la marca Apidelta que no la
+// nombran (las mieles en tambor) y productos Apidelta cargados bajo marcas genéricas.
+test('esProductoPropio reconoce la marca, sus variantes y el nombre', () => {
+  const { esProductoPropio } = require('../analisis_ventas');
+  // Por marca, incluidas las variantes de la línea.
+  assert.strictEqual(esProductoPropio('Miel Granel En Tambor Acacia', 'Apidelta'), true);
+  assert.strictEqual(esProductoPropio('Yerba Compuesta 1Kg', 'Apidelta Yerba'), true);
+  // Por nombre, aunque la marca sea genérica.
+  assert.strictEqual(esProductoPropio('Merm Apidelta Frutilla 420G', 'Mermeladas y Untables'), true);
+  // La otra línea propia de la casa.
+  assert.strictEqual(esProductoPropio('Miel Pago De Los Arroyos 250G', 'Generica'), true);
+  // Reventa: ni la marca ni el nombre son propios.
+  assert.strictEqual(esProductoPropio('Galletitas Surtidas 300G', 'Galletitas y Bizcochos'), false);
+  // "Apidelta" tiene que ser el comienzo de la marca, no una coincidencia en el medio.
+  assert.strictEqual(esProductoPropio('Frasco Vacio', 'Insumos Apidelta Terceros'), false);
+  assert.strictEqual(esProductoPropio('', ''), false);
+});
+
+// Las granolas propias no dicen Apidelta: se cargan como "G." + variedad. La marca
+// "Granolas" no alcanza porque ahí también están las de terceros.
+test('esProductoPropio reconoce las granolas propias por el prefijo G.', () => {
+  const { esProductoPropio } = require('../analisis_ventas');
+  assert.strictEqual(esProductoPropio('G. Crunch 500G Caja 8u', 'Granolas'), true);
+  assert.strictEqual(esProductoPropio('G. Chocolate Gold 40G', 'Granolas'), true);
+  assert.strictEqual(esProductoPropio('G. KETO 250G Bulto (x14 Precio x Unidad)', 'Granolas'), true);
+  assert.strictEqual(esProductoPropio('G. Crocante PEDIDOS', 'ADMINISTRACION'), true);
+  // Granolas de terceros dentro de la misma marca: no son propias.
+  assert.strictEqual(esProductoPropio('Granola Horneada Canela Natural Candy 250G', 'Granolas'), false);
+  assert.strictEqual(esProductoPropio('Galletitas Granola Almendras Granix 145G', 'Galletitas y Bizcochos'), false);
+  // El prefijo exige punto y una letra detrás: una G suelta no alcanza.
+  assert.strictEqual(esProductoPropio('Gaseosa Cola 2Lt', 'Bebidas'), false);
+  assert.strictEqual(esProductoPropio('G. 500G', 'Granolas'), false);
+});
+
+// Los mix de armado propio son seis variedades concretas. Ni la palabra "mix" ni la marca
+// alcanzan: hay mix de reventa y las presentaciones de un mismo mix se reparten entre las
+// marcas "Apidelta" y "Mix Frutos Secos" sin criterio.
+test('esProductoPropio reconoce las seis variedades de mix propio', () => {
+  const { esProductoPropio } = require('../analisis_ventas');
+  assert.strictEqual(esProductoPropio('Mix Europeo 100Gs Bulto', 'Mix Frutos Secos'), true);
+  assert.strictEqual(esProductoPropio('Mix Cervecero Pote 350G', 'Mix Frutos Secos'), true);
+  assert.strictEqual(esProductoPropio('Mix Cerv. Prem. 200G Unidad Pack', 'Mix Frutos Secos'), true);
+  assert.strictEqual(esProductoPropio('Mix Tropic. Pote 180G', 'Mix Frutos Secos'), true);
+  // El catálogo escribe F.S y F.S., con uno o dos espacios: las tres formas son la misma.
+  assert.strictEqual(esProductoPropio('Mix F.S Sin Pasas 500G', 'Apidelta'), true);
+  assert.strictEqual(esProductoPropio('Mix F.S. Sin Pasas 10Kg Pack', 'Mix Frutos Secos'), true);
+  assert.strictEqual(esProductoPropio('Mix F.S N&P 1Kg', 'Apidelta'), true);
+  assert.strictEqual(esProductoPropio('Mix F.S  N&P 5Kg', 'Mix Frutos Secos'), true);
+  assert.strictEqual(esProductoPropio('Mix F.S. N&P 10Kg Bulto', 'Mix Frutos Secos'), true);
+  // "Tropic." no puede comerse "Tropical": el Iqf es fruta congelada de reventa.
+  assert.strictEqual(esProductoPropio('Mix Tropical Iqf 1Kg', 'Frutos Congelados'), false);
+  // Mix de reventa que no están en la lista de variedades propias.
+  assert.strictEqual(esProductoPropio('Mix Chantilly Keuken 800G', 'Almacen Varios'), false);
+  assert.strictEqual(esProductoPropio('Mix Costa De Mar Ruedo 65G', 'Condimentos'), false);
+  assert.strictEqual(esProductoPropio('Mix Clasico Pote 400G', 'Navideños'), false);
+});
+
+test('agruparClientes cuenta familias propias distintas y marca los productos', () => {
+  const rows = [
+    // Dos presentaciones de la misma línea: una sola familia.
+    { IdCliente: 'A', Cliente: 'Distri', IdProducto: 1, Nombre: 'Miel Eucalipto Apidelta 1Kg',  Marca: 'Apidelta Miel', Unidades: 2, Facturacion: 400 },
+    { IdCliente: 'A', Cliente: 'Distri', IdProducto: 2, Nombre: 'Miel Acacia Apidelta 500G',    Marca: 'Apidelta Miel', Unidades: 4, Facturacion: 300 },
+    // Otra familia propia, reconocida por nombre pese a la marca genérica.
+    { IdCliente: 'A', Cliente: 'Distri', IdProducto: 3, Nombre: 'Merm Apidelta Frutilla 420G',  Marca: 'Mermeladas y Untables', Unidades: 5, Facturacion: 200 },
+    // Reventa: no suma familias ni facturación propia.
+    { IdCliente: 'A', Cliente: 'Distri', IdProducto: 4, Nombre: 'Galletitas Surtidas 300G',     Marca: 'Galletitas y Bizcochos', Unidades: 9, Facturacion: 100 },
+  ];
+  const [c] = agruparClientes(rows, 10);
+  assert.strictEqual(c.familiasPropias, 2);
+  assert.strictEqual(c.facturacionPropia, 900);
+  assert.strictEqual(c.facturacion, 1000);
+  const propios = c.productos.filter(p => p.propio).map(p => p.idProd);
+  assert.deepStrictEqual(propios.sort(), [1, 2, 3]);
+  // La familia viaja en el detalle para poder auditar el conteo desde el desplegable.
+  assert.strictEqual(c.productos.find(p => p.idProd === 1).familia, 'MIEL APIDELTA');
+  // El Set interno no se filtra al front.
+  assert.strictEqual(c._famPropias, undefined);
+});
+
+test('agruparClientes deja en cero las familias propias de un cliente de pura reventa', () => {
+  const rows = [
+    { IdCliente: 'B', Cliente: 'Kiosco', IdProducto: 9, Nombre: 'Galletitas 300G', Marca: 'Galletitas y Bizcochos', Unidades: 1, Facturacion: 50 },
+  ];
+  const [c] = agruparClientes(rows, 10);
+  assert.strictEqual(c.familiasPropias, 0);
+  assert.strictEqual(c.facturacionPropia, 0);
+  assert.strictEqual(c.productos[0].propio, false);
 });
 
 test('agruparClientes colapsa el detalle en clientes y ordena por facturación', () => {
@@ -764,4 +860,207 @@ test('promedioArticulos divide artículos totales por tickets totales', () => {
   ];
   assert.strictEqual(promedioArticulos(porSuc), 3); // 15 / 5
   assert.strictEqual(promedioArticulos([]), 0);
+});
+
+// ── Familias consolidadas: central + sucursales en una sola tabla ────────────
+const { sucIdsFamilias, fusionarProductos } = require('../analisis_ventas');
+
+test('sucIdsFamilias distingue "no vino el filtro" de "ninguna sucursal"', () => {
+  // Sin el parámetro entran todas: es el default de la pestaña al abrirse.
+  assert.deepStrictEqual(sucIdsFamilias(undefined), [2, 3, 4, 5, 7, 9, 10]);
+  // Vacío es una elección del usuario (destildó todos los chips), no un default.
+  assert.deepStrictEqual(sucIdsFamilias(''), []);
+  assert.deepStrictEqual(sucIdsFamilias('3,5'), [3, 5]);
+});
+
+test('sucIdsFamilias descarta ids fuera de la whitelist y basura', () => {
+  // La central (1) no entra por acá: se pide con su propio flag.
+  assert.deepStrictEqual(sucIdsFamilias('1,3,99'), [3]);
+  assert.deepStrictEqual(sucIdsFamilias('abc'), []);
+  assert.deepStrictEqual(sucIdsFamilias('3,3,5'), [3, 5]);
+});
+
+test('fusionarProductos suma el mismo producto vendido en los dos alcances', () => {
+  const central = [{ IdProducto: '10', Nombre: 'MIEL PURA 500G', Unidades: 4, Facturacion: 1000 }];
+  const sucursales = [{ IdProducto: '10', Nombre: 'MIEL PURA 500G', Unidades: 6, Facturacion: 1500 }];
+  const fusionado = fusionarProductos(central, sucursales);
+  assert.strictEqual(fusionado.length, 1);
+  assert.strictEqual(fusionado[0].Unidades, 10);
+  assert.strictEqual(fusionado[0].Facturacion, 2500);
+});
+
+test('fusionarProductos compara ids como string (bigint del driver vs número)', () => {
+  const fusionado = fusionarProductos(
+    [{ IdProducto: 10, Nombre: 'MIEL PURA 500G', Unidades: 1, Facturacion: 100 }],
+    [{ IdProducto: '10', Nombre: 'MIEL PURA 500G', Unidades: 2, Facturacion: 200 }],
+  );
+  assert.strictEqual(fusionado.length, 1);
+  assert.strictEqual(fusionado[0].Unidades, 3);
+});
+
+test('fusionarProductos mantiene separados los productos distintos y tolera listas vacías', () => {
+  const fusionado = fusionarProductos(
+    [{ IdProducto: '10', Nombre: 'MIEL PURA 500G', Unidades: 1, Facturacion: 100 }],
+    [{ IdProducto: '11', Nombre: 'MIEL PURA 1KG', Unidades: 1, Facturacion: 300 }],
+  );
+  assert.strictEqual(fusionado.length, 2);
+  assert.deepStrictEqual(fusionarProductos(), []);
+  assert.deepStrictEqual(fusionarProductos(null, []), []);
+});
+
+test('agruparFamilias sin tope devuelve todas las familias, no las primeras 20', () => {
+  // 25 familias distintas: con el tope por defecto quedarían 20.
+  const rows = Array.from({ length: 25 }, (_, i) => ({
+    IdProducto: String(i + 1), Nombre: `PRODUCTO${i} 500G`, Unidades: 1, Facturacion: 100 - i,
+  }));
+  assert.strictEqual(agruparFamilias(rows, 20).length, 20);
+  assert.strictEqual(agruparFamilias(rows, Infinity).length, 25);
+});
+
+// ── Equivalente en kilos ─────────────────────────────────────────────────────
+// Dos formas de vender la misma mercadería y por eso dos cuentas distintas:
+//  · Bulto: paquete cerrado. Se venden N paquetes, así que los kilos salen de multiplicar
+//    el contenido declarado en el nombre por la cantidad de paquetes.
+//  · Todo lo demás: se vende por peso, así que la cantidad del renglón YA está en kilos.
+// La columna suma las dos: son los kilos que salieron de la familia, vengan como vengan.
+const FRACC = 'Pesables Fraccionado', BULTO = 'Almacen Bultos/Cajas';
+
+test('agruparFamilias: MIX TROPIC suma los kilos de sucursales y los bultos de central', () => {
+  const rows = [
+    // Sucursales: se venden por peso, la cantidad ya son kilos.
+    { IdProducto: '1', Nombre: 'MIX TROPIC 500G', Rubro: FRACC, Unidades: 10, Facturacion: 1000 },
+    { IdProducto: '2', Nombre: 'MIX TROPIC 1KG',  Rubro: FRACC, Unidades: 4,  Facturacion: 800 },
+    // Casa central: paquetes cerrados, hay que pesarlos.
+    { IdProducto: '3', Nombre: 'MIX TROPIC 200G BULTO', Rubro: BULTO, Unidades: 6, Facturacion: 600 },
+    { IdProducto: '4', Nombre: 'MIX TROPIC 1KG BULTO',  Rubro: BULTO, Unidades: 3, Facturacion: 900 },
+  ];
+  const [fam] = agruparFamilias(rows, 10);
+  assert.strictEqual(fam.familia, 'MIX TROPIC');
+  // 10 + 4 (por peso) + 6x0,2 = 1,2 + 3x1 = 3  ->  18,2 kg
+  assert.strictEqual(fam.kilos, 18.2);
+  // Las unidades son la suma cruda de lo vendido, sin convertir nada.
+  assert.strictEqual(fam.unidades, 23);
+});
+
+test('agruparFamilias pesa el bulto por su contenido y el resto por la cantidad', () => {
+  const [porPeso] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'ALMENDRA 500G', Rubro: FRACC, Unidades: 7.5, Facturacion: 100 },
+  ], 10);
+  // Se vende por peso: 7,5 es 7,5 kg. Multiplicar por el 0,5 del nombre sería inventar.
+  assert.strictEqual(porPeso.kilos, 7.5);
+
+  const [porPaquete] = agruparFamilias([
+    { IdProducto: '2', Nombre: 'ALMENDRA 500G BULTO', Rubro: BULTO, Unidades: 7, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(porPaquete.kilos, 3.5); // 7 paquetes x 0,5 kg
+});
+
+test('agruparFamilias suma un bulto sin peso legible como la cantidad vendida', () => {
+  const [fam] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'NUEZ SURTIDA BULTO', Rubro: BULTO, Unidades: 9, Facturacion: 100 },
+  ], 10);
+  // Sin contenido declarado no hay con qué multiplicar: queda la cantidad cruda.
+  assert.strictEqual(fam.kilos, 9);
+});
+
+test('agruparFamilias no calcula equivalente para familias de otros rubros', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'YERBA 500G', Rubro: 'Almacen', Unidades: 6, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 0);
+  assert.strictEqual(f.equivalenteAplica, false);
+});
+
+test('agruparFamilias separa litros de kilos también en los bultos', () => {
+  const [fam] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'JUGO 900ML BULTO', Rubro: BULTO, Unidades: 10, Facturacion: 500 },
+  ], 10);
+  assert.strictEqual(fam.litros, 9);
+  assert.strictEqual(fam.kilos, 0);
+});
+
+test('agruparFamilias compara el rubro sin espacios ni acentos', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'ALMENDRA 500G BULTO', Rubro: 'almacen bultos / cajas', Unidades: 2, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 1);
+});
+
+test('agruparFamilias sin rubro no mide: el producto no declara cómo se vende', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'NUEZ 500G', Unidades: 2, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.equivalenteAplica, false);
+  assert.strictEqual(f.kilos, 0);
+});
+
+// El rubro es la señal principal, pero no siempre está bien cargado: "Mix Tropic. 200G
+// Unidad Bulto" se vende por paquete y aparecía con 98 unidades = 98 kg en vez de 19,6.
+// Cuando el nombre declara que es bulto o pack, se pesa igual que si el rubro lo dijera.
+test('agruparFamilias pesa por paquete cuando el nombre dice Bulto aunque el rubro no', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Mix Tropic. 200G Unidad Bulto', Rubro: FRACC, Unidades: 98, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 19.6); // 98 paquetes x 0,2 kg
+});
+
+test('agruparFamilias pesa por paquete los nombres con Pack', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'MIX TROPIC 500G PACK 6', Rubro: FRACC, Unidades: 4, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 2); // 4 packs x 0,5 kg
+});
+
+test('agruparFamilias no confunde con bulto lo que se vende por peso', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'MIX TROPIC 500G', Rubro: FRACC, Unidades: 12.5, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 12.5); // la cantidad ya está en kilos
+});
+
+// "Unidad" en el nombre es la otra forma en que SIGA marca que el renglón cuenta paquetes
+// y no kilos: Mix Cerv.Prem es un pesable cuyas ventas son todas de bultos, y sin esto sus
+// paquetes se contaban como kilos.
+test('agruparFamilias pesa por paquete los nombres con Unidad', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Mix Cerv.Prem. 200G Unidad', Rubro: FRACC, Unidades: 98, Facturacion: 100 },
+  ], 10);
+  assert.strictEqual(f.kilos, 19.6); // 98 paquetes x 0,2 kg
+});
+
+test('agruparFamilias mezcla paquetes y venta por peso en la misma familia', () => {
+  const [f] = agruparFamilias([
+    { IdProducto: '1', Nombre: 'MIX CERV PREM 200G Unidad', Rubro: FRACC, Unidades: 10,  Facturacion: 100 },
+    { IdProducto: '2', Nombre: 'MIX CERV PREM 500G',        Rubro: FRACC, Unidades: 3.5, Facturacion: 100 },
+  ], 10);
+  // 10 paquetes x 0,2 = 2 kg, más 3,5 kg vendidos sueltos.
+  assert.strictEqual(f.kilos, 5.5);
+});
+
+// ── Línea Molens ─────────────────────────────────────────────────────────────
+// Toda la línea lleva "Molens" en el nombre, en cualquier posición, así que alcanza con
+// buscar la palabra: sin esto cada sabor y cada presentación arma su propia familia.
+test('los productos Molens arman una sola familia', () => {
+  assert.strictEqual(familiaNombre('Galletitas Molens Vainilla 300G', 100), 'MOLENS');
+  assert.strictEqual(familiaNombre('MOLENS CHOCOLATE 1KG', 101), 'MOLENS');
+  assert.strictEqual(familiaNombre('Budin Molens', 102), 'MOLENS');
+  // Con apóstrofo también: la marca aparece escrita de las dos formas.
+  assert.strictEqual(familiaNombre("Galletitas Molen's Limon 300G", 103), 'MOLENS');
+});
+
+test('Molens no arrastra palabras que sólo lo contienen', () => {
+  assert.strictEqual(familiaNombre('Molensina Harina 1KG', 104), 'Molensina Harina');
+  assert.strictEqual(familiaNombre('Premolens Mix', 105), 'Premolens Mix');
+});
+
+test('agruparFamilias junta toda la línea Molens en una fila', () => {
+  const fams = agruparFamilias([
+    { IdProducto: '1', Nombre: 'Galletitas Molens Vainilla 300G', Unidades: 5, Facturacion: 500 },
+    { IdProducto: '2', Nombre: 'Galletitas Molens Limon 300G',    Unidades: 3, Facturacion: 300 },
+    { IdProducto: '3', Nombre: 'Budin Molens 400G',               Unidades: 2, Facturacion: 200 },
+  ], 10);
+  assert.strictEqual(fams.length, 1);
+  assert.strictEqual(fams[0].familia, 'MOLENS');
+  assert.strictEqual(fams[0].presentaciones.length, 3);
+  assert.strictEqual(fams[0].unidades, 10);
 });
