@@ -45,6 +45,7 @@ const CATALOGO_MODULOS = [
   { ref: 'analisis-ventas',     titulo: 'Análisis de Ventas',       icon: 'bar-chart-3',    href: '/analisis-ventas',    rutasHtml: ['/analisis-ventas', '/diagnostico-quiebre'], apiPrefijos: ['/api/analisis-ventas'], defaultRequiereAuth: true },
   { ref: 'analisis-central',    titulo: 'Análisis Casa Central',    icon: 'building-2',     href: '/analisis-central',   rutasHtml: ['/analisis-central'],   apiPrefijos: ['/api/analisis-central'],          defaultRequiereAuth: true },
   { ref: 'cuentas-corrientes',  titulo: 'Cuentas Corrientes',       icon: 'wallet',         href: '/cuentas-corrientes', rutasHtml: ['/cuentas-corrientes'], apiPrefijos: ['/api/cuentas-corrientes'],        defaultRequiereAuth: true },
+  { ref: 'cruce-terminales',    titulo: 'Cruce de Terminales',      icon: 'credit-card',    href: '/cruce-terminales',   rutasHtml: ['/cruce-terminales'],   apiPrefijos: ['/api/cruce-terminales'],          defaultRequiereAuth: true },
   { ref: 'admin',               titulo: 'Centro de control',        icon: 'shield',         href: '/admin',              rutasHtml: ['/admin'],              apiPrefijos: ['/api/admin'],                     defaultRequiereAuth: true, soloAdmin: true },
 ];
 
