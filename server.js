@@ -3478,13 +3478,17 @@ app.get('/api/distribucion/pedido-formula/:plu', async (req, res) => {
   try {
     const plu = parseInt(req.params.plu, 10);
     if (isNaN(plu)) return res.status(400).json({ error: 'PLU inválido' });
+    // Sólo la fórmula vigente: sin este filtro entraban los componentes de todas las
+    // fórmulas del producto y el MAX() se quedaba con la cantidad más grande entre ellas,
+    // así que la carga de producción y la distribución consumían insumos de fórmulas viejas.
+    // El componente se aliasa `p` porque es lo que espera SIN_FORMULA_GENERICO_SQL.
     const rows = await query(`
-      SELECT pc.IdProductoComponente AS plu, comp.NombreProducto AS nombre,
+      SELECT pc.IdProductoComponente AS plu, p.NombreProducto AS nombre,
              CAST(MAX(pc.Cantidad) AS FLOAT) AS cantidad
       FROM ProductosComponentes pc
-      INNER JOIN Productos comp ON comp.IdProducto = pc.IdProductoComponente
-      WHERE pc.IdProducto = ${plu}
-      GROUP BY pc.IdProductoComponente, comp.NombreProducto`);
+      INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+      WHERE pc.IdProducto = ${plu} AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
+      GROUP BY pc.IdProductoComponente, p.NombreProducto`);
     console.log(`[pedido-formula] PLU=${plu} result=${rows.length}`);
     res.json(rows.map(r => ({ plu: String(r.plu), nombre: r.nombre, cantidad: r.cantidad })));
   } catch(e) { console.error('[pedido-formula]', e.message); res.status(500).json({ error: e.message }); }
