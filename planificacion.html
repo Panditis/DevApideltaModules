@@ -485,7 +485,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
     <button class="btn btn-secondary btn-sm" id="btnGestionResp">Responsables</button>
     <button class="btn btn-danger btn-sm"    id="btnBorrarPlan"    disabled>🗑 Borrar todo</button>
     <button class="btn btn-secondary btn-sm" id="btnResumenMP"     disabled title="Ver resumen de materia prima del plan">📦 Resumen MP</button>
-    <button class="btn btn-secondary btn-sm" id="btnMoverTodoDia" disabled title="Mover todo el día a otra fecha">📅 Mover día</button>
     <button class="btn btn-secondary btn-sm" id="btnReservaMerc"  disabled title="Reservar los componentes de fórmula del plan">🔒 Reservar mercadería</button>
     <button class="btn btn-secondary btn-sm" id="btnMovStock" title="Ver el resumen de reservas del plan y revertirlas">🧾 Resumen de reservas</button>
     <button class="btn btn-enviar"           id="btnEnviarProd"    disabled title="Enviar plan a Producción del Día">📤 Enviar a Producción</button>
@@ -1679,7 +1678,6 @@ function renderPlan() {
     items.length ? `${listos}/${items.length} listos` : '';
   document.getElementById('btnEnviarProd').disabled   = items.length === 0;
   document.getElementById('btnResumenMP').disabled    = items.length === 0;
-  document.getElementById('btnMoverTodoDia').disabled = items.length === 0;
   aplicarEstadoBotonReserva();
 
   if (!items.length) {
@@ -1895,21 +1893,6 @@ function moverItem(id) {
       planCache.items = planCache.items.filter(i => i.id != id);
       renderPlan();
       toast(`"${it.producto}" → ${formatFecha(nuevaFecha)}`);
-    } catch (e) { toast('Error al mover: ' + e.message, true); }
-  });
-}
-
-async function moverTodoDia() {
-  const items = planCache?.items || [];
-  if (!items.length) return;
-  abrirDiaPicker(`📅 Mover todo el plan (${items.length} ítems)`, async nuevaFecha => {
-    if (nuevaFecha === fechaPlanActual) { toast('Es el mismo día', true); return; }
-    try {
-      for (const it of items) await api('POST', `/api/plan/${nuevaFecha}/item`, { ...it, fecha: nuevaFecha });
-      await api('DELETE', `/api/plan/${fechaPlanActual}`);
-      planCache = { items: [], notas: '' };
-      renderPlan();
-      toast(`${items.length} ítems movidos a ${formatFecha(nuevaFecha)}`);
     } catch (e) { toast('Error al mover: ' + e.message, true); }
   });
 }
@@ -3166,7 +3149,6 @@ async function confirmarEnviarProduccion() {
 }
 
 document.getElementById('btnEnviarProd').addEventListener('click', abrirModalEnviar);
-document.getElementById('btnMoverTodoDia').addEventListener('click', moverTodoDia);
 document.getElementById('btnResumenMP').addEventListener('click', () => {
   const items = planCache?.items || [];
   if (!items.length) return;
