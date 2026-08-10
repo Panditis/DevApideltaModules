@@ -33,6 +33,7 @@ const CATALOGO_MODULOS = [
   { ref: 'pedidos',             titulo: 'Pedidos',                  icon: 'clipboard-list', href: '/pedidos',            rutasHtml: ['/pedidos'],            apiPrefijos: ['/api/pedidos', '/api/facturas', '/api/mayoristas'],  defaultRequiereAuth: true },
   { ref: 'planificacion',       titulo: 'Planificación',            icon: 'calendar-range', href: '/planificacion',      rutasHtml: ['/planificacion'],      apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'produccion',          titulo: 'Producción',               icon: 'factory',        href: '/produccion',         rutasHtml: ['/produccion'],         apiPrefijos: [],                                  defaultRequiereAuth: true },
+  { ref: 'productividad',       titulo: 'Productividad de Sala',    icon: 'gauge',          href: '/productividad',      rutasHtml: ['/productividad'],      apiPrefijos: ['/api/productividad'],             defaultRequiereAuth: true },
   // Compras es un único módulo (el de reposición). '/compras-modulo' quedó como ruta
   // histórica que redirige a '/compras': se mantiene acá para que la redirección
   // siga pasando por el control de acceso.
