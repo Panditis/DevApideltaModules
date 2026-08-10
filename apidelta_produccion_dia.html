@@ -2154,7 +2154,7 @@ function renderHistorial(registros) {
             <tbody>${(reg.ordenes||[]).map(o => {
               const eL={pendiente:'⬜ Pendiente',en_proceso:'🔄 En proceso',listo:'✅ Listo'};
               return `<tr style="border-bottom:1px solid #F0F0F0">
-                <td style="padding:7px 10px;font-weight:500">${cleanNombre(o.producto||'')}</td>
+                <td style="padding:7px 10px;font-weight:500">${escEnv(o.producto||'')}</td>
                 <td style="padding:7px 10px;text-align:center">${o.cantidad||'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${o.seccion||'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${o.cliente||'—'}</td>
@@ -2183,7 +2183,7 @@ function renderHistorial(registros) {
               const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${c.observacion}</div>` : '';
               return `<tr style="border-bottom:1px solid #F0F0F0">
                 <td style="padding:7px 10px;color:var(--text-muted);white-space:nowrap">${fechaC}</td>
-                <td style="padding:7px 10px;font-weight:500">${cleanNombre(c.nombre||c.producto||'')}${obs}</td>
+                <td style="padding:7px 10px;font-weight:500">${escEnv(c.nombre||c.producto||'')}${obs}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${c.presentacion||'—'}</td>
                 <td style="padding:7px 10px;text-align:center">${c.cantFraccionada??'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${resp}</td>
@@ -3303,7 +3303,7 @@ function renderConciliacion(d) {
     if (p.manual) extra += `<span title="Carga manual: sin orden planificada. Los componentes se descuentan del depósito de recepción, donde también entra el terminado, y no se concilian contra la reserva." style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:var(--radius-chip);font-size:10px;font-weight:700;background:#E3F2FD;color:#1565C0">✋ manual</span>`;
     return `<tr style="border-bottom:1px solid #F0F0F0${gris ? ';color:var(--text-muted);background:#FAFAFA' : ''}">
       <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(p.pluTexto || p.plu || '—')}</td>
-      <td style="padding:7px 8px">${escEnv(cleanNombre(p.nombre || ''))}${extra}</td>
+      <td style="padding:7px 8px">${escEnv(p.nombre || '')}${extra}</td>
       <td style="padding:7px 8px;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px${gris ? '' : ';color:var(--green-dark)'}">${fmtN(p.cantidad)}</td>
       <td style="padding:7px 8px;text-align:right;color:var(--text-muted)">${fmtN(p.registros)}</td>
     </tr>`;
@@ -3347,7 +3347,7 @@ function renderConciliacion(d) {
           else if (c.sobra || dif < 0) { bg = '#FFF8E1'; difColor = '#E65100'; }
           return `<tr style="border-bottom:1px solid #F0F0F0;background:${bg}">
             <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
-            <td style="padding:7px 8px">${escEnv(cleanNombre(c.nombre || ''))}</td>
+            <td style="padding:7px 8px">${escEnv(c.nombre || '')}</td>
             <td style="padding:7px 8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${escEnv(c.tipo || '—')}</td>
             <td style="padding:7px 8px;text-align:right">${fmtN(c.reservado)}</td>
             <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN(c.usado)}</td>
@@ -3377,7 +3377,7 @@ function renderConciliacion(d) {
         </tr></thead>
         <tbody>${compManual.map(c => `<tr style="border-bottom:1px solid #F0F0F0">
           <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
-          <td style="padding:7px 8px">${escEnv(cleanNombre(c.nombre || ''))}</td>
+          <td style="padding:7px 8px">${escEnv(c.nombre || '')}</td>
           <td style="padding:7px 8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${escEnv(c.tipo || '—')}</td>
           <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN(c.usado)}</td>
         </tr>`).join('')}</tbody>
@@ -3411,7 +3411,7 @@ function renderConciliacion(d) {
                 const sobranteN = _parseNum(c.sobrante);
                 const alerta = sobranteN > 0 || usadoN > reservadoN;
                 return `<tr style="border-bottom:1px solid #F0F0F0${alerta ? ';background:#FFEBEE' : ''}">
-                  <td style="padding:7px 8px">${escEnv(cleanNombre(c.nombre || ''))}</td>
+                  <td style="padding:7px 8px">${escEnv(c.nombre || '')}</td>
                   <td style="padding:7px 8px;text-align:right">${fmtN(c.reservado)}</td>
                   <td style="padding:7px 8px;text-align:right;font-weight:700${alerta ? ';color:var(--c-alta)' : ''}">${fmtN(c.usado)}</td>
                   <td style="padding:7px 8px;text-align:right${alerta ? ';color:var(--c-alta);font-weight:700' : ''}">${fmtN(c.sobrante)}</td>
@@ -3512,7 +3512,7 @@ async function verMovimientoSiga(numero, idSucursal, idTipoMovimiento) {
           const cant = _parseNum(l.cantidad);
           return `<tr style="border-bottom:1px solid #F0F0F0">
             <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(l.plu || '—')}</td>
-            <td style="padding:7px 8px">${escEnv(cleanNombre(l.nombre || ''))}</td>
+            <td style="padding:7px 8px">${escEnv(l.nombre || '')}</td>
             <td style="padding:7px 8px;color:var(--text-muted)">${escEnv(l.nombreDeposito || (l.idDeposito != null ? 'Depósito ' + l.idDeposito : '—'))}</td>
             <td style="padding:7px 8px;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${cant < 0 ? 'var(--c-alta)' : 'var(--green-dark)'}">${fmtN(cant)}</td>
           </tr>`;

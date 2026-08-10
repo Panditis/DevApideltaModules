@@ -3069,6 +3069,40 @@ async function abrirModalEnviar() {
 async function confirmarEnviarProduccion() {
   const ordenes = construirOrdenes();
   if (!ordenes.length) return;
+
+  // Enviar a Producción sin reservar deja las órdenes sin stock apartado: al conciliar no hay
+  // reserva contra la cual descontar el consumo. Se avisa y se ofrece reservar primero; si el
+  // operador elige seguir sin reservar, el envío continúa como antes.
+  const itemSinReservar = it => (it.cantConfirmada ?? it.cantSugerida ?? 0) > 0
+    && !(it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+  const sinReservar = (planCache?.items || []).filter(itemSinReservar);
+  if (sinReservar.length) {
+    const nombres = sinReservar.map(it => it.producto).join('\n· ');
+    const plural  = sinReservar.length > 1;
+    const reservar = await showConfirm(
+      '⚠ Sin reservar',
+      `${sinReservar.length} orden${plural ? 'es' : ''} se ${plural ? 'van' : 'va'} a enviar a Producción `
+      + 'sin haber reservado la mercadería, así que su consumo no se podrá conciliar contra ninguna reserva:'
+      + `\n\n· ${nombres}\n\n¿Reservar ahora?`,
+      '🔒 Reservar ahora'
+    );
+    if (reservar) {
+      document.getElementById('overlayEnviar').classList.remove('open');
+      await abrirModalReserva();
+      return;
+    }
+    // El botón de cancelar del modal de confirmación dice "Cancelar" y también se dispara con
+    // ✕ o clic afuera: no se puede leer como "enviar sin reservar" sin preguntarlo explícito.
+    const igual = await showConfirm(
+      '⚠ Enviar sin reservar',
+      `Se ${plural ? 'envían' : 'envía'} ${sinReservar.length} orden${plural ? 'es' : ''} sin reserva. `
+      + 'La mercadería no queda apartada y el consumo se resolverá contra el depósito de recepción.'
+      + '\n\n¿Enviar igual?',
+      'Enviar sin reservar'
+    );
+    if (!igual) return;
+  }
+
   const sinResp = ordenes.filter(o => !o.encargados?.length);
   if (sinResp.length) {
     const nombres = sinResp.map(o => o.producto).join('\n· ');

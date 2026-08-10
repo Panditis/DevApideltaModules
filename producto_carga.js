@@ -141,8 +141,14 @@ function resolverProductoCarga(nombreMayorista, catalogo) {
                    normalizarClave(p.info.base) === baseClave)
       .map(p => ({ plu: p.plu, nombre: p.nombre, estricta: normalizarComparacion(p.info.base) }));
   } else {
-    const claveDestino = `${baseClave} pedidos`;
-    claveEstricta = `${normalizarComparacion(info.base)} pedidos`;
+    // El propio producto " PEDIDOS" puede venir como línea de la orden: se carga contra sí mismo.
+    // Sin esto se buscaría "G. KETO PEDIDOS PEDIDOS", no resolvería destino y el modal quedaría
+    // sin granel ni fórmula (consumo sugerido en cero).
+    const yaEsPedidos = /(^| )pedidos$/.test(baseClave);
+    const claveDestino = yaEsPedidos ? baseClave : `${baseClave} pedidos`;
+    claveEstricta = yaEsPedidos
+      ? normalizarComparacion(info.base)
+      : `${normalizarComparacion(info.base)} pedidos`;
     candidatos = items
       .filter(p => normalizarClave(p.nombre) === claveDestino)
       .map(p => ({ plu: p.plu, nombre: p.nombre, estricta: normalizarComparacion(p.nombre) }));

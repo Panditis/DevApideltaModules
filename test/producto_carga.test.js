@@ -49,6 +49,18 @@ test('nombre con simbolos: Mix F.S N&P 200G Unidad Bulto resuelve al minorista d
   assert.strictEqual(r.via, 'minorista');
 });
 
+test('el propio producto PEDIDOS se carga contra si mismo', () => {
+  // Arrange: caso real (PLU 91848 "G. KETO PEDIDOS"). El nombre no tiene token de peso, asi que
+  // la base es el nombre entero: antes se buscaba "... PEDIDOS PEDIDOS" y no resolvia destino.
+  const CAT = [{ plu: '91645', nombre: 'Mix Europeo PEDIDOS' }, { plu: '91848', nombre: 'G. KETO PEDIDOS' }];
+
+  // Act
+  const r = resolverProductoCarga('G. KETO PEDIDOS', CAT);
+
+  // Assert
+  assert.deepStrictEqual(r, { plu: '91848', nombre: 'G. KETO PEDIDOS', via: 'pedidos', presentacionKg: null });
+});
+
 test('presentacion mayor a 1kg: el pack de 2Kg se carga contra el producto PEDIDOS', () => {
   // Arrange: caso real (PLU 2547). El nombre encadena presentacion + pack + paentesis.
   const nombre = 'Yerba Apidelta 2Kg Pack X 40 Unidades (Precio Por Unid)';
