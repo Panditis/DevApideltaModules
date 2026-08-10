@@ -1359,6 +1359,23 @@ app.get('/api/mayoristas/producto-carga', apiRoute(async req => {
   let granel = null;
   if (/^\d+$/.test(destino.plu)) {
     const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+
+    // Destino con UN solo componente directo: ese componente ES el producto que se descuenta.
+    // Es el caso de las mezclas que se envasan desde un granel que no está en rubrosGranel
+    // ("G. KETO PEDIDOS" → "G. KETO 10Kg (Precio por kilo)", cantidad 1). sqlBOMGranel no lo ve
+    // por el rubro, baja un nivel más y devuelve un ingrediente suelto de la mezcla
+    // (Nuez Cuartillo 0.224), que no es lo que se consume al fraccionar.
+    const directos = await query(`
+      SELECT pc.IdProductoComponente, p.NombreProducto AS NombreComponente, pc.Cantidad AS CantPorUnidad
+      FROM ProductosComponentes pc INNER JOIN Productos p ON p.IdProducto=pc.IdProductoComponente
+      WHERE pc.IdProducto='${destino.plu}' AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}`);
+    if (directos.length === 1) {
+      const d = directos[0];
+      return { ...destino, nombreMayorista, base: info.base,
+               granelPlu: String(d.IdProductoComponente), granelNombre: d.NombreComponente || '',
+               cantPorUnidad: Number(d.CantPorUnidad) || 0 };
+    }
+
     const bomRows = await query(
       sqlBOMGranel(c.rubrosGranel.join(','), ` AND pc.IdProducto IN ('${destino.plu}')`));
     for (const b of bomRows) {
@@ -3577,11 +3594,20 @@ app.get('/api/produccion/historial', apiRoute(async req => {
   const hist = leerJSON(PROD_HIST_PATH, []);
   return fecha ? hist.filter(r => r && r.fecha === fecha) : hist;
 }));
+// Presentación deducida del nombre del producto ("MIEL APIDELTA 500G" → "500g"), o '' si el
+// nombre no la trae. La carga manual no viene de una orden planificada, así que no tiene
+// presentación cargada: sin esto la columna quedaba vacía en Terminados y en el historial.
+function presentacionDeNombre(nombre) {
+  const m = String(nombre || '').match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|lt|l|cc)\b/i);
+  return m ? m[1].replace(',', '.') + m[2].toLowerCase() : '';
+}
+
 app.post('/api/produccion/registros', (req, res) => {
   const b = req.body || {};
   if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
   const arr = leerJSON(PROD_REG_PATH, []);
-  arr.push({ ...b, id: Date.now() });
+  const presentacion = String(b.presentacion || '').trim() || presentacionDeNombre(b.nombre || b.producto);
+  arr.push({ ...b, presentacion, id: Date.now() });
   guardarJSON(PROD_REG_PATH, arr);
   res.json({ ok: true });
 });
@@ -7533,9 +7559,13 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   // una falla parcial salte lo ya registrado (idempotencia). Devuelve {aviso} si no hay plan.
   const aplicarAlPlan = (mutador) => {
     const planes = leerJSON(PLANES_PATH, {});
-    const planActual = planes[fecha];
-    if (!planActual) return { aviso: `No hay plan cargado para el ${fecha}: el movimiento se registró igual, pero el plan `
-                                    + 'no lleva la marca (el rastro queda en el log de movimientos).' };
+    // Producción 100% de carga manual: la fecha no tiene plan, pero la marca del asiento igual
+    // tiene que persistir. Sin ella la pantalla nunca veía la producción como registrada (el
+    // botón de registrar movimiento quedaba habilitado, con riesgo de duplicar el descuento) y
+    // los registros no se archivaban al historial. Se crea un plan mínimo: sin ítems ni reserva,
+    // sólo sostén de la marca.
+    const planActual = planes[fecha]
+      || { fecha, notas: '', items: [], creado: new Date().toISOString(), soloProduccionManual: true };
     guardarJSON(PLANES_PATH, { ...planes, [fecha]: mutador(planActual) });
     return { ok: true };
   };
