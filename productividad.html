@@ -1,0 +1,278 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Productividad de Sala — Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!-- Mismos estilos que el módulo de Análisis: pestañas, KPIs, cards y tablas ya viven ahí. -->
+<link rel="stylesheet" href="/analisis.css">
+<style>
+  /* Barra de cumplimiento del plan: el color dice de un vistazo si la orden se completó. */
+  .pct-barra{position:relative;min-width:92px}
+  .pct-barra i{position:absolute;inset:0;border-radius:4px;opacity:.22}
+  .pct-barra span{position:relative;font-variant-numeric:tabular-nums}
+  .ok i{background:#3f7d4e} .parcial i{background:#C98A00} .nada i{background:#b3261e}
+  .tag{display:inline-block;padding:1px 7px;border-radius:9px;background:var(--green-light);
+       color:var(--green-dark);font-size:11px;font-weight:600;margin-right:3px}
+  .tabla-scroll{overflow-x:auto}
+</style>
+</head><body>
+<header>
+  <span class="logo">API<b>DELTA</b></span>
+  <span style="font-size:14px;opacity:.9">Productividad de Sala</span>
+  <a href="/">← Inicio</a>
+</header>
+<div class="wrap">
+  <div class="tabs" id="tabs">
+    <button id="tab-prod" class="activa">Producción</button>
+    <button id="tab-frac">Fraccionado</button>
+  </div>
+
+  <div class="controls">
+    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
+    <div class="nota" id="nota"></div>
+    <button class="btn" id="btnAplicar">Aplicar</button>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+  <div id="cargando" class="loading" hidden>Cargando…</div>
+
+  <!-- ── Producción ───────────────────────────────────────────────────────── -->
+  <section id="pane-prod">
+    <div class="kpis" id="kpis-prod"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Órdenes de producción</h3>
+        <input class="buscador" id="q-ord" placeholder="Buscar producto o PLU…">
+      </div>
+      <p class="desc">Cada línea del plan armado en Planificación contra lo que efectivamente
+        se cargó en Producción. El vínculo es el número de movimiento con el que la línea se
+        mandó a producción; cuando falta (cargas viejas), se empareja por fecha y PLU.
+        Si el plan repite el mismo producto en varias líneas, se consolidan en una sola fila
+        (columna <b>Líneas</b>) para no contar la misma producción más de una vez.</p>
+      <div class="tabla-scroll"><table id="t-ord"></table></div>
+    </div>
+
+    <div class="card">
+      <h3>Cargas sin orden planificada</h3>
+      <p class="desc">Producción que no matchea ninguna línea del plan: cargas manuales o extras.</p>
+      <div class="tabla-scroll"><table id="t-sinplan"></table></div>
+    </div>
+
+    <div class="card">
+      <h3>Ritmo por persona — producción</h3>
+      <p class="desc">Las horas se calculan uniendo los bloques horarios de cada persona por día:
+        tres cargas en el mismo bloque son una hora trabajada, no tres. Cuando una carga tiene
+        varios responsables, las cantidades se reparten entre ellos.</p>
+      <div class="tabla-scroll"><table id="t-pers-prod"></table></div>
+    </div>
+  </section>
+
+  <!-- ── Fraccionado ──────────────────────────────────────────────────────── -->
+  <section id="pane-frac" hidden>
+    <div class="kpis" id="kpis-frac"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Responsables de fraccionado</h3>
+        <input class="buscador" id="q-pers" placeholder="Buscar persona…">
+      </div>
+      <p class="desc">Toda persona que figure como responsable en alguna carga de fraccionado,
+        con cuántos productos distintos fraccionó, cuántas unidades y kilos, y en qué tiempos.</p>
+      <div class="tabla-scroll"><table id="t-pers-frac"></table></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Detalle de cargas</h3>
+        <input class="buscador" id="q-frac" placeholder="Buscar producto, PLU o persona…">
+      </div>
+      <div class="tabla-scroll"><table id="t-frac"></table></div>
+    </div>
+  </section>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const escHtml = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const nf = (v, d = 0) => v == null || v === '' ? '—'
+  : Number(v).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const iso = d => d.toISOString().slice(0, 10);
+
+let datos = null;
+
+// ── Tablas ordenables ─────────────────────────────────────────────────────────
+// Un solo motor para las cinco tablas: columnas declarativas, orden por header clickeable y
+// filtro de texto opcional. El estado de orden vive en el propio <table>.
+const ESTADO = new WeakMap();
+const valorCrudo = (fila, col) => col && col.v ? col.v(fila) : fila[col.k];
+const fmt = (fila, col) => {
+  const v = valorCrudo(fila, col);
+  if (col.num) return nf(v, col.dec || 0);
+  return v == null || v === '' ? '—' : v;
+};
+
+function pintarTabla(tabla, cols, filas, filtro) {
+  const st = ESTADO.get(tabla) || { k: null, asc: false };
+  ESTADO.set(tabla, st);
+  const q = (filtro || '').trim().toLowerCase();
+  const datosFila = (q
+    ? filas.filter(f => cols.some(c => String(valorCrudo(f, c) == null ? '' : valorCrudo(f, c)).toLowerCase().includes(q)))
+    : filas).slice();
+  if (st.k) {
+    const col = cols.find(c => c.k === st.k);
+    datosFila.sort((a, b) => {
+      const va = valorCrudo(a, col), vb = valorCrudo(b, col);
+      // Los nulos (sin ritmo, sin horas) van siempre al final, ordene como ordene.
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      const r = col.num ? Number(va) - Number(vb) : String(va).localeCompare(String(vb), 'es');
+      return st.asc ? r : -r;
+    });
+  }
+  const th = cols.map(c => `<th class="orden ${c.num ? 'num' : ''} ${st.k === c.k ? 'activa' : ''}"
+      data-k="${escHtml(c.k)}">${escHtml(c.t)}${st.k === c.k ? (st.asc ? ' ▲' : ' ▼') : ''}</th>`).join('');
+  const cuerpo = datosFila.length
+    ? datosFila.map(f => `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''}">${c.html ? c.html(f) : escHtml(fmt(f, c))}</td>`).join('')}</tr>`).join('')
+    : `<tr><td class="empty" colspan="${cols.length}">Sin datos en el rango elegido</td></tr>`;
+  tabla.innerHTML = `<thead><tr>${th}</tr></thead><tbody>${cuerpo}</tbody>`;
+  tabla.querySelectorAll('th.orden').forEach(el => el.onclick = () => {
+    const k = el.dataset.k;
+    st.asc = st.k === k ? !st.asc : false;
+    st.k = k;
+    pintarTabla(tabla, cols, filas, filtro);
+  });
+}
+
+const kpi = (lbl, val) => `<div class="kpi"><div class="lbl">${escHtml(lbl)}</div><div class="val">${val}</div></div>`;
+const listaTags = arr => (arr && arr.length)
+  ? arr.map(n => `<span class="tag">${escHtml(n)}</span>`).join('') : '—';
+
+// ── Columnas ──────────────────────────────────────────────────────────────────
+const COLS_ORD = [
+  { k: 'fecha', t: 'Fecha' },
+  { k: 'plu', t: 'PLU' },
+  { k: 'producto', t: 'Producto' },
+  { k: 'presentacion', t: 'Present.' },
+  { k: 'lineasPlan', t: 'Líneas', num: true },
+  { k: 'planificado', t: 'Plan', num: true },
+  { k: 'producido', t: 'Producido', num: true },
+  { k: 'pct', t: 'Cumpl.', num: true, dec: 1, html: f => {
+      if (f.pct == null) return '<span class="sin-dato">—</span>';
+      const clase = f.pct >= 99.5 ? 'ok' : (f.pct > 0 ? 'parcial' : 'nada');
+      return `<div class="pct-barra ${clase}"><i style="width:${Math.min(100, f.pct)}%"></i><span>${nf(f.pct, 1)}%</span></div>`;
+    } },
+  { k: 'kilos', t: 'Kg granel', num: true, dec: 2 },
+  { k: 'horas', t: 'Horas', num: true, dec: 2 },
+  { k: 'unidPorHora', t: 'U/h', num: true, dec: 1 },
+  { k: 'personas', t: 'Produjo', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
+  { k: 'planificadoPor', t: 'Asignado', v: f => (f.planificadoPor || []).join(', '), html: f => listaTags(f.planificadoPor) },
+  { k: 'estado', t: 'Estado' },
+];
+const COLS_SINPLAN = [
+  { k: 'fecha', t: 'Fecha' },
+  { k: 'plu', t: 'PLU' },
+  { k: 'producto', t: 'Producto' },
+  { k: 'seccion', t: 'Sección' },
+  { k: 'producido', t: 'Unidades', num: true },
+  { k: 'kilos', t: 'Kg granel', num: true, dec: 2 },
+  { k: 'horas', t: 'Horas', num: true, dec: 2 },
+  { k: 'personas', t: 'Personas', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
+];
+const COLS_PERSONAS = [
+  { k: 'persona', t: 'Persona' },
+  { k: 'cargas', t: 'Cargas', num: true },
+  { k: 'productos', t: 'Productos', num: true },
+  { k: 'unidades', t: 'Unidades', num: true },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 2 },
+  { k: 'dias', t: 'Días', num: true },
+  { k: 'horas', t: 'Horas', num: true, dec: 2 },
+  { k: 'unidPorHora', t: 'U/h', num: true, dec: 1 },
+  { k: 'kgPorHora', t: 'Kg/h', num: true, dec: 2 },
+  { k: 'roles', t: 'Roles', v: f => (f.roles || []).join(', '), html: f => listaTags(f.roles) },
+];
+const COLS_FRAC = [
+  { k: 'fecha', t: 'Fecha' },
+  { k: 'persona', t: 'Persona' },
+  { k: 'plu', t: 'PLU' },
+  { k: 'producto', t: 'Producto' },
+  { k: 'unidades', t: 'Unidades', num: true },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 2 },
+  { k: 'desde', t: 'Desde' },
+  { k: 'hasta', t: 'Hasta' },
+];
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function pintar() {
+  if (!datos) return;
+  const p = datos.produccion, f = datos.fraccionado;
+  $('kpis-prod').innerHTML = [
+    kpi('Cargas', nf(p.totales.cargas)),
+    kpi('Unidades producidas', nf(p.totales.unidades)),
+    kpi('Kg de granel', nf(p.totales.kilos, 1)),
+    kpi('Horas-persona', nf(p.totales.horas, 1)),
+    kpi('Personas', nf(p.totales.personas)),
+    kpi('Días con producción', nf(p.totales.dias)),
+  ].join('');
+  $('kpis-frac').innerHTML = [
+    kpi('Cargas', nf(f.totales.cargas)),
+    kpi('Unidades fraccionadas', nf(f.totales.unidades)),
+    kpi('Kilos fraccionados', nf(f.totales.kilos, 1)),
+    kpi('Horas-persona', nf(f.totales.horas, 1)),
+    kpi('Personas', nf(f.totales.personas)),
+    kpi('Productos distintos', nf(f.totales.productos)),
+  ].join('');
+  pintarTabla($('t-ord'), COLS_ORD, p.ordenes, $('q-ord').value);
+  pintarTabla($('t-sinplan'), COLS_SINPLAN, p.sinPlan);
+  pintarTabla($('t-pers-prod'), COLS_PERSONAS, p.personas);
+  pintarTabla($('t-pers-frac'), COLS_PERSONAS, f.personas, $('q-pers').value);
+  pintarTabla($('t-frac'), COLS_FRAC, f.registros, $('q-frac').value);
+  $('nota').textContent = `${p.ordenes.length} líneas de plan · ${p.totales.cargas} cargas de producción · ${f.totales.cargas} cargas de fraccionado`;
+}
+
+async function cargar() {
+  const qs = new URLSearchParams({ desde: $('desde').value, hasta: $('hasta').value });
+  $('error').hidden = true;
+  $('cargando').hidden = false;
+  $('btnAplicar').disabled = true;
+  try {
+    const r = await fetch('/api/productividad?' + qs);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    datos = await r.json();
+    pintar();
+  } catch (e) {
+    $('error').textContent = 'No se pudo cargar la productividad: ' + e.message;
+    $('error').hidden = false;
+  } finally {
+    $('cargando').hidden = true;
+    $('btnAplicar').disabled = false;
+  }
+}
+
+function verPestania(cual) {
+  $('tab-prod').classList.toggle('activa', cual === 'prod');
+  $('tab-frac').classList.toggle('activa', cual === 'frac');
+  $('pane-prod').hidden = cual !== 'prod';
+  $('pane-frac').hidden = cual !== 'frac';
+}
+
+$('tab-prod').onclick = () => verPestania('prod');
+$('tab-frac').onclick = () => verPestania('frac');
+$('btnAplicar').onclick = cargar;
+// Los buscadores filtran sobre lo ya traído: no vuelven a pegarle al servidor.
+$('q-ord').oninput  = () => datos && pintarTabla($('t-ord'), COLS_ORD, datos.produccion.ordenes, $('q-ord').value);
+$('q-pers').oninput = () => datos && pintarTabla($('t-pers-frac'), COLS_PERSONAS, datos.fraccionado.personas, $('q-pers').value);
+$('q-frac').oninput = () => datos && pintarTabla($('t-frac'), COLS_FRAC, datos.fraccionado.registros, $('q-frac').value);
+
+// Rango por defecto: últimos 30 días, que es lo que se mira para comparar semanas.
+const hoy = new Date();
+$('hasta').value = iso(hoy);
+$('desde').value = iso(new Date(hoy.getTime() - 30 * 86400000));
+cargar();
+</script>
+</body></html>

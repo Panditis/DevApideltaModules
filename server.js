@@ -30,6 +30,7 @@ const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFracc
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
         calcularConsumoReal, RUBRO_ALMACEN_BULTO } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
+const productividad = require('./productividad');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
@@ -1100,6 +1101,7 @@ app.get('/',              (_req, res) => res.sendFile(path.join(__dirname, 'inic
 app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedidos_web.html')));
 app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
+app.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'productividad.html')));
 app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
@@ -4021,6 +4023,57 @@ app.get('/api/planes', (_req, res) => {
   res.json(Object.keys(planes).sort().reverse().map(fecha => ({ fecha, totalItems: planes[fecha].items.length, totalUnidades: planes[fecha].items.reduce((s, i) => s + (i.cantConfirmada ?? i.cantSugerida ?? 0), 0), creado: planes[fecha].creado })));
 });
 app.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {}); res.json(planes[fecha] || { fecha, notas: '', items: [] }); });
+
+// ── Productividad de la sala ───────────────────────────────────────────────────
+// Sólo lectura: junta lo que ya existe (plan, órdenes y cargas) y delega el cálculo en
+// productividad.js. Las cargas viven en tres lugares a la vez —el archivo vivo, el historial
+// de conciliadas y el snapshot de cierre del día—, así que se unen por id antes de medir.
+app.get('/api/productividad', apiRoute(async req => {
+  const desde = req.query.desde ? safeDate(req.query.desde) : null;
+  const hasta = req.query.hasta ? safeDate(req.query.hasta) : null;
+  const enRango = f => productividad.enRango(f, desde, hasta);
+
+  const planes = leerJSON(PLANES_PATH, {});
+  const planItems = Object.keys(planes)
+    .filter(enRango)
+    .flatMap(fecha => (planes[fecha].items || []).map(it => ({ ...it, fecha })));
+
+  const snapshots = leerRegistros();
+  const cargasProd = productividad
+    .unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
+               snapshots.flatMap(s => (s && s.cargas) || []))
+    .filter(c => enRango(c && c.fecha));
+
+  // Fraccionado: el archivo vivo se vacía al cerrar el día, y lo cerrado queda dentro de cada
+  // snapshot de historial_distribucion.json en su campo `produccion`.
+  const cargasFrac = productividad
+    .unirPorId(leerJSON(FRAC_REG_PATH, []),
+               leerJSON(HISTORIAL_PATH, []).flatMap(h => (h && h.produccion) || []))
+    .filter(c => enRango(c && c.fecha));
+
+  const ordenes = productividad.unirPorId(leerOrdenes(), snapshots.flatMap(s => (s && s.ordenes) || []));
+  const { filas, sinPlan } = productividad.resumenOrdenes(planItems, cargasProd, ordenes);
+
+  return {
+    desde, hasta,
+    produccion: {
+      totales: productividad.totales(cargasProd),
+      ordenes: filas,
+      sinPlan,
+      personas: productividad.resumenPersonas(cargasProd),
+    },
+    fraccionado: {
+      totales: productividad.totales(cargasFrac),
+      personas: productividad.resumenPersonas(cargasFrac),
+      registros: cargasFrac.map(c => ({
+        id: c.id, fecha: c.fecha, plu: String(c.plu == null ? '' : c.plu), producto: c.nombre || '',
+        persona: productividad.nombreLindo((productividad.personasDeCarga(c)[0] || {}).nombre || ''),
+        unidades: Number(c.cantFraccionada) || 0, kilos: productividad.kilosDeCarga(c),
+        desde: c.desde || '', hasta: c.hasta || '',
+      })),
+    },
+  };
+}));
 app.post('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
   const prev = planes[fecha];
@@ -4263,6 +4316,29 @@ app.post('/api/cotizador/vinculaciones', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Facturador auxiliar (HTML suelto) ──────────────────────────────────────────
+// Catálogo plano de precios para el facturador que corre como archivo local. No lleva
+// sesión a propósito: el HTML se abre con file:// y no puede loguearse. El guard de IP
+// de LAN (más arriba) ya limita quién llega hasta acá.
+app.get('/api/facturador/catalogo', apiRoute(async () => {
+  const rows = await query(`
+    SELECT p.IdProducto, p.NombreProducto, CAST(psp.PrecioVenta AS FLOAT) AS PrecioVenta
+    FROM Productos p
+    JOIN ProductosSucursalesPrecios psp ON psp.IdProducto = p.IdProducto AND psp.IdSucursal = 1
+    WHERE p.Activo = 1 AND psp.PrecioVenta > 0
+    ORDER BY p.NombreProducto
+  `);
+  return {
+    generado: new Date().toISOString(),
+    origen: `server:${PORT}`,
+    productos: rows.map(r => ({
+      plu: String(r.IdProducto),
+      nombre: r.NombreProducto,
+      precio: Math.round(Number(r.PrecioVenta) * 100) / 100,
+    })),
+  };
+}));
 
 function calcularPrecioML(precioVentaSIGA, comisionPct, iva, cuotasPct = 0, costoEnvio = 0) {
   // Precio ML para que neto después de comisión+cuotas+IVA+envío = precioVentaSIGA
