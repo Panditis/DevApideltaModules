@@ -2691,7 +2691,9 @@ async function guardarProduccionFinal() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
     }
 
-    // Cualquier carga marca la orden como terminada, sin importar cantidades ni presentaciones.
+    // Con varias presentaciones la orden recién termina cuando se cargaron TODAS: cargar una
+    // sola desde el desglose la pasaba a Terminados con el resto todavía sin producir. Mientras
+    // falte alguna queda 'en_proceso', así sigue en el tablero y no se la lleva el cierre del día.
     const o = ORDERS.find(o => o.id == _pfOrden.id);
     const presArr = (o && Array.isArray(o.presentaciones)) ? o.presentaciones.slice() : [];
     let cambios;
@@ -2701,7 +2703,9 @@ async function guardarProduccionFinal() {
           presArr[el.presIndex] = { ...presArr[el.presIndex], cargado: true, cantProducida: el.cant };
         }
       });
-      cambios = { presentaciones: presArr, estado: 'listo', terminado: true };
+      cambios = presArr.every(p => p && p.cargado)
+        ? { presentaciones: presArr, estado: 'listo', terminado: true }
+        : { presentaciones: presArr, estado: 'en_proceso' };
     } else {
       cambios = { estado: 'listo', terminado: true };
     }
