@@ -19,7 +19,7 @@
     <button id="tab-suc">Sucursales</button>
     <button id="tab-cen">Mayorista</button>
     <button id="tab-fam">Portfolio</button>
-    <button id="tab-fmn">Mis familias</button>
+    <button id="tab-fmn">Grupos</button>
   </div>
 
   <!-- El rango es común a las dos pestañas; los chips y la nota de alcance se muestran
@@ -126,23 +126,23 @@
     </div>
   </section>
 
-  <!-- ── Pestaña Mis familias: grupos armados a mano, comparados por sucursal ── -->
+  <!-- ── Pestaña Grupos: conjuntos de productos armados a mano, por sucursal ──── -->
   <section id="pane-fmn" hidden>
     <div id="msg-fmn"></div>
     <div class="kpis" id="kpis-fmn"></div>
 
     <div class="card">
       <div class="card-head">
-        <h3>Mis familias</h3>
+        <h3>Grupos de productos</h3>
         <div class="fam-nueva">
-          <input type="text" id="famNueva" class="buscador" placeholder="Nombre de la familia nueva" autocomplete="off">
-          <button class="btn" id="famCrear">Crear familia</button>
-          <button class="btn" id="famGuardar">Guardar familias</button>
+          <input type="text" id="famNueva" class="buscador" placeholder="Nombre del grupo nuevo" autocomplete="off">
+          <button class="btn" id="famCrear">Crear grupo</button>
+          <button class="btn" id="famGuardar">Guardar grupos</button>
         </div>
       </div>
-      <p class="desc">Los grupos los armás vos: creá una familia y asignale los productos que
-        quieras, buscándolos por nombre o código. Los cambios recién impactan en el tablero al
-        guardar. Un mismo producto puede estar en más de una familia.</p>
+      <p class="desc">Los grupos los armás vos: creá uno y asignale los productos que quieras,
+        buscándolos por nombre o código. Los cambios recién impactan en el tablero al guardar.
+        Un mismo producto puede estar en más de un grupo.</p>
       <div id="famAviso"></div>
       <div id="famEditor"></div>
     </div>
@@ -155,14 +155,14 @@
             <option value="facturacion">Facturación ($)</option>
             <option value="unidades">Unidades</option>
           </select>
-          <input type="search" id="buscTop-fmn" class="buscador" placeholder="Buscar familia..." autocomplete="off">
+          <input type="search" id="buscTop-fmn" class="buscador" placeholder="Buscar grupo..." autocomplete="off">
         </div>
       </div>
       <div class="fam-promo">
         <span class="lbl-promo">Ventas de promo</span>
         <div class="chips" id="famPromo"></div>
       </div>
-      <p class="desc">Una barra por sucursal dentro de cada familia. Alcance: sucursales, sin
+      <p class="desc">Una barra por sucursal dentro de cada grupo. Alcance: sucursales, sin
         casa central. Se excluyen los comprobantes anulados y las transferencias internas.
         Las promos se facturan a la cuenta PROMOCIONES_ de cada sucursal: con el filtro de
         arriba se las deja adentro, se las saca o se las mira solas.</p>
@@ -177,7 +177,7 @@
           <select id="famFamiliaDet" class="buscador"></select>
         </div>
       </div>
-      <p class="desc">Cada producto de la familia elegida, comparado entre sucursales. El
+      <p class="desc">Cada producto del grupo elegido, comparado entre sucursales. El
         gráfico usa la métrica seleccionada arriba; la tabla muestra facturación y unidades
         juntas en cada celda.</p>
       <canvas id="chProdSuc" height="140"></canvas>

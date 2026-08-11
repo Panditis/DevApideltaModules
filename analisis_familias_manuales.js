@@ -1,5 +1,9 @@
-// Pestaña "Familias" del módulo de Análisis de Ventas: grupos de productos que arma el
+// Pestaña "Grupos" del módulo de Análisis de Ventas: grupos de productos que arma el
 // usuario a mano y la comparación de lo que vende cada grupo en cada sucursal.
+//
+// En el código la entidad se sigue llamando "familia" (el endpoint, el JSON y los nombres
+// de función): renombrar eso sería tocar la API y el archivo guardado sin ganar nada. Lo
+// que cambia es lo que lee el usuario, que dice "grupo".
 //
 // Se carga ANTES que analisis_front.js: ese archivo registra la pestaña en PANELES
 // apuntando a las funciones de acá y corre su init() al final, así que lo de acá tiene que
@@ -38,7 +42,7 @@ const famFmt = v => (famMetrica === 'facturacion' ? fmtMoney(v) : fmtCant(v));
 function pintarEditor(){
   const cont = $('famEditor');
   if (!famDef.length){
-    cont.innerHTML = '<div class="empty">Todavía no hay familias. Creá la primera arriba.</div>';
+    cont.innerHTML = '<div class="empty">Todavía no hay grupos. Creá el primero arriba.</div>';
     return;
   }
   cont.innerHTML = famDef.map((f, i) => `
@@ -51,7 +55,7 @@ function pintarEditor(){
       </div>
       <div class="chips">${f.productos.map((p, j) => `
         <span class="chip">${escHtml(p.nombre || p.id)} <b class="fam-x"
-          title="Quitar de la familia" onclick="famQuitarProducto(${i},${j})">×</b></span>`).join('')
+          title="Quitar del grupo" onclick="famQuitarProducto(${i},${j})">×</b></span>`).join('')
         || '<span class="mini">Sin productos asignados.</span>'}</div>
       <div class="fam-buscador">
         <input type="search" class="buscador" placeholder="Buscar producto para agregar..."
@@ -66,7 +70,7 @@ function famCrear(){
   const nombre = input.value.trim();
   if (!nombre) return;
   if (famDef.some(f => f.nombre.toLowerCase() === nombre.toLowerCase())){
-    famAviso('Ya existe una familia con ese nombre.');
+    famAviso('Ya existe un grupo con ese nombre.');
     return;
   }
   famDef = [...famDef, { nombre, productos: [] }];
@@ -76,14 +80,14 @@ function famCrear(){
 }
 
 function famRenombrar(i){
-  const nombre = (prompt('Nuevo nombre de la familia:', famDef[i].nombre) || '').trim();
+  const nombre = (prompt('Nuevo nombre del grupo:', famDef[i].nombre) || '').trim();
   if (!nombre) return;
   famDef = famDef.map((f, k) => (k === i ? { ...f, nombre } : f));
   pintarEditor();
 }
 
 function famBorrar(i){
-  if (!confirm(`¿Eliminar la familia "${famDef[i].nombre}"?`)) return;
+  if (!confirm(`¿Eliminar el grupo "${famDef[i].nombre}"?`)) return;
   famDef = famDef.filter((_f, k) => k !== i);
   pintarEditor();
 }
@@ -146,7 +150,7 @@ async function famGuardar(){
   } catch(e){
     famAviso(`No se pudo guardar: ${e.message}`);
   } finally {
-    btn.disabled = false; btn.textContent = 'Guardar familias';
+    btn.disabled = false; btn.textContent = 'Guardar grupos';
   }
 }
 
@@ -157,7 +161,7 @@ async function famCargarDefinicion(){
     famDef = Array.isArray(d) ? d : [];
   } catch(e){
     famDef = [];
-    famAviso(`No se pudo leer las familias: ${e.message}`);
+    famAviso(`No se pudieron leer los grupos: ${e.message}`);
   }
   pintarEditor();
 }
@@ -226,10 +230,10 @@ function famRenderGrafico(familias, sucursales){
 
 function famRenderTabla(familias, sucursales, porSucursal){
   if (!familias.length){
-    $('tblFamManual').innerHTML = '<div class="empty">Sin familias para mostrar.</div>';
+    $('tblFamManual').innerHTML = '<div class="empty">Sin grupos para mostrar.</div>';
     return;
   }
-  const head = '<tr><th>Familia</th>'
+  const head = '<tr><th>Grupo</th>'
     + sucursales.map(id => `<th class="num">${escHtml(nombreSuc(id))}</th>`).join('')
     + '<th class="num">Total</th></tr>';
   const body = familias.map(f => '<tr>'
@@ -239,7 +243,7 @@ function famRenderTabla(familias, sucursales, porSucursal){
   // Fila de cierre: el total por sucursal de todas las familias juntas. Sale del endpoint
   // (no de las filas visibles) porque el buscador puede estar filtrando la tabla.
   const totalGeneral = porSucursal.reduce((a, s) => a + Number(s[famMetrica] || 0), 0);
-  const pie = '<tr><td><b>Total (todas las familias)</b></td>'
+  const pie = '<tr><td><b>Total (todos los grupos)</b></td>'
     + sucursales.map(id => {
       const s = porSucursal.find(x => x.idSucursal === id) || {};
       return `<td class="num"><b>${famFmt(Number(s[famMetrica] || 0))}</b></td>`;
@@ -272,7 +276,7 @@ function famRenderProductos(familias, sucursales){
   const productos = (familia ? familia.productos : []).filter(p => p.facturacion || p.unidades);
   destroyChart('prod-suc');
   if (!productos.length){
-    $('tblProdSuc').innerHTML = '<div class="empty">La familia no registra ventas en el rango.</div>';
+    $('tblProdSuc').innerHTML = '<div class="empty">El grupo no registra ventas en el rango.</div>';
     return;
   }
   charts['prod-suc'] = new Chart($('chProdSuc'), {
@@ -319,11 +323,11 @@ function famRenderKpis(d, familias){
   const tarjetas = [
     ['Facturación', fmtMoney(d.totales.facturacion)],
     ['Unidades', fmtCant(d.totales.unidades)],
-    ['Familias', fmtNum(familias.length)],
+    ['Grupos', fmtNum(familias.length)],
     ['Productos agrupados', fmtNum(d.totales.productos)],
   ];
   // Sólo aparece cuando hay algo que avisar: una familia sin códigos no sale en el gráfico.
-  if (sinProductos) tarjetas.push(['Familias sin productos', fmtNum(sinProductos)]);
+  if (sinProductos) tarjetas.push(['Grupos sin productos', fmtNum(sinProductos)]);
   $('kpis-fmn').innerHTML = tarjetas
     .map(([lbl, val]) => `<div class="kpi"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`)
     .join('');
