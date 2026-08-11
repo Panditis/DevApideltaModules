@@ -4071,6 +4071,16 @@ app.get('/api/productividad', apiRoute(async req => {
   // Tareas necesarias que no producen unidades (limpieza, preparación): van contadas aparte.
   const tareas = legacy.tareas.filter(t => t && enRango(t.fecha));
 
+  // Familia de cada carga. Mandan las familias manuales (las arma el usuario por código en
+  // el módulo de análisis); lo que no está en ninguna cae en la familia deducida del nombre,
+  // mismo criterio que análisis de ventas: MIEL 500G y MIEL 1KG son una sola familia.
+  const familiasPorPlu = new Map();
+  for (const f of familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []))) {
+    for (const p of f.productos || []) if (p && p.id) familiasPorPlu.set(String(p.id), f.nombre);
+  }
+  const familiaDe = c => familiasPorPlu.get(String(c && c.plu))
+    || analisisVentas.familiaNombre(c && c.nombre);
+
   const ordenes = productividad.unirPorId(leerOrdenes(), snapshots.flatMap(s => (s && s.ordenes) || []));
   const { filas, sinPlan } = productividad.resumenOrdenes(planItems, cargasProd, ordenes);
 
@@ -4082,17 +4092,21 @@ app.get('/api/productividad', apiRoute(async req => {
       ordenes: filas,
       sinPlan,
       personas: productividad.resumenPersonas(cargasProd),
-      productos: productividad.resumenProductos(cargasProd),
-      porDia: productividad.resumenPeriodos(cargasProd, 'dia', tareas),
-      porSemana: productividad.resumenPeriodos(cargasProd, 'semana', tareas),
+      productos: productividad.resumenProductos(cargasProd, familiaDe),
+      familias: productividad.resumenFamilias(cargasProd, familiaDe),
+      porDia: productividad.resumenPeriodos(cargasProd, 'dia', tareas, familiaDe),
+      porSemana: productividad.resumenPeriodos(cargasProd, 'semana', tareas, familiaDe),
+      porMes: productividad.resumenPeriodos(cargasProd, 'mes', tareas, familiaDe),
       tareas,
     },
     fraccionado: {
       totales: productividad.totales(cargasFrac),
-      productos: productividad.resumenProductos(cargasFrac),
+      productos: productividad.resumenProductos(cargasFrac, familiaDe),
+      familias: productividad.resumenFamilias(cargasFrac, familiaDe),
       personas: productividad.resumenPersonas(cargasFrac),
-      porDia: productividad.resumenPeriodos(cargasFrac, 'dia'),
-      porSemana: productividad.resumenPeriodos(cargasFrac, 'semana'),
+      porDia: productividad.resumenPeriodos(cargasFrac, 'dia', null, familiaDe),
+      porSemana: productividad.resumenPeriodos(cargasFrac, 'semana', null, familiaDe),
+      porMes: productividad.resumenPeriodos(cargasFrac, 'mes', null, familiaDe),
       tareas: [],
       registros: cargasFrac.map(c => ({
         id: c.id, fecha: c.fecha, plu: String(c.plu == null ? '' : c.plu), producto: c.nombre || '',

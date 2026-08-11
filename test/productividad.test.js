@@ -15,6 +15,54 @@ test('claveSemana da la semana ISO con su lunes y su domingo', () => {
   assert.strictEqual(claveSemana('no-es-fecha'), null);
 });
 
+test('claveMes va del 1 al último día del mes, incluido febrero', () => {
+  const { claveMes, clavePeriodo } = require('../productividad');
+  assert.deepStrictEqual(claveMes('2026-08-11'), { clave: '2026-08', desde: '2026-08-01', hasta: '2026-08-31' });
+  assert.deepStrictEqual(claveMes('2026-02-05'), { clave: '2026-02', desde: '2026-02-01', hasta: '2026-02-28' });
+  assert.strictEqual(claveMes('2026-08'), null);
+  // El día es su propio período.
+  assert.deepStrictEqual(clavePeriodo('2026-08-11', 'dia'), { clave: '2026-08-11', desde: '2026-08-11', hasta: '2026-08-11' });
+  assert.strictEqual(clavePeriodo('2026-08-11', 'semana').clave, '2026-W33');
+  assert.strictEqual(clavePeriodo('2026-08-11', 'mes').clave, '2026-08');
+  assert.strictEqual(clavePeriodo('basura', 'dia'), null);
+});
+
+test('resumenFamilias agrupa las presentaciones y ordena por kilos', () => {
+  const { resumenFamilias } = require('../productividad');
+  // La familia sale de una función inyectada: acá, el nombre sin la presentación.
+  const familiaDe = c => String(c.nombre || '').replace(/\s+\d+\w*$/, '');
+  const cargas = [
+    { id: 1, fecha: '2026-03-02', plu: 'A', nombre: 'Miel 500G', cantFraccionada: 10, granelConsumido: 5, empleado: 'Ana', desde: '08:00', hasta: '09:00' },
+    { id: 2, fecha: '2026-03-02', plu: 'B', nombre: 'Miel 1KG',  cantFraccionada: 4,  granelConsumido: 4, empleado: 'Ana', desde: '08:00', hasta: '09:00' },
+    { id: 3, fecha: '2026-03-03', plu: 'C', nombre: 'Granola 200G', cantFraccionada: 2, granelConsumido: 20, empleado: 'Bea', desde: '08:00', hasta: '10:00' },
+  ];
+  const fam = resumenFamilias(cargas, familiaDe);
+  assert.deepStrictEqual(fam.map(f => f.familia), ['Granola', 'Miel']);   // 20 kg antes que 9
+  const miel = fam[1];
+  assert.strictEqual(miel.productos, 2);       // dos presentaciones, una familia
+  assert.strictEqual(miel.kilos, 9);
+  assert.strictEqual(miel.personas, 1);
+  assert.strictEqual(miel.horas, 1);           // Ana hizo las dos en el mismo bloque
+  assert.strictEqual(miel.kgPorHora, 9);
+  // Sin clasificador, todo cae en una sola bolsa identificada.
+  assert.deepStrictEqual(resumenFamilias(cargas, null).map(f => f.familia), ['Sin familia']);
+});
+
+test('resumenPeriodos suma las familias del período', () => {
+  const { resumenPeriodos } = require('../productividad');
+  const familiaDe = c => String(c.nombre || '').replace(/\s+\d+\w*$/, '');
+  const cargas = [
+    { id: 1, fecha: '2026-03-02', plu: 'A', nombre: 'Miel 500G', cantFraccionada: 10, granelConsumido: 5, empleado: 'Ana', desde: '08:00', hasta: '09:00' },
+    { id: 2, fecha: '2026-03-02', plu: 'B', nombre: 'Miel 1KG', cantFraccionada: 4, granelConsumido: 4, empleado: 'Ana', desde: '08:00', hasta: '09:00' },
+  ];
+  const [mes] = resumenPeriodos(cargas, 'mes', null, familiaDe);
+  assert.strictEqual(mes.clave, '2026-03');
+  assert.strictEqual(mes.familiasTotal, 1);
+  assert.strictEqual(mes.familias[0].familia, 'Miel');
+  assert.strictEqual(mes.productosDistintos, 2);
+  assert.strictEqual(mes.productos[0].familia, 'Miel');   // el producto sabe a qué familia va
+});
+
 test('resumenPeriodos por día arma el ranking de productos y de personas', () => {
   const cargas = [
     { id: 1, fecha: '2026-03-02', plu: 'A', nombre: 'Miel', cantFraccionada: 100, granelConsumido: 50, empleado: 'Ana', desde: '08:00', hasta: '10:00' },

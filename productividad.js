@@ -289,14 +289,15 @@ function resumenPorDia(planItems, cargas, ordenes) {
 // Catálogo de lo producido: un renglón por producto con cuánto se hizo y cuánto tarda.
 // El promedio es por carga (una carga = una tanda del producto); minPorKilo permite comparar
 // productos de tandas distintas entre sí, que el promedio por carga solo no deja ver.
-function resumenProductos(cargas) {
+function resumenProductos(cargas, familiaDe) {
   const acc = new Map();
   for (const c of cargas || []) {
     const plu = String(c && c.plu != null ? c.plu : '');
     if (!plu) continue;
     let g = acc.get(plu);
     if (!g) {
-      g = { plu, producto: c.nombre || '', cargas: 0, unidades: 0, kilos: 0,
+      g = { plu, producto: c.nombre || '', familia: familiaDe ? familiaDe(c) : '',
+            cargas: 0, unidades: 0, kilos: 0,
             minutos: 0, conHorario: 0, personas: new Map(), dias: new Set() };
       acc.set(plu, g);
     }
@@ -312,6 +313,7 @@ function resumenProductos(cargas) {
   return [...acc.values()].map(g => ({
     plu: g.plu,
     producto: g.producto,
+    familia: g.familia,
     cargas: g.cargas,
     unidades: redondear(g.unidades),
     kilos: redondear(g.kilos),
@@ -347,34 +349,79 @@ function claveSemana(fecha) {
   };
 }
 
+// Mes calendario: "2026-08", del 1 al último día. El último día se saca pidiendo el día 0
+// del mes siguiente, que en JS es el último del actual.
+function claveMes(fecha) {
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(fecha || ''));
+  if (!m) return null;
+  const fin = new Date(Date.UTC(+m[1], +m[2], 0));
+  return { clave: `${m[1]}-${m[2]}`, desde: `${m[1]}-${m[2]}-01`, hasta: fin.toISOString().slice(0, 10) };
+}
+
+// Día, semana ISO o mes calendario. El día es su propio período: desde y hasta son la fecha.
+function clavePeriodo(fecha, unidad) {
+  if (unidad === 'semana') return claveSemana(fecha);
+  if (unidad === 'mes') return claveMes(fecha);
+  const f = String(fecha || '');
+  return /^\d{4}-\d{2}-\d{2}$/.test(f) ? { clave: f, desde: f, hasta: f } : null;
+}
+
+// Producción por familia de producto: MIEL 500G y MIEL 1KG son la misma familia, así que las
+// unidades no se suman entre sí (no significan nada juntas) pero los kilos y las horas sí.
+function resumenFamilias(cargas, familiaDe) {
+  const acc = new Map();
+  for (const c of cargas || []) {
+    const familia = (familiaDe ? familiaDe(c) : '') || 'Sin familia';
+    const clave = claveNombre(familia);
+    let g = acc.get(clave);
+    if (!g) {
+      g = { familia, cargas: [], productos: new Set(), personas: new Set() };
+      acc.set(clave, g);
+    }
+    g.cargas.push(c);
+    if (c && c.plu != null && c.plu !== '') g.productos.add(String(c.plu));
+    for (const p of personasDeCarga(c)) g.personas.add(claveNombre(p.nombre));
+  }
+  return [...acc.values()].map(g => {
+    const t = totales(g.cargas);
+    return {
+      familia: g.familia,
+      cargas: t.cargas,
+      productos: g.productos.size,
+      personas: g.personas.size,
+      unidades: t.unidades,
+      kilos: t.kilos,
+      horas: t.horas,
+      dias: t.dias,
+      kgPorHora: t.horas > 0 ? redondear(t.kilos / t.horas, 2) : null,
+    };
+  }).sort((a, b) => b.kilos - a.kilos || b.cargas - a.cargas);
+}
+
 // Resúmenes por día o por semana: por cada período, el ranking de productos y el de personas.
 // Es la misma agregación que los totales generales, sólo que acotada al período, así los
 // rankings se leen igual sin importar la ventana elegida.
-function resumenPeriodos(cargas, unidad, tareas) {
+function resumenPeriodos(cargas, unidad, tareas, familiaDe) {
   const porPeriodo = new Map();
   for (const c of cargas || []) {
     if (!c || !c.fecha) continue;
-    const sem = unidad === 'semana' ? claveSemana(c.fecha) : null;
-    if (unidad === 'semana' && !sem) continue;
-    const clave = unidad === 'semana' ? sem.clave : c.fecha;
-    if (!porPeriodo.has(clave)) {
-      porPeriodo.set(clave, {
-        clave,
-        desde: unidad === 'semana' ? sem.desde : c.fecha,
-        hasta: unidad === 'semana' ? sem.hasta : c.fecha,
+    const per = clavePeriodo(c.fecha, unidad);
+    if (!per) continue;
+    if (!porPeriodo.has(per.clave)) {
+      porPeriodo.set(per.clave, {
+        clave: per.clave, desde: per.desde, hasta: per.hasta,
         cargas: [], tareas: 0, minutosTareas: 0,
       });
     }
-    porPeriodo.get(clave).cargas.push(c);
+    porPeriodo.get(per.clave).cargas.push(c);
   }
   // Las tareas extra no producen unidades pero ocupan la sala: se cuentan aparte, en su
   // propio renglón, para que el período muestre también ese esfuerzo.
   for (const t of tareas || []) {
     if (!t || !t.fecha) continue;
-    const sem = unidad === 'semana' ? claveSemana(t.fecha) : null;
-    if (unidad === 'semana' && !sem) continue;
-    const clave = unidad === 'semana' ? sem.clave : t.fecha;
-    const g = porPeriodo.get(clave);
+    const per = clavePeriodo(t.fecha, unidad);
+    if (!per) continue;
+    const g = porPeriodo.get(per.clave);
     if (!g) continue;   // sin producción en el período, la tarea suelta no crea un renglón
     g.tareas += 1;
     const iv = intervaloDe(t.desde, t.hasta);
@@ -382,7 +429,8 @@ function resumenPeriodos(cargas, unidad, tareas) {
   }
   return [...porPeriodo.values()].map(g => {
     const personas = resumenPersonas(g.cargas);
-    const productos = resumenProductos(g.cargas);
+    const productos = resumenProductos(g.cargas, familiaDe);
+    const familias = resumenFamilias(g.cargas, familiaDe);
     const t = totales(g.cargas);
     return {
       clave: g.clave,
@@ -395,6 +443,8 @@ function resumenPeriodos(cargas, unidad, tareas) {
       dias: t.dias,
       productosDistintos: productos.length,
       personasTotal: personas.length,
+      familiasTotal: familias.length,
+      familias,
       tareas: g.tareas,
       horasTareas: redondear(g.minutosTareas / 60),
       // El ranking ya viene ordenado: productos por kilos, personas por kilos producidos.
@@ -449,8 +499,8 @@ function enRango(fecha, desde, hasta) {
 module.exports = {
   minutosDeHora, intervaloDe, minutosUnidos, kilosDeCarga, personasDeCarga, claveNombre,
   nombreLindo, consolidarPlan, resumenPersonas, resumenOrdenes, resumenPorDia,
-  resumenProductos, claveSemana, resumenPeriodos, totales, unirPorId, enRango,
-  indexarMovimientos,
+  resumenProductos, claveSemana, claveMes, clavePeriodo, resumenPeriodos, resumenFamilias,
+  totales, unirPorId, enRango, indexarMovimientos,
   // Nombre viejo del catálogo de productos: quedó cuando sólo lo usaba la sala de fraccionado.
   resumenProductosFraccionado: resumenProductos,
 };
