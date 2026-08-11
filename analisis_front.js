@@ -571,6 +571,19 @@ const PANELES = {
       renderFamiliasPaginadas(d.familias);
     },
   },
+  // Familias armadas a mano por el usuario. Todo su render vive en
+  // analisis_familias_manuales.js (que se carga antes que este archivo): acá sólo se
+  // declara la pestaña. Alcance sucursales, así que alcanza con el permiso de ventas.
+  familiasManuales: {
+    pref: 'fmn', ref: 'analisis-ventas',
+    url: (desde, hasta) => `/api/familias-manuales/ventas?desde=${desde}&hasta=${hasta}`
+      + `&sucursales=${[...sel].join(',')}&promo=${famPromo}`,
+    validar: () => sel.size ? '' : 'Seleccioná al menos una sucursal.',
+    // El editor y los filtros se montan al abrir la pestaña, no al llegar los datos: si la
+    // consulta falla el usuario igual tiene que poder tocar los controles y reintentar.
+    alMostrar: () => famInitEditor(),
+    pintar: d => famPintar(d),
+  },
 };
 
 const NOMBRE_POR_PREF = Object.fromEntries(Object.entries(PANELES).map(([k, p]) => [p.pref, k]));
@@ -579,7 +592,7 @@ const NOMBRE_POR_PREF = Object.fromEntries(Object.entries(PANELES).map(([k, p]) 
 // Cambiar de pestaña no vuelve a consultar si ya tiene los datos del filtro vigente: la
 // consulta es pesada y el usuario suele ir y volver comparando.
 let tabActivo = 'sucursales';
-const cargado = { sucursales: '', central: '', familias: '' };
+const cargado = { sucursales: '', central: '', familias: '', familiasManuales: '' };
 
 // El chip de la central entra en la clave: sacarlo cambia el consolidado y hay que
 // reconsultar, aunque el rango y las sucursales sigan iguales.
@@ -588,7 +601,7 @@ function claveRango(){
 }
 
 // Qué pestañas usan el filtro de sucursales. La central tiene alcance fijo por definición.
-const CON_CHIPS = ['sucursales', 'familias'];
+const CON_CHIPS = ['sucursales', 'familias', 'familiasManuales'];
 
 function mostrarTab(nombre){
   if (!PANELES[nombre]) return;
@@ -607,6 +620,7 @@ function mostrarTab(nombre){
   renderChips();
   // El hash deja la pestaña en la URL: recargar o compartir el link cae en la misma vista.
   if (location.hash !== `#${nombre}`) history.replaceState(null, '', `#${nombre}`);
+  if (PANELES[nombre].alMostrar) PANELES[nombre].alMostrar();
   if (cargado[nombre] !== claveRango()) consultar();
 }
 
@@ -700,10 +714,13 @@ async function init(){
   $('selAll').onclick  = () => { sel = new Set(SUCURSALES.map(s=>s.id)); renderChips(); };
   $('selNone').onclick = () => { sel.clear(); renderChips(); };
   Object.values(PANELES).forEach(p => {
-    // En familias el buscador filtra familias, no productos: la tabla es otra.
-    $(`buscTop-${p.pref}`).oninput = p.pref === 'fam'
-      ? e => buscarEnFamilias(e.target.value)
-      : e => buscarEnTop(p.pref, e.target.value);
+    // En las dos pestañas de familias el buscador filtra familias, no productos: la
+    // tabla es otra y cada una la pinta su propio módulo.
+    const BUSCADOR = {
+      fam: e => buscarEnFamilias(e.target.value),
+      fmn: e => famBuscarEnLista(e.target.value),
+    };
+    $(`buscTop-${p.pref}`).oninput = BUSCADOR[p.pref] || (e => buscarEnTop(p.pref, e.target.value));
     $(`tab-${p.pref}`).onclick = () => mostrarTab(NOMBRE_POR_PREF[p.pref]);
   });
   const permitidas = await permisos();

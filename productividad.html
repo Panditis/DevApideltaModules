@@ -3,93 +3,291 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Productividad de Sala — Apidelta</title>
 <link rel="icon" href="/favicon.png">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
-<!-- Mismos estilos que el módulo de Análisis: pestañas, KPIs, cards y tablas ya viven ahí. -->
-<link rel="stylesheet" href="/analisis.css">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* Barra de cumplimiento del plan: el color dice de un vistazo si la orden se completó. */
-  .pct-barra{position:relative;min-width:92px}
-  .pct-barra i{position:absolute;inset:0;border-radius:4px;opacity:.22}
-  .pct-barra span{position:relative;font-variant-numeric:tabular-nums}
-  .ok i{background:#3f7d4e} .parcial i{background:#C98A00} .nada i{background:#b3261e}
-  .tag{display:inline-block;padding:1px 7px;border-radius:9px;background:var(--green-light);
-       color:var(--green-dark);font-size:11px;font-weight:600;margin-right:3px}
-  .tabla-scroll{overflow-x:auto}
+/* ── Paleta ─────────────────────────────────────────────────────────────────
+   Minimalista a propósito: un solo acento (verde Apidelta) y el oro reservado
+   para lo que está a medias. El color se usa como dato, no como decoración. */
+:root{
+  --tinta:#14170F; --suave:#767C6C; --tenue:#A2A797;
+  --linea:#E7E9E1; --linea-fuerte:#D5D9CB;
+  --fondo:#FAFAF7; --panel:#FFFFFF;
+  --verde:#405936; --verde-hondo:#2E4027; --verde-tenue:#EEF3EA;
+  --oro:#C98A00; --oro-tenue:#FCF3DC; --rojo:#B3261E;
+  --radio:18px; --radio-sm:11px;
+  --sombra:0 1px 2px rgba(20,23,15,.04), 0 12px 28px -18px rgba(20,23,15,.28);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--fondo);color:var(--tinta);
+  font-family:'Barlow',system-ui,sans-serif;font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01em}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── Barra superior ─────────────────────────────────────────────────────── */
+.topbar{position:sticky;top:0;z-index:20;background:rgba(250,250,247,.86);
+  backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--linea)}
+.topbar .in{max-width:1240px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:12px}
+.marca{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:19px;letter-spacing:.4px;
+  color:var(--verde-hondo)}
+.marca b{color:var(--oro)}
+.topbar a{margin-left:auto;color:var(--suave);text-decoration:none;font-size:13px;font-weight:500}
+.topbar a:hover{color:var(--verde)}
+
+.wrap{max-width:1240px;margin:0 auto;padding:36px 24px 72px}
+
+/* ── Encabezado de página ───────────────────────────────────────────────── */
+.hero{display:flex;flex-wrap:wrap;align-items:flex-end;gap:18px;margin-bottom:26px}
+.hero h1{font-size:44px;font-weight:800;line-height:1;color:var(--tinta)}
+.hero .sub{color:var(--suave);font-size:13.5px;padding-bottom:4px}
+
+/* ── Selector de sala ───────────────────────────────────────────────────────
+   Segmentado: las dos salas siempre visibles, la elegida con la píldora clara
+   encima del riel gris. Un <select> escondería la otra opción. */
+.segment{display:inline-flex;background:#EDEFE8;border-radius:999px;padding:4px;gap:2px}
+.segment button{border:0;background:none;cursor:pointer;font-family:inherit;font-size:13.5px;
+  font-weight:600;color:var(--suave);padding:9px 22px;border-radius:999px;
+  transition:background .18s ease, color .18s ease}
+.segment button:hover{color:var(--verde-hondo)}
+.segment button[aria-selected="true"]{background:var(--panel);color:var(--verde-hondo);
+  box-shadow:0 1px 2px rgba(20,23,15,.10)}
+
+/* ── Controles ──────────────────────────────────────────────────────────── */
+.barra{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:30px}
+.campo{display:flex;align-items:baseline;gap:7px}
+.campo label{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
+.campo input{font-family:inherit;font-size:13.5px;color:var(--tinta);background:none;
+  border:0;border-bottom:1.5px solid var(--linea-fuerte);padding:4px 2px}
+.campo input:focus{outline:none;border-bottom-color:var(--verde)}
+.btn{margin-left:auto;background:var(--verde);color:#fff;border:0;border-radius:999px;
+  padding:10px 24px;font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;
+  transition:background .18s ease}
+.btn:hover:not(:disabled){background:var(--verde-hondo)}
+.btn:disabled{opacity:.45;cursor:default}
+.nota{color:var(--tenue);font-size:12.5px}
+
+/* ── KPIs ───────────────────────────────────────────────────────────────────
+   Sin cajas: el número grande ya es la jerarquía, la línea izquierda separa. */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:2px;background:var(--linea);border:1px solid var(--linea);border-radius:var(--radio);
+  overflow:hidden;margin-bottom:34px}
+.kpi{background:var(--panel);padding:18px 20px}
+.kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--tenue);font-weight:600}
+.kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:34px;line-height:1.1;
+  margin-top:6px;font-variant-numeric:tabular-nums}
+
+/* ── Secciones ──────────────────────────────────────────────────────────── */
+.sec{margin-bottom:38px}
+.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:6px}
+.sec-head h2{font-size:23px;font-weight:700}
+.sec .desc{color:var(--suave);font-size:12.5px;max-width:78ch;margin:0 0 16px}
+.buscador{margin-left:auto;font-family:inherit;font-size:13px;padding:8px 14px;min-width:190px;
+  border:1px solid var(--linea-fuerte);border-radius:999px;background:var(--panel);color:var(--tinta)}
+.buscador:focus{outline:none;border-color:var(--verde)}
+.buscador::placeholder{color:var(--tenue)}
+
+/* ── Día desplegable ────────────────────────────────────────────────────────
+   <details> nativo: el navegador ya sabe abrir y cerrar, no hace falta JS. */
+.dia{background:var(--panel);border:1px solid var(--linea);border-radius:var(--radio);
+  margin-bottom:10px;overflow:hidden;transition:box-shadow .2s ease,border-color .2s ease}
+.dia:hover{box-shadow:var(--sombra)}
+.dia[open]{border-color:var(--linea-fuerte);box-shadow:var(--sombra)}
+.dia>summary{list-style:none;cursor:pointer;padding:16px 20px 0;position:relative}
+.dia>summary::-webkit-details-marker{display:none}
+.dia .linea1{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px}
+.dia .caret{color:var(--tenue);font-size:10px;transition:transform .2s ease;line-height:2}
+.dia[open] .caret{transform:rotate(90deg)}
+.dia .fecha{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:21px;
+  color:var(--tinta);text-transform:capitalize}
+.dia .met{font-size:12.5px;color:var(--suave);font-variant-numeric:tabular-nums}
+.dia .met b{color:var(--tinta);font-weight:600}
+.dia .cifra{margin-left:auto;font-family:'Barlow Condensed',sans-serif;font-weight:800;
+  font-size:21px;font-variant-numeric:tabular-nums}
+.dia .cifra.ok{color:var(--verde)} .dia .cifra.parcial{color:var(--oro)} .dia .cifra.nada{color:var(--tenue)}
+/* Riel de cumplimiento al pie del encabezado: el ancho es el dato, sin números extra. */
+.riel{height:3px;background:var(--linea);margin:14px -20px 0;position:relative}
+.riel i{position:absolute;left:0;top:0;bottom:0;background:var(--verde);transition:width .3s ease}
+.riel.parcial i{background:var(--oro)} .riel.nada i{background:var(--rojo);opacity:.4}
+.dia .cuerpo{padding:6px 20px 18px}
+/* Alternador chico para día/semana, dentro del encabezado de sección. */
+.segment.chico{margin-left:auto}
+.segment.chico button{padding:6px 15px;font-size:12.5px}
+/* Los dos rankings del período, uno al lado del otro mientras entren. */
+.dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.dos-col h4{margin:2px 0 8px;font-family:'Barlow Condensed',sans-serif;font-size:15px;
+  font-weight:700;color:var(--suave);text-transform:uppercase;letter-spacing:.07em}
+.dos-col .col{min-width:0;overflow-x:auto}
+@media(max-width:900px){.dos-col{grid-template-columns:1fr}}
+.quienes{margin-top:14px;font-size:12.5px;color:var(--suave);display:flex;flex-wrap:wrap;
+  gap:8px 18px;align-items:center}
+.quienes .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
+
+/* ── Chips de personas ──────────────────────────────────────────────────── */
+.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 10px 2px 8px;border-radius:999px;
+  background:var(--verde-tenue);color:var(--verde-hondo);font-size:11.5px;font-weight:600;margin-right:4px}
+.tag::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--verde)}
+.tag.gris{background:#F1F2EE;color:var(--suave)}
+.tag.gris::before{background:var(--tenue)}
+
+/* ── Tablas ─────────────────────────────────────────────────────────────────
+   Sin líneas verticales ni relleno pesado: los números se leen en columna. */
+.panel{background:var(--panel);border:1px solid var(--linea);border-radius:var(--radio);
+  padding:6px 4px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--linea);white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--panel);z-index:1;
+  font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:#FBFCFA}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.clave{font-weight:600;white-space:normal;min-width:190px}
+th.orden{cursor:pointer;user-select:none}
+th.orden:hover{color:var(--verde)}
+th.orden.activa{color:var(--verde)}
+.mini-riel{display:flex;align-items:center;gap:8px;justify-content:flex-end;min-width:104px}
+.mini-riel .via{flex:1;height:3px;border-radius:2px;background:var(--linea);position:relative;min-width:40px}
+.mini-riel .via i{position:absolute;inset:0 auto 0 0;border-radius:2px;background:var(--verde)}
+.mini-riel.parcial .via i{background:var(--oro)}
+.mini-riel.nada .via i{background:var(--rojo);opacity:.4}
+.mini-riel span{font-variant-numeric:tabular-nums;font-weight:600;font-size:12.5px}
+.apagado{color:var(--tenue)}
+
+.vacio{padding:34px;text-align:center;color:var(--tenue);font-size:13.5px}
+.error{background:#FCEDEB;color:#8C1D18;border:1px solid #F0C8C4;padding:14px 16px;
+  border-radius:var(--radio-sm);margin-bottom:20px}
+.cargando{padding:34px;text-align:center;color:var(--tenue)}
+@media(max-width:720px){
+  .hero h1{font-size:34px}
+  .dia .cifra{margin-left:0}
+  .buscador{margin-left:0;width:100%}
+}
 </style>
 </head><body>
-<header>
-  <span class="logo">API<b>DELTA</b></span>
-  <span style="font-size:14px;opacity:.9">Productividad de Sala</span>
+<div class="topbar"><div class="in">
+  <span class="marca">API<b>DELTA</b></span>
   <a href="/">← Inicio</a>
-</header>
+</div></div>
+
 <div class="wrap">
-  <div class="tabs" id="tabs">
-    <button id="tab-prod" class="activa">Producción</button>
-    <button id="tab-frac">Fraccionado</button>
+  <div class="hero">
+    <h1>Productividad de sala</h1>
+    <span class="sub" id="nota"></span>
   </div>
 
-  <div class="controls">
-    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
-    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
-    <div class="nota" id="nota"></div>
+  <div class="barra">
+    <div class="segment" role="tablist" aria-label="Sala">
+      <button id="sala-prod" role="tab" aria-selected="true" type="button">Producción</button>
+      <button id="sala-frac" role="tab" aria-selected="false" type="button">Fraccionado</button>
+    </div>
+    <div class="campo"><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div class="campo"><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
     <button class="btn" id="btnAplicar">Aplicar</button>
   </div>
 
   <div id="error" class="error" hidden></div>
-  <div id="cargando" class="loading" hidden>Cargando…</div>
+  <div id="cargando" class="cargando" hidden>Cargando…</div>
 
-  <!-- ── Producción ───────────────────────────────────────────────────────── -->
+  <!-- ── Sala: Producción ─────────────────────────────────────────────────── -->
   <section id="pane-prod">
     <div class="kpis" id="kpis-prod"></div>
 
-    <div class="card">
-      <div class="card-head">
-        <h3>Órdenes de producción</h3>
-        <input class="buscador" id="q-ord" placeholder="Buscar producto o PLU…">
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Días con órdenes asignadas</h2>
+        <input class="buscador" id="q-dia" placeholder="Buscar producto, PLU o persona">
       </div>
-      <p class="desc">Cada línea del plan armado en Planificación contra lo que efectivamente
-        se cargó en Producción. El vínculo es el número de movimiento con el que la línea se
-        mandó a producción; cuando falta (cargas viejas), se empareja por fecha y PLU.
-        Si el plan repite el mismo producto en varias líneas, se consolidan en una sola fila
-        (columna <b>Líneas</b>) para no contar la misma producción más de una vez.</p>
-      <div class="tabla-scroll"><table id="t-ord"></table></div>
+      <p class="desc">Cada jornada del plan armado en Planificación. Abrí el día para ver sus
+        órdenes, quién quedó asignado y quién las produjo. La orden se vincula con la carga por
+        el número de movimiento con el que se mandó a producir, y cada carga se imputa a un
+        solo día aunque el plan se haya movido de fecha.</p>
+      <div id="dias"></div>
     </div>
 
-    <div class="card">
-      <h3>Cargas sin orden planificada</h3>
+    <div class="sec">
+      <div class="sec-head"><h2>Cargas sin orden planificada</h2></div>
       <p class="desc">Producción que no matchea ninguna línea del plan: cargas manuales o extras.</p>
-      <div class="tabla-scroll"><table id="t-sinplan"></table></div>
+      <div class="panel"><table id="t-sinplan"></table></div>
     </div>
 
-    <div class="card">
-      <h3>Ritmo por persona — producción</h3>
-      <p class="desc">Las horas se calculan uniendo los bloques horarios de cada persona por día:
-        tres cargas en el mismo bloque son una hora trabajada, no tres. Cuando una carga tiene
-        varios responsables, las cantidades se reparten entre ellos.</p>
-      <div class="tabla-scroll"><table id="t-pers-prod"></table></div>
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Resúmenes</h2>
+        <div class="segment chico" id="per-prod" role="tablist" aria-label="Período">
+          <button type="button" data-u="dia" aria-selected="true">Por día</button>
+          <button type="button" data-u="semana" aria-selected="false">Por semana</button>
+        </div>
+      </div>
+      <p class="desc">Cada período con su ranking de productos (ordenado por kilos) y su ranking
+        de personas (ordenado por cuántos productos distintos produjo cada una). Las tareas sin
+        producto se cuentan aparte, en el encabezado del período.</p>
+      <div id="periodos-prod"></div>
+    </div>
+
+    <div class="sec" id="sec-tareas-prod" hidden>
+      <div class="sec-head"><h2>Tareas sin producto</h2></div>
+      <p class="desc">Trabajo de sala registrado en los resúmenes viejos que no produce unidades
+        (limpieza, preparación). Va aparte: sumaría horas sin producción y hundiría el ritmo.</p>
+      <div class="panel"><table id="t-tareas-prod"></table></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head"><h2>Ritmo por persona</h2></div>
+      <p class="desc">Las horas salen de unir los bloques horarios de cada persona por día: tres
+        cargas en el mismo bloque son una hora trabajada, no tres. Una carga con varios
+        responsables reparte las cantidades entre ellos.</p>
+      <div class="panel"><table id="t-pers-prod"></table></div>
     </div>
   </section>
 
-  <!-- ── Fraccionado ──────────────────────────────────────────────────────── -->
+  <!-- ── Sala: Fraccionado ────────────────────────────────────────────────── -->
   <section id="pane-frac" hidden>
     <div class="kpis" id="kpis-frac"></div>
 
-    <div class="card">
-      <div class="card-head">
-        <h3>Responsables de fraccionado</h3>
-        <input class="buscador" id="q-pers" placeholder="Buscar persona…">
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Productos fraccionados</h2>
+        <input class="buscador" id="q-prod" placeholder="Buscar producto o PLU">
       </div>
-      <p class="desc">Toda persona que figure como responsable en alguna carga de fraccionado,
-        con cuántos productos distintos fraccionó, cuántas unidades y kilos, y en qué tiempos.</p>
-      <div class="tabla-scroll"><table id="t-pers-frac"></table></div>
+      <p class="desc">Todo lo que pasó por fraccionado, con cuánto se hizo y cuánto tarda.
+        <b>Min/tanda</b> es el promedio de duración de cada carga; <b>min/kg</b> compara productos
+        con tandas de tamaño distinto. Las cargas sin horario no entran al promedio.</p>
+      <div class="panel"><table id="t-prodfrac"></table></div>
     </div>
 
-    <div class="card">
-      <div class="card-head">
-        <h3>Detalle de cargas</h3>
-        <input class="buscador" id="q-frac" placeholder="Buscar producto, PLU o persona…">
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Personas del área</h2>
+        <input class="buscador" id="q-pers" placeholder="Buscar persona">
       </div>
-      <div class="tabla-scroll"><table id="t-frac"></table></div>
+      <p class="desc">Toda persona que figure como responsable en alguna carga, con cuántos
+        productos distintos fraccionó, cuántas unidades y kilos, y en qué tiempos.</p>
+      <div class="panel"><table id="t-pers-frac"></table></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Detalle de cargas</h2>
+        <input class="buscador" id="q-frac" placeholder="Buscar producto, PLU o persona">
+      </div>
+      <div class="panel"><table id="t-frac"></table></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Resúmenes</h2>
+        <div class="segment chico" id="per-frac" role="tablist" aria-label="Período">
+          <button type="button" data-u="dia" aria-selected="true">Por día</button>
+          <button type="button" data-u="semana" aria-selected="false">Por semana</button>
+        </div>
+      </div>
+      <p class="desc">Cada período con su ranking de productos y de personas.</p>
+      <div id="periodos-frac"></div>
+    </div>
+
+    <div class="sec" id="sec-tareas-frac" hidden>
+      <div class="sec-head"><h2>Tareas sin producto</h2></div>
+      <p class="desc">Trabajo de sala de los resúmenes viejos que no produce unidades.</p>
+      <div class="panel"><table id="t-tareas-frac"></table></div>
     </div>
   </section>
 </div>
@@ -102,11 +300,21 @@ const escHtml = s => String(s == null ? '' : s)
 const nf = (v, d = 0) => v == null || v === '' ? '—'
   : Number(v).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
 const iso = d => d.toISOString().slice(0, 10);
+// La fecha se arma por partes: new Date('2026-08-10') se interpreta en UTC y en Argentina
+// termina mostrando el día anterior.
+const fechaLarga = f => {
+  const p = String(f || '').split('-');
+  if (p.length !== 3) return f || '—';
+  return new Date(+p[0], +p[1] - 1, +p[2])
+    .toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long' });
+};
+// Verde cumplido, oro a medias, rojo apagado cuando no se produjo nada.
+const nivel = pct => pct == null ? 'nada' : (pct >= 99.5 ? 'ok' : (pct > 0 ? 'parcial' : 'nada'));
 
 let datos = null;
 
 // ── Tablas ordenables ─────────────────────────────────────────────────────────
-// Un solo motor para las cinco tablas: columnas declarativas, orden por header clickeable y
+// Un solo motor para todas las tablas: columnas declarativas, orden por header clickeable y
 // filtro de texto opcional. El estado de orden vive en el propio <table>.
 const ESTADO = new WeakMap();
 const valorCrudo = (fila, col) => col && col.v ? col.v(fila) : fila[col.k];
@@ -115,14 +323,14 @@ const fmt = (fila, col) => {
   if (col.num) return nf(v, col.dec || 0);
   return v == null || v === '' ? '—' : v;
 };
+const coincide = (fila, cols, q) =>
+  cols.some(c => String(valorCrudo(fila, c) == null ? '' : valorCrudo(fila, c)).toLowerCase().includes(q));
 
 function pintarTabla(tabla, cols, filas, filtro) {
   const st = ESTADO.get(tabla) || { k: null, asc: false };
   ESTADO.set(tabla, st);
   const q = (filtro || '').trim().toLowerCase();
-  const datosFila = (q
-    ? filas.filter(f => cols.some(c => String(valorCrudo(f, c) == null ? '' : valorCrudo(f, c)).toLowerCase().includes(q)))
-    : filas).slice();
+  const datosFila = (q ? filas.filter(f => coincide(f, cols, q)) : filas).slice();
   if (st.k) {
     const col = cols.find(c => c.k === st.k);
     datosFila.sort((a, b) => {
@@ -136,10 +344,10 @@ function pintarTabla(tabla, cols, filas, filtro) {
     });
   }
   const th = cols.map(c => `<th class="orden ${c.num ? 'num' : ''} ${st.k === c.k ? 'activa' : ''}"
-      data-k="${escHtml(c.k)}">${escHtml(c.t)}${st.k === c.k ? (st.asc ? ' ▲' : ' ▼') : ''}</th>`).join('');
+      data-k="${escHtml(c.k)}">${escHtml(c.t)}${st.k === c.k ? (st.asc ? ' ↑' : ' ↓') : ''}</th>`).join('');
   const cuerpo = datosFila.length
-    ? datosFila.map(f => `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''}">${c.html ? c.html(f) : escHtml(fmt(f, c))}</td>`).join('')}</tr>`).join('')
-    : `<tr><td class="empty" colspan="${cols.length}">Sin datos en el rango elegido</td></tr>`;
+    ? datosFila.map(f => `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.clave ? 'clave' : ''}">${c.html ? c.html(f) : escHtml(fmt(f, c))}</td>`).join('')}</tr>`).join('')
+    : `<tr><td class="vacio" colspan="${cols.length}">Sin datos en el rango elegido</td></tr>`;
   tabla.innerHTML = `<thead><tr>${th}</tr></thead><tbody>${cuerpo}</tbody>`;
   tabla.querySelectorAll('th.orden').forEach(el => el.onclick = () => {
     const k = el.dataset.k;
@@ -150,89 +358,218 @@ function pintarTabla(tabla, cols, filas, filtro) {
 }
 
 const kpi = (lbl, val) => `<div class="kpi"><div class="lbl">${escHtml(lbl)}</div><div class="val">${val}</div></div>`;
-const listaTags = arr => (arr && arr.length)
-  ? arr.map(n => `<span class="tag">${escHtml(n)}</span>`).join('') : '—';
+const listaTags = (arr, gris) => (arr && arr.length)
+  ? arr.map(n => `<span class="tag${gris ? ' gris' : ''}">${escHtml(n)}</span>`).join('') : '<span class="apagado">—</span>';
+const miniRiel = pct => pct == null ? '<span class="apagado">—</span>'
+  : `<div class="mini-riel ${nivel(pct)}"><span class="via"><i style="width:${Math.min(100, pct)}%"></i></span><span>${nf(pct, 0)}%</span></div>`;
 
 // ── Columnas ──────────────────────────────────────────────────────────────────
-const COLS_ORD = [
-  { k: 'fecha', t: 'Fecha' },
-  { k: 'plu', t: 'PLU' },
-  { k: 'producto', t: 'Producto' },
+const COLS_ORD_DIA = [
+  { k: 'producto', t: 'Producto', clave: true },
   { k: 'presentacion', t: 'Present.' },
-  { k: 'lineasPlan', t: 'Líneas', num: true },
+  { k: 'plu', t: 'PLU' },
   { k: 'planificado', t: 'Plan', num: true },
   { k: 'producido', t: 'Producido', num: true },
-  { k: 'pct', t: 'Cumpl.', num: true, dec: 1, html: f => {
-      if (f.pct == null) return '<span class="sin-dato">—</span>';
-      const clase = f.pct >= 99.5 ? 'ok' : (f.pct > 0 ? 'parcial' : 'nada');
-      return `<div class="pct-barra ${clase}"><i style="width:${Math.min(100, f.pct)}%"></i><span>${nf(f.pct, 1)}%</span></div>`;
-    } },
-  { k: 'kilos', t: 'Kg granel', num: true, dec: 2 },
-  { k: 'horas', t: 'Horas', num: true, dec: 2 },
-  { k: 'unidPorHora', t: 'U/h', num: true, dec: 1 },
+  { k: 'pct', t: 'Cumpl.', num: true, dec: 1, html: f => miniRiel(f.pct) },
+  { k: 'kilos', t: 'Kg granel', num: true, dec: 1 },
+  { k: 'horas', t: 'Horas', num: true, dec: 1 },
+  { k: 'unidPorHora', t: 'U/h', num: true, dec: 0 },
+  { k: 'planificadoPor', t: 'Asignado', v: f => (f.planificadoPor || []).join(', '), html: f => listaTags(f.planificadoPor, true) },
   { k: 'personas', t: 'Produjo', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
-  { k: 'planificadoPor', t: 'Asignado', v: f => (f.planificadoPor || []).join(', '), html: f => listaTags(f.planificadoPor) },
   { k: 'estado', t: 'Estado' },
 ];
 const COLS_SINPLAN = [
   { k: 'fecha', t: 'Fecha' },
+  { k: 'producto', t: 'Producto', clave: true },
   { k: 'plu', t: 'PLU' },
-  { k: 'producto', t: 'Producto' },
   { k: 'seccion', t: 'Sección' },
   { k: 'producido', t: 'Unidades', num: true },
-  { k: 'kilos', t: 'Kg granel', num: true, dec: 2 },
-  { k: 'horas', t: 'Horas', num: true, dec: 2 },
+  { k: 'kilos', t: 'Kg granel', num: true, dec: 1 },
+  { k: 'horas', t: 'Horas', num: true, dec: 1 },
   { k: 'personas', t: 'Personas', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
 ];
 const COLS_PERSONAS = [
-  { k: 'persona', t: 'Persona' },
+  { k: 'persona', t: 'Persona', clave: true },
   { k: 'cargas', t: 'Cargas', num: true },
   { k: 'productos', t: 'Productos', num: true },
   { k: 'unidades', t: 'Unidades', num: true },
-  { k: 'kilos', t: 'Kilos', num: true, dec: 2 },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 1 },
   { k: 'dias', t: 'Días', num: true },
-  { k: 'horas', t: 'Horas', num: true, dec: 2 },
-  { k: 'unidPorHora', t: 'U/h', num: true, dec: 1 },
-  { k: 'kgPorHora', t: 'Kg/h', num: true, dec: 2 },
-  { k: 'roles', t: 'Roles', v: f => (f.roles || []).join(', '), html: f => listaTags(f.roles) },
+  { k: 'horas', t: 'Horas', num: true, dec: 1 },
+  { k: 'unidPorHora', t: 'U/h', num: true, dec: 0 },
+  { k: 'kgPorHora', t: 'Kg/h', num: true, dec: 1 },
+  { k: 'roles', t: 'Roles', v: f => (f.roles || []).join(', '), html: f => listaTags(f.roles, true) },
+];
+const COLS_PRODFRAC = [
+  { k: 'producto', t: 'Producto', clave: true },
+  { k: 'plu', t: 'PLU' },
+  { k: 'cargas', t: 'Tandas', num: true },
+  { k: 'unidades', t: 'Unidades', num: true },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 1 },
+  { k: 'minPromedio', t: 'Min/tanda', num: true, dec: 0 },
+  { k: 'minPorKilo', t: 'Min/kg', num: true, dec: 2 },
+  { k: 'kgPorHora', t: 'Kg/h', num: true, dec: 1 },
+  { k: 'dias', t: 'Días', num: true },
+  { k: 'sinHorario', t: 'Sin hora', num: true },
+  { k: 'personas', t: 'Quiénes', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
+];
+const COLS_TAREAS = [
+  { k: 'fecha', t: 'Fecha' },
+  { k: 'persona', t: 'Persona' },
+  { k: 'tarea', t: 'Tarea', clave: true },
+  { k: 'desde', t: 'Desde' },
+  { k: 'hasta', t: 'Hasta' },
 ];
 const COLS_FRAC = [
   { k: 'fecha', t: 'Fecha' },
   { k: 'persona', t: 'Persona' },
+  { k: 'producto', t: 'Producto', clave: true },
   { k: 'plu', t: 'PLU' },
-  { k: 'producto', t: 'Producto' },
   { k: 'unidades', t: 'Unidades', num: true },
-  { k: 'kilos', t: 'Kilos', num: true, dec: 2 },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 1 },
   { k: 'desde', t: 'Desde' },
   { k: 'hasta', t: 'Hasta' },
 ];
+
+// ── Días de producción ────────────────────────────────────────────────────────
+// El filtro se aplica a las órdenes de cada día: un día sin órdenes que coincidan no se
+// muestra, y los que sí coinciden se abren solos para no obligar a un click extra.
+function pintarDias(filtro) {
+  const q = (filtro || '').trim().toLowerCase();
+  const dias = (datos.produccion.dias || [])
+    .map(d => q ? { ...d, ordenes: d.ordenes.filter(o => coincide(o, COLS_ORD_DIA, q)) } : d)
+    .filter(d => !q || d.ordenes.length);
+  const cont = $('dias');
+  if (!dias.length) { cont.innerHTML = '<div class="panel"><div class="vacio">Sin días con órdenes en el rango elegido</div></div>'; return; }
+  cont.innerHTML = dias.map((d, i) => `
+    <details class="dia" ${q || i === 0 ? 'open' : ''}>
+      <summary>
+        <div class="linea1">
+          <span class="caret">▶</span>
+          <span class="fecha">${escHtml(fechaLarga(d.fecha))}</span>
+          <span class="met"><b>${nf(d.ordenes.length)}</b> órdenes</span>
+          <span class="met">plan <b>${nf(d.planificado)}</b> · producido <b>${nf(d.producido)}</b></span>
+          <span class="met"><b>${nf(d.kilos, 1)}</b> kg</span>
+          <span class="met"><b>${nf(d.horas, 1)}</b> h-persona</span>
+          <span class="cifra ${nivel(d.pct)}">${d.pct == null ? '—' : nf(d.pct, 0) + '%'}</span>
+        </div>
+        <div class="riel ${nivel(d.pct)}"><i style="width:${Math.min(100, d.pct || 0)}%"></i></div>
+      </summary>
+      <div class="cuerpo">
+        <table data-dia="${escHtml(d.fecha)}"></table>
+        <div class="quienes">
+          <span class="rot">Asignados</span> ${listaTags(d.asignados, true)}
+          <span class="rot">Cargaron</span> ${listaTags(d.personas)}
+        </div>
+      </div>
+    </details>`).join('');
+  // Las tablas se pintan después de insertar el markup: cada una guarda su propio orden.
+  dias.forEach(d => pintarTabla(cont.querySelector(`table[data-dia="${d.fecha}"]`), COLS_ORD_DIA, d.ordenes));
+}
+
+// ── Resúmenes por día / semana ────────────────────────────────────────────────
+// Los rankings ya vienen ordenados del servidor: productos por kilos, personas por cuántos
+// productos distintos produjo cada una.
+const COLS_RANK_PROD = [
+  { k: 'producto', t: 'Producto', clave: true },
+  { k: 'cargas', t: 'Tandas', num: true },
+  { k: 'unidades', t: 'Unid.', num: true },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 1 },
+  { k: 'minPromedio', t: 'Min/tanda', num: true, dec: 0 },
+];
+const COLS_RANK_PERS = [
+  { k: 'persona', t: 'Persona', clave: true },
+  { k: 'productos', t: 'Productos', num: true },
+  { k: 'cargas', t: 'Tandas', num: true },
+  { k: 'unidades', t: 'Unid.', num: true },
+  { k: 'kilos', t: 'Kilos', num: true, dec: 1 },
+  { k: 'horas', t: 'Horas', num: true, dec: 1 },
+];
+const UNIDAD = { prod: 'dia', frac: 'dia' };
+const dm = f => { const x = String(f || '').split('-'); return x.length === 3 ? `${x[2]}/${x[1]}` : f; };
+
+// "2026-W32" → "Semana 32 · 03/08 al 09/08"; un día se muestra con su nombre completo.
+function tituloPeriodo(p) {
+  if (!/^\d{4}-W/.test(p.clave)) return fechaLarga(p.clave);
+  return `Semana ${p.clave.slice(6)} · ${dm(p.desde)} al ${dm(p.hasta)}`;
+}
+
+function pintarPeriodos(sala) {
+  const d = sala === 'prod' ? datos.produccion : datos.fraccionado;
+  const lista = (UNIDAD[sala] === 'semana' ? d.porSemana : d.porDia) || [];
+  const cont = $('periodos-' + sala);
+  if (!lista.length) { cont.innerHTML = '<div class="panel"><div class="vacio">Sin producción en el rango elegido</div></div>'; return; }
+  cont.innerHTML = lista.map((p, i) => `
+    <details class="dia" ${i === 0 ? 'open' : ''}>
+      <summary>
+        <div class="linea1">
+          <span class="caret">▶</span>
+          <span class="fecha">${escHtml(tituloPeriodo(p))}</span>
+          <span class="met"><b>${nf(p.productosDistintos)}</b> productos</span>
+          <span class="met"><b>${nf(p.personasTotal)}</b> personas</span>
+          <span class="met"><b>${nf(p.cargas)}</b> tandas</span>
+          <span class="met"><b>${nf(p.horas, 1)}</b> h-persona</span>
+          ${p.tareas ? `<span class="met"><b>${nf(p.tareas)}</b> tareas extra (${nf(p.horasTareas, 1)} h)</span>` : ''}
+          <span class="cifra ok">${nf(p.kilos, 0)} kg</span>
+        </div>
+      </summary>
+      <div class="cuerpo">
+        <div class="dos-col">
+          <div class="col"><h4>Productos producidos</h4><table data-rank="prod|${escHtml(p.clave)}"></table></div>
+          <div class="col"><h4>Personas</h4><table data-rank="pers|${escHtml(p.clave)}"></table></div>
+        </div>
+      </div>
+    </details>`).join('');
+  lista.forEach(p => {
+    pintarTabla(cont.querySelector(`table[data-rank="prod|${p.clave}"]`), COLS_RANK_PROD, p.productos);
+    pintarTabla(cont.querySelector(`table[data-rank="pers|${p.clave}"]`), COLS_RANK_PERS, p.personas);
+  });
+}
+
+// El alternador día/semana repinta sólo su sala.
+['prod', 'frac'].forEach(sala => {
+  $('per-' + sala).querySelectorAll('button').forEach(b => b.onclick = () => {
+    UNIDAD[sala] = b.dataset.u;
+    $('per-' + sala).querySelectorAll('button')
+      .forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    if (datos) pintarPeriodos(sala);
+  });
+});
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function pintar() {
   if (!datos) return;
   const p = datos.produccion, f = datos.fraccionado;
   $('kpis-prod').innerHTML = [
+    kpi('Días con órdenes', nf((p.dias || []).length)),
     kpi('Cargas', nf(p.totales.cargas)),
-    kpi('Unidades producidas', nf(p.totales.unidades)),
-    kpi('Kg de granel', nf(p.totales.kilos, 1)),
+    kpi('Unidades', nf(p.totales.unidades)),
+    kpi('Kg de granel', nf(p.totales.kilos, 0)),
     kpi('Horas-persona', nf(p.totales.horas, 1)),
     kpi('Personas', nf(p.totales.personas)),
-    kpi('Días con producción', nf(p.totales.dias)),
   ].join('');
   $('kpis-frac').innerHTML = [
-    kpi('Cargas', nf(f.totales.cargas)),
-    kpi('Unidades fraccionadas', nf(f.totales.unidades)),
-    kpi('Kilos fraccionados', nf(f.totales.kilos, 1)),
+    kpi('Productos', nf((f.productos || []).length)),
+    kpi('Tandas', nf(f.totales.cargas)),
+    kpi('Unidades', nf(f.totales.unidades)),
+    kpi('Kilos', nf(f.totales.kilos, 0)),
     kpi('Horas-persona', nf(f.totales.horas, 1)),
     kpi('Personas', nf(f.totales.personas)),
-    kpi('Productos distintos', nf(f.totales.productos)),
   ].join('');
-  pintarTabla($('t-ord'), COLS_ORD, p.ordenes, $('q-ord').value);
+  pintarDias($('q-dia').value);
+  pintarPeriodos('prod');
+  pintarPeriodos('frac');
   pintarTabla($('t-sinplan'), COLS_SINPLAN, p.sinPlan);
   pintarTabla($('t-pers-prod'), COLS_PERSONAS, p.personas);
+  pintarTabla($('t-prodfrac'), COLS_PRODFRAC, f.productos || [], $('q-prod').value);
   pintarTabla($('t-pers-frac'), COLS_PERSONAS, f.personas, $('q-pers').value);
   pintarTabla($('t-frac'), COLS_FRAC, f.registros, $('q-frac').value);
-  $('nota').textContent = `${p.ordenes.length} líneas de plan · ${p.totales.cargas} cargas de producción · ${f.totales.cargas} cargas de fraccionado`;
+  // Las tareas sin producto sólo existen en los resúmenes viejos: la sección aparece si hay.
+  [['prod', p.tareas], ['frac', f.tareas]].forEach(([sala, lista]) => {
+    $('sec-tareas-' + sala).hidden = !(lista && lista.length);
+    if (lista && lista.length) pintarTabla($('t-tareas-' + sala), COLS_TAREAS, lista);
+  });
+  $('nota').textContent = `${(p.dias || []).length} días con órdenes · ${p.totales.cargas} cargas de producción · ${f.totales.cargas} tandas de fraccionado`;
 }
 
 async function cargar() {
@@ -254,21 +591,27 @@ async function cargar() {
   }
 }
 
-function verPestania(cual) {
-  $('tab-prod').classList.toggle('activa', cual === 'prod');
-  $('tab-frac').classList.toggle('activa', cual === 'frac');
+function verSala(cual) {
+  $('sala-prod').setAttribute('aria-selected', String(cual === 'prod'));
+  $('sala-frac').setAttribute('aria-selected', String(cual === 'frac'));
   $('pane-prod').hidden = cual !== 'prod';
   $('pane-frac').hidden = cual !== 'frac';
+  // La sala elegida se recuerda: quien mira fraccionado no quiere reelegirla cada vez.
+  try { localStorage.setItem('apidelta-sala-productividad', cual); } catch (e) { /* sin storage, default */ }
 }
 
-$('tab-prod').onclick = () => verPestania('prod');
-$('tab-frac').onclick = () => verPestania('frac');
+$('sala-prod').onclick = () => verSala('prod');
+$('sala-frac').onclick = () => verSala('frac');
 $('btnAplicar').onclick = cargar;
 // Los buscadores filtran sobre lo ya traído: no vuelven a pegarle al servidor.
-$('q-ord').oninput  = () => datos && pintarTabla($('t-ord'), COLS_ORD, datos.produccion.ordenes, $('q-ord').value);
+$('q-dia').oninput  = () => datos && pintarDias($('q-dia').value);
+$('q-prod').oninput = () => datos && pintarTabla($('t-prodfrac'), COLS_PRODFRAC, datos.fraccionado.productos || [], $('q-prod').value);
 $('q-pers').oninput = () => datos && pintarTabla($('t-pers-frac'), COLS_PERSONAS, datos.fraccionado.personas, $('q-pers').value);
 $('q-frac').oninput = () => datos && pintarTabla($('t-frac'), COLS_FRAC, datos.fraccionado.registros, $('q-frac').value);
 
+let salaInicial = 'prod';
+try { salaInicial = localStorage.getItem('apidelta-sala-productividad') || 'prod'; } catch (e) { /* default */ }
+verSala(salaInicial);
 // Rango por defecto: últimos 30 días, que es lo que se mira para comparar semanas.
 const hoy = new Date();
 $('hasta').value = iso(hoy);

@@ -30,7 +30,9 @@ const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFracc
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
         calcularConsumoReal, RUBRO_ALMACEN_BULTO } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
+const familiasManuales = require('./familias_manuales');
 const productividad = require('./productividad');
+const resumenesLegacy = require('./resumenes_legacy');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
@@ -1039,9 +1041,14 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
   next();
 });
+// Redes admitidas: loopback, LAN privada y la tailnet de Tailscale.
+// El rango de Tailscale es CGNAT 100.64.0.0/10, o sea 100.64.x.x a 100.127.x.x: se acota
+// con esa forma a propósito, porque "100." a secas dejaría entrar direcciones públicas
+// ruteables como 100.20.x.x. Los nodos de la tailnet ya vienen autenticados por Tailscale.
+const REDES_PERMITIDAS = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|fd7a:115c:a1e0[:.])/i;
 app.use((req, res, next) => {
   const clean = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-  if (!/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(clean) && clean !== '::1') {
+  if (!REDES_PERMITIDAS.test(clean) && clean !== '::1') {
     console.warn(`[bloqueado] ${clean}`); return res.status(403).send('Acceso restringido.');
   }
   next();
@@ -1114,6 +1121,7 @@ app.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFile(p
 // usa express.static: cada asset se declara con su propia ruta.
 app.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, 'analisis.css')));
 app.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_graficos.js')));
+app.get('/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_familias_manuales.js')));
 app.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_front.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/cruce-terminales', (_req, res) => res.sendFile(path.join(__dirname, 'cruce_terminales.html')));
@@ -4025,6 +4033,8 @@ app.get('/api/planes', (_req, res) => {
 app.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {}); res.json(planes[fecha] || { fecha, notas: '', items: [] }); });
 
 // ── Productividad de la sala ───────────────────────────────────────────────────
+// Resúmenes exportados por el sistema viejo de sala, previos a los registros en JSON.
+const RESUMENES_DIR = path.join(DATA_DIR, 'resumenes');
 // Sólo lectura: junta lo que ya existe (plan, órdenes y cargas) y delega el cálculo en
 // productividad.js. Las cargas viven en tres lugares a la vez —el archivo vivo, el historial
 // de conciliadas y el snapshot de cierre del día—, así que se unen por id antes de medir.
@@ -4039,17 +4049,27 @@ app.get('/api/productividad', apiRoute(async req => {
     .flatMap(fecha => (planes[fecha].items || []).map(it => ({ ...it, fecha })));
 
   const snapshots = leerRegistros();
-  const cargasProd = productividad
+  const nuevasProd = productividad
     .unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
                snapshots.flatMap(s => (s && s.cargas) || []))
     .filter(c => enRango(c && c.fecha));
 
   // Fraccionado: el archivo vivo se vacía al cerrar el día, y lo cerrado queda dentro de cada
   // snapshot de historial_distribucion.json en su campo `produccion`.
-  const cargasFrac = productividad
+  const nuevasFrac = productividad
     .unirPorId(leerJSON(FRAC_REG_PATH, []),
                leerJSON(HISTORIAL_PATH, []).flatMap(h => (h && h.produccion) || []))
     .filter(c => enRango(c && c.fecha));
+
+  // Resúmenes viejos (data/resumenes/*.xlsx): son la producción anterior a estos JSON y salen
+  // enteros de la sala de producción, más allá de lo que diga su columna "Sala". Las jornadas
+  // que ya están cargadas en el sistema nuevo mandan, para no contarlas dos veces.
+  const legacy = resumenesLegacy.leerCarpeta(RESUMENES_DIR);
+  const legacyEnRango = legacy.cargas.filter(c => c && enRango(c.fecha));
+  const cargasProd = [...nuevasProd, ...resumenesLegacy.sinFechasCubiertas(legacyEnRango, nuevasProd)];
+  const cargasFrac = nuevasFrac;
+  // Tareas necesarias que no producen unidades (limpieza, preparación): van contadas aparte.
+  const tareas = legacy.tareas.filter(t => t && enRango(t.fecha));
 
   const ordenes = productividad.unirPorId(leerOrdenes(), snapshots.flatMap(s => (s && s.ordenes) || []));
   const { filas, sinPlan } = productividad.resumenOrdenes(planItems, cargasProd, ordenes);
@@ -4058,13 +4078,22 @@ app.get('/api/productividad', apiRoute(async req => {
     desde, hasta,
     produccion: {
       totales: productividad.totales(cargasProd),
+      dias: productividad.resumenPorDia(planItems, cargasProd, ordenes),
       ordenes: filas,
       sinPlan,
       personas: productividad.resumenPersonas(cargasProd),
+      productos: productividad.resumenProductos(cargasProd),
+      porDia: productividad.resumenPeriodos(cargasProd, 'dia', tareas),
+      porSemana: productividad.resumenPeriodos(cargasProd, 'semana', tareas),
+      tareas,
     },
     fraccionado: {
       totales: productividad.totales(cargasFrac),
+      productos: productividad.resumenProductos(cargasFrac),
       personas: productividad.resumenPersonas(cargasFrac),
+      porDia: productividad.resumenPeriodos(cargasFrac, 'dia'),
+      porSemana: productividad.resumenPeriodos(cargasFrac, 'semana'),
+      tareas: [],
       registros: cargasFrac.map(c => ({
         id: c.id, fecha: c.fecha, plu: String(c.plu == null ? '' : c.plu), producto: c.nombre || '',
         persona: productividad.nombreLindo((productividad.personasDeCarga(c)[0] || {}).nombre || ''),
@@ -4321,22 +4350,43 @@ app.post('/api/cotizador/vinculaciones', (req, res) => {
 // Catálogo plano de precios para el facturador que corre como archivo local. No lleva
 // sesión a propósito: el HTML se abre con file:// y no puede loguearse. El guard de IP
 // de LAN (más arriba) ya limita quién llega hasta acá.
-app.get('/api/facturador/catalogo', apiRoute(async () => {
+// IdListaPrecios 0 es "Lista de precios SUCURSALES". La lista 1 se llama, textual,
+// "Lista de precios NO USAR": sin este filtro cada producto sale duplicado y con el
+// precio de la lista equivocada la mitad de las veces.
+const LISTA_PRECIOS_VENTA = 0;
+
+app.get('/api/facturador/catalogo', apiRoute(async req => {
+  const sucursal = Math.max(1, Math.min(parseInt(req.query.sucursal, 10) || 1, 99));
   const rows = await query(`
-    SELECT p.IdProducto, p.NombreProducto, CAST(psp.PrecioVenta AS FLOAT) AS PrecioVenta
+    SELECT p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.ModalidadCodigoDeBarras,
+           p.IdUnidadDeMedida, CAST(psp.PrecioVenta AS FLOAT) AS PrecioVenta
     FROM Productos p
-    JOIN ProductosSucursalesPrecios psp ON psp.IdProducto = p.IdProducto AND psp.IdSucursal = 1
+    JOIN ProductosSucursalesPrecios psp
+      ON psp.IdProducto = p.IdProducto
+     AND psp.IdSucursal = ${sucursal}
+     AND psp.IdListaPrecios = ${LISTA_PRECIOS_VENTA}
     WHERE p.Activo = 1 AND psp.PrecioVenta > 0
     ORDER BY p.NombreProducto
   `);
   return {
     generado: new Date().toISOString(),
-    origen: `server:${PORT}`,
-    productos: rows.map(r => ({
-      plu: String(r.IdProducto),
-      nombre: r.NombreProducto,
-      precio: Math.round(Number(r.PrecioVenta) * 100) / 100,
-    })),
+    origen: `server:${PORT} suc ${sucursal}`,
+    sucursal,
+    productos: rows.map(r => {
+      // Los códigos "0", "1" o de 2-3 dígitos que abundan en la base no son códigos de
+      // barra reales: son restos de carga. Se descartan para que no generen falsos
+      // positivos al escanear.
+      const barra = String(r.CodigoDeBarras || '').replace(/\D/g, '');
+      const modalidad = String(r.ModalidadCodigoDeBarras || '').trim().toUpperCase();
+      return {
+        plu: String(r.IdProducto).trim(),
+        nombre: r.NombreProducto,
+        precio: Math.round(Number(r.PrecioVenta) * 100) / 100,
+        barra: barra.length >= 7 ? barra : '',
+        modalidad: modalidad === 'PESO' || modalidad === 'PRECIO' ? modalidad : null,
+        unidad: String(r.IdUnidadDeMedida || '').trim(),
+      };
+    }),
   };
 }));
 
@@ -4789,6 +4839,63 @@ app.get('/api/analisis-familias', puedeVerFamilias, apiRoute(async req => {
       productos: productos.length,
     },
     familias,
+  };
+}));
+
+// ── Familias manuales de producto ────────────────────────────────────────────
+// Grupos que arma el usuario a mano para comparar entre sucursales el pedazo de catálogo
+// que le interesa. La definición vive en un JSON (no en SIGA) y las ventas se consultan
+// contra los códigos que tenga cargados. Alcance: sucursales, sin casa central — por eso
+// alcanza con el permiso de analisis-ventas.
+const FAMILIAS_MANUALES_PATH = path.join(DATA_DIR, 'familias_manuales.json');
+
+function puedeVerAnalisis(req, res, next) {
+  const user = req.session && req.session.user;
+  if (!auth.puedeAcceder(user, 'analisis-ventas')) {
+    return res.status(user ? 403 : 401).json({ error: user ? 'Sin permiso' : 'No autenticado' });
+  }
+  return next();
+}
+
+app.get('/api/familias-manuales', puedeVerAnalisis, (_req, res) => {
+  res.json(familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, [])));
+});
+
+// Se guarda la lista entera de una: son pocas familias y editarlas es una operación de
+// pantalla completa, así que un PUT del conjunto evita inventar ids y sincronizarlos.
+app.put('/api/familias-manuales', puedeVerAnalisis, (req, res) => {
+  const familias = familiasManuales.familiasSanitizadas(req.body);
+  guardarJSON(FAMILIAS_MANUALES_PATH, familias);
+  res.json(familias);
+});
+
+app.get('/api/familias-manuales/ventas', puedeVerAnalisis, apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
+  // Las promos se facturan a una cuenta propia por sucursal: acá se pueden mirar aparte
+  // (solo), sacar del total (sin) o dejarlas adentro (todas, que es como abre el tablero).
+  const promo = analisisVentas.modoPromoSeguro(req.query.promo) || 'todas';
+  const familias = familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []));
+  const idsCsv = analisisVentas.idsCsvSeguro(familiasManuales.idsDeFamilias(familias));
+  // Sin familias o sin productos asignados no hay nada que consultar: el IN () vacío sería
+  // SQL inválido y la respuesta igual tiene que traer la estructura para que el front pinte.
+  const rows = idsCsv
+    ? await query(analisisVentas.sqlVentasPorProductoSucursal(
+        { desde, hasta, sucIdsCsv: sucIds.join(','), promo }, idsCsv))
+    : [];
+  const grupos = familiasManuales.agruparVentas(rows, familias, sucIds);
+  return {
+    rango: { desde, hasta },
+    sucursales: sucIds,
+    promo,
+    familias: grupos,
+    porSucursal: familiasManuales.totalesPorSucursal(grupos, sucIds),
+    totales: {
+      facturacion: grupos.reduce((a, g) => a + g.total.facturacion, 0),
+      unidades: grupos.reduce((a, g) => a + g.total.unidades, 0),
+      productos: familiasManuales.idsDeFamilias(familias).length,
+    },
   };
 }));
 
