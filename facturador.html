@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facturador auxiliar — Apidelta</title>
+<style>
+  /* Paleta Apidelta: verde #405936 + amarillo #FFCC00, tema claro, igual que el resto de
+     los módulos (inicio.html, distribucion.html, analisis.css).
+     Sin @import de webfonts a propósito: este archivo se abre offline y una fuente remota
+     que no carga deja la tipografía saltando. Se usan las de marca si están instaladas en
+     la máquina y si no, la del sistema. */
+  :root {
+    --verde: #405936; --verde-dark: #2e4027; --verde-mid: #4E6B43; --verde-light: #E8F0E4;
+    --amarillo: #FFCC00; --amarillo-dark: #e6b800; --amarillo-light: #FFF3B0;
+    --bg: #eef2e9; --card: #ffffff; --surface: #f1f5ec; --borde: #c3c9bc;
+    --ink: #1a1c18; --muted: #5B6353;
+    --ok: #388E3C; --err: #b53d24; --warn: #E65100; --info: #1565C0;
+    --sombra: 0 1px 3px rgba(26,28,24,.12), 0 1px 2px rgba(26,28,24,.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  h1, h2, h3, .cond { font-family: 'Barlow Condensed', 'Roboto', system-ui, sans-serif; }
+
+  /* ── Encabezado ───────────────────────────────────────────────────────────── */
+  header { position: sticky; top: 0; z-index: 20; background: var(--verde); color: #fff; border-bottom: 4px solid var(--amarillo); }
+  .barra { display: flex; align-items: center; gap: 12px; padding: 9px 14px; flex-wrap: wrap; }
+  .marca { display: flex; align-items: center; gap: 9px; }
+  .marca h1 { font-size: 20px; margin: 0; letter-spacing: .3px; text-transform: uppercase; font-weight: 600; }
+  .marca .sub { font-size: 11px; color: var(--amarillo); letter-spacing: 1.2px; text-transform: uppercase; }
+  .sep { flex: 1; }
+
+  /* ── Controles ────────────────────────────────────────────────────────────── */
+  button {
+    background: var(--card); color: var(--ink); border: 1px solid var(--borde); border-radius: 6px;
+    padding: 8px 13px; cursor: pointer; font-size: 14px; font-family: inherit; transition: .12s;
+  }
+  button:hover { border-color: var(--verde); background: var(--verde-light); }
+  button.pri { background: var(--amarillo); border-color: var(--amarillo-dark); color: #3a2f00; font-weight: 600; }
+  button.pri:hover { background: var(--amarillo-dark); }
+  button.verde { background: var(--verde); border-color: var(--verde-dark); color: #fff; font-weight: 600; }
+  button.verde:hover { background: var(--verde-dark); }
+  button.peligro { border-color: var(--err); color: var(--err); background: #fff; }
+  button.peligro:hover { background: #fdeeea; }
+  button.mini { padding: 4px 9px; font-size: 13px; }
+  button.hdr { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.35); color: #fff; }
+  button.hdr:hover { background: rgba(255,255,255,.22); border-color: #fff; }
+  input, select {
+    background: var(--card); color: var(--ink); border: 1px solid var(--borde); border-radius: 6px;
+    padding: 8px 9px; font-size: 14px; font-family: inherit; width: 100%;
+  }
+  input:focus, select:focus { outline: 2px solid var(--verde-mid); outline-offset: -1px; border-color: var(--verde); }
+  input[type=number] { text-align: right; }
+  label.et { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+
+  /* ── Estructura ───────────────────────────────────────────────────────────── */
+  main { padding: 14px; max-width: 1240px; margin: 0 auto; display: grid; gap: 14px; grid-template-columns: 1fr 340px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  section { background: var(--card); border: 1px solid var(--borde); border-radius: 9px; padding: 13px; box-shadow: var(--sombra); }
+  section > h2 {
+    font-size: 13px; margin: 0 0 11px; color: var(--verde); text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+  }
+  section > h2::after { content: ''; flex: 1; height: 2px; background: var(--verde-light); }
+  .fila { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+  .crece { flex: 1; min-width: 110px; }
+  .oculto { display: none !important; }
+  .chico { font-size: 12.5px; color: var(--muted); }
+  .lateral { position: sticky; top: 72px; }
+
+  /* ── Escáner ──────────────────────────────────────────────────────────────── */
+  #zonaEscaner { background: var(--verde-light); border: 2px solid var(--verde-mid); }
+  #escaner { font-size: 19px; padding: 13px; font-family: ui-monospace, 'Spline Sans Mono', monospace; letter-spacing: 1px; border-color: var(--verde-mid); }
+  #avisoEscaner { margin-top: 9px; font-size: 13.5px; min-height: 20px; font-weight: 500; }
+  .av-ok { color: var(--ok); } .av-err { color: var(--err); } .av-warn { color: var(--warn); }
+
+  /* ── Tablas ───────────────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--borde); vertical-align: middle; }
+  th { color: var(--verde); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; background: var(--surface); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: var(--surface); }
+  .vacio { text-align: center; color: var(--muted); padding: 22px 6px; }
+
+  .res { max-height: 250px; overflow-y: auto; margin-top: 7px; border: 1px solid var(--borde); border-radius: 6px; }
+  .res:empty { display: none; }
+  .res div { padding: 8px 10px; border-bottom: 1px solid var(--borde); cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+  .res div:last-child { border-bottom: none; }
+  .res div:hover { background: var(--verde-light); }
+  .res .nom { flex: 1; min-width: 0; }
+  .res .pr { color: var(--verde); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .tag { font-size: 10.5px; padding: 1px 6px; border-radius: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  .tag.peso { background: var(--amarillo-light); color: #6b5200; }
+  .tag.plu  { background: var(--verde-light); color: var(--verde); }
+
+  /* ── Totales ──────────────────────────────────────────────────────────────── */
+  .tot { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+  .tot span:last-child { font-variant-numeric: tabular-nums; }
+  .tot.desc span:last-child { color: var(--err); }
+  .tot.grande {
+    font-size: 25px; font-weight: 700; border-top: 2px solid var(--verde); margin-top: 8px;
+    padding-top: 10px; color: var(--verde); font-family: 'Barlow Condensed', system-ui, sans-serif;
+  }
+  .saldo { margin-top: 9px; padding: 8px 10px; border-radius: 6px; font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; }
+  .saldo.falta { background: #fdeeea; color: var(--err); }
+  .saldo.listo { background: #e8f5e9; color: var(--ok); }
+  .saldo.vuelto { background: var(--amarillo-light); color: #6b5200; }
+
+  .estado { font-size: 12px; padding: 4px 9px; border-radius: 12px; font-weight: 600; background: rgba(255,255,255,.15); color: #fff; }
+  .estado.viejo { background: var(--amarillo); color: #3a2f00; }
+  .estado.sin { background: var(--err); color: #fff; }
+
+  #dropzona { border: 2px dashed var(--borde); border-radius: 8px; padding: 16px; text-align: center; color: var(--muted); }
+  #dropzona.sobre { border-color: var(--verde); color: var(--verde); background: var(--verde-light); }
+
+  /* ── Impresión: queda el comprobante, se va la herramienta ────────────────── */
+  @media print {
+    body { background: #fff; }
+    header { position: static; border-bottom: 3px solid var(--verde); }
+    .no-print, button { display: none !important; }
+    main { display: block; max-width: none; padding: 0; }
+    section { border: none; box-shadow: none; padding: 6px 0; break-inside: avoid; }
+    .lateral { position: static; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="barra">
+    <div class="marca">
+      <svg width="30" height="30" viewBox="0 0 100 100" aria-hidden="true">
+        <path d="M50 4 93 27v46L50 96 7 73V27z" fill="#405936" stroke="#FFCC00" stroke-width="6"/>
+        <path d="M50 28 66 72h-9l-3-10H36l-3 10h-9z M39 54h11L44.5 38z" fill="#FFCC00"/>
+      </svg>
+      <div>
+        <h1>Facturador auxiliar</h1>
+        <div class="sub">Apidelta · comprobante interno, sin valor fiscal</div>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <span class="estado sin" id="estadoCat">Sin catálogo</span>
+    <button class="hdr mini" id="btnActualizar">Actualizar precios</button>
+    <button class="hdr mini" id="btnConfig">Fuente de precios</button>
+    <button class="hdr mini" id="btnGuardados">Pedidos</button>
+  </div>
+</header>
+
+<main>
+<div class="col">
+
+  <!-- ── Escáner ─────────────────────────────────────────────────────────────── -->
+  <section id="zonaEscaner" class="no-print">
+    <h2>Escanear</h2>
+    <input id="escaner" placeholder="Pasá el lector por el código de barras…" autocomplete="off" inputmode="numeric">
+    <div id="avisoEscaner" class="chico">Lee códigos de barras comunes y tickets de balanza (calcula el peso y el precio solo).</div>
+  </section>
+
+  <!-- ── Búsqueda manual ─────────────────────────────────────────────────────── -->
+  <section class="no-print">
+    <h2>Buscar producto</h2>
+    <input id="buscar" placeholder="Nombre o código del producto…" autocomplete="off">
+    <div class="res" id="resultados"></div>
+  </section>
+
+  <!-- ── Detalle ─────────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>Detalle del pedido</h2>
+    <div class="fila" style="margin-bottom:11px">
+      <div class="crece"><label class="et" for="cliente">Cliente</label><input id="cliente" placeholder="Nombre del cliente"></div>
+      <div style="width:150px"><label class="et" for="vendedor">Vendedor</label><input id="vendedor" placeholder="Quién atiende"></div>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="tablaLineas">
+        <thead><tr>
+          <th>Producto</th>
+          <th class="num" style="width:92px">Cant.</th>
+          <th class="num" style="width:104px">Precio</th>
+          <th class="num no-print" style="width:74px">Dto %</th>
+          <th class="num" style="width:104px">Subtotal</th>
+          <th class="no-print" style="width:36px"></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="col lateral">
+
+  <!-- ── Totales ─────────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>Totales</h2>
+    <div class="tot"><span>Bruto</span><span id="totBruto">$ 0,00</span></div>
+    <div class="tot desc" id="filaDtoLineas"><span>Descuentos por línea</span><span id="totDtoLineas">$ 0,00</span></div>
+    <div class="tot"><span>Subtotal</span><span id="totSub">$ 0,00</span></div>
+    <div class="fila" style="margin:9px 0">
+      <label class="et crece" for="descuento">Descuento general %</label>
+      <div style="width:88px"><input type="number" id="descuento" value="0" min="0" max="100" step="0.5"></div>
+    </div>
+    <div class="tot desc"><span>Descuento general</span><span id="totDto">$ 0,00</span></div>
+    <div class="tot grande"><span>TOTAL</span><span id="totFinal">$ 0,00</span></div>
+  </section>
+
+  <!-- ── Medios de pago ──────────────────────────────────────────────────────── -->
+  <section>
+    <h2>Medios de pago</h2>
+    <div class="fila no-print" style="margin-bottom:9px">
+      <div class="crece"><select id="medioPago"></select></div>
+      <div style="width:104px"><input type="number" id="importePago" placeholder="Importe" min="0" step="0.01"></div>
+      <button class="verde mini" id="btnAgregarPago">Sumar</button>
+    </div>
+    <p class="chico no-print" style="margin:0 0 8px">Dejá el importe vacío para asignar todo lo que falta a ese medio.</p>
+    <table id="tablaPagos"><tbody></tbody></table>
+    <div class="saldo falta" id="saldoPago"><span>Falta</span><span>$ 0,00</span></div>
+  </section>
+
+  <!-- ── Acciones ────────────────────────────────────────────────────────────── -->
+  <section class="no-print">
+    <h2>Cerrar</h2>
+    <div class="fila">
+      <button class="pri crece" id="btnGuardarPedido">Guardar pedido</button>
+      <button class="crece" id="btnImprimir">Imprimir</button>
+    </div>
+    <div class="fila" style="margin-top:9px">
+      <button class="crece" id="btnCopiar">Copiar para WhatsApp</button>
+      <button class="peligro" id="btnLimpiar">Vaciar</button>
+    </div>
+  </section>
+</div>
+</main>
+
+<main style="display:block">
+  <!-- ── Configuración ─────────────────────────────────────────────────────────── -->
+  <section id="secConfig" class="oculto no-print">
+    <h2>De dónde salen los precios</h2>
+    <p class="chico">Se prueban en orden; el primero que responda gana. Si no responde ninguno se sigue trabajando con el último catálogo guardado en este dispositivo.</p>
+
+    <div style="margin-bottom:11px">
+      <label class="et">1 · Servidor Apidelta (red local o Tailscale)</label>
+      <input id="cfgServidores" placeholder="http://servidorapidelta.local:8080, http://servidorapidelta.local:8081">
+      <p class="chico">Varias URLs separadas por coma. A cada una se le agrega <code>/api/facturador/catalogo</code>. Es la única fuente que trae códigos de barras y datos de balanza.</p>
+    </div>
+
+    <div style="margin-bottom:11px">
+      <label class="et">2 · URL de una planilla (.xlsx o .csv)</label>
+      <input id="cfgUrlPlanilla" placeholder="https://…/precios.xlsx">
+      <p class="chico">Tiene que permitir CORS. Google Sheets: Archivo → Compartir → Publicar en la web → CSV.</p>
+    </div>
+
+    <div style="margin-bottom:11px">
+      <label class="et">3 · Archivo de la computadora (siempre funciona, sin red)</label>
+      <div id="dropzona">Arrastrá acá un .xlsx o .csv, o <button class="mini" id="btnArchivo">elegilo</button>
+        <input type="file" id="inputArchivo" accept=".xlsx,.csv,.txt" class="oculto"></div>
+    </div>
+
+    <div id="mapeoCols" class="oculto">
+      <h2 style="margin-top:15px">Columnas de la planilla</h2>
+      <div class="fila">
+        <div class="crece"><label class="et">Código</label><select id="colCodigo"></select></div>
+        <div class="crece"><label class="et">Nombre</label><select id="colNombre"></select></div>
+        <div class="crece"><label class="et">Precio</label><select id="colPrecio"></select></div>
+      </div>
+      <div class="fila" style="margin-top:9px"><button class="verde" id="btnAplicarCols">Usar estas columnas</button></div>
+    </div>
+
+    <div class="fila" style="margin-top:11px"><button class="verde" id="btnGuardarConfig">Guardar configuración</button></div>
+  </section>
+
+  <!-- ── Pedidos guardados ─────────────────────────────────────────────────────── -->
+  <section id="secGuardados" class="oculto no-print">
+    <h2>Pedidos guardados</h2>
+    <div style="overflow-x:auto">
+      <table id="tablaGuardados">
+        <thead><tr><th>N°</th><th>Fecha y hora</th><th>Cliente</th><th>Pago</th><th class="num">Total</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="fila" style="margin-top:13px">
+      <button id="btnExportarCsv">Exportar CSV</button>
+      <button id="btnRespaldo">Descargar respaldo</button>
+      <button id="btnRestaurar">Restaurar respaldo</button>
+      <input type="file" id="inputRespaldo" accept=".json" class="oculto">
+    </div>
+    <p class="chico">Los pedidos viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/* ---8<--- parser-inicio  (bloque puro, sin DOM: lo reusa test/facturador_parser.test.js) */
+
+// ── ZIP mínimo ────────────────────────────────────────────────────────────────
+// Un .xlsx es un ZIP. Se lee el directorio central y se infla con DecompressionStream,
+// nativo del navegador y de Node 18+. Evita meter una librería de 800 KB adentro de un
+// archivo que tiene que viajar por mail.
+// ponytail: sin soporte ZIP64 (>65535 entradas o >4 GB). Un catálogo de precios no llega
+// ahí; si algún día llega, el upgrade es leer el registro ZIP64 del EOCD.
+async function inflarRaw(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function leerZip(buffer) {
+  const dv = new DataView(buffer);
+  const u8 = new Uint8Array(buffer);
+  // El EOCD está al final, después de un comentario de hasta 64 KB.
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0 && i >= u8.length - 65557; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('El archivo no es un .xlsx válido (falta el fin del ZIP).');
+
+  const cantidad = dv.getUint16(eocd + 10, true);
+  let pos = dv.getUint32(eocd + 16, true);
+  const archivos = new Map();
+
+  for (let i = 0; i < cantidad; i++) {
+    if (dv.getUint32(pos, true) !== 0x02014b50) break;
+    const metodo   = dv.getUint16(pos + 10, true);
+    const compLen  = dv.getUint32(pos + 20, true);
+    const nomLen   = dv.getUint16(pos + 28, true);
+    const extraLen = dv.getUint16(pos + 30, true);
+    const comenLen = dv.getUint16(pos + 32, true);
+    const localOff = dv.getUint32(pos + 42, true);
+    const nombre   = new TextDecoder().decode(u8.subarray(pos + 46, pos + 46 + nomLen));
+    // El header local repite el nombre y trae su propio campo extra, de largo distinto
+    // al del directorio central: hay que leer el suyo, no el de acá.
+    const lNomLen   = dv.getUint16(localOff + 26, true);
+    const lExtraLen = dv.getUint16(localOff + 28, true);
+    const inicio    = localOff + 30 + lNomLen + lExtraLen;
+    archivos.set(nombre, { metodo, datos: u8.subarray(inicio, inicio + compLen) });
+    pos += 46 + nomLen + extraLen + comenLen;
+  }
+
+  return {
+    nombres: () => [...archivos.keys()],
+    async texto(nombre) {
+      const e = archivos.get(nombre);
+      if (!e) return null;
+      const crudo = e.metodo === 0 ? e.datos : await inflarRaw(e.datos);
+      return new TextDecoder().decode(crudo);
+    },
+  };
+}
+
+// ── XLSX ──────────────────────────────────────────────────────────────────────
+function desescaparXml(s) {
+  return String(s)
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/g, '&'); // último a propósito: si no, "&amp;lt;" se convertiría en "<"
+}
+
+// "BC" → 54. La referencia de celda trae la columna en letras, y las filas pueden venir
+// con huecos, así que la posición no se puede deducir del orden de aparición.
+function columnaAIndice(ref) {
+  let n = 0;
+  for (const ch of ref) {
+    const c = ch.charCodeAt(0);
+    if (c < 65 || c > 90) break;
+    n = n * 26 + (c - 64);
+  }
+  return n - 1;
+}
+
+function filasDeHoja(sheetXml, compartidas) {
+  const filas = [];
+  // La alternativa \/> es obligatoria: una fila vacía viene auto-cerrada, y sin contemplarla
+  // el regex sigue de largo hasta el próximo </row> y le roba el contenido a la fila siguiente.
+  const reFila = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
+  let mf;
+  while ((mf = reFila.exec(sheetXml))) {
+    // Excel omite las filas totalmente vacías: si se apilaran en orden de aparición, todo
+    // lo de abajo subiría de lugar. La posición real viene en el atributo r.
+    const nroFila = Number((mf[1].match(/\br="(\d+)"/) || [])[1]);
+    const celdas = [];
+    const reCelda = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    let mc;
+    while ((mc = reCelda.exec(mf[2]))) {
+      const attrs = mc[1] || '', cuerpo = mc[2] || '';
+      const ref  = (attrs.match(/r="([A-Z]+)\d+"/) || [])[1];
+      const tipo = (attrs.match(/t="([^"]+)"/) || [])[1];
+      let valor;
+      if (tipo === 's') {
+        const i = Number((cuerpo.match(/<v>([\s\S]*?)<\/v>/) || [])[1]);
+        valor = compartidas[i] != null ? compartidas[i] : '';
+      } else if (tipo === 'inlineStr') {
+        valor = [...cuerpo.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x => desescaparXml(x[1])).join('');
+      } else {
+        valor = desescaparXml((cuerpo.match(/<v>([\s\S]*?)<\/v>/) || [])[1] || '');
+      }
+      const idx = ref != null ? columnaAIndice(ref) : celdas.length;
+      celdas[idx] = String(valor);
+    }
+    const fila = Array.from(celdas, v => (v == null ? '' : v));
+    if (Number.isFinite(nroFila) && nroFila > 0) filas[nroFila - 1] = fila;
+    else filas.push(fila);
+  }
+  for (let i = 0; i < filas.length; i++) if (!filas[i]) filas[i] = [];
+
+  // Una hoja puede empezar en la columna B o más a la derecha. Se descartan las columnas
+  // vacías de la izquierda para que el índice 0 sea la primera con datos: si no, el
+  // selector manual de columnas se llena de "(vacía)" al principio.
+  let desplazamiento = Infinity;
+  for (const f of filas) {
+    const j = f.findIndex(c => c !== '');
+    if (j >= 0 && j < desplazamiento) desplazamiento = j;
+  }
+  return desplazamiento > 0 && desplazamiento < Infinity ? filas.map(f => f.slice(desplazamiento)) : filas;
+}
+
+async function filasDeXlsx(buffer) {
+  const zip = await leerZip(buffer);
+  const ssXml = await zip.texto('xl/sharedStrings.xml');
+  const compartidas = ssXml
+    ? [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m =>
+        [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x => desescaparXml(x[1])).join(''))
+    : [];
+  // La primera hoja no siempre se llama sheet1.xml: se toma la de nombre menor.
+  const hojas = zip.nombres().filter(n => /^xl\/worksheets\/.*\.xml$/.test(n)).sort();
+  if (!hojas.length) throw new Error('El .xlsx no tiene hojas.');
+  return filasDeHoja(await zip.texto(hojas[0]), compartidas);
+}
+
+// ── CSV ───────────────────────────────────────────────────────────────────────
+function filasDeCsv(texto) {
+  const limpio = String(texto).replace(/^﻿/, '');
+  const corte = limpio.indexOf('\n');
+  const primera = corte < 0 ? limpio : limpio.slice(0, corte);
+  // Separador = el que más veces aparece en la primera línea. Excel en español exporta
+  // con ';' y los sistemas en inglés con ','.
+  const sep = [';', '\t', ','].reduce((a, s) =>
+    (primera.split(s).length > primera.split(a).length ? s : a), ',');
+
+  const filas = [];
+  let fila = [], celda = '', enComillas = false;
+  for (let i = 0; i < limpio.length; i++) {
+    const ch = limpio[i];
+    if (enComillas) {
+      if (ch === '"' && limpio[i + 1] === '"') { celda += '"'; i++; }
+      else if (ch === '"') enComillas = false;
+      else celda += ch;
+    } else if (ch === '"') enComillas = true;
+    else if (ch === sep) { fila.push(celda); celda = ''; }
+    else if (ch === '\n') { fila.push(celda); filas.push(fila); fila = []; celda = ''; }
+    else if (ch !== '\r') celda += ch;
+  }
+  if (celda !== '' || fila.length) { fila.push(celda); filas.push(fila); }
+  return filas;
+}
+
+// ── Normalización ─────────────────────────────────────────────────────────────
+// Acepta "$ 1.234,56", "1234.56", "1,234.56" y "1.234". Cuando conviven punto y coma, el
+// que está más a la derecha es el decimal. Cuando hay uno solo, la ambigüedad se resuelve
+// por forma: es separador de miles únicamente si agrupa de a exactamente 3 dígitos.
+function aNumero(v) {
+  if (typeof v === 'number') return v;
+  let s = String(v == null ? '' : v).replace(/[^\d.,-]/g, '').trim();
+  if (!s) return NaN;
+  const iComa = s.lastIndexOf(','), iPunto = s.lastIndexOf('.');
+  if (iComa >= 0 && iPunto >= 0) {
+    s = iComa > iPunto ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  } else if (iComa >= 0) {
+    s = /^-?\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) {
+    s = s.replace(/\./g, '');
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+const PATRONES = {
+  codigo: /^(c[oó]digo|cod|plu|id.?producto|sku|item)/i,
+  nombre: /^(nombre|descrip|producto|detalle|art[ií]culo|articulo)/i,
+  precio: /(precio|p\.?\s*venta|importe|valor|monto)/i,
+};
+
+// Busca la fila de encabezados entre las primeras. Las planillas exportadas arrancan con
+// títulos y filas vacías arriba, así que asumir "fila 1 = encabezado" falla seguido.
+// Se exige precio MÁS nombre o código: con sólo "precio" alcanzaría un título como
+// "LISTA DE PRECIOS MAYORISTA" para hacerse pasar por encabezado.
+function detectarEncabezado(filas) {
+  const tope = Math.min(filas.length, 15);
+  for (let i = 0; i < tope; i++) {
+    const cols = filas[i].map(c => String(c).trim());
+    const buscar = re => { const j = cols.findIndex(c => re.test(c)); return j < 0 ? null : j; };
+    const precio = buscar(PATRONES.precio);
+    if (precio == null) continue;
+    const codigo = buscar(PATRONES.codigo);
+    const nombre = buscar(PATRONES.nombre);
+    if (nombre == null && codigo == null) continue;
+    return { filaEncabezado: i, columnas: cols, codigo, nombre, precio };
+  }
+  return null;
+}
+
+// filas + mapeo de columnas → productos. Descarta lo que no tenga nombre y precio > 0,
+// así las filas de totales, subtítulos y separadoras no entran al catálogo.
+function filasACatalogo(filas, mapeo) {
+  const { filaEncabezado = -1, codigo, nombre, precio } = mapeo || {};
+  if (nombre == null || precio == null) throw new Error('Faltan las columnas de nombre y precio.');
+  const productos = [];
+  for (let i = filaEncabezado + 1; i < filas.length; i++) {
+    const f = filas[i] || [];
+    const nom = String(f[nombre] == null ? '' : f[nombre]).trim();
+    const pre = aNumero(f[precio]);
+    if (!nom || !Number.isFinite(pre) || pre <= 0) continue;
+    productos.push({
+      plu: codigo == null ? '' : String(f[codigo] == null ? '' : f[codigo]).trim(),
+      nombre: nom,
+      precio: Math.round(pre * 100) / 100,
+      barra: '', modalidad: null, unidad: '',
+    });
+  }
+  return productos;
+}
+
+// ── Códigos de barra y tickets de balanza ─────────────────────────────────────
+// Un producto puede repetir código de barras con otro (en SIGA hay 8 casos), así que el
+// índice por barra guarda listas: escanear uno de esos tiene que preguntar, no adivinar.
+function construirIndice(productos) {
+  const porBarra = new Map(), porPlu = new Map();
+  for (const p of productos || []) {
+    const plu = String(p.plu || '').trim();
+    if (plu && !porPlu.has(plu)) porPlu.set(plu, p);
+    const barra = String(p.barra || '').replace(/\D/g, '');
+    if (barra) {
+      if (!porBarra.has(barra)) porBarra.set(barra, []);
+      porBarra.get(barra).push(p);
+    }
+  }
+  return { porBarra, porPlu };
+}
+
+// Dígito verificador EAN-13 sobre los primeros 12 dígitos.
+function digitoControlEan13(doce) {
+  let suma = 0;
+  for (let i = 0; i < 12; i++) suma += Number(doce[i]) * (i % 2 === 0 ? 1 : 3);
+  return (10 - (suma % 10)) % 10;
+}
+
+// Ticket de balanza: EAN-13 con formato "2" + prefijo + PLU(5) + valor(5) + control.
+// Confirmado contra los datos de SIGA: el producto 1004 tiene el código corto "2001004",
+// o sea "20" + PLU de 5 dígitos con ceros a la izquierda.
+// El valor son gramos cuando ModalidadCodigoDeBarras = PESO, y centavos cuando = PRECIO.
+function parsearCodigoBalanza(codigo) {
+  const d = String(codigo || '').replace(/\D/g, '');
+  if (d.length !== 13 || d[0] !== '2') return null;
+  // El dígito de control descarta lecturas rotas antes de que se conviertan en un precio.
+  if (digitoControlEan13(d) !== Number(d[12])) return null;
+  const plu = String(Number(d.slice(2, 7)));
+  const valor = Number(d.slice(7, 12));
+  if (!Number.isFinite(valor)) return null;
+  return { plu, valor };
+}
+
+const DIVISOR_PESO = 1000;      // el campo del ticket viene en gramos
+const DIVISOR_IMPORTE = 100;    // …o en centavos, si la modalidad es PRECIO
+
+// Resuelve lo que entró por el lector (o tipeado a mano) contra el catálogo.
+// Devuelve siempre un objeto con `tipo`, así el llamador no tiene que adivinar el caso.
+function resolverEscaneo(codigo, indice, opciones) {
+  const cfg = Object.assign({ divisorPeso: DIVISOR_PESO, divisorImporte: DIVISOR_IMPORTE }, opciones || {});
+  const bruto = String(codigo == null ? '' : codigo).trim();
+  if (!bruto) return { tipo: 'vacio' };
+  const d = bruto.replace(/\D/g, '');
+
+  // 1. Ticket de balanza: trae el peso (o el importe) adentro del código.
+  const bal = parsearCodigoBalanza(d);
+  if (bal) {
+    const p = indice.porPlu.get(bal.plu);
+    if (!p) return { tipo: 'no_encontrado', codigo: d, plu: bal.plu, balanza: true };
+    if (p.modalidad === 'PRECIO') {
+      // El ticket ya trae el importe cerrado: se respeta y la cantidad es 1.
+      const importe = Math.round((bal.valor / cfg.divisorImporte) * 100) / 100;
+      return { tipo: 'ok', producto: p, cant: 1, precio: importe, origen: 'balanza-importe' };
+    }
+    // PESO: el precio del catálogo es por kilo y el ticket trae los gramos pesados.
+    const kg = Math.round((bal.valor / cfg.divisorPeso) * 1000) / 1000;
+    return { tipo: 'ok', producto: p, cant: kg, precio: p.precio, origen: 'balanza-peso', unidad: 'kg' };
+  }
+
+  // 2. Código de barras común.
+  const porBarra = indice.porBarra.get(d);
+  if (porBarra && porBarra.length === 1) {
+    return { tipo: 'ok', producto: porBarra[0], cant: 1, precio: porBarra[0].precio, origen: 'barra' };
+  }
+  if (porBarra && porBarra.length > 1) return { tipo: 'ambiguo', codigo: d, opciones: porBarra };
+
+  // 3. PLU tipeado a mano, con o sin ceros a la izquierda.
+  const p = indice.porPlu.get(bruto) || indice.porPlu.get(d) ||
+            (d ? indice.porPlu.get(String(Number(d))) : null);
+  if (p) return { tipo: 'ok', producto: p, cant: 1, precio: p.precio, origen: 'plu' };
+
+  return { tipo: 'no_encontrado', codigo: bruto };
+}
+
+// ── Totales y pagos ───────────────────────────────────────────────────────────
+const MEDIOS_PAGO = ['EFECTIVO', 'DÉBITO', 'CRÉDITO', 'TRANSFERENCIA', 'QR / MERCADO PAGO', 'CUENTA CORRIENTE'];
+
+function subtotalLinea(l) {
+  const bruto = (Number(l.cant) || 0) * (Number(l.precio) || 0);
+  const dto = Math.min(Math.max(Number(l.dtoPct) || 0, 0), 100);
+  return bruto - bruto * dto / 100;
+}
+
+// Los dos descuentos se aplican en cascada, no se suman: primero el de cada línea y sobre
+// ese resultado el general. Sumarlos daría un total distinto (y menor) al que espera quien
+// carga "10% al item y 10% a todo".
+function totalesDe(lineas, dtoGlobalPct) {
+  const r2 = n => Math.round(n * 100) / 100;
+  const bruto = (lineas || []).reduce((a, l) => a + (Number(l.cant) || 0) * (Number(l.precio) || 0), 0);
+  const subtotal = (lineas || []).reduce((a, l) => a + subtotalLinea(l), 0);
+  const pct = Math.min(Math.max(Number(dtoGlobalPct) || 0, 0), 100);
+  const dtoGlobal = subtotal * pct / 100;
+  return {
+    bruto: r2(bruto), dtoLineas: r2(bruto - subtotal), subtotal: r2(subtotal),
+    pct, dtoGlobal: r2(dtoGlobal), total: r2(subtotal - dtoGlobal),
+  };
+}
+
+function saldoPagos(total, pagos) {
+  const r2 = n => Math.round(n * 100) / 100;
+  const pagado = (pagos || []).reduce((a, p) => a + (Number(p.importe) || 0), 0);
+  const dif = r2(r2(total) - r2(pagado));
+  return {
+    pagado: r2(pagado),
+    falta: dif > 0 ? dif : 0,
+    vuelto: dif < 0 ? r2(-dif) : 0,
+    // Menos de un centavo de diferencia es redondeo, no una deuda.
+    completo: Math.abs(dif) < 0.01 || dif < 0,
+  };
+}
+
+/* ---8<--- parser-fin */
+
+// ── Estado y almacenamiento ───────────────────────────────────────────────────
+// localStorage y no IndexedDB: Chrome bloquea IndexedDB en file://, que es justamente
+// cómo se abre este archivo.
+const K = { cat: 'fact_catalogo', ped: 'fact_pedidos', cfg: 'fact_config', term: 'fact_terminal',
+            borr: 'fact_borrador', cont: 'fact_contador' };
+const leer = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
+const grabar = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  catch (e) { alert('No se pudo guardar en este navegador: ' + e.message); return false; }
+};
+
+const CFG_DEF = {
+  servidores: 'http://servidorapidelta.local:8080, http://servidorapidelta.local:8081',
+  urlPlanilla: '',
+  mapeo: null,
+};
+
+let cfg = Object.assign({}, CFG_DEF, leer(K.cfg, {}));
+let catalogo = leer(K.cat, null);              // { generado, origen, productos: [] }
+let indice = construirIndice(catalogo ? catalogo.productos : []);
+let pedidos = leer(K.ped, []);
+const borrador = leer(K.borr, {});
+let lineas = Array.isArray(borrador.lineas) ? borrador.lineas : [];
+let pagos = Array.isArray(borrador.pagos) ? borrador.pagos : [];
+let terminal = leer(K.term, null);
+let filasPendientes = null;
+
+// Prefijo por dispositivo: sin él, dos vendedores offline emiten el mismo número.
+if (!terminal) {
+  terminal = 'T' + Math.floor(Math.random() * 900 + 100);
+  grabar(K.term, terminal);
+}
+
+// Contador propio, que nunca retrocede. Numerar por pedidos.length repetiría el número
+// apenas se borra uno, y como el respaldo se fusiona por número, el pedido nuevo se
+// descartaría al restaurar creyendo que ya estaba.
+let contador = Number(leer(K.cont, 0)) || 0;
+for (const p of pedidos) {
+  const n = Number(String(p.numero || '').split('-')[1]);
+  if (Number.isFinite(n) && n > contador) contador = n;   // recupera la cuenta de un respaldo
+}
+function proximoNumero() {
+  contador += 1;
+  grabar(K.cont, contador);
+  return terminal + '-' + String(contador).padStart(4, '0');
+}
+
+const $ = s => document.querySelector(s);
+const plata = n => '$ ' + (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// El peso se muestra con 3 decimales (los gramos importan); las unidades, enteras.
+const cantTxt = l => (l.unidad === 'kg' ? (Number(l.cant) || 0).toFixed(3) + ' kg' : String(Number(l.cant) || 0));
+
+function guardarBorrador() { grabar(K.borr, { lineas, pagos }); }
+
+// ── Obtención del catálogo ────────────────────────────────────────────────────
+async function traer(url, tipo, ms = 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return tipo === 'buffer' ? await r.arrayBuffer() : tipo === 'texto' ? await r.text() : await r.json();
+  } finally { clearTimeout(t); }
+}
+
+async function desdeServidor() {
+  const urls = cfg.servidores.split(',').map(s => s.trim()).filter(Boolean);
+  const errores = [];
+  for (const base of urls) {
+    try {
+      const d = await traer(base.replace(/\/$/, '') + '/api/facturador/catalogo', 'json');
+      if (!d || !Array.isArray(d.productos) || !d.productos.length) throw new Error('respuesta vacía');
+      return { generado: d.generado || new Date().toISOString(), origen: d.origen || base, productos: d.productos };
+    } catch (e) { errores.push(base + ': ' + e.message); }
+  }
+  throw new Error(errores.join(' | ') || 'no hay servidores configurados');
+}
+
+async function desdePlanilla(fuente, nombreArchivo, origen) {
+  const esXlsx = /\.xlsx(\?|$)/i.test(nombreArchivo);
+  const filas = esXlsx
+    ? await filasDeXlsx(fuente)
+    : filasDeCsv(typeof fuente === 'string' ? fuente : new TextDecoder().decode(new Uint8Array(fuente)));
+  if (!filas.length) throw new Error('La planilla está vacía.');
+
+  const auto = detectarEncabezado(filas);
+  const mapeo = auto || (cfg.mapeo ? Object.assign({ filaEncabezado: 0 }, cfg.mapeo) : null);
+  if (!mapeo || mapeo.nombre == null || mapeo.precio == null) {
+    filasPendientes = { filas, origen };
+    mostrarMapeo(filas);
+    throw new Error('No se reconocieron las columnas de la planilla. Elegilas en "Fuente de precios".');
+  }
+  const productos = filasACatalogo(filas, mapeo);
+  if (!productos.length) throw new Error('No se encontró ningún producto con precio en la planilla.');
+  cfg.mapeo = { codigo: mapeo.codigo, nombre: mapeo.nombre, precio: mapeo.precio };
+  grabar(K.cfg, cfg);
+  return { generado: new Date().toISOString(), origen, productos };
+}
+
+async function actualizarCatalogo({ silencioso = false } = {}) {
+  pintarEstado('cargando');
+  const fallos = [];
+  try { return aplicarCatalogo(await desdeServidor()); }
+  catch (e) { fallos.push('Servidor → ' + e.message); }
+
+  if (cfg.urlPlanilla) {
+    try {
+      const esXlsx = /\.xlsx(\?|$)/i.test(cfg.urlPlanilla);
+      const datos = await traer(cfg.urlPlanilla, esXlsx ? 'buffer' : 'texto', 20000);
+      return aplicarCatalogo(await desdePlanilla(datos, cfg.urlPlanilla, 'planilla web'));
+    } catch (e) { fallos.push('Planilla → ' + e.message); }
+  }
+
+  pintarEstado();
+  if (!silencioso) {
+    alert('No se pudieron actualizar los precios.\n\n' + fallos.join('\n') +
+      (catalogo ? '\n\nSe sigue trabajando con el catálogo guardado.'
+                : '\n\nCargá una planilla desde "Fuente de precios".'));
+  }
+  return null;
+}
+
+function aplicarCatalogo(nuevo) {
+  catalogo = nuevo;
+  indice = construirIndice(catalogo.productos);
+  grabar(K.cat, catalogo);
+  pintarEstado();
+  buscarProductos($('#buscar').value);
+  return catalogo;
+}
+
+function pintarEstado(modo) {
+  const el = $('#estadoCat');
+  if (modo === 'cargando') { el.className = 'estado viejo'; el.textContent = 'Actualizando…'; return; }
+  if (!catalogo) { el.className = 'estado sin'; el.textContent = 'Sin catálogo'; return; }
+  const f = new Date(catalogo.generado);
+  const horas = (Date.now() - f.getTime()) / 36e5;
+  const cuando = f.toLocaleDateString('es-AR') + ' ' + f.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  const conBarra = catalogo.productos.filter(p => p.barra).length;
+  el.className = 'estado' + (horas < 24 ? '' : ' viejo');
+  el.textContent = catalogo.productos.length + ' productos · ' + conBarra + ' con código · ' + cuando +
+    (horas >= 24 ? ' ⚠ desactualizado' : '');
+}
+
+// ── Escáner ───────────────────────────────────────────────────────────────────
+function avisar(texto, clase) {
+  const el = $('#avisoEscaner');
+  el.textContent = texto;
+  el.className = clase || 'chico';
+}
+
+function procesarEscaneo(codigo) {
+  if (!catalogo) return avisar('Todavía no hay catálogo cargado.', 'av-err');
+  const r = resolverEscaneo(codigo, indice);
+
+  if (r.tipo === 'vacio') return;
+
+  if (r.tipo === 'ok') {
+    agregarLinea(r.producto, { cant: r.cant, precio: r.precio, unidad: r.unidad, origen: r.origen });
+    if (r.origen === 'balanza-peso') {
+      avisar(`⚖ ${r.producto.nombre} — ${r.cant.toFixed(3)} kg × ${plata(r.precio)}/kg = ${plata(r.cant * r.precio)}`, 'av-ok');
+    } else if (r.origen === 'balanza-importe') {
+      avisar(`🏷 ${r.producto.nombre} — importe del ticket ${plata(r.precio)}`, 'av-ok');
+    } else {
+      avisar(`✓ ${r.producto.nombre} — ${plata(r.precio)}`, 'av-ok');
+    }
+    return;
+  }
+
+  if (r.tipo === 'ambiguo') {
+    // Varios productos comparten ese código: se listan y elige la persona.
+    $('#resultados').innerHTML = r.opciones.map(p =>
+      '<div data-plu="' + esc(p.plu) + '"><span class="nom">' + esc(p.nombre) +
+      ' <span class="tag plu">' + esc(p.plu) + '</span></span><span class="pr">' + plata(p.precio) + '</span></div>').join('');
+    return avisar('El código ' + r.codigo + ' lo comparten ' + r.opciones.length + ' productos. Elegí cuál.', 'av-warn');
+  }
+
+  if (r.balanza) {
+    return avisar('Ticket de balanza del producto ' + r.plu + ', que no está en el catálogo. Actualizá los precios.', 'av-err');
+  }
+  avisar('No se encontró ningún producto con el código ' + r.codigo + '.', 'av-err');
+}
+
+$('#escaner').addEventListener('keydown', e => {
+  // Los lectores de código escriben la cadena y cierran con Enter: no hace falta más.
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const v = e.target.value;
+  e.target.value = '';
+  procesarEscaneo(v);
+});
+
+// El foco vuelve al escáner cuando nadie está escribiendo en otro lado: el lector manda
+// las teclas a donde esté el foco, y si se pierde, el código se escribe en cualquier campo.
+function focoEscaner() {
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA')) return;
+  $('#escaner').focus();
+}
+document.addEventListener('click', () => setTimeout(focoEscaner, 60));
+
+// ── Búsqueda ──────────────────────────────────────────────────────────────────
+function buscarProductos(txt) {
+  const cont = $('#resultados');
+  const q = String(txt || '').trim().toLowerCase();
+  if (!catalogo || !q) { cont.innerHTML = ''; return; }
+  const terminos = q.split(/\s+/);
+  const salida = [];
+  for (let i = 0; i < catalogo.productos.length && salida.length < 50; i++) {
+    const p = catalogo.productos[i];
+    const s = (p.nombre + ' ' + p.plu + ' ' + (p.barra || '')).toLowerCase();
+    if (terminos.every(t => s.includes(t))) salida.push(p);
+  }
+  cont.innerHTML = salida.length
+    ? salida.map(p => '<div data-plu="' + esc(p.plu) + '"><span class="nom">' + esc(p.nombre) +
+        ' <span class="tag plu">' + esc(p.plu) + '</span>' +
+        (p.modalidad === 'PESO' ? ' <span class="tag peso">por kilo</span>' : '') +
+        '</span><span class="pr">' + plata(p.precio) + '</span></div>').join('')
+    : '<div class="chico" style="padding:9px">Sin resultados</div>';
+}
+
+$('#buscar').oninput = e => buscarProductos(e.target.value);
+
+$('#resultados').onclick = e => {
+  const div = e.target.closest('div[data-plu]');
+  if (!div) return;
+  const p = indice.porPlu.get(div.dataset.plu);
+  if (!p) return;
+  agregarLinea(p, { cant: 1, precio: p.precio, origen: 'manual' });
+  $('#buscar').value = '';
+  $('#resultados').innerHTML = '';
+  avisar('✓ ' + p.nombre + ' — ' + plata(p.precio), 'av-ok');
+};
+
+// ── Líneas ────────────────────────────────────────────────────────────────────
+function agregarLinea(prod, opts) {
+  const o = opts || {};
+  const unidad = o.unidad || (prod.modalidad === 'PESO' ? 'kg' : '');
+  const nueva = {
+    plu: prod.plu, nombre: prod.nombre, precio: Number(o.precio != null ? o.precio : prod.precio) || 0,
+    cant: Number(o.cant) || 1, unidad, dtoPct: 0, origen: o.origen || 'manual',
+  };
+  // Se acumula sólo lo que se cuenta por unidad y al mismo precio. Dos pesadas del mismo
+  // producto son dos líneas distintas: cada ticket de balanza es su propio bulto.
+  const i = nueva.unidad === 'kg' || o.origen === 'balanza-importe' ? -1
+    : lineas.findIndex(l => l.plu === nueva.plu && l.precio === nueva.precio && l.unidad === nueva.unidad);
+  lineas = i >= 0
+    ? lineas.map((l, j) => (j === i ? { ...l, cant: l.cant + nueva.cant } : l))
+    : [...lineas, nueva];
+  pintarLineas();
+}
+
+function pintarLineas() {
+  $('#tablaLineas tbody').innerHTML = lineas.length ? lineas.map((l, i) => '<tr>' +
+    '<td>' + esc(l.nombre) +
+      '<div class="chico">' + esc(l.plu) +
+      (l.origen === 'balanza-peso' ? ' · <span class="tag peso">balanza</span>' : '') +
+      (l.origen === 'balanza-importe' ? ' · <span class="tag peso">ticket</span>' : '') + '</div></td>' +
+    '<td class="num"><input type="number" data-i="' + i + '" data-campo="cant" value="' + l.cant + '" min="0" step="' + (l.unidad === 'kg' ? '0.001' : '1') + '" style="width:84px;padding:5px">' +
+      (l.unidad === 'kg' ? '<div class="chico">kg</div>' : '') + '</td>' +
+    '<td class="num"><input type="number" data-i="' + i + '" data-campo="precio" value="' + l.precio + '" min="0" step="0.01" style="width:96px;padding:5px">' +
+      (l.unidad === 'kg' ? '<div class="chico">por kg</div>' : '') + '</td>' +
+    '<td class="num no-print"><input type="number" data-i="' + i + '" data-campo="dtoPct" value="' + (l.dtoPct || 0) + '" min="0" max="100" step="1" style="width:64px;padding:5px"></td>' +
+    '<td class="num"><strong>' + plata(subtotalLinea(l)) + '</strong></td>' +
+    '<td class="no-print"><button class="mini peligro" data-quitar="' + i + '" title="Quitar">×</button></td>' +
+  '</tr>').join('') : '<tr><td colspan="6" class="vacio">Escaneá o buscá un producto para empezar.</td></tr>';
+  pintarTotales();
+  guardarBorrador();
+}
+
+$('#tablaLineas').oninput = e => {
+  const inp = e.target;
+  if (!inp.dataset || !inp.dataset.campo) return;
+  const i = Number(inp.dataset.i);
+  const v = Number(inp.value);
+  if (!Number.isFinite(v) || v < 0) return;
+  lineas = lineas.map((l, j) => (j === i ? { ...l, [inp.dataset.campo]: v } : l));
+  // No se repinta la tabla entera: perdería el foco mientras se tipea.
+  inp.closest('tr').querySelector('td:nth-child(5) strong').textContent = plata(subtotalLinea(lineas[i]));
+  pintarTotales();
+  guardarBorrador();
+};
+
+$('#tablaLineas').onclick = e => {
+  const b = e.target.closest('button[data-quitar]');
+  if (!b) return;
+  const i = Number(b.dataset.quitar);
+  lineas = lineas.filter((_, j) => j !== i);
+  pintarLineas();
+};
+
+function pintarTotales() {
+  const t = totalesDe(lineas, $('#descuento').value);
+  $('#totBruto').textContent = plata(t.bruto);
+  $('#totDtoLineas').textContent = '– ' + plata(t.dtoLineas);
+  $('#filaDtoLineas').classList.toggle('oculto', t.dtoLineas <= 0);
+  $('#totSub').textContent = plata(t.subtotal);
+  $('#totDto').textContent = '– ' + plata(t.dtoGlobal);
+  $('#totFinal').textContent = plata(t.total);
+  pintarPagos();
+}
+
+$('#descuento').oninput = pintarTotales;
+
+// ── Pagos ─────────────────────────────────────────────────────────────────────
+$('#medioPago').innerHTML = MEDIOS_PAGO.map(m => '<option>' + esc(m) + '</option>').join('');
+
+$('#btnAgregarPago').onclick = () => {
+  const t = totalesDe(lineas, $('#descuento').value);
+  if (t.total <= 0) return alert('Cargá productos antes de registrar el pago.');
+  const s = saldoPagos(t.total, pagos);
+  const escrito = Number($('#importePago').value);
+  // Sin importe escrito se asigna todo lo que falta: es el caso habitual (un solo medio).
+  const importe = Number.isFinite(escrito) && escrito > 0 ? Math.round(escrito * 100) / 100 : s.falta;
+  if (importe <= 0) return alert('Ya está cubierto el total del pedido.');
+  pagos = [...pagos, { medio: $('#medioPago').value, importe }];
+  $('#importePago').value = '';
+  pintarPagos();
+  guardarBorrador();
+};
+
+$('#tablaPagos').onclick = e => {
+  const b = e.target.closest('button[data-pago]');
+  if (!b) return;
+  pagos = pagos.filter((_, j) => j !== Number(b.dataset.pago));
+  pintarPagos();
+  guardarBorrador();
+};
+
+function pintarPagos() {
+  const t = totalesDe(lineas, $('#descuento').value);
+  const s = saldoPagos(t.total, pagos);
+  $('#tablaPagos tbody').innerHTML = pagos.map((p, i) => '<tr>' +
+    '<td>' + esc(p.medio) + '</td>' +
+    '<td class="num">' + plata(p.importe) + '</td>' +
+    '<td class="no-print" style="width:34px"><button class="mini peligro" data-pago="' + i + '" title="Quitar">×</button></td>' +
+  '</tr>').join('');
+
+  const el = $('#saldoPago');
+  if (s.vuelto > 0) { el.className = 'saldo vuelto'; el.innerHTML = '<span>Vuelto</span><span>' + plata(s.vuelto) + '</span>'; }
+  else if (s.falta > 0) { el.className = 'saldo falta'; el.innerHTML = '<span>Falta</span><span>' + plata(s.falta) + '</span>'; }
+  else if (t.total > 0) { el.className = 'saldo listo'; el.innerHTML = '<span>Pagado</span><span>' + plata(s.pagado) + '</span>'; }
+  else { el.className = 'saldo falta'; el.innerHTML = '<span>Falta</span><span>' + plata(0) + '</span>'; }
+}
+
+// ── Guardar y exportar ────────────────────────────────────────────────────────
+function pedidoActual() {
+  const t = totalesDe(lineas, $('#descuento').value);
+  const ahora = new Date();
+  return {
+    // Provisorio: el definitivo se pide con proximoNumero() recién al guardar, para que
+    // copiar o imprimir un borrador no consuma un número de pedido.
+    numero: terminal + '-' + String(contador + 1).padStart(4, '0'),
+    fecha: ahora.toISOString(),
+    fechaLocal: ahora.toLocaleDateString('es-AR'),
+    horaLocal: ahora.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+    cliente: $('#cliente').value.trim(),
+    vendedor: $('#vendedor').value.trim(),
+    descuentoPct: t.pct,
+    // Cada línea guarda su precio: si mañana cambia el catálogo, lo ya entregado no se mueve.
+    lineas: lineas.map(l => ({ ...l, subtotal: Math.round(subtotalLinea(l) * 100) / 100 })),
+    pagos: pagos.map(p => ({ ...p })),
+    catalogoGenerado: catalogo ? catalogo.generado : null,
+    bruto: t.bruto, dtoLineas: t.dtoLineas, subtotal: t.subtotal, dtoGlobal: t.dtoGlobal, total: t.total,
+  };
+}
+
+$('#btnGuardarPedido').onclick = () => {
+  if (!lineas.length) return alert('El pedido no tiene productos.');
+  const enCurso = pedidoActual();
+  const s = saldoPagos(enCurso.total, enCurso.pagos);
+  if (!s.completo && !confirm(`Faltan ${plata(s.falta)} por cubrir con algún medio de pago.\n\n¿Guardar igual?`)) return;
+
+  const p = { ...enCurso, numero: proximoNumero() };
+  pedidos = [p, ...pedidos];
+  if (!grabar(K.ped, pedidos)) return;
+  lineas = []; pagos = []; guardarBorrador();
+  $('#cliente').value = ''; $('#descuento').value = '0';
+  pintarLineas(); pintarGuardados();
+  avisar('Pedido ' + p.numero + ' guardado.', 'av-ok');
+};
+
+function comoTexto(p) {
+  return [
+    '*Pedido ' + p.numero + '* — ' + (p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR')) +
+      ' ' + (p.horaLocal || ''),
+    p.cliente ? 'Cliente: ' + p.cliente : '',
+    '',
+    ...p.lineas.map(l => cantTxt(l) + ' × ' + l.nombre + ' — ' +
+      plata(l.subtotal != null ? l.subtotal : subtotalLinea(l))),
+    '',
+    'Subtotal: ' + plata(p.subtotal),
+    p.descuentoPct ? 'Descuento ' + p.descuentoPct + '%: – ' + plata(p.dtoGlobal) : '',
+    '*Total: ' + plata(p.total) + '*',
+    p.pagos && p.pagos.length ? 'Pago: ' + p.pagos.map(x => x.medio + ' ' + plata(x.importe)).join(' + ') : '',
+    '',
+    '_Comprobante interno, sin valor fiscal._',
+  ].filter(Boolean).join('\n');
+}
+
+async function copiar(txt) {
+  // En file:// el portapapeles a veces está bloqueado: el prompt es la salida de escape.
+  try { await navigator.clipboard.writeText(txt); avisar('Copiado al portapapeles.', 'av-ok'); }
+  catch { prompt('Copialo a mano:', txt); }
+}
+
+$('#btnCopiar').onclick = () => {
+  if (!lineas.length) return alert('El pedido no tiene productos.');
+  copiar(comoTexto(pedidoActual()));
+};
+
+$('#btnImprimir').onclick = () => window.print();
+
+$('#btnLimpiar').onclick = () => {
+  if ((!lineas.length && !pagos.length) || !confirm('¿Vaciar el pedido en curso?')) return;
+  lineas = []; pagos = []; guardarBorrador();
+  $('#cliente').value = ''; $('#descuento').value = '0';
+  pintarLineas();
+};
+
+function bajarArchivo(nombre, contenido, tipo) {
+  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+$('#btnExportarCsv').onclick = () => {
+  if (!pedidos.length) return alert('No hay pedidos guardados.');
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const filas = [['Pedido', 'Fecha', 'Hora', 'Cliente', 'Vendedor', 'Codigo', 'Producto', 'Cantidad', 'Unidad',
+                  'Precio', 'DtoLinea', 'SubtotalLinea', 'DtoGeneral', 'TotalPedido', 'MediosPago']];
+  for (const p of pedidos) {
+    const medios = (p.pagos || []).map(x => x.medio + ' ' + x.importe).join(' + ');
+    for (const l of p.lineas) {
+      filas.push([p.numero, p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR'),
+        p.horaLocal || new Date(p.fecha).toLocaleTimeString('es-AR'), p.cliente, p.vendedor || '',
+        l.plu, l.nombre, l.cant, l.unidad || 'un', l.precio, l.dtoPct || 0,
+        l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
+        p.descuentoPct, p.total, medios]);
+    }
+  }
+  // BOM + punto y coma: así Excel en español lo abre en columnas sin preguntar nada.
+  bajarArchivo('pedidos_' + new Date().toISOString().slice(0, 10) + '.csv',
+    '﻿' + filas.map(f => f.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+};
+
+$('#btnRespaldo').onclick = () => bajarArchivo(
+  'respaldo_facturador_' + new Date().toISOString().slice(0, 10) + '.json',
+  JSON.stringify({ terminal, pedidos, catalogo, cfg }, null, 2), 'application/json');
+
+$('#btnRestaurar').onclick = () => $('#inputRespaldo').click();
+
+$('#inputRespaldo').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!Array.isArray(d.pedidos)) throw new Error('el archivo no es un respaldo válido');
+    // Fusiona por número en vez de pisar: restaurar en un equipo que ya tomó pedidos no
+    // puede borrarlos.
+    const vistos = new Set(pedidos.map(p => p.numero));
+    pedidos = [...pedidos, ...d.pedidos.filter(p => !vistos.has(p.numero))]
+      .sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+    grabar(K.ped, pedidos);
+    // El contador tiene que quedar por encima de lo restaurado, si no el próximo pedido
+    // reusa un número que el respaldo acaba de traer.
+    for (const p of pedidos) {
+      const n = Number(String(p.numero || '').split('-')[1]);
+      if (Number.isFinite(n) && n > contador) contador = n;
+    }
+    grabar(K.cont, contador);
+    if (d.catalogo && (!catalogo || d.catalogo.generado > catalogo.generado)) aplicarCatalogo(d.catalogo);
+    pintarGuardados();
+    alert('Respaldo restaurado. Total de pedidos: ' + pedidos.length);
+  } catch (err) { alert('No se pudo restaurar: ' + err.message); }
+  e.target.value = '';
+};
+
+function pintarGuardados() {
+  $('#tablaGuardados tbody').innerHTML = pedidos.length ? pedidos.map((p, i) => '<tr>' +
+    '<td>' + esc(p.numero) + '</td>' +
+    '<td class="chico">' + esc((p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR')) + ' ' +
+      (p.horaLocal || new Date(p.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }))) + '</td>' +
+    '<td>' + esc(p.cliente || '—') + '</td>' +
+    '<td class="chico">' + esc((p.pagos || []).map(x => x.medio).join(' + ') || '—') + '</td>' +
+    '<td class="num">' + plata(p.total) + '</td>' +
+    '<td><button class="mini" data-copiar="' + i + '">Copiar</button> ' +
+        '<button class="mini peligro" data-borrar="' + i + '">×</button></td>' +
+  '</tr>').join('') : '<tr><td colspan="6" class="vacio">Todavía no hay pedidos guardados.</td></tr>';
+}
+
+$('#tablaGuardados').onclick = e => {
+  const c = e.target.closest('button[data-copiar]');
+  if (c) return copiar(comoTexto(pedidos[Number(c.dataset.copiar)]));
+  const b = e.target.closest('button[data-borrar]');
+  if (!b) return;
+  const i = Number(b.dataset.borrar);
+  if (!confirm('¿Borrar el pedido ' + pedidos[i].numero + '? No se puede deshacer.')) return;
+  pedidos = pedidos.filter((_, j) => j !== i);
+  grabar(K.ped, pedidos);
+  pintarGuardados();
+};
+
+// ── Configuración y carga de archivos ─────────────────────────────────────────
+$('#btnConfig').onclick = () => $('#secConfig').classList.toggle('oculto');
+$('#btnGuardados').onclick = () => { pintarGuardados(); $('#secGuardados').classList.toggle('oculto'); };
+$('#btnActualizar').onclick = () => actualizarCatalogo();
+
+$('#btnGuardarConfig').onclick = () => {
+  cfg = { ...cfg, servidores: $('#cfgServidores').value, urlPlanilla: $('#cfgUrlPlanilla').value };
+  grabar(K.cfg, cfg);
+  avisar('Configuración guardada.', 'av-ok');
+};
+
+function mostrarMapeo(filas) {
+  const cols = filas[0] || [];
+  const ancho = filas.reduce((m, f) => Math.max(m, f.length), 0);
+  for (const sel of ['#colCodigo', '#colNombre', '#colPrecio']) {
+    $(sel).innerHTML = '<option value="">(ninguna)</option>' + Array.from({ length: ancho }, (_, i) =>
+      '<option value="' + i + '">Col ' + (i + 1) + ' — ' + esc(String(cols[i] || '').slice(0, 30) || '(vacía)') + '</option>').join('');
+  }
+  $('#mapeoCols').classList.remove('oculto');
+  $('#secConfig').classList.remove('oculto');
+}
+
+$('#btnAplicarCols').onclick = () => {
+  if (!filasPendientes) return;
+  const val = s => ($(s).value === '' ? null : Number($(s).value));
+  const mapeo = { filaEncabezado: 0, codigo: val('#colCodigo'), nombre: val('#colNombre'), precio: val('#colPrecio') };
+  if (mapeo.nombre == null || mapeo.precio == null) return alert('Elegí al menos las columnas de nombre y precio.');
+  try {
+    const productos = filasACatalogo(filasPendientes.filas, mapeo);
+    if (!productos.length) return alert('Con esas columnas no salió ningún producto con precio válido.');
+    cfg.mapeo = { codigo: mapeo.codigo, nombre: mapeo.nombre, precio: mapeo.precio };
+    grabar(K.cfg, cfg);
+    aplicarCatalogo({ generado: new Date().toISOString(), origen: filasPendientes.origen, productos });
+    $('#mapeoCols').classList.add('oculto');
+    filasPendientes = null;
+    alert(productos.length + ' productos cargados.');
+  } catch (e) { alert(e.message); }
+};
+
+$('#btnArchivo').onclick = () => $('#inputArchivo').click();
+$('#inputArchivo').onchange = e => { if (e.target.files[0]) cargarArchivo(e.target.files[0]); e.target.value = ''; };
+
+const dz = $('#dropzona');
+dz.ondragover = e => { e.preventDefault(); dz.classList.add('sobre'); };
+dz.ondragleave = () => dz.classList.remove('sobre');
+dz.ondrop = e => {
+  e.preventDefault(); dz.classList.remove('sobre');
+  if (e.dataTransfer.files[0]) cargarArchivo(e.dataTransfer.files[0]);
+};
+
+async function cargarArchivo(file) {
+  try {
+    const esXlsx = /\.xlsx$/i.test(file.name);
+    const datos = esXlsx ? await file.arrayBuffer() : await file.text();
+    const cat = await desdePlanilla(datos, file.name, 'archivo: ' + file.name);
+    aplicarCatalogo(cat);
+    alert(cat.productos.length + ' productos cargados desde ' + file.name +
+      '.\n\nUna planilla no trae códigos de barras: para escanear hay que actualizar desde el servidor.');
+  } catch (err) { alert(err.message); }
+}
+
+// ── Arranque ──────────────────────────────────────────────────────────────────
+$('#cfgServidores').value = cfg.servidores;
+$('#cfgUrlPlanilla').value = cfg.urlPlanilla;
+pintarEstado();
+pintarLineas();
+pintarGuardados();
+if (!catalogo) $('#secConfig').classList.remove('oculto');
+focoEscaner();
+// Intento silencioso al abrir: con red los precios quedan frescos sin que nadie apriete
+// nada; sin red sigue andando con lo guardado.
+actualizarCatalogo({ silencioso: true });
+</script>
+</body>
+</html>

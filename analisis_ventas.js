@@ -131,13 +131,39 @@ function exprTickets(excProdCsv) {
 }
 
 // Cláusula WHERE con los filtros comunes. desde/hasta/sucIdsCsv YA saneados por el endpoint.
-function whereVentas({ desde, hasta, sucIdsCsv }) {
+function whereVentas({ desde, hasta, sucIdsCsv, promo }) {
   return `v.Fecha >= '${desde} 00:00:00' AND v.Fecha <= '${hasta} 23:59:59'
       AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO'
       AND v.IdSucursal IN (${sucIdsCsv})
-      AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
-      AND ISNULL(c.IdCategoria, 0) != ${CATEGORIA_SUCURSAL_ID}
+      AND ${filtroClientes(promo)}
       AND v.ImporteTotal > 0`;
+}
+
+// ── Ventas de promoción ──────────────────────────────────────────────────────
+// Cada sucursal factura sus promos a una cuenta propia (PROMOCIONES_RIVADAVIA,
+// PROMOCIONES_URQUIZA, …). No hace falta casar el sufijo con la sucursal: de qué local
+// salió ya lo dice v.IdSucursal, así que alcanza con reconocer el prefijo y así el filtro
+// aguanta las variantes de nombre (con guión bajo, con espacio, con o sin acento).
+const PROMO_PREFIJO = 'PROMOCIONES';
+const MODOS_PROMO = ['todas', 'sin', 'solo'];
+
+function modoPromoSeguro(raw) {
+  return MODOS_PROMO.includes(raw) ? raw : null;
+}
+
+// Qué clientes entran según el modo pedido. Sin modo devuelve la condición histórica y las
+// consultas que no pasan el parámetro quedan exactamente como estaban.
+// Ojo con el 'solo' y el 'todas': no aplican el descarte de categoría SUCURSAL sobre las
+// cuentas de promo. Si esas cuentas estuvieran categorizadas como sucursal (son internas),
+// el descarte las borraría y "solo promo" mostraría todo en cero sin explicación.
+function filtroClientes(promo) {
+  const noInterno = `(UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'`
+    + ` AND ISNULL(c.IdCategoria, 0) != ${CATEGORIA_SUCURSAL_ID})`;
+  const esPromo = `UPPER(ISNULL(c.NombreCliente,'')) LIKE '${PROMO_PREFIJO}%'`;
+  if (promo === 'solo')  return esPromo;
+  if (promo === 'sin')   return `${noInterno} AND NOT ${esPromo}`;
+  if (promo === 'todas') return `(${noInterno} OR ${esPromo})`;
+  return noInterno;
 }
 
 // ── Rubros excluidos del análisis ────────────────────────────────────────────
@@ -508,6 +534,22 @@ function sqlUnidadesPorSucursal(p, idsCsv) {
     WHERE ${whereVentas(p)}
       AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${idsCsv ? ` AND vp.IdProducto IN (${idsCsv})` : ''}${andSinProductosExcluidos(p.excProdCsv)}
     GROUP BY vp.IdProducto, vp.IdSucursal`;
+}
+
+// Ventas por producto y sucursal para las familias manuales (ver familias_manuales.js).
+// Mismos filtros de comprobante y de transferencias internas que el resto del módulo, pero
+// SIN el recorte por rubro: los códigos los eligió el usuario uno por uno y esconderle una
+// familia entera porque cayó en un rubro excluido sería un dato faltante sin explicación.
+function sqlVentasPorProductoSucursal(p, idsCsv) {
+  return `SELECT vp.IdProducto, vp.IdSucursal, p.NombreProducto AS Nombre,
+      SUM(vp.Cantidad) AS Unidades, SUM(${exprImporteRenglon()}) AS Facturacion
+    FROM VentasProductos vp
+    ${JOIN_CLAVE5}
+    ${JOIN_CLIENTE_CAT}
+    INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
+    WHERE ${whereVentas(p)}
+      AND vp.IdProducto IN (${idsCsv})
+    GROUP BY vp.IdProducto, vp.IdSucursal, p.NombreProducto`;
 }
 
 function fechaUTC(iso) {
@@ -933,10 +975,12 @@ module.exports = {
   exprFacturacion, exprTickets, exprImporteRenglon,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
   whereVentas, sqlComparativa, sqlResumenRenglon,
+  PROMO_PREFIJO, MODOS_PROMO, modoPromoSeguro, filtroClientes,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
   sqlMetaClasificacion, clasificacionesDisponibles, filtroSinInsumos,
   UMBRAL_PORC_VENTAS, UMBRAL_TOPE_UNIDADES, RUBRO_PESABLES,
   idsCsvSeguro, sqlPesables, sqlStockPorSucursal, sqlNetoDiarioStock, sqlUnidadesPorSucursal,
+  sqlVentasPorProductoSucursal,
   sqlMovimientosProducto,
   mesesDelRango, diaAnterior, umbralQuiebre, diasEnQuiebre, serieStockDiaria,
   diasEvaluados, porcentajeQuiebre,

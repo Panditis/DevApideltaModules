@@ -19,6 +19,7 @@
     <button id="tab-suc">Sucursales</button>
     <button id="tab-cen">Mayorista</button>
     <button id="tab-fam">Portfolio</button>
+    <button id="tab-fmn">Mis familias</button>
   </div>
 
   <!-- El rango es común a las dos pestañas; los chips y la nota de alcance se muestran
@@ -124,9 +125,69 @@
       <div id="pagTop-fam"></div>
     </div>
   </section>
+
+  <!-- ── Pestaña Mis familias: grupos armados a mano, comparados por sucursal ── -->
+  <section id="pane-fmn" hidden>
+    <div id="msg-fmn"></div>
+    <div class="kpis" id="kpis-fmn"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Mis familias</h3>
+        <div class="fam-nueva">
+          <input type="text" id="famNueva" class="buscador" placeholder="Nombre de la familia nueva" autocomplete="off">
+          <button class="btn" id="famCrear">Crear familia</button>
+          <button class="btn" id="famGuardar">Guardar familias</button>
+        </div>
+      </div>
+      <p class="desc">Los grupos los armás vos: creá una familia y asignale los productos que
+        quieras, buscándolos por nombre o código. Los cambios recién impactan en el tablero al
+        guardar. Un mismo producto puede estar en más de una familia.</p>
+      <div id="famAviso"></div>
+      <div id="famEditor"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Comparación por sucursal</h3>
+        <div class="fam-nueva">
+          <select id="famMetrica" class="buscador">
+            <option value="facturacion">Facturación ($)</option>
+            <option value="unidades">Unidades</option>
+          </select>
+          <input type="search" id="buscTop-fmn" class="buscador" placeholder="Buscar familia..." autocomplete="off">
+        </div>
+      </div>
+      <div class="fam-promo">
+        <span class="lbl-promo">Ventas de promo</span>
+        <div class="chips" id="famPromo"></div>
+      </div>
+      <p class="desc">Una barra por sucursal dentro de cada familia. Alcance: sucursales, sin
+        casa central. Se excluyen los comprobantes anulados y las transferencias internas.
+        Las promos se facturan a la cuenta PROMOCIONES_ de cada sucursal: con el filtro de
+        arriba se las deja adentro, se las saca o se las mira solas.</p>
+      <canvas id="chFamManual" height="140"></canvas>
+      <div id="tblFamManual" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Productos por sucursal</h3>
+        <div class="fam-nueva">
+          <select id="famFamiliaDet" class="buscador"></select>
+        </div>
+      </div>
+      <p class="desc">Cada producto de la familia elegida, comparado entre sucursales. El
+        gráfico usa la métrica seleccionada arriba; la tabla muestra facturación y unidades
+        juntas en cada celda.</p>
+      <canvas id="chProdSuc" height="140"></canvas>
+      <div id="tblProdSuc" style="margin-top:12px"></div>
+    </div>
+  </section>
 </div>
 
 <!-- Los gráficos van primero: analisis_front.js los llama al pintar cada pestaña. -->
 <script src="/analisis_graficos.js"></script>
+<script src="/analisis_familias_manuales.js"></script>
 <script src="/analisis_front.js"></script>
 </body></html>
