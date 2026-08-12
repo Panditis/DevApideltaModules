@@ -931,6 +931,34 @@ function agruparFamilias(rows, topN) {
     .slice(0, topN || TOP_N_DEFAULT);
 }
 
+// Los grupos armados a mano (pestaña Grupos) se muestran como una fila más de la tabla de
+// familias: mismo contrato que agruparFamilias, pero el corte lo dan los códigos del grupo
+// y no el nombre del producto. Van marcados con esGrupo porque se solapan con las familias
+// —un producto puede estar en las dos cosas— y no pueden sumar al total del listado.
+function familiasDeGrupos(rows, grupos) {
+  const porId = new Map();
+  (rows || []).forEach(r => porId.set(String(r.IdProducto ?? '').trim(), r));
+  return (grupos || []).map(g => {
+    const presentaciones = (g.productos || [])
+      .map(p => porId.get(String((p && typeof p === 'object' ? (p.id ?? p.codigo) : p) ?? '').trim()))
+      .filter(Boolean)
+      .map(r => ({
+        idProd: r.IdProducto, nombre: String(r.Nombre || '').trim(),
+        unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+        rubro: claveRubro(r.Rubro),
+      }));
+    const eq = equivalenteFamilia(presentaciones);
+    return {
+      familia: g.nombre, esGrupo: true,
+      unidades: presentaciones.reduce((a, p) => a + p.unidades, 0),
+      facturacion: presentaciones.reduce((a, p) => a + p.facturacion, 0),
+      kilos: eq.kilos, litros: eq.litros, equivalenteAplica: eq.equivalenteAplica,
+      presentaciones: [...eq.presentaciones].sort((a, b) => b.facturacion - a.facturacion),
+    };
+  // Un grupo sin ventas en el rango sería una fila en cero: no se lista.
+  }).filter(g => g.presentaciones.length);
+}
+
 // ── Familias consolidadas (casa central + sucursales) ────────────────────────
 // Las sucursales que pide la pestaña de familias. A diferencia de sucIdsSeguras, distingue
 // "no vino el parámetro" (todas, que es como abre la pestaña) de "vino vacío" (el usuario
@@ -985,7 +1013,7 @@ module.exports = {
   mesesDelRango, diaAnterior, umbralQuiebre, diasEnQuiebre, serieStockDiaria,
   diasEvaluados, porcentajeQuiebre,
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
-  familiaNombre, claveFamilia, agruparFamilias, pesoPresentacion,
+  familiaNombre, claveFamilia, agruparFamilias, familiasDeGrupos, pesoPresentacion,
   sucIdsFamilias, fusionarProductos,
   RUBRO_FRACCIONADO, RUBRO_BULTOS, claveRubro, familiaSeMide, medirPresentacion,
   sqlVentasPorClienteProducto, agruparClientes, CLIENTE_SIN_NOMBRE,

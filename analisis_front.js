@@ -313,7 +313,7 @@ function filaFamilia(f, i, pref, totalListado, maxFacturacion){
   return `<tr class="fam" style="background-image:${fondoBarra(f.facturacion, maxFacturacion)}"
             onclick="toggleDetalle('fd-${pref}-${i}','cf-${pref}-${i}')"
             title="${fmtDec(share)}% de la facturación listada">
-      <td><span class="caret" id="cf-${pref}-${i}">▶</span> ${escHtml(f.familia)}</td>
+      <td><span class="caret" id="cf-${pref}-${i}">▶</span> ${escHtml(f.familia)}${f.esGrupo ? ' <span class="fam-propia">grupo</span>' : ''}</td>
       <td class="num">${fmtNum(f.presentaciones.length)}</td>
       <td class="num">${fmtEquivalente(f)}</td>
       <td class="num">${fmtCant(f.unidades)}</td>
@@ -338,9 +338,11 @@ function renderFamilias(rows, pref){
   const el = $(`tblFamilias-${pref}`);
   if (!fams.length){ el.innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
   // El 100% es la facturación sumada de las familias listadas, no la del rango completo:
-  // así la barra compara cada fila contra lo que el usuario está viendo.
-  const totalListado = fams.reduce((a, f) => a + (f.facturacion || 0), 0);
-  const maxFacturacion = fams.reduce((a, f) => Math.max(a, f.facturacion || 0), 0);
+  // así la barra compara cada fila contra lo que el usuario está viendo. Los grupos manuales
+  // quedan afuera de esa base: se solapan con las familias y contarlos duplicaría la venta.
+  const base = fams.filter(f => !f.esGrupo);
+  const totalListado = base.reduce((a, f) => a + (f.facturacion || 0), 0);
+  const maxFacturacion = base.reduce((a, f) => Math.max(a, f.facturacion || 0), 0);
   el.innerHTML = tablaFamilias(
     fams.map((f, i) => filaFamilia(f, i, pref, totalListado, maxFacturacion)).join('')
   );

@@ -1109,3 +1109,29 @@ test('sin unidad en el nombre la cantidad sigue contando como kilos', () => {
   assert.strictEqual(f.kilos, 7);
   assert.strictEqual(f.litros, 0);
 });
+
+// ── Grupos manuales como fila de la tabla de familias ────────────────────────
+const { familiasDeGrupos } = require('../analisis_ventas');
+
+test('familiasDeGrupos arma una fila por grupo con los productos que vendieron', () => {
+  const rows = [
+    { IdProducto: '1', Nombre: 'Miel Apidelta 500G', Rubro: FRACC, Unidades: 10, Facturacion: 1000 },
+    { IdProducto: '2', Nombre: 'Yerba Suelta',       Rubro: FRACC, Unidades: 4,  Facturacion: 400 },
+    { IdProducto: '3', Nombre: 'Producto Ajeno',     Rubro: FRACC, Unidades: 9,  Facturacion: 900 },
+  ];
+  const grupos = [
+    { nombre: 'Premium', productos: [{ id: '1' }, { id: '2' }, { id: '99' }] },
+    { nombre: 'Vacío',   productos: [{ id: '99' }] },
+  ];
+  const filas = familiasDeGrupos(rows, grupos);
+  assert.strictEqual(filas.length, 1); // el grupo sin ventas no se lista
+  assert.strictEqual(filas[0].familia, 'Premium');
+  assert.strictEqual(filas[0].esGrupo, true);
+  assert.strictEqual(filas[0].facturacion, 1400);
+  assert.strictEqual(filas[0].unidades, 14);
+  assert.strictEqual(filas[0].presentaciones.length, 2); // el id 99 no vendió, el 3 no es del grupo
+});
+
+test('familiasDeGrupos sin grupos definidos no agrega filas', () => {
+  assert.deepStrictEqual(familiasDeGrupos([{ IdProducto: '1', Nombre: 'X', Unidades: 1, Facturacion: 1 }], []), []);
+});
