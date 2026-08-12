@@ -959,6 +959,21 @@ function familiasDeGrupos(rows, grupos) {
   }).filter(g => g.presentaciones.length);
 }
 
+// La tabla de familias de la pestaña Sucursales: familias deducidas del nombre y grupos
+// manuales en una sola lista ordenada por facturación. Un producto asignado a un grupo sale
+// de las familias —se lista dentro del grupo y nada más—, así la misma venta no se cuenta
+// dos veces y el impacto de cada fila cierra contra el listado.
+function familiasYGrupos(rows, grupos, topN) {
+  const enGrupo = new Set();
+  (grupos || []).forEach(g => (g.productos || []).forEach(p => {
+    const id = String((p && typeof p === 'object' ? (p.id ?? p.codigo) : p) ?? '').trim();
+    if (id) enGrupo.add(id);
+  }));
+  const sueltos = (rows || []).filter(r => !enGrupo.has(String(r.IdProducto ?? '').trim()));
+  return [...agruparFamilias(sueltos, topN), ...familiasDeGrupos(rows, grupos)]
+    .sort((a, b) => b.facturacion - a.facturacion);
+}
+
 // ── Familias consolidadas (casa central + sucursales) ────────────────────────
 // Las sucursales que pide la pestaña de familias. A diferencia de sucIdsSeguras, distingue
 // "no vino el parámetro" (todas, que es como abre la pestaña) de "vino vacío" (el usuario
@@ -1013,7 +1028,7 @@ module.exports = {
   mesesDelRango, diaAnterior, umbralQuiebre, diasEnQuiebre, serieStockDiaria,
   diasEvaluados, porcentajeQuiebre,
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
-  familiaNombre, claveFamilia, agruparFamilias, familiasDeGrupos, pesoPresentacion,
+  familiaNombre, claveFamilia, agruparFamilias, familiasDeGrupos, familiasYGrupos, pesoPresentacion,
   sucIdsFamilias, fusionarProductos,
   RUBRO_FRACCIONADO, RUBRO_BULTOS, claveRubro, familiaSeMide, medirPresentacion,
   sqlVentasPorClienteProducto, agruparClientes, CLIENTE_SIN_NOMBRE,

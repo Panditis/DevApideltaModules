@@ -1135,3 +1135,27 @@ test('familiasDeGrupos arma una fila por grupo con los productos que vendieron',
 test('familiasDeGrupos sin grupos definidos no agrega filas', () => {
   assert.deepStrictEqual(familiasDeGrupos([{ IdProducto: '1', Nombre: 'X', Unidades: 1, Facturacion: 1 }], []), []);
 });
+
+const { familiasYGrupos } = require('../analisis_ventas');
+
+test('familiasYGrupos saca de las familias los productos que ya están en un grupo', () => {
+  const rows = [
+    { IdProducto: '1', Nombre: 'Miel Apidelta 500G', Rubro: FRACC, Unidades: 10, Facturacion: 1000 },
+    { IdProducto: '2', Nombre: 'Miel Apidelta 1KG',  Rubro: FRACC, Unidades: 5,  Facturacion: 800 },
+    { IdProducto: '3', Nombre: 'Yerba Suelta',       Rubro: FRACC, Unidades: 4,  Facturacion: 400 },
+  ];
+  const filas = familiasYGrupos(rows, [{ nombre: 'Premium', productos: [{ id: '1' }] }], 10);
+  const premium = filas.find(f => f.esGrupo);
+  const miel = filas.find(f => !f.esGrupo && f.familia.toUpperCase().includes('MIEL'));
+  assert.strictEqual(premium.facturacion, 1000);
+  // La familia Miel Apidelta queda sólo con el 1KG: el 500G se lo llevó el grupo.
+  assert.strictEqual(miel.facturacion, 800);
+  assert.deepStrictEqual(miel.presentaciones.map(p => p.idProd), ['2']);
+  // Y la venta total del listado sigue siendo la del rango, sin duplicar.
+  assert.strictEqual(filas.reduce((a, f) => a + f.facturacion, 0), 2200);
+});
+
+test('familiasYGrupos sin grupos se comporta como agruparFamilias', () => {
+  const rows = [{ IdProducto: '1', Nombre: 'Yerba Suelta', Rubro: FRACC, Unidades: 4, Facturacion: 400 }];
+  assert.deepStrictEqual(familiasYGrupos(rows, [], 10), agruparFamilias(rows, 10));
+});

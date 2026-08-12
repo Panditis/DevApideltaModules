@@ -338,11 +338,10 @@ function renderFamilias(rows, pref){
   const el = $(`tblFamilias-${pref}`);
   if (!fams.length){ el.innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
   // El 100% es la facturación sumada de las familias listadas, no la del rango completo:
-  // así la barra compara cada fila contra lo que el usuario está viendo. Los grupos manuales
-  // quedan afuera de esa base: se solapan con las familias y contarlos duplicaría la venta.
-  const base = fams.filter(f => !f.esGrupo);
-  const totalListado = base.reduce((a, f) => a + (f.facturacion || 0), 0);
-  const maxFacturacion = base.reduce((a, f) => Math.max(a, f.facturacion || 0), 0);
+  // así la barra compara cada fila contra lo que el usuario está viendo. Los grupos entran
+  // en la base: sus productos ya no aparecen como familia suelta, no hay doble conteo.
+  const totalListado = fams.reduce((a, f) => a + (f.facturacion || 0), 0);
+  const maxFacturacion = fams.reduce((a, f) => Math.max(a, f.facturacion || 0), 0);
   el.innerHTML = tablaFamilias(
     fams.map((f, i) => filaFamilia(f, i, pref, totalListado, maxFacturacion)).join('')
   );

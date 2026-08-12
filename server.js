@@ -4742,13 +4742,10 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
         quiebresPorc: conQuiebres ? analisisVentas.porcentajeQuiebre(q.dias, q.base) : null,
       };
     }),
-    // Las familias deducidas del nombre más los grupos armados a mano, ordenados juntos por
-    // facturación: el grupo se lee como un registro más de la tabla (va marcado con esGrupo).
-    familias: [
-      ...analisisVentas.agruparFamilias(productosFacturacion, topN),
-      ...analisisVentas.familiasDeGrupos(productosFacturacion,
-        familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []))),
-    ].sort((a, b) => b.facturacion - a.facturacion),
+    // Familias del nombre + grupos manuales en una sola tabla. Los productos asignados a un
+    // grupo se listan sólo ahí: ver familiasYGrupos.
+    familias: analisisVentas.familiasYGrupos(productosFacturacion,
+      familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, [])), topN),
     articulosPorTicket: {
       promedio: articulosProm,
       histograma: analisisVentas.bucketsArticulos(artHistograma),
