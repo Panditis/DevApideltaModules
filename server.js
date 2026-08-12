@@ -1209,12 +1209,24 @@ const TRACKING_PRODUCCION_PATH = path.join(DATA_DIR, 'tracking_produccion.json')
 // cfg entry puede ser: true|false  o  {activo:bool, granelPlu:string, mpManual:[], granelDirecto:bool}
 function cfgActivo(cfg, ref) { const v=cfg[ref]; if(v===undefined)return true; if(typeof v==='boolean')return v; return v.activo!==false; }
 function cfgGranelPlu(cfg, ref) { const v=cfg[ref]; return (v&&typeof v==='object')?String(v.granelPlu||'').trim():''; }
+// Un grupo puede tener varios graneles (uno por variedad de masa). granelPlu queda como el
+// primero de la lista para el resto del sistema, que trabaja con un único granel por grupo.
+function cfgGranelPlus(cfg, ref) {
+  const v = cfg[ref];
+  if (!v || typeof v !== 'object') return [];
+  const arr = Array.isArray(v.granelPlus) ? v.granelPlus : [];
+  const lista = arr.map(x => String(x || '').trim()).filter(Boolean);
+  const uno = String(v.granelPlu || '').trim();
+  return lista.length ? lista : (uno ? [uno] : []);
+}
 // Override por grupo del modo "producir como granel". null = sin override (usa default de config.json gruposGranel).
 function cfgGranelOverride(cfg, ref) { const v=cfg[ref]; return (v&&typeof v==='object'&&typeof v.granelDirecto==='boolean')?v.granelDirecto:null; }
 function cfgEsGranel(cfg, ref, defaultList) { const o=cfgGranelOverride(cfg, ref); return o!==null?o:(defaultList||[]).includes(ref); }
 function cfgMpManual(cfg, ref)  { const v=cfg[ref]; return (v&&typeof v==='object'&&Array.isArray(v.mpManual))?v.mpManual:[]; }
 // Override por grupo de "es variedad de miel" (habilita tambor + sección Mieles). null = sin override.
 function cfgEsMiel(cfg, ref)    { const v=cfg[ref]; return (v&&typeof v==='object'&&typeof v.esMiel==='boolean')?v.esMiel:null; }
+// El grupo se hace en presentaciones pero antes hay que fabricar el granel (ej. pepas → masa).
+function cfgReqGranel(cfg, ref) { const v=cfg[ref]; return !!(v&&typeof v==='object'&&v.reqGranel===true); }
 const COMPRAS_PROD_PATH  = path.join(DATA_DIR, 'compras_productos.json');
 const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'presentaciones_compra.json');
 // NOTA: no se reusa ORDENES_PATH (data/ordenes.json) porque ya está en uso por /api/ordenes y
@@ -1846,10 +1858,12 @@ app.get('/api/catalogo/grupos', (_req, res) => {
     variantes:    g.variantes,
     activo:       cfgActivo(gruposCfg, g.productoRef),
     granelPlu:    cfgGranelPlu(gruposCfg, g.productoRef),
+    granelPlus:   cfgGranelPlus(gruposCfg, g.productoRef),
     mpManual:     cfgMpManual(gruposCfg, g.productoRef),
     esGranel:        cfgEsGranel(gruposCfg, g.productoRef, cCfg.gruposGranel),
     granelDirecto:   cfgGranelOverride(gruposCfg, g.productoRef),
-    esMiel:          cfgEsMiel(gruposCfg, g.productoRef)
+    esMiel:          cfgEsMiel(gruposCfg, g.productoRef),
+    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef)
   }));
   res.json(grupos);
 });
@@ -1863,12 +1877,16 @@ app.post('/api/catalogo/grupos-config', (req, res) => {
   for (const [k,v] of Object.entries(cfg)) {
     if (v && typeof v === 'object') {
       const a = v.activo !== false;
-      const g = String(v.granelPlu||'').trim();
+      // Lista de graneles; granelPlu se mantiene sincronizado con el primero.
+      const gl = [...new Set((Array.isArray(v.granelPlus) ? v.granelPlus : [])
+        .map(x => String(x || '').trim()).filter(Boolean))];
+      const g = gl[0] || String(v.granelPlu||'').trim();
       const mp = Array.isArray(v.mpManual) ? v.mpManual.filter(x => x && x.nombre) : [];
       const gd = (typeof v.granelDirecto === 'boolean') ? v.granelDirecto : undefined;
       const em = (typeof v.esMiel === 'boolean') ? v.esMiel : undefined;
-      if (!g && !mp.length && gd === undefined && em === undefined) { normalizado[k] = a; }
-      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{})}; }
+      const rg = (v.reqGranel === true) ? true : undefined;
+      if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined) { normalizado[k] = a; }
+      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{})}; }
     } else { normalizado[k] = v; }
   }
   guardarJSON(GRUPOS_CFG_PATH, normalizado);
