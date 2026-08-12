@@ -33,11 +33,13 @@ function entorno({ elementos = [], graneles = [] }) {
       const c = sel.replace('.', '');
       return todos.filter(n => n.clases.has(c));
     },
+    querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
   };
-  const src = [fuenteDe('_pfFactoresDe'), fuenteDe('_pfGpConsumido'),
-               fuenteDe('_pfRecalcGranelProd'), fuenteDe('_pfGranelesAProducir')].join('\n');
+  const src = [fuenteDe('_pfFactoresDe'), fuenteDe('_pfGpConsumido'), fuenteDe('_pfRecalcGranelProd'),
+               fuenteDe('_pfGranelesAProducir'), fuenteDe('_pfGranelYaCargado'), fuenteDe('_pfGranelesFaltantes'),
+               fuenteDe('_pfEsGranel'), fuenteDe('_pfSeleccionarGraneles')].join('\n');
   const fn = new Function('document', '_pfGranelesProd', '_pfFactoresPorElem',
-    `${src}\n return { _pfGpConsumido, _pfRecalcGranelProd, _pfGranelesAProducir };`);
+    `${src}\n return { _pfGpConsumido, _pfRecalcGranelProd, _pfGranelesAProducir, _pfGranelYaCargado, _pfGranelesFaltantes, _pfSeleccionarGraneles };`);
   return fn(document, graneles.map(g => g.def), elementos.map(e => e.factores));
 }
 
@@ -50,11 +52,12 @@ function elemento(eidx, factores, cantsComponentes) {
   return el;
 }
 
-function bloqueGranel(gi, def, { cant = 0, checked = true, touched = false, comps = [] } = {}) {
+function bloqueGranel(gi, def, { cant = 0, checked = true, touched = false, comps = [], yaCargado = 0 } = {}) {
   const blk = nodo(['pf-gp']);
   blk.dataset.gi = String(gi);
   blk.dataset.plu = def.plu;
   blk.dataset.touched = touched ? '1' : '0';
+  blk.dataset.yacargado = String(yaCargado);
   blk.hijos = [
     nodo(['pf-gp-on'], { checked }),
     nodo(['pf-gp-cant'], { value: String(cant) }),
@@ -73,6 +76,34 @@ const FACTORES_430 = [
   { id: '6333',  nombre: 'Envase 500g Pet SILPLAST', factorPorUnidad: 1, unidad: 'UN' },
   { id: '90739', nombre: 'Yogurt Natural Tipo Griego DEPOSITO GRANEL', factorPorUnidad: 0.43, unidad: 'kg' },
 ];
+
+// Componentes tal como los devuelve /api/formula para el yogur batido y las pepas: los
+// elaborados en la sala tienen fórmula propia, los insumos comprados no.
+test('se listan todos los graneles elaborados de la fórmula, no sólo el que se llama "granel"', () => {
+  const { _pfSeleccionarGraneles } = entorno({});
+  const comp = (n) => Array.from({ length: n }, (_, i) => ({ id: String(9000 + i), nombre: 'x', factorPorUnidad: 1, unidad: 'kg' }));
+
+  // Yogur batido: yogur griego granel + mermelada (elaborada acá, sin "granel" en el nombre).
+  const batido = _pfSeleccionarGraneles([
+    { plu: '90739', nombre: 'Yogurt Natural Tipo Griego DEPOSITO GRANEL', comps: comp(5) },
+    { plu: '90631', nombre: 'Mermelada Frutillas Produccion Yogur',       comps: comp(4) },
+    { plu: '91400', nombre: 'Fermento Yogurt Chr Hansen YF-L812 x peso',  comps: [] },   // comprado
+  ]);
+  assert.deepStrictEqual(batido.map(g => g.plu), ['90739', '90631']);
+
+  // Pepas: la masa es el único granel de la fórmula.
+  const pepas = _pfSeleccionarGraneles([
+    { plu: '8104', nombre: 'Pepas Apidelta Integrales Membrillo y Batata DEPOSITO GRANEL', comps: comp(21) },
+  ]);
+  assert.deepStrictEqual(pepas.map(g => g.plu), ['8104']);
+
+  // Yogur griego normal: sólo el granel, y se lista aunque no tenga la fórmula cargada.
+  const griego = _pfSeleccionarGraneles([
+    { plu: '90739', nombre: 'Yogurt Natural Tipo Griego DEPOSITO GRANEL', comps: [] },
+    { plu: '1801',  nombre: 'Antihongos Conservante Para Yogurt 100G',    comps: [] },
+  ]);
+  assert.deepStrictEqual(griego.map(g => g.plu), ['90739']);
+});
 
 test('la cantidad de granel sugerida es el consumo declarado de todas las presentaciones', () => {
   const els = [elemento(0, FACTORES_430, [500, 215]), elemento(1, FACTORES_430, [300, 129])];
@@ -110,4 +141,52 @@ test('el granel tildado sale con sus componentes; destildado o en cero no sale',
 
   const enCero = bloqueGranel(0, GRANEL_YOGURT, { cant: 0, comps: [0, 0] });
   assert.deepStrictEqual(entorno({ graneles: [enCero] })._pfGranelesAProducir(), []);
+});
+
+test('en la carga independiente (sin presentaciones en pantalla) sugiere lo planificado', () => {
+  const gp  = bloqueGranel(0, { ...GRANEL_YOGURT, sugerido: 215 }, { comps: [0, 0] });
+  const api = entorno({ elementos: [], graneles: [gp] });   // botón 🛢️ Granel: no hay .pf-elem
+
+  api._pfRecalcGranelProd();
+  assert.strictEqual(gp.querySelector('.pf-gp-cant').value, 215);        // fórmula × lo planificado
+  assert.strictEqual(gp.querySelectorAll('.pf-gp-comp')[0].value, +(215 * 1.05).toFixed(3));
+});
+
+test('el granel cargado aparte ese día se detecta por PLU y fecha', () => {
+  const api = entorno({});
+  const registros = [
+    { fecha: '2026-08-11', plu: '90739', cantFraccionada: 215 },      // granel cargado aparte
+    { fecha: '2026-08-11', plu: '90739', cantFraccionada: 60 },       // segunda tanda del mismo día
+    { fecha: '2026-08-10', plu: '90739', cantFraccionada: 400 },      // otro día: no cuenta
+    { fecha: '2026-08-11', plu: '1968',  cantFraccionada: 500 },      // la presentación, no el granel
+    { fecha: '2026-08-11', plu: 'ACT',   cantFraccionada: 1 },        // tarea extra
+  ];
+  assert.strictEqual(api._pfGranelYaCargado(registros, '90739', '2026-08-11', 7), 275);
+  assert.strictEqual(api._pfGranelYaCargado(registros, '90739', '2026-08-09', 7), 0);
+  assert.strictEqual(api._pfGranelYaCargado([], '90739', '2026-08-11', 7), 0);
+});
+
+test('el granel de otra orden no cuenta como cargado; el de la propia orden y el manual sí', () => {
+  const api = entorno({});
+  // Mismo granel (yogur griego) usado por la orden de griego (7) y la de batido (9).
+  const registros = [
+    { fecha: '2026-08-11', plu: '90739', cantFraccionada: 400, granelOrdenId: 7 },   // tanda del griego
+    { fecha: '2026-08-11', plu: '90739', cantFraccionada: 50 },                      // carga manual suelta
+  ];
+  assert.strictEqual(api._pfGranelYaCargado(registros, '90739', '2026-08-11', 7), 450);  // propia + manual
+  assert.strictEqual(api._pfGranelYaCargado(registros, '90739', '2026-08-11', 9), 50);   // sólo la manual
+});
+
+test('se reclama el granel sólo si no se cargó aparte ni se está cargando acá', () => {
+  const sinCargar = bloqueGranel(0, GRANEL_YOGURT, { cant: 0, comps: [0, 0] });
+  assert.deepStrictEqual(entorno({ graneles: [sinCargar] })._pfGranelesFaltantes(), [GRANEL_YOGURT.nombre]);
+
+  const destildado = bloqueGranel(0, GRANEL_YOGURT, { cant: 215, checked: false, comps: [225.75, 0.43] });
+  assert.deepStrictEqual(entorno({ graneles: [destildado] })._pfGranelesFaltantes(), [GRANEL_YOGURT.nombre]);
+
+  const yaAparte = bloqueGranel(0, GRANEL_YOGURT, { cant: 0, checked: false, yaCargado: 275, comps: [0, 0] });
+  assert.deepStrictEqual(entorno({ graneles: [yaAparte] })._pfGranelesFaltantes(), []);
+
+  const seCargaAca = bloqueGranel(0, GRANEL_YOGURT, { cant: 215, comps: [225.75, 0.43] });
+  assert.deepStrictEqual(entorno({ graneles: [seCargaAca] })._pfGranelesFaltantes(), []);
 });
