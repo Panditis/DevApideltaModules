@@ -1809,12 +1809,24 @@ app.get('/api/registros',  (_req, res) => res.json(leerRegistros()));
 app.post('/api/registros', (req, res)  => {
   const ordenes = leerOrdenes();
   const todasCargas = leerJSON(PROD_REG_PATH, []);
-  if (!ordenes.length && !todasCargas.length) return res.status(400).json({ error: 'No hay producción ni órdenes para registrar' });
-  const creados = crearSnapshotsCierre(todasCargas, ordenes);
+  // ?fecha=YYYY-MM-DD archiva un solo día ("sin-fecha" = cargas sin fecha); sin el parámetro
+  // se archiva todo, que es lo que hace el botón "Cerrar día".
+  const fecha = req.query.fecha;
+  const esDelDia = c => fecha === 'sin-fecha' ? !c.fecha : c.fecha === fecha;
+  const cargas = fecha ? todasCargas.filter(esDelDia) : todasCargas;
+  if (fecha && !cargas.length) return res.status(400).json({ error: 'No hay producción cargada para ese día' });
+  if (!ordenes.length && !cargas.length) return res.status(400).json({ error: 'No hay producción ni órdenes para registrar' });
+  const creados = crearSnapshotsCierre(cargas, ordenes);
   if (req.query.limpiar === '1') {
-    // Quitar las órdenes completadas; las pendientes siguen en ordenes.json. Drenar TODAS las cargas archivadas.
-    guardarOrdenes(ordenes.filter(o => o.estado !== 'listo'));
-    guardarJSON(PROD_REG_PATH, []);
+    // Quitar las órdenes completadas; las pendientes siguen en ordenes.json. Drenar las cargas archivadas.
+    if (fecha) {
+      const idsDia = new Set(cargas.map(c => String(c.ordenId)));
+      guardarOrdenes(ordenes.filter(o => !(o.estado === 'listo' && idsDia.has(String(o.id)))));
+      guardarJSON(PROD_REG_PATH, todasCargas.filter(c => !esDelDia(c)));
+    } else {
+      guardarOrdenes(ordenes.filter(o => o.estado !== 'listo'));
+      guardarJSON(PROD_REG_PATH, []);
+    }
   }
   res.json({ ok: true, snapshots: creados.length, registros: creados });
 });
