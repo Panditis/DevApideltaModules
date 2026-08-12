@@ -1297,6 +1297,7 @@ function _pfSyncTapaBloque(blk){
   // Si la tapa seleccionada no es de la marca del envase, deseleccionar (queda en blanco).
   if (tapSel.value && _marcaDe(TAPAS_MAP[tapSel.value] || '') !== marcaEnv) tapSel.value = '';
 }
+const SECCION_UNICA='PRODUCCIÓN';   // todas las órdenes viven en una sola sección
 let ORDERS=[], activeFilters=new Set(['all']), activeSection='all', navMode='categoria', viewMode='board';
 
 // Secciones predefinidas de la sala
@@ -1410,7 +1411,8 @@ async function api(method, path, body) {
 async function load() {
   try {
     const todos = await api('GET', '/api/ordenes');
-    ORDERS = todos.filter(o => !o.fecha || o.fecha === fechaFiltro);
+    // Sección única: producción no se categoriza por familia (también normaliza las órdenes viejas).
+    ORDERS = todos.filter(o => !o.fecha || o.fecha === fechaFiltro).map(o => ({ ...o, seccion: SECCION_UNICA }));
   }
   catch(e) { ORDERS = []; showSnack('⚠ Sin conexión al servidor'); }
   try {
@@ -1452,7 +1454,7 @@ async function addOrder(d) {
   const orden = {
     id:           Date.now(),
     codigo:       (d.codigo||'').trim(),
-    seccion:      (d.seccion||'SIN SECCIÓN').trim().toUpperCase(),
+    seccion:      SECCION_UNICA,
     producto:     d.producto.trim(),
     presentacion: d.presentacion.trim(),
     cantidad:     parseInt(d.cantidad)||0,
@@ -1473,7 +1475,7 @@ async function addOrder(d) {
 async function editOrder(id, d) {
   const cambios = {
     codigo:       (d.codigo||'').trim(),
-    seccion:      (d.seccion||'SIN SECCIÓN').trim().toUpperCase(),
+    seccion:      SECCION_UNICA,
     producto:     d.producto.trim(),
     presentacion: d.presentacion.trim(),
     cantidad:     parseInt(d.cantidad)||0,
@@ -1544,7 +1546,7 @@ async function confirmClearDay() {
 setInterval(async () => {
   try {
     const todas = await api('GET', '/api/ordenes');
-    ORDERS = todas.filter(o => !o.fecha || o.fecha === fechaFiltro);
+    ORDERS = todas.filter(o => !o.fecha || o.fecha === fechaFiltro).map(o => ({ ...o, seccion: SECCION_UNICA }));
     renderAll();
   } catch {}
 }, 30000);
@@ -1575,7 +1577,7 @@ async function doImportSheets(){
     const rows=parseCSV(await res.text());
     if(!rows.length)throw new Error('Hoja vacía o formato incorrecto');
     rows.forEach(r=>{
-      ORDERS.push({id:nextId++,seccion:(r.seccion||r.section||'SIN SECCIÓN').trim().toUpperCase(),
+      ORDERS.push({id:nextId++,seccion:SECCION_UNICA,
         producto:(r.producto||r.product||'').trim(),presentacion:(r.presentacion||r.presentation||'').trim(),
         cantidad:parseInt(r.cantidad||r.quantity)||0,
         criticidad:cap(r.criticidad||r.priority||'Media'),estado:'pendiente'});
@@ -1659,7 +1661,7 @@ function presPillHTML(o, key){
   const done=o.presentaciones.filter(p=>p.cargado).length;
   return `<span class="pres-pill${done===total?' done':''}" onclick="togglePres('${key}')" title="Ver desglose de presentaciones">
     <span style="font-size:14px">📦</span>
-    <span>${total} presentaciones</span>
+    <span>${total} ${total===1?'presentación':'presentaciones'}</span>
     <span class="pp-count">${done}/${total} ✓</span>
     <span class="pres-chev" id="prestog-${key}">▾</span>
   </span>`;
@@ -1739,13 +1741,12 @@ function renderBoard(){
       const env=envaseCelda(o);
       const acc=`<td style="text-align:center">
         <button class="btn-formula" onclick="openProdFinalModal(${o.id})" title="Registrar carga de producción">📥 Cargar</button>
-        <button class="btn-formula" onclick="openProdFinalModal(${o.id}, null, true)" title="Cargar sólo el granel de esta orden, antes de fraccionar">🛢️ Granel</button>
         <button class="btn-formula" onclick="openFormula(${o.id})" title="Ver fórmula">🧪 Fórmula</button>
         <button class="btn-del" onclick="openEditModal(${o.id})" title="Editar">✏️</button>
         <button class="btn-del" onclick="deleteOrder(${o.id})" title="Eliminar">🗑</button>
       </td>`;
       const qtyTd=`<td style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);white-space:nowrap">${o.cantidad}</td>`;
-      const multi=Array.isArray(o.presentaciones)&&o.presentaciones.length>1;
+      const multi=Array.isArray(o.presentaciones)&&o.presentaciones.length>0;
       if(multi){
         const det=presItemsHTML(o);
         return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
@@ -1769,7 +1770,7 @@ function renderBoard(){
     }).join('');
 
     const cards=prods.map(o=>{
-      const multi=Array.isArray(o.presentaciones)&&o.presentaciones.length>1;
+      const multi=Array.isArray(o.presentaciones)&&o.presentaciones.length>0;
       const presBlock=multi
         ? `<div style="margin-top:4px">${presPillHTML(o, 'c-'+o.id)}</div>
            <div class="pres-detail" id="presdet-c-${o.id}" style="display:none;padding-left:0;margin-top:8px">${presItemsHTML(o)}</div>`
@@ -1782,8 +1783,7 @@ function renderBoard(){
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           <button class="btn-formula" onclick="openProdFinalModal(${o.id})" title="Registrar carga de producción">📥 Cargar</button>
-          <button class="btn-formula" onclick="openProdFinalModal(${o.id}, null, true)" title="Cargar sólo el granel de esta orden, antes de fraccionar">🛢️ Granel</button>
-          <button class="btn-formula" onclick="openFormula(${o.id})">🧪 Fórmula</button>
+            <button class="btn-formula" onclick="openFormula(${o.id})">🧪 Fórmula</button>
           <button class="btn-del" onclick="openEditModal(${o.id})">✏️</button>
           <button class="btn-del" onclick="deleteOrder(${o.id})">🗑</button>
         </div>
@@ -2436,12 +2436,12 @@ function fmtN(n) {
 // ── MODAL PRODUCCIÓN FINAL ────────────────────────────────────────────────────
 // Cada presentación de una orden es un producto distinto con su propia fórmula, así que
 // los componentes editables van por elemento (índice eidx), no en una lista compartida.
-let _pfOrden = null, _pfFactoresPorElem = [], _pfEncargados = [], _pfElementos = [], _pfGranelesProd = [], _pfSoloGranel = false;
+let _pfOrden = null, _pfFactoresPorElem = [], _pfEncargados = [], _pfElementos = [];
 function _pfFactoresDe(eidx){ return _pfFactoresPorElem[Number(eidx)] || []; }
 
 function closeProdFinalModal() {
   document.getElementById('prodFinalModal').classList.remove('open');
-  _pfOrden = null; _pfFactoresPorElem = []; _pfEncargados = []; _pfElementos = []; _pfGranelesProd = []; _pfSoloGranel = false;
+  _pfOrden = null; _pfFactoresPorElem = []; _pfEncargados = []; _pfElementos = [];
 }
 
 function _pfGranelRowHTML(nombre, cant, unidad) {
@@ -2508,118 +2508,12 @@ function _pfRecalcGraneles(eidx) {
   });
   const h = document.getElementById('pfFormulaCantHeader');
   if (h) h.textContent = `Para ${total} u.`;
-  _pfRecalcGranelProd();
 }
 
-// ── Alta del granel usado ─────────────────────────────────────────────────────
-// El granel (ej. "Yogurt Natural Tipo Griego DEPOSITO GRANEL") no se planifica: se planifican
-// las presentaciones. Si sólo se registra la presentación, del granel queda la BAJA y nunca el
-// ALTA, y su stock en Siga se va a negativo. Por eso, al cargar la producción de una
-// presentación se genera además un registro del propio granel (alta) con sus componentes
-// (baja), como carga manual (ordenId null: no hay orden ni reserva detrás).
-function _pfEsGranel(nombre){ return /granel|tambor/i.test(String(nombre || '')); }
-
-// Qué componentes de la fórmula hay que dar de alta. El nombre no alcanza: la mermelada del
-// yogur batido ("Mermelada Frutillas Produccion Yogur") se elabora acá igual que el yogur
-// griego granel, y hay que cargar los dos. El criterio es tener fórmula propia en SiGA: los
-// insumos comprados (fermento, conservante, envases) no la tienen. Se mantiene el nombre como
-// respaldo para el granel al que todavía no le cargaron la fórmula.
-// ponytail: sólo un nivel de profundidad — alcanza porque los componentes del granel son
-// materia prima comprada; si algún día un granel usa otro granel, hay que recursar acá.
-function _pfSeleccionarGraneles(candidatos) {
-  return (candidatos || []).filter(g => g.comps.length || _pfEsGranel(g.nombre));
-}
-
-// Consumo declarado de un granel en toda la orden = suma de los inputs de los elementos.
-function _pfGpConsumido(plu) {
-  let total = 0;
-  document.querySelectorAll('.pf-elem').forEach(blk => {
-    const factores = _pfFactoresDe(blk.dataset.eidx);
-    blk.querySelectorAll('.pf-grn-cant').forEach((inp, i) => {
-      const f = factores[i];
-      if (f && String(f.id || '').replace(/\D/g, '') === plu) total += parseFloat(inp.value) || 0;
-    });
-  });
-  return +total.toFixed(3);
-}
-
-function _pfGpTouch(gi) {
-  const blk = document.querySelector(`.pf-gp[data-gi="${gi}"]`);
-  if (blk) blk.dataset.touched = '1';
-  _pfRecalcGranelProd();
-}
-
-// Cantidad producida: sugerida = lo consumido, salvo que el operario la haya editado (batch
-// real distinto al consumo: ahí la diferencia queda como sobrante de granel en el depósito).
-// En la carga independiente no hay presentaciones en pantalla: la sugerencia sale de la
-// fórmula contra lo planificado (g.sugerido).
-function _pfRecalcGranelProd() {
-  const hayElementos = !!document.querySelector('.pf-elem');
-  document.querySelectorAll('.pf-gp').forEach(blk => {
-    const gi = Number(blk.dataset.gi);
-    const g  = _pfGranelesProd[gi];
-    if (!g) return;
-    const cantInp = blk.querySelector('.pf-gp-cant');
-    if (!cantInp) return;
-    if (blk.dataset.touched !== '1') cantInp.value = hayElementos ? _pfGpConsumido(g.plu) : (Number(g.sugerido) || 0);
-    const cant = parseFloat(cantInp.value) || 0;
-    blk.querySelectorAll('.pf-gp-comp').forEach((inp, i) => {
-      const c = g.comps[i];
-      if (c) inp.value = +(c.factorPorUnidad * cant).toFixed(3);
-    });
-  });
-}
-
-// Granel ya cargado en la fecha para esta orden: se busca entre los registros del día por PLU.
-// Dos órdenes distintas pueden compartir granel (yogur griego y yogur batido usan el mismo) y
-// cada una elabora su propia tanda, así que el alta de otra orden (sellada con granelOrdenId)
-// no bloquea a esta. La carga manual suelta no tiene orden y cuenta para todas: se cargó una
-// sola vez a mano y no hay que duplicarla.
-function _pfGranelYaCargado(registros, plu, fecha, ordenId) {
-  return +(registros || [])
-    .filter(r => r && r.fecha === fecha && String(r.plu ?? '').replace(/\D/g, '') === plu)
-    .filter(r => r.granelOrdenId == null || r.granelOrdenId == ordenId)
-    .reduce((s, r) => s + (parseFloat(r.cantFraccionada) || 0), 0).toFixed(3);
-}
-
-function _pfGranelProdHTML(g, gi) {
-  // Ya cargado (acá o aparte) → todo el bloque queda de solo lectura: el granel no se toca dos
-  // veces. Para corregirlo hay que editar o borrar su registro desde la pestaña Cargadas.
-  const dis = (Number(g.yaCargado) || 0) > 0 ? ' disabled' : '';
-  const compRows = g.comps.map(c => `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-    <span style="flex:1;font-size:13px">${escEnv(c.nombre)}</span>
-    <input class="pf-gp-comp" type="number" step="any" min="0" value="0"${dis} style="font-family:inherit;background:var(--surface,#f8f8f8);border:1px solid var(--border,#ddd);color:var(--text);padding:5px 8px;border-radius:6px;font-size:13px;outline:none;width:90px">
-    <span style="font-size:12px;color:var(--text-muted);width:28px">${escEnv(c.unidad || 'kg')}</span>
-  </div>`).join('');
-  const compSection = g.comps.length
-    ? `<div style="margin-top:8px"><div class="form-label" style="font-size:11px;margin-bottom:4px">Componentes del granel</div>${compRows}</div>`
-    : `<div style="margin-top:6px;font-size:12px;color:var(--text-muted)">La fórmula del granel no tiene componentes: sólo se da el alta.</div>`;
-  // Ya cargado aparte → el bloque queda destildado (no se duplica el alta); si falta, viene
-  // tildado y en amarillo, y al guardar se pide confirmación si lo dejaron sin cargar.
-  const ya = Number(g.yaCargado) || 0;
-  const estado = ya > 0
-    ? `<span style="font-size:11px;font-weight:700;color:var(--green-dark)">✅ ya cargado: ${fmtN(ya)} ${escEnv(g.unidad || 'kg')} · se edita desde 📋 Cargadas</span>`
-    : `<span style="font-size:11px;font-weight:700;color:#E65100">⚠ sin cargar hoy</span>`;
-  return `<div class="pf-gp" data-gi="${gi}" data-plu="${escEnv(g.plu)}" data-touched="0" data-yacargado="${ya}" style="border:1px solid ${ya > 0 ? 'var(--border)' : '#E65100'};border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px${ya > 0 ? ';opacity:.6' : ';background:#FFF8E1'}">
-    <label style="display:flex;align-items:center;gap:8px;${ya > 0 ? '' : 'cursor:pointer;'}font-weight:700;font-family:'Barlow Condensed',sans-serif;font-size:15px">
-      <input type="checkbox" class="pf-gp-on"${ya > 0 ? ' disabled' : ' checked'}> 🛢️ ${escEnv(g.nombre)} ${estado}
-    </label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-      <span style="flex:1;font-size:13px">Cantidad de granel elaborada</span>
-      <input class="form-input pf-gp-cant" type="number" step="any" min="0" value="0" oninput="_pfGpTouch(${gi})"${dis} style="width:110px">
-      <span style="font-size:12px;color:var(--text-muted);width:28px">${escEnv(g.unidad || 'kg')}</span>
-    </div>
-    ${compSection}
-  </div>`;
-}
-
-// soloGranel: carga independiente del granel de la orden, sin tocar las presentaciones. El
-// granel se elabora antes de fraccionar, así que se puede registrar solo, y una vez cargado
-// la carga de las presentaciones ya no lo deja modificar.
-async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
+async function openProdFinalModal(id, presIndex = null) {
   const o = ORDERS.find(o => o.id == id);
   if (!o) return;
-  _pfOrden = o; _pfFactoresPorElem = []; _pfSoloGranel = !!soloGranel;
+  _pfOrden = o; _pfFactoresPorElem = [];
   const presArr = Array.isArray(o.presentaciones) ? o.presentaciones : [];
   const multi = presArr.length > 1;
   // o.codigo puede ser una lista ("493, 492") en órdenes multi-presentación: para la fórmula
@@ -2632,19 +2526,19 @@ async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
     _pfElementos = presArr.map((p, i) => ({ presentacion: p.presentacion, cantidad: (p.cantProducida != null ? p.cantProducida : p.cantidad), presIndex: i, cargado: !!p.cargado, plu: String(p.plu || ''), envase: String(p.envase || o.envase || ''), tapa: String(p.tapa || o.tapa || '') }));
   } else {
     const p0 = presArr[0] || {};
-    _pfElementos = [{ presentacion: o.presentacion, cantidad: o.cantidad, presIndex: -1, cargado: false, plu: String(p0.plu || pluOrden || ''), envase: String(p0.envase || o.envase || ''), tapa: String(p0.tapa || o.tapa || '') }];
+    // Con una sola presentación el índice igual es 0 (si existe): así al guardar queda marcada
+    // como cargada y la orden pasa a terminada, igual que en las multi-presentación.
+    _pfElementos = [{ presentacion: o.presentacion, cantidad: o.cantidad, presIndex: presArr.length ? 0 : -1, cargado: false, plu: String(p0.plu || pluOrden || ''), envase: String(p0.envase || o.envase || ''), tapa: String(p0.tapa || o.tapa || '') }];
   }
-  document.getElementById('pfTitle').textContent = (_pfSoloGranel ? '🛢️ Granel · ' : '') + cleanNombre(o.producto);
-  document.getElementById('pfSubtitle').textContent = _pfSoloGranel
-    ? 'Carga del granel, sin registrar las presentaciones'
-    : ((multi && presIndex == null)
-      ? `${presArr.length} presentaciones · Solicitado: ${o.cantidad}`
-      : `${_pfElementos[0].presentacion || ''} · Solicitado: ${_pfElementos[0].cantidad}`);
+  document.getElementById('pfTitle').textContent = cleanNombre(o.producto);
+  document.getElementById('pfSubtitle').textContent = (multi && presIndex == null)
+    ? `${presArr.length} presentaciones · Solicitado: ${o.cantidad}`
+    : `${_pfElementos[0].presentacion || ''} · Solicitado: ${_pfElementos[0].cantidad}`;
   document.getElementById('pfBody').innerHTML = '<div class="formula-spinner">⏳ Cargando...</div>';
   document.getElementById('prodFinalModal').classList.add('open');
 
   // Una fórmula por PLU distinto entre las presentaciones (en paralelo).
-  const [respData, formulasPorPlu, registrosDia] = await Promise.all([
+  const [respData, formulasPorPlu] = await Promise.all([
     fetch(`${SERVER_URL}/api/responsables`).then(r => r.json()).catch(() => []),
     (async () => {
       const out = {};
@@ -2659,9 +2553,7 @@ async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
         out[plu] = d.componentes || [];
       }));
       return out;
-    })(),
-    // Registros ya cargados del día: sirven para saber si el granel se cargó aparte.
-    fetch(`${SERVER_URL}/api/produccion/registros`).then(r => r.json()).catch(() => [])
+    })()
   ]);
 
   const compsDe = el => formulasPorPlu[el.plu] || formulasPorPlu.__nombre__ || [];
@@ -2671,34 +2563,6 @@ async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
   _pfFactoresPorElem = _pfElementos.map(el => compsDe(el)
     .filter(c => !_pfEsPackaging(c))
     .map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' })));
-  // Candidatos a alta de granel: todo componente de la fórmula que no sea packaging (uno solo
-  // por PLU aunque lo usen varias presentaciones). De cada uno se trae su propia fórmula, que
-  // es a la vez el filtro (ver _pfSeleccionarGraneles) y la baja que acompaña al alta.
-  const candidatos = [];
-  _pfFactoresPorElem.flat().forEach(f => {
-    const plu = String(f.id || '').replace(/\D/g, '');
-    if (!plu || candidatos.some(g => g.plu === plu)) return;
-    candidatos.push({ plu, nombre: f.nombre, unidad: f.unidad || 'kg', comps: [] });
-  });
-  const fechaCarga = o.fecha || fechaFiltro;
-  await Promise.all(candidatos.map(async g => {
-    const d  = await fetch(`${SERVER_URL}/api/formula?codigo=${encodeURIComponent(g.plu)}&cantidad=1`).then(r => r.json()).catch(() => ({}));
-    const cs = d.componentes || [];
-    _pfEnriquecerNombres(cs);
-    g.comps = cs.filter(c => !_pfEsPackaging(c)).map(c => ({
-      id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg',
-    }));
-  }));
-  _pfGranelesProd = _pfSeleccionarGraneles(candidatos);
-  _pfGranelesProd.forEach(g => {
-    g.yaCargado = _pfGranelYaCargado(Array.isArray(registrosDia) ? registrosDia : [], g.plu, fechaCarga, o.id);
-    // Sugerido de la carga independiente: fórmula × lo planificado de cada presentación (en la
-    // carga junto a las presentaciones manda lo que el operario declaró en pantalla).
-    g.sugerido = +_pfElementos.reduce((s, el, i) => {
-      const f = (_pfFactoresPorElem[i] || []).find(x => String(x.id || '').replace(/\D/g, '') === g.plu);
-      return s + (f ? f.factorPorUnidad * (Number(el.cantidad) || 0) : 0);
-    }, 0).toFixed(3);
-  });
 
   // La tabla de fórmula de solo lectura aplica a un único producto: con varias
   // presentaciones cada bloque ya muestra sus propios componentes.
@@ -2723,12 +2587,6 @@ async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
     </tr>`).join('')}</tbody>
   </table>`;
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, multi)).join('');
-  const granelProdHTML = _pfGranelesProd.length ? `<div class="form-group">
-    <label class="form-label">Producción de granel</label>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Da de alta el granel elaborado y descuenta sus componentes. Si el granel se cargó aparte (➕ Carga manual) aparece destildado y no se duplica.</div>
-    <div id="pfGranelProd">${_pfGranelesProd.map((g, i) => _pfGranelProdHTML(g, i)).join('')}</div>
-  </div>` : '';
-
   const formulaSection = compsVisibles.length ? `<div class="form-group">
     <details style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
       <summary style="padding:10px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;display:flex;align-items:center;gap:6px;list-style:none">
@@ -2761,13 +2619,10 @@ async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
       <label class="form-label">Responsables, roles y horarios</label>
       <div id="pfRespRoles">${respRolesHTML}</div>
     </div>
-    ${_pfSoloGranel ? '' : (multi
+    ${multi
       ? `<div class="form-group"><label class="form-label">Elementos a cargar</label><div id="pfElementos">${elementosHTML}</div></div>`
-      : `<div id="pfElementos">${elementosHTML}</div>`)}
-    ${_pfSoloGranel && !_pfGranelesProd.length
-      ? '<div class="formula-aviso">Esta orden no tiene ningún granel en su fórmula: cargá la producción con 📥 Cargar.</div>'
-      : granelProdHTML}
-    ${_pfSoloGranel ? '' : formulaSection}
+      : `<div id="pfElementos">${elementosHTML}</div>`}
+    ${formulaSection}
     <div class="form-group">
       <label class="form-label">Observación</label>
       <textarea class="form-input" id="pfObs" rows="2" placeholder="Observación (opcional)…" style="resize:vertical">${(_pfOrden.observacion||'').replace(/</g,'&lt;')}</textarea>
@@ -2779,34 +2634,6 @@ async function openProdFinalModal(id, presIndex = null, soloGranel = false) {
     </div>`;
   _pfRecalcGraneles();
   _pfSyncTapa();
-}
-
-// Graneles tildados con cantidad > 0, con sus componentes en el mismo formato que usa la
-// conciliación para la baja ({ granel, nombreGranel, granelConsumido }).
-function _pfGranelesAProducir() {
-  return [...document.querySelectorAll('.pf-gp')].map(blk => {
-    const g = _pfGranelesProd[Number(blk.dataset.gi)];
-    if (!g || !blk.querySelector('.pf-gp-on')?.checked) return null;
-    const cantidad = parseFloat(blk.querySelector('.pf-gp-cant')?.value) || 0;
-    if (!(cantidad > 0)) return null;
-    const comps = [...blk.querySelectorAll('.pf-gp-comp')].map((inp, i) => ({
-      granel: g.comps[i]?.id || null,
-      nombreGranel: g.comps[i]?.nombre || '',
-      granelConsumido: parseFloat(inp.value) || 0,
-    })).filter(c => c.nombreGranel);
-    return { plu: g.plu, nombre: g.nombre, cantidad, comps };
-  }).filter(Boolean);
-}
-
-// Graneles que no se cargaron hoy y que tampoco se están dando de alta en esta pantalla.
-function _pfGranelesFaltantes() {
-  return [...document.querySelectorAll('.pf-gp')].map(blk => {
-    const g = _pfGranelesProd[Number(blk.dataset.gi)];
-    if (!g || (parseFloat(blk.dataset.yacargado) || 0) > 0) return null;
-    const seCarga = !!blk.querySelector('.pf-gp-on')?.checked
-                 && (parseFloat(blk.querySelector('.pf-gp-cant')?.value) || 0) > 0;
-    return seCarga ? null : g.nombre;
-  }).filter(Boolean);
 }
 
 async function guardarProduccionFinal() {
@@ -2850,21 +2677,7 @@ async function guardarProduccionFinal() {
     };
   }).filter(e => !e.cargado && !isNaN(e.cant) && e.cant > 0);
 
-  if (!_pfSoloGranel && !elementos.length) { showErr('Ingresá al menos una cantidad válida.'); return; }
-  if (_pfSoloGranel && !_pfGranelesAProducir().length) { showErr('Ingresá la cantidad de granel elaborada.'); return; }
-
-  // El granel se puede cargar aparte (carga manual). Si no se cargó hoy y tampoco se lo está
-  // cargando acá, se avisa antes de guardar: si no, el granel queda con la baja y sin el alta.
-  const granelesFaltantes = _pfSoloGranel ? [] : _pfGranelesFaltantes();
-  if (granelesFaltantes.length) {
-    const ok = await confirmarProd(
-      'Falta cargar el granel',
-      `Todavía no se cargó la producción de:<br><br>${granelesFaltantes.map(n => `🛢️ <strong>${escEnv(n)}</strong>`).join('<br>')}<br><br>`
-      + 'Si guardás así, el granel se descuenta pero nunca se da de alta y su stock queda en negativo. '
-      + 'Podés tildarlo acá arriba o cargarlo aparte con ➕ Carga manual.',
-      'Guardar igual', '⚠');
-    if (!ok) return;
-  }
+  if (!elementos.length) { showErr('Ingresá al menos una cantidad válida.'); return; }
 
   try {
     for (const el of elementos) {
@@ -2895,52 +2708,13 @@ async function guardarProduccionFinal() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
     }
 
-    // Alta del granel elaborado: un registro propio por granel tildado, con sus componentes
-    // como baja. Va como carga manual (ordenId null) porque no hay orden ni reserva del granel.
-    for (const g of _pfGranelesAProducir()) {
-      const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ordenId:         null,
-          // De qué orden salió este granel: el alta no se reclama dos veces dentro de la misma
-          // orden, pero otra orden que use el mismo granel sí tiene que cargar su tanda.
-          granelOrdenId:   _pfOrden.id,
-          plu:             g.plu,
-          nombre:          g.nombre,
-          seccion:         _pfOrden.seccion,
-          presentacion:    'Granel',
-          cantFraccionada: g.cantidad,
-          cantSolicitada:  g.cantidad,
-          roles, responsables, desde, hasta, empleado,
-          fecha:           _pfOrden.fecha || fechaFiltro,
-          graneles:        g.comps,
-          granel:          g.comps[0]?.granel || null,
-          nombreGranel:    g.comps[0]?.nombreGranel || '',
-          granelConsumido: +g.comps.reduce((s, c) => s + c.granelConsumido, 0).toFixed(2),
-          observacion:     observacion ? `${observacion} · granel de ${_pfOrden.producto}` : `Granel de ${_pfOrden.producto}`,
-          cliente:         '',
-          envase: '', envaseNombre: '', tapa: '', tapaNombre: '',
-        }),
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-    }
-
-    // Carga independiente del granel: la orden no avanza de estado (sus presentaciones siguen
-    // pendientes) y el granel queda como un registro propio en el listado de terminados.
-    if (_pfSoloGranel) {
-      closeProdFinalModal();
-      renderAll();
-      showSnack('✅ Granel guardado');
-      return;
-    }
-
     // Con varias presentaciones la orden recién termina cuando se cargaron TODAS: cargar una
     // sola desde el desglose la pasaba a Terminados con el resto todavía sin producir. Mientras
     // falte alguna queda 'en_proceso', así sigue en el tablero y no se la lleva el cierre del día.
     const o = ORDERS.find(o => o.id == _pfOrden.id);
     const presArr = (o && Array.isArray(o.presentaciones)) ? o.presentaciones.slice() : [];
     let cambios;
-    if (presArr.length > 1) {
+    if (presArr.length) {
       elementos.forEach(el => {
         if (el.presIndex >= 0 && presArr[el.presIndex]) {
           presArr[el.presIndex] = { ...presArr[el.presIndex], cargado: true, cantProducida: el.cant };
@@ -3227,7 +3001,7 @@ async function seleccionarProductoManual(idx) {
 }
 async function openProdFinalModalManual(nombre, codigo) {
   _pfOrden = { id: null, producto: nombre, codigo: codigo, seccion: '', cantidad: 0, presentacion: '', cliente: '', observacion: '' };
-  _pfFactoresPorElem = []; _pfGranelesProd = [];   // la carga manual no genera alta de granel: el granel se carga a mano como cualquier otro producto
+  _pfFactoresPorElem = [];
   _pfElementos = [{ presentacion: '', cantidad: 0, presIndex: -1, cargado: false, plu: String(codigo || '') }];
   document.getElementById('pfTitle').textContent = cleanNombre(nombre);
   document.getElementById('pfSubtitle').textContent = `Carga manual · ${codigo}`;

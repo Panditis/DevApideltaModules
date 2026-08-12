@@ -817,13 +817,13 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
       </div>
       <div id="editarGrupoBody" style="overflow:auto;flex:1;min-height:0"></div>
       <div id="panelGranelMP" style="padding:10px 16px;border-top:2px solid var(--amb-border);background:#fffbf0;flex-shrink:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--amb-text);white-space:nowrap">🛢 Granel (MP)</span>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--amb-text);white-space:nowrap">🛢 Graneles (MP)</span>
         <input type="text" id="inputGranelPlu" inputmode="numeric" placeholder="PLU del granel…"
           style="width:110px;border:1px solid var(--amb-border);border-radius:6px;padding:5px 9px;font-size:14px;font-family:'Barlow Condensed',sans-serif;font-weight:700;text-align:center;background:#fff"
           oninput="onGranelPluInput()">
-        <span id="granelNombreDisplay" style="font-size:12px;color:var(--muted);flex:1;font-style:italic">Sin granel asignado</span>
+        <button class="btn btn-secondary btn-sm" id="btnAgregarGranelPlu" style="background:#fffbeb;color:var(--amb-text);border:1px solid var(--amb-border)">➕ Agregar</button>
         <button class="btn btn-secondary btn-sm" id="btnBuscarGranelPlu" style="background:#fffbeb;color:var(--amb-text);border:1px solid var(--amb-border)">🔍 Buscar en Siga</button>
-        <button class="btn btn-secondary btn-sm" id="btnLimpiarGranelPlu" style="color:var(--red-text)">✕ Quitar</button>
+        <div id="listaGraneles" style="width:100%;display:flex;flex-wrap:wrap;gap:6px"></div>
         <div id="resultadosGranelPlu" style="width:100%;max-height:140px;overflow-y:auto;display:none;border:1px solid var(--amb-border);border-radius:6px;background:#fff;margin-top:2px"></div>
       </div>
     </div>
@@ -1635,14 +1635,92 @@ function esItemMiel(it) {
   return esVariedadMiel(it.rubro) || esVariedadMiel(it.producto);
 }
 
+// Grupos marcados "granel previo": las presentaciones se hacen a partir de un granel
+// (pepas → masa) que hay que fabricar primero. Devuelve el ítem de la orden de granel,
+// null si el grupo no lo requiere, o false si el usuario canceló el aviso.
+const _nombrePluCache = {};
+async function nombreDePlu(plu) {
+  if (plu in _nombrePluCache) return _nombrePluCache[plu];
+  let nom = '';
+  try {
+    const rows = await api('GET', '/api/siga/buscar?q=' + encodeURIComponent(plu));
+    nom = (rows.find(r => String(r.plu) === String(plu)) || {}).producto || '';
+  } catch { /* sin nombre: se muestra el PLU */ }
+  _nombrePluCache[plu] = nom;
+  return nom;
+}
+
+// Devuelve los ítems de las órdenes de granel (uno por granel del catálogo), [] si el grupo no
+// los requiere, o false si el usuario canceló el aviso.
+async function itemGranelPrevio(productoRef, items) {
+  await cargarGruposCfgSiVacio();
+  if (!cfgGetReqGranel(productoRef)) return [];
+  if (items.some(it => it.esGranel)) return []; // ya es la orden de granel
+  // Los graneles a fabricar son los asignados al grupo en el catálogo (Ver/Editar → Graneles).
+  // Solo si el grupo no tiene ninguno se cae al de la fórmula del ítem.
+  const plusCat = cfgGetGranelPlus(productoRef);
+  const conG    = items.find(it => it.idGranel) || {};
+  const plus    = plusCat.length ? plusCat : (conG.idGranel ? [String(conG.idGranel)] : []);
+  if (!plus.length) {
+    toast(`"${productoRef}" está marcado como "granel previo" pero no tiene graneles cargados en el catálogo`, true);
+    return false;
+  }
+  // Cantidad por granel: sale de la fórmula de las presentaciones (componente × cantidad), que
+  // es lo único que sabe repartir cuando el producto lleva varios graneles (yogur batido =
+  // yogur base + mermelada). El granelNecesario del ítem solo cubre UN granel por presentación.
+  const mpLista = await calcularMPParaItems(items);
+  const mpPorPlu = new Map(mpLista.map(r => [String(r.plu), r]));
+  const necDe = plu => {
+    const mp = mpPorPlu.get(String(plu));
+    if (mp) return Math.round(mp.total * 100) / 100;
+    // Sin fórmula para ese PLU: se cae al granel que traen los ítems (o al total si hay uno solo).
+    const propio = items.filter(it => String(it.idGranel || '') === String(plu));
+    const base = propio.length ? propio : (plus.length === 1 ? items : []);
+    return Math.round(base.reduce((s, it) => s + (it.granelNecesario || 0), 0) * 100) / 100;
+  };
+  const graneles = [];
+  for (const plu of plus) {
+    const nombre = (mpPorPlu.get(String(plu))?.nombre || '').replace(/ DEPOSITO GRANEL.*/i, '').trim()
+      || (await nombreDePlu(plu))
+      || (String(conG.idGranel || '') === String(plu)
+        ? (conG.nombreGranel || '').replace(/ DEPOSITO GRANEL.*/i, '').trim() : '')
+      || `Granel PLU ${plu}`;
+    graneles.push({ plu, nombre, cant: necDe(plu) });
+  }
+  const filas = graneles.map(g =>
+    `<li style="margin-top:3px"><strong>${escHtml(g.nombre)}</strong>
+       <span style="opacity:.7">(PLU ${escHtml(g.plu)})</span> — <strong>${g.cant || 0}</strong> kg</li>`).join('');
+  const sinCant = graneles.some(g => !g.cant);
+  const ok = await confirmarModalAsync('⚠ Requiere granel previo',
+    `<div>"<strong>${escHtml(productoRef)}</strong>" se hace en presentaciones, pero primero hay que fabricar ${graneles.length > 1 ? 'los graneles' : 'el granel'} del catálogo.</div>
+     <div style="margin-top:8px">Se agrega${graneles.length > 1 ? 'n' : ''} como orden${graneles.length > 1 ? 'es' : ''} aparte:</div>
+     <ul style="margin:6px 0 0 18px;padding:0;font-size:13px">${filas}</ul>
+     ${sinCant ? '<div style="margin-top:6px;color:var(--muted);font-size:12px">Los que quedan en 0 no tienen fórmula cargada: la cantidad se edita en el plan.</div>' : ''}`,
+    `Agregar granel${graneles.length > 1 ? 'es' : ''} + presentaciones`);
+  if (!ok) return false;
+  // Las presentaciones quedan marcadas: su granel se fabrica en la orden aparte, así que en
+  // Producción no vuelven a pedir el alta del granel (solo consumen).
+  items.forEach(it => { it.granelAparte = true; });
+  return graneles.map(g => ({
+    idProducto: g.plu, producto: g.nombre, rubro: 'Granel', esGranel: true,
+    cantSugerida: 0, cantConfirmada: g.cant, unidadGranel: 'kg',
+    semaforo: 'RED', pendientes: 0, promMes: 0,
+    idGranel: g.plu, nombreGranel: g.nombre, cantPorUnidad: 0,
+    granelNecesario: 0, granelDisponible: null, granelOk: true,
+    granelPrevioDe: productoRef
+  }));
+}
+
 // Tras elegir el día: si es miel pide el número de tambor, luego agrega al plan
 function finalizarAgregado(productoRef, fecha, items, labelOk) {
-  const aplicar = tambor => {
+  const aplicar = async tambor => {
     if (tambor) {
       items.forEach(it => it.tambor = tambor);
       labelOk += ` — tambor ${tambor}`;
     }
-    agregarItemsConCheck(fecha, items, labelOk);
+    const graneles = await itemGranelPrevio(productoRef, items);
+    if (graneles === false) return;
+    agregarItemsConCheck(fecha, [...graneles, ...items], labelOk);
   };
   if (esVariedadMiel(productoRef)) pedirTambor(productoRef, aplicar);
   else aplicar(null);
@@ -2156,7 +2234,10 @@ function sugToItem(s) {
 async function agregarDesdeModal(sug) {
   document.getElementById('overlayBuscar').classList.remove('open');
   if (!fechaPlanActual) { toast('Seleccioná un día primero', true); return; }
-  await agregarItemsConCheck(fechaPlanActual, [sugToItem(sug)],
+  const items = [sugToItem(sug)];
+  const graneles = await itemGranelPrevio(sug.rubro || sug.producto, items);
+  if (graneles === false) return;
+  await agregarItemsConCheck(fechaPlanActual, [...graneles, ...items],
     `"${sug.producto}" agregado al plan`);
 }
 
@@ -2380,8 +2461,10 @@ async function cargarGruposCfgSiVacio() {
       const gp = g.granelPlu || '', mp = Array.isArray(g.mpManual) ? g.mpManual : [];
       const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
       const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
-      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}) }
+      const rg = g.reqGranel === true;
+      const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
         : g.activo;
     }
   } catch (e) { /* silencioso, BOM quedará vacío */ }
@@ -2817,14 +2900,8 @@ document.getElementById('overlayTambor').addEventListener('click', e => {
 
 const CRITICIDAD = { URGENT: 'Urgente', RED: 'Alta', YELLOW: 'Media', GREEN: 'Baja' };
 
-function seccionParaGrupo(productoRef) {
-  const n = (productoRef || '').toUpperCase();
-  if (/^G\.\s|GRANOLA/.test(n))            return 'GRANOLAS';
-  if (/^MIX\b/.test(n))                    return 'MIX';
-  if (/MIEL|HONEY|ARROYO|CITRUS|TREBOL|EUCALIPTUS|LAPACHO|MULTIFLORAL/.test(n)) return 'MIELES';
-  if (/APIMANI/.test(n))                   return 'APIMANI';
-  if (/PEPAS/.test(n))                     return 'PEPAS';
-  if (/FRUTOS/.test(n))                    return 'FRUTOS SECOS';
+// Todas las órdenes van a una única sección: producción no se categoriza por familia.
+function seccionParaGrupo(_productoRef) {
   return 'PRODUCCIÓN';
 }
 
@@ -2904,6 +2981,8 @@ function construirOrdenes() {
       codigo:       presentaciones.map(p => p.plu).filter(Boolean).join(', '),
       seccion:      seccionParaGrupo(rubro),
       producto:     rubro,
+      // El granel del grupo va como orden propia: Producción no da de alta el granel acá.
+      granelAparte: conCant.some(it => it.granelAparte) || cfgGetReqGranel(rubro),
       presentacion: presStr + (tambores ? ` · Tambor ${tambores}` : ''),
       presentaciones,
       cantidad:     totalCant,
@@ -3201,6 +3280,9 @@ function abrirModalNuevoGrupo() {
   document.getElementById('editarGrupoBody').innerHTML =
     '<div class="loading" style="padding:32px">Escribí el nombre del grupo arriba y buscá productos en Siga para agregarlos.</div>';
   document.getElementById('inputNuevaPres').value = '';
+  document.getElementById('inputGranelPlu').value = '';
+  granelesData = [];
+  renderGraneles();
   document.getElementById('panelBuscarSiga').style.display = 'none';
   document.getElementById('overlayEditarGrupo').classList.add('open');
   setTimeout(() => document.getElementById('inputNombreGrupo').focus(), 80);
@@ -3238,9 +3320,14 @@ async function abrirModalGrupo(productoRef) {
   editarGrupoEsNuevo = false;
   document.getElementById('editarGrupoTitulo').textContent    = productoRef;
   document.getElementById('editarGrupoTitulo').style.display  = '';
-  const _gp = cfgGetGranelPlu(productoRef);
-  document.getElementById('inputGranelPlu').value = _gp;
-  setGranelNomDisplay(_gp, null);
+  document.getElementById('inputGranelPlu').value = '';
+  granelesData = cfgGetGranelPlus(productoRef).map(plu => ({ plu, nombre: '' }));
+  renderGraneles();
+  // Los nombres no se guardan en la config: se resuelven contra SiGA al abrir el modal.
+  granelesData.forEach(async g => {
+    const nom = await nombreDePlu(g.plu);
+    if (nom && granelesData.includes(g)) { g.nombre = nom; renderGraneles(); }
+  });
   mpManualData = cfgGetMpManual(productoRef).map(x=>({...x}));
   mpSelectedComp = null;
   document.getElementById('mpBody').innerHTML = '';
@@ -3449,8 +3536,9 @@ async function guardarGrupo() {
   const btn = document.getElementById('btnGuardarGrupo');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    const _gPlu = document.getElementById('inputGranelPlu').value.trim();
-    cfgSetGranelPlu(editarGrupoRef, _gPlu);
+    const _gPlus = granelesData.map(g => g.plu);
+    const _gPlu  = _gPlus[0] || '';
+    cfgSetGranelPlus(editarGrupoRef, _gPlus);
     // Persist mpManual into cfg entry (preserves activo + granelPlu already set above)
     const _cfgEntry = gruposCfgLocal[editarGrupoRef];
     if (mpManualData.length > 0) {
@@ -3616,17 +3704,31 @@ let gruposCatCache = [];
 let gruposCfgLocal = {};
 function cfgGetActivo(ref){const v=gruposCfgLocal[ref];if(v===undefined)return true;if(typeof v==='boolean')return v;return v.activo!==false;}
 function cfgGetGranelPlu(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object')?(v.granelPlu||''):''}
+// Un grupo puede tener varios graneles. granelPlu = el primero (lo que espera el resto del sistema).
+function cfgGetGranelPlus(ref){
+  const v=gruposCfgLocal[ref];
+  if(!v||typeof v!=='object')return [];
+  const lista=(Array.isArray(v.granelPlus)?v.granelPlus:[]).map(x=>String(x||'').trim()).filter(Boolean);
+  if(lista.length)return lista;
+  const uno=String(v.granelPlu||'').trim();
+  return uno?[uno]:[];
+}
 function cfgGetMpManual(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&Array.isArray(v.mpManual))?v.mpManual:[];}
 function cfgRawGranelDirecto(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&typeof v.granelDirecto==='boolean')?v.granelDirecto:null;}
 function cfgGetGranelDirecto(ref){const o=cfgRawGranelDirecto(ref);if(o!==null)return o;const g=gruposCatCache.find(x=>x.productoRef===ref);return g?!!g.esGranel:false;}
 function cfgRawEsMiel(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&typeof v.esMiel==='boolean')?v.esMiel:null;}
 // Por defecto (sin override) cae al nombre que arranca con "Miel".
 function cfgGetEsMiel(ref){const o=cfgRawEsMiel(ref);if(o!==null)return o;return /^miel\b/i.test((ref||'').trim());}
-function cfgEntry(ref,{activo,granelPlu,mpManual,granelDirecto,esMiel}){const obj={activo};if(granelPlu)obj.granelPlu=granelPlu;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined;return extra?obj:activo;}
-function cfgSetActivo(ref,a){gruposCfgLocal[ref]=cfgEntry(ref,{activo:a,granelPlu:cfgGetGranelPlu(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref)});}
-function cfgSetGranelPlu(ref,plu){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlu:plu,mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref)});}
-function cfgSetGranelDirecto(ref,val){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlu:cfgGetGranelPlu(ref),mpManual:cfgGetMpManual(ref),granelDirecto:val,esMiel:cfgRawEsMiel(ref)});}
-function cfgSetEsMiel(ref,val){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlu:cfgGetGranelPlu(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:val});}
+// El grupo se planifica por presentaciones, pero antes hay que fabricar el granel (pepas → masa).
+function cfgGetReqGranel(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.reqGranel===true);}
+function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel;return extra?obj:activo;}
+// Setter genérico: parte de la config actual del grupo y aplica solo los campos del patch.
+function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),...patch});}
+function cfgSetActivo(ref,a){cfgSet(ref,{activo:a});}
+function cfgSetGranelPlus(ref,plus){cfgSet(ref,{granelPlus:plus});}
+function cfgSetGranelDirecto(ref,val){cfgSet(ref,{granelDirecto:val});}
+function cfgSetEsMiel(ref,val){cfgSet(ref,{esMiel:val});}
+function cfgSetReqGranel(ref,val){cfgSet(ref,{reqGranel:val});}
 
 async function cargarCatalogo() {
   try {
@@ -3637,8 +3739,10 @@ async function cargarCatalogo() {
       const mp = Array.isArray(g.mpManual) ? g.mpManual : [];
       const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
       const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
-      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}) }
+      const rg = g.reqGranel === true;
+      const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
         : g.activo;
     }
     renderCatalogo();
@@ -3670,10 +3774,12 @@ function renderGrupoRows(grupos) {
   if (!grupos.length) return '';
   return grupos.map(g => {
     const activo = cfgGetActivo(g.productoRef);
-    const gPlu   = cfgGetGranelPlu(g.productoRef);
+    const gPlu   = cfgGetGranelPlus(g.productoRef).join(', ');
     const esGranelG = cfgGetGranelDirecto(g.productoRef);
+    const reqGran   = cfgGetReqGranel(g.productoRef);
     const id     = 'tog-' + g.productoRef.replace(/\W+/g, '_');
     const idG    = 'tggran-' + g.productoRef.replace(/\W+/g, '_');
+    const idRG   = 'tgreqg-' + g.productoRef.replace(/\W+/g, '_');
     const ref    = g.productoRef.replace(/'/g, "\\'");
     return `<div class="grupo-cat-row">
       <label class="toggle-switch">
@@ -3694,6 +3800,12 @@ function renderGrupoRows(grupos) {
         <span class="toggle-slider"></span>
       </label>
       <span style="font-size:11px;color:${esGranelG?'#065f46':'var(--muted)'};font-weight:${esGranelG?'700':'400'};margin-right:6px">granel</span>
+      <label style="font-size:11px;display:flex;align-items:center;gap:4px;color:${reqGran?'var(--amb-text)':'var(--muted)'};font-weight:${reqGran?'700':'400'}"
+        title="Se hace en presentaciones pero primero hay que fabricar el granel (ej. pepas → masa). Al agregarlo al plan avisa y suma la orden de granel.">
+        <input type="checkbox" id="${idRG}" ${reqGran ? 'checked' : ''}
+          onchange="toggleGrupoReqGranel('${ref}', this.checked)">
+        granel previo
+      </label>
       <button class="btn btn-secondary btn-sm" style="font-size:11px;margin-left:8px"
         onclick="abrirModalGrupo('${ref}')">Ver / Editar</button>
     </div>`;
@@ -3708,6 +3820,12 @@ async function toggleGrupoActivo(productoRef, activo) {
 
 async function toggleGrupoGranel(productoRef, esGranel) {
   cfgSetGranelDirecto(productoRef, esGranel);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function toggleGrupoReqGranel(productoRef, req) {
+  cfgSetReqGranel(productoRef, req);
   renderCatalogo();
   await guardarGruposCfg();
 }
@@ -3798,16 +3916,46 @@ document.getElementById('inputCatalogo').addEventListener('change', async functi
 </script>
 <script>/*md-ripple-init*/(function(){document.addEventListener("pointerdown",function(e){var t=e.target.closest(".btn,.btn-add,.tab-btn,.dia-chip");if(!t||t.disabled)return;var r=t.getBoundingClientRect(),d=Math.max(r.width,r.height),s=document.createElement("span");s.className="md-ripple";s.style.width=s.style.height=d+"px";s.style.left=(e.clientX-r.left-d/2)+"px";s.style.top=(e.clientY-r.top-d/2)+"px";t.appendChild(s);setTimeout(function(){s.remove();},560);});})();
 // ── Panel Granel MP (modal catálogo) ────────────────────────────
-function setGranelNomDisplay(plu, nombre) {
-  const el = document.getElementById('granelNombreDisplay');
-  if (!plu) { el.textContent = 'Sin granel asignado'; el.style.color = 'var(--muted)'; el.style.fontStyle = 'italic'; return; }
-  el.textContent = nombre || ('PLU ' + plu);
-  el.style.color = 'var(--amb-text)'; el.style.fontStyle = 'normal';
+// Un grupo puede tener varios graneles (una masa por variedad). El primero de la lista es el
+// que usa el resto del sistema (BOM del panel MP, sugerencias).
+let granelesData = [];   // [{plu, nombre}]
+function renderGraneles() {
+  const c = document.getElementById('listaGraneles');
+  if (!c) return;
+  if (!granelesData.length) {
+    c.innerHTML = '<span style="font-size:12px;color:var(--muted);font-style:italic">Sin graneles asignados</span>';
+    return;
+  }
+  c.innerHTML = granelesData.map((g, i) => `<span style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--amb-border);border-radius:14px;padding:3px 6px 3px 10px;font-size:12px">
+    <strong style="font-family:'Barlow Condensed',sans-serif;color:var(--amb-text)">${escHtml(g.plu)}</strong>
+    <span>${escHtml(g.nombre || '')}</span>
+    ${i === 0 && granelesData.length > 1 ? '<span style="font-size:10px;color:var(--muted)">principal</span>' : ''}
+    <button onclick="quitarGranel(${i})" title="Quitar" style="border:none;background:none;color:var(--red-text);cursor:pointer;font-size:13px;line-height:1">✕</button>
+  </span>`).join('');
+}
+async function agregarGranel(plu, nombre) {
+  const p = String(plu || '').trim();
+  if (!p) { toast('Escribí el PLU del granel', true); return; }
+  if (granelesData.some(g => g.plu === p)) { toast('Ese granel ya está en la lista', true); return; }
+  granelesData = [...granelesData, { plu: p, nombre: nombre || '' }];
+  renderGraneles();
+  document.getElementById('inputGranelPlu').value = '';
+  document.getElementById('resultadosGranelPlu').style.display = 'none';
+  if (granelesData.length === 1) cargarBOM();   // el principal alimenta el panel de Materia Prima
+  if (!nombre) {
+    const nom = await nombreDePlu(p);
+    const it = granelesData.find(g => g.plu === p);
+    if (it && nom) { it.nombre = nom; renderGraneles(); }
+  }
+}
+function quitarGranel(i) {
+  const eraPrincipal = i === 0;
+  granelesData = granelesData.filter((_, k) => k !== i);
+  renderGraneles();
+  if (eraPrincipal) cargarBOM();
 }
 function onGranelPluInput() {
-  const plu = document.getElementById('inputGranelPlu').value.trim();
   document.getElementById('resultadosGranelPlu').style.display = 'none';
-  setGranelNomDisplay(plu, null);
 }
 async function buscarGranelPlu() {
   const q = document.getElementById('inputGranelPlu').value.trim();
@@ -3837,19 +3985,14 @@ function renderResultadosGranel(rows) {
   c.style.display = 'block';
 }
 function seleccionarGranelPlu(plu, nombre) {
-  document.getElementById('inputGranelPlu').value = plu;
-  document.getElementById('resultadosGranelPlu').style.display = 'none';
-  setGranelNomDisplay(plu, nombre);
+  agregarGranel(plu, nombre);
 }
 document.getElementById('btnBuscarGranelPlu').addEventListener('click', buscarGranelPlu);
+document.getElementById('btnAgregarGranelPlu').addEventListener('click', () =>
+  agregarGranel(document.getElementById('inputGranelPlu').value.trim(), ''));
 document.getElementById('inputGranelPlu').addEventListener('keydown', e => {
   if (e.key === 'Enter') buscarGranelPlu();
   if (e.key === 'Escape') document.getElementById('resultadosGranelPlu').style.display = 'none';
-});
-document.getElementById('btnLimpiarGranelPlu').addEventListener('click', () => {
-  document.getElementById('inputGranelPlu').value = '';
-  document.getElementById('resultadosGranelPlu').style.display = 'none';
-  setGranelNomDisplay('', null);
 });
 
 // ── Panel Materia Prima ──────────────────────────────────────────
@@ -3869,7 +4012,7 @@ function setModalTab(tab) {
 }
 
 async function cargarBOM() {
-  const plu = document.getElementById('inputGranelPlu').value.trim();
+  const plu = granelesData[0]?.plu || '';
   document.getElementById('mpBody').innerHTML = '<div style="font-size:12px;color:var(--muted)">Cargando…</div>';
   let bomSiga = [];
   if (plu) {
@@ -3900,7 +4043,7 @@ function renderBOM(bomSiga) {
     )
   ];
   const total = bomSiga.length + mpManualData.length;
-  const plu = document.getElementById('inputGranelPlu').value.trim();
+  const plu = granelesData[0]?.plu || '';
   if (!allRows.length) {
     document.getElementById('mpBody').innerHTML =
       '<div style="font-size:12px;color:var(--muted);padding:4px 0">' +
