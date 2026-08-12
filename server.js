@@ -1584,8 +1584,19 @@ app.get('/api/productos/buscar', apiRoute(async req => {
   if (q.length < 2) return [];
   const words = q.split(/\s+/).filter(w => w.length > 0).map(w => w.replace(/'/g, "''"));
   const nameConditions = words.map(w => `NombreProducto LIKE '%${w}%'`).join(' AND ');
-  const codeMatch = words.length === 1 ? `OR IdProducto LIKE '%${words[0]}%'` : '';
-  return await query(`SELECT TOP 15 IdProducto AS codigo, NombreProducto AS nombre FROM dbo.Productos WHERE ((${nameConditions}) ${codeMatch}) AND Activo = 1 ORDER BY NombreProducto`);
+  const nameCond  = words.map(w => `p.NombreProducto LIKE '%${w}%'`).join(' AND ');
+  const codeMatch = words.length === 1 ? `OR p.IdProducto LIKE '%${words[0]}%'` : '';
+  // excluirRubros: nombres de rubro separados por coma que NO se quieren en el resultado (la
+  // carga manual de producción no produce bultos ni cajas: son reempaques de un terminado).
+  // Es opcional para no cambiarle el universo al armado de grupos del módulo de análisis.
+  const excluidos = String(req.query.excluirRubros || '').split(',').map(s => s.trim()).filter(Boolean);
+  const filtroRubro = excluidos.length
+    ? `AND COALESCE(r.NombreRubro,'') NOT IN (${excluidos.map(n => `'${n.replace(/'/g, "''")}'`).join(',')})`
+    : '';
+  return await query(`SELECT TOP 15 p.IdProducto AS codigo, p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro
+    FROM dbo.Productos p LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
+    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${filtroRubro}
+    ORDER BY p.NombreProducto`);
 }));
 
 app.get('/api/formula/schema', apiRoute(async req => {

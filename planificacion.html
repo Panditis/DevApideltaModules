@@ -487,6 +487,10 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
     <button class="btn btn-secondary btn-sm" id="btnResumenMP"     disabled title="Ver resumen de materia prima del plan">📦 Resumen MP</button>
     <button class="btn btn-secondary btn-sm" id="btnReservaMerc"  disabled title="Reservar los componentes de fórmula del plan">🔒 Reservar mercadería</button>
     <button class="btn btn-secondary btn-sm" id="btnMovStock" title="Ver el resumen de reservas del plan y revertirlas">🧾 Resumen de reservas</button>
+    <label id="lblMovStockOn" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin:0"
+           title="Si se desactiva, este equipo no manda movimientos de stock a SiGA: el plan sigue funcionando pero sin reservar mercadería">
+      <input type="checkbox" id="chkMovStockOn" style="margin:0" checked> Carga a SiGA
+    </label>
     <button class="btn btn-enviar"           id="btnEnviarProd"    disabled title="Enviar plan a Producción del Día">📤 Enviar a Producción</button>
   </div>
 
@@ -3058,7 +3062,8 @@ async function confirmarEnviarProduccion() {
   // operador elige seguir sin reservar, el envío continúa como antes.
   const itemSinReservar = it => (it.cantConfirmada ?? it.cantSugerida ?? 0) > 0
     && !(it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
-  const sinReservar = (planCache?.items || []).filter(itemSinReservar);
+  // Con la carga a SiGA apagada nunca va a haber reserva: el aviso sería un cartel fijo.
+  const sinReservar = movStockHabilitado() ? (planCache?.items || []).filter(itemSinReservar) : [];
   if (sinReservar.length) {
     const nombres = sinReservar.map(it => it.producto).join('\n· ');
     const plural  = sinReservar.length > 1;
@@ -4443,12 +4448,28 @@ async function postReserva(ruta, body) {
   return data;
 }
 
+// Interruptor por equipo (no por usuario ni por servidor): si está apagado, esta PC no
+// genera movimientos de stock en SiGA. Sólo bloquea la salida; lo ya reservado se sigue
+// viendo y el resumen de reservas queda accesible para revertir.
+const MOV_STOCK_LS_KEY = 'planif_mov_stock_on';
+function movStockHabilitado() {
+  try { return localStorage.getItem(MOV_STOCK_LS_KEY) !== '0'; }
+  catch (e) { return true; }
+}
+
 function aplicarEstadoBotonReserva() {
   const btn  = document.getElementById('btnReservaMerc');
-  const chip = document.getElementById('chipReservaPlan');
   if (!btn) return;
   const items  = planCache?.items || [];
   const activa = reservaActiva();
+
+  if (!movStockHabilitado()) {
+    btn.textContent = '🚫 Carga a SiGA apagada';
+    btn.disabled    = true;
+    btn.title       = 'La carga por movimientos de stock está desactivada en este equipo: activala para poder reservar';
+    aplicarChipReserva();
+    return;
+  }
 
   const desactualizada = reservaDesactualizada();
   const desincronizada = reservaDesincronizada();
@@ -4488,6 +4509,18 @@ function aplicarEstadoBotonReserva() {
       ? 'Reservar los componentes de fórmula de las órdenes nuevas (las ya reservadas no se tocan)'
       : 'Reservar los componentes de fórmula del plan';
   }
+
+  aplicarChipReserva();
+}
+
+// El chip de reserva es informativo: se muestra igual con la carga a SiGA apagada, porque
+// una reserva vieja del plan se sigue pudiendo revisar y revertir.
+function aplicarChipReserva() {
+  const chip = document.getElementById('chipReservaPlan');
+  const activa = reservaActiva();
+  const desactualizada = reservaDesactualizada();
+  const desincronizada = reservaDesincronizada();
+  const otraSucursal   = sucursalDistintaReserva();
 
   if (chip) {
     if (activa) {
@@ -5166,6 +5199,11 @@ async function recargarModalReservaPorSucursal() {
 
 async function confirmarReserva(permitirFaltante) {
   if (!fechaPlanActual) return;
+  // Guarda del lado de la salida: el modal se puede abrir desde el chip de una reserva vieja.
+  if (!movStockHabilitado()) {
+    toast('La carga por movimientos de stock está desactivada en este equipo', true);
+    return;
+  }
   const depOrigen  = document.getElementById('selDepOrigen').value;
   const depDestino = document.getElementById('selDepDestino').value;
   if (!depOrigen || !depDestino) {
@@ -5688,6 +5726,16 @@ async function revertirMovStock(idx) {
     else await refrescarEstadoReserva(true);
   } catch (e) { toast('Error al refrescar el plan: ' + e.message, true); }
 }
+
+const chkMovStockOn = document.getElementById('chkMovStockOn');
+chkMovStockOn.checked = movStockHabilitado();
+chkMovStockOn.addEventListener('change', () => {
+  try { localStorage.setItem(MOV_STOCK_LS_KEY, chkMovStockOn.checked ? '1' : '0'); } catch (e) {}
+  aplicarEstadoBotonReserva();
+  toast(chkMovStockOn.checked
+    ? 'Carga a SiGA activada en este equipo'
+    : 'Carga a SiGA desactivada en este equipo: no se van a generar movimientos de stock');
+});
 
 document.getElementById('btnMovStock').addEventListener('click', abrirModalMovStock);
 document.getElementById('cerrarMovStock').addEventListener('click', cerrarModalMovStock);
