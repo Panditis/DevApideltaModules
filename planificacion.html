@@ -5574,6 +5574,7 @@ function reservaResumenCard(r, i) {
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px">#${escHtml(String(r?.numeroMovimiento ?? '—'))}</span>
         <span class="pres-chip" style="background:${est.bg};color:${est.color};border:1px solid ${est.borde}">${est.texto}</span>
+        ${r?.origen === 'ajuste' ? '<span class="pres-chip" title="Ajuste de una reserva ya hecha: revertirlo devuelve lo que movió y libera sus órdenes">Ajuste</span>' : ''}
         <span style="font-size:12px;color:var(--muted)">${escHtml(fmtFechaHoraMov(r?.fechaPlanificacion))}</span>
         <span style="margin-left:auto">${btnRev}</span>
       </div>
