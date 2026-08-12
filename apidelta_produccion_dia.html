@@ -2052,10 +2052,8 @@ function renderHistorial(registros) {
     return;
   }
 
-  // Un cierre de día puede abarcar varias familias, y varios cierres pueden caer el mismo día:
-  // así aparecían 3 tarjetas separadas para una sola jornada. Se aplana todo a (día + familia)
-  // para que cada tarjeta sea un bloque homogéneo.
-  const FAMILIA_SIN = 'Sin familia';
+  // Una tarjeta por DÍA: varios cierres de la misma jornada (y de cualquier familia) se
+  // funden en un solo bloque con todos los productos que se hicieron ese día.
   const diaDe = (...valores) => {
     for (const v of valores) {
       if (!v) continue;
@@ -2069,45 +2067,33 @@ function renderHistorial(registros) {
   };
 
   const grupos = new Map();
-  const grupoDe = (dia, familia) => {
-    const clave = `${dia}|${familia}`;
-    if (!grupos.has(clave)) grupos.set(clave, { dia, familia, cargas: [], ordenes: [], registros: new Map() });
-    return grupos.get(clave);
+  const grupoDe = dia => {
+    if (!grupos.has(dia)) grupos.set(dia, { dia, cargas: [], registros: new Map() });
+    return grupos.get(dia);
   };
 
+  // Día → cierres que lo componen: un mismo día puede tener varios cierres, y "Borrar día"
+  // tiene que llevárselos todos.
+  _histPorDia = {};
   for (const reg of registros) {
+    // El día del bloque es el del CIERRE. La fecha propia de cada carga no se pierde: va en la
+    // columna "Fecha carga".
     const diaReg = diaDe(reg.fecha, reg.fechaHora);
-    // El pie de cada bloque necesita saber de qué cierres salió, porque el borrado sigue siendo
-    // por registro: un mismo cierre puede alimentar varias familias y no se puede borrar entero
-    // desde una sola de ellas sin llevarse las otras.
-    const anotar = g => g.registros.set(reg.id, reg.fechaHora || reg.fecha || null);
-    // El día del bloque es el del CIERRE, no el de cada carga: un cierre del 30 puede archivar
-    // cargas del 26, y son justamente esos los que aparecían como tarjetas sueltas con la misma
-    // fecha. La fecha propia de cada carga no se pierde: va en la columna "Fecha carga".
-    for (const c of (reg.cargas || [])) {
-      const g = grupoDe(diaReg, String(c.seccion || '').trim() || FAMILIA_SIN);
-      g.cargas.push(c); anotar(g);
-    }
-    for (const o of (reg.ordenes || [])) {
-      const g = grupoDe(diaReg, String(o.seccion || '').trim() || FAMILIA_SIN);
-      g.ordenes.push(o); anotar(g);
-    }
-    // Un cierre vacío igual tiene que verse: si no, desaparece del historial sin dejar rastro.
-    if (!(reg.cargas || []).length && !(reg.ordenes || []).length) anotar(grupoDe(diaReg, FAMILIA_SIN));
+    const g = grupoDe(diaReg);
+    g.registros.set(reg.id, reg.fechaHora || reg.fecha || null);
+    for (const c of (reg.cargas || [])) g.cargas.push(c);
+    (_histPorDia[diaReg] = _histPorDia[diaReg] || []).push(reg.id);
   }
 
-  const bloques = [...grupos.values()].sort((a, b) =>
-    String(b.dia).localeCompare(String(a.dia)) || a.familia.localeCompare(b.familia));
+  const bloques = [...grupos.values()].sort((a, b) => String(b.dia).localeCompare(String(a.dia)));
 
   const cnt = document.getElementById('historialCount');
   if (cnt) {
-    cnt.textContent = `${registros.length} registro${registros.length !== 1 ? 's' : ''} · `
-      + `${bloques.length} bloque${bloques.length !== 1 ? 's' : ''}`;
+    cnt.textContent = `${bloques.length} día${bloques.length !== 1 ? 's' : ''}`;
   }
 
   let html = '';
   bloques.forEach((grupo, idx) => {
-    const reg = { ordenes: grupo.ordenes, cargas: grupo.cargas };
     const cargas = grupo.cargas;
     const unidadesCargadas = +cargas.reduce((s,c)=>s+(parseFloat(c.cantFraccionada)||0),0).toFixed(2);
     const detId = `det-h${idx}`;
@@ -2120,60 +2106,36 @@ function renderHistorial(registros) {
     }));
 
     html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden">
-      <!-- Header bloque día + familia -->
+      <!-- Header del día -->
       <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div>
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:800;color:var(--text)">
             ${escEnv(fechaDisplay.charAt(0).toUpperCase()+fechaDisplay.slice(1))}
-          </div>
-          <div style="margin-top:4px">
-            <span style="display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 10px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--text)">${escEnv(grupo.familia)}</span>
           </div>
         </div>
         <!-- Contadores -->
         <div style="flex:1;min-width:140px;display:flex;gap:22px;flex-wrap:wrap">
           <div>
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${cargas.length}</div>
-            <div style="font-size:11px;color:var(--text-muted)">cargas · ${unidadesCargadas} u.</div>
-          </div>
-          <div>
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${grupo.ordenes.length}</div>
-            <div style="font-size:11px;color:var(--text-muted)">órdenes</div>
+            <div style="font-size:11px;color:var(--text-muted)">productos · ${unidadesCargadas} u.</div>
           </div>
         </div>
         <!-- Botones -->
         <div style="display:flex;gap:8px;margin-left:auto">
           <button onclick="toggleDetalle('${detId}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
+          <button onclick="deleteDiaHistorial('${grupo.dia}')" title="Borra del historial todos los cierres de este día" style="background:none;border:1px solid #EF9A9A;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">🗑 Borrar día</button>
         </div>
       </div>
       <!-- Detalle (oculto por defecto) -->
       <div id="${detId}" style="display:none">
         <div style="padding:14px 18px">
-          ${(reg.ordenes||[]).length ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:4px">
-            <thead><tr style="background:#F8F8F8">
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
-              <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Sección</th>
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cliente</th>
-              <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Estado</th>
-            </tr></thead>
-            <tbody>${(reg.ordenes||[]).map(o => {
-              const eL={pendiente:'⬜ Pendiente',en_proceso:'🔄 En proceso',listo:'✅ Listo'};
-              return `<tr style="border-bottom:1px solid #F0F0F0">
-                <td style="padding:7px 10px;font-weight:500">${escEnv(o.producto||'')}</td>
-                <td style="padding:7px 10px;text-align:center">${o.cantidad||'—'}</td>
-                <td style="padding:7px 10px;color:var(--text-muted)">${o.seccion||'—'}</td>
-                <td style="padding:7px 10px;color:var(--text-muted)">${o.cliente||'—'}</td>
-                <td style="padding:7px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700">${eL[o.estado]||o.estado}</td>
-              </tr>`;
-            }).join('')}</tbody>
-          </table>` : '<div style="padding:12px 0;color:var(--text-muted);font-size:13px">Sin órdenes registradas.</div>'}
-          ${cargas.length ? `<div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:18px 0 6px">Cargas de producción</div>
+          ${cargas.length ? `<div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:0 0 6px">Productos producidos</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="background:#F8F8F8">
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fecha carga</th>
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Presentación</th>
+              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Familia</th>
               <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsables</th>
               <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Horario</th>
@@ -2196,7 +2158,7 @@ function renderHistorial(registros) {
               if (c.tapaNombre)   comps.push({ nom: c.tapaNombre,   cant: '—' });
               const compId = `comp-h${idx}-${ci}`;
               const filaComp = `<tr id="${compId}" style="display:none;background:#FAFAFA">
-                <td colspan="6" style="padding:8px 22px 12px">
+                <td colspan="7" style="padding:8px 22px 12px">
                   ${comps.length ? `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
                     ${comps.map(k => `<tr>
                       <td style="padding:4px 0;color:var(--text)">${escEnv(k.nom)}</td>
@@ -2213,18 +2175,19 @@ function renderHistorial(registros) {
                   ${escEnv(c.nombre||c.producto||'')}${obs}
                 </td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${c.presentacion||'—'}</td>
+                <td style="padding:7px 10px;color:var(--text-muted)">${escEnv(c.seccion||'—')}</td>
                 <td style="padding:7px 10px;text-align:center">${c.cantFraccionada??'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${resp}</td>
                 <td style="padding:7px 10px;text-align:center;color:var(--text-muted)">${hora}</td>
               </tr>${filaComp}`;
             }).join('')}</tbody>
-          </table>` : ''}
+          </table>` : '<div style="padding:12px 0;color:var(--text-muted);font-size:13px">Sin productos registrados.</div>'}
           ${fuentes.length ? `<div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--border)">
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">
               ${fuentes.length === 1 ? 'Cierre de origen' : `Cierres de origen (${fuentes.length})`}
             </div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-              Eliminar borra el cierre completo, con todas sus familias, no sólo este bloque.
+              Cada botón borra sólo ese cierre. Para el día entero usá "Borrar día".
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               ${fuentes.map(f => `<button onclick="deleteRegistroHistorial(${f.id})"
@@ -2246,6 +2209,29 @@ function toggleDetalle(id) {
   const visible = el.style.display !== 'none';
   // Vacío en vez de 'block': así también sirve para las filas <tr> del desglose por producto.
   el.style.display = visible ? 'none' : '';
+}
+
+let _histPorDia = {};
+
+// Borra del historial TODOS los cierres de un día (todas sus familias), no sólo el bloque
+// desde el que se clickeó.
+async function deleteDiaHistorial(dia) {
+  const ids = _histPorDia[dia] || [];
+  if (!ids.length) { showSnack('No hay cierres para ese día'); return; }
+  const label = dia
+    ? new Date(dia + 'T00:00:00').toLocaleDateString('es-AR', {weekday:'long', day:'numeric', month:'long', year:'numeric'})
+    : 'sin fecha';
+  const ok = await showConfirm({
+    icon: '🗑', title: 'Borrar día del historial',
+    msg: `¿Borrar del historial <b>${ids.length}</b> cierre(s) de <b>${label}</b>, con todos sus productos?<br><br>Esta acción no se puede deshacer.`,
+    ok: 'Borrar', cancel: 'Cancelar', danger: true,
+  });
+  if (!ok) return;
+  try {
+    for (const id of ids) await api('DELETE', '/api/registros/' + id);
+    loadHistorial();
+    showSnack('Día borrado del historial');
+  } catch(e) { showSnack('Error al borrar: ' + e.message); }
 }
 
 async function deleteRegistroHistorial(id) {
