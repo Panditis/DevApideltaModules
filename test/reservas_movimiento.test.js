@@ -1,6 +1,37 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('../reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('../reservas_movimiento');
+
+const setStr = (...ns) => new Set(ns.map(String));
+
+test('sanearSellosReserva: sello de un movimiento vivo del plan no se toca', () => {
+  const plan = { items: [{ id: 1, reservaMovimiento: { numeroMovimiento: 64 } }] };
+  assert.strictEqual(sanearSellosReserva(plan, setStr(64), setStr(64)), plan);
+});
+test('sanearSellosReserva: sello de un movimiento revertido se suelta', () => {
+  const plan = { items: [{ id: 1, reservaMovimiento: { numeroMovimiento: 64 } }] };
+  const r = sanearSellosReserva(plan, setStr(), setStr(64));
+  assert.strictEqual(r.items[0].reservaMovimiento, null);
+  assert.strictEqual(plan.items[0].reservaMovimiento.numeroMovimiento, 64, 'no muta el plan original');
+});
+test('sanearSellosReserva: sello heredado de otro plan se suelta', () => {
+  // 62 existe en el log pero pertenece a otro día: no está entre los vivos de este plan.
+  const plan = { items: [{ id: 1, reservaMovimiento: { numeroMovimiento: 62 } }, { id: 2, reservaMovimiento: { numeroMovimiento: 15 } }] };
+  const r = sanearSellosReserva(plan, setStr(15), setStr(15, 62));
+  assert.strictEqual(r.items[0].reservaMovimiento, null);
+  assert.strictEqual(r.items[1].reservaMovimiento.numeroMovimiento, 15);
+});
+test('sanearSellosReserva: sello que el log no conoce se respeta (bloquea de más)', () => {
+  const plan = { items: [{ id: 1, reservaMovimiento: { numeroMovimiento: 7 } }] };
+  assert.strictEqual(sanearSellosReserva(plan, setStr(), setStr(64)), plan);
+});
+test('sanearSellosReserva: compara como string y tolera plan sin items', () => {
+  const plan = { items: [{ id: 1, reservaMovimiento: { numeroMovimiento: 64 } }] };
+  assert.strictEqual(sanearSellosReserva(plan, setStr('64'), setStr('64')), plan);
+  const vacio = { items: [] };
+  assert.strictEqual(sanearSellosReserva(vacio, setStr(), setStr()), vacio);
+  assert.strictEqual(sanearSellosReserva(null, setStr(), setStr()), null);
+});
 
 test('migrarReservas: plan sin reserva devuelve reservas vacío', () => {
   assert.deepStrictEqual(migrarReservas({ fecha: '2026-07-24', items: [] }).reservas, []);

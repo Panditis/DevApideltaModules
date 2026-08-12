@@ -311,6 +311,31 @@ function motivoBloqueoProduccion(producidas, accion) {
        + 'Los componentes ya se consumieron.';
 }
 
+/**
+ * Un ítem sellado con `reservaMovimiento` queda bloqueado: no se puede borrar ni cambiarle
+ * cantidades. El sello vale mientras su movimiento siga vivo EN ESTE PLAN; uno revertido,
+ * fallido o heredado de otro día deja al ítem trabado para siempre, porque el resumen de
+ * reservas sólo lista `plan.reservas` y por ahí no queda nada para revertir.
+ *
+ * Un sello que el log NO conoce (anterior al log de movimientos) se respeta tal cual: ante
+ * la duda se prefiere bloquear de más antes que liberar una orden con mercadería apartada.
+ *
+ * @param {{items?:Array<Object>}} plan Plan ya migrado.
+ * @param {Set<string>} vivos Números de movimiento confirmados de ESTE plan.
+ * @param {Set<string>} conocidos Números de movimiento presentes en el log (cualquier plan).
+ * @returns {Object} El mismo plan si no había sellos huérfanos, o una copia sin ellos.
+ */
+function sanearSellosReserva(plan, vivos, conocidos) {
+  const items = (plan && plan.items) || [];
+  const huerfano = it => {
+    const n = it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento;
+    if (n == null) return false;
+    return conocidos.has(String(n)) && !vivos.has(String(n));
+  };
+  if (!items.some(huerfano)) return plan;
+  return { ...plan, items: items.map(it => huerfano(it) ? { ...it, reservaMovimiento: null } : it) };
+}
+
 module.exports = {
   ordenesDeMovimiento,
   migrarReservas,
@@ -323,4 +348,5 @@ module.exports = {
   lineasDiferenciasProduccion,
   ordenesProducidasDeReserva,
   motivoBloqueoProduccion,
+  sanearSellosReserva,
 };

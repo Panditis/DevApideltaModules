@@ -35,7 +35,7 @@ const productividad = require('./productividad');
 const resumenesLegacy = require('./resumenes_legacy');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -4041,7 +4041,9 @@ app.get('/api/planes', (_req, res) => {
   const planes = leerJSON(PLANES_PATH, {});
   res.json(Object.keys(planes).sort().reverse().map(fecha => ({ fecha, totalItems: planes[fecha].items.length, totalUnidades: planes[fecha].items.reduce((s, i) => s + (i.cantConfirmada ?? i.cantSugerida ?? 0), 0), creado: planes[fecha].creado })));
 });
-app.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {}); res.json(planes[fecha] || { fecha, notas: '', items: [] }); });
+// Con saneo de sellos: la UI dibuja el candado y deshabilita el ✕ mirando reservaMovimiento,
+// así que tiene que ver lo mismo que las guardas de PUT y DELETE.
+app.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha); const { plan } = leerPlanReservas(fecha); res.json(plan || { fecha, notas: '', items: [] }); });
 
 // ── Productividad de la sala ───────────────────────────────────────────────────
 // Resúmenes exportados por el sistema viejo de sala, previos a los registros en JSON.
@@ -4181,9 +4183,11 @@ app.post('/api/plan/:fecha/item', apiRoute(async req => {
   planes[fecha].items.push(nuevoItem); guardarJSON(PLANES_PATH, planes); return nuevoItem;
 }));
 app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
-  const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
-  const plan = planes[fecha]; if (!plan) return { error: 'Plan no encontrado' };
-  const idx = plan.items.findIndex(i => i.id === id); if (idx === -1) return { error: 'Ítem no encontrado' };
+  const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id);
+  // Igual que al eliminar: se lee con saneo de sellos para no bloquear por una reserva muerta.
+  const { planes, plan } = leerPlanReservas(fecha);
+  if (!plan) return { error: 'Plan no encontrado' };
+  const idx = (plan.items || []).findIndex(i => i.id === id); if (idx === -1) return { error: 'Ítem no encontrado' };
   const actual = plan.items[idx], body = req.body || {};
   // Ya trabajado en producción: no se modifica (la página pudo quedar desactualizada).
   if (actual.produccionMovimiento && actual.produccionMovimiento.numeroMovimiento != null) {
@@ -4217,13 +4221,16 @@ app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
     } catch (e) { reservaError = e.message; }
   }
 
-  guardarJSON(PLANES_PATH, planes);
+  guardarJSON(PLANES_PATH, { ...planes, [fecha]: plan });
   const item = reservaError ? { ...plan.items[idx], reservaError } : plan.items[idx];
   return conLogError(item, logError);
 }));
 app.delete('/api/plan/:fecha/item/:id', (req, res) => {
-  const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id), planes = leerJSON(PLANES_PATH, {});
-  const plan = planes[fecha]; if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+  const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id);
+  // leerPlanReservas (y no leerJSON pelado) porque de paso suelta los sellos huérfanos: si el
+  // movimiento que reservaba la orden ya se revirtió, la guarda de abajo no tiene que frenarla.
+  const { planes, plan } = leerPlanReservas(fecha);
+  if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
   const itemBloq = (plan.items || []).find(it => String(it.id) === String(id));
   if (itemBloq && itemBloq.produccionMovimiento && itemBloq.produccionMovimiento.numeroMovimiento != null) {
     return res.status(409).json({ error: `La orden ya fue trabajada en producción (movimiento #${itemBloq.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede eliminar.` });
@@ -4231,7 +4238,9 @@ app.delete('/api/plan/:fecha/item/:id', (req, res) => {
   if (itemBloq && itemBloq.reservaMovimiento && itemBloq.reservaMovimiento.numeroMovimiento != null) {
     return res.status(409).json({ error: `La orden está reservada (movimiento #${itemBloq.reservaMovimiento.numeroMovimiento}) y no se puede eliminar. Anulá esa reserva primero.` });
   }
-  plan.items = plan.items.filter(i => i.id !== id); guardarJSON(PLANES_PATH, planes); res.json({ ok: true });
+  const items = (plan.items || []).filter(i => i.id !== id);
+  guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...plan, items } });
+  res.json({ ok: true });
 });
 app.delete('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
@@ -5574,11 +5583,17 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   // Misma guarda que "Anular reserva" y que modificar/eliminar una orden: una reserva cuyas
   // órdenes ya se produjeron y recepcionaron no se puede revertir, porque sus componentes ya
   // salieron del depósito de reserva. Va ANTES de escribir nada en SiGA.
-  if (original.origen === 'reserva' && original.plan) {
+  if ((original.origen === 'reserva' || original.origen === 'ajuste') && original.plan) {
     const { plan: planRev } = leerPlanReservas(original.plan);
-    const entrada = planRev && (planRev.reservas || []).find(rr => rr &&
-      (rr.idRegistro === original.id ||
-       (rr.numeroMovimiento != null && rr.numeroMovimiento === original.numeroMovimiento)));
+    // El ajuste no tiene entrada en el ledger: sus órdenes son las que quedaron selladas con
+    // su comprobante.
+    const entrada = original.origen === 'ajuste'
+      ? { ordenes: ((planRev && planRev.items) || [])
+            .filter(it => it.reservaMovimiento && String(it.reservaMovimiento.numeroMovimiento) === String(original.numeroMovimiento))
+            .map(it => it.id) }
+      : planRev && (planRev.reservas || []).find(rr => rr &&
+          (rr.idRegistro === original.id ||
+           (rr.numeroMovimiento != null && rr.numeroMovimiento === original.numeroMovimiento)));
     const producidas = ordenesProducidasDeReserva(entrada, planRev && planRev.items);
     if (producidas.length) {
       return { error: motivoBloqueoProduccion(producidas, 'revertir este movimiento'), yaProducido: true };
@@ -5680,8 +5695,10 @@ app.post('/api/stock/movimientos/:id/revertir', apiRoute(async req => {
   // que cubría, re-habilitándolos para volver a reservarse. Va DESPUÉS de sincronizarPlanConLog
   // (que sólo mira el plan.reserva viejo, único, agregado de todo el depósito) para que esta
   // actualización puntual por movimiento sea la que quede como estado final.
+  // Los ajustes entran por el mismo camino: no tienen entrada propia en el ledger (el .map de
+  // abajo no matchea ninguna), pero sí sellan ítems y hay que soltarlos igual.
   let errLedgerReserva = null;
-  if (original.origen === 'reserva' && original.plan) {
+  if ((original.origen === 'reserva' || original.origen === 'ajuste') && original.plan) {
     try {
       const { planes: planesReserva, plan: planReserva } = leerPlanReservas(original.plan);
       if (planReserva) {
@@ -6093,12 +6110,29 @@ function saldoReserva(reserva) {
     .filter(l => l.cantidad > 0);
 }
 
+// Números de movimiento del log, para validar los sellos reservaMovimiento de un plan:
+// `vivos` son los confirmados DE ESE plan, `conocidos` todos los que el log registró.
+function movsDelLog(fecha) {
+  const vivos = new Set(), conocidos = new Set();
+  for (const m of leerMovLog()) {
+    if (!m || m.numeroMovimiento == null) continue;
+    const n = String(m.numeroMovimiento);
+    conocidos.add(n);
+    if (m.plan === fecha && m.estado === 'confirmado') vivos.add(n);
+  }
+  return { vivos, conocidos };
+}
+
 // Lee planes.json y garantiza que cada plan tenga reservas[] (migra el formato viejo en
 // memoria; no reescribe el archivo salvo que el caller guarde). Devuelve { planes, plan }.
+// De paso se sueltan los sellos de reserva huérfanos (ver sanearSellosReserva): el log manda
+// sobre el plan, así que un movimiento revertido o de otro día no deja la orden trabada.
 function leerPlanReservas(fecha) {
   const planes = leerJSON(PLANES_PATH, {});
-  const plan = planes[fecha] ? migrarReservas(planes[fecha]) : null;
-  return { planes, plan };
+  if (!planes[fecha]) return { planes, plan: null };
+  const migrado = migrarReservas(planes[fecha]);
+  const { vivos, conocidos } = movsDelLog(fecha);
+  return { planes, plan: sanearSellosReserva(migrado, vivos, conocidos) };
 }
 
 // Comprobantes de reserva ACTIVA que respaldan una orden de producción. Una orden con
@@ -6720,6 +6754,35 @@ app.get('/api/plan/:fecha/reservas-resumen', apiRoute(async req => {
   const { plan } = leerPlanReservas(fecha);
   if (!plan) return { fecha, reservas: [] };
   const porItem = new Map((plan.items || []).map(it => [String(it.id), it]));
+
+  // Los ajustes de reserva NO dejan entrada en plan.reservas (viven en reserva.ajustes), pero
+  // sí sellan ítems: si no se listan acá el sello queda sin botón para revertirlo y la orden
+  // no se puede borrar más. Se arman con el mismo shape que una reserva del ledger.
+  const ajustes = leerMovLog()
+    .filter(m => m && m.plan === fecha && m.origen === 'ajuste' && m.estado === 'confirmado' && m.numeroMovimiento != null)
+    .map(m => {
+      const ordenes = (plan.items || [])
+        .filter(it => it.reservaMovimiento && String(it.reservaMovimiento.numeroMovimiento) === String(m.numeroMovimiento))
+        .map(it => it.id);
+      return { m, ordenes };
+    })
+    .filter(({ ordenes }) => ordenes.length)
+    .map(({ m, ordenes }) => {
+      const producidas = ordenesProducidasDeReserva({ ordenes }, plan.items);
+      const producidasPorId = new Map(producidas.map(p => [String(p.id), p.numeroMovimiento]));
+      return {
+        numeroMovimiento: m.numeroMovimiento, estado: 'activa', fecha: m.fechaHora,
+        fechaPlanificacion: m.fechaHora, idRegistro: m.id, origen: 'ajuste',
+        ordenes: ordenes.map(id => {
+          const it = porItem.get(String(id));
+          return { id, producto: it ? (it.producto || it.nombre || '') : '',
+                   produccionMovimiento: producidasPorId.get(String(id)) ?? null };
+        }),
+        bloqueoProduccion: motivoBloqueoProduccion(producidas, 'revertir este movimiento'),
+        productos: (m.lineas || []).map(l => ({ plu: String(l.plu), nombre: l.nombre || '', cantidad: l.cantidad })),
+      };
+    });
+
   return {
     fecha,
     reservas: (plan.reservas || []).map(r => {
@@ -6737,8 +6800,9 @@ app.get('/api/plan/:fecha/reservas-resumen', apiRoute(async req => {
         }),
         bloqueoProduccion: motivoBloqueoProduccion(producidas, 'revertir este movimiento'),
         productos: (r.lineas || []).map(l => ({ plu: String(l.plu), nombre: l.nombre || '', cantidad: l.cantidad })),
+        origen: 'reserva',
       };
-    }),
+    }).concat(ajustes),
   };
 }));
 
