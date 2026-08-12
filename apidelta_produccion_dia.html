@@ -3058,7 +3058,7 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
       return `<tr>
         <td>
           <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">${nombre}</strong>
-          ${r.presentacion === 'Granel' ? '<span class="envase-chip granel" style="margin-left:6px">🛢️ Granel</span>' : ''}
+          ${r.presentacion ? `<span class="envase-chip${r.presentacion === 'Granel' ? ' granel' : ''}" style="margin-left:6px">${r.presentacion === 'Granel' ? '🛢️ Granel' : r.presentacion}</span>` : ''}
           ${badgeSinConciliar}
           ${r.seccion ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px">${r.seccion}</div>` : ''}
           ${r.plu === 'ACT' && r.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${r.observacion}</div>` : ''}
@@ -3080,6 +3080,7 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
         <span class="section-count">${items.length} registro${items.length!==1?'s':''} · ${fmtN(totalCant)} u.</span>
         <button onclick="abrirConciliacion('${fecha}')" title="Conciliar reserva, producción y diferencias, y registrar el movimiento de stock en SiGA" style="margin-left:auto;background:var(--green-dark);border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#fff">✔ Conciliar y registrar</button>
         <button onclick="exportTerminadosCSV('${fecha}')" title="Genera el CSV del día para subirlo a mano a SiGA (no escribe stock)" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">⬇ CSV</button>
+        <button onclick="archivarDiaHistorial('${fecha}')" title="Archiva la producción de este día en el historial y la quita de Terminados" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">📋 Al historial</button>
         <button onclick="deleteRegistrosFecha('${fecha}')" style="background:none;border:1.5px solid #C62828;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">🗑 Borrar día · a pendiente</button>
       </div>
       <table class="registros-table">
@@ -4039,6 +4040,29 @@ async function deleteRcRegistro(idx) {
   } catch(err) {
     showSnack('Error al eliminar: ' + err.message);
   }
+}
+
+// Archiva SOLO la producción de un día en el historial y la saca de Terminados.
+// Mismo snapshot que "Cerrar día", pero acotado a esa fecha (ver POST /api/registros?fecha=).
+async function archivarDiaHistorial(fecha) {
+  const items = _rcRaw.filter(r => (r.fecha || (r.fechaHora ? r.fechaHora.slice(0,10) : 'sin-fecha')) === fecha);
+  if (!items.length) { showSnack('No hay registros para ese día'); return; }
+  const label = fecha !== 'sin-fecha'
+    ? new Date(fecha + 'T00:00:00').toLocaleDateString('es-AR', {weekday:'long', day:'numeric', month:'long'})
+    : 'sin fecha';
+  const ok = await showConfirm({
+    icon: '📋', title: 'Enviar al historial',
+    msg: `Se archivarán las <b>${items.length}</b> carga(s) de <b>${label}</b> en el historial y se quitarán de Terminados.`,
+    ok: 'Archivar', cancel: 'Cancelar'
+  });
+  if (!ok) return;
+  try {
+    await api('POST', `/api/registros?limpiar=1&fecha=${encodeURIComponent(fecha)}`, {});
+    await load();
+    renderAll();
+    loadRegistrosCargados();
+    showSnack('Día archivado en el historial');
+  } catch(e) { showSnack('Error al archivar: ' + e.message); }
 }
 
 async function deleteRegistrosFecha(fecha) {
