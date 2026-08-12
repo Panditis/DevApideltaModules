@@ -2178,7 +2178,7 @@ function renderHistorial(registros) {
               <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsables</th>
               <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Horario</th>
             </tr></thead>
-            <tbody>${cargas.map(c => {
+            <tbody>${cargas.map((c, ci) => {
               const resp = Array.isArray(c.responsables) && c.responsables.length
                 ? c.responsables.map(x => x.rol ? `${x.nombre} (${x.rol})` : x.nombre).join(', ')
                 : (c.empleado || '—');
@@ -2186,15 +2186,37 @@ function renderHistorial(registros) {
               const fechaC = c.fecha
                 ? new Date(c.fecha+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'})
                 : (c.fechaHora ? new Date(c.fechaHora).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—');
-              const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${c.observacion}</div>` : '';
+              const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${escEnv(c.observacion)}</div>` : '';
+              // Dropdown por producto: componentes que quedaron guardados en la carga —los graneles
+              // con sus kg, y el envase/tapa usados (sin cantidad: la carga no la registra).
+              const comps = (Array.isArray(c.graneles) ? c.graneles : [])
+                .filter(g => g && (g.nombreGranel || g.granelConsumido))
+                .map(g => ({ nom: g.nombreGranel || 'Granel', cant: `${fmtN(g.granelConsumido || 0)} kg` }));
+              if (c.envaseNombre) comps.push({ nom: c.envaseNombre, cant: '—' });
+              if (c.tapaNombre)   comps.push({ nom: c.tapaNombre,   cant: '—' });
+              const compId = `comp-h${idx}-${ci}`;
+              const filaComp = `<tr id="${compId}" style="display:none;background:#FAFAFA">
+                <td colspan="6" style="padding:8px 22px 12px">
+                  ${comps.length ? `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+                    ${comps.map(k => `<tr>
+                      <td style="padding:4px 0;color:var(--text)">${escEnv(k.nom)}</td>
+                      <td style="padding:4px 0;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:var(--green-dark);white-space:nowrap">${k.cant}</td>
+                    </tr>`).join('')}
+                  </table>` : '<div style="color:var(--text-muted)">Sin componentes registrados</div>'}
+                  ${c.observacion ? `<div style="margin-top:8px;font-size:12.5px;color:#7c3aed;font-style:italic">📝 ${escEnv(c.observacion)}</div>` : ''}
+                </td>
+              </tr>`;
               return `<tr style="border-bottom:1px solid #F0F0F0">
                 <td style="padding:7px 10px;color:var(--text-muted);white-space:nowrap">${fechaC}</td>
-                <td style="padding:7px 10px;font-weight:500">${escEnv(c.nombre||c.producto||'')}${obs}</td>
+                <td style="padding:7px 10px;font-weight:500">
+                  <button onclick="toggleDetalle('${compId}')" title="Ver componentes y observaciones" style="background:none;border:1px solid var(--border);border-radius:5px;padding:1px 6px;margin-right:6px;cursor:pointer;font-size:11px;color:var(--text-muted)">▾</button>
+                  ${escEnv(c.nombre||c.producto||'')}${obs}
+                </td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${c.presentacion||'—'}</td>
                 <td style="padding:7px 10px;text-align:center">${c.cantFraccionada??'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${resp}</td>
                 <td style="padding:7px 10px;text-align:center;color:var(--text-muted)">${hora}</td>
-              </tr>`;
+              </tr>${filaComp}`;
             }).join('')}</tbody>
           </table>` : ''}
           ${fuentes.length ? `<div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--border)">
@@ -2222,7 +2244,8 @@ function toggleDetalle(id) {
   const el = document.getElementById(id);
   if (!el) return;
   const visible = el.style.display !== 'none';
-  el.style.display = visible ? 'none' : 'block';
+  // Vacío en vez de 'block': así también sirve para las filas <tr> del desglose por producto.
+  el.style.display = visible ? 'none' : '';
 }
 
 async function deleteRegistroHistorial(id) {
