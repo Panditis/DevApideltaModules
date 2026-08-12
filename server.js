@@ -1768,36 +1768,18 @@ app.delete('/api/ordenes', (_req, res) => {
   });
 });
 
-function resumenDeOrdenes(ords) {
-  const total = ords.length, comp = ords.filter(o => o.estado === 'listo').length;
-  const enProc = ords.filter(o => o.estado === 'en_proceso').length, pend = ords.filter(o => o.estado === 'pendiente').length;
-  const totUnid = ords.reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
-  const compUnid = ords.filter(o => o.estado === 'listo').reduce((s, o) => s + (parseInt(o.cantidad) || 0), 0);
-  const secMap = {};
-  ords.forEach(o => { if (!secMap[o.seccion]) secMap[o.seccion] = { total: 0, completadas: 0, unidades: 0 }; secMap[o.seccion].total++; secMap[o.seccion].unidades += parseInt(o.cantidad) || 0; if (o.estado === 'listo') secMap[o.seccion].completadas++; });
-  return { total, completadas: comp, enProceso: enProc, pendientes: pend, pctCompletado: total ? Math.round((comp / total) * 100) : 0,
-           totalUnidades: totUnid, unidadesCompletadas: compUnid, porSeccion: Object.entries(secMap).map(([seccion, v]) => ({ seccion, ...v })) };
-}
-
 // Arma los snapshots de cierre (uno por día presente en las cargas) y los deja al frente de
 // registros.json, que es lo que lista el Historial. Lo usan los DOS caminos que cierran
 // producción —el botón "Cerrar día" y la conciliación— para que el resultado sea idéntico.
+// Guarda SÓLO los productos cargados: las órdenes no se archivan, viven en ordenes.json.
 // No limpia nada: de eso se encarga quien llama, que sabe qué corresponde drenar.
-function crearSnapshotsCierre(cargasACerrar, ordenes) {
-  // Mapa ordenId -> fecha de su carga, para ubicar cada orden en el snapshot de su día.
-  const ordenFecha = {};
-  cargasACerrar.forEach(c => { if (c.ordenId != null) ordenFecha[String(c.ordenId)] = c.fecha; });
+function crearSnapshotsCierre(cargasACerrar) {
   const ahora = new Date().toISOString();
-  // Fechas a archivar: las presentes en cargas; si no hay cargas pero sí órdenes, el día de hoy.
   const fechas = [...new Set(cargasACerrar.map(c => c.fecha))];
-  if (!fechas.length && ordenes.length) fechas.push(new Date().toISOString().slice(0, 10));
-
   const arr = leerRegistros();
   const creados = [];
   fechas.sort().forEach((fecha, i) => {
-    const cargas = cargasACerrar.filter(c => c.fecha === fecha);
-    const ords = ordenes.filter(o => ordenFecha[String(o.id)] === fecha);
-    const registro = { id: Date.now() + i, fecha, fechaHora: ahora, ordenes: ords, cargas, resumen: resumenDeOrdenes(ords) };
+    const registro = { id: Date.now() + i, fecha, fechaHora: ahora, cargas: cargasACerrar.filter(c => c.fecha === fecha) };
     arr.unshift(registro);
     creados.push(registro);
   });
@@ -1814,9 +1796,9 @@ app.post('/api/registros', (req, res)  => {
   const fecha = req.query.fecha;
   const esDelDia = c => fecha === 'sin-fecha' ? !c.fecha : c.fecha === fecha;
   const cargas = fecha ? todasCargas.filter(esDelDia) : todasCargas;
-  if (fecha && !cargas.length) return res.status(400).json({ error: 'No hay producción cargada para ese día' });
-  if (!ordenes.length && !cargas.length) return res.status(400).json({ error: 'No hay producción ni órdenes para registrar' });
-  const creados = crearSnapshotsCierre(cargas, ordenes);
+  // El historial guarda productos: sin cargas no hay nada que archivar.
+  if (!cargas.length) return res.status(400).json({ error: fecha ? 'No hay producción cargada para ese día' : 'No hay producción cargada para registrar' });
+  const creados = crearSnapshotsCierre(cargas);
   if (req.query.limpiar === '1') {
     // Quitar las órdenes completadas; las pendientes siguen en ordenes.json. Drenar las cargas archivadas.
     if (fecha) {
@@ -3613,7 +3595,7 @@ function archivarRegistros(ids, meta) {
   // Terminados a produccion_historial.json, que ninguna pantalla muestra: parecían borradas.
   const ordenes = leerOrdenes();
   const idsOrden = new Set(aMover.map(r => r && r.ordenId).filter(v => v != null).map(String));
-  crearSnapshotsCierre(aMover, ordenes.filter(o => idsOrden.has(String(o.id))));
+  crearSnapshotsCierre(aMover);
   if (idsOrden.size) {
     // Sólo las órdenes de ESTE cierre y sólo si están listas: las pendientes siguen vivas.
     guardarOrdenes(ordenes.filter(o => !(idsOrden.has(String(o.id)) && o.estado === 'listo')));
