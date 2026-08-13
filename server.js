@@ -1605,10 +1605,25 @@ app.get('/api/productos/buscar', apiRoute(async req => {
   const filtroRubro = excluidos.length
     ? `AND COALESCE(r.NombreRubro,'') NOT IN (${excluidos.map(n => `'${n.replace(/'/g, "''")}'`).join(',')})`
     : '';
-  return await query(`SELECT TOP 15 p.IdProducto AS codigo, p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro
-    FROM dbo.Productos p LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
-    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${filtroRubro}
-    ORDER BY p.NombreProducto`);
+  // excluirMarcas: igual que excluirRubros pero por marca (la carga manual de producción no
+  // trabaja lo de Administración: son artículos de pedidos/reventa, no producidos acá).
+  const marcasFuera = String(req.query.excluirMarcas || '').split(',').map(s => s.trim()).filter(Boolean);
+  const filtroMarca = marcasFuera.length
+    ? `AND COALESCE(m.NombreMarca,'') NOT IN (${marcasFuera.map(n => `'${n.replace(/'/g, "''")}'`).join(',')})`
+    : '';
+  // SAVONA son productos especiales: pasan por encima de cualquier exclusión de rubro o marca.
+  const esSavona = `p.NombreProducto LIKE 'SAVONA%'`;
+  const filtros = [filtroRubro, filtroMarca].filter(Boolean).map(f => f.replace(/^AND /, '')).join(' AND ');
+  const exclusiones = filtros ? `AND (${esSavona} OR (${filtros}))` : '';
+  // Los que empiezan con lo buscado van primero: con un tope chico ("SAVONA…") quedaban afuera
+  // del TOP a favor de nombres que sólo contienen el término en el medio.
+  const prefijo = `'${words[0]}%'`;
+  return await query(`SELECT TOP 40 p.IdProducto AS codigo, p.NombreProducto AS nombre, COALESCE(r.NombreRubro,'') AS rubro
+    FROM dbo.Productos p
+    LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
+    LEFT JOIN dbo.Marcas m ON m.IdMarca = p.IdMarca
+    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${exclusiones}
+    ORDER BY CASE WHEN ${esSavona} THEN 0 WHEN p.NombreProducto LIKE ${prefijo} THEN 1 ELSE 2 END, p.NombreProducto`);
 }));
 
 app.get('/api/formula/schema', apiRoute(async req => {

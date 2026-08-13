@@ -1886,7 +1886,10 @@ function closeAddModal(){document.getElementById('addModal').classList.remove('o
 function openSheetsModal(){document.getElementById('sheetsStatus').textContent='';document.getElementById('sheetsModal').classList.add('open');}
 function closeSheetsModal(){document.getElementById('sheetsModal').classList.remove('open');}
 
-let _pendingOrderData = null;
+// ¿Es una miel? Por el rubro del catálogo SIGA ("Apidelta Miel") o, si no viene rubro, por el
+// nombre del producto / la sección. Decide si hay que pedir el número de tambor.
+const esMiel = (...txt) => txt.some(s => /miel/i.test(String(s || '')));
+
 function saveOrder(){
   const cod  =document.getElementById('fCodigo').value.trim();
   const sec  =document.getElementById('fSeccion').value.trim();
@@ -1901,17 +1904,18 @@ function saveOrder(){
   const data={codigo:cod,seccion:sec,producto:prod,presentacion:pres,cantidad:cant,criticidad:cr?cr.value:'Media',estado:est,encargados:encs,encargado:encs.join(' / ')};
   if(eid){ editOrder(parseInt(eid),data); closeAddModal(); return; }
   // Si es MIEL → pedir tambor antes de guardar
-  if(sec.toUpperCase().includes('MIEL')){
-    _pendingOrderData = data;
+  if(esMiel(prod, sec)){
     closeAddModal();
-    openTamborModal(prod);
+    openTamborModal(prod, tambor => addOrder({...data, tambor}));
     return;
   }
   addOrder(data);
   closeAddModal();
 }
 
-function openTamborModal(nombreProducto){
+let _tamborCallback = null;
+function openTamborModal(nombreProducto, cb){
+  _tamborCallback = cb || null;
   document.getElementById('tamborProducto').textContent = nombreProducto;
   document.getElementById('fTambor').value = '';
   document.getElementById('tamborModal').classList.add('open');
@@ -1919,14 +1923,14 @@ function openTamborModal(nombreProducto){
 }
 function closeTamborModal(){
   document.getElementById('tamborModal').classList.remove('open');
-  _pendingOrderData = null;
+  _tamborCallback = null;
 }
 function confirmTambor(){
   const tambor = document.getElementById('fTambor').value.trim();
   if(!tambor){ showSnack('Ingresá el número de tambor'); document.getElementById('fTambor').focus(); return; }
-  if(!_pendingOrderData) return;
-  addOrder({..._pendingOrderData, tambor});
+  const cb = _tamborCallback;
   closeTamborModal();
+  if(cb) cb(tambor);
 }
 
 document.addEventListener('click',e=>{
@@ -2172,7 +2176,7 @@ function renderHistorial(registros) {
                 <td style="padding:7px 10px;color:var(--text-muted);white-space:nowrap">${fechaC}</td>
                 <td style="padding:7px 10px;font-weight:500">
                   <button onclick="toggleDetalle('${compId}')" title="Ver componentes y observaciones" style="background:none;border:1px solid var(--border);border-radius:5px;padding:1px 6px;margin-right:6px;cursor:pointer;font-size:11px;color:var(--text-muted)">▾</button>
-                  ${escEnv(c.nombre||c.producto||'')}${obs}
+                  ${escEnv(c.nombre||c.producto||'')}${c.tambor ? `<span class="tambor-chip">🛢️ Tambor ${escEnv(String(c.tambor))}</span>` : ''}${obs}
                 </td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${c.presentacion||'—'}</td>
                 <td style="padding:7px 10px;color:var(--text-muted)">${escEnv(c.seccion||'—')}</td>
@@ -2513,6 +2517,17 @@ function _pfRecalcGraneles(eidx) {
 async function openProdFinalModal(id, presIndex = null) {
   const o = ORDERS.find(o => o.id == id);
   if (!o) return;
+  // Miel sin tambor (se omitió en planificación o entró por carga manual): se pide acá antes de
+  // cargar la producción y queda guardado en la orden.
+  if (esMiel(o.producto, o.seccion) && !o.tambor) {
+    openTamborModal(o.producto, async tambor => {
+      o.tambor = tambor;
+      try { await api('PUT', '/api/ordenes/' + o.id, { tambor }); } catch(_) {}
+      renderAll();
+      openProdFinalModal(id, presIndex);
+    });
+    return;
+  }
   _pfOrden = o; _pfFactoresPorElem = [];
   const presArr = Array.isArray(o.presentaciones) ? o.presentaciones : [];
   const multi = presArr.length > 1;
@@ -2697,6 +2712,7 @@ async function guardarProduccionFinal() {
         granelConsumido: +el.graneles.reduce((s, g) => s + g.granelConsumido, 0).toFixed(2),
         observacion,
         cliente:         _pfOrden.cliente || '',
+        tambor:          _pfOrden.tambor || '',
         envase:          el.envase,
         envaseNombre:    el.envase ? envaseLabel(el.envase) : '',
         tapa:            el.tapa,
@@ -2842,6 +2858,7 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
         <td>
           <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">${nombre}</strong>
           ${r.presentacion ? `<span class="envase-chip${r.presentacion === 'Granel' ? ' granel' : ''}" style="margin-left:6px">${r.presentacion === 'Granel' ? '🛢️ Granel' : r.presentacion}</span>` : ''}
+          ${r.tambor ? `<span class="tambor-chip">🛢️ Tambor ${escEnv(String(r.tambor))}</span>` : ''}
           ${badgeSinConciliar}
           ${r.seccion ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px">${r.seccion}</div>` : ''}
           ${r.plu === 'ACT' && r.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${r.observacion}</div>` : ''}
@@ -2973,7 +2990,8 @@ async function buscarProductoManual() {
     // Los bultos y cajas no se producen: son reempaques de un terminado, así que no entran
     // en la carga manual (elegirlos daba un alta contra el producto equivocado).
     const resp = await fetch(`${SERVER_URL}/api/productos/buscar?q=${encodeURIComponent(q)}`
-      + `&excluirRubros=${encodeURIComponent('Almacen Bultos/Cajas,Bultos/Cajas')}`);
+      + `&excluirRubros=${encodeURIComponent('Almacen Bultos/Cajas,Bultos/Cajas,Insumos')}`
+      + `&excluirMarcas=${encodeURIComponent('Administracion')}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     _cmResultados = Array.isArray(data) ? data : [];
@@ -2997,10 +3015,15 @@ async function seleccionarProductoManual(idx) {
   const p = _cmResultados[idx];
   if (!p) return;
   cerrarCargaManualModal();
+  // Miel (por rubro del catálogo o por el nombre): el tambor va antes de la carga.
+  if (esMiel(p.rubro, p.nombre)) {
+    openTamborModal(p.nombre, tambor => openProdFinalModalManual(p.nombre, p.codigo, tambor));
+    return;
+  }
   await openProdFinalModalManual(p.nombre, p.codigo);
 }
-async function openProdFinalModalManual(nombre, codigo) {
-  _pfOrden = { id: null, producto: nombre, codigo: codigo, seccion: '', cantidad: 0, presentacion: '', cliente: '', observacion: '' };
+async function openProdFinalModalManual(nombre, codigo, tambor) {
+  _pfOrden = { id: null, producto: nombre, codigo: codigo, seccion: '', cantidad: 0, presentacion: '', cliente: '', observacion: '', tambor: tambor || '' };
   _pfFactoresPorElem = [];
   _pfElementos = [{ presentacion: '', cantidad: 0, presIndex: -1, cargado: false, plu: String(codigo || '') }];
   document.getElementById('pfTitle').textContent = cleanNombre(nombre);
