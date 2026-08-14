@@ -145,6 +145,10 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .fam-res{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
 .fam-res:last-child{border-bottom:0}
 .fam-res:hover{background:var(--green-light)}
+/* Ya cargado en el grupo: la búsqueda sigue en pantalla después de agregar, así que el tilde
+   evita volver a clickear el mismo código sin darse cuenta. */
+.fam-res-ya{color:var(--muted)}
+.fam-res-ya::after{content:' ✓';color:var(--green-mid);font-weight:700}
 /* Modal de códigos del grupo: <dialog> nativo, así el ESC y el fondo bloqueado salen
    gratis. Alto acotado y la lista de chips scrollea adentro. */
 .fam-modal{border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;
