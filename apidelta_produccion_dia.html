@@ -3700,7 +3700,9 @@ async function exportTerminadosCSV(fecha) {
   const rows = [];
   exportables.forEach(r => {
     const plu = r.plu || '';
-    const nombre = cleanNombre(r.nombre || r.producto || '');
+    // Nombre completo tal cual SiGA: cleanNombre() es sólo para las tarjetas (recorta marca,
+    // familia y gramaje) y en el CSV dejaba el producto sin identificar.
+    const nombre = String(r.nombre || r.producto || '').trim();
     const cant = _parseNum(r.cantFraccionada ?? r.cantidad);
     rows.push([1, esc(plu), esc(nombre), cant, 1, esc(plu)].join(SEP));
     const graneles = Array.isArray(r.graneles) && r.graneles.length
