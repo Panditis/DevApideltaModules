@@ -43,6 +43,9 @@ const famFmt = v => (famMetrica === 'facturacion' ? fmtMoney(v) : fmtCant(v));
 
 function pintarEditor(){
   const cont = $('famEditor');
+  const dlgAbierto = famModalIdx !== null ? $(`famDlg-${famModalIdx}`) : null;
+  const busqueda = dlgAbierto && { q: dlgAbierto.querySelector('.buscador').value,
+    res: $(`famRes-${famModalIdx}`).innerHTML };
   if (!famDef.length){
     cont.innerHTML = '<div class="empty">Todavía no hay grupos. Creá el primero arriba.</div>';
     return;
@@ -75,8 +78,21 @@ function pintarEditor(){
       </dialog>
     </div>`).join('');
   // Agregar o quitar un producto repinta el editor entero y con él se va el <dialog> viejo:
-  // el nuevo se reabre solo para que el usuario siga donde estaba.
-  if (famModalIdx !== null && famDef[famModalIdx]) $(`famDlg-${famModalIdx}`).showModal();
+  // el nuevo se reabre solo para que el usuario siga donde estaba, con la misma búsqueda y
+  // sus resultados en pantalla. Sin eso había que retipear la búsqueda por cada producto,
+  // y lo normal es cargar varios de una.
+  if (famModalIdx !== null && famDef[famModalIdx]){
+    const dlg = $(`famDlg-${famModalIdx}`);
+    const caja = dlg.querySelector('.buscador');
+    if (busqueda){
+      caja.value = busqueda.q;
+      $(`famRes-${famModalIdx}`).innerHTML = busqueda.res;
+    }
+    dlg.showModal();
+    // El <dialog> recién abierto enfoca el botón Cerrar; el cursor tiene que quedar en la
+    // búsqueda para poder corregirla y seguir agregando.
+    if (busqueda && busqueda.q) caja.focus();
+  }
 }
 
 // Los códigos de un grupo viven en un modal: un grupo con decenas de productos llenaba la
@@ -180,7 +196,10 @@ function famQuitarProducto(i, j){
   pintarEditor();
 }
 
-function famAgregarProducto(i, prod){
+// El resultado clickeado queda marcado en la lista: como la búsqueda sobrevive al repintado,
+// hace falta ver de un vistazo cuáles de esos códigos ya se cargaron.
+function famAgregarProducto(i, prod, el){
+  if (el) el.classList.add('fam-res-ya');
   if (famDef[i].productos.some(p => p.id === prod.id)) return;
   famDef = famDef.map((f, k) => (k === i ? { ...f, productos: [...f.productos, prod] } : f));
   pintarEditor();
@@ -201,7 +220,8 @@ async function famBuscar(i, q){
     if (seq !== famBusquedaSeq) return;
     caja.innerHTML = (prods || []).map(p => {
       const dato = escHtml(JSON.stringify({ id: String(p.codigo), nombre: p.nombre || '' }));
-      return `<div class="fam-res" onclick="famAgregarProducto(${i}, JSON.parse(this.dataset.prod))"
+      const ya = famDef[i].productos.some(q => q.id === String(p.codigo)) ? ' fam-res-ya' : '';
+      return `<div class="fam-res${ya}" onclick="famAgregarProducto(${i}, JSON.parse(this.dataset.prod), this)"
         data-prod="${dato}"><span class="mini">${escHtml(p.codigo)}</span> ${escHtml(p.nombre)}</div>`;
     }).join('') || '<div class="mini">Sin resultados.</div>';
   } catch(e){
