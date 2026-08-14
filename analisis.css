@@ -37,6 +37,14 @@ header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:
 .btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
 .btn:disabled{opacity:.6;cursor:default}
 .link-mini{font-size:12px;color:var(--green-mid);cursor:pointer}
+/* Acciones de cada grupo: eran links de 12px que se perdían al lado del nombre. Como
+   botones con borde se ven, y el rojo separa el destructivo de los otros dos. */
+.btn-mini{background:#fff;color:var(--green-dark);border:1px solid var(--green-mid);
+  padding:5px 12px;border-radius:var(--radius-sm);font-size:12px;font-weight:600;
+  cursor:pointer;font-family:inherit;line-height:1.4}
+.btn-mini:hover{background:var(--green-light)}
+.btn-mini.danger{color:#b3261e;border-color:#e5a9a3}
+.btn-mini.danger:hover{background:#fdeceb}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
 .kpi .lbl{font-size:12px;color:var(--muted)}
@@ -137,6 +145,29 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .fam-res{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
 .fam-res:last-child{border-bottom:0}
 .fam-res:hover{background:var(--green-light)}
+/* Modal de códigos del grupo: <dialog> nativo, así el ESC y el fondo bloqueado salen
+   gratis. Alto acotado y la lista de chips scrollea adentro. */
+.fam-modal{border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;
+  width:min(680px,92vw);max-height:80vh;overflow:auto;font-family:inherit}
+.fam-modal::backdrop{background:rgba(0,0,0,.35)}
+.fam-modal-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.fam-modal .chips{margin-top:10px}
+/* Los productos del grupo van en lista: con decenas de códigos, una fila por producto se
+   recorre y el código queda alineado en columna, cosa que los chips no daban. */
+.fam-lista{list-style:none;margin:12px 0 0;padding:0;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.fam-lista li{display:flex;align-items:center;gap:10px;padding:7px 10px;font-size:13px;
+  border-bottom:1px solid var(--border)}
+.fam-lista li:last-child{border-bottom:0}
+.fam-lista li:nth-child(odd){background:var(--bg,#fafaf8)}
+.fam-cod{font-variant-numeric:tabular-nums;color:var(--muted);min-width:72px}
+.fam-nom{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Variante angosta: la usan los diálogos que reemplazan a prompt()/confirm(). */
+.fam-modal-chico{width:min(420px,92vw)}
+.fam-modal-input{width:100%;padding:8px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);font-family:inherit;font-size:14px;margin-top:4px}
+.fam-modal-input:focus{outline:none;border-color:var(--green-mid)}
+.fam-modal-pie{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.btn.danger{background:#b3261e}
 .fam-det{border-bottom:1px solid var(--border);padding:8px 0}
 .fam-det summary{cursor:pointer;font-weight:600;color:var(--green-dark)}
 .fam-det table{margin-top:8px}

@@ -31,6 +31,8 @@ let famFiltro = '';
 // Familia que mira el gráfico de productos. Vacío = la primera de la lista.
 let famFamiliaDet = '';
 let famEditorListo = false;
+// Índice del grupo cuyo modal de productos está abierto (null = ninguno).
+let famModalIdx = null;
 
 const famColorSuc = idx => PALETA_SUC[idx % PALETA_SUC.length];
 const nombreSuc = id => (SUCURSALES.find(s => s.id === id) || {}).nombre || `Suc ${id}`;
@@ -50,19 +52,42 @@ function pintarEditor(){
       <div class="fam-item-head">
         <strong>${escHtml(f.nombre)}</strong>
         <span class="mini">${f.productos.length} producto${f.productos.length === 1 ? '' : 's'}</span>
-        <span class="link-mini" onclick="famRenombrar(${i})">renombrar</span>
-        <span class="link-mini" onclick="famBorrar(${i})">eliminar</span>
+        <button type="button" class="btn-mini" onclick="famVerProductos(${i})">Ver productos</button>
+        <button type="button" class="btn-mini" onclick="famRenombrar(${i})">Renombrar</button>
+        <button type="button" class="btn-mini danger" onclick="famBorrar(${i})">Eliminar</button>
       </div>
-      <div class="chips">${f.productos.map((p, j) => `
-        <span class="chip">${escHtml(p.nombre || p.id)} <b class="fam-x"
-          title="Quitar del grupo" onclick="famQuitarProducto(${i},${j})">×</b></span>`).join('')
-        || '<span class="mini">Sin productos asignados.</span>'}</div>
-      <div class="fam-buscador">
-        <input type="search" class="buscador" placeholder="Buscar producto para agregar..."
-          autocomplete="off" oninput="famBuscar(${i}, this.value)">
-        <div class="fam-resultados" id="famRes-${i}"></div>
-      </div>
+      <dialog class="fam-modal" id="famDlg-${i}" onclose="famCerrarModal()">
+        <div class="fam-modal-head">
+          <strong>${escHtml(f.nombre)}</strong>
+          <button type="button" class="btn-mini" onclick="this.closest('dialog').close()">Cerrar</button>
+        </div>
+        <div class="fam-buscador">
+          <input type="search" class="buscador" placeholder="Buscar producto para agregar..."
+            autocomplete="off" oninput="famBuscar(${i}, this.value)">
+          <div class="fam-resultados" id="famRes-${i}"></div>
+        </div>
+        ${f.productos.length ? `<ul class="fam-lista">${f.productos.map((p, j) => `
+          <li><span class="fam-cod">${escHtml(p.id)}</span>
+            <span class="fam-nom">${escHtml(p.nombre || '')}</span>
+            <b class="fam-x" title="Quitar del grupo"
+              onclick="famQuitarProducto(${i},${j})">×</b></li>`).join('')}</ul>`
+          : '<div class="mini">Sin productos asignados.</div>'}
+      </dialog>
     </div>`).join('');
+  // Agregar o quitar un producto repinta el editor entero y con él se va el <dialog> viejo:
+  // el nuevo se reabre solo para que el usuario siga donde estaba.
+  if (famModalIdx !== null && famDef[famModalIdx]) $(`famDlg-${famModalIdx}`).showModal();
+}
+
+// Los códigos de un grupo viven en un modal: un grupo con decenas de productos llenaba la
+// tarjeta de chips y empujaba todo el resto del editor hacia abajo.
+function famVerProductos(i){
+  famModalIdx = i;
+  $(`famDlg-${i}`).showModal();
+}
+
+function famCerrarModal(){
+  famModalIdx = null;
 }
 
 function famCrear(){
@@ -79,15 +104,73 @@ function famCrear(){
   famAviso('');
 }
 
-function famRenombrar(i){
-  const nombre = (prompt('Nuevo nombre del grupo:', famDef[i].nombre) || '').trim();
+// prompt() y confirm() del navegador rompían el estilo del módulo (y en algunos navegadores
+// se pueden silenciar). Un <dialog> nativo alcanza: se arma al vuelo, se destruye al cerrar
+// y devuelve una promesa. Con texto resuelve el string (null si se cancela); sin texto,
+// booleano. El ESC cierra con returnValue vacío, o sea cancelado.
+function famDialogo(titulo, valorInicial, okLabel, peligroso){
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'fam-modal fam-modal-chico';
+    const form = document.createElement('form');
+    form.method = 'dialog';
+
+    const head = document.createElement('div');
+    head.className = 'fam-modal-head';
+    const titulo_ = document.createElement('strong');
+    titulo_.textContent = titulo;
+    head.appendChild(titulo_);
+    form.appendChild(head);
+
+    let input = null;
+    if (valorInicial !== null){
+      input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'fam-modal-input';
+      input.value = valorInicial;
+      form.appendChild(input);
+    }
+
+    const pie = document.createElement('div');
+    pie.className = 'fam-modal-pie';
+    const cancelar = document.createElement('button');
+    cancelar.type = 'button';
+    cancelar.className = 'btn-mini';
+    cancelar.textContent = 'Cancelar';
+    cancelar.onclick = () => dlg.close('');
+    const aceptar = document.createElement('button');
+    aceptar.type = 'submit';
+    aceptar.value = 'ok';
+    aceptar.className = peligroso ? 'btn danger' : 'btn';
+    aceptar.textContent = okLabel;
+    pie.append(cancelar, aceptar);
+    form.appendChild(pie);
+
+    dlg.appendChild(form);
+    dlg.addEventListener('close', () => {
+      const acepto = dlg.returnValue === 'ok';
+      const texto = input ? input.value.trim() : '';
+      dlg.remove();
+      resolve(input ? (acepto ? texto : null) : acepto);
+    });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    if (input) input.select();
+  });
+}
+
+const famPedirTexto = (titulo, valor, okLabel) => famDialogo(titulo, valor, okLabel, false);
+const famConfirmar = (titulo, okLabel) => famDialogo(titulo, null, okLabel, true);
+
+async function famRenombrar(i){
+  const nombre = await famPedirTexto('Nuevo nombre del grupo', famDef[i].nombre, 'Renombrar');
   if (!nombre) return;
   famDef = famDef.map((f, k) => (k === i ? { ...f, nombre } : f));
   pintarEditor();
 }
 
-function famBorrar(i){
-  if (!confirm(`¿Eliminar el grupo "${famDef[i].nombre}"?`)) return;
+async function famBorrar(i){
+  if (!await famConfirmar(`¿Eliminar el grupo "${famDef[i].nombre}"?`, 'Eliminar')) return;
   famDef = famDef.filter((_f, k) => k !== i);
   pintarEditor();
 }
