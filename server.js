@@ -33,6 +33,7 @@ const analisisVentas = require('./analisis_ventas');
 const familiasManuales = require('./familias_manuales');
 const productividad = require('./productividad');
 const resumenesLegacy = require('./resumenes_legacy');
+const historialSala = require('./historial_sala');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
@@ -4076,6 +4077,18 @@ app.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fe
 // Resúmenes exportados por el sistema viejo de sala, previos a los registros en JSON.
 const RESUMENES_DIR = path.join(DATA_DIR, 'resumenes');
 // Sólo lectura: junta lo que ya existe (plan, órdenes y cargas) y delega el cálculo en
+// Familia de cada carga. Mandan las familias manuales (las arma el usuario por código en
+// el módulo de análisis); lo que no está en ninguna cae en la familia deducida del nombre,
+// mismo criterio que análisis de ventas: MIEL 500G y MIEL 1KG son una sola familia.
+function familiaDeCarga() {
+  const familiasPorPlu = new Map();
+  for (const f of familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []))) {
+    for (const p of f.productos || []) if (p && p.id) familiasPorPlu.set(String(p.id), f.nombre);
+  }
+  return c => familiasPorPlu.get(String(c && c.plu))
+    || analisisVentas.familiaNombre(c && c.nombre);
+}
+
 // productividad.js. Las cargas viven en tres lugares a la vez —el archivo vivo, el historial
 // de conciliadas y el snapshot de cierre del día—, así que se unen por id antes de medir.
 app.get('/api/productividad', apiRoute(async req => {
@@ -4111,15 +4124,7 @@ app.get('/api/productividad', apiRoute(async req => {
   // Tareas necesarias que no producen unidades (limpieza, preparación): van contadas aparte.
   const tareas = legacy.tareas.filter(t => t && enRango(t.fecha));
 
-  // Familia de cada carga. Mandan las familias manuales (las arma el usuario por código en
-  // el módulo de análisis); lo que no está en ninguna cae en la familia deducida del nombre,
-  // mismo criterio que análisis de ventas: MIEL 500G y MIEL 1KG son una sola familia.
-  const familiasPorPlu = new Map();
-  for (const f of familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []))) {
-    for (const p of f.productos || []) if (p && p.id) familiasPorPlu.set(String(p.id), f.nombre);
-  }
-  const familiaDe = c => familiasPorPlu.get(String(c && c.plu))
-    || analisisVentas.familiaNombre(c && c.nombre);
+  const familiaDe = familiaDeCarga();
 
   const ordenes = productividad.unirPorId(leerOrdenes(), snapshots.flatMap(s => (s && s.ordenes) || []));
   const { filas, sinPlan } = productividad.resumenOrdenes(planItems, cargasProd, ordenes);
@@ -4157,6 +4162,50 @@ app.get('/api/productividad', apiRoute(async req => {
     },
   };
 }));
+
+// Historial de sala: los resúmenes viejos enteros, sin el filtro de fechas del dashboard y sin
+// descartar las jornadas que también están en los JSON nuevos. Es la vista del archivo tal cual
+// quedó, con el dato que sólo él tiene: quién hizo envasado, etiquetado y empaquetado, y cuánto
+// tardó cada tarea. Endpoint aparte porque es pesado (156 xlsx) y se pide sólo al abrir la tab.
+// Precios de venta de lista para valorizar lo producido. Misma lista y sucursal que usa el
+// facturador, así el número coincide con lo que se cobra en el mostrador. Se cachean unos
+// minutos: son 8 meses de lotes contra el catálogo entero y los precios no cambian por hora.
+const PRECIOS_TTL_MS = 5 * 60 * 1000;
+let cachePrecios = { sello: 0, mapa: new Map() };
+
+async function preciosDeVenta() {
+  if (Date.now() - cachePrecios.sello < PRECIOS_TTL_MS) return cachePrecios.mapa;
+  const rows = await query(`
+    SELECT p.IdProducto, CAST(psp.PrecioVenta AS FLOAT) AS PrecioVenta
+    FROM Productos p
+    JOIN ProductosSucursalesPrecios psp
+      ON psp.IdProducto = p.IdProducto
+     AND psp.IdSucursal = 1
+     AND psp.IdListaPrecios = ${LISTA_PRECIOS_VENTA}
+    WHERE psp.PrecioVenta > 0
+  `);   // LISTA_PRECIOS_VENTA se declara más abajo: para cuando entra un request ya existe.
+  const mapa = new Map();
+  for (const r of rows) mapa.set(String(r.IdProducto).trim(), Number(r.PrecioVenta) || 0);
+  cachePrecios = { sello: Date.now(), mapa };
+  return mapa;
+}
+
+// `desde`/`hasta`, `plu` y `persona` acotan la medición: el tablero entero se recalcula sobre
+// ese subconjunto, no se esconden filas de un total ya sumado. Sin fechas se mide todo el
+// archivo; `rangoTotal` de la respuesta dice cuál es ese máximo.
+app.get('/api/productividad/historial', apiRoute(async req => {
+  const legacy = resumenesLegacy.leerCarpeta(RESUMENES_DIR);
+  // Sin base de datos el tablero sigue sirviendo: pierde la columna de plata, no el resto.
+  let precios = new Map();
+  try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
+  return historialSala.resumen(legacy, {
+    desde: req.query.desde ? safeDate(req.query.desde) : null,
+    hasta: req.query.hasta ? safeDate(req.query.hasta) : null,
+    plu: String(req.query.plu || '').trim(),
+    persona: String(req.query.persona || '').trim(),
+  }, precios);
+}));
+
 app.post('/api/plan/:fecha', (req, res) => {
   const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
   const prev = planes[fecha];
