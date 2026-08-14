@@ -5,17 +5,22 @@
 <link rel="icon" href="/favicon.png">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* ── Paleta ─────────────────────────────────────────────────────────────────
-   Minimalista a propósito: un solo acento (verde Apidelta) y el oro reservado
-   para lo que está a medias. El color se usa como dato, no como decoración. */
+/* ── Paleta Apidelta ─────────────────────────────────────────────────────────
+   La oficial del sistema, la misma de planificación y distribución: verde y
+   amarillo sobre superficies verdosas escalonadas. El fondo nunca es blanco —
+   el blanco queda para las tarjetas, así el panel se despega de la página. */
 :root{
-  --tinta:#14170F; --suave:#767C6C; --tenue:#A2A797;
-  --linea:#E7E9E1; --linea-fuerte:#D5D9CB;
-  --fondo:#FAFAF7; --panel:#FFFFFF;
-  --verde:#405936; --verde-hondo:#2E4027; --verde-tenue:#EEF3EA;
-  --oro:#C98A00; --oro-tenue:#FCF3DC; --rojo:#B3261E;
-  --radio:18px; --radio-sm:11px;
-  --sombra:0 1px 2px rgba(20,23,15,.04), 0 12px 28px -18px rgba(20,23,15,.28);
+  --verde:#405936; --verde-hondo:#2E4027; --verde-claro:#4F6E42;
+  --verde-cont:#CFE0C2; --verde-tenue:#E8F0E1;
+  --amarillo:#FFCC00;
+  --tinta:#1A1C18; --suave:#4B5145; --tenue:#79806F;
+  --fondo:#EEF2E9; --panel:#FFFFFF;
+  --sup1:#F4F7F0; --sup2:#EAF0E4; --sup3:#E2E9DA;
+  --linea:#DCE3D4; --linea-fuerte:#C3C9BC;
+  --oro:#B58C00; --rojo:#BA1A1A;
+  --radio:16px; --radio-sm:10px;
+  --sombra:0 1px 3px rgba(46,64,39,.10), 0 10px 24px -16px rgba(46,64,39,.30);
+  --sombra-alta:0 6px 18px rgba(46,64,39,.16);
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--fondo);color:var(--tinta);
@@ -24,162 +29,240 @@ body{margin:0;background:var(--fondo);color:var(--tinta);
 h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01em}
 .num{font-variant-numeric:tabular-nums}
 
-/* ── Barra superior ─────────────────────────────────────────────────────── */
-.topbar{position:sticky;top:0;z-index:20;background:rgba(250,250,247,.86);
-  backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--linea)}
-.topbar .in{max-width:1240px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:12px}
-.marca{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:19px;letter-spacing:.4px;
-  color:var(--verde-hondo)}
-.marca b{color:var(--oro)}
-.topbar a{margin-left:auto;color:var(--suave);text-decoration:none;font-size:13px;font-weight:500}
-.topbar a:hover{color:var(--verde)}
+/* ── Barra superior ─────────────────────────────────────────────────────────
+   Verde plena con el filo amarillo del sistema: es lo que ancla la página y
+   evita que todo arranque en blanco. */
+.topbar{position:sticky;top:0;z-index:20;
+  background:linear-gradient(180deg,#4A6540 0%,var(--verde) 100%);
+  box-shadow:0 1px 0 rgba(0,0,0,.10), 0 10px 28px -18px rgba(46,64,39,.55)}
+.topbar::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--amarillo) 28%,var(--amarillo) 72%,transparent);opacity:.85}
+.topbar .in{max-width:1240px;margin:0 auto;padding:11px 24px;display:flex;align-items:center;gap:12px}
+.topbar .logo{width:30px;height:30px;display:block;flex-shrink:0}
+.marca{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:20px;letter-spacing:.5px;
+  color:#fff}
+.marca b{color:var(--amarillo)}
+.topbar a{margin-left:auto;color:rgba(255,255,255,.82);text-decoration:none;font-size:13px;font-weight:600;
+  padding:6px 14px;border-radius:999px;transition:background .18s ease,color .18s ease}
+.topbar a:hover{background:rgba(255,255,255,.14);color:#fff}
 
-.wrap{max-width:1240px;margin:0 auto;padding:36px 24px 72px}
+.wrap{max-width:1240px;margin:0 auto;padding:32px 24px 72px}
 
 /* ── Encabezado de página ───────────────────────────────────────────────── */
-.hero{display:flex;flex-wrap:wrap;align-items:flex-end;gap:18px;margin-bottom:26px}
-.hero h1{font-size:44px;font-weight:800;line-height:1;color:var(--tinta)}
+.hero{display:flex;flex-wrap:wrap;align-items:flex-end;gap:18px;margin-bottom:24px;
+  padding-bottom:18px;border-bottom:2px solid var(--linea-fuerte);position:relative}
+/* El subrayado amarillo bajo el título: la firma de la marca en cada módulo. */
+.hero::after{content:'';position:absolute;left:0;bottom:-2px;width:120px;height:2px;background:var(--amarillo)}
+.hero h1{font-size:44px;font-weight:800;line-height:1;color:var(--verde-hondo)}
 .hero .sub{color:var(--suave);font-size:13.5px;padding-bottom:4px}
 
 /* ── Selector de sala ───────────────────────────────────────────────────────
    Segmentado: las dos salas siempre visibles, la elegida con la píldora clara
    encima del riel gris. Un <select> escondería la otra opción. */
-.segment{display:inline-flex;background:#EDEFE8;border-radius:999px;padding:4px;gap:2px}
+.segment{display:inline-flex;background:var(--sup3);border:1px solid var(--linea-fuerte);
+  border-radius:999px;padding:4px;gap:2px}
 .segment button{border:0;background:none;cursor:pointer;font-family:inherit;font-size:13.5px;
   font-weight:600;color:var(--suave);padding:9px 22px;border-radius:999px;
   transition:background .18s ease, color .18s ease}
-.segment button:hover{color:var(--verde-hondo)}
-.segment button[aria-selected="true"]{background:var(--panel);color:var(--verde-hondo);
-  box-shadow:0 1px 2px rgba(20,23,15,.10)}
+.segment button:hover{color:var(--verde-hondo);background:rgba(255,255,255,.55)}
+.segment button[aria-selected="true"]{background:var(--verde);color:#fff;
+  box-shadow:0 1px 2px rgba(20,23,15,.18)}
+.segment button[aria-selected="true"]:hover{background:var(--verde-claro)}
 
 /* ── Controles ──────────────────────────────────────────────────────────── */
-.barra{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:30px}
-.campo{display:flex;align-items:baseline;gap:7px}
-.campo label{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
-.campo input{font-family:inherit;font-size:13.5px;color:var(--tinta);background:none;
-  border:0;border-bottom:1.5px solid var(--linea-fuerte);padding:4px 2px}
-.campo input:focus{outline:none;border-bottom-color:var(--verde)}
+.barra{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:28px}
+.campo{display:flex;align-items:baseline;gap:7px;background:var(--panel);
+  border:1px solid var(--linea-fuerte);border-radius:999px;padding:6px 16px}
+.campo label{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:700}
+.campo input{font-family:inherit;font-size:13.5px;color:var(--tinta);background:none;border:0;padding:2px}
+.campo input:focus{outline:none;color:var(--verde-hondo)}
+.campo:focus-within{border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
 .btn{margin-left:auto;background:var(--verde);color:#fff;border:0;border-radius:999px;
-  padding:10px 24px;font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;
-  transition:background .18s ease}
-.btn:hover:not(:disabled){background:var(--verde-hondo)}
+  padding:10px 26px;font-family:inherit;font-weight:700;font-size:13.5px;cursor:pointer;
+  box-shadow:0 1px 2px rgba(46,64,39,.25);transition:background .18s ease,transform .12s ease}
+.btn:hover:not(:disabled){background:var(--verde-claro);transform:translateY(-1px)}
 .btn:disabled{opacity:.45;cursor:default}
-.nota{color:var(--tenue);font-size:12.5px}
+.nota{color:var(--suave);font-size:12.5px;margin:-14px 0 26px}
 
 /* ── KPIs ───────────────────────────────────────────────────────────────────
-   Sin cajas: el número grande ya es la jerarquía, la línea izquierda separa. */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-  gap:2px;background:var(--linea);border:1px solid var(--linea);border-radius:var(--radio);
-  overflow:hidden;margin-bottom:34px}
-.kpi{background:var(--panel);padding:18px 20px}
-.kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--tenue);font-weight:600}
+   Franja verde con los números en amarillo: es el bloque que da el tono de la
+   página y el primero que se lee. */
+/* Flex y no grid: cada KPI ocupa lo que necesita su contenido —"$ 368.934.716" pide más
+   ancho que "148"— y el sobrante se reparte entre todos en vez de cortar el número grande. */
+.kpis{display:flex;flex-wrap:wrap;gap:1px;background:rgba(255,255,255,.16);border-radius:var(--radio);
+  overflow:hidden;margin-bottom:26px;box-shadow:var(--sombra)}
+.kpi{background:var(--verde);padding:18px 20px;flex:1 1 auto;min-width:0}
+.kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--verde-cont);font-weight:700}
 .kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:34px;line-height:1.1;
-  margin-top:6px;font-variant-numeric:tabular-nums}
+  margin-top:6px;color:var(--amarillo);font-variant-numeric:tabular-nums}
 
 /* ── Secciones ──────────────────────────────────────────────────────────── */
-.sec{margin-bottom:38px}
-.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:6px}
-.sec-head h2{font-size:23px;font-weight:700}
+.sec{margin-bottom:36px}
+.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:8px}
+.sec-head h2{font-size:23px;font-weight:700;color:var(--verde-hondo);
+  padding-left:12px;border-left:4px solid var(--amarillo);line-height:1.1}
 .sec .desc{color:var(--suave);font-size:12.5px;max-width:78ch;margin:0 0 16px}
-.buscador{margin-left:auto;font-family:inherit;font-size:13px;padding:8px 14px;min-width:190px;
+.sec .desc code{background:var(--sup2);border:1px solid var(--linea);border-radius:5px;
+  padding:1px 5px;font-size:11.5px}
+.buscador{margin-left:auto;font-family:inherit;font-size:13px;padding:8px 16px;min-width:190px;
   border:1px solid var(--linea-fuerte);border-radius:999px;background:var(--panel);color:var(--tinta)}
-.buscador:focus{outline:none;border-color:var(--verde)}
+.buscador:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
 .buscador::placeholder{color:var(--tenue)}
 
 /* ── Día desplegable ────────────────────────────────────────────────────────
    <details> nativo: el navegador ya sabe abrir y cerrar, no hace falta JS. */
-.dia{background:var(--panel);border:1px solid var(--linea);border-radius:var(--radio);
+.dia{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
   margin-bottom:10px;overflow:hidden;transition:box-shadow .2s ease,border-color .2s ease}
 .dia:hover{box-shadow:var(--sombra)}
-.dia[open]{border-color:var(--linea-fuerte);box-shadow:var(--sombra)}
-.dia>summary{list-style:none;cursor:pointer;padding:16px 20px 0;position:relative}
+.dia[open]{border-color:var(--verde);box-shadow:var(--sombra-alta)}
+.dia>summary{list-style:none;cursor:pointer;padding:16px 20px 0;position:relative;
+  background:var(--sup1);transition:background .18s ease}
+.dia>summary:hover{background:var(--sup2)}
+.dia[open]>summary{background:var(--verde-tenue)}
 .dia>summary::-webkit-details-marker{display:none}
 .dia .linea1{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px}
-.dia .caret{color:var(--tenue);font-size:10px;transition:transform .2s ease;line-height:2}
+.dia .caret{color:var(--verde);font-size:10px;transition:transform .2s ease;line-height:2}
 .dia[open] .caret{transform:rotate(90deg)}
 .dia .fecha{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:21px;
-  color:var(--tinta);text-transform:capitalize}
+  color:var(--verde-hondo);text-transform:capitalize}
 .dia .met{font-size:12.5px;color:var(--suave);font-variant-numeric:tabular-nums}
-.dia .met b{color:var(--tinta);font-weight:600}
+.dia .met b{color:var(--tinta);font-weight:700}
 .dia .cifra{margin-left:auto;font-family:'Barlow Condensed',sans-serif;font-weight:800;
   font-size:21px;font-variant-numeric:tabular-nums}
 .dia .cifra.ok{color:var(--verde)} .dia .cifra.parcial{color:var(--oro)} .dia .cifra.nada{color:var(--tenue)}
 /* Riel de cumplimiento al pie del encabezado: el ancho es el dato, sin números extra. */
-.riel{height:3px;background:var(--linea);margin:14px -20px 0;position:relative}
+.riel{height:3px;background:var(--linea-fuerte);margin:14px -20px 0;position:relative}
 .riel i{position:absolute;left:0;top:0;bottom:0;background:var(--verde);transition:width .3s ease}
-.riel.parcial i{background:var(--oro)} .riel.nada i{background:var(--rojo);opacity:.4}
-.dia .cuerpo{padding:6px 20px 18px}
+.riel.parcial i{background:var(--amarillo)} .riel.nada i{background:var(--rojo);opacity:.4}
+.dia .cuerpo{padding:14px 20px 18px}
+/* Jornada dentro de una semana: mismo componente, un escalón más adentro y sin sombra propia
+   para que no compita con la tarjeta que la contiene. */
+.dia .dia.sub{border-radius:var(--radio-sm);box-shadow:none;margin-bottom:8px}
+.dia .dia.sub:hover{box-shadow:none;border-color:var(--verde)}
+.dia .dia.sub>summary{padding:11px 16px 0;background:var(--panel)}
+.dia .dia.sub[open]>summary{background:var(--sup1)}
+.dia .dia.sub .fecha{font-size:17px}
+.dia .dia.sub .cifra{font-size:18px}
+.dia .dia.sub .cuerpo{padding:10px 16px 14px}
+.dia .dia.sub .cuerpo table{border:1px solid var(--linea);border-radius:var(--radio-sm)}
 /* Alternador chico para día/semana, dentro del encabezado de sección. */
 .segment.chico{margin-left:auto}
 .segment.chico button{padding:6px 15px;font-size:12.5px}
 /* Los dos rankings del período, uno al lado del otro mientras entren. */
 .dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
 .dos-col h4{margin:2px 0 8px;font-family:'Barlow Condensed',sans-serif;font-size:15px;
-  font-weight:700;color:var(--suave);text-transform:uppercase;letter-spacing:.07em}
+  font-weight:700;color:var(--verde-hondo);text-transform:uppercase;letter-spacing:.07em}
 .dos-col .col{min-width:0;overflow-x:auto}
 .dos-col.tres{grid-template-columns:1fr 1fr 1fr}
 @media(max-width:1100px){.dos-col.tres{grid-template-columns:1fr 1fr}}
 @media(max-width:900px){.dos-col,.dos-col.tres{grid-template-columns:1fr}}
 .quienes{margin-top:14px;font-size:12.5px;color:var(--suave);display:flex;flex-wrap:wrap;
-  gap:8px 18px;align-items:center}
-.quienes .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
+  gap:8px 18px;align-items:center;padding-top:12px;border-top:1px solid var(--linea)}
+.quienes .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:700}
 
 /* ── Chips de personas ──────────────────────────────────────────────────── */
 .tag{display:inline-flex;align-items:center;gap:5px;padding:2px 10px 2px 8px;border-radius:999px;
-  background:var(--verde-tenue);color:var(--verde-hondo);font-size:11.5px;font-weight:600;margin-right:4px}
+  background:var(--verde-tenue);color:var(--verde-hondo);border:1px solid var(--verde-cont);
+  font-size:11.5px;font-weight:600;margin-right:4px}
 .tag::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--verde)}
-.tag.gris{background:#F1F2EE;color:var(--suave)}
+.tag.gris{background:var(--sup2);color:var(--suave);border-color:var(--linea)}
 .tag.gris::before{background:var(--tenue)}
 
 /* ── Tablas ─────────────────────────────────────────────────────────────────
-   Sin líneas verticales ni relleno pesado: los números se leen en columna. */
-.panel{background:var(--panel);border:1px solid var(--linea);border-radius:var(--radio);
-  padding:6px 4px;overflow-x:auto}
+   Cabecera verde y filas alternadas: la columna se sigue con la vista sin
+   necesidad de líneas verticales. */
+.panel{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
+  overflow:auto;box-shadow:var(--sombra)}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--linea);white-space:nowrap}
-thead th{position:sticky;top:0;background:var(--panel);z-index:1;
-  font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
+thead th{position:sticky;top:0;background:var(--verde);color:#fff;z-index:1;
+  font-family:'Barlow Condensed',sans-serif;font-size:12.5px;text-transform:uppercase;
+  letter-spacing:.07em;font-weight:600;border-bottom:2px solid var(--verde-hondo)}
+tbody tr:nth-child(even) td{background:var(--sup1)}
 tbody tr:last-child td{border-bottom:0}
-tbody tr:hover td{background:#FBFCFA}
+tbody tr:hover td{background:var(--verde-tenue)}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-td.clave{font-weight:600;white-space:normal;min-width:190px}
+td.clave{font-weight:600;white-space:normal;min-width:190px;color:var(--verde-hondo)}
 th.orden{cursor:pointer;user-select:none}
-th.orden:hover{color:var(--verde)}
-th.orden.activa{color:var(--verde)}
+th.orden:hover{background:var(--verde-claro)}
+th.orden.activa{color:var(--amarillo)}
 .mini-riel{display:flex;align-items:center;gap:8px;justify-content:flex-end;min-width:104px}
-.mini-riel .via{flex:1;height:3px;border-radius:2px;background:var(--linea);position:relative;min-width:40px}
+.mini-riel .via{flex:1;height:4px;border-radius:2px;background:var(--linea-fuerte);position:relative;min-width:40px}
 .mini-riel .via i{position:absolute;inset:0 auto 0 0;border-radius:2px;background:var(--verde)}
-.mini-riel.parcial .via i{background:var(--oro)}
+.mini-riel.parcial .via i{background:var(--amarillo)}
 .mini-riel.nada .via i{background:var(--rojo);opacity:.4}
 .mini-riel span{font-variant-numeric:tabular-nums;font-weight:600;font-size:12.5px}
 .apagado{color:var(--tenue)}
-/* Paginador en el pie de la tabla. */
-td.pag{text-align:center;color:var(--suave);font-size:12.5px;font-variant-numeric:tabular-nums;
-  border-bottom:0;padding:12px}
-td.pag button{background:none;border:1px solid var(--linea-fuerte);border-radius:999px;
-  width:28px;height:28px;margin:0 8px;cursor:pointer;color:var(--tinta);font-size:14px;line-height:1}
-td.pag button:hover:not(:disabled){background:var(--verde-tenue);border-color:var(--verde)}
+/* Paginador en el pie de la tabla. Gana al rayado par/impar y al hover de fila. */
+td.pag, tbody tr:nth-child(even) td.pag, tbody tr:hover td.pag{
+  text-align:center;color:var(--suave);font-size:12.5px;font-variant-numeric:tabular-nums;
+  border-bottom:0;padding:12px;background:var(--sup2)}
+td.pag button{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:999px;
+  width:28px;height:28px;margin:0 8px;cursor:pointer;color:var(--verde-hondo);font-size:14px;line-height:1}
+td.pag button:hover:not(:disabled){background:var(--verde);border-color:var(--verde);color:#fff}
 td.pag button:disabled{opacity:.35;cursor:default}
 /* Variación contra el período anterior: verde sube, rojo baja. */
-.delta{font-weight:600;font-variant-numeric:tabular-nums}
+.delta{font-weight:700;font-variant-numeric:tabular-nums}
 .delta.sube{color:var(--verde)} .delta.baja{color:var(--rojo)}
 .filtros-cmp{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
-.filtros-cmp select{font-family:inherit;font-size:13.5px;padding:8px 12px;border-radius:999px;
+.filtros-cmp select{font-family:inherit;font-size:13.5px;padding:8px 14px;border-radius:999px;
   border:1px solid var(--linea-fuerte);background:var(--panel);color:var(--tinta);max-width:340px}
-.filtros-cmp select:focus{outline:none;border-color:var(--verde)}
+.filtros-cmp select:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
 
-.vacio{padding:34px;text-align:center;color:var(--tenue);font-size:13.5px}
-.error{background:#FCEDEB;color:#8C1D18;border:1px solid #F0C8C4;padding:14px 16px;
-  border-radius:var(--radio-sm);margin-bottom:20px}
-.cargando{padding:34px;text-align:center;color:var(--tenue)}
+/* ── Buscador de producción (historial) ─────────────────────────────────────
+   Acota TODO el tablero a un producto o una persona, así que va arriba de los
+   KPIs y con el chip que recuerda sobre qué se está midiendo. */
+.busca{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:20px;
+  background:var(--sup2);border:1px solid var(--linea-fuerte);border-radius:999px;padding:10px 18px}
+.busca .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:700}
+.busca select{font-family:inherit;font-size:13.5px;padding:7px 14px;border-radius:999px;
+  border:1px solid var(--linea-fuerte);background:var(--panel);color:var(--tinta);max-width:360px}
+.busca select:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
+.btn-lim{background:none;border:1px solid var(--linea-fuerte);border-radius:999px;padding:7px 16px;
+  font-family:inherit;font-size:12.5px;font-weight:600;color:var(--suave);cursor:pointer}
+.btn-lim:hover{background:var(--panel);border-color:var(--verde);color:var(--verde-hondo)}
+.chip-filtro{margin-left:auto;background:var(--verde);color:#fff;border-radius:999px;
+  padding:5px 14px;font-size:12px;font-weight:700}
+
+/* ── Tarjetas de tarea de línea (historial) ─────────────────────────────────
+   Envasado, etiquetado y empaquetado lado a lado: la barra compara las horas
+   de cada tarea contra la más larga, que es la lectura que importa. */
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:20px}
+.rol{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
+  padding:16px 18px 16px 22px;box-shadow:var(--sombra);position:relative;overflow:hidden}
+.rol::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--amarillo)}
+.rol .nom{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:19px;
+  color:var(--verde-hondo);text-transform:uppercase;letter-spacing:.05em}
+.rol .horas{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:32px;line-height:1.1;
+  color:var(--verde);font-variant-numeric:tabular-nums}
+.rol .via{height:5px;border-radius:3px;background:var(--sup3);position:relative;margin:10px 0 12px}
+.rol .via i{position:absolute;inset:0 auto 0 0;border-radius:3px;
+  background:linear-gradient(90deg,var(--verde),var(--verde-claro))}
+.rol .pie{font-size:12px;color:var(--suave);display:flex;flex-wrap:wrap;gap:4px 14px;
+  font-variant-numeric:tabular-nums}
+.rol .pie b{color:var(--verde-hondo);font-weight:700}
+
+.vacio{padding:34px;text-align:center;color:var(--tenue);font-size:13.5px;background:var(--panel)}
+.error{background:#FDECEA;color:#8C1D18;border:1px solid #F0C8C4;border-left:4px solid var(--rojo);
+  padding:14px 16px;border-radius:var(--radio-sm);margin-bottom:20px}
+.cargando{padding:34px;text-align:center;color:var(--suave);background:var(--panel);
+  border:1px solid var(--linea-fuerte);border-radius:var(--radio);margin-bottom:20px}
 @media(max-width:720px){
   .hero h1{font-size:34px}
   .dia .cifra{margin-left:0}
   .buscador{margin-left:0;width:100%}
+  .btn{margin-left:0}
 }
 </style>
 </head><body>
 <div class="topbar"><div class="in">
+  <!-- Mismo hexágono que el resto de los módulos: la marca se reconoce antes que el título. -->
+  <svg class="logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
+    <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#2E4027"/>
+    <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
+    <text x="16" y="23" font-family="'Barlow Condensed',Arial,sans-serif" font-weight="800" font-size="18"
+          text-anchor="middle" fill="#FFCC00">A</text>
+  </svg>
   <span class="marca">API<b>DELTA</b></span>
   <a href="/">← Inicio</a>
 </div></div>
@@ -194,9 +277,11 @@ td.pag button:disabled{opacity:.35;cursor:default}
     <div class="segment" role="tablist" aria-label="Sala">
       <button id="sala-prod" role="tab" aria-selected="true" type="button">Producción</button>
       <button id="sala-frac" role="tab" aria-selected="false" type="button">Fraccionado</button>
+      <button id="sala-hist" role="tab" aria-selected="false" type="button">Historial de sala</button>
     </div>
-    <div class="campo"><label for="desde">Desde</label><input type="date" id="desde"></div>
-    <div class="campo"><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
+    <!-- El historial son archivos cerrados: se mira entero, así que ahí el rango se esconde. -->
+    <div class="campo" id="campo-desde"><label for="desde">Desde</label><input type="date" id="desde"></div>
+    <div class="campo" id="campo-hasta"><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
     <button class="btn" id="btnAplicar">Aplicar</button>
   </div>
 
@@ -369,6 +454,86 @@ td.pag button:disabled{opacity:.35;cursor:default}
       <div class="panel"><table id="t-tareas-frac"></table></div>
     </div>
   </section>
+
+  <!-- ── Historial de sala (resúmenes .xlsx) ──────────────────────────────── -->
+  <section id="pane-hist" hidden>
+    <div id="hist-cargando" class="cargando" hidden>Leyendo los resúmenes…</div>
+    <p class="desc">Los resúmenes de sala archivados en <code>data/resumenes</code>, enteros y sin
+      filtro de fechas: son archivos cerrados y se leen completos. Es la única fuente con el
+      dato que los registros nuevos no guardan — quién hizo cada tarea de la línea y en qué
+      horario.</p>
+
+    <!-- Buscar la producción de un producto o de una persona. No esconde filas: el tablero
+         entero se vuelve a medir sobre ese subconjunto. -->
+    <div class="busca">
+      <span class="rot">Medir</span>
+      <select id="hist-tipo">
+        <option value="">Toda la sala</option>
+        <option value="producto">Un producto</option>
+        <option value="persona">Una persona</option>
+      </select>
+      <select id="hist-item" hidden></select>
+      <button class="btn-lim" id="hist-limpiar" type="button" hidden>Limpiar</button>
+      <!-- Salida de emergencia: un rango que deja la pantalla vacía se deshace de un click. -->
+      <button class="btn-lim" id="hist-todo" type="button">Todo el historial</button>
+      <span class="chip-filtro" id="hist-chip" hidden></span>
+    </div>
+
+    <div class="kpis" id="kpis-hist"></div>
+    <p class="nota" id="nota-hist"></p>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Producción semanal</h2>
+        <div class="segment chico" id="per-hist" role="tablist" aria-label="Período">
+          <button type="button" data-u="semana" aria-selected="true">Por semana</button>
+          <button type="button" data-u="mes" aria-selected="false">Por mes</button>
+        </div>
+      </div>
+      <p class="desc">Cada semana valorizada a precio de venta de lista: es lo que permite
+        comparar una semana con otra sin que los kilos mientan (100 g de polen y 10 kg de mix
+        pesan distinto y valen distinto por kilo). Abrí la semana para ver día por día qué se
+        produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
+        pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
+      <div id="periodos-hist"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Comparar semanas</h2>
+        <div class="segment chico" id="cmp-per-hist" role="tablist" aria-label="Período">
+          <button type="button" data-u="semana" aria-selected="true">Semana</button>
+          <button type="button" data-u="mes" aria-selected="false">Mes</button>
+        </div>
+      </div>
+      <p class="desc">El total producido período contra período, en plata. La columna
+        <b>Δ</b> compara con el período anterior. <b>$/h de sala</b> es ese mismo total dividido
+        por las horas que la sala estuvo ocupada: dice si una semana floja lo fue por producir
+        menos o por trabajar menos horas.</p>
+      <div class="panel"><table id="t-cmp-hist"></table></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head"><h2>Tiempo por tarea de la línea</h2></div>
+      <p class="desc">Cada lote de los resúmenes trae las tres tareas con su encargado y su
+        horario propio: envasado, etiquetado y empaquetado. Acá se ve cuánto tiempo se llevó
+        cada una y cuánto tarda en promedio por lote. Sumadas dan más que las horas de sala
+        porque muchas veces pasan a la vez; un lote sin las dos horas cargadas suma al conteo
+        pero no al promedio.</p>
+      <div class="roles" id="roles-hist"></div>
+      <div class="panel"><table id="t-roles-hist"></table></div>
+    </div>
+
+    <div class="sec" id="sec-tareas-hist" hidden>
+      <div class="sec-head">
+        <h2>Tareas extras</h2>
+        <input class="buscador" id="q-tareas-hist" placeholder="Buscar persona o tarea">
+      </div>
+      <p class="desc">Trabajo de sala que no produce unidades (limpieza, preparación). Va
+        aparte: sumaría horas sin producción y hundiría el ritmo de todos.</p>
+      <div class="panel"><table id="t-tareas-hist"></table></div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -378,6 +543,9 @@ const escHtml = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const nf = (v, d = 0) => v == null || v === '' ? '—'
   : Number(v).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+// Plata: sin centavos, que sobre millones no dicen nada y ensucian la columna.
+const plata = v => v == null || v === '' || !Number(v) ? '—'
+  : '$ ' + Math.round(Number(v)).toLocaleString('es-AR');
 const iso = d => d.toISOString().slice(0, 10);
 // La fecha se arma por partes: new Date('2026-08-10') se interpreta en UTC y en Argentina
 // termina mostrando el día anterior.
@@ -391,6 +559,8 @@ const fechaLarga = f => {
 const nivel = pct => pct == null ? 'nada' : (pct >= 99.5 ? 'ok' : (pct > 0 ? 'parcial' : 'nada'));
 
 let datos = null;
+// Historial de sala: se pide una sola vez, al abrir su tab. Son 156 archivos y no cambian.
+let historial = null;
 
 // ── Tablas ordenables ─────────────────────────────────────────────────────────
 // Un solo motor para todas las tablas: columnas declarativas, orden por header clickeable y
@@ -531,6 +701,34 @@ const COLS_FRAC = [
   { k: 'desde', t: 'Desde' },
   { k: 'hasta', t: 'Hasta' },
 ];
+// ── Columnas del historial de sala ────────────────────────────────────────────
+const COLS_ROLES = [
+  { k: 'rol', t: 'Tarea', clave: true },
+  { k: 'cargas', t: 'Lotes', num: true },
+  { k: 'minPromedio', t: 'Min/lote', num: true, dec: 0 },
+  { k: 'horas', t: 'Horas', num: true, dec: 1 },
+  { k: 'personas', t: 'Personas', num: true },
+  { k: 'productos', t: 'Productos', num: true },
+  { k: 'dias', t: 'Jornadas', num: true },
+  { k: 'sinHorario', t: 'Sin hora', num: true },
+];
+// Detalle de un día: una fila por lote. Ya no tiene columna de fecha porque vive dentro del
+// desplegable de su jornada.
+const COLS_HIST = [
+  { k: 'producto', t: 'Producto', clave: true },
+  { k: 'plu', t: 'PLU' },
+  { k: 'unidades', t: 'Unid.', num: true },
+  { k: 'valor', t: 'Producido', num: true, html: f => plata(f.valor) },
+  { k: 'kilos', t: 'Kg', num: true, dec: 1 },
+  { k: 'Envasado', t: 'Envasado' },
+  { k: 'hsEnvasado', t: 'Horario env.' },
+  { k: 'Etiquetado', t: 'Etiquetado' },
+  { k: 'hsEtiquetado', t: 'Horario etiq.' },
+  { k: 'Empaquetado', t: 'Empaquetado' },
+  { k: 'hsEmpaquetado', t: 'Horario emp.' },
+  { k: 'minLote', t: 'Min lote', num: true, dec: 0 },
+  { k: 'lote', t: 'Lote' },
+];
 
 // ── Días de producción ────────────────────────────────────────────────────────
 // El filtro se aplica a las órdenes de cada día: un día sin órdenes que coincidan no se
@@ -604,8 +802,9 @@ const COLS_FAMILIA = [
   { k: 'dias', t: 'Días', num: true },
   { k: 'personas', t: 'Personas', num: true },
 ];
-// La semana es el período por defecto: el día suelto tiene demasiado ruido para comparar.
-const UNIDAD = { prod: 'semana', frac: 'semana' };
+// La semana es el período por defecto en todas: el día suelto tiene demasiado ruido para
+// comparar y el mes tapa las diferencias entre una semana buena y una mala.
+const UNIDAD = { prod: 'semana', frac: 'semana', hist: 'semana' };
 const dm = f => { const x = String(f || '').split('-'); return x.length === 3 ? `${x[2]}/${x[1]}` : f; };
 
 // "2026-W32" → "Semana 32 · 03/08 al 09/08"; "2026-08" → "agosto 2026"; un día, su fecha larga.
@@ -618,16 +817,23 @@ function tituloPeriodo(p) {
   return fechaLarga(p.clave);
 }
 
-const salaDatos = sala => sala === 'prod' ? datos.produccion : datos.fraccionado;
+// El historial se trae de su propio endpoint y recién cuando se abre su tab, así que puede no
+// estar todavía: sin el `|| {}` el primer repintado de la tab rompería.
+const salaDatos = sala =>
+  (sala === 'prod' ? datos && datos.produccion
+    : sala === 'frac' ? datos && datos.fraccionado : historial) || {};
+// Guard de los listeners: la tab de historial vive de otra variable que las otras dos.
+const hayDatos = sala => sala === 'hist' ? !!historial : !!datos;
 const periodosDe = (sala, unidad) => {
   const d = salaDatos(sala);
   return (unidad === 'mes' ? d.porMes : unidad === 'semana' ? d.porSemana : d.porDia) || [];
 };
 
 function pintarPeriodos(sala) {
-  const d = salaDatos(sala);
   const lista = periodosDe(sala, UNIDAD[sala]);
   const cont = $('periodos-' + sala);
+  // El historial no agrupa por familia: son dos columnas en vez de tres.
+  const conFamilias = sala !== 'hist';
   if (!lista.length) { cont.innerHTML = '<div class="panel"><div class="vacio">Sin producción en el rango elegido</div></div>'; return; }
   cont.innerHTML = lista.map((p, i) => `
     <details class="dia" ${i === 0 ? 'open' : ''}>
@@ -638,21 +844,24 @@ function pintarPeriodos(sala) {
           <span class="met"><b>${nf(p.productosDistintos)}</b> productos</span>
           <span class="met"><b>${nf(p.personasTotal)}</b> personas</span>
           <span class="met"><b>${nf(p.cargas)}</b> tandas</span>
+          ${p.horasSala == null ? '' : `<span class="met"><b>${nf(p.horasSala, 1)}</b> h de sala</span>`}
           <span class="met"><b>${nf(p.horas, 1)}</b> h-persona</span>
           ${p.tareas ? `<span class="met"><b>${nf(p.tareas)}</b> tareas extra (${nf(p.horasTareas, 1)} h)</span>` : ''}
           <span class="cifra ok">${nf(p.kilos, 0)} kg</span>
         </div>
       </summary>
       <div class="cuerpo">
-        <div class="dos-col tres">
-          <div class="col"><h4>Familias</h4><table data-rank="fam|${escHtml(p.clave)}"></table></div>
+        <div class="dos-col ${conFamilias ? 'tres' : ''}">
+          ${conFamilias ? `<div class="col"><h4>Familias</h4><table data-rank="fam|${escHtml(p.clave)}"></table></div>` : ''}
           <div class="col"><h4>Productos producidos</h4><table data-rank="prod|${escHtml(p.clave)}"></table></div>
           <div class="col"><h4>Personas</h4><table data-rank="pers|${escHtml(p.clave)}"></table></div>
         </div>
       </div>
     </details>`).join('');
   lista.forEach(p => {
-    pintarTabla(cont.querySelector(`table[data-rank="fam|${p.clave}"]`), COLS_RANK_FAM, p.familias || []);
+    if (conFamilias) {
+      pintarTabla(cont.querySelector(`table[data-rank="fam|${p.clave}"]`), COLS_RANK_FAM, p.familias || []);
+    }
     pintarTabla(cont.querySelector(`table[data-rank="prod|${p.clave}"]`), COLS_RANK_PROD, p.productos);
     pintarTabla(cont.querySelector(`table[data-rank="pers|${p.clave}"]`), COLS_RANK_PERS, p.personas);
   });
@@ -662,7 +871,10 @@ function pintarPeriodos(sala) {
 // Los rankings por período ya vienen del servidor, así que la serie de un producto, una
 // familia o una persona se arma buscándolo en cada período: no hace falta pedir nada más.
 const CMP = { prod: { tipo: 'producto', unidad: 'semana', item: '' },
-              frac: { tipo: 'producto', unidad: 'semana', item: '' } };
+              frac: { tipo: 'producto', unidad: 'semana', item: '' },
+              // El historial compara plata período contra período: sólo usa `unidad`, y arranca
+              // en semana igual que el botón marcado en su segmentado.
+              hist: { unidad: 'semana' } };
 const LISTA_DE = { producto: p => p.productos || [], familia: p => p.familias || [], persona: p => p.personas || [] };
 const CLAVE_DE = { producto: x => x.plu, familia: x => x.familia, persona: x => x.persona };
 const ROTULO_DE = { producto: x => `${x.producto} (${x.plu})`, familia: x => x.familia, persona: x => x.persona };
@@ -746,24 +958,35 @@ function elegirEnSegmento(cont, boton) {
   // Alternador día/semana/mes de los resúmenes: repinta sólo su sala.
   $('per-' + sala).querySelectorAll('button').forEach(b => b.onclick = () => {
     UNIDAD[sala] = elegirEnSegmento($('per-' + sala), b);
-    if (datos) pintarPeriodos(sala);
+    if (hayDatos(sala)) pintarPeriodos(sala);
   });
   // Mismo alternador para el comparador, que es independiente del de arriba.
   $('cmp-per-' + sala).querySelectorAll('button').forEach(b => b.onclick = () => {
     CMP[sala].unidad = elegirEnSegmento($('cmp-per-' + sala), b);
-    if (datos) pintarCmp(sala);
+    if (hayDatos(sala)) pintarCmp(sala);
   });
   $('cmp-tipo-' + sala).onchange = e => {
     CMP[sala].tipo = e.target.value;
     CMP[sala].item = '';   // otro tipo, otras opciones: arranca en la primera
-    if (datos) pintarCmp(sala);
+    if (hayDatos(sala)) pintarCmp(sala);
   };
   $('cmp-item-' + sala).onchange = e => {
     CMP[sala].item = e.target.value;
-    if (datos) pintarCmp(sala);
+    if (hayDatos(sala)) pintarCmp(sala);
   };
-  $('q-fam-' + sala).oninput = () => datos && pintarTabla(
+  $('q-fam-' + sala).oninput = () => hayDatos(sala) && pintarTabla(
     $('t-fam-' + sala), COLS_FAMILIA, salaDatos(sala).familias || [], $('q-fam-' + sala).value);
+});
+
+// El historial tiene sus propios alternadores: su semanal abre el detalle de cada día y su
+// comparador mide plata, no productos.
+$('per-hist').querySelectorAll('button').forEach(b => b.onclick = () => {
+  UNIDAD.hist = elegirEnSegmento($('per-hist'), b);
+  if (historial) pintarSemanas();
+});
+$('cmp-per-hist').querySelectorAll('button').forEach(b => b.onclick = () => {
+  CMP.hist.unidad = elegirEnSegmento($('cmp-per-hist'), b);
+  if (historial) pintarCmpValor();
 });
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -803,6 +1026,234 @@ function pintar() {
   $('nota').textContent = `${(p.dias || []).length} días con órdenes · ${p.totales.cargas} cargas de producción · ${f.totales.cargas} tandas de fraccionado`;
 }
 
+// ── Historial de sala ─────────────────────────────────────────────────────────
+// Tarjeta por tarea de la línea. La barra compara las horas de cada tarea contra la más larga:
+// es la lectura de un vistazo (envasar se lleva el doble que empaquetar).
+function pintarRoles() {
+  const lista = historial.roles || [];
+  const tope = Math.max(1, ...lista.map(r => r.horas || 0));
+  $('roles-hist').innerHTML = lista.map(r => `
+    <div class="rol">
+      <div class="nom">${escHtml(r.rol)}</div>
+      <div class="horas">${nf(r.horas, 0)} h</div>
+      <div class="via"><i style="width:${Math.round((r.horas || 0) / tope * 100)}%"></i></div>
+      <div class="pie">
+        <span><b>${nf(r.minPromedio, 0)}</b> min/lote</span>
+        <span><b>${nf(r.cargas)}</b> lotes</span>
+        <span><b>${nf(r.personas)}</b> personas</span>
+      </div>
+    </div>`).join('') || '<div class="panel"><div class="vacio">Sin tareas registradas</div></div>';
+  pintarTabla($('t-roles-hist'), COLS_ROLES, lista);
+}
+
+// ── Producción semanal ────────────────────────────────────────────────────────
+// Cada período abre en sus jornadas y cada jornada, en sus lotes: el mismo detalle que antes
+// vivía en una tabla aparte, pero al lado del total del que forma parte.
+function pintarSemanas() {
+  const lista = periodosDe('hist', UNIDAD.hist);
+  const cont = $('periodos-hist');
+  if (!lista.length) {
+    cont.innerHTML = '<div class="panel"><div class="vacio">Sin producción en el rango elegido</div></div>';
+    return;
+  }
+  const horasDia = historial.horasPorDia || {};
+  // Los lotes se agrupan una sola vez por fecha y de ahí salen todos los períodos.
+  const porFecha = new Map();
+  for (const r of historial.registros || []) {
+    if (!porFecha.has(r.fecha)) porFecha.set(r.fecha, []);
+    porFecha.get(r.fecha).push(r);
+  }
+  const diasDe = p => [...porFecha.keys()].filter(f => f >= p.desde && f <= p.hasta).sort().reverse();
+
+  cont.innerHTML = lista.map((p, i) => `
+    <details class="dia" ${i === 0 ? 'open' : ''}>
+      <summary>
+        <div class="linea1">
+          <span class="caret">▶</span>
+          <span class="fecha">${escHtml(tituloPeriodo(p))}</span>
+          <span class="met"><b>${nf(p.cargas)}</b> lotes</span>
+          <span class="met"><b>${nf(p.productosDistintos)}</b> productos</span>
+          <span class="met"><b>${nf(p.personasTotal)}</b> personas</span>
+          <span class="met"><b>${nf(p.horasSala, 1)}</b> h de sala</span>
+          ${p.sinPrecio ? `<span class="met apagado">${nf(p.sinPrecio)} sin precio</span>` : ''}
+          <span class="cifra ok">${plata(p.valor)}</span>
+        </div>
+      </summary>
+      <div class="cuerpo">
+        ${diasDe(p).map(f => {
+          const lotes = porFecha.get(f) || [];
+          const valor = lotes.reduce((s, r) => s + (r.valor || 0), 0);
+          return `
+        <details class="dia sub">
+          <summary>
+            <div class="linea1">
+              <span class="caret">▶</span>
+              <span class="fecha">${escHtml(fechaLarga(f))}</span>
+              <span class="met"><b>${nf(lotes.length)}</b> lotes</span>
+              ${horasDia[f] == null ? '' : `<span class="met"><b>${nf(horasDia[f], 1)}</b> h de sala</span>`}
+              <span class="cifra ok">${plata(valor)}</span>
+            </div>
+          </summary>
+          <div class="cuerpo"><table data-lotes="${escHtml(f)}"></table></div>
+        </details>`;
+        }).join('')}
+      </div>
+    </details>`).join('');
+
+  // Las tablas se pintan después de insertar el markup: cada una guarda su propio orden.
+  lista.forEach(p => diasDe(p).forEach(f => {
+    const t = cont.querySelector(`table[data-lotes="${f}"]`);
+    if (t) pintarTabla(t, COLS_HIST, porFecha.get(f) || []);
+  }));
+}
+
+// ── Comparar semanas por lo producido en plata ────────────────────────────────
+// No compara un producto contra sí mismo como el de las otras salas: compara el total de un
+// período contra el anterior, que es la lectura de "esta semana hicimos 700k contra 1M".
+const COLS_CMP_VALOR = [
+  { k: 'titulo', t: 'Período', clave: true },
+  { k: 'valor', t: 'Producido', num: true, html: f => plata(f.valor) },
+  { k: 'delta', t: 'Δ', num: true, v: f => f.deltaVal, html: f => deltaHtml(f.valor, f.previo) },
+  { k: 'cargas', t: 'Lotes', num: true },
+  { k: 'productosDistintos', t: 'Productos', num: true },
+  { k: 'horasSala', t: 'H de sala', num: true, dec: 1 },
+  { k: 'valorPorHora', t: '$/h de sala', num: true, html: f => plata(f.valorPorHora) },
+  { k: 'personasTotal', t: 'Personas', num: true },
+  { k: 'sinPrecio', t: 'Sin precio', num: true },
+];
+
+function pintarCmpValor() {
+  // Los períodos vienen del más nuevo al más viejo; para comparar con "el anterior" se recorre
+  // al revés y después se da vuelta la serie.
+  const periodos = periodosDe('hist', CMP.hist.unidad).slice().reverse();
+  let previo = null;
+  const serie = periodos.map(p => {
+    const fila = { ...p, titulo: tituloPeriodo(p), previo,
+                   deltaVal: previo ? ((p.valor - previo) / previo) * 100 : null };
+    previo = p.valor;
+    return fila;
+  });
+  pintarTabla($('t-cmp-hist'), COLS_CMP_VALOR, serie.reverse());
+}
+
+function pintarHistorial() {
+  if (!historial) return;
+  const c = historial.cobertura, t = historial.totales;
+  $('kpis-hist').innerHTML = [
+    kpi('Jornadas', nf(c.jornadas)),
+    kpi('Lotes', nf(c.cargas)),
+    kpi('Producido', plata(t.valor)),
+    kpi('Unidades', nf(t.unidades)),
+    kpi('Horas de sala', nf(t.horasSala, 0)),
+    kpi('$ por hora', plata(t.horasSala > 0 ? t.valor / t.horasSala : null)),
+  ].join('');
+  // Cuánto del historial se puede medir: un promedio no dice nada sin saber sobre cuántos
+  // lotes sale ni cuántos quedaron sin horario cargado.
+  const total = historial.rangoTotal || {};
+  // Si el rango elegido deja archivo afuera, se dice: si no, un total chico parece un dato
+  // faltante cuando en realidad es el filtro de fechas haciendo su trabajo.
+  const recortado = (total.desde && c.desde && c.desde > total.desde)
+    || (total.hasta && c.hasta && c.hasta < total.hasta);
+  $('nota-hist').textContent = (c.jornadas
+    ? `${nf(c.jornadas)} jornadas · del ${fechaLarga(c.desde)} al ${fechaLarga(c.hasta)} · `
+      + `${nf(c.medibles)} de ${nf(c.cargas)} lotes con horario medible`
+      + (c.sinHorario ? ` · ${nf(c.sinHorario)} sin horario` : '')
+      + (c.tareas ? ` · ${nf(c.tareas)} tareas sin producto` : '')
+      + ` · ${nf(t.personas)} personas`
+      // Sin precio de lista no hay plata: se avisa para que el total no parezca completo.
+      + (t.sinPrecio ? ` · ${nf(t.sinPrecio)} lotes sin precio de lista, fuera del total` : '')
+    : 'Sin jornadas en el rango elegido')
+    + (recortado ? ` — el archivo completo va del ${fechaLarga(total.desde)} al ${fechaLarga(total.hasta)}` : '');
+  pintarRoles();
+  pintarSemanas();
+  pintarCmpValor();
+  const tareas = historial.tareas || [];
+  $('sec-tareas-hist').hidden = !tareas.length;
+  if (tareas.length) pintarTabla($('t-tareas-hist'), COLS_TAREAS, tareas, $('q-tareas-hist').value);
+}
+
+// ── Buscar por producto o por persona ─────────────────────────────────────────
+// El filtro lo resuelve el servidor: acota las cargas y vuelve a medir todo. Filtrarlo acá
+// obligaría a rehacer en el navegador las mismas sumas que ya sabe hacer historial_sala.js.
+const FILTRO = { tipo: '', valor: '' };
+
+// Las opciones salen del historial completo y se guardan aparte: si se tomaran de la respuesta
+// filtrada, elegir una persona dejaría un solo producto en la lista y no se podría volver.
+let opcionesHist = null;
+
+function pintarBusqueda() {
+  const sel = $('hist-item');
+  if (!FILTRO.tipo || !opcionesHist) {
+    sel.hidden = true;
+    $('hist-limpiar').hidden = true;
+    $('hist-chip').hidden = true;
+    return;
+  }
+  const lista = FILTRO.tipo === 'producto'
+    ? opcionesHist.productos.map(p => [p.plu, `${p.nombre} (${p.plu})`])
+    : opcionesHist.personas.map(n => [n, n]);
+  sel.innerHTML = lista.map(([v, rot]) =>
+    `<option value="${escHtml(v)}" ${v === FILTRO.valor ? 'selected' : ''}>${escHtml(rot)}</option>`).join('');
+  sel.hidden = false;
+  $('hist-limpiar').hidden = false;
+  const rot = (lista.find(l => l[0] === FILTRO.valor) || [])[1];
+  $('hist-chip').textContent = rot ? `Midiendo: ${rot}` : '';
+  $('hist-chip').hidden = !rot;
+}
+
+// Se pide de nuevo con cada filtro. El servidor cachea los 156 xlsx, así que lo único que se
+// rehace es la medición.
+async function cargarHistorial(forzar) {
+  if (historial && !forzar) return;
+  $('hist-cargando').hidden = false;
+  try {
+    // Las mismas fechas que el resto del módulo: lo que se ve abajo es el período de arriba.
+    const qs = new URLSearchParams({ desde: $('desde').value, hasta: $('hasta').value });
+    if (FILTRO.tipo === 'producto' && FILTRO.valor) qs.set('plu', FILTRO.valor);
+    if (FILTRO.tipo === 'persona' && FILTRO.valor) qs.set('persona', FILTRO.valor);
+    const r = await fetch('/api/productividad/historial?' + qs);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    historial = await r.json();
+    // La primera respuesta trae el catálogo completo; las filtradas también, pero se conserva
+    // la primera por si alguna vez dejara de venir.
+    opcionesHist = historial.opciones || opcionesHist;
+    pintarBusqueda();
+    pintarHistorial();
+  } catch (e) {
+    $('error').textContent = 'No se pudo leer el historial de sala: ' + e.message;
+    $('error').hidden = false;
+  } finally {
+    $('hist-cargando').hidden = true;
+  }
+}
+
+$('hist-tipo').onchange = e => {
+  FILTRO.tipo = e.target.value;
+  // Al cambiar de tipo arranca en la primera opción; sin tipo, se mide toda la sala.
+  const lista = FILTRO.tipo === 'producto' ? (opcionesHist && opcionesHist.productos.map(p => p.plu))
+    : FILTRO.tipo === 'persona' ? (opcionesHist && opcionesHist.personas) : [];
+  FILTRO.valor = (lista && lista[0]) || '';
+  pintarBusqueda();
+  cargarHistorial(true);
+};
+$('hist-item').onchange = e => { FILTRO.valor = e.target.value; cargarHistorial(true); };
+$('hist-limpiar').onclick = () => {
+  FILTRO.tipo = ''; FILTRO.valor = '';
+  $('hist-tipo').value = '';
+  pintarBusqueda();
+  cargarHistorial(true);
+};
+// Estira el rango de fechas hasta cubrir todo el archivo. Recarga las tres salas porque el
+// rango es compartido: dejar las otras dos con el rango viejo sería peor que el problema.
+$('hist-todo').onclick = () => {
+  const total = (historial && historial.rangoTotal) || {};
+  if (!total.desde) return;
+  $('desde').value = total.desde;
+  $('hasta').value = total.hasta;
+  cargar();
+  cargarHistorial(true);
+};
+
 async function cargar() {
   const qs = new URLSearchParams({ desde: $('desde').value, hasta: $('hasta').value });
   $('error').hidden = true;
@@ -822,31 +1273,41 @@ async function cargar() {
   }
 }
 
+const SALAS = ['prod', 'frac', 'hist'];
 function verSala(cual) {
-  $('sala-prod').setAttribute('aria-selected', String(cual === 'prod'));
-  $('sala-frac').setAttribute('aria-selected', String(cual === 'frac'));
-  $('pane-prod').hidden = cual !== 'prod';
-  $('pane-frac').hidden = cual !== 'frac';
+  if (!SALAS.includes(cual)) cual = 'prod';
+  SALAS.forEach(s => {
+    $('sala-' + s).setAttribute('aria-selected', String(s === cual));
+    $('pane-' + s).hidden = s !== cual;
+  });
+  // El rango de fechas vale para las tres salas: lo que se ve abajo tiene que ser el período
+  // elegido arriba. El historial además avisa cuánto archivo hay fuera de ese rango.
+  if (cual === 'hist') cargarHistorial();
   // La sala elegida se recuerda: quien mira fraccionado no quiere reelegirla cada vez.
   try { localStorage.setItem('apidelta-sala-productividad', cual); } catch (e) { /* sin storage, default */ }
 }
 
-$('sala-prod').onclick = () => verSala('prod');
-$('sala-frac').onclick = () => verSala('frac');
-$('btnAplicar').onclick = cargar;
+SALAS.forEach(s => { $('sala-' + s).onclick = () => verSala(s); });
+// El rango vale para las tres salas, así que Aplicar recarga las dos fuentes. El historial
+// sólo si ya se abrió alguna vez: leer 155 xlsx para una tab que nadie miró no tiene sentido.
+$('btnAplicar').onclick = () => { cargar(); if (historial) cargarHistorial(true); };
 // Los buscadores filtran sobre lo ya traído: no vuelven a pegarle al servidor.
 $('q-dia').oninput  = () => datos && pintarDias($('q-dia').value);
 $('q-prod').oninput = () => datos && pintarTabla($('t-prodfrac'), COLS_PRODFRAC, datos.fraccionado.productos || [], $('q-prod').value);
 $('q-pers').oninput = () => datos && pintarTabla($('t-pers-frac'), COLS_PERSONAS, datos.fraccionado.personas, $('q-pers').value);
 $('q-frac').oninput = () => datos && pintarTabla($('t-frac'), COLS_FRAC, datos.fraccionado.registros, $('q-frac').value);
+$('q-tareas-hist').oninput = () => historial && pintarTabla($('t-tareas-hist'), COLS_TAREAS, historial.tareas || [], $('q-tareas-hist').value);
+
+// Rango por defecto: últimos 30 días, que es lo que se mira para comparar semanas. Va ANTES de
+// elegir la sala: verSala() puede disparar la carga del historial, y con los campos de fecha
+// todavía vacíos ese pedido salía sin filtro y traía los ocho meses enteros.
+const hoy = new Date();
+$('hasta').value = iso(hoy);
+$('desde').value = iso(new Date(hoy.getTime() - 30 * 86400000));
 
 let salaInicial = 'prod';
 try { salaInicial = localStorage.getItem('apidelta-sala-productividad') || 'prod'; } catch (e) { /* default */ }
 verSala(salaInicial);
-// Rango por defecto: últimos 30 días, que es lo que se mira para comparar semanas.
-const hoy = new Date();
-$('hasta').value = iso(hoy);
-$('desde').value = iso(new Date(hoy.getTime() - 30 * 86400000));
 cargar();
 </script>
 </body></html>
