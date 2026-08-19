@@ -349,6 +349,44 @@ function cobertura(cargas, tareas) {
   };
 }
 
+// ── Referencia ────────────────────────────────────────────────────────────────
+// Los promedios del archivo ENTERO, congelados en una foto que se guarda aparte. Los gráficos
+// comparan contra esto y no contra el rango que se está mirando: una semana no se juzga contra
+// las otras tres que quedaron en pantalla sino contra lo que la sala viene haciendo siempre, y
+// mover el filtro de fechas ya no mueve la vara.
+//
+// No se recalcula sola con cada carga nueva: si lo hiciera, la referencia se correría justo
+// cuando hay que medir contra ella. El recálculo es un pedido explícito y `calculadoEl` dice de
+// cuándo es la foto que se está usando (lo pone quien la guarda: acá no se lee el reloj).
+//
+// Las semanas de las puntas entran aunque estén cortadas: son dos sobre decenas y descartarlas
+// obligaría a explicar por qué el promedio no cubre todo el archivo.
+function referencia(datos, precios, calculadoEl) {
+  const cargas = (datos && datos.cargas) || [];
+  const semanas = resumenPeriodos(cargas, 'semana', [], precios);
+  const total = (f) => semanas.reduce((s, x) => s + (f(x) || 0), 0);
+  const tareas = {};
+  for (const r of resumenRoles(cargas)) tareas[r.rol] = r.minPromedio;
+  const productos = {};
+  for (const p of resumenProductosPorRol(cargas, precios)) {
+    productos[p.plu] = { producto: p.producto, cargas: p.cargas,
+      minEnvasado: p.minEnvasado, minEtiquetado: p.minEtiquetado, minEmpaquetado: p.minEmpaquetado };
+  }
+  return {
+    calculadoEl: calculadoEl || '',
+    ...rangoTotal(cargas),
+    cargas: cargas.length,
+    semanas: semanas.length,
+    semanal: {
+      valor: prom(total(s => s.valor), semanas.length),
+      cargas: prom(total(s => s.cargas), semanas.length),
+      horasSala: prom(total(s => s.horasSala), semanas.length),
+    },
+    tareas,
+    productos,
+  };
+}
+
 // Todo el historial de una sola pasada. `filtro` es opcional: { plu, persona } acota la medición
 // a un producto o a una persona. Las opciones de los selectores salen siempre del historial
 // entero, para que un filtro no se pueda deshacer solo.
@@ -379,8 +417,11 @@ function resumen(datos, filtro, precios) {
       sinPrecio: cargas.filter(c => precioDe(precios, c.plu) <= 0).length,
     },
     roles: resumenRoles(cargas),
-    // resumenPersonasPorRol y resumenProductosPorRol quedan exportados y probados, pero fuera
-    // del payload: el tablero ya no los muestra y eran la mitad del peso de la respuesta.
+    // El promedio por tarea de cada producto: un lote sin las dos horas de esa tarea no entra
+    // al promedio (minutosDeRol devuelve null y no suma ni al total ni al conteo).
+    productos: resumenProductosPorRol(cargas, precios),
+    // resumenPersonasPorRol queda exportado y probado, pero fuera del payload: el tablero ya
+    // no lo muestra y era la mitad del peso de la respuesta.
     porSemana: resumenPeriodos(cargas, 'semana', tareas, precios),
     porMes: resumenPeriodos(cargas, 'mes', tareas, precios),
     // Horas de sala de cada jornada. El detalle del día las necesita y no se pueden reconstruir
@@ -394,5 +435,5 @@ function resumen(datos, filtro, precios) {
 module.exports = {
   ROLES, SIN_ROL, minutosDeRol, minutosEfectivos, minutosSalaPorDia, horasSalaDe,
   precioDe, valorDeCarga, resumenRoles, resumenPersonasPorRol, resumenProductosPorRol,
-  resumenPeriodos, filtrar, rangoTotal, opciones, registros, cobertura, resumen,
+  resumenPeriodos, filtrar, rangoTotal, opciones, registros, cobertura, referencia, resumen,
 };
