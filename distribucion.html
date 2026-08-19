@@ -250,6 +250,9 @@
   .reg-aviso{font-size:12px;line-height:1.45;color:var(--amarillo-on);background:var(--amarillo-cont);border-left:3px solid #f59e0b;border-radius:6px;padding:8px 12px;font-weight:600}
   td.envasar-d{font-weight:700;font-size:13px}
   td.envasar-d span{background:#dbe7ff;color:#1e40af;padding:3px 10px;border-radius:6px;display:inline-block}
+  /* A depósito (G): ámbar para no confundirla con Envasar (azul) — es lo que NO sale a sucursal */
+  td.dep-g{font-weight:700;font-size:13px}
+  td.dep-g span{background:#fdeecd;color:#8a5a00;padding:3px 10px;border-radius:6px;display:inline-block;border:1px solid #e8c97a}
   .resp-select{font-size:11px;padding:3px 6px;border-radius:6px;background:var(--surface1);border:1px solid var(--border);color:var(--text);max-width:110px}
   /* ── Tab Producción resumen ── */
   .prod-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;font-variant-numeric:tabular-nums;background:var(--card)}
@@ -1104,7 +1107,9 @@ document.addEventListener('click', e => {
 
 function construirHeadP() {
   const prep = pesablesModo === 'preparacion';
-  const pre = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel',''], ['H','Depósito',''], ['D','Envasar','']];
+  // 'G' = kg envasados que quedan en el depósito (D − lo que sale). Sólo tiene sentido con J='Si'.
+  const pre = [['plu','PLU','l'], ['nombre','Producto','l'], ['F','Granel',''], ['H','Depósito',''], ['D','Envasar',''],
+    ['G','<span title="Kg envasados que quedan en el depósito (no salen en este reparto)">A depósito</span>','']];
   const sucCols = SUC_P.filter(([k]) => sucVisP.has(k));
   const post = [];
   if (!prep) post.push(['resp','Responsable','l']);
@@ -1369,10 +1374,11 @@ function exportarCSVPesables() {
   const cell = (v) => esNum(v) ? v : (v || '');
   const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || (listasData?.siemprePesable||[]).includes(Number(r.plu))) &&
     (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
-  const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'Ruteo', 'Importancia'];
+  const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'A depósito kg', 'Ruteo', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
     r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.F, r.H,
-    ...SUC_P.map(([k]) => cell(r.enviar[k])), sumEnvP(r), r.J, r.J === 'Si' ? r.D : 0, r.BL || '', prioOf(r).toFixed(4)].join(';')));
+    ...SUC_P.map(([k]) => cell(r.enviar[k])), sumEnvP(r), r.J, r.J === 'Si' ? r.D : 0,
+    r.J === 'Si' ? Math.max((r.D || 0) - sumEnvP(r), 0) : 0, r.BL || '', prioOf(r).toFixed(4)].join(';')));
   descargar(lines, 'distribucion_pesables.csv');
 }
 function exportarPDFAlmacen() {
@@ -1766,6 +1772,14 @@ function renderP() {
     const impPct = (prioOf(r) / maxImp) * 100;
     const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
     const envD = r.J === 'Si' ? `<td class="envasar-d"><span>${fmt(r.D)}</span></td>` : `<td class="env">·</td>`;
+    // A depósito = la parte de lo que se ENVASA hoy que no sale en el reparto. No se usa el campo
+    // G del motor: ése es el stock final del depósito (incluye lo que ya había) y puede superar a
+    // Envasar, que es justo lo que confundía. Sale de los envíos mostrados, así que respeta los
+    // overrides manuales.
+    const aDep = Math.max((r.D || 0) - sumEnvP(r), 0);
+    const depG = (r.J === 'Si' && aDep > 0)
+      ? `<td class="dep-g" title="De los ${fmt(r.D)} kg que se envasan, ${fmt(aDep)} kg quedan en depósito (el resto sale a sucursales)"><span>${fmt(aDep)}</span></td>`
+      : `<td class="env">·</td>`;
     const cur = (fracAsig[String(r.plu)]||[])[0]||'';
     const respOpts = `<option value="">—</option>${fracEmpleados.map(e=>`<option value="${e.nombre}"${cur===e.nombre?' selected':''}>${e.nombre}</option>`).join('')}`;
     const respSel = `<td class="l"><select class="resp-select" onchange="guardarRespP(${r.plu},this.value)">${respOpts}</select></td>`;
@@ -1777,6 +1791,7 @@ function renderP() {
       <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
       <td class="central">${fmt(r.H)}</td>
       ${envD}
+      ${depG}
       ${celdas}
       ${prep ? '' : respSel}
       <td class="tot">${fmt(sumEnvVisP(r))}</td>
@@ -3190,6 +3205,10 @@ function modalGranel(granelCode) {
   const sucKeys = SUC_P.map(([k]) => k);
   const totalD = grupo.reduce((s, r) => s + (r.J === 'Si' ? (r.D || 0) : 0), 0);
   const overD = totalD > F + 0.01;
+  // A depósito: misma definición que la tabla — la parte de lo envasado que no sale a sucursales.
+  // Por fila se cumple Σ Enviar + A depósito ≥ Envasar, y nunca supera a Envasar.
+  const aDepDe = (r) => (r.J === 'Si' ? Math.max((r.D || 0) - sumEnvP(r), 0) : 0);
+  const totalDep = grupo.reduce((s, r) => s + aDepDe(r), 0);
 
   const headSuc = SUC_P.map(([k, n]) => `<th class="suc">${n}<br><span style="font-size:9px;font-weight:400;opacity:.75">stk · cant</span></th>`).join('');
   const rowsSuc = (r) => SUC_P.map(([k]) => {
@@ -3208,6 +3227,7 @@ function modalGranel(granelCode) {
     <td class="l" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>
     <td>${fmt(r.CG)}</td>
     <td style="${r.J==='Si'?'font-weight:700;color:var(--verde-dark)':''}">${r.J==='Si'?fmt(r.D):'·'}</td>
+    <td>${aDepDe(r) > 0 ? `<span style="background:#fdeecd;color:#8a5a00;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid #e8c97a;display:inline-block">${fmt(aDepDe(r))}</span>` : '·'}</td>
     ${rowsSuc(r)}
   </tr>`).join('');
 
@@ -3215,6 +3235,7 @@ function modalGranel(granelCode) {
     <td class="l" colspan="2">TOTAL grupo</td>
     <td>${fmt(grupo.reduce((s,r)=>s+r.CG,0))}</td>
     <td style="${overD?'color:var(--error)':''}">${fmt(totalD)}${overD?' ⚠':''}</td>
+    <td>${fmt(totalDep)}</td>
     ${sucKeys.map(k=>`<td>${fmt(totalSuc(k))}</td>`).join('')}
   </tr>`;
 
@@ -3222,7 +3243,7 @@ function modalGranel(granelCode) {
   document.getElementById('mg-stock').innerHTML = `Stock disponible: <b>${fmt(F)} kg</b> · ${grupo.length} PLU${grupo.length>1?'s':''} comparten este granel`;
   document.getElementById('mg-tbody').innerHTML = filas + totalRow;
   document.getElementById('mg-head-row').innerHTML =
-    `<th class="l">PLU</th><th class="l">Producto</th><th>Σ Enviar</th><th>Envasar (D)</th>${headSuc}`;
+    `<th class="l">PLU</th><th class="l">Producto</th><th>Σ Enviar</th><th>Envasar (D)</th><th title="De lo que se envasa, lo que queda en depósito">A depósito</th>${headSuc}`;
   document.getElementById('mg-foot').textContent = overD
     ? `⚠ La suma de Envasar (${fmt(totalD)} kg) supera el granel disponible (${fmt(F)} kg). El motor prorratea D automáticamente por el factor K.`
     : `La suma de Envasar (${fmt(totalD)} kg) está dentro del granel disponible (${fmt(F)} kg).`;

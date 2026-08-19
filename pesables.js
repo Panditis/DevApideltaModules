@@ -136,6 +136,13 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
 
   const gkeyOf = (g) => (g == null ? 'NA' : String(g));
 
+  // Config de cobertura de depósito (opts.coberturaDeposito). Sin la clave, cobDias=0 y el motor
+  // se comporta exactamente como antes: el depósito sigue sin objetivo propio.
+  const cobCfg = (opts && opts.coberturaDeposito) || {};
+  const cobDias = Number(cobCfg.dias) || 0;
+  const cobClases = new Set(cobCfg.clases || ['A', 'B']);
+  const cobTecho = cobCfg.techoKg != null ? Number(cobCfg.techoKg) : P.maxEnviar;
+
   // ── Pasada 1: bases, S/N, teóricos, CH ──────────────────────────────────────
   const rows = productos.map((pp) => {
     const plu = Number(pp.plu);
@@ -161,6 +168,14 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
     // null = catch-all, presentaciones grandes). Reemplaza el piso por clase ABC (un 50g y un 1kg de
     // la misma clase necesitan pisos distintos). Fallback: presenciaPorClase (ABC) → empujePresencia plano.
     const claseAbc = (opts && opts.abcPorPlu && opts.abcPorPlu[String(plu)]) || null;
+    // Cobertura de depósito: kg que se envasan de más para dejar stock en central y NO tener que
+    // volver a fraccionar en la próxima corrida. Objetivo = demanda diaria real (Σμ de las 7
+    // sucursales, de a8020_calc.detalle) × días de cobertura, topeado por techoKg para que un PLU
+    // de mucha rotación no inmovilice el depósito entero. Sólo con granel disponible y clases
+    // elegidas: en C/F el buffer es capital dormido, no servicio.
+    const muDia = (opts && opts.muPorPlu && Number(opts.muPorPlu[String(plu)])) || 0;
+    const objDep = (cobDias > 0 && cobClases.has(claseAbc) && BK === 'Si' && F > 0 && muDia > 0)
+      ? Math.min(muDia * cobDias, cobTecho) : 0;
     const presTramos = opts && opts.presenciaPorPresentacion;
     let presRaw = 0;
     if (Array.isArray(presTramos) && presTramos.length) {
@@ -198,7 +213,7 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
     // PLU ausente del A8020: los teóricos son #N/A ⇒ CH = SUM(#N/A) = #N/A (NaN).
     // El #N/A contamina el SUMIF del grupo granel ⇒ CI=0 para todo el grupo (réplica exacta).
     const CH = a ? Math.max(sumTeo - H, 0) : NaN;
-    return { plu, granel, gkey, cl, BK, BG, F, H, mins, sLev, stkPorSuc, sn, teo, sumTeo, CH, presKg,
+    return { plu, granel, gkey, cl, BK, BG, F, H, mins, sLev, stkPorSuc, sn, teo, sumTeo, CH, presKg, objDep,
              peso: Number(pesos[gkey]) || 0, fracOk: fracSet.has(plu) };
   });
 
@@ -228,9 +243,19 @@ function calcularPesables(productos, a8020, pesLis, distLis, opts) {
     r.I = r.BK === 'Si' ? Math.max(ventas, r.CG) : 0;
     const cum = []; let acc = 0;
     for (const v of sends.slice().sort((x, y) => x - y)) { acc += v; cum.push(acc); }
-    if (r.BK === 'No' || r.F < P.pocoGranel || r.CG <= r.H) r.J = 'No';
-    else r.J = (r.H - r.CG) < Math.min(r.I * P.pctSobrante, P.kgMin) ? 'Si' : 'No';
-    r.L = r.J === 'No' ? 0 : Math.min(r.F, Math.max(r.I, r.CH + r.maxSend * 2));
+    // El corte CG<=H es lo que impedía reponer el buffer: si el depósito alcanzaba para el envío
+    // de HOY no se envasaba nunca, y el stock se consumía hasta cero corrida tras corrida. Ahora
+    // sólo corta si además queda cubierta la cobertura (objDep). Con objDep=0 → idéntico a antes.
+    if (r.BK === 'No' || r.F < P.pocoGranel || (r.CG <= r.H && (r.H - r.CG) >= r.objDep)) r.J = 'No';
+    else r.J = (r.H - r.CG) < Math.max(Math.min(r.I * P.pctSobrante, P.kgMin), r.objDep) ? 'Si' : 'No';
+    // G = D − (CG − H), así que exigir D ≥ (CG − H) + objDep es exigir que queden objDep kg en el
+    // depósito. Sigue topeado por F: la cobertura nunca inventa granel que no existe.
+    // Si el depósito YA cubre el envío, lo único que falta es rellenar el buffer: se envasa el
+    // faltante exacto y no MAX(I, …), que replicaría el envío entero y sobre-stockearía.
+    const soloBuffer = r.CG <= r.H;
+    r.L = r.J === 'No' ? 0
+      : soloBuffer ? Math.min(r.F, (r.CG - r.H) + r.objDep)
+      : Math.min(r.F, Math.max(r.I, r.CH + r.maxSend * 2, (r.CG - r.H) + r.objDep));
     if (r.J === 'No') r.E = 0;
     else {
       const t = r.H * 0.85, BY = cum[0] || 0, CA = cum[2] || 0, CC = cum[4] || 0, CE = cum[6] || 0, CG = cum[8] || 0;
@@ -415,7 +440,7 @@ function formatearFila(r) {
     mins: r.mins, sLev: r.sLev, sn: r.sn, teorico: r.teo, enviar: r.enviar,
     J: r.J, BJ: r.BJ, BK: r.BK, L: r.L, K: r.K, D: r.D, E: r.E, BM: r.BM, G: r.G, BL: r.BL,
     prioridad: r.prioridad, prioridadSala: r.prioridadSala,
-    granelRatio: r.granelRatio, presKg: r.presKg,
+    granelRatio: r.granelRatio, presKg: r.presKg, objDep: r.objDep,
   };
 }
 
