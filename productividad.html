@@ -158,6 +158,13 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
 .dia .dia.sub .cifra{font-size:18px}
 .dia .dia.sub .cuerpo{padding:10px 16px 14px}
 .dia .dia.sub .cuerpo table{border:1px solid var(--linea);border-radius:var(--radio-sm)}
+/* La tabla de lotes trae trece columnas y vive tres niveles adentro (sección → período →
+   jornada): entre padding y padding el ancho que sobra no alcanza y las celdas se apretaban.
+   Los cuerpos anidados aflojan el margen lateral y la tabla toma el ancho de su contenido,
+   scrolleando dentro de su jornada en vez de encogerse. */
+.plegable .cuerpo{padding-left:12px;padding-right:12px}
+.dia .dia.sub .cuerpo{padding:10px 12px 14px;overflow-x:auto}
+.dia .dia.sub .cuerpo table{width:max-content;min-width:100%}
 /* Alternador chico para día/semana, dentro del encabezado de sección. */
 .segment.chico{margin-left:auto}
 .segment.chico button{padding:6px 15px;font-size:12.5px}
