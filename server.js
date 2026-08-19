@@ -2265,13 +2265,21 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   });
   const pesParams = leerJSON(PESABLES_PARAMS_PATH, {});   // pesos de prioridad editables (opcional)
   const empPes = distCfgP.empujeDepositoPesables || {};
-  const abcPorPluP = (leerJSON(A8020_CALC_PATH, {}) || {}).abc || {};   // clase ABC por PLU (presencia escalada)
+  const a8020CalcP = leerJSON(A8020_CALC_PATH, {}) || {};
+  const abcPorPluP = a8020CalcP.abc || {};   // clase ABC por PLU (presencia escalada)
+  // μ diaria TOTAL del PLU (suma de las 7 sucursales que reparten) → base de la cobertura de
+  // depósito. Se restringe a esas claves: 'detalle' también trae logia/sucu11, inactivas en Siga.
+  const SUC_MU = Object.keys(SUC_A_CLAVE_S);
+  const muPorPluP = {};
+  for (const [plu, d] of Object.entries(a8020CalcP.detalle || {}))
+    muPorPluP[plu] = SUC_MU.reduce((s, k) => s + ((d[k] && Number(d[k].mu)) || 0), 0);
   const presPorPlu = {};
   for (const plu of plus) presPorPlu[String(plu)] = pesoPresentacionKg(nombreMap.get(String(plu)) || '', (formulas[String(plu)] || {}).cantFormula);
   const filas = calcularPesables(productos, a8020, pesLis, distLis,
     { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap,
       empujePresencia: empPes.presencia, empujePresenciaFactorS: empPes.presenciaFactorS,
-      presenciaPorClase: empPes.presenciaPorClase, presenciaPorPresentacion: empPes.presenciaPorPresentacion, abcPorPlu: abcPorPluP, presPorPlu });
+      presenciaPorClase: empPes.presenciaPorClase, presenciaPorPresentacion: empPes.presenciaPorPresentacion, abcPorPlu: abcPorPluP, presPorPlu,
+      coberturaDeposito: distCfgP.coberturaDepositoPesables, muPorPlu: muPorPluP });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
     if (f.enviar[k] !== undefined && set.has(Number(f.plu))) f.enviar[k] = 'Fact';
@@ -2291,7 +2299,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
       cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
       peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG, mins: f.mins, sLev: f.sLev,
-      J: f.J, D: f.D, G: f.G, BL: f.BL, prioridad, prioridadSala,
+      J: f.J, D: f.D, G: f.G, objDep: f.objDep, BL: f.BL, prioridad, prioridadSala,
       granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
   });
