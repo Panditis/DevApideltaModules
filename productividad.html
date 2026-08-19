@@ -108,6 +108,17 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
   border:1px solid var(--linea-fuerte);border-radius:999px;background:var(--panel);color:var(--tinta)}
 .buscador:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
 .buscador::placeholder{color:var(--tenue)}
+/* Selector dentro del encabezado de una sección (el producto del gráfico de envasado): mismo
+   lenguaje que el buscador de al lado — píldora, foco verde, alineado a la derecha. La flecha
+   es propia porque la del sistema operativo ignora la paleta del módulo. */
+.sec-head select{margin-left:auto;appearance:none;-webkit-appearance:none;font-family:inherit;
+  font-size:13px;font-weight:600;color:var(--verde-hondo);cursor:pointer;max-width:340px;
+  padding:8px 36px 8px 16px;border:1px solid var(--linea-fuerte);border-radius:999px;
+  background:var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23405936' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 14px center/10px 6px}
+.sec-head select:hover{border-color:var(--verde)}
+.sec-head select:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
+/* El desplegado lo pinta el sistema: sólo se puede pedir que use la tipografía del módulo. */
+.sec-head select option{font-family:inherit;font-size:13px;color:var(--tinta)}
 
 /* ── Día desplegable ────────────────────────────────────────────────────────
    <details> nativo: el navegador ya sabe abrir y cerrar, no hace falta JS. */
