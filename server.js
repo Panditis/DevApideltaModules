@@ -1241,6 +1241,14 @@ const LEAD_TIMES_PATH = path.join(DATA_DIR, 'lead_times.json');
 // bajo demanda: es una consulta pesada y el dato cambia una vez por día como mucho.
 const CONSUMO_MENSUAL_PATH = path.join(DATA_DIR, 'consumo_mensual.json');
 
+// Foto de los promedios de sala sobre el archivo entero. Es la vara contra la que los gráficos
+// del historial comparan lo que se está mirando, así que se guarda y sólo cambia cuando se pide
+// recalcularla: si se recalculara sola, la referencia se movería junto con lo medido.
+const REF_SALA_PATH = path.join(DATA_DIR, 'referencia_sala.json');
+// Misma foto, pero de la sala de producción medida con los registros nuevos: son dos archivos
+// distintos y cada tablero compara contra el suyo.
+const REF_PROD_PATH = path.join(DATA_DIR, 'referencia_produccion.json');
+
 function leerJSON(p, def) { try { if (!fs.existsSync(p)) return def; return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return def; } }
 function guardarJSON(p, data) { fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8'); }
 function leerOrdenes()         { return leerJSON(ORDENES_PATH, []); }
@@ -4198,12 +4206,69 @@ app.get('/api/productividad/historial', apiRoute(async req => {
   // Sin base de datos el tablero sigue sirviendo: pierde la columna de plata, no el resto.
   let precios = new Map();
   try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
-  return historialSala.resumen(legacy, {
+  const r = historialSala.resumen(legacy, {
     desde: req.query.desde ? safeDate(req.query.desde) : null,
     hasta: req.query.hasta ? safeDate(req.query.hasta) : null,
     plu: String(req.query.plu || '').trim(),
     persona: String(req.query.persona || '').trim(),
   }, precios);
+  // La referencia viaja con el tablero: es contra lo que se dibujan las líneas de los gráficos.
+  // La primera vez se calcula y se guarda sola — sin ella no habría contra qué comparar, y no
+  // tiene por qué ser el usuario el que descubra que hay que sembrarla.
+  let referencia = leerJSON(REF_SALA_PATH, null);
+  if (!referencia) {
+    referencia = historialSala.referencia(legacy, precios, new Date().toISOString());
+    guardarJSON(REF_SALA_PATH, referencia);
+  }
+  return { ...r, referencia };
+}));
+
+// Mismo tablero que el historial de sala pero sobre los registros nuevos de producción, que
+// desde que se cargan por el sistema traen las tres tareas con su encargado y su horario igual
+// que los xlsx viejos: por eso lo mide el mismo módulo. Acá NO entran los resúmenes legacy —
+// esta vista es la de lo que se viene cargando, el archivo viejo tiene su propia tab.
+function cargasProduccionNuevas() {
+  const snapshots = leerRegistros();
+  return productividad.unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
+                                 snapshots.flatMap(s => (s && s.cargas) || []));
+}
+
+app.get('/api/productividad/historial-produccion', apiRoute(async req => {
+  const cargas = cargasProduccionNuevas();
+  let precios = new Map();
+  try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
+  const r = historialSala.resumen({ cargas, tareas: [] }, {
+    desde: req.query.desde ? safeDate(req.query.desde) : null,
+    hasta: req.query.hasta ? safeDate(req.query.hasta) : null,
+    plu: String(req.query.plu || '').trim(),
+    persona: String(req.query.persona || '').trim(),
+  }, precios);
+  let referencia = leerJSON(REF_PROD_PATH, null);
+  if (!referencia) {
+    referencia = historialSala.referencia({ cargas }, precios, new Date().toISOString());
+    guardarJSON(REF_PROD_PATH, referencia);
+  }
+  return { ...r, referencia };
+}));
+
+app.post('/api/productividad/historial-produccion/referencia', apiRoute(async () => {
+  let precios = new Map();
+  try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
+  const referencia = historialSala.referencia({ cargas: cargasProduccionNuevas() }, precios,
+                                              new Date().toISOString());
+  guardarJSON(REF_PROD_PATH, referencia);
+  return referencia;
+}));
+
+// Recalcular la referencia: se lee el archivo entero de nuevo y la foto nueva pisa a la vieja.
+// Va por POST y a pedido porque mueve la vara con la que se mide todo lo demás.
+app.post('/api/productividad/historial/referencia', apiRoute(async () => {
+  const legacy = resumenesLegacy.leerCarpeta(RESUMENES_DIR);
+  let precios = new Map();
+  try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
+  const referencia = historialSala.referencia(legacy, precios, new Date().toISOString());
+  guardarJSON(REF_SALA_PATH, referencia);
+  return referencia;
 }));
 
 app.post('/api/plan/:fecha', (req, res) => {
@@ -4272,7 +4337,9 @@ app.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
   // Reservada: no se cambian cantidades ni producto (desincronizaría la reserva). El cambio de
   // estado (que dispara la devolución al terminar) sí se permite.
   if (actual.reservaMovimiento && actual.reservaMovimiento.numeroMovimiento != null) {
-    const cambiaContenido = ['cantConfirmada','cantSugerida','idProducto','producto','presentaciones','cantidad','idGranel']
+    // envase/tapa entran acá porque sustituyen a los de la fórmula al calcular la reserva:
+    // cambiarlos con la reserva sellada dejaría apartado un packaging que ya no corresponde.
+    const cambiaContenido = ['cantConfirmada','cantSugerida','idProducto','producto','presentaciones','cantidad','idGranel','envase','tapa']
       .some(k => k in body && JSON.stringify(body[k]) !== JSON.stringify(actual[k]));
     if (cambiaContenido) {
       return { error: `La orden está reservada (movimiento #${actual.reservaMovimiento.numeroMovimiento}). Anulá la reserva antes de modificar cantidades o producto.`, yaReservado: true };

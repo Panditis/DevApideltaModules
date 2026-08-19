@@ -223,6 +223,9 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 .resp-multi { position:relative; }
 .resp-multi-display { cursor:pointer; border:1px solid var(--border); border-radius:4px; padding:3px 6px 3px 6px; min-height:28px; display:flex; flex-wrap:wrap; gap:3px; align-items:center; background:#fff; font-size:12px; user-select:none; }
 .resp-multi-display:hover { border-color:var(--md-primary); }
+/* Responsables de una orden reservada: se leen, no se editan (mismo gris que un select disabled). */
+.resp-multi-bloq { cursor:not-allowed; background:var(--md-surface-variant,#eee); opacity:.6; }
+.resp-multi-bloq:hover { border-color:var(--border); }
 .resp-chip-sm { background:#d1fae5; color:#065f46; font-size:10px; font-weight:700; padding:1px 6px; border-radius:10px; white-space:nowrap; }
 .rm-arrow { margin-left:auto; color:var(--muted); font-size:10px; flex-shrink:0; }
 .resp-dropdown { position:fixed; min-width:160px; background:#fff; border:1px solid var(--border); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); z-index:9999; max-height:180px; overflow-y:auto; }
@@ -248,6 +251,11 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 .modal-search input { width: 100%; border: 1px solid var(--md-outline-variant); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 14px; font-family: 'Roboto', sans-serif; outline: none; transition:border-color .15s, box-shadow .15s; }
 .modal-search input:focus { border-color: var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
 .modal-results { flex: 1; overflow-y: auto; }
+/* Scroll genérico del modal: el header queda fijo y cualquier bloque de contenido que no
+   entre en la altura máxima scrollea solo. Los bloques que ya traen overflow inline lo
+   conservan (el estilo inline gana sobre esta regla). */
+.modal > .modal-header { flex-shrink: 0; }
+.modal > *:not(.modal-header):not(.modal-search) { min-height: 0; overflow-y: auto; }
 .search-result { padding: 12px 18px; border-bottom: 1px solid var(--md-outline-variant); cursor: pointer; display: flex; align-items: center; gap: 10px; transition:background .12s; }
 .search-result:hover { background: rgba(64,89,54,.06); }
 .search-result .prod-name { font-weight: 500; flex: 1; }
@@ -1650,10 +1658,27 @@ async function nombreDePlu(plu) {
   return nom;
 }
 
+// El ref del grupo no siempre llega igual: desde el catálogo es la clave exacta, pero desde
+// "Agregar producto" lo único que hay es el rubro de SiGA ("FRUTOS SECOS") o el nombre del
+// artículo con su presentación, y ninguno matchea la clave del catálogo ("Apimani Clasico").
+// Sin resolverlo, esas altas nunca disparaban el granel previo y la orden quedaba sin reservar.
+function resolverRefGrupo(ref, items) {
+  const claves = Object.keys(gruposCfgLocal);
+  const base   = nombre => normalizarNombreJS(String(nombre || '')).replace(PRES_RE_JS, '').trim();
+  const buscar = txt => {
+    const t = String(txt || '').trim().toLowerCase();
+    return t ? claves.find(k => String(k).trim().toLowerCase() === t) : undefined;
+  };
+  const candidatos = [ref, base(ref), ...(items || []).flatMap(it => [it.rubro, base(it.producto)])];
+  for (const c of candidatos) { const k = buscar(c); if (k) return k; }
+  return ref;
+}
+
 // Devuelve los ítems de las órdenes de granel (uno por granel del catálogo), [] si el grupo no
 // los requiere, o false si el usuario canceló el aviso.
 async function itemGranelPrevio(productoRef, items) {
   await cargarGruposCfgSiVacio();
+  productoRef = resolverRefGrupo(productoRef, items);
   if (!cfgGetReqGranel(productoRef)) return [];
   if (items.some(it => it.esGranel)) return []; // ya es la orden de granel
   // Los graneles a fabricar son los asignados al grupo en el catálogo (Ver/Editar → Graneles).
@@ -1791,6 +1816,12 @@ function renderPlan() {
     // Orden reservada: el backend selló el ítem con un movimiento de SiGA (reserva
     // incremental) y rechaza (409) borrarla mientras esa reserva siga activa.
     const reservada = !!(it && it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null);
+    // Con la reserva sellada la orden queda congelada: cantidad, responsable, envase, tapa,
+    // cliente y la reasignación de fecha se bloquean hasta anular la reserva, igual que el
+    // botón de eliminar. El estado de tarea es la excepción a propósito: pasar el ítem a
+    // "listo" es lo que dispara la devolución de su porción de la reserva.
+    const bloqRes  = reservada ? ' disabled' : '';
+    const tituloRes = 'Orden reservada: anulá la reserva para cambiarlo';
     return `<tr draggable="true" data-id="${it.id}" data-cant-pu="${cantPU}"${reservada && !cerrado ? ' class="orden-reservada"' : ''}${cerrado ? ' style="opacity:.62;border-left:3px solid #14532d"' : ''}>
       <td style="text-align:center;white-space:nowrap;padding:0">
         <button onclick="event.stopPropagation();moverPrioridad(${it.id},-1)" title="Subir prioridad" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:1px 4px;color:var(--muted)">▲</button>
@@ -1810,8 +1841,8 @@ function renderPlan() {
         </div>` : ''}
       </td>
       <td>
-        <input class="qty-input" type="number" min="0" value="${it.cantConfirmada??it.cantSugerida??0}"
-          title="${it.esGranel ? '' : 'Sugerido: '+it.cantSugerida}"
+        <input class="qty-input" type="number" min="0" value="${it.cantConfirmada??it.cantSugerida??0}"${bloqRes}
+          title="${reservada ? tituloRes : (it.esGranel ? '' : 'Sugerido: '+it.cantSugerida)}"
           data-id="${it.id}"
           onchange="actualizarItem(${it.id},'cantConfirmada',+this.value,this)">
         ${it.esGranel
@@ -1820,25 +1851,25 @@ function renderPlan() {
         }
       </td>
       <td onclick="event.stopPropagation()">
-        ${renderRespMulti(it)}
+        ${renderRespMulti(it, reservada)}
       </td>
       <td onclick="event.stopPropagation()">
-        <select onchange="actualizarItem(${it.id},'envase',this.value)" title="Envase asignado"
+        <select onchange="actualizarItem(${it.id},'envase',this.value)"${bloqRes} title="${reservada ? tituloRes : 'Envase asignado'}"
           style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
           <option value="">— Envase —</option>
           ${envOpts.map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.envase||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
         </select>
       </td>
       <td onclick="event.stopPropagation()">
-        <select onchange="actualizarItem(${it.id},'tapa',this.value)" ${it.envase ? '' : 'disabled'}
-          title="${it.envase ? 'Tapa asignada' : 'Sin envase (granel): no aplica tapa'}"
+        <select onchange="actualizarItem(${it.id},'tapa',this.value)" ${(it.envase && !reservada) ? '' : 'disabled'}
+          title="${reservada ? tituloRes : (it.envase ? 'Tapa asignada' : 'Sin envase (granel): no aplica tapa')}"
           style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
           <option value="">— Tapa —</option>
           ${tapOpts.map(e => `<option value="${escHtml(String(e.codigo))}" ${String(it.tapa||'')===String(e.codigo)?'selected':''}>${escHtml(e.nombre || e.codigo)}</option>`).join('')}
         </select>
       </td>
       <td onclick="event.stopPropagation()">
-        <select onchange="actualizarItem(${it.id},'cliente',this.value)" title="Cliente"
+        <select onchange="actualizarItem(${it.id},'cliente',this.value)"${bloqRes} title="${reservada ? tituloRes : 'Cliente'}"
           style="max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:'Barlow Condensed',sans-serif">
           <option value="">— Cliente —</option>
           ${clientesReg.map(c => `<option value="${escHtml(String(c.id))}" ${String(it.cliente||'')===String(c.id)?'selected':''}>${escHtml(c.nombre)}</option>`).join('')}
@@ -1859,7 +1890,7 @@ function renderPlan() {
           onclick="event.stopPropagation();mostrarMPResumen('📦 ${escHtml(it.producto).replace(/'/g,"\\'")} — ${escHtml(it.presentacion||'').replace(/'/g,"\\'")}', [{idProducto:${it.idProducto||0},cantConfirmada:${it.cantConfirmada??it.cantSugerida??0}}])">📦</button>
       </td>
       <td style="white-space:nowrap">
-        <button class="btn btn-secondary btn-sm" onclick="moverItem(${it.id})" title="Reasignar fecha">📅</button>
+        <button class="btn btn-secondary btn-sm" onclick="moverItem(${it.id})"${bloqRes} title="${reservada ? tituloRes : 'Reasignar fecha'}">📅</button>
         <button class="btn btn-danger btn-sm" onclick="eliminarItem(${it.id})"${reservada ? ' disabled title="Orden reservada: anulá la reserva primero"' : ''}>✕</button>
       </td>
     </tr>`;
@@ -1967,6 +1998,15 @@ async function setEstado(id, estado, chipEl) {
 function moverItem(id) {
   const it = (planCache?.items || []).find(i => i.id == id);
   if (!it) return;
+  // Mover = alta en el día nuevo + baja en el viejo. Con la orden reservada el servidor rechaza
+  // la baja (409) y quedaría duplicada en los dos días, así que se corta antes de abrir el
+  // picker. El botón ya viene deshabilitado; esto cubre la página desactualizada (reserva hecha
+  // desde otra pestaña).
+  const numeroReserva = it?.reservaMovimiento?.numeroMovimiento;
+  if (numeroReserva != null) {
+    toast(`Orden reservada (#${numeroReserva}): anulá la reserva primero`, true);
+    return;
+  }
   abrirDiaPicker(`📅 Mover: ${escHtml(it.producto)}`, async nuevaFecha => {
     if (nuevaFecha === fechaPlanActual) { toast('Es el mismo día', true); return; }
     try {
@@ -4447,11 +4487,17 @@ async function mostrarMPResumen(titulo, items) {
 
 // ══════════════════ MULTI-RESPONSABLE WIDGET ══════════════════════
 
-function renderRespMulti(it) {
+// bloqueado = orden reservada: se ven los responsables asignados pero no se abre el desplegable.
+function renderRespMulti(it, bloqueado) {
   const resps = Array.isArray(it.responsables) ? it.responsables : (it.responsable ? [it.responsable] : []);
   const chips = resps.length
     ? resps.map(r => `<span class="resp-chip-sm">${escHtml(r)}</span>`).join('')
     : `<span style="color:var(--muted);font-size:11px">Sin asignar</span>`;
+  if (bloqueado) {
+    return `<div class="resp-multi" onclick="event.stopPropagation()">
+      <div class="resp-multi-display resp-multi-bloq" title="Orden reservada: anulá la reserva para cambiarlo">${chips}</div>
+    </div>`;
+  }
   const opts = responsablesCache.map(r => {
     const nom = respNombre(r);
     return `<label style="display:flex;align-items:center;gap:7px;padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0;hover:background:#f5f5f5">

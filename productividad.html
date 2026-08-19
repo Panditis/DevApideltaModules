@@ -136,7 +136,9 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
 .riel.parcial i{background:var(--amarillo)} .riel.nada i{background:var(--rojo);opacity:.4}
 .dia .cuerpo{padding:14px 20px 18px}
 /* Jornada dentro de una semana: mismo componente, un escalón más adentro y sin sombra propia
-   para que no compita con la tarjeta que la contiene. */
+   para que no compita con la tarjeta que la contiene. Lo mismo para los períodos, que cuelgan
+   del plegable de la sección. */
+.plegable .cuerpo .dia{box-shadow:none}
 .dia .dia.sub{border-radius:var(--radio-sm);box-shadow:none;margin-bottom:8px}
 .dia .dia.sub:hover{box-shadow:none;border-color:var(--verde)}
 .dia .dia.sub>summary{padding:11px 16px 0;background:var(--panel)}
@@ -242,6 +244,35 @@ td.pag button:disabled{opacity:.35;cursor:default}
   font-variant-numeric:tabular-nums}
 .rol .pie b{color:var(--verde-hondo);font-weight:700}
 
+/* Serie de barras con su línea de referencia. La usan la producción semanal y el envasado lote
+   por lote: meter una librería de gráficos para dos series de barras costaba más que dibujarlas.
+   Scrollea a lo ancho cuando sobran columnas, así ninguna se afina hasta desaparecer. */
+.graf{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
+  padding:18px 18px 14px}
+.graf .area{position:relative}
+.graf .cols{display:flex;align-items:flex-end;gap:6px;overflow-x:auto}
+/* Ancho fijo, no repartido: con cuatro lotes las barras salían anchísimas y el gráfico parecía
+   otra cosa. Ahora la barra siempre mide igual y el gráfico ocupa lo que su serie necesite. */
+.graf .col{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px}
+/* Los dos altos son fijos y viven también en el script (ALTO_SOBRE y ALTO_GRAF): de ellos sale,
+   en píxeles, dónde va la línea de referencia. Con textos arriba y abajo comiendo espacio, un
+   porcentaje del alto total ya no cae donde corresponde. */
+.graf .col b{height:18px;line-height:18px;font-size:11px;color:var(--verde-hondo);
+  font-variant-numeric:tabular-nums}
+.graf .riel-graf{height:150px;width:100%;display:flex;align-items:flex-end}
+.graf .col i{width:100%;min-height:2px;border-radius:3px 3px 0 0;
+  background:linear-gradient(180deg,var(--verde-claro),var(--verde));transition:height .3s ease}
+.graf .col:hover i{background:var(--verde-hondo)}
+/* Cuánto se hizo en esa barra, escrito de costado: con barras de 12 px es la única forma de que
+   el dato entre sin tapar al vecino. */
+.graf .col span{writing-mode:vertical-rl;font-size:10px;color:var(--suave);white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.graf .col em{font-style:normal;font-size:11px;color:var(--suave);white-space:nowrap}
+.graf.ancho .col span{writing-mode:horizontal-tb;font-size:10.5px}
+.graf .prom{position:absolute;left:0;right:0;border-top:2px dashed var(--amarillo);pointer-events:none}
+.graf .prom span{position:absolute;right:0;top:-9px;writing-mode:horizontal-tb;font-size:11px;
+  font-weight:700;color:var(--verde-hondo);background:var(--panel);padding:0 6px}
+.pie-graf{margin-top:12px;font-size:12px;color:var(--suave);font-variant-numeric:tabular-nums}
 .vacio{padding:34px;text-align:center;color:var(--tenue);font-size:13.5px;background:var(--panel)}
 .error{background:#FDECEA;color:#8C1D18;border:1px solid #F0C8C4;border-left:4px solid var(--rojo);
   padding:14px 16px;border-radius:var(--radio-sm);margin-bottom:20px}
@@ -279,7 +310,7 @@ td.pag button:disabled{opacity:.35;cursor:default}
       <button id="sala-frac" role="tab" aria-selected="false" type="button">Fraccionado</button>
       <button id="sala-hist" role="tab" aria-selected="false" type="button">Historial de sala</button>
     </div>
-    <!-- El historial son archivos cerrados: se mira entero, así que ahí el rango se esconde. -->
+    <!-- El rango vale para las tres salas: lo que se ve abajo es el período elegido acá. -->
     <div class="campo" id="campo-desde"><label for="desde">Desde</label><input type="date" id="desde"></div>
     <div class="campo" id="campo-hasta"><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
     <button class="btn" id="btnAplicar">Aplicar</button>
@@ -290,87 +321,108 @@ td.pag button:disabled{opacity:.35;cursor:default}
 
   <!-- ── Sala: Producción ─────────────────────────────────────────────────── -->
   <section id="pane-prod">
+    <div id="cargando-prod" class="cargando" hidden>Midiendo…</div>
+    <p class="desc">Lo que se viene cargando por el sistema en la sala de producción. Cada
+      lote trae sus tres tareas con quién la hizo y en qué horario, así que se mide igual que el
+      archivo viejo: cuánto se produjo en plata, cuánto tardó cada tarea y cuánto se desvía un
+      lote del promedio. Los resúmenes anteriores a estos registros viven en su propia solapa.</p>
+
+    <!-- Buscar la producción de un producto o de una persona. No esconde filas: el tablero
+         entero se vuelve a medir sobre ese subconjunto. -->
+    <div class="busca">
+      <span class="rot">Medir</span>
+      <select id="tipo-prod">
+        <option value="">Toda la sala</option>
+        <option value="producto">Un producto</option>
+        <option value="persona">Una persona</option>
+      </select>
+      <select id="item-prod" hidden></select>
+      <button class="btn-lim" id="limpiar-prod" type="button" hidden>Limpiar</button>
+      <!-- Salida de emergencia: un rango que deja la pantalla vacía se deshace de un click. -->
+      <button class="btn-lim" id="todo-prod" type="button">Todo el historial</button>
+      <!-- La vara de los gráficos se recalcula a mano: es una foto del archivo entero y tiene
+           que quedarse quieta mientras se mide contra ella. -->
+      <button class="btn-lim" id="recalc-prod" type="button">Recalcular referencia</button>
+      <span class="chip-filtro" id="chip-prod" hidden></span>
+    </div>
+    <p class="nota" id="nota-ref-prod"></p>
+
     <div class="kpis" id="kpis-prod"></div>
+    <p class="nota" id="nota-prod"></p>
 
     <div class="sec">
       <div class="sec-head">
-        <h2>Días con órdenes asignadas</h2>
-        <input class="buscador" id="q-dia" placeholder="Buscar producto, PLU o persona">
-      </div>
-      <p class="desc">Cada jornada del plan armado en Planificación. Abrí el día para ver sus
-        órdenes, quién quedó asignado y quién las produjo. La orden se vincula con la carga por
-        el número de movimiento con el que se mandó a producir, y cada carga se imputa a un
-        solo día aunque el plan se haya movido de fecha.</p>
-      <div id="dias"></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head"><h2>Cargas sin orden planificada</h2></div>
-      <p class="desc">Producción que no matchea ninguna línea del plan: cargas manuales o extras.</p>
-      <div class="panel"><table id="t-sinplan"></table></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Resúmenes</h2>
+        <h2>Producción semanal</h2>
         <div class="segment chico" id="per-prod" role="tablist" aria-label="Período">
-          <button type="button" data-u="dia" aria-selected="false">Por día</button>
           <button type="button" data-u="semana" aria-selected="true">Por semana</button>
           <button type="button" data-u="mes" aria-selected="false">Por mes</button>
         </div>
       </div>
-      <p class="desc">Cada período con su ranking de productos (ordenado por kilos) y su ranking
-        de personas (ordenado por cuántos productos distintos produjo cada una). Las tareas sin
-        producto se cuentan aparte, en el encabezado del período.</p>
-      <div id="periodos-prod"></div>
+      <p class="desc">Cada semana valorizada a precio de venta de lista: es lo que permite
+        comparar una semana con otra sin que los kilos mientan (100 g de polen y 10 kg de mix
+        pesan distinto y valen distinto por kilo). Abrí la semana para ver día por día qué se
+        produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
+        pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
+      <div class="graf" id="graf-prod"></div>
+      <!-- La lista período por período se pliega entera: son decenas de tarjetas y empujaban al
+           resto del tablero fuera de la pantalla. El gráfico de arriba queda siempre visible. -->
+      <details class="dia plegable">
+        <summary>
+          <div class="linea1">
+            <span class="caret">&#9654;</span>
+            <span class="fecha">Detalle período por período</span>
+            <span class="met" id="cnt-per-prod"></span>
+          </div>
+        </summary>
+        <div class="cuerpo"><div id="periodos-prod"></div></div>
+      </details>
     </div>
 
     <div class="sec">
       <div class="sec-head">
-        <h2>Comparar períodos</h2>
+        <h2>Comparar semanas</h2>
         <div class="segment chico" id="cmp-per-prod" role="tablist" aria-label="Período">
-          <button type="button" data-u="dia" aria-selected="false">Día</button>
           <button type="button" data-u="semana" aria-selected="true">Semana</button>
           <button type="button" data-u="mes" aria-selected="false">Mes</button>
         </div>
       </div>
-      <p class="desc">La evolución de un mismo producto, familia o persona a lo largo del tiempo.
-        La columna <b>Δ</b> compara cada período con el anterior: en productos y familias mide el
-        ritmo (kg/h) y en personas, cuántos productos distintos hizo.</p>
-      <div class="filtros-cmp">
-        <select id="cmp-tipo-prod">
-          <option value="producto">Producto</option>
-          <option value="familia">Familia</option>
-          <option value="persona">Persona</option>
-        </select>
-        <select id="cmp-item-prod"></select>
-      </div>
+      <p class="desc">El total producido período contra período, en plata. La columna
+        <b>&#916;</b> compara con el período anterior. <b>$/h de sala</b> es ese mismo total
+        dividido por las horas que la sala estuvo ocupada: dice si una semana floja lo fue por
+        producir menos o por trabajar menos horas.</p>
       <div class="panel"><table id="t-cmp-prod"></table></div>
     </div>
 
     <div class="sec">
-      <div class="sec-head">
-        <h2>Producción por familia</h2>
-        <input class="buscador" id="q-fam-prod" placeholder="Buscar familia">
-      </div>
-      <p class="desc">Las presentaciones de un mismo producto se agrupan: 500 g y 1 kg son una
-        sola familia. Las unidades no son comparables entre presentaciones, los kilos sí.</p>
-      <div class="panel"><table id="t-fam-prod"></table></div>
+      <div class="sec-head"><h2>Tiempo por tarea de la línea</h2></div>
+      <p class="desc">Cada lote trae las tres tareas con su encargado y su horario propio:
+        envasado, etiquetado y empaquetado. Acá se ve cuánto tiempo se llevó cada una y cuánto
+        tarda en promedio por lote. Sumadas dan más que las horas de sala porque muchas veces
+        pasan a la vez; un lote sin las dos horas cargadas suma al conteo pero no al promedio.</p>
+      <div class="roles" id="roles-prod"></div>
+      <div class="panel"><table id="t-roles-prod"></table></div>
     </div>
 
-    <div class="sec" id="sec-tareas-prod" hidden>
-      <div class="sec-head"><h2>Tareas sin producto</h2></div>
-      <p class="desc">Trabajo de sala registrado en los resúmenes viejos que no produce unidades
-        (limpieza, preparación). Va aparte: sumaría horas sin producción y hundiría el ritmo.</p>
-      <div class="panel"><table id="t-tareas-prod"></table></div>
+    <div class="sec" id="sec-env-prod" hidden>
+      <div class="sec-head">
+        <h2>Envasado lote por lote</h2>
+        <select id="sel-env-prod" aria-label="Producto"></select>
+      </div>
+      <p class="desc">Cada lote envasado del producto elegido, en orden de fecha, contra la línea
+        de referencia. El promedio solo no dice si el producto es parejo o si hay lotes que se
+        van al doble: acá se ve la dispersión, que es lo que sirve para estimar una jornada.</p>
+      <div class="graf ancho" id="graf-env-prod"></div>
     </div>
 
     <div class="sec">
-      <div class="sec-head"><h2>Ritmo por persona</h2></div>
-      <p class="desc">Las horas salen de unir los bloques horarios de cada persona por día: tres
-        cargas en el mismo bloque son una hora trabajada, no tres. Una carga con varios
-        responsables reparte las cantidades entre ellos.</p>
-      <div class="panel"><table id="t-pers-prod"></table></div>
+      <div class="sec-head">
+        <h2>Tiempo promedio por producto</h2>
+        <input class="buscador" id="q-tprod-prod" placeholder="Buscar producto o PLU">
+      </div>
+      <p class="desc">Cuánto lleva cada producto en cada tarea, promediado sobre los lotes que
+        tienen ese horario cargado: el lote al que le falta la hora de etiquetado no entra al
+        promedio de etiquetado, pero sí al de las tareas que sí registró.</p>
+      <div class="panel"><table id="t-tprod-prod"></table></div>
     </div>
   </section>
 
@@ -457,7 +509,7 @@ td.pag button:disabled{opacity:.35;cursor:default}
 
   <!-- ── Historial de sala (resúmenes .xlsx) ──────────────────────────────── -->
   <section id="pane-hist" hidden>
-    <div id="hist-cargando" class="cargando" hidden>Leyendo los resúmenes…</div>
+    <div id="cargando-hist" class="cargando" hidden>Midiendo…</div>
     <p class="desc">Los resúmenes de sala archivados en <code>data/resumenes</code>, enteros y sin
       filtro de fechas: son archivos cerrados y se leen completos. Es la única fuente con el
       dato que los registros nuevos no guardan — quién hizo cada tarea de la línea y en qué
@@ -467,17 +519,21 @@ td.pag button:disabled{opacity:.35;cursor:default}
          entero se vuelve a medir sobre ese subconjunto. -->
     <div class="busca">
       <span class="rot">Medir</span>
-      <select id="hist-tipo">
+      <select id="tipo-hist">
         <option value="">Toda la sala</option>
         <option value="producto">Un producto</option>
         <option value="persona">Una persona</option>
       </select>
-      <select id="hist-item" hidden></select>
-      <button class="btn-lim" id="hist-limpiar" type="button" hidden>Limpiar</button>
+      <select id="item-hist" hidden></select>
+      <button class="btn-lim" id="limpiar-hist" type="button" hidden>Limpiar</button>
       <!-- Salida de emergencia: un rango que deja la pantalla vacía se deshace de un click. -->
-      <button class="btn-lim" id="hist-todo" type="button">Todo el historial</button>
-      <span class="chip-filtro" id="hist-chip" hidden></span>
+      <button class="btn-lim" id="todo-hist" type="button">Todo el historial</button>
+      <!-- La vara de los gráficos se recalcula a mano: es una foto del archivo entero y tiene
+           que quedarse quieta mientras se mide contra ella. -->
+      <button class="btn-lim" id="recalc-hist" type="button">Recalcular referencia</button>
+      <span class="chip-filtro" id="chip-hist" hidden></span>
     </div>
+    <p class="nota" id="nota-ref-hist"></p>
 
     <div class="kpis" id="kpis-hist"></div>
     <p class="nota" id="nota-hist"></p>
@@ -495,7 +551,19 @@ td.pag button:disabled{opacity:.35;cursor:default}
         pesan distinto y valen distinto por kilo). Abrí la semana para ver día por día qué se
         produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
         pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
-      <div id="periodos-hist"></div>
+      <div class="graf" id="graf-hist"></div>
+      <!-- La lista período por período se pliega entera: son decenas de tarjetas y empujaban al
+           resto del tablero fuera de la pantalla. El gráfico de arriba queda siempre visible. -->
+      <details class="dia plegable">
+        <summary>
+          <div class="linea1">
+            <span class="caret">&#9654;</span>
+            <span class="fecha">Detalle período por período</span>
+            <span class="met" id="cnt-per-hist"></span>
+          </div>
+        </summary>
+        <div class="cuerpo"><div id="periodos-hist"></div></div>
+      </details>
     </div>
 
     <div class="sec">
@@ -507,21 +575,42 @@ td.pag button:disabled{opacity:.35;cursor:default}
         </div>
       </div>
       <p class="desc">El total producido período contra período, en plata. La columna
-        <b>Δ</b> compara con el período anterior. <b>$/h de sala</b> es ese mismo total dividido
-        por las horas que la sala estuvo ocupada: dice si una semana floja lo fue por producir
-        menos o por trabajar menos horas.</p>
+        <b>&#916;</b> compara con el período anterior. <b>$/h de sala</b> es ese mismo total
+        dividido por las horas que la sala estuvo ocupada: dice si una semana floja lo fue por
+        producir menos o por trabajar menos horas.</p>
       <div class="panel"><table id="t-cmp-hist"></table></div>
     </div>
 
     <div class="sec">
       <div class="sec-head"><h2>Tiempo por tarea de la línea</h2></div>
-      <p class="desc">Cada lote de los resúmenes trae las tres tareas con su encargado y su
-        horario propio: envasado, etiquetado y empaquetado. Acá se ve cuánto tiempo se llevó
-        cada una y cuánto tarda en promedio por lote. Sumadas dan más que las horas de sala
-        porque muchas veces pasan a la vez; un lote sin las dos horas cargadas suma al conteo
-        pero no al promedio.</p>
+      <p class="desc">Cada lote trae las tres tareas con su encargado y su horario propio:
+        envasado, etiquetado y empaquetado. Acá se ve cuánto tiempo se llevó cada una y cuánto
+        tarda en promedio por lote. Sumadas dan más que las horas de sala porque muchas veces
+        pasan a la vez; un lote sin las dos horas cargadas suma al conteo pero no al promedio.</p>
       <div class="roles" id="roles-hist"></div>
       <div class="panel"><table id="t-roles-hist"></table></div>
+    </div>
+
+    <div class="sec" id="sec-env-hist" hidden>
+      <div class="sec-head">
+        <h2>Envasado lote por lote</h2>
+        <select id="sel-env-hist" aria-label="Producto"></select>
+      </div>
+      <p class="desc">Cada lote envasado del producto elegido, en orden de fecha, contra la línea
+        de referencia. El promedio solo no dice si el producto es parejo o si hay lotes que se
+        van al doble: acá se ve la dispersión, que es lo que sirve para estimar una jornada.</p>
+      <div class="graf ancho" id="graf-env-hist"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Tiempo promedio por producto</h2>
+        <input class="buscador" id="q-tprod-hist" placeholder="Buscar producto o PLU">
+      </div>
+      <p class="desc">Cuánto lleva cada producto en cada tarea, promediado sobre los lotes que
+        tienen ese horario cargado: el lote al que le falta la hora de etiquetado no entra al
+        promedio de etiquetado, pero sí al de las tareas que sí registró.</p>
+      <div class="panel"><table id="t-tprod-hist"></table></div>
     </div>
 
     <div class="sec" id="sec-tareas-hist" hidden>
@@ -560,7 +649,6 @@ const nivel = pct => pct == null ? 'nada' : (pct >= 99.5 ? 'ok' : (pct > 0 ? 'pa
 
 let datos = null;
 // Historial de sala: se pide una sola vez, al abrir su tab. Son 156 archivos y no cambian.
-let historial = null;
 
 // ── Tablas ordenables ─────────────────────────────────────────────────────────
 // Un solo motor para todas las tablas: columnas declarativas, orden por header clickeable y
@@ -579,7 +667,9 @@ const coincide = (fila, cols, q) =>
 // estira la página sin límite. El paginador vive en el <tfoot>, así no hace falta markup extra.
 const POR_PAGINA = 25;
 
-function pintarTabla(tabla, cols, filas, filtro) {
+// `porPagina` sólo lo pasa quien quiere una página más corta que la del resto del tablero.
+function pintarTabla(tabla, cols, filas, filtro, porPagina) {
+  const pp = porPagina || POR_PAGINA;
   const st = ESTADO.get(tabla) || { k: null, asc: false, pag: 0, q: '' };
   ESTADO.set(tabla, st);
   const q = (filtro || '').trim().toLowerCase();
@@ -601,16 +691,15 @@ function pintarTabla(tabla, cols, filas, filtro) {
   const th = cols.map(c => `<th class="orden ${c.num ? 'num' : ''} ${st.k === c.k ? 'activa' : ''}"
       data-k="${escHtml(c.k)}">${escHtml(c.t)}${st.k === c.k ? (st.asc ? ' ↑' : ' ↓') : ''}</th>`).join('');
   const total = datosFila.length;
-  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+  const paginas = Math.max(1, Math.ceil(total / pp));
   if (st.pag >= paginas) st.pag = paginas - 1;
-  const visibles = total > POR_PAGINA
-    ? datosFila.slice(st.pag * POR_PAGINA, (st.pag + 1) * POR_PAGINA) : datosFila;
+  const visibles = total > pp ? datosFila.slice(st.pag * pp, (st.pag + 1) * pp) : datosFila;
   const cuerpo = visibles.length
     ? visibles.map(f => `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.clave ? 'clave' : ''}">${c.html ? c.html(f) : escHtml(fmt(f, c))}</td>`).join('')}</tr>`).join('')
     : `<tr><td class="vacio" colspan="${cols.length}">Sin datos en el rango elegido</td></tr>`;
-  const pie = total > POR_PAGINA ? `<tfoot><tr><td class="pag" colspan="${cols.length}">
+  const pie = total > pp ? `<tfoot><tr><td class="pag" colspan="${cols.length}">
       <button type="button" data-p="-1" ${st.pag === 0 ? 'disabled' : ''}>‹</button>
-      <span>${st.pag * POR_PAGINA + 1}–${Math.min(total, (st.pag + 1) * POR_PAGINA)} de ${nf(total)}</span>
+      <span>${st.pag * pp + 1}–${Math.min(total, (st.pag + 1) * pp)} de ${nf(total)}</span>
       <button type="button" data-p="1" ${st.pag >= paginas - 1 ? 'disabled' : ''}>›</button>
     </td></tr></tfoot>` : '';
   tabla.innerHTML = `<thead><tr>${th}</tr></thead><tbody>${cuerpo}</tbody>${pie}`;
@@ -619,11 +708,11 @@ function pintarTabla(tabla, cols, filas, filtro) {
     st.asc = st.k === k ? !st.asc : false;
     st.k = k;
     st.pag = 0;   // otro orden es otro listado: empieza de nuevo
-    pintarTabla(tabla, cols, filas, filtro);
+    pintarTabla(tabla, cols, filas, filtro, porPagina);
   });
   tabla.querySelectorAll('td.pag button').forEach(b => b.onclick = () => {
     st.pag = Math.min(paginas - 1, Math.max(0, st.pag + Number(b.dataset.p)));
-    pintarTabla(tabla, cols, filas, filtro);
+    pintarTabla(tabla, cols, filas, filtro, porPagina);
   });
 }
 
@@ -634,30 +723,6 @@ const miniRiel = pct => pct == null ? '<span class="apagado">—</span>'
   : `<div class="mini-riel ${nivel(pct)}"><span class="via"><i style="width:${Math.min(100, pct)}%"></i></span><span>${nf(pct, 0)}%</span></div>`;
 
 // ── Columnas ──────────────────────────────────────────────────────────────────
-const COLS_ORD_DIA = [
-  { k: 'producto', t: 'Producto', clave: true },
-  { k: 'presentacion', t: 'Present.' },
-  { k: 'plu', t: 'PLU' },
-  { k: 'planificado', t: 'Plan', num: true },
-  { k: 'producido', t: 'Producido', num: true },
-  { k: 'pct', t: 'Cumpl.', num: true, dec: 1, html: f => miniRiel(f.pct) },
-  { k: 'kilos', t: 'Kg granel', num: true, dec: 1 },
-  { k: 'horas', t: 'Horas', num: true, dec: 1 },
-  { k: 'unidPorHora', t: 'U/h', num: true, dec: 0 },
-  { k: 'planificadoPor', t: 'Asignado', v: f => (f.planificadoPor || []).join(', '), html: f => listaTags(f.planificadoPor, true) },
-  { k: 'personas', t: 'Produjo', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
-  { k: 'estado', t: 'Estado' },
-];
-const COLS_SINPLAN = [
-  { k: 'fecha', t: 'Fecha' },
-  { k: 'producto', t: 'Producto', clave: true },
-  { k: 'plu', t: 'PLU' },
-  { k: 'seccion', t: 'Sección' },
-  { k: 'producido', t: 'Unidades', num: true },
-  { k: 'kilos', t: 'Kg granel', num: true, dec: 1 },
-  { k: 'horas', t: 'Horas', num: true, dec: 1 },
-  { k: 'personas', t: 'Personas', v: f => (f.personas || []).join(', '), html: f => listaTags(f.personas) },
-];
 const COLS_PERSONAS = [
   { k: 'persona', t: 'Persona', clave: true },
   { k: 'cargas', t: 'Cargas', num: true },
@@ -702,6 +767,17 @@ const COLS_FRAC = [
   { k: 'hasta', t: 'Hasta' },
 ];
 // ── Columnas del historial de sala ────────────────────────────────────────────
+// Un producto por fila con su promedio en cada tarea de la línea. Las columnas de minutos las
+// arma historial_sala.js sobre los lotes que tienen esa tarea cronometrada: el lote sin hora
+// de fin no baja el promedio, queda afuera. Vacío ("—") = esa tarea nunca se registró.
+const COLS_PROD_HIST = [
+  { k: 'producto', t: 'Producto', clave: true },
+  { k: 'plu', t: 'PLU' },
+  { k: 'cargas', t: 'Lotes', num: true },
+  { k: 'minEnvasado', t: 'Envasado (min)', num: true, dec: 0 },
+  { k: 'minEtiquetado', t: 'Etiquetado (min)', num: true, dec: 0 },
+  { k: 'minEmpaquetado', t: 'Empaquetado (min)', num: true, dec: 0 },
+];
 const COLS_ROLES = [
   { k: 'rol', t: 'Tarea', clave: true },
   { k: 'cargas', t: 'Lotes', num: true },
@@ -729,42 +805,6 @@ const COLS_HIST = [
   { k: 'minLote', t: 'Min lote', num: true, dec: 0 },
   { k: 'lote', t: 'Lote' },
 ];
-
-// ── Días de producción ────────────────────────────────────────────────────────
-// El filtro se aplica a las órdenes de cada día: un día sin órdenes que coincidan no se
-// muestra, y los que sí coinciden se abren solos para no obligar a un click extra.
-function pintarDias(filtro) {
-  const q = (filtro || '').trim().toLowerCase();
-  const dias = (datos.produccion.dias || [])
-    .map(d => q ? { ...d, ordenes: d.ordenes.filter(o => coincide(o, COLS_ORD_DIA, q)) } : d)
-    .filter(d => !q || d.ordenes.length);
-  const cont = $('dias');
-  if (!dias.length) { cont.innerHTML = '<div class="panel"><div class="vacio">Sin días con órdenes en el rango elegido</div></div>'; return; }
-  cont.innerHTML = dias.map((d, i) => `
-    <details class="dia" ${q || i === 0 ? 'open' : ''}>
-      <summary>
-        <div class="linea1">
-          <span class="caret">▶</span>
-          <span class="fecha">${escHtml(fechaLarga(d.fecha))}</span>
-          <span class="met"><b>${nf(d.ordenes.length)}</b> órdenes</span>
-          <span class="met">plan <b>${nf(d.planificado)}</b> · producido <b>${nf(d.producido)}</b></span>
-          <span class="met"><b>${nf(d.kilos, 1)}</b> kg</span>
-          <span class="met"><b>${nf(d.horas, 1)}</b> h-persona</span>
-          <span class="cifra ${nivel(d.pct)}">${d.pct == null ? '—' : nf(d.pct, 0) + '%'}</span>
-        </div>
-        <div class="riel ${nivel(d.pct)}"><i style="width:${Math.min(100, d.pct || 0)}%"></i></div>
-      </summary>
-      <div class="cuerpo">
-        <table data-dia="${escHtml(d.fecha)}"></table>
-        <div class="quienes">
-          <span class="rot">Asignados</span> ${listaTags(d.asignados, true)}
-          <span class="rot">Cargaron</span> ${listaTags(d.personas)}
-        </div>
-      </div>
-    </details>`).join('');
-  // Las tablas se pintan después de insertar el markup: cada una guarda su propio orden.
-  dias.forEach(d => pintarTabla(cont.querySelector(`table[data-dia="${d.fecha}"]`), COLS_ORD_DIA, d.ordenes));
-}
 
 // ── Resúmenes por día / semana ────────────────────────────────────────────────
 // Los rankings ya vienen ordenados del servidor: productos por kilos, personas por cuántos
@@ -804,7 +844,7 @@ const COLS_FAMILIA = [
 ];
 // La semana es el período por defecto en todas: el día suelto tiene demasiado ruido para
 // comparar y el mes tapa las diferencias entre una semana buena y una mala.
-const UNIDAD = { prod: 'semana', frac: 'semana', hist: 'semana' };
+const UNIDAD = { frac: 'semana' };
 const dm = f => { const x = String(f || '').split('-'); return x.length === 3 ? `${x[2]}/${x[1]}` : f; };
 
 // "2026-W32" → "Semana 32 · 03/08 al 09/08"; "2026-08" → "agosto 2026"; un día, su fecha larga.
@@ -819,13 +859,12 @@ function tituloPeriodo(p) {
 
 // El historial se trae de su propio endpoint y recién cuando se abre su tab, así que puede no
 // estar todavía: sin el `|| {}` el primer repintado de la tab rompería.
-const salaDatos = sala =>
-  (sala === 'prod' ? datos && datos.produccion
-    : sala === 'frac' ? datos && datos.fraccionado : historial) || {};
-// Guard de los listeners: la tab de historial vive de otra variable que las otras dos.
-const hayDatos = sala => sala === 'hist' ? !!historial : !!datos;
+// Fraccionado es la única sala que se pinta desde este payload; las otras dos miden lote por
+// lote con su propio endpoint (VISTAS).
+const salaDatos = () => (datos && datos.fraccionado) || {};
+const hayDatos = () => !!datos;
 const periodosDe = (sala, unidad) => {
-  const d = salaDatos(sala);
+  const d = salaDatos();
   return (unidad === 'mes' ? d.porMes : unidad === 'semana' ? d.porSemana : d.porDia) || [];
 };
 
@@ -870,11 +909,7 @@ function pintarPeriodos(sala) {
 // ── Comparador de períodos ────────────────────────────────────────────────────
 // Los rankings por período ya vienen del servidor, así que la serie de un producto, una
 // familia o una persona se arma buscándolo en cada período: no hace falta pedir nada más.
-const CMP = { prod: { tipo: 'producto', unidad: 'semana', item: '' },
-              frac: { tipo: 'producto', unidad: 'semana', item: '' },
-              // El historial compara plata período contra período: sólo usa `unidad`, y arranca
-              // en semana igual que el botón marcado en su segmentado.
-              hist: { unidad: 'semana' } };
+const CMP = { frac: { tipo: 'producto', unidad: 'semana', item: '' } };
 const LISTA_DE = { producto: p => p.productos || [], familia: p => p.familias || [], persona: p => p.personas || [] };
 const CLAVE_DE = { producto: x => x.plu, familia: x => x.familia, persona: x => x.persona };
 const ROTULO_DE = { producto: x => `${x.producto} (${x.plu})`, familia: x => x.familia, persona: x => x.persona };
@@ -954,53 +989,37 @@ function elegirEnSegmento(cont, boton) {
   return boton.dataset.u;
 }
 
-['prod', 'frac'].forEach(sala => {
+// Fraccionado sigue con el render por rankings: no tiene tareas de línea que medir.
+['frac'].forEach(sala => {
   // Alternador día/semana/mes de los resúmenes: repinta sólo su sala.
   $('per-' + sala).querySelectorAll('button').forEach(b => b.onclick = () => {
     UNIDAD[sala] = elegirEnSegmento($('per-' + sala), b);
-    if (hayDatos(sala)) pintarPeriodos(sala);
+    if (hayDatos()) pintarPeriodos(sala);
   });
   // Mismo alternador para el comparador, que es independiente del de arriba.
   $('cmp-per-' + sala).querySelectorAll('button').forEach(b => b.onclick = () => {
     CMP[sala].unidad = elegirEnSegmento($('cmp-per-' + sala), b);
-    if (hayDatos(sala)) pintarCmp(sala);
+    if (hayDatos()) pintarCmp(sala);
   });
   $('cmp-tipo-' + sala).onchange = e => {
     CMP[sala].tipo = e.target.value;
     CMP[sala].item = '';   // otro tipo, otras opciones: arranca en la primera
-    if (hayDatos(sala)) pintarCmp(sala);
+    if (hayDatos()) pintarCmp(sala);
   };
   $('cmp-item-' + sala).onchange = e => {
     CMP[sala].item = e.target.value;
-    if (hayDatos(sala)) pintarCmp(sala);
+    if (hayDatos()) pintarCmp(sala);
   };
-  $('q-fam-' + sala).oninput = () => hayDatos(sala) && pintarTabla(
-    $('t-fam-' + sala), COLS_FAMILIA, salaDatos(sala).familias || [], $('q-fam-' + sala).value);
-});
-
-// El historial tiene sus propios alternadores: su semanal abre el detalle de cada día y su
-// comparador mide plata, no productos.
-$('per-hist').querySelectorAll('button').forEach(b => b.onclick = () => {
-  UNIDAD.hist = elegirEnSegmento($('per-hist'), b);
-  if (historial) pintarSemanas();
-});
-$('cmp-per-hist').querySelectorAll('button').forEach(b => b.onclick = () => {
-  CMP.hist.unidad = elegirEnSegmento($('cmp-per-hist'), b);
-  if (historial) pintarCmpValor();
+  $('q-fam-' + sala).oninput = () => hayDatos() && pintarTabla(
+    $('t-fam-' + sala), COLS_FAMILIA, salaDatos().familias || [], $('q-fam-' + sala).value);
 });
 
 // ── Render ────────────────────────────────────────────────────────────────────
+// La sala de producción ya no se pinta desde acá: mide lote por lote con su propio endpoint,
+// igual que el historial. De este payload sólo queda vivo el fraccionado.
 function pintar() {
   if (!datos) return;
   const p = datos.produccion, f = datos.fraccionado;
-  $('kpis-prod').innerHTML = [
-    kpi('Días con órdenes', nf((p.dias || []).length)),
-    kpi('Cargas', nf(p.totales.cargas)),
-    kpi('Unidades', nf(p.totales.unidades)),
-    kpi('Kg de granel', nf(p.totales.kilos, 0)),
-    kpi('Horas-persona', nf(p.totales.horas, 1)),
-    kpi('Personas', nf(p.totales.personas)),
-  ].join('');
   $('kpis-frac').innerHTML = [
     kpi('Productos', nf((f.productos || []).length)),
     kpi('Tandas', nf(f.totales.cargas)),
@@ -1009,30 +1028,41 @@ function pintar() {
     kpi('Horas-persona', nf(f.totales.horas, 1)),
     kpi('Personas', nf(f.totales.personas)),
   ].join('');
-  pintarDias($('q-dia').value);
-  ['prod', 'frac'].forEach(sala => { pintarPeriodos(sala); pintarCmp(sala); });
-  pintarTabla($('t-fam-prod'), COLS_FAMILIA, p.familias || [], $('q-fam-prod').value);
+  pintarPeriodos('frac'); pintarCmp('frac');
   pintarTabla($('t-fam-frac'), COLS_FAMILIA, f.familias || [], $('q-fam-frac').value);
-  pintarTabla($('t-sinplan'), COLS_SINPLAN, p.sinPlan);
-  pintarTabla($('t-pers-prod'), COLS_PERSONAS, p.personas);
   pintarTabla($('t-prodfrac'), COLS_PRODFRAC, f.productos || [], $('q-prod').value);
   pintarTabla($('t-pers-frac'), COLS_PERSONAS, f.personas, $('q-pers').value);
   pintarTabla($('t-frac'), COLS_FRAC, f.registros, $('q-frac').value);
   // Las tareas sin producto sólo existen en los resúmenes viejos: la sección aparece si hay.
-  [['prod', p.tareas], ['frac', f.tareas]].forEach(([sala, lista]) => {
-    $('sec-tareas-' + sala).hidden = !(lista && lista.length);
-    if (lista && lista.length) pintarTabla($('t-tareas-' + sala), COLS_TAREAS, lista);
-  });
-  $('nota').textContent = `${(p.dias || []).length} días con órdenes · ${p.totales.cargas} cargas de producción · ${f.totales.cargas} tandas de fraccionado`;
+  const tareasFrac = f.tareas || [];
+  $('sec-tareas-frac').hidden = !tareasFrac.length;
+  if (tareasFrac.length) pintarTabla($('t-tareas-frac'), COLS_TAREAS, tareasFrac);
+  $('nota').textContent = `${p.totales.cargas} cargas de producción · ${f.totales.cargas} tandas de fraccionado`;
 }
 
-// ── Historial de sala ─────────────────────────────────────────────────────────
+// ── Salas medidas lote por lote ───────────────────────────────────────────────
+// Producción e Historial miden lo mismo con el mismo módulo del servidor: cada lote con sus
+// tres tareas, quién las hizo y en qué horario. Lo único que cambia es de dónde salen los
+// lotes (los registros que carga el sistema o los resúmenes .xlsx archivados), así que el
+// tablero se escribe una vez y se instancia dos veces. `suf` es el sufijo de los ids del pane.
+const VISTAS = {
+  prod: { suf: 'prod', url: '/api/productividad/historial-produccion',
+          rot: 'la producción cargada' },
+  hist: { suf: 'hist', url: '/api/productividad/historial', rot: 'el archivo de resúmenes' },
+};
+for (const V of Object.values(VISTAS)) {
+  Object.assign(V, { datos: null, ref: null, opciones: null, unidad: 'semana', unidadCmp: 'semana',
+                     filtro: { tipo: '', valor: '' }, plu: '' });
+}
+const $v = (V, base) => $(`${base}-${V.suf}`);
+const periodosV = (V, unidad) => ((unidad === 'mes' ? V.datos.porMes : V.datos.porSemana) || []);
+
 // Tarjeta por tarea de la línea. La barra compara las horas de cada tarea contra la más larga:
 // es la lectura de un vistazo (envasar se lleva el doble que empaquetar).
-function pintarRoles() {
-  const lista = historial.roles || [];
+function pintarRolesV(V) {
+  const lista = V.datos.roles || [];
   const tope = Math.max(1, ...lista.map(r => r.horas || 0));
-  $('roles-hist').innerHTML = lista.map(r => `
+  $v(V, 'roles').innerHTML = lista.map(r => `
     <div class="rol">
       <div class="nom">${escHtml(r.rol)}</div>
       <div class="horas">${nf(r.horas, 0)} h</div>
@@ -1043,23 +1073,88 @@ function pintarRoles() {
         <span><b>${nf(r.personas)}</b> personas</span>
       </div>
     </div>`).join('') || '<div class="panel"><div class="vacio">Sin tareas registradas</div></div>';
-  pintarTabla($('t-roles-hist'), COLS_ROLES, lista);
+  pintarTabla($v(V, 't-roles'), COLS_ROLES, lista);
+}
+
+// ── Gráficos de barras ────────────────────────────────────────────────────────
+// Componente único: una serie de barras y una línea de referencia horizontal. Lo comparten la
+// producción semanal y el envasado lote por lote; lo único que cambia entre las dos es qué dice
+// cada barra. Alturas en píxeles (no en %) porque la línea se ubica en la misma escala y con los
+// textos de arriba y de abajo comiendo espacio un porcentaje ya no cae donde corresponde.
+const ALTO_GRAF = 150;    // alto del riel de cada barra — igual que .riel-graf en el CSS
+const ALTO_SOBRE = 18;    // renglón de la cifra arriba de la barra — igual que .graf .col b
+
+// barras: [{ v, sobre, pie, rot, tip }] · ref: { v, texto } o null si no hay contra qué comparar.
+function grafBarras(cont, barras, ref, ancho) {
+  // La escala también contempla la referencia: si la línea quedara por encima del lote más alto
+  // se dibujaría fuera del área y no se vería.
+  const max = Math.max(1, ...barras.map(b => b.v || 0), (ref && ref.v) || 0);
+  const alto = v => Math.max(1, Math.round((v || 0) / max * ALTO_GRAF));
+  cont.innerHTML = `
+    <div class="area">
+      ${!ref ? '' : `<div class="prom" style="top:${ALTO_SOBRE + ALTO_GRAF - alto(ref.v)}px">
+        <span>${escHtml(ref.texto)}</span></div>`}
+      <div class="cols">${barras.map(b => `
+        <div class="col" style="width:${ancho}px" title="${escHtml(b.tip || '')}">
+          <b>${b.sobre == null ? '' : escHtml(b.sobre)}</b>
+          <div class="riel-graf"><i style="height:${alto(b.v)}px"></i></div>
+          ${b.pie == null ? '' : `<span>${escHtml(b.pie)}</span>`}
+          ${b.rot == null ? '' : `<em>${escHtml(b.rot)}</em>`}
+        </div>`).join('')}</div>
+    </div>`;
+}
+
+const plataCorta = v => {
+  const n = Math.abs(Number(v) || 0);
+  if (n >= 1e6) return `$ ${nf(v / 1e6, 1)}M`;
+  if (n >= 1e3) return `$ ${nf(v / 1e3, 0)}k`;
+  return plata(v);
+};
+// "2026-W32" → "S32"; "2026-08" → "ago 26". El título largo va en el tooltip de la columna.
+const rotuloCorto = p => (/^\d{4}-W/.test(p.clave)
+  ? `S${p.clave.slice(6)}`
+  : new Date(+p.clave.slice(0, 4), +p.clave.slice(5, 7) - 1, 1)
+      .toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }));
+
+function pintarGrafPeriodos(V, lista) {
+  // Del más viejo al más nuevo: la serie se lee de izquierda a derecha aunque las tarjetas de
+  // abajo muestren primero lo último.
+  const serie = lista.slice().reverse();
+  // Sin períodos el marco vacío parece un gráfico roto: se esconde y habla la tarjeta de abajo.
+  $v(V, 'graf').hidden = !serie.length;
+  if (!serie.length) return;
+  // La vara es la semana promedio de TODO el archivo, no la de las semanas que quedaron en
+  // pantalla: mover el filtro de fechas no tiene que mover contra qué se compara. Por mes la
+  // referencia semanal no aplica, así que ahí no se dibuja línea.
+  const ref = V.ref && V.unidad === 'semana' && V.ref.semanal.valor
+    ? { v: V.ref.semanal.valor, texto: `semana promedio ${plataCorta(V.ref.semanal.valor)}` }
+    : null;
+  grafBarras($v(V, 'graf'), serie.map(p => ({
+    v: p.valor,
+    sobre: plataCorta(p.valor),
+    rot: rotuloCorto(p),
+    tip: `${tituloPeriodo(p)} · ${plata(p.valor)}`,
+  })), ref, 62);
 }
 
 // ── Producción semanal ────────────────────────────────────────────────────────
-// Cada período abre en sus jornadas y cada jornada, en sus lotes: el mismo detalle que antes
-// vivía en una tabla aparte, pero al lado del total del que forma parte.
-function pintarSemanas() {
-  const lista = periodosDe('hist', UNIDAD.hist);
-  const cont = $('periodos-hist');
+// Cada período abre en sus jornadas y cada jornada, en sus lotes: el detalle vive al lado del
+// total del que forma parte, y la lista entera se pliega para no empujar al resto del tablero.
+function pintarPeriodosV(V) {
+  const lista = periodosV(V, V.unidad);
+  const cont = $v(V, 'periodos');
+  pintarGrafPeriodos(V, lista);
+  $v(V, 'cnt-per').textContent = V.unidad === 'mes'
+    ? `${nf(lista.length)} ${lista.length === 1 ? 'mes' : 'meses'}`
+    : `${nf(lista.length)} ${lista.length === 1 ? 'semana' : 'semanas'}`;
   if (!lista.length) {
     cont.innerHTML = '<div class="panel"><div class="vacio">Sin producción en el rango elegido</div></div>';
     return;
   }
-  const horasDia = historial.horasPorDia || {};
+  const horasDia = V.datos.horasPorDia || {};
   // Los lotes se agrupan una sola vez por fecha y de ahí salen todos los períodos.
   const porFecha = new Map();
-  for (const r of historial.registros || []) {
+  for (const r of V.datos.registros || []) {
     if (!porFecha.has(r.fecha)) porFecha.set(r.fecha, []);
     porFecha.get(r.fecha).push(r);
   }
@@ -1069,7 +1164,7 @@ function pintarSemanas() {
     <details class="dia" ${i === 0 ? 'open' : ''}>
       <summary>
         <div class="linea1">
-          <span class="caret">▶</span>
+          <span class="caret">&#9654;</span>
           <span class="fecha">${escHtml(tituloPeriodo(p))}</span>
           <span class="met"><b>${nf(p.cargas)}</b> lotes</span>
           <span class="met"><b>${nf(p.productosDistintos)}</b> productos</span>
@@ -1087,7 +1182,7 @@ function pintarSemanas() {
         <details class="dia sub">
           <summary>
             <div class="linea1">
-              <span class="caret">▶</span>
+              <span class="caret">&#9654;</span>
               <span class="fecha">${escHtml(fechaLarga(f))}</span>
               <span class="met"><b>${nf(lotes.length)}</b> lotes</span>
               ${horasDia[f] == null ? '' : `<span class="met"><b>${nf(horasDia[f], 1)}</b> h de sala</span>`}
@@ -1107,9 +1202,68 @@ function pintarSemanas() {
   }));
 }
 
-// ── Comparar semanas por lo producido en plata ────────────────────────────────
-// No compara un producto contra sí mismo como el de las otras salas: compara el total de un
-// período contra el anterior, que es la lectura de "esta semana hicimos 700k contra 1M".
+// ── Envasado lote por lote ────────────────────────────────────────────────────
+// El promedio de la tabla esconde la dispersión: dos lotes de 20 minutos y uno de 80 promedian
+// 40 y ninguno se parece a 40. Acá se ven todos los lotes envasados del producto elegido contra
+// la referencia histórica de ese producto.
+
+// Lo que se hizo en ese lote, bajo la barra. Los pesables se miden en kilos y los envasados en
+// unidades: se muestra la cifra que el registro tiene cargada, no las dos.
+const cantidadLote = r => (r.unidades ? `${nf(r.unidades)} u` : r.kilos ? `${nf(r.kilos, 1)} kg` : '');
+
+const lotesEnvasados = (V, plu) => (V.datos.registros || [])
+  .filter(r => r.plu === plu && r.minEnvasado != null)
+  .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+
+// Sólo entran los productos que tienen envasado cronometrado: elegir uno sin datos deja el
+// gráfico vacío sin explicar por qué. Alfabético, que es como se busca un producto, y la
+// elección previa se conserva si sigue en la lista.
+function pintarSelectorEnv(V) {
+  const conEnvasado = (V.datos.productos || []).filter(p => p.minEnvasado != null)
+    .sort((a, b) => String(a.producto).localeCompare(String(b.producto), 'es'));
+  if (!conEnvasado.some(p => p.plu === V.plu)) V.plu = (conEnvasado[0] || {}).plu || '';
+  $v(V, 'sel-env').innerHTML = conEnvasado.map(p =>
+    `<option value="${escHtml(p.plu)}"${p.plu === V.plu ? ' selected' : ''}>${escHtml(p.producto)}</option>`).join('');
+  $v(V, 'sec-env').hidden = !conEnvasado.length;
+  return conEnvasado.length;
+}
+
+function pintarGrafEnvasado(V) {
+  if (!pintarSelectorEnv(V)) return;
+  const lotes = lotesEnvasados(V, V.plu);
+  const cont = $v(V, 'graf-env');
+  if (!lotes.length) {
+    cont.innerHTML = '<div class="vacio">Sin lotes con envasado cronometrado</div>';
+    return;
+  }
+  const minutos = lotes.map(r => r.minEnvasado);
+  const prom = minutos.reduce((s, m) => s + m, 0) / lotes.length;
+  // La línea es el envasado histórico de ESE producto, no el promedio de los lotes en pantalla:
+  // filtrar dos semanas no puede cambiar la vara. Un producto que la referencia todavía no
+  // conoce (cargado después del último recálculo) cae al promedio de lo que se está viendo.
+  const hist = ((V.ref && V.ref.productos[V.plu]) || {}).minEnvasado;
+  const ref = hist != null
+    ? { v: hist, texto: `referencia ${nf(hist, 0)} min` }
+    : { v: prom, texto: `promedio del rango ${nf(prom, 0)} min` };
+  const conFecha = lotes.length <= 30;
+  grafBarras(cont, lotes.map(r => ({
+    v: r.minEnvasado,
+    sobre: nf(r.minEnvasado, 0),
+    pie: cantidadLote(r),
+    rot: conFecha ? dm(r.fecha) : null,
+    tip: `${fechaLarga(r.fecha)}${r.lote ? ' · lote ' + r.lote : ''} · ${nf(r.minEnvasado, 0)} min`
+       + ` · ${nf(r.unidades)} u · ${nf(r.kilos, 1)} kg`,
+  })), ref, 38);
+  cont.insertAdjacentHTML('beforeend',
+    `<div class="pie-graf">${nf(lotes.length)} lotes envasados · del ${fechaLarga(lotes[0].fecha)} al `
+    + `${fechaLarga(lotes[lotes.length - 1].fecha)} · promedio de lo que se está viendo, `
+    + `${nf(prom, 0)} min · el más largo, ${nf(Math.max(...minutos), 0)} min · el más corto, `
+    + `${nf(Math.min(...minutos), 0)} min</div>`);
+}
+
+// ── Comparar períodos por lo producido en plata ───────────────────────────────
+// No compara un producto contra sí mismo como el de fraccionado: compara el total de un período
+// contra el anterior, que es la lectura de "esta semana hicimos 700k contra 1M".
 const COLS_CMP_VALOR = [
   { k: 'titulo', t: 'Período', clave: true },
   { k: 'valor', t: 'Producido', num: true, html: f => plata(f.valor) },
@@ -1122,10 +1276,10 @@ const COLS_CMP_VALOR = [
   { k: 'sinPrecio', t: 'Sin precio', num: true },
 ];
 
-function pintarCmpValor() {
+function pintarCmpValor(V) {
   // Los períodos vienen del más nuevo al más viejo; para comparar con "el anterior" se recorre
   // al revés y después se da vuelta la serie.
-  const periodos = periodosDe('hist', CMP.hist.unidad).slice().reverse();
+  const periodos = periodosV(V, V.unidadCmp).slice().reverse();
   let previo = null;
   const serie = periodos.map(p => {
     const fila = { ...p, titulo: tituloPeriodo(p), previo,
@@ -1133,13 +1287,76 @@ function pintarCmpValor() {
     previo = p.valor;
     return fila;
   });
-  pintarTabla($('t-cmp-hist'), COLS_CMP_VALOR, serie.reverse());
+  pintarTabla($v(V, 't-cmp'), COLS_CMP_VALOR, serie.reverse());
 }
 
-function pintarHistorial() {
-  if (!historial) return;
-  const c = historial.cobertura, t = historial.totales;
-  $('kpis-hist').innerHTML = [
+// ── Referencia ────────────────────────────────────────────────────────────────
+// Los promedios del archivo entero, calculados una vez y guardados en el servidor. Es la vara
+// de los gráficos: se mira contra lo que la sala viene haciendo siempre, no contra los períodos
+// que quedaron dentro del filtro. Se recalcula a mano, con el botón, cuando se quiere mover.
+function pintarNotaRef(V) {
+  const r = V.ref;
+  $v(V, 'nota-ref').textContent = r && r.semanas
+    ? `Referencia: ${nf(r.semanas)} semanas del ${fechaLarga(r.desde)} al ${fechaLarga(r.hasta)}`
+      + ` · semana promedio ${plata(r.semanal.valor)}`
+      + ` · envasado ${nf(r.tareas.Envasado, 0)} min, etiquetado ${nf(r.tareas.Etiquetado, 0)} min,`
+      + ` empaquetado ${nf(r.tareas.Empaquetado, 0)} min por lote`
+      + (r.calculadoEl ? ` · calculada el ${fechaLarga(r.calculadoEl.slice(0, 10))}` : '')
+    : 'Sin referencia calculada todavía.';
+}
+
+async function recalcularRef(V) {
+  const btn = $v(V, 'recalc');
+  btn.disabled = true;
+  const antes = btn.textContent;
+  btn.textContent = 'Recalculando…';
+  try {
+    const r = await fetch(V.url + '/referencia', { method: 'POST' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    V.ref = await r.json();
+    pintarNotaRef(V);
+    // Los gráficos se rehacen con la vara nueva; el resto del tablero no cambió.
+    pintarPeriodosV(V);
+    pintarGrafEnvasado(V);
+  } catch (e) {
+    $('error').textContent = 'No se pudo recalcular la referencia: ' + e.message;
+    $('error').hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = antes;
+  }
+}
+
+// ── Buscar por producto o por persona ─────────────────────────────────────────
+// El filtro lo resuelve el servidor: acota los lotes y vuelve a medir todo. Filtrarlo acá
+// obligaría a rehacer en el navegador las mismas sumas que ya sabe hacer historial_sala.js.
+// Las opciones salen del archivo completo y se guardan aparte: si se tomaran de la respuesta
+// filtrada, elegir una persona dejaría un solo producto en la lista y no se podría volver.
+function pintarBusqueda(V) {
+  const sel = $v(V, 'item');
+  if (!V.filtro.tipo || !V.opciones) {
+    sel.hidden = true;
+    $v(V, 'limpiar').hidden = true;
+    $v(V, 'chip').hidden = true;
+    return;
+  }
+  const lista = V.filtro.tipo === 'producto'
+    ? V.opciones.productos.map(p => [p.plu, `${p.nombre} (${p.plu})`])
+    : V.opciones.personas.map(n => [n, n]);
+  sel.innerHTML = lista.map(([v, rot]) =>
+    `<option value="${escHtml(v)}" ${v === V.filtro.valor ? 'selected' : ''}>${escHtml(rot)}</option>`).join('');
+  sel.hidden = false;
+  $v(V, 'limpiar').hidden = false;
+  const rot = (lista.find(l => l[0] === V.filtro.valor) || [])[1];
+  $v(V, 'chip').textContent = rot ? `Midiendo: ${rot}` : '';
+  $v(V, 'chip').hidden = !rot;
+}
+
+// ── Render de la vista ────────────────────────────────────────────────────────
+function pintarVista(V) {
+  if (!V.datos) return;
+  const c = V.datos.cobertura, t = V.datos.totales;
+  $v(V, 'kpis').innerHTML = [
     kpi('Jornadas', nf(c.jornadas)),
     kpi('Lotes', nf(c.cargas)),
     kpi('Producido', plata(t.valor)),
@@ -1147,14 +1364,13 @@ function pintarHistorial() {
     kpi('Horas de sala', nf(t.horasSala, 0)),
     kpi('$ por hora', plata(t.horasSala > 0 ? t.valor / t.horasSala : null)),
   ].join('');
-  // Cuánto del historial se puede medir: un promedio no dice nada sin saber sobre cuántos
-  // lotes sale ni cuántos quedaron sin horario cargado.
-  const total = historial.rangoTotal || {};
-  // Si el rango elegido deja archivo afuera, se dice: si no, un total chico parece un dato
-  // faltante cuando en realidad es el filtro de fechas haciendo su trabajo.
+  // Cuánto del archivo se puede medir: un promedio no dice nada sin saber sobre cuántos lotes
+  // sale ni cuántos quedaron sin horario cargado. Si el rango elegido deja archivo afuera se
+  // avisa: si no, un total chico parece un dato faltante cuando es el filtro haciendo su trabajo.
+  const total = V.datos.rangoTotal || {};
   const recortado = (total.desde && c.desde && c.desde > total.desde)
     || (total.hasta && c.hasta && c.hasta < total.hasta);
-  $('nota-hist').textContent = (c.jornadas
+  $v(V, 'nota').textContent = (c.jornadas
     ? `${nf(c.jornadas)} jornadas · del ${fechaLarga(c.desde)} al ${fechaLarga(c.hasta)} · `
       + `${nf(c.medibles)} de ${nf(c.cargas)} lotes con horario medible`
       + (c.sinHorario ? ` · ${nf(c.sinHorario)} sin horario` : '')
@@ -1164,95 +1380,98 @@ function pintarHistorial() {
       + (t.sinPrecio ? ` · ${nf(t.sinPrecio)} lotes sin precio de lista, fuera del total` : '')
     : 'Sin jornadas en el rango elegido')
     + (recortado ? ` — el archivo completo va del ${fechaLarga(total.desde)} al ${fechaLarga(total.hasta)}` : '');
-  pintarRoles();
-  pintarSemanas();
-  pintarCmpValor();
-  const tareas = historial.tareas || [];
-  $('sec-tareas-hist').hidden = !tareas.length;
-  if (tareas.length) pintarTabla($('t-tareas-hist'), COLS_TAREAS, tareas, $('q-tareas-hist').value);
-}
-
-// ── Buscar por producto o por persona ─────────────────────────────────────────
-// El filtro lo resuelve el servidor: acota las cargas y vuelve a medir todo. Filtrarlo acá
-// obligaría a rehacer en el navegador las mismas sumas que ya sabe hacer historial_sala.js.
-const FILTRO = { tipo: '', valor: '' };
-
-// Las opciones salen del historial completo y se guardan aparte: si se tomaran de la respuesta
-// filtrada, elegir una persona dejaría un solo producto en la lista y no se podría volver.
-let opcionesHist = null;
-
-function pintarBusqueda() {
-  const sel = $('hist-item');
-  if (!FILTRO.tipo || !opcionesHist) {
-    sel.hidden = true;
-    $('hist-limpiar').hidden = true;
-    $('hist-chip').hidden = true;
-    return;
+  pintarNotaRef(V);
+  pintarRolesV(V);
+  pintarPeriodosV(V);
+  pintarCmpValor(V);
+  pintarTabla($v(V, 't-tprod'), COLS_PROD_HIST, V.datos.productos || [], $v(V, 'q-tprod').value, 10);
+  pintarGrafEnvasado(V);
+  // Las tareas sin producto sólo existen en los resúmenes viejos: la sección aparece si hay.
+  const tareas = V.datos.tareas || [];
+  if ($v(V, 'sec-tareas')) {
+    $v(V, 'sec-tareas').hidden = !tareas.length;
+    if (tareas.length) pintarTabla($v(V, 't-tareas'), COLS_TAREAS, tareas, $v(V, 'q-tareas').value);
   }
-  const lista = FILTRO.tipo === 'producto'
-    ? opcionesHist.productos.map(p => [p.plu, `${p.nombre} (${p.plu})`])
-    : opcionesHist.personas.map(n => [n, n]);
-  sel.innerHTML = lista.map(([v, rot]) =>
-    `<option value="${escHtml(v)}" ${v === FILTRO.valor ? 'selected' : ''}>${escHtml(rot)}</option>`).join('');
-  sel.hidden = false;
-  $('hist-limpiar').hidden = false;
-  const rot = (lista.find(l => l[0] === FILTRO.valor) || [])[1];
-  $('hist-chip').textContent = rot ? `Midiendo: ${rot}` : '';
-  $('hist-chip').hidden = !rot;
 }
 
-// Se pide de nuevo con cada filtro. El servidor cachea los 156 xlsx, así que lo único que se
+// Se pide de nuevo con cada filtro. El servidor cachea los archivos, así que lo único que se
 // rehace es la medición.
-async function cargarHistorial(forzar) {
-  if (historial && !forzar) return;
-  $('hist-cargando').hidden = false;
+async function cargarVista(V, forzar) {
+  if (V.datos && !forzar) return;
+  $v(V, 'cargando').hidden = false;
   try {
     // Las mismas fechas que el resto del módulo: lo que se ve abajo es el período de arriba.
     const qs = new URLSearchParams({ desde: $('desde').value, hasta: $('hasta').value });
-    if (FILTRO.tipo === 'producto' && FILTRO.valor) qs.set('plu', FILTRO.valor);
-    if (FILTRO.tipo === 'persona' && FILTRO.valor) qs.set('persona', FILTRO.valor);
-    const r = await fetch('/api/productividad/historial?' + qs);
+    if (V.filtro.tipo === 'producto' && V.filtro.valor) qs.set('plu', V.filtro.valor);
+    if (V.filtro.tipo === 'persona' && V.filtro.valor) qs.set('persona', V.filtro.valor);
+    const r = await fetch(V.url + '?' + qs);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-    historial = await r.json();
+    V.datos = await r.json();
+    V.ref = V.datos.referencia || null;
     // La primera respuesta trae el catálogo completo; las filtradas también, pero se conserva
     // la primera por si alguna vez dejara de venir.
-    opcionesHist = historial.opciones || opcionesHist;
-    pintarBusqueda();
-    pintarHistorial();
+    V.opciones = V.datos.opciones || V.opciones;
+    pintarBusqueda(V);
+    pintarVista(V);
   } catch (e) {
-    $('error').textContent = 'No se pudo leer el historial de sala: ' + e.message;
+    $('error').textContent = `No se pudo medir ${V.rot}: ${e.message}`;
     $('error').hidden = false;
   } finally {
-    $('hist-cargando').hidden = true;
+    $v(V, 'cargando').hidden = true;
   }
 }
 
-$('hist-tipo').onchange = e => {
-  FILTRO.tipo = e.target.value;
-  // Al cambiar de tipo arranca en la primera opción; sin tipo, se mide toda la sala.
-  const lista = FILTRO.tipo === 'producto' ? (opcionesHist && opcionesHist.productos.map(p => p.plu))
-    : FILTRO.tipo === 'persona' ? (opcionesHist && opcionesHist.personas) : [];
-  FILTRO.valor = (lista && lista[0]) || '';
-  pintarBusqueda();
-  cargarHistorial(true);
-};
-$('hist-item').onchange = e => { FILTRO.valor = e.target.value; cargarHistorial(true); };
-$('hist-limpiar').onclick = () => {
-  FILTRO.tipo = ''; FILTRO.valor = '';
-  $('hist-tipo').value = '';
-  pintarBusqueda();
-  cargarHistorial(true);
-};
-// Estira el rango de fechas hasta cubrir todo el archivo. Recarga las tres salas porque el
-// rango es compartido: dejar las otras dos con el rango viejo sería peor que el problema.
-$('hist-todo').onclick = () => {
-  const total = (historial && historial.rangoTotal) || {};
-  if (!total.desde) return;
-  $('desde').value = total.desde;
-  $('hasta').value = total.hasta;
+// Los controles de las dos vistas se enganchan iguales: mismo pane, distinto sufijo.
+for (const V of Object.values(VISTAS)) {
+  $v(V, 'per').querySelectorAll('button').forEach(b => b.onclick = () => {
+    V.unidad = elegirEnSegmento($v(V, 'per'), b);
+    if (V.datos) pintarPeriodosV(V);
+  });
+  $v(V, 'cmp-per').querySelectorAll('button').forEach(b => b.onclick = () => {
+    V.unidadCmp = elegirEnSegmento($v(V, 'cmp-per'), b);
+    if (V.datos) pintarCmpValor(V);
+  });
+  $v(V, 'tipo').onchange = e => {
+    V.filtro.tipo = e.target.value;
+    // Al cambiar de tipo arranca en la primera opción; sin tipo, se mide toda la sala.
+    const lista = V.filtro.tipo === 'producto' ? (V.opciones && V.opciones.productos.map(p => p.plu))
+      : V.filtro.tipo === 'persona' ? (V.opciones && V.opciones.personas) : [];
+    V.filtro.valor = (lista && lista[0]) || '';
+    pintarBusqueda(V);
+    cargarVista(V, true);
+  };
+  $v(V, 'item').onchange = e => { V.filtro.valor = e.target.value; cargarVista(V, true); };
+  $v(V, 'limpiar').onclick = () => {
+    V.filtro.tipo = ''; V.filtro.valor = '';
+    $v(V, 'tipo').value = '';
+    pintarBusqueda(V);
+    cargarVista(V, true);
+  };
+  // Estira el rango de fechas hasta cubrir todo el archivo. Recarga las tres salas porque el
+  // rango es compartido: dejar las otras con el rango viejo sería peor que el problema.
+  $v(V, 'todo').onclick = () => {
+    const total = (V.datos && V.datos.rangoTotal) || {};
+    if (!total.desde) return;
+    $('desde').value = total.desde;
+    $('hasta').value = total.hasta;
+    recargarTodo();
+  };
+  $v(V, 'recalc').onclick = () => recalcularRef(V);
+  $v(V, 'sel-env').onchange = e => { V.plu = e.target.value; pintarGrafEnvasado(V); };
+  $v(V, 'q-tprod').oninput = () => V.datos && pintarTabla(
+    $v(V, 't-tprod'), COLS_PROD_HIST, V.datos.productos || [], $v(V, 'q-tprod').value, 10);
+  if ($v(V, 'q-tareas')) {
+    $v(V, 'q-tareas').oninput = () => V.datos && pintarTabla(
+      $v(V, 't-tareas'), COLS_TAREAS, V.datos.tareas || [], $v(V, 'q-tareas').value);
+  }
+}
+
+// El rango vale para las tres salas: al cambiarlo se recarga fraccionado y las vistas por lote
+// que ya se abrieron alguna vez (medir un archivo que nadie miró no tiene sentido).
+function recargarTodo() {
   cargar();
-  cargarHistorial(true);
-};
+  for (const V of Object.values(VISTAS)) if (V.datos) cargarVista(V, true);
+}
 
 async function cargar() {
   const qs = new URLSearchParams({ desde: $('desde').value, hasta: $('hasta').value });
@@ -1282,21 +1501,17 @@ function verSala(cual) {
   });
   // El rango de fechas vale para las tres salas: lo que se ve abajo tiene que ser el período
   // elegido arriba. El historial además avisa cuánto archivo hay fuera de ese rango.
-  if (cual === 'hist') cargarHistorial();
+  if (VISTAS[cual]) cargarVista(VISTAS[cual]);
   // La sala elegida se recuerda: quien mira fraccionado no quiere reelegirla cada vez.
   try { localStorage.setItem('apidelta-sala-productividad', cual); } catch (e) { /* sin storage, default */ }
 }
 
 SALAS.forEach(s => { $('sala-' + s).onclick = () => verSala(s); });
-// El rango vale para las tres salas, así que Aplicar recarga las dos fuentes. El historial
-// sólo si ya se abrió alguna vez: leer 155 xlsx para una tab que nadie miró no tiene sentido.
-$('btnAplicar').onclick = () => { cargar(); if (historial) cargarHistorial(true); };
+$('btnAplicar').onclick = recargarTodo;
 // Los buscadores filtran sobre lo ya traído: no vuelven a pegarle al servidor.
-$('q-dia').oninput  = () => datos && pintarDias($('q-dia').value);
 $('q-prod').oninput = () => datos && pintarTabla($('t-prodfrac'), COLS_PRODFRAC, datos.fraccionado.productos || [], $('q-prod').value);
 $('q-pers').oninput = () => datos && pintarTabla($('t-pers-frac'), COLS_PERSONAS, datos.fraccionado.personas, $('q-pers').value);
 $('q-frac').oninput = () => datos && pintarTabla($('t-frac'), COLS_FRAC, datos.fraccionado.registros, $('q-frac').value);
-$('q-tareas-hist').oninput = () => historial && pintarTabla($('t-tareas-hist'), COLS_TAREAS, historial.tareas || [], $('q-tareas-hist').value);
 
 // Rango por defecto: últimos 30 días, que es lo que se mira para comparar semanas. Va ANTES de
 // elegir la sala: verSala() puede disparar la carga del historial, y con los campos de fecha

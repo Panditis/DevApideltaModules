@@ -140,6 +140,37 @@ test('horasSalaDe une los lotes del día y no cruza jornadas', () => {
   assert.equal(H.minutosSalaPorDia(cargas).get('2026-01-13'), 60);
 });
 
+test('el tablero recibe los productos con su promedio por tarea', () => {
+  // El lote sin hora de fin en etiquetado no puede bajar el promedio: se ignora ese registro
+  // y el promedio sale de los que sí están cronometrados.
+  const aMedias = { fecha: '2026-01-14', plu: '2375', nombre: 'Polen 100G', cantFraccionada: 40,
+                    roles: [{ rol: 'Envasado', nombre: 'KAREN', desde: '08:00', hasta: '09:00' },
+                            { rol: 'Etiquetado', nombre: 'KAREN', desde: '09:00', hasta: '' }] };
+  const r = H.resumen({ cargas: [...CARGAS, aMedias], tareas: [] });
+  const polen = r.productos.find(p => p.plu === '2375');
+  assert.equal(polen.cargas, 2);
+  assert.equal(polen.minEnvasado, 45);      // (30 + 60) / 2
+  assert.equal(polen.minEtiquetado, 30);    // el sin hora de fin queda afuera del promedio
+  assert.equal(polen.minEmpaquetado, null); // esa tarea nunca se registró
+});
+
+test('la referencia sale del archivo entero, no del rango filtrado', () => {
+  // Una semana con los dos lotes de enero y otra, dos meses después, con uno solo: la referencia
+  // promedia las dos semanas aunque el tablero esté mirando una sola.
+  const marzo = { fecha: '2026-03-05', plu: '2375', nombre: 'Polen 100G', cantFraccionada: 40,
+                  roles: [{ rol: 'Envasado', nombre: 'BEA', desde: '08:00', hasta: '09:00' }] };
+  const precios = new Map([['2375', 100], ['2381', 200]]);
+  const ref = H.referencia({ cargas: [...CARGAS, marzo] }, precios, '2026-08-14T12:00:00.000Z');
+  assert.equal(ref.semanas, 2);
+  assert.equal(ref.desde, '2026-01-13');
+  assert.equal(ref.hasta, '2026-03-05');
+  // Semana de enero: 80×100 + 30×200 = 14000. Semana de marzo: 40×100 = 4000. Promedio, 9000.
+  assert.equal(ref.semanal.valor, 9000);
+  assert.equal(ref.tareas.Envasado, 50);              // (30 + 60 + 60) / 3
+  assert.equal(ref.productos['2375'].minEnvasado, 45); // (30 + 60) / 2
+  assert.equal(ref.calculadoEl, '2026-08-14T12:00:00.000Z');
+});
+
 test('las horas de sala nunca superan a las horas-persona', () => {
   const r = H.resumen({ cargas: CARGAS, tareas: [] });
   assert.ok(r.totales.horasSala <= r.totales.horas,
@@ -300,11 +331,11 @@ test('una carga sin roles no aporta filas por tarea pero sí a los totales', () 
 
 test('el payload no lleva lo que el tablero ya no muestra', () => {
   const r = H.resumen({ cargas: CARGAS, tareas: [] }, {}, PRECIOS);
-  for (const k of ['productos', 'personasPorRol', 'personas', 'familias']) {
+  for (const k of ['personasPorRol', 'personas', 'familias']) {
     assert.equal(k in r, false, `${k} sigue viajando en el payload`);
   }
   // Lo que el tablero sí usa tiene que seguir estando.
-  for (const k of ['porSemana', 'registros', 'horasPorDia', 'roles', 'totales', 'tareas']) {
+  for (const k of ['porSemana', 'registros', 'horasPorDia', 'roles', 'totales', 'tareas', 'productos']) {
     assert.ok(r[k], `falta ${k}`);
   }
 });
