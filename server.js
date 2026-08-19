@@ -2194,6 +2194,7 @@ app.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'distr
 app.get('/docs/plan-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'plan-distribucion.html')));
 app.get('/docs/guia-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'guia-distribucion.html')));
 app.get('/docs/analisis-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'analisis-distribucion.html')));
+app.get('/docs/pesables-calculo.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'pesables-calculo.html')));
 app.get('/api/distribucion/almacen', apiRoute(async () => calcularDistribucionAlmacen()));
 app.get('/api/distribucion/sucursales', apiRoute(async () =>
   query('SELECT IdSucursal, Nombre, SoyLaCentral FROM Sucursales ORDER BY IdSucursal')));
@@ -3664,7 +3665,11 @@ app.post('/api/produccion/registros', (req, res) => {
   if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
   const arr = leerJSON(PROD_REG_PATH, []);
   const presentacion = String(b.presentacion || '').trim() || presentacionDeNombre(b.nombre || b.producto);
-  arr.push({ ...b, presentacion, id: Date.now() });
+  // Date.now() solo repetía id si entraban dos registros en el mismo ms (varias presentaciones
+  // de una misma orden): con id repetido, borrar uno borraba los dos.
+  let id = Date.now();
+  while (arr.some(x => x && x.id === id)) id++;
+  arr.push({ ...b, presentacion, id });
   guardarJSON(PROD_REG_PATH, arr);
   res.json({ ok: true });
 });

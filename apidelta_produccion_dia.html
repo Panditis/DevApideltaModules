@@ -2643,7 +2643,7 @@ async function openProdFinalModal(id, presIndex = null) {
       <textarea class="form-input" id="pfObs" rows="2" placeholder="Observación (opcional)…" style="resize:vertical">${(_pfOrden.observacion||'').replace(/</g,'&lt;')}</textarea>
     </div>
     <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
-      <button class="btn-primary" onclick="guardarProduccionFinal()">Guardar</button>
+      <button class="btn-primary" onclick="guardarProduccionFinal(event)">Guardar</button>
       <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
       <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
     </div>`;
@@ -2651,8 +2651,12 @@ async function openProdFinalModal(id, presIndex = null) {
   _pfSyncTapa();
 }
 
-async function guardarProduccionFinal() {
+// Doble click / click impaciente en Guardar mandaba dos POST y duplicaba el registro
+// (la carga manual no tiene ordenId, así que nada lo deduplicaba después).
+let _pfGuardando = false;
+async function guardarProduccionFinal(ev) {
   if (!_pfOrden) return;
+  if (_pfGuardando) return;
   const errEl = document.getElementById('pfErr');
   const showErr = m => { if (errEl) { errEl.textContent = m; errEl.style.display = ''; } };
 
@@ -2694,6 +2698,9 @@ async function guardarProduccionFinal() {
 
   if (!elementos.length) { showErr('Ingresá al menos una cantidad válida.'); return; }
 
+  _pfGuardando = true;
+  const btnGuardar = ev?.currentTarget || document.querySelector('#pfBody .btn-primary');
+  if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando…'; }
   try {
     for (const el of elementos) {
       const payload = {
@@ -2751,6 +2758,9 @@ async function guardarProduccionFinal() {
     showSnack('✅ Producción guardada');
   } catch(err) {
     showErr('Error al guardar: ' + err.message);
+  } finally {
+    _pfGuardando = false;
+    if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar'; }
   }
 }
 
@@ -3099,7 +3109,7 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
       <textarea class="form-input" id="pfObs" rows="2" placeholder="Observación (opcional)…" style="resize:vertical"></textarea>
     </div>
     <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
-      <button class="btn-primary" onclick="guardarProduccionFinal()">Guardar</button>
+      <button class="btn-primary" onclick="guardarProduccionFinal(event)">Guardar</button>
       <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
       <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
     </div>`;
