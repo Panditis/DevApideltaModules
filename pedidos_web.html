@@ -792,6 +792,47 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
   </div>
 </div><!-- /#panel-reservas -->
 
+<!-- Modal Confirmar reserva de mercadería -->
+<div id="res-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarModalReservaMay()">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-2xl mx-auto my-8 fade-up">
+    <div class="px-6 py-4 border-b border-line/60 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+          <i data-lucide="lock" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 class="font-semibold text-base text-ink">Reservar mercadería</h3>
+          <p class="text-xs text-olive" id="res-modal-cliente">—</p>
+        </div>
+      </div>
+      <button onclick="cerrarModalReservaMay()" class="w-9 h-9 rounded-lg hover:bg-surface-alt text-olive flex items-center justify-center">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+    <div class="p-6">
+      <div class="flex flex-wrap gap-3 mb-4">
+        <label style="font-size:12px">Depósito origen
+          <select id="res-dep-origen" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
+        </label>
+        <label style="font-size:12px">Depósito destino
+          <select id="res-dep-destino" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
+        </label>
+      </div>
+      <div id="res-modal-lineas"></div>
+      <div id="res-modal-faltantes" style="display:none;margin-top:12px;padding:10px;border:1px solid #f5c2c7;background:#fdf2f2;border-radius:8px;font-size:12px"></div>
+      <label id="res-modal-forzar-wrap" style="display:none;margin-top:10px;font-size:12px">
+        <input type="checkbox" id="res-modal-forzar"> Reservar igual aunque falte stock
+      </label>
+    </div>
+    <div class="px-6 py-4 border-t border-line/60 flex justify-end gap-2">
+      <button class="btn btn-ghost btn-sm" onclick="cerrarModalReservaMay()">Cancelar</button>
+      <button class="btn btn-filled btn-sm" id="res-modal-ok" onclick="confirmarReservaMay()">
+        <i data-lucide="lock" class="w-3.5 h-3.5"></i> Reservar
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Facturación de un pedido -->
 <div id="factura-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarFactura()">
   <div class="bg-white rounded-2xl shadow-2xl max-w-5xl mx-auto my-8 fade-up" style="min-height:200px">
@@ -2257,6 +2298,156 @@ $('tabla-res-carrito').addEventListener('change', function(ev){
 carritoRes = leerCarritoRes();
 renderCarritoRes();
 refrescarPlusReservados();
+
+// ── Reservas: modal de confirmación ───────────────────────────────────────────
+// Los depósitos se precargan de config.reserva. Mientras depositoReserva siga en null en
+// config.json el destino hay que elegirlo a mano: sin eso el POST responde 400.
+function abrirModalReservaMay(){
+  if(!carritoRes.lineas.length){ snack('El carrito está vacío', true); return; }
+  $('res-modal-cliente').textContent = carritoRes.nombreCliente;
+  $('res-modal-faltantes').style.display = 'none';
+  $('res-modal-forzar-wrap').style.display = 'none';
+  $('res-modal-forzar').checked = false;
+  $('res-modal-lineas').innerHTML = '<table><thead><tr><th>Producto</th><th class="num">A reservar</th></tr></thead><tbody>'
+    + carritoRes.lineas.map(function(l){
+        return '<tr><td>'+escHtml(l.nombre)+'</td><td class="num">'+numFmt.format(l.cantidad)+'</td></tr>';
+      }).join('')
+    + '</tbody></table>';
+  $('res-overlay').classList.remove('hidden');
+  cargarDepositosRes();
+}
+
+function cerrarModalReservaMay(){ $('res-overlay').classList.add('hidden'); }
+
+// Reusa el GET de reserva de planificación sólo para listar los depósitos y leer el config:
+// es el único endpoint que ya los devuelve juntos, y es de lectura pura.
+function cargarDepositosRes(){
+  var hoy = new Date().toISOString().slice(0,10);
+  return api('/api/plan/'+hoy+'/reserva').then(function(data){
+    if(!data || data.error) return;
+    var opts = (data.depositos||[]).map(function(d){
+      return '<option value="'+d.idDeposito+'">'+escHtml(d.nombre)+'</option>';
+    }).join('');
+    $('res-dep-origen').innerHTML  = opts;
+    $('res-dep-destino').innerHTML = '<option value="">— elegir —</option>' + opts;
+    var cfg = data.config || {};
+    if(cfg.depositoPrincipal) $('res-dep-origen').value  = String(cfg.depositoPrincipal);
+    if(cfg.depositoReserva)   $('res-dep-destino').value = String(cfg.depositoReserva);
+  }).catch(function(){ /* sin depósitos: el POST avisa igual */ });
+}
+
+function confirmarReservaMay(){
+  var destino = $('res-dep-destino').value;
+  if(!destino){ snack('Elegí el depósito de destino', true); return; }
+  var btn = $('res-modal-ok');
+  btn.disabled = true;
+  fetch('/api/mayoristas/reservas', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      idCliente: carritoRes.idCliente,
+      nombreCliente: carritoRes.nombreCliente,
+      depOrigen: $('res-dep-origen').value,
+      depDestino: destino,
+      permitirFaltante: $('res-modal-forzar').checked,
+      lineas: carritoRes.lineas.map(function(l){
+        return { plu: l.plu, nombre: l.nombre, cantidad: l.cantidad, idCliente: carritoRes.idCliente };
+      })
+    })
+  }).then(function(r){ return r.json().then(function(j){ return { status:r.status, body:j }; }); })
+    .then(function(res){
+      btn.disabled = false;
+      if(res.status === 400 && res.body.faltantes){
+        // Faltante de stock: se lista producto por producto y se habilita el checkbox de forzar.
+        $('res-modal-faltantes').innerHTML = '<strong>Sin stock suficiente:</strong><br>'
+          + res.body.faltantes.map(function(f){
+              return escHtml(f.nombre||f.plu)+': necesita '+numFmt.format(f.necesario)
+                   +', hay '+numFmt.format(f.stockOrigen);
+            }).join('<br>');
+        $('res-modal-faltantes').style.display = '';
+        $('res-modal-forzar-wrap').style.display = '';
+        return;
+      }
+      if(res.status === 409){
+        // Otra pestaña ya reservó estos productos: se refresca y se saca del carrito lo que sobra.
+        snack(res.body.error, true);
+        refrescarPlusReservados().then(function(){
+          carritoRes.lineas = carritoRes.lineas.filter(function(l){
+            return !pluReservado(l.plu, carritoRes.idCliente);
+          });
+          if(!carritoRes.lineas.length) carritoRes = carritoResVacio();
+          guardarCarritoRes(); renderCarritoRes(); marcarAgregadosResumen();
+        });
+        return;
+      }
+      if(res.body.error){ snack(res.body.error, true); return; }
+      snack('Reserva generada · comprobante #' + res.body.numeroMovimiento);
+      cerrarModalReservaMay();
+      carritoRes = carritoResVacio();
+      guardarCarritoRes();
+      renderCarritoRes();
+      refrescarPlusReservados().then(marcarAgregadosResumen);
+      if(subResActiva==='generadas') cargarReservasGeneradas();
+    })
+    .catch(function(e){ btn.disabled = false; snack('Error: '+e.message, true); });
+}
+
+// ── Reservas generadas ────────────────────────────────────────────────────────
+function cargarReservasGeneradas(){
+  $('tabla-res-generadas').innerHTML = '<div class="state state-loading">Cargando…</div>';
+  return api('/api/mayoristas/reservas').then(function(data){
+    if(!data || data.error){
+      $('tabla-res-generadas').innerHTML = '<div class="state state-err">⚠ '+escHtml((data&&data.error)||'Error')+'</div>';
+      return;
+    }
+    if(!data.length){
+      $('tabla-res-generadas').innerHTML = '<div class="state state-empty">Todavía no hay reservas.</div>';
+      return;
+    }
+    var filas = data.map(function(r){
+      var chip = r.estado === 'activa'
+        ? '<span class="sc" style="background:#dcfce7;color:#166534">activa</span>'
+        : '<span class="sc" style="background:#f3f4f6;color:#6b7280">anulada</span>';
+      var accion = r.estado === 'activa'
+        ? '<button type="button" class="btn btn-ghost btn-sm" data-act="anular-res" data-id="'+escHtml(String(r.id))+'">↩ Anular</button>'
+        : '<span style="color:#9a9a92;font-size:.72rem">#'+escHtml(String((r.anulacion&&r.anulacion.numeroMovimiento)||''))+'</span>';
+      return '<tr>'
+        +'<td>'+escHtml(String(r.fecha||'').slice(0,10))+'</td>'
+        +'<td><strong>'+escHtml(r.nombreCliente||'')+'</strong></td>'
+        +'<td class="num">'+escHtml(String(r.numeroMovimiento||''))+'</td>'
+        +'<td class="num">'+numFmt.format((r.totales&&r.totales.lineas)||0)+'</td>'
+        +'<td class="num">'+numFmt.format((r.totales&&r.totales.unidades)||0)+'</td>'
+        +'<td>'+chip+'</td>'
+        +'<td class="num">'+accion+'</td>'
+        +'</tr>';
+    }).join('');
+    $('tabla-res-generadas').innerHTML =
+      '<table><thead><tr><th>Fecha</th><th>Cliente</th><th class="num">Comprobante</th>'
+      +'<th class="num">Líneas</th><th class="num">Unidades</th><th>Estado</th><th class="num"></th></tr></thead>'
+      +'<tbody>'+filas+'</tbody></table>';
+  });
+}
+
+function anularReservaMay(id){
+  confirmarModal('Anular la reserva',
+                 'Se emite el movimiento inverso y la mercadería vuelve al depósito de origen.',
+                 'Anular reserva', true).then(function(ok){
+    if(!ok) return;
+    return fetch('/api/mayoristas/reservas/'+encodeURIComponent(id)+'/anular', { method:'POST' })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if(res.error){ snack(res.error, true); return; }
+        snack('Reserva anulada · comprobante #' + (res.anulacion && res.anulacion.numeroMovimiento));
+        cargarReservasGeneradas();
+        refrescarPlusReservados().then(marcarAgregadosResumen);
+      })
+      .catch(function(e){ snack('Error: '+e.message, true); });
+  });
+}
+
+$('tabla-res-generadas').addEventListener('click', function(ev){
+  var b = ev.target.closest ? ev.target.closest('button[data-act="anular-res"]') : null;
+  if(b) anularReservaMay(b.getAttribute('data-id'));
+});
 
 function abrirModalOrden(){
   var lineas = lineasSeleccionadas();
