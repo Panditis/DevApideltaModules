@@ -566,6 +566,14 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         <span class="text-[10px] font-normal text-olive">Carrito armado a mano</span>
       </span>
     </button>
+    <button id="tab-reservas" onclick="switchTab('reservas')"
+      class="tab flex-1 sm:flex-none sm:min-w-[200px] px-5 py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all">
+      <i data-lucide="lock" class="w-5 h-5"></i>
+      <span class="flex flex-col items-start leading-tight">
+        <span>Reservas</span>
+        <span class="text-[10px] font-normal text-olive">Un cliente por vez</span>
+      </span>
+    </button>
   </div>
 </nav>
 
@@ -727,6 +735,62 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     </button>
   </div>
 </div><!-- /#panel-fraccionado -->
+
+<div class="tab-panel" id="panel-reservas">
+  <div class="max-w-screen-2xl mx-auto px-4 pt-4 pb-2">
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
+      <i data-lucide="lock" class="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"></i>
+      <div class="text-emerald-900">
+        <strong>Reservas de mercader&iacute;a.</strong>
+        Aparta stock de producto terminado para un cliente. En <em>Resumen por cliente</em> toc&aacute;
+        <em>+ Reservar</em> en cada producto. El carrito es de <strong>un cliente por vez</strong>:
+        confirm&aacute; o vaci&aacute; antes de pasar al siguiente.
+      </div>
+    </div>
+    <div class="flex gap-1 mt-3">
+      <button id="subtab-res-carrito" class="btn btn-tonal btn-sm" onclick="switchSubRes('carrito')">Carrito</button>
+      <button id="subtab-res-generadas" class="btn btn-ghost btn-sm" onclick="switchSubRes('generadas')">Reservas generadas</button>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px" id="sub-res-carrito">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center"><i data-lucide="lock" class="w-[18px] h-[18px]"></i></div>
+          <div>
+            <h3 class="font-semibold text-sm text-ink leading-tight">Carrito de reserva</h3>
+            <p class="text-xs text-olive leading-tight" id="res-cliente-txt">Sin cliente todav&iacute;a.</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold" id="badge-res">&mdash;</span>
+          <button class="btn btn-ghost btn-sm" onclick="vaciarCarritoRes()">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Vaciar
+          </button>
+        </div>
+      </div>
+      <div class="tbl-wrap" id="tabla-res-carrito"><div class="state state-empty">El carrito est&aacute; vac&iacute;o.</div></div>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px;display:none" id="sub-res-generadas">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+        <h3 class="font-semibold text-sm text-ink leading-tight">Reservas generadas</h3>
+        <p class="text-xs text-olive leading-tight">Mercader&iacute;a apartada en SiGA, con su comprobante.</p>
+      </div>
+      <div class="tbl-wrap" id="tabla-res-generadas"><div class="state state-loading">Cargando&hellip;</div></div>
+    </div>
+  </div>
+
+  <div class="fracc-bar" id="res-bar" style="display:none">
+    <span id="res-resumen">0 l&iacute;neas &middot; 0 unidades</span>
+    <button class="btn btn-filled btn-sm" onclick="abrirModalReservaMay()">
+      <i data-lucide="lock" class="w-3.5 h-3.5"></i> Reservar
+    </button>
+  </div>
+</div><!-- /#panel-reservas -->
 
 <!-- Modal Facturación de un pedido -->
 <div id="factura-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarFactura()">
@@ -1595,6 +1659,7 @@ function switchTab(tab){
   if(tab==='entregados' && estadoActual.entregados===null) cargarEntregados();
   // El carrito no depende de los filtros: sólo se re-dibuja con lo que ya hay en memoria.
   if(tab==='fraccionado') renderCarrito();
+  if(tab==='reservas') renderCarritoRes();
 }
 
 // ── Fraccionado: carrito ──────────────────────────────────────────────────────
