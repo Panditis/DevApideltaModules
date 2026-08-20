@@ -72,4 +72,84 @@ function totalesReserva(lineas) {
   };
 }
 
-module.exports = { MAX_LINEAS, validarLineasReserva, normalizarLineasReserva, totalesReserva };
+/**
+ * @param {number|string} idCliente
+ * @param {string} nombreCliente
+ * @returns {string|null}
+ */
+function validarClienteReserva(idCliente, nombreCliente) {
+  if (!texto(idCliente)) return 'La reserva no tiene cliente';
+  if (!texto(nombreCliente)) return 'La reserva no tiene nombre de cliente';
+  return null;
+}
+
+/**
+ * Una reserva es de UN cliente. Las lineas que vienen del Resumen por cliente traen su
+ * idCliente; si alguna es de otro cliente el carrito esta mezclado y no se reserva nada.
+ * @param {Array} lineas
+ * @param {number|string} idCliente cliente de la reserva
+ * @returns {string|null}
+ */
+function validarCarritoUnCliente(lineas, idCliente) {
+  const esperado = texto(idCliente);
+  for (const l of (lineas || [])) {
+    const propio = texto(l && l.idCliente);
+    // Sin idCliente la linea se acepta: el cliente lo define el body (producto suelto).
+    if (propio && propio !== esperado) {
+      return 'Todas las lineas de una reserva tienen que ser del mismo cliente';
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {Array} reservas archivo entero
+ * @param {number|string} idCliente
+ * @returns {Set<string>} plu con reserva ACTIVA de ese cliente
+ */
+function plusReservadosDeCliente(reservas, idCliente) {
+  const esperado = texto(idCliente);
+  const plus = new Set();
+  for (const r of (reservas || [])) {
+    if (!r || r.estado !== 'activa' || texto(r.idCliente) !== esperado) continue;
+    for (const l of (r.lineas || [])) plus.add(texto(l.plu));
+  }
+  return plus;
+}
+
+/**
+ * @param {Array} lineas lineas del carrito
+ * @param {Array} reservas archivo entero
+ * @param {number|string} idCliente
+ * @returns {string|null}
+ */
+function validarPlusNoReservados(lineas, reservas, idCliente) {
+  const yaEstan = plusReservadosDeCliente(reservas, idCliente);
+  const chocan = [...new Set((lineas || []).map(l => texto(l && l.plu)).filter(p => yaEstan.has(p)))];
+  if (!chocan.length) return null;
+  return `El cliente ya tiene una reserva activa con ${chocan.length === 1 ? 'el plu' : 'los plu'} `
+       + `${chocan.join(', ')}. Anula esa reserva antes de volver a reservarlo.`;
+}
+
+/**
+ * Mapa {idCliente: [plu, ...]} de las reservas ACTIVAS. Lo consume pedidos_web.html para
+ * marcar los botones del Resumen por cliente sin bajarse todas las reservas con sus lineas.
+ * @param {Array} reservas
+ * @returns {Object<string, string[]>}
+ */
+function reservasActivasResumen(reservas) {
+  const mapa = {};
+  for (const r of (reservas || [])) {
+    if (!r || r.estado !== 'activa') continue;
+    const cli = texto(r.idCliente);
+    const set = mapa[cli] || (mapa[cli] = new Set());
+    for (const l of (r.lineas || [])) set.add(texto(l.plu));
+  }
+  return Object.fromEntries(Object.entries(mapa).map(([cli, set]) => [cli, [...set]]));
+}
+
+module.exports = {
+  MAX_LINEAS, validarLineasReserva, normalizarLineasReserva, totalesReserva,
+  validarClienteReserva, validarCarritoUnCliente, plusReservadosDeCliente,
+  validarPlusNoReservados, reservasActivasResumen,
+};

@@ -82,3 +82,150 @@ test('los totales cuentan lineas y unidades', () => {
   // Assert
   assert.deepStrictEqual(totales, { lineas: 2, unidades: 15 });
 });
+
+const { validarClienteReserva, validarCarritoUnCliente, plusReservadosDeCliente,
+        validarPlusNoReservados, reservasActivasResumen }
+  = require('../reservas_mercaderia');
+
+// ── Un cliente por reserva ────────────────────────────────────────────────────────────────────
+// El carrito es mono-cliente a proposito: un cliente por vez es un movimiento de SiGA por vez,
+// asi no existe la falla parcial (que la mitad de los clientes queden reservados y la otra no).
+
+test('rechaza una reserva sin cliente', () => {
+  // Arrange / Act
+  const error = validarClienteReserva('', 'Dietetica San Martin');
+
+  // Assert
+  assert.match(error, /cliente/i);
+});
+
+test('rechaza una reserva sin nombre de cliente', () => {
+  // Arrange / Act
+  const error = validarClienteReserva(412, '   ');
+
+  // Assert
+  assert.match(error, /cliente/i);
+});
+
+test('acepta un cliente valido', () => {
+  // Arrange / Act
+  const error = validarClienteReserva(412, 'Dietetica San Martin');
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('rechaza un carrito con lineas de dos clientes distintos', () => {
+  // Arrange: las lineas pueden traer idCliente propio (lo pone el boton del Resumen por cliente).
+  const lineas = [linea({ idCliente: 412 }), linea({ plu: '30001', idCliente: 999 })];
+
+  // Act
+  const error = validarCarritoUnCliente(lineas, 412);
+
+  // Assert
+  assert.match(error, /mismo cliente/i);
+});
+
+test('acepta un carrito donde todas las lineas son del cliente de la reserva', () => {
+  // Arrange
+  const lineas = [linea({ idCliente: 412 }), linea({ plu: '30001', idCliente: '412' })];
+
+  // Act
+  const error = validarCarritoUnCliente(lineas, 412);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('una linea sin idCliente se acepta: el cliente lo pone el body', () => {
+  // Arrange
+  const lineas = [linea()];
+
+  // Act
+  const error = validarCarritoUnCliente(lineas, 412);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+// ── PLU ya reservados ─────────────────────────────────────────────────────────────────────────
+// Sin esta guarda, dos pestanas abiertas reservan lo mismo dos veces y sale mercaderia de mas
+// del deposito principal.
+
+function reservaActiva(extra) {
+  return {
+    id: 1, estado: 'activa', idCliente: 412, nombreCliente: 'Dietetica San Martin',
+    lineas: [{ plu: '30000', nombre: 'Mix Europeo 200G', cantidad: 10 }],
+    anulacion: null, ...extra,
+  };
+}
+
+test('lista los plu con reserva activa de un cliente', () => {
+  // Arrange
+  const reservas = [reservaActiva()];
+
+  // Act
+  const plus = plusReservadosDeCliente(reservas, 412);
+
+  // Assert
+  assert.deepStrictEqual([...plus], ['30000']);
+});
+
+test('las reservas anuladas no cuentan como plu reservado', () => {
+  // Arrange
+  const reservas = [reservaActiva({ estado: 'anulada' })];
+
+  // Act
+  const plus = plusReservadosDeCliente(reservas, 412);
+
+  // Assert
+  assert.strictEqual(plus.size, 0);
+});
+
+test('la reserva de otro cliente no bloquea el plu', () => {
+  // Arrange
+  const reservas = [reservaActiva({ idCliente: 999 })];
+
+  // Act
+  const plus = plusReservadosDeCliente(reservas, 412);
+
+  // Assert
+  assert.strictEqual(plus.size, 0);
+});
+
+test('rechaza reservar un plu que el cliente ya tiene reservado', () => {
+  // Arrange
+  const reservas = [reservaActiva()];
+
+  // Act
+  const error = validarPlusNoReservados([linea()], reservas, 412);
+
+  // Assert
+  assert.match(error, /30000/);
+});
+
+test('deja reservar un plu nuevo aunque el cliente tenga otras reservas activas', () => {
+  // Arrange
+  const reservas = [reservaActiva()];
+
+  // Act
+  const error = validarPlusNoReservados([linea({ plu: '30001' })], reservas, 412);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('el resumen de activas agrupa los plu por cliente', () => {
+  // Arrange
+  const reservas = [
+    reservaActiva(),
+    reservaActiva({ id: 2, idCliente: 999, lineas: [{ plu: '30001', nombre: 'Otro', cantidad: 3 }] }),
+    reservaActiva({ id: 3, estado: 'anulada', lineas: [{ plu: '30002', nombre: 'Anulado', cantidad: 1 }] }),
+  ];
+
+  // Act
+  const resumen = reservasActivasResumen(reservas);
+
+  // Assert
+  assert.deepStrictEqual(resumen, { 412: ['30000'], 999: ['30001'] });
+});
