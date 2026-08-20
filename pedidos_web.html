@@ -2653,12 +2653,19 @@ function renderResumen(data){
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Fraccionar</button>';
+      var btnRes = '<button type="button" class="res-add" data-act="add-res"'
+        +' data-plu="'+att(p.IdProducto)+'"'
+        +' data-nombre="'+att(p.NombreProducto)+'"'
+        +' data-idcli="'+att(cliId)+'"'
+        +' data-cliente="'+att(c.nombre)+'"'
+        +' data-cant="'+att(p.TotalUnidades)+'">+ Reservar</button>';
       return '<tr'+rowCls(sc, p.TotalUnidades, mult)+'>'
         +'<td>'+prodCell+'</td>'
         +'<td style="color:var(--on-svar)">'+escHtml(p.NombreRubro||'')+'</td>'
         +'<td class="num" style="font-weight:600">'+numFmt.format(p.TotalUnidades)+'</td>'
         +'<td class="num">'+scChip(sc, p.TotalUnidades, mult, comp)+'</td>'
         +'<td class="num">'+btn+'</td>'
+        +'<td class="num">'+btnRes+'</td>'
         +'</tr>';
     }).join('');
     return '<div class="res-card">'
@@ -2667,7 +2674,7 @@ function renderResumen(data){
       +'<span class="res-badge">'+c.productos.length+' producto'+(c.productos.length!==1?'s':'')+'</span>'
       +'</div>'
       +'<table class="res-tbl">'
-      +'<thead><tr><th>Producto</th><th>Rubro</th><th class="num">Necesario</th><th class="num">Stock Central</th><th class="num">Fraccionar</th></tr></thead>'
+      +'<thead><tr><th>Producto</th><th>Rubro</th><th class="num">Necesario</th><th class="num">Stock Central</th><th class="num">Fraccionar</th><th class="num">Reservar</th></tr></thead>'
       +'<tbody>'+rows+'</tbody>'
       +'</table>'
       +'</div>';
@@ -2693,14 +2700,47 @@ function marcarAgregadosResumen(){
     var tr = b.closest ? b.closest('tr') : null;
     if(tr) tr.classList.toggle('res-row-on', puesto);
   });
+
+  // Botón de reserva: cuatro estados. El de "carrito de otro cliente" es el que evita armar
+  // un movimiento de SiGA con productos de clientes mezclados.
+  var botonesRes = document.querySelectorAll('#resumen-cont button[data-act="add-res"]');
+  Array.prototype.forEach.call(botonesRes, function(b){
+    var plu   = b.getAttribute('data-plu');
+    var idcli = b.getAttribute('data-idcli');
+    var enCarrito = String(carritoRes.idCliente) === String(idcli)
+                 && carritoRes.lineas.some(function(l){ return l.plu === String(plu); });
+    var otroCliente = carritoRes.lineas.length && String(carritoRes.idCliente) !== String(idcli);
+    // Ya reservado gana sobre todo lo demás: el botón queda inerte y se explica por qué.
+    var reservado = pluReservado(plu, idcli);
+    b.classList.toggle('res-add-on', enCarrito && !reservado);
+    b.disabled = reservado || otroCliente;
+    if(reservado){
+      b.textContent = '🔒 Ya reservado';
+      b.title = 'El cliente ya tiene una reserva activa con este producto';
+    } else if(otroCliente){
+      b.textContent = 'Carrito: ' + carritoRes.nombreCliente;
+      b.title = 'El carrito de reserva es de otro cliente. Confirmá o vacialo primero.';
+    } else {
+      b.textContent = enCarrito ? '✓ En la reserva' : '+ Reservar';
+      b.title = '';
+    }
+  });
 }
 
 $('resumen-cont').addEventListener('click', function(ev){
   var b = ev.target.closest ? ev.target.closest('button[data-act="add-fracc"]') : null;
-  if(!b) return;
-  agregarRegistroAFracc(b.getAttribute('data-plu'), b.getAttribute('data-nombre'),
-                        b.getAttribute('data-idcli'), b.getAttribute('data-cliente'),
-                        b.getAttribute('data-cant'));
+  if(b){
+    agregarRegistroAFracc(b.getAttribute('data-plu'), b.getAttribute('data-nombre'),
+                          b.getAttribute('data-idcli'), b.getAttribute('data-cliente'),
+                          b.getAttribute('data-cant'));
+    return;
+  }
+  var r = ev.target.closest ? ev.target.closest('button[data-act="add-res"]') : null;
+  if(r){
+    agregarAReserva(r.getAttribute('data-plu'), r.getAttribute('data-nombre'),
+                    r.getAttribute('data-idcli'), r.getAttribute('data-cliente'),
+                    r.getAttribute('data-cant'));
+  }
 });
 
 // ── Entregados ────────────────────────────────────────────────────────────────
