@@ -1603,6 +1603,100 @@ app.get('/api/mayoristas/reservas/:id', (req, res) => {
   if (!reserva) return res.status(404).json({ error: 'Reserva no encontrada' });
   res.json(reserva);
 });
+
+// POST: un cliente, un movimiento. El orden de operaciones esta pensado para que un error
+// temprano no deje nada a medias: primero se valida TODO (cliente, lineas, depositos, choques,
+// stock) y recien al final se toca SiGA y se escribe el archivo.
+// Va con (req, res) crudo y NO con apiRoute: apiRoute hace `res.json(await fn(req))`, sin forma
+// de setear el status, asi que los 400 de validacion y el 409 saldrian como 200. Mismo criterio
+// que el CRUD de ordenes-fraccionado.
+app.post('/api/mayoristas/reservas', async (req, res) => {
+  try {
+    const b = req.body || {};
+
+    const errCliente = validarClienteReserva(b.idCliente, b.nombreCliente);
+    if (errCliente) return res.status(400).json({ error: errCliente });
+    const errLineas = validarLineasReserva(b.lineas);
+    if (errLineas) return res.status(400).json({ error: errLineas });
+    const errMezcla = validarCarritoUnCliente(b.lineas, b.idCliente);
+    if (errMezcla) return res.status(400).json({ error: errMezcla });
+
+    const s = await resolverSucursal(b.idSucursal);
+    if (s.error) return res.status(400).json({ error: s.error });
+    const cr = s.cr;
+
+    // Un deposito que viene en el body pero es invalido NO cae al config: se avisa, para no
+    // reservar en el lugar equivocado. Mismo criterio que POST /api/plan/:fecha/reservar.
+    const vinoOrigen  = b.depOrigen  !== undefined && b.depOrigen  !== null && b.depOrigen  !== '';
+    const vinoDestino = b.depDestino !== undefined && b.depDestino !== null && b.depDestino !== '';
+    const depOrigen   = vinoOrigen  ? Number(b.depOrigen)  : cr.depositoPrincipal;
+    const depDestino  = vinoDestino ? Number(b.depDestino) : cr.depositoReserva;
+    if (!vinoDestino && !cr.depositoReserva) {
+      return res.status(400).json({ error: ERR_RESERVA_SIN_CONFIG });
+    }
+    if (!esIdDeposito(depOrigen) || !esIdDeposito(depDestino) || depOrigen === depDestino) {
+      return res.status(400).json({ error: ERR_RESERVA_DEPOSITOS });
+    }
+    const activos = new Set((await depositosActivos(cr.idSucursal)).map(d => Number(d.IdDeposito)));
+    if (!activos.has(depOrigen)) {
+      return res.status(400).json({ error: `El deposito de origen ${depOrigen} no existe o no esta activo en la sucursal ${cr.idSucursal}` });
+    }
+    if (!activos.has(depDestino)) {
+      return res.status(400).json({ error: `El deposito de destino ${depDestino} no existe o no esta activo en la sucursal ${cr.idSucursal}` });
+    }
+
+    const arr = leerJSON(RESERVAS_MERC_PATH, []);
+    // 409 y no 400 porque el body es valido: lo que choca es el estado del archivo. Sin esta
+    // guarda, dos pestanas abiertas reservan lo mismo dos veces.
+    const choque = validarPlusNoReservados(b.lineas, arr, b.idCliente);
+    if (choque) return res.status(409).json({ error: choque });
+
+    const lineas = normalizarLineasReserva(b.lineas);
+
+    // stockDeComponentes consulta ProductosDepositos por PLU, asi que sirve igual para
+    // productos terminados: no sabe ni le importa si el PLU es un componente.
+    const stock = await stockDeComponentes(cr, lineas.map(l => l.plu), depOrigen, depDestino);
+    const faltantes = lineas.map(l => {
+      const e = stock.get(l.plu) || { origen: 0, destino: 0 };
+      return { plu: l.plu, nombre: l.nombre, necesario: l.cantidad,
+               stockOrigen: redondear4(e.origen), faltante: redondear4(Math.max(0, l.cantidad - e.origen)) };
+    }).filter(f => f.faltante > 0);
+    // Con permitirFaltante se reserva igual la cantidad completa (el origen puede quedar en
+    // negativo); sin el no se escribe nada.
+    if (faltantes.length && b.permitirFaltante !== true) {
+      return res.status(400).json({ error: 'Hay productos sin stock suficiente en el deposito de origen', faltantes });
+    }
+
+    const poolW = await getPoolStock();
+    const observacion = `RESERVA MAY ${b.nombreCliente} ${depOrigen}>${depDestino}`.slice(0, 200);
+    const r = await ejecutarYRegistrar({
+      origen: 'reserva-mayorista', plan: null, itemId: null,
+      idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion,
+      lineas: lineas.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
+    }, () => trasladarStock(poolW, {
+      idSucursal: cr.idSucursal, depOrigen, depDestino,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+      observacion,
+      lineas: lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
+    }));
+
+    const reserva = nuevaReserva({
+      id: Date.now(), fecha: new Date().toISOString(),
+      idCliente: b.idCliente, nombreCliente: b.nombreCliente,
+      idSucursal: cr.idSucursal, depOrigen, depDestino,
+      numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
+      usuario: cr.usuario, lineas,
+    });
+    arr.push(reserva);
+    guardarJSON(RESERVAS_MERC_PATH, arr);
+    res.json(conLogError(reserva, r.logError));
+  } catch (e) {
+    // El movimiento fallo (SiGA caido, FK de usuario, etc). No se escribio nada en el archivo,
+    // asi que el carrito del navegador queda intacto y reintentar es seguro.
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
   return getFacturasDePedido(req.query.idSucursal || 1, req.query.numeroPedido);
