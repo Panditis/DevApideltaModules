@@ -137,9 +137,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .fam-buscador .buscador{width:100%;padding:7px 10px;border:1px solid var(--border);
   border-radius:var(--radius-sm);font-family:inherit;font-size:13px}
 .fam-buscador .buscador:focus{outline:none;border-color:var(--green-mid)}
-/* Los resultados flotan sobre la tarjeta: la lista no puede empujar el resto del editor
-   cada vez que se teclea una letra. */
-.fam-resultados{position:absolute;z-index:5;left:0;right:0;background:#fff;border:1px solid var(--border);
+/* Los resultados van en el flujo del modal: en absolute los recortaba el overflow del
+   <dialog> y encima tapaban la lista de productos ya cargados del grupo. */
+.fam-resultados{margin-top:6px;background:#fff;border:1px solid var(--border);
   border-radius:var(--radius-sm);max-height:220px;overflow:auto}
 .fam-resultados:empty{display:none}
 .fam-res{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
