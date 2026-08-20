@@ -1520,8 +1520,36 @@ function renderProductos(data){
 // ── PDF ───────────────────────────────────────────────────────────────────────
 function pdfSegunTab(){
   if(tabActiva==='fraccionado'){ snack('La solapa Fraccionado no genera PDF'); return; }
+  if(tabActiva==='reservas'){ generarPDFReserva(); return; }
   if(tabActiva==='resumen') generarPDFResumen();
   else generarPDF();
+}
+
+// Imprime el carrito de reserva del cliente: es el remito que acompaña a quien mueve la
+// mercadería al depósito de reserva.
+function generarPDFReserva(){
+  if(!carritoRes.lineas.length){ snack('El carrito de reserva está vacío'); return; }
+  var ahora = new Date().toLocaleString('es-AR');
+  var filas = carritoRes.lineas.map(function(l){
+    return '<tr><td>'+escHtml(l.nombre)+'</td><td>'+escHtml(l.plu)+'</td>'
+      +'<td style="text-align:right">'+numFmt.format(l.cantidad)+'</td></tr>';
+  }).join('');
+  var unidades = carritoRes.lineas.reduce(function(a,l){ return a+(Number(l.cantidad)||0); }, 0);
+  var html = '<div class="pdf-logo">'
+    +'<div><div class="pdf-logo-title">Apidelta</div>'
+    +'<div class="pdf-logo-sub">Reserva de mercadería</div></div>'
+    +'<div class="pdf-logo-meta">'
+    +'<strong>Cliente:</strong> '+escHtml(carritoRes.nombreCliente)+'<br>'
+    +'<strong>Generado:</strong> '+escHtml(ahora)+'</div></div>'
+    +'<table class="pt"><thead><tr><th>Producto</th><th>PLU</th><th style="text-align:right">Cantidad</th></tr></thead>'
+    +'<tbody>'+filas+'</tbody>'
+    +'<tfoot><tr><td colspan="2"><strong>Total</strong></td>'
+    +'<td style="text-align:right"><strong>'+numFmt.format(unidades)+'</strong></td></tr></tfoot></table>'
+    +'<div class="pdf-sign">'
+    +'<div class="pdf-sign-box">Preparado por</div>'
+    +'<div class="pdf-sign-box">Revisado por</div></div>';
+  $('pdf-cont').innerHTML = html;
+  $('pdf-overlay').classList.add('visible');
 }
 
 function generarPDF(){
