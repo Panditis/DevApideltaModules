@@ -148,8 +148,59 @@ function reservasActivasResumen(reservas) {
   return Object.fromEntries(Object.entries(mapa).map(([cli, set]) => [cli, [...set]]));
 }
 
+/**
+ * Arma la reserva ya confirmada por SiGA. Se llama DESPUES del movimiento: si el traslado
+ * falla no se escribe nada en el archivo, asi que reintentar es seguro.
+ * @param {object} d datos de la reserva ya ejecutada
+ * @returns {object} reserva lista para persistir
+ */
+function nuevaReserva(d) {
+  return {
+    id: d.id,
+    fecha: d.fecha,
+    estado: 'activa',
+    idCliente: d.idCliente,
+    nombreCliente: texto(d.nombreCliente),
+    idSucursal: Number(d.idSucursal),
+    depOrigen: Number(d.depOrigen),
+    depDestino: Number(d.depDestino),
+    numeroMovimiento: d.numeroMovimiento,
+    idRegistro: d.idRegistro == null ? null : d.idRegistro,
+    usuario: texto(d.usuario),
+    lineas: d.lineas || [],
+    totales: totalesReserva(d.lineas),
+    anulacion: null,
+  };
+}
+
+/**
+ * Transicion activa -> anulada. Devuelve una copia: no muta la reserva original, para que un
+ * error posterior no deje el array en memoria a medio cambiar.
+ * @param {object} reserva
+ * @param {{numeroMovimiento:number, idRegistro:number|null, fecha:string}} mov comprobante inverso
+ * @returns {{reserva?:object, error?:string}}
+ */
+function anularReserva(reserva, mov) {
+  if (!reserva) return { error: 'Reserva no encontrada' };
+  if (reserva.estado === 'anulada') {
+    return { error: `La reserva #${reserva.id} ya esta anulada` };
+  }
+  return {
+    reserva: {
+      ...reserva,
+      estado: 'anulada',
+      anulacion: {
+        numeroMovimiento: mov.numeroMovimiento,
+        idRegistro: mov.idRegistro == null ? null : mov.idRegistro,
+        fecha: mov.fecha,
+      },
+    },
+  };
+}
+
 module.exports = {
   MAX_LINEAS, validarLineasReserva, normalizarLineasReserva, totalesReserva,
   validarClienteReserva, validarCarritoUnCliente, plusReservadosDeCliente,
   validarPlusNoReservados, reservasActivasResumen,
+  nuevaReserva, anularReserva,
 };

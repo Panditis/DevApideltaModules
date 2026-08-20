@@ -229,3 +229,71 @@ test('el resumen de activas agrupa los plu por cliente', () => {
   // Assert
   assert.deepStrictEqual(resumen, { 412: ['30000'], 999: ['30001'] });
 });
+
+const { nuevaReserva, anularReserva } = require('../reservas_mercaderia');
+
+// ── Armado y anulacion ────────────────────────────────────────────────────────────────────────
+// La reserva se arma DESPUES de que SiGA confirmo el movimiento: el numero de comprobante es
+// parte de la identidad de la reserva, no un campo que se completa despues.
+
+test('arma la reserva con el comprobante de siga y sus totales', () => {
+  // Arrange
+  const lineas = normalizarLineasReserva([linea({ cantidad: 10 })]);
+
+  // Act
+  const reserva = nuevaReserva({
+    id: 1700000000000, fecha: '2026-08-20T14:30:00.000Z',
+    idCliente: 412, nombreCliente: 'Dietetica San Martin',
+    idSucursal: 1, depOrigen: 1, depDestino: 7,
+    numeroMovimiento: 88123, idRegistro: 45, usuario: 'Adriel', lineas,
+  });
+
+  // Assert
+  assert.strictEqual(reserva.estado, 'activa');
+  assert.strictEqual(reserva.numeroMovimiento, 88123);
+  assert.strictEqual(reserva.anulacion, null);
+  assert.deepStrictEqual(reserva.totales, { lineas: 1, unidades: 10 });
+});
+
+test('anular una reserva activa la deja anulada con su comprobante inverso', () => {
+  // Arrange
+  const reserva = nuevaReserva({
+    id: 1, fecha: '2026-08-20T14:30:00.000Z', idCliente: 412, nombreCliente: 'Dietetica',
+    idSucursal: 1, depOrigen: 1, depDestino: 7, numeroMovimiento: 88123, idRegistro: 45,
+    usuario: 'Adriel', lineas: normalizarLineasReserva([linea()]),
+  });
+
+  // Act
+  const { reserva: anulada, error } = anularReserva(reserva, {
+    numeroMovimiento: 88200, idRegistro: 46, fecha: '2026-08-20T18:00:00.000Z',
+  });
+
+  // Assert
+  assert.strictEqual(error, undefined);
+  assert.strictEqual(anulada.estado, 'anulada');
+  assert.deepStrictEqual(anulada.anulacion,
+    { numeroMovimiento: 88200, idRegistro: 46, fecha: '2026-08-20T18:00:00.000Z' });
+});
+
+test('anular no muta la reserva original', () => {
+  // Arrange
+  const reserva = reservaActiva();
+
+  // Act
+  anularReserva(reserva, { numeroMovimiento: 88200, idRegistro: 46, fecha: 'x' });
+
+  // Assert
+  assert.strictEqual(reserva.estado, 'activa');
+});
+
+test('anular dos veces falla', () => {
+  // Arrange
+  const { reserva: anulada } = anularReserva(reservaActiva(),
+    { numeroMovimiento: 88200, idRegistro: 46, fecha: 'x' });
+
+  // Act
+  const { error } = anularReserva(anulada, { numeroMovimiento: 88300, idRegistro: 47, fecha: 'y' });
+
+  // Assert
+  assert.match(error, /anulada/i);
+});
