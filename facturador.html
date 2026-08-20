@@ -118,14 +118,203 @@
   #dropzona { border: 2px dashed var(--borde); border-radius: 8px; padding: 16px; text-align: center; color: var(--muted); }
   #dropzona.sobre { border-color: var(--verde); color: var(--verde); background: var(--verde-light); }
 
-  /* ── Impresión: queda el comprobante, se va la herramienta ────────────────── */
+  /* ── Pestañas ─────────────────────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 4px; margin-left: 4px; }
+  .tab {
+    background: transparent; border: none; border-bottom: 3px solid transparent; color: #d8e2d2;
+    padding: 7px 14px; border-radius: 5px 5px 0 0; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .tab:hover { background: rgba(255,255,255,.12); border-color: transparent; color: #fff; }
+  .tab.activa { background: rgba(255,255,255,.16); border-bottom-color: var(--amarillo); color: #fff; }
+
+  /* ── Ficha de consulta ────────────────────────────────────────────────────── */
+  /* Pantalla de verificador de precios: se lee de lejos y de parado, así que ocupa todo
+     el alto disponible y el tamaño va en vw para adaptarse al monitor que toque. */
+  #vistaConsulta {
+    display: flex; flex-direction: column; padding: 14px;
+    min-height: calc(100dvh - 68px); max-width: 1400px; margin: 0 auto; gap: 2px;
+    /* stretch explícito: la regla general de main trae align-items:start, y en un flex en
+       columna eso deja a los hijos con su ancho natural, pegados a la izquierda. */
+    align-items: stretch;
+  }
+  /* El lector escribe solo: el campo no necesita protagonismo, alcanza con que se vea
+     que está activo. Todo el espacio es para el producto y el precio. */
+  #barraConsulta { position: relative; display: flex; justify-content: center; align-items: center; opacity: .55; }
+  #barraConsulta:focus-within, #barraConsulta.alerta { opacity: 1; }
+  #barraConsulta input {
+    max-width: 230px; font-size: 13px; padding: 5px 9px; text-align: center; background: transparent;
+    font-family: ui-monospace, monospace; letter-spacing: .5px; border-style: dashed; color: var(--muted);
+  }
+  #barraConsulta input:focus { border-style: solid; color: var(--ink); background: var(--card); }
+  #fichaConsulta {
+    flex: 1; display: flex; align-items: center; justify-content: center; padding: 6px 4px 20px;
+  }
+  /* El marco es lo que hace que se lea como un cartel de precio y no como una página. */
+  .marco {
+    position: relative; background: var(--card); border: 4px solid var(--verde);
+    border-radius: 20px; box-shadow: 0 10px 30px rgba(26,28,24,.16);
+    padding: clamp(20px, 4vh, 46px) clamp(22px, 4vw, 62px) clamp(18px, 3.4vh, 40px);
+    text-align: center; max-width: 100%; animation: entra .26s cubic-bezier(.2,.9,.3,1.2);
+  }
+  /* Franja amarilla superior: la misma marca que el encabezado. */
+  .marco::before {
+    content: ''; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+    width: 42%; height: 9px; background: var(--amarillo); border-radius: 0 0 7px 7px;
+  }
+  .marco.err { border-color: var(--err); }
+  .marco.err::before { background: var(--err); }
+  @keyframes entra { from { opacity: 0; transform: scale(.965) translateY(9px); } }
+
+  .marco .nom {
+    font-size: clamp(31px, 5.4vw, 70px); font-weight: 700; line-height: 1.06;
+    font-family: 'Barlow Condensed', system-ui, sans-serif; max-width: 16ch; margin: 0 auto;
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .marco .cod {
+    font-size: clamp(12px, 1.4vw, 17px); color: var(--muted); margin-top: 6px;
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+  /* El precio va sobre fondo verde: es lo que la persona busca desde lejos. */
+  .marco .panel {
+    background: var(--verde); border-radius: 14px; margin-top: clamp(14px, 2.6vh, 30px);
+    padding: clamp(10px, 2vh, 22px) clamp(20px, 4vw, 54px);
+  }
+  .marco .precio {
+    font-size: clamp(74px, 15vw, 215px); font-weight: 700; color: #fff; line-height: .9;
+    font-family: 'Barlow Condensed', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+    display: block;
+  }
+  .marco .unidad {
+    font-size: clamp(15px, 2vw, 27px); color: var(--amarillo); font-weight: 700;
+    display: block; margin-top: 5px; text-transform: uppercase; letter-spacing: 4px;
+  }
+  .marco .pesada {
+    margin-top: clamp(12px, 2.4vh, 26px); background: var(--amarillo-light);
+    border: 2px solid var(--amarillo); border-radius: 13px;
+    padding: clamp(9px, 1.8vh, 17px) clamp(18px, 3vw, 40px); color: #6b5200;
+    font-size: clamp(15px, 1.9vw, 25px); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .marco .pesada b {
+    font-size: clamp(40px, 7.4vw, 92px); display: block; margin-top: 1px; color: #4a3800;
+    font-family: 'Barlow Condensed', system-ui, sans-serif; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: 0;
+  }
+  .marco .aviso { font-size: clamp(21px, 3vw, 40px); color: var(--err); font-weight: 700; max-width: 18ch; margin: 0 auto; }
+  .marco .espera { color: var(--muted); font-size: clamp(16px, 2vw, 27px); letter-spacing: 1px; }
+  /* Varios productos con el mismo código: entran todos en el mismo marco. */
+  .marco .varios {
+    font-size: clamp(18px, 2.2vw, 32px); font-weight: 700; line-height: 1.3;
+    padding: 7px 0; border-bottom: 1px solid var(--borde);
+  }
+  .marco .varios:last-child { border-bottom: none; }
+  .marco .varios .precio { display: inline; font-size: clamp(21px, 2.6vw, 38px); color: var(--verde); }
+
+  /* ── Toast y badge de actualización ───────────────────────────────────────── */
+  #toasts {
+    position: fixed; right: 14px; bottom: 14px; z-index: 90;
+    display: flex; flex-direction: column; gap: 9px; align-items: flex-end; pointer-events: none;
+  }
+  .toast {
+    background: var(--verde-dark); color: #fff; border-radius: 9px; padding: 11px 16px;
+    box-shadow: 0 6px 18px rgba(26,28,24,.28); font-size: 14.5px; font-weight: 600;
+    max-width: 330px; border-left: 5px solid var(--amarillo); animation: entraToast .2s ease-out;
+  }
+  .toast.err { background: var(--err); border-left-color: #7d2515; }
+  .toast.ok  { background: var(--ok);  border-left-color: #1b5e20; }
+  .toast.saliendo { animation: saleToast .35s ease-in forwards; }
+  @keyframes entraToast { from { opacity: 0; transform: translateX(22px); } }
+  @keyframes saleToast  { to   { opacity: 0; transform: translateX(22px); } }
+
+  /* El badge va pegado al input sin sacarlo del centro: por eso se posiciona desde el
+     medio de la barra en vez de ser un flex item más. */
+  #badgeEstado {
+    position: absolute; left: 50%; margin-left: 128px; top: 50%; transform: translateY(-50%);
+    white-space: nowrap; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 11px;
+    text-transform: uppercase; letter-spacing: .6px; display: flex; align-items: center; gap: 6px;
+  }
+  #badgeEstado::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  #badgeEstado.ok   { background: #e3f0e0; color: var(--ok); }
+  #badgeEstado.warn { background: var(--amarillo-light); color: #8a5b00; }
+  #badgeEstado.err  { background: #fbe3de; color: var(--err); animation: parpadeo 1.4s ease-in-out infinite; }
+  @keyframes parpadeo { 50% { opacity: .45; } }
+  @media (max-width: 780px) {
+    #badgeEstado { position: static; transform: none; margin: 0; }
+    #barraConsulta { flex-wrap: wrap; gap: 8px; }
+  }
+
+  /* ── Modal ────────────────────────────────────────────────────────────────── */
+  #modalFondo {
+    position: fixed; inset: 0; z-index: 100; background: rgba(26,28,24,.55);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  #modalCaja {
+    background: var(--card); border-radius: 11px; border-top: 5px solid var(--verde);
+    box-shadow: 0 12px 34px rgba(26,28,24,.3); max-width: 460px; width: 100%;
+    padding: 18px 20px 16px; animation: aparece .12s ease-out;
+  }
+  #modalCaja.err { border-top-color: var(--err); }
+  #modalCaja.ok  { border-top-color: var(--ok); }
+  @keyframes aparece { from { opacity: 0; transform: translateY(-8px); } }
+  #modalTitulo { font-size: 19px; margin: 0 0 8px; color: var(--verde); }
+  #modalCaja.err #modalTitulo { color: var(--err); }
+  /* pre-wrap para respetar los saltos de línea del mensaje sin usar innerHTML */
+  #modalCuerpo { white-space: pre-wrap; font-size: 14.5px; line-height: 1.5; margin-bottom: 14px; }
+  #modalCuerpo:empty { display: none; }
+  #modalTexto {
+    width: 100%; min-height: 190px; margin-bottom: 13px; padding: 9px; resize: vertical;
+    font: 13px/1.45 ui-monospace, monospace; border: 1px solid var(--borde); border-radius: 6px;
+    background: var(--surface); color: var(--ink);
+  }
+  #modalBotones { display: flex; gap: 9px; justify-content: flex-end; flex-wrap: wrap; }
+
+  /* ── Instructivo ──────────────────────────────────────────────────────────── */
+  #secAyuda ol { margin: 0 0 4px; padding-left: 20px; }
+  #secAyuda li { margin-bottom: 7px; }
+  #secAyuda h3 {
+    font-size: 15px; margin: 16px 0 8px; color: var(--verde);
+    font-family: 'Barlow Condensed', system-ui, sans-serif; letter-spacing: .3px;
+  }
+  #secAyuda h3:first-child { margin-top: 0; }
+  #secAyuda .nota {
+    background: var(--amarillo-light); border-left: 4px solid var(--amarillo);
+    padding: 9px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13.5px;
+  }
+  #secAyuda code {
+    background: var(--surface); padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, monospace; font-size: 12.5px;
+  }
+  #secAyuda .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; }
+  @media (max-width: 760px) { #secAyuda .cols { grid-template-columns: 1fr; } }
+
+  /* ── Ticket para comandera térmica ────────────────────────────────────────── */
+  /* Rollo de 80 mm: 72 mm útiles. Para una de 58 mm, poner 48mm acá y en @page. */
+  #ticket { display: none; }
+  @page { size: 72mm auto; margin: 3mm 2mm; }
   @media print {
-    body { background: #fff; }
-    header { position: static; border-bottom: 3px solid var(--verde); }
-    .no-print, button { display: none !important; }
-    main { display: block; max-width: none; padding: 0; }
-    section { border: none; box-shadow: none; padding: 6px 0; break-inside: avoid; }
-    .lateral { position: static; }
+    /* Se imprime el ticket y nada más: la pantalla completa no entra en el rollo.
+       El :not(#ticket) es obligatorio: sin él la regla oculta también al ticket, y su
+       !important le gana al display:block de más abajo. */
+    body > *:not(#ticket) { display: none !important; }
+    body { background: #fff; color: #000; margin: 0; }
+    #ticket {
+      display: block; width: 100%; max-width: 72mm; margin: 0 auto; color: #000;
+      font: 11.5px/1.32 ui-monospace, 'Consolas', 'Courier New', monospace;
+    }
+    /* Nada de fondos ni grises: la térmica sólo quema negro y se ve sucio. */
+    #ticket * { background: transparent !important; color: #000 !important; }
+    .tk-centro { text-align: center; }
+    .tk-marca { font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+    .tk-sep { border-top: 1px dashed #000; margin: 5px 0; }
+    .tk-fila { display: flex; justify-content: space-between; gap: 6px; }
+    .tk-fila span:last-child { white-space: nowrap; }
+    .tk-item { margin-top: 4px; break-inside: avoid; }
+    .tk-nom { word-break: break-word; }
+    .tk-detalle { padding-left: 6px; }
+    .tk-total { font-size: 15px; font-weight: 700; margin-top: 3px; }
+    .tk-pie { margin-top: 8px; font-size: 10px; }
+    /* Espacio final: sin esto la comandera corta arriba de la última línea. */
+    .tk-corte { height: 14mm; }
   }
 </style>
 </head>
@@ -143,15 +332,20 @@
         <div class="sub">Apidelta · comprobante interno, sin valor fiscal</div>
       </div>
     </div>
+    <div class="tabs no-print">
+      <button class="tab activa" id="tabConsulta">Lector de precios</button>
+      <button class="tab" id="tabPedido">Pedido</button>
+    </div>
     <div class="sep"></div>
     <span class="estado sin" id="estadoCat">Sin catálogo</span>
     <button class="hdr mini" id="btnActualizar">Actualizar precios</button>
     <button class="hdr mini" id="btnConfig">Fuente de precios</button>
     <button class="hdr mini" id="btnGuardados">Pedidos</button>
+    <button class="hdr mini" id="btnAyuda">Ayuda</button>
   </div>
 </header>
 
-<main>
+<main id="vistaPedido" class="oculto">
 <div class="col">
 
   <!-- ── Escáner ─────────────────────────────────────────────────────────────── -->
@@ -228,11 +422,18 @@
       <button class="crece" id="btnImprimir">Imprimir</button>
     </div>
     <div class="fila" style="margin-top:9px">
-      <button class="crece" id="btnCopiar">Copiar para WhatsApp</button>
-      <button class="peligro" id="btnLimpiar">Vaciar</button>
+      <button class="peligro crece" id="btnLimpiar">Vaciar</button>
     </div>
   </section>
 </div>
+</main>
+
+<main id="vistaConsulta" class="no-print">
+  <div id="barraConsulta">
+    <input id="escanerConsulta" placeholder="Leer código de barra" autocomplete="off" inputmode="numeric">
+    <span id="badgeEstado" class="ok" title="Estado de la actualización de precios"></span>
+  </div>
+  <div id="fichaConsulta"><div class="marco"><div class="espera">Esperando un código…</div></div></div>
 </main>
 
 <main style="display:block">
@@ -248,13 +449,7 @@
     </div>
 
     <div style="margin-bottom:11px">
-      <label class="et">2 · URL de una planilla (.xlsx o .csv)</label>
-      <input id="cfgUrlPlanilla" placeholder="https://…/precios.xlsx">
-      <p class="chico">Tiene que permitir CORS. Google Sheets: Archivo → Compartir → Publicar en la web → CSV.</p>
-    </div>
-
-    <div style="margin-bottom:11px">
-      <label class="et">3 · Archivo de la computadora (siempre funciona, sin red)</label>
+      <label class="et">2 · Archivo de la computadora (siempre funciona, sin red)</label>
       <div id="dropzona">Arrastrá acá un .xlsx o .csv, o <button class="mini" id="btnArchivo">elegilo</button>
         <input type="file" id="inputArchivo" accept=".xlsx,.csv,.txt" class="oculto"></div>
     </div>
@@ -270,6 +465,93 @@
     </div>
 
     <div class="fila" style="margin-top:11px"><button class="verde" id="btnGuardarConfig">Guardar configuración</button></div>
+
+    <h2 style="margin-top:18px">Repartir a otras PC</h2>
+    <p class="chico">Genera una copia de este mismo archivo con los precios actuales adentro. Esa copia
+      funciona sola en cualquier computadora: sin red, sin servidor y sin permisos de OneDrive.
+      Para actualizar precios, volvés acá, cargás la planilla nueva y generás otra copia.</p>
+    <div class="fila"><button class="pri" id="btnClonar">Descargar facturador con estos precios</button></div>
+  </section>
+
+
+  <!-- ── Instructivo ───────────────────────────────────────────────────────────── -->
+  <section id="secAyuda" class="oculto no-print">
+    <h2>Cómo se usa</h2>
+    <div class="cols">
+      <div>
+        <h3>Lector de precios</h3>
+        <ol>
+          <li>Es la pantalla con la que abre el programa. Pasá el lector por el código de barras
+            y aparece el producto con su precio, en grande.</li>
+          <li>Si el producto se vende <b>por kilo</b>, pasá el ticket que imprime la balanza:
+            muestra el peso y el precio ya calculado.</li>
+          <li>No hace falta hacer clic en ningún lado antes de escanear.</li>
+        </ol>
+
+        <h3>Cargar una venta</h3>
+        <ol>
+          <li>Entrá a la pestaña <b>Pedido</b>.</li>
+          <li>Escaneá los productos, o buscalos por nombre. Cada escaneo suma una línea.</li>
+          <li>Podés cambiar a mano la cantidad, el precio y el descuento de cada línea.</li>
+          <li>Cargá el <b>descuento general</b> si corresponde.</li>
+          <li>En <b>Medios de pago</b> elegí uno y apretá <i>Sumar</i>. Si el importe queda vacío
+            se asigna todo lo que falta. Se puede dividir entre varios medios.</li>
+          <li><b>Guardar pedido</b>, y <b>Imprimir</b> para sacar el ticket.</li>
+        </ol>
+      </div>
+      <div>
+        <h3>Los precios</h3>
+        <ol>
+          <li>El archivo ya viene con los precios adentro: funciona sin internet en cualquier PC.</li>
+          <li>Si llega al servidor Apidelta, se actualizan solos cada minuto.</li>
+          <li>El cartelito al lado del lector avisa: verde y la hora si está al día, amarillo o
+            rojo si hace rato que no puede actualizar.</li>
+        </ol>
+
+        <h3>Actualizar y repartir</h3>
+        <ol>
+          <li><b>Fuente de precios</b> → arrastrá el archivo <code>.xlsx</code> de precios.</li>
+          <li>Apretá <b>Descargar facturador con estos precios</b>.</li>
+          <li>Ese archivo nuevo se manda por mail o pendrive y ya funciona solo.</li>
+        </ol>
+
+        <div class="nota"><b>Ojo:</b> los pedidos se guardan en la computadora donde se cargaron.
+          Si se limpian los datos del navegador, se pierden. Descargá el respaldo seguido.</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px">Exportar las ventas</h2>
+    <div class="cols">
+      <div>
+        <h3>Sacar el listado</h3>
+        <ol>
+          <li>Apretá <b>Pedidos</b> arriba a la derecha.</li>
+          <li>Apretá <b>Exportar CSV</b>.</li>
+          <li>Se baja un archivo <code>pedidos_AAAA-MM-DD.csv</code>.</li>
+          <li>Se abre con doble clic en Excel, ya separado en columnas.</li>
+        </ol>
+        <div class="nota">Sale <b>una fila por cada producto</b> de cada pedido, no una por pedido.
+          Para totales por venta, filtrá por la columna <code>Pedido</code>.</div>
+      </div>
+      <div>
+        <h3>Qué trae cada columna</h3>
+        <ol>
+          <li><code>Pedido</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
+          <li><code>Cliente</code> y <code>Vendedor</code>.</li>
+          <li><code>Codigo</code> y <code>Producto</code>.</li>
+          <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
+          <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
+          <li><code>DtoGeneral</code>, <code>TotalPedido</code> y <code>MediosPago</code>.</li>
+        </ol>
+
+        <h3>Mover las ventas a otra PC</h3>
+        <ol>
+          <li><b>Descargar respaldo</b> en la computadora que tiene los pedidos.</li>
+          <li><b>Restaurar respaldo</b> en la otra, con ese archivo.</li>
+          <li>Se suman a los que ya había; no se pisa nada.</li>
+        </ol>
+      </div>
+    </div>
   </section>
 
   <!-- ── Pedidos guardados ─────────────────────────────────────────────────────── -->
@@ -290,6 +572,19 @@
     <p class="chico">Los pedidos viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
   </section>
 </main>
+
+<div id="ticket"></div>
+
+<div id="toasts" class="no-print" aria-live="polite"></div>
+
+<div id="modalFondo" class="oculto no-print" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
+  <div id="modalCaja">
+    <h3 id="modalTitulo"></h3>
+    <div id="modalCuerpo"></div>
+    <textarea id="modalTexto" class="oculto" readonly></textarea>
+    <div id="modalBotones"></div>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -478,10 +773,20 @@ function aNumero(v) {
 }
 
 const PATRONES = {
+  barra:  /^(c[oó]digo.?de.?barras?|cod.?barras?|barras?|ean|gtin)/i,
   codigo: /^(c[oó]digo|cod|plu|id.?producto|sku|item)/i,
   nombre: /^(nombre|descrip|producto|detalle|art[ií]culo|articulo)/i,
   precio: /(precio|p\.?\s*venta|importe|valor|monto)/i,
 };
+
+// SIGA exporta los encabezados con la ruta de la tabla adelante, así:
+// "ProductosSucursales.Productos.NombreProducto". Sin recortar ese prefijo ningún patrón
+// anclado al principio engancha, y la planilla parece no tener columna de nombre.
+function limpiarEncabezado(s) {
+  const txt = String(s == null ? '' : s).trim();
+  const punto = txt.lastIndexOf('.');
+  return punto >= 0 && punto < txt.length - 1 ? txt.slice(punto + 1) : txt;
+}
 
 // Busca la fila de encabezados entre las primeras. Las planillas exportadas arrancan con
 // títulos y filas vacías arriba, así que asumir "fila 1 = encabezado" falla seguido.
@@ -490,37 +795,74 @@ const PATRONES = {
 function detectarEncabezado(filas) {
   const tope = Math.min(filas.length, 15);
   for (let i = 0; i < tope; i++) {
-    const cols = filas[i].map(c => String(c).trim());
-    const buscar = re => { const j = cols.findIndex(c => re.test(c)); return j < 0 ? null : j; };
-    const precio = buscar(PATRONES.precio);
+    const cols = (filas[i] || []).map(limpiarEncabezado);
+    const buscar = (re, excluir) => {
+      const j = cols.findIndex((c, k) => !excluir.includes(k) && re.test(c));
+      return j < 0 ? null : j;
+    };
+    const precio = buscar(PATRONES.precio, []);
     if (precio == null) continue;
-    const codigo = buscar(PATRONES.codigo);
-    const nombre = buscar(PATRONES.nombre);
+    // La de barras se busca primero y se excluye de las demás: "CodigoDeBarras" también
+    // matchea el patrón de código, y sin esto se robaría la columna del PLU.
+    const barra = buscar(PATRONES.barra, [precio]);
+    const usadas = [precio, barra].filter(k => k != null);
+    const codigo = buscar(PATRONES.codigo, usadas);
+    const nombre = buscar(PATRONES.nombre, usadas.concat(codigo == null ? [] : [codigo]));
     if (nombre == null && codigo == null) continue;
-    return { filaEncabezado: i, columnas: cols, codigo, nombre, precio };
+    return { filaEncabezado: i, columnas: cols, codigo, nombre, precio, barra };
   }
   return null;
 }
 
+// Un código de balanza corto es "20" + PLU de 5 dígitos: así los tiene cargados SIGA.
+// Una planilla no trae la columna ModalidadCodigoDeBarras, así que la única marca
+// disponible de "esto se vende por kilo" es ese patrón.
+function esBarraDeBalanza(barra, plu) {
+  return /^20\d{5}$/.test(barra) && Number(barra.slice(2)) === Number(plu);
+}
+
 // filas + mapeo de columnas → productos. Descarta lo que no tenga nombre y precio > 0,
 // así las filas de totales, subtítulos y separadoras no entran al catálogo.
+//
+// La exportación de SIGA repite el producto una vez por código de barras (9514 filas para
+// ~4300 productos), de modo que las filas se consolidan por PLU: un solo producto que se
+// queda con todos sus códigos. Sin esto el buscador muestra el mismo artículo tres veces.
 function filasACatalogo(filas, mapeo) {
-  const { filaEncabezado = -1, codigo, nombre, precio } = mapeo || {};
+  const { filaEncabezado = -1, codigo, nombre, precio, barra = null } = mapeo || {};
   if (nombre == null || precio == null) throw new Error('Faltan las columnas de nombre y precio.');
-  const productos = [];
+
+  const porClave = new Map();
   for (let i = filaEncabezado + 1; i < filas.length; i++) {
     const f = filas[i] || [];
     const nom = String(f[nombre] == null ? '' : f[nombre]).trim();
     const pre = aNumero(f[precio]);
     if (!nom || !Number.isFinite(pre) || pre <= 0) continue;
-    productos.push({
-      plu: codigo == null ? '' : String(f[codigo] == null ? '' : f[codigo]).trim(),
-      nombre: nom,
-      precio: Math.round(pre * 100) / 100,
-      barra: '', modalidad: null, unidad: '',
+
+    const plu = codigo == null ? '' : String(f[codigo] == null ? '' : f[codigo]).trim();
+    const clave = plu || nom.toLowerCase();
+    // Códigos de menos de 7 dígitos no son códigos de barra: en la base hay "0", "1" y
+    // restos de carga que generarían falsos positivos al escanear.
+    const cb = barra == null ? '' : String(f[barra] == null ? '' : f[barra]).replace(/\D/g, '');
+    const valido = cb.length >= 7 ? cb : '';
+
+    const previo = porClave.get(clave);
+    if (previo) {
+      // Fila repetida del mismo producto: se suma el código nuevo y se conserva el precio
+      // de la primera aparición.
+      if (valido && !previo.barras.includes(valido)) previo.barras.push(valido);
+      continue;
+    }
+    porClave.set(clave, {
+      plu, nombre: nom, precio: Math.round(pre * 100) / 100,
+      barras: valido ? [valido] : [], modalidad: null, unidad: '',
     });
   }
-  return productos;
+
+  return [...porClave.values()].map(p => ({
+    ...p,
+    barra: p.barras[0] || '',
+    modalidad: p.barras.some(b => esBarraDeBalanza(b, p.plu)) ? 'PESO' : null,
+  }));
 }
 
 // ── Códigos de barra y tickets de balanza ─────────────────────────────────────
@@ -531,10 +873,14 @@ function construirIndice(productos) {
   for (const p of productos || []) {
     const plu = String(p.plu || '').trim();
     if (plu && !porPlu.has(plu)) porPlu.set(plu, p);
-    const barra = String(p.barra || '').replace(/\D/g, '');
-    if (barra) {
+    // El servidor manda un solo código por producto; la planilla de SIGA puede traer
+    // varios. Se aceptan las dos formas para que escanear funcione igual con cualquiera.
+    const barras = Array.isArray(p.barras) && p.barras.length ? p.barras : [p.barra];
+    for (const cruda of barras) {
+      const barra = String(cruda || '').replace(/\D/g, '');
+      if (!barra) continue;
       if (!porBarra.has(barra)) porBarra.set(barra, []);
-      porBarra.get(barra).push(p);
+      if (!porBarra.get(barra).includes(p)) porBarra.get(barra).push(p);
     }
   }
   return { porBarra, porPlu };
@@ -547,53 +893,59 @@ function digitoControlEan13(doce) {
   return (10 - (suma % 10)) % 10;
 }
 
-// Ticket de balanza: EAN-13 con formato "2" + prefijo + PLU(5) + valor(5) + control.
-// Confirmado contra los datos de SIGA: el producto 1004 tiene el código corto "2001004",
-// o sea "20" + PLU de 5 dígitos con ceros a la izquierda.
-// El valor son gramos cuando ModalidadCodigoDeBarras = PESO, y centavos cuando = PRECIO.
+// Ticket de balanza: EAN-13 de 13 dígitos, con formato prefijo(2) + PLU(5) + peso(5) + control.
+// Sólo hay dos prefijos y el peso siempre viene en gramos:
+//   20 → producto pesable: se cobra el peso por el precio por kilo.
+//   21 → sale por balanza pero NO es pesable: se cobra 1 unidad y el peso queda de dato.
+// Confirmado contra SIGA: los 5 dígitos del medio son el IdProducto (1243 de 1244 casos en
+// el prefijo 20, y 10 de 10 en el 21).
+const PREFIJOS_BALANZA = { '20': true, '21': false };   // prefijo → ¿es pesable?
+const DIVISOR_PESO = 1000;                              // el campo del ticket viene en gramos
+
 function parsearCodigoBalanza(codigo) {
   const d = String(codigo || '').replace(/\D/g, '');
-  if (d.length !== 13 || d[0] !== '2') return null;
+  if (d.length !== 13) return null;
+  const prefijo = d.slice(0, 2);
+  if (!(prefijo in PREFIJOS_BALANZA)) return null;
   // El dígito de control descarta lecturas rotas antes de que se conviertan en un precio.
   if (digitoControlEan13(d) !== Number(d[12])) return null;
-  const plu = String(Number(d.slice(2, 7)));
-  const valor = Number(d.slice(7, 12));
-  if (!Number.isFinite(valor)) return null;
-  return { plu, valor };
+  const gramos = Number(d.slice(7, 12));
+  if (!Number.isFinite(gramos)) return null;
+  return { prefijo, plu: String(Number(d.slice(2, 7))), gramos, pesable: PREFIJOS_BALANZA[prefijo] };
 }
-
-const DIVISOR_PESO = 1000;      // el campo del ticket viene en gramos
-const DIVISOR_IMPORTE = 100;    // …o en centavos, si la modalidad es PRECIO
 
 // Resuelve lo que entró por el lector (o tipeado a mano) contra el catálogo.
 // Devuelve siempre un objeto con `tipo`, así el llamador no tiene que adivinar el caso.
 function resolverEscaneo(codigo, indice, opciones) {
-  const cfg = Object.assign({ divisorPeso: DIVISOR_PESO, divisorImporte: DIVISOR_IMPORTE }, opciones || {});
+  const cfg = Object.assign({ divisorPeso: DIVISOR_PESO }, opciones || {});
   const bruto = String(codigo == null ? '' : codigo).trim();
   if (!bruto) return { tipo: 'vacio' };
   const d = bruto.replace(/\D/g, '');
 
-  // 1. Ticket de balanza: trae el peso (o el importe) adentro del código.
-  const bal = parsearCodigoBalanza(d);
-  if (bal) {
-    const p = indice.porPlu.get(bal.plu);
-    if (!p) return { tipo: 'no_encontrado', codigo: d, plu: bal.plu, balanza: true };
-    if (p.modalidad === 'PRECIO') {
-      // El ticket ya trae el importe cerrado: se respeta y la cantidad es 1.
-      const importe = Math.round((bal.valor / cfg.divisorImporte) * 100) / 100;
-      return { tipo: 'ok', producto: p, cant: 1, precio: importe, origen: 'balanza-importe' };
-    }
-    // PESO: el precio del catálogo es por kilo y el ticket trae los gramos pesados.
-    const kg = Math.round((bal.valor / cfg.divisorPeso) * 1000) / 1000;
-    return { tipo: 'ok', producto: p, cant: kg, precio: p.precio, origen: 'balanza-peso', unidad: 'kg' };
-  }
-
-  // 2. Código de barras común.
+  // 1. Código de barras del catálogo, tal cual. Va PRIMERO a propósito: en SIGA hay
+  // productos con un EAN-13 propio que arranca con 20 o 21 (por ejemplo el 91366, con
+  // "2023150254435"), y leerlo como ticket daría un peso inventado de 25 kg. Un ticket de
+  // balanza real nunca está en la tabla, porque el peso cambia en cada pesada.
   const porBarra = indice.porBarra.get(d);
   if (porBarra && porBarra.length === 1) {
     return { tipo: 'ok', producto: porBarra[0], cant: 1, precio: porBarra[0].precio, origen: 'barra' };
   }
   if (porBarra && porBarra.length > 1) return { tipo: 'ambiguo', codigo: d, opciones: porBarra };
+
+  // 2. Ticket de balanza: trae el PLU y el peso adentro del código.
+  const bal = parsearCodigoBalanza(d);
+  if (bal) {
+    const p = indice.porPlu.get(bal.plu);
+    if (!p) return { tipo: 'no_encontrado', codigo: d, plu: bal.plu, balanza: true };
+    const kg = Math.round((bal.gramos / cfg.divisorPeso) * 1000) / 1000;
+    if (!bal.pesable) {
+      // Prefijo 21: sale por balanza pero se vende por unidad. El peso se guarda como
+      // dato del bulto y no entra en el cálculo.
+      return { tipo: 'ok', producto: p, cant: 1, precio: p.precio, origen: 'balanza-unidad', peso: kg };
+    }
+    // Prefijo 20: el precio del catálogo es por kilo y el ticket trae los gramos pesados.
+    return { tipo: 'ok', producto: p, cant: kg, precio: p.precio, origen: 'balanza-peso', unidad: 'kg' };
+  }
 
   // 3. PLU tipeado a mano, con o sin ceros a la izquierda.
   const p = indice.porPlu.get(bruto) || indice.porPlu.get(d) ||
@@ -640,27 +992,150 @@ function saldoPagos(total, pagos) {
   };
 }
 
+// ── Consulta de precios ───────────────────────────────────────────────────────
+// Traduce lo escaneado a lo que hay que mostrar en pantalla, sin tocar el pedido.
+// Vive acá y no en el pintado para poder probar los importes sin un navegador.
+function consultaDeEscaneo(codigo, indice, opciones) {
+  const r = resolverEscaneo(codigo, indice, opciones);
+  if (r.tipo !== 'ok') return r;
+
+  const base = {
+    tipo: 'ok', producto: r.producto, nombre: r.producto.nombre, plu: r.producto.plu,
+    precio: r.precio, origen: r.origen, peso: null, total: null, porKilo: false,
+  };
+
+  if (r.origen === 'balanza-peso') {
+    // Ticket con prefijo 20: se sabe el peso exacto, así que se puede mostrar el importe.
+    return Object.assign(base, {
+      porKilo: true, peso: r.cant,
+      total: Math.round(r.cant * r.precio * 100) / 100,
+    });
+  }
+  if (r.origen === 'balanza-unidad') {
+    // Prefijo 21: el peso es del bulto y no entra en el precio.
+    return Object.assign(base, { peso: r.peso, total: r.precio });
+  }
+  // Sin ticket: si el producto es de balanza, el precio que se muestra es por kilo y
+  // todavía no hay peso que mostrar.
+  const porKilo = r.producto.modalidad === 'PESO' || esBarraDeBalanza(r.producto.barra || '', r.producto.plu);
+  return Object.assign(base, { porKilo, total: porKilo ? null : r.precio });
+}
+
+// Un .xlsx es un ZIP y siempre arranca con "PK\x03\x04". Mirar los bytes en vez de la
+// extensión es lo único que sirve con las descargas de la nube, que llegan sin nombre.
+function pareceXlsx(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  return b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+}
+
+// Detecta la página de login o el error que devuelven estos servicios cuando el enlace no
+// es público: sin esto el usuario ve "no se encontró ningún producto" y no entiende nada.
+function pareceHtml(texto) {
+  return /^\s*(<!doctype html|<html|\{"error")/i.test(String(texto || '').slice(0, 200));
+}
+
+// Un archivo guardado desde el navegador suele ser una página web con extensión de
+// planilla: avisarlo es más útil que devolver cero productos sin explicación.
+function motivoPlanillaRechazada() {
+  return 'El archivo no es una planilla: parece una página web guardada. Abrilo en Excel y ' +
+    'guardalo de nuevo como .xlsx o .csv.';
+}
+
+// ── Catálogo incrustado en el propio archivo ──────────────────────────────────
+// Un HTML que se lleva los precios adentro no necesita red, ni servidor, ni permisos de
+// ningún servicio: se copia a cualquier PC y funciona. Para actualizarlo, el facturador
+// se clona a sí mismo con el catálogo nuevo pegado en el head.
+const MARCA_CATALOGO = 'catalogoEmbebido';
+
+// El JSON viaja dentro de una etiqueta script de tipo application/json. Lo único que hay
+// que neutralizar es una etiqueta de cierre que aparezca dentro de algún nombre de
+// producto, así que se escapa todo "<". Ojo: escribir esa etiqueta completa acá, aunque
+// sea en un comentario, cortaría el script en este punto.
+function catalogoAJson(catalogo) {
+  // Se escribe la secuencia de escape literal (barra + u003c), no el caracter: JSON.parse
+  // la vuelve a convertir en '<' al leerla, y mientras tanto el HTML no ve ninguna
+  // etiqueta que pueda cortar el bloque.
+  return JSON.stringify(catalogo).replace(/</g, '\\u003c');
+}
+
+function leerCatalogoEmbebido(texto) {
+  const t = String(texto || '').trim();
+  if (!t) return null;
+  try {
+    const c = JSON.parse(t);
+    return c && Array.isArray(c.productos) && c.productos.length ? c : null;
+  } catch { return null; }
+}
+
+// Devuelve el HTML completo con el catálogo adentro. Reemplaza el bloque anterior si ya
+// había uno, para que clonar dos veces no acumule copias del catálogo.
+function incrustarCatalogo(html, catalogo) {
+  const bloque = '<scr' + 'ipt id="' + MARCA_CATALOGO + '" type="application/json">' +
+    catalogoAJson(catalogo) + '</' + 'script>';
+  // El patrón se arma por partes a propósito. Escrito como literal, la etiqueta de
+  // apertura que busca quedaría tal cual dentro de este mismo archivo, y al clonar el
+  // regex se encontraría a sí mismo y borraría medio programa.
+  const re = new RegExp('<scr' + 'ipt id="' + MARCA_CATALOGO + '"[^>]*>[\\s\\S]*?</scr' + 'ipt>');
+  // Va en el <head>, antes del programa: si quedara al final del body, el script ya
+  // habría corrido buscando un elemento que todavía no existe.
+  return re.test(html) ? html.replace(re, bloque) : html.replace('</head>', bloque + '</head>');
+}
+
+// ── Estado del refresco automático ────────────────────────────────────────────
+const INTERVALO_ACTUALIZACION_MS = 60000;   // 1 minuto
+// A partir de acá los precios en pantalla ya no son de fiar aunque el último intento
+// haya sido hace un rato: sirve para que el badge pase de "atrasado" a "desactualizado".
+const VENCIMIENTO_PRECIOS_MS = 30 * 60000;  // 30 minutos
+
+// Traduce el estado del refresco a lo que muestra el badge. Función pura para poder
+// probar los umbrales sin esperar media hora frente a la pantalla.
+function estadoActualizacion({ ultimaOk, ahora, fallando, hayCatalogo }) {
+  if (!hayCatalogo) return { clase: 'err', texto: 'Sin precios cargados' };
+  const minutos = Math.max(0, Math.floor((ahora - ultimaOk) / 60000));
+  if (!fallando) return { clase: 'ok', texto: 'Precios al día', minutos };
+  const vencido = ahora - ultimaOk >= VENCIMIENTO_PRECIOS_MS;
+  return {
+    clase: vencido ? 'err' : 'warn',
+    texto: (vencido ? 'Precios desactualizados' : 'Sin conexión') +
+      ' · hace ' + (minutos < 60 ? minutos + ' min' : Math.floor(minutos / 60) + ' h'),
+    minutos,
+  };
+}
+
 /* ---8<--- parser-fin */
 
 // ── Estado y almacenamiento ───────────────────────────────────────────────────
 // localStorage y no IndexedDB: Chrome bloquea IndexedDB en file://, que es justamente
 // cómo se abre este archivo.
+// Copia del archivo tal como se abrió, antes de que el script pinte nada: es la base
+// para clonarse sin arrastrar el estado de la pantalla (tablas pintadas, paneles abiertos).
+const PLANTILLA_HTML = '<!doctype html>' + String.fromCharCode(10) + document.documentElement.outerHTML;
+
 const K = { cat: 'fact_catalogo', ped: 'fact_pedidos', cfg: 'fact_config', term: 'fact_terminal',
             borr: 'fact_borrador', cont: 'fact_contador' };
 const leer = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
 const grabar = (k, v) => {
   try { localStorage.setItem(k, JSON.stringify(v)); return true; }
-  catch (e) { alert('No se pudo guardar en este navegador: ' + e.message); return false; }
+  catch (e) { errorModal('No se pudo guardar en este navegador: ' + e.message); return false; }
 };
 
 const CFG_DEF = {
   servidores: 'http://servidorapidelta.local:8080, http://servidorapidelta.local:8081',
-  urlPlanilla: '',
   mapeo: null,
 };
 
 let cfg = Object.assign({}, CFG_DEF, leer(K.cfg, {}));
 let catalogo = leer(K.cat, null);              // { generado, origen, productos: [] }
+// El catálogo que viaja adentro del archivo se usa cuando no hay nada guardado, o cuando
+// es más nuevo que lo guardado: así una copia recién repartida no arranca con precios
+// viejos que quedaron en ese navegador.
+const CATALOGO_EMBEBIDO = (() => {
+  const tag = document.getElementById('catalogoEmbebido');
+  return tag ? leerCatalogoEmbebido(tag.textContent) : null;
+})();
+if (CATALOGO_EMBEBIDO && (!catalogo || CATALOGO_EMBEBIDO.generado > catalogo.generado)) {
+  catalogo = CATALOGO_EMBEBIDO;
+}
 let indice = construirIndice(catalogo ? catalogo.productos : []);
 let pedidos = leer(K.ped, []);
 const borrador = leer(K.borr, {});
@@ -698,6 +1173,78 @@ const cantTxt = l => (l.unidad === 'kg' ? (Number(l.cant) || 0).toFixed(3) + ' k
 
 function guardarBorrador() { grabar(K.borr, { lineas, pagos }); }
 
+// ── Modal ─────────────────────────────────────────────────────────────────────
+// Reemplaza a alert/confirm/prompt: los nativos no se pueden estilar, y en algunos
+// navegadores un diálogo repetido ofrece "impedir que esta página abra más diálogos",
+// que dejaría al vendedor sin avisos en plena venta.
+let modalAbierto = false;
+
+function abrirModal({ titulo, mensaje = '', texto = null, tipo = '', botones }) {
+  return new Promise(resolve => {
+    const fondo = $('#modalFondo');
+    $('#modalCaja').className = tipo;
+    $('#modalTitulo').textContent = titulo;
+    // textContent y no innerHTML: los mensajes llevan nombres de producto y de archivo
+    // que vienen del catálogo o del disco, y no son texto confiable.
+    $('#modalCuerpo').textContent = mensaje;
+    const ta = $('#modalTexto');
+    ta.classList.toggle('oculto', texto == null);
+    ta.value = texto == null ? '' : texto;
+
+    const cont = $('#modalBotones');
+    cont.innerHTML = '';
+    let porDefecto = null;
+    for (const b of botones) {
+      const el = document.createElement('button');
+      el.textContent = b.txt;
+      if (b.clase) el.className = b.clase;
+      el.onclick = () => cerrar(b.valor);
+      cont.appendChild(el);
+      if (b.principal) porDefecto = el;
+    }
+
+    function cerrar(valor) {
+      document.removeEventListener('keydown', teclas, true);
+      fondo.classList.add('oculto');
+      fondo.onclick = null;
+      modalAbierto = false;
+      resolve(valor);
+      focoEscaner();
+    }
+    function teclas(e) {
+      if (e.key === 'Escape') { e.preventDefault(); cerrar(botones[0].valor); }
+      // Enter confirma sólo si el foco no está en un botón, para no disparar dos veces.
+      if (e.key === 'Enter' && document.activeElement.tagName !== 'BUTTON' && porDefecto) {
+        e.preventDefault(); porDefecto.click();
+      }
+    }
+    document.addEventListener('keydown', teclas, true);
+    fondo.onclick = e => { if (e.target === fondo) cerrar(botones[0].valor); };
+
+    modalAbierto = true;
+    fondo.classList.remove('oculto');
+    if (texto != null) { ta.focus(); ta.select(); }
+    else if (porDefecto) porDefecto.focus();
+  });
+}
+
+const avisoModal = (mensaje, titulo = 'Aviso', tipo = '') =>
+  abrirModal({ titulo, mensaje, tipo, botones: [{ txt: 'Entendido', valor: true, clase: 'verde', principal: true }] });
+
+const errorModal = (mensaje, titulo = 'No se pudo') => avisoModal(mensaje, titulo, 'err');
+const okModal = (mensaje, titulo = 'Listo') => avisoModal(mensaje, titulo, 'ok');
+
+// El primer botón es el que devuelve Escape y el clic afuera: siempre el que no hace nada.
+const confirmarModal = (mensaje, titulo = 'Confirmar', aceptar = 'Sí') => abrirModal({
+  titulo, mensaje,
+  botones: [{ txt: 'Cancelar', valor: false }, { txt: aceptar, valor: true, clase: 'pri', principal: true }],
+});
+
+const textoModal = (mensaje, texto, titulo = 'Copiar a mano') => abrirModal({
+  titulo, mensaje, texto,
+  botones: [{ txt: 'Cerrar', valor: true, clase: 'verde', principal: true }],
+});
+
 // ── Obtención del catálogo ────────────────────────────────────────────────────
 async function traer(url, tipo, ms = 8000) {
   const ctrl = new AbortController();
@@ -723,10 +1270,15 @@ async function desdeServidor() {
 }
 
 async function desdePlanilla(fuente, nombreArchivo, origen) {
-  const esXlsx = /\.xlsx(\?|$)/i.test(nombreArchivo);
-  const filas = esXlsx
-    ? await filasDeXlsx(fuente)
-    : filasDeCsv(typeof fuente === 'string' ? fuente : new TextDecoder().decode(new Uint8Array(fuente)));
+  const buffer = typeof fuente === 'string' ? new TextEncoder().encode(fuente).buffer : fuente;
+  let filas;
+  if (pareceXlsx(new Uint8Array(buffer))) {
+    filas = await filasDeXlsx(buffer);
+  } else {
+    const texto = new TextDecoder().decode(new Uint8Array(buffer));
+    if (pareceHtml(texto)) throw new Error(motivoPlanillaRechazada(texto));
+    filas = filasDeCsv(texto);
+  }
   if (!filas.length) throw new Error('La planilla está vacía.');
 
   const auto = detectarEncabezado(filas);
@@ -749,25 +1301,21 @@ async function actualizarCatalogo({ silencioso = false } = {}) {
   try { return aplicarCatalogo(await desdeServidor()); }
   catch (e) { fallos.push('Servidor → ' + e.message); }
 
-  if (cfg.urlPlanilla) {
-    try {
-      const esXlsx = /\.xlsx(\?|$)/i.test(cfg.urlPlanilla);
-      const datos = await traer(cfg.urlPlanilla, esXlsx ? 'buffer' : 'texto', 20000);
-      return aplicarCatalogo(await desdePlanilla(datos, cfg.urlPlanilla, 'planilla web'));
-    } catch (e) { fallos.push('Planilla → ' + e.message); }
-  }
-
   pintarEstado();
   if (!silencioso) {
-    alert('No se pudieron actualizar los precios.\n\n' + fallos.join('\n') +
+    errorModal('No se pudieron actualizar los precios.\n\n' + fallos.join('\n') +
       (catalogo ? '\n\nSe sigue trabajando con el catálogo guardado.'
-                : '\n\nCargá una planilla desde "Fuente de precios".'));
+                : '\n\nCargá el archivo de precios desde "Fuente de precios".'));
   }
   return null;
 }
 
 function aplicarCatalogo(nuevo) {
-  catalogo = nuevo;
+  // `generado` es la hora del origen (el servidor, o el momento de leer la planilla) y
+  // sirve para saber qué tan viejos son los datos. `traido` es la hora de este equipo:
+  // es la única que responde "¿cuándo se actualizó por última vez?" sin depender de que
+  // el reloj del servidor esté en hora.
+  catalogo = Object.assign({}, nuevo, { traido: new Date().toISOString() });
   indice = construirIndice(catalogo.productos);
   grabar(K.cat, catalogo);
   pintarEstado();
@@ -779,13 +1327,18 @@ function pintarEstado(modo) {
   const el = $('#estadoCat');
   if (modo === 'cargando') { el.className = 'estado viejo'; el.textContent = 'Actualizando…'; return; }
   if (!catalogo) { el.className = 'estado sin'; el.textContent = 'Sin catálogo'; return; }
-  const f = new Date(catalogo.generado);
+  const f = new Date(catalogo.traido || catalogo.generado);
   const horas = (Date.now() - f.getTime()) / 36e5;
-  const cuando = f.toLocaleDateString('es-AR') + ' ' + f.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  const mismoDia = f.toDateString() === new Date().toDateString();
+  const cuando = (mismoDia ? '' : f.toLocaleDateString('es-AR') + ' ') +
+    f.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
   const conBarra = catalogo.productos.filter(p => p.barra).length;
   el.className = 'estado' + (horas < 24 ? '' : ' viejo');
-  el.textContent = catalogo.productos.length + ' productos · ' + conBarra + ' con código · ' + cuando +
-    (horas >= 24 ? ' ⚠ desactualizado' : '');
+  el.textContent = catalogo.productos.length + ' productos · ' + conBarra + ' con código · actualizado ' +
+    cuando + (horas >= 24 ? ' ⚠ desactualizado' : '');
+  el.title = 'Origen: ' + (catalogo.origen || '—') +
+    '\nGenerado: ' + new Date(catalogo.generado).toLocaleString('es-AR') +
+    '\nTraído a este equipo: ' + f.toLocaleString('es-AR');
 }
 
 // ── Escáner ───────────────────────────────────────────────────────────────────
@@ -805,8 +1358,8 @@ function procesarEscaneo(codigo) {
     agregarLinea(r.producto, { cant: r.cant, precio: r.precio, unidad: r.unidad, origen: r.origen });
     if (r.origen === 'balanza-peso') {
       avisar(`⚖ ${r.producto.nombre} — ${r.cant.toFixed(3)} kg × ${plata(r.precio)}/kg = ${plata(r.cant * r.precio)}`, 'av-ok');
-    } else if (r.origen === 'balanza-importe') {
-      avisar(`🏷 ${r.producto.nombre} — importe del ticket ${plata(r.precio)}`, 'av-ok');
+    } else if (r.origen === 'balanza-unidad') {
+      avisar(`🏷 ${r.producto.nombre} — 1 unidad × ${plata(r.precio)} (etiqueta de ${r.peso.toFixed(3)} kg)`, 'av-ok');
     } else {
       avisar(`✓ ${r.producto.nombre} — ${plata(r.precio)}`, 'av-ok');
     }
@@ -838,10 +1391,12 @@ $('#escaner').addEventListener('keydown', e => {
 
 // El foco vuelve al escáner cuando nadie está escribiendo en otro lado: el lector manda
 // las teclas a donde esté el foco, y si se pierde, el código se escribe en cualquier campo.
+let vistaActual = 'consulta';
 function focoEscaner() {
+  if (modalAbierto) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA')) return;
-  $('#escaner').focus();
+  $(vistaActual === 'consulta' ? '#escanerConsulta' : '#escaner').focus();
 }
 document.addEventListener('click', () => setTimeout(focoEscaner, 60));
 
@@ -886,9 +1441,12 @@ function agregarLinea(prod, opts) {
     plu: prod.plu, nombre: prod.nombre, precio: Number(o.precio != null ? o.precio : prod.precio) || 0,
     cant: Number(o.cant) || 1, unidad, dtoPct: 0, origen: o.origen || 'manual',
   };
-  // Se acumula sólo lo que se cuenta por unidad y al mismo precio. Dos pesadas del mismo
-  // producto son dos líneas distintas: cada ticket de balanza es su propio bulto.
-  const i = nueva.unidad === 'kg' || o.origen === 'balanza-importe' ? -1
+  // El peso del prefijo 21 no entra en la cuenta, pero se guarda: es el dato del bulto que
+  // el cliente tiene impreso en la etiqueta.
+  if (o.peso != null) nueva.peso = Number(o.peso) || 0;
+  // Se acumula sólo lo que se cuenta por unidad y al mismo precio. Cada ticket de balanza
+  // es su propio bulto, así que nunca se junta con otro.
+  const i = nueva.unidad === 'kg' || nueva.peso != null ? -1
     : lineas.findIndex(l => l.plu === nueva.plu && l.precio === nueva.precio && l.unidad === nueva.unidad);
   lineas = i >= 0
     ? lineas.map((l, j) => (j === i ? { ...l, cant: l.cant + nueva.cant } : l))
@@ -901,7 +1459,8 @@ function pintarLineas() {
     '<td>' + esc(l.nombre) +
       '<div class="chico">' + esc(l.plu) +
       (l.origen === 'balanza-peso' ? ' · <span class="tag peso">balanza</span>' : '') +
-      (l.origen === 'balanza-importe' ? ' · <span class="tag peso">ticket</span>' : '') + '</div></td>' +
+      (l.origen === 'balanza-unidad' ? ' · <span class="tag peso">etiqueta ' + (Number(l.peso) || 0).toFixed(3) + ' kg</span>' : '') +
+      '</div></td>' +
     '<td class="num"><input type="number" data-i="' + i + '" data-campo="cant" value="' + l.cant + '" min="0" step="' + (l.unidad === 'kg' ? '0.001' : '1') + '" style="width:84px;padding:5px">' +
       (l.unidad === 'kg' ? '<div class="chico">kg</div>' : '') + '</td>' +
     '<td class="num"><input type="number" data-i="' + i + '" data-campo="precio" value="' + l.precio + '" min="0" step="0.01" style="width:96px;padding:5px">' +
@@ -953,12 +1512,12 @@ $('#medioPago').innerHTML = MEDIOS_PAGO.map(m => '<option>' + esc(m) + '</option
 
 $('#btnAgregarPago').onclick = () => {
   const t = totalesDe(lineas, $('#descuento').value);
-  if (t.total <= 0) return alert('Cargá productos antes de registrar el pago.');
+  if (t.total <= 0) return avisoModal('Cargá productos antes de registrar el pago.');
   const s = saldoPagos(t.total, pagos);
   const escrito = Number($('#importePago').value);
   // Sin importe escrito se asigna todo lo que falta: es el caso habitual (un solo medio).
   const importe = Number.isFinite(escrito) && escrito > 0 ? Math.round(escrito * 100) / 100 : s.falta;
-  if (importe <= 0) return alert('Ya está cubierto el total del pedido.');
+  if (importe <= 0) return avisoModal('Ya está cubierto el total del pedido.');
   pagos = [...pagos, { medio: $('#medioPago').value, importe }];
   $('#importePago').value = '';
   pintarPagos();
@@ -1011,11 +1570,11 @@ function pedidoActual() {
   };
 }
 
-$('#btnGuardarPedido').onclick = () => {
-  if (!lineas.length) return alert('El pedido no tiene productos.');
+$('#btnGuardarPedido').onclick = async () => {
+  if (!lineas.length) return avisoModal('El pedido no tiene productos.');
   const enCurso = pedidoActual();
   const s = saldoPagos(enCurso.total, enCurso.pagos);
-  if (!s.completo && !confirm(`Faltan ${plata(s.falta)} por cubrir con algún medio de pago.\n\n¿Guardar igual?`)) return;
+  if (!s.completo && !await confirmarModal(`Faltan ${plata(s.falta)} por cubrir con algún medio de pago.\n\n¿Guardar igual?`)) return;
 
   const p = { ...enCurso, numero: proximoNumero() };
   pedidos = [p, ...pedidos];
@@ -1047,18 +1606,71 @@ function comoTexto(p) {
 async function copiar(txt) {
   // En file:// el portapapeles a veces está bloqueado: el prompt es la salida de escape.
   try { await navigator.clipboard.writeText(txt); avisar('Copiado al portapapeles.', 'av-ok'); }
-  catch { prompt('Copialo a mano:', txt); }
+  catch { textoModal('El navegador no dejó copiar solo. Seleccioná el texto y copialo:', txt); }
 }
 
-$('#btnCopiar').onclick = () => {
-  if (!lineas.length) return alert('El pedido no tiene productos.');
-  copiar(comoTexto(pedidoActual()));
+// ── Ticket ────────────────────────────────────────────────────────────────────
+// Se arma un ticket aparte en vez de imprimir la pantalla: en un rollo de 72 mm no entra
+// una tabla de escritorio, y las comanderas térmicas no imprimen fondos ni colores.
+function pintarTicket(p) {
+  const fila = (izq, der) => '<div class="tk-fila"><span>' + izq + '</span><span>' + der + '</span></div>';
+  const partes = [
+    '<div class="tk-centro tk-marca">APIDELTA</div>',
+    '<div class="tk-centro">Comprobante interno</div>',
+    '<div class="tk-centro">no válido como factura</div>',
+    '<div class="tk-sep"></div>',
+    fila('Pedido', esc(p.numero)),
+    fila(esc(p.fechaLocal || ''), esc(p.horaLocal || '')),
+  ];
+  if (p.cliente) partes.push(fila('Cliente', esc(p.cliente)));
+  if (p.vendedor) partes.push(fila('Atendió', esc(p.vendedor)));
+  partes.push('<div class="tk-sep"></div>');
+
+  for (const l of p.lineas) {
+    // Nombre en su propia línea y el detalle debajo: en 72 mm no entran las dos cosas
+    // en la misma fila sin cortar el nombre del producto.
+    const cant = l.unidad === 'kg' ? (Number(l.cant) || 0).toFixed(3) + ' kg' : String(l.cant);
+    const detalle = cant + ' x ' + plata(l.precio) + (l.dtoPct ? '  -' + l.dtoPct + '%' : '');
+    partes.push('<div class="tk-item"><div class="tk-nom">' + esc(l.nombre) + '</div>' +
+      '<div class="tk-detalle">' + fila(detalle,
+        '<b>' + plata(l.subtotal != null ? l.subtotal : subtotalLinea(l)) + '</b>') + '</div>' +
+      (l.peso != null ? '<div class="tk-detalle">etiqueta ' + (Number(l.peso) || 0).toFixed(3) + ' kg</div>' : '') +
+      '</div>');
+  }
+
+  partes.push('<div class="tk-sep"></div>');
+  if (p.dtoLineas > 0) partes.push(fila('Bruto', plata(p.bruto)));
+  if (p.dtoLineas > 0) partes.push(fila('Desc. por ítem', '-' + plata(p.dtoLineas)));
+  partes.push(fila('Subtotal', plata(p.subtotal)));
+  if (p.descuentoPct) partes.push(fila('Descuento ' + p.descuentoPct + '%', '-' + plata(p.dtoGlobal)));
+  partes.push('<div class="tk-total">' + fila('TOTAL', plata(p.total)) + '</div>');
+
+  if (p.pagos && p.pagos.length) {
+    partes.push('<div class="tk-sep"></div>');
+    for (const x of p.pagos) partes.push(fila(esc(x.medio), plata(x.importe)));
+    const s = saldoPagos(p.total, p.pagos);
+    if (s.vuelto > 0) partes.push(fila('Vuelto', plata(s.vuelto)));
+    if (s.falta > 0) partes.push(fila('SALDO PENDIENTE', plata(s.falta)));
+  }
+
+  const items = p.lineas.reduce((a, l) => a + (Number(l.cant) || 0), 0);
+  partes.push('<div class="tk-sep"></div>',
+    '<div class="tk-centro tk-pie">' + p.lineas.length + ' productos' +
+      (Number.isInteger(items) ? ' · ' + items + ' unidades' : '') + '</div>',
+    '<div class="tk-centro tk-pie">¡Gracias por su compra!</div>',
+    '<div class="tk-corte"></div>');
+
+  $('#ticket').innerHTML = partes.join('');
+}
+
+$('#btnImprimir').onclick = () => {
+  if (!lineas.length) return avisoModal('El pedido no tiene productos.');
+  pintarTicket(pedidoActual());
+  window.print();
 };
 
-$('#btnImprimir').onclick = () => window.print();
-
-$('#btnLimpiar').onclick = () => {
-  if ((!lineas.length && !pagos.length) || !confirm('¿Vaciar el pedido en curso?')) return;
+$('#btnLimpiar').onclick = async () => {
+  if ((!lineas.length && !pagos.length) || !await confirmarModal('¿Vaciar el pedido en curso?')) return;
   lineas = []; pagos = []; guardarBorrador();
   $('#cliente').value = ''; $('#descuento').value = '0';
   pintarLineas();
@@ -1072,16 +1684,16 @@ function bajarArchivo(nombre, contenido, tipo) {
 }
 
 $('#btnExportarCsv').onclick = () => {
-  if (!pedidos.length) return alert('No hay pedidos guardados.');
+  if (!pedidos.length) return avisoModal('No hay pedidos guardados.');
   const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const filas = [['Pedido', 'Fecha', 'Hora', 'Cliente', 'Vendedor', 'Codigo', 'Producto', 'Cantidad', 'Unidad',
-                  'Precio', 'DtoLinea', 'SubtotalLinea', 'DtoGeneral', 'TotalPedido', 'MediosPago']];
+                  'PesoEtiqueta', 'Precio', 'DtoLinea', 'SubtotalLinea', 'DtoGeneral', 'TotalPedido', 'MediosPago']];
   for (const p of pedidos) {
     const medios = (p.pagos || []).map(x => x.medio + ' ' + x.importe).join(' + ');
     for (const l of p.lineas) {
       filas.push([p.numero, p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR'),
         p.horaLocal || new Date(p.fecha).toLocaleTimeString('es-AR'), p.cliente, p.vendedor || '',
-        l.plu, l.nombre, l.cant, l.unidad || 'un', l.precio, l.dtoPct || 0,
+        l.plu, l.nombre, l.cant, l.unidad || 'un', l.peso != null ? l.peso : '', l.precio, l.dtoPct || 0,
         l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
         p.descuentoPct, p.total, medios]);
     }
@@ -1118,8 +1730,8 @@ $('#inputRespaldo').onchange = async e => {
     grabar(K.cont, contador);
     if (d.catalogo && (!catalogo || d.catalogo.generado > catalogo.generado)) aplicarCatalogo(d.catalogo);
     pintarGuardados();
-    alert('Respaldo restaurado. Total de pedidos: ' + pedidos.length);
-  } catch (err) { alert('No se pudo restaurar: ' + err.message); }
+    okModal('Respaldo restaurado. Total de pedidos: ' + pedidos.length);
+  } catch (err) { errorModal('No se pudo restaurar: ' + err.message); }
   e.target.value = '';
 };
 
@@ -1131,18 +1743,21 @@ function pintarGuardados() {
     '<td>' + esc(p.cliente || '—') + '</td>' +
     '<td class="chico">' + esc((p.pagos || []).map(x => x.medio).join(' + ') || '—') + '</td>' +
     '<td class="num">' + plata(p.total) + '</td>' +
-    '<td><button class="mini" data-copiar="' + i + '">Copiar</button> ' +
+    '<td><button class="mini" data-imprimir="' + i + '">Ticket</button> ' +
+        '<button class="mini" data-copiar="' + i + '">Copiar</button> ' +
         '<button class="mini peligro" data-borrar="' + i + '">×</button></td>' +
   '</tr>').join('') : '<tr><td colspan="6" class="vacio">Todavía no hay pedidos guardados.</td></tr>';
 }
 
-$('#tablaGuardados').onclick = e => {
+$('#tablaGuardados').onclick = async e => {
+  const im = e.target.closest('button[data-imprimir]');
+  if (im) { pintarTicket(pedidos[Number(im.dataset.imprimir)]); return window.print(); }
   const c = e.target.closest('button[data-copiar]');
   if (c) return copiar(comoTexto(pedidos[Number(c.dataset.copiar)]));
   const b = e.target.closest('button[data-borrar]');
   if (!b) return;
   const i = Number(b.dataset.borrar);
-  if (!confirm('¿Borrar el pedido ' + pedidos[i].numero + '? No se puede deshacer.')) return;
+  if (!await confirmarModal('¿Borrar el pedido ' + pedidos[i].numero + '? No se puede deshacer.')) return;
   pedidos = pedidos.filter((_, j) => j !== i);
   grabar(K.ped, pedidos);
   pintarGuardados();
@@ -1150,11 +1765,16 @@ $('#tablaGuardados').onclick = e => {
 
 // ── Configuración y carga de archivos ─────────────────────────────────────────
 $('#btnConfig').onclick = () => $('#secConfig').classList.toggle('oculto');
+$('#btnAyuda').onclick = () => {
+  const sec = $('#secAyuda');
+  sec.classList.toggle('oculto');
+  if (!sec.classList.contains('oculto')) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
 $('#btnGuardados').onclick = () => { pintarGuardados(); $('#secGuardados').classList.toggle('oculto'); };
-$('#btnActualizar').onclick = () => actualizarCatalogo();
+$('#btnActualizar').onclick = () => refrescarPrecios();
 
 $('#btnGuardarConfig').onclick = () => {
-  cfg = { ...cfg, servidores: $('#cfgServidores').value, urlPlanilla: $('#cfgUrlPlanilla').value };
+  cfg = { ...cfg, servidores: $('#cfgServidores').value };
   grabar(K.cfg, cfg);
   avisar('Configuración guardada.', 'av-ok');
 };
@@ -1174,17 +1794,30 @@ $('#btnAplicarCols').onclick = () => {
   if (!filasPendientes) return;
   const val = s => ($(s).value === '' ? null : Number($(s).value));
   const mapeo = { filaEncabezado: 0, codigo: val('#colCodigo'), nombre: val('#colNombre'), precio: val('#colPrecio') };
-  if (mapeo.nombre == null || mapeo.precio == null) return alert('Elegí al menos las columnas de nombre y precio.');
+  if (mapeo.nombre == null || mapeo.precio == null) return avisoModal('Elegí al menos las columnas de nombre y precio.');
   try {
     const productos = filasACatalogo(filasPendientes.filas, mapeo);
-    if (!productos.length) return alert('Con esas columnas no salió ningún producto con precio válido.');
+    if (!productos.length) return avisoModal('Con esas columnas no salió ningún producto con precio válido.');
     cfg.mapeo = { codigo: mapeo.codigo, nombre: mapeo.nombre, precio: mapeo.precio };
     grabar(K.cfg, cfg);
     aplicarCatalogo({ generado: new Date().toISOString(), origen: filasPendientes.origen, productos });
     $('#mapeoCols').classList.add('oculto');
     filasPendientes = null;
-    alert(productos.length + ' productos cargados.');
-  } catch (e) { alert(e.message); }
+    okModal(productos.length + ' productos cargados.');
+  } catch (e) { errorModal(e.message); }
+};
+
+$('#btnClonar').onclick = () => {
+  if (!catalogo || !catalogo.productos.length) {
+    return errorModal('Primero cargá los precios, después generá la copia para repartir.');
+  }
+  const fecha = new Date().toISOString().slice(0, 10);
+  bajarArchivo('facturador_precios_' + fecha + '.html',
+    incrustarCatalogo(PLANTILLA_HTML, catalogo), 'text/html;charset=utf-8');
+  okModal(catalogo.productos.length + ' productos quedaron adentro del archivo.' +
+    String.fromCharCode(10) + String.fromCharCode(10) +
+    'Esa copia se puede mandar por mail o pendrive y funciona sin conexión en cualquier PC.',
+    'Copia generada');
 };
 
 $('#btnArchivo').onclick = () => $('#inputArchivo').click();
@@ -1200,26 +1833,141 @@ dz.ondrop = e => {
 
 async function cargarArchivo(file) {
   try {
-    const esXlsx = /\.xlsx$/i.test(file.name);
-    const datos = esXlsx ? await file.arrayBuffer() : await file.text();
-    const cat = await desdePlanilla(datos, file.name, 'archivo: ' + file.name);
+    const cat = await desdePlanilla(await file.arrayBuffer(), file.name, 'archivo: ' + file.name);
     aplicarCatalogo(cat);
-    alert(cat.productos.length + ' productos cargados desde ' + file.name +
+    okModal(cat.productos.length + ' productos cargados desde ' + file.name +
       '.\n\nUna planilla no trae códigos de barras: para escanear hay que actualizar desde el servidor.');
-  } catch (err) { alert(err.message); }
+  } catch (err) { errorModal(err.message); }
 }
+
+// ── Pestañas y consulta de precios ────────────────────────────────────────────
+function irA(v) {
+  vistaActual = v;
+  $('#vistaPedido').classList.toggle('oculto', v !== 'pedido');
+  $('#vistaConsulta').classList.toggle('oculto', v !== 'consulta');
+  $('#tabPedido').classList.toggle('activa', v === 'pedido');
+  $('#tabConsulta').classList.toggle('activa', v === 'consulta');
+  focoEscaner();
+}
+$('#tabPedido').onclick = () => irA('pedido');
+$('#tabConsulta').onclick = () => irA('consulta');
+
+$('#escanerConsulta').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const v = e.target.value;
+  e.target.value = '';
+  consultar(v);
+});
+
+function consultar(codigo) {
+  const ficha = $('#fichaConsulta');
+  const poner = (html, clase) => { ficha.innerHTML = '<div class="marco ' + (clase || '') + '">' + html + '</div>'; };
+  if (!catalogo) return poner('<div class="aviso">Todavía no hay catálogo cargado.</div>', 'err');
+
+  const r = consultaDeEscaneo(codigo, indice);
+  if (r.tipo === 'vacio') return;
+
+  if (r.tipo === 'ambiguo') {
+    // Varios productos comparten el código: se muestran todos con su precio, que es
+    // justamente lo que se quiere ver en una consulta.
+    return poner('<div class="cod">El código ' + esc(r.codigo) + ' lo comparten ' +
+      r.opciones.length + ' productos</div>' +
+      r.opciones.map(p => '<div class="varios">' + esc(p.nombre) +
+        ' <span class="precio">' + plata(p.precio) + '</span></div>').join(''));
+  }
+
+  if (r.tipo !== 'ok') {
+    return poner('<div class="aviso">' + (r.balanza
+      ? 'Ticket de balanza del producto ' + esc(r.plu) + ', que no está en el catálogo.'
+      : 'No se encontró ningún producto con el código ' + esc(r.codigo) + '.') + '</div>', 'err');
+  }
+
+  const partes = ['<div class="nom">' + esc(r.nombre) + '</div>',
+    '<div class="cod">PLU ' + esc(r.plu) + (r.producto.barra ? ' · ' + esc(r.producto.barra) : '') + '</div>',
+    '<div class="panel"><span class="precio">' + plata(r.precio) + '</span>' +
+      '<span class="unidad">' + (r.porKilo ? 'por kilo' : 'por unidad') + '</span></div>'];
+
+  if (r.peso != null) {
+    // Con ticket de balanza se conoce el peso: se muestra, y con el prefijo 20 también
+    // el importe que sale de multiplicarlo.
+    partes.push('<div class="pesada">' +
+      (r.porKilo ? 'Pesada de ' + r.peso.toFixed(3) + ' kg' : 'Etiqueta de ' + r.peso.toFixed(3) + ' kg') +
+      '<b>' + plata(r.total) + '</b></div>');
+  } else if (r.porKilo) {
+    partes.push('<div class="pesada">Se vende por peso<b>Pasá el ticket de la balanza</b></div>');
+  }
+  poner(partes.join(''));
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(mensaje, tipo = '', ms = 5200) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + tipo;
+  el.textContent = mensaje;   // textContent: el mensaje puede traer el error del servidor
+  $('#toasts').appendChild(el);
+  setTimeout(() => {
+    el.classList.add('saliendo');
+    setTimeout(() => el.remove(), 400);
+  }, ms);
+}
+
+// ── Refresco automático ───────────────────────────────────────────────────────
+// El facturador se usa con el catálogo en pantalla durante horas: sin esto, un cambio de
+// precio en SIGA no llega hasta que alguien se acuerda de apretar "Actualizar".
+// Los catálogos guardados antes de que existiera `traido` sólo tienen `generado`.
+let ultimaOk = catalogo ? new Date(catalogo.traido || catalogo.generado).getTime() : 0;
+let fallando = false;
+
+function pintarBadge() {
+  const e = estadoActualizacion({ ultimaOk, ahora: Date.now(), fallando, hayCatalogo: !!catalogo });
+  const badge = $('#badgeEstado');
+  badge.className = e.clase;
+  const hora = ultimaOk
+    ? new Date(ultimaOk).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    : '';
+  badge.textContent = e.clase === 'ok' && hora ? e.texto + ' · ' + hora : e.texto;
+  badge.title = ultimaOk
+    ? 'Última actualización: ' + new Date(ultimaOk).toLocaleString('es-AR')
+    : 'Todavía no se pudieron traer los precios';
+  // Mientras algo anda mal la barra no puede quedar atenuada, que es su estado normal.
+  $('#barraConsulta').classList.toggle('alerta', e.clase !== 'ok');
+}
+
+async function refrescarPrecios({ avisar: conAviso = true } = {}) {
+  const antes = fallando;
+  const r = await actualizarCatalogo({ silencioso: true });
+  if (r) {
+    ultimaOk = Date.now();
+    fallando = false;
+    // Sólo se avisa al recuperarse, no en cada actualización exitosa.
+    if (antes && conAviso) toast('Precios actualizados de nuevo', 'ok');
+  } else {
+    fallando = true;
+    // Un solo toast por corte: repetirlo cada minuto taparía la pantalla.
+    if (!antes && conAviso) toast('No se pudieron actualizar los precios. Se sigue con los últimos guardados.', 'err');
+  }
+  pintarBadge();
+  return r;
+}
+
+setInterval(refrescarPrecios, INTERVALO_ACTUALIZACION_MS);
+// Al volver de suspender la máquina o de otra pestaña, el intervalo puede haber quedado
+// atrasado: se refresca en cuanto la pantalla vuelve a estar a la vista.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refrescarPrecios(); });
 
 // ── Arranque ──────────────────────────────────────────────────────────────────
 $('#cfgServidores').value = cfg.servidores;
-$('#cfgUrlPlanilla').value = cfg.urlPlanilla;
+irA('consulta');   // el lector de precios es la pantalla con la que se abre
 pintarEstado();
 pintarLineas();
 pintarGuardados();
 if (!catalogo) $('#secConfig').classList.remove('oculto');
 focoEscaner();
+pintarBadge();
 // Intento silencioso al abrir: con red los precios quedan frescos sin que nadie apriete
-// nada; sin red sigue andando con lo guardado.
-actualizarCatalogo({ silencioso: true });
+// nada; sin red sigue andando con lo guardado. Sin toast, que al abrir ya se ve el badge.
+refrescarPrecios({ avisar: false });
 </script>
 </body>
 </html>
