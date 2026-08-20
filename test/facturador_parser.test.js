@@ -28,7 +28,11 @@ function cargarParser() {
     return { leerZip, filasDeXlsx, filasDeHoja, filasDeCsv, aNumero,
              columnaAIndice, desescaparXml, detectarEncabezado, filasACatalogo,
              construirIndice, digitoControlEan13, parsearCodigoBalanza, resolverEscaneo,
-             subtotalLinea, totalesDe, saldoPagos, MEDIOS_PAGO };`)();
+             subtotalLinea, totalesDe, saldoPagos, MEDIOS_PAGO,
+             limpiarEncabezado, esBarraDeBalanza, consultaDeEscaneo,
+             estadoActualizacion, INTERVALO_ACTUALIZACION_MS, VENCIMIENTO_PRECIOS_MS,
+             pareceXlsx, pareceHtml, motivoPlanillaRechazada,
+             incrustarCatalogo, leerCatalogoEmbebido, catalogoAJson };`)();
 }
 
 const P = cargarParser();
@@ -129,8 +133,8 @@ test('arma el catálogo descartando totales y filas sin precio', () => {
   // Una planilla no trae códigos de barra ni modalidad de balanza: esos campos van vacíos
   // para que el producto tenga la misma forma que el que devuelve el servidor.
   assert.deepEqual(productos, [
-    { plu: '101', nombre: 'Producto uno', precio: 1500, barra: '', modalidad: null, unidad: '' },
-    { plu: '103', nombre: 'Producto tres', precio: 250.75, barra: '', modalidad: null, unidad: '' },
+    { plu: '101', nombre: 'Producto uno', precio: 1500, barra: '', barras: [], modalidad: null, unidad: '' },
+    { plu: '103', nombre: 'Producto tres', precio: 250.75, barra: '', barras: [], modalidad: null, unidad: '' },
   ]);
 });
 
@@ -143,7 +147,8 @@ test('exige columnas de nombre y precio', () => {
 const CATALOGO = [
   { plu: '20000', nombre: 'Producto pesable', precio: 1000, barra: '2020000', modalidad: 'PESO', unidad: 'UN' },
   { plu: '1004',  nombre: 'Trigo sarraceno', precio: 8590, barra: '2001004', modalidad: 'PESO', unidad: 'UN' },
-  { plu: '11001', nombre: 'Gift card',      precio: 5350, barra: '2011001', modalidad: 'PRECIO', unidad: 'UN' },
+  { plu: '822',   nombre: 'Lechuga lisa x paquete', precio: 2000, barra: '2100822', modalidad: null, unidad: 'UN' },
+  { plu: '91366', nombre: 'Set sushi grande', precio: 9000, barra: '2023150254435', modalidad: null, unidad: 'UN' },
   { plu: '100',   nombre: 'Galletitas',     precio: 1740, barra: '7790045001188', modalidad: null, unidad: 'UN' },
   { plu: '201',   nombre: 'Repetido A',     precio: 500,  barra: '7798238030113', modalidad: null, unidad: 'UN' },
   { plu: '202',   nombre: 'Repetido B',     precio: 600,  barra: '7798238030113', modalidad: null, unidad: 'UN' },
@@ -156,8 +161,23 @@ test('calcula el dígito de control EAN-13 igual que un código real de SIGA', (
   assert.equal(P.digitoControlEan13('779004500118'), 8);
 });
 
-test('parsea un ticket de balanza: prefijo 2 + PLU(5) + valor(5) + control', () => {
-  assert.deepEqual(P.parsearCodigoBalanza('2020000001409'), { plu: '20000', valor: 140 });
+test('parsea un ticket de balanza: prefijo + PLU(5) + peso(5) + control', () => {
+  assert.deepEqual(P.parsearCodigoBalanza('2020000001409'),
+    { prefijo: '20', plu: '20000', gramos: 140, pesable: true });
+});
+
+test('el prefijo 21 marca la etiqueta de un producto que no es pesable', () => {
+  const doce = '2100822' + '01400';
+  const r = P.parsearCodigoBalanza(doce + P.digitoControlEan13(doce));
+  assert.deepEqual(r, { prefijo: '21', plu: '822', gramos: 1400, pesable: false });
+});
+
+test('sólo 20 y 21 son prefijos de balanza', () => {
+  for (const pref of ['22', '23', '29', '77', '19']) {
+    const doce = pref + '00822' + '01400';
+    assert.equal(P.parsearCodigoBalanza(doce + P.digitoControlEan13(doce)), null,
+      `el prefijo ${pref} no debería tomarse como balanza`);
+  }
 });
 
 test('descarta el ticket de balanza si el dígito de control no cierra', () => {
@@ -167,7 +187,7 @@ test('descarta el ticket de balanza si el dígito de control no cierra', () => {
   assert.equal(P.parsearCodigoBalanza('2001004'), null);        // código corto, sin peso
 });
 
-test('un ticket de balanza por PESO calcula los kilos y deja el precio por kilo', () => {
+test('un ticket con prefijo 20 calcula los kilos y deja el precio por kilo', () => {
   const r = P.resolverEscaneo('2020000001409', IDX);
   assert.equal(r.tipo, 'ok');
   assert.equal(r.origen, 'balanza-peso');
@@ -178,15 +198,26 @@ test('un ticket de balanza por PESO calcula los kilos y deja el precio por kilo'
   assert.equal(Math.round(r.cant * r.precio * 100) / 100, 140);  // el importe sale solo
 });
 
-test('un ticket por PRECIO respeta el importe impreso y no lo multiplica', () => {
-  // 11001 tiene modalidad PRECIO: el valor del código son centavos, no gramos.
-  const doce = '2011001' + '01234';
-  const cod = doce + P.digitoControlEan13(doce);
-  const r = P.resolverEscaneo(cod, IDX);
+test('un ticket con prefijo 21 cobra 1 unidad y guarda el peso de dato', () => {
+  const doce = '2100822' + '01400';
+  const r = P.resolverEscaneo(doce + P.digitoControlEan13(doce), IDX);
   assert.equal(r.tipo, 'ok');
-  assert.equal(r.origen, 'balanza-importe');
+  assert.equal(r.origen, 'balanza-unidad');
+  assert.equal(r.producto.plu, '822');
+  assert.equal(r.cant, 1);               // se cobra por unidad, no por peso
+  assert.equal(r.precio, 2000);          // precio del catálogo, sin multiplicar
+  assert.equal(r.peso, 1.4);             // el peso queda como dato del bulto
+  assert.equal(r.unidad, undefined);
+});
+
+test('un EAN propio que arranca con 20 gana sobre la lectura como ticket', () => {
+  // El 91366 tiene "2023150254435" cargado como su código: interpretarlo como balanza
+  // daría "PLU 23150, 25,443 kg". La coincidencia exacta tiene que ir primero.
+  const r = P.resolverEscaneo('2023150254435', IDX);
+  assert.equal(r.tipo, 'ok');
+  assert.equal(r.origen, 'barra');
+  assert.equal(r.producto.plu, '91366');
   assert.equal(r.cant, 1);
-  assert.equal(r.precio, 12.34);
 });
 
 test('un código de barras común agrega una unidad', () => {
@@ -265,8 +296,458 @@ test('una diferencia menor a un centavo cuenta como pagado', () => {
   assert.equal(s.falta, 0);
 });
 
+// ── Importación de la exportación real de SIGA ────────────────────────────────
+const PLANILLA_SIGA = path.join(RAIZ, 'data', 'facturador', 'PreciosProductos.xlsx');
+
+test('recorta el prefijo de tabla que SIGA le pone a los encabezados', () => {
+  assert.equal(P.limpiarEncabezado('ProductosSucursales.Productos.NombreProducto'), 'NombreProducto');
+  assert.equal(P.limpiarEncabezado('PrecioVenta'), 'PrecioVenta');
+  assert.equal(P.limpiarEncabezado('  IdProducto  '), 'IdProducto');
+  assert.equal(P.limpiarEncabezado('termina.'), 'termina.');   // punto final, no es prefijo
+});
+
+test('detecta las columnas de la exportación de SIGA sin ayuda', () => {
+  const filas = [['IdProducto', 'ProductosSucursales.Productos.NombreProducto',
+                  'ProductosSucursales.Productos.IdRubro',
+                  'ProductosSucursales.Productos.CodigoDeBarras', 'PrecioVenta']];
+  const e = P.detectarEncabezado(filas);
+  assert.ok(e, 'no reconoció el encabezado');
+  // CodigoDeBarras también matchea el patrón de "código": no puede robarle la columna al PLU.
+  assert.deepEqual({ codigo: e.codigo, nombre: e.nombre, precio: e.precio, barra: e.barra },
+    { codigo: 0, nombre: 1, precio: 4, barra: 3 });
+});
+
+test('consolida las filas repetidas y junta los códigos de barra del producto', () => {
+  const filas = [
+    ['IdProducto', 'Productos.NombreProducto', 'Productos.CodigoDeBarras', 'PrecioVenta'],
+    ['90281', 'Aceite Chia 250ml', '76625241029', 14400],
+    ['90281', 'Aceite Chia 250ml', '76625241029', 14400],   // fila idéntica repetida
+    ['90281', 'Aceite Chia 250ml', '7798426200038', 14400], // mismo producto, otro código
+    ['1',     'A Articulos Varios', '', 1],
+  ];
+  const e = P.detectarEncabezado(filas);
+  const productos = P.filasACatalogo(filas, e);
+  assert.equal(productos.length, 2, 'el producto repetido tiene que quedar una sola vez');
+  const chia = productos.find(p => p.plu === '90281');
+  assert.deepEqual(chia.barras, ['76625241029', '7798426200038']);
+  assert.equal(chia.barra, '76625241029');
+  // Cualquiera de los dos códigos tiene que encontrar el producto al escanear.
+  const idx = P.construirIndice(productos);
+  assert.equal(P.resolverEscaneo('7798426200038', idx).producto.plu, '90281');
+  assert.equal(P.resolverEscaneo('76625241029', idx).producto.plu, '90281');
+});
+
+test('descarta como código de barras los restos de carga de menos de 7 dígitos', () => {
+  const filas = [
+    ['IdProducto', 'Productos.NombreProducto', 'Productos.CodigoDeBarras', 'PrecioVenta'],
+    ['540', 'Aceite CBD 10ml', '540', 12900],   // "540" es el PLU, no un código de barras
+    ['1',   'Varios',          '0',   1],
+  ];
+  const productos = P.filasACatalogo(filas, P.detectarEncabezado(filas));
+  assert.deepEqual(productos.map(p => p.barras), [[], []]);
+});
+
+test('marca por kilo los productos cuyo código es "20" + PLU', () => {
+  assert.equal(P.esBarraDeBalanza('2001004', '1004'), true);
+  assert.equal(P.esBarraDeBalanza('2020000', '20000'), true);
+  assert.equal(P.esBarraDeBalanza('2001004', '1005'), false);   // no es su propio PLU
+  assert.equal(P.esBarraDeBalanza('7790045001188', '100'), false);
+
+  const filas = [
+    ['IdProducto', 'Productos.NombreProducto', 'Productos.CodigoDeBarras', 'PrecioVenta'],
+    ['1004', 'Trigo Sarraceno 1Kg', '2001004', 8590],
+    ['100',  'Galletitas',          '7790045001188', 1740],
+  ];
+  const productos = P.filasACatalogo(filas, P.detectarEncabezado(filas));
+  assert.equal(productos.find(p => p.plu === '1004').modalidad, 'PESO');
+  assert.equal(productos.find(p => p.plu === '100').modalidad, null);
+});
+
+test('importa la planilla real de SIGA de punta a punta', async () => {
+  // Arrange
+  const buf = fs.readFileSync(PLANILLA_SIGA);
+  const filas = await P.filasDeXlsx(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+
+  // Act
+  const enc = P.detectarEncabezado(filas);
+  assert.ok(enc, 'no reconoció el encabezado de la planilla real');
+  const productos = P.filasACatalogo(filas, enc);
+
+  // Assert
+  // No se compara contra un número fijo (la planilla se reexporta y cambia), sino contra
+  // la propiedad que importa: un producto por cada PLU con precio, ni uno perdido ni
+  // repetido. La planilla trae además ~6400 filas vacías al final que no deben entrar.
+  const cuerpo = filas.slice(enc.filaEncabezado + 1);
+  const esperados = new Set(cuerpo
+    .filter(f => String(f[enc.nombre] || '').trim() && Number(f[enc.precio]) > 0)
+    .map(f => String(f[enc.codigo]).trim()));
+  assert.equal(productos.length, esperados.size,
+    `salieron ${productos.length} productos y la planilla tiene ${esperados.size} PLUs con precio`);
+  assert.ok(productos.length < cuerpo.length / 2,
+    'las filas repetidas por código de barras tendrían que haberse consolidado');
+  assert.equal(new Set(productos.map(p => p.plu)).size, productos.length, 'quedaron PLUs duplicados');
+  assert.ok(productos.every(p => p.nombre && p.precio > 0), 'hay productos sin nombre o sin precio');
+  assert.ok(productos.some(p => p.barras.length > 1), 'ningún producto quedó con varios códigos');
+  assert.ok(productos.filter(p => p.modalidad === 'PESO').length > 100, 'no se detectaron los de balanza');
+
+  // Un escaneo real tiene que resolver contra la planilla importada.
+  const idx = P.construirIndice(productos);
+  const conBarra = productos.find(p => p.barras.some(b => b.length === 13));
+  assert.equal(P.resolverEscaneo(conBarra.barras.find(b => b.length === 13), idx).producto.plu, conBarra.plu);
+});
+
 test('los medios de pago están definidos y sin repetidos', () => {
   assert.ok(P.MEDIOS_PAGO.includes('EFECTIVO'));
   assert.ok(P.MEDIOS_PAGO.length >= 4);
   assert.equal(new Set(P.MEDIOS_PAGO).size, P.MEDIOS_PAGO.length);
+});
+
+// ── Diálogos ──────────────────────────────────────────────────────────────────
+// alert/confirm/prompt nativos no se pueden estilar y, repetidos, el navegador ofrece
+// "impedir que esta página abra más diálogos": el vendedor se quedaría sin avisos en
+// plena venta. Este control evita que vuelvan a entrar por descuido.
+test('no quedan diálogos nativos en el facturador', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const nativos = src.split(/\r?\n/)
+    .map((linea, i) => ({ n: i + 1, linea }))
+    .filter(({ linea }) => /(^|[^\w.])(alert|confirm|prompt)\s*\(/.test(linea));
+  assert.deepEqual(nativos, [], 'usar avisoModal / confirmarModal / textoModal en su lugar');
+});
+
+test('el modal tiene en el marcado todos los nodos que el código busca', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  for (const id of ['modalFondo', 'modalCaja', 'modalTitulo', 'modalCuerpo', 'modalTexto', 'modalBotones']) {
+    assert.ok(src.includes('id="' + id + '"'), 'falta el nodo #' + id);
+  }
+  // Cada await de confirmación tiene que estar dentro de un handler async, si no el
+  // botón tira SyntaxError y deja de funcionar.
+  const asyncs = (src.match(/onclick = async/g) || []).length;
+  assert.ok(asyncs >= 3, `sólo ${asyncs} handlers async para las confirmaciones`);
+  // El mensaje se pinta con textContent: lleva nombres de producto y de archivo.
+  assert.ok(/\$\('#modalCuerpo'\)\.textContent = mensaje/.test(src),
+    'el cuerpo del modal tiene que usar textContent, nunca innerHTML');
+});
+
+// ── Pestaña de consulta ───────────────────────────────────────────────────────
+// Sólo muestra precios: no toca el pedido. Los importes se prueban acá, sin navegador.
+test('la consulta de un ticket con peso muestra el importe ya calculado', () => {
+  const r = P.consultaDeEscaneo('2020000001409', IDX);
+  assert.equal(r.tipo, 'ok');
+  assert.equal(r.nombre, 'Producto pesable');
+  assert.equal(r.porKilo, true);
+  assert.equal(r.peso, 0.14);
+  assert.equal(r.precio, 1000);      // por kilo
+  assert.equal(r.total, 140);        // 0,140 kg × $1.000
+});
+
+test('la consulta de un producto por kilo sin ticket no inventa un importe', () => {
+  // Escanear el código corto no dice cuánto pesa: sólo que el precio es por kilo.
+  const r = P.consultaDeEscaneo('2001004', IDX);
+  assert.equal(r.tipo, 'ok');
+  assert.equal(r.porKilo, true);
+  assert.equal(r.peso, null);
+  assert.equal(r.total, null, 'sin peso no puede haber importe');
+  assert.equal(r.precio, 8590);
+});
+
+test('la consulta de un producto por unidad muestra el precio como total', () => {
+  const r = P.consultaDeEscaneo('7790045001188', IDX);
+  assert.equal(r.porKilo, false);
+  assert.equal(r.peso, null);
+  assert.equal(r.total, 1740);
+  assert.equal(r.precio, 1740);
+});
+
+test('la consulta de un ticket con prefijo 21 muestra el peso pero cobra por unidad', () => {
+  const doce = '2100822' + '01400';
+  const r = P.consultaDeEscaneo(doce + P.digitoControlEan13(doce), IDX);
+  assert.equal(r.porKilo, false, 'el 21 no es pesable');
+  assert.equal(r.peso, 1.4, 'el peso de la etiqueta se muestra igual');
+  assert.equal(r.total, 2000, 'el importe es el precio de la unidad, sin multiplicar');
+});
+
+test('la consulta arrastra los casos sin resultado en vez de romperse', () => {
+  assert.equal(P.consultaDeEscaneo('', IDX).tipo, 'vacio');
+  assert.equal(P.consultaDeEscaneo('7790000000000', IDX).tipo, 'no_encontrado');
+  assert.equal(P.consultaDeEscaneo('7798238030113', IDX).tipo, 'ambiguo');
+});
+
+test('la pestaña de consulta está en el marcado y no toca el pedido', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  for (const id of ['tabPedido', 'tabConsulta', 'vistaPedido', 'vistaConsulta',
+                    'escanerConsulta', 'fichaConsulta']) {
+    assert.ok(src.includes('id="' + id + '"'), 'falta el nodo #' + id);
+  }
+  // consultar() no puede agregar líneas: si llama a agregarLinea, deja de ser una consulta.
+  const cuerpo = src.slice(src.indexOf('function consultar('), src.indexOf('// ── Arranque'));
+  assert.ok(!cuerpo.includes('agregarLinea'), 'la consulta no debe cargar productos al pedido');
+});
+
+test('la vista de consulta estira sus hijos a lo ancho', () => {
+  // La regla general de `main` trae align-items:start. En un flex en columna eso deja al
+  // buscador y a la ficha con su ancho natural, pegados a la izquierda: con un texto corto
+  // como "Esperando un código…" la pantalla entera se ve descentrada.
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const regla = src.slice(src.indexOf('#vistaConsulta {'), src.indexOf('#barraConsulta'));
+  assert.ok(/align-items:\s*stretch/.test(regla),
+    '#vistaConsulta necesita align-items:stretch explícito');
+  assert.ok(/justify-content:\s*center/.test(
+    src.slice(src.indexOf('#barraConsulta {'), src.indexOf('#barraConsulta:focus-within'))),
+    'el buscador de la consulta tiene que ir centrado');
+});
+
+test('la consulta pinta siempre dentro del marco', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  // Todo el contenido de la ficha sale de poner(), que envuelve en .marco: si algún caso
+  // escribiera directo en innerHTML quedaría suelto, sin el cartel.
+  assert.ok(/ficha\.innerHTML = '<div class="marco/.test(src), 'poner() tiene que envolver en .marco');
+  // El corte va hasta el bloque siguiente, no hasta el arranque: si abarcara de más
+  // contaría los 'err' del toast y del refresco automático.
+  const cuerpo = src.slice(src.indexOf('function consultar('), src.indexOf('// ── Toast ──'));
+  assert.ok(!/innerHTML/.test(cuerpo.replace(/const poner = [^;]+;/, '')),
+    'la consulta sólo debe pintar a través de poner()');
+  // Los casos sin producto van con el marco en rojo.
+  assert.equal((cuerpo.match(/, 'err'\)/g) || []).length, 2, 'faltan los marcos de error');
+  // El marcado inicial también arranca con marco, para que la pantalla no se vea vacía.
+  assert.ok(src.includes('<div id="fichaConsulta"><div class="marco">'), 'el estado inicial necesita marco');
+});
+
+test('el archivo abre en el lector de precios', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  assert.ok(src.includes('id="tabConsulta">Lector de precios<'), 'la pestaña cambió de nombre');
+  // El marcado y el estado tienen que arrancar de acuerdo: la vista del pedido oculta,
+  // la del lector visible, y vistaActual apuntando al lector para que reciba el foco.
+  assert.ok(src.includes('<main id="vistaPedido" class="oculto">'), 'el pedido no arranca oculto');
+  assert.ok(src.includes('<main id="vistaConsulta" class="no-print">'), 'el lector no arranca visible');
+  assert.ok(/let vistaActual = 'consulta';/.test(src), "vistaActual tiene que arrancar en 'consulta'");
+  assert.ok(/irA\('consulta'\);/.test(src), 'el arranque debe fijar la vista con irA()');
+  // La pestaña del lector va primera: es la principal.
+  assert.ok(src.indexOf('id="tabConsulta"') < src.indexOf('id="tabPedido"'), 'el lector va primero');
+});
+
+// ── Refresco automático ───────────────────────────────────────────────────────
+const MIN = 60000;
+
+test('refresca una vez por minuto', () => {
+  assert.equal(P.INTERVALO_ACTUALIZACION_MS, 60000);
+});
+
+test('con precios frescos el badge queda tranquilo', () => {
+  const e = P.estadoActualizacion({ ultimaOk: 1000 * MIN, ahora: 1000 * MIN, fallando: false, hayCatalogo: true });
+  assert.equal(e.clase, 'ok');
+  assert.equal(e.texto, 'Precios al día');
+});
+
+test('sin catálogo el badge avisa aunque no haya fallado nada', () => {
+  const e = P.estadoActualizacion({ ultimaOk: 0, ahora: 5 * MIN, fallando: false, hayCatalogo: false });
+  assert.equal(e.clase, 'err');
+  assert.equal(e.texto, 'Sin precios cargados');
+});
+
+test('al fallar avisa en amarillo y cuenta desde la última actualización buena', () => {
+  const e = P.estadoActualizacion({ ultimaOk: 100 * MIN, ahora: 103 * MIN, fallando: true, hayCatalogo: true });
+  assert.equal(e.clase, 'warn');
+  assert.equal(e.texto, 'Sin conexión · hace 3 min');
+});
+
+test('pasados 30 minutos sin éxito el badge escala a rojo', () => {
+  // El límite importa: hasta acá los precios sirven, después ya no son de fiar.
+  const justoAntes = P.estadoActualizacion({ ultimaOk: 0, ahora: 29 * MIN, fallando: true, hayCatalogo: true });
+  assert.equal(justoAntes.clase, 'warn');
+  const justoDespues = P.estadoActualizacion({ ultimaOk: 0, ahora: 30 * MIN, fallando: true, hayCatalogo: true });
+  assert.equal(justoDespues.clase, 'err');
+  assert.equal(justoDespues.texto, 'Precios desactualizados · hace 30 min');
+});
+
+test('pasada la hora el badge cuenta en horas', () => {
+  const e = P.estadoActualizacion({ ultimaOk: 0, ahora: 150 * MIN, fallando: true, hayCatalogo: true });
+  assert.equal(e.texto, 'Precios desactualizados · hace 2 h');
+});
+
+test('el badge nunca muestra minutos negativos', () => {
+  // El reloj de la máquina puede correrse hacia atrás; el badge no puede decir "hace -3 min".
+  const e = P.estadoActualizacion({ ultimaOk: 10 * MIN, ahora: 7 * MIN, fallando: true, hayCatalogo: true });
+  assert.equal(e.minutos, 0);
+  assert.ok(!e.texto.includes('-'));
+});
+
+test('el toast de corte no se repite en cada reintento', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const fn = src.slice(src.indexOf('async function refrescarPrecios'), src.indexOf('setInterval(refrescarPrecios'));
+  // Con un reintento por minuto, avisar siempre taparía la pantalla de toasts: sólo se
+  // avisa al entrar en falla y al recuperarse.
+  assert.ok(/if \(!antes && conAviso\)/.test(fn), 'el aviso de corte tiene que ser sólo en la transición');
+  assert.ok(/if \(antes && conAviso\)/.test(fn), 'falta el aviso de recuperación');
+  assert.ok(src.includes("setInterval(refrescarPrecios, INTERVALO_ACTUALIZACION_MS)"), 'falta el intervalo');
+  assert.ok(src.includes("el.textContent = mensaje"), 'el toast tiene que usar textContent');
+  assert.ok(src.includes('id="badgeEstado"'), 'falta el badge junto al lector');
+});
+
+// ── Planillas en la nube ──────────────────────────────────────────────────────
+test('reconoce un xlsx por sus bytes y no por el nombre', () => {
+  // Las descargas de la nube llegan sin extensión: la firma ZIP es la única pista.
+  const real = fs.readFileSync(PLANILLA_SIGA);
+  assert.equal(P.pareceXlsx(new Uint8Array(real)), true);
+  assert.equal(P.pareceXlsx(new TextEncoder().encode('Codigo;Nombre;Precio')), false);
+  assert.equal(P.pareceXlsx(new Uint8Array([])), false);
+  assert.equal(P.pareceXlsx(null), false);
+});
+
+test('detecta la pantalla de login en vez de tratarla como planilla', () => {
+  assert.equal(P.pareceHtml('<!DOCTYPE html><html><body>Iniciar sesión'), true);
+  assert.equal(P.pareceHtml('<html lang="es">'), true);
+  assert.equal(P.pareceHtml('{"error":{"code":"accessDenied"}}'), true);
+  assert.equal(P.pareceHtml('Codigo;Nombre;Precio'), false);
+});
+
+test('la hora que se muestra es la de este equipo, no la del origen', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  // `generado` lo pone el servidor y puede venir con el reloj corrido o repetido entre
+  // refrescos; `traido` lo sella este equipo en cada actualización buena. La pantalla
+  // tiene que leer `traido`, si no la hora parece congelada.
+  assert.ok(/catalogo = Object\.assign\(\{\}, nuevo, \{ traido: new Date\(\)\.toISOString\(\) \}\)/.test(src),
+    'aplicarCatalogo tiene que sellar la hora local en `traido`');
+  assert.ok(/new Date\(catalogo\.traido \|\| catalogo\.generado\)/.test(src),
+    'el encabezado tiene que preferir `traido`, con `generado` de respaldo para catálogos viejos');
+  assert.ok(/let ultimaOk = catalogo \? new Date\(catalogo\.traido \|\| catalogo\.generado\)/.test(src),
+    'el contador del badge también tiene que arrancar de `traido`');
+  // El badge muestra la hora sólo cuando está todo bien: si falla, el texto ya dice
+  // hace cuánto y agregar una hora fija confundiría.
+  assert.ok(/e\.clase === 'ok' && hora \? e\.texto \+ ' · ' \+ hora : e\.texto/.test(src),
+    'el badge tiene que sumar la hora del último refresco bueno');
+});
+
+test('avisa cuando el archivo no es una planilla', () => {
+  // Un .xls bajado del navegador suele ser HTML disfrazado: sin este aviso el usuario ve
+  // "no se encontró ningún producto" y no sabe qué corregir.
+  assert.equal(P.pareceHtml('<!DOCTYPE html><html>login</html>'), true);
+  assert.equal(P.pareceHtml('Codigo;Nombre;Precio'), false);
+  assert.ok(/no es una planilla/i.test(P.motivoPlanillaRechazada()));
+});
+
+// ── Copia autónoma con los precios adentro ────────────────────────────────────
+const CAT_DEMO = { generado: '2026-08-20T10:00:00.000Z', origen: 'planilla',
+  productos: [{ plu: '1004', nombre: 'Trigo Sarraceno 1Kg', precio: 8590,
+                barra: '2001004', barras: ['2001004'], modalidad: 'PESO', unidad: '' }] };
+
+test('el archivo tiene una sola etiqueta de cierre de script', () => {
+  // Una etiqueta de cierre escrita en cualquier lado —aunque sea dentro de un comentario—
+  // corta el script ahí mismo: el navegador ejecuta la primera mitad y descarta el resto
+  // SIN dar ningún error. Este control es la única forma barata de detectarlo.
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const cierres = [...src.matchAll(/<\/script/gi)];
+  assert.equal(cierres.length, 1,
+    'hay una etiqueta de cierre de script de más: corta el programa por la mitad');
+});
+
+test('incrusta el catálogo en el head y no acumula copias', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const uno = P.incrustarCatalogo(src, CAT_DEMO);
+  // En el head y no al final del body: si fuera al final, el programa ya habría corrido
+  // buscando un elemento que todavía no existe.
+  assert.ok(uno.slice(0, uno.indexOf('</head>')).includes('catalogoEmbebido'),
+    'el bloque tiene que quedar antes de cerrar el head');
+  assert.ok(uno.includes('PLANTILLA_HTML'), 'el clon tiene que conservar el programa entero');
+  const dos = P.incrustarCatalogo(uno, CAT_DEMO);
+  const tres = P.incrustarCatalogo(dos, CAT_DEMO);
+  assert.equal((tres.match(/catalogoEmbebido/g) || []).length,
+    (uno.match(/catalogoEmbebido/g) || []).length, 'clonar de nuevo no puede acumular catálogos');
+  assert.equal(dos.length, tres.length, 'el archivo no puede crecer en cada clonado');
+});
+
+test('el catálogo incrustado se relee tal cual', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const clon = P.incrustarCatalogo(src, CAT_DEMO);
+  const json = clon.match(/type="application\/json">([\s\S]*?)<\/script>/)[1];
+  const leido = P.leerCatalogoEmbebido(json);
+  assert.deepEqual(leido, CAT_DEMO);
+});
+
+test('un nombre de producto no puede cortar el script', () => {
+  // Si un producto se llamara con una etiqueta de cierre adentro, el archivo generado
+  // quedaría partido al medio. Por eso se escapa todo "<".
+  const malicioso = { generado: 'x', origen: 'y',
+    productos: [{ plu: '1', nombre: 'Raro </' + 'script><b>ups', precio: 10 }] };
+  const json = P.catalogoAJson(malicioso);
+  assert.ok(!/<\/script/i.test(json), 'el JSON no puede contener una etiqueta de cierre');
+  assert.equal(P.leerCatalogoEmbebido(json).productos[0].nombre, 'Raro </' + 'script><b>ups',
+    'el nombre tiene que volver intacto al leerlo');
+});
+
+test('ignora un bloque incrustado vacío o roto', () => {
+  assert.equal(P.leerCatalogoEmbebido(''), null);
+  assert.equal(P.leerCatalogoEmbebido('no es json'), null);
+  assert.equal(P.leerCatalogoEmbebido('{"productos":[]}'), null, 'sin productos no sirve de nada');
+});
+
+test('la única fuente en línea es el servidor', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  // Quedan dos caminos: servidor, y archivo elegido a mano. Nada de URLs de terceros.
+  assert.ok(!/urlPlanilla/.test(src), 'quedó código de la fuente por URL');
+  assert.ok(!/normalizarUrlPlanilla/.test(src), 'quedó la conversión de enlaces de la nube');
+  assert.ok(src.includes('id="cfgServidores"'), 'tiene que seguir la dirección del servidor');
+  assert.ok(src.includes('id="inputArchivo"'), 'tiene que seguir la carga por archivo');
+});
+
+test('no quedó el botón de WhatsApp', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  assert.ok(!/WhatsApp/i.test(src), 'quedó una referencia a WhatsApp');
+  assert.ok(!/btnCopiar/.test(src), 'quedó el handler del botón');
+  // El de la lista de pedidos guardados sigue: copia el detalle, no publica en ningún lado.
+  assert.ok(src.includes('data-copiar='), 'el copiar de pedidos guardados tiene que seguir');
+});
+
+// ── Ticket para comandera ─────────────────────────────────────────────────────
+test('la impresión sale en formato de ticket, no como la pantalla', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  assert.ok(/@page \{ size: 72mm auto/.test(src), 'falta el tamaño de rollo de la comandera');
+  assert.ok(src.includes('<div id="ticket"></div>'), 'falta el contenedor del ticket');
+  assert.ok(/function pintarTicket\(p\)/.test(src), 'falta el armado del ticket');
+  // El ticket no puede quedar atrapado por la regla que esconde el resto de la página:
+  // el !important de esa regla le gana a cualquier display de más abajo.
+  assert.ok(/body > \*:not\(#ticket\) \{ display: none !important; \}/.test(src),
+    'la regla que oculta la pantalla tiene que excluir al ticket');
+  // Sin fondos: la térmica sólo quema negro y los grises salen sucios.
+  assert.ok(/#ticket \* \{ background: transparent !important/.test(src),
+    'el ticket tiene que imprimirse sin fondos');
+});
+
+test('imprimir arma el ticket antes de mandar a la impresora', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const fn = src.slice(src.indexOf("$('#btnImprimir').onclick"), src.indexOf("$('#btnLimpiar').onclick"));
+  assert.ok(fn.indexOf('pintarTicket') < fn.indexOf('window.print()'),
+    'hay que pintar el ticket antes de imprimir, si no sale el de la vez anterior');
+  assert.ok(/if \(!lineas\.length\)/.test(fn), 'no debería imprimir un pedido vacío');
+  // Los pedidos ya guardados también se pueden reimprimir.
+  assert.ok(src.includes('data-imprimir='), 'falta el botón de ticket en pedidos guardados');
+});
+
+// ── Instructivo ───────────────────────────────────────────────────────────────
+test('el instructivo viaja adentro del archivo y cubre los dos temas', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  assert.ok(src.includes('id="secAyuda"'), 'falta la sección de ayuda');
+  assert.ok(src.includes('id="btnAyuda"'), 'falta el botón para abrirla');
+  const sec = src.slice(src.indexOf('id="secAyuda"'), src.indexOf('<!-- ── Pedidos guardados'));
+  assert.ok(/Cómo se usa/.test(sec) && /Exportar las ventas/.test(sec),
+    'el instructivo tiene que tener las dos secciones');
+});
+
+test('el instructivo nombra las columnas que el CSV exporta de verdad', () => {
+  // Un instructivo que miente sobre los nombres de columna es peor que no tenerlo: se
+  // desactualiza en silencio en cuanto alguien toca el exportador.
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  // El cierre se busca DESDE la cabecera: "for (const p of pedidos)" también aparece
+  // antes, en el contador de numeración, y el corte quedaría vacío.
+  const desde = src.indexOf("const filas = [['Pedido'");
+  const cabecera = src.slice(desde, src.indexOf('for (const p of pedidos)', desde));
+  const reales = [...cabecera.matchAll(/'([A-Z][A-Za-z]+)'/g)].map(m => m[1]);
+  const sec = src.slice(src.indexOf('id="secAyuda"'), src.indexOf('<!-- ── Pedidos guardados'));
+  const nombradas = [...sec.matchAll(/<code>([A-Z][A-Za-z]+)<\/code>/g)].map(m => m[1]);
+  assert.ok(reales.length >= 15, 'no se encontró la cabecera del CSV');
+  for (const col of reales) {
+    assert.ok(nombradas.includes(col), 'el instructivo no menciona la columna ' + col);
+  }
+  for (const col of nombradas) {
+    assert.ok(reales.includes(col), 'el instructivo menciona una columna que no existe: ' + col);
+  }
 });
