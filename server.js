@@ -1697,6 +1697,49 @@ app.post('/api/mayoristas/reservas', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Anular: el movimiento inverso, deposito de reserva -> principal, con las mismas lineas y un
+// solo comprobante. La sucursal y los depositos salen de la reserva, NO del config ni del body:
+// cambiar de sucursal en la pantalla no puede hacer que la devolucion mueva stock en otro lado.
+app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
+  try {
+    const arr = leerJSON(RESERVAS_MERC_PATH, []);
+    const i = arr.findIndex(r => String(r.id) === String(req.params.id));
+    if (i < 0) return res.status(404).json({ error: 'Reserva no encontrada' });
+    const reserva = arr[i];
+    if (reserva.estado === 'anulada') {
+      return res.status(409).json({ error: `La reserva #${reserva.id} ya esta anulada` });
+    }
+
+    const cr = cfgReserva();
+    const poolW = await getPoolStock();
+    const observacion = `ANULA RESERVA MAY ${reserva.nombreCliente} #${reserva.numeroMovimiento}`.slice(0, 200);
+    const mov = {
+      idSucursal: reserva.idSucursal, depOrigen: reserva.depDestino, depDestino: reserva.depOrigen,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+      observacion,
+    };
+    const r = await ejecutarYRegistrar({
+      origen: 'devolucion', plan: null, itemId: null,
+      ...mov,
+      lineas: reserva.lineas.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
+    }, () => trasladarStock(poolW, {
+      ...mov,
+      lineas: reserva.lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
+    }));
+
+    const { reserva: anulada, error } = anularReserva(reserva, {
+      numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
+      fecha: new Date().toISOString(),
+    });
+    if (error) return res.status(409).json({ error });
+    arr[i] = anulada;
+    guardarJSON(RESERVAS_MERC_PATH, arr);
+    res.json(conLogError(anulada, r.logError));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
   return getFacturasDePedido(req.query.idSucursal || 1, req.query.numeroPedido);
