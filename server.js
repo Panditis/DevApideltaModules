@@ -37,6 +37,9 @@ const historialSala = require('./historial_sala');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
+const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
+        validarCarritoUnCliente, validarPlusNoReservados, reservasActivasResumen,
+        nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -1578,6 +1581,27 @@ app.delete('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
   if (nuevo.length === arr.length) return res.status(404).json({ error: 'Orden no encontrada' });
   guardarJSON(ORD_FRACC_PATH, nuevo);
   res.json({ ok: true });
+});
+
+// ── Reservas de mercaderia mayorista ──────────────────────────────────────────
+// Apartan producto TERMINADO en SiGA para un cliente: un movimiento del deposito principal al
+// de reserva. A diferencia de la reserva de planificacion NO se explota formula. Una reserva
+// es de UN cliente y sale en UN movimiento: por eso no existe la falla parcial.
+const RESERVAS_MERC_PATH = path.join(DATA_DIR, 'reservas_mercaderia.json');
+
+app.get('/api/mayoristas/reservas', apiRoute(async () =>
+  leerJSON(RESERVAS_MERC_PATH, []).slice().sort((a, b) => b.id - a.id)));
+
+// Va ANTES de /:id (Express matchea por orden de registro y 'activas' caeria en el handler
+// de :id). Mapa {idCliente: [plu, ...]} que usa pedidos_web.html para marcar los botones del
+// Resumen por cliente sin bajarse todas las reservas con sus lineas.
+app.get('/api/mayoristas/reservas/activas', apiRoute(async () =>
+  reservasActivasResumen(leerJSON(RESERVAS_MERC_PATH, []))));
+
+app.get('/api/mayoristas/reservas/:id', (req, res) => {
+  const reserva = leerJSON(RESERVAS_MERC_PATH, []).find(r => String(r.id) === String(req.params.id));
+  if (!reserva) return res.status(404).json({ error: 'Reserva no encontrada' });
+  res.json(reserva);
 });
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
@@ -5569,7 +5593,10 @@ async function registrarMovimientoMultilinea(pool, m) {
 // (DELETE /api/plan/:fecha vacía los ítems) y poder revertir un movimiento que se
 // hizo por error desde POST /api/stock/movimientos/:id/revertir.
 const MOVIMIENTOS_LOG_PATH = path.join(DATA_DIR, 'movimientos_stock.json');
-const MOV_LOG_ORIGENES     = ['reserva', 'ajuste', 'devolucion', 'traslado', 'movimiento', 'produccion'];
+// 'reserva' es la de planificacion (componentes de formula del plan del dia); 'reserva-mayorista'
+// es la de Pedidos mayoristas (producto terminado apartado para UN cliente). Son dos flujos
+// distintos y hay que poder filtrarlos por separado en /api/stock/movimientos.
+const MOV_LOG_ORIGENES     = ['reserva', 'reserva-mayorista', 'ajuste', 'devolucion', 'traslado', 'movimiento', 'produccion'];
 const MOV_LOG_LIMIT_DEF    = 100;
 const MOV_LOG_LIMIT_MAX    = 500;
 
