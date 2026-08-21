@@ -36,6 +36,7 @@ const resumenesLegacy = require('./resumenes_legacy');
 const historialSala = require('./historial_sala');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
+const rrhhRopa = require('./rrhh_ropa');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -1129,6 +1130,10 @@ app.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, '
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/cruce-terminales', (_req, res) => res.sendFile(path.join(__dirname, 'cruce_terminales.html')));
 app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
+// RRHH: sub-hub con los módulos del área y, colgando de él, cada submódulo.
+app.get('/rrhh',                    (_req, res) => res.sendFile(path.join(__dirname, 'rrhh.html')));
+app.get('/rrhh/relevamiento-ropa',  (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_relevamiento_ropa.html')));
+app.get('/rrhh_relevamiento_ropa.js', (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_relevamiento_ropa.js')));
 app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
 app.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
@@ -8530,6 +8535,82 @@ app.get('/api/cruce-terminales/exportar', (req, res) => {
     res.send(buffer);
   } catch (err) { console.error(err.message); res.status(500).json({ error: err.message }); }
 });
+
+// ── RRHH · Relevamiento de ropa de trabajo ─────────────────────────────────────
+// Un único JSON con el catálogo de prendas y la ficha de cada empleado. Toda
+// escritura pasa por rrhh_ropa.normalizarDocumento (trust boundary) antes de
+// persistir, así el archivo nunca queda con empleados desalineados del catálogo.
+const RRHH_ROPA_PATH = path.join(DATA_DIR, 'relevamientoRopa', 'relevamiento_ropa.json');
+
+function leerRopa() {
+  return rrhhRopa.normalizarDocumento(leerJSON(RRHH_ROPA_PATH, { prendas: [], empleados: [] }));
+}
+function guardarRopa(doc) {
+  const limpio = rrhhRopa.normalizarDocumento(doc);
+  fs.mkdirSync(path.dirname(RRHH_ROPA_PATH), { recursive: true });
+  guardarJSON(RRHH_ROPA_PATH, limpio);
+  return limpio;
+}
+// El front siempre recibe el documento completo + su resumen: es chico (decenas
+// de empleados) y así no hay que reconciliar estado parcial después de cada ABM.
+function conResumen(doc) {
+  return { ...doc, resumen: rrhhRopa.resumen(doc) };
+}
+// Lo que tira el módulo puro son errores de validación del input → 400, no 500.
+function rutaRopa(fn) {
+  return (req, res) => {
+    try { res.json(conResumen(fn(req))); }
+    catch (err) { console.error(err.message); res.status(400).json({ error: err.message }); }
+  };
+}
+function buscarIndice(lista, id, queEs) {
+  const i = lista.findIndex(x => x.id === id);
+  if (i < 0) throw new Error(`No existe ${queEs} con id "${id}".`);
+  return i;
+}
+
+app.get('/api/rrhh/ropa', rutaRopa(() => leerRopa()));
+
+app.post('/api/rrhh/ropa/empleados', rutaRopa(req => {
+  const doc = leerRopa();
+  const nuevo = rrhhRopa.normalizarEmpleado(req.body || {}, doc.prendas);
+  nuevo.id = rrhhRopa.siguienteIdEmpleado(doc.empleados);
+  return guardarRopa({ ...doc, empleados: [...doc.empleados, nuevo] });
+}));
+
+app.put('/api/rrhh/ropa/empleados/:id', rutaRopa(req => {
+  const doc = leerRopa();
+  const i = buscarIndice(doc.empleados, req.params.id, 'el empleado');
+  const editado = { ...rrhhRopa.normalizarEmpleado(req.body || {}, doc.prendas), id: doc.empleados[i].id };
+  return guardarRopa({ ...doc, empleados: doc.empleados.map((e, j) => (j === i ? editado : e)) });
+}));
+
+app.delete('/api/rrhh/ropa/empleados/:id', rutaRopa(req => {
+  const doc = leerRopa();
+  buscarIndice(doc.empleados, req.params.id, 'el empleado');
+  return guardarRopa({ ...doc, empleados: doc.empleados.filter(e => e.id !== req.params.id) });
+}));
+
+app.post('/api/rrhh/ropa/prendas', rutaRopa(req => {
+  const doc = leerRopa();
+  const nueva = rrhhRopa.normalizarPrenda({ nombre: (req.body || {}).nombre }, doc.prendas.map(p => p.id));
+  // normalizarDocumento le agrega la prenda vacía a cada empleado.
+  return guardarRopa({ ...doc, prendas: [...doc.prendas, nueva] });
+}));
+
+app.put('/api/rrhh/ropa/prendas/:id', rutaRopa(req => {
+  const doc = leerRopa();
+  const i = buscarIndice(doc.prendas, req.params.id, 'la prenda');
+  // Sólo se renombra: cambiar el id dejaría huérfanas las fichas de los empleados.
+  const editada = rrhhRopa.normalizarPrenda({ id: doc.prendas[i].id, nombre: (req.body || {}).nombre });
+  return guardarRopa({ ...doc, prendas: doc.prendas.map((p, j) => (j === i ? editada : p)) });
+}));
+
+app.delete('/api/rrhh/ropa/prendas/:id', rutaRopa(req => {
+  const doc = leerRopa();
+  buscarIndice(doc.prendas, req.params.id, 'la prenda');
+  return guardarRopa({ ...doc, prendas: doc.prendas.filter(p => p.id !== req.params.id) });
+}));
 
 // ── Inicio ─────────────────────────────────────────────────────────────────────
 async function start() {
