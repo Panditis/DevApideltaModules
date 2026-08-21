@@ -810,6 +810,9 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     </div>
     <div class="p-6">
       <div class="flex flex-wrap gap-3 mb-4">
+        <label style="font-size:12px">Sucursal
+          <select id="res-sucursal" onchange="cargarDepositosRes()" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
+        </label>
         <label style="font-size:12px">Depósito origen
           <select id="res-dep-origen" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
         </label>
@@ -1539,14 +1542,16 @@ function generarPDFReserva(){
   html += grupos.map(function(g){
     var filas = g.items.map(function(it){
       var l = it.linea;
-      return '<tr><td>'+escHtml(l.nombre)+'</td><td>'+escHtml(l.plu)+'</td>'
+      return '<tr><td>'+escHtml(l.nombrePedido||l.nombre)+'</td>'
+        +'<td>'+escHtml(l.nombre)+'</td><td>'+escHtml(l.plu)+'</td>'
         +'<td style="text-align:right">'+numFmt.format(l.cantidad)+'</td></tr>';
     }).join('');
     var unidades = g.items.reduce(function(a, it){ return a+(Number(it.linea.cantidad)||0); }, 0);
     return '<h3 style="margin:14px 0 6px;font-size:12pt">'+escHtml(g.nombre)+'</h3>'
-      +'<table class="pt"><thead><tr><th>Producto</th><th>PLU</th><th style="text-align:right">Cantidad</th></tr></thead>'
+      +'<table class="pt"><thead><tr><th>Producto del pedido</th><th>Se aparta</th><th>PLU</th>'
+      +'<th style="text-align:right">Cantidad</th></tr></thead>'
       +'<tbody>'+filas+'</tbody>'
-      +'<tfoot><tr><td colspan="2"><strong>Total</strong></td>'
+      +'<tfoot><tr><td colspan="3"><strong>Total</strong></td>'
       +'<td style="text-align:right"><strong>'+numFmt.format(unidades)+'</strong></td></tr></tfoot></table>';
   }).join('');
   html += '<div class="pdf-sign">'
@@ -2175,9 +2180,16 @@ cargarPlusOrdenados();
 // en el carrito intactos.
 var CARRITO_RES_KEY = 'apidelta.mayoristas.reservas.carrito.v1';
 // v2: el carrito pasó de mono-cliente ({idCliente, lineas}) a una lista plana con el cliente
-// en cada línea. El carrito v1 que haya quedado en un navegador se descarta solo.
-var CARRITO_RES_VER = 2;
-var carritoRes = [];          // [{plu, nombre, cantidad, pedido, idCliente, nombreCliente}]
+// en cada línea. v3: la línea distingue el producto PEDIDO del producto que se APARTA (para
+// los Almacén Bulto/Caja son distintos: se reserva el componente de fórmula). Un carrito de
+// una versión vieja que haya quedado en un navegador se descarta solo.
+var CARRITO_RES_VER = 3;
+// [{pluPedido, nombrePedido, plu, nombre, mult, pedido, cantidad, idCliente, nombreCliente}]
+//   pluPedido/nombrePedido → el producto del pedido, lo que ve el operador
+//   plu/nombre             → lo que se mueve en SiGA (el componente, o el mismo producto)
+//   mult                   → cuántas unidades de `plu` entran en una unidad de `pluPedido`
+//   pedido                 → unidades pendientes del pedido;  cantidad → lo que se aparta
+var carritoRes = [];
 var subResActiva = 'carrito';
 // {idCliente: [plu, ...]} de las reservas activas. Es sólo UX (el guard real es el 409 del
 // POST): si la consulta falla se deja vacío y se sigue trabajando.
@@ -2185,21 +2197,25 @@ var plusReservados = {};
 // Cliente del modal de confirmación abierto: lo fija el botón Reservar de cada grupo.
 var clienteModalRes = null;
 
-// Una línea es única por producto Y cliente: el mismo PLU puede estar para dos clientes.
-function mismaLineaRes(l, plu, idCliente){
-  return l.plu === String(plu) && String(l.idCliente) === String(idCliente);
-}
-
-function lineasDeClienteRes(idCliente){
-  return carritoRes.filter(function(l){ return String(l.idCliente) === String(idCliente); });
+// Una línea es única por producto PEDIDO y cliente. Se compara por pluPedido y no por el que
+// se aparta porque dos productos distintos (un bulto y una caja del mismo artículo) pueden
+// compartir componente: son dos líneas del pedido y el operador tiene que verlas separadas.
+// Al mandarlas al server se consolidan solas, que suma las cantidades del mismo plu.
+function mismaLineaRes(l, pluPedido, idCliente){
+  return String(l.pluPedido) === String(pluPedido) && String(l.idCliente) === String(idCliente);
 }
 
 function formaCarritoResValida(arr){
   return Array.isArray(arr) && arr.every(function(l){
     return !!l && typeof l === 'object' && typeof l.plu === 'string'
+      && typeof l.pluPedido === 'string'
       && typeof l.cantidad === 'number' && isFinite(l.cantidad)
       && l.idCliente !== undefined && l.idCliente !== null;
   });
+}
+
+function lineasDeClienteRes(idCliente){
+  return carritoRes.filter(function(l){ return String(l.idCliente) === String(idCliente); });
 }
 
 function leerCarritoRes(){
@@ -2254,16 +2270,25 @@ function refrescarPlusReservados(){
 
 // Agrega un producto al carrito, para el cliente que venga. Un segundo toque sobre el mismo
 // producto DEL MISMO cliente lo saca, así el botón del resumen funciona como toggle.
-function agregarAReserva(plu, nombre, idCliente, nombreCliente, cant){
-  if(pluReservado(plu, idCliente)){ snack('Ese producto ya está reservado para el cliente', true); return; }
-  var yaEsta = carritoRes.some(function(l){ return mismaLineaRes(l, plu, idCliente); });
+// `d` sale de los data-* del botón: {pluPedido, nombrePedido, plu, nombre, mult, idCliente,
+// nombreCliente, pedido}. La cantidad a reservar arranca en unidades × mult, la equivalencia
+// con la que se muestra el stock.
+function agregarAReserva(d){
+  if(pluReservado(d.plu, d.idCliente)){ snack('Ese producto ya está reservado para el cliente', true); return; }
+  var yaEsta = carritoRes.some(function(l){ return mismaLineaRes(l, d.pluPedido, d.idCliente); });
   if(yaEsta){
-    carritoRes = carritoRes.filter(function(l){ return !mismaLineaRes(l, plu, idCliente); });
+    carritoRes = carritoRes.filter(function(l){ return !mismaLineaRes(l, d.pluPedido, d.idCliente); });
   } else {
-    var n = Number(cant);
-    if(!isFinite(n) || n <= 0) n = 1;
-    carritoRes.push({ plu: String(plu), nombre: String(nombre||''), cantidad: n, pedido: n,
-                      idCliente: idCliente, nombreCliente: String(nombreCliente||'') });
+    var unidades = Number(d.pedido);
+    if(!isFinite(unidades) || unidades <= 0) unidades = 1;
+    var mult = Number(d.mult);
+    if(!isFinite(mult) || mult <= 0) mult = 1;
+    carritoRes.push({
+      pluPedido: String(d.pluPedido), nombrePedido: String(d.nombrePedido||''),
+      plu: String(d.plu), nombre: String(d.nombre||''),
+      mult: mult, pedido: unidades, cantidad: unidades * mult,
+      idCliente: d.idCliente, nombreCliente: String(d.nombreCliente||'')
+    });
   }
   guardarCarritoRes();
   renderCarritoRes();
@@ -2323,10 +2348,17 @@ function renderCarritoRes(){
     var unidades = g.items.reduce(function(a, it){ return a + (Number(it.linea.cantidad)||0); }, 0);
     var filas = g.items.map(function(it){
       var l = it.linea;
+      // Debajo del producto del pedido, qué se aparta realmente. Cuando son distintos (los
+      // Almacén Bulto/Caja) se muestra el componente y la equivalencia, igual que la columna
+      // Stock Central del resumen.
+      var sub = String(l.plu) === String(l.pluPedido)
+        ? 'PLU ' + escHtml(l.plu)
+        : 'reserva: ' + escHtml(l.nombre) + (l.mult > 1 ? ' (×' + numFmt.format(l.mult) + ')' : '');
       return '<tr>'
-        +'<td><strong>'+escHtml(l.nombre)+'</strong><div style="font-size:.68rem;color:#9a9a92">PLU '+escHtml(l.plu)+'</div></td>'
+        +'<td><strong>'+escHtml(l.nombrePedido||l.nombre)+'</strong>'
+        +'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
         +'<td class="num">'+numFmt.format(l.pedido||0)+'</td>'
-        +'<td class="num"><input type="number" min="1" step="1" value="'+escHtml(String(l.cantidad))+'"'
+        +'<td class="num"><input type="number" min="0" step="any" value="'+escHtml(String(l.cantidad))+'"'
           +' data-idx="'+it.idx+'" data-act="cant-res"'
           +' style="width:90px;padding:4px 6px;border:1px solid var(--outline);border-radius:6px;text-align:right"></td>'
         +'<td class="num"><button type="button" class="btn btn-ghost btn-sm" data-idx="'+it.idx+'" data-act="quitar-res">✕</button></td>'
@@ -2401,26 +2433,56 @@ function abrirModalReservaMay(idCliente){
       }).join('')
     + '</tbody></table>';
   $('res-overlay').classList.remove('hidden');
-  cargarDepositosRes();
+  cargarSucursalesRes().then(cargarDepositosRes);
 }
 
 function cerrarModalReservaMay(){ $('res-overlay').classList.add('hidden'); }
 
-// Reusa el GET de reserva de planificación sólo para listar los depósitos y leer el config:
-// es el único endpoint que ya los devuelve juntos, y es de lectura pura.
+// Las sucursales se piden una sola vez por carga de página: no cambian mientras se trabaja.
+var sucursalesRes = null;
+function cargarSucursalesRes(){
+  if(sucursalesRes){ return Promise.resolve(); }
+  return api('/api/sucursales').then(function(data){
+    if(!Array.isArray(data)) return;
+    sucursalesRes = data;
+    $('res-sucursal').innerHTML = data.map(function(s){
+      return '<option value="'+s.id+'">'+escHtml(s.nombre)+(s.central?' (central)':'')+'</option>';
+    }).join('');
+    // Arranca en la central, que es de donde sale la mercadería de los pedidos mayoristas.
+    var central = data.filter(function(s){ return s.central; })[0];
+    if(central) $('res-sucursal').value = String(central.id);
+  }).catch(function(){ /* sin lista: queda el selector vacío y el POST usa la de config */ });
+}
+
+// Los depósitos son POR sucursal: cada vez que cambia el selector se vuelven a pedir. Reusa
+// el GET de reserva de planificación, que ya los devuelve junto con el config y es lectura pura.
 function cargarDepositosRes(){
   var hoy = new Date().toISOString().slice(0,10);
-  return api('/api/plan/'+hoy+'/reserva').then(function(data){
-    if(!data || data.error) return;
-    var opts = (data.depositos||[]).map(function(d){
-      return '<option value="'+d.idDeposito+'">'+escHtml(d.nombre)+'</option>';
-    }).join('');
-    $('res-dep-origen').innerHTML  = opts;
-    $('res-dep-destino').innerHTML = '<option value="">— elegir —</option>' + opts;
-    var cfg = data.config || {};
-    if(cfg.depositoPrincipal) $('res-dep-origen').value  = String(cfg.depositoPrincipal);
-    if(cfg.depositoReserva)   $('res-dep-destino').value = String(cfg.depositoReserva);
-  }).catch(function(){ /* sin depósitos: el POST avisa igual */ });
+  var suc = $('res-sucursal').value;
+  $('res-dep-origen').innerHTML  = '<option value="">cargando…</option>';
+  $('res-dep-destino').innerHTML = '<option value="">cargando…</option>';
+  return api('/api/plan/'+hoy+'/reserva'+(suc ? '?idSucursal='+encodeURIComponent(suc) : ''))
+    .then(function(data){
+      if(!data || data.error){
+        $('res-dep-origen').innerHTML  = '<option value="">— sin depósitos —</option>';
+        $('res-dep-destino').innerHTML = '<option value="">— sin depósitos —</option>';
+        if(data && data.error) snack(data.error, true);
+        return;
+      }
+      var opts = (data.depositos||[]).map(function(d){
+        return '<option value="'+d.idDeposito+'">'+escHtml(d.nombre)+'</option>';
+      }).join('');
+      $('res-dep-origen').innerHTML  = opts || '<option value="">— sin depósitos —</option>';
+      $('res-dep-destino').innerHTML = '<option value="">— elegir —</option>' + opts;
+      // Preselección del config, sólo si esos depósitos existen en la sucursal elegida.
+      var sel = data.seleccion || {};
+      var cfg = data.config || {};
+      var origen  = sel.depOrigen  || cfg.depositoPrincipal;
+      var destino = sel.depDestino || cfg.depositoReserva;
+      if(origen)  $('res-dep-origen').value  = String(origen);
+      if(destino) $('res-dep-destino').value = String(destino);
+    })
+    .catch(function(){ /* sin depósitos: el POST avisa igual */ });
 }
 
 function confirmarReservaMay(){
@@ -2437,9 +2499,11 @@ function confirmarReservaMay(){
     body: JSON.stringify({
       idCliente: cli.idCliente,
       nombreCliente: cli.nombreCliente,
+      idSucursal: $('res-sucursal').value,
       depOrigen: $('res-dep-origen').value,
       depDestino: destino,
       permitirFaltante: $('res-modal-forzar').checked,
+      // Va el plu que se APARTA (el componente en los Bulto/Caja), no el del pedido.
       lineas: lineas.map(function(l){
         return { plu: l.plu, nombre: l.nombre, cantidad: l.cantidad, idCliente: cli.idCliente };
       })
@@ -2931,11 +2995,24 @@ function renderResumen(data){
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Fraccionar</button>';
+      // Qué se aparta en SiGA: la mayoría de los productos de pedidos son de rubro Almacén
+      // Bulto/Caja, que no tienen stock propio — su stock ES el de su componente de fórmula.
+      // Se reserva ese componente, con la misma equivalencia que usa la columna Stock Central
+      // (unidades × CantidadPorBulto, ver scChip). Sin componente se reserva el producto mismo.
+      var pluRes    = comp ? String(p.IdComponente) : String(p.IdProducto);
+      var nombreRes = comp ? comp : p.NombreProducto;
+      // Bulto/Caja sin componente: no hay stock que apartar (el SQL le da 0). Se avisa y no
+      // se deja agregar, en vez de mandar un movimiento que SiGA va a rechazar o dejar en rojo.
+      var sinFormula = !comp && /BULTO|CAJA/i.test(p.NombreRubro || '');
       var btnRes = '<button type="button" class="res-add" data-act="add-res"'
         +' data-plu="'+att(p.IdProducto)+'"'
         +' data-nombre="'+att(p.NombreProducto)+'"'
+        +' data-plures="'+att(pluRes)+'"'
+        +' data-nombreres="'+att(nombreRes)+'"'
+        +' data-mult="'+att(mult)+'"'
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
+        +' data-sinformula="'+(sinFormula ? '1' : '')+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Reservar</button>';
       return '<tr'+rowCls(sc, p.TotalUnidades, mult)+'>'
         +'<td>'+prodCell+'</td>'
@@ -2984,14 +3061,20 @@ function marcarAgregadosResumen(){
   // se puede agregar.
   var botonesRes = document.querySelectorAll('#resumen-cont button[data-act="add-res"]');
   Array.prototype.forEach.call(botonesRes, function(b){
-    var plu   = b.getAttribute('data-plu');
-    var idcli = b.getAttribute('data-idcli');
+    var plu    = b.getAttribute('data-plu');
+    var pluRes = b.getAttribute('data-plures');
+    var idcli  = b.getAttribute('data-idcli');
     var enCarrito = carritoRes.some(function(l){ return mismaLineaRes(l, plu, idcli); });
-    // Ya reservado gana sobre "en el carrito": el botón queda inerte y se explica por qué.
-    var reservado = pluReservado(plu, idcli);
-    b.classList.toggle('res-add-on', enCarrito && !reservado);
-    b.disabled = reservado;
-    if(reservado){
+    // Lo que bloquea es el PLU que se APARTA, no el del pedido: si el cliente ya tiene una
+    // reserva activa con ese componente, volver a moverlo lo duplicaría.
+    var reservado  = pluReservado(pluRes, idcli);
+    var sinFormula = b.getAttribute('data-sinformula') === '1';
+    b.classList.toggle('res-add-on', enCarrito && !reservado && !sinFormula);
+    b.disabled = reservado || sinFormula;
+    if(sinFormula){
+      b.textContent = 'Sin fórmula';
+      b.title = 'Es de rubro Bulto/Caja y no tiene componente de fórmula: no hay stock que apartar.';
+    } else if(reservado){
       b.textContent = '🔒 Ya reservado';
       b.title = 'El cliente ya tiene una reserva activa con este producto';
     } else {
@@ -3011,9 +3094,16 @@ $('resumen-cont').addEventListener('click', function(ev){
   }
   var r = ev.target.closest ? ev.target.closest('button[data-act="add-res"]') : null;
   if(r){
-    agregarAReserva(r.getAttribute('data-plu'), r.getAttribute('data-nombre'),
-                    r.getAttribute('data-idcli'), r.getAttribute('data-cliente'),
-                    r.getAttribute('data-cant'));
+    agregarAReserva({
+      pluPedido:     r.getAttribute('data-plu'),
+      nombrePedido:  r.getAttribute('data-nombre'),
+      plu:           r.getAttribute('data-plures'),
+      nombre:        r.getAttribute('data-nombreres'),
+      mult:          r.getAttribute('data-mult'),
+      pedido:        r.getAttribute('data-cant'),
+      idCliente:     r.getAttribute('data-idcli'),
+      nombreCliente: r.getAttribute('data-cliente')
+    });
   }
 });
 
