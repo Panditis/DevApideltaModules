@@ -416,43 +416,89 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 }
 
 /* ── Agenda de bloques ── */
-.ag-gantt { overflow-x:auto; padding:4px 0 12px; }
-.ag-leyenda { display:flex; flex-wrap:wrap; gap:12px; padding:4px 2px 10px; font-size:11px; color:var(--muted); }
-.ag-leyenda span { display:inline-flex; align-items:center; gap:5px; }
-.ag-leyenda i { width:12px; height:12px; border-radius:3px; }
+/* ── Agenda de bloques — Material Design 3 ──────────────────────────────────────
+   Todo lo de esta tab sigue la escala de 8dp de MD3: alturas de fila de 56px (list item
+   de dos líneas), padding de 16px, radios de 12/16 y los roles de color del :root. Las
+   reglas van scopeadas a #tab-agenda o a .ag-*: ninguna otra tab cambia de aspecto. */
+#tab-agenda .filter-bar { gap:12px; padding:12px 16px; border-radius:var(--radius); }
+#tab-agenda .card { border-radius:var(--radius-lg); box-shadow:var(--elev-1); overflow:hidden; }
+#tab-agenda .card-header { padding:16px 20px; }
+#tab-agenda #agTabla, #tab-agenda #agGantt { padding:8px 12px 4px; }
+/* Campos: text field outlined de MD3 — 40px de alto, borde de 1px que pasa a 2px del color
+   primario al enfocar. Sin esto los inputs quedaban del alto por defecto del navegador. */
+#tab-agenda input[type=time], #tab-agenda input[type=number], #tab-agenda input[type=text],
+#tab-agenda select {
+  height:40px; box-sizing:border-box; padding:0 12px; font-family:inherit; font-size:14px;
+  color:var(--md-on-surface); background:var(--md-surface); border:1px solid var(--md-outline);
+  border-radius:var(--radius-sm); transition:border-color .15s, box-shadow .15s;
+}
+#tab-agenda input:focus, #tab-agenda select:focus {
+  outline:none; border-color:var(--md-primary); box-shadow:inset 0 0 0 1px var(--md-primary);
+}
+
+/* Leyenda: assist chips de MD3, uno por producto. */
+.ag-leyenda { display:flex; flex-wrap:wrap; gap:8px; padding:12px 4px 16px; }
+.ag-leyenda span { display:inline-flex; align-items:center; gap:8px; height:32px; padding:0 12px;
+                   border:1px solid var(--md-outline-variant); border-radius:var(--radius-sm);
+                   background:var(--md-surface); font-size:12px; color:var(--md-on-surface-variant); }
+.ag-leyenda i { width:12px; height:12px; border-radius:var(--radius-full); flex:none; }
+
+.ag-gantt { overflow-x:auto; padding-bottom:8px; }
 /* Nombres y pistas en una sola grilla: así las filas quedan alineadas aunque la pista scrollee. */
-.ag-grilla { display:grid; grid-template-columns:150px max-content; align-items:stretch; }
-.ag-nombre { position:sticky; left:0; z-index:2; background:var(--md-surface-1); min-height:40px;
-             border-right:2px solid var(--md-outline-variant); border-bottom:1px solid var(--md-outline-variant);
-             padding:0 10px 0 4px; display:flex; flex-direction:column; justify-content:center; }
-.ag-nombre b { font-size:12px; }
-.ag-nombre small { font-size:10px; color:var(--muted); }
-.ag-nombre.cab, .ag-pista.cab { min-height:24px; }
-.ag-pista { position:relative; min-height:40px; border-bottom:1px solid var(--md-outline-variant); }
-.ag-pista.par { background:rgba(0,0,0,.025); }
+.ag-grilla { display:grid; grid-template-columns:184px max-content; align-items:stretch;
+             border:1px solid var(--md-outline-variant); border-radius:var(--radius); overflow:hidden; }
+.ag-nombre { position:sticky; left:0; z-index:2; background:var(--md-surface); min-height:56px;
+             border-right:1px solid var(--md-outline-variant); border-bottom:1px solid var(--md-outline-variant);
+             padding:8px 16px; display:flex; flex-direction:column; justify-content:center; gap:2px; }
+.ag-nombre b { font-size:14px; font-weight:500; letter-spacing:.1px; color:var(--md-on-surface); }
+.ag-nombre small { font-size:12px; letter-spacing:.4px; color:var(--md-on-surface-variant); }
+.ag-nombre.cab, .ag-pista.cab { min-height:36px; background:var(--md-surface-2); }
+.ag-pista { position:relative; min-height:56px; background:var(--md-surface);
+            border-bottom:1px solid var(--md-outline-variant); }
+.ag-pista.par { background:var(--md-surface-1); }
 /* Marcas de la hora en punto (llena) y de la media (punteada): son la referencia para leer
    dónde empieza cada barra. Sin ellas el Gantt es un montón de rectángulos flotando. */
 .ag-marca { position:absolute; top:0; bottom:0; border-left:1px solid var(--md-outline-variant); }
-.ag-marca.media { border-left-style:dotted; opacity:.5; }
-.ag-hora { position:absolute; top:5px; font-size:10px; color:var(--muted); white-space:nowrap; }
+.ag-marca.media { border-left-style:dotted; opacity:.45; }
+.ag-hora { position:absolute; top:10px; font-size:11px; font-weight:500; letter-spacing:.5px;
+           color:var(--md-on-surface-variant); white-space:nowrap; }
 .ag-ahora { position:absolute; top:0; bottom:0; border-left:2px solid var(--md-error); z-index:3; }
 /* Las barras se ubican al minuto (px), no por celda: una tarea de 10' tiene que verse de 10'. */
-.ag-barra { position:absolute; top:5px; bottom:5px; border-radius:4px; color:#fff; overflow:hidden;
-            padding:3px 6px; font-size:11px; line-height:1.2; white-space:nowrap; box-sizing:border-box; }
-.ag-barra small { opacity:.8; margin-left:6px; }
+.ag-barra { position:absolute; top:8px; bottom:8px; border-radius:var(--radius-sm); color:#fff;
+            overflow:hidden; padding:6px 12px; font-size:12px; font-weight:500; letter-spacing:.1px;
+            line-height:1.4; white-space:nowrap; box-sizing:border-box; box-shadow:var(--elev-1); }
+.ag-barra small { font-weight:400; opacity:.85; margin-left:8px; }
 .ag-barra.solape { outline:2px solid var(--md-error); outline-offset:-2px; }
 .ag-barra.excede { background-image:repeating-linear-gradient(45deg,#0000 0 6px,#0003 6px 12px); }
-.ag-tabla { width:100%; border-collapse:collapse; font-size:13px; }
-.ag-tabla th { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;
-               text-align:left; padding:6px 8px; border-bottom:1px solid var(--md-outline-variant); }
-.ag-tabla td { padding:4px 8px; border-bottom:1px solid var(--md-outline-variant); vertical-align:middle; }
-.ag-tabla tr.solape td { background:rgba(220,38,38,.08); }
-.ag-tabla input[type=number] { width:70px; }
-.ag-tabla input[type=time]   { width:100px; }
-.ag-chip-resp { display:inline-block; background:var(--md-surface-2); border-radius:10px; padding:1px 8px;
-                margin:1px 2px; font-size:11px; cursor:pointer; }
-.ag-grupo summary { cursor:pointer; padding:8px; font-weight:700; }
-.ag-aviso { color:var(--md-error); font-size:11px; font-weight:700; }
+
+/* Grupo por producto: una card por producto, con el summary como list item de 56px. */
+.ag-grupo { border:1px solid var(--md-outline-variant); border-radius:var(--radius); margin:0 0 12px;
+            background:var(--md-surface); overflow:hidden; }
+.ag-grupo summary { cursor:pointer; min-height:56px; display:flex; align-items:center; gap:8px;
+                    padding:12px 16px; font-size:14px; font-weight:500; letter-spacing:.1px;
+                    background:var(--md-surface-1); transition:background .15s; }
+.ag-grupo summary:hover { background:var(--md-surface-2); }
+.ag-grupo[open] summary { border-bottom:1px solid var(--md-outline-variant); }
+
+.ag-tabla { width:100%; border-collapse:collapse; font-size:14px; }
+.ag-tabla th { font-size:11px; font-weight:500; color:var(--md-on-surface-variant); text-transform:uppercase;
+               letter-spacing:.5px; text-align:left; padding:12px 16px; white-space:nowrap;
+               border-bottom:1px solid var(--md-outline-variant); }
+.ag-tabla td { padding:8px 16px; height:56px; box-sizing:border-box;
+               border-bottom:1px solid var(--md-outline-variant); vertical-align:middle; }
+.ag-tabla tbody tr:last-child td { border-bottom:none; }
+.ag-tabla tbody tr:hover td { background:var(--md-surface-1); }
+.ag-tabla tr.solape td { background:var(--md-error-container); }
+.ag-tabla input[type=number] { width:88px; }
+.ag-tabla input[type=time]   { width:124px; }
+/* Input chip de MD3: la persona asignada, con la × para sacarla. */
+.ag-chip-resp { display:inline-flex; align-items:center; height:32px; padding:0 12px; margin:2px 4px 2px 0;
+                background:var(--md-secondary-container); color:var(--md-on-secondary-container);
+                border-radius:var(--radius-sm); font-size:12px; font-weight:500; letter-spacing:.1px;
+                cursor:pointer; transition:box-shadow .15s; }
+.ag-chip-resp:hover { box-shadow:var(--elev-1); }
+.ag-aviso { display:inline-flex; align-items:center; height:24px; padding:0 8px; border-radius:var(--radius-sm);
+            background:var(--md-error-container); color:var(--md-error); font-size:11px; font-weight:500; }
 
 /* ── IMPRESIÓN ── */
 /* Sale solo el contenido de la tab visible: .tab-panel ya es display:none salvo .active. */
@@ -4092,7 +4138,7 @@ async function guardarAgenda() {
 // ── Agenda de bloques: render ────────────────────────────────────
 // Todo lo que va al innerHTML pasa por escHtml(): los nombres de tarea y de producto los
 // escribe el usuario (el modal de plantillas, el plan del día), así que no son confiables.
-const AG_PX_HORA = 100;   // ancho de una hora del Gantt, en px
+const AG_PX_HORA = 132;   // ancho de una hora del Gantt, en px (11 px por cada 5 minutos)
 // Un color por producto. La misma tarea ("Envasado") aparece en varios productos el mismo día:
 // sin color no hay forma de saber de un vistazo cuál es cuál.
 const AG_COLORES = ['#3b6ea5', '#7a4fa3', '#1f7a5c', '#a8552b', '#4a6b1f', '#a03b6a', '#2f6f7d', '#8a6a1f'];
@@ -4143,7 +4189,7 @@ function renderGantt(bloques, idsSolapados) {
     const barras = c.bloques.map(b => {
       const ini = BT.minutosDeHora(b.inicio);
       const x = enX(ini == null ? desde : ini);
-      const w = Math.max(8, Math.round((Number(b.minutos) || 0) * pxMin));   // 8px: una tarea de 2' se ve igual
+      const w = Math.max(12, Math.round((Number(b.minutos) || 0) * pxMin));   // 12px: una tarea de 2' se ve igual
       const cls = ['ag-barra', solapes.has(b.id) ? 'solape' : '', b.excedeDia ? 'excede' : ''].filter(Boolean).join(' ');
       const detalle = `${escHtml(b.producto)} · ${escHtml(b.tarea)} · ${escHtml(b.inicio)}–${escHtml(b.fin)} (${agHoras(Number(b.minutos) || 0)})`;
       return `<div class="${cls}" style="left:${x}px;width:${w}px;background-color:${colorDe(b.producto || 'Sin producto')}"
