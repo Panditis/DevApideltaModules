@@ -64,5 +64,91 @@
     return null;
   }
 
-  return { minutosDeHora, horaDeMinutos, cantidadBase, duracionTarea, resolverPlantilla };
+  // Instancia la plantilla sobre un item del plan. Los bloques salen sin horario: el horario
+  // lo pone recalcularHorarios, que es el único que sabe de la cadena entera del día.
+  function generarBloques(item, plantilla, ts) {
+    if (!item || !plantilla || !Array.isArray(plantilla.tareas)) return [];
+    const base = Number(ts) || 0;
+    return plantilla.tareas.map((t, i) => ({
+      id: base + i,
+      itemId: item.id,
+      producto: item.producto || '',
+      tarea: String((t && t.nombre) || '').trim() || 'Tarea',
+      responsables: Array.isArray(t && t.responsables) ? t.responsables.slice() : [],
+      minutos: duracionTarea(t, item),
+      inicio: '', fin: '', orden: i + 1, manual: false,
+      // Contra qué cantidad se calculó. Si después cambian cantConfirmada en el plan, la agenda
+      // avisa que ese producto quedó viejo en vez de mentir un horario que ya no cierra.
+      cantGenerada: cantidadBase(t, item),
+    }));
+  }
+
+  // Encadena los bloques de cada producto: el primero arranca con la jornada, cada uno sigue al
+  // anterior. Un bloque con `manual` fijado por el usuario manda sobre la cadena y los que le
+  // siguen arrancan desde él. Devuelve copias: no muta lo que le pasan.
+  function recalcularHorarios(bloques, jornadaInicio) {
+    const arranque  = minutosDeHora(jornadaInicio);
+    const inicioDia = arranque == null ? 8 * 60 : arranque;
+    const porItem = new Map();
+    for (const b of (bloques || [])) {
+      if (!b) continue;
+      const k = String(b.itemId);
+      if (!porItem.has(k)) porItem.set(k, []);
+      porItem.get(k).push(b);
+    }
+    const salida = [];
+    for (const lista of porItem.values()) {
+      lista.sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0));
+      let cursor = inicioDia;
+      for (const b of lista) {
+        const ancla = b.manual === true ? minutosDeHora(b.inicio) : null;
+        const ini   = ancla == null ? cursor : ancla;
+        const dur   = Math.max(0, Math.round(Number(b.minutos) || 0));
+        const fin   = ini + dur;
+        salida.push({ ...b, inicio: horaDeMinutos(ini), fin: horaDeMinutos(fin), excedeDia: fin > FIN_DIA });
+        cursor = fin;
+      }
+    }
+    return salida;
+  }
+
+  // Ids de los bloques que pisan a otro de la misma persona. Avisa, no bloquea: dos tareas a la
+  // misma hora a veces son reales (el tambor calienta solo mientras se etiqueta otra cosa).
+  function detectarSolapes(bloques) {
+    const lista = (bloques || []).filter(b => b && Array.isArray(b.responsables) && b.responsables.length);
+    const ids = new Set();
+    for (let i = 0; i < lista.length; i++) {
+      for (let j = i + 1; j < lista.length; j++) {
+        const a = lista[i], b = lista[j];
+        if (!a.responsables.some(r => b.responsables.includes(r))) continue;
+        const ai = minutosDeHora(a.inicio), af = minutosDeHora(a.fin);
+        const bi = minutosDeHora(b.inicio), bf = minutosDeHora(b.fin);
+        if (ai == null || af == null || bi == null || bf == null) continue;
+        if (ai < bf && bi < af) { ids.add(a.id); ids.add(b.id); }
+      }
+    }
+    return [...ids];
+  }
+
+  // Filas del Gantt: una por persona con bloques, ordenadas alfabéticamente, y al final la de
+  // los bloques que todavía no tienen a nadie asignado.
+  function carrilesPorResponsable(bloques) {
+    const mapa = new Map();
+    for (const b of (bloques || [])) {
+      if (!b) continue;
+      const resps = Array.isArray(b.responsables) && b.responsables.length ? b.responsables : [''];
+      for (const r of resps) {
+        if (!mapa.has(r)) mapa.set(r, []);
+        mapa.get(r).push(b);
+      }
+    }
+    const conNombre = [...mapa.keys()].filter(Boolean).sort();
+    const orden = mapa.has('') ? [...conNombre, ''] : conNombre;
+    return orden.map(r => ({ responsable: r, bloques: mapa.get(r) }));
+  }
+
+  return {
+    minutosDeHora, horaDeMinutos, cantidadBase, duracionTarea, resolverPlantilla,
+    generarBloques, recalcularHorarios, detectarSolapes, carrilesPorResponsable,
+  };
 });
