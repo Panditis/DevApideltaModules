@@ -1053,6 +1053,24 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   </div>
 </div>
 
+<!-- MODAL PLANTILLAS DE TAREAS (agenda) -->
+<div class="overlay no-print" id="overlayPlantillas">
+  <div class="modal" style="width:min(900px,96vw);max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      📋 Plantillas de tareas
+      <span class="close" id="btnPlCerrar">✕</span>
+    </div>
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <button class="btn btn-primary btn-sm" id="btnPlNueva">+ Nueva plantilla</button>
+      <span class="text-sm" id="plMsg" style="color:var(--muted)">El alcance decide contra qué se busca: idProducto o rubro del item del plan.</span>
+    </div>
+    <div id="plLista" style="flex:1;overflow-y:auto;padding:8px 12px"></div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+      <button class="btn btn-primary" id="btnPlGuardar">Guardar plantillas</button>
+    </div>
+  </div>
+</div>
+
 <!-- TAB 4: CATÁLOGO -->
 <div class="tab-panel" id="tab-catalogo">
   <div class="filter-bar">
@@ -4252,6 +4270,136 @@ document.getElementById('agTabla').addEventListener('change', e => {
     const r = e.target.value;
     if (!bloquesDia[idx].responsables.includes(r)) bloquesDia[idx].responsables.push(r);
     return aplicarCambioAgenda();
+  }
+});
+
+// ── Agenda: ABM de plantillas de tareas ──────────────────────────
+// Todo el texto de la plantilla lo escribe el usuario, así que cada dato pasa por escHtml()
+// antes de entrar al innerHTML.
+function renderPlantillas() {
+  // Una plantilla cargada a mano en el JSON puede venir sin tareas: normalizar acá evita
+  // tener que guardar contra null en cada handler de más abajo.
+  plantillasTareas.forEach(p => { if (!Array.isArray(p.tareas)) p.tareas = []; });
+  document.getElementById('plLista').innerHTML = plantillasTareas.map((p, i) => `
+    <details class="ag-grupo" data-pl="${i}">
+      <summary>${escHtml(p.nombre || p.clave)} · ${escHtml(p.alcance)} ${escHtml(p.clave)} · ${p.tareas.length} tareas</summary>
+      <div style="padding:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select class="pl-alcance">
+          <option value="producto" ${p.alcance === 'producto' ? 'selected' : ''}>Producto (idProducto)</option>
+          <option value="rubro"    ${p.alcance === 'rubro'    ? 'selected' : ''}>Rubro</option>
+        </select>
+        <input class="pl-clave"  value="${escHtml(p.clave)}"  placeholder="4039 o Miel acacia" style="width:180px">
+        <input class="pl-nombre" value="${escHtml(p.nombre)}" placeholder="Nombre visible" style="width:200px">
+        <button class="btn btn-secondary btn-sm pl-duplicar">Duplicar</button>
+        <button class="btn btn-danger btn-sm pl-borrar">🗑 Plantilla</button>
+      </div>
+      <table class="ag-tabla">
+        <thead><tr><th>Tarea</th><th>Min fijos</th><th>Min × cantidad</th><th>Base</th><th>Responsables</th><th></th></tr></thead>
+        <tbody>${p.tareas.map((t, j) => `
+          <tr data-t="${j}">
+            <td><input class="pl-t-nombre" value="${escHtml(t.nombre)}" style="width:180px"></td>
+            <td><input type="number" min="0" step="5"   class="pl-t-fijos" value="${Number(t.minFijos) || 0}"></td>
+            <td><input type="number" min="0" step="0.1" class="pl-t-var"   value="${Number(t.minVar) || 0}"></td>
+            <td><select class="pl-t-base">
+                  <option value="unidad" ${t.base === 'unidad' ? 'selected' : ''}>por unidad</option>
+                  <option value="kg"     ${t.base === 'kg'     ? 'selected' : ''}>por kg de granel</option>
+                </select></td>
+            <td><input class="pl-t-resp" value="${escHtml((t.responsables || []).join(', '))}" placeholder="MICA, JUAN" style="width:140px"></td>
+            <td style="white-space:nowrap">
+                <button class="btn btn-secondary btn-sm pl-t-sube">↑</button>
+                <button class="btn btn-secondary btn-sm pl-t-baja">↓</button>
+                <button class="btn btn-danger btn-sm pl-t-borra">🗑</button></td>
+          </tr>`).join('')}</tbody>
+      </table>
+      <div style="padding:6px 8px"><button class="btn btn-secondary btn-sm pl-t-nueva">+ tarea</button></div>
+    </details>`).join('') || '<div class="loading">Sin plantillas. Creá la primera.</div>';
+}
+
+// Lee del DOM al modelo antes de cualquier acción que redibuje: si no, lo tipeado se pierde.
+function leerPlantillasDelDom() {
+  document.querySelectorAll('#plLista details[data-pl]').forEach(det => {
+    const p = plantillasTareas[Number(det.dataset.pl)];
+    if (!p) return;
+    p.alcance = det.querySelector('.pl-alcance').value;
+    p.clave   = det.querySelector('.pl-clave').value.trim();
+    p.nombre  = det.querySelector('.pl-nombre').value.trim();
+    det.querySelectorAll('tr[data-t]').forEach(tr => {
+      const t = p.tareas[Number(tr.dataset.t)];
+      if (!t) return;
+      t.nombre   = tr.querySelector('.pl-t-nombre').value.trim();
+      t.minFijos = Number(tr.querySelector('.pl-t-fijos').value) || 0;
+      t.minVar   = Number(tr.querySelector('.pl-t-var').value) || 0;
+      t.base     = tr.querySelector('.pl-t-base').value;
+      t.responsables = tr.querySelector('.pl-t-resp').value.split(',').map(s => s.trim()).filter(Boolean);
+    });
+  });
+}
+
+document.getElementById('btnAgPlantillas').addEventListener('click', async () => {
+  // Se relee del server en cada apertura: otra pestaña pudo haber tocado las plantillas.
+  try { plantillasTareas = await api('GET', '/api/plantillas-tareas') || []; }
+  catch (e) { toast('No se pudieron cargar las plantillas: ' + e.message, true); }
+  renderPlantillas();
+  document.getElementById('overlayPlantillas').classList.add('open');
+});
+document.getElementById('btnPlCerrar').addEventListener('click', () =>
+  document.getElementById('overlayPlantillas').classList.remove('open'));
+document.getElementById('overlayPlantillas').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+document.getElementById('btnPlNueva').addEventListener('click', () => {
+  leerPlantillasDelDom();
+  plantillasTareas.push({ id: Date.now(), alcance: 'rubro', clave: '', nombre: 'Plantilla nueva',
+    tareas: [{ nombre: 'Envasado', minFijos: 10, minVar: 0.5, base: 'unidad', responsables: [] }] });
+  renderPlantillas();
+});
+
+document.getElementById('plLista').addEventListener('click', e => {
+  const det = e.target.closest('details[data-pl]');
+  if (!det) return;
+  const i = Number(det.dataset.pl);
+  const tr = e.target.closest('tr[data-t]');
+  const j = tr ? Number(tr.dataset.t) : -1;
+  leerPlantillasDelDom();
+
+  if (e.target.classList.contains('pl-borrar')) { plantillasTareas.splice(i, 1); return renderPlantillas(); }
+  if (e.target.classList.contains('pl-duplicar')) {
+    // La copia arranca sin clave para que no compita con la original al resolver la plantilla.
+    const copia = JSON.parse(JSON.stringify(plantillasTareas[i]));
+    copia.id = Date.now(); copia.clave = ''; copia.nombre = (copia.nombre || '') + ' (copia)';
+    plantillasTareas.splice(i + 1, 0, copia);
+    return renderPlantillas();
+  }
+  if (e.target.classList.contains('pl-t-nueva')) {
+    plantillasTareas[i].tareas.push({ nombre: 'Tarea nueva', minFijos: 0, minVar: 0, base: 'unidad', responsables: [] });
+    return renderPlantillas();
+  }
+  if (j < 0) return;
+  const ts = plantillasTareas[i].tareas;
+  if (e.target.classList.contains('pl-t-borra')) { ts.splice(j, 1); return renderPlantillas(); }
+  if (e.target.classList.contains('pl-t-sube') && j > 0) {
+    [ts[j - 1], ts[j]] = [ts[j], ts[j - 1]];
+    return renderPlantillas();
+  }
+  if (e.target.classList.contains('pl-t-baja') && j < ts.length - 1) {
+    [ts[j + 1], ts[j]] = [ts[j], ts[j + 1]];
+    return renderPlantillas();
+  }
+});
+
+document.getElementById('btnPlGuardar').addEventListener('click', async () => {
+  leerPlantillasDelDom();
+  const errores = BT.validarPlantillas(plantillasTareas);
+  if (errores.length) return toast(errores[0], true);
+  try {
+    plantillasTareas = await api('POST', '/api/plantillas-tareas', plantillasTareas);
+    renderPlantillas();
+    toast('Plantillas guardadas');
+    // La agenda muestra qué items quedaron sin plantilla: hay que refrescarla con las nuevas.
+    if (fechaPlanActual) renderAgenda();
+  } catch (e) {
+    toast('No se pudieron guardar: ' + e.message, true);
   }
 });
 
