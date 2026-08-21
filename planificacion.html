@@ -4040,6 +4040,221 @@ async function guardarAgenda() {
   }
 }
 
+
+// ── Agenda de bloques: render ────────────────────────────────────
+// Todo lo que va al innerHTML pasa por escHtml(): los nombres de tarea y de producto los
+// escribe el usuario (el modal de plantillas, el plan del día), así que no son confiables.
+const AG_PASO = 30;   // minutos por columna del Gantt
+
+// Gantt por persona: una fila por responsable con bloques, cada barra ubicada por su hora.
+// La grilla arranca en el inicio de jornada y termina en el bloque más tardío del día.
+function renderGantt(bloques, idsSolapados) {
+  const cont = document.getElementById('agGantt');
+  if (!bloques.length) { cont.innerHTML = '<div class="loading">Sin bloques todavía. Usá "Generar bloques".</div>'; return; }
+  const inicioDia = BT.minutosDeHora(document.getElementById('agJornada').value);
+  const desde = inicioDia == null ? 480 : inicioDia;
+  const finDia = bloques.reduce((max, b) => Math.max(max, BT.minutosDeHora(b.fin) || 0), desde + AG_PASO);
+  const cols = Math.max(1, Math.ceil((finDia - desde) / AG_PASO));
+  const carriles = BT.carrilesPorResponsable(bloques);
+  const solapes = new Set(idsSolapados);
+
+  const cabecera = Array.from({ length: cols }, (_, i) =>
+    `<div class="ag-horas">${BT.horaDeMinutos(desde + i * AG_PASO)}</div>`).join('');
+
+  const filaDe = c => {
+    const celdas = c.bloques.map(b => {
+      const ini = BT.minutosDeHora(b.inicio);
+      const col = Math.max(1, Math.round(((ini == null ? desde : ini) - desde) / AG_PASO) + 1);
+      const span = Math.max(1, Math.round((Number(b.minutos) || 0) / AG_PASO));
+      const clases = ['ag-barra', solapes.has(b.id) ? 'solape' : '', b.excedeDia ? 'excede' : ''].filter(Boolean).join(' ');
+      return `<div class="${clases}" style="grid-column:${col} / span ${span}"
+                   title="${escHtml(b.producto)} · ${escHtml(b.tarea)} · ${escHtml(b.inicio)}-${escHtml(b.fin)}">${escHtml(b.tarea)}</div>`;
+    }).join('');
+    return `<div class="ag-fila" style="grid-template-columns:repeat(${cols},minmax(56px,1fr))">${celdas}</div>`;
+  };
+
+  cont.innerHTML = `
+    <div class="ag-gantt" style="grid-template-columns:120px 1fr">
+      <div class="ag-nombre"></div>
+      <div class="ag-fila" style="grid-template-columns:repeat(${cols},minmax(56px,1fr))">${cabecera}</div>
+      ${carriles.map(c => `
+        <div class="ag-nombre">${escHtml(c.responsable || 'Sin asignar')}</div>
+        ${filaDe(c)}`).join('')}
+    </div>`;
+}
+
+// Tabla editable agrupada por producto, en <details> como las reservas por cliente.
+function renderTablaAgenda(bloques, idsSolapados) {
+  const cont = document.getElementById('agTabla');
+  const solapes = new Set(idsSolapados);
+  const items = (planCache && planCache.items) || [];
+  const porItem = new Map();
+  for (const b of bloques) {
+    const k = String(b.itemId);
+    if (!porItem.has(k)) porItem.set(k, []);
+    porItem.get(k).push(b);
+  }
+  if (!porItem.size) { cont.innerHTML = '<div class="loading">Sin bloques todavía.</div>'; return; }
+
+  const grupos = [...porItem.entries()].map(([itemId, lista]) => {
+    lista.sort((a, b) => a.orden - b.orden);
+    const item = items.find(i => String(i.id) === itemId);
+    const cantHoy = Number(item && item.cantConfirmada) || 0;
+    const cantGen = Number(lista[0].cantGenerada) || 0;
+    // La cantidad del plan cambió después de generar: los minutos que se ven ya no salen de ahí.
+    const aviso = item && cantGen && cantHoy !== cantGen
+      ? `<span class="ag-aviso">cantidad cambió (${cantGen} → ${cantHoy}): regenerá este producto</span>` : '';
+    const filas = lista.map(b => `
+      <tr data-id="${b.id}" class="${solapes.has(b.id) ? 'solape' : ''}">
+        <td>${escHtml(b.tarea)}</td>
+        <td>${(b.responsables || []).map(r => `<span class="ag-chip-resp" data-quitar="${escHtml(r)}">${escHtml(r)} ×</span>`).join('')}
+            <select class="ag-add-resp"><option value="">+ persona…</option>
+              ${responsablesCache.map(r => `<option value="${escHtml(r.corto)}">${escHtml(r.corto)}</option>`).join('')}
+            </select></td>
+        <td><input type="number" min="0" step="5" class="ag-min" value="${b.minutos}"></td>
+        <td><input type="time" class="ag-ini" value="${b.manual ? escHtml(b.inicio) : ''}" placeholder="${escHtml(b.inicio)}"></td>
+        <td>${escHtml(b.inicio)} → ${escHtml(b.fin)}${b.excedeDia ? ' <span class="ag-aviso">se pasa del día</span>' : ''}</td>
+        <td class="no-print"><button class="btn btn-secondary btn-sm ag-sube">↑</button>
+            <button class="btn btn-secondary btn-sm ag-baja">↓</button>
+            <button class="btn btn-danger btn-sm ag-borra">🗑</button></td>
+      </tr>`).join('');
+    const total = lista.reduce((s, b) => s + (Number(b.minutos) || 0), 0);
+    return `
+      <details class="ag-grupo" open data-item="${escHtml(itemId)}">
+        <summary>${escHtml(lista[0].producto)} · ${lista.length} bloques · ${Math.round(total / 6) / 10} h ${aviso}</summary>
+        <table class="ag-tabla">
+          <thead><tr><th>Tarea</th><th>Responsables</th><th>Min</th><th>Inicio fijo</th><th>Horario</th><th class="no-print"></th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+        <div class="no-print" style="padding:6px 8px">
+          <button class="btn btn-secondary btn-sm ag-nuevo">+ bloque</button>
+          <button class="btn btn-secondary btn-sm ag-regen">↻ regenerar desde plantilla</button>
+        </div>
+      </details>`;
+  });
+  cont.innerHTML = grupos.join('');
+}
+
+function renderAgenda() {
+  const solapados = BT.detectarSolapes(bloquesDia);
+  renderGantt(bloquesDia, solapados);
+  renderTablaAgenda(bloquesDia, solapados);
+  const horas = bloquesDia.reduce((s, b) => s + (Number(b.minutos) || 0), 0) / 60;
+  document.getElementById('agResumen').textContent =
+    `${bloquesDia.length} bloques · ${Math.round(horas * 10) / 10} h`;
+  document.getElementById('agSolapes').textContent =
+    solapados.length ? `${solapados.length} bloques solapados` : '';
+  // Los items del plan que no tienen ninguna plantilla que los cubra.
+  const conBloques = new Set(bloquesDia.map(b => String(b.itemId)));
+  const sin = ((planCache && planCache.items) || []).filter(i =>
+    !conBloques.has(String(i.id)) && !BT.resolverPlantilla(plantillasTareas, i));
+  document.getElementById('agSinPlantilla').innerHTML = sin.length
+    ? `Sin plantilla: ${sin.map(i => escHtml(i.producto)).join(', ')} — cargala en 📋 Plantillas.` : '';
+}
+
+// Recalcula la cadena entera y persiste. Todo cambio de la agenda pasa por acá: una sola
+// función que guarda evita que una edición quede sólo en pantalla.
+function aplicarCambioAgenda() {
+  bloquesDia = BT.recalcularHorarios(bloquesDia, document.getElementById('agJornada').value);
+  renderAgenda();
+  guardarAgenda();
+}
+
+document.getElementById('agJornada').addEventListener('change', aplicarCambioAgenda);
+
+document.getElementById('btnAgGenerar').addEventListener('click', () => {
+  if (!fechaPlanActual) return toast('Elegí un día en Plan del día', true);
+  const conBloques = new Set(bloquesDia.map(b => String(b.itemId)));
+  let ts = Date.now(), nuevos = 0;
+  for (const item of ((planCache && planCache.items) || [])) {
+    if (conBloques.has(String(item.id))) continue;   // no se pisa lo ya editado
+    const plantilla = BT.resolverPlantilla(plantillasTareas, item);
+    if (!plantilla) continue;
+    const bloques = BT.generarBloques(item, plantilla, ts);
+    ts += bloques.length;
+    bloquesDia = bloquesDia.concat(bloques);
+    nuevos += bloques.length;
+  }
+  if (!nuevos) return toast('No hay productos nuevos con plantilla', true);
+  aplicarCambioAgenda();
+  toast(`${nuevos} bloques generados`);
+});
+
+document.getElementById('agTabla').addEventListener('click', e => {
+  const det = e.target.closest('details[data-item]');
+
+  if (e.target.classList.contains('ag-regen') && det) {
+    const item = ((planCache && planCache.items) || []).find(i => String(i.id) === det.dataset.item);
+    const plantilla = item && BT.resolverPlantilla(plantillasTareas, item);
+    if (!plantilla) return toast('Ese producto no tiene plantilla', true);
+    bloquesDia = bloquesDia.filter(b => String(b.itemId) !== det.dataset.item)
+      .concat(BT.generarBloques(item, plantilla, Date.now()));
+    return aplicarCambioAgenda();
+  }
+  if (e.target.classList.contains('ag-nuevo') && det) {
+    const item = ((planCache && planCache.items) || []).find(i => String(i.id) === det.dataset.item);
+    const delItem = bloquesDia.filter(b => String(b.itemId) === det.dataset.item);
+    bloquesDia.push({
+      id: Date.now(), itemId: item ? item.id : det.dataset.item, producto: (item && item.producto) || '',
+      tarea: 'Tarea nueva', responsables: [], minutos: 30, inicio: '', fin: '',
+      orden: delItem.length + 1, manual: false, cantGenerada: Number(item && item.cantConfirmada) || 0,
+    });
+    return aplicarCambioAgenda();
+  }
+
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr) return;
+  const id = Number(tr.dataset.id);
+  const idx = bloquesDia.findIndex(b => b.id === id);
+  if (idx < 0) return;
+
+  if (e.target.classList.contains('ag-borra')) {
+    bloquesDia = bloquesDia.filter(b => b.id !== id);
+    return aplicarCambioAgenda();
+  }
+  if (e.target.classList.contains('ag-sube') || e.target.classList.contains('ag-baja')) {
+    const paso = e.target.classList.contains('ag-sube') ? -1 : 1;
+    const hermanos = bloquesDia.filter(b => String(b.itemId) === String(bloquesDia[idx].itemId))
+                               .sort((a, b) => a.orden - b.orden);
+    const pos = hermanos.findIndex(b => b.id === id);
+    const otro = hermanos[pos + paso];
+    if (!otro) return;
+    const tmp = bloquesDia[idx].orden;
+    bloquesDia[idx].orden = otro.orden;
+    otro.orden = tmp;
+    return aplicarCambioAgenda();
+  }
+  if (e.target.dataset.quitar) {
+    bloquesDia[idx].responsables = bloquesDia[idx].responsables.filter(r => r !== e.target.dataset.quitar);
+    return aplicarCambioAgenda();
+  }
+});
+
+document.getElementById('agTabla').addEventListener('change', e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr) return;
+  const idx = bloquesDia.findIndex(b => b.id === Number(tr.dataset.id));
+  if (idx < 0) return;
+
+  if (e.target.classList.contains('ag-min')) {
+    bloquesDia[idx].minutos = Math.max(0, Math.round(Number(e.target.value) || 0));
+    return aplicarCambioAgenda();
+  }
+  if (e.target.classList.contains('ag-ini')) {
+    // Poner una hora a mano ancla el bloque: deja de seguir al anterior y los que vienen
+    // después arrancan desde él. Vaciar el campo lo devuelve a la cadena.
+    const v = e.target.value;
+    bloquesDia[idx].manual = !!v;
+    bloquesDia[idx].inicio = v || '';
+    return aplicarCambioAgenda();
+  }
+  if (e.target.classList.contains('ag-add-resp') && e.target.value) {
+    const r = e.target.value;
+    if (!bloquesDia[idx].responsables.includes(r)) bloquesDia[idx].responsables.push(r);
+    return aplicarCambioAgenda();
+  }
+});
+
 // ── Init ─────────────────────────────────────────────────────────
 (async () => {
   await checkConnection();
