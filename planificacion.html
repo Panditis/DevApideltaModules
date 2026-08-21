@@ -414,7 +414,31 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   .metrics-row    { grid-template-columns: repeat(2, 1fr); }
   .cal-grid       { grid-template-columns: repeat(7, 1fr); gap: 6px; }
 }
+
+/* ── Agenda de bloques ── */
+.ag-gantt { display:grid; gap:2px; overflow-x:auto; padding:8px 0; }
+.ag-fila { display:grid; align-items:center; gap:2px; min-height:32px; }
+.ag-nombre { font-size:12px; font-weight:700; color:var(--muted); padding-right:8px; white-space:nowrap;
+             position:sticky; left:0; background:var(--md-surface-1); z-index:1; }
+.ag-barra { background:var(--md-primary); color:#fff; font-size:11px; line-height:1.2; padding:4px 6px;
+            border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ag-barra.solape { background:var(--md-error); }
+.ag-barra.excede { background:repeating-linear-gradient(45deg,var(--md-error),var(--md-error) 6px,#00000022 6px,#00000022 12px); }
+.ag-horas { font-size:10px; color:var(--muted); text-align:left; }
+.ag-tabla { width:100%; border-collapse:collapse; font-size:13px; }
+.ag-tabla th { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;
+               text-align:left; padding:6px 8px; border-bottom:1px solid var(--md-outline-variant); }
+.ag-tabla td { padding:4px 8px; border-bottom:1px solid var(--md-outline-variant); vertical-align:middle; }
+.ag-tabla tr.solape td { background:rgba(220,38,38,.08); }
+.ag-tabla input[type=number] { width:70px; }
+.ag-tabla input[type=time]   { width:100px; }
+.ag-chip-resp { display:inline-block; background:var(--md-surface-2); border-radius:10px; padding:1px 8px;
+                margin:1px 2px; font-size:11px; cursor:pointer; }
+.ag-grupo summary { cursor:pointer; padding:8px; font-weight:700; }
+.ag-aviso { color:var(--md-error); font-size:11px; font-weight:700; }
 </style>
+<!-- Módulo puro de cálculo de bloques: va ANTES del script principal, que lo lee como window.BloquesTareas -->
+<script src="/bloques_tareas.js"></script>
 </head>
 <body>
 
@@ -427,6 +451,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 <div class="tab-nav">
   <button class="tab-btn active" data-tab="resumen">Resumen</button>
   <button class="tab-btn"        data-tab="plan">Plan del día</button>
+  <button class="tab-btn"        data-tab="agenda">⏱ Agenda</button>
   <button class="tab-btn"        data-tab="calendario">Calendario semanal</button>
   <button class="tab-btn"        data-tab="catalogo">Catálogo</button>
   <button class="tab-btn"        data-tab="envases">📦 Envases</button>
@@ -525,6 +550,33 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
       </div>
       <span class="spacer"></span>
     </div>
+  </div>
+</div>
+
+<!-- ── Agenda: bloques de tareas del día ───────────────────────── -->
+<div class="tab-panel" id="tab-agenda">
+  <div class="filter-bar no-print">
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:0">
+      Inicio jornada <input type="time" id="agJornada" value="08:00" style="width:110px">
+    </label>
+    <button class="btn btn-primary btn-sm"   id="btnAgGenerar">⚙ Generar bloques</button>
+    <button class="btn btn-secondary btn-sm" id="btnAgPlantillas">📋 Plantillas</button>
+    <button class="btn btn-secondary btn-sm" id="btnAgImprimir">🖨 Imprimir</button>
+    <span class="text-sm" id="agSolapes" style="color:var(--md-error)"></span>
+  </div>
+
+  <div class="card" id="cardAgenda">
+    <div class="card-header">
+      <span id="agTitulo" style="flex:1">Seleccioná un día en Plan del día</span>
+      <span class="text-sm" id="agResumen" style="opacity:.8"></span>
+    </div>
+    <div id="agGantt"><div class="loading">Sin bloques todavía.</div></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><span>Bloques por producto</span></div>
+    <div id="agTabla"></div>
+    <div id="agSinPlantilla" class="text-sm" style="padding:8px 12px;color:var(--muted)"></div>
   </div>
 </div>
 
@@ -1063,6 +1115,10 @@ let responsablesCache = [];
 const respNombre = r => (typeof r === 'string' ? r : (r && r.nombre) || '');
 const respCorto  = r => (typeof r === 'string' ? '' : (r && (r.corto || r.abrev)) || '');
 let planCache = null;
+// ── Agenda de bloques ───────────────────────────────────────────
+let plantillasTareas = [];   // data/plantillas_tareas.json
+let bloquesDia       = [];   // bloques del día abierto, ya con horarios calculados
+const BT = window.BloquesTareas;
 let packagingCache = {}; // { plu: { envase:{codigo,nombre}|null, tapa:{codigo,nombre}|null } }
 function autofillPackaging() {
   for (const it of (planCache?.items || [])) {
@@ -1333,6 +1389,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'plan')       { renderDiaSelector(); cargarEnvasesReg(); cargarClientesReg(); cargarTapasReg(); if (fechaPlanActual) cargarPlan(fechaPlanActual); }
+    if (btn.dataset.tab === 'agenda')     cargarAgenda();
     if (btn.dataset.tab === 'calendario') cargarCalendario(calMesActual + '-01');
     if (btn.dataset.tab === 'catalogo')   cargarCatalogo();
     if (btn.dataset.tab === 'envases')    cargarEnvasesReg();
@@ -3946,6 +4003,42 @@ document.getElementById('inputCatalogo').addEventListener('change', async functi
     this.disabled = false;
   }
 });
+
+// ── Agenda de bloques: carga y guardado ──────────────────────────
+// Los bloques viven dentro del plan del día, así que la agenda se lee del mismo GET del plan.
+// Los horarios NO se persisten calculados: se recalculan al abrir para que un cambio de
+// inicio de jornada corra toda la cadena sin tener que reescribir cada bloque.
+async function cargarAgenda() {
+  const cont = document.getElementById('agGantt');
+  if (!fechaPlanActual) {
+    document.getElementById('agTitulo').textContent = 'Seleccioná un día en Plan del día';
+    cont.innerHTML = '<div class="loading">Sin día elegido.</div>';
+    document.getElementById('agTabla').innerHTML = '';
+    return;
+  }
+  document.getElementById('agTitulo').textContent = `Agenda del ${fechaPlanActual}`;
+  try {
+    // Las plantillas cambian poco: se piden una sola vez por sesión.
+    if (!plantillasTareas.length) plantillasTareas = await api('GET', '/api/plantillas-tareas') || [];
+    const plan = await api('GET', `/api/plan/${fechaPlanActual}`);
+    planCache = plan;
+    document.getElementById('agJornada').value = plan.jornadaInicio || '08:00';
+    bloquesDia = BT.recalcularHorarios(plan.bloques || [], plan.jornadaInicio || '08:00');
+    renderAgenda();
+  } catch (e) {
+    cont.innerHTML = `<div class="loading">No se pudo cargar la agenda: ${e.message}</div>`;
+  }
+}
+
+async function guardarAgenda() {
+  if (!fechaPlanActual) return;
+  const jornadaInicio = document.getElementById('agJornada').value || '08:00';
+  try {
+    await api('POST', `/api/plan/${fechaPlanActual}/bloques`, { jornadaInicio, bloques: bloquesDia });
+  } catch (e) {
+    toast('No se pudo guardar la agenda: ' + e.message, true);
+  }
+}
 
 // ── Init ─────────────────────────────────────────────────────────
 (async () => {
