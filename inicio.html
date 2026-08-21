@@ -100,6 +100,11 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 .tile-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px}
 .tile-route{font-family:'Spline Sans Mono',ui-monospace,monospace;font-size:.74rem;font-weight:600;color:#8a8c78;background:#f4f4ee;border:1px solid #e8e8e0;padding:3px 8px;border-radius:7px}
 .tile-arrow{color:#b9bba2;transition:transform .18s ease,color .18s ease}
+/* Chips de submódulos: un módulo contenedor (ej. RRHH) muestra qué hay adentro.
+   Son spans, no links: la tarjeta entera ya es un <a> y no se pueden anidar. */
+.tile-subs{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.tile-sub{display:inline-flex;align-items:center;gap:5px;font-size:.73rem;font-weight:600;color:#5b5e4d;background:var(--accent-soft,#f4f4ee);border:1px solid rgba(0,0,0,.06);padding:3px 9px;border-radius:999px}
+.tile-sub svg{width:12px;height:12px;opacity:.75}
 .tile:hover .tile-arrow{transform:translateX(3px);color:#65684C}
 
 /* Tarjeta "próximamente" — no interactiva */
@@ -202,8 +207,16 @@ const ESTILOS = {
   'analisis-central':    { desc:'Rendimiento de casa central: ticket promedio, días y horas pico, top productos y familias de producto por rango de fechas.', accent:'#3d5c8f', soft:'#d9e2f5', ink:'#1c2e4e' },
   'cruce-terminales':    { desc:'Cruce de las bajadas de Payway y QR contra el mapa de terminales: cada comprobante a su sucursal, aprobados separados del resto y resumen descargable en xlsx.', accent:'#2f6f7d', soft:'#d6ecf1', ink:'#123540' },
   'cuentas-corrientes':  { desc:'Deuda viva de clientes: saldo por cliente, antigüedad y detalle de comprobantes con su saldo pendiente.', accent:'#a03d5c', soft:'#f7dde5', ink:'#4e1a2b' },
+  'rrhh':                { desc:'Área de Recursos Humanos: relevamiento de ropa de trabajo y lo que vayamos sumando del equipo.', accent:'#4a4f7d', soft:'#e2e4f3', ink:'#22254a' },
 };
 const ESTILO_DEFAULT = { desc:'', accent:'#65684C', soft:'#e7e8db', ink:'#2f3122' };
+
+// Módulos contenedores: qué hay dentro. La tarjeta lleva al sub-hub del módulo
+// (m.href) y estos chips anticipan el contenido sin abrirlo. Para sumar uno,
+// agregá su ruta al catálogo de auth.js y su nombre acá.
+const SUBMODULOS = {
+  'rrhh': [{ titulo:'Relevamiento de Ropa', icon:'shirt' }],
+};
 
 function tileHTML(m, logueado){
   const bloqueado = m.requiereAuth && !m.permitido;
@@ -221,6 +234,9 @@ function tileHTML(m, logueado){
       <div>
         <h2 class="tile-title">${m.titulo}</h2>
         <p class="tile-desc mt-1">${m.desc}</p>
+        ${(SUBMODULOS[m.ref] || []).length
+          ? `<div class="tile-subs">${SUBMODULOS[m.ref].map(sm => `<span class="tile-sub"><i data-lucide="${sm.icon}"></i>${sm.titulo}</span>`).join('')}</div>`
+          : ''}
       </div>
       <div class="tile-foot">
         <span class="tile-route">${m.href}</span>
