@@ -414,6 +414,16 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 .res-tbl tbody tr:hover{background:rgba(255,204,0,.05)}
 .res-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
 
+/* Reservas generadas: un <details> por cliente. El marcador nativo se reemplaza por un
+   chevron propio para que gire al abrir, igual en todos los navegadores. */
+.res-grp{border-bottom:1px solid var(--out-var)}
+.res-grp:last-child{border-bottom:none}
+.res-grp-head{cursor:pointer;list-style:none;padding:12px 18px;background:var(--surf-lo);display:flex;align-items:center;gap:10px;transition:background .12s ease}
+.res-grp-head::-webkit-details-marker{display:none}
+.res-grp-head:hover{background:#eeede3}
+.res-grp-head::before{content:"";width:0;height:0;border-left:6px solid var(--on-svar);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s ease;flex-shrink:0}
+.res-grp[open] > .res-grp-head::before{transform:rotate(90deg)}
+
 /* Barra fija del pie de la solapa Fraccionado */
 .fracc-bar{position:sticky;bottom:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
   gap:12px;margin:12px auto 0;max-width:1536px;padding:10px 16px;background:#fff;
@@ -2551,36 +2561,73 @@ function cargarReservasGeneradas(){
       $('tabla-res-generadas').innerHTML = '<div class="state state-empty">Todavía no hay reservas.</div>';
       return;
     }
-    var filas = data.map(function(r){
-      var chip = r.estado === 'activa'
-        ? '<span class="sc" style="background:#dcfce7;color:#166534">activa</span>'
-        : '<span class="sc" style="background:#f3f4f6;color:#6b7280">anulada</span>';
-      var accion = r.estado === 'activa'
-        ? '<button type="button" class="btn btn-ghost btn-sm" data-act="anular-res" data-id="'+escHtml(String(r.id))+'">↩ Anular</button>'
-        : '<span style="color:#9a9a92;font-size:.72rem">#'+escHtml(String((r.anulacion&&r.anulacion.numeroMovimiento)||''))+'</span>';
-      // Una reserva = un registro = un comprobante. Se muestra el producto del pedido y,
-      // debajo, lo que realmente se apartó (el componente, en los Bulto/Caja).
-      var l = (r.lineas && r.lineas[0]) || {};
-      var pedido = r.nombrePedido || l.nombre || '';
-      var sub = (l.plu && String(l.plu) !== String(r.pluPedido))
-        ? 'apartó: ' + escHtml(l.nombre||'')
-        : 'PLU ' + escHtml(String(l.plu||''));
-      return '<tr>'
-        +'<td>'+escHtml(String(r.fecha||'').slice(0,10))+'</td>'
-        +'<td><strong>'+escHtml(r.nombreCliente||'')+'</strong></td>'
-        +'<td>'+escHtml(pedido)+'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
-        +'<td class="num">'+escHtml(String(r.numeroMovimiento||''))+'</td>'
-        +'<td class="num">'+numFmt.format((r.totales&&r.totales.unidades)||0)+'</td>'
-        +'<td>'+chip+'</td>'
-        +'<td class="num">'+accion+'</td>'
-        +'</tr>';
+    // Se agrupa por cliente y cada grupo es un <details> nativo: sin librería ni estado
+    // propio, el navegador se ocupa de abrir y cerrar. Los que estaban abiertos se reabren
+    // después de anular, para no perder de vista dónde estaba trabajando el operador.
+    var orden = [], porCliente = {};
+    data.forEach(function(r){
+      var k = String(r.idCliente);
+      if(!porCliente[k]){ porCliente[k] = { nombre: r.nombreCliente || '', reservas: [] }; orden.push(k); }
+      porCliente[k].reservas.push(r);
+    });
+    $('tabla-res-generadas').innerHTML = orden.map(function(k){
+      var g = porCliente[k];
+      var activas = g.reservas.filter(function(r){ return r.estado === 'activa'; });
+      var unidades = activas.reduce(function(a, r){ return a + ((r.totales&&r.totales.unidades)||0); }, 0);
+      var filas = g.reservas.map(function(r){
+        var chip = r.estado === 'activa'
+          ? '<span class="sc" style="background:#dcfce7;color:#166534">activa</span>'
+          : '<span class="sc" style="background:#f3f4f6;color:#6b7280">anulada</span>';
+        var accion = r.estado === 'activa'
+          ? '<button type="button" class="btn btn-ghost btn-sm" data-act="anular-res" data-id="'+escHtml(String(r.id))+'">↩ Anular</button>'
+          : '<span style="color:#9a9a92;font-size:.72rem" title="Comprobante de la anulación">#'+escHtml(String((r.anulacion&&r.anulacion.numeroMovimiento)||''))+'</span>';
+        // Una reserva = un registro = un comprobante. Se muestra el producto del pedido y,
+        // debajo, lo que realmente se apartó (el componente, en los Bulto/Caja).
+        var l = (r.lineas && r.lineas[0]) || {};
+        var pedido = r.nombrePedido || l.nombre || '';
+        var sub = (l.plu && String(l.plu) !== String(r.pluPedido))
+          ? 'apartó: ' + escHtml(l.nombre||'')
+          : 'PLU ' + escHtml(String(l.plu||''));
+        return '<tr'+(r.estado==='activa' ? '' : ' style="opacity:.55"')+'>'
+          +'<td>'+escHtml(String(r.fecha||'').slice(0,10))+'</td>'
+          +'<td>'+escHtml(pedido)+'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
+          +'<td class="num">'+escHtml(String(r.numeroMovimiento||''))+'</td>'
+          +'<td class="num">'+numFmt.format((r.totales&&r.totales.unidades)||0)+'</td>'
+          +'<td>'+chip+'</td>'
+          +'<td class="num">'+accion+'</td>'
+          +'</tr>';
+      }).join('');
+      var resumen = activas.length
+        ? activas.length + ' activa' + (activas.length!==1?'s':'') + ' · ' + numFmt.format(unidades) + ' u.'
+        : 'sin reservas activas';
+      var anuladas = g.reservas.length - activas.length;
+      if(anuladas) resumen += ' · ' + anuladas + ' anulada' + (anuladas!==1?'s':'');
+      return '<details class="res-grp" data-cli="'+escHtml(k)+'"'+(gruposResAbiertos[k] ? ' open' : '')+'>'
+        +'<summary class="res-grp-head">'
+        +'<span class="res-client-name">'+escHtml(g.nombre)+'</span>'
+        +'<span class="res-badge">'+resumen+'</span>'
+        +'</summary>'
+        +'<table class="res-tbl">'
+        +'<thead><tr><th>Fecha</th><th>Producto</th><th class="num">Comprobante</th>'
+        +'<th class="num">Cantidad</th><th>Estado</th><th class="num"></th></tr></thead>'
+        +'<tbody>'+filas+'</tbody></table>'
+        +'</details>';
     }).join('');
-    $('tabla-res-generadas').innerHTML =
-      '<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th class="num">Comprobante</th>'
-      +'<th class="num">Cantidad</th><th>Estado</th><th class="num"></th></tr></thead>'
-      +'<tbody>'+filas+'</tbody></table>';
   });
 }
+
+// Qué grupos quedaron desplegados, para reabrirlos cuando la tabla se repinta tras anular.
+var gruposResAbiertos = {};
+function recordarGruposResAbiertos(){
+  gruposResAbiertos = {};
+  var abiertos = document.querySelectorAll('#tabla-res-generadas details.res-grp[open]');
+  Array.prototype.forEach.call(abiertos, function(d){
+    gruposResAbiertos[d.getAttribute('data-cli')] = true;
+  });
+}
+// El <details> avisa cuando lo abren o lo cierran a mano. `toggle` no burbujea, así que el
+// listener va en fase de captura para que uno solo alcance para todos los grupos.
+$('tabla-res-generadas').addEventListener('toggle', function(){ recordarGruposResAbiertos(); }, true);
 
 function anularReservaMay(id){
   confirmarModal('Anular la reserva',
