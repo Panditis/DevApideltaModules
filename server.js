@@ -39,6 +39,7 @@ const cruceTerminales = require('./cruce_terminales');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
+const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -1128,6 +1129,9 @@ app.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, 'anali
 app.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_graficos.js')));
 app.get('/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_familias_manuales.js')));
 app.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_front.js')));
+// El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
+// (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
+app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'bloques_tareas.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/cruce-terminales', (_req, res) => res.sendFile(path.join(__dirname, 'cruce_terminales.html')));
 app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
@@ -1252,6 +1256,10 @@ const REF_SALA_PATH = path.join(DATA_DIR, 'referencia_sala.json');
 // Misma foto, pero de la sala de producción medida con los registros nuevos: son dos archivos
 // distintos y cada tablero compara contra el suyo.
 const REF_PROD_PATH = path.join(DATA_DIR, 'referencia_produccion.json');
+// Qué tareas lleva cada producto o rubro y cuánto dura cada una. Va en su propio archivo y no
+// dentro del plan: las plantillas son la receta, valen para todos los días y no se pisan al
+// cambiar de fecha.
+const PLANTILLAS_TAREAS_PATH = path.join(DATA_DIR, 'plantillas_tareas.json');
 
 function leerJSON(p, def) { try { if (!fs.existsSync(p)) return def; return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return def; } }
 function guardarJSON(p, data) { fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8'); }
@@ -4482,6 +4490,45 @@ app.post('/api/plan/:fecha', (req, res) => {
   planes[fecha] = { ...prev, fecha, notas, creado: prev?.creado || new Date().toISOString(), items };
   guardarJSON(PLANES_PATH, planes); res.json(planes[fecha]);
 });
+
+// ── Agenda de bloques de tareas ────────────────────────────────────────────────
+// Plantillas: qué tareas lleva cada producto o rubro y cuánto dura cada una. Se guarda la
+// lista entera de una: la edita un planificador por vez desde el modal, no hay concurrencia.
+app.get('/api/plantillas-tareas', (_req, res) => res.json(leerJSON(PLANTILLAS_TAREAS_PATH, [])));
+
+app.post('/api/plantillas-tareas', (req, res) => {
+  // Se valida antes de tocar el disco: un body roto no puede dejar el archivo de recetas a
+  // medias, porque después la agenda de todos los días se genera desde acá.
+  const errores = bloquesTareas.validarPlantillas(req.body);
+  if (errores.length) return res.status(400).json({ error: errores[0], errores });
+  const lista = bloquesTareas.normalizarPlantillas(req.body);
+  guardarJSON(PLANTILLAS_TAREAS_PATH, lista);
+  res.json(lista);
+});
+
+// Los bloques viven dentro del plan del día, pero NO se pueden guardar por POST /api/plan/:fecha:
+// ese handler arma el plan como { ...prev, fecha, notas, creado, items } y descarta cualquier
+// campo extra del body. Endpoint aparte, que además sólo toca jornadaInicio y bloques: los
+// items y el ledger de reservas quedan intactos aunque el navegador tenga un cache viejo.
+app.post('/api/plan/:fecha/bloques', (req, res) => {
+  const fecha = safeDate(req.params.fecha);
+  const errores = bloquesTareas.validarBloquesBody(req.body);
+  if (errores.length) return res.status(400).json({ error: errores[0], errores });
+  const planes = leerJSON(PLANES_PATH, {});
+  const prev = planes[fecha];
+  // Sin plan del día no hay items contra los que colgar los bloques: crear el plan acá dejaría
+  // una agenda huérfana que no se ve en ninguna pantalla.
+  if (!prev) return res.status(404).json({ error: 'No hay plan cargado para esa fecha.' });
+  // Una jornadaInicio ausente o vacía no borra la que ya estaba guardada: el front puede mandar
+  // sólo los bloques y el arranque del día se conserva.
+  const jornadaInicio = bloquesTareas.minutosDeHora(req.body.jornadaInicio) == null
+    ? (prev.jornadaInicio || '08:00')
+    : String(req.body.jornadaInicio).trim();
+  planes[fecha] = { ...prev, jornadaInicio, bloques: bloquesTareas.normalizarBloques(req.body.bloques) };
+  guardarJSON(PLANES_PATH, planes);
+  res.json({ jornadaInicio, bloques: planes[fecha].bloques });
+});
+
 app.post('/api/plan/:fecha/desde-sugerencias', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha), sugs = await calcularSugerencias({});
   const ts = Date.now();
