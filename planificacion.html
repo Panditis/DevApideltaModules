@@ -467,7 +467,12 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 .ag-barra { position:absolute; top:8px; bottom:8px; border-radius:var(--radius-sm); color:#fff;
             overflow:hidden; padding:6px 12px; font-size:12px; font-weight:500; letter-spacing:.1px;
             line-height:1.4; white-space:nowrap; box-sizing:border-box; box-shadow:var(--elev-1); }
-.ag-barra small { font-weight:400; opacity:.85; margin-left:8px; }
+.ag-barra small { display:block; font-weight:400; opacity:.85; font-size:11px; }
+/* Cuando la barra es más angosta que su texto, el nombre de la tarea va al lado en vez de
+   quedar cortado adentro: una tarea de 15' mide 33px y ahí no entra ni "Envasado". */
+.ag-etiqueta { position:absolute; top:50%; transform:translateY(-50%); font-size:12px; letter-spacing:.1px;
+               color:var(--md-on-surface); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ag-etiqueta small { color:var(--md-on-surface-variant); margin-left:6px; }
 .ag-barra.solape { outline:2px solid var(--md-error); outline-offset:-2px; }
 .ag-barra.excede { background-image:repeating-linear-gradient(45deg,#0000 0 6px,#0003 6px 12px); }
 
@@ -4186,14 +4191,32 @@ function renderGantt(bloques, idsSolapados) {
 
   const filas = BT.carrilesPorResponsable(bloques).map((c, i) => {
     const total = c.bloques.reduce((s, b) => s + (Number(b.minutos) || 0), 0);
-    const barras = c.bloques.map(b => {
+    // Ordenados por hora para poder medir el hueco hasta la barra siguiente: es el ancho del
+    // que dispone una etiqueta que no entró adentro de su barra.
+    const orden = c.bloques.slice().sort((a, b) => (BT.minutosDeHora(a.inicio) || 0) - (BT.minutosDeHora(b.inicio) || 0));
+    const barras = orden.map((b, j) => {
       const ini = BT.minutosDeHora(b.inicio);
       const x = enX(ini == null ? desde : ini);
       const w = Math.max(12, Math.round((Number(b.minutos) || 0) * pxMin));   // 12px: una tarea de 2' se ve igual
       const cls = ['ag-barra', solapes.has(b.id) ? 'solape' : '', b.excedeDia ? 'excede' : ''].filter(Boolean).join(' ');
       const detalle = `${escHtml(b.producto)} · ${escHtml(b.tarea)} · ${escHtml(b.inicio)}–${escHtml(b.fin)} (${agHoras(Number(b.minutos) || 0)})`;
-      return `<div class="${cls}" style="left:${x}px;width:${w}px;background-color:${colorDe(b.producto || 'Sin producto')}"
-                   title="${detalle}${solapes.has(b.id) ? ' · SE SOLAPA con otra tarea de esta persona' : ''}${b.excedeDia ? ' · se pasa del día' : ''}"
+      const titulo = `title="${detalle}${solapes.has(b.id) ? ' · SE SOLAPA con otra tarea de esta persona' : ''}${b.excedeDia ? ' · se pasa del día' : ''}"`;
+      const barra = `<div class="${cls}" style="left:${x}px;width:${w}px;background-color:${colorDe(b.producto || 'Sin producto')}" ${titulo}>`;
+
+      // Ancho que necesita el texto, estimado a ojo de Roboto 12px (~6.4px por carácter) más
+      // los 24px de padding. Medir de verdad obligaría a pintar y volver a leer el layout.
+      const necesita = Math.round(String(b.tarea || '').length * 6.4) + 24;
+      if (w >= necesita) {
+        // Entra adentro: dos líneas, tarea arriba y el rango horario abajo.
+        return `${barra}${escHtml(b.tarea)}<small>${escHtml(b.inicio)}–${escHtml(b.fin)}</small></div>`;
+      }
+      // No entra: la barra queda muda y el texto va a su derecha, sin pisar la barra siguiente.
+      const sig = orden[j + 1];
+      // Sin barra siguiente el tope es el borde de la pista: la grilla recorta lo que se pase.
+      const xSig = sig ? enX(BT.minutosDeHora(sig.inicio) || desde) : ancho;
+      const hueco = Math.max(56, xSig - (x + w) - 12);
+      return `${barra}</div>
+              <div class="ag-etiqueta" style="left:${x + w + 6}px;max-width:${hueco}px" ${titulo}
                    >${escHtml(b.tarea)}<small>${escHtml(b.inicio)}</small></div>`;
     }).join('');
     return `<div class="ag-nombre"><b>${escHtml(c.responsable || 'Sin asignar')}</b><small>${c.bloques.length} tareas · ${agHoras(total)}</small></div>
