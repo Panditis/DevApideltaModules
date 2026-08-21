@@ -152,3 +152,64 @@ test('carrilesPorResponsable pone un bloque en la fila de cada responsable', () 
   // "Sin asignar" va último y agrupa los bloques sin responsable.
   assert.strictEqual(carriles[2].bloques[0].id, 2);
 });
+
+const { MAX_BLOQUES, validarBloquesBody, normalizarBloques, validarPlantillas, normalizarPlantillas } =
+  require('../bloques_tareas');
+
+test('validarBloquesBody rechaza horas, minutos y formas inválidas', () => {
+  assert.deepStrictEqual(validarBloquesBody({ jornadaInicio: '08:00', bloques: [] }), []);
+  assert.ok(validarBloquesBody({ jornadaInicio: '99:99', bloques: [] })[0].includes('jornadaInicio'));
+  assert.ok(validarBloquesBody({ bloques: 'no soy array' })[0].includes('array'));
+  assert.ok(validarBloquesBody({ bloques: [{ minutos: 30, inicio: '25:00' }] })[0].includes('inicio'));
+  assert.ok(validarBloquesBody({ bloques: [{ minutos: -1 }] })[0].includes('minutos'));
+  assert.ok(validarBloquesBody({ bloques: [{ minutos: 99999 }] })[0].includes('minutos'));
+  assert.ok(validarBloquesBody({ bloques: [{ minutos: 30, responsables: 'MICA' }] })[0].includes('responsables'));
+  // Un pegado accidental no puede convertirse en un archivo de miles de bloques.
+  const muchos = Array.from({ length: MAX_BLOQUES + 1 }, (_, i) => ({ id: i, minutos: 10 }));
+  assert.ok(validarBloquesBody({ bloques: muchos })[0].includes('máximo'));
+  // Un bloque sin hora todavía es válido: recalcularHorarios se la pone.
+  assert.deepStrictEqual(validarBloquesBody({ bloques: [{ id: 1, itemId: 2, minutos: 30 }] }), []);
+});
+
+test('normalizarBloques deja sólo los campos conocidos y sanea tipos', () => {
+  const salida = normalizarBloques([{
+    id: '7', itemId: '500', producto: 'Miel', tarea: '  Envasado  ', responsables: ['MICA', '', 'MICA'],
+    minutos: '60.4', inicio: '08:00', fin: '09:00', orden: '2', manual: 'true', cantGenerada: '100',
+    basura: { enorme: 'x'.repeat(10000) },
+  }]);
+  assert.deepStrictEqual(salida, [{
+    id: 7, itemId: 500, producto: 'Miel', tarea: 'Envasado', responsables: ['MICA'],
+    minutos: 60, inicio: '08:00', fin: '09:00', orden: 2, manual: true, cantGenerada: 100,
+  }]);
+  // itemId no numérico se conserva como string: no todos los ids tienen por qué ser números.
+  assert.strictEqual(normalizarBloques([{ id: 1, itemId: 'abc', minutos: 0 }])[0].itemId, 'abc');
+  // Una hora inválida se limpia en vez de guardarse: la cadena la recalcula igual.
+  assert.strictEqual(normalizarBloques([{ id: 1, itemId: 1, minutos: 0, inicio: '99:99' }])[0].inicio, '');
+});
+
+test('validarPlantillas exige alcance, clave y tareas usables', () => {
+  const ok = [{ id: 1, alcance: 'producto', clave: '4039', nombre: 'Miel',
+    tareas: [{ nombre: 'Envasado', minFijos: 10, minVar: 0.5, base: 'unidad', responsables: ['MICA'] }] }];
+  assert.deepStrictEqual(validarPlantillas(ok), []);
+  assert.ok(validarPlantillas('no soy array')[0].includes('array'));
+  assert.ok(validarPlantillas([{ alcance: 'otro', clave: '1', tareas: [] }])[0].includes('alcance'));
+  assert.ok(validarPlantillas([{ alcance: 'rubro', clave: '  ', tareas: [] }])[0].includes('clave'));
+  assert.ok(validarPlantillas([{ alcance: 'rubro', clave: 'Miel', tareas: 'x' }])[0].includes('tareas'));
+  assert.ok(validarPlantillas([{ alcance: 'rubro', clave: 'Miel', tareas: [{ nombre: '' }] }])[0].includes('nombre'));
+  assert.ok(validarPlantillas([{ alcance: 'rubro', clave: 'Miel',
+    tareas: [{ nombre: 'X', minFijos: 99999 }] }])[0].includes('minFijos'));
+});
+
+test('normalizarPlantillas sanea tipos y descarta campos desconocidos', () => {
+  const salida = normalizarPlantillas([{
+    id: '9', alcance: 'rubro', clave: ' Miel acacia ', nombre: ' Miel ', extra: 'chau',
+    tareas: [{ nombre: ' Envasado ', minFijos: '10', minVar: '0.5', base: 'kilos', responsables: ['MICA', ''] }],
+  }]);
+  assert.deepStrictEqual(salida, [{
+    id: 9, alcance: 'rubro', clave: 'Miel acacia', nombre: 'Miel',
+    tareas: [{ nombre: 'Envasado', minFijos: 10, minVar: 0.5, base: 'unidad', responsables: ['MICA'] }],
+  }]);
+  // Una base desconocida cae a 'unidad'; 'kg' se respeta.
+  assert.strictEqual(normalizarPlantillas([{ id: 1, alcance: 'rubro', clave: 'X',
+    tareas: [{ nombre: 'T', base: 'kg' }] }])[0].tareas[0].base, 'kg');
+});

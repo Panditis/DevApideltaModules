@@ -147,8 +147,103 @@
     return orden.map(r => ({ responsable: r, bloques: mapa.get(r) }));
   }
 
+  // Topes de cordura: la agenda de un día real tiene decenas de bloques, no miles, y ninguna
+  // tarea dura más que el día entero. Sin tope, un bug del front deja planes.json inutilizable.
+  const MAX_BLOQUES    = 500;
+  const MAX_MINUTOS    = 24 * 60;
+  const MAX_PLANTILLAS = 300;
+  const MAX_TAREAS     = 40;
+
+  function validarBloquesBody(body) {
+    const errores = [];
+    const jornada = body && body.jornadaInicio;
+    if (jornada != null && jornada !== '' && minutosDeHora(jornada) == null) {
+      errores.push('jornadaInicio inválida: se espera HH:MM');
+    }
+    const bloques = body && body.bloques;
+    if (!Array.isArray(bloques)) { errores.push('bloques debe ser un array'); return errores; }
+    if (bloques.length > MAX_BLOQUES) { errores.push(`máximo ${MAX_BLOQUES} bloques por día`); return errores; }
+    bloques.forEach((b, i) => {
+      if (!b || typeof b !== 'object') return errores.push(`bloque ${i}: inválido`);
+      if (b.inicio && minutosDeHora(b.inicio) == null) errores.push(`bloque ${i}: inicio inválido`);
+      const min = Number(b.minutos);
+      if (!Number.isFinite(min) || min < 0 || min > MAX_MINUTOS) errores.push(`bloque ${i}: minutos inválidos`);
+      if (b.responsables != null && !Array.isArray(b.responsables)) errores.push(`bloque ${i}: responsables debe ser un array`);
+    });
+    return errores;
+  }
+
+  function textoCorto(v, max) {
+    return String(v == null ? '' : v).trim().slice(0, max || 120);
+  }
+
+  function listaResponsables(v) {
+    if (!Array.isArray(v)) return [];
+    return [...new Set(v.map(r => textoCorto(r, 40)).filter(Boolean))];
+  }
+
+  // Se guarda sólo lo conocido: el archivo del plan no es un depósito de lo que mande el front.
+  function normalizarBloques(bloques) {
+    return (Array.isArray(bloques) ? bloques : []).filter(Boolean).map(b => {
+      const itemIdNum = Number(b.itemId);
+      const itemIdEsNumero = Number.isFinite(itemIdNum) && String(itemIdNum) === String(b.itemId).trim();
+      return {
+        id: Number(b.id) || 0,
+        itemId: itemIdEsNumero ? itemIdNum : textoCorto(b.itemId, 40),
+        producto: textoCorto(b.producto, 120),
+        tarea: textoCorto(b.tarea, 80),
+        responsables: listaResponsables(b.responsables),
+        minutos: Math.max(0, Math.min(MAX_MINUTOS, Math.round(Number(b.minutos) || 0))),
+        inicio: minutosDeHora(b.inicio) == null ? '' : String(b.inicio).trim(),
+        fin: minutosDeHora(b.fin) == null ? '' : String(b.fin).trim(),
+        orden: Math.max(0, Math.round(Number(b.orden) || 0)),
+        manual: b.manual === true || b.manual === 'true',
+        cantGenerada: Number(b.cantGenerada) || 0,
+      };
+    });
+  }
+
+  function validarPlantillas(lista) {
+    const errores = [];
+    if (!Array.isArray(lista)) { errores.push('las plantillas deben venir en un array'); return errores; }
+    if (lista.length > MAX_PLANTILLAS) { errores.push(`máximo ${MAX_PLANTILLAS} plantillas`); return errores; }
+    lista.forEach((p, i) => {
+      if (!p || typeof p !== 'object') return errores.push(`plantilla ${i}: inválida`);
+      if (p.alcance !== 'producto' && p.alcance !== 'rubro') errores.push(`plantilla ${i}: alcance debe ser producto o rubro`);
+      if (!textoCorto(p.clave, 120)) errores.push(`plantilla ${i}: falta la clave`);
+      if (!Array.isArray(p.tareas)) return errores.push(`plantilla ${i}: tareas debe ser un array`);
+      if (p.tareas.length > MAX_TAREAS) return errores.push(`plantilla ${i}: máximo ${MAX_TAREAS} tareas`);
+      p.tareas.forEach((t, j) => {
+        if (!t || typeof t !== 'object') return errores.push(`plantilla ${i}, tarea ${j}: inválida`);
+        if (!textoCorto(t.nombre, 80)) errores.push(`plantilla ${i}, tarea ${j}: falta el nombre`);
+        const fijos = Number(t.minFijos) || 0, varia = Number(t.minVar) || 0;
+        if (fijos < 0 || fijos > MAX_MINUTOS) errores.push(`plantilla ${i}, tarea ${j}: minFijos inválido`);
+        if (varia < 0 || varia > MAX_MINUTOS) errores.push(`plantilla ${i}, tarea ${j}: minVar inválido`);
+      });
+    });
+    return errores;
+  }
+
+  function normalizarPlantillas(lista) {
+    return (Array.isArray(lista) ? lista : []).filter(Boolean).map(p => ({
+      id: Number(p.id) || 0,
+      alcance: p.alcance === 'producto' ? 'producto' : 'rubro',
+      clave: textoCorto(p.clave, 120),
+      nombre: textoCorto(p.nombre, 120),
+      tareas: (Array.isArray(p.tareas) ? p.tareas : []).filter(Boolean).map(t => ({
+        nombre: textoCorto(t.nombre, 80),
+        minFijos: Math.max(0, Math.min(MAX_MINUTOS, Number(t.minFijos) || 0)),
+        minVar: Math.max(0, Math.min(MAX_MINUTOS, Number(t.minVar) || 0)),
+        base: t.base === 'kg' ? 'kg' : 'unidad',
+        responsables: listaResponsables(t.responsables),
+      })),
+    }));
+  }
+
   return {
+    MAX_BLOQUES, MAX_PLANTILLAS, MAX_TAREAS,
     minutosDeHora, horaDeMinutos, cantidadBase, duracionTarea, resolverPlantilla,
     generarBloques, recalcularHorarios, detectarSolapes, carrilesPorResponsable,
+    validarBloquesBody, normalizarBloques, validarPlantillas, normalizarPlantillas,
   };
 });
