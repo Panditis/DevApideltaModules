@@ -416,15 +416,32 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 }
 
 /* ── Agenda de bloques ── */
-.ag-gantt { display:grid; gap:2px; overflow-x:auto; padding:8px 0; }
-.ag-fila { display:grid; align-items:center; gap:2px; min-height:32px; }
-.ag-nombre { font-size:12px; font-weight:700; color:var(--muted); padding-right:8px; white-space:nowrap;
-             position:sticky; left:0; background:var(--md-surface-1); z-index:1; }
-.ag-barra { background:var(--md-primary); color:#fff; font-size:11px; line-height:1.2; padding:4px 6px;
-            border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ag-barra.solape { background:var(--md-error); }
-.ag-barra.excede { background:repeating-linear-gradient(45deg,var(--md-error),var(--md-error) 6px,#00000022 6px,#00000022 12px); }
-.ag-horas { font-size:10px; color:var(--muted); text-align:left; }
+.ag-gantt { overflow-x:auto; padding:4px 0 12px; }
+.ag-leyenda { display:flex; flex-wrap:wrap; gap:12px; padding:4px 2px 10px; font-size:11px; color:var(--muted); }
+.ag-leyenda span { display:inline-flex; align-items:center; gap:5px; }
+.ag-leyenda i { width:12px; height:12px; border-radius:3px; }
+/* Nombres y pistas en una sola grilla: así las filas quedan alineadas aunque la pista scrollee. */
+.ag-grilla { display:grid; grid-template-columns:150px max-content; align-items:stretch; }
+.ag-nombre { position:sticky; left:0; z-index:2; background:var(--md-surface-1); min-height:40px;
+             border-right:2px solid var(--md-outline-variant); border-bottom:1px solid var(--md-outline-variant);
+             padding:0 10px 0 4px; display:flex; flex-direction:column; justify-content:center; }
+.ag-nombre b { font-size:12px; }
+.ag-nombre small { font-size:10px; color:var(--muted); }
+.ag-nombre.cab, .ag-pista.cab { min-height:24px; }
+.ag-pista { position:relative; min-height:40px; border-bottom:1px solid var(--md-outline-variant); }
+.ag-pista.par { background:rgba(0,0,0,.025); }
+/* Marcas de la hora en punto (llena) y de la media (punteada): son la referencia para leer
+   dónde empieza cada barra. Sin ellas el Gantt es un montón de rectángulos flotando. */
+.ag-marca { position:absolute; top:0; bottom:0; border-left:1px solid var(--md-outline-variant); }
+.ag-marca.media { border-left-style:dotted; opacity:.5; }
+.ag-hora { position:absolute; top:5px; font-size:10px; color:var(--muted); white-space:nowrap; }
+.ag-ahora { position:absolute; top:0; bottom:0; border-left:2px solid var(--md-error); z-index:3; }
+/* Las barras se ubican al minuto (px), no por celda: una tarea de 10' tiene que verse de 10'. */
+.ag-barra { position:absolute; top:5px; bottom:5px; border-radius:4px; color:#fff; overflow:hidden;
+            padding:3px 6px; font-size:11px; line-height:1.2; white-space:nowrap; box-sizing:border-box; }
+.ag-barra small { opacity:.8; margin-left:6px; }
+.ag-barra.solape { outline:2px solid var(--md-error); outline-offset:-2px; }
+.ag-barra.excede { background-image:repeating-linear-gradient(45deg,#0000 0 6px,#0003 6px 12px); }
 .ag-tabla { width:100%; border-collapse:collapse; font-size:13px; }
 .ag-tabla th { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;
                text-align:left; padding:6px 8px; border-bottom:1px solid var(--md-outline-variant); }
@@ -4075,42 +4092,76 @@ async function guardarAgenda() {
 // ── Agenda de bloques: render ────────────────────────────────────
 // Todo lo que va al innerHTML pasa por escHtml(): los nombres de tarea y de producto los
 // escribe el usuario (el modal de plantillas, el plan del día), así que no son confiables.
-const AG_PASO = 30;   // minutos por columna del Gantt
+const AG_PX_HORA = 100;   // ancho de una hora del Gantt, en px
+// Un color por producto. La misma tarea ("Envasado") aparece en varios productos el mismo día:
+// sin color no hay forma de saber de un vistazo cuál es cuál.
+const AG_COLORES = ['#3b6ea5', '#7a4fa3', '#1f7a5c', '#a8552b', '#4a6b1f', '#a03b6a', '#2f6f7d', '#8a6a1f'];
 
-// Gantt por persona: una fila por responsable con bloques, cada barra ubicada por su hora.
-// La grilla arranca en el inicio de jornada y termina en el bloque más tardío del día.
+// "3 h 20" en vez de "200 min": nadie planifica una jornada en minutos sueltos.
+function agHoras(min) {
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return h ? `${h} h${m ? ' ' + m : ''}` : `${m} min`;
+}
+
+// Gantt por persona: una fila por responsable, cada barra ubicada y dimensionada AL MINUTO
+// (en px, no por celdas de media hora). Si la barra se redondeara a la celda, una tarea de 10'
+// se vería de 30' y una que arranca 09:10 se dibujaría a las 09:00: el dibujo contradiría a la
+// tabla de abajo, que es la que el operario lee para saber la hora real.
 function renderGantt(bloques, idsSolapados) {
   const cont = document.getElementById('agGantt');
   if (!bloques.length) { cont.innerHTML = '<div class="loading">Sin bloques todavía. Usá "Generar bloques".</div>'; return; }
-  const inicioDia = BT.minutosDeHora(document.getElementById('agJornada').value);
-  const desde = inicioDia == null ? 480 : inicioDia;
-  const finDia = bloques.reduce((max, b) => Math.max(max, BT.minutosDeHora(b.fin) || 0), desde + AG_PASO);
-  const cols = Math.max(1, Math.ceil((finDia - desde) / AG_PASO));
-  const carriles = BT.carrilesPorResponsable(bloques);
+  const jornada = BT.minutosDeHora(document.getElementById('agJornada').value);
+  // La grilla empieza en la hora en punto anterior al arranque, así las marcas caen redondas.
+  const desde = Math.floor((jornada == null ? 480 : jornada) / 60) * 60;
+  const finMax = bloques.reduce((max, b) => Math.max(max, BT.minutosDeHora(b.fin) || 0), desde + 60);
+  const hasta = Math.ceil(finMax / 60) * 60;
+  const pxMin = AG_PX_HORA / 60;
+  const ancho = Math.round((hasta - desde) * pxMin);
   const solapes = new Set(idsSolapados);
+  const enX = m => Math.round((m - desde) * pxMin);
 
-  const cabecera = Array.from({ length: cols }, (_, i) =>
-    `<div class="ag-horas">${BT.horaDeMinutos(desde + i * AG_PASO)}</div>`).join('');
+  const productos = [...new Set(bloques.map(b => b.producto || 'Sin producto'))];
+  const colorDe = p => AG_COLORES[productos.indexOf(p) % AG_COLORES.length];
 
-  const filaDe = c => {
-    const celdas = c.bloques.map(b => {
+  let marcas = '';
+  for (let m = desde; m <= hasta; m += 30) marcas += `<div class="ag-marca${m % 60 ? ' media' : ''}" style="left:${enX(m)}px"></div>`;
+  let horas = '';
+  for (let m = desde; m <= hasta; m += 60) horas += `<div class="ag-hora" style="left:${enX(m) + 4}px">${BT.horaDeMinutos(m)}</div>`;
+
+  // Línea de "ahora", sólo si la agenda abierta es la de hoy: en un plan de la semana que viene
+  // una línea roja a las 11:20 no significa nada.
+  let ahora = '';
+  const h = new Date();
+  const hoyISO = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`;
+  if (fechaPlanActual === hoyISO) {
+    const min = h.getHours() * 60 + h.getMinutes();
+    if (min >= desde && min <= hasta) ahora = `<div class="ag-ahora" style="left:${enX(min)}px" title="ahora"></div>`;
+  }
+
+  const filas = BT.carrilesPorResponsable(bloques).map((c, i) => {
+    const total = c.bloques.reduce((s, b) => s + (Number(b.minutos) || 0), 0);
+    const barras = c.bloques.map(b => {
       const ini = BT.minutosDeHora(b.inicio);
-      const col = Math.max(1, Math.round(((ini == null ? desde : ini) - desde) / AG_PASO) + 1);
-      const span = Math.max(1, Math.round((Number(b.minutos) || 0) / AG_PASO));
-      const clases = ['ag-barra', solapes.has(b.id) ? 'solape' : '', b.excedeDia ? 'excede' : ''].filter(Boolean).join(' ');
-      return `<div class="${clases}" style="grid-column:${col} / span ${span}"
-                   title="${escHtml(b.producto)} · ${escHtml(b.tarea)} · ${escHtml(b.inicio)}-${escHtml(b.fin)}">${escHtml(b.tarea)}</div>`;
+      const x = enX(ini == null ? desde : ini);
+      const w = Math.max(8, Math.round((Number(b.minutos) || 0) * pxMin));   // 8px: una tarea de 2' se ve igual
+      const cls = ['ag-barra', solapes.has(b.id) ? 'solape' : '', b.excedeDia ? 'excede' : ''].filter(Boolean).join(' ');
+      const detalle = `${escHtml(b.producto)} · ${escHtml(b.tarea)} · ${escHtml(b.inicio)}–${escHtml(b.fin)} (${agHoras(Number(b.minutos) || 0)})`;
+      return `<div class="${cls}" style="left:${x}px;width:${w}px;background-color:${colorDe(b.producto || 'Sin producto')}"
+                   title="${detalle}${solapes.has(b.id) ? ' · SE SOLAPA con otra tarea de esta persona' : ''}${b.excedeDia ? ' · se pasa del día' : ''}"
+                   >${escHtml(b.tarea)}<small>${escHtml(b.inicio)}</small></div>`;
     }).join('');
-    return `<div class="ag-fila" style="grid-template-columns:repeat(${cols},minmax(56px,1fr))">${celdas}</div>`;
-  };
+    return `<div class="ag-nombre"><b>${escHtml(c.responsable || 'Sin asignar')}</b><small>${c.bloques.length} tareas · ${agHoras(total)}</small></div>
+            <div class="ag-pista${i % 2 ? ' par' : ''}" style="width:${ancho}px">${marcas}${ahora}${barras}</div>`;
+  }).join('');
 
   cont.innerHTML = `
-    <div class="ag-gantt" style="grid-template-columns:120px 1fr">
-      <div class="ag-nombre"></div>
-      <div class="ag-fila" style="grid-template-columns:repeat(${cols},minmax(56px,1fr))">${cabecera}</div>
-      ${carriles.map(c => `
-        <div class="ag-nombre">${escHtml(c.responsable || 'Sin asignar')}</div>
-        ${filaDe(c)}`).join('')}
+    <div class="ag-leyenda">${productos.map(p => `<span><i style="background:${colorDe(p)}"></i>${escHtml(p)}</span>`).join('')}</div>
+    <div class="ag-gantt">
+      <div class="ag-grilla">
+        <div class="ag-nombre cab"></div>
+        <div class="ag-pista cab" style="width:${ancho}px">${marcas}${horas}</div>
+        ${filas}
+      </div>
     </div>`;
 }
 
