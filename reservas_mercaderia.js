@@ -41,23 +41,27 @@ function validarLineasReserva(lineas) {
 }
 
 /**
- * Normaliza y consolida: el mismo plu repetido (el cliente lo pidio en dos pedidos distintos)
- * se suma en una sola linea, para que el comprobante de SiGA no tenga renglones duplicados.
+ * Normaliza SIN consolidar: cada registro que el operador selecciono sale con su propio
+ * movimiento de SiGA, aunque dos registros compartan el mismo plu a apartar (el bulto y la
+ * caja de un mismo articulo, o dos pedidos distintos del mismo cliente). Sumarlos perderia
+ * la trazabilidad de que registro origino que comprobante.
+ *
+ * `plu`/`nombre` es lo que se mueve en SiGA; `pluPedido`/`nombrePedido` es el producto que
+ * figura en el pedido. Para los Almacen Bulto/Caja son distintos: se aparta el componente
+ * de formula. Cuando no vienen, se asume que son el mismo producto.
  * @param {Array} lineas lineas ya validadas
- * @returns {Array<{plu:string, nombre:string, cantidad:number}>}
+ * @returns {Array<{plu:string, nombre:string, cantidad:number, pluPedido:string, nombrePedido:string}>}
  */
 function normalizarLineasReserva(lineas) {
-  const porPlu = new Map();
-  for (const l of (lineas || [])) {
+  return (lineas || []).map(l => {
     const plu = texto(l.plu);
-    const previa = porPlu.get(plu);
-    if (previa) {
-      previa.cantidad += Number(l.cantidad);
-    } else {
-      porPlu.set(plu, { plu, nombre: texto(l.nombre), cantidad: Number(l.cantidad) });
-    }
-  }
-  return [...porPlu.values()];
+    const nombre = texto(l.nombre);
+    return {
+      plu, nombre, cantidad: Number(l.cantidad),
+      pluPedido: texto(l.pluPedido) || plu,
+      nombrePedido: texto(l.nombrePedido) || nombre,
+    };
+  });
 }
 
 /**
@@ -103,52 +107,6 @@ function validarCarritoUnCliente(lineas, idCliente) {
 }
 
 /**
- * @param {Array} reservas archivo entero
- * @param {number|string} idCliente
- * @returns {Set<string>} plu con reserva ACTIVA de ese cliente
- */
-function plusReservadosDeCliente(reservas, idCliente) {
-  const esperado = texto(idCliente);
-  const plus = new Set();
-  for (const r of (reservas || [])) {
-    if (!r || r.estado !== 'activa' || texto(r.idCliente) !== esperado) continue;
-    for (const l of (r.lineas || [])) plus.add(texto(l.plu));
-  }
-  return plus;
-}
-
-/**
- * @param {Array} lineas lineas del carrito
- * @param {Array} reservas archivo entero
- * @param {number|string} idCliente
- * @returns {string|null}
- */
-function validarPlusNoReservados(lineas, reservas, idCliente) {
-  const yaEstan = plusReservadosDeCliente(reservas, idCliente);
-  const chocan = [...new Set((lineas || []).map(l => texto(l && l.plu)).filter(p => yaEstan.has(p)))];
-  if (!chocan.length) return null;
-  return `El cliente ya tiene una reserva activa con ${chocan.length === 1 ? 'el plu' : 'los plu'} `
-       + `${chocan.join(', ')}. Anula esa reserva antes de volver a reservarlo.`;
-}
-
-/**
- * Mapa {idCliente: [plu, ...]} de las reservas ACTIVAS. Lo consume pedidos_web.html para
- * marcar los botones del Resumen por cliente sin bajarse todas las reservas con sus lineas.
- * @param {Array} reservas
- * @returns {Object<string, string[]>}
- */
-function reservasActivasResumen(reservas) {
-  const mapa = {};
-  for (const r of (reservas || [])) {
-    if (!r || r.estado !== 'activa') continue;
-    const cli = texto(r.idCliente);
-    const set = mapa[cli] || (mapa[cli] = new Set());
-    for (const l of (r.lineas || [])) set.add(texto(l.plu));
-  }
-  return Object.fromEntries(Object.entries(mapa).map(([cli, set]) => [cli, [...set]]));
-}
-
-/**
  * Arma la reserva ya confirmada por SiGA. Se llama DESPUES del movimiento: si el traslado
  * falla no se escribe nada en el archivo, asi que reintentar es seguro.
  * @param {object} d datos de la reserva ya ejecutada
@@ -167,7 +125,11 @@ function nuevaReserva(d) {
     numeroMovimiento: d.numeroMovimiento,
     idRegistro: d.idRegistro == null ? null : d.idRegistro,
     usuario: texto(d.usuario),
+    // Una reserva = un registro seleccionado = un movimiento. `lineas` queda como array de
+    // uno solo para que anular y el listado sigan recorriendo lo mismo.
     lineas: d.lineas || [],
+    pluPedido: texto(d.pluPedido) || null,
+    nombrePedido: texto(d.nombrePedido) || null,
     totales: totalesReserva(d.lineas),
     anulacion: null,
   };
@@ -200,7 +162,6 @@ function anularReserva(reserva, mov) {
 
 module.exports = {
   MAX_LINEAS, validarLineasReserva, normalizarLineasReserva, totalesReserva,
-  validarClienteReserva, validarCarritoUnCliente, plusReservadosDeCliente,
-  validarPlusNoReservados, reservasActivasResumen,
+  validarClienteReserva, validarCarritoUnCliente,
   nuevaReserva, anularReserva,
 };

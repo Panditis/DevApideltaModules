@@ -2191,9 +2191,6 @@ var CARRITO_RES_VER = 3;
 //   pedido                 → unidades pendientes del pedido;  cantidad → lo que se aparta
 var carritoRes = [];
 var subResActiva = 'carrito';
-// {idCliente: [plu, ...]} de las reservas activas. Es sólo UX (el guard real es el 409 del
-// POST): si la consulta falla se deja vacío y se sigue trabajando.
-var plusReservados = {};
 // Cliente del modal de confirmación abierto: lo fija el botón Reservar de cada grupo.
 var clienteModalRes = null;
 
@@ -2257,24 +2254,12 @@ function switchSubRes(sub){
   if(sub==='generadas') cargarReservasGeneradas();
 }
 
-function pluReservado(plu, idCliente){
-  var plus = plusReservados[String(idCliente)];
-  return !!plus && plus.indexOf(String(plu)) >= 0;
-}
-
-function refrescarPlusReservados(){
-  return api('/api/mayoristas/reservas/activas').then(function(res){
-    plusReservados = (res && !res.error) ? res : {};
-  }).catch(function(){ plusReservados = {}; });
-}
-
 // Agrega un producto al carrito, para el cliente que venga. Un segundo toque sobre el mismo
 // producto DEL MISMO cliente lo saca, así el botón del resumen funciona como toggle.
 // `d` sale de los data-* del botón: {pluPedido, nombrePedido, plu, nombre, mult, idCliente,
 // nombreCliente, pedido}. La cantidad a reservar arranca en unidades × mult, la equivalencia
 // con la que se muestra el stock.
 function agregarAReserva(d){
-  if(pluReservado(d.plu, d.idCliente)){ snack('Ese producto ya está reservado para el cliente', true); return; }
   var yaEsta = carritoRes.some(function(l){ return mismaLineaRes(l, d.pluPedido, d.idCliente); });
   if(yaEsta){
     carritoRes = carritoRes.filter(function(l){ return !mismaLineaRes(l, d.pluPedido, d.idCliente); });
@@ -2385,6 +2370,19 @@ function renderCarritoRes(){
   actualizarBarraRes();
 }
 
+// Saca del carrito los registros que ya salieron con comprobante. Se emparejan por cliente
+// y producto del pedido, que es lo que identifica una línea: si de cinco registros salieron
+// tres, los otros dos quedan para reintentar.
+function sacarEmitidasDelCarrito(emitidas){
+  var claves = {};
+  emitidas.forEach(function(r){ claves[String(r.idCliente)+'|'+String(r.pluPedido)] = true; });
+  carritoRes = carritoRes.filter(function(l){
+    return !claves[String(l.idCliente)+'|'+String(l.pluPedido)];
+  });
+  guardarCarritoRes();
+  renderCarritoRes();
+}
+
 // Saca del carrito todas las líneas de un cliente, sin tocar las de los demás.
 function vaciarClienteRes(idCliente){
   carritoRes = carritoRes.filter(function(l){ return String(l.idCliente) !== String(idCliente); });
@@ -2413,7 +2411,6 @@ $('tabla-res-carrito').addEventListener('change', function(ev){
 
 carritoRes = leerCarritoRes();
 renderCarritoRes();
-refrescarPlusReservados();
 
 // ── Reservas: modal de confirmación ───────────────────────────────────────────
 // Los depósitos se precargan de config.reserva. Mientras depositoReserva siga en null en
@@ -2503,9 +2500,11 @@ function confirmarReservaMay(){
       depOrigen: $('res-dep-origen').value,
       depDestino: destino,
       permitirFaltante: $('res-modal-forzar').checked,
-      // Va el plu que se APARTA (el componente en los Bulto/Caja), no el del pedido.
+      // `plu` es lo que se APARTA (el componente en los Bulto/Caja); `pluPedido` es el
+      // producto del pedido, que la reserva guarda para poder mostrarlo después.
       lineas: lineas.map(function(l){
-        return { plu: l.plu, nombre: l.nombre, cantidad: l.cantidad, idCliente: cli.idCliente };
+        return { plu: l.plu, nombre: l.nombre, cantidad: l.cantidad,
+                 pluPedido: l.pluPedido, nombrePedido: l.nombrePedido, idCliente: cli.idCliente };
       })
     })
   }).then(function(r){ return r.json().then(function(j){ return { status:r.status, body:j }; }); })
@@ -2522,21 +2521,19 @@ function confirmarReservaMay(){
         $('res-modal-forzar-wrap').style.display = '';
         return;
       }
-      if(res.status === 409){
-        // Otra pestaña ya reservó estos productos: se refresca y se saca del carrito lo que sobra.
-        snack(res.body.error, true);
-        refrescarPlusReservados().then(function(){
-          carritoRes = carritoRes.filter(function(l){ return !pluReservado(l.plu, l.idCliente); });
-          guardarCarritoRes(); renderCarritoRes(); marcarAgregadosResumen();
-        });
+      // 207: parte de los registros salió y uno falló. Se sacan del carrito sólo los que
+      // tienen comprobante, así reintentar no duplica lo ya emitido.
+      var emitidas = res.body.emitidas || [];
+      if(emitidas.length) sacarEmitidasDelCarrito(emitidas);
+      if(res.body.error){
+        snack(res.body.error + (emitidas.length ? ' · ' + emitidas.length + ' ya reservado(s), quedan en el carrito los que faltan' : ''), true);
+        if(emitidas.length && subResActiva==='generadas') cargarReservasGeneradas();
         return;
       }
-      if(res.body.error){ snack(res.body.error, true); return; }
-      snack('Reserva de ' + cli.nombreCliente + ' generada · comprobante #' + res.body.numeroMovimiento);
+      snack(emitidas.length + ' reserva(s) de ' + cli.nombreCliente + ' · comprobante(s) #'
+            + emitidas.map(function(r){ return r.numeroMovimiento; }).join(', #'));
       cerrarModalReservaMay();
-      // Sólo salen del carrito las líneas de este cliente: los demás grupos quedan intactos.
-      vaciarClienteRes(cli.idCliente);
-      refrescarPlusReservados().then(marcarAgregadosResumen);
+      marcarAgregadosResumen();
       if(subResActiva==='generadas') cargarReservasGeneradas();
     })
     .catch(function(e){ btn.disabled = false; snack('Error: '+e.message, true); });
@@ -2561,19 +2558,26 @@ function cargarReservasGeneradas(){
       var accion = r.estado === 'activa'
         ? '<button type="button" class="btn btn-ghost btn-sm" data-act="anular-res" data-id="'+escHtml(String(r.id))+'">↩ Anular</button>'
         : '<span style="color:#9a9a92;font-size:.72rem">#'+escHtml(String((r.anulacion&&r.anulacion.numeroMovimiento)||''))+'</span>';
+      // Una reserva = un registro = un comprobante. Se muestra el producto del pedido y,
+      // debajo, lo que realmente se apartó (el componente, en los Bulto/Caja).
+      var l = (r.lineas && r.lineas[0]) || {};
+      var pedido = r.nombrePedido || l.nombre || '';
+      var sub = (l.plu && String(l.plu) !== String(r.pluPedido))
+        ? 'apartó: ' + escHtml(l.nombre||'')
+        : 'PLU ' + escHtml(String(l.plu||''));
       return '<tr>'
         +'<td>'+escHtml(String(r.fecha||'').slice(0,10))+'</td>'
         +'<td><strong>'+escHtml(r.nombreCliente||'')+'</strong></td>'
+        +'<td>'+escHtml(pedido)+'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
         +'<td class="num">'+escHtml(String(r.numeroMovimiento||''))+'</td>'
-        +'<td class="num">'+numFmt.format((r.totales&&r.totales.lineas)||0)+'</td>'
         +'<td class="num">'+numFmt.format((r.totales&&r.totales.unidades)||0)+'</td>'
         +'<td>'+chip+'</td>'
         +'<td class="num">'+accion+'</td>'
         +'</tr>';
     }).join('');
     $('tabla-res-generadas').innerHTML =
-      '<table><thead><tr><th>Fecha</th><th>Cliente</th><th class="num">Comprobante</th>'
-      +'<th class="num">Líneas</th><th class="num">Unidades</th><th>Estado</th><th class="num"></th></tr></thead>'
+      '<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th class="num">Comprobante</th>'
+      +'<th class="num">Cantidad</th><th>Estado</th><th class="num"></th></tr></thead>'
       +'<tbody>'+filas+'</tbody></table>';
   });
 }
@@ -2589,7 +2593,7 @@ function anularReservaMay(id){
         if(res.error){ snack(res.error, true); return; }
         snack('Reserva anulada · comprobante #' + (res.anulacion && res.anulacion.numeroMovimiento));
         cargarReservasGeneradas();
-        refrescarPlusReservados().then(marcarAgregadosResumen);
+        marcarAgregadosResumen();
       })
       .catch(function(e){ snack('Error: '+e.message, true); });
   });
@@ -3061,22 +3065,18 @@ function marcarAgregadosResumen(){
   // se puede agregar.
   var botonesRes = document.querySelectorAll('#resumen-cont button[data-act="add-res"]');
   Array.prototype.forEach.call(botonesRes, function(b){
-    var plu    = b.getAttribute('data-plu');
-    var pluRes = b.getAttribute('data-plures');
-    var idcli  = b.getAttribute('data-idcli');
+    var plu   = b.getAttribute('data-plu');
+    var idcli = b.getAttribute('data-idcli');
     var enCarrito = carritoRes.some(function(l){ return mismaLineaRes(l, plu, idcli); });
-    // Lo que bloquea es el PLU que se APARTA, no el del pedido: si el cliente ya tiene una
-    // reserva activa con ese componente, volver a moverlo lo duplicaría.
-    var reservado  = pluReservado(pluRes, idcli);
+    // No se bloquea por "ya reservado": el mismo componente puede salir dos veces para un
+    // cliente (dos pedidos, o el bulto y la caja del mismo artículo) y cada registro tiene
+    // su propio movimiento de SiGA.
     var sinFormula = b.getAttribute('data-sinformula') === '1';
-    b.classList.toggle('res-add-on', enCarrito && !reservado && !sinFormula);
-    b.disabled = reservado || sinFormula;
+    b.classList.toggle('res-add-on', enCarrito && !sinFormula);
+    b.disabled = sinFormula;
     if(sinFormula){
       b.textContent = 'Sin fórmula';
       b.title = 'Es de rubro Bulto/Caja y no tiene componente de fórmula: no hay stock que apartar.';
-    } else if(reservado){
-      b.textContent = '🔒 Ya reservado';
-      b.title = 'El cliente ya tiene una reserva activa con este producto';
     } else {
       b.textContent = enCarrito ? '✓ En la reserva' : '+ Reservar';
       b.title = '';

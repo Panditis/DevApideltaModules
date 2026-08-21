@@ -38,8 +38,7 @@ const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
-        validarCarritoUnCliente, validarPlusNoReservados, reservasActivasResumen,
-        nuevaReserva, anularReserva } = require('./reservas_mercaderia');
+        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -1592,12 +1591,6 @@ const RESERVAS_MERC_PATH = path.join(DATA_DIR, 'reservas_mercaderia.json');
 app.get('/api/mayoristas/reservas', apiRoute(async () =>
   leerJSON(RESERVAS_MERC_PATH, []).slice().sort((a, b) => b.id - a.id)));
 
-// Va ANTES de /:id (Express matchea por orden de registro y 'activas' caeria en el handler
-// de :id). Mapa {idCliente: [plu, ...]} que usa pedidos_web.html para marcar los botones del
-// Resumen por cliente sin bajarse todas las reservas con sus lineas.
-app.get('/api/mayoristas/reservas/activas', apiRoute(async () =>
-  reservasActivasResumen(leerJSON(RESERVAS_MERC_PATH, []))));
-
 app.get('/api/mayoristas/reservas/:id', (req, res) => {
   const reserva = leerJSON(RESERVAS_MERC_PATH, []).find(r => String(r.id) === String(req.params.id));
   if (!reserva) return res.status(404).json({ error: 'Reserva no encontrada' });
@@ -1645,55 +1638,83 @@ app.post('/api/mayoristas/reservas', async (req, res) => {
       return res.status(400).json({ error: `El deposito de destino ${depDestino} no existe o no esta activo en la sucursal ${cr.idSucursal}` });
     }
 
-    const arr = leerJSON(RESERVAS_MERC_PATH, []);
-    // 409 y no 400 porque el body es valido: lo que choca es el estado del archivo. Sin esta
-    // guarda, dos pestanas abiertas reservan lo mismo dos veces.
-    const choque = validarPlusNoReservados(b.lineas, arr, b.idCliente);
-    if (choque) return res.status(409).json({ error: choque });
-
     const lineas = normalizarLineasReserva(b.lineas);
 
     // stockDeComponentes consulta ProductosDepositos por PLU, asi que sirve igual para
-    // productos terminados: no sabe ni le importa si el PLU es un componente.
+    // terminados y para componentes de formula: no sabe ni le importa que es cada uno.
+    // Se suma por plu porque dos registros distintos pueden apartar el mismo componente y
+    // el stock que hay que tener alcanza para los dos juntos, no para cada uno por separado.
     const stock = await stockDeComponentes(cr, lineas.map(l => l.plu), depOrigen, depDestino);
-    const faltantes = lineas.map(l => {
-      const e = stock.get(l.plu) || { origen: 0, destino: 0 };
-      return { plu: l.plu, nombre: l.nombre, necesario: l.cantidad,
-               stockOrigen: redondear4(e.origen), faltante: redondear4(Math.max(0, l.cantidad - e.origen)) };
+    const necesarioPorPlu = new Map();
+    for (const l of lineas) necesarioPorPlu.set(l.plu, (necesarioPorPlu.get(l.plu) || 0) + l.cantidad);
+    const faltantes = [...necesarioPorPlu.entries()].map(([plu, necesario]) => {
+      const e = stock.get(plu) || { origen: 0, destino: 0 };
+      const nombre = (lineas.find(l => l.plu === plu) || {}).nombre;
+      return { plu, nombre, necesario: redondear4(necesario),
+               stockOrigen: redondear4(e.origen), faltante: redondear4(Math.max(0, necesario - e.origen)) };
     }).filter(f => f.faltante > 0);
     // Con permitirFaltante se reserva igual la cantidad completa (el origen puede quedar en
-    // negativo); sin el no se escribe nada.
+    // negativo); sin el no se mueve nada.
     if (faltantes.length && b.permitirFaltante !== true) {
       return res.status(400).json({ error: 'Hay productos sin stock suficiente en el deposito de origen', faltantes });
     }
 
+    // UN MOVIMIENTO POR REGISTRO: cada producto que el operador selecciono sale con su propio
+    // comprobante de SiGA y su propia entrada en el archivo, para que cada uno se pueda anular
+    // por separado. Si uno falla se corta ahi: lo ya emitido queda guardado y se informa cual
+    // fallo, asi el operador reintenta solo eso en vez de duplicar lo que ya salio.
     const poolW = await getPoolStock();
-    const observacion = `RESERVA MAY ${b.nombreCliente} ${depOrigen}>${depDestino}`.slice(0, 200);
-    const r = await ejecutarYRegistrar({
-      origen: 'reserva-mayorista', plan: null, itemId: null,
-      idSucursal: cr.idSucursal, depOrigen, depDestino, idEmpleado: cr.idEmpleado,
-      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, observacion,
-      lineas: lineas.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
-    }, () => trasladarStock(poolW, {
-      idSucursal: cr.idSucursal, depOrigen, depDestino,
-      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
-      observacion,
-      lineas: lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
-    }));
+    const arr = leerJSON(RESERVAS_MERC_PATH, []);
+    const emitidas = [];
+    let errorParcial = null;
+    for (const l of lineas) {
+      const observacion = `RESERVA MAY ${b.nombreCliente} ${l.nombre} ${depOrigen}>${depDestino}`.slice(0, 200);
+      const movimiento = {
+        idSucursal: cr.idSucursal, depOrigen, depDestino,
+        idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+        observacion,
+      };
+      let r;
+      try {
+        r = await ejecutarYRegistrar({
+          origen: 'reserva-mayorista', plan: null, itemId: null, ...movimiento,
+          lineas: [{ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad }],
+        }, () => trasladarStock(poolW, {
+          ...movimiento,
+          lineas: [{ idProducto: l.plu, cantidad: l.cantidad }],
+        }));
+      } catch (e) {
+        errorParcial = { plu: l.plu, pluPedido: l.pluPedido, nombre: l.nombre, error: e.message };
+        break;
+      }
+      emitidas.push(nuevaReserva({
+        // El id lleva el indice: dos registros de la misma tanda caerian en el mismo Date.now().
+        id: Date.now() * 100 + emitidas.length,
+        fecha: new Date().toISOString(),
+        idCliente: b.idCliente, nombreCliente: b.nombreCliente,
+        idSucursal: cr.idSucursal, depOrigen, depDestino,
+        numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
+        usuario: cr.usuario,
+        pluPedido: l.pluPedido, nombrePedido: l.nombrePedido,
+        lineas: [{ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad }],
+      }));
+    }
 
-    const reserva = nuevaReserva({
-      id: Date.now(), fecha: new Date().toISOString(),
-      idCliente: b.idCliente, nombreCliente: b.nombreCliente,
-      idSucursal: cr.idSucursal, depOrigen, depDestino,
-      numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
-      usuario: cr.usuario, lineas,
-    });
-    arr.push(reserva);
-    guardarJSON(RESERVAS_MERC_PATH, arr);
-    res.json(conLogError(reserva, r.logError));
+    if (emitidas.length) {
+      guardarJSON(RESERVAS_MERC_PATH, [...arr, ...emitidas]);
+    }
+    if (errorParcial) {
+      // 207: parte salio y parte no. El frontend saca del carrito solo lo emitido.
+      return res.status(emitidas.length ? 207 : 500).json({
+        error: `No se pudo reservar ${errorParcial.nombre}: ${errorParcial.error}`,
+        emitidas, fallo: errorParcial,
+      });
+    }
+    res.json({ ok: true, emitidas });
   } catch (e) {
-    // El movimiento fallo (SiGA caido, FK de usuario, etc). No se escribio nada en el archivo,
-    // asi que el carrito del navegador queda intacto y reintentar es seguro.
+    // Error ANTES del primer movimiento (validacion, SiGA caido al pedir depositos): no se
+    // escribio nada, el carrito del navegador queda intacto y reintentar es seguro. Los
+    // errores a mitad de la tanda los maneja el 207 de arriba.
     res.status(500).json({ error: e.message });
   }
 });
