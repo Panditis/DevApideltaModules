@@ -436,6 +436,19 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
                 margin:1px 2px; font-size:11px; cursor:pointer; }
 .ag-grupo summary { cursor:pointer; padding:8px; font-weight:700; }
 .ag-aviso { color:var(--md-error); font-size:11px; font-weight:700; }
+
+/* ── IMPRESIÓN ── */
+/* Sale solo el contenido de la tab visible: .tab-panel ya es display:none salvo .active. */
+@media print {
+  .app-bar, .tab-nav, .filter-bar, .overlay, .no-print { display:none !important; }
+  body { background:#fff; }
+  .tab-panel { padding:0; max-width:none; }
+  .card { box-shadow:none; border:1px solid #ccc; break-inside:avoid; }
+  .ag-gantt { overflow:visible; }          /* si no, el Gantt se corta al ancho de pantalla */
+  .ag-nombre { position:static; }
+  .ag-grupo[open] > summary { break-after:avoid; }
+  .ag-barra { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+}
 </style>
 <!-- Módulo puro de cálculo de bloques: va ANTES del script principal, que lo lee como window.BloquesTareas -->
 <script src="/bloques_tareas.js"></script>
@@ -4196,6 +4209,12 @@ document.getElementById('btnAgGenerar').addEventListener('click', () => {
   if (!nuevos) return toast('No hay productos nuevos con plantilla', true);
   aplicarCambioAgenda();
   toast(`${nuevos} bloques generados`);
+});
+
+document.getElementById('btnAgImprimir').addEventListener('click', () => {
+  // Los <details> cerrados no se imprimen: se abren todos antes de mandar a la impresora.
+  document.querySelectorAll('#tab-agenda details').forEach(d => { d.open = true; });
+  window.print();
 });
 
 document.getElementById('agTabla').addEventListener('click', e => {
