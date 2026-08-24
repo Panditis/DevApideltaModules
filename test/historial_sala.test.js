@@ -164,8 +164,9 @@ test('la referencia sale del archivo entero, no del rango filtrado', () => {
   assert.equal(ref.semanas, 2);
   assert.equal(ref.desde, '2026-01-13');
   assert.equal(ref.hasta, '2026-03-05');
-  // Semana de enero: 80×100 + 30×200 = 14000. Semana de marzo: 40×100 = 4000. Promedio, 9000.
-  assert.equal(ref.semanal.valor, 9000);
+  // Con el 40 % descontado — semana de enero: 80×60 + 30×120 = 8400. Marzo: 40×60 = 2400.
+  // Promedio de las dos, 5400.
+  assert.equal(ref.semanal.valor, 5400);
   assert.equal(ref.tareas.Envasado, 50);              // (30 + 60 + 60) / 3
   assert.equal(ref.productos['2375'].minEnvasado, 45); // (30 + 60) / 2
   assert.equal(ref.calculadoEl, '2026-08-14T12:00:00.000Z');
@@ -253,28 +254,38 @@ test('resumenPeriodos agrega las horas de sala de cada semana', () => {
 // Precio de lista de los dos productos del fixture: polen 100 g y polen 200 g.
 const PRECIOS = new Map([['2375', 1000], ['2381', 1800]]);
 
-test('valorDeCarga multiplica unidades por precio de lista', () => {
-  assert.equal(H.valorDeCarga(CARGAS[0], PRECIOS), 80000);    // 80 u × 1000
-  assert.equal(H.valorDeCarga(CARGAS[1], PRECIOS), 54000);    // 30 u × 1800
+test('valorDeCarga multiplica unidades por precio de lista neto de 40 %', () => {
+  assert.equal(H.valorDeCarga(CARGAS[0], PRECIOS), 48000);    // 80 u × (1000 - 40 %)
+  assert.equal(H.valorDeCarga(CARGAS[1], PRECIOS), 32400);    // 30 u × (1800 - 40 %)
   // Sin precio no se inventa nada: el lote vale 0 y se cuenta aparte.
   assert.equal(H.valorDeCarga(CARGAS[0], new Map()), 0);
   assert.equal(H.valorDeCarga(CARGAS[0], null), 0);
   // Acepta también una función, no sólo un Map.
-  assert.equal(H.valorDeCarga(CARGAS[0], () => 1000), 80000);
+  assert.equal(H.valorDeCarga(CARGAS[0], () => 1000), 48000);
+});
+
+test('el precio de lista se muestra y se valoriza con el 40 % descontado', () => {
+  assert.equal(H.DESCUENTO_VENTA, 0.4);
+  assert.equal(H.netoDeVenta(1000), 600);
+  assert.equal(H.precioDe(PRECIOS, '2375'), 600);
+  // El precio que viaja al tablero es el mismo neto con el que se calcula el valor.
+  const prod = H.resumenProductosPorRol(CARGAS, PRECIOS).find(p => p.plu === '2375');
+  assert.equal(prod.precio, 600);
+  assert.equal(prod.valor, prod.precio * prod.unidades);
 });
 
 test('los períodos traen el total en plata y el ritmo por hora de sala', () => {
   const [semana] = H.resumenPeriodos(CARGAS, 'semana', [], PRECIOS);
-  assert.equal(semana.valor, 134000);          // 80000 + 54000
+  assert.equal(semana.valor, 80400);           // 48000 + 32400
   assert.equal(semana.sinPrecio, 0);
   assert.equal(semana.horasSala, 2);
-  assert.equal(semana.valorPorHora, 67000);    // 134000 / 2 h
+  assert.equal(semana.valorPorHora, 40200);    // 80400 / 2 h
 });
 
 test('los lotes sin precio se cuentan aparte y no ensucian el total', () => {
   const soloUno = new Map([['2375', 1000]]);
   const r = H.resumen({ cargas: CARGAS, tareas: [] }, {}, soloUno);
-  assert.equal(r.totales.valor, 80000);        // el de 2381 queda afuera
+  assert.equal(r.totales.valor, 48000);        // el de 2381 queda afuera
   assert.equal(r.totales.sinPrecio, 1);
   assert.equal(r.porSemana[0].sinPrecio, 1);
   // El producto sin precio igual se mide, con la plata en null en vez de en cero.
@@ -286,7 +297,7 @@ test('los lotes sin precio se cuentan aparte y no ensucian el total', () => {
 test('cada lote del detalle trae su valor, para el desglose por día', () => {
   const r = H.resumen({ cargas: CARGAS, tareas: [] }, {}, PRECIOS);
   const uno = r.registros.find(x => x.plu === '2375');
-  assert.equal(uno.valor, 80000);
+  assert.equal(uno.valor, 48000);
   // La suma de los lotes de la semana da el total del encabezado.
   assert.equal(r.registros.reduce((s, x) => s + (x.valor || 0), 0), r.porSemana[0].valor);
 });
