@@ -79,14 +79,16 @@ test('el día sin precio asignado sale como 0, igual que un precio 0 real', () =
   assert.equal(hojaMatriz(g)[1][4], 0);  // E: relleno con el primer día, que es 0
 });
 
-test('un producto sin ningún precio dentro del mes no genera fila', () => {
+test('un producto cuyo primer precio es posterior al mes entra igual, en 0', () => {
+  // Entran todos los códigos: si en ese mes no había valor conocido, la fila va en 0.
   const g = armarGrilla({
     anio: 2026, mes: 7, hoy: '2026-08-24',
     baseline: [],
     cambios: [{ plu: '999', dia: '2026-08-05', precio: 700 }],   // fuera del mes pedido
     nombres: NOMBRES,
   });
-  assert.equal(g.filas.length, 0);
+  assert.equal(g.filas.length, 1);
+  assert.ok(g.filas[0].precios.every(p => p === 0));
 });
 
 test('los slots de precio son siempre 32 y el relleno va al principio', () => {
@@ -124,6 +126,62 @@ test('la matriz del xlsx respeta el layout fijo A/B + C,D vacías + E..AJ', () =
   assert.equal(m[1][ancho - 1], 1300);             // AJ: precio del 28/02
   assert.equal(anchosHoja().length, ancho);
   assert.equal(nombreArchivo(g), 'precios_historico_2026-02.xlsx');
+});
+
+test('un producto sin ningún cambio de precio entra con su último valor conocido', () => {
+  // Caso real (PLU 6373): el historial de la sucursal le registró sólo el costo, así que
+  // el producto tiene precio de lista y ni un cambio. Ese precio rige todo el mes.
+  const g = armarGrilla({
+    anio: 2026, mes: 7, hoy: '2026-08-24',
+    baseline: [], cambios: [],
+    vigentes: [{ plu: '6373', precio: 11600 }],
+    nombres: new Map([['6373', 'Chocolate 70%']]),
+  });
+  const fila = g.filas.find(f => f.plu === '6373');
+  assert.ok(fila);
+  assert.equal(fila.cambios, 0);
+  assert.ok(fila.precios.every(p => p === 11600));
+});
+
+test('un producto en 0 es un código más y también entra', () => {
+  const g = armarGrilla({
+    anio: 2026, mes: 7, hoy: '2026-08-24',
+    baseline: [], cambios: [],
+    vigentes: [{ plu: '200', precio: 0 }],
+    nombres: NOMBRES,
+  });
+  const fila = g.filas.find(f => f.plu === '200');
+  assert.ok(fila);
+  assert.ok(fila.precios.every(p => p === 0));
+});
+
+test('el historial manda: el precio de lista no pisa a un producto con cambios', () => {
+  const g = armarGrilla({
+    anio: 2026, mes: 7, hoy: '2026-08-24',
+    baseline: [{ plu: '100', precio: 1000 }],
+    cambios: [{ plu: '100', dia: '2026-07-05', precio: 1400 }],
+    vigentes: [{ plu: '100', precio: 9999 }],   // precio de hoy: no aplica a julio
+    nombres: NOMBRES,
+  });
+  const fila = g.filas.find(f => f.plu === '100');
+  assert.equal(fila.precios[0], 1000);
+  assert.equal(fila.precios[4], 1400);
+  assert.ok(!fila.precios.includes(9999));
+});
+
+test('con cambios dentro del mes y sin valor previo, los días anteriores quedan en 0', () => {
+  // El precio de lista de hoy es POSTERIOR a esos cambios: no es el valor conocido
+  // de esos días, así que no se rellena con él.
+  const g = armarGrilla({
+    anio: 2026, mes: 7, hoy: '2026-08-24',
+    baseline: [],
+    cambios: [{ plu: '100', dia: '2026-07-05', precio: 1400 }],
+    vigentes: [{ plu: '100', precio: 9999 }],
+    nombres: NOMBRES,
+  });
+  const fila = g.filas.find(f => f.plu === '100');
+  assert.equal(fila.precios[0], 0);
+  assert.equal(fila.precios[4], 1400);
 });
 
 test('un PLU alfanumérico se escribe tal cual en vez de un NaN', () => {

@@ -64,14 +64,16 @@ function precioPorDia(cambios) {
 }
 
 // baseline: [{ plu, precio }] con el último precio anterior al mes.
+// vigentes: [{ plu, precio }] precio de lista de TODOS los productos. Es el último
+//   valor conocido y se usa para los que no tienen ningún cambio registrado antes del
+//   mes: sin cambios, ese precio rige todos los días.
 // nombres:  Map o {} de plu → nombre de producto.
 // Devuelve { dias, filas:[{ plu, nombre, precios:[n], cambios }] }.
-// El día sin precio asignado sale como 0, igual que un precio 0 real: para quien
-// lee la planilla las dos cosas son "no vale nada ese día", y una celda vacía en el
-// medio de la fila se lee como error de exportación.
-// Fila sin ningún precio en el mes (el producto recién aparece después) se descarta:
-// una fila entera vacía no dice nada y ensucia la planilla.
-function armarGrilla({ anio, mes, baseline = [], cambios = [], nombres = new Map(), hoy = null } = {}) {
+// Entran todos los códigos, haya habido cambios de precio o no. El día sin precio
+// conocido sale como 0, igual que un precio 0 real: para quien lee la planilla las dos
+// cosas son "no vale nada ese día", y una celda vacía se lee como error de exportación.
+function armarGrilla({ anio, mes, baseline = [], cambios = [], vigentes = [],
+                       nombres = new Map(), hoy = null } = {}) {
   const dias = diasDelMes(anio, mes, hoy);
   const buscarNombre = plu => {
     const n = nombres instanceof Map ? nombres.get(plu) : nombres[plu];
@@ -86,17 +88,30 @@ function armarGrilla({ anio, mes, baseline = [], cambios = [], nombres = new Map
   }
 
   const porDia = precioPorDia(cambios);
-  const plus = new Set([...base.keys(), ...porDia.keys()]);
+
+  // Último valor conocido de cada producto: cuando no hay ningún cambio anterior al
+  // mes, arranca con este precio y se arrastra. Un producto sin cambios queda con el
+  // mismo precio todos los días, que es lo que efectivamente pasó.
+  const fijos = new Map();
+  for (const v of vigentes) {
+    const plu = texto(v.plu);
+    const precio = Number(v.precio);
+    if (plu && Number.isFinite(precio)) fijos.set(plu, precio);
+  }
+
+  const plus = new Set([...base.keys(), ...porDia.keys(), ...fijos.keys()]);
 
   const filas = [];
   for (const plu of plus) {
     const delMes = porDia.get(plu) || new Map();
-    let vigente = base.has(plu) ? base.get(plu) : null;
+    // Prioridad: el historial manda. El precio de lista sólo cubre al producto que no
+    // tiene ningún cambio registrado antes del mes.
+    let vigente = base.has(plu) ? base.get(plu)
+                : (!delMes.size && fijos.has(plu) ? fijos.get(plu) : null);
     const precios = dias.map(d => {
       if (delMes.has(d)) vigente = delMes.get(d);
       return vigente;
     });
-    if (!precios.some(p => p != null)) continue;
     filas.push({
       plu, nombre: buscarNombre(plu) || `(sin nombre) ${plu}`,
       precios: precios.map(p => (p == null ? 0 : p)),
