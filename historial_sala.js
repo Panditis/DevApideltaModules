@@ -20,16 +20,22 @@ const redondear = (v, d = 2) => Math.round(num(v) * 10 ** d) / 10 ** d;
 const prom = (total, cant) => (cant > 0 ? redondear(total / cant) : null);
 
 // ── Valorización ──────────────────────────────────────────────────────────────
-// Lo producido medido en plata: unidades × precio de venta de lista. Los kilos comparan mal
-// entre presentaciones (100 g de polen y 10 kg de mix no pesan lo mismo pero tampoco valen lo
-// mismo por kilo); el precio pone todo en la misma unidad.
+// Lo producido medido en plata: unidades × precio de venta de lista neto. Los kilos comparan
+// mal entre presentaciones (100 g de polen y 10 kg de mix no pesan lo mismo pero tampoco valen
+// lo mismo por kilo); el precio pone todo en la misma unidad.
 //
+// Al precio de lista se le descuenta un 40 %: la sala se valoriza a lo que efectivamente entra,
+// no al mostrador. Todos los montos del módulo pasan por acá, así que el descuento se aplica
+// una sola vez y quedan todos coherentes entre sí.
+const DESCUENTO_VENTA = 0.4;
+const netoDeVenta = p => redondear(num(p) * (1 - DESCUENTO_VENTA));
+
 // `precios` es un Map plu → precio, o una función. Sin precio, el lote no se valoriza y se
 // cuenta aparte: inventarle un precio taparía el agujero en vez de mostrarlo.
 function precioDe(precios, plu) {
   if (!precios) return 0;
   const p = typeof precios === 'function' ? precios(plu) : precios.get(String(plu));
-  return num(p) > 0 ? num(p) : 0;
+  return num(p) > 0 ? netoDeVenta(p) : 0;
 }
 
 function valorDeCarga(c, precios) {
@@ -434,6 +440,6 @@ function resumen(datos, filtro, precios) {
 
 module.exports = {
   ROLES, SIN_ROL, minutosDeRol, minutosEfectivos, minutosSalaPorDia, horasSalaDe,
-  precioDe, valorDeCarga, resumenRoles, resumenPersonasPorRol, resumenProductosPorRol,
+  DESCUENTO_VENTA, netoDeVenta, precioDe, valorDeCarga, resumenRoles, resumenPersonasPorRol, resumenProductosPorRol,
   resumenPeriodos, filtrar, rangoTotal, opciones, registros, cobertura, referencia, resumen,
 };
