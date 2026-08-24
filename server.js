@@ -8786,7 +8786,7 @@ async function grillaPreciosHistorico(anioRaw, mesRaw) {
   const hasta = preciosHistorico.primerDiaSiguiente(anio, mes);
   const filtro = `IdSucursal = ${SUCURSAL_PRECIOS_HIST} AND IdListaPrecios = ${LISTA_PRECIOS_VENTA} AND PrecioVenta IS NOT NULL`;
 
-  const [baseline, cambios, prods] = await Promise.all([
+  const [baseline, cambios, vigentes, prods] = await Promise.all([
     query(`
       WITH ult AS (
         SELECT IdProducto, PrecioVenta,
@@ -8802,6 +8802,15 @@ async function grillaPreciosHistorico(anioRaw, mesRaw) {
       FROM HistorialPrecios
       WHERE ${filtro} AND FechaHora >= '${desde}' AND FechaHora < '${hasta}'
       ORDER BY IdProducto, FechaHora, IdHistorialPrecios`),
+    // Lista de precios completa de la sucursal: el último valor conocido de cada
+    // producto. La planilla trae TODOS los códigos, haya habido cambios o no, y esta
+    // consulta es la que cubre al que nunca cambió de precio (a muchos el historial les
+    // registró sólo el costo). Sin filtro de precio > 0: un producto en 0 es un código
+    // más y tiene que figurar.
+    query(`
+      SELECT IdProducto, CAST(PrecioVenta AS FLOAT) AS Precio
+      FROM ProductosSucursalesPrecios
+      WHERE IdSucursal = ${SUCURSAL_PRECIOS_HIST} AND IdListaPrecios = ${LISTA_PRECIOS_VENTA}`),
     // Sin filtro de Activo: un producto dado de baja igual tuvo precio en el mes.
     query(`SELECT IdProducto, NombreProducto FROM Productos`),
   ]);
@@ -8811,6 +8820,7 @@ async function grillaPreciosHistorico(anioRaw, mesRaw) {
     anio, mes, nombres,
     baseline: baseline.map(r => ({ plu: String(r.IdProducto).trim(), precio: r.Precio })),
     cambios: cambios.map(r => ({ plu: String(r.IdProducto).trim(), dia: r.Dia, precio: r.Precio })),
+    vigentes: vigentes.map(r => ({ plu: String(r.IdProducto).trim(), precio: r.Precio })),
     hoy: new Date().toISOString().slice(0, 10),
   });
 }
