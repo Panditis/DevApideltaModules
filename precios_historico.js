@@ -134,6 +134,11 @@ function slotsDelMes(dias) {
   return [...relleno, ...reales].slice(-SLOTS_PRECIO);
 }
 
+// Columna A del xlsx: el PLU va como número entero, no como texto (IdProducto es
+// varchar en SIGA). Si alguna vez aparece uno alfanumérico se deja tal cual antes
+// que escribir un NaN en la planilla.
+const pluNumerico = plu => (/^\d+$/.test(texto(plu)) ? Number(texto(plu)) : texto(plu));
+
 // Matriz para XLSX.utils.aoa_to_sheet. No sirve json_to_sheet acá: las columnas de
 // relleno repiten la etiqueta del primer día y las claves duplicadas de un objeto
 // se pisarían entre sí.
@@ -143,7 +148,7 @@ function hojaMatriz(grilla) {
   const vacias = new Array(COLS_VACIAS).fill('');
   const encabezado = ['PLU', 'Producto', ...vacias, ...slots.map(i => etiquetaDia(dias[i]))];
   const filas = (grilla.filas || []).map(f => [
-    f.plu, f.nombre, ...vacias,
+    pluNumerico(f.plu), f.nombre, ...vacias,
     ...slots.map(i => (f.precios[i] == null ? 0 : f.precios[i])),
   ]);
   return [encabezado, ...filas];
