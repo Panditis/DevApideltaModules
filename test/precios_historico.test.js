@@ -117,11 +117,23 @@ test('la matriz del xlsx respeta el layout fijo A/B + C,D vacías + E..AJ', () =
   assert.equal(m[0][8], '01/02');                  // primer día real
   assert.equal(m[0][ancho - 1], '28/02');          // AJ = último día del mes
 
-  assert.deepEqual(m[1].slice(0, 4), ['100', 'Miel 1Kg', '', '']);
+  // Columna A numérica: el PLU sale como entero, no como texto.
+  assert.deepEqual(m[1].slice(0, 4), [100, 'Miel 1Kg', '', '']);
+  assert.equal(typeof m[1][0], 'number');
   assert.equal(m[1][4], 1000);                     // relleno: precio del primer día
   assert.equal(m[1][ancho - 1], 1300);             // AJ: precio del 28/02
   assert.equal(anchosHoja().length, ancho);
   assert.equal(nombreArchivo(g), 'precios_historico_2026-02.xlsx');
+});
+
+test('un PLU alfanumérico se escribe tal cual en vez de un NaN', () => {
+  const g = armarGrilla({
+    anio: 2026, mes: 7, hoy: '2026-08-24',
+    baseline: [{ plu: 'A12', precio: 100 }],
+    cambios: [],
+    nombres: new Map([['A12', 'Producto raro']]),
+  });
+  assert.equal(hojaMatriz(g)[1][0], 'A12');
 });
 
 test('las filas salen ordenadas por nombre y el PLU sin nombre no rompe', () => {
