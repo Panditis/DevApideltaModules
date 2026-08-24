@@ -47,6 +47,7 @@ const CATALOGO_MODULOS = [
   { ref: 'analisis-central',    titulo: 'Análisis Casa Central',    icon: 'building-2',     href: '/analisis-central',   rutasHtml: ['/analisis-central'],   apiPrefijos: ['/api/analisis-central'],          defaultRequiereAuth: true },
   { ref: 'cuentas-corrientes',  titulo: 'Cuentas Corrientes',       icon: 'wallet',         href: '/cuentas-corrientes', rutasHtml: ['/cuentas-corrientes'], apiPrefijos: ['/api/cuentas-corrientes'],        defaultRequiereAuth: true },
   { ref: 'cruce-terminales',    titulo: 'Cruce de Terminales',      icon: 'credit-card',    href: '/cruce-terminales',   rutasHtml: ['/cruce-terminales'],   apiPrefijos: ['/api/cruce-terminales'],          defaultRequiereAuth: true },
+  { ref: 'precios-historico',   titulo: 'Precios Históricos',       icon: 'history',        href: '/precios-historico',  rutasHtml: ['/precios-historico'],  apiPrefijos: ['/api/precios-historico'],         defaultRequiereAuth: true },
   // RRHH es un módulo contenedor: su href apunta al sub-hub y de ahí cuelgan sus
   // submódulos (por ahora, el relevamiento de ropa de trabajo). Un solo permiso
   // para toda el área: sumar un submódulo es sumar su ruta acá.
