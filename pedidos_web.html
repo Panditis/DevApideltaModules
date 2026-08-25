@@ -576,7 +576,8 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         <span class="text-[10px] font-normal text-olive">Carrito armado a mano</span>
       </span>
     </button>
-    <button id="tab-reservas" onclick="switchTab('reservas')"
+    <!-- Reservas deshabilitadas a pedido: la tab queda oculta (RESERVAS_HABILITADAS en el script). -->
+    <button id="tab-reservas" hidden style="display:none" onclick="switchTab('reservas')"
       class="tab flex-1 sm:flex-none sm:min-w-[200px] px-5 py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all">
       <i data-lucide="lock" class="w-5 h-5"></i>
       <span class="flex flex-col items-start leading-tight">
@@ -1086,6 +1087,10 @@ function msLocLabel(){
 // ── Multi-select estados ──────────────────────────────────────────────────────
 var msEst = [];   // [{nombre, checked}]
 var EST_DEFAULT = ['PENDIENTE','EN PROCESO','RESERVAR'];
+
+// Reservas de mercadería apagadas: sin tab, sin botón "+ Reservar" en el resumen y sin columna
+// para él. Todo el código del módulo sigue en su lugar: poner true lo devuelve como estaba.
+var RESERVAS_HABILITADAS = false;
 
 function cargarEstados(savedEstados){
   return api('/api/estados').then(function(data){
@@ -1740,6 +1745,7 @@ function verResumenClientes(){
 }
 
 function switchTab(tab){
+  if(tab==='reservas' && !RESERVAS_HABILITADAS) return;
   tabActiva = tab;
   document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b.id==='tab-'+tab); });
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.toggle('active', p.id==='panel-'+tab); });
@@ -3055,7 +3061,7 @@ function renderResumen(data){
       // Bulto/Caja sin componente: no hay stock que apartar (el SQL le da 0). Se avisa y no
       // se deja agregar, en vez de mandar un movimiento que SiGA va a rechazar o dejar en rojo.
       var sinFormula = !comp && /BULTO|CAJA/i.test(p.NombreRubro || '');
-      var btnRes = '<button type="button" class="res-add" data-act="add-res"'
+      var btnRes = !RESERVAS_HABILITADAS ? '' : '<button type="button" class="res-add" data-act="add-res"'
         +' data-plu="'+att(p.IdProducto)+'"'
         +' data-nombre="'+att(p.NombreProducto)+'"'
         +' data-plures="'+att(pluRes)+'"'
@@ -3071,7 +3077,7 @@ function renderResumen(data){
         +'<td class="num" style="font-weight:600">'+numFmt.format(p.TotalUnidades)+'</td>'
         +'<td class="num">'+scChip(sc, p.TotalUnidades, mult, comp)+'</td>'
         +'<td class="num">'+btn+'</td>'
-        +'<td class="num">'+btnRes+'</td>'
+        +(RESERVAS_HABILITADAS?'<td class="num">'+btnRes+'</td>':'')
         +'</tr>';
     }).join('');
     return '<div class="res-card">'
@@ -3080,7 +3086,7 @@ function renderResumen(data){
       +'<span class="res-badge">'+c.productos.length+' producto'+(c.productos.length!==1?'s':'')+'</span>'
       +'</div>'
       +'<table class="res-tbl">'
-      +'<thead><tr><th>Producto</th><th>Rubro</th><th class="num">Necesario</th><th class="num">Stock Central</th><th class="num">Fraccionar</th><th class="num">Reservar</th></tr></thead>'
+      +'<thead><tr><th>Producto</th><th>Rubro</th><th class="num">Necesario</th><th class="num">Stock Central</th><th class="num">Fraccionar</th>'+(RESERVAS_HABILITADAS?'<th class="num">Reservar</th>':'')+'</tr></thead>'
       +'<tbody>'+rows+'</tbody>'
       +'</table>'
       +'</div>';

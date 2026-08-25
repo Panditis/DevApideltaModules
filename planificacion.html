@@ -532,7 +532,8 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 <div class="tab-nav">
   <button class="tab-btn active" data-tab="resumen">Resumen</button>
   <button class="tab-btn"        data-tab="plan">Plan del día</button>
-  <button class="tab-btn"        data-tab="agenda">⏱ Agenda</button>
+  <!-- Agenda deshabilitada a pedido: la tab queda oculta, el panel y su código siguen intactos. -->
+  <button class="tab-btn"        data-tab="agenda" hidden style="display:none">⏱ Agenda</button>
   <button class="tab-btn"        data-tab="calendario">Calendario semanal</button>
   <button class="tab-btn"        data-tab="catalogo">Catálogo</button>
   <button class="tab-btn"        data-tab="envases">📦 Envases</button>
