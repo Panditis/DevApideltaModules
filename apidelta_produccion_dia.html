@@ -2079,6 +2079,7 @@ function renderHistorial(registros) {
   // Día → cierres que lo componen: un mismo día puede tener varios cierres, y "Borrar día"
   // tiene que llevárselos todos.
   _histPorDia = {};
+  _histCargasPorDia = {};
   for (const reg of registros) {
     // El día del bloque es el del CIERRE. La fecha propia de cada carga no se pierde: va en la
     // columna "Fecha carga".
@@ -2087,6 +2088,7 @@ function renderHistorial(registros) {
     g.registros.set(reg.id, reg.fechaHora || reg.fecha || null);
     for (const c of (reg.cargas || [])) g.cargas.push(c);
     (_histPorDia[diaReg] = _histPorDia[diaReg] || []).push(reg.id);
+    (_histCargasPorDia[diaReg] = _histCargasPorDia[diaReg] || []).push(...(reg.cargas || []));
   }
 
   const bloques = [...grupos.values()].sort((a, b) => String(b.dia).localeCompare(String(a.dia)));
@@ -2127,6 +2129,7 @@ function renderHistorial(registros) {
         <!-- Botones -->
         <div style="display:flex;gap:8px;margin-left:auto">
           <button onclick="toggleDetalle('${detId}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
+          <button onclick="exportHistorialCSV('${grupo.dia}')" title="Genera el CSV de producción de este día para subirlo a mano a SiGA" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">⬇ CSV</button>
           <button onclick="deleteDiaHistorial('${grupo.dia}')" title="Borra del historial todos los cierres de este día" style="background:none;border:1px solid #EF9A9A;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">🗑 Borrar día</button>
         </div>
       </div>
@@ -2216,6 +2219,13 @@ function toggleDetalle(id) {
 }
 
 let _histPorDia = {};
+let _histCargasPorDia = {};
+
+async function exportHistorialCSV(dia) {
+  const cargas = _histCargasPorDia[dia] || [];
+  if (!cargas.length) { showSnack('Sin registros para exportar'); return; }
+  await generarCSVProduccion(cargas, dia || 'sin-fecha');
+}
 
 // Borra del historial TODOS los cierres de un día (todas sus familias), no sólo el bloque
 // desde el que se clickeó.
@@ -3675,6 +3685,12 @@ async function exportTerminadosCSV(fecha) {
     const k = r.fecha || (r.fechaHora ? r.fechaHora.slice(0,10) : 'sin-fecha');
     return k === fecha;
   });
+  return generarCSVProduccion(items, fecha);
+}
+
+// Mismo CSV para el día vivo y para cualquier día archivado en el historial: las cargas
+// guardadas tienen la misma forma que las de _rcRaw.
+async function generarCSVProduccion(items, fecha) {
   if (!items.length) { showSnack('Sin registros para exportar'); return; }
 
   // Ignorar tareas extra y órdenes sin el rol "Envasado" cargado
