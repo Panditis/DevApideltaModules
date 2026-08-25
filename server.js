@@ -8706,6 +8706,7 @@ app.post('/api/cruce-terminales/procesar', uploadCruce.fields([{ name: 'archivos
       totales: resultado.totales,
       rango: resultado.rango,
       desconocidas: resultado.desconocidas,
+      duplicados: resultado.duplicados,
       mapa: { actualizado: mapa.actualizado || null, archivo: mapa.archivo || '', sucursales: mapa.sucursales || [] },
       muestra: resultado.detalle.slice(0, 200),
     });
@@ -8753,6 +8754,29 @@ function hojaResumen(resumen, totales) {
   return XLSX.utils.json_to_sheet(filas);
 }
 
+// Cobros que bajaron en las dos plataformas: en el cruce quedó sólo el registro de QR,
+// pero se listan para poder controlarlos.
+function hojaDuplicados(duplicados) {
+  return XLSX.utils.json_to_sheet(duplicados.map(d => ({
+    'Fecha': d.fecha,
+    'Sucursal ID': d.sucursalId ?? '',
+    'Sucursal': d.sucursal,
+    'Terminal': d.terminal,
+    'Tarjeta (dígitos)': d.tarjeta,
+    'Monto': d.monto,
+    'QR · comprobante': d.qrComprobante,
+    'QR · medio': d.qrMedio,
+    'QR · estado': d.qrEstado,
+    'QR · archivo': d.qrArchivo,
+    'Descartado · plataforma': d.descartadaPlataforma,
+    'Descartado · comprobante': d.descartadoComprobante,
+    'Descartado · autorización': d.descartadoAutorizacion,
+    'Descartado · medio': d.descartadoMedio,
+    'Descartado · estado': d.descartadoEstado,
+    'Descartado · archivo': d.descartadoArchivo,
+  })));
+}
+
 app.get('/api/cruce-terminales/exportar', (req, res) => {
   try {
     const resultado = ultimoCruce.get(claveCruce(req));
@@ -8763,6 +8787,9 @@ app.get('/api/cruce-terminales/exportar', (req, res) => {
     XLSX.utils.book_append_sheet(wb, hojaDetalle(resultado.detalle), 'Detalle');
     XLSX.utils.book_append_sheet(wb, hojaDetalle(resultado.detalle.filter(c => c.aprobado)), 'Aprobados');
     XLSX.utils.book_append_sheet(wb, hojaDetalle(resultado.detalle.filter(c => !c.aprobado)), 'No aprobados');
+    if ((resultado.duplicados || []).length) {
+      XLSX.utils.book_append_sheet(wb, hojaDuplicados(resultado.duplicados), 'Cruces QR-tarjeta');
+    }
     if (resultado.desconocidas.length) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resultado.desconocidas.map(t => ({
         'Terminal': t.terminal, 'Establecimiento': t.establecimiento, 'Plataforma': t.plataforma,

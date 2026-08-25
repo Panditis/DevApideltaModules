@@ -5,7 +5,7 @@ const {
   parseCSV, detectarPlataforma, parseNombreSucursal, parseMapaTerminales, sucursalDe,
   comprobantesPayway, comprobantesQR, comprobantesDeArchivo,
   clasificar, resumenPorSucursal, totalesGenerales, rangoFechas,
-  terminalesDesconocidas, procesarArchivos,
+  terminalesDesconocidas, separarDuplicados, procesarArchivos,
 } = require('../cruce_terminales');
 
 // Réplica reducida del xlsx "Distribucion Terminales por sucursal": la fila de
@@ -204,4 +204,52 @@ test('clasificar sin mapa deja todo Sin identificar en vez de romper', () => {
   assert.strictEqual(resumenPorSucursal(detalle).length, 1);
   assert.deepStrictEqual(rangoFechas([]), { desde: null, hasta: null });
   assert.deepStrictEqual(terminalesDesconocidas([]), []);
+});
+
+// ── Cobros duplicados entre plataformas ───────────────────────────────────────
+const detalleDup = (extra = []) => clasificar([
+  { plataforma: 'QR', fecha: '2026-08-07', terminal: '16826094', tarjeta: '**** **** **** 4006', monto: 1000.5, comprobante: 'qr-1', aprobado: true },
+  { plataforma: 'Payway', fecha: '2026-08-07', terminal: '16826094', tarjeta: '************4006', monto: 1000.5, comprobante: 'pw-1', aprobado: true },
+  ...extra,
+], MAPA);
+
+test('separarDuplicados deja el registro de QR y aparta el de tarjetas', () => {
+  const { detalle, duplicados } = separarDuplicados(detalleDup());
+  assert.deepStrictEqual(detalle.map(c => c.comprobante), ['qr-1']);
+  assert.strictEqual(duplicados.length, 1);
+  assert.strictEqual(duplicados[0].descartadoComprobante, 'pw-1');
+  assert.strictEqual(duplicados[0].qrComprobante, 'qr-1');
+  assert.strictEqual(duplicados[0].tarjeta, '4006');
+  assert.strictEqual(duplicados[0].sucursal, 'URQUIZA');
+});
+
+test('separarDuplicados no cruza si cambia día, terminal, monto o dígitos', () => {
+  const distintos = [
+    { plataforma: 'Payway', fecha: '2026-08-06', terminal: '16826094', tarjeta: '************4006', monto: 1000.5, comprobante: 'otro-dia', aprobado: true },
+    { plataforma: 'Payway', fecha: '2026-08-07', terminal: '16826095', tarjeta: '************4006', monto: 1000.5, comprobante: 'otra-term', aprobado: true },
+    { plataforma: 'Payway', fecha: '2026-08-07', terminal: '16826094', tarjeta: '************4006', monto: 1000.51, comprobante: 'otro-monto', aprobado: true },
+    { plataforma: 'Payway', fecha: '2026-08-07', terminal: '16826094', tarjeta: '************9999', monto: 1000.5, comprobante: 'otra-tarj', aprobado: true },
+  ];
+  const { detalle, duplicados } = separarDuplicados(detalleDup(distintos));
+  assert.strictEqual(duplicados.length, 1);
+  assert.deepStrictEqual(detalle.map(c => c.comprobante),
+    ['qr-1', 'otro-dia', 'otra-term', 'otro-monto', 'otra-tarj']);
+});
+
+test('separarDuplicados descarta 1 a 1: el cobro de más de Payway sobrevive', () => {
+  const { detalle, duplicados } = separarDuplicados(detalleDup([
+    { plataforma: 'Payway', fecha: '2026-08-07', terminal: '16826094', tarjeta: '************4006', monto: 1000.5, comprobante: 'pw-2', aprobado: true },
+  ]));
+  assert.strictEqual(duplicados.length, 1);
+  assert.deepStrictEqual(detalle.map(c => c.comprobante), ['qr-1', 'pw-2']);
+});
+
+test('separarDuplicados no cruza transferencias: sin dígitos de tarjeta no hay caso', () => {
+  const sinTarjeta = clasificar([
+    { plataforma: 'QR', fecha: '2026-08-07', terminal: '16826094', tarjeta: '', monto: 1000.5, comprobante: 'qr-transf', aprobado: true },
+    { plataforma: 'Payway', fecha: '2026-08-07', terminal: '16826094', tarjeta: '', monto: 1000.5, comprobante: 'pw-sin-tarj', aprobado: true },
+  ], MAPA);
+  const { detalle, duplicados } = separarDuplicados(sinTarjeta);
+  assert.strictEqual(duplicados.length, 0);
+  assert.strictEqual(detalle.length, 2);
 });

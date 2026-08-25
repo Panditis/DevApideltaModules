@@ -518,6 +518,9 @@
         <li><b>Si aparece el aviso de terminales sin identificar</b>, esas terminales hay que darlas
             de alta en el xlsx de distribución y volver a subirlo. Hasta entonces esos importes no
             se suman a ninguna sucursal.</li>
+        <li><b>Un cobro con tarjeta por QR baja en las dos plataformas.</b> Cuando coinciden día,
+            terminal, monto y los dígitos visibles de la tarjeta, se cuenta una sola vez y queda el
+            registro de QR. Los descartados se listan aparte y van en el xlsx para controlarlos.</li>
         <li><b>La tabla de detalle muestra los primeros 200 comprobantes</b>, para que la pantalla
             no se vuelva pesada. El detalle completo está siempre en el xlsx.</li>
         <li>Hacé clic en los encabezados del resumen para ordenar, y en una fila para abrir el
@@ -533,6 +536,8 @@
         <li><b>Detalle</b> — todos los comprobantes, con su sucursal y la columna Aprobado SÍ/NO.</li>
         <li><b>Aprobados</b> y <b>No aprobados</b> — el mismo detalle, ya separado.</li>
         <li><b>Sin identificar</b> — sólo aparece si hubo terminales que no se pudieron asignar.</li>
+        <li><b>Cruces QR-tarjeta</b> — los cobros que bajaron en las dos plataformas y se contaron
+            una sola vez. Sólo aparece si hubo alguno.</li>
       </ul>
     </div>
 
@@ -838,6 +843,7 @@ function renderResultado(){
     bloqueKpis(),
     '<div class="card reveal" id="cardResumen"><h3>Resumen por sucursal</h3><div class="tbl-scroll" id="tblResumen"></div></div>',
     bloqueDesconocidas(),
+    bloqueDuplicados(),
     bloqueDetalle(),
   ].join('');
   renderResumen();
@@ -1018,6 +1024,43 @@ function bloqueDesconocidas(){
         <tbody>${filas}</tbody>
       </table>
     </div>
+  </div>`;
+}
+
+// ── Cobros que bajaron en las dos plataformas ───────────────────────────────
+// El cruce ya se quedó sólo con el registro de QR; acá se listan los descartados para
+// poder controlarlos. En pantalla van los primeros 100 y en el xlsx están todos.
+const DUPLICADOS_TOPE = 100;
+
+function bloqueDuplicados(){
+  const lista = RESULTADO.duplicados || [];
+  if (!lista.length) return '';
+  const filas = lista.slice(0, DUPLICADOS_TOPE).map(d => `<tr>
+      <td>${esc(fmtFecha(d.fecha))}</td>
+      <td>${esc(d.sucursal || '')}</td>
+      <td>${esc(d.terminal)}</td>
+      <td>${esc(d.tarjeta)}</td>
+      <td class="num">${esc(fmtMoney(d.monto))}</td>
+      <td>${esc(d.qrComprobante || '')}</td>
+      <td>${esc(nombrePlataforma(d.descartadaPlataforma))}</td>
+      <td>${esc(d.descartadoComprobante || '')}</td>
+    </tr>`).join('');
+  const pie = lista.length > DUPLICADOS_TOPE
+    ? `<div class="info">Se muestran los primeros ${fmtNum(DUPLICADOS_TOPE)} de ${fmtNum(lista.length)}. Están todos en el xlsx.</div>`
+    : '';
+  return `<div class="card reveal">
+    <h3>${fmtNum(lista.length)} cobro(s) que bajaron en las dos plataformas</h3>
+    <div class="info">Mismo día, terminal, monto y dígitos de tarjeta: se contaron una sola vez,
+      con el registro de QR. Estas son las filas descartadas.</div>
+    <div class="tbl-scroll" style="margin-top:10px">
+      <table>
+        <thead><tr><th>Fecha</th><th>Sucursal</th><th>Terminal</th><th>Tarjeta</th>
+          <th class="num">Monto</th><th>QR · comprobante</th><th>Descartado</th>
+          <th>Comprobante descartado</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+    ${pie}
   </div>`;
 }
 
