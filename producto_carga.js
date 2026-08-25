@@ -159,7 +159,17 @@ function resolverProductoCarga(nombreMayorista, catalogo) {
   return { plu: mejor.plu, nombre: mejor.nombre, via, presentacionKg: kg };
 }
 
+// PLU -> nombre tal cual SiGA, para que los CSV de produccion no salgan con el nombre que se
+// tipeo al cargar la orden. Los codigos entran por querystring: se filtran a [\w-] y se citan,
+// asi ningun valor raro llega a la consulta. Devuelve null si no queda ningun codigo valido.
+function sqlNombresPorPlu(plus) {
+  const ids = [...new Set((plus || []).map(p => String(p).trim()).filter(p => /^[\w-]+$/.test(p)))];
+  if (!ids.length) return null;
+  return `SELECT IdProducto, NombreProducto FROM dbo.Productos WHERE IdProducto IN (${ids.map(p => `'${p}'`).join(',')})`;
+}
+
 module.exports = {
+  sqlNombresPorPlu,
   resolverProductoCarga,
   analizarNombreCarga,
   pesoTokenKg,
