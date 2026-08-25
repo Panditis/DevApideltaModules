@@ -377,6 +377,67 @@ function terminalesDesconocidas(detalle) {
     .sort((a, b) => b.cantidad - a.cantidad);
 }
 
+// ── Cobros duplicados entre plataformas ───────────────────────────────────────
+// Un mismo cobro con tarjeta puede bajar en las dos plataformas: el QR lo informa como
+// venta con tarjeta y Payway lo trae otra vez en la bajada de terminales. Se cruzan por
+// día + terminal + monto + los dígitos visibles del número de tarjeta y sobrevive sólo
+// el registro de QR. Sin dígitos visibles (transferencias) no hay con qué identificar el
+// caso, así que esas filas no se cruzan nunca.
+function digitosTarjeta(tarjeta) {
+  return String(tarjeta ?? '').replace(/\D/g, '');
+}
+
+function claveDuplicado(c) {
+  const digitos = digitosTarjeta(c.tarjeta);
+  if (!digitos) return '';
+  return [c.fecha, c.terminal, (Number(c.monto) || 0).toFixed(2), digitos].join('|');
+}
+
+// El descarte es 1 a 1: si una clave tiene 2 comprobantes de QR y 3 de Payway, se
+// descartan 2 de Payway y el tercero queda, porque es un cobro más que existió.
+function separarDuplicados(detalle) {
+  const lista = detalle || [];
+  const disponiblesQR = new Map();
+  for (const c of lista) {
+    if (c.plataforma !== 'QR') continue;
+    const k = claveDuplicado(c);
+    if (!k) continue;
+    if (!disponiblesQR.has(k)) disponiblesQR.set(k, []);
+    disponiblesQR.get(k).push(c);
+  }
+
+  const usados = new Map(); // clave → cuántos comprobantes de QR ya se aparearon
+  const detalleFiltrado = [];
+  const duplicados = [];
+  for (const c of lista) {
+    const k = c.plataforma === 'QR' ? '' : claveDuplicado(c);
+    const pares = k ? (disponiblesQR.get(k) || []) : [];
+    const usadosK = usados.get(k) || 0;
+    if (!pares.length || usadosK >= pares.length) { detalleFiltrado.push(c); continue; }
+    const qr = pares[usadosK];
+    usados.set(k, usadosK + 1);
+    duplicados.push({
+      fecha: c.fecha,
+      terminal: c.terminal,
+      sucursalId: qr.sucursalId,
+      sucursal: qr.sucursal,
+      monto: Math.round((Number(c.monto) || 0) * 100) / 100,
+      tarjeta: digitosTarjeta(c.tarjeta),
+      qrComprobante: qr.comprobante,
+      qrMedio: qr.medio,
+      qrEstado: qr.estado,
+      qrArchivo: qr.archivo,
+      descartadaPlataforma: c.plataforma,
+      descartadoComprobante: c.comprobante,
+      descartadoAutorizacion: c.autorizacion,
+      descartadoMedio: c.medio,
+      descartadoEstado: c.estado,
+      descartadoArchivo: c.archivo,
+    });
+  }
+  return { detalle: detalleFiltrado, duplicados };
+}
+
 // Punto de entrada: archivos [{ nombre, texto }] + mapa → resultado completo.
 function procesarArchivos(archivos, mapa) {
   const lista = Array.isArray(archivos) ? archivos : [];
@@ -388,10 +449,11 @@ function procesarArchivos(archivos, mapa) {
     resumenArchivos.push({ nombre: a.nombre, plataforma, comprobantes: cs.length });
     comprobantes.push(...cs);
   }
-  const detalle = clasificar(comprobantes, mapa);
+  const { detalle, duplicados } = separarDuplicados(clasificar(comprobantes, mapa));
   return {
     archivos: resumenArchivos,
     detalle,
+    duplicados,
     resumen: resumenPorSucursal(detalle),
     totales: totalesGenerales(detalle),
     rango: rangoFechas(detalle),
@@ -406,5 +468,5 @@ module.exports = {
   parseNombreSucursal, parseMapaTerminales, sucursalDe,
   comprobantesPayway, comprobantesQR, comprobantesDeArchivo,
   clasificar, resumenPorSucursal, totalesGenerales, rangoFechas,
-  terminalesDesconocidas, procesarArchivos,
+  terminalesDesconocidas, claveDuplicado, separarDuplicados, procesarArchivos,
 };
