@@ -3721,14 +3721,29 @@ async function generarCSVProduccion(items, fecha) {
     } catch(_) { compMap[plu] = {}; etiquetaMap[plu] = null; }
   }));
 
+  // Nombre tal cual SiGA para cada código del CSV. El que quedó guardado en la carga es el que
+  // se tipeó al crear la orden ("tutuca maiz", "Yogurt Natural Tipo Griego" para tres PLU
+  // distintos), así que el archivo salía con nombres que el sistema no reconoce.
+  const codigos = new Set();
+  exportables.forEach(r => {
+    if (r.plu) codigos.add(String(r.plu));
+    const gs = Array.isArray(r.graneles) && r.graneles.length ? r.graneles : (r.nombreGranel ? [{ granel: r.granel, nombreGranel: r.nombreGranel }] : []);
+    gs.forEach(g => { const gid = g.granel || (compMap[r.plu] || {})[g.nombreGranel]; if (gid) codigos.add(String(gid)); });
+    if (r.envase) codigos.add(String(r.envase));
+    if (r.tapa)   codigos.add(String(r.tapa));
+    const et = etiquetaMap[r.plu];
+    if (et && et.id) codigos.add(String(et.id));
+  });
+  let nombreSiga = {};
+  try { nombreSiga = await api('GET', `/api/productos/nombres?plus=${encodeURIComponent([...codigos].join(','))}`) || {}; } catch(_) {}
+  const nom = (cod, fallback) => nombreSiga[String(cod)] || String(fallback || '').trim();
+
   const SEP = ';';
   const esc = v => { const s = String(v ?? ''); return s.includes(SEP) || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; };
   const rows = [];
   exportables.forEach(r => {
     const plu = r.plu || '';
-    // Nombre completo tal cual SiGA: cleanNombre() es sólo para las tarjetas (recorta marca,
-    // familia y gramaje) y en el CSV dejaba el producto sin identificar.
-    const nombre = String(r.nombre || r.producto || '').trim();
+    const nombre = nom(plu, r.nombre || r.producto);
     const cant = _parseNum(r.cantFraccionada ?? r.cantidad);
     rows.push([1, esc(plu), esc(nombre), cant, 1, esc(plu)].join(SEP));
     const graneles = Array.isArray(r.graneles) && r.graneles.length
@@ -3740,14 +3755,14 @@ async function generarCSVProduccion(items, fecha) {
       // Componente modificado a 0: se ignora en el CSV.
       if (gcant === 0) return;
       const gid = g.granel || lookup[g.nombreGranel] || '';
-      rows.push([1, esc(gid), esc(g.nombreGranel || ''), gcant, 1, esc(gid)].join(SEP));
+      rows.push([1, esc(gid), esc(nom(gid, g.nombreGranel)), gcant, 1, esc(gid)].join(SEP));
     });
     // Insumos de packaging: envase/tapa (seleccionados en la carga) y etiqueta (de la fórmula).
     // Van como consumo (cantidad negativa) para descontar stock, 1 por unidad.
-    if (r.envase) rows.push([1, esc(r.envase), esc(r.envaseNombre || envaseLabel(r.envase)), -cant, 1, esc(r.envase)].join(SEP));
-    if (r.tapa)   rows.push([1, esc(r.tapa),   esc(r.tapaNombre   || tapaLabel(r.tapa)),     -cant, 1, esc(r.tapa)].join(SEP));
+    if (r.envase) rows.push([1, esc(r.envase), esc(nom(r.envase, r.envaseNombre || envaseLabel(r.envase))), -cant, 1, esc(r.envase)].join(SEP));
+    if (r.tapa)   rows.push([1, esc(r.tapa),   esc(nom(r.tapa,   r.tapaNombre   || tapaLabel(r.tapa))),       -cant, 1, esc(r.tapa)].join(SEP));
     const et = etiquetaMap[plu];
-    if (et) rows.push([1, esc(et.id), esc(et.nombre), -_parseNum(cant * et.factor), 1, esc(et.id)].join(SEP));
+    if (et) rows.push([1, esc(et.id), esc(nom(et.id, et.nombre)), -_parseNum(cant * et.factor), 1, esc(et.id)].join(SEP));
   });
 
   const bom = '﻿';

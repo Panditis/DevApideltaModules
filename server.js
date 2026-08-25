@@ -24,7 +24,7 @@ const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
 const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
-const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('./producto_carga');
+const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPlu } = require('./producto_carga');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('./ordenes_fraccionado');
@@ -1798,6 +1798,14 @@ app.get('/api/producto', apiRoute(async req => {
   if (!codigo) return { error: 'Falta código' };
   const rows = await query(`SELECT TOP 1 p.IdProducto, p.NombreProducto, COALESCE(p.IdUnidadDeMedida,'') AS Unidad, p.EsCompuesto FROM dbo.Productos p WHERE p.IdProducto = '${codigo.replace(/'/g,"''")}' AND p.Activo = 1`);
   return rows.length ? rows[0] : { error: 'Producto no encontrado' };
+}));
+// Nombre de producto tal cual SiGA, por PLU. Los CSV de produccion salian con el nombre que
+// se tipeo al cargar la orden ("tutuca maiz"), que no siempre coincide con el del sistema.
+app.get('/api/productos/nombres', apiRoute(async req => {
+  const sql = sqlNombresPorPlu(String(req.query.plus || '').split(','));
+  if (!sql) return {};
+  const rows = await query(sql);
+  return Object.fromEntries(rows.map(r => [String(r.IdProducto), r.NombreProducto]));
 }));
 app.get('/api/productos/buscar', apiRoute(async req => {
   const q = (req.query.q || '').trim();

@@ -2983,14 +2983,25 @@ async function eliminarRegistro(id) {
     if (res.ok) { prodRegistros = prodRegistros.filter(x => x.id !== id); renderProduccion(); }
   });
 }
+// El nombre guardado en el registro es el que se tipeó al cargarlo ("tutuca maiz"): para el
+// CSV se pide a SiGA el nombre real de cada código y sólo se cae al guardado si no aparece.
+async function lineasCSVProduccion(registros) {
+  const filas = registros.filter(r => String(r.plu) !== 'ACT');
+  const codigos = [...new Set(filas.flatMap(r => [r.plu, r.granel]).filter(Boolean).map(String))];
+  let nombreSiga = {};
+  try {
+    if (codigos.length) nombreSiga = await fetch(`/api/productos/nombres?plus=${encodeURIComponent(codigos.join(','))}`).then(r => r.json()) || {};
+  } catch(_) {}
+  const esc = s => String(s||'').replace(/"/g,'""');
+  const nom = (cod, fallback) => esc(nombreSiga[String(cod)] || fallback || '');
+  return filas.flatMap(r => [
+    `1;${r.plu};"${nom(r.plu, r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
+    `1;${r.granel||''};"${nom(r.granel, r.nombreGranel)}";${-(+(Math.abs(r.granelConsumido||0)).toFixed(2))};1;${r.granel||''}`
+  ]);
+}
 async function exportarCSVProduccion() {
   if (!prodRegistros.length) return;
-  const esc = s => String(s||'').replace(/"/g,'""');
-  const lines = prodRegistros.filter(r => String(r.plu) !== 'ACT').flatMap(r => [
-    `1;${r.plu};"${esc(r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
-    `1;${r.granel||''};"${esc(r.nombreGranel)}";${-(+(Math.abs(r.granelConsumido||0)).toFixed(2))};1;${r.granel||''}`
-  ]);
-  descargar(lines, 'produccion.csv');
+  descargar(await lineasCSVProduccion(prodRegistros), 'produccion.csv');
 }
 async function archivarProduccion() {
   if (!prodRegistros.length) return;
@@ -3177,15 +3188,10 @@ function toggleHistCard(id) {
   body.classList.toggle('open');
   if (!wasOpen) renderHistBody(id);
 }
-function descargarCSVHistorial(id) {
+async function descargarCSVHistorial(id) {
   const h = histData.find(x => x.id === id);
   if (!h || !h.produccion.length) return;
-  const esc = s => String(s||'').replace(/"/g,'""');
-  const lines = h.produccion.filter(r => String(r.plu) !== 'ACT').flatMap(r => [
-    `1;${r.plu};"${esc(r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
-    `1;${r.granel||''};"${esc(r.nombreGranel)}";${-(+(Math.abs(r.granelConsumido||0)).toFixed(2))};1;${r.granel||''}`
-  ]);
-  descargar(lines, `produccion_${h.fecha}.csv`);
+  descargar(await lineasCSVProduccion(h.produccion), `produccion_${h.fecha}.csv`);
 }
 async function eliminarHistorial(id) {
   const h = histData.find(x => x.id === id);

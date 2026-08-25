@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg } = require('../producto_carga');
+const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPlu } = require('../producto_carga');
 
 // ── Producto de carga: contra qué producto se imputa la produccion de una linea mayorista ─────
 // El `catalogo` simula lo que devuelve la query de candidatos del endpoint: [{ plu, nombre }] de
@@ -210,4 +210,19 @@ test('pesoTokenKg toma el ultimo token de peso y lo pasa a kg', () => {
   assert.strictEqual(pesoTokenKg('Yerba Apidelta 1Kg Bulto X 160 Unidades (Precio Por Un)'), 1);
   assert.strictEqual(pesoTokenKg('Almendra Non Pareil Grande 5Kg (Precio Por Kg)'), 5);
   assert.strictEqual(pesoTokenKg('Adobo Para Pizza PEDIDOS'), null);
+});
+
+// -- Nombres SiGA por PLU: lo que alimenta los CSV de produccion --------------------------------
+test('sqlNombresPorPlu cita los codigos, deduplica y descarta lo que no es un PLU', () => {
+  // Arrange: el ultimo trae comilla y comentario SQL; los codigos llegan del querystring.
+  const plus = ['1011', ' 7063 ', '1011', "90262' UNION SELECT 1--", '', 'PLU 5'];
+
+  // Act
+  const sql = sqlNombresPorPlu(plus);
+
+  // Assert
+  assert.match(sql, /IN \('1011','7063'\)$/);
+  assert.ok(!sql.includes('UNION'));
+  assert.strictEqual(sqlNombresPorPlu([]), null);
+  assert.strictEqual(sqlNombresPorPlu(["' UNION SELECT 1--"]), null);
 });
