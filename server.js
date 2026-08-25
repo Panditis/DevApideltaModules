@@ -39,6 +39,9 @@ const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const rrhhRopa = require('./rrhh_ropa');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
+const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
+        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
+const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
@@ -1128,6 +1131,9 @@ app.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, 'anali
 app.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_graficos.js')));
 app.get('/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_familias_manuales.js')));
 app.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'analisis_front.js')));
+// El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
+// (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
+app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'bloques_tareas.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/cruce-terminales', (_req, res) => res.sendFile(path.join(__dirname, 'cruce_terminales.html')));
 app.get('/precios-historico', (_req, res) => res.sendFile(path.join(__dirname, 'precios_historico.html')));
@@ -1257,6 +1263,10 @@ const REF_SALA_PATH = path.join(DATA_DIR, 'referencia_sala.json');
 // Misma foto, pero de la sala de producción medida con los registros nuevos: son dos archivos
 // distintos y cada tablero compara contra el suyo.
 const REF_PROD_PATH = path.join(DATA_DIR, 'referencia_produccion.json');
+// Qué tareas lleva cada producto o rubro y cuánto dura cada una. Va en su propio archivo y no
+// dentro del plan: las plantillas son la receta, valen para todos los días y no se pisan al
+// cambiar de fecha.
+const PLANTILLAS_TAREAS_PATH = path.join(DATA_DIR, 'plantillas_tareas.json');
 
 function leerJSON(p, def) { try { if (!fs.existsSync(p)) return def; return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return def; } }
 function guardarJSON(p, data) { fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8'); }
@@ -1585,6 +1595,186 @@ app.delete('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
   if (nuevo.length === arr.length) return res.status(404).json({ error: 'Orden no encontrada' });
   guardarJSON(ORD_FRACC_PATH, nuevo);
   res.json({ ok: true });
+});
+
+// ── Reservas de mercaderia mayorista ──────────────────────────────────────────
+// Apartan producto TERMINADO en SiGA para un cliente: un movimiento del deposito principal al
+// de reserva. A diferencia de la reserva de planificacion NO se explota formula. Una reserva
+// es de UN cliente y sale en UN movimiento: por eso no existe la falla parcial.
+const RESERVAS_MERC_PATH = path.join(DATA_DIR, 'reservas_mercaderia.json');
+
+app.get('/api/mayoristas/reservas', apiRoute(async () =>
+  leerJSON(RESERVAS_MERC_PATH, []).slice().sort((a, b) => b.id - a.id)));
+
+app.get('/api/mayoristas/reservas/:id', (req, res) => {
+  const reserva = leerJSON(RESERVAS_MERC_PATH, []).find(r => String(r.id) === String(req.params.id));
+  if (!reserva) return res.status(404).json({ error: 'Reserva no encontrada' });
+  res.json(reserva);
+});
+
+// POST: un cliente, un movimiento. El orden de operaciones esta pensado para que un error
+// temprano no deje nada a medias: primero se valida TODO (cliente, lineas, depositos, choques,
+// stock) y recien al final se toca SiGA y se escribe el archivo.
+// Va con (req, res) crudo y NO con apiRoute: apiRoute hace `res.json(await fn(req))`, sin forma
+// de setear el status, asi que los 400 de validacion y el 409 saldrian como 200. Mismo criterio
+// que el CRUD de ordenes-fraccionado.
+app.post('/api/mayoristas/reservas', async (req, res) => {
+  try {
+    const b = req.body || {};
+
+    const errCliente = validarClienteReserva(b.idCliente, b.nombreCliente);
+    if (errCliente) return res.status(400).json({ error: errCliente });
+    const errLineas = validarLineasReserva(b.lineas);
+    if (errLineas) return res.status(400).json({ error: errLineas });
+    const errMezcla = validarCarritoUnCliente(b.lineas, b.idCliente);
+    if (errMezcla) return res.status(400).json({ error: errMezcla });
+
+    const s = await resolverSucursal(b.idSucursal);
+    if (s.error) return res.status(400).json({ error: s.error });
+    const cr = s.cr;
+
+    // Un deposito que viene en el body pero es invalido NO cae al config: se avisa, para no
+    // reservar en el lugar equivocado. Mismo criterio que POST /api/plan/:fecha/reservar.
+    const vinoOrigen  = b.depOrigen  !== undefined && b.depOrigen  !== null && b.depOrigen  !== '';
+    const vinoDestino = b.depDestino !== undefined && b.depDestino !== null && b.depDestino !== '';
+    const depOrigen   = vinoOrigen  ? Number(b.depOrigen)  : cr.depositoPrincipal;
+    const depDestino  = vinoDestino ? Number(b.depDestino) : cr.depositoReserva;
+    if (!vinoDestino && !cr.depositoReserva) {
+      return res.status(400).json({ error: ERR_RESERVA_SIN_CONFIG });
+    }
+    if (!esIdDeposito(depOrigen) || !esIdDeposito(depDestino) || depOrigen === depDestino) {
+      return res.status(400).json({ error: ERR_RESERVA_DEPOSITOS });
+    }
+    const activos = new Set((await depositosActivos(cr.idSucursal)).map(d => Number(d.IdDeposito)));
+    if (!activos.has(depOrigen)) {
+      return res.status(400).json({ error: `El deposito de origen ${depOrigen} no existe o no esta activo en la sucursal ${cr.idSucursal}` });
+    }
+    if (!activos.has(depDestino)) {
+      return res.status(400).json({ error: `El deposito de destino ${depDestino} no existe o no esta activo en la sucursal ${cr.idSucursal}` });
+    }
+
+    const lineas = normalizarLineasReserva(b.lineas);
+
+    // stockDeComponentes consulta ProductosDepositos por PLU, asi que sirve igual para
+    // terminados y para componentes de formula: no sabe ni le importa que es cada uno.
+    // Se suma por plu porque dos registros distintos pueden apartar el mismo componente y
+    // el stock que hay que tener alcanza para los dos juntos, no para cada uno por separado.
+    const stock = await stockDeComponentes(cr, lineas.map(l => l.plu), depOrigen, depDestino);
+    const necesarioPorPlu = new Map();
+    for (const l of lineas) necesarioPorPlu.set(l.plu, (necesarioPorPlu.get(l.plu) || 0) + l.cantidad);
+    const faltantes = [...necesarioPorPlu.entries()].map(([plu, necesario]) => {
+      const e = stock.get(plu) || { origen: 0, destino: 0 };
+      const nombre = (lineas.find(l => l.plu === plu) || {}).nombre;
+      return { plu, nombre, necesario: redondear4(necesario),
+               stockOrigen: redondear4(e.origen), faltante: redondear4(Math.max(0, necesario - e.origen)) };
+    }).filter(f => f.faltante > 0);
+    // Con permitirFaltante se reserva igual la cantidad completa (el origen puede quedar en
+    // negativo); sin el no se mueve nada.
+    if (faltantes.length && b.permitirFaltante !== true) {
+      return res.status(400).json({ error: 'Hay productos sin stock suficiente en el deposito de origen', faltantes });
+    }
+
+    // UN MOVIMIENTO POR REGISTRO: cada producto que el operador selecciono sale con su propio
+    // comprobante de SiGA y su propia entrada en el archivo, para que cada uno se pueda anular
+    // por separado. Si uno falla se corta ahi: lo ya emitido queda guardado y se informa cual
+    // fallo, asi el operador reintenta solo eso en vez de duplicar lo que ya salio.
+    const poolW = await getPoolStock();
+    const arr = leerJSON(RESERVAS_MERC_PATH, []);
+    const emitidas = [];
+    let errorParcial = null;
+    for (const l of lineas) {
+      const observacion = `RESERVA MAY ${b.nombreCliente} ${l.nombre} ${depOrigen}>${depDestino}`.slice(0, 200);
+      const movimiento = {
+        idSucursal: cr.idSucursal, depOrigen, depDestino,
+        idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+        observacion,
+      };
+      let r;
+      try {
+        r = await ejecutarYRegistrar({
+          origen: 'reserva-mayorista', plan: null, itemId: null, ...movimiento,
+          lineas: [{ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad }],
+        }, () => trasladarStock(poolW, {
+          ...movimiento,
+          lineas: [{ idProducto: l.plu, cantidad: l.cantidad }],
+        }));
+      } catch (e) {
+        errorParcial = { plu: l.plu, pluPedido: l.pluPedido, nombre: l.nombre, error: e.message };
+        break;
+      }
+      emitidas.push(nuevaReserva({
+        // El id lleva el indice: dos registros de la misma tanda caerian en el mismo Date.now().
+        id: Date.now() * 100 + emitidas.length,
+        fecha: new Date().toISOString(),
+        idCliente: b.idCliente, nombreCliente: b.nombreCliente,
+        idSucursal: cr.idSucursal, depOrigen, depDestino,
+        numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
+        usuario: cr.usuario,
+        pluPedido: l.pluPedido, nombrePedido: l.nombrePedido,
+        lineas: [{ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad }],
+      }));
+    }
+
+    if (emitidas.length) {
+      guardarJSON(RESERVAS_MERC_PATH, [...arr, ...emitidas]);
+    }
+    if (errorParcial) {
+      // 207: parte salio y parte no. El frontend saca del carrito solo lo emitido.
+      return res.status(emitidas.length ? 207 : 500).json({
+        error: `No se pudo reservar ${errorParcial.nombre}: ${errorParcial.error}`,
+        emitidas, fallo: errorParcial,
+      });
+    }
+    res.json({ ok: true, emitidas });
+  } catch (e) {
+    // Error ANTES del primer movimiento (validacion, SiGA caido al pedir depositos): no se
+    // escribio nada, el carrito del navegador queda intacto y reintentar es seguro. Los
+    // errores a mitad de la tanda los maneja el 207 de arriba.
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Anular: el movimiento inverso, deposito de reserva -> principal, con las mismas lineas y un
+// solo comprobante. La sucursal y los depositos salen de la reserva, NO del config ni del body:
+// cambiar de sucursal en la pantalla no puede hacer que la devolucion mueva stock en otro lado.
+app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
+  try {
+    const arr = leerJSON(RESERVAS_MERC_PATH, []);
+    const i = arr.findIndex(r => String(r.id) === String(req.params.id));
+    if (i < 0) return res.status(404).json({ error: 'Reserva no encontrada' });
+    const reserva = arr[i];
+    if (reserva.estado === 'anulada') {
+      return res.status(409).json({ error: `La reserva #${reserva.id} ya esta anulada` });
+    }
+
+    const cr = cfgReserva();
+    const poolW = await getPoolStock();
+    const observacion = `ANULA RESERVA MAY ${reserva.nombreCliente} #${reserva.numeroMovimiento}`.slice(0, 200);
+    const mov = {
+      idSucursal: reserva.idSucursal, depOrigen: reserva.depDestino, depDestino: reserva.depOrigen,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+      observacion,
+    };
+    const r = await ejecutarYRegistrar({
+      origen: 'devolucion', plan: null, itemId: null,
+      ...mov,
+      lineas: reserva.lineas.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
+    }, () => trasladarStock(poolW, {
+      ...mov,
+      lineas: reserva.lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
+    }));
+
+    const { reserva: anulada, error } = anularReserva(reserva, {
+      numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
+      fecha: new Date().toISOString(),
+    });
+    if (error) return res.status(409).json({ error });
+    arr[i] = anulada;
+    guardarJSON(RESERVAS_MERC_PATH, arr);
+    res.json(conLogError(anulada, r.logError));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 app.get('/api/facturas',    apiRoute(async req => {
   if (!req.query.numeroPedido) return { error: 'Falta el parámetro numeroPedido' };
@@ -4315,6 +4505,45 @@ app.post('/api/plan/:fecha', (req, res) => {
   planes[fecha] = { ...prev, fecha, notas, creado: prev?.creado || new Date().toISOString(), items };
   guardarJSON(PLANES_PATH, planes); res.json(planes[fecha]);
 });
+
+// ── Agenda de bloques de tareas ────────────────────────────────────────────────
+// Plantillas: qué tareas lleva cada producto o rubro y cuánto dura cada una. Se guarda la
+// lista entera de una: la edita un planificador por vez desde el modal, no hay concurrencia.
+app.get('/api/plantillas-tareas', (_req, res) => res.json(leerJSON(PLANTILLAS_TAREAS_PATH, [])));
+
+app.post('/api/plantillas-tareas', (req, res) => {
+  // Se valida antes de tocar el disco: un body roto no puede dejar el archivo de recetas a
+  // medias, porque después la agenda de todos los días se genera desde acá.
+  const errores = bloquesTareas.validarPlantillas(req.body);
+  if (errores.length) return res.status(400).json({ error: errores[0], errores });
+  const lista = bloquesTareas.normalizarPlantillas(req.body);
+  guardarJSON(PLANTILLAS_TAREAS_PATH, lista);
+  res.json(lista);
+});
+
+// Los bloques viven dentro del plan del día, pero NO se pueden guardar por POST /api/plan/:fecha:
+// ese handler arma el plan como { ...prev, fecha, notas, creado, items } y descarta cualquier
+// campo extra del body. Endpoint aparte, que además sólo toca jornadaInicio y bloques: los
+// items y el ledger de reservas quedan intactos aunque el navegador tenga un cache viejo.
+app.post('/api/plan/:fecha/bloques', (req, res) => {
+  const fecha = safeDate(req.params.fecha);
+  const errores = bloquesTareas.validarBloquesBody(req.body);
+  if (errores.length) return res.status(400).json({ error: errores[0], errores });
+  const planes = leerJSON(PLANES_PATH, {});
+  const prev = planes[fecha];
+  // Sin plan del día no hay items contra los que colgar los bloques: crear el plan acá dejaría
+  // una agenda huérfana que no se ve en ninguna pantalla.
+  if (!prev) return res.status(404).json({ error: 'No hay plan cargado para esa fecha.' });
+  // Una jornadaInicio ausente o vacía no borra la que ya estaba guardada: el front puede mandar
+  // sólo los bloques y el arranque del día se conserva.
+  const jornadaInicio = bloquesTareas.minutosDeHora(req.body.jornadaInicio) == null
+    ? (prev.jornadaInicio || '08:00')
+    : String(req.body.jornadaInicio).trim();
+  planes[fecha] = { ...prev, jornadaInicio, bloques: bloquesTareas.normalizarBloques(req.body.bloques) };
+  guardarJSON(PLANES_PATH, planes);
+  res.json({ jornadaInicio, bloques: planes[fecha].bloques });
+});
+
 app.post('/api/plan/:fecha/desde-sugerencias', apiRoute(async req => {
   const fecha = safeDate(req.params.fecha), sugs = await calcularSugerencias({});
   const ts = Date.now();
@@ -5584,7 +5813,10 @@ async function registrarMovimientoMultilinea(pool, m) {
 // (DELETE /api/plan/:fecha vacía los ítems) y poder revertir un movimiento que se
 // hizo por error desde POST /api/stock/movimientos/:id/revertir.
 const MOVIMIENTOS_LOG_PATH = path.join(DATA_DIR, 'movimientos_stock.json');
-const MOV_LOG_ORIGENES     = ['reserva', 'ajuste', 'devolucion', 'traslado', 'movimiento', 'produccion'];
+// 'reserva' es la de planificacion (componentes de formula del plan del dia); 'reserva-mayorista'
+// es la de Pedidos mayoristas (producto terminado apartado para UN cliente). Son dos flujos
+// distintos y hay que poder filtrarlos por separado en /api/stock/movimientos.
+const MOV_LOG_ORIGENES     = ['reserva', 'reserva-mayorista', 'ajuste', 'devolucion', 'traslado', 'movimiento', 'produccion'];
 const MOV_LOG_LIMIT_DEF    = 100;
 const MOV_LOG_LIMIT_MAX    = 500;
 

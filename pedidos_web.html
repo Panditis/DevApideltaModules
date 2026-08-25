@@ -414,6 +414,16 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 .res-tbl tbody tr:hover{background:rgba(255,204,0,.05)}
 .res-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
 
+/* Reservas generadas: un <details> por cliente. El marcador nativo se reemplaza por un
+   chevron propio para que gire al abrir, igual en todos los navegadores. */
+.res-grp{border-bottom:1px solid var(--out-var)}
+.res-grp:last-child{border-bottom:none}
+.res-grp-head{cursor:pointer;list-style:none;padding:12px 18px;background:var(--surf-lo);display:flex;align-items:center;gap:10px;transition:background .12s ease}
+.res-grp-head::-webkit-details-marker{display:none}
+.res-grp-head:hover{background:#eeede3}
+.res-grp-head::before{content:"";width:0;height:0;border-left:6px solid var(--on-svar);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s ease;flex-shrink:0}
+.res-grp[open] > .res-grp-head::before{transform:rotate(90deg)}
+
 /* Barra fija del pie de la solapa Fraccionado */
 .fracc-bar{position:sticky;bottom:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
   gap:12px;margin:12px auto 0;max-width:1536px;padding:10px 16px;background:#fff;
@@ -564,6 +574,15 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
       <span class="flex flex-col items-start leading-tight">
         <span>Fraccionado</span>
         <span class="text-[10px] font-normal text-olive">Carrito armado a mano</span>
+      </span>
+    </button>
+    <!-- Reservas deshabilitadas a pedido: la tab queda oculta (RESERVAS_HABILITADAS en el script). -->
+    <button id="tab-reservas" hidden style="display:none" onclick="switchTab('reservas')"
+      class="tab flex-1 sm:flex-none sm:min-w-[200px] px-5 py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all">
+      <i data-lucide="lock" class="w-5 h-5"></i>
+      <span class="flex flex-col items-start leading-tight">
+        <span>Reservas</span>
+        <span class="text-[10px] font-normal text-olive">Un cliente por vez</span>
       </span>
     </button>
   </div>
@@ -727,6 +746,105 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     </button>
   </div>
 </div><!-- /#panel-fraccionado -->
+
+<div class="tab-panel" id="panel-reservas">
+  <div class="max-w-screen-2xl mx-auto px-4 pt-4 pb-2">
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
+      <i data-lucide="lock" class="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"></i>
+      <div class="text-emerald-900">
+        <strong>Reservas de mercader&iacute;a.</strong>
+        Aparta stock de producto terminado. En <em>Resumen por cliente</em> toc&aacute;
+        <em>+ Reservar</em> en todos los productos que quieras, de los clientes que quieras.
+        Ac&aacute; abajo quedan agrupados por cliente y <strong>cada cliente se reserva por
+        separado</strong>, con su propio comprobante de SiGA.
+      </div>
+    </div>
+    <div class="flex gap-1 mt-3">
+      <button id="subtab-res-carrito" class="btn btn-tonal btn-sm" onclick="switchSubRes('carrito')">Carrito</button>
+      <button id="subtab-res-generadas" class="btn btn-ghost btn-sm" onclick="switchSubRes('generadas')">Reservas generadas</button>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px" id="sub-res-carrito">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center"><i data-lucide="lock" class="w-[18px] h-[18px]"></i></div>
+          <div>
+            <h3 class="font-semibold text-sm text-ink leading-tight">Carrito de reserva</h3>
+            <p class="text-xs text-olive leading-tight" id="res-cliente-txt">Sin cliente todav&iacute;a.</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold" id="badge-res">&mdash;</span>
+          <button class="btn btn-ghost btn-sm" onclick="vaciarCarritoRes()">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Vaciar
+          </button>
+        </div>
+      </div>
+      <div class="tbl-wrap" id="tabla-res-carrito"><div class="state state-empty">El carrito est&aacute; vac&iacute;o.</div></div>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px;display:none" id="sub-res-generadas">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+        <h3 class="font-semibold text-sm text-ink leading-tight">Reservas generadas</h3>
+        <p class="text-xs text-olive leading-tight">Mercader&iacute;a apartada en SiGA, con su comprobante.</p>
+      </div>
+      <div class="tbl-wrap" id="tabla-res-generadas"><div class="state state-loading">Cargando&hellip;</div></div>
+    </div>
+  </div>
+
+  <!-- Sin bot&oacute;n: cada cliente se reserva desde el suyo, en la cabecera de su grupo. -->
+  <div class="fracc-bar" id="res-bar" style="display:none">
+    <span id="res-resumen">0 clientes &middot; 0 l&iacute;neas &middot; 0 unidades</span>
+  </div>
+</div><!-- /#panel-reservas -->
+
+<!-- Modal Confirmar reserva de mercadería -->
+<div id="res-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarModalReservaMay()">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-2xl mx-auto my-8 fade-up">
+    <div class="px-6 py-4 border-b border-line/60 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+          <i data-lucide="lock" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 class="font-semibold text-base text-ink">Reservar mercadería</h3>
+          <p class="text-xs text-olive" id="res-modal-cliente">—</p>
+        </div>
+      </div>
+      <button onclick="cerrarModalReservaMay()" class="w-9 h-9 rounded-lg hover:bg-surface-alt text-olive flex items-center justify-center">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+    <div class="p-6">
+      <div class="flex flex-wrap gap-3 mb-4">
+        <label style="font-size:12px">Sucursal
+          <select id="res-sucursal" onchange="cargarDepositosRes()" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
+        </label>
+        <label style="font-size:12px">Depósito origen
+          <select id="res-dep-origen" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
+        </label>
+        <label style="font-size:12px">Depósito destino
+          <select id="res-dep-destino" style="display:block;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;min-width:200px"></select>
+        </label>
+      </div>
+      <div id="res-modal-lineas"></div>
+      <div id="res-modal-faltantes" style="display:none;margin-top:12px;padding:10px;border:1px solid #f5c2c7;background:#fdf2f2;border-radius:8px;font-size:12px"></div>
+      <label id="res-modal-forzar-wrap" style="display:none;margin-top:10px;font-size:12px">
+        <input type="checkbox" id="res-modal-forzar"> Reservar igual aunque falte stock
+      </label>
+    </div>
+    <div class="px-6 py-4 border-t border-line/60 flex justify-end gap-2">
+      <button class="btn btn-ghost btn-sm" onclick="cerrarModalReservaMay()">Cancelar</button>
+      <button class="btn btn-filled btn-sm" id="res-modal-ok" onclick="confirmarReservaMay()">
+        <i data-lucide="lock" class="w-3.5 h-3.5"></i> Reservar
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- Modal Facturación de un pedido -->
 <div id="factura-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarFactura()">
@@ -969,6 +1087,10 @@ function msLocLabel(){
 // ── Multi-select estados ──────────────────────────────────────────────────────
 var msEst = [];   // [{nombre, checked}]
 var EST_DEFAULT = ['PENDIENTE','EN PROCESO','RESERVAR'];
+
+// Reservas de mercadería apagadas: sin tab, sin botón "+ Reservar" en el resumen y sin columna
+// para él. Todo el código del módulo sigue en su lugar: poner true lo devuelve como estaba.
+var RESERVAS_HABILITADAS = false;
 
 function cargarEstados(savedEstados){
   return api('/api/estados').then(function(data){
@@ -1415,8 +1537,43 @@ function renderProductos(data){
 // ── PDF ───────────────────────────────────────────────────────────────────────
 function pdfSegunTab(){
   if(tabActiva==='fraccionado'){ snack('La solapa Fraccionado no genera PDF'); return; }
+  if(tabActiva==='reservas'){ generarPDFReserva(); return; }
   if(tabActiva==='resumen') generarPDFResumen();
   else generarPDF();
+}
+
+// Imprime el carrito de reserva entero, una sección por cliente: es el remito que acompaña
+// a quien mueve la mercadería al depósito de reserva.
+function generarPDFReserva(){
+  if(!carritoRes.length){ snack('El carrito de reserva está vacío'); return; }
+  var ahora = new Date().toLocaleString('es-AR');
+  var grupos = gruposCarritoRes();
+  var html = '<div class="pdf-logo">'
+    +'<div><div class="pdf-logo-title">Apidelta</div>'
+    +'<div class="pdf-logo-sub">Reserva de mercadería</div></div>'
+    +'<div class="pdf-logo-meta">'
+    +'<strong>Clientes:</strong> '+grupos.length+'<br>'
+    +'<strong>Generado:</strong> '+escHtml(ahora)+'</div></div>';
+  html += grupos.map(function(g){
+    var filas = g.items.map(function(it){
+      var l = it.linea;
+      return '<tr><td>'+escHtml(l.nombrePedido||l.nombre)+'</td>'
+        +'<td>'+escHtml(l.nombre)+'</td><td>'+escHtml(l.plu)+'</td>'
+        +'<td style="text-align:right">'+numFmt.format(l.cantidad)+'</td></tr>';
+    }).join('');
+    var unidades = g.items.reduce(function(a, it){ return a+(Number(it.linea.cantidad)||0); }, 0);
+    return '<h3 style="margin:14px 0 6px;font-size:12pt">'+escHtml(g.nombre)+'</h3>'
+      +'<table class="pt"><thead><tr><th>Producto del pedido</th><th>Se aparta</th><th>PLU</th>'
+      +'<th style="text-align:right">Cantidad</th></tr></thead>'
+      +'<tbody>'+filas+'</tbody>'
+      +'<tfoot><tr><td colspan="3"><strong>Total</strong></td>'
+      +'<td style="text-align:right"><strong>'+numFmt.format(unidades)+'</strong></td></tr></tfoot></table>';
+  }).join('');
+  html += '<div class="pdf-sign">'
+    +'<div class="pdf-sign-box">Preparado por</div>'
+    +'<div class="pdf-sign-box">Revisado por</div></div>';
+  $('pdf-cont').innerHTML = html;
+  $('pdf-overlay').classList.add('visible');
 }
 
 function generarPDF(){
@@ -1588,6 +1745,7 @@ function verResumenClientes(){
 }
 
 function switchTab(tab){
+  if(tab==='reservas' && !RESERVAS_HABILITADAS) return;
   tabActiva = tab;
   document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b.id==='tab-'+tab); });
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.toggle('active', p.id==='panel-'+tab); });
@@ -1595,6 +1753,7 @@ function switchTab(tab){
   if(tab==='entregados' && estadoActual.entregados===null) cargarEntregados();
   // El carrito no depende de los filtros: sólo se re-dibuja con lo que ya hay en memoria.
   if(tab==='fraccionado') renderCarrito();
+  if(tab==='reservas') renderCarritoRes();
 }
 
 // ── Fraccionado: carrito ──────────────────────────────────────────────────────
@@ -2030,6 +2189,474 @@ carritoFracc = leerCarritoFracc();
 renderCarrito();
 cargarPlusOrdenados();
 
+// ── Reservas de mercadería: carrito ───────────────────────────────────────────
+// El carrito junta productos de VARIOS clientes: una línea por producto y cliente. Se
+// muestra agrupado y cada cliente se reserva por separado, con su propio botón y su propio
+// movimiento de SiGA. Así no existe la falla parcial: si un cliente falla, los demás siguen
+// en el carrito intactos.
+var CARRITO_RES_KEY = 'apidelta.mayoristas.reservas.carrito.v1';
+// v2: el carrito pasó de mono-cliente ({idCliente, lineas}) a una lista plana con el cliente
+// en cada línea. v3: la línea distingue el producto PEDIDO del producto que se APARTA (para
+// los Almacén Bulto/Caja son distintos: se reserva el componente de fórmula). Un carrito de
+// una versión vieja que haya quedado en un navegador se descarta solo.
+var CARRITO_RES_VER = 3;
+// [{pluPedido, nombrePedido, plu, nombre, mult, pedido, cantidad, idCliente, nombreCliente}]
+//   pluPedido/nombrePedido → el producto del pedido, lo que ve el operador
+//   plu/nombre             → lo que se mueve en SiGA (el componente, o el mismo producto)
+//   mult                   → cuántas unidades de `plu` entran en una unidad de `pluPedido`
+//   pedido                 → unidades pendientes del pedido;  cantidad → lo que se aparta
+var carritoRes = [];
+var subResActiva = 'carrito';
+// Cliente del modal de confirmación abierto: lo fija el botón Reservar de cada grupo.
+var clienteModalRes = null;
+
+// Una línea es única por producto PEDIDO y cliente. Se compara por pluPedido y no por el que
+// se aparta porque dos productos distintos (un bulto y una caja del mismo artículo) pueden
+// compartir componente: son dos líneas del pedido y el operador tiene que verlas separadas.
+// Al mandarlas al server se consolidan solas, que suma las cantidades del mismo plu.
+function mismaLineaRes(l, pluPedido, idCliente){
+  return String(l.pluPedido) === String(pluPedido) && String(l.idCliente) === String(idCliente);
+}
+
+function formaCarritoResValida(arr){
+  return Array.isArray(arr) && arr.every(function(l){
+    return !!l && typeof l === 'object' && typeof l.plu === 'string'
+      && typeof l.pluPedido === 'string'
+      && typeof l.cantidad === 'number' && isFinite(l.cantidad)
+      && l.idCliente !== undefined && l.idCliente !== null;
+  });
+}
+
+function lineasDeClienteRes(idCliente){
+  return carritoRes.filter(function(l){ return String(l.idCliente) === String(idCliente); });
+}
+
+function leerCarritoRes(){
+  var crudo = null;
+  try { crudo = localStorage.getItem(CARRITO_RES_KEY); }
+  catch(e){ return []; }
+  if(!crudo) return [];
+  var obj = null;
+  try { obj = JSON.parse(crudo); } catch(e){ obj = null; }
+  // Formato viejo o corrupto: se descarta en silencio en vez de romper la página.
+  if(!obj || obj.v !== CARRITO_RES_VER || !formaCarritoResValida(obj.lineas)){
+    try { localStorage.removeItem(CARRITO_RES_KEY); } catch(e){ /* idem */ }
+    return [];
+  }
+  return obj.lineas;
+}
+
+function guardarCarritoRes(){
+  try { localStorage.setItem(CARRITO_RES_KEY, JSON.stringify({ v: CARRITO_RES_VER, lineas: carritoRes })); }
+  catch(e){ /* cuota llena: el carrito sigue en memoria */ }
+}
+
+function vaciarCarritoRes(){
+  if(!carritoRes.length){ snack('El carrito ya está vacío'); return; }
+  if(!confirm('¿Vaciar el carrito de reserva entero?')) return;
+  carritoRes = [];
+  guardarCarritoRes();
+  renderCarritoRes();
+  marcarAgregadosResumen();
+}
+
+function switchSubRes(sub){
+  subResActiva = sub;
+  $('sub-res-carrito').style.display   = sub==='carrito'   ? '' : 'none';
+  $('sub-res-generadas').style.display = sub==='generadas' ? '' : 'none';
+  $('subtab-res-carrito').className   = 'btn btn-sm ' + (sub==='carrito'   ? 'btn-tonal' : 'btn-ghost');
+  $('subtab-res-generadas').className = 'btn btn-sm ' + (sub==='generadas' ? 'btn-tonal' : 'btn-ghost');
+  actualizarBarraRes();
+  if(sub==='generadas') cargarReservasGeneradas();
+}
+
+// Agrega un producto al carrito, para el cliente que venga. Un segundo toque sobre el mismo
+// producto DEL MISMO cliente lo saca, así el botón del resumen funciona como toggle.
+// `d` sale de los data-* del botón: {pluPedido, nombrePedido, plu, nombre, mult, idCliente,
+// nombreCliente, pedido}. La cantidad a reservar arranca en unidades × mult, la equivalencia
+// con la que se muestra el stock.
+function agregarAReserva(d){
+  var yaEsta = carritoRes.some(function(l){ return mismaLineaRes(l, d.pluPedido, d.idCliente); });
+  if(yaEsta){
+    carritoRes = carritoRes.filter(function(l){ return !mismaLineaRes(l, d.pluPedido, d.idCliente); });
+  } else {
+    var unidades = Number(d.pedido);
+    if(!isFinite(unidades) || unidades <= 0) unidades = 1;
+    var mult = Number(d.mult);
+    if(!isFinite(mult) || mult <= 0) mult = 1;
+    carritoRes.push({
+      pluPedido: String(d.pluPedido), nombrePedido: String(d.nombrePedido||''),
+      plu: String(d.plu), nombre: String(d.nombre||''),
+      mult: mult, pedido: unidades, cantidad: unidades * mult,
+      idCliente: d.idCliente, nombreCliente: String(d.nombreCliente||'')
+    });
+  }
+  guardarCarritoRes();
+  renderCarritoRes();
+  marcarAgregadosResumen();
+}
+
+function quitarLineaRes(idx){
+  carritoRes.splice(idx, 1);
+  guardarCarritoRes();
+  renderCarritoRes();
+  marcarAgregadosResumen();
+}
+
+function cambiarCantRes(idx, valor){
+  var n = Number(valor);
+  if(!isFinite(n) || n <= 0){ snack('La cantidad tiene que ser mayor a cero', true); renderCarritoRes(); return; }
+  carritoRes[idx].cantidad = n;
+  guardarCarritoRes();
+  actualizarBarraRes();
+}
+
+// Agrupa el carrito por cliente conservando el índice original de cada línea: los listeners
+// delegados trabajan sobre ese índice, así el borrado y la edición no dependen del orden en
+// que se dibujaron los grupos.
+function gruposCarritoRes(){
+  var orden = [], mapa = {};
+  carritoRes.forEach(function(l, idx){
+    var k = String(l.idCliente);
+    if(!mapa[k]){ mapa[k] = { idCliente: l.idCliente, nombre: l.nombreCliente, items: [] }; orden.push(k); }
+    mapa[k].items.push({ linea: l, idx: idx });
+  });
+  return orden.map(function(k){ return mapa[k]; });
+}
+
+function actualizarBarraRes(){
+  var unidades = carritoRes.reduce(function(a, l){ return a + (Number(l.cantidad)||0); }, 0);
+  var clientes = gruposCarritoRes().length;
+  $('res-resumen').textContent = clientes + ' cliente' + (clientes!==1 ? 's' : '')
+    + ' · ' + carritoRes.length + ' línea' + (carritoRes.length!==1 ? 's' : '')
+    + ' · ' + numFmt.format(unidades) + ' unidades';
+  $('res-bar').style.display = (carritoRes.length && tabActiva==='reservas' && subResActiva==='carrito') ? '' : 'none';
+}
+
+function renderCarritoRes(){
+  var grupos = gruposCarritoRes();
+  $('badge-res').textContent = carritoRes.length + ' línea' + (carritoRes.length!==1 ? 's' : '');
+  $('res-cliente-txt').textContent = grupos.length
+    ? grupos.length + ' cliente' + (grupos.length!==1 ? 's' : '') + ' en el carrito'
+    : 'Sin productos todavía.';
+  if(!carritoRes.length){
+    $('tabla-res-carrito').innerHTML = '<div class="state state-empty">El carrito está vacío. Agregá productos desde <strong>Resumen por cliente</strong>.</div>';
+    actualizarBarraRes();
+    return;
+  }
+  var att = function(v){ return escHtml(String(v==null?'':v)).replace(/'/g,'&#39;'); };
+  $('tabla-res-carrito').innerHTML = grupos.map(function(g){
+    var unidades = g.items.reduce(function(a, it){ return a + (Number(it.linea.cantidad)||0); }, 0);
+    var filas = g.items.map(function(it){
+      var l = it.linea;
+      // Debajo del producto del pedido, qué se aparta realmente. Cuando son distintos (los
+      // Almacén Bulto/Caja) se muestra el componente y la equivalencia, igual que la columna
+      // Stock Central del resumen.
+      var sub = String(l.plu) === String(l.pluPedido)
+        ? 'PLU ' + escHtml(l.plu)
+        : 'reserva: ' + escHtml(l.nombre) + (l.mult > 1 ? ' (×' + numFmt.format(l.mult) + ')' : '');
+      return '<tr>'
+        +'<td><strong>'+escHtml(l.nombrePedido||l.nombre)+'</strong>'
+        +'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
+        +'<td class="num">'+numFmt.format(l.pedido||0)+'</td>'
+        +'<td class="num"><input type="number" min="0" step="any" value="'+escHtml(String(l.cantidad))+'"'
+          +' data-idx="'+it.idx+'" data-act="cant-res"'
+          +' style="width:90px;padding:4px 6px;border:1px solid var(--outline);border-radius:6px;text-align:right"></td>'
+        +'<td class="num"><button type="button" class="btn btn-ghost btn-sm" data-idx="'+it.idx+'" data-act="quitar-res">✕</button></td>'
+        +'</tr>';
+    }).join('');
+    // Un cliente = un botón = un movimiento de SiGA. Los demás grupos no se tocan.
+    return '<div class="res-card" style="margin:0 0 14px">'
+      +'<div class="res-card-head">'
+      +'<span class="res-client-name">'+escHtml(g.nombre)+'</span>'
+      +'<span style="display:flex;align-items:center;gap:8px">'
+      +'<span class="res-badge">'+g.items.length+' producto'+(g.items.length!==1?'s':'')
+        +' · '+numFmt.format(unidades)+' u.</span>'
+      +'<button type="button" class="btn btn-filled btn-sm" data-act="reservar-cli"'
+        +' data-idcli="'+att(g.idCliente)+'">🔒 Reservar</button>'
+      +'<button type="button" class="btn btn-ghost btn-sm" data-act="vaciar-cli"'
+        +' data-idcli="'+att(g.idCliente)+'" title="Sacar todos los productos de este cliente">✕</button>'
+      +'</span>'
+      +'</div>'
+      +'<table class="res-tbl">'
+      +'<thead><tr><th>Producto</th><th class="num">Pedido</th><th class="num">A reservar</th><th class="num"></th></tr></thead>'
+      +'<tbody>'+filas+'</tbody></table>'
+      +'</div>';
+  }).join('');
+  actualizarBarraRes();
+}
+
+// Saca del carrito los registros que ya salieron con comprobante. Se emparejan por cliente
+// y producto del pedido, que es lo que identifica una línea: si de cinco registros salieron
+// tres, los otros dos quedan para reintentar.
+function sacarEmitidasDelCarrito(emitidas){
+  var claves = {};
+  emitidas.forEach(function(r){ claves[String(r.idCliente)+'|'+String(r.pluPedido)] = true; });
+  carritoRes = carritoRes.filter(function(l){
+    return !claves[String(l.idCliente)+'|'+String(l.pluPedido)];
+  });
+  guardarCarritoRes();
+  renderCarritoRes();
+}
+
+// Saca del carrito todas las líneas de un cliente, sin tocar las de los demás.
+function vaciarClienteRes(idCliente){
+  carritoRes = carritoRes.filter(function(l){ return String(l.idCliente) !== String(idCliente); });
+  guardarCarritoRes();
+  renderCarritoRes();
+  marcarAgregadosResumen();
+}
+
+// Listeners delegados: nada interpolado en onclick.
+$('tabla-res-carrito').addEventListener('click', function(ev){
+  var t = ev.target.closest ? ev.target : null;
+  if(!t) return;
+  var quitar = t.closest('button[data-act="quitar-res"]');
+  if(quitar){ quitarLineaRes(Number(quitar.getAttribute('data-idx'))); return; }
+  var reservar = t.closest('button[data-act="reservar-cli"]');
+  if(reservar){ abrirModalReservaMay(reservar.getAttribute('data-idcli')); return; }
+  var vaciar = t.closest('button[data-act="vaciar-cli"]');
+  if(vaciar) vaciarClienteRes(vaciar.getAttribute('data-idcli'));
+});
+$('tabla-res-carrito').addEventListener('change', function(ev){
+  var i = ev.target;
+  if(i && i.getAttribute && i.getAttribute('data-act')==='cant-res'){
+    cambiarCantRes(Number(i.getAttribute('data-idx')), i.value);
+  }
+});
+
+carritoRes = leerCarritoRes();
+renderCarritoRes();
+
+// ── Reservas: modal de confirmación ───────────────────────────────────────────
+// Los depósitos se precargan de config.reserva. Mientras depositoReserva siga en null en
+// config.json el destino hay que elegirlo a mano: sin eso el POST responde 400.
+// Se abre siempre para UN cliente: el que eligió el botón Reservar de su grupo.
+function abrirModalReservaMay(idCliente){
+  var lineas = lineasDeClienteRes(idCliente);
+  if(!lineas.length){ snack('Ese cliente no tiene productos en el carrito', true); return; }
+  clienteModalRes = { idCliente: idCliente, nombreCliente: lineas[0].nombreCliente };
+  $('res-modal-cliente').textContent = clienteModalRes.nombreCliente;
+  $('res-modal-faltantes').style.display = 'none';
+  $('res-modal-forzar-wrap').style.display = 'none';
+  $('res-modal-forzar').checked = false;
+  $('res-modal-lineas').innerHTML = '<table><thead><tr><th>Producto</th><th class="num">A reservar</th></tr></thead><tbody>'
+    + lineas.map(function(l){
+        return '<tr><td>'+escHtml(l.nombre)+'</td><td class="num">'+numFmt.format(l.cantidad)+'</td></tr>';
+      }).join('')
+    + '</tbody></table>';
+  $('res-overlay').classList.remove('hidden');
+  cargarSucursalesRes().then(cargarDepositosRes);
+}
+
+function cerrarModalReservaMay(){ $('res-overlay').classList.add('hidden'); }
+
+// Las sucursales se piden una sola vez por carga de página: no cambian mientras se trabaja.
+var sucursalesRes = null;
+function cargarSucursalesRes(){
+  if(sucursalesRes){ return Promise.resolve(); }
+  return api('/api/sucursales').then(function(data){
+    if(!Array.isArray(data)) return;
+    sucursalesRes = data;
+    $('res-sucursal').innerHTML = data.map(function(s){
+      return '<option value="'+s.id+'">'+escHtml(s.nombre)+(s.central?' (central)':'')+'</option>';
+    }).join('');
+    // Arranca en la central, que es de donde sale la mercadería de los pedidos mayoristas.
+    var central = data.filter(function(s){ return s.central; })[0];
+    if(central) $('res-sucursal').value = String(central.id);
+  }).catch(function(){ /* sin lista: queda el selector vacío y el POST usa la de config */ });
+}
+
+// Los depósitos son POR sucursal: cada vez que cambia el selector se vuelven a pedir. Reusa
+// el GET de reserva de planificación, que ya los devuelve junto con el config y es lectura pura.
+function cargarDepositosRes(){
+  var hoy = new Date().toISOString().slice(0,10);
+  var suc = $('res-sucursal').value;
+  $('res-dep-origen').innerHTML  = '<option value="">cargando…</option>';
+  $('res-dep-destino').innerHTML = '<option value="">cargando…</option>';
+  return api('/api/plan/'+hoy+'/reserva'+(suc ? '?idSucursal='+encodeURIComponent(suc) : ''))
+    .then(function(data){
+      if(!data || data.error){
+        $('res-dep-origen').innerHTML  = '<option value="">— sin depósitos —</option>';
+        $('res-dep-destino').innerHTML = '<option value="">— sin depósitos —</option>';
+        if(data && data.error) snack(data.error, true);
+        return;
+      }
+      var opts = (data.depositos||[]).map(function(d){
+        return '<option value="'+d.idDeposito+'">'+escHtml(d.nombre)+'</option>';
+      }).join('');
+      $('res-dep-origen').innerHTML  = opts || '<option value="">— sin depósitos —</option>';
+      $('res-dep-destino').innerHTML = '<option value="">— elegir —</option>' + opts;
+      // Preselección del config, sólo si esos depósitos existen en la sucursal elegida.
+      var sel = data.seleccion || {};
+      var cfg = data.config || {};
+      var origen  = sel.depOrigen  || cfg.depositoPrincipal;
+      var destino = sel.depDestino || cfg.depositoReserva;
+      if(origen)  $('res-dep-origen').value  = String(origen);
+      if(destino) $('res-dep-destino').value = String(destino);
+    })
+    .catch(function(){ /* sin depósitos: el POST avisa igual */ });
+}
+
+function confirmarReservaMay(){
+  if(!clienteModalRes){ snack('No hay cliente seleccionado', true); return; }
+  var destino = $('res-dep-destino').value;
+  if(!destino){ snack('Elegí el depósito de destino', true); return; }
+  var cli = clienteModalRes;
+  var lineas = lineasDeClienteRes(cli.idCliente);
+  if(!lineas.length){ snack('Ese cliente ya no tiene productos en el carrito', true); return; }
+  var btn = $('res-modal-ok');
+  btn.disabled = true;
+  fetch('/api/mayoristas/reservas', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      idCliente: cli.idCliente,
+      nombreCliente: cli.nombreCliente,
+      idSucursal: $('res-sucursal').value,
+      depOrigen: $('res-dep-origen').value,
+      depDestino: destino,
+      permitirFaltante: $('res-modal-forzar').checked,
+      // `plu` es lo que se APARTA (el componente en los Bulto/Caja); `pluPedido` es el
+      // producto del pedido, que la reserva guarda para poder mostrarlo después.
+      lineas: lineas.map(function(l){
+        return { plu: l.plu, nombre: l.nombre, cantidad: l.cantidad,
+                 pluPedido: l.pluPedido, nombrePedido: l.nombrePedido, idCliente: cli.idCliente };
+      })
+    })
+  }).then(function(r){ return r.json().then(function(j){ return { status:r.status, body:j }; }); })
+    .then(function(res){
+      btn.disabled = false;
+      if(res.status === 400 && res.body.faltantes){
+        // Faltante de stock: se lista producto por producto y se habilita el checkbox de forzar.
+        $('res-modal-faltantes').innerHTML = '<strong>Sin stock suficiente:</strong><br>'
+          + res.body.faltantes.map(function(f){
+              return escHtml(f.nombre||f.plu)+': necesita '+numFmt.format(f.necesario)
+                   +', hay '+numFmt.format(f.stockOrigen);
+            }).join('<br>');
+        $('res-modal-faltantes').style.display = '';
+        $('res-modal-forzar-wrap').style.display = '';
+        return;
+      }
+      // 207: parte de los registros salió y uno falló. Se sacan del carrito sólo los que
+      // tienen comprobante, así reintentar no duplica lo ya emitido.
+      var emitidas = res.body.emitidas || [];
+      if(emitidas.length) sacarEmitidasDelCarrito(emitidas);
+      if(res.body.error){
+        snack(res.body.error + (emitidas.length ? ' · ' + emitidas.length + ' ya reservado(s), quedan en el carrito los que faltan' : ''), true);
+        if(emitidas.length && subResActiva==='generadas') cargarReservasGeneradas();
+        return;
+      }
+      snack(emitidas.length + ' reserva(s) de ' + cli.nombreCliente + ' · comprobante(s) #'
+            + emitidas.map(function(r){ return r.numeroMovimiento; }).join(', #'));
+      cerrarModalReservaMay();
+      marcarAgregadosResumen();
+      if(subResActiva==='generadas') cargarReservasGeneradas();
+    })
+    .catch(function(e){ btn.disabled = false; snack('Error: '+e.message, true); });
+}
+
+// ── Reservas generadas ────────────────────────────────────────────────────────
+function cargarReservasGeneradas(){
+  $('tabla-res-generadas').innerHTML = '<div class="state state-loading">Cargando…</div>';
+  return api('/api/mayoristas/reservas').then(function(data){
+    if(!data || data.error){
+      $('tabla-res-generadas').innerHTML = '<div class="state state-err">⚠ '+escHtml((data&&data.error)||'Error')+'</div>';
+      return;
+    }
+    if(!data.length){
+      $('tabla-res-generadas').innerHTML = '<div class="state state-empty">Todavía no hay reservas.</div>';
+      return;
+    }
+    // Se agrupa por cliente y cada grupo es un <details> nativo: sin librería ni estado
+    // propio, el navegador se ocupa de abrir y cerrar. Los que estaban abiertos se reabren
+    // después de anular, para no perder de vista dónde estaba trabajando el operador.
+    var orden = [], porCliente = {};
+    data.forEach(function(r){
+      var k = String(r.idCliente);
+      if(!porCliente[k]){ porCliente[k] = { nombre: r.nombreCliente || '', reservas: [] }; orden.push(k); }
+      porCliente[k].reservas.push(r);
+    });
+    $('tabla-res-generadas').innerHTML = orden.map(function(k){
+      var g = porCliente[k];
+      var activas = g.reservas.filter(function(r){ return r.estado === 'activa'; });
+      var unidades = activas.reduce(function(a, r){ return a + ((r.totales&&r.totales.unidades)||0); }, 0);
+      var filas = g.reservas.map(function(r){
+        var chip = r.estado === 'activa'
+          ? '<span class="sc" style="background:#dcfce7;color:#166534">activa</span>'
+          : '<span class="sc" style="background:#f3f4f6;color:#6b7280">anulada</span>';
+        var accion = r.estado === 'activa'
+          ? '<button type="button" class="btn btn-ghost btn-sm" data-act="anular-res" data-id="'+escHtml(String(r.id))+'">↩ Anular</button>'
+          : '<span style="color:#9a9a92;font-size:.72rem" title="Comprobante de la anulación">#'+escHtml(String((r.anulacion&&r.anulacion.numeroMovimiento)||''))+'</span>';
+        // Una reserva = un registro = un comprobante. Se muestra el producto del pedido y,
+        // debajo, lo que realmente se apartó (el componente, en los Bulto/Caja).
+        var l = (r.lineas && r.lineas[0]) || {};
+        var pedido = r.nombrePedido || l.nombre || '';
+        var sub = (l.plu && String(l.plu) !== String(r.pluPedido))
+          ? 'apartó: ' + escHtml(l.nombre||'')
+          : 'PLU ' + escHtml(String(l.plu||''));
+        return '<tr'+(r.estado==='activa' ? '' : ' style="opacity:.55"')+'>'
+          +'<td>'+escHtml(String(r.fecha||'').slice(0,10))+'</td>'
+          +'<td>'+escHtml(pedido)+'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
+          +'<td class="num">'+escHtml(String(r.numeroMovimiento||''))+'</td>'
+          +'<td class="num">'+numFmt.format((r.totales&&r.totales.unidades)||0)+'</td>'
+          +'<td>'+chip+'</td>'
+          +'<td class="num">'+accion+'</td>'
+          +'</tr>';
+      }).join('');
+      var resumen = activas.length
+        ? activas.length + ' activa' + (activas.length!==1?'s':'') + ' · ' + numFmt.format(unidades) + ' u.'
+        : 'sin reservas activas';
+      var anuladas = g.reservas.length - activas.length;
+      if(anuladas) resumen += ' · ' + anuladas + ' anulada' + (anuladas!==1?'s':'');
+      return '<details class="res-grp" data-cli="'+escHtml(k)+'"'+(gruposResAbiertos[k] ? ' open' : '')+'>'
+        +'<summary class="res-grp-head">'
+        +'<span class="res-client-name">'+escHtml(g.nombre)+'</span>'
+        +'<span class="res-badge">'+resumen+'</span>'
+        +'</summary>'
+        +'<table class="res-tbl">'
+        +'<thead><tr><th>Fecha</th><th>Producto</th><th class="num">Comprobante</th>'
+        +'<th class="num">Cantidad</th><th>Estado</th><th class="num"></th></tr></thead>'
+        +'<tbody>'+filas+'</tbody></table>'
+        +'</details>';
+    }).join('');
+  });
+}
+
+// Qué grupos quedaron desplegados, para reabrirlos cuando la tabla se repinta tras anular.
+var gruposResAbiertos = {};
+function recordarGruposResAbiertos(){
+  gruposResAbiertos = {};
+  var abiertos = document.querySelectorAll('#tabla-res-generadas details.res-grp[open]');
+  Array.prototype.forEach.call(abiertos, function(d){
+    gruposResAbiertos[d.getAttribute('data-cli')] = true;
+  });
+}
+// El <details> avisa cuando lo abren o lo cierran a mano. `toggle` no burbujea, así que el
+// listener va en fase de captura para que uno solo alcance para todos los grupos.
+$('tabla-res-generadas').addEventListener('toggle', function(){ recordarGruposResAbiertos(); }, true);
+
+function anularReservaMay(id){
+  confirmarModal('Anular la reserva',
+                 'Se emite el movimiento inverso y la mercadería vuelve al depósito de origen.',
+                 'Anular reserva', true).then(function(ok){
+    if(!ok) return;
+    return fetch('/api/mayoristas/reservas/'+encodeURIComponent(id)+'/anular', { method:'POST' })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if(res.error){ snack(res.error, true); return; }
+        snack('Reserva anulada · comprobante #' + (res.anulacion && res.anulacion.numeroMovimiento));
+        cargarReservasGeneradas();
+        marcarAgregadosResumen();
+      })
+      .catch(function(e){ snack('Error: '+e.message, true); });
+  });
+}
+
+$('tabla-res-generadas').addEventListener('click', function(ev){
+  var b = ev.target.closest ? ev.target.closest('button[data-act="anular-res"]') : null;
+  if(b) anularReservaMay(b.getAttribute('data-id'));
+});
+
 function abrirModalOrden(){
   var lineas = lineasSeleccionadas();
   if(!lineas.length){ snack('El carrito está vacío'); return; }
@@ -2425,12 +3052,32 @@ function renderResumen(data){
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Fraccionar</button>';
+      // Qué se aparta en SiGA: la mayoría de los productos de pedidos son de rubro Almacén
+      // Bulto/Caja, que no tienen stock propio — su stock ES el de su componente de fórmula.
+      // Se reserva ese componente, con la misma equivalencia que usa la columna Stock Central
+      // (unidades × CantidadPorBulto, ver scChip). Sin componente se reserva el producto mismo.
+      var pluRes    = comp ? String(p.IdComponente) : String(p.IdProducto);
+      var nombreRes = comp ? comp : p.NombreProducto;
+      // Bulto/Caja sin componente: no hay stock que apartar (el SQL le da 0). Se avisa y no
+      // se deja agregar, en vez de mandar un movimiento que SiGA va a rechazar o dejar en rojo.
+      var sinFormula = !comp && /BULTO|CAJA/i.test(p.NombreRubro || '');
+      var btnRes = !RESERVAS_HABILITADAS ? '' : '<button type="button" class="res-add" data-act="add-res"'
+        +' data-plu="'+att(p.IdProducto)+'"'
+        +' data-nombre="'+att(p.NombreProducto)+'"'
+        +' data-plures="'+att(pluRes)+'"'
+        +' data-nombreres="'+att(nombreRes)+'"'
+        +' data-mult="'+att(mult)+'"'
+        +' data-idcli="'+att(cliId)+'"'
+        +' data-cliente="'+att(c.nombre)+'"'
+        +' data-sinformula="'+(sinFormula ? '1' : '')+'"'
+        +' data-cant="'+att(p.TotalUnidades)+'">+ Reservar</button>';
       return '<tr'+rowCls(sc, p.TotalUnidades, mult)+'>'
         +'<td>'+prodCell+'</td>'
         +'<td style="color:var(--on-svar)">'+escHtml(p.NombreRubro||'')+'</td>'
         +'<td class="num" style="font-weight:600">'+numFmt.format(p.TotalUnidades)+'</td>'
         +'<td class="num">'+scChip(sc, p.TotalUnidades, mult, comp)+'</td>'
         +'<td class="num">'+btn+'</td>'
+        +(RESERVAS_HABILITADAS?'<td class="num">'+btnRes+'</td>':'')
         +'</tr>';
     }).join('');
     return '<div class="res-card">'
@@ -2439,7 +3086,7 @@ function renderResumen(data){
       +'<span class="res-badge">'+c.productos.length+' producto'+(c.productos.length!==1?'s':'')+'</span>'
       +'</div>'
       +'<table class="res-tbl">'
-      +'<thead><tr><th>Producto</th><th>Rubro</th><th class="num">Necesario</th><th class="num">Stock Central</th><th class="num">Fraccionar</th></tr></thead>'
+      +'<thead><tr><th>Producto</th><th>Rubro</th><th class="num">Necesario</th><th class="num">Stock Central</th><th class="num">Fraccionar</th>'+(RESERVAS_HABILITADAS?'<th class="num">Reservar</th>':'')+'</tr></thead>'
       +'<tbody>'+rows+'</tbody>'
       +'</table>'
       +'</div>';
@@ -2465,14 +3112,52 @@ function marcarAgregadosResumen(){
     var tr = b.closest ? b.closest('tr') : null;
     if(tr) tr.classList.toggle('res-row-on', puesto);
   });
+
+  // Botón de reserva. El carrito acepta productos de todos los clientes a la vez, así que
+  // acá sólo importa el par producto+cliente: o ya está reservado, o está en el carrito, o
+  // se puede agregar.
+  var botonesRes = document.querySelectorAll('#resumen-cont button[data-act="add-res"]');
+  Array.prototype.forEach.call(botonesRes, function(b){
+    var plu   = b.getAttribute('data-plu');
+    var idcli = b.getAttribute('data-idcli');
+    var enCarrito = carritoRes.some(function(l){ return mismaLineaRes(l, plu, idcli); });
+    // No se bloquea por "ya reservado": el mismo componente puede salir dos veces para un
+    // cliente (dos pedidos, o el bulto y la caja del mismo artículo) y cada registro tiene
+    // su propio movimiento de SiGA.
+    var sinFormula = b.getAttribute('data-sinformula') === '1';
+    b.classList.toggle('res-add-on', enCarrito && !sinFormula);
+    b.disabled = sinFormula;
+    if(sinFormula){
+      b.textContent = 'Sin fórmula';
+      b.title = 'Es de rubro Bulto/Caja y no tiene componente de fórmula: no hay stock que apartar.';
+    } else {
+      b.textContent = enCarrito ? '✓ En la reserva' : '+ Reservar';
+      b.title = '';
+    }
+  });
 }
 
 $('resumen-cont').addEventListener('click', function(ev){
   var b = ev.target.closest ? ev.target.closest('button[data-act="add-fracc"]') : null;
-  if(!b) return;
-  agregarRegistroAFracc(b.getAttribute('data-plu'), b.getAttribute('data-nombre'),
-                        b.getAttribute('data-idcli'), b.getAttribute('data-cliente'),
-                        b.getAttribute('data-cant'));
+  if(b){
+    agregarRegistroAFracc(b.getAttribute('data-plu'), b.getAttribute('data-nombre'),
+                          b.getAttribute('data-idcli'), b.getAttribute('data-cliente'),
+                          b.getAttribute('data-cant'));
+    return;
+  }
+  var r = ev.target.closest ? ev.target.closest('button[data-act="add-res"]') : null;
+  if(r){
+    agregarAReserva({
+      pluPedido:     r.getAttribute('data-plu'),
+      nombrePedido:  r.getAttribute('data-nombre'),
+      plu:           r.getAttribute('data-plures'),
+      nombre:        r.getAttribute('data-nombreres'),
+      mult:          r.getAttribute('data-mult'),
+      pedido:        r.getAttribute('data-cant'),
+      idCliente:     r.getAttribute('data-idcli'),
+      nombreCliente: r.getAttribute('data-cliente')
+    });
+  }
 });
 
 // ── Entregados ────────────────────────────────────────────────────────────────
