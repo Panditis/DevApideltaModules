@@ -2287,7 +2287,13 @@ function agregarAReserva(d){
     carritoRes.push({
       pluPedido: String(d.pluPedido), nombrePedido: String(d.nombrePedido||''),
       plu: String(d.plu), nombre: String(d.nombre||''),
-      mult: mult, pedido: unidades, cantidad: unidades * mult,
+      mult: mult, pedido: unidades,
+      // En un pesable lo que se aparta son KILOS de granel, asi que `cantidad` esta en kg y es
+      // lo que el operador edita. `unidadesReserva` son los bultos equivalentes: es lo que
+      // viaja al backend, que vuelve a sacar los kg como kgPorUnidad x unidades. Arranca en lo
+      // pedido y se recalcula si el operador cambia los kilos.
+      cantidad: d.esPesable ? (Number(d.kgPorUnidad)||0) * unidades : unidades * mult,
+      unidadesReserva: unidades,
       idCliente: d.idCliente, nombreCliente: String(d.nombreCliente||''),
       esPesable: !!d.esPesable,
       pluGranel: String(d.pluGranel||''), nombreGranel: String(d.nombreGranel||''),
@@ -2311,6 +2317,13 @@ function cambiarCantRes(idx, valor){
   var n = Number(valor);
   if(!isFinite(n) || n <= 0){ snack('La cantidad tiene que ser mayor a cero', true); renderCarritoRes(); return; }
   carritoRes[idx].cantidad = n;
+  // En un pesable el input esta en kg, pero al backend viajan los bultos equivalentes (de ahi
+  // saca los kg como kgPorUnidad x unidades). Sin recalcularlos, editar los kilos no cambiaba
+  // nada de lo que se apartaba: la pantalla mostraba un numero y SiGA movia otro.
+  if(carritoRes[idx].esPesable){
+    var kgU = Number(carritoRes[idx].kgPorUnidad) || 0;
+    carritoRes[idx].unidadesReserva = kgU > 0 ? n / kgU : 0;
+  }
   guardarCarritoRes();
   actualizarBarraRes();
 }
@@ -2356,9 +2369,13 @@ function renderCarritoRes(){
       // Debajo del producto del pedido, qué se aparta realmente. Cuando son distintos (los
       // Almacén Bulto/Caja) se muestra el componente y la equivalencia, igual que la columna
       // Stock Central del resumen.
-      var sub = String(l.plu) === String(l.pluPedido)
-        ? 'PLU ' + escHtml(l.plu)
-        : 'reserva: ' + escHtml(l.nombre) + (l.mult > 1 ? ' (×' + numFmt.format(l.mult) + ')' : '');
+      // El pesable aparta granel medido en kg, no unidades del producto del pedido: se aclara
+      // cuál es el granel y que la columna editable está en kilos.
+      var sub = l.esPesable
+        ? 'reserva: ' + escHtml(l.nombreGranel || l.nombre) + ' · en kg'
+        : (String(l.plu) === String(l.pluPedido)
+            ? 'PLU ' + escHtml(l.plu)
+            : 'reserva: ' + escHtml(l.nombre) + (l.mult > 1 ? ' (×' + numFmt.format(l.mult) + ')' : ''));
       return '<tr>'
         +'<td><strong>'+escHtml(l.nombrePedido||l.nombre)+'</strong>'
         +'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
@@ -2527,7 +2544,10 @@ function confirmarReservaMay(){
                  pluPedido: l.pluPedido, nombrePedido: l.nombrePedido, idCliente: cli.idCliente,
                  esPesable: l.esPesable, pluGranel: l.pluGranel, nombreGranel: l.nombreGranel,
                  pluCarga: l.pluCarga, nombreCarga: l.nombreCarga, kgPorUnidad: l.kgPorUnidad,
-                 unidades: l.pedido };
+                 // Bultos equivalentes a los kg que el operador dejó en la columna editable.
+                 // El fallback a `pedido` cubre los carritos guardados en localStorage antes
+                 // de que existiera este campo.
+                 unidades: l.unidadesReserva != null ? l.unidadesReserva : l.pedido };
       })
     })
   }).then(function(r){ return r.json().then(function(j){ return { status:r.status, body:j }; }); })
