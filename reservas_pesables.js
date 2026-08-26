@@ -46,9 +46,33 @@ function validarLineaPesable(l) {
   if (!texto(l.pluPedido)) return 'La linea pesable no tiene el plu del pedido';
   if (!texto(l.pluCarga))  return 'La linea pesable no tiene el producto de carga';
   if (!texto(l.pluGranel)) return 'La linea pesable no tiene el granel a apartar';
-  if (!positivo(l.cantPorUnidad)) return 'La linea pesable no tiene kg por unidad';
+  if (!positivo(l.kgPorUnidad)) return 'La linea pesable no tiene kg por unidad';
   if (!positivo(l.unidades)) return 'La linea pesable no tiene unidades pedidas';
   return null;
 }
 
-module.exports = { kgReserva, validarLineaPesable };
+/**
+ * Que producto y que cantidad se mueven en SiGA por una linea del carrito.
+ * Venta directa: el componente de un nivel, en unidades (comportamiento historico).
+ * Pesable: el granel, en kg — el intermedio "X Pedido" no tiene stock propio.
+ *
+ * OJO con las unidades del pesable: `cantidad` ya viene multiplicada por CantidadPorBulto
+ * (lo hace agregarAReserva en el front), mientras que `kgPorUnidad` son los kg de granel por
+ * unidad de BULTO (sqlBOMGranel ya multiplico los dos niveles). Multiplicar kgPorUnidad por
+ * `cantidad` aplicaria el factor dos veces, asi que se usa `unidades`, los bultos pedidos.
+ * @param {object} l linea del carrito
+ * @returns {{plu:string, nombre:string, cantidad:number}|null} null si no hay nada apartable
+ */
+function lineaAApartar(l) {
+  if (!l) return null;
+  if (!l.esPesable) {
+    const cantidad = positivo(l.cantidad);
+    if (!texto(l.plu) || !cantidad) return null;
+    return { plu: texto(l.plu), nombre: texto(l.nombre), cantidad };
+  }
+  const kg = kgReserva(l.kgPorUnidad, l.unidades);
+  if (!texto(l.pluGranel) || !kg) return null;
+  return { plu: texto(l.pluGranel), nombre: texto(l.nombreGranel), cantidad: kg };
+}
+
+module.exports = { kgReserva, validarLineaPesable, lineaAApartar };

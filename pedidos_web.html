@@ -2526,7 +2526,8 @@ function confirmarReservaMay(){
         return { plu: l.plu, nombre: l.nombre, cantidad: l.cantidad,
                  pluPedido: l.pluPedido, nombrePedido: l.nombrePedido, idCliente: cli.idCliente,
                  esPesable: l.esPesable, pluGranel: l.pluGranel, nombreGranel: l.nombreGranel,
-                 pluCarga: l.pluCarga, nombreCarga: l.nombreCarga, kgPorUnidad: l.kgPorUnidad };
+                 pluCarga: l.pluCarga, nombreCarga: l.nombreCarga, kgPorUnidad: l.kgPorUnidad,
+                 unidades: l.pedido };
       })
     })
   }).then(function(r){ return r.json().then(function(j){ return { status:r.status, body:j }; }); })

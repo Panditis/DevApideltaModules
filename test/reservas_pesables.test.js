@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { kgReserva, validarLineaPesable } = require('../reservas_pesables');
+const { kgReserva, validarLineaPesable, lineaAApartar } = require('../reservas_pesables');
 
 // ── Kilos a apartar ───────────────────────────────────────────────────────────
 // El bulto "Almendras 5Kg" lleva 5 kg de granel por unidad: pedir 3 aparta 15 kg.
@@ -37,7 +37,7 @@ function lineaPesable(extra) {
     pluPedido: '30111', nombrePedido: 'Almendras 5Kg',
     pluCarga: '40222', nombreCarga: 'Almendras Pedido',
     pluGranel: '50333', nombreGranel: 'Almendras Granel',
-    cantPorUnidad: 5, unidades: 3,
+    kgPorUnidad: 5, unidades: 3,
     ...extra,
   };
 }
@@ -68,7 +68,7 @@ test('rechaza una linea pesable sin producto de carga', () => {
 
 test('rechaza una linea pesable con kg por unidad en cero', () => {
   // Arrange / Act
-  const error = validarLineaPesable(lineaPesable({ cantPorUnidad: 0 }));
+  const error = validarLineaPesable(lineaPesable({ kgPorUnidad: 0 }));
 
   // Assert
   assert.match(error, /kg por unidad/i);
@@ -80,4 +80,80 @@ test('rechaza una linea pesable sin unidades pedidas', () => {
 
   // Assert
   assert.match(error, /unidades/i);
+});
+
+test('kgReserva devuelve 0 cuando las unidades no sirven', () => {
+  // Arrange / Act / Assert
+  assert.strictEqual(kgReserva(5, 0), 0);
+  assert.strictEqual(kgReserva(5, null), 0);
+});
+
+test('rechaza una linea pesable que no es un objeto', () => {
+  // Arrange / Act / Assert
+  assert.match(validarLineaPesable(null), /objeto/i);
+});
+
+// ── Que se aparta por cada linea del carrito ──────────────────────────────────
+// Venta directa: el componente de un nivel, en unidades. Pesable: el granel, en kg.
+// OJO con las unidades: `cantidad` ya viene expandida por CantidadPorBulto, mientras que
+// `kgPorUnidad` son los kg por unidad de BULTO. Por eso el pesable multiplica contra
+// `unidades` (bultos pedidos) y no contra `cantidad`, que ya lleva el factor adentro.
+
+test('una linea de venta directa aparta su componente en unidades', () => {
+  // Arrange
+  const l = { plu: '40100', nombre: 'Mix Europeo 200G', cantidad: 120, unidades: 10, esPesable: false };
+
+  // Act
+  const ap = lineaAApartar(l);
+
+  // Assert
+  assert.deepStrictEqual(ap, { plu: '40100', nombre: 'Mix Europeo 200G', cantidad: 120 });
+});
+
+test('una linea pesable aparta el granel en kg segun los bultos pedidos', () => {
+  // Arrange: 3 bultos de "Almendras 5Kg". cantidad=15 ya trae el factor 5 adentro.
+  const l = { plu: '40222', nombre: 'Almendras Pedido', cantidad: 15, unidades: 3, esPesable: true,
+              pluGranel: '50333', nombreGranel: 'Almendras Granel', kgPorUnidad: 5 };
+
+  // Act
+  const ap = lineaAApartar(l);
+
+  // Assert: 3 bultos x 5 kg = 15 kg, NO 75.
+  assert.deepStrictEqual(ap, { plu: '50333', nombre: 'Almendras Granel', cantidad: 15 });
+});
+
+test('un pesable con presentacion distinta aparta los kg de esa presentacion', () => {
+  // Arrange: 2 bultos de "Almendras 20Kg". mult=20, cantidad=40, kg por bulto=20.
+  const l = { plu: '40222', nombre: 'Almendras Pedido', cantidad: 40, unidades: 2, esPesable: true,
+              pluGranel: '50333', nombreGranel: 'Almendras Granel', kgPorUnidad: 20 };
+
+  // Act
+  const ap = lineaAApartar(l);
+
+  // Assert
+  assert.strictEqual(ap.cantidad, 40);
+});
+
+test('una linea pesable sin granel resoluble no aparta nada', () => {
+  // Arrange
+  const l = { plu: '40222', nombre: 'Almendras Pedido', cantidad: 15, unidades: 3, esPesable: true,
+              pluGranel: '', nombreGranel: '', kgPorUnidad: 5 };
+
+  // Act
+  const ap = lineaAApartar(l);
+
+  // Assert
+  assert.strictEqual(ap, null);
+});
+
+test('una linea pesable sin unidades de bulto no aparta nada', () => {
+  // Arrange
+  const l = { plu: '40222', nombre: 'Almendras Pedido', cantidad: 15, unidades: 0, esPesable: true,
+              pluGranel: '50333', nombreGranel: 'Almendras Granel', kgPorUnidad: 5 };
+
+  // Act
+  const ap = lineaAApartar(l);
+
+  // Assert
+  assert.strictEqual(ap, null);
 });

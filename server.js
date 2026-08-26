@@ -42,6 +42,7 @@ const rrhhRopa = require('./rrhh_ropa');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
+const { lineaAApartar, validarLineaPesable } = require('./reservas_pesables');
 const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -1683,16 +1684,35 @@ app.post('/api/mayoristas/reservas', async (req, res) => {
 
     const lineas = normalizarLineasReserva(b.lineas);
 
+    // Las lineas pesables se validan aparte: sin granel ni kg por unidad el traslado saldria
+    // contra el intermedio "X Pedido", que no tiene stock propio.
+    for (const l of (b.lineas || [])) {
+      if (!l || !l.esPesable) continue;
+      const errPesable = validarLineaPesable(l);
+      if (errPesable) return res.status(400).json({ error: errPesable });
+    }
+
+    // Que se mueve en SiGA por cada linea. En venta directa es la linea misma; en pesables es
+    // el granel en kg. `apartar` queda en paralelo a `lineas`: mismo indice, misma linea.
+    const apartar = (b.lineas || []).map((cruda, i) => {
+      const conv = lineaAApartar({ ...lineas[i], esPesable: !!(cruda && cruda.esPesable),
+                                   pluGranel: cruda && cruda.pluGranel,
+                                   nombreGranel: cruda && cruda.nombreGranel,
+                                   kgPorUnidad: cruda && cruda.kgPorUnidad,
+                                   unidades: cruda && cruda.unidades });
+      return conv || { plu: lineas[i].plu, nombre: lineas[i].nombre, cantidad: lineas[i].cantidad };
+    });
+
     // stockDeComponentes consulta ProductosDepositos por PLU, asi que sirve igual para
     // terminados y para componentes de formula: no sabe ni le importa que es cada uno.
     // Se suma por plu porque dos registros distintos pueden apartar el mismo componente y
     // el stock que hay que tener alcanza para los dos juntos, no para cada uno por separado.
-    const stock = await stockDeComponentes(cr, lineas.map(l => l.plu), depOrigen, depDestino);
+    const stock = await stockDeComponentes(cr, apartar.map(a => a.plu), depOrigen, depDestino);
     const necesarioPorPlu = new Map();
-    for (const l of lineas) necesarioPorPlu.set(l.plu, (necesarioPorPlu.get(l.plu) || 0) + l.cantidad);
+    for (const a of apartar) necesarioPorPlu.set(a.plu, (necesarioPorPlu.get(a.plu) || 0) + a.cantidad);
     const faltantes = [...necesarioPorPlu.entries()].map(([plu, necesario]) => {
       const e = stock.get(plu) || { origen: 0, destino: 0 };
-      const nombre = (lineas.find(l => l.plu === plu) || {}).nombre;
+      const nombre = (apartar.find(a => a.plu === plu) || {}).nombre;
       return { plu, nombre, necesario: redondear4(necesario),
                stockOrigen: redondear4(e.origen), faltante: redondear4(Math.max(0, necesario - e.origen)) };
     }).filter(f => f.faltante > 0);
@@ -1710,8 +1730,10 @@ app.post('/api/mayoristas/reservas', async (req, res) => {
     const arr = leerJSON(RESERVAS_MERC_PATH, []);
     const emitidas = [];
     let errorParcial = null;
-    for (const l of lineas) {
-      const observacion = `RESERVA MAY ${b.nombreCliente} ${l.nombre} ${depOrigen}>${depDestino}`.slice(0, 200);
+    for (let i = 0; i < lineas.length; i++) {
+      const l = lineas[i], a = apartar[i];
+      const cruda = (b.lineas || [])[i] || {};
+      const observacion = `RESERVA MAY ${b.nombreCliente} ${a.nombre} ${depOrigen}>${depDestino}`.slice(0, 200);
       const movimiento = {
         idSucursal: cr.idSucursal, depOrigen, depDestino,
         idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
@@ -1721,13 +1743,16 @@ app.post('/api/mayoristas/reservas', async (req, res) => {
       try {
         r = await ejecutarYRegistrar({
           origen: 'reserva-mayorista', plan: null, itemId: null, ...movimiento,
-          lineas: [{ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad }],
+          lineas: [{ plu: a.plu, nombre: a.nombre, cantidad: a.cantidad }],
         }, () => trasladarStock(poolW, {
           ...movimiento,
-          lineas: [{ idProducto: l.plu, cantidad: l.cantidad }],
+          lineas: [{ idProducto: a.plu, cantidad: a.cantidad }],
         }));
       } catch (e) {
-        errorParcial = { plu: l.plu, pluPedido: l.pluPedido, nombre: l.nombre, error: e.message };
+        // Lo que se reporta es lo que SiGA rechazo (el granel/componente de `a`), no el
+        // producto del pedido: el operador necesita saber que traslado fallo realmente.
+        // `pluPedido` se deja de `l` como referencia de que registro del pedido es.
+        errorParcial = { plu: a.plu, pluPedido: l.pluPedido, nombre: a.nombre, error: e.message };
         break;
       }
       emitidas.push(nuevaReserva({
@@ -1739,7 +1764,10 @@ app.post('/api/mayoristas/reservas', async (req, res) => {
         numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
         usuario: cr.usuario,
         pluPedido: l.pluPedido, nombrePedido: l.nombrePedido,
-        lineas: [{ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad }],
+        lineas: [{ plu: a.plu, nombre: a.nombre, cantidad: a.cantidad }],
+        pluCarga: cruda.esPesable ? String(cruda.pluCarga || '') : null,
+        nombreCarga: cruda.esPesable ? String(cruda.nombreCarga || '') : null,
+        unidadesPedidas: cruda.esPesable ? Number(cruda.unidades) || 0 : null,
       }));
     }
 
