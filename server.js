@@ -39,7 +39,7 @@ const historialSala = require('./historial_sala');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const rrhhRopa = require('./rrhh_ropa');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu, pedidoReservadoPorPlu,
@@ -8155,68 +8155,7 @@ app.get('/api/produccion/:fecha/conciliacion', apiRoute(async req => {
 //   · reserva     → dónde está físicamente lo apartado (depDestino de la reserva del plan).
 // Con una reserva activa, salida y diferencias NO son elegibles: los fija el depOrigen de esa
 // reserva, porque el excedente salió del principal y el sobrante tiene que volver ahí.
-
-// Líneas del comprobante de producción a partir de la conciliación. Cada línea lleva su
-// signo y su depósito:
-//   · terminados     → +cantidad en el depósito de RECEPCIÓN (los excluidos no se dan de alta)
-//   · consumo        → −usado contra lo que había reservado (depósito de reserva, que es donde
-//                      la mercadería está físicamente) y, para lo que NO tenía reserva, contra
-//                      el depósito de SALIDA.
-// Lo que se desvía de lo reservado (excedente y sobrante) NO sale por acá: va en su propio
-// comprobante de ajuste por diferencias (ver lineasDiferenciasProduccion), para poder
-// identificarlo en SiGA por la observación.
-// Los componentes sin PLU resoluble no se pueden mover y salen aparte en `sinPlu`.
-// Función pura: no toca SQL ni archivos.
-function lineasProduccionDesdeConciliacion(c, deps, opts) {
-  // incluirReserva:false arma sólo el comprobante "resto" (terminados + consumo que salió de
-  // FUERA de la reserva). El consumo contra la reserva y el sobrante se registran aparte, un
-  // comprobante por movimiento de reserva (ver lineasAjusteMovimiento). Default true = comportamiento viejo.
-  const incluirReserva = !opts || opts.incluirReserva !== false;
-  const lineas = [], sinPlu = [];
-  let terminados = 0, componentes = 0, ajustes = 0;
-
-  for (const p of (c.productos || [])) {
-    // Excluidos no se dan de alta; los ya registrados tampoco (no se vuelven a mover). Los
-    // parciales llegan con `cantidad` = sólo lo pendiente, así que se registran normal.
-    if (p.excluido || p.yaRegistrado) continue;
-    const cantidad = redondear4(p.cantidad);
-    if (!(cantidad > 0)) continue;
-    if (!p.plu) { sinPlu.push({ tipo: 'producto', nombre: p.nombre || p.pluTexto || 'sin nombre', cantidad }); continue; }
-    lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.recepcion, cantidad, concepto: 'terminado' });
-    terminados++;
-  }
-
-  for (const comp of (c.componentes || [])) {
-    const usado = redondear4(comp.usado), reservado = redondear4(comp.reservado);
-    if (!(usado > 0) && !(reservado > 0)) continue;
-    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
-    const base        = { idProducto: String(comp.plu), nombre: comp.nombre || '' };
-    const deReserva = redondear4(Math.min(usado, reservado));        // consumido contra lo apartado
-    const excedente = redondear4(Math.max(0, usado - reservado));    // usado de más respecto de lo reservado
-    const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más
-    // Sin nada reservado no hay diferencia: todo el consumo es común y sale del depósito de
-    // salida. Con reserva detrás, el desvío (excedente/sobrante) se registra en el comprobante
-    // de ajuste por diferencias, no acá.
-    const deSalida  = reservado > 0 ? 0 : excedente;
-
-    if (incluirReserva && deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
-    if (deSalida  > 0) { lineas.push({ ...base, idDeposito: deps.salida,  cantidad: -deSalida,  concepto: 'consumo-salida'  }); componentes++; }
-    if (incluirReserva && (sobrante > 0 || (reservado > 0 && excedente > 0))) ajustes++;
-  }
-
-  // Carga manual: sin reserva detrás, el circuito entero ocurre en el depósito de RECEPCIÓN —
-  // ahí se descuentan los componentes y ahí mismo entra el terminado, igual que si se armara
-  // en el mostrador. Nunca toca el de reserva ni el de salida, y no depende de esos combos.
-  // Va siempre en el comprobante de producción, con reserva o sin ella.
-  for (const comp of (c.componentesManual || [])) {
-    const usado = redondear4(comp.usado);
-    if (!(usado > 0)) continue;
-    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
-    lineas.push({ idProducto: String(comp.plu), nombre: comp.nombre || '', idDeposito: deps.recepcion, cantidad: -usado, concepto: 'consumo-manual' });
-    componentes++;
-  }
-  return { lineas, sinPlu, resumen: { terminados, componentes, ajustes } };
-}
+// Las lineas del comprobante las arma lineasProduccionDesdeConciliacion (mismo modulo puro).
 
 // Registra la producción de una fecha como UN comprobante de stock en SiGA: da de alta los
 // terminados y de baja los componentes realmente consumidos, según la conciliación.
