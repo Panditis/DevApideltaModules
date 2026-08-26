@@ -44,7 +44,7 @@ const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu, pedidoReservadoPorPlu,
         partirConsumoMayorista, granelReservadoNeto, restanteMayoristaPorReserva,
-        imputarConsumoMayorista } = require('./reservas_pesables');
+        imputarConsumoMayorista, lineasADevolverMayorista } = require('./reservas_pesables');
 const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -1805,22 +1805,38 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
       return res.status(409).json({ error: `La reserva #${reserva.id} ya esta anulada` });
     }
 
+    // Las lineas dicen lo apartado ORIGINAL (nunca se mutan): lo que la produccion ya consumio
+    // no esta en el deposito de reserva y devolverlo seria inventar stock. Se devuelve solo el
+    // restante, derivado de los asientos de produccion de TODAS las fechas, igual que la
+    // conciliacion (una reserva vive varios dias). Los asientos viejos no traen el campo y se
+    // leen como cero consumido: una reserva que nadie produjo se devuelve entera, como siempre.
+    const asientosTodos = Object.values(leerJSON(PLANES_PATH, {})).flatMap(p => asientosProduccion(p));
+    const lineasADevolver = lineasADevolverMayorista(reserva, asientosTodos);
+    const apartado = redondear4((reserva.lineas || []).reduce((acc, l) => acc + (Number(l.cantidad) || 0), 0));
+    const consumido = redondear4(apartado - lineasADevolver.reduce((acc, l) => acc + l.cantidad, 0));
+
     const cr = cfgReserva();
-    const poolW = await getPoolStock();
+    // Sin lineas no se toca SiGA: pedir el pool haria que una base caida impida anular una
+    // reserva que justamente no necesita mover nada.
+    const poolW = lineasADevolver.length ? await getPoolStock() : null;
     const observacion = `ANULA RESERVA MAY ${reserva.nombreCliente} #${reserva.numeroMovimiento}`.slice(0, 200);
     const mov = {
       idSucursal: reserva.idSucursal, depOrigen: reserva.depDestino, depDestino: reserva.depOrigen,
       idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
       observacion,
     };
-    const r = await ejecutarYRegistrar({
+    // Sin nada que devolver no se emite comprobante, pero la reserva IGUAL se anula: que el
+    // cliente la haya dado de baja es un hecho aparte de donde termino el stock. Cortar con un
+    // 409 dejaria una reserva viva que el operador no puede cerrar por ningun lado; lo que
+    // quedo en el deposito de reserva se resuelve por el circuito de saldos, no por aca.
+    const r = lineasADevolver.length ? await ejecutarYRegistrar({
       origen: 'devolucion', plan: null, itemId: null,
       ...mov,
-      lineas: reserva.lineas.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
+      lineas: lineasADevolver.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
     }, () => trasladarStock(poolW, {
       ...mov,
-      lineas: reserva.lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
-    }));
+      lineas: lineasADevolver.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
+    })) : { numeroMovimiento: null, idRegistro: null, logError: null };
 
     const { reserva: anulada, error } = anularReserva(reserva, {
       numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
@@ -1829,7 +1845,13 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
     if (error) return res.status(409).json({ error });
     arr[i] = anulada;
     guardarJSON(RESERVAS_MERC_PATH, arr);
-    res.json(conLogError(anulada, r.logError));
+    // El aviso es solo de la respuesta (no se persiste): el operador tiene que enterarse de que
+    // volvio menos de lo apartado, y por que.
+    const aviso = consumido > 0
+      ? `Volvieron ${redondear4(apartado - consumido)} de ${apartado} unidad(es) al depósito de origen: `
+      + `la producción ya consumió ${consumido} del depósito de reserva.`
+      : null;
+    res.json(conLogError({ ...anulada, ...(aviso ? { aviso } : {}) }, r.logError));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

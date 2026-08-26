@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu,
-        granelReservadoNeto, restanteMayoristaPorReserva, imputarConsumoMayorista } = require('../reservas_pesables');
+        granelReservadoNeto, restanteMayoristaPorReserva, imputarConsumoMayorista,
+        lineasADevolverMayorista } = require('../reservas_pesables');
 
 // ── Kilos a apartar ───────────────────────────────────────────────────────────
 // El bulto "Almendras 5Kg" lleva 5 kg de granel por unidad: pedir 3 aparta 15 kg.
@@ -570,4 +571,112 @@ test('dos lotes seguidos no consumen mas kg que los apartados', () => {
   const total = [...lote1, ...lote2].reduce((s, c) => s + c.kg, 0);
   assert.strictEqual(total, 10);
   assert.strictEqual(granelReservadoNeto(reservas, [...asientos, asiento(lote2)]).size, 0);
+});
+
+// ── Que devuelve la anulacion ─────────────────────────────────────────────────
+// Anular emite el traslado inverso (deposito de reserva -> principal). Lo que la produccion
+// ya consumio NO esta en el deposito de reserva: devolverlo seria inventar stock. Las lineas
+// siguen diciendo lo apartado original (no se mutan), asi que el restante se deriva igual que
+// en la conciliacion, con los asientos de produccion.
+
+test('sin consumo se devuelven las lineas enteras', () => {
+  // Arrange
+  const reserva = reservaPesable({ id: 101 });
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, []);
+
+  // Assert
+  assert.deepStrictEqual(lineas.map(l => [l.plu, l.cantidad]), [['50333', 15]]);
+  assert.strictEqual(lineas[0].nombre, 'Almendras Granel');
+});
+
+test('con consumo parcial se devuelve solo lo que quedo apartado', () => {
+  // Arrange: 15 kg apartados, la produccion consumio 6.
+  const reserva = reservaPesable({ id: 101 });
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 6 }])];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert
+  assert.deepStrictEqual(lineas.map(l => [l.plu, l.cantidad]), [['50333', 9]]);
+});
+
+test('con el apartado consumido entero no queda nada que devolver', () => {
+  // Arrange
+  const reserva = reservaPesable({ id: 101 });
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 15 }])];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert: sin lineas no hay comprobante que emitir, pero la reserva igual se anula.
+  assert.deepStrictEqual(lineas, []);
+});
+
+test('con varias lineas devuelve enteras las que nadie consumio', () => {
+  // Arrange
+  const reserva = reservaPesable({ id: 101, lineas: [
+    { plu: '50333', nombre: 'Almendras Granel', cantidad: 15 },
+    { plu: '60444', nombre: 'Nueces Granel', cantidad: 8 }] });
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 15 }])];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert
+  assert.deepStrictEqual(lineas.map(l => [l.plu, l.cantidad]), [['60444', 8]]);
+});
+
+test('el consumo de un PLU repartido en dos lineas se descuenta de una sola vez', () => {
+  // Arrange: dos lineas del mismo granel, 10 y 4, con 12 consumidos.
+  const reserva = reservaPesable({ id: 101, lineas: [
+    { plu: '50333', nombre: 'Almendras Granel', cantidad: 10 },
+    { plu: '50333', nombre: 'Almendras Granel', cantidad: 4 }] });
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 12 }])];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert: quedan 2 en total, no 2 por linea.
+  assert.deepStrictEqual(lineas.map(l => [l.plu, l.cantidad]), [['50333', 2]]);
+});
+
+test('el consumo de otra reserva no achica lo que esta devuelve', () => {
+  // Arrange
+  const reserva = reservaPesable({ id: 101 });
+  const asientos = [asiento([{ idReserva: 202, plu: '50333', kg: 15 }])];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert
+  assert.deepStrictEqual(lineas.map(l => [l.plu, l.cantidad]), [['50333', 15]]);
+});
+
+test('los asientos viejos sin consumo anotado devuelven la reserva entera', () => {
+  // Arrange
+  const reserva = reservaPesable({ id: 101 });
+  const asientos = [{ numeroMovimiento: 3, idRegistro: 'mov-viejo', registros: ['r1'] }];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert
+  assert.deepStrictEqual(lineas.map(l => [l.plu, l.cantidad]), [['50333', 15]]);
+});
+
+test('nunca sale una linea con cantidad cero o negativa', () => {
+  // Arrange: consumido de mas (no deberia pasar) y una linea sin cantidad util.
+  const reserva = reservaPesable({ id: 101, lineas: [
+    { plu: '50333', nombre: 'Almendras Granel', cantidad: 15 },
+    { plu: '60444', nombre: 'Nueces Granel', cantidad: 0 }] });
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 20 }])];
+
+  // Act
+  const lineas = lineasADevolverMayorista(reserva, asientos);
+
+  // Assert
+  assert.deepStrictEqual(lineas, []);
 });

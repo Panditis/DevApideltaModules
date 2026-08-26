@@ -2671,7 +2671,7 @@ function anularReservaMay(id){
       .then(function(r){ return r.json(); })
       .then(function(res){
         if(res.error){ snack(res.error, true); return; }
-        snack('Reserva anulada · comprobante #' + (res.anulacion && res.anulacion.numeroMovimiento));
+        snack(res.aviso || ('Reserva anulada · comprobante #' + (res.anulacion && res.anulacion.numeroMovimiento)));
         cargarReservasGeneradas();
         marcarAgregadosResumen();
       })

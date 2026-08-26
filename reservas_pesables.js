@@ -151,6 +151,35 @@ function granelReservadoPorPlu(reservas) {
 }
 
 /**
+ * Lineas que hay que devolver al anular una reserva mayorista: las mismas de la reserva, pero
+ * recortadas a lo que TODAVIA esta en el deposito de reserva.
+ *
+ * Las lineas de la reserva siguen diciendo lo apartado original (no se mutan nunca), asi que
+ * devolverlas enteras despues de que la produccion consumio parte seria devolver kg que ya no
+ * estan: el deposito de reserva quedaria en negativo y el principal con stock inventado.
+ * Una linea sin nada que devolver no sale: un traslado de cantidad cero no es un movimiento.
+ *
+ * @param {object} reserva reserva de reservas_mercaderia.json
+ * @param {Array<object>} asientos asientos de produccion (todas las fechas)
+ * @returns {Array<object>} copias de las lineas con la cantidad recortada; [] si no queda nada
+ */
+function lineasADevolverMayorista(reserva, asientos) {
+  const restante = new Map(restanteMayoristaPorReserva([reserva], asientos).map(f => [f.plu, f.restante]));
+  const out = [];
+  for (const l of ((reserva && reserva.lineas) || [])) {
+    const plu = texto(l && l.plu);
+    const queda = restante.get(plu) || 0;
+    // Con dos lineas del mismo PLU, lo consumido es de las dos juntas: se va gastando el
+    // restante linea por linea en vez de repetirlo en cada una.
+    const cant = redondear4(Math.min(positivo(l && l.cantidad), queda));
+    if (!(cant > 0)) continue;
+    restante.set(plu, redondear4(queda - cant));
+    out.push({ ...l, cantidad: cant });
+  }
+  return out;
+}
+
+/**
  * Reparte los kg que la sala consumio del deposito de reserva entre las reservas que todavia
  * los tienen apartados. Es lo que se anota en el asiento de produccion.
  *
@@ -244,4 +273,4 @@ function partirConsumoMayorista(componentes, reservadoMayorista, depReserva) {
 }
 
 module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu, partirConsumoMayorista,
-  restanteMayoristaPorReserva, granelReservadoNeto, imputarConsumoMayorista };
+  restanteMayoristaPorReserva, granelReservadoNeto, imputarConsumoMayorista, lineasADevolverMayorista };
