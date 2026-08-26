@@ -42,7 +42,8 @@ const rrhhRopa = require('./rrhh_ropa');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
-const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu, pedidoReservadoPorPlu } = require('./reservas_pesables');
+const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu, pedidoReservadoPorPlu,
+        partirConsumoMayorista } = require('./reservas_pesables');
 const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -7873,11 +7874,24 @@ async function conciliacionProduccion(fecha, idSucursal) {
   const cp = cfgProduccion();
   const depsPropuestos = depositosProduccion(cp, cr, reserva, {});
   const sucursalConciliada = Number(sucursalPedida || cr.idSucursal);
-  const granelMayorista = granelReservadoPorPlu(leerJSON(RESERVAS_MERC_PATH, []).filter(r =>
-    r && Number(r.idSucursal) === sucursalConciliada && Number(r.depDestino) === Number(depsPropuestos.reserva)));
+  const depReservaProd = Number(depsPropuestos.reserva);
+  const mercSucursal = leerJSON(RESERVAS_MERC_PATH, [])
+    .filter(r => r && r.estado === 'activa' && Number(r.idSucursal) === sucursalConciliada);
+  const granelMayorista = granelReservadoPorPlu(mercSucursal.filter(r => Number(r.depDestino) === depReservaProd));
   if (granelMayorista.size) {
     avisos.push(`Hay stock apartado por ${granelMayorista.size} producto(s) con reserva mayorista viva: `
               + 'ese consumo se descuenta del depósito de reserva.');
+  }
+  // Lo apartado en OTRO deposito no se cuenta (los IDs son por sucursal y ahi no es donde la
+  // sala descuenta), pero callarlo seria peor: su consumo va a salir del deposito principal y
+  // puede dejarlo en negativo. Pasa siempre que el dia no tiene reserva del plan, porque el
+  // deposito de reserva cae al de config y ahi puede no haber ninguno configurado.
+  for (const dep of new Set(mercSucursal.filter(r => Number(r.depDestino) !== depReservaProd).map(r => Number(r.depDestino)))) {
+    const total = [...granelReservadoPorPlu(mercSucursal.filter(r => Number(r.depDestino) === dep)).values()]
+      .reduce((s2, v) => redondear4(s2 + v), 0);
+    avisos.push(`Hay ${total} unidad(es) apartadas por reservas mayoristas en el depósito ${dep}, distinto del `
+              + `depósito de reserva de esta producción (${esIdDeposito(depReservaProd) ? depReservaProd : 'sin configurar'}): `
+              + 'NO cuentan como reservado y su consumo se va a descontar del depósito principal.');
   }
   const mayoristaDe = plu => (plu ? (granelMayorista.get(String(plu)) || 0) : 0);
 
@@ -8249,37 +8263,21 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   // Un ajuste SiGA POR movimiento de reserva (trazabilidad 1:1 reserva→ajuste):
   //  · "resto"    → terminados (alta de producto) + consumo que salió de FUERA de la reserva.
   //  · por cada movimiento de reserva NO conciliado → consumo contra lo apartado + sobrante.
-  const resto     = lineasProduccionDesdeConciliacion(c, deps, { incluirReserva: false });
+  // Lo apartado por reservas MAYORISTAS viaja dentro de componentes[].reservado (para que el
+  // consumo no se cargue al deposito principal) pero NO es del plan. Se parte ANTES de armar
+  // nada: `componentesPlan` es la vista que consumen TODOS los pasos de abajo (el comprobante
+  // de produccion, las diferencias y el corte antidoble-conteo). Si alguno mirara el
+  // componente crudo, el consumo que excede plan+mayorista no saldria de ningun deposito.
+  const { componentesPlan, lineasMayorista } =
+    partirConsumoMayorista(c.componentes, c.reservadoMayorista, deps.reserva);
+  const resto     = lineasProduccionDesdeConciliacion({ ...c, componentes: componentesPlan }, deps, { incluirReserva: false });
   const ajustesMov = (c.porMovimiento || [])
     .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], conciliado: !!m.conciliado, lineas: lineasAjusteMovimiento(m.componentes, deps) }))
     // Los movimientos ya conciliados no se re-registran (idempotencia ante reintentos parciales).
     .filter(m => !m.conciliado && m.lineas.length);
-  // Lo apartado por reservas MAYORISTAS viaja dentro de componentes[].reservado (para que el
-  // consumo no se cargue al deposito principal) pero NO es del plan: no tiene comprobante de
-  // conciliacion propio y no se puede devolver como sobrante. Se lo separa en dos partes:
-  //  - consumoMayorista: lo que la sala uso por encima de la reserva del plan, hasta donde
-  //    alcanza el apartado mayorista. Sale del deposito de reserva, que es donde esta.
-  //  - componentesPlan:  la vista con SOLO lo del plan, que es la que arma las diferencias
-  //    (excedente/sobrante) y la que se compara contra porMovimiento.
-  const mayoristaDe = plu => Number((c.reservadoMayorista || {})[String(plu)]) || 0;
-  const consumoMayorista = (comp) => {
-    const may = mayoristaDe(comp.plu);
-    if (!(may > 0)) return 0;
-    const delPlan = redondear4(redondear4(comp.reservado) - may);
-    return redondear4(Math.min(may, Math.max(0, redondear4(comp.usado) - delPlan)));
-  };
-  const componentesPlan = (c.componentes || []).map(x => {
-    const may = mayoristaDe(x.plu);
-    if (!(may > 0)) return x;
-    return { ...x, reservado: redondear4(redondear4(x.reservado) - may),
-                   usado: redondear4(redondear4(x.usado) - consumoMayorista(x)) };
-  });
-  // Va en el comprobante de produccion, junto al resto del consumo de fuera de la reserva del
-  // plan: asi queda cubierto por la misma marca de idempotencia y no necesita comprobante nuevo.
-  const lineasMayorista = (c.componentes || [])
-    .filter(x => x.plu && consumoMayorista(x) > 0)
-    .map(x => ({ idProducto: String(x.plu), nombre: x.nombre || '', idDeposito: deps.reserva,
-                 cantidad: -consumoMayorista(x), concepto: 'consumo-reserva-mayorista' }));
+  // El consumo del apartado mayorista va en el comprobante de produccion, junto al resto del
+  // consumo de fuera de la reserva del plan: asi queda cubierto por la misma marca de
+  // idempotencia y no necesita comprobante nuevo.
   const lineasResto = [...resto.lineas, ...lineasMayorista];
   // Ajuste por diferencias: un único comprobante con todo lo que se desvió de lo reservado
   // (excedente y sobrante), calculado sobre el agregado por PLU de las reservas todavía vivas.
