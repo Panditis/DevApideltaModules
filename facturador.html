@@ -290,6 +290,12 @@
   /* ── Ticket para comandera térmica ────────────────────────────────────────── */
   /* Rollo de 80 mm: 72 mm útiles. Para una de 58 mm, poner 48mm acá y en @page. */
   #ticket { display: none; }
+  /* Lo que se quiere es `size: 72mm auto`: el ancho del rollo y el alto que pida el ticket.
+     Pero mezclar un largo con `auto` no es válido, y Firefox rechaza la declaración entera
+     ("Error al interpretar el valor para 'size'") y vuelve a A4. Por eso primero va una
+     versión válida —que Firefox sí toma— y después la de alto automático, que aplican los
+     navegadores que la entienden y los demás ignoran. */
+  @page { size: 72mm 297mm; margin: 3mm 2mm; }
   @page { size: 72mm auto; margin: 3mm 2mm; }
   @media print {
     /* Se imprime el ticket y nada más: la pantalla completa no entra en el rollo.
@@ -334,13 +340,13 @@
     </div>
     <div class="tabs no-print">
       <button class="tab activa" id="tabConsulta">Lector de precios</button>
-      <button class="tab" id="tabPedido">Pedido</button>
+      <button class="tab" id="tabPedido">Facturador</button>
     </div>
     <div class="sep"></div>
     <span class="estado sin" id="estadoCat">Sin catálogo</span>
     <button class="hdr mini" id="btnActualizar">Actualizar precios</button>
     <button class="hdr mini" id="btnConfig">Fuente de precios</button>
-    <button class="hdr mini" id="btnGuardados">Pedidos</button>
+    <button class="hdr mini" id="btnGuardados">Tickets</button>
     <button class="hdr mini" id="btnAyuda">Ayuda</button>
   </div>
 </header>
@@ -364,7 +370,7 @@
 
   <!-- ── Detalle ─────────────────────────────────────────────────────────────── -->
   <section>
-    <h2>Detalle del pedido</h2>
+    <h2>Detalle del ticket</h2>
     <div class="fila" style="margin-bottom:11px">
       <div class="crece"><label class="et" for="cliente">Cliente</label><input id="cliente" placeholder="Nombre del cliente"></div>
       <div style="width:150px"><label class="et" for="vendedor">Vendedor</label><input id="vendedor" placeholder="Quién atiende"></div>
@@ -418,11 +424,11 @@
   <section class="no-print">
     <h2>Cerrar</h2>
     <div class="fila">
-      <button class="pri crece" id="btnGuardarPedido">Guardar pedido</button>
+      <button class="pri crece" id="btnGuardarPedido">Guardar ticket</button>
       <button class="crece" id="btnImprimir">Imprimir</button>
     </div>
     <div class="fila" style="margin-top:9px">
-      <button class="peligro crece" id="btnLimpiar">Vaciar</button>
+      <button class="peligro crece" id="btnLimpiar">Eliminar ticket</button>
     </div>
   </section>
 </div>
@@ -449,7 +455,16 @@
     </div>
 
     <div style="margin-bottom:11px">
-      <label class="et">2 · Archivo de la computadora (siempre funciona, sin red)</label>
+      <label class="et">2 · Planilla en la carpeta de red</label>
+      <p class="chico">La lee el servidor Apidelta desde
+        <code>\\192.168.1.26\Apidelta\7- SISTEMA\1-Precios\PreciosFacturador</code> (la planilla
+        más nueva de la carpeta). Se usa cuando SQL no responde. Trae nombre, precio y código
+        de barra, pero no los datos de balanza. La ruta se cambia en el servidor
+        (<code>PRECIOS_FACTURADOR_DIR</code> en el <code>.env</code>), no desde acá.</p>
+    </div>
+
+    <div style="margin-bottom:11px">
+      <label class="et">3 · Archivo de la computadora (siempre funciona, sin red)</label>
       <div id="dropzona">Arrastrá acá un .xlsx o .csv, o <button class="mini" id="btnArchivo">elegilo</button>
         <input type="file" id="inputArchivo" accept=".xlsx,.csv,.txt" class="oculto"></div>
     </div>
@@ -490,13 +505,13 @@
 
         <h3>Cargar una venta</h3>
         <ol>
-          <li>Entrá a la pestaña <b>Pedido</b>.</li>
+          <li>Entrá a la pestaña <b>Facturador</b>.</li>
           <li>Escaneá los productos, o buscalos por nombre. Cada escaneo suma una línea.</li>
           <li>Podés cambiar a mano la cantidad, el precio y el descuento de cada línea.</li>
           <li>Cargá el <b>descuento general</b> si corresponde.</li>
           <li>En <b>Medios de pago</b> elegí uno y apretá <i>Sumar</i>. Si el importe queda vacío
             se asigna todo lo que falta. Se puede dividir entre varios medios.</li>
-          <li><b>Guardar pedido</b>, y <b>Imprimir</b> para sacar el ticket.</li>
+          <li><b>Guardar ticket</b>, y <b>Imprimir</b> para sacar el ticket.</li>
         </ol>
       </div>
       <div>
@@ -515,7 +530,7 @@
           <li>Ese archivo nuevo se manda por mail o pendrive y ya funciona solo.</li>
         </ol>
 
-        <div class="nota"><b>Ojo:</b> los pedidos se guardan en la computadora donde se cargaron.
+        <div class="nota"><b>Ojo:</b> los tickets se guardan en la computadora donde se cargaron.
           Si se limpian los datos del navegador, se pierden. Descargá el respaldo seguido.</div>
       </div>
     </div>
@@ -525,28 +540,28 @@
       <div>
         <h3>Sacar el listado</h3>
         <ol>
-          <li>Apretá <b>Pedidos</b> arriba a la derecha.</li>
+          <li>Apretá <b>Tickets</b> arriba a la derecha.</li>
           <li>Apretá <b>Exportar CSV</b>.</li>
-          <li>Se baja un archivo <code>pedidos_AAAA-MM-DD.csv</code>.</li>
+          <li>Se baja un archivo <code>tickets_AAAA-MM-DD.csv</code>.</li>
           <li>Se abre con doble clic en Excel, ya separado en columnas.</li>
         </ol>
-        <div class="nota">Sale <b>una fila por cada producto</b> de cada pedido, no una por pedido.
-          Para totales por venta, filtrá por la columna <code>Pedido</code>.</div>
+        <div class="nota">Sale <b>una fila por cada producto</b> de cada ticket, no una por ticket.
+          Para totales por venta, filtrá por la columna <code>Ticket</code>.</div>
       </div>
       <div>
         <h3>Qué trae cada columna</h3>
         <ol>
-          <li><code>Pedido</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
+          <li><code>Ticket</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
           <li><code>Cliente</code> y <code>Vendedor</code>.</li>
           <li><code>Codigo</code> y <code>Producto</code>.</li>
           <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
           <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
-          <li><code>DtoGeneral</code>, <code>TotalPedido</code> y <code>MediosPago</code>.</li>
+          <li><code>DtoGeneral</code>, <code>TotalTicket</code> y <code>MediosPago</code>.</li>
         </ol>
 
         <h3>Mover las ventas a otra PC</h3>
         <ol>
-          <li><b>Descargar respaldo</b> en la computadora que tiene los pedidos.</li>
+          <li><b>Descargar respaldo</b> en la computadora que tiene los tickets.</li>
           <li><b>Restaurar respaldo</b> en la otra, con ese archivo.</li>
           <li>Se suman a los que ya había; no se pisa nada.</li>
         </ol>
@@ -554,9 +569,9 @@
     </div>
   </section>
 
-  <!-- ── Pedidos guardados ─────────────────────────────────────────────────────── -->
+  <!-- ── Tickets guardados ─────────────────────────────────────────────────────── -->
   <section id="secGuardados" class="oculto no-print">
-    <h2>Pedidos guardados</h2>
+    <h2>Tickets guardados</h2>
     <div style="overflow-x:auto">
       <table id="tablaGuardados">
         <thead><tr><th>N°</th><th>Fecha y hora</th><th>Cliente</th><th>Pago</th><th class="num">Total</th><th></th></tr></thead>
@@ -569,7 +584,7 @@
       <button id="btnRestaurar">Restaurar respaldo</button>
       <input type="file" id="inputRespaldo" accept=".json" class="oculto">
     </div>
-    <p class="chico">Los pedidos viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
+    <p class="chico">Los tickets viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
   </section>
 </main>
 
@@ -1251,7 +1266,12 @@ async function traer(url, tipo, ms = 8000) {
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
     const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      // El servidor manda { error } con el motivo real ("no hay planillas en \\...", ruta
+      // sin permiso). Sin esto, en el mostrador sólo se ve "HTTP 500" y no hay qué mirar.
+      const detalle = await r.json().catch(() => null);
+      throw new Error('HTTP ' + r.status + (detalle && detalle.error ? ' · ' + detalle.error : ''));
+    }
     return tipo === 'buffer' ? await r.arrayBuffer() : tipo === 'texto' ? await r.text() : await r.json();
   } finally { clearTimeout(t); }
 }
@@ -1264,6 +1284,22 @@ async function desdeServidor() {
       const d = await traer(base.replace(/\/$/, '') + '/api/facturador/catalogo', 'json');
       if (!d || !Array.isArray(d.productos) || !d.productos.length) throw new Error('respuesta vacía');
       return { generado: d.generado || new Date().toISOString(), origen: d.origen || base, productos: d.productos };
+    } catch (e) { errores.push(base + ': ' + e.message); }
+  }
+  throw new Error(errores.join(' | ') || 'no hay servidores configurados');
+}
+
+// Planilla de la carpeta compartida de la red, leída por el servidor (el navegador no puede
+// abrir una ruta \\servidor\... desde una página file://). Sirve cuando SQL no responde:
+// trae nombre, precio y código de barra, pero no los datos de balanza.
+async function desdeArchivoRed() {
+  const urls = cfg.servidores.split(',').map(s => s.trim()).filter(Boolean);
+  const errores = [];
+  for (const base of urls) {
+    try {
+      const d = await traer(base.replace(/\/$/, '') + '/api/facturador/catalogo-archivo', 'json');
+      if (!d || !Array.isArray(d.productos) || !d.productos.length) throw new Error((d && d.error) || 'respuesta vacía');
+      return { generado: d.generado || new Date().toISOString(), origen: d.origen || (base + ' (archivo de red)'), productos: d.productos };
     } catch (e) { errores.push(base + ': ' + e.message); }
   }
   throw new Error(errores.join(' | ') || 'no hay servidores configurados');
@@ -1300,6 +1336,11 @@ async function actualizarCatalogo({ silencioso = false } = {}) {
   const fallos = [];
   try { return aplicarCatalogo(await desdeServidor()); }
   catch (e) { fallos.push('Servidor → ' + e.message); }
+
+  // El servidor manda precios de SQL; si SQL no responde, la misma máquina puede leer la
+  // planilla de la carpeta de red. Se prueba después porque no trae datos de balanza.
+  try { return aplicarCatalogo(await desdeArchivoRed()); }
+  catch (e) { fallos.push('Archivo de red → ' + e.message); }
 
   pintarEstado();
   if (!silencioso) {
