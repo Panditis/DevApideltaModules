@@ -43,7 +43,7 @@ const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, o
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu, pedidoReservadoPorPlu,
-        partirConsumoMayorista } = require('./reservas_pesables');
+        partirConsumoMayorista, consumirGranelDeReservas } = require('./reservas_pesables');
 const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -1803,6 +1803,14 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
     if (reserva.estado === 'anulada') {
       return res.status(409).json({ error: `La reserva #${reserva.id} ya esta anulada` });
     }
+    // Desde que la produccion descuenta el apartado (consumirGranelDeReservas), una linea puede
+    // haber quedado en cero: ese granel ya no esta en el deposito de reserva y devolverlo seria
+    // inventar stock. Se revierte solo lo que queda; si no queda nada, no hay nada que anular.
+    const lineasADevolver = (reserva.lineas || []).filter(l => Number(l.cantidad) > 0);
+    if (!lineasADevolver.length) {
+      return res.status(409).json({ error: `La reserva #${reserva.id} ya no tiene stock apartado: `
+                                        + 'la sala lo consumió al producir. No hay nada que devolver.' });
+    }
 
     const cr = cfgReserva();
     const poolW = await getPoolStock();
@@ -1815,10 +1823,10 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
     const r = await ejecutarYRegistrar({
       origen: 'devolucion', plan: null, itemId: null,
       ...mov,
-      lineas: reserva.lineas.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
+      lineas: lineasADevolver.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
     }, () => trasladarStock(poolW, {
       ...mov,
-      lineas: reserva.lineas.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
+      lineas: lineasADevolver.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
     }));
 
     const { reserva: anulada, error } = anularReserva(reserva, {
@@ -8392,6 +8400,24 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
     return { ...planActual, produccionRegistrada, items };
   };
 
+  // Baja de las reservas mayoristas el granel que se consumió, re-leyendo el archivo para no
+  // pisar una reserva creada o anulada mientras corría este registro (mismo criterio que
+  // aplicarAlPlan). Se llama DESPUÉS del comprobante confirmado: si SiGA falla, la reserva
+  // queda intacta. El número de movimiento es la marca de idempotencia: un reintento con el
+  // mismo comprobante no vuelve a descontar.
+  const consumoMayoristaPorPlu = Object.fromEntries(
+    lineasMayorista.map(l => [String(l.idProducto), -l.cantidad]));
+  const aplicarAReservasMayoristas = (rc) => {
+    if (!lineasMayorista.length) return { aviso: null };
+    const arr = leerJSON(RESERVAS_MERC_PATH, []);
+    const out = consumirGranelDeReservas(arr, consumoMayoristaPorPlu, {
+      numeroMovimiento: rc.numeroMovimiento, fecha: new Date().toISOString(),
+      idSucursal: cr.idSucursal, depDestino: deps.reserva,
+    });
+    if (out.cambiadas) guardarJSON(RESERVAS_MERC_PATH, out.reservas);
+    return { aviso: out.aviso };
+  };
+
   try {
     // 1) Comprobante "resto" (terminados + consumo no reservado). Puede no tener líneas si todo
     //    el consumo fue contra reservas y no hay alta de producto pendiente.
@@ -8404,6 +8430,14 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
       logErrores.push(rResto.logError);
       comprobantes.push({ tipo: 'resto', numeroMovimiento: rResto.numeroMovimiento, idRegistro: rResto.idRegistro });
       r = rResto;
+      // El granel que la sala consumió del apartado mayorista YA salió del depósito de reserva:
+      // se baja del saldo de las reservas antes de marcar la producción. Ese orden importa —
+      // marcarProduccion es lo que hace desaparecer los registros de la conciliación, así que si
+      // se cayera entre las dos escrituras el descuento se perdería para siempre. Al revés, un
+      // reintento vuelve a escribir el comprobante y la reserva se descuenta con ÉL, que es lo
+      // que efectivamente pasó en SiGA.
+      const resMay = aplicarAReservasMayoristas(rResto);
+      if (resMay.aviso && !avisoMarca) avisoMarca = resMay.aviso;
       const res = aplicarAlPlan(planActual => marcarProduccion(planActual, rResto));
       if (res.aviso) avisoMarca = res.aviso;
     }
