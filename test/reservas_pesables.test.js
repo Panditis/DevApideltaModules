@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu } = require('../reservas_pesables');
+const { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu,
+        granelReservadoNeto, restanteMayoristaPorReserva, imputarConsumoMayorista } = require('../reservas_pesables');
 
 // ── Kilos a apartar ───────────────────────────────────────────────────────────
 // El bulto "Almendras 5Kg" lleva 5 kg de granel por unidad: pedir 3 aparta 15 kg.
@@ -350,4 +351,223 @@ test('sin reservas mayoristas devuelve los componentes tal cual', () => {
   // Assert
   assert.strictEqual(componentesPlan[0], componentes[0]);   // misma referencia: no se copia de gusto
   assert.deepStrictEqual(lineasMayorista, []);
+});
+
+// ── Apartado mayorista restante ───────────────────────────────────────────────
+// El apartado NO se muta en reservas_mercaderia.json: lo que la sala consumio queda anotado
+// en el asiento de produccion (plan.produccionRegistrada.asientos[].consumoMayorista) y el
+// restante se deriva al leer. Asi el sello de la produccion y el consumo son UNA escritura.
+
+function asiento(consumoMayorista, extra) {
+  return { numeroMovimiento: 7, idRegistro: 'mov-1-0', registros: ['r1'], consumoMayorista, ...extra };
+}
+
+test('sin asientos el restante es el apartado entero', () => {
+  // Arrange
+  const reservas = [reservaPesable()];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, []);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 15);
+});
+
+test('el consumo anotado en el asiento baja el apartado restante', () => {
+  // Arrange: 15 kg apartados, la sala consumio 6.
+  const reservas = [reservaPesable()];
+  const asientos = [asiento([{ idReserva: 1, plu: '50333', kg: 6 }])];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 9);
+});
+
+test('un apartado consumido entero deja de contar como reservado', () => {
+  // Arrange
+  const reservas = [reservaPesable()];
+  const asientos = [asiento([{ idReserva: 1, plu: '50333', kg: 15 }])];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert: el PLU no aparece, igual que cuando no hay nada apartado.
+  assert.strictEqual(mapa.has('50333'), false);
+});
+
+test('suma el consumo anotado en varios asientos de la misma reserva', () => {
+  // Arrange: dos lotes del mismo dia, 6 kg y 4 kg.
+  const reservas = [reservaPesable()];
+  const asientos = [asiento([{ idReserva: 1, plu: '50333', kg: 6 }]),
+                    asiento([{ idReserva: 1, plu: '50333', kg: 4 }], { idRegistro: 'mov-2-0' })];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 5);
+});
+
+test('un consumo de un PLU que ninguna reserva viva tiene no descuenta nada', () => {
+  // Arrange: el asiento anota un granel que esta reserva no aparto.
+  const reservas = [reservaPesable()];
+  const asientos = [asiento([{ idReserva: 99, plu: '60444', kg: 8 }])];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 15);
+  assert.strictEqual(mapa.has('60444'), false);
+});
+
+test('el restante de kg fraccionados no arrastra colas de punto flotante', () => {
+  // Arrange
+  const reservas = [reservaPesable({ lineas: [{ plu: '50333', cantidad: 0.3 }] })];
+  const asientos = [asiento([{ idReserva: 1, plu: '50333', kg: 0.1 }])];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 0.2);
+});
+
+test('los asientos viejos sin consumo anotado se leen como cero consumido', () => {
+  // Arrange: planes.json esta lleno de asientos escritos antes de este campo.
+  const reservas = [reservaPesable()];
+  const asientos = [{ numeroMovimiento: 3, idRegistro: 'mov-viejo', registros: ['r1'] },
+                    { numeroMovimiento: 4, idRegistro: 'mov-viejo-2', consumoMayorista: null }];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 15);
+});
+
+test('el consumo de una reserva no baja el apartado de otra sucursal', () => {
+  // Arrange: dos sucursales con el mismo granel; la clave es el id de reserva, que es unico
+  // (Date.now()), no un contador por sucursal como numeroMovimiento.
+  const suc1 = reservaPesable({ id: 101, idSucursal: 1 });
+  const suc2 = reservaPesable({ id: 202, idSucursal: 2 });
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 15 }], { idSucursal: 1 })];
+
+  // Act
+  const soloSuc2 = granelReservadoNeto([suc2], asientos);
+  const ambas = granelReservadoNeto([suc1, suc2], asientos);
+
+  // Assert: lo consumido en la sucursal 1 no toca lo apartado en la 2.
+  assert.strictEqual(soloSuc2.get('50333'), 15);
+  assert.strictEqual(ambas.get('50333'), 15);
+});
+
+test('una reserva anulada no aporta apartado aunque tenga consumo anotado', () => {
+  // Arrange
+  const reservas = [reservaPesable({ estado: 'anulada' })];
+  const asientos = [asiento([{ idReserva: 1, plu: '50333', kg: 6 }])];
+
+  // Act
+  const mapa = granelReservadoNeto(reservas, asientos);
+
+  // Assert
+  assert.strictEqual(mapa.size, 0);
+});
+
+test('el restante por reserva dice que queda en cada reserva y en cada PLU', () => {
+  // Arrange
+  const reservas = [reservaPesable({ id: 101 }), reservaPesable({ id: 202 })];
+  const asientos = [asiento([{ idReserva: 101, plu: '50333', kg: 6 }])];
+
+  // Act
+  const filas = restanteMayoristaPorReserva(reservas, asientos);
+
+  // Assert
+  assert.deepStrictEqual(filas, [{ idReserva: 101, plu: '50333', restante: 9 },
+                                 { idReserva: 202, plu: '50333', restante: 15 }]);
+});
+
+// ── Imputacion del consumo a las reservas ─────────────────────────────────────
+// El granel del deposito de reserva es fungible: que reserva "puso" los kg que la sala
+// consumio es una convencion (la mas vieja primero). Lo que no es convencion es que se
+// anote CONTRA una reserva: sin eso el consumo de ayer descontaria la reserva de hoy.
+
+test('imputa el consumo a la reserva que tiene ese granel apartado', () => {
+  // Arrange
+  const filas = [{ idReserva: 101, plu: '50333', restante: 15 }];
+
+  // Act
+  const consumo = imputarConsumoMayorista(filas, { '50333': 6 });
+
+  // Assert
+  assert.deepStrictEqual(consumo, [{ idReserva: 101, plu: '50333', kg: 6 }]);
+});
+
+test('reparte el consumo entre varias reservas, la mas vieja primero', () => {
+  // Arrange: el id lleva el timestamp de creacion, asi que el menor es el mas viejo.
+  const filas = [{ idReserva: 202, plu: '50333', restante: 10 },
+                 { idReserva: 101, plu: '50333', restante: 4 }];
+
+  // Act
+  const consumo = imputarConsumoMayorista(filas, { '50333': 9 });
+
+  // Assert
+  assert.deepStrictEqual(consumo, [{ idReserva: 101, plu: '50333', kg: 4 },
+                                   { idReserva: 202, plu: '50333', kg: 5 }]);
+});
+
+test('no imputa mas kg de los que le quedan a la reserva', () => {
+  // Arrange
+  const filas = [{ idReserva: 101, plu: '50333', restante: 4 }];
+
+  // Act
+  const consumo = imputarConsumoMayorista(filas, { '50333': 9 });
+
+  // Assert: los 5 kg que sobran salieron de otro lado, no del apartado.
+  assert.deepStrictEqual(consumo, [{ idReserva: 101, plu: '50333', kg: 4 }]);
+});
+
+test('sin consumo no anota nada en el asiento', () => {
+  // Arrange
+  const filas = [{ idReserva: 101, plu: '50333', restante: 15 }];
+
+  // Act / Assert
+  assert.deepStrictEqual(imputarConsumoMayorista(filas, {}), []);
+  assert.deepStrictEqual(imputarConsumoMayorista(filas, { '50333': 0 }), []);
+  assert.deepStrictEqual(imputarConsumoMayorista([], { '50333': 6 }), []);
+});
+
+test('la imputacion de kg fraccionados no arrastra colas de punto flotante', () => {
+  // Arrange
+  const filas = [{ idReserva: 101, plu: '50333', restante: 0.1 },
+                 { idReserva: 202, plu: '50333', restante: 0.5 }];
+
+  // Act
+  const consumo = imputarConsumoMayorista(filas, { '50333': 0.3 });
+
+  // Assert
+  assert.deepStrictEqual(consumo, [{ idReserva: 101, plu: '50333', kg: 0.1 },
+                                   { idReserva: 202, plu: '50333', kg: 0.2 }]);
+});
+
+test('dos lotes seguidos no consumen mas kg que los apartados', () => {
+  // Arrange: 10 kg apartados y dos lotes de 6 kg, el bug que motiva todo esto.
+  const reservas = [reservaPesable({ id: 101, lineas: [{ plu: '50333', cantidad: 10 }] })];
+
+  // Act: lote 1 contra el apartado entero.
+  const lote1 = imputarConsumoMayorista(restanteMayoristaPorReserva(reservas, []),
+    { '50333': Math.min(granelReservadoNeto(reservas, []).get('50333'), 6) });
+  const asientos = [asiento(lote1)];
+  // Lote 2: el apartado restante ya es 4, asi que solo puede salir 4 del deposito de reserva.
+  const restanteLote2 = granelReservadoNeto(reservas, asientos).get('50333');
+  const lote2 = imputarConsumoMayorista(restanteMayoristaPorReserva(reservas, asientos),
+    { '50333': Math.min(restanteLote2, 6) });
+
+  // Assert
+  assert.strictEqual(restanteLote2, 4);
+  const total = [...lote1, ...lote2].reduce((s, c) => s + c.kg, 0);
+  assert.strictEqual(total, 10);
+  assert.strictEqual(granelReservadoNeto(reservas, [...asientos, asiento(lote2)]).size, 0);
 });

@@ -43,7 +43,8 @@ const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, o
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu, pedidoReservadoPorPlu,
-        partirConsumoMayorista } = require('./reservas_pesables');
+        partirConsumoMayorista, granelReservadoNeto, restanteMayoristaPorReserva,
+        imputarConsumoMayorista } = require('./reservas_pesables');
 const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -7877,7 +7878,15 @@ async function conciliacionProduccion(fecha, idSucursal) {
   const depReservaProd = Number(depsPropuestos.reserva);
   const mercSucursal = leerJSON(RESERVAS_MERC_PATH, [])
     .filter(r => r && r.estado === 'activa' && Number(r.idSucursal) === sucursalConciliada);
-  const granelMayorista = granelReservadoPorPlu(mercSucursal.filter(r => Number(r.depDestino) === depReservaProd));
+  // Lo apartado se lee NETO de lo que la produccion ya consumio: cada asiento anota contra que
+  // reserva salio el granel del deposito de reserva (consumoMayorista). Se miran los asientos de
+  // TODAS las fechas, no solo la de hoy: una reserva vive varios dias y lo que consumio la
+  // produccion de ayer no puede volver a descontarse hoy. Los asientos viejos no traen el campo
+  // y se leen como cero consumido, que es el comportamiento de siempre.
+  const asientosTodos = Object.values(planes).flatMap(p => asientosProduccion(p));
+  const mercReserva = mercSucursal.filter(r => Number(r.depDestino) === depReservaProd);
+  const restanteMayorista = restanteMayoristaPorReserva(mercReserva, asientosTodos);
+  const granelMayorista = granelReservadoNeto(mercReserva, asientosTodos);
   if (granelMayorista.size) {
     avisos.push(`Hay stock apartado por ${granelMayorista.size} producto(s) con reserva mayorista viva: `
               + 'ese consumo se descuenta del depósito de reserva.');
@@ -8010,6 +8019,10 @@ async function conciliacionProduccion(fecha, idSucursal) {
     // lo apartado por el plan (devolvible, y presente en porMovimiento) de lo apartado por el
     // mayorista, que tiene que quedarse en el deposito de reserva.
     reservadoMayorista: Object.fromEntries(granelMayorista),
+    // Base de imputacion: cuanto le queda apartado a CADA reserva. Es lo que necesita
+    // /registrar-movimiento para anotar en el asiento contra que reserva sale cada kg
+    // consumido, sin volver a leer ni filtrar reservas_mercaderia.json por su cuenta.
+    restanteMayorista,
     // Consumo de la carga manual, fuera del cuadro reserva-vs-producción: no hay reserva contra
     // la cual conciliarlo. Se registra íntegro contra el depósito de recepción.
     componentesManual,
@@ -8270,6 +8283,13 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   // componente crudo, el consumo que excede plan+mayorista no saldria de ningun deposito.
   const { componentesPlan, lineasMayorista } =
     partirConsumoMayorista(c.componentes, c.reservadoMayorista, deps.reserva);
+  // Contra que reserva mayorista sale cada kg que la sala consumio del deposito de reserva. Se
+  // guarda en el asiento de produccion (misma escritura que el sello) y es lo que hace que el
+  // lote siguiente vea el apartado que QUEDA en vez del original. No se toca
+  // reservas_mercaderia.json: mover uno solo de los dos datos abre una ventana en la que un
+  // reintento recalcularia el mismo consumo contra un apartado ya achicado.
+  const consumoMayorista = imputarConsumoMayorista(c.restanteMayorista,
+    Object.fromEntries(lineasMayorista.map(l => [String(l.idProducto), -l.cantidad])));
   const resto     = lineasProduccionDesdeConciliacion({ ...c, componentes: componentesPlan }, deps, { incluirReserva: false });
   const ajustesMov = (c.porMovimiento || [])
     .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], conciliado: !!m.conciliado, lineas: lineasAjusteMovimiento(m.componentes, deps) }))
@@ -8376,7 +8396,12 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   const marcarProduccion = (planActual, rc) => {
     const asientoNuevo = {
       numeroMovimiento: rc.numeroMovimiento, fecha: new Date().toISOString(),
-      idRegistro: rc.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal, registros: idsRegistrados
+      idRegistro: rc.idRegistro, usuario: cr.usuario, idSucursal: cr.idSucursal, registros: idsRegistrados,
+      // Granel del apartado mayorista que consumio ESTE movimiento, por reserva. Revertir el
+      // movimiento borra el asiento (limpiarProduccionRegistrada) y con el este consumo, asi
+      // que el apartado vuelve solo. Sin consumo mayorista el campo no se escribe: los asientos
+      // que no lo tienen se leen como cero consumido.
+      ...(consumoMayorista.length ? { consumoMayorista } : {})
     };
     const asientos = [...asientosProduccion(planActual), asientoNuevo];
     const produccionRegistrada = { ...asientoNuevo, asientos };

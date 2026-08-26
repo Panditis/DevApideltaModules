@@ -76,24 +76,110 @@ function lineaAApartar(l) {
 }
 
 /**
- * Kg de granel apartados por reservas mayoristas vivas, agregados por PLU.
- * Lo consume la conciliacion de produccion para saber que parte del consumo de la sala sale
- * del deposito de reserva y no del principal.
- * @param {Array<object>} reservas contenido de reservas_mercaderia.json
- * @returns {Map<string, number>} pluGranel -> kg
+ * Kg que cada reserva mayorista viva todavia tiene apartados, por (reserva, PLU).
+ *
+ * Lo apartado NO se muta en reservas_mercaderia.json: lo que la sala consumio del deposito de
+ * reserva queda anotado en el asiento de la produccion que lo consumio
+ * (plan.produccionRegistrada.asientos[].consumoMayorista) y el restante se deriva al leer. Asi
+ * el sello de la produccion y el consumo son UNA sola escritura: un reintento tras una caida
+ * recalcula lo mismo, porque ninguno de los dos datos se movio sin el otro.
+ *
+ * El consumo se anota CONTRA una reserva (idReserva, que es un Date.now() unico) y no solo por
+ * PLU: sin eso, el consumo de una reserva vieja seguiria descontando una reserva nueva del
+ * mismo granel, y lo consumido en una sucursal descontaria lo apartado en otra.
+ *
+ * @param {Array<object>} reservas contenido de reservas_mercaderia.json (ya filtrado por
+ *   sucursal y deposito por quien llama: los IDs de deposito son por sucursal)
+ * @param {Array<object>} asientos asientos de produccion; los viejos no traen consumoMayorista
+ *   y se leen como cero consumido
+ * @returns {Array<{idReserva:*, plu:string, restante:number}>}
  */
-function granelReservadoPorPlu(reservas) {
-  const mapa = new Map();
+function restanteMayoristaPorReserva(reservas, asientos) {
+  const consumido = new Map();
+  for (const a of (asientos || [])) {
+    for (const c of ((a && a.consumoMayorista) || [])) {
+      const clave = `${texto(c && c.idReserva)}|${texto(c && c.plu)}`;
+      consumido.set(clave, redondear4((consumido.get(clave) || 0) + positivo(c && c.kg)));
+    }
+  }
+  const filas = [];
   for (const r of (reservas || [])) {
     if (!r || r.estado !== 'activa') continue;
+    // Agregado por PLU dentro de la reserva: hoy cada reserva tiene una sola linea, pero si
+    // tuviera dos del mismo granel el consumo anotado es de las dos juntas.
+    const porPlu = new Map();
     for (const l of (r.lineas || [])) {
       const plu = texto(l && l.plu);
       const cant = positivo(l && l.cantidad);
       if (!plu || !cant) continue;
-      mapa.set(plu, redondear4((mapa.get(plu) || 0) + cant));
+      porPlu.set(plu, redondear4((porPlu.get(plu) || 0) + cant));
+    }
+    for (const [plu, cant] of porPlu) {
+      const gastado = consumido.get(`${texto(r.id)}|${plu}`) || 0;
+      filas.push({ idReserva: r.id, plu, restante: redondear4(Math.max(0, cant - gastado)) });
     }
   }
+  return filas;
+}
+
+/**
+ * Kg de granel TODAVIA apartados por reservas mayoristas vivas, agregados por PLU.
+ * Lo consume la conciliacion de produccion para saber que parte del consumo de la sala sale
+ * del deposito de reserva y no del principal. Un apartado ya consumido no aparece: si siguiera
+ * apareciendo, el lote siguiente lo descontaria de nuevo (10 kg apartados, dos lotes de 6, -12).
+ * @param {Array<object>} reservas contenido de reservas_mercaderia.json
+ * @param {Array<object>} asientos asientos de produccion con el consumo ya anotado
+ * @returns {Map<string, number>} pluGranel -> kg
+ */
+function granelReservadoNeto(reservas, asientos) {
+  const mapa = new Map();
+  for (const f of restanteMayoristaPorReserva(reservas, asientos)) {
+    if (!f.restante) continue;
+    mapa.set(f.plu, redondear4((mapa.get(f.plu) || 0) + f.restante));
+  }
   return mapa;
+}
+
+/**
+ * Lo apartado en BRUTO, sin descontar lo que la produccion ya consumio. Es el neto sin
+ * asientos: sirve para avisar de lo apartado en otro deposito, donde la sala no consume.
+ * @param {Array<object>} reservas contenido de reservas_mercaderia.json
+ * @returns {Map<string, number>} pluGranel -> kg
+ */
+function granelReservadoPorPlu(reservas) {
+  return granelReservadoNeto(reservas, []);
+}
+
+/**
+ * Reparte los kg que la sala consumio del deposito de reserva entre las reservas que todavia
+ * los tienen apartados. Es lo que se anota en el asiento de produccion.
+ *
+ * El granel del deposito es fungible: que reserva "puso" los kg consumidos es una convencion.
+ * Se imputa a la mas vieja primero (el id lleva el Date.now() de la creacion, asi que el menor
+ * es el mas viejo) porque es la que antes se va a retirar. Nunca se le saca a una reserva mas
+ * de lo que le queda: lo que exceda salio de otro lado, no del apartado.
+ *
+ * @param {Array<{idReserva:*, plu:string, restante:number}>} restantes de restanteMayoristaPorReserva
+ * @param {Object<string, number>} consumoPorPlu pluGranel -> kg consumidos (positivos)
+ * @returns {Array<{idReserva:*, plu:string, kg:number}>}
+ */
+function imputarConsumoMayorista(restantes, consumoPorPlu) {
+  const pendiente = new Map();
+  for (const [plu, kg] of Object.entries(consumoPorPlu || {})) {
+    const cant = positivo(kg);
+    if (texto(plu) && cant) pendiente.set(texto(plu), cant);
+  }
+  if (!pendiente.size) return [];
+  const consumo = [];
+  const orden = [...(restantes || [])].sort((a, b) => (Number(a && a.idReserva) || 0) - (Number(b && b.idReserva) || 0));
+  for (const f of orden) {
+    const plu = texto(f && f.plu);
+    const tomar = redondear4(Math.min(positivo(f && f.restante), pendiente.get(plu) || 0));
+    if (!(tomar > 0)) continue;
+    pendiente.set(plu, redondear4(pendiente.get(plu) - tomar));
+    consumo.push({ idReserva: f.idReserva, plu, kg: tomar });
+  }
+  return consumo;
 }
 
 /**
@@ -157,4 +243,5 @@ function partirConsumoMayorista(componentes, reservadoMayorista, depReserva) {
   return { componentesPlan, lineasMayorista };
 }
 
-module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu, partirConsumoMayorista };
+module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu, partirConsumoMayorista,
+  restanteMayoristaPorReserva, granelReservadoNeto, imputarConsumoMayorista };
