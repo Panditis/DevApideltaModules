@@ -20,6 +20,7 @@ const comprasModulo = require('./compras_modulo');
 const prediccionConsumo = require('./prediccion_consumo');
 const preciosProv = require('./precios_proveedores');
 const preciosHistorico = require('./precios_historico');
+const preciosFacturador = require('./precios_facturador');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
@@ -1297,6 +1298,39 @@ app.get('/api/resumen',     apiRoute(async req => { const p = params(req); retur
 // Los pendientes salen de getResumen (por cliente+producto, mismos filtros que la tab),
 // el granel de sqlBOMGranel (fórmula activa, dos niveles) y el stock de los depósitos GRANEL
 // de la central. El cálculo en sí vive en fraccionado_faltantes.js (puro, testeado).
+
+// Resuelve, para un conjunto de PLU de bultos mayoristas, cual es su granel y cuantos kg de
+// ese granel consume una unidad del bulto. sqlBOMGranel baja dos niveles, asi que sirve tanto
+// para el Almacen Bulto/Caja de venta directa como para el pesable, que pasa por el intermedio
+// "X Pedido". Un producto puede devolver mas de un granel: se toma el de mayor CantPorUnidad,
+// que es el ingrediente principal (el resto son trazas).
+// @param {Array<string>} plus PLU de los bultos
+// @returns {Promise<Map<string, {granelPlu:string, granelNombre:string, cantPorUnidad:number}>>}
+async function bomGranelPorPlu(plus) {
+  const lista = [...new Set((plus || []).map(String))].filter(p => /^\d+$/.test(p));
+  const mapa = new Map();
+  if (!lista.length) return mapa;
+
+  // Se relee config.json por request igual que /api/stock/granel y /api/bom, los otros
+  // consumidores de rubrosGranel: asi editar la config no deja este helper desalineado con
+  // ellos hasta el proximo reinicio.
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const filtroPadre = ` AND pc.IdProducto IN (${lista.map(p => `'${p}'`).join(',')})`;
+  const filas = await query(sqlBOMGranel(c.rubrosGranel.join(','), filtroPadre));
+
+  for (const b of filas) {
+    const plu = String(b.IdProducto);
+    const cand = {
+      granelPlu: String(b.IdProductoComponente),
+      granelNombre: b.NombreComponente || '',
+      cantPorUnidad: Number(b.CantPorUnidad) || 0,
+    };
+    const prev = mapa.get(plu);
+    if (!prev || cand.cantPorUnidad > prev.cantPorUnidad) mapa.set(plu, cand);
+  }
+  return mapa;
+}
+
 async function getFaltantesFraccionado(desde, hasta, localidades, clientes, pedidos, estados) {
   const filasResumen = await getResumen(desde, hasta, localidades, clientes, pedidos, estados);
   if (!filasResumen.length) return [];
@@ -1317,26 +1351,7 @@ async function getFaltantesFraccionado(desde, hasta, localidades, clientes, pedi
     acc.clientes.push({ idCliente: r.IdCliente, nombre: r.NombreCliente, pendiente: pend });
   }
 
-  // Se relee config.json por request igual que /api/stock/granel y /api/bom, los otros dos
-  // consumidores de rubrosGranel: así editar la config no deja este endpoint desalineado
-  // con ellos hasta el próximo reinicio. Local `c` para no pisar el `cfg` global del módulo.
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
-  const rubrosG = c.rubrosGranel.join(',');
-  const plus = [...porPlu.keys()].filter(p => /^\d+$/.test(p));
-  if (!plus.length) return [];
-  const filtroPadre = ` AND pc.IdProducto IN (${plus.map(p => `'${p}'`).join(',')})`;
-
-  const bomRows = await query(sqlBOMGranel(rubrosG, filtroPadre));
-  const bomGranel = new Map();
-  for (const b of bomRows) {
-    const plu = String(b.IdProducto);
-    // sqlBOMGranel puede devolver más de un componente granel por producto; nos quedamos con
-    // el de mayor CantPorUnidad, que es el ingrediente principal (el resto son trazas).
-    const cand = { granelPlu: String(b.IdProductoComponente), granelNombre: b.NombreComponente || '',
-                   cantPorUnidad: Number(b.CantPorUnidad) || 0 };
-    const prev = bomGranel.get(plu);
-    if (!prev || cand.cantPorUnidad > prev.cantPorUnidad) bomGranel.set(plu, cand);
-  }
+  const bomGranel = await bomGranelPorPlu([...porPlu.keys()]);
   if (!bomGranel.size) return [];
 
   // Stock del granel: se suman todos los depósitos de la central, sin filtrar por nombre de
@@ -4825,6 +4840,18 @@ app.get('/api/facturador/catalogo', apiRoute(async req => {
     }),
   };
 }));
+
+// Segunda fuente del facturador: la planilla de precios que vive en una carpeta compartida
+// de la red. Cubre el caso de SQL caído (o del server corriendo sin acceso a SiGA) sin
+// obligar a nadie a cargar el archivo a mano en cada caja.
+// La ruta se fija por env y NUNCA por query: esta ruta no lleva sesión (el facturador se
+// abre con file:// y no puede loguearse), así que aceptar una ruta del cliente sería dejar
+// leer cualquier archivo del servidor.
+const PRECIOS_FACTURADOR_DIR = process.env.PRECIOS_FACTURADOR_DIR ||
+  '\\\\192.168.1.26\\Apidelta\\7- SISTEMA\\1-Precios\\PreciosFacturador';
+
+app.get('/api/facturador/catalogo-archivo', apiRoute(async () =>
+  preciosFacturador.catalogoDeDirectorio(PRECIOS_FACTURADOR_DIR)));
 
 function calcularPrecioML(precioVentaSIGA, comisionPct, iva, cuotasPct = 0, costoEnvio = 0) {
   // Precio ML para que neto después de comisión+cuotas+IVA+envío = precioVentaSIGA
