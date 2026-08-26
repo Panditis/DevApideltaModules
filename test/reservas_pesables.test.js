@@ -224,3 +224,20 @@ test('una reserva de venta directa no aporta unidades de carga', () => {
   // Assert
   assert.strictEqual(mapa.size, 0);
 });
+
+test('redondea la suma de kg fraccionados para no arrastrar colas de punto flotante', () => {
+  // Arrange: 0.1 + 0.2 + 0.3 da 0.6000000000000001 en punto flotante sin redondear
+  const reservas = [reservaPesable({
+    lineas: [
+      { plu: '50333', cantidad: 0.1 },
+      { plu: '50333', cantidad: 0.2 },
+      { plu: '50333', cantidad: 0.3 },
+    ],
+  })];
+
+  // Act
+  const mapa = granelReservadoPorPlu(reservas);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 0.6);
+});
