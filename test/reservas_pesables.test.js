@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { kgReserva, validarLineaPesable, lineaAApartar } = require('../reservas_pesables');
+const { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu } = require('../reservas_pesables');
 
 // ── Kilos a apartar ───────────────────────────────────────────────────────────
 // El bulto "Almendras 5Kg" lleva 5 kg de granel por unidad: pedir 3 aparta 15 kg.
@@ -156,4 +156,71 @@ test('una linea pesable sin unidades de bulto no aparta nada', () => {
 
   // Assert
   assert.strictEqual(ap, null);
+});
+
+// ── Cuanto hay apartado por reservas mayoristas ───────────────────────────────
+// La conciliacion de produccion necesita dos cosas: cuantos kg de granel estan en el deposito
+// de reserva (para no descontarlos del principal) y cuantas unidades de "X Pedido" estan
+// comprometidas (para dar de alta el terminado en reserva). Las anuladas no cuentan.
+
+function reservaPesable(extra) {
+  return {
+    id: 1, estado: 'activa',
+    pluCarga: '40222', nombreCarga: 'Almendras Pedido', unidadesPedidas: 3,
+    lineas: [{ plu: '50333', nombre: 'Almendras Granel', cantidad: 15 }],
+    ...extra,
+  };
+}
+
+test('suma los kg de las reservas activas del mismo granel', () => {
+  // Arrange
+  const reservas = [reservaPesable(),
+                    reservaPesable({ id: 2, lineas: [{ plu: '50333', cantidad: 10 }] })];
+
+  // Act
+  const mapa = granelReservadoPorPlu(reservas);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 25);
+});
+
+test('ignora las reservas anuladas al sumar granel', () => {
+  // Arrange
+  const reservas = [reservaPesable(), reservaPesable({ id: 2, estado: 'anulada' })];
+
+  // Act
+  const mapa = granelReservadoPorPlu(reservas);
+
+  // Assert
+  assert.strictEqual(mapa.get('50333'), 15);
+});
+
+test('devuelve un mapa vacio sin reservas', () => {
+  // Arrange / Act
+  const mapa = granelReservadoPorPlu([]);
+
+  // Assert
+  assert.strictEqual(mapa.size, 0);
+});
+
+test('suma las unidades comprometidas por producto de carga', () => {
+  // Arrange
+  const reservas = [reservaPesable(), reservaPesable({ id: 2, unidadesPedidas: 4 })];
+
+  // Act
+  const mapa = pedidoReservadoPorPlu(reservas);
+
+  // Assert
+  assert.strictEqual(mapa.get('40222'), 7);
+});
+
+test('una reserva de venta directa no aporta unidades de carga', () => {
+  // Arrange
+  const reservas = [reservaPesable({ pluCarga: null, unidadesPedidas: null })];
+
+  // Act
+  const mapa = pedidoReservadoPorPlu(reservas);
+
+  // Assert
+  assert.strictEqual(mapa.size, 0);
 });

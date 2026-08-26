@@ -75,4 +75,44 @@ function lineaAApartar(l) {
   return { plu: texto(l.pluGranel), nombre: texto(l.nombreGranel), cantidad: kg };
 }
 
-module.exports = { kgReserva, validarLineaPesable, lineaAApartar };
+/**
+ * Kg de granel apartados por reservas mayoristas vivas, agregados por PLU.
+ * Lo consume la conciliacion de produccion para saber que parte del consumo de la sala sale
+ * del deposito de reserva y no del principal.
+ * @param {Array<object>} reservas contenido de reservas_mercaderia.json
+ * @returns {Map<string, number>} pluGranel -> kg
+ */
+function granelReservadoPorPlu(reservas) {
+  const mapa = new Map();
+  for (const r of (reservas || [])) {
+    if (!r || r.estado !== 'activa') continue;
+    for (const l of (r.lineas || [])) {
+      const plu = texto(l && l.plu);
+      const cant = positivo(l && l.cantidad);
+      if (!plu || !cant) continue;
+      mapa.set(plu, redondear4((mapa.get(plu) || 0) + cant));
+    }
+  }
+  return mapa;
+}
+
+/**
+ * Unidades de "X Pedido" comprometidas por reservas mayoristas vivas, agregadas por PLU de
+ * carga. Es lo que tiene que entrar al deposito de reserva cuando la sala produce.
+ * Las reservas de venta directa no tienen pluCarga y no aportan.
+ * @param {Array<object>} reservas contenido de reservas_mercaderia.json
+ * @returns {Map<string, number>} pluCarga -> unidades
+ */
+function pedidoReservadoPorPlu(reservas) {
+  const mapa = new Map();
+  for (const r of (reservas || [])) {
+    if (!r || r.estado !== 'activa') continue;
+    const plu = texto(r.pluCarga);
+    const unidades = positivo(r.unidadesPedidas);
+    if (!plu || !unidades) continue;
+    mapa.set(plu, redondear4((mapa.get(plu) || 0) + unidades));
+  }
+  return mapa;
+}
+
+module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu };
