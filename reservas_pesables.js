@@ -115,4 +115,46 @@ function pedidoReservadoPorPlu(reservas) {
   return mapa;
 }
 
-module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu };
+/**
+ * Parte los componentes de la conciliacion en la vista del PLAN y las lineas del apartado
+ * MAYORISTA. Hace falta porque componentes[].reservado suma los dos apartados (para que el
+ * consumo no se cargue al deposito principal) pero cada uno se registra distinto:
+ *  - lo del plan tiene comprobante de conciliacion propio y su sobrante se devuelve;
+ *  - lo del mayorista NO figura en porMovimiento y NO es devolvible: tiene que quedarse
+ *    en el deposito de reserva hasta que el mayorista se lo lleve.
+ *
+ * `componentesPlan` es la vista que deben consumir TODOS los pasos de abajo (el comprobante
+ * de produccion, las diferencias y el corte antidoble-conteo). Usar el componente crudo en
+ * alguno de ellos hace desaparecer el consumo que excede plan+mayorista: con el reservado
+ * inflado, el comprobante de produccion no lo manda al deposito de salida y las diferencias
+ * tampoco lo ven.
+ *
+ * @param {Array<{plu:*, nombre:*, reservado:number, usado:number}>} componentes
+ * @param {Object<string, number>} reservadoMayorista aporte mayorista por PLU
+ * @param {number} depReserva deposito donde esta lo apartado
+ * @returns {{componentesPlan:Array<object>, lineasMayorista:Array<object>}}
+ */
+function partirConsumoMayorista(componentes, reservadoMayorista, depReserva) {
+  const componentesPlan = [], lineasMayorista = [];
+  for (const comp of (componentes || [])) {
+    const mayorista = positivo((reservadoMayorista || {})[texto(comp && comp.plu)]);
+    if (!(mayorista > 0)) { componentesPlan.push(comp); continue; }
+    const usado = positivo(comp.usado);
+    // Lo que reservo el plan es el resto; el max(0) cubre un reservado que no llegue a
+    // cubrir el aporte mayorista (no deberia pasar: el reservado se arma sumandolo).
+    const delPlan = redondear4(Math.max(0, positivo(comp.reservado) - mayorista));
+    // La sala consume primero contra la reserva del plan; recien lo que pasa de ahi sale del
+    // apartado mayorista, y solo hasta donde el apartado alcanza.
+    const consumido = redondear4(Math.min(mayorista, Math.max(0, usado - delPlan)));
+    componentesPlan.push({ ...comp, reservado: delPlan, usado: redondear4(usado - consumido) });
+    if (consumido > 0) {
+      lineasMayorista.push({
+        idProducto: texto(comp.plu), nombre: texto(comp.nombre),
+        idDeposito: depReserva, cantidad: -consumido, concepto: 'consumo-reserva-mayorista'
+      });
+    }
+  }
+  return { componentesPlan, lineasMayorista };
+}
+
+module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu, partirConsumoMayorista };

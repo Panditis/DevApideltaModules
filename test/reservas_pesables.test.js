@@ -241,3 +241,113 @@ test('redondea la suma de kg fraccionados para no arrastrar colas de punto flota
   // Assert
   assert.strictEqual(mapa.get('50333'), 0.6);
 });
+
+// ── Reparto del consumo entre la reserva del plan y el apartado mayorista ──────
+// Invariante duro del circuito: cada kg que la sala consumio tiene que salir de UN deposito.
+// La tabla recorre plan/mayorista/usado y comprueba el neto por deposito contra la verdad
+// fisica. Se usan las funciones REALES de reservas_movimiento; lo unico replicado es la regla
+// del comprobante "resto" (vive en server.js y no se puede requerir sin levantar el server).
+// ponytail: replica de 3 lineas; si server.js cambia esa regla hay que espejarla aca.
+const { lineasDiferenciasProduccion, lineasAjusteMovimiento, conciliarPorMovimiento, saldoLedger } = require('../reservas_movimiento');
+const { partirConsumoMayorista } = require('../reservas_pesables');
+
+const DEPS = { salida: 1, recepcion: 3, diferencias: 1, reserva: 2 };
+const PLU_GRANEL = '7302';
+
+// Neto por deposito de un dia con `plan` reservado por el plan, `may` apartado por el
+// mayorista y `usado` consumido por la sala, armado con el MISMO orden que server.js.
+function netoPorDeposito({ plan, may, usado }) {
+  const reservas = plan > 0 ? [{ estado: 'activa', numeroMovimiento: 55, lineas: [{ plu: PLU_GRANEL, nombre: 'Granel', cantidad: plan }] }] : [];
+  const componentes = [{ plu: PLU_GRANEL, nombre: 'Granel', reservado: plan + may, usado }];
+  const porMovimiento = conciliarPorMovimiento(
+    reservas.map(r => ({ numeroMovimiento: r.numeroMovimiento, ordenes: [], saldo: saldoLedger([r]), conciliado: false })),
+    new Map([[PLU_GRANEL, usado]]));
+
+  const { componentesPlan, lineasMayorista } = partirConsumoMayorista(
+    componentes, may > 0 ? { [PLU_GRANEL]: may } : {}, DEPS.reserva);
+
+  // Regla del comprobante "resto" (lineasProduccionDesdeConciliacion con incluirReserva:false):
+  // sin nada reservado detras, todo el consumo sale del deposito de salida.
+  const lineasResto = componentesPlan.filter(x => x.plu).flatMap(x => {
+    const excedente = Math.max(0, x.usado - x.reservado);
+    const deSalida = x.reservado > 0 ? 0 : excedente;
+    return deSalida > 0 ? [{ idDeposito: DEPS.salida, cantidad: -deSalida }] : [];
+  });
+  const difs = lineasDiferenciasProduccion(componentesPlan, DEPS);
+  const ajustes = porMovimiento.flatMap(m => lineasAjusteMovimiento(m.componentes, DEPS));
+
+  const neto = {};
+  for (const l of [...lineasResto, ...lineasMayorista, ...difs, ...ajustes]) {
+    neto[l.idDeposito] = Math.round(((neto[l.idDeposito] || 0) + l.cantidad) * 1e4) / 1e4;
+  }
+  return { reserva: neto[DEPS.reserva] || 0, principal: neto[DEPS.salida] || 0 };
+}
+
+const TABLA = [
+  // El caso que se perdia: la sala uso 12 con solo 5 apartados por el mayorista. Los 7 de mas
+  // nunca estuvieron apartados y salen del principal; antes no salian de ningun lado.
+  { plan: 0,  may: 5,    usado: 12, reserva: -5,  principal: -7 },
+  { plan: 0,  may: 5,    usado: 3,  reserva: -3,  principal: 0  },
+  { plan: 10, may: 5,    usado: 20, reserva: -15, principal: -5 },
+  { plan: 10, may: 5,    usado: 12, reserva: -12, principal: 0  },
+  { plan: 10, may: 5,    usado: 8,  reserva: -10, principal: 2  },
+  // Sin mayorista el circuito tiene que quedar igual que antes de existir esta funcion.
+  { plan: 10, may: 0,    usado: 12, reserva: -10, principal: -2 },
+  { plan: 0,  may: 0,    usado: 5,  reserva: 0,   principal: -5 },
+  // Mayorista mayor que lo consumido: lo que sobra se queda en el deposito de reserva.
+  { plan: 0,  may: 20,   usado: 4,  reserva: -4,  principal: 0  },
+  // Kilos fraccionados: el granel se aparta con decimales.
+  { plan: 2.5, may: 1.25, usado: 3, reserva: -3,  principal: 0  },
+];
+
+for (const caso of TABLA) {
+  test(`el consumo cae entero en un deposito (plan ${caso.plan}, mayorista ${caso.may}, usado ${caso.usado})`, () => {
+    // Act
+    const neto = netoPorDeposito(caso);
+
+    // Assert
+    assert.deepStrictEqual(neto, { reserva: caso.reserva, principal: caso.principal });
+    // Nada se evapora: lo que salio de los depositos menos lo que volvio es lo consumido.
+    assert.strictEqual(Math.round((neto.reserva + neto.principal) * 1e4) / 1e4, -caso.usado);
+  });
+}
+
+test('un componente sin plu no se toca aunque haya reservas mayoristas', () => {
+  // Arrange
+  const componentes = [{ plu: null, nombre: 'Granel sin PLU', reservado: 0, usado: 7 }];
+
+  // Act
+  const { componentesPlan, lineasMayorista } = partirConsumoMayorista(componentes, { '7302': 5 }, 2);
+
+  // Assert
+  assert.deepStrictEqual(componentesPlan, componentes);
+  assert.deepStrictEqual(lineasMayorista, []);
+});
+
+test('la linea mayorista sale del deposito de reserva y con el consumo en negativo', () => {
+  // Arrange: nada reservado por el plan, 5 apartados por el mayorista, la sala uso 3.
+  const componentes = [{ plu: '7302', nombre: 'Granel', reservado: 5, usado: 3 }];
+
+  // Act
+  const { componentesPlan, lineasMayorista } = partirConsumoMayorista(componentes, { '7302': 5 }, 2);
+
+  // Assert
+  assert.deepStrictEqual(lineasMayorista, [{
+    idProducto: '7302', nombre: 'Granel', idDeposito: 2, cantidad: -3, concepto: 'consumo-reserva-mayorista'
+  }]);
+  // La vista del plan queda sin nada: ni reservado propio ni consumo que conciliar.
+  assert.strictEqual(componentesPlan[0].reservado, 0);
+  assert.strictEqual(componentesPlan[0].usado, 0);
+});
+
+test('sin reservas mayoristas devuelve los componentes tal cual', () => {
+  // Arrange
+  const componentes = [{ plu: '7302', nombre: 'Granel', reservado: 10, usado: 12 }];
+
+  // Act
+  const { componentesPlan, lineasMayorista } = partirConsumoMayorista(componentes, {}, 2);
+
+  // Assert
+  assert.strictEqual(componentesPlan[0], componentes[0]);   // misma referencia: no se copia de gusto
+  assert.deepStrictEqual(lineasMayorista, []);
+});
