@@ -362,8 +362,23 @@ function lineasProduccionDesdeConciliacion(c, deps, opts) {
     const cantidad = redondear4(p.cantidad);
     if (!(cantidad > 0)) continue;
     if (!p.plu) { sinPlu.push({ tipo: 'producto', nombre: p.nombre || p.pluTexto || 'sin nombre', cantidad }); continue; }
-    lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.recepcion, cantidad, concepto: 'terminado' });
-    terminados++;
+    // Lo que cubre una reserva mayorista viva entra al deposito de RESERVA: es de ahi que la
+    // factura del mayorista lo va a descontar. `reservadoPorTerminado` ya viene NETO de lo que
+    // los asientos anteriores metieron (restantePedidoPorReserva), asi que la produccion
+    // cargada en lotes no lo mete dos veces. Sin reserva viva, todo va a recepcion como siempre.
+    const reservadoTerm = redondear4(Math.min(cantidad,
+      ((opts && opts.reservadoPorTerminado) || new Map()).get(String(p.plu)) || 0));
+    const aRecepcion = redondear4(cantidad - reservadoTerm);
+    if (reservadoTerm > 0) {
+      lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.reserva,
+                    cantidad: reservadoTerm, concepto: 'terminado-reserva' });
+      terminados++;
+    }
+    if (aRecepcion > 0) {
+      lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.recepcion,
+                    cantidad: aRecepcion, concepto: 'terminado' });
+      terminados++;
+    }
   }
 
   for (const comp of (c.componentes || [])) {

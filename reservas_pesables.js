@@ -94,14 +94,62 @@ function lineaAApartar(l) {
  *   y se leen como cero consumido
  * @returns {Array<{idReserva:*, plu:string, restante:number}>}
  */
-function restanteMayoristaPorReserva(reservas, asientos) {
-  const consumido = new Map();
+function anotadoPorReserva(asientos, campo, valor) {
+  const mapa = new Map();
   for (const a of (asientos || [])) {
-    for (const c of ((a && a.consumoMayorista) || [])) {
+    for (const c of ((a && a[campo]) || [])) {
       const clave = `${texto(c && c.idReserva)}|${texto(c && c.plu)}`;
-      consumido.set(clave, redondear4((consumido.get(clave) || 0) + positivo(c && c.kg)));
+      mapa.set(clave, redondear4((mapa.get(clave) || 0) + positivo(c && c[valor])));
     }
   }
+  return mapa;
+}
+
+/**
+ * Suma por PLU lo que quede en un array de restantes (el de granel o el de "X Pedido").
+ * @param {Array<{plu:string, restante:number}>} filas
+ * @returns {Map<string, number>} plu -> restante; los ceros no aparecen
+ */
+function agruparRestante(filas) {
+  const mapa = new Map();
+  for (const f of (filas || [])) {
+    const plu = texto(f && f.plu);
+    const restante = positivo(f && f.restante);
+    if (!plu || !restante) continue;
+    mapa.set(plu, redondear4((mapa.get(plu) || 0) + restante));
+  }
+  return mapa;
+}
+
+/**
+ * Unidades de "X Pedido" que una reserva mayorista viva todavia espera del deposito de
+ * reserva. Simetrico a restanteMayoristaPorReserva, con el mismo motivo: lo que ya entro
+ * queda anotado en el asiento de produccion (terminadoMayorista) y lo que falta se deriva al
+ * leer. Sin esto, con la produccion cargada en lotes, el lote 2 vuelve a ver las unidades
+ * enteras y mete al deposito de reserva mas de lo apartado.
+ * Una reserva de venta directa no tiene pluCarga y no aporta.
+ * @param {Array<object>} reservas contenido de reservas_mercaderia.json (ya filtrado por
+ *   sucursal y deposito por quien llama)
+ * @param {Array<object>} asientos asientos de produccion; los viejos no traen el campo y se
+ *   leen como cero entregado
+ * @returns {Array<{idReserva:*, plu:string, restante:number}>}
+ */
+function restantePedidoPorReserva(reservas, asientos) {
+  const entregado = anotadoPorReserva(asientos, 'terminadoMayorista', 'unidades');
+  const filas = [];
+  for (const r of (reservas || [])) {
+    if (!r || r.estado !== 'activa') continue;
+    const plu = texto(r.pluCarga);
+    const unidades = positivo(r.unidadesPedidas);
+    if (!plu || !unidades) continue;
+    const ya = entregado.get(`${texto(r.id)}|${plu}`) || 0;
+    filas.push({ idReserva: r.id, plu, restante: redondear4(Math.max(0, unidades - ya)) });
+  }
+  return filas;
+}
+
+function restanteMayoristaPorReserva(reservas, asientos) {
+  const consumido = anotadoPorReserva(asientos, 'consumoMayorista', 'kg');
   const filas = [];
   for (const r of (reservas || [])) {
     if (!r || r.estado !== 'activa') continue;
@@ -132,12 +180,7 @@ function restanteMayoristaPorReserva(reservas, asientos) {
  * @returns {Map<string, number>} pluGranel -> kg
  */
 function granelReservadoNeto(reservas, asientos) {
-  const mapa = new Map();
-  for (const f of restanteMayoristaPorReserva(reservas, asientos)) {
-    if (!f.restante) continue;
-    mapa.set(f.plu, redondear4((mapa.get(f.plu) || 0) + f.restante));
-  }
-  return mapa;
+  return agruparRestante(restanteMayoristaPorReserva(reservas, asientos));
 }
 
 /**
@@ -219,15 +262,7 @@ function imputarConsumoMayorista(restantes, consumoPorPlu) {
  * @returns {Map<string, number>} pluCarga -> unidades
  */
 function pedidoReservadoPorPlu(reservas) {
-  const mapa = new Map();
-  for (const r of (reservas || [])) {
-    if (!r || r.estado !== 'activa') continue;
-    const plu = texto(r.pluCarga);
-    const unidades = positivo(r.unidadesPedidas);
-    if (!plu || !unidades) continue;
-    mapa.set(plu, redondear4((mapa.get(plu) || 0) + unidades));
-  }
-  return mapa;
+  return agruparRestante(restantePedidoPorReserva(reservas, []));
 }
 
 /**
@@ -273,4 +308,5 @@ function partirConsumoMayorista(componentes, reservadoMayorista, depReserva) {
 }
 
 module.exports = { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu, partirConsumoMayorista,
-  restanteMayoristaPorReserva, granelReservadoNeto, imputarConsumoMayorista, lineasADevolverMayorista };
+  restanteMayoristaPorReserva, granelReservadoNeto, imputarConsumoMayorista, lineasADevolverMayorista,
+  restantePedidoPorReserva, agruparRestante };

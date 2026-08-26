@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu,
         granelReservadoNeto, restanteMayoristaPorReserva, imputarConsumoMayorista,
-        lineasADevolverMayorista } = require('../reservas_pesables');
+        lineasADevolverMayorista, restantePedidoPorReserva, agruparRestante } = require('../reservas_pesables');
 
 // ── Kilos a apartar ───────────────────────────────────────────────────────────
 // El bulto "Almendras 5Kg" lleva 5 kg de granel por unidad: pedir 3 aparta 15 kg.
@@ -679,4 +679,101 @@ test('nunca sale una linea con cantidad cero o negativa', () => {
 
   // Assert
   assert.deepStrictEqual(lineas, []);
+});
+
+// ── "X Pedido" que todavia falta entrar al deposito de reserva ────────────────
+// Simetrico al granel: lo que ya entro queda anotado en el asiento de produccion
+// (terminadoMayorista) y lo que falta se deriva al leer. Sin esto, con la produccion cargada
+// en lotes, el lote 2 volveria a ver las unidades enteras y entrarian dos veces al deposito
+// de reserva (reserva de 3, lotes de 6 y 4 = 6 unidades apartadas).
+
+test('sin asientos falta entrar la reserva entera de X Pedido', () => {
+  // Arrange
+  const reservas = [reservaPesable({ id: 101 })];
+
+  // Act
+  const filas = restantePedidoPorReserva(reservas, []);
+
+  // Assert
+  assert.deepStrictEqual(filas, [{ idReserva: 101, plu: '40222', restante: 3 }]);
+});
+
+test('lo que ya entro al deposito de reserva no vuelve a faltar', () => {
+  // Arrange: 3 pedidas, 2 ya entraron.
+  const reservas = [reservaPesable({ id: 101 })];
+  const asientos = [{ idRegistro: 'mov-1', terminadoMayorista: [{ idReserva: 101, plu: '40222', unidades: 2 }] }];
+
+  // Act
+  const filas = restantePedidoPorReserva(reservas, asientos);
+
+  // Assert
+  assert.deepStrictEqual(filas, [{ idReserva: 101, plu: '40222', restante: 1 }]);
+});
+
+test('los asientos viejos sin terminadoMayorista no descuentan unidades', () => {
+  // Arrange: planes.json esta lleno de asientos escritos antes de este campo.
+  const reservas = [reservaPesable({ id: 101 })];
+  const asientos = [{ idRegistro: 'mov-viejo', registros: ['r1'] },
+                    { idRegistro: 'mov-viejo-2', terminadoMayorista: null }];
+
+  // Act
+  const filas = restantePedidoPorReserva(reservas, asientos);
+
+  // Assert
+  assert.deepStrictEqual(filas, [{ idReserva: 101, plu: '40222', restante: 3 }]);
+});
+
+test('lo que entro contra otra reserva no descuenta esta', () => {
+  // Arrange
+  const reservas = [reservaPesable({ id: 101 })];
+  const asientos = [{ idRegistro: 'mov-1', terminadoMayorista: [{ idReserva: 202, plu: '40222', unidades: 3 }] }];
+
+  // Act
+  const filas = restantePedidoPorReserva(reservas, asientos);
+
+  // Assert
+  assert.deepStrictEqual(filas, [{ idReserva: 101, plu: '40222', restante: 3 }]);
+});
+
+test('una reserva de venta directa no aporta unidades de X Pedido', () => {
+  // Arrange: sin pluCarga no hay intermedio que apartar.
+  const reservas = [reservaPesable({ id: 101, pluCarga: null, unidadesPedidas: null })];
+
+  // Act / Assert
+  assert.deepStrictEqual(restantePedidoPorReserva(reservas, []), []);
+});
+
+test('agruparRestante suma lo que falta de varias reservas del mismo producto', () => {
+  // Arrange
+  const filas = [{ idReserva: 101, plu: '40222', restante: 3 },
+                 { idReserva: 202, plu: '40222', restante: 2 },
+                 { idReserva: 303, plu: '40222', restante: 0 }];
+
+  // Act
+  const mapa = agruparRestante(filas);
+
+  // Assert
+  assert.strictEqual(mapa.get('40222'), 5);
+  assert.strictEqual(mapa.size, 1);
+});
+
+test('dos lotes no meten al deposito de reserva mas unidades que las apartadas', () => {
+  // Arrange: reserva de 3 unidades, produccion de 10 registrada en lotes de 6 y 4.
+  const reservas = [reservaPesable({ id: 101 })];
+  const lote = (producido, asientos) => {
+    const reservado = agruparRestante(restantePedidoPorReserva(reservas, asientos)).get('40222') || 0;
+    const aReserva = Math.min(producido, reservado);
+    return { aReserva, anotado: imputarConsumoMayorista(restantePedidoPorReserva(reservas, asientos),
+                                                        { '40222': aReserva }) };
+  };
+
+  // Act
+  const lote1 = lote(6, []);
+  const asientos = [{ idRegistro: 'mov-1', terminadoMayorista: lote1.anotado.map(
+    ({ idReserva, plu, kg }) => ({ idReserva, plu, unidades: kg })) }];
+  const lote2 = lote(4, asientos);
+
+  // Assert: 3 en total, no 3 por lote.
+  assert.strictEqual(lote1.aReserva, 3);
+  assert.strictEqual(lote2.aReserva, 0);
 });

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('../reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('../reservas_movimiento');
 
 const setStr = (...ns) => new Set(ns.map(String));
 
@@ -288,4 +288,75 @@ test('motivoBloqueoProduccion: varias ordenes usan plural y se listan todas', ()
 test('motivoBloqueoProduccion: sin nombre de producto cae al id', () => {
   const msg = motivoBloqueoProduccion([{ id: 42, producto: '', numeroMovimiento: 5 }], 'devolver la reserva');
   assert.match(msg, /"42"/);
+});
+
+// ── Alta del terminado con reserva mayorista ──────────────────────────────────
+// Lo que cubre una reserva mayorista viva entra al deposito de RESERVA, no al de recepcion:
+// es de ahi que la factura del mayorista lo va a descontar. El resto entra donde siempre.
+
+test('parte el alta del terminado entre reserva y recepcion', () => {
+  // Arrange
+  const c = { productos: [{ plu: '40222', nombre: 'Almendras Pedido', cantidad: 10 }],
+              componentes: [], componentesManual: [] };
+  const deps = { salida: 1, recepcion: 2, diferencias: 1, reserva: 3 };
+  const reservadoPorTerminado = new Map([['40222', 6]]);
+
+  // Act
+  const { lineas } = lineasProduccionDesdeConciliacion(c, deps, { reservadoPorTerminado });
+
+  // Assert
+  const aReserva = lineas.find(l => l.concepto === 'terminado-reserva');
+  const aRecepcion = lineas.find(l => l.concepto === 'terminado');
+  assert.strictEqual(aReserva.idDeposito, 3);
+  assert.strictEqual(aReserva.cantidad, 6);
+  assert.strictEqual(aRecepcion.idDeposito, 2);
+  assert.strictEqual(aRecepcion.cantidad, 4);
+});
+
+test('sin reserva mayorista el terminado entero va a recepcion', () => {
+  // Arrange
+  const c = { productos: [{ plu: '40222', nombre: 'Almendras Pedido', cantidad: 10 }],
+              componentes: [], componentesManual: [] };
+  const deps = { salida: 1, recepcion: 2, diferencias: 1, reserva: 3 };
+
+  // Act
+  const { lineas, resumen } = lineasProduccionDesdeConciliacion(c, deps, {});
+
+  // Assert: identico a lo de siempre, una sola linea.
+  assert.strictEqual(lineas.length, 1);
+  assert.strictEqual(lineas[0].concepto, 'terminado');
+  assert.strictEqual(lineas[0].idDeposito, 2);
+  assert.strictEqual(lineas[0].cantidad, 10);
+  assert.strictEqual(resumen.terminados, 1);
+});
+
+test('la reserva mayorista que supera lo producido no genera linea de recepcion', () => {
+  // Arrange: la sala produjo 4 de las 6 apartadas.
+  const c = { productos: [{ plu: '40222', nombre: 'Almendras Pedido', cantidad: 4 }],
+              componentes: [], componentesManual: [] };
+  const deps = { salida: 1, recepcion: 2, diferencias: 1, reserva: 3 };
+
+  // Act
+  const { lineas } = lineasProduccionDesdeConciliacion(c, deps, { reservadoPorTerminado: new Map([['40222', 6]]) });
+
+  // Assert
+  assert.strictEqual(lineas.length, 1);
+  assert.strictEqual(lineas[0].concepto, 'terminado-reserva');
+  assert.strictEqual(lineas[0].idDeposito, 3);
+  assert.strictEqual(lineas[0].cantidad, 4);
+});
+
+test('un terminado de otro producto no se ve afectado por la reserva', () => {
+  // Arrange
+  const c = { productos: [{ plu: '40222', nombre: 'Almendras Pedido', cantidad: 10 },
+                          { plu: '40333', nombre: 'Nueces Pedido', cantidad: 5 }],
+              componentes: [], componentesManual: [] };
+  const deps = { salida: 1, recepcion: 2, diferencias: 1, reserva: 3 };
+
+  // Act
+  const { lineas } = lineasProduccionDesdeConciliacion(c, deps, { reservadoPorTerminado: new Map([['40222', 6]]) });
+
+  // Assert
+  const nueces = lineas.filter(l => l.idProducto === '40333');
+  assert.deepStrictEqual(nueces.map(l => [l.concepto, l.idDeposito, l.cantidad]), [['terminado', 2, 5]]);
 });
