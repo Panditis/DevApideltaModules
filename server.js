@@ -1291,7 +1291,20 @@ app.get('/api/estados',     apiRoute(async () => getEstados()));
 app.get('/api/clientes',    apiRoute(async req => { const p = params(req); return getClientes(p.desde, p.hasta, p.localidades, p.estados); }));
 app.get('/api/pedidos',     apiRoute(async req => { const p = params(req); return getPedidos(p.desde, p.hasta, p.localidades, p.clientes, p.estados); }));
 app.get('/api/productos',   apiRoute(async req => { const p = params(req); return getProductos(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados); }));
-app.get('/api/resumen',     apiRoute(async req => { const p = params(req); return getResumen(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados); }));
+// El resumen alimenta la tabla con el boton de reserva. Ademas del componente de un nivel
+// (que usa el Almacen Bulto/Caja de venta directa), se anexa el granel resuelto a dos niveles:
+// es lo unico con stock real en un pesable, y es lo que hay que apartar.
+app.get('/api/resumen', apiRoute(async req => {
+  const p = params(req);
+  const filas = await getResumen(p.desde, p.hasta, p.localidades, p.clientes, p.pedidos, p.estados);
+  if (!filas.length) return filas;
+  const bom = await bomGranelPorPlu(filas.map(f => f.IdProducto));
+  return filas.map(f => {
+    const g = bom.get(String(f.IdProducto));
+    if (!g) return f;
+    return { ...f, GranelPlu: g.granelPlu, GranelNombre: g.granelNombre, KgPorUnidad: g.cantPorUnidad };
+  });
+}));
 
 // ── Mayoristas: órdenes de fraccionado ─────────────────────────────────────────
 // Detecta productos con faltante de stock fraccionado que sí tienen granel disponible.
