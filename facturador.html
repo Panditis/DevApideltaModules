@@ -32,6 +32,16 @@
   .marca h1 { font-size: 20px; margin: 0; letter-spacing: .3px; text-transform: uppercase; font-weight: 600; }
   .marca .sub { font-size: 11px; color: var(--amarillo); letter-spacing: 1.2px; text-transform: uppercase; }
   .sep { flex: 1; }
+  /* El lector queda de cartel en el mostrador: sin barra, la pantalla entera es el precio.
+     El botón para traerla de vuelta siempre queda a la vista, si no la única salida sería
+     recargar la página. */
+  body.sin-barra > header { display: none; }
+  body.sin-barra #vistaConsulta { min-height: 100dvh; }
+  #btnMostrarBarra {
+    position: fixed; top: 8px; right: 8px; z-index: 30; opacity: .25;
+    padding: 3px 11px; font-size: 17px; line-height: 1.2;
+  }
+  #btnMostrarBarra:hover, #btnMostrarBarra:focus { opacity: 1; }
 
   /* ── Controles ────────────────────────────────────────────────────────────── */
   button {
@@ -54,6 +64,7 @@
   }
   input:focus, select:focus { outline: 2px solid var(--verde-mid); outline-offset: -1px; border-color: var(--verde); }
   input[type=number] { text-align: right; }
+  input[readonly] { background: var(--surface); color: var(--muted); cursor: not-allowed; }
   label.et { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 
   /* ── Estructura ───────────────────────────────────────────────────────────── */
@@ -66,6 +77,24 @@
     letter-spacing: 1px; font-weight: 700; display: flex; align-items: center; gap: 8px;
   }
   section > h2::after { content: ''; flex: 1; height: 2px; background: var(--verde-light); }
+  /* Los apartados de la izquierda son dos cosas distintas: arriba se cargan productos (dos
+     formas de hacer lo mismo, por eso el segundo lleva "o") y abajo está el ticket que se
+     cobra. La franja de color y el número lo dicen sin que haya que leer los títulos. */
+  section.carga { border-left: 4px solid var(--verde); }
+  section.ticket { border-left: 4px solid var(--amarillo); }
+  .paso {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 20px; height: 20px; border-radius: 50%; font-size: 12px; font-weight: 700;
+    background: var(--verde); color: #fff; letter-spacing: 0;
+  }
+  .paso.alt { background: transparent; color: var(--verde); border: 2px solid var(--verde-light); text-transform: lowercase; }
+  section.ticket .paso { background: var(--amarillo); color: #3a2f00; }
+  /* La aclaración va con el título pero no compite con él. */
+  .aclara {
+    text-transform: none; letter-spacing: 0; font-weight: 500;
+    color: var(--muted); font-size: 11.5px;
+  }
+  @media (max-width: 560px) { .aclara { display: none; } }
   .fila { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
   .crece { flex: 1; min-width: 110px; }
   .oculto { display: none !important; }
@@ -181,6 +210,7 @@
   }
   .marco .precio {
     font-size: clamp(74px, 15vw, 215px); font-weight: 700; color: #fff; line-height: .9;
+    white-space: nowrap;
     font-family: 'Barlow Condensed', system-ui, sans-serif; font-variant-numeric: tabular-nums;
     display: block;
   }
@@ -268,6 +298,40 @@
   }
   #modalBotones { display: flex; gap: 9px; justify-content: flex-end; flex-wrap: wrap; }
 
+  /* ── Tickets guardados ────────────────────────────────────────────────────── */
+  /* z-index 90, uno menos que #modalFondo: al borrar un ticket la confirmación tiene que
+     quedar por encima de este listado. */
+  #fondoGuardados {
+    position: fixed; inset: 0; z-index: 90; background: rgba(26,28,24,.55);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  #cajaGuardados {
+    background: var(--card); border-radius: 11px; border-top: 5px solid var(--verde);
+    box-shadow: 0 12px 34px rgba(26,28,24,.3); max-width: 820px; width: 100%;
+    max-height: 90vh; display: flex; flex-direction: column;
+    padding: 16px 18px 14px; animation: aparece .12s ease-out;
+  }
+  #cajaGuardados h2 {
+    font-size: 13px; margin: 0 0 11px; color: var(--verde); text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+  }
+  #cajaGuardados h2::after { content: ''; flex: 1; height: 2px; background: var(--verde-light); }
+  #listaGuardados { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+  .tk-guardado {
+    border: 1px solid var(--borde); border-radius: 8px; margin-bottom: 8px; background: var(--card);
+  }
+  .tk-guardado > summary {
+    cursor: pointer; padding: 8px 11px; display: flex; flex-wrap: wrap; gap: 3px 12px;
+    align-items: baseline; background: var(--surface); border-radius: 7px;
+  }
+  .tk-guardado[open] > summary { border-radius: 7px 7px 0 0; }
+  .tk-monto { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tk-cuerpo { padding: 4px 11px 10px; }
+  .tk-cuerpo table { font-size: 13.5px; }
+  .tk-cuerpo th, .tk-cuerpo td { padding: 5px 6px; }
+  .tk-pie-guardado { margin-top: 9px; }
+  .tk-pie-guardado .chico { flex: 1; min-width: 150px; }
+
   /* ── Instructivo ──────────────────────────────────────────────────────────── */
   #secAyuda ol { margin: 0 0 4px; padding-left: 20px; }
   #secAyuda li { margin-bottom: 7px; }
@@ -347,6 +411,7 @@
     <button class="hdr mini" id="btnActualizar">Actualizar precios</button>
     <button class="hdr mini" id="btnConfig">Fuente de precios</button>
     <button class="hdr mini" id="btnGuardados">Tickets</button>
+    <button class="hdr mini" id="btnOcultarBarra">Ocultar barra</button>
     <button class="hdr mini" id="btnAyuda">Ayuda</button>
   </div>
 </header>
@@ -355,22 +420,25 @@
 <div class="col">
 
   <!-- ── Escáner ─────────────────────────────────────────────────────────────── -->
-  <section id="zonaEscaner" class="no-print">
-    <h2>Escanear</h2>
+  <section id="zonaEscaner" class="no-print carga">
+    <h2><span class="paso">1</span>Escanear<span class="aclara">El lector carga el producto solo</span></h2>
     <input id="escaner" placeholder="Pasá el lector por el código de barras…" autocomplete="off" inputmode="numeric">
     <div id="avisoEscaner" class="chico">Lee códigos de barras comunes y tickets de balanza (calcula el peso y el precio solo).</div>
+    <div class="fila" style="margin-top:9px">
+      <button class="verde mini" id="btnPromo">Agregar promo</button>
+    </div>
   </section>
 
   <!-- ── Búsqueda manual ─────────────────────────────────────────────────────── -->
-  <section class="no-print">
-    <h2>Buscar producto</h2>
+  <section class="no-print carga">
+    <h2><span class="paso alt">o</span>Buscar producto<span class="aclara">Si el código no lee o no tiene etiqueta</span></h2>
     <input id="buscar" placeholder="Nombre o código del producto…" autocomplete="off">
     <div class="res" id="resultados"></div>
   </section>
 
   <!-- ── Detalle ─────────────────────────────────────────────────────────────── -->
-  <section>
-    <h2>Detalle del ticket</h2>
+  <section class="ticket">
+    <h2><span class="paso">2</span>Detalle del ticket<span class="aclara">Lo que se va a cobrar</span></h2>
     <div class="fila" style="margin-bottom:11px">
       <div class="crece"><label class="et" for="cliente">Cliente</label><input id="cliente" placeholder="Nombre del cliente"></div>
       <div style="width:150px"><label class="et" for="vendedor">Vendedor</label><input id="vendedor" placeholder="Quién atiende"></div>
@@ -424,11 +492,11 @@
   <section class="no-print">
     <h2>Cerrar</h2>
     <div class="fila">
-      <button class="pri crece" id="btnGuardarPedido">Guardar ticket</button>
+      <button class="peligro crece" id="btnLimpiar">Eliminar ticket</button>
       <button class="crece" id="btnImprimir">Imprimir</button>
     </div>
     <div class="fila" style="margin-top:9px">
-      <button class="peligro crece" id="btnLimpiar">Eliminar ticket</button>
+      <button class="pri crece" id="btnGuardarPedido">Guardar ticket</button>
     </div>
   </section>
 </div>
@@ -567,17 +635,17 @@
           <li>Se abre con doble clic en Excel, ya separado en columnas.</li>
         </ol>
         <div class="nota">Sale <b>una fila por cada producto</b> de cada ticket, no una por ticket.
-          Para totales por venta, filtrá por la columna <code>Ticket</code>.</div>
+          Para totales por venta, filtrá por la columna <code>Pedido</code>.</div>
       </div>
       <div>
         <h3>Qué trae cada columna</h3>
         <ol>
-          <li><code>Ticket</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
+          <li><code>Pedido</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
           <li><code>Cliente</code> y <code>Vendedor</code>.</li>
           <li><code>Codigo</code> y <code>Producto</code>.</li>
           <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
           <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
-          <li><code>DtoGeneral</code>, <code>TotalTicket</code> y <code>MediosPago</code>.</li>
+          <li><code>DtoGeneral</code>, <code>TotalPedido</code> y <code>MediosPago</code>.</li>
         </ol>
 
         <h3>Mover las ventas a otra PC</h3>
@@ -589,25 +657,25 @@
       </div>
     </div>
   </section>
+</main>
 
-  <!-- ── Tickets guardados ─────────────────────────────────────────────────────── -->
-  <section id="secGuardados" class="oculto no-print">
-    <h2>Tickets guardados</h2>
-    <div style="overflow-x:auto">
-      <table id="tablaGuardados">
-        <thead><tr><th>N°</th><th>Fecha y hora</th><th>Cliente</th><th>Pago</th><th class="num">Total</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="fila" style="margin-top:13px">
+<!-- ── Tickets guardados ─────────────────────────────────────────────────────── -->
+<div id="fondoGuardados" class="oculto no-print" role="dialog" aria-modal="true" aria-labelledby="tituloGuardados">
+  <div id="cajaGuardados">
+    <h2 id="tituloGuardados">Tickets guardados</h2>
+    <div id="listaGuardados"></div>
+    <div class="fila" style="margin-top:12px">
       <button id="btnExportarCsv">Exportar CSV</button>
       <button id="btnRespaldo">Descargar respaldo</button>
       <button id="btnRestaurar">Restaurar respaldo</button>
       <input type="file" id="inputRespaldo" accept=".json" class="oculto">
+      <button class="pri" id="btnCerrarGuardados" style="margin-left:auto">Cerrar</button>
     </div>
-    <p class="chico">Los tickets viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
-  </section>
-</main>
+    <p class="chico" style="margin-bottom:0">Los tickets viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
+  </div>
+</div>
+
+<button id="btnMostrarBarra" class="oculto no-print" title="Mostrar la barra de arriba" aria-label="Mostrar la barra de arriba">☰</button>
 
 <div id="ticket"></div>
 
@@ -993,6 +1061,15 @@ function resolverEscaneo(codigo, indice, opciones) {
 
 // ── Totales y pagos ───────────────────────────────────────────────────────────
 const MEDIOS_PAGO = ['EFECTIVO', 'DÉBITO', 'CRÉDITO', 'TRANSFERENCIA', 'QR / MERCADO PAGO', 'CUENTA CORRIENTE'];
+
+// La promo (60000) y el 1 son genéricos: no tienen un precio propio en el catálogo, lo
+// pone quien cobra. Todo lo demás se cobra al precio del catálogo y no se toca desde la
+// pantalla: un precio editable a mano es la forma más fácil de que el ticket no coincida
+// con lo que después se carga al sistema.
+const PLU_PROMO = '60000';
+const PLU_PRECIO_LIBRE = new Set([PLU_PROMO, '1']);
+// El PLU puede venir con ceros a la izquierda según de dónde salga el catálogo.
+const precioLibre = l => PLU_PRECIO_LIBRE.has(String((l && l.plu) || '').trim().replace(/^0+(?=\d)/, ''));
 
 function subtotalLinea(l) {
   const bruto = (Number(l.cant) || 0) * (Number(l.precio) || 0);
@@ -1639,7 +1716,7 @@ $('#escaner').addEventListener('keydown', e => {
 // las teclas a donde esté el foco, y si se pierde, el código se escribe en cualquier campo.
 let vistaActual = 'consulta';
 function focoEscaner() {
-  if (modalAbierto) return;
+  if (modalAbierto || !$('#fondoGuardados').classList.contains('oculto')) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA')) return;
   $(vistaActual === 'consulta' ? '#escanerConsulta' : '#escaner').focus();
@@ -1679,6 +1756,15 @@ $('#resultados').onclick = e => {
   avisar('✓ ' + p.nombre + ' — ' + plata(p.precio), 'av-ok');
 };
 
+// La promo no tiene etiqueta que escanear: entra desde el botón, en 0, y el foco cae en
+// el precio para tipearlo ahí mismo.
+$('#btnPromo').onclick = () => {
+  const p = indice.porPlu.get(PLU_PROMO) || { plu: PLU_PROMO, nombre: 'PROMO' };
+  agregarLinea(p, { cant: 1, precio: 0, origen: 'promo' });
+  const inp = $('#tablaLineas').querySelector('tr:last-child input[data-campo="precio"]');
+  if (inp) { inp.focus(); inp.select(); }
+};
+
 // ── Líneas ────────────────────────────────────────────────────────────────────
 function agregarLinea(prod, opts) {
   const o = opts || {};
@@ -1692,7 +1778,8 @@ function agregarLinea(prod, opts) {
   if (o.peso != null) nueva.peso = Number(o.peso) || 0;
   // Se acumula sólo lo que se cuenta por unidad y al mismo precio. Cada ticket de balanza
   // es su propio bulto, así que nunca se junta con otro.
-  const i = nueva.unidad === 'kg' || nueva.peso != null ? -1
+  // Los genéricos tampoco se juntan: cada promo tiene su propio precio.
+  const i = nueva.unidad === 'kg' || nueva.peso != null || precioLibre(nueva) ? -1
     : lineas.findIndex(l => l.plu === nueva.plu && l.precio === nueva.precio && l.unidad === nueva.unidad);
   lineas = i >= 0
     ? lineas.map((l, j) => (j === i ? { ...l, cant: l.cant + nueva.cant } : l))
@@ -1708,10 +1795,12 @@ function pintarLineas() {
       (l.origen === 'balanza-unidad' ? ' · <span class="tag peso">etiqueta ' + (Number(l.peso) || 0).toFixed(3) + ' kg</span>' : '') +
       '</div></td>' +
     '<td class="num"><input type="number" data-i="' + i + '" data-campo="cant" value="' + l.cant + '" min="0" step="' + (l.unidad === 'kg' ? '0.001' : '1') + '" style="width:84px;padding:5px">' +
-      (l.unidad === 'kg' ? '<div class="chico">kg</div>' : '') + '</td>' +
-    '<td class="num"><input type="number" data-i="' + i + '" data-campo="precio" value="' + l.precio + '" min="0" step="0.01" style="width:96px;padding:5px">' +
-      (l.unidad === 'kg' ? '<div class="chico">por kg</div>' : '') + '</td>' +
-    '<td class="num no-print"><input type="number" data-i="' + i + '" data-campo="dtoPct" value="' + (l.dtoPct || 0) + '" min="0" max="100" step="1" style="width:64px;padding:5px"></td>' +
+      '<div class="chico">' + (l.unidad === 'kg' ? 'kg' : 'unid.') + '</div></td>' +
+    '<td class="num"><input type="number" data-i="' + i + '" data-campo="precio" value="' + l.precio + '" min="0" step="0.01" style="width:96px;padding:5px"' +
+      (precioLibre(l) ? '' : ' readonly title="El precio sale del catálogo"') + '>' +
+      '<div class="chico">' + (l.unidad === 'kg' ? 'por kg' : 'c/u') + '</div></td>' +
+    '<td class="num no-print"><input type="number" data-i="' + i + '" data-campo="dtoPct" value="' + (l.dtoPct || 0) + '" min="0" max="100" step="1" style="width:64px;padding:5px">' +
+      '<div class="chico">%</div></td>' +
     '<td class="num"><strong>' + plata(subtotalLinea(l)) + '</strong></td>' +
     '<td class="no-print"><button class="mini peligro" data-quitar="' + i + '" title="Quitar">×</button></td>' +
   '</tr>').join('') : '<tr><td colspan="6" class="vacio">Escaneá o buscá un producto para empezar.</td></tr>';
@@ -1725,6 +1814,9 @@ $('#tablaLineas').oninput = e => {
   const i = Number(inp.dataset.i);
   const v = Number(inp.value);
   if (!Number.isFinite(v) || v < 0) return;
+  // readonly alcanza en la pantalla, pero el precio no puede depender de un atributo:
+  // repintar deja la fila como está en el catálogo.
+  if (inp.dataset.campo === 'precio' && !precioLibre(lineas[i])) return pintarLineas();
   lineas = lineas.map((l, j) => (j === i ? { ...l, [inp.dataset.campo]: v } : l));
   // No se repinta la tabla entera: perdería el foco mientras se tipea.
   inp.closest('tr').querySelector('td:nth-child(5) strong').textContent = plata(subtotalLinea(lineas[i]));
@@ -1816,13 +1908,15 @@ function pedidoActual() {
   };
 }
 
-$('#btnGuardarPedido').onclick = async () => {
+$('#btnGuardarPedido').onclick = () => {
   if (!lineas.length) return avisoModal('El pedido no tiene productos.');
-  const enCurso = pedidoActual();
-  const s = saldoPagos(enCurso.total, enCurso.pagos);
-  if (!s.completo && !await confirmarModal(`Faltan ${plata(s.falta)} por cubrir con algún medio de pago.\n\n¿Guardar igual?`)) return;
+  // Lo que falte cubrir se carga solo con el medio que quedó elegido en el selector: en el
+  // mostrador el pago es casi siempre uno, y preguntar antes de guardar sólo agregaba un
+  // clic en el momento en que el cliente está esperando.
+  const falta = saldoPagos(totalesDe(lineas, $('#descuento').value).total, pagos).falta;
+  if (falta > 0) { pagos = [...pagos, { medio: $('#medioPago').value, importe: falta }]; pintarPagos(); }
 
-  const p = { ...enCurso, numero: proximoNumero() };
+  const p = { ...pedidoActual(), numero: proximoNumero() };
   pedidos = [p, ...pedidos];
   if (!grabar(K.ped, pedidos)) return;
   lineas = []; pagos = []; guardarBorrador();
@@ -1981,21 +2075,50 @@ $('#inputRespaldo').onchange = async e => {
   e.target.value = '';
 };
 
+// Cada ticket se lista con su detalle abierto: el traspaso al sistema se hace leyendo
+// producto por producto, y tener que abrir los tickets de a uno era el paso lento.
 function pintarGuardados() {
-  $('#tablaGuardados tbody').innerHTML = pedidos.length ? pedidos.map((p, i) => '<tr>' +
-    '<td>' + esc(p.numero) + '</td>' +
-    '<td class="chico">' + esc((p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR')) + ' ' +
-      (p.horaLocal || new Date(p.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }))) + '</td>' +
-    '<td>' + esc(p.cliente || '—') + '</td>' +
-    '<td class="chico">' + esc((p.pagos || []).map(x => x.medio).join(' + ') || '—') + '</td>' +
-    '<td class="num">' + plata(p.total) + '</td>' +
-    '<td><button class="mini" data-imprimir="' + i + '">Ticket</button> ' +
-        '<button class="mini" data-copiar="' + i + '">Copiar</button> ' +
-        '<button class="mini peligro" data-borrar="' + i + '">×</button></td>' +
-  '</tr>').join('') : '<tr><td colspan="6" class="vacio">Todavía no hay pedidos guardados.</td></tr>';
+  $('#listaGuardados').innerHTML = pedidos.length
+    ? pedidos.map(detalleGuardado).join('')
+    : '<p class="vacio">Todavía no hay pedidos guardados.</p>';
 }
 
-$('#tablaGuardados').onclick = async e => {
+function detalleGuardado(p, i) {
+  const fecha = (p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR')) + ' ' +
+    (p.horaLocal || new Date(p.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }));
+  const filas = (p.lineas || []).map(l => '<tr>' +
+    '<td class="chico">' + esc(l.plu || '') + '</td>' +
+    '<td>' + esc(l.nombre) + '</td>' +
+    '<td class="num">' + esc(cantTxt(l)) + '</td>' +
+    '<td class="num">' + plata(l.precio) + (l.dtoPct ? ' <span class="chico">-' + esc(l.dtoPct) + '%</span>' : '') + '</td>' +
+    '<td class="num">' + plata(l.subtotal != null ? l.subtotal : subtotalLinea(l)) + '</td>' +
+  '</tr>').join('');
+  const pie = [
+    'Subtotal ' + plata(p.subtotal),
+    p.dtoLineas > 0 ? 'Desc. por ítem – ' + plata(p.dtoLineas) : '',
+    p.descuentoPct ? 'Descuento ' + p.descuentoPct + '% – ' + plata(p.dtoGlobal) : '',
+    (p.pagos || []).map(x => x.medio + ' ' + plata(x.importe)).join(' + '),
+  ].filter(Boolean).join(' · ');
+  return '<details class="tk-guardado" open>' +
+    '<summary><b>' + esc(p.numero) + '</b>' +
+      '<span class="chico">' + esc(fecha) + '</span>' +
+      '<span class="chico">' + esc(p.cliente || 'Sin cliente') + ' · ' +
+        esc((p.pagos || []).map(x => x.medio).join(' + ') || 'Sin pago') + '</span>' +
+      '<span class="tk-monto">' + plata(p.total) + '</span></summary>' +
+    '<div class="tk-cuerpo">' +
+      '<table><thead><tr><th>Cód.</th><th>Producto</th><th class="num">Cant.</th>' +
+        '<th class="num">Precio</th><th class="num">Subtotal</th></tr></thead>' +
+      '<tbody>' + filas + '</tbody></table>' +
+      '<div class="fila tk-pie-guardado">' +
+        '<span class="chico">' + esc(pie) + '</span>' +
+        '<button class="mini" data-imprimir="' + i + '">Ticket</button>' +
+        '<button class="mini" data-copiar="' + i + '">Copiar</button>' +
+        '<button class="mini peligro" data-borrar="' + i + '">Borrar</button>' +
+      '</div>' +
+    '</div></details>';
+}
+
+$('#listaGuardados').onclick = async e => {
   const im = e.target.closest('button[data-imprimir]');
   if (im) { pintarTicket(pedidos[Number(im.dataset.imprimir)]); return window.print(); }
   const c = e.target.closest('button[data-copiar]');
@@ -2016,7 +2139,24 @@ $('#btnAyuda').onclick = () => {
   sec.classList.toggle('oculto');
   if (!sec.classList.contains('oculto')) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
-$('#btnGuardados').onclick = () => { pintarGuardados(); $('#secGuardados').classList.toggle('oculto'); };
+function abrirGuardados() {
+  pintarGuardados();
+  $('#fondoGuardados').classList.remove('oculto');
+}
+function cerrarGuardados() {
+  $('#fondoGuardados').classList.add('oculto');
+  focoEscaner();
+}
+$('#btnGuardados').onclick = () => {
+  if ($('#fondoGuardados').classList.contains('oculto')) abrirGuardados(); else cerrarGuardados();
+};
+$('#btnCerrarGuardados').onclick = cerrarGuardados;
+$('#fondoGuardados').onclick = e => { if (e.target === $('#fondoGuardados')) cerrarGuardados(); };
+document.addEventListener('keydown', e => {
+  // Sólo si no hay un modal encima: ese ya tiene su propio Escape.
+  if (e.key === 'Escape' && !$('#fondoGuardados').classList.contains('oculto') &&
+      $('#modalFondo').classList.contains('oculto')) cerrarGuardados();
+});
 $('#btnActualizar').onclick = () => refrescarPrecios();
 
 $('#btnGuardarConfig').onclick = () => {
@@ -2106,8 +2246,25 @@ function irA(v) {
   $('#vistaConsulta').classList.toggle('oculto', v !== 'consulta');
   $('#tabPedido').classList.toggle('activa', v === 'pedido');
   $('#tabConsulta').classList.toggle('activa', v === 'consulta');
+  // Esconder la barra sólo tiene sentido en el lector: en el facturador se necesita para
+  // guardar, ver los tickets y volver.
+  $('#btnOcultarBarra').classList.toggle('oculto', v !== 'consulta');
+  verBarra(v === 'consulta' && !!cfg.barraOculta);
   focoEscaner();
 }
+
+function verBarra(oculta) {
+  document.body.classList.toggle('sin-barra', oculta);
+  $('#btnMostrarBarra').classList.toggle('oculto', !oculta);
+  ajustarFicha();
+}
+function fijarBarra(oculta) {
+  cfg = { ...cfg, barraOculta: oculta };
+  grabar(K.cfg, cfg);
+  verBarra(oculta);
+}
+$('#btnOcultarBarra').onclick = () => fijarBarra(true);
+$('#btnMostrarBarra').onclick = () => fijarBarra(false);
 $('#tabPedido').onclick = () => irA('pedido');
 $('#tabConsulta').onclick = () => irA('consulta');
 
@@ -2119,9 +2276,30 @@ $('#escanerConsulta').addEventListener('keydown', e => {
   consultar(v);
 });
 
+// El cartel se achica hasta entrar entero: los clamp del CSS miran el ancho de la
+// pantalla, pero no saben cuántas líneas ocupa un nombre largo ni cuánto alto quedó libre
+// cuando se esconde la barra. zoom y no transform: transform choca con la animación de
+// entrada del marco.
+function ajustarFicha() {
+  const caja = $('#fichaConsulta');
+  const marco = caja.firstElementChild;
+  if (!marco) return;
+  marco.style.zoom = '';
+  scrollTo(0, 0);
+  // El contenedor es flex:1 y crece con lo que se pinta: medirlo contra sí mismo siempre
+  // da 1. El límite real es lo que queda de ventana desde donde arranca la ficha.
+  // scroll* y no offset*: el marco tiene max-width, así que lo que se pasa de largo es su
+  // contenido, y offsetWidth no lo ve.
+  const alto = innerHeight - caja.getBoundingClientRect().top - 16;
+  const escala = Math.min(1, alto / marco.scrollHeight, caja.clientWidth / marco.scrollWidth);
+  // ponytail: piso de .35 para que un nombre absurdo no deje el precio ilegible.
+  if (escala < 1) marco.style.zoom = Math.max(escala, .35).toFixed(3);
+}
+addEventListener('resize', ajustarFicha);
+
 function consultar(codigo) {
   const ficha = $('#fichaConsulta');
-  const poner = (html, clase) => { ficha.innerHTML = '<div class="marco ' + (clase || '') + '">' + html + '</div>'; };
+  const poner = (html, clase) => { ficha.innerHTML = '<div class="marco ' + (clase || '') + '">' + html + '</div>'; ajustarFicha(); };
   if (!catalogo) return poner('<div class="aviso">Todavía no hay catálogo cargado.</div>', 'err');
 
   const r = consultaDeEscaneo(codigo, indice);
