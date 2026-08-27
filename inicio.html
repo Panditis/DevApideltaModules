@@ -128,6 +128,12 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
 }
+/* Diálogo de contraseña: el preflight de Tailwind pisa el margin:auto del navegador,
+   así que el centrado se fija acá en vez de confiar en el estilo por defecto. */
+#dlg-password{position:fixed;inset:0;margin:auto;border:none;border-radius:16px;padding:0;
+  width:92vw;max-width:380px;height:fit-content;max-height:90vh;
+  box-shadow:0 20px 50px rgba(0,0,0,.25)}
+#dlg-password::backdrop{background:rgba(23,23,18,.45)}
 </style>
 </head>
 <body>
@@ -160,11 +166,38 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
     <span id="user-chip" class="status-chip hidden" title="Usuario conectado">
       <i data-lucide="user" style="width:14px;height:14px"></i><span id="user-name">…</span>
     </span>
+    <button id="btn-password" type="button" class="status-chip hidden" style="border:none;cursor:pointer;font:inherit" title="Cambiar mi contraseña">
+      <i data-lucide="key-round" style="width:14px;height:14px"></i><span class="hidden sm:inline">Contraseña</span>
+    </button>
     <button id="btn-logout" type="button" class="status-chip hidden" style="border:none;cursor:pointer;font:inherit" title="Cerrar sesión">
       <i data-lucide="log-out" style="width:14px;height:14px"></i><span class="hidden sm:inline">Salir</span>
     </button>
   </div>
 </header>
+
+<!-- Cambio de contraseña del propio usuario. <dialog> nativo: no hace falta librería de modales. -->
+<dialog id="dlg-password">
+  <form id="form-password" method="dialog" style="padding:22px 24px 20px;display:flex;flex-direction:column;gap:12px">
+    <h2 class="font-display" style="font-size:1.05rem;font-weight:800;color:#171712;margin:0">Cambiar mi contraseña</h2>
+    <label style="font-size:.8rem;color:#5b5e4d">Contraseña actual
+      <input id="pw-actual" type="password" required autocomplete="current-password"
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid #d9dbcc;border-radius:9px;font:inherit">
+    </label>
+    <label style="font-size:.8rem;color:#5b5e4d">Nueva contraseña (mínimo 8 caracteres)
+      <input id="pw-nueva" type="password" required minlength="8" autocomplete="new-password"
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid #d9dbcc;border-radius:9px;font:inherit">
+    </label>
+    <label style="font-size:.8rem;color:#5b5e4d">Repetir la nueva
+      <input id="pw-repetir" type="password" required minlength="8" autocomplete="new-password"
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid #d9dbcc;border-radius:9px;font:inherit">
+    </label>
+    <p id="pw-msg" role="alert" style="margin:0;font-size:.8rem;min-height:1em"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:2px">
+      <button type="button" id="pw-cancelar" class="status-chip" style="border:none;cursor:pointer;font:inherit">Cancelar</button>
+      <button type="submit" id="pw-guardar" class="status-chip" style="border:none;cursor:pointer;font:inherit;background:#405936;color:#FFCC00">Guardar</button>
+    </div>
+  </form>
+</dialog>
 
 <main class="max-w-6xl mx-auto px-5 sm:px-8 py-8 sm:py-12">
 
@@ -200,6 +233,7 @@ const ESTILOS = {
   'productividad':       { desc:'Productividad de la sala: órdenes planificadas contra lo producido, y ritmo por persona en producción y fraccionado.', accent:'#4E6B43', soft:'#e0ecda', ink:'#25361d' },
   'compras':             { desc:'Reposición unificada: déficit A8020, micro-envíos y faltantes, con carrito, proveedores y órdenes.', accent:'#405936', soft:'#dfe8d6', ink:'#22331b' },
   'consumo':             { desc:'Consumo vs stock de insumos del proveedor Carlos: cobertura, urgencias y reposición.', accent:'#7d6a2a', soft:'#efe7c8', ink:'#3a3110' },
+  'insumos':             { desc:'Control de los productos "Insumo …" en Casa Central: stock, consumo estimado por mes según los movimientos de stock y cuánto dura lo que hay.', accent:'#6b4e2a', soft:'#efe3d0', ink:'#33240f' },
   'distribucion':        { desc:'Distribución a sucursales: almacén, pesables, envasado y registro de producción fraccionada.', accent:'#2a6db5', soft:'#cfe1f5', ink:'#122d4c' },
   'ventas-hora':         { desc:'Dashboard de horas pico por sucursal con filtro de rango de fechas.', accent:'#5c3d8f', soft:'#ece4f7', ink:'#2e1a50' },
   'precios-proveedores': { desc:'Comparación de listas de proveedores contra costos SIGA: carga por PDF, URL o manual.', accent:'#2f855a', soft:'#d9f2e5', ink:'#1c3f2e' },
@@ -284,6 +318,44 @@ document.getElementById('btn-logout')?.addEventListener('click', async () => {
   location.href = '/login';
 });
 
+// ── Cambio de contraseña propio ──────────────────────────────────────────────
+const dlgPw = document.getElementById('dlg-password');
+const formPw = document.getElementById('form-password');
+const msgPw = document.getElementById('pw-msg');
+function pwMensaje(texto, ok){
+  msgPw.textContent = texto || '';
+  msgPw.style.color = ok ? '#2f6b33' : '#8a2a1c';
+}
+document.getElementById('btn-password')?.addEventListener('click', () => {
+  formPw.reset(); pwMensaje('');
+  dlgPw.showModal();
+});
+document.getElementById('pw-cancelar')?.addEventListener('click', () => dlgPw.close());
+formPw?.addEventListener('submit', async (ev) => {
+  ev.preventDefault(); // el envío lo hace fetch: el diálogo se cierra solo si salió bien
+  const actual = document.getElementById('pw-actual').value;
+  const nueva = document.getElementById('pw-nueva').value;
+  const repetir = document.getElementById('pw-repetir').value;
+  if (nueva !== repetir) return pwMensaje('Las dos contraseñas nuevas no coinciden.');
+  const btn = document.getElementById('pw-guardar');
+  btn.disabled = true; pwMensaje('Guardando…');
+  try {
+    const r = await fetch('/api/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actual, nueva }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'No se pudo cambiar la contraseña.');
+    pwMensaje('Contraseña actualizada.', true);
+    setTimeout(() => dlgPw.close(), 900);
+  } catch (e) {
+    pwMensaje(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 async function initHub(){
   // 1) Sesión: el hub es público. Si no hay usuario, se muestra igual con los
   //    módulos abiertos; el login se ofrece pero no se fuerza.
@@ -301,6 +373,7 @@ async function initHub(){
     if (nameEl) nameEl.textContent = user.nombre || user.usuario;
     userChip?.classList.remove('hidden');
     logoutBtn?.classList.remove('hidden');
+    document.getElementById('btn-password')?.classList.remove('hidden');
     if (user.esAdmin) adminLink?.classList.remove('hidden');
   } else {
     loginLink?.classList.remove('hidden');

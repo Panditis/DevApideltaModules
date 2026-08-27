@@ -290,6 +290,12 @@
   /* ── Ticket para comandera térmica ────────────────────────────────────────── */
   /* Rollo de 80 mm: 72 mm útiles. Para una de 58 mm, poner 48mm acá y en @page. */
   #ticket { display: none; }
+  /* Lo que se quiere es `size: 72mm auto`: el ancho del rollo y el alto que pida el ticket.
+     Pero mezclar un largo con `auto` no es válido, y Firefox rechaza la declaración entera
+     ("Error al interpretar el valor para 'size'") y vuelve a A4. Por eso primero va una
+     versión válida —que Firefox sí toma— y después la de alto automático, que aplican los
+     navegadores que la entienden y los demás ignoran. */
+  @page { size: 72mm 297mm; margin: 3mm 2mm; }
   @page { size: 72mm auto; margin: 3mm 2mm; }
   @media print {
     /* Se imprime el ticket y nada más: la pantalla completa no entra en el rollo.
@@ -334,13 +340,13 @@
     </div>
     <div class="tabs no-print">
       <button class="tab activa" id="tabConsulta">Lector de precios</button>
-      <button class="tab" id="tabPedido">Pedido</button>
+      <button class="tab" id="tabPedido">Facturador</button>
     </div>
     <div class="sep"></div>
     <span class="estado sin" id="estadoCat">Sin catálogo</span>
     <button class="hdr mini" id="btnActualizar">Actualizar precios</button>
     <button class="hdr mini" id="btnConfig">Fuente de precios</button>
-    <button class="hdr mini" id="btnGuardados">Pedidos</button>
+    <button class="hdr mini" id="btnGuardados">Tickets</button>
     <button class="hdr mini" id="btnAyuda">Ayuda</button>
   </div>
 </header>
@@ -364,7 +370,7 @@
 
   <!-- ── Detalle ─────────────────────────────────────────────────────────────── -->
   <section>
-    <h2>Detalle del pedido</h2>
+    <h2>Detalle del ticket</h2>
     <div class="fila" style="margin-bottom:11px">
       <div class="crece"><label class="et" for="cliente">Cliente</label><input id="cliente" placeholder="Nombre del cliente"></div>
       <div style="width:150px"><label class="et" for="vendedor">Vendedor</label><input id="vendedor" placeholder="Quién atiende"></div>
@@ -418,11 +424,11 @@
   <section class="no-print">
     <h2>Cerrar</h2>
     <div class="fila">
-      <button class="pri crece" id="btnGuardarPedido">Guardar pedido</button>
+      <button class="pri crece" id="btnGuardarPedido">Guardar ticket</button>
       <button class="crece" id="btnImprimir">Imprimir</button>
     </div>
     <div class="fila" style="margin-top:9px">
-      <button class="peligro crece" id="btnLimpiar">Vaciar</button>
+      <button class="peligro crece" id="btnLimpiar">Eliminar ticket</button>
     </div>
   </section>
 </div>
@@ -449,7 +455,29 @@
     </div>
 
     <div style="margin-bottom:11px">
-      <label class="et">2 · Archivo de la computadora (siempre funciona, sin red)</label>
+      <label class="et">2 · Planilla de Google publicada (sin servidor)</label>
+      <div class="fila">
+        <input id="cfgSheets" class="crece" placeholder="Link de la planilla, o URL del Apps Script (.../exec)">
+        <input id="cfgSheetsHoja" style="max-width:150px" placeholder="Hoja (opcional)">
+      </div>
+      <p class="chico">La planilla tiene que estar compartida como <b>cualquiera con el enlace</b>,
+        si no Google no la entrega y la caja se queda con los precios anteriores. Las columnas se
+        detectan solas: alcanza con que haya una de nombre y una de precio. Necesita internet en
+        la caja, y no trae los datos de balanza.</p>
+    </div>
+
+    <div style="margin-bottom:11px">
+      <label class="et">3 · Archivo de precios en la red (sin servidor ni internet)</label>
+      <input id="cfgArchivoRed" placeholder="\\192.168.1.26\Apidelta\7- SISTEMA\1-Precios\PreciosFacturador\precios.js">
+      <p class="chico">Ruta completa del archivo <code>.js</code> de precios en la carpeta compartida.
+        Se lee sola al abrir el facturador, sin servidor. Tiene que ser un <code>.js</code>
+        generado con el botón de abajo: un <code>.xlsx</code> puesto en la carpeta no se puede
+        leer desde un archivo local, lo bloquea el navegador. Trae nombre, precio y código de
+        barra, pero no los datos de balanza.</p>
+    </div>
+
+    <div style="margin-bottom:11px">
+      <label class="et">4 · Archivo de la computadora (siempre funciona, sin red)</label>
       <div id="dropzona">Arrastrá acá un .xlsx o .csv, o <button class="mini" id="btnArchivo">elegilo</button>
         <input type="file" id="inputArchivo" accept=".xlsx,.csv,.txt" class="oculto"></div>
     </div>
@@ -471,6 +499,12 @@
       funciona sola en cualquier computadora: sin red, sin servidor y sin permisos de OneDrive.
       Para actualizar precios, volvés acá, cargás la planilla nueva y generás otra copia.</p>
     <div class="fila"><button class="pri" id="btnClonar">Descargar facturador con estos precios</button></div>
+
+    <h2 style="margin-top:18px">Actualizar el archivo de la red</h2>
+    <p class="chico">Genera el <code>precios.js</code> con los precios actuales. Copialo a la
+      carpeta compartida, en la ruta de arriba, y todas las cajas lo levantan solas la próxima
+      vez que abren el facturador. Es el único paso que hay que repetir cuando cambian los precios.</p>
+    <div class="fila"><button class="verde" id="btnArchivoRed">Descargar precios.js para la carpeta de red</button></div>
   </section>
 
 
@@ -490,13 +524,13 @@
 
         <h3>Cargar una venta</h3>
         <ol>
-          <li>Entrá a la pestaña <b>Pedido</b>.</li>
+          <li>Entrá a la pestaña <b>Facturador</b>.</li>
           <li>Escaneá los productos, o buscalos por nombre. Cada escaneo suma una línea.</li>
           <li>Podés cambiar a mano la cantidad, el precio y el descuento de cada línea.</li>
           <li>Cargá el <b>descuento general</b> si corresponde.</li>
           <li>En <b>Medios de pago</b> elegí uno y apretá <i>Sumar</i>. Si el importe queda vacío
             se asigna todo lo que falta. Se puede dividir entre varios medios.</li>
-          <li><b>Guardar pedido</b>, y <b>Imprimir</b> para sacar el ticket.</li>
+          <li><b>Guardar ticket</b>, y <b>Imprimir</b> para sacar el ticket.</li>
         </ol>
       </div>
       <div>
@@ -504,6 +538,8 @@
         <ol>
           <li>El archivo ya viene con los precios adentro: funciona sin internet en cualquier PC.</li>
           <li>Si llega al servidor Apidelta, se actualizan solos cada minuto.</li>
+          <li>Si no hay servidor, lee el <code>precios.js</code> de la carpeta compartida de la
+            red. También es automático: no hay que hacer nada en la caja.</li>
           <li>El cartelito al lado del lector avisa: verde y la hora si está al día, amarillo o
             rojo si hace rato que no puede actualizar.</li>
         </ol>
@@ -515,7 +551,7 @@
           <li>Ese archivo nuevo se manda por mail o pendrive y ya funciona solo.</li>
         </ol>
 
-        <div class="nota"><b>Ojo:</b> los pedidos se guardan en la computadora donde se cargaron.
+        <div class="nota"><b>Ojo:</b> los tickets se guardan en la computadora donde se cargaron.
           Si se limpian los datos del navegador, se pierden. Descargá el respaldo seguido.</div>
       </div>
     </div>
@@ -525,28 +561,28 @@
       <div>
         <h3>Sacar el listado</h3>
         <ol>
-          <li>Apretá <b>Pedidos</b> arriba a la derecha.</li>
+          <li>Apretá <b>Tickets</b> arriba a la derecha.</li>
           <li>Apretá <b>Exportar CSV</b>.</li>
-          <li>Se baja un archivo <code>pedidos_AAAA-MM-DD.csv</code>.</li>
+          <li>Se baja un archivo <code>tickets_AAAA-MM-DD.csv</code>.</li>
           <li>Se abre con doble clic en Excel, ya separado en columnas.</li>
         </ol>
-        <div class="nota">Sale <b>una fila por cada producto</b> de cada pedido, no una por pedido.
-          Para totales por venta, filtrá por la columna <code>Pedido</code>.</div>
+        <div class="nota">Sale <b>una fila por cada producto</b> de cada ticket, no una por ticket.
+          Para totales por venta, filtrá por la columna <code>Ticket</code>.</div>
       </div>
       <div>
         <h3>Qué trae cada columna</h3>
         <ol>
-          <li><code>Pedido</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
+          <li><code>Ticket</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
           <li><code>Cliente</code> y <code>Vendedor</code>.</li>
           <li><code>Codigo</code> y <code>Producto</code>.</li>
           <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
           <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
-          <li><code>DtoGeneral</code>, <code>TotalPedido</code> y <code>MediosPago</code>.</li>
+          <li><code>DtoGeneral</code>, <code>TotalTicket</code> y <code>MediosPago</code>.</li>
         </ol>
 
         <h3>Mover las ventas a otra PC</h3>
         <ol>
-          <li><b>Descargar respaldo</b> en la computadora que tiene los pedidos.</li>
+          <li><b>Descargar respaldo</b> en la computadora que tiene los tickets.</li>
           <li><b>Restaurar respaldo</b> en la otra, con ese archivo.</li>
           <li>Se suman a los que ya había; no se pisa nada.</li>
         </ol>
@@ -554,9 +590,9 @@
     </div>
   </section>
 
-  <!-- ── Pedidos guardados ─────────────────────────────────────────────────────── -->
+  <!-- ── Tickets guardados ─────────────────────────────────────────────────────── -->
   <section id="secGuardados" class="oculto no-print">
-    <h2>Pedidos guardados</h2>
+    <h2>Tickets guardados</h2>
     <div style="overflow-x:auto">
       <table id="tablaGuardados">
         <thead><tr><th>N°</th><th>Fecha y hora</th><th>Cliente</th><th>Pago</th><th class="num">Total</th><th></th></tr></thead>
@@ -569,7 +605,7 @@
       <button id="btnRestaurar">Restaurar respaldo</button>
       <input type="file" id="inputRespaldo" accept=".json" class="oculto">
     </div>
-    <p class="chico">Los pedidos viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
+    <p class="chico">Los tickets viven sólo en este navegador. Si se limpian los datos del navegador se pierden: descargá el respaldo seguido.</p>
   </section>
 </main>
 
@@ -1102,6 +1138,110 @@ function estadoActualizacion({ ultimaOk, ahora, fallando, hayCatalogo }) {
   };
 }
 
+// ── Archivo de precios en una carpeta de la red ───────────────────────────────
+// Un facturador abierto con file:// no puede hacer fetch de otro archivo: Chrome rechaza
+// todo pedido de red hecho desde una página local, esté el archivo en el disco o en un
+// \\servidor\carpeta. Lo único que sí carga es una etiqueta script apuntando al archivo,
+// así que lo que se deja en la carpeta compartida es un .js que guarda el catálogo en una
+// variable global. Con eso, una sola planilla en la red actualiza todas las cajas sin
+// servidor y sin que nadie toque nada en el mostrador.
+const GLOBAL_ARCHIVO_RED = 'PRECIOS_FACTURADOR';
+
+// \\servidor\carpeta\precios.js → file://///servidor/carpeta/precios.js
+// Son cinco barras: las tres de file:/// más las dos del UNC. Con menos, Chrome busca el
+// archivo en el disco local y el script no carga nunca.
+function rutaAUrlArchivo(ruta) {
+  const s = String(ruta || '').trim();
+  if (!s) return '';
+  if (/^file:\/\//i.test(s)) return s;
+  const barras = s.replace(/\\/g, '/');
+  const url = barras.startsWith('//') ? 'file:///' + barras : 'file:///' + barras.replace(/^\/+/, '');
+  return url.replace(/ /g, '%20').replace(/#/g, '%23');
+}
+
+// Contenido del .js que se copia a la carpeta compartida.
+function catalogoAArchivoRed(catalogo) {
+  return '// Precios del facturador. Lo genera el propio facturador: no editar a mano.\n' +
+    'window.' + GLOBAL_ARCHIVO_RED + ' = ' + JSON.stringify(catalogo) + ';\n';
+}
+
+// El .js de la carpeta puede estar a medio copiar, ser de otra cosa o haber quedado vacío:
+// sin este control, el mostrador se queda sin precios y con un error que no dice nada.
+function catalogoDeGlobal(valor) {
+  if (!valor || !Array.isArray(valor.productos) || !valor.productos.length) {
+    throw new Error('el archivo no tiene productos');
+  }
+  return {
+    generado: valor.generado || new Date().toISOString(),
+    origen: valor.origen || 'archivo de red',
+    productos: valor.productos,
+  };
+}
+
+// ── Planilla de Google Sheets publicada ───────────────────────────────────────
+// El link de "Publicar en la web" no sirve: devuelve un CSV y Google no manda las
+// cabeceras de CORS, así que el navegador lo bloquea igual que a cualquier otro pedido
+// hecho desde un archivo local. Lo que sí entra es el endpoint gviz de la hoja, porque
+// contesta JavaScript: con responseHandler la respuesta es una llamada a la función que
+// le pidamos, y una etiqueta script sí puede cargarla desde file://.
+const HANDLER_SHEETS = 'apideltaGviz';
+
+// Acepta el link completo del navegador o el id pelado.
+function idDeSheets(texto) {
+  const s = String(texto || '').trim();
+  if (!s) return '';
+  const m = s.match(/\/spreadsheets\/d\/(?:e\/)?([A-Za-z0-9_-]+)/);
+  return m ? m[1] : (/^[A-Za-z0-9_-]{20,}$/.test(s) ? s : '');
+}
+
+// `tqx` separa sus opciones con punto y coma, no con &: mezclarlos devuelve un error de
+// Google en vez de la tabla. El parámetro de tiempo evita que quede cacheada una copia
+// vieja después de tocar la planilla.
+function urlGviz(idOLink, hoja, marca) {
+  const id = idDeSheets(idOLink);
+  if (!id) throw new Error('el link de la planilla no es válido');
+  const tqx = 'out:json;responseHandler:' + HANDLER_SHEETS;
+  return 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=' + encodeURIComponent(tqx) +
+    (hoja ? '&sheet=' + encodeURIComponent(hoja) : '') + '&_=' + (marca || 0);
+}
+
+// La otra puerta es un Apps Script de la propia planilla publicado como aplicación web.
+// Devuelve las filas envueltas en una llamada a nuestra función, igual que gviz, pero es
+// una URL que nosotros controlamos: no depende de que la planilla tenga los permisos justos
+// ni de una ruta interna de Google que puede cambiar sin aviso.
+function esUrlAppsScript(texto) {
+  return /^https:\/\/script\.google(usercontent)?\.com\//i.test(String(texto || '').trim());
+}
+
+// Un solo campo para las dos fuentes: el usuario pega lo que tenga y acá se decide.
+function urlFuenteSheets(texto, hoja, marca) {
+  const s = String(texto || '').trim();
+  if (!esUrlAppsScript(s)) return urlGviz(s, hoja, marca);
+  return s + (s.includes('?') ? '&' : '?') + 'callback=' + HANDLER_SHEETS +
+    (hoja ? '&hoja=' + encodeURIComponent(hoja) : '') + '&_=' + (marca || 0);
+}
+
+// El Apps Script manda las filas ya armadas; gviz manda su propia estructura de tabla.
+function grillaDeRespuesta(respuesta) {
+  if (respuesta && Array.isArray(respuesta.filas)) {
+    if (!respuesta.filas.length) throw new Error('la planilla no devolvió filas');
+    return respuesta.filas;
+  }
+  return filasDeGviz(respuesta);
+}
+
+// La respuesta de gviz trae los encabezados aparte de las filas cuando Google los detecta,
+// y adentro de las filas cuando no. Se devuelve una grilla común para que la planilla de
+// Google pase por el mismo detector de columnas que un .xlsx o un .csv.
+function filasDeGviz(respuesta) {
+  const tabla = respuesta && respuesta.table;
+  if (!tabla || !Array.isArray(tabla.rows)) throw new Error('la planilla no devolvió filas');
+  const celda = c => (c && c.v != null ? c.v : '');
+  const filas = tabla.rows.map(r => (r && Array.isArray(r.c) ? r.c.map(celda) : []));
+  const encabezado = (tabla.cols || []).map(c => (c && c.label ? c.label : ''));
+  return encabezado.some(t => String(t).trim()) ? [encabezado, ...filas] : filas;
+}
+
 /* ---8<--- parser-fin */
 
 // ── Estado y almacenamiento ───────────────────────────────────────────────────
@@ -1121,6 +1261,9 @@ const grabar = (k, v) => {
 
 const CFG_DEF = {
   servidores: 'http://servidorapidelta.local:8080, http://servidorapidelta.local:8081',
+  sheets: '',        // link o id de la planilla de Google publicada
+  sheetsHoja: '',    // nombre de la hoja; vacío = la primera
+  archivoRed: '\\\\192.168.1.26\\Apidelta\\7- SISTEMA\\1-Precios\\PreciosFacturador\\precios.js',
   mapeo: null,
 };
 
@@ -1251,7 +1394,12 @@ async function traer(url, tipo, ms = 8000) {
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
     const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      // El servidor manda { error } con el motivo real ("no hay planillas en \\...", ruta
+      // sin permiso). Sin esto, en el mostrador sólo se ve "HTTP 500" y no hay qué mirar.
+      const detalle = await r.json().catch(() => null);
+      throw new Error('HTTP ' + r.status + (detalle && detalle.error ? ' · ' + detalle.error : ''));
+    }
     return tipo === 'buffer' ? await r.arrayBuffer() : tipo === 'texto' ? await r.text() : await r.json();
   } finally { clearTimeout(t); }
 }
@@ -1264,6 +1412,91 @@ async function desdeServidor() {
       const d = await traer(base.replace(/\/$/, '') + '/api/facturador/catalogo', 'json');
       if (!d || !Array.isArray(d.productos) || !d.productos.length) throw new Error('respuesta vacía');
       return { generado: d.generado || new Date().toISOString(), origen: d.origen || base, productos: d.productos };
+    } catch (e) { errores.push(base + ': ' + e.message); }
+  }
+  throw new Error(errores.join(' | ') || 'no hay servidores configurados');
+}
+
+// Trae el .js de precios de la carpeta compartida. No hace falta servidor: el archivo se
+// carga como script, que es lo único que Chrome deja abrir desde una página file://.
+// El ?v= es obligatorio: sin él, Chrome puede servir la copia que ya tenía cacheada y el
+// mostrador sigue cobrando los precios de ayer aunque el archivo de la red esté nuevo.
+function cargarScript(url, ms = 8000) {
+  return new Promise((ok, fallo) => {
+    const s = document.createElement('script');
+    let t;
+    const limpiar = () => { clearTimeout(t); s.remove(); };
+    t = setTimeout(() => { limpiar(); fallo(new Error('tardó demasiado')); }, ms);
+    s.src = url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    s.onload = () => { limpiar(); ok(); };
+    // Chrome no cuenta por qué falló: puede no existir, estar la red caída o el recurso
+    // compartido sin permiso. El mensaje repite la ruta, que es lo único accionable.
+    s.onerror = () => { limpiar(); fallo(new Error('no se pudo abrir ' + url)); };
+    document.head.appendChild(s);
+  });
+}
+
+// Planilla de Google publicada. La respuesta de gviz llama sola a la función que dejamos
+// colgada en window, así que la promesa se resuelve desde ahí y no desde el onload.
+// Google no se consulta cada minuto como al servidor de la LAN: un Apps Script tiene cuota
+// diaria de ejecución (unos 90 minutos en cuentas comunes) y una caja preguntando cada
+// minuto se la come sola antes de la tarde. Con los precios de Google ya frescos se espera.
+const INTERVALO_SHEETS_MS = 10 * 60000;   // 10 minutos
+let ultimaConsultaSheets = 0;
+
+async function desdeSheets() {
+  const link = String(cfg.sheets || '').trim();
+  if (!link) throw new Error('no hay planilla de Google configurada');
+  if (catalogo && catalogo.origen === 'Google Sheets' &&
+      Date.now() - ultimaConsultaSheets < INTERVALO_SHEETS_MS) {
+    return catalogo;
+  }
+  const url = urlFuenteSheets(link, cfg.sheetsHoja, Date.now());
+  const respuesta = await new Promise((ok, fallo) => {
+    // El corte propio es necesario: si Google devuelve una página de login, el script
+    // carga bien pero nunca llama al handler y la caja se quedaría esperando para siempre.
+    const t = setTimeout(() => fallo(new Error('Google no contestó a tiempo')), 12000);
+    window[HANDLER_SHEETS] = datos => { clearTimeout(t); ok(datos); };
+    cargarScript(url, 12000).catch(e => { clearTimeout(t); fallo(e); });
+  }).finally(() => { delete window[HANDLER_SHEETS]; });
+
+  // Google contesta con status "error" y la tabla vacía cuando la planilla no es pública:
+  // sin este control, el mostrador ve "no devolvió filas" y nadie sabe que es un permiso.
+  if (respuesta && respuesta.status === 'error') {
+    const detalle = (respuesta.errors || []).map(e => e.detailed_message || e.message).join(' ');
+    throw new Error(detalle || 'Google rechazó la consulta: revisá que la planilla esté publicada');
+  }
+  // El Apps Script manda el motivo adentro de la respuesta: carpeta vacía, id mal puesto,
+  // hoja que no existe. Es lo único que dice qué hay que ir a arreglar.
+  if (respuesta && respuesta.error) throw new Error(respuesta.error);
+  const filas = grillaDeRespuesta(respuesta);
+  const mapeo = detectarEncabezado(filas);
+  if (!mapeo) throw new Error('no se reconocieron las columnas de nombre y precio en la planilla');
+  const productos = filasACatalogo(filas, mapeo);
+  if (!productos.length) throw new Error('la planilla no tiene productos con precio');
+  ultimaConsultaSheets = Date.now();
+  return { generado: respuesta.generado || new Date().toISOString(), origen: 'Google Sheets', productos };
+}
+
+async function desdeArchivoRed() {
+  const ruta = String(cfg.archivoRed || '').trim();
+  if (!ruta) throw new Error('no hay archivo de red configurado');
+  delete window[GLOBAL_ARCHIVO_RED];   // si esta vuelta falla, que no queden los precios de la anterior
+  await cargarScript(rutaAUrlArchivo(ruta));
+  try { return catalogoDeGlobal(window[GLOBAL_ARCHIVO_RED]); }
+  finally { delete window[GLOBAL_ARCHIVO_RED]; }
+}
+
+// Misma planilla, pero leída por el servidor: sirve cuando nadie regeneró el .js de la
+// carpeta y el servidor sí está vivo, porque él lee el .xlsx directo.
+async function desdeArchivoServidor() {
+  const urls = cfg.servidores.split(',').map(s => s.trim()).filter(Boolean);
+  const errores = [];
+  for (const base of urls) {
+    try {
+      const d = await traer(base.replace(/\/$/, '') + '/api/facturador/catalogo-archivo', 'json');
+      if (!d || !Array.isArray(d.productos) || !d.productos.length) throw new Error((d && d.error) || 'respuesta vacía');
+      return { generado: d.generado || new Date().toISOString(), origen: d.origen || (base + ' (archivo de red)'), productos: d.productos };
     } catch (e) { errores.push(base + ': ' + e.message); }
   }
   throw new Error(errores.join(' | ') || 'no hay servidores configurados');
@@ -1300,6 +1533,19 @@ async function actualizarCatalogo({ silencioso = false } = {}) {
   const fallos = [];
   try { return aplicarCatalogo(await desdeServidor()); }
   catch (e) { fallos.push('Servidor → ' + e.message); }
+
+  // Planilla de Google: no necesita servidor, pero sí internet en la caja.
+  try { return aplicarCatalogo(await desdeSheets()); }
+  catch (e) { fallos.push('Planilla de Google → ' + e.message); }
+
+  // Sin servidor: el .js que alguien dejó en la carpeta compartida. Va segundo porque los
+  // precios son los del día en que se generó y no trae los datos de balanza.
+  try { return aplicarCatalogo(await desdeArchivoRed()); }
+  catch (e) { fallos.push('Archivo de red → ' + e.message); }
+
+  // Último intento: que el servidor lea él mismo la planilla de esa carpeta.
+  try { return aplicarCatalogo(await desdeArchivoServidor()); }
+  catch (e) { fallos.push('Planilla por el servidor → ' + e.message); }
 
   pintarEstado();
   if (!silencioso) {
@@ -1774,7 +2020,8 @@ $('#btnGuardados').onclick = () => { pintarGuardados(); $('#secGuardados').class
 $('#btnActualizar').onclick = () => refrescarPrecios();
 
 $('#btnGuardarConfig').onclick = () => {
-  cfg = { ...cfg, servidores: $('#cfgServidores').value };
+  cfg = { ...cfg, servidores: $('#cfgServidores').value, archivoRed: $('#cfgArchivoRed').value,
+          sheets: $('#cfgSheets').value, sheetsHoja: $('#cfgSheetsHoja').value };
   grabar(K.cfg, cfg);
   avisar('Configuración guardada.', 'av-ok');
 };
@@ -1818,6 +2065,18 @@ $('#btnClonar').onclick = () => {
     String.fromCharCode(10) + String.fromCharCode(10) +
     'Esa copia se puede mandar por mail o pendrive y funciona sin conexión en cualquier PC.',
     'Copia generada');
+};
+
+$('#btnArchivoRed').onclick = () => {
+  if (!catalogo || !catalogo.productos.length) {
+    return errorModal('Primero cargá los precios, después generá el archivo para la carpeta de red.');
+  }
+  bajarArchivo('precios.js', catalogoAArchivoRed(catalogo), 'text/javascript;charset=utf-8');
+  okModal(catalogo.productos.length + ' productos quedaron en precios.js.' +
+    String.fromCharCode(10) + String.fromCharCode(10) +
+    'Copialo a ' + (cfg.archivoRed || 'la carpeta compartida') + ', pisando el que está.' +
+    String.fromCharCode(10) +
+    'Las cajas lo leen solas la próxima vez que abren el facturador.', 'Archivo generado');
 };
 
 $('#btnArchivo').onclick = () => $('#inputArchivo').click();
@@ -1883,16 +2142,20 @@ function consultar(codigo) {
       : 'No se encontró ningún producto con el código ' + esc(r.codigo) + '.') + '</div>', 'err');
   }
 
+  // Con ticket de balanza lo que se cobra es el paquete: ese importe va grande y el
+  // precio por kilo queda de referencia abajo.
+  const esPaquete = r.porKilo && r.total != null;
   const partes = ['<div class="nom">' + esc(r.nombre) + '</div>',
     '<div class="cod">PLU ' + esc(r.plu) + (r.producto.barra ? ' · ' + esc(r.producto.barra) : '') + '</div>',
-    '<div class="panel"><span class="precio">' + plata(r.precio) + '</span>' +
-      '<span class="unidad">' + (r.porKilo ? 'por kilo' : 'por unidad') + '</span></div>'];
+    '<div class="panel"><span class="precio">' + plata(esPaquete ? r.total : r.precio) + '</span>' +
+      '<span class="unidad">' + (esPaquete ? 'pesada de ' + r.peso.toFixed(3) + ' kg'
+        : (r.porKilo ? 'por kilo' : 'por unidad')) + '</span></div>'];
 
-  if (r.peso != null) {
-    // Con ticket de balanza se conoce el peso: se muestra, y con el prefijo 20 también
-    // el importe que sale de multiplicarlo.
-    partes.push('<div class="pesada">' +
-      (r.porKilo ? 'Pesada de ' + r.peso.toFixed(3) + ' kg' : 'Etiqueta de ' + r.peso.toFixed(3) + ' kg') +
+  if (esPaquete) {
+    partes.push('<div class="pesada">Precio por kilo<b>' + plata(r.precio) + '</b></div>');
+  } else if (r.peso != null) {
+    // Prefijo 21: sale por balanza pero se cobra por unidad, el peso es solo dato.
+    partes.push('<div class="pesada">Etiqueta de ' + r.peso.toFixed(3) + ' kg' +
       '<b>' + plata(r.total) + '</b></div>');
   } else if (r.porKilo) {
     partes.push('<div class="pesada">Se vende por peso<b>Pasá el ticket de la balanza</b></div>');
@@ -1958,6 +2221,9 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 
 // ── Arranque ──────────────────────────────────────────────────────────────────
 $('#cfgServidores').value = cfg.servidores;
+$('#cfgArchivoRed').value = cfg.archivoRed || '';
+$('#cfgSheets').value = cfg.sheets || '';
+$('#cfgSheetsHoja').value = cfg.sheetsHoja || '';
 irA('consulta');   // el lector de precios es la pantalla con la que se abre
 pintarEstado();
 pintarLineas();
