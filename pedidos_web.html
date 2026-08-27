@@ -2298,7 +2298,11 @@ function switchSubRes(sub){
   $('subtab-res-saldos').className    = 'btn btn-sm ' + (sub==='saldos'    ? 'btn-tonal' : 'btn-ghost');
   actualizarBarraRes();
   if(sub==='generadas') cargarReservasGeneradas();
-  if(sub==='saldos')    cargarSaldosReserva();
+  // Los saldos son POR sucursal y depósito, y esos selectores viven en el modal de reserva:
+  // quien entra derecho a esta pestaña sin haber abierto el modal los tendría vacíos y la
+  // tabla leería la sucursal del config en vez de la que se usó para reservar. Llenarlos no
+  // abre el modal; las sucursales además quedan cacheadas.
+  if(sub==='saldos')    cargarSucursalesRes().then(cargarDepositosRes).then(cargarSaldosReserva);
 }
 
 // Agrega un producto al carrito, para el cliente que venga. Un segundo toque sobre el mismo
@@ -2646,9 +2650,25 @@ var AJUSTE_TXT = {
   'reponer-pedido':  { verbo: 'Reponer',  detalle: 'del depósito principal al de reserva' }
 };
 
+// Sucursal y depósitos con los que trabaja el panel de saldos: los MISMOS selectores con los
+// que se reservó. Sin esto el GET y el ajuste caían al fallback de config.json (sucursal 1) y
+// la tabla decía "el depósito está en cero" mientras lo apartado estaba en otra sucursal — y
+// un ajuste habría movido stock donde no correspondía. Los vacíos se omiten: ahí el server
+// vuelve al config, que es el comportamiento de antes.
+function contextoReserva(){
+  var ctx = {};
+  if($('res-sucursal').value)     ctx.idSucursal   = $('res-sucursal').value;
+  if($('res-dep-destino').value)  ctx.depReserva   = $('res-dep-destino').value;
+  if($('res-dep-origen').value)   ctx.depPrincipal = $('res-dep-origen').value;
+  return ctx;
+}
+
 function cargarSaldosReserva(){
   $('tabla-res-saldos').innerHTML = '<div class="state state-loading">Cargando…</div>';
-  return api('/api/mayoristas/reservas/saldos').then(function(d){
+  var ctx = contextoReserva();
+  var qs = Object.keys(ctx).filter(function(k){ return k !== 'depPrincipal'; })
+    .map(function(k){ return k+'='+encodeURIComponent(ctx[k]); }).join('&');
+  return api('/api/mayoristas/reservas/saldos'+(qs ? '?'+qs : '')).then(function(d){
     if(!d || d.error){
       $('tabla-res-saldos').innerHTML = '<div class="state state-err">⚠ '+escHtml((d&&d.error)||'Error')+'</div>';
       return;
@@ -2704,7 +2724,10 @@ document.addEventListener('click', function(ev){
   b.disabled = true;
   api('/api/mayoristas/reservas/ajuste', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ plu: b.getAttribute('data-plu'), tipo: tipo, cantidad: cant })
+    // El ajuste emite el movimiento en la MISMA sucursal y depósitos que la tabla que lo
+    // propuso: con el fallback de config movía stock en una sucursal que no es la reservada.
+    body: JSON.stringify(Object.assign(
+      { plu: b.getAttribute('data-plu'), tipo: tipo, cantidad: cant }, contextoReserva()))
   }).then(function(d){
     if(!d || d.error){ snack('Error: '+((d&&d.error)||'sin respuesta'), true); b.disabled = false; return; }
     snack('Ajuste emitido · movimiento #'+d.numeroMovimiento);
