@@ -29,6 +29,7 @@ function cargarParser() {
              columnaAIndice, desescaparXml, detectarEncabezado, filasACatalogo,
              construirIndice, digitoControlEan13, parsearCodigoBalanza, resolverEscaneo,
              subtotalLinea, totalesDe, saldoPagos, MEDIOS_PAGO,
+             precioLibre, PLU_PROMO, PLU_PRECIO_LIBRE,
              limpiarEncabezado, esBarraDeBalanza, consultaDeEscaneo,
              estadoActualizacion, INTERVALO_ACTUALIZACION_MS, VENCIMIENTO_PRECIOS_MS,
              pareceXlsx, pareceHtml, motivoPlanillaRechazada,
@@ -425,7 +426,7 @@ test('el modal tiene en el marcado todos los nodos que el código busca', () => 
   // Cada await de confirmación tiene que estar dentro de un handler async, si no el
   // botón tira SyntaxError y deja de funcionar.
   const asyncs = (src.match(/onclick = async/g) || []).length;
-  assert.ok(asyncs >= 3, `sólo ${asyncs} handlers async para las confirmaciones`);
+  assert.ok(asyncs >= 2, `sólo ${asyncs} handlers async para las confirmaciones`);
   // El mensaje se pinta con textContent: lleva nombres de producto y de archivo.
   assert.ok(/\$\('#modalCuerpo'\)\.textContent = mensaje/.test(src),
     'el cuerpo del modal tiene que usar textContent, nunca innerHTML');
@@ -893,4 +894,132 @@ test('las filas del Apps Script se usan directo, sin pasar por el formato de gvi
 test('una respuesta sin filas ni tabla se rechaza, venga de donde venga', () => {
   assert.throws(() => P.grillaDeRespuesta({ filas: [] }), /no devolvió filas/);
   assert.throws(() => P.grillaDeRespuesta({}), /no devolvió filas/);
+});
+
+// ── Tickets guardados ─────────────────────────────────────────────────────────
+// El listado se lee para traspasar la venta al sistema: cada ticket tiene que mostrar
+// el detalle completo, y los nombres que vienen del catálogo van escapados.
+function cargarDetalleGuardado() {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8').replace(/\r\n/g, '\n');
+  // plata, esc y cantTxt van seguidos en el archivo; el corte los toma a los tres.
+  const ayudas = src.slice(src.indexOf('const plata ='), src.indexOf('\n', src.indexOf('const cantTxt =')));
+  const desde = src.indexOf('function detalleGuardado(');
+  assert.ok(desde > 0, 'no se encontró detalleGuardado en facturador.html');
+  const cuerpo = src.slice(desde, src.indexOf('\n}\n', desde) + 3);
+  return new Function('subtotalLinea', ayudas + cuerpo + '\nreturn { detalleGuardado, plata };')(P.subtotalLinea);
+}
+
+test('cada ticket guardado se lista con su detalle adentro', () => {
+  const { detalleGuardado, plata } = cargarDetalleGuardado();
+  const pedido = {
+    numero: 'A-12', fechaLocal: '27/08/2026', horaLocal: '10:05', cliente: 'Kiosco <b>Sur</b>',
+    lineas: [
+      { plu: '123', nombre: 'Yerba 1 kg', cant: 2, unidad: '', precio: 1000, dtoPct: 0, subtotal: 2000 },
+      { plu: '987', nombre: 'Queso', cant: 0.5, unidad: 'kg', precio: 8000, dtoPct: 0 },
+    ],
+    subtotal: 6000, total: 6000, pagos: [{ medio: 'Efectivo', importe: 6000 }],
+  };
+  const html = detalleGuardado(pedido, 3);
+
+  assert.ok(html.includes('<details class="tk-guardado" open>'), 'el detalle tiene que arrancar abierto');
+  for (const dato of ['A-12', '27/08/2026 10:05', '123', 'Yerba 1 kg', '987', 'Queso', '0.500 kg']) {
+    assert.ok(html.includes(dato), 'falta ' + dato + ' en el detalle');
+  }
+  // El subtotal de la línea de balanza no viene guardado: se calcula con subtotalLinea.
+  assert.ok(html.includes(plata(4000)), 'falta el subtotal calculado del pesable');
+  assert.ok(html.includes(plata(6000)), 'falta el total del ticket');
+  // Los botones apuntan al índice del pedido, que es lo que usa el handler del listado.
+  for (const attr of ['data-imprimir="3"', 'data-copiar="3"', 'data-borrar="3"']) {
+    assert.ok(html.includes(attr), 'falta ' + attr);
+  }
+  // Nombres y clientes salen del catálogo y del teclado: nunca se inyectan crudos.
+  assert.ok(!html.includes('<b>Sur</b>'), 'el nombre del cliente tiene que ir escapado');
+});
+
+test('el listado de tickets vive en un modal propio, debajo de los avisos', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  for (const id of ['fondoGuardados', 'cajaGuardados', 'listaGuardados', 'btnCerrarGuardados']) {
+    assert.ok(src.includes('id="' + id + '"'), 'falta el nodo #' + id);
+  }
+  assert.ok(!src.includes('tablaGuardados'), 'quedó la tabla resumen vieja');
+  // #modalFondo está en 100: la confirmación de borrado tiene que tapar al listado.
+  const regla = src.slice(src.indexOf('#fondoGuardados {'), src.indexOf('#cajaGuardados {'));
+  assert.ok(/z-index: 90;/.test(regla), '#fondoGuardados tiene que quedar debajo de #modalFondo');
+  // Con el listado abierto el escáner no puede robar el foco: lo leído entraría a ciegas.
+  assert.ok(src.includes("if (modalAbierto || !$('#fondoGuardados').classList.contains('oculto')) return;"),
+    'focoEscaner tiene que respetar al listado abierto');
+});
+
+test('guardar cierra el pago solo con el medio elegido, sin preguntar', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const cuerpo = src.slice(src.indexOf("$('#btnGuardarPedido').onclick"), src.indexOf('function comoTexto('));
+  assert.ok(!cuerpo.includes('confirmarModal'), 'guardar no puede frenar con una pregunta');
+  assert.ok(cuerpo.includes("pagos = [...pagos, { medio: $('#medioPago').value, importe: falta }]"),
+    'el faltante tiene que cerrarse con el medio de pago seleccionado');
+  // El importe sale del saldo, no del total: un pago parcial ya cargado no se duplica.
+  assert.ok(/const falta = saldoPagos\(/.test(cuerpo), 'el importe automático tiene que salir del saldo');
+  const s = P.saldoPagos(1000, [{ medio: 'EFECTIVO', importe: 400 }]);
+  assert.equal(s.falta, 600);
+  assert.equal(P.saldoPagos(1000, [{ medio: 'EFECTIVO', importe: 1000 }]).falta, 0);
+});
+
+test('el lector se puede dejar sin barra y el cartel se achica hasta entrar', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  assert.ok(src.includes('id="btnOcultarBarra"'), 'falta el botón para esconder la barra');
+  assert.ok(src.includes('id="btnMostrarBarra"'), 'falta el botón para traerla de vuelta');
+  // El botón de vuelta vive fuera del header: si se escondiera con él, la única salida
+  // sería recargar la página.
+  assert.ok(src.indexOf('id="btnMostrarBarra"') > src.indexOf('</header>'),
+    'el botón para mostrar la barra no puede estar adentro del header');
+  assert.ok(/body\.sin-barra > header \{ display: none; \}/.test(src), 'falta la regla que esconde la barra');
+  assert.ok(/body\.sin-barra #vistaConsulta \{ min-height: 100dvh; \}/.test(src),
+    'sin barra el lector tiene que ocupar la pantalla entera');
+  // En el facturador la barra vuelve sí o sí: es de donde se guarda y se cambia de vista.
+  const cuerpo = src.slice(src.indexOf('function irA('), src.indexOf('function verBarra('));
+  assert.ok(cuerpo.includes("verBarra(v === 'consulta' && !!cfg.barraOculta)"),
+    'la barra sólo se esconde en el lector');
+  assert.ok(cuerpo.includes("$('#btnOcultarBarra').classList.toggle('oculto', v !== 'consulta')"),
+    'el botón de esconder sólo va en el lector');
+  // Cada repintado del cartel recalcula el ajuste, y el resize también.
+  assert.ok(src.includes("+ '</div>'; ajustarFicha(); }"), 'poner() tiene que ajustar el cartel');
+  assert.ok(src.includes("addEventListener('resize', ajustarFicha)"), 'falta el ajuste al cambiar de tamaño');
+  // El ajuste mira alto y ancho: con el nombre largo el problema es el alto, no el ancho.
+  const fn = src.slice(src.indexOf('function ajustarFicha('), src.indexOf("addEventListener('resize'"));
+  // El contenedor crece con lo pintado: contra su propio alto la escala siempre da 1.
+  assert.ok(!fn.includes('clientHeight'), 'el alto disponible sale de la ventana, no del contenedor');
+  assert.ok(fn.includes('innerHeight') && fn.includes('clientWidth'), 'el ajuste tiene que mirar las dos medidas');
+  assert.ok(fn.includes('scrollHeight') && fn.includes('scrollWidth'),
+    'hay que medir el contenido, no la caja recortada por max-width');
+  assert.ok(/Math\.max\(escala, \.35\)/.test(fn), 'falta el piso de escala');
+});
+
+// ── Promo y precios bloqueados ────────────────────────────────────────────────
+// El precio del ticket tiene que ser el del catálogo: si se puede editar a mano, lo que
+// se cobra deja de coincidir con lo que después se carga al sistema. Las únicas dos
+// excepciones son los genéricos, que no tienen precio propio.
+test('sólo los genéricos llevan precio a mano', () => {
+  assert.equal(P.PLU_PROMO, '60000');
+  assert.ok(P.precioLibre({ plu: '60000' }), 'la promo tiene que dejar tipear el precio');
+  assert.ok(P.precioLibre({ plu: '1' }), 'el código 1 tiene que dejar tipear el precio');
+  // Los PLU llegan con ceros a la izquierda según de dónde salga el catálogo.
+  assert.ok(P.precioLibre({ plu: '0001' }));
+  assert.ok(P.precioLibre({ plu: ' 60000 ' }));
+  for (const plu of ['4504', '600001', '6000', '', null, undefined, '10']) {
+    assert.ok(!P.precioLibre({ plu }), 'el PLU ' + plu + ' no puede editar el precio');
+  }
+  assert.ok(!P.precioLibre(null) && !P.precioLibre(undefined), 'sin línea no hay precio libre');
+});
+
+test('el facturador bloquea el precio salvo en los genéricos', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  assert.ok(src.includes('id="btnPromo"'), 'falta el botón de promo al lado del lector');
+  // El input arranca readonly salvo que la línea sea de precio libre.
+  assert.ok(src.includes("(precioLibre(l) ? '' : ' readonly"), 'el precio tiene que salir readonly');
+  // readonly es sólo la pantalla: el handler tampoco puede aceptar el cambio.
+  const oninput = src.slice(src.indexOf("$('#tablaLineas').oninput"), src.indexOf("$('#tablaLineas').onclick"));
+  assert.ok(oninput.includes("inp.dataset.campo === 'precio' && !precioLibre(lineas[i])"),
+    'el handler tiene que rechazar el precio de las líneas bloqueadas');
+  // Dos promos distintas no se pueden juntar en una línea: cada una lleva su precio.
+  const agregar = src.slice(src.indexOf('function agregarLinea('), src.indexOf('function pintarLineas('));
+  assert.ok(agregar.includes('|| precioLibre(nueva) ? -1'), 'los genéricos no se acumulan');
 });
