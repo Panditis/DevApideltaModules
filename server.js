@@ -542,6 +542,35 @@ function sqlBOM(rubros) {
   return sqlBOMGranel(rubros);
 }
 
+// Un escalón más abajo cuando el "granel" que resolvió sqlBOMGranel es en realidad una
+// PRESENTACIÓN FRACCIONADA.
+//
+// `rubrosGranel` de config.json trae los dos rubros pesables juntos (el depósito y el
+// fraccionado), así que un bulto cuya fórmula activa baja a una presentación —"Mani Casc 200G
+// Bulto" → "Mani Casc 200G"— resuelve ahí y corta: la rama de dos niveles de sqlBOMGranel no
+// llega a mirarlo porque su NOT EXISTS ve que el primer nivel ya dio un rubro granel.
+// Resultado: la reserva apartaba la presentación fraccionada en vez del granel.
+//
+// Estos bultos son presentaciones especiales para mayorista y su cadena real es
+// bulto fraccionado → presentación fraccionada → granel, sin el "X Pedido" del medio.
+// Se consulta a partir de la lista de presentaciones YA resueltas (`pc.IdProducto IN (...)`, que
+// es el índice de la tabla) y no bajando dos niveles desde el bulto: la versión con dos JOIN
+// sobre ProductosComponentes más las subconsultas de fórmula activa no terminaba nunca.
+// @param {Array<string>} presentaciones PLU de las presentaciones fraccionadas a resolver
+function sqlGranelBajoFraccionado(rubros, presentaciones) {
+  return `SELECT CAST(pc.IdProducto AS VARCHAR)          AS IdPresentacion,
+       CAST(pc.IdProductoComponente AS VARCHAR)          AS IdGranel,
+       p.NombreProducto                                  AS NombreGranel,
+       pc.Cantidad                                       AS CantPorUnidad
+FROM ProductosComponentes pc
+INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+LEFT  JOIN Rubros    r ON r.IdRubro = p.IdRubro
+WHERE pc.IdProducto IN (${presentaciones.map(x => `'${x}'`).join(',')})
+  AND p.IdRubro IN (${rubros})
+  AND UPPER(COALESCE(r.NombreRubro,'')) NOT LIKE '%FRACCIONAD%'
+  AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}`;
+}
+
 // El intermedio "X Pedido" de un pesable: el componente de rubro PRODUCCION que baja al granel.
 // Es el `pluCarga` del trío pedido→carga→granel.
 //
@@ -1350,10 +1379,20 @@ app.get('/api/resumen', apiRoute(async req => {
     // CargaPlu es el intermedio "X Pedido". Se publica aparte de IdComponente (que sale del CTE
     // ComponentePrimario, ciego a los pesables de venta directa por su filtro BULTO/CAJA): sin
     // él, el front armaba una línea pesable sin producto de carga.
+    // Lo que se aparta es el granel REAL. Cuando la fórmula del bulto baja a una presentación
+    // fraccionada ("Mani Casc 200G Bulto" → "Mani Casc 200G" → "Mani Casc DEPOSITO GRANEL"), el
+    // granel es el del final de la cadena y la presentación pasa a ser el producto de carga: es
+    // el equivalente del "X Pedido" para estas presentaciones especiales de mayorista.
+    // Reservar la presentación apartaba un producto fraccionado que la sala todavía no armó.
+    const bajaAFraccionado = !!g.granelRealPlu;
     // GranelCount: con más de un granel la fórmula es una receta y el producto se reserva
     // entero, por su propio código, en vez de apartar uno solo de sus ingredientes.
-    return { ...f, GranelPlu: g.granelPlu, GranelNombre: g.granelNombre, KgPorUnidad: g.cantPorUnidad,
-             CargaPlu: g.cargaPlu || '', CargaNombre: g.cargaNombre || '',
+    return { ...f,
+             GranelPlu:    bajaAFraccionado ? g.granelRealPlu    : g.granelPlu,
+             GranelNombre: bajaAFraccionado ? g.granelRealNombre : g.granelNombre,
+             KgPorUnidad:  bajaAFraccionado ? g.cantPorUnidadReal : g.cantPorUnidad,
+             CargaPlu:     bajaAFraccionado ? g.granelPlu    : (g.cargaPlu || ''),
+             CargaNombre:  bajaAFraccionado ? g.granelNombre : (g.cargaNombre || ''),
              GranelCount: g.granelCount || 1 };
   });
 }));
@@ -1403,12 +1442,50 @@ async function bomGranelPorPlu(plus) {
       granelNombre: b.NombreComponente || '',
       cantPorUnidad: Number(b.CantPorUnidad) || 0,
       granelCount: granelesPorPlu.get(plu).size,
+      // Para saber si lo que ganó es una presentación fraccionada (y hay que bajar un nivel más).
+      granelRubro: Number(b.RubroComponente) || 0,
       // El intermedio se completa abajo: se elige DESPUÉS de saber qué granel gana, porque un
       // producto puede tener varios y sólo sirve el que baja a ese granel.
       cargaPlu: '', cargaNombre: '',
     };
     const prev = mapa.get(plu);
     if (!prev || cand.cantPorUnidad > prev.cantPorUnidad) mapa.set(plu, cand);
+  }
+
+  // Los bultos cuya fórmula activa baja a una PRESENTACIÓN fraccionada y de ahí al granel. Se
+  // agregan como campos aparte (granelRealPlu…) en vez de pisar granelPlu: el detector de
+  // faltantes de fraccionado usa este mismo mapa y espera la presentación, que es contra lo que
+  // compara su stock. Quien reserva usa el real, que es lo que hay que apartar.
+  //
+  // Sin ningún granel resuelto no hay nada más que consultar: se corta antes de las dos queries
+  // que siguen.
+  if (!mapa.size) return mapa;
+
+  // Cuáles de los rubros granel son "fraccionado": config los trae juntos (el depósito y el
+  // fraccionado) y sólo el segundo tiene un granel debajo. Se mira el nombre, igual que el resto
+  // del archivo con BULTO/CAJA y PRODUCCION.
+  const rubrosFrac = new Set((await query(
+    `SELECT IdRubro FROM Rubros WHERE IdRubro IN (${c.rubrosGranel.join(',')})
+       AND UPPER(COALESCE(NombreRubro,'')) LIKE '%FRACCIONAD%'`)).map(r => Number(r.IdRubro)));
+  const presentaciones = [...new Set([...mapa.values()]
+    .filter(e => rubrosFrac.has(e.granelRubro)).map(e => e.granelPlu))]
+    .filter(p => /^\d+$/.test(p));
+  if (presentaciones.length) {
+    const bajo = new Map();
+    for (const r of await query(sqlGranelBajoFraccionado(c.rubrosGranel.join(','), presentaciones))) {
+      // Con varios candidatos gana el de mayor cantidad, mismo criterio que el mapa de arriba.
+      const k = String(r.IdPresentacion), cant = Number(r.CantPorUnidad) || 0;
+      const prev = bajo.get(k);
+      if (!prev || cant > prev.cant) bajo.set(k, { plu: String(r.IdGranel), nombre: r.NombreGranel || '', cant });
+    }
+    for (const e of mapa.values()) {
+      const b = bajo.get(e.granelPlu);
+      if (!b) continue;
+      e.granelRealPlu = b.plu;
+      e.granelRealNombre = b.nombre;
+      // Los dos saltos se multiplican: bulto→presentación por presentación→granel.
+      e.cantPorUnidadReal = redondear4(e.cantPorUnidad * b.cant);
+    }
   }
 
   // El intermedio "X Pedido" que hace de puente hasta el granel elegido. Va en su propia
@@ -4771,6 +4848,46 @@ const RESUMENES_DIR = path.join(DATA_DIR, 'resumenes');
 // Familia de cada carga. Mandan las familias manuales (las arma el usuario por código en
 // el módulo de análisis); lo que no está en ninguna cae en la familia deducida del nombre,
 // mismo criterio que análisis de ventas: MIEL 500G y MIEL 1KG son una sola familia.
+// El nombre que quedó guardado en la carga es con el que se cargó el lote, y muchas veces es
+// el corto —"Polen", "Huevos", "G. KETO"— sin la presentación. El nombre completo del producto
+// ("Polen 100G") se resuelve por PLU al entrar al tablero, para que todas las vistas nombren
+// igual al mismo producto.
+//
+// Primero manda SIGA, que tiene todos los productos y siempre al día; el catálogo.json —que se
+// carga a mano desde un Excel— queda de respaldo para cuando la base no contesta. Un PLU que no
+// está en ninguno de los dos se queda con el nombre de la carga.
+function conNombresCompletos(cargas, nombresSql) {
+  const nombreCat = new Map(leerJSON(CATALOGO_PATH, [])
+    .filter(i => i && i.plu != null && i.producto)
+    .map(i => [String(i.plu), String(i.producto)]));
+  return (cargas || []).map(c => {
+    const plu = String(c && c.plu);
+    const n = (nombresSql && nombresSql.get(plu)) || nombreCat.get(plu);
+    return n && n !== c.nombre ? { ...c, nombre: n } : c;
+  });
+}
+
+// Las tareas extra se cargan como un registro más de producción con el PLU reservado 'ACT'
+// (apidelta_produccion_dia.html las guarda así): ocupan tiempo de sala pero no producen
+// unidades. Salen de las cargas y se devuelven aparte, con la misma forma que las tareas de los
+// resúmenes viejos, para que no hundan el ritmo de nadie ni ensucien la lista de productos.
+const PLU_TAREA_EXTRA = 'ACT';
+function partirTareasExtra(cargas) {
+  const esTarea = c => String((c && c.plu) || '').trim().toUpperCase() === PLU_TAREA_EXTRA;
+  return {
+    cargas: (cargas || []).filter(c => !esTarea(c)),
+    tareas: (cargas || []).filter(esTarea).map(c => ({
+      id: c.id,
+      fecha: c.fecha,
+      persona: productividad.nombreLindo((productividad.personasDeCarga(c)[0] || {}).nombre || ''),
+      tarea: String(c.observacion || c.nombre || 'Tarea extra').trim(),
+      sala: 'Produccion',
+      desde: c.desde || '',
+      hasta: c.hasta || '',
+    })),
+  };
+}
+
 function familiaDeCarga() {
   const familiasPorPlu = new Map();
   for (const f of familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []))) {
@@ -4810,10 +4927,15 @@ app.get('/api/productividad', apiRoute(async req => {
   // que ya están cargadas en el sistema nuevo mandan, para no contarlas dos veces.
   const legacy = resumenesLegacy.leerCarpeta(RESUMENES_DIR);
   const legacyEnRango = legacy.cargas.filter(c => c && enRango(c.fecha));
-  const cargasProd = [...nuevasProd, ...resumenesLegacy.sinFechasCubiertas(legacyEnRango, nuevasProd)];
-  const cargasFrac = nuevasFrac;
+  const nombres = await nombresDeProductosOVacio();
+  const todoProd = partirTareasExtra(conNombresCompletos(
+    [...nuevasProd, ...resumenesLegacy.sinFechasCubiertas(legacyEnRango, nuevasProd)], nombres));
+  const cargasProd = todoProd.cargas;
+  const todoFrac = partirTareasExtra(conNombresCompletos(nuevasFrac, nombres));
+  const cargasFrac = todoFrac.cargas;
   // Tareas necesarias que no producen unidades (limpieza, preparación): van contadas aparte.
-  const tareas = legacy.tareas.filter(t => t && enRango(t.fecha));
+  // Las de los resúmenes viejos y las que se cargan hoy con PLU 'ACT' son la misma cosa.
+  const tareas = [...legacy.tareas.filter(t => t && enRango(t.fecha)), ...todoProd.tareas];
 
   const familiaDe = familiaDeCarga();
 
@@ -4843,7 +4965,7 @@ app.get('/api/productividad', apiRoute(async req => {
       porDia: productividad.resumenPeriodos(cargasFrac, 'dia', null, familiaDe),
       porSemana: productividad.resumenPeriodos(cargasFrac, 'semana', null, familiaDe),
       porMes: productividad.resumenPeriodos(cargasFrac, 'mes', null, familiaDe),
-      tareas: [],
+      tareas: todoFrac.tareas,
       registros: cargasFrac.map(c => ({
         id: c.id, fecha: c.fecha, plu: String(c.plu == null ? '' : c.plu), producto: c.nombre || '',
         persona: productividad.nombreLindo((productividad.personasDeCarga(c)[0] || {}).nombre || ''),
@@ -4863,6 +4985,30 @@ app.get('/api/productividad', apiRoute(async req => {
 // minutos: son 8 meses de lotes contra el catálogo entero y los precios no cambian por hora.
 const PRECIOS_TTL_MS = 5 * 60 * 1000;
 let cachePrecios = { sello: 0, mapa: new Map() };
+let cacheNombres = { sello: 0, mapa: new Map() };
+
+// Nombre completo de cada producto, tal cual lo tiene SIGA. Mismo caché que los precios: es una
+// tabla entera contra la que se cruzan ocho meses de lotes y los nombres no cambian por hora.
+async function nombresDeProductos() {
+  if (Date.now() - cacheNombres.sello < PRECIOS_TTL_MS) return cacheNombres.mapa;
+  const rows = await query('SELECT p.IdProducto, p.NombreProducto FROM Productos p');
+  const mapa = new Map();
+  for (const r of rows) {
+    const n = String(r.NombreProducto || '').trim();
+    if (n) mapa.set(String(r.IdProducto).trim(), n);
+  }
+  cacheNombres = { sello: Date.now(), mapa };
+  return mapa;
+}
+
+// El tablero sigue midiendo aunque SIGA no conteste: sin nombres, cada carga se queda con el
+// suyo y el catálogo de respaldo hace lo que puede.
+async function nombresDeProductosOVacio() {
+  try { return await nombresDeProductos(); } catch (e) {
+    console.error('nombres de productos:', e.message);
+    return new Map();
+  }
+}
 
 async function preciosDeVenta() {
   if (Date.now() - cachePrecios.sello < PRECIOS_TTL_MS) return cachePrecios.mapa;
@@ -4910,17 +5056,19 @@ app.get('/api/productividad/historial', apiRoute(async req => {
 // desde que se cargan por el sistema traen las tres tareas con su encargado y su horario igual
 // que los xlsx viejos: por eso lo mide el mismo módulo. Acá NO entran los resúmenes legacy —
 // esta vista es la de lo que se viene cargando, el archivo viejo tiene su propia tab.
-function cargasProduccionNuevas() {
+async function cargasProduccionNuevas() {
   const snapshots = leerRegistros();
-  return productividad.unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
-                                 snapshots.flatMap(s => (s && s.cargas) || []));
+  return partirTareasExtra(conNombresCompletos(
+    productividad.unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
+                            snapshots.flatMap(s => (s && s.cargas) || [])),
+    await nombresDeProductosOVacio()));
 }
 
 app.get('/api/productividad/historial-produccion', apiRoute(async req => {
-  const cargas = cargasProduccionNuevas();
+  const { cargas, tareas } = await cargasProduccionNuevas();
   let precios = new Map();
   try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
-  const r = historialSala.resumen({ cargas, tareas: [] }, {
+  const r = historialSala.resumen({ cargas, tareas }, {
     desde: req.query.desde ? safeDate(req.query.desde) : null,
     hasta: req.query.hasta ? safeDate(req.query.hasta) : null,
     plu: String(req.query.plu || '').trim(),
@@ -4937,8 +5085,8 @@ app.get('/api/productividad/historial-produccion', apiRoute(async req => {
 app.post('/api/productividad/historial-produccion/referencia', apiRoute(async () => {
   let precios = new Map();
   try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
-  const referencia = historialSala.referencia({ cargas: cargasProduccionNuevas() }, precios,
-                                              new Date().toISOString());
+  const referencia = historialSala.referencia({ cargas: (await cargasProduccionNuevas()).cargas },
+                                              precios, new Date().toISOString());
   guardarJSON(REF_PROD_PATH, referencia);
   return referencia;
 }));

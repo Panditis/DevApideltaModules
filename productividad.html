@@ -286,6 +286,12 @@ td.pag button:disabled{opacity:.35;cursor:default}
 .graf .col span{writing-mode:vertical-rl;font-size:10px;color:var(--suave);white-space:nowrap;
   font-variant-numeric:tabular-nums}
 .graf .col em{font-style:normal;font-size:11px;color:var(--suave);white-space:nowrap}
+/* Cuánto se aparta la barra de la línea de referencia. Va debajo del riel para no tocar el alto
+   de arriba, que es de donde sale en píxeles la posición de la línea. */
+.graf .col u{text-decoration:none;font-size:10px;font-weight:700;white-space:nowrap;
+  font-variant-numeric:tabular-nums;color:var(--suave)}
+.graf .col u.bien{color:var(--verde-hondo)}
+.graf .col u.mal{color:var(--rojo)}
 .graf.ancho .col span{writing-mode:horizontal-tb;font-size:10.5px}
 .graf .prom{position:absolute;left:0;right:0;border-top:2px dashed var(--amarillo);pointer-events:none}
 .graf .prom span{position:absolute;right:0;top:-9px;writing-mode:horizontal-tb;font-size:11px;
@@ -441,6 +447,17 @@ td.pag button:disabled{opacity:.35;cursor:default}
         tienen ese horario cargado: el lote al que le falta la hora de etiquetado no entra al
         promedio de etiquetado, pero sí al de las tareas que sí registró.</p>
       <div class="panel"><table id="t-tprod-prod"></table></div>
+    </div>
+
+    <div class="sec" id="sec-tareas-prod" hidden>
+      <div class="sec-head">
+        <h2>Tareas extras</h2>
+        <input class="buscador" id="q-tareas-prod" placeholder="Buscar persona o tarea">
+      </div>
+      <p class="desc">Trabajo de sala que no produce unidades (limpieza, preparación): lo que se
+        carga con el botón <b>Tarea extra</b>. Va aparte: sumaría horas sin producción y hundiría
+        el ritmo de todos.</p>
+      <div class="panel"><table id="t-tareas-prod"></table></div>
     </div>
   </section>
 
@@ -1102,8 +1119,20 @@ function pintarRolesV(V) {
 const ALTO_GRAF = 150;    // alto del riel de cada barra — igual que .riel-graf en el CSS
 const ALTO_SOBRE = 18;    // renglón de la cifra arriba de la barra — igual que .graf .col b
 
+// Cuánto se aparta una barra de la línea de referencia, en por ciento. La línea ya muestra la
+// diferencia; el número dice de cuánto es. Sin referencia — o con referencia en cero — no hay
+// contra qué medir y no se escribe nada.
+const difRef = (v, ref) => (!ref || !ref.v ? null : ((v || 0) - ref.v) / ref.v * 100);
+// Con un decimal por debajo de 10% para que un lote apenas más largo no se lea como "+0%".
+const textoDif = p => `${p < 0 ? '−' : '+'}${nf(Math.abs(p), Math.abs(p) < 10 ? 1 : 0)}%`;
+// Verde y rojo según para qué lado conviene apartarse: más plata producida es bueno, más
+// minutos de envasado no. Menos de medio punto no es estar por encima ni por debajo.
+const claseDif = (p, menosMejor) => (Math.abs(p) < 0.5 ? ''
+  : (p > 0) === !menosMejor ? ' class="bien"' : ' class="mal"');
+
 // barras: [{ v, sobre, pie, rot, tip }] · ref: { v, texto } o null si no hay contra qué comparar.
-function grafBarras(cont, barras, ref, ancho) {
+// menosMejor invierte el color del apartamiento (series donde conviene la barra más baja).
+function grafBarras(cont, barras, ref, ancho, menosMejor) {
   // La escala también contempla la referencia: si la línea quedara por encima del lote más alto
   // se dibujaría fuera del área y no se vería.
   const max = Math.max(1, ...barras.map(b => b.v || 0), (ref && ref.v) || 0);
@@ -1112,13 +1141,19 @@ function grafBarras(cont, barras, ref, ancho) {
     <div class="area">
       ${!ref ? '' : `<div class="prom" style="top:${ALTO_SOBRE + ALTO_GRAF - alto(ref.v)}px">
         <span>${escHtml(ref.texto)}</span></div>`}
-      <div class="cols">${barras.map(b => `
-        <div class="col" style="width:${ancho}px" title="${escHtml(b.tip || '')}">
+      <div class="cols">${barras.map(b => {
+        const dif = difRef(b.v, ref);
+        const tip = (b.tip || '') + (dif == null ? ''
+          : ` · ${textoDif(dif)} contra ${ref.texto}`);
+        return `
+        <div class="col" style="width:${ancho}px" title="${escHtml(tip)}">
           <b>${b.sobre == null ? '' : escHtml(b.sobre)}</b>
           <div class="riel-graf"><i style="height:${alto(b.v)}px"></i></div>
+          ${dif == null ? '' : `<u${claseDif(dif, menosMejor)}>${escHtml(textoDif(dif))}</u>`}
           ${b.pie == null ? '' : `<span>${escHtml(b.pie)}</span>`}
           ${b.rot == null ? '' : `<em>${escHtml(b.rot)}</em>`}
-        </div>`).join('')}</div>
+        </div>`;
+      }).join('')}</div>
     </div>`;
 }
 
@@ -1271,7 +1306,7 @@ function pintarGrafEnvasado(V) {
     rot: conFecha ? dm(r.fecha) : null,
     tip: `${fechaLarga(r.fecha)}${r.lote ? ' · lote ' + r.lote : ''} · ${nf(r.minEnvasado, 0)} min`
        + ` · ${nf(r.unidades)} u · ${nf(r.kilos, 1)} kg`,
-  })), ref, 38);
+  })), ref, 38, true);
   cont.insertAdjacentHTML('beforeend',
     `<div class="pie-graf">${nf(lotes.length)} lotes envasados · del ${fechaLarga(lotes[0].fecha)} al `
     + `${fechaLarga(lotes[lotes.length - 1].fecha)} · promedio de lo que se está viendo, `
