@@ -5052,20 +5052,28 @@ app.get('/api/productividad/historial', apiRoute(async req => {
   return { ...r, referencia };
 }));
 
-// Mismo tablero que el historial de sala pero sobre los registros nuevos de producción, que
-// desde que se cargan por el sistema traen las tres tareas con su encargado y su horario igual
-// que los xlsx viejos: por eso lo mide el mismo módulo. Acá NO entran los resúmenes legacy —
-// esta vista es la de lo que se viene cargando, el archivo viejo tiene su propia tab.
-async function cargasProduccionNuevas() {
+// Mismo tablero que el historial de sala pero sobre TODO lo que pasó por la sala: los registros
+// que carga el sistema y, detrás, los resúmenes .xlsx archivados. Los dos traen cada lote con
+// sus tres tareas, su encargado y su horario, así que los mide el mismo módulo y juntos dan la
+// serie larga que las estadísticas necesitan.
+//
+// El archivo viejo entra sólo por las jornadas que los registros nuevos no cubren: una fecha que
+// ya está cargada en el sistema manda, para no contar dos veces el mismo día. La tab Historial
+// de sala sigue mostrando el archivo solo, sin este cruce.
+async function cargasProduccion() {
   const snapshots = leerRegistros();
-  return partirTareasExtra(conNombresCompletos(
-    productividad.unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
-                            snapshots.flatMap(s => (s && s.cargas) || [])),
+  const nuevas = productividad.unirPorId(leerJSON(PROD_REG_PATH, []), leerJSON(PROD_HIST_PATH, []),
+                                         snapshots.flatMap(s => (s && s.cargas) || []));
+  const legacy = resumenesLegacy.leerCarpeta(RESUMENES_DIR);
+  const partido = partirTareasExtra(conNombresCompletos(
+    [...nuevas, ...resumenesLegacy.sinFechasCubiertas(legacy.cargas, nuevas)],
     await nombresDeProductosOVacio()));
+  // Las tareas sin producto del archivo viejo son las mismas que las tareas extra de hoy.
+  return { cargas: partido.cargas, tareas: [...partido.tareas, ...legacy.tareas] };
 }
 
 app.get('/api/productividad/historial-produccion', apiRoute(async req => {
-  const { cargas, tareas } = await cargasProduccionNuevas();
+  const { cargas, tareas } = await cargasProduccion();
   let precios = new Map();
   try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
   const r = historialSala.resumen({ cargas, tareas }, {
@@ -5085,7 +5093,7 @@ app.get('/api/productividad/historial-produccion', apiRoute(async req => {
 app.post('/api/productividad/historial-produccion/referencia', apiRoute(async () => {
   let precios = new Map();
   try { precios = await preciosDeVenta(); } catch (e) { console.error('precios de venta:', e.message); }
-  const referencia = historialSala.referencia({ cargas: (await cargasProduccionNuevas()).cargas },
+  const referencia = historialSala.referencia({ cargas: (await cargasProduccion()).cargas },
                                               precios, new Date().toISOString());
   guardarJSON(REF_PROD_PATH, referencia);
   return referencia;
