@@ -2868,7 +2868,7 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
       const listaGraneles = Array.isArray(r.graneles) && r.graneles.length
         ? r.graneles
         : (r.nombreGranel ? [{ nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }] : []);
-      _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles };
+      _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles, plu: String(r.plu || ''), presentacion: String(r.presentacion || '') };
       const ordenReg = r.ordenId != null ? ordenesById[r.ordenId] : null;
       const badgeSinConciliar = ordenReg && ordenReg.sinConciliar
         ? `<span class="badge-sin-conciliar" title="La reserva de stock de esta orden todavía no fue conciliada en SiGA">⚠ sin conciliar</span>`
@@ -3875,12 +3875,29 @@ async function deleteRcRegistro(idx) {
   try {
     const res = await fetch(`${SERVER_URL}/api/produccion/registros/${d.id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    // Reactivar la orden en el board
+    // Reactivar la orden en el board. No alcanza con terminado:false: la presentación queda
+    // con cargado:true y el modal la muestra como "ya cargado" sin dejar volver a cargarla.
     if (d.ordenId) {
       try {
-        await api('PUT', '/api/ordenes/' + d.ordenId, { terminado: false, estado: 'pendiente' });
         const o = ORDERS.find(o => o.id == d.ordenId);
-        if (o) { o.terminado = false; o.estado = 'pendiente'; }
+        const cambios = { terminado: false, estado: 'pendiente' };
+        const presArr = (o && Array.isArray(o.presentaciones)) ? o.presentaciones : [];
+        if (presArr.length) {
+          // Con una sola presentación el registro es siempre el de ella; con varias se busca por
+          // PLU (y por nombre de presentación como respaldo, para registros viejos sin plu).
+          cambios.presentaciones = presArr.map(p => {
+            const esta = presArr.length === 1
+              || (d.plu && String(p.plu || '') === d.plu)
+              || (d.presentacion && String(p.presentacion || '') === d.presentacion);
+            if (!esta) return p;
+            const { cargado, cantProducida, ...rest } = p;
+            return rest;
+          });
+          // Si todavía queda otra presentación cargada, la orden sigue en curso, no vuelve a cero.
+          if (cambios.presentaciones.some(p => p && p.cargado)) cambios.estado = 'en_proceso';
+        }
+        await api('PUT', '/api/ordenes/' + d.ordenId, cambios);
+        if (o) Object.assign(o, cambios);
         renderAll();
       } catch(_) {}
     }
