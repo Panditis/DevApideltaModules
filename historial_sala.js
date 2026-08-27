@@ -80,6 +80,32 @@ function minutosSalaPorDia(cargas) {
 const horasSalaDe = cargas =>
   redondear([...minutosSalaPorDia(cargas).values()].reduce((s, m) => s + m, 0) / 60);
 
+// ── Horas-persona de cada jornada ─────────────────────────────────────────────
+// Cuánto sumó el trabajo de todos en el día. Los intervalos de una misma persona se fusionan
+// igual que los de la sala —envasar y etiquetar el mismo lote a la vez es una hora, no dos— y
+// recién después se suman las personas entre sí: cuatro personas una hora son 4 h-persona y una
+// sola hora de reloj. Las tareas extra con horario cuentan; son trabajo de sala como cualquier
+// otro. Sólo el total: el desglose por persona ya vive en su propia sección del tablero.
+function horasPersonaPorDia(cargas, tareas) {
+  const porDia = new Map();
+  const anotar = (dia, nombre, iv) => {
+    if (!dia || !nombre || !iv) return;
+    if (!porDia.has(dia)) porDia.set(dia, new Map());
+    const gente = porDia.get(dia);
+    const clave = P.claveNombre(nombre);
+    if (!gente.has(clave)) gente.set(clave, []);
+    gente.get(clave).push(iv);
+  };
+  for (const c of cargas || []) {
+    for (const r of rolesDe(c)) anotar(c.fecha, r.nombre, P.intervaloDe(r.desde, r.hasta));
+  }
+  for (const t of tareas || []) {
+    anotar(t && t.fecha, t && t.persona, P.intervaloDe(t && t.desde, t && t.hasta));
+  }
+  return Object.fromEntries([...porDia].map(([dia, gente]) => [dia,
+    redondear([...gente.values()].reduce((s, ivs) => s + P.minutosUnidos(ivs), 0) / 60)]));
+}
+
 // ── Roles ─────────────────────────────────────────────────────────────────────
 // Una fila por tarea de la línea: cuánto tiempo se le va a envasar contra etiquetar, con
 // cuánta gente y sobre cuántos productos. `sinHorario` avisa cuántos lotes no se pueden medir.
@@ -433,13 +459,15 @@ function resumen(datos, filtro, precios) {
     // Horas de sala de cada jornada. El detalle del día las necesita y no se pueden reconstruir
     // en el navegador: hay que unir los intervalos, no sumarlos.
     horasPorDia: Object.fromEntries([...minutosSalaPorDia(cargas)].map(([d, m]) => [d, redondear(m / 60)])),
+    // Horas-persona de cada jornada, para el renglón del día en el detalle.
+    horasPersonaPorDia: horasPersonaPorDia(cargas, tareas),
     registros: registros(cargas, precios),
     tareas,
   };
 }
 
 module.exports = {
-  ROLES, SIN_ROL, minutosDeRol, minutosEfectivos, minutosSalaPorDia, horasSalaDe,
+  ROLES, SIN_ROL, minutosDeRol, minutosEfectivos, minutosSalaPorDia, horasSalaDe, horasPersonaPorDia,
   DESCUENTO_VENTA, netoDeVenta, precioDe, valorDeCarga, resumenRoles, resumenPersonasPorRol, resumenProductosPorRol,
   resumenPeriodos, filtrar, rangoTotal, opciones, registros, cobertura, referencia, resumen,
 };

@@ -170,9 +170,10 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
 .segment.chico button{padding:6px 15px;font-size:12.5px}
 /* Los dos rankings del período, uno al lado del otro mientras entren. */
 .dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
-.dos-col h4{margin:2px 0 8px;font-family:'Barlow Condensed',sans-serif;font-size:15px;
+.dos-col h4, .dia .cuerpo > h4{margin:2px 0 8px;font-family:'Barlow Condensed',sans-serif;font-size:15px;
   font-weight:700;color:var(--verde-hondo);text-transform:uppercase;letter-spacing:.07em}
 .dos-col .col{min-width:0;overflow-x:auto}
+.dia .cuerpo > h4{margin-top:14px}
 .dos-col.tres{grid-template-columns:1fr 1fr 1fr}
 @media(max-width:1100px){.dos-col.tres{grid-template-columns:1fr 1fr}}
 @media(max-width:900px){.dos-col,.dos-col.tres{grid-template-columns:1fr}}
@@ -1204,14 +1205,31 @@ function pintarPeriodosV(V) {
     cont.innerHTML = '<div class="panel"><div class="vacio">Sin producción en el rango elegido</div></div>';
     return;
   }
-  const horasDia = V.datos.horasPorDia || {};
+  // El trabajo de todos sumado: cada persona fusionada consigo misma y después sumadas entre
+  // sí. Cuatro personas una hora son 4 h-persona.
+  const horasPersDia = V.datos.horasPersonaPorDia || {};
   // Los lotes se agrupan una sola vez por fecha y de ahí salen todos los períodos.
   const porFecha = new Map();
   for (const r of V.datos.registros || []) {
     if (!porFecha.has(r.fecha)) porFecha.set(r.fecha, []);
     porFecha.get(r.fecha).push(r);
   }
-  const diasDe = p => [...porFecha.keys()].filter(f => f >= p.desde && f <= p.hasta).sort().reverse();
+  // Las tareas extra viven fuera de la lista de lotes (no producen unidades), pero la jornada
+  // se lee mal sin ellas: una mañana entera de limpieza aparecía como un día en blanco.
+  const tareasFecha = new Map();
+  for (const t of V.datos.tareas || []) {
+    if (!tareasFecha.has(t.fecha)) tareasFecha.set(t.fecha, []);
+    tareasFecha.get(t.fecha).push(t);
+  }
+  // Un día con tareas y sin un solo lote también abre su renglón: si no, se pierde del detalle.
+  const diasDe = p => [...new Set([...porFecha.keys(), ...tareasFecha.keys()])]
+    .filter(f => f >= p.desde && f <= p.hasta).sort().reverse();
+  // El período suma las horas-persona de sus jornadas: cada día ya viene fusionado por persona y
+  // entre días no hay solape posible. No se usa el `horas` que trae el período porque ese no
+  // cuenta las tareas extra, y el renglón del día sí: quedarían dos cifras que no cierran.
+  const horasPersDe = p => Object.keys(horasPersDia)
+    .filter(f => f >= p.desde && f <= p.hasta)
+    .reduce((s, f) => s + horasPersDia[f], 0);
 
   cont.innerHTML = lista.map((p, i) => `
     <details class="dia" ${i === 0 ? 'open' : ''}>
@@ -1222,7 +1240,9 @@ function pintarPeriodosV(V) {
           <span class="met"><b>${nf(p.cargas)}</b> lotes</span>
           <span class="met"><b>${nf(p.productosDistintos)}</b> productos</span>
           <span class="met"><b>${nf(p.personasTotal)}</b> personas</span>
-          <span class="met"><b>${nf(p.horasSala, 1)}</b> h de sala</span>
+          <span class="met"><b>${nf(horasPersDe(p), 1)}</b> h-persona</span>
+          ${!p.tareas ? '' : `<span class="met"><b>${nf(p.tareas)}</b> tareas extra${
+            p.horasTareas ? ` (${nf(p.horasTareas, 1)} h)` : ''}</span>`}
           ${p.sinPrecio ? `<span class="met apagado">${nf(p.sinPrecio)} sin precio</span>` : ''}
           <span class="cifra ok">${plata(p.valor)}</span>
         </div>
@@ -1230,6 +1250,7 @@ function pintarPeriodosV(V) {
       <div class="cuerpo">
         ${diasDe(p).map(f => {
           const lotes = porFecha.get(f) || [];
+          const tareas = tareasFecha.get(f) || [];
           const valor = lotes.reduce((s, r) => s + (r.valor || 0), 0);
           return `
         <details class="dia sub">
@@ -1238,11 +1259,15 @@ function pintarPeriodosV(V) {
               <span class="caret">&#9654;</span>
               <span class="fecha">${escHtml(fechaLarga(f))}</span>
               <span class="met"><b>${nf(lotes.length)}</b> lotes</span>
-              ${horasDia[f] == null ? '' : `<span class="met"><b>${nf(horasDia[f], 1)}</b> h de sala</span>`}
+              ${horasPersDia[f] == null ? '' : `<span class="met"><b>${nf(horasPersDia[f], 1)}</b> h-persona</span>`}
+              ${!tareas.length ? '' : `<span class="met"><b>${nf(tareas.length)}</b> tareas extra</span>`}
               <span class="cifra ok">${plata(valor)}</span>
             </div>
           </summary>
-          <div class="cuerpo"><table data-lotes="${escHtml(f)}"></table></div>
+          <div class="cuerpo">
+            ${!lotes.length ? '' : `<table data-lotes="${escHtml(f)}"></table>`}
+            ${!tareas.length ? '' : `<h4>Tareas extras</h4><table data-tareas="${escHtml(f)}"></table>`}
+          </div>
         </details>`;
         }).join('')}
       </div>
@@ -1252,6 +1277,9 @@ function pintarPeriodosV(V) {
   lista.forEach(p => diasDe(p).forEach(f => {
     const t = cont.querySelector(`table[data-lotes="${f}"]`);
     if (t) pintarTabla(t, COLS_HIST, porFecha.get(f) || []);
+    const tt = cont.querySelector(`table[data-tareas="${f}"]`);
+    // Sin la columna Fecha: la dice el renglón de la jornada que la contiene.
+    if (tt) pintarTabla(tt, COLS_TAREAS.slice(1), tareasFecha.get(f) || []);
   }));
 }
 
