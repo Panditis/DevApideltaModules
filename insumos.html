@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Insumos · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { verde:'#405936', verdeDark:'#2e4027', verdeHover:'#4f6e42', amarillo:'#FFCC00',
+    bg:'#eef2e9', card:'#ffffff', borde:'#c3c9bc', ink:'#1a1c18',
+    rojo:'#D32F2F', naranja:'#E65100', ambar:'#F57F17', ok:'#388E3C', gris:'#78766c' },
+  fontFamily: { disp:['"Barlow Condensed"','sans-serif'], body:['Roboto','sans-serif'] },
+  boxShadow: { fluent:'0 1px 3px rgba(26,28,24,.08), 0 4px 16px rgba(26,28,24,.06)' } } } };
+</script>
+<style>
+  body{background:#eef2e9;}
+  .acrylic{background:rgba(255,255,255,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+  th{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.02em;}
+  th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+  th.sortable:hover{color:#2e4027}
+  tbody tr:hover{background:#f5f8f1}
+  .kpi{border:1px solid #c3c9bc;border-radius:12px;background:#fff;padding:10px 14px;text-align:left;cursor:pointer}
+  .kpi.on{outline:2px solid #405936}
+  .kpi .v{font-family:'Barlow Condensed';font-size:28px;font-weight:700;line-height:1}
+  .kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#5c5f52}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #c3c9bc;border-top-color:#405936;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold text-verde">CONTROL DE INSUMOS</h1>
+    <span class="text-sm text-ink/60">Casa Central</span>
+    <span id="meta" class="text-xs text-ink/50"></span>
+    <div class="ml-auto flex items-center gap-2">
+      <button id="btnXlsx" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Exportar xlsx</button>
+      <button id="btnRecargar" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Recargar</button>
+      <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+  <div id="kpis" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-4"></div>
+
+  <div class="flex gap-2 mb-3 items-center flex-wrap">
+    <input id="buscar" placeholder="Buscar por PLU o nombre…" class="px-3 py-2 rounded-lg border border-borde w-72" autofocus>
+    <label class="text-sm flex items-center gap-1"><input type="checkbox" id="soloPide"> Sólo los que piden compra</label>
+    <label class="text-sm flex items-center gap-1"><input type="checkbox" id="soloConsumo"> Sólo con consumo</label>
+    <label class="text-sm flex items-center gap-1"><input type="checkbox" id="soloStock"> Sólo con stock</label>
+    <span id="conteo" class="ml-auto text-sm text-ink/60"></span>
+  </div>
+
+  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
+    <table class="w-full text-sm">
+      <thead class="bg-verde/5 text-verde">
+        <tr>
+          <th class="p-2 sortable" data-col="plu">Código</th>
+          <th class="text-left p-2 sortable" data-col="nombre">Insumo</th>
+          <th class="p-2 sortable" data-col="stock">Stock central</th>
+          <th class="p-2 sortable" data-col="consumoMensual">Consumo/mes</th>
+          <th class="p-2 sortable" data-col="diasCobertura">Duración estimada</th>
+          <th class="p-2 sortable" data-col="min">Mínimo</th>
+          <th class="p-2 sortable" data-col="max">Máximo</th>
+          <th class="p-2 sortable bg-amarillo/25" data-col="aComprar">A comprar</th>
+        </tr>
+      </thead>
+      <tbody id="cuerpo">
+        <tr><td colspan="8" class="p-10 text-center text-ink/50"><span class="spin"></span> Leyendo movimientos de stock…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-ink/50 mt-3 leading-relaxed">
+    Entran todos los productos activos cuyo nombre arranca con «Insumo», sea cual sea su rubro en Siga.
+    El consumo sale de las salidas de stock del depósito de Casa Central, mes a mes, ponderando los meses
+    más recientes. Las compras y los ajustes de inventario no cuentan como consumo: reponen o corrigen, no gastan.
+    La duración es el stock actual dividido el consumo diario estimado. Clic en el nombre para ver de dónde sale el número.
+    <br>Mínimo y máximo se cargan a mano y se guardan solos: al tocar el mínimo, «A comprar» pide la diferencia
+    hasta el máximo. Los dos vacíos sacan al insumo del circuito de compra.
+  </p>
+</main>
+
+<!-- Detalle de un insumo: de dónde sale su consumo. -->
+<div id="mDet" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4" role="dialog" aria-modal="true">
+  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-3xl max-h-[88vh] flex flex-col">
+    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+      <h3 id="mDetTitulo" class="font-disp text-xl font-bold text-verde">Insumo</h3>
+      <button id="mDetX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="mDetBody" class="px-5 py-4 overflow-y-auto text-sm"></div>
+  </div>
+</div>
+
+<script>
+const ESTADO_META = {
+  SIN_STOCK:   { txt:'Sin stock',   cls:'bg-rojo/15 text-rojo',       dot:'#D32F2F' },
+  CRITICO:     { txt:'Crítico',     cls:'bg-rojo/10 text-rojo',       dot:'#e0685f' },
+  BAJO:        { txt:'Bajo',        cls:'bg-naranja/15 text-naranja', dot:'#E65100' },
+  OK:          { txt:'OK',          cls:'bg-ok/15 text-ok',           dot:'#388E3C' },
+  EXCESO:      { txt:'Exceso',      cls:'bg-ambar/20 text-[#8a6d00]', dot:'#F57F17' },
+  SIN_CONSUMO: { txt:'Sin consumo', cls:'bg-black/5 text-gris',       dot:'#c3c9bc' },
+};
+const ORDEN_KPI = ['SIN_STOCK','CRITICO','BAJO','OK','EXCESO','SIN_CONSUMO'];
+
+let data = null;
+let filtroEstado = null;
+let orden = { col:null, dir:1 };
+
+const num = (v, d=0) => v == null ? '—' : Number(v).toLocaleString('es-AR', { maximumFractionDigits:d });
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+// Duración legible: hasta 60 días en días, después en meses. Arriba de dos años el
+// número exacto no dice nada, lo único que importa es que sobra.
+function duracion(dias){
+  if (dias == null) return '—';
+  if (dias > 730) return '+2 años';
+  if (dias <= 60) return num(dias) + ' d';
+  return num(dias/30, 1) + ' meses';
+}
+
+async function cargar(){
+  document.getElementById('cuerpo').innerHTML =
+    '<tr><td colspan="9" class="p-10 text-center text-ink/50"><span class="spin"></span> Leyendo movimientos de stock…</td></tr>';
+  try {
+    const r = await fetch('/api/insumos/listado');
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    data = j;
+    document.getElementById('meta').textContent =
+      `${j.productos.length} insumos · ventana ${j.ventanaMeses} meses · ` +
+      new Date(j.fechaCalculo).toLocaleString('es-AR');
+    render();
+  } catch (e) {
+    document.getElementById('cuerpo').innerHTML =
+      `<tr><td colspan="9" class="p-8 text-center text-rojo">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function filas(){
+  if (!data) return [];
+  const q = document.getElementById('buscar').value.trim().toLowerCase();
+  const soloConsumo = document.getElementById('soloConsumo').checked;
+  const soloStock = document.getElementById('soloStock').checked;
+  const soloPide = document.getElementById('soloPide').checked;
+  let out = data.productos.filter(f => {
+    if (filtroEstado && f.estado !== filtroEstado) return false;
+    if (soloPide && !f.pideCompra) return false;
+    if (soloConsumo && !(f.consumoMensual > 0)) return false;
+    if (soloStock && !(f.stock > 0)) return false;
+    // El PLU matchea por prefijo: tipear "18" busca el código 1809, no todo lo
+    // que tenga un 18 en el medio. El nombre sigue siendo por substring.
+    if (q && !(f.nombre.toLowerCase().includes(q) || String(f.plu).startsWith(q))) return false;
+    return true;
+  });
+  if (orden.col){
+    const c = orden.col;
+    out = [...out].sort((a,b) => {
+      const va = a[c], vb = b[c];
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;          // los vacíos siempre al final, ordene como ordene
+      if (vb == null) return -1;
+      const cmp = (typeof va === 'number' && typeof vb === 'number')
+        ? va - vb : String(va).localeCompare(String(vb));
+      return cmp * orden.dir;
+    });
+  }
+  return out;
+}
+
+function renderKpis(){
+  const t = data.totales;
+  const cards = [
+    { k:null, v:t.total, l:'Insumos activos' },
+    { k:'__pide', v:t.pideCompra || 0, l:'Piden compra' },
+    ...ORDEN_KPI.map(e => ({ k:e, v:t[e] || 0, l:ESTADO_META[e].txt })),
+  ];
+  const activa = c => c.k === '__pide'
+    ? document.getElementById('soloPide').checked
+    : (!!c.k && filtroEstado === c.k);
+  document.getElementById('kpis').innerHTML = cards.map(c => `
+    <button class="kpi ${activa(c) ? 'on' : ''}" data-estado="${c.k || ''}">
+      <div class="v">${num(c.v)}</div><div class="l">${c.l}</div>
+    </button>`).join('');
+  document.querySelectorAll('#kpis .kpi').forEach(b => b.onclick = () => {
+    const e = b.dataset.estado || null;
+    if (e === '__pide'){   // la tarjeta de compra maneja su propio filtro, no el de estado
+      const chk = document.getElementById('soloPide');
+      chk.checked = !chk.checked;
+      filtroEstado = null;
+    } else {
+      filtroEstado = (filtroEstado === e) ? null : e;
+    }
+    render();
+  });
+}
+
+function render(){
+  if (!data) return;
+  renderKpis();
+  const rows = filas();
+  document.getElementById('conteo').textContent =
+    `${rows.length} de ${data.productos.length}` + (filtroEstado ? ` · ${ESTADO_META[filtroEstado].txt}` : '');
+  const cuerpo = document.getElementById('cuerpo');
+  if (!rows.length){
+    cuerpo.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-ink/50">Nada que mostrar con estos filtros</td></tr>';
+    return;
+  }
+  cuerpo.innerHTML = rows.map(f => {
+    const em = ESTADO_META[f.estado] || ESTADO_META.SIN_CONSUMO;
+    const nivel = v => `<input type="number" min="0" step="any" value="${v == null ? '' : v}"
+      class="w-24 px-2 py-1 rounded border border-borde text-right" placeholder="—">`;
+    return `<tr class="border-t border-borde/60" data-plu="${f.plu}">
+      <td class="p-2 text-center text-ink/60">${f.plu}</td>
+      <td class="p-2 abrir cursor-pointer" title="Ver de dónde sale el consumo">
+        <span class="inline-block w-2 h-2 rounded-full align-middle mr-1"
+              style="background:${em.dot}" title="${em.txt}"></span>${esc(f.nombre)}</td>
+      <td class="p-2 text-right">${num(f.stock, 2)}</td>
+      <td class="p-2 text-right">${num(f.consumoMensual, 1)}</td>
+      <td class="p-2 text-right">${duracion(f.diasCobertura)}</td>
+      <td class="p-2 text-right" data-campo="min">${nivel(f.min)}</td>
+      <td class="p-2 text-right" data-campo="max">${nivel(f.max)}</td>
+      <td class="p-2 text-right font-medium bg-amarillo/10 ${f.pideCompra ? 'text-rojo' : 'text-ink/40'}">
+        ${f.aComprar > 0 ? num(f.aComprar, 2) : '—'}</td>
+    </tr>`;
+  }).join('');
+  cuerpo.querySelectorAll('tr[data-plu]').forEach(tr => {
+    tr.querySelector('.abrir').onclick = () => abrirDetalle(tr.dataset.plu);
+    tr.querySelectorAll('input').forEach(inp => { inp.onchange = () => guardarNivel(tr); });
+  });
+}
+
+// Guarda el par mínimo/máximo de una fila. Los dos vacíos borran el nivel.
+// Se recarga sólo esa fila del estado local: volver a pedir las 314 filas y sus
+// dos años de movimientos por tocar un número sería absurdo.
+async function guardarNivel(tr){
+  const plu = tr.dataset.plu;
+  const min = tr.querySelector('[data-campo="min"] input').value.trim();
+  const max = tr.querySelector('[data-campo="max"] input').value.trim();
+  try {
+    const r = await fetch('/api/insumos/niveles/' + encodeURIComponent(plu), {
+      method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ min, max }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    const fila = data.productos.find(f => f.plu === plu);
+    if (fila){
+      fila.min = j.nivel ? j.nivel.min : null;
+      fila.max = j.nivel ? j.nivel.max : null;
+      // Misma regla que el servidor: tocar el mínimo ya dispara la compra.
+      fila.aComprar = j.nivel && fila.stock <= j.nivel.min ? Math.max(j.nivel.max - fila.stock, 0) : 0;
+      fila.pideCompra = fila.aComprar > 0;
+      data.totales = recalcularTotales(data.productos);
+    }
+    render();
+  } catch (e) {
+    alertaNivel(tr, e.message);
+  }
+}
+
+// Recuenta lo que depende de los niveles sin volver al servidor.
+function recalcularTotales(filas){
+  const t = { ...data.totales, pideCompra:0, aComprar:0, conNiveles:0 };
+  for (const f of filas){
+    if (f.min != null) t.conNiveles++;
+    if (f.pideCompra){ t.pideCompra++; t.aComprar += Number(f.aComprar) || 0; }
+  }
+  t.aComprar = Math.round(t.aComprar * 100) / 100;
+  return t;
+}
+
+// El error del nivel se muestra en la fila, no en un alert que tape la tabla.
+function alertaNivel(tr, msg){
+  tr.querySelectorAll('input').forEach(i => i.classList.add('border-rojo'));
+  const celda = tr.querySelector('[data-campo="max"]');
+  let aviso = celda.querySelector('.aviso');
+  if (!aviso){ aviso = document.createElement('div'); aviso.className = 'aviso text-xs text-rojo mt-1'; celda.appendChild(aviso); }
+  aviso.textContent = msg;
+  setTimeout(() => {
+    tr.querySelectorAll('input').forEach(i => i.classList.remove('border-rojo'));
+    aviso.remove();
+  }, 4000);
+}
+
+// Barras de la serie mensual en SVG puro: son 24 valores, no hace falta una librería.
+function sparkline(serie){
+  const meses = Object.keys(serie || {}).sort();
+  if (!meses.length) return '<p class="text-ink/50">Sin salidas en la ventana.</p>';
+  const max = Math.max(...meses.map(m => serie[m]));
+  const w = 26, h = 90;
+  const barras = meses.map((m, i) => {
+    const alto = max > 0 ? Math.max(2, (serie[m] / max) * h) : 2;
+    return `<rect x="${i*w+4}" y="${h-alto}" width="${w-8}" height="${alto}" fill="#405936" rx="2">
+      <title>${m}: ${num(serie[m], 2)}</title></rect>`;
+  }).join('');
+  const etiquetas = meses.map((m, i) =>
+    (i % 3 === 0 || i === meses.length - 1)
+      ? `<text x="${i*w + w/2}" y="${h+12}" font-size="9" text-anchor="middle" fill="#5c5f52">${m.slice(2)}</text>` : ''
+  ).join('');
+  return `<svg viewBox="0 0 ${meses.length*w} ${h+16}" width="100%" height="120"
+    role="img" aria-label="Consumo mensual">${barras}${etiquetas}</svg>`;
+}
+
+async function abrirDetalle(plu){
+  const modal = document.getElementById('mDet');
+  modal.classList.remove('hidden'); modal.classList.add('flex');
+  document.getElementById('mDetTitulo').textContent = 'Insumo ' + plu;
+  const body = document.getElementById('mDetBody');
+  body.innerHTML = '<p class="text-ink/50 py-6 text-center"><span class="spin"></span> Cargando…</p>';
+  try {
+    const d = await (await fetch('/api/insumos/detalle/' + encodeURIComponent(plu))).json();
+    if (d.error) throw new Error(d.error);
+    document.getElementById('mDetTitulo').textContent = d.nombre;
+    const em = ESTADO_META[d.estado] || ESTADO_META.SIN_CONSUMO;
+    body.innerHTML = `
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        ${[['Stock central', num(d.stock,2)], ['Consumo/mes', num(d.consumoMensual,1)],
+           ['Duración', duracion(d.diasCobertura)], ['Consumo/día', num(d.muDiario,3)]]
+          .map(([l,v]) => `<div class="kpi" style="cursor:default"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('')}
+      </div>
+      <p class="mb-3"><span class="px-2 py-0.5 rounded-full text-xs ${em.cls}">${em.txt}</span>
+        <span class="text-ink/60 ml-2">${d.mesesConConsumo} de ${d.mesesVentana} meses con salidas ·
+        estacionalidad ×${num(d.estacional,2)} · desvío diario ${num(d.sigmaDiario,3)}</span></p>
+      <h4 class="font-disp text-lg text-verde mb-1">Consumo mes a mes</h4>
+      ${sparkline(d.serie)}
+      <h4 class="font-disp text-lg text-verde mt-4 mb-1">Por tipo de movimiento</h4>
+      <table class="w-full text-sm mb-4"><thead class="text-verde"><tr>
+        <th class="text-left p-1">Tipo</th><th class="p-1 text-right">Salidas</th>
+        <th class="p-1 text-right">Entradas</th><th class="p-1 text-center">¿Cuenta?</th></tr></thead>
+        <tbody>${d.porTipo.map(t => `<tr class="border-t border-borde/60">
+          <td class="p-1">${esc(t.tipo)}</td>
+          <td class="p-1 text-right">${num(t.salidas,2)}</td>
+          <td class="p-1 text-right text-ink/60">${num(t.entradas,2)}</td>
+          <td class="p-1 text-center">${t.esConsumo ? 'sí' : '<span class="text-ink/40">no</span>'}</td>
+        </tr>`).join('') || '<tr><td colspan="4" class="p-2 text-ink/50">Sin movimientos</td></tr>'}</tbody></table>
+      <h4 class="font-disp text-lg text-verde mb-1">Últimos movimientos</h4>
+      <table class="w-full text-sm"><thead class="text-verde"><tr>
+        <th class="text-left p-1">Fecha</th><th class="text-left p-1">Tipo</th>
+        <th class="p-1 text-right">Cantidad</th><th class="text-left p-1">Destino / observación</th>
+        <th class="text-left p-1">Usuario</th></tr></thead>
+        <tbody>${d.movimientos.map(m => `<tr class="border-t border-borde/60">
+          <td class="p-1 whitespace-nowrap">${esc(String(m.fecha || '').replace('T',' ').slice(0,16))}</td>
+          <td class="p-1">${esc(m.tipo)}</td>
+          <td class="p-1 text-right ${m.cantidad < 0 ? 'text-rojo' : 'text-ok'}">${num(m.cantidad,2)}</td>
+          <td class="p-1">${esc(m.observacion)}</td>
+          <td class="p-1 text-ink/60">${esc(m.usuario)}</td>
+        </tr>`).join('') || '<tr><td colspan="5" class="p-2 text-ink/50">Sin movimientos</td></tr>'}</tbody></table>`;
+  } catch (e) {
+    body.innerHTML = `<p class="text-rojo py-6 text-center">No se pudo cargar el detalle: ${esc(e.message)}</p>`;
+  }
+}
+
+function cerrarDetalle(){
+  const m = document.getElementById('mDet');
+  m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+function exportar(){
+  if (!data) return;
+  const rows = filas();
+  const aoa = [
+    ['APIDELTA — Control de insumos de Casa Central'],
+    [`Generado ${new Date().toLocaleString('es-AR')} · ventana ${data.ventanaMeses} meses`],
+    [],
+    ['Código','Insumo','Stock central','Consumo/mes','Días de duración','Mínimo','Máximo','A comprar','Estado'],
+    ...rows.map(f => [Number(f.plu) || f.plu, f.nombre, f.stock, f.consumoMensual, f.diasCobertura,
+                      f.min, f.max, f.aComprar || 0, (ESTADO_META[f.estado] || {}).txt || f.estado]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:9},{wch:46},{wch:13},{wch:12},{wch:16},{wch:10},{wch:10},{wch:12},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Insumos');
+  XLSX.writeFile(wb, `Apidelta_Insumos_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+document.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+  const c = th.dataset.col;
+  // Primer clic: alfabético asc en texto, mayor a menor en números. Segundo clic: al revés.
+  orden = { col:c, dir: orden.col === c ? -orden.dir : ((c === 'nombre' || c === 'estado') ? 1 : -1) };
+  render();
+});
+document.getElementById('buscar').addEventListener('input', render);
+document.getElementById('soloPide').addEventListener('change', render);
+document.getElementById('soloConsumo').addEventListener('change', render);
+document.getElementById('soloStock').addEventListener('change', render);
+document.getElementById('btnRecargar').onclick = cargar;
+document.getElementById('btnXlsx').onclick = exportar;
+document.getElementById('mDetX').onclick = cerrarDetalle;
+document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet') cerrarDetalle(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarDetalle(); });
+
+cargar();
+</script>
+</body>
+</html>

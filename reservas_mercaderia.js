@@ -130,6 +130,11 @@ function nuevaReserva(d) {
     lineas: d.lineas || [],
     pluPedido: texto(d.pluPedido) || null,
     nombrePedido: texto(d.nombrePedido) || null,
+    // Solo para pesables: el bulto pedido y cuantas unidades de "X Pedido" quedan
+    // comprometidas. La Fase 2 los usa para descontar el intermedio; en venta directa quedan null.
+    pluCarga: texto(d.pluCarga) || null,
+    nombreCarga: texto(d.nombreCarga) || null,
+    unidadesPedidas: d.unidadesPedidas == null ? null : Number(d.unidadesPedidas) || 0,
     totales: totalesReserva(d.lineas),
     anulacion: null,
   };

@@ -336,6 +336,108 @@ function sanearSellosReserva(plan, vivos, conocidos) {
   return { ...plan, items: items.map(it => huerfano(it) ? { ...it, reservaMovimiento: null } : it) };
 }
 
+// Unidades pendientes de dar de alta, por PLU, con EXACTAMENTE la misma condición que usa el
+// loop de terminados de lineasProduccionDesdeConciliacion (no excluido, no ya registrado,
+// cantidad positiva, PLU resoluble). Vive acá para que la imputación de la entrega mayorista y
+// el comprobante cuenten los mismos productos: si una de las dos contara uno de más, el asiento
+// diría una cosa y el stock movido otra, y el desfasaje no se corrige nunca.
+// Función pura.
+function terminadosPorPluDeConciliacion(productos) {
+  const mapa = new Map();
+  for (const p of (productos || [])) {
+    if (!p || p.excluido || p.yaRegistrado) continue;
+    const cantidad = redondear4(p.cantidad);
+    if (!(cantidad > 0) || !p.plu) continue;
+    const plu = String(p.plu);
+    mapa.set(plu, redondear4((mapa.get(plu) || 0) + cantidad));
+  }
+  return mapa;
+}
+
+// Líneas del comprobante de producción a partir de la conciliación. Cada línea lleva su
+// signo y su depósito:
+//   · terminados     → +cantidad en el depósito de RECEPCIÓN (los excluidos no se dan de alta)
+//   · consumo        → −usado contra lo que había reservado (depósito de reserva, que es donde
+//                      la mercadería está físicamente) y, para lo que NO tenía reserva, contra
+//                      el depósito de SALIDA.
+// Lo que se desvía de lo reservado (excedente y sobrante) NO sale por acá: va en su propio
+// comprobante de ajuste por diferencias (ver lineasDiferenciasProduccion), para poder
+// identificarlo en SiGA por la observación.
+// Los componentes sin PLU resoluble no se pueden mover y salen aparte en `sinPlu`.
+// Función pura: no toca SQL ni archivos.
+function lineasProduccionDesdeConciliacion(c, deps, opts) {
+  // incluirReserva:false arma sólo el comprobante "resto" (terminados + consumo que salió de
+  // FUERA de la reserva). El consumo contra la reserva y el sobrante se registran aparte, un
+  // comprobante por movimiento de reserva (ver lineasAjusteMovimiento). Default true = comportamiento viejo.
+  const incluirReserva = !opts || opts.incluirReserva !== false;
+  // Copia propia: el reservado por terminado se GASTA fila por fila (un mismo PLU puede llegar
+  // en dos filas de producto) y el mapa del llamador no se toca.
+  const dispTerm = new Map((opts && opts.reservadoPorTerminado) || []);
+  const lineas = [], sinPlu = [];
+  let terminados = 0, componentes = 0, ajustes = 0;
+
+  for (const p of (c.productos || [])) {
+    // Excluidos no se dan de alta; los ya registrados tampoco (no se vuelven a mover). Los
+    // parciales llegan con `cantidad` = sólo lo pendiente, así que se registran normal.
+    if (p.excluido || p.yaRegistrado) continue;
+    const cantidad = redondear4(p.cantidad);
+    if (!(cantidad > 0)) continue;
+    if (!p.plu) { sinPlu.push({ tipo: 'producto', nombre: p.nombre || p.pluTexto || 'sin nombre', cantidad }); continue; }
+    // Lo que cubre una reserva mayorista viva entra al deposito de RESERVA: es de ahi que la
+    // factura del mayorista lo va a descontar. `reservadoPorTerminado` ya viene NETO de lo que
+    // los asientos anteriores metieron (imputarEntregaMayorista), asi que la produccion
+    // cargada en lotes no lo mete dos veces. Sin reserva viva, todo va a recepcion como siempre.
+    // Se DESCUENTA al usarlo: productosDeConciliacion agrupa por `${pluTexto}|${excluido}|${manual}`,
+    // asi que el mismo PLU puede llegar en dos filas y releer el mapa en cada una metia al
+    // deposito de reserva el doble de lo apartado.
+    const plu = String(p.plu);
+    const reservadoTerm = redondear4(Math.min(cantidad, dispTerm.get(plu) || 0));
+    if (reservadoTerm > 0) dispTerm.set(plu, redondear4((dispTerm.get(plu) || 0) - reservadoTerm));
+    const aRecepcion = redondear4(cantidad - reservadoTerm);
+    if (reservadoTerm > 0) {
+      lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.reserva,
+                    cantidad: reservadoTerm, concepto: 'terminado-reserva' });
+      terminados++;
+    }
+    if (aRecepcion > 0) {
+      lineas.push({ idProducto: String(p.plu), nombre: p.nombre || '', idDeposito: deps.recepcion,
+                    cantidad: aRecepcion, concepto: 'terminado' });
+      terminados++;
+    }
+  }
+
+  for (const comp of (c.componentes || [])) {
+    const usado = redondear4(comp.usado), reservado = redondear4(comp.reservado);
+    if (!(usado > 0) && !(reservado > 0)) continue;
+    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
+    const base        = { idProducto: String(comp.plu), nombre: comp.nombre || '' };
+    const deReserva = redondear4(Math.min(usado, reservado));        // consumido contra lo apartado
+    const excedente = redondear4(Math.max(0, usado - reservado));    // usado de más respecto de lo reservado
+    const sobrante  = redondear4(Math.max(0, reservado - usado));    // apartado de más
+    // Sin nada reservado no hay diferencia: todo el consumo es común y sale del depósito de
+    // salida. Con reserva detrás, el desvío (excedente/sobrante) se registra en el comprobante
+    // de ajuste por diferencias, no acá.
+    const deSalida  = reservado > 0 ? 0 : excedente;
+
+    if (incluirReserva && deReserva > 0) { lineas.push({ ...base, idDeposito: deps.reserva, cantidad: -deReserva, concepto: 'consumo-reserva' }); componentes++; }
+    if (deSalida  > 0) { lineas.push({ ...base, idDeposito: deps.salida,  cantidad: -deSalida,  concepto: 'consumo-salida'  }); componentes++; }
+    if (incluirReserva && (sobrante > 0 || (reservado > 0 && excedente > 0))) ajustes++;
+  }
+
+  // Carga manual: sin reserva detrás, el circuito entero ocurre en el depósito de RECEPCIÓN —
+  // ahí se descuentan los componentes y ahí mismo entra el terminado, igual que si se armara
+  // en el mostrador. Nunca toca el de reserva ni el de salida, y no depende de esos combos.
+  // Va siempre en el comprobante de producción, con reserva o sin ella.
+  for (const comp of (c.componentesManual || [])) {
+    const usado = redondear4(comp.usado);
+    if (!(usado > 0)) continue;
+    if (!comp.plu) { sinPlu.push({ tipo: 'componente', nombre: comp.nombre || 'sin nombre', cantidad: usado }); continue; }
+    lineas.push({ idProducto: String(comp.plu), nombre: comp.nombre || '', idDeposito: deps.recepcion, cantidad: -usado, concepto: 'consumo-manual' });
+    componentes++;
+  }
+  return { lineas, sinPlu, resumen: { terminados, componentes, ajustes } };
+}
+
 module.exports = {
   ordenesDeMovimiento,
   migrarReservas,
@@ -346,6 +448,8 @@ module.exports = {
   depositosProduccion,
   lineasAjusteMovimiento,
   lineasDiferenciasProduccion,
+  lineasProduccionDesdeConciliacion,
+  terminadosPorPluDeConciliacion,
   ordenesProducidasDeReserva,
   motivoBloqueoProduccion,
   sanearSellosReserva,
