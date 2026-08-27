@@ -576,7 +576,8 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         <span class="text-[10px] font-normal text-olive">Carrito armado a mano</span>
       </span>
     </button>
-    <!-- Reservas deshabilitadas a pedido: la tab queda oculta (RESERVAS_HABILITADAS en el script). -->
+    <!-- Arranca oculta y la muestra RESERVAS_HABILITADAS desde el script: así no parpadea la tab
+         mientras carga la página si el módulo está apagado. No sacar el hidden de acá a mano. -->
     <button id="tab-reservas" hidden style="display:none" onclick="switchTab('reservas')"
       class="tab flex-1 sm:flex-none sm:min-w-[200px] px-5 py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all">
       <i data-lucide="lock" class="w-5 h-5"></i>
@@ -762,6 +763,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     <div class="flex gap-1 mt-3">
       <button id="subtab-res-carrito" class="btn btn-tonal btn-sm" onclick="switchSubRes('carrito')">Carrito</button>
       <button id="subtab-res-generadas" class="btn btn-ghost btn-sm" onclick="switchSubRes('generadas')">Reservas generadas</button>
+      <button id="subtab-res-saldos" class="btn btn-ghost btn-sm" onclick="switchSubRes('saldos')">Saldos del dep&oacute;sito</button>
     </div>
   </div>
 
@@ -793,6 +795,17 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         <p class="text-xs text-olive leading-tight">Mercader&iacute;a apartada en SiGA, con su comprobante.</p>
       </div>
       <div class="tbl-wrap" id="tabla-res-generadas"><div class="state state-loading">Cargando&hellip;</div></div>
+    </div>
+  </div>
+
+  <div class="main" style="padding-top:8px;display:none" id="sub-res-saldos">
+    <div class="card">
+      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+        <h3 class="font-semibold text-sm text-ink leading-tight">Saldos del dep&oacute;sito de reserva</h3>
+        <p class="text-xs text-olive leading-tight">Por PRODUCTO, no por reserva: el dep&oacute;sito es uno solo y mezcla clientes.
+          El granel se compara contra lo que queda apartado; el producto de pedido, contra lo que el cliente puede retirar.</p>
+      </div>
+      <div class="tbl-wrap" id="tabla-res-saldos"><div class="state state-loading">Cargando&hellip;</div></div>
     </div>
   </div>
 
@@ -909,8 +922,11 @@ function snack(msg, isErr){
 function snackHide(){$('snackbar').classList.remove('show')}
 
 // ── API ───────────────────────────────────────────────────────────────────────
-function api(url){
-  return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:e.message};});
+// `opts` es opcional: sin él se comporta igual que siempre (un GET). Con él sirve también para
+// los POST, que antes tenían que armar su propio fetch y repetir el catch que traduce el error
+// de red a {error} — que es la forma que todos los callers esperan.
+function api(url, opts){
+  return fetch(url, opts).then(function(r){return r.json();}).catch(function(e){return {error:e.message};});
 }
 
 // ── Multi-select clientes ─────────────────────────────────────────────────────
@@ -1088,9 +1104,21 @@ function msLocLabel(){
 var msEst = [];   // [{nombre, checked}]
 var EST_DEFAULT = ['PENDIENTE','EN PROCESO','RESERVAR'];
 
-// Reservas de mercadería apagadas: sin tab, sin botón "+ Reservar" en el resumen y sin columna
-// para él. Todo el código del módulo sigue en su lugar: poner true lo devuelve como estaba.
-var RESERVAS_HABILITADAS = false;
+// Interruptor del módulo de reservas de mercadería: la tab, el botón "+ Reservar" del resumen y
+// su columna. En false no se renderiza nada de eso y el código queda inerte.
+var RESERVAS_HABILITADAS = true;
+
+// El botón de la tab viene oculto desde el markup (`hidden` + `display:none`), así que el flag
+// tiene que quitarle los dos: sin esto quedaba en true pero la tab seguía invisible y no había
+// forma de entrar a la pantalla. Se aplica acá, junto a la declaración, para que el flag sea la
+// única fuente de verdad — volverlo a false vuelve a esconder todo sin tocar el markup.
+// El <button> está más arriba en el documento, así que ya existe cuando corre este script.
+(function(){
+  var tab = document.getElementById('tab-reservas');
+  if(!tab) return;
+  tab.hidden = !RESERVAS_HABILITADAS;
+  tab.style.display = RESERVAS_HABILITADAS ? '' : 'none';
+})();
 
 function cargarEstados(savedEstados){
   return api('/api/estados').then(function(data){
@@ -2264,10 +2292,13 @@ function switchSubRes(sub){
   subResActiva = sub;
   $('sub-res-carrito').style.display   = sub==='carrito'   ? '' : 'none';
   $('sub-res-generadas').style.display = sub==='generadas' ? '' : 'none';
+  $('sub-res-saldos').style.display    = sub==='saldos'    ? '' : 'none';
   $('subtab-res-carrito').className   = 'btn btn-sm ' + (sub==='carrito'   ? 'btn-tonal' : 'btn-ghost');
   $('subtab-res-generadas').className = 'btn btn-sm ' + (sub==='generadas' ? 'btn-tonal' : 'btn-ghost');
+  $('subtab-res-saldos').className    = 'btn btn-sm ' + (sub==='saldos'    ? 'btn-tonal' : 'btn-ghost');
   actualizarBarraRes();
   if(sub==='generadas') cargarReservasGeneradas();
+  if(sub==='saldos')    cargarSaldosReserva();
 }
 
 // Agrega un producto al carrito, para el cliente que venga. Un segundo toque sobre el mismo
@@ -2341,12 +2372,26 @@ function gruposCarritoRes(){
   return orden.map(function(k){ return mapa[k]; });
 }
 
+// Un carrito puede mezclar líneas de venta directa (que se miden en unidades) con pesables (que
+// se miden en kg). Sumar las dos bajo una sola etiqueta da un número que no significa nada, así
+// que se cuentan por separado y sólo se muestra la magnitud que existe.
+function medidaCarritoRes(lineas){
+  var u = 0, kg = 0;
+  lineas.forEach(function(l){
+    var c = Number(l.cantidad) || 0;
+    if(l.esPesable) kg += c; else u += c;
+  });
+  var partes = [];
+  if(u)  partes.push(numFmt.format(u) + ' u.');
+  if(kg) partes.push(numFmt.format(kg) + ' kg');
+  return partes.length ? partes.join(' · ') : '0 u.';
+}
+
 function actualizarBarraRes(){
-  var unidades = carritoRes.reduce(function(a, l){ return a + (Number(l.cantidad)||0); }, 0);
   var clientes = gruposCarritoRes().length;
   $('res-resumen').textContent = clientes + ' cliente' + (clientes!==1 ? 's' : '')
     + ' · ' + carritoRes.length + ' línea' + (carritoRes.length!==1 ? 's' : '')
-    + ' · ' + numFmt.format(unidades) + ' unidades';
+    + ' · ' + medidaCarritoRes(carritoRes);
   $('res-bar').style.display = (carritoRes.length && tabActiva==='reservas' && subResActiva==='carrito') ? '' : 'none';
 }
 
@@ -2363,7 +2408,7 @@ function renderCarritoRes(){
   }
   var att = function(v){ return escHtml(String(v==null?'':v)).replace(/'/g,'&#39;'); };
   $('tabla-res-carrito').innerHTML = grupos.map(function(g){
-    var unidades = g.items.reduce(function(a, it){ return a + (Number(it.linea.cantidad)||0); }, 0);
+    var medida = medidaCarritoRes(g.items.map(function(it){ return it.linea; }));
     var filas = g.items.map(function(it){
       var l = it.linea;
       // Debajo del producto del pedido, qué se aparta realmente. Cuando son distintos (los
@@ -2392,7 +2437,7 @@ function renderCarritoRes(){
       +'<span class="res-client-name">'+escHtml(g.nombre)+'</span>'
       +'<span style="display:flex;align-items:center;gap:8px">'
       +'<span class="res-badge">'+g.items.length+' producto'+(g.items.length!==1?'s':'')
-        +' · '+numFmt.format(unidades)+' u.</span>'
+        +' · '+medida+'</span>'
       +'<button type="button" class="btn btn-filled btn-sm" data-act="reservar-cli"'
         +' data-idcli="'+att(g.idCliente)+'">🔒 Reservar</button>'
       +'<button type="button" class="btn btn-ghost btn-sm" data-act="vaciar-cli"'
@@ -2583,6 +2628,90 @@ function confirmarReservaMay(){
 }
 
 // ── Reservas generadas ────────────────────────────────────────────────────────
+// ── Saldos del depósito de reserva ────────────────────────────────────────────
+// Son por PRODUCTO, no por reserva: el depósito es uno solo y mezcla clientes, así que un saldo
+// "por reserva" sería un registro paralelo imposible de cuadrar contra facturaciones hechas
+// fuera del sistema. Las reservas vivas de cada producto se listan sólo como referencia.
+//
+// La REGLA de qué ajuste corresponde la decide el backend (ajustePropuesto, en el módulo puro);
+// acá sólo se renderiza. Duplicarla en la pantalla es como se desincronizan las dos.
+
+// Los cuatro tipos que emite ajustePropuesto. El verbo sale del sentido, no del tipo: dos de
+// ellos reponen y dos devuelven, y etiquetar por tipo hacía que `reponer-granel` dijera
+// "Devolver" y mandara al operador a mover stock en la dirección contraria.
+var AJUSTE_TXT = {
+  'devolver-granel': { verbo: 'Devolver', detalle: 'del depósito de reserva al principal' },
+  'devolver-pedido': { verbo: 'Devolver', detalle: 'del depósito de reserva al principal' },
+  'reponer-granel':  { verbo: 'Reponer',  detalle: 'del depósito principal al de reserva' },
+  'reponer-pedido':  { verbo: 'Reponer',  detalle: 'del depósito principal al de reserva' }
+};
+
+function cargarSaldosReserva(){
+  $('tabla-res-saldos').innerHTML = '<div class="state state-loading">Cargando…</div>';
+  return api('/api/mayoristas/reservas/saldos').then(function(d){
+    if(!d || d.error){
+      $('tabla-res-saldos').innerHTML = '<div class="state state-err">⚠ '+escHtml((d&&d.error)||'Error')+'</div>';
+      return;
+    }
+    if(!d.productos || !d.productos.length){
+      $('tabla-res-saldos').innerHTML = '<div class="state state-empty">El depósito de reserva está en cero: '
+        +'no hay nada apartado ni nada que ajustar.</div>';
+      return;
+    }
+    var att = function(v){ return escHtml(String(v==null?'':v)).replace(/'/g,'&#39;'); };
+    $('tabla-res-saldos').innerHTML =
+      '<table><thead><tr><th>Producto</th><th class="num">En depósito</th>'
+      +'<th class="num">Comprometido</th><th class="num">Diferencia</th><th>Clientes</th><th class="num">Ajuste</th></tr></thead><tbody>'
+      + d.productos.map(function(p){
+          var t = p.ajuste ? AJUSTE_TXT[p.ajuste.tipo] : null;
+          var btn = !p.ajuste ? '<span style="font-size:.68rem;color:#9a9a92">en cero</span>' :
+            '<button type="button" class="btn btn-tonal btn-sm" data-act="ajuste"'
+            +' data-plu="'+att(p.ajuste.plu)+'"'
+            +' data-tipo="'+att(p.ajuste.tipo)+'"'
+            +' data-cant="'+att(p.ajuste.cantidad)+'"'
+            +' data-nombre="'+att(p.nombre||p.plu)+'">'
+            +escHtml((t?t.verbo:'Ajustar'))+' '+numFmt.format(p.ajuste.cantidad)+'</button>';
+          // La diferencia se colorea por signo: sobra (verde) o falta (rojo). Es lo primero que
+          // el operador mira para decidir si tiene que hacer algo.
+          var col = p.diferencia > 0 ? '#1b7f4f' : (p.diferencia < 0 ? '#b3261e' : '#9a9a92');
+          return '<tr><td><strong>'+escHtml(p.nombre||('PLU '+p.plu))+'</strong>'
+            +'<div style="font-size:.68rem;color:#9a9a92">PLU '+escHtml(p.plu)
+            +(p.esGranel?' · granel (kg)':' · producto de pedido (u.)')+'</div></td>'
+            +'<td class="num">'+numFmt.format(p.saldo)+'</td>'
+            +'<td class="num">'+numFmt.format(p.comprometido)+'</td>'
+            +'<td class="num" style="color:'+col+';font-weight:600">'
+              +(p.diferencia > 0 ? '+' : '')+numFmt.format(p.diferencia)+'</td>'
+            +'<td style="font-size:.72rem">'+escHtml(p.reservas.map(function(r){return r.cliente || ('#'+r.id);}).join(', '))+'</td>'
+            +'<td class="num">'+btn+'</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  });
+}
+
+// Un click = un movimiento de stock real en SiGA, así que el confirm dice exactamente qué se va
+// a mover y en qué dirección: "¿Emitir el ajuste?" a secas no alcanza para decidir.
+document.addEventListener('click', function(ev){
+  // Listener global (la tabla se re-renderiza entera en cada recarga), acotado al panel de
+  // saldos: sin el `contains` un data-act="ajuste" de cualquier otra pantalla caería acá.
+  var b = ev.target && ev.target.closest ? ev.target.closest('button[data-act="ajuste"]') : null;
+  var panel = $('sub-res-saldos');
+  if(!b || !panel || !panel.contains(b)) return;
+  var tipo = b.getAttribute('data-tipo');
+  var cant = Number(b.getAttribute('data-cant'));
+  var t = AJUSTE_TXT[tipo] || { verbo:'Ajustar', detalle:'' };
+  if(!confirm(t.verbo+' '+numFmt.format(cant)+' de "'+b.getAttribute('data-nombre')+'" '+t.detalle+'.\n\n'
+             +'Emite un movimiento en SiGA. ¿Confirmás?')) return;
+  b.disabled = true;
+  api('/api/mayoristas/reservas/ajuste', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ plu: b.getAttribute('data-plu'), tipo: tipo, cantidad: cant })
+  }).then(function(d){
+    if(!d || d.error){ snack('Error: '+((d&&d.error)||'sin respuesta'), true); b.disabled = false; return; }
+    snack('Ajuste emitido · movimiento #'+d.numeroMovimiento);
+    cargarSaldosReserva();
+  });
+});
+
 function cargarReservasGeneradas(){
   $('tabla-res-generadas').innerHTML = '<div class="state state-loading">Cargando…</div>';
   return api('/api/mayoristas/reservas').then(function(data){
@@ -3087,15 +3216,44 @@ function renderResumen(data){
       var nombreRes = comp ? comp : p.NombreProducto;
       // Pesable: el bulto llega al granel por el intermedio "X Pedido", que no tiene stock
       // propio. Lo que se aparta es el granel, en kg. `GranelPlu` lo resuelve /api/resumen.
-      var esPesable = !!p.GranelPlu && String(p.GranelPlu) !== String(p.IdComponente);
+      // El producto de carga es el intermedio "X Pedido". Sale de CargaPlu, que /api/resumen
+      // resuelve con la fórmula; IdComponente es el fallback histórico y sólo cubre los
+      // Bulto/Caja (su CTE filtra por ese rubro y se saltea los pesables de venta directa).
+      var pluCarga = String(p.CargaPlu || p.IdComponente || '');
+      var nombreCarga = p.CargaPlu ? String(p.CargaNombre || '') : (comp || '');
+      // Hay productos que NO se descomponen: tienen stock propio y se reservan por su mismo
+      // código, sin mirar la fórmula. Son dos casos:
+      //  · rubro "Almacen" a secas — producto terminado. Se compara el nombre EXACTO porque
+      //    "Almacen Bultos/Cajas" es otro rubro y ése sí se reserva por su componente.
+      //  · más de un granel en la fórmula: es una receta (7477 "G. Crunch" tiene 17), y apartar
+      //    el ingrediente más pesado —lo que elegía bomGranelPorPlu— reservaba avena por una
+      //    granola en vez del producto que el cliente pidió.
+      var rubroTxt = String(p.NombreRubro || '').trim().toUpperCase();
+      var stockPropio = rubroTxt === 'ALMACEN' || Number(p.GranelCount || 1) > 1;
+      // Un pesable necesita los TRES: pedido, carga y granel. Sin la carga no se puede armar el
+      // trío y el POST de reserva lo rechaza con 400 — antes se marcaba pesable igual, mirando
+      // sólo el granel, y el operador se comía el error recién al confirmar.
+      var esPesable = !stockPropio && !!p.GranelPlu && !!pluCarga && String(p.GranelPlu) !== pluCarga;
       var kgPorUnidad = Number(p.KgPorUnidad) || 0;
       // Un pesable cuyo granel no resolvio: el componente de un nivel es el intermedio
       // "X Pedido", que no tiene stock propio. Reservarlo emitiria un movimiento que SiGA deja
       // en rojo. Se trata igual que el Bulto/Caja sin formula: boton inerte y motivo a la vista.
       var pesableSinGranel = !p.GranelPlu && /PEDIDO/i.test(comp || '');
+      // OJO: "tiene granel pero no intermedio" NO es un caso roto. Son los fraccionados
+      // ("Trigo Sarraceno 1Kg" y compañía): su fórmula baja a granel porque de ahí se fraccionan,
+      // pero se venden como producto terminado y tienen stock propio. Van por venta directa —que
+      // es como se reservaban antes de existir el circuito pesable— y por eso alcanza con que
+      // `esPesable` exija la carga. Los que sí quedan sin nada que apartar (Bulto/Caja sin
+      // componente) los sigue agarrando la primera condición de `sinFormula`.
       // Bulto/Caja sin componente: no hay stock que apartar (el SQL le da 0). Se avisa y no
       // se deja agregar, en vez de mandar un movimiento que SiGA va a rechazar o dejar en rojo.
       var sinFormula = (!comp && /BULTO|CAJA/i.test(p.NombreRubro || '')) || pesableSinGranel;
+      // El motivo viaja aparte del flag: los dos casos se ven igual (botón inerte) pero se
+      // arreglan distinto, y "Sin fórmula" a secas es engañoso en el del pesable, que SÍ tiene
+      // fórmula — lo que le falta es el granel al final de la cadena.
+      var motivoInerte = !sinFormula ? ''
+        : pesableSinGranel ? 'El componente es el intermedio "… PEDIDOS", que no tiene stock propio, y la fórmula no baja a un granel.'
+        : 'No tiene componente de fórmula con stock propio: no hay nada que apartar.';
       var btnRes = !RESERVAS_HABILITADAS ? '' : '<button type="button" class="res-add" data-act="add-res"'
         +' data-plu="'+att(p.IdProducto)+'"'
         +' data-nombre="'+att(p.NombreProducto)+'"'
@@ -3105,11 +3263,12 @@ function renderResumen(data){
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
         +' data-sinformula="'+(sinFormula ? '1' : '')+'"'
+        +' data-motivo="'+att(motivoInerte)+'"'
         +' data-pesable="'+(esPesable ? '1' : '')+'"'
         +' data-plugranel="'+att(p.GranelPlu||'')+'"'
         +' data-nombregranel="'+att(p.GranelNombre||'')+'"'
-        +' data-plucarga="'+att(p.IdComponente||'')+'"'
-        +' data-nombrecarga="'+att(comp||'')+'"'
+        +' data-plucarga="'+att(pluCarga)+'"'
+        +' data-nombrecarga="'+att(nombreCarga)+'"'
         +' data-kgunidad="'+att(kgPorUnidad)+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Reservar</button>';
       return '<tr'+rowCls(sc, p.TotalUnidades, mult)+'>'
@@ -3169,8 +3328,9 @@ function marcarAgregadosResumen(){
     b.classList.toggle('res-add-on', enCarrito && !sinFormula);
     b.disabled = sinFormula;
     if(sinFormula){
-      b.textContent = 'Sin fórmula';
-      b.title = 'No tiene componente de formula con stock propio: no hay nada que apartar.';
+      b.textContent = 'No reservable';
+      b.title = b.getAttribute('data-motivo')
+        || 'No tiene componente de fórmula con stock propio: no hay nada que apartar.';
     } else {
       b.textContent = enCarrito ? '✓ En la reserva' : '+ Reservar';
       b.title = '';

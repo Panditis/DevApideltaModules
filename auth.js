@@ -39,6 +39,7 @@ const CATALOGO_MODULOS = [
   // siga pasando por el control de acceso.
   { ref: 'compras',             titulo: 'Compras',                  icon: 'shopping-cart',  href: '/compras',            rutasHtml: ['/compras', '/compras-modulo'], apiPrefijos: ['/api/compras', '/api/compras-modulo'], defaultRequiereAuth: true },
   { ref: 'consumo',             titulo: 'Compras Carlos',           icon: 'truck',          href: '/consumo',            rutasHtml: ['/consumo'],            apiPrefijos: ['/api/consumo', '/api/pendientes'], defaultRequiereAuth: true },
+  { ref: 'insumos',             titulo: 'Control de Insumos',       icon: 'boxes',          href: '/insumos',            rutasHtml: ['/insumos'],            apiPrefijos: ['/api/insumos'],                   defaultRequiereAuth: true },
   { ref: 'distribucion',        titulo: 'Distribución y Fraccionado', icon: 'package',      href: '/distribucion',       rutasHtml: ['/distribucion'],       apiPrefijos: [],                                  defaultRequiereAuth: true },
   { ref: 'ventas-hora',         titulo: 'Ventas por Hora',          icon: 'clock',          href: '/ventas-hora',        rutasHtml: ['/ventas-hora'],        apiPrefijos: ['/api/ventas-hora'],               defaultRequiereAuth: true },
   { ref: 'precios-proveedores', titulo: 'Precios de Proveedores',   icon: 'tags',           href: '/precios-proveedores', rutasHtml: ['/precios-proveedores'], apiPrefijos: ['/api/precios-proveedores'],     defaultRequiereAuth: true },
@@ -248,6 +249,18 @@ function setPassword(id, password) {
   return actualizarUsuario(id, { password });
 }
 
+// Cambio de contraseña que hace el propio usuario desde el hub: exige la actual
+// (no alcanza con tener la sesión abierta) y valida la nueva con la misma regla
+// que el alta. Devuelve true o tira Error con el mensaje que ve el usuario.
+function cambiarPasswordPropia(usuario, actual, nueva) {
+  const u = autenticar(usuario, actual); // valida usuario activo + contraseña actual
+  if (!u) throw new Error('La contraseña actual no es correcta.');
+  validarPassword(nueva);
+  if (String(actual) === String(nueva)) throw new Error('La nueva contraseña debe ser distinta de la actual.');
+  setPassword(u.id, nueva);
+  return true;
+}
+
 function eliminarUsuario(id) {
   const lista = leerUsuarios();
   const idx = lista.findIndex(u => Number(u.id) === Number(id));
@@ -304,6 +317,7 @@ module.exports = {
   crearUsuario,
   actualizarUsuario,
   setPassword,
+  cambiarPasswordPropia,
   eliminarUsuario,
   seedAdminSiVacio,
 };

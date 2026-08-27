@@ -17,6 +17,7 @@ const XLSX     = require('xlsx');
 const auth     = require('./auth');
 const { calcularAlmacen, pisoMinimo } = require('./distribucion');
 const comprasModulo = require('./compras_modulo');
+const insumos = require('./insumos');
 const prediccionConsumo = require('./prediccion_consumo');
 const preciosProv = require('./precios_proveedores');
 const preciosHistorico = require('./precios_historico');
@@ -39,13 +40,14 @@ const historialSala = require('./historial_sala');
 const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const rrhhRopa = require('./rrhh_ropa');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, terminadosPorPluDeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu,
         partirConsumoMayorista, granelReservadoNeto, restanteMayoristaPorReserva,
-        imputarConsumoMayorista, lineasADevolverMayorista, restantePedidoPorReserva,
-        agruparRestante } = require('./reservas_pesables');
+        lineasADevolverMayorista, restantePedidoPorReserva, agruparRestante,
+        basesEntregaMayorista, imputarEntregaMayorista,
+        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('./reservas_pesables');
 const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -538,6 +540,32 @@ GROUP BY pc.IdProducto, pc2.IdProductoComponente, p.NombreProducto, p.IdRubro`;
 }
 function sqlBOM(rubros) {
   return sqlBOMGranel(rubros);
+}
+
+// El intermedio "X Pedido" de un pesable: el componente de rubro PRODUCCION que baja al granel.
+// Es el `pluCarga` del trío pedido→carga→granel.
+//
+// NO sale de ComponentePrimario: ese CTE exige que el rubro del PADRE sea BULTO o CAJA, y un
+// pesable de venta directa (rubro "Pesables Venta Directa", ej. "Azucar Impalpable 5Kg") no
+// entra. Como el granel sí resolvía por otro camino, el front marcaba la línea como pesable con
+// el producto de carga en blanco y el POST de reserva la rechazaba con 400.
+//
+// Se resuelve acá y no dentro de sqlBOMGranel a propósito: la rama de dos niveles de esa query
+// AGRUPA Y SUMA los caminos que llegan al mismo granel (ver su comentario), así que meter el
+// intermedio en su GROUP BY partiría esa suma y cambiaría los kg por unidad.
+// Devuelve también el granel al que baja, para poder quedarse sólo con el intermedio que lleva
+// al granel que efectivamente se eligió.
+function sqlIntermedioGranel(filtroPadre = '') {
+  return `SELECT CAST(pc.IdProducto AS VARCHAR)            AS IdProducto,
+       CAST(pc.IdProductoComponente AS VARCHAR)            AS IdIntermedio,
+       p.NombreProducto                                    AS NombreIntermedio,
+       CAST(pc2.IdProductoComponente AS VARCHAR)           AS IdGranel
+FROM ProductosComponentes pc
+INNER JOIN Productos p    ON p.IdProducto = pc.IdProductoComponente
+LEFT  JOIN Rubros    rInt ON rInt.IdRubro = p.IdRubro
+INNER JOIN ProductosComponentes pc2 ON pc2.IdProducto = pc.IdProductoComponente
+WHERE ${RUBRO_INTERMEDIO_SQL} AND ${FORMULA_ACTIVA_SQL} AND ${formulaActivaPara('pc2')}
+  AND ${SIN_FORMULA_GENERICO_SQL}${filtroPadre}`;
 }
 
 // ── Dashboard de compras: consumo por ventas (presentaciones) vs producción (componente) ──
@@ -1124,6 +1152,7 @@ app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'plan
 app.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'productividad.html')));
 app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
+app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insumos.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
 app.get('/compras-modulo', (_req, res) => res.redirect(301, '/compras'));
 // Análisis de ventas: una sola página con pestañas (Sucursales / Casa Central). Las dos
@@ -1180,6 +1209,18 @@ app.post('/api/login', (req, res) => {
 app.post('/api/logout', (req, res) => {
   if (req.session) return req.session.destroy(() => res.json({ ok: true }));
   res.json({ ok: true });
+});
+// Cambio de contraseña propio: cualquier usuario logueado, sin pasar por el
+// Centro de control. La ruta no pertenece a ningún módulo, así que el guard
+// general la deja pasar: el chequeo de sesión va acá.
+app.post('/api/password', (req, res) => {
+  const user = req.session && req.session.user;
+  if (!user) return res.status(401).json({ error: 'No autenticado' });
+  const { actual, nueva } = req.body || {};
+  try {
+    auth.cambiarPasswordPropia(user.usuario, actual, nueva);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get('/api/session', (req, res) => {
   res.json({ user: (req.session && req.session.user) || null });
@@ -1306,7 +1347,14 @@ app.get('/api/resumen', apiRoute(async req => {
   return filas.map(f => {
     const g = bom.get(String(f.IdProducto));
     if (!g) return f;
-    return { ...f, GranelPlu: g.granelPlu, GranelNombre: g.granelNombre, KgPorUnidad: g.cantPorUnidad };
+    // CargaPlu es el intermedio "X Pedido". Se publica aparte de IdComponente (que sale del CTE
+    // ComponentePrimario, ciego a los pesables de venta directa por su filtro BULTO/CAJA): sin
+    // él, el front armaba una línea pesable sin producto de carga.
+    // GranelCount: con más de un granel la fórmula es una receta y el producto se reserva
+    // entero, por su propio código, en vez de apartar uno solo de sus ingredientes.
+    return { ...f, GranelPlu: g.granelPlu, GranelNombre: g.granelNombre, KgPorUnidad: g.cantPorUnidad,
+             CargaPlu: g.cargaPlu || '', CargaNombre: g.cargaNombre || '',
+             GranelCount: g.granelCount || 1 };
   });
 }));
 
@@ -1322,7 +1370,10 @@ app.get('/api/resumen', apiRoute(async req => {
 // "X Pedido". Un producto puede devolver mas de un granel: se toma el de mayor CantPorUnidad,
 // que es el ingrediente principal (el resto son trazas).
 // @param {Array<string>} plus PLU de los bultos
-// @returns {Promise<Map<string, {granelPlu:string, granelNombre:string, cantPorUnidad:number}>>}
+// @returns {Promise<Map<string, {granelPlu:string, granelNombre:string, cantPorUnidad:number,
+//   granelCount:number, cargaPlu:string, cargaNombre:string}>>} cargaPlu es el intermedio
+//   "X Pedido" y queda en '' cuando el granel cuelga directo del padre; granelCount dice cuántos
+//   graneles distintos tiene la fórmula (más de uno = receta, no se descompone)
 async function bomGranelPorPlu(plus) {
   const lista = [...new Set((plus || []).map(String))].filter(p => /^\d+$/.test(p));
   const mapa = new Map();
@@ -1335,15 +1386,43 @@ async function bomGranelPorPlu(plus) {
   const filtroPadre = ` AND pc.IdProducto IN (${lista.map(p => `'${p}'`).join(',')})`;
   const filas = await query(sqlBOMGranel(c.rubrosGranel.join(','), filtroPadre));
 
+  // Cuántos graneles DISTINTOS tiene cada producto. Con más de uno la fórmula es una receta
+  // (ej. 7477 "G. Crunch", 17 graneles) y quedarse con el mayor —que es lo que hace el mapa de
+  // abajo— apartaría avena por una granola. Quien reserva necesita saberlo para no descomponer
+  // el producto; los otros consumidores del mapa siguen recibiendo lo mismo que antes.
+  const granelesPorPlu = new Map();
+  for (const b of filas) {
+    const plu = String(b.IdProducto);
+    if (!granelesPorPlu.has(plu)) granelesPorPlu.set(plu, new Set());
+    granelesPorPlu.get(plu).add(String(b.IdProductoComponente));
+  }
   for (const b of filas) {
     const plu = String(b.IdProducto);
     const cand = {
       granelPlu: String(b.IdProductoComponente),
       granelNombre: b.NombreComponente || '',
       cantPorUnidad: Number(b.CantPorUnidad) || 0,
+      granelCount: granelesPorPlu.get(plu).size,
+      // El intermedio se completa abajo: se elige DESPUÉS de saber qué granel gana, porque un
+      // producto puede tener varios y sólo sirve el que baja a ese granel.
+      cargaPlu: '', cargaNombre: '',
     };
     const prev = mapa.get(plu);
     if (!prev || cand.cantPorUnidad > prev.cantPorUnidad) mapa.set(plu, cand);
+  }
+
+  // El intermedio "X Pedido" que hace de puente hasta el granel elegido. Va en su propia
+  // consulta (ver sqlIntermedioGranel) y NO sale de ComponentePrimario, que se saltea los
+  // pesables de venta directa por su filtro de rubro BULTO/CAJA.
+  // Sin esto el front marcaba la línea como pesable con el producto de carga vacío y el POST de
+  // reserva la rechazaba con 400 ("La linea pesable no tiene el producto de carga").
+  for (const r of await query(sqlIntermedioGranel(filtroPadre))) {
+    const e = mapa.get(String(r.IdProducto));
+    // Sólo el intermedio que lleva al granel que ganó: atar otro sería apartar kg de un granel
+    // y comprometer unidades de un pedido que no lo consume.
+    if (!e || e.cargaPlu || String(r.IdGranel) !== e.granelPlu) continue;
+    e.cargaPlu = String(r.IdIntermedio);
+    e.cargaNombre = r.NombreIntermedio || '';
   }
   return mapa;
 }
@@ -1638,6 +1717,130 @@ const RESERVAS_MERC_PATH = path.join(DATA_DIR, 'reservas_mercaderia.json');
 app.get('/api/mayoristas/reservas', apiRoute(async () =>
   leerJSON(RESERVAS_MERC_PATH, []).slice().sort((a, b) => b.id - a.id)));
 
+// Saldos del deposito de reserva por producto. Se leen de SiGA, que es la verdad fisica: el
+// deposito es uno solo y mezcla clientes, asi que un saldo "por reserva" seria un registro
+// paralelo imposible de cuadrar contra facturaciones hechas fuera del sistema.
+// Devuelve, por cada PLU con reserva mayorista viva, cuanto hay, cuanto esta comprometido y que
+// ajuste dejaria el deposito en cero.
+//
+// OJO CON EL ORDEN: esta ruta va ANTES de `/:id`, o Express matchea "saldos" como un id y
+// responde "Reserva no encontrada".
+app.get('/api/mayoristas/reservas/saldos', apiRoute(async req => {
+  const s = await resolverSucursal(req.query.idSucursal);
+  if (s.error) return { error: s.error };
+  const cr = s.cr;
+  const depReserva = esIdDeposito(Number(req.query.depReserva))
+    ? Number(req.query.depReserva) : cr.depositoReserva;
+  if (!esIdDeposito(depReserva)) return { error: ERR_RESERVA_SIN_CONFIG };
+
+  // Solo las reservas de ESTA sucursal y de ESTE deposito: los IDs de deposito son por sucursal,
+  // asi que sin filtrar se compararia lo apartado en un lado contra el stock de otro.
+  const vivas = leerJSON(RESERVAS_MERC_PATH, [])
+    .filter(r => r && r.estado === 'activa'
+              && Number(r.idSucursal) === cr.idSucursal
+              && Number(r.depDestino) === depReserva);
+  // Todos los PLU que alguna reserva viva nombra: el granel que aparto y el "X Pedido" que
+  // espera. Se piden a SiGA de una sola vez y filasSaldoMayorista decide que hacer con cada uno.
+  const plus = [...new Set(vivas.flatMap(r =>
+    [String(r.pluCarga || ''), ...(r.lineas || []).map(l => String(l.plu || ''))]))]
+    .filter(p => /^\d+$/.test(p));
+  if (!plus.length) return { depReserva, idSucursal: cr.idSucursal, productos: [] };
+
+  // stockDeComponentes ya arma el SELECT contra ProductosDepositos y sanea los PLU: el deposito
+  // de reserva va como "origen" y no hay destino que mirar.
+  const stock = await stockDeComponentes(cr, plus, depReserva, null);
+  const asientosTodos = Object.values(leerJSON(PLANES_PATH, {})).flatMap(p => asientosProduccion(p));
+
+  // Toda la regla (comprometido NETO, diferencia y ajuste) vive en el modulo puro, que es donde
+  // se puede testear; aca solo queda el IO.
+  return {
+    depReserva, idSucursal: cr.idSucursal,
+    productos: filasSaldoMayorista(vivas, asientosTodos,
+      new Map(plus.map(p => [p, (stock.get(p) || { origen: 0 }).origen]))),
+  };
+}));
+
+// Emite el ajuste que deja un producto del deposito de reserva en cero. Los cuatro tipos son
+// traslados entre principal y reserva; la des-produccion (volver "X Pedido" a granel) NO va por
+// aca porque cambia de producto: eso se registra como una produccion inversa desde la pantalla
+// de produccion, con su propio comprobante.
+// Va con (req, res) crudo y NO con apiRoute, por el mismo motivo que el POST de reservas:
+// apiRoute no deja setear el status y los 400 de validacion saldrian como 200.
+// Body: { idSucursal?, plu, tipo, cantidad, depReserva?, depPrincipal?, permitirFaltante? }
+app.post('/api/mayoristas/reservas/ajuste', async (req, res) => {
+  try {
+    const b = req.body || {};
+    // Los tipos son los que emite ajustePropuesto. Si se agrega uno alla y no aca, el front
+    // muestra un boton que el servidor rechaza.
+    const TIPOS = ['devolver-granel', 'devolver-pedido', 'reponer-granel', 'reponer-pedido'];
+    if (!TIPOS.includes(b.tipo)) {
+      return res.status(400).json({ error: `tipo invalido. Permitidos: ${TIPOS.join(', ')}` });
+    }
+    const plu = String(b.plu || '').trim();
+    const cantidad = Number(b.cantidad);
+    if (!plu) return res.status(400).json({ error: 'Falta plu' });
+    // Los PLU de SiGA son numericos y este valor viaja al WHERE del stock y a la linea del
+    // traslado: cualquier otra cosa se rechaza en vez de sanearse a un PLU distinto.
+    if (!/^\d+$/.test(plu)) return res.status(400).json({ error: 'plu invalido: tiene que ser numerico' });
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      return res.status(400).json({ error: 'cantidad tiene que ser mayor a cero' });
+    }
+
+    const s = await resolverSucursal(b.idSucursal);
+    if (s.error) return res.status(400).json({ error: s.error });
+    const cr = s.cr;
+    const depReserva   = esIdDeposito(Number(b.depReserva))   ? Number(b.depReserva)   : cr.depositoReserva;
+    const depPrincipal = esIdDeposito(Number(b.depPrincipal)) ? Number(b.depPrincipal) : cr.depositoPrincipal;
+    if (!esIdDeposito(depReserva) || !esIdDeposito(depPrincipal) || depReserva === depPrincipal) {
+      return res.status(400).json({ error: ERR_RESERVA_DEPOSITOS });
+    }
+
+    // Los "reponer" van al reves que los "devolver": traen del principal a la reserva lo que
+    // falta contra lo apartado, en vez de sacar de la reserva lo que sobra.
+    const alReves = b.tipo === 'reponer-granel' || b.tipo === 'reponer-pedido';
+    const depOrigen  = alReves ? depPrincipal : depReserva;
+    const depDestino = alReves ? depReserva   : depPrincipal;
+
+    const activos = new Set((await depositosActivos(cr.idSucursal)).map(d => Number(d.IdDeposito)));
+    if (!activos.has(depOrigen) || !activos.has(depDestino)) {
+      return res.status(400).json({ error: `Alguno de los depositos no esta activo en la sucursal ${cr.idSucursal}` });
+    }
+
+    // El saldo del origen se chequea ANTES de mover: sin esto, un ajuste con la cantidad
+    // equivocada (o repetido dos veces por doble click) deja el deposito en negativo, que es
+    // exactamente el descuadre que este endpoint existe para arreglar. Mismo criterio que el
+    // POST de reservas: con permitirFaltante se emite igual, pero es una decision explicita.
+    const stock = await stockDeComponentes(cr, [plu], depOrigen, null);
+    const disponible = redondear4((stock.get(plu) || { origen: 0 }).origen);
+    if (cantidad > disponible && b.permitirFaltante !== true) {
+      return res.status(400).json({
+        error: `El deposito ${depOrigen} tiene ${disponible} de ${plu} y el ajuste mueve ${redondear4(cantidad)}`,
+        disponible, necesario: redondear4(cantidad),
+      });
+    }
+
+    const observacion = `AJUSTE RESERVA MAY ${b.tipo} ${plu} ${depOrigen}>${depDestino}`.slice(0, 200);
+    const movimiento = {
+      idSucursal: cr.idSucursal, depOrigen, depDestino,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+      observacion,
+    };
+    const poolW = await getPoolStock();
+    // 'ajuste' y no un origen nuevo: MOV_LOG_ORIGENES es la lista cerrada por la que filtra
+    // GET /api/stock/movimientos, y un origen fuera de ella hace que el listado lo rechace.
+    // Lo que identifica a estos comprobantes es la observacion.
+    const r = await ejecutarYRegistrar({
+      origen: 'ajuste', plan: null, itemId: null, ...movimiento,
+      lineas: [{ plu, nombre: null, cantidad }],
+    }, () => trasladarStock(poolW, { ...movimiento, lineas: [{ idProducto: plu, cantidad }] }));
+
+    res.json(conLogError({ ok: true, numeroMovimiento: r.numeroMovimiento,
+                           idRegistro: r.idRegistro ?? null }, r.logError));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/mayoristas/reservas/:id', (req, res) => {
   const reserva = leerJSON(RESERVAS_MERC_PATH, []).find(r => String(r.id) === String(req.params.id));
   if (!reserva) return res.status(404).json({ error: 'Reserva no encontrada' });
@@ -1815,11 +2018,21 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
     const lineasADevolver = lineasADevolverMayorista(reserva, asientosTodos);
     const apartado = redondear4((reserva.lineas || []).reduce((acc, l) => acc + (Number(l.cantidad) || 0), 0));
     const consumido = redondear4(apartado - lineasADevolver.reduce((acc, l) => acc + l.cantidad, 0));
+    // El granel consumido no salio del edificio: la produccion lo convirtio en unidades de
+    // "X Pedido" que estan en el MISMO deposito de reserva. Devolver solo el granel restante
+    // dejaba ese terminado varado ahi, sin ninguna reserva viva que lo reclamara.
+    const lineasTerminado = lineasTerminadoADevolverMayorista(reserva, asientosTodos);
+    const entregado = redondear4(lineasTerminado.reduce((acc, l) => acc + l.cantidad, 0));
 
     const cr = cfgReserva();
+    // Los terminados van a RECEPCION, no al origen de la reserva: son producto, no el granel
+    // que salio del deposito principal. Sin depositoTerminados configurado no hay a donde
+    // mandarlos y se avisa en vez de moverlos a ciegas.
+    const depRecepcion = Number(cfgProduccion().depositoTerminados);
+    const devuelveTerminado = lineasTerminado.length && esIdDeposito(depRecepcion);
     // Sin lineas no se toca SiGA: pedir el pool haria que una base caida impida anular una
     // reserva que justamente no necesita mover nada.
-    const poolW = lineasADevolver.length ? await getPoolStock() : null;
+    const poolW = (lineasADevolver.length || devuelveTerminado) ? await getPoolStock() : null;
     const observacion = `ANULA RESERVA MAY ${reserva.nombreCliente} #${reserva.numeroMovimiento}`.slice(0, 200);
     const mov = {
       idSucursal: reserva.idSucursal, depOrigen: reserva.depDestino, depDestino: reserva.depOrigen,
@@ -1839,6 +2052,28 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
       lineas: lineasADevolver.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
     })) : { numeroMovimiento: null, idRegistro: null, logError: null };
 
+    // Segunda pata: el terminado que ya estaba en el deposito de reserva vuelve a recepcion.
+    // Va en su propio comprobante porque el destino es otro (recepcion, no el origen de la
+    // reserva). Si SiGA la rechaza NO se corta la anulacion: el granel ya volvio y dejar la
+    // reserva viva no arregla nada; se informa para que el operador mueva esas unidades.
+    const movT = {
+      idSucursal: reserva.idSucursal, depOrigen: reserva.depDestino, depDestino: depRecepcion,
+      idTipoMovimiento: cr.idTipoMovimiento, usuario: cr.usuario, idEmpleado: cr.idEmpleado,
+      observacion: `ANULA RESERVA MAY TERM ${reserva.nombreCliente} #${reserva.numeroMovimiento}`.slice(0, 200),
+    };
+    let errorTerminado = null;
+    if (devuelveTerminado) {
+      try {
+        await ejecutarYRegistrar({
+          origen: 'devolucion', plan: null, itemId: null, ...movT,
+          lineas: lineasTerminado.map(l => ({ plu: l.plu, nombre: l.nombre, cantidad: l.cantidad })),
+        }, () => trasladarStock(poolW, {
+          ...movT,
+          lineas: lineasTerminado.map(l => ({ idProducto: l.plu, cantidad: l.cantidad })),
+        }));
+      } catch (e) { errorTerminado = e.message; }
+    }
+
     const { reserva: anulada, error } = anularReserva(reserva, {
       numeroMovimiento: r.numeroMovimiento, idRegistro: r.idRegistro ?? null,
       fecha: new Date().toISOString(),
@@ -1847,11 +2082,25 @@ app.post('/api/mayoristas/reservas/:id/anular', async (req, res) => {
     arr[i] = anulada;
     guardarJSON(RESERVAS_MERC_PATH, arr);
     // El aviso es solo de la respuesta (no se persiste): el operador tiene que enterarse de que
-    // volvio menos de lo apartado, y por que.
-    const aviso = consumido > 0
-      ? `Volvieron ${redondear4(apartado - consumido)} de ${apartado} unidad(es) al depósito de origen: `
-      + `la producción ya consumió ${consumido} del depósito de reserva.`
-      : null;
+    // volvió menos de lo apartado, y por qué. Las dos patas se nombran por separado: el granel
+    // se mide en kg y el terminado en unidades, y sumarlos bajo una sola etiqueta (como se hacía
+    // antes) da un número que no significa nada.
+    const partes = [];
+    if (consumido > 0) {
+      partes.push(`Volvieron ${redondear4(apartado - consumido)} de ${apartado} de lo apartado al depósito de origen: `
+                + `la producción ya usó ${consumido} del depósito de reserva.`);
+    }
+    if (entregado > 0 && devuelveTerminado && !errorTerminado) {
+      partes.push(`Esas ${entregado} unidad(es) de "${lineasTerminado[0].nombre || 'X Pedido'}" ya estaban producidas `
+                + `y volvieron del depósito de reserva al de recepción (${depRecepcion}).`);
+    } else if (entregado > 0) {
+      partes.push(`ATENCIÓN: quedan ${entregado} unidad(es) de "${lineasTerminado[0].nombre || 'X Pedido'}" en el `
+                + `depósito de reserva ${reserva.depDestino}` + (errorTerminado
+                  ? `: SiGA rechazó el movimiento (${errorTerminado}).`
+                  : ': no hay depósito de terminados configurado (produccion.depositoTerminados).')
+                + ' Moverlas a mano.');
+    }
+    const aviso = partes.length ? partes.join(' ') : null;
     res.json(conLogError({ ...anulada, ...(aviso ? { aviso } : {}) }, r.logError));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2997,6 +3246,139 @@ app.put('/api/compras-modulo/ordenes/:id/estado', (req, res) => {
 // Lo pedido y no recibido, por PLU. Lo consume la predicción de compra.
 app.get('/api/compras-modulo/ordenes/pendiente-plu', apiRoute(async () =>
   comprasModulo.pendientePorPlu(leerJSON(ORDENES_COMPRA_PATH, []))));
+
+// ── Control de insumos ─────────────────────────────────────────────────────────
+// Los insumos no se venden: no aparecen en Ventas y el análisis los excluye a
+// propósito. Su consumo se lee de los movimientos de stock, donde la Cantidad ya
+// viene firmada (negativa = salió del depósito) y la suma de todas las líneas de un
+// depósito da exactamente su stock. La matemática vive en insumos.js; acá, las queries.
+const INSUMOS_CFG = {
+  rubros: insumos.RUBROS,                    // vacío: el rubro de Siga no define un insumo
+  prefijoNombre: insumos.PREFIJO_NOMBRE,     // todo producto cuyo nombre arranque con "Insumo"
+  idSucursal: 1,         // Casa Central
+  depositos: [1],        // su depósito principal; los "Reservado*" no son stock disponible
+  ventanaMeses: insumos.VENTANA_MESES,
+  umbrales: insumos.UMBRALES,
+  tiposExcluidos: insumos.TIPOS_NO_CONSUMO,
+  ...(cfg.insumos || {}),
+};
+const numList = arr => (arr || []).map(Number).filter(n => Number.isInteger(n) && n > 0).join(',');
+// Una sola definición de "esto es un insumo" para las dos queries: si divergen,
+// el listado y el consumo hablan de universos distintos y nadie se entera.
+const ES_INSUMO = insumos.condicionSQL(INSUMOS_CFG);
+
+function sqlInsumosStock() {
+  return `SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, p.EsDeCompras,
+    COALESCE((SELECT SUM(pd.Stock) FROM ProductosDepositos pd
+              WHERE pd.IdProducto = p.IdProducto AND pd.IdSucursal = ${Number(INSUMOS_CFG.idSucursal)}
+                AND pd.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})), 0) AS StockCentral
+  FROM Productos p INNER JOIN Rubros r ON r.IdRubro = p.IdRubro
+  WHERE p.Activo = 1 AND ${ES_INSUMO}
+  ORDER BY p.NombreProducto`;
+}
+
+// Salidas y entradas por producto, mes y tipo de movimiento. El mes sale del header
+// (MovimientosStock.FechaMovimiento): el detalle no tiene fecha propia.
+// filtroPlu acota a un solo insumo, para la vista de detalle.
+function sqlInsumosMovimientos(filtroPlu) {
+  const plu = filtroPlu ? `AND mp.IdProducto = '${String(filtroPlu).replace(/'/g, "''")}'` : '';
+  return `SELECT mp.IdProducto, CONVERT(varchar(7), m.FechaMovimiento, 126) AS Mes, mp.IdTipoMovimiento,
+      SUM(CASE WHEN mp.Cantidad < 0 THEN -mp.Cantidad ELSE 0 END) AS Salidas,
+      SUM(CASE WHEN mp.Cantidad > 0 THEN  mp.Cantidad ELSE 0 END) AS Entradas
+  FROM MovimientosStockProductos mp
+  INNER JOIN MovimientosStock m ON m.IdSucursal = mp.IdSucursal
+       AND m.IdTipoMovimiento = mp.IdTipoMovimiento AND m.NumeroMovimiento = mp.NumeroMovimiento
+  INNER JOIN Productos p ON p.IdProducto = mp.IdProducto
+  WHERE ${ES_INSUMO} AND p.Activo = 1
+    AND mp.IdSucursal = ${Number(INSUMOS_CFG.idSucursal)}
+    AND mp.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})
+    AND m.FechaMovimiento >= DATEADD(MONTH, -${Number(INSUMOS_CFG.ventanaMeses)}, CAST(GETDATE() AS DATE)) ${plu}
+  GROUP BY mp.IdProducto, CONVERT(varchar(7), m.FechaMovimiento, 126), mp.IdTipoMovimiento`;
+}
+
+// Niveles de reposición cargados a mano: { [plu]: { min, max } }. Son criterio de
+// quien compra, no una cuenta: por eso se guardan y no se recalculan.
+const INSUMOS_NIVELES_PATH = path.join(DATA_DIR, 'insumos_niveles.json');
+
+const mesActualISO = () => new Date().toISOString().slice(0, 7);
+const filaMovInsumo = r => ({ plu: String(r.IdProducto), mes: r.Mes, tipo: r.IdTipoMovimiento,
+                              salidas: Number(r.Salidas) || 0, entradas: Number(r.Entradas) || 0 });
+
+app.get('/api/insumos/listado', apiRoute(async () => {
+  const [stockRows, movRows] = await Promise.all([query(sqlInsumosStock()), query(sqlInsumosMovimientos())]);
+  const productos = stockRows.map(r => ({
+    plu: String(r.IdProducto), nombre: r.NombreProducto, rubro: r.NombreRubro,
+    stock: Number(r.StockCentral) || 0, esDeCompras: !!r.EsDeCompras,
+  }));
+  const esDeCompras = new Map(productos.map(p => [p.plu, p.esDeCompras]));
+  const filas = insumos.calcularListado({
+    productos, filasMov: movRows.map(filaMovInsumo), mesActual: mesActualISO(),
+    ventanaMeses: INSUMOS_CFG.ventanaMeses, umbrales: INSUMOS_CFG.umbrales,
+    tiposExcluidos: INSUMOS_CFG.tiposExcluidos, niveles: leerJSON(INSUMOS_NIVELES_PATH, {}),
+  }).map(f => ({ ...f, esDeCompras: esDeCompras.get(f.plu) === true }));
+  return {
+    productos: filas, totales: insumos.totales(filas),
+    mesActual: mesActualISO(), ventanaMeses: INSUMOS_CFG.ventanaMeses,
+    umbrales: INSUMOS_CFG.umbrales, tiposExcluidos: INSUMOS_CFG.tiposExcluidos,
+    fechaCalculo: new Date().toISOString(),
+  };
+}));
+
+// Niveles de reposición. El PUT con min y max vacíos borra el nivel del insumo:
+// es la forma de sacarlo del circuito de compra sin inventar otro endpoint.
+app.get('/api/insumos/niveles', apiRoute(async () => leerJSON(INSUMOS_NIVELES_PATH, {})));
+app.put('/api/insumos/niveles/:plu', (req, res) => {
+  const plu = String(req.params.plu || '').trim();
+  if (!/^\d+$/.test(plu)) return res.status(400).json({ error: 'PLU inválido' });
+  let nivel;
+  try { nivel = insumos.normalizarNivel(req.body || {}); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  const d = leerJSON(INSUMOS_NIVELES_PATH, {});
+  if (nivel) d[plu] = nivel; else delete d[plu];
+  guardarJSON(INSUMOS_NIVELES_PATH, d);
+  res.json({ ok: true, plu, nivel });
+});
+
+// De dónde sale el consumo de un insumo: la serie mes a mes, el desglose por tipo de
+// movimiento (con cuáles cuentan y cuáles no) y los últimos movimientos crudos.
+app.get('/api/insumos/detalle/:plu', apiRoute(async (req) => {
+  const plu = String(req.params.plu || '').trim();
+  if (!/^\d+$/.test(plu)) throw new Error('PLU inválido');
+  const [prodRows, movRows, ultimos] = await Promise.all([
+    query(`SELECT TOP 1 p.IdProducto, p.NombreProducto, r.NombreRubro,
+             COALESCE((SELECT SUM(pd.Stock) FROM ProductosDepositos pd
+                       WHERE pd.IdProducto = p.IdProducto AND pd.IdSucursal = ${Number(INSUMOS_CFG.idSucursal)}
+                         AND pd.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})), 0) AS StockCentral
+           FROM Productos p INNER JOIN Rubros r ON r.IdRubro = p.IdRubro
+           WHERE p.IdProducto = '${plu}'`),
+    query(sqlInsumosMovimientos(plu)),
+    query(`SELECT TOP 40 CONVERT(varchar(19), m.FechaMovimiento, 126) AS Fecha, mp.IdTipoMovimiento,
+             mp.NumeroMovimiento, mp.Cantidad, m.Observacion, m.Usuario
+           FROM MovimientosStockProductos mp
+           INNER JOIN MovimientosStock m ON m.IdSucursal = mp.IdSucursal
+                AND m.IdTipoMovimiento = mp.IdTipoMovimiento AND m.NumeroMovimiento = mp.NumeroMovimiento
+           WHERE mp.IdProducto = '${plu}' AND mp.IdSucursal = ${Number(INSUMOS_CFG.idSucursal)}
+             AND mp.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})
+           ORDER BY m.FechaMovimiento DESC`),
+  ]);
+  const prod = prodRows[0];
+  if (!prod) throw new Error('Insumo no encontrado');
+  const filas = movRows.map(filaMovInsumo);
+  const serie = insumos.serieMensual(filas, INSUMOS_CFG.tiposExcluidos)[plu] || {};
+  const resumen = insumos.resumenInsumo({
+    plu, nombre: prod.NombreProducto, rubro: prod.NombreRubro,
+    stock: Number(prod.StockCentral) || 0, serie, mesActual: mesActualISO(),
+    ventanaMeses: INSUMOS_CFG.ventanaMeses, umbrales: INSUMOS_CFG.umbrales,
+  });
+  return {
+    ...resumen, serie,
+    porTipo: insumos.desglosePorTipo(filas, INSUMOS_CFG.tiposExcluidos),
+    movimientos: ultimos.map(m => ({
+      fecha: m.Fecha, tipo: m.IdTipoMovimiento, numero: String(m.NumeroMovimiento),
+      cantidad: Number(m.Cantidad) || 0, observacion: (m.Observacion || '').trim(), usuario: m.Usuario,
+    })),
+  };
+}));
 
 // ── A8020 autónomo: puntos de pedido order-up-to calculados desde Siga ──────────
 // Spec: docs/superpowers/specs/2026-06-10-a8020-orderupto-design.md
@@ -8015,11 +8397,39 @@ async function conciliacionProduccion(fecha, idSucursal) {
     return (depositos.length && !activos.has(n)) ? null : n;
   };
 
+  // ── Entrega mayorista: UNA sola imputación gobierna las dos patas ────────────
+  // Las unidades de "X Pedido" que entran al depósito de reserva y los kg de granel que salen
+  // de ahí para fabricarlas son el mismo hecho contado de dos maneras. Se calculan juntos y acá
+  // (no en el registro) para que la pantalla muestre exactamente los números que se van a
+  // mover: primero cuántas unidades del pedido cubre la producción PENDIENTE, y de ahí se
+  // deriva el granel que se le cobra a cada reserva.
+  const terminadosPendientes = terminadosPorPluDeConciliacion(productos);
+  const entrega = imputarEntregaMayorista(
+    basesEntregaMayorista(mercReserva, asientosTodos),
+    terminadosPendientes,
+    new Map(componentes.filter(x => x.plu).map(x => [String(x.plu), x.usado])));
+  const granelMayoristaCobrado = agruparRestante(entrega.consumoMayorista.map(x => ({ plu: x.plu, restante: x.kg })));
+  // La entrega se recorta sola cuando el granel no alcanza (apartado ya consumido, o consumo
+  // declarado menor al que pide la fórmula). Callarlo haría que el operador viera menos unidades
+  // en el depósito de reserva de las que espera y no supiera por qué.
+  for (const [plu, falta] of agruparRestante(restantePedido)) {
+    const sinEntregar = redondear4(Math.min(falta, terminadosPendientes.get(plu) || 0)
+                                 - (entrega.unidadesPorPlu.get(plu) || 0));
+    if (sinEntregar <= 0) continue;
+    avisos.push(`${sinEntregar} unidad(es) del producto ${plu} que una reserva mayorista espera NO entran al `
+              + 'depósito de reserva: el granel que quedaba apartado no alcanza para cubrirlas. '
+              + 'Entran a recepción como producción normal.');
+  }
+
   // Desglose por movimiento de reserva (para conciliar por orden y por movimiento). Sólo las
   // reservas todavía sin recepción: las conciliadas ya no tienen nada que mover.
   const _gruposMov = reservadoPorMovimiento(reservasVivas);
+  // El granel que se le cobra al mayorista NO lo consumió el plan: si el reparto por movimiento
+  // lo siguiera contando, el ajuste del plan sacaría del depósito de reserva kg que ya salieron
+  // por la pata mayorista y las diferencias los devolverían una segunda vez.
   const _usadoPorPlu = new Map([...consumo.componentes.values()]
-    .filter(u => u.plu).map(u => [String(u.plu), u.usado]));
+    .filter(u => u.plu).map(u => [String(u.plu),
+      redondear4(Math.max(0, u.usado - (granelMayoristaCobrado.get(String(u.plu)) || 0)))]));
   const porMovimiento = conciliarPorMovimiento(_gruposMov, _usadoPorPlu);
 
   return {
@@ -8052,6 +8462,19 @@ async function conciliacionProduccion(fecha, idSucursal) {
     // Unidades de "X Pedido" que cada reserva todavia espera: con eso el alta del terminado
     // sabe que parte entra al deposito de reserva en vez del de recepcion.
     restantePedido,
+    // Las DOS patas de la entrega mayorista de esta produccion pendiente, ya imputadas contra
+    // cada reserva por imputarEntregaMayorista. /registrar-movimiento las consume tal cual: no
+    // vuelve a calcular ninguna de las dos, que es lo que las dejaba desfasadas entre si.
+    //  · terminado      → unidades de "X Pedido" que entran al deposito de reserva, por reserva.
+    //  · consumo        → kg de granel que se le cobran a esa reserva por esas unidades.
+    //  · unidadesPorPlu → el agregado que rutea el alta del terminado (objeto plano: viaja a JSON).
+    //  · granelPorPlu   → el agregado que descuenta el consumo del deposito de reserva.
+    entregaMayorista: {
+      terminado: entrega.terminadoMayorista,
+      consumo: entrega.consumoMayorista,
+      unidadesPorPlu: Object.fromEntries(entrega.unidadesPorPlu),
+      granelPorPlu: Object.fromEntries(granelMayoristaCobrado),
+    },
     // Consumo de la carga manual, fuera del cuadro reserva-vs-producción: no hay reserva contra
     // la cual conciliarlo. Se registra íntegro contra el depósito de recepción.
     componentesManual,
@@ -8249,26 +8672,29 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
   // nada: `componentesPlan` es la vista que consumen TODOS los pasos de abajo (el comprobante
   // de produccion, las diferencias y el corte antidoble-conteo). Si alguno mirara el
   // componente crudo, el consumo que excede plan+mayorista no saldria de ningun deposito.
-  const { componentesPlan, lineasMayorista } =
-    partirConsumoMayorista(c.componentes, c.reservadoMayorista, deps.reserva);
-  // Contra que reserva mayorista sale cada kg que la sala consumio del deposito de reserva. Se
-  // guarda en el asiento de produccion (misma escritura que el sello) y es lo que hace que el
+  // Las dos patas de la entrega mayorista vienen YA imputadas de la conciliacion
+  // (imputarEntregaMayorista) y no se recalculan acá. Salen del mismo reparto, así que las
+  // unidades que entran al depósito de reserva y el granel que se le cobra a cada reserva no
+  // pueden desfasarse. Cuando se calculaban por separado, un día normal (el plan consume justo
+  // lo que reservó) entregaba el producto sin cobrar el granel: el depósito de reserva quedaba
+  // con la materia prima Y el terminado del mismo pedido, y ningún ledger reconciliaba al otro.
+  const em = c.entregaMayorista || {};
+  // Contra qué reserva mayorista sale cada kg que la sala consumió del depósito de reserva. Se
+  // guarda en el asiento de producción (misma escritura que el sello) y es lo que hace que el
   // lote siguiente vea el apartado que QUEDA en vez del original. No se toca
   // reservas_mercaderia.json: mover uno solo de los dos datos abre una ventana en la que un
-  // reintento recalcularia el mismo consumo contra un apartado ya achicado.
-  const consumoMayorista = imputarConsumoMayorista(c.restanteMayorista,
-    Object.fromEntries(lineasMayorista.map(l => [String(l.idProducto), -l.cantidad])));
+  // reintento recalcularía el mismo consumo contra un apartado ya achicado.
+  const consumoMayorista   = em.consumo   || [];
+  // Contra qué reserva entró cada unidad de "X Pedido", con la misma escritura y la misma
+  // reversión que el consumo de granel de arriba.
+  const terminadoMayorista = em.terminado || [];
+  const { componentesPlan, lineasMayorista } =
+    partirConsumoMayorista(c.componentes, c.reservadoMayorista, deps.reserva, em.granelPorPlu);
   // El terminado que cubre una reserva mayorista viva entra al deposito de reserva, no al de
-  // recepcion. Va NETO de lo que los asientos anteriores ya metieron: sin eso, la produccion
-  // cargada en lotes lo mete una vez por lote (reserva de 3 y lotes de 6 y 4 = 6 apartadas).
+  // recepcion. `unidadesPorPlu` ya viene neto de lo que los asientos anteriores metieron y
+  // topeado por el granel que la reserva todavia tiene apartado.
   const resto     = lineasProduccionDesdeConciliacion({ ...c, componentes: componentesPlan }, deps,
-    { incluirReserva: false, reservadoPorTerminado: agruparRestante(c.restantePedido) });
-  // Contra que reserva entro cada unidad, para anotarlo en el asiento. La imputacion es la
-  // misma que la del granel (repartir un total entre lo que le queda a cada reserva), solo
-  // cambia la unidad: kg alla, unidades de "X Pedido" aca.
-  const terminadoMayorista = imputarConsumoMayorista(c.restantePedido, Object.fromEntries(
-      resto.lineas.filter(l => l.concepto === 'terminado-reserva').map(l => [String(l.idProducto), l.cantidad])))
-    .map(({ idReserva, plu, kg }) => ({ idReserva, plu, unidades: kg }));
+    { incluirReserva: false, reservadoPorTerminado: new Map(Object.entries(em.unidadesPorPlu || {})) });
   const ajustesMov = (c.porMovimiento || [])
     .map(m => ({ numeroMovimiento: m.numeroMovimiento, ordenes: m.ordenes || [], conciliado: !!m.conciliado, lineas: lineasAjusteMovimiento(m.componentes, deps) }))
     // Los movimientos ya conciliados no se re-registran (idempotencia ante reintentos parciales).

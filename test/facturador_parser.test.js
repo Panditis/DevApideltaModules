@@ -32,7 +32,10 @@ function cargarParser() {
              limpiarEncabezado, esBarraDeBalanza, consultaDeEscaneo,
              estadoActualizacion, INTERVALO_ACTUALIZACION_MS, VENCIMIENTO_PRECIOS_MS,
              pareceXlsx, pareceHtml, motivoPlanillaRechazada,
-             incrustarCatalogo, leerCatalogoEmbebido, catalogoAJson };`)();
+             incrustarCatalogo, leerCatalogoEmbebido, catalogoAJson,
+             rutaAUrlArchivo, catalogoAArchivoRed, catalogoDeGlobal, GLOBAL_ARCHIVO_RED,
+             idDeSheets, urlGviz, filasDeGviz, HANDLER_SHEETS,
+             esUrlAppsScript, urlFuenteSheets, grillaDeRespuesta };`)();
 }
 
 const P = cargarParser();
@@ -750,4 +753,144 @@ test('el instructivo nombra las columnas que el CSV exporta de verdad', () => {
   for (const col of nombradas) {
     assert.ok(reales.includes(col), 'el instructivo menciona una columna que no existe: ' + col);
   }
+});
+
+// ── Archivo de precios en la carpeta de red ───────────────────────────────────
+// El facturador se abre con file://, donde el navegador bloquea todo fetch. Lo único que
+// carga es un <script src>, así que lo que se deja en la red es un .js. Estos tests fijan
+// las dos puntas: la ruta que se le pasa al script y el archivo que se genera.
+
+test('una ruta UNC se convierte en un file:// con las cinco barras', () => {
+  assert.equal(P.rutaAUrlArchivo(String.raw`\\192.168.1.26\Apidelta\1-Precios\precios.js`),
+    'file://///192.168.1.26/Apidelta/1-Precios/precios.js');
+});
+
+test('los espacios de la ruta se escapan, y una ruta local o ya en file:// también sirven', () => {
+  assert.equal(P.rutaAUrlArchivo(String.raw`\\srv\Apidelta\7- SISTEMA\precios.js`),
+    'file://///srv/Apidelta/7-%20SISTEMA/precios.js');
+  assert.equal(P.rutaAUrlArchivo(String.raw`C:\precios\precios.js`), 'file:///C:/precios/precios.js');
+  assert.equal(P.rutaAUrlArchivo('file:///C:/x/precios.js'), 'file:///C:/x/precios.js');
+  assert.equal(P.rutaAUrlArchivo('  '), '');
+});
+
+test('el archivo generado se vuelve a leer con el mismo catálogo adentro', () => {
+  const catalogo = {
+    generado: '2026-08-26T09:00:00.000Z', origen: 'prueba',
+    productos: [{ plu: '1878', nombre: 'Producto Ejemplo', precio: 11960, barra: '2001878', modalidad: null, unidad: '' }],
+  };
+  const js = P.catalogoAArchivoRed(catalogo);
+  const ventana = {};
+  new Function('window', js)(ventana);          // así lo ejecuta el navegador al cargar el script
+  assert.deepEqual(P.catalogoDeGlobal(ventana[P.GLOBAL_ARCHIVO_RED]), catalogo);
+});
+
+test('un archivo de red vacío, roto o de otra cosa no pisa los precios buenos', () => {
+  for (const valor of [undefined, null, {}, { productos: [] }, { productos: 'no es una lista' }]) {
+    assert.throws(() => P.catalogoDeGlobal(valor), /no tiene productos/);
+  }
+});
+
+// ── Planilla de Google Sheets publicada ───────────────────────────────────────
+// gviz es la única puerta que sirve desde un archivo local: contesta JavaScript, así que
+// entra por <script src> donde un fetch queda bloqueado. Estos tests fijan cómo se arma
+// la URL y cómo se traduce la respuesta a la grilla que ya sabe leer el detector.
+
+test('saca el id de la planilla del link del navegador o del id pelado', () => {
+  assert.equal(P.idDeSheets('https://docs.google.com/spreadsheets/d/1AbC_dEf-123456789012345678/edit#gid=0'),
+    '1AbC_dEf-123456789012345678');
+  assert.equal(P.idDeSheets('https://docs.google.com/spreadsheets/d/e/2PACX-1vABCDEFGHIJKLMNOP/pubhtml'),
+    '2PACX-1vABCDEFGHIJKLMNOP');
+  assert.equal(P.idDeSheets('1AbC_dEf-123456789012345678'), '1AbC_dEf-123456789012345678');
+  assert.equal(P.idDeSheets('cualquier cosa'), '');
+  assert.equal(P.idDeSheets(''), '');
+});
+
+test('arma la url de gviz con el responseHandler y la hoja', () => {
+  const url = P.urlGviz('https://docs.google.com/spreadsheets/d/1AbC_dEf-123456789012345678/edit', 'Precios', 777);
+  assert.ok(url.startsWith('https://docs.google.com/spreadsheets/d/1AbC_dEf-123456789012345678/gviz/tq?'), url);
+  // El punto y coma va escapado: es el separador que usa tqx, no un separador de parámetros.
+  assert.ok(url.includes('tqx=out%3Ajson%3BresponseHandler%3A' + P.HANDLER_SHEETS), url);
+  assert.ok(url.includes('&sheet=Precios'), url);
+  assert.ok(url.includes('&_=777'), url);
+  assert.ok(!P.urlGviz('1AbC_dEf-123456789012345678', '', 1).includes('&sheet='));
+});
+
+test('un link que no es de Sheets se rechaza antes de salir a internet', () => {
+  assert.throws(() => P.urlGviz('https://ejemplo.com/planilla', '', 1), /no es válido/);
+});
+
+// Respuesta de gviz con la forma real: los encabezados vienen en cols[].label.
+const GVIZ = {
+  version: '0.6', status: 'ok',
+  table: {
+    cols: [{ id: 'A', label: 'IdProducto', type: 'string' },
+           { id: 'B', label: 'NombreProducto', type: 'string' },
+           { id: 'C', label: 'PrecioVenta', type: 'number' }],
+    rows: [{ c: [{ v: '1878' }, { v: 'Producto Ejemplo 250Gr' }, { v: 11960, f: '11960' }] },
+           { c: [{ v: '69' }, { v: 'Otro Producto' }, { v: 3850, f: '3850' }] }],
+  },
+};
+
+test('la respuesta de gviz se convierte en la misma grilla que una planilla', () => {
+  const filas = P.filasDeGviz(GVIZ);
+  assert.deepEqual(filas[0], ['IdProducto', 'NombreProducto', 'PrecioVenta']);
+  assert.deepEqual(filas[1], ['1878', 'Producto Ejemplo 250Gr', 11960]);
+});
+
+test('la planilla de Google pasa por el mismo detector de columnas que un xlsx', () => {
+  const filas = P.filasDeGviz(GVIZ);
+  const productos = P.filasACatalogo(filas, P.detectarEncabezado(filas));
+  assert.equal(productos.length, 2);
+  assert.deepEqual([productos[0].plu, productos[0].nombre, productos[0].precio],
+    ['1878', 'Producto Ejemplo 250Gr', 11960]);
+});
+
+test('cuando Google no manda encabezados, la primera fila hace de encabezado', () => {
+  const sinLabels = { table: { cols: [{ id: 'A', label: '' }, { id: 'B', label: '' }, { id: 'C', label: '' }],
+    rows: [{ c: [{ v: 'Codigo' }, { v: 'Descripcion' }, { v: 'Precio' }] },
+           { c: [{ v: '101' }, { v: 'Producto uno' }, { v: 1500 }] }] } };
+  const filas = P.filasDeGviz(sinLabels);
+  assert.deepEqual(filas[0], ['Codigo', 'Descripcion', 'Precio']);
+  assert.equal(P.filasACatalogo(filas, P.detectarEncabezado(filas)).length, 1);
+});
+
+test('celdas vacías y respuestas sin tabla no rompen la lectura', () => {
+  const conHuecos = { table: { cols: [{ label: 'Nombre' }, { label: 'Precio' }],
+    rows: [{ c: [{ v: 'Producto' }, null] }, { c: null }] } };
+  assert.deepEqual(P.filasDeGviz(conHuecos), [['Nombre', 'Precio'], ['Producto', ''], []]);
+  assert.throws(() => P.filasDeGviz({}), /no devolvió filas/);
+  assert.throws(() => P.filasDeGviz(null), /no devolvió filas/);
+});
+
+test('reconoce la URL de un Apps Script y la deja tal cual, con el callback', () => {
+  const base = 'https://script.google.com/macros/s/AKfycbXXXXXXXXXXXXXXXXXX/exec';
+  assert.ok(P.esUrlAppsScript(base));
+  assert.ok(!P.esUrlAppsScript('https://docs.google.com/spreadsheets/d/1AbC_dEf-123456789012345678/edit'));
+  const url = P.urlFuenteSheets(base, 'Precios', 555);
+  assert.ok(url.startsWith(base + '?callback=' + P.HANDLER_SHEETS), url);
+  assert.ok(url.includes('&hoja=Precios'), url);
+  assert.ok(url.includes('&_=555'), url);
+  // Una URL que ya trae parámetros no puede llevar un segundo "?".
+  assert.ok(P.urlFuenteSheets(base + '?x=1', '', 1).includes('exec?x=1&callback='));
+});
+
+test('un link de planilla sigue yendo por gviz', () => {
+  const url = P.urlFuenteSheets('https://docs.google.com/spreadsheets/d/1AbC_dEf-123456789012345678/edit', '', 9);
+  assert.ok(url.includes('/gviz/tq?'), url);
+});
+
+test('las filas del Apps Script se usan directo, sin pasar por el formato de gviz', () => {
+  const respuesta = {
+    generado: '2026-08-26T09:00:00.000Z', hoja: 'Precios',
+    filas: [['IdProducto', 'NombreProducto', 'PrecioVenta'], ['1878', 'Producto Ejemplo', '$ 11.960,00']],
+  };
+  const filas = P.grillaDeRespuesta(respuesta);
+  assert.deepEqual(filas[1], ['1878', 'Producto Ejemplo', '$ 11.960,00']);
+  const productos = P.filasACatalogo(filas, P.detectarEncabezado(filas));
+  assert.deepEqual([productos[0].nombre, productos[0].precio], ['Producto Ejemplo', 11960]);
+});
+
+test('una respuesta sin filas ni tabla se rechaza, venga de donde venga', () => {
+  assert.throws(() => P.grillaDeRespuesta({ filas: [] }), /no devolvió filas/);
+  assert.throws(() => P.grillaDeRespuesta({}), /no devolvió filas/);
 });

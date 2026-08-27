@@ -4,6 +4,7 @@ const {
   CATALOGO_MODULOS,
   hashPassword, verifyPassword,
   moduloDeRuta, puedeAcceder,
+  crearUsuario, eliminarUsuario, autenticar, cambiarPasswordPropia,
 } = require('../auth');
 
 // ── hashPassword / verifyPassword ───────────────────────────────────────────────
@@ -106,5 +107,31 @@ test('CATALOGO_MODULOS es un array no vacío con la forma esperada por entrada',
   for (const m of CATALOGO_MODULOS) {
     assert.strictEqual(typeof m.ref, 'string');
     assert.ok(Array.isArray(m.rutasHtml));
+  }
+});
+
+
+// ── cambiarPasswordPropia ───────────────────────────────────────────────────────
+// Usa el data/usuarios.json real: crea un usuario descartable y lo borra al final.
+test('cambiarPasswordPropia exige la actual, valida la nueva y la deja aplicada', (t) => {
+  const uname = 'tmp_test_pw';
+  crearUsuario({ usuario: uname, nombre: 'Temporal test', password: 'vieja123', modulos: [] });
+  try {
+    // La contraseña actual equivocada no cambia nada.
+    assert.throws(() => cambiarPasswordPropia(uname, 'incorrecta', 'nueva12345'), /actual no es correcta/);
+    assert.ok(autenticar(uname, 'vieja123'), 'la vieja sigue sirviendo tras el intento fallido');
+
+    // La nueva corta se rechaza (misma regla que el alta).
+    assert.throws(() => cambiarPasswordPropia(uname, 'vieja123', 'corta'), /al menos 8/);
+
+    // Repetir la misma contraseña no cuenta como cambio.
+    assert.throws(() => cambiarPasswordPropia(uname, 'vieja123', 'vieja123'), /distinta de la actual/);
+
+    // Camino feliz: queda la nueva y la vieja deja de servir.
+    assert.strictEqual(cambiarPasswordPropia(uname, 'vieja123', 'nueva12345'), true);
+    assert.ok(autenticar(uname, 'nueva12345'), 'la nueva contraseña autentica');
+    assert.strictEqual(autenticar(uname, 'vieja123'), null, 'la vieja ya no autentica');
+  } finally {
+    eliminarUsuario(require('../auth').buscarPorUsuario(uname).id);
   }
 });
