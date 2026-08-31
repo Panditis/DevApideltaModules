@@ -178,7 +178,7 @@ function renderTabla() {
         ${obligatorio ? '<span class="cuenta">· calzado de seguridad obligatorio</span>' : ''}
       </td></tr>` +
       gente.map(e => `
-      <tr>
+      <tr class="js-fila${e.destacado ? ' destacada' : ''}" data-id="${esc(e.id)}" title="Click para resaltar la fila">
         <td>
           <div class="nombre">${esc(e.nombre)}</div>
           <div class="sub">${esc(e.puesto || 'Sin puesto')}</div>
@@ -417,6 +417,16 @@ $('#tbody').addEventListener('click', async ev => {
     const e = doc.empleados.find(x => x.id === borrar.dataset.id);
     if (!e || !confirm(`¿Eliminar a ${e.nombre} del relevamiento?`)) return;
     await cargar(`${API}/empleados/${encodeURIComponent(e.id)}`, { method: 'DELETE' }, 'Empleado eliminado.');
+    return;
+  }
+  // Click en cualquier otro lado de la fila: resalta / des-resalta para todos.
+  const fila = ev.target.closest('.js-fila');
+  if (fila) {
+    const e = doc.empleados.find(x => x.id === fila.dataset.id);
+    if (!e) return;
+    fila.classList.toggle('destacada');           // feedback inmediato; render() lo confirma
+    await cargar(`${API}/empleados/${encodeURIComponent(e.id)}/destacado`,
+      { method: 'PATCH', body: JSON.stringify({ destacado: !e.destacado }) });
   }
 });
 

@@ -105,3 +105,10 @@ test('el relevamiento real de data/ pasa la normalización sin perder empleados'
   assert.ok(norm.prendas.length > 0);
   assert.ok(norm.empleados.every(e => e.id && e.nombre));
 });
+
+test('normalizarEmpleado conserva el resaltado sólo cuando viene en true', () => {
+  const prendas = [{ id: 'campera', nombre: 'Campera' }];
+  assert.equal(normalizarEmpleado({ nombre: 'Ana', destacado: true }, prendas).destacado, true);
+  assert.equal(normalizarEmpleado({ nombre: 'Ana' }, prendas).destacado, false);
+  assert.equal(normalizarEmpleado({ nombre: 'Ana', destacado: 'si' }, prendas).destacado, false);
+});
