@@ -425,7 +425,7 @@
     <input id="escaner" placeholder="Pasá el lector por el código de barras…" autocomplete="off" inputmode="numeric">
     <div id="avisoEscaner" class="chico">Lee códigos de barras comunes y tickets de balanza (calcula el peso y el precio solo).</div>
     <div class="fila" style="margin-top:9px">
-      <button class="verde mini" id="btnPromo">Agregar promo</button>
+      <button class="verde mini" id="btnPromo">Agregar articulo de promo</button>
     </div>
   </section>
 
@@ -1060,7 +1060,7 @@ function resolverEscaneo(codigo, indice, opciones) {
 }
 
 // ── Totales y pagos ───────────────────────────────────────────────────────────
-const MEDIOS_PAGO = ['EFECTIVO', 'DÉBITO', 'CRÉDITO', 'TRANSFERENCIA', 'QR / MERCADO PAGO', 'CUENTA CORRIENTE'];
+const MEDIOS_PAGO = ['EFECTIVO', 'TARJETA', 'QR NAVE', 'QR OPEPAY BBVA', 'QR BNA','TRANSFERENCIA', 'CUENTA CORRIENTE'];
 
 // La promo (60000) y el 1 son genéricos: no tienen un precio propio en el catálogo, lo
 // pone quien cobra. Todo lo demás se cobra al precio del catálogo y no se toca desde la
@@ -1338,13 +1338,23 @@ const grabar = (k, v) => {
 
 const CFG_DEF = {
   servidores: 'http://servidorapidelta.local:8080, http://servidorapidelta.local:8081',
-  sheets: '',        // link o id de la planilla de Google publicada
+  // Planilla de precios que exporta SiGA, subida a Drive. Viene puesta de fábrica para que
+  // una caja recién repartida tenga precios aunque no llegue al servidor. Para cambiarla sin
+  // romper el link: en Drive, "Administrar versiones" → "Subir nueva versión" (el id es del
+  // archivo, no del contenido; arrastrar el .xlsx nuevo crearía otro archivo con otro id).
+  sheets: 'https://docs.google.com/spreadsheets/d/1MzXBO7HZ6O1NBfyTo_C-sSuyMa4oYDYo/edit',
   sheetsHoja: '',    // nombre de la hoja; vacío = la primera
   archivoRed: '\\\\192.168.1.26\\Apidelta\\7- SISTEMA\\1-Precios\\PreciosFacturador\\precios.js',
   mapeo: null,
 };
 
-let cfg = Object.assign({}, CFG_DEF, leer(K.cfg, {}));
+// Un campo vacío en lo guardado no es una elección del usuario: es el default de una versión
+// anterior, de cuando ese campo todavía no tenía valor. Se descarta para que un default nuevo
+// llegue también a las cajas que ya habían grabado su configuración.
+// ponytail: el precio es que vaciar un campo ya no lo desactiva; para eso se cambia el valor.
+const cfgGuardada = leer(K.cfg, {});
+for (const k of Object.keys(cfgGuardada)) if (cfgGuardada[k] === '') delete cfgGuardada[k];
+let cfg = Object.assign({}, CFG_DEF, cfgGuardada);
 let catalogo = leer(K.cat, null);              // { generado, origen, productos: [] }
 // El catálogo que viaja adentro del archivo se usa cuando no hay nada guardado, o cuando
 // es más nuevo que lo guardado: así una copia recién repartida no arranca con precios

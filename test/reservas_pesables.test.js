@@ -1350,3 +1350,205 @@ test('el verbo de cada tipo coincide con el sentido del traslado', () => {
     assert.ok(fila && fila.includes(`verbo: '${esperado}'`), `"${t}" no dice "${esperado}"`);
   }
 });
+
+
+// ── Que se aparta por cada producto del resumen (pedidos_web.html) ────────────────
+// La decision vive inline en el HTML (no hay modulo que requerir), asi que se extrae por
+// nombre y se evalua sola, igual que en test/distribucion_formula_granel.test.js.
+//
+// Lo que se estaba escapando: un producto de rubro "Pesables Fraccionado" ("Trigo Sarraceno
+// 1Kg") baja a granel SIN pasar por un intermedio "X Pedido", asi que se quedaba sin producto
+// de carga, no calificaba como pesable y la reserva apartaba el terminado — que la sala
+// todavia no habia fraccionado. Ahora los rubros pesables apartan el granel siempre, y el
+// producto de carga cae en el producto mismo cuando no hay intermedio.
+
+function cargarApartado() {
+  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const ini = html.indexOf('function apartadoDeProducto(');
+  assert.notStrictEqual(ini, -1, 'no se encontro apartadoDeProducto en pedidos_web.html');
+  let nivel = 0, visto = false, i;
+  for (i = ini; i < html.length; i++) {
+    if (html[i] === '{') { nivel++; visto = true; }
+    else if (html[i] === '}') { nivel--; if (visto && nivel === 0) break; }
+  }
+  assert.ok(visto && nivel === 0, 'no se pudo cerrar apartadoDeProducto');
+  return new Function('return ' + html.slice(ini, i + 1))();
+}
+
+test('un pesable fraccionado sin intermedio aparta el granel y se carga contra si mismo', () => {
+  // Arrange: "Trigo Sarraceno 1Kg", rubro Pesables Fraccionado, formula directa al granel.
+  const apartadoDeProducto = cargarApartado();
+
+  // Act
+  const r = apartadoDeProducto({
+    IdProducto: '5012', NombreProducto: 'Trigo Sarraceno 1Kg',
+    NombreRubro: 'Pesables Fraccionado',
+    GranelPlu: '7050', GranelNombre: 'Trigo Sarraceno DEPOSITO GRANEL',
+    KgPorUnidad: 1, GranelCount: 1,
+  }, null);
+
+  // Assert: pesable, contra el granel, con el producto del pedido como producto de carga.
+  assert.strictEqual(r.esPesable, true);
+  assert.strictEqual(r.pluCarga, '5012');
+  assert.strictEqual(r.nombreCarga, 'Trigo Sarraceno 1Kg');
+  assert.strictEqual(r.kgPorUnidad, 1);
+  assert.strictEqual(r.sinFormula, false);
+  // Y la linea que sale hacia SiGA aparta kg de granel, no unidades del terminado.
+  assert.deepStrictEqual(
+    lineaAApartar({ esPesable: r.esPesable, pluGranel: '7050', nombreGranel: 'Trigo Sarraceno DEPOSITO GRANEL',
+                    kgPorUnidad: r.kgPorUnidad, unidades: 12 }),
+    { plu: '7050', nombre: 'Trigo Sarraceno DEPOSITO GRANEL', cantidad: 12 });
+});
+
+test('un pesable de venta directa con intermedio sigue cargando contra el "X Pedido"', () => {
+  // Arrange: el fallback no puede pisar el intermedio cuando /api/resumen si lo resolvio.
+  const apartadoDeProducto = cargarApartado();
+
+  // Act
+  const r = apartadoDeProducto({
+    IdProducto: '3011', NombreProducto: 'Azucar Impalpable 5Kg',
+    NombreRubro: 'Pesables Venta Directa',
+    CargaPlu: '4022', CargaNombre: 'Azucar Impalpable PEDIDOS',
+    GranelPlu: '7001', KgPorUnidad: 5, GranelCount: 1,
+  }, null);
+
+  // Assert
+  assert.strictEqual(r.esPesable, true);
+  assert.strictEqual(r.pluCarga, '4022');
+  assert.strictEqual(r.nombreCarga, 'Azucar Impalpable PEDIDOS');
+});
+
+test('un pesable sin granel se reserva por su mismo codigo, en unidades', () => {
+  // Arrange: sin granel no hay nada que descomponer.
+  const apartadoDeProducto = cargarApartado();
+
+  // Act
+  const r = apartadoDeProducto({
+    IdProducto: '5099', NombreProducto: 'Mix Raro 1Kg',
+    NombreRubro: 'Pesables Fraccionado', GranelCount: 1,
+  }, null);
+
+  // Assert: por su codigo, no pesable y con el boton habilitado.
+  assert.strictEqual(r.esPesable, false);
+  assert.strictEqual(r.pluRes, '5099');
+  assert.strictEqual(r.pluCarga, '');
+  assert.strictEqual(r.sinFormula, false);
+});
+
+test('un pesable con varios graneles es una receta y se reserva por su mismo codigo', () => {
+  // Arrange: 7477 "G. Crunch" tiene 17 graneles; apartar el mas pesado seria reservar avena.
+  const apartadoDeProducto = cargarApartado();
+
+  // Act
+  const r = apartadoDeProducto({
+    IdProducto: '7477', NombreProducto: 'G. Crunch 1Kg',
+    NombreRubro: 'Pesables Fraccionado',
+    GranelPlu: '7020', KgPorUnidad: 0.5, GranelCount: 17,
+  }, null);
+
+  // Assert
+  assert.strictEqual(r.esPesable, false);
+  assert.strictEqual(r.pluRes, '7477');
+});
+
+test('un Almacen Bulto/Caja sigue reservando su componente de formula, en unidades', () => {
+  // Arrange: el camino historico no se toca.
+  const apartadoDeProducto = cargarApartado();
+
+  // Act
+  const r = apartadoDeProducto({
+    IdProducto: '9001', NombreProducto: 'Fideos Bulto', NombreRubro: 'Almacen Bultos',
+    IdComponente: '9002', GranelCount: 1,
+  }, 'Fideos Paquete');
+
+  // Assert
+  assert.strictEqual(r.esPesable, false);
+  assert.strictEqual(r.pluRes, '9002');
+  assert.strictEqual(r.nombreRes, 'Fideos Paquete');
+  assert.strictEqual(r.sinFormula, false);
+});
+
+test('un Bulto sin componente queda inerte con su motivo', () => {
+  // Arrange: no hay stock que apartar, el SQL le da 0.
+  const apartadoDeProducto = cargarApartado();
+
+  // Act
+  const r = apartadoDeProducto({
+    IdProducto: '9500', NombreProducto: 'Cosa Bulto', NombreRubro: 'Almacen Bultos', GranelCount: 1,
+  }, null);
+
+  // Assert
+  assert.strictEqual(r.sinFormula, true);
+  assert.match(r.motivoInerte, /no hay nada que apartar/);
+});
+
+// ── Como se lee cada linea en el carrito y en el modal (pedidos_web.html) ───────────
+// El modal de confirmacion listaba `l.nombre`, que es LO APARTADO (el componente de formula en
+// un Almacen Bulto/Caja, el producto mismo en un pesable) y no el producto del pedido: el
+// operador leia nombres que no eran los que habia agregado. Ahora los dos usan la misma
+// descripcion, con el producto del pedido arriba y lo que se aparta abajo.
+
+function cargarDescripcion() {
+  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const src = ['descripcionLineaRes', 'unidadLineaRes'].map(nombre => {
+    const ini = html.indexOf(`function ${nombre}(`);
+    assert.notStrictEqual(ini, -1, `no se encontro ${nombre} en pedidos_web.html`);
+    let nivel = 0, visto = false, i;
+    for (i = ini; i < html.length; i++) {
+      if (html[i] === '{') { nivel++; visto = true; }
+      else if (html[i] === '}') { nivel--; if (visto && nivel === 0) break; }
+    }
+    assert.ok(visto && nivel === 0, `no se pudo cerrar ${nombre}`);
+    return html.slice(ini, i + 1);
+  }).join('\n');
+  // numFmt es del navegador; se le pasa uno equivalente para poder evaluar la funcion sola.
+  return new Function(`
+    const numFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
+    ${src}
+    return { descripcionLineaRes, unidadLineaRes };
+  `)();
+}
+
+test('un pesable se describe con el producto del pedido arriba y el granel abajo', () => {
+  // Arrange
+  const { descripcionLineaRes, unidadLineaRes } = cargarDescripcion();
+  const linea = { pluPedido: '5012', nombrePedido: 'Trigo Sarraceno 1Kg',
+                  plu: '5012', nombre: 'Trigo Sarraceno 1Kg', esPesable: true,
+                  nombreGranel: 'Trigo Sarraceno DEPOSITO GRANEL', cantidad: 12, mult: 1 };
+
+  // Act
+  const d = descripcionLineaRes(linea);
+
+  // Assert: el titulo es lo que el cliente pidio, no el granel.
+  assert.strictEqual(d.titulo, 'Trigo Sarraceno 1Kg');
+  assert.strictEqual(d.sub, 'reserva: Trigo Sarraceno DEPOSITO GRANEL · en kg');
+  assert.strictEqual(unidadLineaRes(linea), ' kg');
+});
+
+test('un Almacen Bulto/Caja muestra el pedido arriba y su componente abajo', () => {
+  // Arrange: sin esto el modal mostraba solo "Fideos Paquete", que no es lo que se agrego.
+  const { descripcionLineaRes, unidadLineaRes } = cargarDescripcion();
+  const linea = { pluPedido: '9001', nombrePedido: 'Fideos Bulto',
+                  plu: '9002', nombre: 'Fideos Paquete', mult: 12, cantidad: 24 };
+
+  // Act
+  const d = descripcionLineaRes(linea);
+
+  // Assert
+  assert.strictEqual(d.titulo, 'Fideos Bulto');
+  assert.strictEqual(d.sub, 'reserva: Fideos Paquete (×12)');
+  assert.strictEqual(unidadLineaRes(linea), ' u.');
+});
+
+test('un producto que se aparta por su mismo codigo muestra el PLU', () => {
+  // Arrange
+  const { descripcionLineaRes } = cargarDescripcion();
+
+  // Act
+  const d = descripcionLineaRes({ pluPedido: '4100', nombrePedido: 'Yerba 1Kg',
+                                  plu: '4100', nombre: 'Yerba 1Kg', mult: 1, cantidad: 6 });
+
+  // Assert
+  assert.strictEqual(d.titulo, 'Yerba 1Kg');
+  assert.strictEqual(d.sub, 'PLU 4100');
+});

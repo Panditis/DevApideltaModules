@@ -52,6 +52,28 @@
   .tab-cfg-toggle:hover{background:rgba(255,255,255,.15);color:#fff}
   .tab-cfg-toggle.cfg-visible{color:var(--amarillo)}
   .cfg-tab{display:none}
+  .tab-cfg-toggle.alerta{position:relative}
+  .tab-cfg-toggle.alerta::after{content:'';position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 2px var(--bg)}
+  .tipo-toast{display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:250;max-width:min(620px,94vw);
+    padding:12px 16px;border:2px solid #b45309;background:linear-gradient(180deg,#fbbf24,#f59e0b);border-radius:14px;
+    box-shadow:0 10px 28px rgba(180,83,9,.45);font-size:13.5px;font-weight:600;color:#3b2406;align-items:center;gap:12px;
+    animation:tipoPulse 2.6s ease-in-out infinite}
+  .tipo-toast.on{display:flex}
+  @keyframes tipoPulse{0%,100%{box-shadow:0 10px 28px rgba(180,83,9,.45)}50%{box-shadow:0 10px 34px rgba(180,83,9,.75)}}
+  .tipo-toast-ico{font-size:18px;line-height:1}
+  .tipo-toast-n{display:none;font-size:15px}
+  .tipo-toast-txt{flex:1}
+  .tipo-toast-ver{background:#3b2406;color:#fde68a;border:none;border-radius:8px;padding:6px 12px;font-family:var(--body);
+    font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .tipo-toast-ver:hover{background:#241503}
+  .tipo-toast-x{background:none;border:none;color:#3b2406;font-size:20px;font-weight:700;line-height:1;cursor:pointer;padding:0 4px;opacity:.7}
+  .tipo-toast-x:hover{opacity:1}
+  /* Minimizada: queda una pastilla con el contador, nunca desaparece del todo. */
+  .tipo-toast.min{left:auto;right:16px;transform:none;padding:8px 12px;border-radius:999px;cursor:pointer;gap:7px}
+  .tipo-toast.min .tipo-toast-txt,.tipo-toast.min .tipo-toast-ver,.tipo-toast.min .tipo-toast-x{display:none}
+  .tipo-toast.min .tipo-toast-n{display:inline}
+  .tipo-sin td{background:rgba(245,158,11,.10)!important}
+  .tipo-sin td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
   .cfg-tabs-on .cfg-tab{display:flex}
 
   /* ── Meta / controls ── */
@@ -475,12 +497,19 @@
       <button class="tab cfg-tab" data-tab="forzar-pesable">Siempre Pesable <span class="pill" id="pillForzarPesable">+</span></button>
       <button class="tab cfg-tab" data-tab="ocultar-pesable">Ocultar Pesable <span class="pill" id="pillOcultarPesable">🚫</span></button>
       <button class="tab cfg-tab" data-tab="restringidos">Restringidos <span class="pill" id="pillRestringidos">🔒</span></button>
-      <button class="tab cfg-tab" data-tab="tipo-almacen">Tipo Almacén</button>
+      <button class="tab cfg-tab" data-tab="tipo-almacen">Tipo Almacén <span class="pill pill-nov" id="pillTipoSin" style="display:none">0</span></button>
       <button class="tab cfg-tab" data-tab="tabs-config">Tabs</button>
       <button class="tab-cfg-toggle" id="cfgToggle" onclick="toggleCfgTabs()" title="Mostrar/ocultar configuración">⚙</button>
       <div id="ink"></div>
     </div>
   </header>
+  <div id="tipo-alerta" class="tipo-toast" onclick="if(this.classList.contains('min'))expandirAlertaTipo()">
+    <span class="tipo-toast-ico">⚠</span>
+    <b id="tipo-alerta-n" class="tipo-toast-n"></b>
+    <span id="tipo-alerta-txt" class="tipo-toast-txt"></span>
+    <button class="tipo-toast-ver" onclick="event.stopPropagation();verSinAsignar()">Asignar ahora</button>
+    <button class="tipo-toast-x" onclick="event.stopPropagation();minimizarAlertaTipo()" title="Minimizar">–</button>
+  </div>
 
   <div class="meta" id="meta">
     <div class="controls">
@@ -813,7 +842,7 @@
       </div>
       <div class="modal-body">
         <table>
-          <thead><tr><th class="l" style="width:72px">PLU</th><th class="l">Producto fraccionado</th><th style="width:100px">kg/unidad</th></tr></thead>
+          <thead><tr><th class="l" style="width:72px">PLU</th><th class="l">Producto fraccionado</th><th style="width:100px" id="mfp-cant-th">kg/unidad</th></tr></thead>
           <tbody id="mfp-tbody"></tbody>
         </table>
         <div id="mfp-empty" class="state" style="display:none">Sin fórmula registrada para este producto.</div>
@@ -1061,6 +1090,7 @@ async function cargar() {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ('HTTP ' + r.status));
     datos = await r.json();
     almacenTipo = tr;
+    actualizarAlertaTipo();
     renderSucDropA(); actualizarSucBtnA(); buildTipoFilter(); construirHead(); render();
     document.getElementById('sucFiltros').style.display = 'flex';
     document.getElementById('tipoFiltro').style.display = 'flex';
@@ -1593,23 +1623,61 @@ function renderTipoAlmacen() {
   let rows = datos.filter(r => !q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q));
   if (tipoTabFiltro === 'sin') rows = rows.filter(r => !(almacenTipo[String(r.plu)]));
   else if (tipoTabFiltro) rows = rows.filter(r => (almacenTipo[String(r.plu)] || '') === tipoTabFiltro);
-  const sinAsignar = datos.filter(r => !almacenTipo[String(r.plu)]).length;
   document.getElementById('tipo-tbody').innerHTML = rows.map(r => {
     const cur = almacenTipo[String(r.plu)] || '';
-    return `<tr>
+    return `<tr class="${cur ? '' : 'tipo-sin'}">
       <td class="l">${r.plu}</td>
-      <td class="l" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nombre||''}</td>
+      <td class="l" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nombre||''}${nuevoTag(r)}${cur ? '' : '<span title="Sin depósito asignado" style="background:rgba(245,158,11,.18);color:#b45309;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid rgba(245,158,11,.5);font-size:10px;margin-left:5px">SIN ASIGNAR</span>'}</td>
       <td><select data-plu="${r.plu}" onchange="guardarTipo(this)" style="font-family:var(--body);font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);color:var(--text);outline:none">
         ${opts.map(t=>`<option value="${t}"${cur===t?' selected':''}>${t||'Sin asignar'}</option>`).join('')}
       </select></td>
     </tr>`;
   }).join('');
+  const sinAsignar = actualizarAlertaTipo();
   document.getElementById('tipo-resumen').textContent =
     `${rows.length} productos${sinAsignar ? ` · ${sinAsignar} sin asignar` : ''}`;
+}
+// Avisa (pill en la tab, punto en el engranaje y banner) que hay productos sin depósito asignado.
+// Los "nuevos" se cuentan aparte porque son los que recién entraron y nadie asignó todavía.
+function actualizarAlertaTipo() {
+  const sin = datos.filter(r => !almacenTipo[String(r.plu)]);
+  const nuevos = sin.filter(r => r.esNuevo).length;
+  const pill = document.getElementById('pillTipoSin');
+  if (pill) { pill.textContent = sin.length; pill.style.display = sin.length ? '' : 'none'; }
+  const cfg = document.getElementById('cfgToggle');
+  if (cfg) cfg.classList.toggle('alerta', sin.length > 0);
+  const box = document.getElementById('tipo-alerta'), txt = document.getElementById('tipo-alerta-txt');
+  if (box && txt) {
+    box.classList.toggle('on', sin.length > 0);
+    // Minimizada sigue visible como pastilla con el contador: sólo se va cuando no queda ninguno.
+    box.classList.toggle('min', sessionStorage.getItem('tipoAlertaMin') === '1');
+    box.title = `${sin.length} producto${sin.length !== 1 ? 's' : ''} sin depósito asignado`;
+    document.getElementById('tipo-alerta-n').textContent = sin.length;
+    txt.innerHTML = `<b>${sin.length}</b> producto${sin.length !== 1 ? 's' : ''} sin depósito asignado` +
+      (nuevos ? ` — <b>${nuevos}</b> ${nuevos !== 1 ? 'son nuevos' : 'es nuevo'}` : '');
+  }
+  return sin.length;
+}
+function minimizarAlertaTipo() {
+  sessionStorage.setItem('tipoAlertaMin', '1');
+  document.getElementById('tipo-alerta').classList.add('min');
+}
+function expandirAlertaTipo() {
+  sessionStorage.removeItem('tipoAlertaMin');
+  document.getElementById('tipo-alerta').classList.remove('min');
+}
+function verSinAsignar() {
+  minimizarAlertaTipo();
+  tipoTabFiltro = 'sin';
+  document.querySelectorAll('#tipoTabFiltros .suc-tog').forEach(b => b.classList.toggle('on', b.dataset.tf === 'sin'));
+  if (!cfgVisible) toggleCfgTabs();   // la tab es de config: si estan ocultas, mostrarlas
+  activarTab('tipo-almacen');
 }
 async function guardarTipo(sel) {
   const plu = sel.dataset.plu, tipo = sel.value;
   almacenTipo[String(plu)] = tipo;
+  sel.closest('tr')?.classList.toggle('tipo-sin', !tipo);
+  actualizarAlertaTipo();
   await fetch('/api/distribucion/almacen-tipo', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ plu, tipo })
@@ -2152,6 +2220,10 @@ function _initEnvioEditListeners() {
 
 // ════════════════ MODAL REGISTRO PRODUCCIÓN ════════════════
 let _mrPlu = null, _mrEditId = null, _mrCantFormula = 1, _mrGranel = null, _mrNombreGranel = '', _mrNombre = '';
+// Componentes granel de la fórmula del producto abierto: [{granel, nombreGranel, factor}].
+// Sólo se llena cuando la fórmula tiene más de un granel (mixes, bandejas): ahí no hay un
+// único código para el campo Granel y el detalle se guarda en el registro como graneles[].
+let _mrGraneles = [];
 let _mrDesdeOrden = false;   // true → los datos del registro salen de la orden, no de datosP
 // Línea de orden que originó esta apertura, para marcarla como 'cargado' al guardar. Van juntos con
 // _mrDesdeOrden y se resetean en TODAS las otras aperturas (tabla lateral, edición, actividad) y al
@@ -2200,7 +2272,9 @@ function _buildModalForm(vals) {
     ${vals.aviso ? `<div class="reg-aviso">⚠ ${escHtml(vals.aviso)}</div>` : ''}
     ${vals.nota ? `<div class="reg-nota">📝 ${escHtml(vals.nota)}</div>` : ''}
     <div class="reg-field"><label>Producto</label><span class="val">${escHtml(vals.plu)} – ${escHtml(vals.nombre)}</span></div>
-    <div class="reg-field"><label>Granel</label><span class="val">${escHtml(vals.granel||'–')}${vals.nombreGranel?' – '+escHtml(vals.nombreGranel):''}</span></div>
+    <div class="reg-field"><label>Granel</label>${_mrGraneles.length > 1
+      ? `<button type="button" class="frac-expand-btn" style="padding:4px 10px;font-size:12px" onclick="modalGranelesFormula()">ƒ ver ${_mrGraneles.length} componentes</button>`
+      : `<span class="val">${escHtml(vals.granel||'–')}${vals.nombreGranel?' – '+escHtml(vals.nombreGranel):''}</span>`}</div>
     ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
     <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${escHtml(vals.cantFraccionada||'')}" min="0"></div>
     <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${escHtml(granelCons)}" min="0"></div>
@@ -2220,18 +2294,63 @@ function _buildModalForm(vals) {
     }
   };
 }
-async function abrirModalRegistro(plu, force) {
+// ── Fórmula viva de Siga ──
+// La fórmula que trae /api/distribucion/pesables sale de la planilla importada, así que todo
+// producto que no esté en ella (mixes, bandejas, altas nuevas) llega con granel null y fórmula 1.
+// Cuando pasa eso se consulta el BOM de Siga, que sí lo tiene. Se usa /api/formula porque
+// devuelve el rubro de cada componente y con eso se descarta el packaging.
+const _esPackagingComp = c => /embalaj|envase|tapa|etiquet/i.test(String((c && c.Rubro) || ''));
+async function granelesDeSiga(plu) {
+  const d = await fetch(`/api/formula?codigo=${encodeURIComponent(plu)}&cantidad=1`)
+    .then(r => r.json()).catch(() => ({}));
+  const porPlu = new Map();
+  for (const c of (d.componentes || [])) {
+    if (_esPackagingComp(c)) continue;
+    const k = String(c.IdComponente);
+    const factor = +c.CantPorUnidad || 0;
+    // Un componente repetido en la fórmula se queda con la cantidad mayor, igual que el MAX()
+    // de /api/distribucion/pedido-formula.
+    if (!porPlu.has(k) || porPlu.get(k).factor < factor) porPlu.set(k, { granel: k, nombreGranel: c.Componente || '', factor });
+  }
+  return [...porPlu.values()];
+}
+// Vuelca los componentes de Siga sobre la forma que espera el modal (un granel + una fórmula).
+// Con varios graneles no hay un único código: se listan todos y la fórmula es la suma de kg
+// por unidad, para que el consumo sugerido siga siendo el total real de granel.
+function _mrAplicarGraneles(base, comps) {
+  _mrGraneles = comps.length > 1 ? comps : [];
+  if (comps.length === 1) return { ...base, granel: comps[0].granel, nombreGranel: comps[0].nombreGranel, cantFormula: comps[0].factor || 1 };
+  if (comps.length > 1) return { ...base, granel: null,
+    nombreGranel: comps.map(c => c.nombreGranel).join(' + '),
+    cantFormula: +comps.reduce((sum, c) => sum + c.factor, 0).toFixed(4) };
+  return base;
+}
+// Detalle por granel para guardar en el registro: reparte el consumo total que cargó el operario
+// en proporción a la fórmula. Con un solo granel no hay nada que repartir (undefined → no se manda).
+function _mrGranelesRegistro(cant, totalConsumido) {
+  if (_mrGraneles.length < 2) return undefined;
+  const teorico = cant * _mrGraneles.reduce((s, g) => s + g.factor, 0);
+  const escala = teorico > 0 ? totalConsumido / teorico : 0;
+  return _mrGraneles.map(g => ({ granel: g.granel, nombreGranel: g.nombreGranel,
+    granelConsumido: +(cant * g.factor * escala).toFixed(3) }));
+}
+async function abrirModalRegistro(plu) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   const seq = _mrNuevaApertura();
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
+  _mrGraneles = [];
   let r = datosP.find(x => String(x.plu) === String(plu));
   if (!r) {
     const ped = datosPed.find(x => String(x.plu) === String(plu));
     if (!ped) return;
-    const formula = await fetch(`/api/distribucion/pedido-formula/${plu}`).then(x => x.json()).catch(() => []);
+    const comps = await granelesDeSiga(plu);
     if (seq !== _mrOpenSeq) return;   // se abrió otro modal mientras se pedía la fórmula
-    const comp = formula[0] || {};
-    r = { plu: ped.plu, nombre: ped.nombre, granel: comp.plu || null, nombreGranel: comp.nombre || '', cantFormula: comp.cantidad || 1, D: null };
+    r = _mrAplicarGraneles({ plu: ped.plu, nombre: ped.nombre, granel: null, nombreGranel: '', cantFormula: 1, D: null }, comps);
+  } else if (r.granel == null) {
+    // La planilla no tiene la fórmula de este producto: se resuelve contra Siga.
+    const comps = await granelesDeSiga(plu);
+    if (seq !== _mrOpenSeq) return;
+    r = _mrAplicarGraneles(r, comps);
   }
   _mrPlu = String(plu); _mrEditId = null;
   _mrCantFormula = r.cantFormula || 1;
@@ -2250,6 +2369,7 @@ async function abrirModalRegistro(plu, force) {
 async function abrirModalRegistroDesdeOrden(linea, ordenId) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   if (!linea) return;
+  _mrGraneles = [];
   // Token de apertura: la resolución es async, así que si mientras tanto se abre otro modal
   // (otra línea, la tabla lateral, edición, actividad) esta apertura se descarta y no pisa nada.
   const seq = _mrNuevaApertura();
@@ -2307,7 +2427,14 @@ async function abrirModalRegistroDesdeOrden(linea, ordenId) {
 function abrirModalEdicion(reg) {
   _mrNuevaApertura();
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
+  // Se reconstruyen los factores del registro guardado para que, si se corrige el consumo
+  // total, el detalle por granel se reparta de nuevo en la misma proporción.
+  const gsReg = Array.isArray(reg.graneles) ? reg.graneles : [];
+  _mrGraneles = gsReg.length > 1 && reg.cantFraccionada > 0
+    ? gsReg.map(g => ({ granel: g.granel, nombreGranel: g.nombreGranel, factor: (+g.granelConsumido || 0) / reg.cantFraccionada }))
+    : [];
   _mrPlu = String(reg.plu); _mrEditId = reg.id;
+  _mrNombre = reg.nombre || '';
   _mrCantFormula = reg.cantFormula || 1;
   document.getElementById('modal-registro').querySelector('h3').textContent = 'Editar Registro';
   _buildModalForm({ plu: reg.plu, nombre: reg.nombre, granel: reg.granel, nombreGranel: reg.nombreGranel,
@@ -2322,6 +2449,7 @@ function abrirModalActividad() {
   _mrNuevaApertura();
   _mrActividadMode = true;
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
+  _mrGraneles = [];
   _mrPlu = 'ACT'; _mrEditId = null; _mrCantFormula = 0; _mrGranel = null; _mrNombreGranel = ''; _mrNombre = 'Actividad';
   const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}">${e.nombre}</option>`).join('');
   document.getElementById('mr-form').innerHTML = `
@@ -2359,14 +2487,20 @@ async function guardarRegistro() {
     hasta: document.getElementById('mr-hasta').value,
     observacion: document.getElementById('mr-obs').value,
   };
+  // El detalle por granel sólo existe cuando la fórmula tiene más de uno; se manda también al
+  // editar para que el reparto siga al consumo total corregido.
+  const gsDetalle = _mrGranelesRegistro(cant, granelCons);
+  if (gsDetalle) payload.graneles = gsDetalle;
   if (!_mrEditId) {
     const r = _mrDesdeOrden ? null : datosP.find(x => String(x.plu) === _mrPlu);
     const emp = payload.empleado;
     Object.assign(payload, {
       plu: _mrPlu,
-      nombre: r ? r.nombre : _mrNombre,
-      granel: r ? r.granel : _mrGranel,
-      nombreGranel: r ? r.nombreGranel : _mrNombreGranel,
+      // Granel y nombre salen del estado del modal: datosP los trae de la planilla importada,
+      // que para los productos sin fórmula ahí los tiene vacíos y pisaría lo resuelto en Siga.
+      nombre: _mrNombre || (r ? r.nombre : ''),
+      granel: _mrGranel,
+      nombreGranel: _mrNombreGranel,
       cantFormula: _mrCantFormula,
       cantSolicitada: r ? r.D : null,
       fecha: new Date().toISOString().slice(0,10),
@@ -2411,6 +2545,7 @@ async function guardarRegistro() {
 function cerrarModalRegistro() {
   _mrNuevaApertura();   // descarta cualquier apertura async todavía en vuelo
   _mrActividadMode = false;
+  _mrGraneles = [];
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
@@ -2895,7 +3030,7 @@ document.getElementById('qPed').oninput = renderPedidos;
 document.getElementById('tabla-ped').addEventListener('click', e => {
   if (e.target.closest('button')) return;
   const tr = e.target.closest('tr[data-plu]');
-  if (tr) abrirModalRegistro(tr.dataset.plu, true);
+  if (tr) abrirModalRegistro(tr.dataset.plu);
 });
 document.getElementById('ord-lista').addEventListener('click', e => {
   const btnCerrar = e.target.closest('button[data-cerrar]');
@@ -2931,6 +3066,20 @@ async function cargarProduccion() {
     renderProduccion();
   } catch(e) { st.className='state err'; st.innerHTML=errHTML(e.message); }
 }
+// Componentes de un registro guardado: graneles[] cuando la fórmula tiene varios, y si no el
+// campo simple de siempre. Mismo criterio que usa carga-produccion.html.
+function _grnList(r) {
+  if (Array.isArray(r.graneles) && r.graneles.length) return r.graneles;
+  if (r.granel || r.nombreGranel || r.granelConsumido) return [{ granel: r.granel, nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }];
+  return [];
+}
+// Celda de granel: con varios componentes los nombres no entran ni dicen cuánto lleva cada
+// uno, así que va un botón al detalle.
+function _celdaGranel(r) {
+  const gs = _grnList(r);
+  if (gs.length > 1) return `<button type="button" class="frac-expand-btn" onclick="modalGranelesRegistro(${r.id})">ƒ ver ${gs.length} componentes</button>`;
+  return `<span style="color:var(--faint);font-size:11px">${r.granel||''} </span>${r.nombreGranel||''}`;
+}
 function renderProduccion() {
   const tb = document.getElementById('prod-tabla');
   const emp = document.getElementById('prod-empty');
@@ -2940,7 +3089,7 @@ function renderProduccion() {
     <td class="l" style="font-size:11px;color:var(--faint)">${r.desde||''}${r.hasta?' – '+r.hasta:''}</td>
     <td class="l"><span style="color:var(--faint);font-size:11px">${r.plu} </span>${r.nombre||''}</td>
     <td>${fmt(r.cantFraccionada)}</td>
-    <td class="l"><span style="color:var(--faint);font-size:11px">${r.granel||''} </span>${r.nombreGranel||''}</td>
+    <td class="l">${_celdaGranel(r)}</td>
     <td>${fmt(r.granelConsumido)}</td>
     <td class="l" style="font-size:11px">${r.empleado||''}</td>
     <td class="l" style="font-size:11px;font-family:monospace">${r.lote||''}</td>
@@ -2987,16 +3136,18 @@ async function eliminarRegistro(id) {
 // CSV se pide a SiGA el nombre real de cada código y sólo se cae al guardado si no aparece.
 async function lineasCSVProduccion(registros) {
   const filas = registros.filter(r => String(r.plu) !== 'ACT');
-  const codigos = [...new Set(filas.flatMap(r => [r.plu, r.granel]).filter(Boolean).map(String))];
+  const codigos = [...new Set(filas.flatMap(r => [r.plu, ..._grnList(r).map(g => g.granel)]).filter(Boolean).map(String))];
   let nombreSiga = {};
   try {
     if (codigos.length) nombreSiga = await fetch(`/api/productos/nombres?plus=${encodeURIComponent(codigos.join(','))}`).then(r => r.json()) || {};
   } catch(_) {}
   const esc = s => String(s||'').replace(/"/g,'""');
   const nom = (cod, fallback) => esc(nombreSiga[String(cod)] || fallback || '');
+  // Una línea por componente consumido: los productos con fórmula de varios graneles (mixes,
+  // bandejas) tienen que descargar cada insumo por separado, no el total contra un solo código.
   return filas.flatMap(r => [
     `1;${r.plu};"${nom(r.plu, r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
-    `1;${r.granel||''};"${nom(r.granel, r.nombreGranel)}";${-(+(Math.abs(r.granelConsumido||0)).toFixed(2))};1;${r.granel||''}`
+    ..._grnList(r).map(g => `1;${g.granel||''};"${nom(g.granel, g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`)
   ]);
 }
 async function exportarCSVProduccion() {
@@ -3281,6 +3432,7 @@ async function modalFormulaPedido(plu, nombre) {
   const tbody = document.getElementById('mfp-tbody');
   const empty = document.getElementById('mfp-empty');
   document.getElementById('mfp-title').textContent = `Fórmula — ${nombre || plu}`;
+  document.getElementById('mfp-cant-th').textContent = 'kg/unidad';
   tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--faint)">Cargando…</td></tr>';
   empty.style.display = 'none';
   modal.classList.add('open');
@@ -3296,6 +3448,33 @@ async function modalFormulaPedido(plu, nombre) {
       `<tr><td class="l plu">${r.plu}</td><td class="l">${r.nombre||''}</td><td>${Number(r.cantidad||0).toFixed(4)}</td></tr>`
     ).join('');
   } catch(e) { tbody.innerHTML = `<tr><td colspan="3" style="color:var(--error)">${e.message}</td></tr>`; }
+}
+// Modal de detalle de componentes. Lo comparten la fórmula del modal de carga (kg por unidad)
+// y los registros ya guardados de la tab Producción (kg consumidos), así que el encabezado de
+// la columna de cantidad lo pone cada uno. filas = [{plu, nombre, cantidad}].
+function modalDetalleComponentes(titulo, encabezadoCant, filas) {
+  const total = filas.reduce((s, f) => s + (+f.cantidad || 0), 0);
+  document.getElementById('mfp-title').textContent = titulo;
+  document.getElementById('mfp-cant-th').textContent = encabezadoCant;
+  document.getElementById('mfp-empty').style.display = 'none';
+  document.getElementById('mfp-tbody').innerHTML = filas.map(f =>
+    `<tr><td class="l plu">${escHtml(f.plu || '')}</td><td class="l">${escHtml(f.nombre || '')}</td>`
+    + `<td>${(+f.cantidad || 0).toFixed(4)}</td></tr>`).join('')
+    + `<tr><td></td><td class="l"><b>Total</b></td><td><b>${total.toFixed(4)}</b></td></tr>`;
+  document.getElementById('modal-formula-ped').classList.add('open');
+}
+// Detalle de la fórmula cuando tiene varios graneles. Se pinta desde _mrGraneles, que ya se
+// resolvió al abrir el modal de registro: no hace falta volver a pedirle la fórmula al server.
+function modalGranelesFormula() {
+  modalDetalleComponentes(`Fórmula — ${_mrNombre || _mrPlu}`, 'kg/unidad',
+    _mrGraneles.map(g => ({ plu: g.granel, nombre: g.nombreGranel, cantidad: g.factor })));
+}
+// Detalle de un registro ya guardado: acá las cantidades son los kg que se consumieron.
+function modalGranelesRegistro(id) {
+  const r = prodRegistros.find(x => x.id === id);
+  if (!r) return;
+  modalDetalleComponentes(`Componentes — ${r.nombre || r.plu}`, 'kg consumidos',
+    _grnList(r).map(g => ({ plu: g.granel, nombre: g.nombreGranel, cantidad: g.granelConsumido })));
 }
 // delegación: click en tabla pesables
 document.getElementById('tabla-p').addEventListener('click', e => {

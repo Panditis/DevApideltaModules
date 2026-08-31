@@ -52,7 +52,7 @@ const CATALOGO_MODULOS = [
   // RRHH es un módulo contenedor: su href apunta al sub-hub y de ahí cuelgan sus
   // submódulos (por ahora, el relevamiento de ropa de trabajo). Un solo permiso
   // para toda el área: sumar un submódulo es sumar su ruta acá.
-  { ref: 'rrhh',                titulo: 'RRHH',                     icon: 'users',          href: '/rrhh',               rutasHtml: ['/rrhh', '/rrhh/relevamiento-ropa'], apiPrefijos: ['/api/rrhh'],          defaultRequiereAuth: true },
+  { ref: 'rrhh',                titulo: 'RRHH',                     icon: 'users',          href: '/rrhh',               rutasHtml: ['/rrhh', '/rrhh/relevamiento-ropa', '/rrhh/ausencias'], apiPrefijos: ['/api/rrhh'],          defaultRequiereAuth: true },
   { ref: 'admin',               titulo: 'Centro de control',        icon: 'shield',         href: '/admin',              rutasHtml: ['/admin'],              apiPrefijos: ['/api/admin'],                     defaultRequiereAuth: true, soloAdmin: true },
 ];
 

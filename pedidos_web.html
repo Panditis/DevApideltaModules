@@ -2399,6 +2399,26 @@ function actualizarBarraRes(){
   $('res-bar').style.display = (carritoRes.length && tabActiva==='reservas' && subResActiva==='carrito') ? '' : 'none';
 }
 
+// Cómo se lee una línea del carrito: arriba el producto del PEDIDO (lo que el cliente pidió) y
+// abajo qué se aparta realmente en SiGA, que casi nunca es el mismo producto — el Almacén
+// Bulto/Caja aparta su componente de fórmula, y el pesable, kilos de granel.
+// La usan la tabla del carrito y el modal de confirmación: el modal listaba sólo `l.nombre`
+// (que es LO APARTADO) y el operador veía nombres que no eran los de su pedido.
+// Devuelve texto plano; cada uso lo escapa.
+function descripcionLineaRes(l){
+  var titulo = String(l.nombrePedido || l.nombre || '');
+  var sub = l.esPesable
+    ? 'reserva: ' + String(l.nombreGranel || l.nombre || '') + ' · en kg'
+    : (String(l.plu) === String(l.pluPedido)
+        ? 'PLU ' + String(l.plu)
+        : 'reserva: ' + String(l.nombre || '') + (l.mult > 1 ? ' (×' + numFmt.format(l.mult) + ')' : ''));
+  return { titulo: titulo, sub: sub };
+}
+
+// Unidad de la cantidad de una línea: el pesable se aparta en kilos de granel y el resto en
+// unidades. Sin esto el modal mostraba "12" a secas para 12 kg de granel.
+function unidadLineaRes(l){ return l.esPesable ? ' kg' : ' u.'; }
+
 function renderCarritoRes(){
   var grupos = gruposCarritoRes();
   $('badge-res').textContent = carritoRes.length + ' línea' + (carritoRes.length!==1 ? 's' : '');
@@ -2414,20 +2434,10 @@ function renderCarritoRes(){
   $('tabla-res-carrito').innerHTML = grupos.map(function(g){
     var medida = medidaCarritoRes(g.items.map(function(it){ return it.linea; }));
     var filas = g.items.map(function(it){
-      var l = it.linea;
-      // Debajo del producto del pedido, qué se aparta realmente. Cuando son distintos (los
-      // Almacén Bulto/Caja) se muestra el componente y la equivalencia, igual que la columna
-      // Stock Central del resumen.
-      // El pesable aparta granel medido en kg, no unidades del producto del pedido: se aclara
-      // cuál es el granel y que la columna editable está en kilos.
-      var sub = l.esPesable
-        ? 'reserva: ' + escHtml(l.nombreGranel || l.nombre) + ' · en kg'
-        : (String(l.plu) === String(l.pluPedido)
-            ? 'PLU ' + escHtml(l.plu)
-            : 'reserva: ' + escHtml(l.nombre) + (l.mult > 1 ? ' (×' + numFmt.format(l.mult) + ')' : ''));
+      var l = it.linea, d = descripcionLineaRes(l);
       return '<tr>'
-        +'<td><strong>'+escHtml(l.nombrePedido||l.nombre)+'</strong>'
-        +'<div style="font-size:.68rem;color:#9a9a92">'+sub+'</div></td>'
+        +'<td><strong>'+escHtml(d.titulo)+'</strong>'
+        +'<div style="font-size:.68rem;color:#9a9a92">'+escHtml(d.sub)+'</div></td>'
         +'<td class="num">'+numFmt.format(l.pedido||0)+'</td>'
         +'<td class="num"><input type="number" min="0" step="any" value="'+escHtml(String(l.cantidad))+'"'
           +' data-idx="'+it.idx+'" data-act="cant-res"'
@@ -2512,7 +2522,10 @@ function abrirModalReservaMay(idCliente){
   $('res-modal-forzar').checked = false;
   $('res-modal-lineas').innerHTML = '<table><thead><tr><th>Producto</th><th class="num">A reservar</th></tr></thead><tbody>'
     + lineas.map(function(l){
-        return '<tr><td>'+escHtml(l.nombre)+'</td><td class="num">'+numFmt.format(l.cantidad)+'</td></tr>';
+        var d = descripcionLineaRes(l);
+        return '<tr><td><strong>'+escHtml(d.titulo)+'</strong>'
+          +'<div style="font-size:.68rem;color:#9a9a92">'+escHtml(d.sub)+'</div></td>'
+          +'<td class="num">'+numFmt.format(l.cantidad)+unidadLineaRes(l)+'</td></tr>';
       }).join('')
     + '</tbody></table>';
   $('res-overlay').classList.remove('hidden');
@@ -3196,6 +3209,69 @@ function cargarResumen(){
   });
 }
 
+// Qué se aparta en SiGA por un producto del resumen, y si hay algo que apartar.
+// Vive fuera del render para poder testearla: test/reservas_pesables.test.js la extrae de este
+// HTML por nombre y la evalua contra filas de mentira.
+// @param {object} p fila de /api/resumen
+// @param {string|null} comp NombreComponente de la fórmula de un nivel (sólo Bulto/Caja)
+// @returns {{pluRes:string, nombreRes:string, pluCarga:string, nombreCarga:string,
+//   esPesable:boolean, kgPorUnidad:number, sinFormula:boolean, motivoInerte:string}}
+function apartadoDeProducto(p, comp){
+  // La mayoría de los productos de pedidos son de rubro Almacén Bulto/Caja, que no tienen stock
+  // propio — su stock ES el de su componente de fórmula. Se reserva ese componente, con la misma
+  // equivalencia que usa la columna Stock Central (unidades × CantidadPorBulto, ver scChip).
+  // Sin componente se reserva el producto mismo.
+  var pluRes    = comp ? String(p.IdComponente) : String(p.IdProducto);
+  var nombreRes = comp ? comp : p.NombreProducto;
+  // Pesable: el bulto llega al granel por el intermedio "X Pedido", que no tiene stock
+  // propio. Lo que se aparta es el granel, en kg. `GranelPlu` lo resuelve /api/resumen.
+  // El producto de carga es el intermedio "X Pedido". Sale de CargaPlu, que /api/resumen
+  // resuelve con la fórmula; IdComponente es el fallback histórico y sólo cubre los
+  // Bulto/Caja (su CTE filtra por ese rubro y se saltea los pesables de venta directa).
+  var pluCarga = String(p.CargaPlu || p.IdComponente || '');
+  var nombreCarga = p.CargaPlu ? String(p.CargaNombre || '') : (comp || '');
+  // Hay productos que NO se descomponen: tienen stock propio y se reservan por su mismo
+  // código, sin mirar la fórmula. Son dos casos:
+  //  · rubro "Almacen" a secas — producto terminado. Se compara el nombre EXACTO porque
+  //    "Almacen Bultos/Cajas" es otro rubro y ése sí se reserva por su componente.
+  //  · más de un granel en la fórmula: es una receta (7477 "G. Crunch" tiene 17), y apartar
+  //    el ingrediente más pesado —lo que elegía bomGranelPorPlu— reservaba avena por una
+  //    granola en vez del producto que el cliente pidió.
+  var rubroTxt = String(p.NombreRubro || '').trim().toUpperCase();
+  var stockPropio = rubroTxt === 'ALMACEN' || Number(p.GranelCount || 1) > 1;
+  // Rubros pesables ("Pesables Venta Directa", "Pesables Fraccionado"): lo que se aparta es
+  // SIEMPRE el granel, en kg, tenga o no intermedio "X Pedido". Los fraccionados no lo tienen
+  // —se arman directo desde el granel—, así que su producto de carga es el producto mismo: es
+  // lo que la sala fracciona y mete al depósito de reserva. Sin este fallback quedaban en venta
+  // directa y la reserva apartaba el terminado, que la sala todavía no había fraccionado.
+  // Sin granel no hay nada que descomponer: se sigue reservando por su mismo código.
+  if(rubroTxt.indexOf('PESABLES') === 0 && !pluCarga && p.GranelPlu){
+    pluCarga = String(p.IdProducto);
+    nombreCarga = String(p.NombreProducto || '');
+  }
+  // Un pesable necesita los TRES: pedido, carga y granel. Sin la carga no se puede armar el
+  // trío y el POST de reserva lo rechaza con 400 — antes se marcaba pesable igual, mirando
+  // sólo el granel, y el operador se comía el error recién al confirmar.
+  var esPesable = !stockPropio && !!p.GranelPlu && !!pluCarga && String(p.GranelPlu) !== pluCarga;
+  var kgPorUnidad = Number(p.KgPorUnidad) || 0;
+  // Un pesable cuyo granel no resolvio: el componente de un nivel es el intermedio
+  // "X Pedido", que no tiene stock propio. Reservarlo emitiria un movimiento que SiGA deja
+  // en rojo. Se trata igual que el Bulto/Caja sin formula: boton inerte y motivo a la vista.
+  var pesableSinGranel = !p.GranelPlu && /PEDIDO/i.test(comp || '');
+  // Bulto/Caja sin componente: no hay stock que apartar (el SQL le da 0). Se avisa y no
+  // se deja agregar, en vez de mandar un movimiento que SiGA va a rechazar o dejar en rojo.
+  var sinFormula = (!comp && /BULTO|CAJA/i.test(p.NombreRubro || '')) || pesableSinGranel;
+  // El motivo viaja aparte del flag: los dos casos se ven igual (botón inerte) pero se
+  // arreglan distinto, y "Sin fórmula" a secas es engañoso en el del pesable, que SÍ tiene
+  // fórmula — lo que le falta es el granel al final de la cadena.
+  var motivoInerte = !sinFormula ? ''
+    : pesableSinGranel ? 'El componente es el intermedio "… PEDIDOS", que no tiene stock propio, y la fórmula no baja a un granel.'
+    : 'No tiene componente de fórmula con stock propio: no hay nada que apartar.';
+  return { pluRes: pluRes, nombreRes: nombreRes, pluCarga: pluCarga, nombreCarga: nombreCarga,
+           esPesable: esPesable, kgPorUnidad: kgPorUnidad,
+           sinFormula: sinFormula, motivoInerte: motivoInerte };
+}
+
 function renderResumen(data){
   if(!data.length){
     $('resumen-cont').innerHTML='<div class="state state-empty" style="padding:40px 0;text-align:center">Sin datos para los filtros seleccionados.</div>';
@@ -3231,68 +3307,23 @@ function renderResumen(data){
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Fraccionar</button>';
-      // Qué se aparta en SiGA: la mayoría de los productos de pedidos son de rubro Almacén
-      // Bulto/Caja, que no tienen stock propio — su stock ES el de su componente de fórmula.
-      // Se reserva ese componente, con la misma equivalencia que usa la columna Stock Central
-      // (unidades × CantidadPorBulto, ver scChip). Sin componente se reserva el producto mismo.
-      var pluRes    = comp ? String(p.IdComponente) : String(p.IdProducto);
-      var nombreRes = comp ? comp : p.NombreProducto;
-      // Pesable: el bulto llega al granel por el intermedio "X Pedido", que no tiene stock
-      // propio. Lo que se aparta es el granel, en kg. `GranelPlu` lo resuelve /api/resumen.
-      // El producto de carga es el intermedio "X Pedido". Sale de CargaPlu, que /api/resumen
-      // resuelve con la fórmula; IdComponente es el fallback histórico y sólo cubre los
-      // Bulto/Caja (su CTE filtra por ese rubro y se saltea los pesables de venta directa).
-      var pluCarga = String(p.CargaPlu || p.IdComponente || '');
-      var nombreCarga = p.CargaPlu ? String(p.CargaNombre || '') : (comp || '');
-      // Hay productos que NO se descomponen: tienen stock propio y se reservan por su mismo
-      // código, sin mirar la fórmula. Son dos casos:
-      //  · rubro "Almacen" a secas — producto terminado. Se compara el nombre EXACTO porque
-      //    "Almacen Bultos/Cajas" es otro rubro y ése sí se reserva por su componente.
-      //  · más de un granel en la fórmula: es una receta (7477 "G. Crunch" tiene 17), y apartar
-      //    el ingrediente más pesado —lo que elegía bomGranelPorPlu— reservaba avena por una
-      //    granola en vez del producto que el cliente pidió.
-      var rubroTxt = String(p.NombreRubro || '').trim().toUpperCase();
-      var stockPropio = rubroTxt === 'ALMACEN' || Number(p.GranelCount || 1) > 1;
-      // Un pesable necesita los TRES: pedido, carga y granel. Sin la carga no se puede armar el
-      // trío y el POST de reserva lo rechaza con 400 — antes se marcaba pesable igual, mirando
-      // sólo el granel, y el operador se comía el error recién al confirmar.
-      var esPesable = !stockPropio && !!p.GranelPlu && !!pluCarga && String(p.GranelPlu) !== pluCarga;
-      var kgPorUnidad = Number(p.KgPorUnidad) || 0;
-      // Un pesable cuyo granel no resolvio: el componente de un nivel es el intermedio
-      // "X Pedido", que no tiene stock propio. Reservarlo emitiria un movimiento que SiGA deja
-      // en rojo. Se trata igual que el Bulto/Caja sin formula: boton inerte y motivo a la vista.
-      var pesableSinGranel = !p.GranelPlu && /PEDIDO/i.test(comp || '');
-      // OJO: "tiene granel pero no intermedio" NO es un caso roto. Son los fraccionados
-      // ("Trigo Sarraceno 1Kg" y compañía): su fórmula baja a granel porque de ahí se fraccionan,
-      // pero se venden como producto terminado y tienen stock propio. Van por venta directa —que
-      // es como se reservaban antes de existir el circuito pesable— y por eso alcanza con que
-      // `esPesable` exija la carga. Los que sí quedan sin nada que apartar (Bulto/Caja sin
-      // componente) los sigue agarrando la primera condición de `sinFormula`.
-      // Bulto/Caja sin componente: no hay stock que apartar (el SQL le da 0). Se avisa y no
-      // se deja agregar, en vez de mandar un movimiento que SiGA va a rechazar o dejar en rojo.
-      var sinFormula = (!comp && /BULTO|CAJA/i.test(p.NombreRubro || '')) || pesableSinGranel;
-      // El motivo viaja aparte del flag: los dos casos se ven igual (botón inerte) pero se
-      // arreglan distinto, y "Sin fórmula" a secas es engañoso en el del pesable, que SÍ tiene
-      // fórmula — lo que le falta es el granel al final de la cadena.
-      var motivoInerte = !sinFormula ? ''
-        : pesableSinGranel ? 'El componente es el intermedio "… PEDIDOS", que no tiene stock propio, y la fórmula no baja a un granel.'
-        : 'No tiene componente de fórmula con stock propio: no hay nada que apartar.';
+      var ap = apartadoDeProducto(p, comp);
       var btnRes = !RESERVAS_HABILITADAS ? '' : '<button type="button" class="res-add" data-act="add-res"'
         +' data-plu="'+att(p.IdProducto)+'"'
         +' data-nombre="'+att(p.NombreProducto)+'"'
-        +' data-plures="'+att(pluRes)+'"'
-        +' data-nombreres="'+att(nombreRes)+'"'
+        +' data-plures="'+att(ap.pluRes)+'"'
+        +' data-nombreres="'+att(ap.nombreRes)+'"'
         +' data-mult="'+att(mult)+'"'
         +' data-idcli="'+att(cliId)+'"'
         +' data-cliente="'+att(c.nombre)+'"'
-        +' data-sinformula="'+(sinFormula ? '1' : '')+'"'
-        +' data-motivo="'+att(motivoInerte)+'"'
-        +' data-pesable="'+(esPesable ? '1' : '')+'"'
+        +' data-sinformula="'+(ap.sinFormula ? '1' : '')+'"'
+        +' data-motivo="'+att(ap.motivoInerte)+'"'
+        +' data-pesable="'+(ap.esPesable ? '1' : '')+'"'
         +' data-plugranel="'+att(p.GranelPlu||'')+'"'
         +' data-nombregranel="'+att(p.GranelNombre||'')+'"'
-        +' data-plucarga="'+att(pluCarga)+'"'
-        +' data-nombrecarga="'+att(nombreCarga)+'"'
-        +' data-kgunidad="'+att(kgPorUnidad)+'"'
+        +' data-plucarga="'+att(ap.pluCarga)+'"'
+        +' data-nombrecarga="'+att(ap.nombreCarga)+'"'
+        +' data-kgunidad="'+att(ap.kgPorUnidad)+'"'
         +' data-cant="'+att(p.TotalUnidades)+'">+ Reservar</button>';
       return '<tr'+rowCls(sc, p.TotalUnidades, mult)+'>'
         +'<td>'+prodCell+'</td>'
