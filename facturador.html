@@ -1918,7 +1918,7 @@ function pedidoActual() {
   };
 }
 
-$('#btnGuardarPedido').onclick = () => {
+$('#btnGuardarPedido').onclick = async () => {
   if (!lineas.length) return avisoModal('El pedido no tiene productos.');
   // Lo que falte cubrir se carga solo con el medio que quedó elegido en el selector: en el
   // mostrador el pago es casi siempre uno, y preguntar antes de guardar sólo agregaba un
@@ -1932,7 +1932,13 @@ $('#btnGuardarPedido').onclick = () => {
   lineas = []; pagos = []; guardarBorrador();
   $('#cliente').value = ''; $('#descuento').value = '0';
   pintarLineas(); pintarGuardados();
-  avisar('Pedido ' + p.numero + ' guardado.', 'av-ok');
+  // El ticket se arma con el pedido ya guardado y la impresión sale recién al cerrar el
+  // aviso: si se llama antes, el diálogo de impresión tapa el modal y el vendedor no ve
+  // la confirmación de que quedó guardado.
+  await okModal('Pedido ' + p.numero + ' guardado.', 'Ticket guardado');
+  if (!await confirmarModal('¿Imprimir el ticket del pedido ' + p.numero + '?', 'Imprimir', 'Imprimir')) return;
+  pintarTicket(p);
+  window.print();
 };
 
 function comoTexto(p) {

@@ -953,7 +953,10 @@ test('el listado de tickets vive en un modal propio, debajo de los avisos', () =
 test('guardar cierra el pago solo con el medio elegido, sin preguntar', () => {
   const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
   const cuerpo = src.slice(src.indexOf("$('#btnGuardarPedido').onclick"), src.indexOf('function comoTexto('));
-  assert.ok(!cuerpo.includes('confirmarModal'), 'guardar no puede frenar con una pregunta');
+  // Nada puede frenar el guardado: la unica pregunta permitida es la de imprimir, y sale
+  // recien despues de persistir el pedido.
+  const hastaGrabar = cuerpo.slice(0, cuerpo.indexOf('grabar(K.ped, pedidos)'));
+  assert.ok(!hastaGrabar.includes('confirmarModal'), 'guardar no puede frenar con una pregunta');
   assert.ok(cuerpo.includes("pagos = [...pagos, { medio: $('#medioPago').value, importe: falta }]"),
     'el faltante tiene que cerrarse con el medio de pago seleccionado');
   // El importe sale del saldo, no del total: un pago parcial ya cargado no se duplica.
@@ -961,6 +964,22 @@ test('guardar cierra el pago solo con el medio elegido, sin preguntar', () => {
   const s = P.saldoPagos(1000, [{ medio: 'EFECTIVO', importe: 400 }]);
   assert.equal(s.falta, 600);
   assert.equal(P.saldoPagos(1000, [{ medio: 'EFECTIVO', importe: 1000 }]).falta, 0);
+});
+
+test('guardado confirma primero y recien despues ofrece imprimir el ticket', () => {
+  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const cuerpo = src.slice(src.indexOf("$('#btnGuardarPedido').onclick"), src.indexOf('function comoTexto('));
+  const iGrabar   = cuerpo.indexOf('grabar(K.ped, pedidos)');
+  const iAviso    = cuerpo.indexOf('okModal(');
+  const iPregunta = cuerpo.indexOf('confirmarModal(');
+  const iImprimir = cuerpo.indexOf('window.print()');
+  assert.ok(iGrabar >= 0 && iAviso > iGrabar, 'el aviso de guardado va despues de persistir');
+  assert.ok(iPregunta > iAviso, 'la pregunta de impresion va despues del aviso');
+  assert.ok(iImprimir > iPregunta, 'imprimir va despues de confirmar');
+  // Si el vendedor cancela, no se imprime nada.
+  assert.ok(cuerpo.includes('if (!await confirmarModal(') && cuerpo.includes(')) return;'),
+    'cancelar la impresion tiene que cortar el flujo antes de window.print()');
+  assert.ok(cuerpo.includes('pintarTicket(p)'), 'el ticket se arma con el pedido ya guardado');
 });
 
 test('el lector se puede dejar sin barra y el cartel se achica hasta entrar', () => {
