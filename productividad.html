@@ -389,6 +389,19 @@ td.pag button:disabled{opacity:.35;cursor:default}
         produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
         pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
       <div class="graf" id="graf-prod"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Desglose por semana y por día</h2>
+        <div class="segment chico" id="det-prod" role="tablist" aria-label="Nivel de detalle">
+          <button type="button" data-u="dia" aria-selected="true">Día por semana</button>
+          <button type="button" data-u="semana" aria-selected="false">Semana por mes</button>
+        </div>
+      </div>
+      <p class="desc">Cada período abierto, con lo que se produjo adentro. <b>Día por semana</b> lo
+        separa en jornadas; <b>Semana por mes</b> muestra de una todos los registros del período en
+        una sola tabla, para ordenarlos y compararlos entre sí sin abrir jornada por jornada.</p>
       <!-- La lista período por período se pliega entera: son decenas de tarjetas y empujaban al
            resto del tablero fuera de la pantalla. El gráfico de arriba queda siempre visible. -->
       <details class="dia plegable">
@@ -588,6 +601,19 @@ td.pag button:disabled{opacity:.35;cursor:default}
         produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
         pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
       <div class="graf" id="graf-hist"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Desglose por semana y por día</h2>
+        <div class="segment chico" id="det-hist" role="tablist" aria-label="Nivel de detalle">
+          <button type="button" data-u="dia" aria-selected="true">Día por día</button>
+          <button type="button" data-u="semana" aria-selected="false">Todo junto</button>
+        </div>
+      </div>
+      <p class="desc">Cada período abierto, con lo que se produjo adentro. <b>Día por día</b> lo
+        separa en jornadas; <b>Todo junto</b> muestra de una todos los registros del período en
+        una sola tabla, para ordenarlos y compararlos entre sí sin abrir jornada por jornada.</p>
       <!-- La lista período por período se pliega entera: son decenas de tarjetas y empujaban al
            resto del tablero fuera de la pantalla. El gráfico de arriba queda siempre visible. -->
       <details class="dia plegable">
@@ -826,6 +852,9 @@ const COLS_ROLES = [
 ];
 // Detalle de un día: una fila por lote. Ya no tiene columna de fecha porque vive dentro del
 // desplegable de su jornada.
+// Los mismos lotes, pero con la fecha adelante: en la tabla de todo el período los renglones
+// vienen de días distintos y sin la fecha no se ubican.
+const colsHistConFecha = () => [{ k: 'fecha', t: 'Fecha', html: f => escHtml(dm(f.fecha)) }, ...COLS_HIST];
 const COLS_HIST = [
   { k: 'producto', t: 'Producto', clave: true },
   { k: 'plu', t: 'PLU' },
@@ -1088,7 +1117,8 @@ const VISTAS = {
 };
 for (const V of Object.values(VISTAS)) {
   Object.assign(V, { datos: null, ref: null, opciones: null, unidad: 'semana', unidadCmp: 'semana',
-                     filtro: { tipo: '', valor: '' }, plu: '' });
+                     // 'dia' abre el período en jornadas; 'semana', en una sola tabla con todo.
+                     detalle: 'dia', filtro: { tipo: '', valor: '' }, plu: '' });
 }
 const $v = (V, base) => $(`${base}-${V.suf}`);
 const periodosV = (V, unidad) => ((unidad === 'mes' ? V.datos.porMes : V.datos.porSemana) || []);
@@ -1230,6 +1260,10 @@ function pintarPeriodosV(V) {
   const horasPersDe = p => Object.keys(horasPersDia)
     .filter(f => f >= p.desde && f <= p.hasta)
     .reduce((s, f) => s + horasPersDia[f], 0);
+  // Lo que cae dentro del período, sin pasar por las jornadas: es lo que ve el modo "todo junto".
+  const enPeriodo = (p, f) => f >= p.desde && f <= p.hasta;
+  const lotesDe = p => diasDe(p).slice().reverse().flatMap(f => porFecha.get(f) || []);
+  const tareasDe = p => (V.datos.tareas || []).filter(t => enPeriodo(p, t.fecha));
 
   cont.innerHTML = lista.map((p, i) => `
     <details class="dia" ${i === 0 ? 'open' : ''}>
@@ -1248,7 +1282,10 @@ function pintarPeriodosV(V) {
         </div>
       </summary>
       <div class="cuerpo">
-        ${diasDe(p).map(f => {
+        ${V.detalle !== 'semana' ? '' : `
+        <table data-todo="${escHtml(p.clave)}"></table>
+        ${!tareasDe(p).length ? '' : `<h4>Tareas extras</h4><table data-todotareas="${escHtml(p.clave)}"></table>`}`}
+        ${V.detalle === 'semana' ? '' : diasDe(p).map(f => {
           const lotes = porFecha.get(f) || [];
           const tareas = tareasFecha.get(f) || [];
           const valor = lotes.reduce((s, r) => s + (r.valor || 0), 0);
@@ -1274,13 +1311,21 @@ function pintarPeriodosV(V) {
     </details>`).join('');
 
   // Las tablas se pintan después de insertar el markup: cada una guarda su propio orden.
-  lista.forEach(p => diasDe(p).forEach(f => {
-    const t = cont.querySelector(`table[data-lotes="${f}"]`);
-    if (t) pintarTabla(t, COLS_HIST, porFecha.get(f) || []);
-    const tt = cont.querySelector(`table[data-tareas="${f}"]`);
-    // Sin la columna Fecha: la dice el renglón de la jornada que la contiene.
-    if (tt) pintarTabla(tt, COLS_TAREAS.slice(1), tareasFecha.get(f) || []);
-  }));
+  lista.forEach(p => {
+    // Todo junto: una tabla con los registros del período entero, ordenable y paginada como
+    // cualquier otra. Las jornadas quedan afuera; el renglón de arriba ya trae sus totales.
+    const t = cont.querySelector(`table[data-todo="${p.clave}"]`);
+    if (t) pintarTabla(t, colsHistConFecha(), lotesDe(p), '', 25);
+    const tt = cont.querySelector(`table[data-todotareas="${p.clave}"]`);
+    if (tt) pintarTabla(tt, COLS_TAREAS, tareasDe(p));
+    diasDe(p).forEach(f => {
+      const td = cont.querySelector(`table[data-lotes="${f}"]`);
+      if (td) pintarTabla(td, COLS_HIST, porFecha.get(f) || []);
+      const tdt = cont.querySelector(`table[data-tareas="${f}"]`);
+      // Sin la columna Fecha: la dice el renglón de la jornada que la contiene.
+      if (tdt) pintarTabla(tdt, COLS_TAREAS.slice(1), tareasFecha.get(f) || []);
+    });
+  });
 }
 
 // ── Envasado lote por lote ────────────────────────────────────────────────────
@@ -1506,6 +1551,10 @@ async function cargarVista(V, forzar) {
 for (const V of Object.values(VISTAS)) {
   $v(V, 'per').querySelectorAll('button').forEach(b => b.onclick = () => {
     V.unidad = elegirEnSegmento($v(V, 'per'), b);
+    if (V.datos) pintarPeriodosV(V);
+  });
+  $v(V, 'det').querySelectorAll('button').forEach(b => b.onclick = () => {
+    V.detalle = elegirEnSegmento($v(V, 'det'), b);
     if (V.datos) pintarPeriodosV(V);
   });
   $v(V, 'cmp-per').querySelectorAll('button').forEach(b => b.onclick = () => {
