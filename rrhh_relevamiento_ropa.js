@@ -439,3 +439,9 @@ fetch('/api/session').then(r => r.json()).then(s => {
 
 cargar(API);
 iconos();
+
+// Cambios de otras pestañas en vivo: el server manda el documento entero en cada
+// escritura y acá se reemplaza la copia local. EventSource reconecta solo si se corta.
+new EventSource(`${API}/stream`).onmessage = ev => {
+  try { doc = JSON.parse(ev.data); render(); } catch { /* evento cortado: llega el siguiente */ }
+};

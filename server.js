@@ -9607,7 +9607,18 @@ function guardarRopa(doc) {
   const limpio = rrhhRopa.normalizarDocumento(doc);
   fs.mkdirSync(path.dirname(RRHH_ROPA_PATH), { recursive: true });
   guardarJSON(RRHH_ROPA_PATH, limpio);
+  avisarRopa(limpio);
   return limpio;
+}
+// Pestañas abiertas en el relevamiento (SSE). Toda escritura pasa por guardarRopa,
+// así que avisar desde ahí alcanza para que las demás vean el cambio sin recargar.
+const ropaSuscriptores = new Set();
+function avisarRopa(doc) {
+  if (!ropaSuscriptores.size) return;
+  const evento = `data: ${JSON.stringify(conResumen(doc))}\n\n`;
+  for (const res of ropaSuscriptores) {
+    try { res.write(evento); } catch { ropaSuscriptores.delete(res); }
+  }
 }
 // El front siempre recibe el documento completo + su resumen: es chico (decenas
 // de empleados) y así no hay que reconciliar estado parcial después de cada ABM.
@@ -9628,6 +9639,18 @@ function buscarIndice(lista, id, queEs) {
 }
 
 app.get('/api/rrhh/ropa', rutaRopa(() => leerRopa()));
+
+// Stream de cambios. Manda el documento entero en cada aviso (es chico) para que el
+// front no tenga que reconciliar nada: reemplaza su copia y vuelve a pintar.
+app.get('/api/rrhh/ropa/stream', (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders();
+  res.write(`data: ${JSON.stringify(conResumen(leerRopa()))}\n\n`);
+  ropaSuscriptores.add(res);
+  // Sin tráfico, un proxy o el propio navegador cortan la conexión a los pocos minutos.
+  const latido = setInterval(() => res.write(': latido\n\n'), 25000);
+  req.on('close', () => { clearInterval(latido); ropaSuscriptores.delete(res); });
+});
 
 app.post('/api/rrhh/ropa/empleados', rutaRopa(req => {
   const doc = leerRopa();

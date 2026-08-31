@@ -1344,7 +1344,9 @@ const CFG_DEF = {
   // archivo, no del contenido; arrastrar el .xlsx nuevo crearía otro archivo con otro id).
   sheets: 'https://docs.google.com/spreadsheets/d/1MzXBO7HZ6O1NBfyTo_C-sSuyMa4oYDYo/edit',
   sheetsHoja: '',    // nombre de la hoja; vacío = la primera
-  archivoRed: '\\\\192.168.1.26\\Apidelta\\7- SISTEMA\\1-Precios\\PreciosFacturador\\precios.js',
+  // Sin ruta de fábrica: el archivo de red quedó como opción manual, no como fuente por
+  // defecto. Una caja recién repartida arranca con el catálogo embebido, el servidor y Sheets.
+  archivoRed: '',
   mapeo: null,
 };
 
