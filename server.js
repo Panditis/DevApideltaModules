@@ -9639,8 +9639,19 @@ app.post('/api/rrhh/ropa/empleados', rutaRopa(req => {
 app.put('/api/rrhh/ropa/empleados/:id', rutaRopa(req => {
   const doc = leerRopa();
   const i = buscarIndice(doc.empleados, req.params.id, 'el empleado');
-  const editado = { ...rrhhRopa.normalizarEmpleado(req.body || {}, doc.prendas), id: doc.empleados[i].id };
+  const previo = doc.empleados[i];
+  // El form de edición no manda "destacado": se conserva el que ya tenía la fila.
+  const body = { destacado: previo.destacado, ...(req.body || {}) };
+  const editado = { ...rrhhRopa.normalizarEmpleado(body, doc.prendas), id: previo.id };
   return guardarRopa({ ...doc, empleados: doc.empleados.map((e, j) => (j === i ? editado : e)) });
+}));
+
+// Resaltado de fila: estado compartido, se togglea con un click en la tabla.
+app.patch('/api/rrhh/ropa/empleados/:id/destacado', rutaRopa(req => {
+  const doc = leerRopa();
+  const i = buscarIndice(doc.empleados, req.params.id, 'el empleado');
+  const destacado = (req.body || {}).destacado === true;
+  return guardarRopa({ ...doc, empleados: doc.empleados.map((e, j) => (j === i ? { ...e, destacado } : e)) });
 }));
 
 app.delete('/api/rrhh/ropa/empleados/:id', rutaRopa(req => {

@@ -81,6 +81,8 @@ function normalizarEmpleado(empleado, prendas) {
       ? e.calzadoObligatorio
       : AREAS_CALZADO_OBLIGATORIO.includes(area),
     observaciones: texto(e.observaciones),
+    // Marca visual compartida: cualquiera puede resaltar una fila desde la tabla.
+    destacado: e.destacado === true,
     prendas: salida,
   };
 }
