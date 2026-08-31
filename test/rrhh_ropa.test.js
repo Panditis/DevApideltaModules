@@ -112,3 +112,24 @@ test('normalizarEmpleado conserva el resaltado sólo cuando viene en true', () =
   assert.equal(normalizarEmpleado({ nombre: 'Ana' }, prendas).destacado, false);
   assert.equal(normalizarEmpleado({ nombre: 'Ana', destacado: 'si' }, prendas).destacado, false);
 });
+
+// El stream vive en server.js (no se puede importar: requerirlo levanta el server
+// entero), así que se verifica el cableado sobre el fuente.
+test('el server avisa por SSE en toda escritura y suelta al suscriptor que se va', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  const bloque = src.slice(src.indexOf('const RRHH_ROPA_PATH'), src.indexOf('RRHH · Ausencias'));
+
+  // Único punto de escritura: si avisa desde acá, avisa siempre.
+  const guardar = bloque.slice(bloque.indexOf('function guardarRopa'), bloque.indexOf('function avisarRopa'));
+  assert.ok(guardar.includes('avisarRopa(limpio)'), 'guardarRopa tiene que avisar el documento ya normalizado');
+  assert.ok(!/guardarJSON\(RRHH_ROPA_PATH/.test(bloque.replace(guardar, '')),
+    'ninguna ruta puede escribir el JSON esquivando guardarRopa');
+
+  const stream = bloque.slice(bloque.indexOf("app.get('/api/rrhh/ropa/stream'"));
+  assert.ok(stream.includes("'Content-Type': 'text/event-stream'"), 'el stream tiene que declararse como SSE');
+  assert.ok(stream.indexOf('ropaSuscriptores.add(res)') < stream.indexOf("req.on('close'"),
+    'primero se suscribe y después se registra la baja');
+  const cierre = stream.slice(stream.indexOf("req.on('close'"), stream.indexOf("req.on('close'") + 200);
+  assert.ok(cierre.includes('clearInterval(latido)') && cierre.includes('ropaSuscriptores.delete(res)'),
+    'al cerrarse la conexión hay que cortar el latido y sacar al suscriptor');
+});
