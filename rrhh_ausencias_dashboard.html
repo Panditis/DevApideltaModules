@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apidelta — RRHH · Ausencias</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   APIDELTA · RRHH — Ausencias. Dos apartados con el MISMO dashboard: el
+   histórico completo y el período que se está cargando al día. La única
+   diferencia entre las dos pestañas es el panel de importación de fichajes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{ --p:#FFCC00; --on-surf:#1f2024; --outline:#d8d8d2; --bg:#f6f6f3; --oliva:#65684C; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:var(--on-surf);font-size:14px;line-height:1.55}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .35s cubic-bezier(.2,.7,.2,1) both}
+
+.app-bar{
+  background:linear-gradient(180deg,#6e7152 0%,#5d6045 100%);
+  color:#fff;min-height:60px;padding:0 24px;
+  display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:30;
+  box-shadow:0 1px 0 rgba(0,0,0,.08),0 10px 28px -16px rgba(101,104,76,.4);
+}
+.app-bar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent 0%,#FFCC00 30%,#FFCC00 70%,transparent 100%);opacity:.55}
+.app-bar-logo{height:34px;width:34px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
+.app-bar-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.02rem;font-weight:700;line-height:1.1}
+.app-bar-sub{font-size:.72rem;opacity:.72;font-weight:500}
+.status-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.12);font-size:.72rem;font-weight:600;color:#fff;text-decoration:none}
+
+.crumbs{display:flex;align-items:center;gap:7px;font-size:.8rem;color:#7d8069;flex-wrap:wrap}
+.crumbs a{color:#65684C;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+.crumbs a:hover{text-decoration:underline}
+.crumbs svg{width:14px;height:14px}
+
+h1,h2,h3{font-family:'Bricolage Grotesque','Public Sans',sans-serif}
+
+/* Pestañas del módulo */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--outline);margin-bottom:20px;flex-wrap:wrap}
+.tab{
+  appearance:none;border:0;background:none;cursor:pointer;font:inherit;font-weight:600;
+  color:#7d8069;padding:10px 16px;border-radius:10px 10px 0 0;display:inline-flex;align-items:center;gap:8px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s ease,border-color .15s ease,background .15s ease;
+}
+.tab svg{width:16px;height:16px}
+.tab:hover{color:var(--oliva);background:#efefe9}
+.tab[aria-selected="true"]{color:#171712;border-bottom-color:var(--p);background:#fff}
+.tab-badge{font-size:.68rem;font-weight:700;background:#ecece4;color:#6b6e59;border-radius:999px;padding:1px 7px}
+.tab[aria-selected="true"] .tab-badge{background:#FFF3B0;color:#5a4a00}
+
+/* Tarjetas y KPIs */
+.card{background:#fff;border:1px solid var(--outline);border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(15,17,21,.04)}
+.card-title{font-size:.78rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8a8c78;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.kpi{background:#fff;border:1px solid var(--outline);border-radius:16px;padding:16px 18px;box-shadow:0 1px 2px rgba(15,17,21,.04);position:relative;overflow:hidden}
+.kpi::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--kpi,#FFCC00)}
+.kpi-label{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8a8c78}
+.kpi-value{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.9rem;font-weight:800;line-height:1.1;color:#171712;margin-top:2px}
+.kpi-sub{font-size:.76rem;color:#6b6e59;margin-top:2px}
+
+/* Controles */
+label.f{display:flex;flex-direction:column;gap:4px;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8c78}
+input[type=date],input[type=text],input[type=number],select{
+  font:inherit;font-size:.86rem;color:#1f2024;background:#fff;border:1px solid var(--outline);
+  border-radius:9px;padding:7px 10px;min-width:0;
+}
+input:focus,select:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(255,204,0,.28)}
+.btn{
+  appearance:none;border:1px solid var(--outline);background:#fff;cursor:pointer;font:inherit;font-weight:600;font-size:.84rem;
+  color:#3f4133;border-radius:9px;padding:7px 13px;display:inline-flex;align-items:center;gap:7px;transition:background .15s ease,border-color .15s ease,transform .1s ease;
+}
+.btn svg{width:15px;height:15px}
+.btn:hover{background:#f4f4ee;border-color:#c9c9c0}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--oliva);border-color:var(--oliva);color:#fff}
+.btn-primary:hover{background:#565843;border-color:#565843}
+.btn-danger{color:#8a2f2f;border-color:#e3cccc}
+.btn-danger:hover{background:#fbf0f0;border-color:#d9b3b3}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+/* Tablas */
+.tabla-wrap{overflow:auto;max-height:520px;border:1px solid var(--outline);border-radius:12px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:.84rem}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid #eeeee7;white-space:nowrap}
+thead th{position:sticky;top:0;background:#f4f4ee;z-index:1;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6b6e59}
+tbody tr:hover{background:#fbfbf6}
+td.num,th.num{text-align:right;font-family:'Spline Sans Mono',ui-monospace,monospace}
+td.cero{color:#c3c4b6}
+.pill{display:inline-block;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#ecece4;color:#5b5e4d}
+.pill-reloj{background:#e2e4f3;color:#22254a}
+.pill-clover{background:#e3f0d2;color:#3f5e1f}
+.pill-warn{background:#fde8c8;color:#7a4a05}
+
+/* Panel de importación */
+.dropzone{
+  border:2px dashed #cfcfc6;border-radius:14px;padding:24px;text-align:center;background:#fbfbf8;
+  transition:border-color .15s ease,background .15s ease;cursor:pointer;
+}
+.dropzone:hover,.dropzone.drag{border-color:var(--p);background:#fffdf2}
+.aviso{border-radius:11px;padding:11px 14px;font-size:.85rem;display:flex;gap:9px;align-items:flex-start}
+.aviso svg{width:17px;height:17px;flex-shrink:0;margin-top:1px}
+.aviso-warn{background:#fdf4e3;color:#7a4a05;border:1px solid #f0dcb6}
+.aviso-err{background:#fbeeee;color:#8a2f2f;border:1px solid #ecd2d2}
+.aviso-ok{background:#eef6e4;color:#3f5e1f;border:1px solid #d5e6bd}
+.aviso-info{background:#eef0f8;color:#2c3057;border:1px solid #d5d9ec}
+
+.chart-box{position:relative;height:260px}
+.chart-box.alto{height:320px}
+.hidden{display:none!important}
+.spinner{width:16px;height:16px;border:2px solid #d8d8d2;border-top-color:var(--oliva);border-radius:50%;animation:giro .7s linear infinite;display:inline-block}
+@keyframes giro{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+
+<header class="app-bar">
+  <a href="/" style="display:flex;align-items:center;gap:14px;color:inherit;text-decoration:none">
+    <svg class="app-bar-logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
+      <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
+      <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
+      <text x="16" y="23" font-family="'Bricolage Grotesque',Arial,sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
+    </svg>
+    <div>
+      <div class="app-bar-title">Apidelta</div>
+      <div class="app-bar-sub">RRHH · Ausencias</div>
+    </div>
+  </a>
+  <div class="ml-auto flex items-center gap-3">
+    <span id="user-chip" class="status-chip hidden" title="Usuario conectado">
+      <i data-lucide="user" style="width:14px;height:14px"></i><span id="user-name">…</span>
+    </span>
+    <a href="/rrhh" class="status-chip" title="Volver a RRHH">
+      <i data-lucide="layout-grid" style="width:14px;height:14px"></i><span class="hidden sm:inline">RRHH</span>
+    </a>
+  </div>
+</header>
+
+<main class="max-w-[1400px] mx-auto px-4 sm:px-7 py-6 sm:py-9">
+
+  <nav class="crumbs fade-up mb-5" aria-label="Ruta">
+    <a href="/"><i data-lucide="arrow-left"></i>Centro de operaciones</a>
+    <span aria-hidden="true">/</span>
+    <a href="/rrhh">RRHH</a>
+    <span aria-hidden="true">/</span>
+    <span>Ausencias</span>
+  </nav>
+
+  <div class="flex items-start gap-4 fade-up mb-6">
+    <span class="grid place-items-center flex-shrink-0" style="width:56px;height:56px;border-radius:15px;background:#e2e4f3;color:#22254a" aria-hidden="true">
+      <i data-lucide="calendar-off" style="width:28px;height:28px"></i>
+    </span>
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-extrabold text-[#171712] tracking-tight">Ausencias y licencias</h1>
+      <p class="mt-1 text-[#5b5e4d] text-sm max-w-3xl">
+        El histórico completo del área y la carga al día de cada bajada del reloj de fichadas.
+      </p>
+    </div>
+  </div>
+
+  <div id="carga-inicial" class="aviso aviso-info fade-up mb-5">
+    <span class="spinner"></span><span>Cargando ausencias…</span>
+  </div>
+  <div id="error-inicial" class="aviso aviso-err fade-up mb-5 hidden">
+    <i data-lucide="alert-triangle"></i><span id="error-inicial-txt"></span>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="tabs" role="tablist" aria-label="Apartados de ausencias">
+      <button class="tab" role="tab" id="tab-historico" aria-selected="true" aria-controls="panel-historico" data-vista="historico">
+        <i data-lucide="history"></i>Histórico<span class="tab-badge" id="badge-historico">0</span>
+      </button>
+      <button class="tab" role="tab" id="tab-aldia" aria-selected="false" aria-controls="panel-aldia" data-vista="aldia">
+        <i data-lucide="calendar-plus"></i>Al día<span class="tab-badge" id="badge-aldia">0</span>
+      </button>
+    </div>
+
+    <!-- ── Histórico ────────────────────────────────────────────────────── -->
+    <section id="panel-historico" role="tabpanel" aria-labelledby="tab-historico">
+      <div id="dash-historico"></div>
+    </section>
+
+    <!-- ── Al día ───────────────────────────────────────────────────────── -->
+    <section id="panel-aldia" role="tabpanel" aria-labelledby="tab-aldia" class="hidden">
+
+      <div class="card mb-5">
+        <div class="card-title">
+          <span>Importar bajada de fichajes</span>
+          <span class="text-[#8a8c78] normal-case tracking-normal font-medium" style="font-size:.76rem">.xlsx exportado del reloj</span>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div>
+            <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Elegir archivo de fichajes">
+              <i data-lucide="file-spreadsheet" style="width:30px;height:30px;color:#a9ab95"></i>
+              <p class="mt-2 font-semibold text-[#3f4133]">Arrastrá el .xlsx o hacé clic para elegirlo</p>
+              <p class="text-[#8a8c78] text-[.8rem] mt-1" id="dropzone-sub">Ej.: Apidelta_Fichajes_182026a2682026.xlsx</p>
+              <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+            </div>
+          </div>
+          <div class="flex flex-col gap-3">
+            <label class="f">Año del período
+              <input type="number" id="anio" min="2000" max="2100" step="1" placeholder="2026">
+            </label>
+            <p class="text-[.78rem] text-[#8a8c78] leading-snug">
+              La planilla del reloj no trae el año, sólo día y mes. Se deduce del nombre del archivo; corregilo acá si hace falta.
+            </p>
+            <button class="btn" id="btn-reprocesar" disabled>
+              <i data-lucide="refresh-cw"></i>Reprocesar
+            </button>
+          </div>
+        </div>
+
+        <div id="import-estado" class="mt-4"></div>
+        <div id="import-codigos" class="mt-4"></div>
+        <div id="import-preview" class="mt-4"></div>
+      </div>
+
+      <div class="card mb-5">
+        <div class="card-title"><span>Importaciones guardadas</span></div>
+        <div id="importaciones"></div>
+      </div>
+
+      <div id="aldia-vacio" class="aviso aviso-info">
+        <i data-lucide="upload"></i>
+        <span>Subí una bajada de fichajes para ver su dashboard. Este apartado mide <strong>sólo el archivo cargado</strong>, no el histórico.</span>
+      </div>
+      <div id="dash-aldia" class="hidden"></div>
+    </section>
+  </div>
+
+  <footer class="mt-12 pt-6 border-t border-[#e6e6df] text-xs text-[#8a8c78]">
+    Apidelta · Subsistema local · RRHH · Ausencias
+  </footer>
+</main>
+
+<script src="/rrhh_ausencias.js"></script>
+<script src="/rrhh_ausencias_front.js"></script>
+</body>
+</html>
