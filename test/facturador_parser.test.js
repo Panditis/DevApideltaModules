@@ -736,18 +736,18 @@ test('el instructivo viaja adentro del archivo y cubre los dos temas', () => {
     'el instructivo tiene que tener las dos secciones');
 });
 
-test('el instructivo nombra las columnas que el CSV exporta de verdad', () => {
+test('el instructivo nombra las columnas que la planilla exporta de verdad', () => {
   // Un instructivo que miente sobre los nombres de columna es peor que no tenerlo: se
   // desactualiza en silencio en cuanto alguien toca el exportador.
   const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
   // El cierre se busca DESDE la cabecera: "for (const p of pedidos)" también aparece
   // antes, en el contador de numeración, y el corte quedaría vacío.
-  const desde = src.indexOf("const filas = [['Pedido'");
-  const cabecera = src.slice(desde, src.indexOf('for (const p of pedidos)', desde));
+  const desde = src.indexOf('const COLUMNAS_TICKETS = [');
+  const cabecera = src.slice(desde, src.indexOf('];', desde));
   const reales = [...cabecera.matchAll(/'([A-Z][A-Za-z]+)'/g)].map(m => m[1]);
   const sec = src.slice(src.indexOf('id="secAyuda"'), src.indexOf('<!-- ── Pedidos guardados'));
   const nombradas = [...sec.matchAll(/<code>([A-Z][A-Za-z]+)<\/code>/g)].map(m => m[1]);
-  assert.ok(reales.length >= 15, 'no se encontró la cabecera del CSV');
+  assert.ok(reales.length >= 15, 'no se encontró la cabecera de la planilla');
   for (const col of reales) {
     assert.ok(nombradas.includes(col), 'el instructivo no menciona la columna ' + col);
   }

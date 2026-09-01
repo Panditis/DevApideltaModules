@@ -73,6 +73,28 @@
         <canvas id="chArtHist-suc" height="200"></canvas></div>
       <div class="card"><h3>Artículos por ticket — por sucursal</h3><div id="tblArtSuc-suc"></div></div>
     </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Tickets por monto</h3>
+        <div class="fam-nueva">
+          <select id="montoOp" class="buscador">
+            <option value="desde">De $ o más</option>
+            <option value="hasta">De $ o menos</option>
+            <option value="exacto">De exactamente $</option>
+          </select>
+          <input type="number" id="montoValor" class="buscador" min="0" step="0.01"
+            placeholder="Monto" autocomplete="off">
+          <button class="btn" id="btnMonto">Analizar</button>
+        </div>
+      </div>
+      <p class="desc">Cuántos tickets llegan al monto que pongas y cuánto suman, sucursal por
+        sucursal. Usa el mismo rango de fechas y las mismas sucursales tildadas arriba: el
+        botón sólo vuelve a pedir este bloque, no todo el tablero.</p>
+      <div id="msgMonto"></div>
+      <div id="montoResumen" class="mini"></div>
+      <canvas id="chMontos-suc" height="160"></canvas>
+      <div id="tblMontos-suc" style="margin-top:12px"></div>
+    </div>
   </section>
 
   <!-- ── Pestaña Casa Central ───────────────────────────────────────────── -->

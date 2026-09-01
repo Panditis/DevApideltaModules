@@ -22,6 +22,7 @@ const prediccionConsumo = require('./prediccion_consumo');
 const preciosProv = require('./precios_proveedores');
 const preciosHistorico = require('./precios_historico');
 const preciosFacturador = require('./precios_facturador');
+const comprasImport = require('./compras_import');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
@@ -31,7 +32,7 @@ const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFracc
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('./ordenes_fraccionado');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
-        calcularConsumoReal, RUBRO_ALMACEN_BULTO } = require('./a8020');
+        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const familiasManuales = require('./familias_manuales');
 const productividad = require('./productividad');
@@ -53,7 +54,7 @@ const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
-const HOSTNAME = cfg.hostname || 'pedidos';
+const HOSTNAME = cfg.hostname || 'apidelta';
 
 // ── Conexión SQL Server ────────────────────────────────────────────────────────
 const SIGA_SERVER = process.env.SIGA_DB_SERVER || 'servidorapidelta\\SQLSTANDARD';
@@ -3640,8 +3641,8 @@ async function recalcularA8020() {
   // Antes se derivaba de archivos estáticos (distribucion_listas/pesables_listas): productos nuevos o
   // sin ventas en la ventana quedaban invisibles en a8020 aunque distribución sí los mostrara (p.ej. PLU 5738,
   // rubro Almacen sin ventas + ausente del snapshot viejo → no aparecía ni recalculando).
-  const activosRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
-    FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro
+  const activosRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro, p.NombreProducto, m.NombreMarca
+    FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro LEFT JOIN Marcas m ON m.IdMarca=p.IdMarca
     WHERE p.Activo=1`);
   const rubroActivo = {};   // plu → rubro Siga (semilla de rubroDePlu; evita re-consultar todo el universo)
   for (const r of activosRows) rubroActivo[String(r.IdProducto)] = r.NombreRubro || null;
@@ -3651,7 +3652,10 @@ async function recalcularA8020() {
     ...(edAlm.siemprePesable || []).map(Number),
   ]);
   const bootstrapSet = new Set(activosRows.map(r => Number(r.IdProducto)));
-  const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
+  // Productos propios (marca/nombre Apidelta + mixes de la casa): llevan boost sobre el nivel calculado.
+  const boostFactor = config.boostApidelta != null ? config.boostApidelta : BOOST_APIDELTA_DEFAULT;
+  const boostSet = new Set(activosRows.filter(r => esProductoApidelta(r.NombreProducto, r.NombreMarca)).map(r => Number(r.IdProducto)));
+  const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides, boostSet);
   const ranking = calcularRankingPorSucursal(metricPorSuc, sucById);
   const rankingGeneral = calcularRankingGlobal(metricByPlu);   // importancia general del producto (0-1, todo el catálogo, sin distinguir sucursal)
 
@@ -3710,7 +3714,8 @@ async function recalcularA8020() {
     const mult = o.mult ?? 1, piso = o.pisoManual ?? 0, techo = o.techo ?? techoDefault;
     const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
     const k = kFrac[cls || 'C'] ?? kFrac.C ?? 0.35;
-    const S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult, 0), techo), dec);
+    const boost = boostDePlu(plu, boostSet, boostFactor);
+    const S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult * boost, 0), techo), dec);
     const min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
     // El redondeo (S=1 → min=round(0.5)=1) y el pisoManual pueden dejar min == S: sin brecha el
     // envío teórico es 0 y la sucursal gatilla sin reponer nada. asegurarBrechaMinS sube S.
@@ -3872,6 +3877,7 @@ async function recalcularA8020() {
     bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
     // Qué PLUs admiten decimales, para que reaplicarManualA8020 pueda redondear sin volver a Siga.
     pesables: [...pesablesSet],
+    boostApidelta: { factor: boostFactor, plus: [...boostSet] },
     consumo, consumoOrigen,
     rankingGeneral, rankingPorSucursal: ranking };
   // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa. El
@@ -5800,6 +5806,24 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
       })),
     },
   };
+}));
+
+// ── Tickets por monto (alcance sucursales) ──────────────────────────────────
+// Endpoint aparte del análisis grande a propósito: el monto se cambia muchas veces
+// seguidas y volver a correr las nueve consultas del panel por cada prueba sería
+// carísimo. Ésta es una sola consulta de cabecera. Cuelga de /api/analisis-ventas para
+// quedar bajo el mismo permiso de módulo (ver apiPrefijos en auth.js).
+app.get('/api/analisis-ventas/montos', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
+  const monto = analisisVentas.montoSeguro(req.query.monto);
+  const op = analisisVentas.opMontoSeguro(req.query.op);
+  const rows = await query(analisisVentas.sqlTicketsPorMonto({
+    desde, hasta, sucIdsCsv: sucIds.join(','), monto, op,
+  }));
+  return { rango: { desde, hasta }, sucursales: sucIds, monto, op,
+    ...analisisVentas.ticketsPorMonto(rows) };
 }));
 
 // ── Análisis de ventas de casa central ──────────────────────────────────────
@@ -9245,6 +9269,305 @@ async function fetchConRedirectSeguro(url, opts, maxRedirects = 3) {
   }
   throw new Error('Demasiados redirects');
 }
+
+// ── Importación de facturas de compra — BANCO DE PRUEBAS ───────────────────────
+// Sólo lectura: parsea el xlsx, resuelve los productos contra SIGA y devuelve la
+// previsualización. NO escribe nada en SIGA. El mapeo de las 12 tablas que tocaría
+// la carga real está relevado en docs/compras_siga_mapeo.md
+const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, 'compras_import_prueba.html')));
+
+// Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
+function hojaCompra(wb, nombre) {
+  const clave = wb.SheetNames.find(n => String(n).trim().toLowerCase() === nombre);
+  return clave ? wb.Sheets[clave] : null;
+}
+
+// SELECT ... IN (...) con parámetros: nunca interpola los valores en el SQL.
+async function selectEnLista(sqlTexto, valores, extras = []) {
+  if (!valores.length) return [];
+  const pool = await getPool();
+  const rq = pool.request();
+  for (const [nombre, valor] of extras) rq.input(nombre, valor);
+  const marcas = valores.map((v, i) => {
+    rq.input('v' + i, String(v));
+    return '@v' + i;
+  });
+  const r = await rq.query(sqlTexto.replace('{{EN_LISTA}}', marcas.join(',')));
+  return r.recordset;
+}
+
+// Resuelve cada línea a un IdProducto de SIGA por PLU, código de proveedor o barras.
+async function resolverProductosCompra(idProveedor, lineas) {
+  const unicos = campo => [...new Set(lineas.map(l => l[campo]).filter(Boolean))];
+
+  const [porPlu, porCodProv, porBarras, porIdent] = await Promise.all([
+    selectEnLista(
+      'SELECT IdProducto, NombreProducto, Activo, EsDeCompras FROM Productos WHERE IdProducto IN ({{EN_LISTA}})',
+      unicos('plu')),
+    selectEnLista(
+      `SELECT pp.CodigoProductoProveedor, pp.IdProducto, p.NombreProducto
+         FROM ProductosProveedores pp
+         JOIN Productos p ON p.IdProducto = pp.IdProducto
+        WHERE pp.IdProveedor = @prov AND pp.CodigoProductoProveedor IN ({{EN_LISTA}})`,
+      unicos('codigoProveedor'), [['prov', idProveedor]]),
+    selectEnLista(
+      'SELECT IdProducto, NombreProducto, CodigoDeBarras FROM Productos WHERE CodigoDeBarras IN ({{EN_LISTA}})',
+      unicos('codigoBarras')),
+    selectEnLista(
+      `SELECT pi.Identificacion, pi.IdProducto, p.NombreProducto
+         FROM ProductosIdentificaciones pi
+         JOIN Productos p ON p.IdProducto = pi.IdProducto
+        WHERE pi.Identificacion IN ({{EN_LISTA}})`,
+      unicos('codigoBarras')),
+  ]);
+
+  const mapaPlu = new Map(porPlu.map(r => [String(r.IdProducto).trim(), r]));
+
+  // Un mismo código de proveedor puede apuntar a varios productos (hay 213 casos
+  // así en SIGA): se marcan como ambiguos en vez de elegir uno al azar.
+  const mapaCod = new Map();
+  for (const r of porCodProv) {
+    const k = String(r.CodigoProductoProveedor).trim();
+    if (!mapaCod.has(k)) mapaCod.set(k, []);
+    mapaCod.get(k).push(r);
+  }
+
+  const mapaBarras = new Map();
+  for (const r of [...porBarras, ...porIdent]) {
+    const k = String(r.CodigoDeBarras ?? r.Identificacion ?? '').trim();
+    if (!k) continue;
+    if (!mapaBarras.has(k)) mapaBarras.set(k, []);
+    if (!mapaBarras.get(k).some(x => String(x.IdProducto) === String(r.IdProducto))) mapaBarras.get(k).push(r);
+  }
+
+  return lineas.map(l => {
+    const salida = { ...l, resuelto: null, nombreSiga: null, estado: 'no-encontrado', origen: null, notas: [] };
+
+    if (l.plu) {
+      const p = mapaPlu.get(l.plu);
+      if (p) {
+        salida.resuelto = String(p.IdProducto).trim();
+        salida.nombreSiga = p.NombreProducto;
+        salida.estado = 'ok';
+        salida.origen = 'PLU';
+        if (!p.Activo) salida.notas.push('El producto está inactivo en SIGA.');
+        if (!p.EsDeCompras) salida.notas.push('El producto no está marcado como "de compras".');
+      } else {
+        salida.notas.push(`El PLU ${l.plu} no existe en SIGA.`);
+      }
+    }
+
+    if (!salida.resuelto && l.codigoProveedor) {
+      const c = mapaCod.get(l.codigoProveedor) || [];
+      if (c.length === 1) {
+        salida.resuelto = String(c[0].IdProducto).trim();
+        salida.nombreSiga = c[0].NombreProducto;
+        salida.estado = 'ok';
+        salida.origen = 'CodigoProveedor';
+      } else if (c.length > 1) {
+        salida.estado = 'ambiguo';
+        salida.opciones = c.map(x => ({ plu: String(x.IdProducto).trim(), nombre: x.NombreProducto }));
+        salida.notas.push(`El código "${l.codigoProveedor}" apunta a ${c.length} productos distintos.`);
+      } else {
+        salida.notas.push(`El código de proveedor "${l.codigoProveedor}" no está cargado para este proveedor.`);
+      }
+    }
+
+    if (!salida.resuelto && salida.estado !== 'ambiguo' && l.codigoBarras) {
+      const b = mapaBarras.get(l.codigoBarras) || [];
+      if (b.length === 1) {
+        salida.resuelto = String(b[0].IdProducto).trim();
+        salida.nombreSiga = b[0].NombreProducto;
+        salida.estado = 'ok';
+        salida.origen = 'CodigoBarras';
+      } else if (b.length > 1) {
+        salida.estado = 'ambiguo';
+        salida.opciones = b.map(x => ({ plu: String(x.IdProducto).trim(), nombre: x.NombreProducto }));
+        salida.notas.push(`El código de barras "${l.codigoBarras}" apunta a ${b.length} productos.`);
+      } else {
+        salida.notas.push(`El código de barras "${l.codigoBarras}" no existe en SIGA.`);
+      }
+    }
+
+    // Cuando vienen los dos, que no se contradigan.
+    if (salida.estado === 'ok' && salida.origen === 'PLU' && l.codigoProveedor) {
+      const c = mapaCod.get(l.codigoProveedor) || [];
+      if (c.length && !c.some(x => String(x.IdProducto).trim() === salida.resuelto)) {
+        salida.notas.push(`El código "${l.codigoProveedor}" está cargado para otro producto (${c.map(x => x.IdProducto).join(', ')}).`);
+      }
+    }
+
+    return salida;
+  });
+}
+
+// Toma lo que devolvió el parser y lo contrasta con SIGA: proveedor, productos,
+// sucursal y comprobante duplicado. La usan tanto la subida del xlsx como la
+// revalidación de los datos editados a mano en la pantalla.
+async function armarVistaCompra(parsed, archivo) {
+  const errores = [...parsed.errores];
+  const cab = parsed.cabecera;
+  let proveedor = null;
+  let lineas = parsed.lineas;
+  let duplicado = null;
+
+  // Sin proveedor válido no tiene sentido resolver códigos: se corta acá.
+  if (cab.IdProveedor != null) {
+    const pool = await getPool();
+    const rp = await pool.request().input('id', cab.IdProveedor)
+      .query('SELECT IdProveedor, NombreProveedor, CuitProveedor, IdCategoriaFiscal FROM Proveedores WHERE IdProveedor = @id');
+    proveedor = rp.recordset[0] || null;
+    if (!proveedor) errores.push(`El proveedor ${cab.IdProveedor} no existe en SIGA.`);
+  }
+
+  if (proveedor && lineas.length) {
+    lineas = await resolverProductosCompra(cab.IdProveedor, lineas);
+    const sinResolver = lineas.filter(l => l.estado !== 'ok');
+    if (sinResolver.length) {
+      errores.push(`${sinResolver.length} de ${lineas.length} ítem(s) no se pudieron identificar en SIGA. No se cargaría nada.`);
+    }
+  }
+
+  // Numeración automática: sólo comprobantes internos (cotizaciones). Se consulta
+  // el último usado para esa sucursal + tipo + letra + punto de venta. Es
+  // provisorio: el definitivo se resuelve al grabar, porque otro usuario puede
+  // cargar un comprobante en el medio.
+  let numeroAsignado = false;
+  if (cab.numeroAutomatico && cab.IdSucursal != null && cab.TipoComprobante && cab.Letra && cab.PuntoVenta != null) {
+    const pool = await getPool();
+    const rn = await pool.request()
+      .input('suc', cab.IdSucursal).input('tipo', cab.TipoComprobante)
+      .input('letra', cab.Letra).input('emisor', cab.PuntoVenta)
+      .query(`SELECT MAX(NumeroComprobante) AS ultimo FROM Compras
+               WHERE IdSucursal = @suc AND IdTipoComprobante = @tipo
+                 AND Letra = @letra AND CentroEmisor = @emisor`);
+    const ultimo = rn.recordset[0] && rn.recordset[0].ultimo != null ? Number(rn.recordset[0].ultimo) : 0;
+    cab.NumeroComprobante = ultimo + 1;
+    cab.numeroUltimoUsado = ultimo || null;
+    numeroAsignado = true;
+  }
+
+  // Comprobante ya cargado: la PK de Compras es sucursal+tipo+letra+emisor+número.
+  // Si el número lo asignamos nosotros no hace falta: es nuevo por construcción.
+  if (!numeroAsignado && cab.IdSucursal != null && cab.TipoComprobante && cab.Letra && cab.PuntoVenta != null && cab.NumeroComprobante != null) {
+    const pool = await getPool();
+    const rd = await pool.request()
+      .input('suc', cab.IdSucursal).input('tipo', cab.TipoComprobante).input('letra', cab.Letra)
+      .input('emisor', cab.PuntoVenta).input('nro', cab.NumeroComprobante)
+      .query(`SELECT CONVERT(varchar(10), Fecha, 23) AS Fecha, ImporteTotal, Usuario, NombreProveedor
+                FROM Compras
+               WHERE IdSucursal = @suc AND IdTipoComprobante = @tipo AND Letra = @letra
+                 AND CentroEmisor = @emisor AND NumeroComprobante = @nro`);
+    duplicado = rd.recordset[0] || null;
+    if (duplicado) errores.push(`Ese comprobante ya está cargado en SIGA (${duplicado.Fecha}, ${duplicado.NombreProveedor}).`);
+  }
+
+  let sucursal = null;
+  if (cab.IdSucursal != null) {
+    const pool = await getPool();
+    const rs = await pool.request().input('id', cab.IdSucursal)
+      .query('SELECT IdSucursal, Nombre FROM Sucursales WHERE IdSucursal = @id');
+    sucursal = rs.recordset[0] || null;
+    if (!sucursal) errores.push(`La sucursal ${cab.IdSucursal} no existe.`);
+  }
+
+  return {
+    archivo,
+    cabecera: cab,
+    proveedor,
+    sucursal,
+    duplicado,
+    lineas,
+    totales: parsed.totales,
+    avisos: parsed.avisos,
+    errores,
+    numeroAsignado,
+    // Catálogo para los selects de la pantalla: una sola fuente de verdad.
+    tiposComprobante: comprasImport.TIPOS_COMPRA,
+    valido: errores.length === 0,
+    // Recordatorio explícito: este módulo no escribe. La carga real está sin implementar.
+    grabaEnSiga: false,
+  };
+}
+
+// Revalida la compra después de editarla en pantalla. Se reconstruye la misma
+// matriz plana que produce el xlsx y se la pasa por el parser: así lo editado
+// atraviesa exactamente las mismas validaciones que el archivo, sin confiar
+// en lo que manda el navegador.
+const CLAVE_POR_COLUMNA = {
+  PLU: 'plu', CodigoProveedor: 'codigoProveedor', CodigoBarras: 'codigoBarras',
+  Cantidad: 'cantidad', PrecioUnitario: 'precioUnitario',
+  PorcentajeIVA: 'porcentajeIVA', Descripcion: 'descripcion',
+};
+
+app.post('/api/compras-import/revalidar', express.json({ limit: '2mb' }), apiRoute(async (req) => {
+  const cabecera = (req.body && req.body.cabecera) || {};
+  const lineas = Array.isArray(req.body && req.body.lineas) ? req.body.lineas : [];
+
+  const colsCab = comprasImport.CAMPOS_CABECERA.map(c => c.campo);
+  const valorCab = c => (cabecera[c] == null ? '' : cabecera[c]);
+  const matriz = [[...comprasImport.COLUMNAS_DETALLE, ...colsCab]];
+
+  for (const l of lineas) {
+    matriz.push([
+      ...comprasImport.COLUMNAS_DETALLE.map(c => {
+        const v = l[CLAVE_POR_COLUMNA[c]];
+        return v == null ? '' : v;
+      }),
+      ...colsCab.map(valorCab),
+    ]);
+  }
+  // Sin ítems igual hay que devolver la cabecera parseada, para no perder lo editado.
+  if (!lineas.length) matriz.push([...comprasImport.COLUMNAS_DETALLE.map(() => ''), ...colsCab.map(valorCab)]);
+
+  const parsed = comprasImport.parsearCompra({ matriz });
+  return armarVistaCompra(parsed, req.body && req.body.archivo);
+}));
+
+// Buscador de productos, para agregar ítems a mano sin saber el PLU de memoria.
+app.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return { productos: [] };
+  const pool = await getPool();
+  const r = await pool.request().input('q', '%' + q + '%').input('exacto', q)
+    .query(`SELECT TOP 25 p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.Activo
+              FROM Productos p
+             WHERE p.NombreProducto LIKE @q OR p.IdProducto = @exacto OR p.CodigoDeBarras = @exacto
+             ORDER BY CASE WHEN p.IdProducto = @exacto THEN 0 ELSE 1 END, p.NombreProducto`);
+  return {
+    productos: r.recordset.map(p => ({
+      plu: String(p.IdProducto).trim(), nombre: p.NombreProducto,
+      barras: String(p.CodigoDeBarras || '').trim(), activo: !!p.Activo,
+    })),
+  };
+}));
+
+app.post('/api/compras-import/preview', uploadCompraXlsx.single('archivo'), apiRoute(async (req) => {
+  if (!req.file) throw new Error('No llegó ningún archivo.');
+
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
+  const opciones = { header: 1, raw: true, defval: '' };
+
+  // El formato plano (una sola hoja, todo en columnas) es el habitual. Se sigue
+  // aceptando el de dos hojas por los archivos armados antes del cambio.
+  const hCab = hojaCompra(wb, 'cabecera');
+  const hDet = hojaCompra(wb, 'detalle');
+  let parsed;
+  if (hCab && hDet) {
+    parsed = comprasImport.parsearCompra({
+      matrizCabecera: XLSX.utils.sheet_to_json(hCab, opciones),
+      matrizDetalle:  XLSX.utils.sheet_to_json(hDet, opciones),
+    });
+  } else {
+    const hoja = hojaCompra(wb, 'compra') || wb.Sheets[wb.SheetNames[0]];
+    if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
+    parsed = comprasImport.parsearCompra({ matriz: XLSX.utils.sheet_to_json(hoja, opciones) });
+  }
+
+  return armarVistaCompra(parsed, req.file.originalname);
+}));
 
 const uploadPreciosPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
