@@ -31,7 +31,7 @@ const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFracc
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('./ordenes_fraccionado');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
-        calcularConsumoReal, RUBRO_ALMACEN_BULTO } = require('./a8020');
+        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('./a8020');
 const analisisVentas = require('./analisis_ventas');
 const familiasManuales = require('./familias_manuales');
 const productividad = require('./productividad');
@@ -3640,8 +3640,8 @@ async function recalcularA8020() {
   // Antes se derivaba de archivos estáticos (distribucion_listas/pesables_listas): productos nuevos o
   // sin ventas en la ventana quedaban invisibles en a8020 aunque distribución sí los mostrara (p.ej. PLU 5738,
   // rubro Almacen sin ventas + ausente del snapshot viejo → no aparecía ni recalculando).
-  const activosRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
-    FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro
+  const activosRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro, p.NombreProducto, m.NombreMarca
+    FROM Productos p LEFT JOIN Rubros r ON r.IdRubro=p.IdRubro LEFT JOIN Marcas m ON m.IdMarca=p.IdMarca
     WHERE p.Activo=1`);
   const rubroActivo = {};   // plu → rubro Siga (semilla de rubroDePlu; evita re-consultar todo el universo)
   for (const r of activosRows) rubroActivo[String(r.IdProducto)] = r.NombreRubro || null;
@@ -3651,7 +3651,10 @@ async function recalcularA8020() {
     ...(edAlm.siemprePesable || []).map(Number),
   ]);
   const bootstrapSet = new Set(activosRows.map(r => Number(r.IdProducto)));
-  const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides);
+  // Productos propios (marca/nombre Apidelta + mixes de la casa): llevan boost sobre el nivel calculado.
+  const boostFactor = config.boostApidelta != null ? config.boostApidelta : BOOST_APIDELTA_DEFAULT;
+  const boostSet = new Set(activosRows.filter(r => esProductoApidelta(r.NombreProducto, r.NombreMarca)).map(r => Number(r.IdProducto)));
+  const { abc, filas } = computeA8020(statRows, opsDays, metricByPlu, config, pesablesSet, overrides, boostSet);
   const ranking = calcularRankingPorSucursal(metricPorSuc, sucById);
   const rankingGeneral = calcularRankingGlobal(metricByPlu);   // importancia general del producto (0-1, todo el catálogo, sin distinguir sucursal)
 
@@ -3710,7 +3713,8 @@ async function recalcularA8020() {
     const mult = o.mult ?? 1, piso = o.pisoManual ?? 0, techo = o.techo ?? techoDefault;
     const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
     const k = kFrac[cls || 'C'] ?? kFrac.C ?? 0.35;
-    const S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult, 0), techo), dec);
+    const boost = boostDePlu(plu, boostSet, boostFactor);
+    const S = TL <= 0 ? 0 : roundDec(Math.min(Math.max((mu * TL + zc * sigma * Math.sqrt(TL)) * mult * boost, 0), techo), dec);
     const min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
     // El redondeo (S=1 → min=round(0.5)=1) y el pisoManual pueden dejar min == S: sin brecha el
     // envío teórico es 0 y la sucursal gatilla sin reponer nada. asegurarBrechaMinS sube S.
@@ -3872,6 +3876,7 @@ async function recalcularA8020() {
     bootstrapped: [...bootstrapped], nuevos, viejos, rubros: rubroDePlu, impFacturacion: metricByPlu,
     // Qué PLUs admiten decimales, para que reaplicarManualA8020 pueda redondear sin volver a Siga.
     pesables: [...pesablesSet],
+    boostApidelta: { factor: boostFactor, plus: [...boostSet] },
     consumo, consumoOrigen,
     rankingGeneral, rankingPorSucursal: ranking };
   // Ajustes manuales: se aplican SIEMPRE al final, así el recálculo nunca los pisa. El

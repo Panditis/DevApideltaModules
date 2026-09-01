@@ -12,6 +12,31 @@
 
 function roundDec(x, d) { const f = Math.pow(10, d); return Math.round(x * f) / f; }
 
+// ── Boost de productos propios (Apidelta) ────────────────────────────────────
+// Los productos de la casa se reponen con un plus sobre el nivel calculado: quebrar un producto
+// propio cuesta más que sobrestockearlo. Factor configurable en distribucion_config.json
+// (boostApidelta); 1.3 = +30%. Se aplica a S, así el min (= S·k) sube en la misma proporción.
+const BOOST_APIDELTA_DEFAULT = 1.3;
+// Mixes propios que no llevan "Apidelta" ni en el nombre ni en la marca: se reconocen por su
+// denominación ("Mix Europeo", "Mix F.S N&P", "Mix F.S Sin Pasas", "Mix Cerv." y "Mix Cerv. Prem.").
+const MIX_APIDELTA = ['europeo', 'n&p', 'sin pasas', 'cerv'];
+
+function normalizarNombreProd(s) {
+  return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// ¿Producto propio? Nombre o marca con "apidelta", o uno de los mixes de la casa.
+function esProductoApidelta(nombre, marca) {
+  const n = normalizarNombreProd(nombre), m = normalizarNombreProd(marca);
+  if (n.includes('apidelta') || m.includes('apidelta')) return true;
+  return n.includes('mix') && MIX_APIDELTA.some(k => n.includes(k));
+}
+
+// Factor a aplicar al nivel calculado de un PLU: boost si es propio, 1 si no.
+function boostDePlu(plu, boostSet, factor) {
+  return boostSet && boostSet.has(Number(plu)) ? (factor || BOOST_APIDELTA_DEFAULT) : 1;
+}
+
 // Clasifica PLUs en A/B/C por Pareto acumulado de una métrica (facturación o unidades).
 function clasificarABC(metricByPlu, corteA, corteB) {
   const arr = Object.entries(metricByPlu).map(([plu, m]) => ({ plu, m: Number(m) || 0 }));
@@ -31,7 +56,7 @@ function clasificarABC(metricByPlu, corteA, corteB) {
 // stats: [{ idSucursal, plu, sumQ, sumQ2 }]  (agregados diarios desde Siga)
 // opsDays: { idSucursal: N }  (días operativos de la sucursal en la ventana)
 // metricByPlu: { plu: métrica ABC }   ·  pesablesSet: Set<plu> (dec=1)  ·  overrides: { plu:{pisoManual,techo,mult} }
-function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, overrides) {
+function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, overrides, boostSet) {
   const abc = clasificarABC(metricByPlu, config.abc.corteA, config.abc.corteB);
   const sucById = {}, sucByKey = {};
   for (const [key, c] of Object.entries(config.sucursales)) {
@@ -42,6 +67,7 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
   const ovr = overrides || {};
   const techoDef = config.techoDefault != null ? config.techoDefault : 10000;
   const kFrac = config.minFraccion || { A: 0.7, B: 0.5, C: 0.35 };   // gatillo = fracción de S por clase ABC
+  const boostFactor = config.boostApidelta != null ? config.boostApidelta : BOOST_APIDELTA_DEFAULT;
 
   // Construye una fila (suc, plu). Dos niveles:
   //   S   = μ·(T+L) + z·σ·√(T+L)   (order-up-to / objetivo al que se repone)
@@ -58,8 +84,9 @@ function computeA8020(stats, opsDays, metricByPlu, config, pesablesSet, override
     const techo = o.techo != null ? o.techo : techoDef;
     const dec = pesablesSet.has(Number(plu)) ? 1 : 0;
     const k = kFrac[cls] != null ? kFrac[cls] : (kFrac.C != null ? kFrac.C : 0.35);
+    const boost = boostDePlu(plu, boostSet, boostFactor);
     let S = mu * TL + zc * sigma * Math.sqrt(TL);
-    S = TL <= 0 ? 0 : roundDec(Math.min(Math.max(S * mult, 0), techo), dec);
+    S = TL <= 0 ? 0 : roundDec(Math.min(Math.max(S * mult * boost, 0), techo), dec);
     let min = S <= 0 ? 0 : roundDec(Math.min(Math.max(S * k, piso), S), dec);
     return Object.assign({ idSucursal, sucursal: sucKey, plu: Number(plu), mu, sigma, abc: cls, z: zc, S, min }, extra || {});
   }
@@ -306,4 +333,4 @@ function calcularConsumoReal(statRows, sucById, rubroDePlu, formulasPesables, co
   return { consumo, consumoOrigen: origen };
 }
 
-module.exports = { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020, asegurarBrechaMinS, calcularConsumoReal, RUBRO_ALMACEN, RUBRO_ALMACEN_BULTO };
+module.exports = { computeA8020, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, calcularRankingPorSucursal, calcularRankingGlobal, clasificarABC, roundDec, aplicarManualA8020, asegurarBrechaMinS, calcularConsumoReal, RUBRO_ALMACEN, RUBRO_ALMACEN_BULTO };
