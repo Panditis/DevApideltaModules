@@ -510,6 +510,91 @@ function renderArticulos(apt){
   ], (apt && apt.porSucursal) || [], { key:'promedio', asc:false });
 }
 
+// ── Tickets por monto (sólo sucursales) ──────────────────────────────────────
+// Bloque con consulta propia: el monto se prueba muchas veces seguidas y correr todo el
+// panel por cada intento no tiene sentido. El rango y las sucursales salen del filtro
+// principal, así que al Aplicar general este bloque se repinta solo si ya tenía un monto.
+const OP_MONTO_TXT = {
+  desde: m => `de ${m} o más`,
+  hasta: m => `de ${m} o menos`,
+  exacto: m => `de exactamente ${m}`,
+};
+
+function renderMontos(d){
+  const rows = d.porSucursal || [];
+  const t = d.totales || { tickets:0, facturacion:0, ticketProm:0, porcTickets:0, porcFacturacion:0 };
+  const texto = (OP_MONTO_TXT[d.op] || OP_MONTO_TXT.desde)(fmtMoney(d.monto));
+  $('montoResumen').innerHTML = `Tickets ${texto}: <b>${fmtNum(t.tickets)}</b>
+    (${fmtDec(t.porcTickets)}% de los ${fmtNum(t.ticketsTotales)} del rango) por
+    <b>${fmtMoney(t.facturacion)}</b> (${fmtDec(t.porcFacturacion)}% de la facturación).
+    Ticket promedio de ese grupo: <b>${fmtMoney(t.ticketProm)}</b>.`;
+  destroyChart('montos-suc');
+  charts['montos-suc'] = new Chart($('chMontos-suc'), {
+    type:'bar',
+    data:{ labels: rows.map(r=>r.nombre), datasets:[
+      // Dos ejes: la cantidad de tickets y los pesos no comparten escala, en un solo eje
+      // las barras de tickets quedarían pegadas al piso.
+      { label:'Tickets', data: rows.map(r=>r.tickets), backgroundColor: GREEN, yAxisID:'y' },
+      { label:'Monto total', data: rows.map(r=>r.facturacion), backgroundColor: YELLOW, yAxisID:'y1' },
+    ]},
+    options:{ plugins:{
+      legend:{ display:true, position:'bottom', labels:{ boxWidth:14, font:{ size:11 } } },
+      tooltip:{ callbacks:{ label: c => c.dataset.yAxisID === 'y'
+        ? `Tickets: ${fmtNum(c.parsed.y)}` : `Monto total: ${fmtMoney(c.parsed.y)}` } } },
+      scales:{
+        y:{ position:'left', ticks:{ callback:v=>fmtNum(v) } },
+        y1:{ position:'right', grid:{ drawOnChartArea:false }, ticks:{ callback:v=>fmtMoney(v) } },
+      } }
+  });
+  tablaOrdenable('tblMontos-suc', [
+    {key:'nombre',label:'Sucursal'},
+    {key:'tickets',label:'Tickets',num:true,fmt:fmtNum},
+    {key:'porcTickets',label:'% de sus tickets',num:true,fmt:v=>`${fmtDec(v)}%`},
+    {key:'facturacion',label:'Monto total',num:true,fmt:fmtMoney},
+    {key:'porcFacturacion',label:'% de su facturación',num:true,fmt:v=>`${fmtDec(v)}%`},
+    {key:'ticketProm',label:'Ticket prom.',num:true,fmt:fmtMoney},
+  ], rows, { key:'tickets', asc:false });
+}
+
+function limpiarMontos(){
+  destroyChart('montos-suc');
+  $('montoResumen').innerHTML = '';
+  $('tblMontos-suc').innerHTML = '';
+}
+
+async function consultarMontos(){
+  const msg = $('msgMonto');
+  const monto = $('montoValor').value.trim();
+  if (monto === '' || !(Number(monto) >= 0)){
+    msg.innerHTML = '<div class="error">Ingresá un monto.</div>';
+    limpiarMontos();
+    return;
+  }
+  if (!sel.size){ msg.innerHTML = '<div class="error">Seleccioná al menos una sucursal.</div>'; return; }
+  const btn = $('btnMonto'); btn.disabled = true;
+  msg.innerHTML = '<div class="loading">Cargando datos...</div>';
+  try {
+    const r = await fetch(`/api/analisis-ventas/montos?desde=${$('desde').value}&hasta=${$('hasta').value}`
+      + `&sucursales=${[...sel].join(',')}&monto=${encodeURIComponent(monto)}&op=${$('montoOp').value}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    msg.innerHTML = '';
+    renderMontos(d);
+  } catch(e){
+    limpiarMontos();
+    msg.innerHTML = `<div class="error">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Al repintar el panel de sucursales el bloque queda desactualizado: si el usuario ya
+// había pedido un monto se vuelve a consultar con el filtro nuevo, y si no, se limpia.
+function refrescarMontos(){
+  if ($('montoValor').value.trim() === '') limpiarMontos();
+  else consultarMontos();
+}
+
 // KPIs de la pestaña de familias. No hay tickets acá (el consolidado suma dos alcances con
 // comprobantes distintos), así que se muestra lo que sí es sumable.
 function renderKpisFamilias(d){
@@ -543,6 +628,7 @@ const PANELES = {
       renderTop(d.topFacturacion, 'suc');
       renderFamilias(d.familias, 'suc');
       renderArticulos(d.articulosPorTicket);
+      refrescarMontos();
     },
   },
   central: {
@@ -712,6 +798,9 @@ async function init(){
   initFechas();
   renderChips();
   $('btnAplicar').onclick = aplicar;
+  $('btnMonto').onclick = consultarMontos;
+  $('montoValor').onkeydown = e => { if (e.key === 'Enter') consultarMontos(); };
+  $('montoOp').onchange = () => { if ($('montoValor').value.trim() !== '') consultarMontos(); };
   $('selAll').onclick  = () => { sel = new Set(SUCURSALES.map(s=>s.id)); renderChips(); };
   $('selNone').onclick = () => { sel.clear(); renderChips(); };
   Object.values(PANELES).forEach(p => {

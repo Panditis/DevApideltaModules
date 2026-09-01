@@ -705,6 +705,92 @@ function promedioArticulos(porSucursal) {
   return tickets > 0 ? articulos / tickets : 0;
 }
 
+// ── Tickets por monto ────────────────────────────────────────────────────────
+// Cuántos tickets del rango caen en un monto dado y cuánto facturaron, abierto por
+// sucursal. Es una pregunta de cabecera (Ventas): no mira renglones, así que no le
+// aplican los rubros ni los productos excluidos.
+// ponytail: sin excProdCsv — el alcance es sucursales, que nunca lo manda. Si algún día
+// se quisiera esta vista en la central, el monto tendría que compararse contra
+// v.ImporteTotal - ISNULL(exc.Importe, 0) y sumar joinImporteExcluido, como el resto.
+const OPERADORES_MONTO = { desde: '>=', hasta: '<=', exacto: '=' };
+const OP_MONTO_DEFAULT = 'desde';
+
+function opMontoSeguro(raw) {
+  return Object.prototype.hasOwnProperty.call(OPERADORES_MONTO, raw) ? raw : OP_MONTO_DEFAULT;
+}
+
+// El monto entra por querystring y termina interpolado en el SQL: se fuerza a número
+// finito y no negativo, y se redondea a centavos. Cualquier cosa que no sea número da 0.
+// El input del front es type=number y manda punto decimal, pero un valor pegado a mano
+// puede venir en formato es-AR ("10.000,50"): con coma presente, el punto es separador
+// de miles y se descarta. Sin coma, el punto se toma como decimal (que es lo que manda
+// el navegador).
+function montoSeguro(raw) {
+  const txt = String(raw ?? '').replace(/\s/g, '');
+  const n = Number(txt.includes(',') ? txt.replace(/\./g, '').replace(',', '.') : txt);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+// El "exacto" compara sobre el importe redondeado a centavos: v.ImporteTotal es decimal
+// y una igualdad cruda contra el valor tipeado no engancharía nunca.
+function condTicketMonto(monto, op) {
+  const valor = montoSeguro(monto).toFixed(2);
+  const cmp = OPERADORES_MONTO[opMontoSeguro(op)];
+  return cmp === '=' ? `ROUND(v.ImporteTotal, 2) = ${valor}` : `v.ImporteTotal ${cmp} ${valor}`;
+}
+
+// Una sola pasada devuelve lo filtrado y el total de la sucursal: con las dos cosas el
+// front puede mostrar qué peso tienen esos tickets sobre el resto sin una consulta más.
+function sqlTicketsPorMonto(p) {
+  const cond = condTicketMonto(p.monto, p.op);
+  return `SELECT v.IdSucursal, s.Nombre AS Nombre,
+      SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END) AS Tickets,
+      SUM(CASE WHEN ${cond} THEN v.ImporteTotal ELSE 0 END) AS Facturacion,
+      COUNT(*) AS TicketsTotales, SUM(v.ImporteTotal) AS FacturacionTotal
+    FROM Ventas v
+    LEFT JOIN Sucursales s ON s.IdSucursal = v.IdSucursal
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}
+    GROUP BY v.IdSucursal, s.Nombre
+    ORDER BY Tickets DESC`;
+}
+
+function porcentaje(parte, total) {
+  return total > 0 ? (Number(parte || 0) * 100) / Number(total) : 0;
+}
+
+// Filas del SQL -> filas de la tabla, con los totales del bloque ya sumados. Las
+// sucursales sin un solo ticket del monto igual se listan (en cero): que una sucursal no
+// tenga ninguno es justamente el dato.
+function ticketsPorMonto(rows) {
+  const porSucursal = (rows || []).map(r => {
+    const tickets = Number(r.Tickets || 0);
+    const facturacion = Number(r.Facturacion || 0);
+    return {
+      idSuc: r.IdSucursal, nombre: r.Nombre || `Suc. ${r.IdSucursal}`,
+      tickets, facturacion,
+      ticketProm: ticketProm(facturacion, tickets),
+      ticketsTotales: Number(r.TicketsTotales || 0),
+      facturacionTotal: Number(r.FacturacionTotal || 0),
+      porcTickets: porcentaje(tickets, Number(r.TicketsTotales || 0)),
+      porcFacturacion: porcentaje(facturacion, Number(r.FacturacionTotal || 0)),
+    };
+  });
+  const suma = clave => porSucursal.reduce((a, r) => a + r[clave], 0);
+  const tickets = suma('tickets'), facturacion = suma('facturacion');
+  const ticketsTotales = suma('ticketsTotales'), facturacionTotal = suma('facturacionTotal');
+  return {
+    porSucursal,
+    totales: {
+      tickets, facturacion, ticketsTotales, facturacionTotal,
+      ticketProm: ticketProm(facturacion, tickets),
+      porcTickets: porcentaje(tickets, ticketsTotales),
+      porcFacturacion: porcentaje(facturacion, facturacionTotal),
+    },
+  };
+}
+
 // ── Familias de producto ─────────────────────────────────────────────────────
 // Una "familia" es el producto sin su presentación: MIEL PURA 500G, MIEL PURA 1KG y
 // MIEL PURA PACK 6 son la misma familia MIEL PURA. Mismo criterio que usa el catálogo
@@ -1028,6 +1114,8 @@ module.exports = {
   mesesDelRango, diaAnterior, umbralQuiebre, diasEnQuiebre, serieStockDiaria,
   diasEvaluados, porcentajeQuiebre,
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
+  OPERADORES_MONTO, OP_MONTO_DEFAULT, opMontoSeguro, montoSeguro, condTicketMonto,
+  sqlTicketsPorMonto, ticketsPorMonto, porcentaje,
   familiaNombre, claveFamilia, agruparFamilias, familiasDeGrupos, familiasYGrupos, pesoPresentacion,
   sucIdsFamilias, fusionarProductos,
   RUBRO_FRACCIONADO, RUBRO_BULTOS, claveRubro, familiaSeMide, medirPresentacion,

@@ -1159,3 +1159,83 @@ test('familiasYGrupos sin grupos se comporta como agruparFamilias', () => {
   const rows = [{ IdProducto: '1', Nombre: 'Yerba Suelta', Rubro: FRACC, Unidades: 4, Facturacion: 400 }];
   assert.deepStrictEqual(familiasYGrupos(rows, [], 10), agruparFamilias(rows, 10));
 });
+
+// ── Tickets por monto ────────────────────────────────────────────────────────
+const {
+  opMontoSeguro, montoSeguro, condTicketMonto, sqlTicketsPorMonto, ticketsPorMonto,
+} = require('../analisis_ventas');
+
+test('montoSeguro sanea el input: número finito, no negativo, a centavos', () => {
+  assert.strictEqual(montoSeguro('10000.5'), 10000.5);   // lo que manda el input type=number
+  assert.strictEqual(montoSeguro('10.000,50'), 10000.5); // pegado a mano en formato es-AR
+  assert.strictEqual(montoSeguro('1234,567'), 1234.57);
+  assert.strictEqual(montoSeguro('abc'), 0);
+  assert.strictEqual(montoSeguro('-5'), 0);
+  assert.strictEqual(montoSeguro(undefined), 0);
+});
+
+// El monto termina interpolado en el SQL: nada que no sea un número puede sobrevivir.
+test('montoSeguro no deja pasar una inyección por el parámetro monto', () => {
+  assert.strictEqual(montoSeguro("1; DROP TABLE Ventas--"), 0);
+  const s = sqlTicketsPorMonto({ ...P, monto: "1 OR 1=1", op: 'desde' });
+  assert.doesNotMatch(s, /DROP|OR 1=1/);
+  assert.match(s, /v\.ImporteTotal >= 0\.00/);
+});
+
+test('opMontoSeguro acepta sólo los tres operadores y cae en desde', () => {
+  assert.strictEqual(opMontoSeguro('desde'), 'desde');
+  assert.strictEqual(opMontoSeguro('hasta'), 'hasta');
+  assert.strictEqual(opMontoSeguro('exacto'), 'exacto');
+  assert.strictEqual(opMontoSeguro('cualquiera'), 'desde');
+  assert.strictEqual(opMontoSeguro('constructor'), 'desde');
+});
+
+test('condTicketMonto traduce el operador y el exacto compara redondeado a centavos', () => {
+  assert.strictEqual(condTicketMonto('5000', 'desde'), 'v.ImporteTotal >= 5000.00');
+  assert.strictEqual(condTicketMonto('5000', 'hasta'), 'v.ImporteTotal <= 5000.00');
+  assert.strictEqual(condTicketMonto('5000', 'exacto'), 'ROUND(v.ImporteTotal, 2) = 5000.00');
+});
+
+test('sqlTicketsPorMonto trae lo filtrado y el total de la sucursal en una sola pasada', () => {
+  const s = sqlTicketsPorMonto({ ...P, monto: '5000', op: 'desde' });
+  assert.match(s, /FROM Ventas v/);
+  assert.doesNotMatch(s, /VentasProductos/);
+  assert.match(s, /SUM\(CASE WHEN v\.ImporteTotal >= 5000\.00 THEN 1 ELSE 0 END\) AS Tickets/);
+  assert.match(s, /COUNT\(\*\) AS TicketsTotales/);
+  assert.match(s, /GROUP BY v\.IdSucursal, s\.Nombre/);
+  // El filtro de monto va en el CASE, no en el WHERE: si estuviera en el WHERE los
+  // totales de la sucursal saldrían recortados y los porcentajes darían siempre 100%.
+  assert.doesNotMatch(s, /WHERE[\s\S]*ImporteTotal >= 5000/);
+});
+
+test('sqlTicketsPorMonto arrastra los filtros comunes del módulo', () => {
+  const s = sqlTicketsPorMonto({ ...P, monto: '5000', op: 'desde' });
+  assert.match(s, /IdEstadoComprobante,''\) != 'ANULADO'/);
+  assert.match(s, /v\.IdSucursal IN \(2,3,4,5,7,9,10\)/);
+  assert.match(s, /UPPER\(ISNULL\(cat\.NombreCategoria,''\)\) != 'SUCURSAL'/);
+});
+
+test('ticketsPorMonto arma filas por sucursal con sus porcentajes y los totales', () => {
+  const r = ticketsPorMonto([
+    { IdSucursal: 2, Nombre: 'Urquiza', Tickets: 30, Facturacion: 300000, TicketsTotales: 120, FacturacionTotal: 600000 },
+    { IdSucursal: 3, Nombre: 'Nación',  Tickets: 0,  Facturacion: 0,      TicketsTotales: 80,  FacturacionTotal: 200000 },
+  ]);
+  assert.strictEqual(r.porSucursal[0].porcTickets, 25);
+  assert.strictEqual(r.porSucursal[0].porcFacturacion, 50);
+  assert.strictEqual(r.porSucursal[0].ticketProm, 10000);
+  // La sucursal sin ningún ticket del monto se lista igual: que no tenga es el dato.
+  assert.strictEqual(r.porSucursal[1].tickets, 0);
+  assert.strictEqual(r.porSucursal[1].ticketProm, 0);
+  assert.strictEqual(r.totales.tickets, 30);
+  assert.strictEqual(r.totales.facturacion, 300000);
+  assert.strictEqual(r.totales.ticketsTotales, 200);
+  assert.strictEqual(r.totales.porcTickets, 15);
+});
+
+test('ticketsPorMonto sin filas devuelve totales en cero sin dividir por cero', () => {
+  const r = ticketsPorMonto([]);
+  assert.deepStrictEqual(r.porSucursal, []);
+  assert.strictEqual(r.totales.tickets, 0);
+  assert.strictEqual(r.totales.porcTickets, 0);
+  assert.strictEqual(r.totales.ticketProm, 0);
+});

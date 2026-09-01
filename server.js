@@ -5808,6 +5808,24 @@ app.get('/api/analisis-ventas', apiRoute(async req => {
   };
 }));
 
+// ── Tickets por monto (alcance sucursales) ──────────────────────────────────
+// Endpoint aparte del análisis grande a propósito: el monto se cambia muchas veces
+// seguidas y volver a correr las nueve consultas del panel por cada prueba sería
+// carísimo. Ésta es una sola consulta de cabecera. Cuelga de /api/analisis-ventas para
+// quedar bajo el mismo permiso de módulo (ver apiPrefijos en auth.js).
+app.get('/api/analisis-ventas/montos', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
+  const monto = analisisVentas.montoSeguro(req.query.monto);
+  const op = analisisVentas.opMontoSeguro(req.query.op);
+  const rows = await query(analisisVentas.sqlTicketsPorMonto({
+    desde, hasta, sucIdsCsv: sucIds.join(','), monto, op,
+  }));
+  return { rango: { desde, hasta }, sucursales: sucIds, monto, op,
+    ...analisisVentas.ticketsPorMonto(rows) };
+}));
+
 // ── Análisis de ventas de casa central ──────────────────────────────────────
 // Mismo análisis que el módulo por sucursal pero con alcance fijo en la central, así
 // que reusa los mismos builders de SQL. Sin comparativa entre sucursales (hay una sola)
