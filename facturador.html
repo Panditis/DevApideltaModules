@@ -630,22 +630,24 @@
         <h3>Sacar el listado</h3>
         <ol>
           <li>Apretá <b>Tickets</b> arriba a la derecha.</li>
-          <li>Apretá <b>Exportar CSV</b>.</li>
-          <li>Se baja un archivo <code>tickets_AAAA-MM-DD.csv</code>.</li>
+          <li>Apretá <b>Exportar Excel</b>.</li>
+          <li>Se baja un archivo <code>tickets_AAAA-MM-DD.xlsx</code>.</li>
           <li>Se abre con doble clic en Excel, ya separado en columnas.</li>
         </ol>
         <div class="nota">Sale <b>una fila por cada producto</b> de cada ticket, no una por ticket.
-          Para totales por venta, filtrá por la columna <code>Pedido</code>.</div>
+          Para totales por venta, filtrá por la columna <code>Ticket</code>.</div>
       </div>
       <div>
         <h3>Qué trae cada columna</h3>
         <ol>
-          <li><code>Pedido</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
+          <li><code>Ticket</code>, <code>Fecha</code>, <code>Hora</code>: cuándo se cargó.</li>
           <li><code>Cliente</code> y <code>Vendedor</code>.</li>
-          <li><code>Codigo</code> y <code>Producto</code>.</li>
+          <li><code>Codigo</code> (PLU) y <code>Producto</code>.</li>
+          <li><code>CodigoCarga</code>: el código de barras leído en los pesables, el PLU
+            en los de almacén.</li>
           <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
           <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
-          <li><code>DtoGeneral</code>, <code>TotalPedido</code> y <code>MediosPago</code>.</li>
+          <li><code>DtoGeneral</code>, <code>TotalTicket</code> y <code>MediosPago</code>.</li>
         </ol>
 
         <h3>Mover las ventas a otra PC</h3>
@@ -665,7 +667,7 @@
     <h2 id="tituloGuardados">Tickets guardados</h2>
     <div id="listaGuardados"></div>
     <div class="fila" style="margin-top:12px">
-      <button id="btnExportarCsv">Exportar CSV</button>
+      <button id="btnExportarXlsx">Exportar Excel</button>
       <button id="btnRespaldo">Descargar respaldo</button>
       <button id="btnRestaurar">Restaurar respaldo</button>
       <input type="file" id="inputRespaldo" accept=".json" class="oculto">
@@ -1060,7 +1062,7 @@ function resolverEscaneo(codigo, indice, opciones) {
 }
 
 // ── Totales y pagos ───────────────────────────────────────────────────────────
-const MEDIOS_PAGO = ['EFECTIVO', 'TARJETA', 'QR NAVE', 'QR OPEPAY BBVA', 'QR BNA','TRANSFERENCIA', 'CUENTA CORRIENTE'];
+const MEDIOS_PAGO = ['EFECTIVO', 'TARJETA', 'QR NAVE', 'QR OPENPAY BBVA', 'QR BNA+','TRANSFERENCIA', 'CUENTA CORRIENTE'];
 
 // La promo (60000) y el 1 son genéricos: no tienen un precio propio en el catálogo, lo
 // pone quien cobra. Todo lo demás se cobra al precio del catálogo y no se toca desde la
@@ -1317,6 +1319,159 @@ function filasDeGviz(respuesta) {
   const filas = tabla.rows.map(r => (r && Array.isArray(r.c) ? r.c.map(celda) : []));
   const encabezado = (tabla.cols || []).map(c => (c && c.label ? c.label : ''));
   return encabezado.some(t => String(t).trim()) ? [encabezado, ...filas] : filas;
+}
+
+
+// -- Exportación de tickets a .xlsx --------------------------------------------
+// El .xlsx se arma a mano (ZIP sin comprimir + XML mínimo) por lo mismo que el lector: el
+// archivo viaja suelto y se abre con file://, así que no puede depender de una librería
+// bajada de la red.
+const COLUMNAS_TICKETS = ['Ticket', 'Fecha', 'Hora', 'Cliente', 'Vendedor', 'Codigo', 'CodigoCarga',
+  'Producto', 'Cantidad', 'Unidad', 'PesoEtiqueta', 'Precio', 'DtoLinea', 'SubtotalLinea',
+  'DtoGeneral', 'TotalTicket', 'MediosPago'];
+
+function esLineaPesable(l) {
+  const x = l || {};
+  return x.unidad === 'kg' || x.peso != null || String(x.origen || '').startsWith('balanza');
+}
+
+// El pesable se carga en SIGA por el código de barras que salió del ticket de balanza: el
+// PLU solo no identifica la pesada. Los de almacén siguen yendo por su PLU.
+function codigoDeCarga(l) {
+  const barra = String((l || {}).barra || '').replace(/\D/g, '');
+  return esLineaPesable(l) && barra ? barra : String((l || {}).plu || '');
+}
+
+function filasDeTickets(pedidos) {
+  const filas = [COLUMNAS_TICKETS.slice()];
+  for (const p of pedidos || []) {
+    const medios = (p.pagos || []).map(x => x.medio + ' ' + x.importe).join(' + ');
+    const fecha = p.fechaLocal || (p.fecha ? new Date(p.fecha).toLocaleDateString('es-AR') : '');
+    const hora = p.horaLocal || (p.fecha ? new Date(p.fecha).toLocaleTimeString('es-AR') : '');
+    for (const l of p.lineas || []) {
+      filas.push([p.numero, fecha, hora, p.cliente || '', p.vendedor || '',
+        String(l.plu || ''), codigoDeCarga(l), l.nombre, l.cant, l.unidad || 'un',
+        l.peso != null ? l.peso : '', l.precio, l.dtoPct || 0,
+        l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
+        p.descuentoPct, p.total, medios]);
+    }
+  }
+  return filas;
+}
+
+function columnaXlsx(i) {
+  let s = '';
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+function escaparXml(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Los códigos van como texto a propósito: un EAN-13 numérico Excel lo muestra en notación
+// científica, y al PLU le come los ceros de la izquierda.
+function hojaXml(filas) {
+  const celda = (v, ref) => {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && Number.isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
+    return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + escaparXml(v) + '</t></is></c>';
+  };
+  const cuerpo = (filas || []).map((f, i) =>
+    '<row r="' + (i + 1) + '">' +
+    (f || []).map((v, j) => celda(v, columnaXlsx(j) + (i + 1))).join('') +
+    '</row>').join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData>' + cuerpo + '</sheetData></worksheet>';
+}
+
+const TABLA_CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = TABLA_CRC[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// ZIP "stored": sin compresión no hace falta deflate ni CompressionStream, y una planilla
+// de tickets de un día pesa poco igual.
+function armarZip(archivos) {
+  const enc = new TextEncoder();
+  const partes = [], central = [];
+  let offset = 0, largoCentral = 0;
+  for (const a of archivos) {
+    const nombre = enc.encode(a.nombre);
+    const datos = enc.encode(a.texto);
+    const crc = crc32(datos);
+    const local = new Uint8Array(30 + nombre.length);
+    const v = new DataView(local.buffer);
+    v.setUint32(0, 0x04034b50, true); v.setUint16(4, 20, true);
+    v.setUint32(14, crc, true); v.setUint32(18, datos.length, true); v.setUint32(22, datos.length, true);
+    v.setUint16(26, nombre.length, true);
+    local.set(nombre, 30);
+    partes.push(local, datos);
+
+    const cd = new Uint8Array(46 + nombre.length);
+    const w = new DataView(cd.buffer);
+    w.setUint32(0, 0x02014b50, true); w.setUint16(4, 20, true); w.setUint16(6, 20, true);
+    w.setUint32(16, crc, true); w.setUint32(20, datos.length, true); w.setUint32(24, datos.length, true);
+    w.setUint16(28, nombre.length, true); w.setUint32(42, offset, true);
+    cd.set(nombre, 46);
+    central.push(cd);
+    largoCentral += cd.length;
+    offset += local.length + datos.length;
+  }
+  const fin = new Uint8Array(22);
+  const f = new DataView(fin.buffer);
+  f.setUint32(0, 0x06054b50, true);
+  f.setUint16(8, archivos.length, true); f.setUint16(10, archivos.length, true);
+  f.setUint32(12, largoCentral, true); f.setUint32(16, offset, true);
+
+  const todo = [...partes, ...central, fin];
+  const total = todo.reduce((a, b) => a + b.length, 0);
+  const salida = new Uint8Array(total);
+  let i = 0;
+  for (const b of todo) { salida.set(b, i); i += b.length; }
+  return salida;
+}
+
+function armarXlsx(filas, nombreHoja) {
+  const ns = 'http://schemas.openxmlformats.org/';
+  const hoja = escaparXml(nombreHoja || 'Hoja1').slice(0, 31);
+  return armarZip([
+    { nombre: '[Content_Types].xml', texto:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="' + ns + 'package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '</Types>' },
+    { nombre: '_rels/.rels', texto:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="' + ns + 'package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + ns + 'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { nombre: 'xl/workbook.xml', texto:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="' + ns + 'spreadsheetml/2006/main" xmlns:r="' + ns + 'officeDocument/2006/relationships">' +
+      '<sheets><sheet name="' + hoja + '" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { nombre: 'xl/_rels/workbook.xml.rels', texto:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="' + ns + 'package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + ns + 'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '</Relationships>' },
+    { nombre: 'xl/worksheets/sheet1.xml', texto: hojaXml(filas) },
+  ]);
 }
 
 /* ---8<--- parser-fin */
@@ -1690,7 +1845,8 @@ function procesarEscaneo(codigo) {
   if (r.tipo === 'vacio') return;
 
   if (r.tipo === 'ok') {
-    agregarLinea(r.producto, { cant: r.cant, precio: r.precio, unidad: r.unidad, origen: r.origen });
+    agregarLinea(r.producto, { cant: r.cant, precio: r.precio, unidad: r.unidad, origen: r.origen,
+      barra: String(codigo || '').replace(/\D/g, '') });
     if (r.origen === 'balanza-peso') {
       avisar(`⚖ ${r.producto.nombre} — ${r.cant.toFixed(3)} kg × ${plata(r.precio)}/kg = ${plata(r.cant * r.precio)}`, 'av-ok');
     } else if (r.origen === 'balanza-unidad') {
@@ -1785,6 +1941,10 @@ function agregarLinea(prod, opts) {
     plu: prod.plu, nombre: prod.nombre, precio: Number(o.precio != null ? o.precio : prod.precio) || 0,
     cant: Number(o.cant) || 1, unidad, dtoPct: 0, origen: o.origen || 'manual',
   };
+  // El código tal cual entró por el lector: en un pesable es lo único que identifica la
+  // pesada en la exportación, y el PLU solo no alcanza para cargarla.
+  const barraLeida = String(o.barra || '').replace(/\D/g, '');
+  if (barraLeida) nueva.barra = barraLeida;
   // El peso del prefijo 21 no entra en la cuenta, pero se guarda: es el dato del bulto que
   // el cliente tiene impreso en la etiqueta.
   if (o.peso != null) nueva.peso = Number(o.peso) || 0;
@@ -1867,7 +2027,7 @@ $('#btnAgregarPago').onclick = () => {
   const escrito = Number($('#importePago').value);
   // Sin importe escrito se asigna todo lo que falta: es el caso habitual (un solo medio).
   const importe = Number.isFinite(escrito) && escrito > 0 ? Math.round(escrito * 100) / 100 : s.falta;
-  if (importe <= 0) return avisoModal('Ya está cubierto el total del pedido.');
+  if (importe <= 0) return avisoModal('Ya está cubierto el total del ticket.');
   pagos = [...pagos, { medio: $('#medioPago').value, importe }];
   $('#importePago').value = '';
   pintarPagos();
@@ -1921,7 +2081,7 @@ function pedidoActual() {
 }
 
 $('#btnGuardarPedido').onclick = async () => {
-  if (!lineas.length) return avisoModal('El pedido no tiene productos.');
+  if (!lineas.length) return avisoModal('El ticket no tiene productos.');
   // Lo que falte cubrir se carga solo con el medio que quedó elegido en el selector: en el
   // mostrador el pago es casi siempre uno, y preguntar antes de guardar sólo agregaba un
   // clic en el momento en que el cliente está esperando.
@@ -1937,15 +2097,15 @@ $('#btnGuardarPedido').onclick = async () => {
   // El ticket se arma con el pedido ya guardado y la impresión sale recién al cerrar el
   // aviso: si se llama antes, el diálogo de impresión tapa el modal y el vendedor no ve
   // la confirmación de que quedó guardado.
-  await okModal('Pedido ' + p.numero + ' guardado.', 'Ticket guardado');
-  if (!await confirmarModal('¿Imprimir el ticket del pedido ' + p.numero + '?', 'Imprimir', 'Imprimir')) return;
+  await okModal('Ticket ' + p.numero + ' guardado.', 'Ticket guardado');
+  if (!await confirmarModal('¿Imprimir el ticket ' + p.numero + '?', 'Imprimir', 'Imprimir')) return;
   pintarTicket(p);
   window.print();
 };
 
 function comoTexto(p) {
   return [
-    '*Pedido ' + p.numero + '* — ' + (p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR')) +
+    '*Ticket ' + p.numero + '* — ' + (p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR')) +
       ' ' + (p.horaLocal || ''),
     p.cliente ? 'Cliente: ' + p.cliente : '',
     '',
@@ -1977,7 +2137,7 @@ function pintarTicket(p) {
     '<div class="tk-centro">Comprobante interno</div>',
     '<div class="tk-centro">no válido como factura</div>',
     '<div class="tk-sep"></div>',
-    fila('Pedido', esc(p.numero)),
+    fila('Ticket', esc(p.numero)),
     fila(esc(p.fechaLocal || ''), esc(p.horaLocal || '')),
   ];
   if (p.cliente) partes.push(fila('Cliente', esc(p.cliente)));
@@ -2022,13 +2182,13 @@ function pintarTicket(p) {
 }
 
 $('#btnImprimir').onclick = () => {
-  if (!lineas.length) return avisoModal('El pedido no tiene productos.');
+  if (!lineas.length) return avisoModal('El ticket no tiene productos.');
   pintarTicket(pedidoActual());
   window.print();
 };
 
 $('#btnLimpiar').onclick = async () => {
-  if ((!lineas.length && !pagos.length) || !await confirmarModal('¿Vaciar el pedido en curso?')) return;
+  if ((!lineas.length && !pagos.length) || !await confirmarModal('¿Vaciar el ticket en curso?')) return;
   lineas = []; pagos = []; guardarBorrador();
   $('#cliente').value = ''; $('#descuento').value = '0';
   pintarLineas();
@@ -2041,24 +2201,13 @@ function bajarArchivo(nombre, contenido, tipo) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-$('#btnExportarCsv').onclick = () => {
-  if (!pedidos.length) return avisoModal('No hay pedidos guardados.');
-  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const filas = [['Pedido', 'Fecha', 'Hora', 'Cliente', 'Vendedor', 'Codigo', 'Producto', 'Cantidad', 'Unidad',
-                  'PesoEtiqueta', 'Precio', 'DtoLinea', 'SubtotalLinea', 'DtoGeneral', 'TotalPedido', 'MediosPago']];
-  for (const p of pedidos) {
-    const medios = (p.pagos || []).map(x => x.medio + ' ' + x.importe).join(' + ');
-    for (const l of p.lineas) {
-      filas.push([p.numero, p.fechaLocal || new Date(p.fecha).toLocaleDateString('es-AR'),
-        p.horaLocal || new Date(p.fecha).toLocaleTimeString('es-AR'), p.cliente, p.vendedor || '',
-        l.plu, l.nombre, l.cant, l.unidad || 'un', l.peso != null ? l.peso : '', l.precio, l.dtoPct || 0,
-        l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
-        p.descuentoPct, p.total, medios]);
-    }
-  }
-  // BOM + punto y coma: así Excel en español lo abre en columnas sin preguntar nada.
-  bajarArchivo('pedidos_' + new Date().toISOString().slice(0, 10) + '.csv',
-    '﻿' + filas.map(f => f.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+$('#btnExportarXlsx').onclick = () => {
+  if (!pedidos.length) return avisoModal('No hay tickets guardados.');
+  // .xlsx y no .csv: Excel abre la planilla sin preguntar separadores y los códigos de
+  // barra no se convierten en notación científica.
+  bajarArchivo('tickets_' + new Date().toISOString().slice(0, 10) + '.xlsx',
+    armarXlsx(filasDeTickets(pedidos), 'Tickets'),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 };
 
 $('#btnRespaldo').onclick = () => bajarArchivo(
@@ -2088,7 +2237,7 @@ $('#inputRespaldo').onchange = async e => {
     grabar(K.cont, contador);
     if (d.catalogo && (!catalogo || d.catalogo.generado > catalogo.generado)) aplicarCatalogo(d.catalogo);
     pintarGuardados();
-    okModal('Respaldo restaurado. Total de pedidos: ' + pedidos.length);
+    okModal('Respaldo restaurado. Total de tickets: ' + pedidos.length);
   } catch (err) { errorModal('No se pudo restaurar: ' + err.message); }
   e.target.value = '';
 };
@@ -2098,7 +2247,7 @@ $('#inputRespaldo').onchange = async e => {
 function pintarGuardados() {
   $('#listaGuardados').innerHTML = pedidos.length
     ? pedidos.map(detalleGuardado).join('')
-    : '<p class="vacio">Todavía no hay pedidos guardados.</p>';
+    : '<p class="vacio">Todavía no hay tickets guardados.</p>';
 }
 
 function detalleGuardado(p, i) {
@@ -2144,7 +2293,7 @@ $('#listaGuardados').onclick = async e => {
   const b = e.target.closest('button[data-borrar]');
   if (!b) return;
   const i = Number(b.dataset.borrar);
-  if (!await confirmarModal('¿Borrar el pedido ' + pedidos[i].numero + '? No se puede deshacer.')) return;
+  if (!await confirmarModal('¿Borrar el ticket ' + pedidos[i].numero + '? No se puede deshacer.')) return;
   pedidos = pedidos.filter((_, j) => j !== i);
   grabar(K.ped, pedidos);
   pintarGuardados();
