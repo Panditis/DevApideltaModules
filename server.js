@@ -54,7 +54,7 @@ const bloquesTareas = require('./bloques_tareas');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;
-const HOSTNAME = cfg.hostname || 'pedidos';
+const HOSTNAME = cfg.hostname || 'apidelta';
 
 // ── Conexión SQL Server ────────────────────────────────────────────────────────
 const SIGA_SERVER = process.env.SIGA_DB_SERVER || 'servidorapidelta\\SQLSTANDARD';
