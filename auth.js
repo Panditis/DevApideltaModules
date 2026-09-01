@@ -37,7 +37,9 @@ const CATALOGO_MODULOS = [
   // Compras es un único módulo (el de reposición). '/compras-modulo' quedó como ruta
   // histórica que redirige a '/compras': se mantiene acá para que la redirección
   // siga pasando por el control de acceso.
-  { ref: 'compras',             titulo: 'Compras',                  icon: 'shopping-cart',  href: '/compras',            rutasHtml: ['/compras', '/compras-modulo'], apiPrefijos: ['/api/compras', '/api/compras-modulo'], defaultRequiereAuth: true },
+  // '/compras/importar-prueba' es el banco de pruebas del importador de facturas
+  // de proveedor: sólo lee el xlsx y lo previsualiza, nunca escribe en SIGA.
+  { ref: 'compras',             titulo: 'Compras',                  icon: 'shopping-cart',  href: '/compras',            rutasHtml: ['/compras', '/compras-modulo', '/compras/importar-prueba'], apiPrefijos: ['/api/compras', '/api/compras-modulo', '/api/compras-import'], defaultRequiereAuth: true },
   { ref: 'consumo',             titulo: 'Compras Carlos',           icon: 'truck',          href: '/consumo',            rutasHtml: ['/consumo'],            apiPrefijos: ['/api/consumo', '/api/pendientes'], defaultRequiereAuth: true },
   { ref: 'insumos',             titulo: 'Control de Insumos',       icon: 'boxes',          href: '/insumos',            rutasHtml: ['/insumos'],            apiPrefijos: ['/api/insumos'],                   defaultRequiereAuth: true },
   { ref: 'distribucion',        titulo: 'Distribución y Fraccionado', icon: 'package',      href: '/distribucion',       rutasHtml: ['/distribucion'],       apiPrefijos: [],                                  defaultRequiereAuth: true },

@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apidelta — Importar Factura de Compra (prueba)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   APIDELTA · Compras / Importación de facturas de proveedor — BANCO DE PRUEBAS
+   Paleta oficial: #000 / #65684C / #BDBDB7 / #FFF / #FFCC00 · acento del área #7a5230
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --p:#FFCC00; --area:#7a5230; --area-soft:#f2e6da; --area-ink:#4a3016;
+  --on-surf:#1f2024; --muted:#7d8069; --outline:#d8d8d2; --bg:#f6f6f3;
+  --ok:#3f5e1f; --ok-bg:#e3f0d2; --err:#8a2a1c; --err-bg:#fbe3df;
+  --warn:#7a5b0a; --warn-bg:#fdf1cd; --na:#8a8c78; --na-bg:#f0f0ea;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:var(--on-surf);font-size:14px;line-height:1.55}
+.hidden{display:none!important}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .35s cubic-bezier(.2,.7,.2,1) both}
+
+.app-bar{
+  background:linear-gradient(180deg,#6e7152 0%,#5d6045 100%);
+  color:#fff;min-height:60px;padding:0 24px;
+  display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:30;
+  box-shadow:0 1px 0 rgba(0,0,0,.08),0 10px 28px -16px rgba(101,104,76,.4);
+}
+.app-bar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent 0%,#FFCC00 30%,#FFCC00 70%,transparent 100%);opacity:.55}
+.app-bar-logo{height:34px;width:34px;display:block}
+.app-bar-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.02rem;font-weight:700;line-height:1.1}
+.app-bar-sub{font-size:.72rem;opacity:.72;font-weight:500}
+.app-bar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.status-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.12);font-size:.72rem;font-weight:600;color:#fff;text-decoration:none}
+
+.wrap{max-width:1500px;margin:0 auto;padding:24px 20px 56px}
+.card{background:#fff;border:1px solid var(--outline);border-radius:14px;padding:20px;margin-bottom:18px}
+h2{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.05rem;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sub{color:var(--muted);font-size:.82rem}
+
+.banner{display:flex;gap:11px;align-items:flex-start;padding:13px 15px;border-radius:11px;margin-bottom:18px;font-size:.86rem}
+.banner.info{background:var(--area-soft);color:var(--area-ink);border:1px solid #e0cdb8}
+.banner b{font-weight:700}
+
+.drop{border:2px dashed var(--outline);border-radius:14px;background:#fcfcfa;padding:30px 20px;text-align:center;cursor:pointer;transition:.18s}
+.drop:hover,.drop.over{border-color:var(--area);background:var(--area-soft)}
+.drop-t{font-weight:700;font-size:.95rem;margin-top:10px}
+.drop-s{color:var(--muted);font-size:.8rem;margin-top:3px}
+
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 17px;border-radius:9px;border:1px solid var(--outline);
+  background:#fff;font:inherit;font-weight:600;font-size:.85rem;cursor:pointer;transition:.15s;color:var(--on-surf)}
+.btn:hover{border-color:var(--area)}
+.btn.primary{background:var(--p);border-color:#e6b800}
+.btn.icon{padding:5px 8px}
+.btn.danger:hover{border-color:var(--err);color:var(--err)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ── Campos editables ─────────────────────────────────────────────────────── */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-top:14px}
+.campo{display:flex;flex-direction:column;gap:4px}
+.campo label{font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
+.campo input,.campo select{
+  font:inherit;font-size:.85rem;padding:7px 9px;border:1px solid var(--outline);border-radius:8px;background:#fff;color:var(--on-surf);width:100%;
+}
+.campo input:focus,.campo select:focus{outline:none;border-color:var(--area);box-shadow:0 0 0 3px var(--area-soft)}
+.campo .hint{font-size:.7rem;color:var(--muted);min-height:1em}
+.campo .hint.res{color:var(--area-ink);font-weight:600}
+.campo .hint.mal{color:var(--err);font-weight:600}
+.campo.ancho{grid-column:1/-1}
+
+.msgs{list-style:none;display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.msgs li{padding:9px 13px;border-radius:9px;font-size:.85rem;display:flex;gap:9px;align-items:flex-start}
+.msgs li.e{background:var(--err-bg);color:var(--err)}
+.msgs li.w{background:var(--warn-bg);color:var(--warn)}
+
+table{width:100%;border-collapse:collapse;margin-top:14px;font-size:.83rem}
+th{text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;padding:7px 8px;border-bottom:2px solid var(--outline);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid #eeeee8;vertical-align:top}
+tr.bad td{background:#fdf4f2}
+td input{font:inherit;font-size:.82rem;padding:5px 7px;border:1px solid transparent;border-radius:6px;background:#fbfbf8;width:100%;color:var(--on-surf)}
+td input:hover{border-color:var(--outline)}
+td input:focus{outline:none;background:#fff;border-color:var(--area);box-shadow:0 0 0 3px var(--area-soft)}
+td input.num{text-align:right;font-family:'Spline Sans Mono',ui-monospace,monospace}
+td input.cod{font-family:'Spline Sans Mono',ui-monospace,monospace}
+.num{text-align:right;font-family:'Spline Sans Mono',ui-monospace,monospace;white-space:nowrap}
+.mono{font-family:'Spline Sans Mono',ui-monospace,monospace}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:700}
+.tag.ok{background:var(--ok-bg);color:var(--ok)}
+.tag.err{background:var(--err-bg);color:var(--err)}
+.tag.amb{background:var(--warn-bg);color:var(--warn)}
+.tag.src{background:var(--na-bg);color:var(--na);font-weight:600}
+.nota{color:var(--err);font-size:.75rem;margin-top:3px}
+.nombre-siga{font-size:.8rem}
+.opcion{display:block;background:none;border:none;padding:2px 0;font:inherit;font-size:.75rem;color:var(--area-ink);cursor:pointer;text-align:left;text-decoration:underline}
+
+.tot{display:flex;justify-content:flex-end;gap:26px;margin-top:16px;padding-top:14px;border-top:2px solid var(--outline);flex-wrap:wrap}
+.tot div{text-align:right}
+.tot .k{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
+.tot .v{font-family:'Spline Sans Mono',ui-monospace,monospace;font-weight:700;font-size:1rem}
+.tot .big .v{font-size:1.3rem;color:var(--area-ink)}
+.tabla-scroll{overflow-x:auto}
+
+.barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+.pendiente{color:var(--warn);font-size:.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+
+/* ── Buscador ─────────────────────────────────────────────────────────────── */
+.buscador{position:relative;flex:1;min-width:240px;max-width:420px}
+.buscador input{font:inherit;font-size:.85rem;padding:8px 10px;border:1px solid var(--outline);border-radius:8px;width:100%}
+.buscador input:focus{outline:none;border-color:var(--area);box-shadow:0 0 0 3px var(--area-soft)}
+.resultados{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--outline);border-radius:10px;box-shadow:0 12px 28px -12px rgba(0,0,0,.25);max-height:300px;overflow-y:auto;z-index:20}
+.resultados button{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 11px;font:inherit;font-size:.82rem;cursor:pointer;border-bottom:1px solid #f1f1ec}
+.resultados button:hover{background:var(--area-soft)}
+.resultados .plu{font-family:'Spline Sans Mono',ui-monospace,monospace;color:var(--muted);font-size:.75rem}
+</style>
+</head>
+<body>
+
+<header class="app-bar">
+  <img src="/favicon.png" alt="" class="app-bar-logo">
+  <div>
+    <div class="app-bar-title">Importar Factura de Compra</div>
+    <div class="app-bar-sub">Banco de pruebas · no escribe en SIGA</div>
+  </div>
+  <div class="app-bar-right">
+    <a class="status-chip" href="/compras"><i data-lucide="arrow-left" style="width:14px;height:14px"></i> Compras</a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="banner info">
+    <i data-lucide="flask-conical" style="width:18px;height:18px;flex-shrink:0;margin-top:1px"></i>
+    <div>
+      <b>Módulo de pruebas.</b> Lee el xlsx, valida los datos y resuelve los productos contra SIGA.
+      Podés corregir la cabecera y los ítems antes de cargar. <b>No graba nada:</b> no toca stock,
+      ni cuenta corriente, ni comprobantes.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>1 · Subir la planilla</h2>
+    <p class="sub">Archivo .xlsx en formato plano: una fila por ítem, con los datos de la factura en columnas.</p>
+
+    <div class="drop" id="drop" style="margin-top:14px">
+      <i data-lucide="file-spreadsheet" style="width:34px;height:34px;color:var(--area)"></i>
+      <div class="drop-t">Arrastrá el archivo o hacé clic para elegirlo</div>
+      <div class="drop-s">Hasta 10 MB</div>
+      <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+    </div>
+
+    <div id="elegido" class="hidden barra">
+      <span class="mono" id="nombreArchivo"></span>
+      <button class="btn primary" id="btnPrev"><i data-lucide="eye" style="width:15px;height:15px"></i> Previsualizar</button>
+      <button class="btn" id="btnLimpiar">Limpiar</button>
+    </div>
+  </div>
+
+  <div id="resultado"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const drop = $('#drop'), file = $('#file'), out = $('#resultado');
+let elegido = null;
+
+// Estado editable. `datos` es siempre lo último que devolvió el servidor.
+let cabecera = {};
+let lineas = [];
+let datos = null;
+let uidSeq = 1;
+let revalidando = false;
+let pendiente = false;
+let debounce = null;
+
+const money = n => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+const CAMPOS_CAB = [
+  { k: 'IdProveedor',         t: 'number', l: 'Proveedor (Id)' },
+  { k: 'TipoComprobante',     t: 'tipo',   l: 'Tipo' },
+  { k: 'Letra',               t: 'letra',  l: 'Letra' },
+  { k: 'PuntoVenta',          t: 'number', l: 'Punto de venta' },
+  { k: 'NumeroComprobante',   t: 'number', l: 'Número' },
+  { k: 'FechaComprobante',    t: 'date',   l: 'Fecha' },
+  { k: 'FechaVencimiento',    t: 'date',   l: 'Vencimiento' },
+  { k: 'IdSucursal',          t: 'number', l: 'Sucursal' },
+  { k: 'IdDeposito',          t: 'number', l: 'Depósito' },
+  { k: 'IdUbicacion',         t: 'number', l: 'Ubicación' },
+  { k: 'PercepcionIVA',       t: 'number', l: 'Percep. IVA' },
+  { k: 'PercepcionIIBB',      t: 'number', l: 'Percep. IIBB' },
+  { k: 'PercepcionGanancias', t: 'number', l: 'Percep. Ganancias' },
+  { k: 'PercepcionVarias',    t: 'number', l: 'Percep. Varias' },
+  { k: 'ImpuestosInternos',   t: 'number', l: 'Imp. Internos' },
+  { k: 'ImporteTotal',        t: 'number', l: 'Total declarado' },
+  { k: 'Observacion',         t: 'text',   l: 'Observación', ancho: true },
+];
+
+// ── Subida ──────────────────────────────────────────────────────────────────
+drop.onclick = () => file.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) tomar(e.dataTransfer.files[0]); };
+file.onchange = () => file.files[0] && tomar(file.files[0]);
+
+function tomar(f) {
+  elegido = f;
+  $('#nombreArchivo').textContent = f.name;
+  $('#elegido').classList.remove('hidden');
+  out.innerHTML = '';
+}
+
+$('#btnLimpiar').onclick = () => {
+  elegido = null; file.value = ''; datos = null; lineas = []; cabecera = {};
+  $('#elegido').classList.add('hidden');
+  out.innerHTML = '';
+};
+
+$('#btnPrev').onclick = async () => {
+  if (!elegido) return;
+  const btn = $('#btnPrev');
+  btn.disabled = true;
+  out.innerHTML = '<div class="card"><p class="sub">Leyendo el archivo y consultando SIGA…</p></div>';
+  try {
+    const fd = new FormData();
+    fd.append('archivo', elegido);
+    const r = await fetch('/api/compras-import/preview', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error del servidor');
+    cargar(d);
+  } catch (err) {
+    out.innerHTML = '<div class="card"><ul class="msgs"><li class="e">' + esc(err.message) + '</li></ul></div>';
+  } finally {
+    btn.disabled = false;
+    if (window.lucide) lucide.createIcons();
+  }
+};
+
+function cargar(d) {
+  datos = d;
+  cabecera = Object.assign({}, d.cabecera);
+  lineas = (d.lineas || []).map(l => Object.assign({ uid: uidSeq++ }, l));
+  render();
+}
+
+// ── Revalidación ────────────────────────────────────────────────────────────
+function marcarPendiente() {
+  pendiente = true;
+  const p = $('#pendiente');
+  if (p) p.classList.remove('hidden');
+  clearTimeout(debounce);
+  debounce = setTimeout(revalidar, 700);
+}
+
+async function revalidar() {
+  clearTimeout(debounce);
+  if (revalidando) { pendiente = true; return; }
+  revalidando = true;
+  const btn = $('#btnRevalidar');
+  if (btn) btn.disabled = true;
+
+  try {
+    // Si el número lo asigna el sistema no se reenvía: lo recalcula el servidor.
+    const cab = Object.assign({}, cabecera);
+    if (datos && datos.numeroAsignado) cab.NumeroComprobante = null;
+
+    const r = await fetch('/api/compras-import/revalidar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cabecera: cab, lineas: lineas, archivo: datos && datos.archivo }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error del servidor');
+
+    datos = d;
+    // Sólo se sincroniza lo que derivó el servidor; lo que el usuario está
+    // tipeando no se pisa, para no pelear con el cursor.
+    if (d.numeroAsignado) cabecera.NumeroComprobante = d.cabecera.NumeroComprobante;
+    if (!cabecera.FechaVencimiento && d.cabecera.FechaVencimiento) cabecera.FechaVencimiento = d.cabecera.FechaVencimiento;
+    lineas = lineas.map((l, i) => (d.lineas[i] ? Object.assign({}, l, {
+      estado: d.lineas[i].estado, origen: d.lineas[i].origen, nombreSiga: d.lineas[i].nombreSiga,
+      notas: d.lineas[i].notas, opciones: d.lineas[i].opciones, neto: d.lineas[i].neto,
+    }) : l));
+
+    pendiente = false;
+    pintarResultados();
+  } catch (err) {
+    const box = $('#erroresBox');
+    if (box) box.innerHTML = '<ul class="msgs"><li class="e">' + esc(err.message) + '</li></ul>';
+  } finally {
+    revalidando = false;
+    if (btn) btn.disabled = false;
+    const p = $('#pendiente');
+    if (p && !pendiente) p.classList.add('hidden');
+    if (pendiente) { pendiente = false; revalidar(); }
+  }
+}
+
+// ── Render ──────────────────────────────────────────────────────────────────
+function render() {
+  const tipos = (datos && datos.tiposComprobante) || {};
+
+  let html = '<div class="card fade-up"><h2>2 · Datos de la factura <span id="estadoChip"></span>' +
+    '<span id="pendiente" class="pendiente hidden"><i data-lucide="loader" style="width:14px;height:14px"></i> revalidando…</span></h2>' +
+    '<p class="sub">' + esc((datos && datos.archivo) || '') + ' · editá cualquier campo y se revalida solo.</p>' +
+    '<div class="form-grid">';
+
+  for (const c of CAMPOS_CAB) {
+    const val = cabecera[c.k] == null ? '' : cabecera[c.k];
+    let campo;
+    if (c.t === 'tipo') {
+      campo = '<select data-cab="' + c.k + '">' + Object.keys(tipos).map(t =>
+        '<option value="' + esc(t) + '"' + (val === t ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>';
+    } else if (c.t === 'letra') {
+      const tc = tipos[cabecera.TipoComprobante];
+      const letras = tc ? tc.letras : ['A', 'B', 'C', 'E', 'I', 'M', 'X'];
+      campo = '<select data-cab="' + c.k + '" id="selLetra">' + letras.map(L =>
+        '<option value="' + esc(L) + '"' + (val === L ? ' selected' : '') + '>' + esc(L) + '</option>').join('') + '</select>';
+    } else {
+      const step = c.t === 'number' ? ' step="any"' : '';
+      campo = '<input type="' + (c.t === 'date' ? 'date' : c.t) + '"' + step + ' data-cab="' + c.k + '" value="' + esc(val) + '">';
+    }
+    html += '<div class="campo' + (c.ancho ? ' ancho' : '') + '"><label>' + esc(c.l) + '</label>' + campo +
+      '<span class="hint" id="hint-' + c.k + '"></span></div>';
+  }
+  html += '</div><div id="erroresBox"></div></div>';
+
+  html += '<div class="card fade-up"><h2>3 · Ítems <span class="sub" id="contItems"></span></h2>' +
+    '<div class="tabla-scroll"><table><thead><tr>' +
+    '<th style="width:34px">#</th><th style="width:90px">PLU</th><th style="width:110px">Cód. prov.</th>' +
+    '<th style="width:130px">Cód. barras</th><th style="width:85px">Cant.</th><th style="width:110px">P. unit.</th>' +
+    '<th style="width:75px">IVA %</th><th>Producto</th><th class="num" style="width:110px">Neto</th>' +
+    '<th style="width:150px">Estado</th><th style="width:40px"></th>' +
+    '</tr></thead><tbody id="tbody"></tbody></table></div>';
+
+  html += '<div class="barra">' +
+    '<button class="btn" id="btnAgregar"><i data-lucide="plus" style="width:15px;height:15px"></i> Agregar ítem</button>' +
+    '<div class="buscador"><input type="text" id="buscar" placeholder="Buscar producto por nombre, PLU o código de barras…" autocomplete="off">' +
+    '<div id="resultados"></div></div>' +
+    '<button class="btn primary" id="btnRevalidar"><i data-lucide="refresh-cw" style="width:15px;height:15px"></i> Revalidar</button>' +
+    '</div>';
+
+  html += '<div class="tot" id="totales"></div></div><div id="impuestosBox"></div>';
+
+  out.innerHTML = html;
+  pintarFilas();
+  pintarResultados();
+  enlazarCabecera();
+  enlazarBarra();
+  if (window.lucide) lucide.createIcons();
+}
+
+function pintarFilas() {
+  const tb = $('#tbody');
+  if (!tb) return;
+  tb.innerHTML = lineas.map((l, i) => filaHtml(l, i)).join('');
+  const cont = $('#contItems');
+  if (cont) cont.textContent = '(' + lineas.length + ')';
+  enlazarFilas();
+  if (window.lucide) lucide.createIcons();
+}
+
+function filaHtml(l, i) {
+  return '<tr data-uid="' + l.uid + '" id="fila-' + l.uid + '">' +
+    '<td class="num">' + (i + 1) + '</td>' +
+    '<td><input class="cod" data-f="plu" value="' + esc(l.plu || '') + '"></td>' +
+    '<td><input class="cod" data-f="codigoProveedor" value="' + esc(l.codigoProveedor || '') + '"></td>' +
+    '<td><input class="cod" data-f="codigoBarras" value="' + esc(l.codigoBarras || '') + '"></td>' +
+    '<td><input class="num" type="number" step="any" data-f="cantidad" value="' + esc(l.cantidad == null ? '' : l.cantidad) + '"></td>' +
+    '<td><input class="num" type="number" step="any" data-f="precioUnitario" value="' + esc(l.precioUnitario == null ? '' : l.precioUnitario) + '"></td>' +
+    '<td><input class="num" type="number" step="any" data-f="porcentajeIVA" value="' + esc(l.porcentajeIVA == null ? '' : l.porcentajeIVA) + '"></td>' +
+    '<td class="celda-nombre"></td>' +
+    '<td class="num celda-neto"></td>' +
+    '<td class="celda-estado"></td>' +
+    '<td><button class="btn icon danger" data-borrar="' + l.uid + '" title="Eliminar ítem"><i data-lucide="trash-2" style="width:14px;height:14px"></i></button></td>' +
+    '</tr>';
+}
+
+// Actualiza sólo las celdas derivadas: no toca los inputs, así no se pierde el foco.
+function pintarResultados() {
+  const d = datos || {};
+  const chip = $('#estadoChip');
+  if (chip) chip.innerHTML = d.valido
+    ? '<span class="tag ok">Listo para cargar</span>'
+    : '<span class="tag err">Con errores · no se cargaría</span>';
+
+  const hint = (k, txt, clase) => {
+    const el = $('#hint-' + k);
+    if (el) { el.textContent = txt || ''; el.className = 'hint' + (clase && txt ? ' ' + clase : ''); }
+  };
+  hint('IdProveedor', d.proveedor ? d.proveedor.NombreProveedor : (cabecera.IdProveedor ? 'no existe en SIGA' : ''), d.proveedor ? 'res' : 'mal');
+  hint('IdSucursal', d.sucursal ? d.sucursal.Nombre : (cabecera.IdSucursal ? 'no existe' : ''), d.sucursal ? 'res' : 'mal');
+  hint('NumeroComprobante', d.numeroAsignado
+    ? 'lo asigna el sistema' + (d.cabecera && d.cabecera.numeroUltimoUsado ? ' · último: ' + d.cabecera.numeroUltimoUsado : '')
+    : '', 'res');
+
+  const box = $('#erroresBox');
+  if (box) {
+    let h = '';
+    if (d.errores && d.errores.length) {
+      h += '<ul class="msgs">' + d.errores.map(e =>
+        '<li class="e"><i data-lucide="x-circle" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i>' + esc(e) + '</li>').join('') + '</ul>';
+    }
+    if (d.avisos && d.avisos.length) {
+      h += '<ul class="msgs">' + d.avisos.map(a =>
+        '<li class="w"><i data-lucide="alert-triangle" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i>' + esc(a) + '</li>').join('') + '</ul>';
+    }
+    box.innerHTML = h;
+  }
+
+  for (const l of lineas) {
+    const tr = document.getElementById('fila-' + l.uid);
+    if (!tr) continue;
+    tr.className = (l.estado && l.estado !== 'ok') ? 'bad' : '';
+
+    let tag = l.estado === 'ok' ? '<span class="tag ok">ok</span>'
+      : l.estado === 'ambiguo' ? '<span class="tag amb">ambiguo</span>'
+      : l.estado === 'no-encontrado' ? '<span class="tag err">sin match</span>'
+      : '<span class="tag src">sin revalidar</span>';
+    if (l.estado === 'ok' && l.origen) tag += ' <span class="tag src">' + esc(l.origen) + '</span>';
+    tr.querySelector('.celda-estado').innerHTML = tag;
+
+    let nombre = l.nombreSiga
+      ? '<span class="nombre-siga">' + esc(l.nombreSiga) + '</span>'
+      : '<span class="sub">' + esc(l.descripcion || '—') + '</span>';
+    if (l.opciones && l.opciones.length) {
+      nombre += l.opciones.map(o =>
+        '<button class="opcion" data-elegir="' + l.uid + '" data-plu="' + esc(o.plu) + '">usar ' + esc(o.plu) + ' · ' + esc(o.nombre) + '</button>').join('');
+    }
+    for (const n of (l.notas || [])) nombre += '<div class="nota">' + esc(n) + '</div>';
+    tr.querySelector('.celda-nombre').innerHTML = nombre;
+    tr.querySelector('.celda-neto').textContent = money(l.neto);
+  }
+
+  const t = d.totales || {};
+  const tot = $('#totales');
+  if (tot) tot.innerHTML =
+    '<div><div class="k">Neto</div><div class="v">' + money(t.neto) + '</div></div>' +
+    '<div><div class="k">IVA</div><div class="v">' + money(t.totalIVA) + '</div></div>' +
+    '<div><div class="k">Percepciones</div><div class="v">' + money(t.totalPercepciones) + '</div></div>' +
+    '<div class="big"><div class="k">Total</div><div class="v">' + money(t.total) + '</div></div>';
+
+  const imp = $('#impuestosBox');
+  if (imp) {
+    imp.innerHTML = (t.impuestos && t.impuestos.length)
+      ? '<div class="card"><h2>4 · Impuestos</h2>' +
+        '<p class="sub">Una fila por alícuota y por percepción, como los guarda SIGA en <span class="mono">ComprasImpuestos</span>.</p>' +
+        '<div class="tabla-scroll"><table><thead><tr><th>Tipo</th><th class="num">Alícuota</th><th class="num">Base imponible</th><th class="num">Importe</th></tr></thead><tbody>' +
+        t.impuestos.map(i => '<tr><td class="mono">' + esc(i.tipo) + '</td>' +
+          '<td class="num">' + (i.alicuota ? esc(i.alicuota) + '%' : '—') + '</td>' +
+          '<td class="num">' + money(i.baseImponible) + '</td>' +
+          '<td class="num">' + money(i.importe) + '</td></tr>').join('') +
+        '</tbody></table></div></div>'
+      : '';
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+// ── Eventos ─────────────────────────────────────────────────────────────────
+function enlazarCabecera() {
+  out.querySelectorAll('[data-cab]').forEach(el => {
+    el.addEventListener('input', () => {
+      const k = el.getAttribute('data-cab');
+      const v = el.value.trim();
+      cabecera[k] = v === '' ? null : (el.type === 'number' ? Number(v) : v);
+      // Cambiar el tipo redibuja las letras habilitadas para ese comprobante.
+      if (k === 'TipoComprobante') {
+        const tc = ((datos && datos.tiposComprobante) || {})[v];
+        const sel = $('#selLetra');
+        if (tc && sel) {
+          if (!tc.letras.includes(cabecera.Letra)) cabecera.Letra = tc.letras[0];
+          sel.innerHTML = tc.letras.map(L => '<option value="' + esc(L) + '"' + (cabecera.Letra === L ? ' selected' : '') + '>' + esc(L) + '</option>').join('');
+        }
+      }
+      marcarPendiente();
+    });
+  });
+}
+
+function enlazarFilas() {
+  const tb = $('#tbody');
+  if (!tb) return;
+
+  tb.querySelectorAll('input[data-f]').forEach(el => {
+    el.addEventListener('input', () => {
+      const uid = Number(el.closest('tr').getAttribute('data-uid'));
+      const l = lineas.find(x => x.uid === uid);
+      if (!l) return;
+      const campo = el.getAttribute('data-f');
+      const v = el.value.trim();
+      l[campo] = v === '' ? null : (el.type === 'number' ? Number(v) : v);
+      marcarPendiente();
+    });
+  });
+
+  tb.querySelectorAll('[data-borrar]').forEach(b => {
+    b.onclick = () => {
+      lineas = lineas.filter(l => l.uid !== Number(b.getAttribute('data-borrar')));
+      pintarFilas(); pintarResultados(); marcarPendiente();
+    };
+  });
+
+  tb.querySelectorAll('[data-elegir]').forEach(b => {
+    b.onclick = () => {
+      const l = lineas.find(x => x.uid === Number(b.getAttribute('data-elegir')));
+      if (!l) return;
+      l.plu = b.getAttribute('data-plu');
+      l.opciones = null;
+      pintarFilas(); pintarResultados(); marcarPendiente();
+    };
+  });
+}
+
+function enlazarBarra() {
+  const btnAgregar = $('#btnAgregar');
+  if (btnAgregar) btnAgregar.onclick = () => agregarLinea({});
+
+  const btnRev = $('#btnRevalidar');
+  if (btnRev) btnRev.onclick = revalidar;
+
+  const buscar = $('#buscar');
+  if (buscar) {
+    let tb = null;
+    buscar.addEventListener('input', () => {
+      clearTimeout(tb);
+      tb = setTimeout(() => buscarProducto(buscar.value.trim()), 300);
+    });
+  }
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.buscador')) {
+      const r = $('#resultados');
+      if (r) r.innerHTML = '';
+    }
+  });
+}
+
+function agregarLinea(base) {
+  lineas.push(Object.assign({
+    uid: uidSeq++, plu: null, codigoProveedor: null, codigoBarras: null,
+    cantidad: 1, precioUnitario: 0, porcentajeIVA: 21, descripcion: null, estado: null,
+  }, base));
+  pintarFilas(); pintarResultados(); marcarPendiente();
+  const tr = document.getElementById('fila-' + lineas[lineas.length - 1].uid);
+  if (tr) tr.querySelector('input[data-f="plu"]').focus();
+}
+
+async function buscarProducto(q) {
+  const cont = $('#resultados');
+  if (!cont) return;
+  if (q.length < 2) { cont.innerHTML = ''; return; }
+  try {
+    const r = await fetch('/api/compras-import/buscar-producto?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    const ps = d.productos || [];
+    if (!ps.length) { cont.innerHTML = '<div class="resultados"><button disabled>Sin resultados</button></div>'; return; }
+    cont.innerHTML = '<div class="resultados">' + ps.map(p =>
+      '<button data-plu="' + esc(p.plu) + '">' + esc(p.nombre) +
+      (p.activo ? '' : ' <span class="tag err">inactivo</span>') +
+      '<br><span class="plu">PLU ' + esc(p.plu) + (p.barras ? ' · ' + esc(p.barras) : '') + '</span></button>').join('') + '</div>';
+    cont.querySelectorAll('button[data-plu]').forEach(b => {
+      b.onclick = () => {
+        const p = ps.find(x => x.plu === b.getAttribute('data-plu'));
+        if (p) agregarLinea({ plu: p.plu, descripcion: p.nombre });
+        cont.innerHTML = '';
+        $('#buscar').value = '';
+      };
+    });
+  } catch { cont.innerHTML = ''; }
+}
+
+if (window.lucide) lucide.createIcons();
+</script>
+</body>
+</html>
