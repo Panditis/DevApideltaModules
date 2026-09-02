@@ -3106,6 +3106,7 @@ app.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const consumoMensual = cacheConsumo.consumoMensual || {};
   const a8020 = leerJSON(A8020_CALC_PATH, {}) || {};
   const abcPorPlu = a8020.abc || {};
+  const nombresA8020 = a8020.nombres || {};
   const rankingGeneral = a8020.rankingGeneral || {};
   const serieDe = plu => Object.entries(consumoMensual[plu] || {})
     .map(([mes, v]) => ({ mes, ventas: Number(v.ventas) || 0, produccion: Number(v.produccion) || 0, total: Number(v.total) || 0 }))
@@ -3131,6 +3132,15 @@ app.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
       compras24m: Number(r.Compras) || 0,
       cantTotal24m: Number(r.CantTotal) || 0,
       stockCentral, stockSucursales: suc.total, stockPorSucursal: suc.porSucursal,
+      // De dónde sale el stock de sucursales: el granel más cada presentación fraccionada.
+      // Los nombres de los fraccionados no vienen de la query de compras, salen del a8020.
+      componentes: compras.componentesStockEq(plu, frac, stockPorSuc).map(c => ({
+        ...c,
+        nombre: c.plu === plu ? (r.NombreProducto || plu) : (nombresA8020[c.plu] || c.plu),
+        // Sólo se consulta el stock central de los PLUs comprados: en central el granel
+        // vive como granel, y para una presentación sin dato es null, no 0.
+        stockCentral: c.esPropio ? stockCentral : (centralPorPlu[c.plu] != null ? centralPorPlu[c.plu] : null),
+      })),
       consumoMensual: serie,
       abc: abcPorPlu[plu] || null,
       importancia: rankingGeneral[plu] != null ? rankingGeneral[plu] : null,

@@ -64,6 +64,29 @@ function stockSucursalesEq(plu, fraccionados, stockPorSuc) {
   return { total: redondear(total, 3), porSucursal };
 }
 
+// El desglose detrás de stockSucursalesEq: qué PLU aporta cada parte del total.
+// stockSucursales es el stock crudo del PLU (sin convertir) y aporteSucursales lo
+// que ese PLU suma a la fila; la suma de los aportes es el total de stockSucursalesEq.
+function componentesStockEq(plu, fraccionados, stockPorSuc) {
+  const stock = normalizarPorPlu(stockPorSuc);
+  return partesEquivalentes(plu, fraccionados).map((parte, i) => {
+    const porSucursal = {};
+    let crudo = 0;
+    for (const [suc, cant] of Object.entries(stock[parte.plu] || {})) {
+      porSucursal[suc] = redondear(num(cant), 3);
+      crudo += num(cant);
+    }
+    return {
+      plu: parte.plu,
+      cantFormula: parte.cantFormula,
+      esPropio: i === 0,
+      stockSucursales: redondear(crudo, 3),
+      porSucursal,
+      aporteSucursales: redondear(crudo * parte.cantFormula, 3),
+    };
+  });
+}
+
 function ventasEq(plu, fraccionados, ventasPorPlu) {
   const ventas = normalizarPorPlu(ventasPorPlu);
   const total = partesEquivalentes(plu, fraccionados)
@@ -352,7 +375,7 @@ function otif(pedidos, { proveedor, desde, hasta } = {}) {
 }
 
 module.exports = {
-  fraccionadosDe, stockSucursalesEq, ventasEq,
+  fraccionadosDe, stockSucursalesEq, componentesStockEq, ventasEq,
   demandaDiaria, coberturaDias,
   sumarDias, diasEntre,
   ESTADOS_PEDIDO, ESTADOS_LINEA, siguienteNumero, construirPedido, aplicarSeguimiento,

@@ -41,6 +41,13 @@ tailwind.config = { theme: { extend: {
   input[type=number]{-moz-appearance:textfield;}
   input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
   tbody tr:hover{background:#fafbf8;}
+  /* Header ordenable: el botón hereda la tipografía del th y el indicador reserva
+     su ancho, así activar una columna no corre el texto de las demás. */
+  .th-ord{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;
+    display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
+  .th-ord:hover{color:#1a1c18;}
+  th[aria-sort]:not([aria-sort="none"]) .th-ord{color:#405936;}
+  .ord-ind{width:8px;font-size:8px;line-height:1;}
 </style>
 </head>
 <body class="font-body text-ink">
@@ -88,11 +95,6 @@ tailwind.config = { theme: { extend: {
   <div class="mt-4 flex flex-wrap items-center gap-3">
     <input id="filtroTexto" placeholder="Filtrar producto o PLU…" class="ctrl w-64" aria-label="Filtrar por producto o PLU">
     <label class="flex items-center gap-2 text-[13px] text-tenue"><input type="checkbox" id="soloConCantidad" class="accent-verde"> Solo con cantidad</label>
-    <select id="orden" class="ctrl-sm" aria-label="Orden de la tabla">
-      <option value="cobertura" selected>Cobertura central ↑</option>
-      <option value="nombre">Nombre A-Z</option>
-      <option value="ultima">Última compra ↓</option>
-    </select>
     <span id="armadoCount" class="ml-auto text-[12px] text-tenue tabular-nums"></span>
   </div>
 
@@ -101,12 +103,12 @@ tailwind.config = { theme: { extend: {
       <thead>
         <tr class="text-[11px] text-tenue border-b border-borde">
           <th class="w-9 px-3 py-2.5"><span class="sr-only">Incluir en el pedido</span></th>
-          <th class="text-left px-3 py-2.5">Producto</th>
-          <th class="text-right px-3 py-2.5">Stock</th>
-          <th class="text-right px-3 py-2.5">Cobertura (días)</th>
-          <th class="text-right px-3 py-2.5">Consumo/mes</th>
-          <th class="text-center px-3 py-2.5">ABC</th>
-          <th class="text-right px-3 py-2.5 bg-campo border-l border-linea">Cantidad</th>
+          <th class="text-left px-3 py-2.5" data-orden="producto" aria-sort="none"><button class="th-ord">Producto<span class="ord-ind" aria-hidden="true"></span></button></th>
+          <th class="text-right px-3 py-2.5" data-orden="stock" aria-sort="none"><button class="th-ord">Stock<span class="ord-ind" aria-hidden="true"></span></button></th>
+          <th class="text-right px-3 py-2.5" data-orden="cobertura" aria-sort="none"><button class="th-ord">Cobertura (días)<span class="ord-ind" aria-hidden="true"></span></button></th>
+          <th class="text-right px-3 py-2.5" data-orden="consumo" aria-sort="none"><button class="th-ord">Consumo/mes<span class="ord-ind" aria-hidden="true"></span></button></th>
+          <th class="text-center px-3 py-2.5" data-orden="abc" aria-sort="none"><button class="th-ord">ABC<span class="ord-ind" aria-hidden="true"></span></button></th>
+          <th class="text-right px-3 py-2.5 bg-campo border-l border-linea" data-orden="cantidad" aria-sort="none"><button class="th-ord">Cantidad<span class="ord-ind" aria-hidden="true"></span></button></th>
         </tr>
       </thead>
       <tbody id="armadoBody"><tr><td colspan="7" class="p-0"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Sin proveedor cargado</p><p class="mt-1 text-[13px] text-tenue">Buscá un proveedor arriba y tocá Cargar para traer sus productos.</p></div></td></tr></tbody>
@@ -219,6 +221,18 @@ tailwind.config = { theme: { extend: {
   </div>
 </div>
 
+<!-- Modal de composición del stock: qué PLUs suman al stock de sucursales de la fila. -->
+<div id="mStock" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="mStockTitulo">
+  <div class="bg-card rounded-lg border border-borde shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+    <div class="px-5 py-3 border-b border-linea flex items-center gap-2">
+      <h3 id="mStockTitulo" class="font-disp text-xl font-bold text-verde">Composición del stock</h3>
+      <button id="mStockX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="mStockCuerpo" class="px-5 py-5 overflow-y-auto"></div>
+  </div>
+</div>
+
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : (Math.round(n*100)/100).toLocaleString('es-AR');
@@ -298,6 +312,7 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (!$('#mAviso').classList.contains('hidden')) cerrarAviso(false);
   else if (!$('#mConsumo').classList.contains('hidden')) cerrarConsumo();
+  else if (!$('#mStock').classList.contains('hidden')) cerrarStock();
 });
 
 // ---- Fetch con manejo de sesión ----
@@ -417,18 +432,45 @@ const lineaCobertura = (etiqueta, dias) => `<div class="flex items-center justif
   <span class="w-1.5 h-1.5 rounded-full ${puntoCobertura(dias)}" aria-hidden="true"></span>
   <span class="w-12 text-right text-[13px] tabular-nums ${colorCobertura(dias)}">${textoCobertura(dias)}</span></div>`;
 
+// Orden por click en el header. El ABC ordena por la letra (A < B < C < F) y el
+// resto por su número; el valor de Cantidad sale de lo tipeado, no de la fila.
+const CLAVES_ORDEN = {
+  producto:  f => f.nombre,
+  stock:     f => f.stockCentral,
+  cobertura: f => f.coberturaCentral,
+  consumo:   f => f.demandaDiariaCentral,
+  abc:       f => f.abc,
+  cantidad:  f => (Number(cantidades[f.plu]) > 0 ? Number(cantidades[f.plu]) : null),
+};
+let orden = { col: 'cobertura', dir: 'asc' };
+
+// Los null van al final en las dos direcciones: sin cobertura no hay demanda, y eso
+// no es una urgencia — invertir el orden no puede convertirlo en una.
+function compararOrden(a, b) {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  const c = typeof a === 'string' ? a.localeCompare(b, 'es') : a - b;
+  return orden.dir === 'desc' ? -c : c;
+}
+
+function pintarHeaders() {
+  document.querySelectorAll('#tab-armado th[data-orden]').forEach(th => {
+    const activa = th.dataset.orden === orden.col;
+    th.setAttribute('aria-sort', activa ? (orden.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+    th.querySelector('.ord-ind').textContent = activa ? (orden.dir === 'asc' ? '▲' : '▼') : '';
+  });
+}
+
 function filasVisibles() {
   if (!armado) return [];
   const q = $('#filtroTexto').value.trim().toLowerCase();
   const solo = $('#soloConCantidad').checked;
-  const orden = $('#orden').value;
+  const clave = CLAVES_ORDEN[orden.col] || CLAVES_ORDEN.cobertura;
   const out = (armado.filas || []).filter(f =>
     (!q || f.nombre.toLowerCase().includes(q) || String(f.plu).toLowerCase().includes(q)) &&
     (!solo || Number(cantidades[f.plu]) > 0));
-  if (orden === 'nombre') out.sort((a, b) => a.nombre.localeCompare(b.nombre));
-  else if (orden === 'ultima') out.sort((a, b) => String(b.ultimaFecha || '').localeCompare(String(a.ultimaFecha || '')));
-  // Cobertura ascendente con los ∞ al final: null es "no hay demanda", no una urgencia.
-  else out.sort((a, b) => (a.coberturaCentral == null ? Infinity : a.coberturaCentral) - (b.coberturaCentral == null ? Infinity : b.coberturaCentral));
+  out.sort((a, b) => compararOrden(clave(a), clave(b)));
   return out;
 }
 
@@ -453,10 +495,13 @@ function renderArmado() {
         </div>
       </td>
       <td class="px-3 py-2.5 text-right">
-        <div class="flex items-center justify-end gap-2"><span class="lbl-in">Central</span>
-          <span class="w-16 text-right text-[13px] tabular-nums">${fmt(f.stockCentral)}</span></div>
-        <div class="flex items-center justify-end gap-2" title="${escAttr(desglose)}"><span class="lbl-in">Suc.</span>
-          <span class="w-16 text-right text-[13px] tabular-nums text-ink/70">${fmt(f.stockSucursales)}</span></div>
+        <button class="js-stock rounded-md px-1.5 py-0.5 -mr-1.5 hover:bg-campo" data-plu="${escAttr(f.plu)}"
+          title="${escAttr(desglose)}" aria-label="Ver composición del stock de ${escAttr(f.nombre)}">
+          <span class="flex items-center justify-end gap-2"><span class="lbl-in">Central</span>
+            <span class="w-16 text-right text-[13px] tabular-nums">${fmt(f.stockCentral)}</span></span>
+          <span class="flex items-center justify-end gap-2"><span class="lbl-in">Suc.</span>
+            <span class="w-16 text-right text-[13px] tabular-nums text-ink/70 border-b border-dotted border-borde">${fmt(f.stockSucursales)}</span></span>
+        </button>
       </td>
       <td class="px-3 py-2.5">${lineaCobertura('Central', f.coberturaCentral)}${lineaCobertura('Suc.', f.coberturaSucursales)}</td>
       <td class="px-3 py-2.5 text-right">
@@ -496,6 +541,9 @@ $('#armadoBody').addEventListener('input', e => {
   actualizarContador();
 });
 $('#armadoBody').addEventListener('click', e => {
+  // La celda de stock tiene hijos: el target puede ser un span de adentro.
+  const btnStock = e.target.closest('.js-stock');
+  if (btnStock) return abrirStock(btnStock.dataset.plu);
   const plu = (e.target.dataset || {}).plu;
   if (e.target.classList.contains('js-consumo')) return abrirConsumo(plu);
   if (e.target.classList.contains('js-cubrir')) return cubrir30(plu);
@@ -506,9 +554,18 @@ $('#armadoBody').addEventListener('click', e => {
     actualizarContador();
   }
 });
-['#filtroTexto', '#soloConCantidad', '#orden'].forEach(sel => {
+['#filtroTexto', '#soloConCantidad'].forEach(sel => {
   $(sel).addEventListener(sel === '#filtroTexto' ? 'input' : 'change', renderArmado);
 });
+document.querySelector('#tab-armado thead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-orden]');
+  if (!th) return;
+  const col = th.dataset.orden;
+  orden = { col, dir: orden.col === col && orden.dir === 'asc' ? 'desc' : 'asc' };
+  pintarHeaders();
+  renderArmado();
+});
+pintarHeaders();
 function cubrir30(plu) {
   const f = (armado.filas || []).find(x => String(x.plu) === String(plu));
   if (!f) return;
@@ -522,6 +579,59 @@ function actualizarContador() {
   $('#lineasCount').textContent = `${n} línea${n === 1 ? '' : 's'} cargada${n === 1 ? '' : 's'}`;
   $('#btnGenerar').disabled = n === 0;
 }
+
+// El stock de sucursales de un granel es la suma de sus presentaciones fraccionadas
+// convertidas a kg: acá se ve qué PLU aporta cada parte del número de la tabla.
+function abrirStock(plu) {
+  const f = ((armado && armado.filas) || []).find(x => String(x.plu) === String(plu));
+  if (!f) return;
+  const unidad = escAttr(f.unidad || '');
+  const filas = (f.componentes || []).map(c => `<tr class="border-t border-linea ${c.esPropio ? 'bg-campo' : ''}">
+    <td class="px-3 py-2 text-[12px] tabular-nums text-tenue">${escAttr(c.plu)}</td>
+    <td class="px-3 py-2 text-[13px]">${escAttr(c.nombre)}${c.esPropio ? ' <span class="text-[10px] uppercase tracking-[0.12em] text-tenue">propio</span>' : ''}</td>
+    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.cantFormula)}</td>
+    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.stockCentral)}</td>
+    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.stockSucursales)}</td>
+    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.aporteSucursales)}</td></tr>`).join('')
+    || `<tr class="border-t border-linea"><td colspan="6" class="px-3 py-4 text-[13px] text-tenue">Sin detalle de composición.</td></tr>`;
+  // El equivalente por sucursal ya viene convertido en stockPorSucursal; una sucursal
+  // que no aparece es stock cero, no un dato faltante.
+  const porSuc = (armado.sucursales || []).map(s => `<div class="flex items-baseline justify-between gap-3 border-b border-linea py-1">
+      <span class="text-[12px] text-tenue">${escAttr(s)}</span>
+      <span class="text-[13px] tabular-nums">${fmt(((f.stockPorSucursal || {})[s]) || 0)}</span></div>`).join('')
+    || `<p class="text-[13px] text-tenue">Sin sucursales configuradas.</p>`;
+  $('#mStockTitulo').textContent = `Composición del stock · ${f.nombre} (${f.plu})`;
+  $('#mStockCuerpo').innerHTML = `<div class="overflow-x-auto rounded-lg border border-borde">
+      <table class="w-full">
+        <thead><tr class="text-[11px] text-tenue border-b border-borde">
+          <th class="text-left px-3 py-2">PLU</th>
+          <th class="text-left px-3 py-2">Nombre</th>
+          <th class="text-right px-3 py-2">Factor</th>
+          <th class="text-right px-3 py-2">Stock central</th>
+          <th class="text-right px-3 py-2">Stock suc.</th>
+          <th class="text-right px-3 py-2">Aporte (${unidad})</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr class="border-t-2 border-borde">
+          <td colspan="3" class="px-3 py-2 text-[11px] uppercase tracking-[0.1em] text-tenue">Total</td>
+          <td class="px-3 py-2 text-right text-[13px] tabular-nums font-medium">${fmt(f.stockCentral)}</td>
+          <td class="px-3 py-2 text-right text-[13px] text-tenue">—</td>
+          <td class="px-3 py-2 text-right text-[13px] tabular-nums font-medium">${fmt(f.stockSucursales)}</td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <h4 class="sec-t mt-5 mb-1">Stock por sucursal · equivalente en ${unidad}</h4>
+    ${porSuc}`;
+  $('#mStock').classList.remove('hidden');
+  $('#mStock').classList.add('flex');
+  $('#mStockX').focus();
+}
+function cerrarStock() {
+  $('#mStock').classList.add('hidden');
+  $('#mStock').classList.remove('flex');
+}
+$('#mStockX').addEventListener('click', cerrarStock);
+$('#mStock').addEventListener('click', e => { if (e.target === $('#mStock')) cerrarStock(); });
 
 function abrirConsumo(plu) {
   const f = (armado.filas || []).find(x => String(x.plu) === String(plu));

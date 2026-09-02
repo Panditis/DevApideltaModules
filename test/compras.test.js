@@ -87,6 +87,44 @@ test('stockSucursalesEq tolera PLUs con espacios en el mapa de stock', () => {
   assert.strictEqual(stockSucursalesEq('4409', [], stock).total, 3);
 });
 
+const { componentesStockEq } = require('../compras');
+
+test('componentesStockEq abre el granel y sus presentaciones, y la suma cierra con stockSucursalesEq', () => {
+  const frac = [{ plu: '5001', cantFormula: 0.25 }, { plu: '5002', cantFormula: 1 }];
+  const stock = { '4409': { riv: 2 }, '5001': { riv: 4, urq: 8 }, '5002': { riv: 3 } };
+  const comps = componentesStockEq('4409', frac, stock);
+  assert.deepStrictEqual(comps.map(c => c.plu), ['4409', '5001', '5002']);
+  assert.deepStrictEqual(comps.map(c => c.esPropio), [true, false, false]);
+  assert.deepStrictEqual(comps.map(c => c.stockSucursales), [2, 12, 3]);
+  assert.deepStrictEqual(comps.map(c => c.aporteSucursales), [2, 3, 3]);
+  const suma = comps.reduce((s, c) => s + c.aporteSucursales, 0);
+  assert.strictEqual(suma, stockSucursalesEq('4409', frac, stock).total);
+});
+test('componentesStockEq abre el stock crudo por sucursal, sin convertir', () => {
+  const comps = componentesStockEq('4409', [{ plu: '5001', cantFormula: 0.25 }],
+    { '4409': { riv: 2 }, '5001': { riv: 4, urq: 8 } });
+  assert.deepStrictEqual(comps[0].porSucursal, { riv: 2 });
+  assert.deepStrictEqual(comps[1].porSucursal, { riv: 4, urq: 8 });
+});
+test('componentesStockEq de un producto de almacén devuelve una sola entrada', () => {
+  const comps = componentesStockEq('1234', [], { '1234': { riv: 5, urq: 7 } });
+  assert.strictEqual(comps.length, 1);
+  assert.deepStrictEqual(comps[0], { plu: '1234', cantFormula: 1, esPropio: true,
+    stockSucursales: 12, porSucursal: { riv: 5, urq: 7 }, aporteSucursales: 12 });
+});
+test('componentesStockEq de un PLU sin stock devuelve 0, no undefined', () => {
+  const comps = componentesStockEq('7777', [{ plu: '8888', cantFormula: 0.5 }], { '1234': { riv: 5 } });
+  assert.deepStrictEqual(comps.map(c => c.stockSucursales), [0, 0]);
+  assert.deepStrictEqual(comps.map(c => c.aporteSucursales), [0, 0]);
+  assert.deepStrictEqual(comps.map(c => c.porSucursal), [{}, {}]);
+});
+test('componentesStockEq normaliza los PLUs con espacios de SIGA', () => {
+  const comps = componentesStockEq(' 4409', [{ plu: '5001 ', cantFormula: 0.25 }],
+    { '4409 ': { riv: 2 }, ' 5001': { riv: 4 } });
+  assert.deepStrictEqual(comps.map(c => c.plu), ['4409', '5001']);
+  assert.deepStrictEqual(comps.map(c => c.aporteSucursales), [2, 1]);
+});
+
 const { ventasEq } = require('../compras');
 
 test('ventasEq convierte las ventas fraccionadas a kg de granel', () => {
