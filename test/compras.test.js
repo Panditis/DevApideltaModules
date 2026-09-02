@@ -240,12 +240,16 @@ test('construirPedido rechaza items vacíos o ausentes', () => {
 test('construirPedido rechaza pedido sin proveedor', () => {
   assert.throws(() => construirPedido({ numero: 'P-1', fechaISO: '2026-08-01', proveedor: '', items: ITEMS_OK }), /proveedor/i);
 });
-test('construirPedido rechaza cantidades no positivas o no numéricas', () => {
+test('construirPedido rechaza cantidades no positivas', () => {
   const base = { numero: 'P-1', fechaISO: '2026-08-01', proveedor: 'ACME' };
   assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: 0 }] }), /cantidad/i);
   assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: -5 }] }), /cantidad/i);
+});
+test('construirPedido rechaza cantidades no numéricas o ausentes', () => {
+  const base = { numero: 'P-1', fechaISO: '2026-08-01', proveedor: 'ACME' };
   assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: 'mucho' }] }), /cantidad/i);
   assert.throws(() => construirPedido({ ...base, items: [{ plu: '1' }] }), /cantidad/i);
+  assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: null }] }), /cantidad/i);
 });
 
 const { aplicarSeguimiento } = require('../compras');
@@ -330,6 +334,48 @@ test('aplicarSeguimiento anula sin exigir nada', () => {
 test('aplicarSeguimiento rechaza estados desconocidos', () => {
   assert.throws(() => aplicarSeguimiento(pedidoBase(), { estado: 'RECIBIDO' }, CTX), /estado de pedido/i);
   assert.throws(() => aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', estado: 'llegando' }] }, CTX), /estado de línea/i);
+});
+test('aplicarSeguimiento rechaza un estado de línea inválido aunque el plu no exista', () => {
+  assert.throws(() => aplicarSeguimiento(pedidoBase(), { items: [{ plu: '999', estado: 'zzz' }] }, CTX), /estado de línea/i);
+});
+test('aplicarSeguimiento: corregir sólo la obs no pisa la cantidad entregada', () => {
+  const parcial = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', estado: 'entregado', cantidadEntregada: 5 }],
+  }, CTX);
+  assert.strictEqual(parcial.items[0].cantidadEntregada, 5);
+  const r = aplicarSeguimiento(parcial, { items: [{ plu: '4409', obs: 'llegó roto' }] }, CTX);
+  assert.strictEqual(r.items[0].cantidadEntregada, 5); // sigue siendo entrega parcial
+  assert.strictEqual(r.items[0].estado, 'entregado');
+  assert.strictEqual(r.items[0].obs, 'llegó roto');
+});
+test('aplicarSeguimiento: cantidadEntregada null o vacía cuenta como no declarada', () => {
+  const conNull = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', estado: 'entregado', cantidadEntregada: null }],
+  }, CTX);
+  assert.strictEqual(conNull.items[0].cantidadEntregada, 10);
+  const conVacio = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', estado: 'entregado', cantidadEntregada: '' }],
+  }, CTX);
+  assert.strictEqual(conVacio.items[0].cantidadEntregada, 10);
+});
+test('aplicarSeguimiento: cambiar la cantidad sin repetir el estado respeta el estado de la línea', () => {
+  const entregado = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', estado: 'entregado' }] }, CTX);
+  const r = aplicarSeguimiento(entregado, { items: [{ plu: '4409', cantidadEntregada: 7 }] }, CTX);
+  assert.strictEqual(r.items[0].estado, 'entregado');
+  assert.strictEqual(r.items[0].cantidadEntregada, 7);
+});
+test('aplicarSeguimiento: undefined no toca las fechas, "" y null las borran', () => {
+  const conFechas = aplicarSeguimiento(pedidoBase(), { fechaEstimada: '2026-08-10', fechaRetiro: '2026-08-09' }, CTX);
+  assert.strictEqual(conFechas.fechaEstimada, '2026-08-10');
+  assert.strictEqual(conFechas.fechaRetiro, '2026-08-09');
+
+  const intacto = aplicarSeguimiento(conFechas, { observacion: 'sin novedad' }, CTX);
+  assert.strictEqual(intacto.fechaEstimada, '2026-08-10');
+  assert.strictEqual(intacto.fechaRetiro, '2026-08-09');
+
+  const borrado = aplicarSeguimiento(conFechas, { fechaEstimada: '', fechaRetiro: null }, CTX);
+  assert.strictEqual(borrado.fechaEstimada, null);
+  assert.strictEqual(borrado.fechaRetiro, null);
 });
 
 const { otif } = require('../compras');

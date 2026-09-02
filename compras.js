@@ -166,24 +166,37 @@ function construirPedido({ numero, fechaISO, proveedor, idProveedor = null, usua
 }
 
 // La cantidad entregada la dicta el estado de la línea: entregado sin cantidad
-// se asume completo, un quiebre es cero y volver a 'pedido' la borra.
+// se asume completo, un quiebre es cero y volver a 'pedido' la borra. Pero eso
+// vale al marcar el estado, no en cada toque: un parche que sólo corrige la obs
+// no puede convertir una entrega parcial ya cargada en completa.
+// null y '' cuentan como cantidad no declarada — es el valor con el que la línea
+// nace, y el front reenvía el objeto entero.
 function entregadaSegunEstado(estado, parche, linea) {
+  if (parche.estado == null && parche.cantidadEntregada === undefined) {
+    return linea.cantidadEntregada == null ? null : linea.cantidadEntregada;
+  }
   if (estado === 'pedido') return null;
   if (estado === 'sin_stock' || estado === 'no_envia') return 0;
-  const declarada = Number(parche.cantidadEntregada);
+  const cruda = parche.cantidadEntregada;
+  const declarada = cruda == null || cruda === '' ? NaN : Number(cruda);
   return Number.isFinite(declarada) ? declarada : num(linea.cantidad);
 }
 
 function aplicarLineas(items, parcheItems) {
   const parches = new Map();
+  // Los estados se validan sobre el patch entero: un plu que no matchea ninguna
+  // línea no puede colar un estado inventado en silencio.
   for (const it of (Array.isArray(parcheItems) ? parcheItems : [])) {
-    if (it && it.plu != null) parches.set(clavePlu(it.plu), it);
+    if (!it) continue;
+    if (it.estado != null && !ESTADOS_LINEA.includes(String(it.estado))) {
+      throw new Error(`Estado de línea inválido: ${it.estado}`);
+    }
+    if (it.plu != null) parches.set(clavePlu(it.plu), it);
   }
   return items.map(linea => {
     const parche = parches.get(clavePlu(linea.plu));
     if (!parche) return { ...linea };
     const estado = parche.estado != null ? String(parche.estado) : linea.estado;
-    if (!ESTADOS_LINEA.includes(estado)) throw new Error(`Estado de línea inválido: ${estado}`);
     return {
       ...linea,
       estado,
