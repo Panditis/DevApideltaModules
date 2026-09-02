@@ -1189,7 +1189,7 @@ function generarLote(plu, empleado) {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yy = String(d.getFullYear()).slice(-2);
   const emp = fracEmpleados.find(e => e.nombre === empleado);
-  const ini = (emp ? emp.corto : (empleado || '').slice(0, 4)).toUpperCase().padEnd(4, 'X').slice(0, 4);
+  const ini = String((emp && emp.corto) || empleado || '').slice(0, 4).toUpperCase().padEnd(4, 'X').slice(0, 4);
   const count = (prodHoyCount[String(plu)] || 0) + 1;
   return `${dd}${mm}${yy}${ini}${count}-${plu}`;
 }
@@ -1208,7 +1208,7 @@ async function cargarP() {
     datosP = await rP.json(); pCargado = true;
     fracAsig = asigR || {};
     fracEmpleados = (empR.length ? empR : [{nombre:'Analia',corto:'ANAL'},{nombre:'Bruno',corto:'BRUN'},{nombre:'Micaela',corto:'MICA'}])
-  .map(e => typeof e === 'string' ? {nombre: e, corto: e.slice(0,4).toUpperCase()} : e);
+  .map(e => { const nombre = typeof e === 'string' ? e : String((e && e.nombre) || ''); return { nombre, corto: String((e && e.corto) || nombre.slice(0,4)).toUpperCase() }; });
     construirHeadP(); renderP();
     if (tabActual === 'envasar') renderEnvasar();
     st.style.display = 'none'; tb.style.display = '';
