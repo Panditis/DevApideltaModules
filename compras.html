@@ -160,11 +160,14 @@ tailwind.config = { theme: { extend: {
   <div class="mt-6 grid md:grid-cols-2 gap-4">
     <div id="boxProv" class="rounded-lg border border-borde bg-card p-4">
       <h3 class="sec-t mb-3">Cumplimiento por proveedor</h3>
-      <canvas id="chProv" height="220"></canvas>
+      <!-- Altura fija en el contenedor: con responsive + maintainAspectRatio:false
+           Chart.js crece hasta llenar al padre, y si el padre se mide por el canvas
+           el lienzo se estira sin fin en cada reflow. -->
+      <div class="h-[260px]"><canvas id="chProv"></canvas></div>
     </div>
     <div class="rounded-lg border border-borde bg-card p-4">
       <h3 class="sec-t mb-3">Top quiebres (veces sin entregar)</h3>
-      <canvas id="chQuiebres" height="220"></canvas>
+      <div class="h-[260px]"><canvas id="chQuiebres"></canvas></div>
     </div>
   </div>
 
@@ -212,7 +215,7 @@ tailwind.config = { theme: { extend: {
       <h3 id="mConsumoTitulo" class="font-disp text-xl font-bold text-verde">Consumo mensual</h3>
       <button id="mConsumoX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
     </div>
-    <div class="px-5 py-5"><canvas id="chConsumo" height="240"></canvas></div>
+    <div class="px-5 py-5"><div class="h-[280px]"><canvas id="chConsumo"></canvas></div></div>
   </div>
 </div>
 
@@ -342,8 +345,12 @@ async function buscarProveedores() {
     const lista = r.proveedores || [];
     cont.innerHTML = lista.length
       ? lista.map(p => `<button class="js-prov block w-full text-left px-3 py-2 hover:bg-bg border-b border-linea last:border-0"
-           data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">${escAttr(p.nombre)}</button>`).join('')
-      : '<div class="px-3 py-2.5 text-tenue">Sin resultados para esa búsqueda.</div>';
+           data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
+           <span class="block">${escAttr(p.nombre)}</span>
+           <span class="block text-[11px] text-tenue tabular-nums">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
+         </button>`).join('')
+      : `<div class="px-3 py-2.5 text-tenue">Ningún proveedor con ese nombre tiene compras facturadas
+         en los últimos 24 meses.</div>`;
     cont.classList.remove('hidden');
     cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
       provSel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
@@ -467,7 +474,13 @@ function renderArmado() {
         </div>
       </td>
     </tr>`;
-  }).join('') : filaVacia(7, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.');
+  }).join('')
+    // Sin filas del backend y sin filas visibles son cosas distintas: una es un
+    // proveedor sin compras facturadas, la otra un filtro demasiado angosto.
+    : (armado && (armado.filas || []).length)
+      ? filaVacia(7, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.')
+      : filaVacia(7, 'Este proveedor no tiene compras',
+          'No se le facturó ningún producto en los últimos 24 meses. Las cotizaciones no cuentan como compra.');
   actualizarContador();
 }
 

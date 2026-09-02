@@ -2953,15 +2953,31 @@ function leerPedidosCompra()          { return leerJSON(PEDIDOS_COMPRA_PATH, { p
 function guardarPedidosCompra(lista)  { guardarJSON(PEDIDOS_COMPRA_PATH, { pedidos: lista }); }
 function usuarioCompras(req)          { return String((req.session && req.session.user && req.session.user.usuario) || 'anonimo'); }
 
+// Sólo proveedores a los que efectivamente se les compró en la ventana: SIGA tiene
+// 2264 proveedores cargados y apenas 826 con facturas en 24 meses. Listar los otros
+// es ofrecer una búsqueda que sólo puede terminar en una tabla vacía. Se ordena por
+// cantidad de productos para que el proveedor real aparezca primero.
 app.get('/api/compras/proveedores', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return { proveedores: [] };
   const pool = await getPool();
   const r = await pool.request().input('like', `%${q}%`).query(
-    `SELECT TOP 50 IdProveedor, NombreProveedor FROM Proveedores
-     WHERE NombreProveedor LIKE @like
-     ORDER BY NombreProveedor`);
-  return { proveedores: r.recordset.map(p => ({ id: Number(p.IdProveedor), nombre: p.NombreProveedor })) };
+    `SELECT TOP 50 pv.IdProveedor, pv.NombreProveedor,
+            COUNT(DISTINCT cp.IdProducto) AS Productos,
+            CONVERT(varchar(10), MAX(c.Fecha), 23) AS UltimaCompra
+     FROM Proveedores pv
+     JOIN Compras c ON c.IdProveedor = pv.IdProveedor
+       AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+       AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
+     JOIN ComprasProductos cp ON cp.IdSucursal=c.IdSucursal AND cp.IdTipoComprobante=c.IdTipoComprobante
+       AND cp.Letra=c.Letra AND cp.CentroEmisor=c.CentroEmisor AND cp.NumeroComprobante=c.NumeroComprobante
+     WHERE pv.NombreProveedor LIKE @like
+     GROUP BY pv.IdProveedor, pv.NombreProveedor
+     ORDER BY COUNT(DISTINCT cp.IdProducto) DESC`);
+  return { proveedores: r.recordset.map(p => ({
+    id: Number(p.IdProveedor), nombre: p.NombreProveedor,
+    productos: Number(p.Productos) || 0, ultimaCompra: p.UltimaCompra || null,
+  })) };
 }));
 
 // Lo que se le compró al proveedor en 24 meses, con la última compra de cada artículo.
