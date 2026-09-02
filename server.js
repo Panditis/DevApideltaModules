@@ -846,10 +846,14 @@ WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < 
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
 function sqlStockPorPlu(pluList) {
+  // IdProducto es char en Siga: se cita igual que en sqlStockDistribucion. Sin comillas,
+  // un PLU no numérico fuerza la conversión de la columna y rompe la query entera; y acá
+  // entran tanto el universo de compras de un proveedor como los ids de /api/stock/plus.
+  const inList = pluList.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
 INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
 INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-WHERE s.SoyLaCentral=1 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
+WHERE s.SoyLaCentral=1 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${inList}) GROUP BY pd.IdProducto`;
 }
 function sqlStockTodosDepositos(pluList) {
   return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
@@ -2954,7 +2958,7 @@ app.get('/api/compras/proveedores', apiRoute(async (req) => {
   const pool = await getPool();
   const r = await pool.request().input('like', `%${q}%`).query(
     `SELECT TOP 50 IdProveedor, NombreProveedor FROM Proveedores
-     WHERE NombreProveedor LIKE @like AND Activo = 1
+     WHERE NombreProveedor LIKE @like
      ORDER BY NombreProveedor`);
   return { proveedores: r.recordset.map(p => ({ id: Number(p.IdProveedor), nombre: p.NombreProveedor })) };
 }));
@@ -3014,9 +3018,15 @@ async function queryPorLotes(lista, sqlFn) {
   return out;
 }
 
-app.get('/api/compras/armado', apiRoute(async (req) => {
+// Guard aparte de apiRoute: un idProveedor inválido es error del cliente (400), y
+// apiRoute manda todo lo que se lanza como 500.
+function exigirIdProveedor(req, res, next) {
+  const id = Number(req.query.idProveedor);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Falta idProveedor' });
+  next();
+}
+app.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const idProveedor = Number(req.query.idProveedor);
-  if (!Number.isFinite(idProveedor) || idProveedor <= 0) throw new Error('Falta idProveedor');
   const ventanaSuc = VENTANAS_SUC.includes(Number(req.query.ventanaSuc)) ? Number(req.query.ventanaSuc) : 30;
 
   const pool = await getPool();
@@ -3043,7 +3053,8 @@ app.get('/api/compras/armado', apiRoute(async (req) => {
   const sucursales = Object.keys(sucs);
   const sucKeyPorId = {};
   for (const [key, c] of Object.entries(sucs)) sucKeyPorId[String(c.idSucursal)] = key;
-  const idList = Object.values(sucs).map(s => s.idSucursal).join(',');
+  // Filtrado: una sucursal sin idSucursal dejaría un hueco en el IN (5,2,,3), que no parsea.
+  const idList = Object.values(sucs).map(s => Number(s.idSucursal)).filter(Number.isFinite).join(',');
   if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
 
   const [stockCentralRows, stockSucRows, ventasRows] = await Promise.all([
@@ -6826,69 +6837,6 @@ async function componentesFormulaPorPadre(plus) {
     });
   }
   return porPadre;
-}
-
-// Nombre, rubro y estado (activo/inactivo) desde SIGA para un lote de PLU, en UNA sola query.
-// Hace falta porque el caché de A8020 (a8020_calc.json → nombres/rubros) sólo cubre los
-// artículos que entraron en el último recálculo: los productos dados de baja y algunos rubros
-// internos (ej. "Produccion") no están, y sin este fallback aparecen en pantalla sin nombre.
-// Si SIGA falla se devuelve un Map vacío: es un dato accesorio y no puede romper el detalle.
-async function datosProductosSIGA(plus) {
-  const ids = [...new Set((plus || []).map(p => String(p ?? '').trim()).filter(Boolean))];
-  if (!ids.length) return new Map();
-  const inList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
-  try {
-    const rows = await query(`
-      SELECT p.IdProducto, p.NombreProducto, p.Activo, COALESCE(r.NombreRubro,'') AS rubro
-      FROM dbo.Productos p
-      LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
-      WHERE p.IdProducto IN (${inList})`);
-    return new Map(rows.map(r => [String(r.IdProducto).trim(), {
-      nombre: String(r.NombreProducto || '').trim(),
-      rubro:  String(r.rubro || '').trim(),
-      activo: r.Activo === true || Number(r.Activo) === 1,
-    }]));
-  } catch (e) {
-    console.error('[detalle-plu] no se pudieron leer datos de productos desde SIGA:', e.message);
-    return new Map();
-  }
-}
-
-// componente → [{plu, nombre, rubro, cantPorUnidad}]: el camino INVERSO de
-// componentesFormulaPorPadre. Hace falta porque el detalle de consumo de un artículo tiene que
-// mostrar todo lo que lo consume, y un granel no sólo se fracciona en presentaciones (eso sale
-// de pesables_listas.formulas): también entra como ingrediente de mixes, granolas y otros
-// productos elaborados, y esa relación sólo vive en ProductosComponentes.
-// El filtro de fórmula activa es obligatorio: sin él la consulta devuelve una fila por cada
-// versión histórica de la fórmula, e inventa padres que hoy ya no llevan el artículo.
-// Si SIGA falla se devuelve lista vacía: es un dato accesorio y no puede romper el detalle.
-async function productosQueUsanComponente(plu) {
-  const id = String(plu ?? '').trim();
-  if (!id) return [];
-  const safeId = id.replace(/'/g, "''");
-  try {
-    const rows = await query(`
-      SELECT pc.IdProducto AS padre, p.NombreProducto AS nombre,
-             COALESCE(r.NombreRubro,'') AS rubro,
-             CAST(pc.Cantidad AS FLOAT) AS cantPorUnidad
-      FROM ProductosComponentes pc
-      INNER JOIN Productos p ON p.IdProducto = pc.IdProducto
-      LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
-      WHERE pc.IdProductoComponente = '${safeId}'
-        AND p.Activo = 1
-        AND ${FORMULA_ACTIVA_SQL}
-        AND ${SIN_FORMULA_GENERICO_SQL}
-      ORDER BY p.NombreProducto`);
-    return rows.map(r => ({
-      plu: String(r.padre).trim(),
-      nombre: String(r.nombre || '').trim(),
-      rubro: String(r.rubro || '').trim(),
-      cantPorUnidad: Number(r.cantPorUnidad) || 0
-    }));
-  } catch (e) {
-    console.error(`[detalle-plu] no se pudieron leer los productos que usan ${id}:`, e.message);
-    return [];
-  }
 }
 
 // Componentes necesarios para todo el plan, sumados por componente, con el envase y la
