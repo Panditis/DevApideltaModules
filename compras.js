@@ -179,7 +179,10 @@ function entregadaSegunEstado(estado, parche, linea) {
   if (estado === 'sin_stock' || estado === 'no_envia') return 0;
   const cruda = parche.cantidadEntregada;
   const declarada = cruda == null || cruda === '' ? NaN : Number(cruda);
-  return Number.isFinite(declarada) ? declarada : num(linea.cantidad);
+  if (!Number.isFinite(declarada)) return num(linea.cantidad);
+  // Acotada al rango de la línea: el front ya lo hace, pero un PUT directo con
+  // una cantidad negativa restaría del acumulado y ensuciaría el OTIF.
+  return Math.max(0, Math.min(declarada, num(linea.cantidad)));
 }
 
 function aplicarLineas(items, parcheItems) {

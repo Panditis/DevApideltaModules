@@ -512,3 +512,24 @@ test('otif agrupa por proveedor ordenado por cantidad de pedidos', () => {
   assert.strictEqual(pp[1].proveedor, 'BETA');
   assert.strictEqual(pp[1].leadTimeMediana, 7);
 });
+
+test('la cantidad entregada se acota al rango de la línea', () => {
+  const negativo = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', estado: 'entregado', cantidadEntregada: -5 }],
+  }, CTX);
+  assert.strictEqual(negativo.items[0].cantidadEntregada, 0);
+
+  const excedido = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', estado: 'entregado', cantidadEntregada: 99 }],
+  }, CTX);
+  assert.strictEqual(excedido.items[0].cantidadEntregada, 10);
+
+  // Sin repetir el estado: el mismo clamp aplica sobre una línea ya entregada.
+  const yaEntregada = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '1234', estado: 'entregado' }],
+  }, CTX);
+  const corregida = aplicarSeguimiento(yaEntregada, {
+    items: [{ plu: '1234', cantidadEntregada: -3 }],
+  }, CTX);
+  assert.strictEqual(corregida.items[1].cantidadEntregada, 0);
+});
