@@ -8,57 +8,337 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-<script>
-tailwind.config = { theme: { extend: {
-  colors: { verde:'#405936', verdeDark:'#2e4027', verdeHover:'#4f6e42', amarillo:'#FFCC00',
-    bg:'#f4f6f1', card:'#ffffff', borde:'#dde1d6', linea:'#ecefe7', campo:'#f7f9f4',
-    ink:'#1a1c18', tenue:'#6b7065',
-    rojo:'#C62828', naranja:'#E65100', ambar:'#B7791F', ok:'#2E7D32' },
-  fontFamily: { disp:['"Barlow Condensed"','sans-serif'], body:['Roboto','sans-serif'] } } } };
-</script>
 <style>
-  /* Una sola superficie: fondo plano, tarjetas con hairline y sin sombra.
-     La elevación queda reservada a lo que flota (dropdown y modales). */
-  body{background:#f4f6f1;}
-  th{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.1em;font-weight:600;}
-  /* Escala tipográfica: título de sección / etiqueta / dato / dato secundario. */
-  .sec-t{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.09em;font-size:13px;font-weight:600;color:#6b7065;}
-  .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#6b7065;margin-bottom:4px;}
-  .lbl-in{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7065;}
-  .ctrl{border:1px solid #dde1d6;background:#fff;border-radius:6px;padding:7px 10px;font-size:13px;color:#1a1c18;}
-  .ctrl:hover{border-color:#c6ccbc;}
-  .ctrl-sm{border:1px solid #dde1d6;background:#fff;border-radius:6px;padding:4px 8px;font-size:12px;color:#1a1c18;}
-  .ctrl-sm:hover{border-color:#c6ccbc;}
-  /* Pestañas: subrayado en vez de píldora rellena; el verde marca la activa y nada más. */
-  .tab-btn{color:#6b7065;position:relative;padding-bottom:10px;}
-  .tab-btn:hover{color:#1a1c18;}
-  .tab-btn.active{color:#405936;}
-  .tab-btn.active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#405936;}
-  /* Foco visible en todo lo interactivo. */
-  a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
-    outline:2px solid #405936;outline-offset:2px;border-radius:4px;}
-  input:focus,select:focus,textarea:focus{border-color:#405936;}
-  input[type=number]{-moz-appearance:textfield;}
-  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
-  tbody tr:hover{background:#fafbf8;}
-  /* Header ordenable: el botón hereda la tipografía del th y el indicador reserva
-     su ancho, así activar una columna no corre el texto de las demás. */
-  .th-ord{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;
-    display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
-  .th-ord:hover{color:#1a1c18;}
-  th[aria-sort]:not([aria-sort="none"]) .th-ord{color:#405936;}
-  .ord-ind{width:8px;font-size:8px;line-height:1;}
+/* ════════════════════════════════════════════════════════════════════════════
+   Lenguaje visual de Ant Design 5, implementado a mano en CSS.
+   No es antd (que es React): son sus tokens y sus componentes replicados, para
+   que Compras gane profundidad y jerarquía sin sumar dependencias.
+   Tailwind (CDN) se usa SÓLO para layout — flex, grid, gap, márgenes, anchos.
+   Todo el chrome (color, borde, sombra, radio, alto de control) sale de .ant-*.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root{
+  /* Texto sobre fondo claro */
+  --colorText:rgba(0,0,0,.88);
+  --colorTextSecondary:rgba(0,0,0,.65);
+  --colorTextTertiary:rgba(0,0,0,.45);
+  --colorTextQuaternary:rgba(0,0,0,.25);
+  /* Superficies: la página es un gris con temperatura verde y el contenido
+     flota en blanco. El neutro puro dejaba todo lavado. */
+  --colorBgLayout:#f0f3ed;
+  --colorBgContainer:#ffffff;
+  --colorFillMarca:#f7faf4;      /* blanco teñido: zebra, columna editable, footers */
+  --colorFillSecondary:rgba(0,0,0,.06);
+  --colorFillTertiary:rgba(0,0,0,.04);
+  --colorBorder:#d9d9d9;
+  --colorBorderSecondary:#f0f0f0;
+  /* El primario es el verde de la marca, no el azul de antd: Compras pertenece
+     al resto del sistema. La escala sí se deriva al modo antd. */
+  --colorPrimary:#405936;
+  --colorPrimaryHover:#4f6e42;
+  --colorPrimaryActive:#2e4027;
+  --colorPrimaryBg:#eef2e9;
+  --colorPrimaryBorder:#c3d4b8;
+  --colorPrimaryHalo:rgba(64,89,54,.1);
+  /* Semánticos */
+  --colorSuccess:#52c41a; --colorSuccessBg:#f6ffed; --colorSuccessBorder:#b7eb8f; --colorSuccessText:#237804;
+  --colorWarning:#faad14; --colorWarningBg:#fffbe6; --colorWarningBorder:#ffe58f; --colorWarningText:#a15c00;
+  --colorError:#ff4d4f;   --colorErrorBg:#fff2f0;   --colorErrorBorder:#ffccc7;   --colorErrorText:#cf1322;
+  --colorInfo:#1677ff;    --colorInfoBg:#e6f4ff;    --colorInfoBorder:#91caff;    --colorInfoText:#0958d9;
+  --colorCyan:#13c2c2;    --colorCyanBg:#e6fffb;    --colorCyanBorder:#87e8de;    --colorCyanText:#006d75;
+  --colorPurple:#722ed1;  --colorPurpleBg:#f9f0ff;  --colorPurpleBorder:#d3adf7;  --colorPurpleText:#531dab;
+  /* Forma y elevación */
+  --borderRadiusSM:4px; --borderRadius:6px; --borderRadiusLG:8px;
+  --boxShadowTertiary:0 1px 2px 0 rgba(0,0,0,.03),0 1px 6px -1px rgba(0,0,0,.02),0 2px 4px 0 rgba(0,0,0,.02);
+  --boxShadow:0 6px 16px 0 rgba(0,0,0,.08),0 3px 6px -4px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.05);
+  /* Medida */
+  --controlHeightSM:24px; --controlHeight:32px; --controlHeightLG:40px;
+  --motion:.2s cubic-bezier(.645,.045,.355,1);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+body{margin:0;background:var(--colorBgLayout);color:var(--colorText);
+  font:400 14px/1.5714 Roboto,-apple-system,'Segoe UI',Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;}
+input[type=number]{-moz-appearance:textfield;}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+/* Foco: el halo de 2px de antd. El outline transparente sobrevive a forced-colors. */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid transparent;outline-offset:2px;
+  box-shadow:0 0 0 2px var(--colorPrimaryHalo),0 0 0 3px var(--colorPrimary);
+  border-radius:var(--borderRadiusSM);}
+
+/* ── Layout.Header ────────────────────────────────────────────────────────── */
+.ant-header{position:sticky;top:0;z-index:20;background:var(--colorBgContainer);
+  border-bottom:1px solid var(--colorPrimaryBorder);box-shadow:0 2px 8px rgba(46,64,39,.10);}
+/* La barra superior es la pieza de marca: verde con un degradé hacia el activo.
+   Blanco puro sobre #405936 da 7.8:1, muy por encima de AA. */
+.ant-header-top{background:linear-gradient(100deg,#4f6e42 0%,#405936 48%,#2e4027 100%);}
+.ant-header-inner{max-width:1440px;margin:0 auto;padding:0 24px;}
+.ant-header-bar{display:flex;align-items:center;gap:12px;height:56px;}
+.ant-logo{margin:0;font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:.04em;color:#fff;}
+.ant-logo-sub{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.75);
+  padding-left:12px;border-left:1px solid rgba(255,255,255,.32);line-height:1;}
+.ant-header-top .ant-btn-text{color:rgba(255,255,255,.88);}
+.ant-header-top .ant-btn-text:hover{background:rgba(255,255,255,.16);color:#fff;}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+.ant-tabs-nav{display:flex;gap:4px;padding-top:8px;border-bottom:1px solid var(--colorPrimaryBorder);margin-bottom:-1px;}
+.tab-btn{position:relative;background:transparent;border:0;padding:10px 18px;cursor:pointer;
+  border-radius:var(--borderRadius) var(--borderRadius) 0 0;
+  font:600 18px/1.2 'Barlow Condensed',sans-serif;letter-spacing:.03em;
+  color:var(--colorTextSecondary);transition:color var(--motion),background var(--motion);}
+.tab-btn:hover{color:var(--colorPrimary);background:var(--colorFillMarca);}
+.tab-btn.active{color:var(--colorPrimary);background:var(--colorPrimaryBg);}
+.tab-btn::after{content:'';position:absolute;left:8px;right:8px;bottom:0;height:3px;
+  border-radius:2px 2px 0 0;background:var(--colorPrimary);
+  transform:scaleX(0);transform-origin:center;transition:transform var(--motion);}
+.tab-btn.active::after{transform:scaleX(1);}
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+.ant-card{background:var(--colorBgContainer);border:1px solid #e2e8dc;
+  border-radius:var(--borderRadiusLG);box-shadow:var(--boxShadowTertiary);}
+.ant-card-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:14px 24px;background:var(--colorPrimaryBg);
+  border-bottom:1px solid var(--colorPrimaryBorder);
+  border-radius:var(--borderRadiusLG) var(--borderRadiusLG) 0 0;}
+.ant-card-head-title{margin:0;font-size:16px;font-weight:600;color:var(--colorPrimary);}
+/* Tarjeta KPI: cada indicador con su color propio, tinte de fondo y filo de 3px.
+   Los cinco pares valor/fondo pasan AA (el más ajustado, cyan, da 5.8:1). */
+.ant-kpi{border-left:3px solid var(--kpiAccent);background:var(--kpiBg);}
+.ant-kpi .ant-statistic-content{color:var(--kpiText);}
+.kpi-primary{--kpiAccent:var(--colorPrimary);--kpiBg:var(--colorPrimaryBg);--kpiText:var(--colorPrimary);}
+.kpi-info{--kpiAccent:var(--colorInfo);--kpiBg:var(--colorInfoBg);--kpiText:var(--colorInfoText);}
+.kpi-cyan{--kpiAccent:var(--colorCyan);--kpiBg:var(--colorCyanBg);--kpiText:var(--colorCyanText);}
+.kpi-purple{--kpiAccent:var(--colorPurple);--kpiBg:var(--colorPurpleBg);--kpiText:var(--colorPurpleText);}
+.kpi-warning{--kpiAccent:var(--colorWarning);--kpiBg:var(--colorWarningBg);--kpiText:var(--colorWarningText);}
+.ant-card-body{padding:24px;}
+.ant-card-body-sm{padding:16px;}
+
+/* ── Table ────────────────────────────────────────────────────────────────── */
+.ant-table-wrap{background:var(--colorBgContainer);border:1px solid var(--colorBorderSecondary);
+  border-radius:var(--borderRadiusLG);box-shadow:var(--boxShadowTertiary);overflow:auto;}
+/* La tabla larga scrollea adentro: así el header sticky tiene un scrollport propio. */
+.ant-table-wrap-tall{max-height:calc(100vh - 340px);min-height:240px;}
+/* Tabla embebida en una card: la card ya pone borde y sombra. */
+.ant-table-wrap-plain{border:0;border-radius:0 0 var(--borderRadiusLG) var(--borderRadiusLG);box-shadow:none;}
+.ant-table{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;}
+.ant-table thead th{position:sticky;top:0;z-index:2;background:var(--colorPrimaryBg);
+  color:var(--colorPrimary);font-size:14px;font-weight:600;text-align:left;white-space:nowrap;
+  padding:12px 16px;border-bottom:1px solid var(--colorPrimaryBorder);}
+.ant-table tbody td{padding:12px 16px;border-bottom:1px solid var(--colorBorderSecondary);vertical-align:top;}
+.ant-table tbody tr>td{transition:background var(--motion);}
+.ant-table tbody tr:nth-child(even)>td{background:var(--colorFillMarca);}
+.ant-table tbody tr:hover>td{background:var(--colorPrimaryBg);}
+.ant-table tbody tr:last-child>td{border-bottom:0;}
+/* Filo de color por clase ABC: le da ritmo vertical a una tabla larga. */
+.abc-A>td:first-child{box-shadow:inset 3px 0 0 var(--colorPrimary);}
+.abc-B>td:first-child{box-shadow:inset 3px 0 0 var(--colorInfo);}
+.abc-C>td:first-child{box-shadow:inset 3px 0 0 var(--colorBorder);}
+.abc-F>td:first-child{box-shadow:inset 3px 0 0 var(--colorWarning);}
+.ant-table tfoot td{padding:12px 16px;border-top:1px solid var(--colorBorder);}
+.ant-table .t-r,.ant-table th.t-r{text-align:right;}
+.ant-table .t-c,.ant-table th.t-c{text-align:center;}
+/* La columna de entrada (Cantidad) se separa como una zona editable. */
+.ant-table thead th.col-edit{background:#e2ebd9;border-left:1px solid var(--colorPrimaryBorder);}
+.ant-table tbody tr>td.col-edit{background:#eff4ea;border-left:1px solid var(--colorPrimaryBorder);}
+.ant-table tbody tr:hover>td.col-edit{background:#e2ebd9;}
+.ant-table td.td-empty{padding:0;background:transparent;}
+.ant-table tbody tr:hover>td.td-empty{background:transparent;}
+.ant-table tbody tr.fila-propia>td{background:var(--colorPrimaryBg);}
+.fila-inactiva>td{color:var(--colorTextTertiary);}
+/* Header ordenable: el par de flechitas apiladas de antd, la activa en primario. */
+th[data-orden]{cursor:pointer;user-select:none;transition:background var(--motion);}
+th[data-orden]:hover{background:var(--colorFillSecondary);}
+.th-ord{font:inherit;color:inherit;letter-spacing:inherit;background:none;border:0;padding:0;
+  display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+.ord-ind{display:inline-flex;flex-direction:column;justify-content:center;
+  font-size:8px;line-height:.9;color:var(--colorTextQuaternary);}
+th[aria-sort="ascending"] .ord-up{color:var(--colorPrimary);}
+th[aria-sort="descending"] .ord-down{color:var(--colorPrimary);}
+th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
+/* La celda del producto: el nombre domina, el resto es metadato. */
+.prod-nombre{font-size:14px;font-weight:500;color:var(--colorText);line-height:1.4;}
+.fila-inactiva .prod-nombre{color:var(--colorTextTertiary);}
+.prod-meta{margin-top:2px;font-size:12px;color:var(--colorTextSecondary);font-variant-numeric:tabular-nums;}
+.prod-meta [title]{border-bottom:1px dotted var(--colorBorder);cursor:help;}
+.dato{font-size:14px;font-variant-numeric:tabular-nums;color:var(--colorText);}
+.dato-sec{font-size:13px;font-variant-numeric:tabular-nums;color:var(--colorTextSecondary);}
+/* Etiqueta interna de una celda (Central / Suc. / unidad). */
+.ant-label-in{font-size:12px;color:var(--colorTextSecondary);}
+/* Celda de cobertura: el tono manda fondo, punto y número, para que la fila
+   urgente se vea escaneando la tabla y no leyendo número por número.
+   Los tres pares texto/fondo pasan AA (error 5.1:1, warning 5.0:1, success 5.4:1). */
+.cob{display:flex;align-items:center;gap:6px;width:max-content;margin-left:auto;
+  padding:3px 8px;border-radius:var(--borderRadiusSM);}
+.cob+.cob{margin-top:3px;}
+.cob .dato{color:inherit;}
+.cob-none{color:var(--colorTextQuaternary);}
+.cob-error{background:var(--colorErrorBg);color:var(--colorErrorText);}
+.cob-error .ant-dot{background:var(--colorError);}
+.cob-warning{background:var(--colorWarningBg);color:var(--colorWarningText);}
+.cob-warning .ant-dot{background:var(--colorWarning);}
+.cob-success{background:var(--colorSuccessBg);color:var(--colorSuccessText);}
+.cob-success .ant-dot{background:var(--colorSuccess);}
+
+/* ── Button ───────────────────────────────────────────────────────────────── */
+.ant-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:var(--controlHeight);padding:0 15px;font:400 14px/1 Roboto,sans-serif;
+  border:1px solid var(--colorBorder);border-radius:var(--borderRadius);
+  background:var(--colorBgContainer);color:var(--colorText);cursor:pointer;white-space:nowrap;
+  box-shadow:0 2px 0 rgba(46,64,39,.06);transition:color var(--motion),border-color var(--motion),background var(--motion);}
+.ant-btn:hover{color:var(--colorPrimaryHover);border-color:var(--colorPrimaryHover);background:var(--colorPrimaryBg);}
+.ant-btn:active{color:var(--colorPrimaryActive);border-color:var(--colorPrimaryActive);}
+.ant-btn-primary{background:var(--colorPrimary);border-color:var(--colorPrimary);color:#fff;box-shadow:0 2px 0 rgba(46,64,39,.28);}
+.ant-btn-primary:hover{background:var(--colorPrimaryHover);border-color:var(--colorPrimaryHover);color:#fff;}
+.ant-btn-primary:active{background:var(--colorPrimaryActive);border-color:var(--colorPrimaryActive);color:#fff;}
+.ant-btn-text{border-color:transparent;background:transparent;box-shadow:none;color:var(--colorTextSecondary);}
+.ant-btn-text:hover{border-color:transparent;background:var(--colorFillTertiary);color:var(--colorText);}
+.ant-btn-link{border-color:transparent;background:transparent;box-shadow:none;color:var(--colorPrimary);
+  height:auto;padding:0;}
+.ant-btn-link:hover{border-color:transparent;background:transparent;color:var(--colorPrimaryHover);
+  text-decoration:underline;text-underline-offset:2px;}
+.ant-btn-danger{color:var(--colorErrorText);border-color:var(--colorErrorBorder);}
+.ant-btn-danger:hover{color:#fff;background:var(--colorError);border-color:var(--colorError);}
+.ant-btn-success{color:var(--colorSuccessText);border-color:var(--colorSuccessBorder);}
+.ant-btn-success:hover{color:#fff;background:var(--colorSuccess);border-color:var(--colorSuccess);}
+.ant-btn-sm{height:var(--controlHeightSM);padding:0 8px;font-size:12px;border-radius:var(--borderRadiusSM);}
+.ant-btn-lg{height:var(--controlHeightLG);padding:0 19px;font-size:16px;}
+.ant-btn:disabled,.ant-btn[disabled]{cursor:not-allowed;box-shadow:none;text-decoration:none;
+  color:var(--colorTextQuaternary)!important;background:var(--colorFillTertiary)!important;
+  border-color:var(--colorBorder)!important;}
+.ant-btn-link:disabled,.ant-btn-text:disabled{background:transparent!important;border-color:transparent!important;}
+
+/* ── Input / Select / Textarea ────────────────────────────────────────────── */
+.ant-input,.ant-select,.ant-textarea{width:100%;height:var(--controlHeight);padding:4px 11px;
+  font:400 14px/1.5714 Roboto,sans-serif;color:var(--colorText);background:var(--colorBgContainer);
+  border:1px solid var(--colorBorder);border-radius:var(--borderRadius);
+  transition:border-color var(--motion),box-shadow var(--motion);}
+.ant-textarea{height:auto;padding:5px 11px;resize:vertical;}
+.ant-input:hover,.ant-select:hover,.ant-textarea:hover{border-color:var(--colorPrimaryHover);}
+.ant-input:focus,.ant-select:focus,.ant-textarea:focus{outline:0;border-color:var(--colorPrimary);
+  box-shadow:0 0 0 2px var(--colorPrimaryHalo);}
+.ant-input::placeholder{color:var(--colorTextQuaternary);}
+.ant-input:disabled,.ant-select:disabled,.ant-textarea:disabled{
+  color:var(--colorTextTertiary);background:var(--colorFillTertiary);border-color:var(--colorBorder);cursor:not-allowed;}
+.ant-select-sm{height:var(--controlHeightSM);padding:0 7px;font-size:12px;border-radius:var(--borderRadiusSM);}
+.ant-select{appearance:none;padding-right:28px;cursor:pointer;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(0,0,0,0.45)' d='M6 8.6 1.7 4.3l.9-.9L6 6.8l3.4-3.4.9.9z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:12px;}
+.ant-select-sm{padding-right:22px;background-position:right 5px center;background-size:10px;}
+.ant-input-num{width:96px;text-align:right;font-variant-numeric:tabular-nums;padding:4px 8px;}
+.ant-check{width:16px;height:16px;accent-color:var(--colorPrimary);cursor:pointer;margin:0;}
+.ant-label{display:block;font-size:12px;color:var(--colorTextSecondary);margin-bottom:4px;}
+.ant-check-label{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--colorTextSecondary);cursor:pointer;}
+/* Celda-botón: el número manda, el botón sólo se insinúa al pasar por encima. */
+.cell-btn{display:block;width:100%;text-align:right;background:none;border:1px solid transparent;
+  border-radius:var(--borderRadius);padding:2px 6px;margin:-2px -6px;cursor:pointer;
+  transition:background var(--motion),border-color var(--motion);}
+.cell-btn:hover{background:var(--colorPrimaryBg);border-color:var(--colorPrimaryBorder);}
+
+/* ── Tag ──────────────────────────────────────────────────────────────────── */
+.ant-tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;
+  font-size:12px;line-height:1;white-space:nowrap;border-radius:var(--borderRadiusSM);
+  border:1px solid var(--colorBorder);background:var(--colorFillTertiary);color:var(--colorTextSecondary);}
+.ant-tag-primary{background:var(--colorPrimaryBg);border-color:var(--colorPrimaryBorder);color:var(--colorPrimary);}
+.ant-tag-success{background:var(--colorSuccessBg);border-color:var(--colorSuccessBorder);color:var(--colorSuccessText);}
+.ant-tag-warning{background:var(--colorWarningBg);border-color:var(--colorWarningBorder);color:var(--colorWarningText);}
+.ant-tag-error{background:var(--colorErrorBg);border-color:var(--colorErrorBorder);color:var(--colorErrorText);}
+.ant-tag-info{background:var(--colorInfoBg);border-color:var(--colorInfoBorder);color:var(--colorInfoText);}
+
+/* ── Badge / status dot ───────────────────────────────────────────────────── */
+.ant-badge{display:inline-flex;align-items:center;gap:6px;}
+.ant-dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--colorTextQuaternary);}
+.ant-dot-success{background:var(--colorSuccess);}
+.ant-dot-warning{background:var(--colorWarning);}
+
+/* ── Statistic ────────────────────────────────────────────────────────────── */
+.ant-statistic-title{font-size:14px;color:var(--colorTextSecondary);}
+.ant-statistic-content{margin-top:4px;font:700 24px/1.2 'Barlow Condensed',sans-serif;
+  letter-spacing:.01em;color:var(--colorText);font-variant-numeric:tabular-nums;}
+.ant-statistic-extra{margin-top:6px;font-size:12px;color:var(--colorTextSecondary);
+  font-variant-numeric:tabular-nums;min-height:18px;}
+
+/* ── Descriptions ─────────────────────────────────────────────────────────── */
+.ant-desc{display:grid;gap:12px 24px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+.ant-desc-label{display:block;font-size:12px;color:var(--colorTextTertiary);margin-bottom:2px;}
+.ant-desc-value{font-size:14px;color:var(--colorText);font-variant-numeric:tabular-nums;}
+
+/* ── Modal ────────────────────────────────────────────────────────────────── */
+.ant-modal-mask{background:rgba(0,0,0,.45);}
+.ant-modal{width:100%;background:var(--colorBgContainer);border-radius:var(--borderRadiusLG);
+  box-shadow:var(--boxShadow);overflow:hidden;}
+.ant-modal-header{display:flex;align-items:center;gap:12px;padding:16px 24px;
+  border-bottom:1px solid var(--colorBorderSecondary);}
+.ant-modal-title{margin:0;font-size:16px;font-weight:600;color:var(--colorText);}
+.ant-modal-close{margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;
+  justify-content:center;border:0;border-radius:var(--borderRadiusSM);background:none;cursor:pointer;
+  color:var(--colorTextTertiary);font-size:16px;line-height:1;transition:color var(--motion),background var(--motion);}
+.ant-modal-close:hover{background:var(--colorFillTertiary);color:var(--colorText);}
+.ant-modal-body{padding:24px;}
+.ant-modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 24px;
+  border-top:1px solid var(--colorPrimaryBorder);background:var(--colorPrimaryBg);}
+
+/* ── Dropdown ─────────────────────────────────────────────────────────────── */
+.ant-dropdown{position:absolute;z-index:30;top:100%;left:0;width:100%;margin-top:4px;padding:4px;
+  max-height:280px;overflow-y:auto;background:var(--colorBgContainer);
+  border-radius:var(--borderRadiusLG);box-shadow:var(--boxShadow);}
+.ant-dropdown-item{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;
+  border-radius:var(--borderRadiusSM);cursor:pointer;transition:background var(--motion);}
+.ant-dropdown-item:hover{background:var(--colorFillTertiary);}
+.ant-dropdown-empty{padding:12px;font-size:14px;color:var(--colorTextTertiary);}
+
+/* ── Empty / Result ───────────────────────────────────────────────────────── */
+.ant-empty{padding:48px 16px;text-align:center;}
+.ant-empty-icon{display:block;margin:0 auto 12px;}
+.ant-empty-title{margin:0;font-size:16px;font-weight:500;color:var(--colorText);}
+.ant-empty-desc{margin:4px 0 0;font-size:14px;color:var(--colorTextSecondary);}
+.ant-empty-error .ant-empty-title{color:var(--colorErrorText);}
+
+/* ── Spin ─────────────────────────────────────────────────────────────────── */
+.ant-spin{display:block;width:22px;height:22px;margin:0 auto 12px;border-radius:50%;
+  border:2px solid var(--colorPrimaryBorder);border-top-color:var(--colorPrimary);
+  animation:ant-rotate .9s linear infinite;}
+@keyframes ant-rotate{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){
+  .ant-spin{animation-duration:2.4s;}
+  *,*::before,*::after{transition-duration:.01ms!important;}
+}
+
+/* ── Contenedores de gráfico: altura fija obligatoria ─────────────────────────
+   Con responsive:true + maintainAspectRatio:false Chart.js crece hasta llenar
+   al padre; si el padre se mide por el canvas, el lienzo se estira sin fin. */
+.chart-box{position:relative;height:260px;}
+.chart-box-lg{position:relative;height:280px;}
+
+/* ── Toolbar: la barra de filtros de cada pestaña ─────────────────────────── */
+.ant-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;}
+.ant-divider-t{border-top:1px solid var(--colorBorderSecondary);}
+.ant-divider-b{border-bottom:1px solid var(--colorBorderSecondary);}
+.prov-field{position:relative;width:20rem;max-width:100%;}
+
+/* ── Utilidades de tono y tamaño ─────────────────────────────────────────────
+   Van últimas a propósito: el shorthand `font` de .ant-btn resetea el tamaño y
+   el font-variant, así que estas reglas tienen que poder pisarlo. */
+.num{font-variant-numeric:tabular-nums;}
+.t-sec{color:var(--colorTextSecondary);}
+.t-ter{color:var(--colorTextTertiary);}
+.t-qua{color:var(--colorTextQuaternary);}
+.t-err{color:var(--colorErrorText);}
+.t-12{font-size:12px;}
+.t-16{font-size:16px;}
 </style>
 </head>
-<body class="font-body text-ink">
-<header class="sticky top-0 z-20 bg-card/95 backdrop-blur border-b border-borde">
-  <div class="max-w-[1400px] mx-auto px-6">
-    <div class="flex items-center gap-3 pt-4 pb-3">
-      <h1 class="font-disp text-2xl font-bold tracking-wide text-verde leading-none">COMPRAS</h1>
-      <span class="text-[10px] uppercase tracking-[0.18em] text-tenue leading-none pt-1">Apidelta</span>
-      <a href="/" class="ml-auto text-[13px] text-tenue hover:text-verde">← Inicio</a>
+<body>
+<header class="ant-header">
+  <div class="ant-header-top">
+    <div class="ant-header-inner ant-header-bar">
+      <h1 class="ant-logo">COMPRAS</h1>
+      <span class="ant-logo-sub">Apidelta</span>
+      <a href="/" class="ant-btn ant-btn-text ml-auto">← Inicio</a>
     </div>
-    <nav class="flex gap-6 font-disp text-[17px]" role="tablist" aria-label="Secciones de compras">
+  </div>
+  <div class="ant-header-inner">
+    <nav class="ant-tabs-nav" role="tablist" aria-label="Secciones de compras">
       <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-armado" data-tab="armado">Armar pedido</button>
       <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
       <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
@@ -66,170 +346,181 @@ tailwind.config = { theme: { extend: {
   </div>
 </header>
 
-<main class="max-w-[1400px] mx-auto px-6 py-6">
+<main class="max-w-[1440px] mx-auto px-6 py-6">
 
 <!-- ── Armar pedido ─────────────────────────────────────────────────────────── -->
 <section id="tab-armado" class="tab-panel" role="tabpanel" aria-label="Armar pedido">
-  <!-- Control primario: el proveedor manda, todo lo demás depende de él. -->
-  <div class="flex flex-wrap items-end gap-3">
-    <div class="relative">
-      <label class="lbl" for="provQ">Proveedor</label>
-      <input id="provQ" placeholder="Buscar proveedor…" autocomplete="off" class="ctrl w-80">
-      <div id="provLista" class="hidden absolute z-30 mt-1 w-80 max-h-64 overflow-y-auto rounded-md border border-borde bg-card text-[13px] shadow-lg"></div>
+  <!-- Card de controles: el proveedor manda, todo lo demás depende de él. -->
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm">
+      <div class="ant-toolbar">
+        <div class="prov-field">
+          <label class="ant-label" for="provQ">Proveedor</label>
+          <input id="provQ" class="ant-input" placeholder="Buscar proveedor…" autocomplete="off">
+          <div id="provLista" class="ant-dropdown hidden"></div>
+        </div>
+        <button id="btnCargar" class="ant-btn ant-btn-primary">Cargar</button>
+        <span id="provSelNombre" class="num t-ter t-12 pb-2"></span>
+        <label class="ant-label-in flex items-center gap-2 pb-1 ml-auto" for="ventanaSuc">Ventas sucursales
+          <select id="ventanaSuc" class="ant-select ant-select-sm w-auto">
+            <option value="30" selected>30 días</option><option value="60">60 días</option><option value="90">90 días</option>
+          </select>
+        </label>
+        <button id="btnRecalcular" class="ant-btn ant-btn-sm mb-1">Recalcular consumo</button>
+      </div>
+      <div class="mt-4 pt-4 ant-divider-t ant-toolbar">
+        <input id="filtroTexto" class="ant-input w-64" placeholder="Filtrar producto o PLU…" aria-label="Filtrar por producto o PLU">
+        <label class="ant-check-label pb-1.5"><input type="checkbox" id="soloConCantidad" class="ant-check"> Solo con cantidad</label>
+        <span id="consumoTs" class="num t-ter t-12 pb-2"></span>
+        <span id="armadoCount" class="num t-sec t-12 pb-2 ml-auto"></span>
+      </div>
     </div>
-    <button id="btnCargar" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide">Cargar</button>
-    <span id="provSelNombre" class="text-[13px] text-tenue tabular-nums pb-2"></span>
   </div>
 
-  <!-- Controles secundarios: mismo eje, menos peso. -->
-  <div class="mt-4 pb-4 border-b border-linea flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-tenue">
-    <label class="flex items-center gap-2" for="ventanaSuc">Ventas sucursales
-      <select id="ventanaSuc" class="ctrl-sm">
-        <option value="30" selected>30 días</option><option value="60">60 días</option><option value="90">90 días</option>
-      </select>
-    </label>
-    <span id="consumoTs" class="tabular-nums"></span>
-    <button id="btnRecalcular" class="ml-auto ctrl-sm hover:bg-bg">Recalcular consumo</button>
-  </div>
-
-  <div class="mt-4 flex flex-wrap items-center gap-3">
-    <input id="filtroTexto" placeholder="Filtrar producto o PLU…" class="ctrl w-64" aria-label="Filtrar por producto o PLU">
-    <label class="flex items-center gap-2 text-[13px] text-tenue"><input type="checkbox" id="soloConCantidad" class="accent-verde"> Solo con cantidad</label>
-    <span id="armadoCount" class="ml-auto text-[12px] text-tenue tabular-nums"></span>
-  </div>
-
-  <div class="mt-2 overflow-x-auto rounded-lg border border-borde bg-card">
-    <table class="w-full">
+  <div class="mt-4 ant-table-wrap ant-table-wrap-tall">
+    <table class="ant-table">
       <thead>
-        <tr class="text-[11px] text-tenue border-b border-borde">
-          <th class="w-9 px-3 py-2.5"><span class="sr-only">Incluir en el pedido</span></th>
-          <th class="text-left px-3 py-2.5" data-orden="producto" aria-sort="none"><button class="th-ord">Producto<span class="ord-ind" aria-hidden="true"></span></button></th>
-          <th class="text-right px-3 py-2.5" data-orden="stock" aria-sort="none"><button class="th-ord">Stock<span class="ord-ind" aria-hidden="true"></span></button></th>
-          <th class="text-right px-3 py-2.5" data-orden="cobertura" aria-sort="none"><button class="th-ord">Cobertura (días)<span class="ord-ind" aria-hidden="true"></span></button></th>
-          <th class="text-right px-3 py-2.5" data-orden="consumo" aria-sort="none"><button class="th-ord">Consumo/mes<span class="ord-ind" aria-hidden="true"></span></button></th>
-          <th class="text-center px-3 py-2.5" data-orden="abc" aria-sort="none"><button class="th-ord">ABC<span class="ord-ind" aria-hidden="true"></span></button></th>
-          <th class="text-right px-3 py-2.5 bg-campo border-l border-linea" data-orden="cantidad" aria-sort="none"><button class="th-ord">Cantidad<span class="ord-ind" aria-hidden="true"></span></button></th>
+        <tr>
+          <th class="t-c" style="width:44px"><span class="sr-only">Incluir en el pedido</span></th>
+          <th data-orden="producto" aria-sort="none"><button class="th-ord">Producto<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-r" data-orden="stock" aria-sort="none"><button class="th-ord">Stock<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-r" data-orden="cobertura" aria-sort="none"><button class="th-ord">Cobertura (días)<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-r" data-orden="consumo" aria-sort="none"><button class="th-ord">Consumo/mes<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-c" data-orden="abc" aria-sort="none"><button class="th-ord">ABC<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-r col-edit" data-orden="cantidad" aria-sort="none"><button class="th-ord">Cantidad<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
         </tr>
       </thead>
-      <tbody id="armadoBody"><tr><td colspan="7" class="p-0"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Sin proveedor cargado</p><p class="mt-1 text-[13px] text-tenue">Buscá un proveedor arriba y tocá Cargar para traer sus productos.</p></div></td></tr></tbody>
+      <tbody id="armadoBody"><tr><td colspan="7" class="td-empty"><div class="ant-empty">
+        <svg class="ant-empty-icon" width="64" height="41" viewBox="0 0 64 41" aria-hidden="true"><ellipse cx="32" cy="33" rx="32" ry="7" fill="#e7eee0"></ellipse><g stroke="#b9cdad" fill="#f4f8f0"><path d="M55 12.76 44.85 1.25C44.37.47 43.7 0 43 0H21c-.7 0-1.37.47-1.85 1.25L9 12.76V22h46v-9.24z"></path><path d="M41.61 15.66c0-1.29.78-2.4 1.9-2.4H55v12.15c0 1.68-1.02 3.05-2.28 3.05H11.28C10.02 28.46 9 27.09 9 25.41V13.26h11.49c1.12 0 1.9 1.11 1.9 2.4v.06c0 1.29.79 2.34 1.9 2.34h15.42c1.12 0 1.9-1.05 1.9-2.34v-.06z"></path></g></svg>
+        <p class="ant-empty-title">Sin proveedor cargado</p>
+        <p class="ant-empty-desc">Buscá un proveedor arriba y tocá Cargar para traer sus productos.</p></div></td></tr></tbody>
     </table>
   </div>
 
   <div class="mt-4 flex items-center gap-4 flex-wrap">
-    <button id="btnGenerar" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide disabled:opacity-40 disabled:cursor-not-allowed" disabled>Generar pedido</button>
-    <span id="lineasCount" class="text-[13px] text-tenue tabular-nums">0 líneas cargadas</span>
+    <button id="btnGenerar" class="ant-btn ant-btn-primary ant-btn-lg" disabled>Generar pedido</button>
+    <span id="lineasCount" class="num t-sec">0 líneas cargadas</span>
   </div>
 </section>
 
 <!-- ── Seguimiento ──────────────────────────────────────────────────────────── -->
 <section id="tab-seguimiento" class="tab-panel hidden" role="tabpanel" aria-label="Seguimiento de pedidos">
-  <div class="flex flex-wrap items-end gap-3 pb-4 border-b border-linea">
-    <div>
-      <label class="lbl" for="segPedido">Pedido</label>
-      <select id="segPedido" class="ctrl min-w-[26rem]"></select>
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm ant-toolbar">
+      <div class="flex-1 min-w-[20rem]">
+        <label class="ant-label" for="segPedido">Pedido</label>
+        <select id="segPedido" class="ant-select"></select>
+      </div>
+      <div class="w-56">
+        <label class="ant-label" for="segProv">Proveedor</label>
+        <select id="segProv" class="ant-select"><option value="">Todos los proveedores</option></select>
+      </div>
+      <label class="ant-check-label pb-1.5"><input type="checkbox" id="segCerrados" class="ant-check"> Ver cerrados</label>
+      <button id="btnRefrescarPedidos" class="ant-btn ml-auto">Refrescar</button>
     </div>
-    <div>
-      <label class="lbl" for="segProv">Proveedor</label>
-      <select id="segProv" class="ctrl-sm"><option value="">Todos los proveedores</option></select>
-    </div>
-    <label class="flex items-center gap-2 text-[12px] text-tenue pb-2"><input type="checkbox" id="segCerrados" class="accent-verde"> Ver cerrados</label>
-    <button id="btnRefrescarPedidos" class="ml-auto ctrl-sm hover:bg-bg mb-[1px]">Refrescar</button>
   </div>
-  <div id="segDetalle" class="mt-4"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Ningún pedido seleccionado</p><p class="mt-1 text-[13px] text-tenue">Elegí un pedido del desplegable para ver y editar sus líneas.</p></div></div>
+  <div id="segDetalle" class="mt-4"><div class="ant-card"><div class="ant-empty">
+    <svg class="ant-empty-icon" width="64" height="41" viewBox="0 0 64 41" aria-hidden="true"><ellipse cx="32" cy="33" rx="32" ry="7" fill="#e7eee0"></ellipse><g stroke="#b9cdad" fill="#f4f8f0"><path d="M55 12.76 44.85 1.25C44.37.47 43.7 0 43 0H21c-.7 0-1.37.47-1.85 1.25L9 12.76V22h46v-9.24z"></path><path d="M41.61 15.66c0-1.29.78-2.4 1.9-2.4H55v12.15c0 1.68-1.02 3.05-2.28 3.05H11.28C10.02 28.46 9 27.09 9 25.41V13.26h11.49c1.12 0 1.9 1.11 1.9 2.4v.06c0 1.29.79 2.34 1.9 2.34h15.42c1.12 0 1.9-1.05 1.9-2.34v-.06z"></path></g></svg>
+    <p class="ant-empty-title">Ningún pedido seleccionado</p>
+    <p class="ant-empty-desc">Elegí un pedido del desplegable para ver y editar sus líneas.</p></div></div></div>
 </section>
 
 <!-- ── OTIF ─────────────────────────────────────────────────────────────────── -->
 <section id="tab-otif" class="tab-panel hidden" role="tabpanel" aria-label="Indicadores OTIF">
-  <div class="flex flex-wrap items-end gap-3 pb-4 border-b border-linea">
-    <div>
-      <label class="lbl" for="otifProv">Proveedor</label>
-      <select id="otifProv" class="ctrl min-w-[16rem]"><option value="">Todos los proveedores</option></select>
-    </div>
-    <div>
-      <label class="lbl" for="otifDesde">Desde</label>
-      <input type="date" id="otifDesde" class="ctrl">
-    </div>
-    <div>
-      <label class="lbl" for="otifHasta">Hasta</label>
-      <input type="date" id="otifHasta" class="ctrl">
-    </div>
-    <button id="btnOtif" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide">Aplicar</button>
-    <span class="text-[12px] text-tenue pb-2">Sólo se computan pedidos cerrados.</span>
-  </div>
-
-  <div id="otifKpis" class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3"></div>
-
-  <div class="mt-6 grid md:grid-cols-2 gap-4">
-    <div id="boxProv" class="rounded-lg border border-borde bg-card p-4">
-      <h3 class="sec-t mb-3">Cumplimiento por proveedor</h3>
-      <!-- Altura fija en el contenedor: con responsive + maintainAspectRatio:false
-           Chart.js crece hasta llenar al padre, y si el padre se mide por el canvas
-           el lienzo se estira sin fin en cada reflow. -->
-      <div class="h-[260px]"><canvas id="chProv"></canvas></div>
-    </div>
-    <div class="rounded-lg border border-borde bg-card p-4">
-      <h3 class="sec-t mb-3">Top quiebres (veces sin entregar)</h3>
-      <div class="h-[260px]"><canvas id="chQuiebres"></canvas></div>
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm ant-toolbar">
+      <div class="w-64">
+        <label class="ant-label" for="otifProv">Proveedor</label>
+        <select id="otifProv" class="ant-select"><option value="">Todos los proveedores</option></select>
+      </div>
+      <div>
+        <label class="ant-label" for="otifDesde">Desde</label>
+        <input type="date" id="otifDesde" class="ant-input w-auto">
+      </div>
+      <div>
+        <label class="ant-label" for="otifHasta">Hasta</label>
+        <input type="date" id="otifHasta" class="ant-input w-auto">
+      </div>
+      <button id="btnOtif" class="ant-btn ant-btn-primary">Aplicar</button>
+      <span class="t-12 t-ter pb-2">Sólo se computan pedidos cerrados.</span>
     </div>
   </div>
 
-  <h3 class="sec-t mt-6 mb-2">Pedidos cerrados del período</h3>
-  <div class="overflow-x-auto rounded-lg border border-borde bg-card">
-    <table class="w-full">
-      <thead>
-        <tr class="text-[11px] text-tenue border-b border-borde">
-          <th class="text-left px-3 py-2.5">N°</th>
-          <th class="text-left px-3 py-2.5">Fecha</th>
-          <th class="text-left px-3 py-2.5">Proveedor</th>
-          <th class="text-right px-3 py-2.5">Estimada</th>
-          <th class="text-right px-3 py-2.5">Retiro</th>
-          <th class="text-right px-3 py-2.5">Desvío (días)</th>
-          <th class="text-right px-3 py-2.5">Líneas completas</th>
-        </tr>
-      </thead>
-      <tbody id="otifBody"><tr><td colspan="7" class="p-0"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Sin datos todavía</p><p class="mt-1 text-[13px] text-tenue">Elegí el período y tocá Aplicar.</p></div></td></tr></tbody>
-    </table>
+  <div id="otifKpis" class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-4"></div>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div id="boxProv" class="ant-card">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Cumplimiento por proveedor</h3></div>
+      <div class="ant-card-body ant-card-body-sm"><div class="chart-box"><canvas id="chProv"></canvas></div></div>
+    </div>
+    <div class="ant-card">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Top quiebres (veces sin entregar)</h3></div>
+      <div class="ant-card-body ant-card-body-sm"><div class="chart-box"><canvas id="chQuiebres"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="mt-4 ant-card">
+    <div class="ant-card-head"><h3 class="ant-card-head-title">Pedidos cerrados del período</h3></div>
+    <div class="ant-table-wrap ant-table-wrap-plain">
+      <table class="ant-table">
+        <thead>
+          <tr>
+            <th>N°</th>
+            <th>Fecha</th>
+            <th>Proveedor</th>
+            <th class="t-r">Estimada</th>
+            <th class="t-r">Retiro</th>
+            <th class="t-r">Desvío (días)</th>
+            <th class="t-r">Líneas completas</th>
+          </tr>
+        </thead>
+        <tbody id="otifBody"><tr><td colspan="7" class="td-empty"><div class="ant-empty">
+          <svg class="ant-empty-icon" width="64" height="41" viewBox="0 0 64 41" aria-hidden="true"><ellipse cx="32" cy="33" rx="32" ry="7" fill="#e7eee0"></ellipse><g stroke="#b9cdad" fill="#f4f8f0"><path d="M55 12.76 44.85 1.25C44.37.47 43.7 0 43 0H21c-.7 0-1.37.47-1.85 1.25L9 12.76V22h46v-9.24z"></path><path d="M41.61 15.66c0-1.29.78-2.4 1.9-2.4H55v12.15c0 1.68-1.02 3.05-2.28 3.05H11.28C10.02 28.46 9 27.09 9 25.41V13.26h11.49c1.12 0 1.9 1.11 1.9 2.4v.06c0 1.29.79 2.34 1.9 2.34h15.42c1.12 0 1.9-1.05 1.9-2.34v-.06z"></path></g></svg>
+          <p class="ant-empty-title">Sin datos todavía</p>
+          <p class="ant-empty-desc">Elegí el período y tocá Aplicar.</p></div></td></tr></tbody>
+      </table>
+    </div>
   </div>
 </section>
 </main>
 
 <!-- Modal genérico: aviso (reemplaza alert()) y confirmación (reemplaza confirm()). -->
-<div id="mAviso" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
+<div id="mAviso" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
      role="dialog" aria-modal="true" aria-labelledby="mAvisoTitulo">
-  <div class="bg-card rounded-lg border border-borde shadow-2xl w-full max-w-md">
-    <div class="px-5 py-3 border-b border-linea flex items-center gap-2">
-      <h3 id="mAvisoTitulo" class="font-disp text-xl font-bold text-verde">Aviso</h3>
-      <button id="mAvisoX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+  <div class="ant-modal max-w-md">
+    <div class="ant-modal-header">
+      <h3 id="mAvisoTitulo" class="ant-modal-title">Aviso</h3>
+      <button id="mAvisoX" class="ant-modal-close" aria-label="Cerrar">✕</button>
     </div>
-    <p id="mAvisoMsg" class="px-5 py-5 text-[14px] leading-relaxed"></p>
-    <div class="px-5 py-3 border-t border-linea flex justify-end gap-2">
-      <button id="mAvisoCancel" class="hidden px-4 py-2 rounded-md border border-borde hover:bg-bg font-disp text-[15px]">Cancelar</button>
-      <button id="mAvisoOk" class="px-4 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[15px]">Aceptar</button>
+    <p id="mAvisoMsg" class="ant-modal-body m-0"></p>
+    <div class="ant-modal-footer">
+      <button id="mAvisoCancel" class="hidden ant-btn">Cancelar</button>
+      <button id="mAvisoOk" class="ant-btn ant-btn-primary">Aceptar</button>
     </div>
   </div>
 </div>
 
 <!-- Modal del consumo mensual de un producto -->
-<div id="mConsumo" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
+<div id="mConsumo" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
      role="dialog" aria-modal="true" aria-labelledby="mConsumoTitulo">
-  <div class="bg-card rounded-lg border border-borde shadow-2xl w-full max-w-3xl">
-    <div class="px-5 py-3 border-b border-linea flex items-center gap-2">
-      <h3 id="mConsumoTitulo" class="font-disp text-xl font-bold text-verde">Consumo mensual</h3>
-      <button id="mConsumoX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+  <div class="ant-modal max-w-3xl">
+    <div class="ant-modal-header">
+      <h3 id="mConsumoTitulo" class="ant-modal-title">Consumo mensual</h3>
+      <button id="mConsumoX" class="ant-modal-close" aria-label="Cerrar">✕</button>
     </div>
-    <div class="px-5 py-5"><div class="h-[280px]"><canvas id="chConsumo"></canvas></div></div>
+    <div class="ant-modal-body"><div class="chart-box-lg"><canvas id="chConsumo"></canvas></div></div>
   </div>
 </div>
 
 <!-- Modal de composición del stock: qué PLUs suman al stock de sucursales de la fila. -->
-<div id="mStock" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
+<div id="mStock" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
      role="dialog" aria-modal="true" aria-labelledby="mStockTitulo">
-  <div class="bg-card rounded-lg border border-borde shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-    <div class="px-5 py-3 border-b border-linea flex items-center gap-2">
-      <h3 id="mStockTitulo" class="font-disp text-xl font-bold text-verde">Composición del stock</h3>
-      <button id="mStockX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+  <div class="ant-modal max-w-3xl max-h-[85vh] flex flex-col">
+    <div class="ant-modal-header">
+      <h3 id="mStockTitulo" class="ant-modal-title">Composición del stock</h3>
+      <button id="mStockX" class="ant-modal-close" aria-label="Cerrar">✕</button>
     </div>
-    <div id="mStockCuerpo" class="px-5 py-5 overflow-y-auto"></div>
+    <div id="mStockCuerpo" class="ant-modal-body overflow-y-auto"></div>
   </div>
 </div>
 
@@ -256,19 +547,32 @@ const charts = {};
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
 
-// Estados vacíos / de carga / de error: mismo bloque en las tres pestañas.
-const estadoVacio = (titulo, detalle, tono) => `<div class="py-14 text-center">
-  <p class="font-disp text-lg ${tono === 'error' ? 'text-rojo' : 'text-ink/70'}">${escAttr(titulo)}</p>
-  <p class="mt-1 text-[13px] text-tenue">${escAttr(detalle || '')}</p></div>`;
+// Estados vacíos / de carga / de error: el Empty, el Spin y el Result de antd.
+// Los íconos son SVG inline — no se suma una librería de íconos por esto.
+const SVG_EMPTY = `<svg class="ant-empty-icon" width="64" height="41" viewBox="0 0 64 41" aria-hidden="true">
+  <ellipse cx="32" cy="33" rx="32" ry="7" fill="#e7eee0"></ellipse>
+  <g stroke="#b9cdad" fill="#f4f8f0">
+    <path d="M55 12.76 44.85 1.25C44.37.47 43.7 0 43 0H21c-.7 0-1.37.47-1.85 1.25L9 12.76V22h46v-9.24z"></path>
+    <path d="M41.61 15.66c0-1.29.78-2.4 1.9-2.4H55v12.15c0 1.68-1.02 3.05-2.28 3.05H11.28C10.02 28.46 9 27.09 9 25.41V13.26h11.49c1.12 0 1.9 1.11 1.9 2.4v.06c0 1.29.79 2.34 1.9 2.34h15.42c1.12 0 1.9-1.05 1.9-2.34v-.06z"></path>
+  </g></svg>`;
+const SVG_ERROR = `<svg class="ant-empty-icon" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+  <circle cx="22" cy="22" r="20" fill="#fff2f0" stroke="#ffccc7" stroke-width="2"></circle>
+  <path d="M22 12v13" stroke="#ff4d4f" stroke-width="2.5" stroke-linecap="round"></path>
+  <circle cx="22" cy="31" r="1.75" fill="#ff4d4f"></circle></svg>`;
+const estadoVacio = (titulo, detalle, tono) => `<div class="ant-empty${tono === 'error' ? ' ant-empty-error' : ''}">
+  ${tono === 'cargando' ? '<div class="ant-spin" role="status" aria-label="Cargando"></div>' : tono === 'error' ? SVG_ERROR : SVG_EMPTY}
+  <p class="ant-empty-title">${escAttr(titulo)}</p>
+  <p class="ant-empty-desc">${escAttr(detalle || '')}</p></div>`;
 const filaVacia = (cols, titulo, detalle, tono) =>
-  `<tr><td colspan="${cols}" class="p-0">${estadoVacio(titulo, detalle, tono)}</td></tr>`;
+  `<tr><td colspan="${cols}" class="td-empty">${estadoVacio(titulo, detalle, tono)}</td></tr>`;
 
-// Paleta del proyecto en los gráficos, en vez de los defaults de Chart.js.
-const PAL = { verde:'#405936', verdeClaro:'#8fa982', naranja:'#E65100', rojo:'#C62828', grid:'#eff1ec', eje:'#dde1d6' };
+// Paleta de los gráficos alineada a los tokens, en vez de los defaults de Chart.js.
+const PAL = { verde:'#405936', verdeClaro:'#8fa982', azul:'#1677ff', cyan:'#13c2c2',
+  ambar:'#faad14', rojo:'#ff4d4f', grid:'#e6ebe1', eje:'#c3d4b8', texto:'rgba(0,0,0,.55)' };
 if (window.Chart) {
   Chart.defaults.font.family = 'Roboto, sans-serif';
-  Chart.defaults.font.size = 11;
-  Chart.defaults.color = '#6b7065';
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = PAL.texto;
   Chart.defaults.borderColor = PAL.grid;
 }
 const leyendaAbajo = { position:'bottom', labels:{ boxWidth:8, boxHeight:8, usePointStyle:true, pointStyle:'circle', padding:16 } };
@@ -359,12 +663,12 @@ async function buscarProveedores() {
     const r = await apiFetch('/api/compras/proveedores?q=' + encodeURIComponent(q));
     const lista = r.proveedores || [];
     cont.innerHTML = lista.length
-      ? lista.map(p => `<button class="js-prov block w-full text-left px-3 py-2 hover:bg-bg border-b border-linea last:border-0"
+      ? lista.map(p => `<button class="js-prov ant-dropdown-item"
            data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
            <span class="block">${escAttr(p.nombre)}</span>
-           <span class="block text-[11px] text-tenue tabular-nums">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
+           <span class="block t-12 t-ter num">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
          </button>`).join('')
-      : `<div class="px-3 py-2.5 text-tenue">Ningún proveedor con ese nombre tiene compras
+      : `<div class="ant-dropdown-empty">Ningún proveedor con ese nombre tiene compras
          en los últimos 24 meses.</div>`;
     cont.classList.remove('hidden');
     cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
@@ -374,7 +678,7 @@ async function buscarProveedores() {
       cont.classList.add('hidden');
     }));
   } catch (e) {
-    cont.innerHTML = `<div class="px-3 py-2.5 text-rojo">${escAttr(e.message)}</div>`;
+    cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
     cont.classList.remove('hidden');
   }
 }
@@ -383,7 +687,7 @@ $('#btnCargar').addEventListener('click', cargarArmado);
 async function cargarArmado() {
   if (!provSel) { avisar('Elegí un proveedor de la lista antes de cargar.', 'Falta el proveedor'); return; }
   const body = $('#armadoBody');
-  body.innerHTML = filaVacia(7, 'Cargando…', 'Trayendo stock, consumo y cobertura del proveedor.');
+  body.innerHTML = filaVacia(7, 'Cargando…', 'Trayendo stock, consumo y cobertura del proveedor.', 'cargando');
   try {
     armado = await apiFetch(`/api/compras/armado?idProveedor=${encodeURIComponent(provSel.id)}&ventanaSuc=${encodeURIComponent($('#ventanaSuc').value)}`);
     for (const k of Object.keys(cantidades)) delete cantidades[k];
@@ -410,27 +714,26 @@ $('#btnRecalcular').addEventListener('click', async () => {
 });
 
 // Semáforo de cobertura: menos de una semana es urgente, menos de dos es atención.
-// El color va en el punto; el número sólo se tiñe cuando hay algo que mirar.
-function colorCobertura(dias) {
-  if (dias == null) return 'text-ink/60';
-  if (dias < 7) return 'text-rojo font-medium';
-  if (dias < 15) return 'text-ambar font-medium';
-  return 'text-ink/75';
-}
-function puntoCobertura(dias) {
-  if (dias == null) return 'bg-ink/20';
-  if (dias < 7) return 'bg-rojo';
-  if (dias < 15) return 'bg-ambar';
-  return 'bg-ok';
-}
+// Un único tono manda fondo, punto y número de la celda (ver .cob-* en el CSS).
+const tonoCobertura = d => d == null ? 'none' : d < 7 ? 'error' : d < 15 ? 'warning' : 'success';
 const textoCobertura = d => d == null ? '∞' : fmt(d);
 
 // Una línea de cobertura (etiqueta · punto · número), para que central y sucursales
 // queden una sobre otra en la misma celda y los números alineen.
-const lineaCobertura = (etiqueta, dias) => `<div class="flex items-center justify-end gap-2">
-  <span class="lbl-in">${escAttr(etiqueta)}</span>
-  <span class="w-1.5 h-1.5 rounded-full ${puntoCobertura(dias)}" aria-hidden="true"></span>
-  <span class="w-12 text-right text-[13px] tabular-nums ${colorCobertura(dias)}">${textoCobertura(dias)}</span></div>`;
+const lineaCobertura = (etiqueta, dias) => `<div class="cob cob-${tonoCobertura(dias)}">
+  <span class="ant-label-in">${escAttr(etiqueta)}</span>
+  <span class="ant-dot" aria-hidden="true"></span>
+  <span class="w-12 text-right dato">${textoCobertura(dias)}</span></div>`;
+
+// ABC como Tag: cada clase con su color, para que el surtido se lea de un golpe.
+const claseAbc = abc => /^[ABCF]$/.test(String(abc || '').toUpperCase()) ? 'abc-' + String(abc).toUpperCase() : '';
+function tagAbc(abc) {
+  const v = String(abc || '').toUpperCase();
+  if (!v) return '<span class="t-qua">—</span>';
+  const tono = v === 'A' ? 'ant-tag-primary' : v === 'B' ? 'ant-tag-info'
+    : v === 'F' ? 'ant-tag-warning' : '';
+  return `<span class="ant-tag ${tono}">${escAttr(v)}</span>`;
+}
 
 // Orden por click en el header. El ABC ordena por la letra (A < B < C < F) y el
 // resto por su número; el valor de Cantidad sale de lo tipeado, no de la fila.
@@ -454,11 +757,12 @@ function compararOrden(a, b) {
   return orden.dir === 'desc' ? -c : c;
 }
 
+// El aria-sort es a la vez el estado accesible y el que pinta la flechita activa:
+// ver `th[aria-sort=…] .ord-up / .ord-down` en el CSS.
 function pintarHeaders() {
   document.querySelectorAll('#tab-armado th[data-orden]').forEach(th => {
     const activa = th.dataset.orden === orden.col;
     th.setAttribute('aria-sort', activa ? (orden.dir === 'asc' ? 'ascending' : 'descending') : 'none');
-    th.querySelector('.ord-ind').textContent = activa ? (orden.dir === 'asc' ? '▲' : '▼') : '';
   });
 }
 
@@ -482,39 +786,39 @@ function renderArmado() {
     const inactivo = f.activo === false;
     const mensual = f.demandaDiariaCentral != null ? f.demandaDiariaCentral * DIAS_POR_MES : null;
     const tUltima = fmt(f.ultimaCantidad) + ' ' + f.unidad + ' a ' + money(f.ultimoPrecio) + (f.ultimaFecha ? ' · ' + f.ultimaFecha : '');
-    return `<tr class="border-t border-linea align-top ${inactivo ? 'text-ink/60' : ''}"
+    return `<tr class="${claseAbc(f.abc)} ${inactivo ? 'fila-inactiva' : ''}"
         ${inactivo ? 'title="Producto inactivo en SIGA"' : ''}>
-      <td class="px-3 py-2.5 text-center"><input type="checkbox" class="js-chk accent-verde" data-plu="${escAttr(f.plu)}"
+      <td class="t-c"><input type="checkbox" class="js-chk ant-check" data-plu="${escAttr(f.plu)}"
           aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
-      <td class="px-3 py-2.5">
-        <div class="text-[13.5px] leading-snug ${inactivo ? '' : 'text-ink'}">${escAttr(f.nombre)}${inactivo ? ' <span class="text-[11px] text-naranja font-medium">inactivo</span>' : ''}</div>
-        <div class="mt-0.5 text-[11px] text-tenue tabular-nums">
+      <td>
+        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}</div>
+        <div class="prod-meta">
           <span>${escAttr(f.plu)}</span> · <span>${escAttr(f.unidad)}</span> ·
           <span title="${escAttr(tUltima)}">últ. ${escAttr(fechaCorta(f.ultimaFecha))}</span> ·
           <span title="${escAttr('Total 24m: ' + fmt(f.cantTotal24m) + ' ' + f.unidad)}">${fmt(f.compras24m)} compras 24m</span>
         </div>
       </td>
-      <td class="px-3 py-2.5 text-right">
-        <button class="js-stock rounded-md px-1.5 py-0.5 -mr-1.5 hover:bg-campo" data-plu="${escAttr(f.plu)}"
+      <td class="t-r">
+        <button class="js-stock cell-btn" data-plu="${escAttr(f.plu)}"
           title="${escAttr(desglose)}" aria-label="Ver composición del stock de ${escAttr(f.nombre)}">
-          <span class="flex items-center justify-end gap-2"><span class="lbl-in">Central</span>
-            <span class="w-16 text-right text-[13px] tabular-nums">${fmt(f.stockCentral)}</span></span>
-          <span class="flex items-center justify-end gap-2"><span class="lbl-in">Suc.</span>
-            <span class="w-16 text-right text-[13px] tabular-nums text-ink/70 border-b border-dotted border-borde">${fmt(f.stockSucursales)}</span></span>
+          <span class="ant-badge justify-end"><span class="ant-label-in">Central</span>
+            <span class="w-16 text-right dato">${fmt(f.stockCentral)}</span></span>
+          <span class="ant-badge justify-end"><span class="ant-label-in">Suc.</span>
+            <span class="w-16 text-right dato-sec">${fmt(f.stockSucursales)}</span></span>
         </button>
       </td>
-      <td class="px-3 py-2.5">${lineaCobertura('Central', f.coberturaCentral)}${lineaCobertura('Suc.', f.coberturaSucursales)}</td>
-      <td class="px-3 py-2.5 text-right">
-        <button class="js-consumo text-[13px] tabular-nums text-verde hover:underline underline-offset-2" data-plu="${escAttr(f.plu)}"
+      <td class="t-r">${lineaCobertura('Central', f.coberturaCentral)}${lineaCobertura('Suc.', f.coberturaSucursales)}</td>
+      <td class="t-r">
+        <button class="js-consumo ant-btn ant-btn-link num" data-plu="${escAttr(f.plu)}"
           aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>
       </td>
-      <td class="px-3 py-2.5 text-center text-[12px] font-medium text-ink/60">${escAttr(f.abc || '—')}</td>
-      <td class="px-3 py-2 bg-campo border-l border-linea">
+      <td class="t-c">${tagAbc(f.abc)}</td>
+      <td class="col-edit">
         <div class="flex items-center justify-end gap-2 whitespace-nowrap">
-          <input type="number" min="0" step="0.01" class="js-cant w-24 border border-borde rounded-md px-2 py-1.5 text-right text-[13px] tabular-nums bg-card"
+          <input type="number" min="0" step="0.01" class="js-cant ant-input ant-input-num"
                  data-plu="${escAttr(f.plu)}" aria-label="Cantidad a pedir de ${escAttr(f.nombre)}"
                  value="${cantidades[f.plu] != null ? escAttr(cantidades[f.plu]) : ''}">
-          <button class="js-cubrir text-[11px] text-verde hover:underline underline-offset-2" data-plu="${escAttr(f.plu)}"
+          <button class="js-cubrir ant-btn ant-btn-link t-12" data-plu="${escAttr(f.plu)}"
             title="Cubrir 30 días de demanda de la central" aria-label="Cubrir 30 días de ${escAttr(f.nombre)}">30 d</button>
         </div>
       </td>
@@ -586,41 +890,41 @@ function abrirStock(plu) {
   const f = ((armado && armado.filas) || []).find(x => String(x.plu) === String(plu));
   if (!f) return;
   const unidad = escAttr(f.unidad || '');
-  const filas = (f.componentes || []).map(c => `<tr class="border-t border-linea ${c.esPropio ? 'bg-campo' : ''}">
-    <td class="px-3 py-2 text-[12px] tabular-nums text-tenue">${escAttr(c.plu)}</td>
-    <td class="px-3 py-2 text-[13px]">${escAttr(c.nombre)}${c.esPropio ? ' <span class="text-[10px] uppercase tracking-[0.12em] text-tenue">propio</span>' : ''}</td>
-    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.cantFormula)}</td>
-    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.stockCentral)}</td>
-    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.stockSucursales)}</td>
-    <td class="px-3 py-2 text-right text-[13px] tabular-nums">${fmt(c.aporteSucursales)}</td></tr>`).join('')
-    || `<tr class="border-t border-linea"><td colspan="6" class="px-3 py-4 text-[13px] text-tenue">Sin detalle de composición.</td></tr>`;
+  const filas = (f.componentes || []).map(c => `<tr class="${c.esPropio ? 'fila-propia' : ''}">
+    <td class="t-12 num t-ter">${escAttr(c.plu)}</td>
+    <td class="dato">${escAttr(c.nombre)}${c.esPropio ? ' <span class="ant-tag ant-tag-primary">propio</span>' : ''}</td>
+    <td class="t-r dato-sec">${fmt(c.cantFormula)}</td>
+    <td class="t-r dato">${fmt(c.stockCentral)}</td>
+    <td class="t-r dato">${fmt(c.stockSucursales)}</td>
+    <td class="t-r dato">${fmt(c.aporteSucursales)}</td></tr>`).join('')
+    || `<tr><td colspan="6" class="t-sec">Sin detalle de composición.</td></tr>`;
   // El equivalente por sucursal ya viene convertido en stockPorSucursal; una sucursal
   // que no aparece es stock cero, no un dato faltante.
-  const porSuc = (armado.sucursales || []).map(s => `<div class="flex items-baseline justify-between gap-3 border-b border-linea py-1">
-      <span class="text-[12px] text-tenue">${escAttr(s)}</span>
-      <span class="text-[13px] tabular-nums">${fmt(((f.stockPorSucursal || {})[s]) || 0)}</span></div>`).join('')
-    || `<p class="text-[13px] text-tenue">Sin sucursales configuradas.</p>`;
+  const porSuc = (armado.sucursales || []).map(s => `<div class="ant-divider-t flex items-baseline justify-between gap-3 py-2">
+      <span class="t-12 t-sec">${escAttr(s)}</span>
+      <span class="dato">${fmt(((f.stockPorSucursal || {})[s]) || 0)}</span></div>`).join('')
+    || `<p class="t-sec">Sin sucursales configuradas.</p>`;
   $('#mStockTitulo').textContent = `Composición del stock · ${f.nombre} (${f.plu})`;
-  $('#mStockCuerpo').innerHTML = `<div class="overflow-x-auto rounded-lg border border-borde">
-      <table class="w-full">
-        <thead><tr class="text-[11px] text-tenue border-b border-borde">
-          <th class="text-left px-3 py-2">PLU</th>
-          <th class="text-left px-3 py-2">Nombre</th>
-          <th class="text-right px-3 py-2">Factor</th>
-          <th class="text-right px-3 py-2">Stock central</th>
-          <th class="text-right px-3 py-2">Stock suc.</th>
-          <th class="text-right px-3 py-2">Aporte (${unidad})</th>
+  $('#mStockCuerpo').innerHTML = `<div class="ant-table-wrap">
+      <table class="ant-table">
+        <thead><tr>
+          <th>PLU</th>
+          <th>Nombre</th>
+          <th class="t-r">Factor</th>
+          <th class="t-r">Stock central</th>
+          <th class="t-r">Stock suc.</th>
+          <th class="t-r">Aporte (${unidad})</th>
         </tr></thead>
         <tbody>${filas}</tbody>
-        <tfoot><tr class="border-t-2 border-borde">
-          <td colspan="3" class="px-3 py-2 text-[11px] uppercase tracking-[0.1em] text-tenue">Total</td>
-          <td class="px-3 py-2 text-right text-[13px] tabular-nums font-medium">${fmt(f.stockCentral)}</td>
-          <td class="px-3 py-2 text-right text-[13px] text-tenue">—</td>
-          <td class="px-3 py-2 text-right text-[13px] tabular-nums font-medium">${fmt(f.stockSucursales)}</td>
+        <tfoot><tr>
+          <td colspan="3" class="t-12 t-ter">Total</td>
+          <td class="t-r dato font-medium">${fmt(f.stockCentral)}</td>
+          <td class="t-r t-qua">—</td>
+          <td class="t-r dato font-medium">${fmt(f.stockSucursales)}</td>
         </tr></tfoot>
       </table>
     </div>
-    <h4 class="sec-t mt-5 mb-1">Stock por sucursal · equivalente en ${unidad}</h4>
+    <h4 class="mt-6 mb-2 t-16 font-semibold">Stock por sucursal · equivalente en ${unidad}</h4>
     ${porSuc}`;
   $('#mStock').classList.remove('hidden');
   $('#mStock').classList.add('flex');
@@ -646,7 +950,7 @@ function abrirConsumo(plu) {
     data: { labels: serie.map(m => m.mes), datasets: [
       { label: 'Ventas', data: serie.map(m => m.ventas), borderColor: PAL.verde, backgroundColor: 'rgba(64,89,54,.10)',
         borderWidth: 2, tension: .3, fill: true, pointRadius: 0, pointHoverRadius: 4 },
-      { label: 'Producción', data: serie.map(m => m.produccion), borderColor: PAL.naranja, backgroundColor: 'rgba(230,81,0,.08)',
+      { label: 'Producción', data: serie.map(m => m.produccion), borderColor: PAL.cyan, backgroundColor: 'rgba(19,194,194,.14)',
         borderWidth: 2, tension: .3, fill: true, pointRadius: 0, pointHoverRadius: 4 },
     ] },
     options: { responsive: true, maintainAspectRatio: false,
@@ -680,6 +984,7 @@ async function generarPedido() {
 }
 
 // La hoja que ve el proveedor. Sin precios ni total: el precio se pacta aparte.
+// Es un documento en papel, no una pantalla: el look de antd no aplica acá.
 function imprimirPedido(pedido) {
   const w = window.open('', '_blank');
   if (!w) { avisar('El navegador bloqueó la ventana de impresión.', 'Aviso'); return; }
@@ -743,7 +1048,7 @@ async function cargarPedidos(forzar) {
     pedidosTodos = Array.isArray(r) ? r : [];
   } catch (e) {
     pedidosTodos = [];
-    $('#segDetalle').innerHTML = estadoVacio('No se pudieron cargar los pedidos', e.message, 'error');
+    $('#segDetalle').innerHTML = `<div class="ant-card">${estadoVacio('No se pudieron cargar los pedidos', e.message, 'error')}</div>`;
   }
   renderSelectores();
 }
@@ -787,75 +1092,94 @@ function seleccionarPedido() {
   renderSeguimiento();
 }
 
-// Estado del pedido: contorno + texto, no un fondo saturado que compita con el semáforo.
+// Estado del pedido como Tag de antd: pendiente ámbar, cerrado verde, anulado rojo.
 function chipEstado(estado) {
-  const cls = estado === 'PENDIENTE' ? 'border-ambar/40 text-ambar bg-ambar/10'
-    : estado === 'CERRADO' ? 'border-ok/40 text-ok bg-ok/10'
-    : 'border-rojo/40 text-rojo bg-rojo/10';
-  return `<span class="px-2 py-0.5 rounded-full border text-[10px] font-medium uppercase tracking-[0.1em] ${cls}">${escAttr(estado)}</span>`;
+  const cls = estado === 'PENDIENTE' ? 'ant-tag-warning'
+    : estado === 'CERRADO' ? 'ant-tag-success' : 'ant-tag-error';
+  return `<span class="ant-tag ${cls}">${escAttr(estado)}</span>`;
+}
+
+// Estado de una línea, también como Tag: de un vistazo se ve cuál quedó sin resolver.
+function tagLinea(estado) {
+  const cls = estado === 'entregado' ? 'ant-tag-success'
+    : estado === 'sin_stock' ? 'ant-tag-error'
+    : estado === 'no_envia' ? 'ant-tag-warning' : 'ant-tag-info';
+  const txt = estado === 'entregado' ? 'Entregado' : estado === 'sin_stock' ? 'Sin stock'
+    : estado === 'no_envia' ? 'No envía' : 'Pedido';
+  return `<span class="ant-tag ${cls}">${escAttr(txt)}</span>`;
 }
 
 function renderSeguimiento() {
   const cont = $('#segDetalle');
   if (!pedidoSel) {
-    cont.innerHTML = estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido del desplegable para ver y editar sus líneas.');
+    cont.innerHTML = `<div class="ant-card">${estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido del desplegable para ver y editar sus líneas.')}</div>`;
     return;
   }
   const p = pedidoSel;
   const editable = p.estado === 'PENDIENTE';
   const opciones = [['pedido', 'Pedido'], ['entregado', 'Entregado'], ['sin_stock', 'Sin stock'], ['no_envia', 'No envía']];
   const dis = editable ? '' : 'disabled';
+  const entregadas = p.items.filter(l => l.estado === 'entregado').length;
   cont.innerHTML = `
-  <div class="rounded-lg border border-borde bg-card p-5">
-    <div class="flex items-center gap-3 flex-wrap pb-4 border-b border-linea">
-      <h2 class="font-disp text-[26px] leading-none font-bold text-ink tabular-nums">${escAttr(p.numero)}</h2>
-      <span class="text-[14px] text-ink/80">${escAttr(p.proveedor)}</span>
-      <span class="text-[13px] text-tenue tabular-nums">${escAttr(p.fecha)}</span>
+  <div class="ant-card">
+    <div class="ant-card-head">
+      <h2 class="ant-card-head-title num" style="font-size:20px">${escAttr(p.numero)}</h2>
       ${chipEstado(p.estado)}
+      <span class="ml-auto t-sec">${escAttr(p.proveedor)}</span>
     </div>
-    <div class="grid md:grid-cols-3 gap-4 pt-4">
-      <div><label class="lbl" for="segEstimada">Fecha estimada de retiro</label>
-        <input type="date" id="segEstimada" value="${escAttr(p.fechaEstimada || '')}" ${dis} class="ctrl w-full disabled:bg-bg disabled:text-tenue"></div>
-      <div><label class="lbl" for="segRetiro">Fecha real de retiro</label>
-        <input type="date" id="segRetiro" value="${escAttr(p.fechaRetiro || '')}" ${dis} class="ctrl w-full disabled:bg-bg disabled:text-tenue"></div>
-      <div><label class="lbl" for="segObs">Observación</label>
-        <textarea id="segObs" rows="2" ${dis} class="ctrl w-full disabled:bg-bg disabled:text-tenue">${escAttr(p.observacion || '')}</textarea></div>
+    <div class="ant-card-body">
+      <div class="ant-desc pb-5 mb-5 ant-divider-b">
+        <div><span class="ant-desc-label">Proveedor</span><span class="ant-desc-value">${escAttr(p.proveedor)}</span></div>
+        <div><span class="ant-desc-label">Fecha del pedido</span><span class="ant-desc-value">${escAttr(p.fecha)}</span></div>
+        <div><span class="ant-desc-label">Líneas</span><span class="ant-desc-value">${p.items.length}</span></div>
+        <div><span class="ant-desc-label">Entregadas</span><span class="ant-desc-value">${entregadas} <span class="t-ter">/ ${p.items.length}</span></span></div>
+      </div>
+      <div class="grid md:grid-cols-3 gap-4">
+        <div><label class="ant-label" for="segEstimada">Fecha estimada de retiro</label>
+          <input type="date" id="segEstimada" class="ant-input" value="${escAttr(p.fechaEstimada || '')}" ${dis}></div>
+        <div><label class="ant-label" for="segRetiro">Fecha real de retiro</label>
+          <input type="date" id="segRetiro" class="ant-input" value="${escAttr(p.fechaRetiro || '')}" ${dis}></div>
+        <div><label class="ant-label" for="segObs">Observación</label>
+          <textarea id="segObs" rows="2" class="ant-textarea" ${dis}>${escAttr(p.observacion || '')}</textarea></div>
+      </div>
     </div>
   </div>
-  <div class="mt-4 overflow-x-auto rounded-lg border border-borde bg-card">
-    <table class="w-full">
+  <div class="mt-4 ant-table-wrap">
+    <table class="ant-table">
       <thead>
-        <tr class="text-[11px] text-tenue border-b border-borde">
-          <th class="text-left px-3 py-2.5">Producto</th>
-          <th class="text-right px-3 py-2.5">Pedida</th>
-          <th class="text-left px-3 py-2.5">Estado de la línea</th>
-          <th class="text-right px-3 py-2.5">Entregada</th>
-          <th class="text-left px-3 py-2.5">Observación</th>
+        <tr>
+          <th>Producto</th>
+          <th class="t-r">Pedida</th>
+          <th style="width:180px">Estado de la línea</th>
+          <th class="t-r">Entregada</th>
+          <th>Observación</th>
         </tr>
       </thead>
-      <tbody>${p.items.map((it, i) => `<tr class="border-t border-linea align-top">
-        <td class="px-3 py-2.5">
-          <div class="text-[13.5px] leading-snug">${escAttr(it.nombre)}</div>
-          <div class="mt-0.5 text-[11px] text-tenue tabular-nums">${escAttr(it.plu)}</div></td>
-        <td class="px-3 py-2.5 text-right text-[13px] tabular-nums whitespace-nowrap">${fmt(it.cantidad)} <span class="lbl-in">${escAttr(it.unidad)}</span></td>
-        <td class="px-3 py-2.5"><select class="js-estado ctrl-sm w-full" data-i="${i}" ${dis}
-          aria-label="Estado de ${escAttr(it.nombre)}">
-          ${opciones.map(([v, t]) => `<option value="${v}" ${it.estado === v ? 'selected' : ''}>${t}</option>`).join('')}</select></td>
-        <td class="px-3 py-2.5 text-right"><input type="number" min="0" step="0.01" max="${escAttr(it.cantidad)}"
-          class="js-entregada w-24 border border-borde rounded-md px-2 py-1 text-right text-[13px] tabular-nums bg-card disabled:bg-bg"
+      <tbody>${p.items.map((it, i) => `<tr>
+        <td>
+          <div class="prod-nombre">${escAttr(it.nombre)}</div>
+          <div class="prod-meta">${escAttr(it.plu)}</div></td>
+        <td class="t-r whitespace-nowrap"><span class="dato">${fmt(it.cantidad)}</span> <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
+        <td>
+          <select class="js-estado ant-select" data-i="${i}" ${dis}
+            aria-label="Estado de ${escAttr(it.nombre)}">
+            ${opciones.map(([v, t]) => `<option value="${v}" ${it.estado === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+          <div class="mt-2">${tagLinea(it.estado)}</div></td>
+        <td class="t-r"><input type="number" min="0" step="0.01" max="${escAttr(it.cantidad)}"
+          class="js-entregada ant-input ant-input-num"
           data-i="${i}" aria-label="Cantidad entregada de ${escAttr(it.nombre)}"
           value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}" ${dis}></td>
-        <td class="px-3 py-2.5"><input class="js-obs w-full border border-borde rounded-md px-2 py-1 text-[13px] bg-card disabled:bg-bg"
-          data-i="${i}" aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}" ${dis}></td>
+        <td><input class="js-obs ant-input" data-i="${i}"
+          aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}" ${dis}></td>
       </tr>`).join('')}</tbody>
     </table>
   </div>
   <div class="mt-4 flex gap-2 flex-wrap items-center">
-    <button id="btnGuardar" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide disabled:opacity-40" ${dis}>Guardar</button>
-    <button id="btnCerrar" class="px-4 py-2 rounded-md border border-ok/60 text-ok hover:bg-ok/10 font-disp text-[16px] tracking-wide disabled:opacity-40 disabled:hover:bg-transparent">Cerrar pedido</button>
-    <button id="btnAnular" class="px-4 py-2 rounded-md border border-borde text-rojo hover:border-rojo/50 hover:bg-rojo/10 font-disp text-[16px] tracking-wide disabled:opacity-40" ${dis}>Anular</button>
-    <button id="btnReimprimir" class="px-4 py-2 rounded-md border border-borde text-ink/80 hover:bg-bg font-disp text-[16px] tracking-wide">Reimprimir</button>
-    <span id="segAviso" class="text-[12px] text-tenue"></span>
+    <button id="btnGuardar" class="ant-btn ant-btn-primary" ${dis}>Guardar</button>
+    <button id="btnCerrar" class="ant-btn ant-btn-success">Cerrar pedido</button>
+    <button id="btnAnular" class="ant-btn ant-btn-danger" ${dis}>Anular</button>
+    <button id="btnReimprimir" class="ant-btn">Reimprimir</button>
+    <span id="segAviso" class="t-12 t-ter"></span>
   </div>`;
 
   cont.querySelectorAll('.js-estado').forEach(s => s.addEventListener('change', () => {
@@ -930,23 +1254,24 @@ async function cargarOtif() {
     const d = await apiFetch('/api/compras/otif?' + qs.toString());
     renderOtif(d, { prov, desde, hasta });
   } catch (e) {
-    $('#otifKpis').innerHTML = `<div class="col-span-full">${estadoVacio('No se pudo cargar el OTIF', e.message, 'error')}</div>`;
+    $('#otifKpis').innerHTML = `<div class="col-span-full ant-card">${estadoVacio('No se pudo cargar el OTIF', e.message, 'error')}</div>`;
   }
 }
 
-const kpi = (titulo, valor, detalle) => `<div class="rounded-lg border border-borde bg-card px-4 py-3">
-  <div class="text-[10px] uppercase tracking-[0.13em] text-tenue">${escAttr(titulo)}</div>
-  <div class="mt-1.5 font-disp text-[30px] leading-none font-bold text-ink tabular-nums">${escAttr(valor)}</div>
-  <div class="mt-1.5 text-[11px] text-tenue tabular-nums min-h-[1rem]">${escAttr(detalle || '')}</div></div>`;
+// Statistic de antd: título arriba, valor grande abajo, detalle en chico.
+const kpi = (titulo, valor, detalle, tono) => `<div class="ant-card ant-kpi kpi-${tono}"><div class="ant-card-body ant-card-body-sm">
+  <div class="ant-statistic-title">${escAttr(titulo)}</div>
+  <div class="ant-statistic-content">${escAttr(valor)}</div>
+  <div class="ant-statistic-extra">${escAttr(detalle || '')}</div></div></div>`;
 
 function renderOtif(d, filtros) {
   const lt = d.leadTime || {};
   $('#otifKpis').innerHTML =
-    kpi('On Time', pct(d.onTime), `${d.pedidos} pedidos cerrados`) +
-    kpi('In Full líneas', pct(d.inFullLineas), '') +
-    kpi('In Full cantidad', pct(d.inFullCantidad), '') +
-    kpi('Lead time (mediana)', lt.mediana == null ? '—' : fmt(lt.mediana) + ' d', lt.n ? `min ${fmt(lt.min)} · max ${fmt(lt.max)}` : '') +
-    kpi('OTIF', pct(d.otif), 'a tiempo y completo');
+    kpi('On Time', pct(d.onTime), `${d.pedidos} pedidos cerrados`, 'info') +
+    kpi('In Full líneas', pct(d.inFullLineas), '', 'cyan') +
+    kpi('In Full cantidad', pct(d.inFullCantidad), '', 'purple') +
+    kpi('Lead time (mediana)', lt.mediana == null ? '—' : fmt(lt.mediana) + ' d', lt.n ? `min ${fmt(lt.min)} · max ${fmt(lt.max)}` : '', 'warning') +
+    kpi('OTIF', pct(d.otif), 'a tiempo y completo', 'primary');
 
   // Comparar proveedores sólo tiene sentido cuando no se filtró por uno.
   const porProv = filtros.prov ? [] : (d.porProveedor || []);
@@ -956,8 +1281,8 @@ function renderOtif(d, filtros) {
     charts.prov = new Chart($('#chProv'), {
       type: 'bar',
       data: { labels: porProv.map(p => p.proveedor), datasets: [
-        { label: 'On Time %', data: porProv.map(p => p.onTime), backgroundColor: PAL.verde, borderRadius: 3, maxBarThickness: 22 },
-        { label: 'In Full líneas %', data: porProv.map(p => p.inFullLineas), backgroundColor: PAL.verdeClaro, borderRadius: 3, maxBarThickness: 22 },
+        { label: 'On Time %', data: porProv.map(p => p.onTime), backgroundColor: PAL.verde, borderRadius: 4, maxBarThickness: 22 },
+        { label: 'In Full líneas %', data: porProv.map(p => p.inFullLineas), backgroundColor: PAL.azul, borderRadius: 4, maxBarThickness: 22 },
       ] },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: leyendaAbajo },
@@ -974,7 +1299,9 @@ function renderOtif(d, filtros) {
   charts.quiebres = new Chart($('#chQuiebres'), {
     type: 'bar',
     data: { labels: quiebres.map(q => q.nombre), datasets: [
-      { label: 'Veces sin entregar', data: quiebres.map(q => q.veces), backgroundColor: PAL.rojo, borderRadius: 3, maxBarThickness: 12 },
+      // El color de la barra es el rango: los 3 peores en rojo, los 5 siguientes en ámbar.
+      { label: 'Veces sin entregar', data: quiebres.map(q => q.veces), borderRadius: 4, maxBarThickness: 12,
+        backgroundColor: quiebres.map((q, i) => i < 3 ? PAL.rojo : i < 8 ? PAL.ambar : PAL.cyan) },
     ] },
     options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },   // una sola serie: la leyenda no aporta nada
@@ -998,15 +1325,20 @@ function renderTablaOtif({ prov, desde, hasta }) {
     const full = items.filter(l => l.estado === 'entregado' && Number(l.cantidadEntregada) >= Number(l.cantidad)).length;
     const desvio = p.fechaEstimada && p.fechaRetiro
       ? Math.round((Date.parse(p.fechaRetiro) - Date.parse(p.fechaEstimada)) / 86400000) : null;
-    const colorDesvio = desvio == null ? 'text-ink/60' : desvio > 0 ? 'text-rojo font-medium' : 'text-ink/75';
-    return `<tr class="border-t border-linea">
-      <td class="px-3 py-2.5 text-[13px] tabular-nums">${escAttr(p.numero)}</td>
-      <td class="px-3 py-2.5 text-[13px] tabular-nums text-ink/70">${escAttr(p.fecha)}</td>
-      <td class="px-3 py-2.5 text-[13px]">${escAttr(p.proveedor)}</td>
-      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums text-ink/70">${escAttr(p.fechaEstimada || '—')}</td>
-      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums text-ink/70">${escAttr(p.fechaRetiro || '—')}</td>
-      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums ${colorDesvio}">${desvio == null ? '—' : (desvio > 0 ? '+' : '') + desvio}</td>
-      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums">${full} <span class="text-tenue">/ ${items.length}</span></td>
+    // El desvío positivo es retiro tarde: ese sí se tiñe de error.
+    const tagDesvio = desvio == null ? '<span class="t-qua">—</span>'
+      : `<span class="ant-tag ${desvio > 0 ? 'ant-tag-error' : 'ant-tag-success'}">${(desvio > 0 ? '+' : '') + desvio}</span>`;
+    const completo = items.length > 0 && full === items.length;
+    return `<tr>
+      <td class="dato font-medium">${escAttr(p.numero)}</td>
+      <td class="dato-sec">${escAttr(p.fecha)}</td>
+      <td class="dato">${escAttr(p.proveedor)}</td>
+      <td class="t-r dato-sec">${escAttr(p.fechaEstimada || '—')}</td>
+      <td class="t-r dato-sec">${escAttr(p.fechaRetiro || '—')}</td>
+      <td class="t-r">${tagDesvio}</td>
+      <td class="t-r"><span class="ant-badge justify-end">
+        <span class="ant-dot ${completo ? 'ant-dot-success' : 'ant-dot-warning'}" aria-hidden="true"></span>
+        <span class="dato">${full} <span class="t-ter">/ ${items.length}</span></span></span></td>
     </tr>`;
   }).join('') : filaVacia(7, 'Sin pedidos cerrados en el período', 'Probá ampliar el rango de fechas o sacar el filtro de proveedor.');
 }
