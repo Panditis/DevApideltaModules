@@ -492,8 +492,11 @@
   <section class="no-print">
     <h2>Cerrar</h2>
     <div class="fila">
-      <button class="peligro crece" id="btnLimpiar">Eliminar ticket</button>
-      <button class="crece" id="btnImprimir">Imprimir</button>
+      <button class="peligro mini crece" id="btnLimpiar">Eliminar ticket</button>
+      <!-- El ticket se imprime al guardar, así que el botón de acá sobra en el mostrador.
+           Queda oculto y no borrado: la impresión a mano sigue estando si vuelve a hacer
+           falta. -->
+      <button class="crece" id="btnImprimir" hidden>Imprimir</button>
     </div>
     <div class="fila" style="margin-top:9px">
       <button class="pri crece" id="btnGuardarPedido">Guardar ticket</button>
@@ -647,7 +650,9 @@
             en los de almacén.</li>
           <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
           <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
-          <li><code>DtoGeneral</code>, <code>TotalTicket</code> y <code>MediosPago</code>.</li>
+          <li><code>DtoGeneral</code> y <code>TotalTicket</code>.</li>
+          <li><code>MedioPago</code>, y una columna <code>Pago ...</code> por cada medio
+            usado, con su importe aparte.</li>
         </ol>
 
         <h3>Mover las ventas a otra PC</h3>
@@ -1328,7 +1333,30 @@ function filasDeGviz(respuesta) {
 // bajada de la red.
 const COLUMNAS_TICKETS = ['Ticket', 'Fecha', 'Hora', 'Cliente', 'Vendedor', 'Codigo', 'CodigoCarga',
   'Producto', 'Cantidad', 'Unidad', 'PesoEtiqueta', 'Precio', 'DtoLinea', 'SubtotalLinea',
-  'DtoGeneral', 'TotalTicket', 'MediosPago'];
+  'DtoGeneral', 'TotalTicket', 'MedioPago'];
+
+// Cada medio se lleva su propia columna de importe, así el pago dividido se suma en
+// Excel sin tener que separar a mano un "EFECTIVO + TARJETA" pegado en una celda.
+const PREFIJO_COLUMNA_PAGO = 'Pago ';
+
+// Primero los medios de la lista, en su orden, y después cualquiera que aparezca en los
+// tickets viejos y ya no esté en ella: si no, esa plata no sale en la planilla.
+function mediosDeTickets(pedidos) {
+  const usados = new Set();
+  for (const p of pedidos || []) {
+    for (const x of p.pagos || []) {
+      const medio = String((x || {}).medio || '').trim();
+      if (medio) usados.add(medio);
+    }
+  }
+  const conocidos = MEDIOS_PAGO.filter(m => usados.has(m));
+  const otros = [...usados].filter(m => !MEDIOS_PAGO.includes(m)).sort();
+  return [...conocidos, ...otros];
+}
+
+function columnasDeTickets(pedidos) {
+  return [...COLUMNAS_TICKETS, ...mediosDeTickets(pedidos).map(m => PREFIJO_COLUMNA_PAGO + m)];
+}
 
 function esLineaPesable(l) {
   const x = l || {};
@@ -1343,9 +1371,20 @@ function codigoDeCarga(l) {
 }
 
 function filasDeTickets(pedidos) {
-  const filas = [COLUMNAS_TICKETS.slice()];
+  const columnasPago = mediosDeTickets(pedidos);
+  const filas = [columnasDeTickets(pedidos)];
   for (const p of pedidos || []) {
-    const medios = (p.pagos || []).map(x => x.medio + ' ' + x.importe).join(' + ');
+    const pagos = p.pagos || [];
+    const medios = pagos.map(x => x.medio).join(' + ');
+    // El mismo medio puede entrar dos veces en un ticket (dos pagos en efectivo), así que
+    // se acumula en vez de pisarse.
+    const porMedio = new Map();
+    for (const x of pagos) {
+      const medio = String((x || {}).medio || '').trim();
+      if (!medio) continue;
+      porMedio.set(medio, Math.round(((porMedio.get(medio) || 0) + (Number(x.importe) || 0)) * 100) / 100);
+    }
+    const importes = columnasPago.map(m => (porMedio.has(m) ? porMedio.get(m) : ''));
     const fecha = p.fechaLocal || (p.fecha ? new Date(p.fecha).toLocaleDateString('es-AR') : '');
     const hora = p.horaLocal || (p.fecha ? new Date(p.fecha).toLocaleTimeString('es-AR') : '');
     for (const l of p.lineas || []) {
@@ -1353,7 +1392,7 @@ function filasDeTickets(pedidos) {
         String(l.plu || ''), codigoDeCarga(l), l.nombre, l.cant, l.unidad || 'un',
         l.peso != null ? l.peso : '', l.precio, l.dtoPct || 0,
         l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
-        p.descuentoPct, p.total, medios]);
+        p.descuentoPct, p.total, medios, ...importes]);
     }
   }
   return filas;
