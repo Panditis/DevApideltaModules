@@ -1185,7 +1185,7 @@ app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedi
 app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
 app.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'productividad.html')));
-app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
+app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insumos.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
