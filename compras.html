@@ -11,123 +11,178 @@
 <script>
 tailwind.config = { theme: { extend: {
   colors: { verde:'#405936', verdeDark:'#2e4027', verdeHover:'#4f6e42', amarillo:'#FFCC00',
-    bg:'#eef2e9', card:'#ffffff', borde:'#c3c9bc', ink:'#1a1c18',
-    rojo:'#D32F2F', naranja:'#E65100', ambar:'#F57F17', ok:'#388E3C' },
-  fontFamily: { disp:['"Barlow Condensed"','sans-serif'], body:['Roboto','sans-serif'] },
-  boxShadow: { fluent:'0 1px 3px rgba(26,28,24,.08), 0 4px 16px rgba(26,28,24,.06)' } } } };
+    bg:'#f4f6f1', card:'#ffffff', borde:'#dde1d6', linea:'#ecefe7', campo:'#f7f9f4',
+    ink:'#1a1c18', tenue:'#6b7065',
+    rojo:'#C62828', naranja:'#E65100', ambar:'#B7791F', ok:'#2E7D32' },
+  fontFamily: { disp:['"Barlow Condensed"','sans-serif'], body:['Roboto','sans-serif'] } } } };
 </script>
 <style>
-  body{background:#eef2e9;}
-  .acrylic{background:rgba(255,255,255,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
-  .tab-btn.active{background:#405936;color:#fff;}
-  th{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.02em;}
+  /* Una sola superficie: fondo plano, tarjetas con hairline y sin sombra.
+     La elevación queda reservada a lo que flota (dropdown y modales). */
+  body{background:#f4f6f1;}
+  th{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.1em;font-weight:600;}
+  /* Escala tipográfica: título de sección / etiqueta / dato / dato secundario. */
+  .sec-t{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.09em;font-size:13px;font-weight:600;color:#6b7065;}
+  .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#6b7065;margin-bottom:4px;}
+  .lbl-in{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7065;}
+  .ctrl{border:1px solid #dde1d6;background:#fff;border-radius:6px;padding:7px 10px;font-size:13px;color:#1a1c18;}
+  .ctrl:hover{border-color:#c6ccbc;}
+  .ctrl-sm{border:1px solid #dde1d6;background:#fff;border-radius:6px;padding:4px 8px;font-size:12px;color:#1a1c18;}
+  .ctrl-sm:hover{border-color:#c6ccbc;}
+  /* Pestañas: subrayado en vez de píldora rellena; el verde marca la activa y nada más. */
+  .tab-btn{color:#6b7065;position:relative;padding-bottom:10px;}
+  .tab-btn:hover{color:#1a1c18;}
+  .tab-btn.active{color:#405936;}
+  .tab-btn.active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#405936;}
+  /* Foco visible en todo lo interactivo. */
+  a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+    outline:2px solid #405936;outline-offset:2px;border-radius:4px;}
+  input:focus,select:focus,textarea:focus{border-color:#405936;}
+  input[type=number]{-moz-appearance:textfield;}
+  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  tbody tr:hover{background:#fafbf8;}
 </style>
 </head>
 <body class="font-body text-ink">
-<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
-  <div class="max-w-[1400px] mx-auto px-4 py-3 flex items-center gap-3">
-    <h1 class="font-disp text-2xl font-bold text-verde">COMPRAS</h1>
-    <span class="text-sm text-ink/60">Apidelta</span>
-    <a href="/" class="ml-auto text-sm text-verde hover:text-verdeHover">← Inicio</a>
+<header class="sticky top-0 z-20 bg-card/95 backdrop-blur border-b border-borde">
+  <div class="max-w-[1400px] mx-auto px-6">
+    <div class="flex items-center gap-3 pt-4 pb-3">
+      <h1 class="font-disp text-2xl font-bold tracking-wide text-verde leading-none">COMPRAS</h1>
+      <span class="text-[10px] uppercase tracking-[0.18em] text-tenue leading-none pt-1">Apidelta</span>
+      <a href="/" class="ml-auto text-[13px] text-tenue hover:text-verde">← Inicio</a>
+    </div>
+    <nav class="flex gap-6 font-disp text-[17px]" role="tablist" aria-label="Secciones de compras">
+      <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-armado" data-tab="armado">Armar pedido</button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
+    </nav>
   </div>
-  <nav class="max-w-[1400px] mx-auto px-4 pb-2 flex gap-1 flex-wrap">
-    <button class="tab-btn active px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="armado">Armar pedido</button>
-    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="seguimiento">Seguimiento</button>
-    <button class="tab-btn px-4 py-2 rounded-lg font-disp text-lg border border-borde" data-tab="otif">OTIF</button>
-  </nav>
 </header>
 
-<main class="max-w-[1400px] mx-auto px-4 py-5">
+<main class="max-w-[1400px] mx-auto px-6 py-6">
 
 <!-- ── Armar pedido ─────────────────────────────────────────────────────────── -->
-<section id="tab-armado" class="tab-panel">
-  <div class="rounded-xl border border-borde bg-card shadow-fluent p-3 mb-3 flex gap-2 items-center flex-wrap">
+<section id="tab-armado" class="tab-panel" role="tabpanel" aria-label="Armar pedido">
+  <!-- Control primario: el proveedor manda, todo lo demás depende de él. -->
+  <div class="flex flex-wrap items-end gap-3">
     <div class="relative">
-      <input id="provQ" placeholder="Buscar proveedor…" autocomplete="off"
-             class="px-3 py-2 rounded-lg border border-borde w-72">
-      <div id="provLista" class="hidden absolute z-30 mt-1 w-72 max-h-60 overflow-y-auto rounded-lg border border-borde bg-card shadow-fluent text-sm"></div>
+      <label class="lbl" for="provQ">Proveedor</label>
+      <input id="provQ" placeholder="Buscar proveedor…" autocomplete="off" class="ctrl w-80">
+      <div id="provLista" class="hidden absolute z-30 mt-1 w-80 max-h-64 overflow-y-auto rounded-md border border-borde bg-card text-[13px] shadow-lg"></div>
     </div>
-    <span id="provSelNombre" class="text-sm font-bold text-verde"></span>
-    <label class="text-sm flex items-center gap-1">Ventas suc.
-      <select id="ventanaSuc" class="px-2 py-2 rounded-lg border border-borde">
+    <button id="btnCargar" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide">Cargar</button>
+    <span id="provSelNombre" class="text-[13px] text-tenue tabular-nums pb-2"></span>
+  </div>
+
+  <!-- Controles secundarios: mismo eje, menos peso. -->
+  <div class="mt-4 pb-4 border-b border-linea flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-tenue">
+    <label class="flex items-center gap-2" for="ventanaSuc">Ventas sucursales
+      <select id="ventanaSuc" class="ctrl-sm">
         <option value="30" selected>30 días</option><option value="60">60 días</option><option value="90">90 días</option>
       </select>
     </label>
-    <button id="btnCargar" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp">Cargar</button>
-    <span id="consumoTs" class="text-xs text-ink/60"></span>
-    <button id="btnRecalcular" class="text-xs px-2 py-1 rounded border border-borde hover:bg-bg">Recalcular consumo</button>
+    <span id="consumoTs" class="tabular-nums"></span>
+    <button id="btnRecalcular" class="ml-auto ctrl-sm hover:bg-bg">Recalcular consumo</button>
   </div>
 
-  <div class="flex gap-2 mb-3 items-center flex-wrap">
-    <input id="filtroTexto" placeholder="Filtrar producto o PLU…" class="px-3 py-2 rounded-lg border border-borde w-64">
-    <label class="text-sm flex items-center gap-1"><input type="checkbox" id="soloConCantidad"> Solo con cantidad</label>
-    <select id="orden" class="px-2 py-2 rounded-lg border border-borde text-sm">
+  <div class="mt-4 flex flex-wrap items-center gap-3">
+    <input id="filtroTexto" placeholder="Filtrar producto o PLU…" class="ctrl w-64" aria-label="Filtrar por producto o PLU">
+    <label class="flex items-center gap-2 text-[13px] text-tenue"><input type="checkbox" id="soloConCantidad" class="accent-verde"> Solo con cantidad</label>
+    <select id="orden" class="ctrl-sm" aria-label="Orden de la tabla">
       <option value="cobertura" selected>Cobertura central ↑</option>
       <option value="nombre">Nombre A-Z</option>
       <option value="ultima">Última compra ↓</option>
     </select>
-    <span id="armadoCount" class="ml-auto text-sm text-ink/60"></span>
+    <span id="armadoCount" class="ml-auto text-[12px] text-tenue tabular-nums"></span>
   </div>
 
-  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
-    <table class="w-full text-sm">
-      <thead class="bg-verde/5 text-verde"><tr>
-        <th class="p-2" title="Marcada = tiene cantidad">☐</th>
-        <th class="text-left p-2">Producto (PLU)</th><th class="p-2">Un.</th>
-        <th class="p-2">Últ. compra</th><th class="p-2">Compras 24m</th>
-        <th class="p-2">Stk central</th><th class="p-2">Stk suc.</th>
-        <th class="p-2">Consumo/mes</th><th class="p-2">ABC</th>
-        <th class="p-2">Cob. central</th><th class="p-2">Cob. suc.</th>
-        <th class="p-2 bg-amarillo/30">Cantidad</th>
-      </tr></thead>
-      <tbody id="armadoBody"><tr><td colspan="12" class="p-6 text-center text-ink/50">Elegí un proveedor y tocá Cargar.</td></tr></tbody>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-borde bg-card">
+    <table class="w-full">
+      <thead>
+        <tr class="text-[11px] text-tenue border-b border-borde">
+          <th class="w-9 px-3 py-2.5"><span class="sr-only">Incluir en el pedido</span></th>
+          <th class="text-left px-3 py-2.5">Producto</th>
+          <th class="text-right px-3 py-2.5">Stock</th>
+          <th class="text-right px-3 py-2.5">Cobertura (días)</th>
+          <th class="text-right px-3 py-2.5">Consumo/mes</th>
+          <th class="text-center px-3 py-2.5">ABC</th>
+          <th class="text-right px-3 py-2.5 bg-campo border-l border-linea">Cantidad</th>
+        </tr>
+      </thead>
+      <tbody id="armadoBody"><tr><td colspan="7" class="p-0"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Sin proveedor cargado</p><p class="mt-1 text-[13px] text-tenue">Buscá un proveedor arriba y tocá Cargar para traer sus productos.</p></div></td></tr></tbody>
     </table>
   </div>
 
-  <div class="mt-3 flex items-center gap-3 flex-wrap">
-    <span id="lineasCount" class="text-sm text-ink/70">0 líneas cargadas</span>
-    <button id="btnGenerar" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp disabled:opacity-40" disabled>Generar pedido</button>
+  <div class="mt-4 flex items-center gap-4 flex-wrap">
+    <button id="btnGenerar" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide disabled:opacity-40 disabled:cursor-not-allowed" disabled>Generar pedido</button>
+    <span id="lineasCount" class="text-[13px] text-tenue tabular-nums">0 líneas cargadas</span>
   </div>
 </section>
 
 <!-- ── Seguimiento ──────────────────────────────────────────────────────────── -->
-<section id="tab-seguimiento" class="tab-panel hidden">
-  <div class="rounded-xl border border-borde bg-card shadow-fluent p-3 mb-3 flex gap-2 items-center flex-wrap">
-    <select id="segProv" class="px-2 py-2 rounded-lg border border-borde"><option value="">Todos los proveedores</option></select>
-    <select id="segPedido" class="px-2 py-2 rounded-lg border border-borde min-w-[18rem]"></select>
-    <label class="text-sm flex items-center gap-1"><input type="checkbox" id="segCerrados"> Ver cerrados</label>
-    <button id="btnRefrescarPedidos" class="text-xs px-2 py-1 rounded border border-borde hover:bg-bg">Refrescar</button>
+<section id="tab-seguimiento" class="tab-panel hidden" role="tabpanel" aria-label="Seguimiento de pedidos">
+  <div class="flex flex-wrap items-end gap-3 pb-4 border-b border-linea">
+    <div>
+      <label class="lbl" for="segPedido">Pedido</label>
+      <select id="segPedido" class="ctrl min-w-[26rem]"></select>
+    </div>
+    <div>
+      <label class="lbl" for="segProv">Proveedor</label>
+      <select id="segProv" class="ctrl-sm"><option value="">Todos los proveedores</option></select>
+    </div>
+    <label class="flex items-center gap-2 text-[12px] text-tenue pb-2"><input type="checkbox" id="segCerrados" class="accent-verde"> Ver cerrados</label>
+    <button id="btnRefrescarPedidos" class="ml-auto ctrl-sm hover:bg-bg mb-[1px]">Refrescar</button>
   </div>
-  <div id="segDetalle"><p class="text-ink/50 text-sm">Elegí un pedido.</p></div>
+  <div id="segDetalle" class="mt-4"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Ningún pedido seleccionado</p><p class="mt-1 text-[13px] text-tenue">Elegí un pedido del desplegable para ver y editar sus líneas.</p></div></div>
 </section>
 
 <!-- ── OTIF ─────────────────────────────────────────────────────────────────── -->
-<section id="tab-otif" class="tab-panel hidden">
-  <div class="rounded-xl border border-borde bg-card shadow-fluent p-3 mb-3 flex gap-2 items-center flex-wrap">
-    <select id="otifProv" class="px-2 py-2 rounded-lg border border-borde"><option value="">Todos los proveedores</option></select>
-    <label class="text-sm flex items-center gap-1">Desde <input type="date" id="otifDesde" class="px-2 py-2 rounded-lg border border-borde"></label>
-    <label class="text-sm flex items-center gap-1">Hasta <input type="date" id="otifHasta" class="px-2 py-2 rounded-lg border border-borde"></label>
-    <button id="btnOtif" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp">Aplicar</button>
-    <span class="text-xs text-ink/60">Sólo pedidos cerrados.</span>
+<section id="tab-otif" class="tab-panel hidden" role="tabpanel" aria-label="Indicadores OTIF">
+  <div class="flex flex-wrap items-end gap-3 pb-4 border-b border-linea">
+    <div>
+      <label class="lbl" for="otifProv">Proveedor</label>
+      <select id="otifProv" class="ctrl min-w-[16rem]"><option value="">Todos los proveedores</option></select>
+    </div>
+    <div>
+      <label class="lbl" for="otifDesde">Desde</label>
+      <input type="date" id="otifDesde" class="ctrl">
+    </div>
+    <div>
+      <label class="lbl" for="otifHasta">Hasta</label>
+      <input type="date" id="otifHasta" class="ctrl">
+    </div>
+    <button id="btnOtif" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide">Aplicar</button>
+    <span class="text-[12px] text-tenue pb-2">Sólo se computan pedidos cerrados.</span>
   </div>
-  <div id="otifKpis" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4"></div>
-  <div class="grid md:grid-cols-2 gap-4 mb-4">
-    <div id="boxProv" class="rounded-xl border border-borde bg-card shadow-fluent p-3">
-      <h3 class="font-disp text-lg text-verde mb-2">Cumplimiento por proveedor</h3>
+
+  <div id="otifKpis" class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3"></div>
+
+  <div class="mt-6 grid md:grid-cols-2 gap-4">
+    <div id="boxProv" class="rounded-lg border border-borde bg-card p-4">
+      <h3 class="sec-t mb-3">Cumplimiento por proveedor</h3>
       <canvas id="chProv" height="220"></canvas>
     </div>
-    <div class="rounded-xl border border-borde bg-card shadow-fluent p-3">
-      <h3 class="font-disp text-lg text-verde mb-2">Top quiebres (veces)</h3>
+    <div class="rounded-lg border border-borde bg-card p-4">
+      <h3 class="sec-t mb-3">Top quiebres (veces sin entregar)</h3>
       <canvas id="chQuiebres" height="220"></canvas>
     </div>
   </div>
-  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
-    <table class="w-full text-sm">
-      <thead class="bg-verde/5 text-verde"><tr>
-        <th class="text-left p-2">N°</th><th class="p-2">Fecha</th><th class="text-left p-2">Proveedor</th>
-        <th class="p-2">Estimada</th><th class="p-2">Retiro</th><th class="p-2">Desvío (d)</th><th class="p-2">Líneas full</th>
-      </tr></thead>
-      <tbody id="otifBody"></tbody>
+
+  <h3 class="sec-t mt-6 mb-2">Pedidos cerrados del período</h3>
+  <div class="overflow-x-auto rounded-lg border border-borde bg-card">
+    <table class="w-full">
+      <thead>
+        <tr class="text-[11px] text-tenue border-b border-borde">
+          <th class="text-left px-3 py-2.5">N°</th>
+          <th class="text-left px-3 py-2.5">Fecha</th>
+          <th class="text-left px-3 py-2.5">Proveedor</th>
+          <th class="text-right px-3 py-2.5">Estimada</th>
+          <th class="text-right px-3 py-2.5">Retiro</th>
+          <th class="text-right px-3 py-2.5">Desvío (días)</th>
+          <th class="text-right px-3 py-2.5">Líneas completas</th>
+        </tr>
+      </thead>
+      <tbody id="otifBody"><tr><td colspan="7" class="p-0"><div class="py-14 text-center"><p class="font-disp text-lg text-ink/70">Sin datos todavía</p><p class="mt-1 text-[13px] text-tenue">Elegí el período y tocá Aplicar.</p></div></td></tr></tbody>
     </table>
   </div>
 </section>
@@ -136,15 +191,15 @@ tailwind.config = { theme: { extend: {
 <!-- Modal genérico: aviso (reemplaza alert()) y confirmación (reemplaza confirm()). -->
 <div id="mAviso" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
      role="dialog" aria-modal="true" aria-labelledby="mAvisoTitulo">
-  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-md">
-    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+  <div class="bg-card rounded-lg border border-borde shadow-2xl w-full max-w-md">
+    <div class="px-5 py-3 border-b border-linea flex items-center gap-2">
       <h3 id="mAvisoTitulo" class="font-disp text-xl font-bold text-verde">Aviso</h3>
-      <button id="mAvisoX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+      <button id="mAvisoX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
     </div>
-    <p id="mAvisoMsg" class="px-5 py-4 text-sm leading-relaxed"></p>
-    <div class="px-5 py-3 border-t border-borde flex justify-end gap-2">
-      <button id="mAvisoCancel" class="hidden px-4 py-2 rounded-lg border border-borde hover:bg-bg font-disp">Cancelar</button>
-      <button id="mAvisoOk" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp">Aceptar</button>
+    <p id="mAvisoMsg" class="px-5 py-5 text-[14px] leading-relaxed"></p>
+    <div class="px-5 py-3 border-t border-linea flex justify-end gap-2">
+      <button id="mAvisoCancel" class="hidden px-4 py-2 rounded-md border border-borde hover:bg-bg font-disp text-[15px]">Cancelar</button>
+      <button id="mAvisoOk" class="px-4 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[15px]">Aceptar</button>
     </div>
   </div>
 </div>
@@ -152,12 +207,12 @@ tailwind.config = { theme: { extend: {
 <!-- Modal del consumo mensual de un producto -->
 <div id="mConsumo" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4"
      role="dialog" aria-modal="true" aria-labelledby="mConsumoTitulo">
-  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-3xl">
-    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+  <div class="bg-card rounded-lg border border-borde shadow-2xl w-full max-w-3xl">
+    <div class="px-5 py-3 border-b border-linea flex items-center gap-2">
       <h3 id="mConsumoTitulo" class="font-disp text-xl font-bold text-verde">Consumo mensual</h3>
-      <button id="mConsumoX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+      <button id="mConsumoX" class="ml-auto text-tenue hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
     </div>
-    <div class="px-5 py-4"><canvas id="chConsumo" height="240"></canvas></div>
+    <div class="px-5 py-5"><canvas id="chConsumo" height="240"></canvas></div>
   </div>
 </div>
 
@@ -168,6 +223,13 @@ const money = n => n == null ? '—' : '$'+Math.round(n).toLocaleString('es-AR')
 const pct = n => n == null ? '—' : fmt(n)+'%';
 const DIAS_POR_MES = 30.44;
 
+// Las fechas del server vienen en ISO (YYYY-MM-DD); en la línea de meta del producto
+// alcanza con día/mes y la fecha entera queda en el title.
+const fechaCorta = s => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+  return m ? m[3] + '/' + m[2] : (s || '—');
+};
+
 let armado = null;              // respuesta de /api/compras/armado
 const cantidades = {};          // plu -> cantidad tipeada (sobrevive a los re-render por filtro)
 let pedidosTodos = [];          // cache de /api/compras/pedidos, compartido por Seguimiento y OTIF
@@ -176,6 +238,23 @@ const charts = {};
 
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+// Estados vacíos / de carga / de error: mismo bloque en las tres pestañas.
+const estadoVacio = (titulo, detalle, tono) => `<div class="py-14 text-center">
+  <p class="font-disp text-lg ${tono === 'error' ? 'text-rojo' : 'text-ink/70'}">${escAttr(titulo)}</p>
+  <p class="mt-1 text-[13px] text-tenue">${escAttr(detalle || '')}</p></div>`;
+const filaVacia = (cols, titulo, detalle, tono) =>
+  `<tr><td colspan="${cols}" class="p-0">${estadoVacio(titulo, detalle, tono)}</td></tr>`;
+
+// Paleta del proyecto en los gráficos, en vez de los defaults de Chart.js.
+const PAL = { verde:'#405936', verdeClaro:'#8fa982', naranja:'#E65100', rojo:'#C62828', grid:'#eff1ec', eje:'#dde1d6' };
+if (window.Chart) {
+  Chart.defaults.font.family = 'Roboto, sans-serif';
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = '#6b7065';
+  Chart.defaults.borderColor = PAL.grid;
+}
+const leyendaAbajo = { position:'bottom', labels:{ boxWidth:8, boxHeight:8, usePointStyle:true, pointStyle:'circle', padding:16 } };
 
 // ---- Aviso / confirmación ----
 // Reemplazo de alert() y confirm(): el mensaje va por textContent y nunca por innerHTML,
@@ -235,8 +314,9 @@ async function apiFetch(url, opts) {
 
 // ---- Tabs ----
 document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
   btn.classList.add('active');
+  btn.setAttribute('aria-selected', 'true');
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
   $('#tab-'+btn.dataset.tab).classList.remove('hidden');
   // Los pedidos cambian desde otras sesiones: se recargan al entrar a la pestaña.
@@ -261,9 +341,9 @@ async function buscarProveedores() {
     const r = await apiFetch('/api/compras/proveedores?q=' + encodeURIComponent(q));
     const lista = r.proveedores || [];
     cont.innerHTML = lista.length
-      ? lista.map(p => `<button class="js-prov block w-full text-left px-3 py-1.5 hover:bg-bg border-b border-borde/50"
+      ? lista.map(p => `<button class="js-prov block w-full text-left px-3 py-2 hover:bg-bg border-b border-linea last:border-0"
            data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">${escAttr(p.nombre)}</button>`).join('')
-      : '<div class="px-3 py-2 text-ink/50">Sin resultados.</div>';
+      : '<div class="px-3 py-2.5 text-tenue">Sin resultados para esa búsqueda.</div>';
     cont.classList.remove('hidden');
     cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
       provSel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
@@ -272,7 +352,7 @@ async function buscarProveedores() {
       cont.classList.add('hidden');
     }));
   } catch (e) {
-    cont.innerHTML = `<div class="px-3 py-2 text-rojo">${escAttr(e.message)}</div>`;
+    cont.innerHTML = `<div class="px-3 py-2.5 text-rojo">${escAttr(e.message)}</div>`;
     cont.classList.remove('hidden');
   }
 }
@@ -281,7 +361,7 @@ $('#btnCargar').addEventListener('click', cargarArmado);
 async function cargarArmado() {
   if (!provSel) { avisar('Elegí un proveedor de la lista antes de cargar.', 'Falta el proveedor'); return; }
   const body = $('#armadoBody');
-  body.innerHTML = '<tr><td colspan="12" class="p-6 text-center text-ink/50">Cargando…</td></tr>';
+  body.innerHTML = filaVacia(7, 'Cargando…', 'Trayendo stock, consumo y cobertura del proveedor.');
   try {
     armado = await apiFetch(`/api/compras/armado?idProveedor=${encodeURIComponent(provSel.id)}&ventanaSuc=${encodeURIComponent($('#ventanaSuc').value)}`);
     for (const k of Object.keys(cantidades)) delete cantidades[k];
@@ -291,7 +371,7 @@ async function cargarArmado() {
     renderArmado();
   } catch (e) {
     armado = null;
-    body.innerHTML = `<tr><td colspan="12" class="p-4 text-center text-rojo">No se pudo cargar el armado: ${escAttr(e.message)}</td></tr>`;
+    body.innerHTML = filaVacia(7, 'No se pudo cargar el armado', e.message, 'error');
   }
 }
 
@@ -308,13 +388,27 @@ $('#btnRecalcular').addEventListener('click', async () => {
 });
 
 // Semáforo de cobertura: menos de una semana es urgente, menos de dos es atención.
+// El color va en el punto; el número sólo se tiñe cuando hay algo que mirar.
 function colorCobertura(dias) {
-  if (dias == null) return 'text-ink/40';
-  if (dias < 7) return 'text-rojo font-bold';
-  if (dias < 15) return 'text-ambar font-bold';
-  return 'text-ok';
+  if (dias == null) return 'text-ink/60';
+  if (dias < 7) return 'text-rojo font-medium';
+  if (dias < 15) return 'text-ambar font-medium';
+  return 'text-ink/75';
+}
+function puntoCobertura(dias) {
+  if (dias == null) return 'bg-ink/20';
+  if (dias < 7) return 'bg-rojo';
+  if (dias < 15) return 'bg-ambar';
+  return 'bg-ok';
 }
 const textoCobertura = d => d == null ? '∞' : fmt(d);
+
+// Una línea de cobertura (etiqueta · punto · número), para que central y sucursales
+// queden una sobre otra en la misma celda y los números alineen.
+const lineaCobertura = (etiqueta, dias) => `<div class="flex items-center justify-end gap-2">
+  <span class="lbl-in">${escAttr(etiqueta)}</span>
+  <span class="w-1.5 h-1.5 rounded-full ${puntoCobertura(dias)}" aria-hidden="true"></span>
+  <span class="w-12 text-right text-[13px] tabular-nums ${colorCobertura(dias)}">${textoCobertura(dias)}</span></div>`;
 
 function filasVisibles() {
   if (!armado) return [];
@@ -338,26 +432,42 @@ function renderArmado() {
     const desglose = Object.entries(f.stockPorSucursal || {}).map(([s, v]) => `${s}: ${fmt(v)}`).join(' · ') || 'sin stock en sucursales';
     const inactivo = f.activo === false;
     const mensual = f.demandaDiariaCentral != null ? f.demandaDiariaCentral * DIAS_POR_MES : null;
-    return `<tr class="border-t border-borde/60 ${inactivo ? 'bg-ink/5 text-ink/50' : ''}"
+    const tUltima = fmt(f.ultimaCantidad) + ' ' + f.unidad + ' a ' + money(f.ultimoPrecio) + (f.ultimaFecha ? ' · ' + f.ultimaFecha : '');
+    return `<tr class="border-t border-linea align-top ${inactivo ? 'text-ink/60' : ''}"
         ${inactivo ? 'title="Producto inactivo en SIGA"' : ''}>
-      <td class="p-2 text-center"><input type="checkbox" class="js-chk" data-plu="${escAttr(f.plu)}" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
-      <td class="p-2">${escAttr(f.nombre)} <span class="text-xs text-ink/40">${escAttr(f.plu)}</span>${inactivo ? ' <span class="text-xs text-naranja">(inactivo)</span>' : ''}</td>
-      <td class="p-2 text-center">${escAttr(f.unidad)}</td>
-      <td class="p-2 text-center" title="${escAttr(fmt(f.ultimaCantidad) + ' ' + f.unidad + ' a ' + money(f.ultimoPrecio))}">${escAttr(f.ultimaFecha || '—')}</td>
-      <td class="p-2 text-center" title="${escAttr('Total 24m: ' + fmt(f.cantTotal24m) + ' ' + f.unidad)}">${fmt(f.compras24m)}</td>
-      <td class="p-2 text-center">${fmt(f.stockCentral)}</td>
-      <td class="p-2 text-center" title="${escAttr(desglose)}">${fmt(f.stockSucursales)}</td>
-      <td class="p-2 text-center"><button class="js-consumo text-verde underline" data-plu="${escAttr(f.plu)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button></td>
-      <td class="p-2 text-center">${escAttr(f.abc || '—')}</td>
-      <td class="p-2 text-center ${colorCobertura(f.coberturaCentral)}">${textoCobertura(f.coberturaCentral)}</td>
-      <td class="p-2 text-center ${colorCobertura(f.coberturaSucursales)}">${textoCobertura(f.coberturaSucursales)}</td>
-      <td class="p-2 text-center whitespace-nowrap">
-        <input type="number" min="0" step="0.01" class="js-cant w-24 border border-borde rounded px-1 py-1 text-right"
-               data-plu="${escAttr(f.plu)}" value="${cantidades[f.plu] != null ? escAttr(cantidades[f.plu]) : ''}">
-        <button class="js-cubrir text-xs text-verde underline ml-1" data-plu="${escAttr(f.plu)}" title="Cubrir 30 días de demanda de la central">30 d</button>
+      <td class="px-3 py-2.5 text-center"><input type="checkbox" class="js-chk accent-verde" data-plu="${escAttr(f.plu)}"
+          aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
+      <td class="px-3 py-2.5">
+        <div class="text-[13.5px] leading-snug ${inactivo ? '' : 'text-ink'}">${escAttr(f.nombre)}${inactivo ? ' <span class="text-[11px] text-naranja font-medium">inactivo</span>' : ''}</div>
+        <div class="mt-0.5 text-[11px] text-tenue tabular-nums">
+          <span>${escAttr(f.plu)}</span> · <span>${escAttr(f.unidad)}</span> ·
+          <span title="${escAttr(tUltima)}">últ. ${escAttr(fechaCorta(f.ultimaFecha))}</span> ·
+          <span title="${escAttr('Total 24m: ' + fmt(f.cantTotal24m) + ' ' + f.unidad)}">${fmt(f.compras24m)} compras 24m</span>
+        </div>
+      </td>
+      <td class="px-3 py-2.5 text-right">
+        <div class="flex items-center justify-end gap-2"><span class="lbl-in">Central</span>
+          <span class="w-16 text-right text-[13px] tabular-nums">${fmt(f.stockCentral)}</span></div>
+        <div class="flex items-center justify-end gap-2" title="${escAttr(desglose)}"><span class="lbl-in">Suc.</span>
+          <span class="w-16 text-right text-[13px] tabular-nums text-ink/70">${fmt(f.stockSucursales)}</span></div>
+      </td>
+      <td class="px-3 py-2.5">${lineaCobertura('Central', f.coberturaCentral)}${lineaCobertura('Suc.', f.coberturaSucursales)}</td>
+      <td class="px-3 py-2.5 text-right">
+        <button class="js-consumo text-[13px] tabular-nums text-verde hover:underline underline-offset-2" data-plu="${escAttr(f.plu)}"
+          aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>
+      </td>
+      <td class="px-3 py-2.5 text-center text-[12px] font-medium text-ink/60">${escAttr(f.abc || '—')}</td>
+      <td class="px-3 py-2 bg-campo border-l border-linea">
+        <div class="flex items-center justify-end gap-2 whitespace-nowrap">
+          <input type="number" min="0" step="0.01" class="js-cant w-24 border border-borde rounded-md px-2 py-1.5 text-right text-[13px] tabular-nums bg-card"
+                 data-plu="${escAttr(f.plu)}" aria-label="Cantidad a pedir de ${escAttr(f.nombre)}"
+                 value="${cantidades[f.plu] != null ? escAttr(cantidades[f.plu]) : ''}">
+          <button class="js-cubrir text-[11px] text-verde hover:underline underline-offset-2" data-plu="${escAttr(f.plu)}"
+            title="Cubrir 30 días de demanda de la central" aria-label="Cubrir 30 días de ${escAttr(f.nombre)}">30 d</button>
+        </div>
       </td>
     </tr>`;
-  }).join('') : '<tr><td colspan="12" class="p-6 text-center text-ink/50">Sin productos para mostrar.</td></tr>';
+  }).join('') : filaVacia(7, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.');
   actualizarContador();
 }
 
@@ -411,10 +521,18 @@ function abrirConsumo(plu) {
   charts.consumo = new Chart($('#chConsumo'), {
     type: 'line',
     data: { labels: serie.map(m => m.mes), datasets: [
-      { label: 'Ventas', data: serie.map(m => m.ventas), borderColor: '#405936', backgroundColor: '#40593622', tension: .25 },
-      { label: 'Producción', data: serie.map(m => m.produccion), borderColor: '#E65100', backgroundColor: '#E6510022', tension: .25 },
+      { label: 'Ventas', data: serie.map(m => m.ventas), borderColor: PAL.verde, backgroundColor: 'rgba(64,89,54,.10)',
+        borderWidth: 2, tension: .3, fill: true, pointRadius: 0, pointHoverRadius: 4 },
+      { label: 'Producción', data: serie.map(m => m.produccion), borderColor: PAL.naranja, backgroundColor: 'rgba(230,81,0,.08)',
+        borderWidth: 2, tension: .3, fill: true, pointRadius: 0, pointHoverRadius: 4 },
     ] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } },
+    options: { responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: leyendaAbajo },
+      scales: {
+        x: { grid: { display: false }, border: { color: PAL.eje } },
+        y: { beginAtZero: true, border: { display: false }, grid: { color: PAL.grid }, ticks: { maxTicksLimit: 5 } },
+      } },
   });
 }
 
@@ -438,21 +556,57 @@ async function generarPedido() {
   }
 }
 
-// Sin precios ni total: la hoja va al proveedor y el precio se pacta aparte.
+// La hoja que ve el proveedor. Sin precios ni total: el precio se pacta aparte.
 function imprimirPedido(pedido) {
   const w = window.open('', '_blank');
   if (!w) { avisar('El navegador bloqueó la ventana de impresión.', 'Aviso'); return; }
-  w.document.write(`<html><head><title>Pedido ${escAttr(pedido.numero)}</title>
-    <style>body{font-family:Roboto,sans-serif;padding:24px;color:#1a1c18}h1{color:#405936;font-family:'Barlow Condensed',sans-serif}
-    table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #c3c9bc;padding:6px;text-align:left}
-    th{background:#eef2e9}@media print{button{display:none}}</style></head><body>
-    <h1>PEDIDO DE COMPRA</h1>
-    <p><b>N°:</b> ${escAttr(pedido.numero)}<br><b>Proveedor:</b> ${escAttr(pedido.proveedor)}<br><b>Fecha:</b> ${escAttr(pedido.fecha)}</p>
-    ${pedido.observacion ? `<p><b>Observación:</b> ${escAttr(pedido.observacion)}</p>` : ''}
-    <table><thead><tr><th>Producto</th><th>PLU</th><th>Cantidad</th><th>Unidad</th></tr></thead>
-    <tbody>${(pedido.items || []).map(it => `<tr><td>${escAttr(it.nombre)}</td><td>${escAttr(it.plu)}</td><td>${fmt(it.cantidad)}</td><td>${escAttr(it.unidad)}</td></tr>`).join('')}</tbody></table>
-    <button onclick="window.print()" style="margin-top:16px;padding:8px 16px;background:#405936;color:#fff;border:none;border-radius:6px;cursor:pointer">Imprimir</button>
-    </body></html>`);
+  const items = pedido.items || [];
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>Pedido ${escAttr(pedido.numero)}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      body{margin:0;padding:32px 36px;font:400 12px/1.5 Roboto,Arial,sans-serif;color:#1a1c18;background:#fff}
+      .doc{max-width:760px;margin:0 auto}
+      .cab{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+           border-bottom:2px solid #405936;padding-bottom:10px}
+      .marca{font:600 10px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#8b9083}
+      h1{margin:4px 0 0;font:700 26px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.03em;text-transform:uppercase;color:#405936}
+      .nro{font:700 22px/1 'Barlow Condensed',Arial,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
+      .nro span{display:block;font:600 9px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.16em;color:#8b9083;margin-bottom:4px}
+      .meta{display:grid;grid-template-columns:2fr 1fr;gap:14px 28px;margin:20px 0 0}
+      .meta .full{grid-column:1 / -1}
+      .k{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8b9083;margin-bottom:3px}
+      .v{font-size:14px;font-weight:500}
+      table{width:100%;border-collapse:collapse;margin-top:26px}
+      th{font:600 9px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#8b9083;
+         text-align:left;padding:0 8px 7px;border-bottom:1px solid #1a1c18}
+      td{padding:8px;border-bottom:1px solid #e6e9e0;vertical-align:top;font-size:12.5px}
+      .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+      .plu{color:#6b7065;font-variant-numeric:tabular-nums;white-space:nowrap}
+      .total{margin-top:10px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8b9083}
+      .firmas{margin-top:52px;display:grid;grid-template-columns:1fr 1fr;gap:48px}
+      .firmas div{border-top:1px solid #1a1c18;padding-top:6px;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8b9083}
+      .acciones{margin-top:32px}
+      button{font:500 13px Roboto,Arial,sans-serif;padding:9px 20px;background:#405936;color:#fff;border:0;border-radius:5px;cursor:pointer}
+      @page{margin:14mm}
+      @media print{body{padding:0}button{display:none}.acciones{display:none}tr{page-break-inside:avoid}}
+    </style></head><body><div class="doc">
+    <div class="cab">
+      <div><div class="marca">Apidelta</div><h1>Pedido de compra</h1></div>
+      <div class="nro"><span>Número</span>${escAttr(pedido.numero)}</div>
+    </div>
+    <div class="meta">
+      <div><div class="k">Proveedor</div><div class="v">${escAttr(pedido.proveedor)}</div></div>
+      <div><div class="k">Fecha</div><div class="v">${escAttr(pedido.fecha)}</div></div>
+      ${pedido.observacion ? `<div class="full"><div class="k">Observación</div><div class="v">${escAttr(pedido.observacion)}</div></div>` : ''}
+    </div>
+    <table><thead><tr><th>Producto</th><th>PLU</th><th class="r">Cantidad</th><th>Unidad</th></tr></thead>
+    <tbody>${items.map(it => `<tr><td>${escAttr(it.nombre)}</td><td class="plu">${escAttr(it.plu)}</td><td class="r">${fmt(it.cantidad)}</td><td>${escAttr(it.unidad)}</td></tr>`).join('')}</tbody></table>
+    <div class="total">${items.length} línea${items.length === 1 ? '' : 's'}</div>
+    <div class="firmas"><div>Entregado por</div><div>Recibido por · fecha y firma</div></div>
+    <div class="acciones"><button onclick="window.print()">Imprimir</button></div>
+    </div></body></html>`);
   w.document.close();
 }
 
@@ -466,7 +620,7 @@ async function cargarPedidos(forzar) {
     pedidosTodos = Array.isArray(r) ? r : [];
   } catch (e) {
     pedidosTodos = [];
-    $('#segDetalle').innerHTML = `<p class="text-rojo text-sm">No se pudieron cargar los pedidos: ${escAttr(e.message)}</p>`;
+    $('#segDetalle').innerHTML = estadoVacio('No se pudieron cargar los pedidos', e.message, 'error');
   }
   renderSelectores();
 }
@@ -510,52 +664,75 @@ function seleccionarPedido() {
   renderSeguimiento();
 }
 
+// Estado del pedido: contorno + texto, no un fondo saturado que compita con el semáforo.
+function chipEstado(estado) {
+  const cls = estado === 'PENDIENTE' ? 'border-ambar/40 text-ambar bg-ambar/10'
+    : estado === 'CERRADO' ? 'border-ok/40 text-ok bg-ok/10'
+    : 'border-rojo/40 text-rojo bg-rojo/10';
+  return `<span class="px-2 py-0.5 rounded-full border text-[10px] font-medium uppercase tracking-[0.1em] ${cls}">${escAttr(estado)}</span>`;
+}
+
 function renderSeguimiento() {
   const cont = $('#segDetalle');
-  if (!pedidoSel) { cont.innerHTML = '<p class="text-ink/50 text-sm">Elegí un pedido.</p>'; return; }
+  if (!pedidoSel) {
+    cont.innerHTML = estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido del desplegable para ver y editar sus líneas.');
+    return;
+  }
   const p = pedidoSel;
   const editable = p.estado === 'PENDIENTE';
   const opciones = [['pedido', 'Pedido'], ['entregado', 'Entregado'], ['sin_stock', 'Sin stock'], ['no_envia', 'No envía']];
+  const dis = editable ? '' : 'disabled';
   cont.innerHTML = `
-  <div class="rounded-xl border border-borde bg-card shadow-fluent p-4 mb-3">
-    <div class="flex items-center gap-3 flex-wrap mb-3">
-      <h2 class="font-disp text-2xl text-verde">${escAttr(p.numero)}</h2>
-      <span class="text-sm">${escAttr(p.proveedor)}</span>
-      <span class="text-sm text-ink/60">${escAttr(p.fecha)}</span>
-      <span class="px-2 py-0.5 rounded text-xs font-bold ${p.estado === 'PENDIENTE' ? 'bg-amarillo' : p.estado === 'CERRADO' ? 'bg-ok text-white' : 'bg-rojo text-white'}">${escAttr(p.estado)}</span>
+  <div class="rounded-lg border border-borde bg-card p-5">
+    <div class="flex items-center gap-3 flex-wrap pb-4 border-b border-linea">
+      <h2 class="font-disp text-[26px] leading-none font-bold text-ink tabular-nums">${escAttr(p.numero)}</h2>
+      <span class="text-[14px] text-ink/80">${escAttr(p.proveedor)}</span>
+      <span class="text-[13px] text-tenue tabular-nums">${escAttr(p.fecha)}</span>
+      ${chipEstado(p.estado)}
     </div>
-    <div class="grid md:grid-cols-3 gap-3">
-      <label class="text-sm">Fecha estimada de retiro<br>
-        <input type="date" id="segEstimada" value="${escAttr(p.fechaEstimada || '')}" ${editable ? '' : 'disabled'} class="mt-1 w-full px-2 py-1 border border-borde rounded"></label>
-      <label class="text-sm">Fecha real de retiro<br>
-        <input type="date" id="segRetiro" value="${escAttr(p.fechaRetiro || '')}" ${editable ? '' : 'disabled'} class="mt-1 w-full px-2 py-1 border border-borde rounded"></label>
-      <label class="text-sm">Observación<br>
-        <textarea id="segObs" rows="2" ${editable ? '' : 'disabled'} class="mt-1 w-full px-2 py-1 border border-borde rounded">${escAttr(p.observacion || '')}</textarea></label>
+    <div class="grid md:grid-cols-3 gap-4 pt-4">
+      <div><label class="lbl" for="segEstimada">Fecha estimada de retiro</label>
+        <input type="date" id="segEstimada" value="${escAttr(p.fechaEstimada || '')}" ${dis} class="ctrl w-full disabled:bg-bg disabled:text-tenue"></div>
+      <div><label class="lbl" for="segRetiro">Fecha real de retiro</label>
+        <input type="date" id="segRetiro" value="${escAttr(p.fechaRetiro || '')}" ${dis} class="ctrl w-full disabled:bg-bg disabled:text-tenue"></div>
+      <div><label class="lbl" for="segObs">Observación</label>
+        <textarea id="segObs" rows="2" ${dis} class="ctrl w-full disabled:bg-bg disabled:text-tenue">${escAttr(p.observacion || '')}</textarea></div>
     </div>
   </div>
-  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
-    <table class="w-full text-sm">
-      <thead class="bg-verde/5 text-verde"><tr>
-        <th class="text-left p-2">Producto</th><th class="p-2">Cant. pedida</th>
-        <th class="p-2">Estado</th><th class="p-2">Cant. entregada</th><th class="text-left p-2">Obs.</th>
-      </tr></thead>
-      <tbody>${p.items.map((it, i) => `<tr class="border-t border-borde/60">
-        <td class="p-2">${escAttr(it.nombre)} <span class="text-xs text-ink/40">${escAttr(it.plu)}</span></td>
-        <td class="p-2 text-center">${fmt(it.cantidad)} ${escAttr(it.unidad)}</td>
-        <td class="p-2 text-center"><select class="js-estado border border-borde rounded px-1 py-1" data-i="${i}" ${editable ? '' : 'disabled'}>
+  <div class="mt-4 overflow-x-auto rounded-lg border border-borde bg-card">
+    <table class="w-full">
+      <thead>
+        <tr class="text-[11px] text-tenue border-b border-borde">
+          <th class="text-left px-3 py-2.5">Producto</th>
+          <th class="text-right px-3 py-2.5">Pedida</th>
+          <th class="text-left px-3 py-2.5">Estado de la línea</th>
+          <th class="text-right px-3 py-2.5">Entregada</th>
+          <th class="text-left px-3 py-2.5">Observación</th>
+        </tr>
+      </thead>
+      <tbody>${p.items.map((it, i) => `<tr class="border-t border-linea align-top">
+        <td class="px-3 py-2.5">
+          <div class="text-[13.5px] leading-snug">${escAttr(it.nombre)}</div>
+          <div class="mt-0.5 text-[11px] text-tenue tabular-nums">${escAttr(it.plu)}</div></td>
+        <td class="px-3 py-2.5 text-right text-[13px] tabular-nums whitespace-nowrap">${fmt(it.cantidad)} <span class="lbl-in">${escAttr(it.unidad)}</span></td>
+        <td class="px-3 py-2.5"><select class="js-estado ctrl-sm w-full" data-i="${i}" ${dis}
+          aria-label="Estado de ${escAttr(it.nombre)}">
           ${opciones.map(([v, t]) => `<option value="${v}" ${it.estado === v ? 'selected' : ''}>${t}</option>`).join('')}</select></td>
-        <td class="p-2 text-center"><input type="number" min="0" step="0.01" max="${escAttr(it.cantidad)}" class="js-entregada w-24 border border-borde rounded px-1 py-1 text-right"
-          data-i="${i}" value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}" ${editable ? '' : 'disabled'}></td>
-        <td class="p-2"><input class="js-obs w-full border border-borde rounded px-1 py-1" data-i="${i}" value="${escAttr(it.obs || '')}" ${editable ? '' : 'disabled'}></td>
+        <td class="px-3 py-2.5 text-right"><input type="number" min="0" step="0.01" max="${escAttr(it.cantidad)}"
+          class="js-entregada w-24 border border-borde rounded-md px-2 py-1 text-right text-[13px] tabular-nums bg-card disabled:bg-bg"
+          data-i="${i}" aria-label="Cantidad entregada de ${escAttr(it.nombre)}"
+          value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}" ${dis}></td>
+        <td class="px-3 py-2.5"><input class="js-obs w-full border border-borde rounded-md px-2 py-1 text-[13px] bg-card disabled:bg-bg"
+          data-i="${i}" aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}" ${dis}></td>
       </tr>`).join('')}</tbody>
     </table>
   </div>
-  <div class="mt-3 flex gap-2 flex-wrap items-center">
-    <button id="btnGuardar" class="px-4 py-2 rounded-lg bg-verde text-white hover:bg-verdeHover font-disp" ${editable ? '' : 'disabled'}>Guardar</button>
-    <button id="btnCerrar" class="px-4 py-2 rounded-lg bg-ok text-white hover:opacity-90 font-disp disabled:opacity-40">Cerrar pedido</button>
-    <button id="btnAnular" class="px-4 py-2 rounded-lg border border-rojo text-rojo hover:bg-rojo/10 font-disp" ${editable ? '' : 'disabled'}>Anular</button>
-    <button id="btnReimprimir" class="px-4 py-2 rounded-lg border border-borde hover:bg-bg font-disp">Reimprimir</button>
-    <span id="segAviso" class="text-xs text-ink/60"></span>
+  <div class="mt-4 flex gap-2 flex-wrap items-center">
+    <button id="btnGuardar" class="px-5 py-2 rounded-md bg-verde text-white hover:bg-verdeHover font-disp text-[16px] tracking-wide disabled:opacity-40" ${dis}>Guardar</button>
+    <button id="btnCerrar" class="px-4 py-2 rounded-md border border-ok/60 text-ok hover:bg-ok/10 font-disp text-[16px] tracking-wide disabled:opacity-40 disabled:hover:bg-transparent">Cerrar pedido</button>
+    <button id="btnAnular" class="px-4 py-2 rounded-md border border-borde text-rojo hover:border-rojo/50 hover:bg-rojo/10 font-disp text-[16px] tracking-wide disabled:opacity-40" ${dis}>Anular</button>
+    <button id="btnReimprimir" class="px-4 py-2 rounded-md border border-borde text-ink/80 hover:bg-bg font-disp text-[16px] tracking-wide">Reimprimir</button>
+    <span id="segAviso" class="text-[12px] text-tenue"></span>
   </div>`;
 
   cont.querySelectorAll('.js-estado').forEach(s => s.addEventListener('change', () => {
@@ -630,14 +807,14 @@ async function cargarOtif() {
     const d = await apiFetch('/api/compras/otif?' + qs.toString());
     renderOtif(d, { prov, desde, hasta });
   } catch (e) {
-    $('#otifKpis').innerHTML = `<p class="text-rojo text-sm col-span-full">No se pudo cargar el OTIF: ${escAttr(e.message)}</p>`;
+    $('#otifKpis').innerHTML = `<div class="col-span-full">${estadoVacio('No se pudo cargar el OTIF', e.message, 'error')}</div>`;
   }
 }
 
-const kpi = (titulo, valor, detalle) => `<div class="rounded-xl border border-borde bg-card shadow-fluent p-3">
-  <div class="text-xs text-ink/60 uppercase font-disp">${escAttr(titulo)}</div>
-  <div class="text-3xl font-disp font-bold text-verde">${escAttr(valor)}</div>
-  <div class="text-xs text-ink/50">${escAttr(detalle || '')}</div></div>`;
+const kpi = (titulo, valor, detalle) => `<div class="rounded-lg border border-borde bg-card px-4 py-3">
+  <div class="text-[10px] uppercase tracking-[0.13em] text-tenue">${escAttr(titulo)}</div>
+  <div class="mt-1.5 font-disp text-[30px] leading-none font-bold text-ink tabular-nums">${escAttr(valor)}</div>
+  <div class="mt-1.5 text-[11px] text-tenue tabular-nums min-h-[1rem]">${escAttr(detalle || '')}</div></div>`;
 
 function renderOtif(d, filtros) {
   const lt = d.leadTime || {};
@@ -656,10 +833,16 @@ function renderOtif(d, filtros) {
     charts.prov = new Chart($('#chProv'), {
       type: 'bar',
       data: { labels: porProv.map(p => p.proveedor), datasets: [
-        { label: 'On Time %', data: porProv.map(p => p.onTime), backgroundColor: '#405936' },
-        { label: 'In Full líneas %', data: porProv.map(p => p.inFullLineas), backgroundColor: '#FFCC00' },
+        { label: 'On Time %', data: porProv.map(p => p.onTime), backgroundColor: PAL.verde, borderRadius: 3, maxBarThickness: 22 },
+        { label: 'In Full líneas %', data: porProv.map(p => p.inFullLineas), backgroundColor: PAL.verdeClaro, borderRadius: 3, maxBarThickness: 22 },
       ] },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: leyendaAbajo },
+        scales: {
+          x: { grid: { display: false }, border: { color: PAL.eje } },
+          y: { beginAtZero: true, max: 100, border: { display: false }, grid: { color: PAL.grid },
+               ticks: { maxTicksLimit: 5, callback: v => v + '%' } },
+        } },
     });
   }
 
@@ -668,9 +851,14 @@ function renderOtif(d, filtros) {
   charts.quiebres = new Chart($('#chQuiebres'), {
     type: 'bar',
     data: { labels: quiebres.map(q => q.nombre), datasets: [
-      { label: 'Veces sin entregar', data: quiebres.map(q => q.veces), backgroundColor: '#D32F2F' },
+      { label: 'Veces sin entregar', data: quiebres.map(q => q.veces), backgroundColor: PAL.rojo, borderRadius: 3, maxBarThickness: 12 },
     ] },
-    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true } } },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },   // una sola serie: la leyenda no aporta nada
+      scales: {
+        x: { beginAtZero: true, border: { display: false }, grid: { color: PAL.grid }, ticks: { precision: 0, maxTicksLimit: 6 } },
+        y: { grid: { display: false }, border: { color: PAL.eje } },
+      } },
   });
 
   renderTablaOtif(filtros);
@@ -687,17 +875,17 @@ function renderTablaOtif({ prov, desde, hasta }) {
     const full = items.filter(l => l.estado === 'entregado' && Number(l.cantidadEntregada) >= Number(l.cantidad)).length;
     const desvio = p.fechaEstimada && p.fechaRetiro
       ? Math.round((Date.parse(p.fechaRetiro) - Date.parse(p.fechaEstimada)) / 86400000) : null;
-    const colorDesvio = desvio == null ? '' : desvio > 0 ? 'text-rojo font-bold' : 'text-ok';
-    return `<tr class="border-t border-borde/60">
-      <td class="p-2">${escAttr(p.numero)}</td>
-      <td class="p-2 text-center">${escAttr(p.fecha)}</td>
-      <td class="p-2">${escAttr(p.proveedor)}</td>
-      <td class="p-2 text-center">${escAttr(p.fechaEstimada || '—')}</td>
-      <td class="p-2 text-center">${escAttr(p.fechaRetiro || '—')}</td>
-      <td class="p-2 text-center ${colorDesvio}">${desvio == null ? '—' : (desvio > 0 ? '+' : '') + desvio}</td>
-      <td class="p-2 text-center">${full} / ${items.length}</td>
+    const colorDesvio = desvio == null ? 'text-ink/60' : desvio > 0 ? 'text-rojo font-medium' : 'text-ink/75';
+    return `<tr class="border-t border-linea">
+      <td class="px-3 py-2.5 text-[13px] tabular-nums">${escAttr(p.numero)}</td>
+      <td class="px-3 py-2.5 text-[13px] tabular-nums text-ink/70">${escAttr(p.fecha)}</td>
+      <td class="px-3 py-2.5 text-[13px]">${escAttr(p.proveedor)}</td>
+      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums text-ink/70">${escAttr(p.fechaEstimada || '—')}</td>
+      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums text-ink/70">${escAttr(p.fechaRetiro || '—')}</td>
+      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums ${colorDesvio}">${desvio == null ? '—' : (desvio > 0 ? '+' : '') + desvio}</td>
+      <td class="px-3 py-2.5 text-right text-[13px] tabular-nums">${full} <span class="text-tenue">/ ${items.length}</span></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="7" class="p-6 text-center text-ink/50">Sin pedidos cerrados en el período.</td></tr>';
+  }).join('') : filaVacia(7, 'Sin pedidos cerrados en el período', 'Probá ampliar el rango de fechas o sacar el filtro de proveedor.');
 }
 
 // Período por defecto: los últimos 90 días.
