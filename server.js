@@ -2954,9 +2954,10 @@ function guardarPedidosCompra(lista)  { guardarJSON(PEDIDOS_COMPRA_PATH, { pedid
 function usuarioCompras(req)          { return String((req.session && req.session.user && req.session.user.usuario) || 'anonimo'); }
 
 // Sólo proveedores a los que efectivamente se les compró en la ventana: SIGA tiene
-// 2264 proveedores cargados y apenas 826 con facturas en 24 meses. Listar los otros
-// es ofrecer una búsqueda que sólo puede terminar en una tabla vacía. Se ordena por
+// 2264 proveedores cargados y 1108 con movimiento en 24 meses. Listar los otros es
+// ofrecer una búsqueda que sólo puede terminar en una tabla vacía. Se ordena por
 // cantidad de productos para que el proveedor real aparezca primero.
+// El JOIN lleva IdProveedor por la misma razón que comprasDeProveedor.
 app.get('/api/compras/proveedores', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return { proveedores: [] };
@@ -2968,9 +2969,9 @@ app.get('/api/compras/proveedores', apiRoute(async (req) => {
      FROM Proveedores pv
      JOIN Compras c ON c.IdProveedor = pv.IdProveedor
        AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
-       AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
      JOIN ComprasProductos cp ON cp.IdSucursal=c.IdSucursal AND cp.IdTipoComprobante=c.IdTipoComprobante
        AND cp.Letra=c.Letra AND cp.CentroEmisor=c.CentroEmisor AND cp.NumeroComprobante=c.NumeroComprobante
+       AND cp.IdProveedor=c.IdProveedor
      WHERE pv.NombreProveedor LIKE @like
      GROUP BY pv.IdProveedor, pv.NombreProveedor
      ORDER BY COUNT(DISTINCT cp.IdProducto) DESC`);
@@ -2981,8 +2982,14 @@ app.get('/api/compras/proveedores', apiRoute(async (req) => {
 }));
 
 // Lo que se le compró al proveedor en 24 meses, con la última compra de cada artículo.
-// El NOT LIKE 'COTIZACION%' no es opcional: en SIGA las cotizaciones repiten la clave
-// del comprobante y sin el filtro el JOIN se multiplica (ver historialComprasAnio).
+// Todos los tipos de comprobante, cotizaciones incluidas.
+//
+// IdProveedor es parte de la PK de Compras y de ComprasProductos, y sin él en el JOIN
+// las filas se multiplican: cada proveedor arranca su propia numeración de cotizaciones
+// (NumeroComprobante 1, 2, 3…), así que la clave de 5 columnas se repite entre proveedores.
+// Con la sexta columna el JOIN devuelve 27.815 renglones, exactamente los que existen;
+// sin ella devolvía 830.396. Ese era el motivo real por el que historialComprasAnio
+// excluye las cotizaciones — el filtro tapaba el síntoma, no la causa.
 async function comprasDeProveedor(idProveedor) {
   const pool = await getPool();
   const r = await pool.request().input('idProv', idProveedor).query(`
@@ -2992,9 +2999,9 @@ async function comprasDeProveedor(idProveedor) {
       FROM ComprasProductos cp
       JOIN Compras c ON c.IdSucursal=cp.IdSucursal AND c.IdTipoComprobante=cp.IdTipoComprobante
         AND c.Letra=cp.Letra AND c.CentroEmisor=cp.CentroEmisor AND c.NumeroComprobante=cp.NumeroComprobante
+        AND c.IdProveedor=cp.IdProveedor
       WHERE c.IdProveedor = @idProv
         AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
-        AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
     ), agg AS (
       SELECT IdProducto, MAX(Fecha) AS UltimaFecha, SUM(Cantidad) AS CantTotal, COUNT(*) AS Compras
       FROM cc GROUP BY IdProducto
@@ -8927,9 +8934,13 @@ async function ultimoProveedorPorProducto() {
 }
 
 // plu → [{proveedor, fecha (última), precio (de la última compra), cantidad (total)}] del año en curso.
-// Excluye COTIZACIONCOM/etc.: en SIGA las cotizaciones de compra no llevan NumeroComprobante único
-// (mismo IdSucursal/Letra/CentroEmisor/Numero se repite en decenas de cotizaciones distintas), lo que
-// multiplicaba el JOIN y devolvía cientos de "proveedores" falsos por producto.
+//
+// El JOIN lleva IdProveedor porque es la sexta columna de la PK de Compras y de
+// ComprasProductos. Sin ella las filas se multiplicaban: cada proveedor numera sus
+// cotizaciones desde 1, así que la clave de 5 columnas se repite entre proveedores y
+// aparecían cientos de "proveedores" falsos por producto. Ese era el motivo real; el
+// NOT LIKE 'COTIZACION%' tapaba el síntoma y acá se conserva sólo porque este módulo
+// compara precios de compra efectiva, donde una cotización no es un precio pagado.
 async function historialComprasAnio() {
   const inicio = `${new Date().getFullYear()}-01-01`;
   const rows = await query(`
@@ -8939,6 +8950,7 @@ async function historialComprasAnio() {
     FROM ComprasProductos cp
     JOIN Compras c ON c.IdSucursal = cp.IdSucursal AND c.IdTipoComprobante = cp.IdTipoComprobante
       AND c.Letra = cp.Letra AND c.CentroEmisor = cp.CentroEmisor AND c.NumeroComprobante = cp.NumeroComprobante
+      AND c.IdProveedor = cp.IdProveedor
     JOIN Proveedores pv ON pv.IdProveedor = c.IdProveedor
     WHERE c.Fecha >= '${inicio}' AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
     ORDER BY cp.IdProducto, c.Fecha DESC`);

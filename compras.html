@@ -349,7 +349,7 @@ async function buscarProveedores() {
            <span class="block">${escAttr(p.nombre)}</span>
            <span class="block text-[11px] text-tenue tabular-nums">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
          </button>`).join('')
-      : `<div class="px-3 py-2.5 text-tenue">Ningún proveedor con ese nombre tiene compras facturadas
+      : `<div class="px-3 py-2.5 text-tenue">Ningún proveedor con ese nombre tiene compras
          en los últimos 24 meses.</div>`;
     cont.classList.remove('hidden');
     cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
@@ -480,7 +480,7 @@ function renderArmado() {
     : (armado && (armado.filas || []).length)
       ? filaVacia(7, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.')
       : filaVacia(7, 'Este proveedor no tiene compras',
-          'No se le facturó ningún producto en los últimos 24 meses. Las cotizaciones no cuentan como compra.');
+          'No se le compró ningún producto en los últimos 24 meses.');
   actualizarContador();
 }
 
