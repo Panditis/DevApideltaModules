@@ -3348,21 +3348,27 @@ const numList = arr => (arr || []).map(Number).filter(n => Number.isInteger(n) &
 // Una sola definición de "esto es un insumo" para las dos queries: si divergen,
 // el listado y el consumo hablan de universos distintos y nadie se entera.
 const ES_INSUMO = insumos.condicionSQL(INSUMOS_CFG);
+// El módulo mira dos universos con la misma matemática: los productos "Insumo …" y
+// los "Etiqueta …", que son materiales de producto terminado pero se compran, se
+// consumen y se reponen igual. Lo único que cambia es el prefijo del nombre; los
+// rubros que config.json le sume a insumos no arrastran a las etiquetas.
+const ES_ETIQUETA = insumos.condicionSQL({ ...INSUMOS_CFG, rubros: [], prefijoNombre: 'ETIQUETA' });
+const condUniverso = tipo => (String(tipo || '') === 'etiqueta' ? ES_ETIQUETA : ES_INSUMO);
 
-function sqlInsumosStock() {
+function sqlInsumosStock(cond = ES_INSUMO) {
   return `SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, p.EsDeCompras,
     COALESCE((SELECT SUM(pd.Stock) FROM ProductosDepositos pd
               WHERE pd.IdProducto = p.IdProducto AND pd.IdSucursal = ${Number(INSUMOS_CFG.idSucursal)}
                 AND pd.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})), 0) AS StockCentral
   FROM Productos p INNER JOIN Rubros r ON r.IdRubro = p.IdRubro
-  WHERE p.Activo = 1 AND ${ES_INSUMO}
+  WHERE p.Activo = 1 AND ${cond}
   ORDER BY p.NombreProducto`;
 }
 
 // Salidas y entradas por producto, mes y tipo de movimiento. El mes sale del header
 // (MovimientosStock.FechaMovimiento): el detalle no tiene fecha propia.
 // filtroPlu acota a un solo insumo, para la vista de detalle.
-function sqlInsumosMovimientos(filtroPlu) {
+function sqlInsumosMovimientos(filtroPlu, cond = ES_INSUMO) {
   const plu = filtroPlu ? `AND mp.IdProducto = '${String(filtroPlu).replace(/'/g, "''")}'` : '';
   return `SELECT mp.IdProducto, CONVERT(varchar(7), m.FechaMovimiento, 126) AS Mes, mp.IdTipoMovimiento,
       SUM(CASE WHEN mp.Cantidad < 0 THEN -mp.Cantidad ELSE 0 END) AS Salidas,
@@ -3371,7 +3377,7 @@ function sqlInsumosMovimientos(filtroPlu) {
   INNER JOIN MovimientosStock m ON m.IdSucursal = mp.IdSucursal
        AND m.IdTipoMovimiento = mp.IdTipoMovimiento AND m.NumeroMovimiento = mp.NumeroMovimiento
   INNER JOIN Productos p ON p.IdProducto = mp.IdProducto
-  WHERE ${ES_INSUMO} AND p.Activo = 1
+  WHERE ${cond} AND p.Activo = 1
     AND mp.IdSucursal = ${Number(INSUMOS_CFG.idSucursal)}
     AND mp.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})
     AND m.FechaMovimiento >= DATEADD(MONTH, -${Number(INSUMOS_CFG.ventanaMeses)}, CAST(GETDATE() AS DATE)) ${plu}
@@ -3382,12 +3388,18 @@ function sqlInsumosMovimientos(filtroPlu) {
 // quien compra, no una cuenta: por eso se guardan y no se recalculan.
 const INSUMOS_NIVELES_PATH = path.join(DATA_DIR, 'insumos_niveles.json');
 
+// Grupos de etiquetas puestos a mano: { [plu]: 'Grupo' }. Sólo las excepciones —
+// lo que el nombre ya agrupa bien no se guarda.
+const ETIQUETAS_GRUPOS_PATH = path.join(DATA_DIR, 'etiquetas_grupos.json');
+
 const mesActualISO = () => new Date().toISOString().slice(0, 7);
 const filaMovInsumo = r => ({ plu: String(r.IdProducto), mes: r.Mes, tipo: r.IdTipoMovimiento,
                               salidas: Number(r.Salidas) || 0, entradas: Number(r.Entradas) || 0 });
 
-app.get('/api/insumos/listado', apiRoute(async () => {
-  const [stockRows, movRows] = await Promise.all([query(sqlInsumosStock()), query(sqlInsumosMovimientos())]);
+app.get('/api/insumos/listado', apiRoute(async (req) => {
+  const cond = condUniverso(req.query.tipo);
+  const [stockRows, movRows] = await Promise.all([
+    query(sqlInsumosStock(cond)), query(sqlInsumosMovimientos(null, cond))]);
   const productos = stockRows.map(r => ({
     plu: String(r.IdProducto), nombre: r.NombreProducto, rubro: r.NombreRubro,
     stock: Number(r.StockCentral) || 0, esDeCompras: !!r.EsDeCompras,
@@ -3397,7 +3409,12 @@ app.get('/api/insumos/listado', apiRoute(async () => {
     productos, filasMov: movRows.map(filaMovInsumo), mesActual: mesActualISO(),
     ventanaMeses: INSUMOS_CFG.ventanaMeses, umbrales: INSUMOS_CFG.umbrales,
     tiposExcluidos: INSUMOS_CFG.tiposExcluidos, niveles: leerJSON(INSUMOS_NIVELES_PATH, {}),
-  }).map(f => ({ ...f, esDeCompras: esDeCompras.get(f.plu) === true }));
+  // Las etiquetas viajan con su grupo calculado: el front agrupa por ese string,
+  // así la regla de qué es un grupo vive en un solo lado.
+  }).map(f => ({ ...f, esDeCompras: esDeCompras.get(f.plu) === true,
+                 ...(cond === ES_ETIQUETA
+                     ? { grupo: insumos.grupoDe(f.plu, f.nombre, leerJSON(ETIQUETAS_GRUPOS_PATH, {})) }
+                     : {}) }));
   return {
     productos: filas, totales: insumos.totales(filas),
     mesActual: mesActualISO(), ventanaMeses: INSUMOS_CFG.ventanaMeses,
@@ -3421,6 +3438,22 @@ app.put('/api/insumos/niveles/:plu', (req, res) => {
   res.json({ ok: true, plu, nivel });
 });
 
+// Mover etiquetas de grupo. Se manda { asignaciones: { plu: 'Grupo' | null } }:
+// el nombre las trae a ese grupo y null las devuelve al automático. No hay forma de
+// dejar un producto sin grupo ni en dos a la vez: cada PLU es una clave del mapa.
+app.put('/api/insumos/grupos', (req, res) => {
+  const asignaciones = (req.body || {}).asignaciones;
+  if (!asignaciones || typeof asignaciones !== 'object' || Array.isArray(asignaciones))
+    return res.status(400).json({ error: 'faltan las asignaciones' });
+  if (Object.keys(asignaciones).length > 500)
+    return res.status(400).json({ error: 'demasiadas asignaciones en una sola vez' });
+  let mapa;
+  try { mapa = insumos.aplicarAsignaciones(leerJSON(ETIQUETAS_GRUPOS_PATH, {}), asignaciones); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  guardarJSON(ETIQUETAS_GRUPOS_PATH, mapa);
+  res.json({ ok: true, grupos: mapa });
+});
+
 // De dónde sale el consumo de un insumo: la serie mes a mes, el desglose por tipo de
 // movimiento (con cuáles cuentan y cuáles no) y los últimos movimientos crudos.
 app.get('/api/insumos/detalle/:plu', apiRoute(async (req) => {
@@ -3433,7 +3466,7 @@ app.get('/api/insumos/detalle/:plu', apiRoute(async (req) => {
                          AND pd.IdDeposito IN (${numList(INSUMOS_CFG.depositos)})), 0) AS StockCentral
            FROM Productos p INNER JOIN Rubros r ON r.IdRubro = p.IdRubro
            WHERE p.IdProducto = '${plu}'`),
-    query(sqlInsumosMovimientos(plu)),
+    query(sqlInsumosMovimientos(plu, condUniverso(req.query.tipo))),
     query(`SELECT TOP 40 CONVERT(varchar(19), m.FechaMovimiento, 126) AS Fecha, mp.IdTipoMovimiento,
              mp.NumeroMovimiento, mp.Cantidad, m.Observacion, m.Usuario
            FROM MovimientosStockProductos mp

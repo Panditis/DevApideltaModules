@@ -27,6 +27,11 @@ tailwind.config = { theme: { extend: {
   .kpi.on{outline:2px solid #405936}
   .kpi .v{font-family:'Barlow Condensed';font-size:28px;font-weight:700;line-height:1}
   .kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#5c5f52}
+  .tab{font-family:'Barlow Condensed';font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+       padding:6px 14px;border-radius:10px 10px 0 0;border:1px solid transparent;color:#5c5f52;cursor:pointer}
+  .tab.on{background:#fff;border-color:#c3c9bc;border-bottom-color:#fff;color:#405936}
+  tr.grupo{background:#f2f6ec;cursor:pointer;font-weight:500}
+  tr.grupo:hover{background:#e9efe0}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #c3c9bc;border-top-color:#405936;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
   @keyframes sp{to{transform:rotate(360deg)}}
 </style>
@@ -46,6 +51,13 @@ tailwind.config = { theme: { extend: {
 </header>
 
 <main class="max-w-[1500px] mx-auto px-4 py-5">
+  <!-- Dos universos, misma pantalla: los "Insumo …" y las "Etiqueta …". -->
+  <div class="flex gap-1 border-b border-borde mb-4" id="tabs">
+    <button class="tab on" data-tipo="insumo">Insumos</button>
+    <button class="tab" data-tipo="etiqueta">Etiquetas</button>
+    <button id="btnNuevoGrupo" class="hidden ml-auto mb-1 px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">+ Nuevo grupo</button>
+  </div>
+
   <div id="kpis" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-4"></div>
 
   <div class="flex gap-2 mb-3 items-center flex-wrap">
@@ -61,7 +73,7 @@ tailwind.config = { theme: { extend: {
       <thead class="bg-verde/5 text-verde">
         <tr>
           <th class="p-2 sortable" data-col="plu">Código</th>
-          <th class="text-left p-2 sortable" data-col="nombre">Insumo</th>
+          <th class="text-left p-2 sortable" data-col="nombre" id="thNombre">Insumo</th>
           <th class="p-2 sortable" data-col="stock">Stock central</th>
           <th class="p-2 sortable" data-col="consumoMensual">Consumo/mes</th>
           <th class="p-2 sortable" data-col="diasCobertura">Duración estimada</th>
@@ -76,12 +88,15 @@ tailwind.config = { theme: { extend: {
     </table>
   </div>
   <p class="text-xs text-ink/50 mt-3 leading-relaxed">
-    Entran todos los productos activos cuyo nombre arranca con «Insumo», sea cual sea su rubro en Siga.
+    Entran todos los productos activos cuyo nombre arranca con «<span id="txtPrefijo">Insumo</span>», sea cual sea su rubro en Siga.
     El consumo sale de las salidas de stock del depósito de Casa Central, mes a mes, ponderando los meses
     más recientes. Las compras y los ajustes de inventario no cuentan como consumo: reponen o corrigen, no gastan.
     La duración es el stock actual dividido el consumo diario estimado. Clic en el nombre para ver de dónde sale el número.
-    <br>Mínimo y máximo se cargan a mano y se guardan solos: al tocar el mínimo, «A comprar» pide la diferencia
-    hasta el máximo. Los dos vacíos sacan al insumo del circuito de compra.
+    <br><span id="txtGrupos" class="hidden">Las etiquetas se agrupan por el producto que identifican: las
+    presentaciones (100G, 200G, 500G) cuelgan del mismo grupo y la fila de arriba suma su stock, su consumo
+    y lo que hay que comprar. Clic en el grupo para plegarlo, y en «Editar grupo» para renombrarlo o mover
+    etiquetas: cada etiqueta está en un grupo y en uno solo, y la que se saca vuelve al que dice su nombre.<br></span>Mínimo y máximo se cargan a mano y se guardan solos: al tocar el mínimo, «A comprar» pide la diferencia
+    hasta el máximo. Los dos vacíos sacan al producto del circuito de compra.
   </p>
 </main>
 
@@ -96,6 +111,29 @@ tailwind.config = { theme: { extend: {
   </div>
 </div>
 
+<!-- Editar un grupo: quiénes lo integran y cómo se llama. Sacar una etiqueta no la
+     deja sin grupo, la devuelve al que dice su nombre. -->
+<div id="mGrp" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4" role="dialog" aria-modal="true">
+  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-2xl max-h-[88vh] flex flex-col">
+    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+      <h3 id="mGrpTitulo" class="font-disp text-xl font-bold text-verde">Editar grupo</h3>
+      <button id="mGrpX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">&#10005;</button>
+    </div>
+    <div class="px-5 py-3 border-b border-borde flex gap-2 items-center flex-wrap">
+      <label class="text-sm">Nombre
+        <input id="mGrpNombre" maxlength="60" class="ml-1 px-2 py-1 rounded border border-borde w-64"></label>
+      <input id="mGrpBuscar" placeholder="Buscar etiqueta por PLU, nombre o grupo&#8230;"
+             class="px-2 py-1 rounded border border-borde flex-1 min-w-[200px]">
+    </div>
+    <div id="mGrpLista" class="px-5 py-2 overflow-y-auto text-sm flex-1"></div>
+    <div class="px-5 py-3 border-t border-borde flex items-center gap-2 flex-wrap">
+      <span id="mGrpAviso" class="text-xs text-ink/60"></span>
+      <button id="mGrpCancelar" class="ml-auto px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cancelar</button>
+      <button id="mGrpGuardar" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const ESTADO_META = {
   SIN_STOCK:   { txt:'Sin stock',   cls:'bg-rojo/15 text-rojo',       dot:'#D32F2F' },
@@ -106,6 +144,19 @@ const ESTADO_META = {
   SIN_CONSUMO: { txt:'Sin consumo', cls:'bg-black/5 text-gris',       dot:'#c3c9bc' },
 };
 const ORDEN_KPI = ['SIN_STOCK','CRITICO','BAJO','OK','EXCESO','SIN_CONSUMO'];
+
+// Cada tab es el mismo módulo mirando otro prefijo de nombre. El servidor decide
+// el universo con ?tipo=; acá sólo cambian los rótulos.
+const UNIVERSOS = {
+  insumo:   { singular:'Insumo',   plural:'Insumos',   prefijo:'Insumo',   hoja:'Insumos',   archivo:'Insumos' },
+  etiqueta: { singular:'Etiqueta', plural:'Etiquetas', prefijo:'Etiqueta', hoja:'Etiquetas', archivo:'Etiquetas' },
+};
+let tipo = 'insumo';
+// Grupos cerrados a mano. Las etiquetas vienen agrupadas por el producto que
+// identifican (Polen 100G/200G/500G son un solo "Polen"): el grupo es la unidad
+// con la que se compra, la presentación es un detalle de la fila.
+let colapsados = new Set();
+const U = () => UNIVERSOS[tipo];
 
 let data = null;
 let filtroEstado = null;
@@ -127,12 +178,12 @@ async function cargar(){
   document.getElementById('cuerpo').innerHTML =
     '<tr><td colspan="9" class="p-10 text-center text-ink/50"><span class="spin"></span> Leyendo movimientos de stock…</td></tr>';
   try {
-    const r = await fetch('/api/insumos/listado');
+    const r = await fetch('/api/insumos/listado?tipo=' + tipo);
     const j = await r.json();
     if (j.error) throw new Error(j.error);
     data = j;
     document.getElementById('meta').textContent =
-      `${j.productos.length} insumos · ventana ${j.ventanaMeses} meses · ` +
+      `${j.productos.length} ${U().plural.toLowerCase()} · ventana ${j.ventanaMeses} meses · ` +
       new Date(j.fechaCalculo).toLocaleString('es-AR');
     render();
   } catch (e) {
@@ -175,7 +226,7 @@ function filas(){
 function renderKpis(){
   const t = data.totales;
   const cards = [
-    { k:null, v:t.total, l:'Insumos activos' },
+    { k:null, v:t.total, l:`${U().plural} activos` },
     { k:'__pide', v:t.pideCompra || 0, l:'Piden compra' },
     ...ORDEN_KPI.map(e => ({ k:e, v:t[e] || 0, l:ESTADO_META[e].txt })),
   ];
@@ -204,34 +255,92 @@ function render(){
   renderKpis();
   const rows = filas();
   document.getElementById('conteo').textContent =
-    `${rows.length} de ${data.productos.length}` + (filtroEstado ? ` · ${ESTADO_META[filtroEstado].txt}` : '');
+    `${rows.length} de ${data.productos.length}`
+    + (agrupa(rows) ? ` · ${agrupar(rows).length} grupos` : '')
+    + (filtroEstado ? ` · ${ESTADO_META[filtroEstado].txt}` : '');
   const cuerpo = document.getElementById('cuerpo');
   if (!rows.length){
     cuerpo.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-ink/50">Nada que mostrar con estos filtros</td></tr>';
     return;
   }
-  cuerpo.innerHTML = rows.map(f => {
-    const em = ESTADO_META[f.estado] || ESTADO_META.SIN_CONSUMO;
-    const nivel = v => `<input type="number" min="0" step="any" value="${v == null ? '' : v}"
-      class="w-24 px-2 py-1 rounded border border-borde text-right" placeholder="—">`;
-    return `<tr class="border-t border-borde/60" data-plu="${f.plu}">
-      <td class="p-2 text-center text-ink/60">${f.plu}</td>
-      <td class="p-2 abrir cursor-pointer" title="Ver de dónde sale el consumo">
-        <span class="inline-block w-2 h-2 rounded-full align-middle mr-1"
-              style="background:${em.dot}" title="${em.txt}"></span>${esc(f.nombre)}</td>
-      <td class="p-2 text-right">${num(f.stock, 2)}</td>
-      <td class="p-2 text-right">${num(f.consumoMensual, 1)}</td>
-      <td class="p-2 text-right">${duracion(f.diasCobertura)}</td>
-      <td class="p-2 text-right" data-campo="min">${nivel(f.min)}</td>
-      <td class="p-2 text-right" data-campo="max">${nivel(f.max)}</td>
-      <td class="p-2 text-right font-medium bg-amarillo/10 ${f.pideCompra ? 'text-rojo' : 'text-ink/40'}">
-        ${f.aComprar > 0 ? num(f.aComprar, 2) : '—'}</td>
-    </tr>`;
-  }).join('');
+  cuerpo.innerHTML = agrupa(rows) ? htmlGrupos(rows) : rows.map(filaHTML).join('');
+  cuerpo.querySelectorAll('tr.grupo').forEach(tr => {
+    tr.onclick = () => {
+      const g = tr.dataset.grupo;
+      if (colapsados.has(g)) colapsados.delete(g); else colapsados.add(g);
+      render();
+    };
+    // El botón vive dentro de la fila que pliega: sin esto, editar también colapsa.
+    tr.querySelector('.editar').onclick = e => { e.stopPropagation(); abrirGrupo(tr.dataset.grupo); };
+  });
   cuerpo.querySelectorAll('tr[data-plu]').forEach(tr => {
     tr.querySelector('.abrir').onclick = () => abrirDetalle(tr.dataset.plu);
     tr.querySelectorAll('input').forEach(inp => { inp.onchange = () => guardarNivel(tr); });
   });
+}
+
+// Agrupa sólo si el servidor mandó grupo (hoy, la tab de etiquetas).
+const agrupa = rows => rows.some(f => f.grupo);
+
+// Los grupos salen en el orden en que aparece su primera fila: así heredan el
+// orden de urgencia (o el de la columna que se haya clickeado) sin recalcular nada.
+function agrupar(rows){
+  const m = new Map();
+  for (const f of rows){
+    const g = f.grupo || 'Sin grupo';
+    if (!m.has(g)) m.set(g, { grupo:g, filas:[], stock:0, consumoMensual:0, aComprar:0 });
+    const acc = m.get(g);
+    acc.filas.push(f);
+    acc.stock += Number(f.stock) || 0;
+    acc.consumoMensual += Number(f.consumoMensual) || 0;
+    acc.aComprar += Number(f.aComprar) || 0;
+  }
+  // El grupo se muestra con el peor estado de sus etiquetas: si una está sin stock,
+  // el grupo pide atención aunque las otras dos sobren.
+  for (const g of m.values())
+    g.estado = ORDEN_KPI.find(e => g.filas.some(f => f.estado === e)) || 'SIN_CONSUMO';
+  return [...m.values()];
+}
+
+function htmlGrupos(rows){
+  return agrupar(rows).map(g => {
+    const em = ESTADO_META[g.estado] || ESTADO_META.SIN_CONSUMO;
+    const abierto = !colapsados.has(g.grupo);
+    const cab = `<tr class="grupo border-t-2 border-borde" data-grupo="${esc(g.grupo)}">
+      <td class="p-2 text-center text-ink/50">${abierto ? '▾' : '▸'}</td>
+      <td class="p-2"><span class="inline-block w-2 h-2 rounded-full align-middle mr-1"
+            style="background:${em.dot}" title="${em.txt}"></span>${esc(g.grupo)}
+        <span class="text-ink/50 text-xs">· ${g.filas.length}</span>
+        <button class="editar ml-2 px-2 py-0.5 rounded border border-borde bg-card text-xs font-normal
+                       text-verde hover:bg-white">Editar grupo</button></td>
+      <td class="p-2 text-right">${num(g.stock, 2)}</td>
+      <td class="p-2 text-right">${num(g.consumoMensual, 1)}</td>
+      <td class="p-2 text-right text-ink/40">—</td>
+      <td></td><td></td>
+      <td class="p-2 text-right bg-amarillo/10 ${g.aComprar > 0 ? 'text-rojo' : 'text-ink/40'}">
+        ${g.aComprar > 0 ? num(g.aComprar, 2) : '—'}</td>
+    </tr>`;
+    return cab + (abierto ? g.filas.map(filaHTML).join('') : '');
+  }).join('');
+}
+
+function filaHTML(f){
+  const em = ESTADO_META[f.estado] || ESTADO_META.SIN_CONSUMO;
+  const nivel = v => `<input type="number" min="0" step="any" value="${v == null ? '' : v}"
+    class="w-24 px-2 py-1 rounded border border-borde text-right" placeholder="—">`;
+  return `<tr class="border-t border-borde/60" data-plu="${f.plu}">
+    <td class="p-2 text-center text-ink/60">${f.plu}</td>
+    <td class="p-2 abrir cursor-pointer ${f.grupo ? 'pl-8' : ''}" title="Ver de dónde sale el consumo">
+      <span class="inline-block w-2 h-2 rounded-full align-middle mr-1"
+            style="background:${em.dot}" title="${em.txt}"></span>${esc(f.nombre)}</td>
+    <td class="p-2 text-right">${num(f.stock, 2)}</td>
+    <td class="p-2 text-right">${num(f.consumoMensual, 1)}</td>
+    <td class="p-2 text-right">${duracion(f.diasCobertura)}</td>
+    <td class="p-2 text-right" data-campo="min">${nivel(f.min)}</td>
+    <td class="p-2 text-right" data-campo="max">${nivel(f.max)}</td>
+    <td class="p-2 text-right font-medium bg-amarillo/10 ${f.pideCompra ? 'text-rojo' : 'text-ink/40'}">
+      ${f.aComprar > 0 ? num(f.aComprar, 2) : '—'}</td>
+  </tr>`;
 }
 
 // Guarda el par mínimo/máximo de una fila. Los dos vacíos borran el nivel.
@@ -308,11 +417,11 @@ function sparkline(serie){
 async function abrirDetalle(plu){
   const modal = document.getElementById('mDet');
   modal.classList.remove('hidden'); modal.classList.add('flex');
-  document.getElementById('mDetTitulo').textContent = 'Insumo ' + plu;
+  document.getElementById('mDetTitulo').textContent = U().singular + ' ' + plu;
   const body = document.getElementById('mDetBody');
   body.innerHTML = '<p class="text-ink/50 py-6 text-center"><span class="spin"></span> Cargando…</p>';
   try {
-    const d = await (await fetch('/api/insumos/detalle/' + encodeURIComponent(plu))).json();
+    const d = await (await fetch('/api/insumos/detalle/' + encodeURIComponent(plu) + '?tipo=' + tipo)).json();
     if (d.error) throw new Error(d.error);
     document.getElementById('mDetTitulo').textContent = d.nombre;
     const em = ESTADO_META[d.estado] || ESTADO_META.SIN_CONSUMO;
@@ -354,6 +463,86 @@ async function abrirDetalle(plu){
   }
 }
 
+// ── Editar grupos ──────────────────────────────────────────────────────────────
+// Una etiqueta pertenece a un grupo y a uno solo: el modal trabaja con el conjunto
+// de integrantes de UN grupo, así que tildar acá es sacarla de donde estaba.
+let grupoEditando = null;   // null = grupo nuevo
+let seleccion = new Set();
+
+function abrirGrupo(nombre){
+  if (!data) return;
+  grupoEditando = nombre || null;
+  seleccion = new Set(data.productos.filter(f => f.grupo === grupoEditando).map(f => f.plu));
+  document.getElementById('mGrpTitulo').textContent = grupoEditando ? 'Editar grupo' : 'Nuevo grupo';
+  document.getElementById('mGrpNombre').value = grupoEditando || '';
+  document.getElementById('mGrpBuscar').value = '';
+  const m = document.getElementById('mGrp');
+  m.classList.remove('hidden'); m.classList.add('flex');
+  renderGrupoLista();
+  document.getElementById(grupoEditando ? 'mGrpBuscar' : 'mGrpNombre').focus();
+}
+
+function cerrarGrupo(){
+  const m = document.getElementById('mGrp');
+  m.classList.add('hidden'); m.classList.remove('flex');
+  grupoEditando = null; seleccion = new Set();
+}
+
+function avisoGrupo(msg){
+  document.getElementById('mGrpAviso').textContent = msg != null ? msg
+    : `${seleccion.size} etiqueta${seleccion.size === 1 ? '' : 's'} en el grupo · las que saques vuelven al grupo que dice su nombre`;
+}
+
+function renderGrupoLista(){
+  const q = document.getElementById('mGrpBuscar').value.trim().toLowerCase();
+  // Primero las que ya están en el grupo: son las que se sacan, y buscarlas entre
+  // todas las etiquetas del listado sería al pedo.
+  const items = data.productos
+    .filter(f => !q || f.nombre.toLowerCase().includes(q) || String(f.plu).startsWith(q)
+                    || String(f.grupo || '').toLowerCase().includes(q))
+    .sort((a, b) => (seleccion.has(b.plu) - seleccion.has(a.plu)) || a.nombre.localeCompare(b.nombre));
+  const lista = document.getElementById('mGrpLista');
+  lista.innerHTML = items.map(f => `
+    <label class="flex items-center gap-2 py-1 border-b border-borde/40 cursor-pointer">
+      <input type="checkbox" data-plu="${f.plu}" ${seleccion.has(f.plu) ? 'checked' : ''}>
+      <span class="text-ink/50 w-14">${f.plu}</span>
+      <span class="flex-1">${esc(f.nombre)}</span>
+      <span class="text-xs text-ink/50">${esc(f.grupo || '')}</span>
+    </label>`).join('') || '<p class="text-ink/50 py-4 text-center">Ninguna etiqueta con ese texto</p>';
+  lista.querySelectorAll('input').forEach(i => i.onchange = () => {
+    if (i.checked) seleccion.add(i.dataset.plu); else seleccion.delete(i.dataset.plu);
+    avisoGrupo();
+  });
+  avisoGrupo();
+}
+
+async function guardarGrupo(){
+  const nombre = document.getElementById('mGrpNombre').value.replace(/\s+/g, ' ').trim();
+  if (!nombre) return avisoGrupo('Poné un nombre para el grupo');
+  if (!seleccion.size) return avisoGrupo('El grupo tiene que tener al menos una etiqueta');
+  // Sólo viajan los cambios: lo que ya estaba en el grupo y sigue estando no se toca.
+  const asignaciones = {};
+  for (const f of data.productos){
+    const estaba = grupoEditando != null && f.grupo === grupoEditando;
+    const esta = seleccion.has(f.plu);
+    if (esta && (!estaba || nombre !== grupoEditando)) asignaciones[f.plu] = nombre;
+    else if (estaba && !esta) asignaciones[f.plu] = null;   // vuelve a su grupo automático
+  }
+  if (!Object.keys(asignaciones).length) return cerrarGrupo();
+  avisoGrupo('Guardando…');
+  try {
+    const r = await fetch('/api/insumos/grupos', {
+      method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ asignaciones }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    cerrarGrupo();
+    cargar();   // los grupos cambian el armado entero de la tabla: se relee y listo
+  } catch (e) {
+    avisoGrupo('No se pudo guardar: ' + e.message);
+  }
+}
+
 function cerrarDetalle(){
   const m = document.getElementById('mDet');
   m.classList.add('hidden'); m.classList.remove('flex');
@@ -362,19 +551,23 @@ function cerrarDetalle(){
 function exportar(){
   if (!data) return;
   const rows = filas();
+  const conGrupo = agrupa(rows);
   const aoa = [
-    ['APIDELTA — Control de insumos de Casa Central'],
+    [`APIDELTA — Control de ${U().plural.toLowerCase()} de Casa Central`],
     [`Generado ${new Date().toLocaleString('es-AR')} · ventana ${data.ventanaMeses} meses`],
     [],
-    ['Código','Insumo','Stock central','Consumo/mes','Días de duración','Mínimo','Máximo','A comprar','Estado'],
+    ['Código',U().singular,'Stock central','Consumo/mes','Días de duración','Mínimo','Máximo','A comprar','Estado',
+     ...(conGrupo ? ['Grupo'] : [])],
     ...rows.map(f => [Number(f.plu) || f.plu, f.nombre, f.stock, f.consumoMensual, f.diasCobertura,
-                      f.min, f.max, f.aComprar || 0, (ESTADO_META[f.estado] || {}).txt || f.estado]),
+                      f.min, f.max, f.aComprar || 0, (ESTADO_META[f.estado] || {}).txt || f.estado,
+                      ...(conGrupo ? [f.grupo || 'Sin grupo'] : [])]),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:9},{wch:46},{wch:13},{wch:12},{wch:16},{wch:10},{wch:10},{wch:12},{wch:12}];
+  ws['!cols'] = [{wch:9},{wch:46},{wch:13},{wch:12},{wch:16},{wch:10},{wch:10},{wch:12},{wch:12},
+                 ...(conGrupo ? [{wch:32}] : [])];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Insumos');
-  XLSX.writeFile(wb, `Apidelta_Insumos_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, U().hoja);
+  XLSX.writeFile(wb, `Apidelta_${U().archivo}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 document.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
@@ -383,6 +576,26 @@ document.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
   orden = { col:c, dir: orden.col === c ? -orden.dir : ((c === 'nombre' || c === 'estado') ? 1 : -1) };
   render();
 });
+// Cambiar de tab es empezar de cero: los filtros de estado y el orden hablan del
+// universo que se estaba mirando, no del nuevo.
+document.querySelectorAll('#tabs .tab').forEach(b => b.onclick = () => {
+  if (b.dataset.tipo === tipo) return;
+  tipo = b.dataset.tipo;
+  document.querySelectorAll('#tabs .tab').forEach(x => x.classList.toggle('on', x.dataset.tipo === tipo));
+  document.getElementById('thNombre').textContent = U().singular;
+  document.getElementById('txtPrefijo').textContent = U().prefijo;
+  document.getElementById('txtGrupos').classList.toggle('hidden', tipo !== 'etiqueta');
+  document.getElementById('btnNuevoGrupo').classList.toggle('hidden', tipo !== 'etiqueta');
+  document.title = `Control de ${U().plural} · Apidelta`;
+  data = null; filtroEstado = null; orden = { col:null, dir:1 }; colapsados = new Set();
+  document.getElementById('buscar').value = '';
+  document.getElementById('soloPide').checked = false;
+  document.getElementById('soloConsumo').checked = false;
+  document.getElementById('soloStock').checked = false;
+  document.getElementById('kpis').innerHTML = '';
+  document.getElementById('meta').textContent = '';
+  cargar();
+});
 document.getElementById('buscar').addEventListener('input', render);
 document.getElementById('soloPide').addEventListener('change', render);
 document.getElementById('soloConsumo').addEventListener('change', render);
@@ -390,8 +603,14 @@ document.getElementById('soloStock').addEventListener('change', render);
 document.getElementById('btnRecargar').onclick = cargar;
 document.getElementById('btnXlsx').onclick = exportar;
 document.getElementById('mDetX').onclick = cerrarDetalle;
+document.getElementById('btnNuevoGrupo').onclick = () => abrirGrupo(null);
+document.getElementById('mGrpX').onclick = cerrarGrupo;
+document.getElementById('mGrpCancelar').onclick = cerrarGrupo;
+document.getElementById('mGrpGuardar').onclick = guardarGrupo;
+document.getElementById('mGrpBuscar').addEventListener('input', renderGrupoLista);
+document.getElementById('mGrp').addEventListener('click', e => { if (e.target.id === 'mGrp') cerrarGrupo(); });
 document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet') cerrarDetalle(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarDetalle(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape'){ cerrarDetalle(); cerrarGrupo(); } });
 
 cargar();
 </script>

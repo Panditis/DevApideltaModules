@@ -177,6 +177,57 @@ function resumenInsumo({ plu, nombre, rubro = null, stock = 0,
   };
 }
 
+// ── Grupos de etiquetas ─────────────────────────────────────────────────────────
+// Las etiquetas se dan de alta como "Etiqueta <producto> <presentación>", una por
+// tamaño: Polen 100G, 200G y 500G son tres productos distintos que se compran y se
+// consumen juntos. El grupo es el producto que identifican, sin la presentación.
+
+// Una medida: 200G, 1.3, 290Cc, 750 GR. Desde acá para la derecha el nombre habla
+// del envase y del tamaño ("200G POTE", "350G (Mediano)"), no del producto.
+const RE_MEDIDA = /^\d+([.,]\d+)?(g|gr|grs|k|kg|kgs|cc|ml|l|lt|lts|u|un|uni|unid)?\.?$/i;
+
+function grupoEtiqueta(nombre) {
+  const limpio = String(nombre || '').replace(/^\s*etiquetas?\s+/i, '').trim();
+  if (!limpio) return 'Sin grupo';
+  const tokens = limpio.split(/\s+/);
+  const corte = tokens.findIndex(t => RE_MEDIDA.test(t));
+  // Un nombre que arranca con la medida no deja producto: mejor el nombre entero
+  // que un grupo vacío donde caería todo lo raro junto.
+  const base = corte > 0 ? tokens.slice(0, corte).join(' ') : limpio;
+  return base;
+}
+
+// El grupo que manda: el que se asignó a mano y, si no hay, el que dice el nombre.
+// El override vive en un mapa { [plu]: 'Grupo' }, así que un producto tiene un
+// grupo y uno solo por construcción, y ninguno queda huérfano: sin override
+// siempre cae en el automático.
+function grupoDe(plu, nombre, overrides = {}) {
+  return (overrides || {})[String(plu)] || grupoEtiqueta(nombre);
+}
+
+// Nombre de grupo escrito por una persona. Vacío significa "volver al automático",
+// no un grupo sin nombre.
+function normalizarNombreGrupo(v) {
+  const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  if (s.length > 60) throw new Error('el nombre del grupo no puede pasar de 60 caracteres');
+  return s;
+}
+
+// Aplica { [plu]: 'Grupo' | null } sobre el mapa guardado. null (o vacío) borra el
+// override y devuelve el producto a su grupo automático. Devuelve un mapa nuevo:
+// si algún PLU viene mal, no queda nada a medio guardar.
+function aplicarAsignaciones(overrides, asignaciones) {
+  const out = { ...(overrides || {}) };
+  for (const [plu, grupo] of Object.entries(asignaciones || {})) {
+    const p = String(plu).trim();
+    if (!/^\d+$/.test(p)) throw new Error(`PLU inválido: ${plu}`);
+    const g = normalizarNombreGrupo(grupo);
+    if (g) out[p] = g; else delete out[p];
+  }
+  return out;
+}
+
 // ── Stock mínimo y máximo (reposición manual) ───────────────────────────────────
 // El mínimo es el punto de pedido y el máximo el nivel al que se repone. Los pone
 // una persona, insumo por insumo: son el criterio de quien compra, no una cuenta.
@@ -272,6 +323,7 @@ module.exports = {
   VENTANA_MESES, DIAS_MES, TIPOS_NO_CONSUMO, UMBRALES, ESTADO,
   RUBROS, PREFIJO_NOMBRE, condicionSQL,
   esTipoConsumo, serieMensual, desglosePorTipo, clasificar, actividad,
+  grupoEtiqueta, grupoDe, normalizarNombreGrupo, aplicarAsignaciones,
   normalizarNivel, sugerirCompra, aplicarNiveles,
   resumenInsumo, ordenarPorUrgencia, calcularListado, totales,
 };
