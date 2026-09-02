@@ -16,13 +16,13 @@ const multer   = require('multer');
 const XLSX     = require('xlsx');
 const auth     = require('./auth');
 const { calcularAlmacen, pisoMinimo } = require('./distribucion');
-const comprasModulo = require('./compras_modulo');
+const compras = require('./compras');
 const insumos = require('./insumos');
-const prediccionConsumo = require('./prediccion_consumo');
 const preciosProv = require('./precios_proveedores');
 const preciosHistorico = require('./precios_historico');
 const preciosFacturador = require('./precios_facturador');
 const comprasImport = require('./compras_import');
+const comprasControl = require('./compras_control');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
@@ -847,10 +847,14 @@ WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < 
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
 function sqlStockPorPlu(pluList) {
+  // IdProducto es char en Siga: se cita igual que en sqlStockDistribucion. Sin comillas,
+  // un PLU no numérico fuerza la conversión de la columna y rompe la query entera; y acá
+  // entran tanto el universo de compras de un proveedor como los ids de /api/stock/plus.
+  const inList = pluList.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
 INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
 INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-WHERE s.SoyLaCentral=1 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
+WHERE s.SoyLaCentral=1 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${inList}) GROUP BY pd.IdProducto`;
 }
 function sqlStockTodosDepositos(pluList) {
   return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
@@ -1181,7 +1185,7 @@ app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedi
 app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
 app.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'productividad.html')));
-app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras_modulo.html')));
+app.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insumos.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
@@ -1301,7 +1305,6 @@ const ENVASES_REG_PATH = path.join(DATA_DIR, 'envases_registro.json'); // [{codi
 const TAPAS_REG_PATH   = path.join(DATA_DIR, 'tapas_registro.json');    // [{codigo,nombre,stock}]
 const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
 const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,nombre,cantPorUnidad}] }
-const TRACKING_PRODUCCION_PATH = path.join(DATA_DIR, 'tracking_produccion.json'); // [{plu,nombre}]
 // cfg entry puede ser: true|false  o  {activo:bool, granelPlu:string, mpManual:[], granelDirecto:bool}
 function cfgActivo(cfg, ref) { const v=cfg[ref]; if(v===undefined)return true; if(typeof v==='boolean')return v; return v.activo!==false; }
 function cfgGranelPlu(cfg, ref) { const v=cfg[ref]; return (v&&typeof v==='object')?String(v.granelPlu||'').trim():''; }
@@ -1324,14 +1327,6 @@ function cfgEsMiel(cfg, ref)    { const v=cfg[ref]; return (v&&typeof v==='objec
 // El grupo se hace en presentaciones pero antes hay que fabricar el granel (ej. pepas → masa).
 function cfgReqGranel(cfg, ref) { const v=cfg[ref]; return !!(v&&typeof v==='object'&&v.reqGranel===true); }
 const COMPRAS_PROD_PATH  = path.join(DATA_DIR, 'compras_productos.json');
-const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'presentaciones_compra.json');
-// NOTA: no se reusa ORDENES_PATH (data/ordenes.json) porque ya está en uso por /api/ordenes y
-// /api/ordenes-produccion (órdenes de producción, dominio no relacionado) — archivo dedicado para no mezclar datos.
-const ORDENES_COMPRA_PATH = path.join(DATA_DIR, 'ordenes_compra.json');
-// Lead time por proveedor en días: { "_default": 14, "<NOMBRE PROVEEDOR>": 4 }. Se usa
-// al pasar la orden a ENVIADA para estimar la fecha de llegada. Si el archivo no existe,
-// compras_modulo cae al default (14 días), así que no hace falta crearlo a mano.
-const LEAD_TIMES_PATH = path.join(DATA_DIR, 'lead_times.json');
 // Serie mensual de consumo (24 meses) para la predicción de compra. Se recalcula
 // bajo demanda: es una consulta pesada y el dato cambia una vez por día como mucho.
 const CONSUMO_MENSUAL_PATH = path.join(DATA_DIR, 'consumo_mensual.json');
@@ -2948,386 +2943,271 @@ app.delete('/api/distribucion/envios-manuales', (req, res) => {
 });
 
 // ── Módulo Compras ───────────────────────────────────────────────────────────
-// Mapa IdProducto(String) -> { proveedor, precio, fecha, ultimaCantidad, ultimaFecha } desde SIGA.
-async function _provMapCompras() {
-  const distCfg = leerJSON(DISTRIB_CONFIG_PATH, {});
-  const compraTipos = (distCfg.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
-  const [provRows, movRows] = await Promise.all([
-    query(`SELECT pp.IdProducto, pv.NombreProveedor,
-                  CAST(pp.UltimoPrecioCompra AS FLOAT) AS Precio,
-                  CONVERT(varchar(10), pp.UltimaFechaCompra, 23) AS FechaPrecio
-           FROM ProductosProveedores pp
-           JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
-           JOIN Productos p ON p.IdProducto = pp.IdProducto
-           WHERE pp.UltimoPrecioCompra > 0 AND p.Activo = 1
-           ORDER BY pp.IdProducto, pp.UltimaFechaCompra DESC`),
-    query(`SELECT mp.IdProducto,
-                  CONVERT(varchar(10), MAX(m.FechaMovimiento), 23) AS UltimaFecha,
-                  SUM(mp.Cantidad) AS CantTotal, COUNT(*) AS N
-           FROM MovimientosStockProductos mp
-           JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
-           WHERE mp.IdTipoMovimiento IN (${compraTipos})
-           GROUP BY mp.IdProducto`).catch(() => []),
-  ]);
-  const map = new Map();
-  for (const r of provRows) {
-    const id = String(r.IdProducto);
-    if (!map.has(id)) map.set(id, { proveedor: r.NombreProveedor, precio: r.Precio, fecha: r.FechaPrecio, ultimaCantidad: null, ultimaFecha: null });
-  }
-  for (const r of movRows) {
-    const id = String(r.IdProducto);
-    const cant = r.N > 0 ? Math.round((r.CantTotal || 0) / r.N) : null; // promedio por movimiento de compra
-    if (!map.has(id)) map.set(id, { proveedor: null, precio: null, fecha: null, ultimaCantidad: cant, ultimaFecha: r.UltimaFecha });
-    else { const m = map.get(id); m.ultimaCantidad = cant; m.ultimaFecha = r.UltimaFecha; }
-  }
-  return map;
-}
+// Armar el pedido a un proveedor → seguimiento → dashboard OTIF. La matemática
+// (equivalencias de pesables, cobertura, estados, OTIF) vive en compras.js; acá
+// van las queries a SIGA, el disco y la validación del request.
+const PEDIDOS_COMPRA_PATH = path.join(DATA_DIR, 'pedidos_compra.json');
+const VENTANAS_SUC = [30, 60, 90];
 
-// Set de IdProducto(String) marcados en SIGA como "Es de compras" y activos.
-// El listado de compras solo muestra estos: lo que no se compra no se repone por orden de compra.
-async function _productosDeCompra() {
-  const rows = await query(`SELECT IdProducto FROM Productos WHERE EsDeCompras = 1 AND Activo = 1`).catch(() => null);
-  if (!rows) return null; // sin acceso a SIGA no se filtra, para no vaciar el listado
-  return new Set(rows.map(r => String(r.IdProducto)));
-}
+function leerPedidosCompra()          { return leerJSON(PEDIDOS_COMPRA_PATH, { pedidos: [] }).pedidos || []; }
+function guardarPedidosCompra(lista)  { guardarJSON(PEDIDOS_COMPRA_PATH, { pedidos: lista }); }
+function usuarioCompras(req)          { return String((req.session && req.session.user && req.session.user.usuario) || 'anonimo'); }
 
-// Unifica productos rubro Almacen (calcularDistribucionAlmacen) + Pesables Fraccionado (calcularDistribucionPesables),
-// enriquece con proveedor/costo/última compra y calcula las 3 señales de compra.
-async function calcularListadoCompras() {
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
-  const pisoCfg = c.comprasPisoCentral || { tramos: [{ hastaS: null, pct: 0.25 }], pisoAbsoluto: 0 };
-  const [almacen, pesables, provMap, compraSet] = await Promise.all([
-    calcularDistribucionAlmacen(),
-    calcularDistribucionPesables().catch(() => []),
-    _provMapCompras(),
-    _productosDeCompra(),
-  ]);
-  // Stock central del granel por código (para columna granel de fraccionables)
-  const granelCodes = [...new Set(pesables.map(f => f.granel).filter(g => g != null).map(String))];
-  const granelMap = new Map();
-  if (granelCodes.length) {
-    const q = granelCodes.map(g => `'${String(g).replace(/'/g, "''")}'`).join(',');
-    const rows = await query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
-      FROM ProductosDepositos pd
-      INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
-      INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-      WHERE s.SoyLaCentral=1 AND pd.IdProducto IN (${q}) GROUP BY pd.IdProducto`).catch(() => []);
-    for (const r of rows) granelMap.set(String(r.IdProducto), parseFloat(r.Stock || 0));
-  }
-
-  // Importancia y consumo salen del caché de A8020: no se recalcula nada acá.
-  // Si el caché no existe todavía, las columnas quedan en null y la UI muestra '·'.
-  const a8020Cache = leerJSON(A8020_CALC_PATH, {}) || {};
-  const rankingGeneral = a8020Cache.rankingGeneral || {};
-  const consumoA8020 = a8020Cache.consumo || {};
-  const ventanaMeses = a8020Cache.ventanaMeses || 12;
-  const gruposGranel = comprasModulo.agruparPesablesPorGranel(pesables);
-
-  const filaComun = (plu, nombre, tipo, central, stkSuc, pideTotal, enviarMicro, extra) => {
-    const prov = provMap.get(String(plu)) || {};
-    const sig = comprasModulo.sugeridoCompra({ pideTotal, central, enviarMicro, tramos: pisoCfg.tramos, pisoAbsoluto: pisoCfg.pisoAbsoluto });
-    const consolidado = (central || 0) + Object.values(stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-    return {
-      plu: String(plu), nombre, tipo, // 'almacen' | 'pesable'
-      central: central || 0, stkSuc: stkSuc || {}, consolidado,
-      importancia: rankingGeneral[String(plu)] ?? null,
-      consumoMensual: comprasModulo.consumoPromedioMensual(consumoA8020, plu, ventanaMeses),
-      deficitReposicion: sig.deficitReposicion, deficitMicro: sig.deficitMicro, faltanteReal: sig.faltanteReal, sugerido: sig.sugerido,
-      proveedor: prov.proveedor || null, costo: prov.precio || null,
-      ultimaCompraFecha: prov.ultimaFecha || prov.fecha || null, ultimaCompraCantidad: prov.ultimaCantidad || null,
-      ...extra,
-    };
-  };
-
-  const esDeCompra = plu => !compraSet || compraSet.has(String(plu));
-
-  const rows = [];
-  for (const f of almacen) {
-    if (!esDeCompra(f.plu)) continue;
-    const pideTotal = Object.values(f.ideal || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-    rows.push(filaComun(f.plu, f.nombre, 'almacen', f.central, f.stkSuc, pideTotal, f.enviarMicro, {
-      granelCentral: null, granelPlu: null, nombreGranel: '', fraccionado: null,
-    }));
-  }
-  // Una fila por granel: es el producto que se compra. Las presentaciones viajan
-  // en el detalle para poder auditar de dónde sale el pedido.
-  for (const g of gruposGranel) {
-    const pluGranel = String(g.granel);
-    if (!esDeCompra(pluGranel)) continue;
-    const central = granelMap.get(pluGranel) || 0;
-    rows.push(filaComun(pluGranel, g.nombreGranel || pluGranel, 'pesable', central, {}, g.pideTotalGranel, {}, {
-      granelCentral: central, granelPlu: g.granel, nombreGranel: g.nombreGranel || '',
-      fraccionado: g.stockPresentacionesKg,
-      presentaciones: g.presentaciones,
-    }));
-  }
-  rows.sort((a, b) => b.sugerido - a.sugerido);
-  return { productos: rows, fechaCalculo: new Date().toISOString(), total: rows.length };
-}
-app.get('/api/compras-modulo/listado', apiRoute(async () => calcularListadoCompras()));
-
-// Qué códigos alimentan el consumo de un PLU y con qué multiplicador. Es la
-// respuesta a "de dónde sale este número": sin esto el sugerido es una caja negra.
-app.get('/api/compras-modulo/detalle-plu/:plu', apiRoute(async (req) => {
-  const plu = String(req.params.plu || '').trim();
-  const cache = leerJSON(A8020_CALC_PATH, {}) || {};
-  const pesLis = leerJSON(PESABLES_LISTAS_PATH, {});
-  const formulas = pesLis.formulas || {};
-  // Candidatas a presentación: todo lo que pesables_listas mapea contra este granel.
-  // Ese archivo es un mapeo histórico y no se depura, así que arrastra productos dados de
-  // baja en SIGA (ej. 1389 "Pasa Uva Rubia 100G", Activo=0): se filtran más abajo.
-  const candidatas = Object.entries(formulas)
-    .filter(([, f]) => String(f.granel) === plu)
-    .map(([pluFrac, f]) => ({
-      plu: pluFrac,
-      cantFormula: Number(f.cantFormula) > 0 ? Number(f.cantFormula) : 1,
-      consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, pluFrac, cache.ventanaMeses || 12),
-    }));
-  // Otros productos (mixes, granolas, elaborados) que llevan este artículo en su fórmula
-  // activa. Va aparte de `presentaciones`: eso es el mismo artículo en otro envase, esto es
-  // consumo dentro de otro producto distinto.
-  // Las presentaciones fraccionadas también son padres en ProductosComponentes, así que sin
-  // este descarte cada 250G/500G/1Kg saldría listado dos veces, una en cada sección.
-  const yaEsPresentacion = new Set(candidatas.map(p => String(p.plu)));
-  const padres = (await productosQueUsanComponente(plu)).filter(p => !yaEsPresentacion.has(String(p.plu)));
-  // Un solo viaje a SIGA para el artículo, sus candidatas a presentación y los padres:
-  // resuelve los nombres que el caché de A8020 no tiene y el estado activo/inactivo.
-  const infoSIGA = await datosProductosSIGA([plu, ...candidatas.map(p => p.plu), ...padres.map(p => p.plu)]);
-  const usadoEn = padres.map(p => {
-    const siga = infoSIGA.get(String(p.plu)) || {};
-    return {
-      ...p,
-      nombre: p.nombre || siga.nombre || '',
-      rubro: p.rubro || siga.rubro || '',
-      consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, p.plu, cache.ventanaMeses || 12),
-    };
-  });
-  // Criterio de filtrado: se descartan sólo las presentaciones que SIGA marca como INACTIVAS.
-  // No se exige que la fórmula activa siga llevando el granel porque en SIGA los productos
-  // discontinuados conservan la fórmula (1389 sigue apuntando a 7354 aunque esté de baja):
-  // el único dato que distingue "presentación real" de "resto histórico" es Productos.Activo.
-  // Si SIGA no devuelve la fila (o falla la consulta) se conserva la presentación, para no
-  // ocultar información por un problema de conexión.
-  const presentaciones = candidatas
-    .filter(p => (infoSIGA.get(String(p.plu)) || {}).activo !== false)
-    .map(p => {
-      const siga = infoSIGA.get(String(p.plu)) || {};
-      return {
-        ...p,
-        nombre: (cache.nombres || {})[p.plu] || siga.nombre || '',
-        rubro: (cache.rubros || {})[p.plu] || siga.rubro || '',
-      };
-    });
-  const infoPropia = infoSIGA.get(String(plu)) || {};
-  return {
-    plu,
-    nombre: (cache.nombres || {})[plu] || infoPropia.nombre || '',
-    rubro: (cache.rubros || {})[plu] || infoPropia.rubro || '',
-    importancia: (cache.rankingGeneral || {})[plu] ?? null,
-    abc: (cache.abc || {})[plu] || null,
-    ventanaMeses: cache.ventanaMeses || 12,
-    consumoPorSucursal: (cache.consumo || {})[plu] || {},
-    consumoOrigen: (cache.consumoOrigen || {})[plu] || {},
-    consumoMensual: comprasModulo.consumoPromedioMensual(cache.consumo || {}, plu, cache.ventanaMeses || 12),
-    presentaciones,
-    usadoEn,
-  };
-}));
-
-// Busca proveedores por nombre parcial y devuelve los productos que maneja con último precio/fecha.
-app.get('/api/compras-modulo/proveedores/buscar', apiRoute(async (req) => {
+// Sólo proveedores a los que efectivamente se les compró en la ventana: SIGA tiene
+// 2264 proveedores cargados y 1108 con movimiento en 24 meses. Listar los otros es
+// ofrecer una búsqueda que sólo puede terminar en una tabla vacía. Se ordena por
+// cantidad de productos para que el proveedor real aparezca primero.
+// El JOIN lleva IdProveedor por la misma razón que productosCompradosAlProveedor.
+app.get('/api/compras/proveedores', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return { proveedores: [] };
-  const like = q.replace(/'/g, "''");
-  const rows = await query(`SELECT pv.NombreProveedor, pp.IdProducto, p.NombreProducto,
-      CAST(pp.UltimoPrecioCompra AS FLOAT) AS Precio,
-      CONVERT(varchar(10), pp.UltimaFechaCompra, 23) AS Fecha
-    FROM ProductosProveedores pp
-    JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
-    JOIN Productos p ON p.IdProducto = pp.IdProducto
-    WHERE pv.NombreProveedor LIKE '%${like}%' AND pv.Activo = 1 AND p.Activo = 1 AND pp.UltimoPrecioCompra > 0
-    ORDER BY pv.NombreProveedor, p.NombreProducto`);
-  const porProv = new Map();
-  for (const r of rows) {
-    const nom = r.NombreProveedor;
-    if (!porProv.has(nom)) porProv.set(nom, { proveedor: nom, productos: [] });
-    porProv.get(nom).productos.push({ plu: String(r.IdProducto), nombre: r.NombreProducto, precio: r.Precio, fecha: r.Fecha });
-  }
-  return { proveedores: [...porProv.values()].map(p => ({ ...p, cantProductos: p.productos.length })) };
+  const pool = await getPool();
+  const r = await pool.request().input('like', `%${q}%`).query(
+    `SELECT TOP 50 pv.IdProveedor, pv.NombreProveedor,
+            COUNT(DISTINCT cp.IdProducto) AS Productos,
+            CONVERT(varchar(10), MAX(c.Fecha), 23) AS UltimaCompra
+     FROM Proveedores pv
+     JOIN Compras c ON c.IdProveedor = pv.IdProveedor
+       AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+     JOIN ComprasProductos cp ON cp.IdSucursal=c.IdSucursal AND cp.IdTipoComprobante=c.IdTipoComprobante
+       AND cp.Letra=c.Letra AND cp.CentroEmisor=c.CentroEmisor AND cp.NumeroComprobante=c.NumeroComprobante
+       AND cp.IdProveedor=c.IdProveedor
+     WHERE pv.NombreProveedor LIKE @like
+     GROUP BY pv.IdProveedor, pv.NombreProveedor
+     ORDER BY COUNT(DISTINCT cp.IdProducto) DESC`);
+  return { proveedores: r.recordset.map(p => ({
+    id: Number(p.IdProveedor), nombre: p.NombreProveedor,
+    productos: Number(p.Productos) || 0, ultimaCompra: p.UltimaCompra || null,
+  })) };
 }));
 
-// Recibe { items:[{plu,cantidad,proveedor,costoUnit}] } y devuelve cobertura agrupada por proveedor.
-app.post('/api/compras-modulo/carrito/cobertura', (req, res) => {
-  const items = (req.body && req.body.items) || [];
-  if (!Array.isArray(items)) return res.status(400).json({ error: 'items debe ser array' });
-  res.json({ cobertura: comprasModulo.coberturaPorProveedor(items) });
-});
-
-// Presentaciones de compra: { [plu]: { unidadesPorBulto:Number, nombreBulto?:String } }
-app.get('/api/compras-modulo/presentaciones', apiRoute(async () => leerJSON(PRESENTACIONES_COMPRA_PATH, {})));
-app.post('/api/compras-modulo/presentaciones', (req, res) => {
-  const b = req.body || {};
-  const plu = String(b.plu || '').trim();
-  const uxb = Number(b.unidadesPorBulto);
-  if (!plu || !(uxb > 0)) return res.status(400).json({ error: 'plu y unidadesPorBulto (>0) requeridos' });
-  const d = leerJSON(PRESENTACIONES_COMPRA_PATH, {});
-  d[plu] = { unidadesPorBulto: uxb, nombreBulto: (b.nombreBulto || '').trim() || undefined };
-  guardarJSON(PRESENTACIONES_COMPRA_PATH, d);
-  res.json({ ok: true, presentaciones: d });
-});
-app.delete('/api/compras-modulo/presentaciones/:plu', (req, res) => {
-  const d = leerJSON(PRESENTACIONES_COMPRA_PATH, {});
-  delete d[String(req.params.plu)];
-  guardarJSON(PRESENTACIONES_COMPRA_PATH, d);
-  res.json({ ok: true, presentaciones: d });
-});
-
-// Productos que el usuario sigue en la pestaña Producción del módulo Compras.
-function leerTrackingProduccion() {
-  const d = leerJSON(TRACKING_PRODUCCION_PATH, []);
-  return Array.isArray(d) ? d.filter(x => x && x.plu).map(x => ({ plu: String(x.plu), nombre: String(x.nombre || x.plu) })) : [];
+// Lo que se le compró al proveedor en 24 meses, con la última compra de cada artículo.
+// Todos los tipos de comprobante, cotizaciones incluidas.
+//
+// IdProveedor es parte de la PK de Compras y de ComprasProductos, y sin él en el JOIN
+// las filas se multiplican: cada proveedor arranca su propia numeración de cotizaciones
+// (NumeroComprobante 1, 2, 3…), así que la clave de 5 columnas se repite entre proveedores.
+// Con la sexta columna el JOIN devuelve 27.815 renglones, exactamente los que existen;
+// sin ella devolvía 830.396. Ese era el motivo real por el que historialComprasAnio
+// excluye las cotizaciones — el filtro tapaba el síntoma, no la causa.
+async function productosCompradosAlProveedor(idProveedor) {
+  const pool = await getPool();
+  const r = await pool.request().input('idProv', idProveedor).query(`
+    ;WITH cc AS (
+      SELECT cp.IdProducto, c.Fecha,
+             CAST(cp.Precio AS FLOAT) AS Precio, CAST(cp.Cantidad AS FLOAT) AS Cantidad
+      FROM ComprasProductos cp
+      JOIN Compras c ON c.IdSucursal=cp.IdSucursal AND c.IdTipoComprobante=cp.IdTipoComprobante
+        AND c.Letra=cp.Letra AND c.CentroEmisor=cp.CentroEmisor AND c.NumeroComprobante=cp.NumeroComprobante
+        AND c.IdProveedor=cp.IdProveedor
+      WHERE c.IdProveedor = @idProv
+        AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+    ), agg AS (
+      SELECT IdProducto, MAX(Fecha) AS UltimaFecha, SUM(Cantidad) AS CantTotal, COUNT(*) AS Compras
+      FROM cc GROUP BY IdProducto
+    ), ult AS (
+      SELECT IdProducto, Precio, Cantidad,
+             ROW_NUMBER() OVER (PARTITION BY IdProducto ORDER BY Fecha DESC) AS rn
+      FROM cc
+    )
+    SELECT a.IdProducto, CONVERT(varchar(10), a.UltimaFecha, 23) AS UltimaFecha,
+           a.CantTotal, a.Compras, u.Precio AS UltimoPrecio, u.Cantidad AS UltimaCantidad,
+           p.NombreProducto, p.Activo
+    FROM agg a
+    JOIN ult u ON u.IdProducto=a.IdProducto AND u.rn=1
+    LEFT JOIN Productos p ON p.IdProducto=a.IdProducto
+    ORDER BY a.UltimaFecha DESC`);
+  return r.recordset;
 }
 
-// Componentes de la fórmula ACTIVA (SIGA) de los productos en tracking, sumarizados:
-// cada componente aparece una sola vez, con el consumo acumulado y los productos que lo usan.
-async function calcularProduccionDeficit() {
-  const tracking = leerTrackingProduccion();
-  if (!tracking.length) return { productos: [], componentes: [], total: 0 };
-  const inPadres = tracking.map(t => `'${t.plu.replace(/'/g, "''")}'`).join(',');
-  const compRows = await query(`SELECT pc.IdProducto, pc.IdProductoComponente,
-      CAST(pc.Cantidad AS FLOAT) AS Cantidad, p.NombreProducto
-    FROM dbo.ProductosComponentes pc
-    JOIN dbo.Productos p ON p.IdProducto = pc.IdProductoComponente
-    WHERE pc.IdProducto IN (${inPadres}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}`);
-  // Sin catch: si SIGA falla, el error tiene que verse en la pantalla y no confundirse
-  // con "este producto no tiene componentes".
-
-  const nombrePadre = new Map(tracking.map(t => [t.plu, t.nombre]));
-  const consumoPorComp = new Map();   // plu -> { plu, nombre, consumo, usadoPor:Set }
-  for (const r of compRows) {
-    const plu = String(r.IdProductoComponente);
-    if (!consumoPorComp.has(plu)) consumoPorComp.set(plu, { plu, nombre: r.NombreProducto || plu, consumo: 0, usadoPor: new Set() });
-    const rec = consumoPorComp.get(plu);
-    rec.consumo += Number(r.Cantidad) || 0;   // consumo por unidad producida, sumado entre los productos seguidos
-    rec.usadoPor.add(nombrePadre.get(String(r.IdProducto)) || String(r.IdProducto));
-  }
-  const plus = [...consumoPorComp.keys()];
-  if (!plus.length) return { productos: tracking, componentes: [], total: 0 };
-  const q = plus.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
-  const stockRows = await query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
-    FROM ProductosDepositos pd
-    INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
-    INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-    WHERE s.SoyLaCentral=1 AND pd.IdProducto IN (${q}) GROUP BY pd.IdProducto`).catch(() => []);
-  const stockMap = new Map(stockRows.map(r => [String(r.IdProducto), parseFloat(r.Stock || 0)]));
-  const provMap = await _provMapCompras();
-  const comps = plus.map(plu => {
-    const rec = consumoPorComp.get(plu);
-    const stock = stockMap.get(plu) || 0;
-    const deficit = Math.max(rec.consumo - stock, 0);
-    const prov = provMap.get(plu) || {};
-    return { plu, nombre: rec.nombre, stock, consumoProyectado: Math.round(rec.consumo * 100) / 100,
-      deficit: Math.round(deficit * 100) / 100, usadoPor: [...rec.usadoPor],
-      proveedor: prov.proveedor || null, costo: prov.precio || null };
-  }).sort((a, b) => b.deficit - a.deficit || a.nombre.localeCompare(b.nombre));
-  return { productos: tracking, componentes: comps, total: comps.length };
+// Ventas al cliente final en sucursales de los últimos `dias` días, por producto.
+// Mismos filtros que el resto del sistema (_ventasWhere): sin anulados y sin
+// comprobantes a clientes categoría SUCURSAL, que son transferencias internas.
+function sqlVentasDias(idList, dias, pluList) {
+  return `SELECT vp.IdProducto, SUM(vp.Cantidad) AS Cant
+    FROM VentasProductos vp ${_ventasJoin}
+    WHERE v.Fecha >= DATEADD(DAY,-${dias},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
+      AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND v.IdSucursal IN (${idList})
+      AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
+      AND vp.IdProducto IN (${pluList.map(p => `'${p}'`).join(',')})
+    GROUP BY vp.IdProducto`;
 }
-app.get('/api/compras-modulo/produccion-deficit', apiRoute(async () => calcularProduccionDeficit()));
 
-// Buscador de productos con fórmula (los que se producen), para sumarlos al tracking.
-app.get('/api/compras-modulo/productos-producibles', apiRoute(async (req) => {
-  const q = String(req.query.q || '').trim();
-  if (q.length < 2) return { productos: [] };
-  const like = q.replace(/'/g, "''");
-  // Se busca por nombre y por PLU: en pantalla el producto se identifica por su IdProducto,
-  // así que tipear el código tiene que encontrarlo igual que tipear el nombre.
-  const rows = await query(`SELECT TOP 50 p.IdProducto, p.NombreProducto
-    FROM dbo.Productos p
-    WHERE p.Activo = 1
-      AND (p.NombreProducto LIKE '%${like}%' OR CAST(p.IdProducto AS varchar(50)) LIKE '${like}%')
-      AND EXISTS (SELECT 1 FROM dbo.ProductosComponentes pc WHERE pc.IdProducto = p.IdProducto)
-    ORDER BY CASE WHEN CAST(p.IdProducto AS varchar(50)) = '${like}' THEN 0 ELSE 1 END, p.NombreProducto`);
-  return { productos: rows.map(r => ({ plu: String(r.IdProducto), nombre: r.NombreProducto })) };
+// SIGA no acepta listas IN de más de ~2100 parámetros: se parte en lotes de 1000.
+async function queryPorLotes(lista, sqlFn) {
+  const LOTE = 1000;
+  if (lista.length <= LOTE) return query(sqlFn(lista));
+  const out = [];
+  for (let i = 0; i < lista.length; i += LOTE) out.push(...await query(sqlFn(lista.slice(i, i + LOTE))));
+  return out;
+}
+
+// Guard aparte de apiRoute: un idProveedor inválido es error del cliente (400), y
+// apiRoute manda todo lo que se lanza como 500.
+function exigirIdProveedor(req, res, next) {
+  const id = Number(req.query.idProveedor);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Falta idProveedor' });
+  next();
+}
+app.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
+  const idProveedor = Number(req.query.idProveedor);
+  const ventanaSuc = VENTANAS_SUC.includes(Number(req.query.ventanaSuc)) ? Number(req.query.ventanaSuc) : 30;
+
+  const pool = await getPool();
+  const [rProv, filasCompra] = await Promise.all([
+    pool.request().input('id', idProveedor).query('SELECT NombreProveedor FROM Proveedores WHERE IdProveedor = @id'),
+    productosCompradosAlProveedor(idProveedor),
+  ]);
+  const proveedor = (rProv.recordset[0] || {}).NombreProveedor || null;
+  // En SIGA IdProducto es char: viene con espacios y hay que normalizarlo antes de comparar.
+  const plus = [...new Set(filasCompra.map(r => String(r.IdProducto).trim()))];
+  if (!plus.length) {
+    return { proveedor, idProveedor, meses: 24, ventanaSuc, timestampConsumo: null, sucursales: [], filas: [] };
+  }
+
+  // Se compra el granel pero en sucursales se vende fraccionado: el stock y las ventas
+  // se consultan también para las presentaciones y se convierten a kg de granel.
+  const pesLis = leerJSON(PESABLES_LISTAS_PATH, {}) || {};
+  const formulas = pesLis.formulas || {};
+  const pesosGranel = pesLis.pesosGranel || {};
+  const fracPorPlu = new Map(plus.map(plu => [plu, compras.fraccionadosDe(formulas, plu)]));
+  const plusConFrac = [...new Set([...plus, ...[...fracPorPlu.values()].flat().map(f => f.plu)])];
+
+  const sucs = (leerJSON(DISTRIB_CONFIG_PATH, {}) || {}).sucursales || {};
+  const sucursales = Object.keys(sucs);
+  const sucKeyPorId = {};
+  for (const [key, c] of Object.entries(sucs)) sucKeyPorId[String(c.idSucursal)] = key;
+  // Filtrado: una sucursal sin idSucursal dejaría un hueco en el IN (5,2,,3), que no parsea.
+  const idList = Object.values(sucs).map(s => Number(s.idSucursal)).filter(Number.isFinite).join(',');
+  if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
+
+  const [stockCentralRows, stockSucRows, ventasRows] = await Promise.all([
+    queryPorLotes(plus, l => sqlStockPorPlu(l)),
+    queryPorLotes(plusConFrac, l => sqlStockDistribucion(l)),
+    queryPorLotes(plusConFrac, l => sqlVentasDias(idList, ventanaSuc, l)),
+  ]);
+
+  const centralPorPlu = {};
+  for (const r of stockCentralRows) centralPorPlu[String(r.IdProducto).trim()] = Number(r.StockActual) || 0;
+  const stockPorSuc = {};
+  for (const r of stockSucRows) {
+    const suc = sucKeyPorId[String(r.IdSucursal)];
+    if (!suc) continue;   // la central (y cualquier sucursal fuera de config) no cuenta acá
+    const plu = String(r.IdProducto).trim();
+    if (!stockPorSuc[plu]) stockPorSuc[plu] = {};
+    stockPorSuc[plu][suc] = Number(r.Stock) || 0;
+  }
+  const ventasPorPlu = {};
+  for (const r of ventasRows) ventasPorPlu[String(r.IdProducto).trim()] = Number(r.Cant) || 0;
+
+  // La serie mensual ya viene imputada (fraccionado → granel, bulto → componentes):
+  // para un granel NO hay que volver a sumarle sus presentaciones.
+  const cacheConsumo = leerJSON(CONSUMO_MENSUAL_PATH, {}) || {};
+  const consumoMensual = cacheConsumo.consumoMensual || {};
+  const a8020 = leerJSON(A8020_CALC_PATH, {}) || {};
+  const abcPorPlu = a8020.abc || {};
+  const nombresA8020 = a8020.nombres || {};
+  const rankingGeneral = a8020.rankingGeneral || {};
+  const serieDe = plu => Object.entries(consumoMensual[plu] || {})
+    .map(([mes, v]) => ({ mes, ventas: Number(v.ventas) || 0, produccion: Number(v.produccion) || 0, total: Number(v.total) || 0 }))
+    .sort((a, b) => a.mes.localeCompare(b.mes));
+
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  const filas = filasCompra.map(r => {
+    const plu = String(r.IdProducto).trim();
+    const frac = fracPorPlu.get(plu) || [];
+    // Productos.IdUnidadDeMedida no se usa en ninguna query del sistema: la unidad se
+    // deriva de los pesables (si tiene peso de granel o presentaciones, se compra por kg).
+    const esGranel = pesosGranel[plu] != null || frac.length > 0;
+    const stockCentral = centralPorPlu[plu] || 0;
+    const suc = compras.stockSucursalesEq(plu, frac, stockPorSuc);
+    const serie = serieDe(plu);
+    const demandaDiariaCentral = compras.demandaDiaria(serie, { hoyISO });
+    return {
+      plu, nombre: r.NombreProducto || plu, unidad: esGranel ? 'KG' : 'UN',
+      activo: r.Activo == null ? null : !!Number(r.Activo), esGranel,
+      ultimaFecha: r.UltimaFecha || null,
+      ultimaCantidad: Number(r.UltimaCantidad) || 0,
+      ultimoPrecio: Number(r.UltimoPrecio) || 0,
+      compras24m: Number(r.Compras) || 0,
+      cantTotal24m: Number(r.CantTotal) || 0,
+      stockCentral, stockSucursales: suc.total, stockPorSucursal: suc.porSucursal,
+      // De dónde sale el stock de sucursales: el granel más cada presentación fraccionada.
+      // Los nombres de los fraccionados no vienen de la query de compras, salen del a8020.
+      componentes: compras.componentesStockEq(plu, frac, stockPorSuc).map(c => ({
+        ...c,
+        nombre: c.plu === plu ? (r.NombreProducto || plu) : (nombresA8020[c.plu] || c.plu),
+        // Sólo se consulta el stock central de los PLUs comprados: en central el granel
+        // vive como granel, y para una presentación sin dato es null, no 0.
+        stockCentral: c.esPropio ? stockCentral : (centralPorPlu[c.plu] != null ? centralPorPlu[c.plu] : null),
+      })),
+      consumoMensual: serie,
+      abc: abcPorPlu[plu] || null,
+      importancia: rankingGeneral[plu] != null ? rankingGeneral[plu] : null,
+      demandaDiariaCentral,
+      coberturaCentral: compras.coberturaDias(stockCentral, demandaDiariaCentral),
+      coberturaSucursales: compras.coberturaDias(suc.total, compras.ventasEq(plu, frac, ventasPorPlu) / ventanaSuc),
+    };
+  });
+
+  return { proveedor, idProveedor, meses: 24, ventanaSuc,
+    timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas };
 }));
 
-app.post('/api/compras-modulo/tracking-produccion', (req, res) => {
-  const b = req.body || {};
-  const plu = String(b.plu || '').trim();
-  if (!plu) return res.status(400).json({ error: 'plu requerido' });
-  const actual = leerTrackingProduccion();
-  if (actual.some(t => t.plu === plu)) return res.json({ ok: true, productos: actual });
-  const productos = [...actual, { plu, nombre: String(b.nombre || plu).trim() }];
-  guardarJSON(TRACKING_PRODUCCION_PATH, productos);
-  res.json({ ok: true, productos });
-});
-
-app.delete('/api/compras-modulo/tracking-produccion/:plu', (req, res) => {
-  const plu = String(req.params.plu);
-  const productos = leerTrackingProduccion().filter(t => t.plu !== plu);
-  guardarJSON(TRACKING_PRODUCCION_PATH, productos);
-  res.json({ ok: true, productos });
-});
-
-// ?estado=ENVIADA filtra; sin query devuelve todas, de la más nueva a la más vieja.
-// El sort va sobre una copia: el array que devuelve leerJSON no se reordena in place.
-app.get('/api/compras-modulo/ordenes', apiRoute(async (req) => {
-  const estado = String((req.query && req.query.estado) || '').trim().toUpperCase();
-  const arr = leerJSON(ORDENES_COMPRA_PATH, []);
-  const filtradas = estado ? arr.filter(o => o.estado === estado) : arr;
-  return [...filtradas].sort((a, b) => (b.id || 0) - (a.id || 0));
+// El número es correlativo y ordena cronológicamente, así que alcanza para el sort.
+app.get('/api/compras/pedidos', apiRoute(async (req) => {
+  const proveedor = String(req.query.proveedor || '').trim();
+  const estado = String(req.query.estado || '').trim().toUpperCase();
+  return leerPedidosCompra()
+    .filter(p => (!proveedor || p.proveedor === proveedor) && (!estado || p.estado === estado))
+    .sort((a, b) => String(b.numero).localeCompare(String(a.numero)));
 }));
-app.post('/api/compras-modulo/ordenes', (req, res) => {
+
+app.post('/api/compras/pedidos', (req, res) => {
   const b = req.body || {};
+  const pedidos = leerPedidosCompra();
   try {
-    const orden = comprasModulo.construirOrden({
-      id: Date.now(),
+    const pedido = compras.construirPedido({
+      numero: compras.siguienteNumero(pedidos),
       fechaISO: new Date().toISOString().slice(0, 10),
       proveedor: b.proveedor,
+      idProveedor: b.idProveedor != null ? b.idProveedor : null,
+      usuario: usuarioCompras(req),
       items: b.items,
+      ts: new Date().toISOString(),
     });
-    const arr = leerJSON(ORDENES_COMPRA_PATH, []);
-    arr.push(orden);
-    guardarJSON(ORDENES_COMPRA_PATH, arr);
-    res.json({ ok: true, orden });
+    guardarPedidosCompra([...pedidos, pedido]);
+    res.json({ ok: true, pedido });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Cambio de estado con validación de la máquina de estados. La UI esconde los botones
-// que no corresponden, pero la regla se aplica acá: un salto inválido es 400.
-app.put('/api/compras-modulo/ordenes/:id/estado', (req, res) => {
-  const id = Number(req.params.id);
-  const nuevoEstado = String((req.body && req.body.estado) || '').trim().toUpperCase();
-  if (!comprasModulo.ESTADOS_ORDEN.includes(nuevoEstado)) {
-    return res.status(400).json({ error: `Estado inválido: ${nuevoEstado}` });
-  }
-  const arr = leerJSON(ORDENES_COMPRA_PATH, []);
-  const i = arr.findIndex(o => Number(o.id) === id);
-  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
-  const ahora = new Date();
+// Único endpoint de seguimiento: guardar, cerrar y anular son el mismo PUT con
+// distinto estado. Las reglas (no cerrar sin retiro, líneas sin resolver) están en compras.js.
+app.put('/api/compras/pedidos/:numero', (req, res) => {
+  const numero = String(req.params.numero);
+  const pedidos = leerPedidosCompra();
+  const i = pedidos.findIndex(p => String(p.numero) === numero);
+  if (i < 0) return res.status(404).json({ error: 'Pedido no encontrado' });
   try {
-    // El módulo es puro: el reloj, el usuario y los lead times se inyectan desde acá.
-    const actualizada = comprasModulo.aplicarTransicion(arr[i], nuevoEstado, {
-      ts: ahora.toISOString(),
-      fechaISO: ahora.toISOString().slice(0, 10),
-      usuario: (req.session && req.session.user && req.session.user.usuario) || null,
-      nota: req.body && req.body.nota,
-      leadTimes: leerJSON(LEAD_TIMES_PATH, {}),
-    });
+    const actualizado = compras.aplicarSeguimiento(pedidos[i], req.body || {},
+      { ts: new Date().toISOString(), usuario: usuarioCompras(req) });
     // Copia del array y reemplazo del índice: no se muta lo leído del disco.
-    const copia = [...arr];
-    copia[i] = actualizada;
-    guardarJSON(ORDENES_COMPRA_PATH, copia);
-    res.json({ ok: true, orden: actualizada });
+    const copia = [...pedidos];
+    copia[i] = actualizado;
+    guardarPedidosCompra(copia);
+    res.json({ ok: true, pedido: actualizado });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Lo pedido y no recibido, por PLU. Lo consume la predicción de compra.
-app.get('/api/compras-modulo/ordenes/pendiente-plu', apiRoute(async () =>
-  comprasModulo.pendientePorPlu(leerJSON(ORDENES_COMPRA_PATH, []))));
+app.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidosCompra(), {
+  proveedor: req.query.proveedor ? String(req.query.proveedor) : undefined,
+  desde: req.query.desde ? String(req.query.desde) : undefined,
+  hasta: req.query.hasta ? String(req.query.hasta) : undefined,
+})));
 
 // ── Control de insumos ─────────────────────────────────────────────────────────
 // Los insumos no se venden: no aparecen en Ventas y el análisis los excluye a
@@ -4045,48 +3925,8 @@ async function recalcularConsumoMensual() {
     mesesConDatos: [...new Set(Object.values(consumoMensual).flatMap(p => Object.keys(p)))].sort() };
 }
 
-app.get('/api/compras-modulo/consumo-mensual/recalcular', apiRoute(async () => recalcularConsumoMensual()));
-app.get('/api/compras-modulo/consumo-mensual', apiRoute(async () => leerJSON(CONSUMO_MENSUAL_PATH, { vacio: true })));
-
-// Recomendación de compra a un horizonte elegible. Cruza la serie mensual con el
-// stock del listado y lo pendiente de recibir de las órdenes abiertas.
-app.get('/api/compras-modulo/prediccion', apiRoute(async (req) => {
-  const dias = Math.max(1, Math.min(Number(req.query.dias) || 30, 365));
-  const serie = leerJSON(CONSUMO_MENSUAL_PATH, null);
-  if (!serie || serie.vacio || !serie.consumoMensual) {
-    return { vacio: true, mensaje: 'Sin serie mensual. Recalculá el consumo mensual primero.', dias };
-  }
-  const listado = await calcularListadoCompras();
-  const pendiente = comprasModulo.pendientePorPlu(leerJSON(ORDENES_COMPRA_PATH, []));
-  const leadTimes = leerJSON(LEAD_TIMES_PATH, {});
-  const zPorClase = leerJSON(DISTRIB_CONFIG_PATH, {}).servicio || { A: 2.05, B: 1.645, C: 1.28 };
-  const abcPorPlu = (leerJSON(A8020_CALC_PATH, {}) || {}).abc || {};
-  const mesActual = new Date().toISOString().slice(0, 7);
-
-  const productos = (listado.productos || []).map(p => {
-    // La serie guarda { ventas, produccion, total }: la proyección usa el total.
-    const porMes = serie.consumoMensual[String(p.plu)] || {};
-    const totales = {};
-    for (const [mes, v] of Object.entries(porMes)) totales[mes] = Number(v.total) || 0;
-    const clase = abcPorPlu[String(p.plu)] || 'C';
-    const z = zPorClase[clase] != null ? zPorClase[clase] : zPorClase.C;
-    const leadTimeDias = comprasModulo.leadTimeDeProveedor(leadTimes, p.proveedor);
-    const pr = prediccionConsumo.proyectar(totales, { mesActual, dias, z });
-    const stock = (Number(p.central) || 0)
-      + Object.values(p.stkSuc || {}).reduce((s, v) => s + (Number(v) || 0), 0)
-      + (Number(p.fraccionado) || 0);
-    const pend = Number(pendiente[String(p.plu)]) || 0;
-    const rec = prediccionConsumo.recomendar({
-      proyeccion: pr.proyeccion, seguridad: pr.seguridad, stock, pendiente: pend,
-      muDiario: pr.muDiario, leadTimeDias,
-    });
-    return { ...p, ...pr, stock, pendiente: pend, leadTimeDias, abc: clase,
-      necesidad: rec.necesidad, estado: rec.estado };
-  });
-  const orden = { CRITICO: 0, COMPRAR: 1, OK: 2, EXCESO: 3 };
-  productos.sort((a, b) => (orden[a.estado] - orden[b.estado]) || (b.necesidad - a.necesidad));
-  return { dias, mesActual, timestampSerie: serie.timestamp, total: productos.length, productos };
-}));
+app.get('/api/compras/consumo-mensual/recalcular', apiRoute(async () => recalcularConsumoMensual()));
+app.get('/api/compras/consumo-mensual', apiRoute(async () => leerJSON(CONSUMO_MENSUAL_PATH, { vacio: true })));
 
 // ── Ajustes manuales de S/min por (plu, sucursal) ──────────────────────────────
 const MANUAL_MAX = 100000;
@@ -7033,69 +6873,6 @@ async function componentesFormulaPorPadre(plus) {
   return porPadre;
 }
 
-// Nombre, rubro y estado (activo/inactivo) desde SIGA para un lote de PLU, en UNA sola query.
-// Hace falta porque el caché de A8020 (a8020_calc.json → nombres/rubros) sólo cubre los
-// artículos que entraron en el último recálculo: los productos dados de baja y algunos rubros
-// internos (ej. "Produccion") no están, y sin este fallback aparecen en pantalla sin nombre.
-// Si SIGA falla se devuelve un Map vacío: es un dato accesorio y no puede romper el detalle.
-async function datosProductosSIGA(plus) {
-  const ids = [...new Set((plus || []).map(p => String(p ?? '').trim()).filter(Boolean))];
-  if (!ids.length) return new Map();
-  const inList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
-  try {
-    const rows = await query(`
-      SELECT p.IdProducto, p.NombreProducto, p.Activo, COALESCE(r.NombreRubro,'') AS rubro
-      FROM dbo.Productos p
-      LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
-      WHERE p.IdProducto IN (${inList})`);
-    return new Map(rows.map(r => [String(r.IdProducto).trim(), {
-      nombre: String(r.NombreProducto || '').trim(),
-      rubro:  String(r.rubro || '').trim(),
-      activo: r.Activo === true || Number(r.Activo) === 1,
-    }]));
-  } catch (e) {
-    console.error('[detalle-plu] no se pudieron leer datos de productos desde SIGA:', e.message);
-    return new Map();
-  }
-}
-
-// componente → [{plu, nombre, rubro, cantPorUnidad}]: el camino INVERSO de
-// componentesFormulaPorPadre. Hace falta porque el detalle de consumo de un artículo tiene que
-// mostrar todo lo que lo consume, y un granel no sólo se fracciona en presentaciones (eso sale
-// de pesables_listas.formulas): también entra como ingrediente de mixes, granolas y otros
-// productos elaborados, y esa relación sólo vive en ProductosComponentes.
-// El filtro de fórmula activa es obligatorio: sin él la consulta devuelve una fila por cada
-// versión histórica de la fórmula, e inventa padres que hoy ya no llevan el artículo.
-// Si SIGA falla se devuelve lista vacía: es un dato accesorio y no puede romper el detalle.
-async function productosQueUsanComponente(plu) {
-  const id = String(plu ?? '').trim();
-  if (!id) return [];
-  const safeId = id.replace(/'/g, "''");
-  try {
-    const rows = await query(`
-      SELECT pc.IdProducto AS padre, p.NombreProducto AS nombre,
-             COALESCE(r.NombreRubro,'') AS rubro,
-             CAST(pc.Cantidad AS FLOAT) AS cantPorUnidad
-      FROM ProductosComponentes pc
-      INNER JOIN Productos p ON p.IdProducto = pc.IdProducto
-      LEFT  JOIN Rubros    r ON r.IdRubro   = p.IdRubro
-      WHERE pc.IdProductoComponente = '${safeId}'
-        AND p.Activo = 1
-        AND ${FORMULA_ACTIVA_SQL}
-        AND ${SIN_FORMULA_GENERICO_SQL}
-      ORDER BY p.NombreProducto`);
-    return rows.map(r => ({
-      plu: String(r.padre).trim(),
-      nombre: String(r.nombre || '').trim(),
-      rubro: String(r.rubro || '').trim(),
-      cantPorUnidad: Number(r.cantPorUnidad) || 0
-    }));
-  } catch (e) {
-    console.error(`[detalle-plu] no se pudieron leer los productos que usan ${id}:`, e.message);
-    return [];
-  }
-}
-
 // Componentes necesarios para todo el plan, sumados por componente, con el envase y la
 // tapa elegidos en la planificación ya sustituidos sobre la fórmula activa.
 // Devuelve { componentes: [{plu,nombre,rubro,necesario,porItem,reemplazaA,origen}],
@@ -9167,9 +8944,13 @@ async function ultimoProveedorPorProducto() {
 }
 
 // plu → [{proveedor, fecha (última), precio (de la última compra), cantidad (total)}] del año en curso.
-// Excluye COTIZACIONCOM/etc.: en SIGA las cotizaciones de compra no llevan NumeroComprobante único
-// (mismo IdSucursal/Letra/CentroEmisor/Numero se repite en decenas de cotizaciones distintas), lo que
-// multiplicaba el JOIN y devolvía cientos de "proveedores" falsos por producto.
+//
+// El JOIN lleva IdProveedor porque es la sexta columna de la PK de Compras y de
+// ComprasProductos. Sin ella las filas se multiplicaban: cada proveedor numera sus
+// cotizaciones desde 1, así que la clave de 5 columnas se repite entre proveedores y
+// aparecían cientos de "proveedores" falsos por producto. Ese era el motivo real; el
+// NOT LIKE 'COTIZACION%' tapaba el síntoma y acá se conserva sólo porque este módulo
+// compara precios de compra efectiva, donde una cotización no es un precio pagado.
 async function historialComprasAnio() {
   const inicio = `${new Date().getFullYear()}-01-01`;
   const rows = await query(`
@@ -9179,6 +8960,7 @@ async function historialComprasAnio() {
     FROM ComprasProductos cp
     JOIN Compras c ON c.IdSucursal = cp.IdSucursal AND c.IdTipoComprobante = cp.IdTipoComprobante
       AND c.Letra = cp.Letra AND c.CentroEmisor = cp.CentroEmisor AND c.NumeroComprobante = cp.NumeroComprobante
+      AND c.IdProveedor = cp.IdProveedor
     JOIN Proveedores pv ON pv.IdProveedor = c.IdProveedor
     WHERE c.Fecha >= '${inicio}' AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
     ORDER BY cp.IdProducto, c.Fecha DESC`);
@@ -10246,6 +10028,146 @@ app.delete('/api/rrhh/ausencias/importaciones/:id', rutaAusencias(req => {
 }));
 
 // ── Inicio ─────────────────────────────────────────────────────────────────────
+// ── Control de compras ─────────────────────────────────────────────────────────
+// Cruza el pedido a proveedor (módulo Compras) contra lo que realmente se cargó en
+// SIGA. El vínculo pedido → comprobante(s) vive en un archivo propio: el shape del
+// pedido (pedidos_compra.json) pertenece al módulo de Compras y desde acá no se toca.
+// La matemática del cruce está en compras_control.js; acá van la query y el disco.
+const COMPROBANTES_PEDIDO_PATH = path.join(DATA_DIR, 'pedidos_comprobantes.json');
+
+function leerVinculos()        { return leerJSON(COMPROBANTES_PEDIDO_PATH, {}); }
+function guardarVinculos(map)  { guardarJSON(COMPROBANTES_PEDIDO_PATH, map); }
+
+// Comprobantes de compra de un proveedor en una ventana de fechas, con su detalle.
+// El JOIN va por las 6 columnas de la clave, IdProveedor incluido: en FACTCOM el
+// número lo trae la factura del proveedor (SIGA no lo numera), así que dos
+// proveedores comparten sucursal+tipo+letra+centro+número sin problema, y sin esa
+// columna se cuelan las líneas del otro e inflan cantidades e importes.
+// Las COTIZACION* quedan afuera igual: no son la carga de una compra real.
+async function comprasDeProveedor({ idProveedor, proveedor, desde, hasta }) {
+  if (!desde || !hasta) return [];
+  const pool = await getPool();
+  const consulta = pool.request()
+    .input('desde', sql.VarChar(10), desde)
+    .input('hasta', sql.VarChar(10), hasta);
+  let filtroProv;
+  if (idProveedor != null && Number.isFinite(Number(idProveedor))) {
+    consulta.input('prov', sql.Int, Number(idProveedor));
+    filtroProv = 'c.IdProveedor = @prov';
+  } else {
+    consulta.input('nombre', sql.NVarChar(200), String(proveedor || ''));
+    filtroProv = 'c.NombreProveedor = @nombre';
+  }
+  const r = await consulta.query(`
+    SELECT c.IdSucursal, c.IdTipoComprobante, c.Letra, c.CentroEmisor, c.NumeroComprobante,
+           CONVERT(varchar(10), c.Fecha, 23) AS Fecha, c.IdProveedor, c.NombreProveedor,
+           CAST(c.ImporteTotal AS FLOAT) AS ImporteTotal,
+           cp.Orden, cp.IdProducto, cp.NombreProducto,
+           CAST(cp.Cantidad AS FLOAT) AS Cantidad,
+           CAST(cp.ImporteTotal AS FLOAT) AS ImporteLinea
+    FROM Compras c
+    INNER JOIN ComprasProductos cp
+      ON cp.IdSucursal = c.IdSucursal AND cp.IdTipoComprobante = c.IdTipoComprobante
+     AND cp.Letra = c.Letra AND cp.CentroEmisor = c.CentroEmisor
+     AND cp.NumeroComprobante = c.NumeroComprobante AND cp.IdProveedor = c.IdProveedor
+    WHERE ${filtroProv}
+      AND c.Fecha >= @desde AND c.Fecha < DATEADD(day, 1, @hasta)
+      AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
+    ORDER BY c.Fecha, c.NumeroComprobante, cp.Orden`);
+
+  // La query devuelve una fila por línea: se reagrupa por comprobante para dárselo
+  // ya armado al módulo de cruce.
+  const porClave = new Map();
+  for (const f of r.recordset) {
+    const cab = {
+      idSucursal: f.IdSucursal, tipoComprobante: String(f.IdTipoComprobante || '').trim(),
+      letra: String(f.Letra || '').trim(), centroEmisor: f.CentroEmisor, numeroComprobante: f.NumeroComprobante,
+    };
+    const clave = comprasControl.claveComprobante(cab);
+    if (!porClave.has(clave)) {
+      porClave.set(clave, {
+        ...cab, fecha: f.Fecha, idProveedor: f.IdProveedor,
+        proveedor: String(f.NombreProveedor || '').trim(),
+        importeTotal: f.ImporteTotal != null ? +f.ImporteTotal : null,
+        items: [],
+      });
+    }
+    porClave.get(clave).items.push({
+      plu: String(f.IdProducto || '').trim(),
+      nombre: String(f.NombreProducto || '').trim(),
+      cantidad: f.Cantidad != null ? +f.Cantidad : 0,
+      importe: f.ImporteLinea != null ? +f.ImporteLinea : 0,
+    });
+  }
+  return [...porClave.values()];
+}
+
+const numeroOpcional = (valor, def) => (valor != null && valor !== '' && Number.isFinite(Number(valor)) ? Number(valor) : def);
+
+app.get('/compras/control', (_req, res) => res.sendFile(path.join(__dirname, 'compras_control.html')));
+
+// Listado liviano: no toca SIGA, sólo dice qué pedidos hay y cuáles ya tienen
+// vínculo confirmado. La consulta pesada es la del detalle.
+app.get('/api/compras/control/pedidos', apiRoute(async (req) => {
+  const estado = String(req.query.estado || '').trim().toUpperCase();
+  const proveedor = String(req.query.proveedor || '').trim();
+  const vinculos = leerVinculos();
+  return leerPedidosCompra()
+    .filter(p => (!estado || p.estado === estado) && (!proveedor || p.proveedor === proveedor))
+    .sort((a, b) => String(b.numero).localeCompare(String(a.numero)))
+    .map(p => ({
+      numero: p.numero, proveedor: p.proveedor, idProveedor: p.idProveedor != null ? p.idProveedor : null,
+      fecha: p.fecha, fechaRetiro: p.fechaRetiro || null, estado: p.estado,
+      lineas: Array.isArray(p.items) ? p.items.length : 0,
+      vinculados: Array.isArray(vinculos[p.numero]) ? vinculos[p.numero].length : 0,
+    }));
+}));
+
+// Detalle: candidatos de la ventana + comparación contra los comprobantes elegidos.
+// Sin vínculo guardado se compara contra los sugeridos, así la pantalla ya muestra
+// algo útil; el usuario confirma y recién ahí queda fijo.
+app.get('/api/compras/control/pedidos/:numero', apiRoute(async (req) => {
+  const numero = String(req.params.numero);
+  const pedido = leerPedidosCompra().find(p => String(p.numero) === numero);
+  if (!pedido) throw new Error(`No existe el pedido ${numero}`);
+
+  const opciones = {
+    diasAntes: numeroOpcional(req.query.diasAntes, comprasControl.DIAS_ANTES_DEFAULT),
+    diasDespues: numeroOpcional(req.query.diasDespues, comprasControl.DIAS_DESPUES_DEFAULT),
+  };
+  const ventana = comprasControl.ventanaDe(pedido, opciones);
+  const comprobantes = await comprasDeProveedor({
+    idProveedor: pedido.idProveedor, proveedor: pedido.proveedor, ...ventana,
+  });
+  const candidatos = comprasControl.candidatosDeCompra(pedido, comprobantes, opciones);
+
+  const guardadas = leerVinculos()[numero];
+  const vinculado = Array.isArray(guardadas);
+  const claves = new Set(vinculado ? guardadas : candidatos.filter(c => c.sugerido).map(c => c.clave));
+  const elegidos = comprobantes.filter(c => claves.has(comprasControl.claveComprobante(c)));
+
+  return {
+    ventana, candidatos, vinculado, vinculadas: vinculado ? guardadas : [],
+    comparacion: comprasControl.compararPedido(pedido, elegidos, {
+      toleranciaPct: numeroOpcional(req.query.toleranciaPct, 0),
+    }),
+  };
+}));
+
+// Confirma (o corrige) contra qué comprobantes se controla el pedido. Una lista
+// vacía es una respuesta válida: "ninguno de estos es de este pedido".
+app.put('/api/compras/control/pedidos/:numero/comprobantes', (req, res) => {
+  const numero = String(req.params.numero);
+  const claves = (req.body || {}).claves;
+  if (!Array.isArray(claves)) return res.status(400).json({ error: 'Falta la lista de comprobantes' });
+  if (!leerPedidosCompra().some(p => String(p.numero) === numero)) {
+    return res.status(404).json({ error: `No existe el pedido ${numero}` });
+  }
+  const limpias = [...new Set(claves.map(c => String(c).trim()).filter(Boolean))];
+  guardarVinculos({ ...leerVinculos(), [numero]: limpias });
+  res.json({ ok: true, numero, vinculadas: limpias });
+});
+
 async function start() {
   auth.seedAdminSiVacio(); // crea admin inicial si data/usuarios.json está vacío
   console.log('Conectando a SQL Server...');
