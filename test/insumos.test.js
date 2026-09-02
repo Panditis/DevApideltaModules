@@ -279,3 +279,47 @@ test('totales cuenta por estado y suma el consumo mensual', () => {
   assert.strictEqual(t.stockCero, 1);
   assert.strictEqual(t.consumoMensual, 17);
 });
+
+// ── Grupos de etiquetas ────────────────────────────────────────────────────────
+test('grupoEtiqueta junta las presentaciones de un mismo producto', () => {
+  const g = n => ins.grupoEtiqueta(n);
+  assert.strictEqual(g('Etiqueta Polen 100G'), 'Polen');
+  assert.strictEqual(g('Etiqueta Polen 500G'), 'Polen');
+  assert.strictEqual(g('ETIQUETA Apimani Clasico 200G POTE'), 'Apimani Clasico');
+  assert.strictEqual(g('ETIQUETA Yogurt Natural Tipo Griego 350G (Mediano)'), 'Yogurt Natural Tipo Griego');
+  assert.strictEqual(g('ETIQUETA Yogurt Natural Tipo Griego 1.3 KG'), 'Yogurt Natural Tipo Griego');
+  assert.strictEqual(g('ETIQUETA G. Chocolate Gold 250G Unidad ALMACEN'), 'G. Chocolate Gold');
+  assert.strictEqual(g('Etiqueta Aceite Coco Neutro 290Cc'), 'Aceite Coco Neutro');
+});
+
+test('grupoEtiqueta sobrevive a los nombres sin presentación ni prefijo prolijo', () => {
+  assert.strictEqual(ins.grupoEtiqueta('Etiqueta Apimax'), 'Apimax');
+  assert.strictEqual(ins.grupoEtiqueta('Etiquetas De La Huerta'), 'De La Huerta');
+  // Sin producto que nombrar se devuelve el nombre entero: un grupo vacío juntaría
+  // todo lo raro bajo el mismo título.
+  assert.strictEqual(ins.grupoEtiqueta('Etiqueta 500G'), '500G');
+  assert.strictEqual(ins.grupoEtiqueta('   '), 'Sin grupo');
+  assert.strictEqual(ins.grupoEtiqueta(null), 'Sin grupo');
+});
+
+test('grupoDe respeta el grupo puesto a mano y cae en el automático si no hay', () => {
+  const ov = { '1010': 'Polen Apidelta' };
+  assert.strictEqual(ins.grupoDe('1010', 'Etiqueta Polen 100G', ov), 'Polen Apidelta');
+  assert.strictEqual(ins.grupoDe('1011', 'Etiqueta Polen 200G', ov), 'Polen');
+  assert.strictEqual(ins.grupoDe('1011', 'Etiqueta Polen 200G'), 'Polen');
+});
+
+test('aplicarAsignaciones mueve, saca y no deja a nadie en dos grupos', () => {
+  const previo = { '10': 'Viejo', '11': 'Viejo' };
+  const ov = ins.aplicarAsignaciones(previo, { '10': '  Polen   Fino ', '11': null, '12': 'Yogurt' });
+  assert.deepStrictEqual(ov, { '10': 'Polen Fino', '12': 'Yogurt' });   // el 11 vuelve al automático
+  assert.deepStrictEqual(previo, { '10': 'Viejo', '11': 'Viejo' });     // no muta el guardado
+  // Un PLU es una sola clave: no hay forma de que quede en dos grupos.
+  assert.strictEqual(ins.aplicarAsignaciones(ov, { '10': 'Otro' })['10'], 'Otro');
+});
+
+test('aplicarAsignaciones rechaza PLU y nombres inválidos sin guardar nada a medias', () => {
+  assert.throws(() => ins.aplicarAsignaciones({}, { 'abc': 'Polen' }), /PLU inválido/);
+  assert.throws(() => ins.aplicarAsignaciones({}, { '10': 'x'.repeat(61) }), /60 caracteres/);
+  assert.strictEqual(ins.normalizarNombreGrupo('   '), null);
+});

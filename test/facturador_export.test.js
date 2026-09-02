@@ -21,7 +21,8 @@ function cargarParser() {
   assert.ok(fin > 0, 'no se encontró el marcador parser-fin en facturador.html');
   bloque = bloque.slice(0, fin);
   return new Function(bloque + `
-    return { COLUMNAS_TICKETS, esLineaPesable, codigoDeCarga, filasDeTickets,
+    return { COLUMNAS_TICKETS, MEDIOS_PAGO, mediosDeTickets, columnasDeTickets,
+             esLineaPesable, codigoDeCarga, filasDeTickets,
              columnaXlsx, hojaXml, crc32, armarZip, armarXlsx };`)();
 }
 
@@ -51,7 +52,7 @@ test('el pesable se exporta por el código de barras leído y el de almacén por
   const filas = P.filasDeTickets(TICKETS);
 
   // Assert
-  assert.deepEqual(filas[0], P.COLUMNAS_TICKETS);
+  assert.deepEqual(filas[0], P.columnasDeTickets(TICKETS));
   assert.deepEqual(columnas(filas, 'Codigo'), ['12345', '778']);
   assert.deepEqual(columnas(filas, 'CodigoCarga'), ['2012345002506', '778']);
 });
@@ -86,14 +87,74 @@ test('el .xlsx generado se abre con la librería xlsx y trae los mismos valores'
 
   // Assert
   assert.deepEqual(wb.SheetNames, ['Tickets']);
-  assert.deepEqual(leidas[0], P.COLUMNAS_TICKETS);
+  assert.deepEqual(leidas[0], P.columnasDeTickets(TICKETS));
   assert.equal(leidas.length, filas.length);
   // Los códigos tienen que llegar como texto: numéricos, Excel los muestra en notación
   // científica y les come los ceros de la izquierda.
   assert.deepEqual(columnas(leidas, 'CodigoCarga'), ['2012345002506', '778']);
   assert.equal(columnas(leidas, 'Cantidad')[0], 0.25);
   assert.equal(columnas(leidas, 'Precio')[0], 4000);
-  assert.equal(columnas(leidas, 'MediosPago')[0], 'EFECTIVO 1250');
+  // El medio y el importe van separados: pegados en una celda, el importe no se suma.
+  assert.equal(columnas(leidas, 'MedioPago')[0], 'EFECTIVO');
+  assert.equal(columnas(leidas, 'Pago EFECTIVO')[0], 1250);
+});
+
+test('el pago dividido pone cada importe en la columna de su medio', () => {
+  // Arrange
+  const dividido = [{ ...TICKETS[0], pagos: [{ medio: 'TARJETA', importe: 250 },
+                                             { medio: 'EFECTIVO', importe: 1000 }] }];
+
+  // Act
+  const filas = P.filasDeTickets(dividido);
+
+  // Assert
+  assert.deepEqual(filas[0].slice(-2), ['Pago EFECTIVO', 'Pago TARJETA']);   // orden de MEDIOS_PAGO
+  assert.deepEqual(columnas(filas, 'MedioPago'), ['TARJETA + EFECTIVO', 'TARJETA + EFECTIVO']);
+  assert.deepEqual(columnas(filas, 'Pago EFECTIVO'), [1000, 1000]);
+  assert.deepEqual(columnas(filas, 'Pago TARJETA'), [250, 250]);
+});
+
+test('sólo salen las columnas de los medios que se usaron', () => {
+  // Act
+  const columnasHoy = P.columnasDeTickets(TICKETS);
+
+  // Assert
+  assert.deepEqual(columnasHoy.slice(-1), ['Pago EFECTIVO']);
+  assert.ok(!columnasHoy.includes('Pago TARJETA'), 'no debería haber columna de un medio sin usar');
+});
+
+test('el mismo medio dos veces en un ticket se suma en su columna', () => {
+  // Arrange
+  const doble = [{ ...TICKETS[0], pagos: [{ medio: 'EFECTIVO', importe: 1000 },
+                                          { medio: 'EFECTIVO', importe: 250 }] }];
+
+  // Act / Assert
+  assert.deepEqual(columnas(P.filasDeTickets(doble), 'Pago EFECTIVO'), [1250, 1250]);
+});
+
+test('un medio viejo, fuera de la lista actual, igual sale en la planilla', () => {
+  // Arrange
+  const viejo = [{ ...TICKETS[0], pagos: [{ medio: 'CHEQUE', importe: 1250 }] }];
+
+  // Act
+  const filas = P.filasDeTickets(viejo);
+
+  // Assert
+  assert.ok(!P.MEDIOS_PAGO.includes('CHEQUE'), 'el fixture dejó de ser un medio desconocido');
+  assert.deepEqual(P.mediosDeTickets(viejo), ['CHEQUE']);
+  assert.deepEqual(columnas(filas, 'Pago CHEQUE'), [1250, 1250]);
+});
+
+test('un ticket sin pago registrado no rompe la exportación', () => {
+  // Arrange
+  const sinPago = [{ ...TICKETS[0], pagos: [] }];
+
+  // Act
+  const filas = P.filasDeTickets(sinPago);
+
+  // Assert
+  assert.deepEqual(filas[0], P.COLUMNAS_TICKETS);
+  assert.deepEqual(columnas(filas, 'MedioPago'), ['', '']);
 });
 
 test('el nombre y los caracteres especiales del producto sobreviven al XML', () => {
