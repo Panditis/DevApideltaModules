@@ -2957,7 +2957,7 @@ function usuarioCompras(req)          { return String((req.session && req.sessio
 // 2264 proveedores cargados y 1108 con movimiento en 24 meses. Listar los otros es
 // ofrecer una búsqueda que sólo puede terminar en una tabla vacía. Se ordena por
 // cantidad de productos para que el proveedor real aparezca primero.
-// El JOIN lleva IdProveedor por la misma razón que comprasDeProveedor.
+// El JOIN lleva IdProveedor por la misma razón que productosCompradosAlProveedor.
 app.get('/api/compras/proveedores', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return { proveedores: [] };
@@ -2990,7 +2990,7 @@ app.get('/api/compras/proveedores', apiRoute(async (req) => {
 // Con la sexta columna el JOIN devuelve 27.815 renglones, exactamente los que existen;
 // sin ella devolvía 830.396. Ese era el motivo real por el que historialComprasAnio
 // excluye las cotizaciones — el filtro tapaba el síntoma, no la causa.
-async function comprasDeProveedor(idProveedor) {
+async function productosCompradosAlProveedor(idProveedor) {
   const pool = await getPool();
   const r = await pool.request().input('idProv', idProveedor).query(`
     ;WITH cc AS (
@@ -3056,7 +3056,7 @@ app.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const pool = await getPool();
   const [rProv, filasCompra] = await Promise.all([
     pool.request().input('id', idProveedor).query('SELECT NombreProveedor FROM Proveedores WHERE IdProveedor = @id'),
-    comprasDeProveedor(idProveedor),
+    productosCompradosAlProveedor(idProveedor),
   ]);
   const proveedor = (rProv.recordset[0] || {}).NombreProveedor || null;
   // En SIGA IdProducto es char: viene con espacios y hay que normalizarlo antes de comparar.
@@ -10029,8 +10029,11 @@ function leerVinculos()        { return leerJSON(COMPROBANTES_PEDIDO_PATH, {}); 
 function guardarVinculos(map)  { guardarJSON(COMPROBANTES_PEDIDO_PATH, map); }
 
 // Comprobantes de compra de un proveedor en una ventana de fechas, con su detalle.
-// Se excluyen las COTIZACION*: en SIGA no llevan NumeroComprobante único (la misma
-// PK se repite en decenas), así que el JOIN con ComprasProductos las multiplica.
+// El JOIN va por las 6 columnas de la clave, IdProveedor incluido: en FACTCOM el
+// número lo trae la factura del proveedor (SIGA no lo numera), así que dos
+// proveedores comparten sucursal+tipo+letra+centro+número sin problema, y sin esa
+// columna se cuelan las líneas del otro e inflan cantidades e importes.
+// Las COTIZACION* quedan afuera igual: no son la carga de una compra real.
 async function comprasDeProveedor({ idProveedor, proveedor, desde, hasta }) {
   if (!desde || !hasta) return [];
   const pool = await getPool();
@@ -10056,7 +10059,7 @@ async function comprasDeProveedor({ idProveedor, proveedor, desde, hasta }) {
     INNER JOIN ComprasProductos cp
       ON cp.IdSucursal = c.IdSucursal AND cp.IdTipoComprobante = c.IdTipoComprobante
      AND cp.Letra = c.Letra AND cp.CentroEmisor = c.CentroEmisor
-     AND cp.NumeroComprobante = c.NumeroComprobante
+     AND cp.NumeroComprobante = c.NumeroComprobante AND cp.IdProveedor = c.IdProveedor
     WHERE ${filtroProv}
       AND c.Fecha >= @desde AND c.Fecha < DATEADD(day, 1, @hasta)
       AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
