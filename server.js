@@ -1789,62 +1789,6 @@ app.delete('/api/registros/:id', (req, res) => {
 // ── Rutas API planificación ────────────────────────────────────────────────────
 app.get('/api/health',       apiRoute(async () => { await getPool(); return { ok: true, db: true, fecha: new Date().toISOString().slice(0, 10) }; }));
 app.get('/api/config',       (_req, res) => res.json(JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'))));
-app.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, [])));
-
-// ── Grupos del catálogo con config de activos ────────────────────────────────
-app.get('/api/catalogo/grupos', (_req, res) => {
-  const catalogo  = leerJSON(CATALOGO_PATH, []);
-  const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
-  const cCfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
-  const mapa = new Map();
-  for (const item of catalogo) {
-    const ref = item.productoRef || '';
-    if (!mapa.has(ref)) mapa.set(ref, { productoRef: ref, total: 0, variantes: 0, bases: new Set() });
-    const g = mapa.get(ref);
-    g.total++;
-    if (item.esVariante) g.variantes++; else g.bases.add(item.baseNombre);
-  }
-  const grupos = [...mapa.values()].sort((a, b) => a.productoRef.localeCompare(b.productoRef)).map(g => ({
-    productoRef:  g.productoRef,
-    totalPlu:     g.total,
-    presentaciones: g.bases.size,
-    variantes:    g.variantes,
-    activo:       cfgActivo(gruposCfg, g.productoRef),
-    granelPlu:    cfgGranelPlu(gruposCfg, g.productoRef),
-    granelPlus:   cfgGranelPlus(gruposCfg, g.productoRef),
-    mpManual:     cfgMpManual(gruposCfg, g.productoRef),
-    esGranel:        cfgEsGranel(gruposCfg, g.productoRef, cCfg.gruposGranel),
-    granelDirecto:   cfgGranelOverride(gruposCfg, g.productoRef),
-    esMiel:          cfgEsMiel(gruposCfg, g.productoRef),
-    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef)
-  }));
-  res.json(grupos);
-});
-
-app.post('/api/catalogo/grupos-config', (req, res) => {
-  const cfg = req.body;
-  if (typeof cfg !== 'object' || Array.isArray(cfg))
-    return res.status(400).json({ error: 'Se esperaba un objeto' });
-  // Normalizar: si un entry es {activo:true, granelPlu:''} → true (compactar)
-  const normalizado = {};
-  for (const [k,v] of Object.entries(cfg)) {
-    if (v && typeof v === 'object') {
-      const a = v.activo !== false;
-      // Lista de graneles; granelPlu se mantiene sincronizado con el primero.
-      const gl = [...new Set((Array.isArray(v.granelPlus) ? v.granelPlus : [])
-        .map(x => String(x || '').trim()).filter(Boolean))];
-      const g = gl[0] || String(v.granelPlu||'').trim();
-      const mp = Array.isArray(v.mpManual) ? v.mpManual.filter(x => x && x.nombre) : [];
-      const gd = (typeof v.granelDirecto === 'boolean') ? v.granelDirecto : undefined;
-      const em = (typeof v.esMiel === 'boolean') ? v.esMiel : undefined;
-      const rg = (v.reqGranel === true) ? true : undefined;
-      if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined) { normalizado[k] = a; }
-      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{})}; }
-    } else { normalizado[k] = v; }
-  }
-  guardarJSON(GRUPOS_CFG_PATH, normalizado);
-  res.json({ ok: true });
-});
 
 app.get('/api/siga/buscar', apiRoute(async req => {
   const q = (req.query.q || '').trim().replace(/'/g, "''");
@@ -1863,78 +1807,6 @@ app.get('/api/siga/buscar', apiRoute(async req => {
   return rows;
 }));
 
-app.get('/api/catalogo/grupo/:ref', (req, res) => {
-  const ref      = decodeURIComponent(req.params.ref);
-  const catalogo = leerJSON(CATALOGO_PATH, []);
-  const items    = catalogo.filter(i => i.productoRef === ref);
-  res.json(items);
-});
-
-app.put('/api/catalogo/grupo/:ref', (req, res) => {
-  const ref      = decodeURIComponent(req.params.ref);
-  const nuevos   = req.body;
-  if (!Array.isArray(nuevos)) return res.status(400).json({ error: 'Se esperaba un array' });
-  const catalogo = leerJSON(CATALOGO_PATH, []);
-  const otros    = catalogo.filter(i => i.productoRef !== ref);
-  // refId debe ser 1:1 con productoRef (clave de agrupación en buildCatalogoMaps).
-  // El editor manda refId stale/null en grupos nuevos → no confiar en el del cliente:
-  // reutilizar el refId existente de este grupo, o asignar uno único (máx + 1).
-  let refId = catalogo.find(i => i.productoRef === ref && i.refId != null)?.refId;
-  if (refId == null) {
-    const maxRef = catalogo.reduce((m, i) => Math.max(m, Number(i.refId) || 0), 0);
-    refId = maxRef + 1;
-  }
-  const normalizados = nuevos.map(i => ({ ...i, refId, productoRef: ref }));
-  guardarJSON(CATALOGO_PATH, [...otros, ...normalizados]);
-  res.json({ ok: true, productos: normalizados.length });
-});
-
-// ── Importar catálogo desde Excel ─────────────────────────────────────────────
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
-function normalizarNombre(nombre) {
-  let n = nombre.trim();
-  n = n.replace(/\s+pack\b.*$/i,  '').trim();
-  n = n.replace(/\s+bulto\b.*$/i, '').trim();
-  n = n.replace(/\bvid\s+/i,      '').trim();
-  n = n.replace(/\s+vid$/i,       '').trim();
-  return n.trim();
-}
-const PRES_RE = /(\d+(?:[.,]\d+)?\s*(?:G|Kg|Ml|L|g|kg|ml|l))(?:\s+\w+)*$/i;
-function extraerPresentacion(base) {
-  const m = PRES_RE.exec(base);
-  if (!m) return base;
-  return m[0].trim().replace(/\bkg\b/i, 'Kg').replace(/\bg\b/i, 'G');
-}
-
-app.post('/api/catalogo/importar', upload.single('archivo'), (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'Falta el archivo Excel' });
-    const wb   = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const ws   = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-    const filas = [];
-    for (let i = 1; i < rows.length; i++) {
-      const [plu, producto, refId, productoRef] = rows[i];
-      if (plu == null || producto == null) continue;
-      const pluInt = parseInt(plu);
-      if (isNaN(pluInt)) continue;
-      const nombreOrig   = String(producto).trim();
-      const base         = normalizarNombre(nombreOrig);
-      const presentacion = extraerPresentacion(base);
-      const esVariante   = /\b(pack|bulto|vid)\b/i.test(nombreOrig);
-      filas.push({
-        plu: pluInt, producto: nombreOrig, baseNombre: base, presentacion, esVariante,
-        refId: refId != null ? parseInt(refId) : null,
-        productoRef: productoRef != null ? String(productoRef).trim() : ''
-      });
-    }
-    guardarJSON(CATALOGO_PATH, filas);
-    res.json({ ok: true, productos: filas.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 app.get('/api/formulas',          (_req, res) => res.json(leerJSON(FORMULAS_PATH, {})));
 app.get('/api/formulas/:plu',     (req, res) => { const f = leerJSON(FORMULAS_PATH, {}); res.json(f[String(req.params.plu)] || []); });
 app.post('/api/formulas/:plu',    (req, res) => { const f = leerJSON(FORMULAS_PATH, {}); const plu = String(req.params.plu); if (!Array.isArray(req.body)) return res.status(400).json({ error: 'Se esperaba array' }); if (req.body.length) f[plu] = req.body; else delete f[plu]; guardarJSON(FORMULAS_PATH, f); res.json({ ok: true }); });
@@ -7973,6 +7845,15 @@ app.use(require('./rutas_mayoristas')({
   cfgReserva, cfgProduccion, ERR_RESERVA_SIN_CONFIG, ERR_RESERVA_DEPOSITOS,
   redondear4, esIdDeposito, stockDeComponentes, asientosProduccion,
 }));
+
+// Catálogo de grupos: los helpers cfg* y los dos paths son const declarados después
+// del punto donde estaban estas rutas, así que el registro también va al final.
+app.use(require('./rutas_catalogo')({
+  leerJSON, guardarJSON, CATALOGO_PATH, GRUPOS_CFG_PATH,
+  cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgMpManual,
+  cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
+}));
+
 
 async function start() {
   auth.seedAdminSiVacio(); // crea admin inicial si data/usuarios.json está vacío
