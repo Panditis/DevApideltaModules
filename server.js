@@ -2929,7 +2929,6 @@ app.delete('/api/distribucion/a8020/manual/:plu/:sucursal', (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, 'a8020.html')));
-app.get('/cotizador',         (_req, res) => res.sendFile(path.join(__dirname, 'cotizador.html')));
 
 // ── Listas editables de distribución (excluir / siempre-Almacen / siempre-Pesable) ──
 const LISTAS_DISTRIB_PATH = path.join(DATA_DIR, 'listas_distribucion.json');
@@ -3862,29 +3861,6 @@ app.post('/api/ordenes-produccion/reordenar', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Cotizador Mercado Libre ───────────────────────────────────────────────────
-const COMISIONES_PATH = path.join(__dirname, 'data', 'comisiones_mercadolibre.json');
-const VINCULACIONES_PATH = path.join(__dirname, 'data', 'vinculaciones_mercadolibre.json');
-
-app.get('/api/cotizador/comisiones', (_req, res) => {
-  const comisiones = leerJSON(COMISIONES_PATH, { provincias: {} });
-  res.json(comisiones);
-});
-
-app.get('/api/cotizador/vinculaciones', (_req, res) => {
-  const vinculaciones = leerJSON(VINCULACIONES_PATH, []);
-  res.json(vinculaciones);
-});
-
-app.post('/api/cotizador/vinculaciones', (req, res) => {
-  try {
-    const datos = Array.isArray(req.body) ? req.body : [req.body];
-    guardarJSON(VINCULACIONES_PATH, datos);
-    res.json({ ok: true, guardadas: datos.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Facturador auxiliar (HTML suelto) ──────────────────────────────────────────
 // Catálogo plano de precios para el facturador que corre como archivo local. No lleva
@@ -3942,144 +3918,6 @@ const PRECIOS_FACTURADOR_DIR = process.env.PRECIOS_FACTURADOR_DIR ||
 app.get('/api/facturador/catalogo-archivo', apiRoute(async () =>
   preciosFacturador.catalogoDeDirectorio(PRECIOS_FACTURADOR_DIR)));
 
-function calcularPrecioML(precioVentaSIGA, comisionPct, iva, cuotasPct = 0, costoEnvio = 0) {
-  // Precio ML para que neto después de comisión+cuotas+IVA+envío = precioVentaSIGA
-  const descuentoTotal = comisionPct / 100 + cuotasPct / 100;
-  const precioML = (precioVentaSIGA + costoEnvio) / ((1 - descuentoTotal) * (1 - iva / 100));
-  const comisionMonto = precioML * (comisionPct / 100);
-  const cuotasMonto = precioML * (cuotasPct / 100);
-  const ivaMonto = (precioML - comisionMonto - cuotasMonto) * (iva / 100);
-  return { precioML, comisionMonto, cuotasMonto, ivaMonto };
-}
-
-app.post('/api/cotizador/calcular', apiRoute(async req => {
-  const { idProductoSIGA, categoriaMercadoLibre, provincia, cuotasPct = 0, costoEnvio = 0 } = req.body;
-  if (!idProductoSIGA || !categoriaMercadoLibre || !provincia) {
-    throw new Error('Faltan parámetros: idProductoSIGA, categoriaMercadoLibre, provincia');
-  }
-
-  const rows = await query(`
-    SELECT TOP 1 p.IdProducto, p.NombreProducto, psp.PrecioVenta, ps.PrecioCosto
-    FROM Productos p
-    LEFT JOIN ProductosSucursalesPrecios psp ON psp.IdProducto=p.IdProducto AND psp.IdSucursal=1
-    LEFT JOIN ProductosSucursales ps ON ps.IdProducto=p.IdProducto AND ps.IdSucursal=1
-    WHERE p.IdProducto='${idProductoSIGA.replace(/'/g, "''")}'
-  `);
-
-  if (!rows.length) throw new Error('Producto no encontrado: ' + idProductoSIGA);
-
-  const producto = rows[0];
-  const precioVentaSIGA = producto.PrecioVenta || 0;
-
-  const comisiones = leerJSON(COMISIONES_PATH, { provincias: {} });
-  const provinciaData = comisiones.provincias[provincia] || comisiones.provincias.DEFAULT;
-  const comisionPct = provinciaData[categoriaMercadoLibre] || provinciaData.DEFAULT || 14.80;
-  const iva = comisiones.metadata?.iva_aplicable || 21;
-
-  const { precioML, comisionMonto, cuotasMonto, ivaMonto } = calcularPrecioML(precioVentaSIGA, comisionPct, iva, cuotasPct, costoEnvio);
-
-  return {
-    idProductoSIGA,
-    nombreProducto: producto.NombreProducto,
-    precioVentaSIGA: parseFloat(precioVentaSIGA.toFixed(2)),
-    categoriaMercadoLibre,
-    provincia,
-    comisionPct: parseFloat(comisionPct.toFixed(2)),
-    comisionMonto: parseFloat(comisionMonto.toFixed(2)),
-    cuotasPct: parseFloat(cuotasPct),
-    cuotasMonto: parseFloat(cuotasMonto.toFixed(2)),
-    costoEnvio: parseFloat(costoEnvio),
-    ivaAplicable: iva,
-    ivaMonto: parseFloat(ivaMonto.toFixed(2)),
-    precioFinalMercadoLibre: parseFloat(precioML.toFixed(2))
-  };
-}));
-
-app.get('/api/cotizador/calcular-todos', apiRoute(async () => {
-  const vinculaciones = leerJSON(VINCULACIONES_PATH, []);
-  const activas = vinculaciones.filter(v => v.activo && v.idProductoSIGA);
-  if (!activas.length) return [];
-
-  const ids = activas.map(v => `'${v.idProductoSIGA.replace(/'/g, "''")}'`).join(',');
-  const rows = await query(`
-    SELECT p.IdProducto, p.NombreProducto, psp.PrecioVenta
-    FROM Productos p
-    LEFT JOIN ProductosSucursalesPrecios psp ON psp.IdProducto=p.IdProducto AND psp.IdSucursal=1
-    WHERE p.IdProducto IN (${ids})
-  `);
-
-  const preciosMap = new Map(rows.map(r => [String(r.IdProducto), r]));
-  const comisiones = leerJSON(COMISIONES_PATH, { provincias: {} });
-  const iva = comisiones.metadata?.iva_aplicable || 21;
-
-  return activas.map(v => {
-    const prod = preciosMap.get(String(v.idProductoSIGA));
-    const precioVentaSIGA = prod?.PrecioVenta || 0;
-    const provinciaData = comisiones.provincias[v.provincia] || comisiones.provincias.DEFAULT;
-    const comisionPct = provinciaData[v.categoriaMercadoLibre] || provinciaData.DEFAULT || 14.80;
-    const cuotasPct = parseFloat(v.cuotasPct) || 0;
-    const costoEnvio = parseFloat(v.costoEnvio) || 0;
-    const { precioML, comisionMonto, cuotasMonto, ivaMonto } = calcularPrecioML(precioVentaSIGA, comisionPct, iva, cuotasPct, costoEnvio);
-
-    return {
-      skuMercadoLibre: v.skuMercadoLibre,
-      idProductoSIGA: v.idProductoSIGA,
-      nombreProducto: prod?.NombreProducto || v.nombreProducto,
-      categoriaMercadoLibre: v.categoriaMercadoLibre,
-      provincia: v.provincia,
-      precioVentaSIGA: parseFloat(precioVentaSIGA.toFixed(2)),
-      comisionPct: parseFloat(comisionPct.toFixed(2)),
-      comisionMonto: parseFloat(comisionMonto.toFixed(2)),
-      cuotasPct,
-      cuotasMonto: parseFloat(cuotasMonto.toFixed(2)),
-      costoEnvio,
-      ivaAplicable: iva,
-      ivaMonto: parseFloat(ivaMonto.toFixed(2)),
-      precioFinalMercadoLibre: parseFloat(precioML.toFixed(2))
-    };
-  });
-}));
-
-app.post('/api/cotizador/importar', multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('file'), (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'Sin archivo' });
-
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const datos = XLSX.utils.sheet_to_json(ws);
-
-    const vinculaciones = leerJSON(VINCULACIONES_PATH, []);
-    let agregadas = 0;
-
-    datos.forEach(row => {
-      const sku = String(row['SKU'] || row['sku'] || row['Código'] || '').trim();
-      const nombre = String(row['Nombre'] || row['nombre'] || '').trim();
-      const categoria = String(row['Categoría'] || row['categoria'] || 'Alimentos y Bebidas').trim();
-      const provincia = String(row['Provincia'] || row['provincia'] || 'Buenos Aires').trim();
-
-      if (!sku) return;
-
-      const existe = vinculaciones.find(v => v.skuMercadoLibre === sku);
-      if (!existe) {
-        vinculaciones.push({
-          skuMercadoLibre: sku,
-          idProductoSIGA: '',
-          nombreProducto: nombre,
-          categoriaMercadoLibre: categoria,
-          provincia,
-          activo: true,
-          ultimaActualizacion: new Date().toISOString()
-        });
-        agregadas++;
-      }
-    });
-
-    guardarJSON(VINCULACIONES_PATH, vinculaciones);
-    res.json({ ok: true, agregadas, total: vinculaciones.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Dashboard Ventas por Hora ──────────────────────────────────────────────────
 app.get('/ventas-hora', (_req, res) => res.sendFile(path.join(__dirname, 'ventas_hora.html')));
@@ -7783,6 +7621,13 @@ app.use(require('./rutas_catalogo')({
 // Envases y tapas: DATA_DIR es un const que no se hoistea, así que el registro va
 // al final como el de los demás routers.
 app.use(require('./rutas_envases_tapas')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
+
+
+// Cotizador: sus cuatro deps son funciones y se hoistean, así que el registro podría ir
+// donde estaban las rutas. Va igual al final, con el de los demás routers: no hay catch-all
+// ni middleware de 404 y ninguna ruta que quedó en server.js solapa con las del router, así
+// que el orden de registro no cambia a qué handler llega cada request.
+app.use(require('./rutas_cotizador')({ apiRoute, query, leerJSON, guardarJSON }));
 
 
 async function start() {
