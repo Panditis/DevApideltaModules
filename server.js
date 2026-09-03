@@ -1178,7 +1178,6 @@ app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'favi
 app.get('/favicon.ico',   (_req, res) => res.redirect('/favicon.png'));
 app.get('/',              (_req, res) => res.sendFile(path.join(__dirname, 'inicio.html')));
 app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedidos_web.html')));
-app.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
 app.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
 app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insumos.html')));
@@ -3132,58 +3131,6 @@ function archivarRegistros(ids, meta) {
   }
   return aMover.length;
 }
-app.get('/api/produccion/registros', apiRoute(async () => leerJSON(PROD_REG_PATH, [])));
-// Historial: registros ya conciliados/archivados (fuera de Terminados). Filtro opcional por fecha.
-app.get('/api/produccion/historial', apiRoute(async req => {
-  const fecha = req.query.fecha ? safeDate(req.query.fecha) : null;
-  const hist = leerJSON(PROD_HIST_PATH, []);
-  return fecha ? hist.filter(r => r && r.fecha === fecha) : hist;
-}));
-// Presentación deducida del nombre del producto ("MIEL APIDELTA 500G" → "500g"), o '' si el
-// nombre no la trae. La carga manual no viene de una orden planificada, así que no tiene
-// presentación cargada: sin esto la columna quedaba vacía en Terminados y en el historial.
-function presentacionDeNombre(nombre) {
-  const m = String(nombre || '').match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|lt|l|cc)\b/i);
-  return m ? m[1].replace(',', '.') + m[2].toLowerCase() : '';
-}
-
-app.post('/api/produccion/registros', (req, res) => {
-  const b = req.body || {};
-  if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
-  const arr = leerJSON(PROD_REG_PATH, []);
-  const presentacion = String(b.presentacion || '').trim() || presentacionDeNombre(b.nombre || b.producto);
-  // Date.now() solo repetía id si entraban dos registros en el mismo ms (varias presentaciones
-  // de una misma orden): con id repetido, borrar uno borraba los dos.
-  let id = Date.now();
-  while (arr.some(x => x && x.id === id)) id++;
-  arr.push({ ...b, presentacion, id });
-  guardarJSON(PROD_REG_PATH, arr);
-  res.json({ ok: true });
-});
-app.delete('/api/produccion/registros-fecha', (req, res) => {
-  const { fecha } = req.query;
-  const arr = leerJSON(PROD_REG_PATH, []);
-  const nuevo = fecha ? arr.filter(x => x.fecha !== fecha) : [];
-  guardarJSON(PROD_REG_PATH, nuevo);
-  res.json({ ok: true, eliminados: arr.length - nuevo.length });
-});
-app.delete('/api/produccion/registros/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const arr = leerJSON(PROD_REG_PATH, []);
-  const nuevo = arr.filter(x => x.id !== id);
-  if (nuevo.length === arr.length) return res.status(404).json({ error: 'no encontrado' });
-  guardarJSON(PROD_REG_PATH, nuevo);
-  res.json({ ok: true });
-});
-app.put('/api/produccion/registros/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const arr = leerJSON(PROD_REG_PATH, []);
-  const idx = arr.findIndex(x => x.id === id);
-  if (idx < 0) return res.status(404).json({ error: 'no encontrado' });
-  arr[idx] = { ...arr[idx], ...req.body, id };
-  guardarJSON(PROD_REG_PATH, arr);
-  res.json({ ok: true });
-});
 
 // ── Distribución: parámetros pesables (config motor) ────────────────────────────
 const PESABLES_PARAMS_PATH = path.join(DATA_DIR, 'pesables_params.json');
@@ -3752,18 +3699,6 @@ app.post('/api/enviar-produccion', (req, res) => {
     guardarOrdenes(arr);
     res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue,
                completasOmitidas: completas, recepcionadasOmitidas: recepcionadas });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-app.get('/api/ordenes-produccion', (_req, res) => res.json(leerOrdenes()));
-app.post('/api/ordenes-produccion/reordenar', (req, res) => {
-  const ids = req.body && req.body.ids;
-  if (!Array.isArray(ids)) return res.status(400).json({ error: 'Falta ids[]' });
-  try {
-    const arr = leerOrdenes();
-    const pos = new Map(ids.map((id, i) => [String(id), i]));
-    arr.sort((a, b) => (pos.has(String(a.id)) ? pos.get(String(a.id)) : 1e9) - (pos.has(String(b.id)) ? pos.get(String(b.id)) : 1e9));
-    guardarOrdenes(arr);
-    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6481,6 +6416,7 @@ app.get('/api/movimientos/siga/:numero', apiRoute(async req => {
   };
 }));
 
+// Estas dos rutas /api/produccion/:fecha/* se quedan en server.js a proposito: van con el bloque de reservas/movimientos SIGA, no con rutas_produccion.js.
 app.get('/api/produccion/:fecha/conciliacion', apiRoute(async req => {
   const s = await resolverSucursal(req.query.idSucursal);
   if (s.error) return { error: s.error };
@@ -6925,6 +6861,15 @@ app.use(require('./rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VE
 // solapa con /compras/control ni con /api/compras/control/*.
 app.use(require('./rutas_compras_control')({
   apiRoute, leerJSON, guardarJSON, getPool, sql, DATA_DIR, leerPedidosCompra,
+}));
+
+// Produccion: va al final porque PROD_REG_PATH y PROD_HIST_PATH son const declarados
+// despues del punto donde estaban estas rutas. /api/produccion/:fecha/conciliacion y
+// :fecha/registrar-movimiento quedaron en server.js y se declaran antes, pero no capturan
+// nada de este router: exigen 3 segmentos con un literal fijo detras.
+app.use(require('./rutas_produccion')({
+  apiRoute, leerJSON, guardarJSON, safeDate, cfg,
+  PROD_REG_PATH, PROD_HIST_PATH, leerOrdenes, guardarOrdenes,
 }));
 
 // Auth y Centro de control: no lleva deps — auth.js y path se requieren directo.
