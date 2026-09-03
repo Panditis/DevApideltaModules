@@ -11,8 +11,10 @@ const path = require('path');
 //
 // server.js no se puede requerir (el require dispara el bootstrap: conexión SQL + listen), así que
 // el handler se extrae del fuente por nombre y se evalúa con el disco y la respuesta simulados.
+// Las rutas de fraccionado-registros/historial viven en rutas_distribucion.js (refactor de
+// ruteo): ahí registran con `router.post(...)`, no `app.post(...)`.
 
-const SERVER = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const SERVER = fs.readFileSync(path.join(__dirname, '..', 'rutas_distribucion.js'), 'utf8');
 const DISTRIB = fs.readFileSync(path.join(__dirname, '..', 'distribucion.html'), 'utf8');
 
 // Devuelve el bloque de código que arranca en `desde` y termina en su llave de cierre. Arrastra el
@@ -42,9 +44,9 @@ function montarPost() {
     const leerJSON = () => disco.arr;
     const guardarJSON = (_p, d) => { disco.arr = d; };
     let capturado = null;
-    const app = { post: (_ruta, fn) => { capturado = fn; } };
+    const router = { post: (_ruta, fn) => { capturado = fn; } };
     ${bloqueDesde(SERVER, 'function claveRegistroFrac(', 'function claveRegistroFrac(')}
-    ${bloqueDesde(SERVER, "app.post('/api/distribucion/fraccionado-registros'", 'POST fraccionado-registros')}
+    ${bloqueDesde(SERVER, "router.post('/api/distribucion/fraccionado-registros'", 'POST fraccionado-registros')}
     return capturado;
   `)(disco);
   // res mínimo: guarda el status y el cuerpo devuelto.
@@ -116,8 +118,8 @@ test('archivar dos veces el mismo día deja un solo snapshot, el último', () =>
     const leerJSON = () => disco.arr;
     const guardarJSON = (_p, d) => { disco.arr = d; };
     let capturado = null;
-    const app = { post: (_ruta, fn) => { capturado = fn; } };
-    ${bloqueDesde(SERVER, "app.post('/api/distribucion/historial'", 'POST historial')}
+    const router = { post: (_ruta, fn) => { capturado = fn; } };
+    ${bloqueDesde(SERVER, "router.post('/api/distribucion/historial'", 'POST historial')}
     return capturado;
   `)(disco);
   const post = body => handler({ body }, { status() { return this; }, json() { return this; } });
