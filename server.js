@@ -1187,84 +1187,6 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insu
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'bloques_tareas.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
-app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
-app.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
-
-// ── API de autenticación / sesión ───────────────────────────────────────────────
-// Throttle simple en memoria contra fuerza bruta (por IP).
-const loginIntentos = new Map(); // ip -> { count, hasta }
-const LOGIN_MAX = 8;
-const LOGIN_BLOQUEO_MS = 15 * 60 * 1000;
-app.post('/api/login', (req, res) => {
-  const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-  const ahora = Date.now();
-  const reg = loginIntentos.get(ip);
-  if (reg && reg.hasta > ahora && reg.count >= LOGIN_MAX) {
-    return res.status(429).json({ error: 'Demasiados intentos fallidos. Esperá unos minutos.' });
-  }
-  const { usuario, password } = req.body || {};
-  const user = auth.autenticar(usuario, password);
-  if (!user) {
-    const enVentana = reg && reg.hasta > ahora;
-    loginIntentos.set(ip, enVentana ? { count: reg.count + 1, hasta: reg.hasta } : { count: 1, hasta: ahora + LOGIN_BLOQUEO_MS });
-    return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
-  }
-  loginIntentos.delete(ip);
-  // Regenerar la sesión al autenticar evita fijación de sesión.
-  req.session.regenerate(err => {
-    if (err) return res.status(500).json({ error: 'No se pudo iniciar sesión.' });
-    req.session.user = user;
-    res.json({ ok: true, user });
-  });
-});
-app.post('/api/logout', (req, res) => {
-  if (req.session) return req.session.destroy(() => res.json({ ok: true }));
-  res.json({ ok: true });
-});
-// Cambio de contraseña propio: cualquier usuario logueado, sin pasar por el
-// Centro de control. La ruta no pertenece a ningún módulo, así que el guard
-// general la deja pasar: el chequeo de sesión va acá.
-app.post('/api/password', (req, res) => {
-  const user = req.session && req.session.user;
-  if (!user) return res.status(401).json({ error: 'No autenticado' });
-  const { actual, nueva } = req.body || {};
-  try {
-    auth.cambiarPasswordPropia(user.usuario, actual, nueva);
-    res.json({ ok: true });
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.get('/api/session', (req, res) => {
-  res.json({ user: (req.session && req.session.user) || null });
-});
-// Módulos del hub: todos los activos no-admin. Cada uno trae `permitido` (si el
-// usuario actual puede entrar) para que el front muestre los bloqueados igual.
-app.get('/api/modulos', (req, res) => {
-  const user = req.session && req.session.user;
-  const lista = auth.leerModulos()
-    .filter(m => m.activo && !m.soloAdmin)
-    .map(m => ({ ...m, permitido: m.requiereAuth === false || auth.puedeAcceder(user, m.ref) }));
-  res.json(lista);
-});
-
-// ── API del Centro de control (protegida por requireAuth: sólo admin) ────────────
-app.get('/api/admin/usuarios', (_req, res) => res.json(auth.listarUsuarios()));
-app.post('/api/admin/usuarios', (req, res) => {
-  try { res.json({ ok: true, user: auth.crearUsuario(req.body || {}) }); }
-  catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.put('/api/admin/usuarios/:id', (req, res) => {
-  try { res.json({ ok: true, user: auth.actualizarUsuario(req.params.id, req.body || {}) }); }
-  catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.delete('/api/admin/usuarios/:id', (req, res) => {
-  try { auth.eliminarUsuario(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.get('/api/admin/modulos', (_req, res) => res.json(auth.leerModulos()));
-app.put('/api/admin/modulos', (req, res) => {
-  try { res.json({ ok: true, modulos: auth.guardarModulos(req.body || []) }); }
-  catch (e) { res.status(400).json({ error: e.message }); }
-});
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');
@@ -7136,6 +7058,10 @@ app.use(require('./rutas_ventas_hora')({ apiRoute, query, safeDate }));
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del
 // punto donde estaba la página del módulo, así que el registro va al final como los demás.
 app.use(require('./rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
+
+// Auth y Centro de control: no lleva deps — auth.js y path se requieren directo.
+// Ninguna ruta que quedó en server.js solapa con /login, /admin ni /api/admin/*.
+app.use(require('./rutas_auth')());
 
 
 async function start() {
