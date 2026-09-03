@@ -2015,49 +2015,10 @@ app.post('/api/enviar-produccion', (req, res) => {
 });
 
 
-// ── Facturador auxiliar (HTML suelto) ──────────────────────────────────────────
-// Catálogo plano de precios para el facturador que corre como archivo local. No lleva
-// sesión a propósito: el HTML se abre con file:// y no puede loguearse. El guard de IP
-// de LAN (más arriba) ya limita quién llega hasta acá.
 // IdListaPrecios 0 es "Lista de precios SUCURSALES". La lista 1 se llama, textual,
 // "Lista de precios NO USAR": sin este filtro cada producto sale duplicado y con el
 // precio de la lista equivocada la mitad de las veces.
 const LISTA_PRECIOS_VENTA = 0;
-
-app.get('/api/facturador/catalogo', apiRoute(async req => {
-  const sucursal = Math.max(1, Math.min(parseInt(req.query.sucursal, 10) || 1, 99));
-  const rows = await query(`
-    SELECT p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.ModalidadCodigoDeBarras,
-           p.IdUnidadDeMedida, CAST(psp.PrecioVenta AS FLOAT) AS PrecioVenta
-    FROM Productos p
-    JOIN ProductosSucursalesPrecios psp
-      ON psp.IdProducto = p.IdProducto
-     AND psp.IdSucursal = ${sucursal}
-     AND psp.IdListaPrecios = ${LISTA_PRECIOS_VENTA}
-    WHERE p.Activo = 1 AND psp.PrecioVenta > 0
-    ORDER BY p.NombreProducto
-  `);
-  return {
-    generado: new Date().toISOString(),
-    origen: `server:${PORT} suc ${sucursal}`,
-    sucursal,
-    productos: rows.map(r => {
-      // Los códigos "0", "1" o de 2-3 dígitos que abundan en la base no son códigos de
-      // barra reales: son restos de carga. Se descartan para que no generen falsos
-      // positivos al escanear.
-      const barra = String(r.CodigoDeBarras || '').replace(/\D/g, '');
-      const modalidad = String(r.ModalidadCodigoDeBarras || '').trim().toUpperCase();
-      return {
-        plu: String(r.IdProducto).trim(),
-        nombre: r.NombreProducto,
-        precio: Math.round(Number(r.PrecioVenta) * 100) / 100,
-        barra: barra.length >= 7 ? barra : '',
-        modalidad: modalidad === 'PESO' || modalidad === 'PRECIO' ? modalidad : null,
-        unidad: String(r.IdUnidadDeMedida || '').trim(),
-      };
-    }),
-  };
-}));
 
 // Segunda fuente del facturador: la planilla de precios que vive en una carpeta compartida
 // de la red. Cubre el caso de SQL caído (o del server corriendo sin acceso a SiGA) sin
@@ -2067,9 +2028,6 @@ app.get('/api/facturador/catalogo', apiRoute(async req => {
 // leer cualquier archivo del servidor.
 const PRECIOS_FACTURADOR_DIR = process.env.PRECIOS_FACTURADOR_DIR ||
   '\\\\192.168.1.26\\Apidelta\\7- SISTEMA\\1-Precios\\PreciosFacturador';
-
-app.get('/api/facturador/catalogo-archivo', apiRoute(async () =>
-  preciosFacturador.catalogoDeDirectorio(PRECIOS_FACTURADOR_DIR)));
 
 
 
@@ -4798,6 +4756,13 @@ app.use(require('./rutas_ventas_hora')({ apiRoute, query, safeDate }));
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del
 // punto donde estaba la página del módulo, así que el registro va al final como los demás.
 app.use(require('./rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
+
+// Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se
+// declaran bien antes, así que el registro podría ir donde estaban las rutas. Va igual al
+// final, con el de los demás routers. LISTA_PRECIOS_VENTA y PRECIOS_FACTURADOR_DIR también
+// las recibe este router: son las mismas constantes que ya viajan por deps a precios
+// históricos (arriba) y a productividad, no una copia — un solo 0 y un solo directorio.
+app.use(require('./rutas_facturador')({ apiRoute, query, LISTA_PRECIOS_VENTA, PRECIOS_FACTURADOR_DIR, PORT }));
 
 // Control de compras: DATA_DIR es un const que no se hoistea, así que el registro va al
 // final como el de los demás routers. leerPedidosCompra viaja por deps porque también lo
