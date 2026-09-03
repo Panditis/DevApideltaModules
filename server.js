@@ -21,7 +21,6 @@ const insumos = require('./insumos');
 const preciosProv = require('./precios_proveedores');
 const preciosFacturador = require('./precios_facturador');
 const comprasImport = require('./compras_import');
-const comprasControl = require('./compras_control');
 const pdfParse = require('pdf-parse');
 const { calcularPesables } = require('./pesables');
 const { universoLista, universoPesables } = require('./listas_universo');   // membresía de lista (qué PLUs entran a cada tab)
@@ -6823,145 +6822,6 @@ app.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req => {
 
 
 // ── Inicio ─────────────────────────────────────────────────────────────────────
-// ── Control de compras ─────────────────────────────────────────────────────────
-// Cruza el pedido a proveedor (módulo Compras) contra lo que realmente se cargó en
-// SIGA. El vínculo pedido → comprobante(s) vive en un archivo propio: el shape del
-// pedido (pedidos_compra.json) pertenece al módulo de Compras y desde acá no se toca.
-// La matemática del cruce está en compras_control.js; acá van la query y el disco.
-const COMPROBANTES_PEDIDO_PATH = path.join(DATA_DIR, 'pedidos_comprobantes.json');
-
-function leerVinculos()        { return leerJSON(COMPROBANTES_PEDIDO_PATH, {}); }
-function guardarVinculos(map)  { guardarJSON(COMPROBANTES_PEDIDO_PATH, map); }
-
-// Comprobantes de compra de un proveedor en una ventana de fechas, con su detalle.
-// El JOIN va por las 6 columnas de la clave, IdProveedor incluido: en FACTCOM el
-// número lo trae la factura del proveedor (SIGA no lo numera), así que dos
-// proveedores comparten sucursal+tipo+letra+centro+número sin problema, y sin esa
-// columna se cuelan las líneas del otro e inflan cantidades e importes.
-// Las COTIZACION* quedan afuera igual: no son la carga de una compra real.
-async function comprasDeProveedor({ idProveedor, proveedor, desde, hasta }) {
-  if (!desde || !hasta) return [];
-  const pool = await getPool();
-  const consulta = pool.request()
-    .input('desde', sql.VarChar(10), desde)
-    .input('hasta', sql.VarChar(10), hasta);
-  let filtroProv;
-  if (idProveedor != null && Number.isFinite(Number(idProveedor))) {
-    consulta.input('prov', sql.Int, Number(idProveedor));
-    filtroProv = 'c.IdProveedor = @prov';
-  } else {
-    consulta.input('nombre', sql.NVarChar(200), String(proveedor || ''));
-    filtroProv = 'c.NombreProveedor = @nombre';
-  }
-  const r = await consulta.query(`
-    SELECT c.IdSucursal, c.IdTipoComprobante, c.Letra, c.CentroEmisor, c.NumeroComprobante,
-           CONVERT(varchar(10), c.Fecha, 23) AS Fecha, c.IdProveedor, c.NombreProveedor,
-           CAST(c.ImporteTotal AS FLOAT) AS ImporteTotal,
-           cp.Orden, cp.IdProducto, cp.NombreProducto,
-           CAST(cp.Cantidad AS FLOAT) AS Cantidad,
-           CAST(cp.ImporteTotal AS FLOAT) AS ImporteLinea
-    FROM Compras c
-    INNER JOIN ComprasProductos cp
-      ON cp.IdSucursal = c.IdSucursal AND cp.IdTipoComprobante = c.IdTipoComprobante
-     AND cp.Letra = c.Letra AND cp.CentroEmisor = c.CentroEmisor
-     AND cp.NumeroComprobante = c.NumeroComprobante AND cp.IdProveedor = c.IdProveedor
-    WHERE ${filtroProv}
-      AND c.Fecha >= @desde AND c.Fecha < DATEADD(day, 1, @hasta)
-      AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
-    ORDER BY c.Fecha, c.NumeroComprobante, cp.Orden`);
-
-  // La query devuelve una fila por línea: se reagrupa por comprobante para dárselo
-  // ya armado al módulo de cruce.
-  const porClave = new Map();
-  for (const f of r.recordset) {
-    const cab = {
-      idSucursal: f.IdSucursal, tipoComprobante: String(f.IdTipoComprobante || '').trim(),
-      letra: String(f.Letra || '').trim(), centroEmisor: f.CentroEmisor, numeroComprobante: f.NumeroComprobante,
-    };
-    const clave = comprasControl.claveComprobante(cab);
-    if (!porClave.has(clave)) {
-      porClave.set(clave, {
-        ...cab, fecha: f.Fecha, idProveedor: f.IdProveedor,
-        proveedor: String(f.NombreProveedor || '').trim(),
-        importeTotal: f.ImporteTotal != null ? +f.ImporteTotal : null,
-        items: [],
-      });
-    }
-    porClave.get(clave).items.push({
-      plu: String(f.IdProducto || '').trim(),
-      nombre: String(f.NombreProducto || '').trim(),
-      cantidad: f.Cantidad != null ? +f.Cantidad : 0,
-      importe: f.ImporteLinea != null ? +f.ImporteLinea : 0,
-    });
-  }
-  return [...porClave.values()];
-}
-
-const numeroOpcional = (valor, def) => (valor != null && valor !== '' && Number.isFinite(Number(valor)) ? Number(valor) : def);
-
-app.get('/compras/control', (_req, res) => res.sendFile(path.join(__dirname, 'compras_control.html')));
-
-// Listado liviano: no toca SIGA, sólo dice qué pedidos hay y cuáles ya tienen
-// vínculo confirmado. La consulta pesada es la del detalle.
-app.get('/api/compras/control/pedidos', apiRoute(async (req) => {
-  const estado = String(req.query.estado || '').trim().toUpperCase();
-  const proveedor = String(req.query.proveedor || '').trim();
-  const vinculos = leerVinculos();
-  return leerPedidosCompra()
-    .filter(p => (!estado || p.estado === estado) && (!proveedor || p.proveedor === proveedor))
-    .sort((a, b) => String(b.numero).localeCompare(String(a.numero)))
-    .map(p => ({
-      numero: p.numero, proveedor: p.proveedor, idProveedor: p.idProveedor != null ? p.idProveedor : null,
-      fecha: p.fecha, fechaRetiro: p.fechaRetiro || null, estado: p.estado,
-      lineas: Array.isArray(p.items) ? p.items.length : 0,
-      vinculados: Array.isArray(vinculos[p.numero]) ? vinculos[p.numero].length : 0,
-    }));
-}));
-
-// Detalle: candidatos de la ventana + comparación contra los comprobantes elegidos.
-// Sin vínculo guardado se compara contra los sugeridos, así la pantalla ya muestra
-// algo útil; el usuario confirma y recién ahí queda fijo.
-app.get('/api/compras/control/pedidos/:numero', apiRoute(async (req) => {
-  const numero = String(req.params.numero);
-  const pedido = leerPedidosCompra().find(p => String(p.numero) === numero);
-  if (!pedido) throw new Error(`No existe el pedido ${numero}`);
-
-  const opciones = {
-    diasAntes: numeroOpcional(req.query.diasAntes, comprasControl.DIAS_ANTES_DEFAULT),
-    diasDespues: numeroOpcional(req.query.diasDespues, comprasControl.DIAS_DESPUES_DEFAULT),
-  };
-  const ventana = comprasControl.ventanaDe(pedido, opciones);
-  const comprobantes = await comprasDeProveedor({
-    idProveedor: pedido.idProveedor, proveedor: pedido.proveedor, ...ventana,
-  });
-  const candidatos = comprasControl.candidatosDeCompra(pedido, comprobantes, opciones);
-
-  const guardadas = leerVinculos()[numero];
-  const vinculado = Array.isArray(guardadas);
-  const claves = new Set(vinculado ? guardadas : candidatos.filter(c => c.sugerido).map(c => c.clave));
-  const elegidos = comprobantes.filter(c => claves.has(comprasControl.claveComprobante(c)));
-
-  return {
-    ventana, candidatos, vinculado, vinculadas: vinculado ? guardadas : [],
-    comparacion: comprasControl.compararPedido(pedido, elegidos, {
-      toleranciaPct: numeroOpcional(req.query.toleranciaPct, 0),
-    }),
-  };
-}));
-
-// Confirma (o corrige) contra qué comprobantes se controla el pedido. Una lista
-// vacía es una respuesta válida: "ninguno de estos es de este pedido".
-app.put('/api/compras/control/pedidos/:numero/comprobantes', (req, res) => {
-  const numero = String(req.params.numero);
-  const claves = (req.body || {}).claves;
-  if (!Array.isArray(claves)) return res.status(400).json({ error: 'Falta la lista de comprobantes' });
-  if (!leerPedidosCompra().some(p => String(p.numero) === numero)) {
-    return res.status(404).json({ error: `No existe el pedido ${numero}` });
-  }
-  const limpias = [...new Set(claves.map(c => String(c).trim()).filter(Boolean))];
-  guardarVinculos({ ...leerVinculos(), [numero]: limpias });
-  res.json({ ok: true, numero, vinculadas: limpias });
-});
 
 // El router de compras se registra acá, al final, y no donde estaban sus rutas:
 // recibe deps que son `const` declarados bastante después del punto donde estaban
@@ -7058,6 +6918,14 @@ app.use(require('./rutas_ventas_hora')({ apiRoute, query, safeDate }));
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del
 // punto donde estaba la página del módulo, así que el registro va al final como los demás.
 app.use(require('./rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
+
+// Control de compras: DATA_DIR es un const que no se hoistea, así que el registro va al
+// final como el de los demás routers. leerPedidosCompra viaja por deps porque también lo
+// usa el módulo Compras y se queda en server.js. Ninguna ruta que quedó en server.js
+// solapa con /compras/control ni con /api/compras/control/*.
+app.use(require('./rutas_compras_control')({
+  apiRoute, leerJSON, guardarJSON, getPool, sql, DATA_DIR, leerPedidosCompra,
+}));
 
 // Auth y Centro de control: no lleva deps — auth.js y path se requieren directo.
 // Ninguna ruta que quedó en server.js solapa con /login, /admin ni /api/admin/*.

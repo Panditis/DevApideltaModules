@@ -19,14 +19,14 @@ const comprasImport = require('./compras_import');
 // Lo que NO está acá y sigue en server.js a propósito:
 //   · /api/compras/consumo, /urgencias, /buscar y /productos → los consume
 //     dashboard_consumo.html (módulo /consumo); comparten prefijo por historia.
-//   · /api/compras/control/* y comprasDeProveedor() → módulo de control.
+//   · /api/compras/control/* y comprasDeProveedor() → rutas_compras_control.js.
 //   · /api/compras/consumo-mensual[/recalcular] → cache compartido con distribución.
 module.exports = function crearRutasCompras(deps) {
   const {
     apiRoute, leerJSON, query, getPool,
     sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
-    // pedidos_compra.json lo lee también el control de compras, que sigue en
-    // server.js: los helpers de disco quedan allá y llegan por acá.
+    // pedidos_compra.json lo lee también el control de compras (rutas_compras_control.js):
+    // los helpers de disco quedan en server.js y llegan por acá a los dos routers.
     leerPedidosCompra, guardarPedidosCompra,
     PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH,
   } = deps;
