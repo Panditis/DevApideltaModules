@@ -1290,7 +1290,7 @@ test('sin nombre en la reserva la fila queda con el string vacio, no con undefin
 
 // ── Los tipos de ajuste viven en tres lugares y tienen que coincidir ──────────
 // 1. ajustePropuesto (modulo puro) los EMITE.
-// 2. El POST /api/mayoristas/reservas/ajuste (server.js) los ACEPTA.
+// 2. El POST /api/mayoristas/reservas/ajuste (rutas_mayoristas.js) los ACEPTA.
 // 3. AJUSTE_TXT (pedidos_web.html) los ETIQUETA.
 // Nada los mantenia sincronizados y por eso el plan traia el front etiquetando por tipo con un
 // ternario de dos ramas: cuando aparecio un cuarto tipo, `reponer-granel` decia "Devolver" y
@@ -1317,7 +1317,7 @@ test('ajustePropuesto emite cuatro tipos distintos', () => {
 
 test('el endpoint de ajuste acepta todos los tipos que se emiten', () => {
   // Arrange: la lista blanca del POST, leida del fuente.
-  const src = fs.readFileSync(path.join(raiz, 'server.js'), 'utf8');
+  const src = fs.readFileSync(path.join(raiz, 'rutas_mayoristas.js'), 'utf8');
   const m = src.match(/const TIPOS = \[([^\]]+)\]/);
   assert.ok(m, 'no se encontro la lista TIPOS en el endpoint de ajuste');
   const aceptados = m[1].match(/'[^']+'/g).map(s => s.slice(1, -1));

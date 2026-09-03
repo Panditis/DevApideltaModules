@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // Cada router nuevo se suma acá.
-const ARCHIVOS = ['server.js', 'rutas_compras.js', 'rutas_cruce_terminales.js', 'rutas_productividad.js', 'rutas_precios_proveedores.js', 'rutas_rrhh.js']
+const ARCHIVOS = ['server.js', 'rutas_compras.js', 'rutas_cruce_terminales.js', 'rutas_productividad.js', 'rutas_precios_proveedores.js', 'rutas_rrhh.js', 'rutas_mayoristas.js']
   .map(f => path.join(__dirname, '..', f));
 
 // Sólo nivel superior del archivo: una declaración anidada arranca indentada.
