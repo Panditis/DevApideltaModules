@@ -3231,14 +3231,28 @@ app.post('/api/distribucion/almacen-tipo', (req, res) => {
   res.json({ ok: true });
 });
 
+// Clave natural de un registro de fraccionado: el mismo producto, del mismo día, hecho por el
+// mismo empleado, en el mismo tramo horario y con la misma cantidad es siempre el mismo trabajo.
+// Se usa para rebotar el doble-submit (ver el POST de abajo).
+function claveRegistroFrac(r) {
+  return [r.lote || '', r.plu, r.fecha || '', r.empleado || '', r.desde || '', r.hasta || '',
+          Number(r.cantFraccionada)].join('|');
+}
 app.post('/api/distribucion/fraccionado-registros', (req, res) => {
   const b = req.body || {};
   if (b.plu == null || b.cantFraccionada == null) return res.status(400).json({ error: 'faltan campos' });
   // Se guarda el cuerpo completo (incluye observacion, ordenId, seccion y graneles[]).
   const arr = leerJSON(FRAC_REG_PATH, []);
-  arr.push({ ...b, id: Date.now() });
+  // Rebote de doble-submit: cuando el server queda trabado (consultas a Siga bloqueando el event
+  // loop) la operaria no ve respuesta y vuelve a apretar Guardar; las requests se encolan y entran
+  // todas juntas. Pasó el 02/09/26 con el PLU 1218: 12 altas idénticas en 335 ms. Reenviar la misma
+  // carga devuelve el id ya existente en vez de duplicarla, así el front no necesita cambiar nada.
+  const dup = arr.find(x => claveRegistroFrac(x) === claveRegistroFrac(b));
+  if (dup) return res.json({ ok: true, id: dup.id, duplicado: true });
+  const nuevo = { ...b, id: Date.now() };
+  arr.push(nuevo);
   guardarJSON(FRAC_REG_PATH, arr);
-  res.json({ ok: true });
+  res.json({ ok: true, id: nuevo.id });
 });
 app.get('/api/distribucion/pedidos', apiRoute(async () => {
   const rows = await query(`SELECT p.IdProducto, p.NombreProducto, ISNULL(r.NombreRubro,'') AS Rubro, p.EsCompuesto
@@ -3278,7 +3292,10 @@ app.post('/api/distribucion/historial', (req, res) => {
   const b = req.body || {};
   if (!b.fecha) return res.status(400).json({ error: 'falta fecha' });
   // Guarda el cuerpo completo (incluye ordenes, completadas, pctCompletadas, totalOrdenes).
-  const arr = leerJSON(HISTORIAL_PATH, []);
+  // Una fecha tiene un solo snapshot: archivar dos veces el mismo día es o un doble click o un
+  // re-archivado después de agregar registros, y en los dos casos el bueno es el último. Apilando
+  // quedaban dos entradas del mismo día en el historial (pasó el 02/09/26, exports 10:57 y 11:01).
+  const arr = leerJSON(HISTORIAL_PATH, []).filter(x => x.fecha !== b.fecha);
   arr.unshift({ ...b, produccion: b.produccion || [], pesables: b.pesables || [], id: Date.now(), exportadoEn: new Date().toISOString() });
   guardarJSON(HISTORIAL_PATH, arr);
   res.json({ ok: true });

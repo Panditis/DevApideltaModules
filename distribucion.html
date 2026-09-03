@@ -2552,7 +2552,18 @@ function cerrarModalRegistro() {
 }
 document.getElementById('mr-close').addEventListener('click', cerrarModalRegistro);
 document.getElementById('mr-cancel').addEventListener('click', cerrarModalRegistro);
-document.getElementById('mr-save').addEventListener('click', guardarRegistro);
+// Guardia de doble-submit. Va en el listener y no adentro de guardarRegistro() porque la función
+// tiene varios return tempranos (validación, error de fetch) y así ninguno se puede olvidar de
+// liberar el botón. El server también deduplica: esto es sólo para que se vea que está guardando.
+let _mrGuardando = false;
+document.getElementById('mr-save').addEventListener('click', async () => {
+  if (_mrGuardando) return;
+  _mrGuardando = true;
+  const btn = document.getElementById('mr-save');
+  btn.disabled = true; btn.style.opacity = '.6'; btn.style.cursor = 'wait';
+  try { await guardarRegistro(); }
+  finally { _mrGuardando = false; btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = ''; }
+});
 document.getElementById('modal-registro').addEventListener('click', e => { if (e.target === e.currentTarget) cerrarModalRegistro(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModalRegistro(); });
 
