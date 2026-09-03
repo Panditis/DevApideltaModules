@@ -21,7 +21,7 @@ const comprasControl = require('./compras_control');
 // silencio; acá vive una sola, en este archivo.
 //
 // Lo que NO está acá aunque comparta el prefijo /api/compras: /consumo, /urgencias,
-// /buscar y /productos son del módulo /consumo y siguen en server.js.
+// /buscar y /productos son del módulo /consumo y viven en rutas_consumo.js.
 module.exports = function crearRutasComprasControl(deps) {
   const { apiRoute, leerJSON, guardarJSON, getPool, sql, DATA_DIR, leerPedidosCompra } = deps;
   const router = express.Router();

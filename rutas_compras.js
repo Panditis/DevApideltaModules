@@ -19,6 +19,7 @@ const comprasImport = require('./compras_import');
 // Lo que NO está acá y sigue en server.js a propósito:
 //   · /api/compras/consumo, /urgencias, /buscar y /productos → los consume
 //     dashboard_consumo.html (módulo /consumo); comparten prefijo por historia.
+//     Viven en rutas_consumo.js, no acá ni en server.js.
 //   · /api/compras/control/* y comprasDeProveedor() → rutas_compras_control.js.
 //   · /api/compras/consumo-mensual[/recalcular] → cache compartido con distribución.
 module.exports = function crearRutasCompras(deps) {
