@@ -37,7 +37,6 @@ const analisisVentas = require('./analisis_ventas');
 const productividad = require('./productividad');
 const resumenesLegacy = require('./resumenes_legacy');
 const historialSala = require('./historial_sala');
-const cuentasCorrientes = require('./cuentas_corrientes');
 const cruceTerminales = require('./cruce_terminales');
 const rrhhRopa = require('./rrhh_ropa');
 const rrhhAusencias = require('./rrhh_ausencias');
@@ -1190,7 +1189,6 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insu
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'bloques_tareas.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 app.get('/precios-historico', (_req, res) => res.sendFile(path.join(__dirname, 'precios_historico.html')));
-app.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
 app.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
 app.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
@@ -3958,54 +3956,6 @@ app.get('/api/ventas-hora/sucursales', apiRoute(async () => {
 // alcanza con el permiso de analisis-ventas.
 const FAMILIAS_MANUALES_PATH = path.join(DATA_DIR, 'familias_manuales.json');
 
-// ── Cuentas Corrientes de Clientes ───────────────────────────────────────────
-// Saldo vivo por cliente + detalle de comprobantes. Clientes.SaldoPendiente está
-// en 0 en toda la base, así que el saldo se recalcula sumando CuentasCorrientes.
-app.get('/api/cuentas-corrientes', apiRoute(async req => {
-  const csv = cuentasCorrientes.catIdsCsv(cuentasCorrientes.catIdsSeguras(req.query.categorias));
-  // Antigüedad de mora opcional: null = sin filtro (saldo total, comportamiento default).
-  const vencidoDias = cuentasCorrientes.vencidoDiasSeguro(req.query.vencidoDias);
-  const p = { csv, vencidoDias };
-
-  const [clientes, comprobantes] = await Promise.all([
-    query(cuentasCorrientes.sqlClientesConSaldo(p)),
-    query(cuentasCorrientes.sqlComprobantes(p)),
-  ]);
-
-  // IdCliente y NumeroComprobante son bigint: el driver los devuelve como string.
-  return {
-    generado: new Date().toISOString(),
-    filtros: { vencidoDias },
-    totales: cuentasCorrientes.totales(clientes),
-    clientes: clientes.map(r => ({
-      IdCliente: Number(r.IdCliente),
-      NombreCliente: r.NombreCliente || '',
-      Categoria: r.Categoria || '',
-      // Saldo = el que se muestra según el filtro de mora; SaldoTotal = el completo.
-      Saldo: Number(r.Saldo || 0),
-      SaldoSinVencer: Number(r.SaldoSinVencer || 0),
-      SaldoTotal: Number(r.SaldoTotal || 0),
-      Comprobantes: Number(r.Comprobantes || 0),
-      UltimaFecha: cuentasCorrientes.fechaISO(r.UltimaFecha),
-    })),
-    comprobantes: comprobantes.map(r => ({
-      IdCliente: Number(r.IdCliente),
-      NombreCliente: r.NombreCliente || '',
-      Categoria: r.Categoria || '',
-      IdSucursal: Number(r.IdSucursal || 0),
-      IdTipoComprobante: r.IdTipoComprobante || '',
-      Letra: r.Letra || '',
-      CentroEmisor: Number(r.CentroEmisor || 0),
-      NumeroComprobante: Number(r.NumeroComprobante || 0),
-      Fecha: cuentasCorrientes.fechaISO(r.Fecha),
-      FechaVencimiento: cuentasCorrientes.fechaISO(r.FechaVencimiento),
-      ImporteTotal: Number(r.ImporteTotal || 0),
-      Saldo: Number(r.Saldo || 0),
-      Observacion: r.Observacion || '',
-      IdEstadoComprobante: r.IdEstadoComprobante || '',
-    })),
-  };
-}));
 
 // ── Sucursales ─────────────────────────────────────────────────────────────────
 // El sistema puede operar sobre cualquier sucursal, no sólo la de config.json: los
@@ -7285,6 +7235,13 @@ app.use(require('./rutas_cotizador')({ apiRoute, query, leerJSON, guardarJSON })
 app.use(require('./rutas_analisis')({
   apiRoute, query, leerJSON, guardarJSON, safeDate, auth, FAMILIAS_MANUALES_PATH,
 }));
+
+
+// Cuentas corrientes: apiRoute y query son funciones y se hoistean, así que el registro
+// podría ir donde estaba la ruta. Va al final con el de los demás routers, y no cambia nada:
+// no hay catch-all ni middleware de 404 y ninguna ruta que quedó en server.js solapa con las
+// del router. El middleware de acceso por módulo sigue registrado antes.
+app.use(require('./rutas_cuentas_corrientes')({ apiRoute, query }));
 
 
 async function start() {
