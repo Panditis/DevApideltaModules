@@ -1289,8 +1289,6 @@ const PLANES_PATH    = path.join(DATA_DIR, 'planes.json');
 const RESP_PATH      = path.join(DATA_DIR, 'responsables.json');
 const CATALOGO_PATH  = path.join(DATA_DIR, 'catalogo.json');
 const GRUPOS_CFG_PATH = path.join(DATA_DIR, 'grupos_config.json');
-const ENVASES_REG_PATH = path.join(DATA_DIR, 'envases_registro.json'); // [{codigo,nombre,stock}]
-const TAPAS_REG_PATH   = path.join(DATA_DIR, 'tapas_registro.json');    // [{codigo,nombre,stock}]
 const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
 const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,nombre,cantPorUnidad}] }
 // cfg entry puede ser: true|false  o  {activo:bool, granelPlu:string, mpManual:[], granelDirecto:bool}
@@ -3434,79 +3432,6 @@ app.get('/api/plan/packaging', apiRoute(async req => {
     else if (!out[padre].envase && t.esEnvase) out[padre].envase = item;
   }
   return out;
-}));
-app.get('/api/envases', apiRoute(async () => query(`
-SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, COALESCE(SUM(pd.Stock),0) AS StockActual
-FROM Productos p INNER JOIN Rubros r ON r.IdRubro=p.IdRubro
-LEFT  JOIN ProductosDepositos pd ON pd.IdProducto=p.IdProducto
-LEFT  JOIN SucursalesDepositos sd ON sd.IdDeposito=pd.IdDeposito AND sd.IdSucursal=pd.IdSucursal
-LEFT  JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal AND s.SoyLaCentral=1
-WHERE p.Activo=1 AND UPPER(r.NombreRubro) LIKE '%EMBALA%'
-GROUP BY p.IdProducto, p.NombreProducto, r.NombreRubro ORDER BY p.NombreProducto`)));
-
-// ── Registro de envases (código de sistema → nombre + stock desde Siga) ──
-async function envaseLookup(codigo) {
-  const safe = String(codigo).replace(/'/g, "''");
-  const rows = await query(`SELECT TOP 1 p.IdProducto, p.NombreProducto,
-      COALESCE((SELECT SUM(pd.Stock) FROM dbo.ProductosDepositos pd WHERE pd.IdProducto = p.IdProducto), 0) AS StockActual
-    FROM dbo.Productos p WHERE p.IdProducto = '${safe}' AND p.Activo = 1`);
-  return rows.length ? { codigo: String(rows[0].IdProducto), nombre: rows[0].NombreProducto, stock: Number(rows[0].StockActual) || 0 } : null;
-}
-app.get('/api/envase-lookup', apiRoute(async req => {
-  const codigo = (req.query.codigo || '').trim();
-  if (!codigo) return { error: 'Falta código' };
-  return (await envaseLookup(codigo)) || { error: 'Producto no encontrado' };
-}));
-app.get('/api/envases-registro', (_req, res) => res.json(leerJSON(ENVASES_REG_PATH, [])));
-app.post('/api/envases-registro', apiRoute(async req => {
-  const codigo = ((req.body && req.body.codigo) || '').toString().trim();
-  if (!codigo) return { error: 'Falta código' };
-  const e = await envaseLookup(codigo);
-  if (!e) return { error: 'Producto no encontrado en Siga' };
-  const arr = leerJSON(ENVASES_REG_PATH, []);
-  const i = arr.findIndex(x => String(x.codigo) === String(e.codigo));
-  if (i >= 0) arr[i] = e; else arr.push(e);
-  guardarJSON(ENVASES_REG_PATH, arr);
-  return { ok: true, envase: e };
-}));
-app.post('/api/envases-registro/refrescar', apiRoute(async () => {
-  const arr = leerJSON(ENVASES_REG_PATH, []);
-  for (const x of arr) { const e = await envaseLookup(x.codigo); if (e) { x.nombre = e.nombre; x.stock = e.stock; } }
-  guardarJSON(ENVASES_REG_PATH, arr);
-  return { ok: true, envases: arr };
-}));
-app.delete('/api/envases-registro/:codigo', (req, res) => {
-  const cod = String(req.params.codigo);
-  guardarJSON(ENVASES_REG_PATH, leerJSON(ENVASES_REG_PATH, []).filter(x => String(x.codigo) !== cod));
-  res.json({ ok: true });
-});
-app.get('/api/tapas-registro', (_req, res) => res.json(leerJSON(TAPAS_REG_PATH, [])));
-app.post('/api/tapas-registro', apiRoute(async req => {
-  const codigo = ((req.body && req.body.codigo) || '').toString().trim();
-  if (!codigo) return { error: 'Falta código' };
-  const e = await envaseLookup(codigo);
-  if (!e) return { error: 'Producto no encontrado en Siga' };
-  const arr = leerJSON(TAPAS_REG_PATH, []);
-  const i = arr.findIndex(x => String(x.codigo) === String(e.codigo));
-  if (i >= 0) arr[i] = e; else arr.push(e);
-  guardarJSON(TAPAS_REG_PATH, arr);
-  return { ok: true, tapa: e };
-}));
-app.post('/api/tapas-registro/refrescar', apiRoute(async () => {
-  const arr = leerJSON(TAPAS_REG_PATH, []);
-  for (const x of arr) { const e = await envaseLookup(x.codigo); if (e) { x.nombre = e.nombre; x.stock = e.stock; } }
-  guardarJSON(TAPAS_REG_PATH, arr);
-  return { ok: true, tapas: arr };
-}));
-app.delete('/api/tapas-registro/:codigo', (req, res) => {
-  const cod = String(req.params.codigo);
-  guardarJSON(TAPAS_REG_PATH, leerJSON(TAPAS_REG_PATH, []).filter(x => String(x.codigo) !== cod));
-  res.json({ ok: true });
-});
-app.get('/api/tapa-lookup', apiRoute(async req => {
-  const codigo = (req.query.codigo || '').trim();
-  if (!codigo) return { error: 'Falta código' };
-  return (await envaseLookup(codigo)) || { error: 'Producto no encontrado' };
 }));
 app.get('/api/clientes-registro', (_req, res) => res.json(leerJSON(CLIENTES_PATH, [])));
 app.post('/api/clientes-registro', apiRoute(async req => {
@@ -7853,6 +7778,11 @@ app.use(require('./rutas_catalogo')({
   cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgMpManual,
   cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
 }));
+
+
+// Envases y tapas: DATA_DIR es un const que no se hoistea, así que el registro va
+// al final como el de los demás routers.
+app.use(require('./rutas_envases_tapas')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
 
 
 async function start() {
