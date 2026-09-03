@@ -3906,47 +3906,6 @@ app.get('/api/facturador/catalogo-archivo', apiRoute(async () =>
   preciosFacturador.catalogoDeDirectorio(PRECIOS_FACTURADOR_DIR)));
 
 
-// ── Dashboard Ventas por Hora ──────────────────────────────────────────────────
-app.get('/ventas-hora', (_req, res) => res.sendFile(path.join(__dirname, 'ventas_hora.html')));
-
-app.get('/api/ventas-hora', apiRoute(async req => {
-  const desde  = safeDate(req.query.desde);
-  const hasta  = safeDate(req.query.hasta);
-  const sucIds = req.query.sucursales
-    ? req.query.sucursales.split(',').map(Number).filter(n => !isNaN(n))
-    : [];
-
-  const sucFilter = sucIds.length
-    ? `AND v.IdSucursal IN (${sucIds.join(',')})`
-    : '';
-
-  return query(`
-    SELECT
-      v.IdSucursal,
-      s.Nombre AS NombreSucursal,
-      DATEPART(HOUR, v.Fecha) AS Hora,
-      SUM(v.ImporteTotal) AS Total,
-      COUNT(DISTINCT v.NumeroComprobante) AS CantTickets
-    FROM Ventas v
-    LEFT JOIN Sucursales s ON s.IdSucursal = v.IdSucursal
-    WHERE v.Fecha >= '${desde} 00:00:00'
-      AND v.Fecha <= '${hasta} 23:59:59'
-      AND v.ImporteTotal > 0
-      ${sucFilter}
-    GROUP BY v.IdSucursal, s.Nombre, DATEPART(HOUR, v.Fecha)
-    ORDER BY v.IdSucursal, Hora
-  `);
-}));
-
-app.get('/api/ventas-hora/sucursales', apiRoute(async () => {
-  return query(`
-    SELECT DISTINCT v.IdSucursal, s.Nombre AS NombreSucursal
-    FROM Ventas v
-    LEFT JOIN Sucursales s ON s.IdSucursal = v.IdSucursal
-    WHERE s.Nombre IS NOT NULL
-    ORDER BY v.IdSucursal
-  `);
-}));
 
 
 // ── Familias manuales de producto ────────────────────────────────────────────
@@ -7242,6 +7201,12 @@ app.use(require('./rutas_analisis')({
 // no hay catch-all ni middleware de 404 y ninguna ruta que quedó en server.js solapa con las
 // del router. El middleware de acceso por módulo sigue registrado antes.
 app.use(require('./rutas_cuentas_corrientes')({ apiRoute, query }));
+
+
+// Ventas por hora: sus tres deps son funciones y se hoistean, así que el registro podría ir
+// donde estaban las rutas. Va al final con el de los demás routers. El middleware de acceso
+// por módulo sigue registrado antes, así que el permiso de ventas-hora no cambia.
+app.use(require('./rutas_ventas_hora')({ apiRoute, query, safeDate }));
 
 
 async function start() {
