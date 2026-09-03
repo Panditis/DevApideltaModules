@@ -10,9 +10,11 @@ const path = require('path');
 // mismo criterio que ya usa /api/productos/buscar.
 //
 // server.js no se puede requerir (el require arranca el bootstrap: SQL + listen), así que se
-// extraen las dos constantes y la línea del filtro por texto y se evalúan.
+// extraen las dos constantes y la línea del filtro por texto y se evalúan. calcularSugerencias
+// vive en rutas_plan.js (refactor de ruteo): ahí quedaron RUBRO_MANUAL_EXCLUIDO_RE,
+// PRODUCTO_SAVONA_RE y el filtro.
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const SRC = fs.readFileSync(path.join(__dirname, '..', 'rutas_plan.js'), 'utf8');
 
 function lineaQueEmpiezaCon(prefijo) {
   const linea = SRC.split('\n').find(l => l.trim().startsWith(prefijo));
