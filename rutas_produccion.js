@@ -23,19 +23,21 @@ const path = require('path');
 //     que lista Historial — no confundir con PROD_REG_PATH/PROD_HIST_PATH de
 //     arriba): crearSnapshotsCierre() las sigue usando en server.js; leerRegistros
 //     también la usa rutas_productividad.js.
-//   - leerPlanReservas / reservasActivasDeOrden: motor de reservas, entero en
-//     server.js. Las usan GET /api/ordenes (marcar sinConciliar) y DELETE
-//     /api/ordenes[/:id] (bloquear el borrado con reserva activa).
+//   - leerPlanReservas / reservasActivasDeOrden: motor de reservas, movido entero
+//     a rutas_reservas.js; estas dos funciones siguen en server.js (las comparten
+//     ambos routers por deps). Las usan GET /api/ordenes (marcar sinConciliar) y
+//     DELETE /api/ordenes[/:id] (bloquear el borrado con reserva activa).
 //   - crearSnapshotsCierre() se quedó entera en server.js: la sigue necesitando
-//     archivarRegistros() ahí (la llama /api/produccion/:fecha/registrar-
-//     movimiento) — pero ahora también se inyecta acá, la llama POST /api/registros.
+//     archivarRegistros() ahí (también en server.js; la llama POST /api/produccion/
+//     :fecha/registrar-movimiento, movida a rutas_reservas.js) — pero ahora también
+//     se inyecta acá, la llama POST /api/registros.
 //
 // Orden de rutas: /api/produccion/:fecha/conciliacion y :fecha/registrar-movimiento
-// quedaron en server.js y se declaran ANTES de este router, pero no capturan nada de
-// acá: :fecha exige 3 segmentos con un literal fijo detrás ('conciliacion' /
-// 'registrar-movimiento'), y las rutas de este módulo son de 2 segmentos
-// (/registros, /historial, /registros-fecha) o de 3 con métodos que aquéllas no
-// registran (DELETE/PUT /registros/:id vs GET/POST).
+// se movieron a rutas_reservas.js (server.js las registra ANTES de este router),
+// pero no capturaban nada de acá ni al revés: :fecha exige 3 segmentos con un
+// literal fijo detrás ('conciliacion' / 'registrar-movimiento'), y las rutas de
+// este módulo son de 2 segmentos (/registros, /historial, /registros-fecha) o de 3
+// con métodos que aquéllas no registran (DELETE/PUT /registros/:id vs GET/POST).
 module.exports = function crearRutasProduccion(deps) {
   const {
     apiRoute, leerJSON, guardarJSON, safeDate, cfg,

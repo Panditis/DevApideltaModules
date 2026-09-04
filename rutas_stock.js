@@ -13,18 +13,20 @@ const sql = require('mssql/msnodesqlv8');
 // indentación original a propósito (hay template literals SQL multilínea y
 // reindentar les cambiaría el texto).
 //
-// Lo que comparte vecindad con stock pero NO se movió, y por qué:
+// Lo que comparte vecindad con stock pero NO se movió acá, y por qué:
 //   · /api/plan/:fecha/reserva* y /api/plan/:fecha/reservar|actualizar|devolver —
 //     el módulo de reservas. Comparte con este router el mismo log de movimientos
 //     y el mismo ledger plan.reservas[] (además del plan.reserva viejo, por
-//     compatibilidad), pero se queda entero en server.js: no es parte de este corte.
+//     compatibilidad), pero se movió entero a rutas_reservas.js: no es parte de
+//     este corte.
 //   · /api/produccion/:fecha/conciliacion y /api/produccion/:fecha/registrar-movimiento
 //     — ya estaban señaladas en server.js como parte del bloque de reservas/
-//     movimientos SIGA, no de rutas_produccion.js, y siguen ahí.
+//     movimientos SIGA, no de rutas_produccion.js, y se movieron junto con ese
+//     bloque a rutas_reservas.js.
 //   · GET /api/movimientos/siga/:numero — por dominio real es de producción: la usa
 //     la conciliación (apidelta_produccion_dia.html) para auditar un comprobante sin
 //     salir de la pantalla, y no tiene consumidor en las pantallas de stock. Por eso
-//     sigue en server.js en vez de venir a este router.
+//     se movió con el resto del bloque a rutas_reservas.js en vez de venir acá.
 //
 // Lo que SÍ se movió entero porque no tiene uso fuera de este router:
 //   · registrarMovimientoStock — sólo la llaman las rutas de movimiento y de

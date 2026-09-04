@@ -24,8 +24,8 @@ const bloquesTareas = require('./bloques_tareas');
 //   · GET /api/diag/estados-venta, /diag/categorias-clientes — huérfanas sin
 //     dominio claro, se quedan donde estaban.
 //   · GET /api/plan/:fecha/reserva*, POST /api/plan/:fecha/reservar|actualizar|
-//     devolver — motor de reservas, entero en server.js: no es parte de este
-//     corte. PUT /api/plan/:fecha/item/:id llama a saldoItemReserva y
+//     devolver — motor de reservas, entero en rutas_reservas.js: no es parte de
+//     este corte. PUT /api/plan/:fecha/item/:id llama a saldoItemReserva y
 //     ejecutarDevolucionReserva (ese motor), y POST /api/enviar-produccion llama
 //     a leerPlanReservas/leerOrdenes/guardarOrdenes: esas funciones siguen
 //     enteras en server.js y se reciben por deps.
