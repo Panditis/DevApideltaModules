@@ -1,10 +1,10 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const productividad = require('./productividad');
-const resumenesLegacy = require('./resumenes_legacy');
-const historialSala = require('./historial_sala');
-const familiasManuales = require('./familias_manuales');
+const productividad = require('./lib/productividad');
+const resumenesLegacy = require('./lib/resumenes_legacy');
+const historialSala = require('./lib/historial_sala');
+const familiasManuales = require('./lib/familias_manuales');
 const analisisVentas = require('./analisis_ventas');
 
 // ── Rutas del módulo Productividad ───────────────────────────────────────────

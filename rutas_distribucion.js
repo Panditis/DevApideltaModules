@@ -1,11 +1,11 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const insumos = require('./insumos');
+const insumos = require('./lib/insumos');
 const { calcularAlmacen } = require('./distribucion');
-const { calcularPesables } = require('./pesables');
-const { universoLista, universoPesables } = require('./listas_universo');
-const { pesoTokenKg } = require('./producto_carga');
+const { calcularPesables } = require('./lib/pesables');
+const { universoLista, universoPesables } = require('./lib/listas_universo');
+const { pesoTokenKg } = require('./lib/producto_carga');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
         calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('./a8020');
 

@@ -2,7 +2,7 @@
 const express = require('express');
 const path = require('path');
 const XLSX = require('xlsx');
-const preciosHistorico = require('./precios_historico');
+const preciosHistorico = require('./lib/precios_historico');
 
 // ── Rutas de precios históricos ───────────────────────────────────────────────
 // Qué precio tenía cada producto cada día del mes pedido, en pantalla y en xlsx.

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { universoLista, universoPesables } = require('../listas_universo');
+const { universoLista, universoPesables } = require('../lib/listas_universo');
 
 // ── Membresía de lista: qué PLUs entran a las tabs Almacén y Pesables ─────────────────────────
 // basePlus simula lo que devuelve SQL (IdProducto casteado a VARCHAR → strings).

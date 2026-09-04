@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const P = require('../precios_facturador');
+const P = require('../lib/precios_facturador');
 
 // Encabezado real de la exportación de SiGA, con los prefijos de la consulta.
 const ENCABEZADO = ['IdProducto', 'ProductosSucursales.Productos.NombreProducto',

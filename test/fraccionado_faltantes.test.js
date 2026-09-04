@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { calcularFaltantesFraccionado } = require('../fraccionado_faltantes');
+const { calcularFaltantesFraccionado } = require('../lib/fraccionado_faltantes');
 
 // ── Faltantes fraccionables: qué productos hay que fraccionar y cuánto ────────────────────────
 // `pendientes` simula lo que sale de agregar getResumen() por PLU (pendiente + stock de la

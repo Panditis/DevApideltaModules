@@ -2,11 +2,11 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { calcularFaltantesFraccionado } = require('./fraccionado_faltantes');
-const { resolverProductoCarga, analizarNombreCarga } = require('./producto_carga');
+const { calcularFaltantesFraccionado } = require('./lib/fraccionado_faltantes');
+const { resolverProductoCarga, analizarNombreCarga } = require('./lib/producto_carga');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
-        plusEnOrdenesActivas } = require('./ordenes_fraccionado');
+        plusEnOrdenesActivas } = require('./lib/ordenes_fraccionado');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable,

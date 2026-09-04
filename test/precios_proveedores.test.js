@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { parsearPrecioAR, parsearTextoPdf } = require('../precios_proveedores');
+const { parsearPrecioAR, parsearTextoPdf } = require('../lib/precios_proveedores');
 
 test('parsearPrecioAR formatos argentinos', () => {
   assert.strictEqual(parsearPrecioAR('1.234,56'), 1234.56);
@@ -33,7 +33,7 @@ test('parsearTextoPdf no confunde años con precios', () => {
   assert.strictEqual(r.items[0].precio, 4200);
 });
 
-const { parsearHtml } = require('../precios_proveedores');
+const { parsearHtml } = require('../lib/precios_proveedores');
 
 test('parsearHtml extrae tabla con código/descripción/precio', () => {
   const html = `<html><body><table>
@@ -53,7 +53,7 @@ test('parsearHtml sin tablas devuelve vacío', () => {
   assert.strictEqual(r.items.length, 0);
 });
 
-const { matchearItems, scoreNombre, normalizarNombre } = require('../precios_proveedores');
+const { matchearItems, scoreNombre, normalizarNombre } = require('../lib/precios_proveedores');
 
 test('normalizarNombre saca acentos y símbolos', () => {
   assert.strictEqual(normalizarNombre('Almendra Ñandú x 1kg (Prem.)'), 'almendra nandu x 1kg prem');
@@ -80,7 +80,7 @@ test('matchearItems prioriza manual > codigo > barras > nombre', () => {
   assert.ok(r[3].matchScore >= 0.6);
 });
 
-const { compararItem } = require('../precios_proveedores');
+const { compararItem } = require('../lib/precios_proveedores');
 
 test('compararItem semáforo con tolerancia', () => {
   assert.deepStrictEqual(compararItem({ precioLista: 90, costoActual: 100, toleranciaPct: 2 }), { deltaPct: -10, semaforo: 'verde' });

@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const cruceTerminales = require('./cruce_terminales');
+const cruceTerminales = require('./lib/cruce_terminales');
 
 // ── Rutas del módulo Cruce de terminales ─────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden

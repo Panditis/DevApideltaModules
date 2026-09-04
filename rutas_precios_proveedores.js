@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
-const preciosProv = require('./precios_proveedores');
+const preciosProv = require('./lib/precios_proveedores');
 
 // ── Rutas del módulo Precios de Proveedores ──────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const rrhhRopa = require('./rrhh_ropa');
+const rrhhRopa = require('./lib/rrhh_ropa');
 const rrhhAusencias = require('./rrhh_ausencias');
 
 // ── Rutas del módulo RRHH ────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { mesesDeVentana, diasDelMes, mesAnterior } = require('../prediccion_consumo');
+const { mesesDeVentana, diasDelMes, mesAnterior } = require('../lib/prediccion_consumo');
 
 test('diasDelMes contempla bisiestos', () => {
   assert.strictEqual(diasDelMes('2026-01'), 31);
@@ -30,7 +30,7 @@ test('mesesDeVentana devuelve orden cronológico ascendente', () => {
   assert.deepStrictEqual(r, ['2025-11', '2025-12', '2026-01', '2026-02']);
 });
 
-const { demandaDiaria, PESOS_RECIENCIA } = require('../prediccion_consumo');
+const { demandaDiaria, PESOS_RECIENCIA } = require('../lib/prediccion_consumo');
 
 test('PESOS_RECIENCIA da más peso a los meses recientes', () => {
   assert.deepStrictEqual(PESOS_RECIENCIA, { reciente: 3, medio: 2, viejo: 1 });
@@ -76,7 +76,7 @@ test('demandaDiaria sin meses devuelve ceros', () => {
   assert.deepStrictEqual(demandaDiaria(null, null), { mu: 0, sigma: 0 });
 });
 
-const { factorEstacional, ESTACIONAL_MIN, ESTACIONAL_MAX } = require('../prediccion_consumo');
+const { factorEstacional, ESTACIONAL_MIN, ESTACIONAL_MAX } = require('../lib/prediccion_consumo');
 
 // Serie con pico de diciembre, todos los años. Arranca en 2024-07 y no en 2025-01
 // porque la ventana del factor son los 12 meses móviles que terminan en el mes
@@ -127,7 +127,7 @@ test('factorEstacional es 1 si el año homólogo no tuvo consumo', () => {
   assert.strictEqual(factorEstacional(cero, '2026-06'), 1);
 });
 
-const { proyectar, recomendar, SEMAFORO } = require('../prediccion_consumo');
+const { proyectar, recomendar, SEMAFORO } = require('../lib/prediccion_consumo');
 
 const serieEstable = (() => {   // 24 meses cerrados a 10 unidades/día
   const s = {};

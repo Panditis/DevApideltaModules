@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const cuentasCorrientes = require('./cuentas_corrientes');
+const cuentasCorrientes = require('./lib/cuentas_corrientes');
 
 // ── Rutas del módulo Cuentas Corrientes ───────────────────────────────────────
 // Saldo vivo por cliente + detalle de comprobantes, contra SIGA. Es un módulo

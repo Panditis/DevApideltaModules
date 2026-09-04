@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   validarPeriodo, primerDia, primerDiaSiguiente, diasDelMes,
   armarGrilla, slotsDelMes, hojaMatriz, anchosHoja, nombreArchivo, SLOTS_PRECIO,
-} = require('../precios_historico');
+} = require('../lib/precios_historico');
 
 const NOMBRES = new Map([['100', 'Miel 1Kg'], ['200', 'Avena 500g']]);
 

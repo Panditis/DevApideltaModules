@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { calcularPesables } = require('../pesables');
+const { calcularPesables } = require('../lib/pesables');
 
 // ── Cobertura de depósito ────────────────────────────────────────────────────────────────────
 // El motor envasaba sólo contra la demanda del día (CH), así que el depósito se vaciaba en cada

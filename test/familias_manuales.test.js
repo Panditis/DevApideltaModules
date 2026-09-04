@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   familiasSanitizadas, idsDeFamilias, agruparVentas, totalesPorSucursal, MAX_FAMILIAS,
-} = require('../familias_manuales');
+} = require('../lib/familias_manuales');
 const {
   sqlVentasPorProductoSucursal, idsCsvSeguro, modoPromoSeguro, filtroClientes, whereVentas,
 } = require('../analisis_ventas');

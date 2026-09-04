@@ -5,7 +5,7 @@ const {
   hashPassword, verifyPassword,
   moduloDeRuta, puedeAcceder,
   crearUsuario, eliminarUsuario, autenticar, cambiarPasswordPropia,
-} = require('../auth');
+} = require('../lib/auth');
 
 // ── hashPassword / verifyPassword ───────────────────────────────────────────────
 test('hashPassword + verifyPassword hacen round-trip con la password correcta', () => {
@@ -132,6 +132,6 @@ test('cambiarPasswordPropia exige la actual, valida la nueva y la deja aplicada'
     assert.ok(autenticar(uname, 'nueva12345'), 'la nueva contraseña autentica');
     assert.strictEqual(autenticar(uname, 'vieja123'), null, 'la vieja ya no autentica');
   } finally {
-    eliminarUsuario(require('../auth').buscarPorUsuario(uname).id);
+    eliminarUsuario(require('../lib/auth').buscarPorUsuario(uname).id);
   }
 });

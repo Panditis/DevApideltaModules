@@ -4,7 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const compras = require('./compras');
-const comprasImport = require('./compras_import');
+const comprasImport = require('./lib/compras_import');
 
 // ── Rutas del módulo Compras ──────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden

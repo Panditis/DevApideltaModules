@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   slugPrenda, siguienteIdEmpleado, normalizarEstado,
   normalizarPrenda, normalizarEmpleado, normalizarDocumento, resumen,
-} = require('../rrhh_ropa');
+} = require('../lib/rrhh_ropa');
 
 const PRENDAS = [
   { id: 'remera', nombre: 'Remera / Chomba' },

@@ -2,7 +2,7 @@
 const express = require('express');
 const path = require('path');
 const analisisVentas = require('./analisis_ventas');
-const familiasManuales = require('./familias_manuales');
+const familiasManuales = require('./lib/familias_manuales');
 
 // ── Rutas del módulo Análisis de Ventas ───────────────────────────────────────
 // Una sola página con pestañas (Sucursales / Casa Central) más las familias

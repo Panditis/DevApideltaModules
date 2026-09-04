@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const comprasControl = require('./compras_control');
+const comprasControl = require('./lib/compras_control');
 
 // ── Rutas del Control de compras ─────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden

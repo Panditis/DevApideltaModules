@@ -5,7 +5,7 @@ const {
   nombreLindo, consolidarPlan, resumenPersonas, resumenOrdenes, resumenPorDia,
   resumenProductosFraccionado, resumenProductos, claveSemana, resumenPeriodos,
   totales, unirPorId, enRango,
-} = require('../productividad');
+} = require('../lib/productividad');
 
 test('claveSemana da la semana ISO con su lunes y su domingo', () => {
   // 2026-08-11 es martes: la semana va del lunes 10 al domingo 16.
@@ -16,7 +16,7 @@ test('claveSemana da la semana ISO con su lunes y su domingo', () => {
 });
 
 test('claveMes va del 1 al último día del mes, incluido febrero', () => {
-  const { claveMes, clavePeriodo } = require('../productividad');
+  const { claveMes, clavePeriodo } = require('../lib/productividad');
   assert.deepStrictEqual(claveMes('2026-08-11'), { clave: '2026-08', desde: '2026-08-01', hasta: '2026-08-31' });
   assert.deepStrictEqual(claveMes('2026-02-05'), { clave: '2026-02', desde: '2026-02-01', hasta: '2026-02-28' });
   assert.strictEqual(claveMes('2026-08'), null);
@@ -28,7 +28,7 @@ test('claveMes va del 1 al último día del mes, incluido febrero', () => {
 });
 
 test('resumenFamilias agrupa las presentaciones y ordena por kilos', () => {
-  const { resumenFamilias } = require('../productividad');
+  const { resumenFamilias } = require('../lib/productividad');
   // La familia sale de una función inyectada: acá, el nombre sin la presentación.
   const familiaDe = c => String(c.nombre || '').replace(/\s+\d+\w*$/, '');
   const cargas = [
@@ -49,7 +49,7 @@ test('resumenFamilias agrupa las presentaciones y ordena por kilos', () => {
 });
 
 test('resumenPeriodos suma las familias del período', () => {
-  const { resumenPeriodos } = require('../productividad');
+  const { resumenPeriodos } = require('../lib/productividad');
   const familiaDe = c => String(c.nombre || '').replace(/\s+\d+\w*$/, '');
   const cargas = [
     { id: 1, fecha: '2026-03-02', plu: 'A', nombre: 'Miel 500G', cantFraccionada: 10, granelConsumido: 5, empleado: 'Ana', desde: '08:00', hasta: '09:00' },

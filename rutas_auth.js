@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const auth = require('./auth');
+const auth = require('./lib/auth');
 
 // ── Rutas de auth y Centro de control ─────────────────────────────────────────
 // Login/logout, sesión, cambio de contraseña propia, listado de módulos del hub y
