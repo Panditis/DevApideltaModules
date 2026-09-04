@@ -979,62 +979,6 @@ app.get('/api/formula', apiRoute(async req => {
   return { producto: nombre, idProducto: idProd, cantidad, componentes: rows };
 }));
 
-// ── Rutas API órdenes ──────────────────────────────────────────────────────────
-// Un movimiento de reserva está "sin conciliar" mientras su entrada del ledger siga activa y
-// no tenga ajuste.conciliado. La orden queda marcada si alguno de sus movimientos lo está.
-app.get('/api/ordenes',        (_req, res) => {
-  const sinConciliarPorFecha = new Map();
-  const movsSinConciliar = fecha => {
-    if (!fecha) return new Set();
-    if (!sinConciliarPorFecha.has(fecha)) {
-      const { plan } = leerPlanReservas(fecha);
-      const set = new Set((plan && plan.reservas || [])
-        .filter(rr => rr && rr.estado === 'activa' && !(rr.ajuste && rr.ajuste.conciliado))
-        .map(rr => rr.numeroMovimiento).filter(n => n != null));
-      sinConciliarPorFecha.set(fecha, set);
-    }
-    return sinConciliarPorFecha.get(fecha);
-  };
-  const ordenes = leerOrdenes().map(o => ({
-    ...o,
-    sinConciliar: (o.reservaMovimientos || []).some(n => movsSinConciliar(o.fecha).has(n)),
-  }));
-  res.json(ordenes);
-});
-app.post('/api/ordenes',       (req, res)  => { const o = req.body; if (!o || !o.id) return res.status(400).json({ error: 'Falta orden' }); const arr = leerOrdenes().filter(x => x.id !== o.id); arr.push(o); guardarOrdenes(arr); res.json(o); });
-app.put('/api/ordenes/:id',    (req, res)  => { const id = parseInt(req.params.id), arr = leerOrdenes(), idx = arr.findIndex(o => o.id === id); if (idx < 0) return res.status(404).json({ error: 'No encontrado' }); arr[idx] = { ...arr[idx], ...req.body }; guardarOrdenes(arr); res.json(arr[idx]); });
-// Borrar una orden con reserva activa dejaría mercadería apartada en SiGA sin dueño: se corta
-// con 409 y se pide anular la reserva primero (mismo criterio que DELETE /api/plan/:fecha/item).
-app.delete('/api/ordenes/:id', (req, res) => {
-  const id  = parseInt(req.params.id);
-  const arr = leerOrdenes();
-  const orden = arr.find(o => o.id === id);
-  const reservas = orden ? reservasActivasDeOrden(orden) : [];
-  if (reservas.length) {
-    return res.status(409).json({
-      error: `La orden tiene reserva activa (movimiento${reservas.length > 1 ? 's' : ''} #${reservas.join(', #')}) `
-           + 'y no se puede eliminar. Anulá o devolvé esa reserva primero.',
-      reservas
-    });
-  }
-  guardarOrdenes(arr.filter(o => o.id !== id));
-  res.json({ ok: true });
-});
-
-// "Limpiar todo" conserva las órdenes con reserva activa y avisa cuántas quedaron, en vez de
-// fallar entero: el resto del día sí se puede limpiar.
-app.delete('/api/ordenes', (_req, res) => {
-  const arr = leerOrdenes();
-  const cache = new Map();
-  const conservar = arr.filter(o => reservasActivasDeOrden(o, cache).length > 0);
-  guardarOrdenes(conservar);
-  res.json({
-    ok: true, conservadas: conservar.length, eliminadas: arr.length - conservar.length,
-    ...(conservar.length ? { aviso: `Se conservaron ${conservar.length} orden(es) con reserva activa: `
-                                  + 'anulá o devolvé su reserva para poder eliminarlas.' } : {})
-  });
-});
-
 // Arma los snapshots de cierre (uno por día presente en las cargas) y los deja al frente de
 // registros.json, que es lo que lista el Historial. Lo usan los DOS caminos que cierran
 // producción —el botón "Cerrar día" y la conciliación— para que el resultado sea idéntico.
@@ -1053,40 +997,6 @@ function crearSnapshotsCierre(cargasACerrar) {
   guardarRegistros(arr);
   return creados;
 }
-
-app.get('/api/registros',  (_req, res) => res.json(leerRegistros()));
-app.post('/api/registros', (req, res)  => {
-  const ordenes = leerOrdenes();
-  const todasCargas = leerJSON(PROD_REG_PATH, []);
-  // ?fecha=YYYY-MM-DD archiva un solo día ("sin-fecha" = cargas sin fecha); sin el parámetro
-  // se archiva todo, que es lo que hace el botón "Cerrar día".
-  const fecha = req.query.fecha;
-  const esDelDia = c => fecha === 'sin-fecha' ? !c.fecha : c.fecha === fecha;
-  const cargas = fecha ? todasCargas.filter(esDelDia) : todasCargas;
-  // El historial guarda productos: sin cargas no hay nada que archivar.
-  if (!cargas.length) return res.status(400).json({ error: fecha ? 'No hay producción cargada para ese día' : 'No hay producción cargada para registrar' });
-  const creados = crearSnapshotsCierre(cargas);
-  if (req.query.limpiar === '1') {
-    // Quitar las órdenes completadas; las pendientes siguen en ordenes.json. Drenar las cargas archivadas.
-    if (fecha) {
-      const idsDia = new Set(cargas.map(c => String(c.ordenId)));
-      guardarOrdenes(ordenes.filter(o => !(o.estado === 'listo' && idsDia.has(String(o.id)))));
-      guardarJSON(PROD_REG_PATH, todasCargas.filter(c => !esDelDia(c)));
-    } else {
-      guardarOrdenes(ordenes.filter(o => o.estado !== 'listo'));
-      guardarJSON(PROD_REG_PATH, []);
-    }
-  }
-  res.json({ ok: true, snapshots: creados.length, registros: creados });
-});
-app.delete('/api/registros/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const arr = leerRegistros();
-  const nuevo = arr.filter(x => x.id !== id);
-  if (nuevo.length === arr.length) return res.status(404).json({ error: 'no encontrado' });
-  guardarRegistros(nuevo);
-  res.json({ ok: true });
-});
 
 // ── Rutas API planificación ────────────────────────────────────────────────────
 app.get('/api/health',       apiRoute(async () => { await getPool(); return { ok: true, db: true, fecha: new Date().toISOString().slice(0, 10) }; }));
@@ -4050,6 +3960,8 @@ app.use(require('./rutas_compras_control')({
 app.use(require('./rutas_produccion')({
   apiRoute, leerJSON, guardarJSON, safeDate, cfg,
   PROD_REG_PATH, PROD_HIST_PATH, leerOrdenes, guardarOrdenes,
+  leerPlanReservas, reservasActivasDeOrden, crearSnapshotsCierre,
+  leerRegistros, guardarRegistros,
 }));
 
 // Planificación: va al final porque sucursalesSiga, sucursalPublica, leerPlanReservas,
