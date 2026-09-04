@@ -32,14 +32,14 @@ const historialSala = require('./lib/historial_sala');
 const cruceTerminales = require('./lib/cruce_terminales');
 const rrhhRopa = require('./rrhh_ropa');
 const rrhhAusencias = require('./lib/rrhh_ausencias');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, terminadosPorPluDeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, terminadosPorPluDeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./lib/reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
-        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
+        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./lib/reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable, granelReservadoPorPlu,
         partirConsumoMayorista, granelReservadoNeto, restanteMayoristaPorReserva,
         lineasADevolverMayorista, restantePedidoPorReserva, agruparRestante,
         basesEntregaMayorista, imputarEntregaMayorista,
-        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('./reservas_pesables');
+        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('./lib/reservas_pesables');
 
 const cfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT     = cfg.puerto   || 8080;

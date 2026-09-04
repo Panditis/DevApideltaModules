@@ -8,10 +8,10 @@ const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFracc
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('./lib/ordenes_fraccionado');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
-        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
+        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./lib/reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable,
         lineasADevolverMayorista,
-        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('./reservas_pesables');
+        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('./lib/reservas_pesables');
 
 // ── Rutas del módulo Mayoristas ──────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
