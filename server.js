@@ -2532,7 +2532,7 @@ app.use(require('./rutas_stock')({
 // motivo que mayoristas y stock: casi todas sus deps son const/function declarados miles de
 // líneas después del punto donde estaban estas rutas. Motivo detallado al principio de
 // rutas_reservas.js.
-app.use(require('./rutas_reservas')({
+app.use(require('./routes/rutas_reservas')({
   apiRoute, safeDate, query,
   leerJSON, guardarJSON, PLANES_PATH, PROD_REG_PATH, RESERVAS_MERC_PATH,
   resolverSucursal, depositosActivos, sucursalDeReserva, chequearSucursalReserva,
@@ -2566,7 +2566,7 @@ app.use(require('./rutas_catalogo')({
 
 // Envases y tapas: DATA_DIR es un const que no se hoistea, así que el registro va
 // al final como el de los demás routers.
-app.use(require('./rutas_envases_tapas')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
+app.use(require('./routes/rutas_envases_tapas')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
 
 
 // Cotizador: sus cuatro deps son funciones y se hoistean, así que el registro podría ir
@@ -2607,7 +2607,7 @@ app.use(require('./rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VE
 // final, con el de los demás routers. LISTA_PRECIOS_VENTA y PRECIOS_FACTURADOR_DIR también
 // las recibe este router: son las mismas constantes que ya viajan por deps a precios
 // históricos (arriba) y a productividad, no una copia — un solo 0 y un solo directorio.
-app.use(require('./rutas_facturador')({ apiRoute, query, LISTA_PRECIOS_VENTA, PRECIOS_FACTURADOR_DIR, PORT }));
+app.use(require('./routes/rutas_facturador')({ apiRoute, query, LISTA_PRECIOS_VENTA, PRECIOS_FACTURADOR_DIR, PORT }));
 
 // Control de compras: DATA_DIR es un const que no se hoistea, así que el registro va al
 // final como el de los demás routers. leerPedidosCompra viaja por deps porque también lo
