@@ -2,7 +2,7 @@
 // Boost de productos propios: los PLUs de la casa (marca/nombre Apidelta + mixes propios)
 // llevan +30% sobre el nivel calculado S; el min (= S·k) sube en la misma proporción.
 const assert = require('assert');
-const { computeA8020, esProductoApidelta, BOOST_APIDELTA_DEFAULT } = require('../a8020');
+const { computeA8020, esProductoApidelta, BOOST_APIDELTA_DEFAULT } = require('../lib/a8020');
 
 let ok = 0, fail = 0;
 function test(nombre, fn) {

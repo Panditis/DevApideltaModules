@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { aplicarManualA8020, asegurarBrechaMinS } = require('../a8020');
+const { aplicarManualA8020, asegurarBrechaMinS } = require('../lib/a8020');
 
 // Caché mínimo: 1 PLU con dos sucursales calculadas.
 const cacheBase = () => ({

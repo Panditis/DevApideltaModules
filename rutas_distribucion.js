@@ -2,12 +2,12 @@
 const express = require('express');
 const path = require('path');
 const insumos = require('./lib/insumos');
-const { calcularAlmacen } = require('./distribucion');
+const { calcularAlmacen } = require('./lib/distribucion');
 const { calcularPesables } = require('./lib/pesables');
 const { universoLista, universoPesables } = require('./lib/listas_universo');
 const { pesoTokenKg } = require('./lib/producto_carga');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
-        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('./a8020');
+        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('./lib/a8020');
 
 // ── Rutas de Distribución (Almacen / Pesables / A8020 / Insumos) ───────────────────────────────
 // El bloque más grande de server.js: réplica de las hojas "Almacen" y "Pesables", el motor A8020

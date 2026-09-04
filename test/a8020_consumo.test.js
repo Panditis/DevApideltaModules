@@ -2,7 +2,7 @@
 // Consumo real por (sucursal, producto): la venta de un PLU se imputa al producto que
 // realmente sale del stock (bulto → componentes, fraccionado → granel).
 const assert = require('assert');
-const { calcularConsumoReal } = require('../a8020');
+const { calcularConsumoReal } = require('../lib/a8020');
 
 const SUC = { 5: 'riv', 2: 'urq' };
 let ok = 0, fail = 0;

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { calcularFilaAlmacen } = require('../distribucion');
+const { calcularFilaAlmacen } = require('../lib/distribucion');
 
 // ── Fixtures: PLU 1770 (Aceite Oliva Apidelta 2Lt) con sus valores reales de A8020 ────────────
 // Facturación clase A (top del catálogo) pero rotación baja: μ 0.13-0.62 u/día según sucursal.
