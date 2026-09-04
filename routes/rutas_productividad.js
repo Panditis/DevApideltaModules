@@ -1,11 +1,11 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const productividad = require('./lib/productividad');
-const resumenesLegacy = require('./lib/resumenes_legacy');
-const historialSala = require('./lib/historial_sala');
-const familiasManuales = require('./lib/familias_manuales');
-const analisisVentas = require('./lib/analisis_ventas');
+const productividad = require('../lib/productividad');
+const resumenesLegacy = require('../lib/resumenes_legacy');
+const historialSala = require('../lib/historial_sala');
+const familiasManuales = require('../lib/familias_manuales');
+const analisisVentas = require('../lib/analisis_ventas');
 
 // ── Rutas del módulo Productividad ───────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -33,7 +33,7 @@ module.exports = function crearRutasProductividad(deps) {
   } = deps;
   const router = express.Router();
 
-router.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'productividad.html')));
+router.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'productividad.html')));
 
 // ── Productividad de la sala ───────────────────────────────────────────────────
 // Resúmenes exportados por el sistema viejo de sala, previos a los registros en JSON.

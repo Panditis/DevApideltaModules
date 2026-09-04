@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const comprasControl = require('./lib/compras_control');
+const comprasControl = require('../lib/compras_control');
 
 // ── Rutas del Control de compras ─────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -102,7 +102,7 @@ async function comprasDeProveedor({ idProveedor, proveedor, desde, hasta }) {
 
 const numeroOpcional = (valor, def) => (valor != null && valor !== '' && Number.isFinite(Number(valor)) ? Number(valor) : def);
 
-router.get('/compras/control', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'compras_control.html')));
+router.get('/compras/control', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_control.html')));
 
 // Listado liviano: no toca SIGA, sólo dice qué pedidos hay y cuáles ya tienen
 // vínculo confirmado. La consulta pesada es la del detalle.

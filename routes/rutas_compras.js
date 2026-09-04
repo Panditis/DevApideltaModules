@@ -3,8 +3,8 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const compras = require('./lib/compras');
-const comprasImport = require('./lib/compras_import');
+const compras = require('../lib/compras');
+const comprasImport = require('../lib/compras_import');
 
 // ── Rutas del módulo Compras ──────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -33,7 +33,7 @@ module.exports = function crearRutasCompras(deps) {
   } = deps;
   const router = express.Router();
 
-router.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'compras.html')));
+router.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
 router.get('/compras-modulo', (_req, res) => res.redirect(301, '/compras'));
 
@@ -308,7 +308,7 @@ router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidos
 // la carga real está relevado en docs/compras_siga_mapeo.md
 const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'compras_import_prueba.html')));
+router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_import_prueba.html')));
 
 // Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
 function hojaCompra(wb, nombre) {

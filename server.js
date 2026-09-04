@@ -2443,7 +2443,7 @@ async function ejecutarDevolucionReserva(plan, itemId) {
 // const no se hoistean. No hay catch-all ni middleware de 404, y ninguna ruta que quedó en
 // server.js solapa con las del router, así que el orden de registro no cambia
 // a qué handler llega cada request.
-app.use(require('./rutas_compras')({
+app.use(require('./routes/rutas_compras')({
   apiRoute, leerJSON, query, getPool,
   sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
   leerPedidosCompra, guardarPedidosCompra,
@@ -2456,7 +2456,7 @@ app.use(require('./rutas_compras')({
 // los demás routers: no hay catch-all ni middleware de 404 y ninguna ruta que quedó
 // en server.js solapa con las de este router, así que el orden de registro no
 // cambia a qué handler llega cada request.
-app.use(require('./rutas_consumo')({ apiRoute, leerJSON, guardarJSON, query, cfg, DATA_DIR }));
+app.use(require('./routes/rutas_consumo')({ apiRoute, leerJSON, guardarJSON, query, cfg, DATA_DIR }));
 
 // Distribución: el bloque más grande, mismo motivo que compras — sus deps (sqlStockDistribucion,
 // DISTRIB_CONFIG_PATH, A8020_CALC_PATH, _ventasJoin, FRAC_REG_PATH, HISTORIAL_PATH…) son const
@@ -2472,12 +2472,12 @@ app.use(require('./rutas_distribucion')({
 
 // Mismo criterio para el cruce de terminales: sus deps (leerJSON, guardarJSON,
 // DATA_DIR) son const declarados después del punto donde estaban las rutas.
-app.use(require('./rutas_cruce_terminales')({ apiRoute, leerJSON, guardarJSON, DATA_DIR }));
+app.use(require('./routes/rutas_cruce_terminales')({ apiRoute, leerJSON, guardarJSON, DATA_DIR }));
 
 // Productividad también va al final: FRAC_REG_PATH, HISTORIAL_PATH, PROD_REG_PATH,
 // PROD_HIST_PATH, FAMILIAS_MANUALES_PATH y LISTA_PRECIOS_VENTA son const declarados
 // después del punto donde estaban estas rutas.
-app.use(require('./rutas_productividad')({
+app.use(require('./routes/rutas_productividad')({
   apiRoute, query, leerJSON, guardarJSON, safeDate,
   leerRegistros, leerOrdenes,
   DATA_DIR, PLANES_PATH, CATALOGO_PATH, PROD_REG_PATH, PROD_HIST_PATH,
@@ -2486,7 +2486,7 @@ app.use(require('./rutas_productividad')({
 }));
 
 // Precios de proveedores: mismo criterio, DATA_DIR es un const que no se hoistea.
-app.use(require('./rutas_precios_proveedores')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
+app.use(require('./routes/rutas_precios_proveedores')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
 
 // RRHH (relevamiento de ropa + ausencias): mismo motivo, DATA_DIR es un const.
 app.use(require('./rutas_rrhh')({ leerJSON, guardarJSON, DATA_DIR }));
@@ -2589,18 +2589,18 @@ app.use(require('./rutas_analisis')({
 // podría ir donde estaba la ruta. Va al final con el de los demás routers, y no cambia nada:
 // no hay catch-all ni middleware de 404 y ninguna ruta que quedó en server.js solapa con las
 // del router. El middleware de acceso por módulo sigue registrado antes.
-app.use(require('./rutas_cuentas_corrientes')({ apiRoute, query }));
+app.use(require('./routes/rutas_cuentas_corrientes')({ apiRoute, query }));
 
 
 // Ventas por hora: sus tres deps son funciones y se hoistean, así que el registro podría ir
 // donde estaban las rutas. Va al final con el de los demás routers. El middleware de acceso
 // por módulo sigue registrado antes, así que el permiso de ventas-hora no cambia.
-app.use(require('./rutas_ventas_hora')({ apiRoute, query, safeDate }));
+app.use(require('./routes/rutas_ventas_hora')({ apiRoute, query, safeDate }));
 
 
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del
 // punto donde estaba la página del módulo, así que el registro va al final como los demás.
-app.use(require('./rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
+app.use(require('./routes/rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
 
 // Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se
 // declaran bien antes, así que el registro podría ir donde estaban las rutas. Va igual al
@@ -2613,7 +2613,7 @@ app.use(require('./routes/rutas_facturador')({ apiRoute, query, LISTA_PRECIOS_VE
 // final como el de los demás routers. leerPedidosCompra viaja por deps porque también lo
 // usa el módulo Compras y se queda en server.js. Ninguna ruta que quedó en server.js
 // solapa con /compras/control ni con /api/compras/control/*.
-app.use(require('./rutas_compras_control')({
+app.use(require('./routes/rutas_compras_control')({
   apiRoute, leerJSON, guardarJSON, getPool, sql, DATA_DIR, leerPedidosCompra,
 }));
 
@@ -2621,7 +2621,7 @@ app.use(require('./rutas_compras_control')({
 // despues del punto donde estaban estas rutas. /api/produccion/:fecha/conciliacion y
 // :fecha/registrar-movimiento quedaron en server.js y se declaran antes, pero no capturan
 // nada de este router: exigen 3 segmentos con un literal fijo detras.
-app.use(require('./rutas_produccion')({
+app.use(require('./routes/rutas_produccion')({
   apiRoute, leerJSON, guardarJSON, safeDate, cfg,
   PROD_REG_PATH, PROD_HIST_PATH, leerOrdenes, guardarOrdenes,
   leerPlanReservas, reservasActivasDeOrden, crearSnapshotsCierre,
@@ -2647,7 +2647,7 @@ app.use(require('./rutas_plan')({
 
 // Auth y Centro de control: no lleva deps — auth.js y path se requieren directo.
 // Ninguna ruta que quedó en server.js solapa con /login, /admin ni /api/admin/*.
-app.use(require('./rutas_auth')());
+app.use(require('./routes/rutas_auth')());
 
 
 async function start() {
