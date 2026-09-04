@@ -30,7 +30,7 @@ const productividad = require('./lib/productividad');
 const resumenesLegacy = require('./lib/resumenes_legacy');
 const historialSala = require('./lib/historial_sala');
 const cruceTerminales = require('./lib/cruce_terminales');
-const rrhhRopa = require('./rrhh_ropa');
+const rrhhRopa = require('./lib/rrhh_ropa');
 const rrhhAusencias = require('./lib/rrhh_ausencias');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, terminadosPorPluDeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./lib/reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
