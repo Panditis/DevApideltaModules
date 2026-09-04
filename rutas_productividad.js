@@ -33,7 +33,7 @@ module.exports = function crearRutasProductividad(deps) {
   } = deps;
   const router = express.Router();
 
-router.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'productividad.html')));
+router.get('/productividad',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'productividad.html')));
 
 // ── Productividad de la sala ───────────────────────────────────────────────────
 // Resúmenes exportados por el sistema viejo de sala, previos a los registros en JSON.

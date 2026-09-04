@@ -13,7 +13,7 @@ const path = require('path');
 // Las funciones viven inline en distribucion.html (no hay módulo que requerir), así que se
 // extraen por nombre y se evalúan juntas contra un `_mrGraneles` de mentira.
 
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'distribucion.html'), 'utf8');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'public', 'distribucion.html'), 'utf8');
 
 function fuenteDe(nombre) {
   let ini = HTML.indexOf(`function ${nombre}(`);

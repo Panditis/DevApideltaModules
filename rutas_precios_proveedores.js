@@ -101,7 +101,7 @@ async function historialComprasAnio() {
   return out;
 }
 
-router.get('/precios-proveedores', (_req, res) => res.sendFile(path.join(__dirname, 'precios_proveedores.html')));
+router.get('/precios-proveedores', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_proveedores.html')));
 
 router.get('/api/precios-proveedores/listado', apiRoute(async () => {
   const [universo, ultimo, historial] = await Promise.all([

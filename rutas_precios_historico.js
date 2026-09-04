@@ -21,7 +21,7 @@ module.exports = function crearRutasPreciosHistorico(deps) {
   const { apiRoute, query, LISTA_PRECIOS_VENTA } = deps;
   const router = express.Router();
 
-router.get('/precios-historico', (_req, res) => res.sendFile(path.join(__dirname, 'precios_historico.html')));
+router.get('/precios-historico', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_historico.html')));
 
 // ── Precios históricos ─────────────────────────────────────────────────────────
 // Qué precio tenía cada producto cada día del mes pedido. HistorialPrecios guarda un

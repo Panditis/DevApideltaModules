@@ -20,7 +20,7 @@ module.exports = function crearRutasCruceTerminales(deps) {
   const { apiRoute, leerJSON, guardarJSON, DATA_DIR } = deps;
   const router = express.Router();
 
-router.get('/cruce-terminales', (_req, res) => res.sendFile(path.join(__dirname, 'cruce_terminales.html')));
+router.get('/cruce-terminales', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'cruce_terminales.html')));
 
 // ── Cruce de terminales ────────────────────────────────────────────────────────
 // Las bajadas de Payway y QR se procesan en memoria (no se guardan): lo único que

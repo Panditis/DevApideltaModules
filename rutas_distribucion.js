@@ -212,7 +212,7 @@ async function calcularDistribucionAlmacen() {
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
   });
 }
-router.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'distribucion.html')));
+router.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'distribucion.html')));
 router.get('/docs/plan-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'plan-distribucion.html')));
 router.get('/docs/guia-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'guia-distribucion.html')));
 router.get('/docs/analisis-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'analisis-distribucion.html')));
@@ -1138,7 +1138,7 @@ router.delete('/api/distribucion/a8020/manual/:plu/:sucursal', (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-router.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, 'a8020.html')));
+router.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'a8020.html')));
 
 // ── Listas editables de distribución (excluir / siempre-Almacen / siempre-Pesable) ──
 const LISTAS_DISTRIB_PATH = path.join(DATA_DIR, 'listas_distribucion.json');

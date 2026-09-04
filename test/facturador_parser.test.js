@@ -16,7 +16,7 @@ const RAIZ = path.join(__dirname, '..');
 const FIXTURE = path.join(RAIZ, 'data', 'cruce terminales', 'Distribucion Terminales por sucursal.xlsx');
 
 function cargarParser() {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const desde = src.split('parser-inicio');
   assert.equal(desde.length, 2, 'no se encontró el marcador parser-inicio en facturador.html');
   let bloque = desde[1];
@@ -411,7 +411,7 @@ test('los medios de pago están definidos y sin repetidos', () => {
 // "impedir que esta página abra más diálogos": el vendedor se quedaría sin avisos en
 // plena venta. Este control evita que vuelvan a entrar por descuido.
 test('no quedan diálogos nativos en el facturador', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const nativos = src.split(/\r?\n/)
     .map((linea, i) => ({ n: i + 1, linea }))
     .filter(({ linea }) => /(^|[^\w.])(alert|confirm|prompt)\s*\(/.test(linea));
@@ -419,7 +419,7 @@ test('no quedan diálogos nativos en el facturador', () => {
 });
 
 test('el modal tiene en el marcado todos los nodos que el código busca', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   for (const id of ['modalFondo', 'modalCaja', 'modalTitulo', 'modalCuerpo', 'modalTexto', 'modalBotones']) {
     assert.ok(src.includes('id="' + id + '"'), 'falta el nodo #' + id);
   }
@@ -477,7 +477,7 @@ test('la consulta arrastra los casos sin resultado en vez de romperse', () => {
 });
 
 test('la pestaña de consulta está en el marcado y no toca el pedido', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   for (const id of ['tabPedido', 'tabConsulta', 'vistaPedido', 'vistaConsulta',
                     'escanerConsulta', 'fichaConsulta']) {
     assert.ok(src.includes('id="' + id + '"'), 'falta el nodo #' + id);
@@ -491,7 +491,7 @@ test('la vista de consulta estira sus hijos a lo ancho', () => {
   // La regla general de `main` trae align-items:start. En un flex en columna eso deja al
   // buscador y a la ficha con su ancho natural, pegados a la izquierda: con un texto corto
   // como "Esperando un código…" la pantalla entera se ve descentrada.
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const regla = src.slice(src.indexOf('#vistaConsulta {'), src.indexOf('#barraConsulta'));
   assert.ok(/align-items:\s*stretch/.test(regla),
     '#vistaConsulta necesita align-items:stretch explícito');
@@ -501,7 +501,7 @@ test('la vista de consulta estira sus hijos a lo ancho', () => {
 });
 
 test('la consulta pinta siempre dentro del marco', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   // Todo el contenido de la ficha sale de poner(), que envuelve en .marco: si algún caso
   // escribiera directo en innerHTML quedaría suelto, sin el cartel.
   assert.ok(/ficha\.innerHTML = '<div class="marco/.test(src), 'poner() tiene que envolver en .marco');
@@ -517,7 +517,7 @@ test('la consulta pinta siempre dentro del marco', () => {
 });
 
 test('el archivo abre en el lector de precios', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   assert.ok(src.includes('id="tabConsulta">Lector de precios<'), 'la pestaña cambió de nombre');
   // El marcado y el estado tienen que arrancar de acuerdo: la vista del pedido oculta,
   // la del lector visible, y vistaActual apuntando al lector para que reciba el foco.
@@ -576,7 +576,7 @@ test('el badge nunca muestra minutos negativos', () => {
 });
 
 test('el toast de corte no se repite en cada reintento', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const fn = src.slice(src.indexOf('async function refrescarPrecios'), src.indexOf('setInterval(refrescarPrecios'));
   // Con un reintento por minuto, avisar siempre taparía la pantalla de toasts: sólo se
   // avisa al entrar en falla y al recuperarse.
@@ -605,7 +605,7 @@ test('detecta la pantalla de login en vez de tratarla como planilla', () => {
 });
 
 test('la hora que se muestra es la de este equipo, no la del origen', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   // `generado` lo pone el servidor y puede venir con el reloj corrido o repetido entre
   // refrescos; `traido` lo sella este equipo en cada actualización buena. La pantalla
   // tiene que leer `traido`, si no la hora parece congelada.
@@ -638,14 +638,14 @@ test('el archivo tiene una sola etiqueta de cierre de script', () => {
   // Una etiqueta de cierre escrita en cualquier lado —aunque sea dentro de un comentario—
   // corta el script ahí mismo: el navegador ejecuta la primera mitad y descarta el resto
   // SIN dar ningún error. Este control es la única forma barata de detectarlo.
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const cierres = [...src.matchAll(/<\/script/gi)];
   assert.equal(cierres.length, 1,
     'hay una etiqueta de cierre de script de más: corta el programa por la mitad');
 });
 
 test('incrusta el catálogo en el head y no acumula copias', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const uno = P.incrustarCatalogo(src, CAT_DEMO);
   // En el head y no al final del body: si fuera al final, el programa ya habría corrido
   // buscando un elemento que todavía no existe.
@@ -660,7 +660,7 @@ test('incrusta el catálogo en el head y no acumula copias', () => {
 });
 
 test('el catálogo incrustado se relee tal cual', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const clon = P.incrustarCatalogo(src, CAT_DEMO);
   const json = clon.match(/type="application\/json">([\s\S]*?)<\/script>/)[1];
   const leido = P.leerCatalogoEmbebido(json);
@@ -685,7 +685,7 @@ test('ignora un bloque incrustado vacío o roto', () => {
 });
 
 test('la única fuente en línea es el servidor', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   // Quedan dos caminos: servidor, y archivo elegido a mano. Nada de URLs de terceros.
   assert.ok(!/urlPlanilla/.test(src), 'quedó código de la fuente por URL');
   assert.ok(!/normalizarUrlPlanilla/.test(src), 'quedó la conversión de enlaces de la nube');
@@ -694,7 +694,7 @@ test('la única fuente en línea es el servidor', () => {
 });
 
 test('no quedó el botón de WhatsApp', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   assert.ok(!/WhatsApp/i.test(src), 'quedó una referencia a WhatsApp');
   assert.ok(!/btnCopiar/.test(src), 'quedó el handler del botón');
   // El de la lista de pedidos guardados sigue: copia el detalle, no publica en ningún lado.
@@ -703,7 +703,7 @@ test('no quedó el botón de WhatsApp', () => {
 
 // ── Ticket para comandera ─────────────────────────────────────────────────────
 test('la impresión sale en formato de ticket, no como la pantalla', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   assert.ok(/@page \{ size: 72mm auto/.test(src), 'falta el tamaño de rollo de la comandera');
   assert.ok(src.includes('<div id="ticket"></div>'), 'falta el contenedor del ticket');
   assert.ok(/function pintarTicket\(p\)/.test(src), 'falta el armado del ticket');
@@ -717,7 +717,7 @@ test('la impresión sale en formato de ticket, no como la pantalla', () => {
 });
 
 test('imprimir arma el ticket antes de mandar a la impresora', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const fn = src.slice(src.indexOf("$('#btnImprimir').onclick"), src.indexOf("$('#btnLimpiar').onclick"));
   assert.ok(fn.indexOf('pintarTicket') < fn.indexOf('window.print()'),
     'hay que pintar el ticket antes de imprimir, si no sale el de la vez anterior');
@@ -728,7 +728,7 @@ test('imprimir arma el ticket antes de mandar a la impresora', () => {
 
 // ── Instructivo ───────────────────────────────────────────────────────────────
 test('el instructivo viaja adentro del archivo y cubre los dos temas', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   assert.ok(src.includes('id="secAyuda"'), 'falta la sección de ayuda');
   assert.ok(src.includes('id="btnAyuda"'), 'falta el botón para abrirla');
   const sec = src.slice(src.indexOf('id="secAyuda"'), src.indexOf('<!-- ── Pedidos guardados'));
@@ -739,7 +739,7 @@ test('el instructivo viaja adentro del archivo y cubre los dos temas', () => {
 test('el instructivo nombra las columnas que la planilla exporta de verdad', () => {
   // Un instructivo que miente sobre los nombres de columna es peor que no tenerlo: se
   // desactualiza en silencio en cuanto alguien toca el exportador.
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   // El cierre se busca DESDE la cabecera: "for (const p of pedidos)" también aparece
   // antes, en el contador de numeración, y el corte quedaría vacío.
   const desde = src.indexOf('const COLUMNAS_TICKETS = [');
@@ -900,7 +900,7 @@ test('una respuesta sin filas ni tabla se rechaza, venga de donde venga', () => 
 // El listado se lee para traspasar la venta al sistema: cada ticket tiene que mostrar
 // el detalle completo, y los nombres que vienen del catálogo van escapados.
 function cargarDetalleGuardado() {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8').replace(/\r\n/g, '\n');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8').replace(/\r\n/g, '\n');
   // plata, esc y cantTxt van seguidos en el archivo; el corte los toma a los tres.
   const ayudas = src.slice(src.indexOf('const plata ='), src.indexOf('\n', src.indexOf('const cantTxt =')));
   const desde = src.indexOf('function detalleGuardado(');
@@ -937,7 +937,7 @@ test('cada ticket guardado se lista con su detalle adentro', () => {
 });
 
 test('el listado de tickets vive en un modal propio, debajo de los avisos', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   for (const id of ['fondoGuardados', 'cajaGuardados', 'listaGuardados', 'btnCerrarGuardados']) {
     assert.ok(src.includes('id="' + id + '"'), 'falta el nodo #' + id);
   }
@@ -951,7 +951,7 @@ test('el listado de tickets vive en un modal propio, debajo de los avisos', () =
 });
 
 test('guardar cierra el pago solo con el medio elegido, sin preguntar', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const cuerpo = src.slice(src.indexOf("$('#btnGuardarPedido').onclick"), src.indexOf('function comoTexto('));
   // Nada puede frenar el guardado: la unica pregunta permitida es la de imprimir, y sale
   // recien despues de persistir el pedido.
@@ -967,7 +967,7 @@ test('guardar cierra el pago solo con el medio elegido, sin preguntar', () => {
 });
 
 test('guardado confirma primero y recien despues ofrece imprimir el ticket', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const cuerpo = src.slice(src.indexOf("$('#btnGuardarPedido').onclick"), src.indexOf('function comoTexto('));
   const iGrabar   = cuerpo.indexOf('grabar(K.ped, pedidos)');
   const iAviso    = cuerpo.indexOf('okModal(');
@@ -983,7 +983,7 @@ test('guardado confirma primero y recien despues ofrece imprimir el ticket', () 
 });
 
 test('el lector se puede dejar sin barra y el cartel se achica hasta entrar', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   assert.ok(src.includes('id="btnOcultarBarra"'), 'falta el botón para esconder la barra');
   assert.ok(src.includes('id="btnMostrarBarra"'), 'falta el botón para traerla de vuelta');
   // El botón de vuelta vive fuera del header: si se escondiera con él, la única salida
@@ -1030,7 +1030,7 @@ test('sólo los genéricos llevan precio a mano', () => {
 });
 
 test('el facturador bloquea el precio salvo en los genéricos', () => {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   assert.ok(src.includes('id="btnPromo"'), 'falta el botón de promo al lado del lector');
   // El input arranca readonly salvo que la línea sea de precio libre.
   assert.ok(src.includes("(precioLibre(l) ? '' : ' readonly"), 'el precio tiene que salir readonly');

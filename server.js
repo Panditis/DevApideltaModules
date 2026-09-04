@@ -661,16 +661,16 @@ app.use((req, res, next) => {
 });
 
 // ── Rutas HTML ─────────────────────────────────────────────────────────────────
-app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'favicon.png')));
+app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.png')));
 app.get('/favicon.ico',   (_req, res) => res.redirect('/favicon.png'));
-app.get('/',              (_req, res) => res.sendFile(path.join(__dirname, 'inicio.html')));
-app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'pedidos_web.html')));
-app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'planificacion.html')));
-app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insumos.html')));
+app.get('/',              (_req, res) => res.sendFile(path.join(__dirname, 'public', 'inicio.html')));
+app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'pedidos_web.html')));
+app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'planificacion.html')));
+app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'insumos.html')));
 // El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
-app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
+app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');

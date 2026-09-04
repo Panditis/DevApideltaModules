@@ -27,10 +27,10 @@ module.exports = function crearRutasRrhh(deps) {
   const router = express.Router();
 
 // RRHH: sub-hub con los módulos del área y, colgando de él, cada submódulo.
-router.get('/rrhh',                    (_req, res) => res.sendFile(path.join(__dirname, 'rrhh.html')));
-router.get('/rrhh/relevamiento-ropa',  (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_relevamiento_ropa.html')));
+router.get('/rrhh',                    (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh.html')));
+router.get('/rrhh/relevamiento-ropa',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh_relevamiento_ropa.html')));
 router.get('/rrhh_relevamiento_ropa.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh_relevamiento_ropa.js')));
-router.get('/rrhh/ausencias',          (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_ausencias_dashboard.html')));
+router.get('/rrhh/ausencias',          (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh_ausencias_dashboard.html')));
 router.get('/rrhh_ausencias.js',       (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'rrhh_ausencias.js')));
 router.get('/rrhh_ausencias_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh_ausencias_front.js')));
 

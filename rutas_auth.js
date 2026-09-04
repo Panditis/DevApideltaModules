@@ -18,8 +18,8 @@ const auth = require('./lib/auth');
 module.exports = function crearRutasAuth() {
   const router = express.Router();
 
-router.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'login.html')));
-router.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+router.get('/login',         (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+router.get('/admin',         (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 // ── API de autenticación / sesión ───────────────────────────────────────────────
 // Throttle simple en memoria contra fuerza bruta (por IP).
 const loginIntentos = new Map(); // ip -> { count, hasta }

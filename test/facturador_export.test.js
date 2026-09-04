@@ -12,7 +12,7 @@ const XLSX = require('xlsx');
 const RAIZ = path.join(__dirname, '..');
 
 function cargarParser() {
-  const src = fs.readFileSync(path.join(RAIZ, 'facturador.html'), 'utf8');
+  const src = fs.readFileSync(path.join(RAIZ, 'public', 'facturador.html'), 'utf8');
   const desde = src.split('parser-inicio');
   assert.equal(desde.length, 2, 'no se encontró el marcador parser-inicio en facturador.html');
   let bloque = desde[1];

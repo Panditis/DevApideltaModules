@@ -1328,7 +1328,7 @@ test('el endpoint de ajuste acepta todos los tipos que se emiten', () => {
 
 test('la pantalla sabe etiquetar todos los tipos que se emiten', () => {
   // Arrange: las claves de AJUSTE_TXT, leidas del fuente de la pantalla.
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const m = html.match(/var AJUSTE_TXT = \{([\s\S]*?)\n\};/);
   assert.ok(m, 'no se encontro AJUSTE_TXT en pedidos_web.html');
   const etiquetados = (m[1].match(/'[a-z-]+':\s*\{/g) || []).map(s => s.split("'")[1]);
@@ -1339,7 +1339,7 @@ test('la pantalla sabe etiquetar todos los tipos que se emiten', () => {
 
 test('el verbo de cada tipo coincide con el sentido del traslado', () => {
   // Arrange
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const bloque = html.match(/var AJUSTE_TXT = \{([\s\S]*?)\n\};/)[1];
 
   // Act / Assert: "reponer-*" tiene que decir Reponer y "devolver-*", Devolver. Etiquetar con un
@@ -1363,7 +1363,7 @@ test('el verbo de cada tipo coincide con el sentido del traslado', () => {
 // producto de carga cae en el producto mismo cuando no hay intermedio.
 
 function cargarApartado() {
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const ini = html.indexOf('function apartadoDeProducto(');
   assert.notStrictEqual(ini, -1, 'no se encontro apartadoDeProducto en pedidos_web.html');
   let nivel = 0, visto = false, i;
@@ -1489,7 +1489,7 @@ test('un Bulto sin componente queda inerte con su motivo', () => {
 // descripcion, con el producto del pedido arriba y lo que se aparta abajo.
 
 function cargarDescripcion() {
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const src = ['descripcionLineaRes', 'unidadLineaRes'].map(nombre => {
     const ini = html.indexOf(`function ${nombre}(`);
     assert.notStrictEqual(ini, -1, `no se encontro ${nombre} en pedidos_web.html`);

@@ -34,7 +34,7 @@ module.exports = function crearRutasAnalisis(deps) {
 // Análisis de ventas: una sola página con pestañas (Sucursales / Casa Central). Las dos
 // rutas históricas siguen vivas porque cada una es el guard de su módulo de permiso; el
 // front abre la pestaña que corresponde al path por el que se entró.
-router.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFile(path.join(__dirname, 'analisis.html')));
+router.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis.html')));
 // El CSS y el JS del módulo van aparte para no repetirlos en cada pestaña. El proyecto no
 // usa express.static: cada asset se declara con su propia ruta.
 router.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis.css')));

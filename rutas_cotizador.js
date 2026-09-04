@@ -22,7 +22,7 @@ module.exports = function crearRutasCotizador(deps) {
   const { apiRoute, query, leerJSON, guardarJSON } = deps;
   const router = express.Router();
 
-router.get('/cotizador',         (_req, res) => res.sendFile(path.join(__dirname, 'cotizador.html')));
+router.get('/cotizador',         (_req, res) => res.sendFile(path.join(__dirname, 'public', 'cotizador.html')));
 
 // ── Cotizador Mercado Libre ───────────────────────────────────────────────────
 const COMISIONES_PATH = path.join(__dirname, 'data', 'comisiones_mercadolibre.json');

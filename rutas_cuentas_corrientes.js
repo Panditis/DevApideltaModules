@@ -25,7 +25,7 @@ module.exports = function crearRutasCuentasCorrientes(deps) {
   const { apiRoute, query } = deps;
   const router = express.Router();
 
-router.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'cuentas_corrientes.html')));
+router.get('/cuentas-corrientes', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'cuentas_corrientes.html')));
 
 // ── Cuentas Corrientes de Clientes ───────────────────────────────────────────
 // Saldo vivo por cliente + detalle de comprobantes. Clientes.SaldoPendiente está
