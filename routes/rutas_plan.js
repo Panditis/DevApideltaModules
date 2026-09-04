@@ -2,7 +2,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const bloquesTareas = require('./lib/bloques_tareas');
+const bloquesTareas = require('../lib/bloques_tareas');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -105,7 +105,7 @@ const RUBRO_MANUAL_EXCLUIDO_RE = /almacen\s*bultos\s*\/?\s*cajas/i;
 const PRODUCTO_SAVONA_RE = /savona/i;
 
 async function calcularSugerencias(params) {
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
   const diasObj = parseInt(params.diasObjetivo) || c.diasObjetivo;
   const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido
@@ -218,7 +218,7 @@ async function calcularSugerenciasCatalogo(params) {
   if (!catalogoCompleto.length) throw new Error('Catálogo vacío. Importar Excel desde planificación.');
   const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
   const catalogo  = catalogoCompleto.filter(item => cfgActivo(gruposCfg, item.productoRef));
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
   const diasObj = parseInt(params.diasObjetivo) || c.diasObjetivo;
   const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido (0.6 = 60%)
@@ -475,9 +475,9 @@ router.get('/api/plan/stock-detalle', apiRoute(async req => {
   });
   return { sucursales, presentaciones: build(plus, presRows), graneles: build(graneles, granRows) };
 }));
-router.get('/api/consumo',          apiRoute(async req => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); return query(sqlConsumo(parseInt(req.query.ventana) || c.ventanaConsumoDias, c.rubrosPlanificables.join(','))); }));
+router.get('/api/consumo',          apiRoute(async req => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8')); return query(sqlConsumo(parseInt(req.query.ventana) || c.ventanaConsumoDias, c.rubrosPlanificables.join(','))); }));
 router.get('/api/pendientes',       apiRoute(async () => query(sqlPendientes())));
-router.get('/api/bom',              apiRoute(async () => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); return query(sqlBOM(c.rubrosGranel.join(','))); }));
+router.get('/api/bom',              apiRoute(async () => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8')); return query(sqlBOM(c.rubrosGranel.join(','))); }));
 router.get('/api/bom/producto/:plu', apiRoute(async req => {
   const plu = String(req.params.plu).replace(/\D/g, '');
   if (!plu) return [];

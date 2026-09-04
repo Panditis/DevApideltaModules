@@ -1317,7 +1317,7 @@ test('ajustePropuesto emite cuatro tipos distintos', () => {
 
 test('el endpoint de ajuste acepta todos los tipos que se emiten', () => {
   // Arrange: la lista blanca del POST, leida del fuente.
-  const src = fs.readFileSync(path.join(raiz, 'rutas_mayoristas.js'), 'utf8');
+  const src = fs.readFileSync(path.join(raiz, 'routes', 'rutas_mayoristas.js'), 'utf8');
   const m = src.match(/const TIPOS = \[([^\]]+)\]/);
   assert.ok(m, 'no se encontro la lista TIPOS en el endpoint de ajuste');
   const aceptados = m[1].match(/'[^']+'/g).map(s => s.slice(1, -1));

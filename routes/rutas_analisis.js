@@ -1,8 +1,8 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const analisisVentas = require('./lib/analisis_ventas');
-const familiasManuales = require('./lib/familias_manuales');
+const analisisVentas = require('../lib/analisis_ventas');
+const familiasManuales = require('../lib/familias_manuales');
 
 // ── Rutas del módulo Análisis de Ventas ───────────────────────────────────────
 // Una sola página con pestañas (Sucursales / Casa Central) más las familias
@@ -34,13 +34,13 @@ module.exports = function crearRutasAnalisis(deps) {
 // Análisis de ventas: una sola página con pestañas (Sucursales / Casa Central). Las dos
 // rutas históricas siguen vivas porque cada una es el guard de su módulo de permiso; el
 // front abre la pestaña que corresponde al path por el que se entró.
-router.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis.html')));
+router.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis.html')));
 // El CSS y el JS del módulo van aparte para no repetirlos en cada pestaña. El proyecto no
 // usa express.static: cada asset se declara con su propia ruta.
-router.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis.css')));
-router.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis_graficos.js')));
-router.get('/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis_familias_manuales.js')));
-router.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'analisis_front.js')));
+router.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis.css')));
+router.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis_graficos.js')));
+router.get('/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis_familias_manuales.js')));
+router.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis_front.js')));
 
 // ── Análisis de Ventas por Sucursal ──────────────────────────────────────────
 // Días en quiebre por producto, sumando las sucursales del filtro. El umbral se calcula

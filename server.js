@@ -2463,7 +2463,7 @@ app.use(require('./routes/rutas_consumo')({ apiRoute, leerJSON, guardarJSON, que
 // declarados bastante después de donde estaban sus rutas. FRAC_REG_PATH y HISTORIAL_PATH también
 // los recibe rutas_productividad.js (arriba); componentesFormulaPorPadre está declarada miles de
 // líneas después, así que este router también tiene que ir acá al final.
-app.use(require('./rutas_distribucion')({
+app.use(require('./routes/rutas_distribucion')({
   apiRoute, query, leerJSON, guardarJSON, cfg, DATA_DIR,
   PESABLES_LISTAS_PATH, sqlStockDistribucion, DISTRIB_CONFIG_PATH, A8020_CALC_PATH,
   _ventasJoin, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL, componentesFormulaPorPadre,
@@ -2489,14 +2489,14 @@ app.use(require('./routes/rutas_productividad')({
 app.use(require('./routes/rutas_precios_proveedores')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
 
 // RRHH (relevamiento de ropa + ausencias): mismo motivo, DATA_DIR es un const.
-app.use(require('./rutas_rrhh')({ leerJSON, guardarJSON, DATA_DIR }));
+app.use(require('./routes/rutas_rrhh')({ leerJSON, guardarJSON, DATA_DIR }));
 
 // Mayoristas es el que más deps recibe y el que más las necesita al final: resolverSucursal,
 // depositosActivos, trasladarStock, ejecutarYRegistrar, cfgReserva, cfgProduccion,
 // stockDeComponentes y asientosProduccion son const declarados miles de líneas DESPUÉS del
 // punto donde estaban estas rutas. bomGranelPorPlu y RESERVAS_MERC_PATH se quedaron en
 // server.js porque los usan /api/resumen y el tablero de almacén, y viajan por acá.
-app.use(require('./rutas_mayoristas')({
+app.use(require('./routes/rutas_mayoristas')({
   apiRoute, params, query, getPoolStock, getResumen,
   leerJSON, guardarJSON, DATA_DIR, PLANES_PATH,
   FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL, sqlBOMGranel,
@@ -2514,7 +2514,7 @@ app.use(require('./rutas_mayoristas')({
 // router: no las usa nada más. GET /api/movimientos/siga/:numero y las rutas de
 // reservas/plan/producción se quedan en server.js (motivo detallado al principio de
 // rutas_stock.js).
-app.use(require('./rutas_stock')({
+app.use(require('./routes/rutas_stock')({
   apiRoute, query,
   sucursalesSiga, resolverSucursal, sucursalPublica,
   sqlStockTerminados, sqlStockGranel, sqlStockPorPlu,
@@ -2557,7 +2557,7 @@ app.use(require('./routes/rutas_reservas')({
 
 // Catálogo de grupos: los helpers cfg* y los dos paths son const declarados después
 // del punto donde estaban estas rutas, así que el registro también va al final.
-app.use(require('./rutas_catalogo')({
+app.use(require('./routes/rutas_catalogo')({
   leerJSON, guardarJSON, CATALOGO_PATH, GRUPOS_CFG_PATH,
   cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgMpManual,
   cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
@@ -2573,14 +2573,14 @@ app.use(require('./routes/rutas_envases_tapas')({ apiRoute, query, leerJSON, gua
 // donde estaban las rutas. Va igual al final, con el de los demás routers: no hay catch-all
 // ni middleware de 404 y ninguna ruta que quedó en server.js solapa con las del router, así
 // que el orden de registro no cambia a qué handler llega cada request.
-app.use(require('./rutas_cotizador')({ apiRoute, query, leerJSON, guardarJSON }));
+app.use(require('./routes/rutas_cotizador')({ apiRoute, query, leerJSON, guardarJSON }));
 
 
 // Análisis de ventas: FAMILIAS_MANUALES_PATH es un const declarado miles de líneas después
 // del punto donde estaban las páginas del módulo, así que el registro va al final. El
 // middleware de acceso por módulo sigue registrado antes (app.use de más arriba), de modo que
 // la protección de /analisis-ventas y /analisis-central no cambia.
-app.use(require('./rutas_analisis')({
+app.use(require('./routes/rutas_analisis')({
   apiRoute, query, leerJSON, guardarJSON, safeDate, auth, FAMILIAS_MANUALES_PATH,
 }));
 
@@ -2634,7 +2634,7 @@ app.use(require('./routes/rutas_produccion')({
 // (/api/plan/:fecha/reserva*, reservar, reserva/actualizar, reserva/devolver) quedaron en
 // server.js: exigen un segmento extra fijo detrás de :fecha, así que ninguna ruta de este
 // router las captura y el orden de registro no cambia a qué handler llega cada request.
-app.use(require('./rutas_plan')({
+app.use(require('./routes/rutas_plan')({
   apiRoute, leerJSON, guardarJSON, query, DATA_DIR,
   PLANES_PATH, PROD_REG_PATH, CATALOGO_PATH, GRUPOS_CFG_PATH,
   safeDate, leerPlanReservas, saldoItemReserva, ejecutarDevolucionReserva,

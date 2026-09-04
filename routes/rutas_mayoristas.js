@@ -2,16 +2,16 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { calcularFaltantesFraccionado } = require('./lib/fraccionado_faltantes');
-const { resolverProductoCarga, analizarNombreCarga } = require('./lib/producto_carga');
+const { calcularFaltantesFraccionado } = require('../lib/fraccionado_faltantes');
+const { resolverProductoCarga, analizarNombreCarga } = require('../lib/producto_carga');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
-        plusEnOrdenesActivas } = require('./lib/ordenes_fraccionado');
+        plusEnOrdenesActivas } = require('../lib/ordenes_fraccionado');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
-        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./lib/reservas_mercaderia');
+        validarCarritoUnCliente, nuevaReserva, anularReserva } = require('../lib/reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable,
         lineasADevolverMayorista,
-        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('./lib/reservas_pesables');
+        lineasTerminadoADevolverMayorista, filasSaldoMayorista } = require('../lib/reservas_pesables');
 
 // ── Rutas del módulo Mayoristas ──────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -141,7 +141,7 @@ router.get('/api/mayoristas/producto-carga', apiRoute(async req => {
   // unidad. Es informativo, así que si el destino no tiene fórmula activa se devuelve igual.
   let granel = null;
   if (/^\d+$/.test(destino.plu)) {
-    const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+    const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
 
     // Destino con UN solo componente directo: ese componente ES el producto que se descuenta.
     // Es el caso de las mezclas que se envasan desde un granel que no está en rubrosGranel

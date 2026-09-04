@@ -1,13 +1,13 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const insumos = require('./lib/insumos');
-const { calcularAlmacen } = require('./lib/distribucion');
-const { calcularPesables } = require('./lib/pesables');
-const { universoLista, universoPesables } = require('./lib/listas_universo');
-const { pesoTokenKg } = require('./lib/producto_carga');
+const insumos = require('../lib/insumos');
+const { calcularAlmacen } = require('../lib/distribucion');
+const { calcularPesables } = require('../lib/pesables');
+const { universoLista, universoPesables } = require('../lib/listas_universo');
+const { pesoTokenKg } = require('../lib/producto_carga');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
-        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('./lib/a8020');
+        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('../lib/a8020');
 
 // ── Rutas de Distribución (Almacen / Pesables / A8020 / Insumos) ───────────────────────────────
 // El bloque más grande de server.js: réplica de las hojas "Almacen" y "Pesables", el motor A8020
@@ -212,11 +212,11 @@ async function calcularDistribucionAlmacen() {
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
   });
 }
-router.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'distribucion.html')));
-router.get('/docs/plan-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'plan-distribucion.html')));
-router.get('/docs/guia-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'guia-distribucion.html')));
-router.get('/docs/analisis-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'analisis-distribucion.html')));
-router.get('/docs/pesables-calculo.html', (_req, res) => res.sendFile(path.join(__dirname, 'docs', 'pesables-calculo.html')));
+router.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'distribucion.html')));
+router.get('/docs/plan-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'plan-distribucion.html')));
+router.get('/docs/guia-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'guia-distribucion.html')));
+router.get('/docs/analisis-distribucion.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'analisis-distribucion.html')));
+router.get('/docs/pesables-calculo.html', (_req, res) => res.sendFile(path.join(__dirname, '..', 'docs', 'pesables-calculo.html')));
 router.get('/api/distribucion/almacen', apiRoute(async () => calcularDistribucionAlmacen()));
 router.get('/api/distribucion/sucursales', apiRoute(async () =>
   query('SELECT IdSucursal, Nombre, SoyLaCentral FROM Sucursales ORDER BY IdSucursal')));
@@ -1002,7 +1002,7 @@ async function recalcularConsumoMensual() {
   const rubroDePlu = {};
   for (const r of rubroRows) rubroDePlu[String(r.IdProducto).trim()] = r.NombreRubro || null;
 
-  const tipoProd  = (leerJSON(path.join(__dirname, 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
+  const tipoProd  = (leerJSON(path.join(__dirname, '..', 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
   // BIENESUSO siempre se incluye: es el tipo con el que se registró la producción hasta el
   // cambio a REC-SUC y sigue siendo el único dato de los meses anteriores.
   const tiposProd = [...new Set([tipoProd, 'BIENESUSO'])];
@@ -1138,7 +1138,7 @@ router.delete('/api/distribucion/a8020/manual/:plu/:sucursal', (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-router.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'a8020.html')));
+router.get('/distribucion/a8020', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'a8020.html')));
 
 // ── Listas editables de distribución (excluir / siempre-Almacen / siempre-Pesable) ──
 const LISTAS_DISTRIB_PATH = path.join(DATA_DIR, 'listas_distribucion.json');

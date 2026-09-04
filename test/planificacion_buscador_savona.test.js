@@ -14,7 +14,7 @@ const path = require('path');
 // vive en rutas_plan.js (refactor de ruteo): ahí quedaron RUBRO_MANUAL_EXCLUIDO_RE,
 // PRODUCTO_SAVONA_RE y el filtro.
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'rutas_plan.js'), 'utf8');
+const SRC = fs.readFileSync(path.join(__dirname, '..', 'routes', 'rutas_plan.js'), 'utf8');
 
 function lineaQueEmpiezaCon(prefijo) {
   const linea = SRC.split('\n').find(l => l.trim().startsWith(prefijo));

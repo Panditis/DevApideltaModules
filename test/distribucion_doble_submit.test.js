@@ -14,7 +14,7 @@ const path = require('path');
 // Las rutas de fraccionado-registros/historial viven en rutas_distribucion.js (refactor de
 // ruteo): ahí registran con `router.post(...)`, no `app.post(...)`.
 
-const SERVER = fs.readFileSync(path.join(__dirname, '..', 'rutas_distribucion.js'), 'utf8');
+const SERVER = fs.readFileSync(path.join(__dirname, '..', 'routes', 'rutas_distribucion.js'), 'utf8');
 const DISTRIB = fs.readFileSync(path.join(__dirname, '..', 'public', 'distribucion.html'), 'utf8');
 
 // Devuelve el bloque de código que arranca en `desde` y termina en su llave de cierre. Arrastra el
