@@ -18,6 +18,7 @@
   <div class="tabs" id="tabs">
     <button id="tab-suc">Sucursales</button>
     <button id="tab-cen">Mayorista</button>
+    <button id="tab-api">Apicultura</button>
     <button id="tab-fam">Portfolio</button>
     <button id="tab-fmn">Grupos</button>
   </div>
@@ -32,8 +33,11 @@
       <div class="chips" id="chips"></div>
     </div>
     <div class="nota" id="notaCentral" hidden>Alcance fijo: casa central. Se excluyen los
-      comprobantes anulados, las ventas a sucursales (transferencias internas), el rubro de
-      apicultura y los códigos que salen por caja sin ser venta real.</div>
+      comprobantes anulados, las ventas a sucursales (transferencias internas), el rubro o
+      subrubro Apicultura y los códigos que salen por caja sin ser venta real.</div>
+    <div class="nota" id="notaApicultura" hidden>Alcance fijo: casa central, sólo rubro o
+      subrubro Apicultura — la contracara de lo que la pestaña Mayorista excluye. Se excluyen los
+      comprobantes anulados y las ventas a sucursales (transferencias internas).</div>
     <button class="btn" id="btnAplicar">Aplicar</button>
   </div>
 
@@ -127,6 +131,39 @@
       <h3>Top clientes</h3>
       <p class="desc">Quién compra y cuánto. Clic en la fila para ver qué se llevó cada cliente.</p>
       <div id="tblClientes-cen"></div>
+    </div>
+  </section>
+
+  <!-- ── Pestaña Apicultura: casa central, sólo rubro Apicultura ────────────── -->
+  <section id="pane-api" hidden>
+    <div id="msg-api"></div>
+    <div class="kpis" id="kpis-api"></div>
+
+    <div class="card"><h3>Tendencia diaria</h3>
+      <div class="chart-box"><canvas id="chTendencia-api"></canvas></div>
+      <div id="tendResumen-api" class="mini"></div></div>
+    <div class="grid2">
+      <div class="card"><h3>Facturación por día de semana</h3><canvas id="chDow-api" height="200"></canvas></div>
+      <div class="card"><h3>Facturación por hora</h3><canvas id="chHora-api" height="200"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Top productos</h3>
+        <input type="search" id="buscTop-api" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+      </div>
+      <div class="desc">Clic en Producto, Unid. o Facturación para ordenar el listado por esa columna.</div>
+      <div id="tblTop-api"></div>
+      <div id="pagTop-api"></div>
+    </div>
+    <div class="card">
+      <h3>Familias de producto</h3>
+      <p class="desc">Agrupa las presentaciones de un mismo producto en una sola fila. Clic en la fila para ver el detalle por presentación.</p>
+      <div id="tblFamilias-api"></div>
+    </div>
+    <div class="card">
+      <h3>Top clientes</h3>
+      <p class="desc">Quién compra y cuánto. Clic en la fila para ver qué se llevó cada cliente.</p>
+      <div id="tblClientes-api"></div>
     </div>
   </section>
 

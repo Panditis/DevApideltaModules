@@ -3,27 +3,70 @@
 // se hoistean y gana la última, así que las llamadas a la primera se van en silencio
 // a la otra implementación. Ya pasó una vez — dos `comprasDeProveedor`, una del módulo
 // de Compras y otra del de control, y /api/compras/armado devolvía siempre vacío.
+//
+// Al extraer routers (rutas_compras.js) aparece un segundo modo de falla: la factory
+// recibe sus dependencias POR NOMBRE. Si server.js y el router declaran cada uno un
+// `foo` y el cableado inyecta el de server.js, el router usa una implementación que no
+// es la suya — sin error, sin test roto y con `node --check` verde.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SERVER = path.join(__dirname, '..', 'server.js');
+// Cada router nuevo se suma acá.
+const ARCHIVOS = ['server.js', 'rutas_compras.js', 'rutas_cruce_terminales.js', 'rutas_productividad.js', 'rutas_precios_proveedores.js', 'rutas_rrhh.js', 'rutas_mayoristas.js', 'rutas_catalogo.js', 'rutas_envases_tapas.js', 'rutas_cotizador.js', 'rutas_analisis.js', 'rutas_cuentas_corrientes.js', 'rutas_ventas_hora.js', 'rutas_precios_historico.js', 'rutas_compras_control.js', 'rutas_auth.js', 'rutas_produccion.js', 'rutas_stock.js', 'rutas_distribucion.js', 'rutas_consumo.js', 'rutas_facturador.js', 'rutas_plan.js', 'rutas_reservas.js']
+  .map(f => path.join(__dirname, '..', f));
 
-test('server.js no declara dos funciones de nivel superior con el mismo nombre', () => {
-  const src = fs.readFileSync(SERVER, 'utf8');
-  const vistos = new Map();
+// Sólo nivel superior del archivo: una declaración anidada arranca indentada.
+// (Los bloques movidos a rutas_compras.js conservan su indentación original de
+// columna 0, así que siguen contando como declaraciones del módulo.)
+function declaraciones(archivo) {
+  const vistos = new Map();   // nombre → primera línea
   const duplicados = [];
-
-  src.split('\n').forEach((linea, i) => {
-    // Sólo nivel superior: una declaración anidada arranca indentada.
+  fs.readFileSync(archivo, 'utf8').split('\n').forEach((linea, i) => {
     const m = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(linea);
     if (!m) return;
-    const nombre = m[1];
-    if (vistos.has(nombre)) duplicados.push(`${nombre}: líneas ${vistos.get(nombre)} y ${i + 1}`);
-    else vistos.set(nombre, i + 1);
+    if (vistos.has(m[1])) duplicados.push(`${m[1]}: líneas ${vistos.get(m[1])} y ${i + 1}`);
+    else vistos.set(m[1], i + 1);
   });
+  return { vistos, duplicados };
+}
 
-  assert.deepStrictEqual(duplicados, [],
-    `Declaraciones duplicadas en server.js (la última pisa a la anterior):\n  ${duplicados.join('\n  ')}`);
+// Nombres que el módulo recibe por deps: el `const { … } = deps;` de la factory.
+function nombresDeDeps(archivo) {
+  const src = fs.readFileSync(archivo, 'utf8');
+  const nombres = new Set();
+  for (const m of src.matchAll(/const\s*\{([\s\S]*?)\}\s*=\s*deps\s*;/g)) {
+    for (const n of m[1].replace(/\/\/[^\n]*/g, ' ').match(/[A-Za-z_$][\w$]*/g) || []) nombres.add(n);
+  }
+  return nombres;
+}
+
+// Regla A — el bug del hoisting: dos declaraciones del mismo nombre en un archivo.
+for (const archivo of ARCHIVOS) {
+  const nombre = path.basename(archivo);
+  test(`${nombre} no declara dos funciones de nivel superior con el mismo nombre`, () => {
+    const { duplicados } = declaraciones(archivo);
+    assert.deepStrictEqual(duplicados, [],
+      `Declaraciones duplicadas en ${nombre} (la última pisa a la anterior):\n  ${duplicados.join('\n  ')}`);
+  });
+}
+
+// Regla B — el bug del cableado: un nombre declarado en dos módulos Y que además
+// viaja por deps. Homónimos que NO cruzan por deps son privados de cada módulo y
+// están bien (`num`, `redondear`, `clavePlu`…): no se reportan.
+test('ningún nombre que viaja por deps está declarado en dos módulos a la vez', () => {
+  const porArchivo = ARCHIVOS.map(a => ({ archivo: path.basename(a), decls: declaraciones(a).vistos }));
+  const deps = new Set(ARCHIVOS.flatMap(a => [...nombresDeDeps(a)]));
+
+  const choques = [];
+  for (const nombre of deps) {
+    const donde = porArchivo.filter(x => x.decls.has(nombre));
+    if (donde.length < 2) continue;
+    choques.push(`${nombre}: declarada en ${donde.map(x => `${x.archivo}:${x.decls.get(nombre)}`).join(' y ')}` +
+      ' — y además viaja por deps, así que el router puede terminar usando la implementación del otro módulo');
+  }
+
+  assert.deepStrictEqual(choques, [],
+    `Nombres inyectados por deps con declaración propia en otro módulo:\n  ${choques.join('\n  ')}`);
 });
