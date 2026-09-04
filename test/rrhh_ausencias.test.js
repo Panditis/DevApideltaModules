@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const A = require('../rrhh_ausencias');
+const A = require('../lib/rrhh_ausencias');
 
 // ── Ausencias (RRHH) ─────────────────────────────────────────────────────────
 // Dos parsers muy distintos convergen en el mismo registro: el resumen histórico

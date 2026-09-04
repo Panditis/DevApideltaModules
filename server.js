@@ -31,7 +31,7 @@ const resumenesLegacy = require('./lib/resumenes_legacy');
 const historialSala = require('./lib/historial_sala');
 const cruceTerminales = require('./lib/cruce_terminales');
 const rrhhRopa = require('./rrhh_ropa');
-const rrhhAusencias = require('./rrhh_ausencias');
+const rrhhAusencias = require('./lib/rrhh_ausencias');
 const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, ordenesDeMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, terminadosPorPluDeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('./reservas_movimiento');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('./reservas_mercaderia');
@@ -669,7 +669,7 @@ app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'plan
 app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'insumos.html')));
 // El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
-app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'bloques_tareas.js')));
+app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'diagnostico_quiebre.html')));
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────

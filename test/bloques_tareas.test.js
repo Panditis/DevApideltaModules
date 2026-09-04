@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { minutosDeHora, horaDeMinutos, duracionTarea, resolverPlantilla } = require('../bloques_tareas');
+const { minutosDeHora, horaDeMinutos, duracionTarea, resolverPlantilla } = require('../lib/bloques_tareas');
 
 test('minutosDeHora y horaDeMinutos son inversas y rechazan basura', () => {
   assert.strictEqual(minutosDeHora('08:00'), 480);
@@ -57,7 +57,7 @@ test('resolverPlantilla prefiere la del producto sobre la del rubro', () => {
   assert.strictEqual(resolverPlantilla(null, { idProducto: '4039' }), null);
 });
 
-const { generarBloques, recalcularHorarios, detectarSolapes, carrilesPorResponsable } = require('../bloques_tareas');
+const { generarBloques, recalcularHorarios, detectarSolapes, carrilesPorResponsable } = require('../lib/bloques_tareas');
 
 const PLANTILLA_MIEL = {
   id: 1, alcance: 'producto', clave: '4039', nombre: 'Miel Acacia 1Kg',
@@ -154,7 +154,7 @@ test('carrilesPorResponsable pone un bloque en la fila de cada responsable', () 
 });
 
 const { MAX_BLOQUES, validarBloquesBody, normalizarBloques, validarPlantillas, normalizarPlantillas } =
-  require('../bloques_tareas');
+  require('../lib/bloques_tareas');
 
 test('validarBloquesBody rechaza horas, minutos y formas inválidas', () => {
   assert.deepStrictEqual(validarBloquesBody({ jornadaInicio: '08:00', bloques: [] }), []);

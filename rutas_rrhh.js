@@ -5,7 +5,7 @@ const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const rrhhRopa = require('./lib/rrhh_ropa');
-const rrhhAusencias = require('./rrhh_ausencias');
+const rrhhAusencias = require('./lib/rrhh_ausencias');
 
 // ── Rutas del módulo RRHH ────────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -31,7 +31,7 @@ router.get('/rrhh',                    (_req, res) => res.sendFile(path.join(__d
 router.get('/rrhh/relevamiento-ropa',  (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_relevamiento_ropa.html')));
 router.get('/rrhh_relevamiento_ropa.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh_relevamiento_ropa.js')));
 router.get('/rrhh/ausencias',          (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_ausencias_dashboard.html')));
-router.get('/rrhh_ausencias.js',       (_req, res) => res.sendFile(path.join(__dirname, 'rrhh_ausencias.js')));
+router.get('/rrhh_ausencias.js',       (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'rrhh_ausencias.js')));
 router.get('/rrhh_ausencias_front.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'rrhh_ausencias_front.js')));
 
 // ── RRHH · Relevamiento de ropa de trabajo ─────────────────────────────────────
