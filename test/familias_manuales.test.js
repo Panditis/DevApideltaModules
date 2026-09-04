@@ -6,7 +6,7 @@ const {
 } = require('../lib/familias_manuales');
 const {
   sqlVentasPorProductoSucursal, idsCsvSeguro, modoPromoSeguro, filtroClientes, whereVentas,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 // ── Sanitización ─────────────────────────────────────────────────────────────
 

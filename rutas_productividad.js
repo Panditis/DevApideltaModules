@@ -5,7 +5,7 @@ const productividad = require('./lib/productividad');
 const resumenesLegacy = require('./lib/resumenes_legacy');
 const historialSala = require('./lib/historial_sala');
 const familiasManuales = require('./lib/familias_manuales');
-const analisisVentas = require('./analisis_ventas');
+const analisisVentas = require('./lib/analisis_ventas');
 
 // ── Rutas del módulo Productividad ───────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden

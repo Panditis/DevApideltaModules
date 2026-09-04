@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const analisisVentas = require('./analisis_ventas');
+const analisisVentas = require('./lib/analisis_ventas');
 const familiasManuales = require('./lib/familias_manuales');
 
 // ── Rutas del módulo Análisis de Ventas ───────────────────────────────────────

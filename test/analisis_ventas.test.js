@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   SUCURSALES_ANALISIS, NOMBRE_DIA,
   sucIdsSeguras, clampTopN, ticketProm, kpisGlobales, mapDiaSemana,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 test('SUCURSALES_ANALISIS es la whitelist fija', () => {
   assert.deepStrictEqual(SUCURSALES_ANALISIS, [2, 3, 4, 5, 7, 9, 10]);
@@ -58,7 +58,7 @@ const {
   whereVentas, sqlComparativa, sqlResumenRenglon,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
   sinRubrosExcluidos, soloRubros,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 const P = { desde: '2026-07-01', hasta: '2026-07-17', sucIdsCsv: '2,3,4,5,7,9,10' };
 
@@ -99,7 +99,7 @@ test('sqlResumenRenglon suma unidades y cuenta productos distintos', () => {
 // Envase, granel de depósito e insumos de apiario: nada de eso es venta de mostrador, así
 // que no puede sumar unidades, entrar en los tops ni contar como artículo del ticket.
 test('las consultas de renglón excluyen los rubros que no son venta', () => {
-  const { sqlUnidadesPorSucursal, sqlArticulosHistograma, sqlArticulosPorSucursal } = require('../analisis_ventas');
+  const { sqlUnidadesPorSucursal, sqlArticulosHistograma, sqlArticulosPorSucursal } = require('../lib/analisis_ventas');
   const consultas = [
     sqlResumenRenglon(P), sqlTopProductos(P, 'unidades', 20), sqlUnidadesPorSucursal(P, ''),
     sqlArticulosHistograma(P), sqlArticulosPorSucursal(P),
@@ -114,7 +114,7 @@ test('las consultas de renglón excluyen los rubros que no son venta', () => {
 // El nombre se compara sin espacios y con collation CI_AI: "Bultos / Cajas" y "Pesables
 // Depósito" (con tilde) caen igual.
 test('SIN_RUBROS_EXCLUIDOS normaliza el nombre del rubro antes de comparar', () => {
-  const { SIN_RUBROS_EXCLUIDOS, RUBROS_EXCLUIDOS } = require('../analisis_ventas');
+  const { SIN_RUBROS_EXCLUIDOS, RUBROS_EXCLUIDOS } = require('../lib/analisis_ventas');
   assert.deepStrictEqual(RUBROS_EXCLUIDOS,
     ['Bultos/Cajas', 'Almacen Bultos/Cajas', 'Pesables Deposito', 'Apicultura']);
   assert.match(SIN_RUBROS_EXCLUIDOS, /REPLACE\(COALESCE\(rExc\.NombreRubro,''\),' ',''\) COLLATE Latin1_General_CI_AI/);
@@ -123,7 +123,7 @@ test('SIN_RUBROS_EXCLUIDOS normaliza el nombre del rubro antes de comparar', () 
 // El granel de depósito se excluye de las ventas, pero "Pesables Fraccionado" sigue siendo
 // el rubro que marca a un producto como pesable para el umbral de quiebre.
 test('la exclusión de Pesables Deposito no toca el rubro de pesables fraccionado', () => {
-  const { sqlPesables, RUBROS_EXCLUIDOS } = require('../analisis_ventas');
+  const { sqlPesables, RUBROS_EXCLUIDOS } = require('../lib/analisis_ventas');
   assert.match(sqlPesables(''), /NombreRubro = 'Pesables Fraccionado'/);
   assert.ok(!RUBROS_EXCLUIDOS.includes('Pesables Fraccionado'));
 });
@@ -151,7 +151,7 @@ test('sqlHora agrupa por hora del día', () => {
 // ── Productos excluidos de casa central ──────────────────────────────────────
 // Ventas que no son reales (cargas internas que salen por la caja de la central).
 // El alcance es sólo el módulo de casa central: se activa pasando excProdCsv.
-const { PRODUCTOS_EXCLUIDOS_CENTRAL, idsCsvSeguro: csvSeguroCentral } = require('../analisis_ventas');
+const { PRODUCTOS_EXCLUIDOS_CENTRAL, idsCsvSeguro: csvSeguroCentral } = require('../lib/analisis_ventas');
 const P_CENTRAL = {
   desde: '2026-07-01', hasta: '2026-07-17', sucIdsCsv: '1',
   excProdCsv: csvSeguroCentral(PRODUCTOS_EXCLUIDOS_CENTRAL),
@@ -187,7 +187,7 @@ test('las consultas de cabecera de casa central restan el importe del renglón e
 });
 
 test('las consultas de renglón de casa central descartan el producto excluido', () => {
-  const { sqlUnidadesPorSucursal, sqlArticulosHistograma, sqlArticulosPorSucursal } = require('../analisis_ventas');
+  const { sqlUnidadesPorSucursal, sqlArticulosHistograma, sqlArticulosPorSucursal } = require('../lib/analisis_ventas');
   const consultas = [
     sqlResumenRenglon(P_CENTRAL), sqlTopProductos(P_CENTRAL, 'unidades', 20),
     sqlUnidadesPorSucursal(P_CENTRAL, ''), sqlArticulosHistograma(P_CENTRAL),
@@ -204,7 +204,7 @@ test('las consultas de renglón de casa central descartan el producto excluido',
 // "Almacen Bultos/Cajas" son 873 productos de venta real por bulto/pack, y el granel de
 // depósito también se vende: excluirlos por rubro escondía ventas enteras del listado.
 test('casa central sólo excluye Apicultura por rubro', () => {
-  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../lib/analisis_ventas');
   assert.deepStrictEqual(RUBROS_EXCLUIDOS_CENTRAL, ['Apicultura']);
   const s = sqlTopProductos({ ...P_CENTRAL, rubrosExcluidos: RUBROS_EXCLUIDOS_CENTRAL }, 'facturacion', 20);
   assert.match(s, /IN \('Apicultura'\)/);
@@ -230,7 +230,7 @@ test('el descuento de casa central usa la misma base de importe que la cabecera'
 // arrastrando la plata de Apicultura porque ahí sólo se restaba excProdCsv. Con
 // rubrosExcluidos puesto, el derivado debe restar también los renglones de ese rubro.
 test('las consultas de cabecera también restan el rubro excluido, no sólo excProdCsv', () => {
-  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../lib/analisis_ventas');
   const pConRubro = { ...P_CENTRAL, rubrosExcluidos: RUBROS_EXCLUIDOS_CENTRAL };
   [sqlComparativa(pConRubro), sqlTendencia(pConRubro), sqlDiaSemana(pConRubro), sqlHora(pConRubro)]
     .forEach(s => {
@@ -304,7 +304,7 @@ test('sqlTopProductos/sqlVentasPorClienteProducto/sqlResumenRenglon: subRubroDis
 
 test('sqlApicultura*: subRubroDisponible por p amplía el filtro inverso a subrubro también', () => {
   const pConSubrubro = { ...P_CENTRAL, subRubroDisponible: true };
-  const { sqlApiculturaResumen: resumenCon } = require('../analisis_ventas');
+  const { sqlApiculturaResumen: resumenCon } = require('../lib/analisis_ventas');
   assert.match(resumenCon(pConSubrubro), /SubRubros/);
   assert.doesNotMatch(resumenCon(P_CENTRAL), /SubRubros/);
 });
@@ -313,10 +313,10 @@ test('sqlApicultura*: subRubroDisponible por p amplía el filtro inverso a subru
 const {
   sqlApiculturaTendencia, sqlApiculturaDiaSemana, sqlApiculturaHora,
   sqlApiculturaResumen,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 test('soloRubros es el inverso de sinRubrosExcluidos: EXISTS en vez de NOT EXISTS', () => {
-  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../lib/analisis_ventas');
   const s = soloRubros(RUBROS_EXCLUIDOS_CENTRAL);
   assert.match(s, /^EXISTS \(SELECT 1 FROM Productos pInc/);
   assert.match(s, /IN \('Apicultura'\)/);
@@ -348,7 +348,7 @@ test('sqlApiculturaResumen da un único total, sin agrupar', () => {
 });
 
 test('sqlTopProductos y sqlVentasPorClienteProducto: filtroRubro pisa el default sin tocar el resto', () => {
-  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../lib/analisis_ventas');
   const filtro = soloRubros(RUBROS_EXCLUIDOS_CENTRAL);
   const top = sqlTopProductos(P_CENTRAL, 'facturacion', 20, '', filtro);
   assert.match(top, /EXISTS \(SELECT 1 FROM Productos pInc/);
@@ -359,7 +359,7 @@ test('sqlTopProductos y sqlVentasPorClienteProducto: filtroRubro pisa el default
 });
 
 test('sqlResumenRenglon: sin filtroRubro usa el default; con filtroRubro lo pisa', () => {
-  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../lib/analisis_ventas');
   assert.match(sqlResumenRenglon(P_CENTRAL), /NOT EXISTS \(SELECT 1 FROM Productos pExc\b/);
   const s = sqlResumenRenglon(P_CENTRAL, soloRubros(RUBROS_EXCLUIDOS_CENTRAL));
   assert.match(s, /EXISTS \(SELECT 1 FROM Productos pInc/);
@@ -390,7 +390,7 @@ test('sqlTopProductos factura por el neto más impuestos, no por vp.ImporteTotal
 
 const {
   sqlMetaClasificacion, clasificacionesDisponibles, filtroSinInsumos,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 // Esquema sintético: lo que devolvería INFORMATION_SCHEMA.COLUMNS en una base completa.
 const META_COMPLETA = [
@@ -457,7 +457,7 @@ const {
   idsCsvSeguro, sqlPesables, sqlStockPorSucursal, sqlNetoDiarioStock, sqlUnidadesPorSucursal,
   mesesDelRango, umbralQuiebre, diasEnQuiebre, serieStockDiaria,
   diasEvaluados, porcentajeQuiebre,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 test('diasEvaluados excluye los domingos de la base del porcentaje', () => {
   const serie = serieStockDiaria({
@@ -610,7 +610,7 @@ test('diasEnQuiebre ignora los días posteriores al rango pero arrastra su stock
 
 const {
   sqlArticulosHistograma, sqlArticulosPorSucursal, bucketsArticulos, promedioArticulos,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 test('sqlArticulosHistograma cuenta renglones por comprobante y agrupa por ese N', () => {
   const s = sqlArticulosHistograma(P);
@@ -653,7 +653,7 @@ test('bucketsArticulos tolera entrada vacía o nula', () => {
   assert.strictEqual(bucketsArticulos(null).length, 5);
 });
 
-const { familiaNombre, claveFamilia, agruparFamilias } = require('../analisis_ventas');
+const { familiaNombre, claveFamilia, agruparFamilias } = require('../lib/analisis_ventas');
 
 test('familiaNombre recorta presentación, múltiplo y variantes pack/bulto', () => {
   assert.strictEqual(familiaNombre('MIEL PURA 500G'), 'MIEL PURA');
@@ -786,7 +786,7 @@ test('agruparFamilias respeta topN, descarta nombres vacíos y tolera nulo', () 
 // ── Equivalente físico de la familia ─────────────────────────────────────────
 // Sumar unidades entre presentaciones distintas no da una magnitud real: 2 tambores de
 // 28Kg + 12 frascos de 1Kg no son "14" de nada. El equivalente en kilos sí es sumable.
-const { pesoPresentacion } = require('../analisis_ventas');
+const { pesoPresentacion } = require('../lib/analisis_ventas');
 
 test('pesoPresentacion lee la presentación del nombre y la lleva a kg o litros', () => {
   assert.deepStrictEqual(pesoPresentacion('Miel Alfalfa Apidelta 28Kg Granel'), { cantidad: 28, unidad: 'kg' });
@@ -857,7 +857,7 @@ test('agruparFamilias separa litros de kilos en vez de mezclarlos', () => {
 // ── Top por cliente ──────────────────────────────────────────────────────────
 // Una sola consulta a nivel cliente×producto: el total del cliente sale de sumar su
 // detalle, así la fila y su desplegable no pueden discrepar.
-const { sqlVentasPorClienteProducto, agruparClientes } = require('../analisis_ventas');
+const { sqlVentasPorClienteProducto, agruparClientes } = require('../lib/analisis_ventas');
 
 test('sqlVentasPorClienteProducto agrupa por cliente y producto con los filtros del módulo', () => {
   const s = sqlVentasPorClienteProducto({ ...P_CENTRAL, rubrosExcluidos: ['Apicultura'] });
@@ -879,7 +879,7 @@ test('sqlVentasPorClienteProducto agrupa por cliente y producto con los filtros 
 // Ni la marca ni el nombre alcanzan solos: hay productos de la marca Apidelta que no la
 // nombran (las mieles en tambor) y productos Apidelta cargados bajo marcas genéricas.
 test('esProductoPropio reconoce la marca, sus variantes y el nombre', () => {
-  const { esProductoPropio } = require('../analisis_ventas');
+  const { esProductoPropio } = require('../lib/analisis_ventas');
   // Por marca, incluidas las variantes de la línea.
   assert.strictEqual(esProductoPropio('Miel Granel En Tambor Acacia', 'Apidelta'), true);
   assert.strictEqual(esProductoPropio('Yerba Compuesta 1Kg', 'Apidelta Yerba'), true);
@@ -897,7 +897,7 @@ test('esProductoPropio reconoce la marca, sus variantes y el nombre', () => {
 // Las granolas propias no dicen Apidelta: se cargan como "G." + variedad. La marca
 // "Granolas" no alcanza porque ahí también están las de terceros.
 test('esProductoPropio reconoce las granolas propias por el prefijo G.', () => {
-  const { esProductoPropio } = require('../analisis_ventas');
+  const { esProductoPropio } = require('../lib/analisis_ventas');
   assert.strictEqual(esProductoPropio('G. Crunch 500G Caja 8u', 'Granolas'), true);
   assert.strictEqual(esProductoPropio('G. Chocolate Gold 40G', 'Granolas'), true);
   assert.strictEqual(esProductoPropio('G. KETO 250G Bulto (x14 Precio x Unidad)', 'Granolas'), true);
@@ -914,7 +914,7 @@ test('esProductoPropio reconoce las granolas propias por el prefijo G.', () => {
 // alcanzan: hay mix de reventa y las presentaciones de un mismo mix se reparten entre las
 // marcas "Apidelta" y "Mix Frutos Secos" sin criterio.
 test('esProductoPropio reconoce las seis variedades de mix propio', () => {
-  const { esProductoPropio } = require('../analisis_ventas');
+  const { esProductoPropio } = require('../lib/analisis_ventas');
   assert.strictEqual(esProductoPropio('Mix Europeo 100Gs Bulto', 'Mix Frutos Secos'), true);
   assert.strictEqual(esProductoPropio('Mix Cervecero Pote 350G', 'Mix Frutos Secos'), true);
   assert.strictEqual(esProductoPropio('Mix Cerv. Prem. 200G Unidad Pack', 'Mix Frutos Secos'), true);
@@ -1006,7 +1006,7 @@ test('promedioArticulos divide artículos totales por tickets totales', () => {
 });
 
 // ── Familias consolidadas: central + sucursales en una sola tabla ────────────
-const { sucIdsFamilias, fusionarProductos } = require('../analisis_ventas');
+const { sucIdsFamilias, fusionarProductos } = require('../lib/analisis_ventas');
 
 test('sucIdsFamilias distingue "no vino el filtro" de "ninguna sucursal"', () => {
   // Sin el parámetro entran todas: es el default de la pestaña al abrirse.
@@ -1254,7 +1254,7 @@ test('sin unidad en el nombre la cantidad sigue contando como kilos', () => {
 });
 
 // ── Grupos manuales como fila de la tabla de familias ────────────────────────
-const { familiasDeGrupos } = require('../analisis_ventas');
+const { familiasDeGrupos } = require('../lib/analisis_ventas');
 
 test('familiasDeGrupos arma una fila por grupo con los productos que vendieron', () => {
   const rows = [
@@ -1279,7 +1279,7 @@ test('familiasDeGrupos sin grupos definidos no agrega filas', () => {
   assert.deepStrictEqual(familiasDeGrupos([{ IdProducto: '1', Nombre: 'X', Unidades: 1, Facturacion: 1 }], []), []);
 });
 
-const { familiasYGrupos } = require('../analisis_ventas');
+const { familiasYGrupos } = require('../lib/analisis_ventas');
 
 test('familiasYGrupos saca de las familias los productos que ya están en un grupo', () => {
   const rows = [
@@ -1306,7 +1306,7 @@ test('familiasYGrupos sin grupos se comporta como agruparFamilias', () => {
 // ── Tickets por monto ────────────────────────────────────────────────────────
 const {
   opMontoSeguro, montoSeguro, condTicketMonto, sqlTicketsPorMonto, ticketsPorMonto,
-} = require('../analisis_ventas');
+} = require('../lib/analisis_ventas');
 
 test('montoSeguro sanea el input: número finito, no negativo, a centavos', () => {
   assert.strictEqual(montoSeguro('10000.5'), 10000.5);   // lo que manda el input type=number

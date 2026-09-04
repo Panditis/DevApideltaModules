@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const compras = require('./compras');
+const compras = require('./lib/compras');
 const comprasImport = require('./lib/compras_import');
 
 // ── Rutas del módulo Compras ──────────────────────────────────────────────────

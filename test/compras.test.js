@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { siguienteNumero } = require('../compras');
+const { siguienteNumero } = require('../lib/compras');
 
 test('siguienteNumero arranca en P-0001 con lista vacía', () => {
   assert.strictEqual(siguienteNumero([]), 'P-0001');
@@ -21,7 +21,7 @@ test('siguienteNumero ignora números con formato raro o ausentes', () => {
   assert.strictEqual(siguienteNumero(pedidos), 'P-0005');
 });
 
-const { fraccionadosDe } = require('../compras');
+const { fraccionadosDe } = require('../lib/compras');
 
 const FORMULAS = {
   '5001': { granel: '4409', cantFormula: 0.25 },
@@ -51,7 +51,7 @@ test('fraccionadosDe tolera PLUs con espacios de SIGA', () => {
   assert.deepStrictEqual(r, [{ plu: '5001', cantFormula: 0.25 }]);
 });
 
-const { stockSucursalesEq } = require('../compras');
+const { stockSucursalesEq } = require('../lib/compras');
 
 test('stockSucursalesEq convierte las presentaciones a kg de granel', () => {
   const frac = [{ plu: '5001', cantFormula: 0.25 }, { plu: '5002', cantFormula: 1 }];
@@ -87,7 +87,7 @@ test('stockSucursalesEq tolera PLUs con espacios en el mapa de stock', () => {
   assert.strictEqual(stockSucursalesEq('4409', [], stock).total, 3);
 });
 
-const { componentesStockEq } = require('../compras');
+const { componentesStockEq } = require('../lib/compras');
 
 test('componentesStockEq abre el granel y sus presentaciones, y la suma cierra con stockSucursalesEq', () => {
   const frac = [{ plu: '5001', cantFormula: 0.25 }, { plu: '5002', cantFormula: 1 }];
@@ -125,7 +125,7 @@ test('componentesStockEq normaliza los PLUs con espacios de SIGA', () => {
   assert.deepStrictEqual(comps.map(c => c.aporteSucursales), [2, 1]);
 });
 
-const { ventasEq } = require('../compras');
+const { ventasEq } = require('../lib/compras');
 
 test('ventasEq convierte las ventas fraccionadas a kg de granel', () => {
   const frac = [{ plu: '5001', cantFormula: 0.25 }, { plu: '5002', cantFormula: 1 }];
@@ -140,7 +140,7 @@ test('ventasEq de un PLU sin ventas devuelve 0', () => {
   assert.strictEqual(ventasEq('7777', [], { '1234': 42 }), 0);
 });
 
-const { demandaDiaria } = require('../compras');
+const { demandaDiaria } = require('../lib/compras');
 
 test('demandaDiaria promedia los 3 meses cerrados', () => {
   const serie = [
@@ -186,7 +186,7 @@ test('demandaDiaria respeta el parámetro meses', () => {
   assert.strictEqual(demandaDiaria(serie, { hoyISO: '2026-08-15', meses: 1 }), esperado);
 });
 
-const { coberturaDias } = require('../compras');
+const { coberturaDias } = require('../lib/compras');
 
 test('coberturaDias sin demanda devuelve null', () => {
   assert.strictEqual(coberturaDias(100, 0), null);
@@ -201,7 +201,7 @@ test('coberturaDias redondea a 1 decimal', () => {
   assert.strictEqual(coberturaDias(100, 7), 14.3);
 });
 
-const { diasEntre, sumarDias } = require('../compras');
+const { diasEntre, sumarDias } = require('../lib/compras');
 
 test('diasEntre cruza mes y año', () => {
   assert.strictEqual(diasEntre('2026-01-28', '2026-02-03'), 6);
@@ -237,7 +237,7 @@ test('sumarDias con entrada inválida devuelve null', () => {
   assert.strictEqual(sumarDias(null, 1), null);
 });
 
-const { construirPedido } = require('../compras');
+const { construirPedido } = require('../lib/compras');
 
 const ITEMS_OK = [
   { plu: '4409 ', nombre: 'Nuez granel', unidad: 'kg', cantidad: 10 },
@@ -290,7 +290,7 @@ test('construirPedido rechaza cantidades no numéricas o ausentes', () => {
   assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: null }] }), /cantidad/i);
 });
 
-const { aplicarSeguimiento } = require('../compras');
+const { aplicarSeguimiento } = require('../lib/compras');
 
 function pedidoBase() {
   return {
@@ -416,7 +416,7 @@ test('aplicarSeguimiento: undefined no toca las fechas, "" y null las borran', (
   assert.strictEqual(borrado.fechaRetiro, null);
 });
 
-const { otif } = require('../compras');
+const { otif } = require('../lib/compras');
 
 function pedidoCerrado(over = {}) {
   return {

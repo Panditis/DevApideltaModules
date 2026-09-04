@@ -15,7 +15,7 @@ const session  = require('express-session');
 const multer   = require('multer');
 const XLSX     = require('xlsx');
 const auth     = require('./lib/auth');
-const compras = require('./compras');
+const compras = require('./lib/compras');
 const preciosProv = require('./lib/precios_proveedores');
 const preciosFacturador = require('./lib/precios_facturador');
 const comprasImport = require('./lib/compras_import');
@@ -25,7 +25,7 @@ const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPl
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
         plusEnOrdenesActivas } = require('./lib/ordenes_fraccionado');
-const analisisVentas = require('./analisis_ventas');
+const analisisVentas = require('./lib/analisis_ventas');
 const productividad = require('./lib/productividad');
 const resumenesLegacy = require('./lib/resumenes_legacy');
 const historialSala = require('./lib/historial_sala');
