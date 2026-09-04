@@ -57,6 +57,7 @@ test('kpisGlobales agrega comparativa y suma resumen de renglón', () => {
 const {
   whereVentas, sqlComparativa, sqlResumenRenglon,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
+  sinRubrosExcluidos, soloRubros,
 } = require('../analisis_ventas');
 
 const P = { desde: '2026-07-01', hasta: '2026-07-17', sucIdsCsv: '2,3,4,5,7,9,10' };
@@ -221,6 +222,148 @@ test('el descuento de casa central usa la misma base de importe que la cabecera'
   assert.match(s, /SUM\(\(vpe\.ImporteTotalNeto \+ ISNULL\(vpe\.ImporteImpuesto, 0\) \+ ISNULL\(vpe\.ImporteImpuestoInterno, 0\)\)\) AS Importe/);
   // vpe.ImporteTotal es el neto sin IVA: restarlo dejaba corto el descuento del comprobante.
   assert.doesNotMatch(s, /SUM\(vpe\.ImporteTotal\)/);
+});
+
+// ── Rubro excluido también a nivel cabecera ──────────────────────────────────
+// Antes rubrosExcluidos sólo se aplicaba en las consultas de renglón (tops, familias):
+// la facturación/tickets de KPIs, tendencia, día de semana y hora de casa central seguían
+// arrastrando la plata de Apicultura porque ahí sólo se restaba excProdCsv. Con
+// rubrosExcluidos puesto, el derivado debe restar también los renglones de ese rubro.
+test('las consultas de cabecera también restan el rubro excluido, no sólo excProdCsv', () => {
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const pConRubro = { ...P_CENTRAL, rubrosExcluidos: RUBROS_EXCLUIDOS_CENTRAL };
+  [sqlComparativa(pConRubro), sqlTendencia(pConRubro), sqlDiaSemana(pConRubro), sqlHora(pConRubro)]
+    .forEach(s => {
+      assert.match(s, /LEFT JOIN \(\s*SELECT vpe\.IdSucursal/);
+      // Los dos criterios conviven en el mismo OR: producto puntual o rubro completo.
+      assert.match(s, /vpe\.IdProducto IN \('302158','1'\) OR EXISTS/);
+      assert.match(s, /REPLACE\(COALESCE\(rExcH\.NombreRubro,''\),' ',''\) COLLATE Latin1_General_CI_AI IN \('Apicultura'\)/);
+      assert.match(s, /SUM\(v\.ImporteTotal - ISNULL\(exc\.Importe, 0\)\) AS Facturacion/);
+    });
+});
+
+test('sin excProdCsv pero con rubrosExcluidos, la cabecera igual resta por rubro', () => {
+  const s = sqlComparativa({ ...P, sucIdsCsv: '1', rubrosExcluidos: ['Apicultura'] });
+  assert.doesNotMatch(s, /IdProducto IN \('302158','1'\)/);
+  assert.match(s, /EXISTS \(SELECT 1 FROM Productos pExcH/);
+  assert.match(s, /SUM\(v\.ImporteTotal - ISNULL\(exc\.Importe, 0\)\) AS Facturacion/);
+});
+
+test('sin excProdCsv ni rubrosExcluidos las consultas de cabecera no cambian (sucursales)', () => {
+  [sqlComparativa(P), sqlTendencia(P), sqlDiaSemana(P), sqlHora(P)].forEach(s => {
+    assert.doesNotMatch(s, /LEFT JOIN \(/);
+    assert.match(s, /SUM\(v\.ImporteTotal\) AS Facturacion/);
+  });
+});
+
+// ── Subrubro: Apicultura puede estar cargada como subrubro de otro rubro ────
+// Sin el sondeo de esquema (subRubroDisponible en falso/ausente) el criterio es sólo por
+// rubro, exactamente como antes: ninguna base sin la tabla SubRubros se rompe.
+test('sinRubrosExcluidos sin subRubroDisponible es idéntico a antes (sólo rubro)', () => {
+  const s = sinRubrosExcluidos(['Apicultura']);
+  assert.match(s, /^NOT EXISTS \(SELECT 1 FROM Productos pExc\b/);
+  assert.doesNotMatch(s, /SubRubros/);
+});
+
+test('sinRubrosExcluidos con subRubroDisponible también exige que no matchee por subrubro', () => {
+  const s = sinRubrosExcluidos(['Apicultura'], true);
+  assert.match(s, /NOT EXISTS \(SELECT 1 FROM Productos pExc\b[\s\S]*INNER JOIN Rubros rExc/);
+  assert.match(s, /NOT EXISTS \(SELECT 1 FROM Productos pExcSr\b[\s\S]*INNER JOIN SubRubros srExc ON srExc\.IdRubro = pExcSr\.IdRubro AND srExc\.IdSubRubro = pExcSr\.IdSubRubro/);
+  assert.match(s, /REPLACE\(COALESCE\(srExc\.NombreSubRubro,''\),' ',''\) COLLATE Latin1_General_CI_AI IN \('Apicultura'\)/);
+  // Las dos condiciones tienen que cumplirse juntas (AND): alcanza con estar en cualquiera
+  // de los dos para quedar excluido.
+  assert.match(s, /\)\)\n\s*AND NOT EXISTS/);
+});
+
+test('soloRubros con subRubroDisponible matchea por rubro O por subrubro', () => {
+  const s = soloRubros(['Apicultura'], true);
+  assert.match(s, /^\(EXISTS \(SELECT 1 FROM Productos pInc\b[\s\S]*INNER JOIN Rubros rInc/);
+  assert.match(s, /OR EXISTS \(SELECT 1 FROM Productos pIncSr\b[\s\S]*INNER JOIN SubRubros srInc ON srInc\.IdRubro = pIncSr\.IdRubro AND srInc\.IdSubRubro = pIncSr\.IdSubRubro/);
+  assert.match(s, /REPLACE\(COALESCE\(srInc\.NombreSubRubro,''\),' ',''\) COLLATE Latin1_General_CI_AI IN \('Apicultura'\)\)\)$/);
+});
+
+test('soloRubros sin subRubroDisponible sigue siendo sólo por rubro', () => {
+  const s = soloRubros(['Apicultura']);
+  assert.doesNotMatch(s, /SubRubros/);
+});
+
+test('condLineaExcluidaHeader también resta por subrubro cuando subRubroDisponible', () => {
+  const pConSubrubro = { ...P_CENTRAL, rubrosExcluidos: ['Apicultura'], subRubroDisponible: true };
+  [sqlComparativa(pConSubrubro), sqlTendencia(pConSubrubro)].forEach(s => {
+    assert.match(s, /INNER JOIN Rubros rExcH/);
+    assert.match(s, /INNER JOIN SubRubros srExcH ON srExcH\.IdRubro = pExcHSr\.IdRubro AND srExcH\.IdSubRubro = pExcHSr\.IdSubRubro/);
+  });
+});
+
+test('sqlTopProductos/sqlVentasPorClienteProducto/sqlResumenRenglon: subRubroDisponible llega por p cuando no hay filtroRubro propio', () => {
+  const pConSubrubro = { ...P_CENTRAL, rubrosExcluidos: ['Apicultura'], subRubroDisponible: true };
+  assert.match(sqlTopProductos(pConSubrubro, 'facturacion', 20), /SubRubros/);
+  assert.match(sqlVentasPorClienteProducto(pConSubrubro), /SubRubros/);
+  assert.match(sqlResumenRenglon(pConSubrubro), /SubRubros/);
+});
+
+test('sqlApicultura*: subRubroDisponible por p amplía el filtro inverso a subrubro también', () => {
+  const pConSubrubro = { ...P_CENTRAL, subRubroDisponible: true };
+  const { sqlApiculturaResumen: resumenCon } = require('../analisis_ventas');
+  assert.match(resumenCon(pConSubrubro), /SubRubros/);
+  assert.doesNotMatch(resumenCon(P_CENTRAL), /SubRubros/);
+});
+
+// ── Pestaña Apicultura: filtro inverso y agregación por comprobante ──────────
+const {
+  sqlApiculturaTendencia, sqlApiculturaDiaSemana, sqlApiculturaHora,
+  sqlApiculturaResumen,
+} = require('../analisis_ventas');
+
+test('soloRubros es el inverso de sinRubrosExcluidos: EXISTS en vez de NOT EXISTS', () => {
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const s = soloRubros(RUBROS_EXCLUIDOS_CENTRAL);
+  assert.match(s, /^EXISTS \(SELECT 1 FROM Productos pInc/);
+  assert.match(s, /IN \('Apicultura'\)/);
+  assert.doesNotMatch(s, /NOT EXISTS/);
+});
+
+test('las consultas de apicultura agrupan por comprobante antes de sumar (ticket mixto no cuenta entero)', () => {
+  [sqlApiculturaTendencia(P_CENTRAL), sqlApiculturaDiaSemana(P_CENTRAL), sqlApiculturaHora(P_CENTRAL),
+    sqlApiculturaResumen(P_CENTRAL)].forEach(s => {
+    assert.match(s, /FROM \(SELECT v\.Fecha, v\.IdSucursal, v\.IdTipoComprobante/);
+    assert.match(s, /GROUP BY v\.Fecha, v\.IdSucursal, v\.IdTipoComprobante, v\.Letra, v\.CentroEmisor, v\.NumeroComprobante/);
+    assert.match(s, /IN \('Apicultura'\)/);
+    assert.match(s, /FROM VentasProductos vp/);
+  });
+});
+
+test('sqlApiculturaTendencia/DiaSemana/Hora agrupan por su propia expresión de fecha', () => {
+  assert.match(sqlApiculturaTendencia(P_CENTRAL), /SELECT CAST\(l\.Fecha AS DATE\) AS Fecha/);
+  assert.match(sqlApiculturaTendencia(P_CENTRAL), /GROUP BY CAST\(l\.Fecha AS DATE\)/);
+  assert.match(sqlApiculturaDiaSemana(P_CENTRAL), /\(DATEPART\(WEEKDAY, l\.Fecha\) \+ @@DATEFIRST - 2\) % 7 AS Dow/);
+  assert.match(sqlApiculturaHora(P_CENTRAL), /DATEPART\(HOUR, l\.Fecha\) AS Hora/);
+});
+
+test('sqlApiculturaResumen da un único total, sin agrupar', () => {
+  const s = sqlApiculturaResumen(P_CENTRAL);
+  // El único GROUP BY es el de la subconsulta por comprobante; la externa no agrupa.
+  assert.strictEqual((s.match(/GROUP BY/g) || []).length, 1);
+  assert.match(s, /SELECT SUM\(l\.Facturacion\) AS Facturacion, COUNT\(\*\) AS Tickets/);
+});
+
+test('sqlTopProductos y sqlVentasPorClienteProducto: filtroRubro pisa el default sin tocar el resto', () => {
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  const filtro = soloRubros(RUBROS_EXCLUIDOS_CENTRAL);
+  const top = sqlTopProductos(P_CENTRAL, 'facturacion', 20, '', filtro);
+  assert.match(top, /EXISTS \(SELECT 1 FROM Productos pInc/);
+  assert.doesNotMatch(top, /NOT EXISTS \(SELECT 1 FROM Productos pExc\b/);
+  assert.match(top, /vp\.IdProducto NOT IN \('302158','1'\)/); // excProdCsv se sigue aplicando
+  const cli = sqlVentasPorClienteProducto(P_CENTRAL, filtro);
+  assert.match(cli, /EXISTS \(SELECT 1 FROM Productos pInc/);
+});
+
+test('sqlResumenRenglon: sin filtroRubro usa el default; con filtroRubro lo pisa', () => {
+  const { RUBROS_EXCLUIDOS_CENTRAL } = require('../analisis_ventas');
+  assert.match(sqlResumenRenglon(P_CENTRAL), /NOT EXISTS \(SELECT 1 FROM Productos pExc\b/);
+  const s = sqlResumenRenglon(P_CENTRAL, soloRubros(RUBROS_EXCLUIDOS_CENTRAL));
+  assert.match(s, /EXISTS \(SELECT 1 FROM Productos pInc/);
+  assert.doesNotMatch(s, /NOT EXISTS \(SELECT 1 FROM Productos pExc\b/);
 });
 
 test('sqlTopProductos ordena por la métrica y limita con TOP', () => {

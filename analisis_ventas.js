@@ -96,19 +96,48 @@ function andSinProductosExcluidos(excProdCsv, sangria = '      ') {
   return cond ? `\n${sangria}AND ${cond}` : '';
 }
 
+// Condición de renglón excluido a nivel cabecera: mismo criterio que sinProductosExcluidos/
+// sinRubrosExcluidos, pero en positivo y armado para restar (no para filtrar filas). Antes
+// sólo restaba excProdCsv, así que el rubro excluido (Apicultura en la central) no bajaba de
+// la facturación/tickets de KPIs, tendencia, día de semana ni hora — sólo se lo sacaba de
+// los tops y familias, que trabajan a nivel renglón. Vacía si no hay nada que restar.
+// subRubroDisponible: viene del sondeo de esquema que ya hace sinInsumosSQL en
+// rutas_analisis.js (clasificacionesDisponibles). Apicultura puede estar cargada como rubro
+// propio o como subrubro de otro rubro según cómo la haya armado cada base, así que sin el
+// sondeo no se sabe si SubRubros existe acá; sin el flag (undefined) queda como antes.
+function condLineaExcluidaHeader(excProdCsv, rubrosExcluidos, subRubroDisponible) {
+  const partes = [];
+  if (excProdCsv) partes.push(`vpe.IdProducto IN (${excProdCsv})`);
+  if (rubrosExcluidos && rubrosExcluidos.length) {
+    const rubros = rubrosExcluidos.map(r => `'${r.replace(/\s/g, '')}'`).join(', ');
+    partes.push(`EXISTS (SELECT 1 FROM Productos pExcH
+        INNER JOIN Rubros rExcH ON rExcH.IdRubro = pExcH.IdRubro
+        WHERE pExcH.IdProducto = vpe.IdProducto
+          AND REPLACE(COALESCE(rExcH.NombreRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`);
+    if (subRubroDisponible) {
+      partes.push(`EXISTS (SELECT 1 FROM Productos pExcHSr
+        INNER JOIN SubRubros srExcH ON srExcH.IdRubro = pExcHSr.IdRubro AND srExcH.IdSubRubro = pExcHSr.IdSubRubro
+        WHERE pExcHSr.IdProducto = vpe.IdProducto
+          AND REPLACE(COALESCE(srExcH.NombreSubRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`);
+    }
+  }
+  return partes.join(' OR ');
+}
+
 // Importe de los renglones excluidos agregado POR COMPROBANTE. Se agrupa en un derivado
 // y se engancha por la clave de 5 columnas: un JOIN directo a VentasProductos duplicaría
 // las filas de cabecera y con eso la facturación y los tickets.
 // El derivado se acota al mismo alcance de sucursales que la consulta para no barrer
 // VentasProductos entera cuando el análisis es de una sola sucursal.
-function joinImporteExcluido(excProdCsv, sucIdsCsv) {
-  if (!excProdCsv) return '';
+function joinImporteExcluido(p) {
+  const cond = condLineaExcluidaHeader(p.excProdCsv, p.rubrosExcluidos, p.subRubroDisponible);
+  if (!cond) return '';
   return `LEFT JOIN (
       SELECT vpe.IdSucursal, vpe.IdTipoComprobante, vpe.Letra, vpe.CentroEmisor,
         vpe.NumeroComprobante, SUM(${exprImporteRenglon('vpe')}) AS Importe
       FROM VentasProductos vpe
-      WHERE vpe.IdProducto IN (${excProdCsv})
-        AND vpe.IdSucursal IN (${sucIdsCsv})
+      WHERE (${cond})
+        AND vpe.IdSucursal IN (${p.sucIdsCsv})
       GROUP BY vpe.IdSucursal, vpe.IdTipoComprobante, vpe.Letra, vpe.CentroEmisor,
         vpe.NumeroComprobante
     ) exc ON exc.IdSucursal = v.IdSucursal AND exc.IdTipoComprobante = v.IdTipoComprobante
@@ -118,14 +147,15 @@ function joinImporteExcluido(excProdCsv, sucIdsCsv) {
 
 // Facturación de cabecera neta de los renglones excluidos. Se resta con el importe de
 // renglón con impuestos (exprImporteRenglon), que es la misma base que v.ImporteTotal.
-function exprFacturacion(excProdCsv) {
-  return excProdCsv ? `SUM(v.ImporteTotal - ISNULL(exc.Importe, 0))` : `SUM(v.ImporteTotal)`;
+function exprFacturacion(p) {
+  return condLineaExcluidaHeader(p.excProdCsv, p.rubrosExcluidos, p.subRubroDisponible)
+    ? `SUM(v.ImporteTotal - ISNULL(exc.Importe, 0))` : `SUM(v.ImporteTotal)`;
 }
 
-// Tickets: un comprobante que sólo tenía el producto excluido queda en cero al restarlo,
+// Tickets: un comprobante que sólo tenía renglones excluidos queda en cero al restarlos,
 // y entonces no era una venta: no se cuenta.
-function exprTickets(excProdCsv) {
-  return excProdCsv
+function exprTickets(p) {
+  return condLineaExcluidaHeader(p.excProdCsv, p.rubrosExcluidos, p.subRubroDisponible)
     ? `SUM(CASE WHEN v.ImporteTotal - ISNULL(exc.Importe, 0) > 0 THEN 1 ELSE 0 END)`
     : `COUNT(*)`;
 }
@@ -185,47 +215,77 @@ const RUBROS_EXCLUIDOS_CENTRAL = ['Apicultura'];
 
 // El nombre se compara sin espacios ("Bultos / Cajas") y con collation CI_AI, que ignora
 // mayúsculas y acentos: la base puede tener "Pesables Depósito" con tilde.
-function sinRubrosExcluidos(lista) {
+// subRubroDisponible: además del rubro, matchea por SubRubros.NombreSubRubro — Apicultura
+// puede estar cargada como subrubro de otro rubro y no como rubro propio. Viene del sondeo
+// de esquema (clasificacionesDisponibles en rutas_analisis.js); sin el flag, sólo rubro,
+// como antes.
+function sinRubrosExcluidos(lista, subRubroDisponible) {
   const rubros = (lista && lista.length ? lista : RUBROS_EXCLUIDOS)
     .map(r => `'${r.replace(/\s/g, '')}'`).join(', ');
-  return `NOT EXISTS (SELECT 1 FROM Productos pExc
+  const porRubro = `NOT EXISTS (SELECT 1 FROM Productos pExc
       INNER JOIN Rubros rExc ON rExc.IdRubro = pExc.IdRubro
       WHERE pExc.IdProducto = vp.IdProducto
         AND REPLACE(COALESCE(rExc.NombreRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`;
+  if (!subRubroDisponible) return porRubro;
+  const porSubRubro = `NOT EXISTS (SELECT 1 FROM Productos pExcSr
+      INNER JOIN SubRubros srExc ON srExc.IdRubro = pExcSr.IdRubro AND srExc.IdSubRubro = pExcSr.IdSubRubro
+      WHERE pExcSr.IdProducto = vp.IdProducto
+        AND REPLACE(COALESCE(srExc.NombreSubRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`;
+  return `${porRubro}\n      AND ${porSubRubro}`;
 }
 
 // Alcance por defecto (análisis por sucursales), que es el que se usa si p no trae lista.
 const SIN_RUBROS_EXCLUIDOS = sinRubrosExcluidos(RUBROS_EXCLUIDOS);
 
+// Filtro inverso: sólo el/los rubros de la lista, por rubro o (si subRubroDisponible) por
+// subrubro. Lo usa la pestaña de Apicultura, que muestra exactamente lo que la central
+// excluye (RUBROS_EXCLUIDOS_CENTRAL). Mismo criterio de nombre que sinRubrosExcluidos, así
+// los dos lados nunca discrepan.
+function soloRubros(lista, subRubroDisponible) {
+  const rubros = lista.map(r => `'${r.replace(/\s/g, '')}'`).join(', ');
+  const porRubro = `EXISTS (SELECT 1 FROM Productos pInc
+      INNER JOIN Rubros rInc ON rInc.IdRubro = pInc.IdRubro
+      WHERE pInc.IdProducto = vp.IdProducto
+        AND REPLACE(COALESCE(rInc.NombreRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`;
+  if (!subRubroDisponible) return porRubro;
+  const porSubRubro = `EXISTS (SELECT 1 FROM Productos pIncSr
+      INNER JOIN SubRubros srInc ON srInc.IdRubro = pIncSr.IdRubro AND srInc.IdSubRubro = pIncSr.IdSubRubro
+      WHERE pIncSr.IdProducto = vp.IdProducto
+        AND REPLACE(COALESCE(srInc.NombreSubRubro,''),' ','') COLLATE Latin1_General_CI_AI IN (${rubros}))`;
+  return `(${porRubro} OR ${porSubRubro})`;
+}
+
 // KPIs + comparativa: nivel cabecera (Ventas), 1 fila por comprobante.
 function sqlComparativa(p) {
   return `SELECT v.IdSucursal, s.Nombre AS Nombre,
-      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
+      ${exprFacturacion(p)} AS Facturacion, ${exprTickets(p)} AS Tickets
     FROM Ventas v
     LEFT JOIN Sucursales s ON s.IdSucursal = v.IdSucursal
     ${JOIN_CLIENTE_CAT}
-    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
+    ${joinImporteExcluido(p)}
     WHERE ${whereVentas(p)}
     GROUP BY v.IdSucursal, s.Nombre
     ORDER BY Facturacion DESC`;
 }
 
 // Totales de unidades y productos distintos: nivel renglón (VentasProductos).
-function sqlResumenRenglon(p) {
+// filtroRubro: condición ya armada para pisar el filtro de rubro por defecto (sinRubrosExcluidos).
+// La usa la pestaña de Apicultura para invertirlo a "sólo ese rubro" (ver soloRubros).
+function sqlResumenRenglon(p, filtroRubro) {
   return `SELECT SUM(vp.Cantidad) AS Unidades, COUNT(DISTINCT vp.IdProducto) AS ProductosDistintos
     FROM VentasProductos vp
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     WHERE ${whereVentas(p)}
-      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv)}`;
+      AND ${filtroRubro || sinRubrosExcluidos(p.rubrosExcluidos, p.subRubroDisponible)}${andSinProductosExcluidos(p.excProdCsv)}`;
 }
 
 function sqlTendencia(p) {
   return `SELECT CAST(v.Fecha AS DATE) AS Fecha,
-      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
+      ${exprFacturacion(p)} AS Facturacion, ${exprTickets(p)} AS Tickets
     FROM Ventas v
     ${JOIN_CLIENTE_CAT}
-    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
+    ${joinImporteExcluido(p)}
     WHERE ${whereVentas(p)}
     GROUP BY CAST(v.Fecha AS DATE)
     ORDER BY Fecha`;
@@ -233,10 +293,10 @@ function sqlTendencia(p) {
 
 function sqlDiaSemana(p) {
   return `SELECT (DATEPART(WEEKDAY, v.Fecha) + @@DATEFIRST - 2) % 7 AS Dow,
-      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
+      ${exprFacturacion(p)} AS Facturacion, ${exprTickets(p)} AS Tickets
     FROM Ventas v
     ${JOIN_CLIENTE_CAT}
-    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
+    ${joinImporteExcluido(p)}
     WHERE ${whereVentas(p)}
     GROUP BY (DATEPART(WEEKDAY, v.Fecha) + @@DATEFIRST - 2) % 7
     ORDER BY Dow`;
@@ -244,13 +304,50 @@ function sqlDiaSemana(p) {
 
 function sqlHora(p) {
   return `SELECT DATEPART(HOUR, v.Fecha) AS Hora,
-      ${exprFacturacion(p.excProdCsv)} AS Facturacion, ${exprTickets(p.excProdCsv)} AS Tickets
+      ${exprFacturacion(p)} AS Facturacion, ${exprTickets(p)} AS Tickets
     FROM Ventas v
     ${JOIN_CLIENTE_CAT}
-    ${joinImporteExcluido(p.excProdCsv, p.sucIdsCsv)}
+    ${joinImporteExcluido(p)}
     WHERE ${whereVentas(p)}
     GROUP BY DATEPART(HOUR, v.Fecha)
     ORDER BY Hora`;
+}
+
+// ── Pestaña Apicultura (casa central) ────────────────────────────────────────
+// Alcance: sólo el rubro Apicultura (RUBROS_EXCLUIDOS_CENTRAL, lo que la pestaña Mayorista
+// saca). A diferencia del resto del módulo, acá no alcanza con trabajar a nivel Ventas
+// (cabecera): un comprobante mixto (apicultura + otros productos) cuenta entero para
+// Mayorista una vez filtrado el rubro a nivel renglón, pero para esta pestaña sólo debe
+// contar la porción de apicultura. Por eso se agrupa primero por comprobante a nivel
+// VentasProductos (subconsulta) y recién ahí se suma facturación y se cuentan tickets.
+function sqlApiculturaPorComprobante(p) {
+  return `SELECT v.Fecha, v.IdSucursal, v.IdTipoComprobante, v.Letra, v.CentroEmisor, v.NumeroComprobante,
+      SUM(${exprImporteRenglon()}) AS Facturacion
+    FROM VentasProductos vp
+    ${JOIN_CLAVE5}
+    ${JOIN_CLIENTE_CAT}
+    WHERE ${whereVentas(p)}
+      AND ${soloRubros(RUBROS_EXCLUIDOS_CENTRAL, p.subRubroDisponible)}
+    GROUP BY v.Fecha, v.IdSucursal, v.IdTipoComprobante, v.Letra, v.CentroEmisor, v.NumeroComprobante`;
+}
+
+function sqlApiculturaAgrupado(p, exprAgrupacion, aliasCol) {
+  return `SELECT ${exprAgrupacion} AS ${aliasCol}, SUM(l.Facturacion) AS Facturacion, COUNT(*) AS Tickets
+    FROM (${sqlApiculturaPorComprobante(p)}) l
+    GROUP BY ${exprAgrupacion}
+    ORDER BY ${aliasCol}`;
+}
+
+function sqlApiculturaTendencia(p) { return sqlApiculturaAgrupado(p, 'CAST(l.Fecha AS DATE)', 'Fecha'); }
+function sqlApiculturaDiaSemana(p) {
+  return sqlApiculturaAgrupado(p, '(DATEPART(WEEKDAY, l.Fecha) + @@DATEFIRST - 2) % 7', 'Dow');
+}
+function sqlApiculturaHora(p) { return sqlApiculturaAgrupado(p, 'DATEPART(HOUR, l.Fecha)', 'Hora'); }
+
+// Un único total (sin agrupar), para los KPIs: facturación y tickets de apicultura del rango.
+function sqlApiculturaResumen(p) {
+  return `SELECT SUM(l.Facturacion) AS Facturacion, COUNT(*) AS Tickets
+    FROM (${sqlApiculturaPorComprobante(p)}) l`;
 }
 
 // ── Exclusión de insumos ─────────────────────────────────────────────────────
@@ -303,7 +400,9 @@ function filtroSinInsumos(disponibles) {
 
 // Top productos por 'unidades' o 'facturacion'. topN ya clampeado a entero.
 // sinInsumos: condición extra ya armada (filtroSinInsumos); vacía = sin filtrar.
-function sqlTopProductos(p, orden, topN, sinInsumos) {
+// filtroRubro: condición ya armada para pisar el filtro de rubro por defecto (sinRubrosExcluidos).
+// La usa la pestaña de Apicultura para invertirlo a "sólo ese rubro" (ver soloRubros).
+function sqlTopProductos(p, orden, topN, sinInsumos, filtroRubro) {
   const col = orden === 'unidades' ? 'Unidades' : 'Facturacion';
   const filtro = sinInsumos ? `\n      AND ${sinInsumos}` : '';
   // El rubro viaja con cada producto porque el equivalente en kilos/litros sólo se calcula
@@ -318,7 +417,7 @@ function sqlTopProductos(p, orden, topN, sinInsumos) {
     INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
     LEFT JOIN Rubros rp ON rp.IdRubro = p.IdRubro
     WHERE ${whereVentas(p)}
-      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${filtro}${andSinProductosExcluidos(p.excProdCsv)}
+      AND ${filtroRubro || sinRubrosExcluidos(p.rubrosExcluidos, p.subRubroDisponible)}${filtro}${andSinProductosExcluidos(p.excProdCsv)}
     GROUP BY vp.IdProducto, p.NombreProducto, rp.NombreRubro
     ORDER BY ${col} DESC`;
 }
@@ -328,7 +427,9 @@ function sqlTopProductos(p, orden, topN, sinInsumos) {
 // así la fila del ranking y su desplegable salen del mismo dato y no pueden discrepar.
 // Los filtros son los mismos que el resto del módulo (categoría Sucursal, rubros y
 // productos excluidos), por eso reusa whereVentas y las condiciones de renglón.
-function sqlVentasPorClienteProducto(p) {
+// filtroRubro: condición ya armada para pisar el filtro de rubro por defecto (sinRubrosExcluidos).
+// La usa la pestaña de Apicultura para invertirlo a "sólo ese rubro" (ver soloRubros).
+function sqlVentasPorClienteProducto(p, filtroRubro) {
   return `SELECT v.IdCliente AS IdCliente,
       LTRIM(RTRIM(ISNULL(c.NombreCliente,''))) AS Cliente,
       vp.IdProducto AS IdProducto, p.NombreProducto AS Nombre,
@@ -340,7 +441,7 @@ function sqlVentasPorClienteProducto(p) {
     INNER JOIN Productos p ON p.IdProducto = vp.IdProducto
     LEFT JOIN Marcas mp ON mp.IdMarca = p.IdMarca
     WHERE ${whereVentas(p)}
-      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv)}
+      AND ${filtroRubro || sinRubrosExcluidos(p.rubrosExcluidos, p.subRubroDisponible)}${andSinProductosExcluidos(p.excProdCsv)}
     GROUP BY v.IdCliente, LTRIM(RTRIM(ISNULL(c.NombreCliente,''))), vp.IdProducto, p.NombreProducto,
       ISNULL(mp.NombreMarca,'')
     ORDER BY Facturacion DESC`;
@@ -532,7 +633,7 @@ function sqlUnidadesPorSucursal(p, idsCsv) {
     ${JOIN_CLAVE5}
     ${JOIN_CLIENTE_CAT}
     WHERE ${whereVentas(p)}
-      AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${idsCsv ? ` AND vp.IdProducto IN (${idsCsv})` : ''}${andSinProductosExcluidos(p.excProdCsv)}
+      AND ${sinRubrosExcluidos(p.rubrosExcluidos, p.subRubroDisponible)}${idsCsv ? ` AND vp.IdProducto IN (${idsCsv})` : ''}${andSinProductosExcluidos(p.excProdCsv)}
     GROUP BY vp.IdProducto, vp.IdSucursal`;
 }
 
@@ -646,7 +747,7 @@ function sqlArticulosHistograma(p) {
       ${JOIN_CLAVE5}
       ${JOIN_CLIENTE_CAT}
       WHERE ${whereVentas(p)}
-        AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv, '        ')}
+        AND ${sinRubrosExcluidos(p.rubrosExcluidos, p.subRubroDisponible)}${andSinProductosExcluidos(p.excProdCsv, '        ')}
       GROUP BY ${GROUP_TICKET}
     ) t
     GROUP BY t.Articulos
@@ -669,7 +770,7 @@ function sqlArticulosPorSucursal(p) {
       ${JOIN_CLAVE5}
       ${JOIN_CLIENTE_CAT}
       WHERE ${whereVentas(p)}
-        AND ${sinRubrosExcluidos(p.rubrosExcluidos)}${andSinProductosExcluidos(p.excProdCsv, '        ')}
+        AND ${sinRubrosExcluidos(p.rubrosExcluidos, p.subRubroDisponible)}${andSinProductosExcluidos(p.excProdCsv, '        ')}
       GROUP BY ${GROUP_TICKET}
     ) t
     LEFT JOIN Sucursales s ON s.IdSucursal = t.IdSucursal
@@ -1099,13 +1200,14 @@ function fusionarProductos(...listas) {
 module.exports = {
   SUCURSALES_ANALISIS, SUCURSAL_CENTRAL, NOMBRE_DIA, TOP_N_DEFAULT, BUCKETS_ARTICULOS, LIMITE_FAMILIAS,
   PALABRA_INSUMO, CLASIFICACIONES, CATEGORIA_SUCURSAL_ID, RUBROS_EXCLUIDOS, SIN_RUBROS_EXCLUIDOS,
-  RUBROS_EXCLUIDOS_CENTRAL, sinRubrosExcluidos,
+  RUBROS_EXCLUIDOS_CENTRAL, sinRubrosExcluidos, soloRubros,
   PRODUCTOS_EXCLUIDOS_CENTRAL, sinProductosExcluidos, joinImporteExcluido,
   exprFacturacion, exprTickets, exprImporteRenglon,
   sucIdsSeguras, clampTopN, ticketProm, mapDiaSemana, kpisGlobales,
   whereVentas, sqlComparativa, sqlResumenRenglon,
   PROMO_PREFIJO, MODOS_PROMO, modoPromoSeguro, filtroClientes,
   sqlTendencia, sqlDiaSemana, sqlHora, sqlTopProductos,
+  sqlApiculturaTendencia, sqlApiculturaDiaSemana, sqlApiculturaHora, sqlApiculturaResumen,
   sqlMetaClasificacion, clasificacionesDisponibles, filtroSinInsumos,
   UMBRAL_PORC_VENTAS, UMBRAL_TOPE_UNIDADES, RUBRO_PESABLES,
   idsCsvSeguro, sqlPesables, sqlStockPorSucursal, sqlNetoDiarioStock, sqlUnidadesPorSucursal,

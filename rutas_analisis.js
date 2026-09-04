@@ -99,13 +99,20 @@ async function quiebresPorProducto(p, idProductos) {
 // proceso vive: se sondea una vez y se reusa la condición armada. Si el sondeo falla, se
 // cae al filtro por nombre de producto en vez de romper el reporte entero.
 let condicionInsumos = null;
+let subRubroDisponible = null;
 async function sinInsumosSQL() {
   if (condicionInsumos === null) {
     const meta = await query(analisisVentas.sqlMetaClasificacion()).catch(() => []);
-    condicionInsumos = analisisVentas.filtroSinInsumos(analisisVentas.clasificacionesDisponibles(meta));
+    const disponibles = analisisVentas.clasificacionesDisponibles(meta);
+    condicionInsumos = analisisVentas.filtroSinInsumos(disponibles);
+    // Apicultura puede estar cargada como subrubro de otro rubro y no como rubro propio: el
+    // filtro de rubro (sinRubrosExcluidos/soloRubros) también matchea por subrubro cuando
+    // esta base tiene la tabla, según el mismo sondeo que ya usa el filtro de insumos.
+    subRubroDisponible = disponibles.some(c => c.tabla === 'SubRubros');
   }
   return condicionInsumos;
 }
+
 
 router.get('/api/analisis-ventas', apiRoute(async req => {
   const desde = safeDate(req.query.desde);
@@ -113,10 +120,11 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
   const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
   const sucIdsCsv = sucIds.join(',');
   const topN = analisisVentas.clampTopN(req.query.top);
-  const p = { desde, hasta, sucIdsCsv };
   // Los insumos (por nombre, rubro, subrubro o marca) no son productos de venta: quedan
-  // fuera de las dos tablas de top productos y, por arrastre, de las familias.
+  // fuera de las dos tablas de top productos y, por arrastre, de las familias. La misma
+  // llamada deja subRubroDisponible listo (ver comentario en sinInsumosSQL).
   const sinInsumos = await sinInsumosSQL();
+  const p = { desde, hasta, sucIdsCsv, subRubroDisponible };
 
   const [comparativa, resumenArr, tendencia, diaSemana, horas, productosUnidades,
          artHistograma, artPorSucursal, productosFacturacion] =
@@ -228,6 +236,9 @@ router.get('/api/analisis-central', apiRoute(async req => {
   const desde = safeDate(req.query.desde);
   const hasta = safeDate(req.query.hasta);
   const topN = analisisVentas.clampTopN(req.query.top);
+  // Se sondea antes de armar p: subRubroDisponible tiene que ir con su valor final adentro
+  // del objeto (una vez armado, cambiar la variable de afuera ya no lo actualiza).
+  const sinInsumos = await sinInsumosSQL();
   // excProdCsv sólo acá: son códigos que salen por la caja de la central pero no son
   // venta real. El análisis por sucursales no lo manda y queda como estaba.
   const p = {
@@ -236,8 +247,8 @@ router.get('/api/analisis-central', apiRoute(async req => {
     // En la central lo único que no es venta de mostrador es el apiario: bultos, packs y
     // granel de depósito sí se venden y quedaban afuera del análisis.
     rubrosExcluidos: analisisVentas.RUBROS_EXCLUIDOS_CENTRAL,
+    subRubroDisponible,
   };
-  const sinInsumos = await sinInsumosSQL();
 
   // Los productos se piden una sola vez: la tabla del front ordena por facturación o por
   // unidades en memoria, así que no hace falta traer el mismo listado dos veces.
@@ -257,6 +268,59 @@ router.get('/api/analisis-central', apiRoute(async req => {
   return {
     rango: { desde, hasta },
     kpis: analisisVentas.kpisGlobales(totales, resumen),
+    tendencia: tendencia.map(r => ({
+      fecha: r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10),
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    diaSemana: diaSemana.map(r => ({
+      dow: Number(r.Dow), nombre: analisisVentas.mapDiaSemana(Number(r.Dow)),
+      facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    horas: horas.map(r => ({
+      hora: Number(r.Hora), facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
+    })),
+    topProductos: productos.map(r => ({
+      idProd: r.IdProducto, nombre: r.Nombre,
+      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
+    })),
+    familias: analisisVentas.agruparFamilias(productos, topN),
+    clientes: analisisVentas.agruparClientes(ventasCliente, topN),
+  };
+}));
+
+// ── Análisis de ventas de apicultura (casa central) ──────────────────────────
+// La contracara de /api/analisis-central: ahí se excluye el rubro Apicultura
+// (RUBROS_EXCLUIDOS_CENTRAL), acá se filtra a sólo ese rubro con soloRubros(). Bajo el
+// prefijo /api/analisis-central para heredar el mismo permiso (ver apiPrefijos en auth.js),
+// sin agregar un módulo nuevo.
+router.get('/api/analisis-central/apicultura', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const topN = analisisVentas.clampTopN(req.query.top);
+  const sinInsumos = await sinInsumosSQL();
+  const p = {
+    desde, hasta, sucIdsCsv: String(analisisVentas.SUCURSAL_CENTRAL),
+    excProdCsv: analisisVentas.idsCsvSeguro(analisisVentas.PRODUCTOS_EXCLUIDOS_CENTRAL),
+    subRubroDisponible,
+  };
+  const filtroRubro = analisisVentas.soloRubros(analisisVentas.RUBROS_EXCLUIDOS_CENTRAL, subRubroDisponible);
+
+  const [resumenGralArr, resumenArr, tendencia, diaSemana, horas, productos, ventasCliente] =
+    await Promise.all([
+      query(analisisVentas.sqlApiculturaResumen(p)),
+      query(analisisVentas.sqlResumenRenglon(p, filtroRubro)),
+      query(analisisVentas.sqlApiculturaTendencia(p)),
+      query(analisisVentas.sqlApiculturaDiaSemana(p)),
+      query(analisisVentas.sqlApiculturaHora(p)),
+      query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos, filtroRubro)),
+      query(analisisVentas.sqlVentasPorClienteProducto(p, filtroRubro)),
+    ]);
+
+  const resumenGral = resumenGralArr[0] || { Facturacion: 0, Tickets: 0 };
+  const resumen = resumenArr[0] || { Unidades: 0, ProductosDistintos: 0 };
+  return {
+    rango: { desde, hasta },
+    kpis: analisisVentas.kpisGlobales([resumenGral], resumen),
     tendencia: tendencia.map(r => ({
       fecha: r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10),
       facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
@@ -305,7 +369,7 @@ router.get('/api/analisis-familias', puedeVerFamilias, apiRoute(async req => {
   const consultas = [];
   if (sucIds.length) {
     consultas.push(query(analisisVentas.sqlTopProductos(
-      { desde, hasta, sucIdsCsv: sucIds.join(',') },
+      { desde, hasta, sucIdsCsv: sucIds.join(','), subRubroDisponible },
       'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)));
   }
   if (conCentral) {
@@ -313,6 +377,7 @@ router.get('/api/analisis-familias', puedeVerFamilias, apiRoute(async req => {
       desde, hasta, sucIdsCsv: String(analisisVentas.SUCURSAL_CENTRAL),
       excProdCsv: analisisVentas.idsCsvSeguro(analisisVentas.PRODUCTOS_EXCLUIDOS_CENTRAL),
       rubrosExcluidos: analisisVentas.RUBROS_EXCLUIDOS_CENTRAL,
+      subRubroDisponible,
     }, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos)));
   }
   const listas = await Promise.all(consultas);

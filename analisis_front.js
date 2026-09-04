@@ -157,6 +157,7 @@ const COLUMNAS_TOP = {
 const COLUMNAS_POR_PANEL = {
   suc: ['nombre', 'facturacion', 'unidades', 'quiebres'],
   cen: ['nombre', 'unidades', 'facturacion'],
+  api: ['nombre', 'unidades', 'facturacion'],
 };
 const tops = {};
 
@@ -438,9 +439,9 @@ function fmtFamiliasPropias(c){
 // Mismo patrón que familias: fila clickeable con el total del cliente y, debajo, qué
 // compró. Los productos del detalle son filas de esta misma tabla para que las columnas
 // queden alineadas con el total de arriba.
-function renderClientes(rows){
+function renderClientes(rows, pref = 'cen'){
   const cli = rows || [];
-  if (!cli.length){ $('tblClientes-cen').innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
+  if (!cli.length){ $(`tblClientes-${pref}`).innerHTML = '<div class="empty">Sin datos en el rango.</div>'; return; }
   const totalListado = cli.reduce((a, c) => a + (c.facturacion || 0), 0);
   const maxFacturacion = cli.reduce((a, c) => Math.max(a, c.facturacion || 0), 0);
   const cuerpo = cli.map((c, i) => {
@@ -448,7 +449,7 @@ function renderClientes(rows){
     // remarcada, porque son las que cuenta el número de la fila del cliente: así el total
     // se audita abriendo el detalle.
     const detalle = c.productos.map(p =>
-      `<tr class="cli-det cd-cen-${i}${p.propio ? ' propio' : ''}" hidden>
+      `<tr class="cli-det cd-${pref}-${i}${p.propio ? ' propio' : ''}" hidden>
         <td class="pres">· ${escHtml(p.nombre)}${p.propio ? '<span class="badge-propio">Apidelta</span>' : ''}</td>
         <td></td>
         <td class="num fam-cel"><span class="${p.propio ? 'fam-propia' : 'fam-otra'}">${escHtml(p.familia || '—')}</span></td>
@@ -459,9 +460,9 @@ function renderClientes(rows){
     ).join('');
     const share = totalListado > 0 ? (c.facturacion || 0) * 100 / totalListado : 0;
     return `<tr class="fam" style="background-image:${fondoBarra(c.facturacion, maxFacturacion)}"
-              onclick="toggleDetalle('cd-cen-${i}','cc-cen-${i}')"
+              onclick="toggleDetalle('cd-${pref}-${i}','cc-${pref}-${i}')"
               title="${fmtDec(share)}% de la facturación listada">
-        <td><span class="caret" id="cc-cen-${i}">▶</span> ${escHtml(c.cliente)}</td>
+        <td><span class="caret" id="cc-${pref}-${i}">▶</span> ${escHtml(c.cliente)}</td>
         <td class="num">${fmtNum(c.productos.length)}</td>
         <td class="num">${fmtFamiliasPropias(c)}</td>
         <td class="num">${fmtNum(c.unidades)}</td>
@@ -470,7 +471,7 @@ function renderClientes(rows){
       </tr>
       ${detalle}`;
   }).join('');
-  $('tblClientes-cen').innerHTML = `<table><thead><tr>
+  $(`tblClientes-${pref}`).innerHTML = `<table><thead><tr>
       <th>Cliente</th><th class="num">Productos</th>
       <th class="num" title="Familias de marca propia (Apidelta y Pago De Los Arroyos) que le compra el cliente. Las presentaciones de una misma línea cuentan una sola vez.">Familias Apidelta</th>
       <th class="num" title="Suma cruda de unidades. Mezcla formatos distintos, así que sirve como referencia, no como cantidad real.">Unidades</th>
@@ -642,7 +643,23 @@ const PANELES = {
       renderHora(d.horas, 'cen');
       renderTop(d.topProductos, 'cen');
       renderFamilias(d.familias, 'cen');
-      renderClientes(d.clientes);
+      renderClientes(d.clientes, 'cen');
+    },
+  },
+  // La contracara de la central: mismo alcance fijo (casa central) pero sólo el rubro que
+  // ahí se excluye. Mismo permiso (ref: analisis-central), el endpoint vive bajo su prefijo.
+  apicultura: {
+    pref: 'api', ref: 'analisis-central',
+    url: (desde, hasta) => `/api/analisis-central/apicultura?desde=${desde}&hasta=${hasta}`,
+    validar: () => '',
+    pintar: d => {
+      renderKpis(d.kpis, 'api');
+      renderTendencia(d.tendencia, 'api', true);
+      renderDow(d.diaSemana, 'api');
+      renderHora(d.horas, 'api');
+      renderTop(d.topProductos, 'api');
+      renderFamilias(d.familias, 'api');
+      renderClientes(d.clientes, 'api');
     },
   },
   // Consolidado: muestra ventas de la central, así que exige los dos permisos. El endpoint
@@ -702,6 +719,7 @@ function mostrarTab(nombre){
   });
   $('filtroSucursales').hidden = !CON_CHIPS.includes(nombre);
   $('notaCentral').hidden = nombre !== 'central';
+  $('notaApicultura').hidden = nombre !== 'apicultura';
   // El chip de la central sólo existe en la pestaña de familias, así que los chips se
   // vuelven a dibujar en cada cambio de pestaña.
   renderChips();
