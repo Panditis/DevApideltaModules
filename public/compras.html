@@ -372,6 +372,8 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
           </select>
         </label>
         <button id="btnRecalcular" class="ant-btn ant-btn-sm mb-1">Recalcular consumo</button>
+        <input type="file" id="xlsxPedido" accept=".xlsx" class="hidden">
+        <button id="btnImportarXlsx" class="ant-btn ant-btn-sm mb-1">Importar xlsx</button>
       </div>
       <div class="mt-4 pt-4 ant-divider-t ant-toolbar">
         <input id="filtroTexto" class="ant-input w-64" placeholder="Filtrar producto o PLU…" aria-label="Filtrar por producto o PLU">
@@ -725,6 +727,60 @@ $('#btnRecalcular').addEventListener('click', async () => {
   } finally { btn.disabled = false; btn.textContent = 'Recalcular consumo'; }
 });
 
+$('#btnImportarXlsx').addEventListener('click', () => $('#xlsxPedido').click());
+$('#xlsxPedido').addEventListener('change', async () => {
+  const file = $('#xlsxPedido').files[0];
+  $('#xlsxPedido').value = '';
+  if (!file || !armado) return;
+  const fd = new FormData();
+  fd.append('archivo', file);
+  fd.append('idProveedor', armado.idProveedor);
+  try {
+    const r = await apiFetch('/api/compras/armado/importar-pedido', { method: 'POST', body: fd });
+    aplicarImportacion(r);
+  } catch (e) {
+    avisar('No se pudo importar el archivo: ' + e.message, 'Error');
+  }
+});
+
+// Precarga cantidades desde el xlsx importado: lo resuelto se pisa en `cantidades`
+// (gana la última fila si el xlsx repite un PLU), lo nunca comprado a este proveedor
+// se agrega como fila sintética con precio 0 (sin historial de compra), y lo ambiguo
+// o no encontrado se deja afuera para que el usuario lo revise a mano.
+function aplicarImportacion(r) {
+  if (r.erroresArchivo && r.erroresArchivo.length) {
+    avisar(r.erroresArchivo.join('\n'), 'Error en el archivo');
+    return;
+  }
+  const pendientes = [];
+  for (const l of r.lineas) {
+    if (l.estado === 'ok') {
+      let f = armado.filas.find(f => f.plu === l.resuelto);
+      if (!f) {
+        f = {
+          plu: l.resuelto, nombre: l.nombreSiga, unidad: 'UN',
+          ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
+          stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
+          componentes: [], consumoMensual: [], abc: null, importancia: null,
+          demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
+          esGranel: false, activo: true, importado: true,
+        };
+        armado.filas.push(f);
+      }
+      cantidades[l.resuelto] = l.cantidad;
+    } else {
+      pendientes.push(l);
+    }
+  }
+  renderArmado();
+  const detalle = pendientes.map(l =>
+    `Fila ${l.fila} (${l.plu || l.codigoProveedor || l.codigoBarras || '?'}): ${(l.notas || []).join(' ')}`);
+  avisar(
+    `Importado: ${r.resueltos} aplicados, ${r.ambiguos} ambiguos, ${r.noEncontrados} no encontrados` +
+      (detalle.length ? '\n\n' + detalle.join('\n') : ''),
+    'Importación de pedido');
+}
+
 // Semáforo de cobertura: menos de una semana es urgente, menos de dos es atención.
 // Un único tono manda fondo, punto y número de la celda (ver .cob-* en el CSS).
 const tonoCobertura = d => d == null ? 'none' : d < 7 ? 'error' : d < 15 ? 'warning' : 'success';
@@ -803,7 +859,7 @@ function renderArmado() {
       <td class="t-c"><input type="checkbox" class="js-chk ant-check" data-plu="${escAttr(f.plu)}"
           aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
       <td>
-        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}</div>
+        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}</div>
         <div class="prod-meta">
           <span>${escAttr(f.plu)}</span> · <span>${escAttr(f.unidad)}</span> ·
           <span title="${escAttr(tUltima)}">últ. ${escAttr(fechaCorta(f.ultimaFecha))}</span> ·
