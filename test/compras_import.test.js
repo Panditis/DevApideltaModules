@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { parsearCompra, parsearCabecera, parsearDetalle, calcularTotales, aNumero, aFechaISO } = require('../lib/compras_import');
+const { parsearCompra, parsearCabecera, parsearDetalle, parsearDetallePedido, calcularTotales, aNumero, aFechaISO } = require('../lib/compras_import');
 
 // ── Formato plano: una sola hoja con todo en columnas ───────────────────────
 const TITULOS_PLANO = [
@@ -315,4 +315,138 @@ test('el neto no arrastra error de punto flotante', () => {
   const { lineas } = parsearDetalle(detalle);
   const { neto } = calcularTotales({}, lineas);
   assert.strictEqual(neto, 731192.52);   // 251767.32 + 479425.20
+});
+
+// ── parsearDetallePedido: pedidos de compra sin precio ni IVA ────────────────
+
+test('parsearDetallePedido: caso feliz con 2 filas PLU + Cantidad', () => {
+  const matriz = [
+    ['PLU', 'CodigoProveedor', 'Cantidad', 'Descripcion'],
+    ['2124', '29', 12, 'Aceitunas Negras'],
+    ['2113', '65', 24, 'Aceitunas Verdes'],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.deepStrictEqual(errores, []);
+  assert.strictEqual(lineas.length, 2);
+  assert.strictEqual(lineas[0].plu, '2124');
+  assert.strictEqual(lineas[0].cantidad, 12);
+  assert.strictEqual(lineas[0].orden, 1);
+  assert.strictEqual(lineas[1].plu, '2113');
+  assert.strictEqual(lineas[1].cantidad, 24);
+  assert.strictEqual(lineas[1].orden, 2);
+});
+
+test('parsearDetallePedido: rechaza si falta columna Cantidad', () => {
+  const matriz = [
+    ['PLU', 'CodigoProveedor', 'Descripcion'],
+    ['2124', '29', 'Aceitunas'],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.strictEqual(lineas.length, 0);
+  assert.ok(errores.some(e => e.includes('Falta la columna "Cantidad"')), errores.join(' | '));
+});
+
+test('parsearDetallePedido: rechaza si falta toda columna de identificación', () => {
+  const matriz = [
+    ['Cantidad', 'Descripcion'],
+    [12, 'Aceitunas'],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.strictEqual(lineas.length, 0);
+  assert.ok(errores.some(e => e.includes('identificación')), errores.join(' | '));
+});
+
+test('parsearDetallePedido: corta en fila sin identificador (subtotal al pie)', () => {
+  const matriz = [
+    ['PLU', 'CodigoProveedor', 'Cantidad', 'Descripcion'],
+    ['2124', '29', 12, 'Item 1'],
+    ['2113', '65', 24, 'Item 2'],
+    ['', '', '', 'SUBTOTAL'],
+    ['', '', 999, 'Basura'],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.deepStrictEqual(errores, []);
+  assert.strictEqual(lineas.length, 2, 'no incluye la fila de subtotal ni la siguiente');
+});
+
+test('parsearDetallePedido: toleran variantes en nombres de columna (espacios, acentos)', () => {
+  const matriz = [
+    ['plu', ' Codigo Proveedor ', 'CANTIDAD'],
+    ['2124', '29', 12],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.deepStrictEqual(errores, []);
+  assert.strictEqual(lineas.length, 1);
+  assert.strictEqual(lineas[0].cantidad, 12);
+});
+
+test('parsearDetallePedido: cantidad 0 y negativa generan errores separados sin cortar', () => {
+  const matriz = [
+    ['PLU', 'Cantidad'],
+    ['2124', 0],
+    ['2113', 10],
+    ['2139', -5],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.ok(errores.some(e => e.includes('Fila 2') && e.includes('mayor a 0')), errores.join(' | '));
+  assert.ok(errores.some(e => e.includes('Fila 4') && e.includes('mayor a 0')), errores.join(' | '));
+  assert.strictEqual(lineas.length, 3, 'sigue parseando el resto de filas');
+  assert.strictEqual(lineas[1].cantidad, 10, 'la línea 3 válida se procesa');
+});
+
+test('parsearDetallePedido: cantidad ambigua con separador de miles se rechaza', () => {
+  const matriz = [
+    ['PLU', 'Cantidad'],
+    ['2124', '1.234,56'],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.ok(errores.some(e => e.includes('Fila 2') && e.includes('no es un número válido')), errores.join(' | '));
+  assert.strictEqual(lineas.length, 1, 'se agrega igual pero con cantidad null');
+  assert.strictEqual(lineas[0].cantidad, null);
+});
+
+test('parsearDetallePedido: acepta identificar solo por CodigoBarras sin PLU', () => {
+  const matriz = [
+    ['PLU', 'CodigoBarras', 'Cantidad'],
+    ['', '7798012345678', 50],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.deepStrictEqual(errores, []);
+  assert.strictEqual(lineas.length, 1);
+  assert.strictEqual(lineas[0].plu, null);
+  assert.strictEqual(lineas[0].codigoBarras, '7798012345678');
+});
+
+test('parsearDetallePedido: matriz vacía (solo títulos) genera error de ítems', () => {
+  const matriz = [
+    ['PLU', 'Cantidad', 'Descripcion'],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.strictEqual(lineas.length, 0);
+  assert.ok(errores.some(e => e.includes('no tiene ítems')), errores.join(' | '));
+});
+
+test('parsearDetallePedido: deduplica por orden (mismo PLU en dos filas = dos líneas en salida)', () => {
+  const matriz = [
+    ['PLU', 'Cantidad'],
+    ['2124', 12],
+    ['2124', 24],
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.deepStrictEqual(errores, []);
+  assert.strictEqual(lineas.length, 2, 'NO deduplica: ambas líneas aparecen');
+  assert.strictEqual(lineas[0].cantidad, 12);
+  assert.strictEqual(lineas[1].cantidad, 24);
+  assert.strictEqual(lineas[0].orden, 1);
+  assert.strictEqual(lineas[1].orden, 2);
 });

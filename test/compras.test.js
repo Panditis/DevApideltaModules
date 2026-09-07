@@ -258,9 +258,23 @@ test('construirPedido normaliza las líneas y arranca PENDIENTE', () => {
   assert.strictEqual(p.fechaRetiro, null);
   assert.strictEqual(p.observacion, '');
   assert.deepStrictEqual(p.items[0], {
-    plu: '4409', nombre: 'Nuez granel', unidad: 'kg', cantidad: 10,
+    plu: '4409', nombre: 'Nuez granel', unidad: 'kg', cantidad: 10, precioUnitario: null,
     cantidadEntregada: null, estado: 'pedido', obs: '',
   });
+  assert.strictEqual(p.total, null);
+});
+test('construirPedido calcula el total estimado cuando los items traen precio', () => {
+  const p = construirPedido({
+    numero: 'P-0001', fechaISO: '2026-08-01', proveedor: 'ACME',
+    items: [
+      { plu: '4409', nombre: 'Nuez granel', unidad: 'kg', cantidad: 10, precio: 500 },
+      { plu: '1234', nombre: 'Aceite', unidad: 'un', cantidad: 6 },
+    ],
+  });
+  assert.strictEqual(p.items[0].precioUnitario, 500);
+  assert.strictEqual(p.items[1].precioUnitario, null);
+  // El item sin precio no suma: el total es sólo lo que sí se pudo estimar.
+  assert.strictEqual(p.total, 5000);
 });
 test('construirPedido registra el ts inyectado en el historial', () => {
   const p = construirPedido({

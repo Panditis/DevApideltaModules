@@ -595,6 +595,8 @@
 
         <h3>Cargar una venta</h3>
         <ol>
+          <li>Si arrancás turno o día nuevo, apretá <b>Tickets</b> → <b>Borrar todos</b>
+            para vaciar el registro de tickets anteriores.</li>
           <li>Entrá a la pestaña <b>Facturador</b>.</li>
           <li>Escaneá los productos, o buscalos por nombre. Cada escaneo suma una línea.</li>
           <li>Podés cambiar a mano la cantidad, el precio y el descuento de cada línea.</li>
@@ -672,6 +674,7 @@
     <h2 id="tituloGuardados">Tickets guardados</h2>
     <div id="listaGuardados"></div>
     <div class="fila" style="margin-top:12px">
+      <button class="peligro" id="btnBorrarTodos">Borrar todos</button>
       <button id="btnExportarXlsx">Exportar Excel</button>
       <button id="btnRespaldo">Descargar respaldo</button>
       <button id="btnRestaurar">Restaurar respaldo</button>
@@ -1569,9 +1572,12 @@ if (CATALOGO_EMBEBIDO && (!catalogo || CATALOGO_EMBEBIDO.generado > catalogo.gen
 }
 let indice = construirIndice(catalogo ? catalogo.productos : []);
 let pedidos = leer(K.ped, []);
-const borrador = leer(K.borr, {});
-let lineas = Array.isArray(borrador.lineas) ? borrador.lineas : [];
-let pagos = Array.isArray(borrador.pagos) ? borrador.pagos : [];
+// Al abrir la pestaña se descarta el borrador anterior (líneas/pagos de una venta a
+// medio cargar): abrir el facturador siempre debería arrancar en blanco, no retomar
+// lo que haya quedado de la última vez.
+localStorage.removeItem(K.borr);
+let lineas = [];
+let pagos = [];
 let terminal = leer(K.term, null);
 let filasPendientes = null;
 
@@ -2328,6 +2334,14 @@ function detalleGuardado(p, i) {
       '</div>' +
     '</div></details>';
 }
+
+$('#btnBorrarTodos').onclick = async () => {
+  if (!pedidos.length) return avisoModal('No hay tickets guardados.');
+  if (!await confirmarModal('¿Borrar los ' + pedidos.length + ' tickets guardados? No se puede deshacer.')) return;
+  pedidos = [];
+  grabar(K.ped, pedidos);
+  pintarGuardados();
+};
 
 $('#listaGuardados').onclick = async e => {
   const im = e.target.closest('button[data-imprimir]');

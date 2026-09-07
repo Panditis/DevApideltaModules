@@ -285,7 +285,12 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 .ant-dropdown-item{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;
   border-radius:var(--borderRadiusSM);cursor:pointer;transition:background var(--motion);}
 .ant-dropdown-item:hover{background:var(--colorFillTertiary);}
+.ant-dropdown-item[aria-selected="true"]{background:var(--colorPrimaryBg);}
 .ant-dropdown-empty{padding:12px;font-size:14px;color:var(--colorTextTertiary);}
+/* Select-a-medida: mismo look que .ant-select (borde, flecha) pero sobre un <button>,
+   para poder mostrar opciones con varias líneas y un Tag de estado con color. */
+.ant-select-btn{display:flex;align-items:center;text-align:left;font-family:inherit;}
+.ant-select-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ── Empty / Result ───────────────────────────────────────────────────────── */
 .ant-empty{padding:48px 16px;text-align:center;}
@@ -407,9 +412,13 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 <section id="tab-seguimiento" class="tab-panel hidden" role="tabpanel" aria-label="Seguimiento de pedidos">
   <div class="ant-card">
     <div class="ant-card-body ant-card-body-sm ant-toolbar">
-      <div class="flex-1 min-w-[20rem]">
-        <label class="ant-label" for="segPedido">Pedido</label>
-        <select id="segPedido" class="ant-select"></select>
+      <div class="flex-1 min-w-[20rem] relative">
+        <label class="ant-label" id="segPedidoLabel">Pedido</label>
+        <button type="button" id="segPedidoBtn" class="ant-select ant-select-btn"
+          aria-haspopup="listbox" aria-expanded="false" aria-labelledby="segPedidoLabel segPedidoBtnTxt">
+          <span id="segPedidoBtnTxt" class="t-ter">Sin pedidos</span>
+        </button>
+        <div id="segPedidoLista" class="ant-dropdown hidden" role="listbox" aria-label="Pedidos"></div>
       </div>
       <div class="w-56">
         <label class="ant-label" for="segProv">Proveedor</label>
@@ -544,6 +553,7 @@ let pedidosTodos = [];          // cache de /api/compras/pedidos, compartido por
 let pedidoSel = null;           // copia editable del pedido en seguimiento
 let comprobantesInfo = null;    // { candidatos, comparacion, vinculado, vinculadas } del pedido seleccionado
 let comprobantesCargando = false;
+let comprobantesError = null;   // mensaje si falló la búsqueda en SIGA (la card se muestra igual)
 const charts = {};
 
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -969,7 +979,7 @@ $('#btnGenerar').addEventListener('click', generarPedido);
 async function generarPedido() {
   const items = (armado.filas || [])
     .filter(f => Number(cantidades[f.plu]) > 0)
-    .map(f => ({ plu: f.plu, nombre: f.nombre, unidad: f.unidad, cantidad: Number(cantidades[f.plu]) }));
+    .map(f => ({ plu: f.plu, nombre: f.nombre, unidad: f.unidad, cantidad: Number(cantidades[f.plu]), precio: f.ultimoPrecio }));
   if (!items.length) return;
   try {
     const r = await apiFetch('/api/compras/pedidos', {
@@ -1043,14 +1053,23 @@ function imprimirPedido(pedido) {
 // ═══ Tab 2: seguimiento ═══════════════════════════════════════════════════════
 // Un solo GET sin filtros alimenta las dos pestañas: el filtrado por proveedor y estado
 // se hace en el cliente, que ya tiene la lista entera.
+let segError = null;         // mensaje del último fetch fallido, para no perderlo si seleccionarPedido() redibuja
 async function cargarPedidos(forzar) {
   if (pedidosTodos.length && !forzar) { renderSelectores(); return; }
+  const primeraCarga = !pedidosTodos.length;
+  $('#btnRefrescarPedidos').disabled = true;
+  if (primeraCarga) {
+    $('#segDetalle').innerHTML = `<div class="ant-card">${estadoVacio('Cargando pedidos…', 'Trayendo pedidos desde SIGA.', 'cargando')}</div>`;
+  }
   try {
     const r = await apiFetch('/api/compras/pedidos');
     pedidosTodos = Array.isArray(r) ? r : [];
+    segError = null;
   } catch (e) {
     pedidosTodos = [];
-    $('#segDetalle').innerHTML = `<div class="ant-card">${estadoVacio('No se pudieron cargar los pedidos', e.message, 'error')}</div>`;
+    segError = e.message;
+  } finally {
+    $('#btnRefrescarPedidos').disabled = false;
   }
   renderSelectores();
 }
@@ -1074,21 +1093,64 @@ function pedidosFiltrados() {
   const verCerrados = $('#segCerrados').checked;
   return pedidosTodos.filter(p => (!prov || p.proveedor === prov) && (verCerrados || p.estado === 'PENDIENTE'));
 }
+let segPedidoNumero = null;   // reemplaza al .value de un <select> nativo
+
+// Reemplaza el <select> nativo por un botón + lista propia (mismo patrón que
+// #provQ/#provLista) porque el popup de un <select> lo pinta el SO y no se puede
+// estilar: acá cada opción puede llevar el Tag de estado con color y el total de líneas.
+function totalLineas(p) {
+  const n = (p.items || []).length;
+  return `${n} línea${n === 1 ? '' : 's'}`;
+}
 function renderListaPedidos() {
   const lista = pedidosFiltrados();
-  const actual = pedidoSel && pedidoSel.numero;
-  $('#segPedido').innerHTML = lista.length
-    ? lista.map(p => `<option value="${escAttr(p.numero)}">${escAttr(p.numero)} · ${escAttr(p.fecha)} · ${escAttr(p.proveedor)} (${escAttr(p.estado)})</option>`).join('')
-    : '<option value="">Sin pedidos</option>';
-  if (lista.some(p => p.numero === actual)) $('#segPedido').value = actual;
+  if (!lista.some(p => p.numero === segPedidoNumero)) segPedidoNumero = lista[0] ? lista[0].numero : null;
+  const cont = $('#segPedidoLista');
+  cont.innerHTML = lista.length
+    ? lista.map(p => `<button type="button" class="js-segPedido ant-dropdown-item" role="option"
+         data-numero="${escAttr(p.numero)}" aria-selected="${p.numero === segPedidoNumero}">
+         <span class="flex items-center gap-2">
+           <span class="num" style="font-weight:600">${escAttr(p.numero)}</span>
+           ${chipEstado(p.estado)}
+           <span class="ml-auto num" style="font-weight:600">${money(p.total)}</span>
+         </span>
+         <span class="block t-12 t-ter mt-1">${escAttr(p.fecha)} · ${escAttr(p.proveedor)} · ${totalLineas(p)}</span>
+       </button>`).join('')
+    : `<div class="ant-dropdown-empty">Sin pedidos con estos filtros.</div>`;
+  cont.querySelectorAll('.js-segPedido').forEach(b => b.addEventListener('click', () => {
+    segPedidoNumero = b.dataset.numero;
+    cerrarListaPedidos();
+    renderListaPedidos();
+  }));
+  const p = lista.find(x => x.numero === segPedidoNumero);
+  $('#segPedidoBtnTxt').className = p ? '' : 't-ter';
+  $('#segPedidoBtnTxt').textContent = p
+    ? `${p.numero} · ${p.fecha} · ${p.proveedor} · ${totalLineas(p)} · ${money(p.total)} (${p.estado})`
+    : (lista.length ? 'Elegí un pedido' : 'Sin pedidos');
   seleccionarPedido();
 }
 ['#segProv', '#segCerrados'].forEach(s => $(s).addEventListener('change', renderListaPedidos));
-$('#segPedido').addEventListener('change', seleccionarPedido);
+function cerrarListaPedidos() {
+  $('#segPedidoLista').classList.add('hidden');
+  $('#segPedidoBtn').setAttribute('aria-expanded', 'false');
+}
+$('#segPedidoBtn').addEventListener('click', () => {
+  const abrir = $('#segPedidoLista').classList.contains('hidden');
+  if (abrir) { $('#segPedidoLista').classList.remove('hidden'); $('#segPedidoBtn').setAttribute('aria-expanded', 'true'); }
+  else cerrarListaPedidos();
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#segPedidoBtn') && !e.target.closest('#segPedidoLista')) cerrarListaPedidos();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('#segPedidoLista').classList.contains('hidden')) {
+    cerrarListaPedidos();
+    $('#segPedidoBtn').focus();
+  }
+});
 
 function seleccionarPedido() {
-  const numero = $('#segPedido').value;
-  const p = pedidosTodos.find(x => x.numero === numero);
+  const p = pedidosTodos.find(x => x.numero === segPedidoNumero);
   // Copia profunda de items: se editan en memoria y recién se mandan al Guardar.
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
   comprobantesInfo = null;
@@ -1114,8 +1176,8 @@ function tagLinea(estado) {
   return `<span class="ant-tag ${cls}">${escAttr(txt)}</span>`;
 }
 
-// Sólo aparece con el pedido PENDIENTE. Sin candidatos en la ventana de fechas del
-// proveedor, no se muestra nada — no hay botón "buscar" que el usuario tenga que acordarse de tocar.
+// Sólo aparece con el pedido PENDIENTE. Se muestra siempre, incluso sin candidatos o si
+// falló la consulta a SIGA: así el usuario sabe dónde va a aparecer el cruce cuando haya algo.
 function renderComprobantesCard() {
   if (comprobantesCargando) {
     return `<div class="ant-card mt-4"><div class="ant-card-body ant-card-body-sm">
@@ -1123,7 +1185,26 @@ function renderComprobantesCard() {
     </div></div>`;
   }
   const info = comprobantesInfo;
-  if (!info || !info.candidatos.length) return '';
+  // La card queda visible siempre (aunque no haya candidatos o falle la búsqueda):
+  // así el usuario sabe dónde va a aparecer el cruce en vez de que la sección desaparezca.
+  if (comprobantesError) {
+    return `<div class="ant-card mt-4">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Comprobantes encontrados</h3></div>
+      <div class="ant-card-body ant-card-body-sm">
+        ${estadoVacio('No se pudo buscar en SIGA', comprobantesError, 'error')}
+      </div>
+    </div>`;
+  }
+  if (!info || !info.candidatos.length) {
+    const v = info && info.ventana;
+    const rango = v && v.desde ? `Se buscó entre ${fechaCorta(v.desde)} y ${fechaCorta(v.hasta)}.` : '';
+    return `<div class="ant-card mt-4">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Comprobantes encontrados</h3></div>
+      <div class="ant-card-body ant-card-body-sm">
+        ${estadoVacio('Ningún comprobante de este proveedor todavía', rango || 'Cuando se cargue la factura en SIGA va a aparecer acá.')}
+      </div>
+    </div>`;
+  }
   const marcada = c => info.vinculado ? info.vinculadas.includes(c.clave) : c.sugerido;
   const cumplimiento = info.comparacion.resumen.cumplimientoPct;
   return `
@@ -1152,7 +1233,9 @@ function renderComprobantesCard() {
 function renderSeguimiento() {
   const cont = $('#segDetalle');
   if (!pedidoSel) {
-    cont.innerHTML = `<div class="ant-card">${estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido del desplegable para ver y editar sus líneas.')}</div>`;
+    cont.innerHTML = `<div class="ant-card">${segError
+      ? estadoVacio('No se pudieron cargar los pedidos', segError, 'error')
+      : estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido del desplegable para ver y editar sus líneas.')}</div>`;
     return;
   }
   const p = pedidoSel;
@@ -1172,7 +1255,7 @@ function renderSeguimiento() {
         <div><span class="ant-desc-label">Proveedor</span><span class="ant-desc-value">${escAttr(p.proveedor)}</span></div>
         <div><span class="ant-desc-label">Fecha del pedido</span><span class="ant-desc-value">${escAttr(p.fecha)}</span></div>
         <div><span class="ant-desc-label">Líneas</span><span class="ant-desc-value">${p.items.length}</span></div>
-        <div><span class="ant-desc-label">Entregadas</span><span class="ant-desc-value">${entregadas} <span class="t-ter">/ ${p.items.length}</span></span></div>
+        <div><span class="ant-desc-label">Entregadas</span><span class="ant-desc-value" id="segEntregadasCount">${entregadas} <span class="t-ter">/ ${p.items.length}</span></span></div>
       </div>
       <div class="grid md:grid-cols-3 gap-4">
         <div><label class="ant-label" for="segEstimada">Fecha estimada de retiro</label>
@@ -1228,7 +1311,14 @@ function renderSeguimiento() {
     it.estado = s.value;
     // El estado dicta la cantidad entregada; después se puede bajar a mano.
     it.cantidadEntregada = s.value === 'entregado' ? it.cantidad : (s.value === 'pedido' ? null : 0);
-    renderSeguimiento();
+    // Actualiza sólo lo que cambió en vez de renderSeguimiento(): un redibujo completo
+    // de la tabla tira el <select> que acaba de disparar el 'change' y el usuario
+    // pierde el foco (y el scroll) en medio de resolver varias líneas seguidas.
+    s.closest('tr').querySelector('.js-entregada').value = it.cantidadEntregada == null ? '' : it.cantidadEntregada;
+    s.nextElementSibling.innerHTML = tagLinea(it.estado);
+    const entregadas = p.items.filter(l => l.estado === 'entregado').length;
+    $('#segEntregadasCount').innerHTML = `${entregadas} <span class="t-ter">/ ${p.items.length}</span>`;
+    actualizarBotonCerrar();
   }));
   cont.querySelectorAll('.js-entregada').forEach(inp => inp.addEventListener('input', () => {
     const it = p.items[Number(inp.dataset.i)];
@@ -1293,6 +1383,7 @@ async function enviarSeguimiento(estado) {
 async function cargarComprobantes(numero) {
   comprobantesCargando = true;
   comprobantesInfo = null;
+  comprobantesError = null;
   renderSeguimiento();
   try {
     const data = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero));
@@ -1306,6 +1397,7 @@ async function cargarComprobantes(numero) {
     if (!pedidoSel || pedidoSel.numero !== numero) return;
     // Sin bloquear el pedido: si SIGA no responde, se sigue pudiendo ver y editar a mano.
     comprobantesInfo = null;
+    comprobantesError = e.message;
   } finally {
     if (pedidoSel && pedidoSel.numero === numero) {
       comprobantesCargando = false;
