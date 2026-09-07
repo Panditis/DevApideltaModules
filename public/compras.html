@@ -748,33 +748,38 @@ $('#xlsxPedido').addEventListener('change', async () => {
 // se agrega como fila sintética con precio 0 (sin historial de compra), y lo ambiguo
 // o no encontrado se deja afuera para que el usuario lo revise a mano.
 function aplicarImportacion(r) {
-  if (r.erroresArchivo && r.erroresArchivo.length) {
+  // Sin ninguna línea (columna faltante, archivo vacío): no hay nada para aplicar,
+  // se corta acá. Con líneas sí hay algo aprovechable aunque el archivo también
+  // traiga errores de fila puntuales (ver más abajo) — no se descarta todo por eso.
+  if (!r.lineas.length && r.erroresArchivo && r.erroresArchivo.length) {
     avisar(r.erroresArchivo.join('\n'), 'Error en el archivo');
     return;
   }
   const pendientes = [];
   for (const l of r.lineas) {
-    if (l.estado === 'ok') {
-      let f = armado.filas.find(f => f.plu === l.resuelto);
-      if (!f) {
-        f = {
-          plu: l.resuelto, nombre: l.nombreSiga, unidad: 'UN',
-          ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
-          stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
-          componentes: [], consumoMensual: [], abc: null,
-          demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
-          activo: true, importado: true,
-        };
-        armado.filas.push(f);
-      }
-      cantidades[l.resuelto] = l.cantidad;
-    } else {
-      pendientes.push(l);
+    if (l.estado !== 'ok') { pendientes.push(l); continue; }
+    // Cantidad inválida (0, negativa, no numérica): el motivo ya quedó en
+    // erroresArchivo con el número de fila. Se salta sin tocar la grilla, para no
+    // pisar una cantidad tipeada a mano con un valor inválido.
+    if (!(Number(l.cantidad) > 0)) continue;
+    let f = armado.filas.find(f => f.plu === l.resuelto);
+    if (!f) {
+      f = {
+        plu: l.resuelto, nombre: l.nombreSiga, unidad: 'UN',
+        ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
+        stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
+        componentes: [], consumoMensual: [], abc: null,
+        demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
+        activo: true, importado: true,
+      };
+      armado.filas.push(f);
     }
+    cantidades[l.resuelto] = l.cantidad;
   }
   renderArmado();
-  const detalle = pendientes.map(l =>
+  const detallePendientes = pendientes.map(l =>
     `Fila ${l.fila} (${l.plu || l.codigoProveedor || l.codigoBarras || '?'}): ${(l.notas || []).join(' ')}`);
+  const detalle = [...(r.erroresArchivo || []), ...detallePendientes];
   avisar(
     `Importado: ${r.resueltos} aplicados, ${r.ambiguos} ambiguos, ${r.noEncontrados} no encontrados` +
       (detalle.length ? '\n\n' + detalle.join('\n') : ''),
