@@ -94,6 +94,7 @@ async function productosCompradosAlProveedor(idProveedor) {
         AND c.IdProveedor=cp.IdProveedor
       WHERE c.IdProveedor = @idProv
         AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+        AND LTRIM(RTRIM(cp.IdProducto)) <> '1'
     ), agg AS (
       SELECT IdProducto, MAX(Fecha) AS UltimaFecha, SUM(Cantidad) AS CantTotal, COUNT(*) AS Compras
       FROM cc GROUP BY IdProducto
@@ -241,6 +242,8 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
       coberturaSucursales: compras.coberturaDias(suc.total, compras.ventasEq(plu, frac, ventasPorPlu) / ventanaSuc),
     };
   });
+
+  filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 
   return { proveedor, idProveedor, meses: 24, ventanaSuc,
     timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas };

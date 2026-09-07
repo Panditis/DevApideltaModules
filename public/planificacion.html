@@ -3203,15 +3203,16 @@ function construirOrdenes() {
 // POST compartido a Producción: lo usa tanto el botón "Enviar a producción"
 // como el modal que ofrece enviar las órdenes recién reservadas, para que el
 // toast de éxito y el manejo de errores sean consistentes en ambos flujos.
-async function postOrdenesProduccion(ordenes) {
-  const resp = await api('POST', '/api/enviar-produccion', ordenes);
+async function postOrdenesProduccion(ordenes, modo) {
+  const resp = await api('POST', '/api/enviar-produccion', modo ? { ordenes, modo } : ordenes);
   // El servidor descarta las órdenes ya recepcionadas en SiGA. Normalmente construirOrdenes()
   // ya las filtró, así que si vuelve alguna es porque el plan en pantalla quedó viejo: se avisa
   // en vez de dejar creer que se enviaron.
   const omitidas = Array.isArray(resp?.recepcionadasOmitidas) ? resp.recepcionadasOmitidas : [];
   const enviadas = ordenes.length - omitidas.length;
   if (enviadas > 0) {
-    toast(`✓ ${enviadas} orden${enviadas !== 1 ? 'es' : ''} enviadas a Producción del Día`);
+    const reempl = resp?.reemplazadas > 0 ? ` (se eliminaron ${resp.reemplazadas} del día)` : '';
+    toast(`✓ ${enviadas} orden${enviadas !== 1 ? 'es' : ''} enviadas a Producción del Día${reempl}`);
   }
   if (omitidas.length) {
     const detalle = omitidas.map(o => `${o.producto} (mov #${o.numeroMovimiento})`).join(', ');
@@ -3396,31 +3397,40 @@ async function confirmarEnviarProduccion() {
     );
     if (!ok) return;
   }
-  // Aviso de duplicados: órdenes con mismo producto + fecha ya enviadas a producción
+  // Ya hay pedidos cargados ese día: preguntar cómo resolverlo. 'reemplazar' vacía el día
+  // (menos lo protegido: completo o ya trabajado en producción, igual que el servidor) y deja
+  // sólo los nuevos; 'sumar' suma cantidad a la orden existente en vez de pisarla. Sin
+  // pedidos previos ese día, se envía directo (comportamiento de siempre).
+  let modo = null;
   try {
     const existentes = (await api('GET', '/api/ordenes-produccion')) || [];
-    const k = o => `${o.fecha||''}|${(o.producto||'').trim().toLowerCase()}`;
-    const prevMap = new Map((existentes || []).map(o => [k(o), o]));
-    const esCompleta = o => { const e = prevMap.get(k(o)); return !!e && (e.terminado === true || e.estado === 'listo'); };
-    const dup = ordenes.filter(o => prevMap.has(k(o)));
-    if (dup.length) {
-      const aSobre = dup.filter(o => !esCompleta(o));
-      const completas = dup.filter(esCompleta);
-      const bloques = [];
-      if (aSobre.length) bloques.push(`Se sobreescribirá${aSobre.length>1?'n':''} con los datos nuevos:\n· ${aSobre.map(o=>o.producto).join('\n· ')}`);
-      if (completas.length) bloques.push(`Ya completada${completas.length>1?'s':''} → se verifica${completas.length>1?'n':''} y se mantiene${completas.length>1?'n':''} oculta${completas.length>1?'s':''} (no se sobreescribe${completas.length>1?'n':''}):\n· ${completas.map(o=>o.producto).join('\n· ')}`);
-      const ok = await showConfirm(
-        '⚠ Ya enviadas hoy',
-        `${bloques.join('\n\n')}\n\n¿Continuar?`,
-        'Sobreescribir y enviar'
+    const delDia = existentes.filter(o => o.fecha === fechaPlanActual);
+    if (delDia.length) {
+      const n = delDia.length;
+      const reemplazar = await showConfirm(
+        '⚠ Ya hay pedidos cargados hoy',
+        `Ya hay ${n} pedido${n>1?'s':''} de producción cargado${n>1?'s':''} para hoy.\n\n`
+        + '¿Eliminar los existentes y dejar sólo los nuevos?\n\n'
+        + '(Los ya terminados o trabajados en producción no se borran.)',
+        'Eliminar y dejar los nuevos'
       );
-      if (!ok) return;
+      if (reemplazar) {
+        modo = 'reemplazar';
+      } else {
+        const sumar = await showConfirm(
+          '¿Sumar a lo existente?',
+          'Se va a sumar la cantidad nueva a la orden ya cargada del mismo producto, en vez de pisarla.\n\n¿Continuar?',
+          'Sumar cantidades'
+        );
+        if (!sumar) return;
+        modo = 'sumar';
+      }
     }
   } catch (e) { /* si la consulta falla, continúa el envío normal */ }
   const btn = document.getElementById('btnConfirmarEnviar');
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
-    await postOrdenesProduccion(ordenes);
+    await postOrdenesProduccion(ordenes, modo);
     document.getElementById('overlayEnviar').classList.remove('open');
   } catch (e) {
     toast('Error al enviar: ' + mensajeApiError(e), true);

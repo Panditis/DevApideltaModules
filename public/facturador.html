@@ -1387,12 +1387,17 @@ function filasDeTickets(pedidos) {
     const importes = columnasPago.map(m => (porMedio.has(m) ? porMedio.get(m) : ''));
     const fecha = p.fechaLocal || (p.fecha ? new Date(p.fecha).toLocaleDateString('es-AR') : '');
     const hora = p.horaLocal || (p.fecha ? new Date(p.fecha).toLocaleTimeString('es-AR') : '');
+    // El ticket, la fecha/hora, cliente/vendedor, total y medio de pago son datos del
+    // ticket, no de la línea: van una sola vez, en la primera fila del grupo.
+    let esPrimera = true;
     for (const l of p.lineas || []) {
-      filas.push([p.numero, fecha, hora, p.cliente || '', p.vendedor || '',
+      filas.push([esPrimera ? p.numero : '', esPrimera ? fecha : '', esPrimera ? hora : '',
+        esPrimera ? (p.cliente || '') : '', esPrimera ? (p.vendedor || '') : '',
         String(l.plu || ''), codigoDeCarga(l), l.nombre, l.cant, l.unidad || 'un',
         l.peso != null ? l.peso : '', l.precio, l.dtoPct || 0,
         l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
-        p.descuentoPct, p.total, medios, ...importes]);
+        p.descuentoPct, esPrimera ? p.total : '', esPrimera ? medios : '', ...importes]);
+      esPrimera = false;
     }
   }
   return filas;
