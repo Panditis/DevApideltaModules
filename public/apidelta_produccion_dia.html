@@ -3065,10 +3065,21 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   document.getElementById('pfBody').innerHTML = '<div class="formula-spinner">⏳ Cargando…</div>';
   document.getElementById('prodFinalModal').classList.add('open');
 
-  const [respData, formulaData] = await Promise.all([
+  const pluManual = String(codigo || '');
+  const [respData, formulaData, packagingPorPlu] = await Promise.all([
     fetch(`${SERVER_URL}/api/responsables`).then(r => r.json()).catch(() => []),
-    fetch(`${SERVER_URL}/api/formula?codigo=${encodeURIComponent(codigo)}&cantidad=1`).then(r => r.json()).catch(() => ({}))
+    fetch(`${SERVER_URL}/api/formula?codigo=${encodeURIComponent(codigo)}&cantidad=1`).then(r => r.json()).catch(() => ({})),
+    // Mismo fallback que la carga por orden: sin envase/tapa, se precarga lo que dice
+    // la fórmula de SiGA en vez de arrancar en "Granel/ninguno".
+    pluManual
+      ? fetch(`${SERVER_URL}/api/plan/packaging?plus=${encodeURIComponent(pluManual)}`).then(r => r.json()).catch(() => ({}))
+      : Promise.resolve({})
   ]);
+  const sugerido = packagingPorPlu[pluManual];
+  if (sugerido) {
+    if (sugerido.envase) { _pfElementos[0].envase = sugerido.envase.codigo; if (sugerido.envase.codigo && !ENVASES_MAP[String(sugerido.envase.codigo)]) ENVASES_MAP[String(sugerido.envase.codigo)] = sugerido.envase.nombre || String(sugerido.envase.codigo); }
+    if (sugerido.tapa)   { _pfElementos[0].tapa   = sugerido.tapa.codigo;   if (sugerido.tapa.codigo   && !TAPAS_MAP[String(sugerido.tapa.codigo)])     TAPAS_MAP[String(sugerido.tapa.codigo)]     = sugerido.tapa.nombre   || String(sugerido.tapa.codigo); }
+  }
 
   const allComps = formulaData.componentes || [];
   // Excluir envase/tapa/etiqueta: son insumos disponibles al producir.
