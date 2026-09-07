@@ -5,6 +5,9 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const compras = require('../lib/compras');
 const comprasImport = require('../lib/compras_import');
+// Se declara acá (y no junto al resto de la importación de facturas más abajo) porque
+// /api/compras/armado/importar-pedido también la necesita y va antes en el archivo.
+const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ── Rutas del módulo Compras ──────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -249,6 +252,30 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
     timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas };
 }));
 
+// Paso intermedio entre subir el xlsx del pedido y precargar cantidades en la grilla de
+// Armado: sólo parsea el archivo y resuelve los productos contra SIGA, no escribe nada.
+router.post('/api/compras/armado/importar-pedido', uploadCompraXlsx.single('archivo'), apiRoute(async (req) => {
+  const idProveedor = Number(req.body && req.body.idProveedor);
+  if (!Number.isFinite(idProveedor) || idProveedor <= 0) throw new Error('Falta idProveedor');
+  if (!req.file) throw new Error('No llegó ningún archivo.');
+
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
+  const hoja = wb.Sheets[wb.SheetNames[0]];
+  if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
+  const matriz = XLSX.utils.sheet_to_json(hoja, { header: 1, raw: true, defval: '' });
+
+  const { lineas, errores: erroresArchivo } = comprasImport.parsearDetallePedido(matriz);
+  const resueltas = lineas.length ? await resolverProductosCompra(idProveedor, lineas) : [];
+
+  return {
+    idProveedor, total: resueltas.length,
+    resueltos: resueltas.filter(l => l.estado === 'ok').length,
+    ambiguos: resueltas.filter(l => l.estado === 'ambiguo').length,
+    noEncontrados: resueltas.filter(l => l.estado === 'no-encontrado').length,
+    lineas: resueltas, erroresArchivo,
+  };
+}));
+
 // El número es correlativo y ordena cronológicamente, así que alcanza para el sort.
 router.get('/api/compras/pedidos', apiRoute(async (req) => {
   const proveedor = String(req.query.proveedor || '').trim();
@@ -309,8 +336,6 @@ router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidos
 // Sólo lectura: parsea el xlsx, resuelve los productos contra SIGA y devuelve la
 // previsualización. NO escribe nada en SIGA. El mapeo de las 12 tablas que tocaría
 // la carga real está relevado en docs/compras_siga_mapeo.md
-const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
 router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_import_prueba.html')));
 
 // Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
