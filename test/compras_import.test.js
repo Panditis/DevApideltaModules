@@ -385,19 +385,31 @@ test('parsearDetallePedido: toleran variantes en nombres de columna (espacios, a
   assert.strictEqual(lineas[0].cantidad, 12);
 });
 
-test('parsearDetallePedido: cantidad 0 y negativa generan errores separados sin cortar', () => {
+test('parsearDetallePedido: cantidad vacía o 0 se ignora en silencio (no es error)', () => {
   const matriz = [
     ['PLU', 'Cantidad'],
-    ['2124', 0],
+    ['2124', 0],       // catálogo del proveedor: este producto no se pide
+    ['2113', ''],       // idem, celda vacía
+    ['2139', 10],       // este sí se pide
+  ];
+  const { lineas, errores } = parsearDetallePedido(matriz);
+
+  assert.deepStrictEqual(errores, [], 'ni vacío ni 0 generan error');
+  assert.strictEqual(lineas.length, 1, 'solo la fila con cantidad > 0 llega a líneas');
+  assert.strictEqual(lineas[0].plu, '2139');
+});
+
+test('parsearDetallePedido: cantidad negativa genera error de fila sin cortar el resto', () => {
+  const matriz = [
+    ['PLU', 'Cantidad'],
+    ['2124', -5],
     ['2113', 10],
-    ['2139', -5],
   ];
   const { lineas, errores } = parsearDetallePedido(matriz);
 
   assert.ok(errores.some(e => e.includes('Fila 2') && e.includes('mayor a 0')), errores.join(' | '));
-  assert.ok(errores.some(e => e.includes('Fila 4') && e.includes('mayor a 0')), errores.join(' | '));
-  assert.strictEqual(lineas.length, 3, 'sigue parseando el resto de filas');
-  assert.strictEqual(lineas[1].cantidad, 10, 'la línea 3 válida se procesa');
+  assert.strictEqual(lineas.length, 1, 'la fila inválida no entra a líneas, la siguiente sí se procesa');
+  assert.strictEqual(lineas[0].plu, '2113');
 });
 
 test('parsearDetallePedido: cantidad ambigua con separador de miles se rechaza', () => {
@@ -408,8 +420,7 @@ test('parsearDetallePedido: cantidad ambigua con separador de miles se rechaza',
   const { lineas, errores } = parsearDetallePedido(matriz);
 
   assert.ok(errores.some(e => e.includes('Fila 2') && e.includes('no es un número válido')), errores.join(' | '));
-  assert.strictEqual(lineas.length, 1, 'se agrega igual pero con cantidad null');
-  assert.strictEqual(lineas[0].cantidad, null);
+  assert.strictEqual(lineas.length, 0, 'un formato de cantidad inválido no genera línea');
 });
 
 test('parsearDetallePedido: acepta identificar solo por CodigoBarras sin PLU', () => {
