@@ -2611,8 +2611,9 @@ app.use(require('./routes/rutas_facturador')({ apiRoute, query, LISTA_PRECIOS_VE
 
 // Control de compras: DATA_DIR es un const que no se hoistea, así que el registro va al
 // final como el de los demás routers. leerPedidosCompra viaja por deps porque también lo
-// usa el módulo Compras y se queda en server.js. Ninguna ruta que quedó en server.js
-// solapa con /compras/control ni con /api/compras/control/*.
+// usa el módulo Compras y se queda en server.js. La pantalla propia (/compras/control) ya
+// no existe — el módulo quedó reducido a /api/compras/control/*, embebido en /compras.
+// Ninguna ruta que quedó en server.js solapa con ese prefijo.
 app.use(require('./routes/rutas_compras_control')({
   apiRoute, leerJSON, guardarJSON, getPool, sql, DATA_DIR, leerPedidosCompra,
 }));
