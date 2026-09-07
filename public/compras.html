@@ -1324,7 +1324,10 @@ function aplicarComparacionAPedido(comparacion) {
     const fila = filasPorPlu.get(it.plu);
     if (!fila || fila.estado === 'sin_cargar') continue;
     it.estado = 'entregado';
-    it.cantidadEntregada = fila.cargado;
+    // Un excedente carga más de lo pedido: se acota igual que la edición manual
+    // (input .js-entregada), si no la línea muestra entregada > pedida hasta el
+    // Guardar, que sí lo recorta en el server (entregadaSegunEstado).
+    it.cantidadEntregada = Math.min(fila.cargado, it.cantidad);
   }
   if (!pedidoSel.fechaRetiro) {
     const fechas = (comparacion.comprobantes || []).map(c => c.fecha).filter(Boolean);
@@ -1335,17 +1338,24 @@ function aplicarComparacionAPedido(comparacion) {
 // Guarda el vínculo (mismo PUT que usaba Control, para no perder el dato que lee el
 // OTIF) y con la comparación fresca de esa selección precarga las líneas del pedido.
 async function aplicarYVincularComprobantes() {
+  const numero = pedidoSel.numero;
   const claves = [...document.querySelectorAll('#segComprobantesLista input:checked')].map(i => i.value);
   const btn = $('#btnAplicarComprobantes');
   if (btn) btn.disabled = true;
   try {
-    await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(pedidoSel.numero) + '/comprobantes', {
+    await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero) + '/comprobantes', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claves }),
     });
-    comprobantesInfo = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(pedidoSel.numero));
+    const data = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero));
+    // Mismo riesgo que en cargarComprobantes: el usuario pudo cambiar de pedido
+    // mientras este PUT+GET estaba en vuelo. Sin este chequeo, la comparación de
+    // un pedido termina precargando las líneas de otro en pantalla.
+    if (!pedidoSel || pedidoSel.numero !== numero) return;
+    comprobantesInfo = data;
     aplicarComparacionAPedido(comprobantesInfo.comparacion);
     renderSeguimiento();
   } catch (e) {
+    if (!pedidoSel || pedidoSel.numero !== numero) return;
     avisar('No se pudo aplicar el comprobante: ' + e.message, 'Error');
     if (btn) btn.disabled = false;
   }
