@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { ventanaDe, candidatosDeCompra, compararPedido, claveComprobante, signoDe } = require('../compras_control');
+const { ventanaDe, candidatosDeCompra, compararPedido, claveComprobante, signoDe } = require('../lib/compras_control');
 
 // ── Helpers de armado ────────────────────────────────────────────────────────
 function pedido(extra = {}) {

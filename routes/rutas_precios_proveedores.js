@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
-const preciosProv = require('./precios_proveedores');
+const preciosProv = require('../lib/precios_proveedores');
 
 // ── Rutas del módulo Precios de Proveedores ──────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -101,7 +101,7 @@ async function historialComprasAnio() {
   return out;
 }
 
-router.get('/precios-proveedores', (_req, res) => res.sendFile(path.join(__dirname, 'precios_proveedores.html')));
+router.get('/precios-proveedores', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'precios_proveedores.html')));
 
 router.get('/api/precios-proveedores/listado', apiRoute(async () => {
   const [universo, ultimo, historial] = await Promise.all([

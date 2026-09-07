@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { validarLineasReserva, normalizarLineasReserva, totalesReserva }
-  = require('../reservas_mercaderia');
+  = require('../lib/reservas_mercaderia');
 
 // ── Reservas de mercaderia mayorista: validacion y normalizacion ──────────────────────────────
 // Las lineas llegan del body del POST de /api/mayoristas/reservas. Son productos TERMINADOS
@@ -102,7 +102,7 @@ test('los totales cuentan lineas y unidades', () => {
   assert.deepStrictEqual(totales, { lineas: 2, unidades: 15 });
 });
 
-const { validarClienteReserva, validarCarritoUnCliente } = require('../reservas_mercaderia');
+const { validarClienteReserva, validarCarritoUnCliente } = require('../lib/reservas_mercaderia');
 
 // ── Un cliente por reserva ────────────────────────────────────────────────────────────────────
 // El carrito es mono-cliente a proposito: un cliente por vez es un movimiento de SiGA por vez,
@@ -179,7 +179,7 @@ function reservaActiva(extra) {
 
 
 
-const { nuevaReserva, anularReserva } = require('../reservas_mercaderia');
+const { nuevaReserva, anularReserva } = require('../lib/reservas_mercaderia');
 
 // ── Armado y anulacion ────────────────────────────────────────────────────────────────────────
 // La reserva se arma DESPUES de que SiGA confirmo el movimiento: el numero de comprobante es

@@ -19,7 +19,7 @@ module.exports = function crearRutasVentasHora(deps) {
   const router = express.Router();
 
 // ── Dashboard Ventas por Hora ──────────────────────────────────────────────────
-router.get('/ventas-hora', (_req, res) => res.sendFile(path.join(__dirname, 'ventas_hora.html')));
+router.get('/ventas-hora', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'ventas_hora.html')));
 
 router.get('/api/ventas-hora', apiRoute(async req => {
   const desde  = safeDate(req.query.desde);

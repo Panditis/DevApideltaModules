@@ -47,7 +47,7 @@ module.exports = function crearRutasProduccion(deps) {
   } = deps;
   const router = express.Router();
 
-router.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, cfg.produccionHtml || 'apidelta_produccion_dia.html')));
+router.get('/produccion',    (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', cfg.produccionHtml || 'apidelta_produccion_dia.html')));
 
 router.get('/api/produccion/registros', apiRoute(async () => leerJSON(PROD_REG_PATH, [])));
 // Historial: registros ya conciliados/archivados (fuera de Terminados). Filtro opcional por fecha.

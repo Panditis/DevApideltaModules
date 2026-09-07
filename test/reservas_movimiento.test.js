@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('../reservas_movimiento');
+const { migrarReservas, saldoLedger, itemsSinReservar, reservadoPorMovimiento, conciliarPorMovimiento, depositosProduccion, lineasAjusteMovimiento, lineasDiferenciasProduccion, lineasProduccionDesdeConciliacion, ordenesProducidasDeReserva, motivoBloqueoProduccion, sanearSellosReserva } = require('../lib/reservas_movimiento');
 
 const setStr = (...ns) => new Set(ns.map(String));
 
@@ -366,7 +366,7 @@ test('un terminado de otro producto no se ve afectado por la reserva', () => {
 // puede llegar en DOS filas (cargado a mano y por orden, o con pluTexto distinto que resuelve
 // al mismo PLU). Releyendo el mapa por fila, cada una se llevaba el reservado completo y al
 // deposito de reserva entraba el doble de lo apartado.
-const { terminadosPorPluDeConciliacion } = require('../reservas_movimiento');
+const { terminadosPorPluDeConciliacion } = require('../lib/reservas_movimiento');
 
 test('dos filas del mismo PLU no se llevan cada una el reservado completo', () => {
   // Arrange: 3 unidades apartadas; el mismo PLU llega en dos filas (plan y manual).

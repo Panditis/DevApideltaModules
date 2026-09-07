@@ -6,7 +6,7 @@ const {
   comprobantesPayway, comprobantesQR, comprobantesDeArchivo,
   clasificar, resumenPorSucursal, totalesGenerales, rangoFechas,
   terminalesDesconocidas, separarDuplicados, procesarArchivos,
-} = require('../cruce_terminales');
+} = require('../lib/cruce_terminales');
 
 // Réplica reducida del xlsx "Distribucion Terminales por sucursal": la fila de
 // sucursales usa celdas combinadas (nombre sólo en la primera columna del grupo).

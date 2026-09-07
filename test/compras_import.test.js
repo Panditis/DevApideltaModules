@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { parsearCompra, parsearCabecera, parsearDetalle, calcularTotales, aNumero, aFechaISO } = require('../compras_import');
+const { parsearCompra, parsearCabecera, parsearDetalle, calcularTotales, aNumero, aFechaISO } = require('../lib/compras_import');
 
 // ── Formato plano: una sola hoja con todo en columnas ───────────────────────
 const TITULOS_PLANO = [

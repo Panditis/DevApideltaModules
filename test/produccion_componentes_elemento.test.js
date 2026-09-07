@@ -13,7 +13,7 @@ const path = require('path');
 // que se extraen por nombre y se evalúan contra un DOM mínimo: sólo se implementan los métodos
 // que usan (querySelectorAll por clase y por [data-eidx], querySelector, dataset, value).
 
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'apidelta_produccion_dia.html'), 'utf8');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'public', 'apidelta_produccion_dia.html'), 'utf8');
 
 // Corta el fuente de una función balanceando llaves desde `function nombre(`. Sirve tanto para
 // las de una línea como para las de varias (el viejo corte por salto + llave sólo cubría las

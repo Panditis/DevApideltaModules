@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPlu } = require('../producto_carga');
+const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPlu } = require('../lib/producto_carga');
 
 // ── Producto de carga: contra qué producto se imputa la produccion de una linea mayorista ─────
 // El `catalogo` simula lo que devuelve la query de candidatos del endpoint: [{ plu, nombre }] de

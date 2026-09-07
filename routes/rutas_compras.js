@@ -3,8 +3,8 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const compras = require('./compras');
-const comprasImport = require('./compras_import');
+const compras = require('../lib/compras');
+const comprasImport = require('../lib/compras_import');
 
 // ── Rutas del módulo Compras ──────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -33,7 +33,7 @@ module.exports = function crearRutasCompras(deps) {
   } = deps;
   const router = express.Router();
 
-router.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, 'compras.html')));
+router.get('/compras',       (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras.html')));
 // Ruta histórica del módulo de reposición: ahora Compras es un solo módulo servido en /compras.
 router.get('/compras-modulo', (_req, res) => res.redirect(301, '/compras'));
 
@@ -94,6 +94,7 @@ async function productosCompradosAlProveedor(idProveedor) {
         AND c.IdProveedor=cp.IdProveedor
       WHERE c.IdProveedor = @idProv
         AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+        AND LTRIM(RTRIM(cp.IdProducto)) <> '1'
     ), agg AS (
       SELECT IdProducto, MAX(Fecha) AS UltimaFecha, SUM(Cantidad) AS CantTotal, COUNT(*) AS Compras
       FROM cc GROUP BY IdProducto
@@ -242,6 +243,8 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
     };
   });
 
+  filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
   return { proveedor, idProveedor, meses: 24, ventanaSuc,
     timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas };
 }));
@@ -308,7 +311,7 @@ router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidos
 // la carga real está relevado en docs/compras_siga_mapeo.md
 const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, 'compras_import_prueba.html')));
+router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_import_prueba.html')));
 
 // Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
 function hojaCompra(wb, nombre) {

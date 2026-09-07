@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { kgReserva, validarLineaPesable, lineaAApartar, granelReservadoPorPlu, pedidoReservadoPorPlu,
         granelReservadoNeto, restanteMayoristaPorReserva, imputarConsumoMayorista,
-        lineasADevolverMayorista, restantePedidoPorReserva, agruparRestante } = require('../reservas_pesables');
+        lineasADevolverMayorista, restantePedidoPorReserva, agruparRestante } = require('../lib/reservas_pesables');
 
 // ── Kilos a apartar ───────────────────────────────────────────────────────────
 // El bulto "Almendras 5Kg" lleva 5 kg de granel por unidad: pedir 3 aparta 15 kg.
@@ -250,8 +250,8 @@ test('redondea la suma de kg fraccionados para no arrastrar colas de punto flota
 // fisica. Se usan las funciones REALES de reservas_movimiento; lo unico replicado es la regla
 // del comprobante "resto" (vive en server.js y no se puede requerir sin levantar el server).
 // ponytail: replica de 3 lineas; si server.js cambia esa regla hay que espejarla aca.
-const { lineasDiferenciasProduccion, lineasAjusteMovimiento, conciliarPorMovimiento, saldoLedger } = require('../reservas_movimiento');
-const { partirConsumoMayorista } = require('../reservas_pesables');
+const { lineasDiferenciasProduccion, lineasAjusteMovimiento, conciliarPorMovimiento, saldoLedger } = require('../lib/reservas_movimiento');
+const { partirConsumoMayorista } = require('../lib/reservas_pesables');
 
 const DEPS = { salida: 1, recepcion: 3, diferencias: 1, reserva: 2 };
 const PLU_GRANEL = '7302';
@@ -796,7 +796,7 @@ test('dos lotes no meten al deposito de reserva mas unidades que las apartadas',
 // separado, un dia normal (el plan consume justo lo que reservo) entregaba las unidades al
 // deposito de reserva SIN cobrarle el granel a la reserva. El deposito quedaba con la materia
 // prima Y el producto terminado del mismo pedido, y nada reconciliaba los dos ledgers.
-const { basesEntregaMayorista, imputarEntregaMayorista } = require('../reservas_pesables');
+const { basesEntregaMayorista, imputarEntregaMayorista } = require('../lib/reservas_pesables');
 
 test('el dia normal cobra el granel de las unidades que entrega', () => {
   // Arrange: el plan aparto 100 kg de granel, la reserva mayorista 15 kg para 3 unidades.
@@ -952,7 +952,7 @@ test('los kg fraccionados de la entrega no arrastran colas de punto flotante', (
 // ya habia convertido en producto terminado se quedaba varado en el deposito de reserva, sin
 // ninguna reserva viva que lo reclamara, y el aviso decia "la produccion ya consumio N" — que
 // es enganoso: el granel no salio del edificio, se convirtio en mercaderia que sigue ahi.
-const { lineasTerminadoADevolverMayorista } = require('../reservas_pesables');
+const { lineasTerminadoADevolverMayorista } = require('../lib/reservas_pesables');
 
 test('sin produccion no hay terminado que devolver', () => {
   // Arrange
@@ -1017,7 +1017,7 @@ test('las unidades entregadas en dos lotes se devuelven de una sola vez', () => 
 // una diferencia que hay que resolver. Un PLU es granel O producto de carga, nunca los dos, asi
 // que en la practica solo uno de los dos saldos llega distinto de cero; el orden esta definido
 // igual para que la funcion sea total.
-const { ajustePropuesto } = require('../reservas_pesables');
+const { ajustePropuesto } = require('../lib/reservas_pesables');
 
 test('sin saldos no propone ningun ajuste', () => {
   // Arrange / Act
@@ -1105,7 +1105,7 @@ test('un saldo que no es numero se lee como cero', () => {
 // El endpoint solo hace IO (leer los json y pedirle el stock a SiGA); la regla de que esta
 // comprometido y que ajuste corresponde vive aca, que es donde se puede testear. Los ocho
 // defectos de esta feature estuvieron todos en esta clase de frontera.
-const { filasSaldoMayorista } = require('../reservas_pesables');
+const { filasSaldoMayorista } = require('../lib/reservas_pesables');
 
 test('sin reservas vivas no hay filas', () => {
   // Arrange / Act / Assert
@@ -1317,7 +1317,7 @@ test('ajustePropuesto emite cuatro tipos distintos', () => {
 
 test('el endpoint de ajuste acepta todos los tipos que se emiten', () => {
   // Arrange: la lista blanca del POST, leida del fuente.
-  const src = fs.readFileSync(path.join(raiz, 'rutas_mayoristas.js'), 'utf8');
+  const src = fs.readFileSync(path.join(raiz, 'routes', 'rutas_mayoristas.js'), 'utf8');
   const m = src.match(/const TIPOS = \[([^\]]+)\]/);
   assert.ok(m, 'no se encontro la lista TIPOS en el endpoint de ajuste');
   const aceptados = m[1].match(/'[^']+'/g).map(s => s.slice(1, -1));
@@ -1328,7 +1328,7 @@ test('el endpoint de ajuste acepta todos los tipos que se emiten', () => {
 
 test('la pantalla sabe etiquetar todos los tipos que se emiten', () => {
   // Arrange: las claves de AJUSTE_TXT, leidas del fuente de la pantalla.
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const m = html.match(/var AJUSTE_TXT = \{([\s\S]*?)\n\};/);
   assert.ok(m, 'no se encontro AJUSTE_TXT en pedidos_web.html');
   const etiquetados = (m[1].match(/'[a-z-]+':\s*\{/g) || []).map(s => s.split("'")[1]);
@@ -1339,7 +1339,7 @@ test('la pantalla sabe etiquetar todos los tipos que se emiten', () => {
 
 test('el verbo de cada tipo coincide con el sentido del traslado', () => {
   // Arrange
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const bloque = html.match(/var AJUSTE_TXT = \{([\s\S]*?)\n\};/)[1];
 
   // Act / Assert: "reponer-*" tiene que decir Reponer y "devolver-*", Devolver. Etiquetar con un
@@ -1363,7 +1363,7 @@ test('el verbo de cada tipo coincide con el sentido del traslado', () => {
 // producto de carga cae en el producto mismo cuando no hay intermedio.
 
 function cargarApartado() {
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const ini = html.indexOf('function apartadoDeProducto(');
   assert.notStrictEqual(ini, -1, 'no se encontro apartadoDeProducto en pedidos_web.html');
   let nivel = 0, visto = false, i;
@@ -1489,7 +1489,7 @@ test('un Bulto sin componente queda inerte con su motivo', () => {
 // descripcion, con el producto del pedido arriba y lo que se aparta abajo.
 
 function cargarDescripcion() {
-  const html = fs.readFileSync(path.join(raiz, 'pedidos_web.html'), 'utf8');
+  const html = fs.readFileSync(path.join(raiz, 'public', 'pedidos_web.html'), 'utf8');
   const src = ['descripcionLineaRes', 'unidadLineaRes'].map(nombre => {
     const ini = html.indexOf(`function ${nombre}(`);
     assert.notStrictEqual(ini, -1, `no se encontro ${nombre} en pedidos_web.html`);

@@ -5,7 +5,7 @@ const {
   catIdsSeguras, catIdsCsv, vencidoDiasSeguro,
   condMora, whereCtaCte, subClientesConSaldo, sqlClientesConSaldo, sqlComprobantes,
   totales, fechaISO,
-} = require('../cuentas_corrientes');
+} = require('../lib/cuentas_corrientes');
 
 // ── Constantes de negocio ────────────────────────────────────────────────────
 test('las constantes de negocio son las acordadas', () => {

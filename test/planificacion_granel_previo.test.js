@@ -13,7 +13,7 @@ const path = require('path');
 // nombre y se evalúan inyectando los bordes (API, modal de confirmación, toast) como stubs.
 // La config de grupos y la resolución del ref son las reales.
 
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'planificacion.html'), 'utf8');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'public', 'planificacion.html'), 'utf8');
 
 // Corta el fuente de una función balanceando llaves desde `function nombre(`, para que sirva
 // tanto con las de una línea (cfgGetReqGranel) como con las de varias (itemGranelPrevio).

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const H = require('../historial_sala');
+const H = require('../lib/historial_sala');
 
 // Dos lotes del mismo día: uno con dos tareas cargadas y otro sólo con envasado, que es el
 // caso más común en los resúmenes viejos.

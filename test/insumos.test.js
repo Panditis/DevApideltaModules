@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const ins = require('../insumos');
-const { mesAnterior } = require('../prediccion_consumo');
+const ins = require('../lib/insumos');
+const { mesAnterior } = require('../lib/prediccion_consumo');
 
 // Serie pareja de N meses cerrados hacia atrás desde hastaMes (que queda afuera:
 // es el mes en curso). Con 30 por mes, μ diario ≈ 1.

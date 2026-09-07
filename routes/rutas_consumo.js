@@ -22,7 +22,7 @@ module.exports = function crearRutasConsumo(deps) {
   const { apiRoute, leerJSON, guardarJSON, query, cfg, DATA_DIR } = deps;
   const router = express.Router();
 
-router.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, 'dashboard_consumo.html')));
+router.get('/consumo',       (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'dashboard_consumo.html')));
 
 // ── Dashboard de compras: consumo por ventas (presentaciones) vs producción (componente) ──
 const COMPRAS_EXCL_TC = "'DEV-COTIZACION','eNCRED','eNCRED-Web','eNCCE-Web','ePRE-NCRED','PRESUP','ePRE-FACT','ePRE-FACTX','ePRE-NDEBCHEQR','REMITOTRANSP','NCFICHAS','NCRED','LIQUIDACION'";

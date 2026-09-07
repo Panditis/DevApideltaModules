@@ -2563,26 +2563,40 @@ async function openProdFinalModal(id, presIndex = null) {
   document.getElementById('prodFinalModal').classList.add('open');
 
   // Una fórmula por PLU distinto entre las presentaciones (en paralelo).
-  const [respData, formulasPorPlu] = await Promise.all([
+  const plusElementos = [...new Set(_pfElementos.map(el => el.plu).filter(Boolean))];
+  const [respData, formulasPorPlu, packagingPorPlu] = await Promise.all([
     fetch(`${SERVER_URL}/api/responsables`).then(r => r.json()).catch(() => []),
     (async () => {
       const out = {};
-      const plus = [...new Set(_pfElementos.map(el => el.plu).filter(Boolean))];
-      if (!plus.length) {   // sin PLU: último recurso, buscar por nombre de producto
+      if (!plusElementos.length) {   // sin PLU: último recurso, buscar por nombre de producto
         const d = await fetch(`${SERVER_URL}/api/formula?producto=${encodeURIComponent(o.producto)}&cantidad=1`).then(r => r.json()).catch(() => ({}));
         out.__nombre__ = d.componentes || [];
         return out;
       }
-      await Promise.all(plus.map(async plu => {
+      await Promise.all(plusElementos.map(async plu => {
         const d = await fetch(`${SERVER_URL}/api/formula?codigo=${encodeURIComponent(plu)}&cantidad=1`).then(r => r.json()).catch(() => ({}));
         out[plu] = d.componentes || [];
       }));
       return out;
-    })()
+    })(),
+    // Envase/tapa que indica la fórmula de SiGA, para precargarlo cuando la orden no trae uno
+    // asignado (ver fallback más abajo).
+    plusElementos.length
+      ? fetch(`${SERVER_URL}/api/plan/packaging?plus=${plusElementos.map(encodeURIComponent).join(',')}`).then(r => r.json()).catch(() => ({}))
+      : Promise.resolve({})
   ]);
 
   const compsDe = el => formulasPorPlu[el.plu] || formulasPorPlu.__nombre__ || [];
   Object.values(formulasPorPlu).forEach(cs => _pfEnriquecerNombres(cs));
+  // Sin envase/tapa asignado desde planificación, se precarga lo que dice la fórmula de SiGA
+  // en vez de arrancar en "Granel/ninguno": el default silencioso era la causa más común de
+  // packaging sin descontar (nadie lo elegía a mano y quedaba vacío sin que se notara).
+  _pfElementos.forEach(el => {
+    const sugerido = packagingPorPlu[el.plu];
+    if (!sugerido) return;
+    if (!el.envase && sugerido.envase) el.envase = sugerido.envase.codigo;
+    if (!el.tapa   && sugerido.tapa)   el.tapa   = sugerido.tapa.codigo;
+  });
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   // Editables por elemento: todos los componentes salvo packaging (envase/tapa/etiqueta).
   _pfFactoresPorElem = _pfElementos.map(el => compsDe(el)

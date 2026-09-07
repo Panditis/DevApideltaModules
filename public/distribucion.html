@@ -1386,6 +1386,7 @@ applyConfigTabsState();
 tabsEl.addEventListener('click', e=>{ const b=e.target.closest('.tab'); if(b) activarTab(b.dataset.tab); });
 window.addEventListener('resize',()=>moverInk(document.querySelector('.tab.on')));
 
+const round2 = (n) => Math.round((n || 0) * 100) / 100;
 function exportarCSV() {
   if (tabActual === 'pesables') return exportarCSVPesables();
   const q = document.getElementById('q').value.trim().toLowerCase();
@@ -1394,21 +1395,21 @@ function exportarCSV() {
     (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
   const head = ['PLU', 'Producto', 'Depósito', ...SUC_A.map(s => s[1]), 'Total', 'Meses', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
-    r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.central,
-    ...SUC_A.map(([k]) => r.enviar[k] || 0), totalEnviar(r), r.meses || 0, (r.impNorm || 0).toFixed(4)].join(';')));
+    r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, Math.round(r.central || 0),
+    ...SUC_A.map(([k]) => Math.round(r.enviar[k] || 0)), Math.round(totalEnviar(r)), r.meses || 0, (r.impNorm || 0).toFixed(4)].join(';')));
   descargar(lines, 'distribucion_almacen.csv');
 }
 function exportarCSVPesables() {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const soloEnvio = document.getElementById('soloEnvio').checked;
-  const cell = (v) => esNum(v) ? v : (v || '');
+  const cell = (v) => esNum(v) ? round2(v) : (v || '');
   const rows = datosP.filter(r => (!soloEnvio || sumEnvVisP(r) > 0 || (listasData?.siemprePesable||[]).includes(Number(r.plu))) &&
     (!q || String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q)));
   const head = ['PLU', 'Producto', 'Granel kg', 'Depósito kg', ...SUC_P.map(s => s[1]), 'Total kg', 'Envasar', 'A envasar kg', 'A depósito kg', 'Ruteo', 'Importancia'];
   const lines = [head.join(';')].concat(rows.map(r => [
-    r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, r.F, r.H,
-    ...SUC_P.map(([k]) => cell(r.enviar[k])), sumEnvP(r), r.J, r.J === 'Si' ? r.D : 0,
-    r.J === 'Si' ? Math.max((r.D || 0) - sumEnvP(r), 0) : 0, r.BL || '', prioOf(r).toFixed(4)].join(';')));
+    r.plu, `"${(r.nombre || '').replace(/"/g, '""')}"`, round2(r.F), round2(r.H),
+    ...SUC_P.map(([k]) => cell(r.enviar[k])), round2(sumEnvP(r)), r.J, r.J === 'Si' ? round2(r.D) : 0,
+    r.J === 'Si' ? Math.max(round2((r.D || 0) - sumEnvP(r)), 0) : 0, r.BL || '', prioOf(r).toFixed(4)].join(';')));
   descargar(lines, 'distribucion_pesables.csv');
 }
 function exportarPDFAlmacen() {
@@ -1443,13 +1444,13 @@ function exportarPDFAlmacen() {
       const v = r.enviar[k]; const s = (r.stkSuc||{})[k]||0;
       const vTxt = v === 'Fact'
         ? '<span style="background:#fff3cd;color:#6b4c00;padding:1px 5px;border-radius:4px;font-size:9px">Fact</span>'
-        : ((v||0) > 0 ? `<b style="color:#2e4027">${v}</b>` : '<span style="color:#bbb">·</span>');
-      return `<td style="text-align:right;color:#adb3a6;font-size:9px">${s ? (+s).toFixed(2) : '·'}</td><td style="text-align:right">${vTxt}</td>`;
+        : ((v||0) > 0 ? `<b style="color:#2e4027">${Math.round(v)}</b>` : '<span style="color:#bbb">·</span>');
+      return `<td style="text-align:right;color:#adb3a6;font-size:9px">${s ? Math.round(s) : '·'}</td><td style="text-align:right">${vTxt}</td>`;
     }).join('');
     return `<tr style="background:${bg}">
       <td style="color:#888;font-size:10px">${r.plu}</td>
       <td style="font-weight:500">${r.nombre||''}</td>
-      <td style="text-align:right;color:#555">${r.central||'·'}</td>
+      <td style="text-align:right;color:#555">${r.central ? Math.round(r.central) : '·'}</td>
       ${sucs}
     </tr>`;
   }).join('');
@@ -1477,7 +1478,7 @@ function exportarPDFAlmacen() {
   </div>
   <div class="stats">
     <span>Productos: <b>${rows.length}</b></span>
-    <span>Σ enviar: <b>${totUnid.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}</b> unidades</span>
+    <span>Σ enviar: <b>${Math.round(totUnid).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}</b> unidades</span>
   </div>
   <table>
     <thead><tr><th rowspan="2">PLU</th><th rowspan="2">Producto</th><th class="r" rowspan="2">Depósito</th>${headSucName}</tr><tr>${headSucSub}</tr></thead>

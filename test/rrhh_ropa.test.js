@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   slugPrenda, siguienteIdEmpleado, normalizarEstado,
   normalizarPrenda, normalizarEmpleado, normalizarDocumento, resumen,
-} = require('../rrhh_ropa');
+} = require('../lib/rrhh_ropa');
 
 const PRENDAS = [
   { id: 'remera', nombre: 'Remera / Chomba' },
@@ -116,7 +116,7 @@ test('normalizarEmpleado conserva el resaltado sólo cuando viene en true', () =
 // El stream vive en rutas_rrhh.js (no se puede importar sin cablearle las deps del
 // server), así que se verifica el cableado sobre el fuente.
 test('el server avisa por SSE en toda escritura y suelta al suscriptor que se va', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'rutas_rrhh.js'), 'utf8');
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'routes', 'rutas_rrhh.js'), 'utf8');
   const bloque = src.slice(src.indexOf('const RRHH_ROPA_PATH'), src.indexOf('RRHH · Ausencias'));
 
   // Único punto de escritura: si avisa desde acá, avisa siempre.

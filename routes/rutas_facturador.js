@@ -1,6 +1,6 @@
 'use strict';
 const express = require('express');
-const preciosFacturador = require('./precios_facturador');
+const preciosFacturador = require('../lib/precios_facturador');
 
 // ── Rutas del Facturador auxiliar ─────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas y mismas

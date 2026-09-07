@@ -38,7 +38,7 @@ router.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, 
 router.get('/api/catalogo/grupos', (_req, res) => {
   const catalogo  = leerJSON(CATALOGO_PATH, []);
   const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
-  const cCfg      = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const cCfg      = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const mapa = new Map();
   for (const item of catalogo) {
     const ref = item.productoRef || '';

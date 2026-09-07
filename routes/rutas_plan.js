@@ -2,7 +2,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const bloquesTareas = require('./bloques_tareas');
+const bloquesTareas = require('../lib/bloques_tareas');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -105,7 +105,7 @@ const RUBRO_MANUAL_EXCLUIDO_RE = /almacen\s*bultos\s*\/?\s*cajas/i;
 const PRODUCTO_SAVONA_RE = /savona/i;
 
 async function calcularSugerencias(params) {
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
   const diasObj = parseInt(params.diasObjetivo) || c.diasObjetivo;
   const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido
@@ -218,7 +218,7 @@ async function calcularSugerenciasCatalogo(params) {
   if (!catalogoCompleto.length) throw new Error('Catálogo vacío. Importar Excel desde planificación.');
   const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
   const catalogo  = catalogoCompleto.filter(item => cfgActivo(gruposCfg, item.productoRef));
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
   const diasObj = parseInt(params.diasObjetivo) || c.diasObjetivo;
   const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido (0.6 = 60%)
@@ -475,9 +475,9 @@ router.get('/api/plan/stock-detalle', apiRoute(async req => {
   });
   return { sucursales, presentaciones: build(plus, presRows), graneles: build(graneles, granRows) };
 }));
-router.get('/api/consumo',          apiRoute(async req => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); return query(sqlConsumo(parseInt(req.query.ventana) || c.ventanaConsumoDias, c.rubrosPlanificables.join(','))); }));
+router.get('/api/consumo',          apiRoute(async req => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8')); return query(sqlConsumo(parseInt(req.query.ventana) || c.ventanaConsumoDias, c.rubrosPlanificables.join(','))); }));
 router.get('/api/pendientes',       apiRoute(async () => query(sqlPendientes())));
-router.get('/api/bom',              apiRoute(async () => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); return query(sqlBOM(c.rubrosGranel.join(','))); }));
+router.get('/api/bom',              apiRoute(async () => { const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8')); return query(sqlBOM(c.rubrosGranel.join(','))); }));
 router.get('/api/bom/producto/:plu', apiRoute(async req => {
   const plu = String(req.params.plu).replace(/\D/g, '');
   if (!plu) return [];
@@ -738,14 +738,26 @@ router.get('/api/calendario', (req, res) => {
   res.json(result);
 });
 router.post('/api/enviar-produccion', (req, res) => {
-  const nuevas = req.body;
+  // Body admite el array de siempre (comportamiento sin cambios) o
+  // { ordenes, modo } cuando el usuario elige cómo resolver un día con
+  // pedidos ya cargados: 'reemplazar' (borra los del día y deja sólo los
+  // nuevos) o 'sumar' (suma cantidad a la orden existente en vez de pisarla).
+  const esEnvoltorio = !Array.isArray(req.body) && req.body && Array.isArray(req.body.ordenes);
+  const nuevas = esEnvoltorio ? req.body.ordenes : req.body;
+  const modo = esEnvoltorio ? req.body.modo : null;
   if (!Array.isArray(nuevas) || !nuevas.length) return res.status(400).json({ error: 'Sin órdenes' });
   try {
     // Dedup por (fecha + producto): si ya existe la orden ese día se sobreescriben
     // los datos con los nuevos, preservando id (link con lo cargado), estado y la
     // escalada manual a 'Urgente'. Las que no existen se agregan al final.
     const arr = leerOrdenes();
-    const keyOf = o => `${o.fecha || ''}|${(o.producto || '').trim().toLowerCase()}`;
+    // El granel y el fraccionado de un mismo producto pueden llamarse igual (el rubro del
+    // fraccionado cae en el nombre del producto cuando no hay rubro explícito, igual que el
+    // producto del granel) — sin el tipo en la clave, la orden fraccionada del envío pisaba a
+    // la granel silenciosamente. `presentaciones` sólo lo arma el fraccionado (construirOrdenes
+    // en planificacion.html), así que sirve de discriminador sin agregar campos nuevos.
+    const tipoOrden = o => Array.isArray(o.presentaciones) ? 'F' : 'G';
+    const keyOf = o => `${o.fecha || ''}|${tipoOrden(o)}|${(o.producto || '').trim().toLowerCase()}`;
     const idx = new Map(arr.map((o, i) => [keyOf(o), i]));
     // Cada orden hereda los números de movimiento de reserva de los ítems del plan que la
     // componen: granel es 1 ítem por orden (match por producto); fraccionado agrupa varios
@@ -777,6 +789,46 @@ router.post('/api/enviar-produccion', (req, res) => {
     // Órdenes ya trabajadas (con algún registro de producción cargado): no se pisan aunque
     // todavía no estén en 'listo'/terminado, para no borrar lo que producción ya cargó.
     const ordenesTrabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
+    const protegida = o => o.terminado === true || o.estado === 'listo' || ordenesTrabajadas.has(String(o.id));
+
+    // modo 'reemplazar': el usuario ya vio que había pedidos cargados para ese día y eligió
+    // vaciarlo antes de cargar los nuevos. Se borran todos los de esas fechas salvo los
+    // protegidos (terminados/trabajados en producción), que sobreviven igual que en
+    // DELETE /api/plan/:fecha — su circuito ya está en curso en SiGA y borrarlos dejaría
+    // movimientos vivos apuntando a una orden inexistente.
+    let reemplazadas = 0;
+    if (modo === 'reemplazar') {
+      const fechasNuevas = new Set(nuevas.map(n => n.fecha));
+      const conservar = arr.filter(o => !(fechasNuevas.has(o.fecha) && !protegida(o)));
+      reemplazadas = arr.length - conservar.length;
+      arr.length = 0; arr.push(...conservar);
+      idx.clear();
+      arr.forEach((o, i) => idx.set(keyOf(o), i));
+    }
+
+    // modo 'sumar': misma clave (fecha+producto) → se suma la cantidad nueva a la ya
+    // cargada en vez de pisarla. Fraccionado suma por presentación (match por PLU); granel
+    // sólo tiene un total, así que se reconstruye el string de presentación con la cantidad
+    // sumada y la unidad/tambor de la orden nueva.
+    const fusionarOrdenes = (prev, n) => {
+      const cantidad = (prev.cantidad || 0) + (n.cantidad || 0);
+      const base = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado,
+        criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad, cantidad };
+      if (!Array.isArray(prev.presentaciones) && !Array.isArray(n.presentaciones)) {
+        const m = /^[\d.,]+\s*(.*)$/.exec(n.presentacion || '');
+        return { ...base, presentacion: m ? `${cantidad} ${m[1]}` : `${cantidad}` };
+      }
+      const porClave = new Map((prev.presentaciones || []).map(p => [p.plu || p.presentacion, { ...p }]));
+      for (const p of (n.presentaciones || [])) {
+        const clave = p.plu || p.presentacion, ex = porClave.get(clave);
+        if (ex) ex.cantidad = (ex.cantidad || 0) + (p.cantidad || 0); else porClave.set(clave, { ...p });
+      }
+      const presentaciones = [...porClave.values()];
+      const presentacion = presentaciones.map(p => `${p.presentacion}: ${p.cantidad}`).join(' / ')
+        + (n.tambor ? ` · Tambor ${n.tambor}` : '');
+      return { ...base, presentaciones, presentacion };
+    };
+
     let sobre = 0, nue = 0, completas = 0;
     const recepcionadas = [];
     for (const n of nuevas) {
@@ -788,20 +840,22 @@ router.post('/api/enviar-produccion', (req, res) => {
       }
       const k = keyOf(n), i = idx.get(k);
       const reservaMovimientos = movimientosDeOrden(n);
+      const nueva = { ...n, reservaMovimientos };
       if (i != null) {
         const prev = arr[i];
         // Si la orden previa ya está completa o fue trabajada en producción, se mantiene:
         // no se sobreescribe (preserva registro cargado, estado 'listo' y terminado).
-        if (prev.terminado === true || prev.estado === 'listo' || ordenesTrabajadas.has(String(prev.id))) { completas++; continue; }
-        arr[i] = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad, reservaMovimientos };
+        if (protegida(prev)) { completas++; continue; }
+        arr[i] = modo === 'sumar' ? fusionarOrdenes(prev, nueva)
+          : { ...nueva, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad };
         sobre++;
       } else {
-        arr.push({ ...n, reservaMovimientos }); idx.set(k, arr.length - 1); nue++;
+        arr.push(nueva); idx.set(k, arr.length - 1); nue++;
       }
     }
     guardarOrdenes(arr);
     res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue,
-               completasOmitidas: completas, recepcionadasOmitidas: recepcionadas });
+               completasOmitidas: completas, recepcionadasOmitidas: recepcionadas, reemplazadas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

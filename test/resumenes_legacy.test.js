@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   horaDeFraccion, fechaDeLote, granelDe, cargaDeBloque, parseFilas, sinFechasCubiertas, salaDe,
-} = require('../resumenes_legacy');
+} = require('../lib/resumenes_legacy');
 
 const CABECERA = ['Codigo ingresado', 'Producto Ingresado', 'Cant ingresada', 'Lote', 'Empleado',
   'Obs', 'Sala', 'Hora Inicio', 'Hora Fin', 'Actividad', 'Envasado', 'Etiquetado', 'Empaquetado'];

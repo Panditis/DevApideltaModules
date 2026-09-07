@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
-        plusEnOrdenesActivas } = require('../ordenes_fraccionado');
+        plusEnOrdenesActivas } = require('../lib/ordenes_fraccionado');
 
 // ── Ordenes de fraccionado mayorista: validacion, normalizacion y totales ─────────────────────
 // Las lineas llegan del body del POST/PUT de /api/mayoristas/ordenes-fraccionado. Antes salian
