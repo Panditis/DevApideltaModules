@@ -1091,7 +1091,10 @@ function seleccionarPedido() {
   const p = pedidosTodos.find(x => x.numero === numero);
   // Copia profunda de items: se editan en memoria y recién se mandan al Guardar.
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
+  comprobantesInfo = null;
+  comprobantesCargando = !!(pedidoSel && pedidoSel.estado === 'PENDIENTE');
   renderSeguimiento();
+  if (comprobantesCargando) cargarComprobantes(pedidoSel.numero);
 }
 
 // Estado del pedido como Tag de antd: pendiente ámbar, cerrado verde, anulado rojo.
@@ -1109,6 +1112,41 @@ function tagLinea(estado) {
   const txt = estado === 'entregado' ? 'Entregado' : estado === 'sin_stock' ? 'Sin stock'
     : estado === 'no_envia' ? 'No envía' : 'Pedido';
   return `<span class="ant-tag ${cls}">${escAttr(txt)}</span>`;
+}
+
+// Sólo aparece con el pedido PENDIENTE. Sin candidatos en la ventana de fechas del
+// proveedor, no se muestra nada — no hay botón "buscar" que el usuario tenga que acordarse de tocar.
+function renderComprobantesCard() {
+  if (comprobantesCargando) {
+    return `<div class="ant-card mt-4"><div class="ant-card-body ant-card-body-sm">
+      ${estadoVacio('Buscando comprobantes…', 'Cruzando contra lo cargado en SIGA para este proveedor.', 'cargando')}
+    </div></div>`;
+  }
+  const info = comprobantesInfo;
+  if (!info || !info.candidatos.length) return '';
+  const marcada = c => info.vinculado ? info.vinculadas.includes(c.clave) : c.sugerido;
+  const cumplimiento = info.comparacion.resumen.cumplimientoPct;
+  return `
+  <div class="ant-card mt-4">
+    <div class="ant-card-head">
+      <h3 class="ant-card-head-title">Comprobantes encontrados</h3>
+      <span class="ml-auto t-12 t-ter">${cumplimiento == null ? '' : 'Cumplimiento actual: ' + fmt(cumplimiento) + '%'}</span>
+    </div>
+    <div class="ant-card-body ant-card-body-sm">
+      <div id="segComprobantesLista" class="flex flex-col gap-2">
+        ${info.candidatos.map(c => `
+          <label class="ant-check-label">
+            <input type="checkbox" class="ant-check" value="${escAttr(c.clave)}"${marcada(c) ? ' checked' : ''}>
+            <span class="num">${escAttr(c.etiqueta)}</span>
+            <span class="t-ter t-12">${escAttr(c.fecha || '')} · ${c.lineas} ítems · ${money(c.importeTotal)}</span>
+            ${c.sugerido ? `<span class="ant-tag ant-tag-primary">${c.pluCoincidentes}/${c.pluPedido} plu</span>` : ''}
+          </label>`).join('')}
+      </div>
+      <div class="mt-3">
+        <button id="btnAplicarComprobantes" class="ant-btn ant-btn-primary ant-btn-sm">Aplicar a las líneas</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 function renderSeguimiento() {
@@ -1146,6 +1184,7 @@ function renderSeguimiento() {
       </div>
     </div>
   </div>
+  ${editable ? renderComprobantesCard() : ''}
   <div class="mt-4 ant-table-wrap">
     <table class="ant-table">
       <thead>
@@ -1200,7 +1239,10 @@ function renderSeguimiento() {
   cont.querySelectorAll('.js-obs').forEach(inp => inp.addEventListener('input', () => {
     p.items[Number(inp.dataset.i)].obs = inp.value;
   }));
-  $('#segRetiro').addEventListener('change', actualizarBotonCerrar);
+  $('#segEstimada').addEventListener('change', e => { pedidoSel.fechaEstimada = e.target.value || null; });
+  $('#segRetiro').addEventListener('change', e => { pedidoSel.fechaRetiro = e.target.value || null; actualizarBotonCerrar(); });
+  $('#segObs').addEventListener('input', e => { pedidoSel.observacion = e.target.value; });
+  if ($('#btnAplicarComprobantes')) $('#btnAplicarComprobantes').addEventListener('click', aplicarYVincularComprobantes);
   $('#btnGuardar').addEventListener('click', () => enviarSeguimiento(null));
   $('#btnCerrar').addEventListener('click', () => enviarSeguimiento('CERRADO'));
   $('#btnAnular').addEventListener('click', async () => {
