@@ -542,6 +542,8 @@ let armado = null;              // respuesta de /api/compras/armado
 const cantidades = {};          // plu -> cantidad tipeada (sobrevive a los re-render por filtro)
 let pedidosTodos = [];          // cache de /api/compras/pedidos, compartido por Seguimiento y OTIF
 let pedidoSel = null;           // copia editable del pedido en seguimiento
+let comprobantesInfo = null;    // { candidatos, comparacion, vinculado, vinculadas } del pedido seleccionado
+let comprobantesCargando = false;
 const charts = {};
 
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1239,6 +1241,62 @@ async function enviarSeguimiento(estado) {
     await avisar(estado === 'CERRADO' ? 'Pedido cerrado.' : estado === 'ANULADO' ? 'Pedido anulado.' : 'Cambios guardados.', 'Listo');
   } catch (e) {
     avisar(e.message, 'No se pudo guardar');
+  }
+}
+
+// ── Comprobantes de compra (ex pantalla Control, ahora embebida acá) ─────────────
+// Mismo endpoint que usaba /compras/control: candidatos del proveedor en la ventana
+// de fechas del pedido + comparación contra los elegidos (vínculo guardado, o los
+// sugeridos si todavía no se confirmó ninguno).
+async function cargarComprobantes(numero) {
+  comprobantesCargando = true;
+  comprobantesInfo = null;
+  renderSeguimiento();
+  try {
+    comprobantesInfo = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero));
+  } catch (e) {
+    // Sin bloquear el pedido: si SIGA no responde, se sigue pudiendo ver y editar a mano.
+    comprobantesInfo = null;
+  } finally {
+    comprobantesCargando = false;
+    renderSeguimiento();
+  }
+}
+
+// Vuelca la comparación sobre las líneas del pedido en memoria (no guarda todavía:
+// eso lo hace Guardar/Cerrar pedido, como con cualquier otra edición manual).
+// sin_cargar no toca la línea: sigue en 'pedido' y sigue bloqueando el cierre, igual
+// que si el usuario nunca la hubiera resuelto.
+function aplicarComparacionAPedido(comparacion) {
+  const filasPorPlu = new Map(comparacion.filas.filter(f => f.enPedido).map(f => [f.plu, f]));
+  for (const it of pedidoSel.items) {
+    const fila = filasPorPlu.get(it.plu);
+    if (!fila || fila.estado === 'sin_cargar') continue;
+    it.estado = 'entregado';
+    it.cantidadEntregada = fila.cargado;
+  }
+  if (!pedidoSel.fechaRetiro) {
+    const fechas = (comparacion.comprobantes || []).map(c => c.fecha).filter(Boolean);
+    if (fechas.length) pedidoSel.fechaRetiro = fechas.reduce((a, b) => (b > a ? b : a));
+  }
+}
+
+// Guarda el vínculo (mismo PUT que usaba Control, para no perder el dato que lee el
+// OTIF) y con la comparación fresca de esa selección precarga las líneas del pedido.
+async function aplicarYVincularComprobantes() {
+  const claves = [...document.querySelectorAll('#segComprobantesLista input:checked')].map(i => i.value);
+  const btn = $('#btnAplicarComprobantes');
+  if (btn) btn.disabled = true;
+  try {
+    await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(pedidoSel.numero) + '/comprobantes', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claves }),
+    });
+    comprobantesInfo = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(pedidoSel.numero));
+    aplicarComparacionAPedido(comprobantesInfo.comparacion);
+    renderSeguimiento();
+  } catch (e) {
+    avisar('No se pudo aplicar el comprobante: ' + e.message, 'Error');
+    if (btn) btn.disabled = false;
   }
 }
 
