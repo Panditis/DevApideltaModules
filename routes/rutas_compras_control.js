@@ -102,8 +102,6 @@ async function comprasDeProveedor({ idProveedor, proveedor, desde, hasta }) {
 
 const numeroOpcional = (valor, def) => (valor != null && valor !== '' && Number.isFinite(Number(valor)) ? Number(valor) : def);
 
-router.get('/compras/control', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_control.html')));
-
 // Listado liviano: no toca SIGA, sólo dice qué pedidos hay y cuáles ya tienen
 // vínculo confirmado. La consulta pesada es la del detalle.
 router.get('/api/compras/control/pedidos', apiRoute(async (req) => {
