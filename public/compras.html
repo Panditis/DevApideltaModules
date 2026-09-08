@@ -345,6 +345,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   <div class="ant-header-inner">
     <nav class="ant-tabs-nav" role="tablist" aria-label="Secciones de compras">
       <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-armado" data-tab="armado">Armar pedido</button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-importar" data-tab="importar">Importar xlsx</button>
       <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
       <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
     </nav>
@@ -372,8 +373,6 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
           </select>
         </label>
         <button id="btnRecalcular" class="ant-btn ant-btn-sm mb-1">Recalcular consumo</button>
-        <input type="file" id="xlsxPedido" accept=".xlsx" class="hidden">
-        <button id="btnImportarXlsx" class="ant-btn ant-btn-sm mb-1">Importar xlsx</button>
       </div>
       <div class="mt-4 pt-4 ant-divider-t ant-toolbar">
         <input id="filtroTexto" class="ant-input w-64" placeholder="Filtrar producto o PLU…" aria-label="Filtrar por producto o PLU">
@@ -407,6 +406,30 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   <div class="mt-4 flex items-center gap-4 flex-wrap">
     <button id="btnGenerar" class="ant-btn ant-btn-primary ant-btn-lg" disabled>Generar pedido</button>
     <span id="lineasCount" class="num t-sec">0 líneas cargadas</span>
+  </div>
+</section>
+
+<!-- ── Importar xlsx ────────────────────────────────────────────────────────── -->
+<section id="tab-importar" class="tab-panel hidden" role="tabpanel" aria-label="Importar pedido desde xlsx">
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm">
+      <div class="ant-toolbar">
+        <div class="prov-field">
+          <label class="ant-label" for="provQImport">Proveedor</label>
+          <input id="provQImport" class="ant-input" placeholder="Buscar proveedor…" autocomplete="off">
+          <div id="provListaImport" class="ant-dropdown hidden"></div>
+        </div>
+        <span id="provSelImportNombre" class="num t-ter t-12 pb-2"></span>
+        <input type="file" id="xlsxPedidoTab" accept=".xlsx" class="hidden">
+        <button id="btnImportarXlsxTab" class="ant-btn ant-btn-primary" disabled>Importar xlsx</button>
+      </div>
+      <p class="t-sec t-12 mt-3">
+        El xlsx tiene que traer <b>PLU</b>, <b>CodigoProveedor</b> o <b>CodigoBarras</b> + <b>Cantidad</b>.
+        Podés subir el catálogo completo del proveedor: las filas sin cantidad (o en 0) se ignoran solas,
+        no hace falta filtrarlas antes. Al importar se carga el armado de este proveedor y se abre la
+        pestaña <b>Armar pedido</b> con las cantidades ya puestas, para revisar antes de generar el pedido.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -661,41 +684,47 @@ document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click
 }));
 
 // ═══ Tab 1: armar pedido ══════════════════════════════════════════════════════
-let provSel = null, provTimer = null;
-$('#provQ').addEventListener('input', () => {
-  clearTimeout(provTimer);
-  provTimer = setTimeout(buscarProveedores, 300);
-});
-document.addEventListener('click', e => {
-  if (!e.target.closest('#provQ') && !e.target.closest('#provLista')) $('#provLista').classList.add('hidden');
-});
-async function buscarProveedores() {
-  const q = $('#provQ').value.trim();
-  const cont = $('#provLista');
-  if (q.length < 2) { cont.classList.add('hidden'); return; }
-  try {
-    const r = await apiFetch('/api/compras/proveedores?q=' + encodeURIComponent(q));
-    const lista = r.proveedores || [];
-    cont.innerHTML = lista.length
-      ? lista.map(p => `<button class="js-prov ant-dropdown-item"
-           data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
-           <span class="block">${escAttr(p.nombre)}</span>
-           <span class="block t-12 t-ter num">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
-         </button>`).join('')
-      : `<div class="ant-dropdown-empty">Ningún proveedor con ese nombre tiene compras
-         en los últimos 24 meses.</div>`;
-    cont.classList.remove('hidden');
-    cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
-      provSel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
-      $('#provQ').value = provSel.nombre;
-      $('#provSelNombre').textContent = '#' + provSel.id;
-      cont.classList.add('hidden');
-    }));
-  } catch (e) {
-    cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
-    cont.classList.remove('hidden');
+let provSel = null;
+
+// Buscador de proveedor con autocompletado: lo usan tanto el tab de Armado como
+// el de Importar xlsx, cada uno con sus propios elementos e id="..." pero la
+// misma lógica de búsqueda/selección.
+function crearBuscadorProveedor(inputSel, listaSel, nombreSel, onSelect) {
+  const input = $(inputSel), cont = $(listaSel);
+  let timer = null;
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest(inputSel) && !e.target.closest(listaSel)) cont.classList.add('hidden');
+  });
+  async function buscar() {
+    const q = input.value.trim();
+    if (q.length < 2) { cont.classList.add('hidden'); return; }
+    try {
+      const r = await apiFetch('/api/compras/proveedores?q=' + encodeURIComponent(q));
+      const lista = r.proveedores || [];
+      cont.innerHTML = lista.length
+        ? lista.map(p => `<button class="js-prov ant-dropdown-item"
+             data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
+             <span class="block">${escAttr(p.nombre)}</span>
+             <span class="block t-12 t-ter num">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
+           </button>`).join('')
+        : `<div class="ant-dropdown-empty">Ningún proveedor con ese nombre tiene compras
+           en los últimos 24 meses.</div>`;
+      cont.classList.remove('hidden');
+      cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
+        const sel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
+        input.value = sel.nombre;
+        if (nombreSel) $(nombreSel).textContent = '#' + sel.id;
+        cont.classList.add('hidden');
+        onSelect(sel);
+      }));
+    } catch (e) {
+      cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+      cont.classList.remove('hidden');
+    }
   }
 }
+crearBuscadorProveedor('#provQ', '#provLista', '#provSelNombre', sel => { provSel = sel; });
 
 $('#btnCargar').addEventListener('click', cargarArmado);
 async function cargarArmado() {
@@ -727,19 +756,39 @@ $('#btnRecalcular').addEventListener('click', async () => {
   } finally { btn.disabled = false; btn.textContent = 'Recalcular consumo'; }
 });
 
-$('#btnImportarXlsx').addEventListener('click', () => $('#xlsxPedido').click());
-$('#xlsxPedido').addEventListener('change', async () => {
-  const file = $('#xlsxPedido').files[0];
-  $('#xlsxPedido').value = '';
-  if (!file || !armado) return;
-  const fd = new FormData();
-  fd.append('archivo', file);
-  fd.append('idProveedor', armado.idProveedor);
+// ═══ Tab 2: importar xlsx ═════════════════════════════════════════════════════
+let provSelImport = null;
+crearBuscadorProveedor('#provQImport', '#provListaImport', '#provSelImportNombre', sel => {
+  provSelImport = sel;
+  $('#btnImportarXlsxTab').disabled = false;
+});
+
+$('#btnImportarXlsxTab').addEventListener('click', () => $('#xlsxPedidoTab').click());
+$('#xlsxPedidoTab').addEventListener('change', async () => {
+  const file = $('#xlsxPedidoTab').files[0];
+  $('#xlsxPedidoTab').value = '';
+  if (!file || !provSelImport) return;
+  const btn = $('#btnImportarXlsxTab');
+  btn.disabled = true; btn.textContent = 'Importando…';
   try {
+    // El armado de este proveedor tiene que estar cargado antes de aplicar el
+    // xlsx encima — comparte estado (armado/cantidades) con el tab de Armado.
+    provSel = provSelImport;
+    $('#provQ').value = provSelImport.nombre;
+    $('#provSelNombre').textContent = '#' + provSelImport.id;
+    await cargarArmado();
+    $('.tab-btn[data-tab="armado"]').click();   // se ve el resultado (o el error) ahí
+    if (!armado) return;   // cargarArmado ya mostró el error dentro de esa pestaña
+
+    const fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('idProveedor', armado.idProveedor);
     const r = await apiFetch('/api/compras/armado/importar-pedido', { method: 'POST', body: fd });
     aplicarImportacion(r);
   } catch (e) {
     avisar('No se pudo importar el archivo: ' + e.message, 'Error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Importar xlsx';
   }
 });
 
