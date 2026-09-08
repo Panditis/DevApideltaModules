@@ -87,6 +87,13 @@ test('candidatosDeCompra sin idProveedor cae al nombre', () => {
   assert.strictEqual(candidatosDeCompra(p, [c]).length, 1);
 });
 
+test('candidatosDeCompra incluye el detalle de líneas para el preview', () => {
+  const r = candidatosDeCompra(pedido(), [comprobante()]);
+  assert.ok(Array.isArray(r[0].items));
+  assert.strictEqual(r[0].items.length, 2);
+  assert.strictEqual(r[0].items[0].plu, '4409');
+});
+
 test('candidatosDeCompra ordena por PLUs coincidentes y marca sugerido', () => {
   const flojo = comprobante({ numeroComprobante: 800, items: [{ plu: '9999', cantidad: 1, importe: 10 }] });
   const r = candidatosDeCompra(pedido(), [flojo, comprobante()]);

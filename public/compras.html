@@ -592,6 +592,7 @@ let pedidoSel = null;           // copia editable del pedido en seguimiento
 let comprobantesInfo = null;    // { candidatos, comparacion, vinculado, vinculadas } del pedido seleccionado
 let comprobantesCargando = false;
 let comprobantesError = null;   // mensaje si falló la búsqueda en SIGA (la card se muestra igual)
+let comprobantesPreview = new Set();   // claves de comprobante con la vista previa de líneas abierta
 const charts = {};
 
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1323,6 +1324,7 @@ function seleccionarPedido() {
   // Copia profunda de items: se editan en memoria y recién se mandan al Guardar.
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
   comprobantesInfo = null;
+  comprobantesPreview = new Set();
   comprobantesCargando = !!(pedidoSel && pedidoSel.estado === 'PENDIENTE');
   renderSeguimiento();
   if (comprobantesCargando) cargarComprobantes(pedidoSel.numero);
@@ -1385,12 +1387,33 @@ function renderComprobantesCard() {
     <div class="ant-card-body ant-card-body-sm">
       <div id="segComprobantesLista" class="flex flex-col gap-2">
         ${info.candidatos.map(c => `
-          <label class="ant-check-label">
-            <input type="checkbox" class="ant-check" value="${escAttr(c.clave)}"${marcada(c) ? ' checked' : ''}>
-            <span class="num">${escAttr(c.etiqueta)}</span>
-            <span class="t-ter t-12">${escAttr(c.fecha || '')} · ${c.lineas} ítems · ${money(c.importeTotal)}</span>
-            ${c.sugerido ? `<span class="ant-tag ant-tag-primary">${c.pluCoincidentes}/${c.pluPedido} plu</span>` : ''}
-          </label>`).join('')}
+          <div>
+            <div class="flex items-center gap-2">
+              <label class="ant-check-label flex-1">
+                <input type="checkbox" class="ant-check" value="${escAttr(c.clave)}"${marcada(c) ? ' checked' : ''}>
+                <span class="num">${escAttr(c.etiqueta)}</span>
+                <span class="t-ter t-12">${escAttr(c.fecha || '')} · ${c.lineas} ítems · ${money(c.importeTotal)}</span>
+                ${c.sugerido ? `<span class="ant-tag ant-tag-primary">${c.pluCoincidentes}/${c.pluPedido} plu</span>` : ''}
+              </label>
+              <button type="button" class="ant-btn ant-btn-sm js-toggle-preview" data-clave="${escAttr(c.clave)}">
+                ${comprobantesPreview.has(c.clave) ? 'Ocultar' : 'Vista previa'}
+              </button>
+            </div>
+            ${comprobantesPreview.has(c.clave) ? `
+              <div class="mt-1 ml-6 ant-table-wrap">
+                <table class="ant-table ant-table-sm">
+                  <thead><tr><th>PLU</th><th>Producto</th><th class="t-r">Cantidad</th><th class="t-r">Importe</th></tr></thead>
+                  <tbody>
+                    ${(c.items || []).map(it => `<tr>
+                      <td class="num">${escAttr(it.plu)}</td>
+                      <td>${escAttr(it.nombre || '')}</td>
+                      <td class="t-r num">${fmt(it.cantidad)}</td>
+                      <td class="t-r num">${money(it.importe)}</td>
+                    </tr>`).join('') || '<tr><td colspan="4" class="t-ter">Sin líneas.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>` : ''}
+          </div>`).join('')}
       </div>
       <div class="mt-3">
         <button id="btnAplicarComprobantes" class="ant-btn ant-btn-primary ant-btn-sm">Aplicar a las líneas</button>
@@ -1502,6 +1525,11 @@ function renderSeguimiento() {
   $('#segRetiro').addEventListener('change', e => { pedidoSel.fechaRetiro = e.target.value || null; actualizarBotonCerrar(); });
   $('#segObs').addEventListener('input', e => { pedidoSel.observacion = e.target.value; });
   if ($('#btnAplicarComprobantes')) $('#btnAplicarComprobantes').addEventListener('click', aplicarYVincularComprobantes);
+  cont.querySelectorAll('.js-toggle-preview').forEach(b => b.addEventListener('click', () => {
+    const clave = b.dataset.clave;
+    if (comprobantesPreview.has(clave)) comprobantesPreview.delete(clave); else comprobantesPreview.add(clave);
+    renderSeguimiento();
+  }));
   $('#btnGuardar').addEventListener('click', () => enviarSeguimiento(null));
   $('#btnCerrar').addEventListener('click', () => enviarSeguimiento('CERRADO'));
   $('#btnAnular').addEventListener('click', async () => {
