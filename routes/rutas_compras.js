@@ -5,6 +5,9 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const compras = require('../lib/compras');
 const comprasImport = require('../lib/compras_import');
+// Se declara acá (y no junto al resto de la importación de facturas más abajo) porque
+// /api/compras/armado/importar-pedido también la necesita y va antes en el archivo.
+const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ── Rutas del módulo Compras ──────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -249,6 +252,30 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
     timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas };
 }));
 
+// Paso intermedio entre subir el xlsx del pedido y precargar cantidades en la grilla de
+// Armado: sólo parsea el archivo y resuelve los productos contra SIGA, no escribe nada.
+router.post('/api/compras/armado/importar-pedido', uploadCompraXlsx.single('archivo'), apiRoute(async (req) => {
+  const idProveedor = Number(req.body && req.body.idProveedor);
+  if (!Number.isFinite(idProveedor) || idProveedor <= 0) throw new Error('Falta idProveedor');
+  if (!req.file) throw new Error('No llegó ningún archivo.');
+
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
+  const hoja = wb.Sheets[wb.SheetNames[0]];
+  if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
+  const matriz = XLSX.utils.sheet_to_json(hoja, { header: 1, raw: true, defval: '' });
+
+  const { lineas, errores: erroresArchivo } = comprasImport.parsearDetallePedido(matriz);
+  const resueltas = lineas.length ? await resolverProductosCompra(idProveedor, lineas) : [];
+
+  return {
+    idProveedor, total: resueltas.length,
+    resueltos: resueltas.filter(l => l.estado === 'ok').length,
+    ambiguos: resueltas.filter(l => l.estado === 'ambiguo').length,
+    noEncontrados: resueltas.filter(l => l.estado === 'no-encontrado').length,
+    lineas: resueltas, erroresArchivo,
+  };
+}));
+
 // El número es correlativo y ordena cronológicamente, así que alcanza para el sort.
 router.get('/api/compras/pedidos', apiRoute(async (req) => {
   const proveedor = String(req.query.proveedor || '').trim();
@@ -306,11 +333,10 @@ router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidos
 
 
 // ── Importación de facturas de compra — BANCO DE PRUEBAS ───────────────────────
-// Sólo lectura: parsea el xlsx, resuelve los productos contra SIGA y devuelve la
-// previsualización. NO escribe nada en SIGA. El mapeo de las 12 tablas que tocaría
-// la carga real está relevado en docs/compras_siga_mapeo.md
-const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
+// Parsea el xlsx y resuelve los productos contra SIGA para la previsualización.
+// La grabación real (stock, cta cte y comprobante en SIGA) la hace
+// POST /api/compras-import/grabar en routes/rutas_compras_grabar.js.
+// El mapeo de las 12 tablas está relevado en docs/compras_siga_mapeo.md
 router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_import_prueba.html')));
 
 // Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
@@ -530,33 +556,10 @@ async function armarVistaCompra(parsed, archivo) {
 // Revalida la compra después de editarla en pantalla. Se reconstruye la misma
 // matriz plana que produce el xlsx y se la pasa por el parser: así lo editado
 // atraviesa exactamente las mismas validaciones que el archivo, sin confiar
-// en lo que manda el navegador.
-const CLAVE_POR_COLUMNA = {
-  PLU: 'plu', CodigoProveedor: 'codigoProveedor', CodigoBarras: 'codigoBarras',
-  Cantidad: 'cantidad', PrecioUnitario: 'precioUnitario',
-  PorcentajeIVA: 'porcentajeIVA', Descripcion: 'descripcion',
-};
-
+// en lo que manda el navegador. matrizDesdeBody es la misma que usa
+// /api/compras-import/grabar (routes/rutas_compras_grabar.js) — no duplicar.
 router.post('/api/compras-import/revalidar', express.json({ limit: '2mb' }), apiRoute(async (req) => {
-  const cabecera = (req.body && req.body.cabecera) || {};
-  const lineas = Array.isArray(req.body && req.body.lineas) ? req.body.lineas : [];
-
-  const colsCab = comprasImport.CAMPOS_CABECERA.map(c => c.campo);
-  const valorCab = c => (cabecera[c] == null ? '' : cabecera[c]);
-  const matriz = [[...comprasImport.COLUMNAS_DETALLE, ...colsCab]];
-
-  for (const l of lineas) {
-    matriz.push([
-      ...comprasImport.COLUMNAS_DETALLE.map(c => {
-        const v = l[CLAVE_POR_COLUMNA[c]];
-        return v == null ? '' : v;
-      }),
-      ...colsCab.map(valorCab),
-    ]);
-  }
-  // Sin ítems igual hay que devolver la cabecera parseada, para no perder lo editado.
-  if (!lineas.length) matriz.push([...comprasImport.COLUMNAS_DETALLE.map(() => ''), ...colsCab.map(valorCab)]);
-
+  const matriz = comprasImport.matrizDesdeBody(req.body);
   const parsed = comprasImport.parsearCompra({ matriz });
   return armarVistaCompra(parsed, req.body && req.body.archivo);
 }));
@@ -579,30 +582,24 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   };
 }));
 
+// La planilla ahora sólo trae productos (PLU/CodigoProveedor/CodigoBarras, Cantidad,
+// PrecioUnitario, PorcentajeIVA, Descripcion) — la cabecera del comprobante se arma
+// en pantalla (a mano o abriendo un pedido), nunca desde el archivo. Por eso acá
+// sólo se corre parsearDetalle: sin cabecera que validar, no hace falta pasar por
+// parsearCompra/armarVistaCompra (eso ya lo hace /revalidar sobre lo que quede en pantalla).
 router.post('/api/compras-import/preview', uploadCompraXlsx.single('archivo'), apiRoute(async (req) => {
   if (!req.file) throw new Error('No llegó ningún archivo.');
 
   const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
   const opciones = { header: 1, raw: true, defval: '' };
+  const hoja = hojaCompra(wb, 'detalle') || hojaCompra(wb, 'compra') || wb.Sheets[wb.SheetNames[0]];
+  if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
 
-  // El formato plano (una sola hoja, todo en columnas) es el habitual. Se sigue
-  // aceptando el de dos hojas por los archivos armados antes del cambio.
-  const hCab = hojaCompra(wb, 'cabecera');
-  const hDet = hojaCompra(wb, 'detalle');
-  let parsed;
-  if (hCab && hDet) {
-    parsed = comprasImport.parsearCompra({
-      matrizCabecera: XLSX.utils.sheet_to_json(hCab, opciones),
-      matrizDetalle:  XLSX.utils.sheet_to_json(hDet, opciones),
-    });
-  } else {
-    const hoja = hojaCompra(wb, 'compra') || wb.Sheets[wb.SheetNames[0]];
-    if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
-    parsed = comprasImport.parsearCompra({ matriz: XLSX.utils.sheet_to_json(hoja, opciones) });
-  }
+  const { lineas, errores } = comprasImport.parsearDetalle(XLSX.utils.sheet_to_json(hoja, opciones));
+  if (errores.length) throw new Error(errores.join(' | '));
 
-  return armarVistaCompra(parsed, req.file.originalname);
+  return { archivo: req.file.originalname, lineas };
 }));
 
-  return router;
+  return { router, armarVistaCompra, resolverProductosCompra, usuarioCompras };
 };

@@ -1897,20 +1897,24 @@ function buscarLineaCarrito(plu){
   return null;
 }
 
-// Un artículo que ya está en una orden generada (y no anulada) no se puede volver a agregar,
-// ni desde el Resumen por cliente ni desde el buscador manual.
-function pluYaOrdenado(plu){
-  return plusOrdenados[String(plu == null ? '' : plu).trim()] === true;
+// Un artículo que ya está en una orden generada (y no anulada) no se puede volver a pedir para el
+// MISMO cliente; otro cliente sí lo puede pedir en una orden aparte (ver validarLineasNoRepetidas
+// en el server, que es el guard real). Sin idCliente (alta manual, sin pedido de cliente detrás)
+// no hay con qué comparar, así que bloquea si el PLU tiene cualquier compromiso.
+function pluYaOrdenado(plu, idCliente){
+  var entry = plusOrdenados[String(plu == null ? '' : plu).trim()];
+  if(entry === undefined) return false;
+  if(entry === null) return true;               // ya hay una línea sin cliente comprometida
+  if(idCliente === undefined) return true;
+  return entry.indexOf(String(idCliente)) !== -1;
 }
 
-// Refresca la lista de PLU bloqueados y vuelve a pintar lo que depende de ella. Se llama al
-// arrancar y después de cada alta/baja de órdenes: el carrito no se toca acá, sólo se marca.
+// Refresca el mapa de PLU bloqueados (por cliente) y vuelve a pintar lo que depende de él. Se
+// llama al arrancar y después de cada alta/baja de órdenes: el carrito no se toca acá, sólo se marca.
 function cargarPlusOrdenados(){
   return api('/api/mayoristas/ordenes-fraccionado/plus-activos').then(function(res){
-    if(!Array.isArray(res)) return;   // {error:...}: se deja el mapa como estaba
-    var mapa = {};
-    res.forEach(function(p){ mapa[String(p).trim()] = true; });
-    plusOrdenados = mapa;
+    if(!res || typeof res !== 'object' || Array.isArray(res) || res.error) return; // se deja el mapa como estaba
+    plusOrdenados = res;   // { plu: null (bloquea a cualquiera) | [idCliente, ...] }
     renderCarrito();
     marcarAgregadosResumen();
   }).catch(function(){ /* sin bloqueo local: el POST igual devuelve 409 */ });
@@ -1962,8 +1966,8 @@ function nuevaLineaCarrito(plu, nombre, carga, manual){
 function agregarRegistroAFracc(plu, nombre, idCliente, nombreCliente, cantidad){
   var cant = Math.floor(Number(cantidad));
   if(!isFinite(cant) || cant <= 0){ snack('Ese registro no tiene cantidad pendiente', true); return; }
-  if(pluYaOrdenado(plu)){
-    snack('Ese producto ya está en una orden de fraccionado generada. Anulá o borrá esa orden para volver a pedirlo.', true);
+  if(pluYaOrdenado(plu, idCliente)){
+    snack('Ese producto ya está en una orden de fraccionado generada para ese cliente. Anulá o borrá esa orden para volver a pedirlo.', true);
     return;
   }
   var linea = buscarLineaCarrito(plu);
@@ -2014,10 +2018,14 @@ function renderCarrito(){
     var granelTxt = l.granelPlu
       ? '<div class="text-xs text-olive">Granel: '+escHtml(l.granelNombre)+'</div>'
       : '';
-    // Puede pasar si la orden se generó desde otra pestaña con el producto ya en este carrito:
-    // el POST lo va a rechazar, así que se avisa acá antes de intentarlo.
-    var ordenadoTxt = pluYaOrdenado(l.plu)
-      ? '<div class="text-xs" style="color:#92400e">⚠ Ya está en una orden generada: quitalo antes de generar esta.</div>'
+    // Puede pasar si la orden se generó desde otra pestaña con el mismo producto para el mismo
+    // cliente: el POST lo va a rechazar, así que se avisa acá antes de intentarlo. Sin clientes
+    // (línea manual) se compara el PLU a secas, igual que antes de distinguir por cliente.
+    var enConflicto = l.clientes.length
+      ? l.clientes.some(function(c){ return pluYaOrdenado(l.plu, c.idCliente); })
+      : pluYaOrdenado(l.plu);
+    var ordenadoTxt = enConflicto
+      ? '<div class="text-xs" style="color:#92400e">⚠ Ya está en una orden generada para alguno de estos clientes: quitalo antes de generar esta.</div>'
       : '';
     // La nota viaja con la orden y la lee la encargada en Distribución, así que va siempre a la
     // vista y no escondida en el desplegable de clientes.
@@ -3355,13 +3363,15 @@ function marcarAgregadosResumen(){
   var botones = document.querySelectorAll('#resumen-cont button[data-act="add-fracc"]');
   Array.prototype.forEach.call(botones, function(b){
     var plu = b.getAttribute('data-plu');
+    var idcli = b.getAttribute('data-idcli');
     var linea = buscarLineaCarrito(plu);
-    var puesto = !!(linea && clienteEnLinea(linea, b.getAttribute('data-idcli')));
-    // Ya pedido gana sobre "en el carrito": el botón queda inerte y se explica por qué.
-    var ordenado = pluYaOrdenado(plu);
+    var puesto = !!(linea && clienteEnLinea(linea, idcli));
+    // Ya pedido (para ESTE cliente) gana sobre "en el carrito": el botón queda inerte y se explica
+    // por qué. Otro cliente con el mismo producto sí puede seguir agregándolo.
+    var ordenado = pluYaOrdenado(plu, idcli);
     b.classList.toggle('res-add-on', puesto && !ordenado);
     b.disabled = ordenado;
-    b.title = ordenado ? 'Ya está en una orden de fraccionado generada' : '';
+    b.title = ordenado ? 'Ya está en una orden de fraccionado generada para este cliente' : '';
     b.textContent = ordenado ? '✓ Ya pedido' : (puesto ? '✓ En el carrito' : '+ Fraccionar');
     var tr = b.closest ? b.closest('tr') : null;
     if(tr) tr.classList.toggle('res-row-on', puesto);

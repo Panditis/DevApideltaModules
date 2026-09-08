@@ -345,6 +345,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   <div class="ant-header-inner">
     <nav class="ant-tabs-nav" role="tablist" aria-label="Secciones de compras">
       <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-armado" data-tab="armado">Armar pedido</button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-importar" data-tab="importar">Importar xlsx</button>
       <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
       <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
     </nav>
@@ -405,6 +406,43 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   <div class="mt-4 flex items-center gap-4 flex-wrap">
     <button id="btnGenerar" class="ant-btn ant-btn-primary ant-btn-lg" disabled>Generar pedido</button>
     <span id="lineasCount" class="num t-sec">0 líneas cargadas</span>
+  </div>
+</section>
+
+<!-- ── Importar xlsx ────────────────────────────────────────────────────────── -->
+<section id="tab-importar" class="tab-panel hidden" role="tabpanel" aria-label="Importar pedido desde xlsx">
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm">
+      <div class="ant-toolbar">
+        <div class="prov-field">
+          <label class="ant-label" for="provQImport">Proveedor</label>
+          <input id="provQImport" class="ant-input" placeholder="Buscar proveedor…" autocomplete="off">
+          <div id="provListaImport" class="ant-dropdown hidden"></div>
+        </div>
+        <span id="provSelImportNombre" class="num t-ter t-12 pb-2"></span>
+        <input type="file" id="xlsxPedidoTab" accept=".xlsx" class="hidden">
+        <button id="btnImportarXlsxTab" class="ant-btn ant-btn-primary" disabled>Importar xlsx</button>
+      </div>
+      <p class="t-sec t-12 mt-3">
+        El xlsx tiene que traer <b>PLU</b>, <b>CodigoProveedor</b> o <b>CodigoBarras</b> + <b>Cantidad</b>.
+        Podés subir el catálogo completo del proveedor: las filas sin cantidad (o en 0) se ignoran solas,
+        no hace falta filtrarlas antes. Al importar se carga el armado de este proveedor y se abre la
+        pestaña <b>Armar pedido</b> con las cantidades ya puestas, para revisar antes de generar el pedido.
+      </p>
+    </div>
+  </div>
+
+  <div class="ant-card mt-4">
+    <div class="ant-card-body ant-card-body-sm">
+      <div class="ant-toolbar">
+        <button id="btnListarReimport" class="ant-btn ant-btn-sm">Reimportar un pedido ya cargado…</button>
+      </div>
+      <p class="t-sec t-12 mt-2">
+        Sin subir ningún archivo: elegís un pedido que ya generaste antes y sus mismos productos
+        y cantidades se precargan en <b>Armar pedido</b> (por ejemplo, para repetir un pedido habitual).
+      </p>
+      <div id="listaReimport" class="mt-2 hidden"></div>
+    </div>
   </div>
 </section>
 
@@ -554,6 +592,7 @@ let pedidoSel = null;           // copia editable del pedido en seguimiento
 let comprobantesInfo = null;    // { candidatos, comparacion, vinculado, vinculadas } del pedido seleccionado
 let comprobantesCargando = false;
 let comprobantesError = null;   // mensaje si falló la búsqueda en SIGA (la card se muestra igual)
+let comprobantesPreview = new Set();   // claves de comprobante con la vista previa de líneas abierta
 const charts = {};
 
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -659,41 +698,47 @@ document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click
 }));
 
 // ═══ Tab 1: armar pedido ══════════════════════════════════════════════════════
-let provSel = null, provTimer = null;
-$('#provQ').addEventListener('input', () => {
-  clearTimeout(provTimer);
-  provTimer = setTimeout(buscarProveedores, 300);
-});
-document.addEventListener('click', e => {
-  if (!e.target.closest('#provQ') && !e.target.closest('#provLista')) $('#provLista').classList.add('hidden');
-});
-async function buscarProveedores() {
-  const q = $('#provQ').value.trim();
-  const cont = $('#provLista');
-  if (q.length < 2) { cont.classList.add('hidden'); return; }
-  try {
-    const r = await apiFetch('/api/compras/proveedores?q=' + encodeURIComponent(q));
-    const lista = r.proveedores || [];
-    cont.innerHTML = lista.length
-      ? lista.map(p => `<button class="js-prov ant-dropdown-item"
-           data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
-           <span class="block">${escAttr(p.nombre)}</span>
-           <span class="block t-12 t-ter num">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
-         </button>`).join('')
-      : `<div class="ant-dropdown-empty">Ningún proveedor con ese nombre tiene compras
-         en los últimos 24 meses.</div>`;
-    cont.classList.remove('hidden');
-    cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
-      provSel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
-      $('#provQ').value = provSel.nombre;
-      $('#provSelNombre').textContent = '#' + provSel.id;
-      cont.classList.add('hidden');
-    }));
-  } catch (e) {
-    cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
-    cont.classList.remove('hidden');
+let provSel = null;
+
+// Buscador de proveedor con autocompletado: lo usan tanto el tab de Armado como
+// el de Importar xlsx, cada uno con sus propios elementos e id="..." pero la
+// misma lógica de búsqueda/selección.
+function crearBuscadorProveedor(inputSel, listaSel, nombreSel, onSelect) {
+  const input = $(inputSel), cont = $(listaSel);
+  let timer = null;
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest(inputSel) && !e.target.closest(listaSel)) cont.classList.add('hidden');
+  });
+  async function buscar() {
+    const q = input.value.trim();
+    if (q.length < 2) { cont.classList.add('hidden'); return; }
+    try {
+      const r = await apiFetch('/api/compras/proveedores?q=' + encodeURIComponent(q));
+      const lista = r.proveedores || [];
+      cont.innerHTML = lista.length
+        ? lista.map(p => `<button class="js-prov ant-dropdown-item"
+             data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
+             <span class="block">${escAttr(p.nombre)}</span>
+             <span class="block t-12 t-ter num">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
+           </button>`).join('')
+        : `<div class="ant-dropdown-empty">Ningún proveedor con ese nombre tiene compras
+           en los últimos 24 meses.</div>`;
+      cont.classList.remove('hidden');
+      cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
+        const sel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
+        input.value = sel.nombre;
+        if (nombreSel) $(nombreSel).textContent = '#' + sel.id;
+        cont.classList.add('hidden');
+        onSelect(sel);
+      }));
+    } catch (e) {
+      cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+      cont.classList.remove('hidden');
+    }
   }
 }
+crearBuscadorProveedor('#provQ', '#provLista', '#provSelNombre', sel => { provSel = sel; });
 
 $('#btnCargar').addEventListener('click', cargarArmado);
 async function cargarArmado() {
@@ -724,6 +769,131 @@ $('#btnRecalcular').addEventListener('click', async () => {
     avisar('No se pudo recalcular la serie: ' + e.message, 'Error');
   } finally { btn.disabled = false; btn.textContent = 'Recalcular consumo'; }
 });
+
+// ═══ Tab 2: importar xlsx ═════════════════════════════════════════════════════
+let provSelImport = null;
+crearBuscadorProveedor('#provQImport', '#provListaImport', '#provSelImportNombre', sel => {
+  provSelImport = sel;
+  $('#btnImportarXlsxTab').disabled = false;
+});
+
+$('#btnImportarXlsxTab').addEventListener('click', () => $('#xlsxPedidoTab').click());
+$('#xlsxPedidoTab').addEventListener('change', async () => {
+  const file = $('#xlsxPedidoTab').files[0];
+  $('#xlsxPedidoTab').value = '';
+  if (!file || !provSelImport) return;
+  const btn = $('#btnImportarXlsxTab');
+  btn.disabled = true; btn.textContent = 'Importando…';
+  try {
+    // El armado de este proveedor tiene que estar cargado antes de aplicar el
+    // xlsx encima — comparte estado (armado/cantidades) con el tab de Armado.
+    provSel = provSelImport;
+    $('#provQ').value = provSelImport.nombre;
+    $('#provSelNombre').textContent = '#' + provSelImport.id;
+    await cargarArmado();
+    $('.tab-btn[data-tab="armado"]').click();   // se ve el resultado (o el error) ahí
+    if (!armado) return;   // cargarArmado ya mostró el error dentro de esa pestaña
+
+    const fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('idProveedor', armado.idProveedor);
+    const r = await apiFetch('/api/compras/armado/importar-pedido', { method: 'POST', body: fd });
+    aplicarImportacion(r);
+  } catch (e) {
+    avisar('No se pudo importar el archivo: ' + e.message, 'Error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Importar xlsx';
+  }
+});
+
+// Precarga cantidades desde el xlsx importado: lo resuelto se pisa en `cantidades`
+// (gana la última fila si el xlsx repite un PLU), lo nunca comprado a este proveedor
+// se agrega como fila sintética con precio 0 (sin historial de compra), y lo ambiguo
+// o no encontrado se deja afuera para que el usuario lo revise a mano.
+function aplicarImportacion(r) {
+  // Sin ninguna línea (columna faltante, archivo vacío): no hay nada para aplicar,
+  // se corta acá. Con líneas sí hay algo aprovechable aunque el archivo también
+  // traiga errores de fila puntuales (ver más abajo) — no se descarta todo por eso.
+  if (!r.lineas.length && r.erroresArchivo && r.erroresArchivo.length) {
+    avisar(r.erroresArchivo.join('\n'), 'Error en el archivo');
+    return;
+  }
+  const pendientes = [];
+  for (const l of r.lineas) {
+    if (l.estado !== 'ok') { pendientes.push(l); continue; }
+    // Cantidad inválida (0, negativa, no numérica): el motivo ya quedó en
+    // erroresArchivo con el número de fila. Se salta sin tocar la grilla, para no
+    // pisar una cantidad tipeada a mano con un valor inválido.
+    if (!(Number(l.cantidad) > 0)) continue;
+    let f = armado.filas.find(f => f.plu === l.resuelto);
+    if (!f) {
+      f = {
+        plu: l.resuelto, nombre: l.nombreSiga, unidad: l.unidad || 'UN',
+        ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
+        stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
+        componentes: [], consumoMensual: [], abc: null,
+        demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
+        activo: true, importado: true,
+      };
+      armado.filas.push(f);
+    }
+    cantidades[l.resuelto] = l.cantidad;
+  }
+  renderArmado();
+  const detallePendientes = pendientes.map(l =>
+    `Fila ${l.fila} (${l.plu || l.codigoProveedor || l.codigoBarras || '?'}): ${(l.notas || []).join(' ')}`);
+  const detalle = [...(r.erroresArchivo || []), ...detallePendientes];
+  avisar(
+    `Importado: ${r.resueltos} aplicados, ${r.ambiguos} ambiguos, ${r.noEncontrados} no encontrados` +
+      (detalle.length ? '\n\n' + detalle.join('\n') : ''),
+    'Importación de pedido');
+}
+
+// ═══ Reimportar un pedido ya cargado (sin xlsx de por medio) ═════════════════
+// Reusa los items tal cual quedaron guardados en su momento (ya pasaron por
+// resolverProductosCompra cuando se creó ese pedido) — no hace falta volver a
+// resolverlos contra SIGA, así que arman directamente el shape que espera
+// aplicarImportacion con estado 'ok'.
+$('#btnListarReimport').addEventListener('click', async () => {
+  const cont = $('#listaReimport');
+  if (!cont.classList.contains('hidden')) { cont.classList.add('hidden'); return; }
+  cont.innerHTML = '<div class="ant-dropdown-empty">Buscando…</div>';
+  cont.classList.remove('hidden');
+  try {
+    await cargarPedidos();
+    cont.innerHTML = pedidosTodos.length
+      ? pedidosTodos.map(p => `<button class="js-reimport ant-dropdown-item" data-numero="${escAttr(p.numero)}">
+           <span class="block">${escAttr(p.numero)} · ${escAttr(p.proveedor)}</span>
+           <span class="block t-12 t-ter num">${escAttr(fechaCorta(p.fecha))} · ${(p.items || []).length} líneas · ${escAttr(p.estado)}</span>
+         </button>`).join('')
+      : '<div class="ant-dropdown-empty">No hay pedidos cargados todavía.</div>';
+    cont.querySelectorAll('.js-reimport').forEach(b => b.addEventListener('click', () => {
+      cont.classList.add('hidden');
+      const p = pedidosTodos.find(x => String(x.numero) === b.dataset.numero);
+      if (p) reimportarPedido(p);
+    }));
+  } catch (e) {
+    cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+  }
+});
+
+async function reimportarPedido(pedido) {
+  provSel = provSelImport = { id: pedido.idProveedor, nombre: pedido.proveedor };
+  $('#provQ').value = $('#provQImport').value = pedido.proveedor;
+  $('#provSelNombre').textContent = $('#provSelImportNombre').textContent = '#' + pedido.idProveedor;
+  await cargarArmado();
+  $('.tab-btn[data-tab="armado"]').click();
+  if (!armado) return;
+
+  const lineas = (pedido.items || []).map(it => ({
+    fila: null, plu: it.plu, resuelto: it.plu, nombreSiga: it.nombre, unidad: it.unidad,
+    cantidad: Number(it.cantidad) || 0, estado: 'ok', notas: [],
+  }));
+  aplicarImportacion({
+    lineas, erroresArchivo: [],
+    resueltos: lineas.filter(l => l.cantidad > 0).length, ambiguos: 0, noEncontrados: 0,
+  });
+}
 
 // Semáforo de cobertura: menos de una semana es urgente, menos de dos es atención.
 // Un único tono manda fondo, punto y número de la celda (ver .cob-* en el CSS).
@@ -803,7 +973,7 @@ function renderArmado() {
       <td class="t-c"><input type="checkbox" class="js-chk ant-check" data-plu="${escAttr(f.plu)}"
           aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
       <td>
-        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}</div>
+        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}</div>
         <div class="prod-meta">
           <span>${escAttr(f.plu)}</span> · <span>${escAttr(f.unidad)}</span> ·
           <span title="${escAttr(tUltima)}">últ. ${escAttr(fechaCorta(f.ultimaFecha))}</span> ·
@@ -1154,6 +1324,7 @@ function seleccionarPedido() {
   // Copia profunda de items: se editan en memoria y recién se mandan al Guardar.
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
   comprobantesInfo = null;
+  comprobantesPreview = new Set();
   comprobantesCargando = !!(pedidoSel && pedidoSel.estado === 'PENDIENTE');
   renderSeguimiento();
   if (comprobantesCargando) cargarComprobantes(pedidoSel.numero);
@@ -1216,12 +1387,33 @@ function renderComprobantesCard() {
     <div class="ant-card-body ant-card-body-sm">
       <div id="segComprobantesLista" class="flex flex-col gap-2">
         ${info.candidatos.map(c => `
-          <label class="ant-check-label">
-            <input type="checkbox" class="ant-check" value="${escAttr(c.clave)}"${marcada(c) ? ' checked' : ''}>
-            <span class="num">${escAttr(c.etiqueta)}</span>
-            <span class="t-ter t-12">${escAttr(c.fecha || '')} · ${c.lineas} ítems · ${money(c.importeTotal)}</span>
-            ${c.sugerido ? `<span class="ant-tag ant-tag-primary">${c.pluCoincidentes}/${c.pluPedido} plu</span>` : ''}
-          </label>`).join('')}
+          <div>
+            <div class="flex items-center gap-2">
+              <label class="ant-check-label flex-1">
+                <input type="checkbox" class="ant-check" value="${escAttr(c.clave)}"${marcada(c) ? ' checked' : ''}>
+                <span class="num">${escAttr(c.etiqueta)}</span>
+                <span class="t-ter t-12">${escAttr(c.fecha || '')} · ${c.lineas} ítems · ${money(c.importeTotal)}</span>
+                ${c.sugerido ? `<span class="ant-tag ant-tag-primary">${c.pluCoincidentes}/${c.pluPedido} plu</span>` : ''}
+              </label>
+              <button type="button" class="ant-btn ant-btn-sm js-toggle-preview" data-clave="${escAttr(c.clave)}">
+                ${comprobantesPreview.has(c.clave) ? 'Ocultar' : 'Vista previa'}
+              </button>
+            </div>
+            ${comprobantesPreview.has(c.clave) ? `
+              <div class="mt-1 ml-6 ant-table-wrap">
+                <table class="ant-table ant-table-sm">
+                  <thead><tr><th>PLU</th><th>Producto</th><th class="t-r">Cantidad</th><th class="t-r">Importe</th></tr></thead>
+                  <tbody>
+                    ${(c.items || []).map(it => `<tr>
+                      <td class="num">${escAttr(it.plu)}</td>
+                      <td>${escAttr(it.nombre || '')}</td>
+                      <td class="t-r num">${fmt(it.cantidad)}</td>
+                      <td class="t-r num">${money(it.importe)}</td>
+                    </tr>`).join('') || '<tr><td colspan="4" class="t-ter">Sin líneas.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>` : ''}
+          </div>`).join('')}
       </div>
       <div class="mt-3">
         <button id="btnAplicarComprobantes" class="ant-btn ant-btn-primary ant-btn-sm">Aplicar a las líneas</button>
@@ -1333,6 +1525,11 @@ function renderSeguimiento() {
   $('#segRetiro').addEventListener('change', e => { pedidoSel.fechaRetiro = e.target.value || null; actualizarBotonCerrar(); });
   $('#segObs').addEventListener('input', e => { pedidoSel.observacion = e.target.value; });
   if ($('#btnAplicarComprobantes')) $('#btnAplicarComprobantes').addEventListener('click', aplicarYVincularComprobantes);
+  cont.querySelectorAll('.js-toggle-preview').forEach(b => b.addEventListener('click', () => {
+    const clave = b.dataset.clave;
+    if (comprobantesPreview.has(clave)) comprobantesPreview.delete(clave); else comprobantesPreview.add(clave);
+    renderSeguimiento();
+  }));
   $('#btnGuardar').addEventListener('click', () => enviarSeguimiento(null));
   $('#btnCerrar').addEventListener('click', () => enviarSeguimiento('CERRADO'));
   $('#btnAnular').addEventListener('click', async () => {
