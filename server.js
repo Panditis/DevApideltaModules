@@ -2450,8 +2450,9 @@ const comprasRouter = require('./routes/rutas_compras')({
   PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH,
 });
 app.use(comprasRouter.router);
-// Grabación real en SIGA (Tarea 2): plomería nada más por ahora, sin lógica de negocio.
-// Reutiliza armarVistaCompra/resolverProductosCompra/usuarioCompras del router de arriba
+// Grabación real de compras en SIGA (transacción de 14 escrituras, ver
+// docs/compras_siga_mapeo.md y routes/rutas_compras_grabar.js). Reutiliza
+// armarVistaCompra/resolverProductosCompra/usuarioCompras del router de arriba
 // en vez de duplicarlas.
 app.use(require('./routes/rutas_compras_grabar')({
   apiRoute, getPool, sql, comprasImport,

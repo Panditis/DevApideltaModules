@@ -388,31 +388,12 @@ module.exports = function crearRutasComprasGrabar(deps) {
     }
   }
 
-  // Misma reconstrucción de matriz que /api/compras-import/revalidar (rutas_compras.js):
-  // se vuelve a parsear y validar todo server-side, nunca se confía en lo que mandó
-  // el navegador (valido/totales/estado de línea son fáciles de falsificar y esto
-  // escribe plata real).
-  const CLAVE_POR_COLUMNA = {
-    PLU: 'plu', CodigoProveedor: 'codigoProveedor', CodigoBarras: 'codigoBarras',
-    Cantidad: 'cantidad', PrecioUnitario: 'precioUnitario',
-    PorcentajeIVA: 'porcentajeIVA', Descripcion: 'descripcion',
-  };
-
+  // Misma reconstrucción de matriz que /api/compras-import/revalidar (rutas_compras.js,
+  // comprasImport.matrizDesdeBody): se vuelve a parsear y validar todo server-side,
+  // nunca se confía en lo que mandó el navegador (valido/totales/estado de línea son
+  // fáciles de falsificar y esto escribe plata real).
   router.post('/api/compras-import/grabar', express.json({ limit: '2mb' }), apiRoute(async (req) => {
-    const cabecera = (req.body && req.body.cabecera) || {};
-    const lineasBody = Array.isArray(req.body && req.body.lineas) ? req.body.lineas : [];
-
-    const colsCab = comprasImport.CAMPOS_CABECERA.map(c => c.campo);
-    const valorCab = c => (cabecera[c] == null ? '' : cabecera[c]);
-    const matriz = [[...comprasImport.COLUMNAS_DETALLE, ...colsCab]];
-    for (const l of lineasBody) {
-      matriz.push([
-        ...comprasImport.COLUMNAS_DETALLE.map(c => { const v = l[CLAVE_POR_COLUMNA[c]]; return v == null ? '' : v; }),
-        ...colsCab.map(valorCab),
-      ]);
-    }
-    if (!lineasBody.length) matriz.push([...comprasImport.COLUMNAS_DETALLE.map(() => ''), ...colsCab.map(valorCab)]);
-
+    const matriz = comprasImport.matrizDesdeBody(req.body);
     const parsed = comprasImport.parsearCompra({ matriz });
     const vista = await armarVistaCompra(parsed, req.body && req.body.archivo);
 

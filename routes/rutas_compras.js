@@ -555,33 +555,10 @@ async function armarVistaCompra(parsed, archivo) {
 // Revalida la compra después de editarla en pantalla. Se reconstruye la misma
 // matriz plana que produce el xlsx y se la pasa por el parser: así lo editado
 // atraviesa exactamente las mismas validaciones que el archivo, sin confiar
-// en lo que manda el navegador.
-const CLAVE_POR_COLUMNA = {
-  PLU: 'plu', CodigoProveedor: 'codigoProveedor', CodigoBarras: 'codigoBarras',
-  Cantidad: 'cantidad', PrecioUnitario: 'precioUnitario',
-  PorcentajeIVA: 'porcentajeIVA', Descripcion: 'descripcion',
-};
-
+// en lo que manda el navegador. matrizDesdeBody es la misma que usa
+// /api/compras-import/grabar (routes/rutas_compras_grabar.js) — no duplicar.
 router.post('/api/compras-import/revalidar', express.json({ limit: '2mb' }), apiRoute(async (req) => {
-  const cabecera = (req.body && req.body.cabecera) || {};
-  const lineas = Array.isArray(req.body && req.body.lineas) ? req.body.lineas : [];
-
-  const colsCab = comprasImport.CAMPOS_CABECERA.map(c => c.campo);
-  const valorCab = c => (cabecera[c] == null ? '' : cabecera[c]);
-  const matriz = [[...comprasImport.COLUMNAS_DETALLE, ...colsCab]];
-
-  for (const l of lineas) {
-    matriz.push([
-      ...comprasImport.COLUMNAS_DETALLE.map(c => {
-        const v = l[CLAVE_POR_COLUMNA[c]];
-        return v == null ? '' : v;
-      }),
-      ...colsCab.map(valorCab),
-    ]);
-  }
-  // Sin ítems igual hay que devolver la cabecera parseada, para no perder lo editado.
-  if (!lineas.length) matriz.push([...comprasImport.COLUMNAS_DETALLE.map(() => ''), ...colsCab.map(valorCab)]);
-
+  const matriz = comprasImport.matrizDesdeBody(req.body);
   const parsed = comprasImport.parsearCompra({ matriz });
   return armarVistaCompra(parsed, req.body && req.body.archivo);
 }));
