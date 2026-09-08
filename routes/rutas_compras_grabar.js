@@ -12,7 +12,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
   const { apiRoute, getPool, sql, comprasImport, armarVistaCompra, resolverProductosCompra, usuarioCompras } = deps;
   const router = express.Router();
 
-  router.get('/api/compras-import/_grabar-status', apiRoute(async () => ({ ok: true })));
+  router.get('/api/compras/grabar/_status', apiRoute(async () => ({ ok: true })));
 
   return router;
 };
