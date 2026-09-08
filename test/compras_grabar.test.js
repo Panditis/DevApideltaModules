@@ -116,8 +116,9 @@ test('filaComprasImpuesto: Bruto = BaseImponible + Importe (confirmado en el rel
 test('filaComprasImpuesto: una percepción lleva base y bruto en 0, el importe en Importe', () => {
   const cab = { PuntoVenta: 1, NumeroComprobante: 50 };
   const fila = filaComprasImpuesto({ tipo: 'PIVA', alicuota: 0, baseImponible: 0, importe: 955.19 }, 3, cab);
-  assert.strictEqual(fila.bruto, 955.19);
+  assert.strictEqual(fila.bruto, 0);
   assert.strictEqual(fila.baseImponible, 0);
+  assert.strictEqual(fila.importe, 955.19);
 });
 
 // ── agregarCantidadesPorProducto ─────────────────────────────────────────────

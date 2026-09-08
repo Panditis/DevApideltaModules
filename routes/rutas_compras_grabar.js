@@ -17,6 +17,17 @@ const comprasGrabar = require('../lib/compras_grabar');
 // No se toca armarVistaCompra/resolverProductosCompra/calcularTotales: llegan por
 // deps desde rutas_compras.js (ver server.js) y se vuelven a correr acá server-side
 // antes de grabar, para no confiar en lo que mandó el navegador.
+// RubrosCompras.IdRubro=1 es "Mercaderias de Reventa" (tabla RubrosCompras, distinta
+// de Rubros/RubrosCompras... ojo, no confundir con Productos.IdRubro, que es otro
+// campo sin relación). Se elige fijo porque este importador SOLO carga líneas que ya
+// pasaron por resolverProductosCompra — siempre son productos reales, nunca un
+// gasto/servicio — así que "Mercaderías de Reventa" es la categoría correcta por
+// definición del alcance de este flujo, no una suposición. El único comprobante real
+// relevado (pruebas_compras/analisis1.txt) trae IdRubro=3 ("Servicios prestados por
+// Terceros"), pero esa compra puntual también tiene PorcentajeIVA=21 en la cabecera
+// pese a ser una operación con IVA 0% — son valores que arrastró el formulario de
+// SIGA de una carga anterior, no la clasificación correcta para ese producto
+// (Tutuca Maíz, claramente mercadería). No se sigue ese ejemplo por esta razón.
 const ID_RUBRO_MERCADERIAS = 1;
 const ID_FUNCION_COMPRAS = 'MovimientosDeComprasV2';
 const ID_EMPRESA = 1;
@@ -49,8 +60,18 @@ module.exports = function crearRutasComprasGrabar(deps) {
     return r.recordset[0].siguiente;
   }
 
+  // SIGA no tiene una tabla de cotización del dólar: el valor que graba cada
+  // comprobante es "lo último que se usó" (todas las compras recientes reales
+  // traen el mismo número, ver pruebas_compras/analisis1.txt). Se replica ese
+  // criterio en vez de un 1 fijo, que sería un dato falso en una tabla financiera.
+  async function cotizacionDolarActual(rq) {
+    const r = await rq().query(
+      'SELECT TOP 1 CotizacionDolar FROM Compras WHERE CotizacionDolar IS NOT NULL ORDER BY Fecha DESC');
+    return r.recordset[0] ? r.recordset[0].CotizacionDolar : 1;
+  }
+
   // ── Paso 3: Compras (cabecera) ───────────────────────────────────────────────
-  async function insertCompra(rq, cab, proveedor, totales, usuario, idComprador, formaPago) {
+  async function insertCompra(rq, cab, proveedor, totales, usuario, idComprador, formaPago, cotizacion) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
@@ -74,6 +95,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
       .input('percGan', sql.Decimal(18, 4), cab.PercepcionGanancias || 0)
       .input('percVar', sql.Decimal(18, 4), cab.PercepcionVarias || 0)
       .input('impInternos', sql.Decimal(18, 4), cab.ImpuestosInternos || 0)
+      .input('cotizacion', sql.Decimal(18, 4), cotizacion)
       .query(`INSERT INTO Compras
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Fecha,
          ImporteTotal, TotalBruto, TotalNeto, TotalIVA, TotalPercepciones,
@@ -85,7 +107,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
         (@suc, @tipo, @letra, @emisor, @nro, @fecha,
          @total, @bruto, @neto, @iva, @percep,
          @idProveedor, @nombreProveedor, @cuit, @catFiscal, @formaPago, ${ID_RUBRO_MERCADERIAS},
-         @periodo, @usuario, GETDATE(), 'M', '${ID_FUNCION_COMPRAS}', 1,
+         @periodo, @usuario, GETDATE(), 'M', '${ID_FUNCION_COMPRAS}', @cotizacion,
          ${ID_EMPRESA}, @comprador, @observacion, @percIVA, @percIB, @percGan,
          @percVar, @impInternos)`);
   }
@@ -232,7 +254,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
 
   // ── Pasos 12-13: cuenta corriente del proveedor. Fecha = GETDATE() (grabación
   // real), no la del comprobante — así lo muestra el relevamiento. ────────────────
-  async function insertCuentaCorrienteProv(rq, cab, totales, formaPago, usuario) {
+  async function insertCuentaCorrienteProv(rq, cab, totales, formaPago, usuario, cotizacion) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
@@ -241,6 +263,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
       .input('total', sql.Decimal(18, 4), totales.total).input('formaPago', sql.Int, formaPago)
       .input('observacion', sql.NVarChar, cab.Observacion || '').input('usuario', sql.NVarChar, usuario)
       .input('idProveedor', sql.Int, cab.IdProveedor)
+      .input('cotizacion', sql.Decimal(18, 4), cotizacion)
       .query(`INSERT INTO CuentasCorrientesProv
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Fecha, FechaVencimiento,
          ImporteTotal, IdFormasPago, Observacion, Saldo, CantidadCuotas,
@@ -251,7 +274,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
          @total, @formaPago, @observacion, @total, 1,
          0, 0, 0, 0, 0, 0,
          0, 0, 'NORMAL', @usuario, @idProveedor,
-         GETDATE(), 'M', '${ID_FUNCION_COMPRAS}', 1, '', 0)`);
+         GETDATE(), 'M', '${ID_FUNCION_COMPRAS}', @cotizacion, '', 0)`);
   }
 
   // v1: una sola cuota (decisión ya tomada, ver docs/compras_siga_mapeo.md #11).
@@ -315,9 +338,10 @@ module.exports = function crearRutasComprasGrabar(deps) {
       const lineasCalc = vista.lineas.map(comprasGrabar.calcularLinea);
       const proporcional = comprasGrabar.prorratearPercepciones(lineasCalc, vista.totales.neto, vista.totales.totalPercepciones);
       const formaPago = comprasGrabar.idFormasPago(cab);
+      const cotizacion = await cotizacionDolarActual(rq);
 
       // 3. Compras
-      await insertCompra(rq, cab, vista.proveedor, vista.totales, usuario, idEmpleadoComprador, formaPago);
+      await insertCompra(rq, cab, vista.proveedor, vista.totales, usuario, idEmpleadoComprador, formaPago, cotizacion);
 
       // 4. ComprasProductos
       for (let i = 0; i < lineasCalc.length; i++) await insertComprasProducto(rq, cab, lineasCalc[i], proporcional[i]);
@@ -350,7 +374,7 @@ module.exports = function crearRutasComprasGrabar(deps) {
       }
 
       // 12-13. Cuenta corriente del proveedor
-      await insertCuentaCorrienteProv(rq, cab, vista.totales, formaPago, usuario);
+      await insertCuentaCorrienteProv(rq, cab, vista.totales, formaPago, usuario, cotizacion);
       await insertCuentaCorrienteProvPago(rq, cab, vista.totales, formaPago);
 
       // 14. ProductosProveedores
