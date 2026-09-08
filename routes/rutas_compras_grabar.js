@@ -36,7 +36,11 @@ module.exports = function crearRutasComprasGrabar(deps) {
   // resolverProductosCompra no se usa acá directo: ya la corre armarVistaCompra por
   // dentro. Sigue llegando por deps (server.js) porque server.js se la pasa a los dos
   // routers hermanos por igual; no hace falta destructurarla si no se usa.
-  const { apiRoute, getPool, sql, comprasImport, armarVistaCompra, usuarioCompras } = deps;
+  // getPool = usuario de sólo lectura (apidelta): lo sigue usando armarVistaCompra
+  // para las consultas de validación. getPoolStock = apidelta_stock, el único con
+  // GRANT INSERT/UPDATE en Compras/ComprasProductos/etc (_otorgar_permisos_compras.sql)
+  // — la transacción de grabado tiene que abrirse con ése, no con el de lectura.
+  const { apiRoute, getPool, getPoolStock, sql, comprasImport, armarVistaCompra, usuarioCompras } = deps;
   const router = express.Router();
 
   // ── Paso 1/2: duplicado (manual) o número definitivo (automático), con lock ──
@@ -96,20 +100,41 @@ module.exports = function crearRutasComprasGrabar(deps) {
       .input('percVar', sql.Decimal(18, 4), cab.PercepcionVarias || 0)
       .input('impInternos', sql.Decimal(18, 4), cab.ImpuestosInternos || 0)
       .input('cotizacion', sql.Decimal(18, 4), cotizacion)
+      .input('porcIVA', sql.Decimal(18, 4), comprasGrabar.porcentajeIVADominante(totales))
       .query(`INSERT INTO Compras
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Fecha,
          ImporteTotal, TotalBruto, TotalNeto, TotalIVA, TotalPercepciones,
          IdProveedor, NombreProveedor, CuitProveedor, IdCategoriaFiscal, IdFormasPago, IdRubro,
          PeriodoFiscal, Usuario, FechaActualizacion, MetodoGrabacion, IdFuncion, CotizacionDolar,
          IdEmpresa, IdComprador, Observacion, PercepcionIVA, PercepcionIB, PercepcionGanancias,
-         PercepcionVarias, ImpuestosInternos)
+         PercepcionVarias, ImpuestosInternos,
+         DescuentoRecargo, ImportePesos, ImporteTarjetas, ImporteCheques, ImporteTransfBancaria,
+         CantidadInvocados, Bultos, ValorDeclarado, NumeroLote, IVAModificadoManual,
+         ExcluirDePasaje, MercEnviada, PorcentajeIVA, DescuentoRecargoPorc, BienCapitalDespacho)
         VALUES
         (@suc, @tipo, @letra, @emisor, @nro, @fecha,
          @total, @bruto, @neto, @iva, @percep,
          @idProveedor, @nombreProveedor, @cuit, @catFiscal, @formaPago, ${ID_RUBRO_MERCADERIAS},
          @periodo, @usuario, GETDATE(), 'M', '${ID_FUNCION_COMPRAS}', @cotizacion,
          ${ID_EMPRESA}, @comprador, @observacion, @percIVA, @percIB, @percGan,
-         @percVar, @impInternos)`);
+         @percVar, @impInternos,
+         0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0,
+         0, 0, @porcIVA, 0, 0)`);
+    // PorcentajeIVA/DescuentoRecargoPorc/BienCapitalDespacho: a diferencia de las de
+    // abajo, son NULLABLE (no daban error de INSERT) pero el visor de SIGA las parsea
+    // sin chequear NULL — el comprobante grababa bien pero tiraba "Input string was
+    // not in a correct format" al abrirlo. DescuentoRecargoPorc/BienCapitalDespacho
+    // van fijas en 0; PorcentajeIVA es la alícuota más alta de la factura (ver
+    // porcentajeIVADominante en compras_grabar.js), un campo resumen de cabecera — el
+    // detalle real por línea vive en ComprasProductos.PorcentajeIVA.
+    // ponytail: columnas NOT NULL sin default que no traía el mapeo original (relevado
+    // por diff de snapshots, que no capta columnas que nunca cambian de valor). Todas
+    // en 0 en el 100% de las +26000 filas reales de Compras salvo ImportePesos, que
+    // en algunos casos de pago Contado trae el total — no se replica ese caso porque
+    // CuentasCorrientesProv/Pagos (pasos 12-13, más abajo) también van con los importes
+    // de medio de pago en 0 por la misma razón: sin un caso real para confirmar el
+    // criterio exacto, se prefiere 0 (consistente) a inventar una regla.
   }
 
   // ── Paso 4: ComprasProductos (una fila por línea) ────────────────────────────
@@ -131,17 +156,23 @@ module.exports = function crearRutasComprasGrabar(deps) {
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, IdProducto,
          Cantidad, Precio, ImporteTotal, PrecioNeto, ImporteTotalNeto, PorcentajeIVA, IVA,
          Orden, NombreProducto, IdProveedor, MontoSaldo, ProporcionalImp, IdDeposito, IdUbicacion,
-         CantidadUMCompra, FactorConversionCompra, PrecioPorUMCompra, IdUnidadDeMedida, IdUnidadDeMedidaCompra)
+         CantidadUMCompra, FactorConversionCompra, PrecioPorUMCompra, IdUnidadDeMedida, IdUnidadDeMedidaCompra,
+         DescRecGeneral, DescuentoRecargo, DescuentoRecargoProducto, DescRecGeneralProducto,
+         PasajeMovimiento, MontoAplicado)
         VALUES
         (@suc, @tipo, @letra, @emisor, @nro, @producto,
          @cantidad, @precio, @importeTotal, @precioNeto, @importeTotalNeto, @porcIVA, @iva,
          @orden, @nombreProducto, @idProveedor, @importeTotal, @proporcional, @deposito, @ubicacion,
-         @cantidad, 1, @precio, 'UN', 'UN')`);
+         @cantidad, 1, @precio, 'UN', 'UN',
+         0, 0, 0, 0,
+         0, 0)`);
     // ponytail: IdUnidadDeMedida/IdUnidadDeMedidaCompra fijos en 'UN' — el único caso
     // relevado (pruebas_compras/analisis2.txt), incluso para un producto a granel,
     // usó 'UN'. La app no consulta Productos.IdUnidadDeMedida en ningún otro punto
     // (ver comentario en rutas_compras.js), así que no hay otra fuente. Si algún
     // producto necesita otra unidad de compra, esto hay que revisarlo con un caso real.
+    // Descuentos/PasajeMovimiento/MontoAplicado: NOT NULL sin default, ausentes del
+    // mapeo original (no varían en ninguna fila real relevada) — van en 0/false.
   }
 
   // ── Paso 5: ComprasImpuestos (una fila por alícuota/percepción) ──────────────
@@ -156,9 +187,11 @@ module.exports = function crearRutasComprasGrabar(deps) {
       .input('importe', sql.Decimal(18, 4), fila.importe).input('bruto', sql.Decimal(18, 4), fila.bruto)
       .query(`INSERT INTO ComprasImpuestos
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, IdProveedor,
-         Orden, IdTipoImpuesto, Emisor, Numero, BaseImponible, Alicuota, Importe, Bruto)
+         Orden, IdTipoImpuesto, Emisor, Numero, BaseImponible, Alicuota, Importe, Bruto, EsDespacho)
         VALUES (@suc, @tipo, @letra, @emisor, @nro, @idProveedor,
-         @orden, @idTipoImpuesto, @filaEmisor, @filaNumero, @base, @alicuota, @importe, @bruto)`);
+         @orden, @idTipoImpuesto, @filaEmisor, @filaNumero, @base, @alicuota, @importe, @bruto, 0)`);
+    // EsDespacho: NOT NULL sin default, ausente del mapeo original — 0 en el 100% de
+    // las filas reales relevadas (no es un despacho de aduana).
   }
 
   // ── Paso 6: número de movimiento de stock (mismo patrón atómico que
@@ -401,8 +434,11 @@ module.exports = function crearRutasComprasGrabar(deps) {
       throw new Error(vista.errores.length ? vista.errores.join(' | ') : 'La compra no pasó la validación.');
     }
 
-    const usuario = usuarioCompras(req);
-    const resultado = await grabarCompraEnSiga(await getPool(), vista, { usuario, idEmpleadoComprador: 1 });
+    // La pantalla de pruebas permite tipear el usuario a mano (no hay login real
+    // ahí): se usa si viene no vacío, si no cae a la sesión como en el resto del sistema.
+    const usuarioBody = typeof req.body.usuario === 'string' ? req.body.usuario.trim() : '';
+    const usuario = usuarioBody || usuarioCompras(req);
+    const resultado = await grabarCompraEnSiga(await getPoolStock(), vista, { usuario, idEmpleadoComprador: 1 });
     return { ok: true, ...resultado };
   }));
 

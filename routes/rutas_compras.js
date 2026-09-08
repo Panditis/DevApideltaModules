@@ -333,9 +333,10 @@ router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidos
 
 
 // ── Importación de facturas de compra — BANCO DE PRUEBAS ───────────────────────
-// Sólo lectura: parsea el xlsx, resuelve los productos contra SIGA y devuelve la
-// previsualización. NO escribe nada en SIGA. El mapeo de las 12 tablas que tocaría
-// la carga real está relevado en docs/compras_siga_mapeo.md
+// Parsea el xlsx y resuelve los productos contra SIGA para la previsualización.
+// La grabación real (stock, cta cte y comprobante en SIGA) la hace
+// POST /api/compras-import/grabar en routes/rutas_compras_grabar.js.
+// El mapeo de las 12 tablas está relevado en docs/compras_siga_mapeo.md
 router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_import_prueba.html')));
 
 // Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
@@ -581,29 +582,23 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   };
 }));
 
+// La planilla ahora sólo trae productos (PLU/CodigoProveedor/CodigoBarras, Cantidad,
+// PrecioUnitario, PorcentajeIVA, Descripcion) — la cabecera del comprobante se arma
+// en pantalla (a mano o abriendo un pedido), nunca desde el archivo. Por eso acá
+// sólo se corre parsearDetalle: sin cabecera que validar, no hace falta pasar por
+// parsearCompra/armarVistaCompra (eso ya lo hace /revalidar sobre lo que quede en pantalla).
 router.post('/api/compras-import/preview', uploadCompraXlsx.single('archivo'), apiRoute(async (req) => {
   if (!req.file) throw new Error('No llegó ningún archivo.');
 
   const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
   const opciones = { header: 1, raw: true, defval: '' };
+  const hoja = hojaCompra(wb, 'detalle') || hojaCompra(wb, 'compra') || wb.Sheets[wb.SheetNames[0]];
+  if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
 
-  // El formato plano (una sola hoja, todo en columnas) es el habitual. Se sigue
-  // aceptando el de dos hojas por los archivos armados antes del cambio.
-  const hCab = hojaCompra(wb, 'cabecera');
-  const hDet = hojaCompra(wb, 'detalle');
-  let parsed;
-  if (hCab && hDet) {
-    parsed = comprasImport.parsearCompra({
-      matrizCabecera: XLSX.utils.sheet_to_json(hCab, opciones),
-      matrizDetalle:  XLSX.utils.sheet_to_json(hDet, opciones),
-    });
-  } else {
-    const hoja = hojaCompra(wb, 'compra') || wb.Sheets[wb.SheetNames[0]];
-    if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
-    parsed = comprasImport.parsearCompra({ matriz: XLSX.utils.sheet_to_json(hoja, opciones) });
-  }
+  const { lineas, errores } = comprasImport.parsearDetalle(XLSX.utils.sheet_to_json(hoja, opciones));
+  if (errores.length) throw new Error(errores.join(' | '));
 
-  return armarVistaCompra(parsed, req.file.originalname);
+  return { archivo: req.file.originalname, lineas };
 }));
 
   return { router, armarVistaCompra, resolverProductosCompra, usuarioCompras };

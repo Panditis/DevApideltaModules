@@ -6,7 +6,7 @@ const { calcularFaltantesFraccionado } = require('../lib/fraccionado_faltantes')
 const { resolverProductoCarga, analizarNombreCarga } = require('../lib/producto_carga');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
-        plusEnOrdenesActivas } = require('../lib/ordenes_fraccionado');
+        compromisosPorPlu } = require('../lib/ordenes_fraccionado');
 const { validarLineasReserva, normalizarLineasReserva, validarClienteReserva,
         validarCarritoUnCliente, nuevaReserva, anularReserva } = require('../lib/reservas_mercaderia');
 const { lineaAApartar, validarLineaPesable,
@@ -190,10 +190,16 @@ router.get('/api/mayoristas/ordenes-fraccionado', apiRoute(async () =>
 // los 400 de validación y los 404 en respuestas 200. Es el mismo criterio que el resto de las
 // rutas de escritura del archivo (ver /api/admin/modulos).
 // Va ANTES de :id (Express matchea por orden de registro y 'plus-activos' caería en el handler
-// de arriba). Es la lista de PLU que el carrito no puede volver a agregar: la usa pedidos_web.html
-// para bloquear el alta en el momento, sin bajarse todas las órdenes con sus líneas.
-router.get('/api/mayoristas/ordenes-fraccionado/plus-activos', apiRoute(async () =>
-  [...plusEnOrdenesActivas(leerJSON(ORD_FRACC_PATH, []))]));
+// de arriba). Es el detalle de qué PLU están comprometidos y con qué cliente: la usa
+// pedidos_web.html para bloquear el alta en el momento (por cliente, no por PLU a secas), sin
+// bajarse todas las órdenes con sus líneas. `null` en vez de un array de clientes significa "sin
+// cliente registrado, bloqueado para cualquiera" (ver compromisosPorPlu).
+router.get('/api/mayoristas/ordenes-fraccionado/plus-activos', apiRoute(async () => {
+  const compromisos = compromisosPorPlu(leerJSON(ORD_FRACC_PATH, []));
+  const out = {};
+  for (const [plu, info] of compromisos) out[plu] = info.sinCliente ? null : [...info.clientes.keys()];
+  return out;
+}));
 
 // También ANTES de :id, por lo mismo que plus-activos. Endpoint liviano de polling: Distribución
 // pregunta cada tanto si hay órdenes nuevas o editadas, así que devuelve sólo los sellos de tiempo
@@ -222,9 +228,11 @@ router.post('/api/mayoristas/ordenes-fraccionado', (req, res) => {
   const error = validarLineasFraccionado(req.body && req.body.lineas);
   if (error) return res.status(400).json({ error });
   const arr = leerJSON(ORD_FRACC_PATH, []);
-  // Un artículo se manda a fraccionar una sola vez: si ya está en una orden sin anular (o repetido
-  // dentro del mismo body) se rechaza la orden entera. 409 y no 400 porque el body es válido: lo
-  // que choca es el estado del archivo, y el frontend lo distingue para avisar de otra manera.
+  // Un artículo se manda a fraccionar una sola vez por cliente: si el mismo cliente ya lo tiene en
+  // una orden sin anular (o el PLU está repetido dentro del mismo body) se rechaza la orden entera.
+  // Otro cliente pidiendo el mismo PLU sí puede convivir en otra orden activa (ver
+  // validarLineasNoRepetidas). 409 y no 400 porque el body es válido: lo que choca es el estado del
+  // archivo, y el frontend lo distingue para avisar de otra manera.
   const repetido = validarLineasNoRepetidas(req.body.lineas, arr);
   if (repetido) return res.status(409).json({ error: repetido });
   const lineas = normalizarLineasFraccionado(req.body.lineas);

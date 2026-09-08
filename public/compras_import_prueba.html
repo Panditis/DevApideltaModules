@@ -118,6 +118,17 @@ td input.cod{font-family:'Spline Sans Mono',ui-monospace,monospace}
 .resultados button{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 11px;font:inherit;font-size:.82rem;cursor:pointer;border-bottom:1px solid #f1f1ec}
 .resultados button:hover{background:var(--area-soft)}
 .resultados .plu{font-family:'Spline Sans Mono',ui-monospace,monospace;color:var(--muted);font-size:.75rem}
+
+/* ── Modal de confirmación (reemplazo de confirm()) ──────────────────────────── */
+.modal-mask{position:fixed;inset:0;background:rgba(20,20,15,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal{width:100%;max-width:440px;background:#fff;border-radius:14px;box-shadow:0 24px 60px -20px rgba(0,0,0,.4)}
+.modal-h{padding:16px 20px;border-bottom:1px solid var(--outline);font-weight:700;font-family:'Bricolage Grotesque','Public Sans',sans-serif}
+.modal-b{padding:18px 20px}
+.modal-resumen{display:flex;flex-direction:column;gap:8px;font-size:.86rem}
+.modal-resumen .fila{display:flex;justify-content:space-between;gap:12px}
+.modal-resumen .k{color:var(--muted)}
+.modal-resumen .v{font-weight:700;text-align:right}
+.modal-f{display:flex;justify-content:flex-end;gap:9px;padding:14px 20px;border-top:1px solid var(--outline)}
 </style>
 </head>
 <body>
@@ -138,31 +149,61 @@ td input.cod{font-family:'Spline Sans Mono',ui-monospace,monospace}
   <div class="banner info">
     <i data-lucide="flask-conical" style="width:18px;height:18px;flex-shrink:0;margin-top:1px"></i>
     <div>
-      <b>Módulo de pruebas.</b> Lee el xlsx, valida los datos y resuelve los productos contra SIGA.
-      Podés corregir la cabecera y los ítems antes de cargar. <b>No graba nada:</b> no toca stock,
-      ni cuenta corriente, ni comprobantes.
+      <b>Módulo de pruebas.</b> Traé los productos desde un pedido pendiente o desde una planilla,
+      completá los datos del comprobante (por defecto una cotización) y revisá cómo quedan resueltos
+      contra SIGA. El botón <b>Grabar en SIGA</b> graba el comprobante real (stock, cuenta corriente
+      e impuestos incluidos).
     </div>
   </div>
 
   <div class="card">
-    <h2>1 · Subir la planilla</h2>
-    <p class="sub">Archivo .xlsx en formato plano: una fila por ítem, con los datos de la factura en columnas.</p>
+    <h2>1 · Agregar productos</h2>
+    <p class="sub">Elegí un pedido pendiente (misma cantidad y productos que se pidieron) o subí una planilla —
+      la planilla sólo trae ítems, no los datos del comprobante.</p>
+
+    <div class="form-grid" style="grid-template-columns:1fr auto">
+      <div class="campo">
+        <label>Pedido pendiente</label>
+        <select id="selPedido"><option value="">Elegir un pedido…</option></select>
+      </div>
+      <div class="campo">
+        <label>&nbsp;</label>
+        <button class="btn primary" id="btnUsarPedido"><i data-lucide="clipboard-list" style="width:15px;height:15px"></i> Usar este pedido</button>
+      </div>
+    </div>
 
     <div class="drop" id="drop" style="margin-top:14px">
       <i data-lucide="file-spreadsheet" style="width:34px;height:34px;color:var(--area)"></i>
-      <div class="drop-t">Arrastrá el archivo o hacé clic para elegirlo</div>
-      <div class="drop-s">Hasta 10 MB</div>
+      <div class="drop-t">Arrastrá la planilla de productos o hacé clic para elegirla</div>
+      <div class="drop-s">PLU/CodigoProveedor/CodigoBarras, Cantidad, PrecioUnitario, PorcentajeIVA · hasta 10 MB</div>
       <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
     </div>
 
     <div id="elegido" class="hidden barra">
       <span class="mono" id="nombreArchivo"></span>
-      <button class="btn primary" id="btnPrev"><i data-lucide="eye" style="width:15px;height:15px"></i> Previsualizar</button>
-      <button class="btn" id="btnLimpiar">Limpiar</button>
+      <button class="btn primary" id="btnPrev"><i data-lucide="upload" style="width:15px;height:15px"></i> Importar productos</button>
+      <button class="btn" id="btnLimpiar">Cancelar</button>
     </div>
   </div>
 
   <div id="resultado"></div>
+</div>
+
+<div id="modalGrabar" class="modal-mask hidden">
+  <div class="modal">
+    <div class="modal-h">Confirmar carga en SIGA</div>
+    <div class="modal-b">
+      <div class="modal-resumen" id="resumenGrabar"></div>
+      <div class="campo" style="margin-top:14px">
+        <label for="inputUsuarioGrabar">Usuario que graba</label>
+        <input type="text" id="inputUsuarioGrabar" placeholder="usuario SIGA" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn" id="btnCancelarGrabar">Cancelar</button>
+      <button class="btn primary" id="btnConfirmarGrabar">Sí, cargar en SIGA</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -178,6 +219,29 @@ let uidSeq = 1;
 let revalidando = false;
 let pendiente = false;
 let debounce = null;
+let grabado = null; // { numeroComprobante, numeroMovimiento } una vez grabado en SIGA
+let grabando = false;
+let origenDatos = ''; // texto libre para mostrar/mandar como "archivo": nombre del xlsx o "Pedido P-0007"
+let pedidosDisponibles = [];
+let sucursales = [];
+let depositosActuales = [];
+
+async function cargarSucursales() {
+  try {
+    const r = await fetch('/api/sucursales');
+    sucursales = await r.json();
+  } catch { sucursales = []; }
+}
+
+// Ante un idSucursal inválido el endpoint devuelve {error}, no un array.
+async function cargarDepositos(idSucursal) {
+  if (!idSucursal) { depositosActuales = []; return; }
+  try {
+    const r = await fetch('/api/stock/depositos?idSucursal=' + encodeURIComponent(idSucursal));
+    const d = await r.json();
+    depositosActuales = Array.isArray(d) ? d : [];
+  } catch { depositosActuales = []; }
+}
 
 const money = n => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -190,8 +254,8 @@ const CAMPOS_CAB = [
   { k: 'NumeroComprobante',   t: 'number', l: 'Número' },
   { k: 'FechaComprobante',    t: 'date',   l: 'Fecha' },
   { k: 'FechaVencimiento',    t: 'date',   l: 'Vencimiento' },
-  { k: 'IdSucursal',          t: 'number', l: 'Sucursal' },
-  { k: 'IdDeposito',          t: 'number', l: 'Depósito' },
+  { k: 'IdSucursal',          t: 'sucursal', l: 'Sucursal' },
+  { k: 'IdDeposito',          t: 'deposito', l: 'Depósito' },
   { k: 'IdUbicacion',         t: 'number', l: 'Ubicación' },
   { k: 'PercepcionIVA',       t: 'number', l: 'Percep. IVA' },
   { k: 'PercepcionIIBB',      t: 'number', l: 'Percep. IIBB' },
@@ -202,7 +266,7 @@ const CAMPOS_CAB = [
   { k: 'Observacion',         t: 'text',   l: 'Observación', ancho: true },
 ];
 
-// ── Subida ──────────────────────────────────────────────────────────────────
+// ── Subida (sólo trae ítems: la cabecera se completa en pantalla) ───────────
 drop.onclick = () => file.click();
 drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
@@ -213,39 +277,93 @@ function tomar(f) {
   elegido = f;
   $('#nombreArchivo').textContent = f.name;
   $('#elegido').classList.remove('hidden');
-  out.innerHTML = '';
 }
 
 $('#btnLimpiar').onclick = () => {
-  elegido = null; file.value = ''; datos = null; lineas = []; cabecera = {};
+  elegido = null; file.value = '';
   $('#elegido').classList.add('hidden');
-  out.innerHTML = '';
 };
 
 $('#btnPrev').onclick = async () => {
   if (!elegido) return;
   const btn = $('#btnPrev');
   btn.disabled = true;
-  out.innerHTML = '<div class="card"><p class="sub">Leyendo el archivo y consultando SIGA…</p></div>';
   try {
     const fd = new FormData();
     fd.append('archivo', elegido);
     const r = await fetch('/api/compras-import/preview', { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error del servidor');
-    cargar(d);
+    reemplazarLineas(d.lineas, d.archivo);
+    elegido = null; file.value = '';
+    $('#elegido').classList.add('hidden');
   } catch (err) {
-    out.innerHTML = '<div class="card"><ul class="msgs"><li class="e">' + esc(err.message) + '</li></ul></div>';
+    const box = $('#erroresBox');
+    if (box) box.innerHTML = '<ul class="msgs"><li class="e">' + esc(err.message) + '</li></ul>';
   } finally {
     btn.disabled = false;
     if (window.lucide) lucide.createIcons();
   }
 };
 
-function cargar(d) {
-  datos = d;
-  cabecera = Object.assign({}, d.cabecera);
-  lineas = (d.lineas || []).map(l => Object.assign({ uid: uidSeq++ }, l));
+// Reemplaza los ítems en pantalla por los que trae el origen (planilla o pedido) —
+// no toca la cabecera salvo lo que pase cada llamador puntualmente.
+function reemplazarLineas(nuevasLineas, etiquetaOrigen) {
+  lineas = (nuevasLineas || []).map(l => Object.assign({ uid: uidSeq++, estado: null }, l));
+  origenDatos = etiquetaOrigen || '';
+  grabado = null;
+  render();
+  marcarPendiente();
+}
+
+async function cargarPedidosDisponibles() {
+  const sel = $('#selPedido');
+  try {
+    const r = await fetch('/api/compras/pedidos?estado=PENDIENTE');
+    pedidosDisponibles = await r.json();
+  } catch { pedidosDisponibles = []; }
+  if (sel) sel.innerHTML = '<option value="">Elegir un pedido…</option>' +
+    pedidosDisponibles.map(p => '<option value="' + esc(p.numero) + '">' +
+      esc(p.numero) + ' · ' + esc(p.proveedor) + ' (' + (p.items || []).length + ' ítems)</option>').join('');
+}
+
+$('#btnUsarPedido').onclick = () => {
+  const numero = $('#selPedido').value;
+  const pedido = pedidosDisponibles.find(p => p.numero === numero);
+  if (!pedido) return;
+  if (pedido.idProveedor != null) cabecera.IdProveedor = pedido.idProveedor;
+  reemplazarLineas((pedido.items || []).map(it => ({
+    plu: it.plu || null, codigoProveedor: null, codigoBarras: null,
+    cantidad: it.cantidad, precioUnitario: it.precioUnitario || 0, porcentajeIVA: 21,
+    descripcion: it.nombre || null,
+  })), 'Pedido ' + pedido.numero);
+};
+
+// Arranque: siempre cotización de compra por defecto (comprobante interno,
+// autonumerado) — el usuario cambia el tipo si hace falta. La primera revalidación
+// sólo sirve para traer tiposComprobante del servidor (única fuente de verdad).
+async function iniciar() {
+  cabecera = { TipoComprobante: 'COTIZACIONCOM', Letra: 'X' };
+  lineas = [];
+  await Promise.all([cargarPedidosDisponibles(), cargarSucursales()]);
+  // Defaults para no tener que tipear lo mismo cada vez: sucursal central (o la
+  // primera activa), su primer depósito, ubicación 1 (mismo fallback que usa el
+  // resto del sistema cuando SucursalesUbicaciones no tiene una marcada — ver
+  // ubicacionDeDeposito en server.js), punto de venta 1 y fecha de hoy.
+  const sucDefault = sucursales.find(s => s.central) || sucursales[0] || null;
+  cabecera.IdSucursal = sucDefault ? sucDefault.id : null;
+  await cargarDepositos(cabecera.IdSucursal);
+  cabecera.IdDeposito = depositosActuales[0] ? depositosActuales[0].IdDeposito : null;
+  cabecera.IdUbicacion = 1;
+  cabecera.PuntoVenta = 1;
+  cabecera.FechaComprobante = new Date().toISOString().slice(0, 10);
+  try {
+    const r = await fetch('/api/compras-import/revalidar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cabecera, lineas }),
+    });
+    datos = await r.json();
+  } catch { datos = null; }
   render();
 }
 
@@ -272,7 +390,7 @@ async function revalidar() {
 
     const r = await fetch('/api/compras-import/revalidar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cabecera: cab, lineas: lineas, archivo: datos && datos.archivo }),
+      body: JSON.stringify({ cabecera: cab, lineas: lineas, archivo: origenDatos }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error del servidor');
@@ -303,11 +421,12 @@ async function revalidar() {
 
 // ── Render ──────────────────────────────────────────────────────────────────
 function render() {
+  if (grabado) { renderGrabado(); return; }
   const tipos = (datos && datos.tiposComprobante) || {};
 
   let html = '<div class="card fade-up"><h2>2 · Datos de la factura <span id="estadoChip"></span>' +
     '<span id="pendiente" class="pendiente hidden"><i data-lucide="loader" style="width:14px;height:14px"></i> revalidando…</span></h2>' +
-    '<p class="sub">' + esc((datos && datos.archivo) || '') + ' · editá cualquier campo y se revalida solo.</p>' +
+    '<p class="sub">' + esc(origenDatos || 'Sin productos importados todavía') + ' · editá cualquier campo y se revalida solo.</p>' +
     '<div class="form-grid">';
 
   for (const c of CAMPOS_CAB) {
@@ -321,6 +440,12 @@ function render() {
       const letras = tc ? tc.letras : ['A', 'B', 'C', 'E', 'I', 'M', 'X'];
       campo = '<select data-cab="' + c.k + '" id="selLetra">' + letras.map(L =>
         '<option value="' + esc(L) + '"' + (val === L ? ' selected' : '') + '>' + esc(L) + '</option>').join('') + '</select>';
+    } else if (c.t === 'sucursal') {
+      campo = '<select data-cab="' + c.k + '" id="selSucursal">' + sucursales.map(s =>
+        '<option value="' + esc(s.id) + '"' + (Number(val) === Number(s.id) ? ' selected' : '') + '>' + esc(s.nombre) + '</option>').join('') + '</select>';
+    } else if (c.t === 'deposito') {
+      campo = '<select data-cab="' + c.k + '" id="selDeposito">' + depositosActuales.map(d =>
+        '<option value="' + esc(d.IdDeposito) + '"' + (Number(val) === Number(d.IdDeposito) ? ' selected' : '') + '>' + esc(d.NombreDeposito) + '</option>').join('') + '</select>';
     } else {
       const step = c.t === 'number' ? ' step="any"' : '';
       campo = '<input type="' + (c.t === 'date' ? 'date' : c.t) + '"' + step + ' data-cab="' + c.k + '" value="' + esc(val) + '">';
@@ -343,6 +468,7 @@ function render() {
     '<div class="buscador"><input type="text" id="buscar" placeholder="Buscar producto por nombre, PLU o código de barras…" autocomplete="off">' +
     '<div id="resultados"></div></div>' +
     '<button class="btn primary" id="btnRevalidar"><i data-lucide="refresh-cw" style="width:15px;height:15px"></i> Revalidar</button>' +
+    '<button class="btn primary hidden" id="btnGrabar"><i data-lucide="save" style="width:15px;height:15px"></i> Grabar en SIGA</button>' +
     '</div>';
 
   html += '<div class="tot" id="totales"></div></div><div id="impuestosBox"></div>';
@@ -352,6 +478,20 @@ function render() {
   pintarResultados();
   enlazarCabecera();
   enlazarBarra();
+  if (window.lucide) lucide.createIcons();
+}
+
+function renderGrabado() {
+  out.innerHTML = '<div class="card fade-up">' +
+    '<h2><i data-lucide="check-circle-2" style="width:18px;height:18px;color:var(--ok)"></i> Comprobante grabado en SIGA</h2>' +
+    '<div class="modal-resumen" style="margin-top:10px">' +
+    '<div class="fila"><span class="k">Número de comprobante</span><span class="v mono">' + esc(grabado.numeroComprobante) + '</span></div>' +
+    '<div class="fila"><span class="k">Número de movimiento de stock</span><span class="v mono">' + esc(grabado.numeroMovimiento) + '</span></div>' +
+    '</div>' +
+    '<div class="barra"><button class="btn primary" id="btnOtraFactura">Cargar otra factura</button></div>' +
+    '</div>';
+  const b = $('#btnOtraFactura');
+  if (b) b.onclick = () => { grabado = null; iniciar(); };
   if (window.lucide) lucide.createIcons();
 }
 
@@ -437,6 +577,12 @@ function pintarResultados() {
     tr.querySelector('.celda-neto').textContent = money(l.neto);
   }
 
+  const btnGrabar = $('#btnGrabar');
+  if (btnGrabar) {
+    const listo = !!d.valido && !d.duplicado && lineas.length > 0 && lineas.every(l => l.estado === 'ok');
+    btnGrabar.classList.toggle('hidden', !listo);
+  }
+
   const t = d.totales || {};
   const tot = $('#totales');
   if (tot) tot.innerHTML =
@@ -477,6 +623,23 @@ function enlazarCabecera() {
           if (!tc.letras.includes(cabecera.Letra)) cabecera.Letra = tc.letras[0];
           sel.innerHTML = tc.letras.map(L => '<option value="' + esc(L) + '"' + (cabecera.Letra === L ? ' selected' : '') + '>' + esc(L) + '</option>').join('');
         }
+        // El número tiene un significado distinto según el tipo (lo asigna el
+        // sistema para una cotización, lo trae el papel para una factura/NC/ND):
+        // el que traía el tipo anterior no sirve para el nuevo, se limpia.
+        cabecera.NumeroComprobante = null;
+        const inpNro = out.querySelector('[data-cab="NumeroComprobante"]');
+        if (inpNro) inpNro.value = '';
+      }
+      // Cambiar la sucursal invalida el depósito elegido: se recarga la lista y
+      // se recalcula un default, igual que se hace al arrancar la pantalla.
+      if (k === 'IdSucursal') {
+        cargarDepositos(cabecera.IdSucursal).then(() => {
+          cabecera.IdDeposito = depositosActuales[0] ? depositosActuales[0].IdDeposito : null;
+          const selDep = $('#selDeposito');
+          if (selDep) selDep.innerHTML = depositosActuales.map(d =>
+            '<option value="' + esc(d.IdDeposito) + '"' + (cabecera.IdDeposito === d.IdDeposito ? ' selected' : '') + '>' + esc(d.NombreDeposito) + '</option>').join('');
+          marcarPendiente();
+        });
       }
       marcarPendiente();
     });
@@ -523,6 +686,9 @@ function enlazarBarra() {
 
   const btnRev = $('#btnRevalidar');
   if (btnRev) btnRev.onclick = revalidar;
+
+  const btnGrabar = $('#btnGrabar');
+  if (btnGrabar) btnGrabar.onclick = abrirModalGrabar;
 
   const buscar = $('#buscar');
   if (buscar) {
@@ -574,7 +740,63 @@ async function buscarProducto(q) {
   } catch { cont.innerHTML = ''; }
 }
 
-if (window.lucide) lucide.createIcons();
+// ── Grabar en SIGA ──────────────────────────────────────────────────────────
+const modalGrabar = $('#modalGrabar');
+
+function abrirModalGrabar() {
+  const d = datos || {};
+  const proveedor = d.proveedor ? d.proveedor.NombreProveedor : cabecera.IdProveedor;
+  const comprobante = [cabecera.TipoComprobante, cabecera.Letra, cabecera.PuntoVenta, cabecera.NumeroComprobante]
+    .filter(v => v != null && v !== '').join(' ');
+  const total = money((d.totales || {}).total);
+  $('#resumenGrabar').innerHTML =
+    '<div class="fila"><span class="k">Proveedor</span><span class="v">' + esc(proveedor) + '</span></div>' +
+    '<div class="fila"><span class="k">Comprobante</span><span class="v mono">' + esc(comprobante) + '</span></div>' +
+    '<div class="fila"><span class="k">Ítems</span><span class="v">' + lineas.length + '</span></div>' +
+    '<div class="fila"><span class="k">Total</span><span class="v">$ ' + total + '</span></div>' +
+    '<div id="errorGrabar"></div>';
+  modalGrabar.classList.remove('hidden');
+}
+
+function cerrarModalGrabar() {
+  if (grabando) return;
+  modalGrabar.classList.add('hidden');
+}
+
+$('#btnCancelarGrabar').onclick = cerrarModalGrabar;
+modalGrabar.addEventListener('click', e => { if (e.target === modalGrabar) cerrarModalGrabar(); });
+
+$('#btnConfirmarGrabar').onclick = async () => {
+  if (grabando) return;
+  const usuario = $('#inputUsuarioGrabar').value.trim();
+  if (!usuario) {
+    $('#errorGrabar').innerHTML = '<ul class="msgs"><li class="e">Ingresá el usuario que graba.</li></ul>';
+    return;
+  }
+  grabando = true;
+  const btn = $('#btnConfirmarGrabar');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/compras-import/grabar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cabecera, lineas, archivo: origenDatos, usuario }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Error del servidor');
+    grabando = false;
+    modalGrabar.classList.add('hidden');
+    grabado = { numeroComprobante: d.numeroComprobante, numeroMovimiento: d.numeroMovimiento };
+    render();
+  } catch (err) {
+    const box = $('#errorGrabar');
+    if (box) box.innerHTML = '<ul class="msgs"><li class="e">' + esc(err.message) + '</li></ul>';
+  } finally {
+    grabando = false;
+    btn.disabled = false;
+  }
+};
+
+iniciar();
 </script>
 </body>
 </html>

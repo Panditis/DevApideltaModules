@@ -805,6 +805,63 @@ test('validarLineasNoRepetidas deja volver a pedir un PLU cuya unica orden esta 
   assert.strictEqual(error, null);
 });
 
+test('validarLineasNoRepetidas permite el mismo PLU en otra orden activa si el cliente es distinto', () => {
+  // Arrange: PLU 30000 ya pedido para el cliente 1 en una orden pendiente.
+  const ordenes = [{
+    estado: 'pendiente',
+    lineas: [{ plu: '30000', clientes: [{ idCliente: '1', nombre: 'Cliente Uno' }] }],
+  }];
+  const linea = lineaCompleta({ clientes: [{ idCliente: '2', nombre: 'Cliente Dos', pendiente: 5 }] });
+
+  // Act
+  const error = validarLineasNoRepetidas([linea], ordenes);
+
+  // Assert
+  assert.strictEqual(error, null);
+});
+
+test('validarLineasNoRepetidas rechaza el mismo PLU para el mismo cliente en otra orden activa', () => {
+  // Arrange
+  const ordenes = [{
+    estado: 'pendiente',
+    lineas: [{ plu: '30000', clientes: [{ idCliente: '1', nombre: 'Cliente Uno' }] }],
+  }];
+  const linea = lineaCompleta({ clientes: [{ idCliente: '1', nombre: 'Cliente Uno', pendiente: 5 }] });
+
+  // Act
+  const error = validarLineasNoRepetidas([linea], ordenes);
+
+  // Assert: el mensaje nombra al cliente para que quede claro por qué choca.
+  assert.match(String(error), /30000/);
+  assert.match(String(error), /Cliente Uno/);
+});
+
+test('validarLineasNoRepetidas rechaza si la linea nueva no trae cliente y el PLU ya esta pedido con cliente', () => {
+  // Arrange: sin cliente en la linea nueva no hay con que probar que es "otro" distinto.
+  const ordenes = [{
+    estado: 'pendiente',
+    lineas: [{ plu: '30000', clientes: [{ idCliente: '1', nombre: 'Cliente Uno' }] }],
+  }];
+
+  // Act: lineaCompleta() no trae `clientes`.
+  const error = validarLineasNoRepetidas([lineaCompleta()], ordenes);
+
+  // Assert
+  assert.match(String(error), /30000/);
+});
+
+test('validarLineasNoRepetidas rechaza cualquier cliente si la orden activa tiene el PLU sin cliente', () => {
+  // Arrange: la orden activa es un armado manual del PLU, sin cliente asociado.
+  const ordenes = [{ estado: 'pendiente', lineas: [{ plu: '30000', clientes: [] }] }];
+  const linea = lineaCompleta({ clientes: [{ idCliente: '2', nombre: 'Cliente Dos', pendiente: 5 }] });
+
+  // Act
+  const error = validarLineasNoRepetidas([linea], ordenes);
+
+  // Assert
+  assert.match(String(error), /30000/);
+});
+
 test('validarLineasNoRepetidas rechaza el mismo PLU repetido dentro del mismo POST', () => {
   // Arrange
   const lineas = [lineaCompleta(), lineaCompleta({ cantidad: 3 })];
