@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   idFormasPago, periodoFiscal, totalBruto, calcularLinea, prorratearPercepciones,
   filaComprasImpuesto, agregarCantidadesPorProducto,
-  ID_FORMAS_PAGO_CONTADO, ID_FORMAS_PAGO_MENSUAL,
+  ID_FORMAS_PAGO_CONTADO, ID_FORMAS_PAGO_CTA_CTE,
 } = require('../lib/compras_grabar');
 
 // ── idFormasPago ─────────────────────────────────────────────────────────────
@@ -19,10 +19,10 @@ test('idFormasPago: contado cuando no hay vencimiento', () => {
     ID_FORMAS_PAGO_CONTADO);
 });
 
-test('idFormasPago: mensual cuando el vencimiento es posterior', () => {
+test('idFormasPago: cuenta corriente cuando el vencimiento es posterior', () => {
   assert.strictEqual(
     idFormasPago({ FechaComprobante: '2026-08-31', FechaVencimiento: '2026-09-30' }),
-    ID_FORMAS_PAGO_MENSUAL);
+    ID_FORMAS_PAGO_CTA_CTE);
 });
 
 // ── periodoFiscal ────────────────────────────────────────────────────────────
