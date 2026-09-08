@@ -2454,7 +2454,7 @@ app.use(comprasRouter.router);
 // Reutiliza armarVistaCompra/resolverProductosCompra/usuarioCompras del router de arriba
 // en vez de duplicarlas.
 app.use(require('./routes/rutas_compras_grabar')({
-  apiRoute, getPool, sql, comprasImport: require('./lib/compras_import'),
+  apiRoute, getPool, sql, comprasImport,
   armarVistaCompra: comprasRouter.armarVistaCompra,
   resolverProductosCompra: comprasRouter.resolverProductosCompra,
   usuarioCompras: comprasRouter.usuarioCompras,
