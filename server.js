@@ -2443,11 +2443,21 @@ async function ejecutarDevolucionReserva(plan, itemId) {
 // const no se hoistean. No hay catch-all ni middleware de 404, y ninguna ruta que quedó en
 // server.js solapa con las del router, así que el orden de registro no cambia
 // a qué handler llega cada request.
-app.use(require('./routes/rutas_compras')({
+const comprasRouter = require('./routes/rutas_compras')({
   apiRoute, leerJSON, query, getPool,
   sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
   leerPedidosCompra, guardarPedidosCompra,
   PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH,
+});
+app.use(comprasRouter.router);
+// Grabación real en SIGA (Tarea 2): plomería nada más por ahora, sin lógica de negocio.
+// Reutiliza armarVistaCompra/resolverProductosCompra/usuarioCompras del router de arriba
+// en vez de duplicarlas.
+app.use(require('./routes/rutas_compras_grabar')({
+  apiRoute, getPool, sql, comprasImport: require('./lib/compras_import'),
+  armarVistaCompra: comprasRouter.armarVistaCompra,
+  resolverProductosCompra: comprasRouter.resolverProductosCompra,
+  usuarioCompras: comprasRouter.usuarioCompras,
 }));
 
 // Dashboard de consumo: apiRoute, leerJSON, guardarJSON y query son funciones y se

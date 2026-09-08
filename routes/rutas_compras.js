@@ -629,5 +629,5 @@ router.post('/api/compras-import/preview', uploadCompraXlsx.single('archivo'), a
   return armarVistaCompra(parsed, req.file.originalname);
 }));
 
-  return router;
+  return { router, armarVistaCompra, resolverProductosCompra, usuarioCompras };
 };
