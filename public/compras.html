@@ -431,6 +431,19 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
       </p>
     </div>
   </div>
+
+  <div class="ant-card mt-4">
+    <div class="ant-card-body ant-card-body-sm">
+      <div class="ant-toolbar">
+        <button id="btnListarReimport" class="ant-btn ant-btn-sm">Reimportar un pedido ya cargado…</button>
+      </div>
+      <p class="t-sec t-12 mt-2">
+        Sin subir ningún archivo: elegís un pedido que ya generaste antes y sus mismos productos
+        y cantidades se precargan en <b>Armar pedido</b> (por ejemplo, para repetir un pedido habitual).
+      </p>
+      <div id="listaReimport" class="mt-2 hidden"></div>
+    </div>
+  </div>
 </section>
 
 <!-- ── Seguimiento ──────────────────────────────────────────────────────────── -->
@@ -814,7 +827,7 @@ function aplicarImportacion(r) {
     let f = armado.filas.find(f => f.plu === l.resuelto);
     if (!f) {
       f = {
-        plu: l.resuelto, nombre: l.nombreSiga, unidad: 'UN',
+        plu: l.resuelto, nombre: l.nombreSiga, unidad: l.unidad || 'UN',
         ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
         stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
         componentes: [], consumoMensual: [], abc: null,
@@ -833,6 +846,52 @@ function aplicarImportacion(r) {
     `Importado: ${r.resueltos} aplicados, ${r.ambiguos} ambiguos, ${r.noEncontrados} no encontrados` +
       (detalle.length ? '\n\n' + detalle.join('\n') : ''),
     'Importación de pedido');
+}
+
+// ═══ Reimportar un pedido ya cargado (sin xlsx de por medio) ═════════════════
+// Reusa los items tal cual quedaron guardados en su momento (ya pasaron por
+// resolverProductosCompra cuando se creó ese pedido) — no hace falta volver a
+// resolverlos contra SIGA, así que arman directamente el shape que espera
+// aplicarImportacion con estado 'ok'.
+$('#btnListarReimport').addEventListener('click', async () => {
+  const cont = $('#listaReimport');
+  if (!cont.classList.contains('hidden')) { cont.classList.add('hidden'); return; }
+  cont.innerHTML = '<div class="ant-dropdown-empty">Buscando…</div>';
+  cont.classList.remove('hidden');
+  try {
+    await cargarPedidos();
+    cont.innerHTML = pedidosTodos.length
+      ? pedidosTodos.map(p => `<button class="js-reimport ant-dropdown-item" data-numero="${escAttr(p.numero)}">
+           <span class="block">${escAttr(p.numero)} · ${escAttr(p.proveedor)}</span>
+           <span class="block t-12 t-ter num">${escAttr(fechaCorta(p.fecha))} · ${(p.items || []).length} líneas · ${escAttr(p.estado)}</span>
+         </button>`).join('')
+      : '<div class="ant-dropdown-empty">No hay pedidos cargados todavía.</div>';
+    cont.querySelectorAll('.js-reimport').forEach(b => b.addEventListener('click', () => {
+      cont.classList.add('hidden');
+      const p = pedidosTodos.find(x => String(x.numero) === b.dataset.numero);
+      if (p) reimportarPedido(p);
+    }));
+  } catch (e) {
+    cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+  }
+});
+
+async function reimportarPedido(pedido) {
+  provSel = provSelImport = { id: pedido.idProveedor, nombre: pedido.proveedor };
+  $('#provQ').value = $('#provQImport').value = pedido.proveedor;
+  $('#provSelNombre').textContent = $('#provSelImportNombre').textContent = '#' + pedido.idProveedor;
+  await cargarArmado();
+  $('.tab-btn[data-tab="armado"]').click();
+  if (!armado) return;
+
+  const lineas = (pedido.items || []).map(it => ({
+    fila: null, plu: it.plu, resuelto: it.plu, nombreSiga: it.nombre, unidad: it.unidad,
+    cantidad: Number(it.cantidad) || 0, estado: 'ok', notas: [],
+  }));
+  aplicarImportacion({
+    lineas, erroresArchivo: [],
+    resueltos: lineas.filter(l => l.cantidad > 0).length, ambiguos: 0, noEncontrados: 0,
+  });
 }
 
 // Semáforo de cobertura: menos de una semana es urgente, menos de dos es atención.
