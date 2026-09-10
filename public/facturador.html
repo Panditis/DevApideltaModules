@@ -449,7 +449,6 @@
           <th>Producto</th>
           <th class="num" style="width:92px">Cant.</th>
           <th class="num" style="width:104px">Precio</th>
-          <th class="num no-print" style="width:74px">Dto %</th>
           <th class="num" style="width:104px">Subtotal</th>
           <th class="no-print" style="width:36px"></th>
         </tr></thead>
@@ -464,12 +463,10 @@
   <!-- ── Totales ─────────────────────────────────────────────────────────────── -->
   <section>
     <h2>Totales</h2>
-    <div class="tot"><span>Bruto</span><span id="totBruto">$ 0,00</span></div>
-    <div class="tot desc" id="filaDtoLineas"><span>Descuentos por línea</span><span id="totDtoLineas">$ 0,00</span></div>
     <div class="tot"><span>Subtotal</span><span id="totSub">$ 0,00</span></div>
     <div class="fila" style="margin:9px 0">
       <label class="et crece" for="descuento">Descuento general %</label>
-      <div style="width:88px"><input type="number" id="descuento" value="0" min="0" max="100" step="0.5"></div>
+      <div style="width:88px"><input type="number" id="descuento" value="0" min="-100" max="0" step="0.5" title="Cargar en negativo, ej: -10 para 10% de descuento"></div>
     </div>
     <div class="tot desc"><span>Descuento general</span><span id="totDto">$ 0,00</span></div>
     <div class="tot grande"><span>TOTAL</span><span id="totFinal">$ 0,00</span></div>
@@ -584,7 +581,7 @@
     <h2>Cómo se usa</h2>
     <div class="cols">
       <div>
-        <h3>Lector de precios</h3>
+        <h3>LECTOR DE PRECIOS</h3>
         <ol>
           <li>Es la pantalla con la que abre el programa. Pasá el lector por el código de barras
             y aparece el producto con su precio, en grande.</li>
@@ -593,13 +590,14 @@
           <li>No hace falta hacer clic en ningún lado antes de escanear.</li>
         </ol>
 
-        <h3>Cargar una venta</h3>
+        <h3>FACTURADOR - COBRO</h3>
         <ol>
           <li>Si arrancás turno o día nuevo, apretá <b>Tickets</b> → <b>Borrar todos</b>
             para vaciar el registro de tickets anteriores.</li>
           <li>Entrá a la pestaña <b>Facturador</b>.</li>
           <li>Escaneá los productos, o buscalos por nombre. Cada escaneo suma una línea.</li>
-          <li>Podés cambiar a mano la cantidad, el precio y el descuento de cada línea.</li>
+          <li>Podés cambiar a mano la cantidad y el precio de cada línea. Una cantidad
+            negativa resta su valor del total, como un descuento.</li>
           <li>Cargá el <b>descuento general</b> si corresponde.</li>
           <li>En <b>Medios de pago</b> elegí uno y apretá <i>Sumar</i>. Si el importe queda vacío
             se asigna todo lo que falta. Se puede dividir entre varios medios.</li>
@@ -611,36 +609,38 @@
         <ol>
           <li>El archivo ya viene con los precios adentro: funciona sin internet en cualquier PC.</li>
           <li>Si llega al servidor Apidelta, se actualizan solos cada minuto.</li>
-          <li>Si no hay servidor, lee el <code>precios.js</code> de la carpeta compartida de la
-            red. También es automático: no hay que hacer nada en la caja.</li>
+          <li>Si no hay servidor, lee el <code>precios.xlsx</code> de la carpeta compartida en GoogleDrive. También es automático: no hay que hacer nada en la caja.</li>
           <li>El cartelito al lado del lector avisa: verde y la hora si está al día, amarillo o
             rojo si hace rato que no puede actualizar.</li>
         </ol>
 
-        <h3>Actualizar y repartir</h3>
+        <h3>Actualizar por archivo</h3>
+        
         <ol>
-          <li><b>Fuente de precios</b> → arrastrá el archivo <code>.xlsx</code> de precios.</li>
-          <li>Apretá <b>Descargar facturador con estos precios</b>.</li>
-          <li>Ese archivo nuevo se manda por mail o pendrive y ya funciona solo.</li>
+          <div CLASS="nota">Esto es solo de ultimo recurso o en caso de que no se pueda acceder de ninguna forma a internet, se les da el archivo mediante pendrive o similar.</div>
+          <li>Apretá <b>Fuente de precios</b>.</li>
+          <li><b>Fuente de precios</b> Opcion 4)→ arrastrá el archivo <code>.xlsx</code> de precios.</li>
+          <li>Apretá <b>Actualizar precios</b>.</li>
         </ol>
 
         <div class="nota"><b>Ojo:</b> los tickets se guardan en la computadora donde se cargaron.
-          Si se limpian los datos del navegador, se pierden. Descargá el respaldo seguido.</div>
+          Si se limpian los datos del navegador, se pierden. Descargar el respaldo finalizada la jornada laboral y enviar por Whatsapp.</div>
       </div>
     </div>
 
     <h2 style="margin-top:20px">Exportar las ventas</h2>
     <div class="cols">
       <div>
-        <h3>Sacar el listado</h3>
+        <h3>Descargar ventas del día</h3>
         <ol>
           <li>Apretá <b>Tickets</b> arriba a la derecha.</li>
           <li>Apretá <b>Exportar Excel</b>.</li>
           <li>Se baja un archivo <code>tickets_AAAA-MM-DD.xlsx</code>.</li>
           <li>Se abre con doble clic en Excel, ya separado en columnas.</li>
+          <li>Proceder a cargar las ventas en sistema, copiando el Codigo de carga que aparece en la columna G.</li>
         </ol>
         <div class="nota">Sale <b>una fila por cada producto</b> de cada ticket, no una por ticket.
-          Para totales por venta, filtrá por la columna <code>Ticket</code>.</div>
+          Para totales de venta controlar con la columna P que tiene de título: Total del ticket.</div>
       </div>
       <div>
         <h3>Qué trae cada columna</h3>
@@ -651,7 +651,7 @@
           <li><code>CodigoCarga</code>: el código de barras leído en los pesables, el PLU
             en los de almacén.</li>
           <li><code>Cantidad</code>, <code>Unidad</code> (un o kg) y <code>PesoEtiqueta</code>.</li>
-          <li><code>Precio</code>, <code>DtoLinea</code> y <code>SubtotalLinea</code>.</li>
+          <li><code>Precio</code> y <code>SubtotalLinea</code>.</li>
           <li><code>DtoGeneral</code> y <code>TotalTicket</code>.</li>
           <li><code>MedioPago</code>, y una columna <code>Pago ...</code> por cada medio
             usado, con su importe aparte.</li>
@@ -1082,22 +1082,18 @@ const PLU_PRECIO_LIBRE = new Set([PLU_PROMO, '1']);
 const precioLibre = l => PLU_PRECIO_LIBRE.has(String((l && l.plu) || '').trim().replace(/^0+(?=\d)/, ''));
 
 function subtotalLinea(l) {
-  const bruto = (Number(l.cant) || 0) * (Number(l.precio) || 0);
-  const dto = Math.min(Math.max(Number(l.dtoPct) || 0, 0), 100);
-  return bruto - bruto * dto / 100;
+  return (Number(l.cant) || 0) * (Number(l.precio) || 0);
 }
 
-// Los dos descuentos se aplican en cascada, no se suman: primero el de cada línea y sobre
-// ese resultado el general. Sumarlos daría un total distinto (y menor) al que espera quien
-// carga "10% al item y 10% a todo".
 function totalesDe(lineas, dtoGlobalPct) {
   const r2 = n => Math.round(n * 100) / 100;
-  const bruto = (lineas || []).reduce((a, l) => a + (Number(l.cant) || 0) * (Number(l.precio) || 0), 0);
+  // Una línea en negativo (cant < 0) ya resta su valor acá: no hace falta tratarla aparte.
   const subtotal = (lineas || []).reduce((a, l) => a + subtotalLinea(l), 0);
-  const pct = Math.min(Math.max(Number(dtoGlobalPct) || 0, 0), 100);
+  const pctNeg = Math.min(Math.max(Number(dtoGlobalPct) || 0, -100), 0);
+  const pct = Math.abs(pctNeg);
   const dtoGlobal = subtotal * pct / 100;
   return {
-    bruto: r2(bruto), dtoLineas: r2(bruto - subtotal), subtotal: r2(subtotal),
+    subtotal: r2(subtotal),
     pct, dtoGlobal: r2(dtoGlobal), total: r2(subtotal - dtoGlobal),
   };
 }
@@ -1335,7 +1331,7 @@ function filasDeGviz(respuesta) {
 // archivo viaja suelto y se abre con file://, así que no puede depender de una librería
 // bajada de la red.
 const COLUMNAS_TICKETS = ['Ticket', 'Fecha', 'Hora', 'Cliente', 'Vendedor', 'Codigo', 'CodigoCarga',
-  'Producto', 'Cantidad', 'Unidad', 'PesoEtiqueta', 'Precio', 'DtoLinea', 'SubtotalLinea',
+  'Producto', 'Cantidad', 'Unidad', 'PesoEtiqueta', 'Precio', 'SubtotalLinea',
   'DtoGeneral', 'TotalTicket', 'MedioPago'];
 
 // Cada medio se lleva su propia columna de importe, así el pago dividido se suma en
@@ -1397,7 +1393,7 @@ function filasDeTickets(pedidos) {
       filas.push([esPrimera ? p.numero : '', esPrimera ? fecha : '', esPrimera ? hora : '',
         esPrimera ? (p.cliente || '') : '', esPrimera ? (p.vendedor || '') : '',
         String(l.plu || ''), codigoDeCarga(l), l.nombre, l.cant, l.unidad || 'un',
-        l.peso != null ? l.peso : '', l.precio, l.dtoPct || 0,
+        l.peso != null ? l.peso : '', l.precio,
         l.subtotal != null ? l.subtotal : Math.round(subtotalLinea(l) * 100) / 100,
         p.descuentoPct, esPrimera ? p.total : '', esPrimera ? medios : '', ...importes]);
       esPrimera = false;
@@ -1580,6 +1576,7 @@ let lineas = [];
 let pagos = [];
 let terminal = leer(K.term, null);
 let filasPendientes = null;
+let avisoTicketsViejosMostrado = false;
 
 // Prefijo por dispositivo: sin él, dos vendedores offline emiten el mismo número.
 if (!terminal) {
@@ -1984,12 +1981,28 @@ $('#btnPromo').onclick = () => {
 };
 
 // ── Líneas ────────────────────────────────────────────────────────────────────
+// Se pregunta una sola vez por sesión (no en cada escaneo) para no atosigar a quien está
+// cargando una venta. Solo cuenta lo de otros días: los tickets de hoy no molestan.
+async function avisarTicketsViejos() {
+  if (avisoTicketsViejosMostrado) return;
+  avisoTicketsViejosMostrado = true;
+  const hoy = new Date().toDateString();
+  const viejos = pedidos.filter(p => new Date(p.fecha).toDateString() !== hoy);
+  if (!viejos.length) return;
+  if (!await confirmarModal('Hay ' + viejos.length + ' ticket(s) guardado(s) de días anteriores. ¿Borrarlos?',
+    'Tickets de días anteriores', 'Borrar')) return;
+  pedidos = pedidos.filter(p => new Date(p.fecha).toDateString() === hoy);
+  grabar(K.ped, pedidos);
+  pintarGuardados();
+}
+
 function agregarLinea(prod, opts) {
+  avisarTicketsViejos();
   const o = opts || {};
   const unidad = o.unidad || (prod.modalidad === 'PESO' ? 'kg' : '');
   const nueva = {
     plu: prod.plu, nombre: prod.nombre, precio: Number(o.precio != null ? o.precio : prod.precio) || 0,
-    cant: Number(o.cant) || 1, unidad, dtoPct: 0, origen: o.origen || 'manual',
+    cant: Number(o.cant) || 1, unidad, origen: o.origen || 'manual',
   };
   // El código tal cual entró por el lector: en un pesable es lo único que identifica la
   // pesada en la exportación, y el PLU solo no alcanza para cargarla.
@@ -2016,16 +2029,14 @@ function pintarLineas() {
       (l.origen === 'balanza-peso' ? ' · <span class="tag peso">balanza</span>' : '') +
       (l.origen === 'balanza-unidad' ? ' · <span class="tag peso">etiqueta ' + (Number(l.peso) || 0).toFixed(3) + ' kg</span>' : '') +
       '</div></td>' +
-    '<td class="num"><input type="number" data-i="' + i + '" data-campo="cant" value="' + l.cant + '" min="0" step="' + (l.unidad === 'kg' ? '0.001' : '1') + '" style="width:84px;padding:5px">' +
+    '<td class="num"><input type="number" data-i="' + i + '" data-campo="cant" value="' + l.cant + '" step="' + (l.unidad === 'kg' ? '0.001' : '1') + '" title="Cantidad negativa descuenta su valor del total" style="width:84px;padding:5px">' +
       '<div class="chico">' + (l.unidad === 'kg' ? 'kg' : 'unid.') + '</div></td>' +
     '<td class="num"><input type="number" data-i="' + i + '" data-campo="precio" value="' + l.precio + '" min="0" step="0.01" style="width:96px;padding:5px"' +
       (precioLibre(l) ? '' : ' readonly title="El precio sale del catálogo"') + '>' +
       '<div class="chico">' + (l.unidad === 'kg' ? 'por kg' : 'c/u') + '</div></td>' +
-    '<td class="num no-print"><input type="number" data-i="' + i + '" data-campo="dtoPct" value="' + (l.dtoPct || 0) + '" min="0" max="100" step="1" style="width:64px;padding:5px">' +
-      '<div class="chico">%</div></td>' +
     '<td class="num"><strong>' + plata(subtotalLinea(l)) + '</strong></td>' +
     '<td class="no-print"><button class="mini peligro" data-quitar="' + i + '" title="Quitar">×</button></td>' +
-  '</tr>').join('') : '<tr><td colspan="6" class="vacio">Escaneá o buscá un producto para empezar.</td></tr>';
+  '</tr>').join('') : '<tr><td colspan="5" class="vacio">Escaneá o buscá un producto para empezar.</td></tr>';
   pintarTotales();
   guardarBorrador();
 }
@@ -2035,13 +2046,15 @@ $('#tablaLineas').oninput = e => {
   if (!inp.dataset || !inp.dataset.campo) return;
   const i = Number(inp.dataset.i);
   const v = Number(inp.value);
-  if (!Number.isFinite(v) || v < 0) return;
+  if (!Number.isFinite(v)) return;
+  // El precio nunca es negativo; la cantidad sí puede serlo (resta su valor del total).
+  if (inp.dataset.campo === 'precio' && v < 0) return;
   // readonly alcanza en la pantalla, pero el precio no puede depender de un atributo:
   // repintar deja la fila como está en el catálogo.
   if (inp.dataset.campo === 'precio' && !precioLibre(lineas[i])) return pintarLineas();
   lineas = lineas.map((l, j) => (j === i ? { ...l, [inp.dataset.campo]: v } : l));
   // No se repinta la tabla entera: perdería el foco mientras se tipea.
-  inp.closest('tr').querySelector('td:nth-child(5) strong').textContent = plata(subtotalLinea(lineas[i]));
+  inp.closest('tr').querySelector('td:nth-child(4) strong').textContent = plata(subtotalLinea(lineas[i]));
   pintarTotales();
   guardarBorrador();
 };
@@ -2056,9 +2069,6 @@ $('#tablaLineas').onclick = e => {
 
 function pintarTotales() {
   const t = totalesDe(lineas, $('#descuento').value);
-  $('#totBruto').textContent = plata(t.bruto);
-  $('#totDtoLineas').textContent = '– ' + plata(t.dtoLineas);
-  $('#filaDtoLineas').classList.toggle('oculto', t.dtoLineas <= 0);
   $('#totSub').textContent = plata(t.subtotal);
   $('#totDto').textContent = '– ' + plata(t.dtoGlobal);
   $('#totFinal').textContent = plata(t.total);
@@ -2126,7 +2136,7 @@ function pedidoActual() {
     lineas: lineas.map(l => ({ ...l, subtotal: Math.round(subtotalLinea(l) * 100) / 100 })),
     pagos: pagos.map(p => ({ ...p })),
     catalogoGenerado: catalogo ? catalogo.generado : null,
-    bruto: t.bruto, dtoLineas: t.dtoLineas, subtotal: t.subtotal, dtoGlobal: t.dtoGlobal, total: t.total,
+    subtotal: t.subtotal, dtoGlobal: t.dtoGlobal, total: t.total,
   };
 }
 
@@ -2198,7 +2208,7 @@ function pintarTicket(p) {
     // Nombre en su propia línea y el detalle debajo: en 72 mm no entran las dos cosas
     // en la misma fila sin cortar el nombre del producto.
     const cant = l.unidad === 'kg' ? (Number(l.cant) || 0).toFixed(3) + ' kg' : String(l.cant);
-    const detalle = cant + ' x ' + plata(l.precio) + (l.dtoPct ? '  -' + l.dtoPct + '%' : '');
+    const detalle = cant + ' x ' + plata(l.precio);
     partes.push('<div class="tk-item"><div class="tk-nom">' + esc(l.nombre) + '</div>' +
       '<div class="tk-detalle">' + fila(detalle,
         '<b>' + plata(l.subtotal != null ? l.subtotal : subtotalLinea(l)) + '</b>') + '</div>' +
@@ -2207,8 +2217,6 @@ function pintarTicket(p) {
   }
 
   partes.push('<div class="tk-sep"></div>');
-  if (p.dtoLineas > 0) partes.push(fila('Bruto', plata(p.bruto)));
-  if (p.dtoLineas > 0) partes.push(fila('Desc. por ítem', '-' + plata(p.dtoLineas)));
   partes.push(fila('Subtotal', plata(p.subtotal)));
   if (p.descuentoPct) partes.push(fila('Descuento ' + p.descuentoPct + '%', '-' + plata(p.dtoGlobal)));
   partes.push('<div class="tk-total">' + fila('TOTAL', plata(p.total)) + '</div>');
@@ -2307,12 +2315,11 @@ function detalleGuardado(p, i) {
     '<td class="chico">' + esc(l.plu || '') + '</td>' +
     '<td>' + esc(l.nombre) + '</td>' +
     '<td class="num">' + esc(cantTxt(l)) + '</td>' +
-    '<td class="num">' + plata(l.precio) + (l.dtoPct ? ' <span class="chico">-' + esc(l.dtoPct) + '%</span>' : '') + '</td>' +
+    '<td class="num">' + plata(l.precio) + '</td>' +
     '<td class="num">' + plata(l.subtotal != null ? l.subtotal : subtotalLinea(l)) + '</td>' +
   '</tr>').join('');
   const pie = [
     'Subtotal ' + plata(p.subtotal),
-    p.dtoLineas > 0 ? 'Desc. por ítem – ' + plata(p.dtoLineas) : '',
     p.descuentoPct ? 'Descuento ' + p.descuentoPct + '% – ' + plata(p.dtoGlobal) : '',
     (p.pagos || []).map(x => x.medio + ' ' + plata(x.importe)).join(' + '),
   ].filter(Boolean).join(' · ');
