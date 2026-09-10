@@ -267,9 +267,13 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 .ant-desc-value{font-size:14px;color:var(--colorText);font-variant-numeric:tabular-nums;}
 
 /* ── Modal ────────────────────────────────────────────────────────────────── */
-.ant-modal-mask{background:rgba(0,0,0,.45);}
+/* hidden→flex es una inserción nueva en el render tree, así que la animación
+   corre de cero cada vez que se abre un modal — no hace falta JS para esto. */
+@keyframes ant-mask-in{from{opacity:0}to{opacity:1}}
+@keyframes ant-modal-in{from{opacity:0;transform:scale(.94) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.ant-modal-mask{background:rgba(0,0,0,.45);animation:ant-mask-in .18s ease-out;}
 .ant-modal{width:100%;background:var(--colorBgContainer);border-radius:var(--borderRadiusLG);
-  box-shadow:var(--boxShadow);overflow:hidden;}
+  box-shadow:var(--boxShadow);overflow:hidden;animation:ant-modal-in .22s cubic-bezier(.25,.8,.25,1);}
 .ant-modal-header{display:flex;align-items:center;gap:12px;padding:16px 24px;
   border-bottom:1px solid var(--colorBorderSecondary);}
 .ant-modal-title{margin:0;font-size:16px;font-weight:600;color:var(--colorText);}
@@ -407,10 +411,13 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
           <th class="t-r" data-orden="cobertura" aria-sort="none"><button class="th-ord">Cobertura (días)<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
           <th class="t-r" data-orden="consumo" aria-sort="none"><button class="th-ord">Consumo/mes<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
           <th class="t-c" data-orden="abc" aria-sort="none"><button class="th-ord">ABC<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-r" title="Cantidad de la última compra cargada en SIGA a este proveedor">Últ. compra</th>
           <th class="t-r col-edit" data-orden="cantidad" aria-sort="none"><button class="th-ord">Cantidad<span class="ord-ind" aria-hidden="true"><span class="ord-up">▲</span><span class="ord-down">▼</span></span></button></th>
+          <th class="t-r" title="Costo registrado en SIGA para la central">Costo unit.</th>
+          <th class="t-r">Costo x cant.</th>
         </tr>
       </thead>
-      <tbody id="armadoBody"><tr><td colspan="7" class="td-empty"><div class="ant-empty">
+      <tbody id="armadoBody"><tr><td colspan="10" class="td-empty"><div class="ant-empty">
         <svg class="ant-empty-icon" width="64" height="41" viewBox="0 0 64 41" aria-hidden="true"><ellipse cx="32" cy="33" rx="32" ry="7" fill="#e7eee0"></ellipse><g stroke="#b9cdad" fill="#f4f8f0"><path d="M55 12.76 44.85 1.25C44.37.47 43.7 0 43 0H21c-.7 0-1.37.47-1.85 1.25L9 12.76V22h46v-9.24z"></path><path d="M41.61 15.66c0-1.29.78-2.4 1.9-2.4H55v12.15c0 1.68-1.02 3.05-2.28 3.05H11.28C10.02 28.46 9 27.09 9 25.41V13.26h11.49c1.12 0 1.9 1.11 1.9 2.4v.06c0 1.29.79 2.34 1.9 2.34h15.42c1.12 0 1.9-1.05 1.9-2.34v-.06z"></path></g></svg>
         <p class="ant-empty-title">Sin proveedor cargado</p>
         <p class="ant-empty-desc">Buscá un proveedor arriba y tocá Cargar para traer sus productos.</p></div></td></tr></tbody>
@@ -419,6 +426,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 
   <div class="mt-4 flex items-center gap-4 flex-wrap">
     <button id="btnGenerar" class="ant-btn ant-btn-primary ant-btn-lg" disabled>Generar pedido</button>
+    <button id="btnRepetirUltimo" class="ant-btn" disabled title="Sin pedidos anteriores a este proveedor">Repetir última compra</button>
     <span id="lineasCount" class="num t-sec">0 líneas cargadas</span>
   </div>
 </section>
@@ -568,19 +576,24 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 <!-- Modal del consumo mensual de un producto -->
 <div id="mConsumo" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
      role="dialog" aria-modal="true" aria-labelledby="mConsumoTitulo">
-  <div class="ant-modal max-w-3xl">
+  <div class="ant-modal max-w-3xl max-h-[85vh] flex flex-col">
     <div class="ant-modal-header">
       <h3 id="mConsumoTitulo" class="ant-modal-title">Consumo mensual</h3>
       <button id="mConsumoX" class="ant-modal-close" aria-label="Cerrar">✕</button>
     </div>
-    <div class="ant-modal-body"><div class="chart-box-lg"><canvas id="chConsumo"></canvas></div></div>
+    <div class="ant-modal-body overflow-y-auto">
+      <div class="chart-box-lg"><canvas id="chConsumo"></canvas></div>
+      <h4 class="mt-6 mb-2 t-16 font-semibold">Códigos que suman a este consumo</h4>
+      <p class="t-sec t-12 mb-2">Ventas y producción de estos códigos se imputan todas a este granel.</p>
+      <div id="mConsumoCodigos"></div>
+    </div>
   </div>
 </div>
 
 <!-- Modal de composición del stock: qué PLUs suman al stock de sucursales de la fila. -->
 <div id="mStock" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
      role="dialog" aria-modal="true" aria-labelledby="mStockTitulo">
-  <div class="ant-modal max-w-3xl max-h-[85vh] flex flex-col">
+  <div class="ant-modal max-w-6xl max-h-[85vh] flex flex-col">
     <div class="ant-modal-header">
       <h3 id="mStockTitulo" class="ant-modal-title">Composición del stock</h3>
       <button id="mStockX" class="ant-modal-close" aria-label="Cerrar">✕</button>
@@ -625,7 +638,7 @@ const fechaCorta = s => {
   return m ? m[3] + '/' + m[2] : (s || '—');
 };
 
-let armado = null;              // respuesta de /api/compras/armado
+let armado = null;              // respuesta de /api/compras/armado (incluye ultimaCompra: la última factura cargada en SIGA)
 const cantidades = {};          // plu -> cantidad tipeada (sobrevive a los re-render por filtro)
 let pedidosTodos = [];          // cache de /api/compras/pedidos, compartido por Seguimiento y OTIF
 let pedidoSel = null;           // copia editable del pedido en seguimiento
@@ -786,18 +799,38 @@ $('#btnCargar').addEventListener('click', cargarArmado);
 async function cargarArmado() {
   if (!provSel) { avisar('Elegí un proveedor de la lista antes de cargar.', 'Falta el proveedor'); return; }
   const body = $('#armadoBody');
-  body.innerHTML = filaVacia(7, 'Cargando…', 'Trayendo stock, consumo y cobertura del proveedor.', 'cargando');
+  body.innerHTML = filaVacia(10, 'Cargando…', 'Trayendo stock, consumo y cobertura del proveedor.', 'cargando');
   try {
     armado = await apiFetch(`/api/compras/armado?idProveedor=${encodeURIComponent(provSel.id)}&ventanaSuc=${encodeURIComponent($('#ventanaSuc').value)}`);
     for (const k of Object.keys(cantidades)) delete cantidades[k];
     $('#consumoTs').textContent = armado.timestampConsumo
       ? 'consumo al ' + new Date(armado.timestampConsumo).toLocaleString('es-AR')
       : 'sin serie de consumo calculada';
+    const btn = $('#btnRepetirUltimo');
+    btn.disabled = !armado.ultimaCompra;
+    btn.title = armado.ultimaCompra
+      ? `Comprobante ${armado.ultimaCompra.comprobante} del ${fechaCorta(armado.ultimaCompra.fecha)}`
+      : 'Sin compras cargadas en SIGA para este proveedor';
     renderArmado();
   } catch (e) {
     armado = null;
-    body.innerHTML = filaVacia(7, 'No se pudo cargar el armado', e.message, 'error');
+    body.innerHTML = filaVacia(10, 'No se pudo cargar el armado', e.message, 'error');
   }
+}
+
+// La última compra CARGADA EN SIGA a este proveedor (un único comprobante, no el
+// último pedido armado en este módulo) ya viene en `armado.ultimaCompra`.
+$('#btnRepetirUltimo').addEventListener('click', repetirUltimaCompra);
+function repetirUltimaCompra() {
+  if (!armado || !armado.ultimaCompra) return;
+  const lineas = (armado.ultimaCompra.items || []).map(it => ({
+    fila: null, plu: it.plu, resuelto: it.plu, nombreSiga: it.nombre, unidad: 'UN',
+    cantidad: Number(it.cantidad) || 0, estado: 'ok', notas: [],
+  }));
+  aplicarImportacion({
+    lineas, erroresArchivo: [],
+    resueltos: lineas.filter(l => l.cantidad > 0).length, ambiguos: 0, noEncontrados: 0,
+  });
 }
 
 $('#btnRecalcular').addEventListener('click', async () => {
@@ -1005,6 +1038,8 @@ function filasVisibles() {
 function renderArmado() {
   const filas = filasVisibles();
   $('#armadoCount').textContent = `${filas.length} de ${(armado && armado.filas || []).length} productos · proveedor ${armado && armado.proveedor || '—'}`;
+  const cantAnteriorPorPlu = new Map(((armado && armado.ultimaCompra && armado.ultimaCompra.items) || [])
+    .map(it => [String(it.plu), Number(it.cantidad) || 0]));
   $('#armadoBody').innerHTML = filas.length ? filas.map(f => {
     const desglose = Object.entries(f.stockPorSucursal || {}).map(([s, v]) => `${s}: ${fmt(v)}`).join(' · ') || 'sin stock en sucursales';
     const inactivo = f.activo === false;
@@ -1037,6 +1072,7 @@ function renderArmado() {
           aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>
       </td>
       <td class="t-c">${tagAbc(f.abc)}</td>
+      <td class="t-r dato-sec">${fmt(cantAnteriorPorPlu.get(f.plu))}</td>
       <td class="col-edit">
         <div class="flex items-center justify-end gap-2 whitespace-nowrap">
           <input type="number" min="0" step="0.01" class="js-cant ant-input ant-input-num"
@@ -1046,13 +1082,15 @@ function renderArmado() {
             title="Cubrir 30 días de demanda de la central" aria-label="Cubrir 30 días de ${escAttr(f.nombre)}">30 d</button>
         </div>
       </td>
+      <td class="t-r dato-sec">${money(f.costoSistema)}</td>
+      <td class="t-r dato-sec js-costo-total" data-plu="${escAttr(f.plu)}">${money(Number(cantidades[f.plu]) > 0 && f.costoSistema != null ? f.costoSistema * cantidades[f.plu] : null)}</td>
     </tr>`;
   }).join('')
     // Sin filas del backend y sin filas visibles son cosas distintas: una es un
     // proveedor sin compras facturadas, la otra un filtro demasiado angosto.
     : (armado && (armado.filas || []).length)
-      ? filaVacia(7, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.')
-      : filaVacia(7, 'Este proveedor no tiene compras',
+      ? filaVacia(10, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.')
+      : filaVacia(10, 'Este proveedor no tiene compras',
           'No se le compró ningún producto en los últimos 24 meses.');
   actualizarContador();
 }
@@ -1064,8 +1102,13 @@ $('#armadoBody').addEventListener('input', e => {
   const v = inp.value.trim();
   if (v === '' || !(Number(v) > 0)) delete cantidades[inp.dataset.plu];
   else cantidades[inp.dataset.plu] = Number(v);
-  const chk = inp.closest('tr').querySelector('.js-chk');
+  const fila = inp.closest('tr');
+  const chk = fila.querySelector('.js-chk');
   if (chk) chk.checked = cantidades[inp.dataset.plu] != null;
+  const f = ((armado && armado.filas) || []).find(x => String(x.plu) === inp.dataset.plu);
+  const celdaCosto = fila.querySelector('.js-costo-total');
+  if (celdaCosto) celdaCosto.textContent = money(f && f.costoSistema != null && Number(cantidades[inp.dataset.plu]) > 0
+    ? f.costoSistema * cantidades[inp.dataset.plu] : null);
   actualizarContador();
 });
 $('#armadoBody').addEventListener('click', e => {
@@ -1077,8 +1120,11 @@ $('#armadoBody').addEventListener('click', e => {
   if (e.target.classList.contains('js-cubrir')) return cubrir30(plu);
   if (e.target.classList.contains('js-chk') && !e.target.checked) {
     delete cantidades[plu];
-    const inp = e.target.closest('tr').querySelector('.js-cant');
+    const fila = e.target.closest('tr');
+    const inp = fila.querySelector('.js-cant');
     if (inp) inp.value = '';
+    const celdaCosto = fila.querySelector('.js-costo-total');
+    if (celdaCosto) celdaCosto.textContent = money(null);
     actualizarContador();
   }
 });
@@ -1113,43 +1159,40 @@ function actualizarContador() {
 function abrirStock(plu) {
   const f = ((armado && armado.filas) || []).find(x => String(x.plu) === String(plu));
   if (!f) return;
-  const unidad = escAttr(f.unidad || '');
+  const sucursales = armado.sucursales || [];
+  const colsSuc = sucursales.length || 1;
   const filas = (f.componentes || []).map(c => `<tr class="${c.esPropio ? 'fila-propia' : ''}">
     <td class="t-12 num t-ter">${escAttr(c.plu)}</td>
     <td class="dato">${escAttr(c.nombre)}${c.esPropio ? ' <span class="ant-tag ant-tag-primary">propio</span>' : ''}</td>
     <td class="t-r dato-sec">${fmt(c.cantFormula)}</td>
     <td class="t-r dato">${fmt(c.stockCentral)}</td>
-    <td class="t-r dato">${fmt(c.stockSucursales)}</td>
-    <td class="t-r dato">${fmt(c.aporteSucursales)}</td></tr>`).join('')
-    || `<tr><td colspan="6" class="t-sec">Sin detalle de composición.</td></tr>`;
-  // El equivalente por sucursal ya viene convertido en stockPorSucursal; una sucursal
-  // que no aparece es stock cero, no un dato faltante.
-  const porSuc = (armado.sucursales || []).map(s => `<div class="ant-divider-t flex items-baseline justify-between gap-3 py-2">
-      <span class="t-12 t-sec">${escAttr(s)}</span>
-      <span class="dato">${fmt(((f.stockPorSucursal || {})[s]) || 0)}</span></div>`).join('')
-    || `<p class="t-sec">Sin sucursales configuradas.</p>`;
+    ${sucursales.length
+      ? sucursales.map(s => `<td class="t-r dato-sec">${fmt((c.porSucursal || {})[s] || 0)}</td>`).join('')
+      : '<td class="t-r t-qua">—</td>'}
+    <td class="t-r dato">${fmt(c.stockSucursales)}</td></tr>`).join('')
+    || `<tr><td colspan="${5 + colsSuc}" class="t-sec">Sin detalle de composición.</td></tr>`;
   $('#mStockTitulo').textContent = `Composición del stock · ${f.nombre} (${f.plu})`;
   $('#mStockCuerpo').innerHTML = `<div class="ant-table-wrap">
-      <table class="ant-table">
+      <table class="ant-table ant-table-sm">
         <thead><tr>
           <th>PLU</th>
           <th>Nombre</th>
           <th class="t-r">Factor</th>
           <th class="t-r">Stock central</th>
+          ${sucursales.length ? sucursales.map(s => `<th class="t-r">${escAttr(s)}</th>`).join('') : '<th class="t-r">Suc.</th>'}
           <th class="t-r">Stock suc.</th>
-          <th class="t-r">Aporte (${unidad})</th>
         </tr></thead>
         <tbody>${filas}</tbody>
         <tfoot><tr>
           <td colspan="3" class="t-12 t-ter">Total</td>
           <td class="t-r dato font-medium">${fmt(f.stockCentral)}</td>
-          <td class="t-r t-qua">—</td>
+          ${sucursales.length
+            ? sucursales.map(s => `<td class="t-r dato font-medium">${fmt((f.stockPorSucursal || {})[s] || 0)}</td>`).join('')
+            : '<td class="t-r t-qua">—</td>'}
           <td class="t-r dato font-medium">${fmt(f.stockSucursales)}</td>
         </tr></tfoot>
       </table>
-    </div>
-    <h4 class="mt-6 mb-2 t-16 font-semibold">Stock por sucursal · equivalente en ${unidad}</h4>
-    ${porSuc}`;
+    </div>`;
   $('#mStock').classList.remove('hidden');
   $('#mStock').classList.add('flex');
   $('#mStockX').focus();
@@ -1267,6 +1310,16 @@ function abrirConsumo(plu) {
   if (!f) return;
   const serie = f.consumoMensual || [];
   $('#mConsumoTitulo').textContent = `Consumo mensual · ${f.nombre}`;
+  // Mismos componentes que "Composición del stock": el granel (factor 1) más cada
+  // presentación fraccionada con el factor por el que se la multiplica al imputar.
+  const componentes = f.componentes || [];
+  $('#mConsumoCodigos').innerHTML = `<div class="ant-table-wrap"><table class="ant-table ant-table-sm">
+      <thead><tr><th>PLU</th><th>Nombre</th></tr></thead>
+      <tbody>${componentes.map(c => `<tr class="${c.esPropio ? 'fila-propia' : ''}">
+        <td class="t-12 num t-ter">${escAttr(c.plu)}</td>
+        <td class="dato">${escAttr(c.nombre)}${c.esPropio ? ' <span class="ant-tag ant-tag-primary">propio</span>' : ''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
   $('#mConsumo').classList.remove('hidden');
   $('#mConsumo').classList.add('flex');
   destroyChart('consumo');
@@ -1374,7 +1427,10 @@ function imprimirPedido(pedido) {
   doc.text('Documento interno — orden de compra, no válido como comprobante fiscal.', margenX, alto - 12);
   doc.text(new Date().toLocaleDateString('es-AR'), 210 - margenX, alto - 12, { align: 'right' });
 
-  doc.save(`Pedido_${pedido.numero || 'compra'}.pdf`);
+  const nombreArchivo = `${pedido.proveedor || 'Proveedor'} - ${pedido.fecha || ''} - ${pedido.numero || ''}`
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .trim();
+  doc.save(`${nombreArchivo}.pdf`);
 }
 
 // ═══ Tab 2: seguimiento ═══════════════════════════════════════════════════════

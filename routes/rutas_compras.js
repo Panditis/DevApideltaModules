@@ -129,6 +129,24 @@ function sqlVentasDias(idList, dias, pluList) {
     GROUP BY vp.IdProducto`;
 }
 
+// Nombres reales de SIGA para el detalle de composición del stock: el caché de a8020
+// (nombresA8020) no cubre todo PLU fraccionado, así que un componente sin ranking
+// quedaba mostrando el PLU en vez del nombre. Esta consulta es la fuente confiable.
+function sqlNombresProductos(pluList) {
+  const inList = pluList.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
+  return `SELECT IdProducto, NombreProducto FROM Productos WHERE IdProducto IN (${inList})`;
+}
+
+// Costo registrado en SIGA para la central (distinto del último precio pagado): es el
+// costo "de sistema" contra el que se compara al armar el pedido.
+function sqlCostoSistema(pluList) {
+  const inList = pluList.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
+  return `SELECT ps.IdProducto, CAST(ps.PrecioCosto AS FLOAT) AS PrecioCosto
+    FROM ProductosSucursales ps
+    WHERE ps.IdSucursal = (SELECT MIN(IdSucursal) FROM Sucursales WHERE SoyLaCentral = 1)
+      AND ps.IdProducto IN (${inList})`;
+}
+
 // SIGA no acepta listas IN de más de ~2100 parámetros: se parte en lotes de 1000.
 async function queryPorLotes(lista, sqlFn) {
   const LOTE = 1000;
@@ -136,6 +154,48 @@ async function queryPorLotes(lista, sqlFn) {
   const out = [];
   for (let i = 0; i < lista.length; i += LOTE) out.push(...await query(sqlFn(lista.slice(i, i + LOTE))));
   return out;
+}
+
+// La compra más reciente CARGADA EN SIGA para este proveedor: un único comprobante
+// (no el último pedido armado en este módulo), con sus líneas tal cual quedaron
+// cargadas. Es lo que ofrece "Repetir última compra" — a diferencia de UltimaCantidad
+// en productosCompradosAlProveedor, que es por producto y puede venir de facturas
+// distintas, acá todas las líneas pertenecen a la misma factura.
+async function ultimaCompraDelProveedor(idProveedor) {
+  const pool = await getPool();
+  // "Más reciente" tiene que salir de comprobantes con líneas de verdad: elegir el header de
+  // Compras más nuevo sin mirar ComprasProductos (como hacía esto antes) puede aterrizar en una
+  // cotización sin líneas o en una factura cuya única línea es el genérico '1' (flete/ajuste),
+  // y esa combinación devuelve 0 filas aunque el proveedor tenga compras reales más viejas.
+  const r = await pool.request().input('idProv', idProveedor).query(`
+    ;WITH cc AS (
+      SELECT c.IdSucursal, c.IdTipoComprobante, c.Letra, c.CentroEmisor, c.NumeroComprobante, c.Fecha,
+             cp.IdProducto, CAST(cp.Cantidad AS FLOAT) AS Cantidad
+      FROM ComprasProductos cp
+      JOIN Compras c ON c.IdSucursal=cp.IdSucursal AND c.IdTipoComprobante=cp.IdTipoComprobante
+        AND c.Letra=cp.Letra AND c.CentroEmisor=cp.CentroEmisor AND c.NumeroComprobante=cp.NumeroComprobante
+        AND c.IdProveedor=cp.IdProveedor
+      WHERE c.IdProveedor = @idProv AND LTRIM(RTRIM(cp.IdProducto)) <> '1'
+    ), ultimoComp AS (
+      SELECT TOP 1 IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Fecha
+      FROM cc
+      ORDER BY Fecha DESC, NumeroComprobante DESC
+    )
+    SELECT cc.IdProducto, cc.Cantidad, p.NombreProducto, uc.Fecha, uc.NumeroComprobante, uc.Letra
+    FROM cc
+    JOIN ultimoComp uc ON cc.IdSucursal=uc.IdSucursal AND cc.IdTipoComprobante=uc.IdTipoComprobante
+      AND cc.Letra=uc.Letra AND cc.CentroEmisor=uc.CentroEmisor AND cc.NumeroComprobante=uc.NumeroComprobante
+    LEFT JOIN Productos p ON p.IdProducto=cc.IdProducto`);
+  if (!r.recordset.length) return null;
+  const primero = r.recordset[0];
+  return {
+    fecha: primero.Fecha ? new Date(primero.Fecha).toISOString().slice(0, 10) : null,
+    comprobante: `${primero.Letra || ''}${primero.NumeroComprobante || ''}`.trim(),
+    items: r.recordset.map(x => ({
+      plu: String(x.IdProducto).trim(), nombre: x.NombreProducto || String(x.IdProducto).trim(),
+      cantidad: Number(x.Cantidad) || 0,
+    })),
+  };
 }
 
 // Guard aparte de apiRoute: un idProveedor inválido es error del cliente (400), y
@@ -150,15 +210,16 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const ventanaSuc = VENTANAS_SUC.includes(Number(req.query.ventanaSuc)) ? Number(req.query.ventanaSuc) : 30;
 
   const pool = await getPool();
-  const [rProv, filasCompra] = await Promise.all([
+  const [rProv, filasCompra, ultimaCompra] = await Promise.all([
     pool.request().input('id', idProveedor).query('SELECT NombreProveedor FROM Proveedores WHERE IdProveedor = @id'),
     productosCompradosAlProveedor(idProveedor),
+    ultimaCompraDelProveedor(idProveedor),
   ]);
   const proveedor = (rProv.recordset[0] || {}).NombreProveedor || null;
   // En SIGA IdProducto es char: viene con espacios y hay que normalizarlo antes de comparar.
   const plus = [...new Set(filasCompra.map(r => String(r.IdProducto).trim()))];
   if (!plus.length) {
-    return { proveedor, idProveedor, meses: 24, ventanaSuc, timestampConsumo: null, sucursales: [], filas: [] };
+    return { proveedor, idProveedor, meses: 24, ventanaSuc, timestampConsumo: null, sucursales: [], filas: [], ultimaCompra };
   }
 
   // Se compra el granel pero en sucursales se vende fraccionado: el stock y las ventas
@@ -169,7 +230,11 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const fracPorPlu = new Map(plus.map(plu => [plu, compras.fraccionadosDe(formulas, plu)]));
   const plusConFrac = [...new Set([...plus, ...[...fracPorPlu.values()].flat().map(f => f.plu)])];
 
-  const sucs = (leerJSON(DISTRIB_CONFIG_PATH, {}) || {}).sucursales || {};
+  // Sucursales inactivas (6, 8 y 11): no cuentan para stock, ventas ni cobertura acá.
+  const SUCURSALES_INACTIVAS = new Set([6, 8, 11]);
+  const sucsTodas = (leerJSON(DISTRIB_CONFIG_PATH, {}) || {}).sucursales || {};
+  const sucs = Object.fromEntries(Object.entries(sucsTodas)
+    .filter(([, c]) => !SUCURSALES_INACTIVAS.has(Number(c.idSucursal))));
   const sucursales = Object.keys(sucs);
   const sucKeyPorId = {};
   for (const [key, c] of Object.entries(sucs)) sucKeyPorId[String(c.idSucursal)] = key;
@@ -177,10 +242,12 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const idList = Object.values(sucs).map(s => Number(s.idSucursal)).filter(Number.isFinite).join(',');
   if (!idList) throw new Error('Falta data/distribucion_config.json (sucursales).');
 
-  const [stockCentralRows, stockSucRows, ventasRows] = await Promise.all([
+  const [stockCentralRows, stockSucRows, ventasRows, costoRows, nombresRows] = await Promise.all([
     queryPorLotes(plus, l => sqlStockPorPlu(l)),
     queryPorLotes(plusConFrac, l => sqlStockDistribucion(l)),
     queryPorLotes(plusConFrac, l => sqlVentasDias(idList, ventanaSuc, l)),
+    queryPorLotes(plus, l => sqlCostoSistema(l)),
+    queryPorLotes(plusConFrac, l => sqlNombresProductos(l)),
   ]);
 
   const centralPorPlu = {};
@@ -195,6 +262,10 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   }
   const ventasPorPlu = {};
   for (const r of ventasRows) ventasPorPlu[String(r.IdProducto).trim()] = Number(r.Cant) || 0;
+  const costoPorPlu = {};
+  for (const r of costoRows) costoPorPlu[String(r.IdProducto).trim()] = r.PrecioCosto != null ? Number(r.PrecioCosto) : null;
+  const nombresPorPlu = {};
+  for (const r of nombresRows) nombresPorPlu[String(r.IdProducto).trim()] = r.NombreProducto || null;
 
   // La serie mensual ya viene imputada (fraccionado → granel, bulto → componentes):
   // para un granel NO hay que volver a sumarle sus presentaciones.
@@ -225,14 +296,15 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
       ultimaFecha: r.UltimaFecha || null,
       ultimaCantidad: Number(r.UltimaCantidad) || 0,
       ultimoPrecio: Number(r.UltimoPrecio) || 0,
+      costoSistema: costoPorPlu[plu] != null ? costoPorPlu[plu] : null,
       compras24m: Number(r.Compras) || 0,
       cantTotal24m: Number(r.CantTotal) || 0,
       stockCentral, stockSucursales: suc.total, stockPorSucursal: suc.porSucursal,
       // De dónde sale el stock de sucursales: el granel más cada presentación fraccionada.
-      // Los nombres de los fraccionados no vienen de la query de compras, salen del a8020.
+      // El nombre sale de SIGA (nombresPorPlu); el a8020 es sólo respaldo si faltara.
       componentes: compras.componentesStockEq(plu, frac, stockPorSuc).map(c => ({
         ...c,
-        nombre: c.plu === plu ? (r.NombreProducto || plu) : (nombresA8020[c.plu] || c.plu),
+        nombre: c.plu === plu ? (r.NombreProducto || plu) : (nombresPorPlu[c.plu] || nombresA8020[c.plu] || c.plu),
         // Sólo se consulta el stock central de los PLUs comprados: en central el granel
         // vive como granel, y para una presentación sin dato es null, no 0.
         stockCentral: c.esPropio ? stockCentral : (centralPorPlu[c.plu] != null ? centralPorPlu[c.plu] : null),
@@ -249,7 +321,7 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 
   return { proveedor, idProveedor, meses: 24, ventanaSuc,
-    timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas };
+    timestampConsumo: cacheConsumo.timestamp || null, sucursales, filas, ultimaCompra };
 }));
 
 // Paso intermedio entre subir el xlsx del pedido y precargar cantidades en la grilla de
