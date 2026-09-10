@@ -115,6 +115,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .kpi-warning{--kpiAccent:var(--colorWarning);--kpiBg:var(--colorWarningBg);--kpiText:var(--colorWarningText);}
 .ant-card-body{padding:24px;}
 .ant-card-body-sm{padding:16px;}
+.ant-table-sm thead th,.ant-table-sm tbody td{padding:6px 10px;font-size:13px;}
 
 /* ── Table ────────────────────────────────────────────────────────────────── */
 .ant-table-wrap{background:var(--colorBgContainer);border:1px solid var(--colorBorderSecondary);
@@ -276,9 +277,19 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   justify-content:center;border:0;border-radius:var(--borderRadiusSM);background:none;cursor:pointer;
   color:var(--colorTextTertiary);font-size:16px;line-height:1;transition:color var(--motion),background var(--motion);}
 .ant-modal-close:hover{background:var(--colorFillTertiary);color:var(--colorText);}
-.ant-modal-body{padding:24px;}
+/* flex:1+min-height:0: en los modales con .flex.flex-col + max-h-[..] (ej. mStock,
+   mProductoUso), sin esto el body no se achica para dejar lugar al scroll propio y
+   el contenido que excede el alto máximo queda recortado por el overflow:hidden del
+   .ant-modal en vez de scrollear. */
+.ant-modal-body{padding:24px;flex:1 1 auto;min-height:0;}
 .ant-modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 24px;
   border-top:1px solid var(--colorPrimaryBorder);background:var(--colorPrimaryBg);}
+/* El dropdown de autocomplete (#productoUsoLista) es position:absolute y se abre recién
+   apenas el modal está chico (antes de elegir producto): el overflow:hidden del .ant-modal
+   (ahí arriba, para las esquinas redondeadas) lo recorta contra el borde inferior del modal.
+   Este modal en particular no tiene footer ni contenido de otro color pegado al borde, así
+   que sacarle el overflow no rompe el redondeado — deja que el dropdown se dibuje afuera. */
+#mProductoUso .ant-modal{overflow:visible;}
 
 /* ── Dropdown ─────────────────────────────────────────────────────────────── */
 .ant-dropdown{position:absolute;z-index:30;top:100%;left:0;width:100%;margin-top:4px;padding:4px;
@@ -341,7 +352,8 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
     <div class="ant-header-inner ant-header-bar">
       <h1 class="ant-logo">COMPRAS</h1>
       <span class="ant-logo-sub">Apidelta</span>
-      <a href="/" class="ant-btn ant-btn-text ml-auto">← Inicio</a>
+      <button id="btnBuscarProducto" type="button" class="ant-btn ant-btn-text ml-auto">🔍 Buscar producto</button>
+      <a href="/" class="ant-btn ant-btn-text">← Inicio</a>
     </div>
   </div>
   <div class="ant-header-inner">
@@ -577,6 +589,28 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   </div>
 </div>
 
+<!-- Modal "¿Dónde está este producto?": en qué pedidos propios y qué compras de SIGA aparece. -->
+<div id="mProductoUso" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
+     role="dialog" aria-modal="true" aria-labelledby="mProductoUsoTitulo">
+  <div class="ant-modal max-w-3xl max-h-[85vh] flex flex-col">
+    <div class="ant-modal-header">
+      <h3 id="mProductoUsoTitulo" class="ant-modal-title">¿Dónde está este producto?</h3>
+      <button id="mProductoUsoX" class="ant-modal-close" aria-label="Cerrar">✕</button>
+    </div>
+    <!-- Input y dropdown FUERA de .ant-modal-body a propósito: ese div tiene su propio
+         overflow-y-auto (para poder scrollear el resultado), y siendo ancestro directo
+         del dropdown lo recorta/scrollea a él también aunque el .ant-modal ya no clipee
+         (ver overflow:visible de #mProductoUso .ant-modal más arriba en el <style>). -->
+    <div class="relative px-6 pt-6">
+      <input id="productoUsoQ" type="text" class="ant-input w-full" placeholder="Buscar por PLU, nombre o código de barras…" autocomplete="off">
+      <div id="productoUsoLista" class="hidden ant-dropdown"></div>
+    </div>
+    <div class="ant-modal-body overflow-y-auto">
+      <div id="productoUsoCuerpo"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : (Math.round(n*100)/100).toLocaleString('es-AR');
@@ -675,6 +709,7 @@ document.addEventListener('keydown', e => {
   if (!$('#mAviso').classList.contains('hidden')) cerrarAviso(false);
   else if (!$('#mConsumo').classList.contains('hidden')) cerrarConsumo();
   else if (!$('#mStock').classList.contains('hidden')) cerrarStock();
+  else if (!$('#mProductoUso').classList.contains('hidden')) cerrarProductoUso();
 });
 
 // ---- Fetch con manejo de sesión ----
@@ -1125,6 +1160,107 @@ function cerrarStock() {
 }
 $('#mStockX').addEventListener('click', cerrarStock);
 $('#mStock').addEventListener('click', e => { if (e.target === $('#mStock')) cerrarStock(); });
+
+// ---- Modal "¿Dónde está este producto?" ----
+function abrirProductoUso() {
+  $('#mProductoUso').classList.remove('hidden');
+  $('#mProductoUso').classList.add('flex');
+  $('#productoUsoQ').value = '';
+  $('#productoUsoLista').classList.add('hidden');
+  $('#productoUsoCuerpo').innerHTML = '';
+  $('#productoUsoQ').focus();
+}
+function cerrarProductoUso() {
+  $('#mProductoUso').classList.add('hidden');
+  $('#mProductoUso').classList.remove('flex');
+}
+$('#btnBuscarProducto').addEventListener('click', abrirProductoUso);
+$('#mProductoUsoX').addEventListener('click', cerrarProductoUso);
+$('#mProductoUso').addEventListener('click', e => { if (e.target === $('#mProductoUso')) cerrarProductoUso(); });
+
+// Buscador de producto con autocompletado: mismo patrón que crearBuscadorProveedor
+// (arriba), pero contra /api/compras-import/buscar-producto (PLU/nombre/código de barras).
+(function () {
+  const input = $('#productoUsoQ'), cont = $('#productoUsoLista');
+  let timer = null;
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#productoUsoQ') && !e.target.closest('#productoUsoLista')) cont.classList.add('hidden');
+  });
+  async function buscar() {
+    const q = input.value.trim();
+    if (q.length < 2) { cont.classList.add('hidden'); return; }
+    try {
+      const r = await apiFetch('/api/compras-import/buscar-producto?soloCompras=1&q=' + encodeURIComponent(q));
+      const lista = r.productos || [];
+      cont.innerHTML = lista.length
+        ? lista.map(p => `<button class="js-prodUso ant-dropdown-item" data-plu="${escAttr(p.plu)}" data-nombre="${escAttr(p.nombre)}">
+             <span class="block">${escAttr(p.nombre)}</span>
+             <span class="block t-12 t-ter num">PLU ${escAttr(p.plu)}${p.activo ? '' : ' · inactivo'}</span>
+           </button>`).join('')
+        : `<div class="ant-dropdown-empty">Ningún producto con ese criterio.</div>`;
+      cont.classList.remove('hidden');
+      cont.querySelectorAll('.js-prodUso').forEach(b => b.addEventListener('click', () => {
+        const sel = { plu: b.dataset.plu, nombre: b.dataset.nombre };
+        input.value = sel.nombre;
+        cont.classList.add('hidden');
+        seleccionarProductoUso(sel);
+      }));
+    } catch (e) {
+      cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+      cont.classList.remove('hidden');
+    }
+  }
+})();
+
+async function seleccionarProductoUso(sel) {
+  $('#productoUsoCuerpo').innerHTML = estadoVacio('Buscando…', 'Cruzando pedidos y compras en SIGA.', 'cargando');
+  try {
+    const r = await apiFetch('/api/compras/producto/' + encodeURIComponent(sel.plu) + '/uso');
+    renderProductoUso(r);
+  } catch (e) {
+    $('#productoUsoCuerpo').innerHTML = estadoVacio('No se pudo buscar', e.message, 'error');
+  }
+}
+
+function renderProductoUso(r) {
+  const pedidosHtml = r.pedidos.length
+    ? `<div class="ant-table-wrap"><table class="ant-table ant-table-sm">
+        <thead><tr><th>Pedido</th><th>Proveedor</th><th>Fecha</th><th>Estado</th><th class="t-r">Cantidad</th></tr></thead>
+        <tbody>${r.pedidos.map(p => `<tr>
+          <td class="num">${escAttr(p.numero)}</td>
+          <td>${escAttr(p.proveedor || '')}</td>
+          <td class="num">${escAttr(p.fecha || '')}</td>
+          <td>${chipEstado(p.estado)}</td>
+          <td class="t-r num">${fmt(p.cantidad)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`
+    : estadoVacio('Sin pedidos', 'Este producto no aparece en ningún pedido guardado.');
+
+  const comprasHtml = r.compras.length
+    ? `<div class="ant-table-wrap"><table class="ant-table ant-table-sm">
+        <thead><tr><th>Comprobante</th><th>Fecha</th><th>Proveedor</th><th class="t-r">Cantidad</th><th class="t-r">Importe</th></tr></thead>
+        <tbody>${r.compras.map(c => `<tr>
+          <td class="num">${escAttr(c.etiqueta)}</td>
+          <td class="num">${escAttr(c.fecha || '')}</td>
+          <td>${escAttr(c.proveedor || '')}</td>
+          <td class="t-r num">${fmt(c.cantidad)}</td>
+          <td class="t-r num">${money(c.importe)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`
+    : estadoVacio('Sin compras en SIGA', 'Este producto no tiene compras cargadas en los últimos 24 meses.');
+
+  $('#productoUsoCuerpo').innerHTML = `
+    <h4 class="ant-card-head-title">${escAttr(r.nombre || r.plu)} <span class="t-ter t-12 num">PLU ${escAttr(r.plu)}</span></h4>
+    <div class="ant-card mt-4">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Pedidos</h3></div>
+      <div class="ant-card-body ant-card-body-sm">${pedidosHtml}</div>
+    </div>
+    <div class="ant-card mt-4">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Compras en SIGA</h3></div>
+      <div class="ant-card-body ant-card-body-sm">${comprasHtml}</div>
+    </div>`;
+}
 
 function abrirConsumo(plu) {
   const f = (armado.filas || []).find(x => String(x.plu) === String(plu));

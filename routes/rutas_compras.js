@@ -331,6 +331,59 @@ router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidos
   hasta: req.query.hasta ? String(req.query.hasta) : undefined,
 })));
 
+// "¿Dónde está este producto?": en qué pedidos propios (pedidos_compra.json) y en qué
+// compras reales de SIGA aparece un PLU. El PLU ya viene resuelto desde el autocomplete
+// de /api/compras-import/buscar-producto, así que acá no se busca por nombre.
+// Sin filtro de proveedor a propósito: la gracia es verlo en cualquiera.
+router.get('/api/compras/producto/:plu/uso', apiRoute(async (req) => {
+  const plu = String(req.params.plu || '').trim();
+  if (!plu) throw new Error('Falta el PLU');
+
+  let nombreDePedido = null;
+  const pedidos = leerPedidosCompra()
+    .map(p => {
+      const item = (p.items || []).find(it => String(it.plu || '').trim() === plu);
+      if (!item) return null;
+      if (!nombreDePedido) nombreDePedido = item.nombre || null;
+      return {
+        numero: p.numero, proveedor: p.proveedor, fecha: p.fecha, estado: p.estado,
+        cantidad: item.cantidad, estadoLinea: item.estado || 'pedido',
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+
+  // Mismo JOIN de 6 columnas que productosCompradosAlProveedor/comprasDeProveedor, pero
+  // filtrando por producto en vez de por proveedor: sin filtro de proveedor a propósito.
+  const pool = await getPool();
+  const rCompras = await pool.request().input('plu', plu).query(`
+    SELECT TOP 100 c.IdTipoComprobante, c.Letra, c.CentroEmisor, c.NumeroComprobante,
+           CONVERT(varchar(10), c.Fecha, 23) AS Fecha, c.IdProveedor, c.NombreProveedor,
+           CAST(cp.Cantidad AS FLOAT) AS Cantidad, CAST(cp.ImporteTotal AS FLOAT) AS Importe,
+           cp.NombreProducto
+    FROM ComprasProductos cp
+    JOIN Compras c ON c.IdSucursal=cp.IdSucursal AND c.IdTipoComprobante=cp.IdTipoComprobante
+      AND c.Letra=cp.Letra AND c.CentroEmisor=cp.CentroEmisor AND c.NumeroComprobante=cp.NumeroComprobante
+      AND c.IdProveedor=cp.IdProveedor
+    WHERE LTRIM(RTRIM(cp.IdProducto)) = @plu
+      AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+      AND c.IdTipoComprobante NOT LIKE 'COTIZACION%'
+    ORDER BY c.Fecha DESC`);
+
+  const comprasSiga = rCompras.recordset.map(r => ({
+    etiqueta: `${String(r.IdTipoComprobante || '').trim()} ${String(r.Letra || '').trim()} ${r.CentroEmisor}-${r.NumeroComprobante}`.trim(),
+    fecha: r.Fecha || null,
+    proveedor: r.NombreProveedor || null,
+    idProveedor: r.IdProveedor != null ? Number(r.IdProveedor) : null,
+    cantidad: Number(r.Cantidad) || 0,
+    importe: Number(r.Importe) || 0,
+    precioUnitario: r.Cantidad ? +(Number(r.Importe) / Number(r.Cantidad)).toFixed(4) : null,
+  }));
+
+  const nombre = (rCompras.recordset[0] && rCompras.recordset[0].NombreProducto) || nombreDePedido || null;
+  return { plu, nombre, pedidos, compras: comprasSiga };
+}));
+
 
 // ── Importación de facturas de compra — BANCO DE PRUEBAS ───────────────────────
 // Parsea el xlsx y resuelve los productos contra SIGA para la previsualización.
@@ -568,11 +621,15 @@ router.post('/api/compras-import/revalidar', express.json({ limit: '2mb' }), api
 router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return { productos: [] };
+  // soloCompras=1: usado por el modal "¿Dónde está este producto?" para no ofrecer
+  // productos que no se compran. El tab Importar no lo manda, ahí se puede cargar cualquier cosa.
+  const soloCompras = req.query.soloCompras === '1';
   const pool = await getPool();
   const r = await pool.request().input('q', '%' + q + '%').input('exacto', q)
     .query(`SELECT TOP 25 p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.Activo
               FROM Productos p
-             WHERE p.NombreProducto LIKE @q OR p.IdProducto = @exacto OR p.CodigoDeBarras = @exacto
+             WHERE (p.NombreProducto LIKE @q OR p.IdProducto = @exacto OR p.CodigoDeBarras = @exacto)
+             ${soloCompras ? 'AND p.EsDeCompras = 1' : ''}
              ORDER BY CASE WHEN p.IdProducto = @exacto THEN 0 ELSE 1 END, p.NombreProducto`);
   return {
     productos: r.recordset.map(p => ({
