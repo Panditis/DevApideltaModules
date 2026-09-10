@@ -1369,10 +1369,22 @@ function codigoDeCarga(l) {
   return esLineaPesable(l) && barra ? barra : String((l || {}).plu || '');
 }
 
+// Fila en blanco con el mismo ancho que el encabezado, marcada para pintarse gris en el
+// xlsx (ver hojaXml): separa visualmente un ticket del siguiente.
+function filaVacia(ancho) {
+  const f = new Array(ancho).fill('');
+  f.esSeparador = true;
+  return f;
+}
+
 function filasDeTickets(pedidos) {
   const columnasPago = mediosDeTickets(pedidos);
-  const filas = [columnasDeTickets(pedidos)];
+  const encabezado = columnasDeTickets(pedidos);
+  const filas = [encabezado];
+  let esPrimerTicket = true;
   for (const p of pedidos || []) {
+    if (!esPrimerTicket) filas.push(filaVacia(encabezado.length));
+    esPrimerTicket = false;
     const pagos = p.pagos || [];
     const medios = pagos.map(x => x.medio).join(' + ');
     // El mismo medio puede entrar dos veces en un ticket (dos pagos en efectivo), así que
@@ -1414,16 +1426,24 @@ function escaparXml(v) {
 
 // Los códigos van como texto a propósito: un EAN-13 numérico Excel lo muestra en notación
 // científica, y al PLU le come los ceros de la izquierda.
+// Estilo 1 = relleno gris (definido en xl/styles.xml, ver armarXlsx). Una fila separadora
+// no tiene valores, así que hay que escribir la celda igual (con s="1" y sin <v>) para que
+// el color se pinte: una celda ausente no se dibuja.
+const ESTILO_SEPARADOR = 1;
+
 function hojaXml(filas) {
-  const celda = (v, ref) => {
-    if (v == null || v === '') return '';
-    if (typeof v === 'number' && Number.isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
-    return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + escaparXml(v) + '</t></is></c>';
+  const celda = (v, ref, estilo) => {
+    const s = estilo ? ' s="' + estilo + '"' : '';
+    if (v == null || v === '') return s ? '<c r="' + ref + '"' + s + '/>' : '';
+    if (typeof v === 'number' && Number.isFinite(v)) return '<c r="' + ref + '"' + s + '><v>' + v + '</v></c>';
+    return '<c r="' + ref + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + escaparXml(v) + '</t></is></c>';
   };
-  const cuerpo = (filas || []).map((f, i) =>
-    '<row r="' + (i + 1) + '">' +
-    (f || []).map((v, j) => celda(v, columnaXlsx(j) + (i + 1))).join('') +
-    '</row>').join('');
+  const cuerpo = (filas || []).map((f, i) => {
+    const estilo = f && f.esSeparador ? ESTILO_SEPARADOR : 0;
+    return '<row r="' + (i + 1) + '">' +
+      (f || []).map((v, j) => celda(v, columnaXlsx(j) + (i + 1), estilo)).join('') +
+      '</row>';
+  }).join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
     '<sheetData>' + cuerpo + '</sheetData></worksheet>';
@@ -1498,6 +1518,7 @@ function armarXlsx(filas, nombreHoja) {
       '<Default Extension="xml" ContentType="application/xml"/>' +
       '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
       '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
       '</Types>' },
     { nombre: '_rels/.rels', texto:
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -1512,8 +1533,28 @@ function armarXlsx(filas, nombreHoja) {
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<Relationships xmlns="' + ns + 'package/2006/relationships">' +
       '<Relationship Id="rId1" Type="' + ns + 'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="' + ns + 'officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
       '</Relationships>' },
     { nombre: 'xl/worksheets/sheet1.xml', texto: hojaXml(filas) },
+    // Fills 0 y 1 (none / gray125) son las que exige el estándar antes de cualquier fill
+    // propio; el índice 2 (gris sólido) es el que usa la fila separadora vía cellXfs[1].
+    { nombre: 'xl/styles.xml', texto:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<styleSheet xmlns="' + ns + 'spreadsheetml/2006/main">' +
+      '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="3">' +
+      '<fill><patternFill patternType="none"/></fill>' +
+      '<fill><patternFill patternType="gray125"/></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>' +
+      '</fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="2">' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/>' +
+      '</cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+      '</styleSheet>' },
   ]);
 }
 

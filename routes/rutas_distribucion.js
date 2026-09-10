@@ -968,7 +968,11 @@ function sqlVentasMensuales(idList, meses) {
 // tipoMovimiento acepta uno o varios tipos: la producción se registró históricamente como
 // BIENESUSO y desde el cambio de tipos va como REC-SUC, así que la ventana de 24 meses tiene
 // que mirar los dos o el histórico desaparece de la serie.
-function sqlProduccionMensual(tipoMovimiento, meses) {
+// REC-SUC es ambiguo: en una sucursal es una recepción de mercadería (ver endpoints de
+// facturación más abajo, filtrados por IdSucursal IN sucursales), y sólo en la central es el
+// consumo de insumos de producción. Sin el filtro de sucursal esta serie sumaba también las
+// recepciones de sucursal, que no son consumo de nada.
+function sqlProduccionMensual(tipoMovimiento, meses, idCentral) {
   const tipos = (Array.isArray(tipoMovimiento) ? tipoMovimiento : [tipoMovimiento])
     .map(t => String(t || '').trim())
     .filter(Boolean)
@@ -980,6 +984,7 @@ function sqlProduccionMensual(tipoMovimiento, meses) {
     INNER JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal
       AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
     WHERE mp.IdTipoMovimiento IN (${tipos.join(', ')})
+      AND mp.IdSucursal = ${Number(idCentral)}
       AND m.FechaMovimiento >= DATEADD(MONTH,-${meses},CAST(GETDATE() AS DATE))
       AND m.FechaMovimiento < CAST(GETDATE() AS DATE)
     GROUP BY CONVERT(varchar(7), m.FechaMovimiento, 126), mp.IdProducto`;
@@ -1002,13 +1007,14 @@ async function recalcularConsumoMensual() {
   const rubroDePlu = {};
   for (const r of rubroRows) rubroDePlu[String(r.IdProducto).trim()] = r.NombreRubro || null;
 
+  const idCentral = config.idCentral || 1;
   const tipoProd  = (leerJSON(path.join(__dirname, '..', 'config.json'), {}).produccion || {}).idTipoMovimiento || 'BIENESUSO';
   // BIENESUSO siempre se incluye: es el tipo con el que se registró la producción hasta el
   // cambio a REC-SUC y sigue siendo el único dato de los meses anteriores.
   const tiposProd = [...new Set([tipoProd, 'BIENESUSO'])];
   const [ventasRows, prodRows] = await Promise.all([
     query(sqlVentasMensuales(idList, meses)),
-    query(sqlProduccionMensual(tiposProd, meses)).catch((e) => {
+    query(sqlProduccionMensual(tiposProd, meses, idCentral)).catch((e) => {
       console.error('[consumo-mensual] producción:', e.message);
       return [];
     }),
@@ -1052,7 +1058,20 @@ async function recalcularConsumoMensual() {
       anotar(plu, mes, 'ventas', Object.values(porSuc).reduce((s, v) => s + (Number(v) || 0), 0));
     }
   }
-  for (const r of prodRows) anotar(r.IdProducto, String(r.Mes), 'produccion', Number(r.Cant) || 0);
+  // El producto de compra consumido en producción: si mp.IdProducto es una presentación
+  // fraccionada, el consumo real es de su granel (misma imputación que usa calcularConsumoReal
+  // para ventas); si no tiene fórmula, ya es el producto de compra y se cuenta tal cual.
+  const formulasPesables = pesLis.formulas || {};
+  for (const r of prodRows) {
+    const pluCrudo = String(r.IdProducto).trim();
+    const cant = Number(r.Cant) || 0;
+    const f = formulasPesables[pluCrudo];
+    if (f && f.granel != null && Number(f.cantFormula) > 0) {
+      anotar(f.granel, String(r.Mes), 'produccion', cant * Number(f.cantFormula));
+    } else {
+      anotar(pluCrudo, String(r.Mes), 'produccion', cant);
+    }
+  }
 
   const cache = { timestamp: new Date().toISOString(), ventanaMeses: meses,
     tipoMovimientoProduccion: tipoProd, consumoMensual, ventasPorSucursal };
