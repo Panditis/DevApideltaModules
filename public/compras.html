@@ -6,6 +6,8 @@
 <link rel="icon" href="/favicon.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -113,6 +115,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .kpi-warning{--kpiAccent:var(--colorWarning);--kpiBg:var(--colorWarningBg);--kpiText:var(--colorWarningText);}
 .ant-card-body{padding:24px;}
 .ant-card-body-sm{padding:16px;}
+.ant-table-sm thead th,.ant-table-sm tbody td{padding:6px 10px;font-size:13px;}
 
 /* ── Table ────────────────────────────────────────────────────────────────── */
 .ant-table-wrap{background:var(--colorBgContainer);border:1px solid var(--colorBorderSecondary);
@@ -274,9 +277,19 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   justify-content:center;border:0;border-radius:var(--borderRadiusSM);background:none;cursor:pointer;
   color:var(--colorTextTertiary);font-size:16px;line-height:1;transition:color var(--motion),background var(--motion);}
 .ant-modal-close:hover{background:var(--colorFillTertiary);color:var(--colorText);}
-.ant-modal-body{padding:24px;}
+/* flex:1+min-height:0: en los modales con .flex.flex-col + max-h-[..] (ej. mStock,
+   mProductoUso), sin esto el body no se achica para dejar lugar al scroll propio y
+   el contenido que excede el alto máximo queda recortado por el overflow:hidden del
+   .ant-modal en vez de scrollear. */
+.ant-modal-body{padding:24px;flex:1 1 auto;min-height:0;}
 .ant-modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 24px;
   border-top:1px solid var(--colorPrimaryBorder);background:var(--colorPrimaryBg);}
+/* El dropdown de autocomplete (#productoUsoLista) es position:absolute y se abre recién
+   apenas el modal está chico (antes de elegir producto): el overflow:hidden del .ant-modal
+   (ahí arriba, para las esquinas redondeadas) lo recorta contra el borde inferior del modal.
+   Este modal en particular no tiene footer ni contenido de otro color pegado al borde, así
+   que sacarle el overflow no rompe el redondeado — deja que el dropdown se dibuje afuera. */
+#mProductoUso .ant-modal{overflow:visible;}
 
 /* ── Dropdown ─────────────────────────────────────────────────────────────── */
 .ant-dropdown{position:absolute;z-index:30;top:100%;left:0;width:100%;margin-top:4px;padding:4px;
@@ -339,7 +352,8 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
     <div class="ant-header-inner ant-header-bar">
       <h1 class="ant-logo">COMPRAS</h1>
       <span class="ant-logo-sub">Apidelta</span>
-      <a href="/" class="ant-btn ant-btn-text ml-auto">← Inicio</a>
+      <button id="btnBuscarProducto" type="button" class="ant-btn ant-btn-text ml-auto">🔍 Buscar producto</button>
+      <a href="/" class="ant-btn ant-btn-text">← Inicio</a>
     </div>
   </div>
   <div class="ant-header-inner">
@@ -458,9 +472,11 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
         </button>
         <div id="segPedidoLista" class="ant-dropdown hidden" role="listbox" aria-label="Pedidos"></div>
       </div>
-      <div class="w-56">
+      <div class="w-56 relative">
         <label class="ant-label" for="segProv">Proveedor</label>
-        <select id="segProv" class="ant-select"><option value="">Todos los proveedores</option></select>
+        <input id="segProv" class="ant-input" placeholder="Todos los proveedores" autocomplete="off"
+          aria-haspopup="listbox" aria-expanded="false" role="combobox">
+        <div id="segProvLista" class="ant-dropdown hidden" role="listbox" aria-label="Proveedores"></div>
       </div>
       <label class="ant-check-label pb-1.5"><input type="checkbox" id="segCerrados" class="ant-check"> Ver cerrados</label>
       <button id="btnRefrescarPedidos" class="ant-btn ml-auto">Refrescar</button>
@@ -476,9 +492,11 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 <section id="tab-otif" class="tab-panel hidden" role="tabpanel" aria-label="Indicadores OTIF">
   <div class="ant-card">
     <div class="ant-card-body ant-card-body-sm ant-toolbar">
-      <div class="w-64">
+      <div class="w-64 relative">
         <label class="ant-label" for="otifProv">Proveedor</label>
-        <select id="otifProv" class="ant-select"><option value="">Todos los proveedores</option></select>
+        <input id="otifProv" class="ant-input" placeholder="Todos los proveedores" autocomplete="off"
+          aria-haspopup="listbox" aria-expanded="false" role="combobox">
+        <div id="otifProvLista" class="ant-dropdown hidden" role="listbox" aria-label="Proveedores"></div>
       </div>
       <div>
         <label class="ant-label" for="otifDesde">Desde</label>
@@ -571,6 +589,28 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   </div>
 </div>
 
+<!-- Modal "¿Dónde está este producto?": en qué pedidos propios y qué compras de SIGA aparece. -->
+<div id="mProductoUso" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
+     role="dialog" aria-modal="true" aria-labelledby="mProductoUsoTitulo">
+  <div class="ant-modal max-w-3xl max-h-[85vh] flex flex-col">
+    <div class="ant-modal-header">
+      <h3 id="mProductoUsoTitulo" class="ant-modal-title">¿Dónde está este producto?</h3>
+      <button id="mProductoUsoX" class="ant-modal-close" aria-label="Cerrar">✕</button>
+    </div>
+    <!-- Input y dropdown FUERA de .ant-modal-body a propósito: ese div tiene su propio
+         overflow-y-auto (para poder scrollear el resultado), y siendo ancestro directo
+         del dropdown lo recorta/scrollea a él también aunque el .ant-modal ya no clipee
+         (ver overflow:visible de #mProductoUso .ant-modal más arriba en el <style>). -->
+    <div class="relative px-6 pt-6">
+      <input id="productoUsoQ" type="text" class="ant-input w-full" placeholder="Buscar por PLU, nombre o código de barras…" autocomplete="off">
+      <div id="productoUsoLista" class="hidden ant-dropdown"></div>
+    </div>
+    <div class="ant-modal-body overflow-y-auto">
+      <div id="productoUsoCuerpo"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : (Math.round(n*100)/100).toLocaleString('es-AR');
@@ -593,6 +633,7 @@ let comprobantesInfo = null;    // { candidatos, comparacion, vinculado, vincula
 let comprobantesCargando = false;
 let comprobantesError = null;   // mensaje si falló la búsqueda en SIGA (la card se muestra igual)
 let comprobantesPreview = new Set();   // claves de comprobante con la vista previa de líneas abierta
+let comprobantesDiasAntes = 0;  // 0 = ventana normal; 30 = también busca comprobantes cargados antes del pedido
 const charts = {};
 
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -668,6 +709,7 @@ document.addEventListener('keydown', e => {
   if (!$('#mAviso').classList.contains('hidden')) cerrarAviso(false);
   else if (!$('#mConsumo').classList.contains('hidden')) cerrarConsumo();
   else if (!$('#mStock').classList.contains('hidden')) cerrarStock();
+  else if (!$('#mProductoUso').classList.contains('hidden')) cerrarProductoUso();
 });
 
 // ---- Fetch con manejo de sesión ----
@@ -1119,6 +1161,107 @@ function cerrarStock() {
 $('#mStockX').addEventListener('click', cerrarStock);
 $('#mStock').addEventListener('click', e => { if (e.target === $('#mStock')) cerrarStock(); });
 
+// ---- Modal "¿Dónde está este producto?" ----
+function abrirProductoUso() {
+  $('#mProductoUso').classList.remove('hidden');
+  $('#mProductoUso').classList.add('flex');
+  $('#productoUsoQ').value = '';
+  $('#productoUsoLista').classList.add('hidden');
+  $('#productoUsoCuerpo').innerHTML = '';
+  $('#productoUsoQ').focus();
+}
+function cerrarProductoUso() {
+  $('#mProductoUso').classList.add('hidden');
+  $('#mProductoUso').classList.remove('flex');
+}
+$('#btnBuscarProducto').addEventListener('click', abrirProductoUso);
+$('#mProductoUsoX').addEventListener('click', cerrarProductoUso);
+$('#mProductoUso').addEventListener('click', e => { if (e.target === $('#mProductoUso')) cerrarProductoUso(); });
+
+// Buscador de producto con autocompletado: mismo patrón que crearBuscadorProveedor
+// (arriba), pero contra /api/compras-import/buscar-producto (PLU/nombre/código de barras).
+(function () {
+  const input = $('#productoUsoQ'), cont = $('#productoUsoLista');
+  let timer = null;
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#productoUsoQ') && !e.target.closest('#productoUsoLista')) cont.classList.add('hidden');
+  });
+  async function buscar() {
+    const q = input.value.trim();
+    if (q.length < 2) { cont.classList.add('hidden'); return; }
+    try {
+      const r = await apiFetch('/api/compras-import/buscar-producto?soloCompras=1&q=' + encodeURIComponent(q));
+      const lista = r.productos || [];
+      cont.innerHTML = lista.length
+        ? lista.map(p => `<button class="js-prodUso ant-dropdown-item" data-plu="${escAttr(p.plu)}" data-nombre="${escAttr(p.nombre)}">
+             <span class="block">${escAttr(p.nombre)}</span>
+             <span class="block t-12 t-ter num">PLU ${escAttr(p.plu)}${p.activo ? '' : ' · inactivo'}</span>
+           </button>`).join('')
+        : `<div class="ant-dropdown-empty">Ningún producto con ese criterio.</div>`;
+      cont.classList.remove('hidden');
+      cont.querySelectorAll('.js-prodUso').forEach(b => b.addEventListener('click', () => {
+        const sel = { plu: b.dataset.plu, nombre: b.dataset.nombre };
+        input.value = sel.nombre;
+        cont.classList.add('hidden');
+        seleccionarProductoUso(sel);
+      }));
+    } catch (e) {
+      cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+      cont.classList.remove('hidden');
+    }
+  }
+})();
+
+async function seleccionarProductoUso(sel) {
+  $('#productoUsoCuerpo').innerHTML = estadoVacio('Buscando…', 'Cruzando pedidos y compras en SIGA.', 'cargando');
+  try {
+    const r = await apiFetch('/api/compras/producto/' + encodeURIComponent(sel.plu) + '/uso');
+    renderProductoUso(r);
+  } catch (e) {
+    $('#productoUsoCuerpo').innerHTML = estadoVacio('No se pudo buscar', e.message, 'error');
+  }
+}
+
+function renderProductoUso(r) {
+  const pedidosHtml = r.pedidos.length
+    ? `<div class="ant-table-wrap"><table class="ant-table ant-table-sm">
+        <thead><tr><th>Pedido</th><th>Proveedor</th><th>Fecha</th><th>Estado</th><th class="t-r">Cantidad</th></tr></thead>
+        <tbody>${r.pedidos.map(p => `<tr>
+          <td class="num">${escAttr(p.numero)}</td>
+          <td>${escAttr(p.proveedor || '')}</td>
+          <td class="num">${escAttr(p.fecha || '')}</td>
+          <td>${chipEstado(p.estado)}</td>
+          <td class="t-r num">${fmt(p.cantidad)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`
+    : estadoVacio('Sin pedidos', 'Este producto no aparece en ningún pedido guardado.');
+
+  const comprasHtml = r.compras.length
+    ? `<div class="ant-table-wrap"><table class="ant-table ant-table-sm">
+        <thead><tr><th>Comprobante</th><th>Fecha</th><th>Proveedor</th><th class="t-r">Cantidad</th><th class="t-r">Importe</th></tr></thead>
+        <tbody>${r.compras.map(c => `<tr>
+          <td class="num">${escAttr(c.etiqueta)}</td>
+          <td class="num">${escAttr(c.fecha || '')}</td>
+          <td>${escAttr(c.proveedor || '')}</td>
+          <td class="t-r num">${fmt(c.cantidad)}</td>
+          <td class="t-r num">${money(c.importe)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`
+    : estadoVacio('Sin compras en SIGA', 'Este producto no tiene compras cargadas en los últimos 24 meses.');
+
+  $('#productoUsoCuerpo').innerHTML = `
+    <h4 class="ant-card-head-title">${escAttr(r.nombre || r.plu)} <span class="t-ter t-12 num">PLU ${escAttr(r.plu)}</span></h4>
+    <div class="ant-card mt-4">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Pedidos</h3></div>
+      <div class="ant-card-body ant-card-body-sm">${pedidosHtml}</div>
+    </div>
+    <div class="ant-card mt-4">
+      <div class="ant-card-head"><h3 class="ant-card-head-title">Compras en SIGA</h3></div>
+      <div class="ant-card-body ant-card-body-sm">${comprasHtml}</div>
+    </div>`;
+}
+
 function abrirConsumo(plu) {
   const f = (armado.filas || []).find(x => String(x.plu) === String(plu));
   if (!f) return;
@@ -1166,58 +1309,72 @@ async function generarPedido() {
 }
 
 // La hoja que ve el proveedor. Sin precios ni total: el precio se pacta aparte.
-// Es un documento en papel, no una pantalla: el look de antd no aplica acá.
+// Es una orden de compra, no un comprobante real, así que solo lleva los datos
+// principales (producto, PLU, cantidad, unidad) y se descarga directo como PDF.
 function imprimirPedido(pedido) {
-  const w = window.open('', '_blank');
-  if (!w) { avisar('El navegador bloqueó la ventana de impresión.', 'Aviso'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const items = pedido.items || [];
-  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Pedido ${escAttr(pedido.numero)}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-      *{box-sizing:border-box}
-      body{margin:0;padding:32px 36px;font:400 12px/1.5 Roboto,Arial,sans-serif;color:#1a1c18;background:#fff}
-      .doc{max-width:760px;margin:0 auto}
-      .cab{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
-           border-bottom:2px solid #405936;padding-bottom:10px}
-      .marca{font:600 10px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#8b9083}
-      h1{margin:4px 0 0;font:700 26px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.03em;text-transform:uppercase;color:#405936}
-      .nro{font:700 22px/1 'Barlow Condensed',Arial,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
-      .nro span{display:block;font:600 9px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.16em;color:#8b9083;margin-bottom:4px}
-      .meta{display:grid;grid-template-columns:2fr 1fr;gap:14px 28px;margin:20px 0 0}
-      .meta .full{grid-column:1 / -1}
-      .k{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8b9083;margin-bottom:3px}
-      .v{font-size:14px;font-weight:500}
-      table{width:100%;border-collapse:collapse;margin-top:26px}
-      th{font:600 9px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#8b9083;
-         text-align:left;padding:0 8px 7px;border-bottom:1px solid #1a1c18}
-      td{padding:8px;border-bottom:1px solid #e6e9e0;vertical-align:top;font-size:12.5px}
-      .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-      .plu{color:#6b7065;font-variant-numeric:tabular-nums;white-space:nowrap}
-      .total{margin-top:10px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8b9083}
-      .firmas{margin-top:52px;display:grid;grid-template-columns:1fr 1fr;gap:48px}
-      .firmas div{border-top:1px solid #1a1c18;padding-top:6px;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8b9083}
-      .acciones{margin-top:32px}
-      button{font:500 13px Roboto,Arial,sans-serif;padding:9px 20px;background:#405936;color:#fff;border:0;border-radius:5px;cursor:pointer}
-      @page{margin:14mm}
-      @media print{body{padding:0}button{display:none}.acciones{display:none}tr{page-break-inside:avoid}}
-    </style></head><body><div class="doc">
-    <div class="cab">
-      <div><div class="marca">Apidelta</div><h1>Pedido de compra</h1></div>
-      <div class="nro"><span>Número</span>${escAttr(pedido.numero)}</div>
-    </div>
-    <div class="meta">
-      <div><div class="k">Proveedor</div><div class="v">${escAttr(pedido.proveedor)}</div></div>
-      <div><div class="k">Fecha</div><div class="v">${escAttr(pedido.fecha)}</div></div>
-      ${pedido.observacion ? `<div class="full"><div class="k">Observación</div><div class="v">${escAttr(pedido.observacion)}</div></div>` : ''}
-    </div>
-    <table><thead><tr><th>Producto</th><th>PLU</th><th class="r">Cantidad</th><th>Unidad</th></tr></thead>
-    <tbody>${items.map(it => `<tr><td>${escAttr(it.nombre)}</td><td class="plu">${escAttr(it.plu)}</td><td class="r">${fmt(it.cantidad)}</td><td>${escAttr(it.unidad)}</td></tr>`).join('')}</tbody></table>
-    <div class="total">${items.length} línea${items.length === 1 ? '' : 's'}</div>
-    <div class="firmas"><div>Entregado por</div><div>Recibido por · fecha y firma</div></div>
-    <div class="acciones"><button onclick="window.print()">Imprimir</button></div>
-    </div></body></html>`);
-  w.document.close();
+  const margenX = 18;
+  let y = 20;
+
+  doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(139, 144, 131);
+  doc.text('APIDELTA', margenX, y);
+  doc.setFontSize(20).setTextColor(64, 89, 54);
+  y += 8;
+  doc.text('Pedido de compra', margenX, y);
+  doc.setFontSize(9).setTextColor(139, 144, 131);
+  doc.text('Número', 210 - margenX, y - 8, { align: 'right' });
+  doc.setFontSize(16).setTextColor(26, 28, 24);
+  doc.text(String(pedido.numero || ''), 210 - margenX, y, { align: 'right' });
+
+  y += 4;
+  doc.setDrawColor(64, 89, 54).setLineWidth(0.6);
+  doc.line(margenX, y, 210 - margenX, y);
+
+  y += 8;
+  doc.setFontSize(9).setTextColor(139, 144, 131);
+  doc.text('Proveedor', margenX, y);
+  doc.text('Fecha', 120, y);
+  y += 5;
+  doc.setFontSize(11).setTextColor(26, 28, 24);
+  doc.text(String(pedido.proveedor || ''), margenX, y);
+  doc.text(String(pedido.fecha || ''), 120, y);
+
+  if (pedido.observacion) {
+    y += 7;
+    doc.setFontSize(9).setTextColor(139, 144, 131);
+    doc.text('Observación', margenX, y);
+    y += 5;
+    doc.setFontSize(11).setTextColor(26, 28, 24);
+    doc.text(String(pedido.observacion), margenX, y, { maxWidth: 210 - margenX * 2 });
+  }
+
+  y += 10;
+  doc.autoTable({
+    startY: y,
+    margin: { left: margenX, right: margenX },
+    head: [['Producto', 'PLU', 'Cantidad', 'Unidad']],
+    body: items.map(it => [String(it.nombre || ''), String(it.plu || ''), fmt(it.cantidad), String(it.unidad || '')]),
+    theme: 'striped',
+    styles: { fontSize: 9, textColor: [26, 28, 24], cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 } },
+    alternateRowStyles: { fillColor: [246, 247, 244] },
+    headStyles: { fillColor: [64, 89, 54], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: { 1: { textColor: [139, 144, 131] }, 2: { halign: 'right' } },
+  });
+
+  y = doc.lastAutoTable.finalY + 7;
+  doc.setFontSize(9).setTextColor(139, 144, 131);
+  doc.text(`${items.length} línea${items.length === 1 ? '' : 's'}`, margenX, y);
+
+  const alto = doc.internal.pageSize.getHeight();
+  doc.setDrawColor(230, 233, 224).setLineWidth(0.3);
+  doc.line(margenX, alto - 18, 210 - margenX, alto - 18);
+  doc.setFontSize(7.5).setTextColor(139, 144, 131);
+  doc.text('Documento interno — orden de compra, no válido como comprobante fiscal.', margenX, alto - 12);
+  doc.text(new Date().toLocaleDateString('es-AR'), 210 - margenX, alto - 12, { align: 'right' });
+
+  doc.save(`Pedido_${pedido.numero || 'compra'}.pdf`);
 }
 
 // ═══ Tab 2: seguimiento ═══════════════════════════════════════════════════════
@@ -1248,18 +1405,62 @@ $('#btnRefrescarPedidos').addEventListener('click', () => cargarPedidos(true));
 function proveedoresDePedidos() {
   return [...new Set(pedidosTodos.map(p => p.proveedor).filter(Boolean))].sort();
 }
+
+// Filtro de proveedor con autocompletado, sin pegarle a SIGA: a diferencia de
+// crearBuscadorProveedor (tab Armado/Importar), acá el universo ya está en memoria
+// (proveedoresDePedidos) así que filtra en el cliente y arranca mostrando todos.
+function crearFiltroProveedorLocal(inputSel, listaSel, onSelect) {
+  const input = $(inputSel), cont = $(listaSel);
+  function pintar() {
+    const q = input.value.trim().toLowerCase();
+    const provs = proveedoresDePedidos().filter(p => p.toLowerCase().includes(q));
+    cont.innerHTML = `<button type="button" class="js-provLocal ant-dropdown-item" role="option" data-nombre="">Todos los proveedores</button>` +
+      provs.map(p => `<button type="button" class="js-provLocal ant-dropdown-item" role="option" data-nombre="${escAttr(p)}">${escAttr(p)}</button>`).join('');
+    cont.querySelectorAll('.js-provLocal').forEach(b => b.addEventListener('click', () => {
+      input.value = b.dataset.nombre;
+      cerrar();
+      onSelect(b.dataset.nombre);
+    }));
+  }
+  function abrir() {
+    pintar();
+    cont.classList.remove('hidden');
+    input.setAttribute('aria-expanded', 'true');
+  }
+  function cerrar() {
+    cont.classList.add('hidden');
+    input.setAttribute('aria-expanded', 'false');
+  }
+  input.addEventListener('focus', abrir);
+  input.addEventListener('input', abrir);
+  document.addEventListener('click', e => {
+    if (!e.target.closest(inputSel) && !e.target.closest(listaSel)) cerrar();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !cont.classList.contains('hidden')) { cerrar(); input.blur(); }
+  });
+  return { pintar, estaAbierto: () => !cont.classList.contains('hidden') };
+}
+let segProvSel = '';   // reemplaza al .value de un <select> nativo
+const filtroSegProv = crearFiltroProveedorLocal('#segProv', '#segProvLista', nombre => {
+  segProvSel = nombre;
+  renderListaPedidos();
+});
+let otifProvSel = '';
+const filtroOtifProv = crearFiltroProveedorLocal('#otifProv', '#otifProvLista', nombre => {
+  otifProvSel = nombre;
+});
+
 function renderSelectores() {
   const provs = proveedoresDePedidos();
-  for (const sel of ['#segProv', '#otifProv']) {
-    const actual = $(sel).value;
-    $(sel).innerHTML = '<option value="">Todos los proveedores</option>' +
-      provs.map(p => `<option value="${escAttr(p)}">${escAttr(p)}</option>`).join('');
-    if (provs.includes(actual)) $(sel).value = actual;
-  }
+  if (!provs.includes(segProvSel)) { segProvSel = ''; $('#segProv').value = ''; }
+  if (!provs.includes(otifProvSel)) { otifProvSel = ''; $('#otifProv').value = ''; }
+  if (filtroSegProv.estaAbierto()) filtroSegProv.pintar();
+  if (filtroOtifProv.estaAbierto()) filtroOtifProv.pintar();
   renderListaPedidos();
 }
 function pedidosFiltrados() {
-  const prov = $('#segProv').value;
+  const prov = segProvSel;
   const verCerrados = $('#segCerrados').checked;
   return pedidosTodos.filter(p => (!prov || p.proveedor === prov) && (verCerrados || p.estado === 'PENDIENTE'));
 }
@@ -1299,7 +1500,7 @@ function renderListaPedidos() {
     : (lista.length ? 'Elegí un pedido' : 'Sin pedidos');
   seleccionarPedido();
 }
-['#segProv', '#segCerrados'].forEach(s => $(s).addEventListener('change', renderListaPedidos));
+$('#segCerrados').addEventListener('change', renderListaPedidos);
 function cerrarListaPedidos() {
   $('#segPedidoLista').classList.add('hidden');
   $('#segPedidoBtn').setAttribute('aria-expanded', 'false');
@@ -1325,6 +1526,7 @@ function seleccionarPedido() {
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
   comprobantesInfo = null;
   comprobantesPreview = new Set();
+  comprobantesDiasAntes = 0;
   comprobantesCargando = !!(pedidoSel && pedidoSel.estado === 'PENDIENTE');
   renderSeguimiento();
   if (comprobantesCargando) cargarComprobantes(pedidoSel.numero);
@@ -1345,6 +1547,16 @@ function tagLinea(estado) {
   const txt = estado === 'entregado' ? 'Entregado' : estado === 'sin_stock' ? 'Sin stock'
     : estado === 'no_envia' ? 'No envía' : 'Pedido';
   return `<span class="ant-tag ${cls}">${escAttr(txt)}</span>`;
+}
+
+// Botón para ensanchar (o volver a angostar) la ventana de búsqueda de comprobantes.
+// 30 días alcanza para el caso real: factura cargada en SIGA poco antes de crear el pedido acá.
+function botonVentana() {
+  if (comprobantesDiasAntes > 0) {
+    return `<span class="t-12 t-ter">Ventana ampliada: también busca 30 días antes del pedido</span>
+      <button type="button" class="ant-btn ant-btn-sm" id="btnVentanaNormal">Volver a la ventana normal</button>`;
+  }
+  return `<button type="button" class="ant-btn ant-btn-sm" id="btnAmpliarVentana">Buscar también comprobantes cargados antes del pedido</button>`;
 }
 
 // Sólo aparece con el pedido PENDIENTE. Se muestra siempre, incluso sin candidatos o si
@@ -1373,6 +1585,7 @@ function renderComprobantesCard() {
       <div class="ant-card-head"><h3 class="ant-card-head-title">Comprobantes encontrados</h3></div>
       <div class="ant-card-body ant-card-body-sm">
         ${estadoVacio('Ningún comprobante de este proveedor todavía', rango || 'Cuando se cargue la factura en SIGA va a aparecer acá.')}
+        <div class="mt-2">${botonVentana()}</div>
       </div>
     </div>`;
   }
@@ -1382,6 +1595,7 @@ function renderComprobantesCard() {
   <div class="ant-card mt-4">
     <div class="ant-card-head">
       <h3 class="ant-card-head-title">Comprobantes encontrados</h3>
+      ${botonVentana()}
       <span class="ml-auto t-12 t-ter">${cumplimiento == null ? '' : 'Cumplimiento actual: ' + fmt(cumplimiento) + '%'}</span>
     </div>
     <div class="ant-card-body ant-card-body-sm">
@@ -1525,6 +1739,18 @@ function renderSeguimiento() {
   $('#segRetiro').addEventListener('change', e => { pedidoSel.fechaRetiro = e.target.value || null; actualizarBotonCerrar(); });
   $('#segObs').addEventListener('input', e => { pedidoSel.observacion = e.target.value; });
   if ($('#btnAplicarComprobantes')) $('#btnAplicarComprobantes').addEventListener('click', aplicarYVincularComprobantes);
+  if ($('#btnAmpliarVentana')) $('#btnAmpliarVentana').addEventListener('click', () => {
+    comprobantesDiasAntes = 30;
+    comprobantesCargando = true;
+    renderSeguimiento();
+    cargarComprobantes(pedidoSel.numero);
+  });
+  if ($('#btnVentanaNormal')) $('#btnVentanaNormal').addEventListener('click', () => {
+    comprobantesDiasAntes = 0;
+    comprobantesCargando = true;
+    renderSeguimiento();
+    cargarComprobantes(pedidoSel.numero);
+  });
   cont.querySelectorAll('.js-toggle-preview').forEach(b => b.addEventListener('click', () => {
     const clave = b.dataset.clave;
     if (comprobantesPreview.has(clave)) comprobantesPreview.delete(clave); else comprobantesPreview.add(clave);
@@ -1583,7 +1809,8 @@ async function cargarComprobantes(numero) {
   comprobantesError = null;
   renderSeguimiento();
   try {
-    const data = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero));
+    const data = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero)
+      + (comprobantesDiasAntes > 0 ? '?diasAntes=' + comprobantesDiasAntes : ''));
     // El usuario pudo haber cambiado de pedido mientras esta consulta estaba en
     // vuelo (otro proveedor tarda distinto en SIGA): sin este chequeo, la
     // respuesta vieja pisa el estado del pedido nuevo y el vínculo que se guarde
@@ -1635,7 +1862,8 @@ async function aplicarYVincularComprobantes() {
     await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero) + '/comprobantes', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claves }),
     });
-    const data = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero));
+    const data = await apiFetch('/api/compras/control/pedidos/' + encodeURIComponent(numero)
+      + (comprobantesDiasAntes > 0 ? '?diasAntes=' + comprobantesDiasAntes : ''));
     // Mismo riesgo que en cargarComprobantes: el usuario pudo cambiar de pedido
     // mientras este PUT+GET estaba en vuelo. Sin este chequeo, la comparación de
     // un pedido termina precargando las líneas de otro en pantalla.
@@ -1653,7 +1881,7 @@ async function aplicarYVincularComprobantes() {
 // ═══ Tab 3: OTIF ══════════════════════════════════════════════════════════════
 $('#btnOtif').addEventListener('click', cargarOtif);
 async function cargarOtif() {
-  const prov = $('#otifProv').value, desde = $('#otifDesde').value, hasta = $('#otifHasta').value;
+  const prov = otifProvSel, desde = $('#otifDesde').value, hasta = $('#otifHasta').value;
   const qs = new URLSearchParams();
   if (prov) qs.set('proveedor', prov);
   if (desde) qs.set('desde', desde);

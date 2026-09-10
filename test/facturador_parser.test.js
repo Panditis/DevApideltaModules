@@ -254,24 +254,21 @@ test('avisa cuando el código no está en el catálogo', () => {
   assert.equal(r.plu, '99999');
 });
 
-test('los descuentos de línea y general se aplican en cascada, no sumados', () => {
+test('una cantidad negativa resta su valor del subtotal, como un descuento', () => {
   const lineas = [
-    { cant: 2, precio: 100, dtoPct: 10 },   // 200 → 180
-    { cant: 1, precio: 50,  dtoPct: 0 },    // 50
+    { cant: 2, precio: 100 },   // 200
+    { cant: -1, precio: 50 },   // -50, resta
   ];
-  const t = P.totalesDe(lineas, 10);
-  assert.equal(t.bruto, 250);
-  assert.equal(t.dtoLineas, 20);
-  assert.equal(t.subtotal, 230);
-  assert.equal(t.dtoGlobal, 23);            // 10% sobre 230, no sobre 250
-  assert.equal(t.total, 207);
+  const t = P.totalesDe(lineas, 0);
+  assert.equal(t.subtotal, 150);
+  assert.equal(t.total, 150);
 });
 
-test('el descuento se recorta al rango 0-100', () => {
-  const lineas = [{ cant: 1, precio: 100, dtoPct: 0 }];
-  assert.equal(P.totalesDe(lineas, -5).total, 100);
-  assert.equal(P.totalesDe(lineas, 150).total, 0);
-  assert.equal(P.subtotalLinea({ cant: 1, precio: 100, dtoPct: 150 }), 0);
+test('el descuento general se carga en negativo y se recorta a -100..0', () => {
+  const lineas = [{ cant: 1, precio: 100 }];
+  assert.equal(P.totalesDe(lineas, -10).total, 90);   // -10 → 10% de descuento
+  assert.equal(P.totalesDe(lineas, 5).total, 100);    // positivo no descuenta (se recorta a 0)
+  assert.equal(P.totalesDe(lineas, -150).total, 0);   // se recorta a -100 → 100% de descuento
 });
 
 test('reparte el total entre varios medios de pago', () => {

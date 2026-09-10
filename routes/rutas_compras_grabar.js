@@ -79,28 +79,28 @@ module.exports = function crearRutasComprasGrabar(deps) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
-      .input('nro', sql.Int, cab.NumeroComprobante).input('fecha', sql.VarChar(10), cab.FechaComprobante)
-      .input('total', sql.Decimal(18, 4), totales.total)
-      .input('bruto', sql.Decimal(18, 4), comprasGrabar.totalBruto(totales))
-      .input('neto', sql.Decimal(18, 4), totales.neto)
-      .input('iva', sql.Decimal(18, 4), totales.totalIVA)
-      .input('percep', sql.Decimal(18, 4), totales.totalPercepciones)
-      .input('idProveedor', sql.Int, cab.IdProveedor)
-      .input('nombreProveedor', sql.NVarChar, proveedor.NombreProveedor)
+      .input('nro', sql.BigInt, cab.NumeroComprobante).input('fecha', sql.VarChar(10), cab.FechaComprobante)
+      .input('total', sql.Decimal(14, 2), totales.total)
+      .input('bruto', sql.Decimal(14, 2), comprasGrabar.totalBruto(totales))
+      .input('neto', sql.Decimal(14, 2), totales.neto)
+      .input('iva', sql.Decimal(14, 2), totales.totalIVA)
+      .input('percep', sql.Decimal(14, 2), totales.totalPercepciones)
+      .input('idProveedor', sql.BigInt, cab.IdProveedor)
+      .input('nombreProveedor', sql.VarChar(100), String(proveedor.NombreProveedor || '').slice(0, 100))
       .input('cuit', sql.VarChar, proveedor.CuitProveedor)
-      .input('catFiscal', sql.Int, proveedor.IdCategoriaFiscal)
+      .input('catFiscal', sql.SmallInt, proveedor.IdCategoriaFiscal)
       .input('formaPago', sql.Int, formaPago)
       .input('periodo', sql.Int, comprasGrabar.periodoFiscal(cab.FechaComprobante))
-      .input('usuario', sql.NVarChar, usuario)
+      .input('usuario', sql.VarChar(10), usuario)
       .input('comprador', sql.Int, idComprador)
-      .input('observacion', sql.NVarChar, cab.Observacion || '')
-      .input('percIVA', sql.Decimal(18, 4), cab.PercepcionIVA || 0)
-      .input('percIB', sql.Decimal(18, 4), cab.PercepcionIIBB || 0)
-      .input('percGan', sql.Decimal(18, 4), cab.PercepcionGanancias || 0)
-      .input('percVar', sql.Decimal(18, 4), cab.PercepcionVarias || 0)
-      .input('impInternos', sql.Decimal(18, 4), cab.ImpuestosInternos || 0)
-      .input('cotizacion', sql.Decimal(18, 4), cotizacion)
-      .input('porcIVA', sql.Decimal(18, 4), comprasGrabar.porcentajeIVADominante(totales))
+      .input('observacion', sql.VarChar(100), String(cab.Observacion || '').slice(0, 100))
+      .input('percIVA', sql.Decimal(14, 2), cab.PercepcionIVA || 0)
+      .input('percIB', sql.Decimal(14, 2), cab.PercepcionIIBB || 0)
+      .input('percGan', sql.Decimal(14, 2), cab.PercepcionGanancias || 0)
+      .input('percVar', sql.Decimal(14, 2), cab.PercepcionVarias || 0)
+      .input('impInternos', sql.Decimal(14, 2), cab.ImpuestosInternos || 0)
+      .input('cotizacion', sql.Decimal(10, 3), cotizacion)
+      .input('porcIVA', sql.Decimal(14, 2), comprasGrabar.porcentajeIVADominante(totales))
       .query(`INSERT INTO Compras
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Fecha,
          ImporteTotal, TotalBruto, TotalNeto, TotalIVA, TotalPercepciones,
@@ -142,15 +142,15 @@ module.exports = function crearRutasComprasGrabar(deps) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
-      .input('nro', sql.Int, cab.NumeroComprobante).input('producto', sql.VarChar, l.idProducto)
-      .input('cantidad', sql.Decimal(18, 4), l.cantidad).input('precio', sql.Decimal(18, 4), l.precio)
-      .input('importeTotal', sql.Decimal(18, 4), l.importeTotal)
-      .input('precioNeto', sql.Decimal(18, 4), l.precioNeto)
-      .input('importeTotalNeto', sql.Decimal(18, 4), l.importeTotalNeto)
-      .input('porcIVA', sql.Decimal(18, 4), l.porcentajeIVA).input('iva', sql.Decimal(18, 4), l.iva)
-      .input('orden', sql.Int, l.orden).input('nombreProducto', sql.NVarChar, l.nombreProducto)
-      .input('idProveedor', sql.Int, cab.IdProveedor)
-      .input('proporcional', sql.Decimal(18, 4), proporcionalImp)
+      .input('nro', sql.BigInt, cab.NumeroComprobante).input('producto', sql.VarChar, l.idProducto)
+      .input('cantidad', sql.Decimal(16, 4), l.cantidad).input('precio', sql.Decimal(16, 4), l.precio)
+      .input('importeTotal', sql.Decimal(16, 4), l.importeTotal)
+      .input('precioNeto', sql.Decimal(16, 4), l.precioNeto)
+      .input('importeTotalNeto', sql.Decimal(16, 4), l.importeTotalNeto)
+      .input('porcIVA', sql.Decimal(12, 2), l.porcentajeIVA).input('iva', sql.Decimal(14, 2), l.iva)
+      .input('orden', sql.Int, l.orden).input('nombreProducto', sql.VarChar(60), String(l.nombreProducto || '').slice(0, 60))
+      .input('idProveedor', sql.BigInt, cab.IdProveedor)
+      .input('proporcional', sql.Decimal(16, 4), proporcionalImp)
       .input('deposito', sql.Int, cab.IdDeposito).input('ubicacion', sql.Int, cab.IdUbicacion)
       .query(`INSERT INTO ComprasProductos
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, IdProducto,
@@ -158,21 +158,22 @@ module.exports = function crearRutasComprasGrabar(deps) {
          Orden, NombreProducto, IdProveedor, MontoSaldo, ProporcionalImp, IdDeposito, IdUbicacion,
          CantidadUMCompra, FactorConversionCompra, PrecioPorUMCompra, IdUnidadDeMedida, IdUnidadDeMedidaCompra,
          DescRecGeneral, DescuentoRecargo, DescuentoRecargoProducto, DescRecGeneralProducto,
-         PasajeMovimiento, MontoAplicado)
+         DescuentoRecargoPorc, PasajeMovimiento, MontoAplicado)
         VALUES
         (@suc, @tipo, @letra, @emisor, @nro, @producto,
          @cantidad, @precio, @importeTotal, @precioNeto, @importeTotalNeto, @porcIVA, @iva,
          @orden, @nombreProducto, @idProveedor, @importeTotal, @proporcional, @deposito, @ubicacion,
          @cantidad, 1, @precio, 'UN', 'UN',
          0, 0, 0, 0,
-         0, 0)`);
+         0, 0, 0)`);
     // ponytail: IdUnidadDeMedida/IdUnidadDeMedidaCompra fijos en 'UN' — el único caso
     // relevado (pruebas_compras/analisis2.txt), incluso para un producto a granel,
     // usó 'UN'. La app no consulta Productos.IdUnidadDeMedida en ningún otro punto
     // (ver comentario en rutas_compras.js), así que no hay otra fuente. Si algún
     // producto necesita otra unidad de compra, esto hay que revisarlo con un caso real.
-    // Descuentos/PasajeMovimiento/MontoAplicado: NOT NULL sin default, ausentes del
-    // mapeo original (no varían en ninguna fila real relevada) — van en 0/false.
+    // Descuentos/DescuentoRecargoPorc/PasajeMovimiento/MontoAplicado: NOT NULL sin
+    // default o (caso de DescuentoRecargoPorc) nullable-pero-rompe-el-visor si falta
+    // — ausentes del mapeo original, van en 0/false.
   }
 
   // ── Paso 5: ComprasImpuestos (una fila por alícuota/percepción) ──────────────
@@ -180,11 +181,11 @@ module.exports = function crearRutasComprasGrabar(deps) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
-      .input('nro', sql.Int, cab.NumeroComprobante).input('idProveedor', sql.Int, cab.IdProveedor)
+      .input('nro', sql.BigInt, cab.NumeroComprobante).input('idProveedor', sql.BigInt, cab.IdProveedor)
       .input('orden', sql.Int, fila.orden).input('idTipoImpuesto', sql.VarChar, fila.idTipoImpuesto)
-      .input('filaEmisor', sql.Int, fila.emisor).input('filaNumero', sql.Int, fila.numero)
-      .input('base', sql.Decimal(18, 4), fila.baseImponible).input('alicuota', sql.Decimal(18, 4), fila.alicuota)
-      .input('importe', sql.Decimal(18, 4), fila.importe).input('bruto', sql.Decimal(18, 4), fila.bruto)
+      .input('filaEmisor', sql.Int, fila.emisor).input('filaNumero', sql.BigInt, fila.numero)
+      .input('base', sql.Decimal(14, 2), fila.baseImponible).input('alicuota', sql.Decimal(6, 2), fila.alicuota)
+      .input('importe', sql.Decimal(14, 2), fila.importe).input('bruto', sql.Decimal(14, 2), fila.bruto)
       .query(`INSERT INTO ComprasImpuestos
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, IdProveedor,
          Orden, IdTipoImpuesto, Emisor, Numero, BaseImponible, Alicuota, Importe, Bruto, EsDespacho)
@@ -217,12 +218,12 @@ module.exports = function crearRutasComprasGrabar(deps) {
   // en Compras/ComprasProductos, acá sólo importa el link al comprobante y el total.
   async function insertMovimientoStock(rq, cab, proveedor, totales, numeroMovimiento, usuario) {
     await rq()
-      .input('suc', sql.Int, cab.IdSucursal).input('numero', sql.Int, numeroMovimiento)
-      .input('fecha', sql.VarChar(10), cab.FechaComprobante).input('total', sql.Decimal(18, 4), totales.total)
-      .input('catFiscal', sql.Int, proveedor.IdCategoriaFiscal).input('tipo', sql.VarChar, cab.TipoComprobante)
+      .input('suc', sql.Int, cab.IdSucursal).input('numero', sql.BigInt, numeroMovimiento)
+      .input('fecha', sql.VarChar(10), cab.FechaComprobante).input('total', sql.Decimal(14, 2), totales.total)
+      .input('catFiscal', sql.SmallInt, proveedor.IdCategoriaFiscal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
-      .input('nro', sql.Int, cab.NumeroComprobante).input('usuario', sql.NVarChar, usuario)
-      .input('idProveedor', sql.Int, cab.IdProveedor)
+      .input('nro', sql.BigInt, cab.NumeroComprobante).input('usuario', sql.VarChar(10), usuario)
+      .input('idProveedor', sql.BigInt, cab.IdProveedor)
       .query(`INSERT INTO MovimientosStock
         (IdSucursal, IdTipoMovimiento, NumeroMovimiento, FechaMovimiento, Neto, Total, PorcentajeIVA,
          IdCategoriaFiscal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Usuario,
@@ -237,9 +238,9 @@ module.exports = function crearRutasComprasGrabar(deps) {
   async function insertMovimientoStockProducto(rq, cab, numeroMovimiento, l) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('deposito', sql.Int, cab.IdDeposito)
-      .input('ubicacion', sql.Int, cab.IdUbicacion).input('numero', sql.Int, numeroMovimiento)
-      .input('producto', sql.VarChar, l.idProducto).input('cantidad', sql.Decimal(18, 4), l.cantidad)
-      .input('precio', sql.Decimal(18, 4), l.precio).input('orden', sql.Int, l.orden)
+      .input('ubicacion', sql.Int, cab.IdUbicacion).input('numero', sql.BigInt, numeroMovimiento)
+      .input('producto', sql.VarChar, l.idProducto).input('cantidad', sql.Decimal(16, 4), l.cantidad)
+      .input('precio', sql.Decimal(14, 2), l.precio).input('orden', sql.Int, l.orden)
       .query(`INSERT INTO MovimientosStockProductos
         (IdSucursal, IdDeposito, IdUbicacion, IdTipoMovimiento, NumeroMovimiento, IdProducto, Cantidad, Cantidad2, Precio, Orden)
         VALUES (@suc, @deposito, @ubicacion, 'COMPRA', @numero, @producto, @cantidad, 0, @precio, @orden)`);
@@ -291,12 +292,12 @@ module.exports = function crearRutasComprasGrabar(deps) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
-      .input('nro', sql.Int, cab.NumeroComprobante)
+      .input('nro', sql.BigInt, cab.NumeroComprobante)
       .input('vencimiento', sql.VarChar(10), cab.FechaVencimiento || cab.FechaComprobante)
-      .input('total', sql.Decimal(18, 4), totales.total).input('formaPago', sql.Int, formaPago)
-      .input('observacion', sql.NVarChar, cab.Observacion || '').input('usuario', sql.NVarChar, usuario)
-      .input('idProveedor', sql.Int, cab.IdProveedor)
-      .input('cotizacion', sql.Decimal(18, 4), cotizacion)
+      .input('total', sql.Decimal(14, 2), totales.total).input('formaPago', sql.Int, formaPago)
+      .input('observacion', sql.VarChar(100), String(cab.Observacion || '').slice(0, 100)).input('usuario', sql.VarChar(10), usuario)
+      .input('idProveedor', sql.BigInt, cab.IdProveedor)
+      .input('cotizacion', sql.Decimal(10, 3), cotizacion)
       .query(`INSERT INTO CuentasCorrientesProv
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, Fecha, FechaVencimiento,
          ImporteTotal, IdFormasPago, Observacion, Saldo, CantidadCuotas,
@@ -315,10 +316,10 @@ module.exports = function crearRutasComprasGrabar(deps) {
     await rq()
       .input('suc', sql.Int, cab.IdSucursal).input('tipo', sql.VarChar, cab.TipoComprobante)
       .input('letra', sql.VarChar, cab.Letra).input('emisor', sql.Int, cab.PuntoVenta)
-      .input('nro', sql.Int, cab.NumeroComprobante)
+      .input('nro', sql.BigInt, cab.NumeroComprobante)
       .input('vencimiento', sql.VarChar(10), cab.FechaVencimiento || cab.FechaComprobante)
-      .input('total', sql.Decimal(18, 4), totales.total).input('formaPago', sql.Int, formaPago)
-      .input('observacion', sql.NVarChar, cab.Observacion || '').input('idProveedor', sql.Int, cab.IdProveedor)
+      .input('total', sql.Decimal(14, 2), totales.total).input('formaPago', sql.Int, formaPago)
+      .input('observacion', sql.VarChar(100), String(cab.Observacion || '').slice(0, 100)).input('idProveedor', sql.BigInt, cab.IdProveedor)
       .query(`INSERT INTO CuentasCorrientesProvPagos
         (IdSucursal, IdTipoComprobante, Letra, CentroEmisor, NumeroComprobante, CuotaNumero, Fecha, FechaVencimiento,
          ImporteCuota, SaldoCuota, IdFormasPago, Observacion,
@@ -335,8 +336,8 @@ module.exports = function crearRutasComprasGrabar(deps) {
   // es alta nueva. CodigoProductoProveedor sólo se pisa si la línea lo trae.
   async function upsertProductoProveedor(rq, idProveedor, fechaCompra, l) {
     await rq()
-      .input('producto', sql.VarChar, l.idProducto).input('proveedor', sql.Int, idProveedor)
-      .input('codigo', sql.VarChar, l.codigoProveedor).input('precio', sql.Decimal(18, 4), l.precio)
+      .input('producto', sql.VarChar, l.idProducto).input('proveedor', sql.BigInt, idProveedor)
+      .input('codigo', sql.VarChar, l.codigoProveedor).input('precio', sql.Decimal(20, 4), l.precio)
       .input('fecha', sql.VarChar(10), fechaCompra)
       .query(`IF EXISTS (SELECT 1 FROM ProductosProveedores WHERE IdProducto=@producto AND IdProveedor=@proveedor)
                 UPDATE ProductosProveedores
@@ -436,8 +437,10 @@ module.exports = function crearRutasComprasGrabar(deps) {
 
     // La pantalla de pruebas permite tipear el usuario a mano (no hay login real
     // ahí): se usa si viene no vacío, si no cae a la sesión como en el resto del sistema.
+    // Truncado a 10: Compras.Usuario/CuentasCorrientesProv.IdUsuario/MovimientosStock.Usuario
+    // son varchar(10) en SIGA — sin esto, un usuario más largo tirado a mano rompe el INSERT.
     const usuarioBody = typeof req.body.usuario === 'string' ? req.body.usuario.trim() : '';
-    const usuario = usuarioBody || usuarioCompras(req);
+    const usuario = (usuarioBody || usuarioCompras(req)).slice(0, 10);
     const resultado = await grabarCompraEnSiga(await getPoolStock(), vista, { usuario, idEmpleadoComprador: 1 });
     return { ok: true, ...resultado };
   }));
