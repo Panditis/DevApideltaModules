@@ -416,6 +416,57 @@ test('aplicarSeguimiento: cambiar la cantidad sin repetir el estado respeta el e
   assert.strictEqual(r.items[0].estado, 'entregado');
   assert.strictEqual(r.items[0].cantidadEntregada, 7);
 });
+test('aplicarSeguimiento: un plu no pedido con estado extra se agrega como línea nueva', () => {
+  const r = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '5555', estado: 'extra', nombre: 'Regalo del proveedor', unidad: 'kg',
+      cantidadEntregada: 3, precioUnitario: 120, obs: 'vino de yapa' }],
+  }, CTX);
+  assert.strictEqual(r.items.length, 3);
+  const extra = r.items.find(it => it.plu === '5555');
+  assert.strictEqual(extra.estado, 'extra');
+  assert.strictEqual(extra.cantidad, 0);
+  assert.strictEqual(extra.cantidadEntregada, 3);
+  assert.strictEqual(extra.precioUnitario, 120);
+  assert.strictEqual(extra.nombre, 'Regalo del proveedor');
+  assert.strictEqual(extra.obs, 'vino de yapa');
+  // Las líneas pedidas originales siguen intactas.
+  assert.strictEqual(r.items[0].plu, '4409');
+  assert.strictEqual(r.items[1].plu, '1234');
+});
+test('aplicarSeguimiento: reaplicar un extra ya agregado actualiza en vez de duplicar', () => {
+  const primera = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '5555', estado: 'extra', nombre: 'Yapa', cantidadEntregada: 2 }],
+  }, CTX);
+  const segunda = aplicarSeguimiento(primera, {
+    items: [{ plu: '5555', estado: 'extra', cantidadEntregada: 5 }],
+  }, CTX);
+  assert.strictEqual(segunda.items.length, 3);
+  assert.strictEqual(segunda.items.filter(it => it.plu === '5555').length, 1);
+  assert.strictEqual(segunda.items.find(it => it.plu === '5555').cantidadEntregada, 5);
+});
+test('aplicarSeguimiento: una línea extra no bloquea el cierre ni pide fecha por sí sola', () => {
+  const r = aplicarSeguimiento(pedidoBase(), {
+    estado: 'CERRADO', fechaRetiro: '2026-08-09',
+    items: [
+      { plu: '4409', estado: 'entregado' }, { plu: '1234', estado: 'entregado' },
+      { plu: '5555', estado: 'extra', cantidadEntregada: 1 },
+    ],
+  }, CTX);
+  assert.strictEqual(r.estado, 'CERRADO');
+});
+test('otif: una línea extra no cuenta como incumplimiento del pedido', () => {
+  const pedidos = [{
+    numero: 'P-1', proveedor: 'ACME', fecha: '2026-08-01', fechaEstimada: '2026-08-05',
+    fechaRetiro: '2026-08-05', estado: 'CERRADO',
+    items: [
+      { plu: '1', nombre: 'A', cantidad: 10, cantidadEntregada: 10, estado: 'entregado' },
+      { plu: '2', nombre: 'Yapa', cantidad: 0, cantidadEntregada: 4, estado: 'extra' },
+    ],
+  }];
+  const r = otif(pedidos);
+  assert.strictEqual(r.inFullLineas, 100);
+  assert.strictEqual(r.onTime, 100);
+});
 test('aplicarSeguimiento: undefined no toca las fechas, "" y null las borran', () => {
   const conFechas = aplicarSeguimiento(pedidoBase(), { fechaEstimada: '2026-08-10', fechaRetiro: '2026-08-09' }, CTX);
   assert.strictEqual(conFechas.fechaEstimada, '2026-08-10');
