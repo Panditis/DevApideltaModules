@@ -1038,8 +1038,6 @@ function filasVisibles() {
 function renderArmado() {
   const filas = filasVisibles();
   $('#armadoCount').textContent = `${filas.length} de ${(armado && armado.filas || []).length} productos · proveedor ${armado && armado.proveedor || '—'}`;
-  const cantAnteriorPorPlu = new Map(((armado && armado.ultimaCompra && armado.ultimaCompra.items) || [])
-    .map(it => [String(it.plu), Number(it.cantidad) || 0]));
   $('#armadoBody').innerHTML = filas.length ? filas.map(f => {
     const desglose = Object.entries(f.stockPorSucursal || {}).map(([s, v]) => `${s}: ${fmt(v)}`).join(' · ') || 'sin stock en sucursales';
     const inactivo = f.activo === false;
@@ -1072,7 +1070,7 @@ function renderArmado() {
           aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>
       </td>
       <td class="t-c">${tagAbc(f.abc)}</td>
-      <td class="t-r dato-sec">${fmt(cantAnteriorPorPlu.get(f.plu))}</td>
+      <td class="t-r dato-sec">${fmt(f.ultimaCantidad)}</td>
       <td class="col-edit">
         <div class="flex items-center justify-end gap-2 whitespace-nowrap">
           <input type="number" min="0" step="0.01" class="js-cant ant-input ant-input-num"
@@ -1599,9 +1597,10 @@ function chipEstado(estado) {
 function tagLinea(estado) {
   const cls = estado === 'entregado' ? 'ant-tag-success'
     : estado === 'sin_stock' ? 'ant-tag-error'
-    : estado === 'no_envia' ? 'ant-tag-warning' : 'ant-tag-info';
+    : estado === 'no_envia' ? 'ant-tag-warning'
+    : estado === 'extra' ? 'ant-tag-primary' : 'ant-tag-info';
   const txt = estado === 'entregado' ? 'Entregado' : estado === 'sin_stock' ? 'Sin stock'
-    : estado === 'no_envia' ? 'No envía' : 'Pedido';
+    : estado === 'no_envia' ? 'No envía' : estado === 'extra' ? 'Extra' : 'Pedido';
   return `<span class="ant-tag ${cls}">${escAttr(txt)}</span>`;
 }
 
@@ -1704,7 +1703,10 @@ function renderSeguimiento() {
   const editable = p.estado === 'PENDIENTE';
   const opciones = [['pedido', 'Pedido'], ['entregado', 'Entregado'], ['sin_stock', 'Sin stock'], ['no_envia', 'No envía']];
   const dis = editable ? '' : 'disabled';
-  const entregadas = p.items.filter(l => l.estado === 'entregado').length;
+  // Los extras no eran un compromiso del proveedor: no cuentan ni en el numerador
+  // ni en el denominador de "Entregadas" (ver lineasDe() del lado del servidor).
+  const itemsPedidos = p.items.filter(l => l.estado !== 'extra');
+  const entregadas = itemsPedidos.filter(l => l.estado === 'entregado').length;
   cont.innerHTML = `
   <div class="ant-card">
     <div class="ant-card-head">
@@ -1717,7 +1719,7 @@ function renderSeguimiento() {
         <div><span class="ant-desc-label">Proveedor</span><span class="ant-desc-value">${escAttr(p.proveedor)}</span></div>
         <div><span class="ant-desc-label">Fecha del pedido</span><span class="ant-desc-value">${escAttr(p.fecha)}</span></div>
         <div><span class="ant-desc-label">Líneas</span><span class="ant-desc-value">${p.items.length}</span></div>
-        <div><span class="ant-desc-label">Entregadas</span><span class="ant-desc-value" id="segEntregadasCount">${entregadas} <span class="t-ter">/ ${p.items.length}</span></span></div>
+        <div><span class="ant-desc-label">Entregadas</span><span class="ant-desc-value" id="segEntregadasCount">${entregadas} <span class="t-ter">/ ${itemsPedidos.length}</span></span></div>
       </div>
       <div class="grid md:grid-cols-3 gap-4">
         <div><label class="ant-label" for="segEstimada">Fecha estimada de retiro</label>
@@ -1743,15 +1745,16 @@ function renderSeguimiento() {
       </thead>
       <tbody>${p.items.map((it, i) => `<tr>
         <td>
-          <div class="prod-nombre">${escAttr(it.nombre)}</div>
+          <div class="prod-nombre">${escAttr(it.nombre)}${it.estado === 'extra' ? ' <span class="ant-tag ant-tag-primary">extra</span>' : ''}</div>
           <div class="prod-meta">${escAttr(it.plu)}</div></td>
         <td class="t-r whitespace-nowrap"><span class="dato">${fmt(it.cantidad)}</span> <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
-        <td>
-          <select class="js-estado ant-select" data-i="${i}" ${dis}
-            aria-label="Estado de ${escAttr(it.nombre)}">
-            ${opciones.map(([v, t]) => `<option value="${v}" ${it.estado === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-          <div class="mt-2">${tagLinea(it.estado)}</div></td>
-        <td class="t-r"><input type="number" min="0" step="0.01" max="${escAttr(it.cantidad)}"
+        <td>${it.estado === 'extra'
+            ? `<div title="Vino en la factura pero no estaba pedido.">${tagLinea('extra')}</div>`
+            : `<select class="js-estado ant-select" data-i="${i}" ${dis}
+                 aria-label="Estado de ${escAttr(it.nombre)}">
+                 ${opciones.map(([v, t]) => `<option value="${v}" ${it.estado === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+               <div class="mt-2">${tagLinea(it.estado)}</div>`}</td>
+        <td class="t-r"><input type="number" min="0" step="0.01" ${it.estado === 'extra' ? '' : `max="${escAttr(it.cantidad)}"`}
           class="js-entregada ant-input ant-input-num"
           data-i="${i}" aria-label="Cantidad entregada de ${escAttr(it.nombre)}"
           value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}" ${dis}></td>
@@ -1778,14 +1781,15 @@ function renderSeguimiento() {
     // pierde el foco (y el scroll) en medio de resolver varias líneas seguidas.
     s.closest('tr').querySelector('.js-entregada').value = it.cantidadEntregada == null ? '' : it.cantidadEntregada;
     s.nextElementSibling.innerHTML = tagLinea(it.estado);
-    const entregadas = p.items.filter(l => l.estado === 'entregado').length;
-    $('#segEntregadasCount').innerHTML = `${entregadas} <span class="t-ter">/ ${p.items.length}</span>`;
+    const entregadas = itemsPedidos.filter(l => l.estado === 'entregado').length;
+    $('#segEntregadasCount').innerHTML = `${entregadas} <span class="t-ter">/ ${itemsPedidos.length}</span>`;
     actualizarBotonCerrar();
   }));
   cont.querySelectorAll('.js-entregada').forEach(inp => inp.addEventListener('input', () => {
     const it = p.items[Number(inp.dataset.i)];
     const v = inp.value.trim();
-    it.cantidadEntregada = v === '' ? null : Math.min(Number(v), it.cantidad);
+    // Un extra no tiene "lo pedido" contra qué acotar: lo entregado es libre.
+    it.cantidadEntregada = v === '' ? null : it.estado === 'extra' ? Math.max(0, Number(v)) : Math.min(Number(v), it.cantidad);
     actualizarBotonCerrar();
   }));
   cont.querySelectorAll('.js-obs').forEach(inp => inp.addEventListener('input', () => {
@@ -1838,7 +1842,12 @@ async function enviarSeguimiento(estado) {
     fechaEstimada: $('#segEstimada').value || null,
     fechaRetiro: $('#segRetiro').value || null,
     observacion: $('#segObs').value,
-    items: pedidoSel.items.map(it => ({ plu: it.plu, estado: it.estado, cantidadEntregada: it.cantidadEntregada, obs: it.obs || '' })),
+    // nombre/unidad/precioUnitario sólo los usa el server para una línea 'extra'
+    // nueva (aplicarLineas los ignora en las líneas que ya existen en el pedido).
+    items: pedidoSel.items.map(it => ({
+      plu: it.plu, nombre: it.nombre, unidad: it.unidad, precioUnitario: it.precioUnitario,
+      estado: it.estado, cantidadEntregada: it.cantidadEntregada, obs: it.obs || '',
+    })),
   };
   if (estado) cuerpo.estado = estado;
   try {
@@ -1900,6 +1909,23 @@ function aplicarComparacionAPedido(comparacion) {
     // (input .js-entregada), si no la línea muestra entregada > pedida hasta el
     // Guardar, que sí lo recorta en el server (entregadaSegunEstado).
     it.cantidadEntregada = Math.min(fila.cargado, it.cantidad);
+  }
+  // Extras: productos que vinieron en la factura y no estaban pedidos. Se agregan
+  // como líneas nuevas marcadas 'extra' (si ya se habían agregado en una
+  // vinculación anterior, se actualiza en vez de duplicarse).
+  const extraPorPlu = new Map(pedidoSel.items.filter(it => it.estado === 'extra').map(it => [it.plu, it]));
+  for (const fila of comparacion.filas.filter(f => !f.enPedido && f.estado === 'no_pedido')) {
+    const existente = extraPorPlu.get(fila.plu);
+    if (existente) {
+      existente.cantidadEntregada = fila.cargado;
+      if (fila.precioUnitario != null) existente.precioUnitario = fila.precioUnitario;
+    } else {
+      pedidoSel.items.push({
+        plu: fila.plu, nombre: fila.nombre, unidad: '', cantidad: 0,
+        precioUnitario: fila.precioUnitario, cantidadEntregada: fila.cargado,
+        estado: 'extra', obs: '',
+      });
+    }
   }
   if (!pedidoSel.fechaRetiro) {
     const fechas = (comparacion.comprobantes || []).map(c => c.fecha).filter(Boolean);

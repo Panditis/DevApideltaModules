@@ -132,9 +132,22 @@ function sqlVentasDias(idList, dias, pluList) {
 // Nombres reales de SIGA para el detalle de composición del stock: el caché de a8020
 // (nombresA8020) no cubre todo PLU fraccionado, así que un componente sin ranking
 // quedaba mostrando el PLU en vez del nombre. Esta consulta es la fuente confiable.
+// Rubro viaja acá también: es lo que decide la unidad de compra (ver esRubroAlmacen).
 function sqlNombresProductos(pluList) {
   const inList = pluList.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
-  return `SELECT IdProducto, NombreProducto FROM Productos WHERE IdProducto IN (${inList})`;
+  return `SELECT p.IdProducto, p.NombreProducto, r.NombreRubro AS Rubro
+    FROM Productos p
+    LEFT JOIN Rubros r ON r.IdRubro = p.IdRubro
+    WHERE p.IdProducto IN (${inList})`;
+}
+
+// Comparación tolerante (sin espacios/acentos/mayúsculas), mismo criterio que claveRubro en
+// lib/analisis_ventas.js. Cubre tanto "Almacen" suelto como "Almacen Bultos/Cajas": los dos se
+// compran por unidad, no por peso.
+function esRubroAlmacen(rubro) {
+  const clave = String(rubro || '').replace(/\s/g, '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return clave.startsWith('almacen');
 }
 
 // Costo registrado en SIGA para la central (distinto del último precio pagado): es el
@@ -266,6 +279,8 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   for (const r of costoRows) costoPorPlu[String(r.IdProducto).trim()] = r.PrecioCosto != null ? Number(r.PrecioCosto) : null;
   const nombresPorPlu = {};
   for (const r of nombresRows) nombresPorPlu[String(r.IdProducto).trim()] = r.NombreProducto || null;
+  const rubroPorPlu = {};
+  for (const r of nombresRows) rubroPorPlu[String(r.IdProducto).trim()] = r.Rubro || null;
 
   // La serie mensual ya viene imputada (fraccionado → granel, bulto → componentes):
   // para un granel NO hay que volver a sumarle sus presentaciones.
@@ -283,15 +298,15 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   const filas = filasCompra.map(r => {
     const plu = String(r.IdProducto).trim();
     const frac = fracPorPlu.get(plu) || [];
-    // Productos.IdUnidadDeMedida no se usa en ninguna query del sistema: la unidad se
-    // deriva de los pesables (si tiene peso de granel o presentaciones, se compra por kg).
     const esGranel = pesosGranel[plu] != null || frac.length > 0;
     const stockCentral = centralPorPlu[plu] || 0;
     const suc = compras.stockSucursalesEq(plu, frac, stockPorSuc);
     const serie = serieDe(plu);
     const demandaDiariaCentral = compras.demandaDiaria(serie, { hoyISO });
     return {
-      plu, nombre: r.NombreProducto || plu, unidad: esGranel ? 'KG' : 'UN',
+      // Productos.IdUnidadDeMedida no se usa en ninguna query del sistema: la unidad de
+      // compra se deriva del rubro (Almacen → unidades; el resto, kg).
+      plu, nombre: r.NombreProducto || plu, unidad: esRubroAlmacen(rubroPorPlu[plu]) ? 'UN' : 'KG',
       activo: r.Activo == null ? null : !!Number(r.Activo), esGranel,
       ultimaFecha: r.UltimaFecha || null,
       ultimaCantidad: Number(r.UltimaCantidad) || 0,
