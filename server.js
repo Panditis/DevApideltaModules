@@ -1034,6 +1034,11 @@ const _ventasJoin = `INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdT
   LEFT JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria`;
 const FRAC_REG_PATH = path.join(DATA_DIR, 'fraccionado_registros.json');
 const HISTORIAL_PATH = path.join(DATA_DIR, 'historial_distribucion.json');
+// Fraccionado Externo: pedidos a tercerizar. Archivo propio — no reutiliza data/ordenes_compra.json
+// (formato viejo ENVIADA/RECIBIDA) ni data/pedidos_compra.json (dominio de compras a proveedores).
+const PEDIDOS_FE_PATH = path.join(DATA_DIR, 'pedidos_fraccionado_externo.json');
+function leerPedidosFraccionadoExterno()         { return leerJSON(PEDIDOS_FE_PATH, { pedidos: [] }).pedidos || []; }
+function guardarPedidosFraccionadoExterno(lista) { guardarJSON(PEDIDOS_FE_PATH, { pedidos: lista }); }
 // ── Producción: registros de cargas (archivo separado de distribución) ──────────
 const PROD_REG_PATH = path.join(DATA_DIR, 'produccion_registros.json');
 // Historial: los registros ya conciliados (dados de alta en producción) se mueven acá y salen
