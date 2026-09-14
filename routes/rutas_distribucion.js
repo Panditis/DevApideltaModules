@@ -43,6 +43,7 @@ module.exports = function crearRutasDistribucion(deps) {
     PESABLES_LISTAS_PATH, sqlStockDistribucion, DISTRIB_CONFIG_PATH, A8020_CALC_PATH,
     _ventasJoin, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL, componentesFormulaPorPadre,
     CONSUMO_MENSUAL_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
+    TOP20_PRIORITARIOS_PATH, generarTop20Prioritarios,
   } = deps;
   const router = express.Router();
 
@@ -375,7 +376,10 @@ const ES_INSUMO = insumos.condicionSQL(INSUMOS_CFG);
 // consumen y se reponen igual. Lo único que cambia es el prefijo del nombre; los
 // rubros que config.json le sume a insumos no arrastran a las etiquetas.
 const ES_ETIQUETA = insumos.condicionSQL({ ...INSUMOS_CFG, rubros: [], prefijoNombre: 'ETIQUETA' });
-const condUniverso = tipo => (String(tipo || '') === 'etiqueta' ? ES_ETIQUETA : ES_INSUMO);
+// Mismo criterio para los envases: todo producto "Envase …", sea cual sea su rubro.
+const ES_ENVASE = insumos.condicionSQL({ ...INSUMOS_CFG, rubros: [], prefijoNombre: 'ENVASE' });
+const COND_POR_TIPO = { etiqueta: ES_ETIQUETA, envase: ES_ENVASE };
+const condUniverso = tipo => COND_POR_TIPO[String(tipo || '')] || ES_INSUMO;
 
 function sqlInsumosStock(cond = ES_INSUMO) {
   return `SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, p.EsDeCompras,
@@ -1501,5 +1505,10 @@ router.get('/api/distribucion/buscar-marca', apiRoute(async req => {
 router.get('/api/distribucion/rubros-lista', apiRoute(async () =>
   query(`SELECT DISTINCT NombreRubro FROM Rubros WHERE NombreRubro IS NOT NULL AND NombreRubro != '' ORDER BY NombreRubro`)
 ));
+
+// Top 20 prioritarios: generado por Análisis de Ventas (botón explícito) y sólo leído acá — esta
+// tab no recalcula por su cuenta, muestra el último JSON ya generado.
+router.post('/api/distribucion/prioritarios/generar', apiRoute(async () => generarTop20Prioritarios()));
+router.get('/api/distribucion/prioritarios', apiRoute(async () => leerJSON(TOP20_PRIORITARIOS_PATH, { productos: [] })));
   return router;
 };

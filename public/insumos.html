@@ -55,6 +55,7 @@ tailwind.config = { theme: { extend: {
   <div class="flex gap-1 border-b border-borde mb-4" id="tabs">
     <button class="tab on" data-tipo="insumo">Insumos</button>
     <button class="tab" data-tipo="etiqueta">Etiquetas</button>
+    <button class="tab" data-tipo="envase">Envases</button>
     <button id="btnNuevoGrupo" class="hidden ml-auto mb-1 px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">+ Nuevo grupo</button>
   </div>
 
@@ -150,6 +151,7 @@ const ORDEN_KPI = ['SIN_STOCK','CRITICO','BAJO','OK','EXCESO','SIN_CONSUMO'];
 const UNIVERSOS = {
   insumo:   { singular:'Insumo',   plural:'Insumos',   prefijo:'Insumo',   hoja:'Insumos',   archivo:'Insumos' },
   etiqueta: { singular:'Etiqueta', plural:'Etiquetas', prefijo:'Etiqueta', hoja:'Etiquetas', archivo:'Etiquetas' },
+  envase:   { singular:'Envase',   plural:'Envases',   prefijo:'Envase',   hoja:'Envases',   archivo:'Envases' },
 };
 let tipo = 'insumo';
 // Grupos cerrados a mano. Las etiquetas vienen agrupadas por el producto que

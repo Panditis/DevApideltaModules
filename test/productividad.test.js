@@ -4,7 +4,7 @@ const {
   minutosDeHora, intervaloDe, minutosUnidos, kilosDeCarga, personasDeCarga, claveNombre,
   nombreLindo, consolidarPlan, resumenPersonas, resumenOrdenes, resumenPorDia,
   resumenProductosFraccionado, resumenProductos, claveSemana, resumenPeriodos,
-  totales, unirPorId, enRango,
+  totales, unirPorId, enRango, pesoPresentacionKg, paquetesRealesPorProducto,
 } = require('../lib/productividad');
 
 test('claveSemana da la semana ISO con su lunes y su domingo', () => {
@@ -411,4 +411,50 @@ test('enRango compara la fecha ISO como texto, inclusive en los bordes', () => {
   assert.strictEqual(enRango('2026-08-11', '2026-08-01', '2026-08-10'), false);
   assert.strictEqual(enRango('', '2026-08-01', '2026-08-10'), false);
   assert.strictEqual(enRango('2026-08-11', null, null), true);
+});
+
+test('pesoPresentacionKg interpreta gramos, kilos y variantes de mayúsculas', () => {
+  assert.strictEqual(pesoPresentacionKg('500G'), 0.5);
+  assert.strictEqual(pesoPresentacionKg('50G'), 0.05);
+  assert.strictEqual(pesoPresentacionKg('1Kg'), 1);
+  assert.strictEqual(pesoPresentacionKg('1KG'), 1);
+  assert.strictEqual(pesoPresentacionKg('2,5Kg'), 2.5);
+  assert.strictEqual(pesoPresentacionKg('texto raro'), null);
+  assert.strictEqual(pesoPresentacionKg(''), null);
+  assert.strictEqual(pesoPresentacionKg(null), null);
+});
+
+test('paquetesRealesPorProducto calcula paquetes desde kilos, no desde cantFraccionada', () => {
+  const cargas = [
+    { plu: '1', nombre: 'Oregano 50G', granelConsumido: 10, cantFraccionada: 10, desde: '12:17', hasta: '13:00' }, // 43 min
+    { plu: '1', nombre: 'Oregano 50G', granelConsumido: 10, cantFraccionada: 10, desde: '11:12', hasta: '12:32' }, // 80 min
+  ];
+  const pesoDe = () => 0.05; // 50G
+  const [r] = paquetesRealesPorProducto(cargas, pesoDe);
+  assert.strictEqual(r.plu, '1');
+  assert.strictEqual(r.kilos, 20);
+  assert.strictEqual(r.paquetes, 400);          // 20kg / 0.05kg, no los "20" de cantFraccionada
+  assert.strictEqual(r.minutos, 123);           // 43 + 80
+  assert.strictEqual(r.minPorPaquete, 0.308);   // 123 / 400, redondeado a 3 decimales
+});
+
+test('paquetesRealesPorProducto da null si no hay peso de presentación', () => {
+  const cargas = [{ plu: '2', nombre: 'Sin catalogar', granelConsumido: 5, desde: '09:00', hasta: '09:30' }];
+  const [r] = paquetesRealesPorProducto(cargas, () => null);
+  assert.strictEqual(r.paquetes, null);
+  assert.strictEqual(r.minPorPaquete, null);
+});
+
+test('paquetesRealesPorProducto ignora cargas sin horario para los minutos pero suma sus kilos', () => {
+  const cargas = [
+    { plu: '3', nombre: 'X', granelConsumido: 4, desde: '10:00', hasta: '10:30' }, // 30 min
+    { plu: '3', nombre: 'X', granelConsumido: 6 }, // sin horario
+  ];
+  const [r] = paquetesRealesPorProducto(cargas, () => 1); // presentación 1kg
+  assert.strictEqual(r.cargas, 2);
+  assert.strictEqual(r.cargasConHorario, 1);
+  assert.strictEqual(r.kilos, 10);        // 4 + 6, todos los kilos
+  assert.strictEqual(r.minutos, 30);      // sólo la carga con horario
+  assert.strictEqual(r.paquetes, 10);     // 10kg / 1kg
+  assert.strictEqual(r.minPorPaquete, 3); // 30/10
 });
