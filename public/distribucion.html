@@ -600,7 +600,7 @@
     <!-- PRIORITARIOS -->
     <section class="panel" id="panel-prioritarios">
       <div style="padding:12px 14px 0">
-        <button class="primary" onclick="generarPrioritarios()">↻ Generar Top 20</button>
+        <button class="primary" onclick="generarPrioritarios()">↻ Generar Top 40</button>
       </div>
       <div class="state" id="state-pr"><div class="spinner"></div><div>Cargando prioritarios…</div></div>
       <table id="tabla-pr" style="display:none">
@@ -1278,21 +1278,28 @@ function origenBadgePr(origen) {
 }
 function renderPrioritarios(lista) {
   document.getElementById('head-pr').innerHTML =
-    ['Pos.', 'PLU', 'Producto', 'Origen', 'A enviar', 'Prioridad'].map(n => `<th>${n}</th>`).join('');
+    ['Pos.', 'PLU', 'Producto', 'Origen', ...SUC_A.map(s => s[1]), 'A enviar', 'Prioridad'].map(n => `<th>${n}</th>`).join('');
   if (!lista.length) {
-    document.getElementById('body-pr').innerHTML = '<tr><td colspan="6" class="vacio">No hay datos. Generá el Top 20 primero.</td></tr>';
+    document.getElementById('body-pr').innerHTML = '<tr><td colspan="13" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
     return;
   }
   document.getElementById('body-pr').innerHTML = lista.map(p => {
     const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
     let totalTxt = '·', prioTxt = '·';
-    if (p.origen === 'almacen') { totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3); }
-    else if (p.origen === 'pesable') { totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3); }
+    let sucTds = SUC_A.map(() => '<td>·</td>').join('');
+    if (p.origen === 'almacen') {
+      totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3);
+      sucTds = SUC_A.map(([k]) => `<td>${fmtA(p.fila.enviar[k])}</td>`).join('');
+    } else if (p.origen === 'pesable') {
+      totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3);
+      sucTds = SUC_P.map(([k]) => `<td>${fmt(p.fila.enviar[k])}</td>`).join('');
+    }
     return `<tr>
       <td>${p.posicion}</td>
       <td class="l plu">${p.idProd}</td>
       <td class="l nombre">${nombre}</td>
       <td>${origenBadgePr(p.origen)}</td>
+      ${sucTds}
       <td class="tot">${totalTxt}</td>
       <td class="imp">${prioTxt}</td>
     </tr>`;
@@ -1301,7 +1308,7 @@ function renderPrioritarios(lista) {
 async function generarPrioritarios() {
   const st = document.getElementById('state-pr'), tb = document.getElementById('tabla-pr');
   tb.style.display = 'none'; st.style.display = 'flex'; st.className = 'state';
-  st.innerHTML = '<div class="spinner"></div><div>Generando Top 20…</div>';
+  st.innerHTML = '<div class="spinner"></div><div>Generando Top 40…</div>';
   try {
     const r = await fetch('/api/distribucion/prioritarios/generar', { method: 'POST' });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ('HTTP ' + r.status));

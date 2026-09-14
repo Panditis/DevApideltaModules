@@ -596,20 +596,20 @@ function refrescarMontos(){
   else consultarMontos();
 }
 
-// ── Top 20 Prioritarios ──────────────────────────────────────────────────────
+// ── Top 40 Prioritarios ──────────────────────────────────────────────────────
 // Acción independiente de las pestañas y del rango de fechas: dispara el cálculo en el
 // servidor (rango fijo de 30 días) y sólo confirma que corrió. La lista la pinta Distribución.
 async function generarPrioritarios(){
   const btn = $('btnGenerarPrioritarios');
   const msg = $('msgPrioritarios');
   btn.disabled = true;
-  msg.innerHTML = '<div class="loading">Generando top 20 (puede tardar)...</div>';
+  msg.innerHTML = '<div class="loading">Generando top 40 (puede tardar)...</div>';
   try {
     const r = await fetch('/api/analisis-ventas/prioritarios/generar', { method: 'POST' });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     const fecha = new Date(d.generadoEn).toLocaleString('es-AR');
-    msg.innerHTML = `<div class="mini">Top 20 generado: <b>${fmtNum((d.productos || []).length)}</b> productos, el ${fecha}.</div>`;
+    msg.innerHTML = `<div class="mini">Top 40 generado: <b>${fmtNum((d.productos || []).length)}</b> productos, el ${fecha}.</div>`;
   } catch(e){
     msg.innerHTML = `<div class="error">Error: ${e.message}</div>`;
   } finally {

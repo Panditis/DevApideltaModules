@@ -1083,7 +1083,7 @@ async function sinInsumosSQLPrioritarios() {
 }
 
 const DIAS_TOP20_PRIORITARIOS = 30;
-const TOP_N_PRIORITARIOS = 20;
+const TOP_N_PRIORITARIOS = 40;
 
 // Top 20 por facturación de los últimos 30 días, mismo alcance de sucursales y mismo
 // filtro de exclusión de insumos que el módulo Análisis de Ventas. Se guarda en disco
