@@ -930,10 +930,12 @@ let sucDesplegadoA = false;
 function renderSucDropA() {
   document.getElementById('sucDropA').innerHTML =
     `<div class="rubro-opt-clear" onclick="todasSucA()">Mostrar todas</div>` +
+    `<div class="rubro-opt-clear" onclick="ningunaSucA()">Quitar todas</div>` +
     SUC_A.map(([k, n]) => `<label class="rubro-opt"><input type="checkbox" ${sucVis.has(k) ? 'checked' : ''} onchange="toggleSucA('${k}',this.checked)"><span>${n}</span></label>`).join('');
 }
 function toggleSucA(k, on) { on ? sucVis.add(k) : sucVis.delete(k); actualizarSucBtnA(); construirHead(); render(); }
 function todasSucA() { SUC_A.forEach(([k]) => sucVis.add(k)); renderSucDropA(); actualizarSucBtnA(); construirHead(); render(); }
+function ningunaSucA() { sucVis.clear(); renderSucDropA(); actualizarSucBtnA(); construirHead(); render(); }
 function actualizarSucBtnA() {
   const oculto = SUC_A.length - sucVis.size;
   document.getElementById('sucBtnACount').textContent = oculto ? `(${sucVis.size}/${SUC_A.length}) ` : '';
@@ -1136,10 +1138,12 @@ let sucDesplegadoP = false;
 function renderSucDropP() {
   document.getElementById('sucDropP').innerHTML =
     `<div class="rubro-opt-clear" onclick="todasSucP()">Mostrar todas</div>` +
+    `<div class="rubro-opt-clear" onclick="ningunaSucP()">Quitar todas</div>` +
     SUC_P.map(([k, n]) => `<label class="rubro-opt"><input type="checkbox" ${sucVisP.has(k) ? 'checked' : ''} onchange="toggleSucP('${k}',this.checked)"><span>${n}</span></label>`).join('');
 }
 function toggleSucP(k, on) { on ? sucVisP.add(k) : sucVisP.delete(k); actualizarSucBtnP(); construirHeadP(); renderP(); }
 function todasSucP() { SUC_P.forEach(([k]) => sucVisP.add(k)); renderSucDropP(); actualizarSucBtnP(); construirHeadP(); renderP(); }
+function ningunaSucP() { sucVisP.clear(); renderSucDropP(); actualizarSucBtnP(); construirHeadP(); renderP(); }
 function actualizarSucBtnP() {
   const oculto = SUC_P.length - sucVisP.size;
   document.getElementById('sucBtnPCount').textContent = oculto ? `(${sucVisP.size}/${SUC_P.length}) ` : '';
@@ -1292,10 +1296,12 @@ let listaPrActual = [];
 function renderSucDropPr() {
   document.getElementById('sucDropPr').innerHTML =
     `<div class="rubro-opt-clear" onclick="todasSucPr()">Mostrar todas</div>` +
+    `<div class="rubro-opt-clear" onclick="ningunaSucPr()">Quitar todas</div>` +
     SUC_A.map(([, n], i) => `<label class="rubro-opt"><input type="checkbox" ${sucVisPr.has(i) ? 'checked' : ''} onchange="toggleSucPr(${i},this.checked)"><span>${n}</span></label>`).join('');
 }
 function toggleSucPr(i, on) { on ? sucVisPr.add(i) : sucVisPr.delete(i); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
 function todasSucPr() { SUC_A.forEach((_, i) => sucVisPr.add(i)); renderSucDropPr(); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
+function ningunaSucPr() { sucVisPr.clear(); renderSucDropPr(); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
 function actualizarSucBtnPr() {
   const oculto = SUC_A.length - sucVisPr.size;
   document.getElementById('sucBtnPrCount').textContent = oculto ? `(${sucVisPr.size}/${SUC_A.length}) ` : '';
