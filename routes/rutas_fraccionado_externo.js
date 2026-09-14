@@ -60,30 +60,38 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
   router.get('/api/fraccionado-externo/pedidos', apiRoute(async () =>
     ({ pedidos: leerPedidosFraccionadoExterno() })));
 
-  router.post('/api/fraccionado-externo/pedidos', apiRoute(async req => {
-    const pedidos = leerPedidosFraccionadoExterno();
-    const numero = fraccionadoExterno.siguienteNumero(pedidos);
-    const usuario = (req.session && req.session.user && req.session.user.nombre) || null;
-    const pedido = fraccionadoExterno.construirPedido({
-      numero, fechaISO: new Date().toISOString().slice(0, 10),
-      tercero: req.body.tercero, usuario, valorHora: req.body.valorHora,
-      items: req.body.items, ts: new Date().toISOString(),
-    });
-    guardarPedidosFraccionadoExterno([...pedidos, pedido]);
-    return { pedido };
-  }));
+  router.post('/api/fraccionado-externo/pedidos', (req, res) => {
+    try {
+      const pedidos = leerPedidosFraccionadoExterno();
+      const numero = fraccionadoExterno.siguienteNumero(pedidos);
+      const usuario = (req.session && req.session.user && req.session.user.nombre) || null;
+      const pedido = fraccionadoExterno.construirPedido({
+        numero, fechaISO: new Date().toISOString().slice(0, 10),
+        tercero: req.body.tercero, usuario, valorHora: req.body.valorHora,
+        items: req.body.items, ts: new Date().toISOString(),
+      });
+      guardarPedidosFraccionadoExterno([...pedidos, pedido]);
+      res.json({ pedido });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 
-  router.post('/api/fraccionado-externo/pedidos/:numero/anular', apiRoute(async req => {
+  router.post('/api/fraccionado-externo/pedidos/:numero/anular', (req, res) => {
     const pedidos = leerPedidosFraccionadoExterno();
     const idx = pedidos.findIndex(p => p.numero === req.params.numero);
-    if (idx < 0) throw new Error('Pedido no encontrado');
-    const usuario = (req.session && req.session.user && req.session.user.nombre) || null;
-    const actualizado = fraccionadoExterno.anularPedido(pedidos[idx], { ts: new Date().toISOString(), usuario });
-    const nuevos = pedidos.slice();
-    nuevos[idx] = actualizado;
-    guardarPedidosFraccionadoExterno(nuevos);
-    return { pedido: actualizado };
-  }));
+    if (idx < 0) return res.status(404).json({ error: 'Pedido no encontrado' });
+    try {
+      const usuario = (req.session && req.session.user && req.session.user.nombre) || null;
+      const actualizado = fraccionadoExterno.anularPedido(pedidos[idx], { ts: new Date().toISOString(), usuario });
+      const nuevos = pedidos.slice();
+      nuevos[idx] = actualizado;
+      guardarPedidosFraccionadoExterno(nuevos);
+      res.json({ pedido: actualizado });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 
   return router;
 };
