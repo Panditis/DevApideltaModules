@@ -521,7 +521,7 @@
   <div class="meta" id="meta">
     <div class="controls">
       <input type="search" id="q" placeholder="Buscar PLU o producto…">
-      <label class="chk"><input type="checkbox" id="soloEnvio" checked> Solo con envío</label>
+      <label class="chk" id="soloEnvioWrap"><input type="checkbox" id="soloEnvio" checked> Solo con envío</label>
       <label class="chk" id="soloMicroWrap" style="display:none"><input type="checkbox" id="soloMicro">Mostrar Micro Envios</label>
       <select id="fEnvasar" style="display:none">
         <option value="">Envasar: Todos</option>
@@ -549,11 +549,16 @@
       <button id="pdfA" style="display:none">📄 PDF</button>
       <button id="pdfP" style="display:none">📄 PDF</button>
       <button id="pdfEnv" style="display:none">📄 PDF</button>
+      <button class="primary" id="btn-generar-pr" style="display:none" onclick="generarPrioritarios()">↻ Generar Top 40</button>
+      <div id="sucFiltrosPr" style="display:none;position:relative">
+        <button class="rubro-btn" id="sucBtnPr" onclick="toggleSucDropdownPr()">Sucursales <span id="sucBtnPrCount"></span>▾</button>
+        <div class="rubro-drop" id="sucDropPr" style="display:none"></div>
+      </div>
       <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
       <button id="btn-overrides" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOverrides()">✏ <span id="ovr-count">0</span> overrides</button>
       <button id="btn-ocultos" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOcultos()">👁 <span id="oc-count">0</span> ocultos</button>
       <button class="primary" id="reload">↻ Recalcular</button>
-      <button onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
+      <button id="btn-a8020" onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
       <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
         <span style="font-size:11px;color:var(--muted)">Modo:</span>
         <button class="suc-tog on" data-modo="sala" onclick="setPesablesModo('sala')" title="Habilita el modal de carga de producción">🏭 Sala</button>
@@ -605,13 +610,6 @@
 
     <!-- PRIORITARIOS -->
     <section class="panel" id="panel-prioritarios">
-      <div style="padding:12px 14px 0;display:flex;gap:8px;align-items:center">
-        <button class="primary" onclick="generarPrioritarios()">↻ Generar Top 40</button>
-        <div id="sucFiltrosPr" style="position:relative">
-          <button class="rubro-btn" id="sucBtnPr" onclick="toggleSucDropdownPr()">Sucursales <span id="sucBtnPrCount"></span>▾</button>
-          <div class="rubro-drop" id="sucDropPr" style="display:none"></div>
-        </div>
-      </div>
       <div class="state" id="state-pr"><div class="spinner"></div><div>Cargando prioritarios…</div></div>
       <table id="tabla-pr" style="display:none">
         <thead></thead>
@@ -1042,7 +1040,7 @@ function actualizarBadgeOcultos(){
   const total = ocultosA.size + ocultosP.size;
   const btn = document.getElementById('btn-ocultos');
   document.getElementById('oc-count').textContent = total;
-  btn.style.display = total > 0 ? '' : 'none';
+  btn.style.display = (total > 0 && tabActual !== 'prioritarios') ? '' : 'none';
 }
 function nombreDeOculto(plu, tipo){
   const r = (tipo === 'almacen' ? datos : datosP).find(x => String(x.plu) === String(plu));
@@ -1451,7 +1449,7 @@ const LISTAS = {
 };
 const PILL = {noEnvasa:'pillExcluir', siempreAlmacen:'pillForzarAlmacen', siemprePesable:'pillForzarPesable', ocultarPesable:'pillOcultarPesable'};
 let listasData = null;
-const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar';
+const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar'||n==='prioritarios';
 
 function activarTab(name){
   tabActual = name;
@@ -1475,6 +1473,16 @@ function activarTab(name){
   document.getElementById('ctrl-pedidos').style.display = name==='pedidos' ? 'flex' : 'none';
   document.getElementById('ctrl-produccion').style.display = name==='produccion' ? 'flex' : 'none';
   document.getElementById('ctrl-historial').style.display = name==='historial' ? 'flex' : 'none';
+  document.getElementById('btn-generar-pr').style.display = name==='prioritarios' ? '' : 'none';
+  document.getElementById('sucFiltrosPr').style.display = name==='prioritarios' ? 'flex' : 'none';
+  // Prioritarios reusa la barra .controls pero solo necesita los 2 elementos de arriba:
+  // ocultar el resto de controles genéricos que no tienen toggle por-tab propio.
+  document.getElementById('q').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('soloEnvioWrap').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('reload').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('btn-a8020').style.display = name==='prioritarios' ? 'none' : '';
+  actualizarBadgeOcultos();
+  actualizarBadgeOverrides();
   if (name==='almacen') { cargar(); }
   else if (name==='pesables') { cargarP(); }
   else if (name==='envasar') { document.getElementById('state-env').style.display='flex'; document.getElementById('tabla-env').style.display='none'; cargarP(); }
@@ -2365,7 +2373,7 @@ async function actualizarBadgeOverrides() {
               + Object.values(d.pesable||{}).reduce((s,o)=>s+Object.keys(o).length,0);
   const btn = document.getElementById('btn-overrides');
   document.getElementById('ovr-count').textContent = total;
-  btn.style.display = total > 0 ? '' : 'none';
+  btn.style.display = (total > 0 && tabActual !== 'prioritarios') ? '' : 'none';
 }
 async function abrirModalOverrides() {
   const d = await fetch('/api/distribucion/envios-manuales').then(r=>r.json()).catch(()=>({almacen:{},pesable:{}}));
