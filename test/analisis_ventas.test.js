@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   SUCURSALES_ANALISIS, NOMBRE_DIA,
-  sucIdsSeguras, clampTopN, ticketProm, kpisGlobales, mapDiaSemana,
+  sucIdsSeguras, clampTopN, rangoUltimosDias, mapaTopProductos, ticketProm, kpisGlobales, mapDiaSemana,
 } = require('../lib/analisis_ventas');
 
 test('SUCURSALES_ANALISIS es la whitelist fija', () => {
@@ -28,6 +28,27 @@ test('clampTopN limita a 1..100 con default 20', () => {
   assert.strictEqual(clampTopN('0'), 1);
   assert.strictEqual(clampTopN('9999'), 100);
   assert.strictEqual(clampTopN('abc'), 20);
+});
+
+test('rangoUltimosDias devuelve hasta=hoy y desde=hoy-N en formato YYYY-MM-DD', () => {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const esperadoDesde = new Date();
+  esperadoDesde.setDate(esperadoDesde.getDate() - 30);
+  const { desde, hasta } = rangoUltimosDias(30);
+  assert.strictEqual(hasta, hoy);
+  assert.strictEqual(desde, esperadoDesde.toISOString().slice(0, 10));
+  assert.match(desde, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('mapaTopProductos mapea filas con posición y castea Unidades/Facturacion faltantes a 0', () => {
+  const rows = [
+    { IdProducto: 1, Nombre: 'Miel 1kg', Unidades: 10, Facturacion: 5000 },
+    { IdProducto: 2, Nombre: 'Miel 500g' },
+  ];
+  assert.deepStrictEqual(mapaTopProductos(rows), [
+    { posicion: 1, idProd: 1, nombre: 'Miel 1kg', cantidad: 10, facturacion: 5000 },
+    { posicion: 2, idProd: 2, nombre: 'Miel 500g', cantidad: 0, facturacion: 0 },
+  ]);
 });
 
 test('ticketProm divide y evita división por cero', () => {

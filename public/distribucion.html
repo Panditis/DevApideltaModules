@@ -487,6 +487,7 @@
     <div class="tabs" id="tabs">
       <button class="tab on" data-tab="almacen">Almacen <span class="pill" id="pillA">—</span></button>
       <button class="tab" data-tab="pesables">Pesables <span class="pill" id="pillP">kg</span></button>
+      <button class="tab" data-tab="prioritarios">Prioritarios</button>
       <button class="tab" data-tab="envasar">Envasar <span class="pill" id="pillEnv">0</span></button>
       <button class="tab" data-tab="pedidos">Pedidos <span class="pill" id="pillPed">—</span><span class="pill pill-nov" id="pillPedNov" style="display:none">0</span></button>
       <button class="tab" data-tab="produccion">Producción <span class="pill" id="pillProd">0</span></button>
@@ -593,6 +594,18 @@
       <table id="tabla-p" style="display:none">
         <thead><tr id="head-p"></tr></thead>
         <tbody id="body-p"></tbody>
+      </table>
+    </section>
+
+    <!-- PRIORITARIOS -->
+    <section class="panel" id="panel-prioritarios">
+      <div style="padding:12px 14px 0">
+        <button class="primary" onclick="generarPrioritarios()">↻ Generar Top 20</button>
+      </div>
+      <div class="state" id="state-pr"><div class="spinner"></div><div>Cargando prioritarios…</div></div>
+      <table id="tabla-pr" style="display:none">
+        <thead><tr id="head-pr"></tr></thead>
+        <tbody id="body-pr"></tbody>
       </table>
     </section>
 
@@ -1218,6 +1231,87 @@ async function cargarP() {
   }
 }
 
+// ════════════════ PRIORITARIOS ════════════════
+// No recalcula nada: busca cada PLU del top 20 en los datos ya cargados de Almacén/Pesables.
+async function cargarPrioritarios() {
+  const st = document.getElementById('state-pr'), tb = document.getElementById('tabla-pr');
+  tb.style.display = 'none'; st.style.display = 'flex'; st.className = 'state';
+  st.innerHTML = '<div class="spinner"></div><div>Cargando prioritarios…</div>';
+  try {
+    const cargas = [];
+    if (!datos.length) cargas.push(cargar());
+    if (!pCargado) cargas.push(cargarP());
+    if (cargas.length) await Promise.all(cargas);
+    const stA = document.getElementById('state-a'), stP = document.getElementById('state-p');
+    if (stA.classList.contains('err') || stP.classList.contains('err')) {
+      const msgErr = el => el.querySelectorAll('div')[1]?.textContent || 'Error desconocido';
+      const partes = [];
+      if (stA.classList.contains('err')) partes.push('Almacén: ' + msgErr(stA));
+      if (stP.classList.contains('err')) partes.push('Pesables: ' + msgErr(stP));
+      throw new Error(partes.join(' — '));
+    }
+    const r = await fetch('/api/distribucion/prioritarios');
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ('HTTP ' + r.status));
+    const { productos } = await r.json();
+    const lista = (productos || []).map(p => {
+      const enA = datos.find(x => String(x.plu) === String(p.idProd));
+      if (enA) return { ...p, origen: 'almacen', fila: enA };
+      const enP = datosP.find(x => String(x.plu) === String(p.idProd));
+      if (enP) return { ...p, origen: 'pesable', fila: enP };
+      return { ...p, origen: null, fila: null };
+    });
+    renderPrioritarios(lista);
+    st.style.display = 'none'; tb.style.display = '';
+  } catch (e) {
+    st.className = 'state err';
+    st.innerHTML = errHTML(e.message);
+  }
+}
+const ORIGEN_PR = {
+  almacen: { bg: 'var(--verde-cont,#d1fae5)', color: 'var(--verde-on-cont,#065f46)', border: '', label: 'Almacén' },
+  pesable: { bg: '#dbe7ff', color: '#1e40af', border: '', label: 'Pesable' },
+  null: { bg: 'rgba(192,57,43,.15)', color: '#c0392b', border: 'border:1px solid rgba(192,57,43,.4);', label: 'Sin datos' },
+};
+function origenBadgePr(origen) {
+  const o = ORIGEN_PR[origen] || ORIGEN_PR.null;
+  return `<span style="background:${o.bg};color:${o.color};font-weight:700;padding:2px 8px;border-radius:5px;${o.border}font-size:11px;white-space:nowrap">${o.label}</span>`;
+}
+function renderPrioritarios(lista) {
+  document.getElementById('head-pr').innerHTML =
+    ['Pos.', 'PLU', 'Producto', 'Origen', 'A enviar', 'Prioridad'].map(n => `<th>${n}</th>`).join('');
+  if (!lista.length) {
+    document.getElementById('body-pr').innerHTML = '<tr><td colspan="6" class="vacio">No hay datos. Generá el Top 20 primero.</td></tr>';
+    return;
+  }
+  document.getElementById('body-pr').innerHTML = lista.map(p => {
+    const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
+    let totalTxt = '·', prioTxt = '·';
+    if (p.origen === 'almacen') { totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3); }
+    else if (p.origen === 'pesable') { totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3); }
+    return `<tr>
+      <td>${p.posicion}</td>
+      <td class="l plu">${p.idProd}</td>
+      <td class="l nombre">${nombre}</td>
+      <td>${origenBadgePr(p.origen)}</td>
+      <td class="tot">${totalTxt}</td>
+      <td class="imp">${prioTxt}</td>
+    </tr>`;
+  }).join('');
+}
+async function generarPrioritarios() {
+  const st = document.getElementById('state-pr'), tb = document.getElementById('tabla-pr');
+  tb.style.display = 'none'; st.style.display = 'flex'; st.className = 'state';
+  st.innerHTML = '<div class="spinner"></div><div>Generando Top 20…</div>';
+  try {
+    const r = await fetch('/api/distribucion/prioritarios/generar', { method: 'POST' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ('HTTP ' + r.status));
+    await cargarPrioritarios();
+  } catch (e) {
+    st.className = 'state err';
+    st.innerHTML = errHTML(e.message);
+  }
+}
+
 // ════════════════ Común (tabs, controles, CSV) ════════════════
 const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
   <div style="color:var(--faint);font-size:12px">¿Está Siga accesible?</div>`;
@@ -1273,6 +1367,7 @@ function activarTab(name){
   if (name==='almacen') { cargar(); }
   else if (name==='pesables') { cargarP(); }
   else if (name==='envasar') { document.getElementById('state-env').style.display='flex'; document.getElementById('tabla-env').style.display='none'; cargarP(); }
+  else if (name==='prioritarios') { cargarPrioritarios(); }
   else if (name==='pedidos') { cargarPedidos(); }
   else if (name==='config-ruteos') { cargarConfigRuteos(); }
   else if (name==='produccion') { cargarProduccion(); }

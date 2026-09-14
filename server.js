@@ -1026,6 +1026,9 @@ function leerPedidosCompra()          { return leerJSON(PEDIDOS_COMPRA_PATH, { p
 function guardarPedidosCompra(lista)  { guardarJSON(PEDIDOS_COMPRA_PATH, { pedidos: lista }); }
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
 const A8020_CALC_PATH = path.join(DATA_DIR, 'a8020_calc.json');
+// Top 20 prioritarios (por facturación, últimos 30 días): lo genera Análisis de Ventas
+// (ver generarTop20Prioritarios más abajo) y lo consume el módulo Distribución por deps.
+const TOP20_PRIORITARIOS_PATH = path.join(DATA_DIR, 'top20_prioritarios.json');
 const _ventasJoin = `INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
     AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
   LEFT JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria`;
@@ -1061,6 +1064,43 @@ function archivarRegistros(ids, meta) {
     guardarOrdenes(ordenes.filter(o => !(idsOrden.has(String(o.id)) && o.estado === 'listo')));
   }
   return aMover.length;
+}
+
+// ── Top 20 prioritarios (Análisis de Ventas → consumido por Distribución) ────────
+// Mismo criterio "sin insumos" que /api/analisis-ventas (ver sinInsumosSQL en
+// rutas_analisis.js): se duplica sólo el shell de cachear-una-vez-por-proceso, no la
+// lógica de filtrado, porque lib/analisis_ventas.js es puro y no debe ejecutar queries.
+let condicionSinInsumosPrioritarios = null;
+let subRubroDisponiblePrioritarios = null;
+async function sinInsumosSQLPrioritarios() {
+  if (condicionSinInsumosPrioritarios === null) {
+    const meta = await query(analisisVentas.sqlMetaClasificacion()).catch(() => []);
+    const disponibles = analisisVentas.clasificacionesDisponibles(meta);
+    condicionSinInsumosPrioritarios = analisisVentas.filtroSinInsumos(disponibles);
+    subRubroDisponiblePrioritarios = disponibles.some(c => c.tabla === 'SubRubros');
+  }
+  return condicionSinInsumosPrioritarios;
+}
+
+const DIAS_TOP20_PRIORITARIOS = 30;
+const TOP_N_PRIORITARIOS = 20;
+
+// Top 20 por facturación de los últimos 30 días, mismo alcance de sucursales y mismo
+// filtro de exclusión de insumos que el módulo Análisis de Ventas. Se guarda en disco
+// para que Distribución lo consuma sin recalcularlo.
+async function generarTop20Prioritarios() {
+  const { desde, hasta } = analisisVentas.rangoUltimosDias(DIAS_TOP20_PRIORITARIOS);
+  const sucIds = analisisVentas.sucIdsSeguras();
+  const sinInsumos = await sinInsumosSQLPrioritarios();
+  const p = {
+    desde, hasta, sucIdsCsv: sucIds.join(','),
+    subRubroDisponible: subRubroDisponiblePrioritarios,
+  };
+  const rows = await query(analisisVentas.sqlTopProductos(p, 'facturacion', TOP_N_PRIORITARIOS, sinInsumos));
+  const productos = analisisVentas.mapaTopProductos(rows);
+  const data = { generadoEn: new Date().toISOString(), desde, hasta, productos };
+  guardarJSON(TOP20_PRIORITARIOS_PATH, data);
+  return data;
 }
 
 app.get('/api/diag/estados-venta',       apiRoute(async () => query('SELECT DISTINCT IdEstadoComprobante FROM Ventas ORDER BY IdEstadoComprobante')));
@@ -2479,6 +2519,7 @@ app.use(require('./routes/rutas_distribucion')({
   PESABLES_LISTAS_PATH, sqlStockDistribucion, DISTRIB_CONFIG_PATH, A8020_CALC_PATH,
   _ventasJoin, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL, componentesFormulaPorPadre,
   CONSUMO_MENSUAL_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
+  TOP20_PRIORITARIOS_PATH, generarTop20Prioritarios,
 }));
 
 // Mismo criterio para el cruce de terminales: sus deps (leerJSON, guardarJSON,
@@ -2593,6 +2634,7 @@ app.use(require('./routes/rutas_cotizador')({ apiRoute, query, leerJSON, guardar
 // la protección de /analisis-ventas y /analisis-central no cambia.
 app.use(require('./routes/rutas_analisis')({
   apiRoute, query, leerJSON, guardarJSON, safeDate, auth, FAMILIAS_MANUALES_PATH,
+  generarTop20Prioritarios,
 }));
 
 

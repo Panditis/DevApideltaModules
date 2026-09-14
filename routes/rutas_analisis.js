@@ -27,7 +27,7 @@ const familiasManuales = require('../lib/familias_manuales');
 module.exports = function crearRutasAnalisis(deps) {
   const {
     apiRoute, query, leerJSON, guardarJSON, safeDate, auth,
-    FAMILIAS_MANUALES_PATH,
+    FAMILIAS_MANUALES_PATH, generarTop20Prioritarios,
   } = deps;
   const router = express.Router();
 
@@ -208,6 +208,14 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
       })),
     },
   };
+}));
+
+// ── Top 20 prioritarios ──────────────────────────────────────────────────────
+// Genera y guarda en disco el top 20 por facturación (últimos 30 días) para que lo
+// consuma el módulo Distribución. La generación vive en server.js (generarTop20Prioritarios)
+// porque necesita el mismo cache de "sin insumos" que ya usa este módulo.
+router.post('/api/analisis-ventas/prioritarios/generar', apiRoute(async () => {
+  return generarTop20Prioritarios();
 }));
 
 // ── Tickets por monto (alcance sucursales) ──────────────────────────────────
