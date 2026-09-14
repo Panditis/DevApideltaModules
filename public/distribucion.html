@@ -1276,6 +1276,15 @@ function origenBadgePr(origen) {
   const o = ORIGEN_PR[origen] || ORIGEN_PR.null;
   return `<span style="background:${o.bg};color:${o.color};font-weight:700;padding:2px 8px;border-radius:5px;${o.border}font-size:11px;white-space:nowrap">${o.label}</span>`;
 }
+// Réplica liviana del resaltado de celdas "enviar" de render()/renderP() (Fact/Restringido/positivo/·).
+function celdaEnviarPr(v, fmtFn) {
+  if (v === 'Fact') return '<span>Fact</span>';
+  if (v === 'Restringido') return '<span style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid rgba(192,57,43,.4);display:inline-block">Restr.</span>';
+  const n = esNum(v) ? v : 0;
+  return n > 0
+    ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtFn(n)}</span>`
+    : '<span>·</span>';
+}
 function renderPrioritarios(lista) {
   document.getElementById('head-pr').innerHTML =
     ['Pos.', 'PLU', 'Producto', 'Origen', ...SUC_A.map(s => s[1]), 'A enviar', 'Prioridad'].map(n => `<th>${n}</th>`).join('');
@@ -1289,10 +1298,13 @@ function renderPrioritarios(lista) {
     let sucTds = SUC_A.map(() => '<td>·</td>').join('');
     if (p.origen === 'almacen') {
       totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3);
-      sucTds = SUC_A.map(([k]) => `<td>${fmtA(p.fila.enviar[k])}</td>`).join('');
+      sucTds = SUC_A.map(([k]) => {
+        if (esMicro(p.fila, k)) { const mi = microInfo(p.fila, k); return `<td><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
+        return `<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
+      }).join('');
     } else if (p.origen === 'pesable') {
       totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3);
-      sucTds = SUC_P.map(([k]) => `<td>${fmt(p.fila.enviar[k])}</td>`).join('');
+      sucTds = SUC_P.map(([k]) => `<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`).join('');
     }
     return `<tr>
       <td>${p.posicion}</td>
