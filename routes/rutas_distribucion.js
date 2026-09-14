@@ -376,7 +376,10 @@ const ES_INSUMO = insumos.condicionSQL(INSUMOS_CFG);
 // consumen y se reponen igual. Lo único que cambia es el prefijo del nombre; los
 // rubros que config.json le sume a insumos no arrastran a las etiquetas.
 const ES_ETIQUETA = insumos.condicionSQL({ ...INSUMOS_CFG, rubros: [], prefijoNombre: 'ETIQUETA' });
-const condUniverso = tipo => (String(tipo || '') === 'etiqueta' ? ES_ETIQUETA : ES_INSUMO);
+// Mismo criterio para los envases: todo producto "Envase …", sea cual sea su rubro.
+const ES_ENVASE = insumos.condicionSQL({ ...INSUMOS_CFG, rubros: [], prefijoNombre: 'ENVASE' });
+const COND_POR_TIPO = { etiqueta: ES_ETIQUETA, envase: ES_ENVASE };
+const condUniverso = tipo => COND_POR_TIPO[String(tipo || '')] || ES_INSUMO;
 
 function sqlInsumosStock(cond = ES_INSUMO) {
   return `SELECT p.IdProducto, p.NombreProducto, r.NombreRubro, p.EsDeCompras,
