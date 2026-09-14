@@ -1324,6 +1324,11 @@ function valorPr(p, col) {
   if (col === 'plu') return p.idProd ?? 0;
   if (col === 'nombre') return (p.nombre || (p.fila && p.fila.nombre) || '').toLowerCase();
   if (col === 'origen') return p.origen || '';
+  if (col === 'deposito') {
+    if (p.origen === 'almacen') return esNum(p.fila.central) ? p.fila.central : 0;
+    if (p.origen === 'pesable') return esNum(p.fila.H) ? p.fila.H : 0;
+    return 0;
+  }
   if (col === 'total') {
     if (p.origen === 'almacen') return totalEnviar(p.fila);
     if (p.origen === 'pesable') return sumEnvP(p.fila);
@@ -1362,7 +1367,7 @@ function renderPrioritarios(lista) {
   renderSucDropPr(); actualizarSucBtnPr();
   const sucIdx = SUC_A.map((_, i) => i).filter(i => sucVisPr.has(i));
   const arOf = k => ordenPr.col === k ? `<span class="ar">${ordenPr.dir < 0 ? '▼' : '▲'}</span>` : '';
-  const fijos = [['posicion', 'Pos.'], ['plu', 'PLU'], ['nombre', 'Producto'], ['origen', 'Origen']];
+  const fijos = [['posicion', 'Pos.'], ['plu', 'PLU'], ['nombre', 'Producto'], ['origen', 'Origen'], ['deposito', 'Depósito']];
   const fila1 = fijos.map(([k, n]) => `<th data-col="${k}" rowspan="2">${n} ${arOf(k)}</th>`).join('')
     + sucIdx.map(i => `<th class="suc" data-col="s${i}" colspan="2">${SUC_A[i][1]} ${arOf('s' + i)}</th>`).join('')
     + `<th data-col="total" rowspan="2">A enviar ${arOf('total')}</th>`;
@@ -1385,9 +1390,10 @@ function renderPrioritarios(lista) {
   });
   document.getElementById('body-pr').innerHTML = listaOrd.map(p => {
     const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
-    let totalTxt = '·', prioTxt = '·';
+    let totalTxt = '·', prioTxt = '·', depositoTxt = '·';
     let sucTds = sucIdx.map(() => '<td>·</td><td>·</td>').join('');
     if (p.origen === 'almacen') {
+      depositoTxt = esNum(p.fila.central) ? fmtA(p.fila.central) : '·';
       totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3);
       sucTds = sucIdx.map(i => {
         const [k] = SUC_A[i];
@@ -1396,6 +1402,7 @@ function renderPrioritarios(lista) {
         return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
       }).join('');
     } else if (p.origen === 'pesable') {
+      depositoTxt = esNum(p.fila.H) ? fmt(p.fila.H) : '·';
       totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3);
       sucTds = sucIdx.map(i => {
         const [k] = SUC_P[i];
@@ -1408,6 +1415,7 @@ function renderPrioritarios(lista) {
       <td class="l plu">${p.idProd}</td>
       <td class="l nombre">${nombre}</td>
       <td>${origenBadgePr(p.origen)}</td>
+      <td>${depositoTxt}</td>
       ${sucTds}
       <td class="tot">${totalTxt}</td>
     </tr>`;
