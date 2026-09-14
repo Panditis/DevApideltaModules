@@ -2543,7 +2543,7 @@ app.use(require('./routes/rutas_productividad')({
 }));
 
 app.use(require('./routes/rutas_fraccionado_externo')({
-  apiRoute, leerJSON, CATALOGO_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
+  apiRoute, leerJSON, query, FRAC_REG_PATH, HISTORIAL_PATH,
   leerPedidosFraccionadoExterno, guardarPedidosFraccionadoExterno,
 }));
 

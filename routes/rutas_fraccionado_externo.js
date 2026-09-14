@@ -10,7 +10,7 @@ const fraccionadoExterno = require('../lib/fraccionado_externo');
 // factor de complejidad por producto y valor hora del tercero.
 module.exports = function crearRutasFraccionadoExterno(deps) {
   const {
-    apiRoute, leerJSON, CATALOGO_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
+    apiRoute, leerJSON, query, FRAC_REG_PATH, HISTORIAL_PATH,
     leerPedidosFraccionadoExterno, guardarPedidosFraccionadoExterno,
   } = deps;
   const router = express.Router();
@@ -29,52 +29,66 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
     );
   }
 
-  // Peso de una presentación aislada tal cual la tiene el catálogo (ej. "50G") — el nombre
-  // completo de una carga ("Oregano Premium 50G") no matchea ese regex anclado, por eso el
-  // fallback de más abajo extrae primero el token de peso al final del nombre.
+  // El peso de la presentación no viene de ningún campo limpio acá (a diferencia de
+  // catalogo.json): se extrae del propio nombre del producto, que en SIGA y en las cargas
+  // siempre termina con el token de peso ("Oregano Premium 50G" → "50G").
   const PESO_AL_FINAL_DEL_NOMBRE = /(\d+(?:[.,]\d+)?\s*(?:KG|GR?|ML|L))\s*$/i;
+  function presentacionDe(nombre) {
+    const m = PESO_AL_FINAL_DEL_NOMBRE.exec(String(nombre || '').trim());
+    return m ? m[1].toUpperCase().replace(/\s+/g, '') : '';
+  }
+  function pesoDe(nombre) {
+    const m = PESO_AL_FINAL_DEL_NOMBRE.exec(String(nombre || '').trim());
+    return m ? productividad.pesoPresentacionKg(m[1]) : null;
+  }
+
+  // Universo completo de pesables/fraccionado del sistema: lo define SIGA por rubro, no el
+  // catálogo de ventas de Apidelta (son dos listas casi sin superposición — un producto puede
+  // fraccionarse sin nunca haberse dado de alta como ítem propio, ej. condimentos a granel).
+  // Mismo filtro que usa el motor de distribución para la tab Pesables.
+  async function productosPesablesFraccionado() {
+    const rows = await query(`
+      SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, p.NombreProducto
+      FROM Productos p JOIN Rubros r ON r.IdRubro = p.IdRubro
+      WHERE p.Activo = 1 AND r.NombreRubro = 'Pesables Fraccionado'
+    `);
+    return rows
+      .map(r => ({ plu: String(r.IdProducto || '').trim(), nombre: String(r.NombreProducto || '').trim() }))
+      .filter(p => p.plu);
+  }
 
   router.get('/api/fraccionado-externo/productos', apiRoute(async req => {
-    // esVariante son bultos/repackaging mayorista, no el paquete individual que fracciona el
-    // tercero — se excluyen del selector.
-    const catalogo = leerJSON(CATALOGO_PATH, []).filter(p => p && p.plu != null && !p.esVariante);
-    const catalogoPorPlu = new Map(catalogo.map(p => [String(p.plu), p]));
+    const pesables = await productosPesablesFraccionado();
+    const pesablesPorPlu = new Map(pesables.map(p => [p.plu, p]));
 
-    // Si el producto no está en el catálogo de ventas (se fraccionó pero nunca se dio de alta
-    // como ítem propio — pasa con condimentos/hierbas que se venden a granel), el peso de la
-    // presentación se saca del nombre con el que quedó cargada la tanda.
-    const pesoDe = (plu, nombreCarga) => {
-      const item = catalogoPorPlu.get(plu);
-      if (item) return productividad.pesoPresentacionKg(item.presentacion);
-      const m = PESO_AL_FINAL_DEL_NOMBRE.exec(String(nombreCarga || '').trim());
-      return m ? productividad.pesoPresentacionKg(m[1]) : null;
-    };
-    const tiempos = productividad.paquetesRealesPorProducto(cargasFraccionadoCompletas(), pesoDe);
+    const tiempos = productividad.paquetesRealesPorProducto(
+      cargasFraccionadoCompletas(),
+      (plu, nombreCarga) => pesoDe((pesablesPorPlu.get(plu) || {}).nombre || nombreCarga),
+    );
     const tiempoPorPlu = new Map(tiempos.map(t => [t.plu, t]));
 
-    const desdeCatalogo = catalogo.map(p => {
-      const t = tiempoPorPlu.get(String(p.plu));
+    const desdePesables = pesables.map(p => {
+      const t = tiempoPorPlu.get(p.plu);
       return {
-        plu: String(p.plu), nombre: p.producto, presentacion: p.presentacion || '',
+        plu: p.plu, nombre: p.nombre, presentacion: presentacionDe(p.nombre),
         minPorPaquete: t ? t.minPorPaquete : null,
         paquetesHistoricos: t ? t.paquetes : null,
         cargas: t ? t.cargas : 0,
         tieneHistorial: !!(t && t.minPorPaquete != null),
       };
     });
-    // Productos que se fraccionaron alguna vez pero no están en el catálogo de ventas: sin
-    // esto, algo como el orégano (se vende a granel, nunca tuvo alta propia) queda invisible
-    // para siempre en el buscador aunque tenga historial real.
-    const desdeHistorialSinCatalogo = tiempos
-      .filter(t => !catalogoPorPlu.has(t.plu))
+    // Productos con historial de fraccionado que hoy no figuran en el rubro SIGA (ej. se dieron
+    // de baja, o cambiaron de rubro) — igual hay que poder volver a pedirlos.
+    const desdeHistorialSinRubro = tiempos
+      .filter(t => !pesablesPorPlu.has(t.plu))
       .map(t => ({
-        plu: t.plu, nombre: t.producto, presentacion: '',
+        plu: t.plu, nombre: t.producto, presentacion: presentacionDe(t.producto),
         minPorPaquete: t.minPorPaquete, paquetesHistoricos: t.paquetes,
         cargas: t.cargas, tieneHistorial: t.minPorPaquete != null,
       }));
 
     const buscar = String(req.query.buscar || '').trim().toLowerCase();
-    const productos = [...desdeCatalogo, ...desdeHistorialSinCatalogo]
+    const productos = [...desdePesables, ...desdeHistorialSinRubro]
       .filter(p => !buscar || String(p.nombre || '').toLowerCase().includes(buscar))
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
     return { productos };
