@@ -110,7 +110,9 @@
     let productos;
     try {
       const r = await fetch('/api/fraccionado-externo/productos?buscar=' + encodeURIComponent(q));
-      ({ productos } = await r.json());
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || 'No se pudieron buscar productos'); return; }
+      productos = data.productos;
     } catch (e) {
       alert('No se pudo conectar con el servidor');
       return;
@@ -149,7 +151,10 @@
     const min = Number(it.minPorPaquete) || 0;
     const paq = Number(it.paquetes) || 0;
     const factor = Number(it.factorComplejidad) || 0;
-    const unitario = (valorHora() / 60) * min * factor;
+    // Mismo orden que calcularCostoItem en lib/fraccionado_externo.js: redondear el unitario
+    // primero y derivar el total de ahí, para que el preview del carrito coincida siempre con
+    // lo que termina guardado y en el PDF.
+    const unitario = Math.round((valorHora() / 60) * min * factor);
     return { unitario, total: unitario * paq };
   }
 
@@ -169,9 +174,9 @@
           </td>
           <td class="py-2 pr-2 text-right"><input type="number" step="1" min="1" value="${it.paquetes}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="paquetes" data-i="${i}"></td>
           <td class="py-2 pr-2 text-right"><input type="number" step="0.05" min="0.1" value="${it.factorComplejidad}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="factorComplejidad" data-i="${i}"></td>
-          <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${Math.round(unitario)}</td>
-          <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${Math.round(total)}</td>
-          <td class="py-2 text-right"><button type="button" class="text-red-500 text-xs" data-quitar="${it.plu}">quitar</button></td>
+          <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${unitario}</td>
+          <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${total}</td>
+          <td class="py-2 text-right"><button type="button" class="text-red-500 text-xs" data-quitar="${escAttr(it.plu)}">quitar</button></td>
         </tr>`;
     }).join('');
     tbody.querySelectorAll('[data-campo]').forEach(inp => inp.addEventListener('input', () => {
@@ -187,14 +192,14 @@
   function actualizarCostosFila(i) {
     const { unitario, total } = costoItem(carrito[i]);
     const tbody = document.getElementById('carrito');
-    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + Math.round(unitario);
-    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + Math.round(total);
+    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + unitario;
+    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + total;
     actualizarTotalGeneral();
   }
 
   function actualizarTotalGeneral() {
     const totalGeneral = carrito.reduce((s, it) => s + costoItem(it).total, 0);
-    document.getElementById('totalPedido').textContent = '$' + Math.round(totalGeneral);
+    document.getElementById('totalPedido').textContent = '$' + totalGeneral;
   }
 
   document.getElementById('valorHora').addEventListener('input', renderCarrito);
@@ -254,7 +259,9 @@
     let pedidos;
     try {
       const r = await fetch('/api/fraccionado-externo/pedidos');
-      ({ pedidos } = await r.json());
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || 'No se pudieron cargar los pedidos'); return; }
+      pedidos = data.pedidos;
     } catch (e) {
       alert('No se pudo conectar con el servidor');
       return;
