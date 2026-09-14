@@ -605,8 +605,12 @@
 
     <!-- PRIORITARIOS -->
     <section class="panel" id="panel-prioritarios">
-      <div style="padding:12px 14px 0">
+      <div style="padding:12px 14px 0;display:flex;gap:8px;align-items:center">
         <button class="primary" onclick="generarPrioritarios()">↻ Generar Top 40</button>
+        <div id="sucFiltrosPr" style="position:relative">
+          <button class="rubro-btn" id="sucBtnPr" onclick="toggleSucDropdownPr()">Sucursales <span id="sucBtnPrCount"></span>▾</button>
+          <div class="rubro-drop" id="sucDropPr" style="display:none"></div>
+        </div>
       </div>
       <div class="state" id="state-pr"><div class="spinner"></div><div>Cargando prioritarios…</div></div>
       <table id="tabla-pr" style="display:none">
@@ -1282,6 +1286,54 @@ function origenBadgePr(origen) {
   const o = ORIGEN_PR[origen] || ORIGEN_PR.null;
   return `<span style="background:${o.bg};color:${o.color};font-weight:700;padding:2px 8px;border-radius:5px;${o.border}font-size:11px;white-space:nowrap">${o.label}</span>`;
 }
+// Filtro de columnas por sucursal (Prioritarios) — dropdown. SUC_A/SUC_P están alineados por índice
+// (mismos 7 nombres, mismo orden), así que el filtro guarda índices en vez de claves.
+let sucVisPr = new Set(SUC_A.map((_, i) => i));
+let sucDesplegadoPr = false;
+let listaPrActual = [];
+function renderSucDropPr() {
+  document.getElementById('sucDropPr').innerHTML =
+    `<div class="rubro-opt-clear" onclick="todasSucPr()">Mostrar todas</div>` +
+    SUC_A.map(([, n], i) => `<label class="rubro-opt"><input type="checkbox" ${sucVisPr.has(i) ? 'checked' : ''} onchange="toggleSucPr(${i},this.checked)"><span>${n}</span></label>`).join('');
+}
+function toggleSucPr(i, on) { on ? sucVisPr.add(i) : sucVisPr.delete(i); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
+function todasSucPr() { SUC_A.forEach((_, i) => sucVisPr.add(i)); renderSucDropPr(); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
+function actualizarSucBtnPr() {
+  const oculto = SUC_A.length - sucVisPr.size;
+  document.getElementById('sucBtnPrCount').textContent = oculto ? `(${sucVisPr.size}/${SUC_A.length}) ` : '';
+  document.getElementById('sucBtnPr').classList.toggle('active', oculto > 0);
+}
+function toggleSucDropdownPr() {
+  sucDesplegadoPr = !sucDesplegadoPr;
+  document.getElementById('sucDropPr').style.display = sucDesplegadoPr ? '' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('sucFiltrosPr').contains(e.target)) {
+    sucDesplegadoPr = false;
+    document.getElementById('sucDropPr').style.display = 'none';
+  }
+});
+// Orden por header (Prioritarios). Columnas de sucursal usan clave 's<índice>'.
+let ordenPr = { col: 'posicion', dir: 1 };
+function valorPr(p, col) {
+  if (col === 'posicion') return p.posicion ?? 0;
+  if (col === 'plu') return p.idProd ?? 0;
+  if (col === 'nombre') return (p.nombre || (p.fila && p.fila.nombre) || '').toLowerCase();
+  if (col === 'origen') return p.origen || '';
+  if (col === 'total') {
+    if (p.origen === 'almacen') return totalEnviar(p.fila);
+    if (p.origen === 'pesable') return sumEnvP(p.fila);
+    return 0;
+  }
+  const m = /^s(\d)$/.exec(col);
+  if (m) {
+    const idx = Number(m[1]);
+    if (p.origen === 'almacen') { const k = SUC_A[idx][0]; return esNum(p.fila.enviar[k]) ? p.fila.enviar[k] : 0; }
+    if (p.origen === 'pesable') { const k = SUC_P[idx][0]; return esNum(p.fila.enviar[k]) ? p.fila.enviar[k] : 0; }
+    return 0;
+  }
+  return 0;
+}
 // Réplica liviana del resaltado de celdas "enviar" de render()/renderP() (Fact/Restringido/positivo/·).
 function celdaEnviarPr(v, fmtFn) {
   if (v === 'Fact') return '<span style="background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em">Fact</span>';
@@ -1302,29 +1354,47 @@ function celdaStockPr(stkRaw, sRaw, fmtFn) {
   return `<td class="env stk"${style ? ` style="${style}"` : ''}>${stk ? fmtFn(stk) : '·'}</td>`;
 }
 function renderPrioritarios(lista) {
-  const fila1 = ['Pos.', 'PLU', 'Producto', 'Origen'].map(n => `<th rowspan="2">${n}</th>`).join('')
-    + SUC_A.map(([, n]) => `<th class="suc" colspan="2">${n}</th>`).join('')
-    + `<th rowspan="2">A enviar</th>`;
-  const fila2 = SUC_A.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
+  listaPrActual = lista;
+  renderSucDropPr(); actualizarSucBtnPr();
+  const sucIdx = SUC_A.map((_, i) => i).filter(i => sucVisPr.has(i));
+  const arOf = k => ordenPr.col === k ? `<span class="ar">${ordenPr.dir < 0 ? '▼' : '▲'}</span>` : '';
+  const fijos = [['posicion', 'Pos.'], ['plu', 'PLU'], ['nombre', 'Producto'], ['origen', 'Origen']];
+  const fila1 = fijos.map(([k, n]) => `<th data-col="${k}" rowspan="2">${n} ${arOf(k)}</th>`).join('')
+    + sucIdx.map(i => `<th class="suc" data-col="s${i}" colspan="2">${SUC_A[i][1]} ${arOf('s' + i)}</th>`).join('')
+    + `<th data-col="total" rowspan="2">A enviar ${arOf('total')}</th>`;
+  const fila2 = sucIdx.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
   document.querySelector('#tabla-pr thead').innerHTML = `<tr>${fila1}</tr><tr>${fila2}</tr>`;
+  document.querySelectorAll('#tabla-pr thead th[data-col]').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (ordenPr.col === c) ordenPr.dir *= -1; else { ordenPr.col = c; ordenPr.dir = (c === 'plu' || c === 'nombre' || c === 'origen') ? 1 : -1; }
+    renderPrioritarios(listaPrActual);
+  });
   if (!lista.length) {
-    document.getElementById('body-pr').innerHTML = '<tr><td colspan="19" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
+    document.getElementById('body-pr').innerHTML = `<tr><td colspan="${fijos.length + sucIdx.length * 2 + 1}" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>`;
     return;
   }
-  document.getElementById('body-pr').innerHTML = lista.map(p => {
+  const listaOrd = [...lista].sort((a, b) => {
+    const va = valorPr(a, ordenPr.col), vb = valorPr(b, ordenPr.col);
+    if (va < vb) return -1 * ordenPr.dir;
+    if (va > vb) return 1 * ordenPr.dir;
+    return 0;
+  });
+  document.getElementById('body-pr').innerHTML = listaOrd.map(p => {
     const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
     let totalTxt = '·', prioTxt = '·';
-    let sucTds = SUC_A.map(() => '<td>·</td><td>·</td>').join('');
+    let sucTds = sucIdx.map(() => '<td>·</td><td>·</td>').join('');
     if (p.origen === 'almacen') {
       totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3);
-      sucTds = SUC_A.map(([k]) => {
+      sucTds = sucIdx.map(i => {
+        const [k] = SUC_A[i];
         const stkTd = celdaStockPr((p.fila.stkSuc || {})[k], (p.fila.sSuc || {})[k], fmtA);
         if (esMicro(p.fila, k)) { const mi = microInfo(p.fila, k); return `${stkTd}<td><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
         return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
       }).join('');
     } else if (p.origen === 'pesable') {
       totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3);
-      sucTds = SUC_P.map(([k]) => {
+      sucTds = sucIdx.map(i => {
+        const [k] = SUC_P[i];
         const stkTd = celdaStockPr((p.fila.stkSuc || {})[k], (p.fila.sLev || {})[k], fmt);
         return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`;
       }).join('');
