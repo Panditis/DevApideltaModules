@@ -1082,7 +1082,7 @@ async function sinInsumosSQLPrioritarios() {
   return condicionSinInsumosPrioritarios;
 }
 
-const DIAS_TOP20_PRIORITARIOS = 30;
+const DIAS_TOP20_PRIORITARIOS = 45;
 const TOP_N_PRIORITARIOS = 40;
 
 // Top 20 por facturación de los últimos 30 días, mismo alcance de sucursales y mismo
