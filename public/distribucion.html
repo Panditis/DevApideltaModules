@@ -135,6 +135,12 @@
   tbody tr{animation:rise .35s both}
   @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
+  /* ── Prioritarios: separador entre bloques de sucursal y entre filas ── */
+  #tabla-pr thead tr:first-child th.suc,
+  #tabla-pr thead tr:nth-child(2) th:nth-child(odd){border-left:2px solid var(--verde-dark)}
+  #tabla-pr tbody td:nth-child(2n+5):nth-child(-n+17){border-left:2px solid var(--border)}
+  #tabla-pr tbody td{border-bottom:2px solid var(--border)}
+
   /* ── States ── */
   .state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--muted);padding:40px;text-align:center}
   .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--verde);border-radius:50%;animation:spin .8s linear infinite}
@@ -1298,11 +1304,11 @@ function celdaStockPr(stkRaw, sRaw, fmtFn) {
 function renderPrioritarios(lista) {
   const fila1 = ['Pos.', 'PLU', 'Producto', 'Origen'].map(n => `<th rowspan="2">${n}</th>`).join('')
     + SUC_A.map(([, n]) => `<th class="suc" colspan="2">${n}</th>`).join('')
-    + ['A enviar', 'Prioridad'].map(n => `<th rowspan="2">${n}</th>`).join('');
+    + `<th rowspan="2">A enviar</th>`;
   const fila2 = SUC_A.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
   document.querySelector('#tabla-pr thead').innerHTML = `<tr>${fila1}</tr><tr>${fila2}</tr>`;
   if (!lista.length) {
-    document.getElementById('body-pr').innerHTML = '<tr><td colspan="20" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
+    document.getElementById('body-pr').innerHTML = '<tr><td colspan="19" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
     return;
   }
   document.getElementById('body-pr').innerHTML = lista.map(p => {
@@ -1324,13 +1330,12 @@ function renderPrioritarios(lista) {
       }).join('');
     }
     return `<tr>
-      <td>${p.posicion}</td>
+      <td title="Prioridad: ${prioTxt}">${p.posicion}</td>
       <td class="l plu">${p.idProd}</td>
       <td class="l nombre">${nombre}</td>
       <td>${origenBadgePr(p.origen)}</td>
       ${sucTds}
       <td class="tot">${totalTxt}</td>
-      <td class="imp">${prioTxt}</td>
     </tr>`;
   }).join('');
 }
