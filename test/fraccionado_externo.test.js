@@ -16,6 +16,14 @@ test('calcularCostoItem aplica el factor de complejidad como multiplicador', () 
   assert.strictEqual(r.costoTotal, 1200);
 });
 
+test('calcularCostoItem deriva costoTotal del costoUnitario ya redondeado (no del valor exacto)', () => {
+  // Antes: costoUnitarioExacto=1.666.. → costoUnitario redondeado a 2, pero costoTotal=round(1.666*7)=12 (no 14).
+  const r = calcularCostoItem({ minPorPaquete: 1, paquetes: 7, factorComplejidad: 1, valorHora: 100 });
+  assert.strictEqual(r.costoUnitario, 2);
+  assert.strictEqual(r.costoTotal, 14);
+  assert.strictEqual(r.costoTotal, r.costoUnitario * 7); // el total siempre cierra con el unitario
+});
+
 test('calcularCostoItem rechaza valores no positivos o no numéricos', () => {
   const base = { minPorPaquete: 1, paquetes: 10, factorComplejidad: 1, valorHora: 6000 };
   assert.throws(() => calcularCostoItem({ ...base, minPorPaquete: 0 }), /minPorPaquete/);
@@ -38,6 +46,18 @@ test('construirItemPedido rechaza origenTiempo inválido', () => {
   assert.throws(() => construirItemPedido({
     plu: '1', nombre: 'X', minPorPaquete: 1, origenTiempo: 'lo_que_sea', paquetes: 1, factorComplejidad: 1, valorHora: 8100,
   }), /origenTiempo/);
+});
+
+test('construirItemPedido rechaza PLU faltante', () => {
+  assert.throws(() => construirItemPedido({
+    plu: '', nombre: 'X', minPorPaquete: 1, origenTiempo: 'historial', paquetes: 1, factorComplejidad: 1, valorHora: 8100,
+  }), /PLU/);
+});
+
+test('construirItemPedido rechaza nombre faltante', () => {
+  assert.throws(() => construirItemPedido({
+    plu: '1', nombre: '', minPorPaquete: 1, origenTiempo: 'historial', paquetes: 1, factorComplejidad: 1, valorHora: 8100,
+  }), /nombre/);
 });
 
 test('siguienteNumero arranca en FE-0001 con lista vacía', () => {
@@ -65,6 +85,19 @@ test('construirPedido arma el pedido con total y rechaza items vacíos o tercero
   assert.throws(() => construirPedido({ numero: 'FE-0002', fechaISO: '2026-09-14', tercero: '', valorHora: 8100, items }), /tercero/);
 });
 
+test('construirPedido rechaza valorHora inválido', () => {
+  const items = [{
+    plu: '1101', nombre: 'Oregano Premium 50G', presentacion: '50G',
+    minPorPaquete: 0.31, origenTiempo: 'historial', paquetes: 400, factorComplejidad: 1.15,
+  }];
+  assert.throws(() => construirPedido({
+    numero: 'FE-0001', fechaISO: '2026-09-14', tercero: 'Fraccionadora Sur', valorHora: 0, items,
+  }), /valorHora/);
+  assert.throws(() => construirPedido({
+    numero: 'FE-0001', fechaISO: '2026-09-14', tercero: 'Fraccionadora Sur', valorHora: NaN, items,
+  }), /valorHora/);
+});
+
 test('anularPedido cambia el estado y agrega al historial, sin mutar el original', () => {
   const pedido = { numero: 'FE-0001', estado: 'PENDIENTE', historial: [{ ts: 't0', accion: 'creado' }] };
   const anulado = anularPedido(pedido, { ts: 't1', usuario: 'ana' });
@@ -72,4 +105,9 @@ test('anularPedido cambia el estado y agrega al historial, sin mutar el original
   assert.strictEqual(anulado.historial.length, 2);
   assert.strictEqual(pedido.estado, 'PENDIENTE'); // original sin mutar
   assert.throws(() => anularPedido(anulado, { ts: 't2' }), /ya está anulado/);
+});
+
+test('anularPedido rechaza pedido ausente', () => {
+  assert.throws(() => anularPedido(null, { ts: 't1' }), /pedido/);
+  assert.throws(() => anularPedido(undefined, { ts: 't1' }), /pedido/);
 });
