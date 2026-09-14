@@ -86,6 +86,8 @@
 <script>
   const carrito = []; // { plu, nombre, presentacion, minPorPaquete, origenTiempo, paquetes, factorComplejidad }
 
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
   document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
@@ -105,11 +107,17 @@
     const q = buscarInput.value.trim();
     const contenedor = document.getElementById('resultados');
     if (!q) { contenedor.innerHTML = ''; return; }
-    const r = await fetch('/api/fraccionado-externo/productos?buscar=' + encodeURIComponent(q));
-    const { productos } = await r.json();
+    let productos;
+    try {
+      const r = await fetch('/api/fraccionado-externo/productos?buscar=' + encodeURIComponent(q));
+      ({ productos } = await r.json());
+    } catch (e) {
+      alert('No se pudo conectar con el servidor');
+      return;
+    }
     contenedor.innerHTML = productos.slice(0, 30).map(p => `
       <button type="button" class="w-full text-left py-2 px-1 hover:bg-stone-50 flex justify-between items-center" data-agregar='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
-        <span>${p.nombre} <span class="text-stone-400">(${p.presentacion || 'sin presentación'})</span></span>
+        <span>${escAttr(p.nombre)} <span class="text-stone-400">(${escAttr(p.presentacion || 'sin presentación')})</span></span>
         <span class="text-xs ${p.tieneHistorial ? 'text-emerald-600' : 'text-amber-600'}">${p.tieneHistorial ? p.minPorPaquete + ' min/paq' : 'sin historial'}</span>
       </button>
     `).join('');
@@ -153,7 +161,7 @@
       const { unitario, total } = costoItem(it);
       return `
         <tr class="border-t border-stone-100">
-          <td class="py-2 pr-2">${it.nombre}<div class="text-xs text-stone-400">${it.presentacion || ''}</div></td>
+          <td class="py-2 pr-2">${escAttr(it.nombre)}<div class="text-xs text-stone-400">${escAttr(it.presentacion || '')}</div></td>
           <td class="py-2 pr-2">
             <input type="number" step="0.01" min="0.001" value="${it.minPorPaquete ?? ''}" placeholder="manual"
               class="border border-stone-300 rounded px-1 py-0.5 w-20 ${it.origenTiempo === 'manual' ? 'bg-amber-50' : ''}"
@@ -161,17 +169,30 @@
           </td>
           <td class="py-2 pr-2 text-right"><input type="number" step="1" min="1" value="${it.paquetes}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="paquetes" data-i="${i}"></td>
           <td class="py-2 pr-2 text-right"><input type="number" step="0.05" min="0.1" value="${it.factorComplejidad}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="factorComplejidad" data-i="${i}"></td>
-          <td class="py-2 pr-2 text-right">$${Math.round(unitario)}</td>
-          <td class="py-2 pr-2 text-right font-medium">$${Math.round(total)}</td>
+          <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${Math.round(unitario)}</td>
+          <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${Math.round(total)}</td>
           <td class="py-2 text-right"><button type="button" class="text-red-500 text-xs" data-quitar="${it.plu}">quitar</button></td>
         </tr>`;
     }).join('');
     tbody.querySelectorAll('[data-campo]').forEach(inp => inp.addEventListener('input', () => {
-      carrito[Number(inp.dataset.i)][inp.dataset.campo] = inp.value;
-      if (inp.dataset.campo === 'minPorPaquete') carrito[Number(inp.dataset.i)].origenTiempo = 'manual';
-      renderCarrito();
+      const i = Number(inp.dataset.i);
+      carrito[i][inp.dataset.campo] = inp.value;
+      if (inp.dataset.campo === 'minPorPaquete') carrito[i].origenTiempo = 'manual';
+      actualizarCostosFila(i);
     }));
     tbody.querySelectorAll('[data-quitar]').forEach(btn => btn.addEventListener('click', () => quitarProducto(btn.dataset.quitar)));
+    actualizarTotalGeneral();
+  }
+
+  function actualizarCostosFila(i) {
+    const { unitario, total } = costoItem(carrito[i]);
+    const tbody = document.getElementById('carrito');
+    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + Math.round(unitario);
+    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + Math.round(total);
+    actualizarTotalGeneral();
+  }
+
+  function actualizarTotalGeneral() {
     const totalGeneral = carrito.reduce((s, it) => s + costoItem(it).total, 0);
     document.getElementById('totalPedido').textContent = '$' + Math.round(totalGeneral);
   }
@@ -190,11 +211,17 @@
       minPorPaquete: Number(it.minPorPaquete), origenTiempo: it.origenTiempo,
       paquetes: Number(it.paquetes), factorComplejidad: Number(it.factorComplejidad),
     }));
-    const r = await fetch('/api/fraccionado-externo/pedidos', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tercero, valorHora: valorHora(), items }),
-    });
-    const data = await r.json();
+    let r, data;
+    try {
+      r = await fetch('/api/fraccionado-externo/pedidos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tercero, valorHora: valorHora(), items }),
+      });
+      data = await r.json();
+    } catch (e) {
+      alert('No se pudo conectar con el servidor');
+      return;
+    }
     if (!r.ok) { alert(data.error || 'No se pudo generar el pedido'); return; }
     imprimirPedido(data.pedido);
     carrito.length = 0;
@@ -224,18 +251,24 @@
   }
 
   async function cargarPedidos() {
-    const r = await fetch('/api/fraccionado-externo/pedidos');
-    const { pedidos } = await r.json();
+    let pedidos;
+    try {
+      const r = await fetch('/api/fraccionado-externo/pedidos');
+      ({ pedidos } = await r.json());
+    } catch (e) {
+      alert('No se pudo conectar con el servidor');
+      return;
+    }
     document.getElementById('listaPedidos').innerHTML = pedidos.slice().reverse().map(p => `
       <tr class="border-t border-stone-100">
-        <td class="py-2 pr-2">${p.numero}</td>
-        <td class="py-2 pr-2">${p.fecha}</td>
-        <td class="py-2 pr-2">${p.tercero}</td>
+        <td class="py-2 pr-2">${escAttr(p.numero)}</td>
+        <td class="py-2 pr-2">${escAttr(p.fecha)}</td>
+        <td class="py-2 pr-2">${escAttr(p.tercero)}</td>
         <td class="py-2 pr-2 text-right">$${p.total}</td>
-        <td class="py-2 pr-2">${p.estado}</td>
+        <td class="py-2 pr-2">${escAttr(p.estado)}</td>
         <td class="py-2 text-right space-x-2">
-          <button type="button" class="text-xs text-stone-600" data-reimprimir="${p.numero}">PDF</button>
-          ${p.estado === 'PENDIENTE' ? `<button type="button" class="text-xs text-red-500" data-anular="${p.numero}">anular</button>` : ''}
+          <button type="button" class="text-xs text-stone-600" data-reimprimir="${escAttr(p.numero)}">PDF</button>
+          ${p.estado === 'PENDIENTE' ? `<button type="button" class="text-xs text-red-500" data-anular="${escAttr(p.numero)}">anular</button>` : ''}
         </td>
       </tr>`).join('');
     document.querySelectorAll('[data-reimprimir]').forEach(btn => btn.addEventListener('click', () => {
@@ -243,7 +276,14 @@
     }));
     document.querySelectorAll('[data-anular]').forEach(btn => btn.addEventListener('click', async () => {
       if (!confirm('¿Anular el pedido ' + btn.dataset.anular + '?')) return;
-      await fetch(`/api/fraccionado-externo/pedidos/${btn.dataset.anular}/anular`, { method: 'POST' });
+      try {
+        const r = await fetch(`/api/fraccionado-externo/pedidos/${btn.dataset.anular}/anular`, { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(data.error || 'No se pudo anular el pedido'); return; }
+      } catch (e) {
+        alert('No se pudo conectar con el servidor');
+        return;
+      }
       cargarPedidos();
     }));
   }
