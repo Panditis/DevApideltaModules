@@ -2542,6 +2542,11 @@ app.use(require('./routes/rutas_productividad')({
   REF_SALA_PATH, REF_PROD_PATH, LISTA_PRECIOS_VENTA,
 }));
 
+app.use(require('./routes/rutas_fraccionado_externo')({
+  apiRoute, leerJSON, CATALOGO_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
+  leerPedidosFraccionadoExterno, guardarPedidosFraccionadoExterno,
+}));
+
 // Precios de proveedores: mismo criterio, DATA_DIR es un const que no se hoistea.
 app.use(require('./routes/rutas_precios_proveedores')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR }));
 
