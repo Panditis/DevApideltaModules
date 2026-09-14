@@ -46,7 +46,9 @@
         <thead>
           <tr class="text-left text-xs text-stone-500 uppercase">
             <th class="py-2 pr-2">Producto</th>
+            <th class="py-2 pr-2">Presentación</th>
             <th class="py-2 pr-2">Min./paquete</th>
+            <th class="py-2 pr-2 text-right">Kilos</th>
             <th class="py-2 pr-2 text-right">Paquetes</th>
             <th class="py-2 pr-2 text-right">Factor</th>
             <th class="py-2 pr-2 text-right">Costo unit.</th>
@@ -134,7 +136,7 @@
       plu: p.plu, nombre: p.nombre, presentacion: p.presentacion,
       minPorPaquete: p.tieneHistorial ? p.minPorPaquete : null,
       origenTiempo: p.tieneHistorial ? 'historial' : 'manual',
-      paquetes: 1, factorComplejidad: 1.00,
+      kilos: 1, factorComplejidad: 1.00,
     });
     renderCarrito();
   }
@@ -147,15 +149,33 @@
 
   function valorHora() { return Number(document.getElementById('valorHora').value) || 0; }
 
+  // Mismo regex/criterio que pesoPresentacionKg en lib/productividad.js: la presentación es un
+  // token limpio tipo "500G"/"1Kg", no el nombre completo del producto.
+  function pesoPresentacionKg(presentacion) {
+    const m = /^(\d+(?:[.,]\d+)?)\s*(KG|GR?|ML|L)$/i.exec(String(presentacion || '').trim());
+    if (!m) return null;
+    const v = parseFloat(m[1].replace(',', '.'));
+    const u = m[2].toUpperCase();
+    return (u === 'KG' || u === 'L') ? v : v / 1000;
+  }
+
+  // La cantidad que carga el usuario es en kilos (lo que le va a entregar al tercero), no en
+  // paquetes — el paquete sale solo de kilos / peso de la presentación.
+  function paquetesDe(it) {
+    const peso = pesoPresentacionKg(it.presentacion);
+    const kilos = Number(it.kilos) || 0;
+    return peso ? kilos / peso : 0;
+  }
+
   function costoItem(it) {
     const min = Number(it.minPorPaquete) || 0;
-    const paq = Number(it.paquetes) || 0;
+    const paq = paquetesDe(it);
     const factor = Number(it.factorComplejidad) || 0;
     // Mismo orden que calcularCostoItem en lib/fraccionado_externo.js: redondear el unitario
     // primero y derivar el total de ahí, para que el preview del carrito coincida siempre con
     // lo que termina guardado y en el PDF.
     const unitario = Math.round((valorHora() / 60) * min * factor);
-    return { unitario, total: unitario * paq };
+    return { unitario, total: unitario * paq, paquetes: paq };
   }
 
   function renderCarrito() {
@@ -163,16 +183,21 @@
     document.getElementById('carritoVacio').classList.toggle('hidden', carrito.length > 0);
     document.getElementById('btnGenerar').disabled = carrito.length === 0;
     tbody.innerHTML = carrito.map((it, i) => {
-      const { unitario, total } = costoItem(it);
+      const { unitario, total, paquetes } = costoItem(it);
       return `
         <tr class="border-t border-stone-100">
-          <td class="py-2 pr-2">${escAttr(it.nombre)}<div class="text-xs text-stone-400">${escAttr(it.presentacion || '')}</div></td>
+          <td class="py-2 pr-2">${escAttr(it.nombre)}</td>
+          <td class="py-2 pr-2">
+            <input type="text" value="${escAttr(it.presentacion || '')}" placeholder="ej. 500G"
+              class="border border-stone-300 rounded px-1 py-0.5 w-20" data-campo="presentacion" data-i="${i}">
+          </td>
           <td class="py-2 pr-2">
             <input type="number" step="0.01" min="0.001" value="${it.minPorPaquete ?? ''}" placeholder="manual"
               class="border border-stone-300 rounded px-1 py-0.5 w-20 ${it.origenTiempo === 'manual' ? 'bg-amber-50' : ''}"
               data-campo="minPorPaquete" data-i="${i}">
           </td>
-          <td class="py-2 pr-2 text-right"><input type="number" step="1" min="1" value="${it.paquetes}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="paquetes" data-i="${i}"></td>
+          <td class="py-2 pr-2 text-right"><input type="number" step="0.1" min="0.01" value="${it.kilos}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="kilos" data-i="${i}"></td>
+          <td class="py-2 pr-2 text-right text-stone-500" data-paquetes="${i}">${paquetes ? paquetes.toFixed(1) : '—'}</td>
           <td class="py-2 pr-2 text-right"><input type="number" step="0.05" min="0.1" value="${it.factorComplejidad}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="factorComplejidad" data-i="${i}"></td>
           <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${unitario}</td>
           <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${total}</td>
@@ -190,8 +215,9 @@
   }
 
   function actualizarCostosFila(i) {
-    const { unitario, total } = costoItem(carrito[i]);
+    const { unitario, total, paquetes } = costoItem(carrito[i]);
     const tbody = document.getElementById('carrito');
+    tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? paquetes.toFixed(1) : '—';
     tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + unitario;
     tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + total;
     actualizarTotalGeneral();
@@ -211,10 +237,13 @@
     if (carrito.some(it => !Number(it.minPorPaquete) || Number(it.minPorPaquete) <= 0)) {
       alert('Hay productos sin minutos por paquete cargados'); return;
     }
+    if (carrito.some(it => !paquetesDe(it))) {
+      alert('Hay productos sin kilos o con una presentación inválida (ej. "500G", "1Kg")'); return;
+    }
     const items = carrito.map(it => ({
       plu: it.plu, nombre: it.nombre, presentacion: it.presentacion,
       minPorPaquete: Number(it.minPorPaquete), origenTiempo: it.origenTiempo,
-      paquetes: Number(it.paquetes), factorComplejidad: Number(it.factorComplejidad),
+      kilos: Number(it.kilos), paquetes: paquetesDe(it), factorComplejidad: Number(it.factorComplejidad),
     }));
     let r, data;
     try {
@@ -244,12 +273,12 @@
     doc.text(`Valor hora: $${pedido.valorHora}`, 14, 38);
     doc.autoTable({
       startY: 44,
-      head: [['Producto', 'Presentación', 'Min/paq', 'Paquetes', 'Factor', 'Costo unit.', 'Costo total']],
+      head: [['Producto', 'Presentación', 'Min/paq', 'Kilos', 'Paquetes', 'Factor', 'Costo unit.', 'Costo total']],
       body: pedido.items.map(it => [
-        it.nombre, it.presentacion, it.minPorPaquete, it.paquetes, it.factorComplejidad,
+        it.nombre, it.presentacion, it.minPorPaquete, it.kilos ?? '', it.paquetes, it.factorComplejidad,
         '$' + it.costoUnitario, '$' + it.costoTotal,
       ]),
-      foot: [['', '', '', '', '', 'Total', '$' + pedido.total]],
+      foot: [['', '', '', '', '', '', 'Total', '$' + pedido.total]],
       styles: { fontSize: 9 },
     });
     doc.save(`pedido-fraccionado-${pedido.numero}.pdf`);
