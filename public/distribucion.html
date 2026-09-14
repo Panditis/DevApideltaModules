@@ -74,7 +74,6 @@
   .tipo-toast.min .tipo-toast-n{display:inline}
   .tipo-sin td{background:rgba(245,158,11,.10)!important}
   .tipo-sin td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
-  .pr-plu-envio{background:#d97706;color:#fff;font-weight:700;padding:2px 8px;border-radius:5px;display:inline-block}
   .cfg-tabs-on .cfg-tab{display:flex}
 
   /* ── Meta / controls ── */
@@ -605,7 +604,7 @@
       </div>
       <div class="state" id="state-pr"><div class="spinner"></div><div>Cargando prioritarios…</div></div>
       <table id="tabla-pr" style="display:none">
-        <thead><tr id="head-pr"></tr></thead>
+        <thead></thead>
         <tbody id="body-pr"></tbody>
       </table>
     </section>
@@ -1286,33 +1285,47 @@ function celdaEnviarPr(v, fmtFn) {
     ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtFn(n)}</span>`
     : '<span>·</span>';
 }
+// Celda de stock por sucursal: rojo si es 0, naranja si es <10% de S (nivel ideal). Sin dato real (undefined) → '·' sin color.
+function celdaStockPr(stkRaw, sRaw, fmtFn) {
+  const tieneStk = esNum(stkRaw);
+  const stk = tieneStk ? stkRaw : 0;
+  const S = esNum(sRaw) ? sRaw : 0;
+  let style = '';
+  if (tieneStk && stk === 0) style = 'background:rgba(192,57,43,.15);color:#c0392b';
+  else if (tieneStk && stk > 0 && S > 0 && stk < 0.10 * S) style = 'background:rgba(245,158,11,.18);color:#92400e';
+  return `<td class="env stk"${style ? ` style="${style}"` : ''}>${stk ? fmtFn(stk) : '·'}</td>`;
+}
 function renderPrioritarios(lista) {
-  document.getElementById('head-pr').innerHTML =
-    ['Pos.', 'PLU', 'Producto', 'Origen', ...SUC_A.map(s => s[1]), 'A enviar', 'Prioridad'].map(n => `<th>${n}</th>`).join('');
+  const fila1 = ['Pos.', 'PLU', 'Producto', 'Origen'].map(n => `<th rowspan="2">${n}</th>`).join('')
+    + SUC_A.map(([, n]) => `<th class="suc" colspan="2">${n}</th>`).join('')
+    + ['A enviar', 'Prioridad'].map(n => `<th rowspan="2">${n}</th>`).join('');
+  const fila2 = SUC_A.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
+  document.querySelector('#tabla-pr thead').innerHTML = `<tr>${fila1}</tr><tr>${fila2}</tr>`;
   if (!lista.length) {
-    document.getElementById('body-pr').innerHTML = '<tr><td colspan="13" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
+    document.getElementById('body-pr').innerHTML = '<tr><td colspan="20" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
     return;
   }
   document.getElementById('body-pr').innerHTML = lista.map(p => {
     const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
     let totalTxt = '·', prioTxt = '·';
-    let sucTds = SUC_A.map(() => '<td>·</td>').join('');
-    let conEnvio = false;
+    let sucTds = SUC_A.map(() => '<td>·</td><td>·</td>').join('');
     if (p.origen === 'almacen') {
       totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3);
-      conEnvio = SUC_A.some(([k]) => esMicro(p.fila, k) || (esNum(p.fila.enviar[k]) && p.fila.enviar[k] > 0));
       sucTds = SUC_A.map(([k]) => {
-        if (esMicro(p.fila, k)) { const mi = microInfo(p.fila, k); return `<td><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
-        return `<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
+        const stkTd = celdaStockPr((p.fila.stkSuc || {})[k], (p.fila.sSuc || {})[k], fmtA);
+        if (esMicro(p.fila, k)) { const mi = microInfo(p.fila, k); return `${stkTd}<td><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
+        return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
       }).join('');
     } else if (p.origen === 'pesable') {
       totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3);
-      conEnvio = SUC_P.some(([k]) => esNum(p.fila.enviar[k]) && p.fila.enviar[k] > 0);
-      sucTds = SUC_P.map(([k]) => `<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`).join('');
+      sucTds = SUC_P.map(([k]) => {
+        const stkTd = celdaStockPr((p.fila.stkSuc || {})[k], (p.fila.sLev || {})[k], fmt);
+        return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`;
+      }).join('');
     }
     return `<tr>
       <td>${p.posicion}</td>
-      <td class="l plu">${conEnvio ? `<span class="pr-plu-envio">${p.idProd}</span>` : p.idProd}</td>
+      <td class="l plu">${p.idProd}</td>
       <td class="l nombre">${nombre}</td>
       <td>${origenBadgePr(p.origen)}</td>
       ${sucTds}
