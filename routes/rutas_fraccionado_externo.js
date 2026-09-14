@@ -29,30 +29,53 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
     );
   }
 
+  // Peso de una presentación aislada tal cual la tiene el catálogo (ej. "50G") — el nombre
+  // completo de una carga ("Oregano Premium 50G") no matchea ese regex anclado, por eso el
+  // fallback de más abajo extrae primero el token de peso al final del nombre.
+  const PESO_AL_FINAL_DEL_NOMBRE = /(\d+(?:[.,]\d+)?\s*(?:KG|GR?|ML|L))\s*$/i;
+
   router.get('/api/fraccionado-externo/productos', apiRoute(async req => {
     // esVariante son bultos/repackaging mayorista, no el paquete individual que fracciona el
     // tercero — se excluyen del selector.
     const catalogo = leerJSON(CATALOGO_PATH, []).filter(p => p && p.plu != null && !p.esVariante);
-    const pesoDe = plu => {
-      const item = catalogo.find(p => String(p.plu) === plu);
-      return item ? productividad.pesoPresentacionKg(item.presentacion) : null;
+    const catalogoPorPlu = new Map(catalogo.map(p => [String(p.plu), p]));
+
+    // Si el producto no está en el catálogo de ventas (se fraccionó pero nunca se dio de alta
+    // como ítem propio — pasa con condimentos/hierbas que se venden a granel), el peso de la
+    // presentación se saca del nombre con el que quedó cargada la tanda.
+    const pesoDe = (plu, nombreCarga) => {
+      const item = catalogoPorPlu.get(plu);
+      if (item) return productividad.pesoPresentacionKg(item.presentacion);
+      const m = PESO_AL_FINAL_DEL_NOMBRE.exec(String(nombreCarga || '').trim());
+      return m ? productividad.pesoPresentacionKg(m[1]) : null;
     };
     const tiempos = productividad.paquetesRealesPorProducto(cargasFraccionadoCompletas(), pesoDe);
     const tiempoPorPlu = new Map(tiempos.map(t => [t.plu, t]));
 
+    const desdeCatalogo = catalogo.map(p => {
+      const t = tiempoPorPlu.get(String(p.plu));
+      return {
+        plu: String(p.plu), nombre: p.producto, presentacion: p.presentacion || '',
+        minPorPaquete: t ? t.minPorPaquete : null,
+        paquetesHistoricos: t ? t.paquetes : null,
+        cargas: t ? t.cargas : 0,
+        tieneHistorial: !!(t && t.minPorPaquete != null),
+      };
+    });
+    // Productos que se fraccionaron alguna vez pero no están en el catálogo de ventas: sin
+    // esto, algo como el orégano (se vende a granel, nunca tuvo alta propia) queda invisible
+    // para siempre en el buscador aunque tenga historial real.
+    const desdeHistorialSinCatalogo = tiempos
+      .filter(t => !catalogoPorPlu.has(t.plu))
+      .map(t => ({
+        plu: t.plu, nombre: t.producto, presentacion: '',
+        minPorPaquete: t.minPorPaquete, paquetesHistoricos: t.paquetes,
+        cargas: t.cargas, tieneHistorial: t.minPorPaquete != null,
+      }));
+
     const buscar = String(req.query.buscar || '').trim().toLowerCase();
-    const productos = catalogo
-      .filter(p => !buscar || String(p.producto || '').toLowerCase().includes(buscar))
-      .map(p => {
-        const t = tiempoPorPlu.get(String(p.plu));
-        return {
-          plu: String(p.plu), nombre: p.producto, presentacion: p.presentacion || '',
-          minPorPaquete: t ? t.minPorPaquete : null,
-          paquetesHistoricos: t ? t.paquetes : null,
-          cargas: t ? t.cargas : 0,
-          tieneHistorial: !!(t && t.minPorPaquete != null),
-        };
-      })
+    const productos = [...desdeCatalogo, ...desdeHistorialSinCatalogo]
+      .filter(p => !buscar || String(p.nombre || '').toLowerCase().includes(buscar))
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
     return { productos };
   }));
