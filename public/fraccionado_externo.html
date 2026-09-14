@@ -307,12 +307,12 @@
     doc.text(`Tercero: ${pedido.tercero}`, 14, 32);
     doc.autoTable({
       startY: 40,
-      head: [['Producto', 'Presentación', 'Kilos', 'Paquetes', 'Factor', 'Costo unit.', 'Costo total']],
+      head: [['Producto', 'Presentación', 'Kilos', 'Paquetes', 'Costo unit.', 'Costo total']],
       body: pedido.items.map(it => [
-        it.nombre, it.presentacion, it.kilos ?? '', it.paquetes, it.factorComplejidad,
+        it.nombre, it.presentacion, it.kilos ?? '', it.paquetes,
         '$' + it.costoUnitario, '$' + it.costoTotal,
       ]),
-      foot: [['', '', '', '', 'Total', '$' + pedido.total]],
+      foot: [['', '', '', 'Total', '$' + pedido.total]],
       styles: { fontSize: 9 },
     });
     doc.save(`pedido-fraccionado-${pedido.numero}.pdf`);
