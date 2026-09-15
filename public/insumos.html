@@ -5,36 +5,9 @@
 <title>Control de Insumos · Apidelta</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-<script>
-tailwind.config = { theme: { extend: {
-  colors: { verde:'#405936', verdeDark:'#2e4027', verdeHover:'#4f6e42', amarillo:'#FFCC00',
-    bg:'#eef2e9', card:'#ffffff', borde:'#c3c9bc', ink:'#1a1c18',
-    rojo:'#D32F2F', naranja:'#E65100', ambar:'#F57F17', ok:'#388E3C', gris:'#78766c' },
-  fontFamily: { disp:['"Barlow Condensed"','sans-serif'], body:['Roboto','sans-serif'] },
-  boxShadow: { fluent:'0 1px 3px rgba(26,28,24,.08), 0 4px 16px rgba(26,28,24,.06)' } } } };
-</script>
-<style>
-  body{background:#eef2e9;}
-  .acrylic{background:rgba(255,255,255,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
-  th{font-family:'Barlow Condensed';text-transform:uppercase;letter-spacing:.02em;}
-  th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
-  th.sortable:hover{color:#2e4027}
-  tbody tr:hover{background:#f5f8f1}
-  .kpi{border:1px solid #c3c9bc;border-radius:12px;background:#fff;padding:10px 14px;text-align:left;cursor:pointer}
-  .kpi.on{outline:2px solid #405936}
-  .kpi .v{font-family:'Barlow Condensed';font-size:28px;font-weight:700;line-height:1}
-  .kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#5c5f52}
-  .tab{font-family:'Barlow Condensed';font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
-       padding:6px 14px;border-radius:10px 10px 0 0;border:1px solid transparent;color:#5c5f52;cursor:pointer}
-  .tab.on{background:#fff;border-color:#c3c9bc;border-bottom-color:#fff;color:#405936}
-  tr.grupo{background:#f2f6ec;cursor:pointer;font-weight:500}
-  tr.grupo:hover{background:#e9efe0}
-  .spin{display:inline-block;width:14px;height:14px;border:2px solid #c3c9bc;border-top-color:#405936;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
-  @keyframes sp{to{transform:rotate(360deg)}}
-</style>
 </head>
 <body class="font-body text-ink">
 <header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
@@ -137,12 +110,12 @@ tailwind.config = { theme: { extend: {
 
 <script>
 const ESTADO_META = {
-  SIN_STOCK:   { txt:'Sin stock',   cls:'bg-rojo/15 text-rojo',       dot:'#D32F2F' },
-  CRITICO:     { txt:'Crítico',     cls:'bg-rojo/10 text-rojo',       dot:'#e0685f' },
-  BAJO:        { txt:'Bajo',        cls:'bg-naranja/15 text-naranja', dot:'#E65100' },
-  OK:          { txt:'OK',          cls:'bg-ok/15 text-ok',           dot:'#388E3C' },
-  EXCESO:      { txt:'Exceso',      cls:'bg-ambar/20 text-[#8a6d00]', dot:'#F57F17' },
-  SIN_CONSUMO: { txt:'Sin consumo', cls:'bg-black/5 text-gris',       dot:'#c3c9bc' },
+  SIN_STOCK:   { txt:'Sin stock',   cls:'bg-crit/15 text-crit', dot:'#a4262c' },
+  CRITICO:     { txt:'Crítico',     cls:'bg-crit/10 text-crit', dot:'#e0685f' },
+  BAJO:        { txt:'Bajo',        cls:'bg-warn/15 text-warn', dot:'#E65100' },
+  OK:          { txt:'OK',          cls:'bg-ok/15 text-ok',     dot:'#0e700e' },
+  EXCESO:      { txt:'Exceso',      cls:'bg-warn/20 text-warn', dot:'#F57F17' },
+  SIN_CONSUMO: { txt:'Sin consumo', cls:'bg-black/5 text-gris', dot:'#c3c9bc' },
 };
 const ORDEN_KPI = ['SIN_STOCK','CRITICO','BAJO','OK','EXCESO','SIN_CONSUMO'];
 
@@ -190,7 +163,7 @@ async function cargar(){
     render();
   } catch (e) {
     document.getElementById('cuerpo').innerHTML =
-      `<tr><td colspan="9" class="p-8 text-center text-rojo">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+      `<tr><td colspan="9" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -319,7 +292,7 @@ function htmlGrupos(rows){
       <td class="p-2 text-right">${num(g.consumoMensual, 1)}</td>
       <td class="p-2 text-right text-ink/40">—</td>
       <td></td><td></td>
-      <td class="p-2 text-right bg-amarillo/10 ${g.aComprar > 0 ? 'text-rojo' : 'text-ink/40'}">
+      <td class="p-2 text-right bg-amarillo/10 ${g.aComprar > 0 ? 'text-crit' : 'text-ink/40'}">
         ${g.aComprar > 0 ? num(g.aComprar, 2) : '—'}</td>
     </tr>`;
     return cab + (abierto ? g.filas.map(filaHTML).join('') : '');
@@ -340,7 +313,7 @@ function filaHTML(f){
     <td class="p-2 text-right">${duracion(f.diasCobertura)}</td>
     <td class="p-2 text-right" data-campo="min">${nivel(f.min)}</td>
     <td class="p-2 text-right" data-campo="max">${nivel(f.max)}</td>
-    <td class="p-2 text-right font-medium bg-amarillo/10 ${f.pideCompra ? 'text-rojo' : 'text-ink/40'}">
+    <td class="p-2 text-right font-medium bg-amarillo/10 ${f.pideCompra ? 'text-crit' : 'text-ink/40'}">
       ${f.aComprar > 0 ? num(f.aComprar, 2) : '—'}</td>
   </tr>`;
 }
@@ -386,13 +359,13 @@ function recalcularTotales(filas){
 
 // El error del nivel se muestra en la fila, no en un alert que tape la tabla.
 function alertaNivel(tr, msg){
-  tr.querySelectorAll('input').forEach(i => i.classList.add('border-rojo'));
+  tr.querySelectorAll('input').forEach(i => i.classList.add('border-crit'));
   const celda = tr.querySelector('[data-campo="max"]');
   let aviso = celda.querySelector('.aviso');
-  if (!aviso){ aviso = document.createElement('div'); aviso.className = 'aviso text-xs text-rojo mt-1'; celda.appendChild(aviso); }
+  if (!aviso){ aviso = document.createElement('div'); aviso.className = 'aviso text-xs text-crit mt-1'; celda.appendChild(aviso); }
   aviso.textContent = msg;
   setTimeout(() => {
-    tr.querySelectorAll('input').forEach(i => i.classList.remove('border-rojo'));
+    tr.querySelectorAll('input').forEach(i => i.classList.remove('border-crit'));
     aviso.remove();
   }, 4000);
 }
@@ -456,12 +429,12 @@ async function abrirDetalle(plu){
         <tbody>${d.movimientos.map(m => `<tr class="border-t border-borde/60">
           <td class="p-1 whitespace-nowrap">${esc(String(m.fecha || '').replace('T',' ').slice(0,16))}</td>
           <td class="p-1">${esc(m.tipo)}</td>
-          <td class="p-1 text-right ${m.cantidad < 0 ? 'text-rojo' : 'text-ok'}">${num(m.cantidad,2)}</td>
+          <td class="p-1 text-right ${m.cantidad < 0 ? 'text-crit' : 'text-ok'}">${num(m.cantidad,2)}</td>
           <td class="p-1">${esc(m.observacion)}</td>
           <td class="p-1 text-ink/60">${esc(m.usuario)}</td>
         </tr>`).join('') || '<tr><td colspan="5" class="p-2 text-ink/50">Sin movimientos</td></tr>'}</tbody></table>`;
   } catch (e) {
-    body.innerHTML = `<p class="text-rojo py-6 text-center">No se pudo cargar el detalle: ${esc(e.message)}</p>`;
+    body.innerHTML = `<p class="text-crit py-6 text-center">No se pudo cargar el detalle: ${esc(e.message)}</p>`;
   }
 }
 
