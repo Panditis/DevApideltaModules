@@ -5,92 +5,54 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pedidos Pendientes — Siga</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <script src="https://unpkg.com/lucide@latest"></script>
-<script>
-// ── Paleta oficial Apidelta ─────────────────────────────────────────────────
-//   Negro #000000 · Oliva #65684C · Gris #BDBDB7 · Blanco #FFFFFF · Amarillo #FFCC00
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        brand:   { DEFAULT: '#FFCC00', dark: '#E6B800', soft: '#FFF3B0', ink: '#1a1200' },
-        ink:     '#000000',
-        olive:   { DEFAULT: '#65684C', soft: '#eae9e1' },
-        line:    '#BDBDB7',
-        surface: { DEFAULT:'#FFFFFF', alt:'#fafaf6', deep:'#f5f5f1' }
-      },
-      fontFamily: {
-        sans:    ['Public Sans', 'system-ui', 'sans-serif'],
-        display: ['Bricolage Grotesque', 'Public Sans', 'sans-serif'],
-        mono:    ['Spline Sans Mono', 'ui-monospace', 'monospace']
-      },
-      boxShadow: {
-        soft: '0 1px 2px rgba(15,17,21,.04), 0 2px 8px rgba(15,17,21,.04)',
-        lift: '0 4px 12px rgba(15,17,21,.06), 0 12px 32px rgba(15,17,21,.06)'
-      }
-    }
-  }
-};
-</script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   APIDELTA · Sistema de diseño v2
-   Paleta oficial: #000 / #65684C / #BDBDB7 / #FFF / #FFCC00
-   Filosofía: superficies claras, acentos amarillos discretos, mucho aire.
+   APIDELTA · Theme compartido (ver /css/apidelta-theme.js + .css)
+   Estas variables locales quedan repuntadas a los tokens del theme para no
+   reescribir cada regla — navbar verde con acentos amarillos, body blanco.
    ═══════════════════════════════════════════════════════════════════════════ */
 :root {
   --p:        #FFCC00;
   --p-dk:     #E6B800;
   --p-cont:   #FFF8DA;
-  --on-p:     #1a1200;
-  --on-pcont: #1a1200;
-  /* Oliva — el color de mando del sistema */
-  --olive:    #65684C;
-  --olive-dk: #4a4d38;
-  --olive-dp: #2c2e21;
-  --olive-bk: #1d1e16;
+  --on-p:     #242423;
+  --on-pcont: #242423;
+  /* Verde — el color de mando del sistema (antes "oliva") */
+  --olive:    #405936;
+  --olive-dk: #4f6e42;
+  --olive-dp: #405936;
+  --olive-bk: #242423;
   --surf:     #ffffff;
   --surf-lo:  #faf9f3;
   --surf-var: #eeede5;
-  --on-surf:  #17170f;
-  --on-svar:  #6f7158;
-  --outline:  #dad9cf;
-  --out-var:  #ecebe2;
-  --bg:       #f2f1e9;
-  --err:      #b53d24;
-  --err-c:    #fdece6;
-  --warn:     #8a6f1a;
-  --warn-c:   #fff5d4;
-  --ok:       #4a7026;
-  --ok-c:     #e3f0d2;
-  /* Sombras en capas, tinte oliva cálido */
-  --e1: 0 1px 1px rgba(44,46,33,.05), 0 2px 6px rgba(44,46,33,.05);
-  --e2: 0 2px 6px rgba(44,46,33,.06), 0 12px 28px -8px rgba(44,46,33,.12);
-  --e3: 0 8px 24px -6px rgba(44,46,33,.16), 0 24px 64px -12px rgba(44,46,33,.18);
+  --on-surf:  #242423;
+  --on-svar:  #5c5f52;
+  --outline:  rgba(26,28,24,.16);
+  --out-var:  rgba(26,28,24,.16);
+  --bg:       #eef1ea;
+  --err:      #a4262c;
+  --err-c:    #fde7e9;
+  --warn:     #8a5d00;
+  --warn-c:   #fff4ce;
+  --ok:       #0e700e;
+  --ok-c:     #dff6dd;
+  /* Sombras en capas */
+  --e1: 0 1px 1px rgba(26,28,24,.05), 0 2px 6px rgba(26,28,24,.05);
+  --e2: 0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1);
+  --e3: 0 8px 24px -6px rgba(26,28,24,.16), 0 24px 64px -12px rgba(26,28,24,.18);
   --ring: 0 0 0 3px rgba(255,204,0,.28);
   --radius: 14px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 body{
-  font-family:'Public Sans',system-ui,sans-serif;
+  font-family:system-ui,"Segoe UI",sans-serif;
   color:var(--on-surf);font-size:14px;line-height:1.55;
-  background-color:var(--bg);
-  background-image:
-    radial-gradient(1100px 520px at 88% -8%, rgba(255,204,0,.10), transparent 60%),
-    radial-gradient(900px 600px at -6% 4%, rgba(101,104,76,.10), transparent 55%);
-  background-attachment:fixed;
 }
-/* Grano sutil sobre el papel */
-body::before{
-  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
-}
-body > *{position:relative;z-index:1}
 
 /* Animaciones globales ────────────────────────────────────────────────────── */
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -105,22 +67,15 @@ body > *{position:relative;z-index:1}
 .rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) both}
 .d1{animation-delay:.04s}.d2{animation-delay:.10s}.d3{animation-delay:.17s}.d4{animation-delay:.25s}.d5{animation-delay:.34s}
 
-/* App Bar — riel de mando oliva profundo, hairline ámbar de señal ─────────── */
+/* App Bar — navbar acrílico verde con acentos amarillos (patrón compartido) ─── */
 .app-bar{
-  background:
-    linear-gradient(180deg, var(--olive-dp) 0%, var(--olive-bk) 100%);
+  background:rgba(64,89,54,.95);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(26,28,24,.18);
   color:#fff;height:64px;padding:0 24px;
   display:flex;align-items:center;gap:14px;
   position:sticky;top:0;z-index:30;
-  box-shadow:0 1px 0 rgba(0,0,0,.3), 0 14px 34px -18px rgba(29,30,22,.7);
 }
-/* Textura tramada apenas perceptible en el riel */
-.app-bar::before{
-  content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
-  background-image:linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
-  background-size:7px 100%;
-}
-.app-bar::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,transparent 0%,var(--p) 22%,var(--p) 78%,transparent 100%);box-shadow:0 0 14px rgba(255,204,0,.5)}
 .app-bar > img{
   height:36px;width:auto;flex-shrink:0;position:relative;z-index:1;
   border-radius:8px;padding:3px 7px;
@@ -130,13 +85,15 @@ body > *{position:relative;z-index:1}
 .app-bar-icon{font-size:1.4rem}
 .dev-offset{margin-top:26px}
 .app-bar-titles{position:relative;z-index:1;display:flex;flex-direction:column;gap:1px;line-height:1}
-.app-bar-title{font-family:'Bricolage Grotesque',sans-serif;font-size:1.12rem;font-weight:700;letter-spacing:-.01em}
-.app-bar-sub{font-family:'Spline Sans Mono',monospace;font-size:.66rem;opacity:.62;font-weight:500;letter-spacing:.04em;text-transform:uppercase}
+.app-bar-title{font-family:system-ui,"Segoe UI",sans-serif;font-size:1.12rem;font-weight:700;letter-spacing:-.01em;color:#fff}
+.app-bar-sub{font-family:system-ui,"Segoe UI",sans-serif;font-size:.66rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:rgba(255,255,255,.75)}
+.app-bar-link{color:#fff;font-size:.8rem;font-weight:600;opacity:.85;transition:opacity .15s,color .15s}
+.app-bar-link:hover{opacity:1;color:var(--p)}
 
 /* Command bar de filtros ───────────────────────────────────────────────────── */
 .filter-card{margin:0;background:transparent;padding:16px 20px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .field{display:flex;flex-direction:column;gap:6px}
-.field-label{font-family:'Spline Sans Mono',monospace;font-size:.62rem;font-weight:600;color:var(--on-svar);letter-spacing:.1em;text-transform:uppercase}
+.field-label{font-family:system-ui,"Segoe UI",sans-serif;font-size:.62rem;font-weight:600;color:var(--on-svar);letter-spacing:.1em;text-transform:uppercase}
 .field select,.field input[type=date]{
   padding:9px 13px;border:1px solid var(--outline);border-radius:10px;
   font-size:.875rem;font-family:inherit;font-weight:500;background:#fff;color:var(--on-surf);
@@ -158,7 +115,7 @@ body > *{position:relative;z-index:1}
 .multisel-btn:hover{border-color:#b8b8b0}
 .multisel-btn.open{border-color:var(--p);box-shadow:var(--ring)}
 .multisel-arrow{position:absolute;right:12px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:.65rem;color:var(--on-svar);transition:transform .2s}
-.multisel-btn.open + .multisel-arrow{transform:translateY(-50%) rotate(180deg);color:#1a1200}
+.multisel-btn.open + .multisel-arrow{transform:translateY(-50%) rotate(180deg);color:var(--on-p)}
 
 .multisel-drop{
   position:absolute;top:calc(100% + 6px);left:0;right:0;
@@ -173,7 +130,7 @@ body > *{position:relative;z-index:1}
 .multisel-search input:focus{border-color:var(--p);background:#fff;box-shadow:0 0 0 3px rgba(255,204,0,.15)}
 .multisel-actions{display:flex;gap:14px;padding:8px 14px;border-bottom:1px solid var(--out-var);background:var(--surf-lo)}
 .multisel-actions button{font-size:.72rem;font-family:inherit;color:var(--on-svar);background:none;border:none;cursor:pointer;padding:2px 0;font-weight:600;letter-spacing:.02em;transition:color .12s}
-.multisel-actions button:hover{color:#1a1200}
+.multisel-actions button:hover{color:var(--on-p)}
 .multisel-list{padding:6px 0}
 .multisel-item{display:flex;align-items:center;gap:10px;padding:7px 14px;cursor:pointer;font-size:.875rem;transition:background .1s;border-radius:6px;margin:0 6px}
 .multisel-item:hover{background:var(--surf-lo)}
@@ -194,8 +151,8 @@ body > *{position:relative;z-index:1}
 .btn-tonal:hover{background:#fff1c2;border-color:#eccf6b}
 .btn-ghost{background:#fff;color:var(--on-surf);border-color:var(--outline);box-shadow:inset 0 1px 1px rgba(44,46,33,.02)}
 .btn-ghost:hover{background:var(--surf-lo);border-color:#b8b8b0}
-.btn-err{background:var(--err);color:#fff;box-shadow:0 1px 2px rgba(181,61,36,.18)}
-.btn-err:hover{background:#a23519;box-shadow:0 3px 10px rgba(181,61,36,.25)}
+.btn-err{background:var(--err);color:#fff;box-shadow:0 1px 2px rgba(164,38,44,.18)}
+.btn-err:hover{background:#8a1f24;box-shadow:0 3px 10px rgba(164,38,44,.25)}
 .btn-sm{height:30px;padding:0 12px;font-size:.76rem;border-radius:8px;font-weight:600}
 .btn-icon{width:38px;padding:0;justify-content:center}
 .btn:disabled{opacity:.55;cursor:not-allowed}
@@ -212,7 +169,7 @@ body > *{position:relative;z-index:1}
   border-left:3px solid #FFCC00;
 }
 #snackbar.show{transform:translateX(-50%) translateY(0);opacity:1}
-#snackbar.err-snack{background:#b53d24;border-left-color:#fff}
+#snackbar.err-snack{background:var(--err);border-left-color:#fff}
 .snack-close{background:rgba(255,255,255,.08);border:none;color:rgba(255,255,255,.85);cursor:pointer;font-size:.85rem;padding:0;margin-left:auto;line-height:1;width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;transition:background .12s}
 .snack-close:hover{background:rgba(255,255,255,.16)}
 
@@ -229,7 +186,7 @@ body > *{position:relative;z-index:1}
 .card .tbl-wrap{border-radius:0 0 var(--radius) var(--radius)}
 .card-head{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--out-var);flex-wrap:wrap;gap:10px;background:#fdfdfb}
 .card-title{font-size:.95rem;font-weight:600;display:flex;align-items:center;gap:10px;color:var(--on-surf)}
-.card-title-icon{color:#1a1200;background:var(--p);width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.95rem}
+.card-title-icon{color:var(--on-p);background:var(--p);width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.95rem}
 .card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .count-chip{background:#fff;color:var(--on-svar);font-size:.72rem;font-weight:700;letter-spacing:.01em;padding:4px 10px;border-radius:8px;border:1px solid var(--out-var);font-variant-numeric:tabular-nums}
 .sel-chip{display:none}
@@ -248,7 +205,7 @@ table{width:100%;border-collapse:separate;border-spacing:0;font-size:.875rem}
 /* Headers — eyebrow industrial, monoespaciado, tracking abierto */
 thead th{
   padding:11px 14px;text-align:left;
-  font-family:'Spline Sans Mono',monospace;
+  font-family:system-ui,"Segoe UI",sans-serif;
   font-size:.66rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   color:var(--on-svar);background:var(--surf-lo);
   border-bottom:1px solid var(--outline);
@@ -274,7 +231,7 @@ tfoot td{
 }
 
 /* Números con tipografía monoespaciada para alinear visualmente */
-.num{text-align:right;font-family:'Spline Sans Mono',monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";letter-spacing:-.01em}
+.num{text-align:right;font-family:system-ui,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";letter-spacing:-.01em}
 
 /* Sortable */
 thead th.sortable{cursor:pointer;user-select:none;transition:color .12s, background .12s}
@@ -284,7 +241,7 @@ thead th.sort-asc .sa,thead th.sort-desc .sd{opacity:1;color:var(--olive-bk)}
 thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
 /* Index col */
-.idx{text-align:right;font-family:'Spline Sans Mono',monospace;font-size:.72rem;color:#b0b0a8;font-weight:600;padding-right:8px;width:48px;font-variant-numeric:tabular-nums}
+.idx{text-align:right;font-family:system-ui,"Segoe UI",sans-serif;font-size:.72rem;color:#b0b0a8;font-weight:600;padding-right:8px;width:48px;font-variant-numeric:tabular-nums}
 
 /* Checkbox col */
 .cb-col{width:42px;text-align:center;padding:10px 8px}
@@ -301,7 +258,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 .chip-def{background:var(--surf-lo);color:var(--on-svar);border-color:var(--out-var)}
 
 /* Stock chips — claros, legibles, semánticos ──────────────────────────────── */
-.sc{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:999px;font-family:'Spline Sans Mono',monospace;font-size:.76rem;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;border:1px solid transparent}
+.sc{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:999px;font-family:system-ui,"Segoe UI",sans-serif;font-size:.76rem;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;border:1px solid transparent}
 .sc-ok  {background:var(--ok-c);color:var(--ok);border-color:#cfe3ad}
 .sc-low {background:var(--warn-c);color:var(--warn);border-color:#fae6a3}
 .sc-zero{background:var(--err-c);color:var(--err);border-color:#f5cdbe}
@@ -391,7 +348,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
 /* Tabs ────────────────────────────────────────────────────────────────────── */
 .tab{border:1px solid transparent;cursor:pointer;color:var(--on-svar);background:transparent;transition:all .18s cubic-bezier(.2,.8,.2,1);position:relative;border-radius:10px}
-.tab > span span:first-child{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;letter-spacing:-.01em}
+.tab > span span:first-child{font-family:system-ui,"Segoe UI",sans-serif;font-weight:700;letter-spacing:-.01em}
 .tab:hover:not(.active){background:rgba(255,255,255,.7);color:var(--on-surf)}
 .tab.active{background:#fff;color:var(--olive-bk);box-shadow:0 1px 2px rgba(44,46,33,.06), 0 8px 20px -8px rgba(44,46,33,.18);border:1px solid var(--out-var)}
 .tab.active::after{content:"";position:absolute;left:16px;right:16px;bottom:-3px;height:3px;background:var(--p);border-radius:3px;box-shadow:0 0 10px rgba(255,204,0,.55)}
@@ -404,8 +361,8 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 .res-card{background:var(--surf);border-radius:var(--radius);box-shadow:var(--e2);overflow:hidden;border:1px solid var(--out-var);animation:rise .5s cubic-bezier(.2,.8,.2,1) both}
 .res-card-head{padding:14px 20px;background:var(--surf-lo);border-bottom:1px solid var(--out-var);display:flex;justify-content:space-between;align-items:center;gap:10px}
 .res-card-head::before{content:"";width:4px;height:22px;background:linear-gradient(180deg,var(--p),var(--p-dk));border-radius:3px;margin-right:6px;flex-shrink:0;box-shadow:0 0 8px rgba(255,204,0,.4)}
-.res-client-name{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:1rem;color:var(--on-surf);flex:1;letter-spacing:-.01em}
-.res-badge{background:var(--olive-bk);color:var(--p);font-family:'Spline Sans Mono',monospace;font-size:.68rem;font-weight:700;padding:4px 11px;border-radius:999px;letter-spacing:.02em}
+.res-client-name{font-family:system-ui,"Segoe UI",sans-serif;font-weight:700;font-size:1rem;color:var(--on-surf);flex:1;letter-spacing:-.01em}
+.res-badge{background:var(--olive-bk);color:var(--p);font-family:system-ui,"Segoe UI",sans-serif;font-size:.68rem;font-weight:700;padding:4px 11px;border-radius:999px;letter-spacing:.02em}
 .res-tbl{width:100%;border-collapse:collapse;font-size:.86rem}
 .res-tbl td,.res-tbl th{padding:9px 18px;border-bottom:1px solid #f3f3ef}
 .res-tbl thead th{font-size:.67rem;font-weight:600;color:var(--on-svar);text-transform:uppercase;letter-spacing:.06em;background:var(--surf-lo)}
@@ -418,10 +375,11 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
    chevron propio para que gire al abrir, igual en todos los navegadores. */
 .res-grp{border-bottom:1px solid var(--out-var)}
 .res-grp:last-child{border-bottom:none}
-.res-grp-head{cursor:pointer;list-style:none;padding:12px 18px;background:var(--surf-lo);display:flex;align-items:center;gap:10px;transition:background .12s ease}
+.res-grp-head{cursor:pointer;list-style:none;padding:12px 18px;background:rgba(64,89,54,.06);display:flex;align-items:center;gap:10px;transition:background .12s ease}
 .res-grp-head::-webkit-details-marker{display:none}
-.res-grp-head:hover{background:#eeede3}
-.res-grp-head::before{content:"";width:0;height:0;border-left:6px solid var(--on-svar);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s ease;flex-shrink:0}
+.res-grp-head:hover{background:rgba(64,89,54,.11)}
+.res-grp[open] > .res-grp-head{background:rgba(64,89,54,.14)}
+.res-grp-head::before{content:"";width:0;height:0;border-left:6px solid var(--olive);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s ease;flex-shrink:0}
 .res-grp[open] > .res-grp-head::before{transform:rotate(90deg)}
 
 /* Barra fija del pie de la solapa Fraccionado */
@@ -469,11 +427,12 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     <div class="app-bar-title">Pedidos Pendientes</div>
     <div class="app-bar-sub">Siga ERP · Vista local</div>
   </div>
-  <div id="sync-dot" title="Sincronizado" style="margin-left:auto;display:flex;align-items:center;gap:7px;font-family:'Spline Sans Mono',monospace;font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.6);position:relative;z-index:1"><span id="sync-led" style="width:8px;height:8px;border-radius:50%;background:#7bd142;display:inline-block;flex-shrink:0;box-shadow:0 0 8px rgba(123,209,66,.7)"></span><span id="sync-lbl">sincronizado</span></div>
+  <div id="sync-dot" title="Sincronizado" style="margin-left:auto;display:flex;align-items:center;gap:7px;font-family:system-ui,'Segoe UI',sans-serif;font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.6);position:relative;z-index:1"><span id="sync-led" style="width:8px;height:8px;border-radius:50%;background:#7bd142;display:inline-block;flex-shrink:0;box-shadow:0 0 8px rgba(123,209,66,.7)"></span><span id="sync-lbl">sincronizado</span></div>
+  <a href="/" class="app-bar-link" style="margin-left:16px;position:relative;z-index:1">← Inicio</a>
 </div>
 
 <section class="max-w-screen-2xl mx-auto px-4 pt-5 relative z-40">
-  <div class="bg-white rounded-2xl shadow-lift border border-line/60 relative rise d1">
+  <div class="bg-white rounded-2xl shadow-fluent border border-borde relative rise d1">
     <div class="filter-card !m-0 !rounded-none !shadow-none !border-0">
   <div class="field">
     <span class="field-label">Desde</span>
@@ -543,13 +502,13 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 </section>
 
 <nav class="max-w-screen-2xl mx-auto px-4 mt-2">
-  <div class="flex gap-1 bg-white/70 backdrop-blur rounded-xl p-1.5 border border-line/50 shadow-soft rise d2">
+  <div class="flex gap-1 bg-white/70 backdrop-blur rounded-xl p-1.5 border border-borde shadow-fluent rise d2">
     <button id="tab-pedidos" onclick="switchTab('pedidos')"
       class="tab active flex-1 sm:flex-none sm:min-w-[200px] px-5 py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all">
       <i data-lucide="clipboard-list" class="w-5 h-5"></i>
       <span class="flex flex-col items-start leading-tight">
         <span>Pedidos</span>
-        <span class="text-[10px] font-normal text-olive">Listado detallado y productos</span>
+        <span class="text-[10px] font-normal text-verde">Listado detallado y productos</span>
       </span>
     </button>
     <button id="tab-resumen" onclick="switchTab('resumen')"
@@ -557,7 +516,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
       <i data-lucide="users-round" class="w-5 h-5"></i>
       <span class="flex flex-col items-start leading-tight">
         <span>Resumen por cliente</span>
-        <span class="text-[10px] font-normal text-olive">Productos agrupados por cliente</span>
+        <span class="text-[10px] font-normal text-verde">Productos agrupados por cliente</span>
       </span>
     </button>
     <button id="tab-entregados" onclick="switchTab('entregados')"
@@ -565,7 +524,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
       <i data-lucide="package-check" class="w-5 h-5"></i>
       <span class="flex flex-col items-start leading-tight">
         <span>Entregados</span>
-        <span class="text-[10px] font-normal text-olive">Pedidos facturados y unidades</span>
+        <span class="text-[10px] font-normal text-verde">Pedidos facturados y unidades</span>
       </span>
     </button>
     <button id="tab-fraccionado" onclick="switchTab('fraccionado')"
@@ -573,7 +532,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
       <i data-lucide="scissors" class="w-5 h-5"></i>
       <span class="flex flex-col items-start leading-tight">
         <span>Fraccionado</span>
-        <span class="text-[10px] font-normal text-olive">Carrito armado a mano</span>
+        <span class="text-[10px] font-normal text-verde">Carrito armado a mano</span>
       </span>
     </button>
     <!-- Arranca oculta y la muestra RESERVAS_HABILITADAS desde el script: así no parpadea la tab
@@ -583,7 +542,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
       <i data-lucide="lock" class="w-5 h-5"></i>
       <span class="flex flex-col items-start leading-tight">
         <span>Reservas</span>
-        <span class="text-[10px] font-normal text-olive">Un cliente por vez</span>
+        <span class="text-[10px] font-normal text-verde">Un cliente por vez</span>
       </span>
     </button>
   </div>
@@ -594,18 +553,18 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <!-- Pedidos -->
   <div class="card">
-    <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+    <div class="px-5 py-3.5 bg-white border-b border-borde flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-olive-soft text-olive flex items-center justify-center ring-1 ring-line/50"><i data-lucide="clipboard-list" class="w-[18px] h-[18px]"></i></div>
+        <div class="w-9 h-9 rounded-lg bg-verde/10 text-verde flex items-center justify-center ring-1 ring-borde"><i data-lucide="clipboard-list" class="w-[18px] h-[18px]"></i></div>
         <div>
-          <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-olive/70">Solapa · Pedidos</span>
-          <h3 class="font-display font-bold text-[15px] text-ink leading-tight -mt-0.5">Pedidos</h3>
-          <p class="text-xs text-olive leading-tight">Marcá uno o varios para ver sólo sus productos o un resumen por cliente.</p>
+          <span class="text-[10px] uppercase tracking-[0.14em] text-verde/70">Solapa · Pedidos</span>
+          <h3 class="font-disp font-bold text-[15px] text-ink leading-tight -mt-0.5">Pedidos</h3>
+          <p class="text-xs text-verde leading-tight">Marcá uno o varios para ver sólo sus productos o un resumen por cliente.</p>
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1 rounded-full bg-brand-soft text-brand-ink text-xs font-bold" id="badge-ped">—</span>
-        <span class="sel-chip items-center px-3 py-1 rounded-full bg-brand-soft text-brand-ink text-xs font-bold border border-brand/40" id="sel-chip">0 seleccionados</span>
+        <span class="inline-flex items-center px-3 py-1 rounded-full bg-amarillo/15 text-ink text-xs font-bold" id="badge-ped">—</span>
+        <span class="sel-chip items-center px-3 py-1 rounded-full bg-amarillo/15 text-ink text-xs font-bold border border-amarillo/40" id="sel-chip">0 seleccionados</span>
         <button class="btn btn-tonal btn-sm" id="btn-ver-sel" style="display:none" onclick="verSeleccionados()">
           <i data-lucide="package" class="w-3.5 h-3.5"></i> Ver productos
         </button>
@@ -625,16 +584,16 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <!-- Productos -->
   <div class="card">
-    <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+    <div class="px-5 py-3.5 bg-white border-b border-borde flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-ink text-brand flex items-center justify-center"><i data-lucide="package" class="w-[18px] h-[18px]"></i></div>
+        <div class="w-9 h-9 rounded-lg bg-ink text-amarillo flex items-center justify-center"><i data-lucide="package" class="w-[18px] h-[18px]"></i></div>
         <div>
-          <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-olive/70">Consolidado</span>
-          <h3 class="font-display font-bold text-[15px] text-ink leading-tight -mt-0.5">Productos a preparar</h3>
-          <p class="text-xs text-olive leading-tight">Consolidado de unidades pendientes con stock disponible en casa central.</p>
+          <span class="text-[10px] uppercase tracking-[0.14em] text-verde/70">Consolidado</span>
+          <h3 class="font-disp font-bold text-[15px] text-ink leading-tight -mt-0.5">Productos a preparar</h3>
+          <p class="text-xs text-verde leading-tight">Consolidado de unidades pendientes con stock disponible en casa central.</p>
         </div>
       </div>
-      <span class="inline-flex items-center px-3 py-1 rounded-full bg-ink text-brand text-xs font-bold" id="badge-prod">—</span>
+      <span class="inline-flex items-center px-3 py-1 rounded-full bg-ink text-amarillo text-xs font-bold" id="badge-prod">—</span>
     </div>
     <div class="tbl-wrap" id="tabla-productos"><div class="state state-loading">Cargando…</div></div>
   </div>
@@ -644,9 +603,9 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
 <div class="tab-panel" id="panel-resumen">
   <div class="max-w-screen-2xl mx-auto px-4 pt-4 pb-2">
-    <div class="bg-brand-soft/60 border border-brand/40 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
-      <i data-lucide="lightbulb" class="w-5 h-5 text-brand-ink shrink-0 mt-0.5"></i>
-      <div class="text-brand-ink">
+    <div class="bg-amarillo/10 border border-amarillo/40 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
+      <i data-lucide="lightbulb" class="w-5 h-5 text-ink shrink-0 mt-0.5"></i>
+      <div class="text-ink">
         <strong>Resumen por cliente.</strong>
         Muestra todos los productos pendientes agrupados por cliente, sumando todos sus pedidos.
         Usá los filtros de arriba o seleccioná pedidos en la solapa <em>Pedidos</em> y tocá <em>Ver resumen</em>.
@@ -671,12 +630,12 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
   </div>
   <div class="main" style="padding-top:8px">
     <div class="card">
-      <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+      <div class="px-5 py-3.5 bg-white border-b border-borde flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center"><i data-lucide="package-check" class="w-[18px] h-[18px]"></i></div>
           <div>
             <h3 class="font-semibold text-sm text-ink leading-tight">Pedidos entregados</h3>
-            <p class="text-xs text-olive leading-tight">Pedidos que ya tienen líneas facturadas, con su detalle de unidades e importes.</p>
+            <p class="text-xs text-verde leading-tight">Pedidos que ya tienen líneas facturadas, con su detalle de unidades e importes.</p>
           </div>
         </div>
         <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold" id="badge-entregados">—</span>
@@ -704,12 +663,12 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <div class="main" style="padding-top:8px" id="sub-carrito">
     <div class="card">
-      <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+      <div class="px-5 py-3.5 bg-white border-b border-borde flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center"><i data-lucide="scissors" class="w-[18px] h-[18px]"></i></div>
           <div>
             <h3 class="font-semibold text-sm text-ink leading-tight">Carrito de fraccionado</h3>
-            <p class="text-xs text-olive leading-tight">Un producto por línea, con las cantidades discriminadas por cliente.</p>
+            <p class="text-xs text-verde leading-tight">Un producto por línea, con las cantidades discriminadas por cliente.</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -719,8 +678,8 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
           </button>
         </div>
       </div>
-      <div class="px-5 py-3 border-b border-line/60 flex items-center gap-2">
-        <i data-lucide="search" class="w-4 h-4 text-olive"></i>
+      <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+        <i data-lucide="search" class="w-4 h-4 text-verde"></i>
         <input id="fracc-buscar" type="text" placeholder="Agregar un producto suelto, sin pedido asociado…"
                style="flex:1;padding:6px 10px;border:1px solid var(--outline);border-radius:8px;font-size:13px"
                oninput="buscarFraccDebounce(this.value)">
@@ -732,9 +691,9 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <div class="main" style="padding-top:8px;display:none" id="sub-ordenes">
     <div class="card">
-      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+      <div class="px-5 py-3.5 bg-white border-b border-borde rounded-t-xl">
         <h3 class="font-semibold text-sm text-ink leading-tight">Órdenes generadas</h3>
-        <p class="text-xs text-olive leading-tight">Historial de órdenes de fraccionado emitidas desde mayoristas.</p>
+        <p class="text-xs text-verde leading-tight">Historial de órdenes de fraccionado emitidas desde mayoristas.</p>
       </div>
       <div class="tbl-wrap" id="tabla-ordenes-fracc"><div class="state state-loading">Cargando…</div></div>
     </div>
@@ -769,12 +728,12 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <div class="main" style="padding-top:8px" id="sub-res-carrito">
     <div class="card">
-      <div class="px-5 py-3.5 bg-white border-b border-line/60 flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
+      <div class="px-5 py-3.5 bg-white border-b border-borde flex flex-wrap items-center justify-between gap-3 rounded-t-xl">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center"><i data-lucide="lock" class="w-[18px] h-[18px]"></i></div>
           <div>
             <h3 class="font-semibold text-sm text-ink leading-tight">Carrito de reserva</h3>
-            <p class="text-xs text-olive leading-tight" id="res-cliente-txt">Sin cliente todav&iacute;a.</p>
+            <p class="text-xs text-verde leading-tight" id="res-cliente-txt">Sin cliente todav&iacute;a.</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -790,9 +749,9 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <div class="main" style="padding-top:8px;display:none" id="sub-res-generadas">
     <div class="card">
-      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+      <div class="px-5 py-3.5 bg-white border-b border-borde rounded-t-xl">
         <h3 class="font-semibold text-sm text-ink leading-tight">Reservas generadas</h3>
-        <p class="text-xs text-olive leading-tight">Mercader&iacute;a apartada en SiGA, con su comprobante.</p>
+        <p class="text-xs text-verde leading-tight">Mercader&iacute;a apartada en SiGA, con su comprobante.</p>
       </div>
       <div class="tbl-wrap" id="tabla-res-generadas"><div class="state state-loading">Cargando&hellip;</div></div>
     </div>
@@ -800,9 +759,9 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 
   <div class="main" style="padding-top:8px;display:none" id="sub-res-saldos">
     <div class="card">
-      <div class="px-5 py-3.5 bg-white border-b border-line/60 rounded-t-xl">
+      <div class="px-5 py-3.5 bg-white border-b border-borde rounded-t-xl">
         <h3 class="font-semibold text-sm text-ink leading-tight">Saldos del dep&oacute;sito de reserva</h3>
-        <p class="text-xs text-olive leading-tight">Por PRODUCTO, no por reserva: el dep&oacute;sito es uno solo y mezcla clientes.
+        <p class="text-xs text-verde leading-tight">Por PRODUCTO, no por reserva: el dep&oacute;sito es uno solo y mezcla clientes.
           El granel se compara contra lo que queda apartado; el producto de pedido, contra lo que el cliente puede retirar.</p>
       </div>
       <div class="tbl-wrap" id="tabla-res-saldos"><div class="state state-loading">Cargando&hellip;</div></div>
@@ -818,17 +777,17 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 <!-- Modal Confirmar reserva de mercadería -->
 <div id="res-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarModalReservaMay()">
   <div class="bg-white rounded-2xl shadow-2xl max-w-2xl mx-auto my-8 fade-up">
-    <div class="px-6 py-4 border-b border-line/60 flex items-center justify-between">
+    <div class="px-6 py-4 border-b border-borde flex items-center justify-between">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
           <i data-lucide="lock" class="w-5 h-5"></i>
         </div>
         <div>
           <h3 class="font-semibold text-base text-ink">Reservar mercadería</h3>
-          <p class="text-xs text-olive" id="res-modal-cliente">—</p>
+          <p class="text-xs text-verde" id="res-modal-cliente">—</p>
         </div>
       </div>
-      <button onclick="cerrarModalReservaMay()" class="w-9 h-9 rounded-lg hover:bg-surface-alt text-olive flex items-center justify-center">
+      <button onclick="cerrarModalReservaMay()" class="w-9 h-9 rounded-lg hover:bg-[#fafaf6] text-verde flex items-center justify-center">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
     </div>
@@ -850,7 +809,7 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
         <input type="checkbox" id="res-modal-forzar"> Reservar igual aunque falte stock
       </label>
     </div>
-    <div class="px-6 py-4 border-t border-line/60 flex justify-end gap-2">
+    <div class="px-6 py-4 border-t border-borde flex justify-end gap-2">
       <button class="btn btn-ghost btn-sm" onclick="cerrarModalReservaMay()">Cancelar</button>
       <button class="btn btn-filled btn-sm" id="res-modal-ok" onclick="confirmarReservaMay()">
         <i data-lucide="lock" class="w-3.5 h-3.5"></i> Reservar
@@ -862,17 +821,17 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
 <!-- Modal Facturación de un pedido -->
 <div id="factura-overlay" class="hidden fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm overflow-y-auto" onclick="if(event.target===this) cerrarFactura()">
   <div class="bg-white rounded-2xl shadow-2xl max-w-5xl mx-auto my-8 fade-up" style="min-height:200px">
-    <div class="px-6 py-4 border-b border-line/60 flex items-center justify-between sticky top-0 bg-white rounded-t-2xl z-10">
+    <div class="px-6 py-4 border-b border-borde flex items-center justify-between sticky top-0 bg-white rounded-t-2xl z-10">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
           <i data-lucide="receipt" class="w-5 h-5"></i>
         </div>
         <div>
           <h3 class="font-semibold text-base text-ink">Facturación del pedido <span id="factura-numped">#0</span></h3>
-          <p class="text-xs text-olive" id="factura-cliente">—</p>
+          <p class="text-xs text-verde" id="factura-cliente">—</p>
         </div>
       </div>
-      <button onclick="cerrarFactura()" class="w-9 h-9 rounded-lg hover:bg-surface-alt text-olive hover:text-ink transition-colors flex items-center justify-center">
+      <button onclick="cerrarFactura()" class="w-9 h-9 rounded-lg hover:bg-[#fafaf6] text-verde hover:text-ink transition-colors flex items-center justify-center">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
     </div>
@@ -1665,7 +1624,7 @@ function generarPDF(){
     +'<table class="pt"><thead><tr>'
     +'<th class="r">#</th><th>Producto</th><th>Rubro</th>'
     +'<th class="r">Necesario</th><th class="r">Stock</th><th class="r">Diferencia</th>'
-    +'<th style="width:26pt;background:#65684C;font-size:7.5pt">Check</th>'
+    +'<th style="width:26pt;background:var(--olive);font-size:7.5pt">Check</th>'
     +'</tr></thead><tbody>'+fp2+'</tbody>'
     +'<tfoot><tr><td colspan="3" style="text-align:right;padding-right:8pt">'
     +prods.length+' producto'+(prods.length!==1?'s':'')+'</td>'
@@ -1715,7 +1674,7 @@ function pdfResumen(resData){
       +'<table class="pt" style="margin-top:0;border-top:none">'
       +'<thead><tr><th>Producto</th><th>Rubro</th>'
       +'<th class="r">Necesario</th><th class="r">Stock</th><th class="r">Diferencia</th>'
-      +'<th style="width:26pt;background:#65684C;font-size:7.5pt">Check</th>'
+      +'<th style="width:26pt;background:var(--olive);font-size:7.5pt">Check</th>'
       +'</tr></thead>'
       +'<tbody>'+rows+'</tbody></table></div>';
   });
@@ -2013,10 +1972,10 @@ function renderCarrito(){
   var filas = carritoFracc.map(function(l, idx){
     var total = totalLineaCarrito(l);
     var cargaTxt = l.pluCarga
-      ? '<div class="text-xs text-olive">Carga: '+escHtml(l.nombreCarga)+' ('+escHtml(l.pluCarga)+')</div>'
+      ? '<div class="text-xs text-verde">Carga: '+escHtml(l.nombreCarga)+' ('+escHtml(l.pluCarga)+')</div>'
       : '<div class="text-xs" style="color:#92400e">⚠ Sin producto de carga: '+escHtml(l.cargaMotivo)+'</div>';
     var granelTxt = l.granelPlu
-      ? '<div class="text-xs text-olive">Granel: '+escHtml(l.granelNombre)+'</div>'
+      ? '<div class="text-xs text-verde">Granel: '+escHtml(l.granelNombre)+'</div>'
       : '';
     // Puede pasar si la orden se generó desde otra pestaña con el mismo producto para el mismo
     // cliente: el POST lo va a rechazar, así que se avisa acá antes de intentarlo. Sin clientes
@@ -2045,7 +2004,7 @@ function renderCarrito(){
             '<button class="btn btn-ghost btn-sm" data-act="quitar-cliente" data-idx="'+idx+'" data-ci="'+ci+'">Quitar</button>'+
           '</div>';
         }).join('')
-      : '<div class="text-xs text-olive">Línea manual, sin clientes asociados.</div>';
+      : '<div class="text-xs text-verde">Línea manual, sin clientes asociados.</div>';
     return ''+
     '<tr'+(l.pluCarga ? '' : ' class="fracc-sincarga"')+'>'+
       '<td class="mono">'+escHtml(l.plu)+'</td>'+
@@ -2187,7 +2146,7 @@ function buscarFracc(q){
       return '<div style="padding:8px 20px;border-bottom:1px solid var(--outline);cursor:pointer" '+
              'data-act="add-manual" data-plu="'+escHtml(String(r.idProducto || r.plu || '')).replace(/'/g,'&#39;')+'" '+
              'data-nombre="'+escHtml(String(r.producto || '')).replace(/'/g,'&#39;')+'">'+
-             escHtml(r.producto)+' <span class="text-xs text-olive">'+escHtml(r.nombreGranel||'')+'</span></div>';
+             escHtml(r.producto)+' <span class="text-xs text-verde">'+escHtml(r.nombreGranel||'')+'</span></div>';
     }).join('');
   });
 }
@@ -2868,7 +2827,7 @@ function abrirModalOrden(){
     return '<div style="padding:6px 0;border-bottom:1px solid var(--outline)">'+
            escHtml(l.nombre)+' — <strong>'+numFmt.format(l.cantidad)+' un.</strong> '+
            (l.granelPlu
-             ? '<span class="text-xs text-olive">('+escHtml(l.granelNombre)+', '+
+             ? '<span class="text-xs text-verde">('+escHtml(l.granelNombre)+', '+
                numFmt.format(Math.round(l.cantidad*l.cantPorUnidad*100)/100)+' kg)</span>'
              : '<span class="text-xs" style="color:#92400e">(sin granel imputado)</span>')+
            '</div>';
@@ -3070,7 +3029,7 @@ function lineaOrdenFracc(idOrden, l, indice){
     ? clientes.map(function(c){
         return '<div>'+escHtml(c.nombre)+': '+(Number(c.pendiente)||0)+' un.</div>';
       }).join('')
-    : '<div class="text-xs text-olive">Agregado manualmente, sin pedidos asociados.</div>';
+    : '<div class="text-xs text-verde">Agregado manualmente, sin pedidos asociados.</div>';
 
   var nota = String(l.nota || '').trim();
   var notaHtml = nota ? '<div class="ordlin-nota">📝 '+escHtml(nota)+'</div>' : '';
@@ -3549,45 +3508,45 @@ function renderFactura(data){
     var prods = lineasPorCpb[k] || [];
     var fecha = (c.Fecha||'').slice(0,10);
     var nombreTipo = c.NombreTipoComprobante || c.IdTipoComprobante || 'Comprobante';
-    html += '<div class="mb-5 border border-line rounded-xl overflow-hidden">';
+    html += '<div class="mb-5 border border-borde rounded-xl overflow-hidden">';
     // Header del comprobante
     html += '<div class="px-4 py-3 bg-gradient-to-r from-emerald-50 to-white border-b border-emerald-100 flex justify-between items-start flex-wrap gap-3">';
     html += '<div>';
     html += '<div class="flex items-center gap-2 font-semibold text-base text-ink"><i data-lucide="file-text" class="w-4 h-4 text-emerald-700"></i> '+escHtml(nombreTipo)+' '+escHtml(c.Letra||'')+' '+(c.CentroEmisor||0)+'-'+(c.NumeroComprobante||'')+'</div>';
     var meta = [];
     if(fecha) meta.push('<i data-lucide="calendar" class="w-3 h-3 inline"></i> '+fecha);
-    if(c.CAE) meta.push('CAE: <span class="font-mono">'+escHtml(c.CAE)+'</span>');
+    if(c.CAE) meta.push('CAE: <span class="">'+escHtml(c.CAE)+'</span>');
     if(c.IdEstadoComprobante) meta.push('Estado: '+escHtml(c.IdEstadoComprobante));
-    html += '<div class="text-xs text-olive mt-1 flex flex-wrap gap-3 items-center">'+meta.join(' · ')+'</div>';
+    html += '<div class="text-xs text-verde mt-1 flex flex-wrap gap-3 items-center">'+meta.join(' · ')+'</div>';
     html += '</div>';
     html += '<div class="text-right">';
     html += '<div class="text-xl font-bold text-emerald-700">'+money.format(c.ImporteTotal||0)+'</div>';
-    if((c.SubTotal||0) !== (c.ImporteTotal||0)) html += '<div class="text-[11px] text-olive">Subtotal: '+money.format(c.SubTotal||0)+'</div>';
+    if((c.SubTotal||0) !== (c.ImporteTotal||0)) html += '<div class="text-[11px] text-verde">Subtotal: '+money.format(c.SubTotal||0)+'</div>';
     html += '</div>';
     html += '</div>';
     // Tabla de líneas
     html += '<table class="w-full text-sm">';
-    html += '<thead><tr class="bg-surface-alt">';
-    html += '<th class="text-left p-2 pl-4 text-[11px] font-semibold uppercase tracking-wide text-olive">Producto</th>';
-    html += '<th class="text-right p-2 text-[11px] font-semibold uppercase tracking-wide text-olive">Cantidad</th>';
-    html += '<th class="text-right p-2 text-[11px] font-semibold uppercase tracking-wide text-olive">Precio</th>';
-    html += '<th class="text-right p-2 text-[11px] font-semibold uppercase tracking-wide text-olive">IVA</th>';
-    html += '<th class="text-right p-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-olive">Subtotal</th>';
+    html += '<thead><tr class="bg-[#fafaf6]">';
+    html += '<th class="text-left p-2 pl-4 text-[11px] font-semibold uppercase tracking-wide text-verde">Producto</th>';
+    html += '<th class="text-right p-2 text-[11px] font-semibold uppercase tracking-wide text-verde">Cantidad</th>';
+    html += '<th class="text-right p-2 text-[11px] font-semibold uppercase tracking-wide text-verde">Precio</th>';
+    html += '<th class="text-right p-2 text-[11px] font-semibold uppercase tracking-wide text-verde">IVA</th>';
+    html += '<th class="text-right p-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-verde">Subtotal</th>';
     html += '</tr></thead><tbody>';
     var totCant=0;
     prods.forEach(function(p){
       totCant += p.Cantidad||0;
-      html += '<tr class="border-t border-line/60 hover:bg-surface-alt/50">';
+      html += '<tr class="border-t border-borde hover:bg-[#fafaf6]/50">';
       html += '<td class="p-2 pl-4">'+escHtml(p.NombreProducto||'')+'</td>';
       html += '<td class="p-2 num font-medium">'+numFmt.format(p.Cantidad||0)+'</td>';
       html += '<td class="p-2 num">'+money.format(p.Precio||0)+'</td>';
-      html += '<td class="p-2 num text-olive text-xs">'+(p.AlicuotaImpuesto ? numFmt.format(p.AlicuotaImpuesto)+'%' : '—')+'</td>';
+      html += '<td class="p-2 num text-verde text-xs">'+(p.AlicuotaImpuesto ? numFmt.format(p.AlicuotaImpuesto)+'%' : '—')+'</td>';
       html += '<td class="p-2 pr-4 num font-semibold">'+money.format(p.ImporteTotal||0)+'</td>';
       html += '</tr>';
     });
     html += '</tbody>';
-    html += '<tfoot><tr class="bg-surface-alt font-semibold">';
-    html += '<td class="p-2 pl-4 text-xs text-olive">'+prods.length+' producto'+(prods.length!==1?'s':'')+'</td>';
+    html += '<tfoot><tr class="bg-[#fafaf6] font-semibold">';
+    html += '<td class="p-2 pl-4 text-xs text-verde">'+prods.length+' producto'+(prods.length!==1?'s':'')+'</td>';
     html += '<td class="p-2 num">'+numFmt.format(totCant)+'</td>';
     html += '<td colspan="2"></td>';
     html += '<td class="p-2 pr-4 num text-emerald-700">'+money.format(c.ImporteTotal||0)+'</td>';
@@ -3600,7 +3559,7 @@ function renderFactura(data){
   if(data.comprobantes.length > 1){
     html += '<div class="mt-4 px-4 py-3 bg-ink text-white rounded-xl flex justify-between items-center">';
     html += '<span class="font-medium">Total facturado en '+data.comprobantes.length+' comprobantes</span>';
-    html += '<span class="text-xl font-bold text-brand">'+money.format(totalGlobal)+'</span>';
+    html += '<span class="text-xl font-bold text-amarillo">'+money.format(totalGlobal)+'</span>';
     html += '</div>';
   }
 
@@ -3800,8 +3759,8 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
      el hilo. El texto lo pone confirmarModal() por textContent, nunca por innerHTML. -->
 <div id="modal-confirm" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45);align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;max-width:420px;width:92%;padding:24px">
-    <h3 class="font-display font-bold text-lg text-ink" id="modal-confirm-titulo">Confirmar</h3>
-    <p class="text-sm text-olive" id="modal-confirm-msg" style="margin:8px 0 20px"></p>
+    <h3 class="font-disp font-bold text-lg text-ink" id="modal-confirm-titulo">Confirmar</h3>
+    <p class="text-sm text-verde" id="modal-confirm-msg" style="margin:8px 0 20px"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost btn-sm" id="modal-confirm-no">Cancelar</button>
       <button class="btn btn-filled btn-sm" id="modal-confirm-ok">Aceptar</button>
@@ -3811,8 +3770,8 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
 
 <div id="modal-fracc" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;max-width:640px;width:92%;max-height:80vh;overflow:auto;padding:24px">
-    <h3 class="font-display font-bold text-lg text-ink">Confirmar orden de fraccionado</h3>
-    <p class="text-sm text-olive" id="modal-fracc-sub"></p>
+    <h3 class="font-disp font-bold text-lg text-ink">Confirmar orden de fraccionado</h3>
+    <p class="text-sm text-verde" id="modal-fracc-sub"></p>
     <div id="modal-fracc-lista" style="margin:16px 0;font-size:13px"></div>
     <div id="modal-fracc-err" style="display:none;color:#b91c1c;font-size:13px;margin-bottom:12px"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -3826,12 +3785,12 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
      pone abrirModalEditarLinea() por textContent, nunca por innerHTML. -->
 <div id="modal-edlin" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45);align-items:center;justify-content:center" onclick="fondoModalEditarLinea(event)">
   <div style="background:#fff;border-radius:16px;max-width:460px;width:92%;padding:24px">
-    <h3 class="font-display font-bold text-lg text-ink">Editar la línea</h3>
-    <p class="text-sm text-olive" id="modal-edlin-sub" style="margin:8px 0 16px"></p>
-    <label class="text-xs text-olive" for="modal-edlin-cant">Cantidad (unidades)</label>
+    <h3 class="font-disp font-bold text-lg text-ink">Editar la línea</h3>
+    <p class="text-sm text-verde" id="modal-edlin-sub" style="margin:8px 0 16px"></p>
+    <label class="text-xs text-verde" for="modal-edlin-cant">Cantidad (unidades)</label>
     <input id="modal-edlin-cant" type="number" min="1" step="1" required
            style="width:100%;margin:4px 0 12px;padding:8px;border:1px solid var(--outline);border-radius:8px">
-    <label class="text-xs text-olive" for="modal-edlin-nota">Nota para la sala (opcional)</label>
+    <label class="text-xs text-verde" for="modal-edlin-nota">Nota para la sala (opcional)</label>
     <textarea id="modal-edlin-nota" maxlength="300" rows="2"
               style="width:100%;margin:4px 0 12px;padding:8px;border:1px solid var(--outline);border-radius:8px;font:inherit;resize:vertical"></textarea>
     <div id="modal-edlin-err" style="display:none;color:#b91c1c;font-size:13px;margin-bottom:12px"></div>
