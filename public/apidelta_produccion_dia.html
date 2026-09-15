@@ -5,18 +5,26 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Apidelta — Producción del Día</title>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --green:#405936;--green-dark:#2E4027;--green-mid:#4E6B43;--green-light:#E8F0E4;
+  /* ── Paleta propia repuntada al theme compartido (apidelta-theme.js): mismos
+     nombres de variable que usaba este módulo (los usan miles de var(--x) en
+     este <style> y en el JS de abajo), valores alineados a verde/amarillo/
+     bg/card/borde/ink/gris/ok/warn/crit. Lo que no tiene token 1:1 (verde
+     oscuro, verde claro, amarillo pálido, el azul "en proceso"/"info", los
+     grises neutros de UI) queda con su hex propio. ── */
+  --green:#405936;--green-dark:#2E4027;--green-mid:#4f6e42;--green-light:#E8F0E4;
   --yellow:#FFCC00;--yellow-pale:#FFFDE8;
-  --bg:#eef2e9;--surface:#FFFFFF;--text:#1a1c18;--text-muted:#434840;
-  --border:#c3c9bc;
-  --s-pend-bg:#FFF3E0;--s-pend-c:#E65100;--s-pend-border:#FFCC80;
+  --bg:#eef1ea;--surface:#FFFFFF;--text:#242423;--text-muted:#5c5f52;
+  --border:rgba(26,28,24,.16);
+  --s-pend-bg:rgba(138,93,0,.12);--s-pend-c:#8a5d00;--s-pend-border:rgba(138,93,0,.35);
   --s-prog-bg:#E3F2FD;--s-prog-c:#1565C0;--s-prog-border:#90CAF9;
-  --s-done-bg:#E8F5E9;--s-done-c:#2E7D32;--s-done-border:#A5D6A7;
-  --c-alta:#D32F2F;--c-media:#F57C00;--c-baja:#388E3C;--c-urgente:#FF1744;
+  --s-done-bg:rgba(14,112,14,.10);--s-done-c:#0e700e;--s-done-border:rgba(14,112,14,.30);
+  --c-alta:#a4262c;--c-media:#8a5d00;--c-baja:#0e700e;--c-urgente:#FF1744;
   --radius:12px;--radius-sm:8px;--radius-chip:999px;--radius-lg:16px;--radius-xl:24px;
   --elev-1:0 1px 2px rgba(0,0,0,.18),0 1px 3px 1px rgba(0,0,0,.10);
   --elev-2:0 1px 2px rgba(0,0,0,.18),0 2px 6px 2px rgba(0,0,0,.10);
@@ -24,18 +32,18 @@
   --elev-4:0 6px 10px 4px rgba(0,0,0,.12),0 2px 3px rgba(0,0,0,.18);
 }
 html{scroll-behavior:smooth}
-body{font-family:'Barlow',sans-serif;font-size:16px;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:system-ui,'Segoe UI',sans-serif;font-size:16px;background:var(--bg);color:var(--text);min-height:100vh}
 
 /* TOP APP BAR */
 header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2px 4px rgba(0,0,0,.3)}
 .header-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:0 16px;min-height:64px}
 .logo-wrap{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .logo-svg{width:28px;height:44px;object-fit:contain}
-.logo-text{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;color:var(--yellow);letter-spacing:-.5px}
+.logo-text{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:22px;color:var(--yellow);letter-spacing:-.5px}
 .logo-sub{font-size:10px;color:rgba(255,255,255,.6);letter-spacing:1.5px;text-transform:uppercase;margin-left:8px;padding-left:8px;border-left:1px solid rgba(255,255,255,.25)}
 .header-date{font-size:12px;color:rgba(255,255,255,.65);white-space:nowrap;display:none}
 @media(min-width:600px){.header-date{display:block}}
-.header-stats{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:'Barlow Condensed',sans-serif;font-size:13px}
+.header-stats{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:system-ui,'Segoe UI',sans-serif;font-size:13px}
 .stat-chip{padding:4px 10px;border-radius:var(--radius-chip);font-weight:700}
 .stat-pend{background:var(--s-pend-bg);color:var(--s-pend-c);border:1px solid var(--s-pend-border)}
 .stat-prog{background:var(--s-prog-bg);color:var(--s-prog-c);border:1px solid var(--s-prog-border)}
@@ -48,7 +56,7 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .section-nav{background:var(--green);position:sticky;top:64px;z-index:95;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border-bottom:2px solid rgba(255,204,0,.4)}
 .section-nav::-webkit-scrollbar{display:none}
 .section-inner{max-width:1200px;margin:0 auto;display:flex;gap:2px;padding:8px 16px}
-.sec-tab{display:flex;align-items:center;gap:7px;padding:9px 16px;background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,.55);font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;white-space:nowrap;transition:.12s}
+.sec-tab{display:flex;align-items:center;gap:7px;padding:9px 16px;background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,.55);font-family:system-ui,'Segoe UI',sans-serif;font-size:15px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;white-space:nowrap;transition:.12s}
 .sec-tab:hover{color:#fff;background:rgba(255,255,255,.08)}
 .sec-tab.active{background:var(--yellow);color:#111;font-weight:900}
 .sec-tab .sec-badge{font-size:10px;background:rgba(0,0,0,.15);color:inherit;padding:1px 6px;border-radius:8px;font-weight:800}
@@ -57,7 +65,7 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .filter-bar{background:var(--bg);border-bottom:1px solid var(--border);position:sticky;top:113px;z-index:90;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .filter-bar::-webkit-scrollbar{display:none}
 .filter-inner{max-width:1200px;margin:0 auto;display:flex;gap:6px;padding:8px 16px}
-.filter-chip{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:.5px;cursor:pointer;white-space:nowrap;transition:.12s}
+.filter-chip{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;letter-spacing:.5px;cursor:pointer;white-space:nowrap;transition:.12s}
 .filter-chip:hover{border-color:var(--green);color:var(--green)}
 .filter-chip.active{background:var(--green);color:#fff;border-color:var(--green)}
 .chip-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
@@ -67,19 +75,19 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 
 /* PROGRESS CARD */
 .progress-card{background:var(--surface);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.08);display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid var(--border)}
-.progress-label{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)}
+.progress-label{font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)}
 .progress-bar-wrap{flex:1;min-width:120px;height:6px;background:#E8E8E8;border-radius:3px;overflow:hidden}
 .progress-bar-fill{height:100%;background:var(--green);border-radius:3px;transition:.4s}
-.progress-pct{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;color:var(--green-dark);min-width:40px;text-align:right}
+.progress-pct{font-family:system-ui,'Segoe UI',sans-serif;font-size:18px;font-weight:800;color:var(--green-dark);min-width:40px;text-align:right}
 .progress-detail{font-size:12px;color:var(--text-muted);width:100%}
 
 /* SECCIÓN */
 .section{margin-bottom:24px;animation:fadeUp .25s ease both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .section-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.section-badge{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:10px;color:#fff;background:var(--green);padding:2px 7px;border-radius:4px;letter-spacing:1px}
-.section-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--text)}
-.section-count{margin-left:auto;font-family:'Barlow Condensed',sans-serif;font-size:11px;color:var(--text-muted);padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface)}
+.section-badge{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:10px;color:#fff;background:var(--green);padding:2px 7px;border-radius:4px;letter-spacing:1px}
+.section-title{font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:18px;color:var(--text)}
+.section-count{margin-left:auto;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;color:var(--text-muted);padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface)}
 
 /* TABLA */
 /* table-layout:fixed → manda el colgroup. Sin esto, un envase/tapa largo estira su columna
@@ -88,30 +96,30 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 /* Red de contención: con table-layout:fixed, contenido que no encoge se derramaría sobre
    la columna vecina. Que recorte antes que solaparse. */
 .prod-table td{overflow:hidden}
-.prod-table th{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;padding:8px 14px;text-align:left;border-bottom:1px solid var(--border)}
+.prod-table th{font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;padding:8px 14px;text-align:left;border-bottom:1px solid var(--border)}
 .prod-table td{background:var(--surface);padding:11px 14px;font-size:14px;border-bottom:1px solid #F0F0F0;vertical-align:middle}
 .prod-table tr:last-child td{border-bottom:none}
 .prod-table tr:hover td{background:#FAFAFA}
 
 /* CHIPS */
-.chip-estado{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border-radius:var(--radius-chip);font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;cursor:pointer;border:none;transition:.12s;white-space:nowrap;user-select:none;letter-spacing:.3px}
+.chip-estado{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border-radius:var(--radius-chip);font-family:system-ui,'Segoe UI',sans-serif;font-size:13px;font-weight:800;cursor:pointer;border:none;transition:.12s;white-space:nowrap;user-select:none;letter-spacing:.3px}
 .chip-estado:active{transform:scale(.97)}
-.chip-estado.pendiente{background:#FFF3E0;color:#BF360C}
-.chip-estado.en_proceso{background:#E3F2FD;color:#0D47A1}
-.chip-estado.listo{background:#E8F5E9;color:#1B5E20}
-.chip-crit{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;white-space:nowrap;letter-spacing:.3px}
-.chip-crit.alta{color:#C62828;background:#FFEBEE}
-.chip-crit.media{color:#E65100;background:#FFF3E0}
-.chip-crit.baja{color:#2E7D32;background:#F1F8E9}
+.chip-estado.pendiente{background:var(--s-pend-bg);color:var(--s-pend-c)}
+.chip-estado.en_proceso{background:var(--s-prog-bg);color:var(--s-prog-c)}
+.chip-estado.listo{background:var(--s-done-bg);color:var(--s-done-c)}
+.chip-crit{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;white-space:nowrap;letter-spacing:.3px}
+.chip-crit.alta{color:var(--c-alta);background:rgba(164,38,44,.12)}
+.chip-crit.media{color:var(--c-media);background:var(--s-pend-bg)}
+.chip-crit.baja{color:var(--c-baja);background:var(--s-done-bg)}
 .chip-crit.urgente{color:#fff;background:var(--c-urgente);font-weight:900;letter-spacing:1px;text-transform:uppercase;border:1.5px solid #fff;text-shadow:0 1px 2px rgba(0,0,0,.35);transform-origin:center;animation:urgentePulse 1s ease-in-out infinite}
 @keyframes urgentePulse{0%{box-shadow:0 0 0 0 rgba(255,23,68,.75);transform:scale(1)}50%{transform:scale(1.1)}70%{box-shadow:0 0 0 11px rgba(255,23,68,0)}100%{box-shadow:0 0 0 0 rgba(255,23,68,0);transform:scale(1)}}
 /* CONCILIACION POR MOVIMIENTO */
 .conc-mov-block{border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;background:var(--bg)}
 .conc-mov-block:last-child{margin-bottom:0}
-.conc-mov-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif}
+.conc-mov-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-family:system-ui,'Segoe UI',sans-serif}
 .conc-mov-title{font-weight:800;font-size:14px;color:var(--text)}
 .chip-mov-ok{display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;background:var(--s-done-bg);color:var(--s-done-c)}
-.chip-mov-pend{display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;background:#FFF3E0;color:#BF360C}
+.chip-mov-pend{display:inline-block;padding:2px 10px;border-radius:var(--radius-chip);font-size:11px;font-weight:700;background:var(--s-pend-bg);color:var(--s-pend-c)}
 /* Botones acción */
 .btn-del{background:none;border:none;cursor:pointer;font-size:16px;padding:6px 7px;border-radius:6px;transition:.12s;line-height:1;color:#9E9E9E}
 .btn-del:hover{background:#F5F5F5;color:#424242}
@@ -119,15 +127,15 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .btn-formula:hover{background:#F5F5F5;color:#424242}
 
 /* PRESENTACIONES (desplegable) + TAMBOR */
-.tambor-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#FFF3E0;color:#E65100;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
-.cliente-chip{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#EDE7F6;color:#4527A0;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
+.tambor-chip{font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:800;background:var(--s-pend-bg);color:var(--s-pend-c);padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
+.cliente-chip{font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:800;background:#EDE7F6;color:#4527A0;padding:1px 7px;border-radius:10px;margin-left:6px;white-space:nowrap;display:inline-block}
 .chips-reserva{display:inline-flex;gap:4px;margin-left:6px;flex-wrap:wrap;vertical-align:middle}
-.chip-reserva{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;background:#E0F2F1;color:#00695C;padding:1px 7px;border-radius:10px;white-space:nowrap;display:inline-block}
+.chip-reserva{font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:800;background:#E0F2F1;color:#00695C;padding:1px 7px;border-radius:10px;white-space:nowrap;display:inline-block}
 /* Chip envase+tapa: inline-block con una línea por ítem. Con inline-flex el texto que
    envuelve se salía del fondo redondeado. */
-.envase-chip{font-family:'Barlow Condensed',sans-serif;font-size:12.5px;font-weight:800;background:var(--green-light,#E8F0E3);color:var(--green-dark,#2E4020);border:1px solid rgba(64,89,54,.3);padding:3px 9px;border-radius:10px;display:inline-block;max-width:100%;line-height:1.35;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.envase-chip{font-family:system-ui,'Segoe UI',sans-serif;font-size:12.5px;font-weight:800;background:var(--green-light,#E8F0E3);color:var(--green-dark,#2E4020);border:1px solid rgba(64,89,54,.3);padding:3px 9px;border-radius:10px;display:inline-block;max-width:100%;line-height:1.35;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
 .envase-chip .pack-line{display:block}
-.envase-chip.granel{background:#FFF3E0;color:#E65100;border-color:rgba(230,81,0,.3)}
+.envase-chip.granel{background:var(--s-pend-bg);color:var(--s-pend-c);border-color:var(--s-pend-border)}
 .tambor-ico{width:14px;height:14px;vertical-align:middle;margin-right:3px}
 .pres-toggle{display:inline-block;transition:transform .15s;font-size:11px;color:var(--green);font-weight:800}
 .pres-toggle.open{transform:rotate(90deg)}
@@ -135,12 +143,12 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .pres-cell:hover{color:var(--green)}
 /* Dropdown multi-producto: pill llamativo con progreso */
 /* Debe poder envolver: con nowrap se desbordaba de su columna y pisaba Envase/Tapa. */
-.pres-pill{display:inline-flex;flex-wrap:wrap;align-items:center;gap:3px 7px;max-width:100%;cursor:pointer;user-select:none;background:linear-gradient(135deg,#FFF8E1,#FFFDF5);border:1.5px solid var(--green,#43A047);border-radius:14px;padding:4px 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--green-dark,#2E7D32);transition:.15s;white-space:normal}
-.pres-pill:hover{background:var(--green-dark,#2E7D32);color:#fff;box-shadow:0 2px 8px rgba(67,160,71,.3)}
-.pres-pill.done{border-color:#9E9E9E;background:linear-gradient(135deg,#F1F8E9,#FAFFF5)}
+.pres-pill{display:inline-flex;flex-wrap:wrap;align-items:center;gap:3px 7px;max-width:100%;cursor:pointer;user-select:none;background:linear-gradient(135deg,#FFF8E1,#FFFDF5);border:1.5px solid var(--green,#43A047);border-radius:14px;padding:4px 12px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:13px;color:var(--green-dark,#0e700e);transition:.15s;white-space:normal}
+.pres-pill:hover{background:var(--green-dark,#0e700e);color:#fff;box-shadow:0 2px 8px rgba(67,160,71,.3)}
+.pres-pill.done{border-color:#9E9E9E;background:linear-gradient(135deg,rgba(14,112,14,.10),#FAFFF5)}
 .pres-pill .pp-count{background:var(--green,#43A047);color:#fff;border-radius:999px;padding:1px 8px;font-size:11px;line-height:1.5}
 .pres-pill.done .pp-count{background:#757575}
-.pres-pill:hover .pp-count{background:#fff;color:var(--green-dark,#2E7D32)}
+.pres-pill:hover .pp-count{background:#fff;color:var(--green-dark,#0e700e)}
 .pres-chev{transition:transform .2s;font-size:10px;margin-left:1px}
 .pres-chev.open{transform:rotate(180deg)}
 .pres-detail-row td{background:#FAFAF7;padding:8px 14px 12px}
@@ -148,21 +156,21 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .pres-item{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-left:4px solid var(--green,#43A047);border-radius:8px;padding:7px 12px;max-width:680px;transition:.15s}
 .pres-item:hover{box-shadow:0 1px 6px rgba(0,0,0,.08)}
 .pres-item.done{border-left-color:#BDBDBD;opacity:.72;background:#FAFAFA}
-.pres-item .pi-num{width:20px;height:20px;flex-shrink:0;border-radius:50%;background:var(--green,#43A047);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px}
+.pres-item .pi-num{width:20px;height:20px;flex-shrink:0;border-radius:50%;background:var(--green,#43A047);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:12px}
 .pres-item.done .pi-num{background:#BDBDBD}
 /* El nombre se recorta con puntos suspensivos; la cantidad NUNCA se encoge (si no, al
    tener nowrap su texto desborda y se superpone con el nombre). */
-.pres-item .pi-nom{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:var(--text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pres-item .pi-cant{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:var(--green-dark,#2E7D32);white-space:nowrap;flex:0 0 auto}
+.pres-item .pi-nom{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:15px;color:var(--text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pres-item .pi-cant{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:18px;color:var(--green-dark,#0e700e);white-space:nowrap;flex:0 0 auto}
 .pres-item .pi-cant small{font-size:10px;color:var(--text-muted);font-weight:600}
 .pres-item .pi-env{flex:1 1 auto;min-width:0}
-.pi-badge-done{display:inline-flex;align-items:center;gap:4px;background:#E8F5E9;color:#2E7D32;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.pi-badge-done{display:inline-flex;align-items:center;gap:4px;background:var(--s-done-bg);color:var(--s-done-c);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
 /* Orden terminada cuya reserva de stock todavía no fue conciliada (ajuste.conciliado
    pendiente en el ledger de reservas). Ámbar para distinguirla de los chips de reserva
    normales (que suelen ser verdes/neutros) y del badge verde de "cargado". */
-.badge-sin-conciliar{display:inline-flex;align-items:center;gap:4px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
-.pi-btn-load{display:inline-flex;align-items:center;gap:5px;background:var(--green,#43A047);color:#fff;border:none;border-radius:7px;padding:6px 13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:.15s;white-space:nowrap;animation:piPulse 2.2s ease-in-out infinite}
-.pi-btn-load:hover{background:var(--green-dark,#2E7D32);transform:translateY(-1px);animation:none}
+.badge-sin-conciliar{display:inline-flex;align-items:center;gap:4px;background:var(--s-pend-bg);color:var(--s-pend-c);border:1px solid var(--s-pend-border);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.pi-btn-load{display:inline-flex;align-items:center;gap:5px;background:var(--green,#43A047);color:#fff;border:none;border-radius:7px;padding:6px 13px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:.15s;white-space:nowrap;animation:piPulse 2.2s ease-in-out infinite}
+.pi-btn-load:hover{background:var(--green-dark,#0e700e);transform:translateY(-1px);animation:none}
 @keyframes piPulse{0%,100%{box-shadow:0 0 0 0 rgba(67,160,71,.45)}50%{box-shadow:0 0 0 6px rgba(67,160,71,0)}}
 
 /* CARDS MOBILE */
@@ -170,31 +178,31 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .prod-card{background:var(--surface);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.07);border:1px solid var(--border)}
 .prod-card.estado-listo{opacity:.6}
 .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
-.card-name{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--text);line-height:1.2}
+.card-name{font-family:system-ui,'Segoe UI',sans-serif;font-size:17px;font-weight:700;color:var(--text);line-height:1.2}
 .card-pres{font-size:12px;color:var(--text-muted);margin-top:1px}
 .card-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
 .card-bottom{display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid #F0F0F0}
-.card-qty{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;color:var(--green-dark)}
-.card-qty-label{font-size:10px;color:var(--text-muted);font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.5px}
+.card-qty{font-family:system-ui,'Segoe UI',sans-serif;font-size:26px;font-weight:800;color:var(--green-dark)}
+.card-qty-label{font-size:10px;color:var(--text-muted);font-family:system-ui,'Segoe UI',sans-serif;text-transform:uppercase;letter-spacing:.5px}
 
 /* EMPTY */
 .empty-state{text-align:center;padding:64px 24px;color:var(--text-muted)}
 .empty-icon{font-size:56px;margin-bottom:16px}
-.empty-title{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;margin-bottom:8px}
+.empty-title{font-family:system-ui,'Segoe UI',sans-serif;font-size:22px;font-weight:700;margin-bottom:8px}
 .empty-sub{font-size:14px;line-height:1.6}
 
 /* FAB */
-.fab{position:fixed;bottom:90px;right:20px;background:var(--yellow);color:#111;border:none;border-radius:16px;padding:14px 20px;display:flex;align-items:center;gap:8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;letter-spacing:.5px;box-shadow:0 6px 10px rgba(0,0,0,.2);cursor:pointer;z-index:150;transition:.2s}
+.fab{position:fixed;bottom:90px;right:20px;background:var(--yellow);color:#111;border:none;border-radius:16px;padding:14px 20px;display:flex;align-items:center;gap:8px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:15px;letter-spacing:.5px;box-shadow:0 6px 10px rgba(0,0,0,.2);cursor:pointer;z-index:150;transition:.2s}
 .fab:hover{background:#E6B800;box-shadow:0 8px 15px rgba(0,0,0,.25)}
 .fab:active{transform:scale(.97)}
 
 /* BOTTOM BAR */
 .bottom-bar{position:fixed;bottom:0;left:0;right:0;background:var(--green);border-top:3px solid var(--yellow);z-index:120;padding:10px 20px}
 .bottom-bar-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.bb-label{font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.7)}
-.bb-val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;color:var(--yellow)}
+.bb-label{font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.7)}
+.bb-val{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:24px;color:var(--yellow)}
 .bb-actions{margin-left:auto;display:flex;gap:8px}
-.btn-secondary{background:transparent;color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.35);padding:8px 16px;border-radius:var(--radius-sm);font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:14px;cursor:pointer;transition:.15s}
+.btn-secondary{background:transparent;color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.35);padding:8px 16px;border-radius:var(--radius-sm);font-family:system-ui,'Segoe UI',sans-serif;font-weight:600;font-size:14px;cursor:pointer;transition:.15s}
 .btn-secondary:hover{border-color:rgba(255,255,255,.6);color:#fff;background:rgba(255,255,255,.05)}
 
 /* MODAL */
@@ -207,33 +215,33 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .modal-handle-bar{width:32px;height:4px;background:#E0E0E0;border-radius:2px}
 @media(min-width:600px){.modal-handle{display:none}}
 .modal-head{background:var(--green);padding:16px 20px;display:flex;align-items:center;gap:12px}
-.modal-head h2{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:20px;color:var(--yellow)}
+.modal-head h2{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:20px;color:var(--yellow)}
 .modal-close{margin-left:auto;background:none;border:none;color:rgba(255,255,255,.8);font-size:22px;cursor:pointer;line-height:1;padding:4px}
 .modal-stripe{height:3px;background:var(--yellow);flex-shrink:0}
 .modal-body{padding:20px;overflow-y:auto;flex:1}
 
 /* FORM */
 .form-group{margin-bottom:16px}
-.form-label{display:block;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
-.form-input,.form-select{width:100%;padding:12px 14px;border:1.5px solid #E0E0E0;border-radius:var(--radius-sm);font-family:'Barlow',sans-serif;font-size:15px;background:var(--surface);color:var(--text);outline:none;transition:.2s;-webkit-appearance:none}
+.form-label{display:block;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
+.form-input,.form-select{width:100%;padding:12px 14px;border:1.5px solid #E0E0E0;border-radius:var(--radius-sm);font-family:system-ui,'Segoe UI',sans-serif;font-size:15px;background:var(--surface);color:var(--text);outline:none;transition:.2s;-webkit-appearance:none}
 .form-input:focus,.form-select:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:480px){.form-row{grid-template-columns:1fr}}
 .crit-options{display:flex;gap:8px;flex-wrap:wrap}
 .crit-opt input[type=radio]{display:none}
-.crit-opt label{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--radius-chip);border:1.5px solid #E0E0E0;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
-.crit-opt input[type=radio]:checked + label.alta{background:#FFEBEE;border-color:var(--c-alta);color:var(--c-alta)}
-.crit-opt input[type=radio]:checked + label.media{background:#FFF3E0;border-color:var(--c-media);color:var(--c-media)}
-.crit-opt input[type=radio]:checked + label.baja{background:#E8F5E9;border-color:var(--c-baja);color:var(--c-baja)}
+.crit-opt label{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--radius-chip);border:1.5px solid #E0E0E0;font-family:system-ui,'Segoe UI',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
+.crit-opt input[type=radio]:checked + label.alta{background:rgba(164,38,44,.12);border-color:var(--c-alta);color:var(--c-alta)}
+.crit-opt input[type=radio]:checked + label.media{background:var(--s-pend-bg);border-color:var(--c-media);color:var(--c-media)}
+.crit-opt input[type=radio]:checked + label.baja{background:var(--s-done-bg);border-color:var(--c-baja);color:var(--c-baja)}
 .crit-opt label.urgente{border-color:var(--c-urgente);color:var(--c-urgente)}
 .crit-opt input[type=radio]:checked + label.urgente{background:var(--c-urgente);border-color:var(--c-urgente);color:#fff}
-.btn-primary{width:100%;padding:14px;border:none;border-radius:var(--radius-sm);background:var(--yellow);color:#111;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:.5px;cursor:pointer;transition:.2s;margin-top:4px}
+.btn-primary{width:100%;padding:14px;border:none;border-radius:var(--radius-sm);background:var(--yellow);color:#111;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:16px;letter-spacing:.5px;cursor:pointer;transition:.2s;margin-top:4px}
 .btn-primary:hover{background:#E6B800}
 
 /* SHEETS MODAL */
 .sheets-input{display:flex;gap:8px;margin-top:4px}
 .sheets-input input{flex:1}
-.sheets-btn{padding:12px 18px;background:var(--green);color:#fff;border:none;border-radius:var(--radius-sm);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;transition:.15s}
+.sheets-btn{padding:12px 18px;background:var(--green);color:#fff;border:none;border-radius:var(--radius-sm);font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;transition:.15s}
 .sheets-btn:hover{background:var(--green-dark)}
 .sheets-status{font-size:13px;color:var(--text-muted);margin-top:8px;min-height:20px}
 
@@ -252,7 +260,7 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .chip-estado.en_proceso{animation:none}
 
-.snackbar{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#323232;color:#fff;padding:10px 20px;border-radius:var(--radius-chip);font-family:'Barlow Condensed',sans-serif;font-size:14px;z-index:500;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap}
+.snackbar{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#323232;color:#fff;padding:10px 20px;border-radius:var(--radius-chip);font-family:system-ui,'Segoe UI',sans-serif;font-size:14px;z-index:500;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap}
 .snackbar.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 @media print{
@@ -275,13 +283,13 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
   .pres-line{border:none;background:none;padding:1px 0;max-width:none}
   #print-header{display:block!important}
 }
-#print-header{display:none;text-align:center;margin-bottom:16px;font-family:'Barlow Condensed',sans-serif}
+#print-header{display:none;text-align:center;margin-bottom:16px;font-family:system-ui,'Segoe UI',sans-serif}
 #print-header h1{font-size:20px;font-weight:800;color:#405936}
 #print-header p{font-size:12px;color:#666}
 
 /* MODAL FÓRMULA */
 .formula-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
-.formula-table th{background:var(--green);color:#fff;padding:8px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase}
+.formula-table th{background:var(--green);color:#fff;padding:8px 10px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase}
 .formula-table th:first-child{border-radius:0}
 .formula-table td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .formula-table tr:last-child td{border-bottom:none}
@@ -291,21 +299,21 @@ header{background:var(--green);position:sticky;top:0;z-index:100;box-shadow:0 2p
 .f-short{color:var(--c-alta);font-weight:700}
 .stock-bar-wrap{width:80px;height:6px;background:#E0E0E0;border-radius:3px;display:inline-block;vertical-align:middle;margin-left:6px}
 .stock-bar-fill{height:100%;border-radius:3px;transition:.3s}
-.formula-aviso{background:#FFF3E0;border:1px solid var(--s-pend-border);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;color:var(--s-pend-c);margin-top:8px}
+.formula-aviso{background:var(--s-pend-bg);border:1px solid var(--s-pend-border);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;color:var(--s-pend-c);margin-top:8px}
 .dia-nav-btn{background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px;font-weight:700;line-height:1.6}
 .dia-nav-btn:hover{background:rgba(255,255,255,.3)}
 .fecha-futura{color:var(--yellow)!important}
 .formula-spinner{text-align:center;padding:32px;color:var(--text-muted);font-size:14px}
 .registros-table{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden;box-shadow:var(--elev-1)}
-.registros-table th{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;padding:10px 16px;text-align:left;border-bottom:1px solid var(--border)}
+.registros-table th{font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;padding:10px 16px;text-align:left;border-bottom:1px solid var(--border)}
 .registros-table td{background:var(--surface);padding:12px 16px;font-size:14px;border-bottom:1px solid #F0F0F0;vertical-align:middle}
 .registros-table tr:last-child td{border-bottom:none}
 .registros-table tr:hover td{background:#FAFAFA}
 .formula-header-info{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:4px}
-.formula-info-chip{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;padding:4px 10px;border-radius:var(--radius-chip);background:var(--green-light);color:var(--green-dark);border:1px solid rgba(64,89,54,.2)}
+.formula-info-chip{font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;padding:4px 10px;border-radius:var(--radius-chip);background:var(--green-light);color:var(--green-dark);border:1px solid rgba(64,89,54,.2)}
 /* ═══ MD3 PATCH (match planificación) ═══ */
-body{font-family:'Roboto',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-.logo-text,.logo-sub,.section-title,.section-badge,.section-count,.sec-tab,.stat-chip,.progress-label,.progress-pct,.chip-estado,.chip-crit,.card-name,.card-qty,.card-qty-label,.modal-head h2,.form-label,.btn-primary,.filter-chip,.empty-title,.prod-table th,.formula-table th,.formula-info-chip,.dia-nav-btn{font-family:'Barlow Condensed',sans-serif}
+body{font-family:system-ui,'Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.logo-text,.logo-sub,.section-title,.section-badge,.section-count,.sec-tab,.stat-chip,.progress-label,.progress-pct,.chip-estado,.chip-crit,.card-name,.card-qty,.card-qty-label,.modal-head h2,.form-label,.btn-primary,.filter-chip,.empty-title,.prod-table th,.formula-table th,.formula-info-chip,.dia-nav-btn{font-family:system-ui,'Segoe UI',sans-serif}
 header{box-shadow:var(--elev-2)}
 .progress-card{box-shadow:var(--elev-1);border:none;border-radius:var(--radius-lg)}
 .prod-table{box-shadow:var(--elev-1);border:none}
@@ -314,7 +322,7 @@ header{box-shadow:var(--elev-2)}
 .chip-crit{border-radius:var(--radius-chip)}
 .modal{border-radius:var(--radius-xl)}
 .btn-primary{border-radius:var(--radius-chip)}
-.snackbar{border-radius:var(--radius-sm);font-family:'Roboto',sans-serif;box-shadow:var(--elev-3)}
+.snackbar{border-radius:var(--radius-sm);font-family:system-ui,'Segoe UI',sans-serif;box-shadow:var(--elev-3)}
 .btn-del{border-radius:50%}
 .sec-tab,.filter-chip,.chip-estado,.btn-primary,.hdr-menu-btn,.dia-nav-btn,.hdr-menu-list button{position:relative;overflow:hidden}
 .md-ripple{position:absolute;border-radius:50%;background:currentColor;opacity:.22;transform:scale(0);animation:md-ripple .5s ease-out;pointer-events:none}
@@ -325,15 +333,15 @@ header{box-shadow:var(--elev-2)}
 .hdr-menu-list{display:none;position:absolute;right:0;top:48px;background:var(--surface);border-radius:var(--radius-sm);box-shadow:var(--elev-3);min-width:210px;padding:8px;z-index:300;flex-direction:column;gap:2px}
 .hdr-menu-list.open{display:flex;animation:md-menu .15s ease}
 @keyframes md-menu{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-.hdr-menu-list button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;padding:11px 14px;border-radius:8px;font-family:'Roboto',sans-serif;font-size:14px;color:var(--text);cursor:pointer;transition:background .12s}
+.hdr-menu-list button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;padding:11px 14px;border-radius:8px;font-family:system-ui,'Segoe UI',sans-serif;font-size:14px;color:var(--text);cursor:pointer;transition:background .12s}
 .hdr-menu-list button:hover{background:rgba(64,89,54,.08)}
-.hdr-total{font-family:'Barlow Condensed',sans-serif;font-size:13px;color:rgba(255,255,255,.85);white-space:nowrap;letter-spacing:.5px}
+.hdr-total{font-family:system-ui,'Segoe UI',sans-serif;font-size:13px;color:rgba(255,255,255,.85);white-space:nowrap;letter-spacing:.5px}
 .hdr-total b{color:var(--yellow);font-weight:800;font-size:17px;margin-left:3px}
 @media(max-width:480px){.hdr-total{display:none}}
 /* Sucursal destino de los terminados. Vive en el pie del modal de conciliación, sobre
    fondo claro, justo antes de los botones que disparan los movimientos finales. */
 .hdr-suc{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.hdr-suc-lbl{font-family:'Barlow Condensed',sans-serif;font-size:13px;color:var(--text-muted);letter-spacing:.5px;font-weight:700}
+.hdr-suc-lbl{font-family:system-ui,'Segoe UI',sans-serif;font-size:13px;color:var(--text-muted);letter-spacing:.5px;font-weight:700}
 .hdr-suc-select{font-family:inherit;font-size:12px;padding:6px 10px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:#fff;color:var(--text);max-width:210px;cursor:pointer}
 .hdr-suc-select:focus{outline:none;border-color:var(--green-dark)}
 .hdr-suc-select:disabled{opacity:.6;cursor:not-allowed}
@@ -342,7 +350,7 @@ header{box-shadow:var(--elev-2)}
 /* ═══ FILTROS + VISIBILIDAD (monitor grande) ═══ */
 .section-inner{align-items:center;gap:10px}
 .nav-toggle{display:flex;background:rgba(0,0,0,.20);border-radius:999px;padding:3px;gap:2px;flex-shrink:0}
-.nav-toggle-btn{background:none;border:none;color:rgba(255,255,255,.72);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:.5px;text-transform:uppercase;padding:7px 14px;border-radius:999px;cursor:pointer;white-space:nowrap;transition:.15s}
+.nav-toggle-btn{background:none;border:none;color:rgba(255,255,255,.72);font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:13px;letter-spacing:.5px;text-transform:uppercase;padding:7px 14px;border-radius:999px;cursor:pointer;white-space:nowrap;transition:.15s}
 .nav-toggle-btn:hover{color:#fff}
 .nav-toggle-btn.active{background:var(--yellow);color:#111}
 .nav-divider{width:1px;align-self:stretch;background:rgba(255,255,255,.22);margin:6px 0}
@@ -353,7 +361,7 @@ header{box-shadow:var(--elev-2)}
 .filter-inner{padding:12px 16px;gap:10px}
 .filter-chip{font-size:15px;font-weight:700;padding:10px 18px;border-radius:999px;border:2px solid var(--border);color:var(--text-muted);gap:8px}
 .filter-chip .chip-dot{width:11px;height:11px}
-.filter-chip .fcount{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;background:rgba(0,0,0,.07);padding:2px 9px;border-radius:999px;min-width:24px;text-align:center;color:inherit}
+.filter-chip .fcount{font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:13px;background:rgba(0,0,0,.07);padding:2px 9px;border-radius:999px;min-width:24px;text-align:center;color:inherit}
 .filter-chip:hover{border-color:var(--green);color:var(--green)}
 .filter-chip.active{box-shadow:var(--elev-1)}
 .filter-chip.f-all.active{background:var(--green);border-color:var(--green);color:#fff}
@@ -361,7 +369,7 @@ header{box-shadow:var(--elev-2)}
 .filter-chip.f-pend.active{background:var(--s-pend-bg);border-color:var(--s-pend-c);color:var(--s-pend-c)}
 .filter-chip.f-prog.active{background:var(--s-prog-bg);border-color:var(--s-prog-c);color:var(--s-prog-c)}
 .filter-chip.f-done.active{background:var(--s-done-bg);border-color:var(--c-baja);color:var(--c-baja)}
-.filter-chip.f-alta.active{background:#FFEBEE;border-color:var(--c-alta);color:var(--c-alta)}
+.filter-chip.f-alta.active{background:rgba(164,38,44,.12);border-color:var(--c-alta);color:var(--c-alta)}
 .filter-chip.f-urgente.active{background:var(--c-urgente);border-color:var(--c-urgente);color:#fff}
 .prod-table td{font-size:16px;padding:14px 16px}
 .prod-table th{font-size:12px;padding:10px 16px}
@@ -378,7 +386,7 @@ header{box-shadow:var(--elev-2)}
   .card-name{font-size:20px}
 }
 /* ── Calendario ── */
-.cal-day{padding:9px 4px;border-radius:var(--radius-sm);text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;cursor:default;transition:.12s;position:relative;color:var(--text-muted);min-height:38px}
+.cal-day{padding:9px 4px;border-radius:var(--radius-sm);text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:16px;cursor:default;transition:.12s;position:relative;color:var(--text-muted);min-height:38px}
 .cal-day.has-orders{color:var(--text);background:var(--green-light);cursor:pointer}
 .cal-day.has-orders:hover{background:var(--green-mid);color:#fff}
 .cal-day.has-orders::after{content:'';position:absolute;bottom:4px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--green)}
@@ -405,7 +413,7 @@ header{box-shadow:var(--elev-2)}
 @keyframes urgenteCard{0%,100%{box-shadow:0 0 0 0 rgba(255,23,68,.65)}50%{box-shadow:0 0 0 9px rgba(255,23,68,0)}}
 .board-wrap{display:flex;gap:16px;align-items:flex-start}
 .notas-dia{flex:0 0 250px;max-width:250px;position:sticky;top:12px;background:#FFF8E1;border:1px solid #FFE082;border-left:5px solid #FFB300;border-radius:var(--radius);padding:14px 16px;box-shadow:var(--elev-1);font-size:15px;line-height:1.55;color:#5D4037;white-space:pre-wrap;word-break:break-word}
-.notas-dia .notas-dia-tit{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#F57F17;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.notas-dia .notas-dia-tit{font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#F57F17;margin-bottom:8px;display:flex;align-items:center;gap:6px}
 @media(max-width:860px){.board-wrap{flex-direction:column}.notas-dia{position:static;flex-basis:auto;max-width:none;width:100%}}
 </style>
 </head>
@@ -502,7 +510,7 @@ header{box-shadow:var(--elev-2)}
         <label class="form-label">Código de producto *</label>
         <div style="display:flex;gap:8px;align-items:center">
           <input class="form-input" id="fCodigoInput" placeholder="Ej: 1234" autocomplete="off"
-            style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px"
+            style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px"
             oninput="onCodigoInput()" onblur="lookupProducto()">
           <div id="codigoStatus" style="font-size:20px;flex-shrink:0;width:24px;text-align:center"></div>
         </div>
@@ -535,7 +543,7 @@ header{box-shadow:var(--elev-2)}
           <label class="form-label" id="lbCantidad">Cantidad *</label>
           <div style="display:flex;align-items:center;gap:8px">
             <input class="form-input" id="fCantidad" type="number" min="0" step="1" placeholder="0" style="flex:1">
-            <span id="lbCantidadUnit" style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;color:var(--text-muted);white-space:nowrap;min-width:24px">u.</span>
+            <span id="lbCantidadUnit" style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:16px;color:var(--text-muted);white-space:nowrap;min-width:24px">u.</span>
           </div>
         </div>
       </div>
@@ -621,7 +629,7 @@ header{box-shadow:var(--elev-2)}
         <div class="sheets-status" id="sheetsStatus"></div>
       </div>
       <div style="background:var(--bg);border-radius:var(--radius-sm);padding:14px;margin-top:4px">
-        <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Formato esperado</div>
+        <div style="font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Formato esperado</div>
         <code style="font-size:12px;color:var(--text);line-height:1.8;display:block">
           seccion,producto,presentacion,cantidad,criticidad<br>
           MIELES,Miel Trébol,500g,120,Alta<br>
@@ -639,8 +647,8 @@ header{box-shadow:var(--elev-2)}
 <div id="historialOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:300;overflow-y:auto">
   <div style="max-width:900px;margin:0 auto;padding:20px 16px 80px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:14px;border-bottom:2px solid var(--border)">
-      <button onclick="closeHistorial()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:var(--text-muted)">← Volver</button>
-      <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--text)">Historial de producción</h2>
+      <button onclick="closeHistorial()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;color:var(--text-muted)">← Volver</button>
+      <h2 style="font-family:system-ui,'Segoe UI',sans-serif;font-size:22px;font-weight:800;color:var(--text)">Historial de producción</h2>
       <span id="historialCount" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
     </div>
     <div id="historialBody"><div style="text-align:center;padding:48px;color:var(--text-muted)">Cargando...</div></div>
@@ -651,8 +659,8 @@ header{box-shadow:var(--elev-2)}
 <div id="conciliacionOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:320;overflow-y:auto">
   <div style="max-width:1000px;margin:0 auto;padding:20px 16px 40px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;padding-bottom:14px;border-bottom:2px solid var(--border);flex-wrap:wrap">
-      <button onclick="closeConciliacion()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:var(--text-muted)">← Volver</button>
-      <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--text)">Verificación de producción</h2>
+      <button onclick="closeConciliacion()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;color:var(--text-muted)">← Volver</button>
+      <h2 style="font-family:system-ui,'Segoe UI',sans-serif;font-size:22px;font-weight:800;color:var(--text)">Verificación de producción</h2>
       <span id="concFechaLabel" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
     </div>
     <div id="conciliacionBody"><div style="text-align:center;padding:48px;color:var(--text-muted)">Cargando conciliación…</div></div>
@@ -679,11 +687,11 @@ header{box-shadow:var(--elev-2)}
       <button id="concRegistrarBtn"
         title="Da de alta los productos terminados y de baja los componentes usados, en un único movimiento de SiGA."
         onclick="registrarMovimientoProduccion()"
-        style="background:var(--green-dark);border:none;border-radius:var(--radius-chip);padding:10px 18px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:#fff;letter-spacing:.3px">✔ Registrar movimiento</button>
+        style="background:var(--green-dark);border:none;border-radius:var(--radius-chip);padding:10px 18px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:14px;font-weight:800;color:#fff;letter-spacing:.3px">✔ Registrar movimiento</button>
       <!-- Alternativa manual al movimiento automático: mismo CSV de siempre para subir a SiGA a mano. -->
       <button title="Genera el CSV de producción del día para subirlo a mano a SiGA (no escribe stock)"
         onclick="exportarConciliacionCSV()"
-        style="background:transparent;border:1.5px solid var(--border);border-radius:var(--radius-chip);padding:10px 18px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:var(--text-muted)">⬇ Descargar CSV</button>
+        style="background:transparent;border:1.5px solid var(--border);border-radius:var(--radius-chip);padding:10px 18px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:14px;font-weight:700;color:var(--text-muted)">⬇ Descargar CSV</button>
       <span id="concRegistrarNota" style="font-size:11px;color:var(--text-muted);flex:1;min-width:180px">Escribe stock real en SiGA. Se puede revertir desde 🧾 Movimientos en Planificación.</span>
     </div>
   </div>
@@ -726,7 +734,7 @@ header{box-shadow:var(--elev-2)}
       <div class="form-group">
         <label class="form-label">Nº de tambor *</label>
         <input class="form-input" id="fTambor" type="text" placeholder="Ej: T-42" autocomplete="off"
-          style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px;letter-spacing:2px"
+          style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:22px;letter-spacing:2px"
           onkeydown="if(event.key==='Enter')confirmTambor()">
       </div>
       <button class="btn-primary" onclick="confirmTambor()">Confirmar</button>
@@ -747,17 +755,17 @@ header{box-shadow:var(--elev-2)}
     <div class="modal-body" style="padding:16px 20px 20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <button class="dia-nav-btn" onclick="navCalMes(-1)" style="font-size:15px;padding:5px 14px">◀</button>
-        <span id="calMonthLabel" style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:var(--text)"></span>
+        <span id="calMonthLabel" style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:18px;color:var(--text)"></span>
         <button class="dia-nav-btn" onclick="navCalMes(1)" style="font-size:15px;padding:5px 14px">▶</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px">
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">DOM</div>
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">LUN</div>
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">MAR</div>
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">MIÉ</div>
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">JUE</div>
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">VIE</div>
-        <div style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">SÁB</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">DOM</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">LUN</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">MAR</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">MIÉ</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">JUE</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">VIE</div>
+        <div style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;font-weight:700;color:var(--text-muted);padding:3px">SÁB</div>
       </div>
       <div id="calGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px"></div>
       <div id="calPreview" style="margin-top:14px;min-height:56px"></div>
@@ -779,9 +787,9 @@ header{box-shadow:var(--elev-2)}
       <p id="confirmMsg" style="font-size:15px;line-height:1.65;color:var(--text);margin-bottom:24px"></p>
       <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
         <button id="confirmCancelBtn" onclick="resolveConfirm(false)"
-          style="padding:11px 20px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
+          style="padding:11px 20px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
 <button id="confirmOkBtn" onclick="resolveConfirm(true)"
-          style="padding:11px 22px;border-radius:var(--radius-chip);border:none;background:var(--yellow);color:#111;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.3px">Confirmar</button>
+          style="padding:11px 22px;border-radius:var(--radius-chip);border:none;background:var(--yellow);color:#111;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.3px">Confirmar</button>
       </div>
     </div>
   </div>
@@ -847,8 +855,8 @@ header{box-shadow:var(--elev-2)}
       </div>
       <div id="te-err" style="display:none;color:var(--error);font-size:12px;margin-bottom:8px"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button onclick="cerrarTareaExtraModal()" style="padding:8px 18px;border:1.5px solid var(--border);border-radius:8px;background:none;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:var(--text)">Cancelar</button>
-        <button onclick="guardarTareaExtra()" style="padding:8px 18px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px">Guardar</button>
+        <button onclick="cerrarTareaExtraModal()" style="padding:8px 18px;border:1.5px solid var(--border);border-radius:8px;background:none;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;color:var(--text)">Cancelar</button>
+        <button onclick="guardarTareaExtra()" style="padding:8px 18px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px">Guardar</button>
       </div>
     </div>
   </div>
@@ -1745,12 +1753,12 @@ function renderBoard(){
         <button class="btn-del" onclick="openEditModal(${o.id})" title="Editar">✏️</button>
         <button class="btn-del" onclick="deleteOrder(${o.id})" title="Eliminar">🗑</button>
       </td>`;
-      const qtyTd=`<td style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);white-space:nowrap">${o.cantidad}</td>`;
+      const qtyTd=`<td style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);white-space:nowrap">${o.cantidad}</td>`;
       const multi=Array.isArray(o.presentaciones)&&o.presentaciones.length>0;
       if(multi){
         const det=presItemsHTML(o);
         return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-          <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}${reservaChipsHTML(o)}</td>
+          <td style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}${reservaChipsHTML(o)}</td>
           <td>${presPillHTML(o, o.id)}</td>
           ${env}
           ${qtyTd}
@@ -1760,7 +1768,7 @@ function renderBoard(){
           <tr class="pres-detail-row" id="presdet-${o.id}" style="display:none"><td colspan="7"><div class="pres-detail">${det}</div></td></tr>`;
       }
       return `<tr class="crit-${(o.criticidad||'media').toLowerCase()}">
-        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}${reservaChipsHTML(o)}</td>
+        <td style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:18px">${cleanNombre(o.producto)}${o.tambor?`<span class="tambor-chip">🥁 ${o.tambor}</span>`:''}${o.cliente?`<span class="cliente-chip">👤 ${o.cliente}</span>`:''}${reservaChipsHTML(o)}</td>
         <td style="color:var(--text-muted)">${o.presentacion}</td>
         ${env}
         ${qtyTd}
@@ -2052,7 +2060,7 @@ async function loadHistorial() {
 function renderHistorial(registros) {
   const body = document.getElementById('historialBody');
   if (!registros.length) {
-    body.innerHTML = '<div style="text-align:center;padding:64px;color:var(--text-muted)"><div style="font-size:48px;margin-bottom:12px">📋</div><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:18px;font-weight:700">Sin registros todavía</div><div style="font-size:13px;margin-top:6px">Usá "Cerrar día" para guardar el primer registro.</div></div>';
+    body.innerHTML = '<div style="text-align:center;padding:64px;color:var(--text-muted)"><div style="font-size:48px;margin-bottom:12px">📋</div><div style="font-family:system-ui,\'Segoe UI\',sans-serif;font-size:18px;font-weight:700">Sin registros todavía</div><div style="font-size:13px;margin-top:6px">Usá "Cerrar día" para guardar el primer registro.</div></div>';
     return;
   }
 
@@ -2115,37 +2123,37 @@ function renderHistorial(registros) {
       <!-- Header del día -->
       <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div>
-          <div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:800;color:var(--text)">
+          <div style="font-family:system-ui,'Segoe UI',sans-serif;font-size:17px;font-weight:800;color:var(--text)">
             ${escEnv(fechaDisplay.charAt(0).toUpperCase()+fechaDisplay.slice(1))}
           </div>
         </div>
         <!-- Contadores -->
         <div style="flex:1;min-width:140px;display:flex;gap:22px;flex-wrap:wrap">
           <div>
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${cargas.length}</div>
+            <div style="font-family:system-ui,'Segoe UI',sans-serif;font-size:24px;font-weight:900;color:var(--text)">${cargas.length}</div>
             <div style="font-size:11px;color:var(--text-muted)">productos · ${unidadesCargadas} u.</div>
           </div>
         </div>
         <!-- Botones -->
         <div style="display:flex;gap:8px;margin-left:auto">
-          <button onclick="toggleDetalle('${detId}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
-          <button onclick="exportHistorialCSV('${grupo.dia}')" title="Genera el CSV de producción de este día para subirlo a mano a SiGA" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">⬇ CSV</button>
-          <button onclick="deleteDiaHistorial('${grupo.dia}')" title="Borra del historial todos los cierres de este día" style="background:none;border:1px solid #EF9A9A;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">🗑 Borrar día</button>
+          <button onclick="toggleDetalle('${detId}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">Ver detalle</button>
+          <button onclick="exportHistorialCSV('${grupo.dia}')" title="Genera el CSV de producción de este día para subirlo a mano a SiGA" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">⬇ CSV</button>
+          <button onclick="deleteDiaHistorial('${grupo.dia}')" title="Borra del historial todos los cierres de este día" style="background:none;border:1px solid rgba(164,38,44,.35);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:#a4262c">🗑 Borrar día</button>
         </div>
       </div>
       <!-- Detalle (oculto por defecto) -->
       <div id="${detId}" style="display:none">
         <div style="padding:14px 18px">
-          ${cargas.length ? `<div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:0 0 6px">Productos producidos</div>
+          ${cargas.length ? `<div style="font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:0 0 6px">Productos producidos</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="background:#F8F8F8">
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fecha carga</th>
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Presentación</th>
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Familia</th>
-              <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
-              <th style="padding:6px 10px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsables</th>
-              <th style="padding:6px 10px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Horario</th>
+              <th style="padding:6px 10px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fecha carga</th>
+              <th style="padding:6px 10px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Producto</th>
+              <th style="padding:6px 10px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Presentación</th>
+              <th style="padding:6px 10px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Familia</th>
+              <th style="padding:6px 10px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Cant.</th>
+              <th style="padding:6px 10px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsables</th>
+              <th style="padding:6px 10px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Horario</th>
             </tr></thead>
             <tbody>${cargas.map((c, ci) => {
               const resp = Array.isArray(c.responsables) && c.responsables.length
@@ -2169,7 +2177,7 @@ function renderHistorial(registros) {
                   ${comps.length ? `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
                     ${comps.map(k => `<tr>
                       <td style="padding:4px 0;color:var(--text)">${escEnv(k.nom)}</td>
-                      <td style="padding:4px 0;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:var(--green-dark);white-space:nowrap">${k.cant}</td>
+                      <td style="padding:4px 0;text-align:right;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:15px;color:var(--green-dark);white-space:nowrap">${k.cant}</td>
                     </tr>`).join('')}
                   </table>` : '<div style="color:var(--text-muted)">Sin componentes registrados</div>'}
                   ${c.observacion ? `<div style="margin-top:8px;font-size:12.5px;color:#7c3aed;font-style:italic">📝 ${escEnv(c.observacion)}</div>` : ''}
@@ -2190,7 +2198,7 @@ function renderHistorial(registros) {
             }).join('')}</tbody>
           </table>` : '<div style="padding:12px 0;color:var(--text-muted);font-size:13px">Sin productos registrados.</div>'}
           ${fuentes.length ? `<div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--border)">
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">
+            <div style="font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">
               ${fuentes.length === 1 ? 'Cierre de origen' : `Cierres de origen (${fuentes.length})`}
             </div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
@@ -2198,7 +2206,7 @@ function renderHistorial(registros) {
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               ${fuentes.map(f => `<button onclick="deleteRegistroHistorial(${f.id})"
-                  style="background:none;border:1px solid #EF9A9A;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">
+                  style="background:none;border:1px solid rgba(164,38,44,.35);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:#a4262c">
                   🗑 ${f.hora ? 'Cierre de las ' + escEnv(f.hora) : 'Cierre #' + escEnv(String(f.id))}
                 </button>`).join('')}
             </div>
@@ -2477,7 +2485,7 @@ function _pfElemBlockHTML(el, eidx, multi) {
     <div class="form-label" style="font-size:11px;margin-bottom:4px">Componentes utilizados</div>${granelRows}</div>` : '';
   const dis = el.cargado ? ' disabled' : '';
   const head = multi ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-    <span style="font-weight:800;font-family:'Barlow Condensed',sans-serif;font-size:16px">${el.presentacion||'—'}</span>
+    <span style="font-weight:800;font-family:system-ui,'Segoe UI',sans-serif;font-size:16px">${el.presentacion||'—'}</span>
     ${el.cargado ? '<span style="font-size:11px;font-weight:700;color:var(--green-dark)">✅ ya cargado</span>' : ''}
   </div>` : '';
   const pres = String(el.presentacion || '').replace(/"/g, '&quot;');
@@ -2613,13 +2621,13 @@ async function openProdFinalModal(id, presIndex = null) {
   const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
   const respRolesHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="background:#F8F8F8">
-      <th style="padding:6px 8px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
-      <th style="padding:6px 8px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
-      <th style="padding:6px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
-      <th style="padding:6px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
+      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
+      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
+      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
+      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
     </tr></thead>
     <tbody>${ROLES.map(rol => `<tr style="border-bottom:1px solid #F0F0F0">
-      <td style="padding:6px 8px;font-weight:700;font-family:'Barlow Condensed',sans-serif">${rol}</td>
+      <td style="padding:6px 8px;font-weight:700;font-family:system-ui,'Segoe UI',sans-serif">${rol}</td>
       <td style="padding:4px 8px"><select class="form-select pf-rol-resp" data-rol="${rol}" style="padding:5px 8px;font-size:13px">${encOpts}</select></td>
       <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-desde" style="padding:5px 8px;font-size:13px;width:100px"></td>
       <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-hasta" style="padding:5px 8px;font-size:13px;width:100px"></td>
@@ -2627,17 +2635,17 @@ async function openProdFinalModal(id, presIndex = null) {
   </table>`;
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, multi)).join('');
   const formulaSection = compsVisibles.length ? `<div class="form-group">
-    <details style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
-      <summary style="padding:10px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;display:flex;align-items:center;gap:6px;list-style:none">
+    <details class="acordeon">
+      <summary style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase">
+        <span class="caret">▸</span>
         🧪 Fórmula <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${compsVisibles.length} componentes · sin envase/tapa/etiqueta)</span>
-        <span style="margin-left:auto">▾</span>
       </summary>
-      <div style="padding:8px 14px 12px">
+      <div class="cuerpo">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr>
-            <th style="text-align:left;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Componente</th>
-            <th style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
-            <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Para ${o.cantidad} u.</th>
+            <th style="text-align:left;padding:4px 6px;font-family:system-ui,'Segoe UI',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Componente</th>
+            <th style="text-align:right;padding:4px 6px;font-family:system-ui,'Segoe UI',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
+            <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:system-ui,'Segoe UI',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Para ${o.cantidad} u.</th>
           </tr></thead>
           <tbody>${compsVisibles.map(c => {
             const factor = parseFloat(c.CantPorUnidad) || 0;
@@ -2668,7 +2676,7 @@ async function openProdFinalModal(id, presIndex = null) {
     </div>
     <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
       <button class="btn-primary" onclick="guardarProduccionFinal(event)">Guardar</button>
-      <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
+      <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
       <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
     </div>`;
   _pfRecalcGraneles();
@@ -2890,18 +2898,18 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
 
       return `<tr>
         <td>
-          <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">${nombre}</strong>
+          <strong style="font-family:system-ui,'Segoe UI',sans-serif;font-size:16px">${nombre}</strong>
           ${r.presentacion ? `<span class="envase-chip${r.presentacion === 'Granel' ? ' granel' : ''}" style="margin-left:6px">${r.presentacion === 'Granel' ? '🛢️ Granel' : r.presentacion}</span>` : ''}
           ${r.tambor ? `<span class="tambor-chip">🛢️ Tambor ${escEnv(String(r.tambor))}</span>` : ''}
           ${badgeSinConciliar}
           ${r.seccion ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px">${r.seccion}</div>` : ''}
           ${r.plu === 'ACT' && r.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${r.observacion}</div>` : ''}
         </td>
-        <td style="text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;color:var(--green-dark)">${cant}</td>
+        <td style="text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:24px;color:var(--green-dark)">${cant}</td>
         <td style="font-size:14px">${resp}</td>
         <td style="font-size:13px;color:var(--text-muted)">${hora}</td>
         <td style="text-align:center;white-space:nowrap">
-          <button onclick="openRcCompModal(${idx})" ${r.plu==='ACT'?'disabled':''} style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted);${r.plu==='ACT'?'opacity:0.3;cursor:not-allowed':''}">📦 Componentes</button>
+          <button onclick="openRcCompModal(${idx})" ${r.plu==='ACT'?'disabled':''} style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted);${r.plu==='ACT'?'opacity:0.3;cursor:not-allowed':''}">📦 Componentes</button>
           <button class="btn-del" onclick="openRcEditModal(${idx})" title="Editar" ${r.plu==='ACT'?'disabled style="opacity:0.3;cursor:not-allowed"':''}>✏️</button>
           <button class="btn-del" onclick="deleteRcRegistro(${idx})" title="Eliminar">🗑</button>
         </td>
@@ -2912,10 +2920,10 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
       <div class="section-header">
         <span class="section-title" style="text-transform:capitalize">${label}</span>
         <span class="section-count">${items.length} registro${items.length!==1?'s':''} · ${fmtN(totalCant)} u.</span>
-        <button onclick="abrirConciliacion('${fecha}')" title="Conciliar reserva, producción y diferencias, y registrar el movimiento de stock en SiGA" style="margin-left:auto;background:var(--green-dark);border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#fff">✔ Conciliar y registrar</button>
-        <button onclick="exportTerminadosCSV('${fecha}')" title="Genera el CSV del día para subirlo a mano a SiGA (no escribe stock)" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">⬇ CSV</button>
-        <button onclick="archivarDiaHistorial('${fecha}')" title="Archiva la producción de este día en el historial y la quita de Terminados" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">📋 Al historial</button>
-        <button onclick="deleteRegistrosFecha('${fecha}')" style="background:none;border:1.5px solid #C62828;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#C62828">🗑 Borrar día · a pendiente</button>
+        <button onclick="abrirConciliacion('${fecha}')" title="Conciliar reserva, producción y diferencias, y registrar el movimiento de stock en SiGA" style="margin-left:auto;background:var(--green-dark);border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:#fff">✔ Conciliar y registrar</button>
+        <button onclick="exportTerminadosCSV('${fecha}')" title="Genera el CSV del día para subirlo a mano a SiGA (no escribe stock)" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">⬇ CSV</button>
+        <button onclick="archivarDiaHistorial('${fecha}')" title="Archiva la producción de este día en el historial y la quita de Terminados" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">📋 Al historial</button>
+        <button onclick="deleteRegistrosFecha('${fecha}')" style="background:none;border:1.5px solid #a4262c;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:#a4262c">🗑 Borrar día · a pendiente</button>
       </div>
       <table class="registros-table">
         <thead><tr>
@@ -2932,9 +2940,9 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
 
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--text)">Producción cargada</h2>
+      <h2 style="font-family:system-ui,'Segoe UI',sans-serif;font-size:22px;font-weight:800;color:var(--text)">Producción cargada</h2>
       <span style="font-size:12px;color:var(--text-muted)">${registros.length} registro${registros.length!==1?'s':''}</span>
-      <button onclick="loadRegistrosCargados()" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:8px;padding:6px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">↺ Actualizar</button>
+      <button onclick="loadRegistrosCargados()" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:8px;padding:6px 14px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-size:12px;font-weight:700;color:var(--text-muted)">↺ Actualizar</button>
     </div>
     ${seccionesHTML}`;
 }
@@ -3035,7 +3043,7 @@ async function buscarProductoManual() {
     }
     resEl.innerHTML = '<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">' +
       _cmResultados.map((p, i) => `<button onclick="seleccionarProductoManual(${i})"
-        style="background:#F8F8F8;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;cursor:pointer;text-align:left;font-family:'Barlow Condensed',sans-serif;width:100%">
+        style="background:#F8F8F8;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;cursor:pointer;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;width:100%">
         <strong style="font-size:15px">${p.nombre}</strong>
         <span style="font-size:11px;color:var(--text-muted);margin-left:8px">${p.codigo}</span>
       </button>`).join('') + '</div>';
@@ -3093,13 +3101,13 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
   const respRolesHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="background:#F8F8F8">
-      <th style="padding:6px 8px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
-      <th style="padding:6px 8px;text-align:left;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
-      <th style="padding:6px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
-      <th style="padding:6px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
+      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
+      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
+      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
+      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
     </tr></thead>
     <tbody>${ROLES.map(rol => `<tr style="border-bottom:1px solid #F0F0F0">
-      <td style="padding:6px 8px;font-weight:700;font-family:'Barlow Condensed',sans-serif">${rol}</td>
+      <td style="padding:6px 8px;font-weight:700;font-family:system-ui,'Segoe UI',sans-serif">${rol}</td>
       <td style="padding:4px 8px"><select class="form-select pf-rol-resp" data-rol="${rol}" style="padding:5px 8px;font-size:13px">${encOpts}</select></td>
       <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-desde" style="padding:5px 8px;font-size:13px;width:100px"></td>
       <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-hasta" style="padding:5px 8px;font-size:13px;width:100px"></td>
@@ -3107,17 +3115,17 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   </table>`;
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, false)).join('');
   const formulaSection = compsVisibles.length ? `<div class="form-group">
-    <details style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
-      <summary style="padding:10px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-muted);background:#F8F8F8;display:flex;align-items:center;gap:6px;list-style:none">
+    <details class="acordeon">
+      <summary style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase">
+        <span class="caret">▸</span>
         🧪 Fórmula <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(${compsVisibles.length} componentes · sin envase/tapa/etiqueta)</span>
-        <span style="margin-left:auto">▾</span>
       </summary>
-      <div style="padding:8px 14px 12px">
+      <div class="cuerpo">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr>
-            <th style="text-align:left;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Componente</th>
-            <th style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
-            <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Total</th>
+            <th style="text-align:left;padding:4px 6px;font-family:system-ui,'Segoe UI',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Componente</th>
+            <th style="text-align:right;padding:4px 6px;font-family:system-ui,'Segoe UI',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Por unidad</th>
+            <th id="pfFormulaCantHeader" style="text-align:right;padding:4px 6px;font-family:system-ui,'Segoe UI',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Total</th>
           </tr></thead>
           <tbody>${compsVisibles.map(c => {
             const factor = parseFloat(c.CantPorUnidad) || 0;
@@ -3145,7 +3153,7 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
     </div>
     <div style="display:flex;gap:10px;margin-top:8px;align-items:center">
       <button class="btn-primary" onclick="guardarProduccionFinal(event)">Guardar</button>
-      <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
+      <button onclick="closeProdFinalModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
       <span id="pfErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
     </div>`;
   _pfRecalcGraneles();
@@ -3252,7 +3260,7 @@ async function abrirConciliacion(fecha) {
     data = await api('GET', conSucursalProd(`/api/produccion/${encodeURIComponent(fecha)}/conciliacion`));
   } catch (e) {
     showSnack('⚠ No se pudo cargar la conciliación');
-    body.innerHTML = `<div style="background:#FFEBEE;border:1.5px solid var(--c-alta);border-radius:var(--radius-sm);padding:16px;color:var(--c-alta);font-size:14px">
+    body.innerHTML = `<div style="background:rgba(164,38,44,.12);border:1.5px solid var(--c-alta);border-radius:var(--radius-sm);padding:16px;color:var(--c-alta);font-size:14px">
       No se pudo cargar la conciliación del día. Podés exportar el CSV igual, pero sin verificar reserva contra consumo.</div>`;
     // Sin conciliación no hay depósitos válidos que ofrecer: se vacían para no registrar
     // contra una elección vieja de otra sucursal.
@@ -3278,14 +3286,14 @@ function renderConciliacion(d) {
   const compManual = Array.isArray(d.componentesManual) ? d.componentesManual : [];
   const tot = d.totales || {};
 
-  const TH = 'text-align:left;padding:6px 8px;font-family:\'Barlow Condensed\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
+  const TH = 'text-align:left;padding:6px 8px;font-family:system-ui,\'Segoe UI\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
   const THR = TH.replace('text-align:left', 'text-align:right');
   const THC = TH.replace('text-align:left', 'text-align:center');
   const CARD = 'background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:18px';
-  const TITLE = 'font-family:\'Barlow Condensed\',sans-serif;font-weight:800;font-size:16px;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+  const TITLE = 'font-family:system-ui,\'Segoe UI\',sans-serif;font-weight:800;font-size:16px;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
 
-  const avisosHTML = avisos.length ? `<div style="background:#FFF8E1;border:1.5px solid #FFCC80;border-left:5px solid var(--c-media);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:18px">
-    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#E65100;margin-bottom:6px">⚠ Avisos</div>
+  const avisosHTML = avisos.length ? `<div style="background:#FFF8E1;border:1.5px solid rgba(138,93,0,.35);border-left:5px solid var(--c-media);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:18px">
+    <div style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#8a5d00;margin-bottom:6px">⚠ Avisos</div>
     <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--text)">${avisos.map(a => `<li>${escEnv(a)}</li>`).join('')}</ul>
   </div>` : '';
 
@@ -3305,7 +3313,7 @@ function renderConciliacion(d) {
     const n = Array.isArray(m.lineas) ? m.lineas.length : 0;
     return `<button onclick="verMovimientoSiga(${Number(num)},${suc},'${tipo}')"
       title="Ver en SiGA el detalle real de este comprobante (${n} línea${n === 1 ? '' : 's'} en el log)"
-      style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;color:var(--text);text-decoration:none">🔍 ver</button>`;
+      style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:12px;color:var(--text);text-decoration:none">🔍 ver</button>`;
   };
 
   let movsHTML;
@@ -3347,15 +3355,15 @@ function renderConciliacion(d) {
             ? `reversión de ${numRevertido ? '#' + numRevertido : 'otro movimiento'}: no cuenta`
             : `revertido${numQueRevirtio ? ' por #' + numQueRevirtio : ''}: no cuenta`;
         } else if (est === 'fallido') {
-          badge = 'background:#FFEBEE;color:var(--c-alta)';
+          badge = 'background:rgba(164,38,44,.12);color:var(--c-alta)';
           nota = 'no movió stock';
         } else if (est === 'pendiente') {
-          rowStyle += ';background:#FFEBEE';
+          rowStyle += ';background:rgba(164,38,44,.12)';
           badge = 'background:var(--c-alta);color:#fff';
           nota = 'verificar en SiGA';
         } else if (esRecepcion || yaConciliado) {
           // Fondo verde tenue: se lee de un vistazo qué filas ya cerraron su circuito.
-          rowStyle += ';background:#F1F8E9';
+          rowStyle += ';background:rgba(14,112,14,.10)';
           nota = esRecepcion
             ? 'alta de producción: no espera conciliación'
             : 'ya conciliada: fuera del resumen';
@@ -3370,7 +3378,7 @@ function renderConciliacion(d) {
         if (!anulado && esRecepcion)       marca = '<span class="chip-mov-ok">📦 recepción</span>';
         else if (!anulado && yaConciliado) marca = '<span class="chip-mov-ok">✔ conciliada</span>';
         return `<tr style="${rowStyle}">
-          <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px">#${escEnv(m.numeroMovimiento ?? m.id ?? '—')}</td>
+          <td style="padding:7px 8px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:15px">#${escEnv(m.numeroMovimiento ?? m.id ?? '—')}</td>
           <td style="padding:7px 8px">${escEnv(origenTexto)} ${marca}</td>
           <td style="padding:7px 8px;color:var(--text-muted)">${_concFechaHora(m.fechaHora)}</td>
           <td style="padding:7px 8px;text-align:center">
@@ -3397,19 +3405,19 @@ function renderConciliacion(d) {
     // Carga manual: no se planificó, así que no hay reserva contra la cual conciliarla.
     if (p.manual) extra += `<span title="Carga manual: sin orden planificada. Los componentes se descuentan del depósito de recepción, donde también entra el terminado, y no se concilian contra la reserva." style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:var(--radius-chip);font-size:10px;font-weight:700;background:#E3F2FD;color:#1565C0">✋ manual</span>`;
     return `<tr style="border-bottom:1px solid #F0F0F0${gris ? ';color:var(--text-muted);background:#FAFAFA' : ''}">
-      <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(p.pluTexto || p.plu || '—')}</td>
+      <td style="padding:7px 8px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700">${escEnv(p.pluTexto || p.plu || '—')}</td>
       <td style="padding:7px 8px">${escEnv(p.nombre || '')}${extra}</td>
-      <td style="padding:7px 8px;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px${gris ? '' : ';color:var(--green-dark)'}">${fmtN(p.cantidad)}</td>
+      <td style="padding:7px 8px;text-align:right;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:17px${gris ? '' : ';color:var(--green-dark)'}">${fmtN(p.cantidad)}</td>
       <td style="padding:7px 8px;text-align:right;color:var(--text-muted)">${fmtN(p.registros)}</td>
     </tr>`;
   };
-  const seccionProd = (txt, n) => `<tr><td colspan="4" style="padding:8px;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);background:#F4F4F4">${escEnv(txt)} (${n})</td></tr>`;
+  const seccionProd = (txt, n) => `<tr><td colspan="4" style="padding:8px;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);background:#F4F4F4">${escEnv(txt)} (${n})</td></tr>`;
 
   // Los ya registrados (recepción hecha) no se listan: el resumen es lo que falta mover.
   const productosHTML = !productos.length
     ? '<div style="padding:14px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">Sin productos cargados para esta fecha.</div>'
     : (!pendientesProd.length && !excluidos.length)
-    ? `<div style="padding:14px;background:#F1F8E9;border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">Toda la producción del día ya fue registrada (${fmtN(registradosProd.length)} producto${registradosProd.length === 1 ? '' : 's'}): no queda nada por recepcionar.</div>`
+    ? `<div style="padding:14px;background:rgba(14,112,14,.10);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)">Toda la producción del día ya fue registrada (${fmtN(registradosProd.length)} producto${registradosProd.length === 1 ? '' : 's'}): no queda nada por recepcionar.</div>`
     : `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
         <thead><tr>
           <th style="${TH}">PLU</th>
@@ -3438,22 +3446,22 @@ function renderConciliacion(d) {
         <tbody>${componentes.map(c => {
           const dif = _parseNum(c.diferencia);
           let bg = 'var(--s-done-bg)', difColor = 'var(--s-done-c)';
-          if (c.falta || dif > 0) { bg = '#FFEBEE'; difColor = 'var(--c-alta)'; }
-          else if (c.sobra || dif < 0) { bg = '#FFF8E1'; difColor = '#E65100'; }
+          if (c.falta || dif > 0) { bg = 'rgba(164,38,44,.12)'; difColor = 'var(--c-alta)'; }
+          else if (c.sobra || dif < 0) { bg = '#FFF8E1'; difColor = '#8a5d00'; }
           return `<tr style="border-bottom:1px solid #F0F0F0;background:${bg}">
-            <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
+            <td style="padding:7px 8px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
             <td style="padding:7px 8px">${escEnv(c.nombre || '')}</td>
             <td style="padding:7px 8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${escEnv(c.tipo || '—')}</td>
             <td style="padding:7px 8px;text-align:right">${fmtN(c.reservado)}</td>
             <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN(c.usado)}</td>
-            <td style="padding:7px 8px;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;color:${difColor}">${_concDif(dif)}</td>
+            <td style="padding:7px 8px;text-align:right;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:16px;color:${difColor}">${_concDif(dif)}</td>
           </tr>`;
         }).join('')}</tbody>
       </table></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text-muted)">
         <span><b style="color:var(--text)">${fmtN(tot.componentes ?? componentes.length)}</b> componentes</span>
         <span><b style="color:var(--c-alta)">${fmtN(tot.conDiferencia ?? 0)}</b> con diferencia</span>
-        <span><b style="color:#E65100">${fmtN(tot.sinReservar ?? 0)}</b> sin reservar</span>
+        <span><b style="color:#8a5d00">${fmtN(tot.sinReservar ?? 0)}</b> sin reservar</span>
       </div>`;
 
   // Carga manual: consumo sin reserva detrás. Se muestra aparte porque no hay diferencia que
@@ -3471,7 +3479,7 @@ function renderConciliacion(d) {
           <th style="${THR}">Usado</th>
         </tr></thead>
         <tbody>${compManual.map(c => `<tr style="border-bottom:1px solid #F0F0F0">
-          <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
+          <td style="padding:7px 8px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700">${escEnv(c.plu ?? '—')}</td>
           <td style="padding:7px 8px">${escEnv(c.nombre || '')}</td>
           <td style="padding:7px 8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${escEnv(c.tipo || '—')}</td>
           <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN(c.usado)}</td>
@@ -3505,7 +3513,7 @@ function renderConciliacion(d) {
                 const usadoN = _parseNum(c.usado);
                 const sobranteN = _parseNum(c.sobrante);
                 const alerta = sobranteN > 0 || usadoN > reservadoN;
-                return `<tr style="border-bottom:1px solid #F0F0F0${alerta ? ';background:#FFEBEE' : ''}">
+                return `<tr style="border-bottom:1px solid #F0F0F0${alerta ? ';background:rgba(164,38,44,.12)' : ''}">
                   <td style="padding:7px 8px">${escEnv(c.nombre || '')}</td>
                   <td style="padding:7px 8px;text-align:right">${fmtN(c.reservado)}</td>
                   <td style="padding:7px 8px;text-align:right;font-weight:700${alerta ? ';color:var(--c-alta)' : ''}">${fmtN(c.usado)}</td>
@@ -3533,8 +3541,8 @@ function renderConciliacion(d) {
     const titulo = full
       ? `La producción del ${escEnv(_concFecha)} ya fue registrada con el movimiento #${num} el ${cuando}.`
       : `Parte de la producción del ${escEnv(_concFecha)} ya fue registrada (movimiento #${num}, ${cuando}). Sólo se registrará lo pendiente.`;
-    return `<div style="background:#E8F5E9;border:1.5px solid #A5D6A7;border-left:5px solid var(--green-dark);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:18px">
-      <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--green-dark);margin-bottom:6px">✔ Producción registrada</div>
+    return `<div style="background:rgba(14,112,14,.10);border:1.5px solid rgba(14,112,14,.30);border-left:5px solid var(--green-dark);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:18px">
+      <div style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--green-dark);margin-bottom:6px">✔ Producción registrada</div>
       <div style="font-size:13px;line-height:1.6;color:var(--text)">${titulo} Se puede revertir desde 🧾 Movimientos en Planificación.</div>
     </div>`;
   })() : '';
@@ -3572,7 +3580,7 @@ async function verMovimientoSiga(numero, idSucursal, idTipoMovimiento) {
   body.innerHTML = '<div class="formula-spinner">⏳ Consultando SiGA…</div>';
   document.getElementById('movSigaModal').classList.add('open');
 
-  const err = txt => `<div style="padding:14px;background:#FFEBEE;border-radius:var(--radius-sm);font-size:13px;color:var(--c-alta)">${escEnv(txt)}</div>`;
+  const err = txt => `<div style="padding:14px;background:rgba(164,38,44,.12);border-radius:var(--radius-sm);font-size:13px;color:var(--c-alta)">${escEnv(txt)}</div>`;
   let d;
   try {
     d = await api('GET', `/api/movimientos/siga/${encodeURIComponent(numero)}`
@@ -3591,7 +3599,7 @@ async function verMovimientoSiga(numero, idSucursal, idTipoMovimiento) {
   const lineas = Array.isArray(d.lineas) ? d.lineas : [];
   const dato = (k, v) => `<div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)">${escEnv(k)}</div>
     <div style="font-size:13px;font-weight:600">${escEnv(v || '—')}</div></div>`;
-  const TH = 'text-align:left;padding:6px 8px;font-family:\'Barlow Condensed\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
+  const TH = 'text-align:left;padding:6px 8px;font-family:system-ui,\'Segoe UI\',sans-serif;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1.5px solid var(--border)';
   const THR = TH.replace('text-align:left', 'text-align:right');
 
   const tabla = !lineas.length
@@ -3606,10 +3614,10 @@ async function verMovimientoSiga(numero, idSucursal, idTipoMovimiento) {
         <tbody>${lineas.map(l => {
           const cant = _parseNum(l.cantidad);
           return `<tr style="border-bottom:1px solid #F0F0F0">
-            <td style="padding:7px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:700">${escEnv(l.plu || '—')}</td>
+            <td style="padding:7px 8px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700">${escEnv(l.plu || '—')}</td>
             <td style="padding:7px 8px">${escEnv(l.nombre || '')}</td>
             <td style="padding:7px 8px;color:var(--text-muted)">${escEnv(l.nombreDeposito || (l.idDeposito != null ? 'Depósito ' + l.idDeposito : '—'))}</td>
-            <td style="padding:7px 8px;text-align:right;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${cant < 0 ? 'var(--c-alta)' : 'var(--green-dark)'}">${fmtN(cant)}</td>
+            <td style="padding:7px 8px;text-align:right;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:15px;color:${cant < 0 ? 'var(--c-alta)' : 'var(--green-dark)'}">${fmtN(cant)}</td>
           </tr>`;
         }).join('')}</tbody>
       </table></div>`;
@@ -3680,7 +3688,7 @@ async function registrarMovimientoProduccion() {
       <div style="margin-top:10px;color:var(--text-muted)">Lo que esté reservado sale del depósito
         de reserva. Si se usó de más, el excedente se descuenta del depósito de origen; si se usó
         de menos, el sobrante vuelve a ese mismo depósito.</div>
-      ${sinPlu.length ? `<div style="margin-top:10px;padding:8px 10px;background:#FFEBEE;border-radius:var(--radius-sm);color:var(--c-alta);font-weight:700">⚠ ${sinPlu.length} componente(s) sin código: se omiten del movimiento.</div>` : ''}
+      ${sinPlu.length ? `<div style="margin-top:10px;padding:8px 10px;background:rgba(164,38,44,.12);border-radius:var(--radius-sm);color:var(--c-alta);font-weight:700">⚠ ${sinPlu.length} componente(s) sin código: se omiten del movimiento.</div>` : ''}
       <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:var(--radius-sm)">
         <strong>Esto modifica stock real.</strong> Se puede revertir desde 🧾 Movimientos en Planificación.
       </div>`;
@@ -3811,7 +3819,7 @@ function openRcCompModal(idx) {
     body.innerHTML = `<table style="width:100%;border-collapse:collapse">
       ${d.graneles.map(g => `<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:12px 4px;font-size:15px">${g.nombreGranel||'Granel'}</td>
-        <td style="text-align:right;padding:12px 4px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;color:var(--green-dark)">${fmtN(g.granelConsumido)}</td>
+        <td style="text-align:right;padding:12px 4px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:22px;color:var(--green-dark)">${fmtN(g.granelConsumido)}</td>
         <td style="padding:12px 4px 12px 6px;font-size:13px;color:var(--text-muted)">kg</td>
       </tr>`).join('')}
     </table>`;
@@ -3847,7 +3855,7 @@ function openRcEditModal(idx) {
     body.innerHTML = rows + `
       <div style="display:flex;gap:10px;margin-top:4px">
         <button class="btn-primary" onclick="saveRcEdit()">Guardar</button>
-        <button onclick="closeRcEditModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
+        <button onclick="closeRcEditModal()" style="padding:10px 18px;border-radius:var(--radius-chip);border:1.5px solid var(--border);background:transparent;font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--text-muted)">Cancelar</button>
         <span id="rcEditErr" style="color:var(--c-alta);font-size:12px;display:none"></span>
       </div>`;
   }
@@ -4050,15 +4058,15 @@ function renderCalPreview(fecha){
   const rows=orders.map(o=>`<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--radius-sm);background:var(--bg);margin-bottom:3px">
     <span style="font-size:13px">${ico[o.estado]||'⬜'}</span>
     <span style="flex:1;font-size:13px;font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${cleanNombre(o.producto)}</span>
-    <span style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;color:var(--green-dark)">${o.cantidad}</span>
+    <span style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:16px;color:var(--green-dark)">${o.cantidad}</span>
   </div>`).join('');
   preview.innerHTML=`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;flex:1;text-transform:capitalize;color:var(--text)">${label}</span>
+      <span style="font-family:system-ui,'Segoe UI',sans-serif;font-weight:700;font-size:14px;flex:1;text-transform:capitalize;color:var(--text)">${label}</span>
       <span style="font-size:12px;color:var(--text-muted)">${comp}/${orders.length} completas</span>
     </div>
     <div style="max-height:200px;overflow-y:auto;margin-bottom:10px">${rows}</div>
-    <button onclick="goToCalDay('${fecha}')" style="width:100%;padding:11px;border:none;border-radius:var(--radius-chip);background:var(--green);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.3px">Ir a este día →</button>`;
+    <button onclick="goToCalDay('${fecha}')" style="width:100%;padding:11px;border:none;border-radius:var(--radius-chip);background:var(--green);color:#fff;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.3px">Ir a este día →</button>`;
 }
 async function goToCalDay(fecha){ closeCalModal(); await setFechaFiltro(fecha); }
 
