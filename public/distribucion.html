@@ -32,7 +32,11 @@
 
   /* ── Header (verde marca) ── */
   header{background:var(--verde);color:#fff;padding:0 22px;box-shadow:var(--shadow-lg);position:relative;z-index:30}
-  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0 0}
+  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0 10px;position:relative}
+  /* Filo amarillo: la firma del sistema en cada navbar verde (igual que planificacion.html/productividad.html).
+     Divide la marca (.top) de las tabs, no el header entero del body. */
+  .top::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--amarillo) 28%,var(--amarillo) 72%,transparent);opacity:.85}
   .brand{display:flex;align-items:baseline;gap:11px}
   .brand .mark{font-family:var(--disp);font-weight:700;font-size:24px;letter-spacing:.3px;line-height:1}
   .brand .mark b{color:var(--amarillo)}
@@ -40,18 +44,22 @@
   .top .sp{flex:1}
 
   /* ── Tabs (sobre el verde, indicador amarillo) ── */
-  .tabs{display:flex;gap:4px;margin-top:10px;padding:0 4px;position:relative;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+  .tabs{display:flex;gap:4px;margin-top:2px;padding:0 4px;position:relative;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
   .tabs::-webkit-scrollbar{height:5px}
   .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:3px}
-  .tab{font-family:var(--disp);font-weight:700;font-size:15px;letter-spacing:.4px;color:rgba(255,255,255,.78);
-    background:rgba(255,255,255,.08);border:0;padding:9px 18px 12px;cursor:pointer;position:relative;display:flex;align-items:center;gap:9px;transition:background .15s,color .15s;text-transform:uppercase;border-radius:8px 8px 0 0;flex:0 0 auto}
-  .tab:hover{background:rgba(255,255,255,.18);color:#fff}
-  .tab.on{background:var(--amarillo);color:var(--amarillo-on)}
+  /* Mismo lenguaje de tabs que planificacion.html: transparente, subrayado amarillo que
+     crece desde el centro al activarse (::after), sin fondo sólido en el estado "on". */
+  .tab{font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:.4px;color:rgba(255,255,255,.72);
+    text-transform:none;background:none;border:0;border-bottom:0;padding:0 18px;height:48px;cursor:pointer;position:relative;overflow:hidden;display:flex;align-items:center;gap:9px;transition:color .15s;border-radius:8px 8px 0 0;flex:0 0 auto}
+  .tab:hover{background:none;color:#fff}
+  .tab::after{content:'';position:absolute;left:50%;right:50%;bottom:0;height:3px;background:var(--amarillo);border-radius:3px 3px 0 0;transition:left .2s,right .2s}
+  .tab.on{background:none;border-color:transparent;border-bottom-color:transparent;color:var(--amarillo)}
+  .tab.on::after{left:10px;right:10px}
   .tab .pill{font-family:var(--body);font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:rgba(255,255,255,.25);color:rgba(255,255,255,.9)}
-  .tab.on .pill{background:rgba(58,47,0,.18);color:var(--amarillo-on)}
+  .tab.on .pill{background:rgba(255,204,0,.18);color:var(--amarillo)}
   #ink{display:none}
   .tab-cfg-toggle{font-family:var(--disp);font-weight:700;font-size:16px;color:rgba(255,255,255,.55);background:none;border:0;padding:9px 12px 12px;cursor:pointer;margin-left:auto;border-radius:8px 8px 0 0;transition:background .15s,color .15s}
-  .tab-cfg-toggle:hover{background:rgba(255,255,255,.15);color:#fff}
+  .tab-cfg-toggle:hover{background:none;color:#fff}
   .tab-cfg-toggle.cfg-visible{color:var(--amarillo)}
   .cfg-tab{display:none}
   .tab-cfg-toggle.alerta{position:relative}
@@ -469,7 +477,7 @@
     header{padding:0 12px}
     .brand .mark{font-size:20px}
     .brand .sub{display:none}
-    .tab{font-size:13px;padding:8px 12px 10px}
+    .tab{font-size:13px;height:40px;padding:0 12px}
     .meta{padding:8px 12px;gap:6px}
     input[type=search]{flex:1 1 140px;width:auto}
     .meta .div{display:none}
@@ -1133,6 +1141,8 @@ let datosP = [], ordenP = { col: 'prioridad', dir: -1 }, pCargado = false;
 const RT_CLASE = { 'Envasado':'rt-Envasado','Fraccionado':'rt-Fraccionado','Fraccionado Revisar':'rt-FraccionadoRevisar','Solo Preparacion':'rt-SoloPreparacion' };
 const sumEnvP = (r) => SUC_P.reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
 const sumEnvVisP = (r) => SUC_P.filter(([k]) => sucVisP.has(k)).reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
+// Alguna sucursal visible pide envío (>0) o está en Fact — usado para no ocultar filas sin envío numérico pero con Fact.
+const algunaSucPideP = (r) => SUC_P.filter(([k]) => sucVisP.has(k)).some(([k]) => { const v = r.enviar[k]; return (esNum(v) && v > 0) || v === 'Fact'; });
 
 // Filtro múltiple de columnas por sucursal (Pesables) — dropdown
 let sucVisP = new Set(SUC_P.map(([k]) => k));
@@ -1732,7 +1742,7 @@ function exportarPDFPesables() {
     if (filtroProd.p.has(String(r.plu))) return false;
     if (ocultosP.has(String(r.plu))) return false;   // filas ocultas a mano: fuera del PDF, igual que en la tabla
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && r.J !== 'Si' && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable o con envasar/a depósito)
+    if (soloEnvio && !algunaSucPideP(r) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // oculta si ninguna sucursal pide envío ni está en Fact (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -2048,7 +2058,7 @@ function renderP() {
     const oc = ocultosP.has(String(r.plu));
     if (oc) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && r.J !== 'Si' && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable o con envasar/a depósito)
+    if (soloEnvio && !algunaSucPideP(r) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // oculta si ninguna sucursal pide envío ni está en Fact (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -2203,12 +2213,14 @@ document.getElementById('pdfEnv').onclick = exportarPDFEnvasar;
 const TAB_REGISTRY = [
   { id:'almacen',        label:'Almacen',         def:'main', fixed:true },
   { id:'pesables',       label:'Pesables',         def:'main' },
+  { id:'prioritarios',   label:'Prioritarios',     def:'main' },
   { id:'envasar',        label:'Envasar',          def:'main' },
   { id:'pedidos',        label:'Pedidos',          def:'main' },
   { id:'produccion',     label:'Producción',       def:'main' },
   { id:'historial',      label:'Historial',        def:'main' },
   { id:'config-ruteos',  label:'Config Ruteos',    def:'cfg'  },
   { id:'excluir',        label:'No envasa',        def:'cfg'  },
+  { id:'restringidos',   label:'Restringidos',     def:'cfg'  },
   { id:'forzar-almacen', label:'Siempre Almacén',  def:'cfg'  },
   { id:'forzar-pesable', label:'Siempre Pesable',  def:'cfg'  },
   { id:'ocultar-pesable',label:'Ocultar Pesable',  def:'cfg'  },

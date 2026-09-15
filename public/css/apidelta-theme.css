@@ -56,6 +56,40 @@ tbody tr:hover { background: #f5f8f1; }
 /* Contenido de tab: transición de opacidad en vez de corte seco al cambiar. */
 .tab-panel { transition: opacity 150ms ease; }
 
+/* ── Tabs DENTRO del navbar verde (planificacion.html, distribucion.html) ──────────────
+   Distinto de .tab/.tab.on de arriba (esas son para tabs sobre el body blanco, ver
+   insumos.html). Acá: transparente, subrayado amarillo que crece desde el centro al
+   activarse — nada de fondo sólido.
+   Gotcha de especificidad: si el módulo tiene un reset genérico tipo
+   `button:hover{background:var(--x)}` (muy común, todo módulo grande lo tiene), ese
+   `button:hover` (elemento+pseudo-clase) le gana a `.navtab{background:none}` (solo clase)
+   en el estado hover — porque `.navtab:hover{color:#fff}` sin declarar `background` no
+   compite por esa propiedad. Por eso `.navtab:hover` y `.navtab.on` declaran `background:
+   none` explícito, no alcanza con heredarlo de la regla base. */
+.navtab {
+  font-family: inherit; font-weight: 600; font-size: 15px; letter-spacing: .4px;
+  text-transform: none; color: rgba(255,255,255,.72); background: none; border: 0;
+  padding: 0 18px; height: 48px; cursor: pointer; position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 9px; border-radius: 8px 8px 0 0;
+  transition: color 150ms ease;
+}
+.navtab:hover { background: none; color: #fff; }
+.navtab::after {
+  content: ''; position: absolute; left: 50%; right: 50%; bottom: 0; height: 3px;
+  background: #FFCC00; border-radius: 3px 3px 0 0; transition: left 200ms ease, right 200ms ease;
+}
+.navtab.on { background: none; border-color: transparent; color: #FFCC00; }
+.navtab.on::after { left: 10px; right: 10px; }
+
+/* Filo amarillo: firma del sistema en la costura del navbar (ej. entre la marca y la fila
+   de tabs, si están en bloques separados). El contenedor necesita position:relative. */
+.filo-amarillo { position: relative; }
+.filo-amarillo::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #FFCC00 28%, #FFCC00 72%, transparent);
+  opacity: .85;
+}
+
 tr.grupo { background: #f2f6ec; cursor: pointer; font-weight: 500; transition: background-color 140ms ease; }
 tr.grupo:hover { background: #e9efe0; }
 
