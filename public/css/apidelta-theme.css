@@ -1,0 +1,114 @@
+/* Clases compartidas Apidelta (Fluent 2 + paleta propia). Genéricas: pensadas para
+   cualquier módulo, no sólo insumos.html. Requiere apidelta-theme.js cargado antes
+   (define los colores/sombra de tailwind.config que estas reglas asumen). */
+
+body { background: #eef1ea; }
+
+/* Navbar: verde con acentos amarillos (glass sutil). El body/canvas de la página
+   sigue como está (blanco/#eef1ea con acentos verdes) — no se toca acá. */
+header.acrylic {
+  background: rgba(64,89,54,.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom-color: rgba(0,0,0,.18);
+}
+header.acrylic h1 { color: #ffffff; }
+header.acrylic span { color: rgba(255,255,255,.75); }
+header.acrylic a { color: #ffffff; }
+header.acrylic a:hover { color: #FFCC00; }
+header.acrylic button { color: #ffffff; border-color: rgba(255,255,255,.35); }
+header.acrylic button:hover { background: rgba(255,255,255,.14); }
+header.acrylic button.bg-verde { background: #FFCC00; color: #1a1c18; }
+header.acrylic button.bg-verde:hover { background: #ffd633; }
+
+/* Cualquier otra superficie "acrílica" que no sea navbar mantiene el vidrio blanco. */
+.acrylic:not(header) {
+  background: rgba(255,255,255,.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+th { font-family: system-ui, "Segoe UI", sans-serif; text-transform: uppercase; letter-spacing: .02em; }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; transition: color 140ms ease; }
+th.sortable:hover { color: #4f6e42; }
+
+tbody tr { transition: background-color 140ms ease; }
+tbody tr:hover { background: #f5f8f1; }
+
+.kpi {
+  border: 1px solid rgba(26,28,24,.16); border-radius: 12px; background: #fff;
+  padding: 10px 14px; text-align: left; cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.kpi:hover { box-shadow: 0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1); }
+.kpi.on { outline: 2px solid #405936; }
+.kpi .v { font-family: system-ui, "Segoe UI", sans-serif; font-size: 28px; font-weight: 700; line-height: 1; }
+.kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #5c5f52; }
+
+.tab {
+  font-family: system-ui, "Segoe UI", sans-serif; font-size: 17px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .03em; padding: 6px 14px;
+  border-radius: 6px 6px 0 0; border: 1px solid transparent; color: #5c5f52; cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+.tab.on { background: #fff; border-color: rgba(26,28,24,.16); border-bottom-color: #fff; color: #405936; }
+
+/* Contenido de tab: transición de opacidad en vez de corte seco al cambiar. */
+.tab-panel { transition: opacity 150ms ease; }
+
+tr.grupo { background: #f2f6ec; cursor: pointer; font-weight: 500; transition: background-color 140ms ease; }
+tr.grupo:hover { background: #e9efe0; }
+
+.spin {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(26,28,24,.16);
+  border-top-color: #405936; border-radius: 50%; animation: sp .8s linear infinite; vertical-align: -2px;
+}
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* Hover genérico de botones/links: reusable en todo el sistema. */
+button, a { transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, opacity 140ms ease, transform 140ms ease; }
+
+/* Entrada de modales/paneles. */
+.fade-in { animation: apidelta-fade-in 180ms ease; }
+@keyframes apidelta-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Acordeón (details/summary) ───────────────────────────────────────────
+   Patrón reusable para listas colapsables (desgloses día/semana, historiales,
+   etc). <details> nativo: el navegador abre/cierra, no hace falta JS. El
+   summary se distingue del fondo con un tinte del verde de marca en vez de
+   un gris genérico, y el caret es un chip circular que rota al abrir —
+   ambos escalan a hover/open para que se lea como control, no como texto. */
+.acordeon {
+  background: #fff; border: 1px solid rgba(26,28,24,.16); border-radius: 12px;
+  margin-bottom: 10px; overflow: hidden;
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+.acordeon:hover { box-shadow: 0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1); }
+.acordeon[open] { border-color: #405936; }
+.acordeon > summary {
+  list-style: none; cursor: pointer; padding: 14px 18px; position: relative;
+  display: flex; align-items: center; gap: 12px; background: rgba(64,89,54,.06);
+  transition: background 180ms ease;
+}
+.acordeon > summary::-webkit-details-marker { display: none; }
+.acordeon > summary:hover { background: rgba(64,89,54,.11); }
+.acordeon[open] > summary { background: rgba(64,89,54,.14); }
+.acordeon .caret {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 20px; height: 20px; border-radius: 50%; background: rgba(64,89,54,.14);
+  color: #2e4027; font-size: 9px; transition: transform 200ms ease, background 180ms ease;
+}
+.acordeon[open] .caret { transform: rotate(90deg); background: rgba(64,89,54,.22); }
+.acordeon .cuerpo { padding: 0 18px 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  th.sortable, tbody tr, .kpi, .tab, tr.grupo, button, a, .tab-panel,
+  .acordeon, .acordeon > summary, .acordeon .caret {
+    transition: none !important;
+  }
+  .spin { animation-duration: 1.2s; }
+  .fade-in { animation: none !important; }
+}
