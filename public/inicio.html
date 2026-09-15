@@ -5,64 +5,27 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Apidelta — Centro de operaciones</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <script src="https://unpkg.com/lucide@latest"></script>
-<script>
-// ── Paleta oficial Apidelta ─────────────────────────────────────────────────
-//   Negro #000000 · Oliva #65684C · Gris #BDBDB7 · Blanco #FFFFFF · Amarillo #FFCC00
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        brand:   { DEFAULT: '#FFCC00', dark: '#E6B800', soft: '#FFF3B0', ink: '#1a1200' },
-        ink:     '#000000',
-        olive:   { DEFAULT: '#65684C', soft: '#eae9e1' },
-        line:    '#BDBDB7',
-        surface: { DEFAULT:'#FFFFFF', alt:'#fafaf6', deep:'#f5f5f1' }
-      },
-      fontFamily: {
-        sans:    ['Public Sans', 'system-ui', 'sans-serif'],
-        display: ['Bricolage Grotesque', 'Public Sans', 'sans-serif'],
-        mono:    ['Spline Sans Mono', 'ui-monospace', 'monospace']
-      },
-      boxShadow: {
-        soft: '0 1px 2px rgba(15,17,21,.04), 0 2px 8px rgba(15,17,21,.04)',
-        lift: '0 4px 12px rgba(15,17,21,.06), 0 12px 32px rgba(15,17,21,.06)'
-      }
-    }
-  }
-};
-</script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
    APIDELTA · Hub / Centro de operaciones
-   Paleta oficial: #000 / #65684C / #BDBDB7 / #FFF / #FFCC00
+   Paleta: theme compartido (apidelta-theme.js/.css) — verde/amarillo + tokens.
+   Los acentos por módulo (ESTILOS, más abajo en el <script>) quedan con su
+   propio hex: son la identidad visual de cada tarjeta, no "paleta vieja".
    ═══════════════════════════════════════════════════════════════════════════ */
-:root{
-  --p:#FFCC00; --p-dk:#E6B800; --on-surf:#1f2024; --on-svar:#6b6e55;
-  --outline:#d8d8d2; --bg:#f6f6f3; --ok:#4a7026; --err:#b53d24;
-}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
-body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:var(--on-surf);font-size:14px;line-height:1.55}
+body{font-size:14px;line-height:1.55}
 
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .fade-up{animation:fadeUp .4s cubic-bezier(.2,.7,.2,1) both}
 
-/* App Bar — verde oliva con detalle ámbar (consistente con el resto del sistema) */
-.app-bar{
-  background:linear-gradient(180deg,#6e7152 0%,#5d6045 100%);
-  color:#fff;min-height:60px;padding:0 24px;
-  display:flex;align-items:center;gap:14px;
-  position:sticky;top:0;z-index:30;
-  box-shadow:0 1px 0 rgba(0,0,0,.08),0 10px 28px -16px rgba(101,104,76,.4);
-}
-.app-bar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent 0%,#FFCC00 30%,#FFCC00 70%,transparent 100%);opacity:.55}
+/* App bar: el fondo/verde+amarillo vive en header.acrylic (theme compartido). Acá solo layout. */
 .app-bar-logo{height:34px;width:34px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
-.app-bar-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.02rem;font-weight:700;letter-spacing:.01em;line-height:1.1}
+.app-bar-title{font-size:1.02rem;font-weight:700;letter-spacing:.01em;line-height:1.1}
 .app-bar-sub{font-size:.72rem;opacity:.72;font-weight:500}
 .dev-offset{margin-top:26px}
 @media (max-width:640px){
@@ -81,31 +44,30 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 /* Tarjeta de módulo */
 .tile{
   position:relative;display:flex;flex-direction:column;gap:14px;
-  background:#fff;border:1px solid var(--outline);border-radius:18px;
+  background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:18px;
   padding:22px;text-decoration:none;color:inherit;overflow:hidden;
-  box-shadow:0 1px 2px rgba(15,17,21,.04),0 2px 8px rgba(15,17,21,.04);
   transition:transform .18s cubic-bezier(.2,.7,.2,1),box-shadow .18s ease,border-color .18s ease;
 }
-.tile::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--accent,#FFCC00);opacity:0;transition:opacity .18s ease}
-.tile:hover{transform:translateY(-4px);box-shadow:0 8px 18px rgba(15,17,21,.07),0 18px 44px rgba(15,17,21,.07);border-color:#c9c9c0}
+.tile::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--accent,#405936);opacity:0;transition:opacity .18s ease}
+.tile:hover{transform:translateY(-4px);box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 0.3px 0.9px rgba(26,28,24,.1);border-color:#405936}
 .tile:hover::before{opacity:1}
-.tile:focus-visible{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(255,204,0,.35),0 8px 18px rgba(15,17,21,.08)}
+.tile:focus-visible{outline:none;border-color:#FFCC00;box-shadow:0 0 0 3px rgba(255,204,0,.35)}
 .tile-icon{
   width:52px;height:52px;border-radius:13px;display:grid;place-items:center;flex-shrink:0;
-  background:var(--accent-soft,#FFF3B0);color:var(--accent-ink,#1a1200);
+  background:var(--accent-soft,#e7e8db);color:var(--accent-ink,#2f3122);
 }
 .tile-icon svg{width:26px;height:26px}
-.tile-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.12rem;font-weight:700;color:#171712;line-height:1.2}
-.tile-desc{font-size:.86rem;color:#5b5e4d;line-height:1.5}
+.tile-title{font-size:1.12rem;font-weight:700;color:#242423;line-height:1.2}
+.tile-desc{font-size:.86rem;color:#5c5f52;line-height:1.5}
 .tile-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px}
-.tile-route{font-family:'Spline Sans Mono',ui-monospace,monospace;font-size:.74rem;font-weight:600;color:#8a8c78;background:#f4f4ee;border:1px solid #e8e8e0;padding:3px 8px;border-radius:7px}
+.tile-route{font-family:ui-monospace,monospace;font-size:.74rem;font-weight:600;color:#8a8c78;background:#f4f4ee;border:1px solid #e8e8e0;padding:3px 8px;border-radius:7px}
 .tile-arrow{color:#b9bba2;transition:transform .18s ease,color .18s ease}
 /* Chips de submódulos: un módulo contenedor (ej. RRHH) muestra qué hay adentro.
    Son spans, no links: la tarjeta entera ya es un <a> y no se pueden anidar. */
 .tile-subs{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
 .tile-sub{display:inline-flex;align-items:center;gap:5px;font-size:.73rem;font-weight:600;color:#5b5e4d;background:var(--accent-soft,#f4f4ee);border:1px solid rgba(0,0,0,.06);padding:3px 9px;border-radius:999px}
 .tile-sub svg{width:12px;height:12px;opacity:.75}
-.tile:hover .tile-arrow{transform:translateX(3px);color:#65684C}
+.tile:hover .tile-arrow{transform:translateX(3px);color:#405936}
 
 /* Tarjeta "próximamente" — no interactiva */
 .tile-soon{
@@ -121,7 +83,7 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 .badge-lock{background:#f0e6d0;color:#7a5a12}
 .badge-public{background:#d5e8f5;color:#1c4b6e}
 .tile-locked{opacity:.62;cursor:not-allowed;background:#fbfbf8;border-style:dashed;border-color:#d8d3c4}
-.tile-locked:hover{transform:none;box-shadow:0 1px 2px rgba(15,17,21,.04),0 2px 8px rgba(15,17,21,.04);border-color:#d8d3c4}
+.tile-locked:hover{transform:none;box-shadow:none;border-color:#d8d3c4}
 .tile-locked:hover::before{opacity:0}
 .tile-locked .tile-icon{filter:grayscale(.4)}
 
@@ -136,23 +98,24 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 #dlg-password::backdrop{background:rgba(23,23,18,.45)}
 </style>
 </head>
-<body>
+<body class="font-body text-ink">
 
 <!-- Banner de ambiente de pruebas (consistente con el resto del sistema dev) -->
 
 
-<header class="app-bar">
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-6xl mx-auto px-5 sm:px-8 py-3 flex items-center gap-3 flex-wrap">
   <svg class="app-bar-logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
     <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
     <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
-    <text x="16" y="23" font-family="'Bricolage Grotesque','Barlow Condensed',Arial,sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
+    <text x="16" y="23" font-family="system-ui,'Segoe UI',sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
   </svg>
   <div>
-    <div class="app-bar-title">Apidelta</div>
-    <div class="app-bar-sub">Centro de operaciones</div>
+    <div class="app-bar-title text-white">Apidelta</div>
+    <div class="app-bar-sub text-white/75">Centro de operaciones</div>
   </div>
   <div class="ml-auto flex items-center gap-3">
-    <span id="reloj" class="hidden sm:block text-xs font-mono opacity-80" aria-hidden="true"></span>
+    <span id="reloj" class="hidden sm:block text-xs font-mono text-white/80" aria-hidden="true"></span>
     <span class="status-chip" role="status" aria-live="polite">
       <span id="status-dot" class="status-dot loading"></span>
       <span id="status-text">Conectando…</span>
@@ -173,23 +136,24 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
       <i data-lucide="log-out" style="width:14px;height:14px"></i><span class="hidden sm:inline">Salir</span>
     </button>
   </div>
+  </div>
 </header>
 
 <!-- Cambio de contraseña del propio usuario. <dialog> nativo: no hace falta librería de modales. -->
 <dialog id="dlg-password">
   <form id="form-password" method="dialog" style="padding:22px 24px 20px;display:flex;flex-direction:column;gap:12px">
-    <h2 class="font-display" style="font-size:1.05rem;font-weight:800;color:#171712;margin:0">Cambiar mi contraseña</h2>
-    <label style="font-size:.8rem;color:#5b5e4d">Contraseña actual
+    <h2 class="font-disp" style="font-size:1.05rem;font-weight:800;color:#242423;margin:0">Cambiar mi contraseña</h2>
+    <label style="font-size:.8rem;color:#5c5f52">Contraseña actual
       <input id="pw-actual" type="password" required autocomplete="current-password"
-             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid #d9dbcc;border-radius:9px;font:inherit">
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid rgba(26,28,24,.16);border-radius:9px;font:inherit">
     </label>
-    <label style="font-size:.8rem;color:#5b5e4d">Nueva contraseña (mínimo 8 caracteres)
+    <label style="font-size:.8rem;color:#5c5f52">Nueva contraseña (mínimo 8 caracteres)
       <input id="pw-nueva" type="password" required minlength="8" autocomplete="new-password"
-             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid #d9dbcc;border-radius:9px;font:inherit">
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid rgba(26,28,24,.16);border-radius:9px;font:inherit">
     </label>
-    <label style="font-size:.8rem;color:#5b5e4d">Repetir la nueva
+    <label style="font-size:.8rem;color:#5c5f52">Repetir la nueva
       <input id="pw-repetir" type="password" required minlength="8" autocomplete="new-password"
-             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid #d9dbcc;border-radius:9px;font:inherit">
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid rgba(26,28,24,.16);border-radius:9px;font:inherit">
     </label>
     <p id="pw-msg" role="alert" style="margin:0;font-size:.8rem;min-height:1em"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:2px">
@@ -202,10 +166,10 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 <main class="max-w-6xl mx-auto px-5 sm:px-8 py-8 sm:py-12">
 
   <div class="fade-up mb-8 sm:mb-10">
-    <h1 class="font-display text-2xl sm:text-3xl font-extrabold text-[#171712] tracking-tight">
+    <h1 class="font-disp text-2xl sm:text-3xl font-extrabold text-ink tracking-tight">
       Seleccioná un módulo
     </h1>
-    <p class="mt-1.5 text-[#5b5e4d] text-sm sm:text-[15px] max-w-2xl">
+    <p class="mt-1.5 text-gris text-sm sm:text-[15px] max-w-2xl">
       Acceso directo a los sistemas de Apidelta. Pedidos, planificación, producción y todo lo que vayamos sumando.
     </p>
   </div>
@@ -214,7 +178,7 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
     <ul id="grid" role="list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5"></ul>
   </section>
 
-  <footer class="mt-12 pt-6 border-t border-[#e6e6df] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-[#8a8c78]">
+  <footer class="mt-12 pt-6 border-t border-borde flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-gris">
     <span>Apidelta · Subsistema local · <span id="footer-host">dev</span></span>
     <span class="font-mono">v1.0</span>
   </footer>
@@ -324,7 +288,7 @@ const formPw = document.getElementById('form-password');
 const msgPw = document.getElementById('pw-msg');
 function pwMensaje(texto, ok){
   msgPw.textContent = texto || '';
-  msgPw.style.color = ok ? '#2f6b33' : '#8a2a1c';
+  msgPw.style.color = ok ? '#0e700e' : '#a4262c';
 }
 document.getElementById('btn-password')?.addEventListener('click', () => {
   formPw.reset(); pwMensaje('');
@@ -385,7 +349,7 @@ async function initHub(){
     const b = document.createElement('div');
     b.className = 'fade-up mb-6';
     b.setAttribute('role', 'alert');
-    b.innerHTML = '<div style="background:#fdecec;border:1px solid #f3c0bb;color:#8a2a1c;border-radius:12px;padding:12px 16px;font-size:.9rem;display:flex;align-items:center;gap:10px">'
+    b.innerHTML = '<div style="background:#fdecec;border:1px solid #f3c0bb;color:#a4262c;border-radius:12px;padding:12px 16px;font-size:.9rem;display:flex;align-items:center;gap:10px">'
       + '<i data-lucide="alert-triangle" style="width:18px;height:18px;flex-shrink:0"></i>'
       + '<span>Tu usuario no tiene permiso para ese módulo. Estos son los módulos disponibles para vos.</span></div>';
     grid.closest('section')?.insertAdjacentElement('beforebegin', b);
