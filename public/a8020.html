@@ -5,20 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>A8020 calculado · Apidelta</title>
 <link rel="icon" href="/favicon.png">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
   :root{
+    /* Verde/amarillo/bg/card/text/border/error repuntados a los tokens del theme compartido
+       (apidelta-theme.js) — el resto (verde-dark, *-cont, surfaces, muted, line) son matices
+       propios de este módulo sin token 1:1, se dejan como estaban. */
     --verde:#405936;--verde-dark:#2e4027;--verde-hover:#4f6e42;--verde-cont:#cfe0c2;--verde-on-cont:#0c1f06;
     --amarillo:#FFCC00;--amarillo-on:#3a2f00;--amarillo-cont:#fff1bf;
-    --bg:#eef2e9;--card:#fff;--surface1:#f1f5ec;--surface2:#eaf0e4;--surface3:#e3ebdb;
-    --text:#1a1c18;--muted:#434840;--faint:#73796d;--border:#c3c9bc;--line:#dfe5d8;--error:#ba1a1a;
-    --disp:'Barlow Condensed',sans-serif;--body:'Roboto',sans-serif;
-    --shadow:0 1px 3px rgba(46,64,39,.12);--shadow-lg:0 6px 18px rgba(46,64,39,.16);
+    --bg:#eef1ea;--card:#fff;--surface1:#f1f5ec;--surface2:#eaf0e4;--surface3:#e3ebdb;
+    --text:#242423;--muted:#434840;--faint:#5c5f52;--border:rgba(26,28,24,.16);--line:#dfe5d8;--error:#a4262c;
+    --disp:'system-ui','Segoe UI',sans-serif;--body:'system-ui','Segoe UI',sans-serif;
+    --shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 0.3px 0.9px rgba(26,28,24,.1);--shadow-lg:0 6px 18px rgba(26,28,24,.22);
   }
   *{box-sizing:border-box}html,body{margin:0;height:100%}
   body{font-family:var(--body);background:var(--bg);color:var(--text);font-size:13px;overflow:hidden;-webkit-font-smoothing:antialiased}
   .app{display:flex;flex-direction:column;height:100vh}
-  header{background:var(--verde);color:#fff;padding:11px 22px;box-shadow:var(--shadow-lg);z-index:30}
+  header{padding:11px 22px;z-index:30}
+  header.acrylic .brand{color:#fff}
   .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
   .brand{font-family:var(--disp);font-weight:700;font-size:23px;letter-spacing:.3px}
   .brand b{color:var(--amarillo)}
@@ -78,11 +84,11 @@
 </head>
 <body>
 <div class="app">
-  <header>
+  <header class="acrylic border-b border-borde shadow-fluent sticky top-0">
     <div class="top">
       <span class="brand">api<b>delta</b><span class="sub">A8020 calculado</span></span>
       <span class="sp"></span>
-      <a href="/distribucion" style="font-family:var(--body);font-size:12px;font-weight:500;color:#fff;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);padding:7px 14px;border-radius:8px;text-decoration:none">← Distribución</a>
+      <a href="/distribucion" style="font-family:var(--body);font-size:12px;font-weight:500;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);padding:7px 14px;border-radius:8px;text-decoration:none">← Distribución</a>
     </div>
   </header>
   <div class="meta">
@@ -162,7 +168,7 @@
 <style>
 #rubroDrop .rubro-opt{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:13px;cursor:pointer}
 #rubroDrop .rubro-opt:hover{background:var(--surface2,#f1f1f1)}
-#rubroDrop .rubro-opt-clear{padding:5px 8px;font-size:12px;color:var(--primary,#2563eb);cursor:pointer;border-bottom:1px solid var(--border);margin-bottom:4px}
+#rubroDrop .rubro-opt-clear{padding:5px 8px;font-size:12px;color:var(--verde);cursor:pointer;border-bottom:1px solid var(--border);margin-bottom:4px}
 /* ── Ajustes manuales (S/min fijos) ── */
 td.s{cursor:pointer}
 td.s.fijo span{box-shadow:inset 0 0 0 2px #7c3aed}
@@ -299,7 +305,7 @@ function render(){
       const rkCls = rk==null ? '' : rk>=0.8 ? 'hi' : rk>=0.5 ? 'mid' : 'lo';
       const rkCell = rk==null ? '<td class="s">·</td>' : `<td><span class="rank ${rkCls}">${rk.toFixed(2)}</span></td>`;
       return sCell + rkCell + consCell(r,k); }).join('');
-    const badge = r.nuevo ? '<span style="margin-left:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Primera compra reciente (ventana nuevo.dias). Recibe el piso de reposición de producto nuevo.">NUEVO</span>'
+    const badge = r.nuevo ? '<span style="margin-left:4px;background:var(--verde-cont);color:var(--verde-on-cont);font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Primera compra reciente (ventana nuevo.dias). Recibe el piso de reposición de producto nuevo.">NUEVO</span>'
       : r.viejo ? '<span style="margin-left:4px;background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px" title="Sin ventas con movimientos hace meses: stock muerto, no se stockea ni se empuja">VIEJO</span>' : '';
     const abcStyle = r.abc==='F' ? ' style="background:#f3e8ff;color:#6b21a8"' : '';
     const rg = r.rankGeneral;
@@ -312,9 +318,9 @@ function render(){
   const act = c => filtroClase===c ? 'outline:2px solid currentColor;outline-offset:1px;' : '';
   const chip = (c,label,cnt,extra='') => `<span class="stat" title="Filtrar ${label}" style="cursor:pointer;${extra}${act(c)}" onclick="setFiltro('${c}')">${label} <b>${cnt}</b></span>`;
   document.getElementById('resumen').innerHTML =
-    `<span class="stat">${rows.length} productos${filtroClase?` · <span style="color:var(--primary,#2563eb)">filtro ${filtroClase}</span> <a onclick="setFiltro('${filtroClase}')" style="cursor:pointer;text-decoration:underline">✕</a>`:''}</span>`+
+    `<span class="stat">${rows.length} productos${filtroClase?` · <span style="color:var(--verde)">filtro ${filtroClase}</span> <a onclick="setFiltro('${filtroClase}')" style="cursor:pointer;text-decoration:underline">✕</a>`:''}</span>`+
     chip('A','A',nA)+chip('B','B',nB)+chip('C','C',nC)+chip('F','F',nF,'background:#f3e8ff;border-color:#d8b4fe;color:#6b21a8;')+
-    ((cache.nuevos||[]).length ? chip('nuevo','NUEVO',(cache.nuevos||[]).length,'background:#dcfce7;border-color:#86efac;color:#166534;') : '')+
+    ((cache.nuevos||[]).length ? chip('nuevo','NUEVO',(cache.nuevos||[]).length,'background:var(--verde-cont);border-color:var(--verde);color:var(--verde-on-cont);') : '')+
     ((cache.viejos||[]).length ? chip('viejo','VIEJO/F',(cache.viejos||[]).length,'background:#f3e8ff;border-color:#d8b4fe;color:#6b21a8;') : '')+
     ((cache.bootstrapped||[]).length ? chip('bootstrap','~ bootstrap',(cache.bootstrapped||[]).length,'background:var(--amarillo-cont);border-color:var(--amarillo);color:var(--amarillo-on);') : '')+
     `<span class="div"></span><span class="ts">ventana ${cache.ventanaMeses}m · ${cache.timestamp? new Date(cache.timestamp).toLocaleString('es-AR'):'—'} ${rows.length>1500?'· mostrando 1500':''}</span>`;
