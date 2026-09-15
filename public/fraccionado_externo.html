@@ -5,55 +5,62 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fraccionado Externo — Apidelta</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.js"></script>
 <style>
-  .tab-btn.active { border-color: #8b9083; color: #3f4238; font-weight: 600; }
-  .tab-btn { border-bottom: 2px solid transparent; color: #8b9083; }
+  .tab-btn.active { border-color: #405936; color: #405936; font-weight: 600; }
+  .tab-btn { border-bottom: 2px solid transparent; color: #5c5f52; }
 </style>
 </head>
-<body class="bg-stone-50 text-stone-800 font-sans">
+<body class="text-ink font-body">
 <div id="modalOverlay" class="fixed inset-0 bg-black/40 flex items-center justify-center p-4 hidden" style="z-index:50">
   <div class="bg-white rounded-lg shadow-lg max-w-sm w-full p-5">
-    <p id="modalMensaje" class="text-sm text-stone-700 mb-4"></p>
+    <p id="modalMensaje" class="text-sm text-ink mb-4"></p>
     <div class="flex justify-end gap-2">
-      <button id="modalCancelar" type="button" class="hidden text-sm px-3 py-1.5 rounded border border-stone-300 text-stone-600 hover:bg-stone-50">Cancelar</button>
-      <button id="modalAceptar" type="button" class="text-sm px-3 py-1.5 rounded bg-stone-800 text-white hover:bg-stone-700">Aceptar</button>
+      <button id="modalCancelar" type="button" class="hidden text-sm px-3 py-1.5 rounded border border-borde text-ink hover:bg-white">Cancelar</button>
+      <button id="modalAceptar" type="button" class="text-sm px-3 py-1.5 rounded bg-verde text-white hover:bg-verdeHover">Aceptar</button>
     </div>
   </div>
 </div>
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-xl font-bold">Fraccionado Externo</h1>
+    <a href="/" class="ml-auto text-sm">← Inicio</a>
+  </div>
+</header>
 <div class="max-w-5xl mx-auto p-4 sm:p-6">
 
-  <h1 class="text-xl font-bold mb-1">Fraccionado Externo</h1>
-  <p class="text-sm text-stone-500 mb-4">Armá pedidos de fraccionado para tercerizar, con el costo de mano de obra calculado desde el historial real.</p>
+  <p class="text-sm text-ink/60 mb-4">Armá pedidos de fraccionado para tercerizar, con el costo de mano de obra calculado desde el historial real.</p>
 
-  <div class="flex gap-4 border-b border-stone-200 mb-4">
+  <div class="flex gap-4 border-b border-borde mb-4">
     <button class="tab-btn active py-2 px-1" data-tab="armado">Armar pedido</button>
     <button class="tab-btn py-2 px-1" data-tab="guardados">Pedidos guardados</button>
   </div>
 
   <section id="tab-armado">
-    <div class="bg-white border border-stone-200 rounded-lg p-4 mb-4 flex flex-wrap gap-4 items-end">
+    <div class="bg-white border border-borde rounded-lg p-4 mb-4 flex flex-wrap gap-4 items-end">
       <div>
-        <label class="block text-xs text-stone-500 mb-1">Valor hora ($)</label>
-        <input id="valorHora" type="number" step="1" min="1" value="8100" class="border border-stone-300 rounded px-2 py-1 w-32">
+        <label class="block text-xs text-ink/60 mb-1">Valor hora ($)</label>
+        <input id="valorHora" type="number" step="1" min="1" value="8100" class="border border-borde rounded px-2 py-1 w-32">
       </div>
       <div>
-        <label class="block text-xs text-stone-500 mb-1">Tercero</label>
-        <input id="tercero" type="text" placeholder="Nombre del fraccionador" class="border border-stone-300 rounded px-2 py-1 w-64">
+        <label class="block text-xs text-ink/60 mb-1">Tercero</label>
+        <input id="tercero" type="text" placeholder="Nombre del fraccionador" class="border border-borde rounded px-2 py-1 w-64">
       </div>
     </div>
 
-    <div class="bg-white border border-stone-200 rounded-lg p-4 mb-4">
-      <label class="block text-xs text-stone-500 mb-1">Buscar producto</label>
-      <input id="buscarProducto" type="text" placeholder="Escribí para buscar..." class="border border-stone-300 rounded px-2 py-1 w-full mb-2">
-      <div id="resultados" class="max-h-56 overflow-y-auto divide-y divide-stone-100 text-sm"></div>
+    <div class="bg-white border border-borde rounded-lg p-4 mb-4">
+      <label class="block text-xs text-ink/60 mb-1">Buscar producto</label>
+      <input id="buscarProducto" type="text" placeholder="Escribí para buscar..." class="border border-borde rounded px-2 py-1 w-full mb-2">
+      <div id="resultados" class="max-h-56 overflow-y-auto divide-y divide-borde text-sm"></div>
     </div>
 
-    <div class="bg-white border border-stone-200 rounded-lg p-4 mb-4 overflow-x-auto">
+    <div class="bg-white border border-borde rounded-lg p-4 mb-4 overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
-          <tr class="text-left text-xs text-stone-500 uppercase">
+          <tr class="text-left text-xs text-ink/60 uppercase">
             <th class="py-2 pr-2">Producto</th>
             <th class="py-2 pr-2">Presentación</th>
             <th class="py-2 pr-2">Min./paquete</th>
@@ -67,19 +74,19 @@
         </thead>
         <tbody id="carrito"></tbody>
       </table>
-      <p id="carritoVacio" class="text-sm text-stone-400 py-4">Todavía no agregaste productos.</p>
-      <div class="flex justify-between items-center mt-3 pt-3 border-t border-stone-200">
+      <p id="carritoVacio" class="text-sm text-ink/50 py-4">Todavía no agregaste productos.</p>
+      <div class="flex justify-between items-center mt-3 pt-3 border-t border-borde">
         <span class="font-semibold">Total: <span id="totalPedido">$0</span></span>
-        <button id="btnGenerar" class="bg-stone-800 text-white text-sm rounded px-4 py-2 disabled:opacity-40" disabled>Generar pedido</button>
+        <button id="btnGenerar" class="bg-verde text-white text-sm rounded px-4 py-2 disabled:opacity-40" disabled>Generar pedido</button>
       </div>
     </div>
   </section>
 
   <section id="tab-guardados" class="hidden">
-    <div class="bg-white border border-stone-200 rounded-lg p-4 overflow-x-auto">
+    <div class="bg-white border border-borde rounded-lg p-4 overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
-          <tr class="text-left text-xs text-stone-500 uppercase">
+          <tr class="text-left text-xs text-ink/60 uppercase">
             <th class="py-2 pr-2">Número</th>
             <th class="py-2 pr-2">Fecha</th>
             <th class="py-2 pr-2">Tercero</th>
@@ -155,9 +162,9 @@
       return;
     }
     contenedor.innerHTML = productos.slice(0, 30).map(p => `
-      <button type="button" class="w-full text-left py-2 px-1 hover:bg-stone-50 flex justify-between items-center" data-agregar='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
-        <span>${escAttr(p.nombre)} <span class="text-stone-400">(${escAttr(p.presentacion || 'sin presentación')})</span></span>
-        <span class="text-xs ${p.tieneHistorial ? 'text-emerald-600' : 'text-amber-600'}">${p.tieneHistorial ? p.minPorPaquete + ' min/paq' : 'sin historial'}</span>
+      <button type="button" class="w-full text-left py-2 px-1 hover:bg-bg flex justify-between items-center" data-agregar='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
+        <span>${escAttr(p.nombre)} <span class="text-ink/50">(${escAttr(p.presentacion || 'sin presentación')})</span></span>
+        <span class="text-xs ${p.tieneHistorial ? 'text-ok' : 'text-warn'}">${p.tieneHistorial ? p.minPorPaquete + ' min/paq' : 'sin historial'}</span>
       </button>
     `).join('');
     contenedor.querySelectorAll('[data-agregar]').forEach(btn => btn.addEventListener('click', () => {
@@ -220,20 +227,20 @@
     tbody.innerHTML = carrito.map((it, i) => {
       const { unitario, total, paquetes } = costoItem(it);
       return `
-        <tr class="border-t border-stone-100">
+        <tr class="border-t border-borde">
           <td class="py-2 pr-2">${escAttr(it.nombre)}</td>
           <td class="py-2 pr-2">
             <input type="text" value="${escAttr(it.presentacion || '')}" placeholder="ej. 500G"
-              class="border border-stone-300 rounded px-1 py-0.5 w-20" data-campo="presentacion" data-i="${i}">
+              class="border border-borde rounded px-1 py-0.5 w-20" data-campo="presentacion" data-i="${i}">
           </td>
           <td class="py-2 pr-2">
             <input type="number" step="0.01" min="0.001" value="${it.minPorPaquete ?? ''}" placeholder="manual"
-              class="border border-stone-300 rounded px-1 py-0.5 w-20 ${it.origenTiempo === 'manual' ? 'bg-amber-50' : ''}"
+              class="border border-borde rounded px-1 py-0.5 w-20 ${it.origenTiempo === 'manual' ? 'bg-amarillo/10' : ''}"
               data-campo="minPorPaquete" data-i="${i}">
           </td>
-          <td class="py-2 pr-2 text-right"><input type="number" step="0.1" min="0.01" value="${it.kilos}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="kilos" data-i="${i}"></td>
-          <td class="py-2 pr-2 text-right text-stone-500" data-paquetes="${i}">${paquetes ? paquetes.toFixed(1) : '—'}</td>
-          <td class="py-2 pr-2 text-right"><input type="number" step="0.05" min="0.1" value="${it.factorComplejidad}" class="border border-stone-300 rounded px-1 py-0.5 w-20 text-right" data-campo="factorComplejidad" data-i="${i}"></td>
+          <td class="py-2 pr-2 text-right"><input type="number" step="0.1" min="0.01" value="${it.kilos}" class="border border-borde rounded px-1 py-0.5 w-20 text-right" data-campo="kilos" data-i="${i}"></td>
+          <td class="py-2 pr-2 text-right text-ink/60" data-paquetes="${i}">${paquetes ? paquetes.toFixed(1) : '—'}</td>
+          <td class="py-2 pr-2 text-right"><input type="number" step="0.05" min="0.1" value="${it.factorComplejidad}" class="border border-borde rounded px-1 py-0.5 w-20 text-right" data-campo="factorComplejidad" data-i="${i}"></td>
           <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${unitario}</td>
           <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${total}</td>
           <td class="py-2 text-right"><button type="button" class="text-red-500 text-xs" data-quitar="${escAttr(it.plu)}">quitar</button></td>
@@ -332,14 +339,14 @@
       return;
     }
     document.getElementById('listaPedidos').innerHTML = pedidos.slice().reverse().map(p => `
-      <tr class="border-t border-stone-100">
+      <tr class="border-t border-borde">
         <td class="py-2 pr-2">${escAttr(p.numero)}</td>
         <td class="py-2 pr-2">${escAttr(p.fecha)}</td>
         <td class="py-2 pr-2">${escAttr(p.tercero)}</td>
         <td class="py-2 pr-2 text-right">$${p.total}</td>
         <td class="py-2 pr-2">${escAttr(p.estado)}</td>
         <td class="py-2 text-right space-x-2">
-          <button type="button" class="text-xs text-stone-600" data-reimprimir="${escAttr(p.numero)}">PDF</button>
+          <button type="button" class="text-xs text-ink/60" data-reimprimir="${escAttr(p.numero)}">PDF</button>
           ${p.estado === 'PENDIENTE' ? `<button type="button" class="text-xs text-red-500" data-anular="${escAttr(p.numero)}">anular</button>` : ''}
         </td>
       </tr>`).join('');
