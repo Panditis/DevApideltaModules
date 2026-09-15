@@ -1,20 +1,20 @@
 /* Estilos del módulo de Análisis de Ventas (pestañas Sucursales / Casa Central).
    Antes vivían duplicados dentro de analisis_ventas.html y analisis_central.html. */
 :root{
-  --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
+  /* Paleta del theme compartido (apidelta-theme.js): verde/verdeHover/amarillo exactos,
+     --green-dark se unifica con verde (el theme no distingue un verde más oscuro),
+     --gold no tiene token 1:1 y queda en su hex original (sólo alimenta la barra de
+     impacto de abajo). crit/warn reemplazan los rojo/ámbar sueltos que había en el archivo. */
+  --green:#405936; --green-dark:#405936; --green-mid:#4f6e42; --green-light:rgba(64,89,54,.12);
   --yellow:#FFCC00; --gold:#C98A00;
-  --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
+  --bg:#eef1ea; --surface:#fff; --text:#242423; --muted:#5c5f52; --border:rgba(26,28,24,.16);
   --radius:12px; --radius-sm:8px;
+  --crit:#a4262c; --warn:#8a5d00;
   /* Barra de impacto en la tabla de familias: degradado verde → dorado Apidelta, con
      opacidad suficiente para que pese sin volver ilegible el texto encima. */
   --barra-ini:rgba(64,89,54,.55); --barra-fin:rgba(201,138,0,.32);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
-header{background:var(--green);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
-header .logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;letter-spacing:.5px}
-header .logo b{color:var(--yellow)}
-header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:auto}
 .wrap{max-width:1200px;margin:0 auto;padding:20px}
 
 /* ── Pestañas ───────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:
    verde; la barra entera se oculta cuando el usuario sólo tiene permiso a uno. */
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
 .tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:10px 16px;
-  font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:.3px;
+  font-weight:700;font-size:17px;letter-spacing:.3px;
   color:var(--muted);cursor:pointer}
 .tabs button:hover{color:var(--green-dark)}
 .tabs button.activa{color:var(--green-dark);border-bottom-color:var(--green)}
@@ -43,17 +43,17 @@ header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:
   padding:5px 12px;border-radius:var(--radius-sm);font-size:12px;font-weight:600;
   cursor:pointer;font-family:inherit;line-height:1.4}
 .btn-mini:hover{background:var(--green-light)}
-.btn-mini.danger{color:#b3261e;border-color:#e5a9a3}
-.btn-mini.danger:hover{background:#fdeceb}
+.btn-mini.danger{color:var(--crit);border-color:rgba(164,38,44,.35)}
+.btn-mini.danger:hover{background:rgba(164,38,44,.07)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
 .kpi .lbl{font-size:12px;color:var(--muted)}
-.kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
+.kpi .val{font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px}
 /* Dentro de la grilla el margen lo pone la grilla: si no, las dos columnas se desalinean. */
 .grid2 .card{margin-top:0}
-.card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
+.card h3{margin:0 0 12px;font-weight:700;font-size:18px;color:var(--green-dark)}
 .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
 /* Contenedor de alto fijo para el gráfico a ancho completo. Sin esto, un canvas con
    maintainAspectRatio:false agranda a su propio padre y cada resize dispara el
@@ -78,9 +78,9 @@ tr.fam{cursor:pointer}
 tr.fam>td{padding-top:9px;padding-bottom:9px;font-weight:600}
 tr.fam>td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 /* background-color, no el shorthand: el shorthand borraría la barra (background-image). */
-tr.fam:hover{background-color:#F0F3EE}
+tr.fam:hover{background-color:var(--bg)}
 tr.fam .caret{display:inline-block;width:14px;color:var(--muted);font-size:10px}
-tr.fam-det>td, tr.cli-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
+tr.fam-det>td, tr.cli-det>td{background:var(--bg);font-size:13px;color:var(--muted);border-top:0}
 tr.fam-det>td.pres, tr.cli-det>td.pres{padding-left:30px}
 /* Headers ordenables: el cursor y el hover avisan que se puede clickear, y la columna
    activa queda marcada con la flecha del sentido vigente. */
@@ -89,22 +89,22 @@ th.orden:hover{color:var(--green-mid)}
 th.orden.activa{color:var(--green-mid)}
 td.impacto{width:110px;font-variant-numeric:tabular-nums}
 /* Asterisco del equivalente incompleto: visible pero sin robarle peso al número. */
-span.parcial{color:#b8860b;font-weight:700;cursor:help}
+span.parcial{color:var(--warn);font-weight:700;cursor:help}
 /* Días en quiebre: en rojo sólo cuando hay al menos uno, para que el cero no haga ruido. */
-td.quiebre{color:#b3261e;font-weight:600}
+td.quiebre{color:var(--crit);font-weight:600}
 /* Columna sin calcular (más de una sucursal en el filtro): apagada, no es un valor. */
 td.sin-dato{color:var(--muted)}
 /* Productos de marca propia: se remarcan en el detalle del cliente para leer de un
    vistazo cuánto de lo que compró es Apidelta y cuánto es reventa. */
 tr.cli-det.propio>td.pres{font-weight:600}
 span.badge-propio{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:9px;
-  background:#f5c518;color:#4a3600;font-size:11px;font-weight:700;vertical-align:middle}
+  background:var(--yellow);color:var(--warn);font-size:11px;font-weight:700;vertical-align:middle}
 /* La familia de cada producto en el desplegable: la propia resalta, la de reventa queda
    en gris para que el ojo vaya directo a las que cuenta la columna del cliente. */
 td.fam-cel{white-space:nowrap;max-width:230px;overflow:hidden;text-overflow:ellipsis}
-span.fam-propia{padding:1px 7px;border-radius:9px;background:#ffe27a;
-  color:#4a3600;font-weight:700;font-size:12px}
-span.fam-otra{color:#8a8a8a;font-size:12px}
+span.fam-propia{padding:1px 7px;border-radius:9px;background:var(--yellow);
+  color:var(--warn);font-weight:700;font-size:12px}
+span.fam-otra{color:var(--muted);font-size:12px}
 /* Resumen de tendencia bajo el gráfico: dos lecturas en una línea, sin robarle altura. */
 .mini{margin-top:10px;font-size:12px;line-height:1.5;color:var(--muted)}
 .mini b{font-weight:600}
@@ -115,7 +115,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
 th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-.error{background:#fdecea;color:#b3261e;border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
+.error{background:rgba(164,38,44,.08);color:var(--crit);border:1px solid rgba(164,38,44,.25);padding:12px;border-radius:var(--radius-sm);margin-top:16px}
 .loading{color:var(--muted);padding:20px;text-align:center}
 .empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
 
@@ -132,7 +132,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 /* Los chips de producto son etiquetas, no filtros: sólo la × es clickeable. */
 .fam-item .chip{cursor:default}
 .fam-x{color:var(--muted);cursor:pointer;padding-left:4px;font-size:15px}
-.fam-x:hover{color:#b3261e}
+.fam-x:hover{color:var(--crit)}
 .fam-buscador{position:relative;margin-top:8px}
 .fam-buscador .buscador{width:100%;padding:7px 10px;border:1px solid var(--border);
   border-radius:var(--radius-sm);font-family:inherit;font-size:13px}
@@ -162,7 +162,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .fam-lista li{display:flex;align-items:center;gap:10px;padding:7px 10px;font-size:13px;
   border-bottom:1px solid var(--border)}
 .fam-lista li:last-child{border-bottom:0}
-.fam-lista li:nth-child(odd){background:var(--bg,#fafaf8)}
+.fam-lista li:nth-child(odd){background:var(--bg)}
 .fam-cod{font-variant-numeric:tabular-nums;color:var(--muted);min-width:72px}
 .fam-nom{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Variante angosta: la usan los diálogos que reemplazan a prompt()/confirm(). */
@@ -171,7 +171,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   border-radius:var(--radius-sm);font-family:inherit;font-size:14px;margin-top:4px}
 .fam-modal-input:focus{outline:none;border-color:var(--green-mid)}
 .fam-modal-pie{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
-.btn.danger{background:#b3261e}
+.btn.danger{background:var(--crit)}
 .fam-det{border-bottom:1px solid var(--border);padding:8px 0}
 .fam-det summary{cursor:pointer;font-weight:600;color:var(--green-dark)}
 .fam-det table{margin-top:8px}
