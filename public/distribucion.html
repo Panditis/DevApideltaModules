@@ -568,6 +568,7 @@
         <button class="rubro-btn" id="sucBtnPr" onclick="toggleSucDropdownPr()">Sucursales <span id="sucBtnPrCount"></span>▾</button>
         <div class="rubro-drop" id="sucDropPr" style="display:none"></div>
       </div>
+      <button id="pdfPr" style="display:none">📄 PDF</button>
       <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
       <button id="btn-overrides" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOverrides()">✏ <span id="ovr-count">0</span> overrides</button>
       <button id="btn-ocultos" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOcultos()">👁 <span id="oc-count">0</span> ocultos</button>
@@ -1386,6 +1387,17 @@ function celdaStockPr(stkRaw, sRaw, fmtFn) {
   else if (tieneStk && stk > 0 && S > 0 && stk < 0.10 * S) style = 'background:rgba(245,158,11,.18);color:#92400e';
   return `<td class="env stk"${style ? ` style="${style}"` : ''}>${stk ? fmtFn(stk) : '·'}</td>`;
 }
+// Orden compartido entre la tabla en pantalla y el export a PDF: semana activa primero, luego ordenPr.col/dir.
+function ordenarPrioritarios(lista) {
+  return [...lista].sort((a, b) => {
+    const promo = promoPluSet.has(String(b.idProd)) - promoPluSet.has(String(a.idProd));
+    if (promo) return promo;
+    const va = valorPr(a, ordenPr.col), vb = valorPr(b, ordenPr.col);
+    if (va < vb) return -1 * ordenPr.dir;
+    if (va > vb) return 1 * ordenPr.dir;
+    return 0;
+  });
+}
 function renderPrioritarios(lista) {
   listaPrActual = lista;
   renderSucDropPr(); actualizarSucBtnPr();
@@ -1406,14 +1418,7 @@ function renderPrioritarios(lista) {
     document.getElementById('body-pr').innerHTML = `<tr><td colspan="${fijos.length + sucIdx.length * 2 + 1}" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>`;
     return;
   }
-  const listaOrd = [...lista].sort((a, b) => {
-    const promo = promoPluSet.has(String(b.idProd)) - promoPluSet.has(String(a.idProd));
-    if (promo) return promo;
-    const va = valorPr(a, ordenPr.col), vb = valorPr(b, ordenPr.col);
-    if (va < vb) return -1 * ordenPr.dir;
-    if (va > vb) return 1 * ordenPr.dir;
-    return 0;
-  });
+  const listaOrd = ordenarPrioritarios(lista);
   document.getElementById('body-pr').innerHTML = listaOrd.map(p => {
     const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
     let totalTxt = '·', prioTxt = '·', depositoTxt = '·';
@@ -1527,6 +1532,7 @@ function activarTab(name){
   document.getElementById('ctrl-historial').style.display = name==='historial' ? 'flex' : 'none';
   document.getElementById('btn-generar-pr').style.display = name==='prioritarios' ? '' : 'none';
   document.getElementById('sucFiltrosPr').style.display = name==='prioritarios' ? 'flex' : 'none';
+  document.getElementById('pdfPr').style.display = name==='prioritarios' ? '' : 'none';
   // Prioritarios reusa la barra .controls pero solo necesita los 2 elementos de arriba:
   // ocultar el resto de controles genéricos que no tienen toggle por-tab propio.
   document.getElementById('q').style.display = name==='prioritarios' ? 'none' : '';
@@ -1856,6 +1862,114 @@ function exportarPDFPesables() {
   win.document.write(html);
   win.document.close();
 }
+function exportarPDFPrioritarios() {
+  const sucIdx = SUC_A.map((_, i) => i).filter(i => sucVisPr.has(i));
+  const landscape = sucIdx.length > 2;
+  const listaOrd = ordenarPrioritarios(listaPrActual);
+  const fecha = new Date().toLocaleDateString('es-AR');
+  const hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+  const semanaCount = listaOrd.filter(p => promoPluSet.has(String(p.idProd))).length;
+  const colNombres = { posicion: 'Posición', plu: 'PLU', nombre: 'Producto', origen: 'Origen', deposito: 'Depósito', total: 'A enviar' };
+  const colTxt = colNombres[ordenPr.col] || (SUC_A[Number((/^s(\d)$/.exec(ordenPr.col)||[])[1])]||[])[1] || ordenPr.col;
+  const filtrosActivos = [
+    sucIdx.length < SUC_A.length ? `Sucursales: ${sucIdx.map(i => SUC_A[i][1]).join(', ')}` : '',
+    `Orden: ${colTxt} ${ordenPr.dir < 0 ? '▼' : '▲'}`
+  ].filter(Boolean).join(' · ');
+
+  // Réplica liviana (para print, sin depender de estilos de la app) del badge de celdaEnviarPr.
+  const envTxt = (v, fmtFn) => {
+    if (v === 'Fact') return '<span style="background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em">Fact</span>';
+    if (v === 'Restringido') return '<span style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:2px 7px;border-radius:5px;border:1px solid rgba(192,57,43,.4);display:inline-block">Restr.</span>';
+    return esNum(v) && v > 0
+      ? `<span style="background:#dbe7ff;color:#1e40af;font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtFn(v)}</span>`
+      : '<span style="color:#bbb">·</span>';
+  };
+
+  const filas = listaOrd.map((p, i) => {
+    const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
+    let totalTxt = '·', depositoTxt = '·';
+    let sucCells = sucIdx.map(() => '<td style="text-align:right;color:#adb3a6;font-size:9px">·</td><td style="text-align:right">·</td>').join('');
+    if (p.origen === 'almacen') {
+      depositoTxt = esNum(p.fila.central) ? fmtA(p.fila.central) : '·';
+      totalTxt = fmtA(totalEnviar(p.fila));
+      sucCells = sucIdx.map(idx => {
+        const [k] = SUC_A[idx];
+        const s = (p.fila.stkSuc || {})[k];
+        const stkTxt = esNum(s) && s ? fmtA(s) : '·';
+        if (esMicro(p.fila, k)) {
+          const mi = microInfo(p.fila, k);
+          return `<td style="text-align:right;color:#adb3a6;font-size:9px">${stkTxt}</td><td style="text-align:right"><span style="background:rgba(128,128,128,.18);color:#666;font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed #999;display:inline-block">${fmtA(mi.qty)}</span></td>`;
+        }
+        return `<td style="text-align:right;color:#adb3a6;font-size:9px">${stkTxt}</td><td style="text-align:right">${envTxt(p.fila.enviar[k], fmtA)}</td>`;
+      }).join('');
+    } else if (p.origen === 'pesable') {
+      depositoTxt = esNum(p.fila.H) ? fmt(p.fila.H) : '·';
+      totalTxt = fmt(sumEnvP(p.fila));
+      sucCells = sucIdx.map(idx => {
+        const [k] = SUC_P[idx];
+        const s = (p.fila.stkSuc || {})[k];
+        const stkTxt = esNum(s) && s ? fmt(s) : '·';
+        return `<td style="text-align:right;color:#adb3a6;font-size:9px">${stkTxt}</td><td style="text-align:right">${envTxt(p.fila.enviar[k], fmt)}</td>`;
+      }).join('');
+    }
+    const bg = i % 2 === 0 ? '#fff' : '#f7f9f5';
+    return `<tr style="background:${bg}">
+      <td style="color:#888;font-size:10px">${p.posicion ?? '·'}</td>
+      <td style="color:#888;font-size:10px">${p.idProd}</td>
+      <td style="font-weight:600">${nombre}</td>
+      <td>${origenBadgePr(p.origen)}</td>
+      <td style="text-align:right">${depositoTxt}</td>
+      ${sucCells}
+      <td style="text-align:right;font-weight:700;color:#2e4027">${totalTxt}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Prioritarios ${fecha}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1a1c18;background:#fff}
+    .page{padding:18px 22px}
+    .header{background:#405936;color:#fff;padding:12px 22px;display:flex;align-items:center;gap:16px}
+    .brand{font-size:20px;font-weight:700;letter-spacing:.3px}
+    .brand b{color:#FFCC00}
+    .header-sub{font-size:11px;letter-spacing:.2em;text-transform:uppercase;opacity:.7;margin-top:2px}
+    .header-right{margin-left:auto;text-align:right;font-size:11px;opacity:.85}
+    .stats{display:flex;gap:14px;padding:10px 22px;background:#eef2e9;border-bottom:1px solid #c3c9bc}
+    .stat{font-size:11px;color:#434840}
+    .stat b{color:#2e4027;font-weight:700}
+    .filters{padding:6px 22px;font-size:10px;color:#73796d;background:#f7f9f5;border-bottom:1px solid #e0e0e0;min-height:24px}
+    table{border-collapse:collapse;width:100%;margin:0}
+    thead th{background:#405936;color:#fff;padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:2px solid #2e4027}
+    thead th.r{text-align:right}
+    thead th.c{text-align:center}
+    tbody td{padding:5px 10px;border-bottom:1px solid #e8ede4;vertical-align:middle;font-size:11px}
+    .footer{padding:8px 22px;font-size:9px;color:#aaa;border-top:1px solid #e0e0e0;margin-top:4px;display:flex;justify-content:space-between}
+    @page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:8mm}
+    @media print{.header{-webkit-print-color-adjust:exact;print-color-adjust:exact} thead th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body>
+  <div class="header">
+    <div><div class="brand">api<b>delta</b></div><div class="header-sub">distribución · prioritarios</div></div>
+    <div class="header-right">Lista generada ${fecha} ${hora}</div>
+  </div>
+  <div class="stats">
+    <span class="stat">Total: <b>${listaOrd.length}</b> productos</span>
+    ${semanaCount ? `<span class="stat">Semana activa: <b>${semanaCount}</b> productos</span>` : ''}
+  </div>
+  ${filtrosActivos ? `<div class="filters">Filtros activos: ${filtrosActivos}</div>` : '<div class="filters"></div>'}
+  <table>
+    <thead>
+      <tr><th rowspan="2">Pos.</th><th rowspan="2">PLU</th><th rowspan="2">Producto</th><th rowspan="2">Origen</th><th class="r" rowspan="2">Depósito</th>${sucIdx.map(i => `<th class="r" colspan="2" style="text-align:center">${SUC_A[i][1]}</th>`).join('')}<th class="r" rowspan="2">A enviar</th></tr>
+      <tr>${sucIdx.map(() => `<th class="r" style="font-weight:600;font-size:8px">Stock</th><th class="r" style="font-size:8px">Enviar</th>`).join('')}</tr>
+    </thead>
+    <tbody>${filas}</tbody>
+  </table>
+  <div class="footer"><span>api<b>delta</b> — Sistema de distribución</span><span>${listaOrd.length} productos · impreso ${fecha} ${hora}</span></div>
+  <script>window.onload=()=>{window.print()}<\/script>
+  </body></html>`;
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
 function descargar(lines, nombre) {
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -1969,6 +2083,7 @@ document.getElementById('reload').onclick = () => {
 };
 document.getElementById('pdfA').onclick = exportarPDFAlmacen;
 document.getElementById('pdfP').onclick = exportarPDFPesables;
+document.getElementById('pdfPr').onclick = exportarPDFPrioritarios;
 window.addEventListener('load', () => moverInk(document.querySelector('.tab.on')));
 moverInk(document.querySelector('.tab.on'));
 _initEnvioEditListeners();
