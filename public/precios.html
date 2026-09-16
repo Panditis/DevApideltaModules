@@ -33,13 +33,19 @@
 <main class="max-w-[1500px] mx-auto px-4 py-5">
 
   <div id="panel-almacen" class="tab-panel">
+    <div class="flex items-center gap-2 mb-3">
+      <button id="btnRecargarAlmacen" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
+      <span id="almacenMeta" class="text-xs text-ink/50"></span>
+    </div>
     <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
       <table class="w-full text-sm">
         <thead class="bg-verde/5 text-verde">
           <tr><th class="p-2 text-left">Código</th><th class="p-2 text-left">Producto</th>
-              <th class="p-2">Precio SIGA</th><th class="p-2">Precio sugerido</th><th class="p-2">Diferencia</th></tr>
+              <th class="p-2">Costo</th><th class="p-2">Banda/Markup%</th>
+              <th class="p-2">Precio sugerido</th><th class="p-2">Precio vigente</th>
+              <th class="p-2">Δ%</th><th class="p-2">Estado</th></tr>
         </thead>
-        <tbody><tr><td colspan="5" class="p-10 text-center text-ink/50">Listado en construcción</td></tr></tbody>
+        <tbody id="cuerpoAlmacen"><tr><td colspan="8" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -55,35 +61,231 @@
         <label class="block text-sm">Tolerancia (%)
           <input id="inTolerancia" type="number" min="0" step="any"
                  class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <label class="block text-sm">Costos varios Almacén (%)
+          <input id="inCostosVariosAlmacen" type="number" min="0" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
         <button disabled title="Próximamente: todavía no existe el guardado de configuración"
                 class="px-3 py-1.5 rounded-lg bg-verde/40 text-white text-sm cursor-not-allowed">Guardar</button>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md mt-5">
+      <h2 class="font-disp text-lg font-bold text-verde mb-1">Bandas de markup — Almacén</h2>
+      <p class="text-xs text-ink/50 mb-4">Costo hasta ($) vacío = sin tope (sólo permitido en la última fila).</p>
+      <div id="bandasCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+      <div id="bandasForm" class="hidden space-y-3">
+        <table class="w-full text-sm">
+          <thead class="text-ink/60"><tr><th class="text-left font-normal pb-1">Costo hasta ($)</th>
+              <th class="text-left font-normal pb-1">Markup máx (%)</th><th></th></tr></thead>
+          <tbody id="bandasFilas"></tbody>
+        </table>
+        <button id="btnAgregarBanda" class="px-3 py-1 rounded-lg border border-borde text-xs hover:bg-white">+ Agregar banda</button>
+        <div id="bandasMsg" class="text-sm"></div>
+        <button id="btnGuardarBandas" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar bandas</button>
       </div>
     </div>
   </div>
 
 </main>
 
+<!-- Detalle de un producto Almacén: desglose de componentes del costeo. -->
+<div id="mDet" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4" role="dialog" aria-modal="true">
+  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-2xl max-h-[88vh] flex flex-col">
+    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+      <h3 id="mDetTitulo" class="font-disp text-xl font-bold text-verde">Detalle</h3>
+      <button id="mDetX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="mDetBody" class="px-5 py-4 overflow-y-auto text-sm"></div>
+  </div>
+</div>
+
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const fmtMoney = n => n == null ? '—' : new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const fmtPct = n => n == null ? '—' : (n > 0 ? '+' : '') + n.toFixed(1) + '%';
+
+// Colores del semáforo tomados de los tokens compartidos (ok/warn/crit), mismo
+// criterio que ESTADO_META en insumos.html.
+const SEMAFORO_META = {
+  verde:    { cls: 'bg-ok/15 text-ok',     txt: 'OK' },
+  amarillo: { cls: 'bg-warn/15 text-warn', txt: 'Revisar' },
+  rojo:     { cls: 'bg-crit/15 text-crit', txt: 'Crítico' },
+};
+function badgeSemaforo(sem){
+  const m = SEMAFORO_META[sem];
+  if (!m) return '<span class="text-ink/40 text-xs">—</span>';
+  return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${m.cls}">${m.txt}</span>`;
+}
+
+// ── Almacén: listado ─────────────────────────────────────────────────────────
+let almacenData = [];
+
+async function cargarAlmacen(){
+  const tbody = document.getElementById('cuerpoAlmacen');
+  tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
+  try {
+    const r = await fetch('/api/precios/listado?tipo=almacen');
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    almacenData = j;
+    document.getElementById('almacenMeta').textContent = `${j.length} productos`;
+    renderAlmacen();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderAlmacen(){
+  const tbody = document.getElementById('cuerpoAlmacen');
+  if (!almacenData.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50">Sin productos</td></tr>';
+    return;
+  }
+  tbody.innerHTML = almacenData.map(f => {
+    const sinPrecio = Array.isArray(f.faltantes) && f.faltantes.length > 0;
+    const filaCls = sinPrecio ? 'opacity-50' : 'hover:bg-verde/5';
+    const tooltip = sinPrecio ? ` title="Sin precio: falta ${esc(f.faltantes.join(', '))}"` : '';
+    const banda = f.banda ? `${esc(f.banda)} / ${f.markupPct != null ? f.markupPct + '%' : '—'}` : '—';
+    return `<tr class="border-t border-borde cursor-pointer ${filaCls}" data-plu="${esc(f.plu)}"${tooltip}>
+      <td class="p-2">${esc(f.plu)}</td>
+      <td class="p-2">${esc(f.nombre)}</td>
+      <td class="p-2 text-right">${fmtMoney(f.costoTotal)}</td>
+      <td class="p-2 text-center whitespace-nowrap">${banda}</td>
+      <td class="p-2 text-right">${sinPrecio ? '<span class="text-ink/40">sin precio</span>' : fmtMoney(f.precioConIva)}</td>
+      <td class="p-2 text-right">${fmtMoney(f.precioVigente)}</td>
+      <td class="p-2 text-right">${fmtPct(f.deltaPct)}</td>
+      <td class="p-2 text-center">${badgeSemaforo(f.semaforo)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('tr[data-plu]').forEach(tr => tr.onclick = () => abrirDetalle(tr.dataset.plu));
+}
+
+// ── Almacén: detalle (modal) ─────────────────────────────────────────────────
+async function abrirDetalle(plu){
+  const modal = document.getElementById('mDet');
+  const body = document.getElementById('mDetBody');
+  document.getElementById('mDetTitulo').textContent = 'Detalle — ' + plu;
+  body.innerHTML = '<span class="spin"></span> Cargando…';
+  modal.classList.remove('hidden'); modal.classList.add('flex');
+  try {
+    const r = await fetch('/api/precios/detalle/' + encodeURIComponent(plu));
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    document.getElementById('mDetTitulo').textContent = `${esc(j.nombre)} (${esc(j.plu)})`;
+    const filasComponentes = (j.componentes || []).map(c => `<tr class="border-t border-borde">
+        <td class="p-2">${esc(c.concepto)}</td><td class="p-2 text-ink/60">${esc(c.detalle)}</td>
+        <td class="p-2 text-right">${fmtMoney(c.importe)}</td></tr>`).join('')
+      || '<tr><td colspan="3" class="p-4 text-center text-ink/50">Sin componentes calculados</td></tr>';
+    const avisoFaltantes = Array.isArray(j.faltantes) && j.faltantes.length
+      ? `<p class="text-crit text-sm mb-3">Sin precio — falta: ${esc(j.faltantes.join(', '))}</p>` : '';
+    body.innerHTML = `${avisoFaltantes}
+      <table class="w-full text-sm mb-4">
+        <thead class="text-ink/60"><tr><th class="text-left font-normal p-2">Concepto</th>
+            <th class="text-left font-normal p-2">Detalle</th><th class="text-right font-normal p-2">Importe</th></tr></thead>
+        <tbody>${filasComponentes}</tbody>
+      </table>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <div>Banda: <b>${esc(j.banda || '—')}</b></div>
+        <div>Markup: <b>${j.markupPct != null ? j.markupPct + '%' : '—'}</b></div>
+        <div>Costo total: <b>${fmtMoney(j.costoTotal)}</b></div>
+        <div>Precio neto: <b>${fmtMoney(j.precioNeto)}</b></div>
+        <div>Precio sugerido (c/IVA): <b>${fmtMoney(j.precioConIva)}</b></div>
+        <div>Precio vigente: <b>${fmtMoney(j.precioVigente)}</b></div>
+        <div>Δ%: <b>${fmtPct(j.deltaPct)}</b></div>
+        <div>Estado: ${badgeSemaforo(j.semaforo)}</div>
+      </div>`;
+  } catch (e) {
+    body.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
+  }
+}
+function cerrarDetalle(){
+  document.getElementById('mDet').classList.add('hidden');
+  document.getElementById('mDet').classList.remove('flex');
+}
+document.getElementById('mDetX').onclick = cerrarDetalle;
+document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet') cerrarDetalle(); });
+
+// ── Configuración general + bandas de markup Almacén ────────────────────────
+let configCargada = null;   // config completa tal como vino del server (para preservar fraccionado/produccion)
+let bandasAlmacen = [];     // copia editable de bandasMarkup.almacen
 
 async function cargarConfiguracion(){
   const carga = document.getElementById('configCarga');
   const form = document.getElementById('configForm');
-  form.classList.add('hidden');
-  carga.classList.remove('hidden');
+  const bandasCarga = document.getElementById('bandasCarga');
+  const bandasForm = document.getElementById('bandasForm');
+  form.classList.add('hidden'); bandasForm.classList.add('hidden');
+  carga.classList.remove('hidden'); bandasCarga.classList.remove('hidden');
   carga.innerHTML = '<span class="spin"></span> Cargando…';
+  bandasCarga.innerHTML = '<span class="spin"></span> Cargando…';
   try {
     const r = await fetch('/api/precios/config');
     const j = await r.json();
     if (j.error) throw new Error(j.error);
+    configCargada = j;
     document.getElementById('inCostoHora').value = j.costoHora;
     document.getElementById('inTolerancia').value = j.toleranciaPct;
+    document.getElementById('inCostosVariosAlmacen').value = j.costosVariosPctAlmacen;
     carga.classList.add('hidden');
     form.classList.remove('hidden');
+
+    bandasAlmacen = ((j.bandasMarkup || {}).almacen || []).map(b => ({ ...b }));
+    document.getElementById('bandasMsg').textContent = '';
+    renderBandasFilas();
+    bandasCarga.classList.add('hidden');
+    bandasForm.classList.remove('hidden');
   } catch (e) {
     carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
+    bandasCarga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
   }
 }
+
+function renderBandasFilas(){
+  document.getElementById('bandasFilas').innerHTML = bandasAlmacen.map((b, i) => `
+    <tr>
+      <td class="pr-2 py-1"><input type="number" step="any" placeholder="sin tope" value="${b.costoHastaARS ?? ''}"
+          class="w-28 px-2 py-1 rounded border border-borde"
+          onchange="bandasAlmacen[${i}] = { ...bandasAlmacen[${i}], costoHastaARS: this.value === '' ? null : Number(this.value) }"></td>
+      <td class="pr-2 py-1"><input type="number" step="any" value="${b.markupMaxPct ?? ''}"
+          class="w-24 px-2 py-1 rounded border border-borde"
+          onchange="bandasAlmacen[${i}] = { ...bandasAlmacen[${i}], markupMaxPct: Number(this.value) }"></td>
+      <td><button class="text-crit hover:opacity-70 px-1" title="Quitar fila"
+          onclick="bandasAlmacen = bandasAlmacen.filter((_, idx) => idx !== ${i}); renderBandasFilas()">✕</button></td>
+    </tr>`).join('') || '<tr><td colspan="3" class="text-ink/50 py-2">Sin bandas — agregá una</td></tr>';
+}
+
+async function guardarBandas(){
+  const msg = document.getElementById('bandasMsg');
+  msg.className = 'text-sm text-ink/50';
+  msg.textContent = 'Guardando…';
+  const body = {
+    almacen: bandasAlmacen,
+    fraccionado: ((configCargada || {}).bandasMarkup || {}).fraccionado || [],
+    produccion: ((configCargada || {}).bandasMarkup || {}).produccion || [],
+  };
+  try {
+    const r = await fetch('/api/precios/config/bandas-markup', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    configCargada = { ...configCargada, bandasMarkup: j.bandasMarkup };
+    bandasAlmacen = (j.bandasMarkup.almacen || []).map(b => ({ ...b }));
+    renderBandasFilas();
+    msg.className = 'text-sm text-ok';
+    msg.textContent = 'Guardado.';
+  } catch (e) {
+    msg.className = 'text-sm text-crit';
+    msg.textContent = e.message;
+  }
+}
+
+document.getElementById('btnRecargarAlmacen').onclick = cargarAlmacen;
+document.getElementById('btnAgregarBanda').onclick = () => {
+  bandasAlmacen = [...bandasAlmacen, { costoHastaARS: null, markupMaxPct: 0 }];
+  renderBandasFilas();
+};
+document.getElementById('btnGuardarBandas').onclick = guardarBandas;
 
 // Cambio de tab: sólo las habilitadas tienen listener útil (las deshabilitadas
 // llevan el atributo disabled real, así que ni disparan el evento).
@@ -93,7 +295,10 @@ document.querySelectorAll('#tabs .navtab:not([disabled])').forEach(b => b.onclic
   const panel = document.getElementById('panel-' + b.dataset.tipo);
   if (panel) panel.classList.remove('hidden');
   if (b.dataset.tipo === 'configuracion') cargarConfiguracion();
+  if (b.dataset.tipo === 'almacen') cargarAlmacen();
 });
+
+cargarAlmacen(); // Almacén es el tab activo por defecto al cargar la página.
 </script>
 </body>
 </html>

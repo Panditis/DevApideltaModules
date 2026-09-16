@@ -11,8 +11,8 @@ const { compararItem } = require('../lib/precios_proveedores');
 // data/costeo.json ya nace con el schema completo (bandasMarkup, recetas,
 // insumosPorProducto, etc.) para que las fases siguientes no tengan que migrar
 // el archivo, pero /api/precios/config expone sólo lo que esta fase usa: costoHora,
-// toleranciaPct y costosVariosPctAlmacen (el resto no tiene todavía lógica que lo
-// use ni UI que lo edite).
+// toleranciaPct, costosVariosPctAlmacen y bandasMarkup completo (recetas/insumosPorProducto
+// siguen sin lógica ni UI que los use).
 //
 // costosVariosPctAlmacen es un campo nuevo (no estaba en el schema original de la
 // Fase 0): costearAlmacen() necesita un costosVariosPct global y no había dónde
@@ -36,6 +36,7 @@ module.exports = function crearRutasPrecios(deps) {
     return {
       costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct,
       costosVariosPctAlmacen: costeo.costosVariosPctAlmacen,
+      bandasMarkup: costeo.bandasMarkup,
     };
   }));
 
