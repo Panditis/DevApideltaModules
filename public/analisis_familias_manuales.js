@@ -51,10 +51,13 @@ function pintarEditor(){
     return;
   }
   cont.innerHTML = famDef.map((f, i) => `
-    <div class="fam-item">
+    <div class="fam-item${f.activo ? ' activo' : ''}">
       <div class="fam-item-head">
         <strong>${escHtml(f.nombre)}</strong>
         <span class="mini">${f.productos.length} producto${f.productos.length === 1 ? '' : 's'}</span>
+        <label class="fam-activo-toggle" title="Marcar este grupo como la semana activa">
+          <input type="checkbox" ${f.activo ? 'checked' : ''} onchange="famToggleActivo(${i})"> Semana activa
+        </label>
         <button type="button" class="btn-mini" onclick="famVerProductos(${i})">Ver productos</button>
         <button type="button" class="btn-mini" onclick="famRenombrar(${i})">Renombrar</button>
         <button type="button" class="btn-mini danger" onclick="famBorrar(${i})">Eliminar</button>
@@ -188,6 +191,15 @@ async function famRenombrar(i){
 async function famBorrar(i){
   if (!await famConfirmar(`¿Eliminar el grupo "${famDef[i].nombre}"?`, 'Eliminar')) return;
   famDef = famDef.filter((_f, k) => k !== i);
+  pintarEditor();
+}
+
+// Exclusivo: togglear el que ya estaba activo lo apaga (queda ninguno); togglear otro lo
+// prende y apaga el resto. El servidor vuelve a forzar esto mismo al guardar (Task 1), así
+// que acá es sólo feedback visual inmediato — no hace falta guardar aparte.
+function famToggleActivo(i){
+  const yaActivo = !!famDef[i].activo;
+  famDef = famDef.map((f, k) => ({ ...f, activo: !yaActivo && k === i }));
   pintarEditor();
 }
 
