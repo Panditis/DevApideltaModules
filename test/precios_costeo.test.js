@@ -1,13 +1,31 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { markupDe, aplicarMarkup, conIva, configSanitizada, costearAlmacen } = require('../lib/precios_costeo');
+const { resolverBanda, markupDe, aplicarMarkup, conIva, configSanitizada, costearAlmacen } = require('../lib/precios_costeo');
 
 const BANDAS = [
   { costoHastaARS: 1000, markupMaxPct: 40 },
   { costoHastaARS: 5000, markupMaxPct: 25 },
   { costoHastaARS: null, markupMaxPct: 15 },
 ];
+
+// ── resolverBanda ────────────────────────────────────────────────────────────
+
+test('resolverBanda: costo dentro de una banda con tope devuelve label "hasta X"', () => {
+  assert.deepStrictEqual(resolverBanda(500, BANDAS), { markupPct: 40, banda: 'hasta 1000' });
+});
+
+test('resolverBanda: costo que cae en la banda sin tope devuelve label "sin tope"', () => {
+  assert.deepStrictEqual(resolverBanda(999999, BANDAS), { markupPct: 15, banda: 'sin tope' });
+});
+
+test('resolverBanda: overridePct devuelve label "override"', () => {
+  assert.deepStrictEqual(resolverBanda(500, BANDAS, 10), { markupPct: 10, banda: 'override' });
+});
+
+test('resolverBanda: sin bandas que matcheen devuelve markupPct y banda null', () => {
+  assert.deepStrictEqual(resolverBanda(500, [{ costoHastaARS: 100, markupMaxPct: 40 }]), { markupPct: null, banda: null });
+});
 
 // ── markupDe ─────────────────────────────────────────────────────────────────
 
@@ -101,6 +119,14 @@ test('costearAlmacen: propaga nombre/plu/banda sin tocarlos aunque no vengan', (
   assert.strictEqual(out2.banda, 'override');
 });
 
+test('costearAlmacen: montos no redondos salen redondeados a 2 decimales, sin ruido de float', () => {
+  const out = costearAlmacen({ costoMercaderia: 999.99, costosVariosPct: 2.5, markupPct: 33.3 });
+  assert.strictEqual(out.componentes[1].importe, 25); // 999.99 * 2.5% = 24.999750000000002 sin redondear
+  assert.strictEqual(out.costoTotal, 1024.99);
+  assert.strictEqual(out.precioNeto, 1366.31);
+  assert.strictEqual(out.precioConIva, 1653.24);
+});
+
 // ── configSanitizada ─────────────────────────────────────────────────────────
 
 test('configSanitizada: bandas bien ordenadas y no crecientes en markup pasan sin error', () => {
@@ -135,4 +161,14 @@ test('configSanitizada: costoHastaARS:null en una banda que no es la última se 
     { costoHastaARS: 1000, markupMaxPct: 25 },
   ];
   assert.throws(() => configSanitizada({ bandasMarkup: { almacen: bandasMalUbicadas, fraccionado: [], produccion: [] } }));
+});
+
+test('configSanitizada: costoHastaARS no numérico ni null se rechaza', () => {
+  const bandasInvalidas = [{ costoHastaARS: 'mil', markupMaxPct: 20 }];
+  assert.throws(() => configSanitizada({ bandasMarkup: { almacen: bandasInvalidas, fraccionado: [], produccion: [] } }));
+});
+
+test('configSanitizada: markupMaxPct no numérico se rechaza', () => {
+  const bandasInvalidas = [{ costoHastaARS: 1000, markupMaxPct: 'alto' }];
+  assert.throws(() => configSanitizada({ bandasMarkup: { almacen: bandasInvalidas, fraccionado: [], produccion: [] } }));
 });
