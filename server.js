@@ -670,6 +670,8 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
+app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
+app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
 // ── Persistencia JSON ──────────────────────────────────────────────────────────
@@ -2705,7 +2707,7 @@ app.use(require('./routes/rutas_plan')({
   leerOrdenes, guardarOrdenes, conLogError,
   tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
   sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
-  buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgEsGranel,
+  buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
   sucursalesSiga, sucursalPublica,
 }));
 

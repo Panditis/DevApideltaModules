@@ -1,303 +1,318 @@
 # Estilo UI Apidelta — guía del sistema visual
 
-Referencia extraída de `analisis_ventas.html`, que es donde el estilo está más completo y
-consistente. Sirve para construir módulos nuevos con el mismo aspecto sin tener que copiar y
-adaptar a ojo.
+Referencia real: `public/css/apidelta-theme.js` + `public/css/apidelta-theme.css` (el theme
+compartido), aplicado en `public/insumos.html` (el módulo más completo) y en otros doce más.
+Todo módulo nuevo carga estos dos archivos en vez de reinventar paleta/tipografía propia.
 
-**Principio rector:** dashboard corporativo plano y utilitario. Prioriza densidad de datos y
-legibilidad sobre decoración. Sin sombras, sin glassmorphism, sin animaciones. Los únicos
-degradados son funcionales: codifican un valor, no adornan.
+**Principio rector:** Fluent 2 (Microsoft) — superficies "acrílicas" (blur), radios chicos,
+sombra ambiental en capas — con la paleta propia de Apidelta encima: **navbar verde con
+acentos amarillos, body blanco con acentos verdes.** El canvas de página es un verde muy
+tenue, no blanco puro, para que las cards blancas se separen del fondo sin necesitar una
+sombra fuerte en cada una.
 
-**Stack:** HTML + CSS plano + JS vanilla. Sin Tailwind, sin Bootstrap, sin framework de
-componentes, sin build step. Dos dependencias externas por CDN: Google Fonts y Chart.js.
+**Stack:** HTML + Tailwind (CDN) + theme compartido. Sin build. Los tokens de color/tipografía/
+sombra viven en `tailwind.config` (`apidelta-theme.js`); las clases reusables (navbar, kpi,
+tabs, acordeón, animaciones) viven en `apidelta-theme.css`. Nada de Google Fonts por módulo —
+todo `system-ui`/"Segoe UI".
 
 ---
 
-## 1. Tokens
+## 1. Cómo cargar el theme
 
-Todo el color y el redondeo salen de variables en `:root`. Nunca hardcodear un color de marca
-en una regla: si hace falta un tono nuevo, se agrega como token.
-
-```css
-:root{
-  --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
-  --yellow:#FFCC00; --gold:#C98A00;
-  --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
-  --radius:12px; --radius-sm:8px;
-}
+```html
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 ```
 
-### Uso de cada color
+Ese orden importa: el config de Tailwind tiene que estar seteado antes de que el CDN escanee
+las clases de la página. Las rutas ya están registradas en `server.js` (el proyecto no usa
+`express.static`, cada archivo estático tiene su propia ruta — no hace falta agregar nada para
+un módulo nuevo).
+
+Si el módulo tenía su propio `tailwind.config` inline, sus propias variables `:root`, o
+Google Fonts (`Barlow`, `Barlow Condensed`, `Roboto`, etc.), se sacan. Si el `<body>` tenía una
+clase o `background` propio, también se saca — el canvas de página (`#eef1ea`) lo pone
+automático `body{background:#eef1ea}` del CSS compartido, y una clase `bg-*` en el `<body>` lo
+pisa por especificidad.
+
+---
+
+## 2. Tokens
+
+```js
+// apidelta-theme.js
+tailwind.config = { theme: { extend: {
+  colors: {
+    verde: '#405936', verdeHover: '#4f6e42', amarillo: '#FFCC00',
+    bg: '#eef1ea', card: '#ffffff', borde: 'rgba(26,28,24,.16)', ink: '#242423',
+    ok: '#0e700e', warn: '#8a5d00', crit: '#a4262c', gris: '#5c5f52',
+  },
+  fontFamily: {
+    disp: ['system-ui', '"Segoe UI"', 'sans-serif'],
+    body: ['system-ui', '"Segoe UI"', 'sans-serif'],
+  },
+  boxShadow: {
+    fluent: '0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1)',
+  },
+} } };
+```
 
 | Token | Uso |
 |---|---|
-| `--green` | Header, botones primarios, acentos sólidos |
-| `--green-dark` | Títulos de card, valores de KPI, hover de headers ordenables |
-| `--green-mid` | Links secundarios, borde de chip activo |
-| `--green-light` | Fondo de chip activo |
-| `--yellow` | Acento de marca (la mitad `DELTA` del logo) |
-| `--gold` | Acento cálido en gráficos y degradados de dato |
-| `--bg` | Fondo de página |
-| `--surface` | Fondo de card, controles, chips |
-| `--text` / `--muted` | Texto principal / secundario, labels, headers de tabla |
-| `--border` | Todos los bordes de 1px |
+| `verde` | Navbar, botones/links primarios sobre fondo blanco, texto de KPI/valores |
+| `verdeHover` | Hover de todo lo que usa `verde` |
+| `amarillo` | Acento del navbar (botón primario ahí, hover de links), nunca en el body |
+| `bg` | Canvas de página — lo pone `body{}` del CSS compartido, no hace falta clase |
+| `card` | Fondo de card/tabla/modal — blanco |
+| `borde` | Todos los bordes de 1px |
+| `ink` | Texto principal |
+| `gris` | Texto secundario / labels / placeholders |
+| `ok` / `warn` / `crit` | Estados semánticos (chips, badges, avisos) |
 
-### Radios
+**Regla de oro:** el navbar es la ÚNICA superficie verde sólida del módulo. El body es blanco
+con acentos verdes — una tarjeta KPI con fondo verde relleno y valor amarillo es el error más
+común al migrar un módulo viejo (pasó en `productividad.html`, se corrigió a blanco+borde con
+valor en `verde`).
 
-Solo dos: `--radius` (12px) para contenedores — cards, controles, KPI — y `--radius-sm` (8px)
-para elementos interactivos — botones, inputs, cajas de error. Los chips son la excepción:
-`border-radius:999px` (píldora completa).
+Si un color no tiene token 1:1 (un dorado, un violeta de categoría, un azul de "info"), se deja
+con su hex propio — no se le inventa semántica nueva al theme por un caso puntual.
+
+### Radios y sombra
+
+`rounded-lg` (8px) para controles, `rounded-xl` (12px) para cards grandes, `rounded-full` para
+chips/pills. `shadow-fluent` en la tabla principal y cards que necesiten separarse del canvas;
+el resto se separa solo con `border-borde` sobre el fondo `bg`.
 
 ---
 
-## 2. Tipografía
+## 3. Tipografía
 
-Dos cortes de la misma familia, cargados de Google Fonts:
+Una sola familia para todo: `system-ui, "Segoe UI", sans-serif` (clases `font-disp`/`font-body`
+del theme, ambas resuelven igual). No hay corte condensado de marca — se abandonó Barlow
+Condensed junto con el resto de las fuentes Google Fonts propias de cada módulo.
+
+**Regla de números:** toda celda/valor numérico lleva `font-variant-numeric:tabular-nums` y,
+en tablas, `text-align:right`. Esto no cambió respecto al sistema viejo.
+
+---
+
+## 4. Navbar
 
 ```html
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
-```
-
-- **`Barlow`** (300-600) — texto corriente, tablas, controles. Es la fuente del `body`.
-- **`Barlow Condensed`** (700-800) — logo, títulos de card, valores de KPI. La condensada da
-  presencia sin robar ancho, que es lo que permite meter cifras grandes en cards chicas.
-
-Escala real en uso:
-
-| Elemento | Familia | Tamaño / peso |
-|---|---|---|
-| Logo | Condensed | 22px / 800, `letter-spacing:.5px` |
-| Valor de KPI | Condensed | 28px / 800, color `--green-dark` |
-| Título de card (`h3`) | Condensed | 18px / 700, color `--green-dark` |
-| Texto de tabla | Barlow | 14px |
-| Header de tabla (`th`) | Barlow | 12px / 600, `text-transform:uppercase`, color `--muted` |
-| Label de control | Barlow | 12px, color `--muted` |
-| Descripción de card | Barlow | 12px, `line-height:1.4`, color `--muted` |
-| Detalle expandido | Barlow | 13px, color `--muted` |
-
-**Regla de números:** toda celda numérica lleva `font-variant-numeric:tabular-nums` y
-`text-align:right`. Sin eso las cifras no alinean verticalmente y la tabla se lee mal.
-
----
-
-## 3. Layout
-
-```
-header  (verde, ancho completo)
-└── .wrap  (max-width:1200px, centrado, padding 20px)
-    ├── .controls   (filtros, una sola caja)
-    ├── #msg        (errores)
-    ├── .kpis       (grilla auto-fit)
-    └── .grid2 …    (pares de cards)
-```
-
-```css
-.wrap{max-width:1200px;margin:0 auto;padding:20px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-@media(max-width:820px){.grid2{grid-template-columns:1fr}}
-```
-
-- Los KPI usan `auto-fit` + `minmax`: se acomodan solos según cuántos haya, sin media query.
-- Los pares de cards usan `1fr 1fr` y colapsan a una columna bajo 820px.
-- Una card que necesita todo el ancho va suelta, fuera de `.grid2`.
-- Espaciado: `gap` de 12px dentro de grupos, 16px entre bloques, `margin-top:16px` entre
-  secciones. Padding de card: 16px.
-
-**Único breakpoint: 820px.** No hay más. Si un módulo necesita otro, conviene revisar si el
-layout no se está complicando de más.
-
----
-
-## 4. Componentes
-
-### Header
-
-```html
-<header>
-  <span class="logo">API<b>DELTA</b></span>
-  <span style="font-size:14px;opacity:.9">Nombre del módulo</span>
-  <a href="/">← Inicio</a>
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold">CONTROL DE INSUMOS</h1>
+    <span class="text-sm">Casa Central</span>
+    <div class="ml-auto flex items-center gap-2">
+      <button class="px-3 py-1.5 rounded-lg border border-borde text-sm">Exportar xlsx</button>
+      <button class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm">Recargar</button>
+      <a href="/" class="text-sm">← Inicio</a>
+    </div>
+  </div>
 </header>
 ```
 
-Verde sólido, texto blanco, `display:flex` con `gap:12px`. El logo parte el nombre en dos: la
-`b` va en `--yellow`. El link a Inicio se empuja a la derecha con `margin-left:auto` y lleva
-`opacity:.85`.
+`.acrylic` sólo pinta verde cuando el elemento es un `<header>` (`header.acrylic` en el CSS
+compartido) — fondo `rgba(64,89,54,.95)` con blur, para que otras superficies translúcidas que
+puedan aparecer más adelante no hereden el verde por accidente. Dentro de `header.acrylic` el
+CSS ya resuelve automático, sin necesidad de clases de color en el HTML:
+
+- `h1` → blanco
+- `span` → blanco al 75% de opacidad (subtítulos/meta)
+- `a` → blanco, hover amarillo (`#FFCC00`)
+- `button` → outline blanco, hover fondo blanco al 14%
+- `button.bg-verde` (el botón primario) → pasa a fondo amarillo con texto oscuro automático
+
+No hace falta el link "← Inicio" en `inicio.html` (es el hub) ni en un sub-hub como `rrhh.html`
+si ya se está un nivel adentro de la navegación — usar criterio.
+
+### Tabs dentro del navbar
+
+Cuando las tabs de un módulo viven en la franja verde (no sobre el body blanco — para eso está
+`.tab`/`.tab.on` en §6), usan un lenguaje distinto: transparentes, con un subrayado amarillo que
+crece desde el centro al activarse. Es el patrón de `planificacion.html`/`distribucion.html`,
+ahora reusable como `.navtab`/`.navtab.on` en `apidelta-theme.css`:
+
+```html
+<div class="tabs">
+  <button class="navtab on" data-tab="resumen">Resumen</button>
+  <button class="navtab" data-tab="detalle">Detalle</button>
+</div>
+```
+
+**Filo amarillo:** si el navbar tiene la marca separada de la fila de tabs (ej. `.top` con el
+logo, y debajo la fila de tabs), esa costura lleva la firma del sistema — un degradado amarillo
+de 2px que se angosta hacia los bordes. Clase reusable `.filo-amarillo` en el contenedor de
+arriba (el que necesita el borde inferior).
+
+**Gotcha de especificidad — la causa #1 de "el hover me lo pinta de blanco":** casi todo módulo
+grande tiene un reset genérico de sus propios botones, tipo `button{background:var(--x)}` /
+`button:hover{background:var(--y)}`. Ese `button:hover` (elemento + pseudo-clase, especificidad
+más alta que una sola clase) le gana a `.navtab{background:none}` en el estado hover, porque
+`.navtab:hover` que solo declara `color` no compite por la propiedad `background` — nadie más la
+está pisando en ese estado. Por eso `.navtab:hover` y `.navtab.on` declaran `background: none`
+explícito en vez de asumir que alcanza con heredarlo de la regla base. Si un módulo migrado
+sigue mostrando fondo blanco/gris en el hover de una tab o de un botón dentro del navbar después
+de sacarle el reset propio, esta es la primera sospecha.
+
+---
+
+## 5. Layout de body
+
+```
+header.acrylic  (navbar, ancho completo, sticky)
+└── main / div.max-w-…  (max-width según densidad del módulo, mx-auto, padding)
+    ├── .kpis / #kpis   (grid auto-fit, cards blancas)
+    ├── toolbar         (buscador + filtros, una sola caja)
+    ├── #msg / .error   (avisos)
+    └── tabla / cards   (bg-card, border-borde, shadow-fluent si es la pieza principal)
+```
+
+```css
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+```
+
+Los KPI usan `auto-fit` + `minmax` y **gap real entre tarjetas** (12px como mínimo) — nunca la
+estrategia vieja de "tira sin separación con 1px de fondo como grout", que en pantalla se lee
+como una sola masa de color en vez de tarjetas individuales.
+
+`max-width` no es un valor único fijo: `insumos.html`/`planificacion.html` (tablas anchas) usan
+`1500px`, `fraccionado_externo.html` (formulario angosto) usa `5xl` (~1024px). Elegir según
+cuánto contenido horizontal necesita el módulo, no copiar un número fijo.
+
+---
+
+## 6. Componentes
 
 ### Card
 
 ```css
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
-.card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
-.card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.4;color:var(--muted)}
+.card{background:#fff;border:1px solid var(--borde,rgba(26,28,24,.16));border-radius:12px;padding:16px}
 ```
 
-**Sin sombra.** El plano se separa por borde de 1px y contraste de fondo (`--bg` gris vs
-`--surface` blanco). Es la decisión que más define el estilo: agregar `box-shadow` rompe la
-coherencia con el resto del módulo.
-
-`.desc` es un subtítulo opcional para explicar qué mide un gráfico. El `margin-top` negativo
-lo pega al título.
+Blanca, borde de 1px, sin sombra por defecto (la sombra `shadow-fluent` queda para la pieza
+principal del módulo — la tabla, un panel destacado — no para cada card suelta).
 
 ### KPI
 
 ```css
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
-.kpi .lbl{font-size:12px;color:var(--muted)}
-.kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
+.kpi{background:#fff;border:1px solid var(--borde);border-radius:12px;padding:14px}
+.kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--gris)}
+.kpi .val{font-family:var(--font-disp);font-weight:800;font-size:28px;color:var(--verde);font-variant-numeric:tabular-nums}
 ```
 
-Label chico y gris arriba, número grande y condensado abajo. Mismo lenguaje que la card pero
-con padding menor.
+Blanco con borde, nunca relleno verde sólido. Label chico y gris arriba, valor grande en verde
+abajo. Si el KPI es clickeable (filtro), agrega `cursor:pointer` y un estado `.on` con
+`outline:2px solid var(--verde)` — si no es clickeable, `cursor:default` y sin hover.
 
-### Chips (selección múltiple)
+### Acordeón (listas/secciones colapsables)
+
+Clase compartida `.acordeon` en `apidelta-theme.css`, pensada para cualquier `<details>` del
+sistema (desgloses día/semana, historiales, detalle expandido de una fila):
 
 ```css
-.chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;font-size:13px;cursor:pointer;user-select:none;background:#fff}
-.chip.active{background:var(--green-light);border-color:var(--green-mid);color:var(--green-dark);font-weight:600}
+.acordeon > summary{background:rgba(64,89,54,.06)}      /* idle */
+.acordeon > summary:hover{background:rgba(64,89,54,.11)} /* hover */
+.acordeon[open] > summary{background:rgba(64,89,54,.14)} /* open */
+.acordeon .caret{width:20px;height:20px;border-radius:50%;background:rgba(64,89,54,.14)} /* rota 90° al abrir */
 ```
 
-Píldoras que alternan con clic. El estado activo cambia fondo, borde, color y peso — cuatro
-señales a la vez, así se distingue sin depender solo del color. Se acompañan de links mini
-("todas" / "ninguna") en `--green-mid`, 12px.
+`<details>` nativo — el navegador abre/cierra, no hace falta JS. El summary se distingue del
+fondo con un tinte del verde de marca (no un gris genérico) y el caret es un chip circular que
+rota, para que se lea como control y no como texto suelto. Si un módulo tiene su propia versión
+con nombres de clase ya usados por su JS (`classList.toggle`), no hace falta renombrar — alcanza
+con repuntar los valores de esas reglas locales a la misma receta visual (mismo criterio que se
+usó en `productividad.html`/`planificacion.html`).
+
+### Chips / estados
+
+```css
+.chip{display:inline-flex;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:600}
+.chip--ok{background:#dff6dd;color:#0e700e}
+.chip--warn{background:#fff4ce;color:#8a5d00}
+.chip--crit{background:#fde7e9;color:#a4262c}
+```
+
+Tres estados, nada más, salvo que el dato real tenga más categorías (ej. clasificación A/B/C/D
+de `a8020.html`) — ahí se mantiene una escala propia en vez de forzar todo a ok/warn/crit.
 
 ### Botón
 
 ```css
-.btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
-.btn:disabled{opacity:.6;cursor:default}
+.btn-primario{background:var(--verde);color:#fff}
+.btn-primario:hover{background:var(--verdeHover)}
+.btn-secundario{background:transparent;border:1px solid var(--borde);color:var(--ink)}
 ```
 
-Un solo estilo de botón: verde sólido. No hay variantes secundarias ni outline. Durante la
-carga se deshabilita y cambia el texto a "Consultando...".
+Dentro del navbar el primario pasa a amarillo automático (ver §4) — fuera del navbar, siempre
+verde.
 
 ### Tablas
 
 ```css
 table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
-th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--borde)}
+th{color:var(--gris);font-weight:600;font-size:12px;text-transform:uppercase}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr:hover{background:var(--sup1, #f5f8f1)}
 ```
 
-Densas, sin zebra striping, separadas por línea fina. Header en mayúsculas pequeñas y gris —
-se lee como etiqueta, no compite con los datos.
+Densas, sin zebra, separadas por línea fina. **Filas expandibles: el detalle son filas de la
+misma tabla**, nunca una tabla anidada (una anidada tiene su propio reparto de anchos y las
+columnas dejan de alinear) — esto sigue igual que en el sistema viejo.
 
-**Headers ordenables:**
+### Estados de carga/error/vacío
 
 ```css
-th.orden{cursor:pointer;user-select:none;white-space:nowrap}
-th.orden:hover{color:var(--green-dark)}
+.error{background:#fde7e9;color:#a4262c;border:1px solid #f6c6c2;padding:12px;border-radius:8px}
+.loading{color:var(--gris);padding:20px;text-align:center}
+.empty{color:var(--gris);padding:16px;text-align:center;font-size:14px}
 ```
 
-La columna activa muestra ▲ / ▼ en el propio texto del header.
-
-**Filas expandibles:** el detalle son filas de la *misma* tabla, nunca una tabla anidada. Una
-tabla anidada tiene su propio reparto de anchos y las columnas dejan de alinear. Se usan
-celdas vacías donde no corresponde dato:
-
-```html
-<tr class="fam-det fd-3" hidden>
-  <td class="pres">· Producto 500G</td>
-  <td></td>
-  <td class="num">120</td>
-  <td class="num">$45.000</td>
-  <td></td>
-</tr>
-```
-
-```css
-tr.fam-det>td{background:#FAFBF9;font-size:13px;color:var(--muted);border-top:0}
-tr.fam-det>td.pres{padding-left:30px}
-```
-
-El caret (▶ / ▼) va en un `span` de ancho fijo 14px para que el texto no salte al abrir.
-
-### Estados
-
-```css
-.error{background:#fdecea;color:#b3261e;border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
-.loading{color:var(--muted);padding:20px;text-align:center}
-.empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
-```
-
-Los tres casos siempre resueltos: error en rojo suave, carga y vacío en gris centrado. Toda
-tabla o gráfico debe manejar el caso sin datos con un mensaje `.empty`, nunca quedar en blanco.
+Toda tabla o gráfico maneja el caso sin datos con un mensaje `.empty`, nunca queda en blanco.
 
 ---
 
-## 5. Barras de dato en tablas
+## 7. Animaciones
 
-Cuando una columna representa participación sobre un total, se dibuja como fondo de la fila,
-no como celda aparte:
+`apidelta-theme.css` trae transiciones y una clase de entrada, todas respetando
+`@media (prefers-reduced-motion: reduce)`:
 
-```css
-:root{ --barra-ini:rgba(64,89,54,.55); --barra-fin:rgba(201,138,0,.32); }
-tr.fam>td{padding-top:9px;padding-bottom:9px;font-weight:600}
-tr.fam>td:first-child{box-shadow:inset 3px 0 0 var(--green)}
-/* background-color, no el shorthand: el shorthand borraría la barra (background-image). */
-tr.fam:hover{background-color:#F0F3EE}
-```
+- Hover de botones, filas de tabla y tabs: ~120-150ms ease.
+- `.fade-in` (fade + `translateY(4px)`, ~180ms) para modales/paneles que aparecen.
+- `.tab-panel` con transición de opacidad al cambiar de tab, en vez de corte seco.
+- `.spin` (spinner de carga, `@keyframes sp`).
 
-```js
-const fondo = `linear-gradient(90deg, var(--barra-ini) 0%, var(--barra-fin) ${corte}%, transparent ${corte}%)`;
-```
-
-Tres detalles que importan:
-
-1. **El degradado va con transparencia** (55% → 32%) para que el texto encima siga legible.
-2. **El hover usa `background-color`, no `background`.** El shorthand resetea
-   `background-image` y borra la barra al pasar el mouse.
-3. **El ancho escala contra el máximo de la lista, no contra el 100%.** Con 20 filas ninguna
-   llegaría al 15% y todas se verían iguales. El número que se muestra es siempre la
-   participación real; lo que se escala es la longitud visual.
+No hay más que eso — el principio sigue siendo utilitario, la animación es para dar feedback de
+interacción, no para decorar.
 
 ---
 
-## 6. Gráficos (Chart.js 4)
+## 8. Gráficos (Chart.js 4)
+
+Sin cambios respecto al sistema anterior — esto es independiente de la paleta:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 ```
 
 - Los charts se guardan en un objeto `charts` y se destruyen antes de repintar
-  (`destroyChart(key)`), si no se acumulan listeners y el tooltip se vuelve errático.
-- `<canvas height="200">` dentro de la card.
-- Barras y líneas: leyenda apagada cuando hay una sola serie, con los ejes formateados por las
-  mismas funciones que las tablas.
-
-**Paleta semántica en la torta.** Cuando el color comunica una escala de valor, se prioriza el
-significado sobre la marca: rojo para el bucket que se quiere reducir, después verde a
-amarillo según crece la métrica.
-
-```js
-const PALETA_ART = ['#C62828', '#2E7D32', '#6DA340', '#B7BE33', '#F2C200'];
-```
-
-**Etiquetas dentro de las porciones.** Chart.js 4 no trae `datalabels` y no se puede sumar un
-plugin por CDN, así que se dibuja a mano con un plugin inline (`afterDatasetsDraw`), y se apaga
-la leyenda externa. Dos reglas aprendidas:
-
-- **Color de texto por luminancia**, no fijo. Blanco sobre rojo y verdes, gris oscuro sobre
-  lima y amarillo. Con blanco fijo el amarillo queda ilegible:
-
-  ```js
-  function textoSobre(hex){
-    const n = parseInt(String(hex).replace('#',''), 16);
-    const lum = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
-    return lum > 150 ? '#1C1B1F' : '#FFFFFF';
-  }
-  ```
-
-- **Degradación por tamaño de porción**: bajo 7% se cae la etiqueta y queda solo el
-  porcentaje; bajo 3% no se dibuja nada. El dato completo sigue en el tooltip.
+  (`destroyChart(key)`) — si no, se acumulan listeners y el tooltip se vuelve errático.
+- **La paleta categórica de un gráfico (series por sucursal, por producto, etc.) NO se fuerza a
+  verde/amarillo** — son datos, no chrome de UI, y reducir 10 series a 2 colores les hace perder
+  distinción. Se deja con su propia paleta (ver `ventas_hora.html`).
+- Cuando el color sí comunica una escala de valor (una torta buckets malo→bueno), se prioriza el
+  significado sobre la marca: rojo/naranja para lo que se quiere reducir, verde/amarillo del
+  theme para lo que crece bien.
+- Color de texto sobre una porción: por luminancia, no fijo (blanco sobre oscuro, tinta oscura
+  sobre claro) — la función `textoSobre(hex)` de siempre sigue valiendo.
 
 ---
 
-## 7. Formato de números
+## 9. Formato de números
 
-Tres funciones, siempre locale `es-AR`:
+Sin cambios — tres funciones, siempre locale `es-AR`:
 
 ```js
 const fmtMoney = n => '$' + Math.round(n).toLocaleString('es-AR');
@@ -305,35 +320,42 @@ const fmtNum   = n => Math.round(n).toLocaleString('es-AR');
 const fmtDec   = n => Number(n || 0).toLocaleString('es-AR', {minimumFractionDigits:1, maximumFractionDigits:1});
 ```
 
-Dinero y cantidades sin decimales; promedios y porcentajes con uno. Se usan tanto en las
-tablas como en los ejes y tooltips de los gráficos, así el mismo número se ve igual en todos
-lados.
-
 ---
 
-## 8. Patrones de JS
+## 10. Patrones de JS
+
+Sin cambios — la migración al theme compartido tocó solo `<head>` y presentación, nunca lógica:
 
 - `const $ = id => document.getElementById(id);` — helper de una línea, sin librería.
-- Una función `render*` por sección, todas llamadas desde `consultar()` tras un único `fetch`.
-- El endpoint devuelve todo el dashboard en una sola respuesta; el frontend no encadena
-  llamadas.
-- `escHtml()` obligatorio sobre cualquier texto que venga del backend antes de meterlo en un
-  template string. Los nombres de producto vienen de SiGA y no son confiables.
-- Durante la carga: botón deshabilitado con texto "Consultando...", y `.loading` en las zonas
-  que se van a llenar.
+- Una función `render*` por sección, todas llamadas desde una función de consulta tras un único
+  `fetch` cuando es posible (el backend devuelve todo el dashboard en una sola respuesta).
+- `escHtml()`/`escAttr()` obligatorio sobre cualquier texto que venga del backend antes de
+  meterlo en un template string — los nombres de producto vienen de SiGA y no son confiables.
+- Durante la carga: botón deshabilitado con texto de estado, y `.loading` en las zonas que se
+  van a llenar.
 
 ---
 
-## 9. Checklist para un módulo nuevo
+## 11. Checklist para un módulo nuevo (o para migrar uno viejo)
 
-- [ ] Tokens de `:root` copiados sin cambios de valor
-- [ ] Las dos fuentes Barlow cargadas
-- [ ] Header con logo `API<b>DELTA</b>` + nombre del módulo + link a Inicio
-- [ ] `.wrap` con `max-width:1200px`
-- [ ] Cards sin sombra, borde 1px, radio 12px
+- [ ] Carga `apidelta-theme.js` + `apidelta-theme.css` después del CDN de Tailwind
+- [ ] Sin `tailwind.config` propio, sin variables `:root` de paleta propia, sin Google Fonts
+- [ ] `<body>` sin clase/`background` propio (el canvas `#eef1ea` lo pone el theme)
+- [ ] Navbar `header.acrylic` con el patrón de §4 (verde, texto blanco, botón primario amarillo)
+- [ ] Cards/KPI blancos con borde, **nunca relleno verde sólido**
+- [ ] Estados semánticos mapeados a `ok`/`warn`/`crit`, no colores sueltos nuevos
+- [ ] Listas colapsables usan `.acordeon`/`.caret` del theme
 - [ ] Columnas numéricas con `tabular-nums` y alineadas a la derecha
 - [ ] Casos `.loading`, `.empty` y `.error` resueltos en todas las secciones
-- [ ] Números por `fmtMoney` / `fmtNum` / `fmtDec`
-- [ ] `escHtml()` en todo texto que venga del backend
-- [ ] Charts destruidos antes de repintar
-- [ ] Breakpoint 820px si hay grilla de dos columnas
+- [ ] `escHtml()`/`escAttr()` en todo texto que venga del backend
+- [ ] Charts destruidos antes de repintar; paleta categórica de datos sin forzar a verde/amarillo
+- [ ] Nada de Barlow/Barlow Condensed/Roboto ni otra Google Font propia del módulo
+
+---
+
+## 12. Módulos migrados
+
+`insumos.html`, `fraccionado_externo.html`, `productividad.html`, `planificacion.html`,
+`inicio.html`, `rrhh.html`, `diagnostico_quiebre.html`, `rrhh_ausencias_dashboard.html`,
+`analisis.html`, `rrhh_relevamiento_ropa.html`, `ventas_hora.html`, `precios_proveedores.html`,
+`a8020.html`. El resto de los módulos sigue con su paleta previa hasta que se migren a pedido.

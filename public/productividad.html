@@ -3,30 +3,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Productividad de Sala — Apidelta</title>
 <link rel="icon" href="/favicon.png">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
 /* ── Paleta Apidelta ─────────────────────────────────────────────────────────
    La oficial del sistema, la misma de planificación y distribución: verde y
    amarillo sobre superficies verdosas escalonadas. El fondo nunca es blanco —
-   el blanco queda para las tarjetas, así el panel se despega de la página. */
+   el blanco queda para las tarjetas, así el panel se despega de la página.
+   Los valores son los del theme compartido (apidelta-theme.js); lo que no
+   tiene token 1:1 (verde-hondo, los tonos de superficie, etc.) queda como
+   variante propia derivada de la misma familia. */
 :root{
-  --verde:#405936; --verde-hondo:#2E4027; --verde-claro:#4F6E42;
+  --verde:#405936; --verde-hondo:#2E4027; --verde-claro:#4f6e42;
   --verde-cont:#CFE0C2; --verde-tenue:#E8F0E1;
   --amarillo:#FFCC00;
-  --tinta:#1A1C18; --suave:#4B5145; --tenue:#79806F;
-  --fondo:#EEF2E9; --panel:#FFFFFF;
+  --tinta:#242423; --suave:#5c5f52; --tenue:#79806F;
+  --fondo:#eef1ea; --panel:#ffffff;
   --sup1:#F4F7F0; --sup2:#EAF0E4; --sup3:#E2E9DA;
-  --linea:#DCE3D4; --linea-fuerte:#C3C9BC;
-  --oro:#B58C00; --rojo:#BA1A1A;
+  --linea:rgba(26,28,24,.08); --linea-fuerte:rgba(26,28,24,.16);
+  --oro:#8a5d00; --rojo:#a4262c;
   --radio:16px; --radio-sm:10px;
   --sombra:0 1px 3px rgba(46,64,39,.10), 0 10px 24px -16px rgba(46,64,39,.30);
   --sombra-alta:0 6px 18px rgba(46,64,39,.16);
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--fondo);color:var(--tinta);
-  font-family:'Barlow',system-ui,sans-serif;font-size:14px;line-height:1.45;
+  font-family:system-ui,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;
   -webkit-font-smoothing:antialiased}
-h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01em}
+h1,h2,h3{font-family:system-ui,"Segoe UI",sans-serif;margin:0;letter-spacing:-.01em}
 .num{font-variant-numeric:tabular-nums}
 
 /* ── Barra superior ─────────────────────────────────────────────────────────
@@ -39,7 +44,7 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
   background:linear-gradient(90deg,transparent,var(--amarillo) 28%,var(--amarillo) 72%,transparent);opacity:.85}
 .topbar .in{max-width:1240px;margin:0 auto;padding:11px 24px;display:flex;align-items:center;gap:12px}
 .topbar .logo{width:30px;height:30px;display:block;flex-shrink:0}
-.marca{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:20px;letter-spacing:.5px;
+.marca{font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;font-size:20px;letter-spacing:.5px;
   color:#fff}
 .marca b{color:var(--amarillo)}
 .topbar a{margin-left:auto;color:rgba(255,255,255,.82);text-decoration:none;font-size:13px;font-weight:600;
@@ -89,12 +94,13 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
    página y el primero que se lee. */
 /* Flex y no grid: cada KPI ocupa lo que necesita su contenido —"$ 368.934.716" pide más
    ancho que "148"— y el sobrante se reparte entre todos en vez de cortar el número grande. */
-.kpis{display:flex;flex-wrap:wrap;gap:1px;background:rgba(255,255,255,.16);border-radius:var(--radio);
-  overflow:hidden;margin-bottom:26px;box-shadow:var(--sombra)}
-.kpi{background:var(--verde);padding:18px 20px;flex:1 1 auto;min-width:0}
-.kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--verde-cont);font-weight:700}
-.kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:34px;line-height:1.1;
-  margin-top:6px;color:var(--amarillo);font-variant-numeric:tabular-nums}
+.kpis{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:26px}
+.kpi{background:var(--panel);padding:18px 20px;flex:1 1 auto;min-width:0;
+  border:1px solid var(--linea-fuerte);border-radius:var(--radio);cursor:default}
+.kpi:hover{box-shadow:none}
+.kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--suave);font-weight:700}
+.kpi .val{font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;font-size:34px;line-height:1.1;
+  margin-top:6px;color:var(--verde);font-variant-numeric:tabular-nums}
 
 /* ── Secciones ──────────────────────────────────────────────────────────── */
 .sec{margin-bottom:36px}
@@ -127,18 +133,20 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
 .dia:hover{box-shadow:var(--sombra)}
 .dia[open]{border-color:var(--verde);box-shadow:var(--sombra-alta)}
 .dia>summary{list-style:none;cursor:pointer;padding:16px 20px 0;position:relative;
-  background:var(--sup1);transition:background .18s ease}
-.dia>summary:hover{background:var(--sup2)}
+  background:var(--sup2);transition:background .18s ease}
+.dia>summary:hover{background:var(--sup3)}
 .dia[open]>summary{background:var(--verde-tenue)}
 .dia>summary::-webkit-details-marker{display:none}
-.dia .linea1{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px}
-.dia .caret{color:var(--verde);font-size:10px;transition:transform .2s ease;line-height:2}
-.dia[open] .caret{transform:rotate(90deg)}
-.dia .fecha{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:21px;
+.dia .linea1{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+.dia .caret{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+  width:20px;height:20px;border-radius:50%;background:var(--verde-tenue);color:var(--verde-hondo);
+  font-size:9px;transition:transform .2s ease,background .18s ease}
+.dia[open] .caret{transform:rotate(90deg);background:var(--verde-cont)}
+.dia .fecha{font-family:system-ui,"Segoe UI",sans-serif;font-weight:700;font-size:21px;
   color:var(--verde-hondo);text-transform:capitalize}
 .dia .met{font-size:12.5px;color:var(--suave);font-variant-numeric:tabular-nums}
 .dia .met b{color:var(--tinta);font-weight:700}
-.dia .cifra{margin-left:auto;font-family:'Barlow Condensed',sans-serif;font-weight:800;
+.dia .cifra{margin-left:auto;font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;
   font-size:21px;font-variant-numeric:tabular-nums}
 .dia .cifra.ok{color:var(--verde)} .dia .cifra.parcial{color:var(--oro)} .dia .cifra.nada{color:var(--tenue)}
 /* Riel de cumplimiento al pie del encabezado: el ancho es el dato, sin números extra. */
@@ -170,7 +178,7 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
 .segment.chico button{padding:6px 15px;font-size:12.5px}
 /* Los dos rankings del período, uno al lado del otro mientras entren. */
 .dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
-.dos-col h4, .dia .cuerpo > h4{margin:2px 0 8px;font-family:'Barlow Condensed',sans-serif;font-size:15px;
+.dos-col h4, .dia .cuerpo > h4{margin:2px 0 8px;font-family:system-ui,"Segoe UI",sans-serif;font-size:15px;
   font-weight:700;color:var(--verde-hondo);text-transform:uppercase;letter-spacing:.07em}
 .dos-col .col{min-width:0;overflow-x:auto}
 .dia .cuerpo > h4{margin-top:14px}
@@ -197,7 +205,7 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;margin:0;letter-spacing:-.01e
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--linea);white-space:nowrap}
 thead th{position:sticky;top:0;background:var(--verde);color:#fff;z-index:1;
-  font-family:'Barlow Condensed',sans-serif;font-size:12.5px;text-transform:uppercase;
+  font-family:system-ui,"Segoe UI",sans-serif;font-size:12.5px;text-transform:uppercase;
   letter-spacing:.07em;font-weight:600;border-bottom:2px solid var(--verde-hondo)}
 tbody tr:nth-child(even) td{background:var(--sup1)}
 tbody tr:last-child td{border-bottom:0}
@@ -252,9 +260,9 @@ td.pag button:disabled{opacity:.35;cursor:default}
 .rol{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
   padding:16px 18px 16px 22px;box-shadow:var(--sombra);position:relative;overflow:hidden}
 .rol::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--amarillo)}
-.rol .nom{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:19px;
+.rol .nom{font-family:system-ui,"Segoe UI",sans-serif;font-weight:700;font-size:19px;
   color:var(--verde-hondo);text-transform:uppercase;letter-spacing:.05em}
-.rol .horas{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:32px;line-height:1.1;
+.rol .horas{font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;font-size:32px;line-height:1.1;
   color:var(--verde);font-variant-numeric:tabular-nums}
 .rol .via{height:5px;border-radius:3px;background:var(--sup3);position:relative;margin:10px 0 12px}
 .rol .via i{position:absolute;inset:0 auto 0 0;border-radius:3px;
@@ -311,17 +319,17 @@ td.pag button:disabled{opacity:.35;cursor:default}
 }
 </style>
 </head><body>
-<div class="topbar"><div class="in">
+<header class="topbar"><div class="in">
   <!-- Mismo hexágono que el resto de los módulos: la marca se reconoce antes que el título. -->
   <svg class="logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
     <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#2E4027"/>
     <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
-    <text x="16" y="23" font-family="'Barlow Condensed',Arial,sans-serif" font-weight="800" font-size="18"
+    <text x="16" y="23" font-family="system-ui,Arial,sans-serif" font-weight="800" font-size="18"
           text-anchor="middle" fill="#FFCC00">A</text>
   </svg>
   <span class="marca">API<b>DELTA</b></span>
   <a href="/">← Inicio</a>
-</div></div>
+</div></header>
 
 <div class="wrap">
   <div class="hero">

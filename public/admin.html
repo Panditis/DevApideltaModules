@@ -5,67 +5,28 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Apidelta — Centro de control</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <script src="https://unpkg.com/lucide@latest"></script>
-<script>
-// ── Paleta oficial Apidelta ─────────────────────────────────────────────────
-//   Negro #000000 · Oliva #65684C · Gris #BDBDB7 · Blanco #FFFFFF · Amarillo #FFCC00
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        brand:   { DEFAULT: '#FFCC00', dark: '#E6B800', soft: '#FFF3B0', ink: '#1a1200' },
-        ink:     '#000000',
-        olive:   { DEFAULT: '#65684C', soft: '#eae9e1' },
-        line:    '#BDBDB7',
-        surface: { DEFAULT:'#FFFFFF', alt:'#fafaf6', deep:'#f5f5f1' }
-      },
-      fontFamily: {
-        sans:    ['Public Sans', 'system-ui', 'sans-serif'],
-        display: ['Bricolage Grotesque', 'Public Sans', 'sans-serif'],
-        mono:    ['Spline Sans Mono', 'ui-monospace', 'monospace']
-      },
-      boxShadow: {
-        soft: '0 1px 2px rgba(15,17,21,.04), 0 2px 8px rgba(15,17,21,.04)',
-        lift: '0 4px 12px rgba(15,17,21,.06), 0 12px 32px rgba(15,17,21,.06)'
-      }
-    }
-  }
-};
-</script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
    APIDELTA · Centro de control (panel de administración)
-   Paleta oficial: #000 / #65684C / #BDBDB7 / #FFF / #FFCC00
+   Theme compartido: verde/amarillo (apidelta-theme.js/.css). Variables locales
+   repuntadas a los tokens del theme; sin token 1:1 se deja el hex original.
    ═══════════════════════════════════════════════════════════════════════════ */
 :root{
-  --p:#FFCC00; --p-dk:#E6B800; --on-surf:#1f2024; --on-svar:#6b6e55;
-  --outline:#d8d8d2; --bg:#f6f6f3; --ok:#4a7026; --err:#b53d24;
+  --p:#FFCC00; --p-dk:#E6B800; --on-surf:#242423; --on-svar:#5c5f52;
+  --outline:rgba(26,28,24,.16); --ok:#0e700e; --err:#a4262c;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
-body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:var(--on-surf);font-size:14px;line-height:1.55}
+body{color:var(--on-surf);font-size:14px;line-height:1.55}
 
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .fade-up{animation:fadeUp .4s cubic-bezier(.2,.7,.2,1) both}
 
-/* App Bar — verde oliva con detalle ámbar (consistente con el resto del sistema) */
-.app-bar{
-  background:linear-gradient(180deg,#6e7152 0%,#5d6045 100%);
-  color:#fff;min-height:60px;padding:0 24px;
-  display:flex;align-items:center;gap:14px;
-  position:sticky;top:0;z-index:30;
-  box-shadow:0 1px 0 rgba(0,0,0,.08),0 10px 28px -16px rgba(101,104,76,.4);
-}
-.app-bar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent 0%,#FFCC00 30%,#FFCC00 70%,transparent 100%);opacity:.55}
-.app-bar-logo{height:34px;width:34px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
-.app-bar-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.02rem;font-weight:700;letter-spacing:.01em;line-height:1.1}
-.app-bar-sub{font-size:.72rem;opacity:.72;font-weight:500}
-
-/* Enlaces / botones del header */
+/* Enlaces / botones del header (sobre navbar verde del theme) */
 .bar-link{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#fff;text-decoration:none;padding:7px 12px;border-radius:9px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);transition:background .15s ease}
 .bar-link:hover{background:rgba(255,255,255,.2)}
 .bar-link svg{width:15px;height:15px}
@@ -76,9 +37,9 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 .btn:active{transform:translateY(1px)}
 .btn-primary{background:var(--p);color:#1a1200;box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .btn-primary:hover{background:var(--p-dk)}
-.btn-ghost{background:#fff;color:#3f4133;border-color:var(--outline)}
+.btn-ghost{background:#fff;color:var(--on-surf);border-color:var(--outline)}
 .btn-ghost:hover{border-color:#b9bba2;background:#fafaf6}
-.btn-danger{background:#fff;color:#b53d24;border-color:#e6c6bd}
+.btn-danger{background:#fff;color:var(--err);border-color:#e6c6bd}
 .btn-danger:hover{background:#fdf1ee;border-color:#d99a89}
 .btn-sm{padding:6px 10px;font-size:.76rem;border-radius:8px;gap:5px}
 .btn-sm svg{width:14px;height:14px}
@@ -88,106 +49,107 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 .tabs{display:inline-flex;gap:4px;background:#eeeee7;border:1px solid var(--outline);padding:4px;border-radius:12px}
 .tab{display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:.85rem;color:#6b6e55;padding:8px 16px;border-radius:9px;cursor:pointer;border:none;background:transparent;transition:all .15s ease}
 .tab svg{width:16px;height:16px}
-.tab:hover{color:#3f4133}
-.tab.active{background:#fff;color:#171712;box-shadow:0 1px 2px rgba(15,17,21,.06)}
+.tab:hover{color:var(--on-surf)}
+.tab.active{background:#fff;color:var(--on-surf);box-shadow:0 1px 2px rgba(15,17,21,.06)}
 
 /* Panel / tarjeta */
 .panel{background:#fff;border:1px solid var(--outline);border-radius:16px;box-shadow:0 1px 2px rgba(15,17,21,.04),0 2px 8px rgba(15,17,21,.04);overflow:hidden}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #ecece6;flex-wrap:wrap}
-.panel-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.05rem;font-weight:700;color:#171712}
+.panel-title{font-size:1.05rem;font-weight:700;color:var(--on-surf)}
 
 /* Tabla */
 .tabla{width:100%;border-collapse:collapse}
-.tabla th{text-align:left;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8a8c78;padding:11px 16px;border-bottom:1px solid #ecece6;background:#fafaf6;white-space:nowrap}
+.tabla th{text-align:left;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--on-svar);padding:11px 16px;border-bottom:1px solid #ecece6;background:#fafaf6;white-space:nowrap}
 .tabla td{padding:12px 16px;border-bottom:1px solid #f0f0ea;vertical-align:middle}
 .tabla tr:last-child td{border-bottom:none}
 .tabla tr:hover td{background:#fcfcf9}
-.cell-user{font-weight:600;color:#171712}
-.cell-sub{font-size:.78rem;color:#8a8c78}
-.mono{font-family:'Spline Sans Mono',ui-monospace,monospace;font-size:.76rem}
+.cell-user{font-weight:600;color:var(--on-surf)}
+.cell-sub{font-size:.78rem;color:var(--on-svar)}
+.mono{font-family:ui-monospace,monospace;font-size:.76rem}
 
 /* Chips estado */
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:3px 9px;border-radius:999px}
-.chip-yes{background:#e3f0d2;color:#3f5e1f}
-.chip-no{background:#f0f0ea;color:#8a8c78}
-.chip-adm{background:#fff3b0;color:#5a4300}
-.chip-mods{background:#eef0e6;color:#5c5f45;font-family:'Spline Sans Mono',ui-monospace,monospace}
+.chip-yes{background:#e3f0d2;color:var(--ok)}
+.chip-no{background:#f0f0ea;color:var(--on-svar)}
+.chip-adm{background:#fff3b0;color:#8a5d00}
+.chip-mods{background:#eef0e6;color:var(--on-svar);font-family:ui-monospace,monospace}
 
 /* Toggle switch */
 .sw{position:relative;display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
 .sw input{position:absolute;opacity:0;width:0;height:0}
 .sw-track{width:38px;height:22px;border-radius:999px;background:#d4d4cc;transition:background .15s ease;flex-shrink:0;position:relative}
 .sw-track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .15s ease}
-.sw input:checked + .sw-track{background:#65684C}
+.sw input:checked + .sw-track{background:#405936}
 .sw input:checked + .sw-track::after{transform:translateX(16px)}
 .sw input:disabled + .sw-track{opacity:.45;cursor:not-allowed}
-.sw-label{font-size:.8rem;font-weight:600;color:#3f4133}
+.sw-label{font-size:.8rem;font-weight:600;color:var(--on-surf)}
 .sw:has(input:disabled){cursor:not-allowed}
 
 /* Banner de mensajes */
 .banner{display:none;align-items:flex-start;gap:10px;padding:12px 16px;border-radius:11px;font-size:.85rem;font-weight:500;margin-bottom:16px;border:1px solid transparent}
 .banner.show{display:flex}
 .banner svg{width:18px;height:18px;flex-shrink:0;margin-top:1px}
-.banner-err{background:#fdeee9;color:#8c2f1a;border-color:#f1c9bd}
-.banner-ok{background:#eaf3dc;color:#3f5e1f;border-color:#cfe4ad}
+.banner-err{background:#fdeee9;color:var(--err);border-color:#f1c9bd}
+.banner-ok{background:#eaf3dc;color:var(--ok);border-color:#cfe4ad}
 
 /* Modal */
 .overlay{position:fixed;inset:0;background:rgba(23,23,18,.5);backdrop-filter:blur(2px);display:none;align-items:flex-start;justify-content:center;padding:32px 16px;z-index:50;overflow-y:auto}
 .overlay.show{display:flex}
 .modal{background:#fff;border-radius:18px;width:100%;max-width:560px;box-shadow:0 20px 60px rgba(15,17,21,.28);animation:fadeUp .25s cubic-bezier(.2,.7,.2,1) both}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #ecece6}
-.modal-title{font-family:'Bricolage Grotesque','Public Sans',sans-serif;font-size:1.15rem;font-weight:700;color:#171712}
+.modal-title{font-size:1.15rem;font-weight:700;color:var(--on-surf)}
 .modal-body{padding:20px 22px;display:flex;flex-direction:column;gap:16px}
 .modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid #ecece6;background:#fafaf6;border-radius:0 0 18px 18px}
-.icon-btn{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;color:#8a8c78;transition:background .15s ease,color .15s ease}
-.icon-btn:hover{background:#f0f0ea;color:#3f4133}
+.icon-btn{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;color:var(--on-svar);transition:background .15s ease,color .15s ease}
+.icon-btn:hover{background:#f0f0ea;color:var(--on-surf)}
 .icon-btn svg{width:18px;height:18px}
 
 /* Formulario */
 .field{display:flex;flex-direction:column;gap:6px}
-.field label{font-size:.78rem;font-weight:700;color:#3f4133}
-.field input[type=text],.field input[type=password]{width:100%;padding:9px 12px;border:1px solid var(--outline);border-radius:10px;font-size:.88rem;font-family:inherit;color:#171712;background:#fff;transition:border-color .15s ease,box-shadow .15s ease}
+.field label{font-size:.78rem;font-weight:700;color:var(--on-surf)}
+.field input[type=text],.field input[type=password]{width:100%;padding:9px 12px;border:1px solid var(--outline);border-radius:10px;font-size:.88rem;font-family:inherit;color:var(--on-surf);background:#fff;transition:border-color .15s ease,box-shadow .15s ease}
 .field input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(255,204,0,.25)}
-.field .hint{font-size:.72rem;color:#8a8c78}
+.field .hint{font-size:.72rem;color:var(--on-svar)}
 .chk-row{display:flex;gap:20px;flex-wrap:wrap}
-.chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;font-weight:600;color:#3f4133}
-.chk input{width:17px;height:17px;accent-color:#65684C;cursor:pointer}
+.chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;font-weight:600;color:var(--on-surf)}
+.chk input{width:17px;height:17px;accent-color:#405936;cursor:pointer}
 .mods-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 14px}
 .mods-grid.disabled{opacity:.5;pointer-events:none}
-.mod-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.82rem;color:#3f4133;padding:4px 0}
-.mod-chk input{width:16px;height:16px;accent-color:#65684C;cursor:pointer}
+.mod-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.82rem;color:var(--on-surf);padding:4px 0}
+.mod-chk input{width:16px;height:16px;accent-color:#405936;cursor:pointer}
 
-.empty{padding:36px 20px;text-align:center;color:#8a8c78;font-size:.88rem}
-.spin{display:inline-block;width:16px;height:16px;border:2px solid #d4d4cc;border-top-color:#65684C;border-radius:50%;animation:rot .7s linear infinite;vertical-align:-3px}
+.empty{padding:36px 20px;text-align:center;color:var(--on-svar);font-size:.88rem}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid #d4d4cc;border-top-color:#405936;border-radius:50%;animation:rot .7s linear infinite;vertical-align:-3px}
 @keyframes rot{to{transform:rotate(360deg)}}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (max-width:640px){
-  .app-bar{padding:0 14px;gap:10px}
   .app-bar-actions .bar-link span{display:none}
   .tabla th:nth-child(2),.tabla td:nth-child(2){display:none}
 }
 </style>
 </head>
-<body>
+<body class="font-body text-ink">
 
-<header class="app-bar">
-  <svg class="app-bar-logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
-    <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
-    <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
-    <text x="16" y="23" font-family="'Bricolage Grotesque','Barlow Condensed',Arial,sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
-  </svg>
-  <div>
-    <div class="app-bar-title">Centro de control</div>
-    <div class="app-bar-sub">Administración del subsistema</div>
-  </div>
-  <div class="ml-auto flex items-center gap-2 app-bar-actions">
-    <a class="bar-link" href="/" aria-label="Volver al inicio">
-      <i data-lucide="arrow-left"></i><span>Volver al inicio</span>
-    </a>
-    <button class="bar-link" id="btn-logout" type="button" aria-label="Cerrar sesión">
-      <i data-lucide="log-out"></i><span>Cerrar sesión</span>
-    </button>
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-5xl mx-auto px-5 sm:px-8 py-3 flex items-center gap-3 flex-wrap">
+    <svg class="w-8 h-8 flex-shrink-0" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
+      <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
+      <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
+      <text x="16" y="23" font-family="system-ui" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
+    </svg>
+    <div>
+      <div class="font-disp text-base font-bold leading-tight text-white">Centro de control</div>
+      <span class="text-xs">Administración del subsistema</span>
+    </div>
+    <div class="ml-auto flex items-center gap-2 app-bar-actions">
+      <a class="bar-link" href="/" aria-label="Volver al inicio">
+        <i data-lucide="arrow-left"></i><span>Volver al inicio</span>
+      </a>
+      <button class="bar-link" id="btn-logout" type="button" aria-label="Cerrar sesión">
+        <i data-lucide="log-out"></i><span>Cerrar sesión</span>
+      </button>
+    </div>
   </div>
 </header>
 
@@ -195,8 +157,8 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
 
   <div class="fade-up mb-6 flex items-end justify-between gap-4 flex-wrap">
     <div>
-      <h1 class="font-display text-2xl sm:text-3xl font-extrabold text-[#171712] tracking-tight">Panel de administración</h1>
-      <p class="mt-1.5 text-[#5b5e4d] text-sm max-w-2xl">Gestioná usuarios, sus permisos por módulo y la disponibilidad de cada módulo del sistema.</p>
+      <h1 class="font-disp text-2xl sm:text-3xl font-extrabold text-ink tracking-tight">Panel de administración</h1>
+      <p class="mt-1.5 text-gris text-sm max-w-2xl">Gestioná usuarios, sus permisos por módulo y la disponibilidad de cada módulo del sistema.</p>
     </div>
     <div class="tabs" role="tablist" aria-label="Secciones">
       <button class="tab active" id="tab-usuarios" role="tab" aria-selected="true" type="button">
@@ -266,13 +228,13 @@ body{font-family:'Public Sans',system-ui,sans-serif;background:var(--bg);color:v
           </tbody>
         </table>
       </div>
-      <p class="text-xs text-[#8a8c78] px-5 py-3 border-t border-[#ecece6]">
+      <p class="text-xs text-gris px-5 py-3 border-t border-[#ecece6]">
         El módulo <span class="mono">admin</span> es de sólo administradores y no puede modificarse.
       </p>
     </div>
   </section>
 
-  <footer class="mt-12 pt-6 border-t border-[#e6e6df] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-[#8a8c78]">
+  <footer class="mt-12 pt-6 border-t border-[#e6e6df] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-gris">
     <span>Apidelta · Subsistema local · Centro de control</span>
     <span class="font-mono">v1.0</span>
   </footer>

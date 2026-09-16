@@ -214,6 +214,16 @@ test('un ticket con prefijo 21 cobra 1 unidad y guarda el peso de dato', () => {
   assert.equal(r.unidad, undefined);
 });
 
+test('un PLU marcado como precio fijo cobra 1 unidad aunque el ticket sea prefijo 20', () => {
+  const r = P.resolverEscaneo('2020000001409', IDX, { pluPrecioFijo: new Set(['20000']) });
+  assert.equal(r.tipo, 'ok');
+  assert.equal(r.origen, 'balanza-fijo');
+  assert.equal(r.producto.plu, '20000');
+  assert.equal(r.cant, 1);               // ignora el peso de la etiqueta
+  assert.equal(r.precio, 1000);          // precio del catálogo, sin multiplicar
+  assert.equal(r.peso, undefined);       // ni siquiera queda como dato: no hay cuadro que mostrar
+});
+
 test('un EAN propio que arranca con 20 gana sobre la lectura como ticket', () => {
   // El 91366 tiene "2023150254435" cargado como su código: interpretarlo como balanza
   // daría "PLU 23150, 25,443 kg". La coincidencia exacta tiene que ir primero.

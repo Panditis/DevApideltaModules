@@ -5,21 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Distribución · Apidelta</title>
 <link rel="icon" href="/favicon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
   :root{
-    /* Paleta Apidelta (verde + amarillo) — consistente con planificación */
+    /* Paleta Apidelta (verde + amarillo) — valores repuntados al theme compartido
+       (apidelta-theme.js). Lo que no tiene token 1:1 (contenedores, faint, line,
+       grn-*, info azul) queda con su hex propio. */
     --verde:#405936; --verde-dark:#2e4027; --verde-hover:#4f6e42;
     --verde-cont:#cfe0c2; --verde-on-cont:#0c1f06;
     --amarillo:#FFCC00; --amarillo-on:#3a2f00; --amarillo-cont:#fff1bf;
-    --bg:#eef2e9; --card:#ffffff;
+    --bg:#eef1ea; --card:#ffffff;
     --surface1:#f1f5ec; --surface2:#eaf0e4; --surface3:#e3ebdb;
-    --text:#1a1c18; --muted:#434840; --faint:#73796d; --border:#c3c9bc; --line:#dfe5d8;
+    --text:#242423; --muted:#5c5f52; --faint:#73796d; --border:rgba(26,28,24,.16); --line:#dfe5d8;
     --grn-bg:#e8f3df; --grn-text:#1f5117;
-    --error:#ba1a1a; --info:#1e40af;
-    --disp:'Barlow Condensed',sans-serif; --body:'Roboto',sans-serif;
+    --error:#a4262c; --info:#1e40af;
+    --disp:'system-ui','Segoe UI',sans-serif; --body:'system-ui','Segoe UI',sans-serif;
     --shadow:0 1px 3px rgba(46,64,39,.12),0 1px 2px rgba(46,64,39,.08);
     --shadow-lg:0 6px 18px rgba(46,64,39,.16);
   }
@@ -30,7 +32,11 @@
 
   /* ── Header (verde marca) ── */
   header{background:var(--verde);color:#fff;padding:0 22px;box-shadow:var(--shadow-lg);position:relative;z-index:30}
-  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0 0}
+  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0 10px;position:relative}
+  /* Filo amarillo: la firma del sistema en cada navbar verde (igual que planificacion.html/productividad.html).
+     Divide la marca (.top) de las tabs, no el header entero del body. */
+  .top::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--amarillo) 28%,var(--amarillo) 72%,transparent);opacity:.85}
   .brand{display:flex;align-items:baseline;gap:11px}
   .brand .mark{font-family:var(--disp);font-weight:700;font-size:24px;letter-spacing:.3px;line-height:1}
   .brand .mark b{color:var(--amarillo)}
@@ -38,18 +44,22 @@
   .top .sp{flex:1}
 
   /* ── Tabs (sobre el verde, indicador amarillo) ── */
-  .tabs{display:flex;gap:4px;margin-top:10px;padding:0 4px;position:relative;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+  .tabs{display:flex;gap:4px;margin-top:2px;padding:0 4px;position:relative;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
   .tabs::-webkit-scrollbar{height:5px}
   .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:3px}
-  .tab{font-family:var(--disp);font-weight:700;font-size:15px;letter-spacing:.4px;color:rgba(255,255,255,.78);
-    background:rgba(255,255,255,.08);border:0;padding:9px 18px 12px;cursor:pointer;position:relative;display:flex;align-items:center;gap:9px;transition:background .15s,color .15s;text-transform:uppercase;border-radius:8px 8px 0 0;flex:0 0 auto}
-  .tab:hover{background:rgba(255,255,255,.18);color:#fff}
-  .tab.on{background:var(--amarillo);color:var(--amarillo-on)}
+  /* Mismo lenguaje de tabs que planificacion.html: transparente, subrayado amarillo que
+     crece desde el centro al activarse (::after), sin fondo sólido en el estado "on". */
+  .tab{font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:.4px;color:rgba(255,255,255,.72);
+    text-transform:none;background:none;border:0;border-bottom:0;padding:0 18px;height:48px;cursor:pointer;position:relative;overflow:hidden;display:flex;align-items:center;gap:9px;transition:color .15s;border-radius:8px 8px 0 0;flex:0 0 auto}
+  .tab:hover{background:none;color:#fff}
+  .tab::after{content:'';position:absolute;left:50%;right:50%;bottom:0;height:3px;background:var(--amarillo);border-radius:3px 3px 0 0;transition:left .2s,right .2s}
+  .tab.on{background:none;border-color:transparent;border-bottom-color:transparent;color:var(--amarillo)}
+  .tab.on::after{left:10px;right:10px}
   .tab .pill{font-family:var(--body);font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:rgba(255,255,255,.25);color:rgba(255,255,255,.9)}
-  .tab.on .pill{background:rgba(58,47,0,.18);color:var(--amarillo-on)}
+  .tab.on .pill{background:rgba(255,204,0,.18);color:var(--amarillo)}
   #ink{display:none}
   .tab-cfg-toggle{font-family:var(--disp);font-weight:700;font-size:16px;color:rgba(255,255,255,.55);background:none;border:0;padding:9px 12px 12px;cursor:pointer;margin-left:auto;border-radius:8px 8px 0 0;transition:background .15s,color .15s}
-  .tab-cfg-toggle:hover{background:rgba(255,255,255,.15);color:#fff}
+  .tab-cfg-toggle:hover{background:none;color:#fff}
   .tab-cfg-toggle.cfg-visible{color:var(--amarillo)}
   .cfg-tab{display:none}
   .tab-cfg-toggle.alerta{position:relative}
@@ -74,7 +84,6 @@
   .tipo-toast.min .tipo-toast-n{display:inline}
   .tipo-sin td{background:rgba(245,158,11,.10)!important}
   .tipo-sin td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
-  .pr-plu-envio{background:#d97706;color:#fff;font-weight:700;padding:2px 8px;border-radius:5px;display:inline-block}
   .cfg-tabs-on .cfg-tab{display:flex}
 
   /* ── Meta / controls ── */
@@ -88,7 +97,8 @@
   label.chk{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
   label.chk input{accent-color:var(--verde)}
   button{font-family:var(--body);background:var(--surface2);border:1px solid var(--border);color:var(--text);
-    padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s;white-space:nowrap}
+    padding:0.5rem 1rem!important;border-radius:8px;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s;white-space:nowrap;
+    display:inline-flex;align-items:center;gap:6px;line-height:1.2}
   button:hover{background:var(--surface3);border-color:var(--faint)}
   button.primary{background:var(--verde);color:#fff;border:0;font-weight:500;box-shadow:var(--shadow)}
   button.primary:hover{background:var(--verde-hover)}
@@ -135,6 +145,12 @@
   .impbar{display:inline-block;height:7px;border-radius:2px;background:var(--amarillo);vertical-align:middle;margin-right:6px}
   tbody tr{animation:rise .35s both}
   @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ── Prioritarios: separador entre bloques de sucursal y entre filas ── */
+  #tabla-pr thead tr:first-child th.suc,
+  #tabla-pr thead tr:nth-child(2) th:nth-child(odd){border-left:2px solid var(--verde-dark)}
+  #tabla-pr tbody td:nth-child(2n+5):nth-child(-n+17){border-left:2px solid var(--border)}
+  #tabla-pr tbody td{border-bottom:2px solid var(--border)}
 
   /* ── States ── */
   .state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--muted);padding:40px;text-align:center}
@@ -462,7 +478,7 @@
     header{padding:0 12px}
     .brand .mark{font-size:20px}
     .brand .sub{display:none}
-    .tab{font-size:13px;padding:8px 12px 10px}
+    .tab{font-size:13px;height:40px;padding:0 12px}
     .meta{padding:8px 12px;gap:6px}
     input[type=search]{flex:1 1 140px;width:auto}
     .meta .div{display:none}
@@ -516,7 +532,7 @@
   <div class="meta" id="meta">
     <div class="controls">
       <input type="search" id="q" placeholder="Buscar PLU o producto…">
-      <label class="chk"><input type="checkbox" id="soloEnvio" checked> Solo con envío</label>
+      <label class="chk" id="soloEnvioWrap"><input type="checkbox" id="soloEnvio" checked> Solo con envío</label>
       <label class="chk" id="soloMicroWrap" style="display:none"><input type="checkbox" id="soloMicro">Mostrar Micro Envios</label>
       <select id="fEnvasar" style="display:none">
         <option value="">Envasar: Todos</option>
@@ -544,11 +560,16 @@
       <button id="pdfA" style="display:none">📄 PDF</button>
       <button id="pdfP" style="display:none">📄 PDF</button>
       <button id="pdfEnv" style="display:none">📄 PDF</button>
+      <button class="primary" id="btn-generar-pr" style="display:none" onclick="generarPrioritarios()">↻ Generar Top 40</button>
+      <div id="sucFiltrosPr" style="display:none;position:relative">
+        <button class="rubro-btn" id="sucBtnPr" onclick="toggleSucDropdownPr()">Sucursales <span id="sucBtnPrCount"></span>▾</button>
+        <div class="rubro-drop" id="sucDropPr" style="display:none"></div>
+      </div>
       <button id="btn-actividad" style="display:none;background:var(--error);color:#fff;border-color:var(--error);font-weight:700;letter-spacing:.03em" onclick="abrirModalActividad()">+ Tarea extra</button>
       <button id="btn-overrides" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOverrides()">✏ <span id="ovr-count">0</span> overrides</button>
       <button id="btn-ocultos" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOcultos()">👁 <span id="oc-count">0</span> ocultos</button>
       <button class="primary" id="reload">↻ Recalcular</button>
-      <button onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
+      <button id="btn-a8020" onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
       <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
         <span style="font-size:11px;color:var(--muted)">Modo:</span>
         <button class="suc-tog on" data-modo="sala" onclick="setPesablesModo('sala')" title="Habilita el modal de carga de producción">🏭 Sala</button>
@@ -600,12 +621,9 @@
 
     <!-- PRIORITARIOS -->
     <section class="panel" id="panel-prioritarios">
-      <div style="padding:12px 14px 0">
-        <button class="primary" onclick="generarPrioritarios()">↻ Generar Top 40</button>
-      </div>
       <div class="state" id="state-pr"><div class="spinner"></div><div>Cargando prioritarios…</div></div>
       <table id="tabla-pr" style="display:none">
-        <thead><tr id="head-pr"></tr></thead>
+        <thead></thead>
         <tbody id="body-pr"></tbody>
       </table>
     </section>
@@ -923,10 +941,12 @@ let sucDesplegadoA = false;
 function renderSucDropA() {
   document.getElementById('sucDropA').innerHTML =
     `<div class="rubro-opt-clear" onclick="todasSucA()">Mostrar todas</div>` +
+    `<div class="rubro-opt-clear" onclick="ningunaSucA()">Quitar todas</div>` +
     SUC_A.map(([k, n]) => `<label class="rubro-opt"><input type="checkbox" ${sucVis.has(k) ? 'checked' : ''} onchange="toggleSucA('${k}',this.checked)"><span>${n}</span></label>`).join('');
 }
 function toggleSucA(k, on) { on ? sucVis.add(k) : sucVis.delete(k); actualizarSucBtnA(); construirHead(); render(); }
 function todasSucA() { SUC_A.forEach(([k]) => sucVis.add(k)); renderSucDropA(); actualizarSucBtnA(); construirHead(); render(); }
+function ningunaSucA() { sucVis.clear(); renderSucDropA(); actualizarSucBtnA(); construirHead(); render(); }
 function actualizarSucBtnA() {
   const oculto = SUC_A.length - sucVis.size;
   document.getElementById('sucBtnACount').textContent = oculto ? `(${sucVis.size}/${SUC_A.length}) ` : '';
@@ -1033,7 +1053,7 @@ function actualizarBadgeOcultos(){
   const total = ocultosA.size + ocultosP.size;
   const btn = document.getElementById('btn-ocultos');
   document.getElementById('oc-count').textContent = total;
-  btn.style.display = total > 0 ? '' : 'none';
+  btn.style.display = (total > 0 && tabActual !== 'prioritarios') ? '' : 'none';
 }
 function nombreDeOculto(plu, tipo){
   const r = (tipo === 'almacen' ? datos : datosP).find(x => String(x.plu) === String(plu));
@@ -1122,6 +1142,8 @@ let datosP = [], ordenP = { col: 'prioridad', dir: -1 }, pCargado = false;
 const RT_CLASE = { 'Envasado':'rt-Envasado','Fraccionado':'rt-Fraccionado','Fraccionado Revisar':'rt-FraccionadoRevisar','Solo Preparacion':'rt-SoloPreparacion' };
 const sumEnvP = (r) => SUC_P.reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
 const sumEnvVisP = (r) => SUC_P.filter(([k]) => sucVisP.has(k)).reduce((s, [k]) => s + (esNum(r.enviar[k]) ? r.enviar[k] : 0), 0);
+// Alguna sucursal visible pide envío (>0) o está en Fact — usado para no ocultar filas sin envío numérico pero con Fact.
+const algunaSucPideP = (r) => SUC_P.filter(([k]) => sucVisP.has(k)).some(([k]) => { const v = r.enviar[k]; return (esNum(v) && v > 0) || v === 'Fact'; });
 
 // Filtro múltiple de columnas por sucursal (Pesables) — dropdown
 let sucVisP = new Set(SUC_P.map(([k]) => k));
@@ -1129,10 +1151,12 @@ let sucDesplegadoP = false;
 function renderSucDropP() {
   document.getElementById('sucDropP').innerHTML =
     `<div class="rubro-opt-clear" onclick="todasSucP()">Mostrar todas</div>` +
+    `<div class="rubro-opt-clear" onclick="ningunaSucP()">Quitar todas</div>` +
     SUC_P.map(([k, n]) => `<label class="rubro-opt"><input type="checkbox" ${sucVisP.has(k) ? 'checked' : ''} onchange="toggleSucP('${k}',this.checked)"><span>${n}</span></label>`).join('');
 }
 function toggleSucP(k, on) { on ? sucVisP.add(k) : sucVisP.delete(k); actualizarSucBtnP(); construirHeadP(); renderP(); }
 function todasSucP() { SUC_P.forEach(([k]) => sucVisP.add(k)); renderSucDropP(); actualizarSucBtnP(); construirHeadP(); renderP(); }
+function ningunaSucP() { sucVisP.clear(); renderSucDropP(); actualizarSucBtnP(); construirHeadP(); renderP(); }
 function actualizarSucBtnP() {
   const oculto = SUC_P.length - sucVisP.size;
   document.getElementById('sucBtnPCount').textContent = oculto ? `(${sucVisP.size}/${SUC_P.length}) ` : '';
@@ -1277,6 +1301,61 @@ function origenBadgePr(origen) {
   const o = ORIGEN_PR[origen] || ORIGEN_PR.null;
   return `<span style="background:${o.bg};color:${o.color};font-weight:700;padding:2px 8px;border-radius:5px;${o.border}font-size:11px;white-space:nowrap">${o.label}</span>`;
 }
+// Filtro de columnas por sucursal (Prioritarios) — dropdown. SUC_A/SUC_P están alineados por índice
+// (mismos 7 nombres, mismo orden), así que el filtro guarda índices en vez de claves.
+let sucVisPr = new Set(SUC_A.map((_, i) => i));
+let sucDesplegadoPr = false;
+let listaPrActual = [];
+function renderSucDropPr() {
+  document.getElementById('sucDropPr').innerHTML =
+    `<div class="rubro-opt-clear" onclick="todasSucPr()">Mostrar todas</div>` +
+    `<div class="rubro-opt-clear" onclick="ningunaSucPr()">Quitar todas</div>` +
+    SUC_A.map(([, n], i) => `<label class="rubro-opt"><input type="checkbox" ${sucVisPr.has(i) ? 'checked' : ''} onchange="toggleSucPr(${i},this.checked)"><span>${n}</span></label>`).join('');
+}
+function toggleSucPr(i, on) { on ? sucVisPr.add(i) : sucVisPr.delete(i); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
+function todasSucPr() { SUC_A.forEach((_, i) => sucVisPr.add(i)); renderSucDropPr(); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
+function ningunaSucPr() { sucVisPr.clear(); renderSucDropPr(); actualizarSucBtnPr(); renderPrioritarios(listaPrActual); }
+function actualizarSucBtnPr() {
+  const oculto = SUC_A.length - sucVisPr.size;
+  document.getElementById('sucBtnPrCount').textContent = oculto ? `(${sucVisPr.size}/${SUC_A.length}) ` : '';
+  document.getElementById('sucBtnPr').classList.toggle('active', oculto > 0);
+}
+function toggleSucDropdownPr() {
+  sucDesplegadoPr = !sucDesplegadoPr;
+  document.getElementById('sucDropPr').style.display = sucDesplegadoPr ? '' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('sucFiltrosPr').contains(e.target)) {
+    sucDesplegadoPr = false;
+    document.getElementById('sucDropPr').style.display = 'none';
+  }
+});
+// Orden por header (Prioritarios). Columnas de sucursal usan clave 's<índice>'.
+let ordenPr = { col: 'posicion', dir: 1 };
+function valorPr(p, col) {
+  if (col === 'posicion') return p.posicion ?? 0;
+  if (col === 'plu') return p.idProd ?? 0;
+  if (col === 'nombre') return (p.nombre || (p.fila && p.fila.nombre) || '').toLowerCase();
+  if (col === 'origen') return p.origen || '';
+  if (col === 'deposito') {
+    if (p.origen === 'almacen') return esNum(p.fila.central) ? p.fila.central : 0;
+    if (p.origen === 'pesable') return esNum(p.fila.H) ? p.fila.H : 0;
+    return 0;
+  }
+  if (col === 'total') {
+    if (p.origen === 'almacen') return totalEnviar(p.fila);
+    if (p.origen === 'pesable') return sumEnvP(p.fila);
+    return 0;
+  }
+  const m = /^s(\d)$/.exec(col);
+  if (m) {
+    const idx = Number(m[1]);
+    if (p.origen === 'almacen') { const k = SUC_A[idx][0]; return esNum(p.fila.enviar[k]) ? p.fila.enviar[k] : 0; }
+    if (p.origen === 'pesable') { const k = SUC_P[idx][0]; return esNum(p.fila.enviar[k]) ? p.fila.enviar[k] : 0; }
+    return 0;
+  }
+  return 0;
+}
 // Réplica liviana del resaltado de celdas "enviar" de render()/renderP() (Fact/Restringido/positivo/·).
 function celdaEnviarPr(v, fmtFn) {
   if (v === 'Fact') return '<span style="background:#fff3cd;color:#6b4c00;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;display:inline-block;letter-spacing:.04em">Fact</span>';
@@ -1286,38 +1365,72 @@ function celdaEnviarPr(v, fmtFn) {
     ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtFn(n)}</span>`
     : '<span>·</span>';
 }
+// Celda de stock por sucursal: rojo si es 0, naranja si es <10% de S (nivel ideal). Sin dato real (undefined) → '·' sin color.
+function celdaStockPr(stkRaw, sRaw, fmtFn) {
+  const tieneStk = esNum(stkRaw);
+  const stk = tieneStk ? stkRaw : 0;
+  const S = esNum(sRaw) ? sRaw : 0;
+  let style = '';
+  if (tieneStk && stk === 0) style = 'background:rgba(192,57,43,.15);color:#c0392b';
+  else if (tieneStk && stk > 0 && S > 0 && stk < 0.10 * S) style = 'background:rgba(245,158,11,.18);color:#92400e';
+  return `<td class="env stk"${style ? ` style="${style}"` : ''}>${stk ? fmtFn(stk) : '·'}</td>`;
+}
 function renderPrioritarios(lista) {
-  document.getElementById('head-pr').innerHTML =
-    ['Pos.', 'PLU', 'Producto', 'Origen', ...SUC_A.map(s => s[1]), 'A enviar', 'Prioridad'].map(n => `<th>${n}</th>`).join('');
+  listaPrActual = lista;
+  renderSucDropPr(); actualizarSucBtnPr();
+  const sucIdx = SUC_A.map((_, i) => i).filter(i => sucVisPr.has(i));
+  const arOf = k => ordenPr.col === k ? `<span class="ar">${ordenPr.dir < 0 ? '▼' : '▲'}</span>` : '';
+  const fijos = [['posicion', 'Pos.'], ['plu', 'PLU'], ['nombre', 'Producto'], ['origen', 'Origen'], ['deposito', 'Depósito']];
+  const fila1 = fijos.map(([k, n]) => `<th data-col="${k}" rowspan="2">${n} ${arOf(k)}</th>`).join('')
+    + sucIdx.map(i => `<th class="suc" data-col="s${i}" colspan="2">${SUC_A[i][1]} ${arOf('s' + i)}</th>`).join('')
+    + `<th data-col="total" rowspan="2">A enviar ${arOf('total')}</th>`;
+  const fila2 = sucIdx.map(() => `<th class="suc subh">Stock</th><th class="suc subh">Enviar</th>`).join('');
+  document.querySelector('#tabla-pr thead').innerHTML = `<tr>${fila1}</tr><tr>${fila2}</tr>`;
+  document.querySelectorAll('#tabla-pr thead th[data-col]').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (ordenPr.col === c) ordenPr.dir *= -1; else { ordenPr.col = c; ordenPr.dir = (c === 'plu' || c === 'nombre' || c === 'origen') ? 1 : -1; }
+    renderPrioritarios(listaPrActual);
+  });
   if (!lista.length) {
-    document.getElementById('body-pr').innerHTML = '<tr><td colspan="13" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>';
+    document.getElementById('body-pr').innerHTML = `<tr><td colspan="${fijos.length + sucIdx.length * 2 + 1}" class="vacio">No hay datos. Generá el Top 40 primero.</td></tr>`;
     return;
   }
-  document.getElementById('body-pr').innerHTML = lista.map(p => {
+  const listaOrd = [...lista].sort((a, b) => {
+    const va = valorPr(a, ordenPr.col), vb = valorPr(b, ordenPr.col);
+    if (va < vb) return -1 * ordenPr.dir;
+    if (va > vb) return 1 * ordenPr.dir;
+    return 0;
+  });
+  document.getElementById('body-pr').innerHTML = listaOrd.map(p => {
     const nombre = escHtml(p.nombre || (p.fila && p.fila.nombre) || '');
-    let totalTxt = '·', prioTxt = '·';
-    let sucTds = SUC_A.map(() => '<td>·</td>').join('');
-    let conEnvio = false;
+    let totalTxt = '·', prioTxt = '·', depositoTxt = '·';
+    let sucTds = sucIdx.map(() => '<td>·</td><td>·</td>').join('');
     if (p.origen === 'almacen') {
+      depositoTxt = esNum(p.fila.central) ? fmtA(p.fila.central) : '·';
       totalTxt = fmtA(totalEnviar(p.fila)); prioTxt = (p.fila.impNorm ?? 0).toFixed(3);
-      conEnvio = SUC_A.some(([k]) => esMicro(p.fila, k) || (esNum(p.fila.enviar[k]) && p.fila.enviar[k] > 0));
-      sucTds = SUC_A.map(([k]) => {
-        if (esMicro(p.fila, k)) { const mi = microInfo(p.fila, k); return `<td><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
-        return `<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
+      sucTds = sucIdx.map(i => {
+        const [k] = SUC_A[i];
+        const stkTd = celdaStockPr((p.fila.stkSuc || {})[k], (p.fila.sSuc || {})[k], fmtA);
+        if (esMicro(p.fila, k)) { const mi = microInfo(p.fila, k); return `${stkTd}<td><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
+        return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmtA)}</td>`;
       }).join('');
     } else if (p.origen === 'pesable') {
+      depositoTxt = esNum(p.fila.H) ? fmt(p.fila.H) : '·';
       totalTxt = fmt(sumEnvP(p.fila)); prioTxt = prioOf(p.fila).toFixed(3);
-      conEnvio = SUC_P.some(([k]) => esNum(p.fila.enviar[k]) && p.fila.enviar[k] > 0);
-      sucTds = SUC_P.map(([k]) => `<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`).join('');
+      sucTds = sucIdx.map(i => {
+        const [k] = SUC_P[i];
+        const stkTd = celdaStockPr((p.fila.stkSuc || {})[k], (p.fila.sLev || {})[k], fmt);
+        return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`;
+      }).join('');
     }
     return `<tr>
-      <td>${p.posicion}</td>
-      <td class="l plu">${conEnvio ? `<span class="pr-plu-envio">${p.idProd}</span>` : p.idProd}</td>
+      <td title="Prioridad: ${prioTxt}">${p.posicion}</td>
+      <td class="l plu">${p.idProd}</td>
       <td class="l nombre">${nombre}</td>
       <td>${origenBadgePr(p.origen)}</td>
+      <td>${depositoTxt}</td>
       ${sucTds}
       <td class="tot">${totalTxt}</td>
-      <td class="imp">${prioTxt}</td>
     </tr>`;
   }).join('');
 }
@@ -1363,7 +1476,7 @@ const LISTAS = {
 };
 const PILL = {noEnvasa:'pillExcluir', siempreAlmacen:'pillForzarAlmacen', siemprePesable:'pillForzarPesable', ocultarPesable:'pillOcultarPesable'};
 let listasData = null;
-const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar';
+const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar'||n==='prioritarios';
 
 function activarTab(name){
   tabActual = name;
@@ -1387,6 +1500,16 @@ function activarTab(name){
   document.getElementById('ctrl-pedidos').style.display = name==='pedidos' ? 'flex' : 'none';
   document.getElementById('ctrl-produccion').style.display = name==='produccion' ? 'flex' : 'none';
   document.getElementById('ctrl-historial').style.display = name==='historial' ? 'flex' : 'none';
+  document.getElementById('btn-generar-pr').style.display = name==='prioritarios' ? '' : 'none';
+  document.getElementById('sucFiltrosPr').style.display = name==='prioritarios' ? 'flex' : 'none';
+  // Prioritarios reusa la barra .controls pero solo necesita los 2 elementos de arriba:
+  // ocultar el resto de controles genéricos que no tienen toggle por-tab propio.
+  document.getElementById('q').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('soloEnvioWrap').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('reload').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('btn-a8020').style.display = name==='prioritarios' ? 'none' : '';
+  actualizarBadgeOcultos();
+  actualizarBadgeOverrides();
   if (name==='almacen') { cargar(); }
   else if (name==='pesables') { cargarP(); }
   else if (name==='envasar') { document.getElementById('state-env').style.display='flex'; document.getElementById('tabla-env').style.display='none'; cargarP(); }
@@ -1620,7 +1743,7 @@ function exportarPDFPesables() {
     if (filtroProd.p.has(String(r.plu))) return false;
     if (ocultosP.has(String(r.plu))) return false;   // filas ocultas a mano: fuera del PDF, igual que en la tabla
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
+    if (soloEnvio && !algunaSucPideP(r) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // oculta si ninguna sucursal pide envío ni está en Fact (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -1936,7 +2059,7 @@ function renderP() {
     const oc = ocultosP.has(String(r.plu));
     if (oc) return false;
     if (pesablesModo === 'preparacion' && !(r.H > 0) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // prep: ocultar sin stock de depósito (excepto siemprePesable)
-    if (soloEnvio && sumEnvVisP(r) <= 0 && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // Solo con envío tiene prioridad: oculta sin envío aunque deba envasarse (salvo siemprePesable)
+    if (soloEnvio && !algunaSucPideP(r) && !(listasData?.siemprePesable||[]).includes(Number(r.plu))) return false;   // oculta si ninguna sucursal pide envío ni está en Fact (salvo siemprePesable)
     if (envasarFiltro === 'Si' && r.J !== 'Si') return false;
     if (envasarFiltro === 'No' && r.J === 'Si') return false;
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
@@ -2091,12 +2214,14 @@ document.getElementById('pdfEnv').onclick = exportarPDFEnvasar;
 const TAB_REGISTRY = [
   { id:'almacen',        label:'Almacen',         def:'main', fixed:true },
   { id:'pesables',       label:'Pesables',         def:'main' },
+  { id:'prioritarios',   label:'Prioritarios',     def:'main' },
   { id:'envasar',        label:'Envasar',          def:'main' },
   { id:'pedidos',        label:'Pedidos',          def:'main' },
   { id:'produccion',     label:'Producción',       def:'main' },
   { id:'historial',      label:'Historial',        def:'main' },
   { id:'config-ruteos',  label:'Config Ruteos',    def:'cfg'  },
   { id:'excluir',        label:'No envasa',        def:'cfg'  },
+  { id:'restringidos',   label:'Restringidos',     def:'cfg'  },
   { id:'forzar-almacen', label:'Siempre Almacén',  def:'cfg'  },
   { id:'forzar-pesable', label:'Siempre Pesable',  def:'cfg'  },
   { id:'ocultar-pesable',label:'Ocultar Pesable',  def:'cfg'  },
@@ -2277,7 +2402,7 @@ async function actualizarBadgeOverrides() {
               + Object.values(d.pesable||{}).reduce((s,o)=>s+Object.keys(o).length,0);
   const btn = document.getElementById('btn-overrides');
   document.getElementById('ovr-count').textContent = total;
-  btn.style.display = total > 0 ? '' : 'none';
+  btn.style.display = (total > 0 && tabActual !== 'prioritarios') ? '' : 'none';
 }
 async function abrirModalOverrides() {
   const d = await fetch('/api/distribucion/envios-manuales').then(r=>r.json()).catch(()=>({almacen:{},pesable:{}}));

@@ -5,11 +5,11 @@
 <title>Compras · Apidelta</title>
 <link rel="icon" href="/favicon.png">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 /* ════════════════════════════════════════════════════════════════════════════
    Lenguaje visual de Ant Design 5, implementado a mano en CSS.
@@ -19,38 +19,37 @@
    Todo el chrome (color, borde, sombra, radio, alto de control) sale de .ant-*.
    ════════════════════════════════════════════════════════════════════════════ */
 :root{
-  /* Texto sobre fondo claro */
-  --colorText:rgba(0,0,0,.88);
-  --colorTextSecondary:rgba(0,0,0,.65);
+  /* Texto: repuntado a los tokens ink/gris del theme compartido. */
+  --colorText:#242423;
+  --colorTextSecondary:#5c5f52;
   --colorTextTertiary:rgba(0,0,0,.45);
   --colorTextQuaternary:rgba(0,0,0,.25);
-  /* Superficies: la página es un gris con temperatura verde y el contenido
-     flota en blanco. El neutro puro dejaba todo lavado. */
-  --colorBgLayout:#f0f3ed;
+  /* Superficies: el canvas de página (#eef1ea) lo pone body{} de apidelta-theme.css,
+     acá sólo queda el blanco de la card/tabla (token card). */
   --colorBgContainer:#ffffff;
   --colorFillMarca:#f7faf4;      /* blanco teñido: zebra, columna editable, footers */
   --colorFillSecondary:rgba(0,0,0,.06);
   --colorFillTertiary:rgba(0,0,0,.04);
-  --colorBorder:#d9d9d9;
+  --colorBorder:rgba(26,28,24,.16);
   --colorBorderSecondary:#f0f0f0;
-  /* El primario es el verde de la marca, no el azul de antd: Compras pertenece
-     al resto del sistema. La escala sí se deriva al modo antd. */
+  /* El primario es el verde de marca (token verde/verdeHover), no el azul de antd. */
   --colorPrimary:#405936;
   --colorPrimaryHover:#4f6e42;
   --colorPrimaryActive:#2e4027;
   --colorPrimaryBg:#eef2e9;
   --colorPrimaryBorder:#c3d4b8;
   --colorPrimaryHalo:rgba(64,89,54,.1);
-  /* Semánticos */
-  --colorSuccess:#52c41a; --colorSuccessBg:#f6ffed; --colorSuccessBorder:#b7eb8f; --colorSuccessText:#237804;
-  --colorWarning:#faad14; --colorWarningBg:#fffbe6; --colorWarningBorder:#ffe58f; --colorWarningText:#a15c00;
-  --colorError:#ff4d4f;   --colorErrorBg:#fff2f0;   --colorErrorBorder:#ffccc7;   --colorErrorText:#cf1322;
+  /* Semánticos: tokens ok/warn/crit del theme (texto y fondo del recetario de chips). */
+  --colorSuccess:#0e700e; --colorSuccessBg:#dff6dd; --colorSuccessBorder:#b7eb8f; --colorSuccessText:#0e700e;
+  --colorWarning:#8a5d00; --colorWarningBg:#fff4ce; --colorWarningBorder:#ffe58f; --colorWarningText:#8a5d00;
+  --colorError:#a4262c;   --colorErrorBg:#fde7e9;   --colorErrorBorder:#ffccc7;   --colorErrorText:#a4262c;
+  /* Sin token 1:1 en el theme (info/cyan/purple son categóricos, no semánticos): se dejan como estaban. */
   --colorInfo:#1677ff;    --colorInfoBg:#e6f4ff;    --colorInfoBorder:#91caff;    --colorInfoText:#0958d9;
   --colorCyan:#13c2c2;    --colorCyanBg:#e6fffb;    --colorCyanBorder:#87e8de;    --colorCyanText:#006d75;
   --colorPurple:#722ed1;  --colorPurpleBg:#f9f0ff;  --colorPurpleBorder:#d3adf7;  --colorPurpleText:#531dab;
   /* Forma y elevación */
   --borderRadiusSM:4px; --borderRadius:6px; --borderRadiusLG:8px;
-  --boxShadowTertiary:0 1px 2px 0 rgba(0,0,0,.03),0 1px 6px -1px rgba(0,0,0,.02),0 2px 4px 0 rgba(0,0,0,.02);
+  --boxShadowTertiary:0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1);
   --boxShadow:0 6px 16px 0 rgba(0,0,0,.08),0 3px 6px -4px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.05);
   /* Medida */
   --controlHeightSM:24px; --controlHeight:32px; --controlHeightLG:40px;
@@ -58,8 +57,8 @@
 }
 
 /* ── Base ─────────────────────────────────────────────────────────────────── */
-body{margin:0;background:var(--colorBgLayout);color:var(--colorText);
-  font:400 14px/1.5714 Roboto,-apple-system,'Segoe UI',Arial,sans-serif;
+body{margin:0;color:var(--colorText);
+  font:400 14px/1.5714 system-ui,-apple-system,'Segoe UI',Arial,sans-serif;
   -webkit-font-smoothing:antialiased;}
 input[type=number]{-moz-appearance:textfield;}
 input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
@@ -69,32 +68,29 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   box-shadow:0 0 0 2px var(--colorPrimaryHalo),0 0 0 3px var(--colorPrimary);
   border-radius:var(--borderRadiusSM);}
 
-/* ── Layout.Header ────────────────────────────────────────────────────────── */
-.ant-header{position:sticky;top:0;z-index:20;background:var(--colorBgContainer);
-  border-bottom:1px solid var(--colorPrimaryBorder);box-shadow:0 2px 8px rgba(46,64,39,.10);}
-/* La barra superior es la pieza de marca: verde con un degradé hacia el activo.
-   Blanco puro sobre #405936 da 7.8:1, muy por encima de AA. */
-.ant-header-top{background:linear-gradient(100deg,#4f6e42 0%,#405936 48%,#2e4027 100%);}
-.ant-header-inner{max-width:1440px;margin:0 auto;padding:0 24px;}
-.ant-header-bar{display:flex;align-items:center;gap:12px;height:56px;}
-.ant-logo{margin:0;font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:.04em;color:#fff;}
-.ant-logo-sub{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.75);
+/* ── Header: navbar verde/amarillo compartido (header.acrylic en apidelta-theme.css
+   pone fondo, blur y el color de h1/span/a/button automático dentro del header). ── */
+.ant-logo{margin:0;font:700 24px/1 system-ui,sans-serif;letter-spacing:.04em;}
+.ant-logo-sub{font-size:12px;letter-spacing:.16em;text-transform:uppercase;
   padding-left:12px;border-left:1px solid rgba(255,255,255,.32);line-height:1;}
-.ant-header-top .ant-btn-text{color:rgba(255,255,255,.88);}
-.ant-header-top .ant-btn-text:hover{background:rgba(255,255,255,.16);color:#fff;}
 
-/* ── Tabs ─────────────────────────────────────────────────────────────────── */
-.ant-tabs-nav{display:flex;gap:4px;padding-top:8px;border-bottom:1px solid var(--colorPrimaryBorder);margin-bottom:-1px;}
-.tab-btn{position:relative;background:transparent;border:0;padding:10px 18px;cursor:pointer;
-  border-radius:var(--borderRadius) var(--borderRadius) 0 0;
-  font:600 18px/1.2 'Barlow Condensed',sans-serif;letter-spacing:.03em;
-  color:var(--colorTextSecondary);transition:color var(--motion),background var(--motion);}
-.tab-btn:hover{color:var(--colorPrimary);background:var(--colorFillMarca);}
-.tab-btn.active{color:var(--colorPrimary);background:var(--colorPrimaryBg);}
-.tab-btn::after{content:'';position:absolute;left:8px;right:8px;bottom:0;height:3px;
-  border-radius:2px 2px 0 0;background:var(--colorPrimary);
-  transform:scaleX(0);transform-origin:center;transition:transform var(--motion);}
-.tab-btn.active::after{transform:scaleX(1);}
+/* ── Tabs: mismo lenguaje que distribucion.html/planificacion.html — dentro del
+   navbar verde, transparente, subrayado amarillo que crece desde el centro
+   (.navtab/.filo-amarillo del theme compartido, versión local con nombres tab-btn/active
+   porque el resto del módulo y su JS ya dependen de esos nombres). ── */
+.ant-tabs-nav{display:flex;gap:4px;padding:0 4px;margin-top:2px;position:relative;
+  overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch;}
+.ant-tabs-nav::-webkit-scrollbar{height:5px;}
+.ant-tabs-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:3px;}
+.tab-btn{position:relative;background:none;border:0;padding:0 18px;height:48px;cursor:pointer;
+  overflow:hidden;display:flex;align-items:center;gap:9px;
+  font:600 15px/1 system-ui,sans-serif;letter-spacing:.4px;
+  color:rgba(255,255,255,.72);border-radius:8px 8px 0 0;transition:color .15s;}
+header.acrylic .tab-btn:hover{background:none;color:#fff;}
+.tab-btn::after{content:'';position:absolute;left:50%;right:50%;bottom:0;height:3px;
+  background:#FFCC00;border-radius:3px 3px 0 0;transition:left .2s,right .2s;}
+.tab-btn.active{background:none;color:#FFCC00;}
+.tab-btn.active::after{left:10px;right:10px;}
 
 /* ── Card ─────────────────────────────────────────────────────────────────── */
 .ant-card{background:var(--colorBgContainer);border:1px solid #e2e8dc;
@@ -185,7 +181,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 
 /* ── Button ───────────────────────────────────────────────────────────────── */
 .ant-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  height:var(--controlHeight);padding:0 15px;font:400 14px/1 Roboto,sans-serif;
+  height:var(--controlHeight);padding:0 15px;font:400 14px/1 system-ui,sans-serif;
   border:1px solid var(--colorBorder);border-radius:var(--borderRadius);
   background:var(--colorBgContainer);color:var(--colorText);cursor:pointer;white-space:nowrap;
   box-shadow:0 2px 0 rgba(46,64,39,.06);transition:color var(--motion),border-color var(--motion),background var(--motion);}
@@ -213,7 +209,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 
 /* ── Input / Select / Textarea ────────────────────────────────────────────── */
 .ant-input,.ant-select,.ant-textarea{width:100%;height:var(--controlHeight);padding:4px 11px;
-  font:400 14px/1.5714 Roboto,sans-serif;color:var(--colorText);background:var(--colorBgContainer);
+  font:400 14px/1.5714 system-ui,sans-serif;color:var(--colorText);background:var(--colorBgContainer);
   border:1px solid var(--colorBorder);border-radius:var(--borderRadius);
   transition:border-color var(--motion),box-shadow var(--motion);}
 .ant-textarea{height:auto;padding:5px 11px;resize:vertical;}
@@ -256,7 +252,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 
 /* ── Statistic ────────────────────────────────────────────────────────────── */
 .ant-statistic-title{font-size:14px;color:var(--colorTextSecondary);}
-.ant-statistic-content{margin-top:4px;font:700 24px/1.2 'Barlow Condensed',sans-serif;
+.ant-statistic-content{margin-top:4px;font:700 24px/1.2 system-ui,sans-serif;
   letter-spacing:.01em;color:var(--colorText);font-variant-numeric:tabular-nums;}
 .ant-statistic-extra{margin-top:6px;font-size:12px;color:var(--colorTextSecondary);
   font-variant-numeric:tabular-nums;min-height:18px;}
@@ -351,23 +347,19 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 </style>
 </head>
 <body>
-<header class="ant-header">
-  <div class="ant-header-top">
-    <div class="ant-header-inner ant-header-bar">
-      <h1 class="ant-logo">COMPRAS</h1>
-      <span class="ant-logo-sub">Apidelta</span>
-      <button id="btnBuscarProducto" type="button" class="ant-btn ant-btn-text ml-auto">🔍 Buscar producto</button>
-      <a href="/" class="ant-btn ant-btn-text">← Inicio</a>
-    </div>
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1440px] mx-auto px-6 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="ant-logo">COMPRAS</h1>
+    <span class="ant-logo-sub">Apidelta</span>
+    <button id="btnBuscarProducto" type="button" class="ant-btn ant-btn-text ml-auto">🔍 Buscar producto</button>
+    <a href="/" class="ant-btn ant-btn-text">← Inicio</a>
   </div>
-  <div class="ant-header-inner">
-    <nav class="ant-tabs-nav" role="tablist" aria-label="Secciones de compras">
-      <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-armado" data-tab="armado">Armar pedido</button>
-      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-importar" data-tab="importar">Importar xlsx</button>
-      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
-      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
-    </nav>
-  </div>
+  <nav class="ant-tabs-nav max-w-[1440px] mx-auto px-6" role="tablist" aria-label="Secciones de compras">
+    <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-armado" data-tab="armado">Armar pedido</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-importar" data-tab="importar">Importar xlsx</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
+  </nav>
 </header>
 
 <main class="max-w-[1440px] mx-auto px-6 py-6">
@@ -675,7 +667,7 @@ const filaVacia = (cols, titulo, detalle, tono) =>
 const PAL = { verde:'#405936', verdeClaro:'#8fa982', azul:'#1677ff', cyan:'#13c2c2',
   ambar:'#faad14', rojo:'#ff4d4f', grid:'#e6ebe1', eje:'#c3d4b8', texto:'rgba(0,0,0,.55)' };
 if (window.Chart) {
-  Chart.defaults.font.family = 'Roboto, sans-serif';
+  Chart.defaults.font.family = 'system-ui, sans-serif';
   Chart.defaults.font.size = 12;
   Chart.defaults.color = PAL.texto;
   Chart.defaults.borderColor = PAL.grid;

@@ -3,72 +3,60 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diagnóstico de quiebre de stock — Apidelta</title>
 <link rel="icon" href="/favicon.png">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
-  :root{
-    --green:#405936; --green-dark:#2E4027; --green-mid:#4E6B43; --green-light:#E8F0E4;
-    --yellow:#FFCC00; --red:#b3261e; --red-soft:#fdecea;
-    --bg:#F5F5F5; --surface:#FFFFFF; --text:#1C1B1F; --muted:#6B6B6B; --border:#E6E6E6;
-    --radius:12px; --radius-sm:8px;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif}
-  header{background:var(--green);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
-  header .logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;letter-spacing:.5px}
-  header .logo b{color:var(--yellow)}
-  header a{color:#fff;text-decoration:none;opacity:.85;font-size:14px;margin-left:auto}
-  .wrap{max-width:1100px;margin:0 auto;padding:20px}
-  .controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
-  .controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
-  .controls input,.controls select{padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:14px}
-  .controls input[type=text]{width:120px}
-  .btn{background:var(--green);color:#fff;border:0;padding:10px 18px;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;font-family:inherit}
-  .btn:disabled{opacity:.6;cursor:default}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px}
-  .card h3{margin:0 0 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--green-dark)}
-  .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.5;color:var(--muted)}
+  /* Clases usadas por el HTML que arma el JS (render*). Sin token 1:1 en el
+     theme (p.ej. el crema del bloque de fórmula) quedan con su hex original. */
+  .card{background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:12px;padding:16px;margin-top:16px}
+  .card h3{margin:0 0 12px;font-weight:700;font-size:18px;color:#405936}
+  .card .desc{margin:-6px 0 12px;font-size:12px;line-height:1.5;color:#5c5f52}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:16px}
-  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
-  .kpi .lbl{font-size:12px;color:var(--muted)}
-  .kpi .val{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:26px;color:var(--green-dark);margin-top:4px}
-  .kpi.alerta .val{color:var(--red)}
+  .kpi{cursor:default}
+  .kpi .lbl{font-size:12px;color:#5c5f52}
+  .kpi .val{font-weight:800;font-size:26px;color:#405936;margin-top:4px}
+  .kpi.alerta .val{color:#a4262c}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .grid2 .card{margin-top:0}
   table{width:100%;border-collapse:collapse;font-size:14px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
-  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(26,28,24,.16)}
+  th{color:#5c5f52;font-weight:600;font-size:12px;text-transform:uppercase}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   /* Un día en quiebre se marca en toda la fila: es lo que se viene a buscar acá. */
-  tr.q>td{background:var(--red-soft)}
-  tr.q>td:first-child{box-shadow:inset 3px 0 0 var(--red)}
-  tr.dom>td{color:var(--muted);font-style:italic}
-  .pos{color:var(--green-mid);font-weight:600}
-  .neg{color:var(--red);font-weight:600}
+  tr.q>td{background:rgba(164,38,44,.08)}
+  tr.q>td:first-child{box-shadow:inset 3px 0 0 #a4262c}
+  tr.dom>td{color:#5c5f52;font-style:italic}
+  .pos{color:#0e700e;font-weight:600}
+  .neg{color:#a4262c;font-weight:600}
   .tabla-scroll{max-height:420px;overflow:auto}
-  .error{background:var(--red-soft);color:var(--red);border:1px solid #f5c6c2;padding:12px;border-radius:var(--radius-sm);margin-top:16px}
-  .aviso{background:#FFF8E1;color:#6b5200;border:1px solid #f0e0a0;padding:10px 12px;border-radius:var(--radius-sm);margin-top:12px;font-size:13px}
-  .loading{color:var(--muted);padding:20px;text-align:center}
-  .empty{color:var(--muted);padding:16px;text-align:center;font-size:14px}
-  .formula{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#FAFBF9;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;line-height:1.7}
+  .error{background:rgba(164,38,44,.08);color:#a4262c;border:1px solid rgba(164,38,44,.3);padding:12px;border-radius:8px;margin-top:16px}
+  .aviso{background:rgba(138,93,0,.08);color:#8a5d00;border:1px solid rgba(138,93,0,.3);padding:10px 12px;border-radius:8px;margin-top:12px;font-size:13px}
+  .loading{color:#5c5f52;padding:20px;text-align:center}
+  .empty{color:#5c5f52;padding:16px;text-align:center;font-size:14px}
+  .formula{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#FAFBF9;border:1px solid rgba(26,28,24,.16);border-radius:8px;padding:10px;line-height:1.7}
   @media(max-width:820px){.grid2{grid-template-columns:1fr}}
-</style></head><body>
-<header>
-  <span class="logo">API<b>DELTA</b></span>
-  <span style="font-size:14px;opacity:.9">Diagnóstico de quiebre de stock</span>
-  <a href="/analisis-ventas">← Análisis de Ventas</a>
+</style></head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-[1100px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold text-verde">DIAGNÓSTICO DE QUIEBRE</h1>
+    <span class="text-sm text-ink/60">Stock por producto y sucursal</span>
+    <a href="/analisis-ventas" class="ml-auto text-sm text-verde hover:text-verdeHover">← Análisis de Ventas</a>
+  </div>
 </header>
-<div class="wrap">
-  <div class="controls">
-    <div><label for="plu">Producto (PLU)</label><input type="text" id="plu" placeholder="3035"></div>
-    <div><label for="suc">Sucursal</label><select id="suc"></select></div>
-    <div><label for="desde">Desde</label><input type="date" id="desde"></div>
-    <div><label for="hasta">Hasta</label><input type="date" id="hasta"></div>
-    <button class="btn" id="btnVer">Ver cálculo</button>
+<main class="max-w-[1100px] mx-auto px-4 py-5">
+  <div class="bg-card border border-borde rounded-xl p-4 flex flex-wrap gap-3 items-end">
+    <div><label for="plu" class="block text-xs text-ink/60 mb-1">Producto (PLU)</label><input type="text" id="plu" placeholder="3035" class="w-32 px-2 py-2 rounded-lg border border-borde text-sm"></div>
+    <div><label for="suc" class="block text-xs text-ink/60 mb-1">Sucursal</label><select id="suc" class="px-2 py-2 rounded-lg border border-borde text-sm"></select></div>
+    <div><label for="desde" class="block text-xs text-ink/60 mb-1">Desde</label><input type="date" id="desde" class="px-2 py-2 rounded-lg border border-borde text-sm"></div>
+    <div><label for="hasta" class="block text-xs text-ink/60 mb-1">Hasta</label><input type="date" id="hasta" class="px-2 py-2 rounded-lg border border-borde text-sm"></div>
+    <button id="btnVer" class="px-4 py-2 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-60">Ver cálculo</button>
   </div>
 
   <div id="msg"></div>
   <div id="salida"></div>
-</div>
+</main>
 
 <script>
 // Mismas sucursales que el módulo de análisis, más la central: acá se diagnostica un
