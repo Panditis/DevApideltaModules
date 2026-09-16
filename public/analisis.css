@@ -127,8 +127,13 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .fam-promo{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px}
 .lbl-promo{font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:600}
 .fam-item{border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-top:10px}
+/* Semana activa: borde y fondo verde para que se distinga de un vistazo, sin abrir nada. */
+.fam-item.activo{border-color:var(--green-mid);background:var(--green-light)}
 .fam-item-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px}
 .fam-item-head .mini{margin-top:0}
+.fam-activo-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);
+  cursor:pointer;margin-left:auto}
+.fam-activo-toggle input{cursor:pointer}
 /* Los chips de producto son etiquetas, no filtros: sólo la × es clickeable. */
 .fam-item .chip{cursor:default}
 .fam-x{color:var(--muted);cursor:pointer;padding-left:4px;font-size:15px}
