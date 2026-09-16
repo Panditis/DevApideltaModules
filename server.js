@@ -2707,7 +2707,7 @@ app.use(require('./routes/rutas_plan')({
   leerOrdenes, guardarOrdenes, conLogError,
   tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
   sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
-  buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgEsGranel,
+  buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
   sucursalesSiga, sucursalPublica,
 }));
 

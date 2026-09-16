@@ -63,7 +63,7 @@ module.exports = function crearRutasPlan(deps) {
     leerOrdenes, guardarOrdenes, conLogError,
     tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
     sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
-    buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgEsGranel,
+    buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
     sucursalesSiga, sucursalPublica,
   } = deps;
   const router = express.Router();
@@ -232,8 +232,9 @@ async function calcularSugerenciasCatalogo(params) {
     for (let i = 0; i < todosLosPlu.length; i += LOTE) res.push(...await query(sqlFn(todosLosPlu.slice(i, i + LOTE))));
     return res;
   }
-  // PLUs de granel asignados manualmente en grupos_config
-  const customGranelPlus = [...new Set(Object.keys(gruposCfg).map(r=>cfgGranelPlu(gruposCfg,r)).filter(Boolean))];
+  // PLUs de granel asignados manualmente en grupos_config. Un grupo puede tener más de uno (ej.
+  // Yogurt Batido: 2 graneles previos a fabricar) — se traen todos, no solo el primero.
+  const customGranelPlus = [...new Set(Object.keys(gruposCfg).flatMap(r=>cfgGranelPlus(gruposCfg,r)))];
   const quotedGP = customGranelPlus.map(p => `'${p}'`).join(',');
   const [consumoRows, pendientesRows, stockRows, stockTodosRows, stockSucRows, bomRows, granelRows, customGranelNomRows, facturRows] = await Promise.all([
     queryEnLotes(l => sqlConsumoCatalogo(l, ventana)), queryEnLotes(l => sqlPendientesPorPlu(l)),
@@ -291,38 +292,44 @@ async function calcularSugerenciasCatalogo(params) {
     stockSucBase.set(base, (stockSucBase.get(base) || 0) + (esVar ? 0 : (stockSucRaw.get(plu)   || 0)));
     facturBase.set(base,   (facturBase.get(base)   || 0) + (facturRaw.get(plu)       || 0));
   }
-  // Granel del grupo: PLU cargado a mano en el catálogo (grupos_config.granelPlu) y, si no hay,
-  // el componente granel de la fórmula activa de sus bases (el de mayor CantPorUnidad = principal).
+  // Granel del grupo: solo los PLUs cargados a mano en el catálogo (grupos_config.granelPlu/s)
+  // cuentan como "el granel" del grupo (uno o más: Yogurt Batido tiene 2 graneles previos a
+  // fabricar). Sin eso, el grupo no lleva granel y no muestra ningún valor — no hay fallback a la
+  // fórmula (BOM): cualquier componente con stock granel propio calificaba como "el granel" aunque
+  // fuera un saborizante menor (ej. "Canela En Polvo" en Miel Canela, 0.0042 por unidad).
   function resolverGranelGrupo(refInfo) {
-    const custom = cfgGranelPlu(gruposCfg, refInfo.productoRef);
-    if (custom) return { id: custom, nombre: customGranelNomMap.get(custom) || custom };
-    let mejor = null;
-    for (const bInfo of refInfo.bases.values()) {
-      if (!bInfo.pluBase) continue;
-      const bom = bomRaw.get(String(bInfo.pluBase));
-      if (!bom) continue;
-      const cant = parseFloat(bom.CantPorUnidad || 0);
-      if (!mejor || cant > mejor.cant) mejor = { id: String(bom.IdProductoComponente), nombre: bom.NombreComponente || '', cant };
-    }
-    return mejor ? { id: mejor.id, nombre: mejor.nombre } : null;
+    return cfgGranelPlus(gruposCfg, refInfo.productoRef).map(id => ({ id, nombre: customGranelNomMap.get(id) || id }));
   }
   const grupos = [];
   for (const [refId, refInfo] of refMap) {
     // Stock del granel del grupo (se necesita ANTES de calcular consumo para elegir denominador)
     const esGranelCheck = cfgEsGranel(gruposCfg, refInfo.productoRef, c.gruposGranel);
     let granelStockGrupo = 0, nombreGranelGrupo = '', granelIdGrupo = '';
-    const granelRef = resolverGranelGrupo(refInfo);
-    if (granelRef) {
+    // Uno o más graneles del grupo (ej. Yogurt Batido: 2 graneles previos a fabricar). Los campos
+    // granelStockGrupo/nombreGranelGrupo/granelIdGrupo de arriba quedan como el primero (compat:
+    // orden/totalSugerido de grupos esGranel y el resto de la UI que espera un solo valor); el
+    // array completo va en granelesGrupo para mostrarlos todos en la columna STOCK GRANEL.
+    let granelesGrupo = [];
+    const granelRefs = resolverGranelGrupo(refInfo);
+    if (granelRefs.length) {
       // Sin fila de stock del granel → 0 (quiebre real), no el stock de los terminados.
-      granelIdGrupo     = granelRef.id;
-      nombreGranelGrupo = granelRef.nombre;
-      granelStockGrupo  = Math.round((granelMap.get(granelRef.id) || 0) * 100) / 100;
+      granelesGrupo = granelRefs.map(r => ({ id: r.id, nombre: r.nombre, stock: Math.round((granelMap.get(r.id) || 0) * 100) / 100 }));
+      granelIdGrupo     = granelesGrupo[0].id;
+      nombreGranelGrupo = granelesGrupo[0].nombre;
+      granelStockGrupo  = granelesGrupo[0].stock;
     } else if (esGranelCheck) {
       let base10 = null;
       for (const [base, bInfo] of refInfo.bases) { if (/10\s*kg/i.test(base) && bInfo.pluBase) { base10 = base; granelIdGrupo = String(bInfo.pluBase); break; } }
-      if (base10) { granelStockGrupo = stockBaseAll.get(base10) || 0; nombreGranelGrupo = base10; }
+      if (base10) {
+        granelStockGrupo = stockBaseAll.get(base10) || 0; nombreGranelGrupo = base10;
+        granelesGrupo = [{ id: granelIdGrupo, nombre: nombreGranelGrupo, stock: granelStockGrupo }];
+      }
     } else {
-      granelStockGrupo = Math.round([...refInfo.bases.keys()].reduce((s, base) => s + (stockBase.get(base) || 0), 0) * 100) / 100;
+      // Sin granelPlu en el catálogo y sin componente granel en la fórmula (BOM) de ninguna base: el
+      // grupo no lleva granel (ej. Miel Canela). null → "—" en la columna, en vez de reusar el stock
+      // de los terminados como si fuera stock granel (bug histórico: confundía "hay stock" con "no
+      // lleva granel").
+      granelStockGrupo = null;
     }
     // Denominador: ÷ventana (demanda real) salvo que el producto esté sin stock → ÷días-con-venta (quiebre de stock)
     const usarPorDia = granelStockGrupo <= 0;
@@ -393,7 +400,7 @@ async function calcularSugerenciasCatalogo(params) {
       const plusGrupo = [...refInfo.bases.values()].map(b => b.pluBase).filter(Boolean).map(String);
       grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgencia: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
-        plus: plusGrupo, granelId: granelIdGrupo,
+        plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo,
         facturacionMensual: facturMensualG, presentaciones: [] });
       continue;
     }
@@ -401,7 +408,7 @@ async function calcularSugerenciasCatalogo(params) {
     const facturGrupo  = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
     const facturMensual = Math.round(facturGrupo * (30 / ventana) * 100) / 100;
     grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgencia: urgenciaGrupo,
-      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo,
+      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo, graneles: granelesGrupo,
       facturacionMensual: facturMensual, presentaciones: presFinal });
   }
   // Ranking: score = 0.6*facturNorm + 0.4*cantNorm (facturación + cantidad vendida mensual)
@@ -457,11 +464,16 @@ router.get('/api/plan/stock-detalle', apiRoute(async req => {
   ]);
   const nomMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const sucursales = sucs.map(sucursalPublica);
+  // Granel: mismo criterio que granelMap en calcularSugerenciasCatalogo (sqlStockTodosDepositos) —
+  // por PLU en todos los depósitos de la central, sin filtrar por nombre de depósito (el LIKE
+  // '%GRANEL%' devuelve otra cosa: ningún depósito de Siga se llama así). Antes este endpoint usaba
+  // el filtro viejo y el total del modal "detalle de stock" no coincidía con el de la tabla.
   const stockPorSuc = async (ids, soloGranel) => ids.length ? query(`
     SELECT CAST(pd.IdProducto AS VARCHAR) AS IdProducto, pd.IdSucursal, COALESCE(SUM(pd.Stock),0) AS Stock
     FROM ProductosDepositos pd
     INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
-    WHERE ${soloGranel ? `UPPER(sd.NombreDeposito) LIKE '%GRANEL%'` : `sd.DisponibleVenta=1`}
+    INNER JOIN Sucursales s ON s.IdSucursal=sd.IdSucursal
+    WHERE ${soloGranel ? `s.SoyLaCentral=1` : `sd.DisponibleVenta=1`}
       AND CAST(pd.IdProducto AS VARCHAR) IN (${quote(ids)})
     GROUP BY pd.IdProducto, pd.IdSucursal`) : [];
   const [presRows, granRows] = await Promise.all([stockPorSuc(plus, false), stockPorSuc(graneles, true)]);

@@ -10,8 +10,8 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body class="font-body text-ink">
-<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
-  <div class="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
     <h1 class="font-disp text-2xl font-bold text-verde">CONTROL DE INSUMOS</h1>
     <span class="text-sm text-ink/60">Casa Central</span>
     <span id="meta" class="text-xs text-ink/50"></span>
@@ -21,16 +21,16 @@
       <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
     </div>
   </div>
+  <!-- Dos universos, misma pantalla: los "Insumo …" y las "Etiqueta …". -->
+  <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs">
+    <button class="navtab on" data-tipo="insumo">Insumos</button>
+    <button class="navtab" data-tipo="etiqueta">Etiquetas</button>
+    <button class="navtab" data-tipo="envase">Envases</button>
+    <button id="btnNuevoGrupo" class="hidden ml-auto self-center px-3 py-1.5 rounded-lg border border-white/35 text-white text-sm hover:bg-white/10">+ Nuevo grupo</button>
+  </nav>
 </header>
 
 <main class="max-w-[1500px] mx-auto px-4 py-5">
-  <!-- Dos universos, misma pantalla: los "Insumo …" y las "Etiqueta …". -->
-  <div class="flex gap-1 border-b border-borde mb-4" id="tabs">
-    <button class="tab on" data-tipo="insumo">Insumos</button>
-    <button class="tab" data-tipo="etiqueta">Etiquetas</button>
-    <button class="tab" data-tipo="envase">Envases</button>
-    <button id="btnNuevoGrupo" class="hidden ml-auto mb-1 px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">+ Nuevo grupo</button>
-  </div>
 
   <div id="kpis" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-4"></div>
 
@@ -553,10 +553,10 @@ document.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
 });
 // Cambiar de tab es empezar de cero: los filtros de estado y el orden hablan del
 // universo que se estaba mirando, no del nuevo.
-document.querySelectorAll('#tabs .tab').forEach(b => b.onclick = () => {
+document.querySelectorAll('#tabs .navtab').forEach(b => b.onclick = () => {
   if (b.dataset.tipo === tipo) return;
   tipo = b.dataset.tipo;
-  document.querySelectorAll('#tabs .tab').forEach(x => x.classList.toggle('on', x.dataset.tipo === tipo));
+  document.querySelectorAll('#tabs .navtab').forEach(x => x.classList.toggle('on', x.dataset.tipo === tipo));
   document.getElementById('thNombre').textContent = U().singular;
   document.getElementById('txtPrefijo').textContent = U().prefijo;
   document.getElementById('txtGrupos').classList.toggle('hidden', tipo !== 'etiqueta');

@@ -1590,15 +1590,13 @@ function renderGrupos() {
     return;
   }
 
-  // Cuando el grupo tiene "granel previo" (mermelada/masa a fabricar antes) distinto del insumo que
-  // realmente consumen las presentaciones (fórmula/BOM), STOCK GRANEL muestra el previo pero eso puede
-  // leerse como "hay stock" mientras el insumo real está en 0 y las presentaciones están en rojo. Este
-  // hint aclara el insumo real aparte, sin tocar el cálculo de STOCK GRANEL.
-  function granelFormulaHint(g) {
-    if (!g.nombreGranelFormula) return '';
-    const cls = g.granelFormulaStock > 0 ? 'granel-ok' : 'granel-warn';
-    return `<div class="granel-info" title="Insumo real de la fórmula (distinto del granel previo de arriba)">
-      Fórmula: <span class="${cls}">${escHtml(g.nombreGranelFormula)} ${g.granelFormulaStock}</span></div>`;
+  // STOCK GRANEL: uno o más códigos (ej. Yogurt Batido tiene 2 graneles previos) — se muestran todos,
+  // cada uno con su propio stock, en vez de sumarlos (son materias primas distintas).
+  function granelStockCell(g) {
+    const lista = (g.graneles && g.graneles.length) ? g.graneles
+      : (g.granelStockGrupo !== null ? [{ id: g.granelId, nombre: g.nombreGranelGrupo, stock: g.granelStockGrupo }] : []);
+    if (!lista.length) return '—';
+    return lista.map(gr => `<span class="${gr.stock > 0 ? 'granel-ok' : 'granel-warn'}" title="${escHtml(gr.nombre)}">${gr.stock}</span>`).join('<br>');
   }
 
   const grupos_sorted = sortGrupos(grupos);
@@ -1613,11 +1611,10 @@ function renderGrupos() {
           ${rankBadge(g.rankingPos, g.facturacionMensual)}${escHtml(g.productoRef)}
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
         </td>
-        <td class="text-right text-sm">${g.totalPend>0?g.totalPend:'—'}</td>
         <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
         <td class="text-right text-sm" style="color:var(--muted)">—</td>
         <td class="text-right text-sm" style="color:var(--muted)">${g.stockSucGrupo>0?g.stockSucGrupo:'—'}</td>
-        <td class="text-right">${g.granelStockGrupo !== null ? `<span class="${g.granelStockGrupo > 0 ? 'granel-ok' : 'granel-warn'}" title="${escHtml(g.nombreGranelGrupo)}">${g.granelStockGrupo}</span>` : '—'}${granelFormulaHint(g)}</td>
+        <td class="text-right">${granelStockCell(g)}</td>
         <td style="white-space:nowrap"><button class="btn-add btn-sm" title="Ver detalle de stock" onclick="event.stopPropagation();abrirStockDetalle(${gi})">📊</button> <button class="btn-add" onclick="abrirModalGranel(${gi})">+ Agregar</button></td>
       </tr>`;
     }
@@ -1634,11 +1631,10 @@ function renderGrupos() {
       <td style="width:28px;text-align:center"><span class="expand-btn" id="ebtn-${gi}">▶</span></td>
       <td><span class="badge ${g.semaforo}">${semLabel(g.semaforo)}</span></td>
       <td class="nombre-col font-bold">${rankBadge(g.rankingPos, g.facturacionMensual)}${escHtml(g.productoRef)}</td>
-      <td class="text-right text-sm">${_pend||'—'}</td>
       <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
       <td class="text-right text-sm" title="Cuenta al 60% en el sugerido: ${Math.round(_stockGrupo*0.6*100)/100}">${_stockGrupo>0?_stockGrupo:'—'}</td>
       <td class="text-right text-sm" style="color:var(--muted)">${_stockSucGrupo>0?_stockSucGrupo:'—'}</td>
-      <td class="text-right">${g.granelStockGrupo !== null ? `<span class="${g.granelStockGrupo > 0 ? 'granel-ok' : 'granel-warn'}" title="${escHtml(g.nombreGranelGrupo)}">${g.granelStockGrupo}</span>` : '—'}${granelFormulaHint(g)}</td>
+      <td class="text-right">${granelStockCell(g)}</td>
       <td onclick="event.stopPropagation()" style="white-space:nowrap">
         <button class="btn-add btn-sm" title="Ver detalle de stock" onclick="abrirStockDetalle(${gi})">📊</button>
         <button class="btn-add" onclick="agregarGrupoAlPlan(${gi})">+ Todo</button>
@@ -1648,7 +1644,6 @@ function renderGrupos() {
     const headerRow = `<tr class="sub-${gi} sub-header" style="display:none;background:#dde8d8">
       <td></td><td></td>
       <td style="padding-left:28px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.4px">PRESENTACIÓN</td>
-      <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">PED.MAY.</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">SUGERIDO</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK SUC</td>
@@ -1667,7 +1662,6 @@ function renderGrupos() {
           ${escHtml(p.presentacion)}
           <div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">cob: ${_dias}${_pProm?` · prom: ${_pProm}/mes`:''}</div>
         </td>
-        <td class="text-right">${p.pendientes>0?p.pendientes:'—'}</td>
         <td class="text-right col-sug" style="white-space:nowrap"><input class="sug-input" id="sug-${gi}-${pi}" type="number" min="0" step="1" value="${p.cantSugerida||0}" title="Sugerido por el sistema: ${p.cantSugerida}"><button class="btn-formula" onclick="event.stopPropagation();abrirFormulaView('${p.plu}','${escHtml(p.baseNombre).replace(/'/g,"\\'")}',parseFloat(document.getElementById('sug-${gi}-${pi}').value)||0)" title="Ver fórmula">📋</button></td>
         <td class="text-right" title="Cuenta al 60% en el sugerido: ${p.stockEfectivo ?? Math.round((p.stockActual||0)*0.6*100)/100}">${p.stockActual||0}</td>
         <td class="text-right" style="color:var(--muted)">${p.stockSucursales||0}</td>
@@ -1687,7 +1681,6 @@ function renderGrupos() {
         <th style="width:28px"></th>
         <th class="sort-th" onclick="setSort('semaforo')" title="Ordenar por estado">Estado${sortArrow('semaforo')}</th>
         <th class="sort-th" onclick="setSort('nombre')" title="Ordenar por nombre">Producto${sortArrow('nombre')}</th>
-        <th class="sort-th text-right" onclick="setSort('urgencia')" title="Ordenar por pedidos mayoristas" style="font-size:11px">PED.MAY.${sortArrow('urgencia')}</th>
         <th class="sort-th text-right col-sug" onclick="setSort('sugerido')" title="Ordenar por sugerido">Sugerido${sortArrow('sugerido')}</th>
         <th class="text-right" title="Stock de presentaciones en Casa Central (en planificación cuenta al 60%)" style="font-size:11px">STOCK</th>
         <th class="text-right" title="Stock en sucursales (todas menos Casa Central)" style="font-size:11px">STOCK SUC</th>
@@ -1713,10 +1706,12 @@ async function abrirStockDetalle(gi) {
   let plus = [], graneles = [];
   if (g.esGranel) {
     plus = (g.plus || []).map(String);
-    graneles = g.granelId ? [String(g.granelId)] : [];
+    graneles = (g.graneles && g.graneles.length) ? g.graneles.map(gr => String(gr.id)) : (g.granelId ? [String(g.granelId)] : []);
   } else {
     plus = (g.presentaciones || []).map(p => String(p.plu));
-    graneles = [...new Set((g.presentaciones || []).map(p => p.idGranel).filter(Boolean).map(String))];
+    // g.graneles sale siempre de grupos_config (catálogo), nunca de la fórmula (BOM) — así que esto
+    // ya respeta "solo si está cargado como granel": vacío para productos sin granel (ej. Miel Canela).
+    graneles = (g.graneles || []).map(gr => String(gr.id));
   }
   document.getElementById('stockDetTitulo').textContent = g.productoRef;
   document.getElementById('stockDetBody').innerHTML = '<div class="loading">Cargando…</div>';
@@ -1734,11 +1729,12 @@ function renderStockDetalle(data) {
   const sucs = data.sucursales || [];
   const fmt = n => (n || n === 0) ? Math.round(n * 100) / 100 : '';
   const cell = v => v ? `<td class="text-right">${fmt(v)}</td>` : `<td class="text-right" style="color:var(--border)">·</td>`;
-  const matrix = (titulo, rows) => {
+  const matrix = (titulo, rows, sucsCols) => {
     if (!rows || !rows.length) return '';
-    const head = sucs.map(s => `<th class="text-right" style="font-size:11px;padding:4px 8px;${s.central ? 'color:var(--md-primary);font-weight:700' : 'color:var(--muted)'}">${escHtml(s.nombre)}</th>`).join('');
+    const cols = sucsCols || sucs;
+    const head = cols.map(s => `<th class="text-right" style="font-size:11px;padding:4px 8px;${s.central ? 'color:var(--md-primary);font-weight:700' : 'color:var(--muted)'}">${escHtml(s.nombre)}</th>`).join('');
     const body = rows.map(r => {
-      const tds = sucs.map(s => cell(r.porSuc[s.id])).join('');
+      const tds = cols.map(s => cell(r.porSuc[s.id])).join('');
       return `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 8px">${escHtml(r.nombre)}</td>${tds}<td class="text-right font-bold" style="padding:5px 8px">${fmt(r.total)}</td></tr>`;
     }).join('');
     return `<div style="margin-bottom:18px">
@@ -1748,7 +1744,7 @@ function renderStockDetalle(data) {
         <tbody>${body}</tbody>
       </table></div></div>`;
   };
-  const granelM = matrix('🌾 Granel (depósitos granel)', data.graneles);
+  const granelM = matrix('🌾 Granel (depósitos granel)', data.graneles, sucs.filter(s => s.central));
   const presM   = matrix('📦 Presentaciones (stock de venta)', data.presentaciones);
   if (!granelM && !presM) return '<div style="padding:10px;color:var(--muted)">Sin datos de stock.</div>';
   return granelM + presM;

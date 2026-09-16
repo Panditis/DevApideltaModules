@@ -550,6 +550,13 @@
         <input type="file" id="inputArchivo" accept=".xlsx,.csv,.txt" class="oculto"></div>
     </div>
 
+    <div style="margin-bottom:11px">
+      <label class="et">PLUs con precio fijo por kilo (ignoran el peso del ticket)</label>
+      <input id="cfgPluPrecioFijo" placeholder="12345, 67890">
+      <p class="chico">Para productos que vienen con ticket de balanza pesable (prefijo 20) pero se tienen
+        que cobrar siempre al precio de catálogo, sin multiplicar por el peso pesado. PLU separados por coma.</p>
+    </div>
+
     <div id="mapeoCols" class="oculto">
       <h2 style="margin-top:15px">Columnas de la planilla</h2>
       <div class="fila">
@@ -1031,7 +1038,7 @@ function parsearCodigoBalanza(codigo) {
 // Resuelve lo que entró por el lector (o tipeado a mano) contra el catálogo.
 // Devuelve siempre un objeto con `tipo`, así el llamador no tiene que adivinar el caso.
 function resolverEscaneo(codigo, indice, opciones) {
-  const cfg = Object.assign({ divisorPeso: DIVISOR_PESO }, opciones || {});
+  const cfg = Object.assign({ divisorPeso: DIVISOR_PESO, pluPrecioFijo: null }, opciones || {});
   const bruto = String(codigo == null ? '' : codigo).trim();
   if (!bruto) return { tipo: 'vacio' };
   const d = bruto.replace(/\D/g, '');
@@ -1052,10 +1059,16 @@ function resolverEscaneo(codigo, indice, opciones) {
     const p = indice.porPlu.get(bal.plu);
     if (!p) return { tipo: 'no_encontrado', codigo: d, plu: bal.plu, balanza: true };
     const kg = Math.round((bal.gramos / cfg.divisorPeso) * 1000) / 1000;
+    // Prefijo 21: sale por balanza pero se vende por unidad. El peso se guarda como
+    // dato del bulto y no entra en el cálculo.
     if (!bal.pesable) {
-      // Prefijo 21: sale por balanza pero se vende por unidad. El peso se guarda como
-      // dato del bulto y no entra en el cálculo.
       return { tipo: 'ok', producto: p, cant: 1, precio: p.precio, origen: 'balanza-unidad', peso: kg };
+    }
+    // PLU marcado a mano como precio fijo: producto que SIGA sigue mandando con prefijo 20
+    // (pesable) pero se tiene que cobrar siempre al precio de catálogo, ignorando por completo
+    // el peso de la etiqueta — ni entra en el cálculo ni se muestra como dato de referencia.
+    if (cfg.pluPrecioFijo && cfg.pluPrecioFijo.has(bal.plu)) {
+      return { tipo: 'ok', producto: p, cant: 1, precio: p.precio, origen: 'balanza-fijo' };
     }
     // Prefijo 20: el precio del catálogo es por kilo y el ticket trae los gramos pesados.
     return { tipo: 'ok', producto: p, cant: kg, precio: p.precio, origen: 'balanza-peso', unidad: 'kg' };
@@ -1133,6 +1146,11 @@ function consultaDeEscaneo(codigo, indice, opciones) {
   if (r.origen === 'balanza-unidad') {
     // Prefijo 21: el peso es del bulto y no entra en el precio.
     return Object.assign(base, { peso: r.peso, total: r.precio });
+  }
+  if (r.origen === 'balanza-fijo') {
+    // PLU a precio fijo: se muestra igual que una venta por unidad común, sin ningún
+    // cuadro de referencia (ni "por kilo" ni el peso de la etiqueta).
+    return Object.assign(base, { total: r.precio });
   }
   // Sin ticket: si el producto es de balanza, el precio que se muestra es por kilo y
   // todavía no hay peso que mostrar.
@@ -1587,6 +1605,10 @@ const CFG_DEF = {
   // defecto. Una caja recién repartida arranca con el catálogo embebido, el servidor y Sheets.
   archivoRed: '',
   mapeo: null,
+  // PLUs que llegan con ticket de balanza pesable (prefijo 20) pero se tienen que cobrar
+  // siempre al precio de catálogo, ignorando el peso pesado. Separados por coma.
+  // 3672 es hoy el único caso.
+  pluPrecioFijo: '3672',
 };
 
 // Un campo vacío en lo guardado no es una elección del usuario: es el default de una versión
@@ -1608,6 +1630,7 @@ if (CATALOGO_EMBEBIDO && (!catalogo || CATALOGO_EMBEBIDO.generado > catalogo.gen
   catalogo = CATALOGO_EMBEBIDO;
 }
 let indice = construirIndice(catalogo ? catalogo.productos : []);
+const pluPrecioFijoSet = () => new Set(String(cfg.pluPrecioFijo || '').split(',').map(s => s.trim()).filter(Boolean));
 let pedidos = leer(K.ped, []);
 // Al abrir la pestaña se descarta el borrador anterior (líneas/pagos de una venta a
 // medio cargar): abrir el facturador siempre debería arrancar en blanco, no retomar
@@ -1928,7 +1951,7 @@ function avisar(texto, clase) {
 
 function procesarEscaneo(codigo) {
   if (!catalogo) return avisar('Todavía no hay catálogo cargado.', 'av-err');
-  const r = resolverEscaneo(codigo, indice);
+  const r = resolverEscaneo(codigo, indice, { pluPrecioFijo: pluPrecioFijoSet() });
 
   if (r.tipo === 'vacio') return;
 
@@ -1939,6 +1962,8 @@ function procesarEscaneo(codigo) {
       avisar(`⚖ ${r.producto.nombre} — ${r.cant.toFixed(3)} kg × ${plata(r.precio)}/kg = ${plata(r.cant * r.precio)}`, 'av-ok');
     } else if (r.origen === 'balanza-unidad') {
       avisar(`🏷 ${r.producto.nombre} — 1 unidad × ${plata(r.precio)} (etiqueta de ${r.peso.toFixed(3)} kg)`, 'av-ok');
+    } else if (r.origen === 'balanza-fijo') {
+      avisar(`✓ ${r.producto.nombre} — ${plata(r.precio)}`, 'av-ok');
     } else {
       avisar(`✓ ${r.producto.nombre} — ${plata(r.precio)}`, 'av-ok');
     }
@@ -2040,7 +2065,9 @@ async function avisarTicketsViejos() {
 function agregarLinea(prod, opts) {
   avisarTicketsViejos();
   const o = opts || {};
-  const unidad = o.unidad || (prod.modalidad === 'PESO' ? 'kg' : '');
+  // balanza-fijo se vende por unidad aunque el producto esté catalogado como pesable: no
+  // hereda "kg" del modalidad del producto.
+  const unidad = o.origen === 'balanza-fijo' ? '' : (o.unidad || (prod.modalidad === 'PESO' ? 'kg' : ''));
   const nueva = {
     plu: prod.plu, nombre: prod.nombre, precio: Number(o.precio != null ? o.precio : prod.precio) || 0,
     cant: Number(o.cant) || 1, unidad, origen: o.origen || 'manual',
@@ -2434,7 +2461,8 @@ $('#btnActualizar').onclick = () => refrescarPrecios();
 
 $('#btnGuardarConfig').onclick = () => {
   cfg = { ...cfg, servidores: $('#cfgServidores').value, archivoRed: $('#cfgArchivoRed').value,
-          sheets: $('#cfgSheets').value, sheetsHoja: $('#cfgSheetsHoja').value };
+          sheets: $('#cfgSheets').value, sheetsHoja: $('#cfgSheetsHoja').value,
+          pluPrecioFijo: $('#cfgPluPrecioFijo').value };
   grabar(K.cfg, cfg);
   avisar('Configuración guardada.', 'av-ok');
 };
@@ -2575,7 +2603,7 @@ function consultar(codigo) {
   const poner = (html, clase) => { ficha.innerHTML = '<div class="marco ' + (clase || '') + '">' + html + '</div>'; ajustarFicha(); };
   if (!catalogo) return poner('<div class="aviso">Todavía no hay catálogo cargado.</div>', 'err');
 
-  const r = consultaDeEscaneo(codigo, indice);
+  const r = consultaDeEscaneo(codigo, indice, { pluPrecioFijo: pluPrecioFijoSet() });
   if (r.tipo === 'vacio') return;
 
   if (r.tipo === 'ambiguo') {
@@ -2675,6 +2703,7 @@ $('#cfgServidores').value = cfg.servidores;
 $('#cfgArchivoRed').value = cfg.archivoRed || '';
 $('#cfgSheets').value = cfg.sheets || '';
 $('#cfgSheetsHoja').value = cfg.sheetsHoja || '';
+$('#cfgPluPrecioFijo').value = cfg.pluPrecioFijo || '';
 irA('consulta');   // el lector de precios es la pantalla con la que se abre
 pintarEstado();
 pintarLineas();

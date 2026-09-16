@@ -74,6 +74,9 @@ tbody tr:hover { background: #f5f8f1; }
   transition: color 150ms ease;
 }
 .navtab:hover { background: none; color: #fff; }
+/* header.acrylic button:hover (arriba) es más específico que .navtab:hover solo —
+   sin este override, el fondo blanco translúcido del botón genérico gana en el hover. */
+header.acrylic .navtab:hover { background: none; color: #fff; }
 .navtab::after {
   content: ''; position: absolute; left: 50%; right: 50%; bottom: 0; height: 3px;
   background: #FFCC00; border-radius: 3px 3px 0 0; transition: left 200ms ease, right 200ms ease;
