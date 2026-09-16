@@ -1,6 +1,99 @@
 <!DOCTYPE html>
-<html>
-<body>
-precios — en construcción
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Precios · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold text-verde">PRECIOS</h1>
+    <span class="text-sm text-ink/60">Costeo sugerido vs. SIGA</span>
+    <div class="ml-auto flex items-center gap-2">
+      <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
+    </div>
+  </div>
+  <!-- Fraccionado y Producción llegan en fases siguientes: quedan visualmente
+       deshabilitadas (disabled real, no sólo estilo) para no prometer nada que
+       todavía no anda. -->
+  <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs">
+    <button class="navtab on" data-tipo="almacen">Almacén</button>
+    <button class="navtab opacity-40 cursor-not-allowed" data-tipo="fraccionado" disabled>
+      Fraccionado <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
+    <button class="navtab opacity-40 cursor-not-allowed" data-tipo="produccion" disabled>
+      Producción <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
+    <button class="navtab" data-tipo="configuracion">Configuración</button>
+  </nav>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+
+  <div id="panel-almacen" class="tab-panel">
+    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
+      <table class="w-full text-sm">
+        <thead class="bg-verde/5 text-verde">
+          <tr><th class="p-2 text-left">Código</th><th class="p-2 text-left">Producto</th>
+              <th class="p-2">Precio SIGA</th><th class="p-2">Precio sugerido</th><th class="p-2">Diferencia</th></tr>
+        </thead>
+        <tbody><tr><td colspan="5" class="p-10 text-center text-ink/50">Listado en construcción</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="panel-configuracion" class="tab-panel hidden">
+    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md">
+      <h2 class="font-disp text-lg font-bold text-verde mb-4">Configuración general</h2>
+      <div id="configCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+      <div id="configForm" class="hidden space-y-4">
+        <label class="block text-sm">Costo por hora ($)
+          <input id="inCostoHora" type="number" min="0" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <label class="block text-sm">Tolerancia (%)
+          <input id="inTolerancia" type="number" min="0" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <button disabled title="Próximamente: todavía no existe el guardado de configuración"
+                class="px-3 py-1.5 rounded-lg bg-verde/40 text-white text-sm cursor-not-allowed">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+async function cargarConfiguracion(){
+  const carga = document.getElementById('configCarga');
+  const form = document.getElementById('configForm');
+  form.classList.add('hidden');
+  carga.classList.remove('hidden');
+  carga.innerHTML = '<span class="spin"></span> Cargando…';
+  try {
+    const r = await fetch('/api/precios/config');
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    document.getElementById('inCostoHora').value = j.costoHora;
+    document.getElementById('inTolerancia').value = j.toleranciaPct;
+    carga.classList.add('hidden');
+    form.classList.remove('hidden');
+  } catch (e) {
+    carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
+  }
+}
+
+// Cambio de tab: sólo las habilitadas tienen listener útil (las deshabilitadas
+// llevan el atributo disabled real, así que ni disparan el evento).
+document.querySelectorAll('#tabs .navtab:not([disabled])').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs .navtab').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main .tab-panel').forEach(p => p.classList.add('hidden'));
+  const panel = document.getElementById('panel-' + b.dataset.tipo);
+  if (panel) panel.classList.remove('hidden');
+  if (b.dataset.tipo === 'configuracion') cargarConfiguracion();
+});
+</script>
 </body>
 </html>
