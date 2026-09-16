@@ -2,7 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  familiasSanitizadas, idsDeFamilias, agruparVentas, totalesPorSucursal, MAX_FAMILIAS,
+  familiasSanitizadas, idsDeFamilias, idsDeGrupoActivo, agruparVentas, totalesPorSucursal,
+  MAX_FAMILIAS,
 } = require('../lib/familias_manuales');
 const {
   sqlVentasPorProductoSucursal, idsCsvSeguro, modoPromoSeguro, filtroClientes, whereVentas,
@@ -17,7 +18,7 @@ test('familiasSanitizadas recorta espacios y descarta familias sin nombre', () =
     { productos: [{ id: '98' }] },
   ]);
   assert.deepStrictEqual(out, [
-    { nombre: 'Mieles premium', productos: [{ id: '2544', nombre: 'MIEL PURA 1KG' }] },
+    { nombre: 'Mieles premium', activo: false, productos: [{ id: '2544', nombre: 'MIEL PURA 1KG' }] },
   ]);
 });
 
@@ -45,6 +46,36 @@ test('familiasSanitizadas tolera basura y aplica el tope de familias', () => {
   assert.deepStrictEqual(familiasSanitizadas({ nombre: 'x' }), []);
   const muchas = Array.from({ length: MAX_FAMILIAS + 10 }, (_v, i) => ({ nombre: `F${i}`, productos: [] }));
   assert.strictEqual(familiasSanitizadas(muchas).length, MAX_FAMILIAS);
+});
+
+test('familiasSanitizadas deja activo:true sólo en el primer grupo marcado', () => {
+  const out = familiasSanitizadas([
+    { nombre: 'A', activo: true, productos: [] },
+    { nombre: 'B', activo: true, productos: [] },
+    { nombre: 'C', activo: true, productos: [] },
+  ]);
+  assert.deepStrictEqual(out.map(f => f.activo), [true, false, false]);
+});
+
+test('familiasSanitizadas conserva activo:false o ausente sin marcar nada', () => {
+  const out = familiasSanitizadas([
+    { nombre: 'A', activo: false, productos: [] },
+    { nombre: 'B', productos: [] },
+  ]);
+  assert.deepStrictEqual(out.map(f => f.activo), [false, false]);
+});
+
+test('idsDeGrupoActivo devuelve vacío si ningún grupo está activo', () => {
+  const familias = familiasSanitizadas([{ nombre: 'A', productos: [{ id: '1' }] }]);
+  assert.deepStrictEqual(idsDeGrupoActivo(familias), { nombre: null, ids: [] });
+});
+
+test('idsDeGrupoActivo devuelve nombre e ids del grupo activo', () => {
+  const familias = familiasSanitizadas([
+    { nombre: 'A', productos: [{ id: '1' }] },
+    { nombre: 'B', activo: true, productos: [{ id: '2' }, { id: '3' }] },
+  ]);
+  assert.deepStrictEqual(idsDeGrupoActivo(familias), { nombre: 'B', ids: ['2', '3'] });
 });
 
 test('idsDeFamilias devuelve los códigos sin repetir entre familias', () => {
