@@ -933,7 +933,10 @@ app.get('/api/productos/buscar', apiRoute(async req => {
     ? `AND COALESCE(m.NombreMarca,'') NOT IN (${marcasFuera.map(n => `'${n.replace(/'/g, "''")}'`).join(',')})`
     : '';
   // SAVONA son productos especiales: pasan por encima de cualquier exclusión de rubro o marca.
-  const esSavona = `p.NombreProducto LIKE 'SAVONA%'`;
+  // También cuentan como SAVONA los que tienen el subrubro "Savona", aunque el nombre no empiece así.
+  const esSavona = `(p.NombreProducto LIKE 'SAVONA%' OR EXISTS (
+    SELECT 1 FROM dbo.SubRubros sr WHERE sr.IdRubro = p.IdRubro AND sr.IdSubRubro = p.IdSubRubro
+      AND sr.NombreSubRubro = 'Savona'))`;
   const filtros = [filtroRubro, filtroMarca].filter(Boolean).map(f => f.replace(/^AND /, '')).join(' AND ');
   const exclusiones = filtros ? `AND (${esSavona} OR (${filtros}))` : '';
   // Los que empiezan con lo buscado van primero: con un tope chico ("SAVONA…") quedaban afuera

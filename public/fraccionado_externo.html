@@ -76,7 +76,11 @@
       </table>
       <p id="carritoVacio" class="text-sm text-ink/50 py-4">Todavía no agregaste productos.</p>
       <div class="flex justify-between items-center mt-3 pt-3 border-t border-borde">
-        <span class="font-semibold">Total: <span id="totalPedido">$0</span></span>
+        <span class="text-sm space-x-4">
+          <span>Kilos: <span id="totalKilos" class="font-semibold">0</span></span>
+          <span>Paquetes: <span id="totalPaquetes" class="font-semibold">0</span></span>
+          <span class="font-semibold">Total: <span id="totalPedido">$0</span></span>
+        </span>
         <button id="btnGenerar" class="bg-verde text-white text-sm rounded px-4 py-2 disabled:opacity-40" disabled>Generar pedido</button>
       </div>
     </div>
@@ -217,7 +221,7 @@
     // primero y derivar el total de ahí, para que el preview del carrito coincida siempre con
     // lo que termina guardado y en el PDF.
     const unitario = Math.round((valorHora() / 60) * min * factor);
-    return { unitario, total: unitario * paq, paquetes: paq };
+    return { unitario, total: Math.round(unitario * paq), paquetes: paq };
   }
 
   function renderCarrito() {
@@ -267,7 +271,11 @@
 
   function actualizarTotalGeneral() {
     const totalGeneral = carrito.reduce((s, it) => s + costoItem(it).total, 0);
+    const totalKilos = carrito.reduce((s, it) => s + (Number(it.kilos) || 0), 0);
+    const totalPaquetes = carrito.reduce((s, it) => s + paquetesDe(it), 0);
     document.getElementById('totalPedido').textContent = '$' + totalGeneral;
+    document.getElementById('totalKilos').textContent = totalKilos.toFixed(1);
+    document.getElementById('totalPaquetes').textContent = totalPaquetes.toFixed(1);
   }
 
   document.getElementById('valorHora').addEventListener('input', renderCarrito);
@@ -319,7 +327,10 @@
         it.nombre, it.presentacion, it.kilos ?? '', it.paquetes,
         '$' + it.costoUnitario, '$' + it.costoTotal,
       ]),
-      foot: [['', '', '', 'Total', '$' + pedido.total]],
+      foot: [['Total', '',
+        pedido.items.reduce((s, it) => s + (Number(it.kilos) || 0), 0).toFixed(1),
+        pedido.items.reduce((s, it) => s + (Number(it.paquetes) || 0), 0).toFixed(1),
+        '', '$' + pedido.total]],
       styles: { fontSize: 9 },
     });
     doc.save(`pedido-fraccionado-${pedido.numero}.pdf`);
