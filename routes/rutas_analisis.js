@@ -428,6 +428,21 @@ router.put('/api/familias-manuales', puedeVerAnalisis, (req, res) => {
   res.json(familias);
 });
 
+// Sin guard de módulo a propósito: Distribución consume esto para destacar la "semana
+// activa" sin tener permiso de analisis-ventas. Sólo exige sesión iniciada, como el resto
+// de la app cuando no hay control de acceso por módulo.
+function requiereSesion(req, res, next) {
+  if (!(req.session && req.session.user)) {
+    return res.status(401).json({ error: 'No autenticado' });
+  }
+  return next();
+}
+
+router.get('/api/familias-manuales/activa', requiereSesion, (_req, res) => {
+  const familias = familiasManuales.familiasSanitizadas(leerJSON(FAMILIAS_MANUALES_PATH, []));
+  res.json(familiasManuales.idsDeGrupoActivo(familias));
+});
+
 router.get('/api/familias-manuales/ventas', puedeVerAnalisis, apiRoute(async req => {
   const desde = safeDate(req.query.desde);
   const hasta = safeDate(req.query.hasta);
