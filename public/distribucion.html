@@ -84,6 +84,8 @@
   .tipo-toast.min .tipo-toast-n{display:inline}
   .tipo-sin td{background:rgba(245,158,11,.10)!important}
   .tipo-sin td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
+  .promo-semana td{background:rgba(255,204,0,.08)!important}
+  .promo-semana td:first-child{box-shadow:inset 3px 0 0 var(--amarillo)}
   .cfg-tabs-on .cfg-tab{display:flex}
 
   /* ── Meta / controls ── */
@@ -1396,6 +1398,8 @@ function renderPrioritarios(lista) {
     return;
   }
   const listaOrd = [...lista].sort((a, b) => {
+    const promo = promoPluSet.has(String(b.idProd)) - promoPluSet.has(String(a.idProd));
+    if (promo) return promo;
     const va = valorPr(a, ordenPr.col), vb = valorPr(b, ordenPr.col);
     if (va < vb) return -1 * ordenPr.dir;
     if (va > vb) return 1 * ordenPr.dir;
@@ -1423,10 +1427,10 @@ function renderPrioritarios(lista) {
         return `${stkTd}<td>${celdaEnviarPr(p.fila.enviar[k], fmt)}</td>`;
       }).join('');
     }
-    return `<tr>
+    return `<tr class="${promoPluSet.has(String(p.idProd))?'promo-semana':''}">
       <td title="Prioridad: ${prioTxt}">${p.posicion}</td>
       <td class="l plu">${p.idProd}</td>
-      <td class="l nombre">${nombre}</td>
+      <td class="l nombre">${nombre}${promoTag(p)}</td>
       <td>${origenBadgePr(p.origen)}</td>
       <td>${depositoTxt}</td>
       ${sucTds}
@@ -1454,6 +1458,16 @@ const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
 // Escape de texto proveniente de datos antes de inyectarlo en HTML
 const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const nuevoTag = (r) => r.esNuevo ? `<span title="Primera compra: ${r.primeraCompra || '?'}" style="background:rgba(41,128,185,.15);color:#2980b9;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid rgba(41,128,185,.4);font-size:10px;margin-left:5px">NUEVO</span>` : '';
+// ── Semana activa (promo temática de Análisis de Ventas): destacado + orden en Almacén/Pesables/Prioritarios ──
+let promoPluSet = new Set();
+async function cargarPromoSemana() {
+  try {
+    const r = await fetch('/api/familias-manuales/activa');
+    const { ids } = await r.json();
+    promoPluSet = new Set((ids || []).map(String));
+  } catch { promoPluSet = new Set(); }
+}
+const promoTag = (r) => promoPluSet.has(String(r.plu ?? r.idProd)) ? `<span title="Producto de la semana activa" style="background:var(--amarillo-cont);color:var(--amarillo-on);font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid var(--amarillo);font-size:10px;margin-left:5px">SEMANA</span>` : '';
 let tabActual = 'almacen';
 // ── Modo pesables: Sala (habilita modal carga producción) / Preparación (lo deshabilita) ──
 let pesablesModo = localStorage.getItem('pesablesModo') || 'sala';
@@ -1949,6 +1963,7 @@ moverInk(document.querySelector('.tab.on'));
 _initEnvioEditListeners();
 actualizarBadgeOverrides();
 cargar();
+cargarPromoSemana();
 
 // ════════════════ RUBRO MULTISELECT ════════════════
 let rubrosSeleccionados = new Set();
@@ -2014,6 +2029,8 @@ function render() {
   const PISO_IMPORTANCIA_NUEVO = 0.8;
   const impNormDisplay = (r) => { const n = impVal(r) / maxImp; return r.esNuevo ? (PISO_IMPORTANCIA_NUEVO + n) : n; };
   rows.sort((a, b) => {
+    const promo = promoPluSet.has(String(b.plu)) - promoPluSet.has(String(a.plu));
+    if (promo) return promo;
     const va = orden.col === 'total' ? totalVis(a) : orden.col === 'importancia' ? impNormDisplay(a) : valor(a, orden.col);
     const vb = orden.col === 'total' ? totalVis(b) : orden.col === 'importancia' ? impNormDisplay(b) : valor(b, orden.col);
     return (va < vb ? -1 : va > vb ? 1 : 0) * orden.dir;
@@ -2033,10 +2050,10 @@ function render() {
     const impN = impNormDisplay(r);
     const impPct = impN * 100;
     const d = Math.min(i * 6, 360);
-    return `<tr style="animation-delay:${d}ms">
+    return `<tr class="${promoPluSet.has(String(r.plu))?'promo-semana':''}" style="animation-delay:${d}ms">
       <td class="oculto-col"><button class="oculto-btn" onclick="event.stopPropagation();toggleOcultoA(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
-      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}${nuevoTag(r)}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${tipoTag(r.plu)}${nuevoTag(r)}${promoTag(r)}</td>
       <td class="central">${fmtA(r.central)}</td>
       ${celdas}
       <td class="tot">${fmtA(totalVis(r))}</td>
@@ -2065,7 +2082,11 @@ function renderP() {
     if (q && !(String(r.plu).includes(q) || (r.nombre || '').toLowerCase().includes(q))) return false;
     return true;
   });
-  rows.sort((a, b) => { const va = valorP(a, ordenP.col), vb = valorP(b, ordenP.col); return (va < vb ? -1 : va > vb ? 1 : 0) * ordenP.dir; });
+  rows.sort((a, b) => {
+    const promo = promoPluSet.has(String(b.plu)) - promoPluSet.has(String(a.plu));
+    if (promo) return promo;
+    const va = valorP(a, ordenP.col), vb = valorP(b, ordenP.col); return (va < vb ? -1 : va > vb ? 1 : 0) * ordenP.dir;
+  });
   const maxImp = Math.max(0.0001, ...datosP.map(r => prioOf(r)));
   document.getElementById('body-p').innerHTML = rows.map((r, i) => {
     const celdas = SUC_P.filter(([k]) => sucVisP.has(k)).map(([k]) => { const v = r.enviar[k];
@@ -2094,10 +2115,10 @@ function renderP() {
     const respOpts = `<option value="">—</option>${fracEmpleados.map(e=>`<option value="${e.nombre}"${cur===e.nombre?' selected':''}>${e.nombre}</option>`).join('')}`;
     const respSel = `<td class="l"><select class="resp-select" onchange="guardarRespP(${r.plu},this.value)">${respOpts}</select></td>`;
     const d = Math.min(i * 6, 360);
-    return `<tr data-plu="${r.plu}" style="animation-delay:${d}ms">
+    return `<tr class="${promoPluSet.has(String(r.plu))?'promo-semana':''}" data-plu="${r.plu}" style="animation-delay:${d}ms">
       <td class="oculto-col"><button class="oculto-btn" onclick="event.stopPropagation();toggleOcultoP(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
-      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${promoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
       <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
       <td class="central">${fmt(r.H)}</td>
       ${envD}
