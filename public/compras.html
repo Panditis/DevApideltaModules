@@ -160,6 +160,10 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 .fila-inactiva .prod-nombre{color:var(--colorTextTertiary);}
 .prod-meta{margin-top:2px;font-size:12px;color:var(--colorTextSecondary);font-variant-numeric:tabular-nums;}
 .prod-meta [title]{border-bottom:1px dotted var(--colorBorder);cursor:help;}
+.btn-bulto{margin-top:3px;height:20px;padding:0 6px;font-size:11.5px;box-shadow:none;background:transparent;
+  color:var(--colorTextTertiary);border:1px dashed var(--colorBorder);}
+.btn-bulto.tiene{color:var(--colorPrimary);border-style:solid;border-color:var(--colorPrimaryBorder);}
+.btn-bulto:hover{color:var(--colorPrimary);border-color:var(--colorPrimary);background:var(--colorPrimaryBg);}
 .dato{font-size:14px;font-variant-numeric:tabular-nums;color:var(--colorText);}
 .dato-sec{font-size:13px;font-variant-numeric:tabular-nums;color:var(--colorTextSecondary);}
 /* Etiqueta interna de una celda (Central / Suc. / unidad). */
@@ -359,6 +363,7 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-importar" data-tab="importar">Importar xlsx</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-presentaciones" data-tab="presentaciones">Presentaciones</button>
   </nav>
 </header>
 
@@ -386,7 +391,10 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
       </div>
       <div class="mt-4 pt-4 ant-divider-t ant-toolbar">
         <input id="filtroTexto" class="ant-input w-64" placeholder="Filtrar producto o PLU…" aria-label="Filtrar por producto o PLU">
+        <button id="btnAgregarProd" class="ant-btn ant-btn-primary"
+          title="Suma al pedido cualquier artículo del sistema, aunque no sea de este proveedor">＋ Agregar artículo</button>
         <label class="ant-check-label pb-1.5"><input type="checkbox" id="soloConCantidad" class="ant-check"> Solo con cantidad</label>
+        <label class="ant-check-label pb-1.5"><input type="checkbox" id="ocultarInactivos" class="ant-check"> Ocultar desactivados</label>
         <span id="consumoTs" class="num t-ter t-12 pb-2"></span>
         <span id="armadoCount" class="num t-sec t-12 pb-2 ml-auto"></span>
       </div>
@@ -488,6 +496,26 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
     <p class="ant-empty-desc">Elegí un pedido del desplegable para ver y editar sus líneas.</p></div></div></div>
 </section>
 
+<!-- ── Presentaciones ─────────────────────────────────────────────────────────── -->
+<section id="tab-presentaciones" class="tab-panel hidden" role="tabpanel" aria-label="Presentaciones por producto">
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm ant-toolbar">
+      <input id="presFiltro" class="ant-input w-64" placeholder="Filtrar producto, PLU o proveedor…" aria-label="Filtrar productos">
+      <label class="ant-check-label pb-1.5"><input type="checkbox" id="presSoloCargadas" class="ant-check"> Solo con presentación</label>
+      <label class="ant-check-label pb-1.5"><input type="checkbox" id="presOcultarInactivos" class="ant-check" checked> Ocultar desactivados</label>
+      <span id="presCount" class="num t-sec t-12 pb-2 ml-auto"></span>
+    </div>
+  </div>
+  <div class="mt-4 ant-table-wrap ant-table-wrap-tall">
+    <table class="ant-table">
+      <thead><tr>
+        <th>Producto</th><th>Último proveedor</th><th class="t-r">Últ. compra</th><th>Presentación</th>
+      </tr></thead>
+      <tbody id="presBody"></tbody>
+    </table>
+  </div>
+</section>
+
 <!-- ── OTIF ─────────────────────────────────────────────────────────────────── -->
 <section id="tab-otif" class="tab-panel hidden" role="tabpanel" aria-label="Indicadores OTIF">
   <div class="ant-card">
@@ -582,6 +610,46 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
   </div>
 </div>
 
+<!-- Modal de presentación: cuántas unidades trae el bulto (caja, bolsa…) de un producto. -->
+<div id="mPresentacion" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
+     role="dialog" aria-modal="true" aria-labelledby="mPresentacionTitulo">
+  <form id="fPresentacion" class="ant-modal max-w-md">
+    <div class="ant-modal-header">
+      <h3 id="mPresentacionTitulo" class="ant-modal-title">Presentación</h3>
+      <button type="button" id="mPresentacionX" class="ant-modal-close" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="ant-modal-body flex flex-col gap-3">
+      <p class="t-sec t-12 m-0">Con la presentación cargada, la cantidad de este producto se puede pedir en bultos y así sale en el PDF del pedido.</p>
+      <div><label class="ant-label" for="presNombre">Tipo de bulto</label>
+        <input id="presNombre" class="ant-input w-full" placeholder="Caja" maxlength="30"></div>
+      <div><label class="ant-label" for="presUnidades">Unidades por bulto <span id="presUnidad" class="t-ter"></span></label>
+        <input id="presUnidades" type="number" min="0" step="any" class="ant-input w-full" required></div>
+    </div>
+    <div class="ant-modal-footer">
+      <button type="button" id="presQuitar" class="ant-btn ant-btn-danger mr-auto">Quitar</button>
+      <button type="button" id="presCancelar" class="ant-btn">Cancelar</button>
+      <button type="submit" class="ant-btn ant-btn-primary">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal "Agregar artículo": busca en todo SIGA y suma filas temporales al armado. -->
+<div id="mAgregar" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
+     role="dialog" aria-modal="true" aria-labelledby="mAgregarTitulo">
+  <div class="ant-modal max-w-2xl max-h-[85vh] flex flex-col">
+    <div class="ant-modal-header">
+      <h3 id="mAgregarTitulo" class="ant-modal-title">Agregar artículo al pedido</h3>
+      <button id="mAgregarX" class="ant-modal-close" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="px-6 pt-4">
+      <input id="agregarProdQ" type="text" class="ant-input w-full" autocomplete="off"
+        placeholder="Buscar por nombre, PLU o código de barras…" aria-label="Buscar artículo">
+      <p class="t-sec t-12 mt-2 mb-0">Cualquier artículo del sistema, sea o no de este proveedor. Queda como <b>temporal</b> en este pedido.</p>
+    </div>
+    <div id="agregarProdLista" class="ant-modal-body overflow-y-auto" aria-live="polite"></div>
+  </div>
+</div>
+
 <!-- Modal de composición del stock: qué PLUs suman al stock de sucursales de la fila. -->
 <div id="mStock" class="hidden fixed inset-0 z-50 items-center justify-center p-4 ant-modal-mask"
      role="dialog" aria-modal="true" aria-labelledby="mStockTitulo">
@@ -632,6 +700,9 @@ const fechaCorta = s => {
 
 let armado = null;              // respuesta de /api/compras/armado (incluye ultimaCompra: la última factura cargada en SIGA)
 const cantidades = {};          // plu -> cantidad tipeada (sobrevive a los re-render por filtro)
+// Compra por bultos: cantidades sigue en la unidad del producto; los bultos son sólo cómo se tipea y se imprime.
+let presentaciones = {};        // plu -> { nombre, unidadesPorBulto } (data/compras_presentaciones.json)
+const enUnidades = {};          // plu -> true si el usuario eligió tipear unidades aunque tenga presentación
 let pedidosTodos = [];          // cache de /api/compras/pedidos, compartido por Seguimiento y OTIF
 let pedidoSel = null;           // copia editable del pedido en seguimiento
 let comprobantesInfo = null;    // { candidatos, comparacion, vinculado, vinculadas } del pedido seleccionado
@@ -714,6 +785,8 @@ document.addEventListener('keydown', e => {
   if (!$('#mAviso').classList.contains('hidden')) cerrarAviso(false);
   else if (!$('#mConsumo').classList.contains('hidden')) cerrarConsumo();
   else if (!$('#mStock').classList.contains('hidden')) cerrarStock();
+  else if (!$('#mPresentacion').classList.contains('hidden')) cerrarPresentacion();
+  else if (!$('#mAgregar').classList.contains('hidden')) cerrarAgregar();
   else if (!$('#mProductoUso').classList.contains('hidden')) cerrarProductoUso();
 });
 
@@ -742,6 +815,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click
   // Los pedidos cambian desde otras sesiones: se recargan al entrar a la pestaña.
   if (btn.dataset.tab === 'seguimiento') cargarPedidos();
   if (btn.dataset.tab === 'otif') cargarPedidos().then(cargarOtif);
+  if (btn.dataset.tab === 'presentaciones') cargarCatalogoPresentaciones();
 }));
 
 // ═══ Tab 1: armar pedido ══════════════════════════════════════════════════════
@@ -892,17 +966,8 @@ function aplicarImportacion(r) {
     // erroresArchivo con el número de fila. Se salta sin tocar la grilla, para no
     // pisar una cantidad tipeada a mano con un valor inválido.
     if (!(Number(l.cantidad) > 0)) continue;
-    let f = armado.filas.find(f => f.plu === l.resuelto);
-    if (!f) {
-      f = {
-        plu: l.resuelto, nombre: l.nombreSiga, unidad: l.unidad || 'UN',
-        ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
-        stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
-        componentes: [], consumoMensual: [], abc: null,
-        demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
-        activo: true, importado: true,
-      };
-      armado.filas.push(f);
+    if (!armado.filas.some(f => f.plu === l.resuelto)) {
+      armado.filas.push(filaSinHistorial({ plu: l.resuelto, nombre: l.nombreSiga, unidad: l.unidad, importado: true }));
     }
     cantidades[l.resuelto] = l.cantidad;
   }
@@ -1019,10 +1084,12 @@ function filasVisibles() {
   if (!armado) return [];
   const q = $('#filtroTexto').value.trim().toLowerCase();
   const solo = $('#soloConCantidad').checked;
+  const sinInactivos = $('#ocultarInactivos').checked;
   const clave = CLAVES_ORDEN[orden.col] || CLAVES_ORDEN.cobertura;
   const out = (armado.filas || []).filter(f =>
     (!q || f.nombre.toLowerCase().includes(q) || String(f.plu).toLowerCase().includes(q)) &&
-    (!solo || Number(cantidades[f.plu]) > 0));
+    (!solo || Number(cantidades[f.plu]) > 0) &&
+    (!sinInactivos || f.activo !== false));
   out.sort((a, b) => compararOrden(clave(a), clave(b)));
   return out;
 }
@@ -1034,18 +1101,23 @@ function renderArmado() {
     const desglose = Object.entries(f.stockPorSucursal || {}).map(([s, v]) => `${s}: ${fmt(v)}`).join(' · ') || 'sin stock en sucursales';
     const inactivo = f.activo === false;
     const mensual = f.demandaDiariaCentral != null ? f.demandaDiariaCentral * DIAS_POR_MES : null;
+    const pres = presentaciones[f.plu];
+    const bultos = pidePorBultos(f.plu);
     const tUltima = fmt(f.ultimaCantidad) + ' ' + f.unidad + ' a ' + money(f.ultimoPrecio) + (f.ultimaFecha ? ' · ' + f.ultimaFecha : '');
     return `<tr class="${claseAbc(f.abc)} ${inactivo ? 'fila-inactiva' : ''}"
         ${inactivo ? 'title="Producto inactivo en SIGA"' : ''}>
       <td class="t-c"><input type="checkbox" class="js-chk ant-check" data-plu="${escAttr(f.plu)}"
           aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
       <td>
-        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}</div>
+        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}${f.temporal
+          ? ` <span class="ant-tag ant-tag-info" title="Agregado a mano: no es un producto que se le compre a este proveedor">temporal</span>
+             <button class="js-quitar ant-btn ant-btn-link t-12 p-0 h-auto" data-plu="${escAttr(f.plu)}" aria-label="Quitar ${escAttr(f.nombre)} del pedido">quitar</button>` : ''}</div>
         <div class="prod-meta">
           <span>${escAttr(f.plu)}</span> · <span>${escAttr(f.unidad)}</span> ·
           <span title="${escAttr(tUltima)}">últ. ${escAttr(fechaCorta(f.ultimaFecha))}</span> ·
           <span title="${escAttr('Total 24m: ' + fmt(f.cantTotal24m) + ' ' + f.unidad)}">${fmt(f.compras24m)} compras 24m</span>
         </div>
+        ${botonBulto(f)}
       </td>
       <td class="t-r">
         <button class="js-stock cell-btn" data-plu="${escAttr(f.plu)}"
@@ -1062,15 +1134,20 @@ function renderArmado() {
           aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>
       </td>
       <td class="t-c">${tagAbc(f.abc)}</td>
-      <td class="t-r dato-sec">${fmt(f.ultimaCantidad)}</td>
+      <td class="t-r dato-sec">${fmt(f.ultimaCantidad)}${f.ultimaFecha
+        ? `<span class="block t-12 t-ter">${escAttr(f.ultimaFecha.slice(8, 10) + '/' + f.ultimaFecha.slice(5, 7) + '/' + f.ultimaFecha.slice(2, 4))}</span>` : ''}</td>
       <td class="col-edit">
         <div class="flex items-center justify-end gap-2 whitespace-nowrap">
           <input type="number" min="0" step="0.01" class="js-cant ant-input ant-input-num"
                  data-plu="${escAttr(f.plu)}" aria-label="Cantidad a pedir de ${escAttr(f.nombre)}"
-                 value="${cantidades[f.plu] != null ? escAttr(cantidades[f.plu]) : ''}">
+                 value="${cantidades[f.plu] != null ? escAttr(bultos ? redondear3(cantidades[f.plu] / pres.unidadesPorBulto) : cantidades[f.plu]) : ''}">
+          ${pres ? `<button class="js-modo ant-btn ant-btn-sm t-12" data-plu="${escAttr(f.plu)}"
+            title="Cambiar entre pedir por ${escAttr(pres.nombre.toLowerCase())} o por ${escAttr(f.unidad)}"
+            aria-label="Pedir ${escAttr(f.nombre)} por ${bultos ? escAttr(f.unidad) : escAttr(pres.nombre)}">${bultos ? escAttr(pres.nombre) : escAttr(f.unidad)}</button>` : ''}
           <button class="js-cubrir ant-btn ant-btn-link t-12" data-plu="${escAttr(f.plu)}"
             title="Cubrir 30 días de demanda de la central" aria-label="Cubrir 30 días de ${escAttr(f.nombre)}">30 d</button>
         </div>
+        ${bultos ? `<span class="js-equiv block t-12 t-ter text-right num">${escAttr(textoEquivalencia(f))}</span>` : ''}
       </td>
       <td class="t-r dato-sec">${money(f.costoSistema)}</td>
       <td class="t-r dato-sec js-costo-total" data-plu="${escAttr(f.plu)}">${money(Number(cantidades[f.plu]) > 0 && f.costoSistema != null ? f.costoSistema * cantidades[f.plu] : null)}</td>
@@ -1091,11 +1168,14 @@ $('#armadoBody').addEventListener('input', e => {
   if (!inp) return;
   const v = inp.value.trim();
   if (v === '' || !(Number(v) > 0)) delete cantidades[inp.dataset.plu];
-  else cantidades[inp.dataset.plu] = Number(v);
+  else cantidades[inp.dataset.plu] = pidePorBultos(inp.dataset.plu)
+    ? redondear3(Number(v) * presentaciones[inp.dataset.plu].unidadesPorBulto) : Number(v);
   const fila = inp.closest('tr');
   const chk = fila.querySelector('.js-chk');
   if (chk) chk.checked = cantidades[inp.dataset.plu] != null;
   const f = ((armado && armado.filas) || []).find(x => String(x.plu) === inp.dataset.plu);
+  const equiv = fila.querySelector('.js-equiv');
+  if (equiv && f) equiv.textContent = textoEquivalencia(f);
   const celdaCosto = fila.querySelector('.js-costo-total');
   if (celdaCosto) celdaCosto.textContent = money(f && f.costoSistema != null && Number(cantidades[inp.dataset.plu]) > 0
     ? f.costoSistema * cantidades[inp.dataset.plu] : null);
@@ -1108,6 +1188,11 @@ $('#armadoBody').addEventListener('click', e => {
   const plu = (e.target.dataset || {}).plu;
   if (e.target.classList.contains('js-consumo')) return abrirConsumo(plu);
   if (e.target.classList.contains('js-cubrir')) return cubrir30(plu);
+  if (e.target.classList.contains('js-presentacion')) {
+    return abrirPresentacion(((armado && armado.filas) || []).find(x => String(x.plu) === String(plu)));
+  }
+  if (e.target.classList.contains('js-modo')) return cambiarModo(plu);
+  if (e.target.classList.contains('js-quitar')) return quitarTemporal(plu);
   if (e.target.classList.contains('js-chk') && !e.target.checked) {
     delete cantidades[plu];
     const fila = e.target.closest('tr');
@@ -1118,7 +1203,7 @@ $('#armadoBody').addEventListener('click', e => {
     actualizarContador();
   }
 });
-['#filtroTexto', '#soloConCantidad'].forEach(sel => {
+['#filtroTexto', '#soloConCantidad', '#ocultarInactivos'].forEach(sel => {
   $(sel).addEventListener(sel === '#filtroTexto' ? 'input' : 'change', renderArmado);
 });
 document.querySelector('#tab-armado thead').addEventListener('click', e => {
@@ -1130,11 +1215,227 @@ document.querySelector('#tab-armado thead').addEventListener('click', e => {
   renderArmado();
 });
 pintarHeaders();
+// ---- Compra por bultos ----
+const redondear3 = n => Math.round(n * 1000) / 1000;
+// Con presentación se pide por bultos salvo que el usuario haya elegido unidades en esa fila.
+const pidePorBultos = plu => !!presentaciones[plu] && !enUnidades[plu];
+const textoPresentacion = (p, unidad) => `${p.nombre} x ${fmt(p.unidadesPorBulto)} ${unidad || ''}`.trim();
+// Redondea hacia arriba a bultos enteros: el proveedor no parte cajas.
+const aBultosCompletos = (plu, cantidad) => {
+  const u = presentaciones[plu].unidadesPorBulto;
+  return redondear3(Math.ceil(redondear3(cantidad / u)) * u);
+};
+function textoEquivalencia(f) {
+  const c = Number(cantidades[f.plu]);
+  return c > 0 ? `= ${fmt(c)} ${f.unidad}` : `${presentaciones[f.plu].nombre} x ${fmt(presentaciones[f.plu].unidadesPorBulto)}`;
+}
+function cambiarModo(plu) {
+  if (pidePorBultos(plu)) enUnidades[plu] = true;
+  else {
+    delete enUnidades[plu];
+    if (Number(cantidades[plu]) > 0) cantidades[plu] = aBultosCompletos(plu, cantidades[plu]);
+  }
+  renderArmado();
+}
+async function cargarPresentaciones() {
+  try {
+    presentaciones = await apiFetch('/api/compras/presentaciones');
+    if (armado) renderArmado();
+  } catch (e) {
+    avisar('No se pudieron cargar las presentaciones por bulto: ' + e.message, 'Error');
+  }
+}
+cargarPresentaciones();
+
+function botonBulto(f) {
+  const pres = presentaciones[f.plu];
+  return `<button class="js-presentacion ant-btn btn-bulto${pres ? ' tiene' : ''}" data-plu="${escAttr(f.plu)}"
+    title="${pres ? 'Editar presentación' : 'Definir cuántas unidades trae el bulto'}">${pres ? escAttr(textoPresentacion(pres, f.unidad)) : '+ bulto'}</button>`;
+}
+
+// ---- Tab Presentaciones: todos los productos comprados y su bulto ----
+let catalogoPres = null;              // null = sin cargar; se trae una vez por sesión de la página
+const MAX_FILAS_PRES = 300;           // ponytail: tope de render; paginar si hace falta ver más de 300 a la vez
+async function cargarCatalogoPresentaciones() {
+  if (catalogoPres) return renderCatalogoPresentaciones();
+  $('#presBody').innerHTML = filaVacia(4, 'Cargando…', 'Trayendo los productos comprados en los últimos 24 meses.', 'cargando');
+  try {
+    catalogoPres = await apiFetch('/api/compras/presentaciones/productos');
+    renderCatalogoPresentaciones();
+  } catch (e) {
+    $('#presBody').innerHTML = filaVacia(4, 'No se pudo cargar', e.message, 'error');
+  }
+}
+function renderCatalogoPresentaciones() {
+  if (!catalogoPres) return;
+  const q = $('#presFiltro').value.trim().toLowerCase();
+  const soloCargadas = $('#presSoloCargadas').checked;
+  const sinInactivos = $('#presOcultarInactivos').checked;
+  const filas = catalogoPres.filter(p =>
+    (!q || p.nombre.toLowerCase().includes(q) || p.plu.toLowerCase().includes(q)
+      || String(p.proveedor || '').toLowerCase().includes(q)) &&
+    (!soloCargadas || presentaciones[p.plu]) &&
+    (!sinInactivos || p.activo !== false))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const cargadas = catalogoPres.filter(p => presentaciones[p.plu]).length;
+  $('#presCount').textContent = `${filas.length} productos · ${cargadas} con presentación`
+    + (filas.length > MAX_FILAS_PRES ? ` · mostrando ${MAX_FILAS_PRES}, filtrá para ver el resto` : '');
+  $('#presBody').innerHTML = filas.length ? filas.slice(0, MAX_FILAS_PRES).map(p => `<tr${p.activo === false ? ' class="fila-inactiva"' : ''}>
+      <td><div class="prod-nombre">${escAttr(p.nombre)}${p.activo === false ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}</div>
+        <div class="prod-meta">${escAttr(p.plu)}${p.unidad ? ' · ' + escAttr(p.unidad) : ''}</div></td>
+      <td class="dato-sec">${escAttr(p.proveedor || '—')}</td>
+      <td class="t-r dato-sec">${escAttr(p.ultimaFecha || '—')}</td>
+      <td>${botonBulto(p)}</td>
+    </tr>`).join('')
+    : filaVacia(4, 'Sin productos para mostrar', 'Ningún producto pasa los filtros activos.');
+}
+$('#presBody').addEventListener('click', e => {
+  const btn = e.target.closest('.js-presentacion');
+  if (btn) abrirPresentacion((catalogoPres || []).find(p => p.plu === btn.dataset.plu));
+});
+$('#presFiltro').addEventListener('input', renderCatalogoPresentaciones);
+['#presSoloCargadas', '#presOcultarInactivos'].forEach(sel => $(sel).addEventListener('change', renderCatalogoPresentaciones));
+
+let presentacionPlu = null;
+// f: cualquier objeto con { plu, nombre, unidad } — una fila del armado o del catálogo.
+function abrirPresentacion(f) {
+  if (!f) return;
+  presentacionPlu = f.plu;
+  const p = presentaciones[f.plu];
+  $('#mPresentacionTitulo').textContent = `Presentación · ${f.nombre}`;
+  $('#presUnidad').textContent = f.unidad ? `(${f.unidad})` : '';
+  $('#presNombre').value = p ? p.nombre : '';
+  $('#presUnidades').value = p ? p.unidadesPorBulto : '';
+  $('#presQuitar').classList.toggle('hidden', !p);
+  $('#mPresentacion').classList.remove('hidden');
+  $('#mPresentacion').classList.add('flex');
+  $('#presUnidades').focus();
+}
+function cerrarPresentacion() {
+  $('#mPresentacion').classList.add('hidden');
+  $('#mPresentacion').classList.remove('flex');
+  presentacionPlu = null;
+}
+async function guardarPresentacion(borrar) {
+  const plu = presentacionPlu;
+  if (!plu) return;
+  try {
+    const url = '/api/compras/presentaciones/' + encodeURIComponent(plu);
+    if (borrar) {
+      await apiFetch(url, { method: 'DELETE' });
+      const { [plu]: _borrada, ...resto } = presentaciones;
+      presentaciones = resto;
+    } else {
+      const r = await apiFetch(url, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: $('#presNombre').value, unidadesPorBulto: Number($('#presUnidades').value) }),
+      });
+      presentaciones = { ...presentaciones, [plu]: r.presentacion };
+      delete enUnidades[plu];
+      if (Number(cantidades[plu]) > 0) cantidades[plu] = aBultosCompletos(plu, cantidades[plu]);
+    }
+    cerrarPresentacion();
+    if (armado) renderArmado();
+    renderCatalogoPresentaciones();
+  } catch (e) {
+    avisar('No se pudo guardar la presentación: ' + e.message, 'Error');
+  }
+}
+$('#fPresentacion').addEventListener('submit', e => { e.preventDefault(); guardarPresentacion(false); });
+$('#presQuitar').addEventListener('click', () => guardarPresentacion(true));
+$('#presCancelar').addEventListener('click', cerrarPresentacion);
+$('#mPresentacionX').addEventListener('click', cerrarPresentacion);
+$('#mPresentacion').addEventListener('click', e => { if (e.target === $('#mPresentacion')) cerrarPresentacion(); });
+
+// Fila del armado para un producto sin compras a este proveedor (importado del xlsx o
+// agregado a mano): sin historial, stock ni consumo — sólo lo necesario para pedirlo.
+function filaSinHistorial({ plu, nombre, unidad, activo = true, importado = false, temporal = false }) {
+  return {
+    plu, nombre, unidad: unidad || 'UN',
+    ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
+    stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
+    componentes: [], consumoMensual: [], abc: null,
+    demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
+    activo, importado, temporal,
+  };
+}
+
+// ---- Agregar artículo temporal: cualquier producto del sistema, sea o no de este proveedor ----
+// Vive sólo en este armado: al cargar otro proveedor (o recargar) desaparece.
+function agregarTemporal(p) {
+  if (!armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
+  if (!armado.filas.some(f => f.plu === p.plu)) {
+    armado.filas.push(filaSinHistorial({ plu: p.plu, nombre: p.nombre, unidad: p.unidad, activo: p.activo, temporal: true }));
+  }
+  // Se limpian los filtros para que el artículo recién agregado se vea sí o sí.
+  $('#filtroTexto').value = '';
+  $('#soloConCantidad').checked = false;
+  $('#ocultarInactivos').checked = false;
+  renderArmado();
+}
+function quitarTemporal(plu) {
+  armado.filas = armado.filas.filter(f => !(f.plu === plu && f.temporal));
+  delete cantidades[plu];
+  renderArmado();
+}
+// El modal queda abierto después de agregar: así se suman varios artículos de una.
+function abrirAgregar() {
+  if (!armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
+  $('#agregarProdQ').value = '';
+  $('#agregarProdLista').innerHTML = estadoVacio('Buscá un artículo', 'Escribí al menos 2 letras del nombre, el PLU o el código de barras.');
+  $('#mAgregar').classList.remove('hidden');
+  $('#mAgregar').classList.add('flex');
+  $('#agregarProdQ').focus();
+}
+function cerrarAgregar() {
+  $('#mAgregar').classList.add('hidden');
+  $('#mAgregar').classList.remove('flex');
+}
+$('#btnAgregarProd').addEventListener('click', abrirAgregar);
+$('#mAgregarX').addEventListener('click', cerrarAgregar);
+$('#mAgregar').addEventListener('click', e => { if (e.target === $('#mAgregar')) cerrarAgregar(); });
+(function () {
+  const input = $('#agregarProdQ'), cont = $('#agregarProdLista');
+  let timer = null, lista = [];
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
+  const yaEsta = p => ((armado && armado.filas) || []).some(f => f.plu === p.plu);
+  function pintar() {
+    cont.innerHTML = lista.length
+      ? `<div class="flex flex-col gap-1">${lista.map((p, i) => `<div class="flex items-center gap-3 py-2 ant-divider-b">
+          <div class="flex-1 min-w-0">
+            <div class="prod-nombre">${escAttr(p.nombre)}${p.activo ? '' : ' <span class="ant-tag ant-tag-warning">inactivo</span>'}</div>
+            <div class="prod-meta">PLU ${escAttr(p.plu)} · ${escAttr(p.unidad)}${p.barras ? ' · ' + escAttr(p.barras) : ''}</div>
+          </div>
+          ${yaEsta(p)
+            ? '<span class="ant-tag ant-tag-success">en el pedido</span>'
+            : `<button class="js-agregar ant-btn ant-btn-sm" data-i="${i}" aria-label="Agregar ${escAttr(p.nombre)}">Agregar</button>`}
+        </div>`).join('')}</div>`
+      : estadoVacio('Sin resultados', 'Ningún artículo coincide con la búsqueda.');
+  }
+  async function buscar() {
+    const q = input.value.trim();
+    if (q.length < 2) { lista = []; cont.innerHTML = ''; return; }
+    try {
+      lista = (await apiFetch('/api/compras-import/buscar-producto?q=' + encodeURIComponent(q))).productos || [];
+      pintar();
+    } catch (e) {
+      cont.innerHTML = estadoVacio('No se pudo buscar', e.message, 'error');
+    }
+  }
+  cont.addEventListener('click', e => {
+    const b = e.target.closest('.js-agregar');
+    if (!b) return;
+    agregarTemporal(lista[Number(b.dataset.i)]);
+    pintar();
+  });
+})();
+
 function cubrir30(plu) {
   const f = (armado.filas || []).find(x => String(x.plu) === String(plu));
   if (!f) return;
   const necesita = Math.max(0, Math.round((f.demandaDiariaCentral || 0) * 30 - (f.stockCentral || 0)));
-  if (necesita > 0) cantidades[plu] = necesita; else delete cantidades[plu];
+  if (necesita > 0) cantidades[plu] = pidePorBultos(plu) ? aBultosCompletos(plu, necesita) : necesita;
+  else delete cantidades[plu];
   renderArmado();
 }
 
@@ -1335,7 +1636,11 @@ $('#btnGenerar').addEventListener('click', generarPedido);
 async function generarPedido() {
   const items = (armado.filas || [])
     .filter(f => Number(cantidades[f.plu]) > 0)
-    .map(f => ({ plu: f.plu, nombre: f.nombre, unidad: f.unidad, cantidad: Number(cantidades[f.plu]), precio: f.ultimoPrecio }));
+    .map(f => ({ plu: f.plu, nombre: f.nombre, unidad: f.unidad, cantidad: Number(cantidades[f.plu]), precio: f.ultimoPrecio,
+      ...(pidePorBultos(f.plu) ? {
+        bultos: redondear3(Number(cantidades[f.plu]) / presentaciones[f.plu].unidadesPorBulto),
+        presentacion: presentaciones[f.plu],
+      } : {}) }));
   if (!items.length) return;
   try {
     const r = await apiFetch('/api/compras/pedidos', {
@@ -1358,6 +1663,7 @@ function imprimirPedido(pedido) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const items = pedido.items || [];
+  const conBultos = items.some(it => it.bultos != null);
   const margenX = 18;
   let y = 20;
 
@@ -1397,13 +1703,19 @@ function imprimirPedido(pedido) {
   doc.autoTable({
     startY: y,
     margin: { left: margenX, right: margenX },
-    head: [['Producto', 'PLU', 'Cantidad', 'Unidad']],
-    body: items.map(it => [String(it.nombre || ''), String(it.plu || ''), fmt(it.cantidad), String(it.unidad || '')]),
+    // La columna de bultos aparece sólo si alguna línea se pidió así: es lo que el proveedor arma.
+    head: [conBultos ? ['Producto', 'PLU', 'Bultos', 'Cantidad', 'Unidad'] : ['Producto', 'PLU', 'Cantidad', 'Unidad']],
+    body: items.map(it => [String(it.nombre || ''), String(it.plu || ''),
+      ...(conBultos ? [it.bultos != null && it.presentacion
+        ? `${fmt(it.bultos)} ${it.presentacion.nombre} x ${fmt(it.presentacion.unidadesPorBulto)}` : '—'] : []),
+      fmt(it.cantidad), String(it.unidad || '')]),
     theme: 'striped',
     styles: { fontSize: 9, textColor: [26, 28, 24], cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 } },
     alternateRowStyles: { fillColor: [246, 247, 244] },
     headStyles: { fillColor: [64, 89, 54], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
-    columnStyles: { 1: { textColor: [139, 144, 131] }, 2: { halign: 'right' } },
+    columnStyles: conBultos
+      ? { 1: { textColor: [139, 144, 131] }, 2: { halign: 'right', fontStyle: 'bold' }, 3: { halign: 'right' } }
+      : { 1: { textColor: [139, 144, 131] }, 2: { halign: 'right' } },
   });
 
   y = doc.lastAutoTable.finalY + 7;

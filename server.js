@@ -1029,6 +1029,8 @@ const PEDIDOS_COMPRA_PATH = path.join(DATA_DIR, 'pedidos_compra.json');
 
 function leerPedidosCompra()          { return leerJSON(PEDIDOS_COMPRA_PATH, { pedidos: [] }).pedidos || []; }
 function guardarPedidosCompra(lista)  { guardarJSON(PEDIDOS_COMPRA_PATH, { pedidos: lista }); }
+// plu → { nombre, unidadesPorBulto }: cómo viene empaquetado cada producto para pedirlo por bultos.
+const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'compras_presentaciones.json');
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
 const A8020_CALC_PATH = path.join(DATA_DIR, 'a8020_calc.json');
 // Top 20 prioritarios (por facturación, últimos 30 días): lo genera Análisis de Ventas
@@ -2494,10 +2496,10 @@ async function ejecutarDevolucionReserva(plan, itemId) {
 // server.js solapa con las del router, así que el orden de registro no cambia
 // a qué handler llega cada request.
 const comprasRouter = require('./routes/rutas_compras')({
-  apiRoute, leerJSON, query, getPool,
+  apiRoute, leerJSON, guardarJSON, query, getPool,
   sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
   leerPedidosCompra, guardarPedidosCompra,
-  PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH,
+  PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH, PRESENTACIONES_COMPRA_PATH,
 });
 app.use(comprasRouter.router);
 // Grabación real de compras en SIGA (transacción de 14 escrituras, ver
