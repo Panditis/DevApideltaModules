@@ -207,10 +207,14 @@
 
   // La cantidad que carga el usuario es en kilos (lo que le va a entregar al tercero), no en
   // paquetes — el paquete sale solo de kilos / peso de la presentación.
+  // Mismo redondeo que lib/fraccionado_externo.js — precios y paquetes a 2 decimales.
+  const redondear2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  const dos = n => (Number(n) || 0).toFixed(2);
+
   function paquetesDe(it) {
     const peso = pesoPresentacionKg(it.presentacion);
     const kilos = Number(it.kilos) || 0;
-    return peso ? kilos / peso : 0;
+    return peso ? redondear2(kilos / peso) : 0;
   }
 
   function costoItem(it) {
@@ -220,8 +224,8 @@
     // Mismo orden que calcularCostoItem en lib/fraccionado_externo.js: redondear el unitario
     // primero y derivar el total de ahí, para que el preview del carrito coincida siempre con
     // lo que termina guardado y en el PDF.
-    const unitario = Math.round((valorHora() / 60) * min * factor);
-    return { unitario, total: Math.round(unitario * paq), paquetes: paq };
+    const unitario = redondear2((valorHora() / 60) * min * factor);
+    return { unitario, total: redondear2(unitario * paq), paquetes: paq };
   }
 
   function renderCarrito() {
@@ -243,10 +247,10 @@
               data-campo="minPorPaquete" data-i="${i}">
           </td>
           <td class="py-2 pr-2 text-right"><input type="number" step="0.1" min="0.01" value="${it.kilos}" class="border border-borde rounded px-1 py-0.5 w-20 text-right" data-campo="kilos" data-i="${i}"></td>
-          <td class="py-2 pr-2 text-right text-ink/60" data-paquetes="${i}">${paquetes ? paquetes.toFixed(1) : '—'}</td>
+          <td class="py-2 pr-2 text-right text-ink/60" data-paquetes="${i}">${paquetes ? dos(paquetes) : '—'}</td>
           <td class="py-2 pr-2 text-right"><input type="number" step="0.05" min="0.1" value="${it.factorComplejidad}" class="border border-borde rounded px-1 py-0.5 w-20 text-right" data-campo="factorComplejidad" data-i="${i}"></td>
-          <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${unitario}</td>
-          <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${total}</td>
+          <td class="py-2 pr-2 text-right" data-costo-unitario="${i}">$${dos(unitario)}</td>
+          <td class="py-2 pr-2 text-right font-medium" data-costo-total="${i}">$${dos(total)}</td>
           <td class="py-2 text-right"><button type="button" class="text-red-500 text-xs" data-quitar="${escAttr(it.plu)}">quitar</button></td>
         </tr>`;
     }).join('');
@@ -263,19 +267,19 @@
   function actualizarCostosFila(i) {
     const { unitario, total, paquetes } = costoItem(carrito[i]);
     const tbody = document.getElementById('carrito');
-    tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? paquetes.toFixed(1) : '—';
-    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + unitario;
-    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + total;
+    tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? dos(paquetes) : '—';
+    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + dos(unitario);
+    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + dos(total);
     actualizarTotalGeneral();
   }
 
   function actualizarTotalGeneral() {
-    const totalGeneral = carrito.reduce((s, it) => s + costoItem(it).total, 0);
+    const totalGeneral = redondear2(carrito.reduce((s, it) => s + costoItem(it).total, 0));
     const totalKilos = carrito.reduce((s, it) => s + (Number(it.kilos) || 0), 0);
     const totalPaquetes = carrito.reduce((s, it) => s + paquetesDe(it), 0);
-    document.getElementById('totalPedido').textContent = '$' + totalGeneral;
+    document.getElementById('totalPedido').textContent = '$' + dos(totalGeneral);
     document.getElementById('totalKilos').textContent = totalKilos.toFixed(1);
-    document.getElementById('totalPaquetes').textContent = totalPaquetes.toFixed(1);
+    document.getElementById('totalPaquetes').textContent = dos(totalPaquetes);
   }
 
   document.getElementById('valorHora').addEventListener('input', renderCarrito);
@@ -324,13 +328,13 @@
       startY: 40,
       head: [['Producto', 'Presentación', 'Kilos', 'Paquetes', 'Costo unit.', 'Costo total']],
       body: pedido.items.map(it => [
-        it.nombre, it.presentacion, it.kilos ?? '', it.paquetes,
-        '$' + it.costoUnitario, '$' + it.costoTotal,
+        it.nombre, it.presentacion, it.kilos ?? '', dos(it.paquetes),
+        '$' + dos(it.costoUnitario), '$' + dos(it.costoTotal),
       ]),
       foot: [['Total', '',
         pedido.items.reduce((s, it) => s + (Number(it.kilos) || 0), 0).toFixed(1),
-        pedido.items.reduce((s, it) => s + (Number(it.paquetes) || 0), 0).toFixed(1),
-        '', '$' + pedido.total]],
+        dos(pedido.items.reduce((s, it) => s + (Number(it.paquetes) || 0), 0)),
+        '', '$' + dos(pedido.total)]],
       styles: { fontSize: 9 },
     });
     doc.save(`pedido-fraccionado-${pedido.numero}.pdf`);
@@ -354,7 +358,7 @@
         <td class="py-2 pr-2">${escAttr(p.numero)}</td>
         <td class="py-2 pr-2">${escAttr(p.fecha)}</td>
         <td class="py-2 pr-2">${escAttr(p.tercero)}</td>
-        <td class="py-2 pr-2 text-right">$${p.total}</td>
+        <td class="py-2 pr-2 text-right">$${dos(p.total)}</td>
         <td class="py-2 pr-2">${escAttr(p.estado)}</td>
         <td class="py-2 text-right space-x-2">
           <button type="button" class="text-xs text-ink/60" data-reimprimir="${escAttr(p.numero)}">PDF</button>
