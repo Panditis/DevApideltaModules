@@ -45,6 +45,33 @@ tbody tr:hover { background: #f5f8f1; }
 .kpi .v { font-family: system-ui, "Segoe UI", sans-serif; font-size: 28px; font-weight: 700; line-height: 1; }
 .kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #5c5f52; }
 
+/* ── Stat card: resumen compacto con ícono (ej. totales del pedido en compras.html) ──
+   Más liviana que .kpi: ícono en cuadrado tintado + label/valor/detalle. Informativa, no
+   clickeable. Tonos del ícono: .t-verde (default), .t-info, .t-warn, .t-crit. */
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.stat-card {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fff;
+  border: 1px solid rgba(26,28,24,.10); border-radius: 10px; box-shadow: 0 1px 2px rgba(26,28,24,.04);
+}
+.stat-card .stat-ico {
+  flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  background: #eef2e9; color: #405936;
+}
+.stat-card .stat-ico svg { width: 18px; height: 18px; }
+.stat-card .stat-ico.t-info { background: #e6f4ff; color: #0958d9; }
+.stat-card .stat-ico.t-warn { background: #fff4ce; color: #8a5d00; }
+.stat-card .stat-ico.t-crit { background: #fde7e9; color: #a4262c; }
+.stat-card .stat-body { min-width: 0; }
+.stat-card .stat-lbl { display: block; font-size: 11.5px; letter-spacing: .02em; text-transform: uppercase; color: #5c5f52; }
+.stat-card .stat-val {
+  display: block; margin-top: 1px; font-size: 17px; font-weight: 600; color: #242423;
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stat-card .stat-det {
+  display: block; font-size: 11.5px; color: #5c5f52; opacity: .85;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .tab {
   font-family: system-ui, "Segoe UI", sans-serif; font-size: 17px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .03em; padding: 6px 14px;
