@@ -27,12 +27,12 @@ const uploadCompraXlsx = multer({ storage: multer.memoryStorage(), limits: { fil
 //   · /api/compras/consumo-mensual[/recalcular] → cache compartido con distribución.
 module.exports = function crearRutasCompras(deps) {
   const {
-    apiRoute, leerJSON, query, getPool,
+    apiRoute, leerJSON, guardarJSON, query, getPool,
     sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
     // pedidos_compra.json lo lee también el control de compras (rutas_compras_control.js):
     // los helpers de disco quedan en server.js y llegan por acá a los dos routers.
     leerPedidosCompra, guardarPedidosCompra,
-    PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH,
+    PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH, PRESENTACIONES_COMPRA_PATH,
   } = deps;
   const router = express.Router();
 
@@ -412,6 +412,69 @@ router.put('/api/compras/pedidos/:numero', (req, res) => {
   }
 });
 
+// Presentaciones por PLU (caja de 12, bolsa de 25…) para pedir por bultos. Son del
+// producto, no del proveedor: se editan desde la fila del armado.
+function leerPresentaciones() { return leerJSON(PRESENTACIONES_COMPRA_PATH, {}) || {}; }
+function pluDeRuta(req) {
+  const plu = String(req.params.plu || '').trim();
+  if (!plu || plu.length > 30) throw new Error('PLU inválido');
+  return plu;
+}
+router.get('/api/compras/presentaciones', apiRoute(async () => leerPresentaciones()));
+// Catálogo de la pestaña Presentaciones: todo lo comprado en 24 meses (a cualquier
+// proveedor) con su último proveedor, más los PLUs con presentación que no entran
+// en la ventana — si no, una presentación cargada quedaría invisible.
+router.get('/api/compras/presentaciones/productos', apiRoute(async () => {
+  const pool = await getPool();
+  const r = await pool.request().query(`
+    ;WITH cc AS (
+      SELECT LTRIM(RTRIM(cp.IdProducto)) AS Plu, c.Fecha, c.NombreProveedor,
+             ROW_NUMBER() OVER (PARTITION BY LTRIM(RTRIM(cp.IdProducto)) ORDER BY c.Fecha DESC) AS rn
+      FROM ComprasProductos cp
+      JOIN Compras c ON c.IdSucursal=cp.IdSucursal AND c.IdTipoComprobante=cp.IdTipoComprobante
+        AND c.Letra=cp.Letra AND c.CentroEmisor=cp.CentroEmisor AND c.NumeroComprobante=cp.NumeroComprobante
+        AND c.IdProveedor=cp.IdProveedor
+      WHERE c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+        AND LTRIM(RTRIM(cp.IdProducto)) <> '1'
+    )
+    SELECT cc.Plu, p.NombreProducto, p.Activo, ru.NombreRubro AS Rubro, cc.NombreProveedor,
+           CONVERT(varchar(10), cc.Fecha, 23) AS UltimaFecha
+    FROM cc
+    LEFT JOIN Productos p ON LTRIM(RTRIM(p.IdProducto)) = cc.Plu
+    LEFT JOIN Rubros ru ON ru.IdRubro = p.IdRubro
+    WHERE cc.rn = 1`);
+  const productos = r.recordset.map(x => ({
+    plu: x.Plu, nombre: x.NombreProducto || x.Plu,
+    activo: x.Activo == null ? null : !!Number(x.Activo),
+    unidad: esRubroAlmacen(x.Rubro) ? 'UN' : 'KG',
+    proveedor: x.NombreProveedor || null, ultimaFecha: x.UltimaFecha || null,
+  }));
+  const vistos = new Set(productos.map(p => p.plu));
+  const fueraDeVentana = Object.keys(leerPresentaciones()).filter(plu => !vistos.has(plu))
+    .map(plu => ({ plu, nombre: plu, activo: null, unidad: '', proveedor: null, ultimaFecha: null }));
+  return [...productos, ...fueraDeVentana];
+}));
+router.put('/api/compras/presentaciones/:plu', (req, res) => {
+  try {
+    const plu = pluDeRuta(req);
+    const presentacion = compras.normalizarPresentacion(req.body || {});
+    guardarJSON(PRESENTACIONES_COMPRA_PATH, { ...leerPresentaciones(), [plu]: presentacion });
+    res.json({ ok: true, plu, presentacion });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.delete('/api/compras/presentaciones/:plu', (req, res) => {
+  try {
+    const plu = pluDeRuta(req);
+    const { [plu]: _borrada, ...resto } = leerPresentaciones();
+    guardarJSON(PRESENTACIONES_COMPRA_PATH, resto);
+    res.json({ ok: true, plu });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidosCompra(), {
   proveedor: req.query.proveedor ? String(req.query.proveedor) : undefined,
   desde: req.query.desde ? String(req.query.desde) : undefined,
@@ -713,8 +776,9 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   const soloCompras = req.query.soloCompras === '1';
   const pool = await getPool();
   const r = await pool.request().input('q', '%' + q + '%').input('exacto', q)
-    .query(`SELECT TOP 25 p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.Activo
+    .query(`SELECT TOP 25 p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.Activo, ru.NombreRubro AS Rubro
               FROM Productos p
+              LEFT JOIN Rubros ru ON ru.IdRubro = p.IdRubro
              WHERE (p.NombreProducto LIKE @q OR p.IdProducto = @exacto OR p.CodigoDeBarras = @exacto)
              ${soloCompras ? 'AND p.EsDeCompras = 1' : ''}
              ORDER BY CASE WHEN p.IdProducto = @exacto THEN 0 ELSE 1 END, p.NombreProducto`);
@@ -722,6 +786,8 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
     productos: r.recordset.map(p => ({
       plu: String(p.IdProducto).trim(), nombre: p.NombreProducto,
       barras: String(p.CodigoDeBarras || '').trim(), activo: !!p.Activo,
+      // Misma regla de unidad que el armado: la usa "Agregar artículo" para la fila temporal.
+      unidad: esRubroAlmacen(p.Rubro) ? 'UN' : 'KG',
     })),
   };
 }));

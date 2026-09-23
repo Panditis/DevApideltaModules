@@ -636,3 +636,34 @@ test('la cantidad entregada se acota al rango de la línea', () => {
   }, CTX);
   assert.strictEqual(corregida.items[1].cantidadEntregada, 0);
 });
+
+// ── Compra por bultos ────────────────────────────────────────────────────────
+const { normalizarPresentacion } = require('../lib/compras');
+
+test('normalizarPresentacion acepta nombre y unidades por bulto', () => {
+  assert.deepStrictEqual(normalizarPresentacion({ nombre: ' Caja ', unidadesPorBulto: '12' }),
+    { nombre: 'Caja', unidadesPorBulto: 12 });
+  // Sin nombre, se asume caja: es el caso que motivó la opción.
+  assert.deepStrictEqual(normalizarPresentacion({ unidadesPorBulto: 6 }), { nombre: 'Caja', unidadesPorBulto: 6 });
+});
+test('normalizarPresentacion rechaza unidades por bulto inválidas', () => {
+  for (const u of [0, -3, 'abc', null, undefined, Infinity]) {
+    assert.throws(() => normalizarPresentacion({ nombre: 'Caja', unidadesPorBulto: u }), /unidades por bulto/i);
+  }
+});
+test('construirPedido con bultos: la cantidad sale de bultos × unidades por bulto', () => {
+  const p = construirPedido({
+    numero: 'P-1', fechaISO: '2026-08-01', proveedor: 'ACME',
+    items: [{ plu: '1234', nombre: 'Aceite', unidad: 'UN', cantidad: 999, bultos: 5,
+      presentacion: { nombre: 'Caja', unidadesPorBulto: 12 } }],
+  });
+  assert.strictEqual(p.items[0].cantidad, 60);
+  assert.strictEqual(p.items[0].bultos, 5);
+  assert.deepStrictEqual(p.items[0].presentacion, { nombre: 'Caja', unidadesPorBulto: 12 });
+});
+test('construirPedido con bultos rechaza bultos inválidos o presentación faltante', () => {
+  const base = { numero: 'P-1', fechaISO: '2026-08-01', proveedor: 'ACME' };
+  assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: 1, bultos: 0,
+    presentacion: { unidadesPorBulto: 12 } }] }), /bultos/i);
+  assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: 1, bultos: 2 }] }), /unidades por bulto/i);
+});
