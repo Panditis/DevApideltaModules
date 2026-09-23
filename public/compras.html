@@ -401,7 +401,9 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
     </div>
   </div>
 
-  <div class="mt-4 ant-table-wrap ant-table-wrap-tall">
+  <div id="armadoResumen" class="mt-4 stat-cards"></div>
+
+  <div class="mt-4 ant-table-wrap ant-table-wrap-tall" style="max-height:calc(100vh - 420px)">
     <table class="ant-table">
       <thead>
         <tr>
@@ -1443,6 +1445,37 @@ function actualizarContador() {
   const n = Object.keys(cantidades).length;
   $('#lineasCount').textContent = `${n} línea${n === 1 ? '' : 's'} cargada${n === 1 ? '' : 's'}`;
   $('#btnGenerar').disabled = n === 0;
+  renderResumenPedido();
+}
+
+// Tarjetas de totales del pedido en armado. Todo sale de `cantidades` (unidad base):
+// el total usa el costo del sistema, igual que la columna "Costo x cant.".
+function renderResumenPedido() {
+  const lineas = ((armado && armado.filas) || []).filter(f => Number(cantidades[f.plu]) > 0);
+  let total = 0, sinCosto = 0, bultos = 0, lineasBulto = 0;
+  const porUnidad = {};
+  for (const f of lineas) {
+    const c = Number(cantidades[f.plu]);
+    if (f.costoSistema != null) total += f.costoSistema * c; else sinCosto++;
+    porUnidad[f.unidad] = (porUnidad[f.unidad] || 0) + c;
+    if (pidePorBultos(f.plu)) { bultos += c / presentaciones[f.plu].unidadesPorBulto; lineasBulto++; }
+  }
+  const unidades = Object.entries(porUnidad).map(([u, c]) => `${fmt(c)} ${u}`).join(' · ') || '0';
+  // .stat-card vive en apidelta-theme.css (componente compartido).
+  const item = (lbl, val, detalle, tono, icono) =>
+    `<div class="stat-card" title="${escAttr(detalle)}"><span class="stat-ico ${tono}" aria-hidden="true">${icono}</span>
+      <div class="stat-body"><span class="stat-lbl">${escAttr(lbl)}</span><span class="stat-val">${escAttr(val)}</span>
+      <span class="stat-det">${escAttr(detalle)}</span></div></div>`;
+  const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  $('#armadoResumen').innerHTML =
+    item('Total', money(lineas.length ? total : null),
+      `${lineas.length} línea${lineas.length === 1 ? '' : 's'}${sinCosto ? ` · ${sinCosto} sin costo` : ''}`,
+      't-verde', svg('<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>')) +
+    item('Unidades', unidades, 'En la unidad de cada producto', 't-info',
+      svg('<path d="M4 7h16M4 12h16M4 17h10"/>')) +
+    item('Bultos', fmt(redondear3(bultos)),
+      lineasBulto ? `En ${lineasBulto} línea${lineasBulto === 1 ? '' : 's'} por bulto` : 'Ninguna línea por bulto', 't-warn',
+      svg('<path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="m3 8 9 5 9-5M12 13v8"/>'));
 }
 
 // El stock de sucursales de un granel es la suma de sus presentaciones fraccionadas

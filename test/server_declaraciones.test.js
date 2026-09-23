@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // Cada router nuevo se suma acá.
-const ARCHIVOS = ['server.js', 'routes/rutas_compras.js', 'routes/rutas_cruce_terminales.js', 'routes/rutas_productividad.js', 'routes/rutas_fraccionado_externo.js', 'routes/rutas_precios_proveedores.js', 'routes/rutas_rrhh.js', 'routes/rutas_mayoristas.js', 'routes/rutas_catalogo.js', 'routes/rutas_envases_tapas.js', 'routes/rutas_cotizador.js', 'routes/rutas_analisis.js', 'routes/rutas_cuentas_corrientes.js', 'routes/rutas_ventas_hora.js', 'routes/rutas_precios_historico.js', 'routes/rutas_compras_control.js', 'routes/rutas_auth.js', 'routes/rutas_produccion.js', 'routes/rutas_stock.js', 'routes/rutas_distribucion.js', 'routes/rutas_consumo.js', 'routes/rutas_facturador.js', 'routes/rutas_plan.js', 'routes/rutas_reservas.js']
+const ARCHIVOS = ['server.js', 'routes/rutas_compras.js', 'routes/rutas_cruce_terminales.js', 'routes/rutas_productividad.js', 'routes/rutas_fraccionado_externo.js', 'routes/rutas_precios_proveedores.js', 'routes/rutas_rrhh.js', 'routes/rutas_mayoristas.js', 'routes/rutas_catalogo.js', 'routes/rutas_envases_tapas.js', 'routes/rutas_cotizador.js', 'routes/rutas_analisis.js', 'routes/rutas_cuentas_corrientes.js', 'routes/rutas_ventas_hora.js', 'routes/rutas_precios_historico.js', 'routes/rutas_compras_control.js', 'routes/rutas_auth.js', 'routes/rutas_produccion.js', 'routes/rutas_stock.js', 'routes/rutas_distribucion.js', 'routes/rutas_consumo.js', 'routes/rutas_facturador.js', 'routes/rutas_plan.js', 'routes/rutas_reservas.js', 'routes/rutas_precios.js']
   .map(f => path.join(__dirname, '..', f));
 
 // Sólo nivel superior del archivo: una declaración anidada arranca indentada.

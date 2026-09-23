@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Precios · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  /* Botón de filtro (mismo criterio que .rubro-btn de distribucion.html, con los
+     colores del theme: verde #405936, borde rgba(26,28,24,.16)). */
+  .fbtn{font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid rgba(26,28,24,.16);
+        background:#fff;color:#242423;white-space:nowrap;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease}
+  .fbtn:hover{background:#f5f8f1}
+  .fbtn.on{background:rgba(64,89,54,.1);border-color:#405936;color:#405936}
+  .fbtn-n:empty{display:none}
+  .fbtn-n{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:#405936;color:#fff;font-size:11px;line-height:18px;text-align:center}
+  .fopt{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+  .fopt:hover{background:rgba(64,89,54,.08)}
+  .fopt input{accent-color:#405936;width:14px;height:14px;flex-shrink:0}
+  .fopt b{margin-left:auto;color:#5c5f52;font-weight:600;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold text-verde">PRECIOS</h1>
+    <span class="text-sm text-ink/60">Costeo sugerido vs. SIGA</span>
+    <div class="ml-auto flex items-center gap-2">
+      <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
+    </div>
+  </div>
+  <!-- Fraccionado y Producción llegan en fases siguientes: quedan visualmente
+       deshabilitadas (disabled real, no sólo estilo) para no prometer nada que
+       todavía no anda. -->
+  <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs">
+    <button class="navtab on" data-tipo="almacen">Almacén</button>
+    <button class="navtab opacity-40 cursor-not-allowed" data-tipo="fraccionado" disabled>
+      Fraccionado <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
+    <button class="navtab opacity-40 cursor-not-allowed" data-tipo="produccion" disabled>
+      Producción <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
+    <button class="navtab" data-tipo="configuracion">Configuración</button>
+  </nav>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+
+  <div id="panel-almacen" class="tab-panel">
+    <div class="flex items-center gap-2 mb-3">
+      <button id="btnRecargarAlmacen" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
+      <span id="almacenMeta" class="text-xs text-ink/50"></span>
+      <span id="marcadosConteo" class="ml-auto text-sm text-gris">Marcados: 0</span>
+      <button id="btnDesmarcarTodos" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white disabled:opacity-40" disabled>Desmarcar todos</button>
+      <button id="btnExportarMarcados" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40" disabled>Exportar marcados (0)</button>
+    </div>
+    <!-- Filtros: mismo patrón que el filtro estilo Excel de distribucion.html (botón →
+         desplegable con buscador + checkboxes), con los tokens del theme compartido. -->
+    <div class="flex gap-2 mb-3 items-center flex-wrap bg-card border border-borde rounded-xl shadow-fluent px-3 py-2.5">
+      <input id="fBuscar" type="search" placeholder="Buscar por PLU o nombre…"
+             class="px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72 focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
+      <button id="fBtnProveedor" data-filtro="proveedor" class="fbtn">Proveedor <span class="fbtn-n"></span> ▾</button>
+      <button id="fBtnEstado" data-filtro="estado" class="fbtn">Estado <span class="fbtn-n"></span> ▾</button>
+      <button id="fIngresoHoy" class="fbtn" aria-pressed="false">Ingreso hoy</button>
+      <button id="fSoloMarcados" class="fbtn" aria-pressed="false">Sólo marcados</button>
+      <button id="fLimpiar" class="text-xs text-gris hover:text-crit px-1">Limpiar filtros</button>
+      <label class="ml-auto flex items-center gap-1 text-sm text-gris" title="Diferencias dentro de ± este % no se resaltan">Tolerancia ±
+        <input id="fTolerancia" type="number" min="0" step="0.5"
+               class="w-16 px-2 py-1 rounded-lg border border-borde bg-bg/60 text-sm text-ink text-right focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20"> %</label>
+      <span id="almacenConteo" class="text-sm text-gris"></span>
+    </div>
+    <div id="fDrop" class="hidden fixed z-50 bg-card border border-borde rounded-xl shadow-fluent overflow-hidden" style="min-width:280px;max-width:360px">
+      <div class="p-2 border-b border-borde">
+        <input id="fDropBuscar" type="search" placeholder="Buscar…"
+               class="w-full px-2.5 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
+      </div>
+      <div class="flex gap-1.5 px-2 py-1.5 border-b border-borde">
+        <button id="fDropTodos" class="flex-1 text-xs py-1 rounded-md border border-borde hover:bg-verde/10">Marcar visibles</button>
+        <button id="fDropLimpiar" class="flex-1 text-xs py-1 rounded-md border border-borde hover:bg-verde/10">Limpiar</button>
+      </div>
+      <div id="fDropLista" class="overflow-y-auto py-1" style="max-height:300px"></div>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
+      <table class="w-full text-sm">
+        <thead class="bg-verde/5 text-verde">
+          <tr><th class="p-2 w-8"><input id="chkTodos" type="checkbox" class="accent-verde" title="Marcar/desmarcar los visibles"></th>
+              <th class="p-2 text-left">Código</th><th class="p-2 text-left">Producto</th>
+              <th class="p-2">Costo</th><th class="p-2">Banda/Markup%</th>
+              <th class="p-2">Precio sugerido</th><th class="p-2">Precio vigente</th>
+              <th class="p-2">Diferencia</th><th class="p-2">Estado</th></tr>
+        </thead>
+        <tbody id="cuerpoAlmacen"><tr><td colspan="9" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="panel-configuracion" class="tab-panel hidden">
+    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md">
+      <h2 class="font-disp text-lg font-bold text-verde mb-4">Configuración general</h2>
+      <div id="configCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+      <div id="configForm" class="hidden space-y-4">
+        <label class="block text-sm">Costo por hora ($)
+          <input id="inCostoHora" type="number" min="0" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <label class="block text-sm">Tolerancia (%)
+          <input id="inTolerancia" type="number" min="0" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <label class="block text-sm">Costos varios Almacén (%)
+          <input id="inCostosVariosAlmacen" type="number" min="0" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <div class="flex items-center gap-2">
+          <button id="btnGuardarGeneral" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar</button>
+          <span id="generalMsg" class="text-sm"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md mt-5">
+      <h2 class="font-disp text-lg font-bold text-verde mb-1">Bandas de markup — Almacén</h2>
+      <p class="text-xs text-ink/50 mb-4">Costo hasta ($) vacío = sin tope (sólo permitido en la última fila).</p>
+      <div id="bandasCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+      <div id="bandasForm" class="hidden space-y-3">
+        <table class="w-full text-sm">
+          <thead class="text-ink/60"><tr><th class="text-left font-normal pb-1">Costo hasta ($)</th>
+              <th class="text-left font-normal pb-1">Markup máx (%)</th><th></th></tr></thead>
+          <tbody id="bandasFilas"></tbody>
+        </table>
+        <button id="btnAgregarBanda" class="px-3 py-1 rounded-lg border border-borde text-xs hover:bg-white">+ Agregar banda</button>
+        <div id="bandasMsg" class="text-sm"></div>
+        <button id="btnGuardarBandas" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar bandas</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Detalle de un producto Almacén: calculadora paso a paso (costo → markup → IVA → redondeo). -->
+<div id="mDet" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4" role="dialog" aria-modal="true">
+  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-2xl max-h-[88vh] flex flex-col">
+    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
+      <h3 id="mDetTitulo" class="font-disp text-xl font-bold text-verde">Detalle</h3>
+      <button id="mDetX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="mDetBody" class="px-5 py-4 overflow-y-auto text-sm"></div>
+  </div>
+</div>
+
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const fmtMoney = n => n == null ? '—' : new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+// Precio sugerido: siempre múltiplo de 50 sin decimales (lo garantiza el backend).
+const fmtPrecio = n => n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
+const fmtPct = n => n == null ? '—' : (n > 0 ? '+' : '') + n.toFixed(1) + '%';
+
+// Estado de la diferencia sugerido vs. SIGA (tokens ok/warn/crit). subir = el precio
+// calculado supera al de SIGA más allá de la tolerancia: se está vendiendo por debajo de
+// lo que corresponde. bajar = el calculado queda por debajo. ok = dentro de ±tolerancia.
+const SEMAFORO_META = {
+  ok:    { cls: 'bg-ok/15 text-ok',     txt: 'OK' },
+  subir: { cls: 'bg-crit/15 text-crit', txt: 'Subir' },
+  bajar: { cls: 'bg-warn/15 text-warn', txt: 'Bajar' },
+};
+// Color del número de diferencia: sólo se resalta fuera de tolerancia.
+const DELTA_CLS = { subir: 'font-semibold text-crit', bajar: 'font-semibold text-warn' };
+const claseDelta = sem => DELTA_CLS[sem] || 'text-gris';
+function badgeSemaforo(sem){
+  const m = SEMAFORO_META[sem];
+  if (!m) return '<span class="text-ink/40 text-xs">—</span>';
+  return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${m.cls}">${m.txt}</span>`;
+}
+
+// ── Almacén: listado ─────────────────────────────────────────────────────────
+let almacenData = [];
+
+async function cargarAlmacen(){
+  const tbody = document.getElementById('cuerpoAlmacen');
+  tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
+  try {
+    const r = await fetch('/api/precios/listado?tipo=almacen');
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    almacenData = j;
+    document.getElementById('almacenMeta').textContent = `${j.length} productos`;
+    podarSeleccion();
+    renderAlmacen();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ── Almacén: filtros (client-side sobre almacenData) ─────────────────────────
+const SIN_PROVEEDOR = '__sin__';
+const normTxt = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const tieneFaltantes = f => Array.isArray(f.faltantes) && f.faltantes.length > 0;
+
+// Selección vacía = sin filtro (todos). Con algo marcado, se muestran sólo esos.
+const filtroSel = { proveedor: new Set(), estado: new Set() };
+let soloIngresoHoy = false;
+let soloMarcados = false;
+
+const ESTADO_OPCIONES = [
+  ['ok', 'OK'], ['subir', 'Subir precio'], ['bajar', 'Bajar precio'],
+  ['sinPrecio', 'Sin precio'], ['sinVigente', 'Sin precio vigente'],
+];
+const proveedorDe = f => f.proveedor || SIN_PROVEEDOR;
+const estadoDe = f => tieneFaltantes(f) ? 'sinPrecio' : f.precioVigente == null ? 'sinVigente' : f.semaforo;
+const valorDe = { proveedor: proveedorDe, estado: estadoDe };
+
+// Opciones [valor, texto, cantidad] del desplegable, contadas sobre todo el listado.
+function opcionesFiltro(tipo){
+  const cuenta = new Map();
+  for (const f of almacenData) { const v = valorDe[tipo](f); cuenta.set(v, (cuenta.get(v) || 0) + 1); }
+  if (tipo === 'estado') return ESTADO_OPCIONES.map(([v, t]) => [v, t, cuenta.get(v) || 0]);
+  const nombres = [...cuenta.keys()].filter(v => v !== SIN_PROVEEDOR).sort((a, b) => a.localeCompare(b, 'es'));
+  const ops = nombres.map(n => [n, n, cuenta.get(n)]);
+  return cuenta.has(SIN_PROVEEDOR) ? [[SIN_PROVEEDOR, 'Sin proveedor', cuenta.get(SIN_PROVEEDOR)], ...ops] : ops;
+}
+
+// Descarta selecciones que ya no existen tras recargar (ej. proveedor sin productos).
+function podarSeleccion(){
+  const vigentes = new Set(opcionesFiltro('proveedor').map(o => o[0]));
+  for (const v of [...filtroSel.proveedor]) if (!vigentes.has(v)) filtroSel.proveedor.delete(v);
+  actualizarBotonesFiltro();
+}
+
+function actualizarBotonesFiltro(){
+  for (const tipo of ['proveedor', 'estado']) {
+    const btn = document.querySelector(`.fbtn[data-filtro="${tipo}"]`);
+    const n = filtroSel[tipo].size;
+    btn.classList.toggle('on', n > 0);
+    btn.querySelector('.fbtn-n').textContent = n ? String(n) : '';
+  }
+  const hoy = document.getElementById('fIngresoHoy');
+  hoy.classList.toggle('on', soloIngresoHoy);
+  hoy.setAttribute('aria-pressed', String(soloIngresoHoy));
+  const marc = document.getElementById('fSoloMarcados');
+  marc.classList.toggle('on', soloMarcados);
+  marc.setAttribute('aria-pressed', String(soloMarcados));
+}
+
+// ── Desplegable de filtro con buscador (uno solo, se reusa para proveedor y estado) ──
+let dropTipo = null;
+function abrirDrop(tipo, btn){
+  const drop = document.getElementById('fDrop');
+  if (!drop.classList.contains('hidden') && dropTipo === tipo) { cerrarDrop(); return; }
+  dropTipo = tipo;
+  const buscar = document.getElementById('fDropBuscar');
+  buscar.value = '';
+  buscar.placeholder = tipo === 'proveedor' ? 'Buscar proveedor…' : 'Buscar estado…';
+  renderDropLista();
+  drop.classList.remove('hidden');
+  const r = btn.getBoundingClientRect();
+  drop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - drop.offsetWidth - 8)) + 'px';
+  drop.style.top = (r.bottom + 4) + 'px';
+  setTimeout(() => buscar.focus(), 0);
+}
+function cerrarDrop(){ document.getElementById('fDrop').classList.add('hidden'); dropTipo = null; }
+
+function opcionesVisibles(){
+  const q = normTxt(document.getElementById('fDropBuscar').value.trim());
+  return opcionesFiltro(dropTipo).filter(([, t]) => !q || normTxt(t).includes(q));
+}
+function renderDropLista(){
+  const sel = filtroSel[dropTipo];
+  const ops = opcionesVisibles();
+  const lista = document.getElementById('fDropLista');
+  lista.innerHTML = ops.length
+    ? ops.map(([v, t, n]) => `<label class="fopt"><input type="checkbox" data-v="${esc(v)}" ${sel.has(v) ? 'checked' : ''}><span>${esc(t)}</span><b>${n}</b></label>`).join('')
+    : '<div class="px-3 py-4 text-sm text-gris text-center">Sin resultados</div>';
+  lista.querySelectorAll('input[data-v]').forEach(cb => cb.onchange = () => {
+    if (cb.checked) sel.add(cb.dataset.v); else sel.delete(cb.dataset.v);
+    actualizarBotonesFiltro(); renderAlmacen();
+  });
+}
+
+function filtrarAlmacen(){
+  const q = normTxt(document.getElementById('fBuscar').value.trim());
+  const { proveedor, estado } = filtroSel;
+  return almacenData.filter(f => {
+    if (q && !String(f.plu).includes(q) && !normTxt(f.nombre).includes(q)) return false;
+    if (proveedor.size && !proveedor.has(proveedorDe(f))) return false;
+    if (estado.size && !estado.has(estadoDe(f))) return false;
+    if (soloIngresoHoy && !f.ingresoHoy) return false;
+    if (soloMarcados && !f.marcado) return false;
+    return true;
+  });
+}
+
+function renderAlmacen(){
+  const tbody = document.getElementById('cuerpoAlmacen');
+  actualizarBarraMarcados();
+  const chkTodos = document.getElementById('chkTodos');
+  chkTodos.checked = false; chkTodos.indeterminate = false;
+  if (!almacenData.length) {
+    document.getElementById('almacenConteo').textContent = '';
+    tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-ink/50">Sin productos</td></tr>';
+    return;
+  }
+  const filas = filtrarAlmacen();
+  document.getElementById('almacenConteo').textContent = `${filas.length} de ${almacenData.length} productos`;
+  if (!filas.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-ink/50">Ningún producto coincide con los filtros</td></tr>';
+    return;
+  }
+  const marcables = filas.filter(f => !tieneFaltantes(f));
+  const nMarc = marcables.filter(f => f.marcado).length;
+  chkTodos.checked = marcables.length > 0 && nMarc === marcables.length;
+  chkTodos.indeterminate = nMarc > 0 && nMarc < marcables.length;
+  tbody.innerHTML = filas.map(f => {
+    const sinPrecio = tieneFaltantes(f);
+    const filaCls = (sinPrecio ? 'opacity-50' : 'hover:bg-verde/5') + (f.marcado ? ' bg-amarillo/10' : '');
+    const tooltip = sinPrecio ? ` title="Sin precio: falta ${esc(f.faltantes.join(', '))}"` : '';
+    const banda = f.markupOverride != null
+      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Markup propio del producto (banda: ${f.markupBanda != null ? f.markupBanda + '%' : '—'})">propio</span> ${f.markupOverride}%`
+      : f.banda ? `${esc(f.banda)} / ${f.markupPct != null ? f.markupPct + '%' : '—'}` : '—';
+    const tipCompra = `Proveedor: ${f.proveedor || '—'} · Última compra: ${f.fechaUltimaCompra || '—'}`;
+    const badgeHoy = f.ingresoHoy ? ' <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-ok/15 text-ok">Ingreso hoy</span>' : '';
+    return `<tr class="border-t border-borde cursor-pointer ${filaCls}" data-plu="${esc(f.plu)}"${tooltip}>
+      <td class="p-2 text-center"><input type="checkbox" class="chk-marca accent-verde" data-plu="${esc(f.plu)}"${f.marcado ? ' checked' : ''}${sinPrecio ? ' disabled title="Sin precio sugerido"' : ''}></td>
+      <td class="p-2">${esc(f.plu)}</td>
+      <td class="p-2" title="${esc(tipCompra)}">${esc(f.nombre)}${badgeHoy}</td>
+      <td class="p-2 text-right whitespace-nowrap">${f.costoFuente === 'manual' || f.costoFuente === 'ultimaCompra' ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amarillo/30 text-ink" title="${f.costoFuente === 'manual' ? 'Costo base cargado a mano' : 'Costo de la última compra sin IVA'}">${f.costoFuente === 'manual' ? 'manual' : 'últ. compra'}</span> ` : ''}${fmtMoney(f.costoTotal)}</td>
+      <td class="p-2 text-center whitespace-nowrap">${banda}</td>
+      <td class="p-2 text-right">${sinPrecio ? '<span class="text-ink/40">sin precio</span>' : `<b>${fmtPrecio(f.precioConIva)}</b>`}</td>
+      <td class="p-2 text-right">${fmtMoney(f.precioVigente)}</td>
+      <td class="p-2 text-right ${claseDelta(f.semaforo)}">${fmtPct(f.deltaPct)}</td>
+      <td class="p-2 text-center">${badgeSemaforo(f.semaforo)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('tr[data-plu]').forEach(tr => tr.onclick = () => abrirDetalle(tr.dataset.plu));
+  tbody.querySelectorAll('.chk-marca').forEach(cb => {
+    // La celda entera frena el clic para no abrir el modal (el checkbox deshabilitado no dispara eventos).
+    cb.parentElement.onclick = e => e.stopPropagation();
+    cb.onchange = () => marcarPlus([cb.dataset.plu], cb.checked).catch(err => { alert(err.message); renderAlmacen(); });
+  });
+}
+
+// ── Almacén: marcados para actualizar en SIGA ───────────────────────────────
+// Se guardan en el server (costeo.json → marcadosExportar), compartidos entre PCs.
+function aplicarMarcadosLocal(marcados){
+  const set = new Set(marcados);
+  almacenData = almacenData.map(f => f.marcado === set.has(f.plu) ? f : { ...f, marcado: set.has(f.plu) });
+}
+async function marcarPlus(plus, marcado){
+  const r = await fetch('/api/precios/marcados', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plus, marcado }),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  aplicarMarcadosLocal(j.marcados);
+  renderAlmacen();
+  return j;
+}
+function actualizarBarraMarcados(){
+  const n = almacenData.filter(f => f.marcado).length;
+  document.getElementById('marcadosConteo').textContent = `Marcados: ${n}`;
+  const btn = document.getElementById('btnExportarMarcados');
+  btn.textContent = `Exportar marcados (${n})`;
+  btn.disabled = n === 0;
+  document.getElementById('btnDesmarcarTodos').disabled = n === 0;
+}
+
+// FORMATO DE EXPORTACIÓN — provisorio. El usuario va a pasar el formato definitivo del
+// xlsx para importar en SIGA: cambiar sólo esta función (columnas, orden, nombre de hoja).
+const HOJA_EXPORTACION = 'Precios';
+function filasExportacion(productos){
+  return productos.map(f => ({
+    'Código': f.plu,
+    'Producto': f.nombre,
+    'Precio actual': f.precioVigente,
+    'Precio nuevo': f.precioConIva,
+    'Diferencia %': f.deltaPct,
+  }));
+}
+
+// Exporta TODOS los marcados (no sólo los visibles), con los valores calculados actuales.
+function exportarMarcados(){
+  const marcados = almacenData.filter(f => f.marcado);
+  const validos = marcados.filter(f => !tieneFaltantes(f) && f.precioConIva != null);
+  const omitidos = marcados.length - validos.length;
+  if (!validos.length) { alert('Ningún producto marcado tiene precio sugerido para exportar.'); return; }
+  if (omitidos) alert(`${omitidos} producto(s) marcado(s) sin precio sugerido quedaron fuera del archivo.`);
+  const ws = XLSX.utils.json_to_sheet(filasExportacion(validos));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, HOJA_EXPORTACION);
+  const d = new Date();
+  const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  XLSX.writeFile(wb, `precios_actualizar_${fecha}.xlsx`);
+}
+
+// ── Almacén: detalle (modal) — calculadora paso a paso ──────────────────────
+// Muestra cómo se llega al precio sugerido y deja editar costo base y markup con vista
+// previa en vivo. Misma fórmula que lib/precios_costeo.js: costo × (1+varios%) ×
+// (1+markup%) × 1,21 → múltiplo de $50. "Guardar cambios" persiste los valores manuales
+// del producto; elegir "costo de sistema" / "usar el de la banda" vuelven al automático.
+const PASO_PRECIO = 50;
+const redondear50 = n => Math.round(n / PASO_PRECIO) * PASO_PRECIO;
+const r2 = n => Math.round(n * 100) / 100;
+const numOrNull = v => { const s = String(v ?? '').trim(); if (s === '') return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
+const chip = (txt, cls) => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold ${cls}">${txt}</span>`;
+const pasoNum = n => `<span class="w-6 h-6 shrink-0 rounded-full bg-verde text-white text-xs font-bold flex items-center justify-center">${n}</span>`;
+const inputCls = 'px-2 py-1 rounded-lg border border-borde text-right tabular-nums focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
+
+let det = null;        // fila del detalle tal como vino del server
+let detCfg = null;     // { bandas, toleranciaPct } para recalcular la banda en vivo
+let detEstado = null;  // { costoFuente: 'sistema'|'ultimaCompra'|'manual', markupManual } editable
+let detInicial = null; // estado al abrir, para saber si hay cambios sin guardar
+let detEditandoFinal = false; // el usuario está tipeando el precio final: no pisar ese input
+
+function bandaParaCosto(costo){
+  if (costo == null) return null;
+  for (const b of detCfg.bandas) {
+    if (b.costoHastaARS === null || costo <= b.costoHastaARS) {
+      return { markup: b.markupMaxPct, label: b.costoHastaARS === null ? 'sin tope' : `hasta $ ${fmtPrecio(b.costoHastaARS)}` };
+    }
+  }
+  return null;
+}
+
+async function abrirDetalle(plu){
+  const modal = document.getElementById('mDet');
+  const body = document.getElementById('mDetBody');
+  document.getElementById('mDetTitulo').textContent = 'Detalle — ' + plu;
+  body.innerHTML = '<span class="spin"></span> Cargando…';
+  modal.classList.remove('hidden'); modal.classList.add('flex');
+  try {
+    const [rd, rc] = await Promise.all([
+      fetch('/api/precios/detalle/' + encodeURIComponent(plu)),
+      fetch('/api/precios/config'),
+    ]);
+    const j = await rd.json(), c = await rc.json();
+    if (j.error) throw new Error(j.error);
+    if (c.error) throw new Error(c.error);
+    det = j;
+    detCfg = { bandas: (c.bandasMarkup || {}).almacen || [], toleranciaPct: Number(c.toleranciaPct) || 0 };
+    detEstado = { costoFuente: j.costoFuente || 'sistema', markupManual: j.markupOverride != null };
+    detInicial = { ...detEstado, costoManualValor: j.costoOverride, markup: j.markupPct };
+    document.getElementById('mDetTitulo').textContent = `${j.nombre} (${j.plu})`;
+    body.innerHTML = htmlDetalle(j);
+    document.getElementById('inCosto').value = j.costoOverride ?? '';
+    document.getElementById('inMarkup').value = j.markupPct ?? '';
+    conectarDetalle();
+    recalcularDetalle();
+  } catch (e) {
+    body.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
+  }
+}
+
+function htmlDetalle(j){
+  const ult = j.precioUltimaCompra;
+  const infoCompra = ult != null
+    ? `${esc(j.proveedor || 'sin proveedor')} · ${esc(j.fechaUltimaCompra || '—')}${j.ingresoHoy ? ' ' + chip('Ingreso hoy', 'bg-ok/15 text-ok') : ''}`
+    : 'sin compras registradas';
+  // Opción de costo elegible: tarjeta clickeable (deshabilitada si no hay dato).
+  const opcionCosto = (fuente, titulo, valor, pie) => `
+    <button type="button" data-fuente="${fuente}" ${valor == null ? 'disabled' : ''}
+      class="costo-opt text-left rounded-lg px-2.5 py-2 transition-colors hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+      <div class="text-[11px] text-gris">${titulo}</div>
+      <div class="font-semibold tabular-nums">${valor != null ? '$ ' + fmtMoney(valor) : '—'}</div>
+      <div class="text-[10px] text-gris/80 truncate">${pie}</div>
+    </button>`;
+  // Resumen arriba del modal: sólo etiqueta + número, sin caja.
+  const tarjeta = (titulo, idValor, valorCls = '') => `
+    <div class="px-1">
+      <div class="text-[11px] text-gris">${titulo}</div>
+      <div id="${idValor}" class="text-2xl font-semibold tabular-nums ${valorCls}">—</div>
+    </div>`;
+  const filaResultado = (n, titulo, idValor, extra = '') => `
+    <div class="px-3 py-2.5 flex items-center gap-2 ${extra}">${pasoNum(n)}<span class="font-semibold">${titulo}</span>
+      <span id="${idValor}" class="ml-auto font-semibold tabular-nums">—</span></div>`;
+  return `
+    <div class="grid grid-cols-3 gap-2 mb-5 pb-4 border-b border-borde">
+      ${tarjeta('Precio sugerido', 'dSugerido', 'text-verde')}
+      ${tarjeta('Precio actual SIGA', 'dVigente')}
+      <div class="px-1">
+        <div class="text-[11px] text-gris">Diferencia</div>
+        <div class="flex items-baseline gap-2"><span id="dDelta" class="text-2xl font-semibold tabular-nums">—</span><span id="dEstado"></span></div>
+      </div>
+    </div>
+
+    <div class="text-[11px] uppercase tracking-wide text-gris mb-1.5">Cómo se calcula</div>
+    <div class="rounded-xl border border-borde divide-y divide-borde">
+      <div class="px-3 py-2.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${pasoNum(1)}<span class="font-semibold">Costo base</span><span id="dChipCosto"></span>
+          <span id="dCostoBase" class="ml-auto font-semibold tabular-nums">—</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 ml-8">
+          ${opcionCosto('sistema', 'Costo de sistema sin IVA', j.costoSistema,
+            j.costoSistemaConIva != null
+              ? `SIGA $ ${fmtMoney(j.costoSistemaConIva)} c/IVA ÷ ${String(j.ivaCompraPct).replace('.', ',')}%${j.ivaCompraSupuesto ? ' <span class="text-warn font-semibold" title="El producto no tiene alícuota de IVA cargada en SIGA">(supuesto)</span>' : ''}`
+              : 'sin costo en SIGA')}
+          ${opcionCosto('ultimaCompra', 'Última compra sin IVA', ult, infoCompra)}
+          <div data-fuente="manual" class="costo-opt rounded-lg px-2.5 py-2 cursor-pointer transition-colors hover:bg-bg">
+            <div class="text-[11px] text-gris">Manual (sin IVA)</div>
+            <div class="flex items-center gap-1 text-gris">$ <input id="inCosto" type="number" min="0" step="any" placeholder="0,00" class="w-full ${inputCls} text-ink font-bold"></div>
+          </div>
+        </div>
+        <div id="dAvisoSistema" class="hidden text-xs text-warn mt-1.5 ml-8">El producto no tiene alícuota de IVA cargada en SIGA: se asumió 21%.</div>
+      </div>
+      <div class="px-3 py-2.5 flex items-center gap-2">${pasoNum(2)}<span class="font-semibold">Costos varios</span>
+        <span class="text-xs text-gris">+${j.costosVariosPct || 0}% (configuración general)</span>
+        <span id="dCostoTotal" class="ml-auto font-semibold tabular-nums">—</span></div>
+      <div class="px-3 py-2.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${pasoNum(3)}<span class="font-semibold">Markup</span><span id="dChipMarkup"></span>
+          <span class="ml-auto flex items-center gap-1 text-gris"><input id="inMarkup" type="number" min="0" step="any" class="w-24 ${inputCls} text-ink"> %</span>
+        </div>
+        <div class="text-xs text-gris mt-1 ml-8"><span id="dInfoMarkup"></span>
+          <button id="btnUsarBanda" class="hidden ml-1 text-verde underline hover:text-verdeHover">usar el de la banda</button></div>
+      </div>
+      ${filaResultado(4, 'Precio neto', 'dNeto')}
+      ${filaResultado(5, 'Con IVA 21%', 'dConIva')}
+      <div class="px-3 py-2.5 bg-verde/5 rounded-b-xl">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${pasoNum(6)}<span class="font-semibold text-verde">Precio final (redondeo a $50)</span>
+          <span class="ml-auto flex items-center gap-1 text-gris">$ <input id="inFinal" type="number" min="0" step="50" class="w-32 ${inputCls} text-verde font-bold"></span>
+        </div>
+        <div class="text-xs text-gris mt-1 ml-8">Podés escribir el precio que querés: se recalcula el markup para llegar a ese valor.</div>
+      </div>
+    </div>
+
+    <label class="flex items-center gap-2 mt-4 text-sm w-fit ${tieneFaltantes(j) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"${tieneFaltantes(j) ? ' title="Sin precio sugerido"' : ''}>
+      <input id="chkMarcaDet" type="checkbox" class="accent-verde"${j.marcado ? ' checked' : ''}${tieneFaltantes(j) ? ' disabled' : ''}>
+      Marcar para actualizar en SIGA <span id="dMarcaMsg" class="text-xs"></span></label>
+    <div class="flex items-center gap-2 mt-3 flex-wrap">
+      <span id="dMsg" class="text-sm"></span>
+      <button id="btnDescartar" class="ml-auto px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-bg disabled:opacity-40" disabled>Descartar cambios</button>
+      <button id="btnGuardarDet" class="px-4 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40" disabled>Guardar cambios</button>
+    </div>`;
+}
+
+function conectarDetalle(){
+  const inCosto = document.getElementById('inCosto');
+  const inMarkup = document.getElementById('inMarkup');
+  // Elegir fuente de costo: las dos fijas son un clic; "manual" arranca con el costo que
+  // se estaba usando para no empezar de cero.
+  document.querySelectorAll('.costo-opt[data-fuente]').forEach(op => op.addEventListener('click', () => {
+    if (op.disabled) return;
+    const fuente = op.dataset.fuente;
+    if (fuente === 'manual' && detEstado.costoFuente !== 'manual' && numOrNull(inCosto.value) == null) {
+      const actual = costoEfectivo();
+      if (actual != null) inCosto.value = actual;
+    }
+    detEstado.costoFuente = fuente;
+    if (fuente === 'manual') inCosto.focus();
+    recalcularDetalle();
+  }));
+  inCosto.addEventListener('input', () => { detEstado.costoFuente = 'manual'; recalcularDetalle(); });
+  inMarkup.addEventListener('input', () => { detEstado.markupManual = true; recalcularDetalle(); });
+  document.getElementById('btnUsarBanda').onclick = () => { detEstado.markupManual = false; recalcularDetalle(); };
+  // Precio final → markup: markup = (precio / 1,21 / costoTotal − 1) × 100, a 2 decimales
+  // (con 2 decimales el error queda muy por debajo de $25, así que vuelve a redondear al
+  // mismo múltiplo de 50). Mientras se escribe no se pisa el input; al salir se ajusta a $50.
+  const inFinal = document.getElementById('inFinal');
+  const markupParaPrecio = precio => {
+    const costo = costoEfectivo();
+    if (costo == null || costo <= 0 || precio == null || precio <= 0) return null;
+    const costoTotal = r2(costo * (1 + (Number(det.costosVariosPct) || 0) / 100));
+    return r2((precio / 1.21 / costoTotal - 1) * 100);
+  };
+  inFinal.addEventListener('input', () => {
+    const mk = markupParaPrecio(numOrNull(inFinal.value));
+    if (mk == null) return;
+    detEstado.markupManual = true;
+    inMarkup.value = mk;
+    detEditandoFinal = true;
+    recalcularDetalle();
+    detEditandoFinal = false;
+  });
+  inFinal.addEventListener('change', () => {
+    const p = numOrNull(inFinal.value);
+    if (p == null || p <= 0) { recalcularDetalle(); return; }
+    const mk = markupParaPrecio(redondear50(p));
+    if (mk != null) { detEstado.markupManual = true; inMarkup.value = mk; }
+    recalcularDetalle();
+  });
+  document.getElementById('btnDescartar').onclick = () => {
+    detEstado = { costoFuente: detInicial.costoFuente, markupManual: detInicial.markupManual };
+    inCosto.value = detInicial.costoManualValor ?? ''; inMarkup.value = detInicial.markup ?? '';
+    msgDetalle(''); recalcularDetalle();
+  };
+  document.getElementById('btnGuardarDet').onclick = guardarDetalle;
+  const chkMarca = document.getElementById('chkMarcaDet');
+  chkMarca.onchange = async () => {
+    const msg = document.getElementById('dMarcaMsg');
+    chkMarca.disabled = true; msg.className = 'text-xs text-gris'; msg.textContent = 'Guardando…';
+    try {
+      const j = await marcarPlus([det.plu], chkMarca.checked);
+      det = { ...det, marcado: j.marcados.includes(det.plu) };
+      chkMarca.checked = det.marcado; msg.textContent = '';
+    } catch (e) {
+      chkMarca.checked = !chkMarca.checked; msg.className = 'text-xs text-crit'; msg.textContent = e.message;
+    } finally { chkMarca.disabled = false; }
+  };
+}
+
+// Costo que usa el cálculo según la fuente elegida en el paso 1.
+function costoEfectivo(){
+  const f = detEstado.costoFuente;
+  if (f === 'manual') return numOrNull(document.getElementById('inCosto').value);
+  if (f === 'ultimaCompra') return det.precioUltimaCompra ?? null;
+  return det.costoSistema ?? null;
+}
+
+const ETIQUETA_FUENTE = { ultimaCompra: 'última compra', sistema: 'costo de sistema', manual: 'manual' };
+
+function recalcularDetalle(){
+  const inMarkup = document.getElementById('inMarkup');
+  const costo = costoEfectivo();
+  const banda = bandaParaCosto(costo);
+  if (!detEstado.markupManual) inMarkup.value = banda ? banda.markup : '';
+  const markup = numOrNull(inMarkup.value);
+  const valido = costo != null && costo > 0 && markup != null && markup >= 0;
+
+  const fuente = detEstado.costoFuente;
+  document.getElementById('dChipCosto').innerHTML = chip(ETIQUETA_FUENTE[fuente],
+    fuente === 'sistema' ? 'bg-verde/10 text-verde' : 'bg-amarillo/30 text-ink');
+  document.getElementById('dCostoBase').textContent = costo != null ? '$ ' + fmtMoney(costo) : '—';
+  document.querySelectorAll('.costo-opt[data-fuente]').forEach(op => {
+    const on = op.dataset.fuente === fuente;
+    op.classList.toggle('bg-verde/10', on); op.classList.toggle('text-verde', on);
+  });
+  document.getElementById('dAvisoSistema').classList.toggle('hidden', !(fuente === 'sistema' && det.ivaCompraSupuesto));
+  document.getElementById('dChipMarkup').innerHTML = detEstado.markupManual
+    ? chip('propio', 'bg-amarillo/30 text-ink') : chip(banda ? 'banda ' + esc(banda.label) : 'sin banda', 'bg-verde/10 text-verde');
+  document.getElementById('dInfoMarkup').textContent = detEstado.markupManual
+    ? `Markup propio de este producto. La banda daría ${banda ? banda.markup + '%' : '—'}.`
+    : 'Sale de las bandas por costo (Configuración). Escribí un valor para fijar uno propio.';
+  document.getElementById('btnUsarBanda').classList.toggle('hidden', !detEstado.markupManual);
+
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  const vig = det.precioVigente;
+  set('dVigente', vig != null ? '$ ' + fmtPrecio(vig) : '—');
+  const inFinal = document.getElementById('inFinal');
+  if (!valido) {
+    ['dCostoTotal', 'dNeto', 'dConIva', 'dSugerido', 'dDelta'].forEach(id => set(id, '—'));
+    document.getElementById('dDelta').className = 'text-2xl font-bold tabular-nums';
+    if (!detEditandoFinal) inFinal.value = '';
+    document.getElementById('dEstado').innerHTML = '';
+  } else {
+    const costoTotal = r2(costo * (1 + (Number(det.costosVariosPct) || 0) / 100));
+    const neto = r2(costoTotal * (1 + markup / 100));
+    const conIva = r2(neto * 1.21);
+    const final = redondear50(conIva);
+    set('dCostoTotal', '$ ' + fmtMoney(costoTotal));
+    set('dNeto', '$ ' + fmtMoney(neto));
+    set('dConIva', '$ ' + fmtMoney(conIva));
+    if (!detEditandoFinal) inFinal.value = final;
+    set('dSugerido', '$ ' + fmtPrecio(final));
+    const dDelta = document.getElementById('dDelta');
+    if (vig != null && vig > 0) {
+      // Misma fórmula que compararConVigente en el backend: (sugerido − vigente) / vigente.
+      // + = hay que subir el precio, − = bajarlo; dentro de ±tolerancia es ok.
+      const delta = +(((final - vig) / vig) * 100).toFixed(1);
+      const tol = detCfg.toleranciaPct;
+      const estado = Math.abs(delta) <= tol ? 'ok' : delta > 0 ? 'subir' : 'bajar';
+      set('dDelta', fmtPct(delta));
+      dDelta.className = 'text-2xl font-bold tabular-nums ' + claseDelta(estado);
+      document.getElementById('dEstado').innerHTML = badgeSemaforo(estado);
+    } else {
+      set('dDelta', '—');
+      dDelta.className = 'text-2xl font-bold tabular-nums';
+      document.getElementById('dEstado').textContent = 'sin precio vigente';
+    }
+  }
+
+  const hayCambios = cambioCosto() || cambioMarkup();
+  document.getElementById('btnGuardarDet').disabled = !(hayCambios && valido);
+  document.getElementById('btnDescartar').disabled = !hayCambios;
+  if (markup != null && markup < 0) msgDetalle('El precio final queda por debajo del costo (markup negativo).', true);
+  else if (hayCambios && !valido) msgDetalle('Completá costo base y markup para calcular.', true);
+  else if (hayCambios) msgDetalle('Vista previa — sin guardar', false, 'text-warn');
+  else msgDetalle('');
+}
+
+function cambioCosto(){
+  return detEstado.costoFuente !== detInicial.costoFuente
+    || (detEstado.costoFuente === 'manual' && numOrNull(document.getElementById('inCosto').value) !== detInicial.costoManualValor);
+}
+function cambioMarkup(){
+  return detEstado.markupManual !== detInicial.markupManual
+    || (detEstado.markupManual && numOrNull(document.getElementById('inMarkup').value) !== detInicial.markup);
+}
+
+function msgDetalle(txt, esError, cls){
+  const el = document.getElementById('dMsg');
+  if (!el) return;
+  el.className = 'text-sm ' + (cls || (esError ? 'text-crit' : 'text-ok'));
+  el.textContent = txt;
+}
+
+// Guarda sólo lo que cambió: costo y/o markup manual (null = volver al automático).
+async function guardarDetalle(){
+  const costo = numOrNull(document.getElementById('inCosto').value);
+  const markup = numOrNull(document.getElementById('inMarkup').value);
+  const put = (url, body) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => r.json()).then(j => { if (j.error) throw new Error(j.error); return j; });
+  const plu = encodeURIComponent(det.plu);
+  const tareas = [];
+  if (cambioCosto()) {
+    const fuente = detEstado.costoFuente;
+    tareas.push(put('/api/precios/costo-producto/' + plu, fuente === 'manual' ? { fuente, costo } : { fuente }));
+  }
+  if (cambioMarkup()) {
+    tareas.push(put('/api/precios/margen-producto/' + plu, { markupPct: detEstado.markupManual ? markup : null }));
+  }
+  document.getElementById('btnGuardarDet').disabled = true;
+  try {
+    await Promise.all(tareas);
+    await abrirDetalle(det.plu);
+    msgDetalle('Guardado.');
+    cargarAlmacen();
+  } catch (e) {
+    msgDetalle(e.message, true);
+    document.getElementById('btnGuardarDet').disabled = false;
+  }
+}
+
+function cerrarDetalle(){
+  document.getElementById('mDet').classList.add('hidden');
+  document.getElementById('mDet').classList.remove('flex');
+}
+document.getElementById('mDetX').onclick = cerrarDetalle;
+document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet') cerrarDetalle(); });
+
+// ── Configuración general + bandas de markup Almacén ────────────────────────
+let configCargada = null;   // config completa tal como vino del server (para preservar fraccionado/produccion)
+let bandasAlmacen = [];     // copia editable de bandasMarkup.almacen
+
+async function cargarConfiguracion(){
+  const carga = document.getElementById('configCarga');
+  const form = document.getElementById('configForm');
+  const bandasCarga = document.getElementById('bandasCarga');
+  const bandasForm = document.getElementById('bandasForm');
+  form.classList.add('hidden'); bandasForm.classList.add('hidden');
+  carga.classList.remove('hidden'); bandasCarga.classList.remove('hidden');
+  carga.innerHTML = '<span class="spin"></span> Cargando…';
+  bandasCarga.innerHTML = '<span class="spin"></span> Cargando…';
+  try {
+    const r = await fetch('/api/precios/config');
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    configCargada = j;
+    document.getElementById('inCostoHora').value = j.costoHora;
+    document.getElementById('inTolerancia').value = j.toleranciaPct;
+    document.getElementById('inCostosVariosAlmacen').value = j.costosVariosPctAlmacen;
+    carga.classList.add('hidden');
+    form.classList.remove('hidden');
+
+    bandasAlmacen = ((j.bandasMarkup || {}).almacen || []).map(b => ({ ...b }));
+    document.getElementById('bandasMsg').textContent = '';
+    renderBandasFilas();
+    bandasCarga.classList.add('hidden');
+    bandasForm.classList.remove('hidden');
+  } catch (e) {
+    carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
+    bandasCarga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
+  }
+}
+
+function renderBandasFilas(){
+  document.getElementById('bandasFilas').innerHTML = bandasAlmacen.map((b, i) => `
+    <tr>
+      <td class="pr-2 py-1"><input type="number" step="any" placeholder="sin tope" value="${b.costoHastaARS ?? ''}"
+          class="w-28 px-2 py-1 rounded border border-borde"
+          onchange="bandasAlmacen[${i}] = { ...bandasAlmacen[${i}], costoHastaARS: this.value === '' ? null : Number(this.value) }"></td>
+      <td class="pr-2 py-1"><input type="number" step="any" value="${b.markupMaxPct ?? ''}"
+          class="w-24 px-2 py-1 rounded border border-borde"
+          onchange="bandasAlmacen[${i}] = { ...bandasAlmacen[${i}], markupMaxPct: Number(this.value) }"></td>
+      <td><button class="text-crit hover:opacity-70 px-1" title="Quitar fila"
+          onclick="bandasAlmacen = bandasAlmacen.filter((_, idx) => idx !== ${i}); renderBandasFilas()">✕</button></td>
+    </tr>`).join('') || '<tr><td colspan="3" class="text-ink/50 py-2">Sin bandas — agregá una</td></tr>';
+}
+
+async function guardarBandas(){
+  const msg = document.getElementById('bandasMsg');
+  msg.className = 'text-sm text-ink/50';
+  msg.textContent = 'Guardando…';
+  const body = {
+    almacen: bandasAlmacen,
+    fraccionado: ((configCargada || {}).bandasMarkup || {}).fraccionado || [],
+    produccion: ((configCargada || {}).bandasMarkup || {}).produccion || [],
+  };
+  try {
+    const r = await fetch('/api/precios/config/bandas-markup', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    configCargada = { ...configCargada, bandasMarkup: j.bandasMarkup };
+    bandasAlmacen = (j.bandasMarkup.almacen || []).map(b => ({ ...b }));
+    renderBandasFilas();
+    msg.className = 'text-sm text-ok';
+    msg.textContent = 'Guardado.';
+  } catch (e) {
+    msg.className = 'text-sm text-crit';
+    msg.textContent = e.message;
+  }
+}
+
+// Guarda config general (cualquier subconjunto de costoHora/toleranciaPct/costosVariosPctAlmacen).
+async function putConfigGeneral(body){
+  const r = await fetch('/api/precios/config/general', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+async function guardarGeneral(){
+  const msg = document.getElementById('generalMsg');
+  const val = id => numOrNull(document.getElementById(id).value);
+  msg.className = 'text-sm text-ink/50'; msg.textContent = 'Guardando…';
+  try {
+    const j = await putConfigGeneral({
+      costoHora: val('inCostoHora'), toleranciaPct: val('inTolerancia'), costosVariosPctAlmacen: val('inCostosVariosAlmacen'),
+    });
+    configCargada = { ...configCargada, ...j };
+    document.getElementById('fTolerancia').value = j.toleranciaPct;
+    msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
+  } catch (e) {
+    msg.className = 'text-sm text-crit'; msg.textContent = e.message;
+  }
+}
+
+// Tolerancia en la barra de filtros de Almacén: se lee de la config y al cambiarla se guarda
+// y se recarga el listado (el estado ok/subir/bajar lo calcula el server con esa tolerancia).
+async function cargarToleranciaFiltro(){
+  try {
+    const j = await (await fetch('/api/precios/config')).json();
+    if (!j.error) document.getElementById('fTolerancia').value = j.toleranciaPct;
+  } catch { /* sin config: el input queda vacío, el listado igual carga */ }
+}
+document.getElementById('fTolerancia').addEventListener('change', async e => {
+  const input = e.target;
+  try {
+    await putConfigGeneral({ toleranciaPct: numOrNull(input.value) });
+    input.classList.remove('border-crit'); input.title = '';
+    cargarAlmacen();
+  } catch (err) {
+    input.classList.add('border-crit'); input.title = err.message;
+  }
+});
+document.getElementById('btnGuardarGeneral').onclick = guardarGeneral;
+
+document.getElementById('btnRecargarAlmacen').onclick = cargarAlmacen;
+document.getElementById('fBuscar').addEventListener('input', renderAlmacen);
+document.querySelectorAll('.fbtn[data-filtro]').forEach(b =>
+  b.onclick = e => { e.stopPropagation(); abrirDrop(b.dataset.filtro, b); });
+document.getElementById('fIngresoHoy').onclick = () => {
+  soloIngresoHoy = !soloIngresoHoy; actualizarBotonesFiltro(); renderAlmacen();
+};
+document.getElementById('fSoloMarcados').onclick = () => {
+  soloMarcados = !soloMarcados; actualizarBotonesFiltro(); renderAlmacen();
+};
+document.getElementById('chkTodos').onchange = async e => {
+  const plus = filtrarAlmacen().filter(f => !tieneFaltantes(f)).map(f => f.plu);
+  if (!plus.length) { renderAlmacen(); return; }
+  try { await marcarPlus(plus, e.target.checked); } catch (err) { alert(err.message); renderAlmacen(); }
+};
+document.getElementById('btnExportarMarcados').onclick = exportarMarcados;
+document.getElementById('btnDesmarcarTodos').onclick = async () => {
+  if (!confirm('¿Desmarcar todos los productos marcados para actualizar?')) return;
+  try {
+    const j = await (await fetch('/api/precios/marcados', { method: 'DELETE' })).json();
+    if (j.error) throw new Error(j.error);
+    aplicarMarcadosLocal(j.marcados); renderAlmacen();
+  } catch (err) { alert(err.message); }
+};
+document.getElementById('fLimpiar').onclick = () => {
+  filtroSel.proveedor.clear(); filtroSel.estado.clear(); soloIngresoHoy = false; soloMarcados = false;
+  document.getElementById('fBuscar').value = '';
+  cerrarDrop(); actualizarBotonesFiltro(); renderAlmacen();
+};
+document.getElementById('fDropBuscar').addEventListener('input', renderDropLista);
+document.getElementById('fDropTodos').onclick = () => {
+  opcionesVisibles().forEach(([v]) => filtroSel[dropTipo].add(v));
+  renderDropLista(); actualizarBotonesFiltro(); renderAlmacen();
+};
+document.getElementById('fDropLimpiar').onclick = () => {
+  filtroSel[dropTipo].clear();
+  renderDropLista(); actualizarBotonesFiltro(); renderAlmacen();
+};
+document.addEventListener('click', e => {
+  const drop = document.getElementById('fDrop');
+  if (!drop.classList.contains('hidden') && !drop.contains(e.target) && !e.target.closest('.fbtn[data-filtro]')) cerrarDrop();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('fDrop').classList.contains('hidden')) cerrarDrop(); else cerrarDetalle();
+});
+document.getElementById('btnAgregarBanda').onclick = () => {
+  bandasAlmacen = [...bandasAlmacen, { costoHastaARS: null, markupMaxPct: 0 }];
+  renderBandasFilas();
+};
+document.getElementById('btnGuardarBandas').onclick = guardarBandas;
+
+// Cambio de tab: sólo las habilitadas tienen listener útil (las deshabilitadas
+// llevan el atributo disabled real, así que ni disparan el evento).
+document.querySelectorAll('#tabs .navtab:not([disabled])').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs .navtab').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main .tab-panel').forEach(p => p.classList.add('hidden'));
+  const panel = document.getElementById('panel-' + b.dataset.tipo);
+  if (panel) panel.classList.remove('hidden');
+  if (b.dataset.tipo === 'configuracion') cargarConfiguracion();
+  if (b.dataset.tipo === 'almacen') { cargarToleranciaFiltro(); cargarAlmacen(); }
+});
+
+cargarToleranciaFiltro();
+cargarAlmacen(); // Almacén es el tab activo por defecto al cargar la página.
+</script>
+</body>
+</html>

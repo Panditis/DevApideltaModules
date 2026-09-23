@@ -17,11 +17,16 @@ test('calcularCostoItem aplica el factor de complejidad como multiplicador', () 
 });
 
 test('calcularCostoItem deriva costoTotal del costoUnitario ya redondeado (no del valor exacto)', () => {
-  // Antes: costoUnitarioExacto=1.666.. → costoUnitario redondeado a 2, pero costoTotal=round(1.666*7)=12 (no 14).
+  // costoUnitarioExacto=1.666.. → costoUnitario 1.67; total = 1.67*7 = 11.69 (no round(1.666*7)).
   const r = calcularCostoItem({ minPorPaquete: 1, paquetes: 7, factorComplejidad: 1, valorHora: 100 });
-  assert.strictEqual(r.costoUnitario, 2);
-  assert.strictEqual(r.costoTotal, 14);
-  assert.strictEqual(r.costoTotal, r.costoUnitario * 7); // el total siempre cierra con el unitario
+  assert.strictEqual(r.costoUnitario, 1.67);
+  assert.strictEqual(r.costoTotal, 11.69);
+});
+
+test('calcularCostoItem redondea paquetes fraccionarios a 2 decimales antes del total', () => {
+  // 2.5kg en bolsas de 0.3kg = 8.333.. paquetes → 8.33; unitario 100 → total 833
+  const r = calcularCostoItem({ minPorPaquete: 1, paquetes: 2.5 / 0.3, factorComplejidad: 1, valorHora: 6000 });
+  assert.strictEqual(r.costoTotal, 833);
 });
 
 test('calcularCostoItem rechaza valores no positivos o no numéricos', () => {
@@ -39,7 +44,7 @@ test('construirItemPedido arma el item con el costo calculado', () => {
   });
   assert.strictEqual(item.plu, '1101');
   assert.strictEqual(item.origenTiempo, 'historial');
-  assert.strictEqual(item.costoUnitario, Math.round((8100 / 60) * 0.31 * 1.15));
+  assert.strictEqual(item.costoUnitario, 48.13); // 8100/60 * 0.31 * 1.15 = 48.1275
 });
 
 test('construirItemPedido rechaza origenTiempo inválido', () => {

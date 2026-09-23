@@ -262,6 +262,28 @@ Densas, sin zebra, separadas por línea fina. **Filas expandibles: el detalle so
 misma tabla**, nunca una tabla anidada (una anidada tiene su propio reparto de anchos y las
 columnas dejan de alinear) — esto sigue igual que en el sistema viejo.
 
+### Stat card (resumen compacto con ícono)
+
+Vive en `apidelta-theme.css`. Para resúmenes chicos arriba de un listado (ej. totales del pedido
+en `compras.html`): más liviana que `.kpi`, informativa y no clickeable.
+
+```html
+<div class="stat-cards">
+  <div class="stat-card">
+    <span class="stat-ico t-verde" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">…</svg></span>
+    <div class="stat-body">
+      <span class="stat-lbl">Total</span>
+      <span class="stat-val">$123.456</span>
+      <span class="stat-det">3 líneas · 1 sin costo</span>
+    </div>
+  </div>
+</div>
+```
+
+Tonos del ícono: `t-verde` (default), `t-info`, `t-warn`, `t-crit` — sólo tiñen el cuadrado del
+ícono, la card queda blanca. Íconos de trazo (18px, `stroke="currentColor"`) para que tomen el
+color del tono. Usar `.kpi` cuando el número es grande/protagonista o la card filtra al clic.
+
 ### Estados de carga/error/vacío
 
 ```css

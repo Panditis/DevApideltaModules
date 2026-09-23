@@ -2672,6 +2672,10 @@ app.use(require('./routes/rutas_ventas_hora')({ apiRoute, query, safeDate }));
 // punto donde estaba la página del módulo, así que el registro va al final como los demás.
 app.use(require('./routes/rutas_precios_historico')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
 
+// Precios (costeo sugerido, Fase 0 — sólo esqueleto): mismo motivo de deps tardíos
+// que los routers vecinos, se registra acá junto con el resto del clúster de precios.
+app.use(require('./routes/rutas_precios')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA }));
+
 // Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se
 // declaran bien antes, así que el registro podría ir donde estaban las rutas. Va igual al
 // final, con el de los demás routers. LISTA_PRECIOS_VENTA y PRECIOS_FACTURADOR_DIR también
