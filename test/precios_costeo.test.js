@@ -1,7 +1,15 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { resolverBanda, markupDe, aplicarMarkup, conIva, configSanitizada, costearAlmacen } = require('../lib/precios_costeo');
+const { resolverBanda, markupDe, aplicarMarkup, conIva, configSanitizada, costearAlmacen, redondearPrecioVenta, compararConVigente } = require('../lib/precios_costeo');
+
+test('redondearPrecioVenta: múltiplo de 50 más cercano, sin decimales', () => {
+  assert.strictEqual(redondearPrecioVenta(1724.99), 1700);
+  assert.strictEqual(redondearPrecioVenta(1725), 1750);
+  assert.strictEqual(redondearPrecioVenta(1774.5), 1750);
+  assert.strictEqual(redondearPrecioVenta(1750), 1750);
+  assert.strictEqual(redondearPrecioVenta(0), 0);
+});
 
 const BANDAS = [
   { costoHastaARS: 1000, markupMaxPct: 40 },
@@ -71,7 +79,7 @@ test('costearAlmacen: caso feliz — cuenta exacta de costoTotal, precioNeto y p
   assert.strictEqual(out.tipo, 'almacen');
   assert.strictEqual(out.costoTotal, 1030);
   assert.strictEqual(out.precioNeto, 1442);
-  assert.strictEqual(out.precioConIva, 1744.82);
+  assert.strictEqual(out.precioConIva, 1750); // 1744.82 → múltiplo de 50 más cercano
   assert.deepStrictEqual(out.componentes, [
     { concepto: 'Mercadería', detalle: 'costo base', importe: 1000 },
     { concepto: 'Costos varios', detalle: '3%', importe: 30 },
@@ -124,7 +132,7 @@ test('costearAlmacen: montos no redondos salen redondeados a 2 decimales, sin ru
   assert.strictEqual(out.componentes[1].importe, 25); // 999.99 * 2.5% = 24.999750000000002 sin redondear
   assert.strictEqual(out.costoTotal, 1024.99);
   assert.strictEqual(out.precioNeto, 1366.31);
-  assert.strictEqual(out.precioConIva, 1653.24);
+  assert.strictEqual(out.precioConIva, 1650); // 1653.24 → múltiplo de 50 más cercano
 });
 
 // ── configSanitizada ─────────────────────────────────────────────────────────
@@ -171,4 +179,23 @@ test('configSanitizada: costoHastaARS no numérico ni null se rechaza', () => {
 test('configSanitizada: markupMaxPct no numérico se rechaza', () => {
   const bandasInvalidas = [{ costoHastaARS: 1000, markupMaxPct: 'alto' }];
   assert.throws(() => configSanitizada({ bandasMarkup: { almacen: bandasInvalidas, fraccionado: [], produccion: [] } }));
+});
+
+test('compararConVigente: + cuando el sugerido supera al vigente (subir), − cuando es menor (bajar)', () => {
+  assert.deepStrictEqual(compararConVigente(850, 500, 10), { deltaPct: 70, estado: 'subir' });
+  assert.deepStrictEqual(compararConVigente(400, 500, 10), { deltaPct: -20, estado: 'bajar' });
+});
+
+test('compararConVigente: dentro de la tolerancia (incluido el borde) es ok', () => {
+  assert.deepStrictEqual(compararConVigente(525, 500, 10), { deltaPct: 5, estado: 'ok' });
+  assert.deepStrictEqual(compararConVigente(550, 500, 10), { deltaPct: 10, estado: 'ok' });
+  assert.deepStrictEqual(compararConVigente(450, 500, 10), { deltaPct: -10, estado: 'ok' });
+  assert.deepStrictEqual(compararConVigente(505, 500, undefined), { deltaPct: 1, estado: 'subir' });
+});
+
+test('compararConVigente: sin vigente, vigente 0 o sin sugerido → nulls', () => {
+  const nulos = { deltaPct: null, estado: null };
+  assert.deepStrictEqual(compararConVigente(850, null, 10), nulos);
+  assert.deepStrictEqual(compararConVigente(850, 0, 10), nulos);
+  assert.deepStrictEqual(compararConVigente(null, 500, 10), nulos);
 });
