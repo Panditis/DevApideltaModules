@@ -667,3 +667,26 @@ test('construirPedido con bultos rechaza bultos inválidos o presentación falta
     presentacion: { unidadesPorBulto: 12 } }] }), /bultos/i);
   assert.throws(() => construirPedido({ ...base, items: [{ plu: '1', cantidad: 1, bultos: 2 }] }), /unidades por bulto/i);
 });
+test('construirPedido conserva nuevo:true sólo en la línea de un artículo que no está en SIGA', () => {
+  const p = construirPedido({
+    numero: 'P-1', fechaISO: '2026-08-01', proveedor: 'ACME',
+    items: [
+      { plu: '1234', nombre: 'Aceite', unidad: 'UN', cantidad: 6 },
+      { plu: 'NUEVO-abc123', nombre: 'Harina de almendra', unidad: 'KG', cantidad: 5, nuevo: true },
+    ],
+  });
+  assert.strictEqual('nuevo' in p.items[0], false);
+  assert.strictEqual(p.items[1].nuevo, true);
+  assert.strictEqual(p.items[1].plu, 'NUEVO-abc123');
+  assert.strictEqual(p.items[1].nombre, 'Harina de almendra');
+  assert.strictEqual(p.items[1].unidad, 'KG');
+});
+test('aplicarSeguimiento mantiene nuevo:true en la línea al actualizar su estado', () => {
+  const p = construirPedido({
+    numero: 'P-1', fechaISO: '2026-08-01', proveedor: 'ACME',
+    items: [{ plu: 'NUEVO-abc123', nombre: 'Harina de almendra', unidad: 'KG', cantidad: 5, nuevo: true }],
+  });
+  const r = aplicarSeguimiento(p, { items: [{ plu: 'NUEVO-abc123', estado: 'entregado' }] });
+  assert.strictEqual(r.items[0].nuevo, true);
+  assert.strictEqual(r.items[0].estado, 'entregado');
+});

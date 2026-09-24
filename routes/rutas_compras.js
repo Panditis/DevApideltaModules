@@ -52,24 +52,36 @@ function usuarioCompras(req)          { return String((req.session && req.sessio
 // 2264 proveedores cargados y 1108 con movimiento en 24 meses. Listar los otros es
 // ofrecer una búsqueda que sólo puede terminar en una tabla vacía. Se ordena por
 // cantidad de productos para que el proveedor real aparezca primero.
+// Excepción: los proveedores sin NINGUNA compra registrada (recién dados de alta en
+// SIGA) también se listan, después y por nombre, para poder armarles el primer pedido
+// con "＋ Agregar artículo". Los que sí tienen compras pero ninguna en 24 meses siguen
+// afuera: son ~1150 inactivos que sólo ensucian la búsqueda.
 // El JOIN lleva IdProveedor por la misma razón que productosCompradosAlProveedor.
 router.get('/api/compras/proveedores', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return { proveedores: [] };
   const pool = await getPool();
   const r = await pool.request().input('like', `%${q}%`).query(
-    `SELECT TOP 50 pv.IdProveedor, pv.NombreProveedor,
-            COUNT(DISTINCT cp.IdProducto) AS Productos,
-            CONVERT(varchar(10), MAX(c.Fecha), 23) AS UltimaCompra
-     FROM Proveedores pv
-     JOIN Compras c ON c.IdProveedor = pv.IdProveedor
-       AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
-     JOIN ComprasProductos cp ON cp.IdSucursal=c.IdSucursal AND cp.IdTipoComprobante=c.IdTipoComprobante
-       AND cp.Letra=c.Letra AND cp.CentroEmisor=c.CentroEmisor AND cp.NumeroComprobante=c.NumeroComprobante
-       AND cp.IdProveedor=c.IdProveedor
-     WHERE pv.NombreProveedor LIKE @like
-     GROUP BY pv.IdProveedor, pv.NombreProveedor
-     ORDER BY COUNT(DISTINCT cp.IdProducto) DESC`);
+    `SELECT TOP 50 x.IdProveedor, x.NombreProveedor, x.Productos, x.UltimaCompra
+     FROM (
+       SELECT pv.IdProveedor, pv.NombreProveedor, 0 AS SinCompras,
+              COUNT(DISTINCT cp.IdProducto) AS Productos,
+              CONVERT(varchar(10), MAX(c.Fecha), 23) AS UltimaCompra
+       FROM Proveedores pv
+       JOIN Compras c ON c.IdProveedor = pv.IdProveedor
+         AND c.Fecha >= DATEADD(MONTH,-24,CAST(GETDATE() AS DATE))
+       JOIN ComprasProductos cp ON cp.IdSucursal=c.IdSucursal AND cp.IdTipoComprobante=c.IdTipoComprobante
+         AND cp.Letra=c.Letra AND cp.CentroEmisor=c.CentroEmisor AND cp.NumeroComprobante=c.NumeroComprobante
+         AND cp.IdProveedor=c.IdProveedor
+       WHERE pv.NombreProveedor LIKE @like
+       GROUP BY pv.IdProveedor, pv.NombreProveedor
+       UNION ALL
+       SELECT pv.IdProveedor, pv.NombreProveedor, 1 AS SinCompras, 0 AS Productos, NULL AS UltimaCompra
+       FROM Proveedores pv
+       WHERE pv.NombreProveedor LIKE @like
+         AND NOT EXISTS (SELECT 1 FROM Compras c WHERE c.IdProveedor = pv.IdProveedor)
+     ) x
+     ORDER BY x.SinCompras, x.Productos DESC, x.NombreProveedor`);
   return { proveedores: r.recordset.map(p => ({
     id: Number(p.IdProveedor), nombre: p.NombreProveedor,
     productos: Number(p.Productos) || 0, ultimaCompra: p.UltimaCompra || null,

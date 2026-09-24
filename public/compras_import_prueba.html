@@ -333,7 +333,9 @@ $('#btnUsarPedido').onclick = () => {
   if (!pedido) return;
   if (pedido.idProveedor != null) cabecera.IdProveedor = pedido.idProveedor;
   reemplazarLineas((pedido.items || []).map(it => ({
-    plu: it.plu || null, codigoProveedor: null, codigoBarras: null,
+    // Un artículo nuevo del pedido trae un plu sintético (NUEVO-…) que no existe en
+    // SIGA: va sin PLU para que se resuelva a mano contra el producto ya dado de alta.
+    plu: it.nuevo ? null : (it.plu || null), codigoProveedor: null, codigoBarras: null,
     cantidad: it.cantidad, precioUnitario: it.precioUnitario || 0, porcentajeIVA: 21,
     descripcion: it.nombre || null,
   })), 'Pedido ' + pedido.numero);
