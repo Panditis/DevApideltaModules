@@ -2,10 +2,11 @@
 const express = require('express');
 const path = require('path');
 const preciosCosteo = require('../lib/precios_costeo');
+const { pesoTokenKg } = require('../lib/producto_carga');
 
 // ── Rutas del módulo Precios (costeo sugerido) ───────────────────────────────
-// Fase 1: listado/detalle/config de Almacén. Fraccionado/Producción llegan en fases
-// futuras — comparten el shape de costearAlmacen pero no tienen SQL propia todavía.
+// Fase 1: listado/detalle/config de Almacén. Fase 2: Fraccionado (listado agrupado por granel). Producción llega
+// en una fase futura — comparte el shape de costearAlmacen pero no tiene SQL propia todavía.
 //
 // data/costeo.json ya nace con el schema completo (bandasMarkup, recetas,
 // insumosPorProducto, etc.) para que las fases siguientes no tengan que migrar
@@ -27,7 +28,14 @@ module.exports = function crearRutasPrecios(deps) {
     costoHora: 4500, toleranciaPct: 10, costosVariosPctAlmacen: 0,
     bandasMarkup: { almacen: [], fraccionado: [], produccion: [] },
     margenPorProducto: {}, costoPorProducto: {}, fuenteCosto: {},
-    marcadosExportar: {},
+    // costosExtraFraccionado guarda los costos extra por PLU de Fraccionado (granel) Y de Almacén
+    // (producto): los PLU de los dos universos no se pisan, así que una sola clave alcanza. El
+    // nombre quedó de cuando sólo existía Fraccionado; renombrarla obligaría a migrar costeo.json
+    // de cada instalación por un cambio cosmético — no vale la pena.
+    marcadosExportar: {}, costosExtraFraccionado: {},
+    // Presentaciones simuladas (sin código en SIGA) por granel: { [granelPlu]: [{ id, pesoG, markupPct, nombre? }] }.
+    presentacionesTemporales: {},
+    markupFraccionado: MARKUP_FRACCIONADO_DEFAULT,
   };
 
   router.get('/precios', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'precios.html')));
@@ -38,24 +46,13 @@ module.exports = function crearRutasPrecios(deps) {
       costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct,
       costosVariosPctAlmacen: costeo.costosVariosPctAlmacen,
       bandasMarkup: costeo.bandasMarkup,
+      markupFraccionado: costeo.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT,
     };
   }));
 
-  // Universo Almacén (rubro 'Almacen', activo) con sus dos costos posibles:
-  // - CostoSistema: ProductosSucursales.PrecioCosto de SIGA (fuente por defecto). Trae el IVA
-  //   de compra adentro, así que se usa sin IVA (costoSistemaSinIva, con Productos.Alicuota)
-  //   — si no, costearAlmacen volvería a sumar IVA y daría doble IVA.
-  // - CostoCompra: última compra NETA (UltimoPrecioCompra del proveedor con compra más
-  //   reciente, mismo origen que ultimoProveedorPorProducto en rutas_precios_proveedores.js),
-  //   elegible por producto (fuenteCosto[plu] = 'ultimaCompra').
-  async function universoAlmacen() {
-    const rows = await query(`
-      SELECT p.IdProducto, p.NombreProducto, uc.Precio AS CostoCompra, uc.Proveedor,
-        CAST(ps.PrecioCosto AS FLOAT) AS CostoSistema, CAST(p.Alicuota AS FLOAT) AS IvaCompraPct,
-        CONVERT(varchar(10), uc.FechaCompra, 23) AS FechaCompraTxt,
-        CASE WHEN CAST(uc.FechaCompra AS date) = CAST(GETDATE() AS date) THEN 1 ELSE 0 END AS IngresoHoy
-      FROM Productos p
-      JOIN Rubros r ON r.IdRubro = p.IdRubro
+  // Costo de sistema (sucursal central) + última compra neta de un producto `p`. Compartido
+  // por Almacén y el granel de Fraccionado: un solo criterio de "costo" para los dos tabs.
+  const SQL_COSTOS_PRODUCTO = `
       LEFT JOIN ProductosSucursales ps ON ps.IdProducto = p.IdProducto
         AND ps.IdSucursal = (SELECT MIN(IdSucursal) FROM Sucursales WHERE SoyLaCentral = 1)
       OUTER APPLY (
@@ -65,27 +62,55 @@ module.exports = function crearRutasPrecios(deps) {
         LEFT JOIN Proveedores pv ON pv.IdProveedor = pp.IdProveedor
         WHERE pp.IdProducto = p.IdProducto AND pp.UltimaFechaCompra IS NOT NULL AND pp.UltimoPrecioCompra > 0
         ORDER BY pp.UltimaFechaCompra DESC
-      ) uc
+      ) uc`;
+
+  // Productos activos con sus dos costos posibles (compartido por Almacén y el granel de Fraccionado):
+  // - CostoSistema: ProductosSucursales.PrecioCosto de SIGA (fuente por defecto). Trae el IVA
+  //   de compra adentro, así que se usa sin IVA (costoSistemaSinIva, con Productos.Alicuota)
+  //   — si no, costearAlmacen volvería a sumar IVA y daría doble IVA.
+  // - CostoCompra: última compra NETA (UltimoPrecioCompra del proveedor con compra más
+  //   reciente, mismo origen que ultimoProveedorPorProducto en rutas_precios_proveedores.js),
+  //   elegible por producto (fuenteCosto[plu] = 'ultimaCompra').
+  // `filtroSql` es siempre una constante de este archivo o un IN de ids ya validados, nunca input crudo.
+  async function productosConCostos(filtroSql) {
+    const rows = await query(`
+      SELECT p.IdProducto, p.NombreProducto, uc.Precio AS CostoCompra, uc.Proveedor,
+        CAST(ps.PrecioCosto AS FLOAT) AS CostoSistema, CAST(p.Alicuota AS FLOAT) AS IvaCompraPct,
+        CONVERT(varchar(10), uc.FechaCompra, 23) AS FechaCompraTxt,
+        -- "Ingreso hoy" = el producto está en un comprobante de compra CARGADO hoy en SIGA
+        -- (Compras.FechaActualizacion), no con fecha de factura de hoy: una factura del 15/9
+        -- ingresada hoy tiene Fecha=15/9 y FechaActualizacion=hoy. Mismo join que rutas_compras.js.
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ComprasProductos cp
+          JOIN Compras c ON c.IdSucursal=cp.IdSucursal AND c.IdTipoComprobante=cp.IdTipoComprobante
+            AND c.Letra=cp.Letra AND c.CentroEmisor=cp.CentroEmisor AND c.NumeroComprobante=cp.NumeroComprobante
+            AND c.IdProveedor=cp.IdProveedor
+          WHERE cp.IdProducto = p.IdProducto AND c.FechaActualizacion >= CAST(GETDATE() AS date)
+        ) THEN 1 ELSE 0 END AS IngresoHoy
+      FROM Productos p
+      LEFT JOIN Rubros r ON r.IdRubro = p.IdRubro
+      ${SQL_COSTOS_PRODUCTO}
       -- IvaCompraPct = Productos.Alicuota: el propio campo de IVA del producto en SIGA (el que
       -- SIGA usa para su "costo sin IVA"). Null → costoSistemaSinIva asume 21% y marca ivaSupuesto.
-      WHERE p.Activo = 1 AND r.NombreRubro = 'Almacen'`);
-    // "Ingreso hoy" = la última fecha de compra del producto es hoy (fecha del server SQL,
-    // ProductosProveedores.UltimaFechaCompra). Si hace falta una fuente más estricta
-    // (documento de Compras del día), cambiarla acá.
+      WHERE ${filtroSql}`);
     return rows.map(r => {
       // Costo de sistema SIGA (fuente por defecto): se usa SIN IVA.
       const sis = costoSistemaSinIva(r.CostoSistema, r.IvaCompraPct);
       return {
-      plu: String(r.IdProducto), nombre: r.NombreProducto,
-      costoMercaderia: r.CostoCompra != null ? +r.CostoCompra : null,
-      costoSistema: sis.costo,
-      costoSistemaConIva: r.CostoSistema != null && +r.CostoSistema > 0 ? +r.CostoSistema : null,
-      ivaCompraPct: sis.ivaPct, ivaCompraSupuesto: sis.ivaSupuesto,
-      proveedor: r.Proveedor || null, fechaUltimaCompra: r.FechaCompraTxt || null,
-      ingresoHoy: r.IngresoHoy === 1,
+        plu: String(r.IdProducto), nombre: String(r.NombreProducto || '').trim(),
+        costoMercaderia: r.CostoCompra != null ? +r.CostoCompra : null,
+        costoSistema: sis.costo,
+        costoSistemaConIva: r.CostoSistema != null && +r.CostoSistema > 0 ? +r.CostoSistema : null,
+        ivaCompraPct: sis.ivaPct, ivaCompraSupuesto: sis.ivaSupuesto,
+        proveedor: r.Proveedor || null, fechaUltimaCompra: r.FechaCompraTxt || null,
+        ingresoHoy: r.IngresoHoy === 1,
       };
     });
   }
+
+  // Universo Almacén: rubro 'Almacen', activo. (Los graneles no filtran Activo: un granel referenciado
+  // por fórmula se costea aunque esté inactivo, como antes.)
+  const universoAlmacen = () => productosConCostos(`p.Activo = 1 AND r.NombreRubro = 'Almacen'`);
 
   // Precio vigente de mostrador (sucursal central, lista de venta) por plu. Precedente
   // verificado: rutas_precios_historico.js:63-66 (mismo patrón SUCURSAL_PRECIOS_HIST=1).
@@ -118,14 +143,50 @@ module.exports = function crearRutasPrecios(deps) {
     }));
   }
 
+  // ── Fraccionado ────────────────────────────────────────────────────────────
+  // Graneles = rubro 'Pesables Deposito'; presentaciones = rubro 'Pesables Fraccionado' (mismo
+  // filtro que rutas_fraccionado_externo), unidas por pesables_listas.formulas[plu].granel.
+  // `rubro` es siempre una constante de este archivo, nunca input del request.
+  async function productosDeRubro(rubro) {
+    const rows = await query(`
+      SELECT p.IdProducto, p.NombreProducto
+      FROM Productos p JOIN Rubros r ON r.IdRubro = p.IdRubro
+      WHERE p.Activo = 1 AND r.NombreRubro = '${rubro}'`);
+    return rows.map(r => ({ plu: String(r.IdProducto), nombre: String(r.NombreProducto || '').trim() }));
+  }
+
+  // Costos de los graneles (mismo shape que el universo Almacén). Los IdProducto vienen de
+  // SIGA/pesables_listas.json (no del request); igual se filtran por formato antes de interpolarlos.
+  // IdProducto es varchar (hay códigos no numéricos): con un IN de ints SQL Server convierte
+  // toda la columna a int y revienta. Van como strings, igual que en rutas_compras.js.
+  async function costosGranel(granelPlus) {
+    const ids = [...new Set(granelPlus.map(String).filter(id => /^[\w-]{1,30}$/.test(id)))];
+    if (!ids.length) return new Map();
+    const rows = await productosConCostos(`p.IdProducto IN (${ids.map(id => `'${id}'`).join(',')})`);
+    return new Map(rows.map(r => [r.plu, r]));
+  }
+
+  async function gruposFraccionado(costeo) {
+    const [graneles, presentaciones, vigentes] = await Promise.all([
+      productosDeRubro('Pesables Deposito'), productosDeRubro('Pesables Fraccionado'), preciosVigentesAlmacen(),
+    ]);
+    const formulas = (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas || {};
+    const referenciados = presentaciones.map(p => granelDe(formulas, p.plu)).filter(Boolean);
+    const costos = await costosGranel([...graneles.map(g => g.plu), ...referenciados]);
+    return armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig: costeo });
+  }
+
   router.get('/api/precios/listado', apiRoute(async (req) => {
-    if (String(req.query.tipo || '') !== 'almacen') return { error: 'tipo no soportado todavía' };
+    const tipo = String(req.query.tipo || '');
     const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    if (tipo === 'fraccionado') return gruposFraccionado(costeo);
+    if (tipo !== 'almacen') return { error: 'tipo no soportado todavía' };
     const filas = await filasAlmacen(costeo);
     // Listado liviano: sin el desglose de componentes (eso es para detalle).
     return filas.map(f => ({
-      plu: f.plu, nombre: f.nombre, costoTotal: f.costoTotal, markupPct: f.markupPct, banda: f.banda,
+      plu: f.plu, nombre: f.nombre, costoBase: f.costoBase, costoTotal: f.costoTotal, markupPct: f.markupPct, banda: f.banda,
       markupBanda: f.markupBanda, markupOverride: f.markupOverride, costoOverride: f.costoOverride, costoFuente: f.costoFuente,
+      costosExtra: f.costosExtra, costoExtraTotal: f.costoExtraTotal,
       precioNeto: f.precioNeto, precioConIva: f.precioConIva, precioVigente: f.precioVigente,
       deltaPct: f.deltaPct, semaforo: f.semaforo, faltantes: f.faltantes,
       proveedor: f.proveedor, fechaUltimaCompra: f.fechaUltimaCompra, ingresoHoy: f.ingresoHoy,
@@ -136,6 +197,11 @@ module.exports = function crearRutasPrecios(deps) {
   router.get('/api/precios/detalle/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
     const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    if (String(req.query.tipo || '') === 'fraccionado') {
+      // ponytail: arma todos los grupos para devolver uno (mismo criterio que Almacén abajo).
+      const grupo = (await gruposFraccionado(costeo)).find(g => g.granelPlu === plu);
+      return grupo || { error: `Granel ${plu} no encontrado en Fraccionado` };
+    }
     const filas = await filasAlmacen(costeo);
     const fila = filas.find(f => f.plu === plu);
     if (!fila) return { error: `PLU ${plu} no encontrado en el universo Almacén` };
@@ -200,11 +266,92 @@ module.exports = function crearRutasPrecios(deps) {
   }
 
   // Markup propio (margenPorProducto[plu]): pisa la banda por costo. { markupPct: null } lo quita.
+  // Mínimo negativo: un precio de SIGA por debajo del costo es dato real (ver alinear-siga).
+  const MARKUP_MIN_PCT = -99;
   const MARKUP_MAX_PCT = 1000;
   router.put('/api/precios/margen-producto/:plu', apiRoute(async (req) => guardarValorProducto({
     clave: 'margenPorProducto', plu: String(req.params.plu || '').trim(),
-    raw: (req.body || {}).markupPct, min: 0, max: MARKUP_MAX_PCT,
+    raw: (req.body || {}).markupPct, min: MARKUP_MIN_PCT, max: MARKUP_MAX_PCT,
   })));
+
+  // Margen standard Fraccionado (matriz banda de costo × tramo de peso). Valida antes de escribir.
+  router.put('/api/precios/config/markup-fraccionado', apiRoute(async (req) => {
+    const { bandas, tramosG, markupPct } = req.body || {};
+    const matriz = { bandas, tramosG, markupPct };
+    try {
+      preciosCosteo.validarMarkupFraccionado(matriz);
+    } catch (err) {
+      return { error: err.message };
+    }
+    guardarJSON(COSTEO_PATH, { ...leerJSON(COSTEO_PATH, COSTEO_DEFAULT), markupFraccionado: matriz });
+    return { markupFraccionado: matriz };
+  }));
+
+  // Alinear con SIGA: markup propio por producto que reproduce su precio vigente con el costo
+  // actual. Pisa los margenPorProducto de esos productos; sólo toca esa clave de costeo.json.
+  router.post('/api/precios/alinear-siga', apiRoute(async () => {
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const [filas, grupos] = await Promise.all([filasAlmacen(costeo), gruposFraccionado(costeo)]);
+    // Fraccionado: cada presentación se alinea con el costo total $/kg de su granel (base +
+    // costos extra, el mismo para todas).
+    const presentaciones = grupos.flatMap(g => g.presentaciones.map(p => ({
+      plu: p.plu, costoTotal: g.costoTotal, precioVigente: p.precioVigente,
+    })));
+    const { markups, alineados, sinDatos, negativos } = markupsAlineadosConSiga([...filas, ...presentaciones]);
+    const actual = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    guardarJSON(COSTEO_PATH, { ...actual, margenPorProducto: { ...(actual.margenPorProducto || {}), ...markups } });
+    return { alineados, sinDatos, negativos };
+  }));
+
+  // Costos extra de un granel de Fraccionado o de un producto de Almacén (misma clave, ver
+  // COSTEO_DEFAULT): body { items: [{ concepto, tipo: 'kg'|'pct', valor }] } — 'kg' es $/kg en
+  // Fraccionado y $ por unidad en Almacén. items [] borra la entrada. Valida todo antes de
+  // escribir; sólo toca costosExtraFraccionado.
+  router.put('/api/precios/costos-extra/:plu', apiRoute(async (req) => {
+    const plu = String(req.params.plu || '').trim();
+    if (!/^[\w-]{1,30}$/.test(plu)) return { error: 'PLU inválido' };
+    let items;
+    try {
+      items = preciosCosteo.validarCostosExtra((req.body || {}).items);
+    } catch (err) {
+      return { error: err.message };
+    }
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const mapa = { ...(costeo.costosExtraFraccionado || {}) };
+    if (items.length) mapa[plu] = items; else delete mapa[plu];
+    guardarJSON(COSTEO_PATH, { ...costeo, costosExtraFraccionado: mapa });
+    return { plu, items };
+  }));
+
+  // Presentaciones temporales de Fraccionado (simular un peso que todavía no tiene código en SIGA).
+  // Nunca se marcan, exportan ni alinean: viven sólo en costeo.presentacionesTemporales.
+  // ponytail: no se verifica que el granel exista en SIGA (haría falta SQL); una temporal de un
+  // plu inexistente simplemente no aparece en ningún grupo.
+  const ID_TEMPORAL = /^t-[a-z0-9]{1,24}$/;
+  function guardarTemporal(req, op) {
+    const plu = String(req.params.granelPlu || '').trim();
+    if (!/^[\w-]{1,30}$/.test(plu)) return { error: 'PLU inválido' };
+    const id = op === 'crear'
+      ? `t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
+      : String(req.params.id || '');
+    if (!ID_TEMPORAL.test(id)) return { error: 'id de presentación temporal inválido' };
+    let datos = null;
+    if (op !== 'borrar') {
+      try {
+        datos = preciosCosteo.validarPresentacionTemporal(req.body, { parcial: op === 'editar' });
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const r = aplicarTemporal(costeo.presentacionesTemporales, plu, { op, id, datos });
+    if (r.error) return r;
+    guardarJSON(COSTEO_PATH, { ...costeo, presentacionesTemporales: r.mapa });
+    return { granelPlu: plu, temporal: r.item, temporales: r.mapa[plu] || [] };
+  }
+  router.post('/api/precios/presentaciones-temporales/:granelPlu', apiRoute(async (req) => guardarTemporal(req, 'crear')));
+  router.put('/api/precios/presentaciones-temporales/:granelPlu/:id', apiRoute(async (req) => guardarTemporal(req, 'editar')));
+  router.delete('/api/precios/presentaciones-temporales/:granelPlu/:id', apiRoute(async (req) => guardarTemporal(req, 'borrar')));
 
   // Fuente del costo base de un producto ('sistema' = PrecioCosto de SIGA sin IVA, ver
   // costoSistemaSinIva). body { fuente: 'ultimaCompra' | 'sistema' | 'manual',
@@ -260,6 +407,33 @@ module.exports = function crearRutasPrecios(deps) {
   return router;
 };
 
+// Alta/edición/baja de una presentación temporal sobre el mapa { granelPlu: [...] }. Pura: devuelve
+// { mapa, item } nuevos (sin mutar la entrada) o { error }. datos ya validados
+// (validarPresentacionTemporal); en editar, nombre: null lo quita. Sin temporales se borra la entrada.
+const TEMPORALES_MAX = 30;
+function aplicarTemporal(mapaActual, granelPlu, { op, id, datos }) {
+  const mapa = { ...(mapaActual || {}) };
+  const lista = Array.isArray(mapa[granelPlu]) ? mapa[granelPlu] : [];
+  let item = null;
+  if (op === 'crear') {
+    if (lista.length >= TEMPORALES_MAX) return { error: `máximo ${TEMPORALES_MAX} presentaciones temporales por granel` };
+    item = { id, ...datos };
+    mapa[granelPlu] = [...lista, item];
+    return { mapa, item };
+  }
+  const actual = lista.find(t => t.id === id);
+  if (!actual) return { error: `presentación temporal ${id} no encontrada` };
+  if (op === 'borrar') {
+    const resto = lista.filter(t => t.id !== id);
+    if (resto.length) mapa[granelPlu] = resto; else delete mapa[granelPlu];
+    return { mapa, item: actual };
+  }
+  const { nombre, ...resto } = { ...actual, ...datos };
+  item = nombre ? { ...resto, nombre } : resto;
+  mapa[granelPlu] = lista.map(t => (t.id === id ? item : t));
+  return { mapa, item };
+}
+
 // Agrega (marcado=true) o quita PLUs del mapa { plu: fecha }. Devuelve un objeto nuevo;
 // re-marcar un PLU ya marcado conserva la fecha original.
 function aplicarMarcados(mapaActual, plus, marcado, fecha) {
@@ -278,16 +452,11 @@ function aplicarMarcados(mapaActual, plus, marcado, fecha) {
 // ambos brutos — comparar precioVigente contra un neto sería comparar peras con manzanas.
 function calcularFilaAlmacen({ plu, nombre, costoMercaderia, costoSistema = null, precioVigente, costeoConfig }) {
   const cfg = costeoConfig || {};
-  // Costo base, por prioridad: manual (costoPorProducto[plu]) → última compra sin IVA
-  // (costoMercaderia) si el producto eligió esa fuente (fuenteCosto[plu] === 'ultimaCompra')
-  // → costo de sistema SIGA sin IVA (default). La banda se busca por el costo que efectivamente se usa.
-  const manual = (cfg.costoPorProducto || {})[plu];
-  const costoOverride = typeof manual === 'number' && Number.isFinite(manual) && manual > 0 ? manual : null;
-  const costoFuente = costoOverride != null ? 'manual'
-    : (cfg.fuenteCosto || {})[plu] === 'ultimaCompra' ? 'ultimaCompra' : 'sistema';
-  const costoBase = costoFuente === 'manual' ? costoOverride
-    : costoFuente === 'ultimaCompra' ? costoMercaderia
-    : (costoSistema != null ? costoSistema : null);
+  // Costo base (manual → última compra si se eligió → sistema sin IVA): preciosCosteo.elegirCosto,
+  // el mismo criterio que el granel de Fraccionado. La banda se busca por el costo que efectivamente se usa.
+  const { costoBase, costoFuente, costoOverride } = preciosCosteo.elegirCosto({
+    plu, costoUltimaCompra: costoMercaderia, costoSistema, cfg,
+  });
   const overridePct = (cfg.margenPorProducto || {})[plu];
   const bandasAlmacen = (cfg.bandasMarkup || {}).almacen;
   const { markupPct, banda } = preciosCosteo.resolverBanda(costoBase, bandasAlmacen, overridePct);
@@ -295,18 +464,174 @@ function calcularFilaAlmacen({ plu, nombre, costoMercaderia, costoSistema = null
   const markupBanda = preciosCosteo.resolverBanda(costoBase, bandasAlmacen).markupPct;
   const markupOverride = typeof overridePct === 'number' && Number.isFinite(overridePct) ? overridePct : null;
   const costosVariosPct = Number(cfg.costosVariosPctAlmacen) || 0;
+  // Costos extra del producto: misma clave que los graneles de Fraccionado (ver COSTEO_DEFAULT).
+  const costosExtra = costosExtraDe(cfg, plu);
   const costeado = preciosCosteo.costearAlmacen({
-    costoMercaderia: costoBase, costosVariosPct, markupPct, banda, plu, nombre,
+    costoMercaderia: costoBase, costosVariosPct, costosExtra, markupPct, banda, plu, nombre,
   });
+  // Sólo los extras del producto (sin los costos varios globales), como en Fraccionado.
+  const conExtras = preciosCosteo.aplicarCostosExtra(costeado.costoTotal == null ? null : costoBase, costosExtra, '$');
+  const costoExtraTotal = conExtras.costoTotal == null ? null
+    : Math.round((conExtras.costoTotal - costoBase) * 100) / 100;
+  // El redondeo a $50 se aplica cuando el precio cambia; si costo y markup reproducen el precio
+  // vigente de SIGA, se respeta ese precio (así un producto alineado da 0% aunque SIGA no
+  // tenga el precio en múltiplo de 50).
+  if (precioVigente > 0 && costeado.precioConIvaExacto != null
+    && Math.abs(costeado.precioConIvaExacto - precioVigente) < 0.5) {
+    costeado.precioConIva = precioVigente;
+  }
   // semaforo: 'ok' | 'subir' | 'bajar' | null (sin vigente o sin precio sugerido).
   const { deltaPct, estado: semaforo } = preciosCosteo.compararConVigente(costeado.precioConIva, precioVigente, cfg.toleranciaPct);
   return {
-    ...costeado, markupBanda, markupOverride,
+    ...costeado, markupBanda, markupOverride, costosExtra, costoExtraTotal,
     costoBase: costoBase != null ? costoBase : null, costoOverride, costoFuente,
     costoSistema: costoSistema != null ? costoSistema : null,
     precioUltimaCompra: costoMercaderia != null ? costoMercaderia : null, costosVariosPct,
     precioVigente: precioVigente != null ? precioVigente : null, deltaPct, semaforo,
   };
+}
+
+// Margen standard Fraccionado por defecto (si costeo.json no tiene markupFraccionado).
+// Valores = (1+markupExcel) × correcciónExcel − 1: reproduce los precios del Excel sin envase/MO.
+const MARKUP_FRACCIONADO_DEFAULT = Object.freeze({
+  bandas: [9999, 19999, null],
+  tramosG: [100, 200, 400, 500, 1000, 5000, 10000],
+  markupPct: [[84.35, 76.33, 68.32, 68.32, 60.3, 53.89, 50.68],
+              [87.33, 78.82, 73.71, 73.71, 70.3, 63.49, 60.08],
+              [73.57, 70.26, 66.95, 66.95, 65.3, 58.69, 55.38]],
+});
+
+function costosExtraDe(cfg, plu) {
+  const items = plu != null ? (cfg.costosExtraFraccionado || {})[plu] : null;
+  return Array.isArray(items) ? items : [];
+}
+
+function granelDe(formulas, plu) {
+  const f = (formulas || {})[plu];
+  return f && f.granel != null ? String(f.granel) : null;
+}
+
+// Listado Fraccionado agrupado por granel. Pura (sin SQL/fs): recibe graneles y presentaciones
+// de SIGA, formulas de pesables_listas, costos (Map granelPlu → fila de productosConCostos:
+// costoMercaderia, costoSistema, ...) y vigentes (Map plu → precio por kg). Todas las presentaciones
+// de un granel llevan su costo $/kg; varía el margen: margenPorProducto[plu] ?? standard.
+const SIN_GRANEL = 'Sin granel asignado';
+function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig }) {
+  const cfg = costeoConfig || {};
+  const matriz = cfg.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT;
+  const overrides = cfg.margenPorProducto || {};
+  const marcados = cfg.marcadosExportar || {};
+  const grupos = new Map();
+  // Costo del granel: mismo selector que Almacén (elegirCosto), con las claves por PLU del granel.
+  const nuevoGrupo = (plu, nombre) => {
+    const c = (plu != null && costos.get(plu)) || {};
+    const { costoBase, costoFuente, costoOverride } = preciosCosteo.elegirCosto({
+      plu, costoUltimaCompra: c.costoMercaderia ?? null, costoSistema: c.costoSistema ?? null, cfg,
+    });
+    // Costos extra del granel ($/kg o % del costo base): las presentaciones se costean sobre costoTotal.
+    const extras = costosExtraDe(cfg, plu);
+    const { costoTotal } = preciosCosteo.aplicarCostosExtra(costoBase, extras);
+    return {
+      granelPlu: plu, granelNombre: nombre || c.nombre || '',
+      costoBase, costoFuente: plu == null ? null : costoFuente, costoOverride,
+      costosExtra: extras, costoTotal,
+      costoExtraTotal: costoTotal != null ? Math.round((costoTotal - costoBase) * 100) / 100 : null,
+      costoSistema: c.costoSistema ?? null, costoSistemaConIva: c.costoSistemaConIva ?? null,
+      ivaCompraPct: c.ivaCompraPct ?? null, ivaCompraSupuesto: !!c.ivaCompraSupuesto,
+      precioUltimaCompra: c.costoMercaderia ?? null,
+      proveedor: c.proveedor || null, fechaUltimaCompra: c.fechaUltimaCompra || null, ingresoHoy: !!c.ingresoHoy,
+      banda: preciosCosteo.markupStdFraccionado(costoBase, null, matriz).fila, presentaciones: [],
+    };
+  };
+  for (const g of graneles || []) grupos.set(g.plu, nuevoGrupo(g.plu, g.nombre));
+  const sinGranel = nuevoGrupo(null, SIN_GRANEL);
+
+  for (const p of presentaciones || []) {
+    const gPlu = granelDe(formulas, p.plu);
+    // Granel referenciado fuera del rubro pero existente en SIGA: grupo propio.
+    if (gPlu && !grupos.has(gPlu) && costos.has(gPlu)) grupos.set(gPlu, nuevoGrupo(gPlu, null));
+    const grupo = gPlu && grupos.has(gPlu) ? grupos.get(gPlu) : sinGranel;
+    grupo.presentaciones.push({
+      ...filaPresentacion(p, grupo, matriz, overrides, vigentes, cfg.toleranciaPct),
+      marcado: Object.prototype.hasOwnProperty.call(marcados, p.plu),
+    });
+  }
+  const porNombre = (a, b) => String(a).localeCompare(String(b), 'es');
+  const lista = [...grupos.values()].sort((a, b) => porNombre(a.granelNombre, b.granelNombre));
+  if (sinGranel.presentaciones.length) lista.push(sinGranel);
+  const peso = f => (f.pesoG != null ? f.pesoG : Infinity);
+  const temporales = cfg.presentacionesTemporales || {};
+  for (const g of lista) {
+    g.presentaciones.sort((a, b) => (peso(a) - peso(b)) || porNombre(a.nombre, b.nombre));
+    const tmp = g.granelPlu != null && Array.isArray(temporales[g.granelPlu]) ? temporales[g.granelPlu] : [];
+    g.temporales = tmp.map(t => filaTemporal(t, g, matriz)).sort((a, b) => a.pesoG - b.pesoG);
+  }
+  return lista;
+}
+
+function filaPresentacion(p, grupo, matriz, overrides, vigentes, toleranciaPct) {
+  const pesoKg = pesoTokenKg(p.nombre);
+  const pesoG = pesoKg > 0 ? Math.round(pesoKg * 1000) : null;
+  // La banda del margen standard se busca con el costo SELECCIONADO (costoBase), no con
+  // base + extras — igual que Almacén busca la banda por costoBase y suma costos varios aparte.
+  // El precio sí se calcula sobre costoTotal (base + costos extra del granel).
+  const markupStd = preciosCosteo.markupStdFraccionado(grupo.costoBase, pesoG, matriz).markupPct;
+  const ov = overrides[p.plu];
+  const markupOverride = typeof ov === 'number' && Number.isFinite(ov) ? ov : null;
+  const c = preciosCosteo.costearFraccionado({
+    plu: p.plu, nombre: p.nombre, costoKg: grupo.costoTotal,
+    markupPct: markupOverride != null ? markupOverride : markupStd,
+  });
+  const precioVigente = vigentes.has(p.plu) ? vigentes.get(p.plu) : null;
+  // Misma regla "alineado exacto" que Almacén: si reproduce el vigente, se respeta ese precio.
+  const precioConIva = precioVigente > 0 && c.precioConIvaExacto != null
+    && Math.abs(c.precioConIvaExacto - precioVigente) < 0.5 ? precioVigente : c.precioConIva;
+  const { deltaPct, estado: semaforo } = preciosCosteo.compararConVigente(precioConIva, precioVigente, toleranciaPct);
+  return {
+    plu: p.plu, nombre: p.nombre,
+    presentacion: etiquetaPeso(pesoG), pesoG,
+    markupStd, markupOverride, markupPct: c.markupPct,
+    precioNeto: c.precioNeto, precioConIva, precioVigente, deltaPct, semaforo,
+    // Sin costo el standard tampoco existe: el faltante real es el costo, no el margen.
+    faltantes: grupo.granelPlu == null ? ['granel'] : grupo.costoBase == null ? ['costoGranel'] : c.faltantes,
+  };
+}
+
+const etiquetaPeso = pesoG => (pesoG == null ? '' : pesoG >= 1000 ? `${pesoG / 1000}KG` : `${pesoG}G`);
+
+// Presentación temporal (simulada): mismo costo del granel y margen (standard por pesoG u override
+// markupPct) que una real, pero sin PLU ni precio vigente → sin semáforo; nunca marcable.
+function filaTemporal(t, grupo, matriz) {
+  const markupStd = preciosCosteo.markupStdFraccionado(grupo.costoBase, t.pesoG, matriz).markupPct;
+  const markupOverride = typeof t.markupPct === 'number' && Number.isFinite(t.markupPct) ? t.markupPct : null;
+  const c = preciosCosteo.costearFraccionado({
+    plu: null, nombre: t.nombre || null, costoKg: grupo.costoTotal,
+    markupPct: markupOverride != null ? markupOverride : markupStd,
+  });
+  return {
+    id: t.id, temporal: true, nombre: t.nombre || null,
+    presentacion: etiquetaPeso(t.pesoG), pesoG: t.pesoG,
+    markupStd, markupOverride, markupPct: c.markupPct,
+    precioNeto: c.precioNeto, precioConIva: c.precioConIva, precioVigente: null, deltaPct: null, semaforo: null,
+    faltantes: grupo.costoBase == null ? ['costoGranel'] : c.faltantes,
+    marcado: false,
+  };
+}
+
+// Markup por producto que reproduce el precio vigente de SIGA con el costo total actual.
+// Filas sin costoTotal o sin vigente cuentan en sinDatos; negativos = vigente bajo el costo
+// (se incluyen igual).
+function markupsAlineadosConSiga(filas) {
+  const markups = {};
+  let sinDatos = 0, negativos = 0;
+  for (const f of filas || []) {
+    const m = f.costoTotal > 0 && f.precioVigente > 0
+      ? preciosCosteo.markupParaPrecio(f.costoTotal, f.precioVigente) : null;
+    if (m == null) { sinDatos++; continue; }
+    markups[f.plu] = m;
+    if (m < 0) negativos++;
+  }
+  return { markups, alineados: Object.keys(markups).length, sinDatos, negativos };
 }
 
 // ProductosSucursales.PrecioCosto viene con el IVA de compra adentro. Se saca con la alícuota
@@ -327,3 +652,8 @@ function costoSistemaSinIva(precioCostoConIva, ivaCompraPct) {
 module.exports.calcularFilaAlmacen = calcularFilaAlmacen;
 module.exports.costoSistemaSinIva = costoSistemaSinIva;
 module.exports.aplicarMarcados = aplicarMarcados;
+module.exports.markupsAlineadosConSiga = markupsAlineadosConSiga;
+module.exports.armarGruposFraccionado = armarGruposFraccionado;
+module.exports.MARKUP_FRACCIONADO_DEFAULT = MARKUP_FRACCIONADO_DEFAULT;
+module.exports.aplicarTemporal = aplicarTemporal;
+module.exports.TEMPORALES_MAX = TEMPORALES_MAX;

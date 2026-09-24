@@ -10,3 +10,4 @@ docs/
 pruebas_stock_claude/
 pruebas_compras/
 .worktrees/
+.playwright-cli/

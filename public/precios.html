@@ -21,6 +21,48 @@
   .fopt:hover{background:rgba(64,89,54,.08)}
   .fopt input{accent-color:#405936;width:14px;height:14px;flex-shrink:0}
   .fopt b{margin-left:auto;color:#5c5f52;font-weight:600;font-variant-numeric:tabular-nums}
+
+  /* ── Modal de detalle (Almacén y Fraccionado): la cuenta como una sola "ecuación" ──
+     .ec = renglón [operador | concepto | importe]; .seg = control segmentado del costo. */
+  .ec{display:grid;grid-template-columns:1rem minmax(0,1fr) auto;column-gap:.75rem;align-items:start;padding:.6rem 0}
+  .ec-op{color:#5c5f52;font-weight:600;text-align:center;line-height:1.5rem}
+  .ec-val{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.5rem}
+  .ec-total{border-top:1px solid rgba(26,28,24,.16)}
+  .lbl{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#5c5f52}
+  .seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;border-radius:10px;background:#eef1ea}
+  .seg-opt{display:flex;flex-direction:column;align-items:flex-start;padding:4px 10px;border-radius:7px;font-size:11.5px;line-height:1.3;color:#5c5f52;cursor:pointer}
+  .seg-opt b{font-size:13px;font-weight:600;color:#242423;font-variant-numeric:tabular-nums}
+  .seg-opt[aria-pressed="true"]{background:#fff;color:#405936;box-shadow:0 1px 2px rgba(26,28,24,.14)}
+  .seg-opt[aria-pressed="true"] b{color:#405936}
+  .seg-opt:not(:disabled):not([aria-pressed="true"]):hover{background:rgba(64,89,54,.08)}
+  .seg-opt:disabled{opacity:.4;cursor:not-allowed}
+  .num-in{padding:4px 8px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;text-align:right;font-variant-numeric:tabular-nums}
+  .num-in:hover{border-color:rgba(26,28,24,.32)}
+  .num-in:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  #mDet button:focus-visible,#mDet input[type=checkbox]:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  #mDetCaja:focus{outline:none}
+  #mDet input[type=number]{-moz-appearance:textfield}
+  #mDet input[type=number]::-webkit-inner-spin-button,#mDet input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+  #mDet tbody tr:hover{background:transparent}
+  /* Color por sección del cálculo (colores del theme: ok/warn/crit/gris, info #0958d9 de .stat-ico.t-info,
+     amarillo, verde/verdeHover, #f2f6ec de tr.grupo). Fondo tenue + borde izquierdo; el texto sigue en ink. */
+  .sec{border-left:3px solid var(--sec-c);background:var(--sec-bg);border-radius:0 8px 8px 0;padding-left:.7rem;padding-right:.7rem;margin-top:4px}
+  .sec .ec-op{color:var(--sec-c)}
+  .sec.ec-total{border-top:0}
+  .s-costo + .s-costo{margin-top:1px}
+  .s-res{--sec-c:#5c5f52;--sec-bg:rgba(92,95,82,.05)}
+  .s-res[data-estado="ok"]{--sec-c:#0e700e;--sec-bg:rgba(14,112,14,.06)}
+  .s-res[data-estado="subir"]{--sec-c:#a4262c;--sec-bg:rgba(164,38,44,.05)}
+  .s-res[data-estado="bajar"]{--sec-c:#8a5d00;--sec-bg:rgba(138,93,0,.06)}
+  .s-costo{--sec-c:#0958d9;--sec-bg:rgba(9,88,217,.045)}
+  .s-extra{--sec-c:#8a5d00;--sec-bg:rgba(255,204,0,.1)}
+  .s-margen{--sec-c:#4f6e42;--sec-bg:#f2f6ec}
+  .s-final{--sec-c:#405936;--sec-bg:rgba(64,89,54,.1)}
+  .sec-tit{color:var(--sec-c)}
+  /* Presentaciones simuladas (Fraccionado): fila tintada en amarillo, como lo "propio" del usuario. */
+  #mDet tbody tr.tmp,#mDet tbody tr.tmp:hover{background:rgba(255,204,0,.08)}
+  .fd-cuerpo>tr>td:first-child{padding-left:.5rem}
+  @media (min-width:640px){.fd-cuerpo>tr>td:last-child{padding-right:.5rem}}
 </style>
 </head>
 <body class="font-body text-ink">
@@ -32,13 +74,11 @@
       <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
     </div>
   </div>
-  <!-- Fraccionado y Producción llegan en fases siguientes: quedan visualmente
-       deshabilitadas (disabled real, no sólo estilo) para no prometer nada que
-       todavía no anda. -->
+  <!-- Producción llega en una fase siguiente: queda visualmente deshabilitada
+       (disabled real, no sólo estilo) para no prometer nada que todavía no anda. -->
   <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs">
     <button class="navtab on" data-tipo="almacen">Almacén</button>
-    <button class="navtab opacity-40 cursor-not-allowed" data-tipo="fraccionado" disabled>
-      Fraccionado <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
+    <button class="navtab" data-tipo="fraccionado">Fraccionado</button>
     <button class="navtab opacity-40 cursor-not-allowed" data-tipo="produccion" disabled>
       Producción <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
     <button class="navtab" data-tipo="configuracion">Configuración</button>
@@ -51,9 +91,9 @@
     <div class="flex items-center gap-2 mb-3">
       <button id="btnRecargarAlmacen" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
       <span id="almacenMeta" class="text-xs text-ink/50"></span>
-      <span id="marcadosConteo" class="ml-auto text-sm text-gris">Marcados: 0</span>
-      <button id="btnDesmarcarTodos" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white disabled:opacity-40" disabled>Desmarcar todos</button>
-      <button id="btnExportarMarcados" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40" disabled>Exportar marcados (0)</button>
+      <span class="js-marc-conteo ml-auto text-sm text-gris">Marcados: 0</span>
+      <button class="js-marc-desmarcar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white disabled:opacity-40" disabled>Desmarcar todos</button>
+      <button class="js-marc-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40" disabled>Exportar marcados (0)</button>
     </div>
     <!-- Filtros: mismo patrón que el filtro estilo Excel de distribucion.html (botón →
          desplegable con buscador + checkboxes), con los tokens del theme compartido. -->
@@ -70,17 +110,6 @@
                class="w-16 px-2 py-1 rounded-lg border border-borde bg-bg/60 text-sm text-ink text-right focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20"> %</label>
       <span id="almacenConteo" class="text-sm text-gris"></span>
     </div>
-    <div id="fDrop" class="hidden fixed z-50 bg-card border border-borde rounded-xl shadow-fluent overflow-hidden" style="min-width:280px;max-width:360px">
-      <div class="p-2 border-b border-borde">
-        <input id="fDropBuscar" type="search" placeholder="Buscar…"
-               class="w-full px-2.5 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
-      </div>
-      <div class="flex gap-1.5 px-2 py-1.5 border-b border-borde">
-        <button id="fDropTodos" class="flex-1 text-xs py-1 rounded-md border border-borde hover:bg-verde/10">Marcar visibles</button>
-        <button id="fDropLimpiar" class="flex-1 text-xs py-1 rounded-md border border-borde hover:bg-verde/10">Limpiar</button>
-      </div>
-      <div id="fDropLista" class="overflow-y-auto py-1" style="max-height:300px"></div>
-    </div>
     <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
       <table class="w-full text-sm">
         <thead class="bg-verde/5 text-verde">
@@ -91,6 +120,42 @@
               <th class="p-2">Diferencia</th><th class="p-2">Estado</th></tr>
         </thead>
         <tbody id="cuerpoAlmacen"><tr><td colspan="9" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Fraccionado: lógica en /precios_fraccionado.js. Una fila por granel ('Pesables Deposito'); todo POR KILO. -->
+  <div id="panel-fraccionado" class="tab-panel hidden">
+    <div class="flex items-center gap-2 mb-3">
+      <button id="btnRecargarFracc" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
+      <span id="fraccMeta" class="text-xs text-ink/50"></span>
+      <span class="js-marc-conteo ml-auto text-sm text-gris">Marcados: 0</span>
+      <button class="js-marc-desmarcar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white disabled:opacity-40" disabled>Desmarcar todos</button>
+      <button class="js-marc-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40" disabled>Exportar marcados (0)</button>
+    </div>
+    <div class="flex gap-2 mb-3 items-center flex-wrap bg-card border border-borde rounded-xl shadow-fluent px-3 py-2.5">
+      <input id="frBuscar" type="search" placeholder="Buscar granel, presentación o PLU…"
+             class="px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72 focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
+      <button data-filtro="proveedor" data-ctx="fracc" class="fbtn">Proveedor <span class="fbtn-n"></span> ▾</button>
+      <button data-filtro="estado" data-ctx="fracc" class="fbtn">Estado <span class="fbtn-n"></span> ▾</button>
+      <button id="frIngresoHoy" class="fbtn" aria-pressed="false">Ingreso hoy</button>
+      <button id="frSoloMarcados" class="fbtn" aria-pressed="false">Sólo marcados</button>
+      <button id="frOcultarVacios" class="fbtn" aria-pressed="false">Ocultar sin presentaciones</button>
+      <button id="frLimpiar" class="text-xs text-gris hover:text-crit px-1">Limpiar filtros</button>
+      <label class="ml-auto flex items-center gap-1 text-sm text-gris" title="Diferencias dentro de ± este % no se resaltan">Tolerancia ±
+        <input id="frTolerancia" type="number" min="0" step="0.5"
+               class="w-16 px-2 py-1 rounded-lg border border-borde bg-bg/60 text-sm text-ink text-right focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20"> %</label>
+      <span id="fraccConteo" class="text-sm text-gris"></span>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
+      <table class="w-full text-sm">
+        <thead class="bg-verde/5 text-verde">
+          <tr><th class="p-2 w-8"><input id="chkTodosFr" type="checkbox" class="accent-verde" title="Marcar/desmarcar las presentaciones de los graneles visibles"></th>
+              <th class="p-2 text-left">Código</th><th class="p-2 text-left">Producto</th>
+              <th class="p-2">Costo $/kg</th><th class="p-2">Presentaciones</th>
+              <th class="p-2">Precio sugerido /kg</th><th class="p-2">Diferencia (peor)</th><th class="p-2">Estado (peor)</th></tr>
+        </thead>
+        <tbody id="cuerpoFracc"><tr><td colspan="8" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -131,18 +196,48 @@
         <button id="btnGuardarBandas" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar bandas</button>
       </div>
     </div>
+
+    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md mt-5">
+      <h2 class="font-disp text-lg font-bold text-verde mb-1">Alinear con SIGA</h2>
+      <p class="text-xs text-ink/50 mb-4">Toma el precio vigente de cada producto de Almacén y de cada presentación de Fraccionado en SIGA y le calcula el markup que hace falta para llegar a ese precio con su costo actual. Pisa los markups propios de esos productos.</p>
+      <button id="btnAlinearSiga" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-40">Alinear markups con SIGA</button>
+      <div id="alinearMsg" class="text-sm mt-2"></div>
+    </div>
+
+    <div id="configFraccionado"></div>
   </div>
 
 </main>
 
-<!-- Detalle de un producto Almacén: calculadora paso a paso (costo → markup → IVA → redondeo). -->
-<div id="mDet" class="hidden fixed inset-0 z-50 items-center justify-center bg-ink/40 p-4" role="dialog" aria-modal="true">
-  <div class="bg-card rounded-xl shadow-fluent border border-borde w-full max-w-2xl max-h-[88vh] flex flex-col">
-    <div class="px-5 py-3 border-b border-borde flex items-center gap-2">
-      <h3 id="mDetTitulo" class="font-disp text-xl font-bold text-verde">Detalle</h3>
-      <button id="mDetX" class="ml-auto text-ink/50 hover:text-ink text-lg leading-none" aria-label="Cerrar">✕</button>
+<div id="fDrop" class="hidden fixed z-50 bg-card border border-borde rounded-xl shadow-fluent overflow-hidden" style="min-width:280px;max-width:360px">
+  <div class="p-2 border-b border-borde">
+    <input id="fDropBuscar" type="search" placeholder="Buscar…"
+           class="w-full px-2.5 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
+  </div>
+  <div class="flex gap-1.5 px-2 py-1.5 border-b border-borde">
+    <button id="fDropTodos" class="flex-1 text-xs py-1 rounded-md border border-borde hover:bg-verde/10">Marcar visibles</button>
+    <button id="fDropLimpiar" class="flex-1 text-xs py-1 rounded-md border border-borde hover:bg-verde/10">Limpiar</button>
+  </div>
+  <div id="fDropLista" class="overflow-y-auto py-1" style="max-height:300px"></div>
+</div>
+
+<!-- Detalle de un producto (Almacén) o de un granel (Fraccionado): resultado arriba, la cuenta
+     como una ecuación (costo → + extras → × margen → precio) y el pie fijo Descartar / Guardar. -->
+<div id="mDet" class="hidden fixed inset-0 z-50 items-end sm:items-center justify-center bg-ink/40 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="mDetTitulo">
+  <div id="mDetCaja" tabindex="-1" class="fade-in bg-card rounded-t-xl sm:rounded-xl shadow-fluent w-full max-w-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col">
+    <div class="px-5 pt-4 pb-2 flex items-start gap-3">
+      <div class="min-w-0">
+        <h3 id="mDetTitulo" class="font-disp text-lg font-bold text-ink leading-snug">Detalle</h3>
+        <div id="mDetSub" class="text-xs text-gris mt-0.5"></div>
+      </div>
+      <button id="mDetX" class="ml-auto -mr-2 w-8 h-8 shrink-0 rounded-lg text-gris hover:bg-bg hover:text-ink" aria-label="Cerrar">✕</button>
     </div>
-    <div id="mDetBody" class="px-5 py-4 overflow-y-auto text-sm"></div>
+    <div id="mDetBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
+    <div id="mDetPie" class="hidden px-5 py-3 border-t border-borde flex items-center gap-2">
+      <span id="dMsg" class="text-sm" role="status" aria-live="polite"></span>
+      <button id="btnDescartar" class="ml-auto px-3 py-1.5 rounded-lg text-sm text-gris hover:bg-bg hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent" disabled>Descartar</button>
+      <button id="btnGuardarDet" class="px-5 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40 disabled:hover:bg-verde" disabled>Guardar</button>
+    </div>
   </div>
 </div>
 
@@ -208,9 +303,9 @@ const estadoDe = f => tieneFaltantes(f) ? 'sinPrecio' : f.precioVigente == null 
 const valorDe = { proveedor: proveedorDe, estado: estadoDe };
 
 // Opciones [valor, texto, cantidad] del desplegable, contadas sobre todo el listado.
-function opcionesFiltro(tipo){
+function opcionesFiltro(tipo, datos = almacenData, valores = valorDe){
   const cuenta = new Map();
-  for (const f of almacenData) { const v = valorDe[tipo](f); cuenta.set(v, (cuenta.get(v) || 0) + 1); }
+  for (const f of datos) { const v = valores[tipo](f); cuenta.set(v, (cuenta.get(v) || 0) + 1); }
   if (tipo === 'estado') return ESTADO_OPCIONES.map(([v, t]) => [v, t, cuenta.get(v) || 0]);
   const nombres = [...cuenta.keys()].filter(v => v !== SIN_PROVEEDOR).sort((a, b) => a.localeCompare(b, 'es'));
   const ops = nombres.map(n => [n, n, cuenta.get(n)]);
@@ -224,27 +319,36 @@ function podarSeleccion(){
   actualizarBotonesFiltro();
 }
 
-function actualizarBotonesFiltro(){
+// Pinta los botones de filtro de un panel: contador de proveedor/estado + toggles [id, on].
+function pintarBotonesFiltro(panelId, sel, toggles){
   for (const tipo of ['proveedor', 'estado']) {
-    const btn = document.querySelector(`.fbtn[data-filtro="${tipo}"]`);
-    const n = filtroSel[tipo].size;
+    const btn = document.querySelector(`#${panelId} .fbtn[data-filtro="${tipo}"]`);
+    const n = sel[tipo].size;
     btn.classList.toggle('on', n > 0);
     btn.querySelector('.fbtn-n').textContent = n ? String(n) : '';
   }
-  const hoy = document.getElementById('fIngresoHoy');
-  hoy.classList.toggle('on', soloIngresoHoy);
-  hoy.setAttribute('aria-pressed', String(soloIngresoHoy));
-  const marc = document.getElementById('fSoloMarcados');
-  marc.classList.toggle('on', soloMarcados);
-  marc.setAttribute('aria-pressed', String(soloMarcados));
+  for (const [id, on] of toggles) {
+    const b = document.getElementById(id);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+}
+function actualizarBotonesFiltro(){
+  pintarBotonesFiltro('panel-almacen', filtroSel, [['fIngresoHoy', soloIngresoHoy], ['fSoloMarcados', soloMarcados]]);
 }
 
 // ── Desplegable de filtro con buscador (uno solo, se reusa para proveedor y estado) ──
+// Contexto por tab: { sel, opciones(tipo), aplicar() }. Fraccionado registra dropCtxs.fracc.
+const dropCtxs = {
+  almacen: { sel: filtroSel, opciones: tipo => opcionesFiltro(tipo), aplicar: () => { actualizarBotonesFiltro(); renderAlmacen(); } },
+};
 let dropTipo = null;
-function abrirDrop(tipo, btn){
+let dropCtx = dropCtxs.almacen;
+function abrirDrop(tipo, btn, ctx = dropCtxs.almacen){
   const drop = document.getElementById('fDrop');
-  if (!drop.classList.contains('hidden') && dropTipo === tipo) { cerrarDrop(); return; }
+  if (!drop.classList.contains('hidden') && dropTipo === tipo && dropCtx === ctx) { cerrarDrop(); return; }
   dropTipo = tipo;
+  dropCtx = ctx;
   const buscar = document.getElementById('fDropBuscar');
   buscar.value = '';
   buscar.placeholder = tipo === 'proveedor' ? 'Buscar proveedor…' : 'Buscar estado…';
@@ -259,10 +363,10 @@ function cerrarDrop(){ document.getElementById('fDrop').classList.add('hidden');
 
 function opcionesVisibles(){
   const q = normTxt(document.getElementById('fDropBuscar').value.trim());
-  return opcionesFiltro(dropTipo).filter(([, t]) => !q || normTxt(t).includes(q));
+  return dropCtx.opciones(dropTipo).filter(([, t]) => !q || normTxt(t).includes(q));
 }
 function renderDropLista(){
-  const sel = filtroSel[dropTipo];
+  const sel = dropCtx.sel[dropTipo];
   const ops = opcionesVisibles();
   const lista = document.getElementById('fDropLista');
   lista.innerHTML = ops.length
@@ -270,7 +374,7 @@ function renderDropLista(){
     : '<div class="px-3 py-4 text-sm text-gris text-center">Sin resultados</div>';
   lista.querySelectorAll('input[data-v]').forEach(cb => cb.onchange = () => {
     if (cb.checked) sel.add(cb.dataset.v); else sel.delete(cb.dataset.v);
-    actualizarBotonesFiltro(); renderAlmacen();
+    dropCtx.aplicar();
   });
 }
 
@@ -312,15 +416,17 @@ function renderAlmacen(){
     const filaCls = (sinPrecio ? 'opacity-50' : 'hover:bg-verde/5') + (f.marcado ? ' bg-amarillo/10' : '');
     const tooltip = sinPrecio ? ` title="Sin precio: falta ${esc(f.faltantes.join(', '))}"` : '';
     const banda = f.markupOverride != null
-      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Markup propio del producto (banda: ${f.markupBanda != null ? f.markupBanda + '%' : '—'})">propio</span> ${f.markupOverride}%`
+      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Markup propio del producto (banda: ${f.markupBanda != null ? f.markupBanda + '%' : '—'})">propio</span> ${+f.markupOverride.toFixed(1)}%`
       : f.banda ? `${esc(f.banda)} / ${f.markupPct != null ? f.markupPct + '%' : '—'}` : '—';
     const tipCompra = `Proveedor: ${f.proveedor || '—'} · Última compra: ${f.fechaUltimaCompra || '—'}`;
     const badgeHoy = f.ingresoHoy ? ' <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-ok/15 text-ok">Ingreso hoy</span>' : '';
+    const hayExtras = (f.costosExtra || []).length > 0 && f.costoTotal != null;
+    const tipCosto = hayExtras ? tipCostoExtras(f, '$', r2(f.costoTotal - f.costoBase - f.costoExtraTotal)) : '';
     return `<tr class="border-t border-borde cursor-pointer ${filaCls}" data-plu="${esc(f.plu)}"${tooltip}>
       <td class="p-2 text-center"><input type="checkbox" class="chk-marca accent-verde" data-plu="${esc(f.plu)}"${f.marcado ? ' checked' : ''}${sinPrecio ? ' disabled title="Sin precio sugerido"' : ''}></td>
       <td class="p-2">${esc(f.plu)}</td>
       <td class="p-2" title="${esc(tipCompra)}">${esc(f.nombre)}${badgeHoy}</td>
-      <td class="p-2 text-right whitespace-nowrap">${f.costoFuente === 'manual' || f.costoFuente === 'ultimaCompra' ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amarillo/30 text-ink" title="${f.costoFuente === 'manual' ? 'Costo base cargado a mano' : 'Costo de la última compra sin IVA'}">${f.costoFuente === 'manual' ? 'manual' : 'últ. compra'}</span> ` : ''}${fmtMoney(f.costoTotal)}</td>
+      <td class="p-2 text-right whitespace-nowrap"${tipCosto ? ` title="${esc(tipCosto)}"` : ''}>${chipFuenteCosto(f.costoFuente)}${fmtMoney(f.costoTotal)}${hayExtras ? ' <span class="text-[10px] text-gris">+extras</span>' : ''}</td>
       <td class="p-2 text-center whitespace-nowrap">${banda}</td>
       <td class="p-2 text-right">${sinPrecio ? '<span class="text-ink/40">sin precio</span>' : `<b>${fmtPrecio(f.precioConIva)}</b>`}</td>
       <td class="p-2 text-right">${fmtMoney(f.precioVigente)}</td>
@@ -332,7 +438,7 @@ function renderAlmacen(){
   tbody.querySelectorAll('.chk-marca').forEach(cb => {
     // La celda entera frena el clic para no abrir el modal (el checkbox deshabilitado no dispara eventos).
     cb.parentElement.onclick = e => e.stopPropagation();
-    cb.onchange = () => marcarPlus([cb.dataset.plu], cb.checked).catch(err => { alert(err.message); renderAlmacen(); });
+    cb.onchange = () => marcarPlus([cb.dataset.plu], cb.checked).catch(err => { avisar(err.message); renderAlmacen(); });
   });
 }
 
@@ -341,6 +447,11 @@ function renderAlmacen(){
 function aplicarMarcadosLocal(marcados){
   const set = new Set(marcados);
   almacenData = almacenData.map(f => f.marcado === set.has(f.plu) ? f : { ...f, marcado: set.has(f.plu) });
+  aplicarMarcadosFracc(set); // precios_fraccionado.js
+}
+function renderListados(){
+  renderAlmacen();
+  if (fraccCargado) renderFraccionado(); // precios_fraccionado.js
 }
 async function marcarPlus(plus, marcado){
   const r = await fetch('/api/precios/marcados', {
@@ -349,57 +460,59 @@ async function marcarPlus(plus, marcado){
   const j = await r.json();
   if (j.error) throw new Error(j.error);
   aplicarMarcadosLocal(j.marcados);
-  renderAlmacen();
+  renderListados();
   return j;
 }
+// Barra compartida por los dos tabs (misma cuenta: productos Almacén + presentaciones Fraccionado).
 function actualizarBarraMarcados(){
-  const n = almacenData.filter(f => f.marcado).length;
-  document.getElementById('marcadosConteo').textContent = `Marcados: ${n}`;
-  const btn = document.getElementById('btnExportarMarcados');
-  btn.textContent = `Exportar marcados (${n})`;
-  btn.disabled = n === 0;
-  document.getElementById('btnDesmarcarTodos').disabled = n === 0;
+  const n = almacenData.filter(f => f.marcado).length + presentacionesMarcadas().length;
+  document.querySelectorAll('.js-marc-conteo').forEach(el => { el.textContent = `Marcados: ${n}`; });
+  document.querySelectorAll('.js-marc-exportar').forEach(btn => { btn.textContent = `Exportar marcados (${n})`; btn.disabled = n === 0; });
+  document.querySelectorAll('.js-marc-desmarcar').forEach(btn => { btn.disabled = n === 0; });
 }
 
-// FORMATO DE EXPORTACIÓN — provisorio. El usuario va a pasar el formato definitivo del
-// xlsx para importar en SIGA: cambiar sólo esta función (columnas, orden, nombre de hoja).
+// FORMATO DE EXPORTACIÓN para importar en SIGA: encabezados en la fila 4 (A-D: Codigo,
+// Nombre, Costo, Venta) y productos desde la fila 5. Costo = costo total sin IVA sobre el que
+// se calcula el precio (Almacén: base elegido + costos varios + costos extra del producto;
+// Fraccionado, por cada presentación marcada: costo total $/kg del granel = base + costos
+// extra). Venta = precio final (/kg en Fraccionado).
 const HOJA_EXPORTACION = 'Precios';
+const FILA_ENCABEZADOS = 4;
 function filasExportacion(productos){
-  return productos.map(f => ({
-    'Código': f.plu,
-    'Producto': f.nombre,
-    'Precio actual': f.precioVigente,
-    'Precio nuevo': f.precioConIva,
-    'Diferencia %': f.deltaPct,
-  }));
+  return [
+    ['Codigo', 'Nombre', 'Costo', 'Venta'],
+    ...productos.map(f => [f.plu, f.nombre, f.costoTotal, f.precioConIva]),
+  ];
 }
 
-// Exporta TODOS los marcados (no sólo los visibles), con los valores calculados actuales.
-function exportarMarcados(){
-  const marcados = almacenData.filter(f => f.marcado);
+// Exporta TODOS los marcados (no sólo los visibles) de ambos tabs, con los valores calculados actuales.
+async function exportarMarcados(){
+  if (!fraccCargado) await cargarFraccionado(); // precios_fraccionado.js
+  const marcados = [...almacenData.filter(f => f.marcado), ...presentacionesMarcadas()];
   const validos = marcados.filter(f => !tieneFaltantes(f) && f.precioConIva != null);
   const omitidos = marcados.length - validos.length;
-  if (!validos.length) { alert('Ningún producto marcado tiene precio sugerido para exportar.'); return; }
-  if (omitidos) alert(`${omitidos} producto(s) marcado(s) sin precio sugerido quedaron fuera del archivo.`);
-  const ws = XLSX.utils.json_to_sheet(filasExportacion(validos));
+  if (!validos.length) { avisar('Ningún producto marcado tiene precio sugerido para exportar.'); return; }
+  if (omitidos) avisar(`${omitidos} producto(s) marcado(s) sin precio sugerido quedaron fuera del archivo.`);
+  const ws = XLSX.utils.aoa_to_sheet([]);
+  XLSX.utils.sheet_add_aoa(ws, filasExportacion(validos), { origin: `A${FILA_ENCABEZADOS}` });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, HOJA_EXPORTACION);
   const d = new Date();
   const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  XLSX.writeFile(wb, `precios_actualizar_${fecha}.xlsx`);
+  // SIGA importa Excel 97-2003 (.xls, BIFF8), no .xlsx.
+  XLSX.writeFile(wb, `precios_actualizar_${fecha}.xls`, { bookType: 'biff8' });
 }
 
-// ── Almacén: detalle (modal) — calculadora paso a paso ──────────────────────
-// Muestra cómo se llega al precio sugerido y deja editar costo base y markup con vista
-// previa en vivo. Misma fórmula que lib/precios_costeo.js: costo × (1+varios%) ×
-// (1+markup%) × 1,21 → múltiplo de $50. "Guardar cambios" persiste los valores manuales
-// del producto; elegir "costo de sistema" / "usar el de la banda" vuelven al automático.
+// ── Almacén: detalle (modal) — resultado arriba + la cuenta como una ecuación ──
+// Deja editar costo base, costos extra, margen y precio final con vista previa en vivo.
+// Misma fórmula que lib/precios_costeo.js: (costo + varios% + costos extra) × (1+markup%) ×
+// 1,21 → múltiplo de $50. "Guardar" persiste los valores manuales del producto; elegir
+// "Sistema" / "volver a la banda" vuelven al automático.
 const PASO_PRECIO = 50;
 const redondear50 = n => Math.round(n / PASO_PRECIO) * PASO_PRECIO;
 const r2 = n => Math.round(n * 100) / 100;
 const numOrNull = v => { const s = String(v ?? '').trim(); if (s === '') return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
 const chip = (txt, cls) => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold ${cls}">${txt}</span>`;
-const pasoNum = n => `<span class="w-6 h-6 shrink-0 rounded-full bg-verde text-white text-xs font-bold flex items-center justify-center">${n}</span>`;
 const inputCls = 'px-2 py-1 rounded-lg border border-borde text-right tabular-nums focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
 
 let det = null;        // fila del detalle tal como vino del server
@@ -407,6 +520,14 @@ let detCfg = null;     // { bandas, toleranciaPct } para recalcular la banda en 
 let detEstado = null;  // { costoFuente: 'sistema'|'ultimaCompra'|'manual', markupManual } editable
 let detInicial = null; // estado al abrir, para saber si hay cambios sin guardar
 let detEditandoFinal = false; // el usuario está tipeando el precio final: no pisar ese input
+// Markup exacto (hasta 6 decimales, ej. el que deja "Alinear con SIGA"). El input lo muestra a
+// 2 decimales; mientras el usuario no tipee en el input, el cálculo y el guardado usan éste.
+let detMarkupExacto = null;
+const fmtMarkupInput = m => m == null ? '' : r2(m);
+function markupActual(){
+  if (detEstado.markupManual && detMarkupExacto != null) return detMarkupExacto;
+  return numOrNull(document.getElementById('inMarkup').value);
+}
 
 function bandaParaCosto(costo){
   if (costo == null) return null;
@@ -419,11 +540,8 @@ function bandaParaCosto(costo){
 }
 
 async function abrirDetalle(plu){
-  const modal = document.getElementById('mDet');
   const body = document.getElementById('mDetBody');
-  document.getElementById('mDetTitulo').textContent = 'Detalle — ' + plu;
-  body.innerHTML = '<span class="spin"></span> Cargando…';
-  modal.classList.remove('hidden'); modal.classList.add('flex');
+  abrirModal('Detalle — ' + plu, false);
   try {
     const [rd, rc] = await Promise.all([
       fetch('/api/precios/detalle/' + encodeURIComponent(plu)),
@@ -436,10 +554,12 @@ async function abrirDetalle(plu){
     detCfg = { bandas: (c.bandasMarkup || {}).almacen || [], toleranciaPct: Number(c.toleranciaPct) || 0 };
     detEstado = { costoFuente: j.costoFuente || 'sistema', markupManual: j.markupOverride != null };
     detInicial = { ...detEstado, costoManualValor: j.costoOverride, markup: j.markupPct };
-    document.getElementById('mDetTitulo').textContent = `${j.nombre} (${j.plu})`;
+    detalleListo(j.nombre, j.plu, j);
     body.innerHTML = htmlDetalle(j);
     document.getElementById('inCosto').value = j.costoOverride ?? '';
-    document.getElementById('inMarkup').value = j.markupPct ?? '';
+    detMarkupExacto = j.markupPct ?? null;
+    document.getElementById('inMarkup').value = fmtMarkupInput(j.markupPct);
+    iniciarCostosExtra(j.costosExtra, '$', recalcularDetalle);
     conectarDetalle();
     recalcularDetalle();
   } catch (e) {
@@ -447,95 +567,79 @@ async function abrirDetalle(plu){
   }
 }
 
+// Encabezado del modal ya cargado: nombre + línea discreta (PLU · proveedor · última compra) y
+// pie Descartar / Guardar visible. Compartido por Almacén y Fraccionado.
+function detalleListo(nombre, plu, j){
+  document.getElementById('mDetTitulo').textContent = nombre;
+  const partes = ['PLU ' + esc(plu), esc(j.proveedor || 'sin proveedor'),
+    j.fechaUltimaCompra ? 'últ. compra ' + esc(j.fechaUltimaCompra) : 'sin compras'];
+  document.getElementById('mDetSub').innerHTML = partes.join(' · ')
+    + (j.ingresoHoy ? ' ' + chip('Ingreso hoy', 'bg-ok/15 text-ok') : '');
+  document.getElementById('mDetPie').classList.remove('hidden');
+}
+
+const DELTA_BASE = 'text-xl font-semibold tabular-nums leading-tight';
+
 function htmlDetalle(j){
-  const ult = j.precioUltimaCompra;
-  const infoCompra = ult != null
-    ? `${esc(j.proveedor || 'sin proveedor')} · ${esc(j.fechaUltimaCompra || '—')}${j.ingresoHoy ? ' ' + chip('Ingreso hoy', 'bg-ok/15 text-ok') : ''}`
-    : 'sin compras registradas';
-  // Opción de costo elegible: tarjeta clickeable (deshabilitada si no hay dato).
-  const opcionCosto = (fuente, titulo, valor, pie) => `
-    <button type="button" data-fuente="${fuente}" ${valor == null ? 'disabled' : ''}
-      class="costo-opt text-left rounded-lg px-2.5 py-2 transition-colors hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-      <div class="text-[11px] text-gris">${titulo}</div>
-      <div class="font-semibold tabular-nums">${valor != null ? '$ ' + fmtMoney(valor) : '—'}</div>
-      <div class="text-[10px] text-gris/80 truncate">${pie}</div>
-    </button>`;
-  // Resumen arriba del modal: sólo etiqueta + número, sin caja.
-  const tarjeta = (titulo, idValor, valorCls = '') => `
-    <div class="px-1">
-      <div class="text-[11px] text-gris">${titulo}</div>
-      <div id="${idValor}" class="text-2xl font-semibold tabular-nums ${valorCls}">—</div>
-    </div>`;
-  const filaResultado = (n, titulo, idValor, extra = '') => `
-    <div class="px-3 py-2.5 flex items-center gap-2 ${extra}">${pasoNum(n)}<span class="font-semibold">${titulo}</span>
-      <span id="${idValor}" class="ml-auto font-semibold tabular-nums">—</span></div>`;
+  const sinPrecio = tieneFaltantes(j);
+  const renglon = (op, medio, valor, cls = '') =>
+    `<div class="ec ${cls}"><span class="ec-op" aria-hidden="true">${op}</span>${medio}${valor}</div>`;
   return `
-    <div class="grid grid-cols-3 gap-2 mb-5 pb-4 border-b border-borde">
-      ${tarjeta('Precio sugerido', 'dSugerido', 'text-verde')}
-      ${tarjeta('Precio actual SIGA', 'dVigente')}
-      <div class="px-1">
-        <div class="text-[11px] text-gris">Diferencia</div>
-        <div class="flex items-baseline gap-2"><span id="dDelta" class="text-2xl font-semibold tabular-nums">—</span><span id="dEstado"></span></div>
-      </div>
-    </div>
+    <section id="dResultado" class="sec s-res flex flex-wrap items-end gap-x-8 gap-y-3 pt-2 pb-3 mb-2" aria-label="Resultado">
+      <div><div class="lbl">Sugerido</div><div id="dSugerido" class="text-3xl font-bold text-verde tabular-nums leading-tight">—</div></div>
+      <div><div class="lbl">Vigente SIGA</div><div id="dVigente" class="text-xl font-semibold text-ink/70 tabular-nums leading-tight">—</div></div>
+      <div><div class="lbl">Diferencia</div>
+        <div class="flex items-center gap-2"><span id="dDelta" class="${DELTA_BASE}">—</span><span id="dEstado" class="text-xs text-gris"></span></div></div>
+    </section>
+    <label class="inline-flex items-center gap-2 text-xs text-gris mb-1 ${sinPrecio ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:text-ink'}"${sinPrecio ? ' title="Sin precio sugerido"' : ''}>
+      <input id="chkMarcaDet" type="checkbox" class="accent-verde"${j.marcado ? ' checked' : ''}${sinPrecio ? ' disabled' : ''}>
+      Marcar para actualizar en SIGA <span id="dMarcaMsg"></span></label>
 
-    <div class="text-[11px] uppercase tracking-wide text-gris mb-1.5">Cómo se calcula</div>
-    <div class="rounded-xl border border-borde divide-y divide-borde">
-      <div class="px-3 py-2.5">
-        <div class="flex items-center gap-2 flex-wrap">
-          ${pasoNum(1)}<span class="font-semibold">Costo base</span><span id="dChipCosto"></span>
-          <span id="dCostoBase" class="ml-auto font-semibold tabular-nums">—</span>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 ml-8">
-          ${opcionCosto('sistema', 'Costo de sistema sin IVA', j.costoSistema,
-            j.costoSistemaConIva != null
-              ? `SIGA $ ${fmtMoney(j.costoSistemaConIva)} c/IVA ÷ ${String(j.ivaCompraPct).replace('.', ',')}%${j.ivaCompraSupuesto ? ' <span class="text-warn font-semibold" title="El producto no tiene alícuota de IVA cargada en SIGA">(supuesto)</span>' : ''}`
-              : 'sin costo en SIGA')}
-          ${opcionCosto('ultimaCompra', 'Última compra sin IVA', ult, infoCompra)}
-          <div data-fuente="manual" class="costo-opt rounded-lg px-2.5 py-2 cursor-pointer transition-colors hover:bg-bg">
-            <div class="text-[11px] text-gris">Manual (sin IVA)</div>
-            <div class="flex items-center gap-1 text-gris">$ <input id="inCosto" type="number" min="0" step="any" placeholder="0,00" class="w-full ${inputCls} text-ink font-bold"></div>
-          </div>
-        </div>
-        <div id="dAvisoSistema" class="hidden text-xs text-warn mt-1.5 ml-8">El producto no tiene alícuota de IVA cargada en SIGA: se asumió 21%.</div>
-      </div>
-      <div class="px-3 py-2.5 flex items-center gap-2">${pasoNum(2)}<span class="font-semibold">Costos varios</span>
-        <span class="text-xs text-gris">+${j.costosVariosPct || 0}% (configuración general)</span>
-        <span id="dCostoTotal" class="ml-auto font-semibold tabular-nums">—</span></div>
-      <div class="px-3 py-2.5">
-        <div class="flex items-center gap-2 flex-wrap">
-          ${pasoNum(3)}<span class="font-semibold">Markup</span><span id="dChipMarkup"></span>
-          <span class="ml-auto flex items-center gap-1 text-gris"><input id="inMarkup" type="number" min="0" step="any" class="w-24 ${inputCls} text-ink"> %</span>
-        </div>
-        <div class="text-xs text-gris mt-1 ml-8"><span id="dInfoMarkup"></span>
-          <button id="btnUsarBanda" class="hidden ml-1 text-verde underline hover:text-verdeHover">usar el de la banda</button></div>
-      </div>
-      ${filaResultado(4, 'Precio neto', 'dNeto')}
-      ${filaResultado(5, 'Con IVA 21%', 'dConIva')}
-      <div class="px-3 py-2.5 bg-verde/5 rounded-b-xl">
-        <div class="flex items-center gap-2 flex-wrap">
-          ${pasoNum(6)}<span class="font-semibold text-verde">Precio final (redondeo a $50)</span>
-          <span class="ml-auto flex items-center gap-1 text-gris">$ <input id="inFinal" type="number" min="0" step="50" class="w-32 ${inputCls} text-verde font-bold"></span>
-        </div>
-        <div class="text-xs text-gris mt-1 ml-8">Podés escribir el precio que querés: se recalcula el markup para llegar a ese valor.</div>
-      </div>
-    </div>
-
-    <label class="flex items-center gap-2 mt-4 text-sm w-fit ${tieneFaltantes(j) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"${tieneFaltantes(j) ? ' title="Sin precio sugerido"' : ''}>
-      <input id="chkMarcaDet" type="checkbox" class="accent-verde"${j.marcado ? ' checked' : ''}${tieneFaltantes(j) ? ' disabled' : ''}>
-      Marcar para actualizar en SIGA <span id="dMarcaMsg" class="text-xs"></span></label>
-    <div class="flex items-center gap-2 mt-3 flex-wrap">
-      <span id="dMsg" class="text-sm"></span>
-      <button id="btnDescartar" class="ml-auto px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-bg disabled:opacity-40" disabled>Descartar cambios</button>
-      <button id="btnGuardarDet" class="px-4 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40" disabled>Guardar cambios</button>
+    <div class="mt-2" role="group" aria-label="Cálculo del precio">
+      ${htmlCostoBase(j, '$')}
+      ${renglon('+', `<span class="text-gris">Costos varios <span class="text-xs">${esc(j.costosVariosPct || 0)}% del costo</span></span>`,
+        '<span id="dCostoVarios" class="ec-val text-gris">—</span>', 'sec s-costo')}
+      ${htmlCostosExtra('$', '$ = monto fijo por unidad; % = sobre el costo base. La banda de margen se busca con el costo base.')}
+      ${renglon('×', `<div class="min-w-0"><label for="inMarkup" class="font-semibold">Margen</label> <span id="dChipMarkup"></span>
+          <div class="text-xs text-gris mt-0.5"><span id="dInfoMarkup"></span>
+            <button type="button" id="btnUsarBanda" class="hidden ml-1 text-verde underline underline-offset-2 hover:text-verdeHover">volver a la banda</button></div></div>`,
+        '<span class="ec-val text-gris"><input id="inMarkup" type="number" min="-99" step="any" inputmode="decimal" class="num-in w-24 text-lg font-semibold text-ink"> %</span>', 'sec s-margen')}
+      ${renglon('=', `<div class="min-w-0"><label for="inFinal" class="font-semibold text-verde">Precio final</label>
+          <div id="dFinalInfo" class="text-xs text-gris mt-0.5">neto <span id="dNeto" class="tabular-nums">—</span> · con IVA 21% <span id="dConIva" class="tabular-nums">—</span> · redondeo a $50</div></div>`,
+        `<span class="ec-val text-gris">$ <input id="inFinal" type="number" min="0" step="50" inputmode="numeric" aria-describedby="dFinalInfo"
+            title="Escribí el precio que querés: se recalcula el margen" class="num-in w-32 text-lg font-bold text-verde"></span>`, 'sec s-final')}
     </div>`;
 }
 
-function conectarDetalle(){
+// ── Selector de costo base: compartido por Almacén (producto) y Fraccionado (granel) ──
+// Control segmentado Sistema / Última compra / Manual con el valor de cada opción; el detalle
+// de la opción elegida (IVA, proveedor, fecha) va en texto chico debajo. Usa `det`,
+// `detEstado.costoFuente` y el input #inCosto. Guardar = PUT /api/precios/costo-producto/:plu.
+const chipFuenteCosto = fuente => fuente === 'manual' || fuente === 'ultimaCompra'
+  ? chip(fuente === 'manual' ? 'manual' : 'últ. compra', 'bg-amarillo/30 text-ink') + ' ' : '';
+const ETIQUETA_SEG_COSTO = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
+
+function htmlCostoBase(j, unidad){
+  const seg = (fuente, valor, habilitado = valor != null) => `
+        <button type="button" data-fuente="${fuente}" aria-pressed="false" class="costo-opt seg-opt"${habilitado ? '' : ' disabled'}>
+          ${ETIQUETA_SEG_COSTO[fuente]}<b${fuente === 'manual' ? ' id="dSegManual"' : ''}>${valor != null ? '$ ' + fmtMoney(valor) : '—'}</b></button>`;
+  return `
+    <div class="ec sec s-costo"><span class="ec-op" aria-hidden="true"></span>
+      <div class="min-w-0">
+        <div id="lblCosto" class="font-semibold">Costo${unidad === '$/kg' ? ' por kg' : ''} <span class="font-normal text-xs text-gris">sin IVA</span></div>
+        <div class="seg mt-1.5" role="group" aria-labelledby="lblCosto">${seg('sistema', j.costoSistema)}${seg('ultimaCompra', j.precioUltimaCompra)}${seg('manual', null, true)}
+        </div>
+        <div id="dCostoManual" class="hidden mt-2 text-gris"><label for="inCosto" class="text-xs mr-1">Costo manual</label>$
+          <input id="inCosto" type="number" min="0" step="any" inputmode="decimal" placeholder="0,00" class="num-in w-32 font-semibold text-ink"></div>
+        <div id="dCostoInfo" class="text-xs text-gris mt-1.5"></div>
+      </div>
+      <span id="dCostoBase" class="ec-val font-semibold">—</span></div>`;
+}
+
+// Elegir fuente de costo: las dos fijas son un clic; "manual" arranca con el costo que se
+// estaba usando para no empezar de cero. onCambio = recalcular el modal que lo contiene.
+function conectarCostoBase(onCambio){
   const inCosto = document.getElementById('inCosto');
-  const inMarkup = document.getElementById('inMarkup');
-  // Elegir fuente de costo: las dos fijas son un clic; "manual" arranca con el costo que
-  // se estaba usando para no empezar de cero.
   document.querySelectorAll('.costo-opt[data-fuente]').forEach(op => op.addEventListener('click', () => {
     if (op.disabled) return;
     const fuente = op.dataset.fuente;
@@ -544,27 +648,74 @@ function conectarDetalle(){
       if (actual != null) inCosto.value = actual;
     }
     detEstado.costoFuente = fuente;
-    if (fuente === 'manual') inCosto.focus();
-    recalcularDetalle();
+    onCambio();
+    if (fuente === 'manual') { inCosto.focus(); inCosto.select(); }
   }));
-  inCosto.addEventListener('input', () => { detEstado.costoFuente = 'manual'; recalcularDetalle(); });
-  inMarkup.addEventListener('input', () => { detEstado.markupManual = true; recalcularDetalle(); });
-  document.getElementById('btnUsarBanda').onclick = () => { detEstado.markupManual = false; recalcularDetalle(); };
-  // Precio final → markup: markup = (precio / 1,21 / costoTotal − 1) × 100, a 2 decimales
-  // (con 2 decimales el error queda muy por debajo de $25, así que vuelve a redondear al
-  // mismo múltiplo de 50). Mientras se escribe no se pisa el input; al salir se ajusta a $50.
+  inCosto.addEventListener('input', () => { detEstado.costoFuente = 'manual'; onCambio(); });
+}
+
+// Detalle chico de la opción de costo elegida.
+function infoFuenteCosto(fuente){
+  if (fuente === 'manual') return '';
+  if (fuente === 'ultimaCompra') return det.precioUltimaCompra != null
+    ? `Última factura de ${esc(det.proveedor || 'sin proveedor')} · ${esc(det.fechaUltimaCompra || '—')}` : 'Sin compras registradas.';
+  if (det.costoSistemaConIva == null) return 'Sin costo en SIGA.';
+  const txt = `SIGA $ ${fmtMoney(det.costoSistemaConIva)} con IVA ${esc(String(det.ivaCompraPct).replace('.', ','))}%`;
+  return det.ivaCompraSupuesto
+    ? txt + ' · <span class="text-warn font-semibold">sin alícuota en SIGA: se asumió 21%</span>' : txt;
+}
+
+// Pinta la opción elegida, el valor manual y el detalle; devuelve el costo efectivo.
+function pintarCostoBase(){
+  const costo = costoEfectivo();
+  const fuente = detEstado.costoFuente;
+  document.getElementById('dCostoBase').textContent = costo != null ? '$ ' + fmtMoney(costo) : '—';
+  document.querySelectorAll('.costo-opt[data-fuente]').forEach(op => op.setAttribute('aria-pressed', String(op.dataset.fuente === fuente)));
+  const manual = numOrNull(document.getElementById('inCosto').value);
+  document.getElementById('dSegManual').textContent = manual != null ? '$ ' + fmtMoney(manual) : 'cargar';
+  document.getElementById('dCostoManual').classList.toggle('hidden', fuente !== 'manual');
+  document.getElementById('dCostoInfo').innerHTML = infoFuenteCosto(fuente);
+  return costo;
+}
+
+// Abre el modal compartido #mDet en estado "cargando". ancho = true para Fraccionado (tabla de presentaciones).
+let detFocoPrevio = null; // foco antes de abrir, se devuelve al cerrar
+function abrirModal(titulo, ancho){
+  const modal = document.getElementById('mDet');
+  const caja = document.getElementById('mDetCaja');
+  if (modal.classList.contains('hidden')) detFocoPrevio = document.activeElement;
+  caja.classList.toggle('max-w-2xl', !ancho); caja.classList.toggle('max-w-3xl', !!ancho);
+  document.getElementById('mDetTitulo').textContent = titulo;
+  document.getElementById('mDetSub').textContent = '';
+  document.getElementById('mDetPie').classList.add('hidden');
+  msgDetalle('');
+  document.getElementById('mDetBody').innerHTML = '<div class="py-10 text-center text-gris"><span class="spin"></span> Cargando…</div>';
+  modal.classList.remove('hidden'); modal.classList.add('flex');
+  caja.focus();
+}
+
+function conectarDetalle(){
+  const inCosto = document.getElementById('inCosto');
+  const inMarkup = document.getElementById('inMarkup');
+  conectarCostoBase(recalcularDetalle);
+  inMarkup.addEventListener('input', () => { detEstado.markupManual = true; detMarkupExacto = null; recalcularDetalle(); });
+  document.getElementById('btnUsarBanda').onclick = () => { detEstado.markupManual = false; detMarkupExacto = null; recalcularDetalle(); };
+  // Precio final → markup: markup = (precio / 1,21 / costoTotal − 1) × 100, a 6 decimales
+  // (el input muestra 2; el exacto queda en detMarkupExacto para reproducir el precio al
+  // centavo). Mientras se escribe no se pisa el input; al salir se ajusta a $50, salvo que
+  // sea el precio vigente de SIGA (se respeta tal cual, como en el backend).
   const inFinal = document.getElementById('inFinal');
   const markupParaPrecio = precio => {
     const costo = costoEfectivo();
     if (costo == null || costo <= 0 || precio == null || precio <= 0) return null;
-    const costoTotal = r2(costo * (1 + (Number(det.costosVariosPct) || 0) / 100));
-    return r2((precio / 1.21 / costoTotal - 1) * 100);
+    const costoTotal = costoTotalAlmacen(costo);
+    return +((precio / 1.21 / costoTotal - 1) * 100).toFixed(6);
   };
+  const fijarMarkup = mk => { detEstado.markupManual = true; detMarkupExacto = mk; inMarkup.value = fmtMarkupInput(mk); };
   inFinal.addEventListener('input', () => {
     const mk = markupParaPrecio(numOrNull(inFinal.value));
     if (mk == null) return;
-    detEstado.markupManual = true;
-    inMarkup.value = mk;
+    fijarMarkup(mk);
     detEditandoFinal = true;
     recalcularDetalle();
     detEditandoFinal = false;
@@ -572,13 +723,15 @@ function conectarDetalle(){
   inFinal.addEventListener('change', () => {
     const p = numOrNull(inFinal.value);
     if (p == null || p <= 0) { recalcularDetalle(); return; }
-    const mk = markupParaPrecio(redondear50(p));
-    if (mk != null) { detEstado.markupManual = true; inMarkup.value = mk; }
+    const mk = markupParaPrecio(p === det.precioVigente ? p : redondear50(p));
+    if (mk != null) fijarMarkup(mk);
     recalcularDetalle();
   });
   document.getElementById('btnDescartar').onclick = () => {
     detEstado = { costoFuente: detInicial.costoFuente, markupManual: detInicial.markupManual };
-    inCosto.value = detInicial.costoManualValor ?? ''; inMarkup.value = detInicial.markup ?? '';
+    detMarkupExacto = detInicial.markup ?? null;
+    inCosto.value = detInicial.costoManualValor ?? ''; inMarkup.value = fmtMarkupInput(detInicial.markup);
+    restaurarCostosExtra(det.costosExtra);
     msgDetalle(''); recalcularDetalle();
   };
   document.getElementById('btnGuardarDet').onclick = guardarDetalle;
@@ -604,47 +757,46 @@ function costoEfectivo(){
   return det.costoSistema ?? null;
 }
 
-const ETIQUETA_FUENTE = { ultimaCompra: 'última compra', sistema: 'costo de sistema', manual: 'manual' };
+// Costo total Almacén (espejo de costearAlmacen): base + costos varios % + costos extra del producto.
+const costoVariosDe = costo => costo * (Number(det.costosVariosPct) || 0) / 100;
+const costoTotalAlmacen = costo => extrasCliente(costo, costoVariosDe(costo)).total;
 
 function recalcularDetalle(){
   const inMarkup = document.getElementById('inMarkup');
   const costo = costoEfectivo();
   const banda = bandaParaCosto(costo);
   if (!detEstado.markupManual) inMarkup.value = banda ? banda.markup : '';
-  const markup = numOrNull(inMarkup.value);
-  const valido = costo != null && costo > 0 && markup != null && markup >= 0;
+  const markup = markupActual();
+  // Markup negativo es válido (precio de SIGA bajo el costo); se avisa abajo.
+  const valido = costo != null && costo > 0 && markup != null && markup > -100;
 
-  const fuente = detEstado.costoFuente;
-  document.getElementById('dChipCosto').innerHTML = chip(ETIQUETA_FUENTE[fuente],
-    fuente === 'sistema' ? 'bg-verde/10 text-verde' : 'bg-amarillo/30 text-ink');
-  document.getElementById('dCostoBase').textContent = costo != null ? '$ ' + fmtMoney(costo) : '—';
-  document.querySelectorAll('.costo-opt[data-fuente]').forEach(op => {
-    const on = op.dataset.fuente === fuente;
-    op.classList.toggle('bg-verde/10', on); op.classList.toggle('text-verde', on);
-  });
-  document.getElementById('dAvisoSistema').classList.toggle('hidden', !(fuente === 'sistema' && det.ivaCompraSupuesto));
+  pintarCostoBase();
+  const costoTotal = pintarTotalesCostosExtra(costo, costo != null ? costoVariosDe(costo) : 0);
+  document.getElementById('dCostoVarios').textContent = costo != null ? '$ ' + fmtMoney(r2(costoVariosDe(costo))) : '—';
   document.getElementById('dChipMarkup').innerHTML = detEstado.markupManual
-    ? chip('propio', 'bg-amarillo/30 text-ink') : chip(banda ? 'banda ' + esc(banda.label) : 'sin banda', 'bg-verde/10 text-verde');
+    ? chip('propio', 'bg-amarillo/30 text-ink') : '';
   document.getElementById('dInfoMarkup').textContent = detEstado.markupManual
-    ? `Markup propio de este producto. La banda daría ${banda ? banda.markup + '%' : '—'}.`
-    : 'Sale de las bandas por costo (Configuración). Escribí un valor para fijar uno propio.';
+    ? `La banda daría ${banda ? banda.markup + '%' : '—'}.`
+    : banda ? `De la banda ${banda.label}. Escribí otro para fijar uno propio.` : 'Sin banda para este costo: escribí un margen.';
   document.getElementById('btnUsarBanda').classList.toggle('hidden', !detEstado.markupManual);
 
   const set = (id, v) => { document.getElementById(id).textContent = v; };
   const vig = det.precioVigente;
   set('dVigente', vig != null ? '$ ' + fmtPrecio(vig) : '—');
   const inFinal = document.getElementById('inFinal');
+  const dResultado = document.getElementById('dResultado');
+  dResultado.dataset.estado = '';
   if (!valido) {
-    ['dCostoTotal', 'dNeto', 'dConIva', 'dSugerido', 'dDelta'].forEach(id => set(id, '—'));
-    document.getElementById('dDelta').className = 'text-2xl font-bold tabular-nums';
+    ['dNeto', 'dConIva', 'dSugerido', 'dDelta'].forEach(id => set(id, '—'));
+    document.getElementById('dDelta').className = DELTA_BASE;
     if (!detEditandoFinal) inFinal.value = '';
     document.getElementById('dEstado').innerHTML = '';
   } else {
-    const costoTotal = r2(costo * (1 + (Number(det.costosVariosPct) || 0) / 100));
     const neto = r2(costoTotal * (1 + markup / 100));
     const conIva = r2(neto * 1.21);
-    const final = redondear50(conIva);
-    set('dCostoTotal', '$ ' + fmtMoney(costoTotal));
+    // Misma regla que el backend: si costo y markup reproducen el vigente de SIGA se respeta
+    // ese precio; si no, múltiplo de $50.
+    const final = (vig > 0 && Math.abs(conIva - vig) < 0.5) ? vig : redondear50(conIva);
     set('dNeto', '$ ' + fmtMoney(neto));
     set('dConIva', '$ ' + fmtMoney(conIva));
     if (!detEditandoFinal) inFinal.value = final;
@@ -657,21 +809,24 @@ function recalcularDetalle(){
       const tol = detCfg.toleranciaPct;
       const estado = Math.abs(delta) <= tol ? 'ok' : delta > 0 ? 'subir' : 'bajar';
       set('dDelta', fmtPct(delta));
-      dDelta.className = 'text-2xl font-bold tabular-nums ' + claseDelta(estado);
+      dDelta.className = DELTA_BASE + ' ' + claseDelta(estado);
+      dResultado.dataset.estado = estado;
       document.getElementById('dEstado').innerHTML = badgeSemaforo(estado);
     } else {
       set('dDelta', '—');
-      dDelta.className = 'text-2xl font-bold tabular-nums';
+      dDelta.className = DELTA_BASE;
       document.getElementById('dEstado').textContent = 'sin precio vigente';
     }
   }
 
-  const hayCambios = cambioCosto() || cambioMarkup();
-  document.getElementById('btnGuardarDet').disabled = !(hayCambios && valido);
+  const hayCambios = cambioCosto() || cambioMarkup() || cambioExtras();
+  const extrasOk = extrasValidos();
+  document.getElementById('btnGuardarDet').disabled = !(hayCambios && valido && extrasOk);
   document.getElementById('btnDescartar').disabled = !hayCambios;
-  if (markup != null && markup < 0) msgDetalle('El precio final queda por debajo del costo (markup negativo).', true);
-  else if (hayCambios && !valido) msgDetalle('Completá costo base y markup para calcular.', true);
-  else if (hayCambios) msgDetalle('Vista previa — sin guardar', false, 'text-warn');
+  if (!extrasOk) msgDetalle(msgExtrasInvalidos(), true);
+  else if (markup != null && markup < 0) msgDetalle('El precio queda por debajo del costo (margen negativo).', true);
+  else if (hayCambios && !valido) msgDetalle('Completá costo y margen para calcular.', true);
+  else if (hayCambios) msgDetalle(MSG_SIN_GUARDAR, false, 'text-warn');
   else msgDetalle('');
 }
 
@@ -681,9 +836,10 @@ function cambioCosto(){
 }
 function cambioMarkup(){
   return detEstado.markupManual !== detInicial.markupManual
-    || (detEstado.markupManual && numOrNull(document.getElementById('inMarkup').value) !== detInicial.markup);
+    || (detEstado.markupManual && markupActual() !== detInicial.markup);
 }
 
+const MSG_SIN_GUARDAR = '● Cambios sin guardar';
 function msgDetalle(txt, esError, cls){
   const el = document.getElementById('dMsg');
   if (!el) return;
@@ -691,10 +847,144 @@ function msgDetalle(txt, esError, cls){
   el.textContent = txt;
 }
 
-// Guarda sólo lo que cambió: costo y/o markup manual (null = volver al automático).
+// ── Costos extra por producto: bloque editable compartido por el detalle de Almacén
+// (unidad '$' = monto fijo por unidad) y el de Fraccionado ('$/kg', por granel). Misma clave
+// de costeo.json y mismo PUT /api/precios/costos-extra/:plu: en los ítems, tipo 'kg' es el
+// importe fijo en los dos tabs (sólo cambia el rótulo). Un modal abierto a la vez → estado único.
+const COSTO_EXTRA_MAX_ITEMS = 20;
+let ceItems = [];          // copia editable [{ concepto, tipo: 'kg'|'pct', valor }]
+let ceInicial = '[]';
+let ceUnidad = '$';
+let ceOnCambio = () => {};
+const textoCostoExtra = (it, unidad) => `${it.concepto}: ${it.tipo === 'kg' ? '$ ' + fmtMoney(it.valor) + (unidad === '$/kg' ? '/kg' : '') : it.valor + '%'}`;
+const claveExtras = items => JSON.stringify(items.map(it => [String(it.concepto || '').trim(), it.tipo, it.valor]));
+const cambioExtras = () => claveExtras(ceItems) !== ceInicial;
+const itemsCostosExtra = () => ceItems.map(it => ({ concepto: String(it.concepto).trim(), tipo: it.tipo, valor: it.valor }));
+// Mismos límites que validarCostosExtra (lib/precios_costeo.js); el server valida igual.
+const extrasValidos = () => ceItems.every(it => {
+  const c = String(it.concepto || '').trim();
+  if (!c || c.length > 60 || it.valor == null) return false;
+  return it.tipo === 'kg' ? it.valor >= 0 && it.valor <= 1e6 : it.valor >= -100 && it.valor <= 1000;
+});
+const msgExtrasInvalidos = () => `Costos extra: completá concepto y valor (${ceUnidad} de 0 a 1.000.000; % de −100 a 1000).`;
+// Tooltip de la columna Costo de los listados: base (+ costos varios) + extras, con el desglose.
+function tipCostoExtras(f, unidad, varios = null){
+  const items = f.costosExtra || [];
+  if (!items.length || f.costoBase == null) return '';
+  return `Base $ ${fmtMoney(f.costoBase)}${varios ? ` + varios $ ${fmtMoney(varios)}` : ''} + extras $ ${fmtMoney(f.costoExtraTotal)}\n`
+    + items.map(it => textoCostoExtra(it, unidad)).join('\n');
+}
+
+// Espejo de aplicarCostosExtra (lib/precios_costeo.js): % sobre el costo base, cada importe a 2
+// decimales. `otros` = lo que se suma aparte del base (costos varios de Almacén).
+function extrasCliente(base, otros = 0, items = ceItems){
+  if (base == null) return { total: null, subtotal: null, importes: items.map(() => null) };
+  const importes = items.map(it => it.valor == null ? null : r2(it.tipo === 'kg' ? it.valor : base * it.valor / 100));
+  const subtotal = r2(importes.reduce((s, v) => s + (v || 0), 0));
+  return { total: r2(importes.reduce((s, v) => s + (v || 0), base + otros)), subtotal, importes };
+}
+
+// Contenido del bloque (el contenedor lo pone cada modal). Después de insertarlo: iniciarCostosExtra.
+function htmlCostosExtra(unidad, ayuda){
+  return `
+    <div class="ec sec s-extra"><span class="ec-op" aria-hidden="true">+</span>
+      <div class="min-w-0">
+        <button type="button" id="ceToggle" aria-expanded="false" aria-controls="cePanel" class="inline-flex items-center gap-1.5 font-semibold hover:text-verde">
+          <span id="ceCaret" aria-hidden="true" class="text-[9px] text-gris transition-transform">▶</span>Costos extra
+          <span id="ceResumen" class="font-normal text-gris"></span></button>
+        <div id="cePanel" class="hidden mt-2">
+          <div id="ceLista" class="space-y-1.5"></div>
+          <button type="button" id="ceAgregar" class="mt-2 text-xs font-semibold text-verde hover:text-verdeHover disabled:opacity-40">+ Agregar costo extra</button>
+          <p class="text-[11px] text-gris mt-1">${ayuda}</p>
+        </div>
+      </div>
+      <span id="ceSubtotal" class="ec-val">—</span></div>
+    <div class="ec ec-total sec s-costo"><span class="ec-op" aria-hidden="true">=</span>
+      <span class="font-semibold">Costo total${unidad === '$/kg' ? ' por kg' : ''}</span>
+      <span id="ceTotal" class="ec-val font-semibold">—</span></div>`;
+}
+
+// Plegado por defecto: el renglón muestra "n ítems" + subtotal; se despliega al tocarlo.
+function desplegarCostosExtra(abrir){
+  document.getElementById('cePanel').classList.toggle('hidden', !abrir);
+  document.getElementById('ceToggle').setAttribute('aria-expanded', String(abrir));
+  document.getElementById('ceCaret').style.transform = abrir ? 'rotate(90deg)' : '';
+}
+
+function iniciarCostosExtra(items, unidad, onCambio){
+  ceUnidad = unidad; ceOnCambio = onCambio;
+  restaurarCostosExtra(items);
+  ceInicial = claveExtras(ceItems);
+  const agregar = () => {
+    if (ceItems.length >= COSTO_EXTRA_MAX_ITEMS) return;
+    ceItems = [...ceItems, { concepto: '', tipo: 'kg', valor: null }];
+    pintarCostosExtra(); ceOnCambio();
+    const conceptos = document.querySelectorAll('#ceLista .ce-concepto');
+    conceptos[conceptos.length - 1].focus();
+  };
+  document.getElementById('ceAgregar').onclick = agregar;
+  // Sin ítems, tocar el renglón ya abre uno nuevo para cargar.
+  document.getElementById('ceToggle').onclick = () => {
+    const abierto = document.getElementById('ceToggle').getAttribute('aria-expanded') === 'true';
+    desplegarCostosExtra(!abierto);
+    if (!abierto && !ceItems.length) agregar();
+  };
+}
+// Vuelve a los ítems guardados (Descartar) sin tocar ceInicial.
+function restaurarCostosExtra(items){
+  ceItems = (items || []).map(it => ({ ...it }));
+  pintarCostosExtra();
+}
+
+function pintarCostosExtra(){
+  const lista = document.getElementById('ceLista');
+  lista.innerHTML = ceItems.length ? ceItems.map((it, i) => `
+    <div class="flex items-center gap-1.5 flex-wrap" data-i="${i}">
+      <input type="text" maxlength="60" placeholder="Concepto (envase, flete…)" aria-label="Concepto del costo extra ${i + 1}"
+        class="ce-concepto flex-1 min-w-[9rem] num-in" style="text-align:left" value="${esc(it.concepto)}">
+      <select class="ce-tipo num-in" aria-label="Tipo del costo extra ${i + 1}">
+        <option value="kg"${it.tipo === 'kg' ? ' selected' : ''}>${ceUnidad}</option>
+        <option value="pct"${it.tipo === 'pct' ? ' selected' : ''}>%</option>
+      </select>
+      <input type="number" step="any" inputmode="decimal" aria-label="Valor del costo extra ${i + 1}" class="ce-valor w-20 num-in" value="${esc(it.valor ?? '')}">
+      <span class="ce-importe w-24 text-right tabular-nums text-xs text-gris"></span>
+      <button type="button" class="ce-quitar w-7 h-7 rounded-lg text-gris hover:text-crit hover:bg-crit/10" aria-label="Quitar costo extra ${i + 1}" title="Quitar">✕</button>
+    </div>`).join('') : '<div class="text-xs text-gris">Sin costos extra.</div>';
+  // Editar un campo actualiza ceItems sin re-dibujar (no se pierde el foco); agregar/quitar re-dibuja.
+  const editar = (i, cambio) => { ceItems = ceItems.map((it, k) => k === i ? { ...it, ...cambio } : it); ceOnCambio(); };
+  lista.querySelectorAll('[data-i]').forEach(row => {
+    const i = Number(row.dataset.i);
+    row.querySelector('.ce-concepto').addEventListener('input', e => editar(i, { concepto: e.target.value }));
+    row.querySelector('.ce-tipo').addEventListener('change', e => editar(i, { tipo: e.target.value }));
+    row.querySelector('.ce-valor').addEventListener('input', e => editar(i, { valor: numOrNull(e.target.value) }));
+    row.querySelector('.ce-quitar').onclick = () => {
+      ceItems = ceItems.filter((_, k) => k !== i); pintarCostosExtra(); ceOnCambio();
+      document.getElementById('ceAgregar').focus();
+    };
+  });
+  document.getElementById('ceAgregar').disabled = ceItems.length >= COSTO_EXTRA_MAX_ITEMS;
+}
+
+// Pinta importes/resumen/subtotal/total del bloque y devuelve el costo total (null sin costo base).
+function pintarTotalesCostosExtra(base, otros = 0){
+  const ext = extrasCliente(base, otros);
+  const sufijo = ceUnidad === '$/kg' ? ' /kg' : '';
+  document.querySelectorAll('#ceLista [data-i]').forEach(row => {
+    const v = ext.importes[Number(row.dataset.i)];
+    row.querySelector('.ce-importe').textContent = v != null ? '$ ' + fmtMoney(v) + sufijo : '—';
+  });
+  const n = ceItems.length;
+  document.getElementById('ceResumen').innerHTML = n
+    ? `· ${n} ${n === 1 ? 'ítem' : 'ítems'}` : '<span class="text-verde">· agregar</span>';
+  document.getElementById('ceSubtotal').textContent = n && ext.subtotal != null ? '$ ' + fmtMoney(ext.subtotal) : '—';
+  document.getElementById('ceTotal').textContent = ext.total != null ? '$ ' + fmtMoney(ext.total) : '—';
+  return ext.total;
+}
+
+// Guarda sólo lo que cambió: costo, markup manual (null = volver al automático) y costos extra.
 async function guardarDetalle(){
   const costo = numOrNull(document.getElementById('inCosto').value);
-  const markup = numOrNull(document.getElementById('inMarkup').value);
+  const markup = markupActual();
   const put = (url, body) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then(r => r.json()).then(j => { if (j.error) throw new Error(j.error); return j; });
   const plu = encodeURIComponent(det.plu);
@@ -706,7 +996,9 @@ async function guardarDetalle(){
   if (cambioMarkup()) {
     tareas.push(put('/api/precios/margen-producto/' + plu, { markupPct: detEstado.markupManual ? markup : null }));
   }
+  if (cambioExtras()) tareas.push(put('/api/precios/costos-extra/' + plu, { items: itemsCostosExtra() }));
   document.getElementById('btnGuardarDet').disabled = true;
+  msgDetalle('Guardando…', false, 'text-gris');
   try {
     await Promise.all(tareas);
     await abrirDetalle(det.plu);
@@ -718,9 +1010,23 @@ async function guardarDetalle(){
   }
 }
 
-function cerrarDetalle(){
-  document.getElementById('mDet').classList.add('hidden');
-  document.getElementById('mDet').classList.remove('flex');
+// Cerrar con cambios sin guardar pide confirmación (Descartar habilitado = hay cambios).
+async function cerrarDetalle(){
+  const modal = document.getElementById('mDet');
+  if (modal.classList.contains('hidden')) return;
+  const hayCambios = !document.getElementById('mDetPie').classList.contains('hidden') && !document.getElementById('btnDescartar').disabled;
+  if (hayCambios && !(await confirmar('Hay cambios sin guardar. ¿Cerrar y descartarlos?', { textoOk: 'Descartar' }))) return;
+  modal.classList.add('hidden'); modal.classList.remove('flex');
+  if (detFocoPrevio && document.contains(detFocoPrevio)) detFocoPrevio.focus();
+}
+// Tab no se escapa del modal abierto: del último control vuelve al primero y viceversa.
+function atraparFocoModal(e){
+  const caja = document.getElementById('mDetCaja');
+  const focos = [...caja.querySelectorAll('button, input, select, a[href]')].filter(el => !el.disabled && el.offsetParent !== null);
+  if (!focos.length) return;
+  const primero = focos[0], ultimo = focos[focos.length - 1], actual = document.activeElement;
+  if (e.shiftKey && (actual === primero || actual === caja)) { e.preventDefault(); ultimo.focus(); }
+  else if (!e.shiftKey && actual === ultimo) { e.preventDefault(); primero.focus(); }
 }
 document.getElementById('mDetX').onclick = cerrarDetalle;
 document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet') cerrarDetalle(); });
@@ -754,6 +1060,7 @@ async function cargarConfiguracion(){
     renderBandasFilas();
     bandasCarga.classList.add('hidden');
     bandasForm.classList.remove('hidden');
+    renderConfigFraccionado(j); // precios_fraccionado.js
   } catch (e) {
     carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
     bandasCarga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
@@ -819,7 +1126,8 @@ async function guardarGeneral(){
       costoHora: val('inCostoHora'), toleranciaPct: val('inTolerancia'), costosVariosPctAlmacen: val('inCostosVariosAlmacen'),
     });
     configCargada = { ...configCargada, ...j };
-    document.getElementById('fTolerancia').value = j.toleranciaPct;
+    ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
+    fraccCargado = false; // el semáforo de Fraccionado depende de la tolerancia
     msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
   } catch (e) {
     msg.className = 'text-sm text-crit'; msg.textContent = e.message;
@@ -831,25 +1139,45 @@ async function guardarGeneral(){
 async function cargarToleranciaFiltro(){
   try {
     const j = await (await fetch('/api/precios/config')).json();
-    if (!j.error) document.getElementById('fTolerancia').value = j.toleranciaPct;
+    if (!j.error) ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
   } catch { /* sin config: el input queda vacío, el listado igual carga */ }
 }
-document.getElementById('fTolerancia').addEventListener('change', async e => {
+['fTolerancia', 'frTolerancia'].forEach(id => document.getElementById(id).addEventListener('change', async e => {
   const input = e.target;
   try {
-    await putConfigGeneral({ toleranciaPct: numOrNull(input.value) });
+    const j = await putConfigGeneral({ toleranciaPct: numOrNull(input.value) });
     input.classList.remove('border-crit'); input.title = '';
+    ['fTolerancia', 'frTolerancia'].forEach(x => { document.getElementById(x).value = j.toleranciaPct; });
     cargarAlmacen();
+    cargarFraccionado(); // precios_fraccionado.js
   } catch (err) {
     input.classList.add('border-crit'); input.title = err.message;
   }
-});
+}));
 document.getElementById('btnGuardarGeneral').onclick = guardarGeneral;
+
+async function alinearConSiga(){
+  if (!(await confirmar('¿Alinear los markups con los precios vigentes de SIGA? Pisa los markups propios de esos productos.', { textoOk: 'Alinear' }))) return;
+  const btn = document.getElementById('btnAlinearSiga');
+  const msg = document.getElementById('alinearMsg');
+  btn.disabled = true; msg.className = 'text-sm mt-2 text-ink/50'; msg.innerHTML = '<span class="spin"></span> Alineando…';
+  try {
+    const j = await (await fetch('/api/precios/alinear-siga', { method: 'POST' })).json();
+    if (j.error) throw new Error(j.error);
+    msg.className = 'text-sm mt-2 text-ok';
+    msg.textContent = `${j.alineados} productos alineados · ${j.sinDatos} sin datos · ${j.negativos} con precio por debajo del costo`;
+    cargarAlmacen();
+    cargarFraccionado();
+  } catch (e) {
+    msg.className = 'text-sm mt-2 text-crit'; msg.textContent = e.message;
+  } finally { btn.disabled = false; }
+}
+document.getElementById('btnAlinearSiga').onclick = alinearConSiga;
 
 document.getElementById('btnRecargarAlmacen').onclick = cargarAlmacen;
 document.getElementById('fBuscar').addEventListener('input', renderAlmacen);
 document.querySelectorAll('.fbtn[data-filtro]').forEach(b =>
-  b.onclick = e => { e.stopPropagation(); abrirDrop(b.dataset.filtro, b); });
+  b.onclick = e => { e.stopPropagation(); abrirDrop(b.dataset.filtro, b, dropCtxs[b.dataset.ctx || 'almacen']); });
 document.getElementById('fIngresoHoy').onclick = () => {
   soloIngresoHoy = !soloIngresoHoy; actualizarBotonesFiltro(); renderAlmacen();
 };
@@ -859,17 +1187,17 @@ document.getElementById('fSoloMarcados').onclick = () => {
 document.getElementById('chkTodos').onchange = async e => {
   const plus = filtrarAlmacen().filter(f => !tieneFaltantes(f)).map(f => f.plu);
   if (!plus.length) { renderAlmacen(); return; }
-  try { await marcarPlus(plus, e.target.checked); } catch (err) { alert(err.message); renderAlmacen(); }
+  try { await marcarPlus(plus, e.target.checked); } catch (err) { avisar(err.message); renderAlmacen(); }
 };
-document.getElementById('btnExportarMarcados').onclick = exportarMarcados;
-document.getElementById('btnDesmarcarTodos').onclick = async () => {
-  if (!confirm('¿Desmarcar todos los productos marcados para actualizar?')) return;
+document.querySelectorAll('.js-marc-exportar').forEach(b => { b.onclick = exportarMarcados; });
+document.querySelectorAll('.js-marc-desmarcar').forEach(b => b.onclick = async () => {
+  if (!(await confirmar('¿Desmarcar todos los productos marcados para actualizar (Almacén y Fraccionado)?', { textoOk: 'Desmarcar' }))) return;
   try {
     const j = await (await fetch('/api/precios/marcados', { method: 'DELETE' })).json();
     if (j.error) throw new Error(j.error);
-    aplicarMarcadosLocal(j.marcados); renderAlmacen();
-  } catch (err) { alert(err.message); }
-};
+    aplicarMarcadosLocal(j.marcados); renderListados();
+  } catch (err) { avisar(err.message); }
+});
 document.getElementById('fLimpiar').onclick = () => {
   filtroSel.proveedor.clear(); filtroSel.estado.clear(); soloIngresoHoy = false; soloMarcados = false;
   document.getElementById('fBuscar').value = '';
@@ -877,19 +1205,21 @@ document.getElementById('fLimpiar').onclick = () => {
 };
 document.getElementById('fDropBuscar').addEventListener('input', renderDropLista);
 document.getElementById('fDropTodos').onclick = () => {
-  opcionesVisibles().forEach(([v]) => filtroSel[dropTipo].add(v));
-  renderDropLista(); actualizarBotonesFiltro(); renderAlmacen();
+  opcionesVisibles().forEach(([v]) => dropCtx.sel[dropTipo].add(v));
+  renderDropLista(); dropCtx.aplicar();
 };
 document.getElementById('fDropLimpiar').onclick = () => {
-  filtroSel[dropTipo].clear();
-  renderDropLista(); actualizarBotonesFiltro(); renderAlmacen();
+  dropCtx.sel[dropTipo].clear();
+  renderDropLista(); dropCtx.aplicar();
 };
 document.addEventListener('click', e => {
   const drop = document.getElementById('fDrop');
   if (!drop.classList.contains('hidden') && !drop.contains(e.target) && !e.target.closest('.fbtn[data-filtro]')) cerrarDrop();
 });
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
+  if (e.key === 'Tab' && !document.getElementById('mDet').classList.contains('hidden')) atraparFocoModal(e);
+  // Con el diálogo de aviso abierto, Escape lo cierra él solo (cancel nativo del <dialog>).
+  if (e.key !== 'Escape' || document.getElementById('dlgAviso').open) return;
   if (!document.getElementById('fDrop').classList.contains('hidden')) cerrarDrop(); else cerrarDetalle();
 });
 document.getElementById('btnAgregarBanda').onclick = () => {
@@ -907,10 +1237,41 @@ document.querySelectorAll('#tabs .navtab:not([disabled])').forEach(b => b.onclic
   if (panel) panel.classList.remove('hidden');
   if (b.dataset.tipo === 'configuracion') cargarConfiguracion();
   if (b.dataset.tipo === 'almacen') { cargarToleranciaFiltro(); cargarAlmacen(); }
+  if (b.dataset.tipo === 'fraccionado' && !fraccCargado) cargarFraccionado(); // precios_fraccionado.js
 });
 
-cargarToleranciaFiltro();
-cargarAlmacen(); // Almacén es el tab activo por defecto al cargar la página.
+// Arranque después de precios_fraccionado.js (DOMContentLoaded corre cuando ya se ejecutaron los
+// dos scripts): renderAlmacen usa presentacionesMarcadas() de ese archivo para la barra de marcados.
+document.addEventListener('DOMContentLoaded', () => {
+  cargarToleranciaFiltro();
+  cargarAlmacen(); // Almacén es el tab activo por defecto al cargar la página.
+});
+</script>
+<script src="/precios_fraccionado.js"></script>
+<dialog id="dlgAviso" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,420px)] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgAvisoMsg">
+  <form method="dialog" class="p-5">
+    <p id="dlgAvisoMsg" class="text-sm whitespace-pre-line"></p>
+    <div class="flex justify-end gap-2 mt-5">
+      <button value="cancelar" id="dlgAvisoCancelar" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cancelar</button>
+      <button value="ok" id="dlgAvisoOk" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Aceptar</button>
+    </div>
+  </form>
+</dialog>
+<script>
+// Reemplazo de alert()/confirm() nativos: <dialog> modal del theme. showModal() lo pone en el top
+// layer, así que queda encima de #mDet; Escape o Cancelar = false. Devuelve Promise<boolean>.
+function dialogoAviso(msg, { cancelar = false, textoOk = 'Aceptar' } = {}){
+  const d = document.getElementById('dlgAviso');
+  document.getElementById('dlgAvisoMsg').textContent = msg;
+  document.getElementById('dlgAvisoOk').textContent = textoOk;
+  document.getElementById('dlgAvisoCancelar').classList.toggle('hidden', !cancelar);
+  d.returnValue = '';
+  d.showModal();
+  document.getElementById('dlgAvisoOk').focus();
+  return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok'), { once: true }));
+}
+const avisar = msg => dialogoAviso(msg);
+const confirmar = (msg, opts) => dialogoAviso(msg, { ...opts, cancelar: true });
 </script>
 </body>
 </html>

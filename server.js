@@ -671,6 +671,7 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
+app.get('/precios_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_fraccionado.js')));
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
@@ -2550,7 +2551,7 @@ app.use(require('./routes/rutas_productividad')({
 }));
 
 app.use(require('./routes/rutas_fraccionado_externo')({
-  apiRoute, leerJSON, query, FRAC_REG_PATH, HISTORIAL_PATH,
+  apiRoute, leerJSON, guardarJSON, query, DATA_DIR, FRAC_REG_PATH, HISTORIAL_PATH,
   leerPedidosFraccionadoExterno, guardarPedidosFraccionadoExterno,
 }));
 
