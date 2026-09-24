@@ -647,6 +647,15 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
       <input id="agregarProdQ" type="text" class="ant-input w-full" autocomplete="off"
         placeholder="Buscar por nombre, PLU o código de barras…" aria-label="Buscar artículo">
       <p class="t-sec t-12 mt-2 mb-0">Cualquier artículo del sistema, sea o no de este proveedor. Queda como <b>temporal</b> en este pedido.</p>
+      <!-- Artículo que todavía no existe en SIGA (nuevo ingreso): va al pedido sólo con nombre y unidad. -->
+      <form id="agregarNuevoForm" class="mt-3 pt-3 ant-divider-t flex items-end gap-2" novalidate>
+        <div class="flex-1 min-w-0"><label class="ant-label" for="nuevoNombre">Artículo nuevo (no está en SIGA)</label>
+          <input id="nuevoNombre" type="text" class="ant-input w-full" maxlength="120" autocomplete="off"
+            placeholder="Nombre del artículo" required></div>
+        <div><label class="ant-label" for="nuevoUnidad">Unidad</label>
+          <select id="nuevoUnidad" class="ant-select w-auto"><option value="UN" selected>UN</option><option value="KG">KG</option></select></div>
+        <button type="submit" class="ant-btn">Agregar</button>
+      </form>
     </div>
     <div id="agregarProdLista" class="ant-modal-body overflow-y-auto" aria-live="polite"></div>
   </div>
@@ -843,10 +852,12 @@ function crearBuscadorProveedor(inputSel, listaSel, nombreSel, onSelect) {
         ? lista.map(p => `<button class="js-prov ant-dropdown-item"
              data-id="${escAttr(p.id)}" data-nombre="${escAttr(p.nombre)}">
              <span class="block">${escAttr(p.nombre)}</span>
-             <span class="block t-12 t-ter num">${escAttr(p.productos)} productos${p.ultimaCompra ? ' · últ. ' + escAttr(p.ultimaCompra) : ''}</span>
+             ${p.ultimaCompra
+               ? `<span class="block t-12 t-ter num">${escAttr(p.productos)} productos · últ. ${escAttr(p.ultimaCompra)}</span>`
+               : `<span class="block t-12"><span class="ant-tag" title="Proveedor sin compras registradas en SIGA: el pedido se arma con ＋ Agregar artículo">sin compras</span></span>`}
            </button>`).join('')
         : `<div class="ant-dropdown-empty">Ningún proveedor con ese nombre tiene compras
-           en los últimos 24 meses.</div>`;
+           en los últimos 24 meses (ni es un proveedor nuevo sin compras).</div>`;
       cont.classList.remove('hidden');
       cont.querySelectorAll('.js-prov').forEach(b => b.addEventListener('click', () => {
         const sel = { id: Number(b.dataset.id), nombre: b.dataset.nombre };
@@ -1112,28 +1123,30 @@ function renderArmado() {
           aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
       <td>
         <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}${f.temporal
-          ? ` <span class="ant-tag ant-tag-info" title="Agregado a mano: no es un producto que se le compre a este proveedor">temporal</span>
+          ? ` ${f.nuevo
+              ? '<span class="ant-tag ant-tag-primary" title="Artículo que todavía no existe en SIGA: sin stock, consumo ni presentación">nuevo</span>'
+              : '<span class="ant-tag ant-tag-info" title="Agregado a mano: no es un producto que se le compre a este proveedor">temporal</span>'}
              <button class="js-quitar ant-btn ant-btn-link t-12 p-0 h-auto" data-plu="${escAttr(f.plu)}" aria-label="Quitar ${escAttr(f.nombre)} del pedido">quitar</button>` : ''}</div>
-        <div class="prod-meta">
+        ${f.nuevo ? `<div class="prod-meta"><span>${escAttr(f.unidad)}</span> · <span>no está en SIGA</span></div>` : `<div class="prod-meta">
           <span>${escAttr(f.plu)}</span> · <span>${escAttr(f.unidad)}</span> ·
           <span title="${escAttr(tUltima)}">últ. ${escAttr(fechaCorta(f.ultimaFecha))}</span> ·
           <span title="${escAttr('Total 24m: ' + fmt(f.cantTotal24m) + ' ' + f.unidad)}">${fmt(f.compras24m)} compras 24m</span>
         </div>
-        ${botonBulto(f)}
+        ${botonBulto(f)}`}
       </td>
-      <td class="t-r">
+      <td class="t-r">${f.nuevo ? '<span class="t-qua">—</span>' : `
         <button class="js-stock cell-btn" data-plu="${escAttr(f.plu)}"
           title="${escAttr(desglose)}" aria-label="Ver composición del stock de ${escAttr(f.nombre)}">
           <span class="ant-badge justify-end"><span class="ant-label-in">Central</span>
             <span class="w-16 text-right dato">${fmt(f.stockCentral)}</span></span>
           <span class="ant-badge justify-end"><span class="ant-label-in">Suc.</span>
             <span class="w-16 text-right dato-sec">${fmt(f.stockSucursales)}</span></span>
-        </button>
+        </button>`}
       </td>
       <td class="t-r">${lineaCobertura('Central', f.coberturaCentral)}${lineaCobertura('Suc.', f.coberturaSucursales)}</td>
-      <td class="t-r">
+      <td class="t-r">${f.nuevo ? '<span class="t-qua">—</span>' : `
         <button class="js-consumo ant-btn ant-btn-link num" data-plu="${escAttr(f.plu)}"
-          aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>
+          aria-label="Ver consumo mensual de ${escAttr(f.nombre)}">${mensual == null ? 'ver' : '≈ ' + fmt(mensual)}</button>`}
       </td>
       <td class="t-c">${tagAbc(f.abc)}</td>
       <td class="t-r dato-sec">${fmt(f.ultimaCantidad)}${f.ultimaFecha
@@ -1146,8 +1159,8 @@ function renderArmado() {
           ${pres ? `<button class="js-modo ant-btn ant-btn-sm t-12" data-plu="${escAttr(f.plu)}"
             title="Cambiar entre pedir por ${escAttr(pres.nombre.toLowerCase())} o por ${escAttr(f.unidad)}"
             aria-label="Pedir ${escAttr(f.nombre)} por ${bultos ? escAttr(f.unidad) : escAttr(pres.nombre)}">${bultos ? escAttr(pres.nombre) : escAttr(f.unidad)}</button>` : ''}
-          <button class="js-cubrir ant-btn ant-btn-link t-12" data-plu="${escAttr(f.plu)}"
-            title="Cubrir 30 días de demanda de la central" aria-label="Cubrir 30 días de ${escAttr(f.nombre)}">30 d</button>
+          ${f.nuevo ? '' : `<button class="js-cubrir ant-btn ant-btn-link t-12" data-plu="${escAttr(f.plu)}"
+            title="Cubrir 30 días de demanda de la central" aria-label="Cubrir 30 días de ${escAttr(f.nombre)}">30 d</button>`}
         </div>
         ${bultos ? `<span class="js-equiv block t-12 t-ter text-right num">${escAttr(textoEquivalencia(f))}</span>` : ''}
       </td>
@@ -1160,7 +1173,7 @@ function renderArmado() {
     : (armado && (armado.filas || []).length)
       ? filaVacia(10, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.')
       : filaVacia(10, 'Este proveedor no tiene compras',
-          'No se le compró ningún producto en los últimos 24 meses.');
+          'No se le compró ningún producto en los últimos 24 meses. Usá ＋ Agregar artículo para armarle el pedido.');
   actualizarContador();
 }
 
@@ -1351,14 +1364,14 @@ $('#mPresentacion').addEventListener('click', e => { if (e.target === $('#mPrese
 
 // Fila del armado para un producto sin compras a este proveedor (importado del xlsx o
 // agregado a mano): sin historial, stock ni consumo — sólo lo necesario para pedirlo.
-function filaSinHistorial({ plu, nombre, unidad, activo = true, importado = false, temporal = false }) {
+function filaSinHistorial({ plu, nombre, unidad, activo = true, importado = false, temporal = false, nuevo = false }) {
   return {
     plu, nombre, unidad: unidad || 'UN',
     ultimoPrecio: 0, ultimaCantidad: 0, ultimaFecha: null, compras24m: 0, cantTotal24m: 0,
     stockCentral: 0, stockSucursales: 0, stockPorSucursal: {},
     componentes: [], consumoMensual: [], abc: null,
     demandaDiariaCentral: 0, coberturaCentral: null, coberturaSucursales: null,
-    activo, importado, temporal,
+    activo, importado, temporal, nuevo,
   };
 }
 
@@ -1375,6 +1388,22 @@ function agregarTemporal(p) {
   $('#ocultarInactivos').checked = false;
   renderArmado();
 }
+// Artículo que todavía no existe en SIGA: PLU sintético (NUEVO-…) para que la fila tenga
+// clave propia en cantidades/armado. Nunca se manda a SQL: el backend filtra `nuevo`.
+$('#agregarNuevoForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const nombre = $('#nuevoNombre').value.trim();
+  if (!nombre) { $('#nuevoNombre').focus(); return; }
+  if (!armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
+  armado.filas.push(filaSinHistorial({
+    plu: 'NUEVO-' + Date.now().toString(36), nombre, unidad: $('#nuevoUnidad').value, temporal: true, nuevo: true,
+  }));
+  $('#nuevoNombre').value = '';
+  $('#filtroTexto').value = '';
+  $('#soloConCantidad').checked = false;
+  $('#ocultarInactivos').checked = false;
+  renderArmado();
+});
 function quitarTemporal(plu) {
   armado.filas = armado.filas.filter(f => !(f.plu === plu && f.temporal));
   delete cantidades[plu];
@@ -1673,7 +1702,8 @@ async function generarPedido() {
       ...(pidePorBultos(f.plu) ? {
         bultos: redondear3(Number(cantidades[f.plu]) / presentaciones[f.plu].unidadesPorBulto),
         presentacion: presentaciones[f.plu],
-      } : {}) }));
+      } : {}),
+      ...(f.nuevo ? { nuevo: true } : {}) }));
   if (!items.length) return;
   try {
     const r = await apiFetch('/api/compras/pedidos', {
@@ -1738,7 +1768,8 @@ function imprimirPedido(pedido) {
     margin: { left: margenX, right: margenX },
     // La columna de bultos aparece sólo si alguna línea se pidió así: es lo que el proveedor arma.
     head: [conBultos ? ['Producto', 'PLU', 'Bultos', 'Cantidad', 'Unidad'] : ['Producto', 'PLU', 'Cantidad', 'Unidad']],
-    body: items.map(it => [String(it.nombre || ''), String(it.plu || ''),
+    // Un artículo nuevo no tiene PLU real: el NUEVO-… sintético no le sirve al proveedor.
+    body: items.map(it => [String(it.nombre || ''), it.nuevo ? 'NUEVO' : String(it.plu || ''),
       ...(conBultos ? [it.bultos != null && it.presentacion
         ? `${fmt(it.bultos)} ${it.presentacion.nombre} x ${fmt(it.presentacion.unidadesPorBulto)}` : '—'] : []),
       fmt(it.cantidad), String(it.unidad || '')]),
@@ -2082,8 +2113,9 @@ function renderSeguimiento() {
       </thead>
       <tbody>${p.items.map((it, i) => `<tr>
         <td>
-          <div class="prod-nombre">${escAttr(it.nombre)}${it.estado === 'extra' ? ' <span class="ant-tag ant-tag-primary">extra</span>' : ''}</div>
-          <div class="prod-meta">${escAttr(it.plu)}</div></td>
+          <div class="prod-nombre">${escAttr(it.nombre)}${it.estado === 'extra' ? ' <span class="ant-tag ant-tag-primary">extra</span>' : ''}${it.nuevo
+            ? ' <span class="ant-tag ant-tag-primary" title="Artículo que no estaba en SIGA al armar el pedido">nuevo</span>' : ''}</div>
+          <div class="prod-meta">${it.nuevo ? 'sin PLU en SIGA' : escAttr(it.plu)}</div></td>
         <td class="t-r whitespace-nowrap"><span class="dato">${fmt(it.cantidad)}</span> <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
         <td>${it.estado === 'extra'
             ? `<div title="Vino en la factura pero no estaba pedido.">${tagLinea('extra')}</div>`
