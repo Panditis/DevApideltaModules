@@ -387,3 +387,12 @@ test('presentación provisoria n-… (sin PLU SIGA) y vincular a un PLU real con
   }
 });
 
+
+test('armarDetalle: cada presentación trae packBulto sobre su precioConIva; sin packBultoDe queda []', () => {
+  const costeado = costearTodos({ productos: { 'p-granola': PRODUCTO }, costos: COSTOS, costeo: COSTEO, datos: DATOS })['p-granola'];
+  const base = { id: 'p-granola', datos: DATOS, costeado, costos: COSTOS, vigentes: new Map(), toleranciaPct: 3 };
+  const precio = costeado.presentaciones['6319'].precioConIva;
+  const det = armarDetalle({ ...base, packBultoDe: (plu, p) => [{ plu: `pb-${plu}`, base: p }] });
+  assert.deepStrictEqual(det.presentaciones['6319'].packBulto, [{ plu: 'pb-6319', base: precio }]);
+  assert.deepStrictEqual(armarDetalle(base).presentaciones['6319'].packBulto, []);
+});

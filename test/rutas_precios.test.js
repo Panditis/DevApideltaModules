@@ -540,3 +540,49 @@ test('endpoints presentaciones-temporales: POST crea (id del server), PUT edita,
   assert.deepStrictEqual(b.temporales, []);
   assert.deepStrictEqual(archivo.presentacionesTemporales, {});
 });
+
+// ── Pack / Bulto enganchado en los listados (Fase 4) ─────────────────────────
+
+test('armarGruposFraccionado: cada presentación trae packBulto calculado sobre su precioConIva (por kg)', () => {
+  const llamadas = [];
+  const packBultoDe = (plu, precio) => { llamadas.push([plu, precio]); return plu === '11' ? [{ plu: '91011', precioSugerido: 1 }] : []; };
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES, presentaciones: PRESENTACIONES, formulas: FORMULAS, costos: COSTOS,
+    vigentes: new Map(), costeoConfig: { toleranciaPct: 10 }, packBultoDe,
+  });
+  const lino = grupo(gs, '4409');
+  assert.deepStrictEqual(lino.presentaciones[0].packBulto, [{ plu: '91011', precioSugerido: 1 }]);
+  assert.deepStrictEqual(lino.presentaciones[1].packBulto, []);
+  assert.deepStrictEqual(llamadas.find(([plu]) => plu === '11'), ['11', lino.presentaciones.find(p => p.plu === '11').precioConIva]);
+  // Sin packBultoDe (tests viejos / otros usos) queda [].
+  assert.deepStrictEqual(grupo(armar(), '4409').presentaciones[0].packBulto, []);
+});
+
+test('listado Almacén: una sola query de vínculos; sub-filas pack/bulto sobre el sugerido del base', async () => {
+  const crearRutasPrecios = require('../routes/rutas_precios');
+  const sqls = [];
+  const query = async (sql) => {
+    sqls.push(sql);
+    if (sql.includes('Almacen Bultos/Cajas')) {
+      return [{ plu: '91031', nombre: 'PEPAS PACK', basePlu: '6051', cantidad: 3 }, { plu: '91449', nombre: 'PEPAS BULTO', basePlu: '6051', cantidad: 12 }];
+    }
+    if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '6051', Precio: 2995 }, { IdProducto: '91031', Precio: 2855 }];
+    if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '6051', NombreProducto: 'PEPAS', CostoSistema: 1210, IvaCompraPct: 21 }];
+    return [];
+  };
+  const router = crearRutasPrecios({
+    apiRoute: fn => async (req, res) => res.json(await fn(req)), query,
+    leerJSON: () => ({ toleranciaPct: 10, bandasMarkup: { almacen: [{ costoHastaARS: null, markupMaxPct: 100 }] }, packBulto: { descBultoPct: 20 } }),
+    guardarJSON: () => {}, DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
+    FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1',
+  });
+  const layer = router.stack.find(l => l.route && l.route.methods.get && l.match('/api/precios/listado'));
+  const filas = await new Promise(ok => layer.route.stack[0].handle({ params: {}, query: { tipo: 'almacen' } }, { json: ok }));
+  assert.strictEqual(filas.length, 1);
+  assert.strictEqual(filas[0].precioConIva, 2400); // 1000 × 2 × 1,21 = 2420 → 2400
+  assert.deepStrictEqual(filas[0].packBulto.map(p => [p.plu, p.tipo, p.descPct, p.precioSugerido, p.precioVigente]), [
+    ['91031', 'pack', 9.7, 2150, 2855], // 2400 × 0,903 = 2167,2 → 2150
+    ['91449', 'bulto', 20, 1900, null], // 2400 × 0,8 = 1920 → 1900
+  ]);
+  assert.strictEqual(sqls.filter(s => s.includes('Almacen Bultos/Cajas')).length, 1);
+});

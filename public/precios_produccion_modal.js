@@ -308,9 +308,11 @@ function pintarResumenPres() {
     return;
   }
   el.innerHTML = cab + htmlPrecioRes(r) + htmlEcuacionRes(r)
-    + (presEd.errorPreview ? `<p class="text-xs text-crit mt-2">${esc(presEd.errorPreview)}</p>` : '') + htmlFormulaSiga(r);
+    + (presEd.errorPreview ? `<p class="text-xs text-crit mt-2">${esc(presEd.errorPreview)}</p>` : '')
+    + htmlBloquePBProd(r.packBulto) + htmlFormulaSiga(r); // pack/bulto: precios_pack_bulto.js
   const copiar = document.getElementById('dpCopiarFormula');
   if (copiar) copiar.onclick = () => copiarFormulaSiga(r);
+  conectarBloquePBProd(el, r.precioConIva); // precios_pack_bulto.js: % propio de pack/bulto
 }
 
 // ── Fórmula para cargar en SIGA (sólo lectura; decisión 13: el módulo no escribe en SIGA) ──

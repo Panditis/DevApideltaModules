@@ -5,6 +5,7 @@ const path = require('path');
 const produccion = require('../lib/precios_produccion');
 const { elegirCosto, compararConVigente } = require('../lib/precios_costeo');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
+const { crearPackBultoDe } = require('../lib/precios_pack_bulto');
 
 // ── Precios, Fase 3: tab Producción ──────────────────────────────────────────
 // Productos con recetas (base + variantes), su lista de insumos y presentaciones (que eligen de esa lista), en data/recetas_produccion.json
@@ -42,7 +43,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   const router = express.Router();
   const RECETAS_PATH = path.join(DATA_DIR, 'recetas_produccion.json');
   const COSTEO_PATH = path.join(DATA_DIR, 'costeo.json');
-  const { costosPorPlu, preciosVigentesAlmacen } = crearConsultasPrecios({ query, LISTA_PRECIOS_VENTA });
+  const { costosPorPlu, preciosVigentesAlmacen, vinculosPackBulto } = crearConsultasPrecios({ query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL });
 
   const ruta = fn => apiRoute(async (req) => {
     try { return await fn(req); } catch (err) {
@@ -74,6 +75,16 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return { costeados, costos, costeo };
   }
 
+  // Detalle costeado + vigentes SIGA + sub-filas pack/bulto de cada presentación (una query de vínculos).
+  async function detalleConPrecios(datos, id) {
+    const manuales = ((leerJSON(COSTEO_PATH, {}) || {}).packBulto || {}).vinculosManuales || {};
+    const [{ costeados, costos, costeo }, vigentes, { vinculos }] = await Promise.all([
+      costearProductos(datos, [id]), preciosVigentesAlmacen(), vinculosPackBulto(manuales),
+    ]);
+    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo });
+    return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, toleranciaPct: costeo.toleranciaPct, tiposPackaging, packBultoDe });
+  }
+
   router.get('/api/precios/produccion/productos', ruta(async () => {
     const datos = leer();
     const { costeados } = await costearProductos(datos, Object.keys(datos.productos));
@@ -95,8 +106,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const id = idProducto(req);
     const datos = leer();
     productoDe(datos, id);
-    const [{ costeados, costos, costeo }, vigentes] = await Promise.all([costearProductos(datos, [id]), preciosVigentesAlmacen()]);
-    return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, toleranciaPct: costeo.toleranciaPct, tiposPackaging });
+    return detalleConPrecios(datos, id);
   }));
 
   router.put('/api/precios/produccion/productos/:id', ruta(async (req) => {
@@ -199,8 +209,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const previa = (producto.presentaciones || {})[clave];
     const pres = previa && previa.validado ? { ...limpia, validado: previa.validado } : limpia;
     const enMemoria = { ...datos, productos: { ...datos.productos, [id]: { ...producto, presentaciones: { ...(producto.presentaciones || {}), [clave]: pres } } } };
-    const [{ costeados, costos, costeo }, vigentes] = await Promise.all([costearProductos(enMemoria, [id]), preciosVigentesAlmacen()]);
-    const det = armarDetalle({ id, datos: enMemoria, costeado: costeados[id], costos, vigentes, toleranciaPct: costeo.toleranciaPct, tiposPackaging });
+    const det = await detalleConPrecios(enMemoria, id);
     return { ...det.presentaciones[clave], plu };
   }
   router.post('/api/precios/produccion/productos/:id/presentaciones/preview', ruta(previewPresentacion));
@@ -436,7 +445,8 @@ function tipoInsumo({ tipo, nombre, rubro }, tiposPackaging) {
 // `insumosManuales` = catálogo global [{ id, nombre, costo, tipo }] para elegirlos en una presentación.
 // `definicion` = el producto tal como está guardado (rendimiento, merma, cantidades, unidades…): la UI
 // lo usa para precargar los editores; los costos siempre salen del costeo, nunca de ahí.
-function armarDetalle({ id, datos, costeado, costos, vigentes, toleranciaPct, tiposPackaging }) {
+// packBultoDe(plu, precioConIva) → sub-filas pack/bulto de la presentación (crearPackBultoDe); sin él, [].
+function armarDetalle({ id, datos, costeado, costos, vigentes, toleranciaPct, tiposPackaging, packBultoDe = () => [] }) {
   const insumos = costeado.insumos.map(it => {
     const row = costos.get(it.clave) || {};
     const manual = Object.hasOwn(datos.insumosManuales, it.clave) ? datos.insumosManuales[it.clave] : {};
@@ -450,7 +460,7 @@ function armarDetalle({ id, datos, costeado, costos, vigentes, toleranciaPct, ti
   const presentaciones = Object.fromEntries(Object.entries(costeado.presentaciones).map(([plu, p]) => {
     const precioVigente = vigentes.has(plu) ? vigentes.get(plu) : null;
     const { deltaPct, estado: semaforo } = compararConVigente(p.precioConIva, precioVigente, toleranciaPct);
-    return [plu, { ...p, precioVigente, deltaPct, semaforo }];
+    return [plu, { ...p, precioVigente, deltaPct, semaforo, packBulto: packBultoDe(plu, p.precioConIva) }];
   }));
   return {
     id, ...costeado, creado: datos.productos[id].creado || null, insumos, presentaciones,

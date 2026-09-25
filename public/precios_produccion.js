@@ -216,34 +216,6 @@ function componentesAIngredientes(componentes, kgPorTanda, existentes, modo = 'r
 const TIPOS_EMPAQUE = ['envase', 'tapa', 'etiqueta', 'precinto'];
 const esEmpaque = c => TIPOS_EMPAQUE.includes(c && c.tipo);
 
-// ── Orden de tablas (sólo visualización) ──
-// Valor comparable: número (o string numérico, ej. PLU) → número; vacío → null; resto → texto.
-function valorOrden(v) {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  return /^-?\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : String(v);
-}
-function compararOrden(a, b) {
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  return String(a).localeCompare(String(b), 'es', { sensitivity: 'base', numeric: true });
-}
-// Copia ordenada por `clave` ('asc' | 'desc' | null = orden original). Estable; nulls siempre al final.
-function ordenarFilas(filas, clave, dir) {
-  const conPos = (filas || []).map((f, pos) => ({ f, pos }));
-  if (!clave || !dir) return conPos.map(x => x.f);
-  const signo = dir === 'desc' ? -1 : 1;
-  return conPos.sort((x, y) => {
-    const a = valorOrden(x.f[clave]), b = valorOrden(y.f[clave]);
-    if (a == null || b == null) return (a == null) - (b == null) || x.pos - y.pos;
-    return signo * compararOrden(a, b) || x.pos - y.pos;
-  }).map(x => x.f);
-}
-// Click en un header: misma columna asc → desc → sin orden; otra columna arranca en asc.
-function siguienteOrden(actual, clave) {
-  if (!actual || actual.clave !== clave) return { clave, dir: 'asc' };
-  return actual.dir === 'asc' ? { clave, dir: 'desc' } : null;
-}
-
 // ── Modal de presentación: helpers puros ──
 // Peso legible del "kg por unidad": 0.27 → "270 g", 1.5 → "1,5 kg".
 function formatoPeso(kg) {
@@ -282,9 +254,11 @@ function importeEmpaque(componentes) {
 if (typeof module === 'object' && module.exports) {
   module.exports = {
     parsearHashProduccion, firmaAlertas, destinoToast, estadoFila, nombreComponente, textoFaltante, textoToast,
-    mensajeFaltante, progresoProducto, pasosHabilitados, formatoPeso, presentacionSucia, faltaObligatorioPres, ordenarFilas, siguienteOrden, esProvisoria, claveProvisoria, textoFormulaSiga,
+    mensajeFaltante, progresoProducto, pasosHabilitados, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
     slugProd, idRecetaNueva, idManualNuevo, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido, importeEmpaque,
+    // Orden de tablas: vive en precios_orden.js (compartido por todos los tabs).
+    ordenarFilas: require('./precios_orden.js').ordenarFilas, siguienteOrden: require('./precios_orden.js').siguienteOrden,
   };
 }
 
@@ -461,8 +435,8 @@ function htmlSelectorMarco() {
     </div>
     <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
       <table class="w-full text-sm">
-        <thead class="bg-verde/5 text-verde"><tr><th class="p-2 text-left">Producto</th><th class="p-2">Variedades</th>
-          <th class="p-2">Presentaciones</th><th class="p-2 text-right">Costo/kg base</th><th class="p-2">Estado</th></tr></thead>
+        <thead class="bg-verde/5 text-verde"><tr><th class="p-2 text-left" data-orden="nombre">Producto</th><th class="p-2" data-orden="variantes">Variedades</th>
+          <th class="p-2" data-orden="presentaciones">Presentaciones</th><th class="p-2 text-right" data-orden="costo">Costo/kg base</th><th class="p-2" data-orden="estado">Estado</th></tr></thead>
         <tbody id="prCuerpo"><tr><td colspan="5">${cargandoHtml('Cargando…')}</td></tr></tbody>
       </table>
     </div>`;
@@ -476,6 +450,7 @@ function conectarSelector() {
     pintarFilasSelector();
   };
   document.getElementById('prNuevo').onclick = nuevoProducto;
+  montarOrdenSelectorProd(); // precios_orden.js
 }
 function htmlEstadoSelector(p) {
   const partes = [];
@@ -487,7 +462,7 @@ function pintarFilasSelector() {
   const tbody = document.getElementById('prCuerpo');
   if (!tbody || !prodLista) return;
   const q = normTxt(prodBusqueda.trim());
-  const filas = prodLista.filter(p => (!q || normTxt(p.nombre).includes(q)) && (!prodSoloCambios || p.alertas > 0));
+  const filas = ordenarSelectorProd(prodLista.filter(p => (!q || normTxt(p.nombre).includes(q)) && (!prodSoloCambios || p.alertas > 0)));
   document.getElementById('prConteo').textContent = prodLista.length ? `${filas.length} de ${prodLista.length} productos` : '';
   if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="5">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
   if (!filas.length) { tbody.innerHTML = '<tr><td colspan="5" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>'; return; }

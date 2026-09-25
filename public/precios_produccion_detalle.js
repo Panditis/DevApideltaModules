@@ -364,14 +364,7 @@ const filaItem = (it, i) => `<tr class="border-t border-borde" data-i="${i}"><td
 const filaElab = c => `<tr><td></td><td class="p-1.5" colspan="3">${esc(c.plu === '_costoHora' ? 'Mano de obra' : 'Máquina · ' + (c.nombre || ''))}
   <span class="text-xs">${fmtNum(c.cantidad)} min × ${c.costoUnit != null ? '$ ' + fmtMoney(c.costoUnit) + '/min' : '—'}</span></td>
   <td></td><td class="p-1.5 text-right tabular-nums">${c.importe != null ? '$ ' + fmtMoney(c.importe) : '—'}</td><td class="p-1.5 text-xs">config</td><td></td></tr>`;
-// Header ordenable: <th aria-sort> con un <button> (teclado) e indicador ▲/▼ en la columna activa.
-function thOrden(clave, texto, orden, der = false) {
-  const activo = orden && orden.clave === clave;
-  const aria = activo ? (orden.dir === 'asc' ? 'ascending' : 'descending') : 'none';
-  return `<th class="p-1.5 ${der ? 'text-right' : 'text-left'}" aria-sort="${aria}"><button type="button" data-orden="${clave}"
-    class="inline-flex items-center gap-1 uppercase tracking-[.02em] hover:text-verde ${activo ? 'text-verde' : ''}" title="Ordenar por ${esc(texto.replace(/<[^>]+>/g, ''))}">
-    ${texto}<span aria-hidden="true" class="text-[9px]">${activo ? (orden.dir === 'asc' ? '▲' : '▼') : ''}</span></button></th>`;
-}
+// thOrden (header ordenable) vive en precios_orden.js.
 // Variedad: fila fija arriba (fuera del orden) con lo que aporta la receta base, para que la suma
 // "Costo de la tanda" cierre. El importe es costoBaseIngredientes del server.
 function htmlFilaBase(ed, c) {

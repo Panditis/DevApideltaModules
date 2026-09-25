@@ -116,12 +116,12 @@ function htmlSeccionPresentaciones() {
     return cajaVacia('Todavía no hay presentaciones. Cada una es un PLU vendible de SIGA (250 g, 500 g, 1 kg…): elegís la variedad, cuántos kg lleva y sus insumos, y el módulo calcula costo y precio.',
       `<button id="prNuevaPres" class="${btnPrim}">Crear presentación</button>`);
   }
-  const nombres = nombresProd();
+  const th = (clave, txt, cls = '') => `<th class="p-2 ${cls}" data-orden="${clave}">${txt}</th>`;
   return `<div class="overflow-x-auto rounded-xl border border-borde bg-card"><table class="w-full text-sm">
-    <thead class="bg-verde/5 text-verde"><tr><th class="p-2 text-left">PLU</th><th class="p-2 text-left">Nombre</th><th class="p-2 text-left">Variedad</th>
-      <th class="p-2 text-right">kg</th><th class="p-2 text-right">Empaque</th><th class="p-2 text-right">Costo</th><th class="p-2">Markup</th>
-      <th class="p-2 text-right">Sugerido</th><th class="p-2 text-right">Vigente</th><th class="p-2 text-right">Δ%</th><th class="p-2">Estado</th></tr></thead>
-    <tbody id="prPres">${pres.map(p => htmlFilaPresentacion(p, nombres)).join('')}</tbody></table></div>
+    <thead class="bg-verde/5 text-verde"><tr>${th('plu', 'PLU', 'text-left')}${th('nombre', 'Nombre', 'text-left')}${th('variedad', 'Variedad', 'text-left')}
+      ${th('kg', 'kg', 'text-right')}${th('empaque', 'Empaque', 'text-right')}${th('costo', 'Costo', 'text-right')}${th('markup', 'Markup')}
+      ${th('sugerido', 'Sugerido', 'text-right')}${th('vigente', 'Vigente', 'text-right')}${th('delta', 'Δ%', 'text-right')}${th('estado', 'Estado')}</tr></thead>
+    <tbody id="prPres">${htmlFilasPresentaciones()}</tbody></table></div>
     <button id="prNuevaPres" class="${btnCls} mt-3">+ Otra presentación</button>`;
 }
 function htmlFilaPresentacion(p, nombres) {
@@ -145,7 +145,20 @@ function htmlFilaPresentacion(p, nombres) {
     <td class="p-2 text-center">${badgeEstadoProd(p, nombres)}${esProvisoria(p.plu) ? ' ' + chip('Pendiente de alta en SIGA', 'bg-amarillo/30 text-ink') : ''}
       ${(p.avisos || []).includes('variedad') ? ' ' + chip('Elegí una variedad', 'bg-warn/15 text-warn') : ''}</td></tr>`;
 }
-function conectarSeccionPresentaciones() {
+// Filas en el orden elegido por header (precios_orden.js); re-pintar sólo el tbody conserva el foco del header.
+function htmlFilasPresentaciones() {
+  const nombres = nombresProd();
+  return ordenarPresProd(Object.values(prodDet.presentaciones)).map(p => htmlFilaPresentacion(p, nombres)).join('');
+}
+function pintarFilasPresentaciones() {
+  document.getElementById('prPres').innerHTML = htmlFilasPresentaciones();
+  conectarFilasPresentaciones();
+}
+function conectarFilasPresentaciones() {
   document.querySelectorAll('#prPres tr[data-plu]').forEach(tr => tr.onclick = () => abrirPresentacion(tr.dataset.plu));
+}
+function conectarSeccionPresentaciones() {
+  conectarFilasPresentaciones();
   document.getElementById('prNuevaPres').onclick = () => abrirPresentacion(null);
+  montarOrdenPresProd(); // precios_orden.js
 }

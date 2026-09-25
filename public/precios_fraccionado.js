@@ -65,7 +65,7 @@ function markupStdCliente(costoKg, pesoG){
 // ── Marcados (mapa único por PLU con Almacén; lo usan la barra y la exportación de precios.html) ──
 function aplicarMarcadosFracc(set){
   fraccData = fraccData.map(g => ({
-    ...g, presentaciones: g.presentaciones.map(p => p.marcado === set.has(p.plu) ? p : { ...p, marcado: set.has(p.plu) }),
+    ...g, presentaciones: g.presentaciones.map(p => ({ ...p, marcado: set.has(p.plu), packBulto: aplicarMarcadosPB(p.packBulto, set) })),
   }));
 }
 // Filas para exportarMarcados/filasExportacion: Costo = costo total $/kg del granel (base +
@@ -110,14 +110,14 @@ dropCtxs.fracc = {
 };
 function actualizarBotonesFiltroFr(){
   pintarBotonesFiltro('panel-fraccionado', filtroSelFr,
-    [['frIngresoHoy', frIngresoHoy], ['frSoloMarcados', frSoloMarcados], ['frOcultarVacios', frOcultarVacios]]);
+    [['frIngresoHoy', frIngresoHoy], ['frSoloMarcados', frSoloMarcados], ['frOcultarVacios', frOcultarVacios], ['frConPB', frConPB]]);
 }
 
 // El grupo "Sin granel asignado" sólo se muestra sin filtros activos (no tiene costo ni proveedor).
 function filtrarFraccionado(){
   const q = normTxt(document.getElementById('frBuscar').value.trim());
   const { proveedor, estado } = filtroSelFr;
-  const hayFiltros = q || proveedor.size || estado.size || frIngresoHoy || frSoloMarcados;
+  const hayFiltros = q || proveedor.size || estado.size || frIngresoHoy || frSoloMarcados || frConPB;
   return fraccData.filter(g => {
     if (!esGranel(g)) return !hayFiltros && g.presentaciones.length > 0;
     if (q && !String(g.granelPlu).includes(q) && !normTxt(g.granelNombre).includes(q)
@@ -127,6 +127,7 @@ function filtrarFraccionado(){
     if (frIngresoHoy && !g.ingresoHoy) return false;
     if (frSoloMarcados && !g.presentaciones.some(p => p.marcado)) return false;
     if (frOcultarVacios && !g.presentaciones.length) return false;
+    if (frConPB && !g.presentaciones.some(conPB)) return false; // precios_pack_bulto.js
     return true;
   });
 }
@@ -180,7 +181,7 @@ function renderFraccionado(){
     tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50">Sin graneles</td></tr>';
     return;
   }
-  const grupos = filtrarFraccionado();
+  const grupos = ordenarGruposFracc(filtrarFraccionado()); // precios_orden.js
   conteo.textContent = `${grupos.filter(esGranel).length} de ${total} graneles`;
   if (!grupos.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50">Ningún granel coincide con los filtros</td></tr>';
@@ -246,13 +247,13 @@ function htmlFilaPresentacionDet(p){
     <td class="hidden sm:table-cell py-2.5 pr-3 text-right tabular-nums text-gris">${fmtMoney(p.precioVigente)}</td>
     <td class="py-2.5 text-right whitespace-nowrap"><div class="fd-delta tabular-nums"></div><div class="fd-estado mt-0.5"></div>
       <div class="sm:hidden text-[11px] text-gris tabular-nums">vig. ${fmtPrecio(p.precioVigente)}</div></td>
-  </tr>`;
+  </tr>` + htmlSubfilasFraccPB(p); // sub-filas ↳ pack/bulto (precios_pack_bulto.js)
 }
 
 function htmlDetalleFracc(j){
-  const filas = j.presentaciones.length ? j.presentaciones.map(htmlFilaPresentacionDet).join('')
+  const filas = j.presentaciones.length ? ordenarPresFracc(j.presentaciones).map(htmlFilaPresentacionDet).join('')
     : '<tr><td colspan="6" class="py-6 text-center text-gris">Este granel no tiene presentaciones asociadas (fórmulas de Pesables)</td></tr>';
-  const th = (txt, cls = 'text-right') => `<th scope="col" class="pb-1.5 pr-3 font-semibold text-[11px] text-gris ${cls}">${txt}</th>`;
+  const th = (txt, cls = 'text-right', orden = '') => `<th scope="col"${orden ? ` data-orden="${orden}"` : ''} class="pb-1.5 pr-3 font-semibold text-[11px] text-gris ${cls}">${txt}</th>`;
   return `
     <div class="mt-1" role="group" aria-label="Costo del granel">
       ${htmlCostoBase(j, '$/kg')}
@@ -266,8 +267,8 @@ function htmlDetalleFracc(j){
     <div class="overflow-x-auto rounded-lg border border-borde">
       <table class="w-full text-sm">
         <thead class="bg-verde/5"><tr class="border-b border-borde">
-          ${th('<span class="sr-only">Exportar a SIGA</span>✓', 'text-left w-6 pl-2 pt-1.5')}${th('Presentación', 'text-left pt-1.5')}${th('Margen', 'text-right pt-1.5')}
-          ${th('Precio final /kg', 'text-right pt-1.5')}${th('Vigente', 'text-right hidden sm:table-cell pt-1.5')}${th('Δ', 'text-right pt-1.5 !pr-0 sm:!pr-2')}</tr></thead>
+          ${th('<span class="sr-only">Exportar a SIGA</span>✓', 'text-left w-6 pl-2 pt-1.5')}${th('Presentación', 'text-left pt-1.5', 'peso')}${th('Margen', 'text-right pt-1.5', 'margen')}
+          ${th('Precio final /kg', 'text-right pt-1.5', 'final')}${th('Vigente', 'text-right hidden sm:table-cell pt-1.5', 'vigente')}${th('Δ', 'text-right pt-1.5 !pr-0 sm:!pr-2', 'delta')}</tr></thead>
         <tbody class="fd-cuerpo">${filas}</tbody>
         <tbody id="ftCuerpo" class="fd-cuerpo"></tbody>
       </table>
@@ -306,6 +307,8 @@ function conectarDetalleFracc(){
     msgDetalle(''); recalcularDetalleFracc();
   };
   document.getElementById('ftAgregar').onclick = agregarTemporal;
+  conectarSubfilasFraccPB(); // precios_pack_bulto.js
+  montarOrdenPresFracc(); // precios_orden.js
   document.getElementById('btnGuardarDet').onclick = guardarDetalleFracc;
 }
 
@@ -333,6 +336,7 @@ function recalcularDetalleFracc(){
     td.textContent = fmtPct(c.deltaPct);
     tr.querySelector('.fd-estado').innerHTML = c.precio == null ? chip('Sin precio', 'bg-ink/10 text-ink/60')
       : p.precioVigente == null ? '<span class="text-[11px] text-gris">sin vigente</span>' : badgeSemaforo(c.semaforo);
+    pintarSubfilasFraccPB(p, c.precio); // precios_pack_bulto.js: en vivo sobre el precio /kg
   }
   recalcularTemporales(costo, costoTotal);
   const costoOk = costo != null && costo > 0;
@@ -583,7 +587,7 @@ document.getElementById('frSoloMarcados').onclick = () => { frSoloMarcados = !fr
 document.getElementById('frOcultarVacios').onclick = () => { frOcultarVacios = !frOcultarVacios; dropCtxs.fracc.aplicar(); };
 document.getElementById('frLimpiar').onclick = () => {
   filtroSelFr.proveedor.clear(); filtroSelFr.estado.clear();
-  frIngresoHoy = false; frSoloMarcados = false; frOcultarVacios = false;
+  frIngresoHoy = false; frSoloMarcados = false; frOcultarVacios = false; frConPB = false;
   document.getElementById('frBuscar').value = '';
   cerrarDrop(); dropCtxs.fracc.aplicar();
 };

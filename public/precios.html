@@ -102,6 +102,7 @@
       <button id="fBtnEstado" data-filtro="estado" class="fbtn">Estado <span class="fbtn-n"></span> ▾</button>
       <button id="fIngresoHoy" class="fbtn" aria-pressed="false">Ingreso hoy</button>
       <button id="fSoloMarcados" class="fbtn" aria-pressed="false">Sólo marcados</button>
+      <button id="fConPB" class="fbtn" aria-pressed="false" title="Productos con pack o bulto vinculado (se ven en el detalle)">Con pack/bulto</button>
       <button id="fLimpiar" class="text-xs text-gris hover:text-crit px-1">Limpiar filtros</button>
       <label class="ml-auto flex items-center gap-1 text-sm text-gris" title="Diferencias dentro de ± este % no se resaltan">Tolerancia ±
         <input id="fTolerancia" type="number" min="0" step="0.5"
@@ -112,10 +113,10 @@
       <table class="w-full text-sm">
         <thead class="bg-verde/5 text-verde">
           <tr><th class="p-2 w-8"><input id="chkTodos" type="checkbox" class="accent-verde" title="Marcar/desmarcar los visibles"></th>
-              <th class="p-2 text-left">Código</th><th class="p-2 text-left">Producto</th>
-              <th class="p-2">Costo</th><th class="p-2">Banda/Markup%</th>
-              <th class="p-2">Precio sugerido</th><th class="p-2">Precio vigente</th>
-              <th class="p-2">Diferencia</th><th class="p-2">Estado</th></tr>
+              <th class="p-2 text-left" data-orden="plu">Código</th><th class="p-2 text-left" data-orden="nombre">Producto</th>
+              <th class="p-2" data-orden="costo">Costo</th><th class="p-2" data-orden="markup">Banda/Markup%</th>
+              <th class="p-2" data-orden="sugerido">Precio sugerido</th><th class="p-2" data-orden="vigente">Precio vigente</th>
+              <th class="p-2" data-orden="delta">Diferencia</th><th class="p-2" data-orden="estado">Estado</th></tr>
         </thead>
         <tbody id="cuerpoAlmacen"><tr><td colspan="9" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
       </table>
@@ -138,6 +139,7 @@
       <button data-filtro="estado" data-ctx="fracc" class="fbtn">Estado <span class="fbtn-n"></span> ▾</button>
       <button id="frIngresoHoy" class="fbtn" aria-pressed="false">Ingreso hoy</button>
       <button id="frSoloMarcados" class="fbtn" aria-pressed="false">Sólo marcados</button>
+      <button id="frConPB" class="fbtn" aria-pressed="false" title="Graneles con alguna presentación que tiene pack o bulto">Con pack/bulto</button>
       <button id="frOcultarVacios" class="fbtn" aria-pressed="false">Ocultar sin presentaciones</button>
       <button id="frLimpiar" class="text-xs text-gris hover:text-crit px-1">Limpiar filtros</button>
       <label class="ml-auto flex items-center gap-1 text-sm text-gris" title="Diferencias dentro de ± este % no se resaltan">Tolerancia ±
@@ -149,9 +151,9 @@
       <table class="w-full text-sm">
         <thead class="bg-verde/5 text-verde">
           <tr><th class="p-2 w-8"><input id="chkTodosFr" type="checkbox" class="accent-verde" title="Marcar/desmarcar las presentaciones de los graneles visibles"></th>
-              <th class="p-2 text-left">Código</th><th class="p-2 text-left">Producto</th>
-              <th class="p-2">Costo $/kg</th><th class="p-2">Presentaciones</th>
-              <th class="p-2">Precio sugerido /kg</th><th class="p-2">Diferencia (peor)</th><th class="p-2">Estado (peor)</th></tr>
+              <th class="p-2 text-left" data-orden="plu">Código</th><th class="p-2 text-left" data-orden="nombre">Producto</th>
+              <th class="p-2" data-orden="costo">Costo $/kg</th><th class="p-2" data-orden="presentaciones">Presentaciones</th>
+              <th class="p-2" data-orden="sugerido">Precio sugerido /kg</th><th class="p-2" data-orden="delta">Diferencia (peor)</th><th class="p-2" data-orden="estado">Estado (peor)</th></tr>
         </thead>
         <tbody id="cuerpoFracc"><tr><td colspan="8" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
       </table>
@@ -206,6 +208,8 @@
     </div>
 
     <div id="configFraccionado"></div>
+    <!-- Pack / Bulto: lo pinta /precios_pack_bulto.js -->
+    <div id="configPackBulto"></div>
   </div>
 
 </main>
@@ -335,7 +339,7 @@ function pintarBotonesFiltro(panelId, sel, toggles){
   }
 }
 function actualizarBotonesFiltro(){
-  pintarBotonesFiltro('panel-almacen', filtroSel, [['fIngresoHoy', soloIngresoHoy], ['fSoloMarcados', soloMarcados]]);
+  pintarBotonesFiltro('panel-almacen', filtroSel, [['fIngresoHoy', soloIngresoHoy], ['fSoloMarcados', soloMarcados], ['fConPB', soloConPB]]);
 }
 
 // ── Desplegable de filtro con buscador (uno solo, se reusa para proveedor y estado) ──
@@ -388,6 +392,7 @@ function filtrarAlmacen(){
     if (estado.size && !estado.has(estadoDe(f))) return false;
     if (soloIngresoHoy && !f.ingresoHoy) return false;
     if (soloMarcados && !f.marcado) return false;
+    if (soloConPB && !conPB(f)) return false; // precios_pack_bulto.js
     return true;
   });
 }
@@ -402,7 +407,7 @@ function renderAlmacen(){
     tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-ink/50">Sin productos</td></tr>';
     return;
   }
-  const filas = filtrarAlmacen();
+  const filas = ordenarAlmacen(filtrarAlmacen()); // precios_orden.js: orden por header sobre lo filtrado
   document.getElementById('almacenConteo').textContent = `${filas.length} de ${almacenData.length} productos`;
   if (!filas.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-ink/50">Ningún producto coincide con los filtros</td></tr>';
@@ -447,8 +452,9 @@ function renderAlmacen(){
 // Se guardan en el server (costeo.json → marcadosExportar), compartidos entre PCs.
 function aplicarMarcadosLocal(marcados){
   const set = new Set(marcados);
-  almacenData = almacenData.map(f => f.marcado === set.has(f.plu) ? f : { ...f, marcado: set.has(f.plu) });
+  almacenData = almacenData.map(f => ({ ...f, marcado: set.has(f.plu), packBulto: aplicarMarcadosPB(f.packBulto, set) }));
   aplicarMarcadosFracc(set); // precios_fraccionado.js
+  aplicarMarcadosDetPB(set); // precios_pack_bulto.js: sub-filas del modal abierto
 }
 function renderListados(){
   renderAlmacen();
@@ -466,7 +472,7 @@ async function marcarPlus(plus, marcado){
 }
 // Barra compartida por los dos tabs (misma cuenta: productos Almacén + presentaciones Fraccionado).
 function actualizarBarraMarcados(){
-  const n = almacenData.filter(f => f.marcado).length + presentacionesMarcadas().length;
+  const n = almacenData.filter(f => f.marcado).length + presentacionesMarcadas().length + filasPBMarcadas(almacenData, fraccData).length;
   document.querySelectorAll('.js-marc-conteo').forEach(el => { el.textContent = `Marcados: ${n}`; });
   document.querySelectorAll('.js-marc-exportar').forEach(btn => { btn.textContent = `Exportar marcados (${n})`; btn.disabled = n === 0; });
   document.querySelectorAll('.js-marc-desmarcar').forEach(btn => { btn.disabled = n === 0; });
@@ -489,7 +495,8 @@ function filasExportacion(productos){
 // Exporta TODOS los marcados (no sólo los visibles) de ambos tabs, con los valores calculados actuales.
 async function exportarMarcados(){
   if (!fraccCargado) await cargarFraccionado(); // precios_fraccionado.js
-  const marcados = [...almacenData.filter(f => f.marcado), ...presentacionesMarcadas()];
+  // Pack/bulto marcados: Costo = costo total de su producto normal, Venta = su precio sugerido.
+  const marcados = [...almacenData.filter(f => f.marcado), ...presentacionesMarcadas(), ...filasPBMarcadas(almacenData, fraccData)];
   const validos = marcados.filter(f => !tieneFaltantes(f) && f.precioConIva != null);
   const omitidos = marcados.length - validos.length;
   if (!validos.length) { avisar('Ningún producto marcado tiene precio sugerido para exportar.'); return; }
@@ -609,7 +616,8 @@ function htmlDetalle(j){
           <div id="dFinalInfo" class="text-xs text-gris mt-0.5">neto <span id="dNeto" class="tabular-nums">—</span> · con IVA 21% <span id="dConIva" class="tabular-nums">—</span> · redondeo a $50</div></div>`,
         `<span class="ec-val text-gris">$ <input id="inFinal" type="number" min="0" step="50" inputmode="numeric" aria-describedby="dFinalInfo"
             title="Escribí el precio que querés: se recalcula el margen" class="num-in w-32 text-lg font-bold text-verde"></span>`, 'sec s-final')}
-    </div>`;
+    </div>
+    <div id="dPackBulto"></div>`;
 }
 
 // ── Selector de costo base: compartido por Almacén (producto) y Fraccionado (granel) ──
@@ -792,6 +800,7 @@ function recalcularDetalle(){
     document.getElementById('dDelta').className = DELTA_BASE;
     if (!detEditandoFinal) inFinal.value = '';
     document.getElementById('dEstado').innerHTML = '';
+    pintarPBDetalle(null); // precios_pack_bulto.js
   } else {
     const neto = r2(costoTotal * (1 + markup / 100));
     const conIva = r2(neto * 1.21);
@@ -802,6 +811,7 @@ function recalcularDetalle(){
     set('dConIva', '$ ' + fmtMoney(conIva));
     if (!detEditandoFinal) inFinal.value = final;
     set('dSugerido', '$ ' + fmtPrecio(final));
+    pintarPBDetalle(final); // precios_pack_bulto.js: pack/bulto en vivo sobre el precio final
     const dDelta = document.getElementById('dDelta');
     if (vig != null && vig > 0) {
       // Misma fórmula que compararConVigente en el backend: (sugerido − vigente) / vigente.
@@ -1063,6 +1073,7 @@ async function cargarConfiguracion(){
     bandasCarga.classList.add('hidden');
     bandasForm.classList.remove('hidden');
     renderConfigFraccionado(j); // precios_fraccionado.js
+    cargarConfigPB(); // precios_pack_bulto.js
   } catch (e) {
     carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
     bandasCarga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
@@ -1189,6 +1200,7 @@ document.getElementById('fSoloMarcados').onclick = () => {
   soloMarcados = !soloMarcados; actualizarBotonesFiltro(); renderAlmacen();
 };
 document.getElementById('chkTodos').onchange = async e => {
+  // Sólo los productos visibles: pack/bulto se marcan desde el detalle.
   const plus = filtrarAlmacen().filter(f => !tieneFaltantes(f)).map(f => f.plu);
   if (!plus.length) { renderAlmacen(); return; }
   try { await marcarPlus(plus, e.target.checked); } catch (err) { avisar(err.message); renderAlmacen(); }
@@ -1203,7 +1215,7 @@ document.querySelectorAll('.js-marc-desmarcar').forEach(b => b.onclick = async (
   } catch (err) { avisar(err.message); }
 });
 document.getElementById('fLimpiar').onclick = () => {
-  filtroSel.proveedor.clear(); filtroSel.estado.clear(); soloIngresoHoy = false; soloMarcados = false;
+  filtroSel.proveedor.clear(); filtroSel.estado.clear(); soloIngresoHoy = false; soloMarcados = false; soloConPB = false;
   document.getElementById('fBuscar').value = '';
   cerrarDrop(); actualizarBotonesFiltro(); renderAlmacen();
 };
@@ -1257,6 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
   cargarAlmacen(); // Almacén es el tab activo por defecto al cargar la página.
 });
 </script>
+<script src="/precios_orden.js"></script>
 <script src="/precios_fraccionado.js"></script>
 <dialog id="dlgAviso" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,420px)] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgAvisoMsg">
   <form method="dialog" class="p-5">
@@ -1288,5 +1301,6 @@ const confirmar = (msg, opts) => dialogoAviso(msg, { ...opts, cancelar: true });
 <script src="/precios_produccion_presentaciones.js"></script>
 <script src="/precios_produccion_modal.js"></script>
 <script src="/precios_produccion_formula.js"></script>
+<script src="/precios_pack_bulto.js"></script>
 </body>
 </html>

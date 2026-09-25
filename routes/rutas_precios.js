@@ -4,6 +4,7 @@ const path = require('path');
 const preciosCosteo = require('../lib/precios_costeo');
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { crearConsultasPrecios, costoSistemaSinIva } = require('../lib/precios_consultas');
+const { crearPackBultoDe, configPackBultoSanitizada, PACK_BULTO_DEFAULT } = require('../lib/precios_pack_bulto');
 
 // ── Rutas del módulo Precios (costeo sugerido) ───────────────────────────────
 // Fase 1: listado/detalle/config de Almacén. Fase 2: Fraccionado (listado agrupado por granel). Producción (Fase 3)
@@ -21,7 +22,7 @@ const { crearConsultasPrecios, costoSistemaSinIva } = require('../lib/precios_co
 // motor actual banda por costo, no por familia. Se agrega como config global única
 // en vez de reabrir ese concepto.
 module.exports = function crearRutasPrecios(deps) {
-  const { apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA } = deps;
+  const { apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL } = deps;
   const router = express.Router();
 
   const COSTEO_PATH = path.join(DATA_DIR, 'costeo.json');
@@ -37,23 +38,34 @@ module.exports = function crearRutasPrecios(deps) {
     // Presentaciones simuladas (sin código en SIGA) por granel: { [granelPlu]: [{ id, pesoG, markupPct, nombre? }] }.
     presentacionesTemporales: {},
     markupFraccionado: MARKUP_FRACCIONADO_DEFAULT,
+    // Fase 4: % de descuento pack/bulto sobre el sugerido del base, overrides y vínculos manuales
+    // (config/overrides/vínculos en rutas_precios_pack_bulto.js).
+    packBulto: PACK_BULTO_DEFAULT,
   };
 
   router.get('/precios', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'precios.html')));
 
   router.get('/api/precios/config', apiRoute(async () => {
     const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const pb = configPackBultoSanitizada(costeo.packBulto);
     return {
       costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct,
       costosVariosPctAlmacen: costeo.costosVariosPctAlmacen,
       bandasMarkup: costeo.bandasMarkup,
       markupFraccionado: costeo.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT,
+      // % generales de pack/bulto (la UI los muestra al quitar un % propio).
+      packBulto: { descPackPct: pb.descPackPct, descBultoPct: pb.descBultoPct },
     };
   }));
 
   // Consultas SIGA compartidas con Producción (lib/precios_consultas.js): costo por PLU
   // (productosConCostos) y precio vigente de mostrador (preciosVigentesAlmacen).
-  const { productosConCostos, costosPorPlu, preciosVigentesAlmacen } = crearConsultasPrecios({ query, LISTA_PRECIOS_VENTA });
+  const { productosConCostos, costosPorPlu, preciosVigentesAlmacen, vinculosPackBulto } = crearConsultasPrecios({
+    query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
+  });
+  // Vínculos pack/bulto → base (una query por request). Las sub-filas se aplican sobre el
+  // precioConIva ya calculado de cada fila base: nunca se recalcula el base.
+  const vinculosDe = async costeo => (await vinculosPackBulto((costeo.packBulto || {}).vinculosManuales || {})).vinculos;
 
   // Universo Almacén: rubro 'Almacen', activo. (Los graneles no filtran Activo: un granel referenciado
   // por fórmula se costea aunque esté inactivo, como antes.)
@@ -65,18 +77,23 @@ module.exports = function crearRutasPrecios(deps) {
   // (sin query filtrada por plu) — subir si el universo Almacén crece lo bastante para
   // que el round-trip duela; hoy es el mismo volumen que ya trae /api/precios-proveedores/listado.
   async function filasAlmacen(costeo) {
-    const [universo, vigentes] = await Promise.all([universoAlmacen(), preciosVigentesAlmacen()]);
+    const [universo, vigentes, vinculos] = await Promise.all([universoAlmacen(), preciosVigentesAlmacen(), vinculosDe(costeo)]);
     const marcados = costeo.marcadosExportar || {};
-    return universo.map(p => ({
-      ...calcularFilaAlmacen({
+    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo });
+    return universo.map(p => {
+      const fila = calcularFilaAlmacen({
         plu: p.plu, nombre: p.nombre, costoMercaderia: p.costoMercaderia, costoSistema: p.costoSistema,
         precioVigente: vigentes.has(p.plu) ? vigentes.get(p.plu) : null,
         costeoConfig: costeo,
-      }),
-      proveedor: p.proveedor, fechaUltimaCompra: p.fechaUltimaCompra, ingresoHoy: p.ingresoHoy,
-      costoSistemaConIva: p.costoSistemaConIva, ivaCompraPct: p.ivaCompraPct, ivaCompraSupuesto: p.ivaCompraSupuesto,
-      marcado: Object.prototype.hasOwnProperty.call(marcados, p.plu),
-    }));
+      });
+      return {
+        ...fila,
+        proveedor: p.proveedor, fechaUltimaCompra: p.fechaUltimaCompra, ingresoHoy: p.ingresoHoy,
+        costoSistemaConIva: p.costoSistemaConIva, ivaCompraPct: p.ivaCompraPct, ivaCompraSupuesto: p.ivaCompraSupuesto,
+        marcado: Object.prototype.hasOwnProperty.call(marcados, p.plu),
+        packBulto: packBultoDe(p.plu, fila.precioConIva),
+      };
+    });
   }
 
   // ── Fraccionado ────────────────────────────────────────────────────────────
@@ -92,13 +109,14 @@ module.exports = function crearRutasPrecios(deps) {
   }
 
   async function gruposFraccionado(costeo) {
-    const [graneles, presentaciones, vigentes] = await Promise.all([
-      productosDeRubro('Pesables Deposito'), productosDeRubro('Pesables Fraccionado'), preciosVigentesAlmacen(),
+    const [graneles, presentaciones, vigentes, vinculos] = await Promise.all([
+      productosDeRubro('Pesables Deposito'), productosDeRubro('Pesables Fraccionado'), preciosVigentesAlmacen(), vinculosDe(costeo),
     ]);
     const formulas = (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas || {};
     const referenciados = presentaciones.map(p => granelDe(formulas, p.plu)).filter(Boolean);
     const costos = await costosPorPlu([...graneles.map(g => g.plu), ...referenciados]);
-    return armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig: costeo });
+    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo });
+    return armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig: costeo, packBultoDe });
   }
 
   router.get('/api/precios/listado', apiRoute(async (req) => {
@@ -115,7 +133,7 @@ module.exports = function crearRutasPrecios(deps) {
       precioNeto: f.precioNeto, precioConIva: f.precioConIva, precioVigente: f.precioVigente,
       deltaPct: f.deltaPct, semaforo: f.semaforo, faltantes: f.faltantes,
       proveedor: f.proveedor, fechaUltimaCompra: f.fechaUltimaCompra, ingresoHoy: f.ingresoHoy,
-      marcado: f.marcado,
+      marcado: f.marcado, packBulto: f.packBulto,
     }));
   }));
 
@@ -441,7 +459,8 @@ function granelDe(formulas, plu) {
 // costoMercaderia, costoSistema, ...) y vigentes (Map plu → precio por kg). Todas las presentaciones
 // de un granel llevan su costo $/kg; varía el margen: margenPorProducto[plu] ?? standard.
 const SIN_GRANEL = 'Sin granel asignado';
-function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig }) {
+// packBultoDe(plu, precioConIva) → sub-filas pack/bulto de la presentación (crearPackBultoDe); sin él, [].
+function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig, packBultoDe = () => [] }) {
   const cfg = costeoConfig || {};
   const matriz = cfg.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT;
   const overrides = cfg.margenPorProducto || {};
@@ -476,9 +495,11 @@ function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vi
     // Granel referenciado fuera del rubro pero existente en SIGA: grupo propio.
     if (gPlu && !grupos.has(gPlu) && costos.has(gPlu)) grupos.set(gPlu, nuevoGrupo(gPlu, null));
     const grupo = gPlu && grupos.has(gPlu) ? grupos.get(gPlu) : sinGranel;
+    const fila = filaPresentacion(p, grupo, matriz, overrides, vigentes, cfg.toleranciaPct);
     grupo.presentaciones.push({
-      ...filaPresentacion(p, grupo, matriz, overrides, vigentes, cfg.toleranciaPct),
+      ...fila,
       marcado: Object.prototype.hasOwnProperty.call(marcados, p.plu),
+      packBulto: packBultoDe(p.plu, fila.precioConIva),
     });
   }
   const porNombre = (a, b) => String(a).localeCompare(String(b), 'es');
