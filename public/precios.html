@@ -74,13 +74,11 @@
       <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
     </div>
   </div>
-  <!-- Producción llega en una fase siguiente: queda visualmente deshabilitada
-       (disabled real, no sólo estilo) para no prometer nada que todavía no anda. -->
+  <!-- Producción: lógica en /precios_produccion*.js (núcleo, _detalle, _presentaciones, _modal, _formula); navega por hash (#produccion, #produccion/<id>). -->
   <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs">
     <button class="navtab on" data-tipo="almacen">Almacén</button>
     <button class="navtab" data-tipo="fraccionado">Fraccionado</button>
-    <button class="navtab opacity-40 cursor-not-allowed" data-tipo="produccion" disabled>
-      Producción <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-white/15">Próximamente</span></button>
+    <button class="navtab" data-tipo="produccion">Producción</button>
     <button class="navtab" data-tipo="configuracion">Configuración</button>
   </nav>
 </header>
@@ -159,6 +157,9 @@
       </table>
     </div>
   </div>
+
+  <!-- Producción: selector de productos o detalle, lo pinta /precios_produccion.js según el hash. -->
+  <div id="panel-produccion" class="tab-panel hidden"></div>
 
   <div id="panel-configuracion" class="tab-panel hidden">
     <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md">
@@ -1004,6 +1005,7 @@ async function guardarDetalle(){
     await abrirDetalle(det.plu);
     msgDetalle('Guardado.');
     cargarAlmacen();
+    refrescarAlertasProduccion(); // precios_produccion.js: el costo puede ser insumo/materia prima de Producción
   } catch (e) {
     msgDetalle(e.message, true);
     document.getElementById('btnGuardarDet').disabled = false;
@@ -1128,6 +1130,7 @@ async function guardarGeneral(){
     configCargada = { ...configCargada, ...j };
     ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
     fraccCargado = false; // el semáforo de Fraccionado depende de la tolerancia
+    refrescarAlertasProduccion(); // precios_produccion.js: costoHora y tolerancia mueven los costos/alertas de Producción
     msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
   } catch (e) {
     msg.className = 'text-sm text-crit'; msg.textContent = e.message;
@@ -1150,6 +1153,7 @@ async function cargarToleranciaFiltro(){
     ['fTolerancia', 'frTolerancia'].forEach(x => { document.getElementById(x).value = j.toleranciaPct; });
     cargarAlmacen();
     cargarFraccionado(); // precios_fraccionado.js
+    refrescarAlertasProduccion(); // precios_produccion.js: la tolerancia decide qué cambio alerta
   } catch (err) {
     input.classList.add('border-crit'); input.title = err.message;
   }
@@ -1228,16 +1232,22 @@ document.getElementById('btnAgregarBanda').onclick = () => {
 };
 document.getElementById('btnGuardarBandas').onclick = guardarBandas;
 
-// Cambio de tab: sólo las habilitadas tienen listener útil (las deshabilitadas
-// llevan el atributo disabled real, así que ni disparan el evento).
-document.querySelectorAll('#tabs .navtab:not([disabled])').forEach(b => b.onclick = () => {
+// Cambio de tab. Producción la maneja el hash (precios_produccion.js llama a activarTab
+// desde su ruteo); ir a otra tab saca el hash de Producción.
+function activarTab(tipo){
+  const b = document.querySelector(`#tabs .navtab[data-tipo="${tipo}"]`);
   document.querySelectorAll('#tabs .navtab').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('main .tab-panel').forEach(p => p.classList.add('hidden'));
-  const panel = document.getElementById('panel-' + b.dataset.tipo);
+  const panel = document.getElementById('panel-' + tipo);
   if (panel) panel.classList.remove('hidden');
-  if (b.dataset.tipo === 'configuracion') cargarConfiguracion();
-  if (b.dataset.tipo === 'almacen') { cargarToleranciaFiltro(); cargarAlmacen(); }
-  if (b.dataset.tipo === 'fraccionado' && !fraccCargado) cargarFraccionado(); // precios_fraccionado.js
+  if (tipo === 'configuracion') cargarConfiguracion();
+  if (tipo === 'almacen') { cargarToleranciaFiltro(); cargarAlmacen(); }
+  if (tipo === 'fraccionado' && !fraccCargado) cargarFraccionado(); // precios_fraccionado.js
+}
+document.querySelectorAll('#tabs .navtab').forEach(b => b.onclick = () => {
+  if (b.dataset.tipo === 'produccion') { irAProduccion(''); return; } // precios_produccion.js
+  salirDeProduccion(); // precios_produccion.js
+  activarTab(b.dataset.tipo);
 });
 
 // Arranque después de precios_fraccionado.js (DOMContentLoaded corre cuando ya se ejecutaron los
@@ -1273,5 +1283,10 @@ function dialogoAviso(msg, { cancelar = false, textoOk = 'Aceptar' } = {}){
 const avisar = msg => dialogoAviso(msg);
 const confirmar = (msg, opts) => dialogoAviso(msg, { ...opts, cancelar: true });
 </script>
+<script src="/precios_produccion.js"></script>
+<script src="/precios_produccion_detalle.js"></script>
+<script src="/precios_produccion_presentaciones.js"></script>
+<script src="/precios_produccion_modal.js"></script>
+<script src="/precios_produccion_formula.js"></script>
 </body>
 </html>

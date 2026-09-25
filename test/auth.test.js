@@ -64,6 +64,15 @@ test('moduloDeRuta mapea prefijos api de único segmento', () => {
   assert.strictEqual(moduloDeRuta('/api/precios-proveedores'), 'precios-proveedores');
 });
 
+test('las APIs de Precios › Producción quedan bajo el módulo precios; los prefijos vecinos no cambian', () => {
+  assert.strictEqual(moduloDeRuta('/api/precios/produccion/productos'), 'precios');
+  assert.strictEqual(moduloDeRuta('/api/precios/produccion/productos/p-pepas/recetas/base'), 'precios');
+  assert.strictEqual(moduloDeRuta('/api/precios/produccion/alertas'), 'precios');
+  assert.strictEqual(moduloDeRuta('/API/Precios/Produccion/alertas'), 'precios');
+  assert.strictEqual(moduloDeRuta('/api/precios-proveedores/listado'), 'precios-proveedores');
+  assert.strictEqual(moduloDeRuta('/api/precios-historico/x'), 'precios-historico');
+});
+
 // ── moduloDeRuta: rutas no mapeadas ──────────────────────────────────────────────
 test('moduloDeRuta devuelve null para rutas sin módulo', () => {
   assert.strictEqual(moduloDeRuta('/api/health'), null);

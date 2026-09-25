@@ -373,6 +373,7 @@ async function guardarDetalleFracc(){
     await abrirDetalleFracc(det.granelPlu);
     msgDetalle('Guardado.');
     cargarFraccionado();
+    refrescarAlertasProduccion(); // precios_produccion.js: el granel puede ser materia prima de Producción
   } catch (e) {
     msgDetalle(e.message, true);
     document.getElementById('btnGuardarDet').disabled = false;
