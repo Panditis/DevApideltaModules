@@ -1226,6 +1226,19 @@ function _pfEsPackaging(c){
   const nom = String((c && c.Componente) || '');
   return /^\s*(tapa|tapas|etiqueta|etiquetas|envase|envases)\b/i.test(nom);
 }
+// ¿Lo descuenta la carga por otro lado? Envase y tapa que la fórmula tiene en su lugar
+// (se reemplazan por lo elegido en los selectores) y la etiqueta (la agregan CSV y alta).
+// El resto del packaging —bolsas, precintos, cucharitas— antes se tiraba junto con el
+// envase y no se descontaba nunca: ahora queda como componente editable más.
+// sugerido = /api/plan/packaging del PLU; sin él se cae a la regla vieja por rubro/nombre.
+function _pfSeDescuentaAparte(c, sugerido){
+  if (!sugerido) return _pfEsPackaging(c);
+  const cod = String((c && c.IdComponente) || '');
+  if (sugerido.envase && String(sugerido.envase.codigo) === cod) return true;
+  if (sugerido.tapa   && String(sugerido.tapa.codigo)   === cod) return true;
+  return String((c && c.Rubro) || '').toUpperCase().includes('ETIQUET')
+      || /^\s*etiquetas?\b/i.test(String((c && c.Componente) || ''));
+}
 // Opciones del selector de envase en la carga (default = envase de la orden).
 function _pfEnvaseOpts(sel){
   sel = String(sel || '');
@@ -2606,16 +2619,14 @@ async function openProdFinalModal(id, presIndex = null) {
     if (!el.tapa   && sugerido.tapa)   el.tapa   = sugerido.tapa.codigo;
   });
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
-  // Editables por elemento: todos los componentes salvo packaging (envase/tapa/etiqueta).
-  _pfFactoresPorElem = _pfElementos.map(el => compsDe(el)
-    .filter(c => !_pfEsPackaging(c))
+  // Editables por elemento: todos los componentes salvo envase/tapa/etiqueta.
+  const editablesDe = el => compsDe(el).filter(c => !_pfSeDescuentaAparte(c, packagingPorPlu[el.plu]));
+  _pfFactoresPorElem = _pfElementos.map(el => editablesDe(el)
     .map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' })));
 
   // La tabla de fórmula de solo lectura aplica a un único producto: con varias
   // presentaciones cada bloque ya muestra sus propios componentes.
-  const compsVisibles = _pfElementos.length === 1
-    ? compsDe(_pfElementos[0]).filter(c => !_pfEsPackaging(c))
-    : [];
+  const compsVisibles = _pfElementos.length === 1 ? editablesDe(_pfElementos[0]) : [];
 
   const ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
   const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
@@ -3090,8 +3101,8 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   }
 
   const allComps = formulaData.componentes || [];
-  // Excluir envase/tapa/etiqueta: son insumos disponibles al producir.
-  const compsVisibles = allComps.filter(c => !_pfEsPackaging(c));
+  // Excluir envase/tapa/etiqueta: se descuentan aparte (bolsas, precintos, etc. quedan).
+  const compsVisibles = allComps.filter(c => !_pfSeDescuentaAparte(c, sugerido));
   _pfEnriquecerNombres(allComps);
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   // Editables: todos los componentes salvo packaging (envase/tapa/etiqueta), no solo los graneles.

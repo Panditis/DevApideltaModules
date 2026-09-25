@@ -145,6 +145,22 @@ test('la fórmula completa suma las cantidades de todos los elementos', () => {
   assert.strictEqual(header.textContent, 'Para 800 u.');
 });
 
+test('bolsas y precintos quedan como componentes; envase/tapa de la fórmula y etiqueta no', () => {
+  const esAparte = new Function(
+    [fuenteDe('_pfEsPackaging'), fuenteDe('_pfSeDescuentaAparte'), 'return _pfSeDescuentaAparte;'].join('\n'))();
+  const envase   = { IdComponente: 6333, Componente: 'Envase 500g Pet', Rubro: 'ENVASES' };
+  const tapa     = { IdComponente: 7001, Componente: 'Tapa 500g', Rubro: 'TAPAS' };
+  const etiqueta = { IdComponente: 8001, Componente: 'Etiqueta Yogurt', Rubro: 'ETIQUETAS' };
+  const bolsa    = { IdComponente: 9001, Componente: 'Bolsa 20x30', Rubro: 'EMBALAJE' };
+  const precinto = { IdComponente: 9002, Componente: 'Precinto seguridad', Rubro: 'TAPAS' };
+  const sugerido = { envase: { codigo: '6333' }, tapa: { codigo: '7001' } };
+
+  assert.deepStrictEqual([envase, tapa, etiqueta, bolsa, precinto].map(c => esAparte(c, sugerido)),
+                         [true, true, true, false, false]);
+  // Sin datos de /api/plan/packaging se mantiene la regla vieja por rubro.
+  assert.strictEqual(esAparte(bolsa, undefined), true);
+});
+
 test('un elemento sin fórmula cargada no rompe el recálculo', () => {
   const el = elemento(0, 500, 2);
   const api = entorno({ elementos: [el], factoresPorElem: [] });
