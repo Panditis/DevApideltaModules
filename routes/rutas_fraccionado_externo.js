@@ -5,15 +5,35 @@ const productividad = require('../lib/productividad');
 const fraccionadoExterno = require('../lib/fraccionado_externo');
 
 // Selector de productos para armar pedidos de fraccionado a tercerizar: usa los tiempos reales
-// del historial de producción (paquetes = kilos / peso de la presentación, no el campo que carga
-// el operario a mano — ver lib/productividad.js) y dos valores que el usuario ajusta por pedido:
-// factor de complejidad por producto y valor hora del tercero.
+// del historial de producción (paquetes = kilos / peso de la presentación — ver
+// lib/productividad.js) sólo para sugerir el nivel de tiempo; el costo sale de los niveles
+// configurados (tiempo y complejidad por producto) y del valor hora del tercero.
 module.exports = function crearRutasFraccionadoExterno(deps) {
   const {
-    apiRoute, leerJSON, query, FRAC_REG_PATH, HISTORIAL_PATH,
+    apiRoute, leerJSON, guardarJSON, query, DATA_DIR, FRAC_REG_PATH, HISTORIAL_PATH,
     leerPedidosFraccionadoExterno, guardarPedidosFraccionadoExterno,
   } = deps;
   const router = express.Router();
+
+  // Valores de cada nivel (fácil/medio/difícil, rápido/normal/lento). Archivo ausente o roto →
+  // defaults, así el módulo funciona sin haber pasado nunca por la tab Configuración.
+  const CONFIG_PATH = path.join(DATA_DIR, 'fraccionado_externo_config.json');
+  function leerConfig() {
+    try { return fraccionadoExterno.validarConfig(leerJSON(CONFIG_PATH, fraccionadoExterno.CONFIG_DEFAULT)); }
+    catch (_) { return fraccionadoExterno.CONFIG_DEFAULT; }
+  }
+
+  router.get('/api/fraccionado-externo/config', apiRoute(async () => ({ config: leerConfig() })));
+
+  router.put('/api/fraccionado-externo/config', (req, res) => {
+    try {
+      const config = fraccionadoExterno.validarConfig(req.body && req.body.config);
+      guardarJSON(CONFIG_PATH, config);
+      res.json({ config });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 
   router.get('/fraccionado-externo', (_req, res) =>
     res.sendFile(path.join(__dirname, '..', 'public', 'fraccionado_externo.html')));
@@ -66,6 +86,8 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
       (plu, nombreCarga) => pesoDe((pesablesPorPlu.get(plu) || {}).nombre || nombreCarga),
     );
     const tiempoPorPlu = new Map(tiempos.map(t => [t.plu, t]));
+    const { tiempos: nivelesTiempo } = leerConfig();
+    const sugerido = min => fraccionadoExterno.nivelTiempoMasCercano(min, nivelesTiempo);
 
     const desdePesables = pesables.map(p => {
       const t = tiempoPorPlu.get(p.plu);
@@ -75,6 +97,7 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
         paquetesHistoricos: t ? t.paquetes : null,
         cargas: t ? t.cargas : 0,
         tieneHistorial: !!(t && t.minPorPaquete != null),
+        nivelTiempoSugerido: sugerido(t ? t.minPorPaquete : null),
       };
     });
     // Productos con historial de fraccionado que hoy no figuran en el rubro SIGA (ej. se dieron
@@ -85,6 +108,7 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
         plu: t.plu, nombre: t.producto, presentacion: presentacionDe(t.producto),
         minPorPaquete: t.minPorPaquete, paquetesHistoricos: t.paquetes,
         cargas: t.cargas, tieneHistorial: t.minPorPaquete != null,
+        nivelTiempoSugerido: sugerido(t.minPorPaquete),
       }));
 
     const buscar = String(req.query.buscar || '').trim().toLowerCase();
@@ -101,11 +125,15 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
     try {
       const pedidos = leerPedidosFraccionadoExterno();
       const numero = fraccionadoExterno.siguienteNumero(pedidos);
+      // Minutos y factor se resuelven acá desde la config, no se confía en números del cliente.
+      const config = leerConfig();
+      const items = (Array.isArray(req.body.items) ? req.body.items : [])
+        .map(it => fraccionadoExterno.resolverNiveles(it, config));
       const usuario = (req.session && req.session.user && req.session.user.nombre) || null;
       const pedido = fraccionadoExterno.construirPedido({
         numero, fechaISO: new Date().toISOString().slice(0, 10),
         tercero: req.body.tercero, usuario, valorHora: req.body.valorHora,
-        items: req.body.items, ts: new Date().toISOString(),
+        items, ts: new Date().toISOString(),
       });
       guardarPedidosFraccionadoExterno([...pedidos, pedido]);
       res.json({ pedido });

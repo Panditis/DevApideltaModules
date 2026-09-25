@@ -116,3 +116,81 @@ test('anularPedido rechaza pedido ausente', () => {
   assert.throws(() => anularPedido(null, { ts: 't1' }), /pedido/);
   assert.throws(() => anularPedido(undefined, { ts: 't1' }), /pedido/);
 });
+
+const { CONFIG_DEFAULT, validarConfig, resolverNiveles, nivelTiempoMasCercano } = require('../lib/fraccionado_externo');
+
+const valorDe = (lista, id) => lista.find(n => n.id === id).valor;
+
+test('validarConfig normaliza listas de niveles y conserva ids existentes', () => {
+  const cfg = validarConfig({
+    tiempos: [{ id: 'rapido', nombre: ' Rápido ', valor: '0.2' }, { nombre: 'Normal', valor: 0.4 }],
+    factores: [{ id: 'facil', nombre: 'Fácil', valor: 1 }],
+  });
+  assert.deepStrictEqual(cfg.tiempos, [
+    { id: 'rapido', nombre: 'Rápido', valor: 0.2 },
+    { id: 'normal', nombre: 'Normal', valor: 0.4 },
+  ]);
+  assert.deepStrictEqual(cfg.factores, [{ id: 'facil', nombre: 'Fácil', valor: 1 }]);
+});
+
+test('validarConfig genera id desde el nombre para opciones nuevas, sin pisar ids existentes', () => {
+  const cfg = validarConfig({
+    tiempos: [{ id: 'muy-lento', nombre: 'Muy lento', valor: 2 }, { nombre: 'Muy lento!', valor: 3 }],
+    factores: [{ nombre: 'Extra difícil', valor: 2 }],
+  });
+  assert.deepStrictEqual(cfg.tiempos.map(n => n.id), ['muy-lento', 'muy-lento-2']);
+  assert.strictEqual(cfg.factores[0].id, 'extra-dificil');
+});
+
+test('validarConfig acepta el formato viejo (objeto por nivel) y lo convierte a lista', () => {
+  const cfg = validarConfig({ factores: { facil: 1, medio: 1.2, dificil: 1.5 }, tiempos: { rapido: 0.2, normal: 0.4, lento: 0.8 } });
+  assert.deepStrictEqual(cfg.tiempos.map(n => n.nombre), ['Rápido', 'Normal', 'Lento']);
+  assert.strictEqual(valorDe(cfg.tiempos, 'normal'), 0.4);
+  assert.strictEqual(valorDe(cfg.factores, 'dificil'), 1.5);
+});
+
+test('validarConfig rechaza grupos vacíos, nombres vacíos, repetidos o valores no positivos', () => {
+  const t = CONFIG_DEFAULT.tiempos;
+  assert.throws(() => validarConfig(null), /tiempos/);
+  assert.throws(() => validarConfig({ tiempos: t, factores: [] }), /al menos una/);
+  assert.throws(() => validarConfig({ tiempos: [{ nombre: '', valor: 1 }], factores: t }), /nombre/);
+  assert.throws(() => validarConfig({ tiempos: [{ nombre: 'X', valor: 0 }], factores: t }), /X/);
+  assert.throws(() => validarConfig({ tiempos: [{ nombre: 'Lento', valor: 1 }, { nombre: 'lento', valor: 2 }], factores: t }), /repetid/);
+});
+
+test('resolverNiveles traduce niveles a minutos y factor según la config', () => {
+  const it = resolverNiveles({ plu: '1', nivelTiempo: 'lento', nivelComplejidad: 'dificil' }, CONFIG_DEFAULT);
+  assert.strictEqual(it.minPorPaquete, valorDe(CONFIG_DEFAULT.tiempos, 'lento'));
+  assert.strictEqual(it.factorComplejidad, valorDe(CONFIG_DEFAULT.factores, 'dificil'));
+  assert.strictEqual(it.origenTiempo, 'nivel');
+  assert.strictEqual(it.plu, '1');
+});
+
+test('resolverNiveles usa opciones agregadas por el usuario', () => {
+  const cfg = validarConfig({ tiempos: [{ nombre: 'Turbo', valor: 0.1 }], factores: [{ nombre: 'Extremo', valor: 3 }] });
+  const it = resolverNiveles({ nivelTiempo: 'turbo', nivelComplejidad: 'extremo' }, cfg);
+  assert.strictEqual(it.minPorPaquete, 0.1);
+  assert.strictEqual(it.factorComplejidad, 3);
+});
+
+test('resolverNiveles rechaza niveles desconocidos', () => {
+  assert.throws(() => resolverNiveles({ nivelTiempo: 'turbo', nivelComplejidad: 'facil' }, CONFIG_DEFAULT), /nivelTiempo/);
+  assert.throws(() => resolverNiveles({ nivelTiempo: 'normal', nivelComplejidad: 'imposible' }, CONFIG_DEFAULT), /nivelComplejidad/);
+});
+
+test('construirItemPedido acepta origenTiempo nivel y guarda los niveles', () => {
+  const item = construirItemPedido({
+    ...resolverNiveles({ plu: '1', nombre: 'X 50G', presentacion: '50G', nivelTiempo: 'normal', nivelComplejidad: 'medio' }, CONFIG_DEFAULT),
+    paquetes: 10, valorHora: 6000,
+  });
+  assert.strictEqual(item.nivelTiempo, 'normal');
+  assert.strictEqual(item.nivelComplejidad, 'medio');
+});
+
+test('nivelTiempoMasCercano elige el nivel más próximo al historial; sin dato, normal o el primero', () => {
+  const t = [{ id: 'rapido', valor: 0.2 }, { id: 'normal', valor: 0.5 }, { id: 'lento', valor: 1 }];
+  assert.strictEqual(nivelTiempoMasCercano(0.25, t), 'rapido');
+  assert.strictEqual(nivelTiempoMasCercano(0.9, t), 'lento');
+  assert.strictEqual(nivelTiempoMasCercano(null, t), 'normal');
+  assert.strictEqual(nivelTiempoMasCercano(null, [{ id: 'a', valor: 1 }, { id: 'b', valor: 2 }]), 'a');
+});

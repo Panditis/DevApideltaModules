@@ -671,6 +671,14 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
+app.get('/precios_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_fraccionado.js')));
+app.get('/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion.js')));
+app.get('/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion_detalle.js')));
+app.get('/precios_produccion_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion_presentaciones.js')));
+app.get('/precios_produccion_modal.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion_modal.js')));
+app.get('/precios_produccion_formula.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion_formula.js')));
+app.get('/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_pack_bulto.js')));
+app.get('/precios_orden.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_orden.js')));
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
@@ -2550,7 +2558,7 @@ app.use(require('./routes/rutas_productividad')({
 }));
 
 app.use(require('./routes/rutas_fraccionado_externo')({
-  apiRoute, leerJSON, query, FRAC_REG_PATH, HISTORIAL_PATH,
+  apiRoute, leerJSON, guardarJSON, query, DATA_DIR, FRAC_REG_PATH, HISTORIAL_PATH,
   leerPedidosFraccionadoExterno, guardarPedidosFraccionadoExterno,
 }));
 
@@ -2674,7 +2682,14 @@ app.use(require('./routes/rutas_precios_historico')({ apiRoute, query, LISTA_PRE
 
 // Precios (costeo sugerido, Fase 0 — sólo esqueleto): mismo motivo de deps tardíos
 // que los routers vecinos, se registra acá junto con el resto del clúster de precios.
-app.use(require('./routes/rutas_precios')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA }));
+app.use(require('./routes/rutas_precios')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
+// Precios › Producción (Fase 3): router propio porque rutas_precios.js pasaría de 800 líneas. Mismos
+// deps + tiposPackaging (regla única envase/tapa, declarada arriba) para inferir el tipo de insumo, y los
+// filtros de fórmula activa (los mismos de /api/bom) para importar fórmulas de SIGA a una receta.
+app.use(require('./routes/rutas_precios_produccion')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
+// Precios › Pack / Bulto (Fase 4): config, overrides de % y vínculos manuales. Los filtros de fórmula
+// activa arman el vínculo automático pack/bulto → producto normal (rubro 'Almacen Bultos/Cajas').
+app.use(require('./routes/rutas_precios_pack_bulto')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
 
 // Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se
 // declaran bien antes, así que el registro podría ir donde estaban las rutas. Va igual al
