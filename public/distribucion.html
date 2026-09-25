@@ -2669,6 +2669,7 @@ function _buildModalForm(vals) {
     ${vals.D!=null?`<div class="reg-field"><label>Solicitado</label><span class="val">${fmt(vals.D)} kg</span></div>`:''}
     <div class="reg-field"><label>Cantidad fraccionada (kg)</label><input type="number" step="0.1" id="mr-cant" value="${escHtml(vals.cantFraccionada||'')}" min="0"></div>
     <div class="reg-field"><label>Granel utilizado (kg)</label><input type="number" step="0.01" id="mr-granel-cons" value="${escHtml(granelCons)}" min="0"></div>
+    ${_mrInsumos.length ? `<div class="reg-field"><label>Insumos</label><span class="val" id="mr-insumos">${_mrInsumosTexto(vals.cantFraccionada)}</span></div>` : ''}
     <div class="reg-field"><label>Empleado</label><select id="mr-emp"><option value="">— seleccionar —</option>${empOpts}</select></div>
     <div class="reg-field"><label>Desde</label><input type="time" id="mr-desde" value="${escHtml(vals.desde||'')}"></div>
     <div class="reg-field"><label>Hasta</label><input type="time" id="mr-hasta" value="${escHtml(vals.hasta||'')}"></div>
@@ -2679,6 +2680,8 @@ function _buildModalForm(vals) {
   let _gcManual = false;
   if (_gcEl) _gcEl.oninput = () => { _gcManual = true; };
   if (_cantEl) _cantEl.oninput = () => {
+    const _insEl = document.getElementById('mr-insumos');
+    if (_insEl) _insEl.innerHTML = _mrInsumosTexto(parseFloat(_cantEl.value) || 0);
     if (!_gcManual && _gcEl) {
       const c = parseFloat(_cantEl.value) || 0;
       _gcEl.value = c ? +(c * _mrCantFormula).toFixed(2) : '';
@@ -2690,20 +2693,33 @@ function _buildModalForm(vals) {
 // producto que no esté en ella (mixes, bandejas, altas nuevas) llega con granel null y fórmula 1.
 // Cuando pasa eso se consulta el BOM de Siga, que sí lo tiene. Se usa /api/formula porque
 // devuelve el rubro de cada componente y con eso se descarta el packaging.
-const _esPackagingComp = c => /embalaj|envase|tapa|etiquet/i.test(String((c && c.Rubro) || ''));
-async function granelesDeSiga(plu) {
+// El packaging (envase, tapa, cucharita, bolsa) no es granel: va aparte como insumo en unidades.
+const _esPackagingComp = c => /embalaj|envase|tapa|etiquet/i.test(String((c && c.Rubro) || ''))
+  || /^insumo\b/i.test(String((c && c.Componente) || ''));
+async function formulaDeSiga(plu) {
   const d = await fetch(`/api/formula?codigo=${encodeURIComponent(plu)}&cantidad=1`)
     .then(r => r.json()).catch(() => ({}));
-  const porPlu = new Map();
+  const graneles = new Map(), insumos = new Map();
   for (const c of (d.componentes || [])) {
-    if (_esPackagingComp(c)) continue;
     const k = String(c.IdComponente);
     const factor = +c.CantPorUnidad || 0;
     // Un componente repetido en la fórmula se queda con la cantidad mayor, igual que el MAX()
     // de /api/distribucion/pedido-formula.
-    if (!porPlu.has(k) || porPlu.get(k).factor < factor) porPlu.set(k, { granel: k, nombreGranel: c.Componente || '', factor });
+    if (_esPackagingComp(c)) {
+      if (!insumos.has(k) || insumos.get(k).factor < factor) insumos.set(k, { plu: k, nombre: c.Componente || '', factor });
+    } else if (!graneles.has(k) || graneles.get(k).factor < factor) {
+      graneles.set(k, { granel: k, nombreGranel: c.Componente || '', factor });
+    }
   }
-  return [...porPlu.values()];
+  return { graneles: [...graneles.values()], insumos: [...insumos.values()] };
+}
+// Insumos (packaging) de la fórmula del producto abierto: [{plu, nombre, factor}]. Se consumen
+// cantidad × factor unidades; no se reparten con el granel porque no son kg.
+let _mrInsumos = [];
+const _mrInsumosRegistro = cant => _mrInsumos.length
+  ? _mrInsumos.map(i => ({ ...i, cantidad: +(cant * i.factor).toFixed(3) })) : undefined;
+function _mrInsumosTexto(cant) {
+  return _mrInsumos.map(i => `${escHtml(i.nombre)} × ${fmt(+((cant || 0) * i.factor).toFixed(3))}`).join('<br>');
 }
 // Vuelca los componentes de Siga sobre la forma que espera el modal (un granel + una fórmula).
 // Con varios graneles no hay un único código: se listan todos y la fórmula es la suma de kg
@@ -2729,20 +2745,17 @@ async function abrirModalRegistro(plu) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   const seq = _mrNuevaApertura();
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
-  _mrGraneles = [];
+  _mrGraneles = []; _mrInsumos = [];
   let r = datosP.find(x => String(x.plu) === String(plu));
-  if (!r) {
-    const ped = datosPed.find(x => String(x.plu) === String(plu));
-    if (!ped) return;
-    const comps = await granelesDeSiga(plu);
-    if (seq !== _mrOpenSeq) return;   // se abrió otro modal mientras se pedía la fórmula
-    r = _mrAplicarGraneles({ plu: ped.plu, nombre: ped.nombre, granel: null, nombreGranel: '', cantFormula: 1, D: null }, comps);
-  } else if (r.granel == null) {
-    // La planilla no tiene la fórmula de este producto: se resuelve contra Siga.
-    const comps = await granelesDeSiga(plu);
-    if (seq !== _mrOpenSeq) return;
-    r = _mrAplicarGraneles(r, comps);
-  }
+  const ped = r ? null : datosPed.find(x => String(x.plu) === String(plu));
+  if (!r && !ped) return;
+  // Siga se consulta siempre por los insumos (envase, tapa...), que la planilla no tiene.
+  const f = await formulaDeSiga(plu);
+  if (seq !== _mrOpenSeq) return;   // se abrió otro modal mientras se pedía la fórmula
+  _mrInsumos = f.insumos;
+  if (!r) r = _mrAplicarGraneles({ plu: ped.plu, nombre: ped.nombre, granel: null, nombreGranel: '', cantFormula: 1, D: null }, f.graneles);
+  // La planilla no tiene la fórmula de este producto: el granel también sale de Siga.
+  else if (r.granel == null) r = _mrAplicarGraneles(r, f.graneles);
   _mrPlu = String(plu); _mrEditId = null;
   _mrCantFormula = r.cantFormula || 1;
   _mrGranel = r.granel; _mrNombreGranel = r.nombreGranel || ''; _mrNombre = r.nombre || '';
@@ -2760,7 +2773,7 @@ async function abrirModalRegistro(plu) {
 async function abrirModalRegistroDesdeOrden(linea, ordenId) {
   if (pesablesModo === 'preparacion') return;   // modo Preparación: modal de carga deshabilitado
   if (!linea) return;
-  _mrGraneles = [];
+  _mrGraneles = []; _mrInsumos = [];
   // Token de apertura: la resolución es async, así que si mientras tanto se abre otro modal
   // (otra línea, la tabla lateral, edición, actividad) esta apertura se descarta y no pisa nada.
   const seq = _mrNuevaApertura();
@@ -2795,6 +2808,9 @@ async function abrirModalRegistroDesdeOrden(linea, ordenId) {
     _mrNombreGranel = linea.granelNombre || '';
     _mrCantFormula = linea.cantPorUnidad || 1;
   }
+  const { insumos } = await formulaDeSiga(_mrPlu);
+  if (seq !== _mrOpenSeq) return;
+  _mrInsumos = insumos;
 
   // Cuando el destino es el mismo producto de la línea no se muestra cartel: sería confuso leer
   // "se carga contra Ajo En Polvo 1Kg" en el modal de Ajo En Polvo 1Kg.
@@ -2824,6 +2840,7 @@ function abrirModalEdicion(reg) {
   _mrGraneles = gsReg.length > 1 && reg.cantFraccionada > 0
     ? gsReg.map(g => ({ granel: g.granel, nombreGranel: g.nombreGranel, factor: (+g.granelConsumido || 0) / reg.cantFraccionada }))
     : [];
+  _mrInsumos = (Array.isArray(reg.insumos) ? reg.insumos : []).map(({ plu, nombre, factor }) => ({ plu, nombre, factor }));
   _mrPlu = String(reg.plu); _mrEditId = reg.id;
   _mrNombre = reg.nombre || '';
   _mrCantFormula = reg.cantFormula || 1;
@@ -2840,7 +2857,7 @@ function abrirModalActividad() {
   _mrNuevaApertura();
   _mrActividadMode = true;
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
-  _mrGraneles = [];
+  _mrGraneles = []; _mrInsumos = [];
   _mrPlu = 'ACT'; _mrEditId = null; _mrCantFormula = 0; _mrGranel = null; _mrNombreGranel = ''; _mrNombre = 'Actividad';
   const empOpts = fracEmpleados.map(e => `<option value="${e.nombre}">${e.nombre}</option>`).join('');
   document.getElementById('mr-form').innerHTML = `
@@ -2882,6 +2899,8 @@ async function guardarRegistro() {
   // editar para que el reparto siga al consumo total corregido.
   const gsDetalle = _mrGranelesRegistro(cant, granelCons);
   if (gsDetalle) payload.graneles = gsDetalle;
+  const insumos = _mrActividadMode ? undefined : _mrInsumosRegistro(cant);
+  if (insumos) payload.insumos = insumos;
   if (!_mrEditId) {
     const r = _mrDesdeOrden ? null : datosP.find(x => String(x.plu) === _mrPlu);
     const emp = payload.empleado;
@@ -2936,7 +2955,7 @@ async function guardarRegistro() {
 function cerrarModalRegistro() {
   _mrNuevaApertura();   // descarta cualquier apertura async todavía en vuelo
   _mrActividadMode = false;
-  _mrGraneles = [];
+  _mrGraneles = []; _mrInsumos = [];
   _mrDesdeOrden = false; _mrOrdenId = null; _mrOrdenPlu = '';
   document.getElementById('modal-registro').querySelector('h3').style.color = '';
   document.getElementById('modal-registro').classList.remove('open');
@@ -3538,7 +3557,7 @@ async function eliminarRegistro(id) {
 // CSV se pide a SiGA el nombre real de cada código y sólo se cae al guardado si no aparece.
 async function lineasCSVProduccion(registros) {
   const filas = registros.filter(r => String(r.plu) !== 'ACT');
-  const codigos = [...new Set(filas.flatMap(r => [r.plu, ..._grnList(r).map(g => g.granel)]).filter(Boolean).map(String))];
+  const codigos = [...new Set(filas.flatMap(r => [r.plu, ..._grnList(r).map(g => g.granel), ...(r.insumos || []).map(i => i.plu)]).filter(Boolean).map(String))];
   let nombreSiga = {};
   try {
     if (codigos.length) nombreSiga = await fetch(`/api/productos/nombres?plus=${encodeURIComponent(codigos.join(','))}`).then(r => r.json()) || {};
@@ -3549,7 +3568,8 @@ async function lineasCSVProduccion(registros) {
   // bandejas) tienen que descargar cada insumo por separado, no el total contra un solo código.
   return filas.flatMap(r => [
     `1;${r.plu};"${nom(r.plu, r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
-    ..._grnList(r).map(g => `1;${g.granel||''};"${nom(g.granel, g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`)
+    ..._grnList(r).map(g => `1;${g.granel||''};"${nom(g.granel, g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`),
+    ...(r.insumos || []).map(i => `1;${i.plu};"${nom(i.plu, i.nombre)}";${-(+(Math.abs(i.cantidad||0)).toFixed(2))};1;${i.plu}`)
   ]);
 }
 async function exportarCSVProduccion() {
