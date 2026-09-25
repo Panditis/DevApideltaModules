@@ -150,3 +150,33 @@ test('cantidad en cero no divide por cero', () => {
   ]);
   assert.deepStrictEqual(m._mrGranelesRegistro(0, 5).map(g => g.granelConsumido), [0, 0]);
 });
+
+// ── Insumos (packaging) de la fórmula ─────────────────────────────────────────
+// 2142 Jalea Real 10G lleva granel + envase + cucharita: el modal sólo descontaba el granel.
+// formulaDeSiga separa el packaging como insumos en unidades, sin mezclarlo con los kg de granel.
+function cargarFormula(componentes) {
+  const packaging = HTML.match(/const _esPackagingComp = [\s\S]*?\n  \|\| [^\n]*\n/)[0];
+  return new Function('fetch', `${packaging}\n${fuenteDe('formulaDeSiga')}\nreturn formulaDeSiga;`)(
+    async () => ({ json: async () => ({ componentes }) }));
+}
+
+test('2142: el envase y la cucharita salen como insumos, el granel como granel', async () => {
+  const formulaDeSiga = cargarFormula([
+    { IdComponente: '9665', Componente: 'Cucharita Jalea Real', Rubro: 'Embalajes', CantPorUnidad: 1 },
+    { IdComponente: '9664', Componente: 'Envase Jalea Real 10G', Rubro: 'Embalajes', CantPorUnidad: 1 },
+    { IdComponente: '1580', Componente: 'Jalea Real 1Kg Deposito Ventas', Rubro: 'Pesables Venta Directa', CantPorUnidad: 0.01 },
+  ]);
+  const f = await formulaDeSiga(2142);
+  assert.deepStrictEqual(f.graneles, [{ granel: '1580', nombreGranel: 'Jalea Real 1Kg Deposito Ventas', factor: 0.01 }]);
+  assert.deepStrictEqual(f.insumos.map(i => i.plu), ['9665', '9664']);
+});
+
+test('una bolsa de rubro Almacén ("Insumo Bolsa...") es insumo, no granel', async () => {
+  const formulaDeSiga = cargarFormula([
+    { IdComponente: '7', Componente: 'Insumo Bolsa Apidelta Chica', Rubro: 'Almacen', CantPorUnidad: 1 },
+    { IdComponente: '7474', Componente: 'Yerba DEPOSITO GRANEL', Rubro: 'Pesables Deposito', CantPorUnidad: 0.4 },
+  ]);
+  const f = await formulaDeSiga(1500);
+  assert.deepStrictEqual(f.graneles.map(g => g.granel), ['7474']);
+  assert.deepStrictEqual(f.insumos, [{ plu: '7', nombre: 'Insumo Bolsa Apidelta Chica', factor: 1 }]);
+});

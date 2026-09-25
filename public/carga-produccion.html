@@ -2243,7 +2243,8 @@ async function exportarCSVProduccion() {
   const esc = s => String(s||'').replace(/"/g,'""');
   const lines = prodRegistros.filter(r => String(r.plu) !== 'ACT').flatMap(r => [
     `1;${r.plu};"${esc(r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
-    ..._grnList(r).map(g => `1;${g.granel||''};"${esc(g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`)
+    ..._grnList(r).map(g => `1;${g.granel||''};"${esc(g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`),
+    ...(r.insumos || []).map(i => `1;${i.plu};"${esc(i.nombre)}";${-(+(Math.abs(i.cantidad||0)).toFixed(2))};1;${i.plu}`)
   ]);
   descargar(lines, 'produccion.csv');
 }
@@ -2428,7 +2429,8 @@ function descargarCSVHistorial(id) {
   const esc = s => String(s||'').replace(/"/g,'""');
   const lines = h.produccion.filter(r => String(r.plu) !== 'ACT').flatMap(r => [
     `1;${r.plu};"${esc(r.nombre)}";${+(r.cantFraccionada||0).toFixed(2)};1;${r.plu}`,
-    ..._grnList(r).map(g => `1;${g.granel||''};"${esc(g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`)
+    ..._grnList(r).map(g => `1;${g.granel||''};"${esc(g.nombreGranel)}";${-(+(Math.abs(g.granelConsumido||0)).toFixed(2))};1;${g.granel||''}`),
+    ...(r.insumos || []).map(i => `1;${i.plu};"${esc(i.nombre)}";${-(+(Math.abs(i.cantidad||0)).toFixed(2))};1;${i.plu}`)
   ]);
   descargar(lines, `produccion_${h.fecha}.csv`);
 }
