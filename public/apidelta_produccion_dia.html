@@ -2479,6 +2479,58 @@ function closeProdFinalModal() {
   _pfOrden = null; _pfFactoresPorElem = []; _pfEncargados = []; _pfElementos = [];
 }
 
+// Tareas de la línea: cada una admite varios responsables que comparten un único horario.
+const PF_ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
+function _pfRespRolesHTML() {
+  const th = 'padding:6px 8px;font-family:system-ui,\'Segoe UI\',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)';
+  const attr = s => escEnv(s).replace(/"/g, '&quot;');
+  const opts = _pfEncargados.map(n => `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:13px;cursor:pointer;white-space:nowrap">
+      <input type="checkbox" class="pf-rol-resp" value="${attr(n)}">${escEnv(n)}</label>`).join('')
+    || '<div style="padding:6px 10px;font-size:12px;color:var(--text-muted)">Sin responsables cargados</div>';
+  // ponytail: <details> hace de select múltiple sin librería; el texto del summary lo sincroniza _pfMsSync.
+  const multi = `<details class="pf-ms" ontoggle="_pfMsCerrarOtros(this)" onchange="_pfMsSync(this)" style="position:relative">
+      <summary class="form-select" style="padding:5px 8px;font-size:13px;cursor:pointer;list-style:none;min-width:160px"><span class="pf-ms-txt">— sin asignar —</span></summary>
+      <div style="position:absolute;z-index:20;left:0;top:100%;margin-top:2px;min-width:100%;max-height:220px;overflow:auto;background:var(--surface,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12)">${opts}</div>
+    </details>`;
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#F8F8F8">
+      <th style="${th};text-align:left">Tarea</th>
+      <th style="${th};text-align:left">Responsables</th>
+      <th style="${th};text-align:center">Inicio</th>
+      <th style="${th};text-align:center">Fin</th>
+    </tr></thead>
+    <tbody>${PF_ROLES.map(rol => `<tr data-rol="${rol}" style="border-bottom:1px solid #F0F0F0">
+      <td style="padding:6px 8px;font-weight:700;font-family:system-ui,'Segoe UI',sans-serif">${rol}</td>
+      <td style="padding:4px 8px">${multi}</td>
+      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-desde" style="padding:5px 8px;font-size:13px;width:100px"></td>
+      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-hasta" style="padding:5px 8px;font-size:13px;width:100px"></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function _pfMsSync(det) {
+  const sel = [...det.querySelectorAll('.pf-rol-resp:checked')].map(cb => cb.value);
+  det.querySelector('.pf-ms-txt').textContent = sel.length ? sel.join(', ') : '— sin asignar —';
+}
+// Un solo desplegable abierto a la vez; click afuera los cierra.
+function _pfMsCerrarOtros(det) {
+  if (det.open) document.querySelectorAll('details.pf-ms[open]').forEach(d => { if (d !== det) d.open = false; });
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('details.pf-ms')) document.querySelectorAll('details.pf-ms[open]').forEach(d => { d.open = false; });
+});
+
+// Una entrada de roles[] por persona, todas con el horario de su tarea: productividad e
+// historial ya miden por persona, así que no necesitan saber que venían agrupadas.
+function _pfLeerRoles() {
+  return [...document.querySelectorAll('#pfRespRoles tbody tr')].flatMap(tr => {
+    const desde = tr.querySelector('.pf-rol-desde')?.value || '';
+    const hasta = tr.querySelector('.pf-rol-hasta')?.value || '';
+    return [...tr.querySelectorAll('.pf-rol-resp:checked')]
+      .map(cb => ({ rol: tr.dataset.rol || '', nombre: cb.value, desde, hasta }));
+  });
+}
+
 function _pfGranelRowHTML(nombre, cant, unidad) {
   const s = 'font-family:inherit;background:var(--surface,#f8f8f8);border:1px solid var(--border,#ddd);color:var(--text);padding:5px 8px;border-radius:6px;font-size:13px;outline:none';
   return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
@@ -2628,22 +2680,7 @@ async function openProdFinalModal(id, presIndex = null) {
   // presentaciones cada bloque ya muestra sus propios componentes.
   const compsVisibles = _pfElementos.length === 1 ? editablesDe(_pfElementos[0]) : [];
 
-  const ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
-  const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
-  const respRolesHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead><tr style="background:#F8F8F8">
-      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
-      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
-      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
-      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
-    </tr></thead>
-    <tbody>${ROLES.map(rol => `<tr style="border-bottom:1px solid #F0F0F0">
-      <td style="padding:6px 8px;font-weight:700;font-family:system-ui,'Segoe UI',sans-serif">${rol}</td>
-      <td style="padding:4px 8px"><select class="form-select pf-rol-resp" data-rol="${rol}" style="padding:5px 8px;font-size:13px">${encOpts}</select></td>
-      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-desde" style="padding:5px 8px;font-size:13px;width:100px"></td>
-      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-hasta" style="padding:5px 8px;font-size:13px;width:100px"></td>
-    </tr>`).join('')}</tbody>
-  </table>`;
+  const respRolesHTML = _pfRespRolesHTML();
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, multi)).join('');
   const formulaSection = compsVisibles.length ? `<div class="form-group">
     <details class="acordeon">
@@ -2674,7 +2711,7 @@ async function openProdFinalModal(id, presIndex = null) {
 
   document.getElementById('pfBody').innerHTML = `
     <div class="form-group">
-      <label class="form-label">Responsables, roles y horarios</label>
+      <label class="form-label">Tareas, responsables y horario</label>
       <div id="pfRespRoles">${respRolesHTML}</div>
     </div>
     ${multi
@@ -2704,12 +2741,7 @@ async function guardarProduccionFinal(ev) {
   const showErr = m => { if (errEl) { errEl.textContent = m; errEl.style.display = ''; } };
 
   // Datos compartidos (una sola vez para toda la orden).
-  const roles = [...document.querySelectorAll('#pfRespRoles tbody tr')].map(tr => ({
-    rol:    tr.querySelector('.pf-rol-resp')?.dataset.rol || '',
-    nombre: tr.querySelector('.pf-rol-resp')?.value || '',
-    desde:  tr.querySelector('.pf-rol-desde')?.value || '',
-    hasta:  tr.querySelector('.pf-rol-hasta')?.value || '',
-  })).filter(r => r.nombre);
+  const roles = _pfLeerRoles();
   const desdeVals = roles.map(r => r.desde).filter(Boolean).sort();
   const hastaVals = roles.map(r => r.hasta).filter(Boolean).sort();
   const desde = desdeVals[0] || '';
@@ -3108,22 +3140,7 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   // Editables: todos los componentes salvo packaging (envase/tapa/etiqueta), no solo los graneles.
   _pfFactoresPorElem = [compsVisibles.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }))];
 
-  const ROLES = ['Etiquetado', 'Envasado', 'Empaquetado'];
-  const encOpts = ['', ..._pfEncargados].map(n => `<option value="${n}">${n || '— sin asignar —'}</option>`).join('');
-  const respRolesHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead><tr style="background:#F8F8F8">
-      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Rol</th>
-      <th style="padding:6px 8px;text-align:left;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Responsable</th>
-      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Inicio</th>
-      <th style="padding:6px 8px;text-align:center;font-family:system-ui,'Segoe UI',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Fin</th>
-    </tr></thead>
-    <tbody>${ROLES.map(rol => `<tr style="border-bottom:1px solid #F0F0F0">
-      <td style="padding:6px 8px;font-weight:700;font-family:system-ui,'Segoe UI',sans-serif">${rol}</td>
-      <td style="padding:4px 8px"><select class="form-select pf-rol-resp" data-rol="${rol}" style="padding:5px 8px;font-size:13px">${encOpts}</select></td>
-      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-desde" style="padding:5px 8px;font-size:13px;width:100px"></td>
-      <td style="padding:4px 8px"><input type="time" class="form-input pf-rol-hasta" style="padding:5px 8px;font-size:13px;width:100px"></td>
-    </tr>`).join('')}</tbody>
-  </table>`;
+  const respRolesHTML = _pfRespRolesHTML();
   const elementosHTML = _pfElementos.map((el, i) => _pfElemBlockHTML(el, i, false)).join('');
   const formulaSection = compsVisibles.length ? `<div class="form-group">
     <details class="acordeon">
@@ -3153,7 +3170,7 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   </div>` : '';
   document.getElementById('pfBody').innerHTML = `
     <div class="form-group">
-      <label class="form-label">Responsables, roles y horarios</label>
+      <label class="form-label">Tareas, responsables y horario</label>
       <div id="pfRespRoles">${respRolesHTML}</div>
     </div>
     <div id="pfElementos">${elementosHTML}</div>

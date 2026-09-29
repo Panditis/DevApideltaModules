@@ -558,6 +558,19 @@ test('armarGruposFraccionado: cada presentación trae packBulto calculado sobre 
   assert.deepStrictEqual(grupo(armar(), '4409').presentaciones[0].packBulto, []);
 });
 
+test('armarGruposFraccionado: el grupo del granel trae packBultoGranel (packBultoDe(granelPlu, null)); sin granel → []', () => {
+  const llamadas = [];
+  const packBultoDe = (plu, precio) => { llamadas.push([plu, precio]); return plu === '4409' ? [{ plu: '95000', granel: true, precioSugerido: null }] : []; };
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES, presentaciones: PRESENTACIONES, formulas: FORMULAS, costos: COSTOS,
+    vigentes: new Map(), costeoConfig: { toleranciaPct: 10 }, packBultoDe,
+  });
+  assert.deepStrictEqual(grupo(gs, '4409').packBultoGranel, [{ plu: '95000', granel: true, precioSugerido: null }]);
+  assert.deepStrictEqual(llamadas.find(([plu]) => plu === '4409'), ['4409', null]);
+  assert.deepStrictEqual(grupo(gs, null).packBultoGranel, []);
+  assert.deepStrictEqual(grupo(armar(), '4409').packBultoGranel, []);
+});
+
 test('listado Almacén: una sola query de vínculos; sub-filas pack/bulto sobre el sugerido del base', async () => {
   const crearRutasPrecios = require('../routes/rutas_precios');
   const sqls = [];
@@ -567,6 +580,7 @@ test('listado Almacén: una sola query de vínculos; sub-filas pack/bulto sobre 
       return [{ plu: '91031', nombre: 'PEPAS PACK', basePlu: '6051', cantidad: 3 }, { plu: '91449', nombre: 'PEPAS BULTO', basePlu: '6051', cantidad: 12 }];
     }
     if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '6051', Precio: 2995 }, { IdProducto: '91031', Precio: 2855 }];
+    if (sql.includes('HistorialPrecios')) return [{ IdProducto: '6051 ', Fecha: '2026-03-15' }, { IdProducto: '91031', Fecha: '2026-09-01' }];
     if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '6051', NombreProducto: 'PEPAS', CostoSistema: 1210, IvaCompraPct: 21 }];
     return [];
   };
@@ -585,4 +599,113 @@ test('listado Almacén: una sola query de vínculos; sub-filas pack/bulto sobre 
     ['91449', 'bulto', 20, 1900, null], // 2400 × 0,8 = 1920 → 1900
   ]);
   assert.strictEqual(sqls.filter(s => s.includes('Almacen Bultos/Cajas')).length, 1);
+  // Fecha del último cambio REAL de PrecioVenta (misma sucursal/lista que el vigente), una sola query.
+  assert.strictEqual(filas[0].fechaPrecio, '2026-03-15');
+  assert.deepStrictEqual(filas[0].packBulto.map(p => p.fechaPrecio), ['2026-09-01', null]);
+  const hist = sqls.filter(s => s.includes('HistorialPrecios'));
+  assert.strictEqual(hist.length, 1);
+  assert.match(hist[0], /LAG\(PrecioVenta\) OVER \(PARTITION BY IdProducto ORDER BY FechaHora, IdHistorialPrecios\)/);
+  assert.match(hist[0], /IdSucursal = 1 AND IdListaPrecios = 1 AND PrecioVenta IS NOT NULL/);
+  assert.match(hist[0], /Anterior IS NULL OR PrecioVenta <> Anterior/);
+});
+
+test('armarGruposFraccionado: cada presentación trae la fecha de su último cambio de precio (null si no hay historial)', () => {
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES, presentaciones: PRESENTACIONES, formulas: FORMULAS, costos: COSTOS,
+    vigentes: new Map(), fechas: new Map([['11', '2026-01-20']]), costeoConfig: { toleranciaPct: 10 },
+  });
+  assert.deepStrictEqual(grupo(gs, '4409').presentaciones.map(p => [p.plu, p.fechaPrecio]), [['11', '2026-01-20'], ['12', null]]);
+  // Sin mapa de fechas (llamadas viejas) → null.
+  assert.strictEqual(grupo(armar(), '4409').presentaciones[0].fechaPrecio, null);
+});
+
+test('armarGruposFraccionado: las presentaciones piden sus pack/bulto como pesables (modo de venta kg/paquete)', () => {
+  const opciones = [];
+  const packBultoDe = (plu, precio, opts) => { opciones.push([plu, opts]); return []; };
+  armarGruposFraccionado({
+    graneles: GRANELES, presentaciones: PRESENTACIONES, formulas: FORMULAS, costos: COSTOS,
+    vigentes: new Map(), costeoConfig: { toleranciaPct: 10 }, packBultoDe,
+  });
+  assert.deepStrictEqual(opciones.find(([plu]) => plu === '11'), ['11', { pesable: true }]);
+});
+
+// ── Compra cargada hoy vs. la anterior (aviso en la fila de "Ingreso hoy") ─────
+
+test('listado Almacén: compraHoy sale de UNA query agregada (factura de hoy vs compra anterior, neto) con tendencia por tolerancia', async () => {
+  const crearRutasPrecios = require('../routes/rutas_precios');
+  const sqls = [];
+  const query = async (sql) => {
+    sqls.push(sql);
+    if (sql.includes('PrecioNeto')) {
+      return [
+        { IdProducto: '6051', Costo: 1234, Proveedor: 'Prov SA', Letra: 'A', CentroEmisor: 3, NumeroComprobante: 12345,
+          CostoAnterior: 1137.3, FechaAnterior: '2026-09-12' },
+        { IdProducto: '7000 ', Costo: 500, Proveedor: null, Letra: 'B', CentroEmisor: 1, NumeroComprobante: 9,
+          CostoAnterior: null, FechaAnterior: null },
+      ];
+    }
+    if (sql.includes("NombreRubro = 'Almacen'")) {
+      return [
+        { IdProducto: '6051', NombreProducto: 'PEPAS', CostoSistema: 1210, IvaCompraPct: 21, IngresoHoy: 1 },
+        { IdProducto: '7000', NombreProducto: 'NUEVO', CostoSistema: 1210, IvaCompraPct: 21, IngresoHoy: 1 },
+        { IdProducto: '8000', NombreProducto: 'VIEJO', CostoSistema: 1210, IvaCompraPct: 21, IngresoHoy: 0 },
+        // SIGA puede traer IdProducto con espacios (char): el Map de comprasHoy tiene claves trim.
+        { IdProducto: '7000  ', NombreProducto: 'CON ESPACIOS', CostoSistema: 1210, IvaCompraPct: 21, IngresoHoy: 1 },
+      ];
+    }
+    return [];
+  };
+  const router = crearRutasPrecios({
+    apiRoute: fn => async (req, res) => res.json(await fn(req)), query,
+    leerJSON: () => ({ toleranciaPct: 2, bandasMarkup: { almacen: [{ costoHastaARS: null, markupMaxPct: 100 }] } }),
+    guardarJSON: () => {}, DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
+    FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1',
+  });
+  const llamar = (ruta, q) => {
+    const layer = router.stack.find(l => l.route && l.route.methods.get && l.match(ruta));
+    return new Promise(ok => layer.route.stack[0].handle({ params: layer.params, query: q }, { json: ok }));
+  };
+  const filas = await llamar('/api/precios/listado', { tipo: 'almacen' });
+  const de = plu => filas.find(f => f.plu === plu);
+  assert.deepStrictEqual(de('6051').compraHoy, {
+    costo: 1234, proveedor: 'Prov SA', comprobante: 'A-0003-00012345',
+    costoAnterior: 1137.3, fechaAnterior: '2026-09-12', deltaPct: 8.5, tendencia: 'sube',
+  });
+  assert.deepStrictEqual(de('7000').compraHoy, {
+    costo: 500, proveedor: null, comprobante: 'B-0001-00000009',
+    costoAnterior: null, fechaAnterior: null, deltaPct: null, tendencia: 'sin-anterior',
+  });
+  assert.strictEqual(de('8000').compraHoy, null);
+  assert.strictEqual(de('7000  ').compraHoy.costo, 500); // plu sin trim igual matchea
+  // Columnas fijas del listado: costo de sistema sin IVA y última compra neta.
+  assert.strictEqual(de('6051').costoSistema, 1000);
+  assert.ok(Object.hasOwn(de('6051'), 'precioUltimaCompra'));
+  // El detalle trae el mismo dato.
+  assert.deepStrictEqual((await llamar('/api/precios/detalle/6051', {})).compraHoy, de('6051').compraHoy);
+
+  // Una sola query por request, con la forma acordada.
+  const compras = sqls.filter(s => s.includes('PrecioNeto'));
+  assert.strictEqual(compras.length, 2); // listado + detalle
+  const q = compras[0];
+  assert.match(q, /c\.FechaActualizacion >= CAST\(GETDATE\(\) AS date\)/); // cargada hoy (no fecha de factura)
+  assert.match(q, /ROW_NUMBER\(\) OVER \(PARTITION BY cp\.IdProducto ORDER BY c\.FechaActualizacion DESC/); // la última de hoy
+  assert.match(q, /OUTER APPLY/); // anterior: sólo para los productos de hoy
+  assert.match(q, /ISNULL\(c2\.FechaActualizacion, c2\.Fecha\) < CAST\(GETDATE\(\) AS date\)/);
+  assert.match(q, /AND c\.IdProveedor=cp\.IdProveedor/); // PK de 6 columnas (ver rutas_compras.js)
+  assert.match(q, /AND c2\.IdProveedor=cp2\.IdProveedor/);
+  assert.match(q, /LTRIM\(RTRIM\(cp\.IdProducto\)\) <> '1'/);
+  assert.match(q, /NOT LIKE 'COTIZACION%'/);
+});
+
+test('armarGruposFraccionado: el granel trae compraHoy con tendencia (null si no ingresó hoy)', () => {
+  const comprasHoy = new Map([['4409', { costo: 2400, proveedor: 'Prov', comprobante: 'A-0001-00000001',
+    costoAnterior: 2500, fechaAnterior: '2026-09-01', deltaPct: -4 }]]);
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES, presentaciones: PRESENTACIONES, formulas: FORMULAS, costos: COSTOS,
+    vigentes: new Map(), costeoConfig: { toleranciaPct: 10 }, comprasHoy,
+  });
+  assert.deepStrictEqual(grupo(gs, '4409').compraHoy, { ...comprasHoy.get('4409'), tendencia: 'igual' });
+  assert.strictEqual(grupo(gs, '5000').compraHoy, null);
+  assert.strictEqual(grupo(gs, null).compraHoy, null);
+  assert.strictEqual(grupo(armar(), '4409').compraHoy, null); // sin mapa (llamadas viejas)
 });

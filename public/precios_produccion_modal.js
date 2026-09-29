@@ -41,11 +41,12 @@ function dialogoPres() {
 const presAbierta = () => { const d = document.getElementById('dlgPres'); return !!(d && d.open); };
 async function cerrarPresentacion({ forzar = false } = {}) {
   if (!presAbierta()) return true;
-  if (!forzar && presEd && presentacionSucia(presEd, presEd.inicial)
+  if (!forzar && presEd && (presentacionSucia(presEd, presEd.inicial) || hayCambiosPB())
     && !(await confirmar('¿Descartar los cambios sin guardar de esta presentación?', { textoOk: 'Descartar' }))) return false;
   clearTimeout(previewTimer);
   document.getElementById('dlgPres').close();
   presEd = null;
+  limpiarPendientesPB(); // precios_pack_bulto.js
   return true;
 }
 
@@ -74,6 +75,7 @@ const bodyDe = v => ({
 
 function abrirPresentacion(plu) {
   presEd = estadoInicialPres(plu);
+  limpiarPendientesPB(); // precios_pack_bulto.js: % propios sin guardar
   const d = dialogoPres();
   pintarModalPresentacion();
   if (!d.open) d.showModal();
@@ -123,8 +125,7 @@ function pintarVivo() {
   const g = document.getElementById('dpGramos');
   if (g) g.textContent = formatoPeso(presEd.kg) ? '= ' + formatoPeso(presEd.kg) : '';
   pintarResumenPres();
-  document.getElementById('dpPie').innerHTML = htmlPiePres();
-  conectarPiePres();
+  pintarPiePres();
 }
 
 // ── Estado y alertas arriba del formulario ──────────────────────────────────────
@@ -300,7 +301,7 @@ function pintarResumenPres() {
   if (!el || !presEd) return;
   const r = datosResumen();
   const cab = `<div class="flex items-center gap-2 mb-3"><span class="lbl">Resumen de costo</span>
-    ${suciaPres() ? chip('sin guardar', 'bg-amarillo/30 text-ink') : ''}${presEd.calculando ? '<span class="spin" aria-label="Calculando"></span>' : ''}</div>`;
+    <span id="dpSucio">${htmlSucioPres()}</span>${presEd.calculando ? '<span class="spin" aria-label="Calculando"></span>' : ''}</div>`;
   if (!r) {
     const msg = presEd.errorPreview || faltaObligatorioPres(presEd, { sinPlu: true }) || 'Calculando…';
     el.innerHTML = cab + `<p class="text-sm ${presEd.errorPreview ? 'text-crit' : 'text-gris'}">${esc(msg)}</p>
@@ -309,10 +310,10 @@ function pintarResumenPres() {
   }
   el.innerHTML = cab + htmlPrecioRes(r) + htmlEcuacionRes(r)
     + (presEd.errorPreview ? `<p class="text-xs text-crit mt-2">${esc(presEd.errorPreview)}</p>` : '')
-    + htmlBloquePBProd(r.packBulto) + htmlFormulaSiga(r); // pack/bulto: precios_pack_bulto.js
+    + htmlBloquePBProd(r.packBulto, r.precioConIva) + htmlFormulaSiga(r); // pack/bulto: precios_pack_bulto.js
   const copiar = document.getElementById('dpCopiarFormula');
   if (copiar) copiar.onclick = () => copiarFormulaSiga(r);
-  conectarBloquePBProd(el, r.precioConIva); // precios_pack_bulto.js: % propio de pack/bulto
+  conectarBloquePBProd(el, r.packBulto || [], r.precioConIva); // precios_pack_bulto.js: % propio de pack/bulto
 }
 
 // ── Fórmula para cargar en SIGA (sólo lectura; decisión 13: el módulo no escribe en SIGA) ──
@@ -337,11 +338,19 @@ async function copiarFormulaSiga(r) {
 }
 
 // ── Pie fijo ────────────────────────────────────────────────────────────────────
+// Sin guardar = la presentación o un % propio de pack/bulto (precios_pack_bulto.js).
+const htmlSucioPres = () => (suciaPres() || hayCambiosPB() ? chip('sin guardar', 'bg-amarillo/30 text-ink') : '');
+function pintarPiePres() {
+  document.getElementById('dpPie').innerHTML = htmlPiePres();
+  conectarPiePres();
+  const s = document.getElementById('dpSucio');
+  if (s) s.innerHTML = htmlSucioPres();
+}
 function htmlPiePres() {
   const p = guardadaPres(), r = datosResumen(), sucia = suciaPres();
   const falta = faltaObligatorioPres(presEd);
-  const bloqueoGuardar = falta || (p && !sucia ? 'No hay cambios para guardar.' : '');
-  const bloqueoValidar = !p ? '' : sucia ? 'Guardá los cambios antes de validar.' : p.faltantes.length ? 'Con datos faltantes no se puede validar.'
+  const bloqueoGuardar = falta || (!validosPB() ? MSG_PESO_PB : '') || (p && !sucia && !hayCambiosPB() ? 'No hay cambios para guardar.' : '');
+  const bloqueoValidar = !p ? '' : sucia || hayCambiosPB() ? 'Guardá los cambios antes de validar.' : p.faltantes.length ? 'Con datos faltantes no se puede validar.'
     : p.estado === 'ok' ? 'Ya está validada con el costo actual.' : '';
   const movil = `<span class="min-[900px]:hidden text-sm mr-auto">Sugerido <b class="text-verde tabular-nums">${r && r.precioConIva != null ? '$ ' + fmtPrecio(r.precioConIva) : '—'}</b>
     ${r && r.deltaPct != null ? `<span class="${claseDelta(r.semaforo)} tabular-nums">${fmtPct(r.deltaPct)}</span>` : ''}</span>`;
@@ -364,20 +373,26 @@ async function guardarPres(btn) {
   if (falta) { avisar(falta); return; }
   const todas = Object.values(prodDet.presentaciones).map(x => x.plu);
   const plu = presEd.plu || claveProvisoria(presEd.nombreNuevo, todas); // sin PLU de SIGA: clave provisoria n-…
-  const nueva = !prodDet.presentaciones[plu], body = bodyDe(presEd);
+  const nueva = !prodDet.presentaciones[plu], body = bodyDe(presEd), sucia = suciaPres();
+  // La presentación (si cambió) y los % propios de pack/bulto pendientes; los que fallen quedan pendientes.
+  const guardar = async () => {
+    if (nueva || sucia) await pedirJson('PUT', urlPres(plu), body);
+    await guardarPendientesPB();
+  };
   // Tras guardar se re-abre con lo del server (costo, precio y estado actualizados).
-  if (await guardarProd(() => pedirJson('PUT', urlPres(plu), body), btn, nueva ? 'Presentación creada' : 'Presentación guardada')) abrirPresentacion(plu);
+  if (await guardarProd(guardar, btn, nueva ? 'Presentación creada' : 'Presentación guardada')) abrirPresentacion(plu);
+  else if (presEd) pintarVivo();
 }
 // Vincular la presentación provisoria al PLU con el que el usuario la dio de alta en SIGA.
 async function vincularPres({ plu, nombre }) {
-  if (suciaPres()) { avisar('Guardá los cambios antes de vincular.'); return; }
+  if (suciaPres() || hayCambiosPB()) { avisar('Guardá los cambios antes de vincular.'); return; }
   const clave = presEd.plu;
   if (!(await confirmar(`¿Vincular "${presEd.nombreNuevo}" al PLU ${plu} (${nombre}) de SIGA? Se conserva todo lo cargado.`, { textoOk: 'Vincular' }))) return;
   const ok = await guardarProd(() => pedirJson('POST', urlPres(clave) + '/vincular', { plu }), null, `Vinculada al PLU ${plu}`);
   if (ok) abrirPresentacion(plu);
 }
 async function validarPres(btn) {
-  if (suciaPres()) { avisar('Guardá los cambios antes de validar.'); return; }
+  if (suciaPres() || hayCambiosPB()) { avisar('Guardá los cambios antes de validar.'); return; }
   const plu = presEd.plu;
   if (await validarProd({ tipo: 'presentacion', id: plu }, btn)) abrirPresentacion(plu);
 }

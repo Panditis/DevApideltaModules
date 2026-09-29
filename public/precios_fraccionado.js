@@ -1,5 +1,5 @@
-// ── Precios · tab Fraccionado + su configuración ─────────────────────────────
-// Script clásico cargado después del <script> inline de precios.html: reusa sus globales
+// ── Precios · tab Fraccionado (su configuración de margen standard está en precios_config_fraccionado.js) ─
+// Script clásico cargado después de precios_almacen.js, precios_detalle.js y precios_config.js: reusa sus globales
 // (esc, fmtMoney, fmtPrecio, fmtPct, chip, badgeSemaforo, claseDelta, tieneFaltantes, normTxt,
 // numOrNull, r2, redondear50, inputCls, estadoDe, proveedorDe, opcionesFiltro, pintarBotonesFiltro,
 // dropCtxs, marcarPlus, abrirModal, detalleListo, MSG_SIN_GUARDAR, htmlCostoBase, conectarCostoBase, pintarCostoBase,
@@ -79,7 +79,7 @@ function presentacionesMarcadas(){
 // ── Listado ──────────────────────────────────────────────────────────────────
 async function cargarFraccionado(){
   const tbody = document.getElementById('cuerpoFracc');
-  tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
   try {
     const [rl, rc] = await Promise.all([fetch('/api/precios/listado?tipo=fraccionado'), fetch('/api/precios/config')]);
     const j = await rl.json(), c = await rc.json();
@@ -95,7 +95,7 @@ async function cargarFraccionado(){
     document.getElementById('fraccMeta').textContent = `${graneles.length} graneles · ${nPres} presentaciones · precios por kg`;
     renderFraccionado();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -127,7 +127,7 @@ function filtrarFraccionado(){
     if (frIngresoHoy && !g.ingresoHoy) return false;
     if (frSoloMarcados && !g.presentaciones.some(p => p.marcado)) return false;
     if (frOcultarVacios && !g.presentaciones.length) return false;
-    if (frConPB && !g.presentaciones.some(conPB)) return false; // precios_pack_bulto.js
+    if (frConPB && !g.presentaciones.some(conPB) && !conPB({ packBulto: g.packBultoGranel })) return false; // precios_pack_bulto.js
     return true;
   });
 }
@@ -138,15 +138,11 @@ function htmlFilaGranel(g){
     const nombres = g.presentaciones.map(p => `${p.plu} ${p.nombre}`).join('\n');
     return `<tr class="border-t border-borde opacity-60" title="${esc(nombres)}">
       <td class="p-2"></td><td class="p-2">—</td>
-      <td class="p-2" colspan="6">${esc(g.granelNombre)} · ${n} presentaci${n === 1 ? 'ón' : 'ones'} sin granel en la fórmula (Pesables): sin precio</td></tr>`;
+      <td class="p-2" colspan="8">${esc(g.granelNombre)} · ${n} presentaci${n === 1 ? 'ón' : 'ones'} sin granel en la fórmula (Pesables): sin precio</td></tr>`;
   }
   const m = marcablesDe(g);
   const nMarc = m.filter(p => p.marcado).length;
   const nTmp = (g.temporales || []).length;
-  const precios = g.presentaciones.map(p => p.precioConIva).filter(v => v != null);
-  const min = Math.min(...precios), max = Math.max(...precios);
-  const rango = !precios.length ? '<span class="text-ink/40">sin precio</span>'
-    : min === max ? `<b>${fmtPrecio(min)}</b>` : `<b>${fmtPrecio(min)}</b> – <b>${fmtPrecio(max)}</b>`;
   const peor = peorPresentacion(g);
   const estado = peor ? estadoDe(peor) : null;
   const badge = estado === 'sinPrecio' ? chip('Sin precio', 'bg-ink/10 text-ink/60') : badgeSemaforo(peor && peor.semaforo);
@@ -155,15 +151,16 @@ function htmlFilaGranel(g){
   const costo = g.costoBase == null ? '<span class="text-crit text-xs">sin costo</span>'
     : chipFuenteCosto(g.costoFuente) + fmtMoney(g.costoTotal) + (extras.length ? ' <span class="text-[10px] text-gris">+extras</span>' : '');
   const tipCompra = `Proveedor: ${g.proveedor || '—'} · Última compra: ${g.fechaUltimaCompra || '—'}`;
-  const badgeHoy = g.ingresoHoy ? ' ' + chip('Ingreso hoy', 'bg-ok/15 text-ok') : '';
+  const badgeHoy = g.ingresoHoy ? ' ' + BADGE_INGRESO_HOY : ''; // precios_almacen.js
   const filaCls = (n ? 'hover:bg-verde/5' : 'text-ink/60 hover:bg-verde/5') + (nMarc ? ' bg-amarillo/10' : '');
   return `<tr class="border-t border-borde cursor-pointer ${filaCls}" data-granel="${esc(g.granelPlu)}">
     <td class="p-2 text-center"><input type="checkbox" class="chk-granel accent-verde" data-granel="${esc(g.granelPlu)}"${m.length && nMarc === m.length ? ' checked' : ''}${m.length ? '' : ' disabled title="Sin presentaciones con precio sugerido"'}></td>
     <td class="p-2">${esc(g.granelPlu)}</td>
     <td class="p-2" title="${esc(tipCompra)}">${esc(g.granelNombre)}${badgeHoy}</td>
     <td class="p-2 text-right whitespace-nowrap"${tipCosto ? ` title="${esc(tipCosto)}"` : ''}>${costo}</td>
+    ${htmlCeldaCostoSistema(g)}${htmlCeldaUltimaCompra(g, fraccTol)}
     <td class="p-2 text-center" title="${esc(g.presentaciones.map(p => p.nombre).join('\n'))}">${n || '<span class="text-ink/40">0</span>'}${nTmp ? ' ' + chip(`+${nTmp} temp.`, 'bg-amarillo/30 text-ink') : ''}</td>
-    <td class="p-2 text-right whitespace-nowrap">${n ? rango : ''}</td>
+    ${htmlFechaPrecio(g.presentaciones.map(p => p.fechaPrecio))}
     <td class="p-2 text-right ${claseDelta(peor && peor.semaforo)}">${fmtPct(peor ? peor.deltaPct : null)}</td>
     <td class="p-2 text-center">${n ? badge : ''}</td>
   </tr>`;
@@ -178,13 +175,13 @@ function renderFraccionado(){
   const total = fraccData.filter(esGranel).length;
   if (!fraccData.length) {
     conteo.textContent = '';
-    tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50">Sin graneles</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="p-10 text-center text-ink/50">Sin graneles</td></tr>';
     return;
   }
   const grupos = ordenarGruposFracc(filtrarFraccionado()); // precios_orden.js
   conteo.textContent = `${grupos.filter(esGranel).length} de ${total} graneles`;
   if (!grupos.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-ink/50">Ningún granel coincide con los filtros</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="p-10 text-center text-ink/50">Ningún granel coincide con los filtros</td></tr>';
     return;
   }
   const marcables = grupos.flatMap(marcablesDe);
@@ -245,6 +242,7 @@ function htmlFilaPresentacionDet(p){
       <div class="fd-std text-[11px] text-gris text-right pr-7"></div></td>
     <td class="py-2.5 pr-3 text-right tabular-nums"><div class="fd-final"></div><div class="fd-neto text-[11px] text-gris"></div></td>
     <td class="hidden sm:table-cell py-2.5 pr-3 text-right tabular-nums text-gris">${fmtMoney(p.precioVigente)}</td>
+    ${htmlFechaPrecio(p.fechaPrecio, 'hidden sm:table-cell py-2.5 pr-3')}
     <td class="py-2.5 text-right whitespace-nowrap"><div class="fd-delta tabular-nums"></div><div class="fd-estado mt-0.5"></div>
       <div class="sm:hidden text-[11px] text-gris tabular-nums">vig. ${fmtPrecio(p.precioVigente)}</div></td>
   </tr>` + htmlSubfilasFraccPB(p); // sub-filas ↳ pack/bulto (precios_pack_bulto.js)
@@ -252,7 +250,7 @@ function htmlFilaPresentacionDet(p){
 
 function htmlDetalleFracc(j){
   const filas = j.presentaciones.length ? ordenarPresFracc(j.presentaciones).map(htmlFilaPresentacionDet).join('')
-    : '<tr><td colspan="6" class="py-6 text-center text-gris">Este granel no tiene presentaciones asociadas (fórmulas de Pesables)</td></tr>';
+    : '<tr><td colspan="7" class="py-6 text-center text-gris">Este granel no tiene presentaciones asociadas (fórmulas de Pesables)</td></tr>';
   const th = (txt, cls = 'text-right', orden = '') => `<th scope="col"${orden ? ` data-orden="${orden}"` : ''} class="pb-1.5 pr-3 font-semibold text-[11px] text-gris ${cls}">${txt}</th>`;
   return `
     <div class="mt-1" role="group" aria-label="Costo del granel">
@@ -268,14 +266,15 @@ function htmlDetalleFracc(j){
       <table class="w-full text-sm">
         <thead class="bg-verde/5"><tr class="border-b border-borde">
           ${th('<span class="sr-only">Exportar a SIGA</span>✓', 'text-left w-6 pl-2 pt-1.5')}${th('Presentación', 'text-left pt-1.5', 'peso')}${th('Margen', 'text-right pt-1.5', 'margen')}
-          ${th('Precio final /kg', 'text-right pt-1.5', 'final')}${th('Vigente', 'text-right hidden sm:table-cell pt-1.5', 'vigente')}${th('Δ', 'text-right pt-1.5 !pr-0 sm:!pr-2', 'delta')}</tr></thead>
+          ${th('Precio final /kg', 'text-right pt-1.5', 'final')}${th('Vigente', 'text-right hidden sm:table-cell pt-1.5', 'vigente')}${th('Act. precio', 'text-center hidden sm:table-cell pt-1.5', 'fecha')}${th('Δ', 'text-right pt-1.5 !pr-0 sm:!pr-2', 'delta')}</tr></thead>
         <tbody class="fd-cuerpo">${filas}</tbody>
         <tbody id="ftCuerpo" class="fd-cuerpo"></tbody>
       </table>
     </div>
     <div class="mt-2 flex items-baseline gap-2 flex-wrap">
       <button type="button" id="ftAgregar" class="text-xs font-semibold text-verde hover:text-verdeHover disabled:opacity-40">+ Simular presentación</button>
-      <span class="text-[11px] text-gris">peso sin código en SIGA · no se marca ni se exporta</span></div>`;
+      <span class="text-[11px] text-gris">peso sin código en SIGA · no se marca ni se exporta</span></div>
+    ${htmlBloquePBGranel(j.packBultoGranel)}`; // precios_pack_bulto.js
 }
 
 const filasDetFracc = () => [...document.querySelectorAll('#mDetBody tr[data-plu]')]
@@ -304,6 +303,7 @@ function conectarDetalleFracc(){
     for (const { tr, p } of filasDetFracc()) tr.querySelector('.fd-margen').value = p.markupOverride ?? '';
     restaurarCostosExtra(det.costosExtra);
     restaurarTemporales();
+    descartarPB(document.getElementById('mDetBody'), itemFraccPB); // precios_pack_bulto.js
     msgDetalle(''); recalcularDetalleFracc();
   };
   document.getElementById('ftAgregar').onclick = agregarTemporal;
@@ -339,22 +339,25 @@ function recalcularDetalleFracc(){
     pintarSubfilasFraccPB(p, c.precio); // precios_pack_bulto.js: en vivo sobre el precio /kg
   }
   recalcularTemporales(costo, costoTotal);
+  pintarGranelPB(); // precios_pack_bulto.js
   const costoOk = costo != null && costo > 0;
-  const hayCambios = cambioCosto() || margenesCambiados > 0 || cambioExtras() || cambioTemporales();
+  // Pack/bulto (% propio, modo/peso) cuenta como cambio del modal y se guarda con el mismo Guardar.
+  const hayCambios = cambioCosto() || margenesCambiados > 0 || cambioExtras() || cambioTemporales() || hayCambiosPB();
   const extrasOk = extrasValidos();
   const tmpOk = temporalesValidas();
-  document.getElementById('btnGuardarDet').disabled = !(hayCambios && extrasOk && tmpOk && (costoOk || !cambioCosto()));
+  document.getElementById('btnGuardarDet').disabled = !(hayCambios && extrasOk && tmpOk && validosPB() && (costoOk || !cambioCosto()));
   document.getElementById('btnDescartar').disabled = !hayCambios;
   if (cambioCosto() && !costoOk) msgDetalle('Completá el costo base para calcular.', true);
   else if (!extrasOk) msgDetalle(msgExtrasInvalidos(), true);
+  else if (!validosPB()) msgDetalle(MSG_PESO_PB, true);
   else if (!tmpOk) msgDetalle('Presentación simulada: elegí el peso (1 a 100.000 g); margen de −99 a 1000 % o vacío = standard.', true);
   else if (hayCambios) msgDetalle(MSG_SIN_GUARDAR, false, 'text-warn');
   else msgDetalle('');
 }
 
 // Guarda sólo lo que cambió: costo del granel (PUT costo-producto), costos extra (PUT costos-extra,
-// lista completa; [] los borra) y margen propio de cada presentación cambiada (PUT margen-producto;
-// null = volver al standard).
+// lista completa; [] los borra), margen propio de cada presentación cambiada (PUT margen-producto;
+// null = volver al standard) y pack/bulto pendientes (% propio, modo/peso).
 async function guardarDetalleFracc(){
   const tareas = [];
   if (cambioCosto()) {
@@ -370,6 +373,7 @@ async function guardarDetalleFracc(){
     if (valor !== p.markupOverride) tareas.push(putJson('/api/precios/margen-producto/' + encodeURIComponent(p.plu), { markupPct: valor }));
   }
   tareas.push(...tareasTemporales());
+  tareas.push(guardarPendientesPB()); // precios_pack_bulto.js: los que fallen quedan pendientes
   document.getElementById('btnGuardarDet').disabled = true;
   msgDetalle('Guardando…', false, 'text-gris');
   try {
@@ -443,6 +447,7 @@ function htmlFilaTemporal(t, i){
       <div class="ft-std text-[11px] text-gris text-right pr-7"></div></td>
     <td class="py-2.5 pr-3 text-right tabular-nums"><div class="ft-final"></div><div class="ft-neto text-[11px] text-gris"></div></td>
     <td class="hidden sm:table-cell py-2.5 pr-3 text-right text-gris">—</td>
+    <td class="hidden sm:table-cell py-2.5 pr-3 text-center text-gris">—</td>
     <td class="py-2 text-right"><button type="button" class="ft-quitar w-7 h-7 rounded-lg text-gris hover:text-crit hover:bg-crit/10" aria-label="Quitar presentación simulada ${i + 1}" title="Quitar">✕</button></td>
   </tr>`;
 }
@@ -451,7 +456,7 @@ function htmlFilaTemporal(t, i){
 function pintarTemporales(){
   const cuerpo = document.getElementById('ftCuerpo');
   cuerpo.innerHTML = tmpEdit.length
-    ? '<tr><td colspan="6" class="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-warn">Simuladas · sin código en SIGA</td></tr>'
+    ? '<tr><td colspan="7" class="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-warn">Simuladas · sin código en SIGA</td></tr>'
       + tmpEdit.map(htmlFilaTemporal).join('') : '';
   const editar = (i, cambio) => { tmpEdit = tmpEdit.map((t, k) => (k === i ? { ...t, ...cambio } : t)); recalcularDetalleFracc(); };
   cuerpo.querySelectorAll('tr[data-tmp]').forEach(tr => {
@@ -490,93 +495,6 @@ function recalcularTemporales(costo, costoTotal){
     tr.querySelector('.ft-final').innerHTML = c.precio == null ? '<span class="text-gris">sin precio</span>'
       : `<b class="text-verde">$ ${fmtPrecio(c.precio)}</b>`;
   });
-}
-
-// ── Configuración: margen standard Fraccionado (bandas de costo × tramos de peso) ─
-// Se dibuja en #configFraccionado cada vez que cargarConfiguracion() trae la config.
-let mfEdit = null; // copia editable { bandas, tramosG, markupPct }
-
-const inMf = (valor, cls, extra = '') =>
-  `<input type="number" step="any" value="${esc(valor ?? '')}" class="${cls} w-20 ${inputCls}" ${extra}>`;
-
-// Lee lo que hay en pantalla (para no perder ediciones al agregar/quitar una banda).
-function leerMatrizFracc(){
-  const filas = [...document.querySelectorAll('#mfFilas tr')];
-  return {
-    bandas: filas.map((tr, i) => i === filas.length - 1 ? null : numOrNull(tr.querySelector('.mf-hasta').value)),
-    tramosG: [...document.querySelectorAll('.mf-tramo')].map(i => numOrNull(i.value)),
-    markupPct: filas.map(tr => [...tr.querySelectorAll('.mf-celda')].map(i => numOrNull(i.value))),
-  };
-}
-
-function pintarMatrizFracc(){
-  const m = mfEdit;
-  const ultima = m.bandas.length - 1;
-  document.getElementById('mfTabla').innerHTML = `
-    <thead class="text-ink/60"><tr>
-      <th class="text-left font-normal pb-1 pr-2 whitespace-nowrap">Costo granel hasta ($/kg) \\ peso hasta (g)</th>
-      ${m.tramosG.map(t => `<th class="pb-1 pr-1">${inMf(t, 'mf-tramo')}</th>`).join('')}<th></th></tr></thead>
-    <tbody id="mfFilas">${m.bandas.map((b, i) => `<tr>
-      <td class="pr-2 py-1">${i === ultima ? '<span class="text-gris text-xs">sin tope</span>' : inMf(b, 'mf-hasta w-28')}</td>
-      ${m.tramosG.map((_, k) => `<td class="pr-1 py-1">${inMf((m.markupPct[i] || [])[k], 'mf-celda')}</td>`).join('')}
-      <td>${m.bandas.length > 1 ? `<button class="mf-quitar text-crit hover:opacity-70 px-1" data-i="${i}" title="Quitar banda">✕</button>` : ''}</td>
-    </tr>`).join('')}</tbody>`;
-  document.querySelectorAll('.mf-quitar').forEach(btn => btn.onclick = () => {
-    const actual = leerMatrizFracc();
-    const i = Number(btn.dataset.i);
-    const quitar = (arr) => arr.filter((_, k) => k !== i);
-    const bandas = quitar(actual.bandas);
-    bandas[bandas.length - 1] = null; // la última siempre es "sin tope"
-    mfEdit = { ...actual, bandas, markupPct: quitar(actual.markupPct) };
-    pintarMatrizFracc();
-  });
-}
-
-function renderConfigFraccionado(cfg){
-  const m = cfg.markupFraccionado || { bandas: [null], tramosG: [1000], markupPct: [[0]] };
-  mfEdit = { bandas: [...m.bandas], tramosG: [...m.tramosG], markupPct: m.markupPct.map(f => [...f]) };
-  document.getElementById('configFraccionado').innerHTML = `
-    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 mt-5 w-fit max-w-full">
-      <h2 class="font-disp text-lg font-bold text-verde mb-1">Margen standard Fraccionado</h2>
-      <p class="text-xs text-ink/50 mb-4">Margen % según el costo del granel por kg (filas) y el peso de la presentación (columnas):
-        se usa la primera banda con costo ≤ tope y la primera columna con peso ≤ tramo; más pesado que el último tramo → última
-        columna; sin peso en el nombre → columna de 1 kg. Cada presentación puede tener su margen propio (detalle del granel).</p>
-      <div class="overflow-x-auto"><table id="mfTabla" class="text-sm"></table></div>
-      <button id="mfAgregar" class="mt-2 px-3 py-1 rounded-lg border border-borde text-xs hover:bg-white">+ Agregar banda</button>
-      <div class="flex items-center gap-2 mt-3">
-        <button id="mfGuardar" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar</button>
-        <span id="mfMsg" class="text-sm"></span>
-      </div>
-    </div>`;
-  pintarMatrizFracc();
-  // Nueva banda antes de la "sin tope", copiando los márgenes de la anterior.
-  document.getElementById('mfAgregar').onclick = () => {
-    const a = leerMatrizFracc();
-    const n = a.bandas.length;
-    mfEdit = {
-      ...a,
-      bandas: [...a.bandas.slice(0, n - 1), null, null],
-      markupPct: [...a.markupPct.slice(0, n - 1), [...a.markupPct[n - 1]], a.markupPct[n - 1]],
-    };
-    pintarMatrizFracc();
-  };
-  document.getElementById('mfGuardar').onclick = guardarMatrizFracc;
-}
-
-async function guardarMatrizFracc(){
-  const msg = document.getElementById('mfMsg');
-  msg.className = 'text-sm text-ink/50'; msg.textContent = 'Guardando…';
-  try {
-    const body = leerMatrizFracc();
-    if (body.bandas.slice(0, -1).some(b => b == null)) throw new Error('Completá el costo "hasta" de todas las bandas (menos la última)');
-    const j = await putJson('/api/precios/config/markup-fraccionado', body);
-    mfEdit = j.markupFraccionado;
-    configCargada = { ...configCargada, markupFraccionado: j.markupFraccionado };
-    fraccCargado = false; // el listado se recalcula la próxima vez que se abre el tab
-    msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
-  } catch (e) {
-    msg.className = 'text-sm text-crit'; msg.textContent = e.message;
-  }
 }
 
 

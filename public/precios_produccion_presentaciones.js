@@ -3,6 +3,7 @@
 // globales (prodDet, pedirCampos, guardarProd, validarProd, recargarDetalleProd, urlProd, API_PROD,
 // conectarBuscadorSiga, htmlBuscadorSiga, badgeEstadoProd, textoFaltante, bodyPresentacion,
 // opcionesVariedad, idManualNuevo, importeEmpaque, fmtNum, btnCls/btnPrim/campoCls, nombresProd,
+// htmlMarcaPres/HTML_TH_MARCA/conectarMarcasProd (precios_produccion_export.js),
 // htmlNotas, htmlCambios, cajaVacia, REQ, ayuda) y los de precios.html (esc, fmtMoney,
 // fmtPrecio, fmtPct, chip, numOrNull, claseDelta, badgeSemaforo, avisar,
 // confirmar, pedirJson). Decisión 11: el producto tiene su lista de insumos; cada presentación elige de ahí.
@@ -26,7 +27,8 @@ function htmlFilaInsumo(it, cambiadas) {
   const tambien = (it.tambienEn || []).map(t => `<a href="#produccion/${esc(encodeURIComponent(t.id))}" class="text-verde hover:underline">${esc(t.nombre)}</a>`).join(', ');
   const tip = esManual ? 'Costo del insumo manual (vale para todos los productos que lo usan)'
     : 'Costo manual sin IVA (el mismo override que Almacén). Vacío = vuelve al costo de sistema';
-  return `<tr class="border-t border-borde${it.costo == null ? ' bg-gris/5' : ''}" data-clave="${esc(it.clave)}">
+  const fondo = it.costo == null ? ' bg-gris/5' : cambiadas.has(it.clave) ? ` ${MARCA_CAMBIO}` : '';
+  return `<tr class="border-t border-borde${fondo}" data-clave="${esc(it.clave)}">
     <td class="p-2 tabular-nums">${esManual ? '<span class="text-xs text-gris">manual</span>' : esc(it.plu)}</td>
     <td class="p-2">${esc(it.nombre || '—')}</td>
     <td class="p-2">${esc(it.tipo)}</td>
@@ -118,9 +120,9 @@ function htmlSeccionPresentaciones() {
   }
   const th = (clave, txt, cls = '') => `<th class="p-2 ${cls}" data-orden="${clave}">${txt}</th>`;
   return `<div class="overflow-x-auto rounded-xl border border-borde bg-card"><table class="w-full text-sm">
-    <thead class="bg-verde/5 text-verde"><tr>${th('plu', 'PLU', 'text-left')}${th('nombre', 'Nombre', 'text-left')}${th('variedad', 'Variedad', 'text-left')}
+    <thead class="bg-verde/5 text-verde"><tr>${HTML_TH_MARCA}${th('plu', 'PLU', 'text-left')}${th('nombre', 'Nombre', 'text-left')}${th('variedad', 'Variedad', 'text-left')}
       ${th('kg', 'kg', 'text-right')}${th('empaque', 'Empaque', 'text-right')}${th('costo', 'Costo', 'text-right')}${th('markup', 'Markup')}
-      ${th('sugerido', 'Sugerido', 'text-right')}${th('vigente', 'Vigente', 'text-right')}${th('delta', 'Δ%', 'text-right')}${th('estado', 'Estado')}</tr></thead>
+      ${th('sugerido', 'Sugerido', 'text-right')}${th('vigente', 'Vigente', 'text-right')}${th('fecha', 'Act. precio')}${th('delta', 'Δ%', 'text-right')}${th('estado', 'Estado')}</tr></thead>
     <tbody id="prPres">${htmlFilasPresentaciones()}</tbody></table></div>
     <button id="prNuevaPres" class="${btnCls} mt-3">+ Otra presentación</button>`;
 }
@@ -131,7 +133,9 @@ function htmlFilaPresentacion(p, nombres) {
   const kg = (p.componentes.find(c => c.plu === '_receta') || {}).cantidad;
   const emp = importeEmpaque(p.componentes);
   const aviso = receta && receta.avisos.length ? ` <span class="text-warn" title="${esc(receta.avisos.join(' · '))}">⚠</span>` : '';
-  return `<tr class="border-t border-borde cursor-pointer ${falta ? 'bg-gris/5 text-ink/60' : 'hover:bg-verde/5'}" data-plu="${esc(p.plu)}"${tip}>
+  const marca = estadoFila(p) === 'cambio' ? ' ' + MARCA_CAMBIO : '';
+  return `<tr class="border-t border-borde cursor-pointer ${falta ? 'bg-gris/5 text-ink/60' : 'hover:bg-verde/5'}${marca}" data-plu="${esc(p.plu)}"${tip}>
+    ${htmlMarcaPres(p)}
     <td class="p-2 tabular-nums">${esProvisoria(p.plu) ? '<span class="text-gris">—</span>' : esc(p.plu)}</td>
     <td class="p-2"><button type="button" class="text-left font-semibold text-verde hover:text-verdeHover">${esc(p.nombre || '—')}</button>${aviso}</td>
     <td class="p-2">${esc(receta ? receta.nombre : p.recetaId)}</td>
@@ -141,6 +145,7 @@ function htmlFilaPresentacion(p, nombres) {
     <td class="p-2 text-center tabular-nums">${p.markupPct != null ? fmtNum(p.markupPct) + '%' : '—'}</td>
     <td class="p-2 text-right">${falta ? '<span class="text-ink/40">sin precio</span>' : '<b>' + fmtPrecio(p.precioConIva) + '</b>'}</td>
     <td class="p-2 text-right tabular-nums">${fmtMoney(p.precioVigente)}</td>
+    ${htmlFechaPrecio(p.fechaPrecio)}
     <td class="p-2 text-right ${claseDelta(p.semaforo)}">${fmtPct(p.deltaPct)}</td>
     <td class="p-2 text-center">${badgeEstadoProd(p, nombres)}${esProvisoria(p.plu) ? ' ' + chip('Pendiente de alta en SIGA', 'bg-amarillo/30 text-ink') : ''}
       ${(p.avisos || []).includes('variedad') ? ' ' + chip('Elegí una variedad', 'bg-warn/15 text-warn') : ''}</td></tr>`;
@@ -156,6 +161,7 @@ function pintarFilasPresentaciones() {
 }
 function conectarFilasPresentaciones() {
   document.querySelectorAll('#prPres tr[data-plu]').forEach(tr => tr.onclick = () => abrirPresentacion(tr.dataset.plu));
+  conectarMarcasProd(); // precios_produccion_export.js: checkbox por presentación y "marcar todas"
 }
 function conectarSeccionPresentaciones() {
   conectarFilasPresentaciones();

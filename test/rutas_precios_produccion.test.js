@@ -10,7 +10,7 @@ const { resumenAlertas } = require('../lib/precios_produccion');
 const {
   slug, idUnico, plusUsados, armarCostoDe, costearTodos, filaSelector, armarDetalle, tipoInsumo,
   validarInsumosProducto, validarInsumoManual, validarCategoriasMaquina, validarPedidoValidar, aplicarValidacion,
-  normalizarDatos,
+  normalizarDatos, categoriasConUsos, validarBajaCategorias,
 } = rutas;
 
 // Filas como las devuelve costosPorPlu (lib/precios_consultas).
@@ -78,7 +78,8 @@ test('costearTodos + filaSelector: costo/kg base, variantes, presentaciones y no
   const c = costearTodos({ productos: DATOS.productos, costos: COSTOS, costeo: COSTEO, datos: DATOS });
   const f = filaSelector('p-granola', PRODUCTO, c['p-granola']);
   // (5×400 + 1×2800) / 10 = 480
-  assert.deepStrictEqual(f, { id: 'p-granola', nombre: 'Granola', variantes: 2, presentaciones: 1, costoKgBase: 480, alertas: 0, faltantes: 0 });
+  const { exportables: _e, ...resto } = f;
+  assert.deepStrictEqual(resto, { id: 'p-granola', nombre: 'Granola', variantes: 2, presentaciones: 1, costoKgBase: 480, alertas: 0, faltantes: 0 });
   assert.strictEqual(c['p-granola'].presentaciones['6319'].nombre, 'GRANOLA 500G');
   // 0.5×480 + 180 + 60 = 480 → +50% = 720 → IVA → 871,2 → $850 (redondeo a $50)
   assert.strictEqual(c['p-granola'].presentaciones['6319'].costoUnidad, 480);
@@ -188,6 +189,7 @@ function montar() {
   const query = async (sql) => {
     sqls.push(sql);
     if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '6319', Precio: 1000 }];
+    if (sql.includes('HistorialPrecios')) return [{ IdProducto: '6319', Fecha: '2026-02-10' }];
     if (sql.includes('ProductosComponentes')) return /IdProducto = 8104\b/.test(sql) ? FORMULA_8104 : [];
     if (sql.includes('SELECT TOP 1 NombreProducto')) return /IdProducto = 8104\b/.test(sql) ? [{ nombre: 'PEPAS X KG' }] : [];
     const ids = [...sql.matchAll(/'(\d+)'/g)].map(m => m[1]);
@@ -395,4 +397,77 @@ test('armarDetalle: cada presentación trae packBulto sobre su precioConIva; sin
   const det = armarDetalle({ ...base, packBultoDe: (plu, p) => [{ plu: `pb-${plu}`, base: p }] });
   assert.deepStrictEqual(det.presentaciones['6319'].packBulto, [{ plu: 'pb-6319', base: precio }]);
   assert.deepStrictEqual(armarDetalle(base).presentaciones['6319'].packBulto, []);
+});
+
+// ── Máquinas: usos de cada categoría y baja bloqueada si está en uso ─────────
+test('categoriasConUsos / validarBajaCategorias: qué recetas usan cada categoría; no se quita una en uso', () => {
+  const datos = normalizarDatos({
+    productos: {
+      'p-granola': { nombre: 'Granola', recetas: { base: { nombre: 'Base', categoriaMaquinaId: 'horno' }, miel: { nombre: 'Con miel', varianteDe: 'base', categoriaMaquinaId: 'horno' } } },
+      'p-pepas': { nombre: 'Pepas', recetas: { base: { nombre: 'Masa' } } },
+    },
+    categoriasMaquina: [{ id: 'horno', nombre: 'Horno', costoHora: 5000 }, { id: 'mezcladora', nombre: 'Mezcladora', costoHora: 3000 }],
+  });
+  assert.deepStrictEqual(categoriasConUsos(datos), [
+    { id: 'horno', nombre: 'Horno', costoHora: 5000, usos: [{ id: 'p-granola', nombre: 'Granola', recetas: ['Base', 'Con miel'] }] },
+    { id: 'mezcladora', nombre: 'Mezcladora', costoHora: 3000, usos: [] },
+  ]);
+  // Editar y quitar una sin uso: ok. Quitar la que usa Granola: error con el producto y la receta.
+  assert.doesNotThrow(() => validarBajaCategorias(datos, [{ id: 'horno', nombre: 'Horno 2', costoHora: 6000 }]));
+  assert.throws(() => validarBajaCategorias(datos, [{ id: 'mezcladora', nombre: 'M', costoHora: 1 }]), /Horno.*Granola \(Base, Con miel\)/);
+});
+
+// ── Exportar desde Producción: presentaciones con PLU SIGA y su marca ─────────
+test('filaSelector.exportables y armarDetalle.marcado: sólo PLUs SIGA, costo total y precio, marca de marcadosExportar', () => {
+  const conProv = { ...PRODUCTO, presentaciones: { ...PRODUCTO.presentaciones, 'n-nueva': PRODUCTO.presentaciones['6319'] } };
+  const datos = normalizarDatos({ ...DATOS, productos: { 'p-granola': conProv } });
+  const c = costearTodos({ productos: datos.productos, costos: COSTOS, costeo: COSTEO, datos })['p-granola'];
+  const marcados = { 6319: '2026-09-29' };
+  const f = filaSelector('p-granola', conProv, c, marcados);
+  assert.deepStrictEqual(f.exportables, [{ plu: '6319', nombre: 'GRANOLA 500G', costoTotal: 480, precioConIva: 850, faltantes: [], marcado: true, fechaPrecio: null }]);
+  assert.deepStrictEqual(filaSelector('p-granola', conProv, c).exportables.map(p => p.marcado), [false]);
+  const det = armarDetalle({ id: 'p-granola', datos, costeado: c, costos: COSTOS, vigentes: new Map(), toleranciaPct: 3, marcados });
+  assert.strictEqual(det.presentaciones['6319'].marcado, true);
+  assert.strictEqual(det.presentaciones['n-nueva'].marcado, false);
+});
+
+test('router: GET/PUT categorias-maquina con usos; baja en uso bloqueada; productos expone marcados', async () => {
+  const { server, dir, base } = await montar();
+  const pedir = async (metodo, url, body) => (await fetch(base + url, {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  })).json();
+  try {
+    assert.deepStrictEqual(await pedir('GET', '/categorias-maquina'), { categoriasMaquina: [] });
+    const put = await pedir('PUT', '/categorias-maquina', { categorias: [{ id: 'horno', nombre: 'Horno', costoHora: 5000 }] });
+    assert.deepStrictEqual(put.categoriasMaquina, [{ id: 'horno', nombre: 'Horno', costoHora: 5000, usos: [] }]);
+    await pedir('POST', '/productos', { nombre: 'Granola' });
+    await pedir('PUT', '/productos/p-granola/recetas/base', { ...PRODUCTO.recetas.base, categoriaMaquinaId: 'horno', minutosElaboracion: 30 });
+    const get = await pedir('GET', '/categorias-maquina');
+    assert.deepStrictEqual(get.categoriasMaquina[0].usos, [{ id: 'p-granola', nombre: 'Granola', recetas: ['Base'] }]);
+    assert.match((await pedir('PUT', '/categorias-maquina', { categorias: [] })).error, /Granola/);
+    const costeo = JSON.parse(fs.readFileSync(path.join(dir, 'costeo.json'), 'utf8'));
+    fs.writeFileSync(path.join(dir, 'costeo.json'), JSON.stringify({ ...costeo, marcadosExportar: { 6319: '2026-09-29' } }));
+    await pedir('PUT', '/productos/p-granola/recetas/clasica', PRODUCTO.recetas.clasica);
+    await pedir('PUT', '/insumos-manuales/m-etiqueta', { nombre: 'Etiqueta', costo: 60 });
+    await pedir('PUT', '/productos/p-granola/insumos', { insumos: PRODUCTO.insumos });
+    await pedir('PUT', '/productos/p-granola/presentaciones/6319', PRODUCTO.presentaciones['6319']);
+    const [fila] = await pedir('GET', '/productos');
+    assert.deepStrictEqual(fila.exportables.map(p => [p.plu, p.marcado, p.fechaPrecio]), [['6319', true, '2026-02-10']]);
+    const detalle = await pedir('GET', '/productos/p-granola');
+    assert.strictEqual(detalle.presentaciones['6319'].marcado, true);
+    assert.strictEqual(detalle.presentaciones['6319'].fechaPrecio, '2026-02-10');
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('fecha del último cambio de precio: filaSelector (exportables) y armarDetalle (presentaciones); null sin historial', () => {
+  const c = costearTodos({ productos: DATOS.productos, costos: COSTOS, costeo: COSTEO, datos: DATOS });
+  const fechas = new Map([['6319', '2026-02-10']]);
+  assert.deepStrictEqual(filaSelector('p-granola', PRODUCTO, c['p-granola'], {}, fechas).exportables.map(e => [e.plu, e.fechaPrecio]), [['6319', '2026-02-10']]);
+  assert.strictEqual(filaSelector('p-granola', PRODUCTO, c['p-granola']).exportables[0].fechaPrecio, null);
+  const base = { id: 'p-granola', datos: DATOS, costeado: c['p-granola'], costos: COSTOS, vigentes: new Map(), toleranciaPct: 3, tiposPackaging: () => ({}) };
+  assert.strictEqual(armarDetalle({ ...base, fechas }).presentaciones['6319'].fechaPrecio, '2026-02-10');
+  assert.strictEqual(armarDetalle(base).presentaciones['6319'].fechaPrecio, null);
 });
