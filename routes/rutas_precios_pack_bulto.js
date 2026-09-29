@@ -4,7 +4,7 @@ const path = require('path');
 const { configPackBultoSanitizada, descuentosAlineados } = require('../lib/precios_pack_bulto');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 
-// ── Precios, Fase 4: Pack / Bulto (config, overrides y vínculos) ─────────────
+// ── Precios, Fase 4: Pack / Bulto (config, overrides, vínculos y venta de pesables) ─────
 // Router propio para que rutas_precios.js no se acerque a 800 líneas. Sólo lee SIGA; escribe
 // únicamente costeo.packBulto (el resto de costeo.json queda como estaba). El precio de pack/bulto
 // se engancha en los listados existentes vía crearPackBultoDe (lib/precios_pack_bulto.js).
@@ -50,10 +50,11 @@ module.exports = function crearRutasPreciosPackBulto(deps) {
   // Alinear con SIGA (decisión 6): % propio por pack/bulto que reproduce su vigente sobre el vigente del
   // base. Pisa esos overrides; los omitidos (sin vigente o revisar unidad) conservan el suyo. Las dos
   // consultas van antes de leer costeo.json: la escritura queda sin await en el medio.
+  // Pesables por paquete: se compara contra vigente base × peso (ventaPesable).
   router.post('/api/precios/pack-bulto/alinear-siga', apiRoute(async () => {
-    const manuales = configPackBultoSanitizada(leerCosteo().packBulto).vinculosManuales;
-    const [{ vinculos }, vigentes] = await Promise.all([vinculosPackBulto(manuales), preciosVigentesAlmacen()]);
-    const { descuentos, omitidos } = descuentosAlineados({ vinculos, vigentes });
+    const cfg = configPackBultoSanitizada(leerCosteo().packBulto);
+    const [{ vinculos }, vigentes] = await Promise.all([vinculosPackBulto(cfg.vinculosManuales), preciosVigentesAlmacen()]);
+    const { descuentos, omitidos } = descuentosAlineados({ vinculos, vigentes, cfg });
     const r = mutarPackBulto(pb => ({ ...pb, descPorProducto: { ...pb.descPorProducto, ...descuentos } }));
     return r.error ? r : { alineados: Object.keys(descuentos).length, omitidos };
   }));
@@ -80,6 +81,23 @@ module.exports = function crearRutasPreciosPackBulto(deps) {
     if (!plu) return { error: 'PLU inválido' };
     const r = mutarPackBulto(pb => ({ ...pb, descPorProducto: sinClave(pb.descPorProducto, plu) }));
     return r.error ? r : { plu, descPct: null };
+  }));
+
+  // Modo de venta de un pack/bulto pesable: { modo: 'kg'|'paquete', pesoKg } (peso requerido por paquete,
+  // lo valida configPackBultoSanitizada). DELETE lo quita (vuelve a 'kg' con el peso de la fórmula).
+  router.put('/api/precios/pack-bulto/venta/:plu', apiRoute(async (req) => {
+    const plu = pluDe(req);
+    if (!plu) return { error: 'PLU inválido' };
+    const { modo, pesoKg = null } = req.body || {};
+    const venta = pesoKg == null ? { modo } : { modo, pesoKg };
+    const r = mutarPackBulto(pb => ({ ...pb, ventaPesable: { ...pb.ventaPesable, [plu]: venta } }));
+    return r.error ? r : { plu, modo, pesoKg };
+  }));
+  router.delete('/api/precios/pack-bulto/venta/:plu', apiRoute(async (req) => {
+    const plu = pluDe(req);
+    if (!plu) return { error: 'PLU inválido' };
+    const r = mutarPackBulto(pb => ({ ...pb, ventaPesable: sinClave(pb.ventaPesable, plu) }));
+    return r.error ? r : { plu, modo: null };
   }));
 
   // Vínculo manual pack/bulto → producto normal (gana sobre el de SIGA). El base tiene que existir

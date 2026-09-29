@@ -600,6 +600,7 @@
       <input type="date" id="histFiltroFecha" oninput="renderHistorial()" style="font-family:var(--body);padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
       <button onclick="document.getElementById('histFiltroFecha').value='';renderHistorial()" style="font-size:12px;padding:5px 10px">Todas</button>
       <input type="search" id="histFiltroProd" placeholder="Buscar producto en todas las fechas…" oninput="renderHistorial()" style="width:250px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;outline:none">
+      <input type="search" id="histFiltroResp" placeholder="Buscar responsable…" oninput="renderHistorial()" style="width:180px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;outline:none">
       <span id="histResumen" style="font-size:11px;color:var(--faint)"></span>
     </div>
   </div>
@@ -3649,6 +3650,8 @@ function renderHistorial() {
     h.pesables.some(p => (p.nombre||'').toLowerCase().includes(gProd) || String(p.plu).includes(gProd)) ||
     h.produccion.some(r => (r.nombre||'').toLowerCase().includes(gProd) || String(r.plu).includes(gProd))
   );
+  const gResp = histFiltroResp();
+  if (gResp) filtered = filtered.filter(h => (h.produccion || []).some(r => (r.empleado||'').toLowerCase().includes(gResp)));
   document.getElementById('histResumen').textContent = filtered.length !== histData.length
     ? `${filtered.length} de ${histData.length} registros` : `${histData.length} registros`;
   emp.style.display = 'none'; lst.style.display = 'block';
@@ -3689,13 +3692,14 @@ function renderHistorial() {
     </div>`;
   }).join('');
   // auto-expand when global product filter active; render all open/expanded bodies
-  const gProdActive = (document.getElementById('histFiltroProd')?.value || '').trim().length > 0;
+  const gProdActive = (document.getElementById('histFiltroProd')?.value || '').trim().length > 0 || !!gResp;
   filtered.forEach(h => {
     if (gProdActive) document.getElementById(`hist-body-${h.id}`)?.classList.add('open');
     renderHistBody(h.id);
   });
 }
 const _histFiltro = {};
+function histFiltroResp() { return (document.getElementById('histFiltroResp')?.value || '').trim().toLowerCase(); }
 function setHistFiltro(id, filtro) {
   _histFiltro[id] = filtro;
   ['todos','env','noenv'].forEach(k => document.getElementById(`hist-fb-${k === 'env' ? 'env' : k === 'noenv' ? 'noenv' : 'todos'}-${id}`)?.classList.remove('active'));
@@ -3737,6 +3741,8 @@ function renderHistBody(id) {
       esCarga: true, esActividad: true }));
   rows = rows.concat(actividades);
   if (q) rows = rows.filter(p => (p.nombre||'').toLowerCase().includes(q) || String(p.plu).includes(q));
+  const resp = histFiltroResp();
+  if (resp) rows = rows.filter(p => (p.empleado||'').toLowerCase().includes(resp));
   if (filtro === 'envasado') rows = rows.filter(p => p.esCarga);
   if (filtro === 'sinregistro') rows = rows.filter(p => !p.esCarga);
   const nAct = rows.filter(p => p.esActividad).length;

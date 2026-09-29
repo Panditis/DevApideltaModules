@@ -679,6 +679,13 @@ app.get('/precios_produccion_modal.js', (_req, res) => res.sendFile(path.join(__
 app.get('/precios_produccion_formula.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion_formula.js')));
 app.get('/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_pack_bulto.js')));
 app.get('/precios_orden.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_orden.js')));
+app.get('/precios_produccion_export.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_produccion_export.js')));
+app.get('/precios_maquinas.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_maquinas.js')));
+app.get('/precios_config_bandas.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_config_bandas.js')));
+app.get('/precios_config_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_config_fraccionado.js')));
+app.get('/precios_almacen.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_almacen.js')));
+app.get('/precios_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_detalle.js')));
+app.get('/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'precios_config.js')));
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 

@@ -34,6 +34,12 @@ function destinoToast(items) {
   const ids = [...new Set((items || []).map(i => i.productoId))];
   return ids.length === 1 ? { hash: '#produccion/' + ids[0], soloCambios: false } : { hash: '#produccion', soloCambios: true };
 }
+// Productos distintos con alertas (badge de la tab Producción).
+const productosConCambios = alertas => new Set(((alertas && alertas.items) || []).map(i => i.productoId)).size;
+// PLUs que movieron el costo de una receta/presentación desde su validación (componentes + agregados;
+// los quitados ya no tienen fila). Sin estado 'cambio' → vacío.
+const plusCambiados = cambios => new Set(!cambios || cambios.estado !== 'cambio' ? []
+  : [...(cambios.componentes || []).map(c => String(c.plu)), ...(cambios.nuevos || []).map(String)]);
 
 // Estado de una fila (receta o presentación): con faltantes gana 'faltantes'; si no, el del server.
 function estadoFila(f) {
@@ -50,10 +56,10 @@ function nombreComponente(clave, nombres = {}) {
 }
 
 // Faltante (clave interna del costeo) → mensaje para humanos + acción que lo resuelve.
-// accion: { tipo: 'config' } | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
+// accion: { tipo: 'config' } | { tipo: 'maquinas' } | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
 const FALTANTES_FIJOS = {
   _costoHora: ['Falta el costo/hora de mano de obra — se carga en Configuración', { tipo: 'config' }, 'Ir a Configuración'],
-  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en Configuración', { tipo: 'config' }, 'Ir a Configuración'],
+  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en la tab Máquinas', { tipo: 'maquinas' }, 'Ir a Máquinas'],
   rendimientoKg: ['Falta cuántos kg rinde una tanda (Kg por tanda)', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   mermaPct: ['La merma tiene que ser un % entre 0 y 99', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   receta: ['La receta elegida todavía no tiene costo: completá lo que le falta', { tipo: 'paso', paso: 1 }, 'Ir a las recetas'],
@@ -128,16 +134,18 @@ function slugProd(nombre, max = 36) {
   return s || 'x';
 }
 
-// Id nuevo de receta: la primera es 'base'; después el slug del nombre, sin pisar existentes.
-function idRecetaNueva(nombre, existentes) {
+// base, base-2, base-3… el primero que no está en existentes (mismo criterio que idUnico() del router).
+function idLibre(base, existentes) {
   const ids = new Set(existentes || []);
-  if (!ids.size) return 'base';
-  const base = slugProd(nombre);
   if (!ids.has(base)) return base;
   let n = 2;
   while (ids.has(`${base}-${n}`)) n++;
   return `${base}-${n}`;
 }
+// Id nuevo de receta: la primera es 'base'; después el slug del nombre, sin pisar existentes.
+const idRecetaNueva = (nombre, existentes) => ((existentes || []).length ? idLibre(slugProd(nombre), existentes) : 'base');
+// Id de categoría de máquina (ID_CATEGORIA del router: [a-z0-9-], hasta 40): slug del nombre, único.
+const idCategoriaNueva = (nombre, existentes) => idLibre(slugProd(nombre), existentes);
 
 // Id de insumo manual: m-<slug>-<sufijo> (el PUT es upsert: el sufijo evita pisar otro del mismo nombre).
 const idManualNuevo = (nombre, sufijo) => `m-${slugProd(nombre, 30)}-${sufijo}`;
@@ -170,14 +178,7 @@ function opcionesVariedad(recetas) {
 
 // ── Presentación todavía no dada de alta en SIGA (decisión 13: el módulo no escribe en SIGA) ──
 const esProvisoria = clave => /^n-/.test(String(clave || ''));
-function claveProvisoria(nombre, existentes) {
-  const ids = new Set(existentes || []);
-  const base = 'n-' + slugProd(nombre, 34);
-  if (!ids.has(base)) return base;
-  let n = 2;
-  while (ids.has(`${base}-${n}`)) n++;
-  return `${base}-${n}`;
-}
+const claveProvisoria = (nombre, existentes) => idLibre('n-' + slugProd(nombre, 34), existentes);
 // "Fórmula para cargar en SIGA" como texto tabulado (se pega en una planilla o se tipea en SIGA).
 function textoFormulaSiga(filas, nombres = {}) {
   const num = v => String(v).replace('.', ',');
@@ -253,10 +254,10 @@ function importeEmpaque(componentes) {
 
 if (typeof module === 'object' && module.exports) {
   module.exports = {
-    parsearHashProduccion, firmaAlertas, destinoToast, estadoFila, nombreComponente, textoFaltante, textoToast,
+    parsearHashProduccion, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
     mensajeFaltante, progresoProducto, pasosHabilitados, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
-    slugProd, idRecetaNueva, idManualNuevo, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido, importeEmpaque,
+    slugProd, idRecetaNueva, idCategoriaNueva, idManualNuevo, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido, importeEmpaque,
     // Orden de tablas: vive en precios_orden.js (compartido por todos los tabs).
     ordenarFilas: require('./precios_orden.js').ordenarFilas, siguienteOrden: require('./precios_orden.js').siguienteOrden,
   };
@@ -274,13 +275,17 @@ const TOAST_KEY = 'precios.produccion.toastCerrado';
 
 const getJson = url => fetch(url).then(r => r.json()).then(j => { if (j && j.error) throw new Error(j.error); return j; });
 const urlProd = (id, resto = '') => `${API_PROD}/productos/${encodeURIComponent(id)}${resto}`;
-const panelProd = () => document.getElementById('panel-produccion');
+// Contenido de la tab (selector o detalle); la barra de marcados de arriba es fija en precios.html.
+const panelProd = () => document.getElementById('prodContenido');
 const cargandoHtml = txt => `<div class="p-10 text-center text-ink/50"><span class="spin"></span> ${esc(txt)}</div>`;
 const fmtNum = n => (n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 }).format(n));
 const btnCls = 'px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white disabled:opacity-40';
 const btnPrim = 'px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40';
 const campoCls = 'px-2 py-1 rounded-lg border border-borde bg-white text-sm focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
 
+// Marca de "componentes modificados": borde izquierdo warn + fondo cálido (selector, recetas y presentaciones).
+const MARCA_CAMBIO = 'bg-warn/5 border-l-4 border-l-warn';
+const TIT_CAMBIO = 'Componentes modificados: revisar y validar';
 const ESTADO_PROD = {
   cambio: ['bg-warn/15 text-warn', 'Costo cambió'], ok: ['bg-ok/15 text-ok', 'Validado'],
   'sin-validar': ['bg-gris/15 text-gris', 'Sin validar'], faltantes: ['bg-gris/15 text-gris', 'Faltan datos'],
@@ -419,9 +424,10 @@ async function cargarSelectorProduccion() {
   conectarSelector();
   try {
     prodLista = await getJson(API_PROD + '/productos');
+    tomarExportProd(prodLista); // precios_produccion_export.js: presentaciones marcables/marcadas
     pintarFilasSelector();
   } catch (e) {
-    document.getElementById('prCuerpo').innerHTML = `<tr><td colspan="5" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+    document.getElementById('prCuerpo').innerHTML = `<tr><td colspan="6" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
 function htmlSelectorMarco() {
@@ -429,15 +435,16 @@ function htmlSelectorMarco() {
     <div class="flex gap-2 mb-3 items-center flex-wrap bg-card border border-borde rounded-xl shadow-fluent px-3 py-2.5">
       <input id="prBuscar" type="search" placeholder="Buscar producto…" value="${esc(prodBusqueda)}"
              class="px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72 max-w-full focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
-      <button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}">Solo con cambios</button>
+      <button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>
       <span id="prConteo" class="text-sm text-gris"></span>
       <button id="prNuevo" class="ml-auto ${btnPrim}">+ Nuevo producto</button>
     </div>
     <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
       <table class="w-full text-sm">
         <thead class="bg-verde/5 text-verde"><tr><th class="p-2 text-left" data-orden="nombre">Producto</th><th class="p-2" data-orden="variantes">Variedades</th>
-          <th class="p-2" data-orden="presentaciones">Presentaciones</th><th class="p-2 text-right" data-orden="costo">Costo/kg base</th><th class="p-2" data-orden="estado">Estado</th></tr></thead>
-        <tbody id="prCuerpo"><tr><td colspan="5">${cargandoHtml('Cargando…')}</td></tr></tbody>
+          <th class="p-2" data-orden="presentaciones">Presentaciones</th><th class="p-2 text-right" data-orden="costo">Costo/kg base</th>
+          <th class="p-2" data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="p-2" data-orden="estado">Estado</th></tr></thead>
+        <tbody id="prCuerpo"><tr><td colspan="6">${cargandoHtml('Cargando…')}</td></tr></tbody>
       </table>
     </div>`;
 }
@@ -464,14 +471,16 @@ function pintarFilasSelector() {
   const q = normTxt(prodBusqueda.trim());
   const filas = ordenarSelectorProd(prodLista.filter(p => (!q || normTxt(p.nombre).includes(q)) && (!prodSoloCambios || p.alertas > 0)));
   document.getElementById('prConteo').textContent = prodLista.length ? `${filas.length} de ${prodLista.length} productos` : '';
-  if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="5">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
-  if (!filas.length) { tbody.innerHTML = '<tr><td colspan="5" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>'; return; }
+  document.getElementById('prNCambios').textContent = `(${prodLista.filter(p => p.alertas > 0).length})`;
+  if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="6">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
+  if (!filas.length) { tbody.innerHTML = '<tr><td colspan="6" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>'; return; }
   tbody.innerHTML = filas.map(p => `
-    <tr class="border-t border-borde cursor-pointer hover:bg-verde/5" data-id="${esc(p.id)}">
-      <td class="p-2"><a href="#produccion/${esc(encodeURIComponent(p.id))}" class="font-semibold text-verde hover:text-verdeHover">${esc(p.nombre)}</a></td>
+    <tr class="border-t border-borde cursor-pointer hover:bg-verde/5${p.alertas > 0 ? ' ' + MARCA_CAMBIO : ''}" data-id="${esc(p.id)}">
+      <td class="p-2">${p.alertas > 0 ? `<span class="text-warn mr-1" title="${esc(TIT_CAMBIO)}">●</span>` : ''}<a href="#produccion/${esc(encodeURIComponent(p.id))}" class="font-semibold text-verde hover:text-verdeHover">${esc(p.nombre)}</a></td>
       <td class="p-2 text-center tabular-nums">${p.variantes}</td>
       <td class="p-2 text-center tabular-nums">${p.presentaciones}</td>
       <td class="p-2 text-right tabular-nums">${p.costoKgBase != null ? '$ ' + fmtMoney(p.costoKgBase) : '—'}</td>
+      ${htmlFechaPrecio((p.exportables || []).map(e => e.fechaPrecio))}
       <td class="p-2 text-center">${htmlEstadoSelector(p)}</td>
     </tr>`).join('');
   tbody.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.closest('a')) irAProduccion(tr.dataset.id); });
@@ -587,6 +596,16 @@ async function refrescarAlertasProduccion() {
   try { prodAlertas = await getJson(API_PROD + '/alertas'); }
   catch { return; } // ponytail: el toast es un aviso; si la consulta falla queda el último estado, sin romper la tab que guardó
   pintarToast();
+  pintarBadgeTabProd();
+}
+// Badge de la tab Producción: cantidad de productos con cambios de componentes (oculto si 0).
+function pintarBadgeTabProd() {
+  const b = document.getElementById('tabProdBadge');
+  if (!b) return;
+  const n = productosConCambios(prodAlertas);
+  b.textContent = String(n);
+  b.title = `${n} ${n === 1 ? 'producto' : 'productos'} con componentes modificados: revisar y validar`;
+  b.classList.toggle('hidden', !n);
 }
 if (typeof window !== 'undefined') window.refrescarAlertasProduccion = refrescarAlertasProduccion; // explícito: lo llaman precios.html y precios_fraccionado.js
 

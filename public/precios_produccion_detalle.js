@@ -122,12 +122,13 @@ function ejecutarAccionProd(ds) {
   else if (ds.prAccion === 'costo') cargarCostoManual(ds.clave);
   else if (ds.prAccion === 'margen') cargarMargen(ds.plu);
   else if (ds.prAccion === 'abrirPres') abrirPresentacion(ds.clave); // precios_produccion_modal.js
-  else if (ds.prAccion === 'config') irAConfiguracion();
+  else if (ds.prAccion === 'config') irATab('configuracion');
+  else if (ds.prAccion === 'maquinas') irATab('maquinas'); // precios_maquinas.js
 }
-async function irAConfiguracion() {
+async function irATab(tipo) {
   if (!(await cerrarPresentacion())) return; // con cambios sin guardar pregunta
   salirDeProduccion();
-  activarTab('configuracion');
+  activarTab(tipo);
   window.scrollTo(0, 0);
 }
 
@@ -257,7 +258,8 @@ function htmlReceta(id) {
   const c = prodDet.recetas[id] || null; // null = borrador sin guardar
   const nombres = nombresProd();
   const esVar = !!ed.varianteDe;
-  return `<article class="rounded-xl border border-borde bg-card p-3 sm:p-4 mt-3" data-receta="${esc(id)}">
+  const marca = c && estadoFila(c) === 'cambio' ? ' ' + MARCA_CAMBIO : ' bg-card'; // MARCA_CAMBIO: precios_produccion.js
+  return `<article class="rounded-xl border border-borde p-3 sm:p-4 mt-3${marca}" data-receta="${esc(id)}">
     ${htmlRecetaCabecera(ed, c, nombres)}
     ${esVar ? htmlVariedadBase(ed, c) : htmlRecetaCampos(ed)}
     <div class="mt-4 text-sm font-semibold text-ink">${esVar ? `Extras: cantidad para los ${fmtNum(kgBaseDe(ed))} kg de la receta base <span class="font-normal text-xs text-gris">(opcional)</span>` : `Ingredientes de una tanda ${REQ}`}
@@ -353,7 +355,10 @@ function celdasCosto(r) {
     <td class="p-1.5 text-right tabular-nums">${r.importe != null ? '$ ' + fmtMoney(r.importe) : '—'}</td>
     <td class="p-1.5 text-xs text-gris">${textoFuente(r.fuente)}</td>`;
 }
-const filaItem = (it, i) => `<tr class="border-t border-borde" data-i="${i}"><td class="p-1.5 tabular-nums">${esc(it.plu)}</td>
+// Fila que movió el costo desde la última validación: misma marca que la receta (MARCA_CAMBIO).
+const marcaFila = cambio => (cambio ? ` ${MARCA_CAMBIO}" title="${esc(TIT_FILA_CAMBIO)}` : '');
+const TIT_FILA_CAMBIO = 'Este componente cambió desde la última validación';
+const filaItem = (it, i, cambiados = new Set()) => `<tr class="border-t border-borde${marcaFila(cambiados.has(String(it.plu)))}" data-i="${i}"><td class="p-1.5 tabular-nums">${esc(it.plu)}</td>
   <td class="p-1.5">${esc(it.nombre || '—')}</td>
   <td class="p-1.5 text-right"><input type="number" min="0" step="any" class="rc-cant num-in w-24" placeholder="ej. 5" aria-label="Cantidad de ${esc(it.nombre || it.plu)} (obligatoria)" value="${it.cantidad ?? ''}"></td>
   <td class="p-1.5"><select class="rc-unidad num-in" aria-label="Unidad de ${esc(it.nombre || it.plu)}">
@@ -361,7 +366,7 @@ const filaItem = (it, i) => `<tr class="border-t border-borde" data-i="${i}"><td
   ${celdasCosto(it)}
   <td class="p-1.5 text-center"><button type="button" class="rc-quitar w-7 h-7 rounded-lg text-gris hover:text-crit hover:bg-crit/10" aria-label="Quitar ${esc(it.nombre || it.plu)}" title="Quitar">✕</button></td></tr>`;
 // Mano de obra / máquina de la tanda (del server, sólo lectura).
-const filaElab = c => `<tr><td></td><td class="p-1.5" colspan="3">${esc(c.plu === '_costoHora' ? 'Mano de obra' : 'Máquina · ' + (c.nombre || ''))}
+const filaElab = (c, cambiados = new Set()) => `<tr class="${marcaFila(cambiados.has(c.plu)).trimStart()}"><td></td><td class="p-1.5" colspan="3">${esc(c.plu === '_costoHora' ? 'Mano de obra' : 'Máquina · ' + (c.nombre || ''))}
   <span class="text-xs">${fmtNum(c.cantidad)} min × ${c.costoUnit != null ? '$ ' + fmtMoney(c.costoUnit) + '/min' : '—'}</span></td>
   <td></td><td class="p-1.5 text-right tabular-nums">${c.importe != null ? '$ ' + fmtMoney(c.importe) : '—'}</td><td class="p-1.5 text-xs">config</td><td></td></tr>`;
 // thOrden (header ordenable) vive en precios_orden.js.
@@ -381,12 +386,13 @@ function htmlRecetaTabla(id, ed, c) {
   const orden = prodOrdenRecetas[claveOrdenReceta(id)] || null;
   // Filas con su índice original (data-i): editar/quitar siguen apuntando al ítem correcto.
   const filas = ordenarFilas(ed.items.map((it, i) => ({ ...it, _i: i })), orden && orden.clave, orden && orden.dir);
+  const cambiados = plusCambiados(c && c.cambios);
   return `<div class="overflow-x-auto mt-2"><table class="w-full text-sm">
     <thead class="text-xs text-gris"><tr>${thOrden('plu', 'PLU', orden)}${thOrden('nombre', ed.varianteDe ? 'Extra' : 'Ingrediente', orden)}
       ${thOrden('cantidad', `Cantidad ${REQ}`, orden, true)}${thOrden('unidad', 'Unidad', orden)}${thOrden('costoUnit', 'Costo unit.', orden, true)}
       ${thOrden('importe', 'Importe', orden, true)}${thOrden('fuente', 'Fuente', orden)}<th></th></tr></thead>
-    ${htmlFilaBase(ed, c)}<tbody>${filas.map(f => filaItem(f, f._i)).join('') || (ed.varianteDe ? '' : vacio)}</tbody>
-    <tfoot class="text-gris">${elab.map(filaElab).join('')}
+    ${htmlFilaBase(ed, c)}<tbody>${filas.map(f => filaItem(f, f._i, cambiados)).join('') || (ed.varianteDe ? '' : vacio)}</tbody>
+    <tfoot class="text-gris">${elab.map(x => filaElab(x, cambiados)).join('')}
       <tr class="border-t border-borde"><td colspan="5" class="p-1.5 text-right">Costo de la tanda</td>
         <td class="p-1.5 text-right tabular-nums font-semibold text-ink">${c && c.costoBatch != null ? '$ ' + fmtMoney(c.costoBatch) : '—'}</td><td colspan="2"></td></tr></tfoot>
   </table></div>`;

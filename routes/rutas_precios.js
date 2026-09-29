@@ -60,7 +60,7 @@ module.exports = function crearRutasPrecios(deps) {
 
   // Consultas SIGA compartidas con Producción (lib/precios_consultas.js): costo por PLU
   // (productosConCostos) y precio vigente de mostrador (preciosVigentesAlmacen).
-  const { productosConCostos, costosPorPlu, preciosVigentesAlmacen, vinculosPackBulto } = crearConsultasPrecios({
+  const { productosConCostos, costosPorPlu, preciosVigentesAlmacen, fechasPrecioAlmacen, vinculosPackBulto, comprasHoy } = crearConsultasPrecios({
     query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
   });
   // Vínculos pack/bulto → base (una query por request). Las sub-filas se aplican sobre el
@@ -77,9 +77,11 @@ module.exports = function crearRutasPrecios(deps) {
   // (sin query filtrada por plu) — subir si el universo Almacén crece lo bastante para
   // que el round-trip duela; hoy es el mismo volumen que ya trae /api/precios-proveedores/listado.
   async function filasAlmacen(costeo) {
-    const [universo, vigentes, vinculos] = await Promise.all([universoAlmacen(), preciosVigentesAlmacen(), vinculosDe(costeo)]);
+    const [universo, vigentes, fechas, vinculos, compras] = await Promise.all([
+      universoAlmacen(), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosDe(costeo), comprasHoy(),
+    ]);
     const marcados = costeo.marcadosExportar || {};
-    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo });
+    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo });
     return universo.map(p => {
       const fila = calcularFilaAlmacen({
         plu: p.plu, nombre: p.nombre, costoMercaderia: p.costoMercaderia, costoSistema: p.costoSistema,
@@ -89,8 +91,10 @@ module.exports = function crearRutasPrecios(deps) {
       return {
         ...fila,
         proveedor: p.proveedor, fechaUltimaCompra: p.fechaUltimaCompra, ingresoHoy: p.ingresoHoy,
+        compraHoy: compraHoyDe(compras, p.plu, costeo.toleranciaPct),
         costoSistemaConIva: p.costoSistemaConIva, ivaCompraPct: p.ivaCompraPct, ivaCompraSupuesto: p.ivaCompraSupuesto,
         marcado: Object.prototype.hasOwnProperty.call(marcados, p.plu),
+        fechaPrecio: fechas.get(clavePlu(p.plu)) || null,
         packBulto: packBultoDe(p.plu, fila.precioConIva),
       };
     });
@@ -109,14 +113,15 @@ module.exports = function crearRutasPrecios(deps) {
   }
 
   async function gruposFraccionado(costeo) {
-    const [graneles, presentaciones, vigentes, vinculos] = await Promise.all([
-      productosDeRubro('Pesables Deposito'), productosDeRubro('Pesables Fraccionado'), preciosVigentesAlmacen(), vinculosDe(costeo),
+    const [graneles, presentaciones, vigentes, fechas, vinculos, compras] = await Promise.all([
+      productosDeRubro('Pesables Deposito'), productosDeRubro('Pesables Fraccionado'), preciosVigentesAlmacen(), fechasPrecioAlmacen(),
+      vinculosDe(costeo), comprasHoy(),
     ]);
     const formulas = (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas || {};
     const referenciados = presentaciones.map(p => granelDe(formulas, p.plu)).filter(Boolean);
     const costos = await costosPorPlu([...graneles.map(g => g.plu), ...referenciados]);
-    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo });
-    return armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig: costeo, packBultoDe });
+    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo });
+    return armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, fechas, costeoConfig: costeo, packBultoDe, comprasHoy: compras });
   }
 
   router.get('/api/precios/listado', apiRoute(async (req) => {
@@ -132,8 +137,9 @@ module.exports = function crearRutasPrecios(deps) {
       costosExtra: f.costosExtra, costoExtraTotal: f.costoExtraTotal,
       precioNeto: f.precioNeto, precioConIva: f.precioConIva, precioVigente: f.precioVigente,
       deltaPct: f.deltaPct, semaforo: f.semaforo, faltantes: f.faltantes,
-      proveedor: f.proveedor, fechaUltimaCompra: f.fechaUltimaCompra, ingresoHoy: f.ingresoHoy,
-      marcado: f.marcado, packBulto: f.packBulto,
+      costoSistema: f.costoSistema, costoSistemaConIva: f.costoSistemaConIva, ivaCompraPct: f.ivaCompraPct, precioUltimaCompra: f.precioUltimaCompra,
+      proveedor: f.proveedor, fechaUltimaCompra: f.fechaUltimaCompra, ingresoHoy: f.ingresoHoy, compraHoy: f.compraHoy,
+      marcado: f.marcado, packBulto: f.packBulto, fechaPrecio: f.fechaPrecio,
     }));
   }));
 
@@ -444,6 +450,16 @@ const MARKUP_FRACCIONADO_DEFAULT = Object.freeze({
               [73.57, 70.26, 66.95, 66.95, 65.3, 58.69, 55.38]],
 });
 
+// Clave de los Map armados con String(IdProducto).trim() (comprasHoy, fechasPrecioAlmacen): SIGA puede
+// traer IdProducto con espacios y el plu de filaCostos no se recorta.
+const clavePlu = plu => (plu == null ? null : String(plu).trim());
+
+// Compra de hoy del plu con su tendencia contra la anterior (±toleranciaPct global), o null.
+function compraHoyDe(compras, plu, toleranciaPct) {
+  const ch = plu != null ? compras.get(clavePlu(plu)) : null;
+  return ch ? { ...ch, tendencia: preciosCosteo.tendenciaCompraHoy(ch.deltaPct, toleranciaPct) } : null;
+}
+
 function costosExtraDe(cfg, plu) {
   const items = plu != null ? (cfg.costosExtraFraccionado || {})[plu] : null;
   return Array.isArray(items) ? items : [];
@@ -459,8 +475,12 @@ function granelDe(formulas, plu) {
 // costoMercaderia, costoSistema, ...) y vigentes (Map plu → precio por kg). Todas las presentaciones
 // de un granel llevan su costo $/kg; varía el margen: margenPorProducto[plu] ?? standard.
 const SIN_GRANEL = 'Sin granel asignado';
-// packBultoDe(plu, precioConIva) → sub-filas pack/bulto de la presentación (crearPackBultoDe); sin él, [].
-function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, costeoConfig, packBultoDe = () => [] }) {
+// packBultoDe(plu, precioConIva, { pesable: true }) → sub-filas pack/bulto de la presentación (crearPackBultoDe):
+// el base es $/kg, así que cada pack/bulto se vende por kg o por paquete (ventaPesable); sin él, [].
+// packBultoGranel = bultos/packs cuya fórmula es el granel mismo: packBultoDe(granelPlu, null), sin sugerido.
+// fechas: Map plu → 'YYYY-MM-DD' del último cambio de precio en SIGA (fechaPrecio de cada presentación).
+// comprasHoy: Map granelPlu → compra cargada hoy (lib/precios_consultas comprasHoy); el grupo la lleva con tendencia.
+function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, fechas = new Map(), costeoConfig, packBultoDe = () => [], comprasHoy = new Map() }) {
   const cfg = costeoConfig || {};
   const matriz = cfg.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT;
   const overrides = cfg.margenPorProducto || {};
@@ -484,7 +504,9 @@ function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vi
       ivaCompraPct: c.ivaCompraPct ?? null, ivaCompraSupuesto: !!c.ivaCompraSupuesto,
       precioUltimaCompra: c.costoMercaderia ?? null,
       proveedor: c.proveedor || null, fechaUltimaCompra: c.fechaUltimaCompra || null, ingresoHoy: !!c.ingresoHoy,
+      compraHoy: compraHoyDe(comprasHoy, plu, cfg.toleranciaPct),
       banda: preciosCosteo.markupStdFraccionado(costoBase, null, matriz).fila, presentaciones: [],
+      packBultoGranel: plu == null ? [] : packBultoDe(plu, null),
     };
   };
   for (const g of graneles || []) grupos.set(g.plu, nuevoGrupo(g.plu, g.nombre));
@@ -499,7 +521,8 @@ function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vi
     grupo.presentaciones.push({
       ...fila,
       marcado: Object.prototype.hasOwnProperty.call(marcados, p.plu),
-      packBulto: packBultoDe(p.plu, fila.precioConIva),
+      fechaPrecio: fechas.get(clavePlu(p.plu)) || null,
+      packBulto: packBultoDe(p.plu, fila.precioConIva, { pesable: true }),
     });
   }
   const porNombre = (a, b) => String(a).localeCompare(String(b), 'es');

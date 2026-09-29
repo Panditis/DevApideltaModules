@@ -1,6 +1,7 @@
 # Módulo Precios de Proveedores — Plan de Implementación
+> **Estado (verificado 2026-09-29): implementado y en producción** — commits b3aacff (página + tile) y 93b32be (fix SSRF/XSS del review). Tareas tildadas en bloque al verificar código: lib/precios_proveedores.js, routes/rutas_precios_proveedores.js, public/precios_proveedores.html, test/precios_proveedores.test.js.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Módulo de comparación y gestión de precios de proveedores: listado de productos paraCompra de SIGA con costo/último proveedor/historial anual, tabs por proveedor con listas cargadas por PDF, URL o manual, matcheadas contra SIGA con semáforo Δ%.
 
@@ -19,14 +20,14 @@
 **Files:**
 - Modify: `package.json` (vía npm)
 
-- [ ] **Step 1: Instalar pdf-parse y cheerio**
+- [x] **Step 1: Instalar pdf-parse y cheerio**
 
 ```bash
 cd c:\Users\Adriel\ApideltaSubSystem\dev
 npm install pdf-parse@1 cheerio@1
 ```
 
-- [ ] **Step 2: Verificar que cargan**
+- [x] **Step 2: Verificar que cargan**
 
 ```bash
 node -e "require('pdf-parse'); require('cheerio'); console.log('deps ok')"
@@ -34,7 +35,7 @@ node -e "require('pdf-parse'); require('cheerio'); console.log('deps ok')"
 
 Esperado: `deps ok`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add package.json package-lock.json
@@ -49,7 +50,7 @@ git commit -m "chore: agrega pdf-parse y cheerio para módulo precios proveedore
 - Create: `precios_proveedores.js`
 - Test: `test/precios_proveedores.test.js`
 
-- [ ] **Step 1: Escribir tests que fallan**
+- [x] **Step 1: Escribir tests que fallan**
 
 Crear `test/precios_proveedores.test.js`:
 
@@ -90,7 +91,7 @@ test('parsearTextoPdf no confunde años con precios', () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -98,7 +99,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: FAIL — `Cannot find module '../precios_proveedores'`.
 
-- [ ] **Step 3: Implementación mínima**
+- [x] **Step 3: Implementación mínima**
 
 Crear `precios_proveedores.js`:
 
@@ -172,7 +173,7 @@ function parsearTextoPdf(texto) {
 module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf };
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -180,7 +181,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add precios_proveedores.js test/precios_proveedores.test.js
@@ -195,7 +196,7 @@ git commit -m "feat: parser heurístico de listas de precios en texto PDF (preci
 - Modify: `precios_proveedores.js`
 - Test: `test/precios_proveedores.test.js`
 
-- [ ] **Step 1: Agregar tests que fallan**
+- [x] **Step 1: Agregar tests que fallan**
 
 Agregar al final de `test/precios_proveedores.test.js` (y sumar `parsearHtml` al require de arriba):
 
@@ -221,7 +222,7 @@ test('parsearHtml sin tablas devuelve vacío', () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -229,7 +230,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: FAIL — `parsearHtml is not a function`.
 
-- [ ] **Step 3: Implementar parsearHtml**
+- [x] **Step 3: Implementar parsearHtml**
 
 Agregar a `precios_proveedores.js` (antes del `module.exports`) y exportarla:
 
@@ -265,7 +266,7 @@ module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml 
 
 (El `module.exports` reemplaza al anterior.)
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -273,7 +274,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add precios_proveedores.js test/precios_proveedores.test.js
@@ -288,7 +289,7 @@ git commit -m "feat: parser de tablas de precios en HTML de proveedores"
 - Modify: `precios_proveedores.js`
 - Test: `test/precios_proveedores.test.js`
 
-- [ ] **Step 1: Agregar tests que fallan**
+- [x] **Step 1: Agregar tests que fallan**
 
 ```js
 const { matchearItems, scoreNombre, normalizarNombre } = require('../precios_proveedores');
@@ -319,7 +320,7 @@ test('matchearItems prioriza manual > codigo > barras > nombre', () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -327,7 +328,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: FAIL — `matchearItems is not a function`.
 
-- [ ] **Step 3: Implementar matching**
+- [x] **Step 3: Implementar matching**
 
 Agregar a `precios_proveedores.js` y exportar:
 
@@ -374,7 +375,7 @@ function matchearItems(items, ctx = {}) {
 module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml, normalizarNombre, scoreNombre, matchearItems };
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -382,7 +383,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: PASS (7 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add precios_proveedores.js test/precios_proveedores.test.js
@@ -397,7 +398,7 @@ git commit -m "feat: matching de items de lista a productos SIGA (manual/código
 - Modify: `precios_proveedores.js`
 - Test: `test/precios_proveedores.test.js`
 
-- [ ] **Step 1: Agregar tests que fallan**
+- [x] **Step 1: Agregar tests que fallan**
 
 ```js
 const { compararItem } = require('../precios_proveedores');
@@ -410,7 +411,7 @@ test('compararItem semáforo con tolerancia', () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -418,7 +419,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: FAIL — `compararItem is not a function`.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 ```js
 // Δ% del precio de lista contra el costo actual + semáforo.
@@ -434,7 +435,7 @@ function compararItem({ precioLista, costoActual, toleranciaPct = 2 }) {
 module.exports = { UMBRAL_NOMBRE, parsearPrecioAR, parsearTextoPdf, parsearHtml, normalizarNombre, scoreNombre, matchearItems, compararItem };
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 ```bash
 node --test test/precios_proveedores.test.js
@@ -442,7 +443,7 @@ node --test test/precios_proveedores.test.js
 
 Esperado: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add precios_proveedores.js test/precios_proveedores.test.js
@@ -458,7 +459,7 @@ git commit -m "feat: comparación Δ% con semáforo y tolerancia para precios de
 
 **Contexto para quien implementa:** `server.js` ya tiene `leerJSON(p, def)` y `guardarJSON(p, data)` (~línea 960), `apiRoute(fn)` (~línea 972), `query(q)` (~línea 59), `DATA_DIR`, y el patrón de páginas `app.get('/ruta', sendFile)` (~línea 923). SIGA es SOLO lectura. Strings en SQL siempre escapados con `.replace(/'/g, "''")`.
 
-- [ ] **Step 1: Requires y persistencia**
+- [x] **Step 1: Requires y persistencia**
 
 Buscar `const comprasModulo = require('./compras_modulo')` y agregar debajo:
 
@@ -477,7 +478,7 @@ function leerPreciosProv() { return leerJSON(PRECIOS_PROV_PATH, PRECIOS_PROV_DEF
 function guardarPreciosProv(d) { guardarJSON(PRECIOS_PROV_PATH, d); }
 ```
 
-- [ ] **Step 2: Helpers SQL**
+- [x] **Step 2: Helpers SQL**
 
 ```js
 // Universo paraCompra (EsDeCompras=1, Activo=1) + costo actual de la central + código de barras.
@@ -543,7 +544,7 @@ async function historialComprasAnio() {
 }
 ```
 
-- [ ] **Step 3: Ruta GET listado + ruta de página**
+- [x] **Step 3: Ruta GET listado + ruta de página**
 
 ```js
 app.get('/precios-proveedores', (_req, res) => res.sendFile(path.join(__dirname, 'precios_proveedores.html')));
@@ -564,7 +565,7 @@ app.get('/api/precios-proveedores/listado', apiRoute(async () => {
 }));
 ```
 
-- [ ] **Step 4: Verificar sintaxis y smoke**
+- [x] **Step 4: Verificar sintaxis y smoke**
 
 ```bash
 node --check server.js
@@ -578,7 +579,7 @@ curl -s "http://localhost:8081/api/precios-proveedores/listado" | head -c 400
 
 Esperado: JSON con `"productos":[...` y `"total":` ≈ 3274.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server.js
@@ -592,7 +593,7 @@ git commit -m "feat: endpoint listado precios-proveedores (universo paraCompra +
 **Files:**
 - Modify: `server.js` (mismo bloque de Task 6)
 
-- [ ] **Step 1: Rutas**
+- [x] **Step 1: Rutas**
 
 ```js
 app.get('/api/precios-proveedores/proveedores', apiRoute(async () => leerPreciosProv()));
@@ -629,7 +630,7 @@ app.delete('/api/precios-proveedores/proveedores/:id', apiRoute(async (req) => {
 
 Nota: verificar que `app.use(express.json())` (o equivalente) ya esté configurado globalmente en `server.js` — los POST existentes (`/api/compras-modulo/carrito/cobertura`) lo usan. Si no está global, agregar `express.json()` como middleware en estas rutas.
 
-- [ ] **Step 2: Verificar**
+- [x] **Step 2: Verificar**
 
 ```bash
 node --check server.js
@@ -639,7 +640,7 @@ curl -s "http://localhost:8081/api/precios-proveedores/proveedores-siga?q=car" |
 
 Esperado: primero `{"toleranciaPct":2,"proveedores":[]}`; segundo, proveedores SIGA cuyo nombre contenga "car".
 
-- [ ] **Step 3: Probar alta y baja**
+- [x] **Step 3: Probar alta y baja**
 
 ```bash
 curl -s -X POST "http://localhost:8081/api/precios-proveedores/proveedores" -H "Content-Type: application/json" -d "{\"idProveedorSiga\":1,\"nombre\":\"Prueba\"}"
@@ -648,7 +649,7 @@ curl -s -X DELETE "http://localhost:8081/api/precios-proveedores/proveedores/pro
 
 Esperado: alta devuelve el proveedor con `"id":"prov-1"`; baja devuelve `{"ok":true}`. Verificar que `data/precios_proveedores.json` quedó sin proveedores.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server.js
@@ -662,7 +663,7 @@ git commit -m "feat: tabs de proveedores persistidas y búsqueda de proveedores 
 **Files:**
 - Modify: `server.js` (mismo bloque)
 
-- [ ] **Step 1: Contexto de matching + guard de URL**
+- [x] **Step 1: Contexto de matching + guard de URL**
 
 ```js
 // Contexto para matchearItems: códigos del proveedor en SIGA + barras + catálogo del universo.
@@ -690,7 +691,7 @@ function urlPermitida(u) {
 }
 ```
 
-- [ ] **Step 2: parse-pdf y parse-url (devuelven propuesta, NO persisten)**
+- [x] **Step 2: parse-pdf y parse-url (devuelven propuesta, NO persisten)**
 
 ```js
 const uploadPreciosPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -736,7 +737,7 @@ app.post('/api/precios-proveedores/parse-url', async (req, res) => {
 });
 ```
 
-- [ ] **Step 3: Confirmar lista (persiste) + comparación**
+- [x] **Step 3: Confirmar lista (persiste) + comparación**
 
 ```js
 app.put('/api/precios-proveedores/proveedores/:id/lista', apiRoute(async (req) => {
@@ -787,7 +788,7 @@ app.get('/api/precios-proveedores/proveedores/:id/comparacion', apiRoute(async (
 }));
 ```
 
-- [ ] **Step 4: Verificar**
+- [x] **Step 4: Verificar**
 
 ```bash
 node --check server.js
@@ -804,7 +805,7 @@ curl -s -X DELETE "http://localhost:8081/api/precios-proveedores/proveedores/pro
 
 Esperado: lista guardada con `fechaCarga`; comparación con `sinMatchear` de 1 item; delete ok.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server.js
@@ -819,7 +820,7 @@ git commit -m "feat: carga de listas por PDF/URL con revisión, confirmación y 
 - Create: `precios_proveedores.html`
 - Modify: `inicio.html` (array `MODULOS`, ~línea 169)
 
-- [ ] **Step 1: Crear la página completa**
+- [x] **Step 1: Crear la página completa**
 
 Crear `precios_proveedores.html` con este contenido exacto:
 
@@ -1246,7 +1247,7 @@ init();
 </html>
 ```
 
-- [ ] **Step 2: Tile en inicio.html**
+- [x] **Step 2: Tile en inicio.html**
 
 En `inicio.html`, dentro del array `MODULOS` (~línea 169), agregar después de la entrada `Ventas por Hora` (ojo con la coma — la entrada anterior hoy no termina en coma):
 
@@ -1258,7 +1259,7 @@ En `inicio.html`, dentro del array `MODULOS` (~línea 169), agregar después de 
   }
 ```
 
-- [ ] **Step 3: Verificar en navegador**
+- [x] **Step 3: Verificar en navegador**
 
 Con el server dev recargado, abrir `http://localhost:8081/precios-proveedores`:
 - Tab Listado carga productos con costo/último proveedor.
@@ -1267,7 +1268,7 @@ Con el server dev recargado, abrir `http://localhost:8081/precios-proveedores`:
 - En la tab: "Editar lista" permite carga manual y confirma; comparación muestra Δ% con semáforo.
 - `http://localhost:8081/` muestra el tile nuevo.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add precios_proveedores.html inicio.html
@@ -1278,7 +1279,7 @@ git commit -m "feat: página precios de proveedores (listado, tabs, revisión) +
 
 ## Task 10: Verificación integral
 
-- [ ] **Step 1: Suite completa**
+- [x] **Step 1: Suite completa**
 
 ```bash
 node --test test/
@@ -1286,13 +1287,13 @@ node --test test/
 
 Esperado: todos los tests PASS (los 8 nuevos + los existentes).
 
-- [ ] **Step 2: Sintaxis**
+- [x] **Step 2: Sintaxis**
 
 ```bash
 node --check server.js && node --check precios_proveedores.js
 ```
 
-- [ ] **Step 3: Smoke E2E con curl**
+- [x] **Step 3: Smoke E2E con curl**
 
 ```bash
 curl -s "http://localhost:8081/api/precios-proveedores/listado" -o /dev/null -w "listado %{http_code}\n"
@@ -1302,7 +1303,7 @@ curl -s -X POST "http://localhost:8081/api/precios-proveedores/parse-url" -H "Co
 
 Esperado: `listado 200`, `página 200`, `ssrf-guard 422`.
 
-- [ ] **Step 4: Commit final (si quedó algo suelto) y resumen al usuario**
+- [x] **Step 4: Commit final (si quedó algo suelto) y resumen al usuario**
 
 ```bash
 git status --short

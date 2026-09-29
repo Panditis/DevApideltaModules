@@ -250,3 +250,26 @@ test('faltaObligatorioPres / presentacionSucia: presentación "todavía no está
   assert.match(ui.faltaObligatorioPres({ ...v, nombreNuevo: '  ' }), /nombre/);
   assert.strictEqual(ui.presentacionSucia({ ...v, nombreNuevo: 'Otro' }, v), true);
 });
+
+test('idCategoriaNueva: slug del nombre que cumple ID_CATEGORIA, único; _maquina lleva a la tab Máquinas', () => {
+  const ID_CATEGORIA = /^[a-z0-9][a-z0-9-]{0,39}$/;
+  assert.strictEqual(ui.idCategoriaNueva('Horno Rotativo', []), 'horno-rotativo');
+  assert.strictEqual(ui.idCategoriaNueva('Horno rotativo', ['horno-rotativo', 'horno-rotativo-2']), 'horno-rotativo-3');
+  assert.strictEqual(ui.idCategoriaNueva('¡¡!!', []), 'x');
+  const largo = ui.idCategoriaNueva('Mezcladora planetaria industrial de doble velocidad', ['mezcladora-planetaria-industrial-de']);
+  assert.match(largo, ID_CATEGORIA);
+  assert.deepStrictEqual(ui.mensajeFaltante('_maquina').accion, { tipo: 'maquinas' });
+});
+
+test('productosConCambios: cuenta productos distintos con alertas (no ítems)', () => {
+  assert.strictEqual(ui.productosConCambios({ items: [{ productoId: 'p-a' }, { productoId: 'p-a' }, { productoId: 'p-b' }] }), 2);
+  assert.strictEqual(ui.productosConCambios({ total: 0, items: [] }), 0);
+  assert.strictEqual(ui.productosConCambios(null), 0);
+});
+
+test('plusCambiados: componentes que movieron + agregados, como strings; sin cambios → vacío', () => {
+  const s = ui.plusCambiados({ estado: 'cambio', componentes: [{ plu: '101' }, { plu: '_costoHora' }], nuevos: ['202'], quitados: ['303'] });
+  assert.deepStrictEqual([...s].sort(), ['101', '202', '_costoHora']);
+  assert.strictEqual(ui.plusCambiados({ estado: 'ok', componentes: [{ plu: '101' }], nuevos: [], quitados: [] }).size, 0);
+  assert.strictEqual(ui.plusCambiados(null).size, 0);
+});

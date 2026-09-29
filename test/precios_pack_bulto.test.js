@@ -95,7 +95,7 @@ test('configPackBultoSanitizada: completa defaults y deja sólo claves conocidas
   });
   assert.deepStrictEqual(cfg, {
     descPackPct: 12, descBultoPct: 14.7, descPorProducto: { 91031: 0 },
-    vinculosManuales: { 91999: { basePlu: '6051', tipo: 'pack' } },
+    vinculosManuales: { 91999: { basePlu: '6051', tipo: 'pack' } }, ventaPesable: {},
   });
 });
 
@@ -115,13 +115,14 @@ test('configPackBultoSanitizada: rechaza %, PLUs y tipos inválidos', () => {
 test('crearPackBultoDe: sub-filas por base con vigente, semáforo y revisar unidad', () => {
   const { vinculos } = armarVinculos(FILAS, {});
   const vigentes = new Map([['6051', 3000], ['91031', 2855], ['91449', 30000]]);
-  const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo: { toleranciaPct: 5, packBulto: { descPorProducto: { 91031: 4.7 } }, marcadosExportar: { 91031: '2026-09-25' } } });
+  const fechas = new Map([['91031', '2026-04-02']]);
+  const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo: { toleranciaPct: 5, packBulto: { descPorProducto: { 91031: 4.7 } }, marcadosExportar: { 91031: '2026-09-25' } } });
   const filas = packBultoDe('6051', 2995);
   assert.deepStrictEqual(filas, [
     { plu: '91031', nombre: 'PEPAS MEMBRILLO PACK', tipo: 'pack', descPct: 4.7, descOverride: 4.7, precioSugerido: 2850,
-      precioVigente: 2855, deltaPct: -0.2, semaforo: 'ok', faltantes: [], revisarUnidad: false, marcado: true },
+      precioVigente: 2855, deltaPct: -0.2, semaforo: 'ok', faltantes: [], revisarUnidad: false, marcado: true, fechaPrecio: '2026-04-02' },
     { plu: '91449', nombre: 'PEPAS MEMBRILLO BULTO', tipo: 'bulto', descPct: 14.7, descOverride: null, precioSugerido: 2550,
-      precioVigente: 30000, deltaPct: -91.5, semaforo: 'bajar', faltantes: [], revisarUnidad: true, marcado: false }, // 30000/3000 = 10 > 1,2
+      precioVigente: 30000, deltaPct: -91.5, semaforo: 'bajar', faltantes: [], revisarUnidad: true, marcado: false, fechaPrecio: null }, // 30000/3000 = 10 > 1,2
   ]);
   assert.deepStrictEqual(packBultoDe('7', 1000), []);
   const sinBase = packBultoDe('6051', null);
@@ -192,12 +193,12 @@ test('router pack/bulto: vínculos, % globales, overrides y vínculos manuales (
     assert.strictEqual(v2.vinculos.find(x => x.plu === '93000').baseNombre, 'PEPAS MEMBRILLO'); // manual: nombre desde SIGA
     assert.deepStrictEqual(archivo(), {
       toleranciaPct: 10, margenPorProducto: { 1: 5 },
-      packBulto: { descPackPct: 15, descBultoPct: 14.7, descPorProducto: { 91031: 4.7 }, vinculosManuales: { 93000: { basePlu: '6051', tipo: 'bulto' } } },
+      packBulto: { descPackPct: 15, descBultoPct: 14.7, descPorProducto: { 91031: 4.7 }, vinculosManuales: { 93000: { basePlu: '6051', tipo: 'bulto' } }, ventaPesable: {} },
     });
 
     assert.deepStrictEqual(await pedir('DELETE', '/pack-bulto/descuento/91031'), { plu: '91031', descPct: null });
     assert.deepStrictEqual(await pedir('DELETE', '/pack-bulto/vinculo/93000'), { plu: '93000', borrado: true });
-    assert.deepStrictEqual(archivo().packBulto, { descPackPct: 15, descBultoPct: 14.7, descPorProducto: {}, vinculosManuales: {} });
+    assert.deepStrictEqual(archivo().packBulto, { descPackPct: 15, descBultoPct: 14.7, descPorProducto: {}, vinculosManuales: {}, ventaPesable: {} });
     assert.deepStrictEqual(archivo().margenPorProducto, { 1: 5 });
   } finally {
     server.close();
@@ -221,13 +222,44 @@ test('precioPackBulto: alineado exacto — a menos de $0,50 del vigente usa el v
   assert.strictEqual(precioPackBulto({ precioSugeridoBase: 2995, tipo: 'pack', cfg, plu: '91031' }).precioConIva, 2850);
 });
 
-test('armarVinculos: componente granel (Pesables Deposito) → sinVincular con motivo propio', () => {
+test('armarVinculos: componente granel (Pesables Deposito) → vínculo SIGA marcado granel con sus kg', () => {
   const { vinculos, sinVincular } = armarVinculos([
-    { plu: '95000', nombre: 'PASAS BULTO 10KG', basePlu: '4409', cantidad: 10, baseRubro: 'Pesables Deposito' },
+    { plu: '95000', nombre: 'PASAS BULTO 10KG', basePlu: '4409', cantidad: 10, baseRubro: 'Pesables Deposito', baseNombre: 'PASAS GRANEL' },
     { plu: '95001', nombre: 'PASAS PACK', basePlu: '4410', cantidad: 3, baseRubro: 'Almacen', baseNombre: 'PASAS 200G ' },
+    { plu: '95002', nombre: 'NUEZ X 25KG', basePlu: '4411', cantidad: 25, baseRubro: 'Pesables Deposito' }, // nombre ambiguo → bulto
   ], {});
-  assert.deepStrictEqual(sinVincular, [{ plu: '95000', nombre: 'PASAS BULTO 10KG', motivo: 'componente es granel (sin precio sugerido propio)' }]);
-  assert.strictEqual(vinculos[0].baseNombre, 'PASAS 200G');
+  assert.deepStrictEqual(sinVincular, []);
+  const por = Object.fromEntries(vinculos.map(v => [v.plu, v]));
+  assert.deepStrictEqual(por['95000'], {
+    plu: '95000', nombre: 'PASAS BULTO 10KG', basePlu: '4409', baseNombre: 'PASAS GRANEL', cantidad: 10, tipo: 'bulto', origen: 'siga', granel: true,
+  });
+  assert.strictEqual(por['95002'].tipo, 'bulto');
+  assert.strictEqual(por['95002'].granel, true);
+  assert.strictEqual(por['95001'].baseNombre, 'PASAS 200G');
+  assert.strictEqual('granel' in por['95001'], false);
+});
+
+test('crearPackBultoDe: vínculo granel → nunca precio sugerido (aunque venga base), vigente y kg a la vista', () => {
+  const vinculos = [{ plu: '95000', nombre: 'PASAS BULTO 10KG', basePlu: '4409', cantidad: 10, tipo: 'bulto', origen: 'siga', granel: true }];
+  const vigentes = new Map([['4409', 5000], ['95000', 45000]]);
+  const de = crearPackBultoDe({ vinculos, vigentes, costeo: { marcadosExportar: { 95000: true } } });
+  for (const base of [null, 5000]) {
+    const [f] = de('4409', base);
+    assert.strictEqual(f.precioSugerido, null);
+    assert.strictEqual(f.precioVigente, 45000);
+    assert.strictEqual(f.deltaPct, null);
+    assert.strictEqual(f.granel, true);
+    assert.strictEqual(f.cantidad, 10);
+    assert.strictEqual(f.revisarUnidad, false); // $/bulto vs $/kg: el ratio no significa nada
+  }
+});
+
+test('descuentosAlineados: los vínculos granel se omiten (sin precio sugerido)', () => {
+  const vinculos = [{ plu: '95000', nombre: 'PASAS BULTO 10KG', basePlu: '4409', tipo: 'bulto', granel: true }];
+  const vigentes = new Map([['4409', 5000], ['95000', 45000]]);
+  assert.deepStrictEqual(descuentosAlineados({ vinculos, vigentes }), {
+    descuentos: {}, omitidos: [{ plu: '95000', nombre: 'PASAS BULTO 10KG', motivo: 'granel sin precio sugerido' }],
+  });
 });
 
 test('descuentosAlineados: % que reproduce el vigente; omite sin vigente o fuera de 0,5–1,2', () => {
@@ -264,6 +296,108 @@ test('router pack/bulto: POST alinear-siga guarda los % en una sola escritura y 
     const archivo = JSON.parse(fs.readFileSync(path.join(dir, 'costeo.json'), 'utf8'));
     assert.deepStrictEqual(archivo.packBulto.descPorProducto, { 91031: 4.6745 });
     assert.deepStrictEqual(archivo.margenPorProducto, { 1: 5 });
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Venta de pack/bulto pesables: por kg o por paquete (peso en kg) ───────────
+test('precioPackBulto: modo paquete = sugerido $/kg × peso × (1 − desc), redondeo $50 y alineado exacto', () => {
+  const cfg = { descPackPct: 9.7 };
+  // 4990 $/kg × 3 kg × 0,903 = 13517,91 → 13500
+  assert.deepStrictEqual(precioPackBulto({ precioSugeridoBase: 4990, tipo: 'pack', cfg, plu: '1', modo: 'paquete', pesoKg: 3 }),
+    { descPct: 9.7, descOverride: null, precioConIva: 13500, faltantes: [] });
+  // A menos de $0,50 del vigente del paquete → el vigente.
+  assert.strictEqual(precioPackBulto({ precioSugeridoBase: 4990, tipo: 'pack', cfg, plu: '1', modo: 'paquete', pesoKg: 3, precioVigente: 13518 }).precioConIva, 13518);
+  // Modo kg (default): igual que antes.
+  assert.strictEqual(precioPackBulto({ precioSugeridoBase: 4990, tipo: 'pack', cfg, plu: '1', modo: 'kg', pesoKg: 3 }).precioConIva, 4500);
+});
+
+test('precioPackBulto: modo paquete sin peso válido → faltante peso, sin precio (nunca optimista)', () => {
+  for (const pesoKg of [null, 0, -1, NaN, '3']) {
+    assert.deepStrictEqual(precioPackBulto({ precioSugeridoBase: 4990, tipo: 'pack', cfg: {}, plu: '1', modo: 'paquete', pesoKg }),
+      { descPct: 9.7, descOverride: null, precioConIva: null, faltantes: ['peso'] });
+  }
+  assert.deepStrictEqual(precioPackBulto({ precioSugeridoBase: null, tipo: 'pack', cfg: {}, plu: '1', modo: 'paquete' }).faltantes, ['base', 'peso']);
+});
+
+test('configPackBultoSanitizada: ventaPesable { plu: { modo, pesoKg } } validado', () => {
+  assert.deepStrictEqual(configPackBultoSanitizada({}).ventaPesable, {});
+  const cfg = configPackBultoSanitizada({ ventaPesable: { 91011: { modo: 'paquete', pesoKg: 3, x: 1 }, 91012: { modo: 'kg' }, 91013: { modo: 'kg', pesoKg: 0.5 } } });
+  assert.deepStrictEqual(cfg.ventaPesable, { 91011: { modo: 'paquete', pesoKg: 3 }, 91012: { modo: 'kg' }, 91013: { modo: 'kg', pesoKg: 0.5 } });
+  const mal = [
+    [{ ventaPesable: { abc: { modo: 'kg' } } }, /PLU/],
+    [{ ventaPesable: { 1: { modo: 'caja' } } }, /modo/],
+    [{ ventaPesable: { 1: { modo: 'paquete' } } }, /pesoKg/],
+    [{ ventaPesable: { 1: { modo: 'paquete', pesoKg: 0 } } }, /pesoKg/],
+    [{ ventaPesable: { 1: { modo: 'paquete', pesoKg: '3' } } }, /pesoKg/],
+    [{ ventaPesable: { 1: { modo: 'kg', pesoKg: 5000 } } }, /pesoKg/],
+  ];
+  for (const [body, re] of mal) assert.throws(() => configPackBultoSanitizada(body), re);
+});
+
+test('crearPackBultoDe: pesable → modoVenta/pesoKg (precarga = kg de la fórmula); paquete → precio del paquete y ratio × peso', () => {
+  const vinculos = [
+    { plu: '91011', nombre: 'LINO PACK 3KG', basePlu: '11', cantidad: 3, tipo: 'pack', origen: 'siga' },
+    { plu: '91012', nombre: 'LINO BULTO', basePlu: '11', cantidad: null, tipo: 'bulto', origen: 'siga' },
+  ];
+  const vigentes = new Map([['11', 5000], ['91011', 13600], ['91012', 4300]]);
+  const costeo = { toleranciaPct: 5, packBulto: { descPackPct: 9.7, ventaPesable: { 91011: { modo: 'paquete', pesoKg: 3 } } } };
+  const de = crearPackBultoDe({ vinculos, vigentes, costeo });
+  const [pack, bulto] = de('11', 4990, { pesable: true });
+  // 4990 × 3 × 0,903 = 13517,91 → 13500; vs vigente 13600 → −0,7% ok; ratio 13600 / (5000 × 3) = 0,91 → sin revisar.
+  assert.deepStrictEqual([pack.modoVenta, pack.pesoKg, pack.cantidad, pack.precioSugerido, pack.deltaPct, pack.semaforo, pack.revisarUnidad],
+    ['paquete', 3, 3, 13500, -0.7, 'ok', false]);
+  // Sin config → kg (como antes), sin kg de fórmula → pesoKg null.
+  assert.deepStrictEqual([bulto.modoVenta, bulto.pesoKg, bulto.precioSugerido], ['kg', null, 4250]);
+  // No pesable (Almacén / Producción): sin campos de venta, aunque haya config.
+  const [alm] = de('11', 4990);
+  assert.strictEqual('modoVenta' in alm, false);
+  assert.strictEqual(alm.precioSugerido, 4500);
+  // Paquete sin peso (config cruda sin pesoKg y sin kg de fórmula) → faltante peso.
+  const sinPeso = crearPackBultoDe({ vinculos, vigentes, costeo: { packBulto: { ventaPesable: { 91012: { modo: 'paquete' } } } } })('11', 4990, { pesable: true })[1];
+  assert.deepStrictEqual([sinPeso.precioSugerido, sinPeso.faltantes, sinPeso.revisarUnidad], [null, ['peso'], false]);
+});
+
+test('crearPackBultoDe: bulto de granel guarda modo/peso pero sigue sin sugerido', () => {
+  const vinculos = [{ plu: '95000', nombre: 'PASAS BULTO 10KG', basePlu: '4409', cantidad: 10, tipo: 'bulto', origen: 'siga', granel: true }];
+  const vigentes = new Map([['4409', 5000], ['95000', 45000]]);
+  const [f] = crearPackBultoDe({ vinculos, vigentes, costeo: { packBulto: { ventaPesable: { 95000: { modo: 'paquete', pesoKg: 9 } } } } })('4409', null);
+  assert.deepStrictEqual([f.modoVenta, f.pesoKg, f.cantidad, f.precioSugerido, f.faltantes, f.revisarUnidad], ['paquete', 9, 10, null, ['base'], false]);
+  const [k] = crearPackBultoDe({ vinculos, vigentes, costeo: {} })('4409', null);
+  assert.deepStrictEqual([k.modoVenta, k.pesoKg], ['kg', 10]);
+});
+
+test('descuentosAlineados: modo paquete compara el vigente del paquete contra vigente base × peso', () => {
+  const vinculos = [{ plu: '91011', nombre: 'LINO PACK 3KG', basePlu: '11', cantidad: 3, tipo: 'pack' }];
+  const vigentes = new Map([['11', 5000], ['91011', 13500]]);
+  // Por kg: 13500 / 5000 = 2,7 → revisar unidad. Por paquete de 3 kg: 13500 / 15000 = 0,9 → 10%.
+  assert.match(descuentosAlineados({ vinculos, vigentes }).omitidos[0].motivo, /revisar unidad/);
+  const cfg = { ventaPesable: { 91011: { modo: 'paquete', pesoKg: 3 } } };
+  const r = descuentosAlineados({ vinculos, vigentes, cfg });
+  assert.deepStrictEqual(r, { descuentos: { 91011: 10 }, omitidos: [] });
+  // Alinear y recalcular da Δ 0.
+  const f = crearPackBultoDe({ vinculos, vigentes, costeo: { packBulto: { ...cfg, descPorProducto: r.descuentos } } })('11', 5000, { pesable: true })[0];
+  assert.deepStrictEqual([f.precioSugerido, f.deltaPct], [13500, 0]);
+});
+
+test('router pack/bulto: PUT/DELETE venta/:plu guarda modo y peso (sólo packBulto.ventaPesable)', async () => {
+  const { server, dir, base } = await montarPackBulto();
+  const pedir = async (metodo, url, body) => (await fetch(base + url, {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  })).json();
+  const archivo = () => JSON.parse(fs.readFileSync(path.join(dir, 'costeo.json'), 'utf8'));
+  try {
+    assert.deepStrictEqual(await pedir('PUT', '/pack-bulto/venta/91031', { modo: 'paquete', pesoKg: 2.5 }), { plu: '91031', modo: 'paquete', pesoKg: 2.5 });
+    assert.deepStrictEqual(await pedir('PUT', '/pack-bulto/venta/91032', { modo: 'kg' }), { plu: '91032', modo: 'kg', pesoKg: null });
+    assert.match((await pedir('PUT', '/pack-bulto/venta/91033', { modo: 'paquete' })).error, /pesoKg/);
+    assert.match((await pedir('PUT', '/pack-bulto/venta/91033', { modo: 'x', pesoKg: 1 })).error, /modo/);
+    assert.match((await pedir('PUT', '/pack-bulto/venta/abc', { modo: 'kg' })).error, /PLU/);
+    assert.deepStrictEqual(archivo().packBulto.ventaPesable, { 91031: { modo: 'paquete', pesoKg: 2.5 }, 91032: { modo: 'kg' } });
+    assert.deepStrictEqual(await pedir('DELETE', '/pack-bulto/venta/91032'), { plu: '91032', modo: null });
+    assert.deepStrictEqual(archivo().packBulto.ventaPesable, { 91031: { modo: 'paquete', pesoKg: 2.5 } });
+    assert.deepStrictEqual(archivo().margenPorProducto, { 1: 5 });
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });

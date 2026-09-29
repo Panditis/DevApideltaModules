@@ -422,3 +422,15 @@ test('validarPresentacionTemporal parcial: sólo las claves presentes; nombre va
   assert.throws(() => validarPresentacionTemporal({}, { parcial: true }), /nada/);
   assert.throws(() => validarPresentacionTemporal({ pesoG: -1 }, { parcial: true }));
 });
+
+test('tendenciaCompraHoy: sube/baja fuera de ±tolerancia, igual dentro (borde incluido), sin-anterior sin Δ', () => {
+  const { tendenciaCompraHoy } = require('../lib/precios_costeo');
+  assert.strictEqual(tendenciaCompraHoy(8.5, 2), 'sube');
+  assert.strictEqual(tendenciaCompraHoy(-3, 2), 'baja');
+  assert.strictEqual(tendenciaCompraHoy(2, 2), 'igual');
+  assert.strictEqual(tendenciaCompraHoy(-2, 2), 'igual');
+  assert.strictEqual(tendenciaCompraHoy(0, 0), 'igual');
+  assert.strictEqual(tendenciaCompraHoy(0.1, undefined), 'sube'); // sin tolerancia configurada = 0
+  assert.strictEqual(tendenciaCompraHoy(null, 2), 'sin-anterior');
+  assert.strictEqual(tendenciaCompraHoy(undefined, 2), 'sin-anterior');
+});

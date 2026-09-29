@@ -43,7 +43,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   const router = express.Router();
   const RECETAS_PATH = path.join(DATA_DIR, 'recetas_produccion.json');
   const COSTEO_PATH = path.join(DATA_DIR, 'costeo.json');
-  const { costosPorPlu, preciosVigentesAlmacen, vinculosPackBulto } = crearConsultasPrecios({ query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL });
+  const { costosPorPlu, preciosVigentesAlmacen, fechasPrecioAlmacen, vinculosPackBulto } = crearConsultasPrecios({ query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL });
 
   const ruta = fn => apiRoute(async (req) => {
     try { return await fn(req); } catch (err) {
@@ -78,18 +78,19 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   // Detalle costeado + vigentes SIGA + sub-filas pack/bulto de cada presentación (una query de vínculos).
   async function detalleConPrecios(datos, id) {
     const manuales = ((leerJSON(COSTEO_PATH, {}) || {}).packBulto || {}).vinculosManuales || {};
-    const [{ costeados, costos, costeo }, vigentes, { vinculos }] = await Promise.all([
-      costearProductos(datos, [id]), preciosVigentesAlmacen(), vinculosPackBulto(manuales),
+    const [{ costeados, costos, costeo }, vigentes, fechas, { vinculos }] = await Promise.all([
+      costearProductos(datos, [id]), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(manuales),
     ]);
-    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, costeo });
-    return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, toleranciaPct: costeo.toleranciaPct, tiposPackaging, packBultoDe });
+    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo });
+    return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, fechas, toleranciaPct: costeo.toleranciaPct, tiposPackaging, packBultoDe,
+      marcados: costeo.marcadosExportar });
   }
 
   router.get('/api/precios/produccion/productos', ruta(async () => {
     const datos = leer();
-    const { costeados } = await costearProductos(datos, Object.keys(datos.productos));
+    const [{ costeados, costeo }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
     return Object.entries(costeados)
-      .map(([id, c]) => filaSelector(id, datos.productos[id], c))
+      .map(([id, c]) => filaSelector(id, datos.productos[id], c, costeo.marcadosExportar, fechas))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }));
 
@@ -290,10 +291,17 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return { id: manualId, borrado: true };
   }));
 
+  // Tab Máquinas: categorías con qué productos/recetas las usan (para mostrar y para bloquear la baja).
+  router.get('/api/precios/produccion/categorias-maquina', ruta(async () => ({ categoriasMaquina: categoriasConUsos(leer()) })));
+
+  // Lista completa (alta, edición y baja). Quitar una categoría que usa alguna receta es error.
   router.put('/api/precios/produccion/categorias-maquina', ruta(async (req) => {
     const categoriasMaquina = validarCategoriasMaquina(req.body);
-    guardar({ ...leer(), categoriasMaquina });
-    return { categoriasMaquina };
+    const datos = leer();
+    validarBajaCategorias(datos, categoriasMaquina);
+    const nuevos = { ...datos, categoriasMaquina };
+    guardar(nuevos);
+    return { categoriasMaquina: categoriasConUsos(nuevos) };
   }));
 
   return router;
@@ -410,7 +418,10 @@ function recetaBaseId(recetas) {
   return ids.find(id => !recetas[id].varianteDe) || null;
 }
 
-function filaSelector(id, producto, costeado) {
+// marcados = costeo.marcadosExportar ({ plu: fecha }). exportables = presentaciones con PLU de SIGA
+// (las provisorias n-… no se pueden importar) para marcar y exportar: Costo = costo total por unidad.
+// fechas: Map plu → 'YYYY-MM-DD' del último cambio de precio en SIGA (la UI muestra la más antigua).
+function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map()) {
   const recetas = producto.recetas || {};
   const baseId = recetaBaseId(recetas);
   return {
@@ -419,7 +430,29 @@ function filaSelector(id, producto, costeado) {
     presentaciones: Object.keys(producto.presentaciones || {}).length,
     costoKgBase: baseId ? costeado.recetas[baseId].costoKg : null,
     alertas: costeado.resumen.alertas, faltantes: costeado.resumen.faltantes,
+    exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => ({
+      plu, nombre: p.nombre, costoTotal: p.costoUnidad, precioConIva: p.precioConIva, faltantes: p.faltantes,
+      marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null,
+    })),
   };
+}
+
+// Productos cuyas recetas eligen la categoría (una variedad sin categoría propia hereda la de su base).
+function usosCategoria(productos, categoriaId) {
+  return Object.entries(productos || {}).map(([id, p]) => ({
+    id, nombre: p.nombre,
+    recetas: Object.values(p.recetas || {}).filter(r => r && r.categoriaMaquinaId === categoriaId).map(r => r.nombre),
+  })).filter(u => u.recetas.length);
+}
+const categoriasConUsos = datos => datos.categoriasMaquina.map(c => ({ ...c, usos: usosCategoria(datos.productos, c.id) }));
+
+// Lanza si la lista nueva deja afuera una categoría que alguna receta usa (dice quién la usa).
+function validarBajaCategorias(datos, nuevas) {
+  const ids = new Set(nuevas.map(c => c.id));
+  for (const c of datos.categoriasMaquina) {
+    const usos = ids.has(c.id) ? [] : usosCategoria(datos.productos, c.id);
+    if (usos.length) fallar(`no se puede borrar "${c.nombre}": la usan ${usos.map(u => `${u.nombre} (${u.recetas.join(', ')})`).join('; ')}`);
+  }
 }
 
 // Productos que tienen el insumo `clave` en su lista (la derivada, si es un dato viejo sin lista).
@@ -446,7 +479,8 @@ function tipoInsumo({ tipo, nombre, rubro }, tiposPackaging) {
 // `definicion` = el producto tal como está guardado (rendimiento, merma, cantidades, unidades…): la UI
 // lo usa para precargar los editores; los costos siempre salen del costeo, nunca de ahí.
 // packBultoDe(plu, precioConIva) → sub-filas pack/bulto de la presentación (crearPackBultoDe); sin él, [].
-function armarDetalle({ id, datos, costeado, costos, vigentes, toleranciaPct, tiposPackaging, packBultoDe = () => [] }) {
+// marcados = costeo.marcadosExportar: cada presentación trae `marcado` (para exportar a SIGA).
+function armarDetalle({ id, datos, costeado, costos, vigentes, fechas = new Map(), toleranciaPct, tiposPackaging, packBultoDe = () => [], marcados = {} }) {
   const insumos = costeado.insumos.map(it => {
     const row = costos.get(it.clave) || {};
     const manual = Object.hasOwn(datos.insumosManuales, it.clave) ? datos.insumosManuales[it.clave] : {};
@@ -460,7 +494,8 @@ function armarDetalle({ id, datos, costeado, costos, vigentes, toleranciaPct, ti
   const presentaciones = Object.fromEntries(Object.entries(costeado.presentaciones).map(([plu, p]) => {
     const precioVigente = vigentes.has(plu) ? vigentes.get(plu) : null;
     const { deltaPct, estado: semaforo } = compararConVigente(p.precioConIva, precioVigente, toleranciaPct);
-    return [plu, { ...p, precioVigente, deltaPct, semaforo, packBulto: packBultoDe(plu, p.precioConIva) }];
+    return [plu, { ...p, precioVigente, deltaPct, semaforo, packBulto: packBultoDe(plu, p.precioConIva), marcado: Object.hasOwn(marcados || {}, plu),
+      fechaPrecio: fechas.get(plu) || null }];
   }));
   return {
     id, ...costeado, creado: datos.productos[id].creado || null, insumos, presentaciones,
@@ -573,6 +608,8 @@ module.exports.tipoInsumo = tipoInsumo;
 module.exports.validarInsumosProducto = validarInsumosProducto;
 module.exports.validarInsumoManual = validarInsumoManual;
 module.exports.validarCategoriasMaquina = validarCategoriasMaquina;
+module.exports.categoriasConUsos = categoriasConUsos;
+module.exports.validarBajaCategorias = validarBajaCategorias;
 module.exports.validarPedidoValidar = validarPedidoValidar;
 module.exports.aplicarValidacion = aplicarValidacion;
 module.exports.normalizarDatos = normalizarDatos;
