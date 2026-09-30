@@ -105,7 +105,9 @@ test('textoCompraHoy: sube → rojo con ▲ y la compra anterior; tooltip con pr
   assert.match(a.tip, /Prov SA/);
   assert.match(a.tip, /A-0003-00012345/);
   assert.match(a.tip, /12\/09\/2026/);
-  assert.match(a.tip, /neto sin IVA/);
+  assert.match(a.tip, /factura: neto \+ IVA; cotización: tal cual/);
+  // compra de hoy por cotización (ahora entra): el aviso lo dice
+  assert.match(o.textoCompraHoy({ costo: 500, tipoComprobante: 'cotización', tendencia: 'sin-anterior' }).texto, /^Cotización hoy \$ 500/);
 });
 
 test('textoCompraHoy: baja ▼, igual sin flecha de color, sin anterior; costos chicos con centavos', () => {
@@ -123,12 +125,13 @@ test('textoCompraHoy: baja ▼, igual sin flecha de color, sin anterior; costos 
 // ── Columnas "Costo sistema" y "Costo última compra" (Almacén y granel de Fraccionado) ──
 const CH = { costo: 1100, proveedor: 'Prov SA', comprobante: 'A-0003-00012345', costoAnterior: 1000, fechaAnterior: '2026-09-12', deltaPct: 10, tendencia: 'sube' };
 
-test('ultimaCompraDe: la factura de hoy manda; si no, la última compra (ambas con IVA, 21% sin alícuota); sin nada → null', () => {
+// Costos tal cual del server (ya valorizados: factura + IVA, cotización tal cual), sin × alícuota en el front.
+test('ultimaCompraDe: la compra de hoy manda; si no, la última compra (valores tal cual); sin nada → null', () => {
   const hoy = o.ultimaCompraDe({ compraHoy: CH, precioUltimaCompra: 900, fechaUltimaCompra: '01/09/2026', proveedor: 'Otro' });
-  assert.deepStrictEqual(hoy, { costo: 1331, hoy: true, proveedor: 'Prov SA', comprobante: 'A-0003-00012345', fecha: null,
-    costoAnterior: 1210, fechaAnterior: '2026-09-12' });
+  assert.deepStrictEqual(hoy, { costo: 1100, hoy: true, tipo: null, proveedor: 'Prov SA', comprobante: 'A-0003-00012345', fecha: null,
+    costoAnterior: 1000, fechaAnterior: '2026-09-12' });
   const vieja = o.ultimaCompraDe({ compraHoy: null, precioUltimaCompra: 900, fechaUltimaCompra: '01/09/2026', proveedor: 'Otro' });
-  assert.deepStrictEqual(vieja, { costo: 1089, hoy: false, proveedor: 'Otro', comprobante: null, fecha: '01/09/2026',
+  assert.deepStrictEqual(vieja, { costo: 900, hoy: false, tipo: null, proveedor: 'Otro', comprobante: null, fecha: '01/09/2026',
     costoAnterior: null, fechaAnterior: null });
   assert.strictEqual(o.ultimaCompraDe({ precioUltimaCompra: null }), null);
 });
@@ -149,7 +152,7 @@ test('tipUltimaCompra: proveedor, comprobante y "antes" si es de hoy; fecha si e
   assert.match(tHoy, /Prov SA/);
   assert.match(tHoy, /A-0003-00012345/);
   assert.match(tHoy, /hoy/);
-  assert.match(tHoy, /antes \$ 1\.210 \(12\/09\/2026\)/);
+  assert.match(tHoy, /antes \$ 1\.000 \(12\/09\/2026\)/);
   const tVieja = o.tipUltimaCompra(o.ultimaCompraDe({ precioUltimaCompra: 900, fechaUltimaCompra: '01/09/2026', proveedor: 'Otro' }));
   assert.match(tVieja, /Otro/);
   assert.match(tVieja, /01\/09\/2026/);
@@ -164,7 +167,7 @@ test('columnas sistema y ultima ordenables en Almacén y Fraccionado', () => {
   assert.deepStrictEqual(plus(o.ordenarCon(filas, { clave: 'ultima', dir: 'desc' }, alm)), ['c', 'a', 'b']);
   const fr = o.columnasFracc({ estadoGrupo: () => 'ok', peorPresentacion: () => null });
   assert.strictEqual(fr.sistema({ costoSistemaConIva: 42 }), 42);
-  assert.strictEqual(fr.ultima({ precioUltimaCompra: 100 }), 121);
+  assert.strictEqual(fr.ultima({ precioUltimaCompra: 100 }), 100); // ya viene valorizada del server
 });
 
 test('ordenarPorUltimaCompra: mayor suba de la última compra vs. sistema primero, sin dato al final', () => {
@@ -173,14 +176,32 @@ test('ordenarPorUltimaCompra: mayor suba de la última compra vs. sistema primer
   assert.deepStrictEqual(plus(o.ordenarPorUltimaCompra(filas)), ['c', 'a', 'd', 'b']);
 });
 
-test('columnas de costo con IVA: sistema = PrecioCosto SIGA con IVA; última compra neta × (1 + alícuota)', () => {
-  const f = { costoSistema: 1000, costoSistemaConIva: 1210, ivaCompraPct: 21, precioUltimaCompra: 1100 };
-  assert.strictEqual(o.costoSistemaConIvaDe(f), 1210);
-  assert.strictEqual(o.costoSistemaConIvaDe({ costoSistema: 1000, ivaCompraPct: 10.5 }), 1105);
-  assert.strictEqual(o.costoSistemaConIvaDe({ costoSistema: null }), null);
+// Regla 2026-09-30: el server manda los costos tal cual (sistema = PrecioCosto; compra = factura + IVA o
+// cotización tal cual) y las columnas muestran ese mismo valor, sin convertir por alícuota.
+test('columnas de costo: sistema y última compra tal cual vienen del server (sin × alícuota)', () => {
+  const f = { costoSistema: 1210, costoSistemaConIva: 1210, ivaCompraPct: 10.5, precioUltimaCompra: 1331, tipoComprobanteUltimaCompra: 'factura' };
+  assert.strictEqual(o.costoSistemaDe(f), 1210);
+  assert.strictEqual(o.costoSistemaDe({ costoSistemaConIva: 42 }), 42);
+  assert.strictEqual(o.costoSistemaDe({ costoSistema: null }), null);
   assert.strictEqual(o.ultimaCompraDe(f).costo, 1331);
-  assert.strictEqual(o.ultimaCompraDe({ ivaCompraPct: 10.5, compraHoy: { costo: 200, costoAnterior: 100 } }).costoAnterior, 110.5);
-  assert.strictEqual(o.ultimaCompraDe({ precioUltimaCompra: 100 }).costo, 121); // sin alícuota → 21%
-  assert.strictEqual(o.deltaUltimaVsSistema(f), 10);
-  assert.match(o.tipUltimaCompra(o.ultimaCompraDe(f)), /con IVA/);
+  assert.strictEqual(o.ultimaCompraDe(f).tipo, 'factura');
+  const hoy = o.ultimaCompraDe({ ivaCompraPct: 10.5, compraHoy: { costo: 200, costoAnterior: 100, tipoComprobante: 'cotización' } });
+  assert.deepStrictEqual([hoy.costo, hoy.costoAnterior, hoy.tipo], [200, 100, 'cotización']);
+  assert.strictEqual(o.deltaUltimaVsSistema(f), 10); // (1331 − 1210) / 1210
+  assert.match(o.tipUltimaCompra(o.ultimaCompraDe(f)), /Última compra \(factura\) · neto \+ IVA/);
+  assert.match(o.tipUltimaCompra(hoy), /Cotización cargada hoy en SIGA · tal cual/);
+});
+
+// Paridad cliente = lib: el precio final del front (detalle Almacén / presentaciones Fraccionado) es el mismo
+// que costearAlmacen/costearFraccionado + la regla "alineado exacto" de calcularFilaAlmacen.
+test('precioFinalCli: igual que lib/precios_costeo (sin ×1,21, redondeo a $50, respeta el vigente exacto)', () => {
+  const { costearAlmacen } = require('../lib/precios_costeo');
+  for (const [costo, markup] of [[515, 40], [2297, 68.32], [1024.99, 33.3], [6800, 0], [100, -10]]) {
+    const lib = costearAlmacen({ costoMercaderia: costo, markupPct: markup });
+    const cli = o.precioFinalCli(lib.precioNeto, null);
+    assert.deepStrictEqual([cli.exacto, cli.precio], [lib.precioConIvaExacto, lib.precioConIva], `${costo} × ${markup}`);
+  }
+  assert.deepStrictEqual(o.precioFinalCli(721, null), { exacto: 721, precio: 700 }); // 515 × 1,4
+  assert.deepStrictEqual(o.precioFinalCli(3866.31, 3866), { exacto: 3866.31, precio: 3866 }); // alineado exacto
+  assert.deepStrictEqual(o.precioFinalCli(3866.31, 4700), { exacto: 3866.31, precio: 3850 });
 });

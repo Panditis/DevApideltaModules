@@ -5,9 +5,9 @@
 
 // ── Almacén: detalle (modal) — resultado arriba + la cuenta como una ecuación ──
 // Deja editar costo base, costos extra, margen y precio final con vista previa en vivo.
-// Misma fórmula que lib/precios_costeo.js: (costo + varios% + costos extra) × (1+markup%) ×
-// 1,21 → múltiplo de $50. "Guardar" persiste los valores manuales del producto; elegir
-// "Sistema" / "volver a la banda" vuelven al automático.
+// Misma fórmula que lib/precios_costeo.js: (costo + varios% + costos extra) × (1+markup%) →
+// múltiplo de $50 (sin ×1,21: el costo ya viene con IVA; precioFinalCli en precios_orden.js). "Guardar"
+// persiste los valores manuales del producto; elegir "Sistema" / "volver a la banda" vuelven al automático.
 const PASO_PRECIO = 50;
 const redondear50 = n => Math.round(n / PASO_PRECIO) * PASO_PRECIO;
 const r2 = n => Math.round(n * 100) / 100;
@@ -16,7 +16,7 @@ const chip = (txt, cls) => `<span class="px-1.5 py-0.5 rounded text-[11px] font-
 const inputCls = 'px-2 py-1 rounded-lg border border-borde text-right tabular-nums focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
 
 let det = null;        // fila del detalle tal como vino del server
-let detCfg = null;     // { bandas, toleranciaPct } para recalcular la banda en vivo
+let detCfg = null;     // { bandas, toleranciaPct, gastosVentaPct, curva } para recalcular la banda en vivo
 let detEstado = null;  // { costoFuente: 'sistema'|'ultimaCompra'|'manual', markupManual } editable
 let detInicial = null; // estado al abrir, para saber si hay cambios sin guardar
 let detEditandoFinal = false; // el usuario está tipeando el precio final: no pisar ese input
@@ -29,15 +29,26 @@ function markupActual(){
   return numOrNull(document.getElementById('inMarkup').value);
 }
 
+// La banda guarda GANANCIA: markup = total con los gastos sobre venta (espejo de calcularFilaAlmacen,
+// markupDesdeGananciaCli en precios_config_gastos.js); ganancia queda para mostrar el desglose.
+// Con la curva de Almacén activa la ganancia sale de la curva (gananciaPorCurvaCliente) y la banda es "curva".
 function bandaParaCosto(costo){
   if (costo == null) return null;
+  if (detCfg.curva && detCfg.curva.activa === true) {
+    const ganancia = gananciaPorCurvaCliente(detCfg.curva, costo);
+    const markup = markupDesdeGananciaCli(ganancia, detCfg.gastosVentaPct);
+    return markup == null ? null : { markup, ganancia, label: 'curva' };
+  }
   for (const b of detCfg.bandas) {
     if (b.costoHastaARS === null || costo <= b.costoHastaARS) {
-      return { markup: b.markupMaxPct, label: b.costoHastaARS === null ? 'sin tope' : `hasta $ ${fmtPrecio(b.costoHastaARS)}` };
+      const markup = markupDesdeGananciaCli(b.markupMaxPct, detCfg.gastosVentaPct);
+      if (markup == null) return null;
+      return { markup, ganancia: b.markupMaxPct, label: b.costoHastaARS === null ? 'sin tope' : `hasta $ ${fmtPrecio(b.costoHastaARS)}` };
     }
   }
   return null;
 }
+const desgloseBanda = b => `${textoGananciaGastos(b.ganancia, detCfg.gastosVentaPct)} = ${fmtPctGastos(b.markup)}`;
 
 async function abrirDetalle(plu){
   const body = document.getElementById('mDetBody');
@@ -51,7 +62,8 @@ async function abrirDetalle(plu){
     if (j.error) throw new Error(j.error);
     if (c.error) throw new Error(c.error);
     det = j;
-    detCfg = { bandas: (c.bandasMarkup || {}).almacen || [], toleranciaPct: Number(c.toleranciaPct) || 0 };
+    detCfg = { bandas: (c.bandasMarkup || {}).almacen || [], toleranciaPct: Number(c.toleranciaPct) || 0,
+      gastosVentaPct: Number(c.gastosVentaPct) || 0, curva: (c.curvaGanancia || {}).almacen || null };
     detEstado = { costoFuente: j.costoFuente || 'sistema', markupManual: j.markupOverride != null };
     detInicial = { ...detEstado, costoManualValor: j.costoOverride, markup: j.markupPct };
     detalleListo(j.nombre, j.plu, j);
@@ -106,7 +118,7 @@ function htmlDetalle(j){
             <button type="button" id="btnUsarBanda" class="hidden ml-1 text-verde underline underline-offset-2 hover:text-verdeHover">volver a la banda</button></div></div>`,
         '<span class="ec-val text-gris"><input id="inMarkup" type="number" min="-99" step="any" inputmode="decimal" class="num-in w-24 text-lg font-semibold text-ink"> %</span>', 'sec s-margen')}
       ${renglon('=', `<div class="min-w-0"><label for="inFinal" class="font-semibold text-verde">Precio final</label>
-          <div id="dFinalInfo" class="text-xs text-gris mt-0.5">neto <span id="dNeto" class="tabular-nums">—</span> · con IVA 21% <span id="dConIva" class="tabular-nums">—</span> · redondeo a $50</div></div>`,
+          <div id="dFinalInfo" class="text-xs text-gris mt-0.5">costo × (1 + margen) = <span id="dNeto" class="tabular-nums">—</span> · redondeo a $50</div></div>`,
         `<span class="ec-val text-gris">$ <input id="inFinal" type="number" min="0" step="50" inputmode="numeric" aria-describedby="dFinalInfo"
             title="Escribí el precio que querés: se recalcula el margen" class="num-in w-32 text-lg font-bold text-verde"></span>`, 'sec s-final')}
     </div>
@@ -115,27 +127,25 @@ function htmlDetalle(j){
 
 // ── Selector de costo base: compartido por Almacén (producto) y Fraccionado (granel) ──
 // Control segmentado Sistema / Última compra / Manual con el valor de cada opción; el detalle
-// de la opción elegida (IVA, proveedor, fecha) va en texto chico debajo. Usa `det`,
+// de la opción elegida (comprobante, proveedor, fecha) va en texto chico debajo. Usa `det`,
 // `detEstado.costoFuente` y el input #inCosto. Guardar = PUT /api/precios/costo-producto/:plu.
 const chipFuenteCosto = fuente => fuente === 'manual' || fuente === 'ultimaCompra'
   ? chip(fuente === 'manual' ? 'manual' : 'últ. compra', 'bg-amarillo/30 text-ink') + ' ' : '';
 const ETIQUETA_SEG_COSTO = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
 
-// Sistema y última compra se muestran CON IVA (igual que las columnas del listado, para compararlos);
-// la cuenta de abajo sigue partiendo del costo sin IVA (dCostoBase), que se aclara debajo de cada valor.
+// Cada opción muestra el valor que entra en la cuenta, tal cual lo manda el server: sistema = PrecioCosto de
+// SIGA; última compra = el comprobante (factura: neto + IVA; cotización: tal cual).
 function htmlCostoBase(j, unidad){
-  const seg = (fuente, valor, sinIva = null, habilitado = valor != null) => `
+  const seg = (fuente, valor, habilitado = valor != null) => `
         <button type="button" data-fuente="${fuente}" aria-pressed="false" class="costo-opt seg-opt"${habilitado ? '' : ' disabled'}>
-          ${ETIQUETA_SEG_COSTO[fuente]}<b${fuente === 'manual' ? ' id="dSegManual"' : ''}>${valor != null ? '$ ' + fmtMoney(valor) : '—'}</b>${sinIva != null
-            ? `<span class="block text-[10px] font-normal text-gris">sin IVA $ ${fmtMoney(sinIva)}</span>` : ''}</button>`;
-  const ultConIva = conIvaCompra(j, j.precioUltimaCompra ?? null); // precios_orden.js
+          ${ETIQUETA_SEG_COSTO[fuente]}<b${fuente === 'manual' ? ' id="dSegManual"' : ''}>${valor != null ? '$ ' + fmtMoney(valor) : '—'}</b></button>`;
   return `
     <div class="ec sec s-costo"><span class="ec-op" aria-hidden="true"></span>
       <div class="min-w-0">
-        <div id="lblCosto" class="font-semibold">Costo${unidad === '$/kg' ? ' por kg' : ''} <span class="font-normal text-xs text-gris">con IVA · la cuenta usa el valor sin IVA</span></div>
-        <div class="seg mt-1.5" role="group" aria-labelledby="lblCosto">${seg('sistema', costoSistemaConIvaDe(j), j.costoSistema)}${seg('ultimaCompra', ultConIva, j.precioUltimaCompra)}${seg('manual', null, null, true)}
+        <div id="lblCosto" class="font-semibold">Costo${unidad === '$/kg' ? ' por kg' : ''}</div>
+        <div class="seg mt-1.5" role="group" aria-labelledby="lblCosto">${seg('sistema', costoSistemaDe(j))}${seg('ultimaCompra', j.precioUltimaCompra ?? null)}${seg('manual', null, true)}
         </div>
-        <div id="dCostoManual" class="hidden mt-2 text-gris"><label for="inCosto" class="text-xs mr-1">Costo manual sin IVA</label>$
+        <div id="dCostoManual" class="hidden mt-2 text-gris"><label for="inCosto" class="text-xs mr-1">Costo manual</label>$
           <input id="inCosto" type="number" min="0" step="any" inputmode="decimal" placeholder="0,00" class="num-in w-32 font-semibold text-ink"></div>
         <div id="dCostoInfo" class="text-xs text-gris mt-1.5"></div>
       </div>
@@ -163,12 +173,13 @@ function conectarCostoBase(onCambio){
 // Detalle chico de la opción de costo elegida.
 function infoFuenteCosto(fuente){
   if (fuente === 'manual') return '';
-  if (fuente === 'ultimaCompra') return det.precioUltimaCompra != null
-    ? `Última factura de ${esc(det.proveedor || 'sin proveedor')} · ${esc(det.fechaUltimaCompra || '—')}` : 'Sin compras registradas.';
-  if (det.costoSistemaConIva == null) return 'Sin costo en SIGA.';
-  const txt = `SIGA $ ${fmtMoney(det.costoSistemaConIva)} con IVA ${esc(String(det.ivaCompraPct).replace('.', ','))}%`;
-  return det.ivaCompraSupuesto
-    ? txt + ' · <span class="text-warn font-semibold">sin alícuota en SIGA: se asumió 21%</span>' : txt;
+  if (fuente === 'ultimaCompra') {
+    if (det.precioUltimaCompra == null) return 'Sin compras registradas.';
+    const tipo = det.tipoComprobanteUltimaCompra;
+    const cuenta = tipo === 'cotización' ? 'cotización, tal cual' : tipo === 'factura' ? 'factura, neto + IVA' : 'última compra';
+    return `${esc(cuenta)} · ${esc(det.proveedor || 'sin proveedor')} · ${esc(det.fechaUltimaCompra || '—')}`;
+  }
+  return costoSistemaDe(det) == null ? 'Sin costo en SIGA.' : 'Costo de SIGA tal cual (PrecioCosto).';
 }
 
 // Pinta la opción elegida, el valor manual y el detalle; devuelve el costo efectivo.
@@ -204,10 +215,9 @@ function abrirModal(titulo, ancho){
 function conectarDetalle(){
   const inCosto = document.getElementById('inCosto');
   const inMarkup = document.getElementById('inMarkup');
-  conectarCostoBase(recalcularDetalle);
   inMarkup.addEventListener('input', () => { detEstado.markupManual = true; detMarkupExacto = null; recalcularDetalle(); });
   document.getElementById('btnUsarBanda').onclick = () => { detEstado.markupManual = false; detMarkupExacto = null; recalcularDetalle(); };
-  // Precio final → markup: markup = (precio / 1,21 / costoTotal − 1) × 100, a 6 decimales
+  // Precio final → markup: markup = (precio / costoTotal − 1) × 100 (IVA_VENTA_CLI = 1), a 6 decimales
   // (el input muestra 2; el exacto queda en detMarkupExacto para reproducir el precio al
   // centavo). Mientras se escribe no se pisa el input; al salir se ajusta a $50, salvo que
   // sea el precio vigente de SIGA (se respeta tal cual, como en el backend).
@@ -216,9 +226,19 @@ function conectarDetalle(){
     const costo = costoEfectivo();
     if (costo == null || costo <= 0 || precio == null || precio <= 0) return null;
     const costoTotal = costoTotalAlmacen(costo);
-    return +((precio / 1.21 / costoTotal - 1) * 100).toFixed(6);
+    return +((precio / IVA_VENTA_CLI / costoTotal - 1) * 100).toFixed(6); // precios_orden.js
   };
   const fijarMarkup = mk => { detEstado.markupManual = true; detMarkupExacto = mk; inMarkup.value = fmtMarkupInput(mk); };
+  // Cambio de costo: el margen vuelve a la banda de ese costo (deja el propio, ej. el de "Alinear con SIGA")
+  // y el precio se recalcula. Volver a la fuente con la que se abrió (salvo manual) restaura el margen de
+  // entonces. Después se puede escribir otro margen o precio a mano.
+  conectarCostoBase(() => {
+    const volvio = detEstado.costoFuente === detInicial.costoFuente && detEstado.costoFuente !== 'manual';
+    detEstado.markupManual = volvio ? detInicial.markupManual : false;
+    detMarkupExacto = volvio ? detInicial.markup ?? null : null;
+    if (volvio && detInicial.markupManual) inMarkup.value = fmtMarkupInput(detInicial.markup);
+    recalcularDetalle();
+  });
   inFinal.addEventListener('input', () => {
     const mk = markupParaPrecio(numOrNull(inFinal.value));
     if (mk == null) return;
@@ -269,29 +289,26 @@ function costoEfectivo(){
 const costoVariosDe = costo => costo * (Number(det.costosVariosPct) || 0) / 100;
 const costoTotalAlmacen = costo => extrasCliente(costo, costoVariosDe(costo)).total;
 
-// Margen que deja el precio vigente con el costo elegido, recalculado en vivo:
-// real = sin IVA de los dos lados (lo que usa el módulo); SIGA = vigente sobre el costo CON IVA de compra,
-// que sale más alto cuando la alícuota de compra es menor al 21% de venta (ej. 10,5%).
-function margenesVigente(vig, costoSinIva, ivaCompraPct){
-  if (!(vig > 0) || !(costoSinIva > 0)) return null;
-  const ivaCompra = 1 + (ivaCompraPct ?? 21) / 100;
-  return { real: r2((vig / 1.21 / costoSinIva - 1) * 100), siga: r2((vig / (costoSinIva * ivaCompra) - 1) * 100) };
+// Margen que deja el precio vigente con el costo elegido, recalculado en vivo: vigente / costo − 1
+// (el mismo criterio que la cuenta: costo tal cual, precio final sin ×1,21).
+function margenVigente(vig, costo){
+  return vig > 0 && costo > 0 ? r2((vig / IVA_VENTA_CLI / costo - 1) * 100) : null;
 }
 function pintarMargenVigente(vig, costo){
   const el = document.getElementById('dMargenVig');
   if (!el) return;
-  const m = margenesVigente(vig, costo, det.ivaCompraPct);
-  el.textContent = m ? `margen real ${fmtPct(m.real)} · SIGA ${fmtPct(m.siga)}` : '';
-  el.title = m ? 'Margen que deja el precio vigente con el costo elegido.\nReal: sin IVA en costo y venta (el del módulo).\nSIGA: sobre el costo con IVA de compra ('
-    + String(det.ivaCompraPct ?? 21).replace('.', ',') + '%); sale más alto si la alícuota de compra es menor al 21%.' : '';
+  const m = margenVigente(vig, costo);
+  el.textContent = m != null ? `margen ${fmtPct(m)}` : '';
+  el.title = m != null ? 'Margen que deja el precio vigente con el costo elegido (vigente ÷ costo − 1).' : '';
 }
 
 function recalcularDetalle(){
   const inMarkup = document.getElementById('inMarkup');
   const costo = costoEfectivo();
   const banda = bandaParaCosto(costo);
-  if (!detEstado.markupManual) inMarkup.value = banda ? banda.markup : '';
-  const markup = markupActual();
+  if (!detEstado.markupManual) inMarkup.value = banda ? fmtMarkupInput(banda.markup) : '';
+  // Sin margen propio se usa el markup exacto de la banda (el input lo muestra a 2 decimales).
+  const markup = detEstado.markupManual ? markupActual() : banda ? banda.markup : null;
   // Markup negativo es válido (precio de SIGA bajo el costo); se avisa abajo.
   const valido = costo != null && costo > 0 && markup != null && markup > -100;
 
@@ -301,8 +318,8 @@ function recalcularDetalle(){
   document.getElementById('dChipMarkup').innerHTML = detEstado.markupManual
     ? chip('propio', 'bg-amarillo/30 text-ink') : '';
   document.getElementById('dInfoMarkup').textContent = detEstado.markupManual
-    ? `La banda daría ${banda ? banda.markup + '%' : '—'}.`
-    : banda ? `De la banda ${banda.label}. Escribí otro para fijar uno propio.` : 'Sin banda para este costo: escribí un margen.';
+    ? `La banda daría ${banda ? desgloseBanda(banda) : '—'}.`
+    : banda ? `${banda.label === 'curva' ? 'De la curva' : 'De la banda ' + banda.label}: ${desgloseBanda(banda)}. Escribí otro para fijar uno propio.` : 'Sin banda para este costo: escribí un margen.';
   document.getElementById('btnUsarBanda').classList.toggle('hidden', !detEstado.markupManual);
 
   const set = (id, v) => { document.getElementById(id).textContent = v; };
@@ -313,19 +330,17 @@ function recalcularDetalle(){
   const dResultado = document.getElementById('dResultado');
   dResultado.dataset.estado = '';
   if (!valido) {
-    ['dNeto', 'dConIva', 'dSugerido', 'dDelta'].forEach(id => set(id, '—'));
+    ['dNeto', 'dSugerido', 'dDelta'].forEach(id => set(id, '—'));
     document.getElementById('dDelta').className = DELTA_BASE;
     if (!detEditandoFinal) inFinal.value = '';
     document.getElementById('dEstado').innerHTML = '';
     pintarPBDetalle(null); // precios_pack_bulto.js
   } else {
     const neto = r2(costoTotal * (1 + markup / 100));
-    const conIva = r2(neto * 1.21);
     // Misma regla que el backend: si costo y markup reproducen el vigente de SIGA se respeta
-    // ese precio; si no, múltiplo de $50.
-    const final = (vig > 0 && Math.abs(conIva - vig) < 0.5) ? vig : redondear50(conIva);
+    // ese precio; si no, múltiplo de $50 (precioFinalCli, precios_orden.js).
+    const final = precioFinalCli(neto, vig).precio;
     set('dNeto', '$ ' + fmtMoney(neto));
-    set('dConIva', '$ ' + fmtMoney(conIva));
     if (!detEditandoFinal) inFinal.value = final;
     set('dSugerido', '$ ' + fmtPrecio(final));
     pintarPBDetalle(final); // precios_pack_bulto.js: pack/bulto en vivo sobre el precio final

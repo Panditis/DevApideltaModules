@@ -1,24 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { calcularFilaAlmacen, costoSistemaSinIva, aplicarMarcados, markupsAlineadosConSiga, armarGruposFraccionado, MARKUP_FRACCIONADO_DEFAULT } = require('../routes/rutas_precios');
+const { calcularFilaAlmacen, aplicarMarcados, markupsAlineadosConSiga, armarGruposFraccionado, MARKUP_FRACCIONADO_DEFAULT } = require('../routes/rutas_precios');
 const { markupParaPrecio } = require('../lib/precios_costeo');
-
-test('costoSistemaSinIva: saca el IVA con la alícuota del producto (Productos.Alicuota)', () => {
-  assert.deepStrictEqual(costoSistemaSinIva(1210, 21), { costo: 1000, ivaPct: 21, ivaSupuesto: false });
-  assert.deepStrictEqual(costoSistemaSinIva(1105, 10.5), { costo: 1000, ivaPct: 10.5, ivaSupuesto: false });
-  // alícuota 0%: el costo de sistema ya es sin IVA
-  assert.deepStrictEqual(costoSistemaSinIva(1000, 0), { costo: 1000, ivaPct: 0, ivaSupuesto: false });
-});
-
-test('costoSistemaSinIva: sin alícuota cargada en SIGA asume 21% y lo marca', () => {
-  assert.deepStrictEqual(costoSistemaSinIva(1210, null), { costo: 1000, ivaPct: 21, ivaSupuesto: true });
-});
-
-test('costoSistemaSinIva: sin PrecioCosto (o 0) no hay costo de sistema', () => {
-  assert.strictEqual(costoSistemaSinIva(null, 21).costo, null);
-  assert.strictEqual(costoSistemaSinIva(0, 21).costo, null);
-});
 
 const CFG_BASE = {
   toleranciaPct: 10,
@@ -34,27 +18,28 @@ const CFG_BASE = {
 // Pura: sin SQL, sin fs. Cubre lo que listado/detalle arman a partir de las dos
 // queries (costo de mercadería + precio vigente) ya resueltas.
 
-test('calcularFilaAlmacen: banda por costo + IVA; sugerido muy por encima del vigente → subir', () => {
+// Regla 2026-09-30: costo de SIGA tal cual y precio final = costo × (1 + markup), sin ×1,21.
+test('calcularFilaAlmacen: banda por costo, sin IVA de venta; sugerido muy por encima del vigente → subir', () => {
   const fila = calcularFilaAlmacen({
     plu: '1', nombre: 'Arroz', costoSistema: 500, precioVigente: 500,
     costeoConfig: CFG_BASE,
   });
-  // costoTotal = 500 * 1.03 = 515, precioNeto = 515*1.4 = 721, precioConIva = 721*1.21 = 850
+  // costoTotal = 500 * 1.03 = 515, precioNeto = 515*1.4 = 721, precioConIva = 721 → 700 (múltiplo de 50)
   assert.strictEqual(fila.costoTotal, 515);
   assert.strictEqual(fila.markupPct, 40);
   assert.strictEqual(fila.banda, 'hasta 1000');
   assert.strictEqual(fila.precioNeto, 721);
-  assert.strictEqual(fila.precioConIva, 850);
+  assert.strictEqual(fila.precioConIva, 700);
   assert.strictEqual(fila.precioVigente, 500);
   assert.deepStrictEqual(fila.faltantes, []);
-  // sugerido (850) 70% por encima del vigente (500): hay que subir el precio
-  assert.strictEqual(fila.deltaPct, 70);
+  // sugerido (700) 40% por encima del vigente (500): hay que subir el precio
+  assert.strictEqual(fila.deltaPct, 40);
   assert.strictEqual(fila.semaforo, 'subir');
 });
 
 test('calcularFilaAlmacen: precioVigente alineado con precioConIva da ok', () => {
   const fila = calcularFilaAlmacen({
-    plu: '2', nombre: 'Fideos', costoSistema: 500, precioVigente: 850,
+    plu: '2', nombre: 'Fideos', costoSistema: 500, precioVigente: 700, // sugerido 721 → 700
     costeoConfig: CFG_BASE,
   });
   assert.strictEqual(fila.deltaPct, 0);
@@ -81,10 +66,10 @@ test('calcularFilaAlmacen: costoPorProducto (costo manual) reemplaza al costo de
   assert.strictEqual(fila.costoOverride, 2000);
   assert.strictEqual(fila.costoBase, 2000);
   assert.strictEqual(fila.precioUltimaCompra, 500);
-  // 2000 * 1.03 = 2060 → banda "sin tope" 15% → 2369 neto → 2866.49 c/IVA → 2850
+  // 2000 * 1.03 = 2060 → banda "sin tope" 15% → 2369 (sin ×1,21) → 2350
   assert.strictEqual(fila.costoTotal, 2060);
   assert.strictEqual(fila.markupPct, 15);
-  assert.strictEqual(fila.precioConIva, 2850);
+  assert.strictEqual(fila.precioConIva, 2350);
   assert.strictEqual(fila.costosVariosPct, 3);
 });
 
@@ -109,7 +94,7 @@ test('calcularFilaAlmacen: costo manual permite precio aunque no haya costo de S
   assert.strictEqual(fila.costoBase, 800);
 });
 
-test('calcularFilaAlmacen: por defecto usa el costo de SIGA (PrecioCosto sin IVA)', () => {
+test('calcularFilaAlmacen: por defecto usa el costo de SIGA (PrecioCosto tal cual)', () => {
   const fila = calcularFilaAlmacen({
     plu: '10', nombre: 'Aceite', costoMercaderia: 500, costoSistema: 605, precioVigente: null, costeoConfig: CFG_BASE,
   });
@@ -164,16 +149,16 @@ test('calcularFilaAlmacen: sin precioVigente (producto sin precio de mostrador) 
   assert.strictEqual(fila.precioVigente, null);
   assert.strictEqual(fila.deltaPct, null);
   assert.strictEqual(fila.semaforo, null);
-  // el costeo en sí no se ve afectado por la falta de precio vigente
-  assert.strictEqual(fila.precioConIva, 850);
+  // el costeo en sí no se ve afectado por la falta de precio vigente (721 → 700)
+  assert.strictEqual(fila.precioConIva, 700);
 });
 
 test('calcularFilaAlmacen: diferencia negativa fuera de tolerancia → bajar; dentro → ok', () => {
-  // sugerido 850
-  const bajar = calcularFilaAlmacen({ plu: '13', nombre: 'C', costoSistema: 500, precioVigente: 1000, costeoConfig: CFG_BASE });
-  assert.strictEqual(bajar.deltaPct, -15);
+  // sugerido 700 (721 → 700); vigente 820: (700 − 820) / 820 = −14,6 %
+  const bajar = calcularFilaAlmacen({ plu: '13', nombre: 'C', costoSistema: 500, precioVigente: 820, costeoConfig: CFG_BASE });
+  assert.strictEqual(bajar.deltaPct, -14.6);
   assert.strictEqual(bajar.semaforo, 'bajar');
-  const ok = calcularFilaAlmacen({ plu: '13', nombre: 'C', costoSistema: 500, precioVigente: 1000, costeoConfig: { ...CFG_BASE, toleranciaPct: 15 } });
+  const ok = calcularFilaAlmacen({ plu: '13', nombre: 'C', costoSistema: 500, precioVigente: 820, costeoConfig: { ...CFG_BASE, toleranciaPct: 15 } });
   assert.strictEqual(ok.semaforo, 'ok');
 });
 
@@ -206,13 +191,13 @@ test('calcularFilaAlmacen: markup alineado respeta el vigente aunque no sea múl
 test('markupsAlineadosConSiga: markup por plu con datos, cuenta sin datos y negativos', () => {
   const r = markupsAlineadosConSiga([
     { plu: '1', costoTotal: 1000, precioVigente: 1452 },
-    { plu: '2', costoTotal: 1000, precioVigente: 1000 },
+    { plu: '2', costoTotal: 1000, precioVigente: 900 },
     { plu: '3', costoTotal: null, precioVigente: 500 },
     { plu: '4', costoTotal: 500, precioVigente: null },
     { plu: '5', costoTotal: 500, precioVigente: 0 },
   ]);
   assert.deepStrictEqual(Object.keys(r.markups), ['1', '2']);
-  assert.strictEqual(r.markups['1'], 20);
+  assert.strictEqual(r.markups['1'], 45.2); // 1452 / 1000 − 1 (sin /1,21); '2': 900 / 1000 − 1 = −10
   assert.ok(r.markups['2'] < 0);
   assert.strictEqual(r.alineados, 2);
   assert.strictEqual(r.sinDatos, 3);
@@ -234,9 +219,9 @@ const PRESENTACIONES = [
   { plu: '41', nombre: 'Granel Fantasma 200G' },   // granel inexistente
 ];
 const FORMULAS = { 11: { granel: 4409 }, 12: { granel: 4409 }, 21: { granel: 5000 }, 41: { granel: 99999 } };
-// Mismo shape que el universo Almacén (costoMercaderia = última compra neta; costoSistema sin IVA).
+// Mismo shape que el universo Almacén (costoMercaderia = última compra valorizada; costoSistema tal cual).
 const COSTOS = new Map([
-  ['4409', { nombre: 'Sem. Lino Granel', costoMercaderia: 2500, costoSistema: 2297, costoSistemaConIva: 2779.37,
+  ['4409', { nombre: 'Sem. Lino Granel', costoMercaderia: 2500, costoSistema: 2297, costoSistemaConIva: 2297,
     ivaCompraPct: 21, ivaCompraSupuesto: false, proveedor: 'Prov', fechaUltimaCompra: '2026-09-01', ingresoHoy: true }],
   ['5000', { nombre: 'Garrapiñadas Granel', costoMercaderia: null, costoSistema: null, costoSistemaConIva: null,
     ivaCompraPct: 21, ivaCompraSupuesto: true, proveedor: null, fechaUltimaCompra: null, ingresoHoy: false }],
@@ -245,7 +230,8 @@ const COSTOS = new Map([
 function armar(extra = {}) {
   return armarGruposFraccionado({
     graneles: GRANELES, presentaciones: PRESENTACIONES, formulas: FORMULAS, costos: COSTOS,
-    vigentes: new Map([['11', 4700], ['12', 3000]]),
+    // 11: vigente = neto exacto de 500G (2297 × 1,6832 = 3866.31, sin ×1,21) → alineado.
+    vigentes: new Map([['11', 3866], ['12', 3000]]),
     costeoConfig: { toleranciaPct: 10, margenPorProducto: {}, ...extra },
   });
 }
@@ -283,12 +269,12 @@ test('armarGruposFraccionado: margen standard por costo × peso (Excel) y precio
   assert.strictEqual(p500.markupOverride, null);
   assert.strictEqual(p500.markupPct, 68.32);
   assert.strictEqual(p500.precioNeto, 3866.31);
-  assert.strictEqual(p500.precioConIva, 4700);
-  assert.strictEqual(p500.precioVigente, 4700);
+  assert.strictEqual(p500.precioConIva, 3866); // |3866.31 − 3866| < 0,5 → respeta el vigente
+  assert.strictEqual(p500.precioVigente, 3866);
   assert.strictEqual(p500.semaforo, 'ok');
   assert.strictEqual(p1k.presentacion, '1KG');
   assert.strictEqual(p1k.markupStd, 60.3);
-  assert.strictEqual(p1k.precioConIva, 4450); // 2297 × 1.603 × 1.21 = 4455.4 → 4450
+  assert.strictEqual(p1k.precioConIva, 3700); // 2297 × 1.603 = 3682.09 (sin ×1,21) → 3700
   assert.strictEqual(p1k.semaforo, 'subir');   // vigente 3000
 });
 
@@ -325,7 +311,7 @@ test('armarGruposFraccionado: costo del granel se elige igual que Almacén (sist
   assert.strictEqual(lino.costoFuente, 'sistema');
   assert.strictEqual(lino.costoOverride, null);
   assert.strictEqual(lino.costoSistema, 2297);
-  assert.strictEqual(lino.costoSistemaConIva, 2779.37);
+  assert.strictEqual(lino.costoSistemaConIva, 2297);
   assert.strictEqual(lino.ivaCompraPct, 21);
   assert.strictEqual(lino.ivaCompraSupuesto, false);
   assert.strictEqual(lino.precioUltimaCompra, 2500);
@@ -380,7 +366,7 @@ test('armarGruposFraccionado: costos extra ($/kg + % sobre el costo base) suben 
   const p1k = lino.presentaciones[1];
   assert.strictEqual(p1k.markupStd, 60.3);
   assert.strictEqual(p1k.precioNeto, 4210.6);   // 2626.7 × 1.603
-  assert.strictEqual(p1k.precioConIva, 5100);   // 5094.83 → 5100
+  assert.strictEqual(p1k.precioConIva, 4200);   // 4210.6 (sin ×1,21) → 4200
   // otros graneles no se ven afectados
   assert.strictEqual(grupo(armar({ costosExtraFraccionado: EXTRAS_LINO }), '6000').costoTotal, null);
 });
@@ -460,7 +446,7 @@ test('armarGruposFraccionado: temporales calculadas como una presentación real,
   assert.strictEqual(t500.markupStd, 68.32);
   assert.strictEqual(t500.markupOverride, null);
   assert.strictEqual(t500.precioNeto, 3866.31); // igual que la real de 500G (11)
-  assert.strictEqual(t500.precioConIva, 4700);  // 4678.24 → múltiplo de 50 (no hay vigente que respetar)
+  assert.strictEqual(t500.precioConIva, 3850);  // 3866.31 → múltiplo de 50 (no hay vigente que respetar)
   assert.strictEqual(t500.precioVigente, null);
   assert.strictEqual(t500.semaforo, null);
   assert.strictEqual(t500.deltaPct, null);
@@ -593,7 +579,7 @@ test('listado Almacén: una sola query de vínculos; sub-filas pack/bulto sobre 
   const layer = router.stack.find(l => l.route && l.route.methods.get && l.match('/api/precios/listado'));
   const filas = await new Promise(ok => layer.route.stack[0].handle({ params: {}, query: { tipo: 'almacen' } }, { json: ok }));
   assert.strictEqual(filas.length, 1);
-  assert.strictEqual(filas[0].precioConIva, 2400); // 1000 × 2 × 1,21 = 2420 → 2400
+  assert.strictEqual(filas[0].precioConIva, 2400); // PrecioCosto tal cual: 1210 × 2 = 2420 → 2400
   assert.deepStrictEqual(filas[0].packBulto.map(p => [p.plu, p.tipo, p.descPct, p.precioSugerido, p.precioVigente]), [
     ['91031', 'pack', 9.7, 2150, 2855], // 2400 × 0,903 = 2167,2 → 2150
     ['91449', 'bulto', 20, 1900, null], // 2400 × 0,8 = 1920 → 1900
@@ -631,17 +617,20 @@ test('armarGruposFraccionado: las presentaciones piden sus pack/bulto como pesab
 
 // ── Compra cargada hoy vs. la anterior (aviso en la fila de "Ingreso hoy") ─────
 
-test('listado Almacén: compraHoy sale de UNA query agregada (factura de hoy vs compra anterior, neto) con tendencia por tolerancia', async () => {
+test('listado Almacén: compraHoy sale de UNA query agregada (comprobante de hoy vs anterior, valorizados) con tendencia por tolerancia', async () => {
   const crearRutasPrecios = require('../routes/rutas_precios');
   const sqls = [];
   const query = async (sql) => {
     sqls.push(sql);
-    if (sql.includes('PrecioNeto')) {
+    if (sql.includes('WITH hoy')) {
       return [
-        { IdProducto: '6051', Costo: 1234, Proveedor: 'Prov SA', Letra: 'A', CentroEmisor: 3, NumeroComprobante: 12345,
-          CostoAnterior: 1137.3, FechaAnterior: '2026-09-12' },
-        { IdProducto: '7000 ', Costo: 500, Proveedor: null, Letra: 'B', CentroEmisor: 1, NumeroComprobante: 9,
-          CostoAnterior: null, FechaAnterior: null },
+        // factura hoy: 1000 + 21 % = 1210; anterior por cotización: 1100 tal cual → Δ = 110 / 1100 = +10 %
+        { IdProducto: '6051', PrecioNeto: 1000, PorcentajeIVA: 21, Tipo: 'FACTCOM', Proveedor: 'Prov SA', Letra: 'A',
+          CentroEmisor: 3, NumeroComprobante: 12345,
+          PrecioNetoAnterior: 1100, PorcentajeIVAAnterior: 21, TipoAnterior: 'COTIZACIONCOM', FechaAnterior: '2026-09-12' },
+        // cotización hoy (ahora entra): 500 tal cual, sin anterior
+        { IdProducto: '7000 ', PrecioNeto: 500, PorcentajeIVA: 21, Tipo: 'COTIZACIONCOM', Proveedor: null, Letra: 'B',
+          CentroEmisor: 1, NumeroComprobante: 9, PrecioNetoAnterior: null, FechaAnterior: null },
       ];
     }
     if (sql.includes("NombreRubro = 'Almacen'")) {
@@ -668,23 +657,23 @@ test('listado Almacén: compraHoy sale de UNA query agregada (factura de hoy vs 
   const filas = await llamar('/api/precios/listado', { tipo: 'almacen' });
   const de = plu => filas.find(f => f.plu === plu);
   assert.deepStrictEqual(de('6051').compraHoy, {
-    costo: 1234, proveedor: 'Prov SA', comprobante: 'A-0003-00012345',
-    costoAnterior: 1137.3, fechaAnterior: '2026-09-12', deltaPct: 8.5, tendencia: 'sube',
+    costo: 1210, tipoComprobante: 'factura', proveedor: 'Prov SA', comprobante: 'A-0003-00012345',
+    costoAnterior: 1100, fechaAnterior: '2026-09-12', deltaPct: 10, tendencia: 'sube',
   });
   assert.deepStrictEqual(de('7000').compraHoy, {
-    costo: 500, proveedor: null, comprobante: 'B-0001-00000009',
+    costo: 500, tipoComprobante: 'cotización', proveedor: null, comprobante: 'B-0001-00000009',
     costoAnterior: null, fechaAnterior: null, deltaPct: null, tendencia: 'sin-anterior',
   });
   assert.strictEqual(de('8000').compraHoy, null);
   assert.strictEqual(de('7000  ').compraHoy.costo, 500); // plu sin trim igual matchea
-  // Columnas fijas del listado: costo de sistema sin IVA y última compra neta.
-  assert.strictEqual(de('6051').costoSistema, 1000);
+  // Columnas fijas del listado: costo de sistema tal cual (PrecioCosto de SIGA) y última compra.
+  assert.strictEqual(de('6051').costoSistema, 1210);
   assert.ok(Object.hasOwn(de('6051'), 'precioUltimaCompra'));
   // El detalle trae el mismo dato.
   assert.deepStrictEqual((await llamar('/api/precios/detalle/6051', {})).compraHoy, de('6051').compraHoy);
 
   // Una sola query por request, con la forma acordada.
-  const compras = sqls.filter(s => s.includes('PrecioNeto'));
+  const compras = sqls.filter(s => s.includes('WITH hoy'));
   assert.strictEqual(compras.length, 2); // listado + detalle
   const q = compras[0];
   assert.match(q, /c\.FechaActualizacion >= CAST\(GETDATE\(\) AS date\)/); // cargada hoy (no fecha de factura)
@@ -694,7 +683,18 @@ test('listado Almacén: compraHoy sale de UNA query agregada (factura de hoy vs 
   assert.match(q, /AND c\.IdProveedor=cp\.IdProveedor/); // PK de 6 columnas (ver rutas_compras.js)
   assert.match(q, /AND c2\.IdProveedor=cp2\.IdProveedor/);
   assert.match(q, /LTRIM\(RTRIM\(cp\.IdProducto\)\) <> '1'/);
-  assert.match(q, /NOT LIKE 'COTIZACION%'/);
+  // Cotizaciones entran; notas de crédito no (hoy y anterior).
+  assert.doesNotMatch(q, /COTIZACION%/);
+  assert.match(q, /c\.IdTipoComprobante NOT IN \('NCREDCOM','COTIZACIONNCCOM'\)/);
+  assert.match(q, /c2\.IdTipoComprobante NOT IN \('NCREDCOM','COTIZACIONNCCOM'\)/);
+
+  // Última compra = último comprobante real (ComprasProductos), no ProductosProveedores.
+  const uni = sqls.find(s => s.includes("NombreRubro = 'Almacen'"));
+  assert.doesNotMatch(uni, /ProductosProveedores/);
+  assert.match(uni, /OUTER APPLY \(\s*SELECT TOP 1 CAST\(cp\.PrecioNeto AS FLOAT\)/);
+  assert.match(uni, /ORDER BY c\.Fecha DESC, c\.FechaActualizacion DESC, c\.NumeroComprobante DESC, cp\.Orden DESC/);
+  assert.match(uni, /c\.IdTipoComprobante NOT IN \('NCREDCOM','COTIZACIONNCCOM'\)/);
+  assert.match(uni, /AND c\.IdProveedor=cp\.IdProveedor/);
 });
 
 test('armarGruposFraccionado: el granel trae compraHoy con tendencia (null si no ingresó hoy)', () => {
@@ -708,4 +708,292 @@ test('armarGruposFraccionado: el granel trae compraHoy con tendencia (null si no
   assert.strictEqual(grupo(gs, '5000').compraHoy, null);
   assert.strictEqual(grupo(gs, null).compraHoy, null);
   assert.strictEqual(grupo(armar(), '4409').compraHoy, null); // sin mapa (llamadas viejas)
+});
+
+test('armarGruposFraccionado: venta directa con fórmula va bajo su granel; sin fórmula es su propio granel', () => {
+  const costos = new Map([...COSTOS, ['1580', { nombre: 'Mix Frutos 1Kg', costoMercaderia: null, costoSistema: 3000,
+    costoSistemaConIva: 3630, ivaCompraPct: 21, ivaCompraSupuesto: false, proveedor: 'Prov', fechaUltimaCompra: null, ingresoHoy: false }]]);
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES,
+    presentaciones: [
+      ...PRESENTACIONES,
+      { plu: '221', nombre: 'Sem. Lino 5Kg', ventaDirecta: true },   // fórmula → granel 4409
+      { plu: '1580', nombre: 'Mix Frutos 1Kg', ventaDirecta: true }, // sin fórmula → su propio granel
+      { plu: '1856', nombre: 'Mix Frutos 50G' },                     // fraccionado cuyo granel es el VD
+    ],
+    formulas: { ...FORMULAS, 221: { granel: 4409 }, 1856: { granel: 1580 } },
+    costos, vigentes: new Map(), costeoConfig: { toleranciaPct: 10 },
+  });
+  const lino = grupo(gs, '4409');
+  assert.deepStrictEqual(lino.presentaciones.map(p => p.plu), ['11', '12', '221']);
+  assert.strictEqual(lino.presentaciones[2].ventaDirecta, true);
+  assert.strictEqual(lino.presentaciones[0].ventaDirecta, false);
+  const mix = grupo(gs, '1580');
+  assert.strictEqual(mix.granelNombre, 'Mix Frutos 1Kg');
+  assert.strictEqual(mix.costoBase, 3000);
+  assert.deepStrictEqual(mix.presentaciones.map(p => p.plu), ['1856', '1580']); // por peso: 50G, 1KG
+  assert.deepStrictEqual(mix.presentaciones[1].faltantes, []);
+  assert.ok(!grupo(gs, null).presentaciones.some(p => p.plu === '1580'));
+});
+
+test('armarGruposFraccionado: venta directa sin fórmula local se une al granel de SIGA o, si no, al del mismo nombre', () => {
+  const gs = armarGruposFraccionado({
+    graneles: [...GRANELES, { plu: '7011', nombre: 'Albahaca DEPOSITO GRANEL' }, { plu: '7012', nombre: 'Alcachofa DEPOSITO GRANEL' }],
+    presentaciones: [
+      { plu: '1031', nombre: 'Albahaca 1Kg', ventaDirecta: true },                     // por nombre
+      { plu: '1420', nombre: 'Alcachofa 1Kg', ventaDirecta: true, granelSiga: '4409' }, // fórmula SIGA gana al nombre
+    ],
+    formulas: {}, costos: COSTOS, vigentes: new Map(), costeoConfig: { toleranciaPct: 10 },
+  });
+  assert.deepStrictEqual(grupo(gs, '7011').presentaciones.map(p => p.plu), ['1031']);
+  assert.deepStrictEqual(grupo(gs, '4409').presentaciones.map(p => p.plu), ['1420']);
+  assert.deepStrictEqual(grupo(gs, '7012').presentaciones, []);
+  assert.strictEqual(grupo(gs, '1031'), undefined);
+});
+
+test('armarGruposFraccionado: mano de obra de fraccionado (min × costoHora/60 ÷ kg) se suma al $/kg; override por presentación', () => {
+  // costoHora 6000 → $100/min. Standard 2 min: 500G → $200/u = $400/kg; 1Kg → $200/kg. Override 12: 1Kg → 3 min = $300/kg.
+  const gs = armar({ costoHora: 6000, minutosFraccionadoStd: 2, minutosFraccionado: { 12: 3 } });
+  const [p500, p1k] = grupo(gs, '4409').presentaciones;
+  assert.strictEqual(p500.minutosStd, 2);
+  assert.strictEqual(p500.minutosOverride, null);
+  assert.strictEqual(p500.costoMoKg, 400);
+  assert.strictEqual(p500.costoKg, 2697);        // 2297 + 400
+  assert.strictEqual(p500.precioNeto, 4539.59); // 2697 × 1.6832
+  assert.strictEqual(p1k.minutosOverride, 3);
+  assert.strictEqual(p1k.costoMoKg, 300);
+  assert.strictEqual(p1k.costoKg, 2597);
+  const sinMo = grupo(armar(), '4409').presentaciones[0];
+  assert.strictEqual(sinMo.costoMoKg, 0);
+  assert.strictEqual(sinMo.costoKg, 2297);
+});
+
+test('armarGruposFraccionado: MO sin peso en el nombre → faltante pesoMo; VD que es su propio granel no lleva MO', () => {
+  const costos = new Map([...COSTOS, ['1580', { nombre: 'Mix 1Kg', costoMercaderia: null, costoSistema: 3000 }]]);
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES,
+    presentaciones: [{ plu: '11', nombre: 'Sem. Lino Suelto' }, { plu: '1580', nombre: 'Mix 1Kg', ventaDirecta: true }],
+    formulas: FORMULAS, costos, vigentes: new Map(),
+    costeoConfig: { toleranciaPct: 10, costoHora: 6000, minutosFraccionadoStd: 2 },
+  });
+  const suelto = grupo(gs, '4409').presentaciones[0];
+  assert.deepStrictEqual(suelto.faltantes, ['pesoMo']);
+  assert.strictEqual(suelto.precioConIva, null);
+  const mix = grupo(gs, '1580').presentaciones[0];
+  assert.strictEqual(mix.minutosStd, 0);
+  assert.strictEqual(mix.costoKg, 3000);
+});
+
+test('armarGruposFraccionado: temporales llevan la MO standard según su peso', () => {
+  const gs = armar({ costoHora: 6000, minutosFraccionadoStd: 1, presentacionesTemporales: { 4409: [{ id: 't1', pesoG: 50 }] } });
+  const [t] = grupo(gs, '4409').temporales;
+  assert.strictEqual(t.costoMoKg, 2000); // $100 / 0,05 kg
+  assert.strictEqual(t.costoKg, 4297);
+});
+
+test('armarGruposFraccionado: el nombre ignora calibre y "(Precio Por Kilo)" sólo si el granel es único', () => {
+  const gs = armarGruposFraccionado({
+    graneles: [
+      { plu: '4304', nombre: 'Avellanas Chicas - 9/11 DEPOSITO GRANEL' },
+      { plu: '7100', nombre: 'Almendras 23/25 DEPOSITO GRANEL' }, { plu: '7101', nombre: 'Almendras 27/30 DEPOSITO GRANEL' },
+    ],
+    presentaciones: [
+      { plu: '4305', nombre: 'Avellanas Chicas 1Kg', ventaDirecta: true },
+      { plu: '5726', nombre: 'Avellanas Chicas 5kg (Precio Por Kilo)', ventaDirecta: true },
+      { plu: '8000', nombre: 'Almendras 27/30 1Kg', ventaDirecta: true }, // calibre exacto
+      { plu: '8001', nombre: 'Almendras 1Kg', ventaDirecta: true },       // ambiguo → propio
+    ],
+    formulas: {}, costos: new Map(), vigentes: new Map(), costeoConfig: { toleranciaPct: 10 },
+  });
+  assert.deepStrictEqual(grupo(gs, '4304').presentaciones.map(p => p.plu), ['4305', '5726']);
+  assert.deepStrictEqual(grupo(gs, '7101').presentaciones.map(p => p.plu), ['8000']);
+  assert.deepStrictEqual(grupo(gs, '7100').presentaciones, []);
+});
+
+// ── Gastos sobre venta: el standard es ganancia, se convierte a markup total ──
+// 26.09 % = total de los 8 conceptos del Excel viejo (lista sucursal).
+const GASTOS_2609 = [
+  { id: 'goa', concepto: 'GOA', pct: 15, listas: ['sucursal'] },
+  { id: 'resto', concepto: 'Resto', pct: 11.09, listas: ['sucursal'] },
+];
+
+test('calcularFilaAlmacen: con gastos 26.09 la banda (ganancia 15) da markup 55.594642; expone gananciaBanda y gastosVentaPct', () => {
+  const fila = calcularFilaAlmacen({
+    plu: '1', nombre: 'Arroz', costoSistema: 2000, precioVigente: null,
+    costeoConfig: { ...CFG_BASE, gastosVenta: GASTOS_2609 },
+  });
+  assert.strictEqual(fila.gananciaBanda, 15);
+  assert.strictEqual(fila.gastosVentaPct, 26.09);
+  assert.strictEqual(fila.markupBanda, 55.594642);
+  assert.strictEqual(fila.markupPct, 55.594642);
+  assert.strictEqual(fila.banda, 'sin tope');
+  assert.strictEqual(fila.precioNeto, 3205.25); // 2060 × 1.55594642
+});
+
+test('calcularFilaAlmacen: el override por producto es markup total y no se convierte; sin gastos gananciaBanda = markupBanda', () => {
+  const fila = calcularFilaAlmacen({
+    plu: '1', nombre: 'Arroz', costoSistema: 2000, precioVigente: null,
+    costeoConfig: { ...CFG_BASE, gastosVenta: GASTOS_2609, margenPorProducto: { 1: 40 } },
+  });
+  assert.strictEqual(fila.markupPct, 40);
+  assert.strictEqual(fila.banda, 'override');
+  assert.strictEqual(fila.markupBanda, 55.594642);
+  const sin = calcularFilaAlmacen({ plu: '1', nombre: 'Arroz', costoSistema: 2000, precioVigente: null, costeoConfig: CFG_BASE });
+  assert.strictEqual(sin.gastosVentaPct, 0);
+  assert.strictEqual(sin.gananciaBanda, 15);
+  assert.strictEqual(sin.markupBanda, 15);
+});
+
+test('armarGruposFraccionado: con gastos la celda de la matriz es ganancia (gananciaStd) y markupStd la convierte; override intacto', () => {
+  const [p500] = grupo(armar({ gastosVenta: GASTOS_2609 }), '4409').presentaciones;
+  assert.strictEqual(p500.gananciaStd, 68.32);
+  assert.strictEqual(p500.markupStd, 127.736436);
+  assert.strictEqual(p500.markupPct, 127.736436);
+  assert.strictEqual(p500.precioNeto, 5231.11);
+  const [ov] = grupo(armar({ gastosVenta: GASTOS_2609, margenPorProducto: { 11: 100 } }), '4409').presentaciones;
+  assert.strictEqual(ov.markupPct, 100);
+  const [sin] = grupo(armar(), '4409').presentaciones;
+  assert.strictEqual(sin.gananciaStd, 68.32);
+  assert.strictEqual(sin.markupStd, 68.32);
+});
+
+test('armarGruposFraccionado: temporales convierten la ganancia standard con los mismos gastos', () => {
+  const gs = armar({ gastosVenta: GASTOS_2609, presentacionesTemporales: { 4409: [{ id: 't-a', pesoG: 500, markupPct: null }] } });
+  const [t] = grupo(gs, '4409').temporales;
+  assert.strictEqual(t.gananciaStd, 68.32);
+  assert.strictEqual(t.markupStd, 127.736436);
+  assert.strictEqual(t.precioNeto, 5231.11);
+});
+
+// ── Insumos básicos de Fraccionado ($ por unidad ÷ kg, mismo patrón que la MO) ──
+
+test('armarGruposFraccionado: insumos $/u ÷ kg se suman al costoKg; override por presentación; junto con la MO', () => {
+  const gs = armar({ insumosFraccionadoStd: 100, insumosFraccionado: { 12: 50 } });
+  const [p500, p1k] = grupo(gs, '4409').presentaciones;
+  assert.strictEqual(p500.insumosStd, 100);
+  assert.strictEqual(p500.insumosOverride, null);
+  assert.strictEqual(p500.insumos, 100);
+  assert.strictEqual(p500.costoInsumosKg, 200); // $100 / 0,5 kg
+  assert.strictEqual(p500.costoKg, 2497);
+  assert.strictEqual(p1k.insumosOverride, 50);
+  assert.strictEqual(p1k.insumos, 50);
+  assert.strictEqual(p1k.costoInsumosKg, 50);
+  assert.strictEqual(p1k.costoKg, 2347);
+  const [conMo] = grupo(armar({ insumosFraccionadoStd: 100, costoHora: 6000, minutosFraccionadoStd: 2 }), '4409').presentaciones;
+  assert.strictEqual(conMo.costoKg, 2897); // 2297 + 400 MO + 200 insumos
+  const [sinIns] = grupo(armar(), '4409').presentaciones;
+  assert.strictEqual(sinIns.costoInsumosKg, 0);
+  assert.strictEqual(sinIns.insumosStd, 0);
+});
+
+test('armarGruposFraccionado: insumos sin peso en el nombre → faltante pesoMo; VD que es su propio granel no lleva insumos', () => {
+  const costos = new Map([...COSTOS, ['1580', { nombre: 'Mix 1Kg', costoMercaderia: null, costoSistema: 3000 }]]);
+  const gs = armarGruposFraccionado({
+    graneles: GRANELES,
+    presentaciones: [{ plu: '11', nombre: 'Sem. Lino Suelto' }, { plu: '1580', nombre: 'Mix 1Kg', ventaDirecta: true }],
+    formulas: FORMULAS, costos, vigentes: new Map(),
+    costeoConfig: { toleranciaPct: 10, insumosFraccionadoStd: 100 },
+  });
+  const suelto = grupo(gs, '4409').presentaciones[0];
+  assert.strictEqual(suelto.costoInsumosKg, null);
+  assert.deepStrictEqual(suelto.faltantes, ['pesoMo']);
+  assert.strictEqual(suelto.precioConIva, null);
+  const mix = grupo(gs, '1580').presentaciones[0];
+  assert.strictEqual(mix.insumosStd, 0);
+  assert.strictEqual(mix.costoInsumosKg, 0);
+  assert.strictEqual(mix.costoKg, 3000);
+});
+
+test('armarGruposFraccionado: temporales llevan los insumos standard según su peso', () => {
+  const gs = armar({ insumosFraccionadoStd: 10, insumosFraccionado: { 11: 99 }, presentacionesTemporales: { 4409: [{ id: 't1', pesoG: 50 }] } });
+  const [t] = grupo(gs, '4409').temporales;
+  assert.strictEqual(t.costoInsumosKg, 200); // $10 / 0,05 kg
+  assert.strictEqual(t.costoKg, 2497);
+});
+
+// ── Endpoints: config de gastos sobre venta e insumos de fraccionado ─────────
+
+function routerConArchivo(inicial) {
+  const crearRutasPrecios = require('../routes/rutas_precios');
+  const estado = { archivo: inicial };
+  const router = crearRutasPrecios({
+    apiRoute: fn => async (req, res) => res.json(await fn(req)),
+    query: async () => [], leerJSON: () => estado.archivo, guardarJSON: (_p, d) => { estado.archivo = d; },
+    DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
+  });
+  const llamar = (method, ruta, body) => {
+    const layer = router.stack.find(l => l.route && l.route.methods[method] && l.match(ruta));
+    return new Promise(resolve => layer.route.stack[0].handle({ params: layer.params, body, query: {} }, { json: resolve }));
+  };
+  return { estado, llamar };
+}
+
+const ARCHIVO_BANDAS = {
+  toleranciaPct: 10, margenPorProducto: { 11: 5 },
+  bandasMarkup: { almacen: [{ costoHastaARS: 1000, markupMaxPct: 40 }, { costoHastaARS: null, markupMaxPct: 15 }], fraccionado: [], produccion: [] },
+};
+
+test('GET config: expone gastosVenta, gastosVentaPct e insumosFraccionadoStd (defaults vacíos)', async () => {
+  const { llamar } = routerConArchivo({ ...ARCHIVO_BANDAS });
+  const c = await llamar('get', '/api/precios/config');
+  assert.deepStrictEqual(c.gastosVenta, []);
+  assert.strictEqual(c.gastosVentaPct, 0);
+  assert.strictEqual(c.insumosFraccionadoStd, 0);
+  const { llamar: l2 } = routerConArchivo({ ...ARCHIVO_BANDAS, gastosVenta: GASTOS_2609, insumosFraccionadoStd: 30 });
+  const c2 = await l2('get', '/api/precios/config');
+  assert.strictEqual(c2.gastosVentaPct, 26.09);
+  assert.strictEqual(c2.insumosFraccionadoStd, 30);
+});
+
+test('PUT config/gastos-venta: conservando precios reescala bandas y matriz para que el markup total no cambie', async () => {
+  const { markupDesdeGanancia } = require('../lib/precios_costeo');
+  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_BANDAS });
+  const r = await llamar('put', '/api/precios/config/gastos-venta', { items: [{ concepto: 'GOA', pct: 15 }, { concepto: 'Resto', pct: 11.09 }] });
+  assert.strictEqual(r.error, undefined);
+  assert.strictEqual(r.gastosVentaPct, 26.09);
+  assert.deepStrictEqual(r.gastosVenta.map(g => g.id), ['goa', 'resto']);
+  assert.ok(Math.abs(markupDesdeGanancia(r.bandasMarkup.almacen[1].markupMaxPct, 26.09) - 15) < 0.001);
+  // Sin matriz propia en costeo.json se reescala la default.
+  assert.ok(Math.abs(markupDesdeGanancia(r.markupFraccionado.markupPct[0][0], 26.09) - MARKUP_FRACCIONADO_DEFAULT.markupPct[0][0]) < 0.001);
+  assert.deepStrictEqual(estado.archivo.gastosVenta, r.gastosVenta);
+  assert.deepStrictEqual(estado.archivo.bandasMarkup, r.bandasMarkup);
+  assert.deepStrictEqual(estado.archivo.margenPorProducto, { 11: 5 }); // overrides intactos
+});
+
+test('PUT config/gastos-venta: conservarPrecios false guarda sólo los gastos; inválido no escribe', async () => {
+  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_BANDAS });
+  const r = await llamar('put', '/api/precios/config/gastos-venta', { items: GASTOS_2609, conservarPrecios: false });
+  assert.strictEqual(r.bandasMarkup.almacen[1].markupMaxPct, 15);
+  assert.strictEqual(estado.archivo.gastosVentaPct, undefined); // el total no se persiste, se calcula
+  assert.strictEqual(estado.archivo.gastosVenta.length, 2);
+  const antes = estado.archivo;
+  assert.match((await llamar('put', '/api/precios/config/gastos-venta', { items: [{ concepto: 'A', pct: 100 }] })).error, /pct|100/);
+  assert.match((await llamar('put', '/api/precios/config/gastos-venta', {})).error, /lista/);
+  assert.strictEqual(estado.archivo, antes);
+});
+
+test('PUT config/gastos-venta: si el reescalado deja la matriz fuera de rango, error y no escribe', async () => {
+  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_BANDAS });
+  const r = await llamar('put', '/api/precios/config/gastos-venta', { items: [{ concepto: 'Mucho', pct: 99.5 }] }); // ganancias < −99 %
+  assert.match(r.error, /markupFraccionado/);
+  assert.strictEqual(estado.archivo.gastosVenta, undefined);
+});
+
+test('PUT insumos-fraccionado/:plu guarda $/u por presentación, null lo quita; valida rango y PLU', async () => {
+  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_BANDAS });
+  assert.deepStrictEqual(await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: 35.5 }), { plu: '12', valor: 35.5 });
+  assert.deepStrictEqual(estado.archivo.insumosFraccionado, { 12: 35.5 });
+  assert.match((await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: -1 })).error, /inválido/);
+  assert.match((await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: 10000001 })).error, /inválido/);
+  assert.match((await llamar('put', '/api/precios/insumos-fraccionado/a%20b', { pesos: 1 })).error, /PLU/);
+  await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: null });
+  assert.deepStrictEqual(estado.archivo.insumosFraccionado, {});
+});
+
+test('PUT config/general acepta insumosFraccionadoStd (0 a 10.000.000) y lo devuelve', async () => {
+  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_BANDAS });
+  const r = await llamar('put', '/api/precios/config/general', { insumosFraccionadoStd: 25 });
+  assert.strictEqual(r.insumosFraccionadoStd, 25);
+  assert.strictEqual(estado.archivo.insumosFraccionadoStd, 25);
+  assert.match((await llamar('put', '/api/precios/config/general', { insumosFraccionadoStd: 10000001 })).error, /insumosFraccionadoStd/);
 });

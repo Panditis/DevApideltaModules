@@ -3,7 +3,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const produccion = require('../lib/precios_produccion');
-const { elegirCosto, compararConVigente } = require('../lib/precios_costeo');
+const { elegirCosto, compararConVigente, totalGastosVenta } = require('../lib/precios_costeo');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { crearPackBultoDe } = require('../lib/precios_pack_bulto');
 
@@ -378,7 +378,7 @@ function plusUsados(productos) {
 }
 
 // costoDe(clave) para lib/precios_produccion: PLU SIGA → elegirCosto (override manual de
-// costo-producto → última compra si se eligió → sistema sin IVA); id manual → insumosManuales.
+// costo-producto → última compra si se eligió → sistema tal cual); id manual → insumosManuales.
 // Sin fila en SIGA / sin insumo manual → null (la lib lo convierte en faltante, nunca 0).
 function armarCostoDe({ costos, costeo, insumosManuales }) {
   return clave => {
@@ -403,6 +403,8 @@ function costearTodos({ productos, costos, costeo, datos }) {
     costoDe, costoHora: cfg.costoHora, categoriasMaquina: datos.categoriasMaquina,
     bandas: (cfg.bandasMarkup || {}).produccion, margenPorProducto: cfg.margenPorProducto,
     toleranciaPct: cfg.toleranciaPct,
+    // La banda de producción es ganancia: el lib la convierte a markup total con estos gastos.
+    gastosVentaPct: totalGastosVenta(cfg.gastosVenta),
   };
   return Object.fromEntries(Object.entries(productos).map(([id, p]) => {
     const presentaciones = Object.fromEntries(Object.entries(p.presentaciones || {}).map(([plu, pr]) =>

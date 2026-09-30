@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/css/apidelta-theme.css">
 <link rel="stylesheet" href="/analisis.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head><body class="font-body text-ink">
 <header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
   <div class="max-w-[1200px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
@@ -68,7 +69,7 @@
     <div class="grid2">
       <div class="card"><h3>Comparativa por sucursal</h3><canvas id="chComparativa-suc" height="200"></canvas>
         <div id="tblComparativa-suc" style="margin-top:12px"></div></div>
-      <div class="card"><h3>Tendencia diaria</h3><canvas id="chTendencia-suc" height="200"></canvas>
+      <div class="card"><div class="card-head"><h3>Tendencia diaria</h3><label class="mini"><input type="checkbox" id="sinSab-suc" onchange="repintarTendencia('suc')"> Excluir sábados</label></div><canvas id="chTendencia-suc" height="200"></canvas>
         <div id="tendResumen-suc" class="mini"></div></div>
     </div>
     <div class="grid2">
@@ -87,6 +88,8 @@
           <option value="">Todos los rubros</option>
         </select>
         <input type="search" id="buscTop-suc" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+        <button type="button" class="btn-mini" onclick="exportarTop('suc')"
+          title="Descarga la lista con los filtros y el orden actuales">Exportar Excel</button>
       </div>
       <div class="desc">Clic en Producto, Facturación, Unid. o Quiebres para ordenar el listado por esa columna.</div>
       <div id="tblTop-suc"></div>
@@ -133,7 +136,7 @@
     <div id="msg-cen"></div>
     <div class="kpis" id="kpis-cen"></div>
 
-    <div class="card"><h3>Tendencia diaria</h3>
+    <div class="card"><div class="card-head"><h3>Tendencia diaria</h3><label class="mini"><input type="checkbox" id="sinSab-cen" onchange="repintarTendencia('cen')"> Excluir sábados</label></div>
       <div class="chart-box"><canvas id="chTendencia-cen"></canvas></div>
       <div id="tendResumen-cen" class="mini"></div></div>
     <div class="grid2">
@@ -166,7 +169,7 @@
     <div id="msg-api"></div>
     <div class="kpis" id="kpis-api"></div>
 
-    <div class="card"><h3>Tendencia diaria</h3>
+    <div class="card"><div class="card-head"><h3>Tendencia diaria</h3><label class="mini"><input type="checkbox" id="sinSab-api" onchange="repintarTendencia('api')"> Excluir sábados</label></div>
       <div class="chart-box"><canvas id="chTendencia-api"></canvas></div>
       <div id="tendResumen-api" class="mini"></div></div>
     <div class="grid2">
