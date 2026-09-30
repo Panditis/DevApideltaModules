@@ -200,7 +200,7 @@
             <select id="selTarea" class="p-select flex-1"></select>
             <button type="button" id="btnAgregarTarea" class="p-button outlined" disabled>Agregar</button>
           </div>
-          <p id="tareasSinDatos" class="p-helper">No hay tareas cargadas. Creálas en la pestaña Tareas.</p>
+          <p id="tareasSinDatos" class="p-helper hidden">No hay tareas cargadas. Creálas en la pestaña Tareas.</p>
         </div>
       </div>
     </div>
@@ -299,7 +299,7 @@
             </thead>
             <tbody id="listaTareas"></tbody>
           </table>
-          <p id="tareasVacio" class="p-empty">Todavía no hay tareas.</p>
+          <p id="tareasVacio" class="p-empty hidden">Todavía no hay tareas.</p>
         </div>
       </div>
     </div>
@@ -758,26 +758,30 @@
         <td>${escAttr(t.nombre)}</td>
         <td class="r">$${dos(t.monto)}</td>
         <td class="r whitespace-nowrap">
-          <button type="button" class="p-button outlined xs" data-editar-tarea="${escAttr(t.id)}">Editar</button>
-          <button type="button" class="p-button ghost danger xs" data-eliminar-tarea="${escAttr(t.id)}">Eliminar</button>
+          <button type="button" class="p-button outlined xs" data-editar-tarea="${escAttr(t.id)}" aria-label="Editar ${escAttr(t.nombre)}">Editar</button>
+          <button type="button" class="p-button ghost danger xs" data-eliminar-tarea="${escAttr(t.id)}" aria-label="Eliminar ${escAttr(t.nombre)}">Eliminar</button>
         </td>
       </tr>`).join('');
-    document.getElementById('selTarea').innerHTML = tareas.map(t =>
+    const sel = document.getElementById('selTarea');
+    const previo = sel.value;
+    sel.innerHTML = tareas.map(t =>
       `<option value="${escAttr(t.id)}">${escAttr(t.nombre)} — $${dos(t.monto)}</option>`).join('');
+    if (tareas.some(t => t.id === previo)) sel.value = previo;
     document.getElementById('tareasSinDatos').classList.toggle('hidden', tareas.length > 0);
     document.getElementById('btnAgregarTarea').disabled = tareas.length === 0;
   }
 
   // Si una tarea se editó o borró en el ABM, su fila en el carrito muestra lo vigente o desaparece.
   function sincronizarTareasCarrito() {
+    let cambio = false;
     for (let i = carrito.length - 1; i >= 0; i--) {
       const it = carrito[i];
       if (it.tipo !== 'tarea') continue;
       const t = tareas.find(x => x.id === it.tareaId);
-      if (!t) carrito.splice(i, 1);
-      else { it.nombre = t.nombre; it.monto = t.monto; }
+      if (!t) { carrito.splice(i, 1); cambio = true; }
+      else if (it.nombre !== t.nombre || it.monto !== t.monto) { it.nombre = t.nombre; it.monto = t.monto; cambio = true; }
     }
-    renderCarrito();
+    if (cambio) renderCarrito();
   }
 
   function resetFormTarea() {
@@ -822,7 +826,10 @@
     const eliminar = e.target.closest('[data-eliminar-tarea]');
     if (eliminar) eliminarTarea(eliminar.dataset.eliminarTarea);
   });
-  document.getElementById('btnTareaCancelar').addEventListener('click', resetFormTarea);
+  document.getElementById('btnTareaCancelar').addEventListener('click', () => {
+    resetFormTarea();
+    document.getElementById('tareaNombre').focus();
+  });
 
   document.getElementById('formTarea').addEventListener('submit', async e => {
     e.preventDefault();
