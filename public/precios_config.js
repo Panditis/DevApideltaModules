@@ -19,12 +19,15 @@ async function cargarConfiguracion(){
     configCargada = j;
     document.getElementById('inCostoHora').value = j.costoHora;
     document.getElementById('inTolerancia').value = j.toleranciaPct;
-    document.getElementById('inCostosVariosAlmacen').value = j.costosVariosPctAlmacen;
+    document.getElementById('inMinutosFracc').value = j.minutosFraccionadoStd;
+    document.getElementById('inInsumosFracc').value = j.insumosFraccionadoStd;
     carga.classList.add('hidden');
     form.classList.remove('hidden');
 
+    renderConfigGastos(j); // precios_config_gastos.js
     renderConfigBandas(j); // precios_config_bandas.js
     renderConfigFraccionado(j); // precios_config_fraccionado.js
+    renderConfigCurva(j); // precios_config_curva.js (después de las bandas: la de Almacén va en su tarjeta)
     cargarConfigPB(); // precios_pack_bulto.js
   } catch (e) {
     carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
@@ -32,7 +35,7 @@ async function cargarConfiguracion(){
   }
 }
 
-// Guarda config general (cualquier subconjunto de costoHora/toleranciaPct/costosVariosPctAlmacen).
+// Guarda config general (cualquier subconjunto de costoHora/toleranciaPct/minutos e insumos de fraccionado).
 async function putConfigGeneral(body){
   const r = await fetch('/api/precios/config/general', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -48,11 +51,12 @@ async function guardarGeneral(){
   msg.className = 'text-sm text-ink/50'; msg.textContent = 'Guardando…';
   try {
     const j = await putConfigGeneral({
-      costoHora: val('inCostoHora'), toleranciaPct: val('inTolerancia'), costosVariosPctAlmacen: val('inCostosVariosAlmacen'),
+      costoHora: val('inCostoHora'), toleranciaPct: val('inTolerancia'),
+      minutosFraccionadoStd: val('inMinutosFracc'), insumosFraccionadoStd: val('inInsumosFracc'),
     });
     configCargada = { ...configCargada, ...j };
     ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
-    fraccCargado = false; // el semáforo de Fraccionado depende de la tolerancia
+    fraccCargado = false; // el semáforo de Fraccionado depende de la tolerancia; su MO e insumos, de costoHora, minutos e insumos
     refrescarAlertasProduccion(); // precios_produccion.js: costoHora y tolerancia mueven los costos/alertas de Producción
     msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
   } catch (e) {

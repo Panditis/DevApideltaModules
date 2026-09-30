@@ -1,6 +1,7 @@
-// ── Precios · Configuración: margen standard Fraccionado (bandas de costo × tramos de peso) ─
+// ── Precios · Configuración: ganancia standard Fraccionado (bandas de costo × tramos de peso) ─
 // Script clásico cargado después de precios_fraccionado.js: usa sus globales (esc, numOrNull, inputCls,
-// putJson, configCargada, fraccCargado, fraccData). Se dibuja en #configFraccionado cada vez que
+// putJson, configCargada, fraccCargado, fraccData; de precios_config_gastos.js: textoMarkupTotal, gastosConfig,
+// fmtPctGastos). Las celdas (markupPct) guardan GANANCIA; el markup total suma los gastos sobre venta. Se dibuja en #configFraccionado cada vez que
 // cargarConfiguracion() trae la config. Matriz { bandas:[costoHasta..., null], tramosG:[g asc], markupPct:[fila][col] };
 // el server (validarMarkupFraccionado) exige ascendentes y matriz completa.
 
@@ -92,7 +93,7 @@ function pintarMatrizFracc(){
       ${m.tramosG.map((t, k) => `<th class="pb-1 pr-1 whitespace-nowrap">${inMf(t, 'mf-tramo', `aria-label="Peso de la columna ${k + 1} (g)"`)}${quitarCol(k)}</th>`).join('')}<th></th></tr></thead>
     <tbody id="mfFilas">${m.bandas.map((b, i) => `<tr>
       <td class="pr-2 py-1">${i === ultima ? '<span class="text-gris text-xs">sin tope</span>' : inMf(b, 'mf-hasta w-28')}</td>
-      ${m.tramosG.map((_, k) => `<td class="pr-1 py-1">${inMf((m.markupPct[i] || [])[k], 'mf-celda')}</td>`).join('')}
+      ${m.tramosG.map((_, k) => `<td class="pr-1 py-1">${inMf((m.markupPct[i] || [])[k], 'mf-celda', `aria-label="Ganancia % banda ${i + 1}, columna ${k + 1}" title="${esc(textoMarkupTotal((m.markupPct[i] || [])[k], gastosConfig()))}"`)}</td>`).join('')}
       <td>${m.bandas.length > 1 ? `<button class="mf-quitar text-crit hover:opacity-70 px-1" data-i="${i}" title="Quitar banda">✕</button>` : ''}</td>
     </tr>`).join('')}</tbody>`;
   document.querySelectorAll('.mf-quitar').forEach(btn => btn.onclick = () => editarMf(a => {
@@ -121,11 +122,12 @@ function renderConfigFraccionado(cfg){
   mfEdit = { bandas: [...m.bandas], tramosG: [...m.tramosG], markupPct: m.markupPct.map(f => [...f]) };
   document.getElementById('configFraccionado').innerHTML = `
     <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 mt-5 w-fit max-w-full">
-      <h2 class="font-disp text-lg font-bold text-verde mb-1">Margen standard Fraccionado</h2>
-      <p class="text-xs text-ink/50 mb-4">Margen % según el costo del granel por kg (filas) y el peso de la presentación (columnas):
+      <h2 class="font-disp text-lg font-bold text-verde mb-1">Ganancia standard Fraccionado</h2>
+      <p class="text-xs text-ink/50 mb-4">Ganancia % según el costo del granel por kg (filas) y el peso de la presentación (columnas):
         se usa la primera banda con costo ≤ tope y la primera columna con peso ≤ tramo; más pesado que el último tramo → última
         columna; sin peso en el nombre → columna de 1 kg. Cada presentación puede tener su margen propio (detalle del granel).
-        Al guardar, columnas y bandas se ordenan solas.</p>
+        Al guardar, columnas y bandas se ordenan solas. El markup que se aplica suma los gastos sobre venta
+        (${esc(fmtPctGastos(gastosConfig()))}): pasá el mouse por una celda para verlo.</p>
       <div class="overflow-x-auto"><table id="mfTabla" class="text-sm"></table></div>
       <div class="flex gap-2 mt-2">
         <button id="mfAgregar" class="px-3 py-1 rounded-lg border border-borde text-xs hover:bg-white">+ Agregar banda</button>
@@ -138,6 +140,10 @@ function renderConfigFraccionado(cfg){
       </div>
     </div>`;
   pintarMatrizFracc();
+  // Markup total de la celda en vivo (title), sin re-dibujar.
+  document.getElementById('mfTabla').addEventListener('input', e => {
+    if (e.target.classList.contains('mf-celda')) e.target.title = textoMarkupTotal(numOrNull(e.target.value), gastosConfig());
+  });
   // Nueva banda antes de la "sin tope", copiando los márgenes de la anterior.
   document.getElementById('mfAgregar').onclick = () => editarMf(a => {
     const n = a.bandas.length;

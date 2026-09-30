@@ -63,30 +63,25 @@ function rangoFechas(fechas) {
 const fechaMasAntigua = fechas => (rangoFechas(fechas) || {}).min ?? null;
 
 // ── Costo última compra vs. costo de sistema (columnas fijas de Almacén y del granel de Fraccionado) ──
-// Las dos columnas van CON IVA para compararlas a simple vista: el sistema es PrecioCosto de SIGA (ya trae el
-// IVA de compra) y la compra, neta en SIGA, se lleva a con IVA con la alícuota del producto (sin dato → 21%).
-const IVA_COMPRA_DEFAULT = 21;
-const conIvaCompra = (f, neto) => (neto == null ? null
-  : Math.round(neto * (1 + (f.ivaCompraPct ?? IVA_COMPRA_DEFAULT) / 100) * 100) / 100);
-function costoSistemaConIvaDe(f) {
-  return f.costoSistemaConIva != null ? f.costoSistemaConIva : conIvaCompra(f, f.costoSistema ?? null);
-}
-// La factura cargada hoy (compraHoy) manda; si no, la última compra (precioUltimaCompra/fechaUltimaCompra).
+// Los dos vienen del server "tal cual", el mismo valor que usa la cuenta: sistema = PrecioCosto de SIGA sin
+// tocar; última compra = el comprobante (factura: neto + su IVA; cotización: neto tal cual). Sin conversiones acá.
+const costoSistemaDe = f => f.costoSistema ?? f.costoSistemaConIva ?? null;
+// La compra cargada hoy (compraHoy) manda; si no, la última compra (precioUltimaCompra/fechaUltimaCompra).
 function ultimaCompraDe(f) {
   const ch = f.compraHoy;
   if (ch && ch.costo != null) {
-    return { costo: conIvaCompra(f, ch.costo), hoy: true, proveedor: ch.proveedor || f.proveedor || null, comprobante: ch.comprobante || null,
-      fecha: null, costoAnterior: conIvaCompra(f, ch.costoAnterior ?? null), fechaAnterior: ch.fechaAnterior ?? null };
+    return { costo: ch.costo, hoy: true, tipo: ch.tipoComprobante || null, proveedor: ch.proveedor || f.proveedor || null,
+      comprobante: ch.comprobante || null, fecha: null, costoAnterior: ch.costoAnterior ?? null, fechaAnterior: ch.fechaAnterior ?? null };
   }
   if (f.precioUltimaCompra == null) return null;
-  return { costo: conIvaCompra(f, f.precioUltimaCompra), hoy: false, proveedor: f.proveedor || null, comprobante: null,
-    fecha: f.fechaUltimaCompra || null, costoAnterior: null, fechaAnterior: null };
+  return { costo: f.precioUltimaCompra, hoy: false, tipo: f.tipoComprobanteUltimaCompra || null, proveedor: f.proveedor || null,
+    comprobante: null, fecha: f.fechaUltimaCompra || null, costoAnterior: null, fechaAnterior: null };
 }
 const costoUltimaCompra = f => (ultimaCompraDe(f) || {}).costo ?? null;
 // Δ% de la última compra contra el costo de sistema (1 decimal); null si falta alguno.
 function deltaUltimaVsSistema(f) {
   const c = costoUltimaCompra(f);
-  const sis = costoSistemaConIvaDe(f);
+  const sis = costoSistemaDe(f);
   if (c == null || !(sis > 0)) return null;
   return +(((c - sis) / sis) * 100).toFixed(1);
 }
@@ -95,7 +90,8 @@ const tendenciaCosto = (d, tol) => (d == null ? null : Math.abs(d) <= (Number(to
 function tipUltimaCompra(u) {
   if (!u) return 'Sin compras registradas';
   return [
-    u.hoy ? 'Factura cargada hoy en SIGA (con IVA)' : 'Última compra (con IVA)',
+    (u.hoy ? `${u.tipo === 'cotización' ? 'Cotización' : 'Factura'} cargada hoy en SIGA` : `Última compra${u.tipo ? ` (${u.tipo})` : ''}`)
+      + (u.tipo ? (u.tipo === 'cotización' ? ' · tal cual' : ' · neto + IVA') : ''),
     `Proveedor: ${u.proveedor || '—'}` + (u.comprobante ? ` · Comprobante: ${u.comprobante}` : ''),
     `Fecha: ${u.hoy ? 'hoy' : u.fecha || '—'}`,
     ...(u.costoAnterior != null ? [`antes $ ${fmtCostoAviso(u.costoAnterior)} (${fmtFechaPrecio(u.fechaAnterior)})`] : []),
@@ -106,13 +102,13 @@ const ordenarPorUltimaCompra = filas => ordenarFilas(filas, 'ultima', 'desc', de
 
 // Columnas de cada tabla → valor a ordenar. Reciben por parámetro los helpers de estado de cada tab.
 const columnasAlmacen = estadoDe => ({
-  plu: f => f.plu, nombre: f => f.nombre, costo: f => f.costoTotal, sistema: costoSistemaConIvaDe, ultima: costoUltimaCompra,
+  plu: f => f.plu, nombre: f => f.nombre, costo: f => f.costoTotal, sistema: costoSistemaDe, ultima: costoUltimaCompra,
   markup: f => f.markupPct, vigente: f => f.precioVigente, delta: f => f.deltaPct,
   estado: f => rango(RANGO_ESTADO_PRECIO, estadoDe(f)), fecha: f => f.fechaPrecio,
 });
 const columnasFracc = ({ estadoGrupo, peorPresentacion }) => ({
   plu: g => g.granelPlu, nombre: g => g.granelNombre, costo: g => (g.costoBase == null ? null : g.costoTotal),
-  sistema: costoSistemaConIvaDe, ultima: costoUltimaCompra, presentaciones: g => (g.presentaciones || []).length,
+  sistema: costoSistemaDe, ultima: costoUltimaCompra, presentaciones: g => (g.presentaciones || []).length,
   delta: g => (peorPresentacion(g) || {}).deltaPct, estado: g => rango(RANGO_ESTADO_PRECIO, estadoGrupo(g)),
   fecha: g => fechaMasAntigua((g.presentaciones || []).map(p => p.fechaPrecio)),
 });
@@ -150,11 +146,11 @@ function textoCompraHoy(ch) {
   const tipo = Object.hasOwn(AVISO_COMPRA, ch.tendencia) ? ch.tendencia : 'sin-anterior';
   const hayAnterior = ch.costoAnterior != null && ch.deltaPct != null;
   const fechaAnt = fmtFechaPrecio(ch.fechaAnterior);
-  const texto = `Factura hoy $ ${fmtCostoAviso(ch.costo)}` + (hayAnterior
+  const texto = `${ch.tipoComprobante === 'cotización' ? 'Cotización' : 'Factura'} hoy $ ${fmtCostoAviso(ch.costo)}` + (hayAnterior
     ? ` ${AVISO_COMPRA[tipo].flecha} ${fmtPctAviso(ch.deltaPct)} (antes $ ${fmtCostoAviso(ch.costoAnterior)}${ch.fechaAnterior ? ' · ' + fechaAnt.slice(0, 5) : ''})`
     : ' · sin compra anterior');
   const tip = [
-    'Costo unitario neto sin IVA de la factura cargada hoy en SIGA',
+    'Costo unitario del comprobante cargado hoy en SIGA (factura: neto + IVA; cotización: tal cual)',
     `Proveedor: ${ch.proveedor || '—'} · Comprobante: ${ch.comprobante || '—'}`,
     hayAnterior ? `Compra anterior: $ ${fmtCostoAviso(ch.costoAnterior)} del ${fechaAnt}` : 'Sin compra anterior registrada',
   ].join('\n');
@@ -169,8 +165,20 @@ function htmlAvisoIngresoHoy(f, destacado = false) {
   return ` <span class="inline-block px-2 py-0.5 rounded-full text-xs whitespace-nowrap tabular-nums ${AVISO_COMPRA[a.tipo].cls}${extra}" title="${esc(a.tip)}">${esc(a.texto)}</span>`;
 }
 
+// ── Precio final (espejo de conIva/redondearPrecioVenta de lib/precios_costeo y de la regla "alineado exacto"
+// del backend): final = neto × IVA_VENTA_CLI (1: el costo ya viene con IVA), múltiplo de $50 salvo que el exacto
+// reproduzca el vigente de SIGA (±0,5). Compartido por el detalle de Almacén y las presentaciones de Fraccionado.
+const IVA_VENTA_CLI = 1;
+const PASO_FINAL_CLI = 50;
+function precioFinalCli(neto, vigente) {
+  const exacto = Math.round(neto * IVA_VENTA_CLI * 100) / 100;
+  const precio = vigente > 0 && Math.abs(exacto - vigente) < 0.5 ? vigente
+    : Math.round(neto * IVA_VENTA_CLI / PASO_FINAL_CLI) * PASO_FINAL_CLI;
+  return { exacto, precio };
+}
+
 if (typeof module === 'object' && module.exports) {
-  module.exports = { costoSistemaConIvaDe,
+  module.exports = { costoSistemaDe, precioFinalCli, precioFinalCli,
     textoCompraHoy, ultimaCompraDe, deltaUltimaVsSistema, tendenciaCosto, tipUltimaCompra, ordenarPorUltimaCompra,
     valorOrden, compararOrden, ordenarFilas, siguienteOrden, RANGO_ESTADO_PRECIO, RANGO_ESTADO_PROD,
     columnasAlmacen, columnasFracc, columnasPresFracc, columnasSelectorProd, columnasPresProd, ordenarCon,
@@ -200,7 +208,7 @@ const FUENTE_EN_USO = { manual: 'un costo manual', ultimaCompra: 'la última com
 function htmlCeldaCostoSistema(f) {
   const fuente = FUENTE_EN_USO[f.costoFuente];
   const ind = fuente ? ` <span class="text-[10px] text-warn align-super" title="${esc(`El precio sugerido se calcula con ${fuente}, no con el costo de sistema`)}">●</span>` : '';
-  return `<td class="p-2 text-right whitespace-nowrap tabular-nums" title="Costo de sistema SIGA con IVA">${fmtMoney(costoSistemaConIvaDe(f))}${ind}</td>`;
+  return `<td class="p-2 text-right whitespace-nowrap tabular-nums" title="Costo de sistema SIGA (PrecioCosto tal cual)">${fmtMoney(costoSistemaDe(f))}${ind}</td>`;
 }
 // ▲ rojo si la última compra supera al sistema más allá de la tolerancia, ▼ verde si queda por debajo.
 const TEND_COSTO = { sube: ['▲ ', 'text-crit font-semibold'], baja: ['▼ ', 'text-ok font-semibold'] };

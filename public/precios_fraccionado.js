@@ -6,6 +6,8 @@
 // costoEfectivo, cambioCosto, msgDetalle, chipFuenteCosto, det/detEstado/detInicial, configCargada,
 // y el bloque de costos extra compartido: htmlCostosExtra, iniciarCostosExtra, restaurarCostosExtra,
 // pintarTotalesCostosExtra, cambioExtras, extrasValidos, itemsCostosExtra, tipCostoExtras, msgExtrasInvalidos).
+// De precios_config_gastos.js (cargado al final, se usan recién al abrir un detalle): markupDesdeGananciaCli,
+// fmtPctGastos, textoGananciaGastos — la matriz guarda ganancia y el standard es el markup total.
 // Misma experiencia que Almacén: una fila por granel ('Pesables Deposito'); click → modal con el
 // mismo selector de costo (sistema / última compra / manual, por PLU del granel) y la tabla de
 // presentaciones con su margen (standard de la matriz o propio) y precio. Todo POR KILO.
@@ -14,9 +16,22 @@
 let fraccData = [];       // grupos del server: [{ granelPlu, granelNombre, costoBase, ..., presentaciones }]
 let fraccTol = 0;         // toleranciaPct de la config, para el semáforo en vivo
 let fraccMatriz = null;   // markupFraccionado de la config, para el margen standard en vivo
+let fraccCurva = null;    // curvaGanancia.fraccionado de la config: activa → reemplaza a la matriz
 let fraccCargado = false; // se carga al abrir la página; se invalida al cambiar config
+let fraccCostoHora = 0;   // costoHora de la config: MO de fraccionado en vivo
+let fraccMinStd = 0;      // minutosFraccionadoStd de la config
+let fraccInsStd = 0;      // insumosFraccionadoStd de la config ($ por unidad)
+let fraccGastos = 0;      // gastosVentaPct de la config: la matriz guarda ganancia → markup total
 
-const FALTA_TXT = { granel: 'Sin granel asignado', costoGranel: 'Sin costo de granel', markupPct: 'Sin margen' };
+const FALTA_TXT = { granel: 'Sin granel asignado', costoGranel: 'Sin costo de granel', markupPct: 'Sin margen', pesoMo: 'Sin peso en el nombre para MO/insumos' };
+
+// Espejo de manoObraFraccionado (routes/rutas_precios.js): minutos × costoHora/60 ÷ kg. null = falta el peso.
+const moKgCliente = (minutos, pesoG) => (!(minutos > 0) ? 0 : pesoG > 0 ? r2(fraccCostoHora / 60 * minutos / (pesoG / 1000)) : null);
+// Espejo de insumosFraccionado: $ por unidad ÷ kg. null = falta el peso.
+const insKgCliente = (pesos, pesoG) => (!(pesos > 0) ? 0 : pesoG > 0 ? r2(pesos / (pesoG / 1000)) : null);
+// Costo $/kg de la presentación = costo total del granel + MO + insumos (espejo de costosPresentacion).
+const sumarMo = (costoTotal, moKg, insKg = 0) => (costoTotal == null || moKg == null || insKg == null ? null : r2(costoTotal + moKg + insKg));
+const textoMo = moKg => (moKg == null ? 'sin peso' : moKg > 0 ? `+${fmtMoney(moKg)}/kg` : '');
 // Peor estado de un granel: subir > bajar > sin precio > sin vigente > ok.
 const RANGO_ESTADO = { subir: 5, bajar: 4, sinPrecio: 3, sinVigente: 2, ok: 1 };
 const pedirJson = (method, url, body) => fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
@@ -36,22 +51,23 @@ const estadoGrupo = g => { const p = peorPresentacion(g); return p ? estadoDe(p)
 const marcablesDe = g => g.presentaciones.filter(p => !tieneFaltantes(p));
 const esGranel = g => g.granelPlu != null;
 
-// Misma fórmula que el backend (armarGruposFraccionado): precio por kg con IVA redondeado a
-// $50, salvo que reproduzca el vigente de SIGA (alineado exacto).
+// Misma fórmula que el backend (armarGruposFraccionado): precio por kg = costo × (1 + margen), redondeado
+// a $50, salvo que reproduzca el vigente de SIGA (alineado exacto) — precioFinalCli en precios_orden.js.
 function calcularPresentacion(costoKg, markup, vigente){
   if (!(costoKg > 0) || markup == null || markup <= -100) return { neto: null, precio: null, deltaPct: null, semaforo: null };
   const neto = r2(costoKg * (1 + markup / 100));
-  const exacto = r2(neto * 1.21);
-  const precio = vigente > 0 && Math.abs(exacto - vigente) < 0.5 ? vigente : redondear50(neto * 1.21);
+  const { precio } = precioFinalCli(neto, vigente);
   if (!(vigente > 0)) return { neto, precio, deltaPct: null, semaforo: null };
   const deltaPct = +(((precio - vigente) / vigente) * 100).toFixed(1);
   const semaforo = Math.abs(deltaPct) <= fraccTol ? 'ok' : deltaPct > 0 ? 'subir' : 'bajar';
   return { neto, precio, deltaPct, semaforo };
 }
 
-// Margen standard (espejo de markupStdFraccionado en lib/precios_costeo.js): fila = banda del
+// Ganancia standard (espejo de markupStdFraccionado en lib/precios_costeo.js): fila = banda del
 // costo del granel, col = tramo del peso (sin peso → 1 kg; más pesado que el último → última col).
-function markupStdCliente(costoKg, pesoG){
+// Con la curva de Fraccionado activa, la ganancia sale de la curva + ajuste por peso (gananciaPorCurvaCliente).
+function gananciaStdCliente(costoKg, pesoG){
+  if (fraccCurva && fraccCurva.activa === true) return gananciaPorCurvaCliente(fraccCurva, costoKg, pesoG);
   const m = fraccMatriz;
   if (!m || !(costoKg > 0)) return null;
   const fila = m.bandas.findIndex(b => b === null || costoKg <= b);
@@ -60,6 +76,13 @@ function markupStdCliente(costoKg, pesoG){
   const i = m.tramosG.findIndex(t => peso <= t);
   const v = (m.markupPct[fila] || [])[i < 0 ? m.tramosG.length - 1 : i];
   return Number.isFinite(v) ? v : null;
+}
+// Markup standard = ganancia de la matriz + gastos sobre venta (espejo de stdFraccionado en routes/rutas_precios.js).
+const markupStdCliente = (costoKg, pesoG) => markupDesdeGananciaCli(gananciaStdCliente(costoKg, pesoG), fraccGastos);
+// Leyenda del standard: "standard 55,59 %" y en title el desglose ganancia + gastos.
+function pintarStd(el, costoKg, pesoG, std, conPropio){
+  el.textContent = std == null ? 'sin standard' : conPropio ? `standard ${fmtPctGastos(std)}` : 'standard';
+  el.title = std == null ? '' : textoGananciaGastos(gananciaStdCliente(costoKg, pesoG), fraccGastos);
 }
 
 // ── Marcados (mapa único por PLU con Almacén; lo usan la barra y la exportación de precios.html) ──
@@ -72,7 +95,7 @@ function aplicarMarcadosFracc(set){
 // costos extra), Venta = precio /kg.
 function presentacionesMarcadas(){
   return fraccData.flatMap(g => g.presentaciones.filter(p => p.marcado).map(p => ({
-    plu: p.plu, nombre: p.nombre, costoTotal: g.costoTotal, precioConIva: p.precioConIva, faltantes: p.faltantes,
+    plu: p.plu, nombre: p.nombre, costoTotal: p.costoKg ?? g.costoTotal, precioConIva: p.precioConIva, faltantes: p.faltantes,
   })));
 }
 
@@ -88,6 +111,7 @@ async function cargarFraccionado(){
     fraccData = j;
     fraccTol = Number(c.toleranciaPct) || 0;
     fraccMatriz = c.markupFraccionado || null;
+    fraccCurva = (c.curvaGanancia || {}).fraccionado || null;
     document.getElementById('frTolerancia').value = c.toleranciaPct;
     fraccCargado = true;
     const graneles = j.filter(esGranel);
@@ -215,6 +239,11 @@ async function abrirDetalleFracc(granelPlu){
     det = j;
     fraccTol = Number(c.toleranciaPct) || 0;
     fraccMatriz = c.markupFraccionado || null;
+    fraccCurva = (c.curvaGanancia || {}).fraccionado || null;
+    fraccCostoHora = Number(c.costoHora) || 0;
+    fraccMinStd = Number(c.minutosFraccionadoStd) || 0;
+    fraccInsStd = Number(c.insumosFraccionadoStd) || 0;
+    fraccGastos = Number(c.gastosVentaPct) || 0;
     detEstado = { costoFuente: j.costoFuente || 'sistema' };
     detInicial = { costoFuente: detEstado.costoFuente, costoManualValor: j.costoOverride };
     detalleListo(j.granelNombre, j.granelPlu, j);
@@ -234,8 +263,15 @@ function htmlFilaPresentacionDet(p){
   const sinPrecio = tieneFaltantes(p);
   return `<tr class="border-t border-borde align-top" data-plu="${esc(p.plu)}">
     <td class="py-2.5 pr-2"><input type="checkbox" class="fd-marca accent-verde mt-0.5" aria-label="Marcar ${esc(p.nombre)} para actualizar en SIGA"${p.marcado ? ' checked' : ''}${sinPrecio ? ' disabled title="Sin precio sugerido guardado"' : ''}></td>
-    <td class="py-2.5 pr-3 break-words"><div class="font-medium">${esc(p.nombre)}</div>
-      <div class="text-[11px] text-gris">PLU ${esc(p.plu)}${falta ? ` · <span class="text-crit">${esc(falta)}</span>` : ''}</div></td>
+    <td class="py-2.5 pr-3 break-words"><div class="font-medium">${esc(p.nombre)}${p.ventaDirecta ? ' ' + chip('Venta directa', 'bg-verde/10 text-verde') : ''}</div>
+      <div class="text-[11px] text-gris">PLU ${esc(p.plu)}${falta ? ` · <span class="text-crit">${esc(falta)}</span>` : ''}</div>
+      ${p.plu === det.granelPlu ? '<div class="text-[11px] text-gris mt-1">es su propio granel · sin fraccionado</div>'
+        : `<div class="mt-1 flex items-center gap-1 text-[11px] text-gris">MO
+        <input type="number" step="any" min="0" max="600" inputmode="decimal" aria-label="Minutos de fraccionado por unidad de ${esc(p.nombre)}" class="fd-min w-14 num-in text-ink" value="${esc(p.minutosOverride ?? '')}"> min
+        <span class="fd-mo tabular-nums"></span></div>
+        <div class="mt-1 flex items-center gap-1 text-[11px] text-gris">Insumos $
+        <input type="number" step="any" min="0" max="10000000" inputmode="decimal" aria-label="Insumos de fraccionado en $ por unidad de ${esc(p.nombre)}" class="fd-ins w-16 num-in text-ink" value="${esc(p.insumosOverride ?? '')}"> /u
+        <span class="fd-insk tabular-nums"></span></div>`}</td>
     <td class="py-2 pr-3 whitespace-nowrap"><div class="flex items-center justify-end gap-1 text-gris">
         <input type="number" step="any" min="-99" max="1000" inputmode="decimal" aria-label="Margen % de ${esc(p.nombre)}" class="fd-margen w-16 num-in text-ink" value="${esc(p.markupOverride ?? '')}">%
         <button type="button" class="fd-reset w-6 h-6 rounded text-verde hover:bg-verde/10" aria-label="Volver al margen standard" title="Volver al margen standard">↺</button></div>
@@ -260,7 +296,7 @@ function htmlDetalleFracc(j){
 
     <div class="mt-5 mb-1.5">
       <h4 class="lbl sec-tit s-final">Presentaciones · precio por kg</h4>
-      <p class="text-[11px] text-gris">Costo total × (1 + margen) × IVA 21%, redondeo a $50 · margen vacío = standard</p>
+      <p class="text-[11px] text-gris">Costo × (1 + margen), redondeo a $50 · margen vacío = standard</p>
     </div>
     <div class="overflow-x-auto rounded-lg border border-borde">
       <table class="w-full text-sm">
@@ -285,6 +321,8 @@ function conectarDetalleFracc(){
   for (const { tr } of filasDetFracc()) {
     const input = tr.querySelector('.fd-margen');
     input.addEventListener('input', recalcularDetalleFracc);
+    tr.querySelector('.fd-min')?.addEventListener('input', recalcularDetalleFracc);
+    tr.querySelector('.fd-ins')?.addEventListener('input', recalcularDetalleFracc);
     tr.querySelector('.fd-reset').onclick = () => { input.value = ''; recalcularDetalleFracc(); input.focus(); };
     const chk = tr.querySelector('.fd-marca');
     chk.onchange = async () => {
@@ -300,7 +338,13 @@ function conectarDetalleFracc(){
   document.getElementById('btnDescartar').onclick = () => {
     detEstado = { costoFuente: detInicial.costoFuente };
     document.getElementById('inCosto').value = detInicial.costoManualValor ?? '';
-    for (const { tr, p } of filasDetFracc()) tr.querySelector('.fd-margen').value = p.markupOverride ?? '';
+    for (const { tr, p } of filasDetFracc()) {
+      tr.querySelector('.fd-margen').value = p.markupOverride ?? '';
+      const min = tr.querySelector('.fd-min');
+      if (min) min.value = p.minutosOverride ?? '';
+      const ins = tr.querySelector('.fd-ins');
+      if (ins) ins.value = p.insumosOverride ?? '';
+    }
     restaurarCostosExtra(det.costosExtra);
     restaurarTemporales();
     descartarPB(document.getElementById('mDetBody'), itemFraccPB); // precios_pack_bulto.js
@@ -310,6 +354,24 @@ function conectarDetalleFracc(){
   conectarSubfilasFraccPB(); // precios_pack_bulto.js
   montarOrdenPresFracc(); // precios_orden.js
   document.getElementById('btnGuardarDet').onclick = guardarDetalleFracc;
+}
+
+// MO e insumos de una fila del detalle: valores propios (vacío = standard); la fila del propio granel
+// no los lleva (sin inputs → 0). Devuelve $/kg de cada uno (null = falta el peso) y cuántos cambiaron.
+function costosFraccFila(tr, p){
+  const inMin = tr.querySelector('.fd-min'), inIns = tr.querySelector('.fd-ins');
+  if (!inMin) return { moKg: 0, insKg: 0, cambios: 0 };
+  const minPropio = numOrNull(inMin.value), insPropio = numOrNull(inIns.value);
+  const moKg = moKgCliente(minPropio ?? fraccMinStd, p.pesoG);
+  const insKg = insKgCliente(insPropio ?? fraccInsStd, p.pesoG);
+  inMin.placeholder = fraccMinStd;
+  inMin.title = `Vacío = standard (${fraccMinStd} min)`;
+  inIns.placeholder = fraccInsStd;
+  inIns.title = `Vacío = standard ($ ${fmtMoney(fraccInsStd)} por unidad)`;
+  tr.querySelector('.fd-mo').textContent = textoMo(moKg);
+  tr.querySelector('.fd-insk').textContent = textoMo(insKg);
+  const cambios = (minPropio !== (p.minutosOverride ?? null)) + (insPropio !== (p.insumosOverride ?? null));
+  return { moKg, insKg, cambios };
 }
 
 // Recalcula en vivo: el margen standard depende del costo elegido (banda de la matriz, por costo
@@ -323,11 +385,14 @@ function recalcularDetalleFracc(){
     const std = markupStdCliente(costo, p.pesoG);
     const propio = numOrNull(input.value);
     if (propio !== p.markupOverride) margenesCambiados++;
-    tr.querySelector('.fd-std').textContent = std == null ? 'sin standard' : propio == null ? 'standard' : `standard ${std}%`;
-    input.placeholder = std ?? '—';
-    input.title = `Vacío = margen standard (${std ?? '—'}%)`;
+    pintarStd(tr.querySelector('.fd-std'), costo, p.pesoG, std, propio != null);
+    input.placeholder = std == null ? '—' : r2(std);
+    input.title = `Vacío = margen standard (${fmtPctGastos(std)})`;
     tr.querySelector('.fd-reset').classList.toggle('invisible', propio == null);
-    const c = p.faltantes.includes('granel') ? calcularPresentacion(null) : calcularPresentacion(costoTotal, propio ?? std, p.precioVigente);
+    const extra = costosFraccFila(tr, p);
+    margenesCambiados += extra.cambios;
+    const c = p.faltantes.includes('granel') ? calcularPresentacion(null)
+      : calcularPresentacion(sumarMo(costoTotal, extra.moKg, extra.insKg), propio ?? std, p.precioVigente);
     tr.querySelector('.fd-neto').textContent = c.neto != null ? 'neto ' + fmtMoney(c.neto) : '';
     tr.querySelector('.fd-final').innerHTML = c.precio == null ? '<span class="text-gris">sin precio</span>'
       : `<b class="text-verde">$ ${fmtPrecio(c.precio)}</b>`;
@@ -371,6 +436,16 @@ async function guardarDetalleFracc(){
   for (const { tr, p } of filasDetFracc()) {
     const valor = numOrNull(tr.querySelector('.fd-margen').value);
     if (valor !== p.markupOverride) tareas.push(putJson('/api/precios/margen-producto/' + encodeURIComponent(p.plu), { markupPct: valor }));
+    const inMin = tr.querySelector('.fd-min');
+    const minutos = inMin ? numOrNull(inMin.value) : null;
+    if (inMin && minutos !== (p.minutosOverride ?? null)) {
+      tareas.push(putJson('/api/precios/minutos-fraccionado/' + encodeURIComponent(p.plu), { minutos }));
+    }
+    const inIns = tr.querySelector('.fd-ins');
+    const pesos = inIns ? numOrNull(inIns.value) : null;
+    if (inIns && pesos !== (p.insumosOverride ?? null)) {
+      tareas.push(putJson('/api/precios/insumos-fraccionado/' + encodeURIComponent(p.plu), { pesos }));
+    }
   }
   tareas.push(...tareasTemporales());
   tareas.push(guardarPendientesPB()); // precios_pack_bulto.js: los que fallen quedan pendientes
@@ -486,12 +561,16 @@ function recalcularTemporales(costo, costoTotal){
     const conPeso = t.pesoG > 0;
     const std = conPeso ? markupStdCliente(costo, t.pesoG) : null;
     const input = tr.querySelector('.ft-margen');
-    input.placeholder = std ?? '—';
-    input.title = `Vacío = margen standard (${std ?? '—'}%)`;
-    tr.querySelector('.ft-std').textContent = !conPeso ? 'elegí el peso' : std == null ? 'sin standard' : `standard ${std}%`;
+    input.placeholder = std == null ? '—' : r2(std);
+    input.title = `Vacío = margen standard (${fmtPctGastos(std)})`;
+    const stdEl = tr.querySelector('.ft-std');
+    if (conPeso) pintarStd(stdEl, costo, t.pesoG, std, true); else { stdEl.textContent = 'elegí el peso'; stdEl.title = ''; }
     tr.querySelector('.ft-reset').classList.toggle('invisible', t.markupPct == null);
-    const c = conPeso ? calcularPresentacion(costoTotal, t.markupPct ?? std, null) : calcularPresentacion(null);
-    tr.querySelector('.ft-neto').textContent = c.neto != null ? 'neto ' + fmtMoney(c.neto) : '';
+    // Temporales: MO e insumos standard.
+    const moKg = conPeso ? moKgCliente(fraccMinStd, t.pesoG) : 0, insKg = conPeso ? insKgCliente(fraccInsStd, t.pesoG) : 0;
+    const c = conPeso ? calcularPresentacion(sumarMo(costoTotal, moKg, insKg), t.markupPct ?? std, null) : calcularPresentacion(null);
+    tr.querySelector('.ft-neto').textContent = c.neto != null ? 'neto ' + fmtMoney(c.neto) + (moKg > 0 ? ` · MO ${textoMo(moKg)}` : '')
+      + (insKg > 0 ? ` · insumos ${textoMo(insKg)}` : '') : '';
     tr.querySelector('.ft-final').innerHTML = c.precio == null ? '<span class="text-gris">sin precio</span>'
       : `<b class="text-verde">$ ${fmtPrecio(c.precio)}</b>`;
   });

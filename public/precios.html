@@ -116,8 +116,8 @@
           <tr><th class="p-2 w-8"><input id="chkTodos" type="checkbox" class="accent-verde" title="Marcar/desmarcar los visibles"></th>
               <th class="p-2 text-left" data-orden="plu">Código</th><th class="p-2 text-left" data-orden="nombre">Producto</th>
               <th class="p-2" data-orden="costo">Costo</th>
-              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA sin IVA (● = el precio se calcula con otra fuente)">Costo sistema</th>
-              <th class="p-2" data-orden="ultima" title="Factura cargada hoy o, si no, la última compra neta; ▲/▼ contra el costo de sistema">Costo última compra</th>
+              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA tal cual (● = el precio se calcula con otra fuente)">Costo sistema</th>
+              <th class="p-2" data-orden="ultima" title="Comprobante cargado hoy o, si no, la última compra (factura: neto + IVA; cotización: tal cual); ▲/▼ contra el costo de sistema">Costo última compra</th>
               <th class="p-2" data-orden="markup">Banda/Markup%</th><th class="p-2" data-orden="vigente">Precio vigente</th>
               <th class="p-2" data-orden="fecha" title="Fecha del último cambio del precio de venta en SIGA">Act. precio</th>
               <th class="p-2" data-orden="delta">Diferencia</th><th class="p-2" data-orden="estado">Estado</th></tr>
@@ -127,7 +127,7 @@
     </div>
   </div>
 
-  <!-- Fraccionado: lógica en /precios_fraccionado.js. Una fila por granel ('Pesables Deposito'); todo POR KILO. -->
+  <!-- Fraccionado: lógica en /precios_fraccionado.js. Una fila por granel ('Pesables Deposito', o un venta directa sin fórmula); todo POR KILO. -->
   <div id="panel-fraccionado" class="tab-panel hidden">
     <div class="flex items-center gap-2 mb-3">
       <button id="btnRecargarFracc" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
@@ -157,8 +157,8 @@
           <tr><th class="p-2 w-8"><input id="chkTodosFr" type="checkbox" class="accent-verde" title="Marcar/desmarcar las presentaciones de los graneles visibles"></th>
               <th class="p-2 text-left" data-orden="plu">Código</th><th class="p-2 text-left" data-orden="nombre">Producto</th>
               <th class="p-2" data-orden="costo">Costo $/kg</th>
-              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA sin IVA del granel (● = el precio se calcula con otra fuente)">Costo sistema</th>
-              <th class="p-2" data-orden="ultima" title="Factura cargada hoy o, si no, la última compra neta del granel; ▲/▼ contra el costo de sistema">Costo última compra</th>
+              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA tal cual del granel (● = el precio se calcula con otra fuente)">Costo sistema</th>
+              <th class="p-2" data-orden="ultima" title="Comprobante cargado hoy o, si no, la última compra del granel (factura: neto + IVA; cotización: tal cual); ▲/▼ contra el costo de sistema">Costo última compra</th>
               <th class="p-2" data-orden="presentaciones">Presentaciones</th>
               <th class="p-2" data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="p-2" data-orden="delta">Diferencia (peor)</th><th class="p-2" data-orden="estado">Estado (peor)</th></tr>
         </thead>
@@ -191,9 +191,14 @@
         <label class="block text-sm">Tolerancia (%)
           <input id="inTolerancia" type="number" min="0" step="any"
                  class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
-        <label class="block text-sm">Costos varios Almacén (%)
-          <input id="inCostosVariosAlmacen" type="number" min="0" step="any"
-                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
+        <label class="block text-sm">Minutos de fraccionado por unidad (standard)
+          <input id="inMinutosFracc" type="number" min="0" max="600" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde">
+          <span class="text-[11px] text-gris">Mano de obra = minutos × costo hora ÷ 60, por kilo según el peso de cada presentación. Cada presentación puede tener sus propios minutos.</span></label>
+        <label class="block text-sm">Insumos de fraccionado por unidad ($, standard)
+          <input id="inInsumosFracc" type="number" min="0" max="10000000" step="any"
+                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde">
+          <span class="text-[11px] text-gris">Bolsa, etiqueta, precinto… en $ por unidad, pasado a $/kg según el peso de cada presentación. Cada presentación puede tener su propio valor.</span></label>
         <div class="flex items-center gap-2">
           <button id="btnGuardarGeneral" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar</button>
           <span id="generalMsg" class="text-sm"></span>
@@ -201,7 +206,9 @@
       </div>
     </div>
 
-    <!-- Bandas de markup Almacén y Producción: las pinta /precios_config_bandas.js -->
+    <!-- Gastos sobre venta (lista Sucursal): lo pinta /precios_config_gastos.js -->
+    <div id="configGastos"></div>
+    <!-- Bandas de ganancia Almacén y Producción: las pinta /precios_config_bandas.js -->
     <div id="configBandas"></div>
 
     <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md mt-5">
@@ -212,6 +219,8 @@
     </div>
 
     <div id="configFraccionado"></div>
+    <!-- Curva de ganancia de Fraccionado (la de Almacén va debajo de sus bandas): /precios_config_curva.js -->
+    <div id="configCurvaFraccionado"></div>
     <!-- Pack / Bulto: lo pinta /precios_pack_bulto.js -->
     <div id="configPackBulto"></div>
   </div>
@@ -272,7 +281,9 @@
 <script src="/precios_pack_bulto.js"></script>
 <script src="/precios_produccion_export.js"></script>
 <script src="/precios_maquinas.js"></script>
+<script src="/precios_config_gastos.js"></script>
 <script src="/precios_config_bandas.js"></script>
 <script src="/precios_config_fraccionado.js"></script>
+<script src="/precios_config_curva.js"></script>
 </body>
 </html>

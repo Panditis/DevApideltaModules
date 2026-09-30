@@ -26,7 +26,7 @@ function htmlFilaInsumo(it, cambiadas) {
   const usado = (it.usadoEn || []).map(plu => esc(nombrePres(plu))).join(', ');
   const tambien = (it.tambienEn || []).map(t => `<a href="#produccion/${esc(encodeURIComponent(t.id))}" class="text-verde hover:underline">${esc(t.nombre)}</a>`).join(', ');
   const tip = esManual ? 'Costo del insumo manual (vale para todos los productos que lo usan)'
-    : 'Costo manual sin IVA (el mismo override que Almacén). Vacío = vuelve al costo de sistema';
+    : 'Costo manual (el mismo override que Almacén). Vacío = vuelve al costo de sistema';
   const fondo = it.costo == null ? ' bg-gris/5' : cambiadas.has(it.clave) ? ` ${MARCA_CAMBIO}` : '';
   return `<tr class="border-t border-borde${fondo}" data-clave="${esc(it.clave)}">
     <td class="p-2 tabular-nums">${esManual ? '<span class="text-xs text-gris">manual</span>' : esc(it.plu)}</td>
@@ -90,7 +90,7 @@ function quitarInsumo(it) {
 async function nuevoInsumoManual() {
   const v = await pedirCampos('Nuevo insumo manual (sin PLU en SIGA)', [
     { name: 'nombre', label: 'Nombre * (ej. Etiqueta granola 2027)', required: true },
-    { name: 'costo', label: 'Costo por unidad, sin IVA ($) *', type: 'number', required: true },
+    { name: 'costo', label: 'Costo por unidad ($) *', type: 'number', required: true },
     { name: 'tipo', label: 'Tipo', options: TIPOS_INSUMO_UI, value: 'etiqueta' },
   ], 'Agregar');
   if (!v) return;

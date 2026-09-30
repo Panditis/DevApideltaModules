@@ -38,18 +38,17 @@ test('ordenarBandas: por tope ascendente, "sin tope" al final', () => {
   assert.deepStrictEqual(ui.ordenarBandas(filas).map(b => b.costoHastaARS), [1000, 5000, null]);
 });
 
-test('margenesPorBanda: mediana del margen real (sin IVA) y SIGA (costo con IVA) por banda; sugerido no crece con el costo', () => {
-  // vigente 1210 con costo sin IVA 500 → real = 1000/500−1 = 100%; SIGA (IVA compra 21%) = 1210/605−1 = 100%.
-  // IVA compra 10,5%: costo sin IVA 500 → con IVA 552,5 → SIGA 119%; real sigue 100%.
+// Regla 2026-09-30: margen real = vigente ÷ costo de sistema tal cual − 1 (sin /1,21 ni × alícuota); sin columna SIGA.
+test('margenesPorBanda: mediana del margen real (vigente ÷ costo tal cual) por banda; sugerido no crece con el costo', () => {
   const filas = [
-    { costoSistema: 500, ivaCompraPct: 21, precioVigente: 1210 },
-    { costoSistema: 500, ivaCompraPct: 10.5, precioVigente: 1210 },
-    { costoSistema: 2000, ivaCompraPct: 21, precioVigente: 3630 },   // real 50%
-    { costoSistema: 3000, ivaCompraPct: 21, precioVigente: 7260 },   // real 100% → sugerido topeado por la banda anterior
+    { costoSistema: 500, ivaCompraPct: 21, precioVigente: 1000 },    // 1000/500 − 1 = 100 %
+    { costoSistema: 500, ivaCompraPct: 10.5, precioVigente: 1000 },  // la alícuota ya no cambia nada: 100 %
+    { costoSistema: 2000, ivaCompraPct: 21, precioVigente: 3000 },   // real 50%
+    { costoSistema: 3000, ivaCompraPct: 21, precioVigente: 6000 },   // real 100% → sugerido topeado por la banda anterior
     { costoSistema: null, precioVigente: 100 }, { costoSistema: 100, precioVigente: null }, // sin datos: fuera
   ];
   const r = ui.margenesPorBanda(filas, [1000, 2500, null]);
-  assert.deepStrictEqual(r.map(b => [b.costoHastaARS, b.n, b.realMed, b.sigaMed, b.sugerido]),
-    [[1000, 2, 100, 109.5, 100], [2500, 1, 50, 50, 50], [null, 1, 100, 100, 50]]);
+  assert.deepStrictEqual(r.map(b => [b.costoHastaARS, b.n, b.realMed, b.sugerido]),
+    [[1000, 2, 100, 100], [2500, 1, 50, 50], [null, 1, 100, 50]]);
   assert.strictEqual(ui.margenesPorBanda([], [null])[0].sugerido, null);
 });

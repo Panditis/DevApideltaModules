@@ -65,9 +65,10 @@ test('aplicarMarkup: costo × (1 + markup/100)', () => {
   assert.strictEqual(aplicarMarkup(100, 0), 100);
 });
 
-test('conIva: siempre multiplica por 1.21 exacto, no es configurable', () => {
-  assert.strictEqual(conIva(100), 121);
-  assert.strictEqual(conIva(1442), 1744.82);
+// Regla 2026-09-30: el costo ya viene con IVA, la venta no suma ×1,21 (IVA_VENTA = 1).
+test('conIva: identidad (IVA_VENTA = 1), no es configurable', () => {
+  assert.strictEqual(conIva(100), 100);
+  assert.strictEqual(conIva(1442), 1442);
 });
 
 // ── costearAlmacen ───────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ test('costearAlmacen: caso feliz — cuenta exacta de costoTotal, precioNeto y p
   assert.strictEqual(out.tipo, 'almacen');
   assert.strictEqual(out.costoTotal, 1030);
   assert.strictEqual(out.precioNeto, 1442);
-  assert.strictEqual(out.precioConIva, 1750); // 1744.82 → múltiplo de 50 más cercano
+  assert.strictEqual(out.precioConIva, 1450); // 1442 (sin ×1,21) → múltiplo de 50 más cercano
   assert.deepStrictEqual(out.componentes, [
     { concepto: 'Mercadería', detalle: 'costo base', importe: 1000 },
     { concepto: 'Costos varios', detalle: '3%', importe: 30 },
@@ -132,7 +133,7 @@ test('costearAlmacen: montos no redondos salen redondeados a 2 decimales, sin ru
   assert.strictEqual(out.componentes[1].importe, 25); // 999.99 * 2.5% = 24.999750000000002 sin redondear
   assert.strictEqual(out.costoTotal, 1024.99);
   assert.strictEqual(out.precioNeto, 1366.31);
-  assert.strictEqual(out.precioConIva, 1650); // 1653.24 → múltiplo de 50 más cercano
+  assert.strictEqual(out.precioConIva, 1350); // 1366.31 (sin ×1,21) → múltiplo de 50 más cercano
 });
 
 // ── configSanitizada ─────────────────────────────────────────────────────────
@@ -200,20 +201,20 @@ test('compararConVigente: sin vigente, vigente 0 o sin sugerido → nulls', () =
   assert.deepStrictEqual(compararConVigente(null, 500, 10), nulos);
 });
 
-test('costearAlmacen: precioConIvaExacto es el precio con IVA sin redondeo a $50', () => {
+test('costearAlmacen: precioConIvaExacto es el precio final sin redondeo a $50', () => {
   const r = costearAlmacen({ costoMercaderia: 500, costosVariosPct: 3, markupPct: 40 });
-  assert.strictEqual(r.precioConIvaExacto, 872.41); // 721 * 1.21
-  assert.strictEqual(r.precioConIva, 850);
+  assert.strictEqual(r.precioConIvaExacto, 721); // 515 × 1,4 (sin ×1,21)
+  assert.strictEqual(r.precioConIva, 700); // 721 → múltiplo de 50
   assert.strictEqual(costearAlmacen({ costoMercaderia: null, markupPct: 40 }).precioConIvaExacto, null);
 });
 
-test('markupParaPrecio: markup que lleva el costo total al precio con IVA', () => {
-  assert.strictEqual(markupParaPrecio(1000, 1210), 0);
-  assert.strictEqual(markupParaPrecio(1000, 1452), 20);
+test('markupParaPrecio: markup que lleva el costo total al precio final', () => {
+  assert.strictEqual(markupParaPrecio(1000, 1210), 21); // 1210 / 1000 − 1 (sin /1,21)
+  assert.strictEqual(markupParaPrecio(1000, 1452), 45.2); // 1452 / 1000 − 1
   const m = markupParaPrecio(1030, 2470);
   const r = costearAlmacen({ costoMercaderia: 1030, markupPct: m });
   assert.ok(Math.abs(r.precioConIvaExacto - 2470) < 0.02);
-  assert.ok(markupParaPrecio(1000, 1000) < 0); // vigente bajo el costo → negativo
+  assert.ok(markupParaPrecio(1000, 900) < 0); // vigente bajo el costo → negativo (1000 ya no lo es sin /1,21)
 });
 
 test('markupParaPrecio: null con datos faltantes o no positivos', () => {
@@ -273,15 +274,15 @@ test('validarMarkupFraccionado: rechaza bandas/tramos/matriz mal formados con me
   assert.throws(() => validarMarkupFraccionado(con({ markupPct: noNumero })), /markupPct\[0\]\[0\]/);
 });
 
-test('costearFraccionado: Sem. Lino 500G — granel 2297 × 1.6832 × 1.21, mismo shape que Almacén', () => {
+test('costearFraccionado: Sem. Lino 500G — granel 2297 × 1.6832 (sin ×1,21), mismo shape que Almacén', () => {
   const r = costearFraccionado({ plu: '1', nombre: 'Sem. Lino 500G', costoKg: 2297, markupPct: 68.32 });
   assert.strictEqual(r.tipo, 'fraccionado');
   assert.strictEqual(r.plu, '1');
   assert.strictEqual(r.costoTotal, 2297);
   assert.deepStrictEqual(r.componentes, [{ concepto: 'Granel', detalle: 'costo por kg', importe: 2297 }]);
   assert.strictEqual(r.precioNeto, 3866.31);
-  assert.strictEqual(r.precioConIvaExacto, 4678.24);
-  assert.strictEqual(r.precioConIva, 4700);
+  assert.strictEqual(r.precioConIvaExacto, 3866.31); // = neto
+  assert.strictEqual(r.precioConIva, 3850); // 3866.31 → múltiplo de 50
   assert.deepStrictEqual(r.faltantes, []);
 });
 
@@ -374,7 +375,7 @@ test('costearAlmacen: costos extra del producto ($ fijo + % del costo base) se s
   });
   assert.strictEqual(out.costoTotal, 1100); // 1000 + 30 + 50 + 20
   assert.strictEqual(out.precioNeto, 1540);
-  assert.strictEqual(out.precioConIva, 1850); // 1863.4 → múltiplo de 50
+  assert.strictEqual(out.precioConIva, 1550); // 1540 (sin ×1,21) → múltiplo de 50
   assert.deepStrictEqual(out.componentes, [
     { concepto: 'Mercadería', detalle: 'costo base', importe: 1000 },
     { concepto: 'Costos varios', detalle: '3%', importe: 30 },

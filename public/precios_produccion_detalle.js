@@ -103,7 +103,7 @@ async function cargarCostoManual(clave) {
   const esPlu = /^\d+$/.test(clave);
   const m = (prodDet.insumosManuales || []).find(x => x.id === clave);
   const v = await pedirCampos(`Costo de ${nombresProd()[clave] || (m && m.nombre) || clave}`,
-    [{ name: 'costo', label: 'Costo por unidad, sin IVA ($) *', type: 'number', required: true }], 'Guardar costo');
+    [{ name: 'costo', label: 'Costo por unidad ($) *', type: 'number', required: true }], 'Guardar costo');
   if (!v) return;
   const costo = numOrNull(v.costo);
   const put = esPlu ? () => pedirJson('PUT', '/api/precios/costo-producto/' + encodeURIComponent(clave), { fuente: 'manual', costo })

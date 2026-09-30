@@ -288,12 +288,14 @@ function htmlPrecioRes(r) {
     <div><div class="lbl">Diferencia</div><div class="flex items-center gap-1.5"><span class="font-semibold tabular-nums ${claseDelta(r.semaforo)}">${fmtPct(r.deltaPct)}</span>${badgeSemaforo(r.semaforo)}</div></div></div>`;
 }
 function htmlEcuacionRes(r) {
-  const banda = r.banda === 'override' ? 'propio del PLU' : r.banda ? 'banda ' + esc(r.banda) : 'sin banda';
+  // Markup de banda = ganancia + gastos sobre venta (gananciaPct null si es propio o sin banda).
+  const banda = (r.banda === 'override' ? 'propio del PLU' : r.banda ? 'banda ' + esc(r.banda) : 'sin banda')
+    + (r.gananciaPct != null ? ` · ganancia ${fmtNum(r.gananciaPct)}%` : '');
   return `<div class="mt-4 rounded-lg border border-borde bg-card px-3 py-2" role="group" aria-label="Cálculo del costo">
     ${r.componentes.map(filaComponente).join('')}
     ${filaRes('=', '<b>Costo por unidad</b>', `<b>${plataRes(r.costoUnidad)}</b>`, 'border-t border-borde mt-1 pt-2')}
     ${filaRes('×', `Markup ${r.markupPct != null ? fmtNum(r.markupPct) + '%' : '—'} <span class="text-[11px] text-gris">${banda}</span>`, r.precioNeto != null ? '$ ' + fmtMoney(r.precioNeto) : '—')}
-    ${filaRes('=', `<b class="text-verde">Precio c/IVA</b> <span class="text-[11px] text-gris">21% · redondeo $50${r.precioConIvaExacto != null ? ' (de $ ' + fmtMoney(r.precioConIvaExacto) + ')' : ''}</span>`,
+    ${filaRes('=', `<b class="text-verde">Precio final</b> <span class="text-[11px] text-gris">redondeo $50${r.precioConIvaExacto != null ? ' (de $ ' + fmtMoney(r.precioConIvaExacto) + ')' : ''}</span>`,
       r.precioConIva != null ? `<b class="text-verde">$ ${fmtPrecio(r.precioConIva)}</b>` : '—')}</div>`;
 }
 function pintarResumenPres() {

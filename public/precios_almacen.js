@@ -181,8 +181,9 @@ function renderAlmacen(){
     const filaCls = (sinPrecio ? 'opacity-50' : 'hover:bg-verde/5') + (f.marcado ? ' bg-amarillo/10' : '');
     const tooltip = sinPrecio ? ` title="Sin precio: falta ${esc(f.faltantes.join(', '))}"` : '';
     const banda = f.markupOverride != null
-      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Markup propio del producto (banda: ${f.markupBanda != null ? f.markupBanda + '%' : '—'})">propio</span> ${+f.markupOverride.toFixed(1)}%`
-      : f.banda ? `${esc(f.banda)} / ${f.markupPct != null ? f.markupPct + '%' : '—'}` : '—';
+      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Markup propio del producto (banda: ${f.markupBanda != null ? +f.markupBanda.toFixed(1) + '%' : '—'})">propio</span> ${+f.markupOverride.toFixed(1)}%`
+      // Markup de banda = ganancia + gastos sobre venta (el desglose va en el title).
+      : f.banda ? `<span title="${esc(f.gananciaBanda != null ? textoGananciaGastos(f.gananciaBanda, f.gastosVentaPct) : '')}">${esc(f.banda)} / ${f.markupPct != null ? +f.markupPct.toFixed(1) + '%' : '—'}</span>` : '—';
     const tipCompra = `Proveedor: ${f.proveedor || '—'} · Última compra: ${f.fechaUltimaCompra || '—'}`;
     const badgeHoy = f.ingresoHoy ? ' ' + BADGE_INGRESO_HOY : '';
     const hayExtras = (f.costosExtra || []).length > 0 && f.costoTotal != null;
@@ -241,7 +242,7 @@ function actualizarBarraMarcados(){
 }
 
 // FORMATO DE EXPORTACIÓN para importar en SIGA: encabezados en la fila 4 (A-D: Codigo,
-// Nombre, Costo, Venta) y productos desde la fila 5. Costo = costo total sin IVA sobre el que
+// Nombre, Costo, Venta) y productos desde la fila 5. Costo = costo total (tal cual SIGA/comprobante) sobre el que
 // se calcula el precio (Almacén: base elegido + costos varios + costos extra del producto;
 // Fraccionado, por cada presentación marcada: costo total $/kg del granel = base + costos
 // extra; Producción: costo total por unidad de la presentación). Venta = precio final (/kg en Fraccionado).

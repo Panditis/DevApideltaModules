@@ -117,7 +117,7 @@ const PRES = {
 const BANDAS = [{ costoHastaARS: null, markupMaxPct: 50 }];
 const presentar = (extra = {}) => costearPresentacion({ plu: '6319', nombre: 'Granola 500g', presentacion: PRES, recetaCosteada: costear(BASE), costoDe, costoHora: COSTO_HORA, bandas: BANDAS, ...extra });
 
-test('costearPresentacion: kg de receta + insumos + MO empaquetado + markup banda + IVA', () => {
+test('costearPresentacion: kg de receta + insumos + MO empaquetado + markup banda (sin ×1,21)', () => {
   const p = presentar();
   // 0.5×1520 + 180 + 60 + 0.6min×100 = 760 + 180 + 60 + 60
   assert.strictEqual(p.costoUnidad, 1060);
@@ -125,8 +125,8 @@ test('costearPresentacion: kg de receta + insumos + MO empaquetado + markup band
   assert.strictEqual(p.markupPct, 50);
   assert.strictEqual(p.banda, 'sin tope');
   assert.strictEqual(p.precioNeto, 1590);
-  assert.strictEqual(p.precioConIvaExacto, 1923.9);
-  assert.strictEqual(p.precioConIva, 1900);
+  assert.strictEqual(p.precioConIvaExacto, 1590); // = neto (IVA_VENTA = 1)
+  assert.strictEqual(p.precioConIva, 1600); // 1590 → múltiplo de 50
   assert.deepStrictEqual(p.faltantes, []);
   assert.deepStrictEqual(p.costos, { 300: 400, 7067: 2800, _maquina: 3000, 6334: 180, 'm-etiqueta': 60, _costoHora: 6000 }); // incluye la receta
   assert.strictEqual(p.plu, '6319');
@@ -137,7 +137,7 @@ test('costearPresentacion: override de margen gana sobre la banda', () => {
   const p = presentar({ overridePct: 40 });
   assert.strictEqual(p.banda, 'override');
   assert.strictEqual(p.precioNeto, 1484);
-  assert.strictEqual(p.precioConIva, 1800); // 1795.64
+  assert.strictEqual(p.precioConIva, 1500); // 1484 (sin ×1,21) → múltiplo de 50
 });
 
 test('costearPresentacion: hereda faltantes de la receta y queda sin precio', () => {
@@ -425,10 +425,10 @@ test('regresión Excel (hoja Pepas): masa 104 kg + membrillo → variante y pres
     presentacion: { recetaId: 'membrillo', kgPorUnidad: 0.27, correccionPct: 5, insumos: [{ plu: '91508', cantidad: 1 }, { plu: '6316', cantidad: 1 }] },
   });
   // A mano: 3015.84 × 0.27 = 814.28 · +5% = 40.71 · +45 +112 → 1011.99
-  //         × 2.55 = 2580.57 neto · × 1.21 = 3122.49 → múltiplo de $50 = 3100
+  //         × 2.55 = 2580.57 neto (sin ×1,21 desde 2026-09-30) → múltiplo de $50 = 2600
   assert.strictEqual(p.costoUnidad, 1011.99);
   assert.strictEqual(p.precioNeto, 2580.57);
-  assert.strictEqual(p.precioConIva, 3100);
+  assert.strictEqual(p.precioConIva, 2600);
 });
 
 // ── Escalar variedades cuando cambia el kg por tanda de la base (decisión 12) ──
