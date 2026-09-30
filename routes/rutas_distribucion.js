@@ -7,7 +7,8 @@ const { calcularPesables } = require('../lib/pesables');
 const { universoLista, universoPesables } = require('../lib/listas_universo');
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
-        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO } = require('../lib/a8020');
+        calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO,
+        a8020Vencido } = require('../lib/a8020');
 
 // ── Rutas de Distribución (Almacen / Pesables / A8020 / Insumos) ───────────────────────────────
 // El bloque más grande de server.js: réplica de las hojas "Almacen" y "Pesables", el motor A8020
@@ -949,7 +950,31 @@ async function recalcularA8020() {
     productos: Object.keys(mins).length, paresSucursalProducto: filas.length, conEnvioPosible: conS,
     distribucionABC: distAbc, ejemplos };
 }
-router.get('/api/distribucion/a8020/recalcular', apiRoute(async () => recalcularA8020()));
+// Un recálculo a la vez (botón y automático comparten la promesa en curso).
+let a8020EnCurso = null;
+function recalcularA8020Unico() {
+  if (!a8020EnCurso) a8020EnCurso = recalcularA8020().finally(() => { a8020EnCurso = null; });
+  return a8020EnCurso;
+}
+router.get('/api/distribucion/a8020/recalcular', apiRoute(async () => recalcularA8020Unico()));
+
+// Recálculo automático: si el último A8020 tiene `a8020RecalcularCadaDias` días o más
+// (distribucion_config.json; default 7, 0 = desactivado), se recalcula solo. Chequea 1 min después
+// de arrancar y cada hora; unref para no retener el proceso.
+// ponytail: timer en proceso, sin cron — si el servidor está apagado el día que vence, recalcula al levantar.
+const A8020_CHEQUEO_MS = 60 * 60 * 1000;
+async function recalcularA8020SiVencio() {
+  try {
+    const dias = (leerJSON(DISTRIB_CONFIG_PATH, {}) || {}).a8020RecalcularCadaDias;
+    if (!a8020Vencido((leerJSON(A8020_CALC_PATH, {}) || {}).timestamp, dias)) return;
+    const r = await recalcularA8020Unico();
+    console.log(`[a8020/auto] recalculado ${r.timestamp}`);
+  } catch (e) {
+    console.error('[a8020/auto] no se pudo recalcular:', e.message);
+  }
+}
+setTimeout(recalcularA8020SiVencio, 60 * 1000).unref();
+setInterval(recalcularA8020SiVencio, A8020_CHEQUEO_MS).unref();
 router.get('/api/distribucion/a8020', apiRoute(async () => leerJSON(A8020_CALC_PATH, { vacio: true })));
 
 // ── Serie mensual de consumo (predicción de compra) ────────────────────────────
