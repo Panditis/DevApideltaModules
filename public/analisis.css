@@ -67,6 +67,9 @@
 .card-head .buscador{flex:1 1 140px;min-width:120px;padding:7px 10px;border:1px solid var(--border);
   border-radius:var(--radius-sm);font-family:inherit;font-size:13px}
 .card-head .buscador:focus{outline:none;border-color:var(--green-mid)}
+/* Selects de filtro junto al buscador: ancho fijo al contenido, el buscador se lleva el resto. */
+.card-head .buscador.filtro{flex:0 0 auto;min-width:0;background:#fff;color:inherit;cursor:pointer}
+.card-head .buscador.filtro:hover{border-color:var(--green-mid)}
 .pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;
   margin-top:10px;font-size:12px;color:var(--muted)}
 .pager .pg-btns{display:flex;gap:6px}
