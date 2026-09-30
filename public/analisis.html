@@ -78,17 +78,15 @@
     <div class="card">
       <div class="card-head">
         <h3>Top productos</h3>
-        <span>
-          <select id="filtQuiebre-suc" class="buscador" title="Filtrar por quiebres de stock">
-            <option value="">Todos los quiebres</option>
-            <option value="sin">Sin quiebres (0)</option>
-            <option value="con">Con quiebres</option>
-          </select>
-          <select id="filtRubro-suc" class="buscador" title="Filtrar por rubro del producto">
-            <option value="">Todos los rubros</option>
-          </select>
-          <input type="search" id="buscTop-suc" class="buscador" placeholder="Buscar producto..." autocomplete="off">
-        </span>
+        <select id="filtQuiebre-suc" class="buscador filtro" title="Filtrar por quiebres de stock">
+          <option value="">Todos los quiebres</option>
+          <option value="sin">Sin quiebres (0)</option>
+          <option value="con">Con quiebres</option>
+        </select>
+        <select id="filtRubro-suc" class="buscador filtro" title="Filtrar por rubro del producto">
+          <option value="">Todos los rubros</option>
+        </select>
+        <input type="search" id="buscTop-suc" class="buscador" placeholder="Buscar producto..." autocomplete="off">
       </div>
       <div class="desc">Clic en Producto, Facturación, Unid. o Quiebres para ordenar el listado por esa columna.</div>
       <div id="tblTop-suc"></div>
