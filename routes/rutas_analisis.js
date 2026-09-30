@@ -184,7 +184,7 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
     topFacturacion: productosFacturacion.map(r => {
       const q = quiebres.get(String(r.IdProducto)) || { dias: 0, base: 0 };
       return {
-        idProd: r.IdProducto, nombre: r.Nombre,
+        idProd: r.IdProducto, nombre: r.Nombre, rubro: r.Rubro || '',
         unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
         // null (y no 0) cuando el cálculo no corrió: son cosas distintas para el que lee.
         quiebres: conQuiebres ? q.dias : null,
