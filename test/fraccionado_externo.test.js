@@ -244,7 +244,9 @@ test('construirItemTarea rechaza cantidad, monto, tarea o nombre inválidos', ()
   assert.throws(() => construirItemTarea({ ...base, cantidad: 0 }), /cantidad/);
   assert.throws(() => construirItemTarea({ ...base, cantidad: 0.004 }), /cantidad/);
   assert.throws(() => construirItemTarea({ ...base, cantidad: 'x' }), /cantidad/);
+  assert.throws(() => construirItemTarea({ ...base, cantidad: undefined }), /cantidad/);
   assert.throws(() => construirItemTarea({ ...base, montoUnitario: 0 }), /montoUnitario/);
+  assert.throws(() => construirItemTarea({ ...base, montoUnitario: 0.004 }), /montoUnitario/);
   assert.throws(() => construirItemTarea({ ...base, tareaId: '' }), /tarea/);
   assert.throws(() => construirItemTarea({ ...base, nombre: '' }), /nombre/);
 });
@@ -270,4 +272,11 @@ test('construirPedido acepta un pedido sólo de tareas', () => {
     items: [{ tipo: 'tarea', tareaId: 'T1', nombre: 'Etiquetado', montoUnitario: 25, cantidad: 4 }],
   });
   assert.strictEqual(pedido.total, 100);
+});
+
+test('construirPedido rechaza una tarea sin cantidad', () => {
+  assert.throws(() => construirPedido({
+    numero: 'FE-0003', fechaISO: '2026-09-30', tercero: 'Sur', valorHora: 6000,
+    items: [{ tipo: 'tarea', tareaId: 'T1', nombre: 'X', montoUnitario: 10 }],
+  }), /cantidad/);
 });
