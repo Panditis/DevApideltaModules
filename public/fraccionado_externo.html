@@ -161,6 +161,7 @@
   <div class="p-tabs-list" role="tablist">
     <button class="p-tab" role="tab" aria-selected="true" data-tab="armado">Armar pedido</button>
     <button class="p-tab" role="tab" aria-selected="false" data-tab="guardados">Pedidos guardados</button>
+    <button class="p-tab" role="tab" aria-selected="false" data-tab="tareas">Tareas</button>
     <button class="p-tab" role="tab" aria-selected="false" data-tab="config">Configuración</button>
   </div>
 
@@ -192,6 +193,19 @@
     </div>
 
     <div class="p-card">
+      <div class="p-card-body">
+        <div class="p-field">
+          <label class="p-label" for="selTarea">Agregar tarea</label>
+          <div class="flex gap-2">
+            <select id="selTarea" class="p-select flex-1"></select>
+            <button type="button" id="btnAgregarTarea" class="p-button outlined" disabled>Agregar</button>
+          </div>
+          <p id="tareasSinDatos" class="p-helper">No hay tareas cargadas. Creálas en la pestaña Tareas.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="p-card">
       <div class="p-card-header">
         <h2 class="p-card-title">Pedido</h2>
         <p class="p-card-desc">Los valores de cada nivel se ajustan en la pestaña Configuración.</p>
@@ -206,7 +220,7 @@
                 <th>Tiempo</th>
                 <th>Complejidad</th>
                 <th class="r">Kilos</th>
-                <th class="r">Paquetes</th>
+                <th class="r">Paquetes / cant.</th>
                 <th class="r">Costo unit.</th>
                 <th class="r">Costo total</th>
                 <th></th>
@@ -250,6 +264,47 @@
     </div>
   </section>
 
+  <section id="tab-tareas" class="hidden space-y-5">
+    <form id="formTarea" class="p-card">
+      <div class="p-card-header">
+        <h2 class="p-card-title" id="tareaFormTitulo">Nueva tarea</h2>
+        <p class="p-card-desc">Trabajos que no son productos: se cobran con un monto fijo por unidad y al pedirlos sólo se indica la cantidad.</p>
+      </div>
+      <div class="p-card-body grid gap-4 sm:grid-cols-[1fr_200px]">
+        <div class="p-field">
+          <label class="p-label" for="tareaNombre">Nombre</label>
+          <input id="tareaNombre" type="text" required maxlength="60" placeholder="ej. Etiquetado" class="p-input">
+        </div>
+        <div class="p-field">
+          <label class="p-label" for="tareaMonto">Monto por unidad ($)</label>
+          <input id="tareaMonto" type="number" step="0.01" min="0.01" required class="p-input num">
+        </div>
+      </div>
+      <div class="p-card-footer justify-end">
+        <button type="button" id="btnTareaCancelar" class="p-button ghost hidden">Cancelar</button>
+        <button type="submit" id="btnTareaGuardar" class="p-button solid">Agregar tarea</button>
+      </div>
+    </form>
+
+    <div class="p-card">
+      <div class="p-card-body">
+        <div class="p-table-wrap">
+          <table class="p-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th class="r">Monto por unidad</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="listaTareas"></tbody>
+          </table>
+          <p id="tareasVacio" class="p-empty">Todavía no hay tareas.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-config" class="hidden">
     <form id="formConfig" class="p-card">
       <div class="p-card-body grid gap-8 sm:grid-cols-2">
@@ -274,7 +329,11 @@
 
 </main>
 <script>
-  const carrito = []; // { plu, nombre, presentacion, minHistorial, kilos, nivelTiempo, nivelComplejidad }
+  // Productos: { plu, nombre, presentacion, minHistorial, kilos, nivelTiempo, nivelComplejidad }.
+  // Tareas:    { tipo: 'tarea', tareaId, nombre, monto, cantidad }.
+  const carrito = [];
+  let tareas = []; // [{ id, nombre, monto }] desde /api/fraccionado-externo/tareas
+  let tareaEditandoId = null;
 
   // Niveles editables: { tiempos: [{ id, nombre, valor }], factores: [...] } desde
   // /api/fraccionado-externo/config. Opción nueva = sin id (el servidor lo genera del nombre).
@@ -383,9 +442,10 @@
 
   document.querySelectorAll('.p-tab').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('.p-tab').forEach(b => b.setAttribute('aria-selected', String(b === btn)));
-    ['armado', 'guardados', 'config'].forEach(t =>
+    ['armado', 'guardados', 'tareas', 'config'].forEach(t =>
       document.getElementById('tab-' + t).classList.toggle('hidden', btn.dataset.tab !== t));
     if (btn.dataset.tab === 'guardados') cargarPedidos();
+    if (btn.dataset.tab === 'armado' || btn.dataset.tab === 'tareas') cargarTareas();
   }));
 
   const buscarInput = document.getElementById('buscarProducto');
@@ -455,6 +515,7 @@
   const dos = n => (Number(n) || 0).toFixed(2);
 
   function paquetesDe(it) {
+    if (it.tipo === 'tarea') return 0; // la cantidad de una tarea no son paquetes
     const peso = pesoPresentacionKg(it.presentacion);
     const kilos = Number(it.kilos) || 0;
     return peso ? redondear2(kilos / peso) : 0;
@@ -472,6 +533,10 @@
   }
 
   function costoItem(it) {
+    if (it.tipo === 'tarea') {
+      // Mismo orden que construirItemTarea en lib/fraccionado_externo.js: cantidad a 2 decimales.
+      return { unitario: it.monto, total: redondear2(it.monto * redondear2(Number(it.cantidad) || 0)), paquetes: 0 };
+    }
     const min = valorNivel('tiempos', it.nivelTiempo);
     const paq = paquetesDe(it);
     const factor = valorNivel('factores', it.nivelComplejidad);
@@ -487,11 +552,13 @@
     document.getElementById('carritoVacio').classList.toggle('hidden', carrito.length > 0);
     document.getElementById('btnGenerar').disabled = carrito.length === 0;
     carrito.forEach(it => {
+      if (it.tipo === 'tarea') return;
       it.nivelTiempo = nivelVigente('tiempos', it.nivelTiempo);
       it.nivelComplejidad = nivelVigente('factores', it.nivelComplejidad);
     });
     tbody.innerHTML = carrito.map((it, i) => {
       const { unitario, total, paquetes } = costoItem(it);
+      if (it.tipo === 'tarea') return filaTarea(it, i, unitario, total);
       return `
         <tr>
           <td>${escAttr(it.nombre)}</td>
@@ -516,7 +583,25 @@
       actualizarCostosFila(i);
     }));
     tbody.querySelectorAll('[data-quitar]').forEach(btn => btn.addEventListener('click', () => quitarProducto(btn.dataset.quitar)));
+    tbody.querySelectorAll('[data-quitar-tarea]').forEach(btn => btn.addEventListener('click', () => quitarTarea(btn.dataset.quitarTarea)));
     actualizarTotalGeneral();
+  }
+
+  // Fila de una tarea en la tabla del pedido: sin presentación, niveles ni kilos. La cantidad se
+  // edita en la columna Paquetes y el costo unitario es el monto fijo de la tarea.
+  function filaTarea(it, i, unitario, total) {
+    return `
+        <tr>
+          <td>${escAttr(it.nombre)} <span class="p-badge accent">Tarea</span></td>
+          <td class="muted">—</td>
+          <td class="muted">—</td>
+          <td class="muted">—</td>
+          <td class="r muted">—</td>
+          <td class="r"><input type="number" step="0.01" min="0.01" value="${escAttr(it.cantidad)}" class="p-input sm num w-24" data-campo="cantidad" data-i="${i}" aria-label="Cantidad de ${escAttr(it.nombre)}"></td>
+          <td class="r" data-costo-unitario="${i}">$${dos(unitario)}</td>
+          <td class="r font-semibold" data-costo-total="${i}">$${dos(total)}</td>
+          <td class="r"><button type="button" class="p-button ghost danger xs" data-quitar-tarea="${escAttr(it.tareaId)}" aria-label="Quitar ${escAttr(it.nombre)}">Quitar</button></td>
+        </tr>`;
   }
 
   function selectNivel(grupo, actual, campo, i) {
@@ -528,9 +613,11 @@
   }
 
   function actualizarCostosFila(i) {
-    const { unitario, total, paquetes } = costoItem(carrito[i]);
+    const it = carrito[i];
+    const { unitario, total, paquetes } = costoItem(it);
     const tbody = document.getElementById('carrito');
-    tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? dos(paquetes) : '—';
+    // En la fila de una tarea esa celda es el input de cantidad: no se toca.
+    if (it.tipo !== 'tarea') tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? dos(paquetes) : '—';
     tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + dos(unitario);
     tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + dos(total);
     actualizarTotalGeneral();
@@ -551,14 +638,20 @@
   async function generarPedido() {
     const tercero = document.getElementById('tercero').value.trim();
     if (!tercero) { await mostrarAviso('Falta el nombre del tercero'); return; }
-    if (carrito.some(it => !paquetesDe(it))) {
+    if (carrito.some(it => it.tipo !== 'tarea' && !paquetesDe(it))) {
       await mostrarAviso('Hay productos sin kilos o con una presentación inválida (ej. "500G", "1Kg")'); return;
     }
-    const items = carrito.map(it => ({
-      plu: it.plu, nombre: it.nombre, presentacion: it.presentacion,
-      nivelTiempo: it.nivelTiempo, nivelComplejidad: it.nivelComplejidad,
-      kilos: Number(it.kilos), paquetes: paquetesDe(it),
-    }));
+    if (carrito.some(it => it.tipo === 'tarea' && !(redondear2(Number(it.cantidad)) > 0))) {
+      await mostrarAviso('Hay tareas sin cantidad'); return;
+    }
+    // Las tareas viajan sólo con id y cantidad: nombre y monto los resuelve el servidor.
+    const items = carrito.map(it => (it.tipo === 'tarea'
+      ? { tipo: 'tarea', tareaId: it.tareaId, cantidad: Number(it.cantidad) }
+      : {
+        plu: it.plu, nombre: it.nombre, presentacion: it.presentacion,
+        nivelTiempo: it.nivelTiempo, nivelComplejidad: it.nivelComplejidad,
+        kilos: Number(it.kilos), paquetes: paquetesDe(it),
+      }));
     let r, data;
     try {
       r = await fetch('/api/fraccionado-externo/pedidos', {
@@ -587,10 +680,11 @@
     doc.autoTable({
       startY: 40,
       head: [['Producto', 'Presentación', 'Kilos', 'Paquetes', 'Costo unit.', 'Costo total']],
-      body: pedido.items.map(it => [
-        it.nombre, it.presentacion, it.kilos ?? '', dos(it.paquetes),
-        '$' + dos(it.costoUnitario), '$' + dos(it.costoTotal),
-      ]),
+      // Tarea: la cantidad va en Paquetes, sin presentación ni kilos. Tampoco suma a los totales
+      // de pie de kilos y paquetes (no tiene esos campos).
+      body: pedido.items.map(it => (it.tipo === 'tarea'
+        ? [it.nombre + ' (tarea)', '', '', dos(it.cantidad), '$' + dos(it.costoUnitario), '$' + dos(it.costoTotal)]
+        : [it.nombre, it.presentacion, it.kilos ?? '', dos(it.paquetes), '$' + dos(it.costoUnitario), '$' + dos(it.costoTotal)])),
       foot: [['Total', '',
         pedido.items.reduce((s, it) => s + (Number(it.kilos) || 0), 0).toFixed(1),
         dos(pedido.items.reduce((s, it) => s + (Number(it.paquetes) || 0), 0)),
@@ -642,8 +736,132 @@
     }));
   }
 
+  // ── Tareas específicas: ABM + alta en el pedido ────────────────────────────────
+  async function cargarTareas() {
+    try {
+      const r = await fetch('/api/fraccionado-externo/tareas');
+      const data = await r.json();
+      if (!r.ok) { await mostrarAviso(data.error || 'No se pudieron cargar las tareas'); return; }
+      tareas = data.tareas;
+    } catch (e) {
+      await mostrarAviso('No se pudo conectar con el servidor');
+      return;
+    }
+    renderTareas();
+    sincronizarTareasCarrito();
+  }
+
+  function renderTareas() {
+    document.getElementById('tareasVacio').classList.toggle('hidden', tareas.length > 0);
+    document.getElementById('listaTareas').innerHTML = tareas.map(t => `
+      <tr>
+        <td>${escAttr(t.nombre)}</td>
+        <td class="r">$${dos(t.monto)}</td>
+        <td class="r whitespace-nowrap">
+          <button type="button" class="p-button outlined xs" data-editar-tarea="${escAttr(t.id)}">Editar</button>
+          <button type="button" class="p-button ghost danger xs" data-eliminar-tarea="${escAttr(t.id)}">Eliminar</button>
+        </td>
+      </tr>`).join('');
+    document.getElementById('selTarea').innerHTML = tareas.map(t =>
+      `<option value="${escAttr(t.id)}">${escAttr(t.nombre)} — $${dos(t.monto)}</option>`).join('');
+    document.getElementById('tareasSinDatos').classList.toggle('hidden', tareas.length > 0);
+    document.getElementById('btnAgregarTarea').disabled = tareas.length === 0;
+  }
+
+  // Si una tarea se editó o borró en el ABM, su fila en el carrito muestra lo vigente o desaparece.
+  function sincronizarTareasCarrito() {
+    for (let i = carrito.length - 1; i >= 0; i--) {
+      const it = carrito[i];
+      if (it.tipo !== 'tarea') continue;
+      const t = tareas.find(x => x.id === it.tareaId);
+      if (!t) carrito.splice(i, 1);
+      else { it.nombre = t.nombre; it.monto = t.monto; }
+    }
+    renderCarrito();
+  }
+
+  function resetFormTarea() {
+    tareaEditandoId = null;
+    document.getElementById('formTarea').reset();
+    document.getElementById('tareaFormTitulo').textContent = 'Nueva tarea';
+    document.getElementById('btnTareaGuardar').textContent = 'Agregar tarea';
+    document.getElementById('btnTareaCancelar').classList.add('hidden');
+  }
+
+  function editarTarea(id) {
+    const t = tareas.find(x => x.id === id);
+    if (!t) return;
+    tareaEditandoId = id;
+    document.getElementById('tareaNombre').value = t.nombre;
+    document.getElementById('tareaMonto').value = t.monto;
+    document.getElementById('tareaFormTitulo').textContent = 'Editar tarea';
+    document.getElementById('btnTareaGuardar').textContent = 'Guardar cambios';
+    document.getElementById('btnTareaCancelar').classList.remove('hidden');
+    document.getElementById('tareaNombre').focus();
+  }
+
+  async function eliminarTarea(id) {
+    const t = tareas.find(x => x.id === id);
+    if (!t) return;
+    if (!(await confirmarAccion(`¿Eliminar la tarea "${t.nombre}"? Los pedidos ya generados no cambian.`))) return;
+    try {
+      const r = await fetch('/api/fraccionado-externo/tareas/' + encodeURIComponent(id), { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { await mostrarAviso(data.error || 'No se pudo eliminar la tarea'); return; }
+    } catch (e) {
+      await mostrarAviso('No se pudo conectar con el servidor');
+      return;
+    }
+    if (tareaEditandoId === id) resetFormTarea();
+    cargarTareas();
+  }
+
+  document.getElementById('listaTareas').addEventListener('click', e => {
+    const editar = e.target.closest('[data-editar-tarea]');
+    if (editar) { editarTarea(editar.dataset.editarTarea); return; }
+    const eliminar = e.target.closest('[data-eliminar-tarea]');
+    if (eliminar) eliminarTarea(eliminar.dataset.eliminarTarea);
+  });
+  document.getElementById('btnTareaCancelar').addEventListener('click', resetFormTarea);
+
+  document.getElementById('formTarea').addEventListener('submit', async e => {
+    e.preventDefault();
+    const cuerpo = {
+      nombre: document.getElementById('tareaNombre').value.trim(),
+      monto: Number(document.getElementById('tareaMonto').value),
+    };
+    const url = '/api/fraccionado-externo/tareas' + (tareaEditandoId ? '/' + encodeURIComponent(tareaEditandoId) : '');
+    try {
+      const r = await fetch(url, {
+        method: tareaEditandoId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpo),
+      });
+      const data = await r.json();
+      if (!r.ok) { await mostrarAviso(data.error || 'No se pudo guardar la tarea'); return; }
+    } catch (err) {
+      await mostrarAviso('No se pudo conectar con el servidor');
+      return;
+    }
+    resetFormTarea();
+    cargarTareas();
+  });
+
+  document.getElementById('btnAgregarTarea').addEventListener('click', () => {
+    const t = tareas.find(x => x.id === document.getElementById('selTarea').value);
+    if (!t || carrito.some(it => it.tipo === 'tarea' && it.tareaId === t.id)) return;
+    carrito.push({ tipo: 'tarea', tareaId: t.id, nombre: t.nombre, monto: t.monto, cantidad: 1 });
+    renderCarrito();
+  });
+
+  function quitarTarea(tareaId) {
+    const idx = carrito.findIndex(it => it.tipo === 'tarea' && it.tareaId === tareaId);
+    if (idx >= 0) carrito.splice(idx, 1);
+    renderCarrito();
+  }
+
   renderCarrito();
   cargarConfig();
+  cargarTareas();
 </script>
 </body>
 </html>
