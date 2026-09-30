@@ -35,6 +35,51 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
     }
   });
 
+  // Tareas específicas: trabajos que no son productos, con un monto fijo por unidad. Archivo
+  // ausente o roto → lista vacía, así el módulo funciona sin haber creado ninguna.
+  const TAREAS_PATH = path.join(DATA_DIR, 'fraccionado_externo_tareas.json');
+  function leerTareas() {
+    const data = leerJSON(TAREAS_PATH, { tareas: [] });
+    return Array.isArray(data && data.tareas) ? data.tareas : [];
+  }
+  const guardarTareas = tareas => guardarJSON(TAREAS_PATH, { tareas });
+
+  router.get('/api/fraccionado-externo/tareas', apiRoute(async () => ({ tareas: leerTareas() })));
+
+  router.post('/api/fraccionado-externo/tareas', (req, res) => {
+    try {
+      const tareas = leerTareas();
+      const tarea = {
+        id: fraccionadoExterno.siguienteIdTarea(tareas),
+        ...fraccionadoExterno.validarTarea(req.body, tareas),
+      };
+      guardarTareas([...tareas, tarea]);
+      res.json({ tarea });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.put('/api/fraccionado-externo/tareas/:id', (req, res) => {
+    const tareas = leerTareas();
+    const idx = tareas.findIndex(t => t.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Tarea no encontrada' });
+    try {
+      const tarea = { id: req.params.id, ...fraccionadoExterno.validarTarea(req.body, tareas, req.params.id) };
+      guardarTareas(tareas.map((t, i) => (i === idx ? tarea : t)));
+      res.json({ tarea });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.delete('/api/fraccionado-externo/tareas/:id', (req, res) => {
+    const tareas = leerTareas();
+    if (!tareas.some(t => t.id === req.params.id)) return res.status(404).json({ error: 'Tarea no encontrada' });
+    guardarTareas(tareas.filter(t => t.id !== req.params.id));
+    res.json({ ok: true });
+  });
+
   router.get('/fraccionado-externo', (_req, res) =>
     res.sendFile(path.join(__dirname, '..', 'public', 'fraccionado_externo.html')));
 
@@ -125,10 +170,14 @@ module.exports = function crearRutasFraccionadoExterno(deps) {
     try {
       const pedidos = leerPedidosFraccionadoExterno();
       const numero = fraccionadoExterno.siguienteNumero(pedidos);
-      // Minutos y factor se resuelven acá desde la config, no se confía en números del cliente.
+      // Minutos y factor (productos) y nombre y monto (tareas) se resuelven acá desde la config y
+      // el archivo de tareas, no se confía en números del cliente.
       const config = leerConfig();
+      const tareas = leerTareas();
       const items = (Array.isArray(req.body.items) ? req.body.items : [])
-        .map(it => fraccionadoExterno.resolverNiveles(it, config));
+        .map(it => (it && it.tipo === 'tarea'
+          ? fraccionadoExterno.resolverTarea(it, tareas)
+          : fraccionadoExterno.resolverNiveles(it, config)));
       const usuario = (req.session && req.session.user && req.session.user.nombre) || null;
       const pedido = fraccionadoExterno.construirPedido({
         numero, fechaISO: new Date().toISOString().slice(0, 10),
