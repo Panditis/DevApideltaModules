@@ -663,7 +663,7 @@
       await mostrarAviso('No se pudo conectar con el servidor');
       return;
     }
-    if (!r.ok) { await mostrarAviso(data.error || 'No se pudo generar el pedido'); return; }
+    if (!r.ok) { await mostrarAviso(data.error || 'No se pudo generar el pedido'); cargarTareas(); return; }
     imprimirPedido(data.pedido);
     carrito.length = 0;
     document.getElementById('tercero').value = '';
@@ -811,7 +811,7 @@
     try {
       const r = await fetch('/api/fraccionado-externo/tareas/' + encodeURIComponent(id), { method: 'DELETE' });
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) { await mostrarAviso(data.error || 'No se pudo eliminar la tarea'); return; }
+      if (!r.ok) { await mostrarAviso(data.error || 'No se pudo eliminar la tarea'); cargarTareas(); return; }
     } catch (e) {
       await mostrarAviso('No se pudo conectar con el servidor');
       return;
@@ -838,16 +838,20 @@
       monto: Number(document.getElementById('tareaMonto').value),
     };
     const url = '/api/fraccionado-externo/tareas' + (tareaEditandoId ? '/' + encodeURIComponent(tareaEditandoId) : '');
+    const btnGuardar = document.getElementById('btnTareaGuardar');
+    btnGuardar.disabled = true; // evita el doble envío (doble clic / doble Enter)
     try {
       const r = await fetch(url, {
         method: tareaEditandoId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cuerpo),
       });
       const data = await r.json();
-      if (!r.ok) { await mostrarAviso(data.error || 'No se pudo guardar la tarea'); return; }
+      if (!r.ok) { await mostrarAviso(data.error || 'No se pudo guardar la tarea'); cargarTareas(); return; }
     } catch (err) {
       await mostrarAviso('No se pudo conectar con el servidor');
       return;
+    } finally {
+      btnGuardar.disabled = false;
     }
     resetFormTarea();
     cargarTareas();
