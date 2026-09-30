@@ -208,6 +208,9 @@ test('validarTarea rechaza nombre vacío y monto no positivo o no numérico', ()
   assert.throws(() => validarTarea({ nombre: 'X', monto: -5 }, []), /Monto/);
   assert.throws(() => validarTarea({ nombre: 'X', monto: 'abc' }, []), /Monto/);
   assert.throws(() => validarTarea({ nombre: 'X', monto: 0.004 }, []), /Monto/); // redondea a 0
+  assert.throws(() => validarTarea({ nombre: { a: 1 }, monto: 5 }, []), /nombre/);
+  assert.throws(() => validarTarea({ nombre: 'X', monto: true }, []), /Monto/);
+  assert.throws(() => validarTarea({ nombre: 'X' }, []), /Monto/);
 });
 
 test('validarTarea rechaza nombre repetido ignorando mayúsculas, salvo contra sí misma', () => {

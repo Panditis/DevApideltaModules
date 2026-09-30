@@ -65,6 +65,7 @@ test('ABM de tareas: alta, listado, edición, borrado y validaciones', async () 
     assert.deepStrictEqual(edit.data.tarea, { id: 'T1', nombre: 'Etiquetado', monto: 30 });
     assert.strictEqual((await pedir(base, 'PUT', '/tareas/T9', { nombre: 'Z', monto: 5 })).status, 404);
     assert.strictEqual((await pedir(base, 'PUT', '/tareas/T2', { nombre: 'etiquetado', monto: 5 })).status, 400);
+    assert.deepStrictEqual((await pedir(base, 'GET', '/tareas')).data.tareas[1], { id: 'T2', nombre: 'Reempaque', monto: 10 }); // un PUT rechazado no altera lo guardado
 
     assert.strictEqual((await pedir(base, 'DELETE', '/tareas/T2')).status, 200);
     assert.strictEqual((await pedir(base, 'DELETE', '/tareas/T2')).status, 404);
@@ -81,7 +82,7 @@ test('POST pedidos: resuelve tareas desde el archivo, suma al total y guarda una
       plu: '1101', nombre: 'Oregano 50G', presentacion: '50G',
       nivelTiempo: 'normal', nivelComplejidad: 'facil', kilos: 1, paquetes: 20,
     };
-    const tarea = { tipo: 'tarea', tareaId: 'T1', cantidad: 40, nombre: 'hack', montoUnitario: 1 };
+    const tarea = { tipo: 'tarea', tareaId: 'T1', cantidad: 40, nombre: 'hack', montoUnitario: 1, costoTotal: 1 };
     const { status, data } = await pedir(base, 'POST', '/pedidos', { tercero: 'Sur', valorHora: 6000, items: [producto, tarea] });
     assert.strictEqual(status, 200);
     assert.strictEqual(data.pedido.items[1].nombre, 'Etiquetado'); // del archivo, no del cliente
