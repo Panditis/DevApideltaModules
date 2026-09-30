@@ -173,14 +173,39 @@ function ordenarFilas(rows, criterio, desc){
     .map((r, i) => ({ ...r, puesto: i + 1 }));
 }
 
+// Filtros de quiebres y rubro: sólo existen en sucursales (los selects están en el HTML de esa
+// pestaña). Se leen del DOM al filtrar; sin select, no filtran. Un quiebre en null (varias
+// sucursales, no se calculó) no entra ni en "sin" ni en "con": no se sabe.
+function valorFiltro(id){
+  const el = $(id);
+  return el ? el.value : '';
+}
+
 function filasTop(pref){
   const st = tops[pref];
   const terminos = normalizarBusqueda(st.filtro).split(/\s+/).filter(Boolean);
-  if (!terminos.length) return st.rows;
+  const quiebre = valorFiltro(`filtQuiebre-${pref}`);
+  const rubro = valorFiltro(`filtRubro-${pref}`);
   return st.rows.filter(r => {
+    if (quiebre === 'sin' && r.quiebres !== 0) return false;
+    if (quiebre === 'con' && !(r.quiebres > 0)) return false;
+    if (rubro && (r.rubro || '') !== rubro) return false;
     const nombre = normalizarBusqueda(r.nombre);
     return terminos.every(t => nombre.includes(t));
   });
+}
+
+// Opciones del select de rubro armadas con los rubros que trajo la consulta. Conserva la
+// elección si el rubro sigue presente; si no, vuelve a "Todos".
+function llenarRubros(pref, rows){
+  const el = $(`filtRubro-${pref}`);
+  if (!el) return;
+  const previo = el.value;
+  const rubros = [...new Set((rows || []).map(r => r.rubro).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es-AR'));
+  el.innerHTML = '<option value="">Todos los rubros</option>' + rubros
+    .map(r => `<option value="${escHtml(r)}">${escHtml(r)}</option>`).join('');
+  el.value = rubros.includes(previo) ? previo : '';
 }
 
 function renderTop(rows, pref){
@@ -191,6 +216,7 @@ function renderTop(rows, pref){
   const desc = st ? st.desc : true;
   tops[pref] = { origen: rows || [], rows: ordenarFilas(rows, criterio, desc), filtro:'', pagina:1, criterio, desc };
   $(`buscTop-${pref}`).value = '';
+  llenarRubros(pref, rows);
   pintarTop(pref);
 }
 
@@ -225,7 +251,8 @@ function pintarTop(pref){
   const pagerEl = $(`pagTop-${pref}`);
   const filas = filasTop(pref);
   if (!filas.length){
-    $(`tblTop-${pref}`).innerHTML = `<div class="empty">${st.filtro ? 'Ningún producto coincide con la búsqueda.' : 'Sin datos en el rango.'}</div>`;
+    const filtrando = st.filtro || valorFiltro(`filtQuiebre-${pref}`) || valorFiltro(`filtRubro-${pref}`);
+    $(`tblTop-${pref}`).innerHTML = `<div class="empty">${filtrando ? 'Ningún producto coincide con los filtros.' : 'Sin datos en el rango.'}</div>`;
     pagerEl.innerHTML = '';
     return;
   }
@@ -851,6 +878,9 @@ async function init(){
       fmn: e => famBuscarEnLista(e.target.value),
     };
     $(`buscTop-${p.pref}`).oninput = BUSCADOR[p.pref] || (e => buscarEnTop(p.pref, e.target.value));
+    [`filtQuiebre-${p.pref}`, `filtRubro-${p.pref}`].forEach(id => {
+      if ($(id)) $(id).onchange = () => { if (tops[p.pref]) { tops[p.pref].pagina = 1; pintarTop(p.pref); } };
+    });
     $(`tab-${p.pref}`).onclick = () => mostrarTab(NOMBRE_POR_PREF[p.pref]);
   });
   const permitidas = await permisos();
