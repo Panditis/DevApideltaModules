@@ -286,6 +286,25 @@ function irPaginaTop(pref, n){
   pintarTop(pref);
 }
 
+// Exporta la lista completa (no sólo la página visible) con los filtros y el orden actuales.
+// Números sin formatear para que Excel pueda sumarlos; quiebre sin calcular queda vacío.
+function exportarTop(pref){
+  const st = tops[pref];
+  if (!st) return;
+  const filas = filasTop(pref);
+  if (!filas.length){ alert('No hay productos para exportar con los filtros actuales.'); return; }
+  const encabezado = ['#', 'Código', 'Producto', 'Rubro', 'Facturación', 'Unidades', 'Quiebres (días)', 'Días evaluados', 'Quiebres %'];
+  const vacioSiNull = v => (v === null || v === undefined ? '' : v);
+  const cuerpo = filas.map(r => [
+    r.puesto, r.idProd, r.nombre, r.rubro || '', r.facturacion, r.unidades,
+    vacioSiNull(r.quiebres), vacioSiNull(r.quiebresBase), vacioSiNull(r.quiebresPorc),
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([encabezado, ...cuerpo]), 'Top productos');
+  const rango = `${$('desde').value || ''}_${$('hasta').value || ''}`;
+  XLSX.writeFile(wb, `top_productos_${rango}.xlsx`);
+}
+
 // Cada tecla vuelve a la página 1: filtrar y quedarse en la página 7 mostraría vacío.
 function buscarEnTop(pref, texto){
   tops[pref].filtro = texto;

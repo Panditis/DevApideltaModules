@@ -156,8 +156,23 @@ function pintarResumenTendencia(tend, pref){
 
 // altoFijo: el gráfico va dentro de un .chart-box (alto por CSS, no por relación de
 // aspecto). Sólo lo usa la pestaña de la central, donde la tendencia ocupa todo el ancho.
-function renderTendencia(rows, pref, altoFijo){
+// "Excluir sábados": el sábado vende muy distinto al resto y deforma la curva. Se guardan las
+// filas de la última consulta para repintar al tildar sin volver a pedir datos. Sin sábados
+// cambian también la media móvil, la recta y el veredicto mensual (promedio por día hábil).
+const tendenciaCargada = {};
+function esSabado(fecha){
+  return new Date(`${String(fecha).slice(0, 10)}T00:00:00Z`).getUTCDay() === 6;
+}
+function repintarTendencia(pref){
+  const t = tendenciaCargada[pref];
+  if (t) renderTendencia(t.rows, pref, t.altoFijo);
+}
+
+function renderTendencia(rowsTodas, pref, altoFijo){
   destroyChart(`tend-${pref}`);
+  tendenciaCargada[pref] = { rows: rowsTodas, altoFijo };
+  const chk = $(`sinSab-${pref}`);
+  const rows = chk && chk.checked ? (rowsTodas || []).filter(r => !esSabado(r.fecha)) : rowsTodas;
   const serie = (rows || []).map(r => Number(r.facturacion || 0));
   // La recta se ajusta sobre la serie alisada, no sobre la cruda: con menos días que la
   // ventana no hay nada que alisar y se usa tal cual.
