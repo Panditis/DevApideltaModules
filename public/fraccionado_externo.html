@@ -111,6 +111,26 @@
   .t-pedido td:last-child, .t-pedido th:last-child { padding:0 8px 0 0; text-align:right; }
   .p-clamp { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.35; }
 
+  /* Listas (pedidos guardados, tareas): anchos fijos para que datos y acciones se lean como una fila. */
+  .t-lista { table-layout:fixed; }
+  .t-lista td { height:48px; padding-top:6px; padding-bottom:6px; }
+  .t-lista td.acciones { text-align:right; white-space:nowrap; }
+  .t-lista td.acciones .p-button { vertical-align:middle; }
+  .t-lista td.acciones .p-button + .p-button { margin-left:6px; }
+  .t-lista .elipsis { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .t-lista tbody tr:hover td { background:var(--ad-sup); }
+  /* Tarea en edición: tinte verde + barra a la izquierda, se limpia al terminar. */
+  .t-lista tbody tr.fila-editando td { background:var(--ad-verde-tinte); }
+  .t-lista tbody tr.fila-editando td:first-child { box-shadow:inset 3px 0 0 var(--ad-verde); }
+  .p-button.outlined.danger { color:var(--ad-crit); }
+  .p-button.outlined.danger:not(:disabled):hover { background:var(--ad-crit-tinte); border-color:var(--ad-crit); }
+  .p-button.xs svg { width:14px; height:14px; }
+
+  /* Configuración: cabecera de columnas y filas en la misma grilla; quitar = alto del input. */
+  .cfg-grilla { display:grid; grid-template-columns:minmax(0,1fr) 150px 34px; gap:8px; align-items:center; }
+  .cfg-cab { font-size:11.5px; font-weight:600; color:var(--ad-gris); text-transform:uppercase; letter-spacing:.02em; margin-bottom:6px; }
+  .p-button.icon.alto-campo { width:34px; height:34px; }
+
   /* Badge (pill) */
   .p-badge { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:999px;
     font-size:12px; font-weight:600; background:#e9ece4; color:var(--ad-ink); white-space:nowrap; }
@@ -118,6 +138,7 @@
   .p-badge.green { background:#dff6dd; color:#0e700e; }
   .p-badge.amber { background:#fff4ce; color:#8a5d00; }
   .p-badge.yellow { background:#fff4ce; color:#6b5200; }
+  .p-badge.dot::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; margin-right:6px; }
 
   /* Buscador con lista desplegable anclada debajo del input. */
   .p-combo { position:relative; }
@@ -134,15 +155,17 @@
   .p-listbox-vacio { padding:10px; color:var(--ad-gris); font-size:13px; }
 
   /* Diálogo */
-  .p-backdrop { position:fixed; inset:0; z-index:50; background:rgba(26,28,24,.42); backdrop-filter:blur(2px);
+  /* Velo liso, sin blur: la página de atrás sigue legible. */
+  .p-backdrop { position:fixed; inset:0; z-index:50; background:rgba(26,28,24,.32);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   .p-dialog { background:var(--ad-card); border-radius:var(--ad-r-card); box-shadow:var(--ad-sombra-pop); width:100%; max-width:420px; padding:22px 24px 18px;
     border-top:3px solid var(--ad-verde); animation:apidelta-fade-in .18s ease; }
   .p-dialog-title { font-size:16px; font-weight:600; margin:0 0 6px; }
   .p-dialog-desc { font-size:14px; color:var(--ad-ink); margin:0 0 20px; }
 
-  /* Estado vacío del pedido */
-  .p-empty { padding:32px 16px; text-align:center; color:var(--ad-gris); margin:0; }
+  /* Estados vacío / cargando de las listas: misma caja, así no salta el layout al cambiar. */
+  .p-empty { padding:32px 16px; text-align:center; color:var(--ad-gris); margin:0; min-height:156px; box-sizing:border-box; }
+  .p-empty .spin { width:20px; height:20px; }
   .p-empty-ico { display:inline-grid; place-items:center; width:44px; height:44px; border-radius:50%; background:var(--ad-verde-tinte); color:var(--ad-verde); margin-bottom:10px; }
   .p-empty-titulo { display:block; font-weight:600; color:var(--ad-ink); }
 
@@ -286,9 +309,21 @@
 
   <section id="tab-guardados" class="hidden">
     <div class="p-card">
+      <div class="p-card-header">
+        <h2 class="p-card-title">Pedidos guardados</h2>
+        <p class="p-card-desc">Pedidos generados y todavía no anulados, del más nuevo al más viejo.</p>
+      </div>
       <div class="p-card-body">
-        <div class="p-table-wrap">
-          <table class="p-table">
+        <div class="p-table-wrap" id="pedidosWrap">
+          <table class="p-table t-lista">
+            <colgroup>
+              <col style="width:120px">
+              <col style="width:124px">
+              <col>
+              <col style="width:160px">
+              <col style="width:140px">
+              <col style="width:184px">
+            </colgroup>
             <thead>
               <tr>
                 <th>Número</th>
@@ -296,11 +331,21 @@
                 <th>Tercero</th>
                 <th class="r">Total</th>
                 <th>Estado</th>
-                <th></th>
+                <th><span class="sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody id="listaPedidos"></tbody>
           </table>
+          <div id="pedidosCargando" class="p-empty hidden" role="status">
+            <span class="p-empty-ico" aria-hidden="true"><span class="spin"></span></span>
+            <span class="p-empty-titulo">Cargando pedidos…</span>
+            <span class="text-[13px]">Un momento, se está trayendo la lista.</span>
+          </div>
+          <div id="pedidosVacio" class="p-empty hidden">
+            <span class="p-empty-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span>
+            <span class="p-empty-titulo">Todavía no hay pedidos guardados</span>
+            <span class="text-[13px]">Armá uno en la pestaña Armar pedido y tocá Generar pedido: va a aparecer acá.</span>
+          </div>
         </div>
       </div>
     </div>
@@ -312,7 +357,7 @@
         <h2 class="p-card-title" id="tareaFormTitulo">Nueva tarea</h2>
         <p class="p-card-desc">Trabajos que no son productos: se cobran con un monto fijo por unidad y al pedirlos sólo se indica la cantidad.</p>
       </div>
-      <div class="p-card-body grid gap-4 grid-cols-[1fr_200px]">
+      <div class="p-card-body grid gap-3 grid-cols-[minmax(0,1fr)_200px_auto] items-end">
         <div class="p-field">
           <label class="p-label" for="tareaNombre">Nombre</label>
           <input id="tareaNombre" type="text" required maxlength="60" placeholder="ej. Etiquetado" class="p-input">
@@ -321,27 +366,40 @@
           <label class="p-label" for="tareaMonto">Monto por unidad ($)</label>
           <input id="tareaMonto" type="number" step="0.01" min="0.01" required class="p-input num">
         </div>
-      </div>
-      <div class="p-card-footer justify-end">
-        <button type="button" id="btnTareaCancelar" class="p-button ghost hidden">Cancelar</button>
-        <button type="submit" id="btnTareaGuardar" class="p-button solid">Agregar tarea</button>
+        <div class="flex gap-2">
+          <button type="button" id="btnTareaCancelar" class="p-button outlined hidden">Cancelar</button>
+          <button type="submit" id="btnTareaGuardar" class="p-button solid">Agregar tarea</button>
+        </div>
       </div>
     </form>
 
     <div class="p-card">
+      <div class="p-card-header">
+        <h2 class="p-card-title">Tareas cargadas</h2>
+        <p class="p-card-desc">Aparecen en "Agregar tarea" de la pestaña Armar pedido.</p>
+      </div>
       <div class="p-card-body">
         <div class="p-table-wrap">
-          <table class="p-table">
+          <table class="p-table t-lista">
+            <colgroup>
+              <col>
+              <col style="width:180px">
+              <col style="width:200px">
+            </colgroup>
             <thead>
               <tr>
                 <th>Nombre</th>
                 <th class="r">Monto por unidad</th>
-                <th></th>
+                <th><span class="sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody id="listaTareas"></tbody>
           </table>
-          <p id="tareasVacio" class="p-empty hidden">Todavía no hay tareas.</p>
+          <div id="tareasVacio" class="p-empty hidden">
+            <span class="p-empty-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span>
+            <span class="p-empty-titulo">Todavía no hay tareas</span>
+            <span class="text-[13px]">Cargá el nombre y el monto por unidad arriba y tocá Agregar tarea.</span>
+          </div>
         </div>
       </div>
     </div>
@@ -349,21 +407,24 @@
 
   <section id="tab-config" class="hidden">
     <form id="formConfig" class="p-card">
-      <div class="p-card-body grid gap-8 grid-cols-2">
+      <div class="p-card-body grid gap-10 grid-cols-2">
         <fieldset>
           <legend class="p-card-title">Tiempo</legend>
           <p class="p-card-desc mb-4">Minutos que tarda el tercero en armar un paquete.</p>
+          <div class="cfg-grilla cfg-cab" aria-hidden="true"><span>Nombre</span><span class="text-right">Minutos por paquete</span><span></span></div>
           <div class="space-y-2" id="cfgTiempos"></div>
-          <button type="button" class="p-button ghost xs mt-3" data-agregar-nivel="tiempos">+ Agregar opción</button>
+          <button type="button" class="p-button outlined xs mt-3" data-agregar-nivel="tiempos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Agregar opción</button>
         </fieldset>
-        <fieldset>
+        <fieldset class="pl-10 border-l" style="border-color:var(--ad-borde-suave)">
           <legend class="p-card-title">Complejidad</legend>
           <p class="p-card-desc mb-4">Multiplicador del costo. 1 = sin recargo.</p>
+          <div class="cfg-grilla cfg-cab" aria-hidden="true"><span>Nombre</span><span class="text-right">Multiplicador</span><span></span></div>
           <div class="space-y-2" id="cfgFactores"></div>
-          <button type="button" class="p-button ghost xs mt-3" data-agregar-nivel="factores">+ Agregar opción</button>
+          <button type="button" class="p-button outlined xs mt-3" data-agregar-nivel="factores"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Agregar opción</button>
         </fieldset>
       </div>
-      <div class="p-card-footer justify-end">
+      <div class="p-card-footer">
+        <p class="p-helper m-0">Agregar o quitar opciones no se guarda hasta tocar Guardar configuración.</p>
         <button type="submit" class="p-button solid">Guardar configuración</button>
       </div>
     </form>
@@ -396,14 +457,17 @@
     renderCarrito();
   }
 
+  const ICONO_CERRAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+  const ETIQUETA_VALOR = { tiempos: 'Minutos por paquete', factores: 'Multiplicador' };
+
   function filaNivel(grupo, n) {
     return `
-      <div class="flex items-center gap-2" data-fila-nivel="${grupo}" data-id="${escAttr(n.id || '')}">
+      <div class="cfg-grilla" data-fila-nivel="${grupo}" data-id="${escAttr(n.id || '')}">
         <input type="text" required maxlength="40" value="${escAttr(n.nombre)}" placeholder="Nombre"
-          class="p-input sm flex-1" data-nombre aria-label="Nombre de la opción">
+          class="p-input sm" data-nombre aria-label="Nombre de la opción">
         <input type="number" step="any" min="0.01" required value="${n.valor ?? ''}" placeholder="Valor"
-          class="p-input sm num w-24" data-valor aria-label="Valor de ${escAttr(n.nombre || 'la opción')}">
-        <button type="button" class="p-button ghost danger xs" data-quitar-nivel aria-label="Quitar ${escAttr(n.nombre || 'opción')}">✕</button>
+          class="p-input sm num" data-valor aria-label="${ETIQUETA_VALOR[grupo]} de ${escAttr(n.nombre || 'la opción')}">
+        <button type="button" class="p-button ghost danger icon alto-campo" data-quitar-nivel aria-label="Quitar ${escAttr(n.nombre || 'opción')}" title="Quitar opción">${ICONO_CERRAR}</button>
       </div>`;
   }
 
@@ -466,9 +530,12 @@
       const btnAceptar = document.getElementById('modalAceptar');
       btnCancelar.classList.toggle('hidden', !conCancelar);
       btnAceptar.textContent = conCancelar ? 'Confirmar' : 'Aceptar';
+      const focoPrevio = document.activeElement;
       overlay.classList.remove('hidden');
+      btnAceptar.focus();
       function cerrar(resultado) {
         overlay.classList.add('hidden');
+        if (focoPrevio && focoPrevio.isConnected) focoPrevio.focus(); // el foco vuelve a donde estaba
         btnAceptar.removeEventListener('click', onAceptar);
         btnCancelar.removeEventListener('click', onCancelar);
         resolve(resultado);
@@ -615,7 +682,22 @@
   // paquetes — el paquete sale solo de kilos / peso de la presentación.
   // Mismo redondeo que lib/fraccionado_externo.js — precios y paquetes a 2 decimales.
   const redondear2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-  const dos = n => (Number(n) || 0).toFixed(2);
+  const dos = n => (Number(n) || 0).toFixed(2); // sólo para el PDF
+
+  // Formato de pantalla es-AR (mismo criterio que cuentas_corrientes.html): "$1.625,00", "1,0".
+  // No se usa en inputs (siguen con punto decimal), payloads ni PDF.
+  const FORMATOS_NUMERO = {};
+  function fmtNumero(n, decimales = 2) {
+    const f = FORMATOS_NUMERO[decimales] || (FORMATOS_NUMERO[decimales] =
+      new Intl.NumberFormat('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales }));
+    return f.format(Number(n) || 0);
+  }
+  const fmtMoneda = n => '$' + fmtNumero(n, 2);
+  // "2026-09-16" → "16/09/2026" cortando el string: new Date() correría el día por el huso horario.
+  function fmtFecha(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso || '');
+  }
 
   function paquetesDe(it) {
     if (it.tipo === 'tarea') return 0; // la cantidad de una tarea no son paquetes
@@ -676,9 +758,9 @@
           </td>
           <td>${selectNivel('factores', it.nivelComplejidad, 'nivelComplejidad', i)}</td>
           <td class="r"><input type="number" step="0.1" min="0" value="${it.kilos}" class="p-input sm num w-24" data-campo="kilos" data-i="${i}" aria-label="Kilos de ${escAttr(it.nombre)}"></td>
-          <td class="r muted" data-paquetes="${i}">${paquetes ? dos(paquetes) : '—'}</td>
-          <td class="r" data-costo-unitario="${i}">$${dos(unitario)}</td>
-          <td class="r font-semibold" data-costo-total="${i}">$${dos(total)}</td>
+          <td class="r muted" data-paquetes="${i}">${paquetes ? fmtNumero(paquetes, 2) : '—'}</td>
+          <td class="r" data-costo-unitario="${i}">${fmtMoneda(unitario)}</td>
+          <td class="r font-semibold" data-costo-total="${i}">${fmtMoneda(total)}</td>
           <td class="r"><button type="button" class="p-button ghost danger icon" data-quitar="${escAttr(it.plu)}" aria-label="Quitar ${escAttr(it.nombre)}" title="Quitar del pedido">${ICONO_QUITAR}</button></td>
         </tr>`;
     }).join('');
@@ -703,8 +785,8 @@
           <td class="muted">—</td>
           <td class="r muted">—</td>
           <td class="r"><input type="number" step="0.01" min="0.01" value="${escAttr(it.cantidad)}" class="p-input sm num w-24" data-campo="cantidad" data-i="${i}" aria-label="Cantidad de ${escAttr(it.nombre)}"></td>
-          <td class="r" data-costo-unitario="${i}">$${dos(unitario)}</td>
-          <td class="r font-semibold" data-costo-total="${i}">$${dos(total)}</td>
+          <td class="r" data-costo-unitario="${i}">${fmtMoneda(unitario)}</td>
+          <td class="r font-semibold" data-costo-total="${i}">${fmtMoneda(total)}</td>
           <td class="r"><button type="button" class="p-button ghost danger icon" data-quitar-tarea="${escAttr(it.tareaId)}" aria-label="Quitar ${escAttr(it.nombre)}" title="Quitar del pedido">${ICONO_QUITAR}</button></td>
         </tr>`;
   }
@@ -722,9 +804,9 @@
     const { unitario, total, paquetes } = costoItem(it);
     const tbody = document.getElementById('carrito');
     // En la fila de una tarea esa celda es el input de cantidad: no se toca.
-    if (it.tipo !== 'tarea') tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? dos(paquetes) : '—';
-    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = '$' + dos(unitario);
-    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = '$' + dos(total);
+    if (it.tipo !== 'tarea') tbody.querySelector(`[data-paquetes="${i}"]`).textContent = paquetes ? fmtNumero(paquetes, 2) : '—';
+    tbody.querySelector(`[data-costo-unitario="${i}"]`).textContent = fmtMoneda(unitario);
+    tbody.querySelector(`[data-costo-total="${i}"]`).textContent = fmtMoneda(total);
     actualizarTotalGeneral();
   }
 
@@ -732,9 +814,9 @@
     const totalGeneral = redondear2(carrito.reduce((s, it) => s + costoItem(it).total, 0));
     const totalKilos = carrito.reduce((s, it) => s + (Number(it.kilos) || 0), 0);
     const totalPaquetes = carrito.reduce((s, it) => s + paquetesDe(it), 0);
-    document.getElementById('totalPedido').textContent = '$' + dos(totalGeneral);
-    document.getElementById('totalKilos').textContent = totalKilos.toFixed(1);
-    document.getElementById('totalPaquetes').textContent = dos(totalPaquetes);
+    document.getElementById('totalPedido').textContent = fmtMoneda(totalGeneral);
+    document.getElementById('totalKilos').textContent = fmtNumero(totalKilos, 1);
+    document.getElementById('totalPaquetes').textContent = fmtNumero(totalPaquetes, 2);
   }
 
   document.getElementById('valorHora').addEventListener('input', renderCarrito);
@@ -799,29 +881,43 @@
     doc.save(`pedido-fraccionado-${pedido.numero}.pdf`);
   }
 
+  // Estado visible de la lista de pedidos: 'cargando' | 'vacio' | null (filas o nada).
+  function estadoPedidos(estado) {
+    document.getElementById('pedidosCargando').classList.toggle('hidden', estado !== 'cargando');
+    document.getElementById('pedidosVacio').classList.toggle('hidden', estado !== 'vacio');
+    document.getElementById('pedidosWrap').setAttribute('aria-busy', String(estado === 'cargando'));
+  }
+
+  const ICONO_PDF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
+
   async function cargarPedidos() {
     let pedidos;
+    const tbody = document.getElementById('listaPedidos');
+    // Spinner sólo si no hay filas a la vista: al refrescar una lista ya cargada no salta nada.
+    if (!tbody.children.length) estadoPedidos('cargando');
     try {
       const r = await fetch('/api/fraccionado-externo/pedidos');
       const data = await r.json();
-      if (!r.ok) { await mostrarAviso(data.error || 'No se pudieron cargar los pedidos'); return; }
+      if (!r.ok) { estadoPedidos(null); await mostrarAviso(data.error || 'No se pudieron cargar los pedidos'); return; }
       // Un pedido anulado desaparece de la lista — el registro sigue existiendo del lado del
       // servidor (con su historial), pero no tiene sentido seguir mostrándolo acá.
       pedidos = data.pedidos.filter(p => p.estado !== 'ANULADO');
     } catch (e) {
+      estadoPedidos(null);
       await mostrarAviso('No se pudo conectar con el servidor');
       return;
     }
-    document.getElementById('listaPedidos').innerHTML = pedidos.slice().reverse().map(p => `
+    estadoPedidos(pedidos.length ? null : 'vacio');
+    tbody.innerHTML = pedidos.slice().reverse().map(p => `
       <tr>
-        <td class="font-medium">${escAttr(p.numero)}</td>
-        <td class="muted">${escAttr(p.fecha)}</td>
-        <td>${escAttr(p.tercero)}</td>
-        <td class="r">$${dos(p.total)}</td>
-        <td><span class="p-badge ${p.estado === 'PENDIENTE' ? 'yellow' : ''}">${escAttr(p.estado)}</span></td>
-        <td class="r whitespace-nowrap">
-          <button type="button" class="p-button outlined xs" data-reimprimir="${escAttr(p.numero)}">PDF</button>
-          ${p.estado === 'PENDIENTE' ? `<button type="button" class="p-button ghost danger xs" data-anular="${escAttr(p.numero)}">Anular</button>` : ''}
+        <td class="font-semibold">${escAttr(p.numero)}</td>
+        <td class="muted tabular-nums">${escAttr(fmtFecha(p.fecha))}</td>
+        <td><span class="elipsis" title="${escAttr(p.tercero)}">${escAttr(p.tercero)}</span></td>
+        <td class="r font-semibold">${fmtMoneda(p.total)}</td>
+        <td><span class="p-badge dot ${p.estado === 'PENDIENTE' ? 'yellow' : ''}">${escAttr(p.estado)}</span></td>
+        <td class="acciones">
+          <button type="button" class="p-button outlined xs" data-reimprimir="${escAttr(p.numero)}" aria-label="Descargar PDF del pedido ${escAttr(p.numero)}">${ICONO_PDF}PDF</button>
+          ${p.estado === 'PENDIENTE' ? `<button type="button" class="p-button outlined danger xs" data-anular="${escAttr(p.numero)}" aria-label="Anular el pedido ${escAttr(p.numero)}">Anular</button>` : ''}
         </td>
       </tr>`).join('');
     document.querySelectorAll('[data-reimprimir]').forEach(btn => btn.addEventListener('click', () => {
@@ -859,18 +955,19 @@
   function renderTareas() {
     document.getElementById('tareasVacio').classList.toggle('hidden', tareas.length > 0);
     document.getElementById('listaTareas').innerHTML = tareas.map(t => `
-      <tr>
-        <td>${escAttr(t.nombre)}</td>
-        <td class="r">$${dos(t.monto)}</td>
-        <td class="r whitespace-nowrap">
+      <tr data-tarea-fila="${escAttr(t.id)}">
+        <td><span class="elipsis" title="${escAttr(t.nombre)}">${escAttr(t.nombre)}</span></td>
+        <td class="r">${fmtMoneda(t.monto)}</td>
+        <td class="acciones">
           <button type="button" class="p-button outlined xs" data-editar-tarea="${escAttr(t.id)}" aria-label="Editar ${escAttr(t.nombre)}">Editar</button>
-          <button type="button" class="p-button ghost danger xs" data-eliminar-tarea="${escAttr(t.id)}" aria-label="Eliminar ${escAttr(t.nombre)}">Eliminar</button>
+          <button type="button" class="p-button outlined danger xs" data-eliminar-tarea="${escAttr(t.id)}" aria-label="Eliminar ${escAttr(t.nombre)}">Eliminar</button>
         </td>
       </tr>`).join('');
+    marcarTareaEditando();
     const sel = document.getElementById('selTarea');
     const previo = sel.value;
     sel.innerHTML = tareas.map(t =>
-      `<option value="${escAttr(t.id)}">${escAttr(t.nombre)} — $${dos(t.monto)}</option>`).join('');
+      `<option value="${escAttr(t.id)}">${escAttr(t.nombre)} (${fmtMoneda(t.monto)})</option>`).join('');
     if (tareas.some(t => t.id === previo)) sel.value = previo;
     document.getElementById('tareasSinDatos').classList.toggle('hidden', tareas.length > 0);
     document.getElementById('btnAgregarTarea').disabled = tareas.length === 0;
@@ -889,8 +986,15 @@
     if (cambio) renderCarrito();
   }
 
+  // Resalta la fila de la tarea que está en el formulario (o ninguna).
+  function marcarTareaEditando() {
+    document.querySelectorAll('#listaTareas [data-tarea-fila]').forEach(tr =>
+      tr.classList.toggle('fila-editando', tr.dataset.tareaFila === tareaEditandoId));
+  }
+
   function resetFormTarea() {
     tareaEditandoId = null;
+    marcarTareaEditando();
     document.getElementById('formTarea').reset();
     document.getElementById('tareaFormTitulo').textContent = 'Nueva tarea';
     document.getElementById('btnTareaGuardar').textContent = 'Agregar tarea';
@@ -901,6 +1005,7 @@
     const t = tareas.find(x => x.id === id);
     if (!t) return;
     tareaEditandoId = id;
+    marcarTareaEditando();
     document.getElementById('tareaNombre').value = t.nombre;
     document.getElementById('tareaMonto').value = t.monto;
     document.getElementById('tareaFormTitulo').textContent = 'Editar tarea';
