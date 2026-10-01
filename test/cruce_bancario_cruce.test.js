@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   parseBajada, normalizarTickets, cruzar, rangoConsulta, sqlTickets, RESULTADO, MAX_DIAS,
   TOL_MONTO_DEFAULT, TOL_MIN_DEFAULT, TOL_MONTO_MAX, TOL_MIN_MAX, ErrorCruce, validarTolerancias,
-  MAX_VENTANA_PAGO_DIVIDIDO,
+  MAX_VENTANA_PAGO_DIVIDIDO, MAX_AVISO,
 } = require('../lib/cruce_bancario');
 const { ENCABEZADO, filaBanco, filaSql } = require('./cruce_bancario_fixtures');
 
@@ -682,5 +682,222 @@ test('cruzar resuelve miles de A REVISAR agrupando por día e importe (no recorr
   const ms = Date.now() - inicio;
 
   assert.strictEqual(filas.filter(f => f.resultado === RESULTADO.A_REVISAR).length, cantidad);
+  assert.ok(ms < 5000, `tardó ${ms} ms`);
+});
+
+// ── SIN UBICAR con aviso: hay tickets del día con el importe coincidente, pero a otra hora ──────
+// Un movimiento que quedó sin ticket después de todas las pasadas lleva `avisoHora` con los tickets
+// libres del mismo día cuyo importe coincide dentro de la tolerancia, sin importar la hora.
+const MOV_AVISO = ['2026-09-22 12:00:00', '100,00'];
+const ticketAviso = (hora, importe, numero, extra = {}) =>
+  ({ suc: 1, fecha: `2026-09-22 ${hora}`, importe, numero, ...extra });
+const numerosDe = aviso => aviso.candidatos.map(c => c.ticket.etiqueta.split('-')[1]);
+
+test('MAX_AVISO es 3', () => {
+  assert.strictEqual(MAX_AVISO, 3);
+});
+
+test('cruzar avisa en un SIN UBICAR por importe repetido: dos tickets del día lejos en hora, ordenados por cercanía', () => {
+  const { filas } = cruzar(
+    movs(banco(...MOV_AVISO)),
+    tickets(ticketAviso('15:00:00', 100, '1'), ticketAviso('12:30:00', 100, '2')),
+  );
+
+  assert.strictEqual(filas[0].resultado, RESULTADO.SIN_UBICAR);
+  assert.strictEqual(filas[0].ticket, null);
+  assert.strictEqual(filas[0].avisoHora.total, 2);
+  assert.deepStrictEqual(numerosDe(filas[0].avisoHora), ['2', '1']);
+  assert.deepStrictEqual(filas[0].avisoHora.candidatos.map(c => c.difSegundos), [1800, 10800]);
+  assert.strictEqual(filas[0].avisoHora.candidatos[0].ticket.sucursal, 'SUC 1');
+  assert.strictEqual(filas[0].avisoHora.candidatos[0].ticket.fecha, '2026-09-22 12:30:00');
+});
+
+test('cruzar avisa en un SIN UBICAR por importe repetido en los movimientos: dos movimientos y un ticket', () => {
+  const { filas } = cruzar(
+    movs(banco(...MOV_AVISO), banco('2026-09-22 10:00:00', '100,00')),
+    tickets(ticketAviso('15:00:00', 100, '1')),
+  );
+
+  assert.deepStrictEqual(resultados(filas), SIN_UBICAR_X2);
+  // El aviso no consume el ticket: los dos movimientos avisan del mismo.
+  assert.deepStrictEqual(filas.map(f => f.avisoHora.total), [1, 1]);
+  assert.deepStrictEqual(filas.map(f => f.avisoHora.candidatos[0].difSegundos), [10800, 18000]);
+  assert.strictEqual(filas[0].avisoHora.candidatos[0].ticket, filas[1].avisoHora.candidatos[0].ticket);
+});
+
+test('cruzar avisa con el importe distinto pero dentro de la tolerancia y la hora lejana', () => {
+  const { filas } = cruzar(movs(banco(...MOV_AVISO)), tickets(ticketAviso('15:00:00', 102, '1')));
+
+  assert.strictEqual(filas[0].resultado, RESULTADO.SIN_UBICAR);
+  assert.strictEqual(filas[0].avisoHora.total, 1);
+  assert.strictEqual(filas[0].avisoHora.candidatos[0].difSegundos, 10800);
+  assert.strictEqual(filas[0].avisoHora.candidatos[0].ticket.importe, 102);
+});
+
+test('cruzar avisa con un ticket anterior al banco (diferencia negativa)', () => {
+  const { filas } = cruzar(movs(banco(...MOV_AVISO)), tickets(ticketAviso('09:00:00', 102, '1')));
+  assert.strictEqual(filas[0].avisoHora.candidatos[0].difSegundos, -10800);
+});
+
+test('cruzar cuenta en el aviso el límite exacto de la tolerancia de importe y no un centavo más', () => {
+  const con = importe => cruzar(movs(banco(...MOV_AVISO)), tickets(ticketAviso('15:00:00', importe, '1'))).filas[0];
+
+  assert.strictEqual(con(105).avisoHora.total, 1);
+  assert.strictEqual(con(95).avisoHora.total, 1);
+  assert.strictEqual(con(105.01).avisoHora, null);
+  assert.strictEqual(con(94.99).avisoHora, null);
+  assert.strictEqual(con(105.01).resultado, RESULTADO.SIN_UBICAR);
+});
+
+test('cruzar usa para el aviso la tolerancia de importe del parámetro', () => {
+  const m = movs(banco(...MOV_AVISO));
+  const t = tickets(ticketAviso('15:00:00', 101, '1'));
+  assert.strictEqual(cruzar(m, t, { tolMonto: 0 }).filas[0].avisoHora, null);
+  assert.strictEqual(cruzar(m, t, { tolMonto: 1 }).filas[0].avisoHora.total, 1);
+});
+
+test('cruzar no cuenta en el aviso un ticket de otro día, y sí los extremos del mismo día', () => {
+  const avisoCon = fecha => cruzar(movs(banco(...MOV_AVISO)), tickets({ fecha, importe: 102 })).filas[0].avisoHora;
+
+  assert.strictEqual(avisoCon('2026-09-23 15:00:00'), null);
+  assert.strictEqual(avisoCon('2026-09-21 23:59:59'), null);
+  assert.strictEqual(avisoCon('2026-09-23 00:00:00'), null);
+  assert.strictEqual(avisoCon('2026-09-22 00:00:00').total, 1);
+  assert.strictEqual(avisoCon('2026-09-22 23:59:59').total, 1);
+});
+
+test('cruzar deja el aviso en null si no hay ningún ticket candidato', () => {
+  const sinTickets = cruzar(movs(banco(...MOV_AVISO)), []).filas[0];
+  const otroImporte = cruzar(movs(banco(...MOV_AVISO)), tickets(ticketAviso('15:00:00', 500, '1'))).filas[0];
+
+  for (const f of [sinTickets, otroImporte]) {
+    assert.strictEqual(f.resultado, RESULTADO.SIN_UBICAR);
+    assert.strictEqual(f.avisoHora, null);
+  }
+});
+
+test('cruzar no cuenta en el aviso un ticket que ya usó la asignación 1 a 1', () => {
+  // El de 100,50 se lleva el ticket de 100,00 (1 a 1); el movimiento de 100,00 de la tarde queda sin ubicar y sin aviso.
+  const { filas } = cruzar(
+    movs(banco('2026-09-22 10:00:00', '100,50'), banco('2026-09-22 15:00:00', '100,00')),
+    tickets(ticketAviso('10:00:05', 100, '1')),
+  );
+  assert.deepStrictEqual(resultados(filas), [RESULTADO.UBICADO, RESULTADO.SIN_UBICAR]);
+  assert.strictEqual(filas[1].avisoHora, null);
+});
+
+test('cruzar no cuenta en el aviso un ticket que ya se llevó un pago dividido', () => {
+  const { filas } = cruzar(
+    movs(banco(...PAGO_A), banco(...PAGO_B), banco('2026-09-22 15:00:00', '23.732,70')),
+    tickets(TICKET_DIVIDIDO),
+  );
+  assert.deepStrictEqual(resultados(filas), [...DIVIDIDOS, RESULTADO.SIN_UBICAR]);
+  assert.strictEqual(filas[2].avisoHora, null);
+});
+
+test('cruzar no cuenta en el aviso un ticket que ya se llevó un A REVISAR', () => {
+  // El de 100,00 se lleva el ticket de las 15:00 (importe idéntico, único); el de 102,00 lo ve dentro de la
+  // tolerancia de importe, pero ese ticket ya tiene movimiento.
+  const { filas } = cruzar(
+    movs(banco('2026-09-22 10:00:00', '100,00'), banco('2026-09-22 11:00:00', '102,00')),
+    tickets(ticketAviso('15:00:00', 100, '1')),
+  );
+  assert.deepStrictEqual(resultados(filas), [RESULTADO.A_REVISAR, RESULTADO.SIN_UBICAR]);
+  assert.strictEqual(filas[1].avisoHora, null);
+});
+
+test('cruzar con más de MAX_AVISO candidatos conserva los 3 más cercanos en hora y cuenta el total real', () => {
+  const { filas } = cruzar(
+    movs(banco(...MOV_AVISO)),
+    tickets(
+      ticketAviso('20:00:00', 100, '1'),
+      ticketAviso('12:10:00', 100, '2'),
+      ticketAviso('09:00:00', 100, '3'),   // 3 h antes
+      ticketAviso('13:00:00', 100, '4'),   // 1 h después
+      ticketAviso('18:00:00', 100, '5'),
+    ),
+  );
+
+  assert.strictEqual(filas[0].resultado, RESULTADO.SIN_UBICAR);
+  assert.strictEqual(filas[0].avisoHora.total, 5);
+  assert.strictEqual(filas[0].avisoHora.candidatos.length, MAX_AVISO);
+  assert.deepStrictEqual(numerosDe(filas[0].avisoHora), ['2', '4', '3']);
+  assert.deepStrictEqual(filas[0].avisoHora.candidatos.map(c => c.difSegundos), [600, 3600, -10800]);
+});
+
+test('cruzar con más de MAX_AVISO candidatos desempata la cercanía por importe y después por el orden del ticket', () => {
+  // Los cuatro están a 3 h del banco (dos antes y dos después). Tres difieren $1 y uno $3.
+  const { filas } = cruzar(
+    movs(banco(...MOV_AVISO)),
+    tickets(
+      ticketAviso('09:00:00', 103, '1'),
+      ticketAviso('15:00:00', 101, '2'),
+      ticketAviso('09:00:00', 101, '3'),
+      ticketAviso('15:00:00', 101, '4'),
+    ),
+  );
+
+  assert.strictEqual(filas[0].avisoHora.total, 4);
+  assert.deepStrictEqual(numerosDe(filas[0].avisoHora), ['2', '3', '4']);
+});
+
+test('cruzar lleva avisoHora null en las filas que no son SIN UBICAR', () => {
+  const { filas } = cruzar(
+    movs(
+      banco('2026-09-22 08:00:00', '100,00'),                         // UBICADO
+      banco('2026-09-22 09:00:00', '200,00'),                         // AMBIGUO
+      banco(...PAGO_A), banco(...PAGO_B),                             // PAGO DIVIDIDO
+      banco('2026-09-22 12:25:37', '52.086,14'),                      // A REVISAR
+      banco('2026-09-22 13:00:00', '300,00', { estado: 'Anulada' }),  // NO APLICA
+      banco('2026-09-22 14:00:00', '400,00'),                         // SIN UBICAR, sin candidatos
+    ),
+    tickets(
+      ticketAviso('08:00:10', 100, '1'),
+      ticketAviso('09:00:10', 200, '2'),
+      ticketAviso('09:00:20', 200.4, '3'),
+      TICKET_DIVIDIDO,
+      ticketAviso('19:45:42', 52086.14, '9'),
+    ),
+  );
+
+  assert.deepStrictEqual(resultados(filas), [
+    RESULTADO.UBICADO, RESULTADO.AMBIGUO, ...DIVIDIDOS, RESULTADO.A_REVISAR, RESULTADO.NO_APLICA, RESULTADO.SIN_UBICAR,
+  ]);
+  for (const f of filas) assert.strictEqual(f.avisoHora, null, f.resultado);
+});
+
+test('cruzar: un movimiento con aviso no cambia el resultado de ningún otro', () => {
+  const baseMovs = [banco('2026-09-22 08:00:00', '100,00'), banco('2026-09-22 09:00:00', '200,00'), banco('2026-09-22 14:00:00', '400,00')];
+  const baseTickets = [
+    ticketAviso('08:00:10', 100, '1'), ticketAviso('09:00:10', 200, '2'), ticketAviso('14:00:10', 400, '3'),
+    ticketAviso('19:00:00', 700, '4'), ticketAviso('20:00:00', 700, '5'),
+  ];
+  const esencial = f => [f.resultado, f.ticket && f.ticket.orden, f.difImporte, f.difSegundos, f.otros.map(t => t.orden), f.avisoHora];
+
+  const sin = cruzar(movs(...baseMovs), tickets(...baseTickets)).filas;
+  // El movimiento extra de 700,00 queda sin ubicar y avisa de los dos tickets de 700,00 de la noche.
+  const con = cruzar(movs(...baseMovs, banco('2026-09-22 11:00:00', '700,00')), tickets(...baseTickets)).filas;
+
+  assert.strictEqual(con[3].resultado, RESULTADO.SIN_UBICAR);
+  assert.strictEqual(con[3].avisoHora.total, 2);
+  assert.deepStrictEqual(con.slice(0, 3).map(esencial), sin.map(esencial));
+});
+
+test('cruzar resuelve decenas de miles de avisos agrupando los tickets por día y buscando el importe con bisección', () => {
+  // 40.000 movimientos y sus tickets 8 horas después, con 50 centavos de diferencia: todos SIN UBICAR con aviso.
+  // Comparar cada movimiento contra todos los tickets serían 1,6 × 10^9 comparaciones.
+  const base = Date.UTC(2026, 5, 1, 0, 0, 0) / 1000;
+  const fecha = seg => new Date(seg * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  const cantidad = 40000;
+  const grilla = [ENCABEZADO, ...Array.from({ length: cantidad }, (_, i) => banco(fecha(base + (i % 3000) * 3), `${i * 20 + 1},00`))];
+  const ticketsSql = Array.from({ length: cantidad }, (_, i) => filaSql({ fecha: fecha(base + 28800 + (i % 3000) * 3), importe: i * 20 + 1.5, numero: String(i) }));
+
+  const { movimientos } = parseBajada(grilla);
+  const normalizados = normalizarTickets(ticketsSql);
+  const inicio = Date.now();
+  const { filas } = cruzar(movimientos, normalizados);
+  const ms = Date.now() - inicio;
+
+  assert.strictEqual(filas.filter(f => f.resultado === RESULTADO.SIN_UBICAR && f.avisoHora && f.avisoHora.total === 1).length, cantidad);
   assert.ok(ms < 5000, `tardó ${ms} ms`);
 });

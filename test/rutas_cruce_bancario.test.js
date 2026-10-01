@@ -257,7 +257,7 @@ test('responde JSON sin caché con el nombre del archivo, el resumen y el xlsx e
     assert.strictEqual(cuerpo.archivo.nombre, 'cruce_bancario_2026-09-22.xlsx');
     // El base64 es un xlsx de verdad (firma ZIP "PK").
     assert.strictEqual(Buffer.from(cuerpo.archivo.base64, 'base64').subarray(0, 2).toString('latin1'), 'PK');
-    assert.deepStrictEqual(Object.keys(cuerpo.resumen), ['parametros', 'archivo', 'porResultado', 'porSucursal', 'atencion']);
+    assert.deepStrictEqual(Object.keys(cuerpo.resumen), ['parametros', 'archivo', 'porResultado', 'porSucursal', 'atencion', 'avisos']);
   });
 });
 
@@ -328,5 +328,43 @@ test('la respuesta no lleva datos personales del archivo del banco', async () =>
     assert.deepStrictEqual(Object.keys(cuerpo.resumen.atencion.filas[0]), [
       'fila', 'fecha', 'importe', 'resultado', 'sucursal', 'ticket', 'fechaTicket', 'observacion', 'otros',
     ]);
+  });
+});
+
+// ── SIN UBICAR con aviso: dos tickets del día con el mismo importe, a otra hora ───────────────
+test('devuelve el aviso de un SIN UBICAR con tickets de igual importe en otra hora, en el resumen y en el xlsx', async () => {
+  const tickets = [
+    { ...TICKET, NumeroComprobante: '8', FechaTxt: '2026-09-22 15:00:00', ImporteTotal: 52086.14 },
+    { ...TICKET, NumeroComprobante: '9', FechaTxt: '2026-09-22 19:45:42', ImporteTotal: 52086.14 },
+  ];
+  const filas = [
+    ENCABEZADO,
+    ['2026-09-22 09:00:00', 'Aprobada', '500,00', 'Venta', 'Visa'],
+    ['2026-09-22 12:25:37', 'Aprobada', '52.086,14', 'Venta', 'Visa'],
+  ];
+  const observacion = 'No hay ticket dentro de la ventana de hora, pero hay 2 tickets del día con importe coincidente: '
+    + 'URQUIZA FC B 0001-8 a las 15:00:00 (2 h 34 min después del banco); '
+    + 'URQUIZA FC B 0001-9 a las 19:45:42 (7 h 20 min después del banco). Revisar.';
+
+  await conServidor(async () => tickets, async base => {
+    const r = await subir(base, xlsDe(filas));
+    assert.strictEqual(r.status, 200);
+    const cuerpo = await r.json();
+
+    assert.deepStrictEqual(cuerpo.resumen.avisos, { importeSinHora: 1 });
+    // El SIN UBICAR con aviso va antes que el que no lo tiene, aunque el otro sea anterior en el día.
+    assert.deepStrictEqual(cuerpo.resumen.atencion.filas.map(f => [f.fila, f.resultado, f.observacion]), [
+      [3, 'SIN UBICAR', observacion],
+      [2, 'SIN UBICAR', ''],
+    ]);
+
+    const wb = XLSX.read(Buffer.from(cuerpo.archivo.base64, 'base64'), { type: 'buffer' });
+    const detalle = XLSX.utils.sheet_to_json(wb.Sheets.Detalle);
+    assert.deepStrictEqual(detalle.map(d => d.Resultado), ['SIN UBICAR', 'SIN UBICAR']);
+    assert.strictEqual(detalle[0]['Observación'], '');
+    assert.strictEqual(detalle[1]['Observación'], observacion);
+
+    const resumen = XLSX.utils.sheet_to_json(wb.Sheets.Resumen, { header: 1 });
+    assert.deepStrictEqual(resumen.find(f => f[0] === 'SIN UBICAR con importe coincidente en otra hora'), ['SIN UBICAR con importe coincidente en otra hora', 1]);
   });
 });

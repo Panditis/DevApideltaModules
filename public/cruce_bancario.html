@@ -148,6 +148,9 @@
 
   .etq { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .etq svg, .etq .hueco { flex: none; width: 16px; height: 16px; }
+  /* Segunda línea bajo el nombre del resultado: una pista, no un resultado más. */
+  .sub-aviso { display: flex; align-items: flex-start; gap: 6px; margin-top: 3px; font-size: .8rem; font-weight: 400; line-height: 1.35; text-wrap: balance; }
+  .sub-aviso svg { flex: none; width: 14px; height: 14px; margin-top: 2px; }
   .t-warn { color: #8a5d00; }
   .t-crit { color: #a4262c; }
   .t-ok { color: #0e700e; }
@@ -178,7 +181,8 @@
     box-shadow: inset 0 -1px 0 rgba(26,28,24,.16);
   }
   .scroll .tabla td { white-space: nowrap; }
-  .scroll .tabla td.detalle { white-space: normal; min-width: 320px; color: #5c5f52; }
+  /* Detalle: texto corrido (el aviso de un SIN UBICAR llega a tres renglones), con ancho mínimo y sin negrita. */
+  .scroll .tabla td.detalle { white-space: normal; min-width: 380px; color: #5c5f52; font-weight: 400; line-height: 1.5; }
   .vacio { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-size: .92rem; color: #242423; }
   .vacio svg { flex: none; width: 22px; height: 22px; color: #0e700e; }
 
@@ -323,7 +327,7 @@
       <div><dt>AMBIGUO</dt><dd>Coincide un ticket, pero había otros posibles. Quedan listados para revisar.</dd></div>
       <div><dt>PAGO DIVIDIDO</dt><dd>Dos movimientos suman el total de un ticket. Se ubican los dos en ese ticket.</dd></div>
       <div><dt>A REVISAR</dt><dd>Hay un ticket con el mismo importe exacto, pero con una hora muy distinta. Se ubica ahí, pero conviene revisarlo.</dd></div>
-      <div><dt>SIN UBICAR</dt><dd>Ningún ticket coincide dentro de las tolerancias.</dd></div>
+      <div><dt>SIN UBICAR</dt><dd>Ningún ticket coincide dentro de las tolerancias. Si hay un ticket con importe coincidente en otro horario, se avisa en el detalle.</dd></div>
       <div><dt>NO APLICA</dt><dd>El movimiento no es una venta aprobada, por ejemplo una anulación o una devolución.</dd></div>
     </dl>
   </aside>
@@ -578,11 +582,19 @@ function etiquetaResultado(resultado, cantidad) {
     h('span', { class: 'sr-only', text: ', para revisar' }));
 }
 
-function tablaResultado(porResultado) {
+// Bajo SIN UBICAR: cuántos tienen un ticket de igual importe del mismo día, pero a otra hora (el detalle está en "Para revisar").
+function lineaAviso(resultado, avisos) {
+  const cantidad = Number(avisos && avisos.importeSinHora) || 0;
+  if (resultado !== 'SIN UBICAR' || cantidad <= 0) return null;
+  return h('span', { class: 'sub-aviso t-warn' }, icono('clock'),
+    h('span', { text: `${enteros(cantidad)} con un ticket de igual importe en otro horario` }));
+}
+
+function tablaResultado(porResultado, avisos) {
   const filas = porResultado.map(({ resultado, cantidad, importe }) => {
     const clase = cantidad === 0 ? 'cero' : (RESULTADOS_ATENCION[resultado] ? 'atencion' : '');
     return h('tr', { class: clase },
-      h('th', { scope: 'row' }, etiquetaResultado(resultado, cantidad)),
+      h('th', { scope: 'row' }, etiquetaResultado(resultado, cantidad), lineaAviso(resultado, avisos)),
       td(enteros(cantidad), 'num'), td(pesos(importe), 'num'));
   });
   const totCant = porResultado.reduce((a, r) => a + (Number(r.cantidad) || 0), 0);
@@ -663,7 +675,7 @@ function renderAtencion({ total, omitidas, filas }) {
 }
 
 function renderResumen(resumen) {
-  $('res-tabla').replaceChildren(...tablaResultado(resumen.porResultado));
+  $('res-tabla').replaceChildren(...tablaResultado(resumen.porResultado, resumen.avisos));
   const ctl = lineaControl(resumen.archivo);
   $('control').className = ctl.clase;
   $('control').replaceChildren(ctl.icono, h('span', { text: ctl.texto }));

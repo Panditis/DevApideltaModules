@@ -1,9 +1,9 @@
 'use strict';
-// Helpers puros de la UI de Pack / Bulto (public/precios_pack_bulto.js). El archivo es un script de
+// Helpers puros de la UI de Pack / Bulto (public/js/precios_pack_bulto.js). El archivo es un script de
 // browser: sin `document` no arranca nada, sólo exporta los helpers.
 const test = require('node:test');
 const assert = require('node:assert');
-const ui = require('../public/precios_pack_bulto.js');
+const ui = require('../public/js/precios_pack_bulto.js');
 
 const item = (plu, extra = {}) => ({ plu, nombre: `N${plu}`, tipo: 'pack', descPct: 9.7, descOverride: null,
   precioSugerido: 1000, precioVigente: null, deltaPct: null, semaforo: null, faltantes: [], revisarUnidad: false, marcado: false, ...extra });

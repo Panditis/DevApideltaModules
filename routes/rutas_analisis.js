@@ -38,9 +38,9 @@ router.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFil
 // El CSS y el JS del módulo van aparte para no repetirlos en cada pestaña. El proyecto no
 // usa express.static: cada asset se declara con su propia ruta.
 router.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis.css')));
-router.get('/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis_graficos.js')));
-router.get('/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis_familias_manuales.js')));
-router.get('/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis_front.js')));
+router.get('/js/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_graficos.js')));
+router.get('/js/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_familias_manuales.js')));
+router.get('/js/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_front.js')));
 
 // ── Análisis de Ventas por Sucursal ──────────────────────────────────────────
 // Días en quiebre por producto, sumando las sucursales del filtro. El umbral se calcula
@@ -126,7 +126,7 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
   const sinInsumos = await sinInsumosSQL();
   const p = { desde, hasta, sucIdsCsv, subRubroDisponible };
 
-  const [comparativa, resumenArr, tendencia, diaSemana, horas, productosUnidades,
+  const [comparativa, resumenArr, tendencia, diaSemana, horas,
          artHistograma, artPorSucursal, productosFacturacion] =
     await Promise.all([
       query(analisisVentas.sqlComparativa(p)),
@@ -134,7 +134,6 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
       query(analisisVentas.sqlTendencia(p)),
       query(analisisVentas.sqlDiaSemana(p)),
       query(analisisVentas.sqlHora(p)),
-      query(analisisVentas.sqlTopProductos(p, 'unidades', analisisVentas.LIMITE_FAMILIAS, sinInsumos)),
       query(analisisVentas.sqlArticulosHistograma(p)),
       query(analisisVentas.sqlArticulosPorSucursal(p)),
       // Una sola consulta amplia por facturación alimenta dos vistas: la tabla de productos
@@ -176,11 +175,7 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
     horas: horas.map(r => ({
       hora: Number(r.Hora), facturacion: Number(r.Facturacion || 0), tickets: Number(r.Tickets || 0),
     })),
-    // Listas completas (no un top acotado): el front las pagina y filtra en memoria.
-    topUnidades: productosUnidades.map(r => ({
-      idProd: r.IdProducto, nombre: r.Nombre,
-      unidades: Number(r.Unidades || 0), facturacion: Number(r.Facturacion || 0),
-    })),
+    // Lista completa (no un top acotado): el front la pagina y filtra en memoria.
     topFacturacion: productosFacturacion.map(r => {
       const q = quiebres.get(String(r.IdProducto)) || { dias: 0, base: 0 };
       return {
@@ -220,7 +215,7 @@ router.post('/api/analisis-ventas/prioritarios/generar', apiRoute(async () => {
 
 // ── Tickets por monto (alcance sucursales) ──────────────────────────────────
 // Endpoint aparte del análisis grande a propósito: el monto se cambia muchas veces
-// seguidas y volver a correr las nueve consultas del panel por cada prueba sería
+// seguidas y volver a correr las ocho consultas del panel por cada prueba sería
 // carísimo. Ésta es una sola consulta de cabecera. Cuelga de /api/analisis-ventas para
 // quedar bajo el mismo permiso de módulo (ver apiPrefijos en auth.js).
 router.get('/api/analisis-ventas/montos', apiRoute(async req => {

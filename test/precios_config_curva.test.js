@@ -1,12 +1,12 @@
 'use strict';
-// Helpers puros de la tarjeta de curva de ganancia (public/precios_config_curva.js). Es un script
+// Helpers puros de la tarjeta de curva de ganancia (public/js/precios_config_curva.js). Es un script
 // clásico: usa gananciaPorCurvaCliente y markupDesdeGananciaCli de precios_config_gastos.js como globales.
 const test = require('node:test');
 const assert = require('node:assert');
-const gastos = require('../public/precios_config_gastos.js');
+const gastos = require('../public/js/precios_config_gastos.js');
 globalThis.gananciaPorCurvaCliente = gastos.gananciaPorCurvaCliente;
 globalThis.markupDesdeGananciaCli = gastos.markupDesdeGananciaCli;
-const ui = require('../public/precios_config_curva.js');
+const ui = require('../public/js/precios_config_curva.js');
 const costeo = require('../lib/precios_costeo.js');
 
 const CURVA = { activa: false, a: 40, b: 3, pisoPct: 10, techoPct: 35 };

@@ -1,11 +1,11 @@
 'use strict';
 // Helpers puros de exportar/marcar presentaciones de Producción y de la tab Máquinas
-// (public/precios_produccion_export.js, public/precios_maquinas.js): scripts de browser que sin
+// (public/js/precios_produccion_export.js, public/js/precios_maquinas.js): scripts de browser que sin
 // `document` sólo exportan sus helpers.
 const test = require('node:test');
 const assert = require('node:assert');
-const ex = require('../public/precios_produccion_export.js');
-const maq = require('../public/precios_maquinas.js');
+const ex = require('../public/js/precios_produccion_export.js');
+const maq = require('../public/js/precios_maquinas.js');
 
 const pres = (plu, extra = {}) => ({ plu, nombre: `P${plu}`, costoTotal: 480, precioConIva: 850, faltantes: [], marcado: false, ...extra });
 const LISTA = [
