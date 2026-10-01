@@ -11,3 +11,6 @@ pruebas_stock_claude/
 pruebas_compras/
 .worktrees/
 .playwright-cli/
+.playwright/
+.claude/
+test/fixtures/cruce_bancario_caso_*.json

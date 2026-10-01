@@ -194,3 +194,92 @@ test('nivelTiempoMasCercano elige el nivel más próximo al historial; sin dato,
   assert.strictEqual(nivelTiempoMasCercano(null, t), 'normal');
   assert.strictEqual(nivelTiempoMasCercano(null, [{ id: 'a', valor: 1 }, { id: 'b', valor: 2 }]), 'a');
 });
+
+const { validarTarea, siguienteIdTarea, resolverTarea, construirItemTarea } = require('../lib/fraccionado_externo');
+
+test('validarTarea normaliza nombre y monto', () => {
+  assert.deepStrictEqual(validarTarea({ nombre: '  Etiquetado ', monto: '25.5' }, []), { nombre: 'Etiquetado', monto: 25.5 });
+});
+
+test('validarTarea rechaza nombre vacío y monto no positivo o no numérico', () => {
+  assert.throws(() => validarTarea({ nombre: '  ', monto: 10 }, []), /nombre/);
+  assert.throws(() => validarTarea(null, []), /nombre/);
+  assert.throws(() => validarTarea({ nombre: 'X', monto: 0 }, []), /Monto/);
+  assert.throws(() => validarTarea({ nombre: 'X', monto: -5 }, []), /Monto/);
+  assert.throws(() => validarTarea({ nombre: 'X', monto: 'abc' }, []), /Monto/);
+  assert.throws(() => validarTarea({ nombre: 'X', monto: 0.004 }, []), /Monto/); // redondea a 0
+  assert.throws(() => validarTarea({ nombre: { a: 1 }, monto: 5 }, []), /nombre/);
+  assert.throws(() => validarTarea({ nombre: 'X', monto: true }, []), /Monto/);
+  assert.throws(() => validarTarea({ nombre: 'X' }, []), /Monto/);
+});
+
+test('validarTarea rechaza nombre repetido ignorando mayúsculas, salvo contra sí misma', () => {
+  const existentes = [{ id: 'T1', nombre: 'Etiquetado', monto: 25 }];
+  assert.throws(() => validarTarea({ nombre: 'etiquetado', monto: 30 }, existentes), /Ya existe/);
+  assert.deepStrictEqual(validarTarea({ nombre: 'ETIQUETADO', monto: 30 }, existentes, 'T1'), { nombre: 'ETIQUETADO', monto: 30 });
+});
+
+test('siguienteIdTarea arranca en T1 y suma uno al máximo, ignorando formatos raros', () => {
+  assert.strictEqual(siguienteIdTarea([]), 'T1');
+  assert.strictEqual(siguienteIdTarea(undefined), 'T1');
+  assert.strictEqual(siguienteIdTarea([{ id: 'T1' }, { id: 'T7' }, { id: 'raro' }]), 'T8');
+});
+
+test('resolverTarea toma nombre y monto de la lista, no del cliente', () => {
+  const tareas = [{ id: 'T1', nombre: 'Etiquetado', monto: 25 }];
+  assert.deepStrictEqual(
+    resolverTarea({ tipo: 'tarea', tareaId: 'T1', cantidad: 40, nombre: 'hack', montoUnitario: 1 }, tareas),
+    { tipo: 'tarea', tareaId: 'T1', nombre: 'Etiquetado', montoUnitario: 25, cantidad: 40 },
+  );
+  assert.throws(() => resolverTarea({ tareaId: 'T9', cantidad: 1 }, tareas), /tareaId/);
+});
+
+test('construirItemTarea calcula el total como monto × cantidad', () => {
+  const it = construirItemTarea({ tareaId: 'T1', nombre: 'Etiquetado', montoUnitario: 25, cantidad: 40 });
+  assert.deepStrictEqual(it, {
+    tipo: 'tarea', tareaId: 'T1', nombre: 'Etiquetado', montoUnitario: 25, cantidad: 40, costoUnitario: 25, costoTotal: 1000,
+  });
+  assert.strictEqual(construirItemTarea({ tareaId: 'T1', nombre: 'X', montoUnitario: 10.5, cantidad: 2.5 }).costoTotal, 26.25);
+});
+
+test('construirItemTarea rechaza cantidad, monto, tarea o nombre inválidos', () => {
+  const base = { tareaId: 'T1', nombre: 'X', montoUnitario: 10, cantidad: 1 };
+  assert.throws(() => construirItemTarea({ ...base, cantidad: 0 }), /cantidad/);
+  assert.throws(() => construirItemTarea({ ...base, cantidad: 0.004 }), /cantidad/);
+  assert.throws(() => construirItemTarea({ ...base, cantidad: 'x' }), /cantidad/);
+  assert.throws(() => construirItemTarea({ ...base, cantidad: undefined }), /cantidad/);
+  assert.throws(() => construirItemTarea({ ...base, montoUnitario: 0 }), /montoUnitario/);
+  assert.throws(() => construirItemTarea({ ...base, montoUnitario: 0.004 }), /montoUnitario/);
+  assert.throws(() => construirItemTarea({ ...base, tareaId: '' }), /tarea/);
+  assert.throws(() => construirItemTarea({ ...base, nombre: '' }), /nombre/);
+});
+
+test('construirPedido mezcla productos y tareas y suma ambos en el total', () => {
+  const producto = {
+    plu: '1101', nombre: 'Oregano 50G', presentacion: '50G', minPorPaquete: 0.5, origenTiempo: 'nivel', paquetes: 20, factorComplejidad: 1,
+  };
+  const tarea = { tipo: 'tarea', tareaId: 'T1', nombre: 'Etiquetado', montoUnitario: 25, cantidad: 40 };
+  const pedido = construirPedido({
+    numero: 'FE-0001', fechaISO: '2026-09-30', tercero: 'Sur', valorHora: 6000, items: [producto, tarea], ts: 't0',
+  });
+  assert.strictEqual(pedido.items.length, 2);
+  assert.strictEqual(pedido.items[0].tipo, undefined); // el producto sigue sin tipo
+  assert.strictEqual(pedido.items[0].costoTotal, 1000); // 6000/60 × 0.5 × 1 = 50 por paquete × 20
+  assert.strictEqual(pedido.items[1].costoTotal, 1000);
+  assert.strictEqual(pedido.total, 2000);
+});
+
+test('construirPedido acepta un pedido sólo de tareas', () => {
+  const pedido = construirPedido({
+    numero: 'FE-0002', fechaISO: '2026-09-30', tercero: 'Sur', valorHora: 6000,
+    items: [{ tipo: 'tarea', tareaId: 'T1', nombre: 'Etiquetado', montoUnitario: 25, cantidad: 4 }],
+  });
+  assert.strictEqual(pedido.total, 100);
+});
+
+test('construirPedido rechaza una tarea sin cantidad', () => {
+  assert.throws(() => construirPedido({
+    numero: 'FE-0003', fechaISO: '2026-09-30', tercero: 'Sur', valorHora: 6000,
+    items: [{ tipo: 'tarea', tareaId: 'T1', nombre: 'X', montoUnitario: 10 }],
+  }), /cantidad/);
+});
