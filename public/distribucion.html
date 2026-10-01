@@ -1473,6 +1473,10 @@ const errHTML = (msg) => `<div style="font-size:30px">⚠</div><div>${msg}</div>
 // Escape de texto proveniente de datos antes de inyectarlo en HTML
 const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const nuevoTag = (r) => r.esNuevo ? `<span title="Primera compra: ${r.primeraCompra || '?'}" style="background:rgba(41,128,185,.15);color:#2980b9;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid rgba(41,128,185,.4);font-size:10px;margin-left:5px">NUEVO</span>` : '';
+// Pesables: quiebre (depósito en 0 + ≥N sucursales en 0) sube la prioridad a un piso; el título de la
+// celda de prioridad muestra el aging (último fraccionado = máx(cargas de la app, REC-SUC en Siga)).
+const quiebreTag = (r) => r.enQuiebre ? `<span title="Depósito central y sucursales en 0: prioridad con piso de quiebre" style="background:rgba(192,57,43,.15);color:#c0392b;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid rgba(192,57,43,.4);font-size:10px;margin-left:5px">QUIEBRE</span>` : '';
+const prioTitle = (r) => `title="Último fraccionado: ${r.ultimoFraccionado ? `${r.ultimoFraccionado} (${r.diasSinFraccionar} días)` : 'sin registro'}"`;
 // ── Semana activa (promo temática de Análisis de Ventas): destacado + orden en Almacén/Pesables/Prioritarios ──
 let promoPluSet = new Set();
 let promoProductos = [];
@@ -2245,7 +2249,7 @@ function renderP() {
     return `<tr class="${promoPluSet.has(String(r.plu))?'promo-semana':''}" data-plu="${r.plu}" style="animation-delay:${d}ms">
       <td class="oculto-col"><button class="oculto-btn" onclick="event.stopPropagation();toggleOcultoP(${r.plu})" title="Ocultar fila">✕</button></td>
       <td class="l plu">${r.plu}</td>
-      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${promoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre || ''}${nuevoTag(r)}${quiebreTag(r)}${promoTag(r)}${prodHoyMap[String(r.plu)] ? `<span class="prod-ind">✓ ${fmt(prodHoyMap[String(r.plu)])} kg</span>` : ''}</td>
       <td class="gran" data-granel="${r.granel}" style="cursor:pointer;text-decoration:underline dotted" title="Ver grupo granel ${r.granel}">${fmt(r.F)}</td>
       <td class="central">${fmt(r.H)}</td>
       ${envD}
@@ -2253,7 +2257,7 @@ function renderP() {
       ${celdas}
       ${prep ? '' : respSel}
       <td class="tot">${fmt(sumEnvVisP(r))}</td>
-      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
+      <td class="imp" ${prioTitle(r)}><span class="impbar" style="width:${Math.max(2, impPct * 0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
     </tr>`;
   }).join('');
   const totKg = rows.reduce((s, r) => s + sumEnvP(r), 0);
@@ -2303,7 +2307,7 @@ function renderEnvasar() {
       <td class="central">${fmt(r.H)}</td>
       <td class="envasar-d"><span>${fmt(r.D)}</span></td>
       <td class="ruteo">${rt}</td>
-      <td class="imp"><span class="impbar" style="width:${Math.max(2, impPct*0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
+      <td class="imp" ${prioTitle(r)}><span class="impbar" style="width:${Math.max(2, impPct*0.45)}px"></span>${prioOf(r).toFixed(3)}</td>
     </tr>`;
   }).join('');
   document.getElementById('pillEnv').textContent = rows.length;

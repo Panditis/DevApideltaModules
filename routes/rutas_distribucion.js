@@ -3,7 +3,8 @@ const express = require('express');
 const path = require('path');
 const insumos = require('../lib/insumos');
 const { calcularAlmacen } = require('../lib/distribucion');
-const { calcularPesables } = require('../lib/pesables');
+const { calcularPesables, ultimoFraccionadoPorPlu } = require('../lib/pesables');
+const productividad = require('../lib/productividad');
 const { universoLista, universoPesables } = require('../lib/listas_universo');
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
@@ -249,7 +250,8 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const nuevoDiasP = nuevoCfgP.dias || 30;
   const pisoImportanciaP = nuevoCfgP.pisoImportancia || 0.8;
   const compraTiposP = (distCfgP.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
-  const [stockRows, granelRows, nombres, fact, primeraCompraRows] = await Promise.all([
+  const idCentralP = distCfgP.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
+  const [stockRows, granelRows, nombres, fact, primeraCompraRows, recSucRows] = await Promise.all([
     query(sqlStockDistribucion(plus)),   // producto terminado: DisponibleVenta=1 por IdSucursal (central + sucursales)
     granelCodes.length ? query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
        FROM ProductosDepositos pd
@@ -264,7 +266,23 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
       WHERE mp.IdProducto IN (${quote(plus)}) AND mp.IdTipoMovimiento IN (${compraTiposP})
       GROUP BY mp.IdProducto`),
+    // Último alta de terminado en central (REC-SUC, Cantidad>0) → fuente (b) del aging.
+    query(`SELECT mp.IdProducto, MAX(m.FechaMovimiento) AS Ultima
+      FROM MovimientosStockProductos mp
+      JOIN MovimientosStock m ON m.IdSucursal=mp.IdSucursal AND m.IdTipoMovimiento=mp.IdTipoMovimiento AND m.NumeroMovimiento=mp.NumeroMovimiento
+      WHERE mp.IdTipoMovimiento='REC-SUC' AND mp.IdSucursal=${Number(idCentralP)}
+        AND mp.IdProducto IN (${quote(plus)}) AND mp.Cantidad > 0
+      GROUP BY mp.IdProducto`).catch((e) => {
+      console.error('[pesables] ultimo REC-SUC:', e.message);
+      return [];
+    }),
   ]);
+  // Último fraccionado por PLU = máx(cargas de fraccionado de la app, último REC-SUC en Siga).
+  const cargasFrac = productividad.unirPorId(
+    leerJSON(FRAC_REG_PATH, []),
+    (leerJSON(HISTORIAL_PATH, []) || []).flatMap(h => (h && h.produccion) || []),
+  );
+  const ultimoFracP = ultimoFraccionadoPorPlu(cargasFrac, recSucRows);
   const primeraCompraMapP = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
   const umbralNuevoP = new Date(Date.now() - nuevoDiasP * 24 * 60 * 60 * 1000);
   const esNuevoSetP = new Set([...primeraCompraMapP.entries()]
@@ -272,7 +290,6 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     .map(([plu]) => plu));
   const nombreMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const granelMap = new Map(granelRows.map(r => [String(r.IdProducto), parseFloat(r.Stock || 0)]));
-  const idCentralP = distCfgP.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
   const stocks = new Map();
   for (const r of stockRows) {
     const key = r.IdSucursal === idCentralP ? 'central' : PES_SUC_MAP[r.IdSucursal]; if (!key) continue;
@@ -303,7 +320,9 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap,
       empujePresencia: empPes.presencia, empujePresenciaFactorS: empPes.presenciaFactorS,
       presenciaPorClase: empPes.presenciaPorClase, presenciaPorPresentacion: empPes.presenciaPorPresentacion, abcPorPlu: abcPorPluP, presPorPlu,
-      coberturaDeposito: distCfgP.coberturaDepositoPesables, muPorPlu: muPorPluP });
+      coberturaDeposito: distCfgP.coberturaDepositoPesables, muPorPlu: muPorPluP,
+      // Aging + piso por quiebre: {diasEsperaMax, pisoQuiebre, minSucursalesQuiebre}; defaults en lib/pesables.js.
+      prioridadPesables: distCfgP.prioridadPesables, ultimoFraccionadoPorPlu: ultimoFracP });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
     if (f.enviar[k] !== undefined && set.has(Number(f.plu))) f.enviar[k] = 'Fact';
@@ -325,7 +344,8 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG, mins: f.mins, sLev: f.sLev,
       J: f.J, D: f.D, G: f.G, objDep: f.objDep, BL: f.BL, prioridad, prioridadSala,
       granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
-      esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
+      esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null,
+      enQuiebre: f.enQuiebre, diasSinFraccionar: f.diasSinFraccionar, ultimoFraccionado: f.ultimoFraccionado };
   });
 }
 router.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
