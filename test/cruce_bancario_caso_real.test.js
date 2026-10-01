@@ -130,6 +130,8 @@ test('caso real 22/09/2026: el resumen cuenta 58 UBICADO, 2 PAGO DIVIDIDO y 2 A 
   assert.strictEqual(resumen.archivo.descartadas, 0);
   assert.strictEqual(resumen.archivo.sumaAprobadas, CENTAVOS_DEL_DIA / 100);
   assert.strictEqual(resumen.archivo.sumaTodos, CENTAVOS_DEL_DIA / 100);
+  // Sin SIN UBICAR no hay nada que avisar.
+  assert.deepStrictEqual(resumen.avisos, { importeSinHora: 0 });
 });
 
 test('caso real 22/09/2026: la atención son los 2 A REVISAR de Rivadavia con sus observaciones', () => {

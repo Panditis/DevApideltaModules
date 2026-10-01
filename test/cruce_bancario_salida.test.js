@@ -520,9 +520,176 @@ test('armarResumen es JSON puro y no lleva datos personales del archivo', () => 
   const resumen = resumenDe(escenarioMezcla());
 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(resumen)), resumen);
-  assert.deepStrictEqual(Object.keys(resumen), ['parametros', 'archivo', 'porResultado', 'porSucursal', 'atencion']);
+  assert.deepStrictEqual(Object.keys(resumen), ['parametros', 'archivo', 'porResultado', 'porSucursal', 'atencion', 'avisos']);
   assert.deepStrictEqual(Object.keys(resumen.atencion.filas[0]), [
     'fila', 'fecha', 'importe', 'resultado', 'sucursal', 'ticket', 'fechaTicket', 'observacion', 'otros',
   ]);
   assert.doesNotMatch(JSON.stringify(resumen), /CLIENTE|USUARIO|47045500|@/);
+});
+
+// ── SIN UBICAR con aviso ──────────────────────────────────────────────────────
+// Un movimiento de `importe` a las 12:00:00 (fila 2) y los tickets de SIGA dados como [hora, importe, numero, extra].
+// Con un solo ticket de importe idéntico el movimiento sería A REVISAR: para que quede SIN UBICAR con un ticket de
+// igual importe hace falta que el importe esté repetido (otro ticket u otro movimiento).
+const ticketsAviso = (...filas) => filas.map(([hora, importe, numero, extra = {}]) =>
+  ({ ...filaSql({ suc: 1, fecha: `2026-09-22 ${hora}`, importe, numero }), ...extra }));
+
+function escenarioAviso(tickets, { importe = '100,00', otrosMovimientos = [] } = {}) {
+  const parse = parseBajada([
+    ENCABEZADO,
+    filaBanco({ fecha: '2026-09-22 12:00:00', importe }),
+    ...otrosMovimientos.map(([hora, imp]) => filaBanco({ fecha: `2026-09-22 ${hora}`, importe: imp })),
+  ]);
+  return { parse, cruce: cruzar(parse.movimientos, normalizarTickets(tickets)) };
+}
+
+const observacionAviso = (tickets, opciones) => {
+  const [d] = filasDetalle(escenarioAviso(tickets, opciones).cruce.filas);
+  assert.strictEqual(d.Resultado, 'SIN UBICAR');
+  return d['Observación'];
+};
+const AVISO = 'No hay ticket dentro de la ventana de hora, pero hay';
+
+test('filasDetalle avisa en Observación de un único ticket del día con el importe igual, a otra hora', () => {
+  // Dos movimientos de 100,00 y un solo ticket de 100,00: el par no es único, queda SIN UBICAR con aviso.
+  const texto = observacionAviso(ticketsAviso(['15:00:00', 100, '1']), { otrosMovimientos: [['08:00:00', '100,00']] });
+  assert.strictEqual(
+    texto,
+    `${AVISO} 1 ticket del día con importe coincidente: SUC 1 FC B 0001-1 a las 15:00:00 (3 h 0 min después del banco). Revisar.`,
+  );
+});
+
+test('filasDetalle agrega el importe del ticket sólo si difiere del movimiento', () => {
+  assert.strictEqual(
+    observacionAviso(ticketsAviso(['15:00:00', 102, '1'])),
+    `${AVISO} 1 ticket del día con importe coincidente: SUC 1 FC B 0001-1 a las 15:00:00 (3 h 0 min después del banco), importe $102.00. Revisar.`,
+  );
+  assert.strictEqual(
+    observacionAviso(ticketsAviso(['15:00:00', 97.5, '1'])),
+    `${AVISO} 1 ticket del día con importe coincidente: SUC 1 FC B 0001-1 a las 15:00:00 (3 h 0 min después del banco), importe $97.50. Revisar.`,
+  );
+});
+
+test('filasDetalle lista varios candidatos separados por "; ", del más cercano al más lejano, con antes y después', () => {
+  const texto = observacionAviso(ticketsAviso(['15:00:00', 100, '1'], ['09:30:00', 100, '2'], ['11:15:00', 101, '3']));
+  assert.strictEqual(
+    texto,
+    `${AVISO} 3 tickets del día con importe coincidente: `
+    + 'SUC 1 FC B 0001-3 a las 11:15:00 (45 min antes del banco), importe $101.00; '
+    + 'SUC 1 FC B 0001-2 a las 09:30:00 (2 h 30 min antes del banco); '
+    + 'SUC 1 FC B 0001-1 a las 15:00:00 (3 h 0 min después del banco). Revisar.',
+  );
+});
+
+test('filasDetalle muestra los 3 más cercanos y cuenta con "y K más" los que no entran', () => {
+  const texto = observacionAviso(ticketsAviso(
+    ['13:00:00', 100, '1'], ['14:00:00', 100, '2'], ['15:00:00', 100, '3'], ['16:00:00', 100, '4'], ['17:00:00', 100, '5'],
+  ));
+  assert.strictEqual(
+    texto,
+    `${AVISO} 5 tickets del día con importe coincidente: `
+    + 'SUC 1 FC B 0001-1 a las 13:00:00 (1 h 0 min después del banco); '
+    + 'SUC 1 FC B 0001-2 a las 14:00:00 (2 h 0 min después del banco); '
+    + 'SUC 1 FC B 0001-3 a las 15:00:00 (3 h 0 min después del banco) y 2 más. Revisar.',
+  );
+});
+
+test('filasDetalle muestra sólo minutos si el ticket está a menos de una hora y redondea hacia abajo', () => {
+  assert.match(observacionAviso(ticketsAviso(['12:45:30', 102, '1'])), /a las 12:45:30 \(45 min después del banco\), importe/);
+  assert.match(observacionAviso(ticketsAviso(['11:00:01', 102, '1'])), /a las 11:00:01 \(59 min antes del banco\), importe/);
+  assert.match(observacionAviso(ticketsAviso(['13:00:00', 102, '1'])), /a las 13:00:00 \(1 h 0 min después del banco\), importe/);
+});
+
+test('filasDetalle nombra la sucursal del candidato, con "Sucursal N" si no tiene nombre y "Sucursal ?" si no tiene ni id', () => {
+  const sinNombre = ticketsAviso(['15:00:00', 102, '1', { NombreSucursal: '' }]);
+  const sinNada = ticketsAviso(['15:00:00', 102, '1', { NombreSucursal: '', IdSucursal: null }]);
+  assert.match(observacionAviso(sinNombre), /: Sucursal 1 FC B 0001-1 a las 15:00:00/);
+  assert.match(observacionAviso(sinNada), /: Sucursal \? FC B 0001-1 a las 15:00:00/);
+});
+
+test('filasDetalle no usa rayas largas en el aviso y deja la Observación vacía en un SIN UBICAR sin candidatos', () => {
+  const conAviso = observacionAviso(ticketsAviso(['15:00:00', 102, '1'], ['16:00:00', 101, '2']));
+  assert.doesNotMatch(conAviso, /[—–]/);
+
+  const [sinAviso] = filasDetalle(escenarioAviso(ticketsAviso(['15:00:00', 500, '1'])).cruce.filas);
+  assert.strictEqual(sinAviso.Resultado, 'SIN UBICAR');
+  assert.strictEqual(sinAviso['Observación'], '');
+});
+
+// Cinco movimientos mezclados a propósito (filas 2 a 6): dos SIN UBICAR con aviso (filas 6 y 3), uno sin aviso (fila 2),
+// un AMBIGUO (fila 4) y un A REVISAR (fila 5).
+function escenarioMezclaAviso() {
+  const parse = parseBajada([
+    ENCABEZADO,
+    filaBanco({ fecha: '2026-09-22 08:00:00', importe: '500,00' }),
+    filaBanco({ fecha: '2026-09-22 11:00:00', importe: '300,00' }),
+    filaBanco({ fecha: '2026-09-22 09:00:00', importe: '100,00' }),
+    filaBanco({ fecha: '2026-09-22 12:25:37', importe: '52.086,14' }),
+    filaBanco({ fecha: '2026-09-22 10:00:00', importe: '400,00' }),
+  ]);
+  const cruce = cruzar(parse.movimientos, normalizarTickets([
+    filaSql({ suc: 1, fecha: '2026-09-22 09:00:05', importe: 100, numero: '1' }),
+    filaSql({ suc: 2, fecha: '2026-09-22 09:00:06', importe: 100.4, numero: '2' }),
+    filaSql({ suc: 2, fecha: '2026-09-22 19:45:42', importe: 52086.14, numero: '9' }),
+    filaSql({ suc: 1, fecha: '2026-09-22 18:00:00', importe: 302, numero: '3' }),
+    filaSql({ suc: 1, fecha: '2026-09-22 20:00:00', importe: 402, numero: '4' }),
+  ]));
+  return { parse, cruce };
+}
+
+test('armarResumen cuenta en avisos.importeSinHora los SIN UBICAR con aviso, y no los demás', () => {
+  assert.deepStrictEqual(resumenDe(escenario()).avisos, { importeSinHora: 0 });
+  assert.deepStrictEqual(resumenDe(escenarioMezclaAviso()).avisos, { importeSinHora: 2 });
+  assert.strictEqual(resumenDe(escenarioMezclaAviso()).porResultado.find(r => r.resultado === 'SIN UBICAR').cantidad, 3);
+});
+
+test('armarResumen pone en la atención el SIN UBICAR con aviso antes que el que no lo tiene, sin cambiar el orden general', () => {
+  const { atencion } = resumenDe(escenarioMezclaAviso());
+
+  assert.deepStrictEqual(
+    atencion.filas.map(f => [f.resultado, f.fila, f.fecha.slice(11)]),
+    [
+      ['A REVISAR', 5, '12:25:37'], ['AMBIGUO', 4, '09:00:00'],
+      ['SIN UBICAR', 6, '10:00:00'], ['SIN UBICAR', 3, '11:00:00'], ['SIN UBICAR', 2, '08:00:00'],
+    ],
+  );
+  assert.strictEqual(atencion.total, 5);
+});
+
+test('armarResumen lleva en la atención la misma observación del Detalle para un SIN UBICAR con aviso', () => {
+  const { cruce, parse } = escenarioMezclaAviso();
+  const { atencion } = armarResumen({ filas: cruce.filas, parse, tolMonto: cruce.tolMonto, tolMin: cruce.tolMin });
+  const detalle = filasDetalle(cruce.filas);
+  const conAviso = atencion.filas.filter(f => f.resultado === 'SIN UBICAR' && f.observacion);
+
+  assert.strictEqual(conAviso.length, 2);
+  assert.strictEqual(conAviso[0].observacion, detalle[4]['Observación']);
+  assert.strictEqual(conAviso[1].observacion, detalle[1]['Observación']);
+  assert.strictEqual(
+    conAviso[0].observacion,
+    `${AVISO} 1 ticket del día con importe coincidente: SUC 1 FC B 0001-4 a las 20:00:00 (10 h 0 min después del banco), importe $402.00. Revisar.`,
+  );
+  assert.deepStrictEqual(atencion.filas.find(f => f.resultado === 'SIN UBICAR' && !f.observacion).fila, 2);
+});
+
+test('filasResumen agrega la fila de avisos justo debajo de la tabla de resultados y antes del bloque por sucursal', () => {
+  const { parse, cruce } = escenarioMezclaAviso();
+  const aoa = filasResumen({ filas: cruce.filas, parse, tolMonto: cruce.tolMonto, tolMin: cruce.tolMin });
+  const i = aoa.findIndex(r => r[0] === 'NO APLICA');
+
+  assert.deepStrictEqual(aoa[i + 1], ['SIN UBICAR con importe coincidente en otra hora', 2]);
+  assert.deepStrictEqual(aoa[i + 2], []);
+  assert.strictEqual(aoa[i + 3][0], 'Sucursal ID');
+});
+
+test('filasResumen muestra la fila de avisos también en cero y conserva las etiquetas de siempre', () => {
+  const { parse, cruce } = escenario();
+  const aoa = filasResumen({ filas: cruce.filas, parse, tolMonto: cruce.tolMonto, tolMin: cruce.tolMin });
+
+  assert.deepStrictEqual(fila(aoa, 'SIN UBICAR con importe coincidente en otra hora'), ['SIN UBICAR con importe coincidente en otra hora', 0]);
+  const sinAvisos = aoa.filter(r => r[0] !== 'SIN UBICAR con importe coincidente en otra hora');
+  const i = sinAvisos.findIndex(r => r[0] === 'Resultado');
+  assert.deepStrictEqual(sinAvisos.slice(i, i + 9).map(r => r[0]), [
+    'Resultado', 'UBICADO', 'AMBIGUO', 'PAGO DIVIDIDO', 'A REVISAR', 'SIN UBICAR', 'NO APLICA', undefined, 'Sucursal ID',
+  ]);
 });
