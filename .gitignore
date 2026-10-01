@@ -13,3 +13,4 @@ pruebas_compras/
 .playwright-cli/
 .playwright/
 .claude/
+test/fixtures/cruce_bancario_caso_*.json

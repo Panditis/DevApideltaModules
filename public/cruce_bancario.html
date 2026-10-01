@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cruce Bancario - Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  /* Radios del sistema: 6px controles, 10px tarjetas. */
+  .wrap {
+    max-width: 1400px; margin: 0 auto; padding: 24px 16px 40px;
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start;
+  }
+  @media (min-width: 1024px) { .wrap { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; } }
+
+  .card { background: #fff; border: 1px solid rgba(26,28,24,.16); border-radius: 10px; padding: 24px; }
+  .card.principal { box-shadow: 0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1); }
+  @media (max-width: 639px) { .card { padding: 18px 16px; } }
+
+  .titulo { font-size: 1rem; font-weight: 700; color: #242423; }
+  .lede { margin-top: 6px; font-size: .9rem; line-height: 1.5; color: #5c5f52; max-width: 62ch; }
+  .separador { border: 0; border-top: 1px solid rgba(26,28,24,.12); margin: 24px 0; }
+
+  /* Dropzone */
+  .zona { margin-top: 16px; }
+  .drop {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; min-height: 168px; padding: 24px 16px; text-align: center; cursor: pointer;
+    border: 1.5px dashed rgba(26,28,24,.32); border-radius: 6px; background: #fafbf8;
+    transition: border-color 140ms ease, background-color 140ms ease;
+  }
+  .drop:hover { border-color: #405936; background: #f5f8f1; }
+  .drop:focus-within { outline: 2px solid #405936; outline-offset: 2px; }
+  .zona.arrastrando .drop { border-style: solid; border-color: #405936; background: rgba(64,89,54,.08); }
+  .zona.invalido .drop { border-color: #a4262c; }
+  .zona.invalido .drop:focus-within { outline-color: #a4262c; }
+  .drop .ico { color: #405936; width: 28px; height: 28px; margin-bottom: 4px; }
+  .drop-txt { font-size: .95rem; font-weight: 600; color: #242423; }
+  .drop-txt .link { color: #405936; text-decoration: underline; text-underline-offset: 2px; }
+  .drop-ayuda { font-size: .82rem; color: #5c5f52; }
+  .oculto-enfocable {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; opacity: 0;
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+
+  .elegido {
+    display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px;
+    border: 1px solid rgba(26,28,24,.16); border-radius: 6px; background: #f5f8f1;
+    transition: border-color 140ms ease, background-color 140ms ease;
+  }
+  .zona.arrastrando .elegido { border-color: #405936; background: rgba(64,89,54,.1); }
+  .elegido .ico { flex: none; color: #405936; width: 22px; height: 22px; }
+  .elegido-info { min-width: 0; flex: 1; }
+  .elegido-nombre { display: block; font-size: .92rem; font-weight: 600; color: #242423; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .elegido-tam { display: block; font-size: .8rem; color: #5c5f52; font-variant-numeric: tabular-nums; }
+
+  .msg-error { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; font-size: .85rem; color: #a4262c; }
+  .msg-error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+
+  /* Tolerancias */
+  .tol-fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+  .tol-resumen { font-size: .9rem; color: #242423; font-variant-numeric: tabular-nums; }
+  .campos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+  @media (min-width: 640px) { .campos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .campo { display: flex; flex-direction: column; gap: 6px; }
+  .campo label { font-size: .85rem; font-weight: 600; color: #242423; }
+  .campo input {
+    height: 40px; width: 100%; max-width: 200px; padding: 0 12px; font: inherit; font-size: .95rem;
+    color: #242423; background: #fff; border: 1px solid rgba(26,28,24,.32); border-radius: 6px;
+    font-variant-numeric: tabular-nums; transition: border-color 140ms ease;
+  }
+  .campo input:hover { border-color: rgba(26,28,24,.5); }
+  .campo input:focus-visible { outline: 2px solid #405936; outline-offset: 1px; border-color: #405936; }
+  .campo input[aria-invalid="true"] { border-color: #a4262c; }
+  .campo .ayuda { font-size: .8rem; line-height: 1.4; color: #5c5f52; }
+  .campo .msg-error { margin-top: 0; }
+
+  /* Botones */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 40px; padding: 0 18px; border-radius: 6px; font: inherit; font-size: .9rem; font-weight: 600;
+    white-space: nowrap; cursor: pointer; border: 1px solid transparent;
+  }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid #405936; outline-offset: 2px; }
+  .btn-primario { background: #405936; color: #fff; padding: 0 22px; }
+  .btn-primario:hover:not(:disabled) { background: #4f6e42; }
+  .btn-primario:disabled { background: #e3e7de; color: #5c5f52; cursor: not-allowed; }
+  .btn-secundario { background: #fff; color: #242423; border-color: rgba(26,28,24,.24); }
+  .btn-secundario:hover:not(:disabled) { background: #f5f8f1; border-color: #405936; }
+  .btn-chico { height: 32px; padding: 0 12px; font-size: .85rem; }
+  .btn-texto { background: transparent; color: #405936; border-color: transparent; }
+  .btn-texto:hover:not(:disabled) { background: rgba(64,89,54,.08); }
+  .btn:disabled:not(.btn-primario) { opacity: .55; cursor: not-allowed; }
+
+  .acciones { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .progreso { position: relative; height: 3px; margin-top: 16px; overflow: hidden; background: rgba(64,89,54,.14); }
+  .progreso::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 35%; background: #405936;
+    animation: indeterminada 1.3s ease-in-out infinite;
+  }
+  @keyframes indeterminada { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+
+  .alerta {
+    display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; padding: 12px 14px;
+    background: #fde7e9; border: 1px solid #f6c6c2; border-radius: 6px; color: #a4262c;
+    font-size: .88rem; line-height: 1.45; overflow-wrap: anywhere;
+  }
+  .alerta svg { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+
+  /* Resultado */
+  .ok-barra { display: flex; gap: 16px 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .ok-cabecera { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+  .ok-cabecera .ico { flex: none; width: 28px; height: 28px; color: #0e700e; }
+  .ok-cabecera h2:focus { outline: none; }
+  .ok-cabecera .lede { margin-top: 2px; }
+  .ok-archivo { font-weight: 600; color: #242423; overflow-wrap: anywhere; }
+  .ok-acciones { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  .res-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 40px; align-items: start; }
+  .subtitulo { font-size: .92rem; font-weight: 700; color: #242423; }
+
+  .tabla { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .88rem; color: #242423; }
+  .tabla th, .tabla td { padding: 8px 10px; text-align: left; vertical-align: top; }
+  .tabla thead th {
+    font-size: .72rem; font-weight: 600; color: #5c5f52; white-space: nowrap;
+    border-bottom: 1px solid rgba(26,28,24,.16);
+  }
+  .tabla tbody th, .tabla tfoot th { font-family: inherit; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .tabla tbody th, .tabla tbody td { border-bottom: 1px solid rgba(26,28,24,.08); }
+  .tabla tfoot th, .tabla tfoot td { font-weight: 700; border-top: 1px solid rgba(26,28,24,.32); }
+  .tabla tbody tr:last-child th, .tabla tbody tr:last-child td { border-bottom: 0; }
+  .tabla .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla tr.cero th, .tabla tr.cero td { color: #5c5f52; }
+  .tabla tr.atencion th, .tabla tr.atencion td { font-weight: 600; }
+
+  .etq { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .etq svg, .etq .hueco { flex: none; width: 16px; height: 16px; }
+  .t-warn { color: #8a5d00; }
+  .t-crit { color: #a4262c; }
+  .t-ok { color: #0e700e; }
+
+  .control { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; font-size: .86rem; line-height: 1.45; color: #242423; }
+  .control svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+  .control.t-crit { color: #a4262c; }
+  .control.sin-total { color: #5c5f52; }
+
+  .pie { font-size: .8rem; line-height: 1.5; color: #5c5f52; }
+  .pie p + p { margin-top: 2px; }
+
+  /* Para revisar: tarjeta a todo el ancho, debajo del resumen y del glosario. */
+  .revisar { grid-column: 1 / -1; }
+  .revisar-cab { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .revisar-cuenta { font-size: .86rem; color: #5c5f52; font-variant-numeric: tabular-nums; }
+  .aviso { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: .85rem; color: #5c5f52; }
+  .aviso svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+  .scroll {
+    /* relative: contiene los .sr-only de las filas; sin esto estiran la página hasta la última fila. */
+    position: relative; max-height: 520px; overflow: auto; margin-top: 14px;
+    border: 1px solid rgba(26,28,24,.12); border-radius: 6px;
+  }
+  .scroll:focus-visible { outline: 2px solid #405936; outline-offset: 2px; }
+  .scroll .tabla { margin-top: 0; }
+  .scroll thead th {
+    position: sticky; top: 0; z-index: 1; background: #f5f8f1; border-bottom: 0;
+    box-shadow: inset 0 -1px 0 rgba(26,28,24,.16);
+  }
+  .scroll .tabla td { white-space: nowrap; }
+  .scroll .tabla td.detalle { white-space: normal; min-width: 320px; color: #5c5f52; }
+  .vacio { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-size: .92rem; color: #242423; }
+  .vacio svg { flex: none; width: 22px; height: 22px; color: #0e700e; }
+
+  /* Columna lateral */
+  .glosario { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .glosario dt { font-size: .78rem; font-weight: 700; letter-spacing: .04em; color: #405936; }
+  .glosario dd { margin: 2px 0 0; font-size: .86rem; line-height: 1.45; color: #5c5f52; }
+
+  @media (max-width: 639px) {
+    .btn { height: 44px; }
+    .btn-chico { height: 44px; }
+    .acciones .btn-primario, .ok-acciones .btn { width: 100%; }
+    .campo input { height: 44px; max-width: none; }
+    .drop { min-height: 148px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drop, .elegido, .campo input { transition: none !important; }
+    .btn:active:not(:disabled) { transform: none; }
+    .progreso::before { animation: none; width: 100%; opacity: .45; }
+  }
+</style>
+</head>
+<body class="font-body text-ink">
+
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="font-disp text-2xl font-bold">Cruce Bancario</h1>
+    <a href="/" class="ml-auto text-sm">← Inicio</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <div>
+    <form id="form" class="card principal" novalidate>
+      <h2 class="titulo">Archivo del banco</h2>
+      <p class="lede">Cada venta aprobada del archivo se busca en SIGA por importe y hora. Se descarga un xlsx con todos los movimientos y la sucursal de cada venta.</p>
+
+      <div id="zona" class="zona">
+        <label id="drop" class="drop" for="archivo">
+          <input type="file" id="archivo" class="oculto-enfocable" accept=".xls,.xlsx" aria-describedby="drop-ayuda archivo-error">
+          <i data-lucide="upload" class="ico" aria-hidden="true"></i>
+          <span class="drop-txt">Arrastrá el archivo del banco acá o <span class="link">elegilo desde tu equipo</span></span>
+          <span id="drop-ayuda" class="drop-ayuda">Acepta .xls y .xlsx, hasta 5 MB</span>
+        </label>
+
+        <div id="elegido" class="elegido" hidden>
+          <i data-lucide="file-spreadsheet" class="ico" aria-hidden="true"></i>
+          <span class="elegido-info">
+            <span id="elegido-nombre" class="elegido-nombre"></span>
+            <span id="elegido-tam" class="elegido-tam"></span>
+          </span>
+          <button type="button" id="quitar" class="btn btn-texto btn-chico">
+            <i data-lucide="x" aria-hidden="true"></i>Quitar
+          </button>
+        </div>
+
+        <p id="archivo-error" class="msg-error" role="alert" hidden>
+          <i data-lucide="circle-alert" aria-hidden="true"></i><span id="archivo-error-txt"></span>
+        </p>
+      </div>
+
+      <hr class="separador">
+
+      <h2 class="titulo">Tolerancias</h2>
+      <div class="tol-fila">
+        <p id="tol-resumen" class="tol-resumen">Importe hasta $5 y hora hasta 3 min</p>
+        <button type="button" id="tol-toggle" class="btn btn-secundario btn-chico" aria-expanded="false" aria-controls="tol-campos">Cambiar</button>
+      </div>
+
+      <div id="tol-campos" class="campos" hidden>
+        <div class="campo">
+          <label for="tolMonto">Importe ($)</label>
+          <input type="text" id="tolMonto" name="tolMonto" value="5" min="0" max="100" inputmode="decimal" autocomplete="off" aria-describedby="tolMonto-ayuda tolMonto-error">
+          <span id="tolMonto-ayuda" class="ayuda">Diferencia máxima entre el banco y el ticket, por redondeo. De 0 a 100.</span>
+          <p id="tolMonto-error" class="msg-error" hidden></p>
+        </div>
+        <div class="campo">
+          <label for="tolMin">Hora (minutos)</label>
+          <input type="text" id="tolMin" name="tolMin" value="3" min="0" max="15" inputmode="decimal" autocomplete="off" aria-describedby="tolMin-ayuda tolMin-error">
+          <span id="tolMin-ayuda" class="ayuda">Desfase máximo entre la hora del banco y la del ticket. De 0 a 15.</span>
+          <p id="tolMin-error" class="msg-error" hidden></p>
+        </div>
+      </div>
+
+      <hr class="separador">
+
+      <div class="acciones">
+        <button type="submit" id="procesar" class="btn btn-primario" disabled>
+          <i data-lucide="download" aria-hidden="true"></i><span id="procesar-txt">Procesar y descargar</span>
+        </button>
+      </div>
+      <div id="progreso" class="progreso" role="progressbar" aria-label="Procesando el archivo" hidden></div>
+
+      <div id="error" class="alerta" role="alert" hidden>
+        <i data-lucide="circle-alert" aria-hidden="true"></i><span id="error-txt"></span>
+      </div>
+    </form>
+
+    <section id="resultado" class="card principal fade-in" aria-labelledby="ok-titulo" hidden>
+      <div class="ok-barra">
+        <div class="ok-cabecera">
+          <i data-lucide="circle-check" class="ico" aria-hidden="true"></i>
+          <div>
+            <h2 id="ok-titulo" class="titulo" tabindex="-1">Cruce listo</h2>
+            <p class="lede">Se descargó <span id="ok-archivo" class="ok-archivo"></span>. Si no lo ves en tus descargas, bajalo de nuevo.</p>
+          </div>
+        </div>
+        <div class="ok-acciones">
+          <button type="button" id="redescargar" class="btn btn-secundario">
+            <i data-lucide="download" aria-hidden="true"></i>Descargar de nuevo
+          </button>
+          <button type="button" id="otro" class="btn btn-secundario">Procesar otro archivo</button>
+        </div>
+      </div>
+
+      <hr class="separador">
+
+      <div class="res-grid">
+        <div>
+          <h3 id="res-titulo" class="subtitulo">Resultado</h3>
+          <table id="res-tabla" class="tabla" aria-labelledby="res-titulo"></table>
+          <p id="control" class="control"></p>
+        </div>
+        <div>
+          <h3 id="suc-titulo" class="subtitulo">Por sucursal</h3>
+          <table id="suc-tabla" class="tabla" aria-labelledby="suc-titulo"></table>
+        </div>
+      </div>
+
+      <hr class="separador">
+
+      <div id="pie" class="pie"></div>
+    </section>
+  </div>
+
+  <aside class="card" aria-labelledby="glosario-titulo">
+    <h2 id="glosario-titulo" class="titulo">Qué significa cada resultado</h2>
+    <p class="lede">Cada movimiento del xlsx lleva uno de estos resultados.</p>
+    <dl class="glosario">
+      <div><dt>UBICADO</dt><dd>Un único ticket coincide.</dd></div>
+      <div><dt>AMBIGUO</dt><dd>Coincide un ticket, pero había otros posibles. Quedan listados para revisar.</dd></div>
+      <div><dt>PAGO DIVIDIDO</dt><dd>Dos movimientos suman el total de un ticket. Se ubican los dos en ese ticket.</dd></div>
+      <div><dt>A REVISAR</dt><dd>Hay un ticket con el mismo importe exacto, pero con una hora muy distinta. Se ubica ahí, pero conviene revisarlo.</dd></div>
+      <div><dt>SIN UBICAR</dt><dd>Ningún ticket coincide dentro de las tolerancias.</dd></div>
+      <div><dt>NO APLICA</dt><dd>El movimiento no es una venta aprobada, por ejemplo una anulación o una devolución.</dd></div>
+    </dl>
+  </aside>
+
+  <section id="revisar" class="card principal revisar fade-in" aria-labelledby="rev-titulo" hidden>
+    <div class="revisar-cab">
+      <h2 id="rev-titulo" class="titulo">Para revisar</h2>
+      <span id="rev-cuenta" class="revisar-cuenta"></span>
+    </div>
+    <div id="rev-cuerpo"></div>
+  </section>
+
+  <p id="estado" class="sr-only" role="status" aria-live="polite"></p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const MAX_BYTES = 5 * 1024 * 1024;
+const EXTENSION_OK = /\.(xls|xlsx)$/i;
+const TOLERANCIAS = {
+  tolMonto: { max: 100, msgMax: 'El máximo es $100.' },
+  tolMin: { max: 15, msgMax: 'El máximo es 15 minutos.' },
+};
+
+let archivo = null;      // File válido elegido
+let descarga = null;     // { url, nombre } del último xlsx, para "Descargar de nuevo"
+let procesando = false;
+let arrastres = 0;       // dragenter/dragleave se disparan por cada hijo: se cuentan
+
+const fmtNum = n => n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+const fmtTamano = bytes => bytes < 1024 * 1024
+  ? `${Math.max(1, Math.round(bytes / 1024)).toLocaleString('es-AR')} KB`
+  : `${(bytes / (1024 * 1024)).toLocaleString('es-AR', { maximumFractionDigits: 1 })} MB`;
+
+function anunciar(texto) { $('estado').textContent = texto; }
+
+// ── Archivo ──────────────────────────────────────────────────────────────────
+function renderArchivo() {
+  $('drop').hidden = !!archivo;
+  $('elegido').hidden = !archivo;
+  if (archivo) {
+    $('elegido-nombre').textContent = archivo.name;
+    $('elegido-nombre').title = archivo.name;
+    $('elegido-tam').textContent = fmtTamano(archivo.size);
+  }
+  $('procesar').disabled = !archivo || procesando;
+}
+
+function errorArchivo(texto) {
+  $('archivo-error-txt').textContent = texto;
+  $('archivo-error').hidden = !texto;
+  $('zona').classList.toggle('invalido', !!texto);
+}
+
+function ocultarError() { $('error').hidden = true; $('error-txt').textContent = ''; }
+
+function elegirArchivo(file) {
+  ocultarError();
+  errorArchivo('');
+  if (!file) return;
+  let motivo = '';
+  if (!EXTENSION_OK.test(file.name)) motivo = `"${file.name}" no es un archivo .xls ni .xlsx.`;
+  else if (file.size > MAX_BYTES) motivo = `El archivo pesa ${fmtTamano(file.size)} y el máximo es 5 MB.`;
+  if (motivo) {
+    archivo = null;
+    $('archivo').value = '';
+    renderArchivo();
+    errorArchivo(motivo);
+    return;
+  }
+  archivo = file;
+  renderArchivo();
+  anunciar(`Archivo elegido: ${file.name}, ${fmtTamano(file.size)}.`);
+  $('procesar').focus();
+}
+
+function quitarArchivo() {
+  archivo = null;
+  $('archivo').value = '';
+  ocultarError();
+  errorArchivo('');
+  renderArchivo();
+  anunciar('Se quitó el archivo.');
+  $('archivo').focus();
+}
+
+$('archivo').addEventListener('change', e => elegirArchivo(e.target.files[0]));
+$('quitar').addEventListener('click', quitarArchivo);
+
+// Arrastrar y soltar sobre la zona (dropzone o chip del archivo elegido).
+const zona = $('zona');
+zona.addEventListener('dragenter', e => {
+  e.preventDefault();
+  if (procesando) return;
+  arrastres += 1;
+  zona.classList.add('arrastrando');
+});
+zona.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = procesando ? 'none' : 'copy';
+});
+zona.addEventListener('dragleave', () => {
+  arrastres = Math.max(0, arrastres - 1);
+  if (!arrastres) zona.classList.remove('arrastrando');
+});
+zona.addEventListener('drop', e => {
+  e.preventDefault();
+  arrastres = 0;
+  zona.classList.remove('arrastrando');
+  if (procesando) return;
+  const files = e.dataTransfer.files;
+  if (!files || !files.length) return;
+  if (files.length > 1) { errorArchivo('Soltá un solo archivo.'); return; }
+  try {
+    const dt = new DataTransfer();
+    dt.items.add(files[0]);
+    $('archivo').files = dt.files;
+  } catch (_e) { /* navegador sin DataTransfer construible: el File igual queda en memoria */ }
+  elegirArchivo(files[0]);
+});
+// Un archivo soltado fuera de la zona no debe abrirse en la pestaña.
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+
+// ── Tolerancias ──────────────────────────────────────────────────────────────
+// Campos de texto con inputmode="decimal", no type="number": según el idioma del navegador, un
+// type="number" descarta la coma y "2,5" llegaba como 25. Acá se acepta coma o punto, como el server.
+const valorTolerancia = id => Number($(id).value.trim().replace(',', '.'));
+
+function errorTolerancia(id) {
+  const crudo = $(id).value.trim();
+  if (crudo === '') return 'Completá este campo.';
+  const n = valorTolerancia(id);
+  if (!/^-?\d+([.,]\d+)?$/.test(crudo) || !Number.isFinite(n)) return 'Ingresá un número, por ejemplo 2,5.';
+  if (n < 0) return 'No puede ser negativo.';
+  if (n > TOLERANCIAS[id].max) return TOLERANCIAS[id].msgMax;
+  return '';
+}
+
+function marcarTolerancia(id, mensaje) {
+  const el = $(`${id}-error`);
+  el.textContent = mensaje;
+  el.hidden = !mensaje;
+  $(id).setAttribute('aria-invalid', mensaje ? 'true' : 'false');
+}
+
+// Valida ambas y devuelve el id del primer campo con error (o null).
+function validarTolerancias() {
+  let primero = null;
+  for (const id of Object.keys(TOLERANCIAS)) {
+    const mensaje = errorTolerancia(id);
+    marcarTolerancia(id, mensaje);
+    if (mensaje && !primero) primero = id;
+  }
+  if (!primero) {
+    $('tol-resumen').textContent = `Importe hasta $${fmtNum(valorTolerancia('tolMonto'))} y hora hasta ${fmtNum(valorTolerancia('tolMin'))} min`;
+  }
+  return primero;
+}
+
+function abrirTolerancias(abrir) {
+  $('tol-campos').hidden = !abrir;
+  $('tol-toggle').setAttribute('aria-expanded', String(abrir));
+  $('tol-toggle').textContent = abrir ? 'Ocultar' : 'Cambiar';
+}
+
+$('tol-toggle').addEventListener('click', () => {
+  const abierto = !$('tol-campos').hidden;
+  if (!abierto) { abrirTolerancias(true); $('tolMonto').focus(); return; }
+  const conError = validarTolerancias();
+  if (conError) { $(conError).focus(); return; }
+  abrirTolerancias(false);
+});
+for (const id of Object.keys(TOLERANCIAS)) {
+  // Mientras escribe se limpia el error del campo. Se valida al procesar o al ocultar, no al
+  // salir del campo: el mensaje que aparece en el blur corría el botón bajo el puntero y el clic fallaba.
+  $(id).addEventListener('input', () => marcarTolerancia(id, ''));
+}
+
+// ── Procesar ─────────────────────────────────────────────────────────────────
+function setProcesando(valor) {
+  procesando = valor;
+  $('procesar-txt').textContent = valor ? 'Procesando...' : 'Procesar y descargar';
+  $('progreso').hidden = !valor;
+  $('form').setAttribute('aria-busy', String(valor));
+  for (const id of ['archivo', 'quitar', 'tol-toggle', 'tolMonto', 'tolMin']) $(id).disabled = valor;
+  renderArchivo();
+}
+
+function mostrarError(texto) {
+  $('error-txt').textContent = texto;
+  $('error').hidden = false;
+}
+
+async function mensajeDeError(r) {
+  if (r.status === 401) return 'La sesión venció. Recargá la página e iniciá sesión de nuevo.';
+  if (r.status === 403) return 'No tenés acceso a este módulo.';
+  try {
+    const cuerpo = await r.json();
+    if (cuerpo && typeof cuerpo.error === 'string' && cuerpo.error) return cuerpo.error;
+  } catch (_e) { /* respuesta sin JSON */ }
+  return 'No se pudo procesar el archivo.';
+}
+
+function bajar() {
+  if (!descarga) return;
+  const a = document.createElement('a');
+  a.href = descarga.url;
+  a.download = descarga.nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// ── Resumen en pantalla ──────────────────────────────────────────────────────
+// Todo el DOM se arma con createElement y textContent: nombres, tickets y observaciones vienen del server.
+const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const MSG_FORMATO = 'La respuesta del servidor no tiene el formato esperado. Recargá la página e intentá de nuevo.';
+const fmtPesos = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
+const pesos = n => fmtPesos.format(Number(n) || 0);
+const enteros = n => (Number(n) || 0).toLocaleString('es-AR');
+// "aaaa-mm-dd hh:mm:ss" → "dd/mm/aaaa hh:mm:ss" por texto, sin new Date(): no hay zona horaria en juego.
+const fmtFecha = s => {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})$/.exec(String(s || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}` : String(s || '');
+};
+const RESULTADOS_ATENCION = {
+  'A REVISAR': { icono: 'triangle-alert', tono: 't-warn' },
+  'AMBIGUO': { icono: 'circle-help', tono: 't-warn' },
+  'SIN UBICAR': { icono: 'circle-x', tono: 't-crit' },
+};
+
+function h(tag, props = {}, ...hijos) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else el.setAttribute(k, v);
+  }
+  for (const hijo of hijos) if (hijo != null) el.append(hijo);
+  return el;
+}
+const icono = (nombre, clase = '') => h('i', { 'data-lucide': nombre, class: clase, 'aria-hidden': 'true' });
+const thCol = (texto, clase = '') => h('th', { scope: 'col', class: clase, text: texto });
+const td = (texto, clase = '') => h('td', { class: clase, text: texto });
+
+function etiquetaResultado(resultado, cantidad) {
+  const atencion = cantidad > 0 && RESULTADOS_ATENCION[resultado];
+  if (!atencion) return h('span', { class: 'etq' }, h('span', { class: 'hueco', 'aria-hidden': 'true' }), resultado);
+  return h('span', { class: `etq ${atencion.tono}` }, icono(atencion.icono), resultado,
+    h('span', { class: 'sr-only', text: ', para revisar' }));
+}
+
+function tablaResultado(porResultado) {
+  const filas = porResultado.map(({ resultado, cantidad, importe }) => {
+    const clase = cantidad === 0 ? 'cero' : (RESULTADOS_ATENCION[resultado] ? 'atencion' : '');
+    return h('tr', { class: clase },
+      h('th', { scope: 'row' }, etiquetaResultado(resultado, cantidad)),
+      td(enteros(cantidad), 'num'), td(pesos(importe), 'num'));
+  });
+  const totCant = porResultado.reduce((a, r) => a + (Number(r.cantidad) || 0), 0);
+  const totImp = porResultado.reduce((a, r) => a + (Number(r.importe) || 0), 0);
+  return [
+    h('thead', {}, h('tr', {}, thCol('Resultado'), thCol('Movimientos', 'num'), thCol('Importe', 'num'))),
+    h('tbody', {}, ...filas),
+    h('tfoot', {}, h('tr', {}, h('th', { scope: 'row', text: 'Total' }), td(enteros(totCant), 'num'), td(pesos(totImp), 'num'))),
+  ];
+}
+
+function lineaControl({ control, totalBruto, sumaAprobadas }) {
+  if (control === 'OK') {
+    return { clase: 'control', icono: icono('circle-check', 't-ok'),
+      texto: `La suma de ventas aprobadas coincide con el Total bruto del archivo (${pesos(totalBruto)}).` };
+  }
+  if (control === 'NO COINCIDE') {
+    return { clase: 'control t-crit', icono: icono('triangle-alert'),
+      texto: `No coincide: el archivo informa ${pesos(totalBruto)} y se leyó ${pesos(sumaAprobadas)}. Revisá que no falten filas.` };
+  }
+  return { clase: 'control sin-total', icono: icono('info'), texto: 'El archivo no trae un total para controlar.' };
+}
+
+function tablaSucursal(porSucursal) {
+  const filas = porSucursal.map(s => h('tr', {},
+    h('th', { scope: 'row', text: s.nombre || 'Sin nombre' }),
+    td(enteros(s.cantidad), 'num'), td(pesos(s.importe), 'num'),
+    s.revisar > 0 ? td(enteros(s.revisar), 'num t-warn') : td('-', 'num')));
+  const suma = campo => porSucursal.reduce((a, s) => a + (Number(s[campo]) || 0), 0);
+  const totRev = suma('revisar');
+  return [
+    h('thead', {}, h('tr', {}, thCol('Sucursal'), thCol('Movimientos', 'num'), thCol('Importe', 'num'), thCol('Para revisar', 'num'))),
+    h('tbody', {}, ...filas),
+    h('tfoot', {}, h('tr', {}, h('th', { scope: 'row', text: 'Total' }),
+      td(enteros(suma('cantidad')), 'num'), td(pesos(suma('importe')), 'num'), td(totRev > 0 ? enteros(totRev) : '-', 'num'))),
+  ];
+}
+
+const plural = (n, uno, varios) => `${enteros(n)} ${n === 1 ? uno : varios}`;
+
+function textoPie({ parametros, archivo }) {
+  const leidos = plural(archivo.leidos, 'movimiento leído', 'movimientos leídos');
+  const rango = archivo.desde ? ` del ${fmtFecha(archivo.desde)} al ${fmtFecha(archivo.hasta)}` : '';
+  const lineas = [`${leidos}${rango}. Tolerancias usadas: importe hasta $${fmtNum(Number(parametros.tolMonto))} y hora hasta ${fmtNum(Number(parametros.tolMin))} min.`];
+  if (archivo.descartadas > 0) {
+    lineas.push(archivo.descartadas === 1
+      ? '1 fila del archivo no tenía una fecha válida y se descartó.'
+      : `${enteros(archivo.descartadas)} filas del archivo no tenían una fecha válida y se descartaron.`);
+  }
+  return lineas.map(t => h('p', { text: t }));
+}
+
+function tablaAtencion(filas) {
+  const cuerpo = filas.map(f => h('tr', { class: 'atencion' },
+    td(enteros(f.fila), 'num'), td(fmtFecha(f.fecha)), td(pesos(f.importe), 'num'),
+    h('td', {}, etiquetaResultado(f.resultado, 1)),
+    td(f.sucursal || '-'), td(f.ticket || '-'), td(f.fechaTicket ? fmtFecha(f.fechaTicket) : '-'),
+    td(f.observacion || (f.otros ? `Otros posibles: ${f.otros}` : ''), 'detalle')));
+  const tabla = h('table', { class: 'tabla', 'aria-labelledby': 'rev-titulo' },
+    h('thead', {}, h('tr', {}, thCol('Fila', 'num'), thCol('Hora banco'), thCol('Importe', 'num'), thCol('Resultado'),
+      thCol('Sucursal'), thCol('Ticket'), thCol('Hora ticket'), thCol('Detalle'))),
+    h('tbody', {}, ...cuerpo));
+  // Enfocable para poder desplazarla con el teclado.
+  return h('div', { class: 'scroll', tabindex: '0', role: 'region', 'aria-label': 'Movimientos para revisar' }, tabla);
+}
+
+function renderAtencion({ total, omitidas, filas }) {
+  $('rev-cuenta').textContent = total > 0 ? plural(total, 'movimiento', 'movimientos') : '';
+  if (total === 0) {
+    $('rev-cuerpo').replaceChildren(h('p', { class: 'vacio' }, icono('circle-check'),
+      'Nada para revisar. Todos los movimientos aprobados se ubicaron.'));
+    return;
+  }
+  const aviso = omitidas > 0
+    ? h('p', { class: 'aviso' }, icono('info'), `Se muestran ${enteros(filas.length)} de ${enteros(total)}. El resto está en el xlsx.`)
+    : null;
+  $('rev-cuerpo').replaceChildren(...[aviso, tablaAtencion(filas)].filter(Boolean));
+}
+
+function renderResumen(resumen) {
+  $('res-tabla').replaceChildren(...tablaResultado(resumen.porResultado));
+  const ctl = lineaControl(resumen.archivo);
+  $('control').className = ctl.clase;
+  $('control').replaceChildren(ctl.icono, h('span', { text: ctl.texto }));
+  $('suc-tabla').replaceChildren(...tablaSucursal(resumen.porSucursal));
+  $('pie').replaceChildren(...textoPie(resumen));
+  renderAtencion(resumen.atencion);
+}
+
+const respuestaValida = c => !!(c && c.resumen && c.archivo && typeof c.archivo.base64 === 'string'
+  && Array.isArray(c.resumen.porResultado) && Array.isArray(c.resumen.porSucursal)
+  && c.resumen.archivo && c.resumen.parametros && c.resumen.atencion && Array.isArray(c.resumen.atencion.filas));
+
+function blobDeBase64(base64) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: MIME_XLSX });
+}
+
+function mostrarResultado(nombre, resumen) {
+  $('form').hidden = true;
+  $('ok-archivo').textContent = nombre;
+  renderResumen(resumen);
+  $('resultado').hidden = false;
+  $('revisar').hidden = false;
+  if (window.lucide) lucide.createIcons();
+  anunciar(`Cruce listo: se descargó ${nombre}.`);
+  $('ok-titulo').focus();
+}
+
+async function procesar(e) {
+  e.preventDefault();
+  if (procesando || !archivo) return;
+  ocultarError();
+  const conError = validarTolerancias();
+  if (conError) { abrirTolerancias(true); $(conError).focus(); return; }
+
+  const datos = new FormData();
+  datos.append('archivo', archivo);
+  datos.append('tolMonto', $('tolMonto').value.trim());
+  datos.append('tolMin', $('tolMin').value.trim());
+
+  setProcesando(true);
+  anunciar('Procesando el archivo. Puede tardar unos segundos.');
+  try {
+    const r = await fetch('/api/cruce-bancario/procesar', { method: 'POST', body: datos });
+    if (!r.ok) { mostrarError(await mensajeDeError(r)); return; }
+    // Defensa por si llega otra cosa (por ejemplo el HTML de un login tras un redirect).
+    let cuerpo = null;
+    let blob = null;
+    try {
+      cuerpo = await r.json();
+      if (respuestaValida(cuerpo)) blob = blobDeBase64(cuerpo.archivo.base64);
+    } catch (_e) { /* JSON o base64 inválido: se informa abajo */ }
+    if (!blob) { mostrarError(MSG_FORMATO); return; }
+    const nombre = (typeof cuerpo.archivo.nombre === 'string' && cuerpo.archivo.nombre) || 'cruce_bancario.xlsx';
+    if (descarga) URL.revokeObjectURL(descarga.url);
+    descarga = { url: URL.createObjectURL(blob), nombre };
+    bajar();
+    mostrarResultado(nombre, cuerpo.resumen);
+  } catch (_e) {
+    mostrarError('No se pudo conectar con el servidor.');
+  } finally {
+    setProcesando(false);
+    // Deshabilitar el botón le quita el foco: tras un error se lo devuelve para reintentar.
+    if (!$('form').hidden) $('procesar').focus();
+  }
+}
+
+function reiniciar() {
+  if (descarga) URL.revokeObjectURL(descarga.url);
+  descarga = null;
+  archivo = null;
+  $('archivo').value = '';
+  ocultarError();
+  errorArchivo('');
+  $('resultado').hidden = true;
+  $('revisar').hidden = true;
+  for (const id of ['res-tabla', 'control', 'suc-tabla', 'pie', 'rev-cuerpo']) $(id).replaceChildren();
+  $('form').hidden = false;
+  renderArchivo();
+  anunciar('');
+  $('archivo').focus();
+}
+
+$('form').addEventListener('submit', procesar);
+$('redescargar').addEventListener('click', bajar);
+$('otro').addEventListener('click', reiniciar);
+
+if (window.lucide) lucide.createIcons();
+</script>
+</body>
+</html>
