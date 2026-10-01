@@ -15,10 +15,12 @@
      radios 6px controles / 10px cards, foco verde, hover/activo y disabled legible. */
   :root {
     --ad-verde:#405936; --ad-verde-hover:#4f6e42; --ad-verde-activo:#34492c; --ad-verde-tinte:rgba(64,89,54,.10);
-    --ad-ink:#242423; --ad-gris:#5c5f52; --ad-card:#ffffff; --ad-bg:#eef1ea; --ad-sup:#f5f7f2;
+    --ad-ink:#242423; --ad-gris:#5c5f52; --ad-card:#ffffff; --ad-sup:#f5f7f2;
     --ad-borde:rgba(26,28,24,.16); --ad-borde-suave:rgba(26,28,24,.09);
-    --ad-campo:#c3c9ba; --ad-campo-fuerte:#767c6f;
-    --ad-crit:#a4262c; --ad-crit-tinte:#fde7e9;
+    --ad-campo:#c3c9ba; --ad-campo-fuerte:#767c6f; --ad-borde-boton:#8a9082;
+    --ad-crit:#a4262c; --ad-crit-hover:#8c1f24; --ad-crit-activo:#741a1e; --ad-crit-tinte:#fde7e9;
+    --ad-ok:#0e700e; --ad-ok-tinte:#dff6dd; --ad-warn:#6b5200; --ad-warn-fuerte:#8a5d00; --ad-warn-tinte:#fff4ce;
+    --ad-desactivado:#e6e9e1;
     --ad-r-control:6px; --ad-r-card:10px;
     --ad-sombra:0 1.6px 3.6px rgba(26,28,24,.13), 0 0.3px 0.9px rgba(26,28,24,.1);
     --ad-sombra-pop:0 8px 24px -4px rgba(26,28,24,.18), 0 2px 6px rgba(26,28,24,.08);
@@ -39,7 +41,8 @@
   .p-button.solid { background:var(--ad-verde); color:#fff; }
   .p-button.solid:not(:disabled):hover { background:var(--ad-verde-hover); }
   .p-button.solid:not(:disabled):active { background:var(--ad-verde-activo); }
-  .p-button.outlined { background:var(--ad-card); border-color:var(--ad-campo); color:var(--ad-ink); }
+  /* Borde del botón contorneado más oscuro que el de los inputs: el botón no tiene el filo inferior Fluent. */
+  .p-button.outlined { background:var(--ad-card); border-color:var(--ad-borde-boton); color:var(--ad-ink); }
   .p-button.outlined:not(:disabled):hover { background:var(--ad-sup); border-color:var(--ad-campo-fuerte); }
   .p-button.outlined:not(:disabled):active { background:#e9ede3; }
   .p-button.ghost { background:transparent; color:var(--ad-ink); }
@@ -47,8 +50,13 @@
   .p-button.ghost:not(:disabled):active { background:rgba(64,89,54,.16); }
   .p-button.danger { color:var(--ad-crit); }
   .p-button.danger:not(:disabled):hover { background:var(--ad-crit-tinte); color:var(--ad-crit); }
+  /* Acción destructiva confirmada (modal): sólido rojo. */
+  .p-button.solid.peligro { background:var(--ad-crit); }
+  .p-button.solid.peligro:not(:disabled):hover { background:var(--ad-crit-hover); }
+  .p-button.solid.peligro:not(:disabled):active { background:var(--ad-crit-activo); }
+  .p-button.peligro:focus-visible { outline-color:var(--ad-crit); }
   /* Disabled: gris sólido con texto legible (5:1), no opacidad. */
-  .p-button:disabled { background:#e6e9e1; border-color:transparent; color:var(--ad-gris); cursor:not-allowed; }
+  .p-button:disabled { background:var(--ad-desactivado); border-color:transparent; color:var(--ad-gris); cursor:not-allowed; }
   .p-button.lg { height:44px; padding:0 22px; font-size:15px; }
   .p-button.sm { height:36px; padding:0 14px; }
   .p-button.xs { height:30px; padding:0 10px; font-size:13px; }
@@ -66,7 +74,9 @@
     transition:border-color .14s, box-shadow .14s; }
   .p-input:hover, .p-select:hover { border-color:var(--ad-campo-fuerte); }
   .p-input::placeholder { color:#6e7466; }
-  .p-input:focus, .p-select:focus { border-color:var(--ad-verde); box-shadow:var(--ad-foco); }
+  /* El outline transparente no se ve normalmente, pero sí en Windows con colores forzados. */
+  .p-input:focus, .p-select:focus { border-color:var(--ad-verde); box-shadow:var(--ad-foco); outline:2px solid transparent; outline-offset:1px; }
+  .p-select:disabled { background-color:var(--ad-desactivado); color:var(--ad-gris); cursor:not-allowed; border-color:var(--ad-campo); }
   .p-input.sm, .p-select.sm { height:34px; padding:0 10px; }
   .p-input.num { text-align:right; font-variant-numeric:tabular-nums; }
   .p-select { appearance:none; padding-right:30px !important; cursor:pointer; text-overflow:ellipsis;
@@ -85,18 +95,20 @@
   .p-card-footer { padding:14px 24px; border-top:1px solid var(--ad-borde-suave); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
 
   /* Tabs: pestaña "carpeta" compartida (.tab de apidelta-theme.css); la activa sigue a aria-selected.
-     Corrida a la izquierda lo que mide su padding+borde para que el texto alinee con el borde del contenido. */
-  .p-tabs-list { position:relative; display:flex; gap:2px; margin:0 0 20px -15px; }
-  .p-tabs-list::after { content:""; position:absolute; left:15px; right:0; bottom:0; height:1px; background:var(--ad-borde); }
-  .p-tab { position:relative; z-index:1; background:none; font-size:15px; }
+     La caja de la pestaña arranca en el borde de las cards; peso/espaciado más bajos que el theme
+     para que no griten más que el contenido. */
+  .p-tabs-list { position:relative; display:flex; gap:2px; margin:0 0 20px; }
+  .p-tabs-list::after { content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--ad-borde); }
+  .p-tab { position:relative; z-index:1; background:none; font-size:15px; font-weight:600; letter-spacing:.02em; }
   .p-tab:hover { color:var(--ad-ink); }
   .p-tab:focus-visible { outline:2px solid var(--ad-verde); outline-offset:-2px; }
-  .p-tab[aria-selected="true"] { background:var(--ad-card); border-color:var(--ad-borde); border-bottom-color:var(--ad-card); color:var(--ad-verde); }
+  .p-tab[aria-selected="true"] { background:var(--ad-card); border-color:var(--ad-borde); border-bottom-color:var(--ad-card); color:var(--ad-verde); font-weight:700; }
 
   /* Tabla */
-  .p-table-wrap { overflow-x:auto; border:1px solid var(--ad-borde-suave); border-radius:var(--ad-r-control); }
+  /* relative: los .sr-only (absolutos) de las cabeceras quedan dentro del recorte y no ensanchan la página. */
+  .p-table-wrap { position:relative; overflow-x:auto; border:1px solid var(--ad-borde-suave); border-radius:var(--ad-r-control); }
   .p-table { width:100%; border-collapse:collapse; font-size:14px; }
-  .p-table th { height:38px; padding:0 12px; text-align:left; font-size:11.5px; font-weight:600; color:var(--ad-gris);
+  .p-table th { height:38px; padding:0 12px; text-align:left; font-size:12px; font-weight:600; color:var(--ad-gris);
     background:var(--ad-sup); border-bottom:1px solid var(--ad-borde-suave); white-space:nowrap; }
   .p-table td { padding:8px 12px; border-bottom:1px solid var(--ad-borde-suave); vertical-align:middle; }
   .p-table tbody tr:last-child td { border-bottom:0; }
@@ -105,7 +117,11 @@
   .p-table td .p-input, .p-table td .p-select { width:100%; }
 
   /* Tabla del pedido: anchos fijos, el producto se queda con el espacio libre. */
-  .t-pedido { table-layout:fixed; }
+  /* min-width = columnas fijas (962px) + ~200px de producto: por debajo (zoom 125% en 1366) la tabla
+     scrollea en su caja en vez de aplastar el nombre; desde 1280px de ventana no cambia nada. */
+  .t-pedido { table-layout:fixed; min-width:1160px; }
+  /* Kilos y cantidad: mismo ancho fijo, alineados a la derecha de la celda. */
+  .t-pedido td .p-input.num-fijo { width:108px; margin-left:auto; display:block; }
   .t-pedido td { padding:7px 10px; }
   .t-pedido th { padding:0 10px; }
   .t-pedido td:last-child, .t-pedido th:last-child { padding:0 8px 0 0; text-align:right; }
@@ -118,7 +134,7 @@
   .t-lista td.acciones .p-button { vertical-align:middle; }
   .t-lista td.acciones .p-button + .p-button { margin-left:6px; }
   .t-lista .elipsis { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .t-lista tbody tr:hover td { background:var(--ad-sup); }
+  .t-lista .col-estado { padding-left:28px; }
   /* Tarea en edición: tinte verde + barra a la izquierda, se limpia al terminar. */
   .t-lista tbody tr.fila-editando td { background:var(--ad-verde-tinte); }
   .t-lista tbody tr.fila-editando td:first-child { box-shadow:inset 3px 0 0 var(--ad-verde); }
@@ -128,16 +144,16 @@
 
   /* Configuración: cabecera de columnas y filas en la misma grilla; quitar = alto del input. */
   .cfg-grilla { display:grid; grid-template-columns:minmax(0,1fr) 150px 34px; gap:8px; align-items:center; }
-  .cfg-cab { font-size:11.5px; font-weight:600; color:var(--ad-gris); text-transform:uppercase; letter-spacing:.02em; margin-bottom:6px; }
+  .cfg-cab { font-size:12px; font-weight:600; color:var(--ad-gris); text-transform:uppercase; letter-spacing:.02em; margin-bottom:6px; }
   .p-button.icon.alto-campo { width:34px; height:34px; }
 
   /* Badge (pill) */
   .p-badge { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:999px;
     font-size:12px; font-weight:600; background:#e9ece4; color:var(--ad-ink); white-space:nowrap; }
   .p-badge.accent { background:rgba(64,89,54,.13); color:var(--ad-verde); }
-  .p-badge.green { background:#dff6dd; color:#0e700e; }
-  .p-badge.amber { background:#fff4ce; color:#8a5d00; }
-  .p-badge.yellow { background:#fff4ce; color:#6b5200; }
+  .p-badge.green { background:var(--ad-ok-tinte); color:var(--ad-ok); }
+  .p-badge.amber { background:var(--ad-warn-tinte); color:var(--ad-warn-fuerte); }
+  .p-badge.yellow { background:var(--ad-warn-tinte); color:var(--ad-warn); }
   .p-badge.dot::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; margin-right:6px; }
 
   /* Buscador con lista desplegable anclada debajo del input. */
@@ -159,7 +175,7 @@
   .p-backdrop { position:fixed; inset:0; z-index:50; background:rgba(26,28,24,.32);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   .p-dialog { background:var(--ad-card); border-radius:var(--ad-r-card); box-shadow:var(--ad-sombra-pop); width:100%; max-width:420px; padding:22px 24px 18px;
-    border-top:3px solid var(--ad-verde); animation:apidelta-fade-in .18s ease; }
+    animation:apidelta-fade-in .18s ease; }
   .p-dialog-title { font-size:16px; font-weight:600; margin:0 0 6px; }
   .p-dialog-desc { font-size:14px; color:var(--ad-ink); margin:0 0 20px; }
 
@@ -168,6 +184,7 @@
   .p-empty .spin { width:20px; height:20px; }
   .p-empty-ico { display:inline-grid; place-items:center; width:44px; height:44px; border-radius:50%; background:var(--ad-verde-tinte); color:var(--ad-verde); margin-bottom:10px; }
   .p-empty-titulo { display:block; font-weight:600; color:var(--ad-ink); }
+  .p-empty-desc { display:block; font-size:13px; }
 
   /* Barra de totales: pegada al pie de la ventana mientras el pedido está a la vista. */
   .p-totales { position:sticky; bottom:0; z-index:10; box-sizing:border-box; height:var(--ad-alto-totales); border-radius:0 0 var(--ad-r-card) var(--ad-r-card);
@@ -177,15 +194,27 @@
   .p-totales .stat-card.total { min-width:230px; border-color:rgba(64,89,54,.35); }
   .p-totales .stat-card.total .stat-val { font-size:22px; font-weight:700; color:var(--ad-verde); }
   .p-totales .stat-card .stat-val { line-height:28px; }
+  .p-totales .stat-card .stat-lbl { font-size:12px; }
   .p-divisor { border-top:1px solid var(--ad-borde-suave); }
 
-  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+  .link-inicio { display:inline-flex; align-items:center; height:32px; padding:0 10px; margin-right:-10px; border-radius:var(--ad-r-control); }
+  .link-inicio:hover { text-decoration:underline; text-underline-offset:3px; }
+  .link-inicio:focus-visible { outline:2px solid #fff; outline-offset:0; }
+
+  /* El spinner sigue girando (lento, como en el theme) aunque se pida menos movimiento: indica estado. */
+  @media (prefers-reduced-motion: reduce) { *:not(.spin) { transition:none !important; animation:none !important; } }
+
+  /* Windows con colores forzados: la pestaña activa y la fila en edición no dependen del color de fondo. */
+  @media (forced-colors: active) {
+    .p-tab[aria-selected="true"] { border-bottom:3px solid Highlight; }
+    .t-lista tbody tr.fila-editando td:first-child { border-left:3px solid Highlight; }
+  }
 </style>
 </head>
 <body class="font-body text-ink">
-<div id="modalOverlay" class="p-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
-  <div class="p-dialog">
-    <h2 id="modalTitulo" class="p-dialog-title">Fraccionado Externo</h2>
+<div id="modalOverlay" class="p-backdrop hidden">
+  <div id="modalPanel" class="p-dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitulo" aria-describedby="modalMensaje">
+    <h2 id="modalTitulo" class="p-dialog-title">Aviso</h2>
     <p id="modalMensaje" class="p-dialog-desc"></p>
     <div class="flex justify-end gap-2">
       <button id="modalCancelar" type="button" class="p-button outlined sm hidden">Cancelar</button>
@@ -196,21 +225,21 @@
 <header class="acrylic sticky top-0 z-20 shadow-fluent">
   <div class="filo-amarillo max-w-7xl mx-auto px-8 h-[var(--ad-alto-header)] flex items-center gap-3">
     <h1 class="font-disp text-xl font-bold m-0">Fraccionado Externo</h1>
-    <a href="/" class="ml-auto text-sm">← Inicio</a>
+    <a href="/" class="link-inicio ml-auto text-sm">← Inicio</a>
   </div>
 </header>
 <main class="max-w-7xl mx-auto px-8 pt-5 pb-8">
 
   <p class="p-helper mb-4">Armá pedidos de fraccionado para tercerizar. El costo sale del nivel de tiempo y complejidad de cada producto.</p>
 
-  <div class="p-tabs-list" role="tablist">
-    <button class="p-tab tab" role="tab" aria-selected="true" data-tab="armado">Armar pedido</button>
-    <button class="p-tab tab" role="tab" aria-selected="false" data-tab="guardados">Pedidos guardados</button>
-    <button class="p-tab tab" role="tab" aria-selected="false" data-tab="tareas">Tareas</button>
-    <button class="p-tab tab" role="tab" aria-selected="false" data-tab="config">Configuración</button>
+  <div class="p-tabs-list" role="tablist" aria-label="Secciones">
+    <button class="p-tab tab" role="tab" id="tabbtn-armado" aria-controls="tab-armado" aria-selected="true" data-tab="armado">Armar pedido</button>
+    <button class="p-tab tab" role="tab" id="tabbtn-guardados" aria-controls="tab-guardados" aria-selected="false" tabindex="-1" data-tab="guardados">Pedidos guardados</button>
+    <button class="p-tab tab" role="tab" id="tabbtn-tareas" aria-controls="tab-tareas" aria-selected="false" tabindex="-1" data-tab="tareas">Tareas</button>
+    <button class="p-tab tab" role="tab" id="tabbtn-config" aria-controls="tab-config" aria-selected="false" tabindex="-1" data-tab="config">Configuración</button>
   </div>
 
-  <section id="tab-armado" class="space-y-4">
+  <section id="tab-armado" class="space-y-4" role="tabpanel" aria-labelledby="tabbtn-armado">
     <div class="p-card">
       <div class="p-card-body space-y-4">
         <div class="grid gap-4 grid-cols-[180px_1fr]">
@@ -232,6 +261,7 @@
                 <input id="buscarProducto" type="text" placeholder="Buscar por nombre…" class="p-input" autocomplete="off" role="combobox" aria-controls="resultados" aria-expanded="false" aria-autocomplete="list">
               </div>
               <div id="resultados" class="p-listbox" role="listbox" aria-label="Productos encontrados" tabindex="-1"></div>
+              <div id="resultadosEstado" class="sr-only" aria-live="polite"></div>
             </div>
           </div>
           <div class="p-field">
@@ -240,7 +270,8 @@
               <select id="selTarea" class="p-select flex-1"></select>
               <button type="button" id="btnAgregarTarea" class="p-button outlined" disabled>Agregar</button>
             </div>
-            <p id="tareasSinDatos" class="p-helper hidden">No hay tareas cargadas. Creálas en la pestaña Tareas.</p>
+            <!-- Sólo para lectores de pantalla: a la vista ya lo dice el select deshabilitado, y no corre el layout. -->
+            <p id="tareasSinDatos" class="sr-only hidden">No hay tareas cargadas. Creálas en la pestaña Tareas.</p>
           </div>
         </div>
       </div>
@@ -259,7 +290,7 @@
               <col style="width:112px">
               <col style="width:172px">
               <col style="width:144px">
-              <col style="width:100px">
+              <col style="width:128px">
               <col style="width:138px">
               <col style="width:104px">
               <col style="width:116px">
@@ -283,7 +314,7 @@
           <div id="carritoVacio" class="p-empty">
             <span class="p-empty-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></span>
             <span class="p-empty-titulo">El pedido está vacío</span>
-            <span class="text-[13px]">Buscá un producto o elegí una tarea arriba para empezar a armarlo.</span>
+            <span class="p-empty-desc">Buscá un producto o elegí una tarea arriba para empezar a armarlo.</span>
           </div>
         </div>
       </div>
@@ -307,7 +338,7 @@
     </div>
   </section>
 
-  <section id="tab-guardados" class="hidden">
+  <section id="tab-guardados" class="hidden" role="tabpanel" aria-labelledby="tabbtn-guardados">
     <div class="p-card">
       <div class="p-card-header">
         <h2 class="p-card-title">Pedidos guardados</h2>
@@ -330,7 +361,7 @@
                 <th>Fecha</th>
                 <th>Tercero</th>
                 <th class="r">Total</th>
-                <th>Estado</th>
+                <th class="col-estado">Estado</th>
                 <th><span class="sr-only">Acciones</span></th>
               </tr>
             </thead>
@@ -339,19 +370,19 @@
           <div id="pedidosCargando" class="p-empty hidden" role="status">
             <span class="p-empty-ico" aria-hidden="true"><span class="spin"></span></span>
             <span class="p-empty-titulo">Cargando pedidos…</span>
-            <span class="text-[13px]">Un momento, se está trayendo la lista.</span>
+            <span class="p-empty-desc">Un momento, se está trayendo la lista.</span>
           </div>
           <div id="pedidosVacio" class="p-empty hidden">
             <span class="p-empty-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span>
             <span class="p-empty-titulo">Todavía no hay pedidos guardados</span>
-            <span class="text-[13px]">Armá uno en la pestaña Armar pedido y tocá Generar pedido: va a aparecer acá.</span>
+            <span class="p-empty-desc">Armá uno en la pestaña Armar pedido y tocá Generar pedido: va a aparecer acá.</span>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="tab-tareas" class="hidden space-y-4">
+  <section id="tab-tareas" class="hidden space-y-4" role="tabpanel" aria-labelledby="tabbtn-tareas">
     <form id="formTarea" class="p-card">
       <div class="p-card-header">
         <h2 class="p-card-title" id="tareaFormTitulo">Nueva tarea</h2>
@@ -398,14 +429,14 @@
           <div id="tareasVacio" class="p-empty hidden">
             <span class="p-empty-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span>
             <span class="p-empty-titulo">Todavía no hay tareas</span>
-            <span class="text-[13px]">Cargá el nombre y el monto por unidad arriba y tocá Agregar tarea.</span>
+            <span class="p-empty-desc">Cargá el nombre y el monto por unidad arriba y tocá Agregar tarea.</span>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="tab-config" class="hidden">
+  <section id="tab-config" class="hidden" role="tabpanel" aria-labelledby="tabbtn-config">
     <form id="formConfig" class="p-card">
       <div class="p-card-body grid gap-10 grid-cols-2">
         <fieldset>
@@ -459,12 +490,13 @@
 
   const ICONO_CERRAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
   const ETIQUETA_VALOR = { tiempos: 'Minutos por paquete', factores: 'Multiplicador' };
+  const NOMBRE_GRUPO = { tiempos: 'Tiempo', factores: 'Complejidad' };
 
   function filaNivel(grupo, n) {
     return `
       <div class="cfg-grilla" data-fila-nivel="${grupo}" data-id="${escAttr(n.id || '')}">
         <input type="text" required maxlength="40" value="${escAttr(n.nombre)}" placeholder="Nombre"
-          class="p-input sm" data-nombre aria-label="Nombre de la opción">
+          class="p-input sm" data-nombre aria-label="Nombre de la opción de ${NOMBRE_GRUPO[grupo]}">
         <input type="number" step="any" min="0.01" required value="${n.valor ?? ''}" placeholder="Valor"
           class="p-input sm num" data-valor aria-label="${ETIQUETA_VALOR[grupo]} de ${escAttr(n.nombre || 'la opción')}">
         <button type="button" class="p-button ghost danger icon alto-campo" data-quitar-nivel aria-label="Quitar ${escAttr(n.nombre || 'opción')}" title="Quitar opción">${ICONO_CERRAR}</button>
@@ -522,40 +554,73 @@
 
   // Modal propio en vez de alert()/confirm() nativos del navegador — mismo resultado
   // (Promise que resuelve al cerrar), pero sin bloquear el hilo ni verse "de sistema".
-  function mostrarModal(mensaje, { conCancelar = false } = {}) {
+  // Un modal por vez: si ya hay uno abierto, el segundo no se apila ni vuelve a enganchar los
+  // botones (eso duplicaba la acción confirmada). Mientras está abierto, header y main quedan
+  // inert: ni el foco ni los clics llegan a la página de atrás.
+  function mostrarModal(mensaje, { conCancelar = false, textoConfirmar = 'Confirmar', peligro = false } = {}) {
+    const overlay = document.getElementById('modalOverlay');
+    if (!overlay.classList.contains('hidden')) return Promise.resolve(false);
     return new Promise(resolve => {
-      const overlay = document.getElementById('modalOverlay');
+      document.getElementById('modalPanel').setAttribute('role', conCancelar ? 'alertdialog' : 'dialog');
+      document.getElementById('modalTitulo').textContent = conCancelar ? 'Confirmar acción' : 'Aviso';
       document.getElementById('modalMensaje').textContent = mensaje;
       const btnCancelar = document.getElementById('modalCancelar');
       const btnAceptar = document.getElementById('modalAceptar');
       btnCancelar.classList.toggle('hidden', !conCancelar);
-      btnAceptar.textContent = conCancelar ? 'Confirmar' : 'Aceptar';
+      btnAceptar.textContent = conCancelar ? textoConfirmar : 'Aceptar';
+      btnAceptar.classList.toggle('peligro', conCancelar && peligro);
+      const fondo = [document.querySelector('header'), document.querySelector('main')];
       const focoPrevio = document.activeElement;
+      fondo.forEach(el => { el.inert = true; });
       overlay.classList.remove('hidden');
-      btnAceptar.focus();
+      // En una confirmación el foco arranca en Cancelar: un Enter de más nunca confirma.
+      (conCancelar ? btnCancelar : btnAceptar).focus();
       function cerrar(resultado) {
         overlay.classList.add('hidden');
-        if (focoPrevio && focoPrevio.isConnected) focoPrevio.focus(); // el foco vuelve a donde estaba
+        fondo.forEach(el => { el.inert = false; }); // antes de devolver el foco (inert lo impediría)
+        document.removeEventListener('keydown', onTecla);
         btnAceptar.removeEventListener('click', onAceptar);
         btnCancelar.removeEventListener('click', onCancelar);
+        if (focoPrevio && focoPrevio.isConnected) focoPrevio.focus(); // el foco vuelve a donde estaba
         resolve(resultado);
       }
       function onAceptar() { cerrar(true); }
       function onCancelar() { cerrar(false); }
+      // Escape: cancela una confirmación; en un aviso equivale a Aceptar.
+      function onTecla(e) { if (e.key === 'Escape') { e.preventDefault(); cerrar(!conCancelar); } }
       btnAceptar.addEventListener('click', onAceptar);
       btnCancelar.addEventListener('click', onCancelar);
+      document.addEventListener('keydown', onTecla);
     });
   }
   function mostrarAviso(mensaje) { return mostrarModal(mensaje, { conCancelar: false }); }
-  function confirmarAccion(mensaje) { return mostrarModal(mensaje, { conCancelar: true }); }
+  function confirmarAccion(mensaje, { textoConfirmar = 'Confirmar', peligro = false } = {}) {
+    return mostrarModal(mensaje, { conCancelar: true, textoConfirmar, peligro });
+  }
 
-  document.querySelectorAll('.p-tab').forEach(btn => btn.addEventListener('click', () => {
-    document.querySelectorAll('.p-tab').forEach(b => b.setAttribute('aria-selected', String(b === btn)));
+  // Pestañas (patrón ARIA tabs): tabindex móvil, flechas/Inicio/Fin mueven el foco y activan.
+  const TABS = [...document.querySelectorAll('.p-tab')];
+  function activarTab(btn) {
+    TABS.forEach(b => {
+      b.setAttribute('aria-selected', String(b === btn));
+      b.tabIndex = b === btn ? 0 : -1;
+    });
     ['armado', 'guardados', 'tareas', 'config'].forEach(t =>
       document.getElementById('tab-' + t).classList.toggle('hidden', btn.dataset.tab !== t));
     if (btn.dataset.tab === 'guardados') cargarPedidos();
     if (btn.dataset.tab === 'armado' || btn.dataset.tab === 'tareas') cargarTareas();
-  }));
+  }
+  TABS.forEach(btn => btn.addEventListener('click', () => activarTab(btn)));
+  document.querySelector('[role="tablist"]').addEventListener('keydown', e => {
+    const i = TABS.indexOf(document.activeElement);
+    if (i < 0) return;
+    const n = TABS.length;
+    const destino = { ArrowRight: (i + 1) % n, ArrowLeft: (i - 1 + n) % n, Home: 0, End: n - 1 }[e.key];
+    if (destino === undefined) return;
+    e.preventDefault();
+    TABS[destino].focus();
+    activarTab(TABS[destino]);
+  });
 
   const buscarInput = document.getElementById('buscarProducto');
   let buscarTimeout = null;
@@ -573,6 +638,7 @@
     const contenedor = document.getElementById('resultados');
     if (!q) { cerrarResultados(); return; }
     const busqueda = ++busquedaVigente;
+    const estado = document.getElementById('resultadosEstado');
     let productos;
     try {
       const r = await fetch('/api/fraccionado-externo/productos?buscar=' + encodeURIComponent(q));
@@ -590,9 +656,11 @@
     contenedor.innerHTML = productos.length ? productos.slice(0, 30).map((p, i) => `
       <div role="option" id="resultado-${i}" aria-selected="false" class="p-option" data-agregar='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
         <span class="p-option-nombre" title="${escAttr(p.nombre)}">${escAttr(p.nombre)}${presentacionSecundaria(p)}</span>
-        <span class="p-badge ${p.tieneHistorial ? 'green' : 'amber'}">${p.tieneHistorial ? p.minPorPaquete + ' min/paq' : 'sin historial'}</span>
+        <span class="p-badge ${p.tieneHistorial ? 'green' : 'amber'}">${p.tieneHistorial ? fmtCorto(p.minPorPaquete) + ' min/paq' : 'sin historial'}</span>
       </div>
     `).join('') : '<div role="option" aria-disabled="true" aria-selected="false" class="p-listbox-vacio">Sin resultados.</div>';
+    const mostrados = Math.min(productos.length, 30);
+    estado.textContent = !mostrados ? 'Sin resultados' : mostrados === 1 ? '1 resultado' : mostrados + ' resultados';
     opcionActiva = -1;
     buscarInput.removeAttribute('aria-activedescendant');
     buscarInput.setAttribute('aria-expanded', 'true');
@@ -611,6 +679,7 @@
     busquedaVigente++;
     opcionActiva = -1;
     document.getElementById('resultados').innerHTML = '';
+    document.getElementById('resultadosEstado').textContent = '';
     buscarInput.setAttribute('aria-expanded', 'false');
     buscarInput.removeAttribute('aria-activedescendant');
   }
@@ -687,12 +756,15 @@
   // Formato de pantalla es-AR (mismo criterio que cuentas_corrientes.html): "$1.625,00", "1,0".
   // No se usa en inputs (siguen con punto decimal), payloads ni PDF.
   const FORMATOS_NUMERO = {};
-  function fmtNumero(n, decimales = 2) {
-    const f = FORMATOS_NUMERO[decimales] || (FORMATOS_NUMERO[decimales] =
-      new Intl.NumberFormat('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales }));
+  function fmtNumero(n, decimales = 2, maxDecimales = decimales) {
+    const clave = decimales + '-' + maxDecimales;
+    const f = FORMATOS_NUMERO[clave] || (FORMATOS_NUMERO[clave] =
+      new Intl.NumberFormat('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: maxDecimales }));
     return f.format(Number(n) || 0);
   }
   const fmtMoneda = n => '$' + fmtNumero(n, 2);
+  // Valores de nivel / min por paquete: hasta 3 decimales, sin ceros de más ("0,5", "1,25").
+  const fmtCorto = n => fmtNumero(n, 0, 3);
   // "2026-09-16" → "16/09/2026" cortando el string: new Date() correría el día por el huso horario.
   function fmtFecha(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
@@ -751,13 +823,13 @@
           <td><span class="p-clamp" title="${escAttr(it.nombre)}">${escAttr(it.nombre)}</span></td>
           <td>
             <input type="text" value="${escAttr(it.presentacion || '')}" placeholder="ej. 500G"
-              class="p-input sm w-24" data-campo="presentacion" data-i="${i}" aria-label="Presentación de ${escAttr(it.nombre)}">
+              class="p-input sm" data-campo="presentacion" data-i="${i}" aria-label="Presentación de ${escAttr(it.nombre)}">
           </td>
-          <td title="${it.minHistorial != null ? 'Historial: ' + it.minHistorial + ' min/paq' : 'Sin historial'}">
-            ${selectNivel('tiempos', it.nivelTiempo, 'nivelTiempo', i)}
+          <td title="${it.minHistorial != null ? 'Historial: ' + fmtCorto(it.minHistorial) + ' min/paq' : 'Sin historial'}">
+            ${selectNivel('tiempos', it.nivelTiempo, 'nivelTiempo', i, it.nombre)}
           </td>
-          <td>${selectNivel('factores', it.nivelComplejidad, 'nivelComplejidad', i)}</td>
-          <td class="r"><input type="number" step="0.1" min="0" value="${it.kilos}" class="p-input sm num w-24" data-campo="kilos" data-i="${i}" aria-label="Kilos de ${escAttr(it.nombre)}"></td>
+          <td>${selectNivel('factores', it.nivelComplejidad, 'nivelComplejidad', i, it.nombre)}</td>
+          <td class="r"><input type="number" step="0.1" min="0" value="${it.kilos}" class="p-input sm num num-fijo" data-campo="kilos" data-i="${i}" aria-label="Kilos de ${escAttr(it.nombre)}"></td>
           <td class="r muted" data-paquetes="${i}">${paquetes ? fmtNumero(paquetes, 2) : '—'}</td>
           <td class="r" data-costo-unitario="${i}">${fmtMoneda(unitario)}</td>
           <td class="r font-semibold" data-costo-total="${i}">${fmtMoneda(total)}</td>
@@ -780,22 +852,22 @@
     return `
         <tr>
           <td><span class="flex items-center gap-2 min-w-0"><span class="p-clamp" title="${escAttr(it.nombre)}">${escAttr(it.nombre)}</span> <span class="p-badge accent">Tarea</span></span></td>
-          <td class="muted">—</td>
-          <td class="muted">—</td>
-          <td class="muted">—</td>
-          <td class="r muted">—</td>
-          <td class="r"><input type="number" step="0.01" min="0.01" value="${escAttr(it.cantidad)}" class="p-input sm num w-24" data-campo="cantidad" data-i="${i}" aria-label="Cantidad de ${escAttr(it.nombre)}"></td>
+          <td class="muted"><span aria-hidden="true">—</span></td>
+          <td class="muted"><span aria-hidden="true">—</span></td>
+          <td class="muted"><span aria-hidden="true">—</span></td>
+          <td class="r muted"><span aria-hidden="true">—</span></td>
+          <td class="r"><input type="number" step="0.01" min="0.01" value="${escAttr(it.cantidad)}" class="p-input sm num num-fijo" data-campo="cantidad" data-i="${i}" aria-label="Cantidad de ${escAttr(it.nombre)}"></td>
           <td class="r" data-costo-unitario="${i}">${fmtMoneda(unitario)}</td>
           <td class="r font-semibold" data-costo-total="${i}">${fmtMoneda(total)}</td>
           <td class="r"><button type="button" class="p-button ghost danger icon" data-quitar-tarea="${escAttr(it.tareaId)}" aria-label="Quitar ${escAttr(it.nombre)}" title="Quitar del pedido">${ICONO_QUITAR}</button></td>
         </tr>`;
   }
 
-  function selectNivel(grupo, actual, campo, i) {
+  function selectNivel(grupo, actual, campo, i, nombre) {
     const niveles = config ? config[grupo] : [];
     const sufijo = grupo === 'tiempos' ? ' min' : '×';
-    return `<select class="p-select sm" data-campo="${campo}" data-i="${i}">
-      ${niveles.map(n => `<option value="${escAttr(n.id)}" ${n.id === actual ? 'selected' : ''}>${escAttr(n.nombre)} (${n.valor}${sufijo})</option>`).join('')}
+    return `<select class="p-select sm" data-campo="${campo}" data-i="${i}" aria-label="${NOMBRE_GRUPO[grupo]} de ${escAttr(nombre)}">
+      ${niveles.map(n => `<option value="${escAttr(n.id)}" ${n.id === actual ? 'selected' : ''}>${escAttr(n.nombre)} (${fmtCorto(n.valor)}${sufijo})</option>`).join('')}
     </select>`;
   }
 
@@ -893,17 +965,19 @@
   async function cargarPedidos() {
     let pedidos;
     const tbody = document.getElementById('listaPedidos');
-    // Spinner sólo si no hay filas a la vista: al refrescar una lista ya cargada no salta nada.
-    if (!tbody.children.length) estadoPedidos('cargando');
+    // Spinner sólo la primera vez (ni filas ni vacío a la vista): al refrescar no parpadea nada.
+    // Si falla, la lista queda como estaba.
+    const previo = document.getElementById('pedidosVacio').classList.contains('hidden') ? null : 'vacio';
+    if (!tbody.children.length && !previo) estadoPedidos('cargando');
     try {
       const r = await fetch('/api/fraccionado-externo/pedidos');
       const data = await r.json();
-      if (!r.ok) { estadoPedidos(null); await mostrarAviso(data.error || 'No se pudieron cargar los pedidos'); return; }
+      if (!r.ok) { estadoPedidos(previo); await mostrarAviso(data.error || 'No se pudieron cargar los pedidos'); return; }
       // Un pedido anulado desaparece de la lista — el registro sigue existiendo del lado del
       // servidor (con su historial), pero no tiene sentido seguir mostrándolo acá.
       pedidos = data.pedidos.filter(p => p.estado !== 'ANULADO');
     } catch (e) {
-      estadoPedidos(null);
+      estadoPedidos(previo);
       await mostrarAviso('No se pudo conectar con el servidor');
       return;
     }
@@ -914,7 +988,7 @@
         <td class="muted tabular-nums">${escAttr(fmtFecha(p.fecha))}</td>
         <td><span class="elipsis" title="${escAttr(p.tercero)}">${escAttr(p.tercero)}</span></td>
         <td class="r font-semibold">${fmtMoneda(p.total)}</td>
-        <td><span class="p-badge dot ${p.estado === 'PENDIENTE' ? 'yellow' : ''}">${escAttr(p.estado)}</span></td>
+        <td class="col-estado"><span class="p-badge dot ${p.estado === 'PENDIENTE' ? 'yellow' : ''}">${escAttr(p.estado)}</span></td>
         <td class="acciones">
           <button type="button" class="p-button outlined xs" data-reimprimir="${escAttr(p.numero)}" aria-label="Descargar PDF del pedido ${escAttr(p.numero)}">${ICONO_PDF}PDF</button>
           ${p.estado === 'PENDIENTE' ? `<button type="button" class="p-button outlined danger xs" data-anular="${escAttr(p.numero)}" aria-label="Anular el pedido ${escAttr(p.numero)}">Anular</button>` : ''}
@@ -924,7 +998,7 @@
       imprimirPedido(pedidos.find(p => p.numero === btn.dataset.reimprimir));
     }));
     document.querySelectorAll('[data-anular]').forEach(btn => btn.addEventListener('click', async () => {
-      if (!(await confirmarAccion('¿Anular el pedido ' + btn.dataset.anular + '?'))) return;
+      if (!(await confirmarAccion('¿Anular el pedido ' + btn.dataset.anular + '?', { textoConfirmar: 'Anular pedido', peligro: true }))) return;
       try {
         const r = await fetch(`/api/fraccionado-externo/pedidos/${btn.dataset.anular}/anular`, { method: 'POST' });
         const data = await r.json().catch(() => ({}));
@@ -966,8 +1040,13 @@
     marcarTareaEditando();
     const sel = document.getElementById('selTarea');
     const previo = sel.value;
-    sel.innerHTML = tareas.map(t =>
-      `<option value="${escAttr(t.id)}">${escAttr(t.nombre)} (${fmtMoneda(t.monto)})</option>`).join('');
+    // Sin tareas: select deshabilitado con un único texto explicativo (no un desplegable vacío).
+    sel.innerHTML = tareas.length ? tareas.map(t =>
+      `<option value="${escAttr(t.id)}">${escAttr(t.nombre)} (${fmtMoneda(t.monto)})</option>`).join('')
+      : '<option value="">Sin tareas cargadas</option>';
+    sel.disabled = tareas.length === 0;
+    if (tareas.length) sel.removeAttribute('aria-describedby');
+    else sel.setAttribute('aria-describedby', 'tareasSinDatos');
     if (tareas.some(t => t.id === previo)) sel.value = previo;
     document.getElementById('tareasSinDatos').classList.toggle('hidden', tareas.length > 0);
     document.getElementById('btnAgregarTarea').disabled = tareas.length === 0;
@@ -988,8 +1067,12 @@
 
   // Resalta la fila de la tarea que está en el formulario (o ninguna).
   function marcarTareaEditando() {
-    document.querySelectorAll('#listaTareas [data-tarea-fila]').forEach(tr =>
-      tr.classList.toggle('fila-editando', tr.dataset.tareaFila === tareaEditandoId));
+    document.querySelectorAll('#listaTareas [data-tarea-fila]').forEach(tr => {
+      const editando = tr.dataset.tareaFila === tareaEditandoId;
+      tr.classList.toggle('fila-editando', editando);
+      if (editando) tr.setAttribute('aria-current', 'true');
+      else tr.removeAttribute('aria-current');
+    });
   }
 
   function resetFormTarea() {
@@ -1017,7 +1100,7 @@
   async function eliminarTarea(id) {
     const t = tareas.find(x => x.id === id);
     if (!t) return;
-    if (!(await confirmarAccion(`¿Eliminar la tarea "${t.nombre}"? Los pedidos ya generados no cambian.`))) return;
+    if (!(await confirmarAccion(`¿Eliminar la tarea "${t.nombre}"? Los pedidos ya generados no cambian.`, { textoConfirmar: 'Eliminar tarea', peligro: true }))) return;
     try {
       const r = await fetch('/api/fraccionado-externo/tareas/' + encodeURIComponent(id), { method: 'DELETE' });
       const data = await r.json().catch(() => ({}));
