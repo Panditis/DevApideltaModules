@@ -178,7 +178,7 @@ estrategia vieja de "tira sin separación con 1px de fondo como grout", que en p
 como una sola masa de color en vez de tarjetas individuales.
 
 `max-width` no es un valor único fijo: `insumos.html`/`planificacion.html` (tablas anchas) usan
-`1500px`, `fraccionado_externo.html` (formulario angosto) usa `5xl` (~1024px). Elegir según
+`1500px`, `fraccionado_externo.html` usa `max-w-7xl` (~1280px). Elegir según
 cuánto contenido horizontal necesita el módulo, no copiar un número fijo.
 
 ---
