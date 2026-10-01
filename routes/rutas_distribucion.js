@@ -321,7 +321,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       empujePresencia: empPes.presencia, empujePresenciaFactorS: empPes.presenciaFactorS,
       presenciaPorClase: empPes.presenciaPorClase, presenciaPorPresentacion: empPes.presenciaPorPresentacion, abcPorPlu: abcPorPluP, presPorPlu,
       coberturaDeposito: distCfgP.coberturaDepositoPesables, muPorPlu: muPorPluP,
-      // Aging + piso por quiebre: {diasEsperaMax, pisoQuiebre, minSucursalesQuiebre}; defaults en lib/pesables.js.
+      // Aging: {diasEsperaMax}; default en lib/pesables.js.
       prioridadPesables: distCfgP.prioridadPesables, ultimoFraccionadoPorPlu: ultimoFracP });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía.
   for (const f of filas) for (const [k, set] of Object.entries(fact.factByKey))
@@ -345,7 +345,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       J: f.J, D: f.D, G: f.G, objDep: f.objDep, BL: f.BL, prioridad, prioridadSala,
       granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null,
-      enQuiebre: f.enQuiebre, diasSinFraccionar: f.diasSinFraccionar, ultimoFraccionado: f.ultimoFraccionado };
+      diasSinFraccionar: f.diasSinFraccionar, ultimoFraccionado: f.ultimoFraccionado };
   });
 }
 router.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
