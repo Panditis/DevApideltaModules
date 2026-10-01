@@ -1,9 +1,9 @@
 'use strict';
-// Helpers puros de gastos sobre venta y conversión ganancia ↔ markup (public/precios_config_gastos.js),
+// Helpers puros de gastos sobre venta y conversión ganancia ↔ markup (public/js/precios_config_gastos.js),
 // espejo de lib/precios_costeo.js: deben dar lo mismo que el server.
 const test = require('node:test');
 const assert = require('node:assert');
-const ui = require('../public/precios_config_gastos.js');
+const ui = require('../public/js/precios_config_gastos.js');
 const costeo = require('../lib/precios_costeo.js');
 
 // Los 8 conceptos del Excel viejo (lista Sucursal): total 26,09 %.

@@ -1,9 +1,9 @@
 'use strict';
-// Helpers puros de la UI de Producción (public/precios_produccion.js). El archivo es un script de
+// Helpers puros de la UI de Producción (public/js/precios_produccion.js). El archivo es un script de
 // browser: sin `document` no arranca nada, sólo exporta los helpers.
 const test = require('node:test');
 const assert = require('node:assert');
-const ui = require('../public/precios_produccion.js');
+const ui = require('../public/js/precios_produccion.js');
 
 test('parsearHashProduccion: selector, detalle, id inválido y otras tabs', () => {
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion'), { vista: 'selector' });

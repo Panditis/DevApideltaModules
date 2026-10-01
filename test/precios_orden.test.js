@@ -1,8 +1,8 @@
 'use strict';
-// Orden de tablas de Precios (public/precios_orden.js): helpers puros, sin DOM.
+// Orden de tablas de Precios (public/js/precios_orden.js): helpers puros, sin DOM.
 const test = require('node:test');
 const assert = require('node:assert');
-const o = require('../public/precios_orden.js');
+const o = require('../public/js/precios_orden.js');
 
 const plus = filas => filas.map(f => f.plu);
 

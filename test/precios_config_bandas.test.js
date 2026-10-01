@@ -1,8 +1,8 @@
 'use strict';
-// Helpers puros de las bandas de markup de Configuración (public/precios_config_bandas.js).
+// Helpers puros de las bandas de markup de Configuración (public/js/precios_config_bandas.js).
 const test = require('node:test');
 const assert = require('node:assert');
-const ui = require('../public/precios_config_bandas.js');
+const ui = require('../public/js/precios_config_bandas.js');
 
 const GUARDADAS = {
   almacen: [{ costoHastaARS: 1000, markupMaxPct: 60 }, { costoHastaARS: null, markupMaxPct: 40 }],

@@ -1,8 +1,8 @@
 'use strict';
-// Helpers puros de la matriz de margen standard Fraccionado (public/precios_config_fraccionado.js).
+// Helpers puros de la matriz de margen standard Fraccionado (public/js/precios_config_fraccionado.js).
 const test = require('node:test');
 const assert = require('node:assert');
-const ui = require('../public/precios_config_fraccionado.js');
+const ui = require('../public/js/precios_config_fraccionado.js');
 
 const M = () => ({
   bandas: [1000, null],
