@@ -441,8 +441,8 @@
       <div class="p-card-body grid gap-10 grid-cols-2">
         <fieldset>
           <legend class="p-card-title">Tiempo</legend>
-          <p class="p-card-desc mb-4">Minutos que tarda el tercero en armar un paquete.</p>
-          <div class="cfg-grilla cfg-cab" aria-hidden="true"><span>Nombre</span><span class="text-right">Minutos por paquete</span><span></span></div>
+          <p class="p-card-desc mb-4">Segundos que tarda el tercero en armar un paquete.</p>
+          <div class="cfg-grilla cfg-cab" aria-hidden="true"><span>Nombre</span><span class="text-right">Segundos por paquete</span><span></span></div>
           <div class="space-y-2" id="cfgTiempos"></div>
           <button type="button" class="p-button outlined xs mt-3" data-agregar-nivel="tiempos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Agregar opción</button>
         </fieldset>
@@ -463,7 +463,7 @@
 
 </main>
 <script>
-  // Productos: { plu, nombre, presentacion, minHistorial, kilos, nivelTiempo, nivelComplejidad }.
+  // Productos: { plu, nombre, presentacion, minHistorial (min/paq, como viene de la API), kilos, nivelTiempo, nivelComplejidad }.
   // Tareas:    { tipo: 'tarea', tareaId, nombre, monto, cantidad }.
   const carrito = [];
   let tareas = []; // [{ id, nombre, monto }] desde /api/fraccionado-externo/tareas
@@ -489,15 +489,16 @@
   }
 
   const ICONO_CERRAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
-  const ETIQUETA_VALOR = { tiempos: 'Minutos por paquete', factores: 'Multiplicador' };
+  const ETIQUETA_VALOR = { tiempos: 'Segundos por paquete', factores: 'Multiplicador' };
   const NOMBRE_GRUPO = { tiempos: 'Tiempo', factores: 'Complejidad' };
 
   function filaNivel(grupo, n) {
+    const valorMostrado = grupo === 'tiempos' && n.valor != null ? segundosDe(n.valor) : (n.valor ?? '');
     return `
       <div class="cfg-grilla" data-fila-nivel="${grupo}" data-id="${escAttr(n.id || '')}">
         <input type="text" required maxlength="40" value="${escAttr(n.nombre)}" placeholder="Nombre"
           class="p-input sm" data-nombre aria-label="Nombre de la opción de ${NOMBRE_GRUPO[grupo]}">
-        <input type="number" step="any" min="0.01" required value="${n.valor ?? ''}" placeholder="Valor"
+        <input type="number" step="any" min="0.01" required value="${valorMostrado}" placeholder="Valor"
           class="p-input sm num" data-valor aria-label="${ETIQUETA_VALOR[grupo]} de ${escAttr(n.nombre || 'la opción')}">
         <button type="button" class="p-button ghost danger icon alto-campo" data-quitar-nivel aria-label="Quitar ${escAttr(n.nombre || 'opción')}" title="Quitar opción">${ICONO_CERRAR}</button>
       </div>`;
@@ -527,11 +528,14 @@
     e.preventDefault();
     const nueva = {};
     Object.entries(CONTENEDOR_NIVELES).forEach(([grupo, id]) => {
-      nueva[grupo] = [...document.getElementById(id).querySelectorAll('[data-fila-nivel]')].map(f => ({
-        ...(f.dataset.id ? { id: f.dataset.id } : {}),
-        nombre: f.querySelector('[data-nombre]').value.trim(),
-        valor: Number(f.querySelector('[data-valor]').value),
-      }));
+      nueva[grupo] = [...document.getElementById(id).querySelectorAll('[data-fila-nivel]')].map(f => {
+        const valor = Number(f.querySelector('[data-valor]').value);
+        return {
+          ...(f.dataset.id ? { id: f.dataset.id } : {}),
+          nombre: f.querySelector('[data-nombre]').value.trim(),
+          valor: grupo === 'tiempos' ? minutosDe(valor) : valor, // lo tipeado en segundos se guarda en minutos
+        };
+      });
     });
     try {
       const r = await fetch('/api/fraccionado-externo/config', {
@@ -656,7 +660,7 @@
     contenedor.innerHTML = productos.length ? productos.slice(0, 30).map((p, i) => `
       <div role="option" id="resultado-${i}" aria-selected="false" class="p-option" data-agregar='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
         <span class="p-option-nombre" title="${escAttr(p.nombre)}">${escAttr(p.nombre)}${presentacionSecundaria(p)}</span>
-        <span class="p-badge ${p.tieneHistorial ? 'green' : 'amber'}">${p.tieneHistorial ? fmtCorto(p.minPorPaquete) + ' min/paq' : 'sin historial'}</span>
+        <span class="p-badge ${p.tieneHistorial ? 'green' : 'amber'}">${p.tieneHistorial ? fmtCorto(segundosDe(p.minPorPaquete, 0)) + ' s/paq' : 'sin historial'}</span>
       </div>
     `).join('') : '<div role="option" aria-disabled="true" aria-selected="false" class="p-listbox-vacio">Sin resultados.</div>';
     const mostrados = Math.min(productos.length, 30);
@@ -763,8 +767,12 @@
     return f.format(Number(n) || 0);
   }
   const fmtMoneda = n => '$' + fmtNumero(n, 2);
-  // Valores de nivel / min por paquete: hasta 3 decimales, sin ceros de más ("0,5", "1,25").
+  // Valores de nivel / segundos por paquete: hasta 3 decimales, sin ceros de más ("0,5", "18,6").
   const fmtCorto = n => fmtNumero(n, 0, 3);
+  // La pantalla muestra y edita los tiempos en SEGUNDOS; la API, la config guardada y el cálculo del
+  // costo siguen en MINUTOS (no cambian). Se convierte sólo en el borde: al mostrar y al guardar.
+  const segundosDe = (min, decimales = 2) => Math.round(Number(min) * 60 * 10 ** decimales) / 10 ** decimales;
+  const minutosDe = seg => seg / 60;
   // "2026-09-16" → "16/09/2026" cortando el string: new Date() correría el día por el huso horario.
   function fmtFecha(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
@@ -825,7 +833,7 @@
             <input type="text" value="${escAttr(it.presentacion || '')}" placeholder="ej. 500G"
               class="p-input sm" data-campo="presentacion" data-i="${i}" aria-label="Presentación de ${escAttr(it.nombre)}">
           </td>
-          <td title="${it.minHistorial != null ? 'Historial: ' + fmtCorto(it.minHistorial) + ' min/paq' : 'Sin historial'}">
+          <td title="${it.minHistorial != null ? 'Historial: ' + fmtCorto(segundosDe(it.minHistorial, 0)) + ' s/paq' : 'Sin historial'}">
             ${selectNivel('tiempos', it.nivelTiempo, 'nivelTiempo', i, it.nombre)}
           </td>
           <td>${selectNivel('factores', it.nivelComplejidad, 'nivelComplejidad', i, it.nombre)}</td>
@@ -865,9 +873,9 @@
 
   function selectNivel(grupo, actual, campo, i, nombre) {
     const niveles = config ? config[grupo] : [];
-    const sufijo = grupo === 'tiempos' ? ' min' : '×';
+    const valorCorto = n => grupo === 'tiempos' ? fmtCorto(segundosDe(n.valor)) + ' s' : fmtCorto(n.valor) + '×';
     return `<select class="p-select sm" data-campo="${campo}" data-i="${i}" aria-label="${NOMBRE_GRUPO[grupo]} de ${escAttr(nombre)}">
-      ${niveles.map(n => `<option value="${escAttr(n.id)}" ${n.id === actual ? 'selected' : ''}>${escAttr(n.nombre)} (${fmtCorto(n.valor)}${sufijo})</option>`).join('')}
+      ${niveles.map(n => `<option value="${escAttr(n.id)}" ${n.id === actual ? 'selected' : ''}>${escAttr(n.nombre)} (${valorCorto(n)})</option>`).join('')}
     </select>`;
   }
 
