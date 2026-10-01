@@ -288,12 +288,16 @@ test('sinRubrosExcluidos sin subRubroDisponible es idéntico a antes (sólo rubr
 
 test('sinRubrosExcluidos con subRubroDisponible también exige que no matchee por subrubro', () => {
   const s = sinRubrosExcluidos(['Apicultura'], true);
-  assert.match(s, /NOT EXISTS \(SELECT 1 FROM Productos pExc\b[\s\S]*INNER JOIN Rubros rExc/);
-  assert.match(s, /NOT EXISTS \(SELECT 1 FROM Productos pExcSr\b[\s\S]*INNER JOIN SubRubros srExc ON srExc\.IdRubro = pExcSr\.IdRubro AND srExc\.IdSubRubro = pExcSr\.IdSubRubro/);
+  assert.match(s, /^NOT EXISTS \(SELECT 1 FROM Productos pExc\b[\s\S]*LEFT JOIN Rubros rExc ON rExc\.IdRubro = pExc\.IdRubro/);
+  assert.match(s, /LEFT JOIN SubRubros srExc ON srExc\.IdRubro = pExc\.IdRubro AND srExc\.IdSubRubro = pExc\.IdSubRubro/);
+  assert.match(s, /REPLACE\(COALESCE\(rExc\.NombreRubro,''\),' ',''\) COLLATE Latin1_General_CI_AI IN \('Apicultura'\)/);
   assert.match(s, /REPLACE\(COALESCE\(srExc\.NombreSubRubro,''\),' ',''\) COLLATE Latin1_General_CI_AI IN \('Apicultura'\)/);
-  // Las dos condiciones tienen que cumplirse juntas (AND): alcanza con estar en cualquiera
-  // de los dos para quedar excluido.
-  assert.match(s, /\)\)\n\s*AND NOT EXISTS/);
+  // Alcanza con estar en cualquiera de los dos (OR) para quedar excluido, y va en UN solo
+  // NOT EXISTS: con dos NOT EXISTS separados SQL Server evalúa el de subrubro renglón por
+  // renglón cuando el alcance son varias sucursales (3,5 s por consulta en vez de 0,5 s).
+  assert.strictEqual((s.match(/NOT EXISTS/g) || []).length, 1);
+  assert.match(s, /IN \('Apicultura'\)\s*\n\s*OR REPLACE\(COALESCE\(srExc\.NombreSubRubro/);
+  assert.match(s, /pExc\.IdProducto = vp\.IdProducto/);
 });
 
 test('soloRubros con subRubroDisponible matchea por rubro O por subrubro', () => {
