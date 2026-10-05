@@ -275,3 +275,26 @@ test('plusCambiados: componentes que movieron + agregados, como strings; sin cam
   assert.strictEqual(ui.plusCambiados({ estado: 'ok', componentes: [{ plu: '101' }], nuevos: [], quitados: [] }).size, 0);
   assert.strictEqual(ui.plusCambiados(null).size, 0);
 });
+
+test('alertasDetalle: cambios con su paso, faltantes sin repetir con acción, precios fuera de tolerancia', () => {
+  const det = {
+    recetas: {
+      base: { nombre: 'Masa', estado: 'cambio', cambios: { deltaPct: 9.8 }, faltantes: [] },
+      memb: { nombre: 'Membrillo', varianteDe: 'base', estado: 'ok', faltantes: ['_costoHora'] },
+      bat: { nombre: 'Batata', varianteDe: 'base', estado: 'ok', faltantes: ['_costoHora'] },
+    },
+    presentaciones: {
+      6201: { plu: '6201', nombre: 'Pepas 250', estado: 'cambio', cambios: { deltaPct: 2 }, faltantes: [], semaforo: 'subir', deltaPct: 14.7 },
+      6202: { plu: '6202', nombre: 'Batata 250', estado: 'ok', faltantes: ['markupPct'], semaforo: 'bajar', deltaPct: -5 },
+      6203: { plu: '6203', nombre: 'Otra', estado: 'ok', faltantes: [], semaforo: 'ok', avisos: ['variedad'] },
+    },
+  };
+  const a = ui.alertasDetalle(det);
+  assert.deepStrictEqual(a.cambios.map(c => [c.tipo, c.id, c.paso, c.deltaPct]), [['receta', 'base', 1, 9.8], ['presentacion', '6201', 4, 2]]);
+  // _costoHora aparece en dos recetas pero es un solo renglón (misma acción); markupPct y variedad llevan su PLU.
+  assert.deepStrictEqual(a.faltantes.map(f => [f.quien, f.accion && f.accion.tipo]), [['Membrillo', 'config'], ['Batata 250', 'margen'], ['Otra', 'abrirPres']]);
+  // La de faltantes no cuenta como precio a revisar aunque traiga semáforo.
+  assert.deepStrictEqual(a.precios, [{ plu: '6201', nombre: 'Pepas 250', semaforo: 'subir', deltaPct: 14.7 }]);
+  assert.strictEqual(a.total, 6);
+  assert.strictEqual(ui.alertasDetalle({}).total, 0);
+});

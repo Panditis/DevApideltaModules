@@ -180,3 +180,10 @@ test('gastosDesglosePct: variables + departamentos del tipo (suman gastosVentaPc
   assert.deepStrictEqual(gastosDesglosePct(cfg, 'fraccionado'), { variablesPct: 15, departamentosPct: 0 });
   assert.deepStrictEqual(gastosDesglosePct(cfg, 'produccion'), { variablesPct: 15, departamentosPct: null });
 });
+
+test('sqlVentaPorTipo: un PLU de Producción gana sobre su rubro (CASE evalúa producción primero); PLUs con espacios se recortan', () => {
+  const sql = sqlVentaPorTipo({ desde: '2026-07-04', hasta: '2026-10-01', plusProduccion: [' 6050 ', 91438, '6050'] });
+  assert.match(sql, /IN \('6050','91438'\)/);
+  const iProd = sql.indexOf("THEN 'produccion'");
+  assert.ok(iProd > 0 && iProd < sql.indexOf("THEN 'almacen'") && iProd < sql.indexOf("THEN 'fraccionado'"));
+});

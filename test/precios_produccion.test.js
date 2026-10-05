@@ -514,3 +514,21 @@ test('costearReceta: la variedad trae el desglose del producto terminado por tan
   assert.strictEqual(propia.desglose.totalKg, 12);
   assert.strictEqual(costear(BASE).desglose, undefined);
 });
+
+// ── plusProduccion: PLUs que muestra la tab Producción (venta base de Costos) ──
+test('plusProduccion: presentaciones con PLU (trim, sin provisorias n-… ni basura) + pack/bulto vinculados a ellas', () => {
+  const { plusProduccion } = require('../lib/precios_produccion');
+  const datos = { productos: {
+    'p-pepas': { presentaciones: { 6050: {}, ' 6051 ': {}, 'n-pepa-nueva': {}, "1'; DROP--": {}, '1234567890123': {} } },
+    'p-vacio': {}, 'p-null': null,
+  } };
+  const vinculos = [
+    { plu: '91438', basePlu: '6050', tipo: 'bulto' },
+    { plu: '91032', basePlu: 6050, tipo: 'pack' },
+    { plu: '91449', basePlu: '6052', tipo: 'bulto' }, // base que no está en la tab
+    { plu: "9'--", basePlu: '6050', tipo: 'pack' },
+  ];
+  assert.deepStrictEqual(plusProduccion(datos, vinculos), ['6050', '6051', '91032', '91438']);
+  assert.deepStrictEqual(plusProduccion(datos), ['6050', '6051']);
+  assert.deepStrictEqual(plusProduccion(null), []);
+});

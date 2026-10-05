@@ -1128,15 +1128,18 @@ test('PUT config/gastos-venta con departamentos: reescala cada tipo con sus gast
   casi(markupCurva(r.curvaGanancia.produccion, 2297, 10), 30);
 });
 
-test('POST costos/venta-base/actualizar: consulta SIGA por tipo, guarda snapshot mensual y avisa faltantes', async () => {
+test('POST costos/venta-base/actualizar: consulta SIGA por tipo (presentaciones + su pack/bulto), guarda snapshot mensual y avisa faltantes', async () => {
   const sqls = [];
-  const query = async sql => { sqls.push(sql); return [{ Tipo: 'almacen', Importe: 30000000 }, { Tipo: 'fraccionado', Importe: 9000000 }]; };
+  // 1ª query: vínculos pack/bulto (OUTER APPLY); 2ª: venta por tipo.
+  const VINCULOS = [{ plu: '91438', nombre: 'Pepas Bulto', basePlu: '777', cantidad: 12 }, { plu: '91449', nombre: 'Otra Bulto', basePlu: '999', cantidad: 12 }];
+  const query = async sql => { sqls.push(sql); return /OUTER APPLY/.test(sql) ? VINCULOS : [{ Tipo: 'almacen', Importe: 30000000 }, { Tipo: 'fraccionado', Importe: 9000000 }]; };
   const archivo = { ...ARCHIVO_CURVAS, departamentos: [{ id: 'adm', ...DEPTO_ADM }], productos: { 'p-x': { presentaciones: { 777: {}, 'n-prov': {} } } } };
   const { estado, llamar } = routerConArchivo(archivo, query);
   const r = await llamar('post', '/api/precios/costos/venta-base/actualizar', { meses: 3 });
-  assert.strictEqual(sqls.length, 1);
-  assert.match(sqls[0], /IN \('777'\)/); // PLUs de presentaciones de Producción (leerJSON del mock devuelve este archivo)
-  assert.doesNotMatch(sqls[0], /n-prov/);
+  assert.strictEqual(sqls.length, 2);
+  // PLUs de la tab Producción: presentación 777 + su bulto 91438 (leerJSON del mock devuelve este archivo); 91449 es de otro base
+  assert.match(sqls[1], /IN \('777','91438'\)/);
+  assert.doesNotMatch(sqls[1], /n-prov|91449/);
   assert.deepStrictEqual(estado.archivo.ventaBase.snapshot.porTipo, { almacen: 10000000, fraccionado: 3000000, produccion: 0 });
   assert.strictEqual(estado.archivo.ventaBase.meses, 3);
   assert.strictEqual(r.gastosVentaPctPorTipo.almacen, 5);

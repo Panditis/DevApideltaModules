@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const preciosCosteo = require('../lib/precios_costeo');
 const preciosCostos = require('../lib/precios_costos');
+const preciosProduccion = require('../lib/precios_produccion');
 const { costeoConCurva, METODO_GANANCIA_CURVA } = require('../lib/precios_migracion_curva');
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
@@ -66,10 +67,10 @@ module.exports = function crearRutasPrecios(deps) {
     guardarJSON(COSTEO_PATH, costeoConCurva(costeo));
   })();
 
-  // PLUs SIGA de las presentaciones de Producción (claves de presentaciones en recetas_produccion.json;
-  // las provisorias n-… se descartan en sqlVentaPorTipo).
-  const plusProduccion = () => Object.values(((leerJSON(path.join(DATA_DIR, 'recetas_produccion.json'), {}) || {}).productos) || {})
-    .flatMap(p => Object.keys((p && p.presentaciones) || {}));
+  // PLUs SIGA de la tab Producción (una sola definición: lib/precios_produccion plusProduccion). Con
+  // vinculos (vinculosPackBulto) suma los pack/bulto de cada presentación, como las sub-filas de la tab.
+  const plusProduccion = (vinculos = []) =>
+    preciosProduccion.plusProduccion(leerJSON(path.join(DATA_DIR, 'recetas_produccion.json'), {}), vinculos);
 
   // Tipo de un PLU para los márgenes propios (G del tipo): presentaciones de Producción (recetas_produccion.json)
   // y de Fraccionado con fórmula en pesables_listas.json; el resto, Reventa.
@@ -353,7 +354,8 @@ module.exports = function crearRutasPrecios(deps) {
     } catch (err) {
       return { error: err.message };
     }
-    const rows = await query(preciosCostos.sqlVentaPorTipo({ ...preciosCostos.rangoVentaBase(meses), plusProduccion: plusProduccion() }));
+    const vinculos = await vinculosDe(leerCosteo());
+    const rows = await query(preciosCostos.sqlVentaPorTipo({ ...preciosCostos.rangoVentaBase(meses), plusProduccion: plusProduccion(vinculos) }));
     const snapshot = preciosCostos.snapshotVentaBase(rows, meses, hoyISO());
     const actual = leerCosteo(); // releído: pudo cambiar durante la query
     const nuevo = { ...actual, ventaBase: { ...preciosCostos.ventaBaseConDefault(actual.ventaBase), meses, snapshot } };

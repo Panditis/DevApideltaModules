@@ -150,6 +150,140 @@
   .pipe .c-final{--pc:#8a5d00;--pbg:rgba(255,204,0,.1)}
   .pipe td.res{color:#242423}
   .pipe td.res-fin{font-size:15px;font-weight:700;color:#405936;background:rgba(64,89,54,.08)}
+  /* ── Producción (misma familia que Configuración: .cfg-card/.cfg-pie/.campo-u) ──────────────────────────────────
+     Cada sección del detalle es un bloque numerado con el acento de su sección del desglose del precio:
+     costo (azul, .s-costo) → insumos (ámbar, .s-extra) → presentaciones/ganancia (verde, .s-margen) → final (.s-final). */
+  #panel-produccion{--pr-top:104px} /* alto del header sticky de la página */
+  .acc-costo{--acc:#0958d9;--acc-bg:rgba(9,88,217,.045)}
+  .acc-extra{--acc:#8a5d00;--acc-bg:rgba(255,204,0,.1)}
+  .acc-margen{--acc:#4f6e42;--acc-bg:#f2f6ec}
+  .acc-final{--acc:#405936;--acc-bg:rgba(64,89,54,.1)}
+  .pr-cab{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:14px}
+  .pr-tit{font-size:20px;font-weight:700;color:#242423;line-height:1.25;margin-bottom:2px}
+  .pr-cta{padding:9px 18px;font-size:14px;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13)}
+  .pr-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
+  .pr-kpis:empty{display:none}
+  .pr-kpi{background:#fff;border:1px solid rgba(26,28,24,.16);border-left:4px solid var(--k,#5c5f52);border-radius:10px;padding:10px 14px;
+          display:flex;align-items:baseline;gap:8px;box-shadow:0 .3px .9px rgba(26,28,24,.1)}
+  .pr-kpi b{font-size:22px;font-weight:700;color:var(--k,#242423);font-variant-numeric:tabular-nums;line-height:1}
+  .pr-kpi span{font-size:12.5px;color:#5c5f52;line-height:1.25}
+  .pr-kpi.k-neutro{--k:#405936}.pr-kpi.k-warn{--k:#8a5d00}.pr-kpi.k-crit{--k:#a4262c}
+  .pr-kpi.k-cero{--k:#c9cdc2}.pr-kpi.k-cero b{color:#5c5f52}
+  .pr-filtros{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  /* Tablas: encabezado fijo (debajo del header de la página), zebra suave, números tabulares a la derecha. */
+  .pr-tabla-caja{background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:12px;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
+  .pr-tabla{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+  .pr-tabla th{position:sticky;top:var(--pr-top);z-index:2;background:#f5f8f1;color:#405936;font-size:11px;font-weight:700;letter-spacing:.04em;
+               text-transform:uppercase;padding:9px 10px;border-bottom:1px solid rgba(26,28,24,.16);white-space:nowrap;text-align:center}
+  .pr-tabla thead tr:first-child th:first-child{border-top-left-radius:12px}
+  .pr-tabla thead tr:first-child th:last-child{border-top-right-radius:12px}
+  .pr-tabla td{padding:8px 10px;border-top:1px solid rgba(26,28,24,.07);vertical-align:middle}
+  .pr-tabla tbody tr:first-child td{border-top:0}
+  .pr-tabla tbody>tr:nth-child(even of :not(.pr-pb,.pr-des-fila))>td{background-color:rgba(64,89,54,.025)}
+  .pr-tabla .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pr-tabla .text-left{text-align:left}
+  .pr-sub{display:block;font-size:11px;color:#5c5f52;font-weight:400}
+  .pr-tabla tr.pr-cambio>td{background-color:rgba(138,93,0,.06)}
+  .pr-tabla tr.pr-cambio>td:first-child{box-shadow:inset 4px 0 0 #8a5d00}
+  .pr-tabla tr.pr-falta>td{color:rgba(36,36,35,.6)}
+  .pr-tabla tfoot td{border-top:1px solid rgba(26,28,24,.1);color:#5c5f52}
+  .pr-tabla tr.pr-total td{border-top:2px solid rgba(26,28,24,.16);font-size:14.5px;font-weight:700;color:#242423}
+  .pr-tabla tr.pr-total td.num{color:var(--acc,#405936)}
+  /* Tabla dentro de una tarjeta (ingredientes): sin caja propia, el encabezado fijo sigue funcionando. */
+  .pr-tabla-in{border:1px solid rgba(26,28,24,.12);border-radius:10px}
+  .pr-tabla-in th{background:var(--acc-bg,#f5f8f1);color:var(--acc,#405936)}
+  /* Listado de productos */
+  .pr-sel tbody tr{cursor:pointer;transition:background-color 120ms ease}
+  .pr-sel tbody tr:hover>td{background-color:rgba(64,89,54,.07)}
+  .pr-nombre-prod{font-size:14.5px;font-weight:700;color:#405936}
+  .pr-nombre-prod:hover{color:#4f6e42;text-decoration:underline;text-underline-offset:3px}
+  .pr-abrir{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:8px;color:#405936;font-size:20px;line-height:1}
+  .pr-sel tbody tr:hover .pr-abrir{background:rgba(64,89,54,.12)}
+  /* Detalle: breadcrumb, encabezado y stepper */
+  .pr-miga{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#5c5f52;margin-bottom:6px}
+  .pr-miga a{color:#405936;font-weight:600}.pr-miga a:hover{text-decoration:underline;text-underline-offset:3px}
+  .pr-miga span:last-child{color:#242423;font-weight:600}
+  .pr-volver{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:9px;border:1px solid rgba(26,28,24,.16);background:#fff;color:#405936;font-size:16px}
+  .pr-volver:hover{background:#f5f8f1;border-color:rgba(26,28,24,.32)}
+  .pr-nombre{font-size:24px;font-weight:700;color:#242423;background:transparent;border:1px solid transparent;border-radius:8px;padding:1px 8px;width:22rem;min-width:0}
+  .pr-nombre:hover{border-color:rgba(26,28,24,.16)}
+  .pr-nombre:focus{outline:none;border-color:#405936;background:#fff;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  .pr-costo-cab{font-size:12.5px;color:#5c5f52;white-space:nowrap;padding:4px 12px;border-radius:999px;background:rgba(9,88,217,.06)}
+  .pr-costo-cab b{font-size:15px;color:#0958d9;font-variant-numeric:tabular-nums;margin-left:4px}
+  .pr-pasos{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;margin-bottom:16px;background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:12px;overflow:hidden}
+  .pr-pasos li+li{border-left:1px solid rgba(26,28,24,.1)}
+  .pr-paso{width:100%;height:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;text-align:left;transition:background-color 140ms ease}
+  .pr-paso:hover{background:rgba(64,89,54,.06)}
+  .pr-paso-n{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:#e3e8dd;color:#5c5f52}
+  .pr-paso[data-estado="ok"] .pr-paso-n{background:#0e700e;color:#fff}
+  .pr-paso[data-estado="parcial"] .pr-paso-n{background:#FFCC00;color:#242423}
+  .pr-paso[data-estado="parcial"]{box-shadow:inset 0 -3px 0 #FFCC00}
+  .pr-paso[data-estado="ok"]{box-shadow:inset 0 -3px 0 #0e700e}
+  /* Panel "Para revisar" */
+  .pr-alertas{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-bottom:18px}
+  .pr-alerta{background:#fff;border:1px solid rgba(26,28,24,.16);border-left:4px solid var(--a);border-radius:10px;padding:12px 14px;
+             box-shadow:0 .3px .9px rgba(26,28,24,.1)}
+  .pr-alerta h3{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--a);margin-bottom:6px}
+  .pr-alerta ul{display:flex;flex-direction:column;gap:4px}
+  .pr-alerta li{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:12.5px;color:#242423;padding:3px 0;border-top:1px solid rgba(26,28,24,.06)}
+  .pr-alerta li:first-child{border-top:0}
+  .pr-alerta li>button{flex:none;white-space:nowrap}
+  .a-falta{--a:#a4262c}.a-cambio{--a:#8a5d00}.a-precio{--a:#0958d9}
+  .pr-ok-banner{margin-bottom:18px;padding:10px 14px;border-radius:10px;background:rgba(14,112,14,.07);border:1px solid rgba(14,112,14,.25);color:#0e700e;font-size:13px;font-weight:600}
+  /* Secciones numeradas */
+  .pr-sec{background:#fff;border:1px solid rgba(26,28,24,.16);border-left:4px solid var(--acc);border-radius:12px;margin-bottom:16px;
+          box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
+  .pr-sec-cab{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;list-style:none;background:var(--acc-bg);border-radius:0 11px 11px 0}
+  .pr-sec[open]>.pr-sec-cab{border-radius:0 11px 0 0;border-bottom:1px solid rgba(26,28,24,.1)}
+  .pr-sec-cab::-webkit-details-marker{display:none}
+  .pr-sec-cab .caret{color:var(--acc);font-size:10px;transition:transform 140ms ease}
+  .pr-sec[open]>.pr-sec-cab .caret{transform:rotate(90deg)}
+  .pr-sec-cab:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+  .pr-sec-n{width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--acc);color:#fff;font-weight:700;font-size:15px}
+  .pr-sec-tit{display:block;font-size:17px;font-weight:700;color:var(--acc);line-height:1.25}
+  .pr-sec-ayuda{display:block;font-size:12.5px;color:#5c5f52;margin-top:1px}
+  .pr-sec-tot{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;white-space:nowrap}
+  .pr-sec-tot>span{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#5c5f52}
+  .pr-sec-tot b{font-size:18px;color:var(--acc);font-variant-numeric:tabular-nums}
+  .pr-sec-cuerpo{padding:14px 18px 18px}
+  .pr-necesitas{font-size:12px;color:#5c5f52;margin-bottom:12px}.pr-necesitas b{color:#242423}
+  /* Tarjeta de receta / variedad (dentro de una sección) */
+  .pr-card{border:1px solid rgba(26,28,24,.16);border-radius:12px;padding:16px 18px;margin-top:12px;background:#fff;transition:box-shadow 160ms ease}
+  .pr-card:first-child{margin-top:0}
+  .pr-card.pr-cambio{box-shadow:inset 4px 0 0 #8a5d00;background:linear-gradient(90deg,rgba(138,93,0,.04),#fff 40%)}
+  .pr-total-card{margin-left:auto;font-size:12.5px;color:#5c5f52;white-space:nowrap;padding-bottom:4px}
+  .pr-total-card b{font-size:22px;color:var(--acc,#405936);font-variant-numeric:tabular-nums;margin-left:6px}
+  .pr-btn-quitar{order:0!important;margin-right:auto;padding:6px 12px;border-radius:8px;font-size:12.5px;font-weight:600;color:#a4262c}
+  .pr-btn-quitar:hover{background:rgba(164,38,44,.08)}
+  .pr-card[data-sucio] .cfg-pie::before{order:1}
+  /* Presentaciones: grupos de columnas tintados como el desglose; semáforo bien visible; sub-filas pack/bulto */
+  .pr-pres .pr-grupos th{position:static;padding:5px 10px;font-size:10.5px;border-bottom:0;background:#fff;color:#5c5f52}
+  .pr-pres th.g-costo,.pr-pres td.g-costo{background-color:rgba(9,88,217,.035)}
+  .pr-pres th.g-margen,.pr-pres td.g-margen{background-color:#f2f6ec}
+  .pr-pres th.g-final,.pr-pres td.g-final{background-color:rgba(64,89,54,.06)}
+  /* th fijos: fondo opaco (el tinte translúcido dejaría ver las filas al scrollear) */
+  .pr-pres th.g-costo{background-color:#f0f4fb}.pr-pres th.g-margen{background-color:#e9f0e3}.pr-pres th.g-final{background-color:#e6ece2}
+  .pr-pres .pr-grupos th.g-costo{color:#0958d9;box-shadow:inset 0 3px 0 #0958d9}
+  .pr-pres .pr-grupos th.g-margen{color:#4f6e42;box-shadow:inset 0 3px 0 #4f6e42}
+  .pr-pres .pr-grupos th.g-final{color:#405936;box-shadow:inset 0 3px 0 #405936}
+  .pr-pres thead tr:first-child th{border-radius:0}
+  .pr-pres tr.pr-fila-pres{cursor:pointer}
+  .pr-pres tr.pr-fila-pres:hover>td{box-shadow:inset 0 1px 0 rgba(64,89,54,.3),inset 0 -1px 0 rgba(64,89,54,.3)}
+  .pr-sugerido{font-size:15px;color:#405936}
+  .pr-sem{display:inline-flex;align-items:baseline;gap:4px;padding:2px 8px;border-radius:999px;font-size:12px;white-space:nowrap}
+  .pr-sem.sem-ok{background:rgba(14,112,14,.12);color:#0e700e}
+  .pr-sem.sem-subir{background:rgba(164,38,44,.12);color:#a4262c}
+  .pr-sem.sem-bajar{background:rgba(138,93,0,.13);color:#8a5d00}
+  .pr-des-btn{width:28px;height:28px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;color:#405936;font-size:13px}
+  .pr-des-btn:hover,.pr-des-btn[aria-expanded="true"]{background:rgba(64,89,54,.1);border-color:#405936}
+  .pr-des-fila>td{background:#fafbf8;padding:14px 18px 16px;border-top:0;box-shadow:inset 4px 0 0 #405936}
+  .pr-des-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:28px;max-width:1100px}
+  .pr-des-comp{padding-top:4px;padding-bottom:4px}
+  .pr-pb>td{font-size:12.5px;padding-top:5px;padding-bottom:5px;border-top:1px dashed rgba(26,28,24,.12);background-color:#fbfcf9}
+  .pr-pb>td:nth-child(3){padding-left:26px}
+  .pr-pb{cursor:pointer}
+  .pr-pb:hover>td{background-color:rgba(64,89,54,.06)}
+  #panel-produccion button:focus-visible,#panel-produccion a:focus-visible{outline:2px solid #405936;outline-offset:2px}
   .fd-cuerpo>tr>td:first-child{padding-left:.5rem}
   @media (min-width:640px){.fd-cuerpo>tr>td:last-child{padding-right:.5rem}}
 </style>

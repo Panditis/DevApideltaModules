@@ -118,6 +118,30 @@ function pasosHabilitados(det) {
   return { 1: libre, 2: p2, 3: libre, 4: p4 };
 }
 
+// Panel "Para revisar" arriba del detalle: qué cambió (con su paso), qué falta para costear (sin repetir,
+// con la acción que lo resuelve) y qué presentaciones tienen el vigente fuera de tolerancia.
+function alertasDetalle(det, nombres = {}) {
+  const recetas = Object.entries((det && det.recetas) || {}), pres = Object.values((det && det.presentaciones) || {});
+  const delta = f => (f.cambios && f.cambios.deltaPct != null ? f.cambios.deltaPct : null);
+  const cambios = [
+    ...recetas.filter(([, r]) => estadoFila(r) === 'cambio')
+      .map(([id, r]) => ({ tipo: 'receta', id, nombre: r.nombre || id, paso: r.varianteDe ? 2 : 1, deltaPct: delta(r) })),
+    ...pres.filter(p => estadoFila(p) === 'cambio')
+      .map(p => ({ tipo: 'presentacion', id: String(p.plu), nombre: p.nombre || String(p.plu), paso: 4, deltaPct: delta(p) })),
+  ];
+  const faltantes = [], vistos = new Set();
+  const sumar = (claves, quien, plu = null) => [...new Set(claves || [])].forEach(k => {
+    const m = mensajeFaltante(k, { nombres, plu });
+    const firma = m.texto + JSON.stringify(m.accion);
+    if (!vistos.has(firma)) { vistos.add(firma); faltantes.push({ ...m, quien }); }
+  });
+  recetas.forEach(([id, r]) => sumar(r.faltantes, r.nombre || id));
+  pres.forEach(p => sumar([...(p.faltantes || []), ...((p.avisos || []).includes('variedad') ? ['variedad'] : [])], p.nombre || String(p.plu), String(p.plu)));
+  const precios = pres.filter(p => !(p.faltantes || []).length && (p.semaforo === 'subir' || p.semaforo === 'bajar'))
+    .map(p => ({ plu: String(p.plu), nombre: p.nombre || String(p.plu), semaforo: p.semaforo, deltaPct: p.deltaPct ?? null }));
+  return { cambios, faltantes, precios, total: cambios.length + faltantes.length + precios.length };
+}
+
 // Texto del toast: título + las 3 primeras alertas (producto · nombre · Δ%).
 function textoToast(alertas) {
   const total = (alertas && alertas.total) || 0;
@@ -255,7 +279,7 @@ function importeEmpaque(componentes) {
 if (typeof module === 'object' && module.exports) {
   module.exports = {
     parsearHashProduccion, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
-    mensajeFaltante, progresoProducto, pasosHabilitados, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
+    mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
     slugProd, idRecetaNueva, idCategoriaNueva, idManualNuevo, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido, importeEmpaque,
     // Orden de tablas: vive en precios_orden.js (compartido por todos los tabs).
@@ -427,26 +451,43 @@ async function cargarSelectorProduccion() {
     tomarExportProd(prodLista); // precios_produccion_export.js: presentaciones marcables/marcadas
     pintarFilasSelector();
   } catch (e) {
-    document.getElementById('prCuerpo').innerHTML = `<tr><td colspan="6" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+    document.getElementById('prCuerpo').innerHTML = `<tr><td colspan="${COLS_SELECTOR}" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
+const COLS_SELECTOR = 7;
+// Listado: encabezado con CTA, tiras de resumen (también filtran), buscador y tabla con estado por producto.
 function htmlSelectorMarco() {
   return `
-    <div class="flex gap-2 mb-3 items-center flex-wrap bg-card border border-borde rounded-xl shadow-fluent px-3 py-2.5">
-      <input id="prBuscar" type="search" placeholder="Buscar producto…" value="${esc(prodBusqueda)}"
-             class="px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72 max-w-full focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
-      <button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>
-      <span id="prConteo" class="text-sm text-gris"></span>
-      <button id="prNuevo" class="ml-auto ${btnPrim}">+ Nuevo producto</button>
+    <div class="pr-cab">
+      <div><h2 class="pr-tit">Productos de producción</h2>
+        <p class="cfg-cab !mb-0">Cada producto se costea en 5 pasos: <b>receta base → variedades → insumos → presentaciones y precios → fórmula SIGA</b>. Abrí uno para ver su costo y precio sugerido.</p></div>
+      <button id="prNuevo" class="cfg-btn pr-cta">+ Nuevo producto</button>
     </div>
-    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
-      <table class="w-full text-sm">
-        <thead class="bg-verde/5 text-verde"><tr><th class="p-2 text-left" data-orden="nombre">Producto</th><th class="p-2" data-orden="variantes">Variedades</th>
-          <th class="p-2" data-orden="presentaciones">Presentaciones</th><th class="p-2 text-right" data-orden="costo">Costo/kg base</th>
-          <th class="p-2" data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="p-2" data-orden="estado">Estado</th></tr></thead>
-        <tbody id="prCuerpo"><tr><td colspan="6">${cargandoHtml('Cargando…')}</td></tr></tbody>
+    <div id="prKpis" class="pr-kpis" aria-live="polite"></div>
+    <div class="pr-filtros">
+      <input id="prBuscar" type="search" placeholder="Buscar producto…" value="${esc(prodBusqueda)}" aria-label="Buscar producto" class="campo-t w-80">
+      <button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>
+      <span id="prConteo" class="ml-auto text-sm text-gris"></span>
+    </div>
+    <div class="pr-tabla-caja">
+      <table class="pr-tabla pr-sel">
+        <thead><tr><th class="text-left" data-orden="nombre">Producto</th><th class="num" data-orden="variantes">Variedades</th>
+          <th class="num" data-orden="presentaciones">Presentaciones</th><th class="num" data-orden="costo">Costo/kg base</th>
+          <th data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="text-left" data-orden="estado">Estado</th><th class="w-10"><span class="sr-only">Abrir</span></th></tr></thead>
+        <tbody id="prCuerpo"><tr><td colspan="${COLS_SELECTOR}">${cargandoHtml('Cargando…')}</td></tr></tbody>
       </table>
     </div>`;
+}
+// Fecha de precio más vieja del producto, si pasó DIAS_PRECIO_VIEJO (precios_orden.js).
+const precioViejoProd = p => { const r = rangoFechas((p.exportables || []).map(e => e.fechaPrecio)); return !!(r && esPrecioViejo(r.min)); };
+function htmlKpisSelector() {
+  const l = prodLista || [];
+  const kpi = (n, txt, cls, tip) => `<div class="pr-kpi ${n ? cls : 'k-cero'}" title="${esc(tip)}"><b>${n}</b><span>${txt}</span></div>`;
+  return kpi(l.length, l.length === 1 ? 'producto' : 'productos', 'k-neutro', 'Productos de producción cargados')
+    + kpi(l.reduce((s, p) => s + p.presentaciones, 0), 'presentaciones', 'k-neutro', 'PLUs vendibles en total')
+    + kpi(l.filter(p => p.alertas > 0).length, 'con costos que cambiaron', 'k-warn', TIT_CAMBIO)
+    + kpi(l.filter(p => p.faltantes > 0).length, 'con datos faltantes', 'k-crit', 'Recetas o presentaciones que no se pueden costear')
+    + kpi(l.filter(precioViejoProd).length, `con precio de más de ${DIAS_PRECIO_VIEJO} días`, 'k-warn', 'Alguna presentación sin cambio de precio en SIGA hace mucho');
 }
 function conectarSelector() {
   document.getElementById('prBuscar').addEventListener('input', e => { prodBusqueda = e.target.value; pintarFilasSelector(); });
@@ -459,29 +500,40 @@ function conectarSelector() {
   document.getElementById('prNuevo').onclick = nuevoProducto;
   montarOrdenSelectorProd(); // precios_orden.js
 }
+// Estado del producto: chips accionables a simple vista (cambios, faltantes, precio viejo) o "al día".
 function htmlEstadoSelector(p) {
   const partes = [];
-  if (p.alertas) partes.push(chip(`${p.alertas} ${p.alertas === 1 ? 'cambio' : 'cambios'}`, 'bg-warn/15 text-warn'));
-  if (p.faltantes) partes.push(chip(`${p.faltantes} con faltantes`, 'bg-gris/15 text-gris'));
-  return partes.join(' ') || '<span class="text-xs text-gris">sin alertas</span>';
+  if (p.alertas) partes.push(chip(`● ${p.alertas} ${p.alertas === 1 ? 'costo cambió' : 'costos cambiaron'}`, 'bg-warn/15 text-warn'));
+  if (p.faltantes) partes.push(chip(`${p.faltantes} con faltantes`, 'bg-crit/10 text-crit'));
+  if (precioViejoProd(p)) partes.push(chip(`precio +${DIAS_PRECIO_VIEJO} días`, 'bg-amarillo/30 text-ink'));
+  if (!p.presentaciones) partes.push(chip('sin presentaciones', 'bg-gris/15 text-gris'));
+  return partes.join(' ') || chip('✓ al día', 'bg-ok/15 text-ok');
+}
+// Presentaciones: total + cuántas tienen precio sugerido (exportables = las que tienen PLU de SIGA).
+function htmlPresSelector(p) {
+  if (!p.presentaciones) return '<span class="text-gris">—</span>';
+  const conPrecio = (p.exportables || []).filter(e => e.precioConIva != null).length;
+  return `<b>${p.presentaciones}</b><span class="pr-sub">${conPrecio} con precio</span>`;
 }
 function pintarFilasSelector() {
   const tbody = document.getElementById('prCuerpo');
   if (!tbody || !prodLista) return;
   const q = normTxt(prodBusqueda.trim());
   const filas = ordenarSelectorProd(prodLista.filter(p => (!q || normTxt(p.nombre).includes(q)) && (!prodSoloCambios || p.alertas > 0)));
+  document.getElementById('prKpis').innerHTML = prodLista.length ? htmlKpisSelector() : '';
   document.getElementById('prConteo').textContent = prodLista.length ? `${filas.length} de ${prodLista.length} productos` : '';
   document.getElementById('prNCambios').textContent = `(${prodLista.filter(p => p.alertas > 0).length})`;
-  if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="6">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
-  if (!filas.length) { tbody.innerHTML = '<tr><td colspan="6" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>'; return; }
+  if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="${COLS_SELECTOR}">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
+  if (!filas.length) { tbody.innerHTML = `<tr><td colspan="${COLS_SELECTOR}" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>`; return; }
   tbody.innerHTML = filas.map(p => `
-    <tr class="border-t border-borde cursor-pointer hover:bg-verde/5${p.alertas > 0 ? ' ' + MARCA_CAMBIO : ''}" data-id="${esc(p.id)}">
-      <td class="p-2">${p.alertas > 0 ? `<span class="text-warn mr-1" title="${esc(TIT_CAMBIO)}">●</span>` : ''}<a href="#produccion/${esc(encodeURIComponent(p.id))}" class="font-semibold text-verde hover:text-verdeHover">${esc(p.nombre)}</a></td>
-      <td class="p-2 text-center tabular-nums">${p.variantes}</td>
-      <td class="p-2 text-center tabular-nums">${p.presentaciones}</td>
-      <td class="p-2 text-right tabular-nums">${p.costoKgBase != null ? '$ ' + fmtMoney(p.costoKgBase) : '—'}</td>
-      ${htmlFechaPrecio((p.exportables || []).map(e => e.fechaPrecio))}
-      <td class="p-2 text-center">${htmlEstadoSelector(p)}</td>
+    <tr class="pr-fila-prod${p.alertas > 0 ? ' pr-cambio' : ''}" data-id="${esc(p.id)}">
+      <td><a href="#produccion/${esc(encodeURIComponent(p.id))}" class="pr-nombre-prod">${esc(p.nombre)}</a></td>
+      <td class="num">${p.variantes || '<span class="text-gris">—</span>'}</td>
+      <td class="num">${htmlPresSelector(p)}</td>
+      <td class="num">${p.costoKgBase != null ? '<b>$ ' + fmtMoney(p.costoKgBase) + '</b><span class="pr-sub">por kg</span>' : '<span class="text-gris">—</span>'}</td>
+      ${htmlFechaPrecio((p.exportables || []).map(e => e.fechaPrecio), 'pr-td')}
+      <td><div class="flex flex-wrap gap-1">${htmlEstadoSelector(p)}</div></td>
+      <td class="text-right"><span class="pr-abrir" aria-hidden="true">›</span></td>
     </tr>`).join('');
   tbody.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.closest('a')) irAProduccion(tr.dataset.id); });
 }
