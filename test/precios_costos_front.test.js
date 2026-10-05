@@ -11,7 +11,8 @@ const DEPTOS = [
   { id: 'admin', nombre: 'Admin', costoMensual: 1000000, imputacion: { almacen: 50, fraccionado: 30, produccion: 10 } },
   { id: 'logistica', nombre: 'Logística', costoMensual: 500000, imputacion: { almacen: 100, fraccionado: 0, produccion: 0 } },
 ];
-const VENTA = { meses: 3, manual: { almacen: null, fraccionado: 2000000, produccion: null },
+// produccionSinDepartamentos false: Producción absorbe departamentos (el flag se prueba aparte).
+const VENTA = { produccionSinDepartamentos: false, meses: 3, manual: { almacen: null, fraccionado: 2000000, produccion: null },
   snapshot: { fecha: '2026-10-01', meses: 3, porTipo: { almacen: 50000000, fraccionado: 9000000, produccion: 0 } } };
 
 test('noImputadoPct: 100 − suma; vacíos cuentan 0; negativo si pasa de 100', () => {
@@ -95,4 +96,14 @@ test('gastos null (falta venta base) → markup/ganancia null y leyenda con —'
   assert.strictEqual(gastosUi.textoMarkupTotal(15, null), '');
   assert.strictEqual(gastosUi.textoGananciaGastos(15, null), 'ganancia 15 % + gastos —');
   assert.strictEqual(gastosUi.markupDesdeGananciaCli(15, undefined), 15); // undefined sigue siendo 0
+});
+
+test('deptosPctCli: Producción sin departamentos (default true) → 0 como el server; bodyDepartamentos manda el flag', () => {
+  const { produccionSinDepartamentos: _f, ...sinFlag } = VENTA;
+  const cfg = { gastosVenta: [{ id: 'g', concepto: 'g', pct: 10, listas: ['sucursal'] }], departamentos: DEPTOS, ventaBase: sinFlag };
+  assert.strictEqual(ui.produccionSinDeptosCli(sinFlag), true);
+  assert.strictEqual(ui.deptosPctCli(DEPTOS, sinFlag, 'produccion'), 0);
+  assert.strictEqual(10 + ui.deptosPctCli(DEPTOS, sinFlag, 'produccion'), lib.gastosVentaPctTipo(cfg, 'produccion'));
+  assert.strictEqual(ui.deptosPctCli(DEPTOS, sinFlag, 'almacen'), ui.deptosPctCli(DEPTOS, VENTA, 'almacen'));
+  assert.strictEqual(ui.bodyDepartamentos([], { ...sinFlag, produccionSinDepartamentos: false }).ventaBase.produccionSinDepartamentos, false);
 });

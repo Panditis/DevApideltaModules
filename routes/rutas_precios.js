@@ -8,6 +8,9 @@ const { costeoConCurva, METODO_GANANCIA_CURVA } = require('../lib/precios_migrac
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { crearPackBultoDe, configPackBultoSanitizada, PACK_BULTO_DEFAULT } = require('../lib/precios_pack_bulto');
+const preciosMargenes = require('../lib/precios_margenes_propios');
+// Costeo de Producción (sin el router): presentaciones para los márgenes propios.
+const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
 
 // ── Rutas del módulo Precios (costeo sugerido) ───────────────────────────────
 // Fase 1: listado/detalle/config de Almacén. Fase 2: Fraccionado (listado agrupado por granel). Producción (Fase 3)
@@ -105,6 +108,25 @@ module.exports = function crearRutasPrecios(deps) {
     guardarJSON(`${COSTEO_PATH}.bak-antes-precio-final`, costeo);
     guardarJSON(COSTEO_PATH, r.costeo);
     console.log(`[precios/migracion] ${r.movidos} conceptos pasados a sobre precio final`);
+  })();
+
+  // Parte E.2: Producción no absorbe departamentos (ventaBase.produccionSinDepartamentos, default true). Un archivo sin
+  // el flag cuyo G de Producción cambia se migra una vez manteniendo precios (reescala curva y ganancias propias de
+  // Producción), con backup data/costeo.json.bak-antes-prod-sin-deptos. Curva fuera de rango → log y no escribe.
+  (function persistirProduccionSinDepartamentos() {
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    if (!costeo || costeo === COSTEO_DEFAULT) return;
+    const r = preciosCostos.migrarProduccionSinDepartamentos(costeo, crearTipoDePlu());
+    if (!r) return;
+    try {
+      preciosCosteo.validarCurvaGanancia(preciosCosteo.curvasGananciaConDefault(r.costeo.curvaGanancia).produccion, 'produccion');
+    } catch (err) {
+      console.error('[precios/migracion] Producción sin departamentos no aplicada:', err.message);
+      return;
+    }
+    guardarJSON(`${COSTEO_PATH}.bak-antes-prod-sin-deptos`, costeo);
+    guardarJSON(COSTEO_PATH, r.costeo);
+    console.log(`[precios/migracion] Producción sin departamentos: G ${r.gastosAntes} → ${r.gastosDespues} %, precios mantenidos`);
   })();
 
   router.get('/precios', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'precios.html')));
@@ -333,7 +355,10 @@ module.exports = function crearRutasPrecios(deps) {
     let nuevo;
     try {
       const departamentos = preciosCostos.validarDepartamentos(body.items);
-      const ventaBase = { ...preciosCostos.validarVentaBase(body.ventaBase), snapshot: preciosCostos.ventaBaseConDefault(costeo.ventaBase).snapshot };
+      const guardada = preciosCostos.ventaBaseConDefault(costeo.ventaBase);
+      // El flag de Producción sin departamentos se conserva si el body no lo trae; cambiarlo con conservarPrecios reescala.
+      const ventaBase = { produccionSinDepartamentos: guardada.produccionSinDepartamentos, ...preciosCostos.validarVentaBase(body.ventaBase),
+        snapshot: guardada.snapshot };
       nuevo = conCambiosDeGastos(costeo, { departamentos, ventaBase }, body.conservarPrecios, crearTipoDePlu());
     } catch (err) {
       return { error: err.message };
@@ -461,6 +486,48 @@ module.exports = function crearRutasPrecios(deps) {
     const actual = leerCosteo();
     guardarJSON(COSTEO_PATH, { ...actual, margenPorProducto: { ...(actual.margenPorProducto || {}), ...ganancias } });
     return { alineados, sinDatos, negativos };
+  }));
+
+  // ── Márgenes propios → curva, gradual (spec Parte E.1) ─────────────────────
+  // Presentaciones de Producción costeadas con la config (mismo costearTodos que la tab Producción).
+  async function presentacionesProduccion(costeo) {
+    const datos = normalizarDatos(leerJSON(path.join(DATA_DIR, 'recetas_produccion.json'), {}));
+    const costos = await costosPorPlu(plusUsados(datos.productos));
+    const costeados = costearTodos({ productos: datos.productos, costos, costeo, datos });
+    return Object.values(costeados).flatMap(c => Object.entries(c.presentaciones || {})
+      .map(([plu, p]) => ({ plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad })));
+  }
+  async function planMargenes(costeo, topePct) {
+    const [filas, grupos, produccion] = await Promise.all([filasAlmacen(costeo), gruposFraccionado(costeo), presentacionesProduccion(costeo)]);
+    return preciosMargenes.planMargenesPropios({ costeo, topePct, items: preciosMargenes.itemsDesdeListados({ filas, grupos, produccion }) });
+  }
+  const sinCambios = ({ cambios: _c, ...resumen }) => resumen;
+  const topeDe = req => preciosMargenes.validarTopePct(((req.body && typeof req.body === 'object') ? req.body : {}).topePct);
+
+  // Cantidad por tipo (sin SIGA: tipo del PLU por recetas/fórmulas, como la migración) y tope default.
+  router.get('/api/precios/margenes-propios', apiRoute(async () => ({
+    ...preciosMargenes.contarMargenesPropios(leerCosteo(), crearTipoDePlu()),
+    topeDefaultPct: preciosMargenes.TOPE_DEFAULT_PCT, topeRangoPct: preciosMargenes.TOPE_RANGO_PCT,
+  })));
+
+  // { topePct } → resumen del paso (no escribe).
+  router.post('/api/precios/margenes-propios/previsualizar', apiRoute(async (req) => {
+    let topePct;
+    try { topePct = topeDe(req); } catch (err) { return { error: err.message }; }
+    return sinCambios(await planMargenes(leerCosteo(), topePct));
+  }));
+
+  // { topePct } → aplica el paso (backup data/costeo.json.bak-margenes-AAAAMMDD-HHMM) y devuelve el mismo resumen +
+  // aplicados/omitidos (omitidos = editados entre el cálculo y la escritura). Sólo toca márgenes propios y temporales.
+  router.post('/api/precios/margenes-propios/aplicar', apiRoute(async (req) => {
+    let topePct;
+    try { topePct = topeDe(req); } catch (err) { return { error: err.message }; }
+    const plan = await planMargenes(leerCosteo(), topePct);
+    const actual = leerCosteo(); // releído: pudo cambiar durante las queries
+    const r = preciosMargenes.aplicarPlanMargenes(actual, plan.cambios);
+    guardarJSON(`${COSTEO_PATH}.bak-margenes-${preciosMargenes.sufijoBackup()}`, leerJSON(COSTEO_PATH, COSTEO_DEFAULT));
+    guardarJSON(COSTEO_PATH, r.costeo);
+    return { ...sinCambios(plan), aplicados: r.aplicados, omitidos: r.omitidos };
   }));
 
   // Costos extra de un granel de Fraccionado o de un producto de Almacén (misma clave, ver

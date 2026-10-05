@@ -1065,13 +1065,14 @@ test('PUT config/general: costoHora y tolerancia; los standard de fraccionado se
 // ── Tab Costos: departamentos, venta base y gastos por tipo ──────────────────
 
 const DEPTO_ADM = { nombre: 'Administración', costoMensual: 1000000, imputacion: { almacen: 50, fraccionado: 30, produccion: 20 } };
-const VENTA_MANUAL = { meses: 3, manual: { almacen: 10000000, fraccionado: 6000000, produccion: 4000000 } };
+// produccionSinDepartamentos false: Producción absorbe departamentos como los otros tipos (el flag se prueba aparte).
+const VENTA_MANUAL = { produccionSinDepartamentos: false, meses: 3, manual: { almacen: 10000000, fraccionado: 6000000, produccion: 4000000 } };
 
 test('GET config: sin departamentos, gastos por tipo = variables y estructura vacía', async () => {
   const { llamar } = routerConArchivo({ ...ARCHIVO_CURVAS, gastosVenta: GASTOS_2609 });
   const c = await llamar('get', '/api/precios/config');
   assert.deepStrictEqual(c.departamentos, []);
-  assert.deepStrictEqual(c.ventaBase, { meses: 3, manual: { almacen: null, fraccionado: null, produccion: null }, snapshot: null });
+  assert.deepStrictEqual(c.ventaBase, { meses: 3, manual: { almacen: null, fraccionado: null, produccion: null }, snapshot: null, produccionSinDepartamentos: true });
   assert.deepStrictEqual(c.gastosVentaPctPorTipo, { almacen: 26.09, fraccionado: 26.09, produccion: 26.09 });
   assert.strictEqual(c.gastosVentaPct, 26.09);
   assert.deepStrictEqual(c.estructuraCostos.porTipo.almacen, { variablesPct: 26.09, departamentosPct: 0, totalPct: 26.09, ventaMensual: null, costoImputado: 0 });
@@ -1133,7 +1134,8 @@ test('POST costos/venta-base/actualizar: consulta SIGA por tipo (presentaciones 
   // 1ª query: vínculos pack/bulto (OUTER APPLY); 2ª: venta por tipo.
   const VINCULOS = [{ plu: '91438', nombre: 'Pepas Bulto', basePlu: '777', cantidad: 12 }, { plu: '91449', nombre: 'Otra Bulto', basePlu: '999', cantidad: 12 }];
   const query = async sql => { sqls.push(sql); return /OUTER APPLY/.test(sql) ? VINCULOS : [{ Tipo: 'almacen', Importe: 30000000 }, { Tipo: 'fraccionado', Importe: 9000000 }]; };
-  const archivo = { ...ARCHIVO_CURVAS, departamentos: [{ id: 'adm', ...DEPTO_ADM }], productos: { 'p-x': { presentaciones: { 777: {}, 'n-prov': {} } } } };
+  const archivo = { ...ARCHIVO_CURVAS, departamentos: [{ id: 'adm', ...DEPTO_ADM }], productos: { 'p-x': { presentaciones: { 777: {}, 'n-prov': {} } } },
+    ventaBase: { produccionSinDepartamentos: false } };
   const { estado, llamar } = routerConArchivo(archivo, query);
   const r = await llamar('post', '/api/precios/costos/venta-base/actualizar', { meses: 3 });
   assert.strictEqual(sqls.length, 2);
@@ -1331,4 +1333,100 @@ test('migración de márgenes propios a ganancia al crear el router: backup, G d
   crearRutasPrecios({ apiRoute: fn => fn, query: async () => [], DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
     leerJSON: p => (p.endsWith('costeo.json') ? archivo : {}), guardarJSON: (p, d) => escrituras.push([p, d]) });
   assert.deepStrictEqual(escrituras, []);
+});
+
+// ── Producción sin departamentos (spec Parte E.2) ────────────────────────────
+
+test('venta-base/actualizar con Producción sin departamentos (default): Producción = variables y sin aviso', async () => {
+  const query = async sql => (/OUTER APPLY/.test(sql) ? [] : [{ Tipo: 'almacen', Importe: 30000000 }, { Tipo: 'fraccionado', Importe: 9000000 }]);
+  const { llamar } = routerConArchivo({ ...ARCHIVO_CURVAS, departamentos: [{ id: 'adm', ...DEPTO_ADM }] }, query);
+  const r = await llamar('post', '/api/precios/costos/venta-base/actualizar', { meses: 3 });
+  assert.strictEqual(r.gastosVentaPctPorTipo.produccion, 0);
+  assert.strictEqual(r.aviso, null);
+  assert.strictEqual(r.ventaBase.produccionSinDepartamentos, true);
+});
+
+test('PUT config/departamentos: activar Producción sin departamentos con mantener precios reescala sólo Producción; sin flag en el body se conserva', async () => {
+  const archivo = { ...ARCHIVO_CURVAS, margenPropio: 'ganancia', departamentos: [{ id: 'adm', ...DEPTO_ADM }], ventaBase: VENTA_MANUAL, margenPorProducto: { 11: 5, 777: 30 } };
+  const crearRutasPrecios = require('../routes/rutas_precios');
+  const estado = { archivo };
+  const router = crearRutasPrecios({
+    apiRoute: fn => async (req, res) => res.json(await fn(req)), query: async () => [],
+    leerJSON: p => (p.endsWith('recetas_produccion.json') ? { productos: { p: { presentaciones: { 777: {} } } } } : p.endsWith('costeo.json') ? estado.archivo : {}),
+    guardarJSON: (p, d) => { if (p.endsWith('costeo.json')) estado.archivo = d; }, DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
+  });
+  const layer = router.stack.find(l => l.route && l.route.methods.put && l.match('/api/precios/config/departamentos'));
+  const put = body => new Promise(ok => layer.route.stack[0].handle({ params: {}, body, query: {} }, { json: ok }));
+  // Producción: 200000 / 4M = 5 % de departamentos → 0 con el flag.
+  const r = await put({ items: [{ id: 'adm', ...DEPTO_ADM }], ventaBase: { ...VENTA_MANUAL, produccionSinDepartamentos: true } });
+  assert.strictEqual(r.error, undefined);
+  assert.deepStrictEqual(r.gastosVentaPctPorTipo, { almacen: 5, fraccionado: 5, produccion: 0 });
+  assertReescalada(r.curvaGanancia.produccion, ARCHIVO_CURVAS.curvaGanancia.produccion, 1 / 0.95);
+  assert.deepStrictEqual(estado.archivo.curvaGanancia.almacen, ARCHIVO_CURVAS.curvaGanancia.almacen);
+  casi(markupCurva(r.curvaGanancia.produccion, 2000, 0), markupDesdeGanancia(30, 5)); // mismo precio
+  casi(markupDesdeGanancia(estado.archivo.margenPorProducto[777], 0), markupDesdeGanancia(30, 5));
+  assert.strictEqual(estado.archivo.margenPorProducto[11], 5);
+  // Guardar sin el flag en el body lo conserva.
+  const { produccionSinDepartamentos: _x, ...sinFlag } = VENTA_MANUAL;
+  await put({ items: [{ id: 'adm', ...DEPTO_ADM }], ventaBase: sinFlag });
+  assert.strictEqual(estado.archivo.ventaBase.produccionSinDepartamentos, true);
+});
+
+test('crear el router: archivo sin el flag con departamentos de Producción → migra manteniendo precios (backup); una sola vez', () => {
+  const crearRutasPrecios = require('../routes/rutas_precios');
+  const venta = { meses: 3, manual: { almacen: 10000000, fraccionado: 6000000, produccion: 4000000 } };
+  let archivo = { ...ARCHIVO_CURVAS, margenPropio: 'ganancia', departamentos: [{ id: 'adm', ...DEPTO_ADM }], ventaBase: venta };
+  const escrituras = [];
+  const crear = () => crearRutasPrecios({ apiRoute: fn => fn, query: async () => [], DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
+    leerJSON: p => (p.endsWith('costeo.json') ? archivo : {}),
+    guardarJSON: (p, d) => { escrituras.push(p); if (p.endsWith('costeo.json')) archivo = d; } });
+  crear();
+  assert.deepStrictEqual(escrituras.map(p => path.basename(p)), ['costeo.json.bak-antes-prod-sin-deptos', 'costeo.json']);
+  assert.strictEqual(archivo.ventaBase.produccionSinDepartamentos, true);
+  assertReescalada(archivo.curvaGanancia.produccion, ARCHIVO_CURVAS.curvaGanancia.produccion, 1 / 0.95);
+  escrituras.length = 0;
+  crear();
+  assert.deepStrictEqual(escrituras, []);
+});
+
+// ── Márgenes propios → curva (spec Parte E.1) ────────────────────────────────
+
+test('margenes-propios: GET cuenta por tipo; previsualizar no escribe; aplicar acerca exacto el tope, backup y mismo resumen', async () => {
+  // Reventa 6051: costo neto 1000 (1210 con IVA 21), curva plana 20 %; propia 50 % → standard 20 % baja 20 % > tope.
+  const query = async sql => (sql.includes("NombreRubro = 'Almacen'") ? [{ IdProducto: '6051', NombreProducto: 'PEPAS', CostoSistema: 1210, IvaCompraPct: 21 }] : []);
+  const archivo = { ...ARCHIVO_CURVAS, margenPropio: 'ganancia', curvaGanancia: { ...ARCHIVO_CURVAS.curvaGanancia, almacen: curvaPlana(20) },
+    margenPorProducto: { 6051: 50, 999: 10 } };
+  const crearRutasPrecios = require('../routes/rutas_precios');
+  const estado = { archivo };
+  const escrituras = [];
+  const router = crearRutasPrecios({
+    apiRoute: fn => async (req, res) => res.json(await fn(req)), query, DATA_DIR: '/tmp', LISTA_PRECIOS_VENTA: 1,
+    FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1',
+    leerJSON: p => (p.endsWith('costeo.json') ? estado.archivo : {}),
+    guardarJSON: (p, d) => { escrituras.push(path.basename(p)); if (p.endsWith('costeo.json')) estado.archivo = d; },
+  });
+  const llamar = (method, ruta, body) => {
+    const layer = router.stack.find(l => l.route && l.route.methods[method] && l.match(ruta));
+    return new Promise(ok => layer.route.stack[0].handle({ params: layer.params, body, query: {} }, { json: ok }));
+  };
+  const c = await llamar('get', '/api/precios/margenes-propios');
+  assert.deepStrictEqual(c.porTipo, { almacen: 2, fraccionado: 0, produccion: 0 });
+  assert.strictEqual(c.topeDefaultPct, 5);
+  const p = await llamar('post', '/api/precios/margenes-propios/previsualizar', { topePct: 5 });
+  assert.deepStrictEqual(p.totales, { standard: 0, acercar: 1, sinCambio: 1 });
+  assert.strictEqual(p.motivosSinCambio.sinListado, 1); // 999 no está en ningún listado
+  assert.strictEqual(p.cambios, undefined);
+  assert.strictEqual(p.top[0].plu, '6051');
+  assert.strictEqual(p.top[0].deltaPct, -5);
+  assert.deepStrictEqual(escrituras, []); // previsualizar no escribe
+  assert.match((await llamar('post', '/api/precios/margenes-propios/previsualizar', { topePct: 60 })).error, /topePct/);
+  const a = await llamar('post', '/api/precios/margenes-propios/aplicar', {});
+  assert.deepStrictEqual(a.totales, p.totales);
+  assert.strictEqual(a.aplicados, 1);
+  assert.match(escrituras[0], /^costeo\.json\.bak-margenes-\d{8}-\d{4}$/);
+  casi(estado.archivo.margenPorProducto[6051], 42.5); // 1,5 × 0,95 − 1
+  assert.strictEqual(estado.archivo.margenPorProducto[999], 10);
+  // Repetir: sigue acercando hasta pasar al standard (borrar la propia).
+  for (let i = 0; i < 6; i++) await llamar('post', '/api/precios/margenes-propios/aplicar', { topePct: 5 });
+  assert.ok(!('6051' in estado.archivo.margenPorProducto));
 });

@@ -10,7 +10,8 @@ const { reescalarGanancias, markupDesdeGanancia, gananciaPorCurva } = require('.
 
 const GASTOS = [{ id: 'iibb', concepto: 'IIBB', pct: 10, listas: ['sucursal'] }];
 const DEPTO = { id: 'adm', nombre: 'Administración', costoMensual: 1000000, imputacion: { almacen: 50, fraccionado: 30, produccion: 20 } };
-const VENTA = { meses: 3, manual: { almacen: null, fraccionado: 6000000, produccion: null }, snapshot: { fecha: '2026-10-01', meses: 3, porTipo: { almacen: 10000000, fraccionado: 3000000, produccion: 0 } } };
+// produccionSinDepartamentos false: estos tests cubren Producción absorbiendo departamentos (el flag va aparte).
+const VENTA = { produccionSinDepartamentos: false, meses: 3, manual: { almacen: null, fraccionado: 6000000, produccion: null }, snapshot: { fecha: '2026-10-01', meses: 3, porTipo: { almacen: 10000000, fraccionado: 3000000, produccion: 0 } } };
 
 // ── validarDepartamentos ─────────────────────────────────────────────────────
 
@@ -65,7 +66,8 @@ test('ventaEfectiva: manual ?? snapshot ?? null; ≤ 0 o ausente → null', () =
 
 test('ventaBaseConDefault: completa meses, manual y snapshot', () => {
   assert.deepStrictEqual(ventaBaseConDefault(undefined),
-    { meses: 3, manual: { almacen: null, fraccionado: null, produccion: null }, snapshot: null });
+    { meses: 3, manual: { almacen: null, fraccionado: null, produccion: null }, snapshot: null, produccionSinDepartamentos: true });
+  assert.strictEqual(ventaBaseConDefault({ produccionSinDepartamentos: false }).produccionSinDepartamentos, false);
   assert.deepStrictEqual(ventaBaseConDefault({ meses: 6, manual: { almacen: 5 } }).manual, { almacen: 5, fraccionado: null, produccion: null });
 });
 
@@ -173,7 +175,7 @@ test('gastosDesglosePct: variables + departamentos del tipo (suman gastosVentaPc
   const cfg = {
     gastosVenta: [{ id: 'goa', concepto: 'GOA', pct: 15, listas: ['sucursal'] }],
     departamentos: [{ id: 'adm', nombre: 'Adm', costoMensual: 100000, imputacion: { almacen: 50, fraccionado: 0, produccion: 50 } }],
-    ventaBase: { meses: 3, manual: { almacen: 1000000, fraccionado: null, produccion: null } },
+    ventaBase: { meses: 3, manual: { almacen: 1000000, fraccionado: null, produccion: null }, produccionSinDepartamentos: false },
   };
   assert.deepStrictEqual(gastosDesglosePct(cfg, 'almacen'), { variablesPct: 15, departamentosPct: 5 });
   assert.strictEqual(gastosVentaPctTipo(cfg, 'almacen'), 20);
@@ -186,4 +188,57 @@ test('sqlVentaPorTipo: un PLU de Producción gana sobre su rubro (CASE evalúa p
   assert.match(sql, /IN \('6050','91438'\)/);
   const iProd = sql.indexOf("THEN 'produccion'");
   assert.ok(iProd > 0 && iProd < sql.indexOf("THEN 'almacen'") && iProd < sql.indexOf("THEN 'fraccionado'"));
+});
+
+// ── Producción sin departamentos (spec Parte E.2) ────────────────────────────
+
+test('produccionSinDepartamentos (default true): G Producción = sólo variables, ignora la imputación y no exige venta base', () => {
+  const sinFlag = { ...VENTA };
+  delete sinFlag.produccionSinDepartamentos;
+  const cfg = { gastosVenta: GASTOS, departamentos: [DEPTO], ventaBase: sinFlag };
+  assert.strictEqual(gastosVentaPctTipo(cfg, 'produccion'), 10); // sin venta de Producción y no es null
+  assert.strictEqual(gastosVentaPctTipo(cfg, 'almacen'), 15); // los otros tipos igual que antes
+  assert.doesNotThrow(() => validarEstructuraCostos(cfg)); // "costo imputado sin venta" no dispara por Producción
+  const e = estructuraCostos(cfg);
+  assert.strictEqual(e.porTipo.produccion.departamentosPct, 0);
+  assert.strictEqual(e.porTipo.produccion.totalPct, 10);
+  // lo imputado a Producción (20 %) no lo absorbe nadie
+  assert.deepStrictEqual(e.departamentos[0], { id: 'adm', nombre: 'Administración', costoMensual: 1000000, imputadoPct: 80, costoNoAbsorbido: 200000 });
+  // false = Producción absorbe como los otros tipos (sin venta → null)
+  assert.strictEqual(gastosVentaPctTipo({ ...cfg, ventaBase: VENTA }, 'produccion'), null);
+});
+
+test('validarVentaBase: produccionSinDepartamentos booleano opcional (sólo sale si vino)', () => {
+  assert.strictEqual(validarVentaBase({ produccionSinDepartamentos: false }).produccionSinDepartamentos, false);
+  assert.ok(!('produccionSinDepartamentos' in validarVentaBase({})));
+  assert.throws(() => validarVentaBase({ produccionSinDepartamentos: 'si' }), /produccionSinDepartamentos/);
+});
+
+test('migrarProduccionSinDepartamentos: pone el flag manteniendo precios (curva y ganancias propias de Producción reescaladas)', () => {
+  const { migrarProduccionSinDepartamentos } = require('../lib/precios_costos');
+  const plana = g => ({ a: g, b: 0, pisoPct: g, techoPct: g });
+  const venta = { meses: 3, manual: { almacen: 10000000, fraccionado: 6000000, produccion: 4000000 } };
+  const costeo = {
+    gastosVenta: GASTOS, departamentos: [DEPTO], ventaBase: venta, // G prod viejo = 10 + 200000/4M = 15 → nuevo 10
+    curvaGanancia: { almacen: plana(30), fraccionado: plana(30), produccion: { a: 40, b: 2, pisoPct: 5, techoPct: 35 } },
+    margenPorProducto: { 777: 25, 1: 25 },
+  };
+  const tipoDePlu = plu => (plu === '777' ? 'produccion' : 'almacen');
+  const r = migrarProduccionSinDepartamentos(costeo, tipoDePlu);
+  assert.strictEqual(r.gastosAntes, 15);
+  assert.strictEqual(r.gastosDespues, 10);
+  assert.strictEqual(r.costeo.ventaBase.produccionSinDepartamentos, true);
+  assert.strictEqual(r.costeo.curvaGanancia.almacen, costeo.curvaGanancia.almacen); // otros tipos intactos
+  const cerca = (a, b) => assert.ok(Math.abs(a - b) < 0.001, `${a} vs ${b}`);
+  for (const costo of [10, 500, 3000, 1e6]) {
+    cerca(markupDesdeGanancia(gananciaPorCurva(r.costeo.curvaGanancia.produccion, costo), 10),
+      markupDesdeGanancia(gananciaPorCurva(costeo.curvaGanancia.produccion, costo), 15));
+  }
+  cerca(markupDesdeGanancia(r.costeo.margenPorProducto[777], 10), markupDesdeGanancia(25, 15)); // mismo precio
+  assert.strictEqual(r.costeo.margenPorProducto[1], 25); // Reventa no se toca
+  assert.strictEqual(costeo.ventaBase.produccionSinDepartamentos, undefined); // no muta
+  // Idempotente / nada que mantener: con el flag, sin departamentos de Producción o sin venta → null.
+  assert.strictEqual(migrarProduccionSinDepartamentos(r.costeo, tipoDePlu), null);
+  assert.strictEqual(migrarProduccionSinDepartamentos({ ...costeo, departamentos: [] }, tipoDePlu), null);
+  assert.strictEqual(migrarProduccionSinDepartamentos({ ...costeo, ventaBase: { meses: 3 } }, tipoDePlu), null);
 });

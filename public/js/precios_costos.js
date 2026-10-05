@@ -27,8 +27,12 @@ function ventaEfectivaCli(ventaBase, tipo) {
   return positivo((vb.manual || {})[tipo]) ?? positivo(((vb.snapshot || {}).porTipo || {})[tipo]);
 }
 
-// % de departamentos sobre la venta del tipo: 0 sin costo imputado, null si hay costo y falta la venta.
+// Producción no absorbe departamentos con ventaBase.produccionSinDepartamentos (default true, spec Parte E.2).
+const produccionSinDeptosCli = ventaBase => (ventaBase || {}).produccionSinDepartamentos !== false;
+
+// % de departamentos sobre la venta del tipo: 0 sin costo imputado (o Producción con el flag), null si hay costo y falta la venta.
 function deptosPctCli(deptos, ventaBase, tipo) {
+  if (tipo === 'produccion' && produccionSinDeptosCli(ventaBase)) return 0;
   const costo = costoImputadoCli(deptos, tipo);
   if (costo === 0) return 0;
   const venta = ventaEfectivaCli(ventaBase, tipo);
@@ -42,7 +46,8 @@ function bodyDepartamentos(deptos, ventaBase, conservarPrecios) {
       costoMensual: d.costoMensual ?? null,
       imputacion: Object.fromEntries(COSTOS_TIPOS.map(t => [t, ((d.imputacion || {})[t]) ?? null])) })),
     ventaBase: { meses: ventaBase.meses ?? null,
-      manual: Object.fromEntries(COSTOS_TIPOS.map(t => [t, ((ventaBase.manual || {})[t]) ?? null])) },
+      manual: Object.fromEntries(COSTOS_TIPOS.map(t => [t, ((ventaBase.manual || {})[t]) ?? null])),
+      ...(typeof ventaBase.produccionSinDepartamentos === 'boolean' ? { produccionSinDepartamentos: ventaBase.produccionSinDepartamentos } : {}) },
     conservarPrecios: conservarPrecios !== false,
   };
 }
@@ -57,7 +62,7 @@ const fmtPesosCostos = n => (n == null ? '—' : '$ ' + new Intl.NumberFormat('e
 const fmtFechaCostos = iso => (iso ? String(iso).split('-').reverse().join('/') : '');
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { COSTOS_TIPOS, noImputadoPct, costoImputadoCli, ventaEfectivaCli, deptosPctCli, bodyDepartamentos,
+  module.exports = { COSTOS_TIPOS, produccionSinDeptosCli, noImputadoPct, costoImputadoCli, ventaEfectivaCli, deptosPctCli, bodyDepartamentos,
     mensajeErrorDepto, fmtPesosCostos };
 }
 
@@ -84,11 +89,14 @@ function renderResumenCostos(cfg) {
   const filas = COSTOS_TIPOS.map(t => {
     const e = ec.porTipo[t] || {};
     const faltaVenta = e.departamentosPct == null && e.costoImputado > 0;
+    // Producción sin departamentos (spec Parte E.2): G = sólo variables; venta e imputado no se usan.
+    const sinDeptos = t === 'produccion' && produccionSinDeptosCli(cfg.ventaBase);
+    const deptos = sinDeptos ? 'no absorbe' : faltaVenta ? 'falta venta' : esc(fmtPctGastos(e.departamentosPct));
     return `<tr class="border-t border-borde"><td class="pr-3 py-2 font-semibold">${esc(COSTOS_NOMBRE_TIPO[t])}</td>
       ${tdNum(esc(fmtPctGastos(e.variablesPct)))}
-      ${tdNum(faltaVenta ? 'falta venta' : esc(fmtPctGastos(e.departamentosPct)), faltaVenta ? 'text-crit font-semibold' : '')}
+      ${tdNum(deptos, sinDeptos ? 'text-gris' : faltaVenta ? 'text-crit font-semibold' : '')}
       ${tdNum(esc(fmtPctGastos(e.totalPct)), 'text-[15px] font-bold text-verde bg-verde/5')}
-      ${tdNum(esc(fmtPesosCostos(e.ventaMensual)))}${tdNum(esc(fmtPesosCostos(e.costoImputado)))}</tr>`;
+      ${tdNum(esc(fmtPesosCostos(e.ventaMensual)), sinDeptos ? 'opacity-50' : '')}${tdNum(esc(fmtPesosCostos(e.costoImputado)), sinDeptos ? 'opacity-50' : '')}</tr>`;
   }).join('');
   document.getElementById('costosResumen').innerHTML = `
     <div class="cfg-card">
@@ -142,7 +150,7 @@ async function guardarIvaVenta() {
 
 // ── Tarjeta Departamentos + venta base ──────────────────────────────────────────
 let deptosEdit = [];   // copia editable [{ id?, nombre, costoMensual, imputacion: { almacen, fraccionado, produccion } }]
-let ventaBaseEdit = { meses: 3, manual: {}, snapshot: null }; // meses y manual editables; snapshot = el guardado
+let ventaBaseEdit = { meses: 3, manual: {}, snapshot: null, produccionSinDepartamentos: true }; // meses, manual y flag editables; snapshot = el guardado
 
 // u = '$' (adelante) o '%' (atrás); w = ancho del contenedor.
 const inCostos = (campo, valor, label, u, w, extra = '') => campoU(`<input type="number" min="0" step="any" inputmode="decimal"
@@ -205,13 +213,21 @@ function htmlVentaBase() {
         <td class="px-2 py-1 text-right">${campoU(`<input type="number" min="0" step="any" inputmode="decimal" data-manual="${t}" placeholder="usa SIGA"
           value="${esc((ventaBaseEdit.manual || {})[t] ?? '')}" aria-label="Venta manual ${esc(COSTOS_NOMBRE_TIPO[t])}">`, '$', { pre: true, w: 'w-36' })}</td>
         <td class="dp-pct px-2 py-1 text-right tabular-nums"></td><td class="dp-total pl-2 py-1 text-right tabular-nums text-[15px] font-bold text-verde"></td></tr>`).join('')}</tbody>
-    </table>`;
+    </table>
+    <label class="flex items-start gap-2 text-sm cursor-pointer mt-2"><input id="dpProdSinDeptos" type="checkbox" class="accent-verde mt-1"
+        ${produccionSinDeptosCli(ventaBaseEdit) ? 'checked' : ''}>
+      <span>Producción no absorbe departamentos por ahora <span class="cfg-nota">sus costos son sólo los variables: no usa la venta
+        base y lo imputado a Producción no entra en ningún precio. Al guardar con "Mantener los precios actuales" se reescala la
+        curva de Producción.</span></span></label>`;
 }
 
 function pintarVentaBaseVivo() {
   const ec = (configCargada || {}).estructuraCostos || { porTipo: {} };
   document.querySelectorAll('#dpVenta tr[data-tipo]').forEach(tr => {
     const t = tr.dataset.tipo;
+    const sinDeptos = t === 'produccion' && produccionSinDeptosCli(ventaBaseEdit);
+    tr.classList.toggle('opacity-50', sinDeptos);
+    tr.title = sinDeptos ? 'Producción no absorbe departamentos por ahora' : '';
     const pct = deptosPctCli(deptosEdit, ventaBaseEdit, t);
     const variables = (ec.porTipo[t] || {}).variablesPct ?? 0;
     tr.querySelector('.dp-pct').textContent = pct == null ? 'falta venta' : fmtPctGastos(pct);
@@ -229,7 +245,8 @@ function msgDeptos(id, txt, cls) {
 function renderDepartamentos(cfg) {
   deptosEdit = (cfg.departamentos || []).map(d => ({ ...d, imputacion: { ...(d.imputacion || {}) } }));
   const vb = cfg.ventaBase || {};
-  ventaBaseEdit = { meses: vb.meses ?? 3, manual: { ...(vb.manual || {}) }, snapshot: vb.snapshot || null };
+  ventaBaseEdit = { meses: vb.meses ?? 3, manual: { ...(vb.manual || {}) }, snapshot: vb.snapshot || null,
+    produccionSinDepartamentos: produccionSinDeptosCli(vb) };
   document.getElementById('costosDepartamentos').innerHTML = `
     <div class="cfg-card" data-guardable>
       <h3 class="cfg-h">Departamentos</h3>
@@ -288,6 +305,7 @@ function conectarDeptos() {
   // #dpVenta persiste al re-dibujar su contenido (Actualizar desde SIGA): el listener va una sola vez.
   document.getElementById('dpVenta').addEventListener('input', e => {
     if (e.target.id === 'dpMeses') ventaBaseEdit = { ...ventaBaseEdit, meses: numOrNull(e.target.value) };
+    if (e.target.id === 'dpProdSinDeptos') ventaBaseEdit = { ...ventaBaseEdit, produccionSinDepartamentos: e.target.checked };
     const t = e.target.dataset.manual;
     if (t) ventaBaseEdit = { ...ventaBaseEdit, manual: { ...ventaBaseEdit.manual, [t]: numOrNull(e.target.value) } };
     pintarVentaBaseVivo();

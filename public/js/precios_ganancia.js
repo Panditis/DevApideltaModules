@@ -17,8 +17,16 @@ const limpiarConceptos = items => (items || []).map(c => ({ ...(c.id ? { id: c.i
 const bodyGanancia = items => ({ conceptos: limpiarConceptos(items) });
 const bodyPrecioFinal = items => ({ conceptosPrecioFinal: limpiarConceptos(items) });
 
+// Márgenes propios (Parte E.1): rótulo de un rango [desde, hasta) de Δ precio % (null = sin límite) y resumen en texto.
+const fmtDeltaMp = n => `${n > 0 ? '+' : ''}${String(n).replace('.', ',')} %`;
+const etiquetaRangoMp = ({ desde, hasta }) => (desde == null ? `menos de ${fmtDeltaMp(hasta)}`
+  : hasta == null ? `${fmtDeltaMp(desde)} o más` : `${fmtDeltaMp(desde)} a ${fmtDeltaMp(hasta)}`);
+const textoResumenMp = r => `${r.totales.standard} pasan al standard · ${r.totales.acercar} se acercan ${String(r.topePct).replace('.', ',')} % · `
+  + `${r.totales.sinCambio} sin cambio (${r.motivosSinCambio.sinCosto} sin costo, ${r.motivosSinCambio.sinStandard} sin standard, `
+  + `${r.motivosSinCambio.sinListado} fuera de los listados)`;
+
 if (typeof module === 'object' && module.exports) {
-  module.exports = { totalConceptosGananciaCli, bodyGanancia, bodyPrecioFinal, CONCEPTOS_GANANCIA_MAX_CLI };
+  module.exports = { totalConceptosGananciaCli, bodyGanancia, bodyPrecioFinal, CONCEPTOS_GANANCIA_MAX_CLI, etiquetaRangoMp, textoResumenMp };
 }
 
 // ── Tarjetas de conceptos (misma UI para las dos listas) ────────────────────────────
@@ -145,8 +153,90 @@ async function cargarSubTabConfig(idCarga, pintar) {
 // Sub-tab Ganancia: conceptos de ganancia y curvas por tipo (las tablas de lectura usan conceptos, IVA, F y el G del tipo).
 const cargarGanancia = () => cargarSubTabConfig('gananciaCarga', j => {
   renderListaConceptos('gc', j);
+  renderMargenesPropios();
   renderConfigCurva(j); // precios_config_curva.js
 });
+
+// ── Tarjeta Márgenes propios → curva (spec Parte E.1) ───────────────────────────────
+// GET /api/precios/margenes-propios (cantidad por tipo); POST …/previsualizar y …/aplicar { topePct }.
+const NOMBRE_TIPO_MP = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion: 'Producción' };
+const fmtPrecioMp = n => (n == null ? '—' : '$ ' + new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n));
+
+async function renderMargenesPropios() {
+  const cont = document.getElementById('gananciaMargenes');
+  let c;
+  try {
+    c = await (await fetch('/api/precios/margenes-propios')).json();
+    if (c.error) throw new Error(c.error);
+  } catch (e) {
+    cont.innerHTML = `<div class="cfg-card"><p class="text-crit text-sm" role="alert">Márgenes propios: ${esc(e.message)}</p></div>`;
+    return;
+  }
+  const [min, max] = c.topeRangoPct;
+  cont.innerHTML = `
+    <div class="cfg-card">
+      <h3 class="cfg-h">Márgenes propios</h3>
+      <p class="cfg-ayuda">Ganancias propias por producto (casi todas de "Alinear con SIGA") que reemplazan curva + conceptos. Cada paso
+        compara el precio final exacto con la ganancia propia y con la standard (mismo costo): si la diferencia es menor o igual
+        al tope, la propia se borra y el producto pasa al standard; si no, el precio se mueve el tope % hacia el standard (la
+        ganancia propia se recalcula). Repetirlo otro día sigue acercando. Productos sin costo o sin standard no se tocan.</p>
+      <p id="mpCuenta" class="text-sm mb-2">${htmlCuentaMp(c)}</p>
+      <div class="flex items-center gap-2 flex-wrap">
+        <label for="mpTope" class="text-sm">Tope de cambio por paso</label>
+        ${campoU(`<input id="mpTope" type="number" min="${min}" max="${max}" step="0.5" inputmode="decimal" value="${esc(c.topeDefaultPct)}">`, '% del precio final', { w: 'w-44' })}
+        <button type="button" id="mpPrevisualizar" class="cfg-btn2">Previsualizar</button>
+        <button type="button" id="mpAplicar" class="cfg-btn">Aplicar</button>
+      </div>
+      <div id="mpMsg" class="text-sm mt-2" role="status" aria-live="polite"></div>
+      <div id="mpResultado"></div>
+    </div>`;
+  document.getElementById('mpPrevisualizar').onclick = () => pasoMargenesPropios(false);
+  document.getElementById('mpAplicar').onclick = () => pasoMargenesPropios(true);
+}
+
+const htmlCuentaMp = c => `<b>${c.total}</b> márgenes propios: ${Object.entries(c.porTipo).map(([t, n]) => `${esc(NOMBRE_TIPO_MP[t])} ${n}`).join(' · ')}`;
+
+function htmlResultadoMp(r) {
+  const tdR = (txt, cls = '') => `<td class="px-2 py-1 text-right tabular-nums ${cls}">${txt}</td>`;
+  const dist = r.distribucion.filter(d => d.n > 0).map(d => `<span class="mr-3 whitespace-nowrap">${esc(etiquetaRangoMp(d))}: <b>${d.n}</b></span>`).join('');
+  return `
+    <p class="text-sm mt-2">${esc(textoResumenMp(r))}</p>
+    <p class="text-xs text-gris mt-1">Δ precio: ${dist || 'sin cambios'}</p>
+    ${r.top.length ? `<h4 class="text-sm font-semibold mt-3 mb-1">Los ${r.top.length} con mayor cambio de precio</h4>
+    <table class="w-full text-sm cfg-tabla">
+      <thead><tr><th class="text-left pr-2">PLU</th><th class="text-left pr-2">Producto</th><th class="text-left pr-2">Tipo</th>
+        <th class="text-right px-2">Precio actual</th><th class="text-right px-2">Precio standard</th><th class="text-right px-2">Precio nuevo</th>
+        <th class="text-right px-2">Δ</th></tr></thead>
+      <tbody>${r.top.map(f => `<tr class="border-t border-borde"><td class="pr-2 py-1 tabular-nums">${esc(f.plu ?? 'temporal')}</td>
+        <td class="pr-2 py-1">${esc(f.nombre ?? '')}</td><td class="pr-2 py-1">${esc(NOMBRE_TIPO_MP[f.tipo] || f.tipo)}${f.accion === 'standard' ? ' <span class="text-ok text-xs">→ standard</span>' : ''}</td>
+        ${tdR(esc(fmtPrecioMp(f.precioActual)))}${tdR(esc(fmtPrecioMp(f.precioStandard)), 'text-gris')}${tdR(esc(fmtPrecioMp(f.precioNuevo)), 'font-semibold')}
+        ${tdR(esc(fmtDeltaMp(f.deltaPct)), f.deltaPct < 0 ? 'text-crit' : 'text-ok')}</tr>`).join('')}</tbody>
+    </table>` : ''}`;
+}
+
+async function pasoMargenesPropios(aplicar) {
+  const topePct = numOrNull(document.getElementById('mpTope').value);
+  if (aplicar && !(await confirmar(`¿Aplicar el paso con tope ${String(topePct).replace('.', ',')} %? Borra o recalcula las ganancias propias (se guarda un backup de la config).`, { textoOk: 'Aplicar' }))) return;
+  const botones = ['mpPrevisualizar', 'mpAplicar'].map(id => document.getElementById(id));
+  const msg = document.getElementById('mpMsg');
+  botones.forEach(b => { b.disabled = true; });
+  msg.className = 'text-sm mt-2 text-ink/50';
+  msg.innerHTML = '<span class="spin"></span> Calculando con los costos de SIGA… puede tardar unos segundos';
+  try {
+    const r = await pedirJson('POST', `/api/precios/margenes-propios/${aplicar ? 'aplicar' : 'previsualizar'}`, { topePct });
+    document.getElementById('mpResultado').innerHTML = htmlResultadoMp(r);
+    msg.className = 'text-sm mt-2 text-ok';
+    msg.textContent = aplicar ? `Aplicado: ${r.aplicados} márgenes cambiados${r.omitidos ? ` (${r.omitidos} editados mientras tanto, no se tocaron)` : ''}.` : 'Previsualización (no se guardó nada).';
+    if (aplicar) {
+      fraccCargado = false; // precios_fraccionado.js
+      refrescarAlertasProduccion(); // precios_produccion.js
+      const c = await (await fetch('/api/precios/margenes-propios')).json();
+      if (!c.error) document.getElementById('mpCuenta').innerHTML = htmlCuentaMp(c);
+    }
+  } catch (e) {
+    msg.className = 'text-sm mt-2 text-crit'; msg.textContent = e.message;
+  } finally { botones.forEach(b => { b.disabled = false; }); }
+}
 
 // Sub-tab Precio final: conceptos sobre precio final (edición) e IVA de venta (sólo lectura: se edita en Costos).
 const cargarPrecioFinal = () => cargarSubTabConfig('pfCarga', j => {
