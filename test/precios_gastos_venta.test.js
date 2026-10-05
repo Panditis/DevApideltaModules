@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  totalGastosVenta, markupDesdeGanancia, gananciaDesdeMarkup, validarGastosVenta, reescalarGanancias,
+  totalGastosVenta, markupDesdeGanancia, gananciaDesdeMarkup, validarGastosVenta, reescalarGanancias, gananciaPorCurva,
 } = require('../lib/precios_costeo');
 const { costearPresentacion } = require('../lib/precios_produccion');
 
@@ -97,25 +97,29 @@ test('validarGastosVenta: errores claros (lista, concepto, pct, listas, id, repe
 
 const COSTEO = {
   toleranciaPct: 10,
-  bandasMarkup: {
-    almacen: [{ costoHastaARS: 1000, markupMaxPct: 40 }, { costoHastaARS: null, markupMaxPct: 15 }],
-    fraccionado: [],
-    produccion: [{ costoHastaARS: null, markupMaxPct: 50 }],
+  curvaGanancia: {
+    almacen: { a: 60, b: 4, pisoPct: 15, techoPct: 40 },
+    fraccionado: { a: 90, b: 3, pisoPct: 55, techoPct: 85, ajustesPeso: { tramosG: [100, 1000], puntos: [6, -4] } },
+    produccion: { a: 50, b: 0, pisoPct: 50, techoPct: 50 },
   },
-  markupFraccionado: { bandas: [9999, null], tramosG: [100, 1000], markupPct: [[84.35, 60.3], [73.57, 65.3]] },
 };
+const COSTOS_PRUEBA = [1, 100, 1000, 5000, 50000, 1e7];
 
-test('reescalarGanancias: el markup total queda igual (3er decimal) al pasar de 0 a 26.09 % de gastos', () => {
+test('reescalarGanancias: el markup total de cada curva queda igual (3er decimal) al pasar de 0 a 26.09 % de gastos', () => {
   const r = reescalarGanancias(COSTEO, 0, 26.09);
-  const antes = [...COSTEO.bandasMarkup.almacen, ...COSTEO.bandasMarkup.produccion].map(b => b.markupMaxPct)
-    .concat(COSTEO.markupFraccionado.markupPct.flat());
-  const despues = [...r.bandasMarkup.almacen, ...r.bandasMarkup.produccion].map(b => b.markupMaxPct)
-    .concat(r.markupFraccionado.markupPct.flat());
-  despues.forEach((g, i) => {
-    assert.ok(Math.abs(markupDesdeGanancia(g, 26.09) - antes[i]) < 0.001, `valor ${i}: ${g}`);
-    assert.strictEqual(g, Math.round(g * 1e4) / 1e4); // 4 decimales
-  });
-  assert.strictEqual(r.bandasMarkup.almacen[1].costoHastaARS, null);
+  for (const tipo of ['almacen', 'fraccionado', 'produccion']) {
+    for (const costo of COSTOS_PRUEBA) {
+      for (const peso of [50, 1000]) {
+        const antes = gananciaPorCurva(COSTEO.curvaGanancia[tipo], costo, peso);
+        const despues = gananciaPorCurva(r.curvaGanancia[tipo], costo, peso);
+        assert.ok(Math.abs(markupDesdeGanancia(despues, 26.09) - antes) < 0.001, `${tipo} ${costo} ${peso}: ${despues}`);
+      }
+    }
+    for (const k of ['a', 'b', 'pisoPct', 'techoPct']) {
+      const v = r.curvaGanancia[tipo][k];
+      assert.strictEqual(v, Math.round(v * 1e4) / 1e4); // 4 decimales
+    }
+  }
   assert.strictEqual(r.toleranciaPct, 10);
 });
 
@@ -124,37 +128,43 @@ test('reescalarGanancias: no muta la entrada; ida y vuelta vuelve a los valores 
   const ida = reescalarGanancias(COSTEO, 0, 26.09);
   assert.deepStrictEqual(COSTEO, copia);
   const vuelta = reescalarGanancias(ida, 26.09, 0);
-  vuelta.bandasMarkup.almacen.forEach((b, i) => assert.ok(Math.abs(b.markupMaxPct - COSTEO.bandasMarkup.almacen[i].markupMaxPct) < 0.001));
-  vuelta.markupFraccionado.markupPct.flat().forEach((v, i) => assert.ok(Math.abs(v - COSTEO.markupFraccionado.markupPct.flat()[i]) < 0.001));
+  for (const tipo of ['almacen', 'fraccionado', 'produccion']) {
+    for (const costo of COSTOS_PRUEBA) {
+      assert.ok(Math.abs(gananciaPorCurva(vuelta.curvaGanancia[tipo], costo, 50) - gananciaPorCurva(COSTEO.curvaGanancia[tipo], costo, 50)) < 0.001);
+    }
+  }
 });
 
-test('reescalarGanancias: sin cambio de gastos o sin matriz no inventa nada', () => {
+test('reescalarGanancias: sin cambio de gastos o sin curvas no inventa nada', () => {
   assert.deepStrictEqual(reescalarGanancias(COSTEO, 10, 10), COSTEO);
-  const sinMatriz = reescalarGanancias({ bandasMarkup: COSTEO.bandasMarkup }, 0, 10);
-  assert.strictEqual(sinMatriz.markupFraccionado, undefined);
+  assert.strictEqual(reescalarGanancias({ toleranciaPct: 1 }, 0, 10).curvaGanancia, undefined);
 });
 
-// ── Producción: banda = ganancia, override = markup total ────────────────────
+// ── Producción: curva + conceptos = ganancia; override = ganancia propia ─────
 
 const presentar = extra => costearPresentacion({
   plu: '1', presentacion: { recetaId: 'r', kgPorUnidad: 1 },
   recetaCosteada: { nombre: 'R', costoKg: 1000, costos: {}, faltantes: [] },
-  costoDe: () => null, costoHora: 0, bandas: [{ costoHastaARS: null, markupMaxPct: 15 }], ...extra,
+  costoDe: () => null, costoHora: 0, curva: { a: 15, b: 0, pisoPct: 15, techoPct: 15 }, ...extra,
 });
 
-test('costearPresentacion: con gastos 26.09 la banda (ganancia 15) se convierte → markup 55.594642', () => {
+test('costearPresentacion: con gastos 26.09 la curva (ganancia 15) se convierte → markup 55.594642', () => {
   const p = presentar({ gastosVentaPct: 26.09 });
   assert.strictEqual(p.gananciaPct, 15);
   assert.strictEqual(p.markupPct, 55.594642);
   assert.strictEqual(p.precioNeto, 1555.95);
 });
 
-test('costearPresentacion: sin gastos es identidad; el override no se convierte', () => {
+test('costearPresentacion: sin gastos es identidad; la ganancia propia reemplaza curva + conceptos y se convierte con los gastos', () => {
   const sin = presentar();
   assert.strictEqual(sin.markupPct, 15);
   assert.strictEqual(sin.gananciaPct, 15);
-  const ov = presentar({ gastosVentaPct: 26.09, overridePct: 40 });
-  assert.strictEqual(ov.markupPct, 40);
-  assert.strictEqual(ov.gananciaPct, null);
+  const conConceptos = presentar({ conceptos: [{ id: 'r', concepto: 'Riesgo', pct: 5 }] });
+  assert.strictEqual(conConceptos.gananciaPct, 20); // curva 15 + conceptos 5
+  assert.strictEqual(conConceptos.desglose.gananciaCurvaPct, 15);
+  const ov = presentar({ gastosVentaPct: 26.09, overridePct: 40, conceptos: [{ id: 'r', concepto: 'Riesgo', pct: 5 }] });
+  assert.strictEqual(ov.gananciaPct, 40);
+  assert.strictEqual(ov.markupPct, markupDesdeGanancia(40, 26.09)); // 1,4 ÷ (1 − 0,2609) − 1
+  assert.deepStrictEqual(ov.desglose.conceptos, []); // con ganancia propia no se suman conceptos
   assert.strictEqual(ov.banda, 'override');
 });

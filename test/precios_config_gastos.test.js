@@ -41,12 +41,13 @@ test('textos: desglose ganancia + gastos y markup total con coma decimal', () =>
   assert.strictEqual(ui.fmtPctGastos(null), '—');
 });
 
-test('gananciaPorCurvaCliente: igual a gananciaPorCurva del server (clamp, ln, ajuste por peso, inactiva)', () => {
+test('gananciaPorCurvaCliente: igual a gananciaPorCurva del server (clamp, ln, ajuste por peso, plana; activa vieja se ignora)', () => {
   const aj = { tramosG: [250, 500, 1000, 5000], puntos: [6, 3, 0, -2.5] };
   const curvas = [
     { activa: true, a: 40, b: 3, pisoPct: 10, techoPct: 35 },
     { activa: true, a: 55.1234, b: 4.5678, pisoPct: -5, techoPct: 60, ajustesPeso: aj },
     { activa: true, a: 20, b: -1, pisoPct: 0, techoPct: 100 },
+    { a: 17.1, b: 0, pisoPct: 17.1, techoPct: 17.1 },
     { activa: false, a: 40, b: 3, pisoPct: 10, techoPct: 35 },
     { activa: true, a: 40, b: 3, pisoPct: 50, techoPct: 10 },
     null,

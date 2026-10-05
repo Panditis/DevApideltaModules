@@ -22,7 +22,7 @@
   .fopt input{accent-color:#405936;width:14px;height:14px;flex-shrink:0}
   .fopt b{margin-left:auto;color:#5c5f52;font-weight:600;font-variant-numeric:tabular-nums}
 
-  /* ── Modal de detalle (Almacén y Fraccionado): la cuenta como una sola "ecuación" ──
+  /* ── Modal de detalle (Reventa y Fraccionado): la cuenta como una sola "ecuación" ──
      .ec = renglón [operador | concepto | importe]; .seg = control segmentado del costo. */
   .ec{display:grid;grid-template-columns:1rem minmax(0,1fr) auto;column-gap:.75rem;align-items:start;padding:.6rem 0}
   .ec-op{color:#5c5f52;font-weight:600;text-align:center;line-height:1.5rem}
@@ -36,6 +36,9 @@
   .seg-opt[aria-pressed="true"] b{color:#405936}
   .seg-opt:not(:disabled):not([aria-pressed="true"]):hover{background:rgba(64,89,54,.08)}
   .seg-opt:disabled{opacity:.4;cursor:not-allowed}
+  /* Sub-tabs de Configuración: el mismo control segmentado, con texto de botón. */
+  .seg-sub .seg-opt{font-size:13px;font-weight:600;padding:6px 16px}
+  .seg-sub .seg-opt:focus-visible{outline:2px solid #405936;outline-offset:2px}
   .num-in{padding:4px 8px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;text-align:right;font-variant-numeric:tabular-nums}
   .num-in:hover{border-color:rgba(26,28,24,.32)}
   .num-in:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
@@ -61,6 +64,92 @@
   .sec-tit{color:var(--sec-c)}
   /* Presentaciones simuladas (Fraccionado): fila tintada en amarillo, como lo "propio" del usuario. */
   #mDet tbody tr.tmp,#mDet tbody tr.tmp:hover{background:rgba(255,204,0,.08)}
+  /* ── Configuración ─────────────────────────────────────────────────────────────────────────────
+     Sub-tabs (.cfg-tab, role=tab): subrayado verde; los del precio llevan su número de paso. */
+  .cfg-sub{display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid rgba(26,28,24,.16);margin-bottom:18px}
+  .cfg-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 14px 10px;font-size:14px;font-weight:600;color:#5c5f52;
+           border-bottom:3px solid transparent;margin-bottom:-1px;border-radius:6px 6px 0 0;cursor:pointer;transition:color 140ms ease,background-color 140ms ease}
+  .cfg-tab:hover{color:#242423;background:rgba(64,89,54,.06)}
+  .cfg-tab[aria-selected="true"]{color:#405936;border-bottom-color:#405936}
+  .cfg-tab:focus-visible{outline:2px solid #405936;outline-offset:-2px}
+  .cfg-tab .n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;background:#e3e8dd;color:#5c5f52}
+  .cfg-tab[aria-selected="true"] .n{background:#405936;color:#fff}
+  .cfg-tab[data-sucio]::after{content:'';width:7px;height:7px;border-radius:50%;background:#FFCC00;box-shadow:0 0 0 1px #8a5d00}
+  .cfg-sep{width:1px;height:22px;background:rgba(26,28,24,.16);margin:0 10px 12px}
+  /* Encabezado de 1 línea de cada sub-tab, título de sección y grillas de escritorio. */
+  .cfg-cab{font-size:13.5px;color:#5c5f52;margin:0 0 16px;max-width:110ch}
+  .cfg-cab b{color:#242423;font-weight:700}
+  .cfg-sec{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#5c5f52;margin:28px 0 10px}
+  .cfg-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:20px;align-items:start}
+  .cfg-grid-par{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cfg-grid-angosta{grid-template-columns:420px minmax(0,1fr)}
+  /* Tarjeta: título, ayuda, cuerpo y pie (mensaje role=status a la izquierda, Guardar a la derecha). */
+  .cfg-card{background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:12px;padding:20px;
+            box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1);transition:box-shadow 160ms ease}
+  .cfg-h{font-size:16px;font-weight:700;color:#405936;line-height:1.3}
+  .cfg-ayuda{font-size:12.5px;line-height:1.55;color:#5c5f52;margin:4px 0 16px;max-width:80ch}
+  .cfg-nota{display:block;font-size:11.5px;font-weight:400;color:#5c5f52;margin-top:1px}
+  .cfg-campo{display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .cfg-campo>label{font-size:13.5px;font-weight:600;color:#242423}
+  .cfg-pie{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid rgba(26,28,24,.1)}
+  .cfg-pie>[role="status"]{margin-right:auto;min-width:0}
+  .cfg-btn{padding:7px 16px;border-radius:8px;background:#405936;color:#fff;font-size:13.5px;font-weight:600;white-space:nowrap;transition:background-color 140ms ease}
+  .cfg-btn:hover{background:#4f6e42}
+  .cfg-btn:disabled{opacity:.4;cursor:not-allowed}
+  .cfg-btn2{padding:5px 12px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;font-size:12.5px;font-weight:600;color:#242423;white-space:nowrap}
+  .cfg-btn2:hover{background:#f5f8f1;border-color:rgba(26,28,24,.32)}
+  .cfg-btn2:disabled{opacity:.4;cursor:not-allowed}
+  #panel-configuracion button:focus-visible,#panel-configuracion summary:focus-visible,#panel-configuracion input[type=checkbox]:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  /* Cambios sin guardar: filo amarillo a la izquierda y aviso en el pie, antes del botón. */
+  [data-guardable][data-sucio]{box-shadow:inset 3px 0 0 #FFCC00,0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
+  [data-guardable][data-sucio] .cfg-pie::before{content:'● Cambios sin guardar';order:1;font-size:12px;font-weight:600;color:#8a5d00;
+            background:rgba(255,204,0,.16);padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .cfg-pie>button{order:2}
+  /* Totales destacados (pie de las listas de %). */
+  .cfg-total td{padding-top:10px;font-size:14.5px;font-weight:700;color:#405936}
+  .cfg-tabla th{font-size:11px;font-weight:600;color:#5c5f52;padding-bottom:6px}
+  .cfg-tabla td{vertical-align:middle}
+  /* Input con unidad visible ($ antes, % / min / g después): el borde y el foco los lleva el contenedor. */
+  .campo-u{display:inline-flex;align-items:center;border:1px solid rgba(26,28,24,.16);border-radius:8px;background:#fff;
+           transition:border-color 140ms ease,box-shadow 140ms ease;vertical-align:middle}
+  .campo-u:hover{border-color:rgba(26,28,24,.32)}
+  .campo-u:focus-within{border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  .campo-u input{flex:1;min-width:0;width:100%;border:0;outline:0;background:transparent;padding:5px 4px 5px 9px;text-align:right;
+                 font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+  .campo-u input::-webkit-inner-spin-button,.campo-u input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+  .campo-u .u{flex:none;padding:0 9px 0 2px;font-size:12px;color:#5c5f52;user-select:none}
+  .campo-u .u.pre{padding:0 0 0 9px}
+  .campo-u .u.pre + input{padding-left:4px}
+  .campo-u:has(input:disabled){opacity:.45}
+  .campo-t{width:100%;padding:5px 9px;border:1px solid rgba(26,28,24,.16);border-radius:8px;background:#fff}
+  .campo-t:hover{border-color:rgba(26,28,24,.32)}
+  .campo-t:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  .btn-quitar{width:28px;height:28px;border-radius:8px;color:#5c5f52}
+  .btn-quitar:hover{color:#a4262c;background:rgba(164,38,44,.08)}
+  /* Pipeline "Cómo se forma el precio": columnas de operación tintadas con el color de su sección del detalle. */
+  .cfg-pipe-sum{display:flex;align-items:baseline;gap:12px;cursor:pointer;list-style:none}
+  .cfg-pipe-sum::-webkit-details-marker{display:none}
+  .cfg-pipe-sum::before{content:'▸';color:#405936;transition:transform 140ms ease;display:inline-block}
+  details[open]>.cfg-pipe-sum::before{transform:rotate(90deg)}
+  .pipe{width:100%;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
+  .pipe th{text-transform:none;letter-spacing:0;padding:0 3px 6px;vertical-align:bottom}
+  .pipe td{padding:7px 10px;text-align:right;white-space:nowrap;border-top:1px solid rgba(26,28,24,.08)}
+  .pipe td.pipe-tipo{text-align:left;font-weight:600;color:#242423;padding-left:2px}
+  .pipe tbody tr:hover{background:transparent}
+  .pipe-paso{width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:1px;padding:6px 10px;border-radius:8px;
+             border:1px solid transparent;text-align:right;transition:background-color 140ms ease,border-color 140ms ease}
+  .pipe-paso:hover{background:rgba(64,89,54,.07);border-color:rgba(26,28,24,.16)}
+  .pipe-paso[aria-current="step"]{border-color:#405936;background:rgba(64,89,54,.07)}
+  .pipe-paso .t{font-size:13px;font-weight:700;color:#242423}
+  .pipe-paso .o{font-size:11px;color:var(--pc,#5c5f52);font-weight:600}
+  .pipe .op{--pc:#5c5f52;background:var(--pbg);color:var(--pc);font-weight:600}
+  .pipe th.op{background:none}
+  .pipe .c-costos{--pc:#0958d9;--pbg:rgba(9,88,217,.045)}
+  .pipe .c-ganancia{--pc:#4f6e42;--pbg:#f2f6ec}
+  .pipe .c-iva{--pc:#5c5f52;--pbg:rgba(92,95,82,.06)}
+  .pipe .c-final{--pc:#8a5d00;--pbg:rgba(255,204,0,.1)}
+  .pipe td.res{color:#242423}
+  .pipe td.res-fin{font-size:15px;font-weight:700;color:#405936;background:rgba(64,89,54,.08)}
   .fd-cuerpo>tr>td:first-child{padding-left:.5rem}
   @media (min-width:640px){.fd-cuerpo>tr>td:last-child{padding-right:.5rem}}
 </style>
@@ -76,10 +165,9 @@
   </div>
   <!-- Producción: lógica en /precios_produccion*.js (núcleo, _detalle, _presentaciones, _modal, _formula); navega por hash (#produccion, #produccion/<id>). -->
   <nav class="flex gap-1 max-w-[1500px] mx-auto px-4" id="tabs">
-    <button class="navtab on" data-tipo="almacen">Almacén</button>
+    <button class="navtab on" data-tipo="almacen">Reventa</button>
     <button class="navtab" data-tipo="fraccionado">Fraccionado</button>
     <button class="navtab" data-tipo="produccion">Producción <span id="tabProdBadge" class="hidden ml-1 px-1.5 rounded-full bg-warn text-white text-[11px] font-bold tabular-nums"></span></button>
-    <button class="navtab" data-tipo="maquinas">Máquinas</button>
     <button class="navtab" data-tipo="configuracion">Configuración</button>
   </nav>
 </header>
@@ -115,14 +203,15 @@
         <thead class="bg-verde/5 text-verde">
           <tr><th class="p-2 w-8"><input id="chkTodos" type="checkbox" class="accent-verde" title="Marcar/desmarcar los visibles"></th>
               <th class="p-2 text-left" data-orden="plu">Código</th><th class="p-2 text-left" data-orden="nombre">Producto</th>
-              <th class="p-2" data-orden="costo">Costo</th>
-              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA tal cual (● = el precio se calcula con otra fuente)">Costo sistema</th>
-              <th class="p-2" data-orden="ultima" title="Comprobante cargado hoy o, si no, la última compra (factura: neto + IVA; cotización: tal cual); ▲/▼ contra el costo de sistema">Costo última compra</th>
-              <th class="p-2" data-orden="markup">Banda/Markup%</th><th class="p-2" data-orden="vigente">Precio vigente</th>
+              <th class="p-2" data-orden="costo" title="Costo neto (sin IVA) + costos extra">Costo neto</th>
+              <th class="p-2" data-orden="real" title="Costo real = costo neto ÷ (1 − gastos variables − departamentos del tipo)">Costo real</th>
+              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA neto: PrecioCosto ÷ (1 + alícuota) (● = el precio se calcula con otra fuente)">Costo sistema</th>
+              <th class="p-2" data-orden="ultima" title="Comprobante cargado hoy o, si no, la última compra, neto (factura o cotización: PrecioNeto); ▲/▼ contra el costo de sistema">Costo última compra</th>
+              <th class="p-2" data-orden="markup" title="Ganancia % sobre el costo real (curva + conceptos, o propia) · markup final % (precio final con IVA ÷ costo neto − 1)">Ganancia / Markup final</th><th class="p-2" data-orden="vigente">Precio vigente</th>
               <th class="p-2" data-orden="fecha" title="Fecha del último cambio del precio de venta en SIGA">Act. precio</th>
               <th class="p-2" data-orden="delta">Diferencia</th><th class="p-2" data-orden="estado">Estado</th></tr>
         </thead>
-        <tbody id="cuerpoAlmacen"><tr><td colspan="11" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
+        <tbody id="cuerpoAlmacen"><tr><td colspan="12" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -156,9 +245,9 @@
         <thead class="bg-verde/5 text-verde">
           <tr><th class="p-2 w-8"><input id="chkTodosFr" type="checkbox" class="accent-verde" title="Marcar/desmarcar las presentaciones de los graneles visibles"></th>
               <th class="p-2 text-left" data-orden="plu">Código</th><th class="p-2 text-left" data-orden="nombre">Producto</th>
-              <th class="p-2" data-orden="costo">Costo $/kg</th>
-              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA tal cual del granel (● = el precio se calcula con otra fuente)">Costo sistema</th>
-              <th class="p-2" data-orden="ultima" title="Comprobante cargado hoy o, si no, la última compra del granel (factura: neto + IVA; cotización: tal cual); ▲/▼ contra el costo de sistema">Costo última compra</th>
+              <th class="p-2" data-orden="costo" title="Costo neto (sin IVA) del granel + costos extra">Costo neto $/kg</th>
+              <th class="p-2" data-orden="sistema" title="Costo de sistema SIGA neto del granel: PrecioCosto ÷ (1 + alícuota) (● = el precio se calcula con otra fuente)">Costo sistema</th>
+              <th class="p-2" data-orden="ultima" title="Comprobante cargado hoy o, si no, la última compra del granel, neto (PrecioNeto); ▲/▼ contra el costo de sistema">Costo última compra</th>
               <th class="p-2" data-orden="presentaciones">Presentaciones</th>
               <th class="p-2" data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="p-2" data-orden="delta">Diferencia (peor)</th><th class="p-2" data-orden="estado">Estado (peor)</th></tr>
         </thead>
@@ -177,52 +266,107 @@
     <div id="prodContenido"></div>
   </div>
 
-  <!-- Máquinas: categorías de máquina de Producción, lo pinta /js/precios_maquinas.js. -->
-  <div id="panel-maquinas" class="tab-panel hidden"></div>
-
+  <!-- Configuración: arriba el pipeline "Cómo se forma el precio" (pintarPipeline, /js/precios_config.js); abajo los
+       sub-tabs en el orden del precio (Costos → Ganancia → Precio final → Simulador) y aparte General y Máquinas
+       (activarSubConfig). Los sub-paneles son .cfg-panel (no .tab-panel) para que activarTab no los oculte a todos.
+       Cambios sin guardar: una .cfg-card[data-guardable] (o bloque) se marca con data-sucio al editar (precios_config.js). -->
   <div id="panel-configuracion" class="tab-panel hidden">
-    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md">
-      <h2 class="font-disp text-lg font-bold text-verde mb-4">Configuración general</h2>
-      <div id="configCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
-      <div id="configForm" class="hidden space-y-4">
-        <label class="block text-sm">Costo por hora ($)
-          <input id="inCostoHora" type="number" min="0" step="any"
-                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
-        <label class="block text-sm">Tolerancia (%)
-          <input id="inTolerancia" type="number" min="0" step="any"
-                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde"></label>
-        <label class="block text-sm">Minutos de fraccionado por unidad (standard)
-          <input id="inMinutosFracc" type="number" min="0" max="600" step="any"
-                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde">
-          <span class="text-[11px] text-gris">Mano de obra = minutos × costo hora ÷ 60, por kilo según el peso de cada presentación. Cada presentación puede tener sus propios minutos.</span></label>
-        <label class="block text-sm">Insumos de fraccionado por unidad ($, standard)
-          <input id="inInsumosFracc" type="number" min="0" max="10000000" step="any"
-                 class="mt-1 w-full px-3 py-2 rounded-lg border border-borde">
-          <span class="text-[11px] text-gris">Bolsa, etiqueta, precinto… en $ por unidad, pasado a $/kg según el peso de cada presentación. Cada presentación puede tener su propio valor.</span></label>
-        <div class="flex items-center gap-2">
-          <button id="btnGuardarGeneral" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar</button>
-          <span id="generalMsg" class="text-sm"></span>
+  <details id="cfgPipe" class="cfg-card mb-5" open>
+    <summary class="cfg-pipe-sum">
+      <span class="font-disp text-base font-bold text-ink">Cómo se forma el precio</span>
+      <span class="text-xs text-gris">Valores guardados por tipo · tocá un paso para ir a configurarlo</span>
+    </summary>
+    <div id="cfgPipeCuerpo" class="mt-3 text-sm text-ink/50"><span class="spin"></span> Cargando configuración…</div>
+  </details>
+
+  <nav id="subtabsConfig" class="cfg-sub" role="tablist" aria-label="Secciones de Configuración">
+    <button type="button" role="tab" class="cfg-tab" id="tab-costos" data-sub="costos" aria-controls="panel-costos" aria-selected="false"><span class="n" aria-hidden="true">1</span>Costos</button>
+    <button type="button" role="tab" class="cfg-tab" id="tab-ganancia" data-sub="ganancia" aria-controls="panel-ganancia" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">2</span>Ganancia</button>
+    <button type="button" role="tab" class="cfg-tab" id="tab-precioFinal" data-sub="precioFinal" aria-controls="panel-precioFinal" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">3</span>Precio final</button>
+    <button type="button" role="tab" class="cfg-tab" id="tab-simulador" data-sub="simulador" aria-controls="panel-simulador" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">4</span>Simulador</button>
+    <span class="cfg-sep" aria-hidden="true"></span>
+    <button type="button" role="tab" class="cfg-tab" id="tab-general" data-sub="general" aria-controls="panel-general" aria-selected="false" tabindex="-1">General</button>
+    <button type="button" role="tab" class="cfg-tab" id="tab-maquinas" data-sub="maquinas" aria-controls="panel-maquinas" aria-selected="false" tabindex="-1">Máquinas</button>
+  </nav>
+
+  <!-- Costos: lo carga cargarCostos() (/js/precios_config.js). Resumen, Departamentos e IVA: /js/precios_costos.js;
+       Variables sobre venta: /js/precios_config_gastos.js. -->
+  <section id="panel-costos" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costos">
+    <p class="cfg-cab"><b>Costos</b> — lo que cuesta vender cada tipo: variables sobre venta + departamentos. Costo real = costo neto ÷ (1 − costos %). Acá también se edita el IVA de venta.</p>
+    <div id="costosCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+    <div class="cfg-grid">
+      <div class="space-y-5 min-w-0">
+        <div id="configGastos"></div>
+        <!-- IVA de venta (no es costo: va sobre el precio neto; se ve también en Precio final). -->
+        <div id="costosIva"></div>
+      </div>
+      <div id="costosResumen" class="min-w-0"></div>
+    </div>
+    <div id="costosDepartamentos" class="mt-5"></div>
+  </section>
+
+  <!-- Ganancia: conceptos de ganancia (/js/precios_ganancia.js) + curvas por tipo (/js/precios_config_curva.js). Lo carga cargarGanancia(). -->
+  <section id="panel-ganancia" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-ganancia">
+    <p class="cfg-cab"><b>Ganancia</b> — cuánto se gana sobre el costo real: la curva de cada tipo (baja a medida que sube el costo) + los conceptos de ganancia. Precio neto = costo real × (1 + ganancia %).</p>
+    <div id="gananciaCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+    <div class="cfg-grid">
+      <div id="gananciaConceptos" class="min-w-0"></div>
+      <div class="cfg-card min-w-0">
+        <h3 class="cfg-h">Alinear con SIGA</h3>
+        <p class="cfg-ayuda">Toma el precio vigente de cada producto de Reventa y de cada presentación de Fraccionado en SIGA y le calcula la ganancia propia (s/ costo real) que hace falta para llegar a ese precio con su costo actual, los gastos de su tipo, el IVA de venta y los conceptos sobre precio final. Pisa las ganancias propias de esos productos.</p>
+        <div class="cfg-pie">
+          <div id="alinearMsg" class="text-sm" role="status" aria-live="polite"></div>
+          <button type="button" id="btnAlinearSiga" class="cfg-btn">Alinear ganancias con SIGA</button>
         </div>
       </div>
     </div>
-
-    <!-- Gastos sobre venta (lista Sucursal): lo pinta /js/precios_config_gastos.js -->
-    <div id="configGastos"></div>
-    <!-- Bandas de ganancia Almacén y Producción: las pinta /js/precios_config_bandas.js -->
-    <div id="configBandas"></div>
-
-    <div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-md mt-5">
-      <h2 class="font-disp text-lg font-bold text-verde mb-1">Alinear con SIGA</h2>
-      <p class="text-xs text-ink/50 mb-4">Toma el precio vigente de cada producto de Almacén y de cada presentación de Fraccionado en SIGA y le calcula el markup que hace falta para llegar a ese precio con su costo actual. Pisa los markups propios de esos productos.</p>
-      <button id="btnAlinearSiga" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-40">Alinear markups con SIGA</button>
-      <div id="alinearMsg" class="text-sm mt-2"></div>
+    <!-- Curvas de ganancia (único método standard): Reventa, Fraccionado y Producción. -->
+    <h3 class="cfg-sec">Curvas de ganancia por tipo</h3>
+    <div class="cfg-grid cfg-grid-par">
+      <div id="configCurvaAlmacen" class="min-w-0"></div>
+      <div id="configCurvaProduccion" class="min-w-0"></div>
+      <div id="configCurvaFraccionado" class="min-w-0 col-span-2"></div>
     </div>
+  </section>
 
-    <div id="configFraccionado"></div>
-    <!-- Curva de ganancia de Fraccionado (la de Almacén va debajo de sus bandas): /js/precios_config_curva.js -->
-    <div id="configCurvaFraccionado"></div>
-    <!-- Pack / Bulto: lo pinta /js/precios_pack_bulto.js -->
-    <div id="configPackBulto"></div>
+  <!-- Precio final: conceptos sobre precio final (edición, /js/precios_ganancia.js) e IVA de venta (sólo lectura: se edita
+       en Costos). Lo carga cargarPrecioFinal(). -->
+  <section id="panel-precioFinal" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-precioFinal">
+    <p class="cfg-cab"><b>Precio final</b> — lo que se suma después del precio neto: IVA de venta y conceptos sobre el precio final. Precio final = (precio neto + IVA) ÷ (1 − conceptos %), redondeado a $50.</p>
+    <div id="pfCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+    <div class="cfg-grid">
+      <div id="gananciaPrecioFinal" class="min-w-0"></div>
+      <div id="pfIva" class="min-w-0"></div>
+    </div>
+  </section>
+
+  <!-- Simulador: costo de compra → precio final al público con la config guardada. Lo pinta /js/precios_simulador.js. -->
+  <section id="panel-simulador" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-simulador"></section>
+
+  <section id="panel-general" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-general">
+    <p class="cfg-cab"><b>General</b> — costo hora (mano de obra de Producción y de las presentaciones de Fraccionado con minutos propios), tolerancia del semáforo y descuentos de pack/bulto.</p>
+    <div class="cfg-grid cfg-grid-angosta">
+      <div class="cfg-card min-w-0" data-guardable>
+        <h3 class="cfg-h">Parámetros generales</h3>
+        <div id="configCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
+        <div id="configForm" class="hidden mt-4 space-y-4">
+          <div class="cfg-campo"><label for="inCostoHora">Costo por hora</label>
+            <span class="campo-u w-40"><span class="u pre">$</span><input id="inCostoHora" type="number" min="0" step="any" inputmode="decimal"></span></div>
+          <div class="cfg-campo"><label for="inTolerancia">Tolerancia del semáforo <span class="cfg-nota">diferencias dentro de ± este % no se resaltan</span></label>
+            <span class="campo-u w-40"><input id="inTolerancia" type="number" min="0" step="any" inputmode="decimal"><span class="u">%</span></span></div>
+          <div class="cfg-pie">
+            <span id="generalMsg" class="text-sm" role="status" aria-live="polite"></span>
+            <button type="button" id="btnGuardarGeneral" class="cfg-btn">Guardar</button>
+          </div>
+        </div>
+      </div>
+      <!-- Pack / Bulto: lo pinta /js/precios_pack_bulto.js -->
+      <div id="configPackBulto" class="min-w-0"></div>
+    </div>
+  </section>
+
+  <!-- Máquinas: categorías de máquina de Producción, lo pinta /js/precios_maquinas.js. -->
+  <section id="panel-maquinas" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-maquinas"></section>
   </div>
 
 </main>
@@ -239,7 +383,7 @@
   <div id="fDropLista" class="overflow-y-auto py-1" style="max-height:300px"></div>
 </div>
 
-<!-- Detalle de un producto (Almacén) o de un granel (Fraccionado): resultado arriba, la cuenta
+<!-- Detalle de un producto (Reventa) o de un granel (Fraccionado): resultado arriba, la cuenta
      como una ecuación (costo → + extras → × margen → precio) y el pie fijo Descartar / Guardar. -->
 <div id="mDet" class="hidden fixed inset-0 z-50 items-end sm:items-center justify-center bg-ink/40 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="mDetTitulo">
   <div id="mDetCaja" tabindex="-1" class="fade-in bg-card rounded-t-xl sm:rounded-xl shadow-fluent w-full max-w-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col">
@@ -282,8 +426,9 @@
 <script src="/js/precios_produccion_export.js"></script>
 <script src="/js/precios_maquinas.js"></script>
 <script src="/js/precios_config_gastos.js"></script>
-<script src="/js/precios_config_bandas.js"></script>
-<script src="/js/precios_config_fraccionado.js"></script>
+<script src="/js/precios_costos.js"></script>
 <script src="/js/precios_config_curva.js"></script>
+<script src="/js/precios_ganancia.js"></script>
+<script src="/js/precios_simulador.js"></script>
 </body>
 </html>

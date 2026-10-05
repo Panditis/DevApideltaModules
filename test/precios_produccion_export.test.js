@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const ex = require('../public/js/precios_produccion_export.js');
 const maq = require('../public/js/precios_maquinas.js');
 
-const pres = (plu, extra = {}) => ({ plu, nombre: `P${plu}`, costoTotal: 480, precioConIva: 850, faltantes: [], marcado: false, ...extra });
+const pres = (plu, extra = {}) => ({ plu, nombre: `P${plu}`, costoTotal: 480, precioConIva: 850, faltantes: [], ivaPct: 21, marcado: false, ...extra });
 const LISTA = [
   { id: 'p-granola', exportables: [pres('6319', { marcado: true }), pres('6320', { faltantes: ['markupPct'], precioConIva: null, marcado: true })] },
   { id: 'p-pepas', exportables: [pres('8104')] },
@@ -23,7 +23,7 @@ test('esMarcableProd: PLU de SIGA, sin faltantes y con precio', () => {
 
 test('marcadasProd: las marcadas de todos los productos, con las columnas de exportación', () => {
   assert.deepStrictEqual(ex.marcadasProd(LISTA).map(p => p.plu), ['6319', '6320']);
-  assert.deepStrictEqual(ex.marcadasProd(LISTA)[0], { plu: '6319', nombre: 'P6319', costoTotal: 480, precioConIva: 850, faltantes: [] });
+  assert.deepStrictEqual(ex.marcadasProd(LISTA)[0], { plu: '6319', nombre: 'P6319', costoTotal: 480, precioConIva: 850, faltantes: [], ivaPct: 21 });
   assert.deepStrictEqual(ex.marcadasProd(null), []);
 });
 

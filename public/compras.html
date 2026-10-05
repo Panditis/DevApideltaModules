@@ -121,9 +121,11 @@ header.acrylic .tab-btn:hover{background:none;color:#fff;}
 /* Tabla embebida en una card: la card ya pone borde y sombra. */
 .ant-table-wrap-plain{border:0;border-radius:0 0 var(--borderRadiusLG) var(--borderRadiusLG);box-shadow:none;}
 .ant-table{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;}
-.ant-table thead th{position:sticky;top:0;z-index:2;background:var(--colorPrimaryBg);
-  color:var(--colorPrimary);font-size:14px;font-weight:600;text-align:left;white-space:nowrap;
-  padding:12px 16px;border-bottom:1px solid var(--colorPrimaryBorder);}
+/* Header en verde de marca sólido con filo amarillo (mismo lenguaje que el navbar):
+   el verde claro anterior se confundía con el hover y el zebra de las filas. */
+.ant-table thead th{position:sticky;top:0;z-index:2;background:var(--colorPrimary);
+  color:#fff;font-size:13px;font-weight:600;letter-spacing:.3px;text-align:left;white-space:nowrap;
+  padding:12px 16px;border-bottom:2px solid #FFCC00;}
 .ant-table tbody td{padding:12px 16px;border-bottom:1px solid var(--colorBorderSecondary);vertical-align:top;}
 .ant-table tbody tr>td{transition:background var(--motion);}
 .ant-table tbody tr:nth-child(even)>td{background:var(--colorFillMarca);}
@@ -138,7 +140,7 @@ header.acrylic .tab-btn:hover{background:none;color:#fff;}
 .ant-table .t-r,.ant-table th.t-r{text-align:right;}
 .ant-table .t-c,.ant-table th.t-c{text-align:center;}
 /* La columna de entrada (Cantidad) se separa como una zona editable. */
-.ant-table thead th.col-edit{background:#e2ebd9;border-left:1px solid var(--colorPrimaryBorder);}
+.ant-table thead th.col-edit{background:var(--colorPrimaryActive);border-left:1px solid rgba(255,255,255,.25);}
 .ant-table tbody tr>td.col-edit{background:#eff4ea;border-left:1px solid var(--colorPrimaryBorder);}
 .ant-table tbody tr:hover>td.col-edit{background:#e2ebd9;}
 .ant-table td.td-empty{padding:0;background:transparent;}
@@ -147,14 +149,14 @@ header.acrylic .tab-btn:hover{background:none;color:#fff;}
 .fila-inactiva>td{color:var(--colorTextTertiary);}
 /* Header ordenable: el par de flechitas apiladas de antd, la activa en primario. */
 th[data-orden]{cursor:pointer;user-select:none;transition:background var(--motion);}
-th[data-orden]:hover{background:var(--colorFillSecondary);}
+th[data-orden]:hover{background:var(--colorPrimaryHover);}
 .th-ord{font:inherit;color:inherit;letter-spacing:inherit;background:none;border:0;padding:0;
   display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
 .ord-ind{display:inline-flex;flex-direction:column;justify-content:center;
-  font-size:8px;line-height:.9;color:var(--colorTextQuaternary);}
-th[aria-sort="ascending"] .ord-up{color:var(--colorPrimary);}
-th[aria-sort="descending"] .ord-down{color:var(--colorPrimary);}
-th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
+  font-size:8px;line-height:.9;color:rgba(255,255,255,.4);}
+th[aria-sort="ascending"] .ord-up{color:#FFCC00;}
+th[aria-sort="descending"] .ord-down{color:#FFCC00;}
+th[aria-sort]:not([aria-sort="none"]){color:#FFCC00;}
 /* La celda del producto: el nombre domina, el resto es metadato. */
 .prod-nombre{font-size:14px;font-weight:500;color:var(--colorText);line-height:1.4;}
 .fila-inactiva .prod-nombre{color:var(--colorTextTertiary);}
@@ -338,6 +340,59 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 .ant-divider-b{border-bottom:1px solid var(--colorBorderSecondary);}
 .prov-field{position:relative;width:20rem;max-width:100%;}
 
+/* ── Seguimiento: maestro-detalle ─────────────────────────────────────────── */
+.seg-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;align-items:start;}
+/* top ≈ alto del header sticky (logo + tabs): la lista queda fija y scrollea sola. */
+.seg-lista{position:sticky;top:122px;display:flex;flex-direction:column;max-height:calc(100vh - 146px);}
+.seg-pedidos{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px;}
+.seg-ped{display:block;width:100%;text-align:left;padding:10px 12px;font:inherit;color:inherit;cursor:pointer;
+  background:var(--colorBgContainer);border:1px solid var(--colorBorderSecondary);border-radius:var(--borderRadius);
+  transition:border-color var(--motion),background var(--motion),box-shadow var(--motion);}
+.seg-ped:hover{border-color:var(--colorPrimaryBorder);background:var(--colorFillMarca);}
+.seg-ped[aria-current="true"]{border-color:var(--colorPrimary);background:var(--colorPrimaryBg);box-shadow:inset 3px 0 0 var(--colorPrimary);}
+.seg-ped-num{font-weight:600;}
+.seg-ped-prov{margin-top:2px;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* Barra de avance: en el detalle, verde lo entregado y rojo lo faltante; en la lista, sólo lo resuelto. */
+.seg-prog{display:flex;height:5px;border-radius:3px;background:var(--colorFillSecondary);overflow:hidden;}
+.seg-prog>span{height:100%;background:var(--colorPrimary);transition:width var(--motion);}
+.seg-prog>.ok{background:var(--colorSuccess);}
+.seg-prog>.falta{background:var(--colorError);}
+.seg-prog-lg{height:8px;border-radius:4px;}
+.seg-stats{grid-template-columns:repeat(5,minmax(0,1fr));}
+.seg-retiro{display:grid;grid-template-columns:190px 190px minmax(0,1fr);gap:16px;}
+/* Control segmentado: filtro de estado de los pedidos y de las líneas. */
+.ant-seg{display:inline-flex;gap:2px;padding:2px;background:var(--colorFillSecondary);border-radius:var(--borderRadius);}
+.ant-seg button{height:26px;padding:0 10px;border:0;border-radius:var(--borderRadiusSM);background:none;cursor:pointer;
+  font:500 13px/1 system-ui,sans-serif;color:var(--colorTextSecondary);white-space:nowrap;
+  transition:background var(--motion),color var(--motion);}
+.ant-seg button:hover{color:var(--colorText);}
+.ant-seg button[aria-pressed="true"]{background:var(--colorBgContainer);color:var(--colorPrimary);font-weight:600;box-shadow:var(--boxShadowTertiary);}
+.seg-cnt{margin-left:4px;font-size:12px;opacity:.75;}
+/* Resultado de una línea: dos toggles grandes, el activo relleno. */
+.res-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;cursor:pointer;white-space:nowrap;
+  font:500 13px/1 system-ui,sans-serif;color:var(--colorTextSecondary);background:var(--colorBgContainer);
+  border:1px solid var(--colorBorder);border-radius:var(--borderRadius);
+  transition:color var(--motion),border-color var(--motion),background var(--motion);}
+.res-ok:not([aria-pressed="true"]):not(:disabled):hover{color:var(--colorSuccessText);border-color:var(--colorSuccess);background:var(--colorSuccessBg);}
+.res-falta:not([aria-pressed="true"]):not(:disabled):hover{color:var(--colorErrorText);border-color:var(--colorError);background:var(--colorErrorBg);}
+.res-ok[aria-pressed="true"]{color:#fff;background:var(--colorSuccess);border-color:var(--colorSuccess);}
+.res-falta[aria-pressed="true"]{color:#fff;background:var(--colorError);border-color:var(--colorError);}
+.res-btn:disabled{cursor:not-allowed;opacity:.6;}
+/* Fila teñida según el resultado (va después de zebra/hover para ganarles). */
+.ant-table tbody tr.fila-ok>td{background:#f1f9ef;}
+.ant-table tbody tr.fila-falta>td{background:#fdf1f2;}
+/* Comprobantes SIGA: colapsable, el resumen con look de card. */
+.seg-comp-sum{display:flex;align-items:center;gap:8px;padding:10px 16px;cursor:pointer;list-style:none;
+  font-weight:600;color:var(--colorPrimary);background:var(--colorBgContainer);
+  border:1px solid #e2e8dc;border-radius:var(--borderRadiusLG);box-shadow:var(--boxShadowTertiary);}
+.seg-comp-sum::-webkit-details-marker{display:none;}
+.seg-comp-sum::before{content:'▸';transition:transform var(--motion);}
+.seg-comp[open]>.seg-comp-sum::before{transform:rotate(90deg);}
+/* Barra de acciones pegada abajo mientras se recorre el detalle. */
+.seg-acciones{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;margin-top:16px;padding:12px 16px;
+  background:var(--colorBgContainer);border:1px solid #e2e8dc;border-radius:var(--borderRadiusLG);
+  box-shadow:0 -6px 16px -4px rgba(26,28,24,.14);}
+
 /* ── Utilidades de tono y tamaño ─────────────────────────────────────────────
    Van últimas a propósito: el shorthand `font` de .ant-btn resetea el tamaño y
    el font-variant, así que estas reglas tienen que poder pisarlo. */
@@ -472,30 +527,31 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
 
 <!-- ── Seguimiento ──────────────────────────────────────────────────────────── -->
 <section id="tab-seguimiento" class="tab-panel hidden" role="tabpanel" aria-label="Seguimiento de pedidos">
-  <div class="ant-card">
-    <div class="ant-card-body ant-card-body-sm ant-toolbar">
-      <div class="flex-1 min-w-[20rem] relative">
-        <label class="ant-label" id="segPedidoLabel">Pedido</label>
-        <button type="button" id="segPedidoBtn" class="ant-select ant-select-btn"
-          aria-haspopup="listbox" aria-expanded="false" aria-labelledby="segPedidoLabel segPedidoBtnTxt">
-          <span id="segPedidoBtnTxt" class="t-ter">Sin pedidos</span>
-        </button>
-        <div id="segPedidoLista" class="ant-dropdown hidden" role="listbox" aria-label="Pedidos"></div>
+  <div class="seg-layout">
+  <!-- Maestro: la lista de pedidos queda siempre a la vista, con búsqueda y filtro de estado. -->
+  <aside class="seg-lista ant-card" aria-label="Pedidos">
+    <div class="ant-card-body ant-card-body-sm flex flex-col gap-2 ant-divider-b">
+      <input id="segBuscar" type="search" class="ant-input" placeholder="Buscar por N° o proveedor…"
+        autocomplete="off" aria-label="Buscar pedido por número o proveedor">
+      <div class="flex items-center gap-2">
+        <div id="segFiltroEstado" class="ant-seg" role="group" aria-label="Estado de los pedidos">
+          <button type="button" data-filtro="pendientes" aria-pressed="true">Pendientes</button>
+          <button type="button" data-filtro="cerrados" aria-pressed="false" title="Cerrados y anulados">Cerrados</button>
+          <button type="button" data-filtro="todos" aria-pressed="false">Todos</button>
+        </div>
+        <button id="btnRefrescarPedidos" type="button" class="ant-btn ant-btn-sm ml-auto"
+          title="Volver a traer los pedidos" aria-label="Refrescar pedidos">↻</button>
       </div>
-      <div class="w-56 relative">
-        <label class="ant-label" for="segProv">Proveedor</label>
-        <input id="segProv" class="ant-input" placeholder="Todos los proveedores" autocomplete="off"
-          aria-haspopup="listbox" aria-expanded="false" role="combobox">
-        <div id="segProvLista" class="ant-dropdown hidden" role="listbox" aria-label="Proveedores"></div>
-      </div>
-      <label class="ant-check-label pb-1.5"><input type="checkbox" id="segCerrados" class="ant-check"> Ver cerrados</label>
-      <button id="btnRefrescarPedidos" class="ant-btn ml-auto">Refrescar</button>
+      <span id="segListaCount" class="t-12 t-ter num"></span>
     </div>
-  </div>
-  <div id="segDetalle" class="mt-4"><div class="ant-card"><div class="ant-empty">
+    <div id="segPedidoLista" class="seg-pedidos"></div>
+  </aside>
+  <!-- Detalle del pedido elegido: lo arma renderSeguimiento(). -->
+  <div id="segDetalle" class="min-w-0"><div class="ant-card"><div class="ant-empty">
     <svg class="ant-empty-icon" width="64" height="41" viewBox="0 0 64 41" aria-hidden="true"><ellipse cx="32" cy="33" rx="32" ry="7" fill="#e7eee0"></ellipse><g stroke="#b9cdad" fill="#f4f8f0"><path d="M55 12.76 44.85 1.25C44.37.47 43.7 0 43 0H21c-.7 0-1.37.47-1.85 1.25L9 12.76V22h46v-9.24z"></path><path d="M41.61 15.66c0-1.29.78-2.4 1.9-2.4H55v12.15c0 1.68-1.02 3.05-2.28 3.05H11.28C10.02 28.46 9 27.09 9 25.41V13.26h11.49c1.12 0 1.9 1.11 1.9 2.4v.06c0 1.29.79 2.34 1.9 2.34h15.42c1.12 0 1.9-1.05 1.9-2.34v-.06z"></path></g></svg>
     <p class="ant-empty-title">Ningún pedido seleccionado</p>
-    <p class="ant-empty-desc">Elegí un pedido del desplegable para ver y editar sus líneas.</p></div></div></div>
+    <p class="ant-empty-desc">Elegí un pedido de la lista para ver y editar sus líneas.</p></div></div></div>
+  </div>
 </section>
 
 <!-- ── Presentaciones ─────────────────────────────────────────────────────────── -->
@@ -646,7 +702,8 @@ th[aria-sort]:not([aria-sort="none"]){color:var(--colorPrimary);}
     <div class="px-6 pt-4">
       <input id="agregarProdQ" type="text" class="ant-input w-full" autocomplete="off"
         placeholder="Buscar por nombre, PLU o código de barras…" aria-label="Buscar artículo">
-      <p class="t-sec t-12 mt-2 mb-0">Cualquier artículo del sistema, sea o no de este proveedor. Queda como <b>temporal</b> en este pedido.</p>
+      <p id="agregarAyudaArmado" class="t-sec t-12 mt-2 mb-0">Cualquier artículo del sistema, sea o no de este proveedor. Queda como <b>temporal</b> en este pedido.</p>
+      <p id="agregarAyudaSeg" class="hidden t-sec t-12 mt-2 mb-0">Productos que el proveedor entregó sin estar en el pedido. Se agregan con cantidad 1; después se ajusta en la tabla.</p>
       <!-- Artículo que todavía no existe en SIGA (nuevo ingreso): va al pedido sólo con nombre y unidad. -->
       <form id="agregarNuevoForm" class="mt-3 pt-3 ant-divider-t flex items-end gap-2" novalidate>
         <div class="flex-1 min-w-0"><label class="ant-label" for="nuevoNombre">Artículo nuevo (no está en SIGA)</label>
@@ -1410,8 +1467,19 @@ function quitarTemporal(plu) {
   renderArmado();
 }
 // El modal queda abierto después de agregar: así se suman varios artículos de una.
-function abrirAgregar() {
-  if (!armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
+// Mismo buscador para dos usos: 'armado' suma filas temporales al armado y 'seguimiento'
+// suma una línea "entregado no pedido" al pedido abierto en Seguimiento. Sólo cambian
+// el título, la ayuda y qué hace "Agregar" (el artículo nuevo sin SIGA es sólo del armado).
+let agregarModo = 'armado';
+function abrirAgregar(modo) {
+  const seg = modo === 'seguimiento';
+  if (!seg && !armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
+  if (seg && !pedidoSel) return;
+  agregarModo = seg ? 'seguimiento' : 'armado';
+  $('#mAgregarTitulo').textContent = seg ? 'Agregar entregado no pedido' : 'Agregar artículo al pedido';
+  $('#agregarAyudaArmado').classList.toggle('hidden', seg);
+  $('#agregarAyudaSeg').classList.toggle('hidden', !seg);
+  $('#agregarNuevoForm').classList.toggle('hidden', seg);
   $('#agregarProdQ').value = '';
   $('#agregarProdLista').innerHTML = estadoVacio('Buscá un artículo', 'Escribí al menos 2 letras del nombre, el PLU o el código de barras.');
   $('#mAgregar').classList.remove('hidden');
@@ -1422,14 +1490,16 @@ function cerrarAgregar() {
   $('#mAgregar').classList.add('hidden');
   $('#mAgregar').classList.remove('flex');
 }
-$('#btnAgregarProd').addEventListener('click', abrirAgregar);
+$('#btnAgregarProd').addEventListener('click', () => abrirAgregar('armado'));
 $('#mAgregarX').addEventListener('click', cerrarAgregar);
 $('#mAgregar').addEventListener('click', e => { if (e.target === $('#mAgregar')) cerrarAgregar(); });
 (function () {
   const input = $('#agregarProdQ'), cont = $('#agregarProdLista');
   let timer = null, lista = [];
   input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
-  const yaEsta = p => ((armado && armado.filas) || []).some(f => f.plu === p.plu);
+  const yaEsta = p => agregarModo === 'seguimiento'
+    ? ((pedidoSel && pedidoSel.items) || []).some(l => String(l.plu) === String(p.plu))
+    : ((armado && armado.filas) || []).some(f => f.plu === p.plu);
   function pintar() {
     cont.innerHTML = lista.length
       ? `<div class="flex flex-col gap-1">${lista.map((p, i) => `<div class="flex items-center gap-3 py-2 ant-divider-b">
@@ -1456,7 +1526,8 @@ $('#mAgregar').addEventListener('click', e => { if (e.target === $('#mAgregar'))
   cont.addEventListener('click', e => {
     const b = e.target.closest('.js-agregar');
     if (!b) return;
-    agregarTemporal(lista[Number(b.dataset.i)]);
+    const p = lista[Number(b.dataset.i)];
+    if (agregarModo === 'seguimiento') agregarExtraSeguimiento(p); else agregarTemporal(p);
     pintar();
   });
 })();
@@ -1800,14 +1871,24 @@ function imprimirPedido(pedido) {
 }
 
 // ═══ Tab 2: seguimiento ═══════════════════════════════════════════════════════
-// Un solo GET sin filtros alimenta las dos pestañas: el filtrado por proveedor y estado
-// se hace en el cliente, que ya tiene la lista entera.
-let segError = null;         // mensaje del último fetch fallido, para no perderlo si seleccionarPedido() redibuja
+// Maestro-detalle: la lista de pedidos queda a la izquierda y el pedido elegido se edita
+// a la derecha. Un solo GET sin filtros alimenta Seguimiento y OTIF: la búsqueda y el
+// filtro de estado se hacen en el cliente, que ya tiene la lista entera.
+let segError = null;                 // mensaje del último fetch fallido, para no perderlo si seleccionarPedido() redibuja
+let segPedidoNumero = null;          // pedido abierto en el detalle
+let segFiltroEstado = 'pendientes';  // pendientes | cerrados | todos
+let segFiltroLinea = 'todas';        // todas | pedido | entregado | faltante
+let segDirty = false;                // hay ediciones en pedidoSel que todavía no se guardaron
+let segGuardando = false;            // PUT en vuelo: evita el doble envío (Ctrl+S repetido)
+let segExtrasQuitados = new Set();   // plu de extras ya guardados que se quitaron: van al server con quitar:true
+let segCompAbierto = null;           // null = el <details> de comprobantes decide solo; true/false = lo eligió el usuario
+
 async function cargarPedidos(forzar) {
   if (pedidosTodos.length && !forzar) { renderSelectores(); return; }
   const primeraCarga = !pedidosTodos.length;
   $('#btnRefrescarPedidos').disabled = true;
   if (primeraCarga) {
+    $('#segPedidoLista').innerHTML = estadoVacio('Cargando pedidos…', '', 'cargando');
     $('#segDetalle').innerHTML = `<div class="ant-card">${estadoVacio('Cargando pedidos…', 'Trayendo pedidos desde SIGA.', 'cargando')}</div>`;
   }
   try {
@@ -1820,7 +1901,11 @@ async function cargarPedidos(forzar) {
   } finally {
     $('#btnRefrescarPedidos').disabled = false;
   }
+  // Refrescar trae los datos frescos del pedido abierto, salvo que tenga cambios sin
+  // guardar: ahí se respetan las ediciones en memoria y sólo se actualiza la lista.
+  const recargarAbierto = forzar && !segDirty && pedidoSel && pedidosTodos.some(p => p.numero === pedidoSel.numero);
   renderSelectores();
+  if (recargarAbierto) seleccionarPedido();
 }
 $('#btnRefrescarPedidos').addEventListener('click', () => cargarPedidos(true));
 
@@ -1828,7 +1913,7 @@ function proveedoresDePedidos() {
   return [...new Set(pedidosTodos.map(p => p.proveedor).filter(Boolean))].sort();
 }
 
-// Filtro de proveedor con autocompletado, sin pegarle a SIGA: a diferencia de
+// Filtro de proveedor con autocompletado del OTIF, sin pegarle a SIGA: a diferencia de
 // crearBuscadorProveedor (tab Armado/Importar), acá el universo ya está en memoria
 // (proveedoresDePedidos) así que filtra en el cliente y arranca mostrando todos.
 function crearFiltroProveedorLocal(inputSel, listaSel, onSelect) {
@@ -1863,89 +1948,94 @@ function crearFiltroProveedorLocal(inputSel, listaSel, onSelect) {
   });
   return { pintar, estaAbierto: () => !cont.classList.contains('hidden') };
 }
-let segProvSel = '';   // reemplaza al .value de un <select> nativo
-const filtroSegProv = crearFiltroProveedorLocal('#segProv', '#segProvLista', nombre => {
-  segProvSel = nombre;
-  renderListaPedidos();
-});
 let otifProvSel = '';
 const filtroOtifProv = crearFiltroProveedorLocal('#otifProv', '#otifProvLista', nombre => {
   otifProvSel = nombre;
 });
 
 function renderSelectores() {
-  const provs = proveedoresDePedidos();
-  if (!provs.includes(segProvSel)) { segProvSel = ''; $('#segProv').value = ''; }
-  if (!provs.includes(otifProvSel)) { otifProvSel = ''; $('#otifProv').value = ''; }
-  if (filtroSegProv.estaAbierto()) filtroSegProv.pintar();
+  if (!proveedoresDePedidos().includes(otifProvSel)) { otifProvSel = ''; $('#otifProv').value = ''; }
   if (filtroOtifProv.estaAbierto()) filtroOtifProv.pintar();
+  sincronizarSeleccion();
   renderListaPedidos();
 }
-function pedidosFiltrados() {
-  const prov = segProvSel;
-  const verCerrados = $('#segCerrados').checked;
-  return pedidosTodos.filter(p => (!prov || p.proveedor === prov) && (verCerrados || p.estado === 'PENDIENTE'));
-}
-let segPedidoNumero = null;   // reemplaza al .value de un <select> nativo
 
-// Reemplaza el <select> nativo por un botón + lista propia (mismo patrón que
-// #provQ/#provLista) porque el popup de un <select> lo pinta el SO y no se puede
-// estilar: acá cada opción puede llevar el Tag de estado con color y el total de líneas.
-function totalLineas(p) {
-  const n = (p.items || []).length;
-  return `${n} línea${n === 1 ? '' : 's'}`;
+// Pendientes = lo que falta resolver; Cerrados = lo que ya salió del circuito (cerrados y anulados).
+function pedidosFiltrados() {
+  const q = $('#segBuscar').value.trim().toLowerCase();
+  return pedidosTodos.filter(p => (segFiltroEstado === 'todos'
+      || (segFiltroEstado === 'pendientes') === (p.estado === 'PENDIENTE'))
+    && (!q || String(p.numero).toLowerCase().includes(q) || String(p.proveedor || '').toLowerCase().includes(q)));
 }
-function renderListaPedidos() {
-  const lista = pedidosFiltrados();
-  if (!lista.some(p => p.numero === segPedidoNumero)) segPedidoNumero = lista[0] ? lista[0].numero : null;
-  const cont = $('#segPedidoLista');
-  cont.innerHTML = lista.length
-    ? lista.map(p => `<button type="button" class="js-segPedido ant-dropdown-item" role="option"
-         data-numero="${escAttr(p.numero)}" aria-selected="${p.numero === segPedidoNumero}">
-         <span class="flex items-center gap-2">
-           <span class="num" style="font-weight:600">${escAttr(p.numero)}</span>
-           ${chipEstado(p.estado)}
-           <span class="ml-auto num" style="font-weight:600">${money(p.total)}</span>
-         </span>
-         <span class="block t-12 t-ter mt-1">${escAttr(p.fecha)} · ${escAttr(p.proveedor)} · ${totalLineas(p)}</span>
-       </button>`).join('')
-    : `<div class="ant-dropdown-empty">Sin pedidos con estos filtros.</div>`;
-  cont.querySelectorAll('.js-segPedido').forEach(b => b.addEventListener('click', () => {
-    segPedidoNumero = b.dataset.numero;
-    cerrarListaPedidos();
-    renderListaPedidos();
-  }));
-  const p = lista.find(x => x.numero === segPedidoNumero);
-  $('#segPedidoBtnTxt').className = p ? '' : 't-ter';
-  $('#segPedidoBtnTxt').textContent = p
-    ? `${p.numero} · ${p.fecha} · ${p.proveedor} · ${totalLineas(p)} · ${money(p.total)} (${p.estado})`
-    : (lista.length ? 'Elegí un pedido' : 'Sin pedidos');
+
+// Avance de un pedido: líneas pedidas (los extras no cuentan) que ya tienen resultado.
+function avanceLineas(items) {
+  const pedidas = (items || []).filter(l => l.estado !== 'extra');
+  return { resueltas: pedidas.filter(l => l.estado !== 'pedido').length, total: pedidas.length };
+}
+
+// Si el pedido abierto ya no existe (o no hay ninguno), abre el primero de la lista.
+// Si sigue existiendo, lo deja como está aunque el filtro o la búsqueda lo oculten:
+// así no se pierden ediciones por tocar un filtro.
+function sincronizarSeleccion() {
+  if (pedidosTodos.some(p => p.numero === segPedidoNumero)) {
+    if (!pedidoSel || pedidoSel.numero !== segPedidoNumero) seleccionarPedido();
+    return;
+  }
+  const primero = pedidosFiltrados()[0];
+  segPedidoNumero = primero ? primero.numero : null;
   seleccionarPedido();
 }
-$('#segCerrados').addEventListener('change', renderListaPedidos);
-function cerrarListaPedidos() {
-  $('#segPedidoLista').classList.add('hidden');
-  $('#segPedidoBtn').setAttribute('aria-expanded', 'false');
+
+function renderListaPedidos() {
+  const lista = pedidosFiltrados();
+  $('#segListaCount').textContent = segError ? '' : `${lista.length} pedido${lista.length === 1 ? '' : 's'}`;
+  $('#segPedidoLista').innerHTML = lista.length ? lista.map(p => {
+    const { resueltas, total } = avanceLineas(p.items);
+    return `<button type="button" class="seg-ped js-segPedido" data-numero="${escAttr(p.numero)}" aria-current="${p.numero === segPedidoNumero}">
+      <span class="flex items-center gap-2">
+        <span class="num seg-ped-num">${escAttr(p.numero)}</span>${chipEstado(p.estado)}
+        <span class="ml-auto num seg-ped-num">${money(p.total)}</span></span>
+      <span class="block seg-ped-prov" title="${escAttr(p.proveedor)}">${escAttr(p.proveedor)}</span>
+      <span class="flex items-center gap-2 mt-1 t-12 t-ter num">
+        <span>${escAttr(p.fecha)}</span><span class="ml-auto">resueltas ${resueltas}/${total}</span></span>
+      <span class="seg-prog mt-1" aria-hidden="true"><span style="width:${total ? Math.round(resueltas / total * 100) : 0}%"></span></span>
+    </button>`;
+  }).join('')
+    : segError ? estadoVacio('No se pudieron cargar los pedidos', segError, 'error')
+    : estadoVacio('Sin pedidos', 'Ningún pedido coincide con la búsqueda y el filtro.');
 }
-$('#segPedidoBtn').addEventListener('click', () => {
-  const abrir = $('#segPedidoLista').classList.contains('hidden');
-  if (abrir) { $('#segPedidoLista').classList.remove('hidden'); $('#segPedidoBtn').setAttribute('aria-expanded', 'true'); }
-  else cerrarListaPedidos();
+$('#segPedidoLista').addEventListener('click', e => {
+  const b = e.target.closest('.js-segPedido');
+  if (b) elegirPedido(b.dataset.numero);
 });
-document.addEventListener('click', e => {
-  if (!e.target.closest('#segPedidoBtn') && !e.target.closest('#segPedidoLista')) cerrarListaPedidos();
+$('#segBuscar').addEventListener('input', renderListaPedidos);
+$('#segFiltroEstado').addEventListener('click', e => {
+  const b = e.target.closest('button[data-filtro]');
+  if (!b) return;
+  segFiltroEstado = b.dataset.filtro;
+  $('#segFiltroEstado').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  renderListaPedidos();
 });
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && !$('#segPedidoLista').classList.contains('hidden')) {
-    cerrarListaPedidos();
-    $('#segPedidoBtn').focus();
-  }
-});
+
+async function elegirPedido(numero) {
+  if (numero === segPedidoNumero) return;
+  if (segDirty && !(await confirmar(`El pedido ${pedidoSel.numero} tiene cambios sin guardar. ¿Descartarlos y abrir el ${numero}?`, 'Cambios sin guardar'))) return;
+  segPedidoNumero = numero;
+  seleccionarPedido();
+  renderListaPedidos();
+}
+// Salir de la página con ediciones pendientes también las perdería.
+window.addEventListener('beforeunload', e => { if (segDirty) e.preventDefault(); });
 
 function seleccionarPedido() {
   const p = pedidosTodos.find(x => x.numero === segPedidoNumero);
   // Copia profunda de items: se editan en memoria y recién se mandan al Guardar.
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
+  segDirty = false;
+  segExtrasQuitados = new Set();
+  segFiltroLinea = 'todas';
+  segCompAbierto = null;
   comprobantesInfo = null;
   comprobantesPreview = new Set();
   comprobantesDiasAntes = 0;
@@ -1961,14 +2051,16 @@ function chipEstado(estado) {
   return `<span class="ant-tag ${cls}">${escAttr(estado)}</span>`;
 }
 
-// Estado de una línea, también como Tag: de un vistazo se ve cuál quedó sin resolver.
+// Resultado de una línea. sin_stock/no_envia son estados viejos (antes de 'faltante'):
+// se tratan como faltante y el tag conserva el motivo, para leer igual los pedidos históricos.
+const esFaltante = e => e === 'faltante' || e === 'sin_stock' || e === 'no_envia';
 function tagLinea(estado) {
-  const cls = estado === 'entregado' ? 'ant-tag-success'
-    : estado === 'sin_stock' ? 'ant-tag-error'
-    : estado === 'no_envia' ? 'ant-tag-warning'
-    : estado === 'extra' ? 'ant-tag-primary' : 'ant-tag-info';
-  const txt = estado === 'entregado' ? 'Entregado' : estado === 'sin_stock' ? 'Sin stock'
-    : estado === 'no_envia' ? 'No envía' : estado === 'extra' ? 'Extra' : 'Pedido';
+  const [cls, txt] = estado === 'entregado' ? ['ant-tag-success', 'Entregado']
+    : estado === 'faltante' ? ['ant-tag-error', 'Faltante']
+    : estado === 'sin_stock' ? ['ant-tag-error', 'Faltante · sin stock']
+    : estado === 'no_envia' ? ['ant-tag-error', 'Faltante · no envía']
+    : estado === 'extra' ? ['ant-tag-primary', 'Entregado no pedido']
+    : ['ant-tag-info', 'Sin resolver'];
   return `<span class="ant-tag ${cls}">${escAttr(txt)}</span>`;
 }
 
@@ -1986,7 +2078,7 @@ function botonVentana() {
 // falló la consulta a SIGA: así el usuario sabe dónde va a aparecer el cruce cuando haya algo.
 function renderComprobantesCard() {
   if (comprobantesCargando) {
-    return `<div class="ant-card mt-4"><div class="ant-card-body ant-card-body-sm">
+    return `<div class="ant-card mt-2"><div class="ant-card-body ant-card-body-sm">
       ${estadoVacio('Buscando comprobantes…', 'Cruzando contra lo cargado en SIGA para este proveedor.', 'cargando')}
     </div></div>`;
   }
@@ -1994,7 +2086,7 @@ function renderComprobantesCard() {
   // La card queda visible siempre (aunque no haya candidatos o falle la búsqueda):
   // así el usuario sabe dónde va a aparecer el cruce en vez de que la sección desaparezca.
   if (comprobantesError) {
-    return `<div class="ant-card mt-4">
+    return `<div class="ant-card mt-2">
       <div class="ant-card-head"><h3 class="ant-card-head-title">Comprobantes encontrados</h3></div>
       <div class="ant-card-body ant-card-body-sm">
         ${estadoVacio('No se pudo buscar en SIGA', comprobantesError, 'error')}
@@ -2004,7 +2096,7 @@ function renderComprobantesCard() {
   if (!info || !info.candidatos.length) {
     const v = info && info.ventana;
     const rango = v && v.desde ? `Se buscó entre ${fechaCorta(v.desde)} y ${fechaCorta(v.hasta)}.` : '';
-    return `<div class="ant-card mt-4">
+    return `<div class="ant-card mt-2">
       <div class="ant-card-head"><h3 class="ant-card-head-title">Comprobantes encontrados</h3></div>
       <div class="ant-card-body ant-card-body-sm">
         ${estadoVacio('Ningún comprobante de este proveedor todavía', rango || 'Cuando se cargue la factura en SIGA va a aparecer acá.')}
@@ -2015,7 +2107,7 @@ function renderComprobantesCard() {
   const marcada = c => info.vinculado ? info.vinculadas.includes(c.clave) : c.sugerido;
   const cumplimiento = info.comparacion.resumen.cumplimientoPct;
   return `
-  <div class="ant-card mt-4">
+  <div class="ant-card mt-2">
     <div class="ant-card-head">
       <h3 class="ant-card-head-title">Comprobantes encontrados</h3>
       ${botonVentana()}
@@ -2059,144 +2151,376 @@ function renderComprobantesCard() {
   </div>`;
 }
 
+// Card de comprobantes SIGA dentro de un <details>: es apoyo para precargar las líneas,
+// no lo central del seguimiento. Arranca abierta sólo si hay sugeridos sin confirmar
+// (hay algo para hacer); después respeta lo que el usuario abrió o cerró (segCompAbierto).
+function htmlComprobantes() {
+  const info = comprobantesInfo;
+  const n = info ? info.candidatos.length : 0;
+  const auto = !!(info && !info.vinculado && info.candidatos.some(c => c.sugerido));
+  const abierto = segCompAbierto == null ? auto : segCompAbierto;
+  const detalle = comprobantesCargando ? 'buscando…' : comprobantesError ? 'no se pudo buscar'
+    : info && info.vinculado ? `${n} · vinculado` : String(n);
+  return `<details class="seg-comp mt-4"${abierto ? ' open' : ''}>
+    <summary id="segCompResumen" class="seg-comp-sum">Comprobantes SIGA <span class="t-ter num" style="font-weight:400">(${escAttr(detalle)})</span>
+      ${auto ? '<span class="ant-tag ant-tag-primary">hay sugeridos</span>' : ''}</summary>
+    ${renderComprobantesCard()}
+  </details>`;
+}
+
+// Tarjeta de resumen (.stat-card del theme compartido) con el valor en un id propio,
+// para refrescarlo in situ (actualizarResumen) sin redibujar el detalle.
+const svgSeg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const statSeg = (id, lbl, tono, icono) => `<div class="stat-card"><span class="stat-ico ${tono}" aria-hidden="true">${svgSeg(icono)}</span>
+  <div class="stat-body"><span class="stat-lbl">${escAttr(lbl)}</span><span class="stat-val" id="${id}">—</span></div></div>`;
+
+// Conteos del pedido en memoria. Los extras no eran un compromiso del proveedor: no
+// cuentan como líneas pedidas (ver lineasDe() del lado del servidor).
+function conteoLineas(items) {
+  const c = { pedidas: 0, entregado: 0, faltante: 0, pedido: 0, extras: 0 };
+  for (const l of items) {
+    if (l.estado === 'extra') { c.extras++; continue; }
+    c.pedidas++;
+    if (l.estado === 'entregado') c.entregado++; else if (esFaltante(l.estado)) c.faltante++; else c.pedido++;
+  }
+  return c;
+}
+const esParcial = it => it.estado === 'entregado' && it.cantidadEntregada != null && Number(it.cantidadEntregada) < Number(it.cantidad);
+
+// Fila de una línea pedida. Tono, toggles, cantidad y tags los pone actualizarFila():
+// así el mismo código sirve para el render inicial y para el cambio in situ.
+function htmlFilaLinea(it, i, editable) {
+  const dis = editable ? '' : ' disabled';
+  const bultos = it.bultos != null && it.presentacion
+    ? ` · <span title="Pedido por bultos">${fmt(it.bultos)} ${escAttr(it.presentacion.nombre)} x ${fmt(it.presentacion.unidadesPorBulto)}</span>` : '';
+  return `<tr data-i="${i}">
+    <td>
+      <div class="prod-nombre">${escAttr(it.nombre)}${it.nuevo
+        ? ' <span class="ant-tag ant-tag-primary" title="Artículo que no estaba en SIGA al armar el pedido">nuevo</span>' : ''}</div>
+      <div class="prod-meta">${it.nuevo ? 'sin PLU en SIGA' : 'PLU ' + escAttr(it.plu)}${bultos}</div></td>
+    <td class="t-r whitespace-nowrap"><span class="dato">${fmt(it.cantidad)}</span> <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
+    <td>
+      <div class="flex gap-2">
+        <button type="button" class="res-btn res-ok js-res" data-res="entregado"${dis}
+          aria-label="Entregado: ${escAttr(it.nombre)}">✓ Entregado</button>
+        <button type="button" class="res-btn res-falta js-res" data-res="faltante"${dis}
+          aria-label="Faltante: ${escAttr(it.nombre)}">✕ Faltante</button>
+      </div>
+      <div class="js-legacy"></div></td>
+    <td class="t-r">
+      <input type="number" min="0" max="${escAttr(it.cantidad)}" step="0.01" class="js-entregada ant-input ant-input-num"
+        aria-label="Cantidad entregada de ${escAttr(it.nombre)}">
+      <div class="js-parcial"></div></td>
+    <td><input class="js-obs ant-input" aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}"${dis}></td>
+  </tr>`;
+}
+function actualizarParcial(tr, it) {
+  tr.querySelector('.js-parcial').innerHTML = esParcial(it) ? '<span class="ant-tag ant-tag-warning mt-1">parcial</span>' : '';
+}
+function actualizarFila(tr, it) {
+  const falta = esFaltante(it.estado);
+  tr.classList.toggle('fila-ok', it.estado === 'entregado');
+  tr.classList.toggle('fila-falta', falta);
+  tr.querySelector('[data-res="entregado"]').setAttribute('aria-pressed', String(it.estado === 'entregado'));
+  tr.querySelector('[data-res="faltante"]').setAttribute('aria-pressed', String(falta));
+  tr.querySelector('.js-legacy').innerHTML = falta && it.estado !== 'faltante' ? `<div class="mt-1">${tagLinea(it.estado)}</div>` : '';
+  // La cantidad sólo se edita en una entrega (permite parcial); faltante es 0 y sin resolver, vacío.
+  const inp = tr.querySelector('.js-entregada');
+  inp.disabled = pedidoSel.estado !== 'PENDIENTE' || it.estado !== 'entregado';
+  inp.value = it.cantidadEntregada == null ? '' : it.cantidadEntregada;
+  actualizarParcial(tr, it);
+}
+
+function htmlFilaExtra(it, i, editable) {
+  const dis = editable ? '' : ' disabled';
+  return `<tr data-i="${i}">
+    <td><div class="prod-nombre">${escAttr(it.nombre)}</div><div class="prod-meta">PLU ${escAttr(it.plu)}</div></td>
+    <td class="t-r whitespace-nowrap">
+      <input type="number" min="0" step="0.01" class="js-extra-cant ant-input ant-input-num"
+        aria-label="Cantidad entregada de ${escAttr(it.nombre)}" value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}"${dis}>
+      <span class="ant-label-in">${escAttr(it.unidad || '')}</span></td>
+    <td class="t-r dato-sec">${it.precioUnitario == null ? '—' : '$' + fmt(it.precioUnitario)}</td>
+    <td><input class="js-obs ant-input" aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}"${dis}></td>
+    <td class="t-r">${editable ? `<button type="button" class="ant-btn ant-btn-sm ant-btn-danger js-quitar-extra">Quitar</button>` : ''}</td>
+  </tr>`;
+}
+
+const FILTROS_LINEA = [['todas', 'Todas'], ['pedido', 'Sin resolver'], ['entregado', 'Entregadas'], ['faltante', 'Faltantes']];
+
 function renderSeguimiento() {
   const cont = $('#segDetalle');
   if (!pedidoSel) {
     cont.innerHTML = `<div class="ant-card">${segError
       ? estadoVacio('No se pudieron cargar los pedidos', segError, 'error')
-      : estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido del desplegable para ver y editar sus líneas.')}</div>`;
+      : estadoVacio('Ningún pedido seleccionado', 'Elegí un pedido de la lista para ver y editar sus líneas.')}</div>`;
     return;
   }
   const p = pedidoSel;
   const editable = p.estado === 'PENDIENTE';
-  const opciones = [['pedido', 'Pedido'], ['entregado', 'Entregado'], ['sin_stock', 'Sin stock'], ['no_envia', 'No envía']];
   const dis = editable ? '' : 'disabled';
-  // Los extras no eran un compromiso del proveedor: no cuentan ni en el numerador
-  // ni en el denominador de "Entregadas" (ver lineasDe() del lado del servidor).
-  const itemsPedidos = p.items.filter(l => l.estado !== 'extra');
-  const entregadas = itemsPedidos.filter(l => l.estado === 'entregado').length;
+  const conIndice = p.items.map((it, i) => [it, i]);
+  const lineas = conIndice.filter(([it]) => it.estado !== 'extra');
+  const extras = conIndice.filter(([it]) => it.estado === 'extra');
   cont.innerHTML = `
   <div class="ant-card">
     <div class="ant-card-head">
-      <h2 class="ant-card-head-title num" style="font-size:20px">${escAttr(p.numero)}</h2>
+      <h2 class="ant-card-head-title num" style="font-size:22px">${escAttr(p.numero)}</h2>
       ${chipEstado(p.estado)}
-      <span class="ml-auto t-sec">${escAttr(p.proveedor)}</span>
+      <span style="font-weight:500">${escAttr(p.proveedor)}</span>
+      <span class="ml-auto t-sec num">Pedido del ${escAttr(p.fecha)}</span>
     </div>
-    <div class="ant-card-body">
-      <div class="ant-desc pb-5 mb-5 ant-divider-b">
-        <div><span class="ant-desc-label">Proveedor</span><span class="ant-desc-value">${escAttr(p.proveedor)}</span></div>
-        <div><span class="ant-desc-label">Fecha del pedido</span><span class="ant-desc-value">${escAttr(p.fecha)}</span></div>
-        <div><span class="ant-desc-label">Líneas</span><span class="ant-desc-value">${p.items.length}</span></div>
-        <div><span class="ant-desc-label">Entregadas</span><span class="ant-desc-value" id="segEntregadasCount">${entregadas} <span class="t-ter">/ ${itemsPedidos.length}</span></span></div>
+    <div class="ant-card-body ant-card-body-sm">
+      <div class="stat-cards seg-stats">
+        ${statSeg('segStatPedidas', 'Pedidas', '', '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>')}
+        ${statSeg('segStatEntregadas', 'Entregadas', '', '<path d="M20 6 9 17l-5-5"/>')}
+        ${statSeg('segStatFaltantes', 'Faltantes', 't-crit', '<path d="M18 6 6 18M6 6l12 12"/>')}
+        ${statSeg('segStatPendientes', 'Sin resolver', 't-warn', '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}
+        ${statSeg('segStatExtras', 'Entregado no pedido', 't-info', '<path d="M12 5v14M5 12h14"/>')}
       </div>
-      <div class="grid md:grid-cols-3 gap-4">
+      <div class="flex items-center gap-3 mt-3">
+        <div class="seg-prog seg-prog-lg flex-1" aria-hidden="true"><span class="ok" id="segProgOk"></span><span class="falta" id="segProgFalta"></span></div>
+        <span id="segProgTxt" class="t-12 t-sec num whitespace-nowrap"></span>
+      </div>
+      <div class="seg-retiro mt-4 pt-4 ant-divider-t">
         <div><label class="ant-label" for="segEstimada">Fecha estimada de retiro</label>
           <input type="date" id="segEstimada" class="ant-input" value="${escAttr(p.fechaEstimada || '')}" ${dis}></div>
         <div><label class="ant-label" for="segRetiro">Fecha real de retiro</label>
           <input type="date" id="segRetiro" class="ant-input" value="${escAttr(p.fechaRetiro || '')}" ${dis}></div>
-        <div><label class="ant-label" for="segObs">Observación</label>
-          <textarea id="segObs" rows="2" class="ant-textarea" ${dis}>${escAttr(p.observacion || '')}</textarea></div>
+        <div><label class="ant-label" for="segObs">Observación del pedido</label>
+          <input id="segObs" class="ant-input" value="${escAttr(p.observacion || '')}" ${dis}></div>
       </div>
     </div>
   </div>
-  ${editable ? renderComprobantesCard() : ''}
-  <div class="mt-4 ant-table-wrap">
-    <table class="ant-table">
-      <thead>
-        <tr>
-          <th>Producto</th>
-          <th class="t-r">Pedida</th>
-          <th style="width:180px">Estado de la línea</th>
-          <th class="t-r">Entregada</th>
-          <th>Observación</th>
-        </tr>
-      </thead>
-      <tbody>${p.items.map((it, i) => `<tr>
-        <td>
-          <div class="prod-nombre">${escAttr(it.nombre)}${it.estado === 'extra' ? ' <span class="ant-tag ant-tag-primary">extra</span>' : ''}${it.nuevo
-            ? ' <span class="ant-tag ant-tag-primary" title="Artículo que no estaba en SIGA al armar el pedido">nuevo</span>' : ''}</div>
-          <div class="prod-meta">${it.nuevo ? 'sin PLU en SIGA' : escAttr(it.plu)}</div></td>
-        <td class="t-r whitespace-nowrap"><span class="dato">${fmt(it.cantidad)}</span> <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
-        <td>${it.estado === 'extra'
-            ? `<div title="Vino en la factura pero no estaba pedido.">${tagLinea('extra')}</div>`
-            : `<select class="js-estado ant-select" data-i="${i}" ${dis}
-                 aria-label="Estado de ${escAttr(it.nombre)}">
-                 ${opciones.map(([v, t]) => `<option value="${v}" ${it.estado === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-               <div class="mt-2">${tagLinea(it.estado)}</div>`}</td>
-        <td class="t-r"><input type="number" min="0" step="0.01" ${it.estado === 'extra' ? '' : `max="${escAttr(it.cantidad)}"`}
-          class="js-entregada ant-input ant-input-num"
-          data-i="${i}" aria-label="Cantidad entregada de ${escAttr(it.nombre)}"
-          value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}" ${dis}></td>
-        <td><input class="js-obs ant-input" data-i="${i}"
-          aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}" ${dis}></td>
-      </tr>`).join('')}</tbody>
-    </table>
+  ${editable ? htmlComprobantes() : ''}
+  <div class="ant-card mt-4">
+    <div class="ant-card-head">
+      <h3 class="ant-card-head-title">Productos pedidos</h3>
+      <div id="segFiltroLineas" class="ant-seg" role="group" aria-label="Filtrar líneas">
+        ${FILTROS_LINEA.map(([v, t]) => `<button type="button" data-filtro="${v}" aria-pressed="${segFiltroLinea === v}">${t}<span class="seg-cnt num" data-cnt="${v}"></span></button>`).join('')}
+      </div>
+      ${editable ? '<button type="button" id="btnMarcarTodas" class="ant-btn ant-btn-sm ant-btn-success ml-auto">✓ Marcar pendientes como entregadas</button>' : ''}
+    </div>
+    <div class="ant-table-wrap ant-table-wrap-plain">
+      <table class="ant-table">
+        <thead><tr>
+          <th>Producto</th><th class="t-r">Pedida</th><th style="width:250px">Resultado</th>
+          <th class="t-r">Entregada</th><th>Observación</th>
+        </tr></thead>
+        <tbody id="segLineasBody">${lineas.map(([it, i]) => htmlFilaLinea(it, i, editable)).join('')}
+          <tr id="segLineasVacio" class="hidden"><td colspan="5" class="td-empty">${estadoVacio('Ninguna línea con este filtro', 'Elegí otro filtro para ver el resto.')}</td></tr></tbody>
+      </table>
+    </div>
   </div>
-  <div class="mt-4 flex gap-2 flex-wrap items-center">
-    <button id="btnGuardar" class="ant-btn ant-btn-primary" ${dis}>Guardar</button>
-    <button id="btnCerrar" class="ant-btn ant-btn-success">Cerrar pedido</button>
-    <button id="btnAnular" class="ant-btn ant-btn-danger" ${dis}>Anular</button>
-    <button id="btnReimprimir" class="ant-btn">Reimprimir</button>
+  <div class="ant-card mt-4">
+    <div class="ant-card-head">
+      <h3 class="ant-card-head-title">Entregado no pedido</h3>
+      <span class="t-12 t-sec">Lo que trajo el proveedor sin estar en el pedido.</span>
+      ${editable ? '<button type="button" id="btnAgregarExtra" class="ant-btn ant-btn-sm ml-auto">+ Agregar entregado no pedido</button>' : ''}
+    </div>
+    ${extras.length ? `<div class="ant-table-wrap ant-table-wrap-plain">
+      <table class="ant-table">
+        <thead><tr>
+          <th>Producto</th><th class="t-r">Cantidad entregada</th><th class="t-r">Precio unitario</th><th>Observación</th><th></th>
+        </tr></thead>
+        <tbody id="segExtrasBody">${extras.map(([it, i]) => htmlFilaExtra(it, i, editable)).join('')}</tbody>
+      </table>
+    </div>` : `<div class="ant-card-body ant-card-body-sm t-12 t-ter">Ninguno.</div>`}
+  </div>
+  <div class="seg-acciones">
+    <span id="segDirty" class="ant-tag ant-tag-warning${segDirty ? '' : ' hidden'}">● Cambios sin guardar</span>
     <span id="segAviso" class="t-12 t-ter"></span>
+    <div class="ml-auto flex gap-2">
+      <button type="button" id="btnReimprimir" class="ant-btn">Reimprimir</button>
+      <button type="button" id="btnAnular" class="ant-btn ant-btn-danger" ${dis}>Anular</button>
+      <button type="button" id="btnCerrar" class="ant-btn ant-btn-success">Cerrar pedido</button>
+      <button type="button" id="btnGuardar" class="ant-btn ant-btn-primary" title="Ctrl+S" ${dis}>Guardar</button>
+    </div>
   </div>`;
+  lineas.forEach(([it, i]) => actualizarFila(cont.querySelector(`#segLineasBody tr[data-i="${i}"]`), it));
+  aplicarFiltroLineas();
+  actualizarResumen();
+}
 
-  cont.querySelectorAll('.js-estado').forEach(s => s.addEventListener('change', () => {
-    const it = p.items[Number(s.dataset.i)];
-    it.estado = s.value;
-    // El estado dicta la cantidad entregada; después se puede bajar a mano.
-    it.cantidadEntregada = s.value === 'entregado' ? it.cantidad : (s.value === 'pedido' ? null : 0);
-    // Actualiza sólo lo que cambió en vez de renderSeguimiento(): un redibujo completo
-    // de la tabla tira el <select> que acaba de disparar el 'change' y el usuario
-    // pierde el foco (y el scroll) en medio de resolver varias líneas seguidas.
-    s.closest('tr').querySelector('.js-entregada').value = it.cantidadEntregada == null ? '' : it.cantidadEntregada;
-    s.nextElementSibling.innerHTML = tagLinea(it.estado);
-    const entregadas = itemsPedidos.filter(l => l.estado === 'entregado').length;
-    $('#segEntregadasCount').innerHTML = `${entregadas} <span class="t-ter">/ ${itemsPedidos.length}</span>`;
-    actualizarBotonCerrar();
-  }));
-  cont.querySelectorAll('.js-entregada').forEach(inp => inp.addEventListener('input', () => {
-    const it = p.items[Number(inp.dataset.i)];
-    const v = inp.value.trim();
-    // Un extra no tiene "lo pedido" contra qué acotar: lo entregado es libre.
-    it.cantidadEntregada = v === '' ? null : it.estado === 'extra' ? Math.max(0, Number(v)) : Math.min(Number(v), it.cantidad);
-    actualizarBotonCerrar();
-  }));
-  cont.querySelectorAll('.js-obs').forEach(inp => inp.addEventListener('input', () => {
-    p.items[Number(inp.dataset.i)].obs = inp.value;
-  }));
-  $('#segEstimada').addEventListener('change', e => { pedidoSel.fechaEstimada = e.target.value || null; });
-  $('#segRetiro').addEventListener('change', e => { pedidoSel.fechaRetiro = e.target.value || null; actualizarBotonCerrar(); });
-  $('#segObs').addEventListener('input', e => { pedidoSel.observacion = e.target.value; });
-  if ($('#btnAplicarComprobantes')) $('#btnAplicarComprobantes').addEventListener('click', aplicarYVincularComprobantes);
-  if ($('#btnAmpliarVentana')) $('#btnAmpliarVentana').addEventListener('click', () => {
-    comprobantesDiasAntes = 30;
-    comprobantesCargando = true;
-    renderSeguimiento();
-    cargarComprobantes(pedidoSel.numero);
-  });
-  if ($('#btnVentanaNormal')) $('#btnVentanaNormal').addEventListener('click', () => {
-    comprobantesDiasAntes = 0;
-    comprobantesCargando = true;
-    renderSeguimiento();
-    cargarComprobantes(pedidoSel.numero);
-  });
-  cont.querySelectorAll('.js-toggle-preview').forEach(b => b.addEventListener('click', () => {
-    const clave = b.dataset.clave;
-    if (comprobantesPreview.has(clave)) comprobantesPreview.delete(clave); else comprobantesPreview.add(clave);
-    renderSeguimiento();
-  }));
-  $('#btnGuardar').addEventListener('click', () => enviarSeguimiento(null));
-  $('#btnCerrar').addEventListener('click', () => enviarSeguimiento('CERRADO'));
-  $('#btnAnular').addEventListener('click', async () => {
-    if (await confirmar(`¿Anular el pedido ${p.numero}? No se puede deshacer.`, 'Anular pedido')) enviarSeguimiento('ANULADO');
-  });
-  $('#btnReimprimir').addEventListener('click', () => imprimirPedido(pedidoSel));
+// Stat-cards, barra de avance, contadores de los filtros y botón Cerrar, sin redibujar.
+function actualizarResumen() {
+  if (!pedidoSel || !$('#segStatPedidas')) return;
+  const c = conteoLineas(pedidoSel.items);
+  $('#segStatPedidas').textContent = c.pedidas;
+  $('#segStatEntregadas').textContent = c.entregado;
+  $('#segStatFaltantes').textContent = c.faltante;
+  $('#segStatPendientes').textContent = c.pedido;
+  $('#segStatExtras').textContent = c.extras;
+  const ancho = n => (c.pedidas ? n / c.pedidas * 100 : 0) + '%';
+  $('#segProgOk').style.width = ancho(c.entregado);
+  $('#segProgFalta').style.width = ancho(c.faltante);
+  $('#segProgTxt').textContent = `${c.entregado + c.faltante} de ${c.pedidas} resueltas`;
+  const cnt = { todas: c.pedidas, pedido: c.pedido, entregado: c.entregado, faltante: c.faltante };
+  document.querySelectorAll('#segFiltroLineas [data-cnt]').forEach(s => { s.textContent = cnt[s.dataset.cnt]; });
+  if ($('#btnMarcarTodas')) $('#btnMarcarTodas').disabled = c.pedido === 0;
   actualizarBotonCerrar();
 }
 
+// ponytail: el filtro se aplica al elegirlo, no en cada cambio de estado — la fila
+// recién marcada sigue a la vista (no "desaparece" del filtro Sin resolver).
+function aplicarFiltroLineas() {
+  let visibles = 0;
+  document.querySelectorAll('#segLineasBody tr[data-i]').forEach(tr => {
+    const e = pedidoSel.items[Number(tr.dataset.i)].estado;
+    const ver = segFiltroLinea === 'todas' || (segFiltroLinea === 'faltante' ? esFaltante(e) : e === segFiltroLinea);
+    tr.classList.toggle('hidden', !ver);
+    if (ver) visibles++;
+  });
+  $('#segLineasVacio').classList.toggle('hidden', visibles > 0 || !pedidoSel.items.some(l => l.estado !== 'extra'));
+}
+
+function marcarDirty() {
+  segDirty = true;
+  if ($('#segDirty')) $('#segDirty').classList.remove('hidden');
+}
+
+// Toggle de resultado: tocar el activo lo deshace y la línea vuelve a 'pedido'.
+function marcarResultado(btn) {
+  const tr = btn.closest('tr');
+  const it = pedidoSel.items[Number(tr.dataset.i)];
+  const destino = btn.dataset.res;
+  const activo = destino === 'entregado' ? it.estado === 'entregado' : esFaltante(it.estado);
+  it.estado = activo ? 'pedido' : destino;
+  // El resultado dicta la cantidad entregada; en una entrega después se puede bajar a mano.
+  it.cantidadEntregada = activo ? null : destino === 'entregado' ? it.cantidad : 0;
+  // Actualiza sólo lo que cambió en vez de renderSeguimiento(): un redibujo completo
+  // de la tabla tira el botón que se acaba de tocar y el usuario pierde el foco (y el
+  // scroll) en medio de resolver varias líneas seguidas.
+  actualizarFila(tr, it);
+  actualizarResumen();
+  marcarDirty();
+}
+
+function marcarPendientesEntregadas() {
+  document.querySelectorAll('#segLineasBody tr[data-i]').forEach(tr => {
+    const it = pedidoSel.items[Number(tr.dataset.i)];
+    if (it.estado !== 'pedido') return;
+    it.estado = 'entregado';
+    it.cantidadEntregada = it.cantidad;
+    actualizarFila(tr, it);
+  });
+  actualizarResumen();
+  marcarDirty();
+}
+
+// Extra nuevo desde el modal Agregar (modo seguimiento): entra con 1 y se ajusta en la tabla.
+function agregarExtraSeguimiento(p) {
+  if (!pedidoSel || pedidoSel.estado !== 'PENDIENTE' || !p) return;
+  const plu = String(p.plu);
+  if (pedidoSel.items.some(l => String(l.plu) === plu)) return;
+  // Si era un extra guardado que se había quitado, ahora se actualiza en vez de borrarse.
+  segExtrasQuitados.delete(plu);
+  pedidoSel.items = [...pedidoSel.items, {
+    plu, nombre: p.nombre, unidad: p.unidad || '', cantidad: 0, precioUnitario: null,
+    cantidadEntregada: 1, estado: 'extra', obs: '',
+  }];
+  marcarDirty();
+  renderSeguimiento();
+}
+
+// Si la línea ya estaba guardada, el server tiene que enterarse (quitar:true al Guardar);
+// si se agregó en esta edición, alcanza con sacarla del array.
+function quitarExtra(i) {
+  const it = pedidoSel.items[i];
+  const guardado = pedidosTodos.find(x => x.numero === pedidoSel.numero);
+  if (guardado && (guardado.items || []).some(l => String(l.plu) === String(it.plu))) segExtrasQuitados.add(String(it.plu));
+  pedidoSel.items = pedidoSel.items.filter((_, k) => k !== i);
+  marcarDirty();
+  renderSeguimiento();
+}
+
+function cambiarVentana(dias) {
+  comprobantesDiasAntes = dias;
+  comprobantesCargando = true;
+  renderSeguimiento();
+  cargarComprobantes(pedidoSel.numero);
+}
+
+async function anularPedido() {
+  if (await confirmar(`¿Anular el pedido ${pedidoSel.numero}? No se puede deshacer.`, 'Anular pedido')) enviarSeguimiento('ANULADO');
+}
+
+// Eventos delegados en #segDetalle (se enganchan una sola vez): renderSeguimiento()
+// reemplaza el contenido entero y así no hay que volver a atar cada botón.
+const ACCIONES_SEG = {
+  btnMarcarTodas: marcarPendientesEntregadas,
+  btnAgregarExtra: () => abrirAgregar('seguimiento'),
+  btnAplicarComprobantes: () => aplicarYVincularComprobantes(),
+  btnAmpliarVentana: () => cambiarVentana(30),
+  btnVentanaNormal: () => cambiarVentana(0),
+  btnGuardar: () => enviarSeguimiento(null),
+  btnCerrar: () => enviarSeguimiento('CERRADO'),
+  btnAnular: anularPedido,
+  btnReimprimir: () => imprimirPedido(pedidoSel),
+};
+$('#segDetalle').addEventListener('click', e => {
+  if (!pedidoSel) return;
+  const t = e.target;
+  if (t.closest('#segCompResumen')) { segCompAbierto = !t.closest('details').open; return; }
+  const res = t.closest('.js-res');
+  if (res) { marcarResultado(res); return; }
+  const filtro = t.closest('#segFiltroLineas button[data-filtro]');
+  if (filtro) {
+    segFiltroLinea = filtro.dataset.filtro;
+    document.querySelectorAll('#segFiltroLineas button').forEach(b => b.setAttribute('aria-pressed', String(b === filtro)));
+    aplicarFiltroLineas();
+    return;
+  }
+  const quitar = t.closest('.js-quitar-extra');
+  if (quitar) { quitarExtra(Number(quitar.closest('tr').dataset.i)); return; }
+  const prev = t.closest('.js-toggle-preview');
+  if (prev) {
+    const clave = prev.dataset.clave;
+    if (comprobantesPreview.has(clave)) comprobantesPreview.delete(clave); else comprobantesPreview.add(clave);
+    renderSeguimiento();
+    return;
+  }
+  const btn = t.closest('button[id]');
+  if (btn && ACCIONES_SEG[btn.id]) ACCIONES_SEG[btn.id]();
+});
+$('#segDetalle').addEventListener('input', e => {
+  if (!pedidoSel) return;
+  const t = e.target;
+  const tr = t.closest('tr[data-i]');
+  const it = tr ? pedidoSel.items[Number(tr.dataset.i)] : null;
+  const v = t.value.trim();
+  if (t.classList.contains('js-entregada')) {
+    // Entrega parcial: acotada a 0..pedida.
+    it.cantidadEntregada = v === '' ? null : Math.max(0, Math.min(Number(v), it.cantidad));
+    actualizarParcial(tr, it);
+  } else if (t.classList.contains('js-extra-cant')) {
+    // Un extra no tiene "lo pedido" contra qué acotar: lo entregado es libre.
+    it.cantidadEntregada = v === '' ? null : Math.max(0, Number(v));
+  } else if (t.classList.contains('js-obs')) it.obs = t.value;
+  else if (t.id === 'segObs') pedidoSel.observacion = t.value;
+  else if (t.id === 'segEstimada') pedidoSel.fechaEstimada = t.value || null;
+  else if (t.id === 'segRetiro') { pedidoSel.fechaRetiro = t.value || null; actualizarBotonCerrar(); }
+  else return;   // checkboxes de comprobantes: elegirlos no edita el pedido todavía
+  marcarDirty();
+});
+// Al salir del input se muestra el valor ya acotado (ej. tipeó 12 con 10 pedidas → 10).
+$('#segDetalle').addEventListener('change', e => {
+  const t = e.target;
+  if (!pedidoSel || !t.matches('.js-entregada, .js-extra-cant')) return;
+  const it = pedidoSel.items[Number(t.closest('tr').dataset.i)];
+  t.value = it.cantidadEntregada == null ? '' : it.cantidadEntregada;
+});
+// Ctrl+S guarda el pedido abierto. En la pestaña Seguimiento nunca abre el
+// "Guardar como" del navegador, aunque el pedido no sea editable.
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's') return;
+  if ($('#tab-seguimiento').classList.contains('hidden')) return;
+  e.preventDefault();
+  if (pedidoSel && pedidoSel.estado === 'PENDIENTE' && $('#mAviso').classList.contains('hidden')) enviarSeguimiento(null);
+});
+
 // Espeja las reglas de aplicarSeguimiento() para no ofrecer un cierre que el server va a rechazar.
 function actualizarBotonCerrar() {
-  if (!pedidoSel) return;
+  if (!pedidoSel || !$('#btnCerrar')) return;
   const sinResolver = pedidoSel.items.filter(l => l.estado === 'pedido').length;
   const retiro = $('#segRetiro') ? $('#segRetiro').value : '';
   const bloqueado = pedidoSel.estado !== 'PENDIENTE' || !retiro || sinResolver > 0;
@@ -2207,29 +2531,43 @@ function actualizarBotonCerrar() {
 }
 
 async function enviarSeguimiento(estado) {
+  if (segGuardando || !pedidoSel) return;
+  const numero = pedidoSel.numero;
   const cuerpo = {
     fechaEstimada: $('#segEstimada').value || null,
     fechaRetiro: $('#segRetiro').value || null,
     observacion: $('#segObs').value,
-    // nombre/unidad/precioUnitario sólo los usa el server para una línea 'extra'
-    // nueva (aplicarLineas los ignora en las líneas que ya existen en el pedido).
-    items: pedidoSel.items.map(it => ({
-      plu: it.plu, nombre: it.nombre, unidad: it.unidad, precioUnitario: it.precioUnitario,
-      estado: it.estado, cantidadEntregada: it.cantidadEntregada, obs: it.obs || '',
-    })),
+    items: [
+      // nombre/unidad/precioUnitario sólo los usa el server para una línea 'extra'
+      // nueva (aplicarLineas los ignora en las líneas que ya existen en el pedido).
+      ...pedidoSel.items.map(it => ({
+        plu: it.plu, nombre: it.nombre, unidad: it.unidad, precioUnitario: it.precioUnitario,
+        estado: it.estado, cantidadEntregada: it.cantidadEntregada, obs: it.obs || '',
+      })),
+      // Extras ya guardados que se quitaron en esta edición: el server los borra.
+      ...[...segExtrasQuitados].map(plu => ({ plu, estado: 'extra', quitar: true })),
+    ],
   };
   if (estado) cuerpo.estado = estado;
+  segGuardando = true;
   try {
-    const r = await apiFetch('/api/compras/pedidos/' + encodeURIComponent(pedidoSel.numero), {
+    const r = await apiFetch('/api/compras/pedidos/' + encodeURIComponent(numero), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
     });
-    const i = pedidosTodos.findIndex(p => p.numero === r.pedido.numero);
-    if (i >= 0) pedidosTodos[i] = r.pedido;
-    pedidoSel = { ...r.pedido, items: (r.pedido.items || []).map(x => ({ ...x })) };
+    pedidosTodos = pedidosTodos.map(p => (p.numero === r.pedido.numero ? r.pedido : p));
+    // El usuario pudo descartar y abrir otro pedido mientras el PUT estaba en vuelo.
+    if (pedidoSel && pedidoSel.numero === numero) {
+      pedidoSel = { ...r.pedido, items: (r.pedido.items || []).map(x => ({ ...x })) };
+      segDirty = false;
+      segExtrasQuitados = new Set();
+      renderSeguimiento();
+    }
     renderListaPedidos();
     await avisar(estado === 'CERRADO' ? 'Pedido cerrado.' : estado === 'ANULADO' ? 'Pedido anulado.' : 'Cambios guardados.', 'Listo');
   } catch (e) {
     avisar(e.message, 'No se pudo guardar');
+  } finally {
+    segGuardando = false;
   }
 }
 
@@ -2294,6 +2632,7 @@ function aplicarComparacionAPedido(comparacion) {
         precioUnitario: fila.precioUnitario, cantidadEntregada: fila.cargado,
         estado: 'extra', obs: '',
       });
+      segExtrasQuitados.delete(String(fila.plu));   // si se había quitado a mano, la factura lo trae de vuelta
     }
   }
   if (!pedidoSel.fechaRetiro) {
@@ -2321,6 +2660,7 @@ async function aplicarYVincularComprobantes() {
     if (!pedidoSel || pedidoSel.numero !== numero) return;
     comprobantesInfo = data;
     aplicarComparacionAPedido(comprobantesInfo.comparacion);
+    segDirty = true;   // precargó líneas en memoria: falta Guardar
     renderSeguimiento();
   } catch (e) {
     if (!pedidoSel || pedidoSel.numero !== numero) return;
@@ -2408,8 +2748,9 @@ function renderTablaOtif({ prov, desde, hasta }) {
     && (!prov || p.proveedor === prov) && (!desde || p.fecha >= desde) && (!hasta || p.fecha <= hasta))
     .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
   $('#otifBody').innerHTML = filas.length ? filas.map(p => {
-    const items = p.items || [];
-    const full = items.filter(l => l.estado === 'entregado' && Number(l.cantidadEntregada) >= Number(l.cantidad)).length;
+    // Los extras no eran un compromiso del proveedor: quedan fuera del "x / y" (igual que lineasDe() en el server).
+    const items = (p.items || []).filter(l => l.estado !== 'extra');
+    const full =items.filter(l => l.estado === 'entregado' && Number(l.cantidadEntregada) >= Number(l.cantidad)).length;
     const desvio = p.fechaEstimada && p.fechaRetiro
       ? Math.round((Date.parse(p.fechaRetiro) - Date.parse(p.fechaEstimada)) / 86400000) : null;
     // El desvío positivo es retiro tarde: ese sí se tiñe de error.

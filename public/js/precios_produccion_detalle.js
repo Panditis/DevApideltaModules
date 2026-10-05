@@ -111,10 +111,10 @@ async function cargarCostoManual(clave) {
   if (await guardarProd(put, null, 'Costo guardado')) refrescarModalPres(); // precios_produccion_modal.js
 }
 async function cargarMargen(plu) {
-  const v = await pedirCampos(`Margen para el PLU ${plu}`,
-    [{ name: 'markupPct', label: 'Markup % sobre el costo (ej. 50) *', type: 'number', required: true }], 'Guardar margen');
+  const v = await pedirCampos(`Ganancia propia para el PLU ${plu}`,
+    [{ name: 'gananciaPct', label: 'Ganancia % sobre el costo real (reemplaza curva + conceptos, ej. 20) *', type: 'number', required: true }], 'Guardar ganancia');
   if (!v) return;
-  const ok = await guardarProd(() => pedirJson('PUT', '/api/precios/margen-producto/' + encodeURIComponent(plu), { markupPct: numOrNull(v.markupPct) }), null, 'Margen guardado');
+  const ok = await guardarProd(() => pedirJson('PUT', '/api/precios/margen-producto/' + encodeURIComponent(plu), { gananciaPct: numOrNull(v.gananciaPct) }), null, 'Ganancia guardada');
   if (ok) refrescarModalPres();
 }
 function ejecutarAccionProd(ds) {
@@ -122,8 +122,9 @@ function ejecutarAccionProd(ds) {
   else if (ds.prAccion === 'costo') cargarCostoManual(ds.clave);
   else if (ds.prAccion === 'margen') cargarMargen(ds.plu);
   else if (ds.prAccion === 'abrirPres') abrirPresentacion(ds.clave); // precios_produccion_modal.js
-  else if (ds.prAccion === 'config') irATab('configuracion');
-  else if (ds.prAccion === 'maquinas') irATab('maquinas'); // precios_maquinas.js
+  else if (ds.prAccion === 'config') irATab('general'); // sub-tabs de Configuración (activarTab, precios_config.js)
+  else if (ds.prAccion === 'maquinas') irATab('maquinas');
+  else if (ds.prAccion === 'ganancia') irATab('ganancia');
 }
 async function irATab(tipo) {
   if (!(await cerrarPresentacion())) return; // con cambios sin guardar pregunta
@@ -287,11 +288,12 @@ function htmlVariedadBase(ed, c) {
   return `<div class="flex flex-wrap items-end gap-x-6 gap-y-2 mt-3">
     <label class="block text-xs text-gris">Receta base ${REQ}
       <select class="rc-campo mt-1 ${campoCls} min-w-[12rem]" data-campo="varianteDe">${bases}</select></label>
-    <div class="text-sm text-gris">${htmlDesglose(c)}</div></div>`;
+    <div class="text-sm text-gris">${htmlDesgloseTanda(c)}</div></div>`;
 }
 // "Producto terminado por tanda: 120 kg de base + 47,3 kg de extras = 167,3 kg (−3% merma → 162,3 kg)".
 // Todos los números vienen del server (costeo de la variedad: desglose); el extra no altera la base.
-function htmlDesglose(c) {
+// (Nombre propio: htmlDesglose es el desglose del precio de precios_detalle.js; antes se pisaban como globales.)
+function htmlDesgloseTanda(c) {
   const d = c && c.desglose;
   if (!d || d.totalKg == null) return 'Producto terminado por tanda: —';
   const kg = n => `<b class="text-ink tabular-nums">${fmtNum(n)} kg</b>`;

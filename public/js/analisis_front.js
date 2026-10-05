@@ -120,7 +120,6 @@ function renderKpis(k, pref){
     ['Ticket promedio', fmtMoney(k.ticketProm)],
   ];
   if (k.articulosProm !== undefined) tarjetas.push(['Artículos/ticket', fmtDec(k.articulosProm)]);
-  tarjetas.push(['Unidades', fmtNum(k.unidades)], ['Productos distintos', fmtNum(k.productosDistintos)]);
   $(`kpis-${pref}`).innerHTML = tarjetas
     .map(([lbl,val]) => `<div class="kpi"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`)
     .join('');

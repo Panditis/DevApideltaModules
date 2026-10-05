@@ -40,11 +40,11 @@ test('aplicarMarcadosPB: marca según el set sin mutar', () => {
 });
 
 test('filasPBMarcadas: exporta pack/bulto marcados con el costo de su base (Almacén y Fraccionado), sin repetir', () => {
-  const almacen = [{ plu: '10', costoTotal: 500, packBulto: [item('1', { marcado: true }), item('2')] }];
-  const fracc = [{ costoTotal: 800, presentaciones: [{ plu: '20', packBulto: [item('3', { marcado: true, precioSugerido: null, faltantes: ['base'] })] }] }];
+  const almacen = [{ plu: '10', costoTotal: 500, ivaPct: 21, packBulto: [item('1', { marcado: true }), item('2')] }];
+  const fracc = [{ costoTotal: 800, presentaciones: [{ plu: '20', ivaPct: 10.5, packBulto: [item('3', { marcado: true, precioSugerido: null, faltantes: ['base'] })] }] }];
   assert.deepStrictEqual(ui.filasPBMarcadas(almacen, fracc), [
-    { plu: '1', nombre: 'N1', costoTotal: 500, precioConIva: 1000, faltantes: [] },
-    { plu: '3', nombre: 'N3', costoTotal: 800, precioConIva: null, faltantes: ['base'] },
+    { plu: '1', nombre: 'N1', costoTotal: 500, precioConIva: 1000, faltantes: [], ivaPct: 21 },
+    { plu: '3', nombre: 'N3', costoTotal: 800, precioConIva: null, faltantes: ['base'], ivaPct: 10.5 },
   ]);
   assert.deepStrictEqual(ui.filasPBMarcadas([...almacen, ...almacen], []).map(f => f.plu), ['1']);
 });

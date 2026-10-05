@@ -26,7 +26,7 @@ function htmlFilaInsumo(it, cambiadas) {
   const usado = (it.usadoEn || []).map(plu => esc(nombrePres(plu))).join(', ');
   const tambien = (it.tambienEn || []).map(t => `<a href="#produccion/${esc(encodeURIComponent(t.id))}" class="text-verde hover:underline">${esc(t.nombre)}</a>`).join(', ');
   const tip = esManual ? 'Costo del insumo manual (vale para todos los productos que lo usan)'
-    : 'Costo manual (el mismo override que Almacén). Vacío = vuelve al costo de sistema';
+    : 'Costo manual (el mismo override que Reventa). Vacío = vuelve al costo de sistema';
   const fondo = it.costo == null ? ' bg-gris/5' : cambiadas.has(it.clave) ? ` ${MARCA_CAMBIO}` : '';
   return `<tr class="border-t border-borde${fondo}" data-clave="${esc(it.clave)}">
     <td class="p-2 tabular-nums">${esManual ? '<span class="text-xs text-gris">manual</span>' : esc(it.plu)}</td>
@@ -121,7 +121,7 @@ function htmlSeccionPresentaciones() {
   const th = (clave, txt, cls = '') => `<th class="p-2 ${cls}" data-orden="${clave}">${txt}</th>`;
   return `<div class="overflow-x-auto rounded-xl border border-borde bg-card"><table class="w-full text-sm">
     <thead class="bg-verde/5 text-verde"><tr>${HTML_TH_MARCA}${th('plu', 'PLU', 'text-left')}${th('nombre', 'Nombre', 'text-left')}${th('variedad', 'Variedad', 'text-left')}
-      ${th('kg', 'kg', 'text-right')}${th('empaque', 'Empaque', 'text-right')}${th('costo', 'Costo', 'text-right')}${th('markup', 'Markup')}
+      ${th('kg', 'kg', 'text-right')}${th('empaque', 'Empaque', 'text-right')}${th('costo', 'Costo neto', 'text-right')}${th('real', 'Costo real', 'text-right')}${th('markup', 'Ganancia / Markup final')}
       ${th('sugerido', 'Sugerido', 'text-right')}${th('vigente', 'Vigente', 'text-right')}${th('fecha', 'Act. precio')}${th('delta', 'Δ%', 'text-right')}${th('estado', 'Estado')}</tr></thead>
     <tbody id="prPres">${htmlFilasPresentaciones()}</tbody></table></div>
     <button id="prNuevaPres" class="${btnCls} mt-3">+ Otra presentación</button>`;
@@ -142,7 +142,8 @@ function htmlFilaPresentacion(p, nombres) {
     <td class="p-2 text-right tabular-nums">${fmtNum(kg)}</td>
     <td class="p-2 text-right tabular-nums">${emp != null ? '$ ' + fmtMoney(emp) : '—'}</td>
     <td class="p-2 text-right tabular-nums">${p.costoUnidad != null ? '$ ' + fmtMoney(p.costoUnidad) : '—'}</td>
-    <td class="p-2 text-center tabular-nums">${p.markupPct != null ? fmtNum(p.markupPct) + '%' : '—'}</td>
+    <td class="p-2 text-right tabular-nums">${p.costoReal != null ? '$ ' + fmtMoney(p.costoReal) : '—'}</td>
+    <td class="p-2 text-center tabular-nums whitespace-nowrap" title="${esc(`ganancia s/ costo real · markup s/ neto ${p.markupPct != null ? fmtNum(p.markupPct) + '%' : '—'} · IVA ${p.ivaPct ?? '—'} % · markup final en gris`)}">${p.gananciaPct != null ? fmtNum(p.gananciaPct) + '%' : '—'} · <span class="text-gris">${p.markupFinalPct != null ? fmtNum(p.markupFinalPct) + '%' : '—'}</span></td>
     <td class="p-2 text-right">${falta ? '<span class="text-ink/40">sin precio</span>' : '<b>' + fmtPrecio(p.precioConIva) + '</b>'}</td>
     <td class="p-2 text-right tabular-nums">${fmtMoney(p.precioVigente)}</td>
     ${htmlFechaPrecio(p.fechaPrecio)}

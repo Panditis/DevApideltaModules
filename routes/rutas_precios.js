@@ -2,6 +2,8 @@
 const express = require('express');
 const path = require('path');
 const preciosCosteo = require('../lib/precios_costeo');
+const preciosCostos = require('../lib/precios_costos');
+const { costeoConCurva, METODO_GANANCIA_CURVA } = require('../lib/precios_migracion_curva');
 const { pesoTokenKg } = require('../lib/producto_carga');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { crearPackBultoDe, configPackBultoSanitizada, PACK_BULTO_DEFAULT } = require('../lib/precios_pack_bulto');
@@ -10,25 +12,16 @@ const { crearPackBultoDe, configPackBultoSanitizada, PACK_BULTO_DEFAULT } = requ
 // Fase 1: listado/detalle/config de Almacén. Fase 2: Fraccionado (listado agrupado por granel). Producción (Fase 3)
 // vive en rutas_precios_produccion.js; las consultas SIGA de costo/vigente se comparten vía lib/precios_consultas.js.
 //
-// data/costeo.json ya nace con el schema completo (bandasMarkup, recetas,
-// insumosPorProducto, etc.) para que las fases siguientes no tengan que migrar
-// el archivo, pero /api/precios/config expone sólo lo que esta fase usa: costoHora,
-// toleranciaPct, costosVariosPctAlmacen y bandasMarkup completo (recetas/insumosPorProducto
-// siguen sin lógica ni UI que los use).
-//
-// costosVariosPctAlmacen es un campo nuevo (no estaba en el schema original de la
-// Fase 0): costearAlmacen() necesita un costosVariosPct global y no había dónde
-// leerlo — una iteración de planificación anterior lo tenía por "familia", pero el
-// motor actual banda por costo, no por familia. Se agrega como config global única
-// en vez de reabrir ese concepto.
+// data/costeo.json: config del módulo. La ganancia standard de los tres tipos es la curva de ganancia
+// (curvaGanancia, lib/precios_costeo); las bandas y la matriz viejas se migran una vez a curva al leer
+// (leerCosteo → lib/precios_migracion_curva) y se persiste al arrancar.
 module.exports = function crearRutasPrecios(deps) {
   const { apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL } = deps;
   const router = express.Router();
 
   const COSTEO_PATH = path.join(DATA_DIR, 'costeo.json');
   const COSTEO_DEFAULT = {
-    costoHora: 4500, toleranciaPct: 10, costosVariosPctAlmacen: 0,
-    bandasMarkup: { almacen: [], fraccionado: [], produccion: [] },
+    costoHora: 4500, toleranciaPct: 10,
     margenPorProducto: {}, costoPorProducto: {}, fuenteCosto: {},
     // costosExtraFraccionado guarda los costos extra por PLU de Fraccionado (granel) Y de Almacén
     // (producto): los PLU de los dos universos no se pisan, así que una sola clave alcanza. El
@@ -37,39 +30,129 @@ module.exports = function crearRutasPrecios(deps) {
     marcadosExportar: {}, costosExtraFraccionado: {},
     // Presentaciones simuladas (sin código en SIGA) por granel: { [granelPlu]: [{ id, pesoG, markupPct, nombre? }] }.
     presentacionesTemporales: {},
-    markupFraccionado: MARKUP_FRACCIONADO_DEFAULT,
-    // Mano de obra de fraccionado: minutos por unidad standard y propios por PLU (a costoHora).
-    minutosFraccionadoStd: 0, minutosFraccionado: {},
-    // Insumos básicos de fraccionado ($ por unidad): standard y propios por PLU (mismo patrón que la MO).
-    insumosFraccionadoStd: 0, insumosFraccionado: {},
-    // Gastos sobre venta [{ id, concepto, pct, listas }]: los standards (bandas, matriz) son ganancia y se
-    // convierten a markup total con el total de la lista sucursal. [] = conversión identidad.
+    // Mano de obra de fraccionado: minutos por unidad propios por PLU (a costoHora). Sin propios = sin MO
+    // (no hay standard: minutosFraccionadoStd viejo en el archivo se ignora).
+    minutosFraccionado: {},
+    // Insumos básicos de fraccionado ($ por unidad) propios por PLU (mismo patrón que la MO; sin standard).
+    insumosFraccionado: {},
+    // Gastos sobre venta [{ id, concepto, pct, listas }]: las curvas son ganancia y se convierten a markup
+    // total con los gastos del tipo. [] = conversión identidad.
     gastosVenta: [],
-    // Curva de ganancia según costo por tipo (inactiva = bandas/matriz). Ver lib/precios_costeo.
-    curvaGanancia: preciosCosteo.CURVA_GANANCIA_DEFAULT,
+    // Sin curvaGanancia ni metodoGanancia: leerCosteo arma las curvas por defecto con la migración (Fraccionado
+    // con la matriz que se usaba de fábrica).
     // Fase 4: % de descuento pack/bulto sobre el sugerido del base, overrides y vínculos manuales
     // (config/overrides/vínculos en rutas_precios_pack_bulto.js).
     packBulto: PACK_BULTO_DEFAULT,
+    // Tab Costos: departamentos imputados por tipo y venta mensual base (lib/precios_costos). [] = gastos por
+    // tipo iguales a los variables (idéntico a antes).
+    departamentos: [],
+    ventaBase: preciosCostos.ventaBaseConDefault(null),
+    // Tab Ganancia (spec Parte C): conceptos de ganancia [{ id, concepto, pct }] que se suman a la curva de los
+    // tres tipos e IVA de venta global (se aplica al final sobre el precio neto). margenPropio = 'ganancia':
+    // margenPorProducto y temporales guardan ganancia s/ costo real (marcador de la migración).
+    conceptosGanancia: [], ivaVentaPct: preciosCosteo.IVA_DEFAULT_PCT, margenPropio: preciosCosteo.MARGEN_PROPIO_GANANCIA,
+    // Parte D: conceptos sobre precio final [{ id, concepto, pct }] (gross-up después del IVA, ej. IIBB);
+    // precioFinalConceptos = marcador de la migración que los sacó de gastosVenta.
+    conceptosPrecioFinal: [], precioFinalConceptos: preciosCosteo.PRECIO_FINAL_MIGRADO,
   };
+
+  // Config con las curvas (migra en memoria bandas/matriz si el archivo todavía no tiene el marcador).
+  const leerCosteo = () => costeoConCurva(leerJSON(COSTEO_PATH, COSTEO_DEFAULT));
+  // Migración persistida una sola vez al crear el router (archivo sin el marcador): backup y escritura.
+  (function persistirMigracionCurva() {
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    if (!costeo || costeo === COSTEO_DEFAULT || costeo.metodoGanancia === METODO_GANANCIA_CURVA) return;
+    guardarJSON(`${COSTEO_PATH}.bak-antes-curva`, costeo);
+    guardarJSON(COSTEO_PATH, costeoConCurva(costeo));
+  })();
+
+  // PLUs SIGA de las presentaciones de Producción (claves de presentaciones en recetas_produccion.json;
+  // las provisorias n-… se descartan en sqlVentaPorTipo).
+  const plusProduccion = () => Object.values(((leerJSON(path.join(DATA_DIR, 'recetas_produccion.json'), {}) || {}).productos) || {})
+    .flatMap(p => Object.keys((p && p.presentaciones) || {}));
+
+  // Tipo de un PLU para los márgenes propios (G del tipo): presentaciones de Producción (recetas_produccion.json)
+  // y de Fraccionado con fórmula en pesables_listas.json; el resto, Reventa.
+  // ponytail: un venta directa sin fórmula en pesables_listas cae en Reventa (G casi igual: difiere sólo en
+  // departamentos); exacto haría falta SIGA (rubro), y la migración corre sin SIGA al arrancar.
+  function crearTipoDePlu() {
+    const prod = new Set(plusProduccion());
+    const fracc = new Set(Object.keys(((leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas) || {}));
+    return plu => (prod.has(String(plu)) ? 'produccion' : fracc.has(String(plu)) ? 'fraccionado' : 'almacen');
+  }
+
+  // Migración de márgenes propios markup total → ganancia s/ costo real (marcador margenPropio), una sola vez al
+  // crear el router, con backup data/costeo.json.bak-antes-ganancia.
+  (function persistirMigracionGanancia() {
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    if (!costeo || costeo === COSTEO_DEFAULT) return;
+    const r = preciosCosteo.migrarMargenesAGanancia(costeo, preciosCostos.gastosPorTipo(costeo), crearTipoDePlu());
+    if (!r) return;
+    guardarJSON(`${COSTEO_PATH}.bak-antes-ganancia`, costeo);
+    guardarJSON(COSTEO_PATH, r.costeo);
+    console.log(`[precios/migracion] ${r.ajustados} márgenes propios pasados a ganancia`);
+  })();
+
+  // Parte D: IIBB e impuesto débitos/créditos salen de gastosVenta y pasan a conceptosPrecioFinal (marcador
+  // precioFinalConceptos), una vez al crear el router, después de la de ganancia (que usa el G viejo), con backup
+  // data/costeo.json.bak-antes-precio-final. No reescala: los precios suben un poco a propósito.
+  (function persistirMigracionPrecioFinal() {
+    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    if (!costeo || costeo === COSTEO_DEFAULT) return;
+    const r = preciosCosteo.migrarConceptosPrecioFinal(costeo);
+    if (!r) return;
+    guardarJSON(`${COSTEO_PATH}.bak-antes-precio-final`, costeo);
+    guardarJSON(COSTEO_PATH, r.costeo);
+    console.log(`[precios/migracion] ${r.movidos} conceptos pasados a sobre precio final`);
+  })();
 
   router.get('/precios', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'precios.html')));
 
   router.get('/api/precios/config', apiRoute(async () => {
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     const pb = configPackBultoSanitizada(costeo.packBulto);
     return {
       costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct,
-      costosVariosPctAlmacen: costeo.costosVariosPctAlmacen,
-      bandasMarkup: costeo.bandasMarkup,
-      markupFraccionado: costeo.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT,
-      minutosFraccionadoStd: costeo.minutosFraccionadoStd || 0,
-      insumosFraccionadoStd: costeo.insumosFraccionadoStd || 0,
       gastosVenta: Array.isArray(costeo.gastosVenta) ? costeo.gastosVenta : [],
       gastosVentaPct: preciosCosteo.totalGastosVenta(costeo.gastosVenta),
+      ...datosCostos(costeo),
+      ...datosGanancia(costeo),
       curvaGanancia: preciosCosteo.curvasGananciaConDefault(costeo.curvaGanancia),
       // % generales de pack/bulto (la UI los muestra al quitar un % propio).
       packBulto: { descPackPct: pb.descPackPct, descBultoPct: pb.descBultoPct },
     };
+  }));
+
+  // Tab Ganancia: { conceptos?, conceptosPrecioFinal? } (conceptos de ganancia y sobre precio final; la lista que no
+  // viene se conserva, al menos una). No reescala nada (cambian los precios).
+  router.put('/api/precios/config/ganancia', apiRoute(async (req) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    let cambios;
+    try {
+      const soloFinal = !('conceptos' in body) && 'conceptosPrecioFinal' in body;
+      cambios = {
+        ...(soloFinal ? {} : { conceptosGanancia: preciosCosteo.validarConceptosGanancia(body.conceptos) }),
+        ...('conceptosPrecioFinal' in body ? { conceptosPrecioFinal: preciosCosteo.validarConceptosPrecioFinal(body.conceptosPrecioFinal) } : {}),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+    const nuevo = { ...leerCosteo(), ...cambios };
+    guardarJSON(COSTEO_PATH, nuevo);
+    return datosGanancia(nuevo);
+  }));
+
+  // IVA de venta (se edita en Costos; se aplica sobre el precio neto, no es costo). No reescala nada.
+  router.put('/api/precios/config/iva-venta', apiRoute(async (req) => {
+    let ivaVentaPct;
+    try {
+      ivaVentaPct = preciosCosteo.validarIvaVentaPct((req.body || {}).ivaVentaPct);
+    } catch (err) {
+      return { error: err.message };
+    }
+    const nuevo = { ...leerCosteo(), ivaVentaPct };
+    guardarJSON(COSTEO_PATH, nuevo);
+    return datosGanancia(nuevo);
   }));
 
   // Consultas SIGA compartidas con Producción (lib/precios_consultas.js): costo por PLU
@@ -125,6 +208,7 @@ module.exports = function crearRutasPrecios(deps) {
       SELECT p.IdProducto, p.NombreProducto
       FROM Productos p JOIN Rubros r ON r.IdRubro = p.IdRubro
       WHERE p.Activo = 1 AND r.NombreRubro = '${rubro}'`);
+    // El IVA de venta es el global de la config (ivaVentaPct), no la alícuota del producto.
     return rows.map(r => ({ plu: String(r.IdProducto), nombre: String(r.NombreProducto || '').trim() }));
   }
 
@@ -169,7 +253,7 @@ module.exports = function crearRutasPrecios(deps) {
 
   router.get('/api/precios/listado', apiRoute(async (req) => {
     const tipo = String(req.query.tipo || '');
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     if (tipo === 'fraccionado') return gruposFraccionado(costeo);
     if (tipo !== 'almacen') return { error: 'tipo no soportado todavía' };
     const filas = await filasAlmacen(costeo);
@@ -177,9 +261,11 @@ module.exports = function crearRutasPrecios(deps) {
     return filas.map(f => ({
       plu: f.plu, nombre: f.nombre, costoBase: f.costoBase, costoTotal: f.costoTotal, markupPct: f.markupPct, banda: f.banda,
       markupBanda: f.markupBanda, markupOverride: f.markupOverride, gananciaBanda: f.gananciaBanda, gastosVentaPct: f.gastosVentaPct,
+      gananciaCurva: f.gananciaCurva, gananciaOverride: f.gananciaOverride,
       costoOverride: f.costoOverride, costoFuente: f.costoFuente,
       costosExtra: f.costosExtra, costoExtraTotal: f.costoExtraTotal,
       precioNeto: f.precioNeto, precioConIva: f.precioConIva, precioVigente: f.precioVigente,
+      costoReal: f.costoReal, gananciaPct: f.gananciaPct, markupFinalPct: f.markupFinalPct, ivaPct: f.ivaPct, finalPct: f.finalPct,
       deltaPct: f.deltaPct, semaforo: f.semaforo, faltantes: f.faltantes,
       costoSistema: f.costoSistema, costoSistemaConIva: f.costoSistemaConIva, ivaCompraPct: f.ivaCompraPct, precioUltimaCompra: f.precioUltimaCompra,
       tipoComprobanteUltimaCompra: f.tipoComprobanteUltimaCompra,
@@ -190,7 +276,7 @@ module.exports = function crearRutasPrecios(deps) {
 
   router.get('/api/precios/detalle/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     if (String(req.query.tipo || '') === 'fraccionado') {
       // ponytail: arma todos los grupos para devolver uno (mismo criterio que Almacén abajo).
       const grupo = (await gruposFraccionado(costeo)).find(g => g.granelPlu === plu);
@@ -198,33 +284,12 @@ module.exports = function crearRutasPrecios(deps) {
     }
     const filas = await filasAlmacen(costeo);
     const fila = filas.find(f => f.plu === plu);
-    if (!fila) return { error: `PLU ${plu} no encontrado en el universo Almacén` };
+    if (!fila) return { error: `PLU ${plu} no encontrado en el universo Reventa` };
     return fila;
   }));
 
-  router.put('/api/precios/config/bandas-markup', apiRoute(async (req) => {
-    const { almacen, fraccionado, produccion } = req.body || {};
-    if (!Array.isArray(almacen) || !Array.isArray(fraccionado) || !Array.isArray(produccion)) {
-      return { error: 'bandasMarkup requiere los tres arrays: almacen, fraccionado, produccion' };
-    }
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
-    let sanitizado;
-    try {
-      // configSanitizada valida ANTES de escribir y devuelve el config completo (no pisa
-      // el resto de costeo.json: sólo bandasMarkup queda distinto del que ya había).
-      sanitizado = preciosCosteo.configSanitizada({ ...costeo, bandasMarkup: { almacen, fraccionado, produccion } });
-    } catch (err) {
-      return { error: err.message };
-    }
-    guardarJSON(COSTEO_PATH, sanitizado);
-    return { bandasMarkup: sanitizado.bandasMarkup };
-  }));
-
   // Config general (cualquier subconjunto). Valida todo antes de escribir y sólo toca esas claves.
-  const LIMITES_GENERAL = {
-    toleranciaPct: 100, costoHora: 10000000, costosVariosPctAlmacen: 100, minutosFraccionadoStd: MINUTOS_MO_MAX,
-    insumosFraccionadoStd: INSUMOS_FRACC_MAX,
-  };
+  const LIMITES_GENERAL = { toleranciaPct: 100, costoHora: 10000000 };
   router.put('/api/precios/config/general', apiRoute(async (req) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const cambios = {};
@@ -237,41 +302,68 @@ module.exports = function crearRutasPrecios(deps) {
       }
       cambios[clave] = n;
     }
-    const costeo = { ...leerJSON(COSTEO_PATH, COSTEO_DEFAULT), ...cambios };
+    const costeo = { ...leerCosteo(), ...cambios };
     guardarJSON(COSTEO_PATH, costeo);
-    return {
-      costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct, costosVariosPctAlmacen: costeo.costosVariosPctAlmacen,
-      minutosFraccionadoStd: costeo.minutosFraccionadoStd || 0, insumosFraccionadoStd: costeo.insumosFraccionadoStd || 0,
-    };
+    return { costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct };
   }));
 
   // Gastos sobre venta. body { items, conservarPrecios }: conservarPrecios (default true) reescala las
-  // ganancias de bandas y matriz para que el markup total (y los precios) no cambien. Valida todo
-  // (gastos + bandas/matriz reescaladas) antes de escribir; el total no se guarda, se calcula.
+  // curvas de ganancia para que el markup total (y los precios) no cambien. Valida todo (gastos + curvas
+  // reescaladas) antes de escribir; el total no se guarda, se calcula.
   router.put('/api/precios/config/gastos-venta', apiRoute(async (req) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     let nuevo;
     try {
-      const gastosVenta = preciosCosteo.validarGastosVenta(body.items);
-      const base = { ...costeo, markupFraccionado: costeo.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT, gastosVenta };
-      const reescalado = body.conservarPrecios === false ? base : preciosCosteo.reescalarGanancias(base,
-        preciosCosteo.totalGastosVenta(costeo.gastosVenta), preciosCosteo.totalGastosVenta(gastosVenta));
-      nuevo = preciosCosteo.configSanitizada(reescalado);
-      preciosCosteo.validarMarkupFraccionado(nuevo.markupFraccionado);
-      for (const [tipo, c] of Object.entries(nuevo.curvaGanancia || {})) preciosCosteo.validarCurvaGanancia(c, tipo);
+      nuevo = conCambiosDeGastos(costeo, { gastosVenta: preciosCosteo.validarGastosVenta(body.items) }, body.conservarPrecios, crearTipoDePlu());
     } catch (err) {
       return { error: err.message };
     }
     guardarJSON(COSTEO_PATH, nuevo);
-    return {
-      gastosVenta: nuevo.gastosVenta, gastosVentaPct: preciosCosteo.totalGastosVenta(nuevo.gastosVenta),
-      bandasMarkup: nuevo.bandasMarkup, markupFraccionado: nuevo.markupFraccionado,
-      curvaGanancia: preciosCosteo.curvasGananciaConDefault(nuevo.curvaGanancia),
-    };
+    return respuestaGastos(nuevo);
   }));
 
-  // Curva de ganancia de un tipo (almacen | fraccionado): valida antes de escribir, sólo toca ese tipo.
+  // Departamentos + venta base (tab Costos). body { items, ventaBase: { meses, manual }, conservarPrecios }:
+  // mismo criterio que gastos-venta (reescala por tipo para no mover precios). El snapshot de SIGA no
+  // viene del body: se conserva el guardado (lo escribe POST costos/venta-base/actualizar).
+  router.put('/api/precios/config/departamentos', apiRoute(async (req) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const costeo = leerCosteo();
+    let nuevo;
+    try {
+      const departamentos = preciosCostos.validarDepartamentos(body.items);
+      const ventaBase = { ...preciosCostos.validarVentaBase(body.ventaBase), snapshot: preciosCostos.ventaBaseConDefault(costeo.ventaBase).snapshot };
+      nuevo = conCambiosDeGastos(costeo, { departamentos, ventaBase }, body.conservarPrecios, crearTipoDePlu());
+    } catch (err) {
+      return { error: err.message };
+    }
+    guardarJSON(COSTEO_PATH, nuevo);
+    return respuestaGastos(nuevo);
+  }));
+
+  // Venta mensual base por tipo desde SIGA (body opcional { meses }; default el guardado). Guarda el
+  // snapshot en costeo.json; el cálculo de precios nunca consulta SIGA por esto. No reescala: la venta
+  // nueva es el dato real. Si deja un tipo con costo imputado sin venta, guarda igual y avisa.
+  router.post('/api/precios/costos/venta-base/actualizar', apiRoute(async (req) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const guardada = preciosCostos.ventaBaseConDefault(leerCosteo().ventaBase);
+    let meses;
+    try {
+      meses = preciosCostos.validarVentaBase({ meses: body.meses ?? guardada.meses }).meses;
+    } catch (err) {
+      return { error: err.message };
+    }
+    const rows = await query(preciosCostos.sqlVentaPorTipo({ ...preciosCostos.rangoVentaBase(meses), plusProduccion: plusProduccion() }));
+    const snapshot = preciosCostos.snapshotVentaBase(rows, meses, hoyISO());
+    const actual = leerCosteo(); // releído: pudo cambiar durante la query
+    const nuevo = { ...actual, ventaBase: { ...preciosCostos.ventaBaseConDefault(actual.ventaBase), meses, snapshot } };
+    guardarJSON(COSTEO_PATH, nuevo);
+    let aviso = null;
+    try { preciosCostos.validarEstructuraCostos(nuevo); } catch (err) { aviso = err.message; }
+    return { ...datosCostos(nuevo), aviso };
+  }));
+
+  // Curva de ganancia de un tipo (almacen | fraccionado | produccion): valida antes de escribir, sólo toca ese tipo.
   router.put('/api/precios/config/curva-ganancia/:tipo', apiRoute(async (req) => {
     let curva;
     try {
@@ -279,7 +371,7 @@ module.exports = function crearRutasPrecios(deps) {
     } catch (err) {
       return { error: err.message };
     }
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     const curvaGanancia = { ...(costeo.curvaGanancia || {}), [req.params.tipo]: curva };
     guardarJSON(COSTEO_PATH, { ...costeo, curvaGanancia });
     return { curvaGanancia: preciosCosteo.curvasGananciaConDefault(curvaGanancia) };
@@ -287,26 +379,32 @@ module.exports = function crearRutasPrecios(deps) {
 
   // Propuesta de curva ajustada a los precios vigentes de SIGA. NO guarda: la UI la muestra y el
   // usuario la acepta/corrige y guarda con el PUT de arriba.
-  router.post('/api/precios/curva-ganancia/ajustar/:tipo', apiRoute(async (req) => {
+  // Producción la atiende rutas_precios_produccion.js (mismo path, montado después): next().
+  const ajustarCurva = apiRoute(async (req) => {
     const tipo = String(req.params.tipo || '');
     if (!preciosCosteo.TIPOS_CURVA.includes(tipo)) return { error: `tipo inválido (${preciosCosteo.TIPOS_CURVA.join(', ')})` };
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
+    const gastosPct = preciosCostos.gastosVentaPctTipo(costeo, tipo);
+    if (gastosPct == null) return { error: 'falta la venta mensual base de este tipo (tab Costos): sin ella no se conocen los gastos sobre venta' };
     const datos = tipo === 'almacen' ? await filasAlmacen(costeo) : await gruposFraccionado(costeo);
     try {
       return preciosCosteo.propuestaCurva(tipo, datos, {
-        gastosPct: preciosCosteo.totalGastosVenta(costeo.gastosVenta),
-        tramosG: (costeo.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT).tramosG,
+        gastosPct, conceptosPct: preciosCosteo.totalConceptosGanancia(costeo.conceptosGanancia),
+        tramosG: ((preciosCosteo.curvasGananciaConDefault(costeo.curvaGanancia).fraccionado.ajustesPeso || {}).tramosG)
+          || preciosCosteo.TRAMOS_PESO_DEFAULT,
       });
     } catch (err) {
       return { error: err.message };
     }
-  }));
+  });
+  router.post('/api/precios/curva-ganancia/ajustar/:tipo', (req, res, next) =>
+    (req.params.tipo === 'produccion' ? next() : ajustarCurva(req, res, next)));
 
   // Valores manuales por producto en costeo.json (un mapa plu → número). valor null quita
   // la entrada (vuelve al automático). Sólo toca esa clave del archivo.
   function guardarValorProducto({ clave, plu, raw, min, max, excluirMin }) {
     if (!/^[\w-]{1,30}$/.test(plu)) return { error: 'PLU inválido' };
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     const mapa = { ...(costeo[clave] || {}) };
     if (raw === null) {
       delete mapa[plu];
@@ -322,55 +420,44 @@ module.exports = function crearRutasPrecios(deps) {
     return { plu, valor: mapa[plu] ?? null };
   }
 
-  // Markup propio (margenPorProducto[plu]): pisa la banda por costo. { markupPct: null } lo quita.
-  // Mínimo negativo: un precio de SIGA por debajo del costo es dato real (ver alinear-siga).
+  // Ganancia propia (margenPorProducto[plu], % s/ costo real): reemplaza curva + conceptos de ganancia; el costo
+  // real (gastos del tipo) sigue igual. { gananciaPct: null } la quita. Mínimo negativo: un precio de SIGA por
+  // debajo del costo es dato real (ver alinear-siga).
   const MARKUP_MIN_PCT = -99;
   const MARKUP_MAX_PCT = 1000;
   router.put('/api/precios/margen-producto/:plu', apiRoute(async (req) => guardarValorProducto({
     clave: 'margenPorProducto', plu: String(req.params.plu || '').trim(),
-    raw: (req.body || {}).markupPct, min: MARKUP_MIN_PCT, max: MARKUP_MAX_PCT,
+    raw: (req.body || {}).gananciaPct, min: MARKUP_MIN_PCT, max: MARKUP_MAX_PCT,
   })));
 
-  // Minutos de fraccionado propios de una presentación (minutosFraccionado[plu]): pisan el standard.
+  // Minutos de fraccionado propios de una presentación (minutosFraccionado[plu]); sin propios no suma MO.
   // { minutos: null } lo quita.
   router.put('/api/precios/minutos-fraccionado/:plu', apiRoute(async (req) => guardarValorProducto({
     clave: 'minutosFraccionado', plu: String(req.params.plu || '').trim(),
     raw: (req.body || {}).minutos, min: 0, max: MINUTOS_MO_MAX,
   })));
 
-  // Insumos básicos propios de una presentación ($ por unidad, insumosFraccionado[plu]): pisan el
-  // standard. { pesos: null } lo quita.
+  // Insumos básicos propios de una presentación ($ por unidad, insumosFraccionado[plu]); sin propios no
+  // suma insumos. { pesos: null } lo quita.
   router.put('/api/precios/insumos-fraccionado/:plu', apiRoute(async (req) => guardarValorProducto({
     clave: 'insumosFraccionado', plu: String(req.params.plu || '').trim(),
     raw: (req.body || {}).pesos, min: 0, max: INSUMOS_FRACC_MAX,
   })));
 
-  // Margen standard Fraccionado (matriz banda de costo × tramo de peso). Valida antes de escribir.
-  router.put('/api/precios/config/markup-fraccionado', apiRoute(async (req) => {
-    const { bandas, tramosG, markupPct } = req.body || {};
-    const matriz = { bandas, tramosG, markupPct };
-    try {
-      preciosCosteo.validarMarkupFraccionado(matriz);
-    } catch (err) {
-      return { error: err.message };
-    }
-    guardarJSON(COSTEO_PATH, { ...leerJSON(COSTEO_PATH, COSTEO_DEFAULT), markupFraccionado: matriz });
-    return { markupFraccionado: matriz };
-  }));
-
-  // Alinear con SIGA: markup propio por producto que reproduce su precio vigente con el costo
-  // actual. Pisa los margenPorProducto de esos productos; sólo toca esa clave de costeo.json.
+  // Alinear con SIGA: ganancia propia por producto que reproduce su precio vigente con el costo actual y los
+  // gastos de su tipo. Pisa los margenPorProducto de esos productos; sólo toca esa clave de costeo.json.
   router.post('/api/precios/alinear-siga', apiRoute(async () => {
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     const [filas, grupos] = await Promise.all([filasAlmacen(costeo), gruposFraccionado(costeo)]);
     // Fraccionado: cada presentación se alinea con su costo $/kg (granel base + costos extra + MO
     // de fraccionado de esa presentación).
+    const gastosFracc = preciosCostos.gastosVentaPctTipo(costeo, 'fraccionado');
     const presentaciones = grupos.flatMap(g => g.presentaciones.map(p => ({
-      plu: p.plu, costoTotal: p.costoKg, precioVigente: p.precioVigente,
+      plu: p.plu, costoTotal: p.costoKg, precioVigente: p.precioVigente, ivaPct: p.ivaPct, finalPct: p.finalPct, gastosVentaPct: gastosFracc,
     })));
-    const { markups, alineados, sinDatos, negativos } = markupsAlineadosConSiga([...filas, ...presentaciones]);
-    const actual = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
-    guardarJSON(COSTEO_PATH, { ...actual, margenPorProducto: { ...(actual.margenPorProducto || {}), ...markups } });
+    const { ganancias, alineados, sinDatos, negativos } = markupsAlineadosConSiga([...filas, ...presentaciones]);
+    const actual = leerCosteo();
+    guardarJSON(COSTEO_PATH, { ...actual, margenPorProducto: { ...(actual.margenPorProducto || {}), ...ganancias } });
     return { alineados, sinDatos, negativos };
   }));
 
@@ -387,7 +474,7 @@ module.exports = function crearRutasPrecios(deps) {
     } catch (err) {
       return { error: err.message };
     }
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     const mapa = { ...(costeo.costosExtraFraccionado || {}) };
     if (items.length) mapa[plu] = items; else delete mapa[plu];
     guardarJSON(COSTEO_PATH, { ...costeo, costosExtraFraccionado: mapa });
@@ -414,7 +501,7 @@ module.exports = function crearRutasPrecios(deps) {
         return { error: err.message };
       }
     }
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     const r = aplicarTemporal(costeo.presentacionesTemporales, plu, { op, id, datos });
     if (r.error) return r;
     guardarJSON(COSTEO_PATH, { ...costeo, presentacionesTemporales: r.mapa });
@@ -424,7 +511,7 @@ module.exports = function crearRutasPrecios(deps) {
   router.put('/api/precios/presentaciones-temporales/:granelPlu/:id', apiRoute(async (req) => guardarTemporal(req, 'editar')));
   router.delete('/api/precios/presentaciones-temporales/:granelPlu/:id', apiRoute(async (req) => guardarTemporal(req, 'borrar')));
 
-  // Fuente del costo base de un producto ('sistema' = PrecioCosto de SIGA tal cual, ver filaCostos
+  // Fuente del costo base de un producto ('sistema' = PrecioCosto de SIGA neto, ver filaCostos
   // en lib/precios_consultas). body { fuente: 'ultimaCompra' | 'sistema' | 'manual',
   // costo? }. 'sistema' (default) borra ambas marcas; 'ultimaCompra' marca fuenteCosto[plu];
   // 'manual' guarda costoPorProducto[plu] (el costo que va a la cuenta), que gana sobre cualquier fuente.
@@ -443,7 +530,7 @@ module.exports = function crearRutasPrecios(deps) {
     const r = guardarValorProducto({ clave: 'costoPorProducto', plu, raw: null });
     if (r.error) return r;
     if (fuente === 'ultimaCompra') {
-      const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+      const costeo = leerCosteo();
       guardarJSON(COSTEO_PATH, { ...costeo, fuenteCosto: { ...(costeo.fuenteCosto || {}), [plu]: 'ultimaCompra' } });
     } else {
       guardarValorProducto({ clave: 'fuenteCosto', plu, raw: null });
@@ -461,16 +548,14 @@ module.exports = function crearRutasPrecios(deps) {
     }
     if (!plus.every(p => typeof p === 'string' && /^[\w-]{1,30}$/.test(p))) return { error: 'PLU inválido' };
     if (typeof marcado !== 'boolean') return { error: 'marcado debe ser true o false' };
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
-    const d = new Date();
-    const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const mapa = aplicarMarcados(costeo.marcadosExportar, plus, marcado, hoy);
+    const costeo = leerCosteo();
+    const mapa = aplicarMarcados(costeo.marcadosExportar, plus, marcado, hoyISO());
     guardarJSON(COSTEO_PATH, { ...costeo, marcadosExportar: mapa });
     return { marcados: Object.keys(mapa) };
   }));
 
   router.delete('/api/precios/marcados', apiRoute(async () => {
-    const costeo = leerJSON(COSTEO_PATH, COSTEO_DEFAULT);
+    const costeo = leerCosteo();
     guardarJSON(COSTEO_PATH, { ...costeo, marcadosExportar: {} });
     return { marcados: [] };
   }));
@@ -496,6 +581,54 @@ module.exports = function crearRutasPrecios(deps) {
 
   return router;
 };
+
+function hoyISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Datos de la tab Costos que acompañan a la config (GET config, PUT gastos/departamentos, venta base).
+function datosCostos(costeo) {
+  return {
+    departamentos: Array.isArray(costeo.departamentos) ? costeo.departamentos : [],
+    ventaBase: preciosCostos.ventaBaseConDefault(costeo.ventaBase),
+    gastosVentaPctPorTipo: preciosCostos.gastosPorTipo(costeo),
+    estructuraCostos: preciosCostos.estructuraCostos(costeo),
+  };
+}
+
+// Datos de ganancia, conceptos sobre precio final e IVA de venta (GET config, PUT ganancia, PUT iva-venta).
+function datosGanancia(costeo) {
+  const conceptosGanancia = preciosCosteo.conceptosGananciaDe(costeo);
+  const conceptosPrecioFinal = preciosCosteo.conceptosPrecioFinalDe(costeo);
+  return {
+    conceptosGanancia, conceptosGananciaPct: preciosCosteo.totalConceptosGanancia(conceptosGanancia),
+    conceptosPrecioFinal, conceptosPrecioFinalPct: preciosCosteo.totalConceptosGanancia(conceptosPrecioFinal),
+    ivaVentaPct: preciosCosteo.ivaVentaPctDe(costeo),
+  };
+}
+
+// Aplica cambios a gastos variables / departamentos / venta base. conservarPrecios (default true) reescala
+// las curvas de cada tipo (y las ganancias propias, con el tipo de cada PLU de tipoDePlu) con sus gastos
+// viejo → nuevo para que el precio no cambie; los conceptos de ganancia no se tocan. Valida todo (estructura
+// de costos + curvas reescaladas) y devuelve el costeo nuevo, o tira.
+function conCambiosDeGastos(costeo, cambios, conservarPrecios, tipoDePlu) {
+  const base = { ...costeo, ...cambios };
+  preciosCostos.validarEstructuraCostos(base);
+  const viejo = preciosCostos.gastosPorTipo(costeo), nuevoG = preciosCostos.gastosPorTipo(base);
+  const nuevo = conservarPrecios === false ? base
+    : preciosCosteo.reescalarGananciasPropias(preciosCosteo.reescalarGanancias(base, viejo, nuevoG), viejo, nuevoG, tipoDePlu);
+  for (const [tipo, c] of Object.entries(nuevo.curvaGanancia || {})) preciosCosteo.validarCurvaGanancia(c, tipo);
+  return nuevo;
+}
+
+function respuestaGastos(nuevo) {
+  return {
+    gastosVenta: nuevo.gastosVenta, gastosVentaPct: preciosCosteo.totalGastosVenta(nuevo.gastosVenta),
+    ...datosCostos(nuevo),
+    curvaGanancia: preciosCosteo.curvasGananciaConDefault(nuevo.curvaGanancia),
+  };
+}
 
 // Alta/edición/baja de una presentación temporal sobre el mapa { granelPlu: [...] }. Pura: devuelve
 // { mapa, item } nuevos (sin mutar la entrada) o { error }. datos ya validados
@@ -535,79 +668,76 @@ function aplicarMarcados(mapaActual, plus, marcado, fecha) {
   return mapa;
 }
 
-// Markup de un producto Almacén. La banda por costo guarda GANANCIA (gananciaBanda) y se convierte a
-// markup total con los gastos sobre venta de la lista sucursal (markupBanda: lo que daría la banda,
-// el detalle lo muestra al lado del markup propio). El override por producto ya es markup total.
-// Con la curva de ganancia activa, la ganancia standard sale de la curva (banda 'curva') en vez de las bandas.
+// Markup de un producto Almacén. Ganancia standard (gananciaBanda) = curva de Reventa sobre el costo base neto
+// (gananciaCurva) + conceptos de ganancia; la ganancia propia del producto (gananciaOverride) reemplaza a las
+// dos. markup total = (1 + ganancia) ÷ (1 − gastos del tipo) − 1 (markupBanda: el de la standard, que el detalle
+// muestra al lado del propio; markupOverride: el de la propia). Los nombres gananciaBanda/markupBanda/banda
+// quedaron de las bandas (reemplazadas por la curva): banda es 'curva' u 'override'.
 function markupAlmacen(cfg, plu, costoBase) {
-  const gastosVentaPct = preciosCosteo.totalGastosVenta(cfg.gastosVenta);
-  const curva = (cfg.curvaGanancia || {}).almacen;
-  const std = curva && curva.activa === true
-    ? { markupPct: preciosCosteo.gananciaPorCurva(curva, costoBase), banda: 'curva' }
-    : preciosCosteo.resolverBanda(costoBase, (cfg.bandasMarkup || {}).almacen);
-  const gananciaBanda = std.markupPct;
+  const gastosVentaPct = preciosCostos.gastosVentaPctTipo(cfg, 'almacen');
+  const conceptos = preciosCosteo.conceptosGananciaDe(cfg);
+  const gananciaCurva = preciosCosteo.gananciaPorCurva((cfg.curvaGanancia || {}).almacen, costoBase);
+  const gananciaBanda = preciosCosteo.gananciaStandard(gananciaCurva, preciosCosteo.totalConceptosGanancia(conceptos));
   const markupBanda = gananciaBanda == null ? null : preciosCosteo.markupDesdeGanancia(gananciaBanda, gastosVentaPct);
-  const markupOverride = numeroONull((cfg.margenPorProducto || {})[plu]);
+  const gananciaOverride = numeroONull((cfg.margenPorProducto || {})[plu]);
+  const markupOverride = gananciaOverride == null ? null : preciosCosteo.markupDesdeGanancia(gananciaOverride, gastosVentaPct);
+  const propia = gananciaOverride != null;
   return {
-    markupPct: markupOverride ?? markupBanda, banda: markupOverride != null ? 'override' : std.banda,
-    markupBanda, markupOverride, gananciaBanda, gastosVentaPct,
+    markupPct: propia ? markupOverride : markupBanda, banda: propia ? 'override' : gananciaBanda == null ? null : 'curva',
+    markupBanda, markupOverride, gananciaBanda, gananciaCurva, gananciaOverride, gastosVentaPct,
+    gastos: preciosCostos.gastosDesglosePct(cfg, 'almacen'), conceptos: propia ? [] : conceptos,
   };
 }
 
-// Fila calculada para un producto Almacén: costeo (banda + markup, redondeo a $50) contra el precio
+// "Alineado exacto": si el precio final exacto reproduce el vigente de SIGA (±$0,50) se respeta ese precio en vez
+// del múltiplo de $50 (un producto alineado da 0 %). Devuelve los campos de precio a pisar (markup final incluido).
+function alinearConVigente(c, precioVigente, costo) {
+  if (!(precioVigente > 0) || c.precioConIvaExacto == null || Math.abs(c.precioConIvaExacto - precioVigente) >= 0.5) return {};
+  return { precioConIva: precioVigente, markupFinalPct: preciosCosteo.markupFinalPct(precioVigente, costo) };
+}
+
+// Fila calculada para un producto Almacén: costeo (curva + markup, redondeo a $50) contra el precio
 // vigente de mostrador. Pura — sin SQL/fs — para poder testearla sin base de datos; la SQL
 // vive en universoAlmacen/preciosVigentesAlmacen arriba, que son lo único que necesita `query`.
-// precioConIva es el precio final (costo × (1 + markup), ver IVA_VENTA): se compara con el vigente de SIGA.
+// precioConIva es el precio final con el IVA de venta de la config (ivaVentaPct): se compara con el vigente de
+// SIGA. Costos netos.
 function calcularFilaAlmacen({ plu, nombre, costoMercaderia, costoSistema = null, precioVigente, costeoConfig }) {
   const cfg = costeoConfig || {};
-  // Costo base (manual → última compra si se eligió → sistema tal cual): preciosCosteo.elegirCosto,
-  // el mismo criterio que el granel de Fraccionado. La banda se busca por el costo que efectivamente se usa.
+  // Costo base (manual → última compra si se eligió → sistema neto): preciosCosteo.elegirCosto,
+  // el mismo criterio que el granel de Fraccionado. La curva se busca por el costo que efectivamente se usa.
   const { costoBase, costoFuente, costoOverride } = preciosCosteo.elegirCosto({
     plu, costoUltimaCompra: costoMercaderia, costoSistema, cfg,
   });
-  const { markupPct, banda, markupBanda, markupOverride, gananciaBanda, gastosVentaPct } = markupAlmacen(cfg, plu, costoBase);
-  const costosVariosPct = Number(cfg.costosVariosPctAlmacen) || 0;
+  const { markupPct, banda, markupBanda, markupOverride, gananciaBanda, gananciaCurva, gananciaOverride, gastosVentaPct, gastos, conceptos } = markupAlmacen(cfg, plu, costoBase);
   // Costos extra del producto: misma clave que los graneles de Fraccionado (ver COSTEO_DEFAULT).
   const costosExtra = costosExtraDe(cfg, plu);
-  const costeado = preciosCosteo.costearAlmacen({
-    costoMercaderia: costoBase, costosVariosPct, costosExtra, markupPct, banda, plu, nombre,
+  const calculado = preciosCosteo.costearAlmacen({
+    costoMercaderia: costoBase, costosExtra, markupPct, banda, plu, nombre, gastos, ivaPct: preciosCosteo.ivaVentaPctDe(cfg), conceptos,
+    conceptosFinal: preciosCosteo.conceptosPrecioFinalDe(cfg),
   });
-  // Sólo los extras del producto (sin los costos varios globales), como en Fraccionado.
-  const conExtras = preciosCosteo.aplicarCostosExtra(costeado.costoTotal == null ? null : costoBase, costosExtra, '$');
+  // Sólo los extras del producto, como en Fraccionado.
+  const conExtras = preciosCosteo.aplicarCostosExtra(calculado.costoTotal == null ? null : costoBase, costosExtra, '$');
   const costoExtraTotal = conExtras.costoTotal == null ? null
     : Math.round((conExtras.costoTotal - costoBase) * 100) / 100;
   // El redondeo a $50 se aplica cuando el precio cambia; si costo y markup reproducen el precio
   // vigente de SIGA, se respeta ese precio (así un producto alineado da 0% aunque SIGA no
   // tenga el precio en múltiplo de 50).
-  if (precioVigente > 0 && costeado.precioConIvaExacto != null
-    && Math.abs(costeado.precioConIvaExacto - precioVigente) < 0.5) {
-    costeado.precioConIva = precioVigente;
-  }
+  const costeado = { ...calculado, ...alinearConVigente(calculado, precioVigente, calculado.costoTotal) };
   // semaforo: 'ok' | 'subir' | 'bajar' | null (sin vigente o sin precio sugerido).
   const { deltaPct, estado: semaforo } = preciosCosteo.compararConVigente(costeado.precioConIva, precioVigente, cfg.toleranciaPct);
   return {
-    ...costeado, markupBanda, markupOverride, gananciaBanda, gastosVentaPct, costosExtra, costoExtraTotal,
+    ...costeado, markupBanda, markupOverride, gananciaBanda, gananciaCurva, gananciaOverride, gastosVentaPct, costosExtra, costoExtraTotal,
     costoBase: costoBase != null ? costoBase : null, costoOverride, costoFuente,
     costoSistema: costoSistema != null ? costoSistema : null,
-    precioUltimaCompra: costoMercaderia != null ? costoMercaderia : null, costosVariosPct,
+    precioUltimaCompra: costoMercaderia != null ? costoMercaderia : null,
     precioVigente: precioVigente != null ? precioVigente : null, deltaPct, semaforo,
   };
 }
 
-// Margen standard Fraccionado por defecto (si costeo.json no tiene markupFraccionado).
-// Valores = (1+markupExcel) × correcciónExcel − 1: reproduce los precios del Excel sin envase/MO.
-// Tope de minutos de fraccionado por unidad (standard y propio).
+// Tope de minutos de fraccionado propios por unidad.
 const MINUTOS_MO_MAX = 600;
-// Tope de insumos básicos de fraccionado, $ por unidad (standard y propio).
+// Tope de insumos básicos de fraccionado propios, $ por unidad.
 const INSUMOS_FRACC_MAX = 10000000;
-
-const MARKUP_FRACCIONADO_DEFAULT = Object.freeze({
-  bandas: [9999, 19999, null],
-  tramosG: [100, 200, 400, 500, 1000, 5000, 10000],
-  markupPct: [[84.35, 76.33, 68.32, 68.32, 60.3, 53.89, 50.68],
-              [87.33, 78.82, 73.71, 73.71, 70.3, 63.49, 60.08],
-              [73.57, 70.26, 66.95, 66.95, 65.3, 58.69, 55.38]],
-});
 
 // Clave de los Map armados con String(IdProducto).trim() (comprasHoy, fechasPrecioAlmacen): SIGA puede
 // traer IdProducto con espacios y el plu de filaCostos no se recorta.
@@ -666,7 +796,6 @@ const SIN_GRANEL = 'Sin granel asignado';
 // comprasHoy: Map granelPlu → compra cargada hoy (lib/precios_consultas comprasHoy); el grupo la lleva con tendencia.
 function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, fechas = new Map(), costeoConfig, packBultoDe = () => [], comprasHoy = new Map() }) {
   const cfg = costeoConfig || {};
-  const matriz = cfg.markupFraccionado || MARKUP_FRACCIONADO_DEFAULT;
   const overrides = cfg.margenPorProducto || {};
   const marcados = cfg.marcadosExportar || {};
   const grupos = new Map();
@@ -689,7 +818,7 @@ function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vi
       precioUltimaCompra: c.costoMercaderia ?? null, tipoComprobanteUltimaCompra: c.tipoComprobanteUltimaCompra ?? null,
       proveedor: c.proveedor || null, fechaUltimaCompra: c.fechaUltimaCompra || null, ingresoHoy: !!c.ingresoHoy,
       compraHoy: compraHoyDe(comprasHoy, plu, cfg.toleranciaPct),
-      banda: preciosCosteo.markupStdFraccionado(costoBase, null, matriz).fila, presentaciones: [],
+      presentaciones: [],
       packBultoGranel: plu == null ? [] : packBultoDe(plu, null),
     };
   };
@@ -697,10 +826,13 @@ function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vi
   const granelPorNombre = crearGranelPorNombre(graneles);
   const sinGranel = nuevoGrupo(null, SIN_GRANEL);
   const ctx = {
-    matriz, overrides, vigentes, toleranciaPct: cfg.toleranciaPct, curva: (cfg.curvaGanancia || {}).fraccionado,
-    gastosVentaPct: preciosCosteo.totalGastosVenta(cfg.gastosVenta),
-    mo: { costoHora: Number(cfg.costoHora) || 0, std: Number(cfg.minutosFraccionadoStd) || 0, overrides: cfg.minutosFraccionado || {} },
-    ins: { std: Number(cfg.insumosFraccionadoStd) || 0, overrides: cfg.insumosFraccionado || {} },
+    overrides, vigentes, toleranciaPct: cfg.toleranciaPct, curva: (cfg.curvaGanancia || {}).fraccionado,
+    gastosVentaPct: preciosCostos.gastosVentaPctTipo(cfg, 'fraccionado'),
+    gastos: preciosCostos.gastosDesglosePct(cfg, 'fraccionado'),
+    conceptos: preciosCosteo.conceptosGananciaDe(cfg), ivaPct: preciosCosteo.ivaVentaPctDe(cfg),
+    conceptosFinal: preciosCosteo.conceptosPrecioFinalDe(cfg),
+    mo: { costoHora: Number(cfg.costoHora) || 0, overrides: cfg.minutosFraccionado || {} },
+    ins: { overrides: cfg.insumosFraccionado || {} },
   };
 
   for (const p of presentaciones || []) {
@@ -731,67 +863,73 @@ function armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vi
 
 const numeroONull = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-// Mano de obra de fraccionado: minutos por unidad (override por PLU ?? standard) × costoHora/60,
-// pasada a $/kg con el peso de la presentación. Un venta directa que es su propio granel no se
-// fracciona: sin MO standard. Minutos > 0 sin peso → costoMoKg null (faltante pesoMo).
-function manoObraFraccionado({ minutosOverride = null, propio = false, pesoKg, mo }) {
-  const minutosStd = propio ? 0 : mo.std;
-  const minutos = minutosOverride ?? minutosStd;
+// Mano de obra de fraccionado: minutos propios por unidad (por PLU) × costoHora/60, pasada a $/kg con el peso
+// de la presentación. Sin minutos propios no suma MO (no hay standard). Minutos > 0 sin peso → costoMoKg null
+// (faltante pesoMo).
+function manoObraFraccionado({ minutosOverride = null, pesoKg, mo }) {
+  const minutos = minutosOverride ?? 0;
   const costoMoKg = !(minutos > 0) ? 0 : pesoKg > 0 ? preciosCosteo.redondear2(mo.costoHora / 60 * minutos / pesoKg) : null;
-  return { minutosStd, minutosOverride, minutos, costoMoKg };
+  return { minutosOverride, minutos, costoMoKg };
 }
 
-// Insumos básicos de fraccionado (bolsa, etiqueta...): $ por unidad (override por PLU ?? standard)
-// pasados a $/kg con el peso. Mismo criterio que la MO: propio granel sin standard, $ > 0 sin peso → null.
-function insumosFraccionado({ insumosOverride = null, propio = false, pesoKg, ins }) {
-  const insumosStd = propio ? 0 : ins.std;
-  const insumos = insumosOverride ?? insumosStd;
+// Insumos básicos de fraccionado (bolsa, etiqueta...): $ propios por unidad (por PLU) pasados a $/kg con el
+// peso. Mismo criterio que la MO: sin propios no suma, $ > 0 sin peso → null.
+function insumosFraccionado({ insumosOverride = null, pesoKg }) {
+  const insumos = insumosOverride ?? 0;
   const costoInsumosKg = !(insumos > 0) ? 0 : pesoKg > 0 ? preciosCosteo.redondear2(insumos / pesoKg) : null;
-  return { insumosStd, insumosOverride, insumos, costoInsumosKg };
+  return { insumosOverride, insumos, costoInsumosKg };
 }
 
-// Costo $/kg de una presentación = costo total del granel + MO + insumos. plu null (temporal) = standards.
-function costosPresentacion({ plu = null, propio = false, pesoKg, costoTotal, ctx }) {
+// Costo $/kg de una presentación = costo total del granel + MO + insumos. plu null (temporal) = sin MO ni insumos.
+function costosPresentacion({ plu = null, pesoKg, costoTotal, ctx }) {
   const propios = mapa => (plu == null ? null : numeroONull(mapa[plu]));
-  const manoObra = manoObraFraccionado({ minutosOverride: propios(ctx.mo.overrides), propio, pesoKg, mo: ctx.mo });
-  const insumos = insumosFraccionado({ insumosOverride: propios(ctx.ins.overrides), propio, pesoKg, ins: ctx.ins });
+  const manoObra = manoObraFraccionado({ minutosOverride: propios(ctx.mo.overrides), pesoKg, mo: ctx.mo });
+  const insumos = insumosFraccionado({ insumosOverride: propios(ctx.ins.overrides), pesoKg });
   const partes = [costoTotal, manoObra.costoMoKg, insumos.costoInsumosKg];
   const costoKg = partes.some(v => v == null) ? null : preciosCosteo.redondear2(partes.reduce((s, v) => s + v, 0));
   return { ...manoObra, ...insumos, costoKg };
 }
 
-// Margen standard: la celda de la matriz es GANANCIA (gananciaStd); markupStd es el markup total
-// con los gastos sobre venta. La celda se sigue buscando por costo base × peso. Con la curva de
-// Fraccionado activa, la ganancia sale de la curva (costo base del granel + ajuste por peso).
+// Margen standard: curva de Fraccionado (costo base neto del granel + ajuste por tramo de peso) + conceptos de
+// ganancia = GANANCIA standard (gananciaStd); markupStd es el markup total con los gastos del tipo.
 function stdFraccionado(costoBase, pesoG, ctx) {
-  const gananciaStd = ctx.curva && ctx.curva.activa === true
-    ? preciosCosteo.gananciaPorCurva(ctx.curva, costoBase, pesoG)
-    : preciosCosteo.markupStdFraccionado(costoBase, pesoG, ctx.matriz).markupPct;
+  const gananciaStd = preciosCosteo.gananciaStandard(preciosCosteo.gananciaPorCurva(ctx.curva, costoBase, pesoG),
+    preciosCosteo.totalConceptosGanancia(ctx.conceptos));
   return { gananciaStd, markupStd: gananciaStd == null ? null : preciosCosteo.markupDesdeGanancia(gananciaStd, ctx.gastosVentaPct) };
+}
+
+// Ganancia propia (reemplaza curva + conceptos) → markup total con los gastos del tipo, o el standard.
+function margenFraccionado(gananciaOverride, std, ctx) {
+  const markupOverride = gananciaOverride == null ? null : preciosCosteo.markupDesdeGanancia(gananciaOverride, ctx.gastosVentaPct);
+  const propia = gananciaOverride != null;
+  return { markupOverride, markupPct: propia ? markupOverride : std.markupStd, conceptos: propia ? [] : ctx.conceptos };
 }
 
 function filaPresentacion(p, grupo, ctx) {
   const pesoKg = pesoTokenKg(p.nombre);
   const pesoG = pesoKg > 0 ? Math.round(pesoKg * 1000) : null;
-  // La banda del margen standard se busca con el costo SELECCIONADO (costoBase), no con
-  // base + extras — igual que Almacén busca la banda por costoBase y suma costos varios aparte.
+  // La curva del margen standard se busca con el costo SELECCIONADO (costoBase), no con
+  // base + extras — igual que Almacén busca la curva por costoBase y suma los extras aparte.
   // El precio sí se calcula sobre costoKg (base + costos extra del granel + MO + insumos).
-  const { gananciaStd, markupStd } = stdFraccionado(grupo.costoBase, pesoG, ctx);
-  const markupOverride = numeroONull(ctx.overrides[p.plu]);
-  const costos = costosPresentacion({ plu: p.plu, propio: grupo.granelPlu === p.plu, pesoKg, costoTotal: grupo.costoTotal, ctx });
+  const std = stdFraccionado(grupo.costoBase, pesoG, ctx);
+  const { gananciaStd, markupStd } = std;
+  const gananciaOverride = numeroONull(ctx.overrides[p.plu]);
+  const m = margenFraccionado(gananciaOverride, std, ctx);
+  const markupOverride = m.markupOverride;
+  const costos = costosPresentacion({ plu: p.plu, pesoKg, costoTotal: grupo.costoTotal, ctx });
   const c = preciosCosteo.costearFraccionado({
-    plu: p.plu, nombre: p.nombre, costoKg: costos.costoKg,
-    markupPct: markupOverride != null ? markupOverride : markupStd,
+    plu: p.plu, nombre: p.nombre, costoKg: costos.costoKg, markupPct: m.markupPct,
+    gastos: ctx.gastos, ivaPct: ctx.ivaPct, conceptos: m.conceptos, conceptosFinal: ctx.conceptosFinal,
   });
   const precioVigente = ctx.vigentes.has(p.plu) ? ctx.vigentes.get(p.plu) : null;
   // Misma regla "alineado exacto" que Almacén: si reproduce el vigente, se respeta ese precio.
-  const precioConIva = precioVigente > 0 && c.precioConIvaExacto != null
-    && Math.abs(c.precioConIvaExacto - precioVigente) < 0.5 ? precioVigente : c.precioConIva;
+  const { precioConIva, markupFinalPct } = { ...c, ...alinearConVigente(c, precioVigente, c.costoTotal) };
   const { deltaPct, estado: semaforo } = preciosCosteo.compararConVigente(precioConIva, precioVigente, ctx.toleranciaPct);
   return {
     plu: p.plu, nombre: p.nombre, ventaDirecta: !!p.ventaDirecta,
     presentacion: etiquetaPeso(pesoG), pesoG,
-    gananciaStd, markupStd, markupOverride, markupPct: c.markupPct, ...costos,
+    gananciaStd, markupStd, gananciaOverride, markupOverride, markupPct: c.markupPct, ...costos,
+    ...camposDesglose(c), markupFinalPct,
     precioNeto: c.precioNeto, precioConIva, precioVigente, deltaPct, semaforo,
     // Sin costo el standard tampoco existe: el faltante real es el costo, no el margen.
     faltantes: grupo.granelPlu == null ? ['granel'] : grupo.costoBase == null ? ['costoGranel']
@@ -799,23 +937,32 @@ function filaPresentacion(p, grupo, ctx) {
   };
 }
 
+// Campos del desglose neto/IVA de un costeo Fraccionado que viajan en cada presentación.
+const camposDesglose = c => ({
+  costoReal: c.costoReal, gananciaPct: c.gananciaPct, ivaPct: c.ivaPct, finalPct: c.finalPct,
+  markupFinalPct: c.markupFinalPct, desglose: c.desglose,
+});
+
 const etiquetaPeso = pesoG => (pesoG == null ? '' : pesoG >= 1000 ? `${pesoG / 1000}KG` : `${pesoG}G`);
 
-// Presentación temporal (simulada): mismo costo del granel y margen (standard por pesoG u override
-// markupPct) que una real, pero sin PLU ni precio vigente → sin semáforo; nunca marcable.
-// MO e insumos: siempre los standard.
+// Presentación temporal (simulada): mismo costo del granel y margen (standard por pesoG o ganancia propia
+// gananciaPct) que una real, pero sin PLU ni precio vigente → sin semáforo; nunca marcable.
+// MO e insumos: sin PLU no hay valores propios → no suman.
 function filaTemporal(t, grupo, ctx) {
-  const { gananciaStd, markupStd } = stdFraccionado(grupo.costoBase, t.pesoG, ctx);
-  const markupOverride = numeroONull(t.markupPct);
+  const std = stdFraccionado(grupo.costoBase, t.pesoG, ctx);
+  const { gananciaStd, markupStd } = std;
+  const gananciaOverride = numeroONull(t.gananciaPct);
+  const m = margenFraccionado(gananciaOverride, std, ctx);
+  const markupOverride = m.markupOverride;
   const costos = costosPresentacion({ pesoKg: t.pesoG / 1000, costoTotal: grupo.costoTotal, ctx });
   const c = preciosCosteo.costearFraccionado({
-    plu: null, nombre: t.nombre || null, costoKg: costos.costoKg,
-    markupPct: markupOverride != null ? markupOverride : markupStd,
+    plu: null, nombre: t.nombre || null, costoKg: costos.costoKg, markupPct: m.markupPct,
+    gastos: ctx.gastos, ivaPct: ctx.ivaPct, conceptos: m.conceptos, conceptosFinal: ctx.conceptosFinal,
   });
   return {
     id: t.id, temporal: true, nombre: t.nombre || null,
     presentacion: etiquetaPeso(t.pesoG), pesoG: t.pesoG,
-    gananciaStd, markupStd, markupOverride, markupPct: c.markupPct,
+    gananciaStd, markupStd, gananciaOverride, markupOverride, markupPct: c.markupPct, ...camposDesglose(c),
     costoMoKg: costos.costoMoKg, costoInsumosKg: costos.costoInsumosKg, costoKg: costos.costoKg,
     precioNeto: c.precioNeto, precioConIva: c.precioConIva, precioVigente: null, deltaPct: null, semaforo: null,
     faltantes: grupo.costoBase == null ? ['costoGranel'] : c.faltantes,
@@ -823,20 +970,22 @@ function filaTemporal(t, grupo, ctx) {
   };
 }
 
-// Markup por producto que reproduce el precio vigente de SIGA con el costo total actual.
-// Filas sin costoTotal o sin vigente cuentan en sinDatos; negativos = vigente bajo el costo
-// (se incluyen igual).
+// Ganancia propia por producto que reproduce el precio vigente de SIGA (× (1 − F) ÷ (1 + IVA de venta), con ivaPct y
+// finalPct de la fila) con el costo neto total actual y los gastos de su tipo (gastosVentaPct de la fila): g = (1 + m)(1 − G) − 1.
+// Filas sin costoTotal, sin vigente o con gastos desconocidos cuentan en sinDatos; negativos = vigente bajo el
+// costo neto (se incluyen igual).
 function markupsAlineadosConSiga(filas) {
-  const markups = {};
+  const ganancias = {};
   let sinDatos = 0, negativos = 0;
   for (const f of filas || []) {
     const m = f.costoTotal > 0 && f.precioVigente > 0
-      ? preciosCosteo.markupParaPrecio(f.costoTotal, f.precioVigente) : null;
-    if (m == null) { sinDatos++; continue; }
-    markups[f.plu] = m;
+      ? preciosCosteo.markupParaPrecio(f.costoTotal, f.precioVigente, f.ivaPct, f.finalPct) : null;
+    const g = m == null ? null : preciosCosteo.gananciaDesdeMarkup(m, f.gastosVentaPct === undefined ? 0 : f.gastosVentaPct);
+    if (g == null) { sinDatos++; continue; }
+    ganancias[f.plu] = g;
     if (m < 0) negativos++;
   }
-  return { markups, alineados: Object.keys(markups).length, sinDatos, negativos };
+  return { ganancias, alineados: Object.keys(ganancias).length, sinDatos, negativos };
 }
 
 // Alícuota con la que se migra el margen propio de cada PLU (Map plu → % para migrarMargenesBaseCosto):
@@ -860,6 +1009,5 @@ module.exports.alicuotasParaMigrar = alicuotasParaMigrar;
 module.exports.aplicarMarcados = aplicarMarcados;
 module.exports.markupsAlineadosConSiga = markupsAlineadosConSiga;
 module.exports.armarGruposFraccionado = armarGruposFraccionado;
-module.exports.MARKUP_FRACCIONADO_DEFAULT = MARKUP_FRACCIONADO_DEFAULT;
 module.exports.aplicarTemporal = aplicarTemporal;
 module.exports.TEMPORALES_MAX = TEMPORALES_MAX;

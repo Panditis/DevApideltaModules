@@ -40,7 +40,7 @@ function htmlUsos(usos) {
 function htmlFilaMaquina(c) {
   return `<tr class="border-t border-borde" data-id="${esc(c.id)}">
     <td class="p-2"><input type="text" maxlength="60" class="mq-nombre ${campoCls} w-full" aria-label="Nombre de ${esc(c.nombre)}" value="${esc(c.nombre)}"></td>
-    <td class="p-2 text-right whitespace-nowrap">$ <input type="number" min="0" step="any" class="mq-costo num-in w-28" aria-label="Costo por hora de ${esc(c.nombre)}" value="${esc(c.costoHora)}"></td>
+    <td class="p-2 text-right whitespace-nowrap">${campoU(`<input type="number" min="0" step="any" class="mq-costo" aria-label="Costo por hora de ${esc(c.nombre)}" value="${esc(c.costoHora)}">`, '$', { pre: true, w: 'w-36' })}</td>
     <td class="p-2 text-xs">${htmlUsos(c.usos || [])}</td>
     <td class="p-2 text-center"><button type="button" class="mq-quitar w-7 h-7 rounded-lg text-gris hover:text-crit hover:bg-crit/10" aria-label="Borrar ${esc(c.nombre)}" title="Borrar">✕</button></td>
   </tr>`;
@@ -51,9 +51,10 @@ function pintarMaquinas() {
         <th class="p-2 text-left">Usada en</th><th class="p-2"></th></tr></thead>
       <tbody id="mqFilas">${maqCats.map(htmlFilaMaquina).join('')}</tbody></table></div>`
     : '<p class="text-sm text-gris">Todavía no hay categorías. Agregá las máquinas que usan las recetas (horno, mezcladora…).</p>';
-  panelMaq().innerHTML = `<div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-3xl">
-    <h2 class="font-disp text-lg font-bold text-verde mb-1">Categorías de máquina</h2>
-    <p class="text-xs text-ink/50 mb-4">Costo por hora de cada máquina, sin IVA. Cada receta de Producción elige una y suma
+  panelMaq().innerHTML = `<p class="cfg-cab"><b>Máquinas</b> — costo por hora de las máquinas que usan las recetas de Producción. Cada cambio se guarda al salir del campo.</p>
+    <div class="cfg-card max-w-4xl">
+    <h3 class="cfg-h">Categorías de máquina</h3>
+    <p class="cfg-ayuda">Costo por hora de cada máquina, sin IVA. Cada receta de Producción elige una y suma
       costo/hora ÷ 60 × sus minutos de elaboración. Cambiar un costo mueve el costo de esas recetas y aparece como cambio a validar.
       Una categoría en uso no se puede borrar.</p>
     ${tabla}

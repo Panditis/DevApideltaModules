@@ -4,7 +4,7 @@
 // presentacionesMarcadas, fraccData, filasPBMarcadas, prodDet, getJson, API_PROD, pintarFilasPresentaciones).
 // Mismo mapa de marcados por PLU que Almacén y Fraccionado (costeo.json → marcadosExportar). Sólo las
 // presentaciones finales con PLU de SIGA (ni recetas ni variedades): Costo = costo total por unidad,
-// Venta = precio sugerido final (costo × (1 + markup), sin ×1,21). Las filas vienen de GET /api/precios/produccion/productos (exportables).
+// Venta = precio sugerido final (costo neto × (1 + markup) + IVA). Las filas vienen de GET /api/precios/produccion/productos (exportables).
 
 // ── Helpers puros (sin DOM; test/precios_produccion_export.test.js) ─────────────
 const PLU_SIGA = /^\d+$/;
@@ -14,7 +14,7 @@ const esMarcableProd = p => PLU_SIGA.test(String(p.plu)) && !(p.faltantes || [])
 // Filas de exportación (plu, nombre, costoTotal, precioConIva, faltantes) marcadas, de todos los productos.
 function marcadasProd(lista) {
   return (lista || []).flatMap(f => (f.exportables || []).filter(p => p.marcado)
-    .map(({ plu, nombre, costoTotal, precioConIva, faltantes }) => ({ plu, nombre, costoTotal, precioConIva, faltantes })));
+    .map(({ plu, nombre, costoTotal, precioConIva, faltantes, ivaPct }) => ({ plu, nombre, costoTotal, precioConIva, faltantes, ivaPct })));
 }
 
 function aplicarMarcadosProd(lista, set) {

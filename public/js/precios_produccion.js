@@ -56,10 +56,10 @@ function nombreComponente(clave, nombres = {}) {
 }
 
 // Faltante (clave interna del costeo) → mensaje para humanos + acción que lo resuelve.
-// accion: { tipo: 'config' } | { tipo: 'maquinas' } | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
+// accion: { tipo: 'config' | 'maquinas' | 'ganancia' } (sub-tabs de Configuración) | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
 const FALTANTES_FIJOS = {
-  _costoHora: ['Falta el costo/hora de mano de obra — se carga en Configuración', { tipo: 'config' }, 'Ir a Configuración'],
-  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en la tab Máquinas', { tipo: 'maquinas' }, 'Ir a Máquinas'],
+  _costoHora: ['Falta el costo/hora de mano de obra — se carga en Configuración → General', { tipo: 'config' }, 'Ir a Configuración'],
+  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en Configuración → Máquinas', { tipo: 'maquinas' }, 'Ir a Máquinas'],
   rendimientoKg: ['Falta cuántos kg rinde una tanda (Kg por tanda)', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   mermaPct: ['La merma tiene que ser un % entre 0 y 99', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   receta: ['La receta elegida todavía no tiene costo: completá lo que le falta', { tipo: 'paso', paso: 1 }, 'Ir a las recetas'],
@@ -73,8 +73,8 @@ function mensajeFaltante(clave, { nombres = {}, plu = null } = {}) {
       accion: plu ? { tipo: 'abrirPres', clave: String(plu) } : null, boton: 'Elegir variedad' };
   }
   if (clave === 'markupPct') {
-    return { texto: 'Sin markup: cargá bandas de Producción en Configuración o un margen propio para este PLU',
-      accion: plu ? { tipo: 'margen', plu: String(plu) } : { tipo: 'config' }, boton: plu ? 'Cargar margen' : 'Ir a Configuración' };
+    return { texto: 'Sin markup: revisá la curva de Producción (Configuración → Ganancia) o cargá un margen propio para este PLU',
+      accion: plu ? { tipo: 'margen', plu: String(plu) } : { tipo: 'ganancia' }, boton: plu ? 'Cargar margen' : 'Ir a Ganancia' };
   }
   const nombre = nombres[clave];
   const texto = /^\d+$/.test(clave)

@@ -23,7 +23,7 @@ const COSTOS = new Map([
   ['6334', fila('6334', 'ENVASE PET 500', 180, { rubro: 'ENVASES' })],
   ['6319', fila('6319', 'GRANOLA 500G', null)],
 ]);
-const COSTEO = { costoHora: 6000, toleranciaPct: 3, bandasMarkup: { produccion: [{ costoHastaARS: null, markupMaxPct: 50 }] } };
+const COSTEO = { costoHora: 6000, toleranciaPct: 3, metodoGanancia: 'curva', curvaGanancia: { produccion: { a: 50, b: 0, pisoPct: 50, techoPct: 50 } } };
 const PRODUCTO = {
   nombre: 'Granola',
   recetas: {
@@ -81,9 +81,9 @@ test('costearTodos + filaSelector: costo/kg base, variantes, presentaciones y no
   const { exportables: _e, ...resto } = f;
   assert.deepStrictEqual(resto, { id: 'p-granola', nombre: 'Granola', variantes: 2, presentaciones: 1, costoKgBase: 480, alertas: 0, faltantes: 0 });
   assert.strictEqual(c['p-granola'].presentaciones['6319'].nombre, 'GRANOLA 500G');
-  // 0.5×480 + 180 + 60 = 480 → +50% = 720 (sin ×1,21) → $700 (redondeo a $50)
+  // 0.5×480 + 180 + 60 = 480 → +50% = 720 neto + IVA 151,20 = 871,20 → $850 (redondeo a $50)
   assert.strictEqual(c['p-granola'].presentaciones['6319'].costoUnidad, 480);
-  assert.strictEqual(c['p-granola'].presentaciones['6319'].precioConIva, 700);
+  assert.strictEqual(c['p-granola'].presentaciones['6319'].precioConIva, 850);
 });
 
 test('alertas, selector y detalle salen del mismo costeo: validar y subir un insumo compartido', () => {
@@ -115,7 +115,7 @@ test('armarDetalle: "también en", tipo inferido y vigente/Δ% por presentación
   assert.deepStrictEqual(d.insumosManuales, [{ id: 'm-etiqueta', nombre: 'Etiqueta', costo: 60, tipo: 'etiqueta' }]);
   assert.strictEqual(d.insumos.find(i => i.clave === 'm-etiqueta').tipo, 'etiqueta');
   assert.strictEqual(d.presentaciones['6319'].precioVigente, 1000);
-  assert.strictEqual(d.presentaciones['6319'].deltaPct, -30); // sugerido 700 vs vigente 1000
+  assert.strictEqual(d.presentaciones['6319'].deltaPct, -15); // sugerido 850 vs vigente 1000
   assert.strictEqual(d.presentaciones['6319'].semaforo, 'bajar');
   // La UI precarga los editores con la definición guardada (rendimiento, cantidades, unidades).
   assert.strictEqual(d.definicion, DATOS.productos['p-granola']);
@@ -195,8 +195,8 @@ function montar() {
     const ids = [...sql.matchAll(/'(\d+)'/g)].map(m => m[1]);
     return ids.filter(id => COSTOS.has(id)).map(id => {
       const f = COSTOS.get(id);
-      // PrecioCosto de SIGA se usa tal cual (sin dividir por la alícuota): el mock trae el costo del módulo.
-      return { IdProducto: id, NombreProducto: f.nombre, CostoSistema: f.costoSistema, IvaCompraPct: 21, Rubro: f.rubro };
+      // PrecioCosto de SIGA viene CON IVA y filaCostos lo divide por (1 + alícuota): el mock lo arma desde el neto del módulo.
+      return { IdProducto: id, NombreProducto: f.nombre, CostoSistema: f.costoSistema == null ? null : f.costoSistema * 1.21, IvaCompraPct: 21, Rubro: f.rubro };
     });
   };
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
@@ -425,7 +425,7 @@ test('filaSelector.exportables y armarDetalle.marcado: sólo PLUs SIGA, costo to
   const c = costearTodos({ productos: datos.productos, costos: COSTOS, costeo: COSTEO, datos })['p-granola'];
   const marcados = { 6319: '2026-09-29' };
   const f = filaSelector('p-granola', conProv, c, marcados);
-  assert.deepStrictEqual(f.exportables, [{ plu: '6319', nombre: 'GRANOLA 500G', costoTotal: 480, precioConIva: 700, faltantes: [], marcado: true, fechaPrecio: null }]); // 720 → 700
+  assert.deepStrictEqual(f.exportables, [{ plu: '6319', nombre: 'GRANOLA 500G', costoTotal: 480, precioConIva: 850, faltantes: [], ivaPct: 21, marcado: true, fechaPrecio: null }]); // 720 + IVA → 850
   assert.deepStrictEqual(filaSelector('p-granola', conProv, c).exportables.map(p => p.marcado), [false]);
   const det = armarDetalle({ id: 'p-granola', datos, costeado: c, costos: COSTOS, vigentes: new Map(), toleranciaPct: 3, marcados });
   assert.strictEqual(det.presentaciones['6319'].marcado, true);

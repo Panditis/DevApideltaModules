@@ -3,7 +3,10 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const produccion = require('../lib/precios_produccion');
-const { elegirCosto, compararConVigente, totalGastosVenta } = require('../lib/precios_costeo');
+const { elegirCosto, compararConVigente, propuestaCurva, ivaVentaPctDe, conceptosGananciaDe, totalConceptosGanancia,
+  conceptosPrecioFinalDe } = require('../lib/precios_costeo');
+const { costeoConCurva } = require('../lib/precios_migracion_curva');
+const { gastosVentaPctTipo, gastosDesglosePct } = require('../lib/precios_costos');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { crearPackBultoDe } = require('../lib/precios_pack_bulto');
 
@@ -69,7 +72,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   // Un solo camino de costeo para selector, detalle, alertas y validar.
   async function costearProductos(datos, ids) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
-    const costeo = leerJSON(COSTEO_PATH, {}) || {};
+    const costeo = costeoConCurva(leerJSON(COSTEO_PATH, {}) || {});
     const costos = await costosPorPlu(plusUsados(productos));
     const costeados = costearTodos({ productos, costos, costeo, datos });
     return { costeados, costos, costeo };
@@ -77,7 +80,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
 
   // Detalle costeado + vigentes SIGA + sub-filas pack/bulto de cada presentación (una query de vínculos).
   async function detalleConPrecios(datos, id) {
-    const manuales = ((leerJSON(COSTEO_PATH, {}) || {}).packBulto || {}).vinculosManuales || {};
+    const manuales = ((costeoConCurva(leerJSON(COSTEO_PATH, {}) || {})).packBulto || {}).vinculosManuales || {};
     const [{ costeados, costos, costeo }, vigentes, fechas, { vinculos }] = await Promise.all([
       costearProductos(datos, [id]), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(manuales),
     ]);
@@ -85,6 +88,24 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, fechas, toleranciaPct: costeo.toleranciaPct, tiposPackaging, packBultoDe,
       marcados: costeo.marcadosExportar });
   }
+
+  // Propuesta de curva de Producción desde los precios vigentes de SIGA (no guarda; mismo path que Reventa y
+  // Fraccionado en rutas_precios.js, que le cede 'produccion'). Puntos: cada presentación con PLU de SIGA,
+  // costo por unidad y vigente. Con pocos datos ajustarCurva tira y la UI lo avisa.
+  router.post('/api/precios/curva-ganancia/ajustar/produccion', ruta(async () => {
+    const datos = leer();
+    const [{ costeados, costos, costeo }, vigentes] = await Promise.all([
+      costearProductos(datos, Object.keys(datos.productos)), preciosVigentesAlmacen(),
+    ]);
+    const gastosPct = gastosVentaPctTipo(costeo, 'produccion');
+    if (gastosPct == null) return { error: 'falta la venta mensual base de Producción (tab Costos): sin ella no se conocen los gastos sobre venta' };
+    const filas = filasCurvaProduccion(costeados, vigentes, costos);
+    try {
+      return propuestaCurva('produccion', filas, { gastosPct, conceptosPct: totalConceptosGanancia(costeo.conceptosGanancia) });
+    } catch (err) {
+      return { error: `Producción: ${err.message}. Hacen falta más presentaciones con costo y precio vigente en SIGA.` };
+    }
+  }));
 
   router.get('/api/precios/produccion/productos', ruta(async () => {
     const datos = leer();
@@ -257,7 +278,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
       ORDER BY p.NombreProducto`);
     const datos = leer();
     const costos = await costosPorPlu(rows.map(r => String(r.plu)).filter(esPlu));
-    const costoDe = armarCostoDe({ costos, costeo: leerJSON(COSTEO_PATH, {}) || {}, insumosManuales: datos.insumosManuales });
+    const costoDe = armarCostoDe({ costos, costeo: costeoConCurva(leerJSON(COSTEO_PATH, {}) || {}), insumosManuales: datos.insumosManuales });
     const componentes = rows.map(r => {
       const c = costoDe(String(r.plu)) || {};
       return { plu: String(r.plu), nombre: r.nombre, cantPorUnidad: Number(r.cantPorUnidad), costo: c.costo ?? null,
@@ -378,7 +399,7 @@ function plusUsados(productos) {
 }
 
 // costoDe(clave) para lib/precios_produccion: PLU SIGA → elegirCosto (override manual de
-// costo-producto → última compra si se eligió → sistema tal cual); id manual → insumosManuales.
+// costo-producto → última compra si se eligió → sistema neto; todos netos); id manual → insumosManuales.
 // Sin fila en SIGA / sin insumo manual → null (la lib lo convierte en faltante, nunca 0).
 function armarCostoDe({ costos, costeo, insumosManuales }) {
   return clave => {
@@ -401,16 +422,28 @@ function costearTodos({ productos, costos, costeo, datos }) {
   const costoDe = armarCostoDe({ costos, costeo: cfg, insumosManuales: datos.insumosManuales });
   const opciones = {
     costoDe, costoHora: cfg.costoHora, categoriasMaquina: datos.categoriasMaquina,
-    bandas: (cfg.bandasMarkup || {}).produccion, margenPorProducto: cfg.margenPorProducto,
+    curva: (cfg.curvaGanancia || {}).produccion, margenPorProducto: cfg.margenPorProducto,
     toleranciaPct: cfg.toleranciaPct,
-    // La banda de producción es ganancia: el lib la convierte a markup total con estos gastos.
-    gastosVentaPct: totalGastosVenta(cfg.gastosVenta),
+    // La curva de Producción es ganancia: el lib la convierte a markup total con los gastos de Producción
+    // (null = falta venta base → markup null, faltante).
+    gastosVentaPct: gastosVentaPctTipo(cfg, 'produccion'),
+    gastos: gastosDesglosePct(cfg, 'produccion'),
+    // IVA de venta global, conceptos de ganancia y conceptos sobre precio final.
+    ivaPct: ivaVentaPctDe(cfg), conceptos: conceptosGananciaDe(cfg), conceptosFinal: conceptosPrecioFinalDe(cfg),
   };
   return Object.fromEntries(Object.entries(productos).map(([id, p]) => {
     const presentaciones = Object.fromEntries(Object.entries(p.presentaciones || {}).map(([plu, pr]) =>
       [plu, pr.nombre ? pr : { ...pr, nombre: (costos.get(plu) || {}).nombre || null }]));
     return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, ...opciones })];
   }));
+}
+
+// Filas { costoBase, costoTotal, precioVigente, ivaPct, finalPct } para propuestaCurva: una por presentación con PLU de SIGA.
+function filasCurvaProduccion(costeados, vigentes, costos) {
+  return Object.values(costeados).flatMap(c => Object.entries(c.presentaciones || {}))
+    .filter(([plu, p]) => esPlu(plu) && p.costoUnidad > 0 && vigentes.has(plu))
+    .map(([plu, p]) => ({ costoBase: p.costoUnidad, costoTotal: p.costoUnidad, precioVigente: vigentes.get(plu),
+      ivaPct: p.ivaPct, finalPct: p.finalPct }));
 }
 
 // Receta base del producto: la de id 'base' o, si no, la primera que no es variante.
@@ -433,7 +466,7 @@ function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map())
     costoKgBase: baseId ? costeado.recetas[baseId].costoKg : null,
     alertas: costeado.resumen.alertas, faltantes: costeado.resumen.faltantes,
     exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => ({
-      plu, nombre: p.nombre, costoTotal: p.costoUnidad, precioConIva: p.precioConIva, faltantes: p.faltantes,
+      plu, nombre: p.nombre, costoTotal: p.costoUnidad, precioConIva: p.precioConIva, faltantes: p.faltantes, ivaPct: p.ivaPct,
       marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null,
     })),
   };
@@ -599,6 +632,7 @@ function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
   return { producto: nuevo, validados, omitidos };
 }
 
+module.exports.filasCurvaProduccion = filasCurvaProduccion;
 module.exports.slug = slug;
 module.exports.idUnico = idUnico;
 module.exports.plusUsados = plusUsados;

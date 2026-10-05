@@ -54,6 +54,8 @@ test('mensajeFaltante: lenguaje humano + acción, nunca claves internas', () => 
   const mk = ui.mensajeFaltante('markupPct', { plu: '6319' });
   assert.match(mk.texto, /Sin markup/);
   assert.deepStrictEqual(mk.accion, { tipo: 'margen', plu: '6319' });
+  const mkSinPlu = ui.mensajeFaltante('markupPct');
+  assert.deepStrictEqual([mkSinPlu.accion, mkSinPlu.boton], [{ tipo: 'ganancia' }, 'Ir a Ganancia']);
   assert.deepStrictEqual(ui.mensajeFaltante('rendimientoKg').accion, { tipo: 'paso', paso: 1 });
   for (const k of ['_costoHora', '_maquina', 'markupPct', 'rendimientoKg', 'mermaPct', 'receta', 'kgPorUnidad', '6009', 'm-x']) {
     assert.doesNotMatch(ui.mensajeFaltante(k).texto, /_costoHora|_maquina|markupPct|rendimientoKg|mermaPct|kgPorUnidad/, k);

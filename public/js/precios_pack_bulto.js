@@ -58,12 +58,12 @@ const costoPB = (i, costoTotal) => (esPaquetePB(i) && costoTotal != null && i.pe
 function filasPBMarcadas(almacen, fracc) {
   const vistos = new Set();
   const filas = [];
-  const agregar = (items, costoTotal) => (items || []).filter(i => i.marcado && !vistos.has(i.plu)).forEach(i => {
+  const agregar = (items, costoTotal, ivaPct) => (items || []).filter(i => i.marcado && !vistos.has(i.plu)).forEach(i => {
     vistos.add(i.plu);
-    filas.push({ plu: i.plu, nombre: i.nombre, costoTotal: costoPB(i, costoTotal), precioConIva: i.precioSugerido, faltantes: i.faltantes });
+    filas.push({ plu: i.plu, nombre: i.nombre, costoTotal: costoPB(i, costoTotal), precioConIva: i.precioSugerido, faltantes: i.faltantes, ivaPct });
   });
-  for (const f of almacen || []) agregar(f.packBulto, f.costoTotal);
-  for (const g of fracc || []) for (const p of g.presentaciones || []) agregar(p.packBulto, g.costoTotal);
+  for (const f of almacen || []) agregar(f.packBulto, f.costoTotal, f.ivaPct);
+  for (const g of fracc || []) for (const p of g.presentaciones || []) agregar(p.packBulto, g.costoTotal, p.ivaPct);
   return filas;
 }
 
@@ -400,8 +400,8 @@ function conectarBloquePBProd(el, items, precioBase) {
 // ── Configuración › Pack / Bulto ────────────────────────────────────────────────
 // % generales, "Alinear con SIGA", % propios por producto, vínculos manuales y lista "sin vincular".
 let pbConfig = null; // GET /api/precios/pack-bulto/vinculos: { config, vinculos, sinVincular }
-const cardPB = cuerpo => `<div class="rounded-xl border border-borde shadow-fluent bg-card p-5 mt-5 max-w-3xl">
-  <h2 class="font-disp text-lg font-bold text-verde mb-1">Pack / Bulto</h2>${cuerpo}</div>`;
+const cardPB = cuerpo => `<div class="cfg-card">
+  <h3 class="cfg-h">Pack / Bulto</h3>${cuerpo}</div>`;
 
 async function cargarConfigPB() {
   const cont = document.getElementById('configPackBulto');
@@ -421,18 +421,24 @@ function pintarConfigPB() {
   const { config, vinculos, sinVincular } = pbConfig;
   const manuales = vinculos.filter(v => v.origen === 'manual');
   document.getElementById('configPackBulto').innerHTML = cardPB(`
-    <p class="text-xs text-ink/50 mb-4">Precio pack/bulto = sugerido del producto normal × (1 − descuento), redondeo a $50. Vínculo automático:
+    <p class="cfg-ayuda">Precio pack/bulto = sugerido del producto normal × (1 − descuento), redondeo a $50. Vínculo automático:
       productos del rubro "Almacen Bultos/Cajas" con un solo componente en su fórmula activa de SIGA. ${vinculos.length} vinculados · ${sinVincular.length} sin vincular.</p>
-    <div class="flex flex-wrap items-end gap-3">
-      <label class="text-sm">Descuento general pack (%)<input id="pbDescPack" type="number" min="0" max="90" step="any" value="${esc(config.descPackPct)}" class="mt-1 block w-28 ${inputCls}"></label>
-      <label class="text-sm">Descuento general bulto (%)<input id="pbDescBulto" type="number" min="0" max="90" step="any" value="${esc(config.descBultoPct)}" class="mt-1 block w-28 ${inputCls}"></label>
-      <button id="pbGuardarGral" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Guardar</button>
-      <span id="pbGralMsg" class="text-sm"></span></div>
-    <p class="text-[11px] text-gris mt-1">Se usan sólo en los pack/bulto sin % propio (nuevos o sin precio vigente en SIGA).</p>
-    <div class="mt-5 border-t border-borde pt-4">
-      <button id="pbAlinear" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-40">Alinear con SIGA</button>
-      <span class="text-xs text-gris ml-2">Guarda como % propio el descuento que hoy tiene cada pack/bulto en SIGA (vigente pack ÷ vigente producto normal).</span>
-      <div id="pbAlinearMsg" class="text-sm mt-2" role="status" aria-live="polite"></div></div>
+    <div id="pbGral" class="rounded-lg border border-borde p-4" data-guardable data-nombre="Pack / Bulto (descuentos generales)">
+      <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <div class="cfg-campo gap-3"><label for="pbDescPack">Descuento general pack</label>
+          ${campoU(`<input id="pbDescPack" type="number" min="0" max="90" step="any" value="${esc(config.descPackPct)}">`, '%')}</div>
+        <div class="cfg-campo gap-3"><label for="pbDescBulto">Descuento general bulto</label>
+          ${campoU(`<input id="pbDescBulto" type="number" min="0" max="90" step="any" value="${esc(config.descBultoPct)}">`, '%')}</div>
+      </div>
+      <p class="cfg-nota mt-2">Se usan sólo en los pack/bulto sin % propio (nuevos o sin precio vigente en SIGA).</p>
+      <div class="cfg-pie mt-3 pt-3">
+        <span id="pbGralMsg" class="text-sm" role="status" aria-live="polite"></span>
+        <button type="button" id="pbGuardarGral" class="cfg-btn">Guardar</button></div>
+    </div>
+    <div class="mt-5 flex items-center gap-3">
+      <button type="button" id="pbAlinear" class="cfg-btn2">Alinear con SIGA</button>
+      <span class="text-xs text-gris">Guarda como % propio el descuento que hoy tiene cada pack/bulto en SIGA (vigente pack ÷ vigente producto normal).</span></div>
+    <div id="pbAlinearMsg" class="text-sm mt-2" role="status" aria-live="polite"></div>
     ${htmlOverridesPB(config.descPorProducto)}
     ${htmlManualesPB(manuales)}
     ${htmlSinVincularPB(sinVincular)}`);
@@ -518,6 +524,7 @@ async function guardarGeneralPB() {
       descPackPct: numOrNull(document.getElementById('pbDescPack').value), descBultoPct: numOrNull(document.getElementById('pbDescBulto').value),
     });
     msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
+    limpiarSucio(document.getElementById('pbGral')); // precios_config.js
     pbListadosViejos();
   } catch (e) { msg.className = 'text-sm text-crit'; msg.textContent = e.message; }
 }

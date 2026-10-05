@@ -9,39 +9,54 @@ globalThis.markupDesdeGananciaCli = gastos.markupDesdeGananciaCli;
 const ui = require('../public/js/precios_config_curva.js');
 const costeo = require('../lib/precios_costeo.js');
 
-const CURVA = { activa: false, a: 40, b: 3, pisoPct: 10, techoPct: 35 };
+const CURVA = { a: 40, b: 3, pisoPct: 10, techoPct: 35 };
 
 test('puntosPorDuplicar: b × ln 2', () => {
   assert.strictEqual(ui.puntosPorDuplicar(3), 2.08);
   assert.strictEqual(ui.puntosPorDuplicar(-1), -0.69);
 });
 
-test('filasEjemploCurva: aunque esté apagada, ganancia de la curva y markup total como el server', () => {
+test('filasEjemploCurva: lectura en los costos netos de referencia — ganancia y markup s/ neto como el server, markup final con IVA 21 %', () => {
   const filas = ui.filasEjemploCurva(CURVA, 26.09);
-  assert.deepStrictEqual(filas.map(f => f.costo), [500, 1000, 5000, 10000, 50000]);
+  assert.deepStrictEqual(filas.map(f => f.costo), [500, 1000, 2500, 5000, 10000, 20000, 50000]);
   for (const f of filas) {
-    const g = costeo.gananciaPorCurva({ ...CURVA, activa: true }, f.costo);
+    const g = costeo.gananciaPorCurva(CURVA, f.costo);
     assert.strictEqual(f.ganancia, g);
     assert.strictEqual(f.markup, costeo.markupDesdeGanancia(g, 26.09));
+    assert.strictEqual(f.markupFinal, +(((1 + f.markup / 100) * 1.21 - 1) * 100).toFixed(2));
   }
   // Con ajustes por peso, el ejemplo es la presentación de 1 kg.
   const conAj = ui.filasEjemploCurva({ ...CURVA, ajustesPeso: { tramosG: [500, 1000], puntos: [5, -2] } }, 0);
   assert.strictEqual(conAj[0].ganancia, +(Math.min(35, Math.max(10, 40 - 3 * Math.log(500))) - 2).toFixed(6));
   assert.strictEqual(ui.filasEjemploCurva({ ...CURVA, a: null }, 0)[0].ganancia, null);
+  assert.strictEqual(ui.filasEjemploCurva({ ...CURVA, a: null }, 0)[0].markupFinal, null);
+  // Por tramo de peso: el ajuste del tramo de la presentación.
+  assert.strictEqual(ui.filasEjemploCurva({ ...CURVA, ajustesPeso: { tramosG: [500, 1000], puntos: [5, -2] } }, 0, 250)[0].ganancia,
+    +(Math.min(35, Math.max(10, 40 - 3 * Math.log(500))) + 5).toFixed(6));
 });
 
-test('ajustesParaTramos: alinea lo guardado a los tramos de la matriz, faltantes en 0', () => {
+test('filasEjemploCurva: curva → + conceptos → markup con el G del tipo → markup final con el IVA de venta editable', () => {
+  const [f] = ui.filasEjemploCurva(CURVA, 30, null, 4, 10.5);
+  const curva = costeo.gananciaPorCurva(CURVA, 500);
+  assert.strictEqual(f.gananciaCurva, curva);
+  assert.strictEqual(f.ganancia, +(curva + 4).toFixed(6));
+  assert.strictEqual(f.markup, costeo.markupDesdeGanancia(f.ganancia, 30));
+  assert.strictEqual(f.markupFinal, +(((1 + f.markup / 100) * 1.105 - 1) * 100).toFixed(2));
+});
+
+test('ajustesParaTramos: alinea lo guardado a una lista de tramos, faltantes en 0', () => {
   assert.deepStrictEqual(ui.ajustesParaTramos([250, 500, 1000], { tramosG: [500, 1000, 5000], puntos: [3, -1, 7] }), [0, 3, -1]);
   assert.deepStrictEqual(ui.ajustesParaTramos([250, 500], null), [0, 0]);
   assert.deepStrictEqual(ui.ajustesParaTramos(undefined, null), []);
 });
 
-test('margenPropio: cuenta filas de Almacén o presentaciones de Fraccionado con markupOverride', () => {
-  const alm = [{ markupOverride: 30 }, { markupOverride: null }, {}, { markupOverride: 0 }];
+test('margenPropio: cuenta filas de Almacén o presentaciones de Fraccionado con ganancia propia', () => {
+  const alm = [{ gananciaOverride: 30 }, { gananciaOverride: null }, {}, { gananciaOverride: 0 }];
   assert.deepStrictEqual(ui.margenPropio('almacen', alm, []), { n: 2, total: 4 });
-  const fr = [{ presentaciones: [{ markupOverride: 5 }, {}] }, { presentaciones: [{ markupOverride: 1 }] }, {}];
+  const fr = [{ presentaciones: [{ gananciaOverride: 5 }, {}] }, { presentaciones: [{ gananciaOverride: 1 }] }, {}];
   assert.deepStrictEqual(ui.margenPropio('fraccionado', alm, fr), { n: 2, total: 3 });
   assert.deepStrictEqual(ui.margenPropio('almacen', undefined, undefined), { n: 0, total: 0 });
+  assert.deepStrictEqual(ui.margenPropio('produccion', alm, fr), { n: 0, total: 0 });
 });
 
 test('marcasLog: 1-2-5 dentro del rango, raleadas si son muchas; marcasLineales redondas', () => {
