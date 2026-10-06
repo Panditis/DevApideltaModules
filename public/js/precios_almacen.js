@@ -8,6 +8,7 @@ const fmtMoney = n => n == null ? '—' : new Intl.NumberFormat('es-AR', { minim
 // Precio sugerido: siempre múltiplo de 50 sin decimales (lo garantiza el backend).
 const fmtPrecio = n => n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
 const fmtPct = n => n == null ? '—' : (n > 0 ? '+' : '') + n.toFixed(1) + '%';
+const pct1 = n => n == null ? '—' : +(+n).toFixed(1) + '%';
 
 // Estado de la diferencia sugerido vs. SIGA (tokens ok/warn/crit). subir = el precio
 // calculado supera al de SIGA más allá de la tolerancia: se está vendiendo por debajo de
@@ -26,6 +27,18 @@ function badgeSemaforo(sem){
   return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${m.cls}">${m.txt}</span>`;
 }
 
+// ── Permiso de Configuración (ref precios-config) ──────────────────────────────
+// GET /api/precios/config/publica dice si el usuario lo tiene (puedeConfig). Sin él (o si no se pudo saber) el server
+// responde 403 a las rutas de configuración y calcula con la vista sin estructura: "ganancia" = markup s/ costo neto,
+// gastos 0. La config que leen los modales sale de fetchConfigPrecios (la completa o la pública). La UI la ajusta
+// aplicarPermisoConfig (precios_config.js); la seguridad es la del server.
+let preciosSinConfig = false;
+const permisoConfigPrecios = fetch('/api/precios/config/publica').then(r => r.json())
+  .then(j => j && j.puedeConfig === true).catch(() => false);
+const fetchConfigPrecios = async () => fetch((await permisoConfigPrecios) ? '/api/precios/config' : '/api/precios/config/publica');
+// Texto según el permiso: (con Configuración, sin ella). Para lo que se arma al abrir un modal (permiso ya resuelto).
+const segunPermiso = (con, sin) => (preciosSinConfig ? sin : con);
+
 const BADGE_INGRESO_HOY = '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-ok/15 text-ok">Ingreso hoy</span>';
 
 // ── Almacén: listado ─────────────────────────────────────────────────────────
@@ -33,7 +46,7 @@ let almacenData = [];
 
 async function cargarAlmacen(){
   const tbody = document.getElementById('cuerpoAlmacen');
-  tbody.innerHTML = '<tr><td colspan="11" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="12" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
   try {
     const r = await fetch('/api/precios/listado?tipo=almacen');
     const j = await r.json();
@@ -43,7 +56,7 @@ async function cargarAlmacen(){
     podarSeleccion();
     renderAlmacen();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="11" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -162,13 +175,13 @@ function renderAlmacen(){
   chkTodos.checked = false; chkTodos.indeterminate = false;
   if (!almacenData.length) {
     document.getElementById('almacenConteo').textContent = '';
-    tbody.innerHTML = '<tr><td colspan="11" class="p-10 text-center text-ink/50">Sin productos</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="p-10 text-center text-ink/50">Sin productos</td></tr>';
     return;
   }
   const filas = ordenarAlmacen(filtrarAlmacen()); // precios_orden.js: orden por header sobre lo filtrado
   document.getElementById('almacenConteo').textContent = `${filas.length} de ${almacenData.length} productos`;
   if (!filas.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="p-10 text-center text-ink/50">Ningún producto coincide con los filtros</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="p-10 text-center text-ink/50">Ningún producto coincide con los filtros</td></tr>';
     return;
   }
   const marcables = filas.filter(f => !tieneFaltantes(f));
@@ -180,19 +193,24 @@ function renderAlmacen(){
     const sinPrecio = tieneFaltantes(f);
     const filaCls = (sinPrecio ? 'opacity-50' : 'hover:bg-verde/5') + (f.marcado ? ' bg-amarillo/10' : '');
     const tooltip = sinPrecio ? ` title="Sin precio: falta ${esc(f.faltantes.join(', '))}"` : '';
-    const banda = f.markupOverride != null
-      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Markup propio del producto (banda: ${f.markupBanda != null ? +f.markupBanda.toFixed(1) + '%' : '—'})">propio</span> ${+f.markupOverride.toFixed(1)}%`
-      // Markup de banda = ganancia + gastos sobre venta (el desglose va en el title).
-      : f.banda ? `<span title="${esc(f.gananciaBanda != null ? textoGananciaGastos(f.gananciaBanda, f.gastosVentaPct) : '')}">${esc(f.banda)} / ${f.markupPct != null ? +f.markupPct.toFixed(1) + '%' : '—'}</span>` : '—';
+    // Ganancia % (s/ costo real: curva + conceptos, o la propia) · markup final % (precio final con IVA ÷ costo
+    // neto − 1); curva y markup total (s/ neto) van en el title.
+    const gyf = `${pct1(f.gananciaPct)} · <span class="text-gris">${pct1(f.markupFinalPct)}</span>`;
+    // Sin el permiso de Configuración gananciaPct ya es el markup s/ neto (vista sin estructura del server).
+    const tipMk = segunPermiso(`ganancia s/ costo real · markup s/ neto ${pct1(f.markupPct)}`, 'markup s/ costo neto') + ` · IVA ${f.ivaPct ?? '—'} %`;
+    const banda = f.gananciaOverride != null
+      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="${segunPermiso('Ganancia propia', 'Markup propio')} del producto (standard: ${pct1(f.gananciaBanda)})">propio</span> <span title="${esc(tipMk)}">${gyf}</span>`
+      : f.banda ? `<span title="${esc(segunPermiso(`curva ${pct1(f.gananciaCurva)} + conceptos · `, 'standard · ') + tipMk)}">${gyf}</span>` : '—';
     const tipCompra = `Proveedor: ${f.proveedor || '—'} · Última compra: ${f.fechaUltimaCompra || '—'}`;
     const badgeHoy = f.ingresoHoy ? ' ' + BADGE_INGRESO_HOY : '';
     const hayExtras = (f.costosExtra || []).length > 0 && f.costoTotal != null;
-    const tipCosto = hayExtras ? tipCostoExtras(f, '$', r2(f.costoTotal - f.costoBase - f.costoExtraTotal)) : '';
+    const tipCosto = hayExtras ? tipCostoExtras(f, '$') : '';
     return `<tr class="border-t border-borde cursor-pointer ${filaCls}" data-plu="${esc(f.plu)}"${tooltip}>
       <td class="p-2 text-center"><input type="checkbox" class="chk-marca accent-verde" data-plu="${esc(f.plu)}"${f.marcado ? ' checked' : ''}${sinPrecio ? ' disabled title="Sin precio sugerido"' : ''}></td>
       <td class="p-2">${esc(f.plu)}</td>
       <td class="p-2" title="${esc(tipCompra)}">${esc(f.nombre)}${badgeHoy}</td>
       <td class="p-2 text-right whitespace-nowrap"${tipCosto ? ` title="${esc(tipCosto)}"` : ''}>${chipFuenteCosto(f.costoFuente)}${fmtMoney(f.costoTotal)}${hayExtras ? ' <span class="text-[10px] text-gris">+extras</span>' : ''}</td>
+      <td class="p-2 text-right whitespace-nowrap tabular-nums solo-config" title="Costo real = costo neto ÷ (1 − gastos variables − departamentos)">${fmtMoney(f.costoReal)}</td>
       ${htmlCeldaCostoSistema(f)}${htmlCeldaUltimaCompra(f, tol)}
       <td class="p-2 text-center whitespace-nowrap">${banda}</td>
       <td class="p-2 text-right">${fmtMoney(f.precioVigente)}</td>
@@ -242,16 +260,17 @@ function actualizarBarraMarcados(){
 }
 
 // FORMATO DE EXPORTACIÓN para importar en SIGA: encabezados en la fila 4 (A-D: Codigo,
-// Nombre, Costo, Venta) y productos desde la fila 5. Costo = costo total (tal cual SIGA/comprobante) sobre el que
-// se calcula el precio (Almacén: base elegido + costos varios + costos extra del producto;
-// Fraccionado, por cada presentación marcada: costo total $/kg del granel = base + costos
-// extra; Producción: costo total por unidad de la presentación). Venta = precio final (/kg en Fraccionado).
+// Nombre, Costo, Venta) y productos desde la fila 5. Costo = costo total sobre el que se calcula el precio
+// (Almacén: base elegido + costos extra del producto; Fraccionado, por cada presentación marcada: costo $/kg;
+// Producción: costo total por unidad de la presentación) CON IVA (× (1 + alícuota), 21 si no viene), porque
+// PrecioCosto de SIGA se guarda con IVA y Precios lo vuelve a leer ÷ (1 + alícuota). Venta = precio final (/kg en Fraccionado).
 const HOJA_EXPORTACION = 'Precios';
 const FILA_ENCABEZADOS = 4;
+const costoConIvaExport = f => (f.costoTotal == null ? null : Math.round(f.costoTotal * (1 + (f.ivaPct ?? 21) / 100) * 100) / 100);
 function filasExportacion(productos){
   return [
     ['Codigo', 'Nombre', 'Costo', 'Venta'],
-    ...productos.map(f => [f.plu, f.nombre, f.costoTotal, f.precioConIva]),
+    ...productos.map(f => [f.plu, f.nombre, costoConIvaExport(f), f.precioConIva]),
   ];
 }
 

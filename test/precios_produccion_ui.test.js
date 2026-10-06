@@ -15,6 +15,22 @@ test('parsearHashProduccion: selector, detalle, id inválido y otras tabs', () =
   assert.strictEqual(ui.parsearHashProduccion('#produccionX'), null);
 });
 
+test('parsearHashProduccion: #produccion/<id>/<plu> abre el detalle con la presentación', () => {
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/p-granola/6319'), { vista: 'detalle', id: 'p-granola', plu: '6319' });
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/p-granola/n-granola-800'), { vista: 'detalle', id: 'p-granola', plu: 'n-granola-800' });
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/p-granola/<x>'), { vista: 'detalle', id: 'p-granola' }); // PLU inválido: sólo el detalle
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/..%2Fx/6319'), { vista: 'selector' });
+});
+
+test('seccionesAbiertas: sólo la primera incompleta; todo completo → el paso 4; las elecciones del usuario mandan', () => {
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'falta', 3: 'opcional', 4: 'falta' }), { 1: false, 2: true, 3: false, 4: false });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'opcional', 4: 'parcial' }), { 1: false, 2: false, 3: false, 4: true });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'parcial', 2: 'falta', 3: 'opcional', 4: 'falta' }), { 1: true, 2: false, 3: false, 4: false });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'ok', 4: 'ok' }), { 1: false, 2: false, 3: false, 4: true });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'opcional', 4: 'ok' }, { 4: false, 1: true }), { 1: true, 2: false, 3: false, 4: false });
+  assert.deepStrictEqual(ui.seccionesAbiertas({}), { 1: false, 2: false, 3: false, 4: true });
+});
+
 test('firmaAlertas: independiente del orden, cambia con el Δ% o con una alerta nueva', () => {
   const a = { productoId: 'p-a', tipo: 'receta', id: 'base', deltaPct: 5 };
   const b = { productoId: 'p-b', tipo: 'presentacion', id: '6319', deltaPct: -4 };
@@ -54,6 +70,8 @@ test('mensajeFaltante: lenguaje humano + acción, nunca claves internas', () => 
   const mk = ui.mensajeFaltante('markupPct', { plu: '6319' });
   assert.match(mk.texto, /Sin markup/);
   assert.deepStrictEqual(mk.accion, { tipo: 'margen', plu: '6319' });
+  const mkSinPlu = ui.mensajeFaltante('markupPct');
+  assert.deepStrictEqual([mkSinPlu.accion, mkSinPlu.boton], [{ tipo: 'ganancia' }, 'Ir a Ganancia']);
   assert.deepStrictEqual(ui.mensajeFaltante('rendimientoKg').accion, { tipo: 'paso', paso: 1 });
   for (const k of ['_costoHora', '_maquina', 'markupPct', 'rendimientoKg', 'mermaPct', 'receta', 'kgPorUnidad', '6009', 'm-x']) {
     assert.doesNotMatch(ui.mensajeFaltante(k).texto, /_costoHora|_maquina|markupPct|rendimientoKg|mermaPct|kgPorUnidad/, k);
@@ -82,6 +100,14 @@ test('progresoProducto: parcial y completo', () => {
     presentaciones: { 1: pres({ estado: 'ok' }) }, insumos: [{ clave: '6334' }],
   }));
   assert.deepStrictEqual(listo.map(x => x.estado), ['ok', 'ok', 'ok', 'ok', 'ok']);
+});
+
+test('progresoProducto: con una variedad (la automática sin extras) el paso 2 está listo; sin ninguna, avisa que se crea sola', () => {
+  const una = ui.progresoProducto(det({ recetas: { base: receta(), granola: receta({ varianteDe: 'base' }) } }));
+  assert.strictEqual(una[1].estado, 'ok');
+  assert.match(una[1].detalle, /1 cargada/);
+  const ninguna = ui.progresoProducto(det({ recetas: { base: receta() } }));
+  assert.match(ninguna[1].detalle, /se crea sola/);
 });
 
 test('pasosHabilitados: variedades esperan una base; presentaciones esperan una variedad', () => {
@@ -272,4 +298,53 @@ test('plusCambiados: componentes que movieron + agregados, como strings; sin cam
   assert.deepStrictEqual([...s].sort(), ['101', '202', '_costoHora']);
   assert.strictEqual(ui.plusCambiados({ estado: 'ok', componentes: [{ plu: '101' }], nuevos: [], quitados: [] }).size, 0);
   assert.strictEqual(ui.plusCambiados(null).size, 0);
+});
+
+test('alertasDetalle: cambios con su paso, faltantes sin repetir con acción, precios fuera de tolerancia', () => {
+  const det = {
+    recetas: {
+      base: { nombre: 'Masa', estado: 'cambio', cambios: { deltaPct: 9.8 }, faltantes: [] },
+      memb: { nombre: 'Membrillo', varianteDe: 'base', estado: 'ok', faltantes: ['_costoHora'] },
+      bat: { nombre: 'Batata', varianteDe: 'base', estado: 'ok', faltantes: ['_costoHora'] },
+    },
+    presentaciones: {
+      6201: { plu: '6201', nombre: 'Pepas 250', estado: 'cambio', cambios: { deltaPct: 2 }, faltantes: [], semaforo: 'subir', deltaPct: 14.7 },
+      6202: { plu: '6202', nombre: 'Batata 250', estado: 'ok', faltantes: ['markupPct'], semaforo: 'bajar', deltaPct: -5 },
+      6203: { plu: '6203', nombre: 'Otra', estado: 'ok', faltantes: [], semaforo: 'ok', avisos: ['variedad'] },
+    },
+  };
+  const a = ui.alertasDetalle(det);
+  assert.deepStrictEqual(a.cambios.map(c => [c.tipo, c.id, c.paso, c.deltaPct]), [['receta', 'base', 1, 9.8], ['presentacion', '6201', 4, 2]]);
+  // _costoHora aparece en dos recetas pero es un solo renglón (misma acción); markupPct y variedad llevan su PLU.
+  assert.deepStrictEqual(a.faltantes.map(f => [f.quien, f.accion && f.accion.tipo]), [['Membrillo', 'config'], ['Batata 250', 'margen'], ['Otra', 'abrirPres']]);
+  // La de faltantes no cuenta como precio a revisar aunque traiga semáforo.
+  assert.deepStrictEqual(a.precios, [{ plu: '6201', nombre: 'Pepas 250', semaforo: 'subir', deltaPct: 14.7 }]);
+  assert.strictEqual(a.total, 6);
+  assert.strictEqual(ui.alertasDetalle({}).total, 0);
+});
+
+// ── Diálogo "Nuevo desde fórmula SIGA" (public/js/precios_produccion_formula.js) ──
+const fm = require('../public/js/precios_produccion_formula.js');
+
+test('nombreSinGranel: saca " DEPOSITO GRANEL" / " GRANEL" del final; el resto queda igual', () => {
+  assert.strictEqual(fm.nombreSinGranel('Yogurt Natural Tipo Griego DEPOSITO GRANEL'), 'Yogurt Natural Tipo Griego');
+  assert.strictEqual(fm.nombreSinGranel('Dulce de Leche GRANEL '), 'Dulce de Leche');
+  assert.strictEqual(fm.nombreSinGranel('Granola Granel'), 'Granola');
+  assert.strictEqual(fm.nombreSinGranel('GRANELADO'), 'GRANELADO');
+  assert.strictEqual(fm.nombreSinGranel(null), '');
+});
+
+test('presentaciones del alta: tildadas por defecto salvo las que ya son de otro producto; elegidas en orden', () => {
+  const pres = [{ plu: '11121', yaEn: null }, { plu: '1968', yaEn: 'Yogur' }, { plu: '3035', yaEn: null }];
+  const sel = fm.seleccionInicialPres(pres);
+  assert.deepStrictEqual(sel, { 11121: true, 1968: false, 3035: true });
+  assert.deepStrictEqual(fm.plusElegidosPres(pres, { ...sel, 3035: false }), ['11121']);
+  assert.deepStrictEqual(fm.plusElegidosPres(pres, { 1968: true }), []); // una de otro producto nunca se manda
+  assert.deepStrictEqual(fm.plusElegidosPres(undefined, {}), []);
+});
+
+test('textoOmitidas: una línea por omitida con PLU, nombre y motivo', () => {
+  assert.strictEqual(fm.textoOmitidas([]), '');
+  assert.strictEqual(fm.textoOmitidas([{ plu: '1968', nombre: 'Yogur 370G', motivo: 'ya es presentación de "X"' }, { plu: '777', nombre: null, motivo: 'no lo usa' }]),
+    'No se agregaron 2 presentaciones:\n• 1968 Yogur 370G: ya es presentación de "X"\n• 777: no lo usa');
 });

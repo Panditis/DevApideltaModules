@@ -509,6 +509,7 @@
       <button class="tab" data-tab="pesables">Pesables <span class="pill" id="pillP">kg</span></button>
       <button class="tab" data-tab="prioritarios">Prioritarios</button>
       <button class="tab" data-tab="envasar">Envasar <span class="pill" id="pillEnv">0</span></button>
+      <button class="tab" data-tab="sin-fraccionar">Sin fraccionar <span class="pill" id="pillSinFrac">0</span></button>
       <button class="tab" data-tab="pedidos">Pedidos <span class="pill" id="pillPed">—</span><span class="pill pill-nov" id="pillPedNov" style="display:none">0</span></button>
       <button class="tab" data-tab="produccion">Producción <span class="pill" id="pillProd">0</span></button>
       <button class="tab" data-tab="historial">Historial <span class="pill" id="pillHist">0</span></button>
@@ -563,6 +564,8 @@
       <button id="pdfA" style="display:none">📄 PDF</button>
       <button id="pdfP" style="display:none">📄 PDF</button>
       <button id="pdfEnv" style="display:none">📄 PDF</button>
+      <button id="pdfSf" style="display:none">📄 PDF</button>
+      <button id="xlsxSf" style="display:none">📊 Excel</button>
       <button class="primary" id="btn-generar-pr" style="display:none" onclick="generarPrioritarios()">↻ Generar Top 40</button>
       <div id="sucFiltrosPr" style="display:none;position:relative">
         <button class="rubro-btn" id="sucBtnPr" onclick="toggleSucDropdownPr()">Sucursales <span id="sucBtnPrCount"></span>▾</button>
@@ -639,6 +642,15 @@
       <table id="tabla-env" style="display:none">
         <thead><tr id="head-env"></tr></thead>
         <tbody id="body-env"></tbody>
+      </table>
+    </section>
+
+    <!-- SIN FRACCIONAR -->
+    <section class="panel" id="panel-sin-fraccionar">
+      <div class="state" id="state-sf"><div class="spinner"></div><div>Cargando sin fraccionar…</div></div>
+      <table id="tabla-sf" style="display:none">
+        <thead><tr id="head-sf"></tr></thead>
+        <tbody id="body-sf"></tbody>
       </table>
     </section>
 
@@ -1203,6 +1215,8 @@ function construirHeadP() {
 }
 // Prioridad activa según modo de la tab: en 'sala' ignora envíos (usa prioridadSala).
 const prioOf = (r) => ((pesablesModo === 'sala' ? (r.prioridadSala ?? r.prioridad) : r.prioridad) || 0);
+// Igual pero sin el aporte del aging (importancia real; la usa la tab Sin fraccionar).
+const prioBaseOf = (r) => ((pesablesModo === 'sala' ? (r.prioridadSalaBase ?? r.prioridadBase) : r.prioridadBase) ?? prioOf(r)) || 0;
 function valorP(r, col) {
   if (col === 'prioridad') return prioOf(r);
   if (col === 'CG') return sumEnvP(r);
@@ -1254,6 +1268,7 @@ async function cargarP() {
   .map(e => { const nombre = typeof e === 'string' ? e : String((e && e.nombre) || ''); return { nombre, corto: String((e && e.corto) || nombre.slice(0,4)).toUpperCase() }; });
     construirHeadP(); renderP();
     if (tabActual === 'envasar') renderEnvasar();
+    if (tabActual === 'sin-fraccionar') renderSinFrac();
     st.style.display = 'none'; tb.style.display = '';
   } catch (e) {
     st.className = 'state err';
@@ -1510,7 +1525,7 @@ const LISTAS = {
 };
 const PILL = {noEnvasa:'pillExcluir', siempreAlmacen:'pillForzarAlmacen', siemprePesable:'pillForzarPesable', ocultarPesable:'pillOcultarPesable'};
 let listasData = null;
-const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar'||n==='prioritarios';
+const esDataTab = (n)=> n==='almacen'||n==='pesables'||n==='envasar'||n==='prioritarios'||n==='sin-fraccionar';
 
 function activarTab(name){
   tabActual = name;
@@ -1528,6 +1543,8 @@ function activarTab(name){
   document.getElementById('soloMicroWrap').style.display = name==='almacen' ? '' : 'none';
   document.getElementById('pdfP').style.display = name==='pesables' ? '' : 'none';
   document.getElementById('pdfEnv').style.display = name==='envasar' ? '' : 'none';
+  document.getElementById('pdfSf').style.display = name==='sin-fraccionar' ? '' : 'none';
+  document.getElementById('xlsxSf').style.display = name==='sin-fraccionar' ? '' : 'none';
   document.getElementById('btn-actividad').style.display = name==='pesables' ? '' : 'none';
   document.getElementById('pesablesModoTog').style.display = name==='pesables' ? 'flex' : 'none';
   if (name==='pesables') aplicarPesablesModo();
@@ -1539,15 +1556,18 @@ function activarTab(name){
   document.getElementById('pdfPr').style.display = name==='prioritarios' ? '' : 'none';
   // Prioritarios reusa la barra .controls pero solo necesita los 2 elementos de arriba:
   // ocultar el resto de controles genéricos que no tienen toggle por-tab propio.
+  // Sin fraccionar: solo la búsqueda (recalcular borra overrides, no aplica a una vista de lectura).
+  const soloLectura = name==='prioritarios' || name==='sin-fraccionar';
   document.getElementById('q').style.display = name==='prioritarios' ? 'none' : '';
-  document.getElementById('soloEnvioWrap').style.display = name==='prioritarios' ? 'none' : '';
-  document.getElementById('reload').style.display = name==='prioritarios' ? 'none' : '';
-  document.getElementById('btn-a8020').style.display = name==='prioritarios' ? 'none' : '';
+  document.getElementById('soloEnvioWrap').style.display = soloLectura ? 'none' : '';
+  document.getElementById('reload').style.display = soloLectura ? 'none' : '';
+  document.getElementById('btn-a8020').style.display = soloLectura ? 'none' : '';
   actualizarBadgeOcultos();
   actualizarBadgeOverrides();
   if (name==='almacen') { cargar(); }
   else if (name==='pesables') { cargarP(); }
   else if (name==='envasar') { document.getElementById('state-env').style.display='flex'; document.getElementById('tabla-env').style.display='none'; cargarP(); }
+  else if (name==='sin-fraccionar') { pCargado ? renderSinFrac() : cargarP(); }
   else if (name==='prioritarios') { cargarPrioritarios(); }
   else if (name==='pedidos') { cargarPedidos(); }
   else if (name==='config-ruteos') { cargarConfigRuteos(); }
@@ -1979,7 +1999,7 @@ function descargar(lines, nombre) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
 }
-function reRender(){ if(tabActual==='almacen') render(); else if(tabActual==='pesables') renderP(); else if(tabActual==='envasar') renderEnvasar(); }
+function reRender(){ if(tabActual==='almacen') render(); else if(tabActual==='pesables') renderP(); else if(tabActual==='envasar') renderEnvasar(); else if(tabActual==='sin-fraccionar') renderSinFrac(); }
 
 async function cargarTipoAlmacen() {
   const st = document.getElementById('tipo-state'), tb = document.getElementById('tipo-tabla');
@@ -2361,12 +2381,122 @@ function exportarPDFEnvasar() {
 }
 document.getElementById('pdfEnv').onclick = exportarPDFEnvasar;
 
+// ════════════════ SIN FRACCIONAR ════════════════
+// Pesables para envasar (J='Si', mismo criterio que Envasar) con más de DIAS_SIN_FRAC_MIN días
+// desde el último fraccionado (mismo dato que el aging
+// de la prioridad). Los que no tienen ningún registro van al final, marcados "sin registro".
+const DIAS_SIN_FRAC_MIN = 45;
+let ordenSf = { col: 'diasSinFraccionar', dir: -1 };
+function construirHeadSf() {
+  const cols = [['plu','PLU','l'], ['nombre','Producto','l'], ['ultimoFraccionado','Último fraccionado','l'], ['diasSinFraccionar','Días',''],
+    ['F','Granel kg',''], ['D','A Envasar kg',''], ['BL','Ruteo','l'], ['prioridadBase','Imp. base','']];
+  document.getElementById('head-sf').innerHTML = cols.map(([k, n, cls]) => {
+    const ar = ordenSf.col === k ? `<span class="ar">${ordenSf.dir < 0 ? '▼' : '▲'}</span>` : '';
+    return `<th class="${cls||''}" data-col="${k}">${n} ${ar}</th>`;
+  }).join('');
+  document.querySelectorAll('#head-sf th').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (ordenSf.col === c) ordenSf.dir *= -1; else { ordenSf.col = c; ordenSf.dir = (c==='plu'||c==='nombre'||c==='BL'||c==='ultimoFraccionado') ? 1 : -1; }
+    construirHeadSf(); renderSinFrac();
+  });
+}
+const sinRegSf = r => r.diasSinFraccionar == null;
+// Filas visibles (filtro + búsqueda + orden): las usan la tabla y los exports PDF/xlsx.
+function filasSinFrac() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const rows = datosP.filter(r => r.J === 'Si' && (sinRegSf(r) || r.diasSinFraccionar > DIAS_SIN_FRAC_MIN) &&
+    (!q || String(r.plu).includes(q) || (r.nombre||'').toLowerCase().includes(q)));
+  return rows.sort((a, b) => {
+    if (sinRegSf(a) !== sinRegSf(b)) return sinRegSf(a) ? 1 : -1;   // sin registro siempre al final
+    const va = a[ordenSf.col] ?? 0, vb = b[ordenSf.col] ?? 0;
+    const sa = typeof va==='string' ? va.toLowerCase() : va;
+    const sb = typeof vb==='string' ? vb.toLowerCase() : vb;
+    return (sa < sb ? -1 : sa > sb ? 1 : 0) * ordenSf.dir;
+  });
+}
+function renderSinFrac() {
+  const st = document.getElementById('state-sf'), tb = document.getElementById('tabla-sf');
+  if (!pCargado) { st.style.display='flex'; tb.style.display='none'; return; }
+  const sinReg = sinRegSf;
+  const rows = filasSinFrac();
+  const maxImp = Math.max(0.0001, ...datosP.map(r => prioBaseOf(r)));
+  document.getElementById('body-sf').innerHTML = rows.map((r, i) => {
+    const rt = r.BL ? `<span class="${RT_CLASE[r.BL]||''}">${r.BL}</span>` : '·';
+    const impPct = (prioBaseOf(r) / maxImp) * 100;
+    return `<tr data-plu="${r.plu}" style="animation-delay:${Math.min(i * 6, 360)}ms">
+      <td class="l plu">${r.plu}</td>
+      <td class="l nombre" title="${(r.nombre||'').replace(/"/g,'&quot;')}">${r.nombre||''}</td>
+      <td class="l">${sinReg(r) ? 'sin registro' : r.ultimoFraccionado}</td>
+      <td>${sinReg(r) ? '—' : r.diasSinFraccionar}</td>
+      <td class="gran">${fmt(r.F)}</td>
+      <td class="envasar-d"><span>${fmt(r.D)}</span></td>
+      <td class="ruteo">${rt}</td>
+      <td class="imp" title="Sin aumento por espera. Con aumento: ${prioOf(r).toFixed(3)}"><span class="impbar" style="width:${Math.max(2, impPct*0.45)}px"></span>${prioBaseOf(r).toFixed(3)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('pillSinFrac').textContent = rows.length;
+  document.getElementById('resumen').innerHTML = '';
+  if (!document.getElementById('head-sf').children.length) construirHeadSf();
+  st.style.display = 'none'; tb.style.display = '';
+}
+function exportarPDFSinFrac() {
+  const rows = filasSinFrac();
+  const fecha = new Date().toLocaleDateString('es-AR');
+  const hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+  const filas = rows.map((r, i) => `<tr style="background:${i%2===0 ? '#fff' : '#f7f9f5'}">
+      <td style="color:#888;font-size:10px">${escHtml(r.plu)}</td>
+      <td style="font-weight:500">${escHtml(r.nombre)}</td>
+      <td style="text-align:right">${sinRegSf(r) ? 'sin registro' : r.diasSinFraccionar}</td>
+      <td style="text-align:right;color:#555">${fmt(r.F)}</td>
+      <td style="text-align:right;font-weight:700;color:#1e40af">${fmt(r.D)}</td>
+      <td style="text-align:right;color:#555">${prioBaseOf(r).toFixed(3)}</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Sin fraccionar ${fecha}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#1a1c18}
+  .header{background:#405936;color:#fff;padding:10px 18px;display:flex;align-items:center}
+  .brand{font-size:18px;font-weight:700}.brand b{color:#FFCC00}
+  .header-sub{font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.7;margin-top:1px}
+  .header-right{margin-left:auto;text-align:right;font-size:10px;opacity:.85}
+  .stats{display:flex;gap:14px;padding:7px 18px;background:#eef2e9;border-bottom:1px solid #c3c9bc;font-size:10px;color:#434840}
+  .stats b{color:#2e4027;font-weight:700}
+  table{border-collapse:collapse;width:100%}
+  th{background:#405936;color:#fff;padding:5px 7px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border-bottom:2px solid #2e4027}
+  th.r{text-align:right}
+  td{padding:4px 7px;border-bottom:1px solid #e8ede4;vertical-align:middle}
+  .footer{padding:6px 18px;font-size:9px;color:#aaa;border-top:1px solid #e0e0e0;display:flex;justify-content:space-between}
+  @page{size:A4 portrait;margin:8mm}
+  @media print{.header,.stats,th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+  <div class="header"><div><div class="brand">api<b>delta</b></div><div class="header-sub">distribución · sin fraccionar +${DIAS_SIN_FRAC_MIN} días</div></div><div class="header-right">${fecha} ${hora}</div></div>
+  <div class="stats"><span>Productos: <b>${rows.length}</b></span><span>Importancia sin aumento por espera</span></div>
+  <table><thead><tr><th>Código</th><th>Nombre</th><th class="r">Días sin fraccionar</th><th class="r">Granel central kg</th><th class="r">A envasar kg</th><th class="r">Importancia</th></tr></thead>
+  <tbody>${filas}</tbody></table>
+  <div class="footer"><span>Generado ${fecha} ${hora}</span><span>apidelta distribución</span></div>
+  </body></html>`;
+  const w = window.open('','_blank');
+  w.document.write(html); w.document.close(); w.focus(); setTimeout(()=>w.print(),400);
+}
+async function exportarXlsxSinFrac() {
+  const filas = filasSinFrac().map(r => ({ plu: r.plu, nombre: r.nombre, dias: r.diasSinFraccionar,
+    cantidad: r.D, importancia: Number(prioBaseOf(r).toFixed(3)) }));
+  try {
+    const res = await fetch('/api/distribucion/sin-fraccionar/xlsx', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filas }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement('a'), { href: url, download: `sin_fraccionar_${new Date().toISOString().slice(0,10)}.xlsx` });
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  } catch (e) { alert('No se pudo generar el xlsx: ' + e.message); }
+}
+document.getElementById('pdfSf').onclick = exportarPDFSinFrac;
+document.getElementById('xlsxSf').onclick = exportarXlsxSinFrac;
+
 // ════════════════ TABS CONFIG ════════════════
 const TAB_REGISTRY = [
   { id:'almacen',        label:'Almacen',         def:'main', fixed:true },
   { id:'pesables',       label:'Pesables',         def:'main' },
   { id:'prioritarios',   label:'Prioritarios',     def:'main' },
   { id:'envasar',        label:'Envasar',          def:'main' },
+  { id:'sin-fraccionar', label:'Sin fraccionar',   def:'main' },
   { id:'pedidos',        label:'Pedidos',          def:'main' },
   { id:'produccion',     label:'Producción',       def:'main' },
   { id:'historial',      label:'Historial',        def:'main' },

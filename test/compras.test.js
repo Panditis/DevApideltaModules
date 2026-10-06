@@ -347,6 +347,39 @@ test('aplicarSeguimiento: sin_stock y no_envia dejan la entrega en 0', () => {
   assert.strictEqual(r.items[0].cantidadEntregada, 0);
   assert.strictEqual(r.items[1].cantidadEntregada, 0);
 });
+test('aplicarSeguimiento: faltante deja la entrega en 0', () => {
+  const r = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', estado: 'faltante', cantidadEntregada: 9 }],
+  }, CTX);
+  assert.strictEqual(r.items[0].estado, 'faltante');
+  assert.strictEqual(r.items[0].cantidadEntregada, 0);
+});
+test('aplicarSeguimiento: se puede cerrar un pedido con líneas faltante', () => {
+  const r = aplicarSeguimiento(pedidoBase(), {
+    estado: 'CERRADO', fechaRetiro: '2026-08-09',
+    items: [{ plu: '4409', estado: 'entregado' }, { plu: '1234', estado: 'faltante' }],
+  }, CTX);
+  assert.strictEqual(r.estado, 'CERRADO');
+});
+test('aplicarSeguimiento: quitar elimina una línea extra', () => {
+  const conExtra = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '5555', estado: 'extra', cantidadEntregada: 2 }],
+  }, CTX);
+  const r = aplicarSeguimiento(conExtra, { items: [{ plu: '5555', quitar: true }] }, CTX);
+  assert.deepStrictEqual(r.items.map(it => it.plu), ['4409', '1234']);
+});
+test('aplicarSeguimiento: quitar se ignora en una línea pedida', () => {
+  const r = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', quitar: true }] }, CTX);
+  assert.strictEqual(r.items.length, 2);
+  assert.strictEqual(r.items[0].plu, '4409');
+  assert.strictEqual(r.items[0].estado, 'pedido');
+});
+test('aplicarSeguimiento: quitar en un plu inexistente no crea ninguna línea', () => {
+  const r = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '5555', estado: 'extra', quitar: true, cantidadEntregada: 2 }],
+  }, CTX);
+  assert.deepStrictEqual(r.items.map(it => it.plu), ['4409', '1234']);
+});
 test('aplicarSeguimiento: volver a pedido borra la cantidad entregada', () => {
   const entregado = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', estado: 'entregado' }] }, CTX);
   const r = aplicarSeguimiento(entregado, { items: [{ plu: '4409', estado: 'pedido' }] }, CTX);
@@ -582,6 +615,19 @@ test('otif ordena los quiebres por veces desc y suma lo no entregado', () => {
   assert.strictEqual(q[1].noEnvia, 1);
   assert.strictEqual(q[1].cantidadNoEntregada, 4);
 });
+test('otif: quiebres cuenta faltante en su propio contador', () => {
+  const pedidos = [pedidoCerrado({ items: [
+    { plu: '1234', nombre: 'Aceite', cantidad: 6, cantidadEntregada: 0, estado: 'sin_stock' },
+    { plu: '1234', nombre: 'Aceite', cantidad: 6, cantidadEntregada: 0, estado: 'no_envia' },
+    { plu: '1234', nombre: 'Aceite', cantidad: 6, cantidadEntregada: 0, estado: 'faltante' },
+  ] })];
+  const [q] = otif(pedidos).quiebres;
+  assert.strictEqual(q.veces, 3);
+  assert.strictEqual(q.sinStock, 1);
+  assert.strictEqual(q.noEnvia, 1);
+  assert.strictEqual(q.faltante, 1);
+  assert.strictEqual(q.cantidadNoEntregada, 18);
+});
 test('otif calcula la mediana de lead time con n par', () => {
   const r = otif([
     pedidoCerrado({ numero: 'P-0001', fecha: '2026-08-01', fechaRetiro: '2026-08-03' }), // 2
@@ -690,3 +736,4 @@ test('aplicarSeguimiento mantiene nuevo:true en la línea al actualizar su estad
   assert.strictEqual(r.items[0].nuevo, true);
   assert.strictEqual(r.items[0].estado, 'entregado');
 });
+

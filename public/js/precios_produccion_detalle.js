@@ -3,7 +3,7 @@
 // guardarProd, validarProd, urlProd, API_PROD, conectarBuscadorSiga, htmlBuscadorSiga, badgeEstadoProd,
 // mensajeFaltante, textoFaltante, nombreComponente, progresoProducto, pasosHabilitados, bodyReceta,
 // idRecetaNueva, rendimientoSugerido, fmtNum, pctTxt, btnCls/btnPrim/campoCls, panelProd,
-// prodSeccionesCerradas, irAProduccion, salirDeProduccion) y los de precios.html (esc, fmtMoney, chip,
+// prodSeccionesElegidas, seccionesAbiertas, irAProduccion, salirDeProduccion) y los de precios.html (esc, fmtMoney, chip,
 // numOrNull, avisar, confirmar, pedirJson, activarTab) y de precios_produccion_modal.js (presAbierta, cerrarPresentacion). Pasos 3-4 (insumos y
 // presentaciones) en precios_produccion_presentaciones.js. Los importes y costos se muestran tal como
 // vienen del server: después de cada guardado se vuelve a pedir el detalle.
@@ -111,10 +111,12 @@ async function cargarCostoManual(clave) {
   if (await guardarProd(put, null, 'Costo guardado')) refrescarModalPres(); // precios_produccion_modal.js
 }
 async function cargarMargen(plu) {
-  const v = await pedirCampos(`Margen para el PLU ${plu}`,
-    [{ name: 'markupPct', label: 'Markup % sobre el costo (ej. 50) *', type: 'number', required: true }], 'Guardar margen');
+  // Sin el permiso de Configuración el valor es markup s/ costo neto: el server lo pasa a ganancia.
+  const v = await pedirCampos(`${segunPermiso('Ganancia propia', 'Markup propio')} para el PLU ${plu}`,
+    [{ name: 'gananciaPct', label: segunPermiso('Ganancia % sobre el costo real (reemplaza curva + conceptos, ej. 20) *',
+      'Markup % sobre el costo neto (reemplaza el standard, ej. 40) *'), type: 'number', required: true }], segunPermiso('Guardar ganancia', 'Guardar markup'));
   if (!v) return;
-  const ok = await guardarProd(() => pedirJson('PUT', '/api/precios/margen-producto/' + encodeURIComponent(plu), { markupPct: numOrNull(v.markupPct) }), null, 'Margen guardado');
+  const ok = await guardarProd(() => pedirJson('PUT', '/api/precios/margen-producto/' + encodeURIComponent(plu), { gananciaPct: numOrNull(v.gananciaPct) }), null, 'Ganancia guardada');
   if (ok) refrescarModalPres();
 }
 function ejecutarAccionProd(ds) {
@@ -122,8 +124,9 @@ function ejecutarAccionProd(ds) {
   else if (ds.prAccion === 'costo') cargarCostoManual(ds.clave);
   else if (ds.prAccion === 'margen') cargarMargen(ds.plu);
   else if (ds.prAccion === 'abrirPres') abrirPresentacion(ds.clave); // precios_produccion_modal.js
-  else if (ds.prAccion === 'config') irATab('configuracion');
-  else if (ds.prAccion === 'maquinas') irATab('maquinas'); // precios_maquinas.js
+  else if (ds.prAccion === 'config') irATab('general'); // sub-tabs de Configuración (activarTab, precios_config.js)
+  else if (ds.prAccion === 'maquinas') irATab('maquinas');
+  else if (ds.prAccion === 'ganancia') irATab('ganancia');
 }
 async function irATab(tipo) {
   if (!(await cerrarPresentacion())) return; // con cambios sin guardar pregunta
@@ -137,28 +140,56 @@ const ICONO_PROGRESO = {
   ok: ['✓', 'text-ok border-ok/40 bg-ok/5'], parcial: ['◐', 'text-warn border-warn/40 bg-warn/5'],
   falta: ['○', 'text-gris border-borde bg-card'], opcional: ['–', 'text-gris border-borde bg-card'],
 };
+// Stepper: un paso por sección (número + estado); "Validado" cierra el recorrido. Cada paso lleva a su sección.
 function htmlChecklist(prog) {
-  return `<ol class="flex flex-wrap gap-2 mb-4" aria-label="Progreso del producto">${prog.map(p => {
-    const [ic, cls] = ICONO_PROGRESO[p.estado];
-    return `<li><button type="button" data-pr-accion="paso" data-paso="${p.paso}" class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left hover:shadow-fluent ${cls}">
-      <span class="font-bold" aria-hidden="true">${ic}</span><span><span class="block text-sm font-semibold text-ink">${esc(p.texto)}</span>
-      <span class="block text-[11px] text-gris">${esc(p.detalle)}</span></span></button></li>`;
+  return `<ol class="pr-pasos" aria-label="Progreso del producto">${prog.map(p => {
+    const [ic] = ICONO_PROGRESO[p.estado];
+    const n = p.clave === 'validado' ? '✓' : p.paso;
+    return `<li><button type="button" data-pr-accion="paso" data-paso="${p.paso}" class="pr-paso" data-estado="${p.estado}">
+      <span class="pr-paso-n" aria-hidden="true">${n}</span><span class="min-w-0"><span class="block text-[13px] font-semibold text-ink">${esc(p.texto)}</span>
+      <span class="block text-[11px] text-gris"><span aria-hidden="true">${ic}</span> ${esc(p.detalle)}</span></span></button></li>`;
   }).join('')}</ol>`;
 }
+// Breadcrumb "Producción › <producto>" (el nombre se edita en el lugar) + acciones del producto.
 function htmlEncabezadoDetalle(d, prog) {
-  const { alertas } = d.resumen;
+  const bases = Object.values(d.recetas || {}).filter(r => !r.varianteDe && r.costoKg != null);
+  const costo = bases.length ? '$ ' + fmtMoney(bases[0].costoKg) : '—';
   return `
-    <div class="flex items-center gap-2 flex-wrap mb-3">
-      <a href="#produccion" class="text-sm text-verde hover:text-verdeHover whitespace-nowrap">← Productos</a>
-      <input id="prNombre" maxlength="60" aria-label="Nombre del producto" value="${esc(d.nombre)}" title="Tocá para renombrar"
-        class="font-disp text-xl font-bold text-ink bg-transparent border border-transparent hover:border-borde focus:border-verde focus:bg-white rounded-lg px-2 py-0.5 min-w-0 w-64 max-w-full focus:outline-none">
-      ${alertas ? chip(`${alertas} costo${alertas === 1 ? '' : 's'} cambiaron`, 'bg-warn/15 text-warn') : ''}
-      <span class="ml-auto flex gap-2">
-        <button id="prValidarTodo" class="${btnCls}" title="Guarda el costo actual de todas las recetas y presentaciones sin faltantes">Validar todo</button>
-        <button id="prEliminar" class="px-3 py-1.5 rounded-lg text-sm text-crit hover:bg-crit/10">Eliminar producto</button>
+    <nav class="pr-miga" aria-label="Ubicación"><a href="#produccion">Producción</a><span aria-hidden="true">›</span><span>${esc(d.nombre)}</span></nav>
+    <div class="pr-cab">
+      <div class="flex items-center gap-3 min-w-0">
+        <a href="#produccion" class="pr-volver" title="Volver al listado" aria-label="Volver al listado de productos">←</a>
+        <input id="prNombre" maxlength="60" aria-label="Nombre del producto" value="${esc(d.nombre)}" title="Tocá para renombrar" class="pr-nombre">
+        <span class="pr-costo-cab" title="Costo por kg de la receta base">Costo/kg base <b>${costo}</b></span>
+      </div>
+      <span class="flex gap-2 shrink-0">
+        <button id="prValidarTodo" class="cfg-btn2" title="Guarda el costo actual de todas las recetas y presentaciones sin faltantes">Validar todo</button>
+        <button id="prEliminar" class="px-3 py-1.5 rounded-lg text-[12.5px] font-semibold text-crit hover:bg-crit/10">Eliminar producto</button>
       </span>
     </div>
     ${htmlChecklist(prog)}`;
+}
+
+const ALERTAS_MAX = 6;
+// ── Panel "Para revisar": cambios de costo, faltantes y precios fuera de tolerancia (alertasDetalle) ──
+function htmlPanelAlertas(d) {
+  const a = alertasDetalle(d, nombresProd());
+  if (!a.total) return `<div class="pr-ok-banner">✓ Todo al día: sin cambios de costo, sin datos faltantes y con los precios vigentes dentro de tolerancia.</div>`;
+  const ir = c => (c.tipo === 'presentacion' ? btnAccion({ tipo: 'abrirPres', clave: c.id }, 'Abrir') : btnAccion({ tipo: 'paso', paso: c.paso }, 'Ver'));
+  // Hasta ALERTAS_MAX renglones por grupo; el resto queda resumido (está marcado en su sección).
+  const grupo = (cls, titulo, items, extra = '') => (items.length ? `<section class="pr-alerta ${cls}"><h3>${titulo}${extra}</h3><ul>${items.slice(0, ALERTAS_MAX).join('')}${items.length > ALERTAS_MAX ? `<li class="text-gris">y ${items.length - ALERTAS_MAX} más: están marcados en su sección</li>` : ''}</ul></section>` : '');
+  const sem = { subir: ['▲ Subir', 'text-crit'], bajar: ['▼ Bajar', 'text-warn'] };
+  return `<div class="pr-alertas" aria-label="Para revisar">
+    ${grupo('a-falta', `Para calcular el costo falta (${a.faltantes.length})`,
+      a.faltantes.map(m => `<li><span><b>${esc(m.quien)}</b> · ${esc(m.texto)}</span>${btnAccion(m.accion, m.boton)}</li>`))}
+    ${grupo('a-cambio', `Costos que cambiaron desde la validación (${a.cambios.length})`,
+      a.cambios.map(c => `<li><span><b>${esc(c.nombre)}</b> <span class="text-gris">${c.tipo === 'receta' ? 'receta' : 'presentación'}</span>
+        <span class="tabular-nums font-semibold text-warn">${esc(pctTxt(c.deltaPct))}</span></span>${ir(c)}</li>`),
+      ' <button type="button" id="prAlertaValidar" class="cfg-btn2 ml-auto">Revisé: validar todo</button>')}
+    ${grupo('a-precio', `Precio vigente fuera de tolerancia (${a.precios.length})`,
+      a.precios.map(p => `<li><span><b>${esc(p.nombre)}</b> <span class="font-semibold tabular-nums ${sem[p.semaforo][1]}">${sem[p.semaforo][0]} ${esc(fmtPct(p.deltaPct))}</span></span>
+        ${btnAccion({ tipo: 'abrirPres', clave: p.plu }, 'Ver desglose')}</li>`))}
+  </div>`;
 }
 function conectarEncabezado() {
   const inNombre = document.getElementById('prNombre');
@@ -169,6 +200,8 @@ function conectarEncabezado() {
   });
   inNombre.addEventListener('keydown', e => { if (e.key === 'Enter') inNombre.blur(); });
   document.getElementById('prValidarTodo').onclick = e => validarProd({ tipo: 'todo' }, e.currentTarget);
+  const alertaValidar = document.getElementById('prAlertaValidar');
+  if (alertaValidar) alertaValidar.onclick = e => validarProd({ tipo: 'todo' }, e.currentTarget);
   document.getElementById('prEliminar').onclick = eliminarProducto;
 }
 async function eliminarProducto() {
@@ -186,40 +219,65 @@ const ESTADO_PASO = {
   ok: ['bg-ok/15 text-ok', 'Listo'], parcial: ['bg-warn/15 text-warn', 'Incompleto'],
   falta: ['bg-gris/15 text-gris', 'Pendiente'], opcional: ['bg-gris/15 text-gris', 'Opcional'],
 };
+// [título, ayuda de una línea, qué cargar, acento]. El acento es el color de la sección del desglose del precio
+// (.s-costo azul → .s-extra ámbar → .s-margen verde → .s-final verde oscuro): la página se lee en el orden del costeo.
 const PASOS = {
-  1: ['Receta base', 'Define el costo por kg de lo que produce una tanda de máquina.', 'Ingredientes de una tanda y cuántos kg rinde.'],
-  2: ['Variedades', 'Lo que se vende: la receta base + 0, 1 o 2 ingredientes extra (ej. Pepas de membrillo = masa + membrillo). Las presentaciones eligen una variedad.', 'Al menos una variedad: nombre y receta base; los extras son opcionales (sin extras = la base tal cual).'],
-  3: ['Insumos', 'Lista de envases, etiquetas, tapas y precintos que usa este producto. Cada presentación elige de acá.', 'Los insumos de SIGA (o manuales si no tienen PLU), con su costo.'],
-  4: ['Presentaciones', 'Cada PLU vendible (250 g, 500 g, 1 kg…) con su costo y precio sugerido.', 'PLU de SIGA, variedad/receta, kg por unidad y qué insumos lleva.'],
+  1: ['Receta base', 'Costo por kg de lo que produce una tanda de máquina.', 'Ingredientes de una tanda y cuántos kg rinde.', 'costo'],
+  2: ['Variedades', 'Lo que se vende: la base + 0, 1 o 2 ingredientes extra (ej. Pepas de membrillo). Las presentaciones eligen una variedad.', 'Opcional: la variedad sin extras se crea sola al guardar la receta base; agregá otras solo si el producto tiene sabores.', 'costo'],
+  3: ['Insumos y empaque', 'Envases, etiquetas, tapas y precintos de este producto: se suman al costo de cada presentación.', 'Los insumos de SIGA (o manuales si no tienen PLU), con su costo.', 'extra'],
+  4: ['Presentaciones y precios', 'Cada PLU vendible con su costo, precio sugerido y la diferencia contra el vigente de SIGA. Marcalas para exportar el archivo de precios.', 'PLU de SIGA, variedad, kg por unidad y qué insumos lleva.', 'margen'],
 };
-function htmlPaso(n, estado, hab, cuerpoFn) {
-  const [titulo, para, necesitas] = PASOS[n];
+// Dato clave de cada sección, a la derecha del encabezado (sale de lo que mandó el server).
+function totalPaso(n) {
+  const rec = Object.values(prodDet.recetas || {}), pres = Object.values(prodDet.presentaciones || {});
+  const plata = v => (v != null ? '$ ' + fmtMoney(v) : '—');
+  if (n === 1) { const b = rec.find(r => !r.varianteDe && r.costoKg != null); return b ? ['Costo/kg', plata(b.costoKg)] : null; }
+  if (n === 2) {
+    const c = rec.filter(r => r.varianteDe && r.costoKg != null).map(r => r.costoKg);
+    if (!c.length) return null;
+    const [min, max] = [Math.min(...c), Math.max(...c)];
+    return ['Costo/kg', min === max ? plata(min) : `${plata(min)} – ${fmtMoney(max)}`];
+  }
+  if (n === 3) return prodDet.insumos.length ? ['Insumos', String(prodDet.insumos.length)] : null;
+  if (n === 4) {
+    const rev = pres.filter(p => p.semaforo === 'subir' || p.semaforo === 'bajar').length;
+    return pres.length ? ['A revisar', `${rev} de ${pres.length}`] : null;
+  }
+  return null;
+}
+function htmlPaso(n, estado, hab, abierta, cuerpoFn) {
+  const [titulo, para, necesitas, acento] = PASOS[n];
   const [cls, txt] = hab.ok ? ESTADO_PASO[estado] : ['bg-gris/15 text-gris', 'Bloqueado'];
   const cuerpo = hab.ok ? cuerpoFn() : `<div class="rounded-lg border border-dashed border-borde bg-bg/60 p-4 text-sm text-gris flex flex-wrap items-center gap-3">
       <span>${esc(hab.motivo)}</span><button type="button" data-pr-accion="paso" data-paso="${hab.paso}" class="${btnCls}">Ir al paso ${hab.paso}</button></div>`;
-  return `<details class="acordeon" id="paso-${n}" data-sec="${n}"${prodSeccionesCerradas.has(String(n)) ? '' : ' open'}>
-    <summary><span class="caret" aria-hidden="true">▶</span>
-      <span class="w-7 h-7 shrink-0 rounded-full bg-verde/10 text-verde font-bold grid place-items-center text-sm">${n}</span>
-      <span class="min-w-0"><span class="block font-disp text-base font-bold text-verde">${titulo}</span>
-        <span class="block text-xs text-gris">${esc(para)}</span></span>
-      <span class="ml-auto shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${txt}</span></summary>
-    <div class="cuerpo pt-3"><p class="text-xs text-gris mb-3"><b class="text-ink">Qué necesitás cargar:</b> ${esc(necesitas)}
-      <span class="ml-1">Los campos con <span class="text-crit">*</span> son obligatorios.</span></p>${cuerpo}</div></details>`;
+  const tot = hab.ok ? totalPaso(n) : null;
+  // "Qué cargar" sólo mientras el paso no está listo (menos ruido en un producto completo).
+  const ayudaPaso = estado === 'ok' ? '' : `<p class="pr-necesitas"><b>Qué cargar:</b> ${esc(necesitas)}
+      <span class="ml-1">Los campos con <span class="text-crit">*</span> son obligatorios.</span></p>`;
+  return `<details class="pr-sec acc-${acento}" id="paso-${n}" data-sec="${n}" data-abierta="${abierta ? 1 : 0}"${abierta ? ' open' : ''}>
+    <summary class="pr-sec-cab"><span class="caret" aria-hidden="true">▶</span>
+      <span class="pr-sec-n" aria-hidden="true">${n}</span>
+      <span class="min-w-0"><span class="pr-sec-tit">${titulo}</span><span class="pr-sec-ayuda">${esc(para)}</span></span>
+      ${tot ? `<span class="pr-sec-tot"><span>${tot[0]}</span><b>${tot[1]}</b></span>` : '<span class="ml-auto"></span>'}
+      <span class="shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${txt}</span></summary>
+    <div class="pr-sec-cuerpo">${ayudaPaso}${cuerpo}</div></details>`;
 }
 function pintarDetalleProduccion() {
   const hab = pasosHabilitados(prodDet), prog = progresoProducto(prodDet);
   const est = Object.fromEntries(prog.map(p => [p.clave, p.estado]));
-  panelProd().innerHTML = htmlEncabezadoDetalle(prodDet, prog)
-    + htmlPaso(1, est.base, hab[1], htmlPaso1) + htmlPaso(2, est.variedades, hab[2], htmlPaso2)
-    + htmlPaso(3, est.insumos, hab[3], htmlSeccionInsumos) + htmlPaso(4, est.presentaciones, hab[4], htmlSeccionPresentaciones);
+  const abiertas = seccionesAbiertas({ 1: est.base, 2: est.variedades, 3: est.insumos, 4: est.presentaciones }, prodSeccionesElegidas);
+  panelProd().innerHTML = htmlEncabezadoDetalle(prodDet, prog) + htmlPanelAlertas(prodDet)
+    + htmlPaso(1, est.base, hab[1], abiertas[1], htmlPaso1) + htmlPaso(2, est.variedades, hab[2], abiertas[2], htmlPaso2)
+    + htmlPaso(3, est.insumos, hab[3], abiertas[3], htmlSeccionInsumos) + htmlPaso(4, est.presentaciones, hab[4], abiertas[4], htmlSeccionPresentaciones);
   conectarEncabezado();
   conectarRecetas();
   if (hab[3].ok) conectarSeccionInsumos();          // precios_produccion_presentaciones.js
   if (hab[4].ok) conectarSeccionPresentaciones();   // precios_produccion_presentaciones.js
+  // Sólo un cambio real de estado cuenta como elección (el toggle que dispara el render inicial, no).
   panelProd().querySelectorAll('details[data-sec]').forEach(det => det.addEventListener('toggle', () => {
-    const s = new Set(prodSeccionesCerradas);
-    if (det.open) s.delete(det.dataset.sec); else s.add(det.dataset.sec);
-    prodSeccionesCerradas = s;
+    if (det.open === (det.dataset.abierta === '1')) return;
+    det.dataset.abierta = det.open ? '1' : '0';
+    prodSeccionesElegidas = { ...prodSeccionesElegidas, [det.dataset.sec]: det.open };
   }));
 }
 
@@ -237,7 +295,7 @@ function htmlPaso1() {
 function htmlPaso2() {
   const vars = idsVariedades();
   if (!vars.length) {
-    return cajaVacia('Cada presentación sale de una variedad: la receta base + algún ingrediente extra (ej. Pepas de membrillo). <b class="text-ink">Si el producto no tiene sabores, creá una variedad sin extras</b> (ej. Clásica).',
+    return cajaVacia('Cada presentación sale de una variedad. <b class="text-ink">La variedad sin extras se crea sola al guardar la receta base</b>; agregá otras solo si el producto tiene sabores (ej. Pepas de membrillo).',
       `<button id="prNuevaVariedad" class="${btnPrim}">Crear variedad</button>`);
   }
   return vars.map(htmlReceta).join('') + `<button id="prNuevaVariedad" class="${btnCls} mt-3">+ Otra variedad</button>`;
@@ -258,11 +316,11 @@ function htmlReceta(id) {
   const c = prodDet.recetas[id] || null; // null = borrador sin guardar
   const nombres = nombresProd();
   const esVar = !!ed.varianteDe;
-  const marca = c && estadoFila(c) === 'cambio' ? ' ' + MARCA_CAMBIO : ' bg-card'; // MARCA_CAMBIO: precios_produccion.js
-  return `<article class="rounded-xl border border-borde p-3 sm:p-4 mt-3${marca}" data-receta="${esc(id)}">
+  const marca = c && estadoFila(c) === 'cambio' ? ' pr-cambio' : '';
+  return `<article class="pr-card${marca}" data-receta="${esc(id)}" data-guardable${ed.sucio && c ? ' data-sucio' : ''}>
     ${htmlRecetaCabecera(ed, c, nombres)}
     ${esVar ? htmlVariedadBase(ed, c) : htmlRecetaCampos(ed)}
-    <div class="mt-4 text-sm font-semibold text-ink">${esVar ? `Extras: cantidad para los ${fmtNum(kgBaseDe(ed))} kg de la receta base <span class="font-normal text-xs text-gris">(opcional)</span>` : `Ingredientes de una tanda ${REQ}`}
+    <div class="mt-5 text-sm font-semibold text-ink">${esVar ? `Extras: cantidad para los ${fmtNum(kgBaseDe(ed))} kg de la receta base <span class="font-normal text-xs text-gris">(opcional)</span>` : `Ingredientes de una tanda ${REQ}`}
       ${ayuda(esVar ? `Ej. dulce de batata para los ${fmtNum(kgBaseDe(ed))} kg de masa. Si el producto no tiene sabores, dejala sin extras.${ed.rendimientoKg != null && ed.rendimientoKg !== '' ? ` La variedad tiene rendimiento propio (${fmtNum(ed.rendimientoKg)} kg) en Opciones avanzadas: los extras siguen siendo para los kg de la base.` : ''}` : 'Cantidad de cada ingrediente para una tanda, en kg o unidades. Al menos uno.')}</div>
     ${htmlRecetaTabla(id, ed, c)}
     <div class="mt-2 flex flex-wrap items-center gap-2">${htmlBuscadorSiga('prBusca-' + id, esVar ? 'Buscar ingrediente extra en SIGA (PLU o nombre)…' : 'Buscar ingrediente en SIGA (PLU o nombre)…')}
@@ -275,23 +333,23 @@ function htmlReceta(id) {
 }
 function htmlRecetaCabecera(ed, c, nombres) {
   const tag = ed.varianteDe ? chip('variedad', 'bg-verde/10 text-verde') : chip('base', 'bg-verde/10 text-verde');
-  return `<div class="flex items-center gap-2 flex-wrap">
-    <label class="text-xs text-gris">Nombre ${REQ}<input class="rc-campo block mt-0.5 font-semibold ${campoCls} w-56 max-w-full" data-campo="nombre" maxlength="60" value="${esc(ed.nombre)}"></label>
-    ${tag} ${c ? badgeEstadoProd(c, nombres) : chip('sin guardar', 'bg-amarillo/30 text-ink')}
-    <span class="rc-sucio text-xs text-warn${ed.sucio && c ? '' : ' hidden'}">● cambios sin guardar</span>
-    <span class="ml-auto text-sm text-gris whitespace-nowrap">Costo/kg <b class="text-lg text-verde tabular-nums">${c && c.costoKg != null ? '$ ' + fmtMoney(c.costoKg) : '—'}</b></span>
+  return `<div class="flex items-end gap-2 flex-wrap">
+    <label class="text-xs text-gris">Nombre ${REQ}<input class="rc-campo campo-t block mt-0.5 font-semibold w-64 max-w-full" data-campo="nombre" maxlength="60" value="${esc(ed.nombre)}"></label>
+    <span class="flex items-center gap-1.5 pb-1.5">${tag} ${c ? badgeEstadoProd(c, nombres) : chip('sin guardar', 'bg-amarillo/30 text-ink')}</span>
+    <span class="pr-total-card">Costo/kg <b>${c && c.costoKg != null ? '$ ' + fmtMoney(c.costoKg) : '—'}</b></span>
   </div>`;
 }
 function htmlVariedadBase(ed, c) {
   const bases = basesGuardadas().map(([bid, r]) => `<option value="${esc(bid)}"${bid === ed.varianteDe ? ' selected' : ''}>${esc(r.nombre)}</option>`).join('');
   return `<div class="flex flex-wrap items-end gap-x-6 gap-y-2 mt-3">
-    <label class="block text-xs text-gris">Receta base ${REQ}
-      <select class="rc-campo mt-1 ${campoCls} min-w-[12rem]" data-campo="varianteDe">${bases}</select></label>
-    <div class="text-sm text-gris">${htmlDesglose(c)}</div></div>`;
+    <label class="block text-xs font-semibold text-ink">Receta base ${REQ}
+      <select class="rc-campo campo-t mt-1 min-w-[14rem] font-normal" data-campo="varianteDe">${bases}</select></label>
+    <div class="text-sm text-gris">${htmlDesgloseTanda(c)}</div></div>`;
 }
 // "Producto terminado por tanda: 120 kg de base + 47,3 kg de extras = 167,3 kg (−3% merma → 162,3 kg)".
 // Todos los números vienen del server (costeo de la variedad: desglose); el extra no altera la base.
-function htmlDesglose(c) {
+// (Nombre propio: htmlDesglose es el desglose del precio de precios_detalle.js; antes se pisaban como globales.)
+function htmlDesgloseTanda(c) {
   const d = c && c.desglose;
   if (!d || d.totalKg == null) return 'Producto terminado por tanda: —';
   const kg = n => `<b class="text-ink tabular-nums">${fmtNum(n)} kg</b>`;
@@ -313,15 +371,16 @@ function opcionesCategoria(ed, esVariedad) {
 function htmlRecetaCampos(ed) {
   const base = ed.varianteDe ? prodEdRecetas[ed.varianteDe] : null;
   const hereda = (k, ej) => (base ? (base[k] != null && base[k] !== '' ? `hereda: ${base[k]}` : 'hereda de la base') : ej);
-  const num = (campo, label, ph, txt) => `<label class="block text-xs text-gris">${label}
-      <input type="number" step="any" min="0" class="rc-campo mt-1 w-full ${campoCls} text-right tabular-nums" data-campo="${campo}" value="${ed[campo] ?? ''}" placeholder="${esc(ph)}">${ayuda(txt)}</label>`;
+  // Input con la unidad visible (campoU de precios_config.js: mismo patrón que Configuración).
+  const num = (campo, label, ph, txt, u) => `<label class="block text-xs font-semibold text-ink">${label}
+      <span class="block mt-1">${campoU(`<input type="number" step="any" min="0" class="rc-campo" data-campo="${campo}" value="${ed[campo] ?? ''}" placeholder="${esc(ph)}">`, u, { w: 'w-40' })}</span>${ayuda(txt)}</label>`;
   const rendPh = base ? `por defecto: ${fmtNum(rendimientoSugerido(base.rendimientoKg, ed.items))}` : 'ej. 104';
-  return `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-    <div>${num('rendimientoKg', `Kg por tanda ${base ? '' : REQ}`, rendPh, 'Lo que rinde una tanda de máquina.')}${htmlAjuste(ed)}</div>
-    ${num('mermaPct', 'Merma %', hereda('mermaPct', 'ej. 3'), base ? 'Opcional: pérdida del proceso.' : 'Solo si "Kg por tanda" son los kg que entran; si ya es lo que sale, dejalo en 0.')}
-    ${num('minutosElaboracion', 'Minutos de elaboración', hereda('minutosElaboracion', 'ej. 90'), 'Opcional: tiempo de una tanda (suma mano de obra).')}
-    <label class="block text-xs text-gris">Máquina
-      <select class="rc-campo mt-1 w-full ${campoCls}" data-campo="categoriaMaquinaId">${opcionesCategoria(ed, !!base)}</select>
+  return `<div class="grid grid-cols-4 gap-4 mt-4 pr-campos">
+    <div>${num('rendimientoKg', `Kg por tanda ${base ? '' : REQ}`, rendPh, 'Lo que rinde una tanda de máquina.', 'kg')}${htmlAjuste(ed)}</div>
+    ${num('mermaPct', 'Merma', hereda('mermaPct', 'ej. 3'), base ? 'Opcional: pérdida del proceso.' : 'Solo si "Kg por tanda" son los kg que entran; si ya es lo que sale, dejalo en 0.', '%')}
+    ${num('minutosElaboracion', 'Elaboración', hereda('minutosElaboracion', 'ej. 90'), 'Opcional: tiempo de una tanda (suma mano de obra).', 'min')}
+    <label class="block text-xs font-semibold text-ink">Máquina
+      <select class="rc-campo campo-t mt-1 font-normal" data-campo="categoriaMaquinaId">${opcionesCategoria(ed, !!base)}</select>
       ${ayuda('Opcional: suma el costo/hora de la máquina.')}</label>
   </div>`;
 }
@@ -387,24 +446,24 @@ function htmlRecetaTabla(id, ed, c) {
   // Filas con su índice original (data-i): editar/quitar siguen apuntando al ítem correcto.
   const filas = ordenarFilas(ed.items.map((it, i) => ({ ...it, _i: i })), orden && orden.clave, orden && orden.dir);
   const cambiados = plusCambiados(c && c.cambios);
-  return `<div class="overflow-x-auto mt-2"><table class="w-full text-sm">
-    <thead class="text-xs text-gris"><tr>${thOrden('plu', 'PLU', orden)}${thOrden('nombre', ed.varianteDe ? 'Extra' : 'Ingrediente', orden)}
+  return `<div class="mt-2"><table class="pr-tabla pr-tabla-in">
+    <thead><tr>${thOrden('plu', 'PLU', orden)}${thOrden('nombre', ed.varianteDe ? 'Extra' : 'Ingrediente', orden)}
       ${thOrden('cantidad', `Cantidad ${REQ}`, orden, true)}${thOrden('unidad', 'Unidad', orden)}${thOrden('costoUnit', 'Costo unit.', orden, true)}
       ${thOrden('importe', 'Importe', orden, true)}${thOrden('fuente', 'Fuente', orden)}<th></th></tr></thead>
     ${htmlFilaBase(ed, c)}<tbody>${filas.map(f => filaItem(f, f._i, cambiados)).join('') || (ed.varianteDe ? '' : vacio)}</tbody>
     <tfoot class="text-gris">${elab.map(x => filaElab(x, cambiados)).join('')}
-      <tr class="border-t border-borde"><td colspan="5" class="p-1.5 text-right">Costo de la tanda</td>
-        <td class="p-1.5 text-right tabular-nums font-semibold text-ink">${c && c.costoBatch != null ? '$ ' + fmtMoney(c.costoBatch) : '—'}</td><td colspan="2"></td></tr></tfoot>
+      <tr class="pr-total"><td colspan="5" class="text-right">Costo de la tanda</td>
+        <td class="num">${c && c.costoBatch != null ? '$ ' + fmtMoney(c.costoBatch) : '—'}</td><td colspan="2"></td></tr></tfoot>
   </table></div>`;
 }
 function htmlRecetaAcciones(ed, c) {
   const tip = !c ? '' : c.faltantes.length ? 'Con datos faltantes no se puede validar' : c.estado === 'ok' ? 'Ya está validada con el costo actual' : 'Guarda el costo actual como referencia para detectar cambios';
   const puedeValidar = c && !c.faltantes.length && c.estado !== 'ok';
   const guardar = ed.varianteDe ? 'Guardar variedad' : c ? 'Guardar receta' : 'Crear receta';
-  return `<div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-borde">
-    <button type="button" class="rc-guardar ${btnPrim}">${guardar}</button>
-    ${c ? `<button type="button" class="rc-validar ${btnCls}" title="${esc(tip)}"${puedeValidar ? '' : ' disabled'}>Validar costo</button>` : ''}
-    <button type="button" class="rc-eliminar ml-auto px-3 py-1.5 rounded-lg text-xs text-crit hover:bg-crit/10">${c ? 'Eliminar' : 'Descartar'}</button>
+  return `<div class="cfg-pie">
+    <button type="button" class="rc-eliminar pr-btn-quitar">${c ? 'Eliminar' : 'Descartar'}</button>
+    ${c ? `<button type="button" class="rc-validar cfg-btn2" title="${esc(tip)}"${puedeValidar ? '' : ' disabled'}>Validar costo</button>` : ''}
+    <button type="button" class="rc-guardar cfg-btn">${guardar}</button>
   </div>`;
 }
 
@@ -418,7 +477,7 @@ function repintarReceta(id) {
 function editarReceta(id, cambio, repintar = false) {
   prodEdRecetas = { ...prodEdRecetas, [id]: { ...prodEdRecetas[id], ...cambio, sucio: true } };
   if (repintar) { repintarReceta(id); return; }
-  if (prodDet.recetas[id]) articuloReceta(id).querySelector('.rc-sucio').classList.remove('hidden');
+  if (prodDet.recetas[id]) articuloReceta(id).setAttribute('data-sucio', ''); // aviso en el pie: CSS [data-guardable][data-sucio], como Configuración
 }
 function conectarItemsReceta(id, art) {
   const items = () => prodEdRecetas[id].items;
@@ -481,11 +540,15 @@ function guardarReceta(id, btn) {
   const ed = prodEdRecetas[id];
   const falta = faltaEnReceta(ed);
   if (falta) { avisar(falta); return; }
+  let msg = ed.varianteDe ? 'Variedad guardada' : 'Receta guardada';
   guardarProd(async () => {
     // Base: el server escala los extras de sus variedades si cambió el kg por tanda (misma escritura).
-    await pedirJson('PUT', urlReceta(id), ed.varianteDe ? bodyReceta(ed) : { ...bodyReceta(ed), escalarVariantes: true });
+    const j = await pedirJson('PUT', urlReceta(id), ed.varianteDe ? bodyReceta(ed) : { ...bodyReceta(ed), escalarVariantes: true });
+    // Primera base de un producto sin variedades: el server crea sola la variedad sin extras.
+    const vc = j && j.variedadCreada;
+    if (vc) msg = `Receta guardada · variedad "${(typeof vc === 'object' ? vc.nombre || vc.id : vc) || prodDet.nombre}" creada`;
     prodEdRecetas = sinReceta(id); // se reconstruye con lo guardado al recargar
-  }, btn, ed.varianteDe ? 'Variedad guardada' : 'Receta guardada');
+  }, btn, () => msg);
 }
 async function nuevaRecetaBase() {
   const v = await pedirCampos('Nueva receta base', [
@@ -498,6 +561,7 @@ async function nuevaRecetaBase() {
     nombre: v.nombre, varianteDe: null, rendimientoKg: numOrNull(v.rendimientoKg), mermaPct: null, minutosElaboracion: null,
     categoriaMaquinaId: '', items: [], sucio: true, nueva: true,
   } };
+  prodSeccionesElegidas = { ...prodSeccionesElegidas, 1: true }; // el borrador vive en el paso 1: abierto
   pintarDetalleProduccion();
   document.getElementById('prBusca-' + id).focus();
 }
@@ -511,6 +575,7 @@ async function crearVariedad() {
   ], 'Crear variedad');
   if (!v) return;
   const id = idRecetaNueva(v.nombre, Object.keys(prodEdRecetas));
+  prodSeccionesElegidas = { ...prodSeccionesElegidas, 2: true }; // para seguir con los extras en su tarjeta
   const ok = await guardarProd(() => pedirJson('PUT', urlReceta(id), { nombre: v.nombre, varianteDe: v.base, extras: [] }), null, 'Variedad creada: agregale los extras');
   if (ok) { const b = document.getElementById('prBusca-' + id); if (b) { b.scrollIntoView({ block: 'center' }); b.focus(); } }
 }

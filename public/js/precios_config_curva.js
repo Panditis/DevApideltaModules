@@ -1,28 +1,47 @@
-// ── Precios · Configuración: ganancia según costo (curva) — Almacén y Fraccionado ──
+// ── Precios · Costos: ganancia según costo (curva) — Reventa (almacen), Fraccionado y Producción ──
 // Script clásico cargado después de precios_config_gastos.js: usa sus globales (gananciaPorCurvaCliente,
 // markupDesdeGananciaCli, fmtPctGastos, gastosConfig) y los de los otros scripts de precios.html (esc,
-// numOrNull, pedirJson, putJson, configCargada, cargarConfiguracion, fraccCargado, almacenData, fraccData).
-// ganancia(c) = clamp(a − b·ln c, piso, techo) [+ ajuste por tramo de peso en Fraccionado]. Curva apagada →
-// bandas / matriz como siempre; el margen propio por producto sigue ganando. "Calcular desde SIGA" =
-// POST /api/precios/curva-ganancia/ajustar/:tipo (no guarda); Guardar = PUT /api/precios/config/curva-ganancia/:tipo.
+// numOrNull, pedirJson, putJson, configCargada, cargarGanancia, fraccCargado, almacenData, fraccData,
+// refrescarAlertasProduccion). ganancia(c) = clamp(a − b·ln c, piso, techo) sobre el costo NETO [+ ajuste por
+// tramo de peso en Fraccionado]: único método standard de los tres tipos (siempre aplica); el margen propio por
+// producto la pisa. "Calcular desde SIGA" = POST /api/precios/curva-ganancia/ajustar/:tipo (no guarda);
+// Guardar = PUT /api/precios/config/curva-ganancia/:tipo.
 
 // ── Helpers puros (sin DOM; test/precios_config_curva.test.js) ─────────────────
-const CURVA_COSTOS_EJEMPLO = [500, 1000, 5000, 10000, 50000];
+// Costos netos de referencia de la tabla de lectura.
+const CURVA_COSTOS_EJEMPLO = [500, 1000, 2500, 5000, 10000, 20000, 50000];
+// IVA de venta con el que la tabla muestra el markup final si la config no trae ivaVentaPct.
+const CURVA_IVA_LECTURA = 21;
+// Tramos de peso (g) del ajuste Fraccionado cuando la curva guardada no trae los suyos (= TRAMOS_PESO_DEFAULT del server).
+const CURVA_TRAMOS_DEFAULT = [100, 200, 400, 500, 1000, 5000, 10000];
 const fmtNumCurva = n => (n == null ? '—' : String(+(+n).toFixed(2)).replace('.', ','));
 // Puntos de ganancia que se pierden cada vez que el costo se duplica: b × ln 2.
 const puntosPorDuplicar = b => +(b * Math.LN2).toFixed(2);
-// Curva sin mirar `activa` ni el ajuste por peso (la tarjeta la muestra aunque esté apagada).
-const baseCurva = (curva, costo) => gananciaPorCurvaCliente({ ...curva, activa: true, ajustesPeso: null }, costo);
+// Curva sin el ajuste por peso (trazo del gráfico).
+const baseCurva = (curva, costo) => gananciaPorCurvaCliente({ ...curva, ajustesPeso: null }, costo);
+// Markup final % (precio final ÷ costo neto − 1) desde el markup sobre neto: × (1 + IVA) ÷ (1 − F), F = conceptos
+// sobre precio final.
+const markupFinalCli = (markupNeto, ivaPct = CURVA_IVA_LECTURA, finalPct = 0) =>
+  (markupNeto == null ? null : +(((1 + markupNeto / 100) * (1 + ivaPct / 100) / (1 - finalPct / 100) - 1) * 100).toFixed(2));
 
-// Tabla de ejemplo: ganancia (con el ajuste del tramo de 1 kg si hay) y markup total con los gastos.
-function filasEjemploCurva(curva, gastosPct) {
+// Tabla de lectura en los costos netos de referencia: ganancia de la curva (con el ajuste del tramo de pesoG si hay;
+// sin peso = 1 kg), + conceptos de ganancia = ganancia total s/ costo real; markup sobre neto con los gastos del tipo
+// ((1 + ganancia) ÷ (1 − gastos) − 1) y markup final con el IVA de venta y los conceptos sobre precio final (finalPct).
+function filasEjemploCurva(curva, gastosPct, pesoG = null, conceptosPct = 0, ivaPct = CURVA_IVA_LECTURA, finalPct = 0) {
   return CURVA_COSTOS_EJEMPLO.map(costo => {
-    const ganancia = gananciaPorCurvaCliente({ ...curva, activa: true }, costo);
-    return { costo, ganancia, markup: markupDesdeGananciaCli(ganancia, gastosPct) };
+    const gananciaCurva = gananciaPorCurvaCliente(curva, costo, pesoG);
+    const ganancia = gananciaCurva == null ? null : +(gananciaCurva + conceptosPct).toFixed(6);
+    const markup = markupDesdeGananciaCli(ganancia, gastosPct);
+    return { costo, gananciaCurva, ganancia, markup, markupFinal: markupFinalCli(markup, ivaPct, finalPct) };
   });
 }
+// Conceptos, IVA de venta y conceptos sobre precio final de la config cargada para las tablas de lectura.
+const lecturaCfg = () => ({ conceptosPct: Number((configCargada || {}).conceptosGananciaPct) || 0,
+  ivaPct: Number.isFinite((configCargada || {}).ivaVentaPct) ? configCargada.ivaVentaPct : CURVA_IVA_LECTURA,
+  finalPct: Number((configCargada || {}).conceptosPrecioFinalPct) || 0 });
+const filasLectura = (c, tipo, pesoG = null) => { const l = lecturaCfg(); return filasEjemploCurva(c, gastosConfig(tipo), pesoG, l.conceptosPct, l.ivaPct, l.finalPct); };
 
-// Ajustes guardados alineados a los tramos de la matriz vigente (tramo sin ajuste → 0).
+// Ajustes guardados alineados a una lista de tramos (tramo sin ajuste → 0).
 function ajustesParaTramos(tramosG, ajustesPeso) {
   const aj = ajustesPeso && Array.isArray(ajustesPeso.tramosG) ? ajustesPeso : { tramosG: [], puntos: [] };
   return (tramosG || []).map(t => {
@@ -33,9 +52,10 @@ function ajustesParaTramos(tramosG, ajustesPeso) {
 
 // Productos con margen propio sobre los datos ya cargados (Almacén: filas; Fraccionado: presentaciones).
 function margenPropio(tipo, filasAlmacen, gruposFracc) {
-  const items = tipo === 'fraccionado'
-    ? (gruposFracc || []).flatMap(g => g.presentaciones || []) : (filasAlmacen || []);
-  return { n: items.filter(f => f && f.markupOverride != null).length, total: items.length };
+  // Producción no tiene listado cargado acá: sin aviso.
+  const items = tipo === 'fraccionado' ? (gruposFracc || []).flatMap(g => g.presentaciones || [])
+    : tipo === 'almacen' ? (filasAlmacen || []) : [];
+  return { n: items.filter(f => f && f.gananciaOverride != null).length, total: items.length };
 }
 
 // Marcas del eje X logarítmico: 1-2-5 × 10^k dentro de [min, max]; si son más de 8, 1-5 o sólo 10^k.
@@ -74,7 +94,8 @@ function dominioCurva(prop, guardada) {
 }
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { puntosPorDuplicar, filasEjemploCurva, ajustesParaTramos, margenPropio, marcasLog, marcasLineales, dominioCurva };
+  module.exports = { puntosPorDuplicar, filasEjemploCurva, markupFinalCli, ajustesParaTramos, margenPropio, marcasLog, marcasLineales, dominioCurva,
+    CURVA_COSTOS_EJEMPLO };
 }
 
 // ── Gráfico (SVG propio, sin librerías) ────────────────────────────────────────
@@ -144,95 +165,102 @@ function leyendaCurva(guardada) {
 }
 
 // ── Tarjetas ────────────────────────────────────────────────────────────────────
-// Almacén va debajo de su tabla de bandas (#configCurvaAlmacen lo crea precios_config_bandas.js);
-// Fraccionado, debajo de la matriz (#configCurvaFraccionado en precios.html).
+// Una por tipo, en #configCurvaAlmacen / #configCurvaFraccionado / #configCurvaProduccion (precios.html).
 const CURVA_TIPOS = {
-  almacen: { cont: 'configCurvaAlmacen', titulo: 'Ganancia según costo (curva) — Almacén', reemplaza: 'las bandas de Almacén',
-    ejeX: 'Costo base ($, escala logarítmica)',
-    ayuda: 'La ganancia standard sale del costo base del producto: a más costo, menor ganancia.' },
-  fraccionado: { cont: 'configCurvaFraccionado', titulo: 'Ganancia según costo (curva) — Fraccionado', reemplaza: 'la matriz de Fraccionado',
-    ejeX: 'Costo del granel ($/kg, escala logarítmica)',
-    ayuda: 'La ganancia standard sale del costo del granel por kg, más un ajuste según el peso de la presentación (mismos tramos que la matriz).' },
+  almacen: { cont: 'configCurvaAlmacen', titulo: 'Curva de Reventa',
+    ejeX: 'Costo base neto ($, escala logarítmica)', unidad: '',
+    ayuda: 'La ganancia standard sale del costo base neto del producto (antes de costos extra): a más costo, menor ganancia.' },
+  fraccionado: { cont: 'configCurvaFraccionado', titulo: 'Curva de Fraccionado',
+    ejeX: 'Costo neto del granel ($/kg, escala logarítmica)', unidad: '/kg',
+    ayuda: 'La ganancia standard sale del costo neto del granel por kg, más un ajuste según el peso de la presentación.' },
+  produccion: { cont: 'configCurvaProduccion', titulo: 'Curva de Producción',
+    ejeX: 'Costo neto por unidad ($, escala logarítmica)', unidad: '',
+    ayuda: 'La ganancia standard sale del costo neto por unidad de cada presentación (receta + insumos + mano de obra de empaquetado).' },
 };
-let curvaEdit = { almacen: null, fraccionado: null };      // copia editable { activa, a, b, pisoPct, techoPct, ajustadaEl, n, ajustesPeso? }
-let curvaGuardada = { almacen: null, fraccionado: null };  // lo que vino de la config
-let curvaPropuesta = { almacen: null, fraccionado: null }; // respuesta de "Calcular desde SIGA" (sobrevive a recargar la config)
+const curvaVacia = () => Object.fromEntries(Object.keys(CURVA_TIPOS).map(t => [t, null]));
+let curvaEdit = curvaVacia();      // copia editable { a, b, pisoPct, techoPct, ajustadaEl, n, ajustesPeso? }
+let curvaGuardada = curvaVacia();  // lo que vino de la config
+let curvaPropuesta = curvaVacia(); // respuesta de "Calcular desde SIGA" (sobrevive a recargar la config)
 
 const tarjetaCurva = tipo => document.querySelector(`[data-curva="${tipo}"]`);
 const hoyISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
-// Hay curva guardada para comparar si alguna vez se usó, se ajustó o se cargó a mano.
+// Hay curva guardada para comparar si es válida y no es la de fábrica en cero.
 const hayCurvaGuardada = c => !!c && [c.a, c.b, c.pisoPct, c.techoPct].every(v => typeof v === 'number')
-  && c.pisoPct < c.techoPct && (c.activa || c.ajustadaEl || c.a !== 0 || c.b !== 0);
+  && c.pisoPct <= c.techoPct && (c.ajustadaEl || c.a !== 0 || c.b !== 0);
 
 function msgCurva(tipo, txt, cls, html = false) {
   const el = tarjetaCurva(tipo) && tarjetaCurva(tipo).querySelector('.cv-msg');
   if (!el) return;
-  el.className = `cv-msg text-sm mt-2 ${cls}`;
+  el.className = `cv-msg text-sm ${cls}`;
   if (html) el.innerHTML = txt; else el.textContent = txt;
 }
 
 function htmlInputsCurva(tipo, c) {
-  const campo = (cls, etiqueta, titulo, valor) => `<label class="block text-sm" title="${esc(titulo)}">${etiqueta}
-      <input type="number" step="any" inputmode="decimal" value="${esc(valor ?? '')}" class="${cls} mt-1 w-full px-2 py-1 rounded border border-borde text-right tabular-nums"></label>`;
-  return `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-    ${campo('cv-a', 'a (%)', 'Ganancia que daría un costo de $1: la altura de la curva', c.a)}
-    ${campo('cv-b', 'b (pendiente)', 'Cuánto baja la ganancia a medida que sube el costo', c.b)}
-    ${campo('cv-piso', 'Piso (%)', 'Ganancia mínima, para los costos más altos', c.pisoPct)}
-    ${campo('cv-techo', 'Techo (%)', 'Ganancia máxima, para los costos más bajos', c.techoPct)}
+  const campo = (cls, etiqueta, titulo, valor, u) => `<label class="block text-sm font-semibold" title="${esc(titulo)}">${etiqueta}
+      <span class="block mt-1">${campoU(`<input type="number" step="any" inputmode="decimal" value="${esc(valor ?? '')}" class="${cls}">`, u, { w: 'w-full' })}</span></label>`;
+  return `<div class="grid grid-cols-4 gap-3">
+    ${campo('cv-a', 'a · altura', 'Ganancia que daría un costo de $1: la altura de la curva', c.a, '%')}
+    ${campo('cv-b', 'b · pendiente', 'Cuánto baja la ganancia a medida que sube el costo', c.b, 'pts')}
+    ${campo('cv-piso', 'Piso', 'Ganancia mínima, para los costos más altos', c.pisoPct, '%')}
+    ${campo('cv-techo', 'Techo', 'Ganancia máxima, para los costos más bajos', c.techoPct, '%')}
   </div>`;
 }
 
 function htmlTarjetaCurva(tipo) {
   const t = CURVA_TIPOS[tipo], c = curvaEdit[tipo];
-  return `<div class="rounded-xl border border-borde shadow-fluent bg-card p-5 max-w-2xl mt-5" data-curva="${tipo}">
-    <h2 class="font-disp text-lg font-bold text-verde mb-1">${esc(t.titulo)}</h2>
-    <p class="text-xs text-ink/50 mb-4">${esc(t.ayuda)} ganancia = a − b × ln(costo), acotada entre piso y techo.
-      El markup que se aplica suma los gastos sobre venta (${esc(fmtPctGastos(gastosConfig()))}).</p>
-    <label class="flex items-start gap-2 text-sm cursor-pointer"><input type="checkbox" role="switch" class="cv-activa accent-verde mt-1"${c.activa ? ' checked' : ''}>
-      <span><b>Usar curva</b><span class="block text-[11px] text-gris">Apagado: se usan ${esc(t.reemplaza)}. Los márgenes propios por producto siguen ganando.</span></span></label>
-    ${htmlInputsCurva(tipo, c)}
-    <p class="cv-duplica text-sm mt-3" aria-live="polite"></p>
-    <table class="text-sm mt-2 tabular-nums">
-      <caption class="text-left text-xs text-ink/60 pb-1">Ejemplos${tipo === 'fraccionado' ? ' (presentación de 1 kg)' : ''}</caption>
-      <thead class="text-ink/60"><tr><th class="text-left font-normal pr-6">Costo</th><th class="text-right font-normal pr-6">Ganancia</th>
-        <th class="text-right font-normal" title="Con los gastos sobre venta actuales">Markup total</th></tr></thead>
+  const lectura = `<table class="w-full text-sm tabular-nums cfg-tabla">
+      <caption class="text-left text-xs text-gris pb-1">Lectura${tipo === 'fraccionado' ? ' por kg (presentación de 1 kg)' : ''} · costos del tipo ${esc(fmtPctGastos(gastosConfig(tipo)))} · conceptos ${esc(fmtPctGastos(lecturaCfg().conceptosPct))} · IVA ${esc(fmtPctGastos(lecturaCfg().ivaPct))} · s/ precio final ${esc(fmtPctGastos(lecturaCfg().finalPct))}</caption>
+      <thead><tr><th class="text-left pr-4">Costo neto${esc(t.unidad)}</th><th class="text-right pr-4">Curva</th>
+        <th class="text-right pr-4" title="Curva + conceptos de ganancia, s/ costo real">+ conceptos</th>
+        <th class="text-right pr-4" title="(1 + ganancia) ÷ (1 − costos del tipo) − 1">Markup s/ neto</th>
+        <th class="text-right" title="Precio final (con IVA y conceptos sobre precio final) ÷ costo neto − 1">Markup final</th></tr></thead>
       <tbody class="cv-ejemplo"></tbody>
-    </table>
-    ${tipo === 'fraccionado' ? '<div class="cv-ajustes mt-4"></div>' : ''}
+    </table>`;
+  // Fraccionado ocupa el ancho completo: inputs | lectura arriba; ajustes y tramos por peso (muchas columnas) abajo, a lo ancho.
+  const cuerpo = tipo === 'fraccionado'
+    ? `<div class="grid grid-cols-2 gap-x-8 gap-y-4 items-start"><div class="min-w-0">${htmlInputsCurva(tipo, c)}
+        <p class="cv-duplica text-sm mt-3" aria-live="polite"></p></div><div class="min-w-0">${lectura}</div></div>
+        <div class="cv-ajustes mt-5 pt-4 border-t border-borde"></div><div class="cv-tramos mt-4 overflow-x-auto"></div>`
+    : `${htmlInputsCurva(tipo, c)}<p class="cv-duplica text-sm mt-3" aria-live="polite"></p><div class="mt-2">${lectura}</div>`;
+  return `<div class="cfg-card" data-guardable data-curva="${tipo}">
+    <h3 class="cfg-h">${esc(t.titulo)}</h3>
+    <p class="cfg-ayuda">${esc(t.ayuda)} Curva = a − b × ln(costo neto), acotada entre piso y techo; ganancia = curva + conceptos
+      de ganancia (las ganancias propias por producto reemplazan las dos).</p>
+    ${cuerpo}
     <p class="cv-aviso text-sm text-warn mt-3"></p>
-    <p class="cv-estado text-[11px] text-gris mt-2"></p>
-    <div class="flex flex-wrap items-center gap-2 mt-4">
-      <button type="button" class="cv-calcular px-3 py-1 rounded-lg border border-borde text-xs hover:bg-white disabled:opacity-40">Calcular desde SIGA</button>
-      <button type="button" class="cv-usar px-3 py-1 rounded-lg border border-borde text-xs hover:bg-white disabled:opacity-40"${curvaPropuesta[tipo] ? '' : ' disabled'}>Usar esta curva</button>
-      <button type="button" class="cv-guardar px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-40">Guardar curva</button>
-    </div>
-    <div class="cv-msg text-sm mt-2" role="status" aria-live="polite"></div>
+    <p class="cv-estado cfg-nota mt-2"></p>
     <div class="cv-grafico mt-3"></div>
+    <div class="cfg-pie">
+      <div class="cv-msg text-sm" role="status" aria-live="polite"></div>
+      <button type="button" class="cv-calcular cfg-btn2">Calcular desde SIGA</button>
+      <button type="button" class="cv-usar cfg-btn2" data-edita${curvaPropuesta[tipo] ? '' : ' disabled'}>Usar esta curva</button>
+      <button type="button" class="cv-guardar cfg-btn">Guardar curva</button>
+    </div>
   </div>`;
 }
 
-// Fila de ajustes por peso (puntos de ganancia que se suman a la curva), un input por tramo de la matriz.
+// Fila de ajustes por peso (puntos de ganancia que se suman a la curva), un input por tramo.
 function pintarAjustesCurva(tipo) {
   const cont = tarjetaCurva(tipo).querySelector('.cv-ajustes');
   if (!cont) return;
   const { tramosG, puntos } = curvaEdit[tipo].ajustesPeso;
-  cont.innerHTML = !tramosG.length ? '' : `<p class="text-sm mb-1">Ajuste por peso <span class="text-[11px] text-gris">(puntos de ganancia que se suman a la curva; tramos de la matriz)</span></p>
-    <div class="overflow-x-auto"><table class="text-sm"><thead class="text-ink/60"><tr>${tramosG.map(t => `<th class="font-normal pr-1 text-left whitespace-nowrap">hasta ${esc(t)} g</th>`).join('')}</tr></thead>
-      <tbody><tr>${puntos.map((v, k) => `<td class="pr-1 py-1"><input type="number" step="any" min="-100" max="100" inputmode="decimal" value="${esc(v)}"
-        aria-label="Ajuste de ganancia para presentaciones hasta ${esc(tramosG[k])} g" class="cv-ajuste w-20 px-2 py-1 rounded border border-borde text-right tabular-nums"></td>`).join('')}</tr></tbody></table></div>`;
+  cont.innerHTML = !tramosG.length ? '' : `<p class="text-sm font-semibold">Ajuste por peso <span class="cfg-nota">en puntos de ganancia que se suman a la curva; tramo = primer peso ≥ el de la presentación; sin peso → 1 kg</span></p>
+    <div class="overflow-x-auto mt-2"><table class="w-full text-sm cfg-tabla"><thead><tr>${tramosG.map(t => `<th class="pr-1 text-right whitespace-nowrap">≤ ${esc(t)} g</th>`).join('')}</tr></thead>
+      <tbody><tr>${puntos.map((v, k) => `<td class="pr-1 py-1">${campoU(`<input type="number" step="any" min="-100" max="100" inputmode="decimal" value="${esc(v)}"
+        aria-label="Ajuste de ganancia para presentaciones hasta ${esc(tramosG[k])} g" class="cv-ajuste">`, '', { w: 'w-full' })}</td>`).join('')}</tr></tbody></table></div>`;
 }
 
 // Lee la tarjeta sobre la copia editable: conserva ajustadaEl y n (sólo los cambia "Usar esta curva").
 function leerCurva(tipo) {
   const card = tarjetaCurva(tipo), v = cls => numOrNull(card.querySelector(cls).value);
-  const c = { ...curvaEdit[tipo], activa: card.querySelector('.cv-activa').checked,
+  const c = { ...curvaEdit[tipo],
     a: v('.cv-a'), b: v('.cv-b'), pisoPct: v('.cv-piso'), techoPct: v('.cv-techo') };
   if (tipo !== 'fraccionado') return c;
   const puntos = [...card.querySelectorAll('.cv-ajuste')].map(i => numOrNull(i.value) ?? 0);
   return { ...c, ajustesPeso: { tramosG: curvaEdit[tipo].ajustesPeso.tramosG, puntos } };
 }
 
-// Texto "cada vez que el costo se duplica…" y tabla de ejemplos, en vivo con lo que hay en los inputs.
+// Texto "cada vez que el costo se duplica…" y tablas de lectura, en vivo con lo que hay en los inputs.
 function pintarCurvaVivo(tipo) {
   const card = tarjetaCurva(tipo), c = curvaEdit[tipo];
   const dup = card.querySelector('.cv-duplica');
@@ -241,23 +269,41 @@ function pintarCurvaVivo(tipo) {
   dup.textContent = b == null ? 'Completá a y b para ver la curva.'
     : b >= 0 ? `Cada vez que el costo se duplica, la ganancia baja ${fmtNumCurva(b)} puntos.`
       : `Atención: con b negativo la ganancia SUBE ${fmtNumCurva(-b)} puntos cada vez que el costo se duplica.`;
-  if (typeof c.pisoPct === 'number' && typeof c.techoPct === 'number' && c.pisoPct >= c.techoPct) {
+  if (typeof c.pisoPct === 'number' && typeof c.techoPct === 'number' && c.pisoPct > c.techoPct) {
     dup.className = 'cv-duplica text-sm mt-3 text-crit';
-    dup.textContent = 'El piso tiene que ser menor que el techo.';
+    dup.textContent = 'El piso no puede ser mayor que el techo.';
   }
-  card.querySelector('.cv-ejemplo').innerHTML = filasEjemploCurva(c, gastosConfig()).map(f => `<tr class="border-t border-borde">
-    <td class="pr-6 py-0.5">${esc(fmtCostoEje(f.costo))}</td><td class="text-right pr-6">${esc(fmtPctGastos(f.ganancia))}</td>
-    <td class="text-right text-gris">${esc(fmtPctGastos(f.markup))}</td></tr>`).join('');
+  card.querySelector('.cv-ejemplo').innerHTML = filasLectura(c, tipo).map(f => `<tr class="border-t border-borde">
+    <td class="pr-6 py-0.5">${esc(fmtCostoEje(f.costo))}</td><td class="text-right pr-6">${esc(fmtPctGastos(f.gananciaCurva))}</td>
+    <td class="text-right pr-6">${esc(fmtPctGastos(f.ganancia))}</td>
+    <td class="text-right pr-6 text-gris">${esc(fmtPctGastos(f.markup))}</td><td class="text-right text-gris">${esc(fmtPctGastos(f.markupFinal))}</td></tr>`).join('');
+  pintarTramosCurva(tipo);
+}
+
+// Fraccionado: ganancia por tramo de peso en los costos de referencia (title = markup s/ neto y final).
+function pintarTramosCurva(tipo) {
+  const cont = tarjetaCurva(tipo).querySelector('.cv-tramos');
+  if (!cont) return;
+  const c = curvaEdit[tipo], tramos = (c.ajustesPeso || {}).tramosG || [];
+  if (!tramos.length) { cont.innerHTML = ''; return; }
+  const porTramo = tramos.map(t => filasLectura(c, tipo, t));
+  cont.innerHTML = `<table class="w-full text-sm tabular-nums cfg-tabla">
+    <caption class="text-left text-xs text-gris pb-1">Ganancia de la curva por tramo de peso (pasá el mouse para ver + conceptos y los markups)</caption>
+    <thead><tr><th class="text-left pr-4">Costo neto/kg</th>${tramos.map(t => `<th class="text-right px-2 whitespace-nowrap">≤ ${esc(t)} g</th>`).join('')}</tr></thead>
+    <tbody>${CURVA_COSTOS_EJEMPLO.map((costo, i) => `<tr class="border-t border-borde"><td class="pr-4 py-0.5">${esc(fmtCostoEje(costo))}</td>${porTramo.map(filas => {
+      const f = filas[i];
+      return `<td class="text-right px-2 whitespace-nowrap" title="+ conceptos ${esc(fmtPctGastos(f.ganancia))} · markup s/ neto ${esc(fmtPctGastos(f.markup))} · final ${esc(fmtPctGastos(f.markupFinal))}">${esc(fmtPctGastos(f.gananciaCurva))}</td>`;
+    }).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
 // Estado guardado + aviso de márgenes propios (sobre los listados ya cargados, sin pedir nada).
 function pintarEstadoCurva(tipo) {
   const card = tarjetaCurva(tipo), g = curvaGuardada[tipo];
   const fecha = g.ajustadaEl ? g.ajustadaEl.split('-').reverse().join('/') : null;
-  card.querySelector('.cv-estado').textContent = `Guardada: ${g.activa ? 'en uso' : 'apagada'}`
-    + (fecha ? ` · ajustada desde SIGA el ${fecha}${g.n != null ? ` con ${g.n} productos` : ''}` : '');
+  card.querySelector('.cv-estado').textContent = fecha ? `Guardada · ajustada desde SIGA el ${fecha}${g.n != null ? ` con ${g.n} productos` : ''}`
+    : 'Guardada (cargada a mano o migrada de las bandas/matriz)';
   const { n, total } = margenPropio(tipo, typeof almacenData !== 'undefined' ? almacenData : [], typeof fraccData !== 'undefined' ? fraccData : []);
-  card.querySelector('.cv-aviso').textContent = total && n / total > 0.5 ? `${n} productos tienen margen propio y no siguen la curva.` : '';
+  card.querySelector('.cv-aviso').textContent = total && n / total > 0.5 ? `${n} productos tienen ganancia propia y no siguen la curva.` : '';
 }
 
 function pintarGraficoCurva(tipo) {
@@ -281,14 +327,14 @@ function conectarTarjetaCurva(tipo) {
   card.querySelector('.cv-guardar').onclick = () => guardarCurva(tipo);
 }
 
-// La llama cargarConfiguracion (precios_config.js) con la config recién leída.
+// La llama cargarGanancia (precios_ganancia.js) con la config recién leída.
 function renderConfigCurva(cfg) {
   const cg = cfg.curvaGanancia || {};
-  const tramosG = (cfg.markupFraccionado || {}).tramosG || [];
   for (const tipo of Object.keys(CURVA_TIPOS)) {
     const cont = document.getElementById(CURVA_TIPOS[tipo].cont);
     if (!cont) continue;
-    const g = cg[tipo] || { activa: false, a: 0, b: 0, pisoPct: 0, techoPct: 100, ajustadaEl: null, n: null };
+    const g = cg[tipo] || { a: 0, b: 0, pisoPct: 0, techoPct: 100, ajustadaEl: null, n: null };
+    const tramosG = ((g.ajustesPeso || {}).tramosG) || CURVA_TRAMOS_DEFAULT;
     curvaGuardada = { ...curvaGuardada, [tipo]: g };
     curvaEdit = { ...curvaEdit, [tipo]: tipo === 'fraccionado'
       ? { ...g, ajustesPeso: { tramosG: [...tramosG], puntos: ajustesParaTramos(tramosG, g.ajustesPeso) } } : { ...g } };
@@ -317,7 +363,7 @@ async function calcularCurvaSiga(tipo) {
   } finally { btn.disabled = false; }
 }
 
-// Vuelca la propuesta a los inputs (y los ajustes por peso a los tramos de la matriz); marca la fecha y n.
+// Vuelca la propuesta a los inputs (y los ajustes por peso a los tramos de la curva); marca la fecha y n.
 function usarPropuestaCurva(tipo) {
   const p = curvaPropuesta[tipo];
   if (!p) return;
@@ -329,21 +375,22 @@ function usarPropuestaCurva(tipo) {
   [['.cv-a', p.a], ['.cv-b', p.b], ['.cv-piso', p.pisoPct], ['.cv-techo', p.techoPct]].forEach(([cls, v]) => { card.querySelector(cls).value = v; });
   pintarAjustesCurva(tipo);
   pintarCurvaVivo(tipo);
-  msgCurva(tipo, `Curva propuesta cargada: revisala${actual.activa ? '' : ', prendé "Usar curva"'} y tocá Guardar curva.`, 'text-warn');
+  msgCurva(tipo, 'Curva propuesta cargada: revisala y tocá Guardar curva.', 'text-warn');
 }
 
-// Guarda y recarga toda la Configuración (como gastos): el listado de Fraccionado se recalcula al volver.
+// Guarda y recarga la tab Ganancia: Fraccionado y Producción se recalculan al volver.
 async function guardarCurva(tipo) {
   const c = leerCurva(tipo);
-  const body = { activa: c.activa, a: c.a, b: c.b, pisoPct: c.pisoPct, techoPct: c.techoPct, ajustadaEl: c.ajustadaEl ?? null, n: c.n ?? null,
+  const body = { a: c.a, b: c.b, pisoPct: c.pisoPct, techoPct: c.techoPct, ajustadaEl: c.ajustadaEl ?? null, n: c.n ?? null,
     ...(tipo === 'fraccionado' ? { ajustesPeso: c.ajustesPeso.tramosG.length ? c.ajustesPeso : null } : {}) };
   const btn = tarjetaCurva(tipo).querySelector('.cv-guardar');
   btn.disabled = true;
   msgCurva(tipo, 'Guardando…', 'text-ink/50');
   try {
     await putJson(`/api/precios/config/curva-ganancia/${tipo}`, body);
-    fraccCargado = false; // precios_fraccionado.js: el standard de la matriz/curva cambió
-    await cargarConfiguracion(); // precios_config.js: vuelve a dibujar esta tarjeta con lo guardado
+    fraccCargado = false; // precios_fraccionado.js: el standard de la curva cambió
+    if (tipo === 'produccion') refrescarAlertasProduccion(); // precios_produccion.js
+    await cargarGanancia(); // precios_ganancia.js: vuelve a dibujar esta tarjeta con lo guardado
     msgCurva(tipo, 'Guardado.', 'text-ok');
   } catch (e) {
     msgCurva(tipo, e.message, 'text-crit');

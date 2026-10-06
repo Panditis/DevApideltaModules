@@ -45,10 +45,13 @@
 .btn-mini:hover{background:var(--green-light)}
 .btn-mini.danger{color:var(--crit);border-color:rgba(164,38,44,.35)}
 .btn-mini.danger:hover{background:rgba(164,38,44,.07)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
-.kpi .lbl{font-size:12px;color:var(--muted)}
-.kpi .val{font-weight:800;font-size:28px;color:var(--green-dark);margin-top:4px}
+/* Pocas cards y grandes. El número se dimensiona contra el ancho de su propia card (13cqw
+   del contenido): un importe de 10 dígitos ("$5.500.000.000", un año de facturación) entra
+   sin cortarse, y la letra crece sola cuando hay menos cards en la fila. */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:16px}
+.kpi{container-type:inline-size;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+.kpi .lbl{font-size:15px;font-weight:600;color:var(--muted)}
+.kpi .val{font-weight:800;font-size:clamp(22px,13cqw,56px);line-height:1.1;color:var(--green-dark);margin-top:10px;white-space:nowrap}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px}
 /* Dentro de la grilla el margen lo pone la grilla: si no, las dos columnas se desalinean. */

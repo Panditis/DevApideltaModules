@@ -659,6 +659,9 @@ app.use((req, res, next) => {
   // El login se exige sólo al entrar a un módulo marcado con requiereAuth.
   return next();
 });
+// Precios · permiso fino de Configuración (ref 'precios-config'): 403 a las rutas de configuración y vista sin
+// estructura de costos en el resto de /api/precios. Va antes de cualquier router de precios.
+app.use(require('./lib/precios_permisos').crearGuardPrecios({ tienePermiso: auth.tienePermiso }));
 
 // ── Rutas HTML ─────────────────────────────────────────────────────────────────
 app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.png')));
@@ -682,9 +685,10 @@ app.get('/js/precios_orden.js', (_req, res) => res.sendFile(path.join(__dirname,
 app.get('/js/precios_produccion_export.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_export.js')));
 app.get('/js/precios_maquinas.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_maquinas.js')));
 app.get('/js/precios_config_gastos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_gastos.js')));
-app.get('/js/precios_config_curva.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_curva.js')));
-app.get('/js/precios_config_bandas.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_bandas.js')));
-app.get('/js/precios_config_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_fraccionado.js')));
+app.get('/js/precios_costos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_costos.js')));
+app.get('/js/precios_config_curva.js',(_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_curva.js')));
+app.get('/js/precios_ganancia.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_ganancia.js')));
+app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_simulador.js')));
 app.get('/js/precios_almacen.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_almacen.js')));
 app.get('/js/precios_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_detalle.js')));
 app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config.js')));

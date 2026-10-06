@@ -6,21 +6,33 @@
 // el modal de presentación en precios_produccion_modal.js.
 // Los costos SIEMPRE salen del server (GET del detalle después de cada guardado): acá no se
 // recalcula ninguna fórmula. Plan: docs/superpowers/plans/2026-09-25-precios-fase3-produccion.md
-// Rutas: #produccion = selector · #produccion/<productoId> = detalle (recargar y "atrás" funcionan).
+// Rutas: #produccion = selector · #produccion/<productoId> = detalle (recargar y "atrás" funcionan) ·
+// #produccion/<productoId>/<plu> = detalle con esa presentación abierta (clic en la vista plana).
 
 // ── Helpers puros (sin DOM; test/precios_produccion_ui.test.js) ─────────────────
 const ID_PRODUCTO_UI = /^p-[a-z0-9-]{1,48}$/;
 const ESPECIALES = {
   _costoHora: 'Mano de obra (costo/hora)', _maquina: 'Máquina (costo/hora)', _receta: 'Receta', _correccion: 'Corrección',
 };
-// '#produccion' → selector; '#produccion/<id>' → detalle (id inválido → selector); otra cosa → null.
+const PLU_PRES_UI = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/; // PLU de SIGA o presentación provisoria
+// '#produccion' → selector; '#produccion/<id>' → detalle (id inválido → selector);
+// '#produccion/<id>/<plu>' → detalle + abrir esa presentación (plu inválido → sólo el detalle); otra cosa → null.
 function parsearHashProduccion(hash) {
   const h = String(hash || '').replace(/^#/, '');
   if (h === 'produccion') return { vista: 'selector' };
   if (!h.startsWith('produccion/')) return null;
-  let id = '';
-  try { id = decodeURIComponent(h.slice('produccion/'.length)); } catch { id = ''; }
-  return ID_PRODUCTO_UI.test(id) ? { vista: 'detalle', id } : { vista: 'selector' };
+  const dec = s => { try { return decodeURIComponent(s); } catch { return ''; } };
+  const [id, plu] = h.slice('produccion/'.length).split('/').map(dec);
+  if (!ID_PRODUCTO_UI.test(id)) return { vista: 'selector' };
+  return PLU_PRES_UI.test(plu || '') ? { vista: 'detalle', id, plu } : { vista: 'detalle', id };
+}
+
+// Qué pasos (1..4) arrancan abiertos: sólo el primero incompleto (ni 'ok' ni 'opcional'); si están todos, el 4.
+// elecciones = { paso: bool } que el usuario abrió/cerró a mano en este producto: mandan sobre el default.
+function seccionesAbiertas(estados = {}, elecciones = {}) {
+  const pasos = [1, 2, 3, 4];
+  const primera = pasos.find(n => !['ok', 'opcional'].includes(estados[n] || 'ok')) || 4;
+  return Object.fromEntries(pasos.map(n => [n, typeof elecciones[n] === 'boolean' ? elecciones[n] : n === primera]));
 }
 
 // Firma del set de alertas: si cambia (alerta nueva, otro Δ%), el toast cerrado vuelve a aparecer.
@@ -56,10 +68,10 @@ function nombreComponente(clave, nombres = {}) {
 }
 
 // Faltante (clave interna del costeo) → mensaje para humanos + acción que lo resuelve.
-// accion: { tipo: 'config' } | { tipo: 'maquinas' } | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
+// accion: { tipo: 'config' | 'maquinas' | 'ganancia' } (sub-tabs de Configuración) | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
 const FALTANTES_FIJOS = {
-  _costoHora: ['Falta el costo/hora de mano de obra — se carga en Configuración', { tipo: 'config' }, 'Ir a Configuración'],
-  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en la tab Máquinas', { tipo: 'maquinas' }, 'Ir a Máquinas'],
+  _costoHora: ['Falta el costo/hora de mano de obra — se carga en Configuración → General', { tipo: 'config' }, 'Ir a Configuración'],
+  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en Configuración → Máquinas', { tipo: 'maquinas' }, 'Ir a Máquinas'],
   rendimientoKg: ['Falta cuántos kg rinde una tanda (Kg por tanda)', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   mermaPct: ['La merma tiene que ser un % entre 0 y 99', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   receta: ['La receta elegida todavía no tiene costo: completá lo que le falta', { tipo: 'paso', paso: 1 }, 'Ir a las recetas'],
@@ -73,8 +85,12 @@ function mensajeFaltante(clave, { nombres = {}, plu = null } = {}) {
       accion: plu ? { tipo: 'abrirPres', clave: String(plu) } : null, boton: 'Elegir variedad' };
   }
   if (clave === 'markupPct') {
-    return { texto: 'Sin markup: cargá bandas de Producción en Configuración o un margen propio para este PLU',
-      accion: plu ? { tipo: 'margen', plu: String(plu) } : { tipo: 'config' }, boton: plu ? 'Cargar margen' : 'Ir a Configuración' };
+    if (typeof preciosSinConfig !== 'undefined' && preciosSinConfig) { // sin el permiso no hay Configuración (precios_almacen.js)
+      return { texto: 'Sin markup standard: cargá un margen propio para este PLU o pedí que revisen la configuración',
+        accion: plu ? { tipo: 'margen', plu: String(plu) } : null, boton: plu ? 'Cargar margen' : '' };
+    }
+    return { texto: 'Sin markup: revisá la curva de Producción (Configuración → Ganancia) o cargá un margen propio para este PLU',
+      accion: plu ? { tipo: 'margen', plu: String(plu) } : { tipo: 'ganancia' }, boton: plu ? 'Cargar margen' : 'Ir a Ganancia' };
   }
   const nombre = nombres[clave];
   const texto = /^\d+$/.test(clave)
@@ -97,7 +113,7 @@ function progresoProducto(det) {
     { clave: 'base', paso: 1, texto: 'Receta base', estado: !bases.length ? 'falta' : bases.some(r => r.costoKg != null) ? 'ok' : 'parcial',
       detalle: !bases.length ? 'cargá ingredientes y kg por tanda' : bases.some(r => r.costoKg != null) ? 'con costo/kg' : 'le faltan datos para costear' },
     { clave: 'variedades', paso: 2, texto: 'Variedades', estado: variedades.length ? 'ok' : 'falta',
-      detalle: variedades.length ? `${variedades.length} cargada${variedades.length === 1 ? '' : 's'}` : 'al menos una (puede ser sin extras)' },
+      detalle: variedades.length ? `${variedades.length} cargada${variedades.length === 1 ? '' : 's'}` : 'se crea sola al guardar la receta base' },
     { clave: 'insumos', paso: 3, texto: 'Insumos', estado: nInsumos ? 'ok' : 'opcional', detalle: nInsumos ? `${nInsumos} en la lista` : 'opcional' },
     { clave: 'presentaciones', paso: 4, texto: 'Presentaciones con precio', estado: !pres.length ? 'falta' : conPrecio === pres.length ? 'ok' : 'parcial',
       detalle: pres.length ? `${conPrecio} de ${pres.length} con precio` : 'ninguna todavía' },
@@ -116,6 +132,30 @@ function pasosHabilitados(det) {
   const p4 = !hayBase ? p2 : hayVariedad ? libre
     : { ok: false, motivo: 'Primero creá una variedad (paso 2). Si el producto no tiene sabores, una variedad sin extras.', paso: 2 };
   return { 1: libre, 2: p2, 3: libre, 4: p4 };
+}
+
+// Panel "Para revisar" arriba del detalle: qué cambió (con su paso), qué falta para costear (sin repetir,
+// con la acción que lo resuelve) y qué presentaciones tienen el vigente fuera de tolerancia.
+function alertasDetalle(det, nombres = {}) {
+  const recetas = Object.entries((det && det.recetas) || {}), pres = Object.values((det && det.presentaciones) || {});
+  const delta = f => (f.cambios && f.cambios.deltaPct != null ? f.cambios.deltaPct : null);
+  const cambios = [
+    ...recetas.filter(([, r]) => estadoFila(r) === 'cambio')
+      .map(([id, r]) => ({ tipo: 'receta', id, nombre: r.nombre || id, paso: r.varianteDe ? 2 : 1, deltaPct: delta(r) })),
+    ...pres.filter(p => estadoFila(p) === 'cambio')
+      .map(p => ({ tipo: 'presentacion', id: String(p.plu), nombre: p.nombre || String(p.plu), paso: 4, deltaPct: delta(p) })),
+  ];
+  const faltantes = [], vistos = new Set();
+  const sumar = (claves, quien, plu = null) => [...new Set(claves || [])].forEach(k => {
+    const m = mensajeFaltante(k, { nombres, plu });
+    const firma = m.texto + JSON.stringify(m.accion);
+    if (!vistos.has(firma)) { vistos.add(firma); faltantes.push({ ...m, quien }); }
+  });
+  recetas.forEach(([id, r]) => sumar(r.faltantes, r.nombre || id));
+  pres.forEach(p => sumar([...(p.faltantes || []), ...((p.avisos || []).includes('variedad') ? ['variedad'] : [])], p.nombre || String(p.plu), String(p.plu)));
+  const precios = pres.filter(p => !(p.faltantes || []).length && (p.semaforo === 'subir' || p.semaforo === 'bajar'))
+    .map(p => ({ plu: String(p.plu), nombre: p.nombre || String(p.plu), semaforo: p.semaforo, deltaPct: p.deltaPct ?? null }));
+  return { cambios, faltantes, precios, total: cambios.length + faltantes.length + precios.length };
 }
 
 // Texto del toast: título + las 3 primeras alertas (producto · nombre · Δ%).
@@ -254,8 +294,8 @@ function importeEmpaque(componentes) {
 
 if (typeof module === 'object' && module.exports) {
   module.exports = {
-    parsearHashProduccion, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
-    mensajeFaltante, progresoProducto, pasosHabilitados, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
+    parsearHashProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
+    mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
     slugProd, idRecetaNueva, idCategoriaNueva, idManualNuevo, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido, importeEmpaque,
     // Orden de tablas: vive en precios_orden.js (compartido por todos los tabs).
@@ -268,8 +308,11 @@ const API_PROD = '/api/precios/produccion';
 let prodLista = null;          // filas del selector
 let prodBusqueda = '';
 let prodSoloCambios = false;
+let prodSoloRevisar = false;   // vista plana: sólo presentaciones con semáforo subir/bajar
+const VISTA_KEY = 'precios.produccion.vista';
+let prodVista = (() => { try { return sessionStorage.getItem(VISTA_KEY) === 'presentaciones' ? 'presentaciones' : 'productos'; } catch { return 'productos'; } })();
 let prodDet = null;            // detalle del producto abierto, tal como vino del server
-let prodSeccionesCerradas = new Set(); // pasos plegados por el usuario (se respetan al recargar)
+let prodSeccionesElegidas = {}; // paso → abierto/cerrado a mano por el usuario (se resetea al cambiar de producto)
 let prodAlertas = { total: 0, items: [] };
 const TOAST_KEY = 'precios.produccion.toastCerrado';
 
@@ -404,11 +447,11 @@ function rutearProduccion() {
   const r = parsearHashProduccion(location.hash);
   if (!r) { if (tabActiva() === 'produccion') activarTab('almacen'); return; }
   activarTab('produccion');
-  if (r.vista === 'detalle') cargarDetalleProduccion(r.id);
+  if (r.vista === 'detalle') cargarDetalleProduccion(r.id, { abrirPlu: r.plu || null });
   else cargarSelectorProduccion();
 }
-function irAProduccion(id) {
-  const h = id ? '#produccion/' + encodeURIComponent(id) : '#produccion';
+function irAProduccion(id, plu = null) {
+  const h = id ? '#produccion/' + encodeURIComponent(id) + (plu ? '/' + encodeURIComponent(plu) : '') : '#produccion';
   if (location.hash === h) rutearProduccion(); else location.hash = h;
 }
 // Al ir a otra tab se saca el hash (entrada nueva: "atrás" vuelve a Producción).
@@ -425,77 +468,134 @@ async function cargarSelectorProduccion() {
   try {
     prodLista = await getJson(API_PROD + '/productos');
     tomarExportProd(prodLista); // precios_produccion_export.js: presentaciones marcables/marcadas
-    pintarFilasSelector();
+    pintarListadoProd();
   } catch (e) {
-    document.getElementById('prCuerpo').innerHTML = `<tr><td colspan="6" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+    const tbody = document.querySelector('#prCuerpo, #prPlanas');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${COLS_SELECTOR}" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
+const COLS_SELECTOR = 7;
+const esVistaPlana = () => prodVista === 'presentaciones';
+const pintarListadoProd = () => (esVistaPlana() ? pintarFilasPlanas() : pintarFilasSelector()); // pintarFilasPlanas: precios_produccion_export.js
+// Toggle "Por producto" | "Todas las presentaciones": re-arma el marco con los datos ya cargados (sin otro GET).
+function cambiarVistaProd(vista) {
+  if (vista === prodVista) return;
+  prodVista = vista;
+  try { sessionStorage.setItem(VISTA_KEY, vista); } catch { /* sin storage: dura hasta recargar */ }
+  panelProd().innerHTML = htmlSelectorMarco();
+  conectarSelector();
+  if (prodLista) pintarListadoProd();
+}
+const htmlToggleVista = () => `<div class="pr-vista" role="group" aria-label="Ver el listado">${[['productos', 'Por producto'], ['presentaciones', 'Todas las presentaciones']]
+  .map(([v, t]) => `<button type="button" data-vista="${v}" aria-pressed="${prodVista === v}">${t}</button>`).join('')}</div>`;
+const htmlTablaSelector = () => `<table class="pr-tabla pr-sel">
+        <thead><tr><th class="text-left" data-orden="nombre">Producto</th><th class="num" data-orden="variantes">Variedades</th>
+          <th class="num" data-orden="presentaciones">Presentaciones</th><th class="num" data-orden="costo">Costo/kg base</th>
+          <th data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="text-left" data-orden="estado">Estado</th><th class="w-10"><span class="sr-only">Abrir</span></th></tr></thead>
+        <tbody id="prCuerpo"><tr><td colspan="${COLS_SELECTOR}">${cargandoHtml('Cargando…')}</td></tr></tbody>
+      </table>`;
+// Listado: encabezado con CTA, tiras de resumen, toggle de vista, buscador y tabla (por producto o todas las presentaciones).
 function htmlSelectorMarco() {
+  const plana = esVistaPlana();
+  const filtro = plana
+    ? `<button id="prSoloRevisar" class="fbtn${prodSoloRevisar ? ' on' : ''}" aria-pressed="${prodSoloRevisar}" title="Vigente de SIGA fuera de tolerancia (subir o bajar)">A revisar <span id="prNRevisar"></span></button>`
+    : `<button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>`;
+  const ph = plana ? 'Buscar presentación, producto o PLU…' : 'Buscar producto…';
   return `
-    <div class="flex gap-2 mb-3 items-center flex-wrap bg-card border border-borde rounded-xl shadow-fluent px-3 py-2.5">
-      <input id="prBuscar" type="search" placeholder="Buscar producto…" value="${esc(prodBusqueda)}"
-             class="px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72 max-w-full focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20">
-      <button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>
-      <span id="prConteo" class="text-sm text-gris"></span>
-      <button id="prNuevo" class="ml-auto ${btnPrim}">+ Nuevo producto</button>
+    <div class="pr-cab">
+      <div><h2 class="pr-tit">Productos de producción</h2>
+        <p class="cfg-cab !mb-0">Cada producto se costea en 4 pasos: <b>receta base → variedades → insumos → presentaciones y precios</b>. Abrí uno para ver su costo y precio sugerido.</p></div>
+      <span class="flex gap-2 shrink-0"><button id="prNuevoSiga" class="cfg-btn2" title="Crea el producto con la receta base y los insumos de la fórmula de un producto de SIGA">Nuevo desde fórmula SIGA</button>
+        <button id="prNuevo" class="cfg-btn pr-cta">+ Nuevo producto</button></span>
     </div>
-    <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card">
-      <table class="w-full text-sm">
-        <thead class="bg-verde/5 text-verde"><tr><th class="p-2 text-left" data-orden="nombre">Producto</th><th class="p-2" data-orden="variantes">Variedades</th>
-          <th class="p-2" data-orden="presentaciones">Presentaciones</th><th class="p-2 text-right" data-orden="costo">Costo/kg base</th>
-          <th class="p-2" data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="p-2" data-orden="estado">Estado</th></tr></thead>
-        <tbody id="prCuerpo"><tr><td colspan="6">${cargandoHtml('Cargando…')}</td></tr></tbody>
-      </table>
+    <div id="prKpis" class="pr-kpis" aria-live="polite"></div>
+    <div class="pr-filtros">
+      ${htmlToggleVista()}
+      <input id="prBuscar" type="search" placeholder="${ph}" value="${esc(prodBusqueda)}" aria-label="${ph.slice(0, -1)}" class="campo-t w-80">
+      ${filtro}
+      <span id="prConteo" class="ml-auto text-sm text-gris"></span>
+    </div>
+    <div class="pr-tabla-caja">
+      ${plana ? htmlTablaPlanas() /* precios_produccion_export.js */ : htmlTablaSelector()}
     </div>`;
 }
-function conectarSelector() {
-  document.getElementById('prBuscar').addEventListener('input', e => { prodBusqueda = e.target.value; pintarFilasSelector(); });
-  document.getElementById('prSoloCambios').onclick = e => {
-    prodSoloCambios = !prodSoloCambios;
-    e.currentTarget.classList.toggle('on', prodSoloCambios);
-    e.currentTarget.setAttribute('aria-pressed', String(prodSoloCambios));
-    pintarFilasSelector();
-  };
-  document.getElementById('prNuevo').onclick = nuevoProducto;
-  montarOrdenSelectorProd(); // precios_orden.js
+// Fecha de precio más vieja del producto, si pasó DIAS_PRECIO_VIEJO (precios_orden.js).
+const precioViejoProd = p => { const r = rangoFechas((p.exportables || []).map(e => e.fechaPrecio)); return !!(r && esPrecioViejo(r.min)); };
+function htmlKpisSelector() {
+  const l = prodLista || [];
+  const kpi = (n, txt, cls, tip) => `<div class="pr-kpi ${n ? cls : 'k-cero'}" title="${esc(tip)}"><b>${n}</b><span>${txt}</span></div>`;
+  return kpi(l.length, l.length === 1 ? 'producto' : 'productos', 'k-neutro', 'Productos de producción cargados')
+    + kpi(l.reduce((s, p) => s + p.presentaciones, 0), 'presentaciones', 'k-neutro', 'PLUs vendibles en total')
+    + kpi(l.filter(p => p.alertas > 0).length, 'con costos que cambiaron', 'k-warn', TIT_CAMBIO)
+    + kpi(l.filter(p => p.faltantes > 0).length, 'con datos faltantes', 'k-crit', 'Recetas o presentaciones que no se pueden costear')
+    + kpi(l.filter(precioViejoProd).length, `con precio de más de ${DIAS_PRECIO_VIEJO} días`, 'k-warn', 'Alguna presentación sin cambio de precio en SIGA hace mucho');
 }
+function pintarKpisProd() {
+  const k = document.getElementById('prKpis');
+  if (k) k.innerHTML = prodLista && prodLista.length ? htmlKpisSelector() : '';
+}
+function conectarSelector() {
+  document.getElementById('prBuscar').addEventListener('input', e => { prodBusqueda = e.target.value; pintarListadoProd(); });
+  const filtro = document.getElementById(esVistaPlana() ? 'prSoloRevisar' : 'prSoloCambios');
+  filtro.onclick = () => {
+    const on = esVistaPlana() ? (prodSoloRevisar = !prodSoloRevisar) : (prodSoloCambios = !prodSoloCambios);
+    filtro.classList.toggle('on', on);
+    filtro.setAttribute('aria-pressed', String(on));
+    pintarListadoProd();
+  };
+  document.querySelectorAll('.pr-vista [data-vista]').forEach(b => { b.onclick = () => cambiarVistaProd(b.dataset.vista); });
+  document.getElementById('prNuevo').onclick = nuevoProducto;
+  document.getElementById('prNuevoSiga').onclick = abrirNuevoDesdeSiga; // precios_produccion_formula.js
+  if (esVistaPlana()) montarOrdenPlanasProd(); else montarOrdenSelectorProd(); // precios_produccion_export.js / precios_orden.js
+}
+// Estado del producto: chips accionables a simple vista (cambios, faltantes, precio viejo) o "al día".
 function htmlEstadoSelector(p) {
   const partes = [];
-  if (p.alertas) partes.push(chip(`${p.alertas} ${p.alertas === 1 ? 'cambio' : 'cambios'}`, 'bg-warn/15 text-warn'));
-  if (p.faltantes) partes.push(chip(`${p.faltantes} con faltantes`, 'bg-gris/15 text-gris'));
-  return partes.join(' ') || '<span class="text-xs text-gris">sin alertas</span>';
+  if (p.alertas) partes.push(chip(`● ${p.alertas} ${p.alertas === 1 ? 'costo cambió' : 'costos cambiaron'}`, 'bg-warn/15 text-warn'));
+  if (p.faltantes) partes.push(chip(`${p.faltantes} con faltantes`, 'bg-crit/10 text-crit'));
+  if (precioViejoProd(p)) partes.push(chip(`precio +${DIAS_PRECIO_VIEJO} días`, 'bg-amarillo/30 text-ink'));
+  if (!p.presentaciones) partes.push(chip('sin presentaciones', 'bg-gris/15 text-gris'));
+  return partes.join(' ') || chip('✓ al día', 'bg-ok/15 text-ok');
+}
+// Presentaciones: total + cuántas tienen precio sugerido (exportables = las que tienen PLU de SIGA).
+function htmlPresSelector(p) {
+  if (!p.presentaciones) return '<span class="text-gris">—</span>';
+  const conPrecio = (p.exportables || []).filter(e => e.precioConIva != null).length;
+  return `<b>${p.presentaciones}</b><span class="pr-sub">${conPrecio} con precio</span>`;
 }
 function pintarFilasSelector() {
   const tbody = document.getElementById('prCuerpo');
   if (!tbody || !prodLista) return;
   const q = normTxt(prodBusqueda.trim());
   const filas = ordenarSelectorProd(prodLista.filter(p => (!q || normTxt(p.nombre).includes(q)) && (!prodSoloCambios || p.alertas > 0)));
+  pintarKpisProd();
   document.getElementById('prConteo').textContent = prodLista.length ? `${filas.length} de ${prodLista.length} productos` : '';
   document.getElementById('prNCambios').textContent = `(${prodLista.filter(p => p.alertas > 0).length})`;
-  if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="6">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
-  if (!filas.length) { tbody.innerHTML = '<tr><td colspan="6" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>'; return; }
+  if (!prodLista.length) { tbody.innerHTML = `<tr><td colspan="${COLS_SELECTOR}">${htmlSelectorVacio()}</td></tr>`; conectarSelectorVacio(); return; }
+  if (!filas.length) { tbody.innerHTML = `<tr><td colspan="${COLS_SELECTOR}" class="p-10 text-center text-ink/50">Ningún producto coincide</td></tr>`; return; }
   tbody.innerHTML = filas.map(p => `
-    <tr class="border-t border-borde cursor-pointer hover:bg-verde/5${p.alertas > 0 ? ' ' + MARCA_CAMBIO : ''}" data-id="${esc(p.id)}">
-      <td class="p-2">${p.alertas > 0 ? `<span class="text-warn mr-1" title="${esc(TIT_CAMBIO)}">●</span>` : ''}<a href="#produccion/${esc(encodeURIComponent(p.id))}" class="font-semibold text-verde hover:text-verdeHover">${esc(p.nombre)}</a></td>
-      <td class="p-2 text-center tabular-nums">${p.variantes}</td>
-      <td class="p-2 text-center tabular-nums">${p.presentaciones}</td>
-      <td class="p-2 text-right tabular-nums">${p.costoKgBase != null ? '$ ' + fmtMoney(p.costoKgBase) : '—'}</td>
-      ${htmlFechaPrecio((p.exportables || []).map(e => e.fechaPrecio))}
-      <td class="p-2 text-center">${htmlEstadoSelector(p)}</td>
+    <tr class="pr-fila-prod${p.alertas > 0 ? ' pr-cambio' : ''}" data-id="${esc(p.id)}">
+      <td><a href="#produccion/${esc(encodeURIComponent(p.id))}" class="pr-nombre-prod">${esc(p.nombre)}</a></td>
+      <td class="num">${p.variantes || '<span class="text-gris">—</span>'}</td>
+      <td class="num">${htmlPresSelector(p)}</td>
+      <td class="num">${p.costoKgBase != null ? '<b>$ ' + fmtMoney(p.costoKgBase) + '</b><span class="pr-sub">por kg</span>' : '<span class="text-gris">—</span>'}</td>
+      ${htmlFechaPrecio((p.exportables || []).map(e => e.fechaPrecio), 'pr-td')}
+      <td><div class="flex flex-wrap gap-1">${htmlEstadoSelector(p)}</div></td>
+      <td class="text-right"><span class="pr-abrir" aria-hidden="true">›</span></td>
     </tr>`).join('');
   tbody.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.closest('a')) irAProduccion(tr.dataset.id); });
 }
 // Selector vacío: el flujo en 4 pasos + CTA.
 const PASOS_FLUJO = [
   ['Receta base', 'ingredientes de una tanda de máquina y cuántos kg rinde'],
-  ['Variedades (opcional)', 'la base + 1 o 2 ingredientes extra, ej. Pepas de membrillo'],
+  ['Variedades (opcional)', 'la sin extras se crea sola con la receta base; agregá otras solo si tiene sabores, ej. Pepas de membrillo'],
   ['Insumos', 'envases, etiquetas, tapas y precintos que usa el producto'],
   ['Presentaciones', 'cada PLU vendible (250 g, 500 g, 1 kg…) con su precio sugerido'],
 ];
 function htmlSelectorVacio() {
   return `<div class="p-6 sm:p-10 max-w-xl mx-auto text-left">
     <h3 class="font-disp text-lg font-bold text-ink">Todavía no hay productos de producción</h3>
-    <p class="text-sm text-gris mt-1">Un producto (Granola, Pepas…) se arma en 4 pasos y el módulo calcula costo y precio sugerido:</p>
+    <p class="text-sm text-gris mt-1">Un producto (Granola, Pepas…) se arma en 4 pasos y el módulo calcula costo y precio sugerido. Si ya existe en SIGA, usá <b>Nuevo desde fórmula SIGA</b>.</p>
     <ol class="mt-4 space-y-2">${PASOS_FLUJO.map(([t, d], i) => `<li class="flex gap-3 text-sm">
       <span class="w-6 h-6 shrink-0 rounded-full bg-verde/10 text-verde font-bold grid place-items-center text-xs">${i + 1}</span>
       <span><b>${t}</b> <span class="text-gris">— ${d}</span></span></li>`).join('')}</ol>
@@ -512,15 +612,21 @@ async function nuevoProducto() {
 }
 
 // ── Vista 2: detalle del producto (flujo guiado; lo pinta precios_produccion_detalle.js) ──
-async function cargarDetalleProduccion(id, { silencioso = false } = {}) {
+// abrirPlu (ruta #produccion/<id>/<plu>, desde la vista plana): abre esa presentación y deja el hash en el detalle.
+async function cargarDetalleProduccion(id, { silencioso = false, abrirPlu = null } = {}) {
   const panel = panelProd();
   if (!silencioso) panel.innerHTML = cargandoHtml('Cargando producto…');
   try {
     const d = await getJson(urlProd(id));
     const mismo = prodDet && prodDet.id === d.id;
     prodDet = d;
+    if (!mismo) prodSeccionesElegidas = {};
     iniciarEdicionesProd(mismo); // precios_produccion_detalle.js
     pintarDetalleProduccion();
+    if (abrirPlu) {
+      history.replaceState(null, '', '#produccion/' + encodeURIComponent(id));
+      if (prodDet.presentaciones[abrirPlu]) abrirPresentacion(abrirPlu); // precios_produccion_modal.js
+    }
   } catch (e) {
     panel.innerHTML = `<div class="p-8 text-center"><p class="text-crit mb-3">No se pudo cargar: ${esc(e.message)}</p>
       <a href="#produccion" class="text-verde hover:text-verdeHover">← Productos</a></div>`;
@@ -532,9 +638,10 @@ async function recargarDetalleProd() {
   refrescarAlertasProduccion();
 }
 // Corre fn (un guardado); errores del server en el diálogo themed; al terminar, recarga y confirma.
+// msgOk puede ser una función: se evalúa después del guardado (mensaje según la respuesta).
 async function guardarProd(fn, btn, msgOk = 'Guardado') {
   if (btn) btn.disabled = true;
-  try { await fn(); await recargarDetalleProd(); avisoExito(msgOk); return true; }
+  try { await fn(); await recargarDetalleProd(); avisoExito(typeof msgOk === 'function' ? msgOk() : msgOk); return true; }
   catch (e) { avisar(e.message); return false; }
   finally { if (btn && document.contains(btn)) btn.disabled = false; }
 }
@@ -586,6 +693,7 @@ function pintarToast() {
   document.getElementById('prToastVer').onclick = () => {
     const dest = destinoToast(prodAlertas.items);
     prodSoloCambios = dest.soloCambios;
+    if (dest.soloCambios) prodVista = 'productos'; // el filtro "con cambios" es de la vista por producto
     if (location.hash === dest.hash) rutearProduccion(); else location.hash = dest.hash;
   };
   document.getElementById('prToastX').onclick = () => { toastCerradoMem = firma; guardarCerrado(firma); pintarToast(); };

@@ -4,10 +4,11 @@
 // Script clásico (no módulo) cargado después de precios_almacen.js: comparte sus globales (esc, fmtMoney, ...).
 
 // ── Almacén: detalle (modal) — resultado arriba + la cuenta como una ecuación ──
-// Deja editar costo base, costos extra, margen y precio final con vista previa en vivo.
-// Misma fórmula que lib/precios_costeo.js: (costo + varios% + costos extra) × (1+markup%) →
-// múltiplo de $50 (sin ×1,21: el costo ya viene con IVA; precioFinalCli en precios_orden.js). "Guardar"
-// persiste los valores manuales del producto; elegir "Sistema" / "volver a la banda" vuelven al automático.
+// Deja editar costo base, costos extra, ganancia y precio final con vista previa en vivo.
+// Misma fórmula que lib/precios_costeo.js: costo real = costo neto ÷ (1 − gastos); precio neto = costo real ×
+// (1 + ganancia), + IVA de venta, ÷ (1 − conceptos sobre precio final) → múltiplo de $50 (desgloseCli/precioFinalCli en
+// precios_orden.js). "Guardar"
+// persiste los valores manuales del producto; elegir "Sistema" / "volver a la curva" vuelven al automático.
 const PASO_PRECIO = 50;
 const redondear50 = n => Math.round(n / PASO_PRECIO) * PASO_PRECIO;
 const r2 = n => Math.round(n * 100) / 100;
@@ -16,39 +17,33 @@ const chip = (txt, cls) => `<span class="px-1.5 py-0.5 rounded text-[11px] font-
 const inputCls = 'px-2 py-1 rounded-lg border border-borde text-right tabular-nums focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
 
 let det = null;        // fila del detalle tal como vino del server
-let detCfg = null;     // { bandas, toleranciaPct, gastosVentaPct, curva } para recalcular la banda en vivo
-let detEstado = null;  // { costoFuente: 'sistema'|'ultimaCompra'|'manual', markupManual } editable
+let detCfg = null;     // { toleranciaPct, gastosVentaPct, curva, gastos, conceptos, conceptosPct } para recalcular en vivo
+let detEstado = null;  // { costoFuente: 'sistema'|'ultimaCompra'|'manual', markupManual } editable (markupManual = ganancia propia)
 let detInicial = null; // estado al abrir, para saber si hay cambios sin guardar
 let detEditandoFinal = false; // el usuario está tipeando el precio final: no pisar ese input
-// Markup exacto (hasta 6 decimales, ej. el que deja "Alinear con SIGA"). El input lo muestra a
-// 2 decimales; mientras el usuario no tipee en el input, el cálculo y el guardado usan éste.
-let detMarkupExacto = null;
+// Ganancia propia exacta (hasta 6 decimales, ej. la que deja "Alinear con SIGA"). El input la muestra a
+// 2 decimales; mientras el usuario no tipee en el input, el cálculo y el guardado usan ésta.
+let detGananciaExacta = null;
 const fmtMarkupInput = m => m == null ? '' : r2(m);
-function markupActual(){
-  if (detEstado.markupManual && detMarkupExacto != null) return detMarkupExacto;
+function gananciaActual(){
+  if (detEstado.markupManual && detGananciaExacta != null) return detGananciaExacta;
   return numOrNull(document.getElementById('inMarkup').value);
 }
+// Markup total s/ neto de la ganancia propia con los gastos de Reventa.
+const markupActual = () => markupDesdeGananciaCli(gananciaActual(), detCfg.gastosVentaPct);
 
-// La banda guarda GANANCIA: markup = total con los gastos sobre venta (espejo de calcularFilaAlmacen,
-// markupDesdeGananciaCli en precios_config_gastos.js); ganancia queda para mostrar el desglose.
-// Con la curva de Almacén activa la ganancia sale de la curva (gananciaPorCurvaCliente) y la banda es "curva".
-function bandaParaCosto(costo){
-  if (costo == null) return null;
-  if (detCfg.curva && detCfg.curva.activa === true) {
-    const ganancia = gananciaPorCurvaCliente(detCfg.curva, costo);
-    const markup = markupDesdeGananciaCli(ganancia, detCfg.gastosVentaPct);
-    return markup == null ? null : { markup, ganancia, label: 'curva' };
-  }
-  for (const b of detCfg.bandas) {
-    if (b.costoHastaARS === null || costo <= b.costoHastaARS) {
-      const markup = markupDesdeGananciaCli(b.markupMaxPct, detCfg.gastosVentaPct);
-      if (markup == null) return null;
-      return { markup, ganancia: b.markupMaxPct, label: b.costoHastaARS === null ? 'sin tope' : `hasta $ ${fmtPrecio(b.costoHastaARS)}` };
-    }
-  }
-  return null;
+// Ganancia standard = curva de Reventa (sobre el costo base NETO) + conceptos de ganancia; markup = total con los
+// gastos del tipo (espejo de markupAlmacen/calcularFilaAlmacen). null sin costo o con gastos desconocidos.
+function bandaParaCosto(costoNeto){
+  if (costoNeto == null) return null;
+  const curva = gananciaPorCurvaCliente(detCfg.curva, costoNeto);
+  const ganancia = curva == null ? null : +(curva + detCfg.conceptosPct).toFixed(6);
+  const markup = markupDesdeGananciaCli(ganancia, detCfg.gastosVentaPct);
+  return markup == null ? null : { markup, ganancia, curva, label: 'curva' };
 }
-const desgloseBanda = b => `${textoGananciaGastos(b.ganancia, detCfg.gastosVentaPct)} = ${fmtPctGastos(b.markup)}`;
+// Sin el permiso de Configuración la "curva" es la de markup s/ neto (config pública): sólo se muestra el total.
+const desgloseBanda = b => (preciosSinConfig ? fmtPctGastos(b.ganancia)
+  : `curva ${fmtPctGastos(b.curva)}${detCfg.conceptosPct ? ` + conceptos ${fmtPctGastos(detCfg.conceptosPct)}` : ''} = ${fmtPctGastos(b.ganancia)}`);
 
 async function abrirDetalle(plu){
   const body = document.getElementById('mDetBody');
@@ -56,21 +51,24 @@ async function abrirDetalle(plu){
   try {
     const [rd, rc] = await Promise.all([
       fetch('/api/precios/detalle/' + encodeURIComponent(plu)),
-      fetch('/api/precios/config'),
+      fetchConfigPrecios(), // precios_almacen.js: sin el permiso, la config pública (markup s/ neto, gastos 0)
     ]);
     const j = await rd.json(), c = await rc.json();
     if (j.error) throw new Error(j.error);
     if (c.error) throw new Error(c.error);
     det = j;
-    detCfg = { bandas: (c.bandasMarkup || {}).almacen || [], toleranciaPct: Number(c.toleranciaPct) || 0,
-      gastosVentaPct: Number(c.gastosVentaPct) || 0, curva: (c.curvaGanancia || {}).almacen || null };
-    detEstado = { costoFuente: j.costoFuente || 'sistema', markupManual: j.markupOverride != null };
-    detInicial = { ...detEstado, costoManualValor: j.costoOverride, markup: j.markupPct };
+    detCfg = { toleranciaPct: Number(c.toleranciaPct) || 0,
+      gastosVentaPct: gastosTipoCli(c, 'almacen', j), curva: (c.curvaGanancia || c.curvaMarkup || {}).almacen || null,
+      gastos: gastosDesgloseCli(c, 'almacen'), // precios_orden.js
+      conceptos: conceptosCli(c), conceptosPct: totalConceptosCli(conceptosCli(c)),
+      conceptosFinal: conceptosFinalCli(c), finalPct: totalConceptosCli(conceptosFinalCli(c)) };
+    detEstado = { costoFuente: j.costoFuente || 'sistema', markupManual: j.gananciaOverride != null };
+    detInicial = { ...detEstado, costoManualValor: j.costoOverride, ganancia: j.gananciaOverride ?? null };
     detalleListo(j.nombre, j.plu, j);
     body.innerHTML = htmlDetalle(j);
     document.getElementById('inCosto').value = j.costoOverride ?? '';
-    detMarkupExacto = j.markupPct ?? null;
-    document.getElementById('inMarkup').value = fmtMarkupInput(j.markupPct);
+    detGananciaExacta = j.gananciaOverride ?? null;
+    document.getElementById('inMarkup').value = fmtMarkupInput(j.gananciaOverride ?? j.gananciaBanda);
     iniciarCostosExtra(j.costosExtra, '$', recalcularDetalle);
     conectarDetalle();
     recalcularDetalle();
@@ -110,15 +108,15 @@ function htmlDetalle(j){
 
     <div class="mt-2" role="group" aria-label="Cálculo del precio">
       ${htmlCostoBase(j, '$')}
-      ${renglon('+', `<span class="text-gris">Costos varios <span class="text-xs">${esc(j.costosVariosPct || 0)}% del costo</span></span>`,
-        '<span id="dCostoVarios" class="ec-val text-gris">—</span>', 'sec s-costo')}
-      ${htmlCostosExtra('$', '$ = monto fijo por unidad; % = sobre el costo base. La banda de margen se busca con el costo base.')}
-      ${renglon('×', `<div class="min-w-0"><label for="inMarkup" class="font-semibold">Margen</label> <span id="dChipMarkup"></span>
+      ${htmlCostosExtra('$', '$ = monto fijo por unidad; % = sobre el costo base. La curva de ganancia se busca con el costo base.')}
+      ${renglon('×', `<div class="min-w-0"><label for="inMarkup" class="font-semibold">${segunPermiso('Ganancia <span class="font-normal text-xs text-gris">(% s/ costo real: curva + conceptos, o propia)</span>',
+          'Markup <span class="font-normal text-xs text-gris">(% s/ costo neto: standard o propio)</span>')}</label> <span id="dChipMarkup"></span>
           <div class="text-xs text-gris mt-0.5"><span id="dInfoMarkup"></span>
-            <button type="button" id="btnUsarBanda" class="hidden ml-1 text-verde underline underline-offset-2 hover:text-verdeHover">volver a la banda</button></div></div>`,
+            <button type="button" id="btnUsarBanda" class="hidden ml-1 text-verde underline underline-offset-2 hover:text-verdeHover">${segunPermiso('volver a la curva', 'volver al standard')}</button></div></div>`,
         '<span class="ec-val text-gris"><input id="inMarkup" type="number" min="-99" step="any" inputmode="decimal" class="num-in w-24 text-lg font-semibold text-ink"> %</span>', 'sec s-margen')}
+      <div id="dDesglose"></div>
       ${renglon('=', `<div class="min-w-0"><label for="inFinal" class="font-semibold text-verde">Precio final</label>
-          <div id="dFinalInfo" class="text-xs text-gris mt-0.5">costo × (1 + margen) = <span id="dNeto" class="tabular-nums">—</span> · redondeo a $50</div></div>`,
+          <div id="dFinalInfo" class="text-xs text-gris mt-0.5">precio neto + IVA = <span id="dNeto" class="tabular-nums">—</span> · redondeo a $50</div></div>`,
         `<span class="ec-val text-gris">$ <input id="inFinal" type="number" min="0" step="50" inputmode="numeric" aria-describedby="dFinalInfo"
             title="Escribí el precio que querés: se recalcula el margen" class="num-in w-32 text-lg font-bold text-verde"></span>`, 'sec s-final')}
     </div>
@@ -133,8 +131,8 @@ const chipFuenteCosto = fuente => fuente === 'manual' || fuente === 'ultimaCompr
   ? chip(fuente === 'manual' ? 'manual' : 'últ. compra', 'bg-amarillo/30 text-ink') + ' ' : '';
 const ETIQUETA_SEG_COSTO = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
 
-// Cada opción muestra el valor que entra en la cuenta, tal cual lo manda el server: sistema = PrecioCosto de
-// SIGA; última compra = el comprobante (factura: neto + IVA; cotización: tal cual).
+// Cada opción muestra el valor NETO que entra en la cuenta, como lo manda el server: sistema = PrecioCosto de
+// SIGA ÷ (1 + alícuota); última compra = PrecioNeto del comprobante (factura o cotización).
 function htmlCostoBase(j, unidad){
   const seg = (fuente, valor, habilitado = valor != null) => `
         <button type="button" data-fuente="${fuente}" aria-pressed="false" class="costo-opt seg-opt"${habilitado ? '' : ' disabled'}>
@@ -142,7 +140,7 @@ function htmlCostoBase(j, unidad){
   return `
     <div class="ec sec s-costo"><span class="ec-op" aria-hidden="true"></span>
       <div class="min-w-0">
-        <div id="lblCosto" class="font-semibold">Costo${unidad === '$/kg' ? ' por kg' : ''}</div>
+        <div id="lblCosto" class="font-semibold">Costo neto${unidad === '$/kg' ? ' por kg' : ''}</div>
         <div class="seg mt-1.5" role="group" aria-labelledby="lblCosto">${seg('sistema', costoSistemaDe(j))}${seg('ultimaCompra', j.precioUltimaCompra ?? null)}${seg('manual', null, true)}
         </div>
         <div id="dCostoManual" class="hidden mt-2 text-gris"><label for="inCosto" class="text-xs mr-1">Costo manual</label>$
@@ -176,10 +174,12 @@ function infoFuenteCosto(fuente){
   if (fuente === 'ultimaCompra') {
     if (det.precioUltimaCompra == null) return 'Sin compras registradas.';
     const tipo = det.tipoComprobanteUltimaCompra;
-    const cuenta = tipo === 'cotización' ? 'cotización, tal cual' : tipo === 'factura' ? 'factura, neto + IVA' : 'última compra';
+    const cuenta = tipo === 'cotización' ? 'cotización, neto' : tipo === 'factura' ? 'factura, neto (sin IVA)' : 'última compra, neto';
     return `${esc(cuenta)} · ${esc(det.proveedor || 'sin proveedor')} · ${esc(det.fechaUltimaCompra || '—')}`;
   }
-  return costoSistemaDe(det) == null ? 'Sin costo en SIGA.' : 'Costo de SIGA tal cual (PrecioCosto).';
+  if (costoSistemaDe(det) == null) return 'Sin costo en SIGA.';
+  const ali = det.ivaCompraPct ?? 21;
+  return `Costo de SIGA neto: PrecioCosto${det.costoSistemaConIva != null ? ' $ ' + fmtMoney(det.costoSistemaConIva) : ''} ÷ ${String(1 + ali / 100).replace('.', ',')}${det.ivaCompraSupuesto ? ' (alícuota supuesta)' : ''}.`;
 }
 
 // Pinta la opción elegida, el valor manual y el detalle; devuelve el costo efectivo.
@@ -215,34 +215,33 @@ function abrirModal(titulo, ancho){
 function conectarDetalle(){
   const inCosto = document.getElementById('inCosto');
   const inMarkup = document.getElementById('inMarkup');
-  inMarkup.addEventListener('input', () => { detEstado.markupManual = true; detMarkupExacto = null; recalcularDetalle(); });
-  document.getElementById('btnUsarBanda').onclick = () => { detEstado.markupManual = false; detMarkupExacto = null; recalcularDetalle(); };
-  // Precio final → markup: markup = (precio / costoTotal − 1) × 100 (IVA_VENTA_CLI = 1), a 6 decimales
-  // (el input muestra 2; el exacto queda en detMarkupExacto para reproducir el precio al
-  // centavo). Mientras se escribe no se pisa el input; al salir se ajusta a $50, salvo que
-  // sea el precio vigente de SIGA (se respeta tal cual, como en el backend).
+  inMarkup.addEventListener('input', () => { detEstado.markupManual = true; detGananciaExacta = null; recalcularDetalle(); });
+  document.getElementById('btnUsarBanda').onclick = () => { detEstado.markupManual = false; detGananciaExacta = null; recalcularDetalle(); };
+  // Precio final → ganancia propia: markup = precio × (1 − F) ÷ (1 + IVA) ÷ costoTotal neto − 1 y ganancia = (1 + markup) ×
+  // (1 − gastos) − 1, a 6 decimales (el input muestra 2; la exacta queda en detGananciaExacta para reproducir el
+  // precio al centavo). Mientras se escribe no se pisa el input; al salir se ajusta a $50, salvo que sea el
+  // precio vigente de SIGA (se respeta tal cual, como en el backend).
   const inFinal = document.getElementById('inFinal');
-  const markupParaPrecio = precio => {
+  const gananciaParaPrecio = precio => {
     const costo = costoEfectivo();
     if (costo == null || costo <= 0 || precio == null || precio <= 0) return null;
-    const costoTotal = costoTotalAlmacen(costo);
-    return +((precio / IVA_VENTA_CLI / costoTotal - 1) * 100).toFixed(6); // precios_orden.js
+    return gananciaDesdeMarkupCli(markupParaPrecioCli(costoTotalAlmacen(costo), precio, det.ivaPct, detCfg.finalPct), detCfg.gastosVentaPct); // precios_orden.js
   };
-  const fijarMarkup = mk => { detEstado.markupManual = true; detMarkupExacto = mk; inMarkup.value = fmtMarkupInput(mk); };
-  // Cambio de costo: el margen vuelve a la banda de ese costo (deja el propio, ej. el de "Alinear con SIGA")
-  // y el precio se recalcula. Volver a la fuente con la que se abrió (salvo manual) restaura el margen de
-  // entonces. Después se puede escribir otro margen o precio a mano.
+  const fijarGanancia = g => { detEstado.markupManual = true; detGananciaExacta = g; inMarkup.value = fmtMarkupInput(g); };
+  // Cambio de costo: la ganancia vuelve a la standard de ese costo (deja la propia, ej. la de "Alinear con SIGA")
+  // y el precio se recalcula. Volver a la fuente con la que se abrió (salvo manual) restaura la ganancia de
+  // entonces. Después se puede escribir otra ganancia o precio a mano.
   conectarCostoBase(() => {
     const volvio = detEstado.costoFuente === detInicial.costoFuente && detEstado.costoFuente !== 'manual';
     detEstado.markupManual = volvio ? detInicial.markupManual : false;
-    detMarkupExacto = volvio ? detInicial.markup ?? null : null;
-    if (volvio && detInicial.markupManual) inMarkup.value = fmtMarkupInput(detInicial.markup);
+    detGananciaExacta = volvio ? detInicial.ganancia ?? null : null;
+    if (volvio && detInicial.markupManual) inMarkup.value = fmtMarkupInput(detInicial.ganancia);
     recalcularDetalle();
   });
   inFinal.addEventListener('input', () => {
-    const mk = markupParaPrecio(numOrNull(inFinal.value));
-    if (mk == null) return;
-    fijarMarkup(mk);
+    const g = gananciaParaPrecio(numOrNull(inFinal.value));
+    if (g == null) return;
+    fijarGanancia(g);
     detEditandoFinal = true;
     recalcularDetalle();
     detEditandoFinal = false;
@@ -250,14 +249,15 @@ function conectarDetalle(){
   inFinal.addEventListener('change', () => {
     const p = numOrNull(inFinal.value);
     if (p == null || p <= 0) { recalcularDetalle(); return; }
-    const mk = markupParaPrecio(p === det.precioVigente ? p : redondear50(p));
-    if (mk != null) fijarMarkup(mk);
+    const g = gananciaParaPrecio(p === det.precioVigente ? p : redondear50(p));
+    if (g != null) fijarGanancia(g);
     recalcularDetalle();
   });
   document.getElementById('btnDescartar').onclick = () => {
     detEstado = { costoFuente: detInicial.costoFuente, markupManual: detInicial.markupManual };
-    detMarkupExacto = detInicial.markup ?? null;
-    inCosto.value = detInicial.costoManualValor ?? ''; inMarkup.value = fmtMarkupInput(detInicial.markup);
+    detGananciaExacta = detInicial.ganancia ?? null;
+    inCosto.value = detInicial.costoManualValor ?? '';
+    inMarkup.value = fmtMarkupInput(detInicial.ganancia ?? det.gananciaBanda);
     restaurarCostosExtra(det.costosExtra);
     if (conPB(det)) descartarPB(document.getElementById('dPackBulto'), itemDetPB); // precios_pack_bulto.js
     msgDetalle(''); recalcularDetalle();
@@ -285,62 +285,65 @@ function costoEfectivo(){
   return det.costoSistema ?? null;
 }
 
-// Costo total Almacén (espejo de costearAlmacen): base + costos varios % + costos extra del producto.
-const costoVariosDe = costo => costo * (Number(det.costosVariosPct) || 0) / 100;
-const costoTotalAlmacen = costo => extrasCliente(costo, costoVariosDe(costo)).total;
+// Costo total Almacén (espejo de costearAlmacen): base + costos extra del producto.
+const costoTotalAlmacen = costo => extrasCliente(costo).total;
 
-// Margen que deja el precio vigente con el costo elegido, recalculado en vivo: vigente / costo − 1
-// (el mismo criterio que la cuenta: costo tal cual, precio final sin ×1,21).
-function margenVigente(vig, costo){
-  return vig > 0 && costo > 0 ? r2((vig / IVA_VENTA_CLI / costo - 1) * 100) : null;
+// Markup s/ neto que deja el precio vigente con el costo neto elegido, recalculado en vivo:
+// vigente × (1 − F) ÷ (1 + IVA) ÷ costo − 1 (el mismo criterio que la cuenta y "Alinear con SIGA").
+function margenVigente(vig, costo, ivaPct){
+  const m = vig > 0 && costo > 0 ? markupParaPrecioCli(costo, vig, ivaPct, detCfg.finalPct) : null;
+  return m == null ? null : r2(m);
 }
-function pintarMargenVigente(vig, costo){
+function pintarMargenVigente(vig, costo, ivaPct){
   const el = document.getElementById('dMargenVig');
   if (!el) return;
-  const m = margenVigente(vig, costo);
-  el.textContent = m != null ? `margen ${fmtPct(m)}` : '';
-  el.title = m != null ? 'Margen que deja el precio vigente con el costo elegido (vigente ÷ costo − 1).' : '';
+  const m = margenVigente(vig, costo, ivaPct);
+  el.textContent = m != null ? `markup s/ neto ${fmtPct(m)}` : '';
+  el.title = m != null ? 'Markup que deja el precio vigente con el costo neto elegido (vigente × (1 − impuestos s/ precio final) ÷ (1 + IVA) ÷ costo − 1).' : '';
 }
 
 function recalcularDetalle(){
   const inMarkup = document.getElementById('inMarkup');
   const costo = costoEfectivo();
   const banda = bandaParaCosto(costo);
-  if (!detEstado.markupManual) inMarkup.value = banda ? fmtMarkupInput(banda.markup) : '';
-  // Sin margen propio se usa el markup exacto de la banda (el input lo muestra a 2 decimales).
+  if (!detEstado.markupManual) inMarkup.value = banda ? fmtMarkupInput(banda.ganancia) : '';
+  // Sin ganancia propia se usa la standard exacta (el input la muestra a 2 decimales).
   const markup = detEstado.markupManual ? markupActual() : banda ? banda.markup : null;
   // Markup negativo es válido (precio de SIGA bajo el costo); se avisa abajo.
   const valido = costo != null && costo > 0 && markup != null && markup > -100;
 
   pintarCostoBase();
-  const costoTotal = pintarTotalesCostosExtra(costo, costo != null ? costoVariosDe(costo) : 0);
-  document.getElementById('dCostoVarios').textContent = costo != null ? '$ ' + fmtMoney(r2(costoVariosDe(costo))) : '—';
+  const costoTotal = pintarTotalesCostosExtra(costo);
   document.getElementById('dChipMarkup').innerHTML = detEstado.markupManual
     ? chip('propio', 'bg-amarillo/30 text-ink') : '';
   document.getElementById('dInfoMarkup').textContent = detEstado.markupManual
-    ? `La banda daría ${banda ? desgloseBanda(banda) : '—'}.`
-    : banda ? `${banda.label === 'curva' ? 'De la curva' : 'De la banda ' + banda.label}: ${desgloseBanda(banda)}. Escribí otro para fijar uno propio.` : 'Sin banda para este costo: escribí un margen.';
+    ? `${segunPermiso('Propia: reemplaza curva y conceptos', 'Propio: reemplaza el standard')}. ${segunPermiso('La standard daría', 'El standard daría')} ${banda ? desgloseBanda(banda) : '—'}.`
+    : banda ? `Standard: ${desgloseBanda(banda)}. ${segunPermiso('Escribí otra para fijar una propia.', 'Escribí otro para fijar uno propio.')}`
+      : segunPermiso('Sin ganancia de la curva para este costo (o faltan los gastos del tipo): escribí una ganancia.', 'Sin markup standard para este costo: escribí un markup.');
   document.getElementById('btnUsarBanda').classList.toggle('hidden', !detEstado.markupManual);
 
   const set = (id, v) => { document.getElementById(id).textContent = v; };
   const vig = det.precioVigente;
   set('dVigente', vig != null ? '$ ' + fmtPrecio(vig) : '—');
-  pintarMargenVigente(vig, costo);
+  pintarMargenVigente(vig, costo, det.ivaPct);
   const inFinal = document.getElementById('inFinal');
   const dResultado = document.getElementById('dResultado');
   dResultado.dataset.estado = '';
   if (!valido) {
     ['dNeto', 'dSugerido', 'dDelta'].forEach(id => set(id, '—'));
     document.getElementById('dDelta').className = DELTA_BASE;
+    document.getElementById('dDesglose').innerHTML = htmlDesglose(null);
     if (!detEditandoFinal) inFinal.value = '';
     document.getElementById('dEstado').innerHTML = '';
     pintarPBDetalle(null); // precios_pack_bulto.js
   } else {
-    const neto = r2(costoTotal * (1 + markup / 100));
-    // Misma regla que el backend: si costo y markup reproducen el vigente de SIGA se respeta
-    // ese precio; si no, múltiplo de $50 (precioFinalCli, precios_orden.js).
-    const final = precioFinalCli(neto, vig).precio;
-    set('dNeto', '$ ' + fmtMoney(neto));
+    // Espejo de costearAlmacen (desgloseCli, precios_orden.js): costo real, ganancia, precio neto, IVA de
+    // venta. Misma regla que el backend: si reproduce el vigente de SIGA se respeta ese precio; si no, $50.
+    const d = desgloseCli({ costo: costoTotal, markup, gastos: detCfg.gastos, ivaPct: det.ivaPct, vigente: vig,
+      conceptos: detEstado.markupManual ? [] : detCfg.conceptos, conceptosFinal: detCfg.conceptosFinal });
+    const final = d.precioFinal;
+    document.getElementById('dDesglose').innerHTML = htmlDesglose(d, '$', detEstado.markupManual);
+    set('dNeto', '$ ' + fmtMoney(d.precioFinalExacto));
     if (!detEditandoFinal) inFinal.value = final;
     set('dSugerido', '$ ' + fmtPrecio(final));
     pintarPBDetalle(final); // precios_pack_bulto.js: pack/bulto en vivo sobre el precio final
@@ -370,8 +373,8 @@ function recalcularDetalle(){
   document.getElementById('btnDescartar').disabled = !hayCambios;
   if (!extrasOk) msgDetalle(msgExtrasInvalidos(), true);
   else if (!validosPB()) msgDetalle(MSG_PESO_PB, true);
-  else if (markup != null && markup < 0) msgDetalle('El precio queda por debajo del costo (margen negativo).', true);
-  else if (cambiosBase && !valido) msgDetalle('Completá costo y margen para calcular.', true);
+  else if (markup != null && markup < 0) msgDetalle('El precio queda por debajo del costo neto.', true);
+  else if (cambiosBase && !valido) msgDetalle('Completá costo y ganancia para calcular.', true);
   else if (hayCambios) msgDetalle(MSG_SIN_GUARDAR, false, 'text-warn');
   else msgDetalle('');
 }
@@ -382,7 +385,68 @@ function cambioCosto(){
 }
 function cambioMarkup(){
   return detEstado.markupManual !== detInicial.markupManual
-    || (detEstado.markupManual && markupActual() !== detInicial.markup);
+    || (detEstado.markupManual && gananciaActual() !== detInicial.ganancia);
+}
+
+// ── Desglose del precio (Almacén, Fraccionado y Producción) ──
+// d = desglose del server (fila.desglose) o de desgloseCli (precios_orden.js) al recalcular en vivo. Orden del spec
+// (Parte C/D): + Variables + Departamentos = Costo real + Ganancia curva + cada concepto (o Ganancia propia) = Precio
+// neto + IVA [= Precio con IVA + cada concepto sobre precio final] = Precio final exacto; pie con los markups, la ganancia
+// final $ y el margen neto (sobre d.precioFinal, el redondeado) y el total de impuestos sobre precio final.
+// propia = el producto usa su ganancia propia (sin conceptos de ganancia).
+const pctD = n => n == null ? '—' : String(+(+n).toFixed(2)).replace('.', ',') + ' %';
+// notaCostoReal = HTML ya escapado que se agrega al rótulo "Costo real" (el simulador muestra el margen de costos).
+function htmlDesglose(d, unidad = '$', propia = false, notaCostoReal = ''){
+  if (!d) return '<p class="text-xs text-gris py-2">Sin precio: falta costo o ganancia.</p>';
+  if (preciosSinConfig) return htmlDesgloseSinConfig(d, unidad, propia);
+  const kg = unidad === '$/kg' ? ' /kg' : '';
+  const $ = v => v == null ? '—' : '$ ' + fmtMoney(v) + kg;
+  const fila = (op, txt, valor, cls, fuerte = false) =>
+    `<div class="ec ${cls}"><span class="ec-op" aria-hidden="true">${op}</span><span class="${fuerte ? 'font-semibold' : ''}">${txt}</span><span class="ec-val${fuerte ? ' font-semibold' : ''}">${valor}</span></div>`;
+  const sinGastos = d.costoReal == null;
+  const s = txt => `<span class="text-xs text-gris">(${txt})</span>`;
+  const conceptos = propia ? [] : (d.conceptos || []);
+  const finales = d.conceptosFinal || [];
+  const gf = gananciaFinalCli(d); // precios_orden.js
+  const ganancia = propia
+    ? fila('+', `Ganancia propia ${s(pctD(d.gananciaPct) + ' s/ costo real')}`, $(d.ganancia), 'sec s-margen')
+    : fila('+', `Ganancia curva ${s(pctD(d.gananciaCurvaPct ?? d.gananciaPct) + ' s/ costo real')}`, $(d.gananciaCurva ?? d.ganancia), 'sec s-margen')
+      + conceptos.map(c => fila('+', `${esc(c.concepto)} ${s(pctD(c.pct))}`, $(c.importe), 'sec s-margen')).join('');
+  return `<div role="group" aria-label="Desglose del precio">
+    ${fila('+', `Variables sobre venta ${s(pctD(d.variablesPct))}`, $(d.variables), 'sec s-extra')}
+    ${fila('+', `Departamentos ${s(sinGastos ? 'falta venta base' : pctD(d.departamentosPct))}`, $(d.departamentos), 'sec s-extra')}
+    ${fila('=', 'Costo real' + notaCostoReal, $(d.costoReal), 'ec-total sec s-costo', true)}
+    ${ganancia}
+    ${fila('=', `Precio neto ${s('ganancia ' + pctD(d.gananciaPct))}`, $(d.precioNeto), 'ec-total sec s-margen', true)}
+    ${fila('+', `IVA ${s(pctD(d.ivaPct))}`, $(d.iva), 'sec s-final')}
+    ${finales.length ? fila('=', 'Precio con IVA', $(d.precioConIvaBase), 'ec-total sec s-final', true)
+      + finales.map(c => fila('+', `${esc(c.concepto)} ${s(pctD(c.pct) + ' s/ precio final')}`, $(c.importe), 'sec s-final')).join('') : ''}
+    ${fila('=', 'Precio final <span class="text-xs text-gris">(exacto)</span>', $(d.precioFinalExacto), 'ec-total sec s-final', true)}
+    <div class="text-xs text-gris tabular-nums pt-1.5 pl-7">Markup s/ neto ${pctD(d.markupNetoPct)} · Markup final ${pctD(d.markupFinalPct)}
+      · Ganancia final ${$(gf.gananciaFinal)} (margen neto ${pctD(gf.margenNetoPct)})${finales.length ? ` · Impuestos s/ precio final ${$(d.conceptosFinalImporte)}` : ''}</div>
+  </div>`;
+}
+
+// Sin el permiso de Configuración: costo neto → markup → precio neto → IVA → imp. s/ final → precio final (sin variables,
+// departamentos, costo real ni ganancia; d viene de la vista sin estructura: precio neto − costo neto = el markup en $).
+function htmlDesgloseSinConfig(d, unidad, propio){
+  const kg = unidad === '$/kg' ? ' /kg' : '';
+  const $ = v => v == null ? '—' : '$ ' + fmtMoney(v) + kg;
+  const fila = (op, txt, valor, cls, fuerte = false) =>
+    `<div class="ec ${cls}"><span class="ec-op" aria-hidden="true">${op}</span><span class="${fuerte ? 'font-semibold' : ''}">${txt}</span><span class="ec-val${fuerte ? ' font-semibold' : ''}">${valor}</span></div>`;
+  const s = txt => `<span class="text-xs text-gris">(${txt})</span>`;
+  const markup = d.precioNeto != null && d.costo != null ? r2(d.precioNeto - d.costo) : null;
+  const finalPct = d.conceptosFinalPct || 0;
+  return `<div role="group" aria-label="Desglose del precio">
+    ${fila('', 'Costo neto', $(d.costo), 'ec-total sec s-costo', true)}
+    ${fila('+', `Markup ${propio ? 'propio ' : ''}${s(pctD(d.markupNetoPct) + ' s/ costo neto')}`, $(markup), 'sec s-margen')}
+    ${fila('=', 'Precio neto', $(d.precioNeto), 'ec-total sec s-margen', true)}
+    ${fila('+', `IVA ${s(pctD(d.ivaPct))}`, $(d.iva), 'sec s-final')}
+    ${finalPct ? fila('=', 'Precio con IVA', $(d.precioConIvaBase), 'ec-total sec s-final', true)
+      + fila('+', `Impuestos s/ precio final ${s(pctD(finalPct))}`, $(d.conceptosFinalImporte), 'sec s-final') : ''}
+    ${fila('=', 'Precio final <span class="text-xs text-gris">(exacto)</span>', $(d.precioFinalExacto), 'ec-total sec s-final', true)}
+    <div class="text-xs text-gris tabular-nums pt-1.5 pl-7">Markup s/ neto ${pctD(d.markupNetoPct)} · Markup final ${pctD(d.markupFinalPct)}</div>
+  </div>`;
 }
 
 const MSG_SIN_GUARDAR = '● Cambios sin guardar';
@@ -413,21 +477,21 @@ const extrasValidos = () => ceItems.every(it => {
   return it.tipo === 'kg' ? it.valor >= 0 && it.valor <= 1e6 : it.valor >= -100 && it.valor <= 1000;
 });
 const msgExtrasInvalidos = () => `Costos extra: completá concepto y valor (${ceUnidad} de 0 a 1.000.000; % de −100 a 1000).`;
-// Tooltip de la columna Costo de los listados: base (+ costos varios) + extras, con el desglose.
-function tipCostoExtras(f, unidad, varios = null){
+// Tooltip de la columna Costo de los listados: base + extras, con el desglose.
+function tipCostoExtras(f, unidad){
   const items = f.costosExtra || [];
   if (!items.length || f.costoBase == null) return '';
-  return `Base $ ${fmtMoney(f.costoBase)}${varios ? ` + varios $ ${fmtMoney(varios)}` : ''} + extras $ ${fmtMoney(f.costoExtraTotal)}\n`
+  return `Base $ ${fmtMoney(f.costoBase)} + extras $ ${fmtMoney(f.costoExtraTotal)}\n`
     + items.map(it => textoCostoExtra(it, unidad)).join('\n');
 }
 
 // Espejo de aplicarCostosExtra (lib/precios_costeo.js): % sobre el costo base, cada importe a 2
-// decimales. `otros` = lo que se suma aparte del base (costos varios de Almacén).
-function extrasCliente(base, otros = 0, items = ceItems){
+// decimales.
+function extrasCliente(base, items = ceItems){
   if (base == null) return { total: null, subtotal: null, importes: items.map(() => null) };
   const importes = items.map(it => it.valor == null ? null : r2(it.tipo === 'kg' ? it.valor : base * it.valor / 100));
   const subtotal = r2(importes.reduce((s, v) => s + (v || 0), 0));
-  return { total: r2(importes.reduce((s, v) => s + (v || 0), base + otros)), subtotal, importes };
+  return { total: r2(importes.reduce((s, v) => s + (v || 0), base)), subtotal, importes };
 }
 
 // Contenido del bloque (el contenedor lo pone cada modal). Después de insertarlo: iniciarCostosExtra.
@@ -446,7 +510,7 @@ function htmlCostosExtra(unidad, ayuda){
       </div>
       <span id="ceSubtotal" class="ec-val">—</span></div>
     <div class="ec ec-total sec s-costo"><span class="ec-op" aria-hidden="true">=</span>
-      <span class="font-semibold">Costo total${unidad === '$/kg' ? ' por kg' : ''}</span>
+      <span class="font-semibold">Costo neto total${unidad === '$/kg' ? ' por kg' : ''}</span>
       <span id="ceTotal" class="ec-val font-semibold">—</span></div>`;
 }
 
@@ -512,8 +576,8 @@ function pintarCostosExtra(){
 }
 
 // Pinta importes/resumen/subtotal/total del bloque y devuelve el costo total (null sin costo base).
-function pintarTotalesCostosExtra(base, otros = 0){
-  const ext = extrasCliente(base, otros);
+function pintarTotalesCostosExtra(base){
+  const ext = extrasCliente(base);
   const sufijo = ceUnidad === '$/kg' ? ' /kg' : '';
   document.querySelectorAll('#ceLista [data-i]').forEach(row => {
     const v = ext.importes[Number(row.dataset.i)];
@@ -531,7 +595,7 @@ function pintarTotalesCostosExtra(base, otros = 0){
 // los % propios de pack/bulto pendientes.
 async function guardarDetalle(){
   const costo = numOrNull(document.getElementById('inCosto').value);
-  const markup = markupActual();
+  const ganancia = gananciaActual();
   const put = (url, body) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then(r => r.json()).then(j => { if (j.error) throw new Error(j.error); return j; });
   const plu = encodeURIComponent(det.plu);
@@ -541,7 +605,7 @@ async function guardarDetalle(){
     tareas.push(put('/api/precios/costo-producto/' + plu, fuente === 'manual' ? { fuente, costo } : { fuente }));
   }
   if (cambioMarkup()) {
-    tareas.push(put('/api/precios/margen-producto/' + plu, { markupPct: detEstado.markupManual ? markup : null }));
+    tareas.push(put('/api/precios/margen-producto/' + plu, { gananciaPct: detEstado.markupManual ? ganancia : null }));
   }
   if (cambioExtras()) tareas.push(put('/api/precios/costos-extra/' + plu, { items: itemsCostosExtra() }));
   tareas.push(guardarPendientesPB()); // precios_pack_bulto.js: los que fallen quedan pendientes

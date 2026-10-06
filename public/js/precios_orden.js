@@ -63,8 +63,8 @@ function rangoFechas(fechas) {
 const fechaMasAntigua = fechas => (rangoFechas(fechas) || {}).min ?? null;
 
 // ── Costo última compra vs. costo de sistema (columnas fijas de Almacén y del granel de Fraccionado) ──
-// Los dos vienen del server "tal cual", el mismo valor que usa la cuenta: sistema = PrecioCosto de SIGA sin
-// tocar; última compra = el comprobante (factura: neto + su IVA; cotización: neto tal cual). Sin conversiones acá.
+// Los dos vienen del server NETOS, el mismo valor que usa la cuenta: sistema = PrecioCosto de SIGA ÷ (1 + alícuota);
+// última compra = PrecioNeto del comprobante (factura o cotización). Sin conversiones acá.
 const costoSistemaDe = f => f.costoSistema ?? f.costoSistemaConIva ?? null;
 // La compra cargada hoy (compraHoy) manda; si no, la última compra (precioUltimaCompra/fechaUltimaCompra).
 function ultimaCompraDe(f) {
@@ -91,7 +91,7 @@ function tipUltimaCompra(u) {
   if (!u) return 'Sin compras registradas';
   return [
     (u.hoy ? `${u.tipo === 'cotización' ? 'Cotización' : 'Factura'} cargada hoy en SIGA` : `Última compra${u.tipo ? ` (${u.tipo})` : ''}`)
-      + (u.tipo ? (u.tipo === 'cotización' ? ' · tal cual' : ' · neto + IVA') : ''),
+      + ' · neto',
     `Proveedor: ${u.proveedor || '—'}` + (u.comprobante ? ` · Comprobante: ${u.comprobante}` : ''),
     `Fecha: ${u.hoy ? 'hoy' : u.fecha || '—'}`,
     ...(u.costoAnterior != null ? [`antes $ ${fmtCostoAviso(u.costoAnterior)} (${fmtFechaPrecio(u.fechaAnterior)})`] : []),
@@ -102,8 +102,8 @@ const ordenarPorUltimaCompra = filas => ordenarFilas(filas, 'ultima', 'desc', de
 
 // Columnas de cada tabla → valor a ordenar. Reciben por parámetro los helpers de estado de cada tab.
 const columnasAlmacen = estadoDe => ({
-  plu: f => f.plu, nombre: f => f.nombre, costo: f => f.costoTotal, sistema: costoSistemaDe, ultima: costoUltimaCompra,
-  markup: f => f.markupPct, vigente: f => f.precioVigente, delta: f => f.deltaPct,
+  plu: f => f.plu, nombre: f => f.nombre, costo: f => f.costoTotal, real: f => f.costoReal, sistema: costoSistemaDe, ultima: costoUltimaCompra,
+  markup: f => f.gananciaPct, vigente: f => f.precioVigente, delta: f => f.deltaPct,
   estado: f => rango(RANGO_ESTADO_PRECIO, estadoDe(f)), fecha: f => f.fechaPrecio,
 });
 const columnasFracc = ({ estadoGrupo, peorPresentacion }) => ({
@@ -125,7 +125,7 @@ const columnasSelectorProd = () => ({
 });
 const columnasPresProd = ({ estadoFila, nombreVariedad, kgDe, empaqueDe }) => ({
   plu: p => p.plu, nombre: p => p.nombre, variedad: nombreVariedad, kg: kgDe, empaque: empaqueDe, costo: p => p.costoUnidad,
-  markup: p => p.markupPct, sugerido: p => (sinPrecioFila(p) ? null : p.precioConIva), vigente: p => p.precioVigente,
+  real: p => p.costoReal, markup: p => p.gananciaPct, sugerido: p => (sinPrecioFila(p) ? null : p.precioConIva), vigente: p => p.precioVigente,
   delta: p => p.deltaPct, estado: p => rango(RANGO_ESTADO_PROD, estadoFila(p)), fecha: p => p.fechaPrecio,
 });
 const ordenarCon = (filas, orden, cols) => ordenarFilas(filas, orden && orden.clave, orden && orden.dir, extractorDe(cols));
@@ -150,7 +150,7 @@ function textoCompraHoy(ch) {
     ? ` ${AVISO_COMPRA[tipo].flecha} ${fmtPctAviso(ch.deltaPct)} (antes $ ${fmtCostoAviso(ch.costoAnterior)}${ch.fechaAnterior ? ' · ' + fechaAnt.slice(0, 5) : ''})`
     : ' · sin compra anterior');
   const tip = [
-    'Costo unitario del comprobante cargado hoy en SIGA (factura: neto + IVA; cotización: tal cual)',
+    'Costo unitario neto (PrecioNeto) del comprobante cargado hoy en SIGA',
     `Proveedor: ${ch.proveedor || '—'} · Comprobante: ${ch.comprobante || '—'}`,
     hayAnterior ? `Compra anterior: $ ${fmtCostoAviso(ch.costoAnterior)} del ${fechaAnt}` : 'Sin compra anterior registrada',
   ].join('\n');
@@ -165,20 +165,104 @@ function htmlAvisoIngresoHoy(f, destacado = false) {
   return ` <span class="inline-block px-2 py-0.5 rounded-full text-xs whitespace-nowrap tabular-nums ${AVISO_COMPRA[a.tipo].cls}${extra}" title="${esc(a.tip)}">${esc(a.texto)}</span>`;
 }
 
-// ── Precio final (espejo de conIva/redondearPrecioVenta de lib/precios_costeo y de la regla "alineado exacto"
-// del backend): final = neto × IVA_VENTA_CLI (1: el costo ya viene con IVA), múltiplo de $50 salvo que el exacto
-// reproduzca el vigente de SIGA (±0,5). Compartido por el detalle de Almacén y las presentaciones de Fraccionado.
-const IVA_VENTA_CLI = 1;
+// ── Precio final (espejo de desglosePrecio/camposPrecio de lib/precios_costeo y de la regla "alineado exacto"
+// del backend): base = precioNeto + IVA $ (precioNeto × IVA de venta, a 2 decimales); final exacto = base ÷ (1 − F)
+// (F = conceptos sobre precio final, espejo de sobrePrecioFinal); múltiplo de $50 salvo que el exacto reproduzca el
+// vigente de SIGA (±0,5). ivaPct = IVA de venta de la config (21 si no viene).
+// Compartido por los modales de Almacén, Fraccionado y Producción.
+const IVA_DEFAULT_CLI = 21;
 const PASO_FINAL_CLI = 50;
-function precioFinalCli(neto, vigente) {
-  const exacto = Math.round(neto * IVA_VENTA_CLI * 100) / 100;
+const r2Cli = n => Math.round(n * 100) / 100;
+// Espejo de sobrePrecioFinal: exacto = base ÷ (1 − F); cada concepto $ = exacto × pct, el último absorbe el redondeo.
+function sobrePrecioFinalCli(base, conceptosFinal = []) {
+  const items = (Array.isArray(conceptosFinal) ? conceptosFinal : []).filter(c => c && Number.isFinite(c.pct));
+  const pct = totalConceptosCli(items);
+  const exacto = pct > 0 ? r2Cli(base / (1 - pct / 100)) : base;
+  const importe = r2Cli(exacto - base);
+  const previos = items.slice(0, -1).map(c => r2Cli(exacto * c.pct / 100));
+  const ultimo = r2Cli(importe - previos.reduce((s, v) => s + v, 0));
+  const lista = items.map((c, i) => ({ id: c.id ?? null, concepto: c.concepto, pct: c.pct, importe: i < previos.length ? previos[i] : ultimo }));
+  return { lista, pct, importe, exacto };
+}
+function precioFinalCli(neto, vigente, ivaPct = IVA_DEFAULT_CLI, conceptosFinal = []) {
+  const base = r2Cli(neto + r2Cli(neto * (ivaPct ?? IVA_DEFAULT_CLI) / 100));
+  const { exacto } = sobrePrecioFinalCli(base, conceptosFinal);
   const precio = vigente > 0 && Math.abs(exacto - vigente) < 0.5 ? vigente
-    : Math.round(neto * IVA_VENTA_CLI / PASO_FINAL_CLI) * PASO_FINAL_CLI;
-  return { exacto, precio };
+    : Math.round(exacto / PASO_FINAL_CLI) * PASO_FINAL_CLI;
+  return { base, exacto, precio };
+}
+// Markup total (s/ neto) que lleva el costo neto al precio final (inversa, espejo de markupParaPrecio):
+// precio × (1 − F) ÷ (1 + IVA) ÷ costo − 1. finalPct = F (% total de conceptos sobre precio final).
+function markupParaPrecioCli(costo, precio, ivaPct = IVA_DEFAULT_CLI, finalPct = 0) {
+  const f = Number(finalPct) || 0;
+  if (!(costo > 0) || !(precio > 0) || f >= 100) return null;
+  return +((precio * (1 - f / 100) / (1 + (ivaPct ?? IVA_DEFAULT_CLI) / 100) / costo - 1) * 100).toFixed(6);
+}
+// Espejo de desglosePrecio: costo neto C, markup total m, gastos { variablesPct, departamentosPct } (deptos null =
+// desconocido → sin costo real/ganancia), IVA de venta y conceptos de ganancia aplicados ([] con ganancia propia).
+// costoReal = C ÷ (1 − G); C + variables + departamentos = costoReal; gananciaCurva + conceptos = ganancia;
+// costoReal + ganancia = precioNeto; precioNeto + iva = precioConIvaBase; + Σ conceptosFinal = precioFinalExacto
+// (sumas exactas a 2 decimales). conceptosFinal = conceptos sobre precio final (conceptosFinalCli).
+function desgloseCli({ costo, markup, gastos = {}, ivaPct = IVA_DEFAULT_CLI, conceptos = [], conceptosFinal = [], vigente = null }) {
+  const C = r2Cli(costo);
+  const precioNeto = r2Cli(costo * (1 + markup / 100));
+  const v = gastos.variablesPct == null ? 0 : gastos.variablesPct;
+  const d = gastos.departamentosPct === undefined ? 0 : gastos.departamentosPct;
+  const ok = Number.isFinite(v) && Number.isFinite(d) && d !== null && v + d < 100;
+  const realExacto = ok ? costo / (1 - (v + d) / 100) : null;
+  const costoReal = ok ? r2Cli(realExacto) : null;
+  const variables = ok ? r2Cli(realExacto * v / 100) : null;
+  const departamentos = ok ? r2Cli(costoReal - C - variables) : null;
+  const gananciaPct = ok ? +(((1 + markup / 100) * (1 - (v + d) / 100) - 1) * 100).toFixed(6) : null;
+  const ganancia = ok ? r2Cli(precioNeto - costoReal) : null;
+  const lista = (Array.isArray(conceptos) ? conceptos : []).filter(c => c && Number.isFinite(c.pct)).map(c => ({
+    id: c.id ?? null, concepto: c.concepto, pct: c.pct, importe: ok ? r2Cli(realExacto * c.pct / 100) : null,
+  }));
+  const conceptosPct = Math.round(lista.reduce((s, c) => s + c.pct, 0) * 1e4) / 1e4;
+  const conceptosImporte = ok ? r2Cli(lista.reduce((s, c) => s + c.importe, 0)) : null;
+  const iva = r2Cli(precioNeto * (ivaPct ?? IVA_DEFAULT_CLI) / 100);
+  const { base, exacto, precio } = precioFinalCli(precioNeto, vigente, ivaPct, conceptosFinal);
+  const fin = sobrePrecioFinalCli(base, conceptosFinal);
+  return {
+    costo: C, variablesPct: ok ? v : null, variables, departamentosPct: ok ? d : null, departamentos, costoReal,
+    gananciaPct, ganancia,
+    gananciaCurvaPct: gananciaPct == null ? null : +(gananciaPct - conceptosPct).toFixed(6),
+    gananciaCurva: ganancia == null ? null : r2Cli(ganancia - conceptosImporte),
+    conceptos: lista, conceptosPct, conceptosImporte,
+    precioNeto, ivaPct: ivaPct ?? IVA_DEFAULT_CLI, iva, precioConIvaBase: base,
+    conceptosFinal: fin.lista, conceptosFinalPct: fin.pct, conceptosFinalImporte: fin.importe,
+    precioFinalExacto: exacto, precioFinal: precio,
+    markupFinalPct: costo > 0 ? r2Cli((precio / costo - 1) * 100) : null, markupNetoPct: r2Cli(markup),
+  };
+}
+// Ganancia sobre el precio final REDONDEADO (pie del desglose y simulador): precio neto final = precio × (1 − F) ÷
+// (1 + IVA); ganancia final = neto final − costo real; margen neto = ganancia final ÷ precio final. precio =
+// d.precioFinal (cliente) o el que se pase (server: precioConIva de la fila); sin costo real → nulls.
+function gananciaFinalCli(d, precio = d && (d.precioFinal ?? d.precioFinalExacto)) {
+  if (!d || !(precio > 0)) return { netoFinal: null, gananciaFinal: null, margenNetoPct: null };
+  const netoFinal = r2Cli(precio * (1 - (d.conceptosFinalPct || 0) / 100) / (1 + (d.ivaPct ?? IVA_DEFAULT_CLI) / 100));
+  const gananciaFinal = d.costoReal == null ? null : r2Cli(netoFinal - d.costoReal);
+  return { netoFinal, gananciaFinal, margenNetoPct: gananciaFinal == null ? null : r2Cli(gananciaFinal / precio * 100) };
+}
+// IVA de venta, conceptos de ganancia y conceptos sobre precio final de la config (/api/precios/config) para los modales.
+const ivaVentaCli = cfg => { const v = (cfg || {}).ivaVentaPct; return Number.isFinite(v) ? v : IVA_DEFAULT_CLI; };
+const conceptosCli = cfg => (Array.isArray((cfg || {}).conceptosGanancia) ? cfg.conceptosGanancia : []);
+const conceptosFinalCli = cfg => (Array.isArray((cfg || {}).conceptosPrecioFinal) ? cfg.conceptosPrecioFinal : []);
+const totalConceptosCli = items => Math.round((items || []).filter(c => c && Number.isFinite(c.pct)).reduce((s, c) => s + c.pct, 0) * 1e4) / 1e4;
+// Espejos de manoObraFraccionado / insumosFraccionado (routes/rutas_precios.js), en $/kg con el peso de la
+// presentación: minutos × costoHora/60 ÷ kg e insumos $ por unidad ÷ kg. null = falta el peso. Fraccionado y simulador.
+const moKgCli = (costoHora, minutos, pesoG) => (!(minutos > 0) ? 0 : pesoG > 0 ? r2Cli(costoHora / 60 * minutos / (pesoG / 1000)) : null);
+const insKgCli = (pesos, pesoG) => (!(pesos > 0) ? 0 : pesoG > 0 ? r2Cli(pesos / (pesoG / 1000)) : null);
+// Gastos del tipo partidos (estructuraCostos.porTipo de /api/precios/config) para el desglose del modal.
+function gastosDesgloseCli(cfg, tipo) {
+  const t = (((cfg || {}).estructuraCostos || {}).porTipo || {})[tipo];
+  return t ? { variablesPct: t.variablesPct, departamentosPct: t.departamentosPct } : { variablesPct: Number((cfg || {}).gastosVentaPct) || 0, departamentosPct: 0 };
 }
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { costoSistemaDe, precioFinalCli, precioFinalCli,
+  module.exports = { costoSistemaDe, precioFinalCli, markupParaPrecioCli, desgloseCli, gastosDesgloseCli, ivaVentaCli, conceptosCli, totalConceptosCli,
+    conceptosFinalCli, sobrePrecioFinalCli, gananciaFinalCli,
+    moKgCli, insKgCli, r2Cli,
     textoCompraHoy, ultimaCompraDe, deltaUltimaVsSistema, tendenciaCosto, tipUltimaCompra, ordenarPorUltimaCompra,
     valorOrden, compararOrden, ordenarFilas, siguienteOrden, RANGO_ESTADO_PRECIO, RANGO_ESTADO_PROD,
     columnasAlmacen, columnasFracc, columnasPresFracc, columnasSelectorProd, columnasPresProd, ordenarCon,
@@ -208,7 +292,8 @@ const FUENTE_EN_USO = { manual: 'un costo manual', ultimaCompra: 'la última com
 function htmlCeldaCostoSistema(f) {
   const fuente = FUENTE_EN_USO[f.costoFuente];
   const ind = fuente ? ` <span class="text-[10px] text-warn align-super" title="${esc(`El precio sugerido se calcula con ${fuente}, no con el costo de sistema`)}">●</span>` : '';
-  return `<td class="p-2 text-right whitespace-nowrap tabular-nums" title="Costo de sistema SIGA (PrecioCosto tal cual)">${fmtMoney(costoSistemaDe(f))}${ind}</td>`;
+  const tip = `Costo de sistema SIGA neto: PrecioCosto ${f.costoSistemaConIva != null ? '$ ' + fmtMoney(f.costoSistemaConIva) + ' ' : ''}÷ (1 + alícuota ${f.ivaCompraPct ?? 21} %${f.ivaCompraSupuesto ? ', supuesta' : ''})`;
+  return `<td class="p-2 text-right whitespace-nowrap tabular-nums" title="${esc(tip)}">${fmtMoney(costoSistemaDe(f))}${ind}</td>`;
 }
 // ▲ rojo si la última compra supera al sistema más allá de la tolerancia, ▼ verde si queda por debajo.
 const TEND_COSTO = { sube: ['▲ ', 'text-crit font-semibold'], baja: ['▼ ', 'text-ok font-semibold'] };
@@ -270,7 +355,7 @@ function montarOrdenPresFracc() {
     ordenPresFracc = o;
     const cuerpo = document.querySelector('#mDetBody tbody.fd-cuerpo');
     for (const p of ordenarPresFracc(det.presentaciones)) {
-      const filas = cuerpo.querySelectorAll(`tr[data-plu="${CSS.escape(p.plu)}"], tr[data-pb-pres="${CSS.escape(p.plu)}"]`);
+      const filas = cuerpo.querySelectorAll(`tr[data-plu="${CSS.escape(p.plu)}"], tr[data-des-pres="${CSS.escape(p.plu)}"], tr[data-pb-pres="${CSS.escape(p.plu)}"]`);
       filas.forEach(tr => cuerpo.appendChild(tr));
     }
     montarOrdenPresFracc();

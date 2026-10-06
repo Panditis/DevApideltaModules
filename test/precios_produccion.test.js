@@ -114,30 +114,34 @@ const PRES = {
   insumos: [{ plu: '6334', cantidad: 1 }, { manualId: 'm-etiqueta', cantidad: 1 }],
   minutosEmpaquetado: 0.6,
 };
-const BANDAS = [{ costoHastaARS: null, markupMaxPct: 50 }];
-const presentar = (extra = {}) => costearPresentacion({ plu: '6319', nombre: 'Granola 500g', presentacion: PRES, recetaCosteada: costear(BASE), costoDe, costoHora: COSTO_HORA, bandas: BANDAS, ...extra });
+const CURVA = { a: 50, b: 0, pisoPct: 50, techoPct: 50 }; // curva de Producción plana: ganancia 50 %
+const presentar = (extra = {}) => costearPresentacion({ plu: '6319', nombre: 'Granola 500g', presentacion: PRES, recetaCosteada: costear(BASE), costoDe, costoHora: COSTO_HORA, curva: CURVA, ...extra });
 
-test('costearPresentacion: kg de receta + insumos + MO empaquetado + markup banda (sin ×1,21)', () => {
+test('costearPresentacion: kg de receta + insumos + MO empaquetado + markup de la curva + IVA de la presentación', () => {
   const p = presentar();
   // 0.5×1520 + 180 + 60 + 0.6min×100 = 760 + 180 + 60 + 60
   assert.strictEqual(p.costoUnidad, 1060);
   assert.deepStrictEqual(p.componentes.map(c => [c.plu, c.importe]), [['_receta', 760], ['6334', 180], ['m-etiqueta', 60], ['_costoHora', 60]]);
   assert.strictEqual(p.markupPct, 50);
-  assert.strictEqual(p.banda, 'sin tope');
+  assert.strictEqual(p.banda, 'curva');
   assert.strictEqual(p.precioNeto, 1590);
-  assert.strictEqual(p.precioConIvaExacto, 1590); // = neto (IVA_VENTA = 1)
-  assert.strictEqual(p.precioConIva, 1600); // 1590 → múltiplo de 50
+  assert.strictEqual(p.precioConIvaExacto, 1923.9); // neto + IVA de venta 21 % (333,90)
+  assert.strictEqual(p.precioConIva, 1900); // → múltiplo de 50
+  assert.strictEqual(presentar({ ivaPct: 10.5 }).precioConIvaExacto, 1756.95); // IVA de venta editable
+  assert.strictEqual(p.costoReal, 1060); // sin gastos
+  assert.strictEqual(p.gananciaPct, 50);
+  assert.strictEqual(p.markupFinalPct, 79.25); // 1900 ÷ 1060 − 1
   assert.deepStrictEqual(p.faltantes, []);
   assert.deepStrictEqual(p.costos, { 300: 400, 7067: 2800, _maquina: 3000, 6334: 180, 'm-etiqueta': 60, _costoHora: 6000 }); // incluye la receta
   assert.strictEqual(p.plu, '6319');
   assert.strictEqual(p.nombre, 'Granola 500g');
 });
 
-test('costearPresentacion: override de margen gana sobre la banda', () => {
+test('costearPresentacion: override de margen gana sobre la curva', () => {
   const p = presentar({ overridePct: 40 });
   assert.strictEqual(p.banda, 'override');
   assert.strictEqual(p.precioNeto, 1484);
-  assert.strictEqual(p.precioConIva, 1500); // 1484 (sin ×1,21) → múltiplo de 50
+  assert.strictEqual(p.precioConIva, 1800); // 1484 + IVA 311,64 = 1795,64 → múltiplo de 50
 });
 
 test('costearPresentacion: hereda faltantes de la receta y queda sin precio', () => {
@@ -149,10 +153,10 @@ test('costearPresentacion: hereda faltantes de la receta y queda sin precio', ()
   assert.strictEqual(p.precioConIva, null);
 });
 
-test('costearPresentacion: insumo sin costo, sin receta o sin banda → faltantes, sin precio', () => {
+test('costearPresentacion: insumo sin costo, sin receta o sin curva → faltantes, sin precio', () => {
   assert.deepStrictEqual(presentar({ costoDe: costosDe({ ...COSTOS, 6334: null }) }).faltantes, ['6334']);
   assert.deepStrictEqual(presentar({ recetaCosteada: undefined }).faltantes, ['receta']);
-  const sinBanda = presentar({ bandas: [] });
+  const sinBanda = presentar({ curva: null });
   assert.deepStrictEqual(sinBanda.faltantes, ['markupPct']);
   assert.strictEqual(sinBanda.costoUnidad, 1060);
   assert.strictEqual(sinBanda.precioConIva, null);
@@ -209,7 +213,7 @@ test('detectarCambios: cambio de _costoHora global → cambio; costo que pasa a 
 
 // ── snapshotDe / costearProducto / resumenAlertas ────────────────────────────
 
-const CFG = { costoHora: COSTO_HORA, categoriasMaquina: CATEGORIAS, bandas: BANDAS, toleranciaPct: 3 };
+const CFG = { costoHora: COSTO_HORA, categoriasMaquina: CATEGORIAS, curva: CURVA, toleranciaPct: 3 };
 
 // Producto con todo validado contra los costos de `costos` (fecha fija).
 function productoValidado(nombre, presentaciones, costos = COSTOS) {
@@ -421,14 +425,14 @@ test('regresión Excel (hoja Pepas): masa 104 kg + membrillo → variante y pres
   assert.ok(Math.abs(recetaEfectiva(recetas.membrillo, recetas).rendimientoKg - 151.3376) < 1e-9);
   assert.ok(Math.abs(memb.costoKg - 3015.83) < 0.5); // 456409.89 / 151.3376
   const p = costearPresentacion({
-    plu: '6051', recetaCosteada: memb, costoDe: costo, costoHora: 8268, bandas: [], overridePct: 155,
+    plu: '6051', recetaCosteada: memb, costoDe: costo, costoHora: 8268, curva: null, overridePct: 155,
     presentacion: { recetaId: 'membrillo', kgPorUnidad: 0.27, correccionPct: 5, insumos: [{ plu: '91508', cantidad: 1 }, { plu: '6316', cantidad: 1 }] },
   });
   // A mano: 3015.84 × 0.27 = 814.28 · +5% = 40.71 · +45 +112 → 1011.99
-  //         × 2.55 = 2580.57 neto (sin ×1,21 desde 2026-09-30) → múltiplo de $50 = 2600
+  //         × 2.55 = 2580.57 neto + IVA 21 % = 3122.49 → múltiplo de $50 = 3100
   assert.strictEqual(p.costoUnidad, 1011.99);
   assert.strictEqual(p.precioNeto, 2580.57);
-  assert.strictEqual(p.precioConIva, 2600);
+  assert.strictEqual(p.precioConIva, 3100);
 });
 
 // ── Escalar variedades cuando cambia el kg por tanda de la base (decisión 12) ──
@@ -509,4 +513,22 @@ test('costearReceta: la variedad trae el desglose del producto terminado por tan
   assert.strictEqual(propia.desglose.rendimientoPropio, true);
   assert.strictEqual(propia.desglose.totalKg, 12);
   assert.strictEqual(costear(BASE).desglose, undefined);
+});
+
+// ── plusProduccion: PLUs que muestra la tab Producción (venta base de Costos) ──
+test('plusProduccion: presentaciones con PLU (trim, sin provisorias n-… ni basura) + pack/bulto vinculados a ellas', () => {
+  const { plusProduccion } = require('../lib/precios_produccion');
+  const datos = { productos: {
+    'p-pepas': { presentaciones: { 6050: {}, ' 6051 ': {}, 'n-pepa-nueva': {}, "1'; DROP--": {}, '1234567890123': {} } },
+    'p-vacio': {}, 'p-null': null,
+  } };
+  const vinculos = [
+    { plu: '91438', basePlu: '6050', tipo: 'bulto' },
+    { plu: '91032', basePlu: 6050, tipo: 'pack' },
+    { plu: '91449', basePlu: '6052', tipo: 'bulto' }, // base que no está en la tab
+    { plu: "9'--", basePlu: '6050', tipo: 'pack' },
+  ];
+  assert.deepStrictEqual(plusProduccion(datos, vinculos), ['6050', '6051', '91032', '91438']);
+  assert.deepStrictEqual(plusProduccion(datos), ['6050', '6051']);
+  assert.deepStrictEqual(plusProduccion(null), []);
 });
