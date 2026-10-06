@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const path = require('path');
+const XLSX = require('xlsx');
 const insumos = require('../lib/insumos');
 const { calcularAlmacen } = require('../lib/distribucion');
 const { calcularPesables, ultimoFraccionadoPorPlu } = require('../lib/pesables');
@@ -338,17 +339,43 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     const primera = primeraCompraMapP.get(String(f.plu));
     const prioridad = esNuevo ? Math.max(f.prioridad, pisoImportanciaP) : f.prioridad;
     const prioridadSala = esNuevo ? Math.max(f.prioridadSala, pisoImportanciaP) : f.prioridadSala;
+    // Base = sin aging (mismo piso de "nuevo", que no es aging).
+    const prioridadBase = esNuevo ? Math.max(f.prioridadBase, pisoImportanciaP) : f.prioridadBase;
+    const prioridadSalaBase = esNuevo ? Math.max(f.prioridadSalaBase, pisoImportanciaP) : f.prioridadSalaBase;
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapP.get(String(f.plu)) || '',
       granel: f.granel, nombreGranel: f.granel != null ? (nombreMap.get(String(f.granel)) || '') : '',
       cantFormula: (formulas[String(f.plu)] || {}).cantFormula ?? 1,
       peso: f.peso, F: f.F, H: f.H, BG: f.BG, enviar: f.enviar, enviarOverride: f.enviarOverride || {}, ideal: f.teorico, CG: f.CG, mins: f.mins, sLev: f.sLev,
-      J: f.J, D: f.D, G: f.G, objDep: f.objDep, BL: f.BL, prioridad, prioridadSala,
+      J: f.J, D: f.D, G: f.G, objDep: f.objDep, BL: f.BL, prioridad, prioridadSala, prioridadBase, prioridadSalaBase,
       granelRatio: f.granelRatio, stkSuc: stocks.get(String(f.plu)) || {},
       esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null,
       diasSinFraccionar: f.diasSinFraccionar, ultimoFraccionado: f.ultimoFraccionado };
   });
 }
 router.get('/api/distribucion/pesables', apiRoute(async (req) => calcularDistribucionPesables(req.query.ocultar !== '0')));
+// Export xlsx de la tab "Sin fraccionar": el front manda las filas tal cual las ve (filtro, búsqueda,
+// orden y modo Sala ya aplicados) y acá solo se valida y se arma el libro.
+const SIN_FRAC_XLSX_MAX = 2000;
+router.post('/api/distribucion/sin-fraccionar/xlsx', (req, res) => {
+  const filas = req.body && req.body.filas;
+  if (!Array.isArray(filas) || filas.length > SIN_FRAC_XLSX_MAX)
+    return res.status(422).json({ error: `filas debe ser una lista de hasta ${SIN_FRAC_XLSX_MAX}` });
+  const num = (x) => (x === null || x === '' || !isFinite(Number(x)) ? null : Number(x));
+  const datos = filas.map(f => ({
+    'Código': String((f && f.plu) ?? '').slice(0, 20),
+    'Nombre': String((f && f.nombre) ?? '').slice(0, 200),
+    'Días sin fraccionar': num(f && f.dias) ?? 'sin registro',
+    'Cantidad a envasar (kg)': num(f && f.cantidad),
+    'Importancia': num(f && f.importancia),
+  }));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(datos, { header: ['Código', 'Nombre', 'Días sin fraccionar', 'Cantidad a envasar (kg)', 'Importancia'] });
+  ws['!cols'] = [{ wch: 9 }, { wch: 42 }, { wch: 18 }, { wch: 22 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Sin fraccionar');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="sin_fraccionar_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+  res.send(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+});
 router.get('/api/distribucion/envios-manuales', apiRoute(async () => leerJSON(ENVIOS_MANUALES_PATH, { almacen: {}, pesable: {} })));
 router.post('/api/distribucion/envio-override', (req, res) => {
   const { tipo, plu, suc, valor } = req.body || {};

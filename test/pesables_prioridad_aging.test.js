@@ -21,11 +21,21 @@ const CON_DEMANDA = { central: 5, granel: 40, riv: 0, chaca: 0 };
 // Sin demanda: todas las sucursales por encima de S (las de min fallback también piden).
 const SIN_DEMANDA = { central: 5, granel: 40, riv: 10, urq: 10, nacion: 10, chaca: 10, pergamino: 10, sanpedro: 10, ramallo: 10 };
 
-test('esperaN crece con los días y satura en 1', () => {
+test('esperaN crece con los días sin techo (el tope va sobre el aporte)', () => {
   assert.strictEqual(esperaNorm(0, 30, true), 0);
   assert.strictEqual(esperaNorm(15, 30, true), 0.5);
   assert.strictEqual(esperaNorm(30, 30, true), 1);
-  assert.strictEqual(esperaNorm(90, 30, true), 1);
+  assert.strictEqual(esperaNorm(90, 30, true), 3);
+});
+
+test('el aporte de la espera sigue subiendo después de 30 días y se topa en 0.7', () => {
+  const d30 = fila(CON_DEMANDA, { ultimoFraccionadoPorPlu: { '600': '2026-08-31' } });   // 30 días → 0.2
+  const d60 = fila(CON_DEMANDA, { ultimoFraccionadoPorPlu: { '600': '2026-08-01' } });   // 60 días → 0.4
+  const d300 = fila(CON_DEMANDA, { ultimoFraccionadoPorPlu: { '600': '2025-12-04' } });  // 300 días → 2.0 → tope 0.7
+
+  assert.ok(Math.abs((d60.prioridad - d30.prioridad) - 0.2) < 1e-9);
+  assert.ok(Math.abs((d300.prioridad - d30.prioridad) - 0.5) < 1e-9);
+  assert.ok(Math.abs((d300.prioridadSala - d30.prioridadSala) - 0.5) < 1e-9);
 });
 
 test('sin demanda la espera no sube, aunque nunca se haya fraccionado', () => {
@@ -46,6 +56,15 @@ test('la prioridad sube con los días sin fraccionar', () => {
   assert.strictEqual(viejo.ultimoFraccionado, '2026-08-31');
   assert.ok(Math.abs((viejo.prioridad - reciente.prioridad) - 0.2 * (29 / 30)) < 1e-9);
   assert.ok(viejo.prioridadSala > reciente.prioridadSala);
+});
+
+test('prioridadBase = prioridad sin el aporte del aging (no cambia con los días)', () => {
+  const reciente = fila(CON_DEMANDA, { ultimoFraccionadoPorPlu: { '600': '2026-09-29' } });
+  const viejo = fila(CON_DEMANDA, { ultimoFraccionadoPorPlu: { '600': '2026-08-01' } });   // 60 días → 0.4
+
+  assert.strictEqual(viejo.prioridadBase, reciente.prioridadBase);
+  assert.ok(Math.abs((viejo.prioridad - viejo.prioridadBase) - 0.4) < 1e-9);
+  assert.ok(Math.abs((viejo.prioridadSala - viejo.prioridadSalaBase) - 0.4) < 1e-9);
 });
 
 test('un producto sin demanda no sube por aging', () => {
