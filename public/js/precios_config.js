@@ -87,7 +87,7 @@ async function guardarGeneral(){
 // y se recarga el listado (el estado ok/subir/bajar lo calcula el server con esa tolerancia).
 async function cargarToleranciaFiltro(){
   try {
-    const j = await (await fetch('/api/precios/config')).json();
+    const j = await (await fetchConfigPrecios()).json(); // precios_almacen.js: completa o pública según el permiso
     if (!j.error) ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
     if (!j.error && almacenData.length) renderAlmacen(); // la columna "Costo última compra" usa la tolerancia
   } catch { /* sin config: el input queda vacío, el listado igual carga */ }
@@ -319,6 +319,7 @@ document.getElementById('subtabsConfig').addEventListener('keydown', e => {
 function activarTab(tipo){
   const sub = CARGA_SUBCONFIG[tipo] ? tipo : null;
   if (sub) tipo = 'configuracion';
+  if (tipo === 'configuracion' && preciosSinConfig) tipo = 'almacen'; // sin el permiso no hay Configuración
   const b = document.querySelector(`#tabs .navtab[data-tipo="${tipo}"]`);
   document.querySelectorAll('#tabs .navtab').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('main .tab-panel').forEach(p => p.classList.add('hidden'));
@@ -341,7 +342,24 @@ document.querySelectorAll('#tabs .navtab').forEach(b => b.onclick = async () => 
 document.addEventListener('DOMContentLoaded', () => {
   cargarToleranciaFiltro();
   cargarAlmacen(); // Reventa (data-tipo almacen) es el tab activo por defecto al cargar la página.
+  permisoConfigPrecios.then(aplicarPermisoConfig); // precios_almacen.js
 });
+
+// Permiso de Configuración resuelto: body.con-config / body.sin-config muestran .solo-config / .solo-sin-config
+// (precios.html). Sin él: la tolerancia es de sólo lectura (se cambia en Configuración) y los listados ya pintados se
+// repintan con los rótulos de markup.
+function aplicarPermisoConfig(puede){
+  preciosSinConfig = !puede;
+  document.body.classList.add(puede ? 'con-config' : 'sin-config');
+  if (puede) return;
+  ['fTolerancia', 'frTolerancia'].forEach(id => {
+    const el = document.getElementById(id);
+    el.disabled = true; el.title = 'La tolerancia se cambia en Configuración';
+  });
+  if (!document.getElementById('panel-configuracion').classList.contains('hidden')) activarTab('almacen');
+  if (almacenData.length) renderAlmacen();
+  if (fraccCargado) renderFraccionado(); // precios_fraccionado.js
+}
 
 // Reemplazo de alert()/confirm() nativos: <dialog> modal del theme. showModal() lo pone en el top
 // layer, así que queda encima de #mDet; Escape o Cancelar = false. Devuelve Promise<boolean>.

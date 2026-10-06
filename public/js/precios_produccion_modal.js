@@ -290,12 +290,12 @@ function htmlPrecioRes(r) {
 function htmlEcuacionRes(r) {
   // Costo real = costo neto ÷ (1 − gastos); ganancia = curva + conceptos (o la propia del PLU); el desglose
   // (htmlDesglose, precios_detalle.js) sale del server.
-  const banda = r.banda === 'override' ? 'ganancia propia del PLU' : r.banda ? 'curva + conceptos' : 'sin curva';
+  const banda = r.banda === 'override' ? segunPermiso('ganancia propia del PLU', 'markup propio del PLU') : r.banda ? segunPermiso('curva + conceptos', 'standard') : segunPermiso('sin curva', 'sin standard');
   const des = r.desglose ? { ...r.desglose, markupFinalPct: r.markupFinalPct, precioFinal: r.precioConIva } : null;
   return `<div class="mt-4 rounded-lg border border-borde bg-card px-3 py-2" role="group" aria-label="Cálculo del costo">
     ${r.componentes.map(filaComponente).join('')}
     ${filaRes('=', '<b>Costo neto por unidad</b>', `<b>${plataRes(r.costoUnidad)}</b>`, 'border-t border-borde mt-1 pt-2')}
-    <div class="text-[11px] text-gris py-1">Ganancia ${r.gananciaPct != null ? fmtNum(r.gananciaPct) + '%' : '—'} · ${banda} · markup s/ neto ${r.markupPct != null ? fmtNum(r.markupPct) + '%' : '—'}</div>
+    <div class="text-[11px] text-gris py-1">${segunPermiso(`Ganancia ${r.gananciaPct != null ? fmtNum(r.gananciaPct) + '%' : '—'} · ${banda} · `, `${banda} · `)}markup s/ neto ${r.markupPct != null ? fmtNum(r.markupPct) + '%' : '—'}</div>
     ${htmlDesglose(des, '$', r.banda === 'override')}
     ${filaRes('=', `<b class="text-verde">Precio final</b> <span class="text-[11px] text-gris">redondeo $50</span>`,
       r.precioConIva != null ? `<b class="text-verde">$ ${fmtPrecio(r.precioConIva)}</b>` : '—')}</div>`;

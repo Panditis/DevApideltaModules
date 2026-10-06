@@ -91,6 +91,8 @@ router.delete('/api/admin/usuarios/:id', (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 router.get('/api/admin/modulos', (_req, res) => res.json(auth.leerModulos()));
+// Permisos finos asignables por usuario (ej. Precios · Configuración): van en usuario.modulos.
+router.get('/api/admin/permisos', (_req, res) => res.json(auth.PERMISOS_EXTRA));
 router.put('/api/admin/modulos', (req, res) => {
   try { res.json({ ok: true, modulos: auth.guardarModulos(req.body || []) }); }
   catch (e) { res.status(400).json({ error: e.message }); }

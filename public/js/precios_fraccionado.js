@@ -80,7 +80,8 @@ const markupDeGananciaFr = g => markupDesdeGananciaCli(g, fraccGastos);
 // Leyenda del standard: "standard 22,5 %" y en title curva + conceptos y el markup.
 function pintarStd(el, costoKg, pesoG, std, conPropio){
   el.textContent = std == null ? 'sin standard' : conPropio ? `standard ${fmtPctGastos(std)}` : 'standard';
-  el.title = std == null ? '' : `curva ${fmtPctGastos(gananciaCurvaCliente(costoKg, pesoG))} + conceptos ${fmtPctGastos(totalConceptosCli(fraccConceptos))} · markup s/ neto ${fmtPctGastos(markupDeGananciaFr(std))}`;
+  el.title = std == null || preciosSinConfig ? '' // sin el permiso, std ya es el markup s/ neto
+    : `curva ${fmtPctGastos(gananciaCurvaCliente(costoKg, pesoG))} + conceptos ${fmtPctGastos(totalConceptosCli(fraccConceptos))} · markup s/ neto ${fmtPctGastos(markupDeGananciaFr(std))}`;
 }
 
 // ── Marcados (mapa único por PLU con Almacén; lo usan la barra y la exportación de precios.html) ──
@@ -102,13 +103,13 @@ async function cargarFraccionado(){
   const tbody = document.getElementById('cuerpoFracc');
   tbody.innerHTML = '<tr><td colspan="10" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr>';
   try {
-    const [rl, rc] = await Promise.all([fetch('/api/precios/listado?tipo=fraccionado'), fetch('/api/precios/config')]);
+    const [rl, rc] = await Promise.all([fetch('/api/precios/listado?tipo=fraccionado'), fetchConfigPrecios()]);
     const j = await rl.json(), c = await rc.json();
     if (j.error) throw new Error(j.error);
     if (c.error) throw new Error(c.error);
     fraccData = j;
     fraccTol = Number(c.toleranciaPct) || 0;
-    fraccCurva = (c.curvaGanancia || {}).fraccionado || null;
+    fraccCurva = (c.curvaGanancia || c.curvaMarkup || {}).fraccionado || null; // curvaMarkup: config pública (sin permiso)
     fraccGastosDes = gastosDesgloseCli(c, 'fraccionado'); // precios_orden.js
     document.getElementById('frTolerancia').value = c.toleranciaPct;
     fraccCargado = true;
@@ -229,14 +230,14 @@ async function abrirDetalleFracc(granelPlu){
   try {
     const [rd, rc] = await Promise.all([
       fetch('/api/precios/detalle/' + encodeURIComponent(granelPlu) + '?tipo=fraccionado'),
-      fetch('/api/precios/config'),
+      fetchConfigPrecios(), // precios_almacen.js: sin el permiso, la config pública (markup s/ neto, gastos 0)
     ]);
     const j = await rd.json(), c = await rc.json();
     if (j.error) throw new Error(j.error);
     if (c.error) throw new Error(c.error);
     det = j;
     fraccTol = Number(c.toleranciaPct) || 0;
-    fraccCurva = (c.curvaGanancia || {}).fraccionado || null;
+    fraccCurva = (c.curvaGanancia || c.curvaMarkup || {}).fraccionado || null;
     fraccCostoHora = Number(c.costoHora) || 0;
     fraccGastos = gastosTipoCli(c, 'fraccionado', j); // precios_config_gastos.js (null = falta venta base)
     fraccGastosDes = gastosDesgloseCli(c, 'fraccionado'); // precios_orden.js
@@ -270,8 +271,8 @@ function htmlFilaPresentacionDet(p){
         <input type="number" step="any" min="0" max="10000000" inputmode="decimal" aria-label="Insumos de fraccionado en $ por unidad de ${esc(p.nombre)}" class="fd-ins w-16 num-in text-ink" title="Vacío = sin valor propio: no suma insumos" value="${esc(p.insumosOverride ?? '')}"> /u
         <span class="fd-insk tabular-nums"></span></div>`}</td>
     <td class="py-2 pr-3 whitespace-nowrap"><div class="flex items-center justify-end gap-1 text-gris">
-        <input type="number" step="any" min="-99" max="1000" inputmode="decimal" aria-label="Ganancia % de ${esc(p.nombre)}" class="fd-margen w-16 num-in text-ink" value="${esc(p.gananciaOverride ?? '')}">%
-        <button type="button" class="fd-reset w-6 h-6 rounded text-verde hover:bg-verde/10" aria-label="Volver a la ganancia standard" title="Volver a la ganancia standard">↺</button></div>
+        <input type="number" step="any" min="-99" max="1000" inputmode="decimal" aria-label="${segunPermiso('Ganancia', 'Markup')} % de ${esc(p.nombre)}" class="fd-margen w-16 num-in text-ink" value="${esc(p.gananciaOverride ?? '')}">%
+        <button type="button" class="fd-reset w-6 h-6 rounded text-verde hover:bg-verde/10" aria-label="Volver al standard" title="Volver al standard">↺</button></div>
       <div class="fd-std text-[11px] text-gris text-right pr-7"></div></td>
     <td class="py-2.5 pr-3 text-right tabular-nums"><div class="fd-final"></div><div class="fd-neto text-[11px] text-gris"></div>
       <button type="button" class="fd-ver-des text-[11px] text-verde underline underline-offset-2 hover:text-verdeHover" aria-expanded="false">desglose</button></td>
@@ -296,12 +297,13 @@ function htmlDetalleFracc(j){
 
     <div class="mt-5 mb-1.5">
       <h4 class="lbl sec-tit s-final">Presentaciones · precio por kg</h4>
-      <p class="text-[11px] text-gris">Costo real (costo neto ÷ (1 − gastos)) × (1 + ganancia) = precio neto, + IVA de venta, ÷ (1 − conceptos s/ precio final), redondeo a $50 · ganancia vacía = standard (curva + conceptos)</p>
+      <p class="text-[11px] text-gris">${segunPermiso('Costo real (costo neto ÷ (1 − gastos)) × (1 + ganancia) = precio neto, + IVA de venta, ÷ (1 − conceptos s/ precio final), redondeo a $50 · ganancia vacía = standard (curva + conceptos)',
+        'Costo neto × (1 + markup) = precio neto, + IVA de venta, ÷ (1 − impuestos s/ precio final), redondeo a $50 · markup vacío = standard')}</p>
     </div>
     <div class="overflow-x-auto rounded-lg border border-borde">
       <table class="w-full text-sm">
         <thead class="bg-verde/5"><tr class="border-b border-borde">
-          ${th('<span class="sr-only">Exportar a SIGA</span>✓', 'text-left w-6 pl-2 pt-1.5')}${th('Presentación', 'text-left pt-1.5', 'peso')}${th('Ganancia', 'text-right pt-1.5', 'margen')}
+          ${th('<span class="sr-only">Exportar a SIGA</span>✓', 'text-left w-6 pl-2 pt-1.5')}${th('Presentación', 'text-left pt-1.5', 'peso')}${th(segunPermiso('Ganancia', 'Markup'), 'text-right pt-1.5', 'margen')}
           ${th('Precio final /kg', 'text-right pt-1.5', 'final')}${th('Vigente', 'text-right hidden sm:table-cell pt-1.5', 'vigente')}${th('Act. precio', 'text-center hidden sm:table-cell pt-1.5', 'fecha')}${th('Δ', 'text-right pt-1.5 !pr-0 sm:!pr-2', 'delta')}</tr></thead>
         <tbody class="fd-cuerpo">${filas}</tbody>
         <tbody id="ftCuerpo" class="fd-cuerpo"></tbody>
@@ -390,14 +392,14 @@ function recalcularDetalleFracc(){
     if (propio !== (p.gananciaOverride ?? null)) margenesCambiados++;
     pintarStd(tr.querySelector('.fd-std'), costo, p.pesoG, std, propio != null);
     input.placeholder = std == null ? '—' : r2(std);
-    input.title = `Vacío = ganancia standard (${fmtPctGastos(std)})`;
+    input.title = `Vacío = standard (${fmtPctGastos(std)})`;
     tr.querySelector('.fd-reset').classList.toggle('invisible', propio == null);
     const extra = costosFraccFila(tr, p);
     margenesCambiados += extra.cambios;
     const c = p.faltantes.includes('granel') ? calcularPresentacion(null)
       : calcularPresentacion(sumarMo(costoTotal, extra.moKg, extra.insKg), markupDeGananciaFr(propio ?? std), p.precioVigente, p,
         propio != null ? [] : fraccConceptos);
-    tr.querySelector('.fd-neto').textContent = c.d ? `real ${fmtMoney(c.d.costoReal)} · neto ${fmtMoney(c.neto)} · IVA ${pctD(c.d.ivaPct)}` : '';
+    tr.querySelector('.fd-neto').textContent = c.d ? `${segunPermiso(`real ${fmtMoney(c.d.costoReal)} · `, '')}neto ${fmtMoney(c.neto)} · IVA ${pctD(c.d.ivaPct)}` : '';
     const desBody = document.querySelector(`#mDetBody tr[data-des-pres="${CSS.escape(p.plu)}"] .fd-des-body`);
     if (desBody) desBody.innerHTML = htmlDesglose(c.d, '$/kg', propio != null); // precios_detalle.js
     tr.querySelector('.fd-final').innerHTML = c.precio == null ? '<span class="text-gris">sin precio</span>'
@@ -421,7 +423,7 @@ function recalcularDetalleFracc(){
   if (cambioCosto() && !costoOk) msgDetalle('Completá el costo base para calcular.', true);
   else if (!extrasOk) msgDetalle(msgExtrasInvalidos(), true);
   else if (!validosPB()) msgDetalle(MSG_PESO_PB, true);
-  else if (!tmpOk) msgDetalle('Presentación simulada: elegí el peso (1 a 100.000 g); ganancia de −99 a 1000 % o vacía = standard.', true);
+  else if (!tmpOk) msgDetalle(`Presentación simulada: elegí el peso (1 a 100.000 g); ${segunPermiso('ganancia', 'markup')} de −99 a 1000 % o vacío = standard.`, true);
   else if (hayCambios) msgDetalle(MSG_SIN_GUARDAR, false, 'text-warn');
   else msgDetalle('');
 }
@@ -523,8 +525,8 @@ function htmlFilaTemporal(t, i){
           aria-label="Gramos de la presentación simulada ${i + 1}" class="ft-otra num-in w-20 text-ink" value="${t.otra ? esc(t.pesoG ?? '') : ''}"> g</span></div>
       ${t.nombre ? `<div class="text-[11px] text-gris mt-0.5">${esc(t.nombre)}</div>` : ''}</td>
     <td class="py-2 pr-3 whitespace-nowrap"><div class="flex items-center justify-end gap-1 text-gris">
-        <input type="number" step="any" min="-99" max="1000" inputmode="decimal" aria-label="Ganancia % de la presentación simulada ${i + 1}" class="ft-margen w-16 num-in text-ink" value="${esc(t.gananciaPct ?? '')}">%
-        <button type="button" class="ft-reset w-6 h-6 rounded text-verde hover:bg-verde/10" aria-label="Volver a la ganancia standard" title="Volver a la ganancia standard">↺</button></div>
+        <input type="number" step="any" min="-99" max="1000" inputmode="decimal" aria-label="${segunPermiso('Ganancia', 'Markup')} % de la presentación simulada ${i + 1}" class="ft-margen w-16 num-in text-ink" value="${esc(t.gananciaPct ?? '')}">%
+        <button type="button" class="ft-reset w-6 h-6 rounded text-verde hover:bg-verde/10" aria-label="Volver al standard" title="Volver al standard">↺</button></div>
       <div class="ft-std text-[11px] text-gris text-right pr-7"></div></td>
     <td class="py-2.5 pr-3 text-right tabular-nums"><div class="ft-final"></div><div class="ft-neto text-[11px] text-gris"></div></td>
     <td class="hidden sm:table-cell py-2.5 pr-3 text-right text-gris">—</td>
@@ -568,14 +570,14 @@ function recalcularTemporales(costo, costoTotal){
     const std = conPeso ? gananciaStdCliente(costo, t.pesoG) : null;
     const input = tr.querySelector('.ft-margen');
     input.placeholder = std == null ? '—' : r2(std);
-    input.title = `Vacío = ganancia standard (${fmtPctGastos(std)})`;
+    input.title = `Vacío = standard (${fmtPctGastos(std)})`;
     const stdEl = tr.querySelector('.ft-std');
     if (conPeso) pintarStd(stdEl, costo, t.pesoG, std, true); else { stdEl.textContent = 'elegí el peso'; stdEl.title = ''; }
     tr.querySelector('.ft-reset').classList.toggle('invisible', t.gananciaPct == null);
     // Temporales: sin PLU no hay MO ni insumos propios → no suman.
     const c = conPeso ? calcularPresentacion(sumarMo(costoTotal, 0), markupDeGananciaFr(t.gananciaPct ?? std), null, ivaGranelDet(),
       t.gananciaPct != null ? [] : fraccConceptos) : calcularPresentacion(null);
-    tr.querySelector('.ft-neto').textContent = c.neto != null ? `real ${fmtMoney(c.d.costoReal)} · neto ${fmtMoney(c.neto)}` : '';
+    tr.querySelector('.ft-neto').textContent = c.neto != null ? `${segunPermiso(`real ${fmtMoney(c.d.costoReal)} · `, '')}neto ${fmtMoney(c.neto)}` : '';
     tr.querySelector('.ft-final').innerHTML = c.precio == null ? '<span class="text-gris">sin precio</span>'
       : `<b class="text-verde">$ ${fmtPrecio(c.precio)}</b>`;
   });

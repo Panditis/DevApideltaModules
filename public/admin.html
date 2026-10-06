@@ -288,7 +288,7 @@ body{color:var(--on-surf);font-size:14px;line-height:1.55}
 <script>
 'use strict';
 // ── Estado en memoria (inmutable en cada refresh; se reemplaza, no se muta) ───
-const state = { user: null, usuarios: [], modulos: [], editId: null };
+const state = { user: null, usuarios: [], modulos: [], permisos: [], editId: null };
 
 // ── Helper de fetch con contrato de errores {error} status 400/401/403 ────────
 async function api(url, opts) {
@@ -385,7 +385,7 @@ async function cargarUsuarios() {
   }
 }
 function tituloModulo(ref) {
-  const m = state.modulos.find(x => x.ref === ref);
+  const m = [...state.modulos, ...state.permisos].find(x => x.ref === ref);
   return m ? m.titulo : ref;
 }
 function celdaModulos(u) {
@@ -445,8 +445,8 @@ const modalTitle = document.getElementById('modal-title');
 const pwHint = document.getElementById('pw-hint');
 
 function modulosSeleccionables() {
-  // Fuente: catálogo de módulos, excluyendo el ref 'admin'.
-  return state.modulos.filter(m => m.ref !== 'admin');
+  // Fuente: catálogo de módulos, excluyendo el ref 'admin', + permisos finos (ej. Precios · Configuración).
+  return [...state.modulos.filter(m => m.ref !== 'admin'), ...state.permisos];
 }
 function pintarCheckboxesModulos(seleccionados) {
   const sel = new Set(Array.isArray(seleccionados) ? seleccionados : []);
@@ -565,8 +565,9 @@ async function eliminarUsuario(u) {
 const tbModulos = document.getElementById('tb-modulos');
 async function cargarModulos() {
   try {
-    const lista = await api('/api/admin/modulos');
+    const [lista, permisos] = await Promise.all([api('/api/admin/modulos'), api('/api/admin/permisos')]);
     state.modulos = Array.isArray(lista) ? lista : [];
+    state.permisos = Array.isArray(permisos) ? permisos : [];
     renderModulos();
     // Los usuarios ya cargados pueden depender de los títulos de módulo.
     if (state.usuarios.length) renderUsuarios();

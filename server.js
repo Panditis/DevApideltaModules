@@ -659,6 +659,9 @@ app.use((req, res, next) => {
   // El login se exige sólo al entrar a un módulo marcado con requiereAuth.
   return next();
 });
+// Precios · permiso fino de Configuración (ref 'precios-config'): 403 a las rutas de configuración y vista sin
+// estructura de costos en el resto de /api/precios. Va antes de cualquier router de precios.
+app.use(require('./lib/precios_permisos').crearGuardPrecios({ tienePermiso: auth.tienePermiso }));
 
 // ── Rutas HTML ─────────────────────────────────────────────────────────────────
 app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.png')));

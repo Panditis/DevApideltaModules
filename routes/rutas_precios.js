@@ -9,6 +9,7 @@ const { pesoTokenKg } = require('../lib/producto_carga');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { crearPackBultoDe, configPackBultoSanitizada, PACK_BULTO_DEFAULT } = require('../lib/precios_pack_bulto');
 const preciosMargenes = require('../lib/precios_margenes_propios');
+const preciosPermisos = require('../lib/precios_permisos');
 // Costeo de Producción (sin el router): presentaciones para los márgenes propios.
 const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
 
@@ -130,6 +131,25 @@ module.exports = function crearRutasPrecios(deps) {
   })();
 
   router.get('/precios', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'precios.html')));
+
+  // Sin el permiso de Configuración (req.preciosSinConfig, lo marca guardPrecios en server.js) los listados y
+  // detalles se calculan con la vista sin estructura del tipo (lib/precios_permisos proyectarCosteo).
+  const sinConfig = req => !!(req && req.preciosSinConfig === true);
+  const costeoPara = (req, tipo) => (sinConfig(req) ? preciosPermisos.proyectarCosteo(leerCosteo(), tipo) : leerCosteo());
+
+  // Lo mínimo que necesita el front de cualquier usuario del módulo: si tiene el permiso (puedeConfig), tolerancia,
+  // costo hora (MO de Fraccionado, en el costo neto), IVA de venta y % generales de pack/bulto. Sin el permiso suma la
+  // vista proyectada (gastos 0, curva de markup, impuestos s/ final en un solo total) para recalcular en vivo.
+  router.get('/api/precios/config/publica', apiRoute(async (req) => {
+    const costeo = leerCosteo();
+    const pb = configPackBultoSanitizada(costeo.packBulto);
+    const base = {
+      puedeConfig: !sinConfig(req), toleranciaPct: costeo.toleranciaPct, costoHora: costeo.costoHora,
+      ivaVentaPct: preciosCosteo.ivaVentaPctDe(costeo),
+      packBulto: { descPackPct: pb.descPackPct, descBultoPct: pb.descBultoPct },
+    };
+    return sinConfig(req) ? { ...base, ...preciosPermisos.configPublicaSinEstructura(costeo) } : base;
+  }));
 
   router.get('/api/precios/config', apiRoute(async () => {
     const costeo = leerCosteo();
@@ -276,10 +296,9 @@ module.exports = function crearRutasPrecios(deps) {
 
   router.get('/api/precios/listado', apiRoute(async (req) => {
     const tipo = String(req.query.tipo || '');
-    const costeo = leerCosteo();
-    if (tipo === 'fraccionado') return gruposFraccionado(costeo);
+    if (tipo === 'fraccionado') return gruposFraccionado(costeoPara(req, 'fraccionado'));
     if (tipo !== 'almacen') return { error: 'tipo no soportado todavía' };
-    const filas = await filasAlmacen(costeo);
+    const filas = await filasAlmacen(costeoPara(req, 'almacen'));
     // Listado liviano: sin el desglose de componentes (eso es para detalle).
     return filas.map(f => ({
       plu: f.plu, nombre: f.nombre, costoBase: f.costoBase, costoTotal: f.costoTotal, markupPct: f.markupPct, banda: f.banda,
@@ -299,13 +318,12 @@ module.exports = function crearRutasPrecios(deps) {
 
   router.get('/api/precios/detalle/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
-    const costeo = leerCosteo();
     if (String(req.query.tipo || '') === 'fraccionado') {
       // ponytail: arma todos los grupos para devolver uno (mismo criterio que Almacén abajo).
-      const grupo = (await gruposFraccionado(costeo)).find(g => g.granelPlu === plu);
+      const grupo = (await gruposFraccionado(costeoPara(req, 'fraccionado'))).find(g => g.granelPlu === plu);
       return grupo || { error: `Granel ${plu} no encontrado en Fraccionado` };
     }
-    const filas = await filasAlmacen(costeo);
+    const filas = await filasAlmacen(costeoPara(req, 'almacen'));
     const fila = filas.find(f => f.plu === plu);
     if (!fila) return { error: `PLU ${plu} no encontrado en el universo Reventa` };
     return fila;
@@ -452,10 +470,37 @@ module.exports = function crearRutasPrecios(deps) {
   // debajo del costo es dato real (ver alinear-siga).
   const MARKUP_MIN_PCT = -99;
   const MARKUP_MAX_PCT = 1000;
-  router.put('/api/precios/margen-producto/:plu', apiRoute(async (req) => guardarValorProducto({
-    clave: 'margenPorProducto', plu: String(req.params.plu || '').trim(),
-    raw: (req.body || {}).gananciaPct, min: MARKUP_MIN_PCT, max: MARKUP_MAX_PCT,
-  })));
+  // Sin el permiso de Configuración el valor es markup s/ costo neto (lo único que ve): se valida con los mismos
+  // límites y se guarda como ganancia con los gastos del tipo del PLU; la respuesta devuelve el markup enviado.
+  router.put('/api/precios/margen-producto/:plu', apiRoute(async (req) => {
+    const plu = String(req.params.plu || '').trim();
+    const raw = (req.body || {}).gananciaPct;
+    if (!sinConfig(req) || raw === null) {
+      return guardarValorProducto({ clave: 'margenPorProducto', plu, raw, min: MARKUP_MIN_PCT, max: MARKUP_MAX_PCT });
+    }
+    const m = Number(raw);
+    if (!/^[\w-]{1,30}$/.test(plu)) return { error: 'PLU inválido' };
+    if (raw === '' || typeof raw === 'boolean' || !Number.isFinite(m) || m < MARKUP_MIN_PCT || m > MARKUP_MAX_PCT) {
+      return { error: `valor inválido: debe ser un número entre ${MARKUP_MIN_PCT} y ${MARKUP_MAX_PCT}` };
+    }
+    let ganancia;
+    try {
+      ganancia = preciosPermisos.gananciaDesdeMarkupTipo(leerCosteo(), await tipoParaMargen(plu), m);
+    } catch (err) {
+      return { error: err.message };
+    }
+    const r = guardarValorProducto({ clave: 'margenPorProducto', plu, raw: ganancia, min: -100, max: Infinity, excluirMin: true });
+    return r.error ? r : { plu, valor: m };
+  }));
+
+  // Tipo de un PLU para pasar el markup de un usuario sin permiso a ganancia: Producción y fórmulas de Pesables sin
+  // SIGA (crearTipoDePlu); el resto por rubro de SIGA (un venta directa sin fórmula es Fraccionado, no Reventa).
+  async function tipoParaMargen(plu) {
+    const tipo = crearTipoDePlu()(plu);
+    if (tipo !== 'almacen' || !/^\d{1,12}$/.test(plu)) return tipo;
+    const [row] = await query(`SELECT TOP 1 r.NombreRubro AS rubro FROM Productos p JOIN Rubros r ON r.IdRubro = p.IdRubro WHERE p.IdProducto = ${plu}`);
+    return /^pesables/i.test(String((row || {}).rubro || '').trim()) ? 'fraccionado' : 'almacen';
+  }
 
   // Minutos de fraccionado propios de una presentación (minutosFraccionado[plu]); sin propios no suma MO.
   // { minutos: null } lo quita.
@@ -563,17 +608,26 @@ module.exports = function crearRutasPrecios(deps) {
       : String(req.params.id || '');
     if (!ID_TEMPORAL.test(id)) return { error: 'id de presentación temporal inválido' };
     let datos = null;
+    const costeo = leerCosteo();
     if (op !== 'borrar') {
       try {
         datos = preciosCosteo.validarPresentacionTemporal(req.body, { parcial: op === 'editar' });
+        // Sin el permiso de Configuración la ganancia de la temporal llega como markup s/ costo neto.
+        if (sinConfig(req) && datos.gananciaPct != null) {
+          datos = { ...datos, gananciaPct: preciosPermisos.gananciaDesdeMarkupTipo(costeo, 'fraccionado', datos.gananciaPct) };
+        }
       } catch (err) {
         return { error: err.message };
       }
     }
-    const costeo = leerCosteo();
     const r = aplicarTemporal(costeo.presentacionesTemporales, plu, { op, id, datos });
     if (r.error) return r;
     guardarJSON(COSTEO_PATH, { ...costeo, presentacionesTemporales: r.mapa });
+    if (sinConfig(req)) {
+      const G = preciosCostos.gastosVentaPctTipo(costeo, 'fraccionado');
+      const aMarkup = t => preciosPermisos.temporalAMarkup(t, G);
+      return { granelPlu: plu, temporal: aMarkup(r.item), temporales: (r.mapa[plu] || []).map(aMarkup) };
+    }
     return { granelPlu: plu, temporal: r.item, temporales: r.mapa[plu] || [] };
   }
   router.post('/api/precios/presentaciones-temporales/:granelPlu', apiRoute(async (req) => guardarTemporal(req, 'crear')));

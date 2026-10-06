@@ -27,6 +27,18 @@ function badgeSemaforo(sem){
   return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${m.cls}">${m.txt}</span>`;
 }
 
+// ── Permiso de Configuración (ref precios-config) ──────────────────────────────
+// GET /api/precios/config/publica dice si el usuario lo tiene (puedeConfig). Sin él (o si no se pudo saber) el server
+// responde 403 a las rutas de configuración y calcula con la vista sin estructura: "ganancia" = markup s/ costo neto,
+// gastos 0. La config que leen los modales sale de fetchConfigPrecios (la completa o la pública). La UI la ajusta
+// aplicarPermisoConfig (precios_config.js); la seguridad es la del server.
+let preciosSinConfig = false;
+const permisoConfigPrecios = fetch('/api/precios/config/publica').then(r => r.json())
+  .then(j => j && j.puedeConfig === true).catch(() => false);
+const fetchConfigPrecios = async () => fetch((await permisoConfigPrecios) ? '/api/precios/config' : '/api/precios/config/publica');
+// Texto según el permiso: (con Configuración, sin ella). Para lo que se arma al abrir un modal (permiso ya resuelto).
+const segunPermiso = (con, sin) => (preciosSinConfig ? sin : con);
+
 const BADGE_INGRESO_HOY = '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-ok/15 text-ok">Ingreso hoy</span>';
 
 // ── Almacén: listado ─────────────────────────────────────────────────────────
@@ -184,10 +196,11 @@ function renderAlmacen(){
     // Ganancia % (s/ costo real: curva + conceptos, o la propia) · markup final % (precio final con IVA ÷ costo
     // neto − 1); curva y markup total (s/ neto) van en el title.
     const gyf = `${pct1(f.gananciaPct)} · <span class="text-gris">${pct1(f.markupFinalPct)}</span>`;
-    const tipMk = `ganancia s/ costo real · markup s/ neto ${pct1(f.markupPct)} · IVA ${f.ivaPct ?? '—'} %`;
+    // Sin el permiso de Configuración gananciaPct ya es el markup s/ neto (vista sin estructura del server).
+    const tipMk = segunPermiso(`ganancia s/ costo real · markup s/ neto ${pct1(f.markupPct)}`, 'markup s/ costo neto') + ` · IVA ${f.ivaPct ?? '—'} %`;
     const banda = f.gananciaOverride != null
-      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="Ganancia propia del producto (standard: ${pct1(f.gananciaBanda)})">propio</span> <span title="${esc(tipMk)}">${gyf}</span>`
-      : f.banda ? `<span title="${esc(`curva ${pct1(f.gananciaCurva)} + conceptos · ${tipMk}`)}">${gyf}</span>` : '—';
+      ? `<span class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amarillo/30 text-ink" title="${segunPermiso('Ganancia propia', 'Markup propio')} del producto (standard: ${pct1(f.gananciaBanda)})">propio</span> <span title="${esc(tipMk)}">${gyf}</span>`
+      : f.banda ? `<span title="${esc(segunPermiso(`curva ${pct1(f.gananciaCurva)} + conceptos · `, 'standard · ') + tipMk)}">${gyf}</span>` : '—';
     const tipCompra = `Proveedor: ${f.proveedor || '—'} · Última compra: ${f.fechaUltimaCompra || '—'}`;
     const badgeHoy = f.ingresoHoy ? ' ' + BADGE_INGRESO_HOY : '';
     const hayExtras = (f.costosExtra || []).length > 0 && f.costoTotal != null;
@@ -197,7 +210,7 @@ function renderAlmacen(){
       <td class="p-2">${esc(f.plu)}</td>
       <td class="p-2" title="${esc(tipCompra)}">${esc(f.nombre)}${badgeHoy}</td>
       <td class="p-2 text-right whitespace-nowrap"${tipCosto ? ` title="${esc(tipCosto)}"` : ''}>${chipFuenteCosto(f.costoFuente)}${fmtMoney(f.costoTotal)}${hayExtras ? ' <span class="text-[10px] text-gris">+extras</span>' : ''}</td>
-      <td class="p-2 text-right whitespace-nowrap tabular-nums" title="Costo real = costo neto ÷ (1 − gastos variables − departamentos)">${fmtMoney(f.costoReal)}</td>
+      <td class="p-2 text-right whitespace-nowrap tabular-nums solo-config" title="Costo real = costo neto ÷ (1 − gastos variables − departamentos)">${fmtMoney(f.costoReal)}</td>
       ${htmlCeldaCostoSistema(f)}${htmlCeldaUltimaCompra(f, tol)}
       <td class="p-2 text-center whitespace-nowrap">${banda}</td>
       <td class="p-2 text-right">${fmtMoney(f.precioVigente)}</td>

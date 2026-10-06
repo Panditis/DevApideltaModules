@@ -249,7 +249,7 @@ function conectarDescPB(raiz, itemDe, alCambiar) {
 }
 // % general del tipo (para mostrarlo al quitar el propio): /api/precios/config trae packBulto.
 async function descGeneralPB(tipo) {
-  pbGenerales = pbGenerales || fetch('/api/precios/config').then(r => r.json()).then(j => { if (j.error) throw new Error(j.error); return j.packBulto || {}; });
+  pbGenerales = pbGenerales || fetchConfigPrecios().then(r => r.json()).then(j => { if (j.error) throw new Error(j.error); return j.packBulto || {}; });
   try {
     const pb = await pbGenerales;
     return tipo === 'pack' ? pb.descPackPct : pb.descBultoPct;

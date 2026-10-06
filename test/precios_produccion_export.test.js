@@ -46,6 +46,24 @@ test('plusMarcarTodas: marcables de un producto; si ya están todas marcadas, el
   assert.deepStrictEqual(ex.plusMarcarTodas({ c: pres('n-x') }), { plus: [], marcado: true });
 });
 
+test('filasPlanasProd: todas las presentaciones con su producto; busca por presentación/producto/PLU; "a revisar" = subir/bajar', () => {
+  const lista = [
+    { id: 'p-granola', nombre: 'Granola', exportables: [pres('6319', { semaforo: 'ok', deltaPct: 1 }), pres('6320', { nombre: 'Granola Ñandú', semaforo: 'subir', deltaPct: -3 })] },
+    { id: 'p-pepas', nombre: 'Pepas', exportables: [pres('8104', { semaforo: 'bajar', deltaPct: 12 }), pres('8105', { deltaPct: null })] },
+    { id: 'p-viejo', nombre: 'Viejo' },
+  ];
+  const todas = ex.filasPlanasProd(lista);
+  // Sin orden elegido: diferencia absoluta desc, sin diferencia al final.
+  assert.deepStrictEqual(todas.map(f => f.plu), ['8104', '6320', '6319', '8105']);
+  assert.deepStrictEqual([todas[0].productoId, todas[0].producto], ['p-pepas', 'Pepas']);
+  assert.deepStrictEqual(ex.filasPlanasProd(lista, { q: 'nandu' }).map(f => f.plu), ['6320']);
+  assert.deepStrictEqual(ex.filasPlanasProd(lista, { q: 'PEPAS' }).map(f => f.plu), ['8104', '8105']);
+  assert.deepStrictEqual(ex.filasPlanasProd(lista, { q: '631' }).map(f => f.plu), ['6319']);
+  assert.deepStrictEqual(ex.filasPlanasProd(lista, { soloRevisar: true }).map(f => f.plu), ['8104', '6320']);
+  assert.deepStrictEqual(ex.filasPlanasProd(null), []);
+  assert.strictEqual(lista[0].exportables[0].producto, undefined); // sin mutar
+});
+
 test('textoUsosCategoria: productos con sus recetas; vacío → sin uso', () => {
   assert.strictEqual(maq.textoUsosCategoria([{ id: 'p-g', nombre: 'Granola', recetas: ['Base', 'Con miel'] }, { id: 'p-p', nombre: 'Pepas', recetas: ['Masa'] }]),
     'Granola (Base, Con miel) · Pepas (Masa)');

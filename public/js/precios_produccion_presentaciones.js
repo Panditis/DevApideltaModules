@@ -121,14 +121,15 @@ function htmlSeccionPresentaciones() {
   const th = (clave, txt, cls = '') => `<th class="${cls}" data-orden="${clave}">${txt}</th>`;
   // Grupos de columnas con el color de su sección del desglose: costo (azul) → ganancia (verde) → precio final.
   return `<div class="pr-tabla-caja"><table class="pr-tabla pr-pres">
-    <thead><tr class="pr-grupos"><th colspan="4"></th><th colspan="4" class="g-costo">Costo por unidad</th><th class="g-margen">Ganancia</th>
+    <thead><tr class="pr-grupos"><th colspan="4"></th><th colspan="4" class="g-costo">Costo por unidad</th><th class="g-margen">${segunPermiso('Ganancia', 'Markup')}</th>
       <th colspan="4" class="g-final">Precio con IVA</th><th colspan="2"></th></tr>
       <tr>${HTML_TH_MARCA}${th('plu', 'PLU', 'text-left')}${th('nombre', 'Presentación', 'text-left')}${th('variedad', 'Variedad', 'text-left')}
-      ${th('kg', 'kg', 'num g-costo')}${th('empaque', 'Empaque', 'num g-costo')}${th('costo', 'Costo neto', 'num g-costo')}${th('real', 'Costo real', 'num g-costo')}${th('markup', 'Gan. · Mk final', 'num g-margen')}
+      ${th('kg', 'kg', 'num g-costo')}${th('empaque', 'Empaque', 'num g-costo')}${th('costo', 'Costo neto', 'num g-costo')}${th('real', 'Costo real', 'num g-costo solo-config')}${th('markup', segunPermiso('Gan. · Mk final', 'Mk · Mk final'), 'num g-margen')}
       ${th('sugerido', 'Sugerido', 'num g-final')}${th('vigente', 'Vigente SIGA', 'num g-final')}${th('delta', 'Diferencia', 'num g-final')}${th('fecha', 'Act. precio', 'g-final')}${th('estado', 'Estado costo', 'text-left')}<th><span class="sr-only">Desglose</span></th></tr></thead>
     <tbody id="prPres">${htmlFilasPresentaciones()}</tbody></table></div>
     <div class="flex items-center gap-3 mt-3"><button id="prNuevaPres" class="cfg-btn2">+ Otra presentación</button>
-      <span class="text-xs text-gris">Tocá una fila para editarla · <b>▾</b> abre el desglose del precio · los pack/bulto van debajo de su presentación (su % se edita en la presentación).</span></div>`;
+      <span class="text-xs text-gris">Tocá una fila para editarla · <b>▾</b> abre el desglose del precio y la fórmula para SIGA · los pack/bulto van debajo de su presentación (su % se edita en la presentación).</span>
+      <button type="button" id="prExportar" class="cfg-btn ml-auto" title="El archivo de precios lleva todo lo marcado en Reventa, Fraccionado y Producción">Exportar marcados…</button></div>`;
 }
 const COLS_PRES = 15;
 // Estado del precio (semáforo) bien visible: flecha + acción + Δ%.
@@ -158,8 +159,8 @@ function htmlFilaPresentacion(p, nombres) {
     <td class="num g-costo">${fmtNum(kg)}</td>
     <td class="num g-costo">${$(emp)}</td>
     <td class="num g-costo">${$(p.costoUnidad)}</td>
-    <td class="num g-costo font-semibold">${$(p.costoReal)}</td>
-    <td class="num g-margen whitespace-nowrap" title="${esc(`ganancia s/ costo real · markup s/ neto ${p.markupPct != null ? fmtNum(p.markupPct) + '%' : '—'} · IVA ${p.ivaPct ?? '—'} % · markup final en gris`)}">${p.gananciaPct != null ? fmtNum(p.gananciaPct) + '%' : '—'} <span class="text-gris">· ${p.markupFinalPct != null ? fmtNum(p.markupFinalPct) + '%' : '—'}</span></td>
+    <td class="num g-costo font-semibold solo-config">${$(p.costoReal)}</td>
+    <td class="num g-margen whitespace-nowrap" title="${esc(`${segunPermiso(`ganancia s/ costo real · markup s/ neto ${p.markupPct != null ? fmtNum(p.markupPct) + '%' : '—'}`, 'markup s/ costo neto')} · IVA ${p.ivaPct ?? '—'} % · markup final en gris`)}">${p.gananciaPct != null ? fmtNum(p.gananciaPct) + '%' : '—'} <span class="text-gris">· ${p.markupFinalPct != null ? fmtNum(p.markupFinalPct) + '%' : '—'}</span></td>
     <td class="num g-final">${falta ? '<span class="text-ink/40">sin precio</span>' : '<b class="pr-sugerido">$ ' + fmtPrecio(p.precioConIva) + '</b>'}</td>
     <td class="num g-final text-gris">${p.precioVigente != null ? '$ ' + fmtPrecio(p.precioVigente) : '—'}</td>
     <td class="num g-final">${htmlSemaforoPres(p.semaforo, p.deltaPct)}</td>
@@ -180,7 +181,9 @@ function htmlDesgloseFila(p) {
       <div><div class="lbl mb-1">Del costo neto al precio final</div>${htmlDesglose(des, '$', p.banda === 'override')}
         <div class="ec ec-total sec s-final"><span class="ec-op" aria-hidden="true">=</span><b class="text-verde">Precio sugerido <span class="text-xs text-gris font-normal">(redondeo $50)</span></b>
           <span class="ec-val font-bold text-verde">${p.precioConIva != null ? '$ ' + fmtPrecio(p.precioConIva) : '—'}</span></div></div>
-    </div></td></tr>`;
+    </div>
+    <div class="flex items-center gap-3 mt-3"><button type="button" class="pr-copiar cfg-btn2" data-plu="${esc(p.plu)}"${(p.formulaSiga || []).length ? '' : ' disabled'}>Copiar fórmula SIGA</button>
+      <span class="text-[11px] text-gris">Componentes por unidad vendida, para cargar a mano en SIGA (el módulo no escribe en SIGA).</span></div></td></tr>`;
 }
 // Pack/bulto de la presentación: sub-filas agrupadas bajo su fila (sólo lectura; el % se edita en el modal).
 function htmlSubfilasPBProd(p) {
@@ -201,10 +204,9 @@ function htmlFilasPresentaciones() {
 function pintarFilasPresentaciones() {
   document.getElementById('prPres').innerHTML = htmlFilasPresentaciones();
   conectarFilasPresentaciones();
-  const m = document.getElementById('prS5Marcadas'); // total del paso 5
-  if (m) m.textContent = String(Object.values(prodDet.presentaciones).filter(p => p.marcado).length);
 }
 function conectarFilasPresentaciones() {
+  document.querySelectorAll('#prPres .pr-copiar').forEach(b => b.onclick = () => copiarFormulaSiga(prodDet.presentaciones[b.dataset.plu])); // precios_produccion_modal.js
   document.querySelectorAll('#prPres tr[data-plu]').forEach(tr => tr.onclick = () => abrirPresentacion(tr.dataset.plu));
   document.querySelectorAll('#prPres tr[data-pb-de]').forEach(tr => tr.onclick = () => abrirPresentacion(tr.dataset.pbDe));
   document.querySelectorAll('#prPres .pr-des-btn').forEach(b => b.onclick = e => {
@@ -216,35 +218,10 @@ function conectarFilasPresentaciones() {
   });
   conectarMarcasProd(); // precios_produccion_export.js: checkbox por presentación y "marcar todas"
 }
-
-// ── Paso 5: fórmula para SIGA de cada presentación + exportar los marcados ─────
-function htmlSeccionFormula() {
-  const pres = ordenarPresProd(Object.values(prodDet.presentaciones));
-  if (!pres.length) return cajaVacia('Cuando cargues presentaciones (paso 4), acá vas a tener la fórmula de cada una para SIGA.', '');
-  const nombres = nombresProd();
-  const filas = pres.map(p => {
-    const f = p.formulaSiga || [];
-    const sinPlu = f.filter(x => !x.plu).length;
-    const comp = f.map(x => esc(nombres[x.plu || x.manualId] || x.manualId || x.plu)).join(' · ');
-    return `<tr data-formula="${esc(p.plu)}">
-      <td class="tabular-nums">${esProvisoria(p.plu) ? '<span class="text-gris">—</span>' : esc(p.plu)}</td>
-      <td class="font-semibold">${esc(p.nombre || p.plu)}${esProvisoria(p.plu) ? ' ' + chip('Pendiente de alta en SIGA', 'bg-amarillo/30 text-ink') : ''}</td>
-      <td class="text-xs text-gris">${comp || '—'}${sinPlu ? ` <span class="text-warn">(${sinPlu} sin PLU: dalos de alta en SIGA)</span>` : ''}</td>
-      <td class="num">${f.length}</td>
-      <td class="text-right"><button type="button" class="pr-copiar cfg-btn2" data-plu="${esc(p.plu)}"${f.length ? '' : ' disabled'}>Copiar fórmula</button></td></tr>`;
-  }).join('');
-  return `<div class="pr-tabla-caja"><table class="pr-tabla"><thead><tr><th class="text-left">PLU</th><th class="text-left">Presentación</th>
-      <th class="text-left">Componentes por unidad vendida</th><th class="num">Ítems</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>
-    <div class="cfg-pie"><span class="text-xs text-gris" role="status">La fórmula se carga a mano en SIGA (el módulo no escribe en SIGA). El archivo de precios lleva todo lo marcado en Reventa, Fraccionado y Producción.</span>
-      <button type="button" id="prExportar" class="cfg-btn">Exportar marcados…</button></div>`;
-}
-function conectarSeccionFormula() {
-  document.querySelectorAll('#paso-5 .pr-copiar').forEach(b => b.onclick = () => copiarFormulaSiga(prodDet.presentaciones[b.dataset.plu])); // precios_produccion_modal.js
-  const exp = document.getElementById('prExportar');
-  if (exp) exp.onclick = () => exportarMarcados(); // precios_almacen.js (el mismo de la barra de marcados)
-}
 function conectarSeccionPresentaciones() {
   conectarFilasPresentaciones();
   document.getElementById('prNuevaPres').onclick = () => abrirPresentacion(null);
+  const exp = document.getElementById('prExportar');
+  if (exp) exp.onclick = () => exportarMarcados(); // precios_almacen.js (el mismo de la barra de marcados)
   montarOrdenPresProd(); // precios_orden.js
 }

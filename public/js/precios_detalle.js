@@ -41,7 +41,9 @@ function bandaParaCosto(costoNeto){
   const markup = markupDesdeGananciaCli(ganancia, detCfg.gastosVentaPct);
   return markup == null ? null : { markup, ganancia, curva, label: 'curva' };
 }
-const desgloseBanda = b => `curva ${fmtPctGastos(b.curva)}${detCfg.conceptosPct ? ` + conceptos ${fmtPctGastos(detCfg.conceptosPct)}` : ''} = ${fmtPctGastos(b.ganancia)}`;
+// Sin el permiso de Configuración la "curva" es la de markup s/ neto (config pública): sólo se muestra el total.
+const desgloseBanda = b => (preciosSinConfig ? fmtPctGastos(b.ganancia)
+  : `curva ${fmtPctGastos(b.curva)}${detCfg.conceptosPct ? ` + conceptos ${fmtPctGastos(detCfg.conceptosPct)}` : ''} = ${fmtPctGastos(b.ganancia)}`);
 
 async function abrirDetalle(plu){
   const body = document.getElementById('mDetBody');
@@ -49,14 +51,14 @@ async function abrirDetalle(plu){
   try {
     const [rd, rc] = await Promise.all([
       fetch('/api/precios/detalle/' + encodeURIComponent(plu)),
-      fetch('/api/precios/config'),
+      fetchConfigPrecios(), // precios_almacen.js: sin el permiso, la config pública (markup s/ neto, gastos 0)
     ]);
     const j = await rd.json(), c = await rc.json();
     if (j.error) throw new Error(j.error);
     if (c.error) throw new Error(c.error);
     det = j;
     detCfg = { toleranciaPct: Number(c.toleranciaPct) || 0,
-      gastosVentaPct: gastosTipoCli(c, 'almacen', j), curva: (c.curvaGanancia || {}).almacen || null,
+      gastosVentaPct: gastosTipoCli(c, 'almacen', j), curva: (c.curvaGanancia || c.curvaMarkup || {}).almacen || null,
       gastos: gastosDesgloseCli(c, 'almacen'), // precios_orden.js
       conceptos: conceptosCli(c), conceptosPct: totalConceptosCli(conceptosCli(c)),
       conceptosFinal: conceptosFinalCli(c), finalPct: totalConceptosCli(conceptosFinalCli(c)) };
@@ -107,9 +109,10 @@ function htmlDetalle(j){
     <div class="mt-2" role="group" aria-label="Cálculo del precio">
       ${htmlCostoBase(j, '$')}
       ${htmlCostosExtra('$', '$ = monto fijo por unidad; % = sobre el costo base. La curva de ganancia se busca con el costo base.')}
-      ${renglon('×', `<div class="min-w-0"><label for="inMarkup" class="font-semibold">Ganancia <span class="font-normal text-xs text-gris">(% s/ costo real: curva + conceptos, o propia)</span></label> <span id="dChipMarkup"></span>
+      ${renglon('×', `<div class="min-w-0"><label for="inMarkup" class="font-semibold">${segunPermiso('Ganancia <span class="font-normal text-xs text-gris">(% s/ costo real: curva + conceptos, o propia)</span>',
+          'Markup <span class="font-normal text-xs text-gris">(% s/ costo neto: standard o propio)</span>')}</label> <span id="dChipMarkup"></span>
           <div class="text-xs text-gris mt-0.5"><span id="dInfoMarkup"></span>
-            <button type="button" id="btnUsarBanda" class="hidden ml-1 text-verde underline underline-offset-2 hover:text-verdeHover">volver a la curva</button></div></div>`,
+            <button type="button" id="btnUsarBanda" class="hidden ml-1 text-verde underline underline-offset-2 hover:text-verdeHover">${segunPermiso('volver a la curva', 'volver al standard')}</button></div></div>`,
         '<span class="ec-val text-gris"><input id="inMarkup" type="number" min="-99" step="any" inputmode="decimal" class="num-in w-24 text-lg font-semibold text-ink"> %</span>', 'sec s-margen')}
       <div id="dDesglose"></div>
       ${renglon('=', `<div class="min-w-0"><label for="inFinal" class="font-semibold text-verde">Precio final</label>
@@ -314,8 +317,9 @@ function recalcularDetalle(){
   document.getElementById('dChipMarkup').innerHTML = detEstado.markupManual
     ? chip('propio', 'bg-amarillo/30 text-ink') : '';
   document.getElementById('dInfoMarkup').textContent = detEstado.markupManual
-    ? `Propia: reemplaza curva y conceptos. La standard daría ${banda ? desgloseBanda(banda) : '—'}.`
-    : banda ? `Standard: ${desgloseBanda(banda)}. Escribí otra para fijar una propia.` : 'Sin ganancia de la curva para este costo (o faltan los gastos del tipo): escribí una ganancia.';
+    ? `${segunPermiso('Propia: reemplaza curva y conceptos', 'Propio: reemplaza el standard')}. ${segunPermiso('La standard daría', 'El standard daría')} ${banda ? desgloseBanda(banda) : '—'}.`
+    : banda ? `Standard: ${desgloseBanda(banda)}. ${segunPermiso('Escribí otra para fijar una propia.', 'Escribí otro para fijar uno propio.')}`
+      : segunPermiso('Sin ganancia de la curva para este costo (o faltan los gastos del tipo): escribí una ganancia.', 'Sin markup standard para este costo: escribí un markup.');
   document.getElementById('btnUsarBanda').classList.toggle('hidden', !detEstado.markupManual);
 
   const set = (id, v) => { document.getElementById(id).textContent = v; };
@@ -394,6 +398,7 @@ const pctD = n => n == null ? '—' : String(+(+n).toFixed(2)).replace('.', ',')
 // notaCostoReal = HTML ya escapado que se agrega al rótulo "Costo real" (el simulador muestra el margen de costos).
 function htmlDesglose(d, unidad = '$', propia = false, notaCostoReal = ''){
   if (!d) return '<p class="text-xs text-gris py-2">Sin precio: falta costo o ganancia.</p>';
+  if (preciosSinConfig) return htmlDesgloseSinConfig(d, unidad, propia);
   const kg = unidad === '$/kg' ? ' /kg' : '';
   const $ = v => v == null ? '—' : '$ ' + fmtMoney(v) + kg;
   const fila = (op, txt, valor, cls, fuerte = false) =>
@@ -419,6 +424,28 @@ function htmlDesglose(d, unidad = '$', propia = false, notaCostoReal = ''){
     ${fila('=', 'Precio final <span class="text-xs text-gris">(exacto)</span>', $(d.precioFinalExacto), 'ec-total sec s-final', true)}
     <div class="text-xs text-gris tabular-nums pt-1.5 pl-7">Markup s/ neto ${pctD(d.markupNetoPct)} · Markup final ${pctD(d.markupFinalPct)}
       · Ganancia final ${$(gf.gananciaFinal)} (margen neto ${pctD(gf.margenNetoPct)})${finales.length ? ` · Impuestos s/ precio final ${$(d.conceptosFinalImporte)}` : ''}</div>
+  </div>`;
+}
+
+// Sin el permiso de Configuración: costo neto → markup → precio neto → IVA → imp. s/ final → precio final (sin variables,
+// departamentos, costo real ni ganancia; d viene de la vista sin estructura: precio neto − costo neto = el markup en $).
+function htmlDesgloseSinConfig(d, unidad, propio){
+  const kg = unidad === '$/kg' ? ' /kg' : '';
+  const $ = v => v == null ? '—' : '$ ' + fmtMoney(v) + kg;
+  const fila = (op, txt, valor, cls, fuerte = false) =>
+    `<div class="ec ${cls}"><span class="ec-op" aria-hidden="true">${op}</span><span class="${fuerte ? 'font-semibold' : ''}">${txt}</span><span class="ec-val${fuerte ? ' font-semibold' : ''}">${valor}</span></div>`;
+  const s = txt => `<span class="text-xs text-gris">(${txt})</span>`;
+  const markup = d.precioNeto != null && d.costo != null ? r2(d.precioNeto - d.costo) : null;
+  const finalPct = d.conceptosFinalPct || 0;
+  return `<div role="group" aria-label="Desglose del precio">
+    ${fila('', 'Costo neto', $(d.costo), 'ec-total sec s-costo', true)}
+    ${fila('+', `Markup ${propio ? 'propio ' : ''}${s(pctD(d.markupNetoPct) + ' s/ costo neto')}`, $(markup), 'sec s-margen')}
+    ${fila('=', 'Precio neto', $(d.precioNeto), 'ec-total sec s-margen', true)}
+    ${fila('+', `IVA ${s(pctD(d.ivaPct))}`, $(d.iva), 'sec s-final')}
+    ${finalPct ? fila('=', 'Precio con IVA', $(d.precioConIvaBase), 'ec-total sec s-final', true)
+      + fila('+', `Impuestos s/ precio final ${s(pctD(finalPct))}`, $(d.conceptosFinalImporte), 'sec s-final') : ''}
+    ${fila('=', 'Precio final <span class="text-xs text-gris">(exacto)</span>', $(d.precioFinalExacto), 'ec-total sec s-final', true)}
+    <div class="text-xs text-gris tabular-nums pt-1.5 pl-7">Markup s/ neto ${pctD(d.markupNetoPct)} · Markup final ${pctD(d.markupFinalPct)}</div>
   </div>`;
 }
 

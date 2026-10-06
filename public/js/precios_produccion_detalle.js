@@ -3,7 +3,7 @@
 // guardarProd, validarProd, urlProd, API_PROD, conectarBuscadorSiga, htmlBuscadorSiga, badgeEstadoProd,
 // mensajeFaltante, textoFaltante, nombreComponente, progresoProducto, pasosHabilitados, bodyReceta,
 // idRecetaNueva, rendimientoSugerido, fmtNum, pctTxt, btnCls/btnPrim/campoCls, panelProd,
-// prodSeccionesCerradas, irAProduccion, salirDeProduccion) y los de precios.html (esc, fmtMoney, chip,
+// prodSeccionesElegidas, seccionesAbiertas, irAProduccion, salirDeProduccion) y los de precios.html (esc, fmtMoney, chip,
 // numOrNull, avisar, confirmar, pedirJson, activarTab) y de precios_produccion_modal.js (presAbierta, cerrarPresentacion). Pasos 3-4 (insumos y
 // presentaciones) en precios_produccion_presentaciones.js. Los importes y costos se muestran tal como
 // vienen del server: después de cada guardado se vuelve a pedir el detalle.
@@ -111,8 +111,10 @@ async function cargarCostoManual(clave) {
   if (await guardarProd(put, null, 'Costo guardado')) refrescarModalPres(); // precios_produccion_modal.js
 }
 async function cargarMargen(plu) {
-  const v = await pedirCampos(`Ganancia propia para el PLU ${plu}`,
-    [{ name: 'gananciaPct', label: 'Ganancia % sobre el costo real (reemplaza curva + conceptos, ej. 20) *', type: 'number', required: true }], 'Guardar ganancia');
+  // Sin el permiso de Configuración el valor es markup s/ costo neto: el server lo pasa a ganancia.
+  const v = await pedirCampos(`${segunPermiso('Ganancia propia', 'Markup propio')} para el PLU ${plu}`,
+    [{ name: 'gananciaPct', label: segunPermiso('Ganancia % sobre el costo real (reemplaza curva + conceptos, ej. 20) *',
+      'Markup % sobre el costo neto (reemplaza el standard, ej. 40) *'), type: 'number', required: true }], segunPermiso('Guardar ganancia', 'Guardar markup'));
   if (!v) return;
   const ok = await guardarProd(() => pedirJson('PUT', '/api/precios/margen-producto/' + encodeURIComponent(plu), { gananciaPct: numOrNull(v.gananciaPct) }), null, 'Ganancia guardada');
   if (ok) refrescarModalPres();
@@ -221,10 +223,9 @@ const ESTADO_PASO = {
 // (.s-costo azul → .s-extra ámbar → .s-margen verde → .s-final verde oscuro): la página se lee en el orden del costeo.
 const PASOS = {
   1: ['Receta base', 'Costo por kg de lo que produce una tanda de máquina.', 'Ingredientes de una tanda y cuántos kg rinde.', 'costo'],
-  2: ['Variedades', 'Lo que se vende: la base + 0, 1 o 2 ingredientes extra (ej. Pepas de membrillo). Las presentaciones eligen una variedad.', 'Al menos una variedad: nombre y receta base; los extras son opcionales.', 'costo'],
+  2: ['Variedades', 'Lo que se vende: la base + 0, 1 o 2 ingredientes extra (ej. Pepas de membrillo). Las presentaciones eligen una variedad.', 'Opcional: la variedad sin extras se crea sola al guardar la receta base; agregá otras solo si el producto tiene sabores.', 'costo'],
   3: ['Insumos y empaque', 'Envases, etiquetas, tapas y precintos de este producto: se suman al costo de cada presentación.', 'Los insumos de SIGA (o manuales si no tienen PLU), con su costo.', 'extra'],
-  4: ['Presentaciones y precios', 'Cada PLU vendible con su costo, precio sugerido y la diferencia contra el vigente de SIGA.', 'PLU de SIGA, variedad, kg por unidad y qué insumos lleva.', 'margen'],
-  5: ['Fórmula SIGA y exportar', 'La fórmula de cada presentación para cargar a mano en SIGA y el archivo de precios a importar.', 'Marcá en el paso 4 las presentaciones a actualizar y exportalas.', 'final'],
+  4: ['Presentaciones y precios', 'Cada PLU vendible con su costo, precio sugerido y la diferencia contra el vigente de SIGA. Marcalas para exportar el archivo de precios.', 'PLU de SIGA, variedad, kg por unidad y qué insumos lleva.', 'margen'],
 };
 // Dato clave de cada sección, a la derecha del encabezado (sale de lo que mandó el server).
 function totalPaso(n) {
@@ -242,40 +243,41 @@ function totalPaso(n) {
     const rev = pres.filter(p => p.semaforo === 'subir' || p.semaforo === 'bajar').length;
     return pres.length ? ['A revisar', `${rev} de ${pres.length}`] : null;
   }
-  const m = pres.filter(p => p.marcado).length;
-  return pres.length ? ['Marcadas', `<span id="prS5Marcadas">${m}</span>`] : null;
+  return null;
 }
-function htmlPaso(n, estado, hab, cuerpoFn) {
+function htmlPaso(n, estado, hab, abierta, cuerpoFn) {
   const [titulo, para, necesitas, acento] = PASOS[n];
   const [cls, txt] = hab.ok ? ESTADO_PASO[estado] : ['bg-gris/15 text-gris', 'Bloqueado'];
   const cuerpo = hab.ok ? cuerpoFn() : `<div class="rounded-lg border border-dashed border-borde bg-bg/60 p-4 text-sm text-gris flex flex-wrap items-center gap-3">
       <span>${esc(hab.motivo)}</span><button type="button" data-pr-accion="paso" data-paso="${hab.paso}" class="${btnCls}">Ir al paso ${hab.paso}</button></div>`;
   const tot = hab.ok ? totalPaso(n) : null;
-  return `<details class="pr-sec acc-${acento}" id="paso-${n}" data-sec="${n}"${prodSeccionesCerradas.has(String(n)) ? '' : ' open'}>
+  // "Qué cargar" sólo mientras el paso no está listo (menos ruido en un producto completo).
+  const ayudaPaso = estado === 'ok' ? '' : `<p class="pr-necesitas"><b>Qué cargar:</b> ${esc(necesitas)}
+      <span class="ml-1">Los campos con <span class="text-crit">*</span> son obligatorios.</span></p>`;
+  return `<details class="pr-sec acc-${acento}" id="paso-${n}" data-sec="${n}" data-abierta="${abierta ? 1 : 0}"${abierta ? ' open' : ''}>
     <summary class="pr-sec-cab"><span class="caret" aria-hidden="true">▶</span>
       <span class="pr-sec-n" aria-hidden="true">${n}</span>
       <span class="min-w-0"><span class="pr-sec-tit">${titulo}</span><span class="pr-sec-ayuda">${esc(para)}</span></span>
       ${tot ? `<span class="pr-sec-tot"><span>${tot[0]}</span><b>${tot[1]}</b></span>` : '<span class="ml-auto"></span>'}
       <span class="shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${txt}</span></summary>
-    <div class="pr-sec-cuerpo"><p class="pr-necesitas"><b>Qué cargar:</b> ${esc(necesitas)}
-      <span class="ml-1">Los campos con <span class="text-crit">*</span> son obligatorios.</span></p>${cuerpo}</div></details>`;
+    <div class="pr-sec-cuerpo">${ayudaPaso}${cuerpo}</div></details>`;
 }
 function pintarDetalleProduccion() {
   const hab = pasosHabilitados(prodDet), prog = progresoProducto(prodDet);
   const est = Object.fromEntries(prog.map(p => [p.clave, p.estado]));
-  const est5 = !Object.keys(prodDet.presentaciones).length ? 'falta' : Object.values(prodDet.presentaciones).some(p => p.marcado) ? 'ok' : 'opcional';
+  const abiertas = seccionesAbiertas({ 1: est.base, 2: est.variedades, 3: est.insumos, 4: est.presentaciones }, prodSeccionesElegidas);
   panelProd().innerHTML = htmlEncabezadoDetalle(prodDet, prog) + htmlPanelAlertas(prodDet)
-    + htmlPaso(1, est.base, hab[1], htmlPaso1) + htmlPaso(2, est.variedades, hab[2], htmlPaso2)
-    + htmlPaso(3, est.insumos, hab[3], htmlSeccionInsumos) + htmlPaso(4, est.presentaciones, hab[4], htmlSeccionPresentaciones)
-    + htmlPaso(5, est5, hab[4], htmlSeccionFormula);
+    + htmlPaso(1, est.base, hab[1], abiertas[1], htmlPaso1) + htmlPaso(2, est.variedades, hab[2], abiertas[2], htmlPaso2)
+    + htmlPaso(3, est.insumos, hab[3], abiertas[3], htmlSeccionInsumos) + htmlPaso(4, est.presentaciones, hab[4], abiertas[4], htmlSeccionPresentaciones);
   conectarEncabezado();
   conectarRecetas();
   if (hab[3].ok) conectarSeccionInsumos();          // precios_produccion_presentaciones.js
-  if (hab[4].ok) { conectarSeccionPresentaciones(); conectarSeccionFormula(); } // precios_produccion_presentaciones.js
+  if (hab[4].ok) conectarSeccionPresentaciones();   // precios_produccion_presentaciones.js
+  // Sólo un cambio real de estado cuenta como elección (el toggle que dispara el render inicial, no).
   panelProd().querySelectorAll('details[data-sec]').forEach(det => det.addEventListener('toggle', () => {
-    const s = new Set(prodSeccionesCerradas);
-    if (det.open) s.delete(det.dataset.sec); else s.add(det.dataset.sec);
-    prodSeccionesCerradas = s;
+    if (det.open === (det.dataset.abierta === '1')) return;
+    det.dataset.abierta = det.open ? '1' : '0';
+    prodSeccionesElegidas = { ...prodSeccionesElegidas, [det.dataset.sec]: det.open };
   }));
 }
 
@@ -293,7 +295,7 @@ function htmlPaso1() {
 function htmlPaso2() {
   const vars = idsVariedades();
   if (!vars.length) {
-    return cajaVacia('Cada presentación sale de una variedad: la receta base + algún ingrediente extra (ej. Pepas de membrillo). <b class="text-ink">Si el producto no tiene sabores, creá una variedad sin extras</b> (ej. Clásica).',
+    return cajaVacia('Cada presentación sale de una variedad. <b class="text-ink">La variedad sin extras se crea sola al guardar la receta base</b>; agregá otras solo si el producto tiene sabores (ej. Pepas de membrillo).',
       `<button id="prNuevaVariedad" class="${btnPrim}">Crear variedad</button>`);
   }
   return vars.map(htmlReceta).join('') + `<button id="prNuevaVariedad" class="${btnCls} mt-3">+ Otra variedad</button>`;
@@ -538,11 +540,15 @@ function guardarReceta(id, btn) {
   const ed = prodEdRecetas[id];
   const falta = faltaEnReceta(ed);
   if (falta) { avisar(falta); return; }
+  let msg = ed.varianteDe ? 'Variedad guardada' : 'Receta guardada';
   guardarProd(async () => {
     // Base: el server escala los extras de sus variedades si cambió el kg por tanda (misma escritura).
-    await pedirJson('PUT', urlReceta(id), ed.varianteDe ? bodyReceta(ed) : { ...bodyReceta(ed), escalarVariantes: true });
+    const j = await pedirJson('PUT', urlReceta(id), ed.varianteDe ? bodyReceta(ed) : { ...bodyReceta(ed), escalarVariantes: true });
+    // Primera base de un producto sin variedades: el server crea sola la variedad sin extras.
+    const vc = j && j.variedadCreada;
+    if (vc) msg = `Receta guardada · variedad "${(typeof vc === 'object' ? vc.nombre || vc.id : vc) || prodDet.nombre}" creada`;
     prodEdRecetas = sinReceta(id); // se reconstruye con lo guardado al recargar
-  }, btn, ed.varianteDe ? 'Variedad guardada' : 'Receta guardada');
+  }, btn, () => msg);
 }
 async function nuevaRecetaBase() {
   const v = await pedirCampos('Nueva receta base', [
@@ -555,6 +561,7 @@ async function nuevaRecetaBase() {
     nombre: v.nombre, varianteDe: null, rendimientoKg: numOrNull(v.rendimientoKg), mermaPct: null, minutosElaboracion: null,
     categoriaMaquinaId: '', items: [], sucio: true, nueva: true,
   } };
+  prodSeccionesElegidas = { ...prodSeccionesElegidas, 1: true }; // el borrador vive en el paso 1: abierto
   pintarDetalleProduccion();
   document.getElementById('prBusca-' + id).focus();
 }
@@ -568,6 +575,7 @@ async function crearVariedad() {
   ], 'Crear variedad');
   if (!v) return;
   const id = idRecetaNueva(v.nombre, Object.keys(prodEdRecetas));
+  prodSeccionesElegidas = { ...prodSeccionesElegidas, 2: true }; // para seguir con los extras en su tarjeta
   const ok = await guardarProd(() => pedirJson('PUT', urlReceta(id), { nombre: v.nombre, varianteDe: v.base, extras: [] }), null, 'Variedad creada: agregale los extras');
   if (ok) { const b = document.getElementById('prBusca-' + id); if (b) { b.scrollIntoView({ block: 'center' }); b.focus(); } }
 }

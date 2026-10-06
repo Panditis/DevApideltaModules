@@ -9,6 +9,7 @@ const { costeoConCurva } = require('../lib/precios_migracion_curva');
 const { gastosVentaPctTipo, gastosDesglosePct } = require('../lib/precios_costos');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 const { crearPackBultoDe } = require('../lib/precios_pack_bulto');
+const { proyectarCosteo } = require('../lib/precios_permisos');
 
 // ── Precios, Fase 3: tab Producción ──────────────────────────────────────────
 // Productos con recetas (base + variantes), su lista de insumos y presentaciones (que eligen de esa lista), en data/recetas_produccion.json
@@ -26,6 +27,7 @@ const PLU = /^\d{1,12}$/;
 // Clave de presentación: PLU de SIGA o provisoria n-<slug> (todavía no dada de alta en SIGA; decisión 13).
 const CLAVE_PRES = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/;
 const TIPOS_INSUMO = ['envase', 'tapa', 'etiqueta', 'precinto', 'otro'];
+const TIPOS_EMPAQUE = ['envase', 'tapa', 'etiqueta', 'precinto']; // en una fórmula SIGA, el resto son ingredientes
 const TEXTO_MAX = 60;
 const COSTO_MAX = 1e9;
 const INSUMOS_MAX = 100;
@@ -69,20 +71,23 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return nuevo;
   }
 
-  // Un solo camino de costeo para selector, detalle, alertas y validar.
-  async function costearProductos(datos, ids) {
+  // Un solo camino de costeo para selector, detalle, alertas y validar. req con preciosSinConfig (lo marca guardPrecios
+  // en server.js) = usuario sin el permiso de Configuración: se costea con la vista sin estructura (lib/precios_permisos);
+  // validar y alertas no pasan req (guardan/comparan con la config real).
+  async function costearProductos(datos, ids, req = null) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
-    const costeo = costeoConCurva(leerJSON(COSTEO_PATH, {}) || {});
+    const real = costeoConCurva(leerJSON(COSTEO_PATH, {}) || {});
+    const costeo = req && req.preciosSinConfig === true ? proyectarCosteo(real, 'produccion') : real;
     const costos = await costosPorPlu(plusUsados(productos));
     const costeados = costearTodos({ productos, costos, costeo, datos });
     return { costeados, costos, costeo };
   }
 
   // Detalle costeado + vigentes SIGA + sub-filas pack/bulto de cada presentación (una query de vínculos).
-  async function detalleConPrecios(datos, id) {
+  async function detalleConPrecios(datos, id, req) {
     const manuales = ((costeoConCurva(leerJSON(COSTEO_PATH, {}) || {})).packBulto || {}).vinculosManuales || {};
     const [{ costeados, costos, costeo }, vigentes, fechas, { vinculos }] = await Promise.all([
-      costearProductos(datos, [id]), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(manuales),
+      costearProductos(datos, [id], req), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(manuales),
     ]);
     const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo });
     return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, fechas, toleranciaPct: costeo.toleranciaPct, tiposPackaging, packBultoDe,
@@ -107,11 +112,13 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     }
   }));
 
-  router.get('/api/precios/produccion/productos', ruta(async () => {
+  router.get('/api/precios/produccion/productos', ruta(async (req) => {
     const datos = leer();
-    const [{ costeados, costeo }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
+    const [{ costeados, costeo }, fechas, vigentes] = await Promise.all([
+      costearProductos(datos, Object.keys(datos.productos), req), fechasPrecioAlmacen(), preciosVigentesAlmacen(),
+    ]);
     return Object.entries(costeados)
-      .map(([id, c]) => filaSelector(id, datos.productos[id], c, costeo.marcadosExportar, fechas))
+      .map(([id, c]) => filaSelector(id, datos.productos[id], c, costeo.marcadosExportar, fechas, vigentes, costeo.toleranciaPct))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }));
 
@@ -124,11 +131,34 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return { id, producto };
   }));
 
+  // Alta de un producto completo desde la fórmula activa de SIGA de un PLU: receta base (ingredientes × kg por
+  // tanda), insumos del producto (el empaque), la variedad automática y las presentaciones de SIGA que usan ese
+  // PLU (todas o el subconjunto `presentaciones: [plu…]`), en una sola escritura.
+  router.post('/api/precios/produccion/productos/desde-siga', ruta(async (req) => {
+    const b = esObjeto(req.body) ? req.body : {};
+    const { nombre } = entrada(() => produccion.validarProducto(b));
+    const plu = validarId(b.plu, PLU, 'plu');
+    const rendimientoKg = numeroEn(b.rendimientoKg, 'rendimientoKg', { min: 0, excluirMin: true });
+    const elegidas = b.presentaciones == null ? null : validarPlusElegidos(b.presentaciones);
+    const formula = await formulaSiga(plu);
+    if (!formula.componentes.length) fallar(formula.mensaje);
+    const datos = leer();
+    const id = idUnico(`p-${slug(nombre)}`, datos.productos);
+    const inicial = productoDesdeFormula({
+      nombre, rendimientoKg, componentes: formula.componentes, insumosManuales: datos.insumosManuales, creado: hoy(),
+    });
+    const { producto, presentacionesCreadas, omitidas } = conPresentacionesSiga(inicial.producto, formula.presentaciones, {
+      rendimientoKg, autoId: inicial.variedadCreada, productos: datos.productos, insumosManuales: datos.insumosManuales, elegidas,
+    });
+    guardar({ ...datos, productos: { ...datos.productos, [id]: producto } });
+    return { id, producto, variedadCreada: inicial.variedadCreada, presentacionesCreadas, omitidas };
+  }));
+
   router.get('/api/precios/produccion/productos/:id', ruta(async (req) => {
     const id = idProducto(req);
     const datos = leer();
     productoDe(datos, id);
-    return detalleConPrecios(datos, id);
+    return detalleConPrecios(datos, id, req);
   }));
 
   router.put('/api/precios/produccion/productos/:id', ruta(async (req) => {
@@ -146,19 +176,25 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   // Alta/edición de receta o variante. Editar NO re-valida: se conserva el `validado` que tenía.
   // Base con `escalarVariantes: true` (decisión 12): si cambió el kg por tanda, sus variedades escalan
   // extras por nuevo/anterior en la MISMA escritura (factor calculado acá, contra lo guardado).
+  // Base NUEVA en un producto sin variedades: también se crea la variedad automática (una presentación sale de una variedad).
   router.put('/api/precios/produccion/productos/:id/recetas/:recetaId', ruta(async (req) => {
     const id = idProducto(req);
     const recetaId = validarId(req.params.recetaId, ID_RECETA, 'recetaId');
     const escalar = esObjeto(req.body) && req.body.escalarVariantes === true;
+    let variedadCreada = null;
     const producto = mutarProducto(id, p => {
       const limpia = entrada(() => produccion.validarReceta(req.body, p, recetaId));
       const previa = (p.recetas || {})[recetaId];
       const receta = previa && previa.validado ? { ...limpia, validado: previa.validado } : limpia;
       const recetas = { ...(p.recetas || {}), [recetaId]: receta };
       const factor = escalar && previa && !limpia.varianteDe && previa.rendimientoKg > 0 ? limpia.rendimientoKg / previa.rendimientoKg : 1;
-      return { ...p, recetas: produccion.escalarVariantes(recetas, recetaId, factor) };
+      const nuevo = { ...p, recetas: produccion.escalarVariantes(recetas, recetaId, factor) };
+      if (previa || limpia.varianteDe) return nuevo;
+      const r = conVariedadAutomatica(nuevo, recetaId);
+      variedadCreada = r.variedadCreada;
+      return r.producto;
     });
-    return { id, recetaId, receta: producto.recetas[recetaId] };
+    return { id, recetaId, receta: producto.recetas[recetaId], variedadCreada };
   }));
 
   router.delete('/api/precios/produccion/productos/:id/recetas/:recetaId', ruta(async (req) => {
@@ -231,7 +267,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const previa = (producto.presentaciones || {})[clave];
     const pres = previa && previa.validado ? { ...limpia, validado: previa.validado } : limpia;
     const enMemoria = { ...datos, productos: { ...datos.productos, [id]: { ...producto, presentaciones: { ...(producto.presentaciones || {}), [clave]: pres } } } };
-    const det = await detalleConPrecios(enMemoria, id);
+    const det = await detalleConPrecios(enMemoria, id, req);
     return { ...det.presentaciones[clave], plu };
   }
   router.post('/api/precios/produccion/productos/:id/presentaciones/preview', ruta(previewPresentacion));
@@ -265,8 +301,8 @@ module.exports = function crearRutasPreciosProduccion(deps) {
 
   // Fórmula de un producto en SIGA (ProductosComponentes, fórmula activa) para importarla a una receta.
   // Mismos filtros que /api/bom/producto/:plu; costo con el mismo costoDe que el resto del módulo.
-  router.get('/api/precios/produccion/formula-siga/:plu', ruta(async (req) => {
-    const plu = validarId(req.params.plu, PLU, 'plu');
+  // plu ya validado. Sin componentes → `mensaje` para la UI (el alta desde SIGA lo devuelve como error).
+  async function formulaSiga(plu) {
     const [prod] = await query(`SELECT TOP 1 NombreProducto AS nombre FROM Productos WHERE IdProducto = ${plu}`);
     const rows = await query(`
       SELECT CAST(pc.IdProductoComponente AS VARCHAR) AS plu, p.NombreProducto AS nombre,
@@ -285,8 +321,33 @@ module.exports = function crearRutasPreciosProduccion(deps) {
         fuente: c.fuente || null, tipo: tipoInsumo({ nombre: r.nombre, rubro: r.rubro }, tiposPackaging) };
     });
     const mensaje = componentes.length ? null : prod ? 'Este producto no tiene fórmula cargada en SIGA.' : 'El PLU no existe en SIGA (o no tiene fórmula).';
-    return { plu, nombre: prod ? prod.nombre : null, componentes, mensaje };
-  }));
+    const presentaciones = await presentacionesSiga(plu, datos.productos);
+    return { plu, nombre: prod ? prod.nombre : null, componentes, mensaje, presentaciones };
+  }
+
+  // Presentaciones del PLU (un granel/intermedio): productos cuya fórmula ACTIVA lo tiene como componente, con sus
+  // fórmulas activas completas. Dos consultas, sin N+1; los PLUs del IN vienen de SIGA y se filtran numéricos.
+  async function presentacionesSiga(plu, productos) {
+    const usos = await query(`
+      SELECT CAST(pc.IdProducto AS VARCHAR) AS plu, p.NombreProducto AS nombre, pc.Cantidad AS cantidad
+      FROM ProductosComponentes pc
+      INNER JOIN Productos p ON p.IdProducto = pc.IdProducto
+      WHERE pc.IdProductoComponente = ${plu} AND ${FORMULA_ACTIVA_SQL}
+      ORDER BY p.NombreProducto`);
+    const plus = [...new Set(usos.map(u => String(u.plu)))].filter(esPlu);
+    const filas = plus.length ? await query(`
+      SELECT CAST(pc.IdProducto AS VARCHAR) AS padre, CAST(pc.IdProductoComponente AS VARCHAR) AS plu, p.NombreProducto AS nombre,
+             pc.Cantidad AS cantidad, COALESCE(r.NombreRubro, '') AS rubro
+      FROM ProductosComponentes pc
+      INNER JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
+      LEFT JOIN Rubros r ON r.IdRubro = p.IdRubro
+      WHERE pc.IdProducto IN (${plus.map(x => `'${x}'`).join(',')}) AND ${FORMULA_ACTIVA_SQL} AND ${SIN_FORMULA_GENERICO_SQL}
+      ORDER BY p.NombreProducto`) : [];
+    const componentes = filas.map(r => ({ padre: String(r.padre), plu: String(r.plu), nombre: r.nombre, cantidad: Number(r.cantidad),
+      tipo: tipoInsumo({ nombre: r.nombre, rubro: r.rubro }, tiposPackaging) }));
+    return presentacionesDetectadas({ granelPlu: plu, usos: usos.filter(u => esPlu(u.plu)), componentes, productos });
+  }
+  router.get('/api/precios/produccion/formula-siga/:plu', ruta(async (req) => formulaSiga(validarId(req.params.plu, PLU, 'plu'))));
 
   router.get('/api/precios/produccion/alertas', ruta(async () => {
     const datos = leer();
@@ -446,6 +507,126 @@ function filasCurvaProduccion(costeados, vigentes, costos) {
       ivaPct: p.ivaPct, finalPct: p.finalPct }));
 }
 
+// Variedad automática { nombre del producto, varianteDe: baseId, extras: [] } si el producto no tiene ninguna.
+// Id = slug del nombre sin pisar recetas (recortado para que con -N siga entrando en ID_RECETA).
+function conVariedadAutomatica(producto, baseId) {
+  const recetas = producto.recetas || {};
+  if (Object.values(recetas).some(r => r && r.varianteDe)) return { producto, variedadCreada: null };
+  const id = idReceta(producto.nombre, recetas);
+  const variedad = entrada(() => produccion.validarReceta({ nombre: producto.nombre, varianteDe: baseId, extras: [] }, producto, id));
+  return { producto: { ...producto, recetas: { ...recetas, [id]: variedad } }, variedadCreada: id };
+}
+
+// Producto nuevo desde los componentes de formulaSiga: los que no son empaque → receta 'base' (cantPorUnidad × kg por
+// tanda, 4 decimales, sumando repetidos: mismo criterio que componentesAIngredientes del front); el empaque → insumos.
+function productoDesdeFormula({ nombre, rendimientoKg, componentes, insumosManuales, creado }) {
+  const esEmpaque = c => TIPOS_EMPAQUE.includes(c.tipo);
+  const ingredientes = componentes.filter(c => !esEmpaque(c));
+  if (!ingredientes.length) fallar('la fórmula de SIGA sólo tiene empaque (envase, tapa, etiqueta o precinto): no hay ingredientes para la receta base');
+  const cantidades = new Map();
+  for (const c of ingredientes) {
+    cantidades.set(c.plu, redondear4((cantidades.get(c.plu) || 0) + redondear4(Number(c.cantPorUnidad) * rendimientoKg)));
+  }
+  const materiasPrimas = [...cantidades].map(([plu, cantidad]) => ({ plu, cantidad, unidad: 'kg' }));
+  const vacio = { nombre, creado, recetas: {}, insumos: [], presentaciones: {} };
+  const base = entrada(() => produccion.validarReceta({ nombre, rendimientoKg, materiasPrimas }, vacio, 'base'));
+  const empaque = [...new Set(componentes.filter(esEmpaque).map(c => c.plu))];
+  const insumos = validarInsumosProducto({ insumos: empaque.map(plu => ({ plu })) }, vacio, insumosManuales);
+  return conVariedadAutomatica({ ...vacio, recetas: { base }, insumos }, 'base');
+}
+const redondear4 = n => Math.round(n * 1e4) / 1e4;
+// Id de receta = slug del nombre sin pisar recetas (recortado para que con -N siga entrando en ID_RECETA).
+const idReceta = (nombre, recetas) => idUnico(slug(nombre).slice(0, SLUG_MAX - 4).replace(/-+$/, ''), recetas || {});
+
+// ── Presentaciones desde SIGA (consulta inversa del granel) ──
+const esEmpaqueSiga = c => TIPOS_EMPAQUE.includes(c.tipo);
+const nombreVariedad = extras => `Con ${extras.map(e => e.nombre || e.plu).join(' + ')}`.slice(0, TEXTO_MAX).trim();
+const claveExtras = d => d.extras.map(e => e.plu).sort().join(',');
+const duenioPresentacion = (productos, plu) => {
+  const p = Object.values(productos || {}).find(q => q && Object.hasOwn(q.presentaciones || {}, plu));
+  return p ? p.nombre : null;
+};
+// Filas con el mismo PLU → una sola, sumando cantidad (4 decimales); conserva el orden de aparición.
+function sumarPorPlu(filas) {
+  const m = new Map();
+  for (const f of filas) m.set(f.plu, { ...f, cantidad: redondear4(((m.get(f.plu) || {}).cantidad || 0) + Number(f.cantidad)) });
+  return [...m.values()];
+}
+
+// usos = [{ plu, nombre, cantidad }] (consulta inversa: cantidad = kg de granel por unidad); componentes = [{ padre, plu,
+// nombre, cantidad, tipo }] (fórmulas activas de esos PLUs). Extras = lo no-empaque distinto del granel. kgPorUnidad =
+// granel + extras (la variedad se costea por kg de base + extras). yaEn = producto que ya la tiene como presentación.
+function presentacionesDetectadas({ granelPlu, usos, componentes, productos }) {
+  return sumarPorPlu(usos.map(u => ({ plu: String(u.plu), nombre: u.nombre, cantidad: u.cantidad }))).map(u => {
+    const propios = componentes.filter(c => c.padre === u.plu && c.plu !== String(granelPlu));
+    const extras = sumarPorPlu(propios.filter(c => !esEmpaqueSiga(c))).map(({ plu, nombre, cantidad }) => ({ plu, nombre, cantidad }));
+    const empaque = sumarPorPlu(propios.filter(esEmpaqueSiga)).map(({ plu, nombre, cantidad, tipo }) => ({ plu, nombre, cantidad, tipo }));
+    return {
+      plu: u.plu, nombre: u.nombre, kgGranel: u.cantidad, kgPorUnidad: redondear4(u.cantidad + extras.reduce((s, e) => s + e.cantidad, 0)),
+      variedad: extras.length ? nombreVariedad(extras) : null, extras, empaque, yaEn: duenioPresentacion(productos, u.plu),
+    };
+  });
+}
+
+// Suma al producto nuevo las presentaciones detectadas (todas o `elegidas`). Variedades: una por conjunto de extras
+// (sin extras → la automática `autoId`); cada extra = promedio en el grupo de (extra / kg granel) × kg por tanda.
+// Cada presentación se valida sola: si falla (o ya es de otro producto) va a `omitidas` y el resto sigue.
+// Variedad + insumos + presentación entran juntos: una omitida no deja una variedad huérfana.
+function conPresentacionesSiga(producto, detectadas, { rendimientoKg, autoId, productos, insumosManuales, elegidas = null }) {
+  const pedidas = elegidas ? new Set(elegidas) : null;
+  const motivoPrevio = d => {
+    const yaEn = duenioPresentacion(productos, d.plu);
+    if (yaEn) return `ya es presentación de "${yaEn}"`;
+    return d.kgGranel > 0 ? null : 'la cantidad del granel en su fórmula no es positiva';
+  };
+  const usables = detectadas.filter(d => (!pedidas || pedidas.has(d.plu)) && !motivoPrevio(d));
+  const variedadDe = new Map([['', autoId]]);
+  const omitidas = [], presentacionesCreadas = [];
+  let actual = producto;
+  for (const d of detectadas) {
+    if (pedidas && !pedidas.has(d.plu)) continue;
+    const previo = motivoPrevio(d);
+    if (previo) { omitidas.push({ plu: d.plu, nombre: d.nombre, motivo: previo }); continue; }
+    try {
+      const clave = claveExtras(d);
+      const conVariedad = variedadDe.has(clave) ? { producto: actual, recetaId: variedadDe.get(clave) }
+        : variedadSiga(actual, d, usables.filter(u => claveExtras(u) === clave), rendimientoKg);
+      const p = conVariedad.producto;
+      const nuevos = d.empaque.filter(e => !p.insumos.some(it => claveDe(it) === e.plu)).map(e => ({ plu: e.plu }));
+      const conInsumos = { ...p, insumos: validarInsumosProducto({ insumos: [...p.insumos, ...nuevos] }, p, insumosManuales) };
+      const pres = produccion.validarPresentacion({
+        recetaId: conVariedad.recetaId, kgPorUnidad: d.kgPorUnidad, insumos: d.empaque.map(e => ({ plu: e.plu, cantidad: e.cantidad })),
+      }, conInsumos, productos, { plu: d.plu });
+      actual = { ...conInsumos, presentaciones: { ...conInsumos.presentaciones, [d.plu]: pres } };
+      variedadDe.set(clave, conVariedad.recetaId);
+      presentacionesCreadas.push(d.plu);
+    } catch (err) {
+      omitidas.push({ plu: d.plu, nombre: d.nombre, motivo: err.message });
+    }
+  }
+  const sinUso = [...(pedidas || [])].filter(plu => !detectadas.some(d => d.plu === plu));
+  sinUso.forEach(plu => omitidas.push({ plu, nombre: null, motivo: 'su fórmula activa de SIGA no usa este PLU' }));
+  return { producto: actual, presentacionesCreadas, omitidas };
+}
+
+// Variedad 'Con <extras>' (variante de 'base') para el grupo de presentaciones con esos mismos extras.
+function variedadSiga(producto, d, grupo, rendimientoKg) {
+  const extras = d.extras.map(e => {
+    const ratios = grupo.map(g => g.extras.find(x => x.plu === e.plu).cantidad / g.kgGranel);
+    return { plu: e.plu, cantidad: redondear4(ratios.reduce((s, r) => s + r, 0) / ratios.length * rendimientoKg), unidad: 'kg' };
+  });
+  const nombre = nombreVariedad(d.extras);
+  const recetaId = idReceta(nombre, producto.recetas);
+  const variedad = entrada(() => produccion.validarReceta({ nombre, varianteDe: 'base', extras }, producto, recetaId));
+  return { producto: { ...producto, recetas: { ...producto.recetas, [recetaId]: variedad } }, recetaId };
+}
+
+// `presentaciones` del alta desde SIGA: lista de PLUs (sin repetidos).
+function validarPlusElegidos(lista) {
+  if (!Array.isArray(lista) || lista.length > INSUMOS_MAX) fallar(`presentaciones: debe ser una lista de hasta ${INSUMOS_MAX} PLUs`);
+  return [...new Set(lista.map((v, i) => validarId(v, PLU, `presentaciones[${i}]`)))];
+}
+
 // Receta base del producto: la de id 'base' o, si no, la primera que no es variante.
 function recetaBaseId(recetas) {
   const ids = Object.keys(recetas || {});
@@ -456,8 +637,14 @@ function recetaBaseId(recetas) {
 // marcados = costeo.marcadosExportar ({ plu: fecha }). exportables = presentaciones con PLU de SIGA
 // (las provisorias n-… no se pueden importar) para marcar y exportar: Costo = costo total por unidad.
 // fechas: Map plu → 'YYYY-MM-DD' del último cambio de precio en SIGA (la UI muestra la más antigua).
-function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map()) {
+// vigentes + toleranciaPct: precio vigente SIGA y Δ%/semáforo (compararConVigente, igual que armarDetalle).
+// variedad = nombre de la receta de la que sale la presentación.
+function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map(), vigentes = new Map(), toleranciaPct = 0) {
   const recetas = producto.recetas || {};
+  const variedadDe = plu => {
+    const rid = ((producto.presentaciones || {})[plu] || {}).recetaId;
+    return rid != null && Object.hasOwn(recetas, rid) ? recetas[rid].nombre || null : null;
+  };
   const baseId = recetaBaseId(recetas);
   return {
     id, nombre: producto.nombre,
@@ -465,10 +652,15 @@ function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map())
     presentaciones: Object.keys(producto.presentaciones || {}).length,
     costoKgBase: baseId ? costeado.recetas[baseId].costoKg : null,
     alertas: costeado.resumen.alertas, faltantes: costeado.resumen.faltantes,
-    exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => ({
-      plu, nombre: p.nombre, costoTotal: p.costoUnidad, precioConIva: p.precioConIva, faltantes: p.faltantes, ivaPct: p.ivaPct,
-      marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null,
-    })),
+    exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => {
+      const precioVigente = vigentes.has(plu) ? vigentes.get(plu) : null;
+      const { deltaPct, estado: semaforo } = compararConVigente(p.precioConIva, precioVigente, toleranciaPct);
+      return {
+        plu, nombre: p.nombre, costoTotal: p.costoUnidad, precioConIva: p.precioConIva, faltantes: p.faltantes, ivaPct: p.ivaPct,
+        marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null,
+        precioVigente, deltaPct, semaforo, variedad: variedadDe(plu),
+      };
+    }),
   };
 }
 
@@ -639,6 +831,9 @@ module.exports.plusUsados = plusUsados;
 module.exports.armarCostoDe = armarCostoDe;
 module.exports.costearTodos = costearTodos;
 module.exports.filaSelector = filaSelector;
+module.exports.productoDesdeFormula = productoDesdeFormula;
+module.exports.presentacionesDetectadas = presentacionesDetectadas;
+module.exports.conPresentacionesSiga = conPresentacionesSiga;
 module.exports.armarDetalle = armarDetalle;
 module.exports.tipoInsumo = tipoInsumo;
 module.exports.validarInsumosProducto = validarInsumosProducto;
