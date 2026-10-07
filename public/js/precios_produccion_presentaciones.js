@@ -129,7 +129,7 @@ function htmlSeccionPresentaciones() {
     <tbody id="prPres">${htmlFilasPresentaciones()}</tbody></table></div>
     <div class="flex items-center gap-3 mt-3"><button id="prNuevaPres" class="cfg-btn2">+ Otra presentación</button>
       <span class="text-xs text-gris">Tocá una fila para editarla · <b>▾</b> abre el desglose del precio y la fórmula para SIGA · los pack/bulto van debajo de su presentación (su % se edita en la presentación).</span>
-      <button type="button" id="prExportar" class="cfg-btn ml-auto" title="El archivo de precios lleva todo lo marcado en Reventa, Fraccionado y Producción">Exportar marcados…</button></div>`;
+      <button type="button" id="prExportar" class="cfg-btn ml-auto" title="El archivo de precios lleva todo lo decidido en Reventa, Fraccionado y Producción">Exportar decididos…</button></div>`;
 }
 const COLS_PRES = 15;
 // Estado del precio (semáforo) bien visible: flecha + acción + Δ%.
@@ -222,6 +222,6 @@ function conectarSeccionPresentaciones() {
   conectarFilasPresentaciones();
   document.getElementById('prNuevaPres').onclick = () => abrirPresentacion(null);
   const exp = document.getElementById('prExportar');
-  if (exp) exp.onclick = () => exportarMarcados(); // precios_almacen.js (el mismo de la barra de marcados)
+  if (exp) exp.onclick = exportarDecididos; // precios_listados.js (el mismo botón de los listados)
   montarOrdenPresProd(); // precios_orden.js
 }
