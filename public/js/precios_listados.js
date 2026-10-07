@@ -148,6 +148,7 @@ async function guardarDecision(plu, fuente) {
   const j = await r.json();
   if (j.error) throw new Error(j.error);
   lstDatos = Object.fromEntries(Object.entries(lstDatos).map(([t, filas]) => [t, filas.map(f => (f.plu === plu ? { ...f, decision: j.decision } : f))]));
+  refrescarAlertasProduccion(); // precios_produccion.js: la decisión cambia el costo en uso → toast/badge "a revisar"
   return j.decision;
 }
 async function cambiarDecision(tipo, plu, fuente, select) {
@@ -162,6 +163,7 @@ async function quitarDecisiones() {
     if (j.error) throw new Error(j.error);
     lstDatos = Object.fromEntries(Object.entries(lstDatos).map(([t, filas]) => [t, filas.map(f => ({ ...f, decision: null }))]));
     Object.keys(lstDatos).forEach(renderListado);
+    refrescarAlertasProduccion(); // precios_produccion.js
   } catch (e) { avisar(e.message); }
 }
 

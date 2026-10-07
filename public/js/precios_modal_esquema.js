@@ -192,6 +192,7 @@ async function guardarCostoEsq(url, body, metodo = 'PUT') {
   const msg = document.getElementById('mdMsg');
   try {
     await pedirJson(metodo, url, body); // precios_comun.js: tira con el error del server
+    refrescarAlertasProduccion(); // precios_produccion.js: el costo pudo mover "a revisar" (no tira, va antes de recargar el modal)
     const { tipo, fila } = mdEsq;
     await abrirModalEsquema(tipo, fila.plu, { detalle: true });
     cargarListado(tipo);

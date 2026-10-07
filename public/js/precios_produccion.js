@@ -684,7 +684,7 @@ function pintarToast() {
   document.getElementById('prToastX').onclick = () => { toastCerradoMem = firma; guardarCerrado(firma); pintarToast(); };
 }
 // Hook global: se llama al abrir /precios y después de cualquier guardado que pueda mover costos
-// (costo-producto de Almacén/Fraccionado, config general, ediciones de Producción).
+// (costo manual/extras del modal de esquema, decisiones de los listados, ediciones de Producción).
 async function refrescarAlertasProduccion() {
   try { prodAlertas = await getJson(API_PROD + '/alertas'); }
   catch { return; } // ponytail: el toast es un aviso; si la consulta falla queda el último estado, sin romper la tab que guardó
