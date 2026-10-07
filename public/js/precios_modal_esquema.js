@@ -1,8 +1,9 @@
 // ── Precios · modal del producto con el esquema por canal (spec 2026-10-07 §3.2) ──
-// Simple: costos (sistema / última compra), tabla por canal (vigente, sugerido, Δ%) de la fuente elegida, decisión y
-// Guardar. "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos
+// Simple: selector de costo arriba (No cambiar / Costo sistema / Última compra / Costo manual; Producción: No cambiar /
+// Aumentar) que GUARDA la decisión al elegir, y tabla por canal (vigente, nuevo, Δ%, margen total) del costo elegido.
+// "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos
 // extra): desglose por canal + costo manual + costos extra. Globales: el modal compartido #mDet (abrirModal, cerrarDetalle)
-// y formato/pedidos de precios_comun.js; de precios_listados.js: opcionesDecision, guardarDecision, renderListado, cargarListado.
+// y formato/pedidos de precios_comun.js; de precios_listados.js: guardarDecision, renderListado, cargarListado.
 const TIPO_CANAL = { pack: 'Pack', bulto: 'Bulto' };
 const TXT_FUENTE = { sistema: 'sistema', ultimaCompra: 'última compra', manual: 'manual' };
 
@@ -15,14 +16,15 @@ function filasCanales(fila, fuente) {
     const ok = s && !s.error ? s : null;
     if (etiqueta) {
       filas.push({ canal: etiqueta, plu: f.plu, vigente: f.vigente ?? null, sugerido: ok ? ok.minorista.precio : null,
-        deltaPct: ok ? ok.minorista.deltaPct : null, estado: ok ? ok.minorista.estado : null });
+        deltaPct: ok ? ok.minorista.deltaPct : null, estado: ok ? ok.minorista.estado : null, margenTotalPct: ok ? ok.minorista.margenTotalPct : null });
     }
     for (const m of f.mayoristas || []) {
       const p = ok ? ok.mayoristas.find(x => x.plu === m.plu) : null;
       const base = { plu: m.plu, nombre: m.nombre, unidades: m.unidades, faltante: p ? p.faltante : null };
-      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, vigente: null, sugerido: p ? p.neto : null, deltaPct: null, estado: null });
+      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, vigente: null, sugerido: p ? p.neto : null, deltaPct: null, estado: null,
+        margenTotalPct: p ? p.margenTotalNetoPct : null });
       filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} con IVA`, vigente: m.vigente ?? null, sugerido: p ? p.conIva : null,
-        deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad) });
+        deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad), margenTotalPct: p ? p.margenTotalIvaPct : null });
     }
   };
   if (Array.isArray(fila.presentaciones)) {
@@ -30,6 +32,32 @@ function filasCanales(fila, fuente) {
     fila.presentaciones.forEach(p => sumar(p, `Minorista · ${p.nombre}`));
   } else sumar(fila, 'Minorista');
   return filas;
+}
+
+// Opciones del selector de costo: { valor ('' = No cambiar, o la fuente), texto, costo, precio, deltaPct, estado, disponible }.
+// precio/Δ% = minorista con ese costo (No cambiar: el vigente). Fraccionado: sin precio único; Δ% = promedio de las
+// presentaciones. Manual sólo si hay costo manual (o es la decisión guardada). Sin sugerido → no se puede elegir.
+const TXT_OPCION = { sistema: 'Costo sistema', ultimaCompra: 'Última compra', manual: 'Costo manual' };
+const COSTO_FUENTE = { sistema: 'costoSistema', ultimaCompra: 'costoUltimaCompra', manual: 'costoManual' };
+function resumenMinorista(fila, fuente) {
+  const okDe = f => { const s = (f.sugeridos || {})[fuente]; return s && !s.error ? s : null; };
+  if (Array.isArray(fila.presentaciones)) {
+    const ds = fila.presentaciones.map(p => okDe(p)).filter(s => s && s.minorista.deltaPct != null).map(s => s.minorista.deltaPct);
+    return { precio: null, deltaPct: ds.length ? Math.round((ds.reduce((a, b) => a + b, 0) / ds.length) * 10) / 10 : null, estado: null, ok: !!okDe(fila) };
+  }
+  const s = okDe(fila);
+  return { precio: s ? s.minorista.precio : null, deltaPct: s ? s.minorista.deltaPct : null, estado: s ? s.minorista.estado : null, ok: !!s };
+}
+function opcionesCosto(fila, tipo) {
+  const actual = fila.decision ? fila.decision.fuente : null;
+  const fuentes = tipo === 'produccion' ? ['sistema']
+    : ['sistema', 'ultimaCompra', ...(fila.costoManual != null || actual === 'manual' ? ['manual'] : [])];
+  const noCambiar = { valor: '', texto: 'No cambiar', costo: null, precio: fila.vigente ?? null, deltaPct: null, estado: null, disponible: true };
+  return [noCambiar, ...fuentes.map(f => {
+    const r = resumenMinorista(fila, f);
+    return { valor: f, texto: tipo === 'produccion' ? 'Aumentar' : TXT_OPCION[f], costo: fila[COSTO_FUENTE[f]] ?? null,
+      precio: r.precio, deltaPct: r.deltaPct, estado: r.estado, disponible: r.ok || f === actual };
+  })];
 }
 
 // Modo de venta de un pack/bulto pesable → pedido a /api/precios/pack-bulto/venta/:plu. Por kg = el default: se borra.
@@ -40,7 +68,7 @@ function ventaPayload(modo, pesoKg) {
   return { metodo: 'PUT', body: { modo: 'paquete', pesoKg } };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload };
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -48,6 +76,7 @@ let mdFuente = 'sistema';  // fuente cuyos precios se muestran (la del selector)
 let mdDetalle = false;     // "Ver detalle" abierto
 
 const fmtSug = n => (Number.isInteger(n) ? fmtPrecio(n) : fmtMoney(n));
+const pctMd = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
 
 async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
   abrirModal('Cargando…', tipo === 'fraccionado'); // precios_comun.js
@@ -65,14 +94,24 @@ async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
   }
 }
 
-function htmlCostosModal(f) {
-  const dato = (lbl, html) => `<div><div class="lbl">${esc(lbl)}</div><div class="font-semibold tabular-nums">${html}</div></div>`;
-  const ult = f.costoUltimaCompra == null ? '—'
-    : `$ ${fmtMoney(f.costoUltimaCompra)} <span class="text-xs text-gris font-normal">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${f.proveedor ? ' · ' + esc(f.proveedor) : ''}${f.deltaUltimaPct == null ? '' : ' · ' + fmtPct(f.deltaUltimaPct)}</span>`;
-  return `<div class="grid grid-cols-3 gap-4 mt-2">
-    ${dato(mdEsq.tipo === 'produccion' ? 'Costo (receta)' : 'Costo sistema', f.costoSistema == null ? '—' : '$ ' + fmtMoney(f.costoSistema))}
-    ${mdEsq.tipo === 'produccion' ? '' : dato('Última compra', ult)}
-    ${f.costoManual == null ? '' : dato('Costo manual', '$ ' + fmtMoney(f.costoManual))}</div>`;
+// Selector de costo: radios que guardan la decisión al elegir. Cada opción muestra su costo y el precio minorista con Δ%.
+function htmlOpcionesCosto(f) {
+  const actual = f.decision ? f.decision.fuente : '';
+  const ult = f.costoUltimaCompra == null ? ''
+    : ` <span class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${f.proveedor ? ' · ' + esc(f.proveedor) : ''}${f.deltaUltimaPct == null ? '' : ' · ' + fmtPct(f.deltaUltimaPct) + ' vs sistema'}</span>`;
+  const precio = o => {
+    if (o.valor === '') return o.precio == null ? '' : `vigente $ ${fmtPrecio(o.precio)}`;
+    if (!o.disponible) return '<span class="text-gris">sin precio</span>';
+    const d = o.deltaPct == null ? '' : ` <span class="${claseDelta(o.estado)}">${fmtPct(o.deltaPct)}</span>`;
+    return o.precio == null ? (o.deltaPct == null ? '' : `Δ prom. presentaciones${d}`) : `→ <b>$ ${fmtPrecio(o.precio)}</b>${d}`;
+  };
+  return `<fieldset class="mt-2"><legend class="lbl mb-1">${mdEsq.tipo === 'produccion' ? 'Decisión' : 'Costo a tomar'}</legend>
+    <div id="mdCostos" class="grid gap-1">${opcionesCosto(f, mdEsq.tipo).map(o => `<label class="flex items-center gap-3 px-3 py-2 rounded-lg border border-borde ${o.disponible ? 'cursor-pointer hover:bg-verde/5' : 'opacity-50'}${actual === o.valor ? ' bg-verde/5 border-verde' : ''}">
+      <input type="radio" name="mdCosto" value="${o.valor}" class="accent-verde"${actual === o.valor ? ' checked' : ''}${o.disponible ? '' : ' disabled'}>
+      <span class="font-semibold w-32">${esc(o.texto)}</span>
+      <span class="tabular-nums w-28 text-right">${o.costo == null ? '' : '$ ' + fmtMoney(o.costo)}</span>
+      <span class="tabular-nums">${precio(o)}${o.valor === 'ultimaCompra' ? ult : ''}</span></label>`).join('')}</div>
+    <span id="mdDecMsg" class="text-sm" role="status" aria-live="polite"></span></fieldset>`;
 }
 
 function htmlTablaCanales(f) {
@@ -82,15 +121,16 @@ function htmlTablaCanales(f) {
     + (r.faltante === 'unidades' ? ' <span class="text-xs text-warn">sin unidades</span>' : '')
     + (r.revisarUnidad ? ' <span class="text-xs text-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
   return `<table class="w-full text-sm mt-2"><thead><tr class="text-xs text-gris"><th class="text-left py-1">Canal</th><th class="text-left">PLU</th>
-      <th class="text-right">Vigente</th><th class="text-right">Sugerido</th><th class="text-right">Δ%</th></tr></thead>
+      <th class="text-right">Vigente</th><th class="text-right">Nuevo</th><th class="text-right">Δ%</th>
+      <th class="text-right" title="Precio final ÷ costo de mercadería (con sus extras) − 1">Margen total</th></tr></thead>
     <tbody>${filas.map(r => `<tr class="border-t border-borde"><td class="py-1.5">${esc(r.canal)}${avisos(r)}</td><td>${esc(r.plu)}</td>
       <td class="text-right tabular-nums">${r.vigente == null ? '—' : '$ ' + fmtPrecio(r.vigente)}</td>
       <td class="text-right tabular-nums font-semibold">${r.sugerido == null ? '—' : '$ ' + fmtSug(r.sugerido)}</td>
-      <td class="text-right tabular-nums ${claseDelta(r.estado)}">${r.deltaPct == null ? '—' : fmtPct(r.deltaPct)}</td></tr>`).join('')}</tbody></table>`;
+      <td class="text-right tabular-nums ${claseDelta(r.estado)}">${r.deltaPct == null ? '—' : fmtPct(r.deltaPct)}</td>
+      <td class="text-right tabular-nums">${r.margenTotalPct == null ? '—' : pctMd(r.margenTotalPct)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 // ── Ver detalle (sólo con permiso: el server sólo entonces manda `desglose`) ──
-const pctMd = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
 const htmlPasos = (titulo, pasos) => `<div class="mt-3"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.map(([op, txt, v]) =>
   `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">$ ${fmtMoney(v)}</span></div>`).join('')}</div>`;
 function htmlDesgloseEsq(f) {
@@ -147,39 +187,36 @@ function htmlEdicionCostos(f) {
 }
 
 function pintarModalEsquema() {
-  const { tipo, fila: f } = mdEsq;
-  const opciones = opcionesDecision(f, tipo).map(([v, t]) =>
-    `<option value="${v}"${(f.decision ? f.decision.fuente : '') === v ? ' selected' : ''}>${esc(t)}</option>`).join('');
-  document.getElementById('mDetBody').innerHTML = `${htmlCostosModal(f)}
-    <div class="flex items-center gap-2 mt-4 flex-wrap"><label for="mdDecision" class="font-semibold text-sm">Decisión</label>
-      <select id="mdDecision" class="num-in text-left">${opciones}</select>
-      <button type="button" id="mdGuardar" class="px-4 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Guardar</button>
-      <span id="mdDecMsg" class="text-sm" role="status" aria-live="polite"></span></div>
-    <div class="text-xs text-gris mt-3">Precios con el costo de ${esc(TXT_FUENTE[mdFuente] || mdFuente)}</div>
+  const { fila: f } = mdEsq;
+  const txtPrecios = f.decision ? `Precios con ${esc(TXT_FUENTE[mdFuente] || mdFuente)}` : 'Sin decisión: precios con el costo de sistema, para comparar';
+  document.getElementById('mDetBody').innerHTML = `${htmlOpcionesCosto(f)}
+    <div class="text-xs text-gris mt-4">${txtPrecios}</div>
     ${htmlTablaCanales(f)}
     ${preciosSinConfig ? '' : `<button type="button" id="mdVerDetalle" class="mt-4 text-sm text-verde underline underline-offset-2" aria-expanded="${mdDetalle}">${mdDetalle ? 'Ocultar detalle' : 'Ver detalle'}</button>
       ${mdDetalle ? htmlDesgloseEsq(f) + htmlEdicionCostos(f) : ''}`}`;
   conectarModalEsquema();
 }
 
+// Elegir un costo guarda la decisión en el momento (No cambiar = sin decisión) y refresca la fila del listado;
+// guardarDecision (precios_listados.js) ya avisa a Producción ("a revisar").
 function conectarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
-  const sel = document.getElementById('mdDecision');
-  // Elegir una fuente muestra sus precios; "—" deja los de la última fuente vista. No guarda hasta "Guardar".
-  sel.onchange = () => {
-    const elegido = sel.value;
-    if (elegido) mdFuente = elegido;
-    pintarModalEsquema();
-    document.getElementById('mdDecision').value = elegido;
-  };
-  document.getElementById('mdGuardar').onclick = async () => {
-    const msg = document.getElementById('mdDecMsg');
+  document.getElementById('mdCostos').onchange = async e => {
+    const valor = e.target.value;
+    document.querySelectorAll('#mdCostos input').forEach(i => { i.disabled = true; });
     try {
-      const decision = await guardarDecision(f.plu, document.getElementById('mdDecision').value || null); // precios_listados.js
+      const decision = await guardarDecision(f.plu, valor || null); // precios_listados.js
       mdEsq = { tipo, fila: { ...f, decision } };
+      mdFuente = valor || 'sistema';
       renderListado(tipo);
-      msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
-    } catch (e) { msg.className = 'text-sm text-crit'; msg.textContent = e.message; }
+      pintarModalEsquema();
+      const msg = document.getElementById('mdDecMsg');
+      msg.className = 'text-sm text-ok'; msg.textContent = valor ? 'Guardado: queda marcado para exportar.' : 'Guardado: sin cambio de precio.';
+    } catch (err) {
+      pintarModalEsquema();
+      const msg = document.getElementById('mdDecMsg');
+      msg.className = 'text-sm text-crit'; msg.textContent = err.message;
+    }
   };
   const ver = document.getElementById('mdVerDetalle');
   if (ver) ver.onclick = () => { mdDetalle = !mdDetalle; pintarModalEsquema(); };
