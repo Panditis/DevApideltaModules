@@ -418,27 +418,21 @@
     <div id="prodContenido"></div>
   </div>
 
-  <!-- Configuración: arriba el pipeline "Cómo se forma el precio" (pintarPipeline, /js/precios_config.js); abajo los
-       sub-tabs en el orden del precio (Costos → Ganancia → Precio final → Simulador) y aparte General y Máquinas
+  <!-- Configuración: sub-tabs en el orden del precio (Costos → Márgenes → Precio → Simulador) y aparte General y Máquinas
        (activarSubConfig). Los sub-paneles son .cfg-panel (no .tab-panel) para que activarTab no los oculte a todos.
        Cambios sin guardar: una .cfg-card[data-guardable] (o bloque) se marca con data-sucio al editar (precios_config.js). -->
   <div id="panel-configuracion" class="tab-panel hidden solo-config">
-  <details id="cfgPipe" class="cfg-card mb-5" open>
-    <summary class="cfg-pipe-sum">
-      <span class="font-disp text-base font-bold text-ink">Cómo se forma el precio</span>
-      <span class="text-xs text-gris">Valores guardados por tipo · tocá un paso para ir a configurarlo</span>
-    </summary>
-    <div id="cfgPipeCuerpo" class="mt-3 text-sm text-ink/50"><span class="spin"></span> Cargando configuración…</div>
-  </details>
+  <div id="cfgEsqAviso" class="hidden mb-4 p-3 rounded-lg bg-warn/10 text-warn text-sm" role="status">
+    La configuración todavía no está migrada al esquema por canal: hay que correr
+    <code>node scripts/migrar_esquema_canales.js</code> en el servidor (sin márgenes no hay precios sugeridos).
+  </div>
 
   <nav id="subtabsConfig" class="cfg-sub" role="tablist" aria-label="Secciones de Configuración">
     <span class="cfg-grupo" aria-hidden="true">Pasos del precio</span>
     <div class="cfg-riel" role="presentation">
       <button type="button" role="tab" class="cfg-tab" id="tab-costos" data-sub="costos" aria-controls="panel-costos" aria-selected="false"><span class="n" aria-hidden="true">1</span>Costos</button>
       <span class="cfg-chev" aria-hidden="true">›</span>
-      <button type="button" role="tab" class="cfg-tab" id="tab-ganancia" data-sub="ganancia" aria-controls="panel-ganancia" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">2</span>Ganancia</button>
-      <span class="cfg-chev" aria-hidden="true">›</span>
-      <button type="button" role="tab" class="cfg-tab" id="tab-precioFinal" data-sub="precioFinal" aria-controls="panel-precioFinal" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">3</span>Precio final</button>
+      <button type="button" role="tab" class="cfg-tab" id="tab-precio" data-sub="precio" aria-controls="panel-precio" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">3</span>Precio</button>
       <span class="cfg-chev" aria-hidden="true">›</span>
       <button type="button" role="tab" class="cfg-tab" id="tab-simulador" data-sub="simulador" aria-controls="panel-simulador" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">4</span>Simulador</button>
     </div>
@@ -450,64 +444,15 @@
     </div>
   </nav>
 
-  <!-- Costos: lo carga cargarCostos() (/js/precios_config.js). Resumen, Departamentos e IVA: /js/precios_costos.js;
-       Variables sobre venta: /js/precios_config_gastos.js. -->
-  <section id="panel-costos" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costos">
-    <p class="cfg-cab"><b>Costos</b> — lo que cuesta vender cada tipo: variables sobre venta + departamentos. Costo real = costo neto ÷ (1 − costos %). Acá también se edita el IVA de venta.</p>
-    <div id="costosCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
-    <div class="cfg-grid">
-      <div class="space-y-5 min-w-0">
-        <div id="configGastos"></div>
-        <!-- IVA de venta (no es costo: va sobre el precio neto; se ve también en Precio final). -->
-        <div id="costosIva"></div>
-      </div>
-      <div id="costosResumen" class="min-w-0"></div>
-    </div>
-    <div id="costosDepartamentos" class="mt-5"></div>
-  </section>
-
-  <!-- Ganancia: conceptos de ganancia (/js/precios_ganancia.js) + curvas por tipo (/js/precios_config_curva.js). Lo carga cargarGanancia(). -->
-  <section id="panel-ganancia" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-ganancia">
-    <p class="cfg-cab"><b>Ganancia</b> — cuánto se gana sobre el costo real: la curva de cada tipo (baja a medida que sube el costo) + los conceptos de ganancia. Precio neto = costo real × (1 + ganancia %).</p>
-    <div id="gananciaCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
-    <div class="cfg-grid">
-      <div id="gananciaConceptos" class="min-w-0"></div>
-      <div class="cfg-card min-w-0">
-        <h3 class="cfg-h">Alinear con SIGA</h3>
-        <p class="cfg-ayuda">Toma el precio vigente de cada producto de Reventa y de cada presentación de Fraccionado en SIGA y le calcula la ganancia propia (s/ costo real) que hace falta para llegar a ese precio con su costo actual, los gastos de su tipo, el IVA de venta y los conceptos sobre precio final. Pisa las ganancias propias de esos productos.</p>
-        <div class="cfg-pie">
-          <div id="alinearMsg" class="text-sm" role="status" aria-live="polite"></div>
-          <button type="button" id="btnAlinearSiga" class="cfg-btn">Alinear ganancias con SIGA</button>
-        </div>
-      </div>
-    </div>
-    <!-- Márgenes propios → curva, gradual (spec Parte E.1; /js/precios_ganancia.js renderMargenesPropios). -->
-    <div id="gananciaMargenes" class="mt-4"></div>
-    <!-- Curvas de ganancia (único método standard): Reventa, Fraccionado y Producción. -->
-    <h3 class="cfg-sec">Curvas de ganancia por tipo</h3>
-    <div class="cfg-grid cfg-grid-par">
-      <div id="configCurvaAlmacen" class="min-w-0"></div>
-      <div id="configCurvaProduccion" class="min-w-0"></div>
-      <div id="configCurvaFraccionado" class="min-w-0 col-span-2"></div>
-    </div>
-  </section>
-
-  <!-- Precio final: conceptos sobre precio final (edición, /js/precios_ganancia.js) e IVA de venta (sólo lectura: se edita
-       en Costos). Lo carga cargarPrecioFinal(). -->
-  <section id="panel-precioFinal" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-precioFinal">
-    <p class="cfg-cab"><b>Precio final</b> — lo que se suma después del precio neto: IVA de venta y conceptos sobre el precio final. Precio final = (precio neto + IVA) ÷ (1 − conceptos %), redondeado a $50.</p>
-    <div id="pfCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
-    <div class="cfg-grid">
-      <div id="gananciaPrecioFinal" class="min-w-0"></div>
-      <div id="pfIva" class="min-w-0"></div>
-    </div>
-  </section>
+  <!-- Costos y Precio (y Márgenes, Task 7): los pinta /js/precios_config_esquema.js. -->
+  <section id="panel-costos" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costos"></section>
+  <section id="panel-precio" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-precio"></section>
 
   <!-- Simulador: costo de compra → precio final al público con la config guardada. Lo pinta /js/precios_simulador.js. -->
   <section id="panel-simulador" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-simulador"></section>
 
   <section id="panel-general" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-general">
-    <p class="cfg-cab"><b>General</b> — costo hora (mano de obra de Producción y de las presentaciones de Fraccionado con minutos propios), tolerancia del semáforo y descuentos de pack/bulto.</p>
+    <p class="cfg-cab"><b>General</b> — costo hora (mano de obra de Producción) y pack/bulto.</p>
     <div class="cfg-grid cfg-grid-angosta">
       <div class="cfg-card min-w-0" data-guardable>
         <h3 class="cfg-h">Parámetros generales</h3>
@@ -515,8 +460,6 @@
         <div id="configForm" class="hidden mt-4 space-y-4">
           <div class="cfg-campo"><label for="inCostoHora">Costo por hora</label>
             <span class="campo-u w-40"><span class="u pre">$</span><input id="inCostoHora" type="number" min="0" step="any" inputmode="decimal"></span></div>
-          <div class="cfg-campo"><label for="inTolerancia">Tolerancia del semáforo <span class="cfg-nota">diferencias dentro de ± este % no se resaltan</span></label>
-            <span class="campo-u w-40"><input id="inTolerancia" type="number" min="0" step="any" inputmode="decimal"><span class="u">%</span></span></div>
           <div class="cfg-pie">
             <span id="generalMsg" class="text-sm" role="status" aria-live="polite"></span>
             <button type="button" id="btnGuardarGeneral" class="cfg-btn">Guardar</button>
@@ -592,6 +535,8 @@
 <script src="/js/precios_costos.js"></script>
 <script src="/js/precios_config_curva.js"></script>
 <script src="/js/precios_ganancia.js"></script>
+<script src="/js/precios_esquema.js"></script>
+<script src="/js/precios_config_esquema.js"></script>
 <script src="/js/precios_simulador.js"></script>
 </body>
 </html>

@@ -692,6 +692,9 @@ app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirn
 app.get('/js/precios_almacen.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_almacen.js')));
 app.get('/js/precios_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_detalle.js')));
 app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config.js')));
+// Motor del esquema por canal: el mismo archivo UMD del server (lib/), global PreciosEsquema en el navegador.
+app.get('/js/precios_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'precios_esquema.js')));
+app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_esquema.js')));
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
