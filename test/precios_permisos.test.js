@@ -12,7 +12,6 @@ const RUTAS_CONFIG_ESPERADAS = [
   'get /api/precios/config',
   'put /api/precios/config/ganancia',
   'put /api/precios/config/iva-venta',
-  'put /api/precios/config/general',
   'put /api/precios/config/gastos-venta',
   'put /api/precios/config/departamentos',
   'put /api/precios/config/curva-ganancia/:tipo',

@@ -1,11 +1,10 @@
 'use strict';
-// Helpers puros de exportar/marcar presentaciones de Producción y de la tab Máquinas
-// (public/js/precios_produccion_export.js, public/js/precios_maquinas.js): scripts de browser que sin
+// Helpers puros de exportar/marcar presentaciones de Producción
+// (public/js/precios_produccion_export.js): script de browser que sin
 // `document` sólo exportan sus helpers.
 const test = require('node:test');
 const assert = require('node:assert');
 const ex = require('../public/js/precios_produccion_export.js');
-const maq = require('../public/js/precios_maquinas.js');
 
 const pres = (plu, extra = {}) => ({ plu, nombre: `P${plu}`, costoTotal: 480, precioConIva: 850, faltantes: [], ivaPct: 21, marcado: false, ...extra });
 const LISTA = [
@@ -62,18 +61,4 @@ test('filasPlanasProd: todas las presentaciones con su producto; busca por prese
   assert.deepStrictEqual(ex.filasPlanasProd(lista, { soloRevisar: true }).map(f => f.plu), ['8104', '6320']);
   assert.deepStrictEqual(ex.filasPlanasProd(null), []);
   assert.strictEqual(lista[0].exportables[0].producto, undefined); // sin mutar
-});
-
-test('textoUsosCategoria: productos con sus recetas; vacío → sin uso', () => {
-  assert.strictEqual(maq.textoUsosCategoria([{ id: 'p-g', nombre: 'Granola', recetas: ['Base', 'Con miel'] }, { id: 'p-p', nombre: 'Pepas', recetas: ['Masa'] }]),
-    'Granola (Base, Con miel) · Pepas (Masa)');
-  assert.strictEqual(maq.textoUsosCategoria([]), '');
-});
-
-test('listaParaGuardar: sólo { id, nombre, costoHora } (sin usos) y reemplazo/quita por id sin mutar', () => {
-  const cats = [{ id: 'horno', nombre: 'Horno', costoHora: 5000, usos: [] }, { id: 'mez', nombre: 'Mez', costoHora: 1, usos: [] }];
-  assert.deepStrictEqual(maq.listaParaGuardar(cats), [{ id: 'horno', nombre: 'Horno', costoHora: 5000 }, { id: 'mez', nombre: 'Mez', costoHora: 1 }]);
-  assert.deepStrictEqual(maq.conCambio(cats, 'horno', { costoHora: 6000 })[0], { id: 'horno', nombre: 'Horno', costoHora: 6000, usos: [] });
-  assert.deepStrictEqual(maq.sinCategoria(cats, 'horno').map(c => c.id), ['mez']);
-  assert.strictEqual(cats[0].costoHora, 5000);
 });

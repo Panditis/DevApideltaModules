@@ -3,7 +3,7 @@
 // globales. El arranque va en DOMContentLoaded, así ya están cargados precios_fraccionado.js,
 // precios_produccion*.js, etc. Al final: dialogoAviso (reemplazo de alert/confirm).
 
-// ── Config: tab Configuración (general + pack/bulto) y tab Costos (márgenes) ──
+// ── Config: tab Configuración (general = pack/bulto) y tab Costos (márgenes) ──
 let configCargada = null;   // config completa tal como vino del server
 
 async function leerConfig(){
@@ -13,24 +13,8 @@ async function leerConfig(){
   return j;
 }
 
-// Tab Configuración: costo hora, tolerancia y Pack / Bulto.
-async function cargarConfiguracion(){
-  const carga = document.getElementById('configCarga');
-  const form = document.getElementById('configForm');
-  form.classList.add('hidden');
-  carga.classList.remove('hidden');
-  carga.innerHTML = '<span class="spin"></span> Cargando…';
-  try {
-    const j = await leerConfig();
-    document.getElementById('inCostoHora').value = j.costoHora;
-    limpiarSucio(form.closest('[data-guardable]'));
-    carga.classList.add('hidden');
-    form.classList.remove('hidden');
-    cargarConfigPB(); // precios_pack_bulto.js
-  } catch (e) {
-    carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
-  }
-}
+// Tab Configuración › General: sólo Pack / Bulto.
+const cargarConfiguracion = () => cargarConfigPB(); // precios_pack_bulto.js
 
 // Tab Costos: resumen, variables y departamentos (= costo real). La llaman también los guardados de gastos y
 // departamentos para redibujar con lo guardado. Las curvas viven en la tab Ganancia (precios_ganancia.js).
@@ -50,33 +34,6 @@ async function cargarCostos(){
     carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
   }
 }
-
-// Guarda config general (cualquier subconjunto de costoHora/toleranciaPct).
-async function putConfigGeneral(body){
-  const r = await fetch('/api/precios/config/general', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const j = await r.json();
-  if (j.error) throw new Error(j.error);
-  return j;
-}
-
-async function guardarGeneral(){
-  const msg = document.getElementById('generalMsg');
-  const val = id => numOrNull(document.getElementById(id).value);
-  msg.className = 'text-sm text-ink/50'; msg.innerHTML = '<span class="spin"></span> Guardando…';
-  try {
-    const j = await putConfigGeneral({ costoHora: val('inCostoHora') });
-    configCargada = { ...configCargada, ...j };
-    limpiarSucio(document.getElementById('configForm').closest('[data-guardable]'));
-    refrescarAlertasProduccion(); // precios_produccion.js: costoHora y tolerancia mueven los costos/alertas de Producción
-    msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
-  } catch (e) {
-    msg.className = 'text-sm text-crit'; msg.textContent = e.message;
-  }
-}
-
-document.getElementById('btnGuardarGeneral').onclick = guardarGeneral;
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Tab' && !document.getElementById('mDet').classList.contains('hidden')) atraparFocoModal(e);
@@ -125,7 +82,7 @@ async function irASubConfig(e){
 }
 
 // Sub-tabs de Configuración (#subtabsConfig, role=tablist): cada uno muestra #panel-<sub> y llama a su carga. Orden del
-// precio: Costos → Márgenes → Precio → Simulador; aparte General y Máquinas. Entrar a Configuración vuelve al último
+// precio: Costos → Márgenes → Precio → Simulador; aparte General. Entrar a Configuración vuelve al último
 // sub-tab usado en la sesión (sessionStorage); la primera vez (o si el guardado ya no existe, ej. 'ganancia'), Costos.
 const CARGA_SUBCONFIG = {
   costos: () => cargarCostosEsq(),   // precios_config_esquema.js
@@ -133,7 +90,6 @@ const CARGA_SUBCONFIG = {
   precio: () => cargarPrecioEsq(),   // precios_config_esquema.js
   simulador: () => cargarSimulador(), // precios_simulador.js
   general: () => cargarConfiguracion(),
-  maquinas: () => cargarMaquinas(),  // precios_maquinas.js
 };
 const CLAVE_SUBCONFIG = 'precios.subConfig';
 function ultimoSubConfig(){
@@ -166,8 +122,8 @@ document.getElementById('subtabsConfig').addEventListener('keydown', e => {
 });
 
 // Cambio de tab. Producción la maneja el hash (precios_produccion.js llama a activarTab
-// desde su ruteo); ir a otra tab saca el hash de Producción. 'costos' | 'margenes' | 'precio' | 'simulador' | 'general' |
-// 'maquinas' abren Configuración en ese sub-tab; 'configuracion' sola, en el último usado.
+// desde su ruteo); ir a otra tab saca el hash de Producción. 'costos' | 'margenes' | 'precio' | 'simulador' | 'general'
+// abren Configuración en ese sub-tab; 'configuracion' sola, en el último usado.
 function activarTab(tipo){
   const sub = CARGA_SUBCONFIG[tipo] ? tipo : null;
   if (sub) tipo = 'configuracion';

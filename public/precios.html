@@ -66,8 +66,8 @@
   #mDet tbody tr.tmp,#mDet tbody tr.tmp:hover{background:rgba(255,204,0,.08)}
   /* ── Configuración ─────────────────────────────────────────────────────────────────────────────
      Sub-tabs (.cfg-tab, role=tab): franja propia pegada bajo el header (sticky, top = alto del header como --pr-top).
-     Izquierda los 4 pasos del precio en un riel segmentado unido por chevrons (.cfg-chev); a la derecha, aparte, General
-     y Máquinas. Activo = pastilla verde llena; los pasos llevan su número en círculo. */
+     Izquierda los 4 pasos del precio en un riel segmentado unido por chevrons (.cfg-chev); a la derecha, aparte, General.
+     Activo = pastilla verde llena; los pasos llevan su número en círculo. */
   .cfg-sub{position:sticky;top:104px;z-index:10;display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:8px 10px;
            background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:14px;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
   .cfg-grupo{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5c5f52;padding:0 2px 0 6px;white-space:nowrap}
@@ -335,7 +335,7 @@
     <div id="prodContenido"></div>
   </div>
 
-  <!-- Configuración: sub-tabs en el orden del precio (Costos → Márgenes → Precio → Simulador) y aparte General y Máquinas
+  <!-- Configuración: sub-tabs en el orden del precio (Costos → Márgenes → Precio → Simulador) y aparte General (pack/bulto)
        (activarSubConfig). Los sub-paneles son .cfg-panel (no .tab-panel) para que activarTab no los oculte a todos.
        Cambios sin guardar: una .cfg-card[data-guardable] (o bloque) se marca con data-sucio al editar (precios_config.js). -->
   <div id="panel-configuracion" class="tab-panel hidden solo-config">
@@ -359,7 +359,6 @@
     <span class="cfg-grupo" aria-hidden="true">Ajustes</span>
     <div class="cfg-riel cfg-riel-2" role="presentation">
       <button type="button" role="tab" class="cfg-tab" id="tab-general" data-sub="general" aria-controls="panel-general" aria-selected="false" tabindex="-1">General</button>
-      <button type="button" role="tab" class="cfg-tab" id="tab-maquinas" data-sub="maquinas" aria-controls="panel-maquinas" aria-selected="false" tabindex="-1">Máquinas</button>
     </div>
   </nav>
 
@@ -372,27 +371,12 @@
   <section id="panel-simulador" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-simulador"></section>
 
   <section id="panel-general" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-general">
-    <p class="cfg-cab"><b>General</b> — costo hora (mano de obra de Producción) y pack/bulto.</p>
-    <div class="cfg-grid cfg-grid-angosta">
-      <div class="cfg-card min-w-0" data-guardable>
-        <h3 class="cfg-h">Parámetros generales</h3>
-        <div id="configCarga" class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>
-        <div id="configForm" class="hidden mt-4 space-y-4">
-          <div class="cfg-campo"><label for="inCostoHora">Costo por hora</label>
-            <span class="campo-u w-40"><span class="u pre">$</span><input id="inCostoHora" type="number" min="0" step="any" inputmode="decimal"></span></div>
-          <div class="cfg-pie">
-            <span id="generalMsg" class="text-sm" role="status" aria-live="polite"></span>
-            <button type="button" id="btnGuardarGeneral" class="cfg-btn">Guardar</button>
-          </div>
-        </div>
-      </div>
+    <p class="cfg-cab"><b>General</b> — vínculos y venta de pack/bulto.</p>
+    <div class="max-w-4xl">
       <!-- Pack / Bulto: lo pinta /js/precios_pack_bulto.js -->
       <div id="configPackBulto" class="min-w-0"></div>
     </div>
   </section>
-
-  <!-- Máquinas: categorías de máquina de Producción, lo pinta /js/precios_maquinas.js. -->
-  <section id="panel-maquinas" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-maquinas"></section>
   </div>
 
 </main>
@@ -438,7 +422,6 @@
 <script src="/js/precios_produccion_formula.js"></script>
 <script src="/js/precios_pack_bulto.js"></script>
 <script src="/js/precios_produccion_export.js"></script>
-<script src="/js/precios_maquinas.js"></script>
 <script src="/js/precios_config_gastos.js"></script>
 <script src="/js/precios_costos.js"></script>
 <script src="/js/precios_config_curva.js"></script>

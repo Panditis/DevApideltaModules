@@ -282,25 +282,6 @@ module.exports = function crearRutasPrecios(deps) {
     return fila;
   }));
 
-  // Config general (cualquier subconjunto). Valida todo antes de escribir y sólo toca esas claves.
-  const LIMITES_GENERAL = { toleranciaPct: 100, costoHora: 10000000 };
-  router.put('/api/precios/config/general', apiRoute(async (req) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const cambios = {};
-    for (const [clave, max] of Object.entries(LIMITES_GENERAL)) {
-      if (!(clave in body)) continue;
-      const raw = body[clave];
-      const n = Number(raw);
-      if (raw === null || raw === '' || typeof raw === 'boolean' || !Number.isFinite(n) || n < 0 || n > max) {
-        return { error: `${clave} inválido: debe ser un número entre 0 y ${max}` };
-      }
-      cambios[clave] = n;
-    }
-    const costeo = { ...leerCosteo(), ...cambios };
-    guardarJSON(COSTEO_PATH, costeo);
-    return { costoHora: costeo.costoHora, toleranciaPct: costeo.toleranciaPct };
-  }));
-
   // Gastos sobre venta. body { items, conservarPrecios }: conservarPrecios (default true) reescala las
   // curvas de ganancia para que el markup total (y los precios) no cambien. Valida todo (gastos + curvas
   // reescaladas) antes de escribir; el total no se guarda, se calcula.
@@ -454,20 +435,6 @@ module.exports = function crearRutasPrecios(deps) {
     const [row] = await query(`SELECT TOP 1 r.NombreRubro AS rubro FROM Productos p JOIN Rubros r ON r.IdRubro = p.IdRubro WHERE p.IdProducto = ${plu}`);
     return /^pesables/i.test(String((row || {}).rubro || '').trim()) ? 'fraccionado' : 'almacen';
   }
-
-  // Minutos de fraccionado propios de una presentación (minutosFraccionado[plu]); sin propios no suma MO.
-  // { minutos: null } lo quita.
-  router.put('/api/precios/minutos-fraccionado/:plu', apiRoute(async (req) => guardarValorProducto({
-    clave: 'minutosFraccionado', plu: String(req.params.plu || '').trim(),
-    raw: (req.body || {}).minutos, min: 0, max: MINUTOS_MO_MAX,
-  })));
-
-  // Insumos básicos propios de una presentación ($ por unidad, insumosFraccionado[plu]); sin propios no
-  // suma insumos. { pesos: null } lo quita.
-  router.put('/api/precios/insumos-fraccionado/:plu', apiRoute(async (req) => guardarValorProducto({
-    clave: 'insumosFraccionado', plu: String(req.params.plu || '').trim(),
-    raw: (req.body || {}).pesos, min: 0, max: INSUMOS_FRACC_MAX,
-  })));
 
   // Alinear con SIGA: ganancia propia por producto que reproduce su precio vigente con el costo actual y los
   // gastos de su tipo. Pisa los margenPorProducto de esos productos; sólo toca esa clave de costeo.json.
@@ -815,11 +782,6 @@ function calcularFilaAlmacen({ plu, nombre, costoMercaderia, costoSistema = null
     precioVigente: precioVigente != null ? precioVigente : null, deltaPct, semaforo,
   };
 }
-
-// Tope de minutos de fraccionado propios por unidad.
-const MINUTOS_MO_MAX = 600;
-// Tope de insumos básicos de fraccionado propios, $ por unidad.
-const INSUMOS_FRACC_MAX = 10000000;
 
 // Clave de los Map armados con String(IdProducto).trim() (comprasHoy, fechasPrecioAlmacen): SIGA puede
 // traer IdProducto con espacios y el plu de filaCostos no se recorta.

@@ -1041,27 +1041,6 @@ test('PUT config/gastos-venta: si el reescalado deja una curva fuera de rango, e
   assert.strictEqual(estado.archivo.gastosVenta, undefined);
 });
 
-test('PUT insumos-fraccionado/:plu guarda $/u por presentación, null lo quita; valida rango y PLU', async () => {
-  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_CURVAS });
-  assert.deepStrictEqual(await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: 35.5 }), { plu: '12', valor: 35.5 });
-  assert.deepStrictEqual(estado.archivo.insumosFraccionado, { 12: 35.5 });
-  assert.match((await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: -1 })).error, /inválido/);
-  assert.match((await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: 10000001 })).error, /inválido/);
-  assert.match((await llamar('put', '/api/precios/insumos-fraccionado/a%20b', { pesos: 1 })).error, /PLU/);
-  await llamar('put', '/api/precios/insumos-fraccionado/12', { pesos: null });
-  assert.deepStrictEqual(estado.archivo.insumosFraccionado, {});
-});
-
-test('PUT config/general: costoHora y tolerancia; los standard de fraccionado se ignoran como claves desconocidas', async () => {
-  const { estado, llamar } = routerConArchivo({ ...ARCHIVO_CURVAS });
-  const r = await llamar('put', '/api/precios/config/general',
-    { costoHora: 5000, toleranciaPct: 8, insumosFraccionadoStd: 10000001, minutosFraccionadoStd: 2 });
-  assert.deepStrictEqual(r, { costoHora: 5000, toleranciaPct: 8 });
-  assert.strictEqual(estado.archivo.costoHora, 5000);
-  assert.ok(!('insumosFraccionadoStd' in estado.archivo) && !('minutosFraccionadoStd' in estado.archivo));
-  assert.match((await llamar('put', '/api/precios/config/general', { costoHora: -1 })).error, /costoHora/);
-});
-
 // ── Tab Costos: departamentos, venta base y gastos por tipo ──────────────────
 
 const DEPTO_ADM = { nombre: 'Administración', costoMensual: 1000000, imputacion: { almacen: 50, fraccionado: 30, produccion: 20 } };
