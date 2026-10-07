@@ -79,3 +79,44 @@ test('filaPublica: sin desglose ni costos con extras (también en presentaciones
   assert.strictEqual(L.filaPublica(f, true), f);
   assert.ok(!JSON.stringify(L.filaPublica({ ...f, presentaciones: [f] })).includes('desglose'));
 });
+
+// ── Fraccionado y Producción ─────────────────────────────────────────────────
+
+test('agruparPorGranel: fórmula, nombre del granel, propio PLU y "sin granel" al final', () => {
+  const grupos = L.agruparPorGranel({
+    graneles: [{ plu: '100', nombre: 'Almendras DEPOSITO GRANEL' }],
+    presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg', ventaDirecta: true },
+      { plu: '103', nombre: 'Pasas 1Kg', ventaDirecta: true }, { plu: '104', nombre: 'Rara 50G' }],
+    formulas: { 101: { granel: 100 } },
+    costos: new Map([['100', { plu: '100', nombre: 'Almendras DEPOSITO GRANEL' }], ['103', { plu: '103', nombre: 'Pasas 1Kg' }]]),
+  });
+  assert.deepStrictEqual(grupos.map(g => [g.plu, g.presentaciones.map(p => p.plu)]),
+    [['100', ['101', '102']], ['103', ['103']], [null, ['104']]]);
+});
+
+test('listadoFraccionado: costo $/kg del granel en todas sus presentaciones, ajuste por peso, pack pesable y decisión del granel', () => {
+  const grupos = [
+    { plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '102', nombre: 'Almendras 1Kg' }, { plu: '101', nombre: 'Almendras 500G' }] },
+    { plu: null, nombre: 'Sin granel asignado', presentaciones: [{ plu: '104', nombre: 'Rara 50G' }] },
+  ];
+  const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: null }]]);
+  const vigentes = new Map([['101', 1950], ['102', 1700]]);
+  const mayoristasDe = L.crearMayoristasDe({ vigentes, vinculos: [{ plu: '60', nombre: 'Almendras 1Kg Pack', basePlu: '102', cantidad: 10, tipo: 'pack' }] });
+  const [g, sin] = L.listadoFraccionado({ grupos, costos, vigentes, mayoristasDe, costeo: { decisiones: { 100: { fuente: 'sistema', fecha: 'x' } } }, cfg: CFG });
+  assert.deepStrictEqual(g.presentaciones.map(p => [p.plu, p.pesoG, p.sugeridos.sistema.minorista.precio]), [['101', 500, 1950], ['102', 1000, 1800]]);
+  assert.strictEqual(g.presentaciones[1].sugeridos.sistema.mayoristas[0].conIva, 1750); // pack por kg: unidades 1
+  assert.deepStrictEqual(g.decision, { fuente: 'sistema', fecha: 'x' });
+  assert.strictEqual(g.costoSistema, 1000);
+  assert.deepStrictEqual([sin.plu, sin.decision, sin.presentaciones[0].sugeridos], [null, null, {}]);
+});
+
+test('listadoProduccion: sólo PLUs SIGA, costo por unidad de la receta como fuente sistema, ordenado por nombre', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const filas = L.listadoProduccion({ presentaciones: [
+    { productoId: 'p-granola', plu: '6319', nombre: 'Granola 500G', costoUnidad: 1000 },
+    { productoId: 'p-granola', plu: 'n-nueva', nombre: 'Nueva', costoUnidad: 900 },
+    { productoId: 'p-x', plu: '7000', nombre: 'Alfajor', costoUnidad: null },
+  ], vigentes: new Map([['6319', 1800]]), mayoristasDe: md, costeo: { decisiones: { 6319: { fuente: 'sistema' } } }, cfg: CFG });
+  assert.deepStrictEqual(filas.map(f => [f.plu, f.productoId, f.costoSistema, f.sugeridos.sistema ? f.sugeridos.sistema.minorista.precio : null, !!f.decision]),
+    [['7000', 'p-x', null, null, false], ['6319', 'p-granola', 1000, 1800, true]]);
+});
