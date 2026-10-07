@@ -62,6 +62,71 @@
   .s-margen{--sec-c:#4f6e42;--sec-bg:#f2f6ec}
   .s-final{--sec-c:#405936;--sec-bg:rgba(64,89,54,.1)}
   .sec-tit{color:var(--sec-c)}
+  /* ── Modal del producto (precios_modal_esquema.js): resumen → decisión en tarjetas → tabla por canal → detalle ── */
+  #mDetSub{display:flex;align-items:center;gap:8px;margin-top:4px}
+  .md-tipo{padding:1px 8px;border-radius:999px;background:rgba(64,89,54,.1);color:#405936;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase}
+  .md-resumen{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:12px 16px;margin-bottom:14px;border-radius:12px;background:#f5f8f1;border:1px solid rgba(26,28,24,.08)}
+  .md-vig-l,.md-opc-l{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#5c5f52}
+  .md-vig-v{font-size:26px;font-weight:700;line-height:1.1;color:#242423;font-variant-numeric:tabular-nums}
+  .md-estado{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600;color:#5c5f52;background:#fff;border:1px solid rgba(26,28,24,.16);white-space:nowrap}
+  .md-estado .md-dot{width:8px;height:8px;border-radius:50%;background:#c9cdc2}
+  .md-estado.on{color:#405936;background:rgba(64,89,54,.1);border-color:rgba(64,89,54,.35)}
+  .md-estado.on .md-dot{background:#FFCC00;box-shadow:0 0 0 1.5px #405936}
+  .md-aviso{margin-bottom:14px;padding:10px 14px;border-radius:10px;border-left:4px solid #8a5d00;background:rgba(255,204,0,.12);color:#242423;font-size:13px;line-height:1.5}
+  .md-aviso b{color:#8a5d00}
+  .md-ir-config{margin-left:6px;color:#405936;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+  .md-h{font-size:14px;font-weight:700;color:#242423;padding:0}
+  .md-h .md-sub{font-weight:400;margin-left:4px}
+  .md-ayuda{font-size:12.5px;color:#5c5f52;margin:2px 0 10px}
+  .md-sub{font-size:12px;color:#5c5f52;font-weight:400}
+  .md-nd{color:#a3a69b}
+  .md-warn{font-size:11.5px;font-weight:600;color:#8a5d00;margin-left:6px}
+  .md-opcs{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:10px}
+  .md-opc{position:relative;display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;border:1px solid rgba(26,28,24,.16);background:#fff;cursor:pointer;
+          transition:border-color 140ms ease,box-shadow 140ms ease,background-color 140ms ease}
+  .md-opc:hover{border-color:#4f6e42;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13)}
+  .md-opc.sel{border-color:#405936;background:rgba(64,89,54,.06);box-shadow:inset 0 0 0 1px #405936}
+  .md-opc:has(input:focus-visible){outline:2px solid #405936;outline-offset:2px}
+  .md-opc.off{cursor:not-allowed;background:#f7f8f5;border-style:dashed}
+  .md-opc.off:hover{border-color:rgba(26,28,24,.16);box-shadow:none}
+  .md-opc.off .md-opc-t{color:#5c5f52}
+  .md-opc-cab{display:flex;align-items:center;gap:8px}
+  .md-opc-cab input{accent-color:#405936;width:16px;height:16px;flex:none;margin:0}
+  .md-opc-t{font-size:14px;font-weight:700;color:#242423}
+  .md-opc.sel .md-opc-t{color:#405936}
+  .md-opc-ok{margin-left:auto;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#405936;color:#fff;font-size:11px;font-weight:700}
+  .md-opc-costo{font-size:12.5px;color:#5c5f52;min-height:1.2em}
+  .md-opc-costo b{color:#242423;font-weight:600}
+  .md-opc-extra{font-size:11.5px;color:#5c5f52;line-height:1.35}
+  .md-opc-res{margin-top:auto;padding-top:8px;border-top:1px solid rgba(26,28,24,.08)}
+  .md-opc-precio{font-size:22px;font-weight:700;line-height:1.15;color:#242423;font-variant-numeric:tabular-nums}
+  .md-opc.sel .md-opc-precio{color:#405936}
+  .md-opc-delta{margin-top:4px}
+  .md-opc-motivo{font-size:12.5px;font-weight:600;color:#8a5d00;padding:6px 0}
+  .md-chip{font-weight:600;font-variant-numeric:tabular-nums;gap:3px}
+  .md-chip-0{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:rgba(92,95,82,.1);color:#5c5f52}
+  .md-msg{min-height:30px;display:flex;align-items:center;gap:6px;font-size:13px;margin-top:6px}
+  .md-canales{margin-top:10px}
+  .md-tabla{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+  .md-tabla th{font-size:11px;font-weight:700;color:#5c5f52;text-align:right;padding:6px 10px;border-bottom:1px solid rgba(26,28,24,.16)}
+  .md-tabla th.text-left{text-align:left}
+  .md-tabla td{padding:7px 10px;border-top:1px solid rgba(26,28,24,.07)}
+  .md-tabla .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .md-tabla .md-nuevo{font-weight:700}
+  .md-tabla tr.md-min td{background:#fafbf8}
+  .md-tabla tr.md-grp td{padding:8px 10px 2px;border-top:1px solid rgba(26,28,24,.12);font-weight:600;font-size:12.5px;color:#405936}
+  .md-tabla tr.md-may td:first-child{padding-left:26px;color:#3d4136}
+  .md-tabla tr.md-grp + tr.md-may td{border-top:0}
+  .md-det{margin-top:18px;padding-top:12px;border-top:1px dashed rgba(26,28,24,.2)}
+  .md-det-btn{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#5c5f52;padding:4px 8px;margin-left:-8px;border-radius:8px}
+  .md-det-btn:hover{color:#405936;background:rgba(64,89,54,.07)}
+  .md-caret{display:inline-block;font-size:11px;transition:transform 140ms ease}
+  .md-det-btn[aria-expanded="true"] .md-caret{transform:rotate(90deg)}
+  .md-desglose{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 24px}
+  .md-desglose .ec{padding:.3rem 0}
+  .md-bloque{margin-top:10px}
+  .md-edicion{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
+  #mDet fieldset.md-dec{border:0;margin:0;padding:0;min-width:0}
   /* ── Configuración ─────────────────────────────────────────────────────────────────────────────
      Sub-tabs (.cfg-tab, role=tab): franja propia pegada bajo el header (sticky, top = alto del header como --pr-top).
      Izquierda los 4 pasos del precio en un riel segmentado unido por chevrons (.cfg-chev); a la derecha, aparte, General.

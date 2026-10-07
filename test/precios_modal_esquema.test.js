@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -59,4 +59,27 @@ test('ventaPayload: por kg → DELETE (vuelve al default); por paquete exige kg 
   assert.deepStrictEqual(ventaPayload('paquete', 2.5), { metodo: 'PUT', body: { modo: 'paquete', pesoKg: 2.5 } });
   assert.match(ventaPayload('paquete', 0).error, /peso/);
   assert.match(ventaPayload('paquete', 1001).error, /peso/);
+});
+
+test('opcionesCosto: motivo de la opción sin precio (sin costo / márgenes sin configurar); errorMotor lo detecta', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes });
+  const [f] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes, mayoristasDe: md, costeo: {}, cfg: CFG });
+  const pub = L.filaPublica(f);
+  assert.deepStrictEqual(opcionesCosto(pub, 'almacen').map(o => o.motivo), [null, null, 'Sin compras registradas']);
+  assert.strictEqual(errorMotor(pub), null);
+  const [sinM] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes, mayoristasDe: md, costeo: {},
+    cfg: { ...CFG, margenes: {} } });
+  const pubSinM = L.filaPublica(sinM);
+  assert.strictEqual(errorMotor(pubSinM), 'margen');
+  const sis = opcionesCosto(pubSinM, 'almacen')[1];
+  assert.deepStrictEqual([sis.disponible, sis.motivo], [false, 'Faltan configurar los márgenes']);
+  const [p] = L.listadoProduccion({ presentaciones: [{ plu: '6319', nombre: 'Mezcla', costoUnidad: 0 }], vigentes, mayoristasDe: md, costeo: {}, cfg: CFG });
+  assert.strictEqual(opcionesCosto(L.filaPublica(p), 'produccion')[1].motivo, 'La receta no tiene costo');
+});
+
+test('estadoDecision: sin decisión no se exporta; con decisión dice con qué costo (Producción: aumento)', () => {
+  assert.deepStrictEqual(estadoDecision({ decision: null }, 'almacen'), { exporta: false, texto: 'Sin cambios · no se exporta' });
+  assert.strictEqual(estadoDecision({ decision: { fuente: 'ultimaCompra' } }, 'almacen').texto, 'Se exporta con última compra');
+  assert.strictEqual(estadoDecision({ decision: { fuente: 'manual' } }, 'fraccionado').texto, 'Se exporta con costo manual');
+  assert.strictEqual(estadoDecision({ decision: { fuente: 'sistema' } }, 'produccion').texto, 'Se exporta con aumento');
 });

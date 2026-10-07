@@ -1,29 +1,32 @@
 // ── Precios · modal del producto con el esquema por canal (spec 2026-10-07 §3.2) ──
-// Simple: selector de costo arriba (No cambiar / Costo sistema / Última compra / Costo manual; Producción: No cambiar /
-// Aumentar) que GUARDA la decisión al elegir, y tabla por canal (vigente, nuevo, Δ%, margen total) del costo elegido.
-// "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos
-// extra): desglose por canal + costo manual + costos extra. Globales: el modal compartido #mDet (abrirModal, cerrarDetalle)
-// y formato/pedidos de precios_comun.js; de precios_listados.js: guardarDecision, renderListado, cargarListado.
+// Arriba: nombre, PLU, tipo, precio vigente y estado ("Sin cambios" / "Se exporta con …"). Paso principal: tarjetas de
+// costo (radios reales: No cambiar / Costo sistema / Última compra / Costo manual; Producción: No cambiar / Aumentar)
+// que GUARDAN la decisión al elegir. Debajo, la tabla por canal (vigente, nuevo, Δ%, margen total) del costo elegido.
+// "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos extra):
+// desglose por canal + costo manual + costos extra + venta de pesables. Globales: el modal compartido #mDet (abrirModal,
+// cerrarDetalle) y formato/pedidos de precios_comun.js; de precios_listados.js: guardarDecision, renderListado,
+// cargarListado; de precios_config.js: activarTab; de precios_produccion.js: salirDeProduccion, refrescarAlertasProduccion.
 const TIPO_CANAL = { pack: 'Pack', bulto: 'Bulto' };
-const TXT_FUENTE = { sistema: 'sistema', ultimaCompra: 'última compra', manual: 'manual' };
 
 // Filas de la tabla por canal para una fuente. Fraccionado: una fila minorista por presentación ($/kg); el granel sólo
 // aporta sus pack/bulto. Pack/bulto: sin IVA (sin vigente: el de SIGA es con IVA) y con IVA (contra el vigente).
+// tipo = 'minorista' | 'pack' | 'bulto'; conIva = null en minorista.
 function filasCanales(fila, fuente) {
   const filas = [];
   const sumar = (f, etiqueta) => {
     const s = (f.sugeridos || {})[fuente];
     const ok = s && !s.error ? s : null;
     if (etiqueta) {
-      filas.push({ canal: etiqueta, plu: f.plu, vigente: f.vigente ?? null, sugerido: ok ? ok.minorista.precio : null,
-        deltaPct: ok ? ok.minorista.deltaPct : null, estado: ok ? ok.minorista.estado : null, margenTotalPct: ok ? ok.minorista.margenTotalPct : null });
+      filas.push({ canal: etiqueta, tipo: 'minorista', conIva: null, plu: f.plu, nombre: f.nombre, vigente: f.vigente ?? null,
+        sugerido: ok ? ok.minorista.precio : null, deltaPct: ok ? ok.minorista.deltaPct : null, estado: ok ? ok.minorista.estado : null,
+        margenTotalPct: ok ? ok.minorista.margenTotalPct : null });
     }
     for (const m of f.mayoristas || []) {
       const p = ok ? ok.mayoristas.find(x => x.plu === m.plu) : null;
-      const base = { plu: m.plu, nombre: m.nombre, unidades: m.unidades, faltante: p ? p.faltante : null };
-      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, vigente: null, sugerido: p ? p.neto : null, deltaPct: null, estado: null,
+      const base = { tipo: m.tipo, plu: m.plu, nombre: m.nombre, unidades: m.unidades, faltante: p ? p.faltante : null };
+      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, conIva: false, vigente: null, sugerido: p ? p.neto : null, deltaPct: null, estado: null,
         margenTotalPct: p ? p.margenTotalNetoPct : null });
-      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} con IVA`, vigente: m.vigente ?? null, sugerido: p ? p.conIva : null,
+      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} con IVA`, conIva: true, vigente: m.vigente ?? null, sugerido: p ? p.conIva : null,
         deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad), margenTotalPct: p ? p.margenTotalIvaPct : null });
     }
   };
@@ -34,30 +37,53 @@ function filasCanales(fila, fuente) {
   return filas;
 }
 
-// Opciones del selector de costo: { valor ('' = No cambiar, o la fuente), texto, costo, precio, deltaPct, estado, disponible }.
-// precio/Δ% = minorista con ese costo (No cambiar: el vigente). Fraccionado: sin precio único; Δ% = promedio de las
-// presentaciones. Manual sólo si hay costo manual (o es la decisión guardada). Sin sugerido → no se puede elegir.
+// Opciones del selector de costo: { valor ('' = No cambiar, o la fuente), texto, costo, precio, deltaPct, estado,
+// disponible, motivo }. precio/Δ% = minorista con ese costo (No cambiar: el vigente). Fraccionado: sin precio único; Δ% =
+// promedio de las presentaciones (n = cuántas). Manual sólo si hay costo manual (o es la decisión guardada). Sin
+// sugerido → no se puede elegir (salvo que sea la decisión guardada) y motivo dice por qué.
 const TXT_OPCION = { sistema: 'Costo sistema', ultimaCompra: 'Última compra', manual: 'Costo manual' };
 const COSTO_FUENTE = { sistema: 'costoSistema', ultimaCompra: 'costoUltimaCompra', manual: 'costoManual' };
+const MOTIVO_SIN_COSTO = { sistema: 'Sin costo de sistema en SIGA', ultimaCompra: 'Sin compras registradas', manual: 'Sin costo manual' };
+const MOTIVO_ERROR = { margen: 'Faltan configurar los márgenes', gastos: 'Revisar los gastos variables', costo: 'Costo inválido' };
+const sugeridoDe = (f, fuente) => (f.sugeridos || {})[fuente] || null;
 function resumenMinorista(fila, fuente) {
-  const okDe = f => { const s = (f.sugeridos || {})[fuente]; return s && !s.error ? s : null; };
+  const okDe = f => { const s = sugeridoDe(f, fuente); return s && !s.error ? s : null; };
+  const error = (sugeridoDe(fila, fuente) || {}).error || null;
   if (Array.isArray(fila.presentaciones)) {
     const ds = fila.presentaciones.map(p => okDe(p)).filter(s => s && s.minorista.deltaPct != null).map(s => s.minorista.deltaPct);
-    return { precio: null, deltaPct: ds.length ? Math.round((ds.reduce((a, b) => a + b, 0) / ds.length) * 10) / 10 : null, estado: null, ok: !!okDe(fila) };
+    return { precio: null, deltaPct: ds.length ? Math.round((ds.reduce((a, b) => a + b, 0) / ds.length) * 10) / 10 : null, estado: null,
+      ok: !!okDe(fila), error, n: fila.presentaciones.length };
   }
   const s = okDe(fila);
-  return { precio: s ? s.minorista.precio : null, deltaPct: s ? s.minorista.deltaPct : null, estado: s ? s.minorista.estado : null, ok: !!s };
+  return { precio: s ? s.minorista.precio : null, deltaPct: s ? s.minorista.deltaPct : null, estado: s ? s.minorista.estado : null, ok: !!s, error, n: null };
 }
 function opcionesCosto(fila, tipo) {
   const actual = fila.decision ? fila.decision.fuente : null;
   const fuentes = tipo === 'produccion' ? ['sistema']
     : ['sistema', 'ultimaCompra', ...(fila.costoManual != null || actual === 'manual' ? ['manual'] : [])];
-  const noCambiar = { valor: '', texto: 'No cambiar', costo: null, precio: fila.vigente ?? null, deltaPct: null, estado: null, disponible: true };
+  const noCambiar = { valor: '', texto: 'No cambiar', costo: null, precio: fila.vigente ?? null, deltaPct: null, estado: null, disponible: true, motivo: null };
   return [noCambiar, ...fuentes.map(f => {
     const r = resumenMinorista(fila, f);
-    return { valor: f, texto: tipo === 'produccion' ? 'Aumentar' : TXT_OPCION[f], costo: fila[COSTO_FUENTE[f]] ?? null,
-      precio: r.precio, deltaPct: r.deltaPct, estado: r.estado, disponible: r.ok || f === actual };
+    const costo = fila[COSTO_FUENTE[f]] ?? null;
+    const motivo = r.ok ? null : r.error ? MOTIVO_ERROR[r.error] || 'No se pudo calcular el precio'
+      : tipo === 'produccion' ? 'La receta no tiene costo' : MOTIVO_SIN_COSTO[f];
+    return { valor: f, texto: tipo === 'produccion' ? 'Aumentar' : TXT_OPCION[f], costo, precio: r.precio, deltaPct: r.deltaPct, estado: r.estado,
+      disponible: r.ok || f === actual, motivo, n: r.n };
   })];
+}
+
+// Primer error del motor en la fila (granel o presentaciones), por cualquier fuente: 'margen' | 'gastos' | 'costo' | null.
+function errorMotor(fila) {
+  const filas = [fila, ...(fila.presentaciones || [])];
+  for (const f of filas) for (const s of Object.values(f.sugeridos || {})) if (s && s.error) return s.error;
+  return null;
+}
+
+// Estado de la decisión para el encabezado y el aviso de guardado: { exporta, texto }.
+function estadoDecision(fila, tipo) {
+  if (!fila.decision) return { exporta: false, texto: 'Sin cambios · no se exporta' };
+  const f = fila.decision.fuente;
+  return { exporta: true, texto: tipo === 'produccion' ? 'Se exporta con aumento' : `Se exporta con ${(TXT_OPCION[f] || f).toLowerCase()}` };
 }
 
 // Modo de venta de un pack/bulto pesable → pedido a /api/precios/pack-bulto/venta/:plu. Por kg = el default: se borra.
@@ -68,18 +94,26 @@ function ventaPayload(modo, pesoKg) {
   return { metodo: 'PUT', body: { modo: 'paquete', pesoKg } };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto };
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
-let mdFuente = 'sistema';  // fuente cuyos precios se muestran (la del selector)
+let mdFuente = 'sistema';  // fuente cuyos precios se muestran (la decidida; sistema si "No cambiar")
 let mdDetalle = false;     // "Ver detalle" abierto
 
+const TXT_TIPO_MD = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion: 'Producción' };
 const fmtSug = n => (Number.isInteger(n) ? fmtPrecio(n) : fmtMoney(n));
 const pctMd = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
+const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug(n)}`);
+// Chip de Δ% contra el vigente: flecha por el signo, color por el semáforo (fuera de tolerancia = subir/bajar).
+function chipDelta(deltaPct, estado, sufijo = '') {
+  if (deltaPct == null) return '<span class="md-nd">—</span>';
+  const flecha = deltaPct > 0 ? '▲' : deltaPct < 0 ? '▼' : '=';
+  return `<span class="pr-sem sem-${esc(estado || 'ok')} md-chip"><span aria-hidden="true">${flecha}</span>${fmtPct(deltaPct)}${sufijo}</span>`;
+}
 
 async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
-  abrirModal('Cargando…', tipo === 'fraccionado'); // precios_comun.js
+  abrirModal('Cargando…', true); // precios_comun.js
   try {
     const fila = await (await fetch(`/api/precios/esquema/detalle/${encodeURIComponent(plu)}?tipo=${encodeURIComponent(tipo)}`)).json();
     if (fila.error) throw new Error(fila.error);
@@ -87,51 +121,110 @@ async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
     mdFuente = fila.decision ? fila.decision.fuente : 'sistema';
     mdDetalle = detalle;
     document.getElementById('mDetTitulo').textContent = fila.nombre || plu;
-    document.getElementById('mDetSub').textContent = `PLU ${fila.plu}${tipo === 'fraccionado' ? ' · precios por kg' : ''}`;
+    document.getElementById('mDetSub').innerHTML = `<span class="md-tipo">${esc(TXT_TIPO_MD[tipo] || tipo)}</span>
+      <span class="tabular-nums">PLU ${esc(fila.plu)}</span>${tipo === 'fraccionado' ? '<span>· precios por kg</span>' : ''}`;
     pintarModalEsquema();
+    if (!detalle) enfocarOpcionMd();
   } catch (e) {
     document.getElementById('mDetBody').innerHTML = `<p class="py-6 text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
   }
 }
 
-// Selector de costo: radios que guardan la decisión al elegir. Cada opción muestra su costo y el precio minorista con Δ%.
-function htmlOpcionesCosto(f) {
-  const actual = f.decision ? f.decision.fuente : '';
-  const ult = f.costoUltimaCompra == null ? ''
-    : ` <span class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${f.proveedor ? ' · ' + esc(f.proveedor) : ''}${f.deltaUltimaPct == null ? '' : ' · ' + fmtPct(f.deltaUltimaPct) + ' vs sistema'}</span>`;
-  const precio = o => {
-    if (o.valor === '') return o.precio == null ? '' : `vigente $ ${fmtPrecio(o.precio)}`;
-    if (!o.disponible) return '<span class="text-gris">sin precio</span>';
-    const d = o.deltaPct == null ? '' : ` <span class="${claseDelta(o.estado)}">${fmtPct(o.deltaPct)}</span>`;
-    return o.precio == null ? (o.deltaPct == null ? '' : `Δ prom. presentaciones${d}`) : `→ <b>$ ${fmtPrecio(o.precio)}</b>${d}`;
-  };
-  return `<fieldset class="mt-2"><legend class="lbl mb-1">${mdEsq.tipo === 'produccion' ? 'Decisión' : 'Costo a tomar'}</legend>
-    <div id="mdCostos" class="grid gap-1">${opcionesCosto(f, mdEsq.tipo).map(o => `<label class="flex items-center gap-3 px-3 py-2 rounded-lg border border-borde ${o.disponible ? 'cursor-pointer hover:bg-verde/5' : 'opacity-50'}${actual === o.valor ? ' bg-verde/5 border-verde' : ''}">
-      <input type="radio" name="mdCosto" value="${o.valor}" class="accent-verde"${actual === o.valor ? ' checked' : ''}${o.disponible ? '' : ' disabled'}>
-      <span class="font-semibold w-32">${esc(o.texto)}</span>
-      <span class="tabular-nums w-28 text-right">${o.costo == null ? '' : '$ ' + fmtMoney(o.costo)}</span>
-      <span class="tabular-nums">${precio(o)}${o.valor === 'ultimaCompra' ? ult : ''}</span></label>`).join('')}</div>
-    <span id="mdDecMsg" class="text-sm" role="status" aria-live="polite"></span></fieldset>`;
+// Foco en la opción elegida (o la primera habilitada) al abrir y después de guardar.
+function enfocarOpcionMd() {
+  const r = document.querySelector('#mdCostos input:checked') || document.querySelector('#mdCostos input:not(:disabled)');
+  if (r) r.focus();
 }
 
+// Encabezado del cuerpo: precio vigente grande (Fraccionado: cuántas presentaciones) y estado de la decisión.
+function htmlResumenMd(f, tipo) {
+  const est = estadoDecision(f, tipo);
+  const vig = Array.isArray(f.presentaciones)
+    ? `<div class="md-vig-l">Presentaciones</div><div class="md-vig-v">${f.presentaciones.length}</div>`
+    : `<div class="md-vig-l">Precio vigente</div><div class="md-vig-v">${f.vigente == null ? '<span class="md-nd">sin precio</span>' : '$ ' + fmtPrecio(f.vigente)}</div>`;
+  return `<div class="md-resumen"><div>${vig}</div>
+    <span id="mdEstado" class="md-estado${est.exporta ? ' on' : ''}"><span class="md-dot" aria-hidden="true"></span>${esc(est.texto)}</span></div>`;
+}
+
+// Avisos: error del motor (márgenes/gastos sin configurar → link a Configuración con el permiso) o producto sin costo.
+function htmlAvisoMd(f, ops) {
+  const err = errorMotor(f);
+  if (err === 'margen' || err === 'gastos') {
+    const sub = err === 'margen' ? 'margenes' : 'costos';
+    const txt = err === 'margen' ? 'Faltan configurar los márgenes: sin ellos no hay precio sugerido.' : 'Los gastos variables configurados no permiten calcular el precio.';
+    const accion = preciosSinConfig ? '<span>Avisale a quien administra los precios.</span>'
+      : `<button type="button" class="md-ir-config" data-sub="${sub}">Ir a Configuración › ${sub === 'margenes' ? 'Márgenes' : 'Costos'}</button>`;
+    return `<div class="md-aviso" role="note"><b>${txt}</b> ${accion}</div>`;
+  }
+  if (ops.slice(1).every(o => !o.disponible)) {
+    return '<div class="md-aviso" role="note"><b>Este producto no tiene costo cargado</b>: no se puede calcular un precio nuevo. Queda el precio actual.</div>';
+  }
+  return '';
+}
+
+// Una tarjeta por opción: toda la tarjeta es el <label> del radio. Muestra costo, precio nuevo grande y Δ% vs vigente.
+function htmlOpcionMd(o, f, actual) {
+  const sel = actual === o.valor;
+  const fracc = Array.isArray(f.presentaciones);
+  let costo = '';
+  if (o.valor === '') costo = 'Deja el precio como está';
+  else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>`;
+  let extra = '';
+  if (o.valor === 'ultimaCompra' && f.costoUltimaCompra != null) {
+    const d = f.deltaUltimaPct == null ? '' : ` · <span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)} vs sistema</span>`;
+    extra = `<div class="md-opc-extra">${esc(fmtFechaPrecio(f.fechaUltimaCompra))}${f.proveedor ? ' · ' + esc(f.proveedor) : ''}${d}</div>`;
+  }
+  let precio;
+  if (!o.disponible || (o.valor !== '' && o.motivo)) precio = `<div class="md-opc-motivo">${esc(o.motivo || 'Sin precio')}</div>`;
+  else if (o.valor === '') precio = fracc || o.precio == null ? '<div class="md-opc-l">Mantiene los precios actuales</div>'
+    : `<div class="md-opc-l">Queda en</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta"><span class="md-chip md-chip-0">sin cambio</span></div>`;
+  else if (fracc) precio = `<div class="md-opc-l">Promedio de ${o.n} presentaciones</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.deltaPct > 0 ? 'subir' : o.deltaPct < 0 ? 'bajar' : 'ok', ' prom.')}</div>`;
+  else precio = `<div class="md-opc-l">Precio nuevo</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.estado)}</div>`;
+  return `<label class="md-opc${sel ? ' sel' : ''}${o.disponible ? '' : ' off'}">
+    <span class="md-opc-cab"><input type="radio" name="mdCosto" value="${esc(o.valor)}"${sel ? ' checked' : ''}${o.disponible ? '' : ' disabled'}>
+      <span class="md-opc-t">${esc(o.texto)}</span>${sel ? '<span class="md-opc-ok" aria-hidden="true">✓</span>' : ''}</span>
+    <span class="md-opc-costo">${costo}</span>${extra}
+    <span class="md-opc-res">${precio}</span></label>`;
+}
+
+function htmlOpcionesCosto(f, ops) {
+  const actual = f.decision ? f.decision.fuente : '';
+  const prod = mdEsq.tipo === 'produccion';
+  return `<fieldset class="md-dec"><legend class="md-h">${prod ? '¿Aumentar el precio con el costo de la receta?' : '¿Con qué costo calculo el precio nuevo?'}</legend>
+    <p class="md-ayuda">Al elegir se guarda solo. ${prod ? '"Aumentar"' : 'Un costo'} marca el producto para exportar; "No cambiar" lo desmarca.${f.presentaciones ? ' La decisión vale para todas las presentaciones.' : ''}</p>
+    <div id="mdCostos" class="md-opcs" style="--n:${ops.length}">${ops.map(o => htmlOpcionMd(o, f, actual)).join('')}</div>
+    <div id="mdDecMsg" class="md-msg" role="status" aria-live="polite"></div></fieldset>`;
+}
+
+// Tabla por canal: minorista arriba (Fraccionado: una por presentación) y cada pack/bulto agrupado bajo su PLU y nombre.
 function htmlTablaCanales(f) {
   const filas = filasCanales(f, mdFuente);
   if (!filas.length) return '<p class="text-gris mt-3">Sin canales para mostrar.</p>';
-  const avisos = r => (r.unidades ? ` <span class="text-xs text-gris">× ${esc(r.unidades)}</span>` : '')
-    + (r.faltante === 'unidades' ? ' <span class="text-xs text-warn">sin unidades</span>' : '')
-    + (r.revisarUnidad ? ' <span class="text-xs text-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
-  return `<table class="w-full text-sm mt-2"><thead><tr class="text-xs text-gris"><th class="text-left py-1">Canal</th><th class="text-left">PLU</th>
-      <th class="text-right">Vigente</th><th class="text-right">Nuevo</th><th class="text-right">Δ%</th>
-      <th class="text-right" title="Precio final ÷ costo de mercadería (con sus extras) − 1">Margen total</th></tr></thead>
-    <tbody>${filas.map(r => `<tr class="border-t border-borde"><td class="py-1.5">${esc(r.canal)}${avisos(r)}</td><td>${esc(r.plu)}</td>
-      <td class="text-right tabular-nums">${r.vigente == null ? '—' : '$ ' + fmtPrecio(r.vigente)}</td>
-      <td class="text-right tabular-nums font-semibold">${r.sugerido == null ? '—' : '$ ' + fmtSug(r.sugerido)}</td>
-      <td class="text-right tabular-nums ${claseDelta(r.estado)}">${r.deltaPct == null ? '—' : fmtPct(r.deltaPct)}</td>
-      <td class="text-right tabular-nums">${r.margenTotalPct == null ? '—' : pctMd(r.margenTotalPct)}</td></tr>`).join('')}</tbody></table>`;
+  const fracc = Array.isArray(f.presentaciones);
+  const avisos = r => (r.faltante === 'unidades' ? ' <span class="md-warn">sin unidades</span>' : '')
+    + (r.revisarUnidad ? ' <span class="md-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
+  const celdas = r => `<td class="num">${pesosMd(r.vigente)}</td><td class="num md-nuevo">${pesosMd(r.sugerido)}</td>
+    <td class="num">${r.vigente == null && r.conIva === false ? '' : chipDelta(r.deltaPct, r.estado)}</td>
+    <td class="num">${r.margenTotalPct == null ? '<span class="md-nd">—</span>' : pctMd(r.margenTotalPct)}</td>`;
+  let previo = null, conMinorista = false; // Fraccionado: los pack/bulto antes de la primera presentación son del granel
+  const cuerpo = filas.map(r => {
+    if (r.tipo === 'minorista') {
+      previo = null; conMinorista = true;
+      const t = fracc ? `<b>${esc(r.nombre)}</b> <span class="md-sub">PLU ${esc(r.plu)} · por kg</span>` : `<b>Minorista</b> <span class="md-sub">PLU ${esc(r.plu)}</span>`;
+      return `<tr class="md-min"><td>${t}</td>${celdas(r)}</tr>`;
+    }
+    const cab = r.plu !== previo ? `<tr class="md-grp"><td colspan="5">${fracc && !conMinorista ? 'Granel · ' : ''}${esc(TIPO_CANAL[r.tipo] || r.tipo)} <span class="md-sub">PLU ${esc(r.plu)} · ${esc(r.nombre || '')}${r.unidades ? ` · × ${esc(r.unidades)}` : ''}</span>${avisos(r)}</td></tr>` : '';
+    previo = r.plu;
+    return `${cab}<tr class="md-may"><td>${r.conIva ? 'Con IVA' : 'Sin IVA'}</td>${celdas(r)}</tr>`;
+  }).join('');
+  const txt = mdEsq.fila.decision ? `con ${(TXT_OPCION[mdFuente] || mdFuente).toLowerCase()}` : 'con costo sistema, para comparar';
+  return `<section class="md-canales"><h4 class="md-h">Precios por canal <span class="md-sub">${esc(mdEsq.tipo !== 'produccion' ? txt : mdEsq.fila.decision ? 'con el aumento' : 'con el costo de la receta, para comparar')}</span></h4>
+    <table class="md-tabla"><thead><tr><th class="text-left">Canal</th><th>Vigente</th><th>Nuevo</th><th>Δ vs vigente</th>
+      <th title="Precio final ÷ costo de mercadería (con sus extras) − 1">Margen total</th></tr></thead><tbody>${cuerpo}</tbody></table></section>`;
 }
 
 // ── Ver detalle (sólo con permiso: el server sólo entonces manda `desglose`) ──
-const htmlPasos = (titulo, pasos) => `<div class="mt-3"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.map(([op, txt, v]) =>
+const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.map(([op, txt, v]) =>
   `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">$ ${fmtMoney(v)}</span></div>`).join('')}</div>`;
 function htmlDesgloseEsq(f) {
   const bloques = [];
@@ -152,13 +245,13 @@ function htmlDesgloseEsq(f) {
   };
   if (Array.isArray(f.presentaciones)) { de(f, null); f.presentaciones.forEach(p => de(p, `Minorista · ${p.nombre}`)); }
   else de(f, 'Minorista');
-  return bloques.length ? bloques.join('') : '<p class="text-gris mt-3">Sin desglose para esta fuente.</p>';
+  return bloques.length ? `<div class="md-desglose">${bloques.join('')}</div>` : '<p class="text-gris mt-3">Sin desglose para esta fuente.</p>';
 }
 
 const htmlFilaExtraMd = (it = {}) => `<tr><td class="py-1 pr-2"><input class="num-in w-full text-left" data-k="concepto" value="${esc(it.concepto || '')}" aria-label="Concepto"></td>
   <td class="py-1 pr-2"><select class="num-in" data-k="tipo" aria-label="Tipo"><option value="kg"${it.tipo !== 'pct' ? ' selected' : ''}>$</option><option value="pct"${it.tipo === 'pct' ? ' selected' : ''}>%</option></select></td>
   <td class="py-1 pr-2"><input class="num-in w-24" type="number" step="any" data-k="valor" value="${esc(it.valor ?? '')}" aria-label="Valor"></td>
-  <td class="py-1"><button type="button" class="md-extra-quitar text-gris hover:text-crit" aria-label="Quitar">✕</button></td></tr>`;
+  <td class="py-1"><button type="button" class="md-extra-quitar btn-quitar" aria-label="Quitar">✕</button></td></tr>`;
 // Pack/bulto pesables (granel y presentaciones de Fraccionado) con su modo de venta: por kg o por paquete + kg.
 const ventasPesablesMd = f => [...(f.mayoristas || []), ...(f.presentaciones || []).flatMap(p => p.mayoristas || [])].filter(m => m.venta);
 const htmlVentaMd = m => `<tr><td class="py-1 pr-2">${esc(TIPO_CANAL[m.tipo] || m.tipo)} ${esc(m.plu)} <span class="text-gris">${esc(m.nombre || '')}</span></td>
@@ -168,59 +261,92 @@ const htmlVentaMd = m => `<tr><td class="py-1 pr-2">${esc(TIPO_CANAL[m.tipo] || 
   <td class="py-1"><button type="button" class="md-venta-guardar cfg-btn2" data-plu="${esc(m.plu)}">Guardar</button></td></tr>`;
 function htmlVentasPesablesMd(f) {
   const ms = mdEsq.tipo === 'fraccionado' ? ventasPesablesMd(f) : [];
-  return ms.length ? `<div class="lbl mt-3 mb-1">Venta de pack/bulto pesables</div>
+  return ms.length ? `<div class="lbl mt-4 mb-1">Venta de pack/bulto pesables</div>
     <table class="w-full text-sm"><tbody id="mdVentas">${ms.map(htmlVentaMd).join('')}</tbody></table>` : '';
 }
 function htmlEdicionCostos(f) {
   if (mdEsq.tipo === 'produccion') return '';
-  return `<div class="mt-4 pt-3 border-t border-borde">
+  return `<div class="md-edicion">
     <div class="lbl mb-1">Costo manual</div>
-    <div class="flex items-center gap-2">${campoU(`<input id="mdManual" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}">`, '$', { pre: true, w: 'w-36' })}
+    <div class="flex items-center gap-2">${campoU(`<input id="mdManual" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-36' })}
       <button type="button" id="mdManualGuardar" class="cfg-btn2">Guardar</button>
       ${f.costoManual != null ? '<button type="button" id="mdManualQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</div>
-    <div class="lbl mt-3 mb-1">Costos extra (${mdEsq.tipo === 'fraccionado' ? '$/kg' : '$'} o % del costo)</div>
+    <div class="lbl mt-4 mb-1">Costos extra (${mdEsq.tipo === 'fraccionado' ? '$/kg' : '$'} o % del costo)</div>
     <table class="w-full text-sm"><tbody id="mdExtras">${(f.costosExtra || []).map(htmlFilaExtraMd).join('')}</tbody></table>
     <div class="flex gap-2 mt-1"><button type="button" id="mdExtraAgregar" class="cfg-btn2">+ Agregar</button>
       <button type="button" id="mdExtrasGuardar" class="cfg-btn2">Guardar costos extra</button></div>
     ${htmlVentasPesablesMd(f)}
     <p id="mdMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
+function htmlVerDetalle(f) {
+  if (preciosSinConfig) return '';
+  return `<div class="md-det"><button type="button" id="mdVerDetalle" class="md-det-btn" aria-expanded="${mdDetalle}" aria-controls="mdDetCuerpo">
+      <span class="md-caret" aria-hidden="true">▸</span>Ver detalle del cálculo y editar costos</button>
+    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${htmlEdicionCostos(f)}</div></div>`;
+}
 
 function pintarModalEsquema() {
-  const { fila: f } = mdEsq;
-  const txtPrecios = f.decision ? `Precios con ${esc(TXT_FUENTE[mdFuente] || mdFuente)}` : 'Sin decisión: precios con el costo de sistema, para comparar';
-  document.getElementById('mDetBody').innerHTML = `${htmlOpcionesCosto(f)}
-    <div class="text-xs text-gris mt-4">${txtPrecios}</div>
-    ${htmlTablaCanales(f)}
-    ${preciosSinConfig ? '' : `<button type="button" id="mdVerDetalle" class="mt-4 text-sm text-verde underline underline-offset-2" aria-expanded="${mdDetalle}">${mdDetalle ? 'Ocultar detalle' : 'Ver detalle'}</button>
-      ${mdDetalle ? htmlDesgloseEsq(f) + htmlEdicionCostos(f) : ''}`}`;
+  const { tipo, fila: f } = mdEsq;
+  const ops = opcionesCosto(f, tipo);
+  document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}
+    ${htmlTablaCanales(f)}${htmlVerDetalle(f)}`;
   conectarModalEsquema();
 }
 
+function msgDecisionMd(cls, html) {
+  const msg = document.getElementById('mdDecMsg');
+  msg.className = `md-msg ${cls}`; msg.innerHTML = html;
+}
 // Elegir un costo guarda la decisión en el momento (No cambiar = sin decisión) y refresca la fila del listado;
-// guardarDecision (precios_listados.js) ya avisa a Producción ("a revisar").
-function conectarModalEsquema() {
+// guardarDecision (precios_listados.js) ya avisa a Producción ("a revisar"). Error: vuelve a la elegida antes + Reintentar.
+async function guardarOpcionMd(valor) {
   const { tipo, fila: f } = mdEsq;
-  document.getElementById('mdCostos').onchange = async e => {
-    const valor = e.target.value;
-    document.querySelectorAll('#mdCostos input').forEach(i => { i.disabled = true; });
-    try {
-      const decision = await guardarDecision(f.plu, valor || null); // precios_listados.js
-      mdEsq = { tipo, fila: { ...f, decision } };
-      mdFuente = valor || 'sistema';
-      renderListado(tipo);
-      pintarModalEsquema();
-      const msg = document.getElementById('mdDecMsg');
-      msg.className = 'text-sm text-ok'; msg.textContent = valor ? 'Guardado: queda marcado para exportar.' : 'Guardado: sin cambio de precio.';
-    } catch (err) {
-      pintarModalEsquema();
-      const msg = document.getElementById('mdDecMsg');
-      msg.className = 'text-sm text-crit'; msg.textContent = err.message;
-    }
+  const grupo = document.getElementById('mdCostos');
+  grupo.setAttribute('aria-busy', 'true');
+  grupo.querySelectorAll('input').forEach(i => { i.disabled = true; });
+  msgDecisionMd('', '<span class="spin"></span> Guardando…');
+  try {
+    const decision = await guardarDecision(f.plu, valor || null); // precios_listados.js
+    mdEsq = { tipo, fila: { ...f, decision } };
+    mdFuente = valor || 'sistema';
+    renderListado(tipo);
+    pintarModalEsquema();
+    enfocarOpcionMd();
+    msgDecisionMd('text-ok', `✓ Guardado · ${esc(estadoDecision(mdEsq.fila, tipo).texto.toLowerCase())}`);
+  } catch (err) {
+    pintarModalEsquema();
+    enfocarOpcionMd();
+    msgDecisionMd('text-crit', `No se pudo guardar: ${esc(err.message)} <button type="button" id="mdReintentar" class="cfg-btn2 ml-2">Reintentar</button>`);
+    document.getElementById('mdReintentar').onclick = () => guardarOpcionMd(valor);
+  }
+}
+
+function conectarModalEsquema() {
+  const grupo = document.getElementById('mdCostos');
+  grupo.onchange = e => guardarOpcionMd(e.target.value);
+  // Flechas: mueven el foco entre opciones habilitadas SIN elegir (elegir guarda); Espacio o Enter eligen.
+  grupo.onkeydown = e => {
+    const radios = [...grupo.querySelectorAll('input:not(:disabled)')];
+    const i = radios.indexOf(document.activeElement);
+    if (i < 0) return;
+    const paso = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (paso) { e.preventDefault(); radios[(i + paso + radios.length) % radios.length].focus(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); if (!radios[i].checked) radios[i].click(); }
   };
+  document.querySelectorAll('#mDetBody .md-ir-config').forEach(b => b.onclick = () => {
+    cerrarDetalle();          // precios_comun.js
+    salirDeProduccion();      // precios_produccion.js
+    activarTab(b.dataset.sub); // precios_config.js
+  });
   const ver = document.getElementById('mdVerDetalle');
-  if (ver) ver.onclick = () => { mdDetalle = !mdDetalle; pintarModalEsquema(); };
-  if (mdDetalle && document.getElementById('mdManualGuardar')) conectarEdicionCostos();
+  if (ver) ver.onclick = () => {
+    mdDetalle = !mdDetalle;
+    ver.setAttribute('aria-expanded', String(mdDetalle));
+    const cuerpo = document.getElementById('mdDetCuerpo');
+    cuerpo.hidden = !mdDetalle;
+    if (mdDetalle) ver.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+  if (document.getElementById('mdManualGuardar')) conectarEdicionCostos();
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto con las rutas de siempre y recarga modal (con el detalle
