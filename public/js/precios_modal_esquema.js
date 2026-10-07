@@ -32,7 +32,15 @@ function filasCanales(fila, fuente) {
   return filas;
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales };
+// Modo de venta de un pack/bulto pesable → pedido a /api/precios/pack-bulto/venta/:plu. Por kg = el default: se borra.
+const PESO_MAX_KG_MD = 1000; // mismo tope que lib/precios_pack_bulto
+function ventaPayload(modo, pesoKg) {
+  if (modo !== 'paquete') return { metodo: 'DELETE' };
+  if (!(pesoKg > 0 && pesoKg <= PESO_MAX_KG_MD)) return { error: `Por paquete: poné el peso del paquete (más de 0 y hasta ${PESO_MAX_KG_MD} kg).` };
+  return { metodo: 'PUT', body: { modo: 'paquete', pesoKg } };
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -111,6 +119,18 @@ const htmlFilaExtraMd = (it = {}) => `<tr><td class="py-1 pr-2"><input class="nu
   <td class="py-1 pr-2"><select class="num-in" data-k="tipo" aria-label="Tipo"><option value="kg"${it.tipo !== 'pct' ? ' selected' : ''}>$</option><option value="pct"${it.tipo === 'pct' ? ' selected' : ''}>%</option></select></td>
   <td class="py-1 pr-2"><input class="num-in w-24" type="number" step="any" data-k="valor" value="${esc(it.valor ?? '')}" aria-label="Valor"></td>
   <td class="py-1"><button type="button" class="md-extra-quitar text-gris hover:text-crit" aria-label="Quitar">✕</button></td></tr>`;
+// Pack/bulto pesables (granel y presentaciones de Fraccionado) con su modo de venta: por kg o por paquete + kg.
+const ventasPesablesMd = f => [...(f.mayoristas || []), ...(f.presentaciones || []).flatMap(p => p.mayoristas || [])].filter(m => m.venta);
+const htmlVentaMd = m => `<tr><td class="py-1 pr-2">${esc(TIPO_CANAL[m.tipo] || m.tipo)} ${esc(m.plu)} <span class="text-gris">${esc(m.nombre || '')}</span></td>
+  <td class="py-1 pr-2"><select class="md-venta-modo num-in" data-plu="${esc(m.plu)}" aria-label="Modo de venta de ${esc(m.plu)}">
+    <option value="kg"${m.venta.modo !== 'paquete' ? ' selected' : ''}>Por kg</option><option value="paquete"${m.venta.modo === 'paquete' ? ' selected' : ''}>Por paquete</option></select></td>
+  <td class="py-1 pr-2"><input type="number" min="0" step="any" class="md-venta-kg num-in w-20${m.venta.modo === 'paquete' ? '' : ' hidden'}" data-plu="${esc(m.plu)}" value="${esc(m.venta.pesoKg ?? '')}" aria-label="Kg del paquete de ${esc(m.plu)}"></td>
+  <td class="py-1"><button type="button" class="md-venta-guardar cfg-btn2" data-plu="${esc(m.plu)}">Guardar</button></td></tr>`;
+function htmlVentasPesablesMd(f) {
+  const ms = mdEsq.tipo === 'fraccionado' ? ventasPesablesMd(f) : [];
+  return ms.length ? `<div class="lbl mt-3 mb-1">Venta de pack/bulto pesables</div>
+    <table class="w-full text-sm"><tbody id="mdVentas">${ms.map(htmlVentaMd).join('')}</tbody></table>` : '';
+}
 function htmlEdicionCostos(f) {
   if (mdEsq.tipo === 'produccion') return '';
   return `<div class="mt-4 pt-3 border-t border-borde">
@@ -122,6 +142,7 @@ function htmlEdicionCostos(f) {
     <table class="w-full text-sm"><tbody id="mdExtras">${(f.costosExtra || []).map(htmlFilaExtraMd).join('')}</tbody></table>
     <div class="flex gap-2 mt-1"><button type="button" id="mdExtraAgregar" class="cfg-btn2">+ Agregar</button>
       <button type="button" id="mdExtrasGuardar" class="cfg-btn2">Guardar costos extra</button></div>
+    ${htmlVentasPesablesMd(f)}
     <p id="mdMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
 
@@ -165,12 +186,12 @@ function conectarModalEsquema() {
   if (mdDetalle && document.getElementById('mdManualGuardar')) conectarEdicionCostos();
 }
 
-// Guarda costo manual / costos extra con las rutas de siempre y recarga modal (con el detalle abierto) y listado.
-async function guardarCostoEsq(url, body) {
+// Guarda costo manual / costos extra / venta de pack/bulto con las rutas de siempre y recarga modal (con el detalle
+// abierto) y listado.
+async function guardarCostoEsq(url, body, metodo = 'PUT') {
   const msg = document.getElementById('mdMsg');
   try {
-    const r = await (await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-    if (r.error) throw new Error(r.error);
+    await pedirJson(metodo, url, body); // precios_comun.js: tira con el error del server
     const { tipo, fila } = mdEsq;
     await abrirModalEsquema(tipo, fila.plu, { detalle: true });
     cargarListado(tipo);
@@ -192,4 +213,18 @@ function conectarEdicionCostos() {
       valor: numOrNull(tr.querySelector('[data-k="valor"]').value),
     })),
   });
+  const ventas = document.getElementById('mdVentas');
+  if (!ventas) return;
+  ventas.onchange = e => {
+    const sel = e.target.closest('.md-venta-modo');
+    if (sel) ventas.querySelector(`.md-venta-kg[data-plu="${CSS.escape(sel.dataset.plu)}"]`).classList.toggle('hidden', sel.value !== 'paquete');
+  };
+  ventas.onclick = e => {
+    const b = e.target.closest('.md-venta-guardar');
+    if (!b) return;
+    const q = cls => ventas.querySelector(`.${cls}[data-plu="${CSS.escape(b.dataset.plu)}"]`);
+    const p = ventaPayload(q('md-venta-modo').value, numOrNull(q('md-venta-kg').value));
+    if (p.error) { const msg = document.getElementById('mdMsg'); msg.className = 'text-sm mt-1 text-crit'; msg.textContent = p.error; return; }
+    guardarCostoEsq(`/api/precios/pack-bulto/venta/${encodeURIComponent(b.dataset.plu)}`, p.body, p.metodo);
+  };
 }

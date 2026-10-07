@@ -53,7 +53,7 @@ test('listadoReventa: un sugerido por fuente con costo, pack/bulto vinculados, �
   assert.deepStrictEqual(Object.keys(f.sugeridos), ['sistema', 'ultimaCompra']);
   assert.strictEqual(f.sugeridos.sistema.minorista.precio, 1800);
   assert.deepStrictEqual(f.sugeridos.ultimaCompra.minorista, { precio: 3650, deltaPct: 102.8, estado: 'subir' });
-  assert.deepStrictEqual(f.mayoristas, [{ plu: '50', nombre: 'Arroz Bulto x6', tipo: 'bulto', unidades: 1, vigente: 1750 }]);
+  assert.deepStrictEqual(f.mayoristas, [{ plu: '50', nombre: 'Arroz Bulto x6', tipo: 'bulto', unidades: 1, vigente: 1750, venta: null }]);
   assert.strictEqual(f.sugeridos.sistema.mayoristas[0].conIva, 1750);
   assert.deepStrictEqual([f.costoSistema, f.costoUltimaCompra, f.deltaUltimaPct, f.proveedor], [1000, 2000, 100, 'Molino']);
   assert.deepStrictEqual(f.decision, { fuente: 'ultimaCompra', fecha: '2026-10-07' });
@@ -197,4 +197,12 @@ test('costoEnSuTab: decisión › manual › sistema, con los costos extra del P
   assert.deepStrictEqual(L.costoEnSuTab(fila, { ...conManual, decisiones: { 5: { fuente: 'sistema' } } }, '5'), { costo: 1000, fuente: 'sistema' });
   assert.deepStrictEqual(L.costoEnSuTab({ costoSistema: 1000 }, { decisiones: { 5: { fuente: 'ultimaCompra' } } }, '5'), { costo: null, fuente: 'ultimaCompra' });
   assert.deepStrictEqual(L.costoEnSuTab(null, {}, '5'), { costo: null, fuente: 'sistema' });
+});
+
+test('crearMayoristasDe: pesable trae su modo de venta (kg por default, paquete con kg); no pesable sin venta', () => {
+  const md = L.crearMayoristasDe({ vigentes: new Map(), ventaPesable: { 61: { modo: 'paquete', pesoKg: 5 } },
+    vinculos: [{ plu: '60', basePlu: '102', tipo: 'pack', cantidad: 10 }, { plu: '61', basePlu: '102', tipo: 'bulto', cantidad: 10 }] });
+  assert.deepStrictEqual(md('102', true).map(m => [m.plu, m.unidades, m.venta]),
+    [['60', 1, { modo: 'kg', pesoKg: null }], ['61', 5, { modo: 'paquete', pesoKg: 5 }]]);
+  assert.deepStrictEqual(md('102').map(m => m.venta), [null, null]);
 });

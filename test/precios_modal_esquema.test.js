@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -27,4 +27,11 @@ test('filasCanales Fraccionado: una fila minorista por presentación; el granel 
   });
   assert.deepStrictEqual(filasCanales(L.filaPublica(g), 'sistema').map(r => [r.canal, r.plu, r.sugerido]),
     [['Minorista · Almendras 500G', '101', 1950], ['Minorista · Almendras 1Kg', '102', 1800]]);
+});
+
+test('ventaPayload: por kg → DELETE (vuelve al default); por paquete exige kg > 0 y ≤ 1000', () => {
+  assert.deepStrictEqual(ventaPayload('kg', null), { metodo: 'DELETE' });
+  assert.deepStrictEqual(ventaPayload('paquete', 2.5), { metodo: 'PUT', body: { modo: 'paquete', pesoKg: 2.5 } });
+  assert.match(ventaPayload('paquete', 0).error, /peso/);
+  assert.match(ventaPayload('paquete', 1001).error, /peso/);
 });
