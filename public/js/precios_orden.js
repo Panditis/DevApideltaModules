@@ -123,10 +123,12 @@ const columnasSelectorProd = () => ({
   estado: p => (p.alertas || p.faltantes ? -((p.alertas || 0) * 1000 + (p.faltantes || 0)) : null),
   fecha: p => fechaMasAntigua((p.exportables || []).map(e => e.fechaPrecio)),
 });
-const columnasPresProd = ({ estadoFila, nombreVariedad, kgDe, empaqueDe }) => ({
-  plu: p => p.plu, nombre: p => p.nombre, variedad: nombreVariedad, kg: kgDe, empaque: empaqueDe, costo: p => p.costoUnidad,
-  real: p => p.costoReal, markup: p => p.gananciaPct, sugerido: p => (sinPrecioFila(p) ? null : p.precioConIva), vigente: p => p.precioVigente,
-  delta: p => p.deltaPct, estado: p => rango(RANGO_ESTADO_PROD, estadoFila(p)), fecha: p => p.fechaPrecio,
+// sugeridoProd vive en precios_produccion.js (global en el navegador); en Node (tests) se requiere.
+const sugeridoProdOrden = p => (typeof sugeridoProd === 'function' ? sugeridoProd : require('./precios_produccion.js').sugeridoProd)(p);
+const columnasPresProd = ({ estadoFila, nombreVariedad, kgDe }) => ({
+  plu: p => p.plu, nombre: p => p.nombre, variedad: nombreVariedad, kg: kgDe, costo: p => p.costoUnidad,
+  sugerido: p => (sugeridoProdOrden(p) || {}).precio ?? null, vigente: p => p.precioVigente, delta: p => (sugeridoProdOrden(p) || {}).deltaPct ?? null,
+  estado: p => rango(RANGO_ESTADO_PROD, estadoFila(p)), fecha: p => p.fechaPrecio,
 });
 const ordenarCon = (filas, orden, cols) => ordenarFilas(filas, orden && orden.clave, orden && orden.dir, extractorDe(cols));
 
@@ -371,7 +373,6 @@ const ordenarPresProd = pres => ordenarCon(pres, ordenPresProd, columnasPresProd
   estadoFila,
   nombreVariedad: p => { const r = prodDet.recetas[p.recetaId]; return r ? r.nombre : p.recetaId; },
   kgDe: p => (p.componentes.find(c => c.plu === '_receta') || {}).cantidad,
-  empaqueDe: p => importeEmpaque(p.componentes),
 }));
 function montarOrdenPresProd() {
   const cuerpo = document.getElementById('prPres');

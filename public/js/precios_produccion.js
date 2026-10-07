@@ -1,8 +1,8 @@
 // ── Precios · tab Producción (Fase 3): helpers, ruteo, selector, guardado y toasts ──
 // Script clásico cargado después de precios.html y precios_fraccionado.js: reusa sus globales
 // (esc, fmtMoney, fmtPrecio, fmtPct, chip, normTxt, numOrNull, avisar, confirmar, pedirJson,
-// activarTab). El detalle es un flujo guiado en 4 pasos: encabezado + pasos 1-2 (recetas) en
-// precios_produccion_detalle.js; pasos 3-4 (insumos, presentaciones) en precios_produccion_presentaciones.js;
+// activarTab). El detalle es un flujo guiado en 3 pasos: encabezado + pasos 1-2 (recetas) en
+// precios_produccion_detalle.js; paso 3 (presentaciones) en precios_produccion_presentaciones.js;
 // el modal de presentación en precios_produccion_modal.js.
 // Los costos SIEMPRE salen del server (GET del detalle después de cada guardado): acá no se
 // recalcula ninguna fórmula. Plan: docs/superpowers/plans/2026-09-25-precios-fase3-produccion.md
@@ -11,9 +11,7 @@
 
 // ── Helpers puros (sin DOM; test/precios_produccion_ui.test.js) ─────────────────
 const ID_PRODUCTO_UI = /^p-[a-z0-9-]{1,48}$/;
-const ESPECIALES = {
-  _costoHora: 'Mano de obra (costo/hora)', _maquina: 'Máquina (costo/hora)', _receta: 'Receta', _correccion: 'Corrección',
-};
+const ESPECIALES = { _receta: 'Receta' };
 const PLU_PRES_UI = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/; // PLU de SIGA o presentación provisoria
 // '#produccion' → selector; '#produccion/<id>' → detalle (id inválido → selector);
 // '#produccion/<id>/<plu>' → detalle + abrir esa presentación (plu inválido → sólo el detalle); otra cosa → null.
@@ -28,11 +26,11 @@ function parsearHashProduccion(hash) {
   return PLU_PRES_UI.test(plu || '') ? { vista: 'detalle', id, plu } : { vista: 'detalle', id };
 }
 
-// Qué pasos (1..4) arrancan abiertos: sólo el primero incompleto (ni 'ok' ni 'opcional'); si están todos, el 4.
+// Qué pasos (1..3) arrancan abiertos: sólo el primero incompleto (ni 'ok' ni 'opcional'); si están todos, el 3.
 // elecciones = { paso: bool } que el usuario abrió/cerró a mano en este producto: mandan sobre el default.
 function seccionesAbiertas(estados = {}, elecciones = {}) {
-  const pasos = [1, 2, 3, 4];
-  const primera = pasos.find(n => !['ok', 'opcional'].includes(estados[n] || 'ok')) || 4;
+  const pasos = [1, 2, 3];
+  const primera = pasos.find(n => !['ok', 'opcional'].includes(estados[n] || 'ok')) || 3;
   return Object.fromEntries(pasos.map(n => [n, typeof elecciones[n] === 'boolean' ? elecciones[n] : n === primera]));
 }
 
@@ -62,17 +60,30 @@ function estadoFila(f) {
 
 const pctTxt = n => (n == null ? '' : (n > 0 ? '+' : '') + Number(n).toFixed(1).replace('.', ',') + '%');
 
-// Nombre legible de un componente (PLU, id manual o pseudo-componente _costoHora/_maquina…).
+// Minorista sugerido por el motor del esquema (Producción: fuente única 'sistema' = costo de la receta) o null.
+function sugeridoProd(p) {
+  const s = p && p.esquema && p.esquema.sugeridos && p.esquema.sugeridos.sistema;
+  return s && !s.error && s.minorista ? s.minorista : null;
+}
+
+// "A revisar" en una línea: primera materia prima con costo anterior → nuevo (+ "y N más"). Lo usan el toast y la columna
+// del listado (precios_listados.js). Sin ítems → ''.
+const fmtCostoRev = v => (v == null ? '—' : '$ ' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(v));
+function textoRevisar(lista) {
+  if (!Array.isArray(lista) || !lista.length) return '';
+  const [p] = lista;
+  return `${p.nombre || p.plu}: ${fmtCostoRev(p.antes)} → ${fmtCostoRev(p.ahora)}${lista.length > 1 ? ` y ${lista.length - 1} más` : ''}`;
+}
+
+// Nombre legible de un componente (PLU o la receta de una presentación).
 function nombreComponente(clave, nombres = {}) {
   if (ESPECIALES[clave]) return ESPECIALES[clave];
   return nombres[clave] ? `${nombres[clave]} (${clave})` : String(clave);
 }
 
 // Faltante (clave interna del costeo) → mensaje para humanos + acción que lo resuelve.
-// accion: { tipo: 'config' | 'maquinas' | 'ganancia' } (sub-tabs de Configuración) | { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'margen', plu } | null.
+// accion: { tipo: 'paso', paso } | { tipo: 'costo', clave } | { tipo: 'abrirPres', clave } | null.
 const FALTANTES_FIJOS = {
-  _costoHora: ['Falta el costo/hora de mano de obra — se carga en Configuración → General', { tipo: 'config' }, 'Ir a Configuración'],
-  _maquina: ['La categoría de máquina no tiene costo/hora — se carga en Configuración → Máquinas', { tipo: 'maquinas' }, 'Ir a Máquinas'],
   rendimientoKg: ['Falta cuántos kg rinde una tanda (Kg por tanda)', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   mermaPct: ['La merma tiene que ser un % entre 0 y 99', { tipo: 'paso', paso: 1 }, 'Ir a la receta'],
   receta: ['La receta elegida todavía no tiene costo: completá lo que le falta', { tipo: 'paso', paso: 1 }, 'Ir a las recetas'],
@@ -85,18 +96,8 @@ function mensajeFaltante(clave, { nombres = {}, plu = null } = {}) {
     return { texto: 'Elegí una variedad para esta presentación (ahora no puede apuntar a la receta base)',
       accion: plu ? { tipo: 'abrirPres', clave: String(plu) } : null, boton: 'Elegir variedad' };
   }
-  if (clave === 'markupPct') {
-    if (typeof preciosSinConfig !== 'undefined' && preciosSinConfig) { // sin el permiso no hay Configuración (precios_almacen.js)
-      return { texto: 'Sin markup standard: cargá un margen propio para este PLU o pedí que revisen la configuración',
-        accion: plu ? { tipo: 'margen', plu: String(plu) } : null, boton: plu ? 'Cargar margen' : '' };
-    }
-    return { texto: 'Sin markup: revisá la curva de Producción (Configuración → Ganancia) o cargá un margen propio para este PLU',
-      accion: plu ? { tipo: 'margen', plu: String(plu) } : { tipo: 'ganancia' }, boton: plu ? 'Cargar margen' : 'Ir a Ganancia' };
-  }
   const nombre = nombres[clave];
-  const texto = /^\d+$/.test(clave)
-    ? `El PLU ${clave}${nombre ? ` (${nombre})` : ''} no tiene costo en SIGA → cargá un costo manual`
-    : `El insumo manual "${nombre || clave}" no tiene costo → cargale uno`;
+  const texto = `El PLU ${clave}${nombre ? ` (${nombre})` : ''} no tiene costo en SIGA → cargá un costo manual`;
   return { texto, accion: { tipo: 'costo', clave: String(clave) }, boton: 'Cargar costo' };
 }
 const textoFaltante = (clave, nombres = {}) => mensajeFaltante(clave, { nombres }).texto;
@@ -107,18 +108,16 @@ function progresoProducto(det) {
   const bases = recetas.filter(r => !r.varianteDe), variedades = recetas.filter(r => r.varianteDe);
   const pres = Object.values(det.presentaciones || {});
   const filas = [...recetas, ...pres];
-  const conPrecio = pres.filter(p => p.precioConIva != null).length;
+  const conPrecio = pres.filter(p => sugeridoProd(p) != null).length;
   const validadas = filas.filter(f => f.estado === 'ok').length;
-  const nInsumos = (det.insumos || []).length;
   return [
     { clave: 'base', paso: 1, texto: 'Receta base', estado: !bases.length ? 'falta' : bases.some(r => r.costoKg != null) ? 'ok' : 'parcial',
       detalle: !bases.length ? 'cargá ingredientes y kg por tanda' : bases.some(r => r.costoKg != null) ? 'con costo/kg' : 'le faltan datos para costear' },
     { clave: 'variedades', paso: 2, texto: 'Variedades', estado: variedades.length ? 'ok' : 'falta',
       detalle: variedades.length ? `${variedades.length} cargada${variedades.length === 1 ? '' : 's'}` : 'se crea sola al guardar la receta base' },
-    { clave: 'insumos', paso: 3, texto: 'Insumos', estado: nInsumos ? 'ok' : 'opcional', detalle: nInsumos ? `${nInsumos} en la lista` : 'opcional' },
-    { clave: 'presentaciones', paso: 4, texto: 'Presentaciones con precio', estado: !pres.length ? 'falta' : conPrecio === pres.length ? 'ok' : 'parcial',
+    { clave: 'presentaciones', paso: 3, texto: 'Presentaciones con precio', estado: !pres.length ? 'falta' : conPrecio === pres.length ? 'ok' : 'parcial',
       detalle: pres.length ? `${conPrecio} de ${pres.length} con precio` : 'ninguna todavía' },
-    { clave: 'validado', paso: 4, texto: 'Validado', estado: !filas.length ? 'falta' : validadas === filas.length ? 'ok' : 'parcial',
+    { clave: 'validado', paso: 3, texto: 'Validado', estado: !filas.length ? 'falta' : validadas === filas.length ? 'ok' : 'parcial',
       detalle: filas.length ? `${validadas} de ${filas.length} validados` : 'nada para validar' },
   ];
 }
@@ -130,9 +129,9 @@ function pasosHabilitados(det) {
   const hayBase = recetas.some(r => !r.varianteDe), hayVariedad = recetas.some(r => r.varianteDe);
   const libre = { ok: true, motivo: '', paso: null };
   const p2 = hayBase ? libre : { ok: false, motivo: 'Primero guardá una receta base (paso 1).', paso: 1 };
-  const p4 = !hayBase ? p2 : hayVariedad ? libre
+  const p3 = !hayBase ? p2 : hayVariedad ? libre
     : { ok: false, motivo: 'Primero creá una variedad (paso 2). Si el producto no tiene sabores, una variedad sin extras.', paso: 2 };
-  return { 1: libre, 2: p2, 3: libre, 4: p4 };
+  return { 1: libre, 2: p2, 3: p3 };
 }
 
 // Panel "Para revisar" arriba del detalle: qué cambió (con su paso), qué falta para costear (sin repetir,
@@ -142,9 +141,9 @@ function alertasDetalle(det, nombres = {}) {
   const delta = f => (f.cambios && f.cambios.deltaPct != null ? f.cambios.deltaPct : null);
   const cambios = [
     ...recetas.filter(([, r]) => estadoFila(r) === 'cambio')
-      .map(([id, r]) => ({ tipo: 'receta', id, nombre: r.nombre || id, paso: r.varianteDe ? 2 : 1, deltaPct: delta(r) })),
+      .map(([id, r]) => ({ tipo: 'receta', id, nombre: r.nombre || id, paso: r.varianteDe ? 2 : 1, deltaPct: delta(r), revisar: r.revisar || null })),
     ...pres.filter(p => estadoFila(p) === 'cambio')
-      .map(p => ({ tipo: 'presentacion', id: String(p.plu), nombre: p.nombre || String(p.plu), paso: 4, deltaPct: delta(p) })),
+      .map(p => ({ tipo: 'presentacion', id: String(p.plu), nombre: p.nombre || String(p.plu), paso: 3, deltaPct: delta(p), revisar: p.revisar || null })),
   ];
   const faltantes = [], vistos = new Set();
   const sumar = (claves, quien, plu = null) => [...new Set(claves || [])].forEach(k => {
@@ -154,17 +153,17 @@ function alertasDetalle(det, nombres = {}) {
   });
   recetas.forEach(([id, r]) => sumar(r.faltantes, r.nombre || id));
   pres.forEach(p => sumar([...(p.faltantes || []), ...((p.avisos || []).includes('variedad') ? ['variedad'] : [])], p.nombre || String(p.plu), String(p.plu)));
-  const precios = pres.filter(p => !(p.faltantes || []).length && (p.semaforo === 'subir' || p.semaforo === 'bajar'))
-    .map(p => ({ plu: String(p.plu), nombre: p.nombre || String(p.plu), semaforo: p.semaforo, deltaPct: p.deltaPct ?? null }));
+  const precios = pres.map(p => [p, sugeridoProd(p)]).filter(([p, m]) => !(p.faltantes || []).length && m && (m.estado === 'subir' || m.estado === 'bajar'))
+    .map(([p, m]) => ({ plu: String(p.plu), nombre: p.nombre || String(p.plu), semaforo: m.estado, deltaPct: m.deltaPct ?? null }));
   return { cambios, faltantes, precios, total: cambios.length + faltantes.length + precios.length };
 }
 
-// Texto del toast: título + las 3 primeras alertas (producto · nombre · Δ%).
+// Texto del toast: título + las 3 primeras alertas (producto · nombre · materia prima antes → ahora, o Δ%).
 function textoToast(alertas) {
   const total = (alertas && alertas.total) || 0;
   const titulo = total === 1 ? '1 costo de producción cambió' : `${total} costos de producción cambiaron`;
   const lineas = ((alertas && alertas.items) || []).slice(0, 3)
-    .map(i => [i.producto, i.nombre, pctTxt(i.deltaPct)].filter(Boolean).join(' · '));
+    .map(i => [i.producto, i.nombre, textoRevisar(i.componentes) || pctTxt(i.deltaPct)].filter(Boolean).join(' · '));
   return { titulo, lineas };
 }
 
@@ -185,11 +184,6 @@ function idLibre(base, existentes) {
 }
 // Id nuevo de receta: la primera es 'base'; después el slug del nombre, sin pisar existentes.
 const idRecetaNueva = (nombre, existentes) => ((existentes || []).length ? idLibre(slugProd(nombre), existentes) : 'base');
-// Id de categoría de máquina (ID_CATEGORIA del router: [a-z0-9-], hasta 40): slug del nombre, único.
-const idCategoriaNueva = (nombre, existentes) => idLibre(slugProd(nombre), existentes);
-
-// Id de insumo manual: m-<slug>-<sufijo> (el PUT es upsert: el sufijo evita pisar otro del mismo nombre).
-const idManualNuevo = (nombre, sufijo) => `m-${slugProd(nombre, 30)}-${sufijo}`;
 
 // Body del PUT de receta desde la copia editable (vacío = no se manda = hereda / default del server).
 function bodyReceta(ed) {
@@ -198,18 +192,11 @@ function bodyReceta(ed) {
   return {
     nombre: ed.nombre, ...(ed.varianteDe ? { varianteDe: ed.varianteDe, extras: items } : { materiasPrimas: items }),
     ...opc('rendimientoKg', ed.rendimientoKg), ...opc('mermaPct', ed.mermaPct),
-    ...opc('minutosElaboracion', ed.minutosElaboracion), ...opc('categoriaMaquinaId', ed.categoriaMaquinaId),
   };
 }
 
-// Body del PUT de presentación: campos opcionales vacíos no se mandan; cada fila de insumo va
-// (una cantidad vacía la rechaza el server con su mensaje).
-function bodyPresentacion({ recetaId, kgPorUnidad, correccionPct, minutosEmpaquetado }, cantidades) {
-  const opc = (k, v) => (v == null ? {} : { [k]: v });
-  const insumos = (cantidades || [])
-    .map(c => ({ ...(/^\d+$/.test(c.clave) ? { plu: c.clave } : { manualId: c.clave }), cantidad: c.cantidad }));
-  return { recetaId, kgPorUnidad, ...opc('correccionPct', correccionPct), ...opc('minutosEmpaquetado', minutosEmpaquetado), insumos };
-}
+// Body del PUT de presentación (sin insumos, MO de empaquetado ni corrección: fase 4).
+const bodyPresentacion = ({ recetaId, kgPorUnidad }) => ({ recetaId, kgPorUnidad });
 
 // Opciones del selector "Variedad / receta" de una presentación: bases primero, después cada variedad.
 function opcionesVariedad(recetas) {
@@ -266,9 +253,8 @@ function formatoPeso(kg) {
   const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
   return n < 1 ? `${fmt(n * 1000)} g` : `${fmt(n)} kg`;
 }
-// Firma del formulario de presentación { plu, recetaId, kg, correccion, minutos, sel: { clave: cantidad } }.
-const firmaPresentacion = v => JSON.stringify([v.plu || null, v.recetaId || null, v.kg ?? null, v.correccion ?? null, v.minutos ?? null,
-  Object.entries(v.sel || {}).map(([k, c]) => [String(k), c ?? null]).sort(), !!v.sinSiga, (v.nombreNuevo || '').trim()]);
+// Firma del formulario de presentación { plu, recetaId, kg, sinSiga, nombreNuevo }.
+const firmaPresentacion = v => JSON.stringify([v.plu || null, v.recetaId || null, v.kg ?? null, !!v.sinSiga, (v.nombreNuevo || '').trim()]);
 const presentacionSucia = (actual, inicial) => firmaPresentacion(actual) !== firmaPresentacion(inicial);
 // Qué obligatorio falta ('' = se puede guardar). sinPlu: para la vista previa (costea sin PLU elegido).
 function faltaObligatorioPres(v, { sinPlu = false } = {}) {
@@ -276,7 +262,6 @@ function faltaObligatorioPres(v, { sinPlu = false } = {}) {
   if (!sinPlu && !v.sinSiga && !v.plu) return 'Elegí el producto a la venta (PLU de SIGA) en ①, o marcá que todavía no está en SIGA.';
   if (!v.recetaId) return 'Elegí de qué variedad sale en ②.';
   if (!(Number(v.kg) > 0)) return 'Completá "Kg por unidad" en ③ (ej. 0,5).';
-  if (Object.values(v.sel || {}).some(c => !(Number(c) > 0))) return 'Completá la cantidad de cada empaque tildado en ④.';
   return '';
 }
 
@@ -286,19 +271,13 @@ function rendimientoSugerido(rendBase, extras) {
   return Number(rendBase) > 0 ? Math.round((Number(rendBase) + kg) * 1000) / 1000 : null;
 }
 
-// Importe de empaque de una presentación = suma de sus insumos (null si alguno no tiene costo).
-function importeEmpaque(componentes) {
-  const ins = (componentes || []).filter(c => !String(c.plu).startsWith('_'));
-  if (ins.some(c => c.importe == null)) return null;
-  return Math.round(ins.reduce((s, c) => s + c.importe, 0) * 100) / 100;
-}
-
 if (typeof module === 'object' && module.exports) {
   module.exports = {
     parsearHashProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
+    textoRevisar, sugeridoProd,
     mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
-    slugProd, idRecetaNueva, idCategoriaNueva, idManualNuevo, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido, importeEmpaque,
+    slugProd, idRecetaNueva, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido,
     // Orden de tablas: vive en precios_orden.js (compartido por todos los tabs).
     ordenarFilas: require('./precios_orden.js').ordenarFilas, siguienteOrden: require('./precios_orden.js').siguienteOrden,
   };

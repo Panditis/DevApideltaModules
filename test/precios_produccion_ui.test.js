@@ -23,13 +23,13 @@ test('parsearHashProduccion: #produccion/<id>/<plu> abre el detalle con la prese
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/..%2Fx/6319'), { vista: 'selector' });
 });
 
-test('seccionesAbiertas: sólo la primera incompleta; todo completo → el paso 4; las elecciones del usuario mandan', () => {
-  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'falta', 3: 'opcional', 4: 'falta' }), { 1: false, 2: true, 3: false, 4: false });
-  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'opcional', 4: 'parcial' }), { 1: false, 2: false, 3: false, 4: true });
-  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'parcial', 2: 'falta', 3: 'opcional', 4: 'falta' }), { 1: true, 2: false, 3: false, 4: false });
-  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'ok', 4: 'ok' }), { 1: false, 2: false, 3: false, 4: true });
-  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'opcional', 4: 'ok' }, { 4: false, 1: true }), { 1: true, 2: false, 3: false, 4: false });
-  assert.deepStrictEqual(ui.seccionesAbiertas({}), { 1: false, 2: false, 3: false, 4: true });
+test('seccionesAbiertas: sólo la primera incompleta; todo completo → el paso 3; las elecciones del usuario mandan', () => {
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'falta', 3: 'falta' }), { 1: false, 2: true, 3: false });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'parcial' }), { 1: false, 2: false, 3: true });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'parcial', 2: 'falta', 3: 'falta' }), { 1: true, 2: false, 3: false });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'ok' }), { 1: false, 2: false, 3: true });
+  assert.deepStrictEqual(ui.seccionesAbiertas({ 1: 'ok', 2: 'ok', 3: 'ok' }, { 3: false, 1: true }), { 1: true, 2: false, 3: false });
+  assert.deepStrictEqual(ui.seccionesAbiertas({}), { 1: false, 2: false, 3: true });
 });
 
 test('firmaAlertas: independiente del orden, cambia con el Δ% o con una alerta nueva', () => {
@@ -46,12 +46,29 @@ test('destinoToast: un producto → su detalle; varios → selector con "solo co
   assert.deepStrictEqual(ui.destinoToast([{ productoId: 'p-a' }, { productoId: 'p-b' }]), { hash: '#produccion', soloCambios: true });
 });
 
-test('textoToast: singular/plural y 3 primeras con producto · nombre · Δ%', () => {
-  const items = [1, 2, 3, 4].map(n => ({ producto: 'Granola', nombre: `P${n}`, deltaPct: n === 1 ? 12.5 : -n }));
+test('textoToast: singular/plural y 3 primeras con producto · nombre · materia prima antes → ahora (o Δ%)', () => {
+  const componentes = [{ plu: '300', nombre: 'Harina', antes: 400, ahora: 440 }];
+  const items = [1, 2, 3, 4].map(n => ({ producto: 'Granola', nombre: `P${n}`, deltaPct: n === 1 ? 12.5 : -n, ...(n === 1 ? { componentes } : {}) }));
   const t = ui.textoToast({ total: 4, items });
   assert.strictEqual(t.titulo, '4 costos de producción cambiaron');
-  assert.deepStrictEqual(t.lineas, ['Granola · P1 · +12,5%', 'Granola · P2 · -2,0%', 'Granola · P3 · -3,0%']);
+  assert.deepStrictEqual(t.lineas, ['Granola · P1 · Harina: $ 400 → $ 440', 'Granola · P2 · -2,0%', 'Granola · P3 · -3,0%']);
   assert.strictEqual(ui.textoToast({ total: 1, items: [{ producto: 'X', nombre: 'Y', deltaPct: null }] }).titulo, '1 costo de producción cambió');
+});
+
+test('textoRevisar: primera materia prima con costo anterior → nuevo y "y N más"; vacío → ""', () => {
+  assert.strictEqual(ui.textoRevisar([{ plu: '300', nombre: 'Harina', antes: 400, ahora: 440 }, { plu: '7', nombre: null, antes: 1, ahora: 2 }]),
+    'Harina: $ 400 → $ 440 y 1 más');
+  assert.strictEqual(ui.textoRevisar([{ plu: '7', nombre: null, antes: null, ahora: 1234.5 }]), '7: — → $ 1.234,5');
+  assert.strictEqual(ui.textoRevisar([]), '');
+  assert.strictEqual(ui.textoRevisar(null), '');
+});
+
+test('sugeridoProd: minorista del motor (fuente sistema) o null sin esquema / con error', () => {
+  const m = { precio: 1800, deltaPct: 5, estado: 'ok' };
+  assert.deepStrictEqual(ui.sugeridoProd({ esquema: { sugeridos: { sistema: { minorista: m } } } }), m);
+  assert.strictEqual(ui.sugeridoProd({ esquema: { sugeridos: { sistema: { error: 'margen' } } } }), null);
+  assert.strictEqual(ui.sugeridoProd({ esquema: null }), null);
+  assert.strictEqual(ui.sugeridoProd({}), null);
 });
 
 test('estadoFila: faltantes gana; si no, el estado del server', () => {
@@ -64,43 +81,36 @@ test('mensajeFaltante: lenguaje humano + acción, nunca claves internas', () => 
   const plu = ui.mensajeFaltante('6009', { nombres: { 6009: 'AVENA' } });
   assert.strictEqual(plu.texto, 'El PLU 6009 (AVENA) no tiene costo en SIGA → cargá un costo manual');
   assert.deepStrictEqual(plu.accion, { tipo: 'costo', clave: '6009' });
-  assert.deepStrictEqual(ui.mensajeFaltante('m-etiq', { nombres: { 'm-etiq': 'Etiqueta' } }).accion, { tipo: 'costo', clave: 'm-etiq' });
-  const hora = ui.mensajeFaltante('_costoHora');
-  assert.match(hora.texto, /costo\/hora de mano de obra/);
-  assert.deepStrictEqual(hora.accion, { tipo: 'config' });
-  const mk = ui.mensajeFaltante('markupPct', { plu: '6319' });
-  assert.match(mk.texto, /Sin markup/);
-  assert.deepStrictEqual(mk.accion, { tipo: 'margen', plu: '6319' });
-  const mkSinPlu = ui.mensajeFaltante('markupPct');
-  assert.deepStrictEqual([mkSinPlu.accion, mkSinPlu.boton], [{ tipo: 'ganancia' }, 'Ir a Ganancia']);
+  assert.strictEqual(plu.boton, 'Cargar costo');
   assert.deepStrictEqual(ui.mensajeFaltante('rendimientoKg').accion, { tipo: 'paso', paso: 1 });
-  for (const k of ['_costoHora', '_maquina', 'markupPct', 'rendimientoKg', 'mermaPct', 'receta', 'kgPorUnidad', '6009', 'm-x']) {
-    assert.doesNotMatch(ui.mensajeFaltante(k).texto, /_costoHora|_maquina|markupPct|rendimientoKg|mermaPct|kgPorUnidad/, k);
+  for (const k of ['rendimientoKg', 'mermaPct', 'receta', 'kgPorUnidad', '6009']) {
+    assert.doesNotMatch(ui.mensajeFaltante(k).texto, /rendimientoKg|mermaPct|kgPorUnidad/, k);
   }
 });
 
-const det = (over = {}) => ({ recetas: {}, presentaciones: {}, insumos: [], ...over });
+const det = (over = {}) => ({ recetas: {}, presentaciones: {}, ...over });
 const receta = (o = {}) => ({ varianteDe: null, costoKg: 100, estado: 'sin-validar', faltantes: [], ...o });
-const pres = (o = {}) => ({ precioConIva: 1000, estado: 'sin-validar', faltantes: [], ...o });
+const conPrecio = { esquema: { sugeridos: { sistema: { minorista: { precio: 1 } } } } };
+const pres = (o = {}) => ({ ...conPrecio, estado: 'sin-validar', faltantes: [], ...o });
 
-test('progresoProducto: producto vacío → falta todo; variedades obligatorias, insumos opcionales', () => {
+test('progresoProducto: producto vacío → falta todo; variedades obligatorias', () => {
   const p = ui.progresoProducto(det());
   assert.deepStrictEqual(p.map(x => [x.clave, x.estado, x.paso]), [
-    ['base', 'falta', 1], ['variedades', 'falta', 2], ['insumos', 'opcional', 3], ['presentaciones', 'falta', 4], ['validado', 'falta', 4],
+    ['base', 'falta', 1], ['variedades', 'falta', 2], ['presentaciones', 'falta', 3], ['validado', 'falta', 3],
   ]);
 });
 
 test('progresoProducto: parcial y completo', () => {
   const parcial = ui.progresoProducto(det({
     recetas: { base: receta({ costoKg: null, faltantes: ['300'] }) },
-    presentaciones: { 1: pres(), 2: pres({ precioConIva: null, faltantes: ['markupPct'] }) }, insumos: [{ clave: '6334' }],
+    presentaciones: { 1: pres(), 2: pres({ esquema: null, faltantes: ['receta'] }) },
   }));
-  assert.deepStrictEqual(parcial.map(x => x.estado), ['parcial', 'falta', 'ok', 'parcial', 'parcial']);
+  assert.deepStrictEqual(parcial.map(x => x.estado), ['parcial', 'falta', 'parcial', 'parcial']);
   const listo = ui.progresoProducto(det({
     recetas: { base: receta({ estado: 'ok' }), pasas: receta({ varianteDe: 'base', estado: 'ok' }) },
-    presentaciones: { 1: pres({ estado: 'ok' }) }, insumos: [{ clave: '6334' }],
+    presentaciones: { 1: pres({ estado: 'ok' }) },
   }));
-  assert.deepStrictEqual(listo.map(x => x.estado), ['ok', 'ok', 'ok', 'ok', 'ok']);
+  assert.deepStrictEqual(listo.map(x => x.estado), ['ok', 'ok', 'ok', 'ok']);
 });
 
 test('progresoProducto: con una variedad (la automática sin extras) el paso 2 está listo; sin ninguna, avisa que se crea sola', () => {
@@ -113,46 +123,43 @@ test('progresoProducto: con una variedad (la automática sin extras) el paso 2 e
 
 test('pasosHabilitados: variedades esperan una base; presentaciones esperan una variedad', () => {
   const vacio = ui.pasosHabilitados(det());
+  assert.deepStrictEqual(Object.keys(vacio), ['1', '2', '3']);
   assert.strictEqual(vacio[1].ok, true);
-  assert.strictEqual(vacio[3].ok, true);
   assert.strictEqual(vacio[2].ok, false);
   assert.match(vacio[2].motivo, /Primero guardá una receta base/);
   assert.strictEqual(vacio[2].paso, 1);
-  assert.strictEqual(vacio[4].ok, false);
+  assert.strictEqual(vacio[3].ok, false);
   const conBase = ui.pasosHabilitados(det({ recetas: { base: receta() } }));
   assert.strictEqual(conBase[2].ok, true);
-  assert.strictEqual(conBase[4].ok, false);
-  assert.match(conBase[4].motivo, /Primero creá una variedad/);
-  assert.strictEqual(conBase[4].paso, 2);
+  assert.strictEqual(conBase[3].ok, false);
+  assert.match(conBase[3].motivo, /Primero creá una variedad/);
+  assert.strictEqual(conBase[3].paso, 2);
   const conVariedad = ui.pasosHabilitados(det({ recetas: { base: receta(), clasica: receta({ varianteDe: 'base' }) } }));
-  assert.strictEqual(conVariedad[4].ok, true);
+  assert.strictEqual(conVariedad[3].ok, true);
 });
 
-test('nombreComponente: pseudo-componentes y PLUs con nombre', () => {
-  assert.strictEqual(ui.nombreComponente('_costoHora'), 'Mano de obra (costo/hora)');
-  assert.strictEqual(ui.nombreComponente('m-x'), 'm-x');
+test('nombreComponente: sólo _receta es especial; PLUs con nombre', () => {
+  assert.strictEqual(ui.nombreComponente('_receta'), 'Receta');
+  assert.strictEqual(ui.nombreComponente('_costoHora'), '_costoHora');
+  assert.strictEqual(ui.nombreComponente('300', { 300: 'Harina' }), 'Harina (300)');
 });
 
 test('idRecetaNueva: la primera es base; después slug único', () => {
   assert.strictEqual(ui.idRecetaNueva('Granola clásica', []), 'base');
   assert.strictEqual(ui.idRecetaNueva('Con Pasas!', ['base']), 'con-pasas');
   assert.strictEqual(ui.idRecetaNueva('Con pasas', ['base', 'con-pasas']), 'con-pasas-2');
-  assert.match(ui.idManualNuevo('Etiqueta Ñandú 2027', 'abc123'), /^m-[a-z0-9-]{1,40}$/);
 });
 
-test('bodyReceta: base con materiasPrimas, variante con extras; vacíos no se mandan', () => {
+test('bodyReceta: base con materiasPrimas, variante con extras; vacíos no se mandan; sin MO ni máquina', () => {
   const base = ui.bodyReceta({ nombre: 'Masa', varianteDe: null, rendimientoKg: 104, mermaPct: null, minutosElaboracion: 90,
     categoriaMaquinaId: '', items: [{ plu: 300, cantidad: 5, unidad: 'kg', costoUnit: 10, pendiente: true }] });
-  assert.deepStrictEqual(base, { nombre: 'Masa', materiasPrimas: [{ plu: '300', cantidad: 5, unidad: 'kg' }], rendimientoKg: 104, minutosElaboracion: 90 });
+  assert.deepStrictEqual(base, { nombre: 'Masa', materiasPrimas: [{ plu: '300', cantidad: 5, unidad: 'kg' }], rendimientoKg: 104 });
   const v = ui.bodyReceta({ nombre: 'Membrillo', varianteDe: 'base', rendimientoKg: null, categoriaMaquinaId: 'maq', items: [{ plu: '812', cantidad: 47.3 }] });
-  assert.deepStrictEqual(v, { nombre: 'Membrillo', varianteDe: 'base', extras: [{ plu: '812', cantidad: 47.3, unidad: 'kg' }], categoriaMaquinaId: 'maq' });
+  assert.deepStrictEqual(v, { nombre: 'Membrillo', varianteDe: 'base', extras: [{ plu: '812', cantidad: 47.3, unidad: 'kg' }] });
 });
 
-test('bodyPresentacion: cada fila de insumo va (PLU o manual); la cantidad vacía la rechaza el server', () => {
-  const b = ui.bodyPresentacion({ recetaId: 'base', kgPorUnidad: 0.5, correccionPct: null, minutosEmpaquetado: 0.8 },
-    [{ clave: '6334', cantidad: 1 }, { clave: 'm-etiq-x', cantidad: 2 }, { clave: '6320', cantidad: null }]);
-  assert.deepStrictEqual(b, { recetaId: 'base', kgPorUnidad: 0.5, minutosEmpaquetado: 0.8,
-    insumos: [{ plu: '6334', cantidad: 1 }, { manualId: 'm-etiq-x', cantidad: 2 }, { plu: '6320', cantidad: null }] });
+test('bodyPresentacion: recetaId y kg por unidad', () => {
+  assert.deepStrictEqual(ui.bodyPresentacion({ recetaId: 'v', kgPorUnidad: 0.5 }), { recetaId: 'v', kgPorUnidad: 0.5 });
 });
 
 test('opcionesVariedad: sólo variedades (la presentación no puede elegir la base), con su base', () => {
@@ -161,12 +168,9 @@ test('opcionesVariedad: sólo variedades (la presentación no puede elegir la ba
   assert.deepStrictEqual(ui.opcionesVariedad({ base: { nombre: 'Masa' } }), []);
 });
 
-test('rendimientoSugerido (pepas: 104 + 47,3 kg) e importeEmpaque', () => {
+test('rendimientoSugerido (pepas: 104 + 47,3 kg)', () => {
   assert.strictEqual(ui.rendimientoSugerido(104, [{ cantidad: 47.3, unidad: 'kg' }, { cantidad: 3, unidad: 'u' }]), 151.3);
   assert.strictEqual(ui.rendimientoSugerido(null, []), null);
-  const comp = [{ plu: '_receta', importe: 240 }, { plu: '6334', importe: 180 }, { plu: 'm-x', importe: 60.5 }, { plu: '_costoHora', importe: 9 }];
-  assert.strictEqual(ui.importeEmpaque(comp), 240.5);
-  assert.strictEqual(ui.importeEmpaque([...comp, { plu: '1', importe: null }]), null);
 });
 
 test('formatoPeso: kg → "270 g" / "1,5 kg"; vacío o ≤ 0 → ""', () => {
@@ -178,21 +182,19 @@ test('formatoPeso: kg → "270 g" / "1,5 kg"; vacío o ≤ 0 → ""', () => {
   assert.strictEqual(ui.formatoPeso(0), '');
 });
 
-test('presentacionSucia: compara contra lo guardado sin importar el orden de los insumos', () => {
-  const base = { plu: '6319', recetaId: 'base', kg: 0.5, correccion: null, minutos: 0.8, sel: { 6334: 1, 'm-x': 2 } };
-  assert.strictEqual(ui.presentacionSucia({ ...base, sel: { 'm-x': 2, 6334: 1 } }, base), false);
+test('presentacionSucia: compara contra lo guardado (PLU, variedad, kg, alta sin SIGA)', () => {
+  const base = { plu: '6319', recetaId: 'base', kg: 0.5 };
+  assert.strictEqual(ui.presentacionSucia({ ...base }, base), false);
   assert.strictEqual(ui.presentacionSucia({ ...base, kg: 0.27 }, base), true);
-  assert.strictEqual(ui.presentacionSucia({ ...base, sel: { 6334: 1 } }, base), true);
-  assert.strictEqual(ui.presentacionSucia({ ...base, correccion: 5 }, base), true);
+  assert.strictEqual(ui.presentacionSucia({ ...base, recetaId: 'otra' }, base), true);
 });
 
-test('faltaObligatorioPres: PLU, variedad, kg > 0 y cantidad de cada insumo tildado', () => {
-  const ok = { plu: '6319', recetaId: 'base', kg: 0.5, sel: { 6334: 1 } };
+test('faltaObligatorioPres: PLU, variedad y kg > 0', () => {
+  const ok = { plu: '6319', recetaId: 'base', kg: 0.5 };
   assert.strictEqual(ui.faltaObligatorioPres(ok), '');
   assert.match(ui.faltaObligatorioPres({ ...ok, plu: null }), /PLU/);
   assert.match(ui.faltaObligatorioPres({ ...ok, recetaId: '' }), /variedad/);
   assert.match(ui.faltaObligatorioPres({ ...ok, kg: 0 }), /Kg por unidad/);
-  assert.match(ui.faltaObligatorioPres({ ...ok, sel: { 6334: null } }), /cantidad/);
   assert.strictEqual(ui.faltaObligatorioPres({ ...ok, plu: null }, { sinPlu: true }), ''); // la vista previa no necesita PLU
 });
 
@@ -272,20 +274,10 @@ test('mensajeFaltante: aviso "variedad" (presentación sobre la base) con acció
 
 
 test('faltaObligatorioPres / presentacionSucia: presentación "todavía no está en SIGA" pide nombre en vez de PLU', () => {
-  const v = { plu: null, sinSiga: true, nombreNuevo: 'Granola 800 g', recetaId: 'clasica', kg: 0.8, sel: {} };
+  const v = { plu: null, sinSiga: true, nombreNuevo: 'Granola 800 g', recetaId: 'clasica', kg: 0.8 };
   assert.strictEqual(ui.faltaObligatorioPres(v), '');
   assert.match(ui.faltaObligatorioPres({ ...v, nombreNuevo: '  ' }), /nombre/);
   assert.strictEqual(ui.presentacionSucia({ ...v, nombreNuevo: 'Otro' }, v), true);
-});
-
-test('idCategoriaNueva: slug del nombre que cumple ID_CATEGORIA, único; _maquina lleva a la tab Máquinas', () => {
-  const ID_CATEGORIA = /^[a-z0-9][a-z0-9-]{0,39}$/;
-  assert.strictEqual(ui.idCategoriaNueva('Horno Rotativo', []), 'horno-rotativo');
-  assert.strictEqual(ui.idCategoriaNueva('Horno rotativo', ['horno-rotativo', 'horno-rotativo-2']), 'horno-rotativo-3');
-  assert.strictEqual(ui.idCategoriaNueva('¡¡!!', []), 'x');
-  const largo = ui.idCategoriaNueva('Mezcladora planetaria industrial de doble velocidad', ['mezcladora-planetaria-industrial-de']);
-  assert.match(largo, ID_CATEGORIA);
-  assert.deepStrictEqual(ui.mensajeFaltante('_maquina').accion, { tipo: 'maquinas' });
 });
 
 test('productosConCambios: cuenta productos distintos con alertas (no ítems)', () => {
@@ -301,23 +293,25 @@ test('plusCambiados: componentes que movieron + agregados, como strings; sin cam
   assert.strictEqual(ui.plusCambiados(null).size, 0);
 });
 
-test('alertasDetalle: cambios con su paso, faltantes sin repetir con acción, precios fuera de tolerancia', () => {
+test('alertasDetalle: cambios con su paso y "a revisar", faltantes sin repetir con acción, precios del motor fuera de tolerancia', () => {
+  const sug = (estado, deltaPct) => ({ esquema: { sugeridos: { sistema: { minorista: { precio: 1, estado, deltaPct } } } } });
+  const revisar = [{ plu: '300', nombre: 'Harina', antes: 400, ahora: 440 }];
   const det = {
     recetas: {
-      base: { nombre: 'Masa', estado: 'cambio', cambios: { deltaPct: 9.8 }, faltantes: [] },
-      memb: { nombre: 'Membrillo', varianteDe: 'base', estado: 'ok', faltantes: ['_costoHora'] },
-      bat: { nombre: 'Batata', varianteDe: 'base', estado: 'ok', faltantes: ['_costoHora'] },
+      base: { nombre: 'Masa', estado: 'cambio', cambios: { deltaPct: 9.8 }, faltantes: [], revisar },
+      memb: { nombre: 'Membrillo', varianteDe: 'base', estado: 'ok', faltantes: ['300'] },
+      bat: { nombre: 'Batata', varianteDe: 'base', estado: 'ok', faltantes: ['300'] },
     },
     presentaciones: {
-      6201: { plu: '6201', nombre: 'Pepas 250', estado: 'cambio', cambios: { deltaPct: 2 }, faltantes: [], semaforo: 'subir', deltaPct: 14.7 },
-      6202: { plu: '6202', nombre: 'Batata 250', estado: 'ok', faltantes: ['markupPct'], semaforo: 'bajar', deltaPct: -5 },
-      6203: { plu: '6203', nombre: 'Otra', estado: 'ok', faltantes: [], semaforo: 'ok', avisos: ['variedad'] },
+      6201: { plu: '6201', nombre: 'Pepas 250', estado: 'cambio', cambios: { deltaPct: 2 }, faltantes: [], ...sug('subir', 14.7) },
+      6202: { plu: '6202', nombre: 'Batata 250', estado: 'ok', faltantes: ['receta'], ...sug('bajar', -5) },
+      6203: { plu: '6203', nombre: 'Otra', estado: 'ok', faltantes: [], ...sug('ok', 0), avisos: ['variedad'] },
     },
   };
-  const a = ui.alertasDetalle(det);
-  assert.deepStrictEqual(a.cambios.map(c => [c.tipo, c.id, c.paso, c.deltaPct]), [['receta', 'base', 1, 9.8], ['presentacion', '6201', 4, 2]]);
-  // _costoHora aparece en dos recetas pero es un solo renglón (misma acción); markupPct y variedad llevan su PLU.
-  assert.deepStrictEqual(a.faltantes.map(f => [f.quien, f.accion && f.accion.tipo]), [['Membrillo', 'config'], ['Batata 250', 'margen'], ['Otra', 'abrirPres']]);
+  const a = ui.alertasDetalle(det, { 300: 'Harina' });
+  assert.deepStrictEqual(a.cambios.map(c => [c.tipo, c.id, c.paso, c.deltaPct, c.revisar]), [['receta', 'base', 1, 9.8, revisar], ['presentacion', '6201', 3, 2, null]]);
+  // El PLU 300 sin costo aparece en dos recetas pero es un solo renglón (misma acción); variedad lleva su PLU.
+  assert.deepStrictEqual(a.faltantes.map(f => [f.quien, f.accion && f.accion.tipo]), [['Membrillo', 'costo'], ['Batata 250', 'paso'], ['Otra', 'abrirPres']]);
   // La de faltantes no cuenta como precio a revisar aunque traiga semáforo.
   assert.deepStrictEqual(a.precios, [{ plu: '6201', nombre: 'Pepas 250', semaforo: 'subir', deltaPct: 14.7 }]);
   assert.strictEqual(a.total, 6);

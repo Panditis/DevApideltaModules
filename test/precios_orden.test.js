@@ -49,12 +49,15 @@ test('columnasSelectorProd: estado = más alertas primero, sin alertas al final'
   assert.deepStrictEqual(plus(o.ordenarCon(filas, { clave: 'estado', dir: 'asc' }, o.columnasSelectorProd())), ['d', 'b', 'c', 'a']);
 });
 
-test('columnasPresProd: estado de Producción por severidad y columnas derivadas', () => {
-  const cols = o.columnasPresProd({ estadoFila: p => p.e, nombreVariedad: p => p.v, kgDe: p => p.kg, empaqueDe: () => null });
+test('columnasPresProd: estado de Producción por severidad; sugerido y Δ del motor del esquema; sin empaque/real/markup', () => {
+  const cols = o.columnasPresProd({ estadoFila: p => p.e, nombreVariedad: p => p.v, kgDe: p => p.kg });
   const filas = [{ plu: '1', e: 'ok' }, { plu: '2', e: 'faltantes' }, { plu: '3', e: 'sin-validar' }, { plu: '4', e: 'cambio' }];
   assert.deepStrictEqual(plus(o.ordenarCon(filas, { clave: 'estado', dir: 'asc' }, cols)), ['2', '4', '3', '1']);
   assert.strictEqual(cols.variedad({ v: 'Clásica' }), 'Clásica');
-  assert.strictEqual(cols.empaque({}), null);
+  const conEsq = { esquema: { sugeridos: { sistema: { minorista: { precio: 1800, deltaPct: -5 } } } } };
+  assert.deepStrictEqual([cols.sugerido(conEsq), cols.delta(conEsq)], [1800, -5]);
+  assert.deepStrictEqual([cols.sugerido({}), cols.delta({ esquema: null })], [null, null]);
+  for (const k of ['empaque', 'real', 'markup']) assert.ok(!(k in cols), k);
 });
 
 // ── Fecha de actualización del precio (HistorialPrecios) ──────────────────────
@@ -86,7 +89,7 @@ test('columna fecha ordenable en todas las tablas: por producto y por grupo (la 
   const filas = [{ plu: 'a', fechaPrecio: '2026-05-01' }, { plu: 'b', fechaPrecio: null }, { plu: 'c', fechaPrecio: '2025-01-10' }];
   assert.deepStrictEqual(plus(o.ordenarCon(filas, asc, o.columnasAlmacen(() => 'ok'))), ['c', 'a', 'b']);
   assert.deepStrictEqual(plus(o.ordenarCon(filas, asc, o.columnasPresFracc(() => 'ok'))), ['c', 'a', 'b']);
-  const presProd = o.columnasPresProd({ estadoFila: () => 'ok', nombreVariedad: () => '', kgDe: () => 0, empaqueDe: () => 0 });
+  const presProd = o.columnasPresProd({ estadoFila: () => 'ok', nombreVariedad: () => '', kgDe: () => 0 });
   assert.deepStrictEqual(plus(o.ordenarCon(filas, asc, presProd)), ['c', 'a', 'b']);
   const fracc = o.columnasFracc({ estadoGrupo: () => 'ok', peorPresentacion: () => null });
   assert.strictEqual(fracc.fecha({ presentaciones: [{ fechaPrecio: '2026-05-01' }, { fechaPrecio: '2024-02-02' }, { fechaPrecio: null }] }), '2024-02-02');
