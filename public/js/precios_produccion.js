@@ -485,8 +485,8 @@ function htmlSelectorMarco() {
   return `
     <div class="pr-cab">
       <div><h2 class="pr-tit">Productos de producción</h2>
-        <p class="cfg-cab !mb-0">Cada producto se costea en 4 pasos: <b>receta base → variedades → insumos → presentaciones y precios</b>. Abrí uno para ver su costo y precio sugerido.</p></div>
-      <span class="flex gap-2 shrink-0"><button id="prNuevoSiga" class="cfg-btn2" title="Crea el producto con la receta base y los insumos de la fórmula de un producto de SIGA">Nuevo desde fórmula SIGA</button>
+        <p class="cfg-cab !mb-0">Cada producto se costea en 3 pasos: <b>receta base → variedades → presentaciones y precios</b>. Abrí uno para ver su costo y precio sugerido.</p></div>
+      <span class="flex gap-2 shrink-0"><button id="prNuevoSiga" class="cfg-btn2" title="Crea el producto con la receta base de la fórmula de un producto de SIGA">Nuevo desde fórmula SIGA</button>
         <button id="prNuevo" class="cfg-btn pr-cta">+ Nuevo producto</button></span>
     </div>
     <div id="prKpis" class="pr-kpis" aria-live="polite"></div>
@@ -538,12 +538,8 @@ function htmlEstadoSelector(p) {
   if (!p.presentaciones) partes.push(chip('sin presentaciones', 'bg-gris/15 text-gris'));
   return partes.join(' ') || chip('✓ al día', 'bg-ok/15 text-ok');
 }
-// Presentaciones: total + cuántas tienen precio sugerido (exportables = las que tienen PLU de SIGA).
-function htmlPresSelector(p) {
-  if (!p.presentaciones) return '<span class="text-gris">—</span>';
-  const conPrecio = (p.exportables || []).filter(e => e.precioConIva != null).length;
-  return `<b>${p.presentaciones}</b><span class="pr-sub">${conPrecio} con precio</span>`;
-}
+// Presentaciones: total (los precios salen del esquema: listado de Producción).
+const htmlPresSelector = p => (p.presentaciones ? `<b>${p.presentaciones}</b>` : '<span class="text-gris">—</span>');
 function pintarFilasSelector() {
   const tbody = document.getElementById('prCuerpo');
   if (!tbody || !prodLista) return;
@@ -566,17 +562,16 @@ function pintarFilasSelector() {
     </tr>`).join('');
   tbody.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.closest('a')) irAProduccion(tr.dataset.id); });
 }
-// Selector vacío: el flujo en 4 pasos + CTA.
+// Selector vacío: el flujo en 3 pasos + CTA.
 const PASOS_FLUJO = [
   ['Receta base', 'ingredientes de una tanda de máquina y cuántos kg rinde'],
   ['Variedades (opcional)', 'la sin extras se crea sola con la receta base; agregá otras solo si tiene sabores, ej. Pepas de membrillo'],
-  ['Insumos', 'envases, etiquetas, tapas y precintos que usa el producto'],
   ['Presentaciones', 'cada PLU vendible (250 g, 500 g, 1 kg…) con su precio sugerido'],
 ];
 function htmlSelectorVacio() {
   return `<div class="p-6 sm:p-10 max-w-xl mx-auto text-left">
     <h3 class="font-disp text-lg font-bold text-ink">Todavía no hay productos de producción</h3>
-    <p class="text-sm text-gris mt-1">Un producto (Granola, Pepas…) se arma en 4 pasos y el módulo calcula costo y precio sugerido. Si ya existe en SIGA, usá <b>Nuevo desde fórmula SIGA</b>.</p>
+    <p class="text-sm text-gris mt-1">Un producto (Granola, Pepas…) se arma en 3 pasos y el módulo calcula costo y precio sugerido. Si ya existe en SIGA, usá <b>Nuevo desde fórmula SIGA</b>.</p>
     <ol class="mt-4 space-y-2">${PASOS_FLUJO.map(([t, d], i) => `<li class="flex gap-3 text-sm">
       <span class="w-6 h-6 shrink-0 rounded-full bg-verde/10 text-verde font-bold grid place-items-center text-xs">${i + 1}</span>
       <span><b>${t}</b> <span class="text-gris">— ${d}</span></span></li>`).join('')}</ol>

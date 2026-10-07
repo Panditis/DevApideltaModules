@@ -2,14 +2,14 @@
 // Script clásico, cargado después de los otros precios_produccion*.js: usa sus globales (prodDet,
 // guardarProd, validarProd, urlProd, conectarBuscadorSiga, htmlBuscadorSiga, badgeEstadoProd,
 // bodyPresentacion, opcionesVariedad, formatoPeso, presentacionSucia, faltaObligatorioPres, fmtNum,
-// btnCls/btnPrim/campoCls, nombresProd, htmlNotas, htmlCambios, REQ, ayuda, textoFuente) y los de
-// precios.html (esc, fmtMoney, fmtPrecio, fmtPct, chip, numOrNull, claseDelta, badgeSemaforo, avisar,
-// confirmar, pedirJson). Layout: formulario en bloques ①–⑤ a la izquierda y resumen de costo a la derecha
+// btnCls/btnPrim/campoCls, nombresProd, htmlNotas, htmlCambios, REQ, ayuda, textoFuente, sugeridoProd) y los de
+// precios.html (esc, fmtMoney, fmtPrecio, fmtPct, chip, numOrNull, claseDelta, avisar,
+// confirmar, pedirJson). Layout: formulario en bloques ①–③ a la izquierda y resumen de costo a la derecha
 // (≥ 900 px); apilado debajo con el sugerido en el pie. El resumen sale SIEMPRE del server: lo guardado
 // o POST …/preview (costea en memoria, no escribe). Nunca se recalculan fórmulas acá.
 
 const PREVIEW_MS = 300;
-// presEd = { plu, nombrePlu, recetaId, kg, correccion, minutos, sel: { clave: cantidad },
+// presEd = { plu, nombrePlu, recetaId, kg, sinSiga, nombreNuevo,
 //            inicial (lo guardado, para el "sin guardar"), preview, errorPreview, calculando }
 let presEd = null;
 let previewTimer = null, previewSeq = 0;
@@ -41,23 +41,20 @@ function dialogoPres() {
 const presAbierta = () => { const d = document.getElementById('dlgPres'); return !!(d && d.open); };
 async function cerrarPresentacion({ forzar = false } = {}) {
   if (!presAbierta()) return true;
-  if (!forzar && presEd && (presentacionSucia(presEd, presEd.inicial) || hayCambiosPB())
+  if (!forzar && presEd && presentacionSucia(presEd, presEd.inicial)
     && !(await confirmar('¿Descartar los cambios sin guardar de esta presentación?', { textoOk: 'Descartar' }))) return false;
   clearTimeout(previewTimer);
   document.getElementById('dlgPres').close();
   presEd = null;
-  limpiarPendientesPB(); // precios_pack_bulto.js
   return true;
 }
 
 // ── Estado ──────────────────────────────────────────────────────────────────────
 function estadoInicialPres(plu) {
   const def = plu ? prodDet.definicion.presentaciones[plu] || {} : {};
-  const sel = Object.fromEntries((def.insumos || []).map(it => [it.plu != null ? String(it.plu) : it.manualId, it.cantidad]));
   const variedades = opcionesVariedad(prodDet.definicion.recetas);
   const v = {
     plu: plu || null, recetaId: def.recetaId || (variedades[0] || [''])[0], kg: def.kgPorUnidad ?? null,
-    correccion: def.correccionPct ?? null, minutos: def.minutosEmpaquetado ?? null, sel,
     // Decisión 13: presentación que todavía no está en SIGA (clave n-…): nombre propio en vez de PLU.
     sinSiga: esProvisoria(plu), nombreNuevo: esProvisoria(plu) ? def.nombre || '' : '',
   };
@@ -67,15 +64,10 @@ const guardadaPres = () => (presEd.plu && prodDet.presentaciones[presEd.plu]) ||
 const suciaPres = () => presentacionSucia(presEd, presEd.inicial);
 // Lo que muestra el resumen: con cambios, la vista previa; sin cambios, lo guardado.
 const datosResumen = () => (suciaPres() ? presEd.preview : presEd.preview || guardadaPres());
-const bodyDe = v => ({
-  ...bodyPresentacion({ recetaId: v.recetaId, kgPorUnidad: v.kg, correccionPct: v.correccion, minutosEmpaquetado: v.minutos },
-    Object.entries(v.sel).map(([clave, cantidad]) => ({ clave, cantidad }))),
-  ...(v.sinSiga ? { nombre: (v.nombreNuevo || '').trim() } : {}),
-});
+const bodyDe = v => ({ ...bodyPresentacion({ recetaId: v.recetaId, kgPorUnidad: v.kg }), ...(v.sinSiga ? { nombre: (v.nombreNuevo || '').trim() } : {}) });
 
 function abrirPresentacion(plu) {
   presEd = estadoInicialPres(plu);
-  limpiarPendientesPB(); // precios_pack_bulto.js: % propios sin guardar
   const d = dialogoPres();
   pintarModalPresentacion();
   if (!d.open) d.showModal();
@@ -91,7 +83,7 @@ function pintarModalPresentacion() {
   const p = guardadaPres();
   document.getElementById('dpTitulo').textContent = p ? p.nombre || `Presentación ${presEd.plu}` : 'Nueva presentación';
   const pluTxt = esProvisoria(presEd.plu) ? 'Pendiente de alta en SIGA' : `PLU ${presEd.plu}`;
-  document.getElementById('dpSub').textContent = p ? `${pluTxt} · ${prodDet.nombre}` : `${prodDet.nombre} · paso 4`;
+  document.getElementById('dpSub').textContent = p ? `${pluTxt} · ${prodDet.nombre}` : `${prodDet.nombre} · paso 3`;
   document.getElementById('dpForm').innerHTML = htmlBannersPres() + htmlFormPres(p);
   conectarFormPres();
   pintarVivo();
@@ -143,8 +135,6 @@ function htmlBannersPres() {
   }
   if (r && r.faltantes && r.faltantes.length) partes.push(htmlNotas({ faltantes: r.faltantes }, nombres, presEd.plu));
   if (r && (r.avisos || []).includes('variedad')) partes.push(`<p class="text-xs text-warn">⚠ ${esc(mensajeFaltante('variedad').texto)} en ②.</p>`);
-  const receta = prodDet.recetas[presEd.recetaId];
-  if (receta && receta.avisos.length) partes.push(`<p class="text-xs text-warn">⚠ ${esc(receta.avisos.join(' · '))}</p>`);
   return `<div id="dpBanners" class="space-y-2 mb-4">${partes.join('')}</div>`;
 }
 function conectarBanners() {
@@ -152,8 +142,8 @@ function conectarBanners() {
   if (b) b.onclick = () => validarPres(b);
 }
 
-// ── Formulario en bloques ①–⑤ ────────────────────────────────────────────────────
-const NUM_BLOQUE = ['①', '②', '③', '④', '⑤'];
+// ── Formulario en bloques ①–③ ────────────────────────────────────────────────────
+const NUM_BLOQUE = ['①', '②', '③'];
 function bloquePres(n, titulo, cuerpo, opcional = false) {
   return `<section class="mb-5"><h4 class="flex items-center gap-2 text-sm font-semibold ${opcional ? 'text-gris' : 'text-ink'}">
     <span class="text-lg leading-none ${opcional ? 'text-gris' : 'text-verde'}" aria-hidden="true">${NUM_BLOQUE[n - 1]}</span>${titulo}
@@ -198,35 +188,12 @@ function htmlBloqueCantidad() {
   return `<label class="text-xs text-gris">Kg por unidad ${REQ}
       <span class="flex items-center gap-2 mt-1"><input id="dpKg" type="number" step="any" min="0" placeholder="ej. 0,27" value="${presEd.kg ?? ''}"
         class="${campoCls} w-32 text-right tabular-nums"><span id="dpGramos" class="text-sm text-ink font-semibold">${g ? '= ' + g : ''}</span></span></label>
-    ${ayuda('Cuánta receta lleva cada unidad vendida.')}
-    <label class="block mt-3 text-xs text-gris">Corrección % <span class="font-normal">(opcional)</span>
-      <input id="dpCorreccion" type="number" step="any" min="-49" max="99" placeholder="ej. 5" value="${presEd.correccion ?? ''}"
-        class="block mt-1 ${campoCls} w-24 text-right tabular-nums">${ayuda('Ajuste por pérdida al envasar: se suma ese % al costo de la receta.')}</label>`;
-}
-function htmlBloqueEmpaque() {
-  if (!prodDet.insumos.length) {
-    return `<div class="rounded-lg border border-dashed border-borde bg-bg/60 p-3 text-xs text-gris flex flex-wrap items-center gap-2">
-      <span>El producto todavía no tiene insumos cargados.</span>
-      <button type="button" data-pr-accion="paso" data-paso="3" class="${btnCls}">Cargar insumos (paso 3)</button></div>`;
-  }
-  return prodDet.insumos.map(it => {
-    const on = Object.hasOwn(presEd.sel, it.clave);
-    return `<div class="flex items-center gap-2 py-1.5 border-b border-borde/60 text-sm">
-      <label class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"><input type="checkbox" class="dp-chk accent-verde w-4 h-4" data-clave="${esc(it.clave)}"${on ? ' checked' : ''}>
-        <span class="min-w-0">${esc(it.nombre || it.clave)} <span class="text-xs text-gris">${esc(it.tipo)}</span></span></label>
-      <span class="text-xs text-gris tabular-nums whitespace-nowrap">${it.costo != null ? '$ ' + fmtMoney(it.costo) + ' c/u' : 'sin costo'}</span>
-      <label class="dp-cantw flex items-center gap-1 text-xs text-gris${on ? '' : ' hidden'}">×<input type="number" step="any" min="0" data-clave="${esc(it.clave)}"
-        class="dp-cant num-in w-16" aria-label="Cantidad por unidad de ${esc(it.nombre || it.clave)}" value="${on ? presEd.sel[it.clave] ?? '' : ''}"></label></div>`;
-  }).join('') + ayuda('Tildá lo que lleva cada unidad; la cantidad arranca en 1.');
+    ${ayuda('Cuánta receta lleva cada unidad vendida.')}`;
 }
 function htmlFormPres(p) {
   return bloquePres(1, 'Producto a la venta', htmlBloquePlu(p))
     + bloquePres(2, '¿De qué variedad?', htmlBloqueVariedad())
-    + bloquePres(3, '¿Cuánto lleva?', htmlBloqueCantidad())
-    + bloquePres(4, '¿Qué empaque lleva?', htmlBloqueEmpaque(), true)
-    + bloquePres(5, 'Tiempo de empaquetado', `<label class="text-xs text-gris">Minutos por unidad
-        <input id="dpMinutos" type="number" step="any" min="0" placeholder="ej. 0,8" value="${presEd.minutos ?? ''}" class="block mt-1 ${campoCls} w-24 text-right tabular-nums">
-        ${ayuda('Suma mano de obra al costo (costo/hora de Configuración).')}</label>`, true);
+    + bloquePres(3, '¿Cuánto lleva?', htmlBloqueCantidad());
 }
 function setPres(cambio) {
   presEd = { ...presEd, ...cambio };
@@ -235,7 +202,7 @@ function setPres(cambio) {
 }
 function conectarFormPres() {
   const num = (id, campo) => { const el = document.getElementById(id); if (el) el.addEventListener('input', () => setPres({ [campo]: numOrNull(el.value) })); };
-  num('dpKg', 'kg'); num('dpCorreccion', 'correccion'); num('dpMinutos', 'minutos');
+  num('dpKg', 'kg');
   const receta = document.getElementById('dpReceta');
   if (receta) receta.addEventListener('change', e => { setPres({ recetaId: e.target.value }); pintarBannersSolo(); });
   document.querySelectorAll('#dpForm input[name=dpModoPlu]').forEach(r => r.addEventListener('change', () => {
@@ -246,18 +213,6 @@ function conectarFormPres() {
   const nombreNuevo = document.getElementById('dpNombreNuevo');
   if (nombreNuevo) nombreNuevo.addEventListener('input', () => setPres({ nombreNuevo: nombreNuevo.value }));
   if (document.getElementById('dpVincular')) conectarBuscadorSiga('dpVincular', vincularPres);
-  document.querySelectorAll('#dpForm .dp-chk').forEach(chk => chk.addEventListener('change', () => {
-    const clave = chk.dataset.clave;
-    const fila = chk.closest('div');
-    const cant = fila.querySelector('.dp-cant');
-    fila.querySelector('.dp-cantw').classList.toggle('hidden', !chk.checked);
-    cant.value = chk.checked ? '1' : '';
-    const { [clave]: _fuera, ...resto } = presEd.sel;
-    setPres({ sel: chk.checked ? { ...presEd.sel, [clave]: 1 } : resto });
-    if (chk.checked) cant.select();
-  }));
-  document.querySelectorAll('#dpForm .dp-cant').forEach(inp => inp.addEventListener('input', () =>
-    setPres({ sel: { ...presEd.sel, [inp.dataset.clave]: numOrNull(inp.value) } })));
   if (document.getElementById('dpPlu')) conectarBuscadorSiga('dpPlu', elegirPluPres);
   conectarBanners();
 }
@@ -277,28 +232,20 @@ function filaComponente(c, i) {
   const op = i ? '+' : '';
   const sub = t => ` <span class="block text-[11px] text-gris">${t}</span>`;
   if (c.plu === '_receta') return filaRes(op, `Receta ${esc(c.nombre || '')}${sub(`${fmtNum(c.cantidad)} kg × ${plataRes(c.costoUnit)}/kg`)}`, plataRes(c.importe));
-  if (c.plu === '_correccion') return filaRes(op, esc(c.nombre), plataRes(c.importe));
-  if (c.plu === '_costoHora') return filaRes(op, `Empaquetado${sub(`${fmtNum(c.cantidad)} min`)}`, plataRes(c.importe));
   return filaRes(op, `${esc(c.nombre || c.plu)}${sub(`${fmtNum(c.cantidad)} × ${plataRes(c.costoUnit)} · ${textoFuente(c.fuente)}`)}`, plataRes(c.importe));
 }
 function htmlPrecioRes(r) {
+  const m = sugeridoProd(r);
   return `<div class="flex flex-wrap items-end gap-x-6 gap-y-2">
-    <div><div class="lbl">Sugerido</div><div class="text-3xl font-bold text-verde tabular-nums leading-tight">${r.precioConIva != null ? '$ ' + fmtPrecio(r.precioConIva) : '<span class="text-lg text-gris">sin precio</span>'}</div></div>
+    <div><div class="lbl">Sugerido minorista</div><div class="text-3xl font-bold text-verde tabular-nums leading-tight">${m ? '$ ' + fmtPrecio(m.precio) : '<span class="text-lg text-gris">sin precio</span>'}</div></div>
     <div><div class="lbl">Vigente SIGA</div><div class="text-lg font-semibold text-ink/70 tabular-nums">${r.precioVigente != null ? '$ ' + fmtPrecio(r.precioVigente) : '—'}</div></div>
-    <div><div class="lbl">Diferencia</div><div class="flex items-center gap-1.5"><span class="font-semibold tabular-nums ${claseDelta(r.semaforo)}">${fmtPct(r.deltaPct)}</span>${badgeSemaforo(r.semaforo)}</div></div></div>`;
+    <div><div class="lbl">Diferencia</div><span class="font-semibold tabular-nums ${claseDelta(m && m.estado)}">${m ? fmtPct(m.deltaPct) : '—'}</span></div></div>`;
 }
 function htmlEcuacionRes(r) {
-  // Costo real = costo neto ÷ (1 − gastos); ganancia = curva + conceptos (o la propia del PLU); el desglose
-  // (htmlDesglose, precios_detalle.js) sale del server.
-  const banda = r.banda === 'override' ? segunPermiso('ganancia propia del PLU', 'markup propio del PLU') : r.banda ? segunPermiso('curva + conceptos', 'standard') : segunPermiso('sin curva', 'sin standard');
-  const des = r.desglose ? { ...r.desglose, markupFinalPct: r.markupFinalPct, precioFinal: r.precioConIva } : null;
   return `<div class="mt-4 rounded-lg border border-borde bg-card px-3 py-2" role="group" aria-label="Cálculo del costo">
     ${r.componentes.map(filaComponente).join('')}
-    ${filaRes('=', '<b>Costo neto por unidad</b>', `<b>${plataRes(r.costoUnidad)}</b>`, 'border-t border-borde mt-1 pt-2')}
-    <div class="text-[11px] text-gris py-1">${segunPermiso(`Ganancia ${r.gananciaPct != null ? fmtNum(r.gananciaPct) + '%' : '—'} · ${banda} · `, `${banda} · `)}markup s/ neto ${r.markupPct != null ? fmtNum(r.markupPct) + '%' : '—'}</div>
-    ${htmlDesglose(des, '$', r.banda === 'override')}
-    ${filaRes('=', `<b class="text-verde">Precio final</b> <span class="text-[11px] text-gris">redondeo $50</span>`,
-      r.precioConIva != null ? `<b class="text-verde">$ ${fmtPrecio(r.precioConIva)}</b>` : '—')}</div>`;
+    ${filaRes('=', '<b>Costo por unidad</b>', `<b>${plataRes(r.costoUnidad)}</b>`, 'border-t border-borde mt-1 pt-2')}
+    <p class="text-[11px] text-gris pt-1">Sólo materias primas (cada una con el costo de su tab). Pack, bulto y el desglose: botón «Precios» de la tabla.</p></div>`;
 }
 function pintarResumenPres() {
   const el = document.getElementById('dpResumen');
@@ -314,10 +261,9 @@ function pintarResumenPres() {
   }
   el.innerHTML = cab + htmlPrecioRes(r) + htmlEcuacionRes(r)
     + (presEd.errorPreview ? `<p class="text-xs text-crit mt-2">${esc(presEd.errorPreview)}</p>` : '')
-    + htmlBloquePBProd(r.packBulto, r.precioConIva) + htmlFormulaSiga(r); // pack/bulto: precios_pack_bulto.js
+    + htmlFormulaSiga(r);
   const copiar = document.getElementById('dpCopiarFormula');
   if (copiar) copiar.onclick = () => copiarFormulaSiga(r);
-  conectarBloquePBProd(el, r.packBulto || [], r.precioConIva); // precios_pack_bulto.js: % propio de pack/bulto
 }
 
 // ── Fórmula para cargar en SIGA (sólo lectura; decisión 13: el módulo no escribe en SIGA) ──
@@ -330,7 +276,7 @@ function htmlFormulaSiga(r) {
     <div class="overflow-x-auto mt-2"><table class="w-full text-xs"><thead class="text-gris"><tr><th class="text-left p-1">PLU</th><th class="text-left p-1">Componente</th>
       <th class="text-right p-1">Cantidad</th><th class="text-left p-1">Unidad</th></tr></thead>
       <tbody>${filas.map(f => `<tr class="border-t border-borde"><td class="p-1 tabular-nums">${esc(f.plu || '—')}</td>
-        <td class="p-1">${esc(nombres[f.plu || f.manualId] || f.manualId || f.plu)}${f.plu ? '' : ' <span class="text-warn">(sin PLU: dalo de alta en SIGA)</span>'}</td>
+        <td class="p-1">${esc(nombres[f.plu] || f.plu)}</td>
         <td class="p-1 text-right tabular-nums">${esc(String(f.cantidad).replace('.', ','))}</td><td class="p-1">${esc(f.unidad)}</td></tr>`).join('')}</tbody></table></div>
     <div class="flex items-center gap-2 mt-2"><button type="button" id="dpCopiarFormula" class="${btnCls}">Copiar</button>
       <span class="text-[11px] text-gris">Cargala a mano en SIGA: el módulo no escribe en SIGA.</span></div></details>`;
@@ -342,8 +288,7 @@ async function copiarFormulaSiga(r) {
 }
 
 // ── Pie fijo ────────────────────────────────────────────────────────────────────
-// Sin guardar = la presentación o un % propio de pack/bulto (precios_pack_bulto.js).
-const htmlSucioPres = () => (suciaPres() || hayCambiosPB() ? chip('sin guardar', 'bg-amarillo/30 text-ink') : '');
+const htmlSucioPres = () => (suciaPres() ? chip('sin guardar', 'bg-amarillo/30 text-ink') : '');
 function pintarPiePres() {
   document.getElementById('dpPie').innerHTML = htmlPiePres();
   conectarPiePres();
@@ -353,11 +298,12 @@ function pintarPiePres() {
 function htmlPiePres() {
   const p = guardadaPres(), r = datosResumen(), sucia = suciaPres();
   const falta = faltaObligatorioPres(presEd);
-  const bloqueoGuardar = falta || (!validosPB() ? MSG_PESO_PB : '') || (p && !sucia && !hayCambiosPB() ? 'No hay cambios para guardar.' : '');
-  const bloqueoValidar = !p ? '' : sucia || hayCambiosPB() ? 'Guardá los cambios antes de validar.' : p.faltantes.length ? 'Con datos faltantes no se puede validar.'
+  const bloqueoGuardar = falta || (p && !sucia ? 'No hay cambios para guardar.' : '');
+  const bloqueoValidar = !p ? '' : sucia ? 'Guardá los cambios antes de validar.' : p.faltantes.length ? 'Con datos faltantes no se puede validar.'
     : p.estado === 'ok' ? 'Ya está validada con el costo actual.' : '';
-  const movil = `<span class="min-[900px]:hidden text-sm mr-auto">Sugerido <b class="text-verde tabular-nums">${r && r.precioConIva != null ? '$ ' + fmtPrecio(r.precioConIva) : '—'}</b>
-    ${r && r.deltaPct != null ? `<span class="${claseDelta(r.semaforo)} tabular-nums">${fmtPct(r.deltaPct)}</span>` : ''}</span>`;
+  const m = r ? sugeridoProd(r) : null;
+  const movil = `<span class="min-[900px]:hidden text-sm mr-auto">Sugerido <b class="text-verde tabular-nums">${m ? '$ ' + fmtPrecio(m.precio) : '—'}</b>
+    ${m && m.deltaPct != null ? `<span class="${claseDelta(m.estado)} tabular-nums">${fmtPct(m.deltaPct)}</span>` : ''}</span>`;
   return `${p ? '<button type="button" id="dpEliminar" class="px-3 py-1.5 rounded-lg text-xs text-crit hover:bg-crit/10">Eliminar</button>' : ''}
     ${movil}<span class="hidden min-[900px]:block flex-1"></span>
     ${p ? `<span title="${esc(bloqueoValidar)}"><button type="button" id="dpValidar" class="${btnCls}"${bloqueoValidar ? ' disabled' : ''}>Validar costo</button></span>` : ''}
@@ -378,25 +324,21 @@ async function guardarPres(btn) {
   const todas = Object.values(prodDet.presentaciones).map(x => x.plu);
   const plu = presEd.plu || claveProvisoria(presEd.nombreNuevo, todas); // sin PLU de SIGA: clave provisoria n-…
   const nueva = !prodDet.presentaciones[plu], body = bodyDe(presEd), sucia = suciaPres();
-  // La presentación (si cambió) y los % propios de pack/bulto pendientes; los que fallen quedan pendientes.
-  const guardar = async () => {
-    if (nueva || sucia) await pedirJson('PUT', urlPres(plu), body);
-    await guardarPendientesPB();
-  };
+  const guardar = async () => { if (nueva || sucia) await pedirJson('PUT', urlPres(plu), body); };
   // Tras guardar se re-abre con lo del server (costo, precio y estado actualizados).
   if (await guardarProd(guardar, btn, nueva ? 'Presentación creada' : 'Presentación guardada')) abrirPresentacion(plu);
   else if (presEd) pintarVivo();
 }
 // Vincular la presentación provisoria al PLU con el que el usuario la dio de alta en SIGA.
 async function vincularPres({ plu, nombre }) {
-  if (suciaPres() || hayCambiosPB()) { avisar('Guardá los cambios antes de vincular.'); return; }
+  if (suciaPres()) { avisar('Guardá los cambios antes de vincular.'); return; }
   const clave = presEd.plu;
   if (!(await confirmar(`¿Vincular "${presEd.nombreNuevo}" al PLU ${plu} (${nombre}) de SIGA? Se conserva todo lo cargado.`, { textoOk: 'Vincular' }))) return;
   const ok = await guardarProd(() => pedirJson('POST', urlPres(clave) + '/vincular', { plu }), null, `Vinculada al PLU ${plu}`);
   if (ok) abrirPresentacion(plu);
 }
 async function validarPres(btn) {
-  if (suciaPres() || hayCambiosPB()) { avisar('Guardá los cambios antes de validar.'); return; }
+  if (suciaPres()) { avisar('Guardá los cambios antes de validar.'); return; }
   const plu = presEd.plu;
   if (await validarProd({ tipo: 'presentacion', id: plu }, btn)) abrirPresentacion(plu);
 }

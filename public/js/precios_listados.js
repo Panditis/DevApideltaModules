@@ -4,7 +4,7 @@
 // la fuente de costo). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
 // Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS (precios_almacen.js),
 // fmtFechaPrecio (precios_orden.js), avisar, confirmar (precios_config.js), abrirModalEsquema (precios_modal_esquema.js),
-// XLSX (CDN).
+// textoRevisar (precios_produccion.js), XLSX (CDN).
 const FUENTES_LST = ['sistema', 'ultimaCompra', 'manual'];
 const ETIQUETA_DECISION = { sistema: 'Aumentar con sistema', ultimaCompra: 'Aumentar con última compra', manual: 'Aumentar con manual' };
 const normL = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -54,9 +54,11 @@ const botonNombre = f => `<button type="button" class="lst-abrir text-left hover
 function filaHtml(f, tipo) {
   const marca = f.decision ? ' class="bg-verde/5"' : '';
   if (tipo === 'produccion') {
+    const rev = textoRevisar(f.aRevisar); // precios_produccion.js
     return `<tr${marca}><td class="p-2">${esc(f.plu)}</td><td class="p-2">${botonNombre(f)}</td>
       <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
       <td class="p-2 num">${vigenteTxt(f.vigente)}</td><td class="p-2 num">${celdaPrecio(f.sugeridos.sistema)}</td>
+      <td class="p-2">${rev ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn" title="${esc(f.aRevisar.map(x => textoRevisar([x])).join('\n'))}">⚠ ${esc(rev)}</span>` : ''}</td>
       <td class="p-2">${selectDecision(f, tipo)}</td>
       <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
   }
@@ -74,7 +76,7 @@ function filaHtml(f, tipo) {
 
 function htmlMarcoListado(tipo) {
   const f = lstFiltros[tipo], prod = tipo === 'produccion';
-  const ths = prod ? ['Código', 'Producto', 'Costo', 'Vigente', 'Sugerido', 'Decisión', '']
+  const ths = prod ? ['Código', 'Producto', 'Costo', 'Vigente', 'Sugerido', 'A revisar', 'Decisión', '']
     : ['Código', tipo === 'fraccionado' ? 'Granel / presentación' : 'Producto', 'Costo sistema', 'Última compra', 'Vigente', 'Sugerido con sistema', 'Sugerido con última compra', 'Decisión'];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
