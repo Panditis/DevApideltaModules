@@ -236,11 +236,7 @@ function aplicarMarcadosLocal(marcados){
   aplicarMarcadosDetPB(set); // precios_pack_bulto.js: sub-filas del modal abierto
   aplicarMarcadosProdLocal(set); // precios_produccion_export.js
 }
-function renderListados(){
-  renderAlmacen();
-  if (fraccCargado) renderFraccionado(); // precios_fraccionado.js
-  renderMarcasProd(); // precios_produccion_export.js
-}
+function renderListados(){ renderMarcasProd(); } // precios_produccion_export.js: sólo quedan las casillas viejas de Recetas (fase 5)
 async function marcarPlus(plus, marcado){
   const r = await fetch('/api/precios/marcados', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plus, marcado }),

@@ -308,7 +308,8 @@ function aplicarMarcadosDetPB(set) {
     det = { ...det, presentaciones: det.presentaciones.map(p => (p.packBulto ? { ...p, packBulto: aplicarMarcadosPB(p.packBulto, set) } : p)) };
   }
 }
-function pbListadosViejos() { cargarAlmacen(); fraccCargado = false; cargarFraccionado(); }
+// Fase 3: el markup de los listados viejos ya no existe (cargarAlmacen/cargarFraccionado reventarían); no-op hasta la fase 5.
+function pbListadosViejos() {}
 
 // ── Fraccionado: sub-filas en la tabla de presentaciones del modal del granel ──
 function htmlSubfilasFraccPB(p) {

@@ -583,24 +583,3 @@ function recalcularTemporales(costo, costoTotal){
   });
 }
 
-
-document.getElementById('btnRecargarFracc').onclick = cargarFraccionado;
-document.getElementById('frBuscar').addEventListener('input', renderFraccionado);
-document.getElementById('frIngresoHoy').onclick = () => { frIngresoHoy = !frIngresoHoy; dropCtxs.fracc.aplicar(); };
-document.getElementById('frSoloMarcados').onclick = () => { frSoloMarcados = !frSoloMarcados; dropCtxs.fracc.aplicar(); };
-document.getElementById('frOcultarVacios').onclick = () => { frOcultarVacios = !frOcultarVacios; dropCtxs.fracc.aplicar(); };
-document.getElementById('frLimpiar').onclick = () => {
-  filtroSelFr.proveedor.clear(); filtroSelFr.estado.clear();
-  frIngresoHoy = false; frSoloMarcados = false; frOcultarVacios = false; frConPB = false;
-  document.getElementById('frBuscar').value = '';
-  cerrarDrop(); dropCtxs.fracc.aplicar();
-};
-document.getElementById('chkTodosFr').onchange = async e => {
-  const plus = filtrarFraccionado().flatMap(marcablesDe).map(p => p.plu);
-  if (!plus.length) { renderFraccionado(); return; }
-  try { await marcarPlus(plus, e.target.checked); } catch (err) { avisar(err.message); renderFraccionado(); }
-};
-
-// Se carga con la página (no sólo al abrir el tab): la barra de marcados y la exportación
-// cuentan también las presentaciones marcadas de Fraccionado.
-cargarFraccionado();

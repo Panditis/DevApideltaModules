@@ -69,8 +69,6 @@ async function guardarGeneral(){
     const j = await putConfigGeneral({ costoHora: val('inCostoHora') });
     configCargada = { ...configCargada, ...j };
     limpiarSucio(document.getElementById('configForm').closest('[data-guardable]'));
-    ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
-    fraccCargado = false; // el semáforo de Fraccionado depende de la tolerancia; su MO, de costoHora
     refrescarAlertasProduccion(); // precios_produccion.js: costoHora y tolerancia mueven los costos/alertas de Producción
     msg.className = 'text-sm text-ok'; msg.textContent = 'Guardado.';
   } catch (e) {
@@ -78,78 +76,12 @@ async function guardarGeneral(){
   }
 }
 
-// Tolerancia en la barra de filtros de Almacén: se lee de la config y al cambiarla se guarda
-// y se recarga el listado (el estado ok/subir/bajar lo calcula el server con esa tolerancia).
-async function cargarToleranciaFiltro(){
-  try {
-    const j = await (await fetchConfigPrecios()).json(); // precios_almacen.js: completa o pública según el permiso
-    if (!j.error) ['fTolerancia', 'frTolerancia'].forEach(id => { document.getElementById(id).value = j.toleranciaPct; });
-    if (!j.error && almacenData.length) renderAlmacen(); // la columna "Costo última compra" usa la tolerancia
-  } catch { /* sin config: el input queda vacío, el listado igual carga */ }
-}
-['fTolerancia', 'frTolerancia'].forEach(id => document.getElementById(id).addEventListener('change', async e => {
-  const input = e.target;
-  try {
-    const j = await putConfigGeneral({ toleranciaPct: numOrNull(input.value) });
-    input.classList.remove('border-crit'); input.title = '';
-    ['fTolerancia', 'frTolerancia'].forEach(x => { document.getElementById(x).value = j.toleranciaPct; });
-    cargarAlmacen();
-    cargarFraccionado(); // precios_fraccionado.js
-    refrescarAlertasProduccion(); // precios_produccion.js: la tolerancia decide qué cambio alerta
-  } catch (err) {
-    input.classList.add('border-crit'); input.title = err.message;
-  }
-}));
 document.getElementById('btnGuardarGeneral').onclick = guardarGeneral;
 
-document.getElementById('btnRecargarAlmacen').onclick = cargarAlmacen;
-document.getElementById('fBuscar').addEventListener('input', renderAlmacen);
-document.querySelectorAll('.fbtn[data-filtro]').forEach(b =>
-  b.onclick = e => { e.stopPropagation(); abrirDrop(b.dataset.filtro, b, dropCtxs[b.dataset.ctx || 'almacen']); });
-document.getElementById('fIngresoHoy').onclick = () => {
-  soloIngresoHoy = !soloIngresoHoy; actualizarBotonesFiltro(); renderAlmacen();
-};
-document.getElementById('fSoloMarcados').onclick = () => {
-  soloMarcados = !soloMarcados; actualizarBotonesFiltro(); renderAlmacen();
-};
-document.getElementById('chkTodos').onchange = async e => {
-  // Sólo los productos visibles: pack/bulto se marcan desde el detalle.
-  const plus = filtrarAlmacen().filter(f => !tieneFaltantes(f)).map(f => f.plu);
-  if (!plus.length) { renderAlmacen(); return; }
-  try { await marcarPlus(plus, e.target.checked); } catch (err) { avisar(err.message); renderAlmacen(); }
-};
-document.querySelectorAll('.js-marc-exportar').forEach(b => { b.onclick = exportarMarcados; });
-document.querySelectorAll('.js-marc-desmarcar').forEach(b => b.onclick = async () => {
-  if (!(await confirmar('¿Desmarcar todos los productos marcados para actualizar (Reventa, Fraccionado y Producción)?', { textoOk: 'Desmarcar' }))) return;
-  try {
-    const j = await (await fetch('/api/precios/marcados', { method: 'DELETE' })).json();
-    if (j.error) throw new Error(j.error);
-    aplicarMarcadosLocal(j.marcados); renderListados();
-  } catch (err) { avisar(err.message); }
-});
-document.getElementById('fLimpiar').onclick = () => {
-  filtroSel.proveedor.clear(); filtroSel.estado.clear(); soloIngresoHoy = false; soloMarcados = false; soloConPB = false;
-  document.getElementById('fBuscar').value = '';
-  cerrarDrop(); actualizarBotonesFiltro(); renderAlmacen();
-};
-document.getElementById('fDropBuscar').addEventListener('input', renderDropLista);
-document.getElementById('fDropTodos').onclick = () => {
-  opcionesVisibles().forEach(([v]) => dropCtx.sel[dropTipo].add(v));
-  renderDropLista(); dropCtx.aplicar();
-};
-document.getElementById('fDropLimpiar').onclick = () => {
-  dropCtx.sel[dropTipo].clear();
-  renderDropLista(); dropCtx.aplicar();
-};
-document.addEventListener('click', e => {
-  const drop = document.getElementById('fDrop');
-  if (!drop.classList.contains('hidden') && !drop.contains(e.target) && !e.target.closest('.fbtn[data-filtro]')) cerrarDrop();
-});
 document.addEventListener('keydown', e => {
   if (e.key === 'Tab' && !document.getElementById('mDet').classList.contains('hidden')) atraparFocoModal(e);
   // Con el diálogo de aviso abierto, Escape lo cierra él solo (cancel nativo del <dialog>).
-  if (e.key !== 'Escape' || document.getElementById('dlgAviso').open) return;
-  if (!document.getElementById('fDrop').classList.contains('hidden')) cerrarDrop(); else cerrarDetalle();
+  if (e.key === 'Escape' && !document.getElementById('dlgAviso').open) cerrarDetalle();
 });
 
 // ── UI compartida de las tarjetas de Configuración ──────────────────────────────
@@ -246,8 +178,7 @@ function activarTab(tipo){
   const panel = document.getElementById('panel-' + tipo);
   if (panel) panel.classList.remove('hidden');
   if (tipo === 'configuracion') activarSubConfig(sub || ultimoSubConfig());
-  if (tipo === 'almacen') { cargarToleranciaFiltro(); cargarAlmacen(); }
-  if (tipo === 'fraccionado' && !fraccCargado) cargarFraccionado(); // precios_fraccionado.js
+  if (tipo === 'almacen' || tipo === 'fraccionado') cargarListado(tipo); // precios_listados.js
 }
 document.querySelectorAll('#tabs .navtab').forEach(b => b.onclick = async () => {
   // Salir de Configuración (o volver a entrar, que recarga el sub-tab) con cambios sin guardar pregunta primero.
@@ -260,8 +191,7 @@ document.querySelectorAll('#tabs .navtab').forEach(b => b.onclick = async () => 
 // Arranque después de precios_fraccionado.js (DOMContentLoaded corre cuando ya se ejecutaron los
 // dos scripts): renderAlmacen usa presentacionesMarcadas() de ese archivo para la barra de marcados.
 document.addEventListener('DOMContentLoaded', () => {
-  cargarToleranciaFiltro();
-  cargarAlmacen(); // Reventa (data-tipo almacen) es el tab activo por defecto al cargar la página.
+  cargarListado('almacen'); // Reventa es el tab activo al cargar
   permisoConfigPrecios.then(aplicarPermisoConfig); // precios_almacen.js
 });
 
@@ -271,14 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function aplicarPermisoConfig(puede){
   preciosSinConfig = !puede;
   document.body.classList.add(puede ? 'con-config' : 'sin-config');
-  if (puede) return;
-  ['fTolerancia', 'frTolerancia'].forEach(id => {
-    const el = document.getElementById(id);
-    el.disabled = true; el.title = 'La tolerancia se cambia en Configuración';
-  });
-  if (!document.getElementById('panel-configuracion').classList.contains('hidden')) activarTab('almacen');
-  if (almacenData.length) renderAlmacen();
-  if (fraccCargado) renderFraccionado(); // precios_fraccionado.js
+  if (!puede && !document.getElementById('panel-configuracion').classList.contains('hidden')) activarTab('almacen');
 }
 
 // Reemplazo de alert()/confirm() nativos: <dialog> modal del theme. showModal() lo pone en el top

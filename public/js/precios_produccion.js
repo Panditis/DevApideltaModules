@@ -20,6 +20,7 @@ const PLU_PRES_UI = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/; // PLU de SIGA o presentac
 function parsearHashProduccion(hash) {
   const h = String(hash || '').replace(/^#/, '');
   if (h === 'produccion') return { vista: 'selector' };
+  if (h === 'produccion/recetas') return { vista: 'recetas' };
   if (!h.startsWith('produccion/')) return null;
   const dec = s => { try { return decodeURIComponent(s); } catch { return ''; } };
   const [id, plu] = h.slice('produccion/'.length).split('/').map(dec);
@@ -448,7 +449,8 @@ function rutearProduccion() {
   if (!r) { if (tabActiva() === 'produccion') activarTab('almacen'); return; }
   activarTab('produccion');
   if (r.vista === 'detalle') cargarDetalleProduccion(r.id, { abrirPlu: r.plu || null });
-  else cargarSelectorProduccion();
+  else if (r.vista === 'recetas') cargarSelectorProduccion();
+  else cargarListado('produccion'); // precios_listados.js: precios de Producción con el esquema por canal
 }
 function irAProduccion(id, plu = null) {
   const h = id ? '#produccion/' + encodeURIComponent(id) + (plu ? '/' + encodeURIComponent(plu) : '') : '#produccion';

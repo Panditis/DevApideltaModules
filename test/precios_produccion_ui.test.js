@@ -7,6 +7,7 @@ const ui = require('../public/js/precios_produccion.js');
 
 test('parsearHashProduccion: selector, detalle, id inválido y otras tabs', () => {
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion'), { vista: 'selector' });
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/recetas'), { vista: 'recetas' });
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/p-granola'), { vista: 'detalle', id: 'p-granola' });
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/..%2Fx'), { vista: 'selector' });
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/%E0%A4%A'), { vista: 'selector' }); // URI mal formada
