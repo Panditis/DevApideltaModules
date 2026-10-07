@@ -8,7 +8,7 @@
 // (si ya existe no se pisa: es el original). Escritura atómica (tmp + rename). Conviene correrlo sin nadie editando.
 const fs = require('fs');
 const path = require('path');
-const { limpiarCosteo } = require('../lib/precios_config_esquema');
+const { limpiarCosteo, migrarEsquemaCanales } = require('../lib/precios_config_esquema');
 const { limpiarRecetas } = require('../lib/precios_produccion');
 
 function limpiarArchivo(ruta, limpiar) {
@@ -25,8 +25,9 @@ function limpiarArchivo(ruta, limpiar) {
 
 function main(dir = path.join(__dirname, '..', 'data')) {
   const costeo = path.join(dir, 'costeo.json');
-  if (fs.existsSync(costeo) && !JSON.parse(fs.readFileSync(costeo, 'utf8')).margenes) {
-    throw new Error('costeo.json sin migrar: correr antes node scripts/migrar_esquema_canales.js');
+  // migración completa, no solo `margenes`: una a medio migrar (margenes guardados por la config) perdería claves que la migración aún lee
+  if (fs.existsSync(costeo) && migrarEsquemaCanales(JSON.parse(fs.readFileSync(costeo, 'utf8'))) !== null) {
+    throw new Error('costeo.json sin migrar (o a medio migrar): correr antes node scripts/migrar_esquema_canales.js');
   }
   return [limpiarArchivo(costeo, limpiarCosteo), limpiarArchivo(path.join(dir, 'recetas_produccion.json'), limpiarRecetas)];
 }
