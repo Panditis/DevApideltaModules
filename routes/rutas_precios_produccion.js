@@ -71,7 +71,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
     const costeo = leerCosteo();
     const costos = await costosPorPlu(plusUsados(productos));
-    return { costeados: costearTodos({ productos, costos, costeo }), costos, costeo };
+    return { costeados: costearTodos({ productos, costos, costeo }) };
   }
 
   // Detalle costeado + vigente, fecha de precio y precios del motor por presentación (desglose sólo con el permiso de
@@ -94,9 +94,9 @@ module.exports = function crearRutasPreciosProduccion(deps) {
 
   router.get('/api/precios/produccion/productos', ruta(async (req) => {
     const datos = leer();
-    const [{ costeados, costeo }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
+    const [{ costeados }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
     return Object.entries(costeados)
-      .map(([id, c]) => filaSelector(id, datos.productos[id], c, costeo.marcadosExportar, fechas))
+      .map(([id, c]) => filaSelector(id, datos.productos[id], c, fechas))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }));
 
@@ -529,11 +529,10 @@ function recetaBaseId(recetas) {
   return ids.find(id => !recetas[id].varianteDe) || null;
 }
 
-// marcados = costeo.marcadosExportar ({ plu: fecha }; se va en la fase 5). exportables = presentaciones con PLU de SIGA
-// (las provisorias n-… no se pueden importar): Costo = costo total por unidad (sin precios: salen del esquema).
+// exportables = presentaciones con PLU de SIGA (las provisorias n-… no se pueden importar): Costo = costo total por unidad (sin precios: salen del esquema).
 // fechas: Map plu → 'YYYY-MM-DD' del último cambio de precio en SIGA (la UI muestra la más antigua).
 // variedad = nombre de la receta de la que sale la presentación.
-function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map()) {
+function filaSelector(id, producto, costeado, fechas = new Map()) {
   const recetas = producto.recetas || {};
   const variedadDe = plu => {
     const rid = ((producto.presentaciones || {})[plu] || {}).recetaId;
@@ -548,7 +547,7 @@ function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map())
     alertas: costeado.resumen.alertas, faltantes: costeado.resumen.faltantes,
     exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => ({
       plu, nombre: p.nombre, costoTotal: p.costoUnidad, faltantes: p.faltantes,
-      marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null, variedad: variedadDe(plu),
+      fechaPrecio: fechas.get(plu) || null, variedad: variedadDe(plu),
     })),
   };
 }

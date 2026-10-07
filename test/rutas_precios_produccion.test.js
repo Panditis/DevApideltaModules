@@ -343,21 +343,19 @@ test('presentación provisoria n-… (sin PLU SIGA) y vincular a un PLU real con
 });
 
 
-// ── Exportar desde Producción: presentaciones con PLU SIGA y su marca ─────────
-test('filaSelector.exportables: sólo PLUs SIGA, costo total y marca de marcadosExportar', () => {
+// ── Exportar desde Producción: presentaciones con PLU SIGA ─────────
+test('filaSelector.exportables: sólo PLUs SIGA y costo total', () => {
   const conProv = { ...PRODUCTO, presentaciones: { ...PRODUCTO.presentaciones, 'n-nueva': PRODUCTO.presentaciones['6319'] } };
   const datos = normalizarDatos({ ...DATOS, productos: { 'p-granola': conProv } });
   const c = costearTodos({ productos: datos.productos, costos: COSTOS, costeo: COSTEO })['p-granola'];
-  const marcados = { 6319: '2026-09-29' };
-  const f = filaSelector('p-granola', conProv, c, marcados);
-  assert.deepStrictEqual(f.exportables, [{ plu: '6319', nombre: 'GRANOLA 500G', costoTotal: 240, faltantes: [], marcado: true, fechaPrecio: null, variedad: 'Clásica' }]);
-  assert.deepStrictEqual(filaSelector('p-granola', conProv, c).exportables.map(p => p.marcado), [false]);
+  const f = filaSelector('p-granola', conProv, c);
+  assert.deepStrictEqual(f.exportables, [{ plu: '6319', nombre: 'GRANOLA 500G', costoTotal: 240, faltantes: [], fechaPrecio: null, variedad: 'Clásica' }]);
 });
 
 test('fecha del último cambio de precio: filaSelector (exportables) y armarDetalle (presentaciones); null sin historial', () => {
   const c = costearTodos({ productos: DATOS.productos, costos: COSTOS, costeo: COSTEO });
   const fechas = new Map([['6319', '2026-02-10']]);
-  assert.deepStrictEqual(filaSelector('p-granola', PRODUCTO, c['p-granola'], {}, fechas).exportables.map(e => [e.plu, e.fechaPrecio]), [['6319', '2026-02-10']]);
+  assert.deepStrictEqual(filaSelector('p-granola', PRODUCTO, c['p-granola'], fechas).exportables.map(e => [e.plu, e.fechaPrecio]), [['6319', '2026-02-10']]);
   assert.strictEqual(filaSelector('p-granola', PRODUCTO, c['p-granola']).exportables[0].fechaPrecio, null);
   const base = { id: 'p-granola', datos: DATOS, costeado: c['p-granola'], vigentes: new Map() };
   assert.strictEqual(armarDetalle({ ...base, fechas }).presentaciones['6319'].fechaPrecio, '2026-02-10');
