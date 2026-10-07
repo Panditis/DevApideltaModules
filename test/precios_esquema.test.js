@@ -181,6 +181,7 @@ test('preciosCanales: gastos solo del tipo y modo "precio"', () => {
 
 test('preciosCanales: errores de costo, gastos y tabla inválida', () => {
   assert.strictEqual(E.preciosCanales({ tipo: 'almacen', costo: 0, cfg: CFG }).error, 'costo');
+  assert.strictEqual(E.preciosCanales({ tipo: 'almacen', costo: 2000 }).error, 'margen'); // sin cfg: error, no TypeError
   assert.strictEqual(E.preciosCanales({ tipo: 'almacen', costo: null, cfg: CFG }).error, 'costo');
   const g100 = { ...CFG, modoGastos: 'precio',
     gastosVenta: [{ id: 'g', concepto: 'x', pct: 100, tipos: { almacen: true } }] };
