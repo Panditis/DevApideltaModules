@@ -292,6 +292,11 @@
 
   <!-- Producción: #produccion = listado (/js/precios_listados.js); #produccion/recetas = selector de recetas y #produccion/<id> = detalle (/js/precios_produccion*.js). -->
   <div id="panel-produccion" class="tab-panel hidden">
+    <!-- Toggle rápido entre el listado de presentaciones y las recetas (precios_produccion.js marcarToggleProduccion). -->
+    <div id="prodVistas" class="seg seg-sub mb-3" role="group" aria-label="Vista de Producción">
+      <button type="button" class="seg-opt" data-vista="presentaciones" aria-pressed="true">Presentaciones</button>
+      <button type="button" class="seg-opt" data-vista="recetas" aria-pressed="false">Recetas</button>
+    </div>
     <div id="prodContenido"></div>
   </div>
 

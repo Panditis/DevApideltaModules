@@ -78,7 +78,7 @@ function htmlMarcoListado(tipo) {
     <button type="button" class="lst-recargar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
     <input type="search" class="lst-buscar px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72" placeholder="Buscar por PLU o nombre…" value="${esc(f.texto || '')}">
     ${toggle('lst-decididos', 'soloDecididos', 'Sólo decididos')}
-    ${prod ? '<a href="#produccion/recetas" class="text-sm text-verde underline underline-offset-2">Recetas</a>' : toggle('lst-mascara', 'ultimaMasCara', 'Última compra más cara')}
+    ${prod ? '' : toggle('lst-mascara', 'ultimaMasCara', 'Última compra más cara')}
     <span class="lst-conteo text-sm text-gris"></span>
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>

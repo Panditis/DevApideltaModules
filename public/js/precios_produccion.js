@@ -26,6 +26,12 @@ function parsearHashProduccion(hash) {
   return PLU_PRES_UI.test(plu || '') ? { vista: 'detalle', id, plu } : { vista: 'detalle', id };
 }
 
+// Toggle "Presentaciones | Recetas" (#prodVistas): vista que marca según la ruta (detalle → null: se oculta) y hash al
+// entrar a la tab con la última vista elegida en la sesión.
+const VISTA_TOGGLE_PROD = { selector: 'presentaciones', recetas: 'recetas' };
+const vistaToggleProduccion = r => (r && VISTA_TOGGLE_PROD[r.vista]) || null;
+const hashEntradaProduccion = guardada => (guardada === 'recetas' ? '#produccion/recetas' : '#produccion');
+
 // Qué pasos (1..3) arrancan abiertos: sólo el primero incompleto (ni 'ok' ni 'opcional'); si están todos, el 3.
 // elecciones = { paso: bool } que el usuario abrió/cerró a mano en este producto: mandan sobre el default.
 function seccionesAbiertas(estados = {}, elecciones = {}) {
@@ -305,7 +311,7 @@ function montarOrdenPresProd() {
 
 if (typeof module === 'object' && module.exports) {
   module.exports = {
-    parsearHashProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
+    parsearHashProduccion, vistaToggleProduccion, hashEntradaProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
     textoRevisar, sugeridoProd, columnasSelectorProd, columnasPresProd,
     mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
@@ -451,16 +457,30 @@ function conectarBuscadorSiga(id, onElegir) {
 
 // ── Ruteo por hash ──────────────────────────────────────────────────────────────
 const tabActiva = () => (document.querySelector('#tabs .navtab.on') || {}).dataset?.tipo;
+const CLAVE_VISTA_PROD = 'precios.produccion.vista';
+const leerVistaProd = () => { try { return sessionStorage.getItem(CLAVE_VISTA_PROD); } catch { return null; } };
+// Marca el toggle y recuerda la vista (sesión); en el detalle de una receta el toggle no se muestra.
+function marcarToggleProduccion(r) {
+  const vista = vistaToggleProduccion(r);
+  const caja = document.getElementById('prodVistas');
+  if (caja) {
+    caja.classList.toggle('hidden', !vista);
+    caja.querySelectorAll('[data-vista]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.vista === vista)));
+  }
+  if (vista) try { sessionStorage.setItem(CLAVE_VISTA_PROD, vista); } catch { /* sin storage: entra siempre a Presentaciones */ }
+}
 function rutearProduccion() {
   const r = parsearHashProduccion(location.hash);
   if (!r) { if (tabActiva() === 'produccion') activarTab('almacen'); return; }
   activarTab('produccion');
+  marcarToggleProduccion(r);
   if (r.vista === 'detalle') cargarDetalleProduccion(r.id, { abrirPlu: r.plu || null });
   else if (r.vista === 'recetas') cargarSelectorProduccion();
   else cargarListado('produccion'); // precios_listados.js: precios de Producción con el esquema por canal
 }
+// Sin id (entrar a la tab, volver de un borrado) → la última vista del toggle.
 function irAProduccion(id, plu = null) {
-  const h = id ? '#produccion/' + encodeURIComponent(id) + (plu ? '/' + encodeURIComponent(plu) : '') : '#produccion';
+  const h = id ? '#produccion/' + encodeURIComponent(id) + (plu ? '/' + encodeURIComponent(plu) : '') : hashEntradaProduccion(leerVistaProd());
   if (location.hash === h) rutearProduccion(); else location.hash = h;
 }
 // Al ir a otra tab se saca el hash (entrada nueva: "atrás" vuelve a Producción).
@@ -709,6 +729,10 @@ function iniciarProduccion() {
   // Botones de acción de faltantes/pasos bloqueados/checklist (detalle y modal): delegado.
   document.addEventListener('click', e => { const b = e.target.closest('[data-pr-accion]'); if (b) ejecutarAccionProd(b.dataset); }); // precios_produccion_detalle.js
   window.addEventListener('hashchange', rutearProduccion);
+  document.getElementById('prodVistas').addEventListener('click', e => {
+    const b = e.target.closest('[data-vista]');
+    if (b) location.hash = b.dataset.vista === 'recetas' ? '#produccion/recetas' : '#produccion';
+  });
   // Scroll de la página (no de la propia lista) → cerrar listas flotantes del buscador SIGA.
   window.addEventListener('scroll', e => document.querySelectorAll('.bs-lista').forEach(l => {
     if (!l.contains(e.target)) l.classList.add('hidden');

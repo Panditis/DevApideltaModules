@@ -19,6 +19,15 @@ test('parsearHashProduccion: selector, detalle, id inválido y otras tabs', () =
   assert.strictEqual(ui.parsearHashProduccion('#produccionX'), null);
 });
 
+test('toggle Presentaciones | Recetas: vista de cada hash y entrada a la tab con la última elegida', () => {
+  assert.strictEqual(ui.vistaToggleProduccion(ui.parsearHashProduccion('#produccion')), 'presentaciones');
+  assert.strictEqual(ui.vistaToggleProduccion(ui.parsearHashProduccion('#produccion/recetas')), 'recetas');
+  assert.strictEqual(ui.vistaToggleProduccion(ui.parsearHashProduccion('#produccion/p-granola')), null); // detalle: sin toggle
+  assert.strictEqual(ui.hashEntradaProduccion('recetas'), '#produccion/recetas');
+  assert.strictEqual(ui.hashEntradaProduccion('presentaciones'), '#produccion');
+  assert.strictEqual(ui.hashEntradaProduccion(null), '#produccion'); // primera vez o sin storage
+});
+
 test('parsearHashProduccion: #produccion/<id>/<plu> abre el detalle con la presentación', () => {
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/p-granola/6319'), { vista: 'detalle', id: 'p-granola', plu: '6319' });
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/p-granola/n-granola-800'), { vista: 'detalle', id: 'p-granola', plu: 'n-granola-800' });
