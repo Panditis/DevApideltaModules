@@ -87,3 +87,52 @@ test('config esquema: Recalcular rango = percentiles de los costos de sistema; s
   const b = appCon(MIGRADO);
   try { assert.match((await b.pedir('POST', '/api/precios/config/esquema/rango/fraccionado')).error, /suficientes costos/); } finally { b.cerrar(); }
 });
+
+// ── Fase 3: decisión, listado, detalle, export ───────────────────────────────
+
+test('decisión: PUT guarda/quita, valida fuente y costo manual; DELETE las borra', async () => {
+  const a = appCon({ ...MIGRADO, costoPorProducto: { 5: 100 } });
+  try {
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/5', { fuente: 'manual' })).decision.fuente, 'manual');
+    assert.match((await a.pedir('PUT', '/api/precios/decision/6', { fuente: 'manual' })).error, /costo manual/);
+    assert.match((await a.pedir('PUT', '/api/precios/decision/6', {})).error, /fuente/);
+    await a.pedir('PUT', '/api/precios/decision/7', { fuente: 'sistema' });
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones).sort(), ['5', '7']);
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/5', { fuente: null })).decision, null);
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones), ['7']);
+    await a.pedir('DELETE', '/api/precios/decisiones');
+    assert.deepStrictEqual(a.leer().decisiones, {});
+  } finally { a.cerrar(); }
+});
+
+test('listado y export: tipo inválido; SIGA vacío → sin filas y listas sólo con encabezado', async () => {
+  const a = appCon(MIGRADO);
+  try {
+    assert.match((await a.pedir('GET', '/api/precios/esquema/listado?tipo=otro')).error, /tipo/);
+    for (const tipo of ['almacen', 'fraccionado', 'produccion']) {
+      const j = await a.pedir('GET', `/api/precios/esquema/listado?tipo=${tipo}`);
+      assert.deepStrictEqual([j.migrado, j.filas], [true, []], tipo);
+    }
+    const e = await a.pedir('GET', '/api/precios/esquema/export');
+    assert.deepStrictEqual(e.listas.minorista, [['Codigo', 'Nombre', 'Costo', 'Venta']]);
+    assert.strictEqual(e.omitidos, 0);
+  } finally { a.cerrar(); }
+});
+
+test('detalle: con el permiso trae el desglose; sin él, no; el listado nunca', async () => {
+  const query = async sql => (sql.includes('UcPrecioNeto') ? [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1210, IvaCompraPct: 21 }]
+    : sql.includes('ProductosSucursalesPrecios') ? [{ IdProducto: '1', Precio: 1800 }] : []);
+  for (const [sinConfig, conDesglose] of [[false, true], [true, false]]) {
+    const a = appCon(MIGRADO, { query, sinConfig });
+    try {
+      const f = await a.pedir('GET', '/api/precios/esquema/detalle/1?tipo=almacen');
+      assert.strictEqual(f.vigente, 1800);
+      assert.ok(f.sugeridos.sistema.minorista.precio > 0);
+      assert.strictEqual('desglose' in f.sugeridos.sistema, conDesglose);
+      assert.strictEqual('costosExtra' in f, conDesglose);
+      const l = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+      assert.strictEqual('desglose' in l.filas[0].sugeridos.sistema, false);
+      assert.match((await a.pedir('GET', '/api/precios/esquema/detalle/9?tipo=almacen')).error, /no encontrado/);
+    } finally { a.cerrar(); }
+  }
+});

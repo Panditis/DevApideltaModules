@@ -56,7 +56,9 @@ test('cada ruta de config de los routers de precios está protegida y ninguna ot
   }
   // Las de trabajo de precios siguen permitidas (lista no exhaustiva, las que pidió el usuario).
   for (const r of ['/api/precios/listado', '/api/precios/detalle/1', '/api/precios/marcados', '/api/precios/margen-producto/1',
-    '/api/precios/costo-producto/1', '/api/precios/costos-extra/1', '/api/precios/config/publica', '/api/precios/produccion/productos']) {
+    '/api/precios/costo-producto/1', '/api/precios/costos-extra/1', '/api/precios/config/publica', '/api/precios/produccion/productos',
+    '/api/precios/esquema/listado', '/api/precios/esquema/detalle/1', '/api/precios/esquema/export',
+    '/api/precios/decision/1', '/api/precios/decisiones']) {
     assert.strictEqual(permisos.esRutaConfig(r), false, r);
   }
 });

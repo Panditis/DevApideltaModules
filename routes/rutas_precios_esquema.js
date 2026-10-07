@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const cfgEsq = require('../lib/precios_config_esquema');
 const { rangoDesdeCostos } = require('../lib/precios_esquema');
-const { aplicarCostosExtra } = require('../lib/precios_costeo');
+const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
 const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
@@ -51,16 +51,36 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { margenes: { ...(leerCosteo().margenes || {}), [tipo]: tablas } };
   }));
 
-  // Costos de sistema (+ costos extra) del tipo, para "Recalcular rango". Reventa: cada producto; Fraccionado: $/kg de
-  // cada granel; Producción: costo por unidad de cada presentación. (La fase 3 lo pasa a usar los listados.)
-  async function costosDelTipo(tipo, costeo) {
-    const conExtras = (plu, costo) => aplicarCostosExtra(costo, ((costeo.costosExtraFraccionado || {})[plu]) || []).costoTotal;
-    if (tipo === 'almacen') return (await consultas.universoAlmacen()).map(p => conExtras(p.plu, p.costoSistema));
-    if (tipo === 'fraccionado') {
-      const { graneles, costos } = await consultas.universoFraccionado(formulasPesables());
-      return graneles.map(g => conExtras(g.plu, (costos.get(g.plu) || {}).costoSistema ?? null));
+  const TIPOS_LISTADO = cfgEsq.TIPOS;
+  const sinConfig = req => !!(req && req.preciosSinConfig === true); // lo marca guardPrecios (server.js)
+
+  // Lo común a los tres listados: config del motor, vigentes (lista 0) y vínculos pack/bulto con sus unidades.
+  async function contexto(costeo) {
+    const pb = costeo.packBulto || {};
+    const [vigentes, { vinculos }] = await Promise.all([consultas.preciosVigentesAlmacen(), consultas.vinculosPackBulto(pb.vinculosManuales || {})]);
+    return { cfg: cfgEsq.configEsquemaDe(costeo), vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} }) };
+  }
+
+  // Filas completas (con desglose) de un tipo. ponytail: el export arma los tres y cada uno repite vigentes y vínculos
+  // (dos consultas de más por tipo); compartir el contexto si el export se pone lento.
+  async function listado(tipo, costeo) {
+    if (tipo === 'almacen') {
+      const [ctx, universo] = await Promise.all([contexto(costeo), consultas.universoAlmacen()]);
+      return L.listadoReventa({ universo, costeo, ...ctx });
     }
-    return (await presentacionesProduccion(costeo)).map(p => p.costoUnidad);
+    if (tipo === 'fraccionado') {
+      const formulas = formulasPesables();
+      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo), consultas.universoFraccionado(formulas)]);
+      return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, ...ctx });
+    }
+    const [ctx, presentaciones] = await Promise.all([contexto(costeo), presentacionesProduccion(costeo)]);
+    return L.listadoProduccion({ presentaciones, costeo, ...ctx });
+  }
+
+  // Costos de sistema (+ costos extra) del tipo para "Recalcular rango": Reventa por producto, Fraccionado $/kg por
+  // granel, Producción por presentación.
+  async function costosDelTipo(tipo, costeo) {
+    return (await listado(tipo, costeo)).map(f => f.costos.sistema);
   }
 
   // Propuesta de rango (percentiles 5–95, rangoDesdeCostos). NO guarda: la UI la carga en las tres tablas del tipo y se
@@ -73,5 +93,54 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return rango ? { rango, n: costos.length } : { error: 'No hay suficientes costos de sistema para calcular el rango' };
   }));
 
+  router.get('/api/precios/esquema/listado', apiRoute(async (req) => {
+    const tipo = String(req.query.tipo || '');
+    if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
+    const costeo = leerCosteo();
+    const filas = await listado(tipo, costeo);
+    return { migrado: !!costeo.margenes, toleranciaPct: cfgEsq.configEsquemaDe(costeo).toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
+  }));
+
+  // Una fila (Fraccionado: un granel con sus presentaciones). Desglose y costos extra sólo con el permiso.
+  // ponytail: arma el listado entero para devolver una fila, como el detalle viejo.
+  router.get('/api/precios/esquema/detalle/:plu', apiRoute(async (req) => {
+    const tipo = String(req.query.tipo || '');
+    if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
+    const plu = String(req.params.plu || '').trim();
+    const fila = (await listado(tipo, leerCosteo())).find(f => f.plu === plu);
+    return fila ? L.filaPublica(fila, !sinConfig(req)) : { error: `PLU ${plu} no encontrado en ${tipo}` };
+  }));
+
+  // body { fuente: 'sistema' | 'ultimaCompra' | 'manual' | null } (null quita). Cualquier usuario del módulo.
+  router.put('/api/precios/decision/:plu', apiRoute(async (req) => {
+    const plu = String(req.params.plu || '').trim();
+    const body = cuerpo(req);
+    if (!('fuente' in body)) return { error: 'falta fuente (sistema, ultimaCompra, manual o null)' };
+    const costeo = leerCosteo();
+    const error = L.validarDecision(plu, body.fuente, costeo);
+    if (error) return { error };
+    const decisiones = L.aplicarDecision(costeo.decisiones, plu, body.fuente, hoyISO());
+    guardarJSON(COSTEO_PATH, { ...costeo, decisiones });
+    return { plu, decision: decisiones[plu] || null };
+  }));
+
+  router.delete('/api/precios/decisiones', apiRoute(async () => {
+    guardarJSON(COSTEO_PATH, { ...leerCosteo(), decisiones: {} });
+    return { decisiones: {} };
+  }));
+
+  // Las 5 listas (minorista, pack/bulto sin y con IVA) de los productos decididos; el front escribe un archivo por lista.
+  router.get('/api/precios/esquema/export', apiRoute(async () => {
+    const costeo = leerCosteo();
+    const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
+    const { items, omitidos } = L.itemsDecididos({ almacen, fraccionado, produccion });
+    return { listas: L.listasExport(items, cfgEsq.configEsquemaDe(costeo).ivaVentaPct), omitidos };
+  }));
+
   return router;
 };
+
+function hoyISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
