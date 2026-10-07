@@ -40,6 +40,7 @@ router.get(['/analisis-ventas', '/analisis-central'], (_req, res) => res.sendFil
 router.get('/analisis.css', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'analisis.css')));
 router.get('/js/analisis_graficos.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_graficos.js')));
 router.get('/js/analisis_familias_manuales.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_familias_manuales.js')));
+router.get('/js/analisis_quiebres.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_quiebres.js')));
 router.get('/js/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'analisis_front.js')));
 
 // ── Análisis de Ventas por Sucursal ──────────────────────────────────────────
@@ -80,16 +81,20 @@ async function quiebresPorProducto(p, idProductos) {
   // se leen contra 52 día-sucursal y no contra 26.
   const acumulado = new Map();
   for (const k of new Set([...stock.keys(), ...unidades.keys()])) {
-    const prod = k.split('|')[0];
+    const [prod, suc] = k.split('|');
     const umbral = analisisVentas.umbralQuiebre(unidades.get(k) || 0, meses, pesables.has(prod));
     const serie = analisisVentas.serieStockDiaria({
       stockActual: stock.get(k) || 0, netosPorFecha: netos.get(k), entradasPorFecha: entradas.get(k),
       desde: p.desde, hasta: p.hasta, hoy, umbral,
     });
-    const previo = acumulado.get(prod) || { dias: 0, base: 0 };
+    const dias = serie.filter(d => d.quiebre).length;
+    const base = analisisVentas.diasEvaluados(serie);
+    const previo = acumulado.get(prod) || { dias: 0, base: 0, porSuc: {} };
+    // porSuc lo usa la pestaña Quiebres (columna por sucursal); el top sólo mira el total.
     acumulado.set(prod, {
-      dias: previo.dias + serie.filter(d => d.quiebre).length,
-      base: previo.base + analisisVentas.diasEvaluados(serie),
+      dias: previo.dias + dias,
+      base: previo.base + base,
+      porSuc: { ...previo.porSuc, [suc]: { dias, base } },
     });
   }
   return acumulado;
@@ -211,6 +216,26 @@ router.get('/api/analisis-ventas', apiRoute(async req => {
 // porque necesita el mismo cache de "sin insumos" que ya usa este módulo.
 router.post('/api/analisis-ventas/prioritarios/generar', apiRoute(async () => {
   return generarTop20Prioritarios();
+}));
+
+// ── Quiebres por sucursal ────────────────────────────────────────────────────
+// Pestaña propia porque acá sí se calculan con todas las sucursales del filtro, que es justo
+// lo que el top de productos evita por lento: el costo lo paga sólo quien abre esta pestaña.
+// Mismo universo que el top (productos vendidos en el rango, sin insumos) y mismo cálculo.
+// Cuelga de /api/analisis-ventas para heredar el permiso del módulo (apiPrefijos en auth.js).
+router.get('/api/analisis-ventas/quiebres', apiRoute(async req => {
+  const desde = safeDate(req.query.desde);
+  const hasta = safeDate(req.query.hasta);
+  const sucIds = analisisVentas.sucIdsSeguras(req.query.sucursales);
+  const sinInsumos = await sinInsumosSQL();
+  const p = { desde, hasta, sucIdsCsv: sucIds.join(','), subRubroDisponible };
+  const productos = await query(analisisVentas.sqlTopProductos(p, 'facturacion', analisisVentas.LIMITE_FAMILIAS, sinInsumos));
+  const quiebres = await quiebresPorProducto(p, productos.map(r => r.IdProducto));
+  return {
+    rango: { desde, hasta },
+    sucursales: sucIds,
+    productos: analisisVentas.filasQuiebresPorSucursal(productos, quiebres, sucIds),
+  };
 }));
 
 // ── Tickets por monto (alcance sucursales) ──────────────────────────────────

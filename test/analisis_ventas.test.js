@@ -499,6 +499,27 @@ test('porcentajeQuiebre divide sobre la base y tolera base cero', () => {
   assert.strictEqual(porcentajeQuiebre(5, 0), 0);
 });
 
+test('filasQuiebresPorSucursal deja sólo productos con quiebre, ordenados, con desglose por sucursal', () => {
+  const { filasQuiebresPorSucursal } = require('../lib/analisis_ventas');
+  const productos = [
+    { IdProducto: 'A', Nombre: 'MIEL', Rubro: 'Almacen', Unidades: 10, Facturacion: 100 },
+    { IdProducto: 'B', Nombre: 'POLEN', Rubro: '', Unidades: 5, Facturacion: 50 },
+    { IdProducto: 'C', Nombre: 'CERA', Rubro: 'Almacen', Unidades: 1, Facturacion: 10 },
+  ];
+  const quiebres = new Map([
+    ['A', { dias: 2, base: 20, porSuc: { 2: { dias: 2, base: 10 }, 3: { dias: 0, base: 10 } } }],
+    ['B', { dias: 0, base: 10, porSuc: { 2: { dias: 0, base: 10 } } }],
+    ['C', { dias: 5, base: 10, porSuc: { 3: { dias: 5, base: 10 } } }],
+  ]);
+  const filas = filasQuiebresPorSucursal(productos, quiebres, [2, 3]);
+  assert.deepStrictEqual(filas.map(f => f.idProd), ['C', 'A']);   // B sin quiebre fuera
+  assert.strictEqual(filas[0].porc, 50);
+  // Sucursal que no trabajó el producto: null, no cero.
+  assert.deepStrictEqual(filas[0].porSucursal, { 2: null, 3: { dias: 5, porc: 50 } });
+  assert.deepStrictEqual(filas[1].porSucursal, { 2: { dias: 2, porc: 20 }, 3: { dias: 0, porc: 0 } });
+  assert.deepStrictEqual(filasQuiebresPorSucursal(productos, new Map(), [2]), []);
+});
+
 test('idsCsvSeguro entrecomilla los ids, sin repetidos ni vacíos', () => {
   // IdProducto es varchar en SIGA: los códigos no numéricos deben sobrevivir.
   assert.strictEqual(idsCsvSeguro([12, '34', 12, 'O', null, '']), "'12','34','O'");

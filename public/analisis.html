@@ -23,6 +23,7 @@
        permiso a una sola de las dos pestañas (ver permisos() en analisis_front.js). -->
   <div class="tabs" id="tabs">
     <button id="tab-suc">Sucursales</button>
+    <button id="tab-qui">Quiebres</button>
     <button id="tab-cen">Mayorista</button>
     <button id="tab-api">Apicultura</button>
     <button id="tab-fam">Portfolio</button>
@@ -128,6 +129,26 @@
       <div id="montoResumen" class="mini"></div>
       <canvas id="chMontos-suc" height="160"></canvas>
       <div id="tblMontos-suc" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ── Pestaña Quiebres: productos con quiebre, total y por sucursal ───── -->
+  <section id="pane-qui" hidden>
+    <div id="msg-qui"></div>
+    <div class="kpis" id="kpis-qui"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Productos con quiebre de stock</h3>
+        <input type="search" id="buscTop-qui" class="buscador" placeholder="Buscar producto..." autocomplete="off">
+      </div>
+      <p class="desc">Sólo los productos que tuvieron al menos un día en quiebre en alguna de las
+        sucursales tildadas. Total suma los días de todas; cada columna es una sucursal, con el
+        porcentaje sobre sus días evaluados. Un día es quiebre si arrancó con stock en el umbral
+        o por debajo y no recibió mercadería (sin domingos). Umbral: pesables 5% de la venta
+        mensual; el resto, ese 5% con tope de 4 unidades. "—": la sucursal no vendió ni tuvo
+        stock del producto. Con muchas sucursales la consulta tarda.</p>
+      <div id="tblQuiebres-qui"></div>
     </div>
   </section>
 
@@ -279,5 +300,6 @@
 <!-- Los gráficos van primero: analisis_front.js los llama al pintar cada pestaña. -->
 <script src="/js/analisis_graficos.js"></script>
 <script src="/js/analisis_familias_manuales.js"></script>
+<script src="/js/analisis_quiebres.js"></script>
 <script src="/js/analisis_front.js"></script>
 </body></html>
