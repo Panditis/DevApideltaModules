@@ -605,6 +605,12 @@ module.exports = function crearRutasPrecios(deps) {
     }
     const r = guardarValorProducto({ clave: 'costoPorProducto', plu, raw: null });
     if (r.error) return r;
+    // Sin costo manual la decisión 'manual' nunca exportaría: se limpia acá para que valga con cualquier cliente.
+    const { decisiones } = leerCosteo();
+    if (decisiones && decisiones[plu] && decisiones[plu].fuente === 'manual') {
+      const { [plu]: _fuera, ...resto } = decisiones;
+      guardarJSON(COSTEO_PATH, { ...leerCosteo(), decisiones: resto });
+    }
     if (fuente === 'ultimaCompra') {
       const costeo = leerCosteo();
       guardarJSON(COSTEO_PATH, { ...costeo, fuenteCosto: { ...(costeo.fuenteCosto || {}), [plu]: 'ultimaCompra' } });

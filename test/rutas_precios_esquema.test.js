@@ -9,10 +9,11 @@ const express = require('express');
 const crearRutas = require('../routes/rutas_precios_esquema');
 const { migrarEsquemaCanales } = require('../lib/precios_config_esquema');
 
-function appCon(costeo, { query = async () => [], sinConfig = false } = {}) {
+function appCon(costeo, { query = async () => [], sinConfig = false, archivos = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'esq-rutas-'));
   const archivo = path.join(dir, 'costeo.json');
   if (costeo) fs.writeFileSync(archivo, JSON.stringify(costeo));
+  for (const [nombre, datos] of Object.entries(archivos)) fs.writeFileSync(path.join(dir, nombre), JSON.stringify(datos));
   const leerJSON = (p, def) => { try { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def; } catch { return def; } };
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
   const apiRoute = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { res.status(500).json({ error: err.message }); } };
@@ -90,18 +91,54 @@ test('config esquema: Recalcular rango = percentiles de los costos de sistema; s
 
 // ── Fase 3: decisión, listado, detalle, export ───────────────────────────────
 
-test('decisión: PUT guarda/quita, valida fuente y costo manual; DELETE las borra', async () => {
-  const a = appCon({ ...MIGRADO, costoPorProducto: { 5: 100 } });
+// SIGA falso con un producto en cada listado: Reventa (1 Arroz), Fraccionado (granel 50 con su presentación 51) y
+// Producción (presentación 6319 de una receta con la materia prima 300).
+const COSTOS_FALSOS = { 1: ['Arroz', 1210], 50: ['Almendra granel', 12100], 300: ['Harina', 400] };
+const sigaFalso = async (sql) => {
+  if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1210, IvaCompraPct: 21 }];
+  if (sql.includes("NombreRubro = 'Pesables Deposito'")) return [{ IdProducto: '50', NombreProducto: 'Almendra granel' }];
+  if (sql.includes("NombreRubro = 'Pesables Fraccionado'")) return [{ IdProducto: '51', NombreProducto: 'Almendra 500G' }];
+  const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
+  if (ids) return ids.match(/\w+/g).filter(id => COSTOS_FALSOS[id]).map(id => ({ IdProducto: id, NombreProducto: COSTOS_FALSOS[id][0], CostoSistema: COSTOS_FALSOS[id][1], IvaCompraPct: 21 }));
+  return [];
+};
+const ARCHIVOS_FALSOS = {
+  'pesables_listas.json': { formulas: { 51: { granel: '50' } } },
+  'recetas_produccion.json': { productos: { 'p-mezcla': { nombre: 'Mezcla',
+    recetas: { base: { nombre: 'Base', rendimientoKg: 1, materiasPrimas: [{ plu: '300', cantidad: 1, unidad: 'kg' }] } },
+    presentaciones: { 6319: { recetaId: 'base', kgPorUnidad: 1, insumos: [] } } } } },
+};
+
+test('decisión: PUT guarda/quita, valida el costo manual; DELETE las borra', async () => {
+  const a = appCon({ ...MIGRADO, costoPorProducto: { 1: 100 } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   try {
-    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/5', { fuente: 'manual' })).decision.fuente, 'manual');
-    assert.match((await a.pedir('PUT', '/api/precios/decision/6', { fuente: 'manual' })).error, /costo manual/);
-    assert.match((await a.pedir('PUT', '/api/precios/decision/6', {})).error, /fuente/);
-    await a.pedir('PUT', '/api/precios/decision/7', { fuente: 'sistema' });
-    assert.deepStrictEqual(Object.keys(a.leer().decisiones).sort(), ['5', '7']);
-    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/5', { fuente: null })).decision, null);
-    assert.deepStrictEqual(Object.keys(a.leer().decisiones), ['7']);
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'manual' })).decision.fuente, 'manual');
+    assert.match((await a.pedir('PUT', '/api/precios/decision/50', { fuente: 'manual' })).error, /costo manual/);
+    assert.match((await a.pedir('PUT', '/api/precios/decision/50', {})).error, /fuente/);
+    await a.pedir('PUT', '/api/precios/decision/6319', { fuente: 'sistema' });
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones).sort(), ['1', '6319']);
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/1', { fuente: null })).decision, null);
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones), ['6319']);
     await a.pedir('DELETE', '/api/precios/decisiones');
     assert.deepStrictEqual(a.leer().decisiones, {});
+  } finally { a.cerrar(); }
+});
+
+test('decisión: el PLU tiene que ser una fila decidible y la fuente tener sugerido; null siempre limpia', async () => {
+  const a = appCon({ ...MIGRADO, decisiones: { 999: { fuente: 'sistema', fecha: 'x' } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const decidir = (plu, fuente) => a.pedir('PUT', `/api/precios/decision/${plu}`, { fuente });
+  try {
+    assert.match((await decidir('777', 'sistema')).error, /no está en ningún listado/); // PLU desconocido
+    assert.match((await decidir('51', 'sistema')).error, /presentación de Fraccionado.*PLU 50/); // la decisión es del granel
+    assert.match((await decidir('6319', 'ultimaCompra')).error, /fuente ultimaCompra \(disponibles: sistema\)/); // Producción sólo sistema
+    assert.match((await decidir('6319', 'manual')).error, /costo manual/);
+    assert.match((await decidir('1', 'ultimaCompra')).error, /disponibles: sistema/); // Reventa sin compra registrada
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones), ['999']); // ningún rechazo escribió
+    for (const plu of ['1', '50', '6319']) assert.strictEqual((await decidir(plu, 'sistema')).decision.fuente, 'sistema', plu);
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones).sort(), ['1', '50', '6319', '999']);
+    assert.strictEqual((await decidir('999', null)).decision, null); // limpiar una decisión vieja sin fila
+    assert.strictEqual((await decidir('1', null)).decision, null);
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones).sort(), ['50', '6319']);
   } finally { a.cerrar(); }
 });
 

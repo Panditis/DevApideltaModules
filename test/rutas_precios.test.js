@@ -1430,3 +1430,21 @@ test('margenes-propios: GET cuenta por tipo; previsualizar no escribe; aplicar a
   for (let i = 0; i < 6; i++) await llamar('post', '/api/precios/margenes-propios/aplicar', { topePct: 5 });
   assert.ok(!('6051' in estado.archivo.margenPorProducto));
 });
+
+// ── Decisión 'manual' y costo manual (esquema por canal) ─────────────────────
+
+test('costo-producto: quitar el costo manual limpia la decisión manual de ese PLU y sólo esa; poner o cambiar el costo no la toca', async () => {
+  const decision = fuente => ({ fuente, fecha: '2026-10-07' });
+  const { estado, llamar } = routerConArchivo({ costoPorProducto: { 5: 100, 6: 80, 8: 50 },
+    decisiones: { 5: decision('manual'), 6: decision('manual'), 7: decision('sistema'), 8: decision('sistema') } });
+  await llamar('put', '/api/precios/costo-producto/5', { fuente: 'manual', costo: 120 });
+  assert.strictEqual(estado.archivo.decisiones[5].fuente, 'manual'); // cambiar el costo manual: la decisión sigue
+  await llamar('put', '/api/precios/costo-producto/5', { fuente: 'sistema' });
+  assert.strictEqual(estado.archivo.costoPorProducto[5], undefined);
+  assert.deepStrictEqual(Object.keys(estado.archivo.decisiones).sort(), ['6', '7', '8']);
+  await llamar('put', '/api/precios/costo-producto/6', { fuente: 'ultimaCompra' }); // también quita el manual
+  assert.deepStrictEqual(Object.keys(estado.archivo.decisiones).sort(), ['7', '8']);
+  assert.strictEqual(estado.archivo.fuenteCosto[6], 'ultimaCompra');
+  await llamar('put', '/api/precios/costo-producto/8', { fuente: 'sistema' }); // decisión que no era manual: queda
+  assert.deepStrictEqual(Object.keys(estado.archivo.decisiones).sort(), ['7', '8']);
+});

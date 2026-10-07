@@ -116,9 +116,14 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const plu = String(req.params.plu || '').trim();
     const body = cuerpo(req);
     if (!('fuente' in body)) return { error: 'falta fuente (sistema, ultimaCompra, manual o null)' };
-    const costeo = leerCosteo();
-    const error = L.validarDecision(plu, body.fuente, costeo);
+    let error = L.validarDecision(plu, body.fuente, leerCosteo());
+    if (!error && body.fuente != null) { // ponytail: arma los tres listados; si pesa, buscar sólo en el tipo del PLU
+      const costeo = leerCosteo();
+      const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
+      error = L.validarDecisionContraFilas({ almacen, fraccionado, produccion }, plu, body.fuente);
+    }
     if (error) return { error };
+    const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
     const decisiones = L.aplicarDecision(costeo.decisiones, plu, body.fuente, hoyISO());
     guardarJSON(COSTEO_PATH, { ...costeo, decisiones });
     return { plu, decision: decisiones[plu] || null };

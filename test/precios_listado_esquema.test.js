@@ -137,6 +137,29 @@ test('validarDecision / aplicarDecision', () => {
   assert.deepStrictEqual(antes, { 1: { fuente: 'sistema', fecha: 'a' } });
 });
 
+test('validarDecisionContraFilas: sólo filas decidibles y fuentes con sugerido; null siempre pasa (limpia decisiones viejas)', () => {
+  const sug = (...fs) => Object.fromEntries(fs.map(f => [f, {}]));
+  const filas = {
+    almacen: [{ plu: '1', sugeridos: sug('sistema', 'ultimaCompra') }],
+    fraccionado: [
+      { plu: '100', sugeridos: sug('sistema'), presentaciones: [{ plu: '101', sugeridos: sug('sistema') }] },
+      { plu: null, sugeridos: {}, presentaciones: [{ plu: '102', sugeridos: {} }] }, // "Sin granel asignado"
+    ],
+    produccion: [{ plu: '6319', sugeridos: sug('sistema') }],
+  };
+  const v = (plu, fuente) => L.validarDecisionContraFilas(filas, plu, fuente);
+  assert.strictEqual(v('1', 'ultimaCompra'), null);
+  assert.strictEqual(v('100', 'sistema'), null); // granel de Fraccionado
+  assert.strictEqual(v('6319', 'sistema'), null);
+  assert.match(v('999', 'sistema'), /no está en ningún listado/);
+  assert.match(v('101', 'sistema'), /presentación de Fraccionado.*granel \(PLU 100\)/);
+  assert.match(v('102', 'sistema'), /presentación de Fraccionado/); // grupo sin granel: nadie la decide
+  assert.match(v('6319', 'ultimaCompra'), /no tiene precio sugerido con la fuente ultimaCompra \(disponibles: sistema\)/);
+  assert.match(v('1', 'manual'), /disponibles: sistema, ultimaCompra/);
+  assert.strictEqual(v('999', null), null);
+  assert.strictEqual(v('101', null), null);
+});
+
 test('itemsDecididos + listasExport: una lista por canal; Fraccionado alcanza a todas sus presentaciones; sin precio → omitido', () => {
   const almacen = L.listadoReventa({
     universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }, { plu: '2', nombre: 'Fideos', costoSistema: 500 }, { plu: '3', nombre: 'Sal', costoSistema: 300 }],
