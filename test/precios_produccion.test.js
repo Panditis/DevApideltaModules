@@ -420,10 +420,23 @@ test('limpiarRecetas: saca insumos, máquinas, MO y corrección; snapshots sólo
       validado: { fecha: 'f', costoUnidad: 50, costos: { 1: 100, 2: 20, 9: 15, _costoHora: 4500 } } } } } } };
   const r = limpiarRecetas(datos);
   assert.deepStrictEqual(r.datos, { productos: { 'p-a': { nombre: 'A',
-    recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '1', cantidad: 5 }], validado: { fecha: 'f', costoKg: 70, costos: { 1: 100 } } },
+    recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '1', cantidad: 5 }], validado: { fecha: 'f', costos: { 1: 100 } } },
       v: { nombre: 'V', varianteDe: 'base', extras: [{ plu: '2', cantidad: 1 }] } },
-    presentaciones: { 7: { recetaId: 'v', kgPorUnidad: 0.5, validado: { fecha: 'f', costoUnidad: 50, costos: { 1: 100, 2: 20 } } } } } } });
+    presentaciones: { 7: { recetaId: 'v', kgPorUnidad: 0.5, validado: { fecha: 'f', costos: { 1: 100, 2: 20 } } } } } } });
   assert.ok(r.quitadas.includes('archivo.insumosManuales') && r.quitadas.includes('presentacion.validado.costos'));
+  assert.ok(r.quitadas.includes('receta.validado.costoKg') && r.quitadas.includes('presentacion.validado.costoUnidad'));
   assert.strictEqual(limpiarRecetas(r.datos), null);
   assert.ok('insumos' in datos.productos['p-a']); // no muta
+});
+
+test('limpiarRecetas: el costo total validado viejo (con MO/máquina/insumos) se descarta aunque no haya nada más que podar → Δ% null hasta revalidar', () => {
+  const validado = { fecha: 'f', costoKg: 70, costos: { 1: 100 } };
+  const datos = { productos: { 'p-a': { nombre: 'A', recetas: { base: { nombre: 'Base', materiasPrimas: [{ plu: '1', cantidad: 5 }], validado } }, presentaciones: {} } } };
+  const r = limpiarRecetas(datos);
+  assert.deepStrictEqual(r.datos.productos['p-a'].recetas.base.validado, { fecha: 'f', costos: { 1: 100 } });
+  assert.deepStrictEqual(r.quitadas, ['receta.validado.costoKg']);
+  assert.strictEqual(datos.productos['p-a'].recetas.base.validado.costoKg, 70); // no muta
+  const c = detectarCambios({ validado: r.datos.productos['p-a'].recetas.base.validado, costosActuales: { 1: 100 }, costoActual: 20, toleranciaPct: 3 });
+  assert.deepStrictEqual([c.estado, c.deltaPct], ['ok', null]);
+  assert.strictEqual(limpiarRecetas(r.datos), null);
 });
