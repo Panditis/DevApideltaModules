@@ -432,6 +432,8 @@
     <div class="cfg-riel" role="presentation">
       <button type="button" role="tab" class="cfg-tab" id="tab-costos" data-sub="costos" aria-controls="panel-costos" aria-selected="false"><span class="n" aria-hidden="true">1</span>Costos</button>
       <span class="cfg-chev" aria-hidden="true">›</span>
+      <button type="button" role="tab" class="cfg-tab" id="tab-margenes" data-sub="margenes" aria-controls="panel-margenes" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">2</span>Márgenes</button>
+      <span class="cfg-chev" aria-hidden="true">›</span>
       <button type="button" role="tab" class="cfg-tab" id="tab-precio" data-sub="precio" aria-controls="panel-precio" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">3</span>Precio</button>
       <span class="cfg-chev" aria-hidden="true">›</span>
       <button type="button" role="tab" class="cfg-tab" id="tab-simulador" data-sub="simulador" aria-controls="panel-simulador" aria-selected="false" tabindex="-1"><span class="n" aria-hidden="true">4</span>Simulador</button>
@@ -444,8 +446,9 @@
     </div>
   </nav>
 
-  <!-- Costos y Precio (y Márgenes, Task 7): los pinta /js/precios_config_esquema.js. -->
+  <!-- Costos, Márgenes y Precio: los pinta /js/precios_config_esquema.js. -->
   <section id="panel-costos" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costos"></section>
+  <section id="panel-margenes" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-margenes"></section>
   <section id="panel-precio" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-precio"></section>
 
   <!-- Simulador: costo de compra → precio final al público con la config guardada. Lo pinta /js/precios_simulador.js. -->

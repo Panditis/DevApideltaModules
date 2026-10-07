@@ -197,6 +197,7 @@ async function irASubConfig(e){
 // sub-tab usado en la sesión (sessionStorage); la primera vez (o si el guardado ya no existe, ej. 'ganancia'), Costos.
 const CARGA_SUBCONFIG = {
   costos: () => cargarCostosEsq(),   // precios_config_esquema.js
+  margenes: () => cargarMargenesEsq(), // precios_config_esquema.js
   precio: () => cargarPrecioEsq(),   // precios_config_esquema.js
   simulador: () => cargarSimulador(), // precios_simulador.js
   general: () => cargarConfiguracion(),
