@@ -1,15 +1,14 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { opcionesDecision, filtrarFilas } = require('../public/js/precios_listados.js');
+const { etiquetaDecision, filtrarFilas } = require('../public/js/precios_listados.js');
 
-test('opcionesDecision: fuentes con sugerido; manual sólo si hay; la guardada siempre; Producción sólo Aumentar', () => {
-  const fila = { sugeridos: { sistema: { minorista: {} }, ultimaCompra: { error: 'margen' } }, decision: null };
-  assert.deepStrictEqual(opcionesDecision(fila, 'almacen'), [['', '—'], ['sistema', 'Aumentar con sistema']]);
-  const conManual = { sugeridos: { sistema: {}, ultimaCompra: {}, manual: {} } };
-  assert.deepStrictEqual(opcionesDecision(conManual, 'almacen').map(o => o[0]), ['', 'sistema', 'ultimaCompra', 'manual']);
-  assert.deepStrictEqual(opcionesDecision({ sugeridos: { sistema: {} }, decision: { fuente: 'manual' } }, 'almacen').map(o => o[0]), ['', 'sistema', 'manual']);
-  assert.deepStrictEqual(opcionesDecision(conManual, 'produccion'), [['', '—'], ['sistema', 'Aumentar']]);
+test('etiquetaDecision: badge de la fila decidida con su fuente; sin decisión → null; Producción = aumentar', () => {
+  assert.strictEqual(etiquetaDecision({ decision: null }, 'almacen'), null);
+  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'ultimaCompra' } }, 'almacen'), '↑ última compra');
+  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'sistema' } }, 'fraccionado'), '↑ sistema');
+  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'manual' } }, 'almacen'), '↑ manual');
+  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'sistema' } }, 'produccion'), '↑ aumentar');
 });
 
 test('filtrarFilas: texto en PLU/nombre (y presentaciones), sólo decididos, última compra más cara', () => {

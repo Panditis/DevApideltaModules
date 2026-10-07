@@ -1,21 +1,17 @@
 // ── Precios · listados Reventa, Fraccionado y Producción con el esquema por canal (spec 2026-10-07 §3.1) ──
 // Script clásico. Una fila por producto (Fraccionado: por granel con sus presentaciones debajo; Producción: por
-// presentación) con costo sistema, última compra, vigente, sugerido por fuente y la DECISIÓN (reemplaza al marcado y a
-// la fuente de costo). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
+// presentación) con costo sistema, última compra, vigente, sugerido por fuente y un badge con la DECISIÓN (se toma en el
+// modal, clic en el nombre; reemplaza al marcado y a la fuente de costo). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
 // Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio
 // (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema (precios_modal_esquema.js),
 // textoRevisar (precios_produccion.js), XLSX (CDN).
-const FUENTES_LST = ['sistema', 'ultimaCompra', 'manual'];
-const ETIQUETA_DECISION = { sistema: 'Aumentar con sistema', ultimaCompra: 'Aumentar con última compra', manual: 'Aumentar con manual' };
+const ETIQUETA_DECISION = { sistema: '↑ sistema', ultimaCompra: '↑ última compra', manual: '↑ manual' };
 const normL = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-// [valor, texto] del selector. Fuentes con sugerido (manual sólo si hay costo manual) + la decisión guardada aunque ya
-// no tenga sugerido. Producción: sólo "Aumentar" (= sistema, su única fuente).
-function opcionesDecision(fila, tipo) {
-  if (tipo === 'produccion') return [['', '—'], ['sistema', 'Aumentar']];
-  const s = fila.sugeridos || {};
-  const actual = fila.decision ? fila.decision.fuente : null;
-  return [['', '—'], ...FUENTES_LST.filter(f => (s[f] && !s[f].error) || f === actual).map(f => [f, ETIQUETA_DECISION[f]])];
+// Texto del badge de una fila decidida (null sin decisión). Producción: "aumentar" (sistema es su única fuente).
+function etiquetaDecision(fila, tipo) {
+  if (!fila.decision) return null;
+  return tipo === 'produccion' ? '↑ aumentar' : ETIQUETA_DECISION[fila.decision.fuente] || `↑ ${fila.decision.fuente}`;
 }
 
 // Filtros del listado: texto (PLU/nombre, también presentaciones), sólo decididos, última compra más cara que sistema.
@@ -27,11 +23,11 @@ function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara 
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { opcionesDecision, filtrarFilas };
+if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
-const LST_COLS = 9;
+const LST_COLS = 7;
 let lstDatos = {};                                                  // tipo → filas del server
 const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {} }; // estado de los filtros por tab (sobrevive recargas)
 const NOMBRE_LISTA = { minorista: 'minorista', packNeto: 'pack_sin_iva', packIva: 'pack_con_iva', bultoNeto: 'bulto_sin_iva', bultoIva: 'bulto_con_iva' };
@@ -47,37 +43,35 @@ function celdaUltima(f) {
   const delta = f.deltaUltimaPct == null ? '' : ` · <span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`;
   return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${delta}</div>`;
 }
-const selectDecision = (f, tipo) => `<select class="lst-decision num-in text-left" data-plu="${esc(f.plu)}" aria-label="Decisión ${esc(f.nombre)}">
-  ${opcionesDecision(f, tipo).map(([v, t]) => `<option value="${v}"${(f.decision ? f.decision.fuente : '') === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-const botonNombre = f => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>`;
+const badgeDecision = (f, tipo) => { const t = etiquetaDecision(f, tipo); return t ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-verde/15 text-verde whitespace-nowrap" title="Decidido: se exporta">${esc(t)}</span>` : ''; };
+// Clic en el nombre = modal del producto, donde se elige el costo (y con eso la decisión).
+const botonNombre = (f, tipo) => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeDecision(f, tipo)}`;
 
 function filaHtml(f, tipo) {
   const marca = f.decision ? ' class="bg-verde/5"' : '';
   if (tipo === 'produccion') {
     const rev = textoRevisar(f.aRevisar); // precios_produccion.js
-    return `<tr${marca}><td class="p-2">${esc(f.plu)}</td><td class="p-2">${botonNombre(f)}</td>
+    return `<tr${marca}><td class="p-2">${esc(f.plu)}</td><td class="p-2">${botonNombre(f, tipo)}</td>
       <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
       <td class="p-2 num">${vigenteTxt(f.vigente)}</td><td class="p-2 num">${celdaPrecio(f.sugeridos.sistema)}</td>
       <td class="p-2">${rev ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn" title="${esc(f.aRevisar.map(x => textoRevisar([x])).join('\n'))}">⚠ ${esc(rev)}</span>` : ''}</td>
-      <td class="p-2">${selectDecision(f, tipo)}</td>
       <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
   }
   const fracc = tipo === 'fraccionado';
   const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}</td>
     <td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
-    <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}</td>
+    <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td></tr>`).join('');
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f, tipo)}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td>
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
-    <td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.sistema)}</td><td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.ultimaCompra)}</td>
-    <td class="p-2">${f.plu == null ? '<span class="text-gris text-xs">sin granel</span>' : selectDecision(f, tipo)}</td></tr>${subfilas}`;
+    <td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.sistema)}</td><td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.ultimaCompra)}</td></tr>${subfilas}`;
 }
 
 function htmlMarcoListado(tipo) {
   const f = lstFiltros[tipo], prod = tipo === 'produccion';
-  const ths = prod ? ['Código', 'Producto', 'Costo', 'Vigente', 'Sugerido', 'A revisar', 'Decisión', '']
-    : ['Código', tipo === 'fraccionado' ? 'Granel / presentación' : 'Producto', 'Costo sistema', 'Última compra', 'Vigente', 'Sugerido con sistema', 'Sugerido con última compra', 'Decisión'];
+  const ths = prod ? ['Código', 'Producto', 'Costo', 'Vigente', 'Sugerido', 'A revisar', '']
+    : ['Código', tipo === 'fraccionado' ? 'Granel / presentación' : 'Producto', 'Costo sistema', 'Última compra', 'Vigente', 'Sugerido con sistema', 'Sugerido con última compra'];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
   <div class="flex items-center gap-2 mb-3 flex-wrap">
@@ -107,7 +101,6 @@ function conectarListado(tipo, cont) {
   cont.querySelector('.lst-exportar').onclick = exportarDecididos;
   cont.querySelector('.lst-quitar').onclick = quitarDecisiones;
   const cuerpo = cont.querySelector('.lst-cuerpo');
-  cuerpo.addEventListener('change', e => { const s = e.target.closest('.lst-decision'); if (s) cambiarDecision(tipo, s.dataset.plu, s.value || null, s); });
   cuerpo.addEventListener('click', e => { const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu); });
 }
 
@@ -140,7 +133,7 @@ function renderListado(tipo) {
     : `<tr><td colspan="${LST_COLS}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
 }
 
-// PUT de la decisión y actualización local (sin recargar SIGA). La usa también el modal.
+// PUT de la decisión y actualización local (sin recargar SIGA). La usa el modal.
 async function guardarDecision(plu, fuente) {
   const r = await fetch(`/api/precios/decision/${encodeURIComponent(plu)}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fuente }),
@@ -150,11 +143,6 @@ async function guardarDecision(plu, fuente) {
   lstDatos = Object.fromEntries(Object.entries(lstDatos).map(([t, filas]) => [t, filas.map(f => (f.plu === plu ? { ...f, decision: j.decision } : f))]));
   refrescarAlertasProduccion(); // precios_produccion.js: la decisión cambia el costo en uso → toast/badge "a revisar"
   return j.decision;
-}
-async function cambiarDecision(tipo, plu, fuente, select) {
-  select.disabled = true;
-  try { await guardarDecision(plu, fuente); } catch (e) { avisar(e.message); }
-  renderListado(tipo);
 }
 async function quitarDecisiones() {
   if (!(await confirmar('¿Quitar todas las decisiones (Reventa, Fraccionado y Producción)?', { textoOk: 'Quitar' }))) return;
