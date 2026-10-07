@@ -209,3 +209,29 @@ test('crearMayoristasDe: pesable trae su modo de venta (kg por default, paquete 
     [['60', 1, { modo: 'kg', pesoKg: null }], ['61', 5, { modo: 'paquete', pesoKg: 5 }]]);
   assert.deepStrictEqual(md('102').map(m => m.venta), [null, null]);
 });
+
+// ── Decisión temporal (spec §3): vence si SIGA cambió el precio decidido ──
+test('vigentesDeFila: Reventa/Producción = su vigente + pack/bulto; granel = sus presentaciones + todos los pack/bulto', () => {
+  assert.deepStrictEqual(L.vigentesDeFila({ plu: '1', vigente: 1800, mayoristas: [{ plu: '50', vigente: 1750 }] }), { 1: 1800, 50: 1750 });
+  const granel = { plu: '100', vigente: null, mayoristas: [{ plu: '109', vigente: 9000 }],
+    presentaciones: [{ plu: '101', vigente: 500, mayoristas: [] }, { plu: '102', vigente: null, mayoristas: [{ plu: '103', vigente: 4000 }] }] };
+  assert.deepStrictEqual(L.vigentesDeFila(granel), { 101: 500, 102: null, 103: 4000, 109: 9000 });
+});
+
+test('decisionVigente: igual → vigente; cambió el minorista o una presentación → vencida; sin foto (vieja) → vencida', () => {
+  const vig = new Map([['1', 1800], ['50', 1750], ['101', 500]]);
+  assert.strictEqual(L.decisionVigente({ fuente: 'sistema', vigente: { 1: 1800, 50: 1750 } }, vig), true);
+  assert.strictEqual(L.decisionVigente({ fuente: 'sistema', vigente: { 1: 1700, 50: 1750 } }, vig), false); // minorista importado
+  assert.strictEqual(L.decisionVigente({ fuente: 'sistema', vigente: { 101: 500, 102: null } }, vig), true); // 102 sigue sin precio
+  assert.strictEqual(L.decisionVigente({ fuente: 'sistema', vigente: { 101: 450, 102: null } }, vig), false); // una presentación cambió
+  assert.strictEqual(L.decisionVigente({ fuente: 'sistema', fecha: '2026-10-07' }, vig), false); // legacy sin foto
+});
+
+test('podarDecisiones: saca sólo las vencidas (objeto nuevo); sin vencidas devuelve el mismo costeo', () => {
+  const vig = new Map([['1', 1800]]);
+  const costeo = { toleranciaPct: 3, decisiones: { 1: { fuente: 'sistema', vigente: { 1: 1800 } }, 2: { fuente: 'sistema' } } };
+  const r = L.podarDecisiones(costeo, vig);
+  assert.deepStrictEqual([r.podadas, Object.keys(r.costeo.decisiones), r.costeo.toleranciaPct], [1, ['1'], 3]);
+  assert.deepStrictEqual(Object.keys(costeo.decisiones), ['1', '2']); // no muta
+  assert.strictEqual(L.podarDecisiones(r.costeo, vig).costeo, r.costeo);
+});

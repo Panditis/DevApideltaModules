@@ -20,6 +20,10 @@ let preciosSinConfig = false;
 const permisoConfigPrecios = fetch('/api/precios/config/publica').then(r => r.json())
   .then(j => j && j.puedeConfig === true).catch(() => false);
 
+// La decisión es temporal (spec esquema §3): al cargar /precios se borran las de ESTE usuario (las de otros quedan).
+// cargarListado e iniciarProduccion la esperan antes de pedir datos, así listados y costos ya salen sin ellas.
+const decisionesPropiasBorradas = fetch('/api/precios/decisiones/mias', { method: 'DELETE' }).then(r => r.json()).catch(() => null);
+
 const normTxt = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 // Formato de exportación para importar en SIGA: encabezados en la fila 4 (A-D: Codigo, Nombre, Costo, Venta) y

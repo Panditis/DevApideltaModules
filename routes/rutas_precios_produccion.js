@@ -65,12 +65,14 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   }
 
   const leerCosteo = () => leerJSON(COSTEO_PATH, {}) || {};
+  // Costeo sin las decisiones vencidas (SIGA cambió el precio decidido, spec esquema §3): el costo de las materias primas
+  // (costoEnSuTab) no usa una decisión que ya se importó.
+  const costeoVigente = () => L.leerCosteoVigente({ leerCosteo, guardarCosteo: c => guardarJSON(COSTEO_PATH, c), preciosVigentes: preciosVigentesAlmacen });
 
   // Un solo camino de costeo para selector, detalle, alertas, validar y el listado del esquema.
   async function costearProductos(datos, ids) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
-    const costeo = leerCosteo();
-    const costos = await costosPorPlu(plusUsados(productos));
+    const [costeo, costos] = await Promise.all([costeoVigente(), costosPorPlu(plusUsados(productos))]);
     return { costeados: costearTodos({ productos, costos, costeo }) };
   }
 
@@ -282,7 +284,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
       ORDER BY p.NombreProducto`);
     const datos = leer();
     const costos = await costosPorPlu(rows.map(r => String(r.plu)).filter(esPlu));
-    const costoDe = armarCostoDe({ costos, costeo: leerCosteo() });
+    const costoDe = armarCostoDe({ costos, costeo: await costeoVigente() });
     const componentes = rows.map(r => {
       const c = costoDe(String(r.plu)) || {};
       return { plu: String(r.plu), nombre: r.nombre, cantPorUnidad: Number(r.cantPorUnidad), costo: c.costo ?? null,

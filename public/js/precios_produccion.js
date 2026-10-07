@@ -741,8 +741,10 @@ function iniciarProduccion() {
   document.addEventListener('click', e => document.querySelectorAll('.bs-lista:not(.hidden)').forEach(l => {
     if (!l.contains(e.target) && e.target.id !== l.id.replace(/-lista$/, '')) l.classList.add('hidden');
   }));
-  if (parsearHashProduccion(location.hash)) rutearProduccion();
-  refrescarAlertasProduccion();
+  decisionesPropiasBorradas.then(() => { // precios_comun.js: costos de Producción sin las decisiones recién borradas
+    if (parsearHashProduccion(location.hash)) rutearProduccion();
+    refrescarAlertasProduccion();
+  });
 }
 // Al DOMContentLoaded ya corrieron todos los scripts de precios.html.
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', iniciarProduccion);

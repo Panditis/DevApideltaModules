@@ -9,7 +9,7 @@ const express = require('express');
 const crearRutas = require('../routes/rutas_precios_esquema');
 const { migrarEsquemaCanales } = require('../lib/precios_config_esquema');
 
-function appCon(costeo, { query = async () => [], sinConfig = false, archivos = {} } = {}) {
+function appCon(costeo, { query = async () => [], sinConfig = false, archivos = {}, usuario = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'esq-rutas-'));
   const archivo = path.join(dir, 'costeo.json');
   if (costeo) fs.writeFileSync(archivo, JSON.stringify(costeo));
@@ -19,7 +19,7 @@ function appCon(costeo, { query = async () => [], sinConfig = false, archivos = 
   const apiRoute = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { res.status(500).json({ error: err.message }); } };
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => { req.preciosSinConfig = sinConfig; next(); });
+  app.use((req, _res, next) => { req.preciosSinConfig = sinConfig; if (usuario) req.session = { user: { usuario } }; next(); });
   app.use(crearRutas({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR: dir, LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1' }));
   let server;
   const pedir = async (metodo, ruta, body) => {
@@ -134,7 +134,7 @@ test('decisión: PUT guarda/quita, valida el costo manual; DELETE las borra', as
 });
 
 test('decisión: el PLU tiene que ser una fila decidible y la fuente tener sugerido; null siempre limpia', async () => {
-  const a = appCon({ ...MIGRADO, decisiones: { 999: { fuente: 'sistema', fecha: 'x' } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const a = appCon({ ...MIGRADO, decisiones: { 999: { fuente: 'sistema', fecha: 'x', vigente: { 999: null } } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   const decidir = (plu, fuente) => a.pedir('PUT', `/api/precios/decision/${plu}`, { fuente });
   try {
     assert.match((await decidir('777', 'sistema')).error, /no está en ningún listado/); // PLU desconocido
@@ -194,5 +194,34 @@ test('listado Producción: "A revisar" con la materia prima que se movió desde 
     const f = filas.find(x => x.plu === '6319');
     // Harina: sistema 400 con IVA 21 % → 330,58 neto (filaCostos) vs 300 validado
     assert.deepStrictEqual(f.aRevisar, [{ plu: '300', nombre: 'Harina', antes: 300, ahora: 330.58 }]);
+  } finally { a.cerrar(); }
+});
+
+// ── Decisión temporal (spec §3) ──
+test('decisión: PUT guarda el usuario de la sesión y la foto de los vigentes; si SIGA cambia el precio, el listado la poda', async () => {
+  let precio = 1800;
+  const query = async sql => (sql.includes('ProductosSucursalesPrecios') ? [{ IdProducto: '1', Precio: precio }] : sigaFalso(sql));
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS, usuario: 'ana' });
+  try {
+    await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'sistema' });
+    await a.pedir('PUT', '/api/precios/decision/50', { fuente: 'sistema' });
+    const d = a.leer().decisiones;
+    assert.deepStrictEqual([d[1].usuario, d[1].vigente, d[50].vigente], ['ana', { 1: 1800 }, { 51: null }]);
+    assert.ok((await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).filas[0].decision);
+    precio = 1900; // se importó el precio nuevo en SIGA
+    const { filas } = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+    assert.strictEqual(filas[0].decision, null);
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones), ['50']); // podada del archivo
+  } finally { a.cerrar(); }
+});
+
+test('decisión: DELETE /decisiones/mias borra sólo las del usuario de la sesión', async () => {
+  const foto = { vigente: {} };
+  const decisiones = { 1: { fuente: 'sistema', usuario: 'ana', ...foto }, 2: { fuente: 'sistema', usuario: 'beto', ...foto }, 3: { fuente: 'manual', usuario: 'ana', ...foto } };
+  const a = appCon({ ...MIGRADO, decisiones }, { usuario: 'ana' });
+  try {
+    assert.deepStrictEqual(await a.pedir('DELETE', '/api/precios/decisiones/mias'), { borradas: 2 });
+    assert.deepStrictEqual(Object.keys(a.leer().decisiones), ['2']);
+    assert.deepStrictEqual(await a.pedir('DELETE', '/api/precios/decisiones/mias'), { borradas: 0 });
   } finally { a.cerrar(); }
 });

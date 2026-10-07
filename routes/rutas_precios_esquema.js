@@ -21,6 +21,10 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   const leerCosteo = () => leerJSON(COSTEO_PATH, {}) || {};
   const cuerpo = req => (req.body && typeof req.body === 'object' ? req.body : {});
   const formulasPesables = () => ((leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas) || {};
+  // Costeo sin las decisiones vencidas (SIGA cambió el precio decidido, spec §3); las poda del archivo una vez por carga.
+  // ponytail: repite la consulta de vigentes que después hace contexto(); compartirla si pesa.
+  const costeoVigente = () => L.leerCosteoVigente({ leerCosteo, guardarCosteo: c => guardarJSON(COSTEO_PATH, c), preciosVigentes: consultas.preciosVigentesAlmacen });
+  const usuarioDe = req => (req.session && req.session.user && req.session.user.usuario) || null;
 
   // Presentaciones de Producción con su costo por unidad y "a revisar" (el mismo costearTodos que la tab Producción).
   async function presentacionesProduccion(costeo) {
@@ -77,7 +81,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   // tipos, porque las tablas son por canal: Reventa por producto, Fraccionado $/kg por granel, Producción por
   // presentación. NO guarda: la UI la carga en las tres tablas y se guarda con Márgenes.
   router.post('/api/precios/config/esquema/rango', apiRoute(async () => {
-    const costeo = leerCosteo();
+    const costeo = await costeoVigente();
     const listados = await Promise.all(cfgEsq.TIPOS.map(t => listado(t, costeo)));
     const costos = listados.flat().map(f => f.costos.sistema).filter(c => c > 0);
     const rango = rangoDesdeCostos(costos);
@@ -87,7 +91,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   router.get('/api/precios/esquema/listado', apiRoute(async (req) => {
     const tipo = String(req.query.tipo || '');
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
-    const costeo = leerCosteo();
+    const costeo = await costeoVigente();
     const filas = await listado(tipo, costeo);
     const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo);
     return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
@@ -99,24 +103,28 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const tipo = String(req.query.tipo || '');
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
     const plu = String(req.params.plu || '').trim();
-    const fila = (await listado(tipo, leerCosteo())).find(f => f.plu === plu);
+    const fila = (await listado(tipo, await costeoVigente())).find(f => f.plu === plu);
     return fila ? L.filaPublica(fila, !sinConfig(req)) : { error: `PLU ${plu} no encontrado en ${tipo}` };
   }));
 
-  // body { fuente: 'sistema' | 'ultimaCompra' | 'manual' | null } (null quita). Cualquier usuario del módulo.
+  // body { fuente: 'sistema' | 'ultimaCompra' | 'manual' | null } (null quita). Cualquier usuario del módulo. La decisión
+  // guarda quién la tomó (se borra cuando ese usuario recarga /precios) y la foto de los vigentes de la fila (vence si
+  // SIGA los cambia), spec §3.
   router.put('/api/precios/decision/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
     const body = cuerpo(req);
     if (!('fuente' in body)) return { error: 'falta fuente (sistema, ultimaCompra, manual o null)' };
     let error = L.validarDecision(plu, body.fuente, leerCosteo());
+    let vigente = null;
     if (!error && body.fuente != null) { // ponytail: arma los tres listados; si pesa, buscar sólo en el tipo del PLU
-      const costeo = leerCosteo();
+      const costeo = await costeoVigente();
       const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
       error = L.validarDecisionContraFilas({ almacen, fraccionado, produccion }, plu, body.fuente);
+      if (!error) vigente = L.vigentesDeFila([...almacen, ...produccion, ...fraccionado].find(f => f.plu === plu));
     }
     if (error) return { error };
     const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
-    const decisiones = L.aplicarDecision(costeo.decisiones, plu, body.fuente, hoyISO());
+    const decisiones = L.aplicarDecision(costeo.decisiones, plu, body.fuente, hoyISO(), { usuario: usuarioDe(req), vigente });
     guardarJSON(COSTEO_PATH, { ...costeo, decisiones });
     return { plu, decision: decisiones[plu] || null };
   }));
@@ -126,9 +134,19 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { decisiones: {} };
   }));
 
+  // Al cargar /precios el front borra las decisiones del usuario de la sesión (las de otros usuarios quedan), spec §3.
+  router.delete('/api/precios/decisiones/mias', apiRoute(async (req) => {
+    const usuario = usuarioDe(req);
+    const costeo = leerCosteo();
+    const decisiones = Object.fromEntries(Object.entries(costeo.decisiones || {}).filter(([, d]) => ((d && d.usuario) || null) !== usuario));
+    const borradas = Object.keys(costeo.decisiones || {}).length - Object.keys(decisiones).length;
+    if (borradas) guardarJSON(COSTEO_PATH, { ...costeo, decisiones });
+    return { borradas };
+  }));
+
   // Las 5 listas (minorista, pack/bulto sin y con IVA) de los productos decididos; el front escribe un archivo por lista.
   router.get('/api/precios/esquema/export', apiRoute(async () => {
-    const costeo = leerCosteo();
+    const costeo = await costeoVigente();
     const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
     const { items, omitidos } = L.itemsDecididos({ almacen, fraccionado, produccion });
     return { listas: L.listasExport(items, cfgEsq.configEsquemaDe(costeo).ivaVentaPct), omitidos };

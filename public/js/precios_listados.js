@@ -111,6 +111,7 @@ async function cargarListado(tipo) {
   cont.innerHTML = htmlMarcoListado(tipo);
   conectarListado(tipo, cont);
   try {
+    await decisionesPropiasBorradas; // precios_comun.js
     const j = await (await fetch(`/api/precios/esquema/listado?tipo=${tipo}`)).json();
     if (j.error) throw new Error(j.error);
     lstDatos = { ...lstDatos, [tipo]: j.filas };
