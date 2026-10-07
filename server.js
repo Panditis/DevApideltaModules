@@ -956,6 +956,14 @@ app.get('/api/productos/buscar', apiRoute(async req => {
       AND sr.NombreSubRubro = 'Savona'))`;
   const filtros = [filtroRubro, filtroMarca].filter(Boolean).map(f => f.replace(/^AND /, '')).join(' AND ');
   const exclusiones = filtros ? `AND (${esSavona} OR (${filtros}))` : '';
+  // conFormula: sólo productos con al menos un componente real (no el placeholder "Formula
+  // generico"). La carga manual de producción no puede descontar nada de uno sin fórmula.
+  // Aplica también a SAVONA.
+  const filtroFormula = req.query.conFormula === '1'
+    ? `AND EXISTS (SELECT 1 FROM dbo.ProductosComponentes fc
+         JOIN dbo.Productos cp ON cp.IdProducto = fc.IdProductoComponente
+        WHERE fc.IdProducto = p.IdProducto AND ${SIN_FORMULA_GENERICO_SQL.replace(/\bp\./g, 'cp.')})`
+    : '';
   // Los que empiezan con lo buscado van primero: con un tope chico ("SAVONA…") quedaban afuera
   // del TOP a favor de nombres que sólo contienen el término en el medio.
   const prefijo = `'${words[0]}%'`;
@@ -963,7 +971,7 @@ app.get('/api/productos/buscar', apiRoute(async req => {
     FROM dbo.Productos p
     LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
     LEFT JOIN dbo.Marcas m ON m.IdMarca = p.IdMarca
-    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${exclusiones}
+    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${exclusiones} ${filtroFormula}
     ORDER BY CASE WHEN ${esSavona} THEN 0 WHEN p.NombreProducto LIKE ${prefijo} THEN 1 ELSE 2 END, p.NombreProducto`);
 }));
 
