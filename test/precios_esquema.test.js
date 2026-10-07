@@ -190,3 +190,13 @@ test('preciosCanales: errores de costo, gastos y tabla inválida', () => {
   assert.strictEqual(r.error, 'margen');
   assert.strictEqual(r.minorista, null);
 });
+
+test('UMD: sin module, se publica como global PreciosEsquema', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const src = fs.readFileSync(path.join(__dirname, '../lib/precios_esquema.js'), 'utf8');
+  const ctx = { self: {} };
+  vm.runInNewContext(src, ctx);
+  assert.strictEqual(typeof ctx.self.PreciosEsquema.preciosCanales, 'function');
+});
