@@ -24,3 +24,33 @@ test('alinear: respeta el vigente si el exacto está a menos de $0,50', () => {
   assert.strictEqual(E.alinear(1733.2, 0, 50), 1750);
   assert.strictEqual(E.alinear(1733.2, null, 0), 1733.2);
 });
+
+// ── Gastos variables ─────────────────────────────────────────────────────────
+
+const GASTOS = [
+  { id: 'flete', concepto: 'Flete', pct: 1, tipos: { almacen: true, fraccionado: true, produccion: false } },
+  { id: 'pop', concepto: 'Material POP', pct: 0.5, tipos: { almacen: true, fraccionado: false, produccion: true } },
+  { id: 'roto', concepto: 'Sin tipos', pct: 9 },
+];
+
+test('pctItems: suma solo los ítems tildados para el tipo', () => {
+  assert.strictEqual(E.pctItems(GASTOS, 'almacen'), 1.5);
+  assert.strictEqual(E.pctItems(GASTOS, 'fraccionado'), 1);
+  assert.strictEqual(E.pctItems(GASTOS, 'produccion'), 0.5);
+  assert.strictEqual(E.pctItems([], 'almacen'), 0);
+  assert.strictEqual(E.pctItems(undefined, 'almacen'), 0);
+});
+
+test('costoConGastos modo costo: costo × (1 + g)', () => {
+  assert.strictEqual(E.costoConGastos(1000, 5, 'costo'), 1050);
+  assert.strictEqual(E.costoConGastos(1000, 0, 'costo'), 1000);
+});
+
+test('costoConGastos modo precio: costo ÷ (1 − g)', () => {
+  assert.strictEqual(E.costoConGastos(1000, 20, 'precio'), 1250);
+  assert.strictEqual(E.costoConGastos(1000, 100, 'precio'), null);
+});
+
+test('costoConGastos: modo desconocido se trata como "costo"', () => {
+  assert.strictEqual(E.costoConGastos(1000, 5, undefined), 1050);
+});
