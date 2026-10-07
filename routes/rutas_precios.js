@@ -6,7 +6,7 @@ const preciosCostos = require('../lib/precios_costos');
 const preciosProduccion = require('../lib/precios_produccion');
 const { costeoConCurva, METODO_GANANCIA_CURVA } = require('../lib/precios_migracion_curva');
 const { pesoTokenKg } = require('../lib/producto_carga');
-const { crearConsultasPrecios } = require('../lib/precios_consultas');
+const { crearConsultasPrecios, granelDePresentacion, crearGranelPorNombre } = require('../lib/precios_consultas');
 const { crearPackBultoDe, configPackBultoSanitizada, PACK_BULTO_DEFAULT } = require('../lib/precios_pack_bulto');
 const preciosMargenes = require('../lib/precios_margenes_propios');
 const preciosPermisos = require('../lib/precios_permisos');
@@ -200,16 +200,13 @@ module.exports = function crearRutasPrecios(deps) {
 
   // Consultas SIGA compartidas con Producción (lib/precios_consultas.js): costo por PLU
   // (productosConCostos) y precio vigente de mostrador (preciosVigentesAlmacen).
-  const { productosConCostos, costosPorPlu, preciosVigentesAlmacen, fechasPrecioAlmacen, vinculosPackBulto, comprasHoy } = crearConsultasPrecios({
+  const { productosConCostos, costosPorPlu, preciosVigentesAlmacen, fechasPrecioAlmacen, vinculosPackBulto, comprasHoy,
+    universoAlmacen, universoFraccionado } = crearConsultasPrecios({
     query, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
   });
   // Vínculos pack/bulto → base (una query por request). Las sub-filas se aplican sobre el
   // precioConIva ya calculado de cada fila base: nunca se recalcula el base.
   const vinculosDe = async costeo => (await vinculosPackBulto((costeo.packBulto || {}).vinculosManuales || {})).vinculos;
-
-  // Universo Almacén: rubro 'Almacen', activo. (Los graneles no filtran Activo: un granel referenciado
-  // por fórmula se costea aunque esté inactivo, como antes.)
-  const universoAlmacen = () => productosConCostos(`p.Activo = 1 AND r.NombreRubro = 'Almacen'`);
 
   // Fila completa (costeo + comparación) para todo el universo Almacén. Compartida por
   // listado y detalle — el único lugar que trae las dos queries SQL y las cruza por plu.
@@ -241,55 +238,11 @@ module.exports = function crearRutasPrecios(deps) {
     });
   }
 
-  // ── Fraccionado ────────────────────────────────────────────────────────────
-  // Graneles = rubro 'Pesables Deposito'; presentaciones = rubro 'Pesables Fraccionado' (mismo
-  // filtro que rutas_fraccionado_externo) + 'Pesables Venta Directa', unidas por
-  // pesables_listas.formulas[plu].granel. Un venta directa sin fórmula es su propio granel.
-  // `rubro` es siempre una constante de este archivo, nunca input del request.
-  async function productosDeRubro(rubro) {
-    const rows = await query(`
-      SELECT p.IdProducto, p.NombreProducto
-      FROM Productos p JOIN Rubros r ON r.IdRubro = p.IdRubro
-      WHERE p.Activo = 1 AND r.NombreRubro = '${rubro}'`);
-    // El IVA de venta es el global de la config (ivaVentaPct), no la alícuota del producto.
-    return rows.map(r => ({ plu: String(r.IdProducto), nombre: String(r.NombreProducto || '').trim() }));
-  }
-
-  // Granel ('Pesables Deposito') de la fórmula activa en SIGA de cada PLU: componente directo o a dos
-  // niveles (por el intermedio de producción); gana el directo. Map plu → granelPlu.
-  async function granelesEnFormulaSiga(plus) {
-    const ids = plus.filter(id => /^\d{1,12}$/.test(id));
-    if (!ids.length) return new Map();
-    const lista = ids.map(id => `'${id}'`).join(',');
-    const formulaActivaPc2 = FORMULA_ACTIVA_SQL.replace(/\bpc\./g, 'pc2.');
-    const rows = await query(`
-      SELECT CAST(pc.IdProducto AS VARCHAR) AS Plu, CAST(p.IdProducto AS VARCHAR) AS Granel, 1 AS Nivel
-      FROM ProductosComponentes pc JOIN Productos p ON p.IdProducto = pc.IdProductoComponente
-      JOIN Rubros r ON r.IdRubro = p.IdRubro
-      WHERE pc.IdProducto IN (${lista}) AND r.NombreRubro = 'Pesables Deposito' AND ${FORMULA_ACTIVA_SQL}
-      UNION ALL
-      SELECT CAST(pc.IdProducto AS VARCHAR), CAST(p.IdProducto AS VARCHAR), 2
-      FROM ProductosComponentes pc JOIN ProductosComponentes pc2 ON pc2.IdProducto = pc.IdProductoComponente
-      JOIN Productos p ON p.IdProducto = pc2.IdProductoComponente JOIN Rubros r ON r.IdRubro = p.IdRubro
-      WHERE pc.IdProducto IN (${lista}) AND r.NombreRubro = 'Pesables Deposito' AND ${FORMULA_ACTIVA_SQL} AND ${formulaActivaPc2}`);
-    const mapa = new Map();
-    for (const r of [...rows].sort((a, b) => a.Nivel - b.Nivel)) {
-      const plu = String(r.Plu).trim();
-      if (!mapa.has(plu)) mapa.set(plu, String(r.Granel).trim());
-    }
-    return mapa;
-  }
-
   async function gruposFraccionado(costeo) {
-    const [graneles, fraccionados, ventaDirecta, vigentes, fechas, vinculos, compras] = await Promise.all([
-      productosDeRubro('Pesables Deposito'), productosDeRubro('Pesables Fraccionado'), productosDeRubro('Pesables Venta Directa'),
-      preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosDe(costeo), comprasHoy(),
-    ]);
     const formulas = (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas || {};
-    const granelSiga = await granelesEnFormulaSiga(ventaDirecta.filter(p => !granelDe(formulas, p.plu)).map(p => p.plu));
-    const presentaciones = [...fraccionados, ...ventaDirecta.map(p => ({ ...p, ventaDirecta: true, granelSiga: granelSiga.get(p.plu) || null }))];
-    const referenciados = presentaciones.map(p => granelDePresentacion(formulas, p)).filter(Boolean);
-    const costos = await costosPorPlu([...graneles.map(g => g.plu), ...referenciados]);
+    const [{ graneles, presentaciones, costos }, vigentes, fechas, vinculos, compras] = await Promise.all([
+      universoFraccionado(formulas), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosDe(costeo), comprasHoy(),
+    ]);
     const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo });
     return armarGruposFraccionado({ graneles, presentaciones, formulas, costos, vigentes, fechas, costeoConfig: costeo, packBultoDe, comprasHoy: compras });
   }
@@ -875,36 +828,6 @@ function compraHoyDe(compras, plu, toleranciaPct) {
 function costosExtraDe(cfg, plu) {
   const items = plu != null ? (cfg.costosExtraFraccionado || {})[plu] : null;
   return Array.isArray(items) ? items : [];
-}
-
-function granelDe(formulas, plu) {
-  const f = (formulas || {})[plu];
-  return f && f.granel != null ? String(f.granel) : null;
-}
-
-// Granel de una presentación: fórmula de pesables_listas; un venta directa sin ella usa la fórmula de
-// SIGA (granelSiga), después el granel del mismo nombre ("Albahaca 1Kg" ↔ "Albahaca DEPOSITO GRANEL")
-// y si no, es su propio granel: sus fraccionados (50G...) y temporales cuelgan de su PLU.
-// Su costo SIGA ya es $/kg, como todo pesable.
-const granelDePresentacion = (formulas, p, granelPorNombre = () => null) => granelDe(formulas, p.plu)
-  ?? (p.ventaDirecta ? p.granelSiga || granelPorNombre(p.nombre) || p.plu : null);
-
-// Nombre sin peso, paréntesis ("(Precio Por Kilo)"), "DEPOSITO"/"GRANEL", puntuación, tildes ni
-// mayúsculas: clave para unir VD y granel. soloLetras también saca números (calibre "9/11").
-const nombreBase = (nombre, soloLetras = false) => String(nombre || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  .replace(/\([^)]*\)/g, ' ').replace(/\d+(?:[.,]\d+)?\s*(?:kgs?|grs?|gramos|g)\b/g, ' ')
-  .replace(/\b(?:deposito|granel)\b/g, ' ').replace(soloLetras ? /[^a-z]+/g : /[^a-z0-9]+/g, ' ').trim();
-
-// Buscador de granel por nombre: primero con calibre exacto; sin calibre sólo si el granel es único
-// ("Avellanas Chicas 1Kg" ↔ "Avellanas Chicas - 9/11"; "Almendras 1Kg" con dos calibres no se une).
-function crearGranelPorNombre(graneles) {
-  const exacto = new Map((graneles || []).map(g => [nombreBase(g.nombre), g.plu]));
-  const porLetras = new Map();
-  for (const g of graneles || []) {
-    const k = nombreBase(g.nombre, true);
-    porLetras.set(k, porLetras.has(k) ? null : g.plu);
-  }
-  return nombre => exacto.get(nombreBase(nombre)) || porLetras.get(nombreBase(nombre, true)) || null;
 }
 
 // Listado Fraccionado agrupado por granel. Pura (sin SQL/fs): recibe graneles y presentaciones
