@@ -181,3 +181,18 @@ test('itemsDecididos + listasExport: una lista por canal; Fraccionado alcanza a 
   assert.deepStrictEqual(listas.bultoIva, [enc, ['50', 'Arroz Bulto x6', 1210, 1750]]);
   assert.deepStrictEqual([listas.packNeto, listas.packIva], [[enc], [enc]]);
 });
+
+// ── Materias primas de Producción (fase 4) ───────────────────────────────────
+
+test('costoEnSuTab: decisión › manual › sistema, con los costos extra del PLU; fuente decidida sin dato → null', () => {
+  const fila = { costoSistema: 1000, costoMercaderia: 1200 };
+  const extras = { 5: [{ concepto: 'Flete', tipo: 'pct', valor: 10 }] };
+  assert.deepStrictEqual(L.costoEnSuTab(fila, {}, '5'), { costo: 1000, fuente: 'sistema' });
+  assert.deepStrictEqual(L.costoEnSuTab(fila, { costosExtraFraccionado: extras }, '5'), { costo: 1100, fuente: 'sistema' });
+  assert.deepStrictEqual(L.costoEnSuTab(fila, { costoPorProducto: { 5: 900 } }, '5'), { costo: 900, fuente: 'manual' });
+  const conManual = { costoPorProducto: { 5: 900 } };
+  assert.deepStrictEqual(L.costoEnSuTab(fila, { ...conManual, decisiones: { 5: { fuente: 'ultimaCompra' } } }, '5'), { costo: 1200, fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.costoEnSuTab(fila, { ...conManual, decisiones: { 5: { fuente: 'sistema' } } }, '5'), { costo: 1000, fuente: 'sistema' });
+  assert.deepStrictEqual(L.costoEnSuTab({ costoSistema: 1000 }, { decisiones: { 5: { fuente: 'ultimaCompra' } } }, '5'), { costo: null, fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.costoEnSuTab(null, {}, '5'), { costo: null, fuente: 'sistema' });
+});
