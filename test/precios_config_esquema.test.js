@@ -13,8 +13,9 @@ test('configEsquemaDe: defaults para lo escalar; sin margenes → migrado false'
   assert.strictEqual(c.ivaVentaPct, 21);
   assert.deepStrictEqual(c.redondeo, { minorista: 50, packNeto: 50, packIva: 50, bultoNeto: 50, bultoIva: 50 });
   assert.deepStrictEqual([c.gastosVenta, c.extrasMinorista, c.margenes], [[], [], {}]);
-  const m = C.configEsquemaDe({ margenes: { almacen: {} }, modoGastos: 'precio', ivaVentaPct: 10.5, redondeo: { minorista: 10 } });
+  const m = C.configEsquemaDe({ margenes: { minorista: {} }, modoGastos: 'precio', ivaVentaPct: 10.5, redondeo: { minorista: 10 } });
   assert.deepStrictEqual([m.migrado, m.modoGastos, m.ivaVentaPct, m.redondeo.minorista, m.redondeo.packIva], [true, 'precio', 10.5, 10, 50]);
+  assert.strictEqual(C.configEsquemaDe({ margenes: { almacen: { minorista: {} } } }).migrado, false); // por tipo: falta colapsar
 });
 
 test('validarCostos: gastos y extras con tildes, sin listas; ids por slug', () => {
@@ -37,22 +38,19 @@ test('validarCostos: rechaza modo, tildes incompletos, pct fuera de rango, total
   assert.throws(() => C.validarCostos({ ...ok, gastosVenta: 'x' }), /gastosVenta: items: debe ser una lista/);
 });
 
-test('validarMargenesTipo: 3 tablas, descarta sinConfigurar, conserva rangoEstimado; ajuste por peso sólo en Fraccionado', () => {
-  const r = C.validarMargenesTipo('almacen', { minorista: { ...TABLA, rangoEstimado: true }, pack: { ...TABLA, sinConfigurar: true }, bulto: TABLA,
-    ajustesPeso: { tramosG: [500], puntos: [5] } });
+test('validarMargenes: 3 tablas por canal, descarta sinConfigurar y claves de más, conserva rangoEstimado; ajuste por peso opcional', () => {
+  const r = C.validarMargenes({ minorista: { ...TABLA, rangoEstimado: true }, pack: { ...TABLA, sinConfigurar: true }, bulto: TABLA, almacen: {} });
   assert.deepStrictEqual(r, { minorista: { ...TABLA, rangoEstimado: true }, pack: TABLA, bulto: TABLA });
-  const f = C.validarMargenesTipo('fraccionado', { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100, 500], puntos: [10, -5] } });
+  const f = C.validarMargenes({ minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100, 500], puntos: [10, -5] } });
   assert.deepStrictEqual(f.ajustesPeso, { tramosG: [100, 500], puntos: [10, -5] });
-  assert.strictEqual('ajustesPeso' in C.validarMargenesTipo('fraccionado', { minorista: TABLA, pack: TABLA, bulto: TABLA }), false);
 });
 
-test('validarMargenesTipo: errores con tipo, canal y campo', () => {
+test('validarMargenes: errores con canal y campo', () => {
   const tres = { minorista: TABLA, pack: TABLA, bulto: TABLA };
-  assert.throws(() => C.validarMargenesTipo('otro', tres), /tipo inválido/);
-  assert.throws(() => C.validarMargenesTipo('almacen', { ...tres, pack: { ...TABLA, minPct: 70 } }), /almacen\.pack: El margen mínimo no puede superar/);
-  assert.throws(() => C.validarMargenesTipo('almacen', { minorista: TABLA, pack: TABLA }), /almacen\.bulto: Falta la tabla/);
-  assert.throws(() => C.validarMargenesTipo('fraccionado', { ...tres, ajustesPeso: { tramosG: [500, 100], puntos: [1, 2] } }), /tramosG\[1\]/);
-  assert.throws(() => C.validarMargenesTipo('fraccionado', { ...tres, ajustesPeso: { tramosG: [100], puntos: [200] } }), /puntos/);
+  assert.throws(() => C.validarMargenes({ ...tres, pack: { ...TABLA, minPct: 70 } }), /pack: El margen mínimo no puede superar/);
+  assert.throws(() => C.validarMargenes({ minorista: TABLA, pack: TABLA }), /bulto: Falta la tabla/);
+  assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [500, 100], puntos: [1, 2] } }), /tramosG\[1\]/);
+  assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [100], puntos: [200] } }), /puntos/);
 });
 
 test('validarPrecio: IVA, tolerancia y los 5 redondeos (descarta claves de más)', () => {
@@ -100,16 +98,29 @@ test('migrarEsquemaCanales: agrega todo lo nuevo sin borrar claves viejas', () =
   });
 });
 
-test('migrarEsquemaCanales: márgenes desde piso/techo de la curva, 10 escalones, rango estimado; pack/bulto sin configurar', () => {
+test('migrarEsquemaCanales: 3 tablas por canal desde piso/techo de la curva de Reventa, 10 escalones, rango estimado; pack/bulto sin configurar', () => {
   const { margenes } = C.migrarEsquemaCanales(VIEJO).costeo;
   const rango = { desde: 100, hasta: 100000 };
-  assert.deepStrictEqual(margenes.almacen.minorista, { minPct: 33.65, maxPct: 47.81, escalones: 10, rango, rangoEstimado: true });
-  assert.deepStrictEqual(margenes.almacen.pack, { ...margenes.almacen.minorista, sinConfigurar: true });
-  assert.deepStrictEqual(margenes.almacen.bulto, { ...margenes.almacen.minorista, sinConfigurar: true });
-  assert.deepStrictEqual(margenes.fraccionado.ajustesPeso, { tramosG: [100, 1000], puntos: [8, 0] });
-  assert.deepStrictEqual(margenes.produccion.minorista, { minPct: 30, maxPct: 50, escalones: 10, rango, rangoEstimado: true });
+  assert.deepStrictEqual(Object.keys(margenes).sort(), ['ajustesPeso', 'bulto', 'minorista', 'pack']);
+  assert.deepStrictEqual(margenes.minorista, { minPct: 33.65, maxPct: 47.81, escalones: 10, rango, rangoEstimado: true });
+  assert.deepStrictEqual(margenes.pack, { ...margenes.minorista, sinConfigurar: true });
+  assert.deepStrictEqual(margenes.bulto, { ...margenes.minorista, sinConfigurar: true });
+  assert.deepStrictEqual(margenes.ajustesPeso, { tramosG: [100, 1000], puntos: [8, 0] });
   const { validarTablaMargen } = require('../lib/precios_esquema');
-  for (const tipo of C.TIPOS) for (const canal of C.CANALES) assert.strictEqual(validarTablaMargen(margenes[tipo][canal]), null, `${tipo}.${canal}`);
+  for (const canal of C.CANALES) assert.strictEqual(validarTablaMargen(margenes[canal]), null, canal);
+});
+
+test('migrarEsquemaCanales: colapsa márgenes por tipo (migración anterior) a las tablas de Reventa + ajuste de Fraccionado; idempotente', () => {
+  const T = { minPct: 20, maxPct: 40, escalones: 5, rango: { desde: 50, hasta: 5000 } };
+  const aj = { tramosG: [100], puntos: [5] };
+  const porTipo = { almacen: { minorista: T, pack: { ...T, sinConfigurar: true }, bulto: T },
+    fraccionado: { minorista: { ...T, minPct: 1 }, pack: T, bulto: T, ajustesPeso: aj }, produccion: { minorista: T, pack: T, bulto: T } };
+  const viejo = { ...C.migrarEsquemaCanales({}).costeo, margenes: porTipo };
+  const r = C.migrarEsquemaCanales(viejo);
+  assert.deepStrictEqual(r.claves, ['margenes']);
+  assert.deepStrictEqual(r.costeo.margenes, { minorista: T, pack: { ...T, sinConfigurar: true }, bulto: T, ajustesPeso: aj });
+  assert.strictEqual(C.migrarEsquemaCanales(r.costeo), null);
+  assert.deepStrictEqual(viejo.margenes, porTipo); // no muta
 });
 
 test('migrarEsquemaCanales: idempotente (lo migrado devuelve null) y no muta la entrada', () => {
@@ -122,8 +133,8 @@ test('migrarEsquemaCanales: idempotente (lo migrado devuelve null) y no muta la 
 test('migrarEsquemaCanales: archivo mínimo → márgenes de respaldo, listas vacías, sin ajuste por peso', () => {
   const { costeo } = C.migrarEsquemaCanales({});
   assert.deepStrictEqual([costeo.extrasMinorista, costeo.decisiones], [[], {}]);
-  assert.strictEqual(costeo.margenes.fraccionado.ajustesPeso, undefined);
-  assert.strictEqual(costeo.margenes.almacen.minorista.minPct, 30);
+  assert.strictEqual(costeo.margenes.ajustesPeso, undefined);
+  assert.strictEqual(costeo.margenes.minorista.minPct, 30);
 });
 
 test('limpiarCosteo: saca las claves muertas, los descuentos pack/bulto y listas de los gastos; conserva lo vivo; idempotente', () => {

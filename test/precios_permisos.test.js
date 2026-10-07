@@ -11,8 +11,8 @@ const RUTAS_CONFIG_ESPERADAS = [
   'get /api/precios/config/esquema',
   'put /api/precios/config/esquema/costos',
   'put /api/precios/config/esquema/precio',
-  'put /api/precios/config/esquema/margenes/:tipo',
-  'post /api/precios/config/esquema/rango/:tipo',
+  'put /api/precios/config/esquema/margenes',
+  'post /api/precios/config/esquema/rango',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).

@@ -9,7 +9,7 @@ const SIM_PESO_DEFAULT_G = 1000;
 const SIM_UNIDADES = Object.freeze({ pack: 1, bulto: 1 });
 const SIM_ERRORES = {
   costo: 'El costo tiene que ser mayor a 0.',
-  margen: 'Faltan o son inválidas las tablas de margen de este tipo (Márgenes).',
+  margen: 'Faltan o son inválidas las tablas de margen (Márgenes).',
   gastos: 'Con el modo "sobre precio", los gastos variables del tipo llegan al 100 %.',
 };
 

@@ -3,7 +3,8 @@
 // Se corre A MANO, una vez por instalación (dev y prod); no corre al arrancar el server:
 //   node scripts/migrar_esquema_canales.js [ruta/a/costeo.json]
 // Agrega modoGastos, tildes por tipo en los gastos, extrasMinorista, margenes, redondeo y decisiones, y saca
-// "Costos Financieros Minorista" de los gastos (lib/precios_config_esquema migrarEsquemaCanales). No borra claves
+// "Costos Financieros Minorista" de los gastos (lib/precios_config_esquema migrarEsquemaCanales); los márgenes por tipo de
+// la primera versión se colapsan a 3 tablas por canal (las de Reventa + el ajuste por peso de Fraccionado). No borra claves
 // viejas (fase 5). Idempotente. Backup <ruta>.bak-esquema-canales antes de escribir; si ya existe no se pisa (es el
 // original). Escritura atómica (tmp + rename). Conviene correrlo sin nadie editando la configuración.
 const fs = require('fs');

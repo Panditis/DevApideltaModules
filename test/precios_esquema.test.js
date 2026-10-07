@@ -124,12 +124,8 @@ const CFG = {
   modoGastos: 'costo',
   gastosVenta: [{ id: 'g', concepto: 'Flete', pct: 10, tipos: { almacen: true, fraccionado: true, produccion: true } }],
   extrasMinorista: [{ id: 'iibb', concepto: 'IIBB', pct: 5, tipos: { almacen: true, fraccionado: true, produccion: true } }],
-  margenes: {
-    almacen: { minorista: tabla(30, 60), pack: tabla(20, 40), bulto: tabla(10, 30) },
-    fraccionado: { minorista: tabla(30, 60), pack: tabla(20, 40), bulto: tabla(10, 30),
-      ajustesPeso: { tramosG: [100, 1000], puntos: [10, 0] } },
-    produccion: { minorista: tabla(30, 60), pack: tabla(20, 40), bulto: tabla(10, 30) },
-  },
+  margenes: { minorista: tabla(30, 60), pack: tabla(20, 40), bulto: tabla(10, 30),
+    ajustesPeso: { tramosG: [100, 1000], puntos: [10, 0] } },
   redondeo: { minorista: 50, packNeto: 0, packIva: 50, bultoNeto: 0, bultoIva: 50 },
 };
 
@@ -151,7 +147,7 @@ test('preciosCanales Reventa: minorista con extras antes del IVA y redondeo a 50
 
 test('preciosCanales: pack y bulto NO dependen del precio minorista (solo comparten costo + gastos)', () => {
   const base = E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades: { pack: 6 }, cfg: CFG });
-  const otraMin = { ...CFG, margenes: { ...CFG.margenes, almacen: { ...CFG.margenes.almacen, minorista: tabla(80, 90) } } };
+  const otraMin = { ...CFG, margenes: { ...CFG.margenes, minorista: tabla(80, 90) } };
   const p = E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades: { pack: 6 }, cfg: otraMin });
   assert.notStrictEqual(p.minorista.precio, base.minorista.precio);
   assert.deepStrictEqual(p.pack, base.pack);
@@ -172,6 +168,15 @@ test('preciosCanales Fraccionado: escalón por costo/kg del granel + ajuste por 
   assert.strictEqual(p.minorista.neto, 330);
 });
 
+test('preciosCanales: las mismas 3 tablas (una por canal) para los tres tipos; ajuste por peso sólo en Fraccionado', () => {
+  const sinGastos = { ...CFG, gastosVenta: [], extrasMinorista: [] };
+  const alm = E.preciosCanales({ tipo: 'almacen', costo: 2000, pesoG: 100, unidades: { pack: 1 }, cfg: sinGastos });
+  const prod = E.preciosCanales({ tipo: 'produccion', costo: 2000, pesoG: 100, unidades: { pack: 1 }, cfg: sinGastos });
+  assert.deepStrictEqual(prod, alm);
+  assert.deepStrictEqual([alm.minorista.margenPct, alm.pack.margenPct], [40, 26.67]);
+  assert.strictEqual(E.preciosCanales({ tipo: 'fraccionado', costo: 2000, pesoG: 100, cfg: sinGastos }).minorista.margenPct, 50);
+});
+
 test('preciosCanales: gastos solo del tipo y modo "precio"', () => {
   const cfg = { ...CFG, modoGastos: 'precio',
     gastosVenta: [{ id: 'g', concepto: 'x', pct: 20, tipos: { almacen: false, produccion: true } }] };
@@ -186,7 +191,7 @@ test('preciosCanales: errores de costo, gastos y tabla inválida', () => {
   const g100 = { ...CFG, modoGastos: 'precio',
     gastosVenta: [{ id: 'g', concepto: 'x', pct: 100, tipos: { almacen: true } }] };
   assert.strictEqual(E.preciosCanales({ tipo: 'almacen', costo: 2000, cfg: g100 }).error, 'gastos');
-  const rota = { ...CFG, margenes: { ...CFG.margenes, almacen: { ...CFG.margenes.almacen, bulto: { minPct: 1 } } } };
+  const rota = { ...CFG, margenes: { ...CFG.margenes, bulto: { minPct: 1 } } };
   const r = E.preciosCanales({ tipo: 'almacen', costo: 2000, cfg: rota });
   assert.strictEqual(r.error, 'margen');
   assert.strictEqual(r.minorista, null);

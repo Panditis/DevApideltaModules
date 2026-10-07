@@ -125,7 +125,7 @@ function pintarPrecioEsq(panel, cfg) {
   }, cargarPrecioEsq);
 }
 
-// ── Márgenes: 9 tablas (tipo × canal) + grilla de quiebres en vivo + rango desde SIGA + ajuste por peso (Fraccionado) ──
+// ── Márgenes: 3 tablas (una por canal, para los tres tipos) + grilla de quiebres en vivo + rango desde SIGA + ajuste por peso (Fraccionado) ──
 const CANALES_ESQ = { minorista: 'Minorista', pack: 'Mayorista pack', bulto: 'Mayorista bulto' };
 const cargarMargenesEsq = () => cargarPanelEsq('panel-margenes', pintarMargenesEsq);
 const chipEsq = (txt, title = '') => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn"${title ? ` title="${esc(title)}"` : ''}>${esc(txt)}</span>`;
@@ -173,22 +173,22 @@ const leerAjustesPesoEsq = sec => {
   return caja ? { tramosG: JSON.parse(caja.dataset.tramos), puntos: [...caja.querySelectorAll('[data-tramo]')].map(i => numOrNull(i.value)) } : null;
 };
 
-function htmlTipoMargenesEsq(tipo, m) {
-  return `<section class="mb-6" data-guardable data-nombre="Márgenes ${TIPOS_ESQ[tipo]}" data-tipo="${tipo}">
+function htmlMargenesEsq(m) {
+  return `<section class="mb-6" data-guardable data-nombre="Márgenes">
     <div class="flex items-center gap-3 mb-2 flex-wrap">
-      <h3 class="cfg-h">${TIPOS_ESQ[tipo]}${tipo === 'fraccionado' ? ' <span class="cfg-nota">costo por kg del granel</span>' : ''}</h3>
-      <button type="button" class="esq-rango cfg-btn2" title="Percentiles 5 y 95 de los costos de sistema del tipo (consulta SIGA; no guarda)">Recalcular rango</button>
+      <button type="button" class="esq-rango cfg-btn2" title="Percentiles 5 y 95 de los costos de sistema de Reventa, Fraccionado ($/kg del granel) y Producción (consulta SIGA; no guarda)">Recalcular rango</button>
       <span class="esq-msg text-sm" role="status" aria-live="polite"></span>
-      <button type="button" class="esq-guardar cfg-btn ml-auto">Guardar ${TIPOS_ESQ[tipo]}</button></div>
+      <button type="button" class="esq-guardar cfg-btn ml-auto">Guardar márgenes</button></div>
     <div class="grid grid-cols-3 gap-4">${Object.keys(CANALES_ESQ).map(c => htmlTablaMargenEsq(c, m[c] || {})).join('')}</div>
-    ${tipo === 'fraccionado' ? htmlAjustesPesoEsq(m.ajustesPeso) : ''}</section>`;
+    <h3 class="cfg-h mt-4">Fraccionado <span class="cfg-nota">costo por kg del granel</span></h3>
+    ${htmlAjustesPesoEsq(m.ajustesPeso)}</section>`;
 }
 
-async function recalcularRangoEsq(sec, tipo) {
+async function recalcularRangoEsq(sec) {
   const msg = sec.querySelector('.esq-msg');
   msgEsq(msg, 'Consultando costos en SIGA…');
   try {
-    const { rango, n } = await pedirEsq('POST', `${API_ESQ}/rango/${tipo}`);
+    const { rango, n } = await pedirEsq('POST', `${API_ESQ}/rango`);
     sec.querySelectorAll('[data-canal]').forEach(card => {
       card.querySelector('[data-k="desde"]').value = rango.desde;
       card.querySelector('[data-k="hasta"]').value = rango.hasta;
@@ -201,19 +201,18 @@ async function recalcularRangoEsq(sec, tipo) {
 }
 
 function pintarMargenesEsq(panel, cfg) {
-  panel.innerHTML = `<p class="cfg-cab"><b>Márgenes</b> — una tabla por tipo y canal. El margen baja en escalones del máximo (costos bajos) al mínimo
-    (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no son descuentos del minorista: cada canal tiene su margen.</p>
-    ${TIPOS_K.map(t => htmlTipoMargenesEsq(t, cfg.margenes[t] || {})).join('')}`;
+  panel.innerHTML = `<p class="cfg-cab"><b>Márgenes</b> — una tabla por canal, la misma para Reventa, Fraccionado y Producción. El margen
+    baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no
+    son descuentos del minorista: cada canal tiene su margen. En Fraccionado se suma además el ajuste por peso.</p>
+    ${htmlMargenesEsq(cfg.margenes || {})}`;
   panel.querySelectorAll('[data-canal]').forEach(pintarQuiebresEsq);
   // oninput (no addEventListener): el panel persiste entre cargas y no hay que acumular listeners.
   panel.oninput = e => { const c = e.target.closest('[data-canal]'); if (c) pintarQuiebresEsq(c); };
-  panel.querySelectorAll('section[data-tipo]').forEach(sec => {
-    const tipo = sec.dataset.tipo;
-    sec.querySelector('.esq-rango').onclick = () => recalcularRangoEsq(sec, tipo);
-    sec.querySelector('.esq-guardar').onclick = () => {
-      const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
-      const aj = leerAjustesPesoEsq(sec);
-      guardarBloqueEsq(sec, `${API_ESQ}/margenes/${tipo}`, aj ? { ...tablas, ajustesPeso: aj } : tablas, cargarMargenesEsq);
-    };
-  });
+  const sec = panel.querySelector('section[data-guardable]');
+  sec.querySelector('.esq-rango').onclick = () => recalcularRangoEsq(sec);
+  sec.querySelector('.esq-guardar').onclick = () => {
+    const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
+    const aj = leerAjustesPesoEsq(sec);
+    guardarBloqueEsq(sec, `${API_ESQ}/margenes`, aj ? { ...tablas, ajustesPeso: aj } : tablas, cargarMargenesEsq);
+  };
 }

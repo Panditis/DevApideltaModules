@@ -8,11 +8,7 @@ const CFG = {
   ivaVentaPct: 21, toleranciaPct: 5, modoGastos: 'costo',
   gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 10, tipos: TODOS }],
   extrasMinorista: [{ id: 'iibb', concepto: 'IIBB', pct: 5, tipos: TODOS }],
-  margenes: {
-    almacen: { minorista: T, pack: T, bulto: T },
-    fraccionado: { minorista: T, pack: T, bulto: T, ajustesPeso: { tramosG: [500, 1000], puntos: [10, 0] } },
-    produccion: { minorista: T, pack: T, bulto: T },
-  },
+  margenes: { minorista: T, pack: T, bulto: T, ajustesPeso: { tramosG: [500, 1000], puntos: [10, 0] } },
   redondeo: { minorista: 50, packNeto: 0, packIva: 50, bultoNeto: 0, bultoIva: 50 },
 };
 module.exports = { TODOS, T, CFG };

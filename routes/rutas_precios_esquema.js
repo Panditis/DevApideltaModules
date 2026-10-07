@@ -44,11 +44,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   router.get('/api/precios/config/esquema', apiRoute(async () => cfgEsq.configEsquemaDe(leerCosteo())));
   router.put('/api/precios/config/esquema/costos', guardarCon(req => cfgEsq.validarCostos(cuerpo(req))));
   router.put('/api/precios/config/esquema/precio', guardarCon(req => cfgEsq.validarPrecio(cuerpo(req))));
-  router.put('/api/precios/config/esquema/margenes/:tipo', guardarCon(req => {
-    const tipo = String(req.params.tipo || '');
-    const tablas = cfgEsq.validarMargenesTipo(tipo, cuerpo(req));
-    return { margenes: { ...(leerCosteo().margenes || {}), [tipo]: tablas } };
-  }));
+  // Las 3 tablas por canal (+ ajuste por peso de Fraccionado) reemplazan a margenes entero.
+  router.put('/api/precios/config/esquema/margenes', guardarCon(req => ({ margenes: cfgEsq.validarMargenes(cuerpo(req)) })));
 
   const TIPOS_LISTADO = cfgEsq.TIPOS;
   const sinConfig = req => !!(req && req.preciosSinConfig === true); // lo marca guardPrecios (server.js)
@@ -76,18 +73,13 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
   }
 
-  // Costos de sistema (+ costos extra) del tipo para "Recalcular rango": Reventa por producto, Fraccionado $/kg por
-  // granel, Producción por presentación.
-  async function costosDelTipo(tipo, costeo) {
-    return (await listado(tipo, costeo)).map(f => f.costos.sistema);
-  }
-
-  // Propuesta de rango (percentiles 5–95, rangoDesdeCostos). NO guarda: la UI la carga en las tres tablas del tipo y se
-  // guarda con Márgenes.
-  router.post('/api/precios/config/esquema/rango/:tipo', apiRoute(async (req) => {
-    const tipo = String(req.params.tipo || '');
-    if (!cfgEsq.TIPOS.includes(tipo)) return { error: `tipo inválido (${cfgEsq.TIPOS.join(', ')})` };
-    const costos = (await costosDelTipo(tipo, leerCosteo())).filter(c => c > 0);
+  // Propuesta de rango (percentiles 5–95, rangoDesdeCostos) sobre los costos de sistema (+ costos extra) de los TRES
+  // tipos, porque las tablas son por canal: Reventa por producto, Fraccionado $/kg por granel, Producción por
+  // presentación. NO guarda: la UI la carga en las tres tablas y se guarda con Márgenes.
+  router.post('/api/precios/config/esquema/rango', apiRoute(async () => {
+    const costeo = leerCosteo();
+    const listados = await Promise.all(cfgEsq.TIPOS.map(t => listado(t, costeo)));
+    const costos = listados.flat().map(f => f.costos.sistema).filter(c => c > 0);
     const rango = rangoDesdeCostos(costos);
     return rango ? { rango, n: costos.length } : { error: 'No hay suficientes costos de sistema para calcular el rango' };
   }));
@@ -97,7 +89,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
     const costeo = leerCosteo();
     const filas = await listado(tipo, costeo);
-    return { migrado: !!costeo.margenes, toleranciaPct: cfgEsq.configEsquemaDe(costeo).toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
+    const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo);
+    return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
   }));
 
   // Una fila (Fraccionado: un granel con sus presentaciones). Desglose y costos extra sólo con el permiso.

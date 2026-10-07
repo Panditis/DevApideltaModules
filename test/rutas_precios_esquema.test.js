@@ -54,14 +54,16 @@ test('config esquema: PUT precio valida antes de escribir', async () => {
   } finally { a.cerrar(); }
 });
 
-test('config esquema: PUT márgenes de un tipo pisa sólo ese tipo y saca sinConfigurar', async () => {
+test('config esquema: PUT márgenes guarda las 3 tablas por canal (+ ajuste por peso) y saca sinConfigurar; inválido no escribe', async () => {
   const a = appCon(MIGRADO);
   try {
     const T = { minPct: 20, maxPct: 40, escalones: 5, rango: { desde: 50, hasta: 5000 } };
-    const j = await a.pedir('PUT', '/api/precios/config/esquema/margenes/produccion', { minorista: T, pack: { ...T, sinConfigurar: true }, bulto: T });
-    assert.deepStrictEqual(j.margenes.produccion, { minorista: T, pack: T, bulto: T });
-    assert.deepStrictEqual(a.leer().margenes.produccion, { minorista: T, pack: T, bulto: T });
-    assert.strictEqual(a.leer().margenes.almacen.pack.sinConfigurar, true);
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/margenes', { minorista: T, pack: T })).error, /bulto/);
+    assert.strictEqual(a.leer().margenes.pack.sinConfigurar, true);
+    const aj = { tramosG: [100], puntos: [5] };
+    const j = await a.pedir('PUT', '/api/precios/config/esquema/margenes', { minorista: T, pack: { ...T, sinConfigurar: true }, bulto: T, ajustesPeso: aj });
+    assert.deepStrictEqual(j.margenes, { minorista: T, pack: T, bulto: T, ajustesPeso: aj });
+    assert.deepStrictEqual(a.leer().margenes, { minorista: T, pack: T, bulto: T, ajustesPeso: aj });
   } finally { a.cerrar(); }
 });
 
@@ -77,16 +79,15 @@ test('config esquema: PUT costos guarda modo, gastos (sin listas) y extras', asy
   } finally { a.cerrar(); }
 });
 
-test('config esquema: Recalcular rango = percentiles de los costos de sistema; sin costos o tipo inválido → error; no guarda', async () => {
+test('config esquema: Recalcular rango = percentiles de los costos de sistema; sin costos → error; no guarda', async () => {
   const filas = [121, 1210, 12100].map((c, i) => ({ IdProducto: String(i + 1), NombreProducto: `P${i}`, CostoSistema: c, IvaCompraPct: 21 }));
   const a = appCon(MIGRADO, { query: async sql => (sql.includes('UcPrecioNeto') ? filas : []) });
   try {
-    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango/almacen'), { rango: { desde: 100, hasta: 10000 }, n: 3 });
-    assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango/otro')).error, /tipo inválido/);
+    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 100, hasta: 10000 }, n: 3 });
     assert.deepStrictEqual(a.leer().margenes, MIGRADO.margenes);
   } finally { a.cerrar(); }
   const b = appCon(MIGRADO);
-  try { assert.match((await b.pedir('POST', '/api/precios/config/esquema/rango/fraccionado')).error, /suficientes costos/); } finally { b.cerrar(); }
+  try { assert.match((await b.pedir('POST', '/api/precios/config/esquema/rango')).error, /suficientes costos/); } finally { b.cerrar(); }
 });
 
 // ── Fase 3: decisión, listado, detalle, export ───────────────────────────────
@@ -108,6 +109,14 @@ const ARCHIVOS_FALSOS = {
     recetas: { base: { nombre: 'Base', rendimientoKg: 1, materiasPrimas: [{ plu: '300', cantidad: 1, unidad: 'kg' }] } },
     presentaciones: { 6319: { recetaId: 'base', kgPorUnidad: 1, insumos: [] } } } } },
 };
+
+test('config esquema: Recalcular rango junta los costos de los tres tipos (Reventa, granel $/kg, Producción)', async () => {
+  const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    // Reventa 1210/1,21 = 1000; granel 12100/1,21 = 10000 $/kg; Producción 1 kg de harina 400/1,21 = 330,58
+    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 10000 }, n: 3 });
+  } finally { a.cerrar(); }
+});
 
 test('decisión: PUT guarda/quita, valida el costo manual; DELETE las borra', async () => {
   const a = appCon({ ...MIGRADO, costoPorProducto: { 1: 100 } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
