@@ -173,3 +173,17 @@ test('detalle: con el permiso trae el desglose; sin él, no; el listado nunca', 
     } finally { a.cerrar(); }
   }
 });
+
+test('listado Producción: "A revisar" con la materia prima que se movió desde la validación (costo de su tab)', async () => {
+  const recetas = JSON.parse(JSON.stringify(ARCHIVOS_FALSOS['recetas_produccion.json']));
+  const prod = recetas.productos['p-mezcla'];
+  prod.recetas.base.validado = { fecha: '2026-10-01', costoKg: 300, costos: { 300: 300 } };
+  prod.presentaciones['6319'].validado = { fecha: '2026-10-01', costoUnidad: 300, costos: { 300: 300 } };
+  const a = appCon({ ...MIGRADO, toleranciaPct: 3 }, { query: sigaFalso, archivos: { ...ARCHIVOS_FALSOS, 'recetas_produccion.json': recetas } });
+  try {
+    const { filas } = await a.pedir('GET', '/api/precios/esquema/listado?tipo=produccion');
+    const f = filas.find(x => x.plu === '6319');
+    // Harina: sistema 400 con IVA 21 % → 330,58 neto (filaCostos) vs 300 validado
+    assert.deepStrictEqual(f.aRevisar, [{ plu: '300', nombre: 'Harina', antes: 300, ahora: 330.58 }]);
+  } finally { a.cerrar(); }
+});

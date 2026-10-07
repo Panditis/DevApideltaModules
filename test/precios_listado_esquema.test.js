@@ -113,12 +113,14 @@ test('listadoFraccionado: costo $/kg del granel en todas sus presentaciones, aju
 test('listadoProduccion: sólo PLUs SIGA, costo por unidad de la receta como fuente sistema, ordenado por nombre', () => {
   const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
   const filas = L.listadoProduccion({ presentaciones: [
-    { productoId: 'p-granola', plu: '6319', nombre: 'Granola 500G', costoUnidad: 1000 },
+    { productoId: 'p-granola', plu: '6319', nombre: 'Granola 500G', costoUnidad: 1000, aRevisar: [{ plu: '300', nombre: 'Harina', antes: 400, ahora: 440 }] },
     { productoId: 'p-granola', plu: 'n-nueva', nombre: 'Nueva', costoUnidad: 900 },
     { productoId: 'p-x', plu: '7000', nombre: 'Alfajor', costoUnidad: null },
   ], vigentes: new Map([['6319', 1800]]), mayoristasDe: md, costeo: { decisiones: { 6319: { fuente: 'sistema' } } }, cfg: CFG });
   assert.deepStrictEqual(filas.map(f => [f.plu, f.productoId, f.costoSistema, f.sugeridos.sistema ? f.sugeridos.sistema.minorista.precio : null, !!f.decision]),
     [['7000', 'p-x', null, null, false], ['6319', 'p-granola', 1000, 1800, true]]);
+  assert.deepStrictEqual(filas.find(f => f.plu === '6319').aRevisar, [{ plu: '300', nombre: 'Harina', antes: 400, ahora: 440 }]);
+  assert.strictEqual(filas.find(f => f.plu === '7000').aRevisar, null);
 });
 
 // ── Decisión y export ────────────────────────────────────────────────────────
