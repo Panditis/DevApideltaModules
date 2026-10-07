@@ -11,7 +11,7 @@ test('configEsquemaDe: defaults para lo escalar; sin margenes → migrado false'
   assert.strictEqual(c.migrado, false);
   assert.strictEqual(c.modoGastos, 'costo');
   assert.strictEqual(c.ivaVentaPct, 21);
-  assert.deepStrictEqual(c.redondeo, { minorista: 50, packNeto: 0, packIva: 50, bultoNeto: 0, bultoIva: 50 });
+  assert.deepStrictEqual(c.redondeo, { minorista: 50, packNeto: 50, packIva: 50, bultoNeto: 50, bultoIva: 50 });
   assert.deepStrictEqual([c.gastosVenta, c.extrasMinorista, c.margenes], [[], [], {}]);
   const m = C.configEsquemaDe({ margenes: { almacen: {} }, modoGastos: 'precio', ivaVentaPct: 10.5, redondeo: { minorista: 10 } });
   assert.deepStrictEqual([m.migrado, m.modoGastos, m.ivaVentaPct, m.redondeo.minorista, m.redondeo.packIva], [true, 'precio', 10.5, 10, 50]);
@@ -92,7 +92,7 @@ test('migrarEsquemaCanales: agrega todo lo nuevo sin borrar claves viejas', () =
   assert.deepStrictEqual(costeo.extrasMinorista, [
     { id: 'ingresos-brutos', concepto: 'Ingresos Brutos', pct: 5, tipos: TODOS },
     { id: 'impuesto-deb-cred', concepto: 'Impuesto Deb.Cred', pct: 0.79, tipos: TODOS }]);
-  assert.deepStrictEqual(costeo.redondeo, { minorista: 50, packNeto: 0, packIva: 50, bultoNeto: 0, bultoIva: 50 });
+  assert.deepStrictEqual(costeo.redondeo, { minorista: 50, packNeto: 50, packIva: 50, bultoNeto: 50, bultoIva: 50 });
   assert.deepStrictEqual(costeo.decisiones, {
     10: { fuente: 'sistema', fecha: '2026-09-30' },
     11: { fuente: 'ultimaCompra', fecha: '2026-10-01' },
