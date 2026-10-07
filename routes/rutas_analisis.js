@@ -48,29 +48,47 @@ router.get('/js/analisis_front.js', (_req, res) => res.sendFile(path.join(__dirn
 // por producto+sucursal (las ventas de una sucursal no fijan el mínimo de otra) y la serie
 // diaria de stock se reconstruye hacia atrás desde el stock de hoy, porque SIGA no guarda
 // foto histórica. Devuelve Map idProducto -> días.
+// La serie y las ventas arrancan SEMANAS_REFERENCIA_QUIEBRE antes del fin del rango: esas
+// semanas son la referencia de cuánto vende el producto en un día con stock (ver
+// perdidaPorQuiebre). El umbral y los días de quiebre siguen saliendo sólo del rango.
 async function quiebresPorProducto(p, idProductos) {
   const idsCsv = analisisVentas.idsCsvSeguro(idProductos);
   if (!idsCsv) return new Map();
   const hoy = new Date().toISOString().slice(0, 10);
-  const [pesablesRows, stockRows, netoRows, unidadesRows] = await Promise.all([
+  const inicioReferencia = new Date(new Date(`${p.hasta}T00:00:00Z`)
+    - (analisisVentas.SEMANAS_REFERENCIA_QUIEBRE * 7 - 1) * 86400000).toISOString().slice(0, 10);
+  const desdeRef = inicioReferencia < p.desde ? inicioReferencia : p.desde;
+  const [pesablesRows, stockRows, netoRows, ventasRows] = await Promise.all([
     query(analisisVentas.sqlPesables(idsCsv)),
     query(analisisVentas.sqlStockPorSucursal(idsCsv, p.sucIdsCsv)),
-    query(analisisVentas.sqlNetoDiarioStock(p.desde, p.sucIdsCsv, idsCsv)),
-    query(analisisVentas.sqlUnidadesPorSucursal(p, idsCsv)),
+    query(analisisVentas.sqlNetoDiarioStock(desdeRef, p.sucIdsCsv, idsCsv)),
+    query(analisisVentas.sqlVentasDiariasPorSucursal({ ...p, desde: desdeRef }, idsCsv)),
   ]);
 
   const pesables = new Set(pesablesRows.map(r => String(r.IdProducto)));
   const meses = analisisVentas.mesesDelRango(p.desde, p.hasta);
   const clave = (prod, suc) => `${prod}|${suc}`;
+  const isoFecha = f => (f instanceof Date ? f.toISOString().slice(0, 10) : String(f).slice(0, 10));
   const stock = new Map(stockRows.map(r => [clave(r.IdProducto, r.IdSucursal), Number(r.Stock || 0)]));
-  const unidades = new Map(unidadesRows.map(r => [clave(r.IdProducto, r.IdSucursal), Number(r.Unidades || 0)]));
+  // Venta diaria por producto+sucursal y fecha ISO, de toda la referencia. Las unidades del
+  // rango (para el umbral) salen de sumar sólo sus días, así no hace falta otra consulta.
+  const unidades = new Map();
+  const ventasDia = new Map();
+  for (const r of ventasRows) {
+    const k = clave(r.IdProducto, r.IdSucursal);
+    if (!ventasDia.has(k)) ventasDia.set(k, {});
+    const fecha = isoFecha(r.Fecha);
+    const u = Number(r.Unidades || 0);
+    ventasDia.get(k)[fecha] = { unidades: u, facturacion: Number(r.Facturacion || 0) };
+    if (fecha >= p.desde) unidades.set(k, (unidades.get(k) || 0) + u);
+  }
   // Netos y entradas indexados por producto+sucursal y, adentro, por fecha ISO.
   const netos = new Map();
   const entradas = new Map();
   for (const r of netoRows) {
     const k = clave(r.IdProducto, r.IdSucursal);
     if (!netos.has(k)) { netos.set(k, {}); entradas.set(k, {}); }
-    const fecha = r.Fecha instanceof Date ? r.Fecha.toISOString().slice(0, 10) : String(r.Fecha).slice(0, 10);
+    const fecha = isoFecha(r.Fecha);
     netos.get(k)[fecha] = Number(r.Neto || 0);
     entradas.get(k)[fecha] = Number(r.Entradas || 0);
   }
@@ -83,18 +101,22 @@ async function quiebresPorProducto(p, idProductos) {
   for (const k of new Set([...stock.keys(), ...unidades.keys()])) {
     const [prod, suc] = k.split('|');
     const umbral = analisisVentas.umbralQuiebre(unidades.get(k) || 0, meses, pesables.has(prod));
-    const serie = analisisVentas.serieStockDiaria({
+    // Una sola caminata hacia atrás cubre referencia y rango: el rango es su cola.
+    const referencia = analisisVentas.serieStockDiaria({
       stockActual: stock.get(k) || 0, netosPorFecha: netos.get(k), entradasPorFecha: entradas.get(k),
-      desde: p.desde, hasta: p.hasta, hoy, umbral,
+      desde: desdeRef, hasta: p.hasta, hoy, umbral,
     });
+    const serie = referencia.filter(d => d.fecha >= p.desde);
     const dias = serie.filter(d => d.quiebre).length;
     const base = analisisVentas.diasEvaluados(serie);
+    const { perdida, unidadesPerdidas, estimable } =
+      analisisVentas.perdidaPorQuiebre(serie, ventasDia.get(k), referencia);
     const previo = acumulado.get(prod) || { dias: 0, base: 0, porSuc: {} };
     // porSuc lo usa la pestaña Quiebres (columna por sucursal); el top sólo mira el total.
     acumulado.set(prod, {
       dias: previo.dias + dias,
       base: previo.base + base,
-      porSuc: { ...previo.porSuc, [suc]: { dias, base } },
+      porSuc: { ...previo.porSuc, [suc]: { dias, base, perdida, unidadesPerdidas, estimable } },
     });
   }
   return acumulado;
