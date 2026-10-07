@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const express = require('express');
 const {
-  PACK_BULTO_DEFAULT, tipoPorNombre, armarVinculos, configPackBultoSanitizada,
+  tipoPorNombre, armarVinculos, configPackBultoSanitizada,
 } = require('../lib/precios_pack_bulto');
 
 // ── tipoPorNombre ────────────────────────────────────────────────────────────
@@ -58,23 +58,18 @@ test('armarVinculos: el vínculo manual gana sobre SIGA y saca al producto de si
 });
 
 // ── configPackBultoSanitizada ────────────────────────────────────────────────
-test('configPackBultoSanitizada: completa defaults y deja sólo claves conocidas', () => {
-  assert.deepStrictEqual(configPackBultoSanitizada(undefined), PACK_BULTO_DEFAULT);
+test('configPackBultoSanitizada: sólo vinculosManuales y ventaPesable (los desc* viejos no salen)', () => {
+  assert.deepStrictEqual(configPackBultoSanitizada(undefined), { vinculosManuales: {}, ventaPesable: {} });
   const cfg = configPackBultoSanitizada({
     descPackPct: 12, basura: 1, descPorProducto: { 91031: 0 },
     vinculosManuales: { 91999: { basePlu: '6051', tipo: 'pack', extra: 'x' } },
   });
-  assert.deepStrictEqual(cfg, {
-    descPackPct: 12, descBultoPct: 14.7, descPorProducto: { 91031: 0 },
-    vinculosManuales: { 91999: { basePlu: '6051', tipo: 'pack' } }, ventaPesable: {},
-  });
+  assert.deepStrictEqual(cfg, { vinculosManuales: { 91999: { basePlu: '6051', tipo: 'pack' } }, ventaPesable: {} });
 });
 
-test('configPackBultoSanitizada: rechaza %, PLUs y tipos inválidos', () => {
+test('configPackBultoSanitizada: rechaza PLUs y tipos inválidos', () => {
   const mal = [
-    [{ descPackPct: 91 }, /descPackPct/], [{ descBultoPct: -1 }, /descBultoPct/], [{ descPackPct: '10' }, /descPackPct/],
-    [{ descPorProducto: { abc: 10 } }, /PLU/], [{ descPorProducto: { 1: 95 } }, /descPorProducto/],
-    [{ descPorProducto: { 1: -51 } }, /descPorProducto/], [{ descPackPct: -1 }, /descPackPct/],
+    [{ vinculosManuales: { abc: { basePlu: '2', tipo: 'pack' } } }, /PLU/],
     [{ vinculosManuales: { 1: { basePlu: 'x', tipo: 'pack' } } }, /basePlu/],
     [{ vinculosManuales: { 1: { basePlu: '2', tipo: 'caja' } } }, /tipo/],
     [{ vinculosManuales: { 1: { basePlu: '1', tipo: 'pack' } } }, /sí mismo/],
