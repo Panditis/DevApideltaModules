@@ -3,7 +3,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { costeoConCurva, curvaDesdeBandas, curvaDesdeMatriz, curvaANeta, MARKUP_FRACCIONADO_LEGADO } = require('../lib/precios_migracion_curva');
 const { gananciaPorCurva, validarCurvaGanancia } = require('../lib/precios_costeo');
-const { filasCurvaProduccion } = require('../routes/rutas_precios_produccion');
 
 // Bandas Reventa de data/costeo.json de dev al 2026-10-02 (topes en costo con IVA).
 const BANDAS_DEV = [
@@ -100,12 +99,4 @@ test('costeoConCurva: Producción con bandas propias; config vacía → curvas p
   for (const [tipo, c] of Object.entries(vacia.curvaGanancia)) assert.doesNotThrow(() => validarCurvaGanancia(c, tipo), tipo);
   assert.deepStrictEqual(vacia.curvaGanancia.fraccionado.ajustesPeso.tramosG, MARKUP_FRACCIONADO_LEGADO.tramosG);
   assert.strictEqual(costeoConCurva(null).metodoGanancia, 'curva');
-});
-
-test('filasCurvaProduccion: una fila por presentación con PLU de SIGA, costo y vigente', () => {
-  const costeados = { p1: { presentaciones: {
-    100: { costoUnidad: 500, ivaPct: 21, finalPct: 5.79 }, 'n-nueva': { costoUnidad: 400 }, 101: { costoUnidad: null }, 102: { costoUnidad: 300 },
-  } } };
-  const filas = filasCurvaProduccion(costeados, new Map([['100', 900], ['n-nueva', 800], ['101', 700]]), new Map());
-  assert.deepStrictEqual(filas, [{ costoBase: 500, costoTotal: 500, precioVigente: 900, ivaPct: 21, finalPct: 5.79 }]);
 });

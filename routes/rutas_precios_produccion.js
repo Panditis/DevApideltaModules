@@ -3,26 +3,20 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const produccion = require('../lib/precios_produccion');
-const { elegirCosto, compararConVigente, propuestaCurva, ivaVentaPctDe, conceptosGananciaDe, totalConceptosGanancia,
-  conceptosPrecioFinalDe } = require('../lib/precios_costeo');
-const { costeoConCurva } = require('../lib/precios_migracion_curva');
-const { gastosVentaPctTipo, gastosDesglosePct } = require('../lib/precios_costos');
+const L = require('../lib/precios_listado_esquema');
+const { configEsquemaDe } = require('../lib/precios_config_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
-const { crearPackBultoDe } = require('../lib/precios_pack_bulto');
-const { proyectarCosteo } = require('../lib/precios_permisos');
 
 // ── Precios, Fase 3: tab Producción ──────────────────────────────────────────
-// Productos con recetas (base + variantes), su lista de insumos y presentaciones (que eligen de esa lista), en data/recetas_produccion.json
-// (se crea con la primera escritura). El cálculo es lib/precios_produccion.js; acá sólo se arma
-// costoDe (SIGA + elegirCosto con costeo.json + insumos manuales) y se persiste.
+// Productos con recetas (base + variantes) y presentaciones en data/recetas_produccion.json (se crea con la primera
+// escritura). El costo es lib/precios_produccion.js (sólo materias primas, cada una con el costo de su tab); los precios
+// salen del motor del esquema (lib/precios_listado_esquema), igual que el listado.
 // Selector, detalle y alertas pasan por costearProductos → costearProducto: nunca muestran cosas distintas.
 // ponytail: recalcula todo en cada listado/alerta (decenas de productos); cachear costoDe si crece a miles.
 
-const RECETAS_VACIO = { productos: {}, insumosManuales: {}, categoriasMaquina: [] };
+const RECETAS_VACIO = { productos: {} };
 const ID_PRODUCTO = /^p-[a-z0-9-]{1,48}$/;
 const ID_RECETA = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const ID_MANUAL = /^m-[a-z0-9-]{1,40}$/;
-const ID_CATEGORIA = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const PLU = /^\d{1,12}$/;
 // Clave de presentación: PLU de SIGA o provisoria n-<slug> (todavía no dada de alta en SIGA; decisión 13).
 const CLAVE_PRES = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/;
@@ -31,7 +25,6 @@ const TIPOS_EMPAQUE = ['envase', 'tapa', 'etiqueta', 'precinto']; // en una fór
 const TEXTO_MAX = 60;
 const COSTO_MAX = 1e9;
 const INSUMOS_MAX = 100;
-const CATEGORIAS_MAX = 50;
 const SLUG_MAX = 40;
 
 // Error de input: la ruta lo devuelve como { error } (convención del módulo); el resto va a apiRoute (500).
@@ -71,54 +64,39 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return nuevo;
   }
 
-  // Un solo camino de costeo para selector, detalle, alertas y validar. req con preciosSinConfig (lo marca guardPrecios
-  // en server.js) = usuario sin el permiso de Configuración: se costea con la vista sin estructura (lib/precios_permisos);
-  // validar y alertas no pasan req (guardan/comparan con la config real).
-  async function costearProductos(datos, ids, req = null) {
+  const leerCosteo = () => leerJSON(COSTEO_PATH, {}) || {};
+
+  // Un solo camino de costeo para selector, detalle, alertas, validar y el listado del esquema.
+  async function costearProductos(datos, ids) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
-    const real = costeoConCurva(leerJSON(COSTEO_PATH, {}) || {});
-    const costeo = req && req.preciosSinConfig === true ? proyectarCosteo(real, 'produccion') : real;
+    const costeo = leerCosteo();
     const costos = await costosPorPlu(plusUsados(productos));
-    const costeados = costearTodos({ productos, costos, costeo, datos });
-    return { costeados, costos, costeo };
+    return { costeados: costearTodos({ productos, costos, costeo }), costos, costeo };
   }
 
-  // Detalle costeado + vigentes SIGA + sub-filas pack/bulto de cada presentación (una query de vínculos).
+  // Detalle costeado + vigente, fecha de precio y precios del motor por presentación (desglose sólo con el permiso de
+  // Configuración: req.preciosSinConfig lo marca guardPrecios en server.js).
   async function detalleConPrecios(datos, id, req) {
-    const manuales = ((costeoConCurva(leerJSON(COSTEO_PATH, {}) || {})).packBulto || {}).vinculosManuales || {};
-    const [{ costeados, costos, costeo }, vigentes, fechas, { vinculos }] = await Promise.all([
-      costearProductos(datos, [id], req), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(manuales),
+    const costeo = leerCosteo();
+    const pb = costeo.packBulto || {};
+    const [{ costeados }, vigentes, fechas, { vinculos }] = await Promise.all([
+      costearProductos(datos, [id]), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(pb.vinculosManuales || {}),
     ]);
-    const packBultoDe = crearPackBultoDe({ vinculos, vigentes, fechas, costeo });
-    return armarDetalle({ id, datos, costeado: costeados[id], costos, vigentes, fechas, toleranciaPct: costeo.toleranciaPct, tiposPackaging, packBultoDe,
-      marcados: costeo.marcadosExportar });
+    const cfg = configEsquemaDe(costeo);
+    const mayoristasDe = L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} });
+    const conDesglose = !(req && req.preciosSinConfig === true);
+    const esquemaDe = (plu, costoUnidad, nombre) => L.filaPublica(L.filaProducto({
+      plu, nombre, tipo: 'produccion', costos: { sistema: costoUnidad > 0 ? costoUnidad : null, ultimaCompra: null, manual: null },
+      vigente: vigentes.has(plu) ? vigentes.get(plu) : null, mayoristas: mayoristasDe(plu), cfg,
+    }), conDesglose);
+    return armarDetalle({ id, datos, costeado: costeados[id], vigentes, fechas, esquemaDe });
   }
-
-  // Propuesta de curva de Producción desde los precios vigentes de SIGA (no guarda; mismo path que Reventa y
-  // Fraccionado en rutas_precios.js, que le cede 'produccion'). Puntos: cada presentación con PLU de SIGA,
-  // costo por unidad y vigente. Con pocos datos ajustarCurva tira y la UI lo avisa.
-  router.post('/api/precios/curva-ganancia/ajustar/produccion', ruta(async () => {
-    const datos = leer();
-    const [{ costeados, costos, costeo }, vigentes] = await Promise.all([
-      costearProductos(datos, Object.keys(datos.productos)), preciosVigentesAlmacen(),
-    ]);
-    const gastosPct = gastosVentaPctTipo(costeo, 'produccion');
-    if (gastosPct == null) return { error: 'falta la venta mensual base de Producción (tab Costos): sin ella no se conocen los gastos sobre venta' };
-    const filas = filasCurvaProduccion(costeados, vigentes, costos);
-    try {
-      return propuestaCurva('produccion', filas, { gastosPct, conceptosPct: totalConceptosGanancia(costeo.conceptosGanancia) });
-    } catch (err) {
-      return { error: `Producción: ${err.message}. Hacen falta más presentaciones con costo y precio vigente en SIGA.` };
-    }
-  }));
 
   router.get('/api/precios/produccion/productos', ruta(async (req) => {
     const datos = leer();
-    const [{ costeados, costeo }, fechas, vigentes] = await Promise.all([
-      costearProductos(datos, Object.keys(datos.productos), req), fechasPrecioAlmacen(), preciosVigentesAlmacen(),
-    ]);
+    const [{ costeados, costeo }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
     return Object.entries(costeados)
-      .map(([id, c]) => filaSelector(id, datos.productos[id], c, costeo.marcadosExportar, fechas, vigentes, costeo.toleranciaPct))
+      .map(([id, c]) => filaSelector(id, datos.productos[id], c, costeo.marcadosExportar, fechas))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }));
 
@@ -126,14 +104,14 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const { nombre } = entrada(() => produccion.validarProducto(req.body));
     const datos = leer();
     const id = idUnico(`p-${slug(nombre)}`, datos.productos);
-    const producto = { nombre, creado: hoy(), recetas: {}, insumos: [], presentaciones: {} };
+    const producto = { nombre, creado: hoy(), recetas: {}, presentaciones: {} };
     guardar({ ...datos, productos: { ...datos.productos, [id]: producto } });
     return { id, producto };
   }));
 
   // Alta de un producto completo desde la fórmula activa de SIGA de un PLU: receta base (ingredientes × kg por
-  // tanda), insumos del producto (el empaque), la variedad automática y las presentaciones de SIGA que usan ese
-  // PLU (todas o el subconjunto `presentaciones: [plu…]`), en una sola escritura.
+  // tanda), la variedad automática y las presentaciones de SIGA que usan ese PLU (todas o el subconjunto
+  // `presentaciones: [plu…]`), en una sola escritura. El empaque ya no se costea (fase 4): no se guarda.
   router.post('/api/precios/produccion/productos/desde-siga', ruta(async (req) => {
     const b = esObjeto(req.body) ? req.body : {};
     const { nombre } = entrada(() => produccion.validarProducto(b));
@@ -144,11 +122,9 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     if (!formula.componentes.length) fallar(formula.mensaje);
     const datos = leer();
     const id = idUnico(`p-${slug(nombre)}`, datos.productos);
-    const inicial = productoDesdeFormula({
-      nombre, rendimientoKg, componentes: formula.componentes, insumosManuales: datos.insumosManuales, creado: hoy(),
-    });
+    const inicial = productoDesdeFormula({ nombre, rendimientoKg, componentes: formula.componentes, creado: hoy() });
     const { producto, presentacionesCreadas, omitidas } = conPresentacionesSiga(inicial.producto, formula.presentaciones, {
-      rendimientoKg, autoId: inicial.variedadCreada, productos: datos.productos, insumosManuales: datos.insumosManuales, elegidas,
+      rendimientoKg, autoId: inicial.variedadCreada, productos: datos.productos, elegidas,
     });
     guardar({ ...datos, productos: { ...datos.productos, [id]: producto } });
     return { id, producto, variedadCreada: inicial.variedadCreada, presentacionesCreadas, omitidas };
@@ -206,14 +182,6 @@ module.exports = function crearRutasPreciosProduccion(deps) {
       return { ...p, recetas: sinClave(p.recetas, recetaId) };
     });
     return { id, recetaId, borrado: true };
-  }));
-
-  // Lista de insumos del producto (decisión 11): las presentaciones eligen de acá.
-  router.put('/api/precios/produccion/productos/:id/insumos', ruta(async (req) => {
-    const id = idProducto(req);
-    const producto = mutarProducto(id, (p, datos) =>
-      ({ ...p, insumos: validarInsumosProducto(req.body, p, datos.insumosManuales) }));
-    return { id, insumos: producto.insumos };
   }));
 
   // Alta/edición de presentación. Un PLU tiene que existir en SIGA (se consulta antes de leer el
@@ -314,7 +282,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
       ORDER BY p.NombreProducto`);
     const datos = leer();
     const costos = await costosPorPlu(rows.map(r => String(r.plu)).filter(esPlu));
-    const costoDe = armarCostoDe({ costos, costeo: costeoConCurva(leerJSON(COSTEO_PATH, {}) || {}), insumosManuales: datos.insumosManuales });
+    const costoDe = armarCostoDe({ costos, costeo: leerCosteo() });
     const componentes = rows.map(r => {
       const c = costoDe(String(r.plu)) || {};
       return { plu: String(r.plu), nombre: r.nombre, cantPorUnidad: Number(r.cantPorUnidad), costo: c.costo ?? null,
@@ -355,37 +323,6 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     return produccion.resumenAlertas(costeados);
   }));
 
-  router.put('/api/precios/produccion/insumos-manuales/:manualId', ruta(async (req) => {
-    const manualId = validarId(req.params.manualId, ID_MANUAL, 'id de insumo manual');
-    const insumo = validarInsumoManual(req.body);
-    const datos = leer();
-    guardar({ ...datos, insumosManuales: { ...datos.insumosManuales, [manualId]: insumo } });
-    return { id: manualId, insumo };
-  }));
-
-  router.delete('/api/precios/produccion/insumos-manuales/:manualId', ruta(async (req) => {
-    const manualId = validarId(req.params.manualId, ID_MANUAL, 'id de insumo manual');
-    const datos = leer();
-    if (!Object.hasOwn(datos.insumosManuales, manualId)) fallar(`insumo manual ${manualId} no encontrado`);
-    const usos = productosQueUsan(datos.productos, manualId).map(u => u.nombre);
-    if (usos.length) fallar(`no se puede borrar: lo usan ${usos.join(', ')}`);
-    guardar({ ...datos, insumosManuales: sinClave(datos.insumosManuales, manualId) });
-    return { id: manualId, borrado: true };
-  }));
-
-  // Tab Máquinas: categorías con qué productos/recetas las usan (para mostrar y para bloquear la baja).
-  router.get('/api/precios/produccion/categorias-maquina', ruta(async () => ({ categoriasMaquina: categoriasConUsos(leer()) })));
-
-  // Lista completa (alta, edición y baja). Quitar una categoría que usa alguna receta es error.
-  router.put('/api/precios/produccion/categorias-maquina', ruta(async (req) => {
-    const categoriasMaquina = validarCategoriasMaquina(req.body);
-    const datos = leer();
-    validarBajaCategorias(datos, categoriasMaquina);
-    const nuevos = { ...datos, categoriasMaquina };
-    guardar(nuevos);
-    return { categoriasMaquina: categoriasConUsos(nuevos) };
-  }));
-
   return router;
 };
 
@@ -400,12 +337,7 @@ const esObjeto = v => v != null && typeof v === 'object' && !Array.isArray(v);
 
 function normalizarDatos(d) {
   const o = esObjeto(d) ? d : {};
-  return {
-    ...o,
-    productos: esObjeto(o.productos) ? o.productos : {},
-    insumosManuales: esObjeto(o.insumosManuales) ? o.insumosManuales : {},
-    categoriasMaquina: Array.isArray(o.categoriasMaquina) ? o.categoriasMaquina : [],
-  };
+  return { ...o, productos: esObjeto(o.productos) ? o.productos : {} };
 }
 
 function sinClave(obj, clave) {
@@ -440,71 +372,40 @@ function idUnico(base, existentes) {
   return `${base}-${n}`;
 }
 
-const claveDe = it => (it.plu != null ? String(it.plu) : it.manualId);
 const esPlu = clave => PLU.test(String(clave));
 
-// PLUs SIGA que hay que consultar: materias primas, extras, insumos (lista del producto y de presentaciones) y PLUs de presentación.
+// PLUs SIGA que hay que consultar: materias primas, extras y PLUs de presentación.
 function plusUsados(productos) {
   const plus = new Set();
   for (const p of Object.values(productos || {})) {
     for (const r of Object.values(p.recetas || {})) {
       for (const it of [...(r.materiasPrimas || []), ...(r.extras || [])]) plus.add(String(it.plu));
     }
-    for (const it of produccion.insumosDelProducto(p)) if (it.plu != null) plus.add(String(it.plu));
-    for (const [plu, pr] of Object.entries(p.presentaciones || {})) {
-      plus.add(plu);
-      for (const it of pr.insumos || []) if (it.plu != null) plus.add(String(it.plu));
-    }
+    for (const plu of Object.keys(p.presentaciones || {})) plus.add(plu);
   }
   return [...plus].filter(esPlu);
 }
 
-// costoDe(clave) para lib/precios_produccion: PLU SIGA → elegirCosto (override manual de
-// costo-producto → última compra si se eligió → sistema neto; todos netos); id manual → insumosManuales.
-// Sin fila en SIGA / sin insumo manual → null (la lib lo convierte en faltante, nunca 0).
-function armarCostoDe({ costos, costeo, insumosManuales }) {
+// costoDe(plu) para lib/precios_produccion: el costo de la materia prima en su tab (decisión › manual › sistema, + costos
+// extra; lib/precios_listado_esquema costoEnSuTab). Sin fila en SIGA → null (la lib lo convierte en faltante, nunca 0).
+function armarCostoDe({ costos, costeo }) {
   return clave => {
-    if (!esPlu(clave)) {
-      const m = Object.hasOwn(insumosManuales || {}, clave) ? insumosManuales[clave] : null;
-      return m ? { costo: m.costo, fuente: 'insumoManual', nombre: m.nombre } : null;
-    }
-    const row = costos.get(String(clave));
+    const row = esPlu(clave) ? costos.get(String(clave)) : null;
     if (!row) return null;
-    const { costoBase, costoFuente } = elegirCosto({
-      plu: String(clave), costoUltimaCompra: row.costoMercaderia, costoSistema: row.costoSistema, cfg: costeo,
-    });
-    return { costo: costoBase, fuente: costoFuente, nombre: row.nombre };
+    const { costo, fuente } = L.costoEnSuTab(row, costeo, String(clave));
+    return { costo, fuente, nombre: row.nombre };
   };
 }
 
-// Costea cada producto con la config de costeo.json. Las presentaciones sin nombre propio toman el de SIGA.
-function costearTodos({ productos, costos, costeo, datos }) {
+// Costea cada producto. Las presentaciones sin nombre propio toman el de SIGA.
+function costearTodos({ productos, costos, costeo }) {
   const cfg = costeo || {};
-  const costoDe = armarCostoDe({ costos, costeo: cfg, insumosManuales: datos.insumosManuales });
-  const opciones = {
-    costoDe, costoHora: cfg.costoHora, categoriasMaquina: datos.categoriasMaquina,
-    curva: (cfg.curvaGanancia || {}).produccion, margenPorProducto: cfg.margenPorProducto,
-    toleranciaPct: cfg.toleranciaPct,
-    // La curva de Producción es ganancia: el lib la convierte a markup total con los gastos de Producción
-    // (null = falta venta base → markup null, faltante).
-    gastosVentaPct: gastosVentaPctTipo(cfg, 'produccion'),
-    gastos: gastosDesglosePct(cfg, 'produccion'),
-    // IVA de venta global, conceptos de ganancia y conceptos sobre precio final.
-    ivaPct: ivaVentaPctDe(cfg), conceptos: conceptosGananciaDe(cfg), conceptosFinal: conceptosPrecioFinalDe(cfg),
-  };
+  const costoDe = armarCostoDe({ costos, costeo: cfg });
   return Object.fromEntries(Object.entries(productos).map(([id, p]) => {
     const presentaciones = Object.fromEntries(Object.entries(p.presentaciones || {}).map(([plu, pr]) =>
       [plu, pr.nombre ? pr : { ...pr, nombre: (costos.get(plu) || {}).nombre || null }]));
-    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, ...opciones })];
+    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct })];
   }));
-}
-
-// Filas { costoBase, costoTotal, precioVigente, ivaPct, finalPct } para propuestaCurva: una por presentación con PLU de SIGA.
-function filasCurvaProduccion(costeados, vigentes, costos) {
-  return Object.values(costeados).flatMap(c => Object.entries(c.presentaciones || {}))
-    .filter(([plu, p]) => esPlu(plu) && p.costoUnidad > 0 && vigentes.has(plu))
-    .map(([plu, p]) => ({ costoBase: p.costoUnidad, costoTotal: p.costoUnidad, precioVigente: vigentes.get(plu),
-      ivaPct: p.ivaPct, finalPct: p.finalPct }));
 }
 
 // Variedad automática { nombre del producto, varianteDe: baseId, extras: [] } si el producto no tiene ninguna.
@@ -518,21 +419,19 @@ function conVariedadAutomatica(producto, baseId) {
 }
 
 // Producto nuevo desde los componentes de formulaSiga: los que no son empaque → receta 'base' (cantPorUnidad × kg por
-// tanda, 4 decimales, sumando repetidos: mismo criterio que componentesAIngredientes del front); el empaque → insumos.
-function productoDesdeFormula({ nombre, rendimientoKg, componentes, insumosManuales, creado }) {
-  const esEmpaque = c => TIPOS_EMPAQUE.includes(c.tipo);
-  const ingredientes = componentes.filter(c => !esEmpaque(c));
+// tanda, 4 decimales, sumando repetidos: mismo criterio que componentesAIngredientes del front). El empaque ya no se
+// costea (fase 4): no se guarda.
+function productoDesdeFormula({ nombre, rendimientoKg, componentes, creado }) {
+  const ingredientes = componentes.filter(c => !TIPOS_EMPAQUE.includes(c.tipo));
   if (!ingredientes.length) fallar('la fórmula de SIGA sólo tiene empaque (envase, tapa, etiqueta o precinto): no hay ingredientes para la receta base');
   const cantidades = new Map();
   for (const c of ingredientes) {
     cantidades.set(c.plu, redondear4((cantidades.get(c.plu) || 0) + redondear4(Number(c.cantPorUnidad) * rendimientoKg)));
   }
   const materiasPrimas = [...cantidades].map(([plu, cantidad]) => ({ plu, cantidad, unidad: 'kg' }));
-  const vacio = { nombre, creado, recetas: {}, insumos: [], presentaciones: {} };
+  const vacio = { nombre, creado, recetas: {}, presentaciones: {} };
   const base = entrada(() => produccion.validarReceta({ nombre, rendimientoKg, materiasPrimas }, vacio, 'base'));
-  const empaque = [...new Set(componentes.filter(esEmpaque).map(c => c.plu))];
-  const insumos = validarInsumosProducto({ insumos: empaque.map(plu => ({ plu })) }, vacio, insumosManuales);
-  return conVariedadAutomatica({ ...vacio, recetas: { base }, insumos }, 'base');
+  return conVariedadAutomatica({ ...vacio, recetas: { base } }, 'base');
 }
 const redondear4 = n => Math.round(n * 1e4) / 1e4;
 // Id de receta = slug del nombre sin pisar recetas (recortado para que con -N siga entrando en ID_RECETA).
@@ -571,8 +470,8 @@ function presentacionesDetectadas({ granelPlu, usos, componentes, productos }) {
 // Suma al producto nuevo las presentaciones detectadas (todas o `elegidas`). Variedades: una por conjunto de extras
 // (sin extras → la automática `autoId`); cada extra = promedio en el grupo de (extra / kg granel) × kg por tanda.
 // Cada presentación se valida sola: si falla (o ya es de otro producto) va a `omitidas` y el resto sigue.
-// Variedad + insumos + presentación entran juntos: una omitida no deja una variedad huérfana.
-function conPresentacionesSiga(producto, detectadas, { rendimientoKg, autoId, productos, insumosManuales, elegidas = null }) {
+// Variedad + presentación entran juntas: una omitida no deja una variedad huérfana.
+function conPresentacionesSiga(producto, detectadas, { rendimientoKg, autoId, productos, elegidas = null }) {
   const pedidas = elegidas ? new Set(elegidas) : null;
   const motivoPrevio = d => {
     const yaEn = duenioPresentacion(productos, d.plu);
@@ -592,12 +491,8 @@ function conPresentacionesSiga(producto, detectadas, { rendimientoKg, autoId, pr
       const conVariedad = variedadDe.has(clave) ? { producto: actual, recetaId: variedadDe.get(clave) }
         : variedadSiga(actual, d, usables.filter(u => claveExtras(u) === clave), rendimientoKg);
       const p = conVariedad.producto;
-      const nuevos = d.empaque.filter(e => !p.insumos.some(it => claveDe(it) === e.plu)).map(e => ({ plu: e.plu }));
-      const conInsumos = { ...p, insumos: validarInsumosProducto({ insumos: [...p.insumos, ...nuevos] }, p, insumosManuales) };
-      const pres = produccion.validarPresentacion({
-        recetaId: conVariedad.recetaId, kgPorUnidad: d.kgPorUnidad, insumos: d.empaque.map(e => ({ plu: e.plu, cantidad: e.cantidad })),
-      }, conInsumos, productos, { plu: d.plu });
-      actual = { ...conInsumos, presentaciones: { ...conInsumos.presentaciones, [d.plu]: pres } };
+      const pres = produccion.validarPresentacion({ recetaId: conVariedad.recetaId, kgPorUnidad: d.kgPorUnidad }, p, productos, { plu: d.plu });
+      actual = { ...p, presentaciones: { ...p.presentaciones, [d.plu]: pres } };
       variedadDe.set(clave, conVariedad.recetaId);
       presentacionesCreadas.push(d.plu);
     } catch (err) {
@@ -634,12 +529,11 @@ function recetaBaseId(recetas) {
   return ids.find(id => !recetas[id].varianteDe) || null;
 }
 
-// marcados = costeo.marcadosExportar ({ plu: fecha }). exportables = presentaciones con PLU de SIGA
-// (las provisorias n-… no se pueden importar) para marcar y exportar: Costo = costo total por unidad.
+// marcados = costeo.marcadosExportar ({ plu: fecha }; se va en la fase 5). exportables = presentaciones con PLU de SIGA
+// (las provisorias n-… no se pueden importar): Costo = costo total por unidad (sin precios: salen del esquema).
 // fechas: Map plu → 'YYYY-MM-DD' del último cambio de precio en SIGA (la UI muestra la más antigua).
-// vigentes + toleranciaPct: precio vigente SIGA y Δ%/semáforo (compararConVigente, igual que armarDetalle).
 // variedad = nombre de la receta de la que sale la presentación.
-function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map(), vigentes = new Map(), toleranciaPct = 0) {
+function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map()) {
   const recetas = producto.recetas || {};
   const variedadDe = plu => {
     const rid = ((producto.presentaciones || {})[plu] || {}).recetaId;
@@ -652,41 +546,11 @@ function filaSelector(id, producto, costeado, marcados = {}, fechas = new Map(),
     presentaciones: Object.keys(producto.presentaciones || {}).length,
     costoKgBase: baseId ? costeado.recetas[baseId].costoKg : null,
     alertas: costeado.resumen.alertas, faltantes: costeado.resumen.faltantes,
-    exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => {
-      const precioVigente = vigentes.has(plu) ? vigentes.get(plu) : null;
-      const { deltaPct, estado: semaforo } = compararConVigente(p.precioConIva, precioVigente, toleranciaPct);
-      return {
-        plu, nombre: p.nombre, costoTotal: p.costoUnidad, precioConIva: p.precioConIva, faltantes: p.faltantes, ivaPct: p.ivaPct,
-        marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null,
-        precioVigente, deltaPct, semaforo, variedad: variedadDe(plu),
-      };
-    }),
+    exportables: Object.entries(costeado.presentaciones).filter(([plu]) => esPlu(plu)).map(([plu, p]) => ({
+      plu, nombre: p.nombre, costoTotal: p.costoUnidad, faltantes: p.faltantes,
+      marcado: Object.hasOwn(marcados || {}, plu), fechaPrecio: fechas.get(plu) || null, variedad: variedadDe(plu),
+    })),
   };
-}
-
-// Productos cuyas recetas eligen la categoría (una variedad sin categoría propia hereda la de su base).
-function usosCategoria(productos, categoriaId) {
-  return Object.entries(productos || {}).map(([id, p]) => ({
-    id, nombre: p.nombre,
-    recetas: Object.values(p.recetas || {}).filter(r => r && r.categoriaMaquinaId === categoriaId).map(r => r.nombre),
-  })).filter(u => u.recetas.length);
-}
-const categoriasConUsos = datos => datos.categoriasMaquina.map(c => ({ ...c, usos: usosCategoria(datos.productos, c.id) }));
-
-// Lanza si la lista nueva deja afuera una categoría que alguna receta usa (dice quién la usa).
-function validarBajaCategorias(datos, nuevas) {
-  const ids = new Set(nuevas.map(c => c.id));
-  for (const c of datos.categoriasMaquina) {
-    const usos = ids.has(c.id) ? [] : usosCategoria(datos.productos, c.id);
-    if (usos.length) fallar(`no se puede borrar "${c.nombre}": la usan ${usos.map(u => `${u.nombre} (${u.recetas.join(', ')})`).join('; ')}`);
-  }
-}
-
-// Productos que tienen el insumo `clave` en su lista (la derivada, si es un dato viejo sin lista).
-function productosQueUsan(productos, clave, exceptoId = null) {
-  return Object.entries(productos || {})
-    .filter(([id, p]) => id !== exceptoId && produccion.insumosDelProducto(p).some(it => claveDe(it) === clave))
-    .map(([id, p]) => ({ id, nombre: p.nombre }));
 }
 
 // Tipo de un insumo: el elegido a mano → el del insumo manual → envase/tapa por nombre+rubro
@@ -701,94 +565,21 @@ function tipoInsumo({ tipo, nombre, rubro }, tiposPackaging) {
   return 'otro';
 }
 
-// Detalle: producto costeado + "también en" y tipo por insumo + precio vigente SIGA por presentación.
-// `insumosManuales` = catálogo global [{ id, nombre, costo, tipo }] para elegirlos en una presentación.
-// `definicion` = el producto tal como está guardado (rendimiento, merma, cantidades, unidades…): la UI
-// lo usa para precargar los editores; los costos siempre salen del costeo, nunca de ahí.
-// packBultoDe(plu, precioConIva) → sub-filas pack/bulto de la presentación (crearPackBultoDe); sin él, [].
-// marcados = costeo.marcadosExportar: cada presentación trae `marcado` (para exportar a SIGA).
-function armarDetalle({ id, datos, costeado, costos, vigentes, fechas = new Map(), toleranciaPct, tiposPackaging, packBultoDe = () => [], marcados = {} }) {
-  const insumos = costeado.insumos.map(it => {
-    const row = costos.get(it.clave) || {};
-    const manual = Object.hasOwn(datos.insumosManuales, it.clave) ? datos.insumosManuales[it.clave] : {};
-    return {
-      ...it,
-      tipo: tipoInsumo({ tipo: it.tipo || manual.tipo, nombre: it.nombre, rubro: row.rubro }, tiposPackaging),
-      fechaUltimaCompra: row.fechaUltimaCompra || null,
-      tambienEn: productosQueUsan(datos.productos, it.clave, id),
-    };
-  });
-  const presentaciones = Object.fromEntries(Object.entries(costeado.presentaciones).map(([plu, p]) => {
-    const precioVigente = vigentes.has(plu) ? vigentes.get(plu) : null;
-    const { deltaPct, estado: semaforo } = compararConVigente(p.precioConIva, precioVigente, toleranciaPct);
-    return [plu, { ...p, precioVigente, deltaPct, semaforo, packBulto: packBultoDe(plu, p.precioConIva), marcado: Object.hasOwn(marcados || {}, plu),
-      fechaPrecio: fechas.get(plu) || null }];
-  }));
-  return {
-    id, ...costeado, creado: datos.productos[id].creado || null, insumos, presentaciones,
-    categoriasMaquina: datos.categoriasMaquina, definicion: datos.productos[id],
-    insumosManuales: Object.entries(datos.insumosManuales).map(([mid, m]) => ({ id: mid, ...m })),
-  };
-}
-
-// Lista de insumos del producto: { insumos: [{ plu } | { manualId }, tipo?] }. El manual tiene que
-// existir; no se puede quitar uno que usa una presentación; sin repetidos.
-function validarInsumosProducto(body, producto, insumosManuales) {
-  const lista = esObjeto(body) ? body.insumos : null;
-  if (!Array.isArray(lista) || lista.length > INSUMOS_MAX) fallar(`insumos: debe ser una lista de hasta ${INSUMOS_MAX}`);
-  const insumos = lista.map((it, i) => {
-    if (!esObjeto(it)) fallar(`insumos[${i}]: ítem inválido`);
-    const ref = it.plu != null ? { plu: validarId(it.plu, PLU, `insumos[${i}].plu`) }
-      : { manualId: validarId(it.manualId, ID_MANUAL, `insumos[${i}].manualId`) };
-    if (ref.manualId && !Object.hasOwn(insumosManuales || {}, ref.manualId)) fallar(`insumos[${i}]: el insumo manual ${ref.manualId} no existe`);
-    if (it.tipo != null && !TIPOS_INSUMO.includes(it.tipo)) fallar(`insumos[${i}].tipo: debe ser ${TIPOS_INSUMO.join(', ')}`);
-    return it.tipo != null ? { ...ref, tipo: it.tipo } : ref;
-  });
-  const claves = insumos.map(claveDe);
-  const repetido = claves.find((c, i) => claves.indexOf(c) !== i);
-  if (repetido) fallar(`insumos: "${repetido}" está repetido`);
-  const enUso = Object.entries(producto.presentaciones || {}).flatMap(([plu, pr]) =>
-    ((pr && pr.insumos) || []).map(claveDe).filter(c => !claves.includes(c)).map(c => `${c} (presentación ${plu})`));
-  if (enUso.length) fallar(`no se puede quitar: está en uso en ${enUso.join(', ')}. Sacalo primero de esa presentación.`);
-  return insumos;
-}
-
-function textoValido(v, campo) {
-  const s = typeof v === 'string' ? v.trim() : '';
-  if (!s || s.length > TEXTO_MAX) fallar(`${campo}: texto de 1 a ${TEXTO_MAX} caracteres`);
-  return s;
+// Detalle: producto costeado + vigente SIGA, fecha del último cambio de precio y la fila del motor del esquema de cada
+// presentación (esquemaDe(plu, costoUnidad, nombre), ya filtrada por permiso). `definicion` = el producto guardado (la UI
+// precarga los editores; los costos salen siempre del costeo).
+function armarDetalle({ id, datos, costeado, vigentes, fechas = new Map(), esquemaDe = () => null }) {
+  const presentaciones = Object.fromEntries(Object.entries(costeado.presentaciones).map(([plu, p]) => [plu, {
+    ...p, precioVigente: vigentes.has(plu) ? vigentes.get(plu) : null, fechaPrecio: fechas.get(plu) || null,
+    esquema: esquemaDe(plu, p.costoUnidad, p.nombre),
+  }]));
+  return { id, ...costeado, creado: datos.productos[id].creado || null, presentaciones, definicion: datos.productos[id] };
 }
 
 function numeroEn(v, campo, { min, excluirMin }) {
   const ok = typeof v === 'number' && Number.isFinite(v) && (excluirMin ? v > min : v >= min) && v <= COSTO_MAX;
   if (!ok) fallar(`${campo}: debe ser un número ${excluirMin ? 'mayor a' : 'desde'} ${min} y hasta ${COSTO_MAX}`);
   return v;
-}
-
-function validarInsumoManual(body) {
-  const b = esObjeto(body) ? body : {};
-  if (b.tipo != null && !TIPOS_INSUMO.includes(b.tipo)) fallar(`tipo: debe ser ${TIPOS_INSUMO.join(', ')}`);
-  return {
-    nombre: textoValido(b.nombre, 'nombre'), costo: numeroEn(b.costo, 'costo', { min: 0, excluirMin: true }),
-    ...(b.tipo != null ? { tipo: b.tipo } : {}),
-  };
-}
-
-// Lista completa de categorías: { categorias: [{ id, nombre, costoHora }] }. Ids únicos.
-function validarCategoriasMaquina(body) {
-  const lista = esObjeto(body) ? body.categorias : null;
-  if (!Array.isArray(lista) || lista.length > CATEGORIAS_MAX) fallar(`categorias: debe ser una lista de hasta ${CATEGORIAS_MAX}`);
-  const cats = lista.map((c, i) => {
-    if (!esObjeto(c)) fallar(`categorias[${i}]: ítem inválido`);
-    return {
-      id: validarId(c.id, ID_CATEGORIA, `categorias[${i}].id`), nombre: textoValido(c.nombre, `categorias[${i}].nombre`),
-      costoHora: numeroEn(c.costoHora, `categorias[${i}].costoHora`, { min: 0 }),
-    };
-  });
-  const ids = cats.map(c => c.id);
-  const rep = ids.find((c, i) => ids.indexOf(c) !== i);
-  if (rep) fallar(`categorias: id "${rep}" repetido`);
-  return cats;
 }
 
 // { tipo: 'receta'|'presentacion'|'todo', id? }
@@ -800,19 +591,22 @@ function validarPedidoValidar(body) {
   return fallar("tipo: debe ser 'receta', 'presentacion' o 'todo'");
 }
 
-// Aplica los snapshots (snapshotDe) al producto sin mutarlo. Con faltantes no se valida: un pedido
-// puntual es error; en 'todo' se omite y se informa en `omitidos`.
+// Aplica los snapshots (snapshotDe) al producto sin mutarlo. Validar una receta también valida las presentaciones que salen
+// de ella ("a revisar" se limpia validando la receta, spec §2.1). Con faltantes no se valida: el pedido puntual es error;
+// el resto (todo, o las presentaciones arrastradas) se omite y se informa en `omitidos`.
 function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
   const grupos = [['receta', 'recetas'], ['presentacion', 'presentaciones']];
-  const pedidos = grupos.flatMap(([t, clave]) => Object.keys(costeado[clave])
-    .filter(k => tipo === 'todo' || (tipo === t && k === id)).map(k => ({ t, clave, k })));
-  if (tipo !== 'todo' && !pedidos.length) fallar(`${tipo} ${id} no encontrada`);
+  const puntual = (t, k) => tipo !== 'todo' && t === tipo && k === id;
+  const incluye = (t, k) => tipo === 'todo' || puntual(t, k)
+    || (tipo === 'receta' && t === 'presentacion' && costeado.presentaciones[k].recetaId === id);
+  const pedidos = grupos.flatMap(([t, clave]) => Object.keys(costeado[clave]).filter(k => incluye(t, k)).map(k => ({ t, clave, k })));
+  if (tipo !== 'todo' && !pedidos.some(p => puntual(p.t, p.k))) fallar(`${tipo} ${id} no encontrada`);
   const validados = [], omitidos = [];
   let nuevo = producto;
   for (const { t, clave, k } of pedidos) {
     const c = costeado[clave][k];
     if (c.faltantes.length) {
-      if (tipo !== 'todo') fallar(`no se puede validar con faltantes: ${c.faltantes.join(', ')}`);
+      if (puntual(t, k)) fallar(`no se puede validar con faltantes: ${c.faltantes.join(', ')}`);
       omitidos.push({ tipo: t, id: k, faltantes: c.faltantes });
       continue;
     }
@@ -824,7 +618,6 @@ function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
   return { producto: nuevo, validados, omitidos };
 }
 
-module.exports.filasCurvaProduccion = filasCurvaProduccion;
 module.exports.slug = slug;
 module.exports.idUnico = idUnico;
 module.exports.plusUsados = plusUsados;
@@ -836,11 +629,6 @@ module.exports.presentacionesDetectadas = presentacionesDetectadas;
 module.exports.conPresentacionesSiga = conPresentacionesSiga;
 module.exports.armarDetalle = armarDetalle;
 module.exports.tipoInsumo = tipoInsumo;
-module.exports.validarInsumosProducto = validarInsumosProducto;
-module.exports.validarInsumoManual = validarInsumoManual;
-module.exports.validarCategoriasMaquina = validarCategoriasMaquina;
-module.exports.categoriasConUsos = categoriasConUsos;
-module.exports.validarBajaCategorias = validarBajaCategorias;
 module.exports.validarPedidoValidar = validarPedidoValidar;
 module.exports.aplicarValidacion = aplicarValidacion;
 module.exports.normalizarDatos = normalizarDatos;

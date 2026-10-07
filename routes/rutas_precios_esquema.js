@@ -22,14 +22,13 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   const cuerpo = req => (req.body && typeof req.body === 'object' ? req.body : {});
   const formulasPesables = () => ((leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas) || {};
 
-  // Presentaciones de Producción con su costo por unidad: el mismo costearTodos que la tab Producción (en la fase 3
-  // el costo de Producción no cambia; sólo la cadena de precio pasa al esquema).
+  // Presentaciones de Producción con su costo por unidad y "a revisar" (el mismo costearTodos que la tab Producción).
   async function presentacionesProduccion(costeo) {
     const datos = normalizarDatos(leerJSON(RECETAS_PATH, {}));
     const costos = await consultas.costosPorPlu(plusUsados(datos.productos));
-    const costeados = costearTodos({ productos: datos.productos, costos, costeo, datos });
+    const costeados = costearTodos({ productos: datos.productos, costos, costeo });
     return Object.entries(costeados).flatMap(([productoId, c]) => Object.entries(c.presentaciones || {})
-      .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad })));
+      .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad, aRevisar: p.revisar })));
   }
 
   // Valida con validar(req) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir).

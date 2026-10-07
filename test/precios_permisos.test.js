@@ -6,7 +6,6 @@ const express = require('express');
 const permisos = require('../lib/precios_permisos');
 const auth = require('../lib/auth');
 const { calcularFilaAlmacen, armarGruposFraccionado } = require('../routes/rutas_precios');
-const { costearTodos, normalizarDatos } = require('../routes/rutas_precios_produccion');
 
 // ── Lista explícita de rutas de configuración (método + path de Express) ─────────────────────────────
 const RUTAS_CONFIG_ESPERADAS = [
@@ -20,14 +19,11 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/config/pack-bulto',
   'post /api/precios/costos/venta-base/actualizar',
   'post /api/precios/curva-ganancia/ajustar/:tipo',
-  'post /api/precios/curva-ganancia/ajustar/produccion',
   'post /api/precios/alinear-siga',
   'get /api/precios/margenes-propios',
   'post /api/precios/margenes-propios/previsualizar',
   'post /api/precios/margenes-propios/aplicar',
   'post /api/precios/pack-bulto/alinear-siga',
-  'get /api/precios/produccion/categorias-maquina',
-  'put /api/precios/produccion/categorias-maquina',
   'get /api/precios/config/esquema',
   'put /api/precios/config/esquema/costos',
   'put /api/precios/config/esquema/precio',
@@ -161,7 +157,7 @@ test('proyectarCosteo: Reventa da los mismos precios con gastos 0, sin conceptos
   }
 });
 
-test('proyectarCosteo: Fraccionado (curva con ajuste por peso, propios y temporales) y Producción dan los mismos precios', () => {
+test('proyectarCosteo: Fraccionado (curva con ajuste por peso, propios y temporales) da los mismos precios', () => {
   const graneles = [{ plu: '4409', nombre: 'Sem. Lino Granel' }];
   const presentaciones = [{ plu: '11', nombre: 'Sem. Lino 500G' }, { plu: '12', nombre: 'Sem. Lino 1Kg' }, { plu: '13', nombre: 'Sem. Lino 100G' }];
   const formulas = { 11: { granel: 4409 }, 12: { granel: 4409 }, 13: { granel: 4409 } };
@@ -175,16 +171,6 @@ test('proyectarCosteo: Fraccionado (curva con ajuste por peso, propios y tempora
   }
   assert.strictEqual(real.temporales.length, 2);
   for (const [i, t] of real.temporales.entries()) assert.strictEqual(vista.temporales[i].precioConIva, t.precioConIva, t.id);
-
-  const datos = normalizarDatos({ productos: { 'p-a': { nombre: 'A',
-    recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '300', cantidad: 5, unidad: 'kg' }] } },
-    insumos: [{ plu: '6334' }],
-    presentaciones: { 7777: { recetaId: 'base', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }] } } } } });
-  const cp = new Map([['300', { plu: '300', nombre: 'Harina', costoSistema: 400, costoMercaderia: null }],
-    ['6334', { plu: '6334', nombre: 'Envase', costoSistema: 180, costoMercaderia: null }]]);
-  const prod = cfg => costearTodos({ productos: datos.productos, costos: cp, costeo: cfg, datos })['p-a'].presentaciones['7777'];
-  assert.ok(prod(COSTEO).precioConIva > 0);
-  assert.strictEqual(prod(permisos.proyectarCosteo(COSTEO, 'produccion')).precioConIva, prod(COSTEO).precioConIva);
 });
 
 test('proyectarCosteo: sin venta base del tipo (gastos desconocidos) no inventa precio', () => {

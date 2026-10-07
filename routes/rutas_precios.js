@@ -491,7 +491,7 @@ module.exports = function crearRutasPrecios(deps) {
   async function presentacionesProduccion(costeo) {
     const datos = normalizarDatos(leerJSON(path.join(DATA_DIR, 'recetas_produccion.json'), {}));
     const costos = await costosPorPlu(plusUsados(datos.productos));
-    const costeados = costearTodos({ productos: datos.productos, costos, costeo, datos });
+    const costeados = costearTodos({ productos: datos.productos, costos, costeo });
     return Object.values(costeados).flatMap(c => Object.entries(c.presentaciones || {})
       .map(([plu, p]) => ({ plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad })));
   }

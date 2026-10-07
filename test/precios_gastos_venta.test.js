@@ -4,7 +4,6 @@ const assert = require('node:assert');
 const {
   totalGastosVenta, markupDesdeGanancia, gananciaDesdeMarkup, validarGastosVenta, reescalarGanancias, gananciaPorCurva,
 } = require('../lib/precios_costeo');
-const { costearPresentacion } = require('../lib/precios_produccion');
 
 // Los 8 conceptos de la tabla de gastos sobre venta del Excel viejo (lista sucursal) = 26,09 %.
 const GASTOS_EXCEL = [
@@ -138,33 +137,4 @@ test('reescalarGanancias: no muta la entrada; ida y vuelta vuelve a los valores 
 test('reescalarGanancias: sin cambio de gastos o sin curvas no inventa nada', () => {
   assert.deepStrictEqual(reescalarGanancias(COSTEO, 10, 10), COSTEO);
   assert.strictEqual(reescalarGanancias({ toleranciaPct: 1 }, 0, 10).curvaGanancia, undefined);
-});
-
-// ── Producción: curva + conceptos = ganancia; override = ganancia propia ─────
-
-const presentar = extra => costearPresentacion({
-  plu: '1', presentacion: { recetaId: 'r', kgPorUnidad: 1 },
-  recetaCosteada: { nombre: 'R', costoKg: 1000, costos: {}, faltantes: [] },
-  costoDe: () => null, costoHora: 0, curva: { a: 15, b: 0, pisoPct: 15, techoPct: 15 }, ...extra,
-});
-
-test('costearPresentacion: con gastos 26.09 la curva (ganancia 15) se convierte → markup 55.594642', () => {
-  const p = presentar({ gastosVentaPct: 26.09 });
-  assert.strictEqual(p.gananciaPct, 15);
-  assert.strictEqual(p.markupPct, 55.594642);
-  assert.strictEqual(p.precioNeto, 1555.95);
-});
-
-test('costearPresentacion: sin gastos es identidad; la ganancia propia reemplaza curva + conceptos y se convierte con los gastos', () => {
-  const sin = presentar();
-  assert.strictEqual(sin.markupPct, 15);
-  assert.strictEqual(sin.gananciaPct, 15);
-  const conConceptos = presentar({ conceptos: [{ id: 'r', concepto: 'Riesgo', pct: 5 }] });
-  assert.strictEqual(conConceptos.gananciaPct, 20); // curva 15 + conceptos 5
-  assert.strictEqual(conConceptos.desglose.gananciaCurvaPct, 15);
-  const ov = presentar({ gastosVentaPct: 26.09, overridePct: 40, conceptos: [{ id: 'r', concepto: 'Riesgo', pct: 5 }] });
-  assert.strictEqual(ov.gananciaPct, 40);
-  assert.strictEqual(ov.markupPct, markupDesdeGanancia(40, 26.09)); // 1,4 ÷ (1 − 0,2609) − 1
-  assert.deepStrictEqual(ov.desglose.conceptos, []); // con ganancia propia no se suman conceptos
-  assert.strictEqual(ov.banda, 'override');
 });

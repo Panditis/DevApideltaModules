@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const pc = require('../lib/precios_costeo');
-const produccion = require('../lib/precios_produccion');
 const { calcularFilaAlmacen, markupsAlineadosConSiga, armarGruposFraccionado } = require('../routes/rutas_precios');
 
 const PF = [{ id: 'ingresos-brutos', concepto: 'Ingresos brutos', pct: 5 }, { id: 'impuesto-deb-cred', concepto: 'Impuesto débitos y créditos', pct: 0.79 }];
@@ -41,18 +40,13 @@ test('desglose: base + Σ conceptos $ = final exacto, al centavo (el último abs
   }
 });
 
-test('costearAlmacen / Fraccionado / Producción: finalPct en la fila y precio con gross-up', () => {
+test('costearAlmacen / Fraccionado: finalPct en la fila y precio con gross-up', () => {
   const a = pc.costearAlmacen({ costoMercaderia: 1000, markupPct: 40, gastos: GASTOS, conceptosFinal: PF });
   assert.strictEqual(a.finalPct, 5.79);
   assert.strictEqual(a.precioConIvaExacto, pc.redondear2(1694 / (1 - 0.0579)));
   assert.strictEqual(a.precioConIva, pc.redondearPrecioVenta(a.precioConIvaExacto));
   assert.strictEqual(pc.costearAlmacen({ costoMercaderia: null, markupPct: 40, conceptosFinal: PF }).finalPct, 5.79);
   assert.strictEqual(pc.costearFraccionado({ costoKg: 1000, markupPct: 40, gastos: GASTOS, conceptosFinal: PF }).precioConIvaExacto, a.precioConIvaExacto);
-  const p = produccion.costearProducto({
-    producto: { recetas: {}, presentaciones: { 100: { recetaId: 'x', kgPorUnidad: 1 } } }, costoDe: () => null,
-    curva: { a: 30, b: 0, pisoPct: 30, techoPct: 30 }, conceptosFinal: PF,
-  }).presentaciones[100];
-  assert.strictEqual(p.finalPct, 5.79); // sin receta: faltante, pero la fila lleva F para la curva/alinear
 });
 
 test('markupParaPrecio invierte el gross-up: precio × (1 − F) ÷ (1 + IVA) ÷ costo − 1', () => {
