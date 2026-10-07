@@ -120,3 +120,41 @@ test('listadoProduccion: sólo PLUs SIGA, costo por unidad de la receta como fue
   assert.deepStrictEqual(filas.map(f => [f.plu, f.productoId, f.costoSistema, f.sugeridos.sistema ? f.sugeridos.sistema.minorista.precio : null, !!f.decision]),
     [['7000', 'p-x', null, null, false], ['6319', 'p-granola', 1000, 1800, true]]);
 });
+
+// ── Decisión y export ────────────────────────────────────────────────────────
+
+test('validarDecision / aplicarDecision', () => {
+  const costeo = { costoPorProducto: { 5: 100 } };
+  assert.strictEqual(L.validarDecision('5', 'manual', costeo), null);
+  assert.match(L.validarDecision('6', 'manual', costeo), /costo manual/);
+  assert.match(L.validarDecision('x1', 'sistema', costeo), /PLU/);
+  assert.match(L.validarDecision('5', 'otra', costeo), /fuente/);
+  assert.strictEqual(L.validarDecision('5', null, costeo), null);
+  const antes = { 1: { fuente: 'sistema', fecha: 'a' } };
+  const d = L.aplicarDecision(antes, '2', 'ultimaCompra', 'b');
+  assert.deepStrictEqual(d, { 1: { fuente: 'sistema', fecha: 'a' }, 2: { fuente: 'ultimaCompra', fecha: 'b' } });
+  assert.deepStrictEqual(L.aplicarDecision(d, '1', null, 'c'), { 2: { fuente: 'ultimaCompra', fecha: 'b' } });
+  assert.deepStrictEqual(antes, { 1: { fuente: 'sistema', fecha: 'a' } });
+});
+
+test('itemsDecididos + listasExport: una lista por canal; Fraccionado alcanza a todas sus presentaciones; sin precio → omitido', () => {
+  const almacen = L.listadoReventa({
+    universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }, { plu: '2', nombre: 'Fideos', costoSistema: 500 }, { plu: '3', nombre: 'Sal', costoSistema: 300 }],
+    vigentes: VIGENTES, mayoristasDe: L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES }),
+    costeo: { decisiones: { 1: { fuente: 'sistema' }, 3: { fuente: 'ultimaCompra' } } }, cfg: CFG,
+  });
+  const fraccionado = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: new Map(), mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }),
+    costeo: { decisiones: { 100: { fuente: 'sistema' } } }, cfg: CFG,
+  });
+  const { items, omitidos } = L.itemsDecididos({ almacen, fraccionado, produccion: [] });
+  assert.strictEqual(omitidos, 1); // Sal: decidida con última compra, que no tiene
+  const listas = L.listasExport(items, 21);
+  const enc = ['Codigo', 'Nombre', 'Costo', 'Venta'];
+  assert.deepStrictEqual(listas.minorista, [enc, ['1', 'Arroz', 1210, 1800], ['101', 'Almendras 500G', 1210, 1950], ['102', 'Almendras 1Kg', 1210, 1800]]);
+  // Pack/bulto por unidad: Costo = costo unitario (1000; con IVA 1210), Venta = 1430 neto / 1750 con IVA.
+  assert.deepStrictEqual(listas.bultoNeto, [enc, ['50', 'Arroz Bulto x6', 1000, 1430]]);
+  assert.deepStrictEqual(listas.bultoIva, [enc, ['50', 'Arroz Bulto x6', 1210, 1750]]);
+  assert.deepStrictEqual([listas.packNeto, listas.packIva], [[enc], [enc]]);
+});
