@@ -28,6 +28,11 @@ const RUTAS_CONFIG_ESPERADAS = [
   'post /api/precios/pack-bulto/alinear-siga',
   'get /api/precios/produccion/categorias-maquina',
   'put /api/precios/produccion/categorias-maquina',
+  'get /api/precios/config/esquema',
+  'put /api/precios/config/esquema/costos',
+  'put /api/precios/config/esquema/precio',
+  'put /api/precios/config/esquema/margenes/:tipo',
+  'post /api/precios/config/esquema/rango/:tipo',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).
@@ -36,7 +41,7 @@ function rutasDeLosRouters() {
     apiRoute: fn => fn, query: async () => [], leerJSON: (_p, def) => def, guardarJSON: () => {},
     DATA_DIR: require('os').tmpdir(), LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1', tiposPackaging: [],
   };
-  const routers = ['rutas_precios', 'rutas_precios_produccion', 'rutas_precios_pack_bulto'].map(r => require(`../routes/${r}`)(deps));
+  const routers = ['rutas_precios', 'rutas_precios_produccion', 'rutas_precios_pack_bulto', 'rutas_precios_esquema'].map(r => require(`../routes/${r}`)(deps));
   return routers.flatMap(r => r.stack.filter(l => l.route).flatMap(l =>
     Object.keys(l.route.methods).map(m => `${m} ${l.route.path}`)));
 }

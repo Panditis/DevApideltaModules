@@ -2704,6 +2704,9 @@ app.use(require('./routes/rutas_precios_produccion')({ apiRoute, query, leerJSON
 // Precios › Pack / Bulto (Fase 4): config, overrides de % y vínculos manuales. Los filtros de fórmula
 // activa arman el vínculo automático pack/bulto → producto normal (rubro 'Almacen Bultos/Cajas').
 app.use(require('./routes/rutas_precios_pack_bulto')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
+// Precios › esquema por canal: Configuración nueva (Costos, Márgenes, Precio) y, desde la fase 3, listados,
+// decisión y export. Mismos deps que el resto del clúster de precios.
+app.use(require('./routes/rutas_precios_esquema')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
 
 // Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se
 // declaran bien antes, así que el registro podría ir donde estaban las rutas. Va igual al
