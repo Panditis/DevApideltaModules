@@ -54,3 +54,64 @@ test('costoConGastos modo precio: costo ÷ (1 − g)', () => {
 test('costoConGastos: modo desconocido se trata como "costo"', () => {
   assert.strictEqual(E.costoConGastos(1000, 5, undefined), 1050);
 });
+
+// ── Tablas de margen ─────────────────────────────────────────────────────────
+
+const TABLA = { minPct: 30, maxPct: 60, escalones: 4, rango: { desde: 100, hasta: 10000 } };
+
+test('quiebres: cortes logarítmicos y margen lineal de máx a mín', () => {
+  // (10000/100)^(1/4) = 3.1623 → cortes 316.23, 1000, 3162.28
+  assert.deepStrictEqual(E.quiebres(TABLA), [
+    { hasta: 316.23, margenPct: 60 },
+    { hasta: 1000, margenPct: 50 },
+    { hasta: 3162.28, margenPct: 40 },
+    { hasta: null, margenPct: 30 },
+  ]);
+});
+
+test('quiebres: un solo escalón → todo al máximo', () => {
+  assert.deepStrictEqual(E.quiebres({ ...TABLA, escalones: 1 }), [{ hasta: null, margenPct: 60 }]);
+});
+
+test('margenDe: busca el escalón por costo; fuera de rango va a los extremos', () => {
+  assert.strictEqual(E.margenDe(TABLA, 5), 60);
+  assert.strictEqual(E.margenDe(TABLA, 316.22), 60);
+  assert.strictEqual(E.margenDe(TABLA, 316.23), 50);
+  assert.strictEqual(E.margenDe(TABLA, 2000), 40);
+  assert.strictEqual(E.margenDe(TABLA, 999999), 30);
+});
+
+test('ajustePesoPct: tramo por peso, sin peso = 1 kg, más pesado = último', () => {
+  const aj = { tramosG: [100, 500, 1000, 5000], puntos: [10, 5, 0, -5] };
+  assert.strictEqual(E.ajustePesoPct(aj, 80), 10);
+  assert.strictEqual(E.ajustePesoPct(aj, 100), 10);
+  assert.strictEqual(E.ajustePesoPct(aj, 250), 5);
+  assert.strictEqual(E.ajustePesoPct(aj, null), 0);
+  assert.strictEqual(E.ajustePesoPct(aj, 20000), -5);
+  assert.strictEqual(E.ajustePesoPct(null, 250), 0);
+  assert.strictEqual(E.ajustePesoPct({ tramosG: [], puntos: [] }, 250), 0);
+});
+
+test('rangoDesdeCostos: percentiles 5 y 95 (nearest-rank) de costos positivos', () => {
+  const costos = Array.from({ length: 100 }, (_, i) => i + 1); // 1..100
+  assert.deepStrictEqual(E.rangoDesdeCostos(costos), { desde: 5, hasta: 95 });
+  assert.deepStrictEqual(E.rangoDesdeCostos([0, -3, null, 'x', 10, 20]), { desde: 10, hasta: 20 });
+  assert.strictEqual(E.rangoDesdeCostos([10]), null);
+  assert.strictEqual(E.rangoDesdeCostos([7, 7, 7]), null); // desde == hasta: no hay rango
+  assert.strictEqual(E.rangoDesdeCostos([]), null);
+});
+
+test('validarTablaMargen: acepta válida y rechaza cada caso inválido', () => {
+  assert.strictEqual(E.validarTablaMargen(TABLA), null);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: 70 }), /mínimo/);
+  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 'x' }), /máximo/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -60 }), /mínimo/);
+  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 400 }), /máximo/);
+  assert.match(E.validarTablaMargen({ ...TABLA, escalones: 0 }), /escalones/);
+  assert.match(E.validarTablaMargen({ ...TABLA, escalones: 2.5 }), /escalones/);
+  assert.match(E.validarTablaMargen({ ...TABLA, escalones: 31 }), /escalones/);
+  assert.match(E.validarTablaMargen({ ...TABLA, rango: { desde: 0, hasta: 10 } }), /rango/);
+  assert.match(E.validarTablaMargen({ ...TABLA, rango: { desde: 50, hasta: 50 } }), /rango/);
+  assert.match(E.validarTablaMargen({ ...TABLA, rango: null }), /rango/);
+  assert.match(E.validarTablaMargen(null), /tabla/);
+});
