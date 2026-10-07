@@ -65,14 +65,14 @@ test('config esquema: PUT márgenes de un tipo pisa sólo ese tipo y saca sinCon
   } finally { a.cerrar(); }
 });
 
-test('config esquema: PUT costos guarda modo, gastos (con listas) y extras', async () => {
+test('config esquema: PUT costos guarda modo, gastos (sin listas) y extras', async () => {
   const a = appCon(MIGRADO);
   try {
     const tipos = { almacen: true, fraccionado: false, produccion: true };
     const j = await a.pedir('PUT', '/api/precios/config/esquema/costos', { modoGastos: 'precio',
       gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 2, tipos }], extrasMinorista: [] });
     assert.strictEqual(j.modoGastos, 'precio');
-    assert.deepStrictEqual(a.leer().gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2, listas: ['sucursal'], tipos }]);
+    assert.deepStrictEqual(a.leer().gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2, tipos }]);
     assert.deepStrictEqual(a.leer().extrasMinorista, []);
   } finally { a.cerrar(); }
 });

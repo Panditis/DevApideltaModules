@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const {
   recetaEfectiva, costearReceta, costearPresentacion, costearProducto, detectarCambios, resumenAlertas, snapshotDe,
   validarProducto, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
+  limpiarRecetas,
 } = require('../lib/precios_produccion');
 
 // costoDe inyectado: Map plu → costo. Sin entrada = sin costo (null), nunca 0.
@@ -426,4 +427,21 @@ test('plusProduccion: presentaciones con PLU (trim, sin provisorias n-… ni bas
   assert.deepStrictEqual(plusProduccion(datos, vinculos), ['6050', '6051', '91032', '91438']);
   assert.deepStrictEqual(plusProduccion(datos), ['6050', '6051']);
   assert.deepStrictEqual(plusProduccion(null), []);
+});
+
+test('limpiarRecetas: saca insumos, máquinas, MO y corrección; snapshots sólo con materias primas; idempotente', () => {
+  const datos = { insumosManuales: { 'm-x': {} }, categoriasMaquina: [], productos: { 'p-a': { nombre: 'A', insumos: [{ plu: '9' }],
+    recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '1', cantidad: 5 }], minutosElaboracion: 30, categoriaMaquinaId: 'horno',
+      validado: { fecha: 'f', costoKg: 70, costos: { 1: 100, _costoHora: 4500, _maquina: 300 } } },
+      v: { nombre: 'V', varianteDe: 'base', extras: [{ plu: '2', cantidad: 1 }] } },
+    presentaciones: { 7: { recetaId: 'v', kgPorUnidad: 0.5, minutosEmpaquetado: 1, correccionPct: 5, insumos: [{ plu: '9', cantidad: 1 }],
+      validado: { fecha: 'f', costoUnidad: 50, costos: { 1: 100, 2: 20, 9: 15, _costoHora: 4500 } } } } } } };
+  const r = limpiarRecetas(datos);
+  assert.deepStrictEqual(r.datos, { productos: { 'p-a': { nombre: 'A',
+    recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '1', cantidad: 5 }], validado: { fecha: 'f', costoKg: 70, costos: { 1: 100 } } },
+      v: { nombre: 'V', varianteDe: 'base', extras: [{ plu: '2', cantidad: 1 }] } },
+    presentaciones: { 7: { recetaId: 'v', kgPorUnidad: 0.5, validado: { fecha: 'f', costoUnidad: 50, costos: { 1: 100, 2: 20 } } } } } } });
+  assert.ok(r.quitadas.includes('archivo.insumosManuales') && r.quitadas.includes('presentacion.validado.costos'));
+  assert.strictEqual(limpiarRecetas(r.datos), null);
+  assert.ok('insumos' in datos.productos['p-a']); // no muta
 });

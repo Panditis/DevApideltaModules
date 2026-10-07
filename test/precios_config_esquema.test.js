@@ -17,14 +17,14 @@ test('configEsquemaDe: defaults para lo escalar; sin margenes → migrado false'
   assert.deepStrictEqual([m.migrado, m.modoGastos, m.ivaVentaPct, m.redondeo.minorista, m.redondeo.packIva], [true, 'precio', 10.5, 10, 50]);
 });
 
-test('validarCostos: gastos con listas y tildes, extras sin listas; ids por slug', () => {
+test('validarCostos: gastos y extras con tildes, sin listas; ids por slug', () => {
   const r = C.validarCostos({
     modoGastos: 'precio',
     gastosVenta: [{ concepto: 'Flete', pct: 1, tipos: { almacen: true, fraccionado: true, produccion: false } }],
     extrasMinorista: [{ id: 'ingresos-brutos', concepto: 'Ingresos Brutos', pct: 5, tipos: TODOS }],
   });
   assert.strictEqual(r.modoGastos, 'precio');
-  assert.deepStrictEqual(r.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 1, listas: ['sucursal'], tipos: { almacen: true, fraccionado: true, produccion: false } }]);
+  assert.deepStrictEqual(r.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 1, tipos: { almacen: true, fraccionado: true, produccion: false } }]);
   assert.deepStrictEqual(r.extrasMinorista, [{ id: 'ingresos-brutos', concepto: 'Ingresos Brutos', pct: 5, tipos: TODOS }]);
 });
 
@@ -124,4 +124,21 @@ test('migrarEsquemaCanales: archivo mínimo → márgenes de respaldo, listas va
   assert.deepStrictEqual([costeo.extrasMinorista, costeo.decisiones], [[], {}]);
   assert.strictEqual(costeo.margenes.fraccionado.ajustesPeso, undefined);
   assert.strictEqual(costeo.margenes.almacen.minorista.minPct, 30);
+});
+
+test('limpiarCosteo: saca las claves muertas, los descuentos pack/bulto y listas de los gastos; conserva lo vivo; idempotente', () => {
+  const vivo = { toleranciaPct: 3, ivaVentaPct: 21, modoGastos: 'costo', extrasMinorista: [], margenes: {}, redondeo: {},
+    costoPorProducto: { 1: 9 }, costosExtraFraccionado: {}, decisiones: {} };
+  const viejo = { ...vivo, costoHora: 4500, margenPorProducto: { 1: 20 }, fuenteCosto: { 1: 'ultimaCompra' }, marcadosExportar: {},
+    curvaGanancia: {}, metodoGanancia: 'curva', departamentos: [], ventaBase: {}, conceptosGanancia: [], conceptosPrecioFinal: [],
+    presentacionesTemporales: {}, recetas: {},
+    gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 1, listas: ['sucursal'], tipos: { almacen: true, fraccionado: true, produccion: true } }],
+    packBulto: { descPackPct: 9.7, descBultoPct: 14.7, descPorProducto: { 50: 10 }, vinculosManuales: { 60: { basePlu: '1', tipo: 'pack' } }, ventaPesable: {} } };
+  const r = C.limpiarCosteo(viejo);
+  assert.deepStrictEqual(r.datos, { ...vivo,
+    gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 1, tipos: { almacen: true, fraccionado: true, produccion: true } }],
+    packBulto: { vinculosManuales: { 60: { basePlu: '1', tipo: 'pack' } }, ventaPesable: {} } });
+  assert.ok(r.quitadas.includes('costoHora') && r.quitadas.includes('packBulto.descPorProducto') && r.quitadas.includes('gastosVenta[].listas'));
+  assert.strictEqual(C.limpiarCosteo(r.datos), null);
+  assert.strictEqual(viejo.costoHora, 4500); // no muta
 });
