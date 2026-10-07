@@ -3080,7 +3080,8 @@ async function buscarProductoManual() {
     // en la carga manual (elegirlos daba un alta contra el producto equivocado).
     const resp = await fetch(`${SERVER_URL}/api/productos/buscar?q=${encodeURIComponent(q)}`
       + `&excluirRubros=${encodeURIComponent('Almacen Bultos/Cajas,Bultos/Cajas,Insumos')}`
-      + `&excluirMarcas=${encodeURIComponent('Administracion')}`);
+      + `&excluirMarcas=${encodeURIComponent('Administracion')}`
+      + `&conFormula=1`);  // sin fórmula no hay qué descontar: ni se ofrece
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     _cmResultados = Array.isArray(data) ? data : [];

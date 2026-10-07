@@ -100,6 +100,13 @@ span.parcial{color:var(--warn);font-weight:700;cursor:help}
 td.quiebre{color:var(--crit);font-weight:600}
 /* Columna sin calcular (más de una sucursal en el filtro): apagada, no es un valor. */
 td.sin-dato{color:var(--muted)}
+/* Pestaña Quiebres: el total de días es la columna que manda, va pintada y enmarcada para
+   separarla de las sucursales. Arriba y abajo cierra el marco en el header y la última fila. */
+th.col-total,td.col-total{background:var(--green-light);border-left:2px solid var(--green);border-right:2px solid var(--green);color:var(--green);font-weight:700}
+th.col-total{border-top:2px solid var(--green)}
+tr:last-child td.col-total{border-bottom:2px solid var(--green)}
+/* Pérdida que no incluye alguna sucursal en quiebre todo el rango (sin día con stock para estimar). */
+.sin-estimar{color:var(--warn);cursor:help}
 /* Productos de marca propia: se remarcan en el detalle del cliente para leer de un
    vistazo cuánto de lo que compró es Apidelta y cuánto es reventa. */
 tr.cli-det.propio>td.pres{font-weight:600}

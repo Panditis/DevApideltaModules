@@ -252,7 +252,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const pisoImportanciaP = nuevoCfgP.pisoImportancia || 0.8;
   const compraTiposP = (distCfgP.tiposMovimientoCompra || ['COMPRA', 'COMPRA-NC']).map(t => `'${t}'`).join(',');
   const idCentralP = distCfgP.idCentral || 1;   // sucursal central (SoyLaCentral=1), configurable
-  const [stockRows, granelRows, nombres, fact, primeraCompraRows, recSucRows] = await Promise.all([
+  const [stockRows, granelRows, nombres, fact, primeraCompraRows, recSucRows, prodSigaRows] = await Promise.all([
     query(sqlStockDistribucion(plus)),   // producto terminado: DisponibleVenta=1 por IdSucursal (central + sucursales)
     granelCodes.length ? query(`SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS Stock
        FROM ProductosDepositos pd
@@ -277,13 +277,23 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
       console.error('[pesables] ultimo REC-SUC:', e.message);
       return [];
     }),
+    // Última carga del módulo Producción de Siga (no por tipo de movimiento: PRODUCCION/COMPROD
+    // también los generan fórmulas de ventas) → fuente (c) del aging.
+    query(`SELECT pp.IdProducto, MAX(p.Fecha) AS Ultima
+      FROM Produccion p
+      JOIN ProduccionProductos pp ON pp.IdSucursal=p.IdSucursal AND pp.IdProduccion=p.IdProduccion
+      WHERE p.IdEstado='NORMAL' AND pp.IdProducto IN (${quote(plus)}) AND pp.CantidadProducida > 0
+      GROUP BY pp.IdProducto`).catch((e) => {
+      console.error('[pesables] ultima carga Produccion:', e.message);
+      return [];
+    }),
   ]);
-  // Último fraccionado por PLU = máx(cargas de fraccionado de la app, último REC-SUC en Siga).
+  // Último fraccionado por PLU = máx(cargas de la app, último REC-SUC, última carga de Producción en Siga).
   const cargasFrac = productividad.unirPorId(
     leerJSON(FRAC_REG_PATH, []),
     (leerJSON(HISTORIAL_PATH, []) || []).flatMap(h => (h && h.produccion) || []),
   );
-  const ultimoFracP = ultimoFraccionadoPorPlu(cargasFrac, recSucRows);
+  const ultimoFracP = ultimoFraccionadoPorPlu(cargasFrac, [...recSucRows, ...prodSigaRows]);
   const primeraCompraMapP = new Map(primeraCompraRows.map(r => [String(r.IdProducto), r.Primera]));
   const umbralNuevoP = new Date(Date.now() - nuevoDiasP * 24 * 60 * 60 * 1000);
   const esNuevoSetP = new Set([...primeraCompraMapP.entries()]

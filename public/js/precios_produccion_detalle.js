@@ -2,15 +2,15 @@
 // Script clásico, cargado después de precios_produccion.js: usa sus globales (prodDet, pedirCampos,
 // guardarProd, validarProd, urlProd, API_PROD, conectarBuscadorSiga, htmlBuscadorSiga, badgeEstadoProd,
 // mensajeFaltante, textoFaltante, nombreComponente, progresoProducto, pasosHabilitados, bodyReceta,
-// idRecetaNueva, rendimientoSugerido, fmtNum, pctTxt, btnCls/btnPrim/campoCls, panelProd,
+// idRecetaNueva, rendimientoSugerido, sugeridoProd, textoRevisar, fmtNum, pctTxt, btnCls/btnPrim/campoCls, panelProd,
 // prodSeccionesElegidas, seccionesAbiertas, irAProduccion, salirDeProduccion) y los de precios.html (esc, fmtMoney, chip,
-// numOrNull, avisar, confirmar, pedirJson, activarTab) y de precios_produccion_modal.js (presAbierta, cerrarPresentacion). Pasos 3-4 (insumos y
-// presentaciones) en precios_produccion_presentaciones.js. Los importes y costos se muestran tal como
+// numOrNull, avisar, confirmar, pedirJson) y de precios_produccion_modal.js (presAbierta, cerrarPresentacion). Paso 3
+// (presentaciones) en precios_produccion_presentaciones.js. Los importes y costos se muestran tal como
 // vienen del server: después de cada guardado se vuelve a pedir el detalle.
 
 // ── Recetas: copias editables ───────────────────────────────────────────────────
-// prodEdRecetas[recetaId] = { nombre, varianteDe, rendimientoKg, mermaPct, minutosElaboracion,
-// categoriaMaquinaId, items: [{ plu, nombre, cantidad, unidad, costoUnit, importe, fuente, pendiente? }],
+// prodEdRecetas[recetaId] = { nombre, varianteDe, rendimientoKg, mermaPct,
+// items: [{ plu, nombre, cantidad, unidad, costoUnit, importe, fuente, pendiente? }],
 // sucio, nueva }. items = materias primas (base) o extras (variedad), con el costo del server.
 let prodEdRecetas = {};
 // Orden elegido por tabla de ingredientes ("<productoId>/<recetaId>" → { clave, dir }). Sólo visual:
@@ -21,7 +21,7 @@ const claveOrdenReceta = id => `${prodDet.id}/${id}`;
 function edicionReceta(id) {
   const def = prodDet.definicion.recetas[id];
   const comp = (prodDet.recetas[id] || {}).componentes || [];
-  // componentes = [MP de la base…, extras…, _costoHora, _maquina] en el orden de la definición.
+  // componentes = [MP de la base…, extras…] en el orden de la definición.
   const nBase = def.varianteDe ? ((prodDet.definicion.recetas[def.varianteDe] || {}).materiasPrimas || []).length : 0;
   const lista = def.varianteDe ? def.extras || [] : def.materiasPrimas || [];
   const items = lista.map((it, i) => {
@@ -30,7 +30,7 @@ function edicionReceta(id) {
   });
   return {
     nombre: def.nombre, varianteDe: def.varianteDe || null, rendimientoKg: def.rendimientoKg ?? null, mermaPct: def.mermaPct ?? null,
-    minutosElaboracion: def.minutosElaboracion ?? null, categoriaMaquinaId: def.categoriaMaquinaId || '', items, sucio: false, nueva: false,
+    items, sucio: false, nueva: false,
   };
 }
 // Tras cada GET: se reconstruyen desde el server, salvo las que tienen cambios sin guardar (mismo producto).
@@ -53,7 +53,6 @@ function nombresProd() {
   for (const f of [...Object.values(prodDet.recetas), ...Object.values(prodDet.presentaciones)]) {
     for (const c of f.componentes) if (c.nombre && !String(c.plu).startsWith('_')) m[c.plu] = c.nombre;
   }
-  for (const it of prodDet.insumos) if (it.nombre) m[it.clave] = it.nombre;
   return m;
 }
 
@@ -73,7 +72,7 @@ function htmlNotas(f, nombres, plu = null) {
   const avisos = (f.avisos || []).map(a => `<p class="text-xs text-warn mt-2">⚠ ${esc(a)}</p>`).join('');
   return lista + avisos;
 }
-const valorCambio = (k, v) => (v == null ? 'sin costo' : '$ ' + fmtMoney(v) + (k === '_costoHora' || k === '_maquina' ? '/h' : ''));
+const valorCambio = (k, v) => (v == null ? 'sin costo' : '$ ' + fmtMoney(v));
 // Componentes que movieron desde la validación (detectarCambios del server).
 function htmlCambios(cambios, nombres) {
   if (!cambios || cambios.estado !== 'cambio') return '';
@@ -100,39 +99,17 @@ async function irAPaso(n) {
   paso.querySelector('summary').focus({ preventScroll: true });
 }
 async function cargarCostoManual(clave) {
-  const esPlu = /^\d+$/.test(clave);
-  const m = (prodDet.insumosManuales || []).find(x => x.id === clave);
-  const v = await pedirCampos(`Costo de ${nombresProd()[clave] || (m && m.nombre) || clave}`,
+  const v = await pedirCampos(`Costo de ${nombresProd()[clave] || clave}`,
     [{ name: 'costo', label: 'Costo por unidad ($) *', type: 'number', required: true }], 'Guardar costo');
   if (!v) return;
   const costo = numOrNull(v.costo);
-  const put = esPlu ? () => pedirJson('PUT', '/api/precios/costo-producto/' + encodeURIComponent(clave), { fuente: 'manual', costo })
-    : () => pedirJson('PUT', `${API_PROD}/insumos-manuales/${encodeURIComponent(clave)}`, { nombre: m ? m.nombre : clave, costo, tipo: m ? m.tipo : undefined });
+  const put = () => pedirJson('PUT', '/api/precios/costo-producto/' + encodeURIComponent(clave), { fuente: 'manual', costo });
   if (await guardarProd(put, null, 'Costo guardado')) refrescarModalPres(); // precios_produccion_modal.js
-}
-async function cargarMargen(plu) {
-  // Sin el permiso de Configuración el valor es markup s/ costo neto: el server lo pasa a ganancia.
-  const v = await pedirCampos(`${segunPermiso('Ganancia propia', 'Markup propio')} para el PLU ${plu}`,
-    [{ name: 'gananciaPct', label: segunPermiso('Ganancia % sobre el costo real (reemplaza curva + conceptos, ej. 20) *',
-      'Markup % sobre el costo neto (reemplaza el standard, ej. 40) *'), type: 'number', required: true }], segunPermiso('Guardar ganancia', 'Guardar markup'));
-  if (!v) return;
-  const ok = await guardarProd(() => pedirJson('PUT', '/api/precios/margen-producto/' + encodeURIComponent(plu), { gananciaPct: numOrNull(v.gananciaPct) }), null, 'Ganancia guardada');
-  if (ok) refrescarModalPres();
 }
 function ejecutarAccionProd(ds) {
   if (ds.prAccion === 'paso') irAPaso(Number(ds.paso));
   else if (ds.prAccion === 'costo') cargarCostoManual(ds.clave);
-  else if (ds.prAccion === 'margen') cargarMargen(ds.plu);
   else if (ds.prAccion === 'abrirPres') abrirPresentacion(ds.clave); // precios_produccion_modal.js
-  else if (ds.prAccion === 'config') irATab('general'); // sub-tabs de Configuración (activarTab, precios_config.js)
-  else if (ds.prAccion === 'maquinas') irATab('maquinas');
-  else if (ds.prAccion === 'ganancia') irATab('ganancia');
-}
-async function irATab(tipo) {
-  if (!(await cerrarPresentacion())) return; // con cambios sin guardar pregunta
-  salirDeProduccion();
-  activarTab(tipo);
-  window.scrollTo(0, 0);
 }
 
 // ── Encabezado + checklist de progreso ──────────────────────────────────────────
@@ -184,7 +161,7 @@ function htmlPanelAlertas(d) {
       a.faltantes.map(m => `<li><span><b>${esc(m.quien)}</b> · ${esc(m.texto)}</span>${btnAccion(m.accion, m.boton)}</li>`))}
     ${grupo('a-cambio', `Costos que cambiaron desde la validación (${a.cambios.length})`,
       a.cambios.map(c => `<li><span><b>${esc(c.nombre)}</b> <span class="text-gris">${c.tipo === 'receta' ? 'receta' : 'presentación'}</span>
-        <span class="tabular-nums font-semibold text-warn">${esc(pctTxt(c.deltaPct))}</span></span>${ir(c)}</li>`),
+        <span class="tabular-nums font-semibold text-warn">${esc(textoRevisar(c.revisar) || pctTxt(c.deltaPct))}</span></span>${ir(c)}</li>`),
       ' <button type="button" id="prAlertaValidar" class="cfg-btn2 ml-auto">Revisé: validar todo</button>')}
     ${grupo('a-precio', `Precio vigente fuera de tolerancia (${a.precios.length})`,
       a.precios.map(p => `<li><span><b>${esc(p.nombre)}</b> <span class="font-semibold tabular-nums ${sem[p.semaforo][1]}">${sem[p.semaforo][0]} ${esc(fmtPct(p.deltaPct))}</span></span>
@@ -222,10 +199,9 @@ const ESTADO_PASO = {
 // [título, ayuda de una línea, qué cargar, acento]. El acento es el color de la sección del desglose del precio
 // (.s-costo azul → .s-extra ámbar → .s-margen verde → .s-final verde oscuro): la página se lee en el orden del costeo.
 const PASOS = {
-  1: ['Receta base', 'Costo por kg de lo que produce una tanda de máquina.', 'Ingredientes de una tanda y cuántos kg rinde.', 'costo'],
+  1: ['Receta base', 'Costo por kg de lo que produce una tanda de máquina (sólo materias primas).', 'Ingredientes de una tanda y cuántos kg rinde.', 'costo'],
   2: ['Variedades', 'Lo que se vende: la base + 0, 1 o 2 ingredientes extra (ej. Pepas de membrillo). Las presentaciones eligen una variedad.', 'Opcional: la variedad sin extras se crea sola al guardar la receta base; agregá otras solo si el producto tiene sabores.', 'costo'],
-  3: ['Insumos y empaque', 'Envases, etiquetas, tapas y precintos de este producto: se suman al costo de cada presentación.', 'Los insumos de SIGA (o manuales si no tienen PLU), con su costo.', 'extra'],
-  4: ['Presentaciones y precios', 'Cada PLU vendible con su costo, precio sugerido y la diferencia contra el vigente de SIGA. Marcalas para exportar el archivo de precios.', 'PLU de SIGA, variedad, kg por unidad y qué insumos lleva.', 'margen'],
+  3: ['Presentaciones y precios', 'Cada PLU vendible con su costo por unidad, el precio sugerido por el esquema y la diferencia contra el vigente de SIGA. "Precios" muestra todos los canales y la decisión.', 'PLU de SIGA, variedad y kg por unidad.', 'margen'],
 };
 // Dato clave de cada sección, a la derecha del encabezado (sale de lo que mandó el server).
 function totalPaso(n) {
@@ -238,9 +214,8 @@ function totalPaso(n) {
     const [min, max] = [Math.min(...c), Math.max(...c)];
     return ['Costo/kg', min === max ? plata(min) : `${plata(min)} – ${fmtMoney(max)}`];
   }
-  if (n === 3) return prodDet.insumos.length ? ['Insumos', String(prodDet.insumos.length)] : null;
-  if (n === 4) {
-    const rev = pres.filter(p => p.semaforo === 'subir' || p.semaforo === 'bajar').length;
+  if (n === 3) {
+    const rev = pres.filter(p => { const m = sugeridoProd(p); return m && (m.estado === 'subir' || m.estado === 'bajar'); }).length;
     return pres.length ? ['A revisar', `${rev} de ${pres.length}`] : null;
   }
   return null;
@@ -265,14 +240,13 @@ function htmlPaso(n, estado, hab, abierta, cuerpoFn) {
 function pintarDetalleProduccion() {
   const hab = pasosHabilitados(prodDet), prog = progresoProducto(prodDet);
   const est = Object.fromEntries(prog.map(p => [p.clave, p.estado]));
-  const abiertas = seccionesAbiertas({ 1: est.base, 2: est.variedades, 3: est.insumos, 4: est.presentaciones }, prodSeccionesElegidas);
+  const abiertas = seccionesAbiertas({ 1: est.base, 2: est.variedades, 3: est.presentaciones }, prodSeccionesElegidas);
   panelProd().innerHTML = htmlEncabezadoDetalle(prodDet, prog) + htmlPanelAlertas(prodDet)
     + htmlPaso(1, est.base, hab[1], abiertas[1], htmlPaso1) + htmlPaso(2, est.variedades, hab[2], abiertas[2], htmlPaso2)
-    + htmlPaso(3, est.insumos, hab[3], abiertas[3], htmlSeccionInsumos) + htmlPaso(4, est.presentaciones, hab[4], abiertas[4], htmlSeccionPresentaciones);
+    + htmlPaso(3, est.presentaciones, hab[3], abiertas[3], htmlSeccionPresentaciones);
   conectarEncabezado();
   conectarRecetas();
-  if (hab[3].ok) conectarSeccionInsumos();          // precios_produccion_presentaciones.js
-  if (hab[4].ok) conectarSeccionPresentaciones();   // precios_produccion_presentaciones.js
+  if (hab[3].ok) conectarSeccionPresentaciones();   // precios_produccion_presentaciones.js
   // Sólo un cambio real de estado cuenta como elección (el toggle que dispara el render inicial, no).
   panelProd().querySelectorAll('details[data-sec]').forEach(det => det.addEventListener('toggle', () => {
     if (det.open === (det.dataset.abierta === '1')) return;
@@ -325,7 +299,7 @@ function htmlReceta(id) {
     ${htmlRecetaTabla(id, ed, c)}
     <div class="mt-2 flex flex-wrap items-center gap-2">${htmlBuscadorSiga('prBusca-' + id, esVar ? 'Buscar ingrediente extra en SIGA (PLU o nombre)…' : 'Buscar ingrediente en SIGA (PLU o nombre)…')}
       <button type="button" class="rc-formula ${btnCls}" title="Copiar los componentes de la fórmula de un producto de SIGA">Traer fórmula de SIGA</button></div>
-    ${esVar ? `<details class="mt-3"${['rendimientoKg', 'mermaPct', 'minutosElaboracion', 'categoriaMaquinaId'].some(k => ed[k] != null && ed[k] !== '') ? ' open' : ''}>
+    ${esVar ? `<details class="mt-3"${['rendimientoKg', 'mermaPct'].some(k => ed[k] != null && ed[k] !== '') ? ' open' : ''}>
       <summary class="text-xs text-gris cursor-pointer hover:text-ink">Opciones avanzadas (pisar lo que hereda de la base)</summary>${htmlRecetaCampos(ed)}</details>` : ''}
     ${c ? htmlNotas(c, nombres) + htmlCambios(c.cambios, nombres) : ''}
     ${htmlRecetaAcciones(ed, c)}
@@ -348,7 +322,6 @@ function htmlVariedadBase(ed, c) {
 }
 // "Producto terminado por tanda: 120 kg de base + 47,3 kg de extras = 167,3 kg (−3% merma → 162,3 kg)".
 // Todos los números vienen del server (costeo de la variedad: desglose); el extra no altera la base.
-// (Nombre propio: htmlDesglose es el desglose del precio de precios_detalle.js; antes se pisaban como globales.)
 function htmlDesgloseTanda(c) {
   const d = c && c.desglose;
   if (!d || d.totalKg == null) return 'Producto terminado por tanda: —';
@@ -361,13 +334,6 @@ function htmlDesgloseTanda(c) {
 }
 // Kg de la receta base de una variedad (los extras son "para una tanda de la base").
 const kgBaseDe = ed => { const b = prodDet.definicion.recetas[ed.varianteDe] || {}; return Number(b.rendimientoKg) > 0 ? Number(b.rendimientoKg) : null; };
-function opcionesCategoria(ed, esVariedad) {
-  const cats = prodDet.categoriasMaquina || [];
-  const opciones = [['', esVariedad ? 'Hereda de la base' : 'Sin máquina (costo $0)'],
-    ...cats.map(c => [c.id, `${c.nombre} · $ ${fmtMoney(c.costoHora)}/h`])];
-  if (ed.categoriaMaquinaId && !cats.some(c => c.id === ed.categoriaMaquinaId)) opciones.push([ed.categoriaMaquinaId, `${ed.categoriaMaquinaId} (no existe)`]);
-  return opciones.map(([v, t]) => `<option value="${esc(v)}"${v === ed.categoriaMaquinaId ? ' selected' : ''}>${esc(t)}</option>`).join('');
-}
 function htmlRecetaCampos(ed) {
   const base = ed.varianteDe ? prodEdRecetas[ed.varianteDe] : null;
   const hereda = (k, ej) => (base ? (base[k] != null && base[k] !== '' ? `hereda: ${base[k]}` : 'hereda de la base') : ej);
@@ -375,13 +341,9 @@ function htmlRecetaCampos(ed) {
   const num = (campo, label, ph, txt, u) => `<label class="block text-xs font-semibold text-ink">${label}
       <span class="block mt-1">${campoU(`<input type="number" step="any" min="0" class="rc-campo" data-campo="${campo}" value="${ed[campo] ?? ''}" placeholder="${esc(ph)}">`, u, { w: 'w-40' })}</span>${ayuda(txt)}</label>`;
   const rendPh = base ? `por defecto: ${fmtNum(rendimientoSugerido(base.rendimientoKg, ed.items))}` : 'ej. 104';
-  return `<div class="grid grid-cols-4 gap-4 mt-4 pr-campos">
+  return `<div class="grid grid-cols-2 gap-4 mt-4 pr-campos">
     <div>${num('rendimientoKg', `Kg por tanda ${base ? '' : REQ}`, rendPh, 'Lo que rinde una tanda de máquina.', 'kg')}${htmlAjuste(ed)}</div>
     ${num('mermaPct', 'Merma', hereda('mermaPct', 'ej. 3'), base ? 'Opcional: pérdida del proceso.' : 'Solo si "Kg por tanda" son los kg que entran; si ya es lo que sale, dejalo en 0.', '%')}
-    ${num('minutosElaboracion', 'Elaboración', hereda('minutosElaboracion', 'ej. 90'), 'Opcional: tiempo de una tanda (suma mano de obra).', 'min')}
-    <label class="block text-xs font-semibold text-ink">Máquina
-      <select class="rc-campo campo-t mt-1 font-normal" data-campo="categoriaMaquinaId">${opcionesCategoria(ed, !!base)}</select>
-      ${ayuda('Opcional: suma el costo/hora de la máquina.')}</label>
   </div>`;
 }
 // Aviso inline tras escalar por cambio de kg por tanda (decisión 12), con Deshacer.
@@ -424,11 +386,7 @@ const filaItem = (it, i, cambiados = new Set()) => `<tr class="border-t border-b
     <option value="kg"${it.unidad === 'u' ? '' : ' selected'}>kg</option><option value="u"${it.unidad === 'u' ? ' selected' : ''}>u</option></select></td>
   ${celdasCosto(it)}
   <td class="p-1.5 text-center"><button type="button" class="rc-quitar w-7 h-7 rounded-lg text-gris hover:text-crit hover:bg-crit/10" aria-label="Quitar ${esc(it.nombre || it.plu)}" title="Quitar">✕</button></td></tr>`;
-// Mano de obra / máquina de la tanda (del server, sólo lectura).
-const filaElab = (c, cambiados = new Set()) => `<tr class="${marcaFila(cambiados.has(c.plu)).trimStart()}"><td></td><td class="p-1.5" colspan="3">${esc(c.plu === '_costoHora' ? 'Mano de obra' : 'Máquina · ' + (c.nombre || ''))}
-  <span class="text-xs">${fmtNum(c.cantidad)} min × ${c.costoUnit != null ? '$ ' + fmtMoney(c.costoUnit) + '/min' : '—'}</span></td>
-  <td></td><td class="p-1.5 text-right tabular-nums">${c.importe != null ? '$ ' + fmtMoney(c.importe) : '—'}</td><td class="p-1.5 text-xs">config</td><td></td></tr>`;
-// thOrden (header ordenable) vive en precios_orden.js.
+// thOrden (header ordenable) vive en precios_comun.js.
 // Variedad: fila fija arriba (fuera del orden) con lo que aporta la receta base, para que la suma
 // "Costo de la tanda" cierre. El importe es costoBaseIngredientes del server.
 function htmlFilaBase(ed, c) {
@@ -441,7 +399,6 @@ function htmlFilaBase(ed, c) {
 }
 function htmlRecetaTabla(id, ed, c) {
   const vacio = `<tr><td colspan="8" class="p-3 text-xs text-gris">Todavía no agregaste ${ed.varianteDe ? 'extras' : 'ingredientes'}: buscalos abajo.</td></tr>`;
-  const elab = c ? c.componentes.filter(x => x.plu === '_costoHora' || x.plu === '_maquina') : [];
   const orden = prodOrdenRecetas[claveOrdenReceta(id)] || null;
   // Filas con su índice original (data-i): editar/quitar siguen apuntando al ítem correcto.
   const filas = ordenarFilas(ed.items.map((it, i) => ({ ...it, _i: i })), orden && orden.clave, orden && orden.dir);
@@ -451,7 +408,7 @@ function htmlRecetaTabla(id, ed, c) {
       ${thOrden('cantidad', `Cantidad ${REQ}`, orden, true)}${thOrden('unidad', 'Unidad', orden)}${thOrden('costoUnit', 'Costo unit.', orden, true)}
       ${thOrden('importe', 'Importe', orden, true)}${thOrden('fuente', 'Fuente', orden)}<th></th></tr></thead>
     ${htmlFilaBase(ed, c)}<tbody>${filas.map(f => filaItem(f, f._i, cambiados)).join('') || (ed.varianteDe ? '' : vacio)}</tbody>
-    <tfoot class="text-gris">${elab.map(x => filaElab(x, cambiados)).join('')}
+    <tfoot class="text-gris">
       <tr class="pr-total"><td colspan="5" class="text-right">Costo de la tanda</td>
         <td class="num">${c && c.costoBatch != null ? '$ ' + fmtMoney(c.costoBatch) : '—'}</td><td colspan="2"></td></tr></tfoot>
   </table></div>`;
@@ -509,7 +466,7 @@ function conectarReceta(id) {
   art.querySelector('.rc-formula').onclick = () => abrirImportarFormula(id); // precios_produccion_formula.js
   art.querySelectorAll('.rc-campo').forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
     const campo = el.dataset.campo;
-    const texto = ['nombre', 'categoriaMaquinaId', 'varianteDe'].includes(campo);
+    const texto = ['nombre', 'varianteDe'].includes(campo);
     editarReceta(id, { [campo]: texto ? el.value : numOrNull(el.value) });
   }));
   conectarItemsReceta(id, art);
@@ -558,8 +515,8 @@ async function nuevaRecetaBase() {
   if (!v) return;
   const id = idRecetaNueva(v.nombre, Object.keys(prodEdRecetas));
   prodEdRecetas = { ...prodEdRecetas, [id]: {
-    nombre: v.nombre, varianteDe: null, rendimientoKg: numOrNull(v.rendimientoKg), mermaPct: null, minutosElaboracion: null,
-    categoriaMaquinaId: '', items: [], sucio: true, nueva: true,
+    nombre: v.nombre, varianteDe: null, rendimientoKg: numOrNull(v.rendimientoKg), mermaPct: null,
+    items: [], sucio: true, nueva: true,
   } };
   prodSeccionesElegidas = { ...prodSeccionesElegidas, 1: true }; // el borrador vive en el paso 1: abierto
   pintarDetalleProduccion();

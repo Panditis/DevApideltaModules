@@ -5,7 +5,7 @@
 // componentesAIngredientes, esEmpaque, fmtNum, btnCls/btnPrim/campoCls, REQ, ayuda, textoFuente,
 // avisoExito) y los de precios.html (esc, fmtMoney, chip, numOrNull).
 // Las cantidades de SIGA son por unidad del producto (por kg): cantidad en la receta = cant × kg por tanda.
-// Los componentes que parecen empaque (envase/tapa/etiqueta/precinto) arrancan destildados: van en Insumos.
+// Los componentes que parecen empaque (envase/tapa/etiqueta/precinto) arrancan destildados: no se costean (fase 4).
 
 // fmEd = { recetaId, plu, nombre, componentes, sel: { plu: true }, kg, pedirKg, modo, cargando, mensaje }
 let fmEd = null;
@@ -77,7 +77,7 @@ function htmlTablaFormula() {
       <th class="p-1.5 text-left">PLU</th><th class="p-1.5 text-left">Componente</th><th class="p-1.5 text-right">Cant. SIGA</th>
       <th class="p-1.5 text-right">En la receta</th><th class="p-1.5 text-right">Costo</th></tr></thead>
     <tbody>${fmEd.componentes.map(filaFormula).join('')}</tbody></table></div>
-    ${hayEmpaque ? ayuda('Los marcados como envase/etiqueta/precinto arrancan destildados: los envases van en Insumos (paso 3).') : ''}
+    ${hayEmpaque ? ayuda('Los marcados como envase/etiqueta/precinto arrancan destildados: el empaque no se costea.') : ''}
     ${ayuda('Destildá lo que no va en esta receta (ej. los dulces de las Pepas, para importarlos después uno por variedad).')}
     ${repetidos ? `<div class="mt-3 rounded-lg border border-warn/40 bg-warn/5 p-3 text-xs">
       <b class="text-warn">${repetidos} ${repetidos === 1 ? 'ya está' : 'ya están'} en la receta.</b> Su cantidad:
@@ -140,9 +140,9 @@ function agregarDesdeFormula() {
   avisoExito(`${comps.length} ${comps.length === 1 ? 'ingrediente agregado' : 'ingredientes agregados'}${extra}: revisá y guardá la receta`);
 }
 
-// ── "Nuevo desde fórmula SIGA" (listado): producto nuevo con receta base + variedad + insumos ──
+// ── "Nuevo desde fórmula SIGA" (listado): producto nuevo con receta base + variedad ──
 // POST productos/desde-siga { nombre, plu, rendimientoKg, presentaciones }: el server arma la receta base con los
-// componentes no-empaque (cant × kg por tanda), la variedad sin extras, los insumos (empaque) y las presentaciones de
+// componentes no-empaque (cant × kg por tanda), la variedad sin extras y las presentaciones de
 // SIGA que usan ese PLU en su fórmula (con su variedad por extras). Acá sólo la vista previa y qué presentaciones van.
 // dsEd = { nombre, plu, nombreSiga, componentes, presentaciones, selPres: { plu: bool }, kg, cargando, mensaje, enviando }
 let dsEd = null;
@@ -168,7 +168,7 @@ function dialogoDesdeSiga() {
       <div class="flex flex-col max-h-[90vh]">
         <div class="px-5 pt-4 pb-3 flex items-start gap-3 border-b border-borde">
           <div class="min-w-0"><h3 id="dsTitulo" class="font-disp text-lg font-bold">Nuevo producto desde fórmula SIGA</h3>
-            <div class="text-xs text-gris mt-0.5">Copia la fórmula de un producto de SIGA: los ingredientes van a la receta base, los envases/etiquetas a Insumos y se traen las presentaciones de SIGA que lo usan.</div></div>
+            <div class="text-xs text-gris mt-0.5">Copia la fórmula de un producto de SIGA: los ingredientes van a la receta base (el empaque no se costea) y se traen las presentaciones de SIGA que lo usan.</div></div>
           <button type="button" id="dsX" class="ml-auto -mr-2 w-8 h-8 shrink-0 rounded-lg text-gris hover:bg-bg hover:text-ink" aria-label="Cerrar">✕</button>
         </div>
         <div id="dsCuerpo" class="flex-1 min-h-0 overflow-y-auto p-5 text-sm"></div>
@@ -234,7 +234,7 @@ function htmlPreviaDesdeSiga() {
   if (dsEd.mensaje) return `<p class="text-gris mt-4">${esc(dsEd.mensaje)}</p>`;
   if (!dsEd.componentes.length) return '';
   return htmlGrupoPrevia('Va a la receta base (ingredientes de una tanda)', dsEd.componentes.filter(c => !esEmpaque(c)), true)
-    + htmlGrupoPrevia('Va a Insumos (envases, tapas, etiquetas, precintos)', dsEd.componentes.filter(esEmpaque), false)
+    + htmlGrupoPrevia('Empaque (no se costea: queda afuera)', dsEd.componentes.filter(esEmpaque), false)
     + htmlPresentacionesDesdeSiga();
 }
 function pintarPreviaDesdeSiga() { document.getElementById('dsPrevia').innerHTML = htmlPreviaDesdeSiga(); pintarPieDesdeSiga(); }

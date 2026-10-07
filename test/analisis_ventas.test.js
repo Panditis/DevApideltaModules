@@ -507,17 +507,60 @@ test('filasQuiebresPorSucursal deja sólo productos con quiebre, ordenados, con 
     { IdProducto: 'C', Nombre: 'CERA', Rubro: 'Almacen', Unidades: 1, Facturacion: 10 },
   ];
   const quiebres = new Map([
-    ['A', { dias: 2, base: 20, porSuc: { 2: { dias: 2, base: 10 }, 3: { dias: 0, base: 10 } } }],
-    ['B', { dias: 0, base: 10, porSuc: { 2: { dias: 0, base: 10 } } }],
-    ['C', { dias: 5, base: 10, porSuc: { 3: { dias: 5, base: 10 } } }],
+    ['A', { dias: 2, base: 20, porSuc: {
+      2: { dias: 2, base: 10, perdida: 300, unidadesPerdidas: 6, estimable: true },
+      3: { dias: 0, base: 10, perdida: 0, unidadesPerdidas: 0, estimable: true } } }],
+    ['B', { dias: 0, base: 10, porSuc: { 2: { dias: 0, base: 10, perdida: 0, estimable: true } } }],
+    ['C', { dias: 5, base: 10, porSuc: { 3: { dias: 5, base: 10, perdida: 0, estimable: false } } }],
   ]);
   const filas = filasQuiebresPorSucursal(productos, quiebres, [2, 3]);
   assert.deepStrictEqual(filas.map(f => f.idProd), ['C', 'A']);   // B sin quiebre fuera
   assert.strictEqual(filas[0].porc, 50);
   // Sucursal que no trabajó el producto: null, no cero.
-  assert.deepStrictEqual(filas[0].porSucursal, { 2: null, 3: { dias: 5, porc: 50 } });
-  assert.deepStrictEqual(filas[1].porSucursal, { 2: { dias: 2, porc: 20 }, 3: { dias: 0, porc: 0 } });
+  assert.deepStrictEqual(filas[0].porSucursal, { 2: null, 3: { dias: 5, porc: 50, perdida: 0, unidadesPerdidas: 0, estimable: false } });
+  assert.deepStrictEqual(filas[1].porSucursal, {
+    2: { dias: 2, porc: 20, perdida: 300, unidadesPerdidas: 6, estimable: true },
+    3: { dias: 0, porc: 0, perdida: 0, unidadesPerdidas: 0, estimable: true },
+  });
+  // La pérdida total suma las sucursales; sinEstimar avisa que alguna en quiebre no se pudo estimar.
+  assert.strictEqual(filas[1].perdida, 300);
+  assert.strictEqual(filas[1].unidadesPerdidas, 6);
+  assert.strictEqual(filas[1].sinEstimar, false);
+  assert.strictEqual(filas[0].sinEstimar, true);
   assert.deepStrictEqual(filasQuiebresPorSucursal(productos, new Map(), [2]), []);
+});
+
+test('perdidaPorQuiebre: mediana de los días con stock de la referencia menos lo vendido en cada día de quiebre', () => {
+  const { perdidaPorQuiebre } = require('../lib/analisis_ventas');
+  const dia = (fecha, quiebre, domingo = false) => ({ fecha, quiebre, domingo });
+  // Referencia (8 semanas): días con stock vendiendo 4, 2, 3 y uno con pico de 30.
+  const referencia = [
+    dia('2026-06-29', false), dia('2026-06-30', false), dia('2026-07-01', false),
+    dia('2026-07-02', false), dia('2026-07-05', false, true),
+    dia('2026-07-08', true), dia('2026-07-09', true),
+  ];
+  const rango = referencia.slice(5);
+  const ventas = {
+    '2026-06-29': { unidades: 4, facturacion: 400 },
+    '2026-06-30': { unidades: 2, facturacion: 200 },
+    '2026-07-01': { unidades: 3, facturacion: 300 },
+    '2026-07-02': { unidades: 30, facturacion: 3000 },   // pico: la mediana no lo sigue
+    '2026-07-05': { unidades: 50, facturacion: 5000 },   // domingo: fuera
+    '2026-07-08': { unidades: 1, facturacion: 100 },     // quiebre que vendió algo: pierde 2,5
+  };                                                      // 07-09 no vendió: pierde 3,5
+  // Mediana de 4, 2, 3, 30 = 3,5; precio = 3900 / 39 = 100. Pierde 2,5 + 3,5 = 6 unidades.
+  assert.deepStrictEqual(perdidaPorQuiebre(rango, ventas, referencia),
+    { perdida: 600, unidadesPerdidas: 6, unidadesDia: 3.5, precio: 100, estimable: true });
+  // Vender más que la mediana un día de quiebre no da pérdida negativa.
+  assert.strictEqual(perdidaPorQuiebre(rango, { ...ventas, '2026-07-08': { unidades: 9, facturacion: 900 } }, referencia).unidadesPerdidas, 3.5);
+  // Sin quiebres en el rango no hay pérdida.
+  assert.strictEqual(perdidaPorQuiebre(referencia.slice(0, 4), ventas, referencia).perdida, 0);
+  // Baja rotación: mediana 0 pero vendió algo → usa el promedio (6 / 4 días = 1,5).
+  const lenta = { '2026-06-29': { unidades: 6, facturacion: 600 } };
+  assert.strictEqual(perdidaPorQuiebre(rango, lenta, referencia).unidadesDia, 1.5);
+  // Ningún día con stock en la referencia: no hay con qué estimar.
+  assert.deepStrictEqual(perdidaPorQuiebre(rango, ventas, rango),
+    { perdida: 0, unidadesPerdidas: 0, unidadesDia: 0, precio: 0, estimable: false });
 });
 
 test('idsCsvSeguro entrecomilla los ids, sin repetidos ni vacíos', () => {

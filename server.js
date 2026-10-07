@@ -674,24 +674,20 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
-app.get('/js/precios_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_fraccionado.js')));
 app.get('/js/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion.js')));
 app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_detalle.js')));
 app.get('/js/precios_produccion_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_presentaciones.js')));
 app.get('/js/precios_produccion_modal.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_modal.js')));
 app.get('/js/precios_produccion_formula.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_formula.js')));
 app.get('/js/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_pack_bulto.js')));
-app.get('/js/precios_orden.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_orden.js')));
-app.get('/js/precios_produccion_export.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_export.js')));
-app.get('/js/precios_maquinas.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_maquinas.js')));
-app.get('/js/precios_config_gastos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_gastos.js')));
-app.get('/js/precios_costos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_costos.js')));
-app.get('/js/precios_config_curva.js',(_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_curva.js')));
-app.get('/js/precios_ganancia.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_ganancia.js')));
 app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_simulador.js')));
-app.get('/js/precios_almacen.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_almacen.js')));
-app.get('/js/precios_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_detalle.js')));
+app.get('/js/precios_listados.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_listados.js')));
+app.get('/js/precios_modal_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_modal_esquema.js')));
+app.get('/js/precios_comun.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_comun.js')));
 app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config.js')));
+// Motor del esquema por canal: el mismo archivo UMD del server (lib/), global PreciosEsquema en el navegador.
+app.get('/js/precios_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'precios_esquema.js')));
+app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_esquema.js')));
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
@@ -960,6 +956,14 @@ app.get('/api/productos/buscar', apiRoute(async req => {
       AND sr.NombreSubRubro = 'Savona'))`;
   const filtros = [filtroRubro, filtroMarca].filter(Boolean).map(f => f.replace(/^AND /, '')).join(' AND ');
   const exclusiones = filtros ? `AND (${esSavona} OR (${filtros}))` : '';
+  // conFormula: sólo productos con al menos un componente real (no el placeholder "Formula
+  // generico"). La carga manual de producción no puede descontar nada de uno sin fórmula.
+  // Aplica también a SAVONA.
+  const filtroFormula = req.query.conFormula === '1'
+    ? `AND EXISTS (SELECT 1 FROM dbo.ProductosComponentes fc
+         JOIN dbo.Productos cp ON cp.IdProducto = fc.IdProductoComponente
+        WHERE fc.IdProducto = p.IdProducto AND ${SIN_FORMULA_GENERICO_SQL.replace(/\bp\./g, 'cp.')})`
+    : '';
   // Los que empiezan con lo buscado van primero: con un tope chico ("SAVONA…") quedaban afuera
   // del TOP a favor de nombres que sólo contienen el término en el medio.
   const prefijo = `'${words[0]}%'`;
@@ -967,7 +971,7 @@ app.get('/api/productos/buscar', apiRoute(async req => {
     FROM dbo.Productos p
     LEFT JOIN dbo.Rubros r ON r.IdRubro = p.IdRubro
     LEFT JOIN dbo.Marcas m ON m.IdMarca = p.IdMarca
-    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${exclusiones}
+    WHERE ((${nameCond}) ${codeMatch}) AND p.Activo = 1 ${exclusiones} ${filtroFormula}
     ORDER BY CASE WHEN ${esSavona} THEN 0 WHEN p.NombreProducto LIKE ${prefijo} THEN 1 ELSE 2 END, p.NombreProducto`);
 }));
 
@@ -2704,6 +2708,9 @@ app.use(require('./routes/rutas_precios_produccion')({ apiRoute, query, leerJSON
 // Precios › Pack / Bulto (Fase 4): config, overrides de % y vínculos manuales. Los filtros de fórmula
 // activa arman el vínculo automático pack/bulto → producto normal (rubro 'Almacen Bultos/Cajas').
 app.use(require('./routes/rutas_precios_pack_bulto')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
+// Precios › esquema por canal: Configuración nueva (Costos, Márgenes, Precio) y, desde la fase 3, listados,
+// decisión y export. Mismos deps que el resto del clúster de precios.
+app.use(require('./routes/rutas_precios_esquema')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
 
 // Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se
 // declaran bien antes, así que el registro podría ir donde estaban las rutas. Va igual al

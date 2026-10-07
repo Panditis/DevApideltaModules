@@ -1,20 +1,19 @@
 'use strict';
 const express = require('express');
 const path = require('path');
-const { configPackBultoSanitizada, descuentosAlineados } = require('../lib/precios_pack_bulto');
+const { configPackBultoSanitizada } = require('../lib/precios_pack_bulto');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
 
-// ── Precios, Fase 4: Pack / Bulto (config, overrides, vínculos y venta de pesables) ─────
-// Router propio para que rutas_precios.js no se acerque a 800 líneas. Sólo lee SIGA; escribe
-// únicamente costeo.packBulto (el resto de costeo.json queda como estaba). El precio de pack/bulto
-// se engancha en los listados existentes vía crearPackBultoDe (lib/precios_pack_bulto.js).
+// ── Precios · Pack / Bulto ─────
+// Vínculos manuales pack/bulto → producto normal y modo de venta de los pesables (costeo.packBulto). Los precios los
+// calcula el esquema (lib/precios_listado_esquema crearMayoristasDe). Sólo lee SIGA; escribe únicamente costeo.packBulto.
 const PLU = /^\d{1,12}$/;
 
 module.exports = function crearRutasPreciosPackBulto(deps) {
   const { apiRoute, leerJSON, guardarJSON, DATA_DIR } = deps;
   const router = express.Router();
   const COSTEO_PATH = path.join(DATA_DIR, 'costeo.json');
-  const { vinculosPackBulto, costosPorPlu, preciosVigentesAlmacen } = crearConsultasPrecios(deps);
+  const { vinculosPackBulto, costosPorPlu } = crearConsultasPrecios(deps);
 
   const leerCosteo = () => leerJSON(COSTEO_PATH, {}) || {};
   // Aplica cambio(packBultoActual) → packBulto nuevo, valida TODO antes de escribir y guarda sólo
@@ -43,44 +42,7 @@ module.exports = function crearRutasPreciosPackBulto(deps) {
     const faltan = vinculos.filter(v => v.baseNombre == null).map(v => v.basePlu);
     const bases = faltan.length ? await costosPorPlu(faltan) : new Map();
     const conNombre = vinculos.map(v => (v.baseNombre != null ? v : { ...v, baseNombre: (bases.get(v.basePlu) || {}).nombre || null }));
-    const { descPackPct, descBultoPct, descPorProducto } = cfg;
-    return { config: { descPackPct, descBultoPct, descPorProducto }, vinculos: conNombre, sinVincular };
-  }));
-
-  // Alinear con SIGA (decisión 6): % propio por pack/bulto que reproduce su vigente sobre el vigente del
-  // base. Pisa esos overrides; los omitidos (sin vigente o revisar unidad) conservan el suyo. Las dos
-  // consultas van antes de leer costeo.json: la escritura queda sin await en el medio.
-  // Pesables por paquete: se compara contra vigente base × peso (ventaPesable).
-  router.post('/api/precios/pack-bulto/alinear-siga', apiRoute(async () => {
-    const cfg = configPackBultoSanitizada(leerCosteo().packBulto);
-    const [{ vinculos }, vigentes] = await Promise.all([vinculosPackBulto(cfg.vinculosManuales), preciosVigentesAlmacen()]);
-    const { descuentos, omitidos } = descuentosAlineados({ vinculos, vigentes, cfg });
-    const r = mutarPackBulto(pb => ({ ...pb, descPorProducto: { ...pb.descPorProducto, ...descuentos } }));
-    return r.error ? r : { alineados: Object.keys(descuentos).length, omitidos };
-  }));
-
-  router.put('/api/precios/config/pack-bulto', apiRoute(async (req) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const cambios = Object.fromEntries(['descPackPct', 'descBultoPct'].filter(k => k in body).map(k => [k, body[k]]));
-    if (!Object.keys(cambios).length) return { error: 'nada para editar: descPackPct o descBultoPct' };
-    const r = mutarPackBulto(pb => ({ ...pb, ...cambios }));
-    if (r.error) return r;
-    return { descPackPct: r.packBulto.descPackPct, descBultoPct: r.packBulto.descBultoPct };
-  }));
-
-  // Override de % por PLU de pack/bulto. DELETE lo quita (vuelve al global del tipo).
-  router.put('/api/precios/pack-bulto/descuento/:plu', apiRoute(async (req) => {
-    const plu = pluDe(req);
-    if (!plu) return { error: 'PLU inválido' };
-    const descPct = (req.body || {}).descPct;
-    const r = mutarPackBulto(pb => ({ ...pb, descPorProducto: { ...pb.descPorProducto, [plu]: descPct } }));
-    return r.error ? r : { plu, descPct };
-  }));
-  router.delete('/api/precios/pack-bulto/descuento/:plu', apiRoute(async (req) => {
-    const plu = pluDe(req);
-    if (!plu) return { error: 'PLU inválido' };
-    const r = mutarPackBulto(pb => ({ ...pb, descPorProducto: sinClave(pb.descPorProducto, plu) }));
-    return r.error ? r : { plu, descPct: null };
+    return { vinculos: conNombre, sinVincular };
   }));
 
   // Modo de venta de un pack/bulto pesable: { modo: 'kg'|'paquete', pesoKg } (peso requerido por paquete,
