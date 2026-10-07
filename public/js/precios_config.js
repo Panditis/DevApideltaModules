@@ -1,39 +1,9 @@
-// ── Precios · configuración general, listeners, tabs y arranque ──
-// Script clásico (no módulo) cargado después de precios_almacen.js y precios_detalle.js; comparte sus
-// globales. El arranque va en DOMContentLoaded, así ya están cargados precios_fraccionado.js,
-// precios_produccion*.js, etc. Al final: dialogoAviso (reemplazo de alert/confirm).
-
-// ── Config: tab Configuración (general = pack/bulto) y tab Costos (márgenes) ──
-let configCargada = null;   // config completa tal como vino del server
-
-async function leerConfig(){
-  const j = await (await fetch('/api/precios/config')).json();
-  if (j.error) throw new Error(j.error);
-  configCargada = j;
-  return j;
-}
+// ── Precios · configuración (sub-tabs), listeners de tabs y arranque; al final dialogoAviso ──
+// Script clásico (no módulo) cargado después de precios_comun.js; comparte sus globales. El arranque va en
+// DOMContentLoaded, así ya están cargados precios_produccion*.js, precios_listados.js, etc.
 
 // Tab Configuración › General: sólo Pack / Bulto.
 const cargarConfiguracion = () => cargarConfigPB(); // precios_pack_bulto.js
-
-// Tab Costos: resumen, variables y departamentos (= costo real). La llaman también los guardados de gastos y
-// departamentos para redibujar con lo guardado. Las curvas viven en la tab Ganancia (precios_ganancia.js).
-async function cargarCostos(){
-  const carga = document.getElementById('costosCarga');
-  carga.className = 'text-sm text-ink/50 py-4';
-  carga.innerHTML = '<span class="spin"></span> Cargando…';
-  try {
-    const j = await leerConfig();
-    carga.className = 'hidden';
-    renderResumenCostos(j); // precios_costos.js
-    renderConfigGastos(j); // precios_config_gastos.js
-    renderDepartamentos(j); // precios_costos.js
-    renderIvaVenta(j); // precios_costos.js
-  } catch (e) {
-    carga.className = 'text-sm py-4';
-    carga.innerHTML = `<p class="text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
-  }
-}
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Tab' && !document.getElementById('mDet').classList.contains('hidden')) atraparFocoModal(e);
@@ -144,11 +114,10 @@ document.querySelectorAll('#tabs .navtab').forEach(b => b.onclick = async () => 
   activarTab(b.dataset.tipo);
 });
 
-// Arranque después de precios_fraccionado.js (DOMContentLoaded corre cuando ya se ejecutaron los
-// dos scripts): renderAlmacen usa presentacionesMarcadas() de ese archivo para la barra de marcados.
+// Arranque: Reventa es el tab activo.
 document.addEventListener('DOMContentLoaded', () => {
-  cargarListado('almacen'); // Reventa es el tab activo al cargar
-  permisoConfigPrecios.then(aplicarPermisoConfig); // precios_almacen.js
+  cargarListado('almacen'); // precios_listados.js
+  permisoConfigPrecios.then(aplicarPermisoConfig); // precios_comun.js
 });
 
 // Permiso de Configuración resuelto: body.con-config / body.sin-config muestran .solo-config / .solo-sin-config

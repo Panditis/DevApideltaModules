@@ -1,8 +1,8 @@
 // ── Precios · modal del producto con el esquema por canal (spec 2026-10-07 §3.2) ──
 // Simple: costos (sistema / última compra), tabla por canal (vigente, sugerido, Δ%) de la fuente elegida, decisión y
 // Guardar. "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos
-// extra): desglose por canal + costo manual + costos extra. Usa el modal compartido #mDet (abrirModal, cerrarDetalle de
-// precios_detalle.js) y de precios_listados.js: opcionesDecision, guardarDecision, renderListado, cargarListado.
+// extra): desglose por canal + costo manual + costos extra. Globales: el modal compartido #mDet (abrirModal, cerrarDetalle)
+// y formato/pedidos de precios_comun.js; de precios_listados.js: opcionesDecision, guardarDecision, renderListado, cargarListado.
 const TIPO_CANAL = { pack: 'Pack', bulto: 'Bulto' };
 const TXT_FUENTE = { sistema: 'sistema', ultimaCompra: 'última compra', manual: 'manual' };
 
@@ -42,7 +42,7 @@ let mdDetalle = false;     // "Ver detalle" abierto
 const fmtSug = n => (Number.isInteger(n) ? fmtPrecio(n) : fmtMoney(n));
 
 async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
-  abrirModal('Cargando…', tipo === 'fraccionado'); // precios_detalle.js
+  abrirModal('Cargando…', tipo === 'fraccionado'); // precios_comun.js
   try {
     const fila = await (await fetch(`/api/precios/esquema/detalle/${encodeURIComponent(plu)}?tipo=${encodeURIComponent(tipo)}`)).json();
     if (fila.error) throw new Error(fila.error);
@@ -182,7 +182,7 @@ function conectarEdicionCostos() {
   document.getElementById('mdManualGuardar').onclick = () =>
     guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'manual', costo: numOrNull(document.getElementById('mdManual').value) });
   const quitar = document.getElementById('mdManualQuitar');
-  // fuente 'sistema' borra el costo manual (y la marca vieja fuenteCosto, que en la fase 3 sólo lee Producción).
+  // fuente 'sistema' borra el costo manual.
   if (quitar) quitar.onclick = () => guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'sistema' });
   document.getElementById('mdExtraAgregar').onclick = () => tbody.insertAdjacentHTML('beforeend', htmlFilaExtraMd());
   tbody.onclick = e => { const b = e.target.closest('.md-extra-quitar'); if (b) b.closest('tr').remove(); };

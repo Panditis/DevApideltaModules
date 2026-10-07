@@ -1,7 +1,7 @@
 // ── Precios · Configuración del esquema por canal: Costos, Márgenes y Precio (spec 2026-10-07 §3.3) ──
 // Script clásico, cargado después de precios_config.js y de /js/precios_esquema.js (global PreciosEsquema = el mismo lib
-// del server). Lee/guarda /api/precios/config/esquema (sólo con el permiso precios-config). Globales: esc, fmtMoney
-// (precios_almacen.js), numOrNull (precios_detalle.js), campoU, marcarSucio, limpiarSucio (precios_config.js).
+// del server). Lee/guarda /api/precios/config/esquema (sólo con el permiso precios-config). Globales: esc, fmtMoney,
+// numOrNull (precios_comun.js), campoU, marcarSucio, limpiarSucio (precios_config.js).
 const API_ESQ = '/api/precios/config/esquema';
 const TIPOS_ESQ = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion: 'Producción' };
 const TIPOS_K = Object.keys(TIPOS_ESQ);

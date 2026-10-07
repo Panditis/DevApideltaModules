@@ -62,8 +62,6 @@
   .s-margen{--sec-c:#4f6e42;--sec-bg:#f2f6ec}
   .s-final{--sec-c:#405936;--sec-bg:rgba(64,89,54,.1)}
   .sec-tit{color:var(--sec-c)}
-  /* Presentaciones simuladas (Fraccionado): fila tintada en amarillo, como lo "propio" del usuario. */
-  #mDet tbody tr.tmp,#mDet tbody tr.tmp:hover{background:rgba(255,204,0,.08)}
   /* ── Configuración ─────────────────────────────────────────────────────────────────────────────
      Sub-tabs (.cfg-tab, role=tab): franja propia pegada bajo el header (sticky, top = alto del header como --pr-top).
      Izquierda los 4 pasos del precio en un riel segmentado unido por chevrons (.cfg-chev); a la derecha, aparte, General.
@@ -135,30 +133,6 @@
   .campo-t:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
   .btn-quitar{width:28px;height:28px;border-radius:8px;color:#5c5f52}
   .btn-quitar:hover{color:#a4262c;background:rgba(164,38,44,.08)}
-  /* Pipeline "Cómo se forma el precio": columnas de operación tintadas con el color de su sección del detalle. */
-  .cfg-pipe-sum{display:flex;align-items:baseline;gap:12px;cursor:pointer;list-style:none}
-  .cfg-pipe-sum::-webkit-details-marker{display:none}
-  .cfg-pipe-sum::before{content:'▸';color:#405936;transition:transform 140ms ease;display:inline-block}
-  details[open]>.cfg-pipe-sum::before{transform:rotate(90deg)}
-  .pipe{width:100%;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
-  .pipe th{text-transform:none;letter-spacing:0;padding:0 3px 6px;vertical-align:bottom}
-  .pipe td{padding:7px 10px;text-align:right;white-space:nowrap;border-top:1px solid rgba(26,28,24,.08)}
-  .pipe td.pipe-tipo{text-align:left;font-weight:600;color:#242423;padding-left:2px}
-  .pipe tbody tr:hover{background:transparent}
-  .pipe-paso{width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:1px;padding:6px 10px;border-radius:8px;
-             border:1px solid transparent;text-align:right;transition:background-color 140ms ease,border-color 140ms ease}
-  .pipe-paso:hover{background:rgba(64,89,54,.07);border-color:rgba(26,28,24,.16)}
-  .pipe-paso[aria-current="step"]{border-color:#405936;background:rgba(64,89,54,.07)}
-  .pipe-paso .t{font-size:13px;font-weight:700;color:#242423}
-  .pipe-paso .o{font-size:11px;color:var(--pc,#5c5f52);font-weight:600}
-  .pipe .op{--pc:#5c5f52;background:var(--pbg);color:var(--pc);font-weight:600}
-  .pipe th.op{background:none}
-  .pipe .c-costos{--pc:#0958d9;--pbg:rgba(9,88,217,.045)}
-  .pipe .c-ganancia{--pc:#4f6e42;--pbg:#f2f6ec}
-  .pipe .c-iva{--pc:#5c5f52;--pbg:rgba(92,95,82,.06)}
-  .pipe .c-final{--pc:#8a5d00;--pbg:rgba(255,204,0,.1)}
-  .pipe td.res{color:#242423}
-  .pipe td.res-fin{font-size:15px;font-weight:700;color:#405936;background:rgba(64,89,54,.08)}
   /* ── Producción (misma familia que Configuración: .cfg-card/.cfg-pie/.campo-u) ──────────────────────────────────
      Cada sección del detalle es un bloque numerado con el acento de su sección del desglose del precio:
      costo (azul, .s-costo) → insumos (ámbar, .s-extra) → presentaciones/ganancia (verde, .s-margen) → final (.s-final). */
@@ -180,11 +154,6 @@
   .pr-kpi.k-cero{--k:#c9cdc2}.pr-kpi.k-cero b{color:#5c5f52}
   .pr-filtros{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   /* Toggle de vista del listado (segmented control): activo en verde con filo amarillo abajo. */
-  .pr-vista{display:inline-flex;border:1px solid rgba(26,28,24,.16);border-radius:8px;background:#fff;overflow:hidden;flex:none}
-  .pr-vista button{font-size:13px;font-weight:600;padding:6px 12px;color:#5c5f52;transition:background-color 120ms ease}
-  .pr-vista button+button{border-left:1px solid rgba(26,28,24,.16)}
-  .pr-vista button:hover{background:#f5f8f1;color:#242423}
-  .pr-vista button[aria-pressed="true"]{background:#405936;color:#fff;box-shadow:inset 0 -3px 0 #FFCC00}
   /* Tablas: encabezado fijo (debajo del header de la página), zebra suave, números tabulares a la derecha. */
   .pr-tabla-caja{background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:12px;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
   .pr-tabla{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
@@ -194,7 +163,7 @@
   .pr-tabla thead tr:first-child th:last-child{border-top-right-radius:12px}
   .pr-tabla td{padding:8px 10px;border-top:1px solid rgba(26,28,24,.07);vertical-align:middle}
   .pr-tabla tbody tr:first-child td{border-top:0}
-  .pr-tabla tbody>tr:nth-child(even of :not(.pr-pb,.pr-des-fila))>td{background-color:rgba(64,89,54,.025)}
+  .pr-tabla tbody>tr:nth-child(even)>td{background-color:rgba(64,89,54,.025)}
   .pr-tabla .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .pr-tabla .text-left{text-align:left}
   .pr-sub{display:block;font-size:11px;color:#5c5f52;font-weight:400}
@@ -289,15 +258,6 @@
   .pr-sem.sem-ok{background:rgba(14,112,14,.12);color:#0e700e}
   .pr-sem.sem-subir{background:rgba(164,38,44,.12);color:#a4262c}
   .pr-sem.sem-bajar{background:rgba(138,93,0,.13);color:#8a5d00}
-  .pr-des-btn{width:28px;height:28px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;color:#405936;font-size:13px}
-  .pr-des-btn:hover,.pr-des-btn[aria-expanded="true"]{background:rgba(64,89,54,.1);border-color:#405936}
-  .pr-des-fila>td{background:#fafbf8;padding:14px 18px 16px;border-top:0;box-shadow:inset 4px 0 0 #405936}
-  .pr-des-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:28px;max-width:1100px}
-  .pr-des-comp{padding-top:4px;padding-bottom:4px}
-  .pr-pb>td{font-size:12.5px;padding-top:5px;padding-bottom:5px;border-top:1px dashed rgba(26,28,24,.12);background-color:#fbfcf9}
-  .pr-pb>td:nth-child(3){padding-left:26px}
-  .pr-pb{cursor:pointer}
-  .pr-pb:hover>td{background-color:rgba(64,89,54,.06)}
   #panel-produccion button:focus-visible,#panel-produccion a:focus-visible{outline:2px solid #405936;outline-offset:2px}
   .fd-cuerpo>tr>td:first-child{padding-left:.5rem}
   @media (min-width:640px){.fd-cuerpo>tr>td:last-child{padding-right:.5rem}}
@@ -381,8 +341,7 @@
 
 </main>
 
-<!-- Detalle de un producto (Reventa) o de un granel (Fraccionado): resultado arriba, la cuenta
-     como una ecuación (costo → + extras → × margen → precio) y el pie fijo Descartar / Guardar. -->
+<!-- Modal compartido (abrirModal/cerrarDetalle de /js/precios_comun.js): lo llenan el modal del esquema y Producción. -->
 <div id="mDet" class="hidden fixed inset-0 z-50 items-end sm:items-center justify-center bg-ink/40 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="mDetTitulo">
   <div id="mDetCaja" tabindex="-1" class="fade-in bg-card rounded-t-xl sm:rounded-xl shadow-fluent w-full max-w-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col">
     <div class="px-5 pt-4 pb-2 flex items-start gap-3">
@@ -393,19 +352,11 @@
       <button id="mDetX" class="ml-auto -mr-2 w-8 h-8 shrink-0 rounded-lg text-gris hover:bg-bg hover:text-ink" aria-label="Cerrar">✕</button>
     </div>
     <div id="mDetBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
-    <div id="mDetPie" class="hidden px-5 py-3 border-t border-borde flex items-center gap-2">
-      <span id="dMsg" class="text-sm" role="status" aria-live="polite"></span>
-      <button id="btnDescartar" class="ml-auto px-3 py-1.5 rounded-lg text-sm text-gris hover:bg-bg hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent" disabled>Descartar</button>
-      <button id="btnGuardarDet" class="px-5 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover disabled:opacity-40 disabled:hover:bg-verde" disabled>Guardar</button>
-    </div>
   </div>
 </div>
 
-<script src="/js/precios_almacen.js"></script>
-<script src="/js/precios_detalle.js"></script>
+<script src="/js/precios_comun.js"></script>
 <script src="/js/precios_config.js"></script>
-<script src="/js/precios_orden.js"></script>
-<script src="/js/precios_fraccionado.js"></script>
 <dialog id="dlgAviso" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,420px)] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgAvisoMsg">
   <form method="dialog" class="p-5">
     <p id="dlgAvisoMsg" class="text-sm whitespace-pre-line"></p>
@@ -421,11 +372,6 @@
 <script src="/js/precios_produccion_modal.js"></script>
 <script src="/js/precios_produccion_formula.js"></script>
 <script src="/js/precios_pack_bulto.js"></script>
-<script src="/js/precios_produccion_export.js"></script>
-<script src="/js/precios_config_gastos.js"></script>
-<script src="/js/precios_costos.js"></script>
-<script src="/js/precios_config_curva.js"></script>
-<script src="/js/precios_ganancia.js"></script>
 <script src="/js/precios_esquema.js"></script>
 <script src="/js/precios_config_esquema.js"></script>
 <script src="/js/precios_simulador.js"></script>

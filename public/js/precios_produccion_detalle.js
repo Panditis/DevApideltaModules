@@ -322,7 +322,6 @@ function htmlVariedadBase(ed, c) {
 }
 // "Producto terminado por tanda: 120 kg de base + 47,3 kg de extras = 167,3 kg (−3% merma → 162,3 kg)".
 // Todos los números vienen del server (costeo de la variedad: desglose); el extra no altera la base.
-// (Nombre propio: htmlDesglose es el desglose del precio de precios_detalle.js; antes se pisaban como globales.)
 function htmlDesgloseTanda(c) {
   const d = c && c.desglose;
   if (!d || d.totalKg == null) return 'Producto terminado por tanda: —';
@@ -387,7 +386,7 @@ const filaItem = (it, i, cambiados = new Set()) => `<tr class="border-t border-b
     <option value="kg"${it.unidad === 'u' ? '' : ' selected'}>kg</option><option value="u"${it.unidad === 'u' ? ' selected' : ''}>u</option></select></td>
   ${celdasCosto(it)}
   <td class="p-1.5 text-center"><button type="button" class="rc-quitar w-7 h-7 rounded-lg text-gris hover:text-crit hover:bg-crit/10" aria-label="Quitar ${esc(it.nombre || it.plu)}" title="Quitar">✕</button></td></tr>`;
-// thOrden (header ordenable) vive en precios_orden.js.
+// thOrden (header ordenable) vive en precios_comun.js.
 // Variedad: fila fija arriba (fuera del orden) con lo que aporta la receta base, para que la suma
 // "Costo de la tanda" cierre. El importe es costoBaseIngredientes del server.
 function htmlFilaBase(ed, c) {

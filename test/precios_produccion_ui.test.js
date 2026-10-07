@@ -3,7 +3,10 @@
 // browser: sin `document` no arranca nada, sólo exporta los helpers.
 const test = require('node:test');
 const assert = require('node:assert');
+// Los helpers genéricos de precios_comun.js son globales en el navegador: acá se publican antes de cargar Producción.
+Object.assign(globalThis, require('../public/js/precios_comun.js'));
 const ui = require('../public/js/precios_produccion.js');
+const { ordenarCon } = require('../public/js/precios_comun.js');
 
 test('parsearHashProduccion: selector, detalle, id inválido y otras tabs', () => {
   assert.deepStrictEqual(ui.parsearHashProduccion('#produccion'), { vista: 'selector' });
@@ -342,4 +345,33 @@ test('textoOmitidas: una línea por omitida con PLU, nombre y motivo', () => {
   assert.strictEqual(fm.textoOmitidas([]), '');
   assert.strictEqual(fm.textoOmitidas([{ plu: '1968', nombre: 'Yogur 370G', motivo: 'ya es presentación de "X"' }, { plu: '777', nombre: null, motivo: 'no lo usa' }]),
     'No se agregaron 2 presentaciones:\n• 1968 Yogur 370G: ya es presentación de "X"\n• 777: no lo usa');
+});
+
+// ── Orden de tablas de Producción ─────────────────────────────────────────────
+const plus = filas => filas.map(f => f.plu);
+
+test('columnasSelectorProd: estado = más alertas primero, sin alertas al final', () => {
+  const filas = [{ plu: 'a', alertas: 0, faltantes: 0 }, { plu: 'b', alertas: 1, faltantes: 0 }, { plu: 'c', alertas: 0, faltantes: 2 }, { plu: 'd', alertas: 3, faltantes: 0 }];
+  assert.deepStrictEqual(plus(ordenarCon(filas, { clave: 'estado', dir: 'asc' }, ui.columnasSelectorProd())), ['d', 'b', 'c', 'a']);
+});
+
+test('columnasPresProd: estado de Producción por severidad; sugerido y Δ del motor del esquema; sin empaque/real/markup', () => {
+  const cols = ui.columnasPresProd({ estadoFila: p => p.e, nombreVariedad: p => p.v, kgDe: p => p.kg });
+  const filas = [{ plu: '1', e: 'ok' }, { plu: '2', e: 'faltantes' }, { plu: '3', e: 'sin-validar' }, { plu: '4', e: 'cambio' }];
+  assert.deepStrictEqual(plus(ordenarCon(filas, { clave: 'estado', dir: 'asc' }, cols)), ['2', '4', '3', '1']);
+  assert.strictEqual(cols.variedad({ v: 'Clásica' }), 'Clásica');
+  const conEsq = { esquema: { sugeridos: { sistema: { minorista: { precio: 1800, deltaPct: -5 } } } } };
+  assert.deepStrictEqual([cols.sugerido(conEsq), cols.delta(conEsq)], [1800, -5]);
+  assert.deepStrictEqual([cols.sugerido({}), cols.delta({ esquema: null })], [null, null]);
+  for (const k of ['empaque', 'real', 'markup']) assert.ok(!(k in cols), k);
+});
+
+test('columna fecha ordenable en las tablas de Producción: por presentación y por producto (la más antigua)', () => {
+  const asc = { clave: 'fecha', dir: 'asc' };
+  const filas = [{ plu: 'a', fechaPrecio: '2026-05-01' }, { plu: 'b', fechaPrecio: null }, { plu: 'c', fechaPrecio: '2025-01-10' }];
+  const presProd = ui.columnasPresProd({ estadoFila: () => 'ok', nombreVariedad: () => '', kgDe: () => 0 });
+  assert.deepStrictEqual(plus(ordenarCon(filas, asc, presProd)), ['c', 'a', 'b']);
+  const selector = ui.columnasSelectorProd();
+  assert.strictEqual(selector.fecha({ exportables: [{ fechaPrecio: '2026-01-02' }, { fechaPrecio: '2025-06-30' }] }), '2025-06-30');
+  assert.strictEqual(selector.fecha({}), null);
 });

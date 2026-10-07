@@ -54,7 +54,7 @@ function htmlFilaPresentacion(p, nombres) {
       ${(p.avisos || []).includes('variedad') ? ' ' + chip('Elegí una variedad', 'bg-warn/15 text-warn') : ''}</td>
     <td>${esProvisoria(p.plu) ? '' : `<button type="button" class="pr-precios cfg-btn2" data-plu="${esc(p.plu)}">Precios</button>`}</td></tr>`;
 }
-// Filas en el orden elegido por header (precios_orden.js); re-pintar sólo el tbody conserva el foco del header.
+// Filas en el orden elegido por header (ordenarPresProd, precios_produccion.js); re-pintar sólo el tbody conserva el foco del header.
 function htmlFilasPresentaciones() {
   const nombres = nombresProd();
   return ordenarPresProd(Object.values(prodDet.presentaciones)).map(p => htmlFilaPresentacion(p, nombres)).join('');
@@ -72,5 +72,5 @@ function conectarSeccionPresentaciones() {
   document.getElementById('prNuevaPres').onclick = () => abrirPresentacion(null);
   const exp = document.getElementById('prExportar');
   if (exp) exp.onclick = exportarDecididos; // precios_listados.js (el mismo botón de los listados)
-  montarOrdenPresProd(); // precios_orden.js
+  montarOrdenPresProd(); // precios_produccion.js
 }

@@ -674,24 +674,16 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
-app.get('/js/precios_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_fraccionado.js')));
 app.get('/js/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion.js')));
 app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_detalle.js')));
 app.get('/js/precios_produccion_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_presentaciones.js')));
 app.get('/js/precios_produccion_modal.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_modal.js')));
 app.get('/js/precios_produccion_formula.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_formula.js')));
 app.get('/js/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_pack_bulto.js')));
-app.get('/js/precios_orden.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_orden.js')));
-app.get('/js/precios_produccion_export.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_export.js')));
-app.get('/js/precios_config_gastos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_gastos.js')));
-app.get('/js/precios_costos.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_costos.js')));
-app.get('/js/precios_config_curva.js',(_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_curva.js')));
-app.get('/js/precios_ganancia.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_ganancia.js')));
 app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_simulador.js')));
 app.get('/js/precios_listados.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_listados.js')));
 app.get('/js/precios_modal_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_modal_esquema.js')));
-app.get('/js/precios_almacen.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_almacen.js')));
-app.get('/js/precios_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_detalle.js')));
+app.get('/js/precios_comun.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_comun.js')));
 app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config.js')));
 // Motor del esquema por canal: el mismo archivo UMD del server (lib/), global PreciosEsquema en el navegador.
 app.get('/js/precios_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'precios_esquema.js')));

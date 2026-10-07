@@ -1,13 +1,13 @@
 // ── Precios · tab Producción (Fase 3): helpers, ruteo, selector, guardado y toasts ──
-// Script clásico cargado después de precios.html y precios_fraccionado.js: reusa sus globales
-// (esc, fmtMoney, fmtPrecio, fmtPct, chip, normTxt, numOrNull, avisar, confirmar, pedirJson,
+// Script clásico cargado después de precios_comun.js y precios_config.js: reusa sus globales
+// (esc, fmtMoney, fmtPrecio, fmtPct, chip, normTxt, numOrNull, pedirJson, orden de tablas; avisar, confirmar,
 // activarTab). El detalle es un flujo guiado en 3 pasos: encabezado + pasos 1-2 (recetas) en
 // precios_produccion_detalle.js; paso 3 (presentaciones) en precios_produccion_presentaciones.js;
 // el modal de presentación en precios_produccion_modal.js.
 // Los costos SIEMPRE salen del server (GET del detalle después de cada guardado): acá no se
 // recalcula ninguna fórmula. Plan: docs/superpowers/plans/2026-09-25-precios-fase3-produccion.md
 // Rutas: #produccion = selector · #produccion/<productoId> = detalle (recargar y "atrás" funcionan) ·
-// #produccion/<productoId>/<plu> = detalle con esa presentación abierta (clic en la vista plana).
+// #produccion/<productoId>/<plu> = detalle con esa presentación abierta.
 
 // ── Helpers puros (sin DOM; test/precios_produccion_ui.test.js) ─────────────────
 const ID_PRODUCTO_UI = /^p-[a-z0-9-]{1,48}$/;
@@ -271,15 +271,46 @@ function rendimientoSugerido(rendBase, extras) {
   return Number(rendBase) > 0 ? Math.round((Number(rendBase) + kg) * 1000) / 1000 : null;
 }
 
+// ── Orden de tablas de Producción (helpers genéricos en precios_comun.js) ─────────
+// Severidad de Producción (estadoFila): faltantes > cambió > sin validar > ok.
+const RANGO_ESTADO_PROD = { faltantes: 1, cambio: 2, 'sin-validar': 3, ok: 4 };
+// Selector de Producción: con alertas/faltantes primero (más cambios = más arriba); sin alertas al final.
+const columnasSelectorProd = () => ({
+  nombre: p => p.nombre, variantes: p => p.variantes, presentaciones: p => p.presentaciones, costo: p => p.costoKgBase,
+  estado: p => (p.alertas || p.faltantes ? -((p.alertas || 0) * 1000 + (p.faltantes || 0)) : null),
+  fecha: p => fechaMasAntigua((p.exportables || []).map(e => e.fechaPrecio)),
+});
+const columnasPresProd = ({ estadoFila, nombreVariedad, kgDe }) => ({
+  plu: p => p.plu, nombre: p => p.nombre, variedad: nombreVariedad, kg: kgDe, costo: p => p.costoUnidad,
+  sugerido: p => (sugeridoProd(p) || {}).precio ?? null, vigente: p => p.precioVigente, delta: p => (sugeridoProd(p) || {}).deltaPct ?? null,
+  estado: p => rango(RANGO_ESTADO_PROD, estadoFila(p)), fecha: p => p.fechaPrecio,
+});
+// Estado del orden (vive mientras dure la página): selector y tabla de presentaciones del paso 3.
+let ordenSelectorProd = null, ordenPresProd = null;
+const ordenarSelectorProd = filas => ordenarCon(filas, ordenSelectorProd, columnasSelectorProd());
+function montarOrdenSelectorProd() {
+  montarOrden(document.querySelector('#prCuerpo') && document.querySelector('#prCuerpo').closest('table').tHead,
+    ordenSelectorProd, o => { ordenSelectorProd = o; montarOrdenSelectorProd(); pintarFilasSelector(); });
+}
+const ordenarPresProd = pres => ordenarCon(pres, ordenPresProd, columnasPresProd({
+  estadoFila,
+  nombreVariedad: p => { const r = prodDet.recetas[p.recetaId]; return r ? r.nombre : p.recetaId; },
+  kgDe: p => (p.componentes.find(c => c.plu === '_receta') || {}).cantidad,
+}));
+function montarOrdenPresProd() {
+  const cuerpo = document.getElementById('prPres');
+  if (!cuerpo) return;
+  montarOrden(cuerpo.closest('table').tHead, ordenPresProd, o => { ordenPresProd = o; montarOrdenPresProd(); pintarFilasPresentaciones(); });
+}
+
 if (typeof module === 'object' && module.exports) {
   module.exports = {
     parsearHashProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
-    textoRevisar, sugeridoProd,
+    textoRevisar, sugeridoProd, columnasSelectorProd, columnasPresProd,
     mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
     escalarCantidades, componentesAIngredientes, esEmpaque,
     slugProd, idRecetaNueva, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido,
-    // Orden de tablas: vive en precios_orden.js (compartido por todos los tabs).
-    ordenarFilas: require('./precios_orden.js').ordenarFilas, siguienteOrden: require('./precios_orden.js').siguienteOrden,
+    ordenarFilas: require('./precios_comun.js').ordenarFilas, siguienteOrden: require('./precios_comun.js').siguienteOrden,
   };
 }
 
@@ -288,9 +319,6 @@ const API_PROD = '/api/precios/produccion';
 let prodLista = null;          // filas del selector
 let prodBusqueda = '';
 let prodSoloCambios = false;
-let prodSoloRevisar = false;   // vista plana: sólo presentaciones con semáforo subir/bajar
-const VISTA_KEY = 'precios.produccion.vista';
-let prodVista = (() => { try { return sessionStorage.getItem(VISTA_KEY) === 'presentaciones' ? 'presentaciones' : 'productos'; } catch { return 'productos'; } })();
 let prodDet = null;            // detalle del producto abierto, tal como vino del server
 let prodSeccionesElegidas = {}; // paso → abierto/cerrado a mano por el usuario (se resetea al cambiar de producto)
 let prodAlertas = { total: 0, items: [] };
@@ -448,40 +476,24 @@ async function cargarSelectorProduccion() {
   conectarSelector();
   try {
     prodLista = await getJson(API_PROD + '/productos');
-    tomarExportProd(prodLista); // precios_produccion_export.js: presentaciones marcables/marcadas
     pintarListadoProd();
   } catch (e) {
-    const tbody = document.querySelector('#prCuerpo, #prPlanas');
+    const tbody = document.getElementById('prCuerpo');
     if (tbody) tbody.innerHTML = `<tr><td colspan="${COLS_SELECTOR}" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
 const COLS_SELECTOR = 7;
-const esVistaPlana = () => prodVista === 'presentaciones';
-const pintarListadoProd = () => (esVistaPlana() ? pintarFilasPlanas() : pintarFilasSelector()); // pintarFilasPlanas: precios_produccion_export.js
-// Toggle "Por producto" | "Todas las presentaciones": re-arma el marco con los datos ya cargados (sin otro GET).
-function cambiarVistaProd(vista) {
-  if (vista === prodVista) return;
-  prodVista = vista;
-  try { sessionStorage.setItem(VISTA_KEY, vista); } catch { /* sin storage: dura hasta recargar */ }
-  panelProd().innerHTML = htmlSelectorMarco();
-  conectarSelector();
-  if (prodLista) pintarListadoProd();
-}
-const htmlToggleVista = () => `<div class="pr-vista" role="group" aria-label="Ver el listado">${[['productos', 'Por producto'], ['presentaciones', 'Todas las presentaciones']]
-  .map(([v, t]) => `<button type="button" data-vista="${v}" aria-pressed="${prodVista === v}">${t}</button>`).join('')}</div>`;
+const pintarListadoProd = () => pintarFilasSelector();
 const htmlTablaSelector = () => `<table class="pr-tabla pr-sel">
         <thead><tr><th class="text-left" data-orden="nombre">Producto</th><th class="num" data-orden="variantes">Variedades</th>
           <th class="num" data-orden="presentaciones">Presentaciones</th><th class="num" data-orden="costo">Costo/kg base</th>
           <th data-orden="fecha" title="Último cambio de precio en SIGA: el de la presentación más desactualizada">Act. precio</th><th class="text-left" data-orden="estado">Estado</th><th class="w-10"><span class="sr-only">Abrir</span></th></tr></thead>
         <tbody id="prCuerpo"><tr><td colspan="${COLS_SELECTOR}">${cargandoHtml('Cargando…')}</td></tr></tbody>
       </table>`;
-// Listado: encabezado con CTA, tiras de resumen, toggle de vista, buscador y tabla (por producto o todas las presentaciones).
+// Listado: encabezado con CTA, tiras de resumen, buscador y tabla por producto.
 function htmlSelectorMarco() {
-  const plana = esVistaPlana();
-  const filtro = plana
-    ? `<button id="prSoloRevisar" class="fbtn${prodSoloRevisar ? ' on' : ''}" aria-pressed="${prodSoloRevisar}" title="Vigente de SIGA fuera de tolerancia (subir o bajar)">A revisar <span id="prNRevisar"></span></button>`
-    : `<button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>`;
-  const ph = plana ? 'Buscar presentación, producto o PLU…' : 'Buscar producto…';
+  const filtro = `<button id="prSoloCambios" class="fbtn${prodSoloCambios ? ' on' : ''}" aria-pressed="${prodSoloCambios}"><span class="text-warn">●</span> Con cambios de componentes <span id="prNCambios"></span></button>`;
+  const ph = 'Buscar producto…';
   return `
     <div class="pr-cab">
       <div><h2 class="pr-tit">Productos de producción</h2>
@@ -491,16 +503,15 @@ function htmlSelectorMarco() {
     </div>
     <div id="prKpis" class="pr-kpis" aria-live="polite"></div>
     <div class="pr-filtros">
-      ${htmlToggleVista()}
       <input id="prBuscar" type="search" placeholder="${ph}" value="${esc(prodBusqueda)}" aria-label="${ph.slice(0, -1)}" class="campo-t w-80">
       ${filtro}
       <span id="prConteo" class="ml-auto text-sm text-gris"></span>
     </div>
     <div class="pr-tabla-caja">
-      ${plana ? htmlTablaPlanas() /* precios_produccion_export.js */ : htmlTablaSelector()}
+      ${htmlTablaSelector()}
     </div>`;
 }
-// Fecha de precio más vieja del producto, si pasó DIAS_PRECIO_VIEJO (precios_orden.js).
+// Fecha de precio más vieja del producto, si pasó DIAS_PRECIO_VIEJO (precios_comun.js).
 const precioViejoProd = p => { const r = rangoFechas((p.exportables || []).map(e => e.fechaPrecio)); return !!(r && esPrecioViejo(r.min)); };
 function htmlKpisSelector() {
   const l = prodLista || [];
@@ -517,17 +528,16 @@ function pintarKpisProd() {
 }
 function conectarSelector() {
   document.getElementById('prBuscar').addEventListener('input', e => { prodBusqueda = e.target.value; pintarListadoProd(); });
-  const filtro = document.getElementById(esVistaPlana() ? 'prSoloRevisar' : 'prSoloCambios');
+  const filtro = document.getElementById('prSoloCambios');
   filtro.onclick = () => {
-    const on = esVistaPlana() ? (prodSoloRevisar = !prodSoloRevisar) : (prodSoloCambios = !prodSoloCambios);
+    const on = (prodSoloCambios = !prodSoloCambios);
     filtro.classList.toggle('on', on);
     filtro.setAttribute('aria-pressed', String(on));
     pintarListadoProd();
   };
-  document.querySelectorAll('.pr-vista [data-vista]').forEach(b => { b.onclick = () => cambiarVistaProd(b.dataset.vista); });
   document.getElementById('prNuevo').onclick = nuevoProducto;
   document.getElementById('prNuevoSiga').onclick = abrirNuevoDesdeSiga; // precios_produccion_formula.js
-  if (esVistaPlana()) montarOrdenPlanasProd(); else montarOrdenSelectorProd(); // precios_produccion_export.js / precios_orden.js
+  montarOrdenSelectorProd();
 }
 // Estado del producto: chips accionables a simple vista (cambios, faltantes, precio viejo) o "al día".
 function htmlEstadoSelector(p) {
@@ -588,7 +598,7 @@ async function nuevoProducto() {
 }
 
 // ── Vista 2: detalle del producto (flujo guiado; lo pinta precios_produccion_detalle.js) ──
-// abrirPlu (ruta #produccion/<id>/<plu>, desde la vista plana): abre esa presentación y deja el hash en el detalle.
+// abrirPlu (ruta #produccion/<id>/<plu>): abre esa presentación y deja el hash en el detalle.
 async function cargarDetalleProduccion(id, { silencioso = false, abrirPlu = null } = {}) {
   const panel = panelProd();
   if (!silencioso) panel.innerHTML = cargandoHtml('Cargando producto…');
@@ -669,7 +679,6 @@ function pintarToast() {
   document.getElementById('prToastVer').onclick = () => {
     const dest = destinoToast(prodAlertas.items);
     prodSoloCambios = dest.soloCambios;
-    if (dest.soloCambios) prodVista = 'productos'; // el filtro "con cambios" es de la vista por producto
     if (location.hash === dest.hash) rutearProduccion(); else location.hash = dest.hash;
   };
   document.getElementById('prToastX').onclick = () => { toastCerradoMem = firma; guardarCerrado(firma); pintarToast(); };
@@ -691,7 +700,7 @@ function pintarBadgeTabProd() {
   b.title = `${n} ${n === 1 ? 'producto' : 'productos'} con componentes modificados: revisar y validar`;
   b.classList.toggle('hidden', !n);
 }
-if (typeof window !== 'undefined') window.refrescarAlertasProduccion = refrescarAlertasProduccion; // explícito: lo llaman precios.html y precios_fraccionado.js
+if (typeof window !== 'undefined') window.refrescarAlertasProduccion = refrescarAlertasProduccion; // explícito: lo llaman los otros scripts de precios
 
 function iniciarProduccion() {
   document.body.insertAdjacentHTML('beforeend',
@@ -711,5 +720,5 @@ function iniciarProduccion() {
   if (parsearHashProduccion(location.hash)) rutearProduccion();
   refrescarAlertasProduccion();
 }
-// Al DOMContentLoaded ya corrieron precios.html, precios_fraccionado.js y los otros dos precios_produccion_*.js.
+// Al DOMContentLoaded ya corrieron todos los scripts de precios.html.
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', iniciarProduccion);

@@ -2,8 +2,8 @@
 // Script clásico. Una fila por producto (Fraccionado: por granel con sus presentaciones debajo; Producción: por
 // presentación) con costo sistema, última compra, vigente, sugerido por fuente y la DECISIÓN (reemplaza al marcado y a
 // la fuente de costo). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
-// Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS (precios_almacen.js),
-// fmtFechaPrecio (precios_orden.js), avisar, confirmar (precios_config.js), abrirModalEsquema (precios_modal_esquema.js),
+// Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio
+// (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema (precios_modal_esquema.js),
 // textoRevisar (precios_produccion.js), XLSX (CDN).
 const FUENTES_LST = ['sistema', 'ultimaCompra', 'manual'];
 const ETIQUETA_DECISION = { sistema: 'Aumentar con sistema', ultimaCompra: 'Aumentar con última compra', manual: 'Aumentar con manual' };
