@@ -32,7 +32,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const costos = await consultas.costosPorPlu(plusUsados(datos.productos));
     const costeados = costearTodos({ productos: datos.productos, costos, costeo });
     return Object.entries(costeados).flatMap(([productoId, c]) => Object.entries(c.presentaciones || {})
-      .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad, aRevisar: p.revisar })));
+      .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad, aRevisar: p.revisar,
+        margenExtra: datos.productos[productoId].margenEspecial || null })));
   }
 
   // Valida con validar(req) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir).

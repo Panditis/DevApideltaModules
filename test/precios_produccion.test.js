@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   recetaEfectiva, costearReceta, costearPresentacion, costearProducto, detectarCambios, resumenAlertas, snapshotDe,
-  validarProducto, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
+  validarProducto, validarMargenEspecial, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
   limpiarRecetas,
 } = require('../lib/precios_produccion');
 
@@ -224,6 +224,14 @@ test('validarProducto: nombre recortado 1–60; rechaza vacío o no texto', () =
   for (const body of [null, {}, { nombre: '  ' }, { nombre: 5 }, { nombre: 'x'.repeat(61) }]) {
     assert.throws(() => validarProducto(body), /nombre/);
   }
+});
+
+test('validarMargenEspecial: canales opcionales en [-50, 300]; 0/null se omiten, vacío → null; canal desconocido o no número → error', () => {
+  assert.deepStrictEqual(validarMargenEspecial({ minorista: 5, pack: -2.5, bulto: 0 }), { minorista: 5, pack: -2.5 });
+  assert.deepStrictEqual(validarMargenEspecial({ minorista: 300, bulto: -50 }), { minorista: 300, bulto: -50 });
+  for (const body of [{}, null, { minorista: null, pack: 0 }]) assert.strictEqual(validarMargenEspecial(body), null);
+  assert.throws(() => validarMargenEspecial({ mayorista: 5 }), /canal desconocido/);
+  for (const v of [301, -51, '5', NaN, Infinity]) assert.throws(() => validarMargenEspecial({ pack: v }), /margenEspecial\.pack/);
 });
 
 // Las presentaciones eligen una VARIEDAD (decisión 14), no la base.

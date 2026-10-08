@@ -126,6 +126,17 @@ test('listadoProduccion: sólo PLUs SIGA, costo por unidad de la receta como fue
   assert.strictEqual(filas.find(f => f.plu === '7000').aRevisar, null);
 });
 
+test('listadoProduccion: el margen especial del producto (margenExtra) sube el precio de todos los canales de la presentación', () => {
+  const md = L.crearMayoristasDe({ vinculos: [{ plu: '50', nombre: 'Granola Bulto', basePlu: '6319', cantidad: 6, tipo: 'bulto' }], vigentes: new Map() });
+  const fila = extra => L.listadoProduccion({ presentaciones: [{ productoId: 'p-g', plu: '6319', nombre: 'G', costoUnidad: 1000, margenExtra: extra }],
+    vigentes: new Map(), mayoristasDe: md, costeo: {}, cfg: CFG })[0].sugeridos.sistema;
+  const sin = fila(null), con = fila({ minorista: 10, bulto: 20 });
+  assert.deepStrictEqual([sin.desglose.minorista.margenPct, con.desglose.minorista.margenPct, con.desglose.minorista.margenEspecialPct], [30, 40, 10]);
+  assert.deepStrictEqual([sin.desglose.porVinculo['50'].margenPct, con.desglose.porVinculo['50'].margenPct], [30, 50]);
+  assert.ok(con.minorista.precio > sin.minorista.precio);
+  assert.ok(con.mayoristas[0].conIva > sin.mayoristas[0].conIva);
+});
+
 // ── Decisión y export ────────────────────────────────────────────────────────
 
 test('validarDecision / aplicarDecision', () => {

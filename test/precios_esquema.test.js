@@ -194,6 +194,20 @@ test('preciosCanales: las mismas 3 tablas (una por canal) para los tres tipos; a
   assert.strictEqual(E.preciosCanales({ tipo: 'fraccionado', costo: 2000, pesoG: 100, cfg: sinGastos }).minorista.margenPct, 50);
 });
 
+test('preciosCanales: margenExtra (margen especial de Producción) se suma al margen de cada canal y viaja aparte', () => {
+  const sinGastos = { ...CFG, gastosVenta: [], extrasMinorista: [] };
+  const base = E.preciosCanales({ tipo: 'produccion', costo: 2000, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos });
+  const p = E.preciosCanales({ tipo: 'produccion', costo: 2000, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos,
+    margenExtra: { minorista: 5, pack: -2.5 } });
+  assert.deepStrictEqual([p.minorista.margenPct, p.pack.margenPct, p.bulto.margenPct],
+    [base.minorista.margenPct + 5, E.r2(base.pack.margenPct - 2.5), base.bulto.margenPct]);
+  assert.deepStrictEqual([p.minorista.margenEspecialPct, p.pack.margenEspecialPct, 'margenEspecialPct' in p.bulto], [5, -2.5, false]);
+  assert.strictEqual(p.minorista.neto, 2000 * 1.45);
+  // Sin margenExtra (o null): igual que siempre, sin margenEspecialPct.
+  assert.deepStrictEqual(E.preciosCanales({ tipo: 'produccion', costo: 2000, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos, margenExtra: null }), base);
+  assert.ok(!('margenEspecialPct' in base.minorista));
+});
+
 test('preciosCanales: gastos solo del tipo y modo "precio"', () => {
   const cfg = { ...CFG, modoGastos: 'precio',
     gastosVenta: [{ id: 'g', concepto: 'x', pct: 20, tipos: { almacen: false, produccion: true } }] };

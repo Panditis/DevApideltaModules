@@ -243,8 +243,9 @@ function pintarDetalleProduccion() {
   const abiertas = seccionesAbiertas({ 1: est.base, 2: est.variedades, 3: est.presentaciones }, prodSeccionesElegidas);
   panelProd().innerHTML = htmlEncabezadoDetalle(prodDet, prog) + htmlPanelAlertas(prodDet)
     + htmlPaso(1, est.base, hab[1], abiertas[1], htmlPaso1) + htmlPaso(2, est.variedades, hab[2], abiertas[2], htmlPaso2)
-    + htmlPaso(3, est.presentaciones, hab[3], abiertas[3], htmlSeccionPresentaciones);
+    + htmlPaso(3, est.presentaciones, hab[3], abiertas[3], htmlSeccionPresentaciones) + htmlMargenEspecialProd();
   conectarEncabezado();
+  conectarMargenEspecialProd();
   conectarRecetas();
   if (hab[3].ok) conectarSeccionPresentaciones();   // precios_produccion_presentaciones.js
   // Sólo un cambio real de estado cuenta como elección (el toggle que dispara el render inicial, no).
@@ -253,6 +254,28 @@ function pintarDetalleProduccion() {
     det.dataset.abierta = det.open ? '1' : '0';
     prodSeccionesElegidas = { ...prodSeccionesElegidas, [det.dataset.sec]: det.open };
   }));
+}
+
+// ── Margen especial del producto (sólo con precios-config: sin él el server no lo manda y responde 403) ──
+// Puntos % por canal que se suman al margen general en todas las presentaciones. Vacío = 0.
+const CANALES_ME_PROD = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
+function htmlMargenEspecialProd() {
+  if (preciosSinConfig) return '';
+  const me = prodDet.definicion.margenEspecial || {};
+  const campos = CANALES_ME_PROD.map(([k, txt]) => `<label class="flex items-center gap-2 text-sm"><span class="w-20 text-gris">${txt}</span>
+    ${campoU(`<input type="number" step="any" min="-50" max="300" data-me="${k}" value="${esc(me[k] ?? '')}" placeholder="0" aria-label="Margen especial ${txt} (+ puntos %)">`, '+ pts %', { w: 'w-32' })}</label>`).join('');
+  return `<section class="mt-4 rounded-xl border border-borde bg-card p-4" aria-labelledby="prMeTit">
+    <h3 id="prMeTit" class="text-sm font-semibold text-ink">Margen especial</h3>
+    <p class="text-xs text-gris mt-0.5 mb-3">Se suma al margen general del canal, en todas las presentaciones de este producto (puntos %, puede ser negativo).</p>
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">${campos}<button type="button" id="prMeGuardar" class="cfg-btn2">Guardar</button></div></section>`;
+}
+function conectarMargenEspecialProd() {
+  const btn = document.getElementById('prMeGuardar');
+  if (!btn) return;
+  btn.onclick = () => {
+    const body = Object.fromEntries(CANALES_ME_PROD.map(([k]) => [k, numOrNull(panelProd().querySelector(`[data-me="${k}"]`).value)]));
+    guardarProd(() => pedirJson('PUT', urlProd(prodDet.id, '/margen-especial'), body), btn, 'Margen especial guardado');
+  };
 }
 
 // ── Pasos 1 y 2: cuerpo ─────────────────────────────────────────────────────────
