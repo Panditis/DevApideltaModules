@@ -160,18 +160,59 @@ function pintarQuiebresEsq(card) {
         <td class="text-right tabular-nums">${pctEsq(q.margenPct)}</td></tr>`).join('')}</tbody></table>`;
 }
 
+// Ajuste por peso: tabla editable (siempre visible, vacía = sin ajuste) + generador de tramos que sólo llena la tabla.
+const htmlFilaTramoEsq = (g = '', p = '') => `<tr class="esq-tramo">
+    <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="1" data-k="g" value="${esc(g)}" aria-label="Hasta (g)">`, 'g', { w: 'w-24' })}</td>
+    <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="-100" max="100" data-k="p" value="${esc(p)}" aria-label="Ajuste %">`, '%', { w: 'w-20' })}</td>
+    <td class="py-1"><button type="button" class="esq-quitar-tramo text-gris hover:text-crit" data-edita aria-label="Quitar tramo">✕</button></td></tr>`;
+const numGenEsq = (k, v, u, extra = '') => `<label class="text-xs text-gris">${k}
+    ${campoU(`<input type="number" step="any" data-gen="${k}" value="${v}" ${extra}>`, u, { w: 'w-20' })}</label>`;
 function htmlAjustesPesoEsq(aj) {
-  if (!aj || !Array.isArray(aj.tramosG) || !aj.tramosG.length) return '<p class="text-xs text-gris mt-2">Sin ajuste por peso.</p>';
-  return `<div class="cfg-card mt-4 esq-ajustes" data-tramos="${esc(JSON.stringify(aj.tramosG))}">
-    <h4 class="font-semibold text-sm mb-2">Ajuste por peso <span class="cfg-nota">se suma al margen de los tres canales según el peso de la presentación</span></h4>
-    <div class="overflow-x-auto"><table class="cfg-tabla"><thead><tr><th class="text-left">Hasta (g)</th>${aj.tramosG.map(g => `<th>${esc(g)}</th>`).join('')}</tr></thead>
-    <tbody><tr><td>Ajuste</td>${aj.puntos.map((p, i) => `<td>${campoU(`<input type="number" step="any" min="-100" max="100" data-tramo="${i}" value="${esc(p)}" aria-label="Ajuste hasta ${esc(aj.tramosG[i])} g">`, '%', { w: 'w-20' })}</td>`).join('')}</tr></tbody>
-    </table></div></div>`;
+  const tramos = aj && Array.isArray(aj.tramosG) ? aj.tramosG : [];
+  return `<div class="cfg-card mt-4 esq-ajustes">
+    <h4 class="font-semibold text-sm mb-1">Ajuste por peso <span class="cfg-nota">se suma al margen de los tres canales según el peso de la presentación</span></h4>
+    <p class="cfg-ayuda">Se usa el primer tramo cuyo "hasta" es mayor o igual al peso; más pesado que el último usa el último;
+      una presentación sin peso cuenta como 1000 g. Sin tramos = sin ajuste.</p>
+    <div class="flex gap-8 items-start flex-wrap">
+      <div><table class="cfg-tabla"><thead><tr><th class="text-left">Hasta (g)</th><th class="text-left">Ajuste %</th><th></th></tr></thead>
+        <tbody>${tramos.map((g, i) => htmlFilaTramoEsq(g, aj.puntos[i])).join('')}</tbody></table>
+        <button type="button" class="esq-agregar-tramo cfg-btn2 mt-2" data-edita>＋ Agregar tramo</button></div>
+      <div class="esq-generador"><h5 class="font-semibold text-xs mb-1">Generar tramos <span class="cfg-nota">cortes en escala log; el % baja lineal. Se aplica al guardar.</span></h5>
+        <div class="flex gap-3 flex-wrap items-end">
+          ${numGenEsq('Desde', 100, 'g', 'min="1"')}${numGenEsq('Hasta', 5000, 'g', 'min="1"')}
+          ${numGenEsq('Tramos', 6, '#', `min="2" max="${PreciosEsquema.AJUSTES_PESO_MAX}" step="1"`)}
+          ${numGenEsq('Más liviano', 15, '%', 'min="-100" max="100"')}${numGenEsq('Más pesado', -10, '%', 'min="-100" max="100"')}
+          <button type="button" class="esq-generar cfg-btn2">Generar</button></div>
+        <p class="esq-gen-msg text-xs text-crit mt-1" role="status" aria-live="polite"></p></div>
+    </div></div>`;
 }
-const leerAjustesPesoEsq = sec => {
-  const caja = sec.querySelector('.esq-ajustes');
-  return caja ? { tramosG: JSON.parse(caja.dataset.tramos), puntos: [...caja.querySelectorAll('[data-tramo]')].map(i => numOrNull(i.value)) } : null;
-};
+// Tabla vacía → null (no se manda ajustesPeso = sin ajuste). Ordenada por gramos; lo inválido lo rechaza el server.
+function leerAjustesPesoEsq(sec) {
+  const filas = [...sec.querySelectorAll('.esq-tramo')].map(tr => ({ g: numOrNull(tr.querySelector('[data-k="g"]').value), p: numOrNull(tr.querySelector('[data-k="p"]').value) }))
+    .sort((a, b) => (a.g ?? 0) - (b.g ?? 0));
+  return filas.length ? { tramosG: filas.map(f => f.g), puntos: filas.map(f => f.p) } : null;
+}
+function generarTramosEsq(caja) {
+  const v = k => numOrNull(caja.querySelector(`[data-gen="${k}"]`).value);
+  const gen = PreciosEsquema.generarAjustesPeso({ desdeG: v('Desde'), hastaG: v('Hasta'), tramos: v('Tramos'), livianoPct: v('Más liviano'), pesadoPct: v('Más pesado') });
+  const msg = caja.querySelector('.esq-gen-msg');
+  msg.textContent = gen ? '' : `Revisá los datos: desde > 0, hasta > desde, de 2 a ${PreciosEsquema.AJUSTES_PESO_MAX} tramos (enteros) y % entre −100 y 100.`;
+  if (!gen) return;
+  const tbody = caja.querySelector('tbody');
+  if (tbody.children.length && !confirm('Reemplazar los tramos actuales por los generados?')) return;
+  tbody.innerHTML = gen.tramosG.map((g, i) => htmlFilaTramoEsq(g, gen.puntos[i])).join('');
+  marcarSucio(caja.closest('[data-guardable]'));
+}
+// Clicks de la tarjeta (onclick, no addEventListener: se repinta en cada carga).
+function clickAjustesPesoEsq(e) {
+  const caja = e.currentTarget;
+  if (e.target.closest('.esq-agregar-tramo')) caja.querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaTramoEsq());
+  else if (e.target.closest('.esq-quitar-tramo')) { // ya sacada, el listener de data-edita no encuentra el bloque: se marca acá
+    e.target.closest('tr').remove();
+    marcarSucio(caja.closest('[data-guardable]'));
+  }
+  else if (e.target.closest('.esq-generar')) generarTramosEsq(caja);
+}
 
 function htmlMargenesEsq(m) {
   return `<section class="mb-6" data-guardable data-nombre="Márgenes">
@@ -210,6 +251,7 @@ function pintarMargenesEsq(panel, cfg) {
   panel.oninput = e => { const c = e.target.closest('[data-canal]'); if (c) pintarQuiebresEsq(c); };
   const sec = panel.querySelector('section[data-guardable]');
   sec.querySelector('.esq-rango').onclick = () => recalcularRangoEsq(sec);
+  sec.querySelector('.esq-ajustes').onclick = clickAjustesPesoEsq;
   sec.querySelector('.esq-guardar').onclick = () => {
     const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
     const aj = leerAjustesPesoEsq(sec);

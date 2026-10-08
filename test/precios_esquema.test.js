@@ -92,6 +92,23 @@ test('ajustePesoPct: tramo por peso, sin peso = 1 kg, más pesado = último', ()
   assert.strictEqual(E.ajustePesoPct({ tramosG: [], puntos: [] }, 250), 0);
 });
 
+test('generarAjustesPeso: cortes log con extremos exactos, % lineal a 1 decimal', () => {
+  const g = E.generarAjustesPeso({ desdeG: 100, hastaG: 5000, tramos: 6, livianoPct: 15, pesadoPct: -10 });
+  assert.deepStrictEqual(g, { tramosG: [100, 220, 480, 1050, 2300, 5000], puntos: [15, 10, 5, 0, -5, -10] });
+  const h = E.generarAjustesPeso({ desdeG: 100, hastaG: 200, tramos: 20, livianoPct: 15, pesadoPct: -10 });
+  assert.strictEqual(h.tramosG.length, 20);
+  assert.ok(h.tramosG.every((t, i) => i === 0 || t > h.tramosG[i - 1]), 'ascendentes y únicos');
+  assert.deepStrictEqual([h.tramosG[0], h.tramosG[19], h.puntos[0], h.puntos[19], h.puntos[1]], [100, 200, 15, -10, 13.7]);
+  assert.ok(h.puntos.every(p => Number.isInteger(p * 10)));
+});
+
+test('generarAjustesPeso: entrada inválida → null', () => {
+  const ok = { desdeG: 100, hastaG: 5000, tramos: 6, livianoPct: 15, pesadoPct: -10 };
+  [{ desdeG: 0 }, { hastaG: 100 }, { tramos: 1 }, { tramos: 21 }, { tramos: 2.5 }, { livianoPct: 101 }, { pesadoPct: NaN },
+    { desdeG: '100' }, { desdeG: 1, hastaG: 3, tramos: 10 }].forEach(m => assert.strictEqual(E.generarAjustesPeso({ ...ok, ...m }), null, JSON.stringify(m)));
+  assert.strictEqual(E.generarAjustesPeso(), null);
+});
+
 test('rangoDesdeCostos: percentiles 5 y 95 (nearest-rank) de costos positivos', () => {
   const costos = Array.from({ length: 100 }, (_, i) => i + 1); // 1..100
   assert.deepStrictEqual(E.rangoDesdeCostos(costos), { desde: 5, hasta: 95 });
