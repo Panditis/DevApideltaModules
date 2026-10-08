@@ -263,7 +263,7 @@ function htmlMargenEspecialProd() {
   if (preciosSinConfig) return '';
   const me = prodDet.definicion.margenEspecial || {};
   const campos = CANALES_ME_PROD.map(([k, txt]) => `<label class="flex items-center gap-2 text-sm"><span class="w-20 text-gris">${txt}</span>
-    ${campoU(`<input type="number" step="any" min="-50" max="300" data-me="${k}" value="${esc(me[k] ?? '')}" placeholder="0" aria-label="Margen especial ${txt} (+ puntos %)">`, '+ pts %', { w: 'w-32' })}</label>`).join('');
+    ${campoU(`<input type="number" step="any" data-me="${k}" value="${esc(me[k] ?? '')}" placeholder="0" aria-label="Margen especial ${txt} (+ puntos %)">`, '+ pts %', { w: 'w-32' })}</label>`).join('');
   return `<section class="mt-4 rounded-xl border border-borde bg-card p-4" aria-labelledby="prMeTit">
     <h3 id="prMeTit" class="text-sm font-semibold text-ink">Margen especial</h3>
     <p class="text-xs text-gris mt-0.5 mb-3">Se suma al margen general del canal, en todas las presentaciones de este producto (puntos %, puede ser negativo).</p>

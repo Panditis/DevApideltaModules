@@ -624,7 +624,7 @@ test('PUT margen-especial: valida, guarda en el producto (vacío lo borra) y el 
     assert.strictEqual((await margenMin()).margenPct, 30);
 
     assert.match((await pedir('PUT', '/productos/p-granola/margen-especial', { mayorista: 1 })).error, /canal desconocido/);
-    assert.match((await pedir('PUT', '/productos/p-granola/margen-especial', { pack: 400 })).error, /margenEspecial\.pack/);
+    assert.match((await pedir('PUT', '/productos/p-granola/margen-especial', { pack: -100 })).error, /margenEspecial\.pack/);
     assert.match((await pedir('PUT', '/productos/p-nada/margen-especial', { pack: 1 })).error, /no encontrado/);
     assert.ok(!('margenEspecial' in archivo()));
 

@@ -121,9 +121,13 @@ test('rangoDesdeCostos: percentiles 5 y 95 (nearest-rank) de costos positivos', 
 test('validarTablaMargen: acepta válida y rechaza cada caso inválido', () => {
   assert.strictEqual(E.validarTablaMargen(TABLA), null);
   assert.match(E.validarTablaMargen({ ...TABLA, minPct: 70 }), /mínimo/);
-  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 'x' }), /máximo/);
-  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -60 }), /mínimo/);
-  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 400 }), /máximo/);
+  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 'x' }), /mayor a −100 %/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: NaN }), /mayor a −100 %/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -100 }), /mayor a −100 %/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -150, maxPct: -120 }), /mayor a −100 %/);
+  // Sin tope superior y con piso estricto en −100: −60 y 400 ya valen, −99,9 y 5000 también.
+  assert.strictEqual(E.validarTablaMargen({ ...TABLA, minPct: -60, maxPct: 400 }), null);
+  assert.strictEqual(E.validarTablaMargen({ ...TABLA, minPct: -99.9, maxPct: 5000 }), null);
   assert.match(E.validarTablaMargen({ ...TABLA, escalones: 0 }), /escalones/);
   assert.match(E.validarTablaMargen({ ...TABLA, escalones: 2.5 }), /escalones/);
   assert.match(E.validarTablaMargen({ ...TABLA, escalones: 31 }), /escalones/);
