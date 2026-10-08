@@ -2,8 +2,8 @@
 // Script clásico. Una fila por producto (Fraccionado: por granel con sus presentaciones debajo; Producción: por
 // presentación) con costo sistema, última compra, vigente, sugerido por fuente y un badge con la DECISIÓN (se toma en el
 // modal, clic en el nombre; reemplaza al marcado y a la fuente de costo). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
-// Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio
-// (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema (precios_modal_esquema.js),
+// Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio,
+// montarOrden, ordenarCon (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema (precios_modal_esquema.js),
 // textoRevisar (precios_produccion.js), XLSX (CDN).
 const ETIQUETA_DECISION = { sistema: '↑ sistema', ultimaCompra: '↑ última compra', manual: '↑ manual' };
 const normL = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -23,12 +23,30 @@ function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara 
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas };
+// ── Orden ────────────────────────────────────────────────────────────────────────
+// Headers ordenables de precios_comun.js (montarOrden/ordenarCon). Siempre hay un orden: por defecto el nombre A→Z (es, sin
+// mayúsculas ni acentos). Nulls al final. Fraccionado ordena los granel: cada uno lleva dentro sus presentaciones (en el
+// orden del server, por peso), así que quedan juntas bajo su granel.
+const ORDENAR_LST = typeof module === 'object' && module.exports ? require('./precios_comun.js').ordenarCon : ordenarCon;
+const ORDEN_LST_DEFECTO = { clave: 'nombre', dir: 'asc' };
+const precioSugerido = s => (s && s.minorista ? s.minorista.precio : null);
+const COLUMNAS_LST = {
+  plu: f => f.plu,
+  nombre: f => (f.plu == null ? null : f.nombre), // "Sin granel asignado" (plu null) siempre al final
+  costoSistema: f => f.costoSistema, ultimaCompra: f => f.costoUltimaCompra, deltaUltima: f => f.deltaUltimaPct, vigente: f => f.vigente,
+  sugeridoSistema: f => precioSugerido((f.sugeridos || {}).sistema), sugeridoUltima: f => precioSugerido((f.sugeridos || {}).ultimaCompra),
+};
+const ordenarListado = (filas, orden) => ORDENAR_LST(filas, orden || ORDEN_LST_DEFECTO, COLUMNAS_LST);
+// siguienteOrden cicla asc → desc → null (orden original); acá no hay "sin orden": el tercer clic vuelve a asc.
+const ordenSinNulo = (previo, o) => o || { clave: previo.clave, dir: 'asc' };
+
+if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
-const LST_COLS = 7;
+const lstCols = tipo => (tipo === 'produccion' ? 7 : 8);
 let lstDatos = {};                                                  // tipo → filas del server
+let lstOrden = { almacen: ORDEN_LST_DEFECTO, fraccionado: ORDEN_LST_DEFECTO, produccion: ORDEN_LST_DEFECTO }; // orden por tab (sobrevive recargas y filtros)
 const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {} }; // estado de los filtros por tab (sobrevive recargas)
 const NOMBRE_LISTA = { minorista: 'minorista', packNeto: 'pack_sin_iva', packIva: 'pack_con_iva', bultoNeto: 'bulto_sin_iva', bultoIva: 'bulto_con_iva' };
 
@@ -40,9 +58,10 @@ function celdaPrecio(s) {
 }
 function celdaUltima(f) {
   if (f.costoUltimaCompra == null) return '<span class="text-gris">—</span>';
-  const delta = f.deltaUltimaPct == null ? '' : ` · <span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`;
-  return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${delta}</div>`;
+  return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}</div>`;
 }
+const celdaDeltaUltima = f => (f.deltaUltimaPct == null ? '<span class="text-gris">—</span>'
+  : `<span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`);
 const badgeDecision = (f, tipo) => { const t = etiquetaDecision(f, tipo); return t ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-verde/15 text-verde whitespace-nowrap" title="Decidido: se exporta">${esc(t)}</span>` : ''; };
 // Clic en el nombre = modal del producto, donde se elige el costo (y con eso la decisión).
 const botonNombre = (f, tipo) => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeDecision(f, tipo)}`;
@@ -59,19 +78,21 @@ function filaHtml(f, tipo) {
   }
   const fracc = tipo === 'fraccionado';
   const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}</td>
-    <td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
+    <td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td></tr>`).join('');
   return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f, tipo)}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
-    <td class="p-2 num">${celdaUltima(f)}</td>
+    <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
     <td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.sistema)}</td><td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.ultimaCompra)}</td></tr>${subfilas}`;
 }
 
 function htmlMarcoListado(tipo) {
-  const f = lstFiltros[tipo], prod = tipo === 'produccion';
-  const ths = prod ? ['Código', 'Producto', 'Costo', 'Vigente', 'Sugerido', 'A revisar', '']
-    : ['Código', tipo === 'fraccionado' ? 'Granel / presentación' : 'Producto', 'Costo sistema', 'Última compra', 'Vigente', 'Sugerido con sistema', 'Sugerido con última compra'];
+  const f = lstFiltros[tipo], prod = tipo === 'produccion', fracc = tipo === 'fraccionado';
+  // [texto, clave de orden]. En Fraccionado vigente y sugeridos son de las presentaciones, no del granel: no se ordenan.
+  const ths = prod ? [['Código', 'plu'], ['Producto', 'nombre'], ['Costo', 'costoSistema'], ['Vigente', 'vigente'], ['Sugerido', 'sugeridoSistema'], ['A revisar'], ['']]
+    : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'], ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
+      ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima']];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
   <div class="flex items-center gap-2 mb-3 flex-wrap">
@@ -85,8 +106,8 @@ function htmlMarcoListado(tipo) {
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
   </div>
   <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
-    <thead class="bg-verde/5 text-verde"><tr>${ths.map((t, i) => `<th class="p-2 ${i < 2 ? 'text-left' : ''}">${t}</th>`).join('')}</tr></thead>
-    <tbody class="lst-cuerpo"><tr><td colspan="${LST_COLS}" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody></table></div>`;
+    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
+    <tbody class="lst-cuerpo"><tr><td colspan="${lstCols(tipo)}" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody></table></div>`;
 }
 
 // ponytail: lstFiltros es estado de UI (no datos del server): se muta en el lugar a propósito.
@@ -98,10 +119,21 @@ function conectarListado(tipo, cont) {
     const b = cont.querySelector(sel);
     if (b) b.onclick = () => { f[k] = !f[k]; b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
   });
+  montarOrdenListado(tipo, cont);
   cont.querySelector('.lst-exportar').onclick = exportarDecididos;
   cont.querySelector('.lst-quitar').onclick = quitarDecisiones;
   const cuerpo = cont.querySelector('.lst-cuerpo');
   cuerpo.addEventListener('click', e => { const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu); });
+}
+
+// Headers del tab; el clic guarda el orden, re-monta los headers (▲/▼, aria-sort) y re-pinta sólo el tbody.
+function montarOrdenListado(tipo, cont) {
+  const previo = lstOrden[tipo];
+  montarOrden(cont.querySelector('thead'), previo, o => {
+    lstOrden = { ...lstOrden, [tipo]: ordenSinNulo(previo, o) };
+    montarOrdenListado(tipo, cont);
+    renderListado(tipo);
+  });
 }
 
 // Pinta el marco (siempre de nuevo: en Producción el contenedor lo comparten Recetas y el detalle) y trae las filas.
@@ -118,7 +150,7 @@ async function cargarListado(tipo) {
     cont.querySelector('.lst-aviso').classList.toggle('hidden', j.migrado);
     renderListado(tipo);
   } catch (e) {
-    cont.querySelector('.lst-cuerpo').innerHTML = `<tr><td colspan="${LST_COLS}" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
+    cont.querySelector('.lst-cuerpo').innerHTML = `<tr><td colspan="${lstCols(tipo)}" class="p-8 text-center text-crit">No se pudo cargar: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -127,11 +159,11 @@ function renderListado(tipo) {
   const cuerpo = cont && cont.querySelector('.lst-cuerpo');
   if (!cuerpo || !lstDatos[tipo]) return;
   const todas = lstDatos[tipo];
-  const filas = filtrarFilas(todas, lstFiltros[tipo]);
+  const filas = ordenarListado(filtrarFilas(todas, lstFiltros[tipo]), lstOrden[tipo]);
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   cuerpo.innerHTML = filas.length ? filas.map(f => filaHtml(f, tipo)).join('')
-    : `<tr><td colspan="${LST_COLS}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
+    : `<tr><td colspan="${lstCols(tipo)}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
 }
 
 // PUT de la decisión y actualización local (sin recargar SIGA). La usa el modal.
