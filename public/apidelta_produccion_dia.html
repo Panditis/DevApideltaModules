@@ -2549,10 +2549,11 @@ function _pfElemBlockHTML(el, eidx, multi) {
   const granelSection = factores.length ? `<div style="margin-top:8px">
     <div class="form-label" style="font-size:11px;margin-bottom:4px">Componentes utilizados</div>${granelRows}</div>` : '';
   const dis = el.cargado ? ' disabled' : '';
-  // Granel (por presentación o por nombre del producto): no lleva envase ni tapa → quedan vacíos y bloqueados.
+  // Granel (por presentación o por nombre del producto) sin envase/tapa en la fórmula: quedan vacíos y bloqueados.
+  // Si la fórmula trae envase y/o tapa (ej. miel 28 kg en balde), ya vienen precargados y quedan editables.
   const esGranel = /granel/i.test(el.presentacion || '') || /granel/i.test((_pfOrden && _pfOrden.producto) || '');
-  const disPack = esGranel ? ' disabled title="Producto a granel: sin envase ni tapa"' : dis;
-  if (esGranel) { el.envase = ''; el.tapa = ''; }
+  const bloquearPack = esGranel && !el.envase && !el.tapa;
+  const disPack = bloquearPack ? ' disabled title="Producto a granel: sin envase ni tapa"' : dis;
   const head = multi ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
     <span style="font-weight:800;font-family:system-ui,'Segoe UI',sans-serif;font-size:16px">${el.presentacion||'—'}</span>
     ${el.cargado ? '<span style="font-size:11px;font-weight:700;color:var(--green-dark)">✅ ya cargado</span>' : ''}

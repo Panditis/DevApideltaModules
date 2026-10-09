@@ -606,3 +606,39 @@ test('armarDetalle: cada presentación trae vigente, fecha y la fila del motor (
   assert.deepStrictEqual([d.id, d.creado, d.definicion], ['p-g', '2026-01-01', datos.productos['p-g']]);
   for (const k of ['insumos', 'insumosManuales', 'categoriasMaquina']) assert.ok(!(k in d), k);
 });
+
+test('PUT margen-especial: valida, guarda en el producto (vacío lo borra) y el detalle lo suma al margen de cada canal', async () => {
+  const { server, dir, base } = await montar();
+  const { CFG } = require('./precios_esquema_fixture');
+  fs.writeFileSync(path.join(dir, 'costeo.json'), JSON.stringify({ ...COSTEO, margenes: CFG.margenes }));
+  const pedir = async (metodo, url, body) => (await fetch(base + url, {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  })).json();
+  const archivo = () => JSON.parse(fs.readFileSync(path.join(dir, 'recetas_produccion.json'), 'utf8')).productos['p-granola'];
+  const margenMin = async () => (await pedir('GET', '/productos/p-granola')).presentaciones['6319'].esquema.sugeridos.sistema.desglose.minorista;
+  try {
+    await pedir('POST', '/productos', { nombre: 'Granola' });
+    await pedir('PUT', '/productos/p-granola/recetas/base', PRODUCTO.recetas.base);
+    await pedir('PUT', '/productos/p-granola/recetas/clasica', PRODUCTO.recetas.clasica);
+    await pedir('PUT', '/productos/p-granola/presentaciones/6319', PRODUCTO.presentaciones['6319']);
+    assert.strictEqual((await margenMin()).margenPct, 30);
+
+    assert.match((await pedir('PUT', '/productos/p-granola/margen-especial', { mayorista: 1 })).error, /canal desconocido/);
+    assert.match((await pedir('PUT', '/productos/p-granola/margen-especial', { pack: -100 })).error, /margenEspecial\.pack/);
+    assert.match((await pedir('PUT', '/productos/p-nada/margen-especial', { pack: 1 })).error, /no encontrado/);
+    assert.ok(!('margenEspecial' in archivo()));
+
+    const r = await pedir('PUT', '/productos/p-granola/margen-especial', { minorista: 5, pack: null, bulto: 0 });
+    assert.deepStrictEqual(r, { id: 'p-granola', margenEspecial: { minorista: 5 } });
+    assert.deepStrictEqual(archivo().margenEspecial, { minorista: 5 });
+    assert.deepStrictEqual([(await margenMin()).margenPct, (await margenMin()).margenEspecialPct], [35, 5]);
+    // Renombrar conserva el margen especial; vacío lo borra.
+    await pedir('PUT', '/productos/p-granola', { nombre: 'Granola 2' });
+    assert.deepStrictEqual(archivo().margenEspecial, { minorista: 5 });
+    assert.deepStrictEqual(await pedir('PUT', '/productos/p-granola/margen-especial', {}), { id: 'p-granola', margenEspecial: null });
+    assert.ok(!('margenEspecial' in archivo()));
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

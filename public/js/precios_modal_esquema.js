@@ -224,8 +224,13 @@ function htmlTablaCanales(f) {
 }
 
 // ── Ver detalle (sólo con permiso: el server sólo entonces manda `desglose`) ──
-const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.map(([op, txt, v]) =>
-  `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">$ ${fmtMoney(v)}</span></div>`).join('')}</div>`;
+// Paso con v null = renglón aclaratorio sin importe (ej. el margen especial incluido en el margen del canal).
+const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.filter(Boolean).map(([op, txt, v]) =>
+  `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">${v == null ? '' : '$ ' + fmtMoney(v)}</span></div>`).join('')}</div>`;
+// Margen especial del producto (Producción): ya está sumado en margenPct; se muestra aparte para explicar el total.
+const pasoEspecialMd = c => (c.margenEspecialPct
+  ? ['', `incluye margen especial del producto ${c.margenEspecialPct > 0 ? '+' : ''}${pctMd(c.margenEspecialPct)} (general ${pctMd(c.margenPct - c.margenEspecialPct)})`, null]
+  : null);
 function htmlDesgloseEsq(f) {
   const bloques = [];
   const de = (fila, titulo) => {
@@ -234,12 +239,12 @@ function htmlDesgloseEsq(f) {
     const d = s.desglose, m = d.minorista;
     if (titulo) bloques.push(htmlPasos(titulo, [
       ['', 'Costo de mercadería', d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
-      ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
+      ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], pasoEspecialMd(m), ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
       ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]]));
     for (const v of fila.mayoristas || []) {
       const c = d.porVinculo[v.plu];
       if (c) bloques.push(htmlPasos(`${TIPO_CANAL[v.tipo]} ${v.plu} (× ${c.unidades})`, [
-        ['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], ['×', `${c.unidades} unidades`, c.exactoNeto],
+        ['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], pasoEspecialMd(c), ['×', `${c.unidades} unidades`, c.exactoNeto],
         ['=', 'Sin IVA redondeado', c.neto], ['×', 'IVA', c.exactoIva], ['=', 'Con IVA redondeado', c.conIva]]));
     }
   };

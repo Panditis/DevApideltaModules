@@ -121,9 +121,13 @@ test('rangoDesdeCostos: percentiles 5 y 95 (nearest-rank) de costos positivos', 
 test('validarTablaMargen: acepta válida y rechaza cada caso inválido', () => {
   assert.strictEqual(E.validarTablaMargen(TABLA), null);
   assert.match(E.validarTablaMargen({ ...TABLA, minPct: 70 }), /mínimo/);
-  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 'x' }), /máximo/);
-  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -60 }), /mínimo/);
-  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 400 }), /máximo/);
+  assert.match(E.validarTablaMargen({ ...TABLA, maxPct: 'x' }), /mayor a −100 %/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: NaN }), /mayor a −100 %/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -100 }), /mayor a −100 %/);
+  assert.match(E.validarTablaMargen({ ...TABLA, minPct: -150, maxPct: -120 }), /mayor a −100 %/);
+  // Sin tope superior y con piso estricto en −100: −60 y 400 ya valen, −99,9 y 5000 también.
+  assert.strictEqual(E.validarTablaMargen({ ...TABLA, minPct: -60, maxPct: 400 }), null);
+  assert.strictEqual(E.validarTablaMargen({ ...TABLA, minPct: -99.9, maxPct: 5000 }), null);
   assert.match(E.validarTablaMargen({ ...TABLA, escalones: 0 }), /escalones/);
   assert.match(E.validarTablaMargen({ ...TABLA, escalones: 2.5 }), /escalones/);
   assert.match(E.validarTablaMargen({ ...TABLA, escalones: 31 }), /escalones/);
@@ -192,6 +196,20 @@ test('preciosCanales: las mismas 3 tablas (una por canal) para los tres tipos; a
   assert.deepStrictEqual(prod, alm);
   assert.deepStrictEqual([alm.minorista.margenPct, alm.pack.margenPct], [40, 26.67]);
   assert.strictEqual(E.preciosCanales({ tipo: 'fraccionado', costo: 2000, pesoG: 100, cfg: sinGastos }).minorista.margenPct, 50);
+});
+
+test('preciosCanales: margenExtra (margen especial de Producción) se suma al margen de cada canal y viaja aparte', () => {
+  const sinGastos = { ...CFG, gastosVenta: [], extrasMinorista: [] };
+  const base = E.preciosCanales({ tipo: 'produccion', costo: 2000, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos });
+  const p = E.preciosCanales({ tipo: 'produccion', costo: 2000, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos,
+    margenExtra: { minorista: 5, pack: -2.5 } });
+  assert.deepStrictEqual([p.minorista.margenPct, p.pack.margenPct, p.bulto.margenPct],
+    [base.minorista.margenPct + 5, E.r2(base.pack.margenPct - 2.5), base.bulto.margenPct]);
+  assert.deepStrictEqual([p.minorista.margenEspecialPct, p.pack.margenEspecialPct, 'margenEspecialPct' in p.bulto], [5, -2.5, false]);
+  assert.strictEqual(p.minorista.neto, 2000 * 1.45);
+  // Sin margenExtra (o null): igual que siempre, sin margenEspecialPct.
+  assert.deepStrictEqual(E.preciosCanales({ tipo: 'produccion', costo: 2000, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos, margenExtra: null }), base);
+  assert.ok(!('margenEspecialPct' in base.minorista));
 });
 
 test('preciosCanales: gastos solo del tipo y modo "precio"', () => {

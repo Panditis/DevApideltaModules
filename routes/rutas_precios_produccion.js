@@ -87,9 +87,10 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const cfg = configEsquemaDe(costeo);
     const mayoristasDe = L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} });
     const conDesglose = !(req && req.preciosSinConfig === true);
+    const margenExtra = datos.productos[id].margenEspecial || null;
     const esquemaDe = (plu, costoUnidad, nombre) => L.filaPublica(L.filaProducto({
       plu, nombre, tipo: 'produccion', costos: { sistema: costoUnidad > 0 ? costoUnidad : null, ultimaCompra: null, manual: null },
-      vigente: vigentes.has(plu) ? vigentes.get(plu) : null, mayoristas: mayoristasDe(plu), cfg,
+      vigente: vigentes.has(plu) ? vigentes.get(plu) : null, mayoristas: mayoristasDe(plu), cfg, margenExtra,
     }), conDesglose);
     return armarDetalle({ id, datos, costeado: costeados[id], vigentes, fechas, esquemaDe });
   }
@@ -143,6 +144,18 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const id = idProducto(req);
     const { nombre } = entrada(() => produccion.validarProducto(req.body));
     return { id, producto: mutarProducto(id, p => ({ ...p, nombre })) };
+  }));
+
+  // Margen especial del producto (puntos % por canal sobre el margen general). Es configuración: la ruta va en RUTAS_CONFIG
+  // (lib/precios_permisos) y margenEspecial en CLAVES_OCULTAS. Body vacío / todo en 0 → se borra.
+  router.put('/api/precios/produccion/productos/:id/margen-especial', ruta(async (req) => {
+    const id = idProducto(req);
+    const margenEspecial = entrada(() => produccion.validarMargenEspecial(req.body));
+    mutarProducto(id, p => {
+      const { margenEspecial: _viejo, ...resto } = p;
+      return margenEspecial ? { ...resto, margenEspecial } : resto;
+    });
+    return { id, margenEspecial };
   }));
 
   router.delete('/api/precios/produccion/productos/:id', ruta(async (req) => {

@@ -13,6 +13,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/config/esquema/precio',
   'put /api/precios/config/esquema/margenes',
   'post /api/precios/config/esquema/rango',
+  'put /api/precios/produccion/productos/:id/margen-especial',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).
@@ -88,6 +89,8 @@ test('guard: sin permiso las demás rutas de /api/precios responden sin las clav
     const con = await pedir('GET', '/api/precios/esquema/listado?tipo=almacen', 'con');
     assert.deepStrictEqual(con.body, { ok: true, sinConfig: false, precioNeto: 100, gastosVenta: [1],
       filas: [{ plu: '1', margenes: {}, extrasMinorista: [], sugeridos: { sistema: { minorista: { precio: 1 } } } }] });
+    // El margen especial de un producto de Producción (definicion del detalle) tampoco sale sin el permiso.
+    assert.deepStrictEqual(permisos.sinClavesOcultas({ definicion: { nombre: 'G', margenEspecial: { minorista: 5 } } }), { definicion: { nombre: 'G' } });
     // Otros módulos no pasan por el guard.
     const prov = await pedir('GET', '/api/precios-proveedores/listado', 'sin');
     assert.deepStrictEqual(prov.body.gastosVenta, [1]);

@@ -48,6 +48,8 @@ test('validarMargenes: 3 tablas por canal, descarta sinConfigurar y claves de m�
 test('validarMargenes: errores con canal y campo', () => {
   const tres = { minorista: TABLA, pack: TABLA, bulto: TABLA };
   assert.throws(() => C.validarMargenes({ ...tres, pack: { ...TABLA, minPct: 70 } }), /pack: El margen mínimo no puede superar/);
+  assert.throws(() => C.validarMargenes({ ...tres, bulto: { ...TABLA, minPct: -100 } }), /bulto: El margen debe ser mayor a −100 %/);
+  assert.doesNotThrow(() => C.validarMargenes({ ...tres, bulto: { ...TABLA, minPct: -99.9, maxPct: 5000 } })); // sin tope superior
   assert.throws(() => C.validarMargenes({ minorista: TABLA, pack: TABLA }), /bulto: Falta la tabla/);
   assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [500, 100], puntos: [1, 2] } }), /tramosG\[1\]/);
   assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [100], puntos: [200] } }), /puntos/);
