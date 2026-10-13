@@ -34,9 +34,10 @@ function parsearHashProduccion(hash) {
 // entrar a la tab con la última vista elegida en la sesión.
 const VISTA_TOGGLE_PROD = { selector: 'presentaciones', recetas: 'recetas' };
 const vistaToggleProduccion = r => (r && VISTA_TOGGLE_PROD[r.vista]) || null;
-// Sub-tabs "Con receta | Envasado Apidelta" (#prodClases): clase de cada listado (detalle y editor → null: se ocultan). Al
-// entrar a la tab: el último sub-tab de la sesión y, en Con receta, la última vista del toggle.
-const CLASE_PROD = { selector: 'receta', recetas: 'receta', envasado: 'envasado' };
+// Sub-tabs "Con receta | Envasado Apidelta" (#prodClases): clase de cada listado (detalle → null: se ocultan; el alta de
+// un producto base es el listado de Envasado con su modal). Al entrar a la tab: el último sub-tab de la sesión y, en Con
+// receta, la última vista del toggle.
+const CLASE_PROD = { selector: 'receta', recetas: 'receta', envasado: 'envasado', envasadoNuevo: 'envasado' };
 const claseProduccion = r => (r && CLASE_PROD[r.vista]) || null;
 const hashEntradaProduccion = (guardada, clase = null) => (clase === 'envasado' ? '#produccion/envasado'
   : guardada === 'recetas' ? '#produccion/recetas' : '#produccion');
@@ -551,7 +552,7 @@ function rutearProduccion() {
   marcarToggleProduccion(r);
   if (r.vista === 'detalle') cargarDetalleProduccion(r.id, { abrirPlu: r.plu || null });
   else if (r.vista === 'recetas') cargarSelectorProduccion();
-  else if (r.vista === 'envasadoNuevo') abrirEnvasadoNuevo(); // precios_produccion_envasado.js
+  else if (r.vista === 'envasadoNuevo') abrirEnvasadoNuevo(); // precios_produccion_envasado.js: listado + modal de alta
   else cargarListado('produccion'); // precios_listados.js: precios de Producción con el esquema por canal (filtra por prodClase)
 }
 // Sin id (entrar a la tab, volver de un borrado) → el último sub-tab y vista del toggle.
@@ -702,7 +703,7 @@ async function cargarDetalleProduccion(id, { silencioso = false, abrirPlu = null
     const d = await getJson(urlProd(id));
     const mismo = prodDet && prodDet.id === d.id;
     prodDet = d;
-    if (d.definicion && d.definicion.tipo === 'envasado') { pintarDetalleEnvasado(abrirPlu); return; } // precios_produccion_envasado.js
+    if (d.definicion && d.definicion.tipo === 'envasado') { pintarDetalleEnvasado(abrirPlu); return; } // precios_produccion_envasado.js: modal de su producto base
     if (!mismo) prodSeccionesElegidas = {};
     iniciarEdicionesProd(mismo); // precios_produccion_detalle.js
     pintarDetalleProduccion();

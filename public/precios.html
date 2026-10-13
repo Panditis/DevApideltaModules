@@ -326,6 +326,119 @@
   #panel-produccion button:focus-visible,#panel-produccion a:focus-visible{outline:2px solid #405936;outline-offset:2px}
   .fd-cuerpo>tr>td:first-child{padding-left:.5rem}
   @media (min-width:640px){.fd-cuerpo>tr>td:last-child{padding-right:.5rem}}
+  /* ── Envasado Apidelta (precios_produccion_envasado.js): una tarjeta por producto base y su modal (#mBase, z 45: el
+     modal de precios #mDet, z 50, se abre encima). Filo izquierdo verde (ámbar si hay "a revisar"), materia prima en azul
+     como el costo (.pr-costo-cab), insumos en ámbar como .s-extra. */
+  .eb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+  .eb-vacio{grid-column:1/-1;padding:40px 16px;text-align:center;color:#5c5f52;font-size:14px}
+  .eb-tarjeta{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:7px;text-align:left;padding:16px 40px 14px 20px;border-radius:14px;
+              background:#fff;border:1px solid rgba(26,28,24,.16);box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1);overflow:hidden;
+              transition:border-color 140ms ease,box-shadow 160ms ease,transform 160ms ease}
+  .eb-tarjeta::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:#4f6e42}
+  .eb-tarjeta.eb-t-rev::before{background:#8a5d00}
+  .eb-tarjeta:hover{border-color:#4f6e42;box-shadow:0 6.4px 14.4px rgba(26,28,24,.13),0 1.2px 3.6px rgba(26,28,24,.1);transform:translateY(-1px)}
+  .eb-tarjeta:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  .eb-tc-k,.eb-kicker{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5c5f52}
+  .eb-tc-nom{font-size:20px;font-weight:700;color:#242423;line-height:1.2}
+  .eb-tc-mp{display:inline-flex;align-items:baseline;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(9,88,217,.06);font-size:12.5px;color:#5c5f52}
+  .eb-tc-mp b{font-size:15px;color:#0958d9;font-variant-numeric:tabular-nums}
+  .eb-tc-l{font-size:11px;letter-spacing:.03em;text-transform:uppercase}
+  .eb-tc-gris{color:#5c5f52}
+  .eb-tc-n{font-size:13px;color:#3d4136}.eb-tc-n b{color:#242423;font-variant-numeric:tabular-nums}
+  .eb-tc-chips{display:flex;flex-wrap:wrap;gap:4px;min-height:20px}
+  .eb-tc-coinc{font-size:11.5px;color:#405936}
+  .eb-tc-ir{position:absolute;right:16px;top:14px;font-size:24px;line-height:1;color:#405936;transition:transform 160ms ease}
+  .eb-tarjeta:hover .eb-tc-ir{transform:translateX(3px)}
+  .eb-t-nueva{align-items:center;justify-content:center;min-height:156px;padding:16px;border:1.5px dashed rgba(64,89,54,.45);background:#fafbf8;box-shadow:none;color:#405936;font-weight:600;font-size:14px}
+  .eb-t-nueva::before{display:none}
+  .eb-tc-mas{font-size:30px;line-height:1;font-weight:400}
+  .eb-capa{position:fixed;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;padding:2vh 2vw;background:rgba(36,36,35,.42)}
+  .eb-capa.hidden{display:none}
+  .eb-caja{--pr-top:0px;width:min(96vw,1480px);height:94vh;display:flex;flex-direction:column;background:#f7f9f4;border-radius:16px;overflow:hidden;
+           box-shadow:0 25.6px 57.6px rgba(26,28,24,.22),0 4.8px 14.4px rgba(26,28,24,.18)}
+  .eb-caja:focus{outline:none}
+  .eb-cab{display:flex;align-items:flex-start;gap:20px;padding:16px 22px 14px 24px;background:#fff;box-shadow:inset 0 4px 0 #FFCC00}
+  .eb-cab-izq{min-width:0}
+  .eb-nombre{display:block;margin:2px 0 0 -9px;font-size:26px;font-weight:700;color:#242423;background:transparent;border:1px solid transparent;border-radius:8px;padding:1px 8px;width:26rem;max-width:100%}
+  .eb-nombre:hover{border-color:rgba(26,28,24,.16)}
+  .eb-nombre:focus{outline:none;border-color:#405936;background:#fff;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  .eb-cab-der{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding-top:4px}
+  .eb-mp{display:inline-flex;align-items:center;gap:8px;padding:5px 8px 5px 14px;border-radius:999px;background:rgba(9,88,217,.06);font-size:13px;color:#3d4136;white-space:nowrap}
+  .eb-mp>span:first-child{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#5c5f52}
+  .eb-mp b{font-size:16px;color:#0958d9;font-variant-numeric:tabular-nums}
+  .eb-mp-off{padding-right:14px;background:#eef1ea;color:#5c5f52}
+  .eb-mp-ed{background:#fff;border:1px solid rgba(9,88,217,.3)}
+  .eb-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+  .eb-chip{font-size:12px;padding:2px 10px;border-radius:999px;background:#fff;border:1px solid rgba(26,28,24,.14);color:#3d4136;white-space:nowrap}
+  .eb-chip b{font-variant-numeric:tabular-nums;color:#242423}
+  .eb-chip-0{color:#a3a69b;border-style:dashed}.eb-chip-0 b{color:#a3a69b}
+  .eb-chip-warn{background:rgba(138,93,0,.1);border-color:transparent;color:#8a5d00}.eb-chip-warn b{color:#8a5d00}
+  .eb-chip-crit{background:rgba(164,38,44,.09);border-color:transparent;color:#a4262c}.eb-chip-crit b{color:#a4262c}
+  .eb-chip-ok{background:rgba(14,112,14,.09);border-color:transparent;color:#0e700e}.eb-chip-ok b{color:#0e700e}
+  .eb-chip-dec{background:rgba(64,89,54,.12);border-color:transparent;color:#405936}.eb-chip-dec b{color:#405936}
+  .eb-x{flex:none;width:34px;height:34px;border-radius:9px;color:#5c5f52;font-size:15px}
+  .eb-x:hover{background:#eef1ea;color:#242423}
+  .eb-tabs{display:flex;gap:2px;padding:0 20px;background:#fff;border-bottom:1px solid rgba(26,28,24,.12)}
+  .eb-tab{display:inline-flex;align-items:center;gap:6px;padding:10px 14px;font-size:13.5px;font-weight:600;color:#5c5f52;border-bottom:3px solid transparent;margin-bottom:-1px}
+  .eb-tab:hover{color:#242423}
+  .eb-tab[aria-selected="true"]{color:#405936;border-bottom-color:#405936}
+  .eb-tab-n{min-width:18px;padding:0 6px;border-radius:9px;background:#405936;color:#fff;font-size:11px;line-height:18px;text-align:center}
+  .eb-cuerpo{flex:1;overflow-y:auto;padding:18px 24px 24px}
+  .eb-pie{display:flex;align-items:center;gap:10px;padding:12px 24px;background:#fff;border-top:1px solid rgba(26,28,24,.12)}
+  .eb-pie-msg{margin-right:auto;display:flex;align-items:center;gap:10px;font-size:13px;min-width:0}
+  .eb-sucio{font-size:12px;font-weight:600;color:#8a5d00;background:rgba(255,204,0,.18);padding:3px 10px;border-radius:999px;white-space:nowrap}
+  .eb-eliminar,.eb-quitar-var{padding:5px 10px;border-radius:8px;font-size:12.5px;font-weight:600;color:#a4262c;white-space:nowrap}
+  .eb-eliminar:hover,.eb-quitar-var:hover{background:rgba(164,38,44,.08)}
+  .eb-quitar-var{margin-left:auto;font-size:12px}
+  .eb-var{background:#fff;border:1px solid rgba(26,28,24,.14);border-left:4px solid #4f6e42;border-radius:12px;margin-bottom:14px;box-shadow:0 .3px .9px rgba(26,28,24,.1)}
+  .eb-var.eb-var-rev{border-left-color:#8a5d00}
+  .eb-var-cab{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px}
+  .eb-caret{width:28px;height:28px;flex:none;border-radius:8px;color:#405936;font-size:14px;transition:transform 140ms ease,background-color 140ms ease}
+  .eb-caret:hover{background:rgba(64,89,54,.08)}
+  .eb-caret[aria-expanded="true"],.eb-ins-abrir[aria-expanded="true"] .eb-caret-s{transform:rotate(90deg)}
+  .eb-var-nombre{font-size:16px;font-weight:700;color:#405936;background:transparent;border:1px solid transparent;border-radius:8px;padding:3px 8px;width:15rem}
+  .eb-var-nombre:hover{border-color:rgba(26,28,24,.16)}
+  .eb-var-nombre:focus{outline:none;border-color:#405936;background:#fff;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  .eb-granel{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#3d4136}
+  .eb-granel-l{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#5c5f52}
+  .eb-var-n{font-size:12px;color:#405936;padding:2px 9px;background:#f2f6ec;border-radius:999px;white-space:nowrap}
+  .eb-var-cuerpo{padding:0 14px 14px}
+  .eb-tabla{font-size:13px}
+  .eb-tabla td{padding:6px 8px}
+  .eb-tabla th{padding:8px}
+  .eb-td-nom{max-width:16rem}
+  .eb-ins-abrir{display:flex;align-items:center;gap:6px;text-align:left;padding:3px 6px;margin-left:-6px;border-radius:8px;max-width:20rem}
+  .eb-ins-abrir:hover{background:rgba(64,89,54,.07)}
+  .eb-caret-s{font-size:9px;color:#405936;transition:transform 140ms ease}
+  .eb-ins-lista{display:flex;flex-wrap:wrap;gap:4px}
+  .eb-ins{font-size:11.5px;padding:1px 7px;border-radius:6px;background:rgba(255,204,0,.16);color:#3d4136;white-space:nowrap}
+  .eb-ins b{font-weight:600;color:#8a5d00}
+  .eb-ins-mas{background:#eef1ea}
+  .eb-tabla tbody>tr.eb-fila-ab>td{background-color:rgba(64,89,54,.06)}
+  .eb-tabla tbody>tr.eb-fila-in>td{padding:0;background-color:#fafbf8}
+  .eb-in{padding:12px 16px 14px 18px;border-top:1px dashed rgba(26,28,24,.16);box-shadow:inset 3px 0 0 #FFCC00}
+  .eb-in-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start}
+  .eb-tabla-in th{position:static}
+  .eb-desg .md-bloque{margin-top:0}
+  .eb-desg .ec{padding:.3rem 0}
+  .eb-agregar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+  .eb-sug{color:#405936;font-size:14px}
+  .eb-costo{cursor:help;text-decoration:underline dotted rgba(26,28,24,.3);text-underline-offset:3px}
+  .eb-e{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+  .eb-e-falta{background:rgba(164,38,44,.1);color:#a4262c}.eb-e-rev{background:rgba(138,93,0,.13);color:#8a5d00}
+  .eb-e-ok{background:rgba(14,112,14,.12);color:#0e700e}.eb-e-sv{background:rgba(92,95,82,.1);color:#5c5f52}
+  .eb-dec{font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:6px;background:rgba(64,89,54,.12);color:#405936;white-space:nowrap}
+  .eb-link{font-size:12px;font-weight:600;color:#405936;text-decoration:underline;text-underline-offset:2px}
+  .eb-sin{padding:18px;text-align:center;color:#5c5f52}
+  .eb-ayuda{font-size:12.5px;color:#5c5f52;margin:12px 0}
+  .eb-err{margin:0 0 8px;padding:8px 12px;border-radius:8px;background:rgba(164,38,44,.07);color:#a4262c;font-size:12.5px}
+  .eb-nueva-var{width:100%;padding:12px;border:1.5px dashed rgba(64,89,54,.4);border-radius:12px;color:#405936;font-weight:600;font-size:13.5px}
+  .eb-nueva-var:hover{background:rgba(64,89,54,.05);border-color:#405936}
+  .eb-tabla tbody>tr.eb-pb-grupo>td{background-color:#f2f6ec;color:#405936;font-size:12.5px;font-weight:600;padding-top:9px}
+  .eb-pb-tipo{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:5px;background:rgba(9,88,217,.08);color:#0958d9}
+  #mBase button:focus-visible,#mBase input:focus-visible{outline:2px solid #405936;outline-offset:2px}
+  #mBase input[type=number]{-moz-appearance:textfield}
+  #mBase input[type=number]::-webkit-inner-spin-button,#mBase input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
   /* Permiso de Configuración (precios_config.js aplicarPermisoConfig): .solo-config se ve sólo con el permiso
      (body.con-config), .solo-sin-config sólo sin él (body.sin-config). Hasta saberlo no se ve ninguno de los dos. */
   body:not(.con-config) .solo-config,body:not(.sin-config) .solo-sin-config{display:none!important}
@@ -357,7 +470,8 @@
 
   <!-- Producción: #produccion = listado (/js/precios_listados.js); #produccion/recetas = selector de recetas y #produccion/<id> = detalle (/js/precios_produccion*.js). -->
   <div id="panel-produccion" class="tab-panel hidden">
-    <!-- Sub-tabs: Con receta (pepas, granola…) y Envasado Apidelta (granel + envase, tapa, etiqueta: mieles). El toggle
+    <!-- Sub-tabs: Con receta (pepas, granola…) y Envasado Apidelta (producto base › variedades › códigos: granel + envase,
+         tapa, etiqueta; ej. Miel; tarjetas y modal en /js/precios_produccion_envasado.js). El toggle
          Presentaciones | Recetas es sólo de Con receta (precios_produccion.js marcarToggleProduccion). -->
     <div class="flex items-center gap-3 flex-wrap mb-3">
     <div id="prodClases" class="seg seg-sub" role="group" aria-label="Tipo de producto de Producción">

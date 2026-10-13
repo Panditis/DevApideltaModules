@@ -368,8 +368,12 @@ test('aplicarSeguimiento: quitar elimina una línea extra', () => {
   const r = aplicarSeguimiento(conExtra, { items: [{ plu: '5555', quitar: true }] }, CTX);
   assert.deepStrictEqual(r.items.map(it => it.plu), ['4409', '1234']);
 });
-test('aplicarSeguimiento: quitar se ignora en una línea pedida', () => {
+test('aplicarSeguimiento: con el pedido PENDIENTE quitar elimina una línea pedida', () => {
   const r = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', quitar: true }] }, CTX);
+  assert.deepStrictEqual(r.items.map(it => it.plu), ['1234']);
+});
+test('aplicarSeguimiento: con el pedido ANULADO quitar se ignora en una línea pedida', () => {
+  const r = aplicarSeguimiento({ ...pedidoBase(), estado: 'ANULADO' }, { items: [{ plu: '4409', quitar: true }] }, CTX);
   assert.strictEqual(r.items.length, 2);
   assert.strictEqual(r.items[0].plu, '4409');
   assert.strictEqual(r.items[0].estado, 'pedido');
@@ -737,3 +741,69 @@ test('aplicarSeguimiento mantiene nuevo:true en la línea al actualizar su estad
   assert.strictEqual(r.items[0].estado, 'entregado');
 });
 
+
+// ── Edición del pedido PENDIENTE en el seguimiento ───────────────────────────
+test('aplicarSeguimiento: con el pedido PENDIENTE se edita la cantidad pedida', () => {
+  const r = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', cantidad: 15 }] }, CTX);
+  assert.strictEqual(r.items[0].cantidad, 15);
+  assert.strictEqual(r.items[1].cantidad, 6);
+});
+test('aplicarSeguimiento rechaza una cantidad pedida inválida', () => {
+  for (const cantidad of [0, -1, 'mucho', null, '']) {
+    assert.throws(() => aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', cantidad }] }, CTX), /Cantidad inválida en el PLU 4409/);
+  }
+});
+test('aplicarSeguimiento: editar la cantidad recalcula los bultos o los saca si no dan enteros', () => {
+  const p = pedidoBase();
+  const enBultos = { ...p, items: [{ ...p.items[1], cantidad: 24, bultos: 2, presentacion: { nombre: 'Caja', unidadesPorBulto: 12 } }, p.items[0]] };
+  const multiplo = aplicarSeguimiento(enBultos, { items: [{ plu: '1234', cantidad: 36 }] }, CTX);
+  assert.strictEqual(multiplo.items[0].bultos, 3);
+  assert.deepStrictEqual(multiplo.items[0].presentacion, { nombre: 'Caja', unidadesPorBulto: 12 });
+  const suelto = aplicarSeguimiento(enBultos, { items: [{ plu: '1234', cantidad: 30 }] }, CTX);
+  assert.strictEqual(suelto.items[0].cantidad, 30);
+  assert.ok(!('bultos' in suelto.items[0]));
+  assert.ok(!('presentacion' in suelto.items[0]));
+});
+test('aplicarSeguimiento: bajar lo pedido acota lo ya entregado', () => {
+  const entregado = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', estado: 'entregado', cantidadEntregada: 8 }] }, CTX);
+  const r = aplicarSeguimiento(entregado, { items: [{ plu: '4409', cantidad: 5 }] }, CTX);
+  assert.strictEqual(r.items[0].cantidad, 5);
+  assert.strictEqual(r.items[0].cantidadEntregada, 5);
+  assert.strictEqual(r.items[0].estado, 'entregado');
+});
+test('aplicarSeguimiento: editar el precio recalcula el total', () => {
+  const r = aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', precioUnitario: 100 }, { plu: '1234', precioUnitario: '2.5' }] }, CTX);
+  assert.strictEqual(r.items[0].precioUnitario, 100);
+  assert.strictEqual(r.total, 1015);
+  const sinPrecio = aplicarSeguimiento(r, { items: [{ plu: '4409', precioUnitario: '' }, { plu: '1234', precioUnitario: 0 }] }, CTX);
+  assert.strictEqual(sinPrecio.items[0].precioUnitario, null);
+  assert.strictEqual(sinPrecio.items[1].precioUnitario, null);
+  assert.strictEqual(sinPrecio.total, null);
+  assert.throws(() => aplicarSeguimiento(pedidoBase(), { items: [{ plu: '4409', precioUnitario: -3 }] }, CTX), /Precio inválido en el PLU 4409/);
+});
+test('aplicarSeguimiento: con el pedido PENDIENTE se agrega una línea pedida nueva', () => {
+  const r = aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '7777', nombre: 'Almendra', unidad: 'kg', cantidad: 3, precioUnitario: 10 }],
+  }, CTX);
+  assert.deepStrictEqual(r.items[2], {
+    plu: '7777', nombre: 'Almendra', unidad: 'kg', cantidad: 3, precioUnitario: 10,
+    cantidadEntregada: null, estado: 'pedido', obs: '',
+  });
+  assert.strictEqual(r.total, 30);
+  assert.throws(() => aplicarSeguimiento(pedidoBase(), { items: [{ plu: '7777', cantidad: 0 }] }, CTX), /Cantidad inválida en el PLU 7777/);
+});
+test('aplicarSeguimiento rechaza quitar todas las líneas pedidas', () => {
+  assert.throws(() => aplicarSeguimiento(pedidoBase(), {
+    items: [{ plu: '4409', quitar: true }, { plu: '1234', quitar: true }, { plu: '5555', estado: 'extra', cantidadEntregada: 1 }],
+  }, CTX), /no tiene items/);
+});
+test('aplicarSeguimiento: con el pedido no PENDIENTE se ignoran cantidad, precio y líneas pedidas nuevas', () => {
+  const anulado = { ...pedidoBase(), estado: 'ANULADO' };
+  const r = aplicarSeguimiento(anulado, {
+    items: [{ plu: '4409', cantidad: 99, precioUnitario: 5 }, { plu: '7777', cantidad: 3 }],
+  }, CTX);
+  assert.strictEqual(r.items.length, 2);
+  assert.strictEqual(r.items[0].cantidad, 10);
+  assert.strictEqual(r.items[0].precioUnitario, undefined);
+  assert.strictEqual(r.total, null);
+});

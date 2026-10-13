@@ -736,3 +736,50 @@ test('limpiarRecetas: conserva insumos, minutosPorUnidad y el MO/insumos del sna
     v: { nombre: 'V', varianteDe: 'base', extras: [] } }, presentaciones: { 7: pr } } } };
   assert.strictEqual(limpiarRecetas(datos), null);
 });
+
+// ── Producto base (= familia): guardado entero desde el modal ──
+const { idsDeFamilia, validarBaseEnvasado, conFamiliaRenombrada } = require('../lib/precios_produccion');
+const MIELES = {
+  'p-miel-pradera': { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera', granelPlu: '7067', presentaciones: { 6319: { kgPorUnidad: 0.5, componentes: [] } } },
+  'p-miel-monte': { tipo: 'envasado', familia: ' miel ', nombre: 'Monte', granelPlu: '7068', presentaciones: { 6320: { kgPorUnidad: 1, componentes: [] } } },
+  'p-dulce': { tipo: 'envasado', familia: 'Dulces', nombre: 'Leche', granelPlu: '900', presentaciones: { 901: { kgPorUnidad: 1, componentes: [] } } },
+  'p-granola': { nombre: 'Granola', recetas: {}, presentaciones: { 8104: { recetaId: 'x', kgPorUnidad: 1 } } },
+};
+
+test('idsDeFamilia: variedades envasadas del producto base, sin mayúsculas ni espacios', () => {
+  assert.deepStrictEqual(idsDeFamilia(MIELES, 'MIEL'), ['p-miel-pradera', 'p-miel-monte']);
+  assert.deepStrictEqual(idsDeFamilia(MIELES, 'Granola'), []);
+  assert.deepStrictEqual(idsDeFamilia({ x: { tipo: 'envasado', familia: '', nombre: 'Suelta' } }, ''), ['x']);
+});
+
+test('validarBaseEnvasado: renombra, mueve un PLU entre variedades, alta y baja de variedades en un lote', () => {
+  const r = validarBaseEnvasado({ familia: ' Mieles ', variedades: [
+    { id: 'p-miel-pradera', nombre: 'Pradera', granelPlu: '7067', presentaciones: { 6319: { kgPorUnidad: 0.5 }, 6320: { kgPorUnidad: 1 } } }, // 6320 viene de Monte
+    { id: null, nombre: 'Azahar', granelPlu: '7069', presentaciones: {} },
+  ] }, MIELES, 'Miel');
+  assert.strictEqual(r.familia, 'Mieles');
+  assert.deepStrictEqual(r.variedades.map(v => [v.id, v.limpio.familia, v.limpio.nombre, Object.keys(v.limpio.presentaciones)]),
+    [['p-miel-pradera', 'Mieles', 'Pradera', ['6319', '6320']], [null, 'Mieles', 'Azahar', []]]);
+  assert.deepStrictEqual(r.quitados, ['p-miel-monte']);
+});
+
+test('validarBaseEnvasado: errores (otro producto base, ids ajenos, PLU de otro producto o repetido, nombres repetidos, vacío)', () => {
+  const v = (extra = {}) => ({ nombre: 'Pradera', granelPlu: '7067', presentaciones: {}, ...extra });
+  assert.throws(() => validarBaseEnvasado({ familia: 'Dulces', variedades: [v()] }, MIELES, 'Miel'), /ya existe el producto base "Dulces"/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'miel', variedades: [v()] }, MIELES, null), /ya existe/); // alta con un nombre usado
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [v()] }, MIELES, 'Nada'), /no existe/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [v({ id: 'p-dulce' })] }, MIELES, 'Miel'), /no es una variedad/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [v({ presentaciones: { 901: { kgPorUnidad: 1 } } })] }, MIELES, 'Miel'), /Dulces Leche/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [v({ presentaciones: { 8104: { kgPorUnidad: 1 } } })] }, MIELES, 'Miel'), /Granola/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [v({ presentaciones: { 6319: { kgPorUnidad: 1 } } }), v({ nombre: 'Monte', presentaciones: { 6319: { kgPorUnidad: 1 } } })] }, MIELES, 'Miel'), /6319 está en dos variedades/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [v(), v({ nombre: ' PRADERA ' })] }, MIELES, 'Miel'), /repetida/);
+  assert.throws(() => validarBaseEnvasado({ familia: 'Miel', variedades: [] }, MIELES, 'Miel'), /variedades/);
+  assert.throws(() => validarBaseEnvasado({ familia: ' ', variedades: [v()] }, MIELES, 'Miel'), /familia/);
+  assert.strictEqual(validarBaseEnvasado({ familia: 'Propóleos', variedades: [v({ granelPlu: '50' })] }, MIELES, null).variedades[0].id, null);
+});
+
+test('conFamiliaRenombrada: el precio de materia prima pasa al nombre nuevo; sin precio no cambia nada', () => {
+  assert.deepStrictEqual(conFamiliaRenombrada({ miel: { costoKg: 3000 }, Dulces: { costoKg: 5 } }, 'Miel', 'Mieles'), { Dulces: { costoKg: 5 }, Mieles: { costoKg: 3000 } });
+  const sin = { Dulces: { costoKg: 5 } };
+  assert.strictEqual(conFamiliaRenombrada(sin, 'Miel', 'Mieles'), sin);
+});

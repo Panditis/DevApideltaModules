@@ -33,6 +33,7 @@ module.exports = function crearRutasCompras(deps) {
     // los helpers de disco quedan en server.js y llegan por acá a los dos routers.
     leerPedidosCompra, guardarPedidosCompra,
     PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH, PRESENTACIONES_COMPRA_PATH,
+    DISCONTINUADOS_COMPRA_PATH,
   } = deps;
   const router = express.Router();
 
@@ -487,6 +488,32 @@ router.delete('/api/compras/presentaciones/:plu', (req, res) => {
   }
 });
 
+// Productos que se decidió no trabajar más: lista PLU → { nombre, fecha, usuario }.
+// No toca SIGA; el armado los marca con alerta si aparecen en un proveedor.
+function leerDiscontinuados() { return leerJSON(DISCONTINUADOS_COMPRA_PATH, {}) || {}; }
+router.get('/api/compras/discontinuados', apiRoute(async () => leerDiscontinuados()));
+router.put('/api/compras/discontinuados/:plu', (req, res) => {
+  try {
+    const plu = pluDeRuta(req);
+    const nombre = String((req.body && req.body.nombre) || '').trim().slice(0, 200) || plu;
+    const item = { nombre, fecha: new Date().toISOString().slice(0, 10), usuario: usuarioCompras(req) };
+    guardarJSON(DISCONTINUADOS_COMPRA_PATH, { ...leerDiscontinuados(), [plu]: item });
+    res.json({ ok: true, plu, item });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.delete('/api/compras/discontinuados/:plu', (req, res) => {
+  try {
+    const plu = pluDeRuta(req);
+    const { [plu]: _borrado, ...resto } = leerDiscontinuados();
+    guardarJSON(DISCONTINUADOS_COMPRA_PATH, resto);
+    res.json({ ok: true, plu });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/api/compras/otif', apiRoute(async (req) => compras.otif(leerPedidosCompra(), {
   proveedor: req.query.proveedor ? String(req.query.proveedor) : undefined,
   desde: req.query.desde ? String(req.query.desde) : undefined,
@@ -788,9 +815,12 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   const soloCompras = req.query.soloCompras === '1';
   const pool = await getPool();
   const r = await pool.request().input('q', '%' + q + '%').input('exacto', q)
-    .query(`SELECT TOP 25 p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.Activo, ru.NombreRubro AS Rubro
+    .query(`SELECT TOP 25 p.IdProducto, p.NombreProducto, p.CodigoDeBarras, p.Activo, ru.NombreRubro AS Rubro,
+                   CAST(ps.PrecioCosto AS FLOAT) AS PrecioCosto
               FROM Productos p
               LEFT JOIN Rubros ru ON ru.IdRubro = p.IdRubro
+              LEFT JOIN ProductosSucursales ps ON ps.IdProducto = p.IdProducto
+                AND ps.IdSucursal = (SELECT MIN(IdSucursal) FROM Sucursales WHERE SoyLaCentral = 1)
              WHERE (p.NombreProducto LIKE @q OR p.IdProducto = @exacto OR p.CodigoDeBarras = @exacto)
              ${soloCompras ? 'AND p.EsDeCompras = 1' : ''}
              ORDER BY CASE WHEN p.IdProducto = @exacto THEN 0 ELSE 1 END, p.NombreProducto`);
@@ -800,6 +830,8 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
       barras: String(p.CodigoDeBarras || '').trim(), activo: !!p.Activo,
       // Misma regla de unidad que el armado: la usa "Agregar artículo" para la fila temporal.
       unidad: esRubroAlmacen(p.Rubro) ? 'UN' : 'KG',
+      // Costo de sistema (mismo que sqlCostoSistema): precio inicial de un producto agregado en Seguimiento.
+      costoSistema: p.PrecioCosto != null && Number(p.PrecioCosto) > 0 ? Number(p.PrecioCosto) : null,
     })),
   };
 }));

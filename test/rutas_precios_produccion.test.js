@@ -868,3 +868,59 @@ test('router presentación: insumos + minutos por unidad se guardan y suman al c
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Producto base (modal de Envasado Apidelta) ──
+test('presentacionPublica: sin el permiso, el PLU costeado viaja sin desglose (líneas sin costo, sin snapshot ni MP)', () => {
+  const p = { plu: '6319', costoUnidad: 1580, estado: 'cambio', faltantes: [], costos: { 7067: 2800 }, materiasPrimas: [{ plu: '1' }],
+    cambios: { estado: 'cambio', deltaPct: 3, componentes: [{ plu: '7067', antes: 2700, ahora: 2800 }] },
+    componentes: [{ plu: '7067', nombre: 'MIEL GRANEL', cantidad: 0.5, costoUnit: 2800, importe: 1400, fuente: 'sistema', rol: 'granel' }] };
+  assert.strictEqual(rutas.presentacionPublica(p, true), p);
+  const pub = rutas.presentacionPublica(p, false);
+  assert.deepStrictEqual(pub.componentes, [{ plu: '7067', nombre: 'MIEL GRANEL', cantidad: 0.5, rol: 'granel' }]);
+  assert.deepStrictEqual(pub.cambios, { estado: 'cambio', deltaPct: 3 });
+  assert.ok(!('costos' in pub) && !('materiasPrimas' in pub));
+  assert.deepStrictEqual([pub.costoUnidad, pub.estado], [1580, 'cambio']);
+});
+
+test('router producto base: GET con todas sus variedades, PUT renombra/mueve/quita en una escritura, POST alta, DELETE', async () => {
+  const { server, dir, base } = await montar();
+  const pedir = async (metodo, url, body) => (await fetch(base + url, {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  })).json();
+  const archivo = () => JSON.parse(fs.readFileSync(path.join(dir, 'recetas_produccion.json'), 'utf8'));
+  try {
+    const alta = await pedir('POST', '/envasado', MIEL_ENV);
+    await pedir('POST', `/productos/${alta.id}/validar`, { tipo: 'todo' });
+    await pedir('PUT', '/familias/Miel/costo', { costoKg: 3000 });
+    assert.match((await pedir('GET', '/envasado/base?familia=Nada')).error, /no encontrado/);
+    const b = await pedir('GET', '/envasado/base?familia=miel');
+    assert.deepStrictEqual([b.familia, b.costoKg, b.conDesglose, b.variedades.map(v => [v.id, v.nombre, v.granelNombre])], ['Miel', 3000, true, [[alta.id, 'Pradera', 'Azúcar']]]);
+    assert.deepStrictEqual([b.variedades[0].presentaciones['6319'].costoUnidad, b.variedades[0].presentaciones['6319'].esquema.plu], [1680, '6319']);
+
+    // Renombrar + nueva variedad que se lleva el PLU 6319 + la vieja sin PLUs: una escritura, validado y creado conservados.
+    const put = await pedir('PUT', '/envasado/base?familia=Miel', { familia: 'Mieles', variedades: [
+      { id: alta.id, nombre: 'Pradera', granelPlu: '7067', presentaciones: { 6319: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] } } },
+      { id: null, nombre: 'Monte', granelPlu: '300', presentaciones: {} },
+    ] });
+    assert.deepStrictEqual([put.familia, put.ids, put.quitados], ['Mieles', [alta.id, 'p-mieles-monte'], []]);
+    const d = archivo();
+    assert.deepStrictEqual([d.productos[alta.id].familia, !!d.productos[alta.id].presentaciones['6319'].validado, !!d.productos[alta.id].creado, d.productos['p-mieles-monte'].familia],
+      ['Mieles', true, true, 'Mieles']);
+    assert.deepStrictEqual(d.familias, { Mieles: { costoKg: 3000 } });
+    assert.match((await pedir('PUT', '/envasado/base?familia=Miel', { familia: 'X', variedades: [{ nombre: 'A', granelPlu: '7067' }] })).error, /no existe/);
+    assert.match((await pedir('PUT', '/envasado/base?familia=Mieles', { familia: 'Mieles', variedades: [{ nombre: 'A', granelPlu: '5555' }] })).error, /no existe en SIGA/);
+    // Quitar una variedad = no mandarla.
+    const q = await pedir('PUT', '/envasado/base?familia=Mieles', { familia: 'Mieles', variedades: [{ id: 'p-mieles-monte', nombre: 'Monte', granelPlu: '300' }] });
+    assert.deepStrictEqual(q.quitados, [alta.id]);
+    // Alta de otro producto base; con un nombre que ya existe, error.
+    assert.match((await pedir('POST', '/envasado/base', { familia: 'mieles', variedades: [{ nombre: 'B', granelPlu: '7067' }] })).error, /ya existe/);
+    const nuevo = await pedir('POST', '/envasado/base', { familia: 'Propóleos', variedades: [{ nombre: 'Gotas', granelPlu: '7067', presentaciones: { 6319: { kgPorUnidad: 0.1 } } }] });
+    assert.deepStrictEqual(nuevo.ids, ['p-propoleos-gotas']);
+    const del = await pedir('DELETE', '/envasado/base?familia=Mieles');
+    assert.deepStrictEqual(del.borrados, ['p-mieles-monte']);
+    assert.deepStrictEqual([Object.keys(archivo().productos), archivo().familias], [['p-propoleos-gotas'], {}]);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
