@@ -160,8 +160,10 @@ function montar(consultaExtra = () => undefined) {
   const app = express();
   app.use(express.json());
   const tiposPackaging = (nombre, rubro) => ({ esTapa: false, esEnvase: String(rubro).includes('ENVASE') });
-  app.use(rutas({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR: dir, LISTA_PRECIOS_VENTA: 0, tiposPackaging,
-    FORMULA_ACTIVA_SQL: '/*FORMULA_ACTIVA*/1=1', SIN_FORMULA_GENERICO_SQL: '/*SIN_GENERICO*/1=1' }));
+  const sqlFormula = { FORMULA_ACTIVA_SQL: '/*FORMULA_ACTIVA*/1=1', SIN_FORMULA_GENERICO_SQL: '/*SIN_GENERICO*/1=1' };
+  app.use(rutas({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR: dir, LISTA_PRECIOS_VENTA: 0, tiposPackaging, ...sqlFormula }));
+  // El listado del esquema (Producción) sobre el mismo DATA_DIR: para comparar listado vs detalle vs vista previa.
+  app.use(require('../routes/rutas_precios_esquema')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR: dir, LISTA_PRECIOS_VENTA: 0, ...sqlFormula }));
   return new Promise(ok => {
     const server = app.listen(0, () => ok({ server, dir, sqls, base: `http://127.0.0.1:${server.address().port}/api/precios/produccion` }));
   });
@@ -779,6 +781,52 @@ test('router envasado: opciones, precarga con granel, alta de la variedad, PLUs,
     const it = al.items.find(i => i.productoId === alta.id);
     assert.deepStrictEqual([it.id, it.componentes], ['6319', [{ plu: '6334', nombre: 'ENVASE PET 500', antes: 180, ahora: 200 }]]);
     assert.ok((await pedir('DELETE', `/productos/${alta.id}`)).borrado);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('precio de materia prima por familia: PUT guarda/borra/rechaza, opciones lo trae, y listado, detalle y vista previa lo usan igual', async () => {
+  const { server, dir, base } = await montar();
+  const { CFG } = require('./precios_esquema_fixture');
+  fs.writeFileSync(path.join(dir, 'costeo.json'), JSON.stringify({ ...COSTEO, ...CFG }));
+  const pedir = async (metodo, url, body) => (await fetch(base + url, {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  })).json();
+  const listado = async () => (await (await fetch(base.replace('/produccion', '/esquema/listado?tipo=produccion'))).json()).filas.find(f => f.plu === '6319');
+  const archivo = () => JSON.parse(fs.readFileSync(path.join(dir, 'recetas_produccion.json'), 'utf8'));
+  try {
+    const alta = await pedir('POST', '/envasado', MIEL_ENV);
+    await pedir('PUT', `/productos/${alta.id}/margen-especial`, { minorista: 7 });
+    // Sin precio de familia: granel 7067 ($2800/kg) × 0,5 + envase 180.
+    assert.strictEqual((await listado()).costoSistema, 1580);
+    await pedir('POST', `/productos/${alta.id}/validar`, { tipo: 'todo' });
+
+    assert.match((await pedir('PUT', '/familias/Miel/costo', { costoKg: 0 })).error, /costoKg/);
+    assert.match((await pedir('PUT', '/familias/Otra/costo', { costoKg: 100 })).error, /familia/);
+    assert.deepStrictEqual(await pedir('PUT', '/familias/miel/costo', { costoKg: 3000 }), { familia: 'miel', costoKg: 3000 });
+    assert.deepStrictEqual(archivo().familias, { miel: { costoKg: 3000 } });
+    assert.deepStrictEqual((await pedir('GET', '/envasado/opciones')).costoKgFamilias, { Miel: 3000 });
+
+    // 0,5 × 3000 + 180 = 1680 en el listado, el detalle y la vista previa; mismo sugerido en los tres.
+    const fila = await listado();
+    const det = (await pedir('GET', `/productos/${alta.id}`)).presentaciones['6319'];
+    const pv = (await pedir('POST', '/envasado/preview', { ...MIEL_ENV, id: alta.id }))['6319'];
+    assert.deepStrictEqual([fila.costoSistema, det.costoUnidad, pv.costoUnidad], [1680, 1680, 1680]);
+    const sugerido = x => x.sugeridos.sistema.minorista.precio;
+    assert.ok(sugerido(fila) > 0);
+    assert.deepStrictEqual([sugerido(det.esquema), sugerido(pv.esquema)], [sugerido(fila), sugerido(fila)]);
+    assert.deepStrictEqual([det.componentes[0].fuente, det.componentes[0].familia, det.componentes[0].costoUnit], ['familia', 'Miel', 3000]);
+    // El PLU validado con el granel queda "a revisar": 2800 → 3000.
+    assert.deepStrictEqual(fila.aRevisar.map(r => [r.plu, r.antes, r.ahora]), [['7067', 2800, 3000]]);
+    assert.strictEqual((await pedir('GET', '/alertas')).total, 1);
+
+    // null lo borra: vuelve al costo del granel.
+    assert.deepStrictEqual(await pedir('PUT', '/familias/Miel/costo', { costoKg: null }), { familia: 'Miel', costoKg: null });
+    assert.deepStrictEqual(archivo().familias, {});
+    assert.strictEqual((await listado()).costoSistema, 1580);
+    assert.deepStrictEqual((await pedir('GET', '/envasado/opciones')).costoKgFamilias, {});
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });

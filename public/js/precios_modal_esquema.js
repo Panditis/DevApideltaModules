@@ -239,7 +239,8 @@ function htmlCostoEnvasadoMd(f) {
   const receta = f.tipoProduccion !== 'envasado';
   return htmlPasos(receta ? 'Costo por unidad (materias primas de la receta)' : 'Costo por unidad (envasado)', [
     ...f.componentesCosto.map((c, i) => [i ? '+' : '', c.rol === 'granel'
-      ? `Granel ${c.nombre || c.plu} · ${cantMd(c.cantidad)} kg × ${unit(c)}/kg` : `${c.nombre || c.plu} · ${cantMd(c.cantidad)} × ${unit(c)}`, c.importe]),
+      ? `${c.fuente === 'familia' ? `${c.familia || 'Familia'} (precio de familia)` : `Granel ${c.nombre || c.plu}`} · ${cantMd(c.cantidad)} kg × ${unit(c)}/kg`
+      : `${c.nombre || c.plu} · ${cantMd(c.cantidad)} × ${unit(c)}`, c.importe]),
     ['=', 'Costo de mercadería', f.costoSistema]]);
 }
 function htmlDesgloseEsq(f) {

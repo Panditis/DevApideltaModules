@@ -73,7 +73,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   async function costearProductos(datos, ids) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
     const [costeo, costos] = await Promise.all([costeoVigente(), costosPorPlu(plusUsados(productos))]);
-    return { costeados: costearTodos({ productos, costos, costeo }) };
+    return { costeados: costearTodos({ productos, costos, costeo, familias: datos.familias }) };
   }
 
   // Detalle costeado + vigente, fecha de precio y precios del motor por presentación (desglose sólo con el permiso de
@@ -345,7 +345,19 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   }
 
   // Familias (sugerencias), dueño de cada PLU de venta (la búsqueda los muestra deshabilitados) y las variedades.
-  router.get('/api/precios/produccion/envasado/opciones', ruta(async () => opcionesEnvasado(leer().productos)));
+  router.get('/api/precios/produccion/envasado/opciones', ruta(async () => { const d = leer(); return opcionesEnvasado(d.productos, d.familias); }));
+
+  // Precio de materia prima de una familia ($/kg, ej. el granel de todas las mieles): reemplaza el costo de cada granel en
+  // los PLUs de sus variedades. Persistente (no es una decisión temporal). costoKg null lo borra. Mismo permiso que editar
+  // Producción (no es configuración del esquema).
+  router.put('/api/precios/produccion/familias/:familia/costo', ruta(async (req) => {
+    const { familia, costoKg } = entrada(() => produccion.validarCostoFamilia(req.params.familia, req.body));
+    const datos = leer();
+    const existe = Object.values(datos.productos).some(p => p && p.tipo === 'envasado' && String(p.familia || '').trim().toLowerCase() === familia.toLowerCase());
+    if (costoKg != null && !existe) fallar(`familia "${familia}" no encontrada en Envasado Apidelta`);
+    guardar({ ...datos, familias: produccion.conCostoFamilia(datos.familias, familia, costoKg) });
+    return { familia, costoKg };
+  }));
 
   // Precarga de un PLU desde su fórmula activa de SIGA (sin fórmula: vacío, se carga a mano). ?granel = el de la variedad:
   // si la fórmula usa otro, avisoGranel (no bloquea).
@@ -474,16 +486,18 @@ function conservarEnvasado(limpio, previo) {
   return { ...limpio, presentaciones, ...conservar };
 }
 
-// Para el editor de envasado: familias usadas (A→Z, sin vacías), dueño de cada PLU de venta (receta o variedad) y las
-// variedades (el listado muestra también las que todavía no tienen PLUs).
-function opcionesEnvasado(productos) {
+// Para el editor de envasado: familias usadas (A→Z, sin vacías), dueño de cada PLU de venta (receta o variedad), las
+// variedades (el listado muestra también las que todavía no tienen PLUs) y el precio de materia prima de cada familia
+// (costoKgFamilias, con el nombre de la familia como está en las variedades; sin precio no figura).
+function opcionesEnvasado(productos, familiasCosto = {}) {
   const lista = Object.entries(productos || {}).filter(([, p]) => p);
   const variedades = lista.filter(([, p]) => p.tipo === 'envasado')
     .map(([id, p]) => ({ id, familia: p.familia || '', nombre: p.nombre, granelPlu: p.granelPlu }));
   const familias = [...new Set(variedades.map(v => v.familia).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   const duenios = Object.fromEntries(lista.flatMap(([id, p]) => Object.keys(p.presentaciones || {})
     .map(plu => [plu, { productoId: id, nombre: produccion.nombreProducto(p) }])));
-  return { familias, duenios, variedades };
+  const costoKgFamilias = Object.fromEntries(familias.map(f => [f, produccion.costoFamiliaDe(familiasCosto, f)]).filter(([, c]) => c != null));
+  return { familias, duenios, variedades, costoKgFamilias };
 }
 
 // costoDe(plu) para lib/precios_produccion: el costo de la materia prima en su tab (decisión › manual › sistema, + costos
@@ -497,14 +511,16 @@ function armarCostoDe({ costos, costeo }) {
   };
 }
 
-// Costea cada producto. Las presentaciones sin nombre propio toman el de SIGA.
-function costearTodos({ productos, costos, costeo }) {
+// Costea cada producto. Las presentaciones sin nombre propio toman el de SIGA. familias = precio de materia prima por
+// familia (recetas_produccion.json): un envasado de esa familia lo usa en vez del costo de su granel.
+function costearTodos({ productos, costos, costeo, familias = {} }) {
   const cfg = costeo || {};
   const costoDe = armarCostoDe({ costos, costeo: cfg });
   return Object.fromEntries(Object.entries(productos).map(([id, p]) => {
     const presentaciones = Object.fromEntries(Object.entries(p.presentaciones || {}).map(([plu, pr]) =>
       [plu, pr.nombre ? pr : { ...pr, nombre: (costos.get(plu) || {}).nombre || null }]));
-    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct })];
+    const costoKgFamilia = p.tipo === 'envasado' ? produccion.costoFamiliaDe(familias, p.familia) : null;
+    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct, costoKgFamilia })];
   }));
 }
 

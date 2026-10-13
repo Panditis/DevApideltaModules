@@ -68,6 +68,8 @@ const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: '
 const lstCols = tipo => (tipo === 'produccion' ? 7 : 8);
 let lstDatos = {};                                                  // tipo → filas del server
 let lstVariedadesEnv = [];                                          // variedades envasadas (agruparEnvasado)
+let lstCostoFamiliaEnv = {};                                        // familia → precio de materia prima $/kg (GET /envasado/opciones)
+let lstFamiliaEditando = null;                                      // familia con el precio en edición (fila de la familia)
 let lstOrden = { almacen: ORDEN_LST_DEFECTO, fraccionado: ORDEN_LST_DEFECTO, produccion: ORDEN_LST_DEFECTO }; // orden por tab (sobrevive recargas y filtros)
 const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {}, envasado: {} }; // estado de los filtros por tab (sobrevive recargas)
 // Producción: los dos sub-tabs comparten datos y orden, pero cada uno tiene su búsqueda (prodClase, precios_produccion.js).
@@ -154,7 +156,12 @@ function conectarListado(tipo, cont) {
   const nuevo = cont.querySelector('.lst-nuevo'); // precios_produccion.js / precios_produccion_envasado.js
   if (nuevo) nuevo.onclick = () => (prodClase === 'envasado' ? (location.hash = '#produccion/envasado/nuevo') : nuevoProducto());
   const cuerpo = cont.querySelector('.lst-cuerpo');
-  cuerpo.addEventListener('click', e => { const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu); });
+  cuerpo.addEventListener('click', e => {
+    const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu);
+    const ed = e.target.closest('.lst-fam-editar'); if (ed) { lstFamiliaEditando = ed.dataset.familia; renderListado(tipo); const i = cuerpo.querySelector('.lst-fam-input'); if (i) i.focus(); }
+    if (e.target.closest('.lst-fam-cancelar')) { lstFamiliaEditando = null; renderListado(tipo); }
+    const g = e.target.closest('.lst-fam-guardar'); if (g) guardarCostoFamilia(g.dataset.familia, cuerpo.querySelector('.lst-fam-input').value, g);
+  });
 }
 
 // Headers del tab; el clic guarda el orden, re-monta los headers (▲/▼, aria-sort) y re-pinta sólo el tbody.
@@ -176,10 +183,10 @@ async function cargarListado(tipo) {
   try {
     await decisionesPropiasBorradas; // precios_comun.js
     // Producción: también las variedades envasadas (el listado de Envasado muestra las que todavía no tienen PLUs).
-    const variedades = tipo === 'produccion' ? getJson(API_PROD + '/envasado/opciones').then(o => o.variedades).catch(() => []) : null;
+    const opciones = tipo === 'produccion' ? getJson(API_PROD + '/envasado/opciones').catch(() => ({})) : null;
     const j = await (await fetch(`/api/precios/esquema/listado?tipo=${tipo}`)).json();
     if (j.error) throw new Error(j.error);
-    if (variedades) lstVariedadesEnv = await variedades;
+    if (opciones) { const o = await opciones; lstVariedadesEnv = o.variedades || []; lstCostoFamiliaEnv = o.costoKgFamilias || {}; }
     lstDatos = { ...lstDatos, [tipo]: j.filas };
     cont.querySelector('.lst-aviso').classList.toggle('hidden', j.migrado);
     renderListado(tipo);
@@ -208,7 +215,29 @@ function htmlGrupoEnvasado(g) {
       <span class="ml-2 text-xs font-normal text-gris">${v.filas.length ? `${v.filas.length} PLU${v.filas.length === 1 ? '' : 's'}` : 'sin PLUs todavía'}</span></td>
     <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(v.id)}">Editar</a></td></tr>`
     + v.filas.map(fl => filaHtml(fl, 'produccion')).join('')).join('');
-  return `<tr class="bg-bg/70"><td colspan="7" class="p-2 font-disp font-bold text-ink">${esc(g.familia || 'Sin familia')}</td></tr>${variedades}`;
+  return `<tr class="bg-bg/70"><td colspan="7" class="p-2"><span class="font-disp font-bold text-ink">${esc(g.familia || 'Sin familia')}</span>${g.familia ? htmlCostoFamilia(g.familia) : ''}</td></tr>${variedades}`;
+}
+// Precio de materia prima de la familia ($/kg, reemplaza el costo de cada granel de sus variedades), editable en el lugar.
+function htmlCostoFamilia(familia) {
+  const c = lstCostoFamiliaEnv[familia];
+  const fam = esc(familia);
+  if (lstFamiliaEditando === familia) {
+    return `<span class="ml-4 inline-flex items-center gap-2 text-sm">Materia prima $/kg <input type="number" min="0" step="any" class="lst-fam-input px-2 py-1 rounded border border-borde w-28 text-right" value="${c ?? ''}" placeholder="vacío = granel" aria-label="Precio de materia prima por kg de ${fam}">
+      <button type="button" class="lst-fam-guardar cfg-btn" data-familia="${fam}">Guardar</button><button type="button" class="lst-fam-cancelar text-xs text-gris underline">Cancelar</button></span>`;
+  }
+  const txt = c != null ? `Materia prima: <b class="text-ink">$ ${fmtMoney(c)}/kg</b>` : '<span class="text-gris">Materia prima: usa el costo de cada granel</span>';
+  return `<span class="ml-4 text-sm" title="Un $/kg para el granel de todas las variedades de ${fam}: cada PLU lo multiplica por sus kg">${txt}</span>
+    <button type="button" class="lst-fam-editar ml-2 text-xs text-verde underline underline-offset-2" data-familia="${fam}">${c != null ? 'Editar' : 'Definir'}</button>`;
+}
+// PUT del precio de la familia (vacío = borrar) → recarga el listado (costos y sugeridos cambian) y las alertas "a revisar".
+async function guardarCostoFamilia(familia, valor, btn) {
+  btn.disabled = true;
+  try {
+    await pedirJson('PUT', `${API_PROD}/familias/${encodeURIComponent(familia)}/costo`, { costoKg: numOrNull(valor) });
+    lstFamiliaEditando = null;
+    refrescarAlertasProduccion(); // precios_produccion.js
+    cargarListado('produccion');
+  } catch (e) { avisar(e.message); btn.disabled = false; }
 }
 
 // PUT de la decisión y actualización local (sin recargar SIGA). La usa el modal.

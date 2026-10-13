@@ -33,7 +33,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   async function presentacionesProduccion(costeo) {
     const datos = normalizarDatos(leerJSON(RECETAS_PATH, {}));
     const costos = await consultas.costosPorPlu(plusUsados(datos.productos));
-    const costeados = costearTodos({ productos: datos.productos, costos, costeo });
+    const costeados = costearTodos({ productos: datos.productos, costos, costeo, familias: datos.familias });
     return Object.entries(costeados).flatMap(([productoId, c]) => Object.entries(c.presentaciones || {})
       .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad, aRevisar: p.revisar,
         margenExtra: datos.productos[productoId].margenEspecial || null,

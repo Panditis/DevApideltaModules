@@ -81,7 +81,7 @@ let envEd = null;                     // copia editable (edicionEnvasado) + suci
 let envCosto = {};                    // plu → presentación costeada del server (detalle o vista previa)
 let envError = null;                  // error de la última vista previa
 let envAbiertos = new Set();          // PLUs desplegados (insumos)
-let envOpc = { familias: [], duenios: {} }; // GET /envasado/opciones
+let envOpc = { familias: [], duenios: {}, costoKgFamilias: {} }; // GET /envasado/opciones
 let envTimer = null, envSeq = 0;
 
 function cargarOpcionesEnv() {
@@ -89,6 +89,7 @@ function cargarOpcionesEnv() {
     envOpc = o;
     const dl = document.getElementById('envFamilias');
     if (dl) dl.innerHTML = htmlOpcionesFamilia();
+    pintarNotaFamiliaEnv();
   }).catch(() => { /* sin sugerencias: el server igual valida los PLUs */ });
 }
 function abrirEnvasadoNuevo() {
@@ -117,6 +118,13 @@ const plataEnv = v => (v == null ? '<span class="text-crit text-xs">sin costo</s
 const lineaEnv = (plu, comp) => (((envCosto[plu] || {}).componentes) || []).find(c => String(c.plu) === String(comp)) || {};
 const guardadoEnv = plu => !!(prodDet && prodDet.definicion && (prodDet.definicion.presentaciones || {})[plu]);
 const htmlOpcionesFamilia = () => (envOpc.familias || []).map(f => `<option value="${esc(f)}"></option>`).join('');
+// Precio de materia prima de la familia ($/kg; reemplaza el costo del granel). Sólo lectura acá: se edita en el listado.
+function htmlNotaFamiliaEnv() {
+  const k = String(envEd.familia || '').trim().toLowerCase();
+  const [nombre, costo] = Object.entries(envOpc.costoKgFamilias || {}).find(([f]) => f.trim().toLowerCase() === k) || [];
+  return costo == null ? '' : `<p class="text-xs text-gris mt-1">Precio de la familia ${esc(nombre)}: <b class="text-ink">$ ${fmtMoney(costo)}/kg</b> (reemplaza el costo del granel; se edita en el listado)</p>`;
+}
+function pintarNotaFamiliaEnv() { const n = document.getElementById('envNotaFamilia'); if (n && envEd) n.innerHTML = htmlNotaFamiliaEnv(); }
 
 function htmlCabeceraEnv() {
   const guardado = !!envEd.id;
@@ -144,7 +152,7 @@ function htmlVariedadEnv() {
       <datalist id="envFamilias">${htmlOpcionesFamilia()}</datalist>
       <label class="text-sm"><span class="block text-xs text-gris mb-1">Variedad</span>
         <input id="envNombre" maxlength="60" placeholder="ej. Pradera" value="${esc(envEd.nombre)}" class="${campoCls} w-48"></label>
-      <div class="text-sm min-w-[18rem]"><span class="block text-xs text-gris mb-1">Granel (lo usan todos sus PLUs)</span>${granel}</div>
+      <div class="text-sm min-w-[18rem]"><span class="block text-xs text-gris mb-1">Granel (lo usan todos sus PLUs)</span>${granel}<div id="envNotaFamilia">${htmlNotaFamiliaEnv()}</div></div>
     </div></section>`;
 }
 // Celdas que la vista previa actualiza sin repintar los inputs (data-env = "<qué>|<plu>[|<insumo>]").
@@ -158,7 +166,7 @@ function celdaEnv(que, plu, comp = null) {
   }
   if (que === 'estado') return c && guardadoEnv(plu) && !envEd.sucio ? badgeEstadoProd(c, Object.fromEntries((c.componentes || []).map(l => [l.plu, l.nombre]))) : '';
   const l = lineaEnv(plu, comp);
-  if (que === 'unit') return comp == null ? '—' : plataEnv(l.costoUnit ?? null) + (String(comp) === String(envEd.granelPlu) ? '<span class="pr-sub">por kg</span>' : '');
+  if (que === 'unit') return comp == null ? '—' : plataEnv(l.costoUnit ?? null) + (String(comp) === String(envEd.granelPlu) ? `<span class="pr-sub">por kg${l.fuente === 'familia' ? ' · precio de familia' : ''}</span>` : '');
   return l.importe != null ? '$ ' + fmtMoney(l.importe) : '—'; // 'imp'
 }
 const tdEnv = (que, plu, comp = null, cls = 'num') => `<td class="${cls}" data-env="${esc([que, plu, comp].filter(x => x != null).join('|'))}">${celdaEnv(que, plu, comp)}</td>`;
@@ -269,7 +277,7 @@ function conectarInsumosEnv(p) {
 function conectarEnvasado() {
   const inNombre = document.getElementById('envNombre'), inFamilia = document.getElementById('envFamilia');
   inNombre.addEventListener('input', () => editarEnv({ nombre: inNombre.value }));
-  inFamilia.addEventListener('input', () => editarEnv({ familia: inFamilia.value }));
+  inFamilia.addEventListener('input', () => { editarEnv({ familia: inFamilia.value }); pintarNotaFamiliaEnv(); });
   if (document.getElementById('envGranel')) conectarBuscadorSiga('envGranel', ({ plu, nombre }) => editarEnv({ granelPlu: String(plu), granelNombre: nombre }, true));
   if (document.getElementById('envAgregarPlus')) {
     conectarBuscadorSiga('envAgregarPlus', agregarPlusEnv, { multiple: true, deshabilitado: plu => motivoPluOcupado(plu, envEd, envOpc.duenios) });

@@ -514,6 +514,57 @@ test('costearProducto: variedad envasada → una presentación por PLU, cada una
   assert.deepStrictEqual(costearProducto({ producto: { ...PRADERA, presentaciones: {} }, costoDe }).presentaciones, {});
 });
 
+// ── Precio de materia prima por FAMILIA (ej. Miel: un $/kg para todas sus variedades) ──
+const { validarCostoFamilia, costoFamiliaDe, conCostoFamilia } = require('../lib/precios_produccion');
+
+test('validarCostoFamilia: costoKg finito > 0; null / vacío = borrar; familia obligatoria', () => {
+  assert.deepStrictEqual(validarCostoFamilia(' Miel ', { costoKg: 9000 }), { familia: 'Miel', costoKg: 9000 });
+  for (const v of [null, undefined, '']) assert.deepStrictEqual(validarCostoFamilia('Miel', { costoKg: v }), { familia: 'Miel', costoKg: null });
+  assert.deepStrictEqual(validarCostoFamilia('Miel', null), { familia: 'Miel', costoKg: null });
+  for (const v of [0, -1, NaN, Infinity, '9000', {}]) assert.throws(() => validarCostoFamilia('Miel', { costoKg: v }), /costoKg/);
+  assert.throws(() => validarCostoFamilia('  ', { costoKg: 1 }), /familia/);
+  assert.throws(() => validarCostoFamilia('x'.repeat(61), { costoKg: 1 }), /familia/);
+});
+
+test('costoFamiliaDe / conCostoFamilia: la familia se compara sin mayúsculas ni espacios; borrar quita todas las variantes', () => {
+  assert.strictEqual(costoFamiliaDe({ Miel: { costoKg: 9000 } }, ' miel '), 9000);
+  assert.strictEqual(costoFamiliaDe({ Miel: { costoKg: 0 } }, 'Miel'), null);
+  assert.strictEqual(costoFamiliaDe(undefined, 'Miel'), null);
+  assert.strictEqual(costoFamiliaDe({ Miel: { costoKg: 9000 } }, ''), null);
+  const previo = { miel: { costoKg: 1 }, Dulces: { costoKg: 5 } };
+  assert.deepStrictEqual(conCostoFamilia(previo, 'Miel', 9000), { Dulces: { costoKg: 5 }, Miel: { costoKg: 9000 } });
+  assert.deepStrictEqual(conCostoFamilia(previo, 'MIEL', null), { Dulces: { costoKg: 5 } });
+  assert.deepStrictEqual(previo, { miel: { costoKg: 1 }, Dulces: { costoKg: 5 } }); // no muta
+});
+
+test('costearEnvasado con precio de familia: reemplaza el $/kg del granel (aunque el granel no tenga costo)', () => {
+  const c = costearEnvasado({ producto: { ...MIEL, familia: 'Miel' }, costoDe, costoKgFamilia: 3000 });
+  assert.strictEqual(c.costoUnidad, 1725); // 0,5 × 3000 + 180 + 45
+  assert.deepStrictEqual([c.componentes[0].costoUnit, c.componentes[0].importe, c.componentes[0].fuente, c.componentes[0].familia, c.componentes[0].nombre],
+    [3000, 1500, 'familia', 'Miel', 'N7067']);
+  assert.deepStrictEqual(c.costos, { 7067: 3000, 6334: 180, 6320: 45 });
+  // Granel sin costo en su tab: con precio de familia no hay faltante.
+  const sinGranel = costearEnvasado({ producto: { ...MIEL, granelPlu: '5555' }, costoDe, costoKgFamilia: 3000 });
+  assert.deepStrictEqual([sinGranel.costoUnidad, sinGranel.faltantes], [1725, []]);
+  // Sin precio (null / 0) → el del granel, como siempre.
+  assert.strictEqual(costearEnvasado({ producto: MIEL, costoDe, costoKgFamilia: null }).costoUnidad, 1625);
+  assert.strictEqual(costearEnvasado({ producto: MIEL, costoDe, costoKgFamilia: 0 }).componentes[0].fuente, 'sistema');
+});
+
+test('costearProducto envasado: cambiar el precio de la familia marca "a revisar" los PLUs validados (antes → ahora)', () => {
+  const c0 = costearProducto({ producto: PRADERA, costoDe, toleranciaPct: 3, costoKgFamilia: 3000 });
+  assert.deepStrictEqual([c0.presentaciones['9001'].costoUnidad, c0.presentaciones['9002'].costoUnidad], [1725, 3045]);
+  const v1 = snapshotDe(c0.presentaciones['9001'], '2026-10-13');
+  assert.strictEqual(v1.costos['7067'], 3000); // el $/kg de materia prima usado queda en el snapshot
+  const validada = { ...PRADERA, presentaciones: { ...PRADERA.presentaciones, 9001: { ...PRADERA.presentaciones['9001'], validado: v1 } } };
+  assert.strictEqual(costearProducto({ producto: validada, costoDe, toleranciaPct: 3, costoKgFamilia: 3000 }).presentaciones['9001'].estado, 'ok');
+  const subio = costearProducto({ producto: validada, costoDe, toleranciaPct: 3, costoKgFamilia: 3300 });
+  assert.strictEqual(subio.presentaciones['9001'].estado, 'cambio');
+  assert.deepStrictEqual(subio.presentaciones['9001'].revisar, [{ plu: '7067', nombre: 'N7067', antes: 3000, ahora: 3300 }]);
+  // Sacar el precio de familia vuelve al granel (2800): también es un cambio.
+  assert.strictEqual(costearProducto({ producto: validada, costoDe, toleranciaPct: 3 }).presentaciones['9001'].estado, 'cambio');
+});
+
 test('validarEnvasado: limpia la variedad, granel numérico, PLUs numéricos, kg > 0, insumos sin repetir ni granel', () => {
   const body = { ...PRADERA, familia: ' Miel ', basura: 1, margenEspecial: {}, presentaciones: {
     9001: { kgPorUnidad: 0.5, componentes: [{ plu: 6334, cantidad: 1, nombre: 'x' }], validado: {}, nombre: 'y' } } };
