@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo } = require('../public/js/precios_listados.js');
+const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase } = require('../public/js/precios_listados.js');
 
 test('etiquetaDecision: badge de la fila decidida con su fuente; sin decisión → null; Producción = aumentar', () => {
   assert.strictEqual(etiquetaDecision({ decision: null }, 'almacen'), null);
@@ -86,4 +86,11 @@ test('ordenSinNulo: el ciclo de siguienteOrden (asc → desc → null) acá alte
   assert.deepStrictEqual(clic('vigente'), { clave: 'vigente', dir: 'asc' });
   assert.deepStrictEqual(clic('vigente'), { clave: 'vigente', dir: 'desc' });
   assert.deepStrictEqual(clic('vigente'), { clave: 'vigente', dir: 'asc' });
+});
+
+test('filasDeClase: Producción separa Con receta (default) y Envasado Apidelta; otras tabs sin filtro', () => {
+  const filas = [{ plu: '1' }, { plu: '2', tipoProduccion: 'receta' }, { plu: '3', tipoProduccion: 'envasado' }];
+  assert.deepStrictEqual(filasDeClase(filas, 'receta').map(f => f.plu), ['1', '2']);
+  assert.deepStrictEqual(filasDeClase(filas, 'envasado').map(f => f.plu), ['3']);
+  assert.strictEqual(filasDeClase(filas, null), filas);
 });

@@ -679,6 +679,7 @@ app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.jo
 app.get('/js/precios_produccion_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_presentaciones.js')));
 app.get('/js/precios_produccion_modal.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_modal.js')));
 app.get('/js/precios_produccion_formula.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_formula.js')));
+app.get('/js/precios_produccion_envasado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_envasado.js')));
 app.get('/js/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_pack_bulto.js')));
 app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_simulador.js')));
 app.get('/js/precios_listados.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_listados.js')));

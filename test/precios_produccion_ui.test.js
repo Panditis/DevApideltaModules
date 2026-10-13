@@ -384,3 +384,36 @@ test('columna fecha ordenable en las tablas de Producción: por presentación y 
   assert.strictEqual(selector.fecha({ exportables: [{ fechaPrecio: '2026-01-02' }, { fechaPrecio: '2025-06-30' }] }), '2025-06-30');
   assert.strictEqual(selector.fecha({}), null);
 });
+
+// ── Sub-tabs "Con receta | Envasado Apidelta" y editor de envasado ──
+test('sub-tabs de Producción: rutas de Envasado, clase de cada vista y entrada con el último sub-tab', () => {
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/envasado'), { vista: 'envasado' });
+  assert.deepStrictEqual(ui.parsearHashProduccion('#produccion/envasado/nuevo'), { vista: 'envasadoNuevo' });
+  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion')), 'receta');
+  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/recetas')), 'receta');
+  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/envasado')), 'envasado');
+  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/envasado/nuevo')), null); // editor: sin sub-tabs
+  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/p-miel')), null); // detalle: sin sub-tabs
+  assert.strictEqual(ui.vistaToggleProduccion(ui.parsearHashProduccion('#produccion/envasado')), null); // sin Presentaciones | Recetas
+  assert.strictEqual(ui.hashEntradaProduccion('recetas', 'envasado'), '#produccion/envasado');
+  assert.strictEqual(ui.hashEntradaProduccion('recetas', 'receta'), '#produccion/recetas');
+  assert.strictEqual(ui.hashEntradaProduccion(null, null), '#produccion');
+});
+
+const env = require('../public/js/precios_produccion_envasado.js');
+test('envasado: body del alta/edición, qué falta para guardar y edición desde la definición', () => {
+  const ed = { nombre: ' Miel 500 ', plu: '6319', granelPlu: '7067', granelNombre: 'MIEL', kgPorUnidad: 0.5,
+    componentes: [{ plu: '6334', nombre: 'Envase', cantidad: 1, costo: 180 }] };
+  assert.deepStrictEqual(env.bodyEnvasado(ed), { nombre: 'Miel 500', plu: '6319', granelPlu: '7067', kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] });
+  assert.deepStrictEqual(env.bodyEnvasado({ ...ed, id: 'p-miel' }).id, 'p-miel');
+  assert.strictEqual(env.faltaObligatorioEnvasado(ed), '');
+  assert.match(env.faltaObligatorioEnvasado({ ...ed, plu: null }), /PLU/);
+  assert.match(env.faltaObligatorioEnvasado({ ...ed, granelPlu: null }), /granel/);
+  assert.match(env.faltaObligatorioEnvasado({ ...ed, kgPorUnidad: 0 }), /[Kk]g/);
+  assert.match(env.faltaObligatorioEnvasado({ ...ed, componentes: [{ plu: '6334', cantidad: null }] }), /cantidad/);
+  assert.match(env.faltaObligatorioEnvasado({ ...ed, nombre: ' ' }), /nombre/);
+  const det = { id: 'p-miel', definicion: { nombre: 'Miel', tipo: 'envasado', plu: '6319', granelPlu: '7067', kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 2 }] },
+    presentaciones: { 6319: { componentes: [{ plu: '7067', nombre: 'MIEL GRANEL', rol: 'granel' }, { plu: '6334', nombre: 'ENVASE', rol: 'empaque' }] } } };
+  assert.deepStrictEqual(env.edicionEnvasado(det), { id: 'p-miel', nombre: 'Miel', plu: '6319', granelPlu: '7067', granelNombre: 'MIEL GRANEL', kgPorUnidad: 0.5,
+    componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 2 }] });
+});

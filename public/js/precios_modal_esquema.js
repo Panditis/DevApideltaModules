@@ -231,8 +231,16 @@ const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-
 const pasoEspecialMd = c => (c.margenEspecialPct
   ? ['', `incluye margen especial del producto ${c.margenEspecialPct > 0 ? '+' : ''}${pctMd(c.margenEspecialPct)} (general ${pctMd(c.margenPct - c.margenEspecialPct)})`, null]
   : null);
+// Envasado Apidelta: de dónde sale el costo por unidad (granel × kg + cada empaque). Sólo viene con el permiso.
+function htmlCostoEnvasadoMd(f) {
+  const unit = c => (c.costoUnit == null ? 'sin costo' : `$ ${fmtMoney(c.costoUnit)}`);
+  return htmlPasos('Costo por unidad (envasado)', [
+    ...f.componentesCosto.map((c, i) => [i ? '+' : '', c.rol === 'granel'
+      ? `Granel ${c.nombre || c.plu} · ${fmtNum(c.cantidad)} kg × ${unit(c)}/kg` : `${c.nombre || c.plu} · ${fmtNum(c.cantidad)} × ${unit(c)}`, c.importe]),
+    ['=', 'Costo de mercadería', f.costoSistema]]);
+}
 function htmlDesgloseEsq(f) {
-  const bloques = [];
+  const bloques = Array.isArray(f.componentesCosto) ? [htmlCostoEnvasadoMd(f)] : [];
   const de = (fila, titulo) => {
     const s = (fila.sugeridos || {})[mdFuente];
     if (!s || !s.desglose) return;

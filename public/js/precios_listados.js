@@ -40,14 +40,21 @@ const ordenarListado = (filas, orden) => ORDENAR_LST(filas, orden || ORDEN_LST_D
 // siguienteOrden cicla asc → desc → null (orden original); acá no hay "sin orden": el tercer clic vuelve a asc.
 const ordenSinNulo = (previo, o) => o || { clave: previo.clave, dir: 'asc' };
 
-if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo };
+// Producción: filas del sub-tab (Con receta = 'receta', default de las filas sin tipo; Envasado Apidelta = 'envasado').
+// clase null (otras tabs) → todas.
+const filasDeClase = (filas, clase) => (clase ? filas.filter(f => (f.tipoProduccion || 'receta') === clase) : filas);
+
+if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
 const lstCols = tipo => (tipo === 'produccion' ? 7 : 8);
 let lstDatos = {};                                                  // tipo → filas del server
 let lstOrden = { almacen: ORDEN_LST_DEFECTO, fraccionado: ORDEN_LST_DEFECTO, produccion: ORDEN_LST_DEFECTO }; // orden por tab (sobrevive recargas y filtros)
-const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {} }; // estado de los filtros por tab (sobrevive recargas)
+const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {}, envasado: {} }; // estado de los filtros por tab (sobrevive recargas)
+// Producción: los dos sub-tabs comparten datos y orden, pero cada uno tiene su búsqueda (prodClase, precios_produccion.js).
+const claseLst = tipo => (tipo === 'produccion' ? prodClase : null);
+const filtrosLst = tipo => lstFiltros[claseLst(tipo) === 'envasado' ? 'envasado' : tipo];
 const NOMBRE_LISTA = { minorista: 'minorista', packNeto: 'pack_sin_iva', packIva: 'pack_con_iva', bultoNeto: 'bulto_sin_iva', bultoIva: 'bulto_con_iva' };
 
 const vigenteTxt = v => (v == null ? '<span class="text-gris">—</span>' : '$ ' + fmtPrecio(v));
@@ -74,7 +81,7 @@ function filaHtml(f, tipo) {
       <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
       <td class="p-2 num">${vigenteTxt(f.vigente)}</td><td class="p-2 num">${celdaPrecio(f.sugeridos.sistema)}</td>
       <td class="p-2">${rev ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn" title="${esc(f.aRevisar.map(x => textoRevisar([x])).join('\n'))}">⚠ ${esc(rev)}</span>` : ''}</td>
-      <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
+      <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">${f.tipoProduccion === 'envasado' ? 'Editar' : 'Receta'}</a></td></tr>`;
   }
   const fracc = tipo === 'fraccionado';
   const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}</td>
@@ -88,7 +95,7 @@ function filaHtml(f, tipo) {
 }
 
 function htmlMarcoListado(tipo) {
-  const f = lstFiltros[tipo], prod = tipo === 'produccion', fracc = tipo === 'fraccionado';
+  const f = filtrosLst(tipo), prod = tipo === 'produccion', fracc = tipo === 'fraccionado';
   // [texto, clave de orden]. En Fraccionado vigente y sugeridos son de las presentaciones, no del granel: no se ordenan.
   const ths = prod ? [['Código', 'plu'], ['Producto', 'nombre'], ['Costo', 'costoSistema'], ['Vigente', 'vigente'], ['Sugerido', 'sugeridoSistema'], ['A revisar'], ['']]
     : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'], ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
@@ -104,6 +111,7 @@ function htmlMarcoListado(tipo) {
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
+    ${prod ? `<button type="button" class="lst-nuevo cfg-btn" title="${prodClase === 'envasado' ? 'Granel + envase, tapa, etiqueta (ej. mieles)' : 'Producto con receta (ej. pepas, granola)'}">+ Nuevo</button>` : ''}
   </div>
   <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
     <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
@@ -112,7 +120,7 @@ function htmlMarcoListado(tipo) {
 
 // ponytail: lstFiltros es estado de UI (no datos del server): se muta en el lugar a propósito.
 function conectarListado(tipo, cont) {
-  const f = lstFiltros[tipo];
+  const f = filtrosLst(tipo);
   cont.querySelector('.lst-recargar').onclick = () => cargarListado(tipo);
   cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; renderListado(tipo); };
   [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara']].forEach(([sel, k]) => {
@@ -122,6 +130,8 @@ function conectarListado(tipo, cont) {
   montarOrdenListado(tipo, cont);
   cont.querySelector('.lst-exportar').onclick = exportarDecididos;
   cont.querySelector('.lst-quitar').onclick = quitarDecisiones;
+  const nuevo = cont.querySelector('.lst-nuevo'); // precios_produccion.js / precios_produccion_envasado.js
+  if (nuevo) nuevo.onclick = () => (prodClase === 'envasado' ? (location.hash = '#produccion/envasado/nuevo') : nuevoProducto());
   const cuerpo = cont.querySelector('.lst-cuerpo');
   cuerpo.addEventListener('click', e => { const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu); });
 }
@@ -158,8 +168,8 @@ function renderListado(tipo) {
   const cont = document.getElementById(LST_CONT[tipo]);
   const cuerpo = cont && cont.querySelector('.lst-cuerpo');
   if (!cuerpo || !lstDatos[tipo]) return;
-  const todas = lstDatos[tipo];
-  const filas = ordenarListado(filtrarFilas(todas, lstFiltros[tipo]), lstOrden[tipo]);
+  const todas = filasDeClase(lstDatos[tipo], claseLst(tipo));
+  const filas = ordenarListado(filtrarFilas(todas, filtrosLst(tipo)), lstOrden[tipo]);
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   cuerpo.innerHTML = filas.length ? filas.map(f => filaHtml(f, tipo)).join('')
