@@ -44,12 +44,30 @@ const ordenSinNulo = (previo, o) => o || { clave: previo.clave, dir: 'asc' };
 // clase null (otras tabs) → todas.
 const filasDeClase = (filas, clase) => (clase ? filas.filter(f => (f.tipoProduccion || 'receta') === clase) : filas);
 
-if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase };
+// Envasado Apidelta: filas (ya filtradas y ordenadas) agrupadas Familia › Variedad, grupos por nombre (A→Z, "sin familia"
+// al final); dentro de cada variedad las filas quedan en el orden recibido (el del header). variedades = todas (GET
+// /envasado/opciones): con conVacias (sin búsqueda) también las que todavía no tienen PLUs.
+// → [{ familia, variedades: [{ id, nombre, filas }] }]
+function agruparEnvasado(filas, variedades = [], { conVacias = false } = {}) {
+  const porId = new Map((conVacias ? variedades : []).map(v => [v.id, { id: v.id, familia: v.familia || '', nombre: v.nombre, filas: [] }]));
+  for (const f of filas) {
+    if (!porId.has(f.productoId)) porId.set(f.productoId, { id: f.productoId, familia: f.familia || '', nombre: f.variedad || '', filas: [] });
+    porId.get(f.productoId).filas.push(f);
+  }
+  const cmp = (a, b) => (a === '') - (b === '') || normL(a).localeCompare(normL(b), 'es');
+  const familias = [...new Set([...porId.values()].map(v => v.familia))].sort(cmp);
+  return familias.map(familia => ({
+    familia, variedades: [...porId.values()].filter(v => v.familia === familia).sort((a, b) => cmp(a.nombre, b.nombre)).map(({ familia: _f, ...v }) => v),
+  }));
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, agruparEnvasado };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
 const lstCols = tipo => (tipo === 'produccion' ? 7 : 8);
 let lstDatos = {};                                                  // tipo → filas del server
+let lstVariedadesEnv = [];                                          // variedades envasadas (agruparEnvasado)
 let lstOrden = { almacen: ORDEN_LST_DEFECTO, fraccionado: ORDEN_LST_DEFECTO, produccion: ORDEN_LST_DEFECTO }; // orden por tab (sobrevive recargas y filtros)
 const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {}, envasado: {} }; // estado de los filtros por tab (sobrevive recargas)
 // Producción: los dos sub-tabs comparten datos y orden, pero cada uno tiene su búsqueda (prodClase, precios_produccion.js).
@@ -81,7 +99,9 @@ function filaHtml(f, tipo) {
       <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
       <td class="p-2 num">${vigenteTxt(f.vigente)}</td><td class="p-2 num">${celdaPrecio(f.sugeridos.sistema)}</td>
       <td class="p-2">${rev ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn" title="${esc(f.aRevisar.map(x => textoRevisar([x])).join('\n'))}">⚠ ${esc(rev)}</span>` : ''}</td>
-      <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">${f.tipoProduccion === 'envasado' ? 'Editar' : 'Receta'}</a></td></tr>`;
+      <td class="p-2">${f.tipoProduccion === 'envasado'
+        ? `<a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}/${encodeURIComponent(f.plu)}">Editar</a>`
+        : `<a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a>`}</td></tr>`;
   }
   const fracc = tipo === 'fraccionado';
   const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}</td>
@@ -111,7 +131,7 @@ function htmlMarcoListado(tipo) {
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
-    ${prod ? `<button type="button" class="lst-nuevo cfg-btn" title="${prodClase === 'envasado' ? 'Granel + envase, tapa, etiqueta (ej. mieles)' : 'Producto con receta (ej. pepas, granola)'}">+ Nuevo</button>` : ''}
+    ${prod ? `<button type="button" class="lst-nuevo cfg-btn" title="${prodClase === 'envasado' ? 'Nueva variedad (familia, variedad y granel); después se agregan sus PLUs' : 'Producto con receta (ej. pepas, granola)'}">+ Nuevo</button>` : ''}
   </div>
   <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
     <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
@@ -154,8 +174,11 @@ async function cargarListado(tipo) {
   conectarListado(tipo, cont);
   try {
     await decisionesPropiasBorradas; // precios_comun.js
+    // Producción: también las variedades envasadas (el listado de Envasado muestra las que todavía no tienen PLUs).
+    const variedades = tipo === 'produccion' ? getJson(API_PROD + '/envasado/opciones').then(o => o.variedades).catch(() => []) : null;
     const j = await (await fetch(`/api/precios/esquema/listado?tipo=${tipo}`)).json();
     if (j.error) throw new Error(j.error);
+    if (variedades) lstVariedadesEnv = await variedades;
     lstDatos = { ...lstDatos, [tipo]: j.filas };
     cont.querySelector('.lst-aviso').classList.toggle('hidden', j.migrado);
     renderListado(tipo);
@@ -171,9 +194,20 @@ function renderListado(tipo) {
   const todas = filasDeClase(lstDatos[tipo], claseLst(tipo));
   const filas = ordenarListado(filtrarFilas(todas, filtrosLst(tipo)), lstOrden[tipo]);
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
+  const f = filtrosLst(tipo);
+  const grupos = claseLst(tipo) === 'envasado' ? agruparEnvasado(filas, lstVariedadesEnv, { conVacias: !String(f.texto || '').trim() && !f.soloDecididos }) : null;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
-  cuerpo.innerHTML = filas.length ? filas.map(f => filaHtml(f, tipo)).join('')
-    : `<tr><td colspan="${lstCols(tipo)}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
+  cuerpo.innerHTML = grupos ? (grupos.length ? grupos.map(htmlGrupoEnvasado).join('') : htmlSinFilas(tipo))
+    : filas.length ? filas.map(fl => filaHtml(fl, tipo)).join('') : htmlSinFilas(tipo);
+}
+const htmlSinFilas = tipo => `<tr><td colspan="${lstCols(tipo)}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
+// Envasado Apidelta: fila de la familia, fila de cada variedad (con Editar) y sus PLUs debajo.
+function htmlGrupoEnvasado(g) {
+  const variedades = g.variedades.map(v => `<tr class="bg-verde/5"><td colspan="6" class="p-2 pl-5 font-semibold text-ink">› ${esc(v.nombre)}
+      <span class="ml-2 text-xs font-normal text-gris">${v.filas.length ? `${v.filas.length} PLU${v.filas.length === 1 ? '' : 's'}` : 'sin PLUs todavía'}</span></td>
+    <td class="p-2"><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(v.id)}">Editar</a></td></tr>`
+    + v.filas.map(fl => filaHtml(fl, 'produccion')).join('')).join('');
+  return `<tr class="bg-bg/70"><td colspan="7" class="p-2 font-disp font-bold text-ink">${esc(g.familia || 'Sin familia')}</td></tr>${variedades}`;
 }
 
 // PUT de la decisión y actualización local (sin recargar SIGA). La usa el modal.

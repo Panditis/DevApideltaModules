@@ -657,7 +657,7 @@ test('plusUsados: una variedad envasada aporta su granel, sus PLUs y los insumos
 test('normalizarDatos: migra al leer los envasados viejos de un solo PLU (idempotente)', () => {
   const viejo = { nombre: 'Miel 500', tipo: 'envasado', plu: '6319', granelPlu: '7067', kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] };
   const d = normalizarDatos({ productos: { 'p-miel': viejo, 'p-granola': PRODUCTO } });
-  assert.deepStrictEqual(d.productos['p-miel'], { ...MIEL_ENV, nombre: 'Miel 500' });
+  assert.deepStrictEqual(d.productos['p-miel'], { ...MIEL_ENV, nombre: '500' });
   assert.strictEqual(d.productos['p-granola'], PRODUCTO);
   assert.deepStrictEqual(normalizarDatos(d), d);
 });

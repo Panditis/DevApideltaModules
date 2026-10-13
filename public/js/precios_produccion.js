@@ -321,7 +321,7 @@ if (typeof module === 'object' && module.exports) {
     parsearHashProduccion, vistaToggleProduccion, claseProduccion, hashEntradaProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
     textoRevisar, sugeridoProd, columnasSelectorProd, columnasPresProd,
     mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
-    escalarCantidades, componentesAIngredientes, esEmpaque,
+    escalarCantidades, componentesAIngredientes, esEmpaque, htmlResultadosSiga,
     slugProd, idRecetaNueva, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido,
     ordenarFilas: require('./precios_comun.js').ordenarFilas, siguienteOrden: require('./precios_comun.js').siguienteOrden,
   };
@@ -413,15 +413,33 @@ function htmlBuscadorSiga(id, placeholder) {
       aria-controls="${id}-lista" class="${campoCls} w-full sm:w-80">
     <div id="${id}-lista" role="listbox" class="bs-lista hidden fixed z-[60] bg-card border border-borde rounded-xl shadow-fluent overflow-y-auto" style="max-height:280px"></div>`;
 }
-function htmlResultadosSiga(rows) {
-  if (!rows.length) return '<div class="px-3 py-3 text-sm text-gris">Sin resultados</div>';
-  return rows.map(r => `<button type="button" role="option" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"
+// multiple: un checkbox por resultado (seleccion = Map plu → nombre, sobrevive a otras búsquedas), "Seleccionar todos los
+// visibles", contador y "Agregar N". deshabilitado(plu) → motivo ("ya está en …") o null: se muestra sin poder elegirlo.
+function htmlResultadosSiga(rows, { multiple = false, seleccion = new Map(), deshabilitado = () => null } = {}) {
+  const cab = multiple ? htmlCabMultiSiga(seleccion.size) : '';
+  if (!rows.length) return cab + '<div class="px-3 py-3 text-sm text-gris">Sin resultados</div>';
+  if (!multiple) {
+    return rows.map(r => `<button type="button" role="option" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"
       class="block w-full text-left px-3 py-1.5 text-sm hover:bg-verde/10 focus:bg-verde/10 focus:outline-none">
       <b class="tabular-nums">${esc(r.plu)}</b> · ${esc(r.producto)} <span class="text-xs text-gris">${esc(r.rubro)}</span></button>`).join('');
+  }
+  return cab + rows.map(r => {
+    const motivo = deshabilitado(String(r.plu));
+    return `<label class="flex items-start gap-2 px-3 py-1.5 text-sm ${motivo ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-verde/10'}">
+      <input type="checkbox" class="mt-0.5 accent-verde" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"${seleccion.has(String(r.plu)) && !motivo ? ' checked' : ''}${motivo ? ' disabled' : ''}>
+      <span><b class="tabular-nums">${esc(r.plu)}</b> · ${esc(r.producto)} <span class="text-xs text-gris">${esc(r.rubro)}</span>${motivo ? ` <span class="text-xs text-warn">${esc(motivo)}</span>` : ''}</span></label>`;
+  }).join('');
 }
-function conectarBuscadorSiga(id, onElegir) {
+const htmlCabMultiSiga = n => `<div class="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-card border-b border-borde">
+    <button type="button" class="bs-todos text-xs text-verde underline underline-offset-2">Seleccionar todos los visibles</button>
+    <span class="bs-conteo ml-auto text-xs text-gris">${n} seleccionado${n === 1 ? '' : 's'}</span>
+    <button type="button" class="bs-agregar ${btnPrim} !py-1 text-xs"${n ? '' : ' disabled'}>Agregar ${n}</button></div>`;
+// opciones.multiple: onElegir recibe [{ plu, nombre }] al tocar "Agregar N" (sin multiple, { plu, nombre } al elegir uno).
+function conectarBuscadorSiga(id, onElegir, { multiple = false, deshabilitado = () => null } = {}) {
   const input = document.getElementById(id), lista = document.getElementById(id + '-lista');
-  let timer = null, seq = 0;
+  let timer = null, seq = 0, filas = [];
+  const seleccion = new Map(); // ponytail: estado de UI del buscador abierto, se muta en el lugar
+  const pintarResultados = () => mostrar(htmlResultadosSiga(filas, { multiple, seleccion, deshabilitado }));
   const mostrar = html => {
     const r = input.getBoundingClientRect();
     lista.innerHTML = html;
@@ -438,26 +456,55 @@ function conectarBuscadorSiga(id, onElegir) {
     timer = setTimeout(async () => {
       const n = ++seq;
       mostrar('<div class="px-3 py-3 text-sm text-gris"><span class="spin"></span> Buscando…</div>');
-      try { const rows = await getJson('/api/siga/buscar?q=' + encodeURIComponent(q)); if (n === seq) mostrar(htmlResultadosSiga(rows)); }
-      catch (e) { if (n === seq) mostrar(`<div class="px-3 py-3 text-sm text-crit">${esc(e.message)}</div>`); }
+      try {
+        const rows = await getJson('/api/siga/buscar?q=' + encodeURIComponent(q));
+        if (n === seq) { filas = rows; pintarResultados(); }
+      } catch (e) { if (n === seq) mostrar(`<div class="px-3 py-3 text-sm text-crit">${esc(e.message)}</div>`); }
     }, BUSCAR_DEBOUNCE_MS);
   });
+  // Contador y botón de la cabecera sin repintar la lista (no pierde el scroll).
+  const actualizarCab = () => {
+    const n = seleccion.size;
+    lista.querySelector('.bs-conteo').textContent = `${n} seleccionado${n === 1 ? '' : 's'}`;
+    const b = lista.querySelector('.bs-agregar');
+    b.textContent = `Agregar ${n}`; b.disabled = !n;
+  };
   lista.addEventListener('click', e => {
+    if (multiple) {
+      if (e.target.closest('.bs-todos')) {
+        lista.querySelectorAll('input[data-plu]:not(:disabled)').forEach(c => { c.checked = true; seleccion.set(c.dataset.plu, c.dataset.nombre); });
+        actualizarCab();
+      } else if (e.target.closest('.bs-agregar') && seleccion.size) {
+        const elegidos = [...seleccion].map(([plu, nombre]) => ({ plu, nombre }));
+        seleccion.clear(); cerrar(); input.value = '';
+        onElegir(elegidos);
+      }
+      return;
+    }
     const b = e.target.closest('[data-plu]');
     if (!b) return;
     cerrar(); input.value = '';
     onElegir({ plu: b.dataset.plu, nombre: b.dataset.nombre });
   });
+  lista.addEventListener('change', e => {
+    const c = e.target.closest('input[data-plu]');
+    if (!multiple || !c) return;
+    if (c.checked) seleccion.set(c.dataset.plu, c.dataset.nombre); else seleccion.delete(c.dataset.plu);
+    actualizarCab();
+  });
+  // Flechas entre los resultados elegibles (botones, o checkboxes en multiple).
+  const items = () => [...lista.querySelectorAll('[data-plu]:not(:disabled)')];
   input.addEventListener('keydown', e => {
     // Con la lista abierta, Escape sólo la cierra (preventDefault: no cierra el diálogo que la contiene).
     if (e.key === 'Escape' && !lista.classList.contains('hidden')) { cerrar(); e.stopPropagation(); e.preventDefault(); }
-    const primero = lista.querySelector('[data-plu]');
+    const primero = items()[0];
     if (e.key === 'ArrowDown' && primero) { e.preventDefault(); primero.focus(); }
   });
   lista.addEventListener('keydown', e => {
     const b = e.target.closest('[data-plu]');
     if (!b) return;
-    const sig = e.key === 'ArrowDown' ? b.nextElementSibling : e.key === 'ArrowUp' ? b.previousElementSibling : null;
+    const todos = items(), i = todos.indexOf(b);
+    const sig = e.key === 'ArrowDown' ? todos[i + 1] : e.key === 'ArrowUp' ? todos[i - 1] : null;
     if (sig) { e.preventDefault(); sig.focus(); }
     if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); cerrar(); input.focus(); }
   });
@@ -645,7 +692,7 @@ async function cargarDetalleProduccion(id, { silencioso = false, abrirPlu = null
     const d = await getJson(urlProd(id));
     const mismo = prodDet && prodDet.id === d.id;
     prodDet = d;
-    if (d.definicion && d.definicion.tipo === 'envasado') { pintarDetalleEnvasado(); return; } // precios_produccion_envasado.js
+    if (d.definicion && d.definicion.tipo === 'envasado') { pintarDetalleEnvasado(abrirPlu); return; } // precios_produccion_envasado.js
     if (!mismo) prodSeccionesElegidas = {};
     iniciarEdicionesProd(mismo); // precios_produccion_detalle.js
     pintarDetalleProduccion();

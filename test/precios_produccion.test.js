@@ -533,15 +533,16 @@ test('validarEnvasado: limpia la variedad, granel numérico, PLUs numéricos, kg
   assert.deepStrictEqual(Object.keys(validarEnvasado({ ...PRADERA, presentaciones: { 9002: { kgPorUnidad: 1 } } }, otros, { productoId: 'p-b' }).presentaciones), ['9002']);
 });
 
-test('normalizarEnvasado: un envasado viejo de un solo PLU pasa a variedad con ese PLU (familia = 1.ª palabra); idempotente', () => {
+test('normalizarEnvasado: un envasado viejo de un solo PLU pasa a variedad con ese PLU (familia = 1.ª palabra, sacada del nombre); idempotente', () => {
   const viejo = { nombre: 'Miel Pradera 10Kg', tipo: 'envasado', plu: '2279', granelPlu: '9710', kgPorUnidad: 10,
     componentes: [{ plu: '9653', cantidad: 1 }], creado: '2026-10-13', validado: { fecha: 'f', costoUnidad: 1, costos: {} }, margenEspecial: { minorista: 5 } };
   const nuevo = normalizarEnvasado(viejo);
-  assert.deepStrictEqual(nuevo, { tipo: 'envasado', familia: 'Miel', nombre: 'Miel Pradera 10Kg', granelPlu: '9710', creado: '2026-10-13', margenEspecial: { minorista: 5 },
+  assert.deepStrictEqual(nuevo, { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera 10Kg', granelPlu: '9710', creado: '2026-10-13', margenEspecial: { minorista: 5 },
     presentaciones: { 2279: { kgPorUnidad: 10, componentes: [{ plu: '9653', cantidad: 1 }], validado: { fecha: 'f', costoUnidad: 1, costos: {} } } } });
   assert.strictEqual(normalizarEnvasado(nuevo), nuevo); // ya migrado: el mismo objeto
   assert.strictEqual(viejo.plu, '2279'); // no muta
   assert.strictEqual(normalizarEnvasado({ ...viejo, validado: undefined, nombre: '' }).familia, '');
+  assert.deepStrictEqual([normalizarEnvasado({ ...viejo, nombre: 'Miel' }).familia, normalizarEnvasado({ ...viejo, nombre: 'Miel' }).nombre], ['', 'Miel']); // una sola palabra: queda de nombre
   assert.ok(!('validado' in normalizarEnvasado({ ...viejo, validado: undefined }).presentaciones['2279']));
   const receta = { nombre: 'Granola', recetas: {}, presentaciones: {} };
   assert.strictEqual(normalizarEnvasado(receta), receta);
