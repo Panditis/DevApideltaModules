@@ -449,3 +449,76 @@ test('limpiarRecetas: el costo total validado viejo (con MO/máquina/insumos) se
   assert.deepStrictEqual([c.estado, c.deltaPct], ['ok', null]);
   assert.strictEqual(limpiarRecetas(r.datos), null);
 });
+
+// ── Envasado Apidelta (granel × kg por unidad + empaque) ─────────────────────
+
+const { costearEnvasado, validarEnvasado } = require('../lib/precios_produccion');
+// Miel 500 g: granel 7067 ($2800/kg) × 0,5 + envase 6334 ($180) + tapa 6320 ($45) × 1 + etiqueta 812 × 2.
+const MIEL = { nombre: 'Miel 500 g', tipo: 'envasado', plu: '9001', granelPlu: '7067', kgPorUnidad: 0.5,
+  componentes: [{ plu: '6334', cantidad: 1 }, { plu: '6320', cantidad: 1 }] };
+
+test('costearEnvasado: granel $/kg × kg por unidad + Σ cantidad × costo del empaque', () => {
+  const c = costearEnvasado({ producto: MIEL, costoDe });
+  assert.strictEqual(c.costoUnidad, 1625); // 1400 + 180 + 45
+  assert.deepStrictEqual(c.faltantes, []);
+  assert.deepStrictEqual(c.componentes.map(l => [l.plu, l.cantidad, l.costoUnit, l.importe, l.rol]),
+    [['7067', 0.5, 2800, 1400, 'granel'], ['6334', 1, 180, 180, 'empaque'], ['6320', 1, 45, 45, 'empaque']]);
+  assert.deepStrictEqual(c.costos, { 7067: 2800, 6334: 180, 6320: 45 });
+  const dos = costearEnvasado({ producto: { ...MIEL, componentes: [{ plu: '6320', cantidad: 2.5 }] }, costoDe });
+  assert.strictEqual(dos.costoUnidad, 1512.5); // 1400 + 2,5 × 45
+});
+
+test('costearEnvasado: granel o empaque sin costo → faltante con su PLU, sin costo (nunca 0); kg inválido → faltante', () => {
+  const sinGranel = costearEnvasado({ producto: { ...MIEL, granelPlu: '5555' }, costoDe });
+  assert.deepStrictEqual([sinGranel.costoUnidad, sinGranel.faltantes], [null, ['5555']]);
+  const sinEnvase = costearEnvasado({ producto: { ...MIEL, componentes: [{ plu: '6334', cantidad: 1 }, { plu: '4444', cantidad: 1 }] }, costoDe });
+  assert.deepStrictEqual([sinEnvase.costoUnidad, sinEnvase.faltantes], [null, ['4444']]);
+  assert.strictEqual(sinEnvase.componentes[2].importe, null);
+  assert.deepStrictEqual(costearEnvasado({ producto: { ...MIEL, kgPorUnidad: 0 }, costoDe }).faltantes, ['kgPorUnidad']);
+});
+
+test('costearProducto: envasado → una presentación (su PLU de venta) con estado, "a revisar" y alertas como las recetas', () => {
+  const sin = costearProducto({ producto: MIEL, costoDe, toleranciaPct: 3 });
+  assert.deepStrictEqual(Object.keys(sin.recetas), []);
+  assert.deepStrictEqual(Object.keys(sin.presentaciones), ['9001']);
+  assert.strictEqual(sin.presentaciones['9001'].costoUnidad, 1625);
+  assert.strictEqual(sin.presentaciones['9001'].estado, 'sin-validar');
+  assert.strictEqual(sin.presentaciones['9001'].nombre, 'Miel 500 g');
+  const validado = snapshotDe(sin.presentaciones['9001'], '2026-10-13');
+  assert.deepStrictEqual(validado, { fecha: '2026-10-13', costoUnidad: 1625, costos: { 7067: 2800, 6334: 180, 6320: 45 } });
+  const ok = costearProducto({ producto: { ...MIEL, validado }, costoDe, toleranciaPct: 3 });
+  assert.strictEqual(ok.presentaciones['9001'].estado, 'ok');
+  // Sube la tapa: "a revisar" con la tapa y alerta del producto.
+  const subio = costearProducto({ producto: { ...MIEL, validado }, costoDe: costosDe({ ...COSTOS, 6320: 60 }), toleranciaPct: 3 });
+  assert.strictEqual(subio.presentaciones['9001'].estado, 'cambio');
+  assert.deepStrictEqual(subio.presentaciones['9001'].revisar, [{ plu: '6320', nombre: 'N6320', antes: 45, ahora: 60 }]);
+  assert.strictEqual(subio.resumen.alertas, 1);
+  const al = resumenAlertas({ 'p-miel': subio });
+  assert.deepStrictEqual(al.items.map(i => [i.productoId, i.tipo, i.id]), [['p-miel', 'presentacion', '9001']]);
+});
+
+test('validarEnvasado: limpia, exige PLUs numéricos, kg > 0, cantidades > 0, sin repetidos y PLU de venta libre', () => {
+  const body = { ...MIEL, componentes: [{ plu: 6334, cantidad: 1, nombre: 'x' }], basura: 1, validado: {} };
+  assert.deepStrictEqual(validarEnvasado(body, {}, {}), { nombre: 'Miel 500 g', tipo: 'envasado', plu: '9001', granelPlu: '7067', kgPorUnidad: 0.5,
+    componentes: [{ plu: '6334', cantidad: 1 }] });
+  assert.deepStrictEqual(validarEnvasado({ ...MIEL, componentes: undefined }, {}, {}).componentes, []);
+  assert.throws(() => validarEnvasado({ ...MIEL, kgPorUnidad: 0 }, {}, {}), /kgPorUnidad/);
+  assert.throws(() => validarEnvasado({ ...MIEL, granelPlu: '' }, {}, {}), /granelPlu/);
+  assert.throws(() => validarEnvasado({ ...MIEL, plu: 'abc' }, {}, {}), /plu/);
+  assert.throws(() => validarEnvasado({ ...MIEL, granelPlu: '9001' }, {}, {}), /granelPlu/);
+  assert.throws(() => validarEnvasado({ ...MIEL, componentes: [{ plu: '6334', cantidad: 0 }] }, {}, {}), /componentes\[0\]\.cantidad/);
+  assert.throws(() => validarEnvasado({ ...MIEL, componentes: [{ plu: '6334', cantidad: 1 }, { plu: '6334', cantidad: 2 }] }, {}, {}), /repetido/);
+  assert.throws(() => validarEnvasado({ ...MIEL, componentes: [{ plu: '7067', cantidad: 1 }] }, {}, {}), /granel/);
+  assert.throws(() => validarEnvasado({ ...MIEL, nombre: '' }, {}, {}), /nombre/);
+  // El PLU de venta pertenece a un solo producto (de receta o envasado); el propio no choca.
+  const otros = { 'p-a': { nombre: 'Granola', presentaciones: { 9001: {} } }, 'p-b': { nombre: 'Miel', tipo: 'envasado', plu: '9002' } };
+  assert.throws(() => validarEnvasado(MIEL, otros, {}), /Granola/);
+  assert.throws(() => validarEnvasado({ ...MIEL, plu: '9002' }, otros, {}), /Miel/);
+  assert.strictEqual(validarEnvasado({ ...MIEL, plu: '9002' }, otros, { productoId: 'p-b' }).plu, '9002');
+});
+
+test('validarPresentacion: el PLU de venta de un envasado tampoco se puede usar como presentación de receta', () => {
+  const prod = { recetas: RECETAS, presentaciones: {} };
+  const todos = { 'p-miel': { nombre: 'Miel 500 g', tipo: 'envasado', plu: '9001' } };
+  assert.throws(() => validarPresentacion({ recetaId: 'pasas', kgPorUnidad: 1 }, prod, todos, { plu: '9001', productoId: 'p-x' }), /Miel 500 g/);
+});

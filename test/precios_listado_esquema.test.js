@@ -137,6 +137,22 @@ test('listadoProduccion: el margen especial del producto (margenExtra) sube el p
   assert.ok(con.mayoristas[0].conIva > sin.mayoristas[0].conIva);
 });
 
+test('listadoProduccion: tipoProduccion (receta por defecto | envasado) y el costeo del envasado sólo con desglose', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const lineas = [{ plu: '7067', nombre: 'Miel granel', cantidad: 0.5, costoUnit: 2800, importe: 1400, rol: 'granel' },
+    { plu: '6334', nombre: 'Envase', cantidad: 1, costoUnit: 180, importe: 180, rol: 'empaque' }];
+  const filas = L.listadoProduccion({ presentaciones: [
+    { productoId: 'p-g', plu: '6319', nombre: 'Granola', costoUnidad: 1000 },
+    { productoId: 'p-m', plu: '9001', nombre: 'Miel 500', costoUnidad: 1580, tipoProduccion: 'envasado', componentesCosto: lineas },
+  ], vigentes: new Map(), mayoristasDe: md, costeo: {}, cfg: CFG });
+  assert.deepStrictEqual(filas.map(f => [f.plu, f.tipoProduccion]), [['6319', 'receta'], ['9001', 'envasado']]);
+  assert.strictEqual(filas[0].componentesCosto, undefined);
+  assert.deepStrictEqual(filas[1].componentesCosto, lineas);
+  assert.strictEqual(L.filaPublica(filas[1]).componentesCosto, undefined); // estructura de costos: sólo con precios-config
+  assert.strictEqual(L.filaPublica(filas[1]).tipoProduccion, 'envasado');
+  assert.deepStrictEqual(L.filaPublica(filas[1], true).componentesCosto, lineas);
+});
+
 // ── Decisión y export ────────────────────────────────────────────────────────
 
 test('validarDecision / aplicarDecision', () => {

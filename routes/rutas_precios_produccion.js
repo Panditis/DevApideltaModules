@@ -98,7 +98,8 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   router.get('/api/precios/produccion/productos', ruta(async (req) => {
     const datos = leer();
     const [{ costeados }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
-    return Object.entries(costeados)
+    // "Recetas" (Con receta): los envasados tienen su propio sub-tab.
+    return Object.entries(costeados).filter(([id]) => datos.productos[id].tipo !== 'envasado')
       .map(([id, c]) => filaSelector(id, datos.productos[id], c, fechas))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }));
@@ -332,6 +333,54 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   }
   router.get('/api/precios/produccion/formula-siga/:plu', ruta(async (req) => formulaSiga(validarId(req.params.plu, PLU, 'plu'))));
 
+  // ── Envasado Apidelta (granel × kg por unidad + empaque, lib/precios_produccion costearEnvasado) ──
+  // El PLU de venta tiene que existir en SIGA (se consulta antes de leer el archivo: escritura sin await en el medio).
+  async function pluVentaEnSiga(body) {
+    const plu = validarId(esObjeto(body) ? body.plu : null, PLU, 'plu');
+    if (!(await costosPorPlu([plu])).has(plu)) fallar(`plu: el PLU ${plu} no existe en SIGA`);
+  }
+
+  // Precarga del editor desde la fórmula activa de SIGA del PLU de venta (sin fórmula: vacío, se carga a mano).
+  router.get('/api/precios/produccion/envasado/precarga/:plu', ruta(async (req) => envasadoDesdeFormula(await formulaSiga(validarId(req.params.plu, PLU, 'plu')))));
+
+  router.post('/api/precios/produccion/envasado', ruta(async (req) => {
+    await pluVentaEnSiga(req.body);
+    const datos = leer();
+    const limpio = entrada(() => produccion.validarEnvasado(req.body, datos.productos));
+    const id = idUnico(`p-${slug(limpio.nombre)}`, datos.productos);
+    const producto = { ...limpio, creado: hoy() };
+    guardar({ ...datos, productos: { ...datos.productos, [id]: producto } });
+    return { id, producto };
+  }));
+
+  // Edición: NO re-valida (conserva validado), ni toca creado ni el margen especial.
+  router.put('/api/precios/produccion/productos/:id/envasado', ruta(async (req) => {
+    const id = idProducto(req);
+    await pluVentaEnSiga(req.body);
+    const producto = mutarProducto(id, (p, datos) => {
+      if (p.tipo !== 'envasado') fallar('el producto no es de envasado');
+      const limpio = entrada(() => produccion.validarEnvasado(req.body, datos.productos, { productoId: id }));
+      const conservar = Object.fromEntries(['creado', 'validado', 'margenEspecial'].filter(k => p[k] != null).map(k => [k, p[k]]));
+      return { ...limpio, ...conservar };
+    });
+    return { id, producto };
+  }));
+
+  // Vista previa del editor (costo en vivo): valida igual que el alta/edición y costea en memoria con el mismo
+  // detalleConPrecios que el GET. NO escribe. body.id = producto que se edita (conserva su validado y margen especial).
+  // ponytail: el alta se costea bajo la clave '_nuevo' (no matchea ID_PRODUCTO: nunca pisa uno real).
+  router.post('/api/precios/produccion/envasado/preview', ruta(async (req) => {
+    const b = esObjeto(req.body) ? req.body : {};
+    const id = b.id == null ? '_nuevo' : validarId(b.id, ID_PRODUCTO, 'id de producto');
+    const datos = leer();
+    const previo = id === '_nuevo' ? {} : productoDe(datos, id);
+    const limpio = entrada(() => produccion.validarEnvasado(b, datos.productos, { productoId: id }));
+    const conservar = Object.fromEntries(['validado', 'margenEspecial'].filter(k => previo[k] != null).map(k => [k, previo[k]]));
+    const enMemoria = { ...datos, productos: { ...datos.productos, [id]: { ...limpio, ...conservar } } };
+    const det = await detalleConPrecios(enMemoria, id, req);
+    return det.presentaciones[limpio.plu];
+  }));
+
   router.get('/api/precios/produccion/alertas', ruta(async () => {
     const datos = leer();
     const { costeados } = await costearProductos(datos, Object.keys(datos.productos));
@@ -389,7 +438,7 @@ function idUnico(base, existentes) {
 
 const esPlu = clave => PLU.test(String(clave));
 
-// PLUs SIGA que hay que consultar: materias primas, extras y PLUs de presentación.
+// PLUs SIGA que hay que consultar: materias primas, extras y PLUs de presentación; de un envasado, granel y empaque.
 function plusUsados(productos) {
   const plus = new Set();
   for (const p of Object.values(productos || {})) {
@@ -397,6 +446,7 @@ function plusUsados(productos) {
       for (const it of [...(r.materiasPrimas || []), ...(r.extras || [])]) plus.add(String(it.plu));
     }
     for (const plu of Object.keys(p.presentaciones || {})) plus.add(plu);
+    if (p.tipo === 'envasado') [p.granelPlu, ...(p.componentes || []).map(c => c.plu)].forEach(plu => plus.add(String(plu)));
   }
   return [...plus].filter(esPlu);
 }
@@ -609,6 +659,7 @@ function validarPedidoValidar(body) {
 // de ella ("a revisar" se limpia validando la receta, spec §2.1). Con faltantes no se valida: el pedido puntual es error;
 // el resto (todo, o las presentaciones arrastradas) se omite y se informa en `omitidos`.
 function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
+  if (producto.tipo === 'envasado') return validarEnvasadoCosteado(producto, costeado, fecha);
   const grupos = [['receta', 'recetas'], ['presentacion', 'presentaciones']];
   const puntual = (t, k) => tipo !== 'todo' && t === tipo && k === id;
   const incluye = (t, k) => tipo === 'todo' || puntual(t, k)
@@ -632,7 +683,34 @@ function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
   return { producto: nuevo, validados, omitidos };
 }
 
+// Envasado: una sola "presentación" (su PLU de venta); el snapshot va en el producto. Con faltantes no se valida.
+function validarEnvasadoCosteado(producto, costeado, fecha) {
+  const c = costeado.presentaciones[producto.plu];
+  if (!c) fallar(`presentacion ${producto.plu} no encontrada`);
+  if (c.faltantes.length) fallar(`no se puede validar con faltantes: ${c.faltantes.join(', ')}`);
+  return { producto: { ...producto, validado: produccion.snapshotDe(c, fecha) }, validados: [{ tipo: 'presentacion', id: producto.plu }], omitidos: [] };
+}
+
+// formulaSiga del PLU de venta → editor de envasado. Granel = el componente que no es empaque con "granel" en el nombre o,
+// si no hay, el de más cantidad (kg por unidad = su cantidad); el resto (envase, tapa, etiqueta, otros) = empaque con
+// su cantidad por unidad. Sin no-empaque: granel vacío y aviso (se elige a mano).
+function envasadoDesdeFormula(formula) {
+  const f = formula || {};
+  if (!f.nombre) fallar('El PLU no existe en SIGA');
+  const comps = f.componentes || [];
+  const candidatos = comps.filter(c => !esEmpaqueSiga(c));
+  const granel = candidatos.find(c => /granel/i.test(c.nombre || ''))
+    || candidatos.reduce((max, c) => (!max || Number(c.cantPorUnidad) > Number(max.cantPorUnidad) ? c : max), null);
+  const componentes = sumarPorPlu(comps.filter(c => c !== granel).map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: Number(c.cantPorUnidad), costo: c.costo ?? null, tipo: c.tipo })));
+  const mensaje = f.mensaje || (granel ? null : 'La fórmula de SIGA no tiene granel (sólo empaque): elegilo a mano.');
+  return {
+    plu: f.plu, nombre: f.nombre, granelPlu: granel ? granel.plu : null, granelNombre: granel ? granel.nombre : null,
+    granelCosto: granel ? granel.costo ?? null : null, kgPorUnidad: granel ? Number(granel.cantPorUnidad) : null, componentes, mensaje,
+  };
+}
+
 module.exports.slug = slug;
+module.exports.envasadoDesdeFormula = envasadoDesdeFormula;
 module.exports.idUnico = idUnico;
 module.exports.plusUsados = plusUsados;
 module.exports.armarCostoDe = armarCostoDe;
