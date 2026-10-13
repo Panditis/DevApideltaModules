@@ -73,27 +73,32 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   async function costearProductos(datos, ids) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
     const [costeo, costos] = await Promise.all([costeoVigente(), costosPorPlu(plusUsados(productos))]);
-    return { costeados: costearTodos({ productos, costos, costeo, familias: datos.familias }) };
+    return { costeados: costearTodos({ productos, costos, costeo, familias: datos.familias }), costos };
   }
 
   // Detalle costeado + vigente, fecha de precio y precios del motor por presentación (desglose sólo con el permiso de
-  // Configuración: req.preciosSinConfig lo marca guardPrecios en server.js).
-  async function detalleConPrecios(datos, id, req) {
+  // Configuración: req.preciosSinConfig lo marca guardPrecios en server.js). Varios productos con las mismas consultas
+  // (el modal del producto base trae todas sus variedades de una): → { detalles: { id: detalle }, costos }.
+  async function detallesConPrecios(datos, ids, req) {
     const costeo = leerCosteo();
     const pb = costeo.packBulto || {};
-    const [{ costeados }, vigentes, fechas, { vinculos }] = await Promise.all([
-      costearProductos(datos, [id]), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(pb.vinculosManuales || {}),
+    const [{ costeados, costos }, vigentes, fechas, { vinculos }] = await Promise.all([
+      costearProductos(datos, ids), preciosVigentesAlmacen(), fechasPrecioAlmacen(), vinculosPackBulto(pb.vinculosManuales || {}),
     ]);
     const cfg = configEsquemaDe(costeo);
     const mayoristasDe = L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} });
-    const conDesglose = !(req && req.preciosSinConfig === true);
-    const margenExtra = datos.productos[id].margenEspecial || null;
-    const esquemaDe = (plu, costoUnidad, nombre) => L.filaPublica(L.filaProducto({
-      plu, nombre, tipo: 'produccion', costos: { sistema: costoUnidad > 0 ? costoUnidad : null, ultimaCompra: null, manual: null },
-      vigente: vigentes.has(plu) ? vigentes.get(plu) : null, mayoristas: mayoristasDe(plu), cfg, margenExtra,
-    }), conDesglose);
-    return armarDetalle({ id, datos, costeado: costeados[id], vigentes, fechas, esquemaDe });
+    const conDesglose = conDesgloseDe(req);
+    const detalles = Object.fromEntries(ids.map(id => {
+      const margenExtra = datos.productos[id].margenEspecial || null;
+      const esquemaDe = (plu, costoUnidad, nombre) => L.filaPublica(L.filaProducto({
+        plu, nombre, tipo: 'produccion', costos: { sistema: costoUnidad > 0 ? costoUnidad : null, ultimaCompra: null, manual: null },
+        vigente: vigentes.has(plu) ? vigentes.get(plu) : null, mayoristas: mayoristasDe(plu), cfg, margenExtra,
+      }), conDesglose);
+      return [id, armarDetalle({ id, datos, costeado: costeados[id], vigentes, fechas, esquemaDe })];
+    }));
+    return { detalles, costos };
   }
+  const detalleConPrecios = async (datos, id, req) => (await detallesConPrecios(datos, [id], req)).detalles[id];
 
   router.get('/api/precios/produccion/productos', ruta(async (req) => {
     const datos = leer();
@@ -335,14 +340,18 @@ module.exports = function crearRutasPreciosProduccion(deps) {
 
   // ── Envasado Apidelta: Familia › Variedad › PLUs (lib/precios_produccion costearEnvasado, un producto por variedad) ──
   // El granel y los PLUs de venta tienen que existir en SIGA (se consulta antes de leer el archivo: escritura sin await en el medio).
-  async function envasadoEnSiga(body) {
-    const b = esObjeto(body) ? body : {};
-    const granel = validarId(b.granelPlu, PLU, 'granelPlu');
-    const plus = [granel, ...Object.keys(esObjeto(b.presentaciones) ? b.presentaciones : {}).filter(esPlu)];
-    const siga = await costosPorPlu(plus);
-    const falta = plus.find(plu => !siga.has(plu));
-    if (falta) fallar(`${falta === granel ? 'granelPlu' : 'plu'}: el PLU ${falta} no existe en SIGA`);
+  // Varias variedades (producto base) en una sola consulta.
+  async function envasadosEnSiga(lista) {
+    const pares = lista.flatMap(body => {
+      const b = esObjeto(body) ? body : {};
+      const granel = validarId(b.granelPlu, PLU, 'granelPlu');
+      return [[granel, 'granelPlu'], ...Object.keys(esObjeto(b.presentaciones) ? b.presentaciones : {}).filter(esPlu).map(plu => [plu, 'plu'])];
+    });
+    const siga = await costosPorPlu([...new Set(pares.map(([plu]) => plu))]);
+    const falta = pares.find(([plu]) => !siga.has(plu));
+    if (falta) fallar(`${falta[1]}: el PLU ${falta[0]} no existe en SIGA`);
   }
+  const envasadoEnSiga = body => envasadosEnSiga([body]);
 
   // Familias (sugerencias), dueño de cada PLU de venta (la búsqueda los muestra deshabilitados) y las variedades.
   router.get('/api/precios/produccion/envasado/opciones', ruta(async () => { const d = leer(); return opcionesEnvasado(d.productos, d.familias); }));
@@ -397,7 +406,55 @@ module.exports = function crearRutasPreciosProduccion(deps) {
     const previo = id === '_nuevo' ? {} : productoDe(datos, id);
     const limpio = conservarEnvasado(entrada(() => produccion.validarEnvasado(b, datos.productos, { productoId: id })), previo);
     const det = await detalleConPrecios({ ...datos, productos: { ...datos.productos, [id]: limpio } }, id, req);
-    return det.presentaciones;
+    return mapaPublico(det.presentaciones, conDesgloseDe(req));
+  }));
+
+  // ── Producto base (= familia en los datos): el modal trae y guarda todas sus variedades de una ──
+  // ?familia = el nombre del producto base ('' = variedades sin producto base).
+  const familiaQuery = req => {
+    const f = req.query.familia;
+    if (typeof f !== 'string' || f.length > TEXTO_MAX) fallar('familia inválida');
+    return f.trim();
+  };
+  // Todas sus variedades costeadas (mismas consultas para todas), con el nombre del granel y su precio de materia prima.
+  router.get('/api/precios/produccion/envasado/base', ruta(async (req) => {
+    const familia = familiaQuery(req);
+    const datos = leer();
+    const ids = produccion.idsDeFamilia(datos.productos, familia);
+    if (!ids.length) fallar(`producto base "${familia}" no encontrado`);
+    const { detalles, costos } = await detallesConPrecios(datos, ids, req);
+    return baseEnvasado({ datos, ids, detalles, costos, conDesglose: conDesgloseDe(req) });
+  }));
+
+  // Alta (POST) o edición (PUT ?familia=) del producto base entero en una escritura: renombrar (variedades + su precio de
+  // materia prima), variedades nuevas/editadas/quitadas y sus PLUs. Editar NO re-valida (conserva validados, creado y margen).
+  async function guardarBase(req, anterior) {
+    const b = esObjeto(req.body) ? req.body : {};
+    await envasadosEnSiga(Array.isArray(b.variedades) ? b.variedades : []);
+    const datos = leer();
+    const { familia, variedades, quitados } = entrada(() => produccion.validarBaseEnvasado(b, datos.productos, anterior));
+    const resto = Object.fromEntries(Object.entries(datos.productos).filter(([id]) => !quitados.includes(id)));
+    const { productos, ids } = variedades.reduce((acc, { id, limpio }) => {
+      const nuevoId = id || idUnico(`p-${slug(produccion.nombreProducto(limpio))}`, acc.productos);
+      const producto = id ? conservarEnvasado(limpio, datos.productos[id]) : { ...limpio, creado: hoy() };
+      return { productos: { ...acc.productos, [nuevoId]: producto }, ids: [...acc.ids, nuevoId] };
+    }, { productos: resto, ids: [] });
+    const familias = anterior == null ? datos.familias : produccion.conFamiliaRenombrada(datos.familias, anterior, familia);
+    guardar({ ...datos, productos, familias });
+    return { familia, ids, quitados };
+  }
+  router.post('/api/precios/produccion/envasado/base', ruta(req => guardarBase(req, null)));
+  router.put('/api/precios/produccion/envasado/base', ruta(req => guardarBase(req, familiaQuery(req))));
+
+  // Eliminar el producto base: sus variedades (con sus PLUs) y su precio de materia prima.
+  router.delete('/api/precios/produccion/envasado/base', ruta(async (req) => {
+    const familia = familiaQuery(req);
+    const datos = leer();
+    const ids = produccion.idsDeFamilia(datos.productos, familia);
+    if (!ids.length) fallar(`producto base "${familia}" no encontrado`);
+    const productos = Object.fromEntries(Object.entries(datos.productos).filter(([id]) => !ids.includes(id)));
+    guardar({ ...datos, productos, familias: produccion.conCostoFamilia(datos.familias, familia, null) });
+    return { familia, borrados: ids };
   }));
 
   router.get('/api/precios/produccion/alertas', ruta(async () => {
@@ -695,6 +752,31 @@ function armarDetalle({ id, datos, costeado, vigentes, fechas = new Map(), esque
   return { id, ...costeado, creado: datos.productos[id].creado || null, presentaciones, definicion: datos.productos[id] };
 }
 
+// Desglose de costos sólo con el permiso de Configuración (req.preciosSinConfig lo marca guardPrecios en server.js).
+const conDesgloseDe = req => !(req && req.preciosSinConfig === true);
+// PLU costeado de un envasado para quien NO tiene el permiso: total, estado y precios, sin el desglose del costo (mismo
+// criterio que filaPublica): las líneas quedan con PLU, nombre, cantidad y rol (los insumos se ven y se editan, sin su
+// costo), sin snapshot de costos ni materias primas; de "cambios" sólo estado y Δ% del total.
+function presentacionPublica(p, conDesglose) {
+  if (conDesglose || !p) return p;
+  const { costos: _c, materiasPrimas: _m, componentes, cambios, ...resto } = p;
+  return { ...resto, componentes: (componentes || []).map(({ plu, nombre, cantidad, rol }) => ({ plu, nombre, cantidad, rol })),
+    ...(cambios ? { cambios: { estado: cambios.estado, deltaPct: cambios.deltaPct } } : {}) };
+}
+const mapaPublico = (presentaciones, conDesglose) => Object.fromEntries(Object.entries(presentaciones || {}).map(([plu, p]) => [plu, presentacionPublica(p, conDesglose)]));
+
+// Respuesta del GET del producto base: nombre (como está en sus variedades), precio de materia prima ($/kg o null) y sus
+// variedades A→Z con su definición, el nombre de su granel (SIGA) y cada PLU costeado (presentacionPublica).
+function baseEnvasado({ datos, ids, detalles, costos = new Map(), conDesglose = true }) {
+  const familia = String(datos.productos[ids[0]].familia || '').trim();
+  const variedades = ids.map(id => {
+    const d = datos.productos[id];
+    return { id, nombre: d.nombre, granelPlu: d.granelPlu, granelNombre: (costos.get(String(d.granelPlu)) || {}).nombre || null,
+      definicion: d, presentaciones: mapaPublico(detalles[id].presentaciones, conDesglose) };
+  }).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'));
+  return { familia, costoKg: produccion.costoFamiliaDe(datos.familias, familia), conDesglose, variedades };
+}
+
 function numeroEn(v, campo, { min, excluirMin }) {
   const ok = typeof v === 'number' && Number.isFinite(v) && (excluirMin ? v > min : v >= min) && v <= COSTO_MAX;
   if (!ok) fallar(`${campo}: debe ser un número ${excluirMin ? 'mayor a' : 'desde'} ${min} y hasta ${COSTO_MAX}`);
@@ -777,3 +859,5 @@ module.exports.validarPedidoValidar = validarPedidoValidar;
 module.exports.aplicarValidacion = aplicarValidacion;
 module.exports.normalizarDatos = normalizarDatos;
 module.exports.ErrorEntrada = ErrorEntrada;
+module.exports.presentacionPublica = presentacionPublica;
+module.exports.baseEnvasado = baseEnvasado;
