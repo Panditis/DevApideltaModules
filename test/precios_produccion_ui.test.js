@@ -423,7 +423,7 @@ test('envasado: edición desde el detalle del server (nombres del costeo, granel
     6319: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 2 }], validado: {} } } },
   presentaciones: { 6319: { nombre: 'MIEL 500', componentes: [{ plu: '7067', nombre: 'MIEL GRANEL', rol: 'granel' }, { plu: '6334', nombre: 'ENVASE', rol: 'empaque' }] } } };
   assert.deepStrictEqual(env.edicionEnvasado(det), { id: 'p-miel', familia: 'Miel', nombre: 'Pradera', granelPlu: '7067', granelNombre: 'MIEL GRANEL',
-    presentaciones: [{ plu: '6319', nombre: 'MIEL 500', kgPorUnidad: 0.5, componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 2 }] }] });
+    presentaciones: [{ plu: '6319', nombre: 'MIEL 500', kgPorUnidad: 0.5, minutosPorUnidad: null, componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 2 }] }] });
   const vacia = env.edicionEnvasado({ id: 'p-x', definicion: { tipo: 'envasado', familia: '', nombre: 'X', granelPlu: '7067', presentaciones: {} }, presentaciones: {} });
   assert.deepStrictEqual([vacia.granelNombre, vacia.presentaciones], [null, []]);
 });
@@ -431,7 +431,7 @@ test('envasado: edición desde el detalle del server (nombres del costeo, granel
 test('envasado: PLU nuevo desde la precarga (kg del granel, insumos = resto, aviso si el granel es otro)', () => {
   const pre = { plu: '6321', nombre: 'MIEL 250', granelPlu: '7067', kgPorUnidad: 0.25, avisoGranel: null, mensaje: null,
     componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 1, costo: 180 }] };
-  assert.deepStrictEqual(env.presentacionDesdePrecarga(pre), { plu: '6321', nombre: 'MIEL 250', kgPorUnidad: 0.25, componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 1 }], aviso: null });
+  assert.deepStrictEqual(env.presentacionDesdePrecarga(pre), { plu: '6321', nombre: 'MIEL 250', kgPorUnidad: 0.25, minutosPorUnidad: null, componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 1 }], aviso: null });
   assert.match(env.presentacionDesdePrecarga({ ...pre, avisoGranel: 'usa otro granel' }).aviso, /otro granel/);
   assert.match(env.presentacionDesdePrecarga({ ...pre, kgPorUnidad: null, granelPlu: null, mensaje: 'sin fórmula' }).aviso, /sin fórmula/);
 });
@@ -468,4 +468,34 @@ test('buscador SIGA: selección múltiple con checkboxes, contador, "todos los v
   assert.match(html, /data-plu="2"[^>]*checked/);
   assert.match(html, /Seleccionar todos los visibles/);
   assert.match(html, /Agregar 1/);
+});
+
+// ── Insumos y mano de obra (2026-10-13) ──
+test('bodyPresentacion: insumos (plu, cantidad) y minutos por unidad sólo si hay', () => {
+  assert.deepStrictEqual(ui.bodyPresentacion({ recetaId: 'v', kgPorUnidad: 0.5, insumos: [{ plu: 6334, nombre: 'Frasco', cantidad: 1 }], minutosPorUnidad: 2 }),
+    { recetaId: 'v', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }], minutosPorUnidad: 2 });
+  assert.deepStrictEqual(ui.bodyPresentacion({ recetaId: 'v', kgPorUnidad: 0.5, insumos: [], minutosPorUnidad: null }), { recetaId: 'v', kgPorUnidad: 0.5 });
+});
+
+test('presentacionSucia / faltaObligatorioPres: insumos y minutos cuentan', () => {
+  const base = { plu: '6319', recetaId: 'base', kg: 0.5, insumos: [{ plu: '6334', nombre: 'Frasco', cantidad: 1 }], minutos: null };
+  assert.strictEqual(ui.presentacionSucia({ ...base, insumos: [{ plu: '6334', nombre: 'otro nombre', cantidad: 1 }] }, base), false);
+  assert.strictEqual(ui.presentacionSucia({ ...base, insumos: [{ plu: '6334', cantidad: 2 }] }, base), true);
+  assert.strictEqual(ui.presentacionSucia({ ...base, insumos: [] }, base), true);
+  assert.strictEqual(ui.presentacionSucia({ ...base, minutos: 2 }, base), true);
+  assert.strictEqual(ui.faltaObligatorioPres(base), '');
+  assert.match(ui.faltaObligatorioPres({ ...base, insumos: [{ plu: '6334', nombre: 'Frasco', cantidad: null }] }), /cantidad de Frasco/);
+  assert.match(ui.faltaObligatorioPres({ ...base, minutos: -1 }), /[Mm]inutos/);
+});
+
+test('nombreComponente: la mano de obra tiene nombre propio', () => {
+  assert.strictEqual(ui.nombreComponente('_manoObra'), 'Mano de obra');
+});
+
+test('envasado: el body lleva los minutos por unidad de cada PLU (sólo si hay)', () => {
+  const ed = { ...ED, presentaciones: [{ ...ED.presentaciones[0], minutosPorUnidad: 1.5 }, ED.presentaciones[1]] };
+  const b = env.bodyEnvasado(ed);
+  assert.strictEqual(b.presentaciones['6319'].minutosPorUnidad, 1.5);
+  assert.ok(!('minutosPorUnidad' in b.presentaciones['6320']));
+  assert.match(env.faltaObligatorioEnvasado({ ...ed, presentaciones: [{ ...ed.presentaciones[0], minutosPorUnidad: -1 }] }), /[Mm]inutos/);
 });

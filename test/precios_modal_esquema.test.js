@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -82,4 +82,16 @@ test('estadoDecision: sin decisión no se exporta; con decisión dice con qué c
   assert.strictEqual(estadoDecision({ decision: { fuente: 'ultimaCompra' } }, 'almacen').texto, 'Se exporta con última compra');
   assert.strictEqual(estadoDecision({ decision: { fuente: 'manual' } }, 'fraccionado').texto, 'Se exporta con costo manual');
   assert.strictEqual(estadoDecision({ decision: { fuente: 'sistema' } }, 'produccion').texto, 'Se exporta con aumento');
+});
+
+test('conceptosCosto: líneas de Producción en mercadería / insumos / mano de obra; subtotal null si falta un costo', () => {
+  const lineas = [{ rol: 'mp', plu: '300', importe: 100 }, { rol: 'mp', plu: '7067', importe: 210.5 }, { rol: 'insumo', plu: '6334', importe: 180 },
+    { rol: 'empaque', plu: '6320', importe: 45 }, { rol: 'mo', plu: '_manoObra', importe: 200 }, { plu: '_receta', importe: 9 }];
+  const c = conceptosCosto(lineas);
+  assert.deepStrictEqual([c.mercaderia.lineas.map(l => l.plu), c.mercaderia.subtotal], [['300', '7067', '_receta'], 319.5]);
+  assert.deepStrictEqual([c.insumos.lineas.map(l => l.plu), c.insumos.subtotal], [['6334', '6320'], 225]);
+  assert.strictEqual(c.mo.importe, 200);
+  const falta = conceptosCosto([{ rol: 'granel', importe: 10 }, { rol: 'empaque', importe: null }]);
+  assert.deepStrictEqual([falta.mercaderia.subtotal, falta.insumos.subtotal, falta.mo], [10, null, null]);
+  assert.deepStrictEqual(conceptosCosto(undefined).insumos, { lineas: [], subtotal: 0 });
 });

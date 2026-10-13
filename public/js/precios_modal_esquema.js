@@ -94,7 +94,18 @@ function ventaPayload(modo, pesoKg) {
   return { metodo: 'PUT', body: { modo: 'paquete', pesoKg } };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision };
+// Producción: líneas de costo por unidad (lib/precios_produccion, campo rol) agrupadas en los tres conceptos del costo real:
+// mercadería (granel, materias primas o la receta), insumos (envase, etiqueta…) y mano de obra. subtotal null si a una línea
+// le falta costo. La usan el "Ver detalle" de acá, el modal de presentación y el editor de envasado (precios_produccion_*.js).
+const ROL_CONCEPTO = { granel: 'mercaderia', mp: 'mercaderia', empaque: 'insumos', insumo: 'insumos', mo: 'mo' };
+function conceptosCosto(lineas) {
+  const de = c => (lineas || []).filter(l => (ROL_CONCEPTO[l.rol] || 'mercaderia') === c);
+  const sub = ls => (ls.some(l => l.importe == null) ? null : Math.round(ls.reduce((s, l) => s + l.importe, 0) * 100) / 100);
+  const mercaderia = de('mercaderia'), insumos = de('insumos');
+  return { mercaderia: { lineas: mercaderia, subtotal: sub(mercaderia) }, insumos: { lineas: insumos, subtotal: sub(insumos) }, mo: de('mo')[0] || null };
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -231,17 +242,22 @@ const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-
 const pasoEspecialMd = c => (c.margenEspecialPct
   ? ['', `incluye margen especial del producto ${c.margenEspecialPct > 0 ? '+' : ''}${pctMd(c.margenEspecialPct)} (general ${pctMd(c.margenPct - c.margenEspecialPct)})`, null]
   : null);
-// Producción: de dónde sale el costo por unidad. Envasado Apidelta: granel × kg + cada empaque; receta: cada materia prima
-// llevada a una unidad (rol 'mp'). Sólo viene con el permiso.
+// Producción: de dónde sale el costo real por unidad, en tres conceptos (conceptosCosto): mercadería (envasado: granel × kg;
+// receta: cada materia prima llevada a una unidad, rol 'mp'), insumos y mano de obra. Sólo viene con el permiso.
 const cantMd = n => (n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n)); // MP por unidad: 4 decimales
+// Mano de obra en texto: "2 min × $ 8.268,00/h" (sin costo hora: aviso para cargarlo en Configuración › Costos).
+const textoManoObraMd = mo => `${cantMd(mo.cantidad)} min × ${mo.costoUnit == null ? 'sin costo hora (cargá el costo hora en Configuración › Costos)' : `$ ${fmtMoney(mo.costoUnit)}/h`}`;
 function htmlCostoEnvasadoMd(f) {
   const unit = c => (c.costoUnit == null ? 'sin costo' : `$ ${fmtMoney(c.costoUnit)}`);
-  const receta = f.tipoProduccion !== 'envasado';
-  return htmlPasos(receta ? 'Costo por unidad (materias primas de la receta)' : 'Costo por unidad (envasado)', [
-    ...f.componentesCosto.map((c, i) => [i ? '+' : '', c.rol === 'granel'
-      ? `${c.fuente === 'familia' ? `${c.familia || 'Familia'} (precio de familia)` : `Granel ${c.nombre || c.plu}`} · ${cantMd(c.cantidad)} kg × ${unit(c)}/kg`
-      : `${c.nombre || c.plu} · ${cantMd(c.cantidad)} × ${unit(c)}`, c.importe]),
-    ['=', 'Costo de mercadería', f.costoSistema]]);
+  const linea = c => ['', `· ${c.rol === 'granel'
+    ? `${c.fuente === 'familia' ? `${c.familia || 'Familia'} (precio de familia)` : `Granel ${c.nombre || c.plu}`} ${cantMd(c.cantidad)} kg × ${unit(c)}/kg`
+    : `${c.nombre || c.plu} ${cantMd(c.cantidad)}${c.rol === 'mp' ? ' kg' : ''} × ${unit(c)}`}`, c.importe];
+  const { mercaderia, insumos, mo } = conceptosCosto(f.componentesCosto);
+  return htmlPasos('Costo real por unidad', [
+    ['', 'Mercadería', mercaderia.subtotal], ...mercaderia.lineas.map(linea),
+    ['+', insumos.lineas.length ? 'Insumos' : 'Insumos — sin cargar', insumos.subtotal], ...insumos.lineas.map(linea),
+    ['+', mo ? `Mano de obra · ${textoManoObraMd(mo)}` : 'Mano de obra — sin minutos cargados', mo ? mo.importe : 0],
+    ['=', 'Costo real', f.costoSistema]]);
 }
 function htmlDesgloseEsq(f) {
   const bloques = Array.isArray(f.componentesCosto) && f.componentesCosto.length ? [htmlCostoEnvasadoMd(f)] : [];

@@ -83,7 +83,9 @@ function pintarCostosEsq(panel, cfg) {
     </div>
     <div class="cfg-pie mt-4"><span class="esq-msg text-sm" role="status" aria-live="polite"></span>
       <button type="button" class="esq-guardar cfg-btn">Guardar costos</button></div>
-  </div>`;
+  </div>
+  ${htmlCostoHoraEsq(cfg)}`;
+  conectarCostoHoraEsq(panel);
   const bloque = panel.querySelector('[data-guardable]');
   bloque.querySelectorAll('[data-lista]').forEach(pintarTotalesEsq);
   bloque.addEventListener('input', e => { const c = e.target.closest('[data-lista]'); if (c) pintarTotalesEsq(c); });
@@ -103,6 +105,22 @@ function pintarCostosEsq(panel, cfg) {
       gastosVenta: lista('gastosVenta'), extrasMinorista: lista('extrasMinorista'),
     }, cargarCostosEsq);
   };
+}
+
+// ── Costo hora de mano de obra (Producción: minutos por unidad × costo hora ÷ 60). Guardado aparte (PUT …/costo-hora). ──
+function htmlCostoHoraEsq(cfg) {
+  return `<div class="cfg-grid cfg-grid-angosta mt-4"><div class="cfg-card min-w-0" data-guardable data-nombre="Costo hora" id="esqCostoHoraCard">
+    <h3 class="cfg-h">Costo hora de mano de obra</h3>
+    <p class="cfg-ayuda">Producción: los minutos por unidad de cada presentación y PLU envasado × este costo ÷ 60 se suman a su costo real (mercadería + insumos + mano de obra). Vacío = sin mano de obra.</p>
+    <div class="cfg-campo"><label for="esqCostoHora">Costo hora <span class="cfg-nota">$ por hora de trabajo</span></label>
+      ${campoU(`<input id="esqCostoHora" type="number" step="any" min="0" value="${esc(cfg.costoHora ?? '')}" placeholder="ej. 8268">`, '$/h', { w: 'w-32' })}</div>
+    <div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span><button type="button" class="esq-guardar-hora cfg-btn">Guardar</button></div>
+  </div></div>`;
+}
+function conectarCostoHoraEsq(panel) {
+  const card = panel.querySelector('#esqCostoHoraCard');
+  card.querySelector('.esq-guardar-hora').onclick = () => guardarBloqueEsq(card, `${API_ESQ}/costo-hora`,
+    { costoHora: numOrNull(card.querySelector('#esqCostoHora').value) }, () => msgEsq(card.querySelector('.esq-msg'), 'Guardado', 'text-ok')); // sin repintar: no pisa los gastos sin guardar
 }
 
 // ── Precio: IVA de venta, tolerancia y redondeo por lista ──

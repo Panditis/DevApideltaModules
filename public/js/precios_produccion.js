@@ -11,7 +11,9 @@
 
 // ── Helpers puros (sin DOM; test/precios_produccion_ui.test.js) ─────────────────
 const ID_PRODUCTO_UI = /^p-[a-z0-9-]{1,48}$/;
-const ESPECIALES = { _receta: 'Receta' };
+const ESPECIALES = { _receta: 'Receta', _manoObra: 'Mano de obra' };
+// Aviso 'costoHora' del costeo (minutos de mano de obra sin costo hora cargado): modal de presentación y editor de envasado.
+const AVISO_COSTO_HORA = 'Falta el costo hora de mano de obra: cargalo en Configuración › Costos (mientras tanto la mano de obra cuenta $ 0).';
 const PLU_PRES_UI = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/; // PLU de SIGA o presentación provisoria
 // '#produccion' → selector; '#produccion/<id>' → detalle (id inválido → selector);
 // '#produccion/<id>/<plu>' → detalle + abrir esa presentación (plu inválido → sólo el detalle); otra cosa → null.
@@ -209,7 +211,11 @@ function bodyReceta(ed) {
 }
 
 // Body del PUT de presentación (sin insumos, MO de empaquetado ni corrección: fase 4).
-const bodyPresentacion = ({ recetaId, kgPorUnidad }) => ({ recetaId, kgPorUnidad });
+// Insumos por unidad ({ plu, cantidad }) y minutos por unidad (mano de obra): sólo si hay (vacío = se borran al guardar).
+const bodyPresentacion = ({ recetaId, kgPorUnidad, insumos = [], minutosPorUnidad = null }) => ({
+  recetaId, kgPorUnidad, ...(insumos.length ? { insumos: insumos.map(it => ({ plu: String(it.plu), cantidad: it.cantidad })) } : {}),
+  ...(minutosPorUnidad != null ? { minutosPorUnidad } : {}),
+});
 
 // Opciones del selector "Variedad / receta" de una presentación: bases primero, después cada variedad.
 function opcionesVariedad(recetas) {
@@ -266,8 +272,9 @@ function formatoPeso(kg) {
   const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
   return n < 1 ? `${fmt(n * 1000)} g` : `${fmt(n)} kg`;
 }
-// Firma del formulario de presentación { plu, recetaId, kg, sinSiga, nombreNuevo }.
-const firmaPresentacion = v => JSON.stringify([v.plu || null, v.recetaId || null, v.kg ?? null, !!v.sinSiga, (v.nombreNuevo || '').trim()]);
+// Firma del formulario de presentación { plu, recetaId, kg, sinSiga, nombreNuevo, insumos, minutos } (el nombre del insumo no cuenta).
+const firmaPresentacion = v => JSON.stringify([v.plu || null, v.recetaId || null, v.kg ?? null, !!v.sinSiga, (v.nombreNuevo || '').trim(),
+  (v.insumos || []).map(it => [String(it.plu), it.cantidad ?? null]), v.minutos ?? null]);
 const presentacionSucia = (actual, inicial) => firmaPresentacion(actual) !== firmaPresentacion(inicial);
 // Qué obligatorio falta ('' = se puede guardar). sinPlu: para la vista previa (costea sin PLU elegido).
 function faltaObligatorioPres(v, { sinPlu = false } = {}) {
@@ -275,6 +282,9 @@ function faltaObligatorioPres(v, { sinPlu = false } = {}) {
   if (!sinPlu && !v.sinSiga && !v.plu) return 'Elegí el producto a la venta (PLU de SIGA) en ①, o marcá que todavía no está en SIGA.';
   if (!v.recetaId) return 'Elegí de qué variedad sale en ②.';
   if (!(Number(v.kg) > 0)) return 'Completá "Kg por unidad" en ③ (ej. 0,5).';
+  const sin = (v.insumos || []).find(it => !(Number(it.cantidad) > 0));
+  if (sin) return `Completá la cantidad de ${sin.nombre || sin.plu} en ④ (mayor a 0).`;
+  if (v.minutos != null && !(Number(v.minutos) >= 0)) return 'Los minutos por unidad de ④ no pueden ser negativos.';
   return '';
 }
 

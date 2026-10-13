@@ -1,10 +1,11 @@
 // ── Precios · Producción › Envasado Apidelta: editor de una VARIEDAD (alta y edición) ──
 // Familia › Variedad › PLUs (ej. Miel › Pradera › 500 g, 1 kg, 28 kg). La variedad tiene su granel; cada PLU de venta, su
-// kg de granel por unidad y sus insumos (envase, tapa, etiqueta…). Costo de cada PLU = granel $/kg × kg + Σ insumos. El
-// costo SIEMPRE sale del server (POST /envasado/preview mientras se edita, GET del detalle después de guardar).
+// kg de granel por unidad, sus insumos (envase, tapa, etiqueta…) y sus minutos de mano de obra. Costo real de cada PLU =
+// granel $/kg × kg + Σ insumos + minutos × costo hora ÷ 60 (desglose en tres conceptos: conceptosCosto). El costo SIEMPRE sale del server (POST /envasado/preview mientras se edita, GET del detalle después de guardar).
 // Script clásico, cargado después de precios_produccion*.js: usa sus globales (prodDet, panelProd, getJson, urlProd, API_PROD,
 // htmlBuscadorSiga, conectarBuscadorSiga, badgeEstadoProd, textoFaltante, textoRevisar, sugeridoProd, guardarProd,
-// validarProd, htmlMargenEspecialProd, conectarMargenEspecialProd, fmtNum, btnPrim, campoCls, irAProduccion) y los de
+// validarProd, htmlMargenEspecialProd, conectarMargenEspecialProd, fmtNum, btnPrim, campoCls, irAProduccion, AVISO_COSTO_HORA),
+// conceptosCosto (precios_modal_esquema.js) y los de
 // precios.html (esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, campoU, chip, numOrNull, pedirJson, avisar, confirmar,
 // refrescarAlertasProduccion).
 // Rutas: #produccion/envasado/nuevo = alta · #produccion/<id>[/<plu>] de un envasado = edición (cargarDetalleProduccion).
@@ -16,6 +17,7 @@ function bodyEnvasado(ed) {
     ...(ed.id ? { id: ed.id } : {}), familia: String(ed.familia || '').trim(), nombre: String(ed.nombre || '').trim(), granelPlu: ed.granelPlu,
     presentaciones: Object.fromEntries((ed.presentaciones || []).map(p => [p.plu, {
       kgPorUnidad: p.kgPorUnidad, componentes: (p.componentes || []).map(c => ({ plu: String(c.plu), cantidad: c.cantidad })),
+      ...(p.minutosPorUnidad != null ? { minutosPorUnidad: p.minutosPorUnidad } : {}), // mano de obra por unidad
     }])),
   };
 }
@@ -28,6 +30,7 @@ function faltaObligatorioEnvasado(ed) {
     if (!(Number(p.kgPorUnidad) > 0)) return `Completá los kg de granel por unidad de ${nom} (ej. 0,5).`;
     const sin = (p.componentes || []).find(c => !(Number(c.cantidad) > 0));
     if (sin) return `Completá la cantidad de ${sin.nombre || sin.plu} en ${nom} (mayor a 0).`;
+    if (p.minutosPorUnidad != null && !(Number(p.minutosPorUnidad) >= 0)) return `Los minutos por unidad de ${nom} no pueden ser negativos.`;
   }
   return '';
 }
@@ -39,7 +42,7 @@ function edicionEnvasado(det) {
   return {
     id: det.id, familia: d.familia || '', nombre: d.nombre, granelPlu: d.granelPlu, granelNombre: nombre(d.granelPlu),
     presentaciones: Object.entries(d.presentaciones || {}).map(([plu, p]) => ({
-      plu, nombre: ((det.presentaciones || {})[plu] || {}).nombre || null, kgPorUnidad: p.kgPorUnidad,
+      plu, nombre: ((det.presentaciones || {})[plu] || {}).nombre || null, kgPorUnidad: p.kgPorUnidad, minutosPorUnidad: p.minutosPorUnidad ?? null,
       componentes: (p.componentes || []).map(c => ({ plu: c.plu, nombre: nombre(c.plu), cantidad: c.cantidad })),
     })),
   };
@@ -48,7 +51,7 @@ function edicionEnvasado(det) {
 // granel en la fórmula o sin fórmula/granel (se muestra en el PLU, no bloquea).
 function presentacionDesdePrecarga(pre) {
   return {
-    plu: String(pre.plu), nombre: pre.nombre || null, kgPorUnidad: pre.kgPorUnidad ?? null,
+    plu: String(pre.plu), nombre: pre.nombre || null, kgPorUnidad: pre.kgPorUnidad ?? null, minutosPorUnidad: null,
     componentes: (pre.componentes || []).map(c => ({ plu: String(c.plu), nombre: c.nombre || null, cantidad: c.cantidad })),
     aviso: pre.avisoGranel || pre.mensaje || null,
   };
@@ -165,9 +168,19 @@ function celdaEnv(que, plu, comp = null) {
     return s ? `<b>$ ${fmtPrecio(s.precio)}</b>${s.deltaPct != null ? ` <span class="text-xs ${claseDelta(s.estado)}">${fmtPct(s.deltaPct)}</span>` : ''}` : '<span class="text-gris">—</span>';
   }
   if (que === 'estado') return c && guardadoEnv(plu) && !envEd.sucio ? badgeEstadoProd(c, Object.fromEntries((c.componentes || []).map(l => [l.plu, l.nombre]))) : '';
+  if (que === 'desglose') return c ? htmlConceptosEnv(c) : '';
   const l = lineaEnv(plu, comp);
   if (que === 'unit') return comp == null ? '—' : plataEnv(l.costoUnit ?? null) + (String(comp) === String(envEd.granelPlu) ? `<span class="pr-sub">por kg${l.fuente === 'familia' ? ' · precio de familia' : ''}</span>` : '');
   return l.importe != null ? '$ ' + fmtMoney(l.importe) : '—'; // 'imp'
+}
+// Costo real del PLU en tres conceptos: Mercadería (granel) + Insumos + Mano de obra (minutos × costo hora) = Costo real.
+function htmlConceptosEnv(c) {
+  const { mercaderia, insumos, mo } = conceptosCosto(c.componentes);
+  const parte = (txt, v) => `<span>${txt} <b class="tabular-nums">${plataEnv(v)}</b></span>`;
+  const textoMo = mo ? `Mano de obra (${esc(fmtNum(mo.cantidad))} min × ${mo.costoUnit == null ? 'sin costo hora' : '$ ' + fmtMoney(mo.costoUnit) + '/h'})` : 'Mano de obra';
+  return `<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">${parte('Mercadería', mercaderia.subtotal)}<span class="text-gris">+</span>${parte('Insumos', insumos.subtotal)}
+    <span class="text-gris">+</span>${parte(textoMo, mo ? mo.importe : 0)}<span class="text-gris">=</span>${parte('<b>Costo real</b>', c.costoUnidad)}</div>
+    ${(c.avisos || []).includes('costoHora') ? `<p class="text-xs text-warn mt-1">⚠ ${esc(AVISO_COSTO_HORA)}</p>` : ''}`;
 }
 const tdEnv = (que, plu, comp = null, cls = 'num') => `<td class="${cls}" data-env="${esc([que, plu, comp].filter(x => x != null).join('|'))}">${celdaEnv(que, plu, comp)}</td>`;
 
@@ -180,9 +193,10 @@ function htmlFilaPluEnv(p, i) {
       <button type="button" class="env-abrir mr-1 text-gris hover:text-verde" data-plu="${esc(p.plu)}" aria-expanded="${abierto}" aria-label="${abierto ? 'Cerrar' : 'Ver'} insumos de ${esc(p.nombre || p.plu)}">${abierto ? '▾' : '▸'}</button><b class="tabular-nums">${esc(p.plu)}</b></td>
     <td class="text-left">${esc(p.nombre || '')}${p.aviso ? ` <span class="text-warn" title="${esc(p.aviso)}">⚠</span>` : ''}</td>
     <td class="num">${campoU(`<input type="number" min="0" step="any" class="env-kg" data-i="${i}" value="${esc(p.kgPorUnidad ?? '')}" aria-label="Kg de granel por unidad de ${esc(p.nombre || p.plu)}">`, 'kg', { w: 'w-24' })}</td>
+    <td class="num">${campoU(`<input type="number" min="0" step="any" class="env-min" data-i="${i}" value="${esc(p.minutosPorUnidad ?? '')}" placeholder="0" aria-label="Minutos de mano de obra por unidad de ${esc(p.nombre || p.plu)}">`, 'min', { w: 'w-20' })}</td>
     ${tdEnv('costo', p.plu)}${tdEnv('vigente', p.plu)}${tdEnv('sugerido', p.plu)}${tdEnv('estado', p.plu, null, '')}
     <td class="text-right whitespace-nowrap">${precios}${validar}<button type="button" class="env-quitar-plu btn-quitar ml-2" data-i="${i}" aria-label="Quitar ${esc(p.nombre || p.plu)} de la variedad">✕</button></td></tr>`;
-  return fila + (abierto ? `<tr><td colspan="8" class="!p-0">${htmlInsumosEnv(p, i)}</td></tr>` : '');
+  return fila + (abierto ? `<tr><td colspan="9" class="!p-0">${htmlInsumosEnv(p, i)}</td></tr>` : '');
 }
 // Desplegado de un PLU: aviso de la precarga, "a revisar", granel × kg + insumos con su cantidad, buscador de insumos.
 function htmlInsumosEnv(p, i) {
@@ -197,6 +211,7 @@ function htmlInsumosEnv(p, i) {
     <table class="pr-tabla pr-tabla-in"><thead><tr><th>PLU</th><th class="text-left">Insumo</th><th class="num">Cantidad</th><th class="num">Costo unit.</th><th class="num">Importe</th><th class="w-10"></th></tr></thead>
     <tbody><tr class="bg-verde/5"><td class="tabular-nums">${esc(envEd.granelPlu || '')}</td><td class="text-left"><span class="pr-sub">Granel</span>${esc(envEd.granelNombre || '')}</td>
       <td class="num">${esc(fmtNum(p.kgPorUnidad))} kg</td>${tdEnv('unit', p.plu, envEd.granelPlu)}${tdEnv('imp', p.plu, envEd.granelPlu)}<td></td></tr>${filas}</tbody></table>
+    <div class="mt-2" data-env="${esc('desglose|' + p.plu)}">${celdaEnv('desglose', p.plu)}</div>
     <div class="mt-3 flex flex-wrap items-center gap-2"><span class="text-sm text-gris">＋ Agregar insumos (envase, tapa, etiqueta…):</span>${htmlBuscadorSiga('envIns-' + p.plu, 'Buscar insumos en SIGA (podés tildar varios)…')}
       ${envEd.presentaciones.length > 1 ? `<label class="text-xs text-gris flex items-center gap-1"><input type="checkbox" class="env-a-todas accent-verde" data-plu="${esc(p.plu)}"> aplicar a todas las presentaciones de la variedad</label>` : ''}</div></div>`;
 }
@@ -204,9 +219,9 @@ function htmlPlusEnv() {
   if (!envEd.granelPlu) return `<section class="mt-4 rounded-xl border border-borde bg-card p-4"><h3 class="text-sm font-semibold text-ink mb-1">② PLUs a la venta</h3>
     <p class="text-sm text-gris">Elegí el granel de la variedad para agregar sus PLUs.</p></section>`;
   const cuerpo = envEd.presentaciones.length ? envEd.presentaciones.map(htmlFilaPluEnv).join('')
-    : '<tr><td colspan="8" class="p-6 text-center text-gris">Todavía no tiene PLUs: agregalos con el buscador de abajo.</td></tr>';
+    : '<tr><td colspan="9" class="p-6 text-center text-gris">Todavía no tiene PLUs: agregalos con el buscador de abajo.</td></tr>';
   return `<section class="mt-4 rounded-xl border border-borde bg-card p-4"><h3 class="text-sm font-semibold text-ink mb-2">② PLUs a la venta</h3>
-    <table class="pr-tabla"><thead><tr><th class="text-left">PLU</th><th class="text-left">Producto</th><th class="num">Kg por unidad</th><th class="num">Costo</th><th class="num">Vigente</th><th class="num">Sugerido</th><th>Estado</th><th></th></tr></thead>
+    <table class="pr-tabla"><thead><tr><th class="text-left">PLU</th><th class="text-left">Producto</th><th class="num">Kg por unidad</th><th class="num" title="Mano de obra: minutos por unidad × costo hora de Configuración › Costos">Min. por unidad</th><th class="num">Costo</th><th class="num">Vigente</th><th class="num">Sugerido</th><th>Estado</th><th></th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
     <div class="mt-3 flex flex-wrap items-center gap-2"><span class="text-sm text-gris">＋ Agregar PLUs:</span>${htmlBuscadorSiga('envAgregarPlus', 'Buscar en SIGA (ej. MIEL PRADERA) y tildar varios…')}
       <span class="text-xs text-gris">Se precargan desde su fórmula de SIGA (kg del granel e insumos).</span></div>
@@ -291,6 +306,7 @@ function conectarEnvasado() {
     pintarEnvasado();
   });
   panel.querySelectorAll('.env-kg').forEach(inp => inp.addEventListener('input', () => editarPluEnv(Number(inp.dataset.i), p => ({ ...p, kgPorUnidad: numOrNull(inp.value) }))));
+  panel.querySelectorAll('.env-min').forEach(inp => inp.addEventListener('input', () => editarPluEnv(Number(inp.dataset.i), p => ({ ...p, minutosPorUnidad: numOrNull(inp.value) }))));
   panel.querySelectorAll('.env-cant').forEach(inp => inp.addEventListener('input', () => {
     const j = Number(inp.dataset.j);
     editarPluEnv(Number(inp.dataset.i), p => ({ ...p, componentes: p.componentes.map((c, k) => (k === j ? { ...c, cantidad: numOrNull(inp.value) } : c)) }));
