@@ -247,6 +247,9 @@ th[aria-sort]:not([aria-sort="none"]){color:#FFCC00;}
 .ant-tag-primary{background:var(--colorPrimaryBg);border-color:var(--colorPrimaryBorder);color:var(--colorPrimary);}
 .ant-tag-success{background:var(--colorSuccessBg);border-color:var(--colorSuccessBorder);color:var(--colorSuccessText);}
 .ant-tag-warning{background:var(--colorWarningBg);border-color:var(--colorWarningBorder);color:var(--colorWarningText);}
+tr.fila-discontinuada > td{background:var(--colorErrorBg);}
+.alerta-disc{border:1px solid var(--colorErrorBorder);background:var(--colorErrorBg);color:var(--colorErrorText);
+  border-radius:8px;padding:10px 14px;}
 .ant-tag-error{background:var(--colorErrorBg);border-color:var(--colorErrorBorder);color:var(--colorErrorText);}
 .ant-tag-info{background:var(--colorInfoBg);border-color:var(--colorInfoBorder);color:var(--colorInfoText);}
 
@@ -419,6 +422,7 @@ th[aria-sort]:not([aria-sort="none"]){color:#FFCC00;}
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-seguimiento" data-tab="seguimiento">Seguimiento</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-otif" data-tab="otif">OTIF</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-presentaciones" data-tab="presentaciones">Presentaciones</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-discontinuados" data-tab="discontinuados">No trabajar más</button>
   </nav>
 </header>
 
@@ -456,6 +460,7 @@ th[aria-sort]:not([aria-sort="none"]){color:#FFCC00;}
     </div>
   </div>
 
+  <div id="armadoDiscontinuados" class="mt-4 hidden" role="alert"></div>
   <div id="armadoResumen" class="mt-4 stat-cards"></div>
 
   <div class="mt-4 ant-table-wrap ant-table-wrap-tall" style="max-height:calc(100vh - 420px)">
@@ -570,6 +575,29 @@ th[aria-sort]:not([aria-sort="none"]){color:#FFCC00;}
         <th>Producto</th><th>Último proveedor</th><th class="t-r">Últ. compra</th><th>Presentación</th>
       </tr></thead>
       <tbody id="presBody"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── No trabajar más ────────────────────────────────────────────────────────── -->
+<section id="tab-discontinuados" class="tab-panel hidden" role="tabpanel" aria-label="Productos que no se trabajan más">
+  <div class="ant-card">
+    <div class="ant-card-body ant-card-body-sm ant-toolbar">
+      <div class="prov-field">
+        <label class="ant-label" for="discQ">Agregar producto</label>
+        <input id="discQ" class="ant-input w-64" placeholder="Buscar por PLU, nombre o código…" autocomplete="off">
+        <div id="discLista" class="ant-dropdown hidden"></div>
+      </div>
+      <input id="discFiltro" class="ant-input w-64" placeholder="Filtrar la lista…" aria-label="Filtrar productos discontinuados">
+      <span id="discCount" class="num t-sec t-12 pb-2 ml-auto"></span>
+    </div>
+  </div>
+  <div class="mt-4 ant-table-wrap ant-table-wrap-tall">
+    <table class="ant-table">
+      <thead><tr>
+        <th>PLU</th><th>Producto</th><th class="t-r">Desde</th><th>Marcado por</th><th class="t-c"><span class="sr-only">Acciones</span></th>
+      </tr></thead>
+      <tbody id="discBody"></tbody>
     </table>
   </div>
 </section>
@@ -770,6 +798,7 @@ let armado = null;              // respuesta de /api/compras/armado (incluye ult
 const cantidades = {};          // plu -> cantidad tipeada (sobrevive a los re-render por filtro)
 // Compra por bultos: cantidades sigue en la unidad del producto; los bultos son sólo cómo se tipea y se imprime.
 let presentaciones = {};        // plu -> { nombre, unidadesPorBulto } (data/compras_presentaciones.json)
+let discontinuados = {};       // plu -> { nombre, fecha, usuario } (data/compras_discontinuados.json)
 const enUnidades = {};          // plu -> true si el usuario eligió tipear unidades aunque tenga presentación
 let pedidosTodos = [];          // cache de /api/compras/pedidos, compartido por Seguimiento y OTIF
 let pedidoSel = null;           // copia editable del pedido en seguimiento
@@ -884,6 +913,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click
   if (btn.dataset.tab === 'seguimiento') cargarPedidos();
   if (btn.dataset.tab === 'otif') cargarPedidos().then(cargarOtif);
   if (btn.dataset.tab === 'presentaciones') cargarCatalogoPresentaciones();
+  if (btn.dataset.tab === 'discontinuados') renderDiscontinuados();
 }));
 
 // ═══ Tab 1: armar pedido ══════════════════════════════════════════════════════
@@ -1174,12 +1204,13 @@ function renderArmado() {
     const pres = presentaciones[f.plu];
     const bultos = pidePorBultos(f.plu);
     const tUltima = fmt(f.ultimaCantidad) + ' ' + f.unidad + ' a ' + money(f.ultimoPrecio) + (f.ultimaFecha ? ' · ' + f.ultimaFecha : '');
-    return `<tr class="${claseAbc(f.abc)} ${inactivo ? 'fila-inactiva' : ''}"
-        ${inactivo ? 'title="Producto inactivo en SIGA"' : ''}>
+    const disc = discontinuados[f.plu];
+    return `<tr class="${claseAbc(f.abc)} ${inactivo ? 'fila-inactiva' : ''} ${disc ? 'fila-discontinuada' : ''}"
+        ${disc ? `title="${escAttr('No se trabaja más desde ' + disc.fecha)}"` : inactivo ? 'title="Producto inactivo en SIGA"' : ''}>
       <td class="t-c"><input type="checkbox" class="js-chk ant-check" data-plu="${escAttr(f.plu)}"
           aria-label="Incluir ${escAttr(f.nombre)} en el pedido" ${Number(cantidades[f.plu]) > 0 ? 'checked' : ''}></td>
       <td>
-        <div class="prod-nombre">${escAttr(f.nombre)}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}${f.temporal
+        <div class="prod-nombre">${escAttr(f.nombre)}${disc ? ' <span class="ant-tag ant-tag-error">⚠ no trabajar más</span>' : ''}${inactivo ? ' <span class="ant-tag ant-tag-warning">inactivo</span>' : ''}${f.importado ? ' <span class="ant-tag ant-tag-info">importado</span>' : ''}${f.temporal
           ? ` ${f.nuevo
               ? '<span class="ant-tag ant-tag-primary" title="Artículo que todavía no existe en SIGA: sin stock, consumo ni presentación">nuevo</span>'
               : '<span class="ant-tag ant-tag-info" title="Agregado a mano: no es un producto que se le compre a este proveedor">temporal</span>'}
@@ -1231,6 +1262,7 @@ function renderArmado() {
       ? filaVacia(10, 'Sin productos para mostrar', 'Ningún producto del proveedor pasa los filtros activos.')
       : filaVacia(10, 'Este proveedor no tiene compras',
           'No se le compró ningún producto en los últimos 24 meses. Usá ＋ Agregar artículo para armarle el pedido.');
+  renderAlertaDiscontinuados();
   actualizarContador();
 }
 
@@ -1368,6 +1400,107 @@ $('#presBody').addEventListener('click', e => {
 $('#presFiltro').addEventListener('input', renderCatalogoPresentaciones);
 ['#presSoloCargadas', '#presOcultarInactivos'].forEach(sel => $(sel).addEventListener('change', renderCatalogoPresentaciones));
 
+// ---- Productos que no se trabajan más ----
+// Lista manual (PLU + nombre). Si un PLU de la lista aparece en el armado de un
+// proveedor, la fila se marca y arriba sale una alerta con cuáles son.
+async function cargarDiscontinuados() {
+  try {
+    discontinuados = await apiFetch('/api/compras/discontinuados');
+    if (armado) renderArmado();
+    renderDiscontinuados();
+  } catch (e) {
+    avisar('No se pudo cargar la lista de productos que no se trabajan más: ' + e.message, 'Error');
+  }
+}
+
+function renderAlertaDiscontinuados() {
+  const caja = $('#armadoDiscontinuados');
+  const hay = ((armado && armado.filas) || []).filter(f => discontinuados[f.plu]);
+  caja.classList.toggle('hidden', !hay.length);
+  caja.innerHTML = hay.length ? `<div class="alerta-disc">
+      <strong>⚠ ${hay.length === 1 ? 'Este proveedor trae 1 producto' : `Este proveedor trae ${hay.length} productos`} que se decidió no trabajar más:</strong>
+      ${hay.map(f => `<span class="num">${escAttr(f.plu)}</span> ${escAttr(f.nombre)}`).join(' · ')}
+    </div>` : '';
+}
+
+function renderDiscontinuados() {
+  const q = $('#discFiltro').value.trim().toLowerCase();
+  const todos = Object.entries(discontinuados).map(([plu, d]) => ({ plu, ...d }));
+  const filas = todos.filter(d => !q || d.plu.toLowerCase().includes(q) || String(d.nombre).toLowerCase().includes(q))
+    .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'));
+  $('#discCount').textContent = `${filas.length} de ${todos.length} productos`;
+  $('#discBody').innerHTML = filas.length ? filas.map(d => `<tr>
+      <td class="num">${escAttr(d.plu)}</td>
+      <td>${escAttr(d.nombre)}</td>
+      <td class="t-r dato-sec">${escAttr(d.fecha || '—')}</td>
+      <td class="dato-sec">${escAttr(d.usuario || '—')}</td>
+      <td class="t-c"><button class="js-disc-quitar ant-btn ant-btn-link t-12" data-plu="${escAttr(d.plu)}"
+        aria-label="Quitar ${escAttr(d.nombre)} de la lista">quitar</button></td>
+    </tr>`).join('')
+    : filaVacia(5, todos.length ? 'Sin productos para mostrar' : 'Lista vacía',
+        todos.length ? 'Ningún producto pasa el filtro.' : 'Buscá un producto arriba para marcarlo como que no se trabaja más.');
+}
+
+async function guardarDiscontinuado(plu, nombre, borrar) {
+  try {
+    const url = '/api/compras/discontinuados/' + encodeURIComponent(plu);
+    if (borrar) {
+      await apiFetch(url, { method: 'DELETE' });
+      const { [plu]: _borrado, ...resto } = discontinuados;
+      discontinuados = resto;
+    } else {
+      const r = await apiFetch(url, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }),
+      });
+      discontinuados = { ...discontinuados, [plu]: r.item };
+    }
+    renderDiscontinuados();
+    if (armado) renderArmado();
+  } catch (e) {
+    avisar('No se pudo guardar: ' + e.message, 'Error');
+  }
+}
+
+$('#discBody').addEventListener('click', e => {
+  const btn = e.target.closest('.js-disc-quitar');
+  if (btn) guardarDiscontinuado(btn.dataset.plu, null, true);
+});
+$('#discFiltro').addEventListener('input', renderDiscontinuados);
+
+// Buscador: mismo patrón que el de "¿Dónde está este producto?", sin soloCompras
+// (se puede marcar cualquier producto del sistema).
+(function () {
+  const input = $('#discQ'), cont = $('#discLista');
+  let timer = null;
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#discQ') && !e.target.closest('#discLista')) cont.classList.add('hidden');
+  });
+  async function buscar() {
+    const q = input.value.trim();
+    if (q.length < 2) { cont.classList.add('hidden'); return; }
+    try {
+      const lista = (await apiFetch('/api/compras-import/buscar-producto?q=' + encodeURIComponent(q))).productos || [];
+      cont.innerHTML = lista.length
+        ? lista.map(p => `<button class="js-disc-add ant-dropdown-item" data-plu="${escAttr(p.plu)}" data-nombre="${escAttr(p.nombre)}">
+             <span class="block">${escAttr(p.nombre)}${discontinuados[p.plu] ? ' <span class="ant-tag ant-tag-error">ya en la lista</span>' : ''}</span>
+             <span class="block t-12 t-ter num">PLU ${escAttr(p.plu)}${p.activo ? '' : ' · inactivo'}</span>
+           </button>`).join('')
+        : `<div class="ant-dropdown-empty">Ningún producto con ese criterio.</div>`;
+      cont.classList.remove('hidden');
+      cont.querySelectorAll('.js-disc-add').forEach(b => b.addEventListener('click', () => {
+        input.value = '';
+        cont.classList.add('hidden');
+        if (!discontinuados[b.dataset.plu]) guardarDiscontinuado(b.dataset.plu, b.dataset.nombre, false);
+      }));
+    } catch (e) {
+      cont.innerHTML = `<div class="ant-dropdown-empty t-err">${escAttr(e.message)}</div>`;
+      cont.classList.remove('hidden');
+    }
+  }
+})();
+cargarDiscontinuados();
+
 let presentacionPlu = null;
 // f: cualquier objeto con { plu, nombre, unidad } — una fila del armado o del catálogo.
 function abrirPresentacion(f) {
@@ -1467,19 +1600,22 @@ function quitarTemporal(plu) {
   renderArmado();
 }
 // El modal queda abierto después de agregar: así se suman varios artículos de una.
-// Mismo buscador para dos usos: 'armado' suma filas temporales al armado y 'seguimiento'
-// suma una línea "entregado no pedido" al pedido abierto en Seguimiento. Sólo cambian
-// el título, la ayuda y qué hace "Agregar" (el artículo nuevo sin SIGA es sólo del armado).
+// Mismo buscador para tres usos: 'armado' suma filas temporales al armado, 'seguimiento'
+// suma una línea "entregado no pedido" al pedido abierto en Seguimiento y 'pedido' le
+// suma una línea pedida (pedido PENDIENTE). Sólo cambian el título, la ayuda y qué
+// hace "Agregar" (el artículo nuevo sin SIGA es sólo del armado).
 let agregarModo = 'armado';
 function abrirAgregar(modo) {
-  const seg = modo === 'seguimiento';
-  if (!seg && !armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
-  if (seg && !pedidoSel) return;
-  agregarModo = seg ? 'seguimiento' : 'armado';
-  $('#mAgregarTitulo').textContent = seg ? 'Agregar entregado no pedido' : 'Agregar artículo al pedido';
-  $('#agregarAyudaArmado').classList.toggle('hidden', seg);
-  $('#agregarAyudaSeg').classList.toggle('hidden', !seg);
-  $('#agregarNuevoForm').classList.toggle('hidden', seg);
+  const enPedido = modo === 'seguimiento' || modo === 'pedido';
+  if (!enPedido && !armado) return avisar('Cargá un proveedor antes de agregar artículos.', 'Aviso');
+  if (enPedido && !pedidoSel) return;
+  agregarModo = enPedido ? modo : 'armado';
+  $('#mAgregarTitulo').textContent = modo === 'seguimiento' ? 'Agregar entregado no pedido'
+    : modo === 'pedido' ? 'Agregar producto al pedido' : 'Agregar artículo al pedido';
+  // En 'pedido' ninguna de las dos ayudas aplica (ni temporal ni entregado no pedido).
+  $('#agregarAyudaArmado').classList.toggle('hidden', enPedido);
+  $('#agregarAyudaSeg').classList.toggle('hidden', modo !== 'seguimiento');
+  $('#agregarNuevoForm').classList.toggle('hidden', enPedido);
   $('#agregarProdQ').value = '';
   $('#agregarProdLista').innerHTML = estadoVacio('Buscá un artículo', 'Escribí al menos 2 letras del nombre, el PLU o el código de barras.');
   $('#mAgregar').classList.remove('hidden');
@@ -1497,7 +1633,7 @@ $('#mAgregar').addEventListener('click', e => { if (e.target === $('#mAgregar'))
   const input = $('#agregarProdQ'), cont = $('#agregarProdLista');
   let timer = null, lista = [];
   input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscar, 300); });
-  const yaEsta = p => agregarModo === 'seguimiento'
+  const yaEsta = p => agregarModo !== 'armado'
     ? ((pedidoSel && pedidoSel.items) || []).some(l => String(l.plu) === String(p.plu))
     : ((armado && armado.filas) || []).some(f => f.plu === p.plu);
   function pintar() {
@@ -1527,7 +1663,9 @@ $('#mAgregar').addEventListener('click', e => { if (e.target === $('#mAgregar'))
     const b = e.target.closest('.js-agregar');
     if (!b) return;
     const p = lista[Number(b.dataset.i)];
-    if (agregarModo === 'seguimiento') agregarExtraSeguimiento(p); else agregarTemporal(p);
+    if (agregarModo === 'seguimiento') agregarExtraSeguimiento(p);
+    else if (agregarModo === 'pedido') agregarLineaPedida(p);
+    else agregarTemporal(p);
     pintar();
   });
 })();
@@ -1880,7 +2018,7 @@ let segFiltroEstado = 'pendientes';  // pendientes | cerrados | todos
 let segFiltroLinea = 'todas';        // todas | pedido | entregado | faltante
 let segDirty = false;                // hay ediciones en pedidoSel que todavía no se guardaron
 let segGuardando = false;            // PUT en vuelo: evita el doble envío (Ctrl+S repetido)
-let segExtrasQuitados = new Set();   // plu de extras ya guardados que se quitaron: van al server con quitar:true
+let segQuitados = new Set();   // plu de líneas ya guardadas que se quitaron: van al server con quitar:true
 let segCompAbierto = null;           // null = el <details> de comprobantes decide solo; true/false = lo eligió el usuario
 
 async function cargarPedidos(forzar) {
@@ -2033,7 +2171,7 @@ function seleccionarPedido() {
   // Copia profunda de items: se editan en memoria y recién se mandan al Guardar.
   pedidoSel = p ? { ...p, items: (p.items || []).map(i => ({ ...i })) } : null;
   segDirty = false;
-  segExtrasQuitados = new Set();
+  segQuitados = new Set();
   segFiltroLinea = 'todas';
   segCompAbierto = null;
   comprobantesInfo = null;
@@ -2189,16 +2327,33 @@ const esParcial = it => it.estado === 'entregado' && it.cantidadEntregada != nul
 
 // Fila de una línea pedida. Tono, toggles, cantidad y tags los pone actualizarFila():
 // así el mismo código sirve para el render inicial y para el cambio in situ.
-function htmlFilaLinea(it, i, editable) {
-  const dis = editable ? '' : ' disabled';
+// PLU y bultos: aparte para refrescarlo in situ cuando se edita lo pedido.
+function htmlMetaLinea(it) {
   const bultos = it.bultos != null && it.presentacion
     ? ` · <span title="Pedido por bultos">${fmt(it.bultos)} ${escAttr(it.presentacion.nombre)} x ${fmt(it.presentacion.unidadesPorBulto)}</span>` : '';
+  return `${it.nuevo ? 'sin PLU en SIGA' : 'PLU ' + escAttr(it.plu)}${bultos}`;
+}
+// Precio unitario: editable con el pedido PENDIENTE (vacío = sin precio), texto si no.
+function htmlPrecio(it, editable) {
+  return editable
+    ? `<span class="ant-label-in">$</span> <input type="number" min="0" step="any" class="js-precio ant-input ant-input-num" placeholder="—"
+        aria-label="Precio unitario de ${escAttr(it.nombre)}" value="${it.precioUnitario == null ? '' : escAttr(it.precioUnitario)}">`
+    : (it.precioUnitario == null ? '—' : '$' + fmt(it.precioUnitario));
+}
+function htmlFilaLinea(it, i, editable) {
+  const dis = editable ? '' : ' disabled';
+  // Con el pedido PENDIENTE lo pedido todavía se corrige; después es el compromiso y queda de sólo lectura.
+  const pedida = editable
+    ? `<input type="number" min="0" step="any" class="js-cant ant-input ant-input-num"
+        aria-label="Cantidad pedida de ${escAttr(it.nombre)}" value="${escAttr(it.cantidad)}">`
+    : `<span class="dato">${fmt(it.cantidad)}</span>`;
   return `<tr data-i="${i}">
     <td>
       <div class="prod-nombre">${escAttr(it.nombre)}${it.nuevo
         ? ' <span class="ant-tag ant-tag-primary" title="Artículo que no estaba en SIGA al armar el pedido">nuevo</span>' : ''}</div>
-      <div class="prod-meta">${it.nuevo ? 'sin PLU en SIGA' : 'PLU ' + escAttr(it.plu)}${bultos}</div></td>
-    <td class="t-r whitespace-nowrap"><span class="dato">${fmt(it.cantidad)}</span> <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
+      <div class="prod-meta">${htmlMetaLinea(it)}</div></td>
+    <td class="t-r whitespace-nowrap">${pedida} <span class="ant-label-in">${escAttr(it.unidad)}</span></td>
+    <td class="t-r dato-sec whitespace-nowrap">${htmlPrecio(it, editable)}</td>
     <td>
       <div class="flex gap-2">
         <button type="button" class="res-btn res-ok js-res" data-res="entregado"${dis}
@@ -2212,6 +2367,8 @@ function htmlFilaLinea(it, i, editable) {
         aria-label="Cantidad entregada de ${escAttr(it.nombre)}">
       <div class="js-parcial"></div></td>
     <td><input class="js-obs ant-input" aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}"${dis}></td>
+    ${editable ? `<td class="t-r"><button type="button" class="ant-btn ant-btn-sm ant-btn-danger js-quitar-linea"
+      aria-label="Quitar ${escAttr(it.nombre)} del pedido">Quitar</button></td>` : ''}
   </tr>`;
 }
 function actualizarParcial(tr, it) {
@@ -2239,7 +2396,7 @@ function htmlFilaExtra(it, i, editable) {
       <input type="number" min="0" step="0.01" class="js-extra-cant ant-input ant-input-num"
         aria-label="Cantidad entregada de ${escAttr(it.nombre)}" value="${it.cantidadEntregada == null ? '' : escAttr(it.cantidadEntregada)}"${dis}>
       <span class="ant-label-in">${escAttr(it.unidad || '')}</span></td>
-    <td class="t-r dato-sec">${it.precioUnitario == null ? '—' : '$' + fmt(it.precioUnitario)}</td>
+    <td class="t-r dato-sec whitespace-nowrap">${htmlPrecio(it, editable)}</td>
     <td><input class="js-obs ant-input" aria-label="Observación de ${escAttr(it.nombre)}" value="${escAttr(it.obs || '')}"${dis}></td>
     <td class="t-r">${editable ? `<button type="button" class="ant-btn ant-btn-sm ant-btn-danger js-quitar-extra">Quitar</button>` : ''}</td>
   </tr>`;
@@ -2298,16 +2455,17 @@ function renderSeguimiento() {
       <div id="segFiltroLineas" class="ant-seg" role="group" aria-label="Filtrar líneas">
         ${FILTROS_LINEA.map(([v, t]) => `<button type="button" data-filtro="${v}" aria-pressed="${segFiltroLinea === v}">${t}<span class="seg-cnt num" data-cnt="${v}"></span></button>`).join('')}
       </div>
-      ${editable ? '<button type="button" id="btnMarcarTodas" class="ant-btn ant-btn-sm ant-btn-success ml-auto">✓ Marcar pendientes como entregadas</button>' : ''}
+      ${editable ? `<button type="button" id="btnMarcarTodas" class="ant-btn ant-btn-sm ant-btn-success ml-auto">✓ Marcar pendientes como entregadas</button>
+        <button type="button" id="btnAgregarPedido" class="ant-btn ant-btn-sm">+ Agregar producto</button>` : ''}
     </div>
     <div class="ant-table-wrap ant-table-wrap-plain">
       <table class="ant-table">
         <thead><tr>
-          <th>Producto</th><th class="t-r">Pedida</th><th style="width:250px">Resultado</th>
-          <th class="t-r">Entregada</th><th>Observación</th>
+          <th>Producto</th><th class="t-r">Pedida</th><th class="t-r">Precio unit.</th><th style="width:250px">Resultado</th>
+          <th class="t-r">Entregada</th><th>Observación</th>${editable ? '<th></th>' : ''}
         </tr></thead>
         <tbody id="segLineasBody">${lineas.map(([it, i]) => htmlFilaLinea(it, i, editable)).join('')}
-          <tr id="segLineasVacio" class="hidden"><td colspan="5" class="td-empty">${estadoVacio('Ninguna línea con este filtro', 'Elegí otro filtro para ver el resto.')}</td></tr></tbody>
+          <tr id="segLineasVacio" class="hidden"><td colspan="${editable ? 7 : 6}" class="td-empty">${estadoVacio('Ninguna línea con este filtro', 'Elegí otro filtro para ver el resto.')}</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -2413,7 +2571,7 @@ function agregarExtraSeguimiento(p) {
   const plu = String(p.plu);
   if (pedidoSel.items.some(l => String(l.plu) === plu)) return;
   // Si era un extra guardado que se había quitado, ahora se actualiza en vez de borrarse.
-  segExtrasQuitados.delete(plu);
+  segQuitados.delete(plu);
   pedidoSel.items = [...pedidoSel.items, {
     plu, nombre: p.nombre, unidad: p.unidad || '', cantidad: 0, precioUnitario: null,
     cantidadEntregada: 1, estado: 'extra', obs: '',
@@ -2422,12 +2580,33 @@ function agregarExtraSeguimiento(p) {
   renderSeguimiento();
 }
 
+// Línea pedida nueva desde el modal Agregar (modo pedido): entra con 1 y sin precio,
+// después se ajusta en la tabla.
+function agregarLineaPedida(p) {
+  if (!pedidoSel || pedidoSel.estado !== 'PENDIENTE' || !p) return;
+  const plu = String(p.plu);
+  if (pedidoSel.items.some(l => String(l.plu) === plu)) return;
+  // Si era una línea guardada que se había quitado, ahora se actualiza en vez de borrarse.
+  segQuitados.delete(plu);
+  pedidoSel.items = [...pedidoSel.items, {
+    // Arranca con el costo de sistema (si SIGA lo tiene); se corrige a mano en la tabla.
+    plu, nombre: p.nombre, unidad: p.unidad || '', cantidad: 1, precioUnitario: p.costoSistema ?? null,
+    cantidadEntregada: null, estado: 'pedido', obs: '',
+  }];
+  marcarDirty();
+  renderSeguimiento();
+}
+
 // Si la línea ya estaba guardada, el server tiene que enterarse (quitar:true al Guardar);
-// si se agregó en esta edición, alcanza con sacarla del array.
-function quitarExtra(i) {
+// si se agregó en esta edición, alcanza con sacarla del array. Una línea pedida se
+// confirma antes: es sacar un producto del pedido, no un ajuste de la entrega.
+async function quitarLinea(i) {
   const it = pedidoSel.items[i];
+  if (it.estado !== 'extra' && !(await confirmar(`¿Quitar ${it.nombre} del pedido?`, 'Quitar producto'))) return;
+  // Mientras el modal estaba abierto pudo cambiar el pedido abierto.
+  if (!pedidoSel || pedidoSel.items[i] !== it) return;
   const guardado = pedidosTodos.find(x => x.numero === pedidoSel.numero);
-  if (guardado && (guardado.items || []).some(l => String(l.plu) === String(it.plu))) segExtrasQuitados.add(String(it.plu));
+  if (guardado && (guardado.items || []).some(l => String(l.plu) === String(it.plu))) segQuitados.add(String(it.plu));
   pedidoSel.items = pedidoSel.items.filter((_, k) => k !== i);
   marcarDirty();
   renderSeguimiento();
@@ -2449,6 +2628,7 @@ async function anularPedido() {
 const ACCIONES_SEG = {
   btnMarcarTodas: marcarPendientesEntregadas,
   btnAgregarExtra: () => abrirAgregar('seguimiento'),
+  btnAgregarPedido: () => abrirAgregar('pedido'),
   btnAplicarComprobantes: () => aplicarYVincularComprobantes(),
   btnAmpliarVentana: () => cambiarVentana(30),
   btnVentanaNormal: () => cambiarVentana(0),
@@ -2470,8 +2650,8 @@ $('#segDetalle').addEventListener('click', e => {
     aplicarFiltroLineas();
     return;
   }
-  const quitar = t.closest('.js-quitar-extra');
-  if (quitar) { quitarExtra(Number(quitar.closest('tr').dataset.i)); return; }
+  const quitar = t.closest('.js-quitar-extra, .js-quitar-linea');
+  if (quitar) { quitarLinea(Number(quitar.closest('tr').dataset.i)); return; }
   const prev = t.closest('.js-toggle-preview');
   if (prev) {
     const clave = prev.dataset.clave;
@@ -2495,6 +2675,19 @@ $('#segDetalle').addEventListener('input', e => {
   } else if (t.classList.contains('js-extra-cant')) {
     // Un extra no tiene "lo pedido" contra qué acotar: lo entregado es libre.
     it.cantidadEntregada = v === '' ? null : Math.max(0, Number(v));
+  } else if (t.classList.contains('js-cant')) {
+    // Lo pedido sólo toma números > 0; lo inválido se descarta y el 'change' restaura el valor.
+    const n = Number(v);
+    if (v === '' || !Number.isFinite(n) || n <= 0) return;
+    it.cantidad = n;
+    tr.querySelector('.js-entregada').max = n;
+    if (it.cantidadEntregada != null && it.cantidadEntregada > n) it.cantidadEntregada = n;
+    actualizarFila(tr, it);
+  } else if (t.classList.contains('js-precio')) {
+    // Vacío o 0 = sin precio, igual que en el server.
+    const n = Number(v);
+    if (v !== '' && (!Number.isFinite(n) || n < 0)) return;
+    it.precioUnitario = v === '' || n === 0 ? null : n;
   } else if (t.classList.contains('js-obs')) it.obs = t.value;
   else if (t.id === 'segObs') pedidoSel.observacion = t.value;
   else if (t.id === 'segEstimada') pedidoSel.fechaEstimada = t.value || null;
@@ -2505,9 +2698,19 @@ $('#segDetalle').addEventListener('input', e => {
 // Al salir del input se muestra el valor ya acotado (ej. tipeó 12 con 10 pedidas → 10).
 $('#segDetalle').addEventListener('change', e => {
   const t = e.target;
-  if (!pedidoSel || !t.matches('.js-entregada, .js-extra-cant')) return;
-  const it = pedidoSel.items[Number(t.closest('tr').dataset.i)];
-  t.value = it.cantidadEntregada == null ? '' : it.cantidadEntregada;
+  if (!pedidoSel || !t.matches('.js-entregada, .js-extra-cant, .js-cant, .js-precio')) return;
+  const tr = t.closest('tr');
+  const it = pedidoSel.items[Number(tr.dataset.i)];
+  if (t.classList.contains('js-precio')) { t.value = it.precioUnitario == null ? '' : it.precioUnitario; return; }
+  if (!t.classList.contains('js-cant')) { t.value = it.cantidadEntregada == null ? '' : it.cantidadEntregada; return; }
+  // Misma regla que el server (editarLinea): si lo pedido no da bultos enteros, la línea deja de ir por bultos.
+  if (it.bultos != null && it.presentacion) {
+    const bultos = Math.round(it.cantidad / it.presentacion.unidadesPorBulto * 1000) / 1000;
+    if (Number.isInteger(bultos) && bultos > 0) it.bultos = bultos;
+    else { delete it.bultos; delete it.presentacion; }
+  }
+  t.value = it.cantidad;
+  tr.querySelector('.prod-meta').innerHTML = htmlMetaLinea(it);
 });
 // Ctrl+S guarda el pedido abierto. En la pestaña Seguimiento nunca abre el
 // "Guardar como" del navegador, aunque el pedido no sea editable.
@@ -2538,14 +2741,17 @@ async function enviarSeguimiento(estado) {
     fechaRetiro: $('#segRetiro').value || null,
     observacion: $('#segObs').value,
     items: [
-      // nombre/unidad/precioUnitario sólo los usa el server para una línea 'extra'
-      // nueva (aplicarLineas los ignora en las líneas que ya existen en el pedido).
+      // nombre/unidad sólo los usa el server para una línea nueva. cantidad (de las
+      // pedidas) y precioUnitario sólo se aplican con el pedido PENDIENTE; si no,
+      // aplicarLineas los ignora.
       ...pedidoSel.items.map(it => ({
         plu: it.plu, nombre: it.nombre, unidad: it.unidad, precioUnitario: it.precioUnitario,
+        ...(it.estado !== 'extra' ? { cantidad: it.cantidad } : {}),
+        ...(it.nuevo === true ? { nuevo: true } : {}),
         estado: it.estado, cantidadEntregada: it.cantidadEntregada, obs: it.obs || '',
       })),
-      // Extras ya guardados que se quitaron en esta edición: el server los borra.
-      ...[...segExtrasQuitados].map(plu => ({ plu, estado: 'extra', quitar: true })),
+      // Líneas ya guardadas que se quitaron en esta edición: el server las borra.
+      ...[...segQuitados].map(plu => ({ plu, quitar: true })),
     ],
   };
   if (estado) cuerpo.estado = estado;
@@ -2559,7 +2765,7 @@ async function enviarSeguimiento(estado) {
     if (pedidoSel && pedidoSel.numero === numero) {
       pedidoSel = { ...r.pedido, items: (r.pedido.items || []).map(x => ({ ...x })) };
       segDirty = false;
-      segExtrasQuitados = new Set();
+      segQuitados = new Set();
       renderSeguimiento();
     }
     renderListaPedidos();
@@ -2632,7 +2838,7 @@ function aplicarComparacionAPedido(comparacion) {
         precioUnitario: fila.precioUnitario, cantidadEntregada: fila.cargado,
         estado: 'extra', obs: '',
       });
-      segExtrasQuitados.delete(String(fila.plu));   // si se había quitado a mano, la factura lo trae de vuelta
+      segQuitados.delete(String(fila.plu));   // si se había quitado a mano, la factura lo trae de vuelta
     }
   }
   if (!pedidoSel.fechaRetiro) {

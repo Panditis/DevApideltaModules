@@ -1057,6 +1057,8 @@ function leerPedidosCompra()          { return leerJSON(PEDIDOS_COMPRA_PATH, { p
 function guardarPedidosCompra(lista)  { guardarJSON(PEDIDOS_COMPRA_PATH, { pedidos: lista }); }
 // plu → { nombre, unidadesPorBulto }: cómo viene empaquetado cada producto para pedirlo por bultos.
 const PRESENTACIONES_COMPRA_PATH = path.join(DATA_DIR, 'compras_presentaciones.json');
+// plu → { nombre, fecha, usuario }: productos que se decidió no trabajar más (alerta en el armado).
+const DISCONTINUADOS_COMPRA_PATH = path.join(DATA_DIR, 'compras_discontinuados.json');
 const DISTRIB_CONFIG_PATH = path.join(DATA_DIR, 'distribucion_config.json');
 const A8020_CALC_PATH = path.join(DATA_DIR, 'a8020_calc.json');
 // Top 20 prioritarios (por facturación, últimos 30 días): lo genera Análisis de Ventas
@@ -2526,6 +2528,7 @@ const comprasRouter = require('./routes/rutas_compras')({
   sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
   leerPedidosCompra, guardarPedidosCompra,
   PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH, PRESENTACIONES_COMPRA_PATH,
+  DISCONTINUADOS_COMPRA_PATH,
 });
 app.use(comprasRouter.router);
 // Grabación real de compras en SIGA (transacción de 14 escrituras, ver
