@@ -62,6 +62,12 @@ test('listadoReventa: un sugerido por fuente con costo, pack/bulto vinculados, �
   assert.deepStrictEqual(f.decision, { fuente: 'ultimaCompra', fecha: '2026-10-07' });
 });
 
+test('listadoReventa: excluir saca los PLUs de venta de Producción (no se duplican en Reventa)', () => {
+  const universo = [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }, { plu: '2280', nombre: 'Miel 500', costoSistema: 900 }];
+  const base = { universo, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG };
+  assert.deepStrictEqual(L.listadoReventa(base).map(f => f.plu), ['1', '2280']);
+  assert.deepStrictEqual(L.listadoReventa({ ...base, excluir: new Set(['2280']) }).map(f => f.plu), ['1']);
+});
 test('listadoReventa: costo manual agrega la fuente manual; sin costos → sin sugeridos', () => {
   const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
   const [a, b] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'A', costoSistema: 1000 }, { plu: '2', nombre: 'B' }], vigentes: new Map(),

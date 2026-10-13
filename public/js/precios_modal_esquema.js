@@ -231,16 +231,19 @@ const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-
 const pasoEspecialMd = c => (c.margenEspecialPct
   ? ['', `incluye margen especial del producto ${c.margenEspecialPct > 0 ? '+' : ''}${pctMd(c.margenEspecialPct)} (general ${pctMd(c.margenPct - c.margenEspecialPct)})`, null]
   : null);
-// Envasado Apidelta: de dónde sale el costo por unidad (granel × kg + cada empaque). Sólo viene con el permiso.
+// Producción: de dónde sale el costo por unidad. Envasado Apidelta: granel × kg + cada empaque; receta: cada materia prima
+// llevada a una unidad (rol 'mp'). Sólo viene con el permiso.
+const cantMd = n => (n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n)); // MP por unidad: 4 decimales
 function htmlCostoEnvasadoMd(f) {
   const unit = c => (c.costoUnit == null ? 'sin costo' : `$ ${fmtMoney(c.costoUnit)}`);
-  return htmlPasos('Costo por unidad (envasado)', [
+  const receta = f.tipoProduccion !== 'envasado';
+  return htmlPasos(receta ? 'Costo por unidad (materias primas de la receta)' : 'Costo por unidad (envasado)', [
     ...f.componentesCosto.map((c, i) => [i ? '+' : '', c.rol === 'granel'
-      ? `Granel ${c.nombre || c.plu} · ${fmtNum(c.cantidad)} kg × ${unit(c)}/kg` : `${c.nombre || c.plu} · ${fmtNum(c.cantidad)} × ${unit(c)}`, c.importe]),
+      ? `Granel ${c.nombre || c.plu} · ${cantMd(c.cantidad)} kg × ${unit(c)}/kg` : `${c.nombre || c.plu} · ${cantMd(c.cantidad)} × ${unit(c)}`, c.importe]),
     ['=', 'Costo de mercadería', f.costoSistema]]);
 }
 function htmlDesgloseEsq(f) {
-  const bloques = Array.isArray(f.componentesCosto) ? [htmlCostoEnvasadoMd(f)] : [];
+  const bloques = Array.isArray(f.componentesCosto) && f.componentesCosto.length ? [htmlCostoEnvasadoMd(f)] : [];
   const de = (fila, titulo) => {
     const s = (fila.sugeridos || {})[mdFuente];
     if (!s || !s.desglose) return;

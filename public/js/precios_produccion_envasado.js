@@ -166,12 +166,14 @@ const tdEnv = (que, plu, comp = null, cls = 'num') => `<td class="${cls}" data-e
 function htmlFilaPluEnv(p, i) {
   const abierto = envAbiertos.has(p.plu);
   const validar = envEd.id && guardadoEnv(p.plu) ? `<button type="button" class="env-validar text-xs text-verde underline underline-offset-2" data-plu="${esc(p.plu)}" title="Guarda el costo actual de este PLU">Validar</button>` : '';
+  // PLU ya guardado: modal de precios por canal (decisión "Aumentar"), el mismo del listado (precios_modal_esquema.js).
+  const precios = envEd.id && guardadoEnv(p.plu) ? `<button type="button" class="env-precios cfg-btn2 mr-2" data-plu="${esc(p.plu)}">Precios</button>` : '';
   const fila = `<tr class="${abierto ? 'bg-verde/5' : ''}"><td class="text-left whitespace-nowrap">
       <button type="button" class="env-abrir mr-1 text-gris hover:text-verde" data-plu="${esc(p.plu)}" aria-expanded="${abierto}" aria-label="${abierto ? 'Cerrar' : 'Ver'} insumos de ${esc(p.nombre || p.plu)}">${abierto ? '▾' : '▸'}</button><b class="tabular-nums">${esc(p.plu)}</b></td>
     <td class="text-left">${esc(p.nombre || '')}${p.aviso ? ` <span class="text-warn" title="${esc(p.aviso)}">⚠</span>` : ''}</td>
     <td class="num">${campoU(`<input type="number" min="0" step="any" class="env-kg" data-i="${i}" value="${esc(p.kgPorUnidad ?? '')}" aria-label="Kg de granel por unidad de ${esc(p.nombre || p.plu)}">`, 'kg', { w: 'w-24' })}</td>
     ${tdEnv('costo', p.plu)}${tdEnv('vigente', p.plu)}${tdEnv('sugerido', p.plu)}${tdEnv('estado', p.plu, null, '')}
-    <td class="text-right whitespace-nowrap">${validar}<button type="button" class="env-quitar-plu btn-quitar ml-2" data-i="${i}" aria-label="Quitar ${esc(p.nombre || p.plu)} de la variedad">✕</button></td></tr>`;
+    <td class="text-right whitespace-nowrap">${precios}${validar}<button type="button" class="env-quitar-plu btn-quitar ml-2" data-i="${i}" aria-label="Quitar ${esc(p.nombre || p.plu)} de la variedad">✕</button></td></tr>`;
   return fila + (abierto ? `<tr><td colspan="8" class="!p-0">${htmlInsumosEnv(p, i)}</td></tr>` : '');
 }
 // Desplegado de un PLU: aviso de la precarga, "a revisar", granel × kg + insumos con su cantidad, buscador de insumos.
@@ -294,6 +296,7 @@ function conectarEnvasado() {
     editarEnv({ presentaciones: envEd.presentaciones.filter((_, k) => k !== i) }, true);
   });
   envEd.presentaciones.forEach(conectarInsumosEnv);
+  panel.querySelectorAll('.env-precios').forEach(b => b.onclick = () => abrirModalEsquema('produccion', b.dataset.plu)); // precios_modal_esquema.js
   panel.querySelectorAll('.env-validar').forEach(b => b.onclick = e => validarEnv({ tipo: 'presentacion', id: b.dataset.plu }, e.currentTarget));
   const validarTodo = document.getElementById('envValidarTodo');
   if (validarTodo) validarTodo.onclick = e => validarEnv({ tipo: 'todo' }, e.currentTarget);

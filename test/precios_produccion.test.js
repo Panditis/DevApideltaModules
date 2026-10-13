@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const {
   recetaEfectiva, costearReceta, costearPresentacion, costearProducto, detectarCambios, resumenAlertas, snapshotDe,
   validarProducto, validarMargenEspecial, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
-  limpiarRecetas,
+  limpiarRecetas, plusVentaProduccion,
 } = require('../lib/precios_produccion');
 
 // costoDe inyectado: Map plu → costo. Sin entrada = sin costo (null), nunca 0.
@@ -97,6 +97,14 @@ test('costearPresentacion: costo por unidad = costo/kg de la receta × kg por un
   assert.strictEqual(presentar({ presentacion: { ...PRES, insumos: [{ plu: '6334', cantidad: 1 }], minutosEmpaquetado: 1, correccionPct: 5 } }).costoUnidad, 310);
 });
 
+test('costearPresentacion: materias primas de la receta llevadas a UNA unidad (kg por unidad ÷ kg útiles de la tanda)', () => {
+  // 0,5 kg de una tanda de 10 kg útiles → × 0,05: 5 kg × 400 = 2000 → 0,25 kg / $ 100; 1,5 kg × 2800 = 4200 → 0,075 kg / $ 210
+  assert.deepStrictEqual(presentar().materiasPrimas.map(l => [l.rol, l.plu, l.cantidad, l.costoUnit, l.importe]),
+    [['mp', '300', 0.25, 400, 100], ['mp', '7067', 0.075, 2800, 210]]);
+  const conMerma = presentar({ recetaCosteada: costear({ ...BASE, mermaPct: 50 }) }); // 5 kg útiles → × 0,1
+  assert.deepStrictEqual(conMerma.materiasPrimas.map(l => l.importe), [200, 420]);
+  assert.deepStrictEqual(presentar({ recetaCosteada: undefined }).materiasPrimas, []);
+});
 test('costearPresentacion: hereda faltantes de la receta; sin receta o sin kg → faltante', () => {
   const recetaCosteada = costear(BASE, { costoDe: costosDe({ ...COSTOS, 300: null }) });
   assert.deepStrictEqual(presentar({ recetaCosteada }).faltantes, ['300']);
@@ -558,4 +566,16 @@ test('validarPresentacion: un PLU de una variedad envasada tampoco se puede usar
 test('limpiarRecetas: no toca los envasados (sus snapshots tienen granel e insumos)', () => {
   const pr = { ...PRADERA, presentaciones: { 9001: { ...PRADERA.presentaciones['9001'], validado: { fecha: 'f', costoUnidad: 1625, costos: { 7067: 2800 } } } } };
   assert.strictEqual(limpiarRecetas({ productos: { 'p-miel': pr } }), null);
+});
+
+// ── PLUs de venta de Producción (no se duplican en Reventa) ──
+test('plusVentaProduccion: presentaciones de recetas y PLUs envasados (también el formato viejo de un PLU); no materias primas ni granel', () => {
+  const productos = {
+    'p-granola': { nombre: 'Granola', recetas: { base: BASE }, presentaciones: { 6319: PRES, 6320: PRES } },
+    'p-miel': { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera', granelPlu: '9710', presentaciones: { 2280: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] } } },
+    'p-vieja': { tipo: 'envasado', nombre: 'Miel Azahar', plu: '2290', granelPlu: '9711', kgPorUnidad: 1, componentes: [] },
+    'p-vacio': null,
+  };
+  assert.deepStrictEqual([...plusVentaProduccion(productos)].sort(), ['2280', '2290', '6319', '6320']);
+  assert.deepStrictEqual([...plusVentaProduccion(undefined)], []);
 });

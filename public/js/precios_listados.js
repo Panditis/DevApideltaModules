@@ -88,7 +88,8 @@ function celdaUltima(f) {
 const celdaDeltaUltima = f => (f.deltaUltimaPct == null ? '<span class="text-gris">—</span>'
   : `<span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`);
 const badgeDecision = (f, tipo) => { const t = etiquetaDecision(f, tipo); return t ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-verde/15 text-verde whitespace-nowrap" title="Decidido: se exporta">${esc(t)}</span>` : ''; };
-// Clic en el nombre = modal del producto, donde se elige el costo (y con eso la decisión).
+// Clic en el nombre = modal del producto, donde se elige el costo (y con eso la decisión). Producción además tiene el botón
+// "Precios" a la vista (el nombre solo no se veía clickeable).
 const botonNombre = (f, tipo) => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeDecision(f, tipo)}`;
 
 function filaHtml(f, tipo) {
@@ -99,7 +100,7 @@ function filaHtml(f, tipo) {
       <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
       <td class="p-2 num">${vigenteTxt(f.vigente)}</td><td class="p-2 num">${celdaPrecio(f.sugeridos.sistema)}</td>
       <td class="p-2">${rev ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn" title="${esc(f.aRevisar.map(x => textoRevisar([x])).join('\n'))}">⚠ ${esc(rev)}</span>` : ''}</td>
-      <td class="p-2">${f.tipoProduccion === 'envasado'
+      <td class="p-2 whitespace-nowrap"><button type="button" class="lst-abrir cfg-btn2 mr-2" data-plu="${esc(f.plu)}">Precios</button>${f.tipoProduccion === 'envasado'
         ? `<a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}/${encodeURIComponent(f.plu)}">Editar</a>`
         : `<a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a>`}</td></tr>`;
   }

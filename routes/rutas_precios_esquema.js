@@ -5,6 +5,7 @@ const cfgEsq = require('../lib/precios_config_esquema');
 const { rangoDesdeCostos } = require('../lib/precios_esquema');
 const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
+const { plusVentaProduccion } = require('../lib/precios_produccion');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
 const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
 
@@ -28,7 +29,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
 
   // Presentaciones de Producción con su costo por unidad y "a revisar" (el mismo costearTodos que la tab Producción).
   // Cada PLU de una variedad envasada es una presentación más, marcada tipoProduccion 'envasado', con granel + insumos y su
-  // familia › variedad (grupo del listado).
+  // familia › variedad (grupo del listado). Las de receta llevan sus materias primas por unidad ("Ver detalle" del modal).
   async function presentacionesProduccion(costeo) {
     const datos = normalizarDatos(leerJSON(RECETAS_PATH, {}));
     const costos = await consultas.costosPorPlu(plusUsados(datos.productos));
@@ -36,7 +37,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return Object.entries(costeados).flatMap(([productoId, c]) => Object.entries(c.presentaciones || {})
       .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad, aRevisar: p.revisar,
         margenExtra: datos.productos[productoId].margenEspecial || null,
-        ...(c.tipo === 'envasado' ? { tipoProduccion: 'envasado', componentesCosto: p.componentes, familia: datos.productos[productoId].familia || '', variedad: c.nombre } : {}) })));
+        ...(c.tipo === 'envasado' ? { tipoProduccion: 'envasado', componentesCosto: p.componentes, familia: datos.productos[productoId].familia || '', variedad: c.nombre }
+          : { componentesCosto: p.materiasPrimas }) })));
   }
 
   // Valida con validar(req) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir).
@@ -70,7 +72,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   async function listado(tipo, costeo) {
     if (tipo === 'almacen') {
       const [ctx, universo] = await Promise.all([contexto(costeo), consultas.universoAlmacen()]);
-      return L.listadoReventa({ universo, costeo, ...ctx });
+      const excluir = plusVentaProduccion(normalizarDatos(leerJSON(RECETAS_PATH, {})).productos);
+      return L.listadoReventa({ universo, costeo, excluir, ...ctx });
     }
     if (tipo === 'fraccionado') {
       const formulas = formulasPesables();

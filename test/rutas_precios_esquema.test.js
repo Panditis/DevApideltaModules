@@ -225,3 +225,44 @@ test('decisión: DELETE /decisiones/mias borra sólo las del usuario de la sesi�
     assert.deepStrictEqual(await a.pedir('DELETE', '/api/precios/decisiones/mias'), { borradas: 0 });
   } finally { a.cerrar(); }
 });
+
+// ── Producción en el modal: el detalle resuelve PLUs de receta y de envasado (granel + insumos) ──
+const COSTOS_ENV = { ...COSTOS_FALSOS, 9710: ['Miel granel', 2420], 6334: ['Frasco 500', 363] };
+const sigaEnv = async (sql) => {
+  const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
+  if (ids) return ids.match(/\w+/g).filter(id => COSTOS_ENV[id]).map(id => ({ IdProducto: id, NombreProducto: COSTOS_ENV[id][0], CostoSistema: COSTOS_ENV[id][1], IvaCompraPct: 21 }));
+  return sigaFalso(sql);
+};
+const RECETAS_ENV = { productos: { ...ARCHIVOS_FALSOS['recetas_produccion.json'].productos,
+  'p-miel': { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera', granelPlu: '9710', presentaciones: { 2280: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] } } } } };
+
+test('detalle Producción: PLU de receta y PLU envasado con sugerido; el envasado trae granel + insumos', async () => {
+  const a = appCon(MIGRADO, { query: sigaEnv, archivos: { ...ARCHIVOS_FALSOS, 'recetas_produccion.json': RECETAS_ENV } });
+  try {
+    const r = await a.pedir('GET', '/api/precios/esquema/detalle/6319?tipo=produccion');
+    assert.ok(r.sugeridos.sistema.minorista.precio > 0, JSON.stringify(r));
+    assert.ok(r.sugeridos.sistema.desglose);
+    assert.deepStrictEqual(r.componentesCosto.map(c => [c.rol, c.plu, c.importe]), [['mp', '300', 330.58]]); // materias primas por unidad
+    const e = await a.pedir('GET', '/api/precios/esquema/detalle/2280?tipo=produccion');
+    assert.ok(e.sugeridos.sistema.minorista.precio > 0, JSON.stringify(e));
+    assert.strictEqual(e.tipoProduccion, 'envasado');
+    assert.deepStrictEqual(e.componentesCosto.map(c => [c.rol, c.plu]), [['granel', '9710'], ['empaque', '6334']]);
+  } finally { a.cerrar(); }
+});
+
+test('Reventa sin los PLUs de venta de Producción: ni listado, ni decisión como Reventa, ni export doble; la MP sigue costeando', async () => {
+  // 6319 (presentación de receta) y 2280 (envasado) también están en el rubro Almacen de SIGA; 300 (materia prima) también.
+  const almacen = ['1', '6319', '2280', '300'].map(id => ({ IdProducto: id, NombreProducto: `P${id}`, CostoSistema: 1210, IvaCompraPct: 21 }));
+  const query = async sql => (sql.includes("NombreRubro = 'Almacen'") ? almacen : sigaEnv(sql));
+  const a = appCon(MIGRADO, { query, archivos: { ...ARCHIVOS_FALSOS, 'recetas_produccion.json': RECETAS_ENV } });
+  try {
+    const { filas } = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+    assert.deepStrictEqual(filas.map(f => f.plu).sort(), ['1', '300']);
+    assert.match((await a.pedir('GET', '/api/precios/esquema/detalle/6319?tipo=almacen')).error, /no encontrado/);
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/6319', { fuente: 'sistema' })).decision.fuente, 'sistema'); // como Producción
+    const e = await a.pedir('GET', '/api/precios/esquema/export');
+    assert.strictEqual(e.listas.minorista.filter(r => r[0] === '6319').length, 1); // una sola vez
+    const p = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=produccion')).filas.find(f => f.plu === '6319');
+    assert.strictEqual(p.costoSistema, 330.58); // la materia prima 300 sigue con su costo
+  } finally { a.cerrar(); }
+});
