@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo } = require('../public/js/precios_listados.js');
+const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase } = require('../public/js/precios_listados.js');
 
 test('etiquetaDecision: badge de la fila decidida con su fuente; sin decisión → null; Producción = aumentar', () => {
   assert.strictEqual(etiquetaDecision({ decision: null }, 'almacen'), null);
@@ -86,4 +86,29 @@ test('ordenSinNulo: el ciclo de siguienteOrden (asc → desc → null) acá alte
   assert.deepStrictEqual(clic('vigente'), { clave: 'vigente', dir: 'asc' });
   assert.deepStrictEqual(clic('vigente'), { clave: 'vigente', dir: 'desc' });
   assert.deepStrictEqual(clic('vigente'), { clave: 'vigente', dir: 'asc' });
+});
+
+test('filasDeClase: Producción separa Con receta (default) y Envasado Apidelta; otras tabs sin filtro', () => {
+  const filas = [{ plu: '1' }, { plu: '2', tipoProduccion: 'receta' }, { plu: '3', tipoProduccion: 'envasado' }];
+  assert.deepStrictEqual(filasDeClase(filas, 'receta').map(f => f.plu), ['1', '2']);
+  assert.deepStrictEqual(filasDeClase(filas, 'envasado').map(f => f.plu), ['3']);
+  assert.strictEqual(filasDeClase(filas, null), filas);
+});
+
+test('agruparEnvasado: Familia › Variedad (A→Z, sin familia al final) con sus PLUs en el orden recibido; vacías sólo sin búsqueda', () => {
+  const { agruparEnvasado } = require('../public/js/precios_listados.js');
+  const fila = (plu, productoId, familia, variedad) => ({ plu, productoId, familia, variedad, nombre: plu });
+  const filas = [fila('3', 'p-az', 'Miel', 'Azahar'), fila('1', 'p-pr', 'Miel', 'Pradera'), fila('2', 'p-az', 'Miel', 'Azahar'), fila('9', 'p-x', '', 'Suelta'), fila('5', 'p-dl', 'Dulces', 'Leche')];
+  const variedades = [{ id: 'p-pr', familia: 'Miel', nombre: 'Pradera' }, { id: 'p-az', familia: 'Miel', nombre: 'Azahar' }, { id: 'p-nueva', familia: 'Miel', nombre: 'Monte' },
+    { id: 'p-dl', familia: 'Dulces', nombre: 'Leche' }, { id: 'p-x', familia: '', nombre: 'Suelta' }];
+  const g = agruparEnvasado(filas, variedades, { conVacias: true });
+  assert.deepStrictEqual(g.map(f => [f.familia, f.variedades.map(v => [v.id, v.nombre, v.filas.map(x => x.plu)])]), [
+    ['Dulces', [['p-dl', 'Leche', ['5']]]],
+    ['Miel', [['p-az', 'Azahar', ['3', '2']], ['p-nueva', 'Monte', []], ['p-pr', 'Pradera', ['1']]]],
+    ['', [['p-x', 'Suelta', ['9']]]],
+  ]);
+  // Con búsqueda: sólo las variedades con PLUs que coinciden (y su familia).
+  assert.deepStrictEqual(agruparEnvasado([filas[1]], variedades, { conVacias: false }).map(f => [f.familia, f.variedades.map(v => v.id)]), [['Miel', ['p-pr']]]);
+  // Fila de una variedad que no vino en la lista (opciones sin cargar): igual se agrupa con su familia/variedad.
+  assert.deepStrictEqual(agruparEnvasado([filas[0]], [], { conVacias: true }).map(f => [f.familia, f.variedades.map(v => [v.id, v.nombre])]), [['Miel', [['p-az', 'Azahar']]]]);
 });

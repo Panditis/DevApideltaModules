@@ -167,5 +167,5 @@ const pedirJson = (method, url, body) => fetch(url, { method, headers: { 'Conten
   .then(r => r.json()).then(j => { if (j && j.error) throw new Error(j.error); return j; });
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { ordenarFilas, siguienteOrden, ordenarCon, rango, fmtFechaPrecio, esPrecioViejo, rangoFechas, fechaMasAntigua, DIAS_PRECIO_VIEJO };
+  module.exports = { esc, ordenarFilas, siguienteOrden, ordenarCon, rango, fmtFechaPrecio, esPrecioViejo, rangoFechas, fechaMasAntigua, DIAS_PRECIO_VIEJO };
 }

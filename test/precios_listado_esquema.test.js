@@ -62,6 +62,12 @@ test('listadoReventa: un sugerido por fuente con costo, pack/bulto vinculados, �
   assert.deepStrictEqual(f.decision, { fuente: 'ultimaCompra', fecha: '2026-10-07' });
 });
 
+test('listadoReventa: excluir saca los PLUs de venta de Producción (no se duplican en Reventa)', () => {
+  const universo = [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }, { plu: '2280', nombre: 'Miel 500', costoSistema: 900 }];
+  const base = { universo, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG };
+  assert.deepStrictEqual(L.listadoReventa(base).map(f => f.plu), ['1', '2280']);
+  assert.deepStrictEqual(L.listadoReventa({ ...base, excluir: new Set(['2280']) }).map(f => f.plu), ['1']);
+});
 test('listadoReventa: costo manual agrega la fuente manual; sin costos → sin sugeridos', () => {
   const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
   const [a, b] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'A', costoSistema: 1000 }, { plu: '2', nombre: 'B' }], vigentes: new Map(),
@@ -135,6 +141,23 @@ test('listadoProduccion: el margen especial del producto (margenExtra) sube el p
   assert.deepStrictEqual([sin.desglose.porVinculo['50'].margenPct, con.desglose.porVinculo['50'].margenPct], [30, 50]);
   assert.ok(con.minorista.precio > sin.minorista.precio);
   assert.ok(con.mayoristas[0].conIva > sin.mayoristas[0].conIva);
+});
+
+test('listadoProduccion: tipoProduccion (receta por defecto | envasado) y el costeo del envasado sólo con desglose', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const lineas = [{ plu: '7067', nombre: 'Miel granel', cantidad: 0.5, costoUnit: 2800, importe: 1400, rol: 'granel' },
+    { plu: '6334', nombre: 'Envase', cantidad: 1, costoUnit: 180, importe: 180, rol: 'empaque' }];
+  const filas = L.listadoProduccion({ presentaciones: [
+    { productoId: 'p-g', plu: '6319', nombre: 'Granola', costoUnidad: 1000 },
+    { productoId: 'p-m', plu: '9001', nombre: 'Miel 500', costoUnidad: 1580, tipoProduccion: 'envasado', componentesCosto: lineas, familia: 'Miel', variedad: 'Pradera' },
+  ], vigentes: new Map(), mayoristasDe: md, costeo: {}, cfg: CFG });
+  assert.deepStrictEqual(filas.map(f => [f.plu, f.tipoProduccion, f.familia, f.variedad]), [['6319', 'receta', undefined, undefined], ['9001', 'envasado', 'Miel', 'Pradera']]);
+  assert.deepStrictEqual([L.filaPublica(filas[1]).familia, L.filaPublica(filas[1]).variedad], ['Miel', 'Pradera']); // agrupan el listado: van sin permiso
+  assert.strictEqual(filas[0].componentesCosto, undefined);
+  assert.deepStrictEqual(filas[1].componentesCosto, lineas);
+  assert.strictEqual(L.filaPublica(filas[1]).componentesCosto, undefined); // estructura de costos: sólo con precios-config
+  assert.strictEqual(L.filaPublica(filas[1]).tipoProduccion, 'envasado');
+  assert.deepStrictEqual(L.filaPublica(filas[1], true).componentesCosto, lineas);
 });
 
 // ── Decisión y export ────────────────────────────────────────────────────────

@@ -23,9 +23,10 @@ test('limpiar: backup una vez, saca lo muerto de los dos archivos y la segunda v
     'recetas_produccion.json': { insumosManuales: {}, productos: { 'p-a': { nombre: 'A', insumos: [], recetas: {}, presentaciones: {} } } },
   });
   const r1 = main(dir);
-  assert.match(r1[0], /costeo\.json: limpio \(costoHora, packBulto\.descPackPct\)/);
+  assert.match(r1[0], /costeo\.json: limpio \(packBulto\.descPackPct\)/);
   assert.match(r1[1], /recetas_produccion\.json: limpio/);
-  assert.deepStrictEqual(leer(dir, 'costeo.json'), { ...MIGRADO, packBulto: { vinculosManuales: {} } });
+  // costoHora volvió (mano de obra de Producción, 2026-10-13): se conserva
+  assert.deepStrictEqual(leer(dir, 'costeo.json'), { ...MIGRADO, costoHora: 4500, packBulto: { vinculosManuales: {} } });
   assert.deepStrictEqual(leer(dir, 'recetas_produccion.json'), { productos: { 'p-a': { nombre: 'A', recetas: {}, presentaciones: {} } } });
   assert.strictEqual(leer(dir, 'costeo.json.bak-limpieza-esquema').costoHora, 4500);
   assert.deepStrictEqual(main(dir), ['costeo.json: ya limpio', 'recetas_produccion.json: ya limpio']);
@@ -46,4 +47,16 @@ test('limpiar: costeo.json a medio migrar (margenes de un tipo por la config) �
   assert.throws(() => main(dir), /migrar_esquema_canales/);
   assert.deepStrictEqual(leer(dir, 'costeo.json'), parcial);
   assert.ok(!fs.existsSync(path.join(dir, 'costeo.json.bak-limpieza-esquema')));
+});
+
+test('limpiar: conserva lo que volvió el 2026-10-13 (costoHora, insumos y minutosPorUnidad de presentaciones y PLUs envasados)', () => {
+  const recetas = { productos: {
+    'p-a': { nombre: 'A', recetas: { base: { nombre: 'B', rendimientoKg: 1, materiasPrimas: [{ plu: '1', cantidad: 1 }] } },
+      presentaciones: { 7: { recetaId: 'base', kgPorUnidad: 1, insumos: [{ plu: '9', cantidad: 1 }], minutosPorUnidad: 2 } } },
+    'p-m': { tipo: 'envasado', familia: 'Miel', nombre: 'P', granelPlu: '5', presentaciones: { 8: { kgPorUnidad: 1, componentes: [], minutosPorUnidad: 1 } } },
+  } };
+  const dir = dirCon({ 'costeo.json': { ...MIGRADO, costoHora: 8268 }, 'recetas_produccion.json': recetas });
+  assert.deepStrictEqual(main(dir), ['costeo.json: ya limpio', 'recetas_produccion.json: ya limpio']);
+  assert.deepStrictEqual(leer(dir, 'recetas_produccion.json'), recetas);
+  assert.strictEqual(leer(dir, 'costeo.json').costoHora, 8268);
 });

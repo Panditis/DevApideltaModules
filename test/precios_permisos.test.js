@@ -12,6 +12,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/config/esquema/costos',
   'put /api/precios/config/esquema/precio',
   'put /api/precios/config/esquema/margenes',
+  'put /api/precios/config/esquema/costo-hora',
   'post /api/precios/config/esquema/rango',
   'put /api/precios/produccion/productos/:id/margen-especial',
 ];

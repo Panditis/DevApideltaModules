@@ -509,6 +509,7 @@ router.post('/api/plan/:fecha/reserva/devolver', apiRoute(async req => {
 // sincronización de la reserva con el log, igual que GET /api/plan/:fecha/reserva.
 
 const RE_ROL_ENVASADO    = /envasad/i;
+const RE_ROL_ETIQUETADO  = /etiquetad/i;
 const RE_NOMBRE_ETIQUETA = /^\s*etiquetas?\b/i;
 
 // Un registro puede traer varios PLU juntos ("2892, 2891"): se separan y se sanitizan.
@@ -519,11 +520,12 @@ function plusDeRegistro(valor) {
 
 // Mismo criterio que el CSV de producción (exportTerminadosCSV): el rol tiene que ser
 // de envasado Y tener a alguien cargado. roles es la clave nueva; responsables, la vieja.
-function tieneRolEnvasado(reg) {
+function tieneRol(reg, re) {
   const roles = Array.isArray(reg && reg.roles) ? reg.roles
               : (Array.isArray(reg && reg.responsables) ? reg.responsables : []);
-  return roles.some(x => RE_ROL_ENVASADO.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
+  return roles.some(x => re.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
 }
+function tieneRolEnvasado(reg) { return tieneRol(reg, RE_ROL_ENVASADO); }
 
 // Carga manual: producción que se cargó a mano, sin orden del plan detrás (ordenId null). Por
 // motivos externos no se planifica, así que no hay reserva contra la cual conciliarla: se
@@ -623,6 +625,8 @@ function consumoRealDeRegistros(incluidos, formulas) {
     if (reg.envase) sumar(String(reg.envase).replace(/\D/g, '') || null, reg.envaseNombre || `PLU ${reg.envase}`, 'envase', cant);
     if (reg.tapa)   sumar(String(reg.tapa).replace(/\D/g, '')   || null, reg.tapaNombre   || `PLU ${reg.tapa}`,   'tapa',   cant);
 
+    // La etiqueta sólo se consume si la carga tiene la tarea Etiquetado con alguien asignado.
+    if (!tieneRol(reg, RE_ROL_ETIQUETADO)) continue;
     const et = etiquetaDeFormula(comps);
     if (et) sumar(et.plu, et.nombre, 'etiqueta', redondear4(cant * (Number(et.cantPorUnidad) || 1)));
     else if (comps.length) avisos.push(`La fórmula de ${etiqueta} no tiene etiqueta: no se descuenta ninguna.`);

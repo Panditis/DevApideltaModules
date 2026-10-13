@@ -141,8 +141,8 @@ test('migrarEsquemaCanales: archivo mínimo → márgenes de respaldo, listas va
 
 test('limpiarCosteo: saca las claves muertas, los descuentos pack/bulto y listas de los gastos; conserva lo vivo; idempotente', () => {
   const vivo = { toleranciaPct: 3, ivaVentaPct: 21, modoGastos: 'costo', extrasMinorista: [], margenes: {}, redondeo: {},
-    costoPorProducto: { 1: 9 }, costosExtraFraccionado: {}, decisiones: {} };
-  const viejo = { ...vivo, costoHora: 4500, margenPorProducto: { 1: 20 }, fuenteCosto: { 1: 'ultimaCompra' }, marcadosExportar: {},
+    costoPorProducto: { 1: 9 }, costosExtraFraccionado: {}, decisiones: {}, costoHora: 4500 }; // costoHora volvió (MO de Producción, 2026-10-13)
+  const viejo = { ...vivo, margenPorProducto: { 1: 20 }, fuenteCosto: { 1: 'ultimaCompra' }, marcadosExportar: {},
     curvaGanancia: {}, metodoGanancia: 'curva', departamentos: [], ventaBase: {}, conceptosGanancia: [], conceptosPrecioFinal: [],
     presentacionesTemporales: {}, recetas: {},
     gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 1, listas: ['sucursal'], tipos: { almacen: true, fraccionado: true, produccion: true } }],
@@ -151,7 +151,7 @@ test('limpiarCosteo: saca las claves muertas, los descuentos pack/bulto y listas
   assert.deepStrictEqual(r.datos, { ...vivo,
     gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 1, tipos: { almacen: true, fraccionado: true, produccion: true } }],
     packBulto: { vinculosManuales: { 60: { basePlu: '1', tipo: 'pack' } }, ventaPesable: {} } });
-  assert.ok(r.quitadas.includes('costoHora') && r.quitadas.includes('packBulto.descPorProducto') && r.quitadas.includes('gastosVenta[].listas'));
+  assert.ok(!r.quitadas.includes('costoHora') && r.quitadas.includes('packBulto.descPorProducto') && r.quitadas.includes('gastosVenta[].listas'));
   assert.strictEqual(C.limpiarCosteo(r.datos), null);
   assert.strictEqual(viejo.costoHora, 4500); // no muta
 });

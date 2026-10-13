@@ -6,6 +6,8 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const rrhhRopa = require('../lib/rrhh_ropa');
 const rrhhAusencias = require('../lib/rrhh_ausencias');
+const rrhhCv = require('../lib/rrhh_cv');
+const pdfParse = require('pdf-parse');
 
 // ── Rutas del módulo RRHH ────────────────────────────────────────────────────
 // Extraídas de server.js sin cambios de comportamiento: mismas rutas, mismo orden
@@ -33,6 +35,8 @@ router.get('/js/rrhh_relevamiento_ropa.js', (_req, res) => res.sendFile(path.joi
 router.get('/rrhh/ausencias',          (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'rrhh_ausencias_dashboard.html')));
 router.get('/rrhh_ausencias.js',       (_req, res) => res.sendFile(path.join(__dirname, '..', 'lib', 'rrhh_ausencias.js')));
 router.get('/js/rrhh_ausencias_front.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'rrhh_ausencias_front.js')));
+router.get('/rrhh/analizador-cv',      (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'rrhh_analizador_cv.html')));
+router.get('/js/rrhh_analizador_cv.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'rrhh_analizador_cv.js')));
 
 // ── RRHH · Relevamiento de ropa de trabajo ─────────────────────────────────────
 // Un único JSON con el catálogo de prendas y la ficha de cada empleado. Toda
@@ -328,6 +332,62 @@ router.delete('/api/rrhh/ausencias/importaciones/:id', rutaAusencias(req => {
     importaciones: doc.importaciones.filter(i => i.id !== id),
   });
 }));
+
+// ── RRHH · Analizador de CV ────────────────────────────────────────────────────
+// Filtro tipo ATS por reglas locales (rrhh_cv.js). Lo único que se persiste son
+// los perfiles de puesto: los CV se analizan en memoria y no se guardan ni se
+// loguean (datos personales; no se quiere historial de candidatos).
+const RRHH_CV_PERFILES_PATH = path.join(DATA_DIR, 'rrhh_cv', 'perfiles.json');
+
+const uploadCv = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function guardarPerfilesCv(lista) {
+  const perfiles = rrhhCv.normalizarPerfiles(lista);
+  fs.mkdirSync(path.dirname(RRHH_CV_PERFILES_PATH), { recursive: true });
+  guardarJSON(RRHH_CV_PERFILES_PATH, perfiles);
+  return perfiles;
+}
+// La primera lectura siembra los perfiles de ejemplo, que RRHH después edita.
+function leerPerfilesCv() {
+  if (!fs.existsSync(RRHH_CV_PERFILES_PATH)) return guardarPerfilesCv(rrhhCv.PERFILES_SEMILLA);
+  return rrhhCv.normalizarPerfiles(leerJSON(RRHH_CV_PERFILES_PATH, []));
+}
+
+// Texto del CV según la extensión, o el texto pegado si no vino archivo.
+async function textoDelCv(req) {
+  if (!req.file) {
+    const pegado = String((req.body && req.body.texto) || '');
+    if (!pegado.trim()) throw new Error('Subí un CV (.pdf, .docx o .txt) o pegá su texto.');
+    return pegado;
+  }
+  const ext = path.extname(req.file.originalname || '').toLowerCase();
+  if (ext === '.pdf') {
+    try { return (await pdfParse(req.file.buffer)).text || ''; }
+    catch { throw new Error('El PDF está dañado o no se puede leer.'); }
+  }
+  if (ext === '.docx') return rrhhCv.extraerTextoDocx(req.file.buffer);
+  if (ext === '.txt') return req.file.buffer.toString('utf8');
+  throw new Error('Formato no soportado: subí un .pdf, .docx o .txt (los .doc viejos hay que guardarlos como .docx).');
+}
+
+router.get('/api/rrhh/cv/perfiles', (_req, res) => {
+  try { res.json({ perfiles: leerPerfilesCv() }); }
+  catch (err) { console.error(err.message); res.status(500).json({ error: err.message }); }
+});
+
+router.put('/api/rrhh/cv/perfiles', (req, res) => {
+  try { res.json({ perfiles: guardarPerfilesCv((req.body || {}).perfiles) }); }
+  catch (err) { console.error(err.message); res.status(400).json({ error: err.message }); }
+});
+
+// Sólo se loguea el mensaje de error, nunca el texto del CV.
+router.post('/api/rrhh/cv/analizar', uploadCv.single('archivo'), async (req, res) => {
+  try {
+    const texto = await textoDelCv(req);
+    const archivo = req.file ? req.file.originalname : '';
+    res.json({ archivo, ...rrhhCv.analizarCV(texto, leerPerfilesCv()), textoExtraido: texto.slice(0, 20000) });
+  } catch (err) { console.error('Analizador de CV:', err.message); res.status(400).json({ error: err.message }); }
+});
 
   return router;
 };

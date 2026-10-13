@@ -73,7 +73,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   async function costearProductos(datos, ids) {
     const productos = Object.fromEntries(ids.map(id => [id, datos.productos[id]]));
     const [costeo, costos] = await Promise.all([costeoVigente(), costosPorPlu(plusUsados(productos))]);
-    return { costeados: costearTodos({ productos, costos, costeo }) };
+    return { costeados: costearTodos({ productos, costos, costeo, familias: datos.familias }) };
   }
 
   // Detalle costeado + vigente, fecha de precio y precios del motor por presentación (desglose sólo con el permiso de
@@ -98,7 +98,8 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   router.get('/api/precios/produccion/productos', ruta(async (req) => {
     const datos = leer();
     const [{ costeados }, fechas] = await Promise.all([costearProductos(datos, Object.keys(datos.productos)), fechasPrecioAlmacen()]);
-    return Object.entries(costeados)
+    // "Recetas" (Con receta): los envasados tienen su propio sub-tab.
+    return Object.entries(costeados).filter(([id]) => datos.productos[id].tipo !== 'envasado')
       .map(([id, c]) => filaSelector(id, datos.productos[id], c, fechas))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }));
@@ -332,6 +333,73 @@ module.exports = function crearRutasPreciosProduccion(deps) {
   }
   router.get('/api/precios/produccion/formula-siga/:plu', ruta(async (req) => formulaSiga(validarId(req.params.plu, PLU, 'plu'))));
 
+  // ── Envasado Apidelta: Familia › Variedad › PLUs (lib/precios_produccion costearEnvasado, un producto por variedad) ──
+  // El granel y los PLUs de venta tienen que existir en SIGA (se consulta antes de leer el archivo: escritura sin await en el medio).
+  async function envasadoEnSiga(body) {
+    const b = esObjeto(body) ? body : {};
+    const granel = validarId(b.granelPlu, PLU, 'granelPlu');
+    const plus = [granel, ...Object.keys(esObjeto(b.presentaciones) ? b.presentaciones : {}).filter(esPlu)];
+    const siga = await costosPorPlu(plus);
+    const falta = plus.find(plu => !siga.has(plu));
+    if (falta) fallar(`${falta === granel ? 'granelPlu' : 'plu'}: el PLU ${falta} no existe en SIGA`);
+  }
+
+  // Familias (sugerencias), dueño de cada PLU de venta (la búsqueda los muestra deshabilitados) y las variedades.
+  router.get('/api/precios/produccion/envasado/opciones', ruta(async () => { const d = leer(); return opcionesEnvasado(d.productos, d.familias); }));
+
+  // Precio de materia prima de una familia ($/kg, ej. el granel de todas las mieles): reemplaza el costo de cada granel en
+  // los PLUs de sus variedades. Persistente (no es una decisión temporal). costoKg null lo borra. Mismo permiso que editar
+  // Producción (no es configuración del esquema).
+  router.put('/api/precios/produccion/familias/:familia/costo', ruta(async (req) => {
+    const { familia, costoKg } = entrada(() => produccion.validarCostoFamilia(req.params.familia, req.body));
+    const datos = leer();
+    const existe = Object.values(datos.productos).some(p => p && p.tipo === 'envasado' && String(p.familia || '').trim().toLowerCase() === familia.toLowerCase());
+    if (costoKg != null && !existe) fallar(`familia "${familia}" no encontrada en Envasado Apidelta`);
+    guardar({ ...datos, familias: produccion.conCostoFamilia(datos.familias, familia, costoKg) });
+    return { familia, costoKg };
+  }));
+
+  // Precarga de un PLU desde su fórmula activa de SIGA (sin fórmula: vacío, se carga a mano). ?granel = el de la variedad:
+  // si la fórmula usa otro, avisoGranel (no bloquea).
+  router.get('/api/precios/produccion/envasado/precarga/:plu', ruta(async (req) => {
+    const granelPlu = req.query.granel == null ? null : validarId(req.query.granel, PLU, 'granel');
+    return envasadoDesdeFormula(await formulaSiga(validarId(req.params.plu, PLU, 'plu')), { granelPlu });
+  }));
+
+  router.post('/api/precios/produccion/envasado', ruta(async (req) => {
+    await envasadoEnSiga(req.body);
+    const datos = leer();
+    const limpio = entrada(() => produccion.validarEnvasado(req.body, datos.productos));
+    const id = idUnico(`p-${slug(produccion.nombreProducto(limpio))}`, datos.productos);
+    const producto = { ...limpio, creado: hoy() };
+    guardar({ ...datos, productos: { ...datos.productos, [id]: producto } });
+    return { id, producto };
+  }));
+
+  // Edición: NO re-valida (conserva el validado de cada PLU), ni toca creado ni el margen especial.
+  router.put('/api/precios/produccion/productos/:id/envasado', ruta(async (req) => {
+    const id = idProducto(req);
+    await envasadoEnSiga(req.body);
+    const producto = mutarProducto(id, (p, datos) => {
+      if (p.tipo !== 'envasado') fallar('el producto no es de envasado');
+      return conservarEnvasado(entrada(() => produccion.validarEnvasado(req.body, datos.productos, { productoId: id })), p);
+    });
+    return { id, producto };
+  }));
+
+  // Vista previa del editor (costo en vivo de cada PLU): valida igual que el alta/edición y costea en memoria con el mismo
+  // detalleConPrecios que el GET. NO escribe. body.id = variedad que se edita (conserva validados y margen especial).
+  // ponytail: el alta se costea bajo la clave '_nuevo' (no matchea ID_PRODUCTO: nunca pisa uno real).
+  router.post('/api/precios/produccion/envasado/preview', ruta(async (req) => {
+    const b = esObjeto(req.body) ? req.body : {};
+    const id = b.id == null ? '_nuevo' : validarId(b.id, ID_PRODUCTO, 'id de producto');
+    const datos = leer();
+    const previo = id === '_nuevo' ? {} : productoDe(datos, id);
+    const limpio = conservarEnvasado(entrada(() => produccion.validarEnvasado(b, datos.productos, { productoId: id })), previo);
+    const det = await detalleConPrecios({ ...datos, productos: { ...datos.productos, [id]: limpio } }, id, req);
+    return det.presentaciones;
+  }));
+
   router.get('/api/precios/produccion/alertas', ruta(async () => {
     const datos = leer();
     const { costeados } = await costearProductos(datos, Object.keys(datos.productos));
@@ -350,9 +418,12 @@ function hoy() {
 
 const esObjeto = v => v != null && typeof v === 'object' && !Array.isArray(v);
 
+// Envasados viejos de un solo PLU → variedad (migración perezosa e idempotente, lib normalizarEnvasado): se guardan con la
+// forma nueva en la próxima escritura.
 function normalizarDatos(d) {
   const o = esObjeto(d) ? d : {};
-  return { ...o, productos: esObjeto(o.productos) ? o.productos : {} };
+  const productos = esObjeto(o.productos) ? o.productos : {};
+  return { ...o, productos: Object.fromEntries(Object.entries(productos).map(([id, p]) => [id, produccion.normalizarEnvasado(p)])) };
 }
 
 function sinClave(obj, clave) {
@@ -389,16 +460,47 @@ function idUnico(base, existentes) {
 
 const esPlu = clave => PLU.test(String(clave));
 
-// PLUs SIGA que hay que consultar: materias primas, extras y PLUs de presentación.
+// PLUs SIGA que hay que consultar: materias primas, extras, PLUs de presentación y sus insumos; de una variedad envasada, el
+// granel y los insumos de cada PLU.
 function plusUsados(productos) {
   const plus = new Set();
   for (const p of Object.values(productos || {})) {
     for (const r of Object.values(p.recetas || {})) {
       for (const it of [...(r.materiasPrimas || []), ...(r.extras || [])]) plus.add(String(it.plu));
     }
-    for (const plu of Object.keys(p.presentaciones || {})) plus.add(plu);
+    for (const [plu, pr] of Object.entries(p.presentaciones || {})) {
+      plus.add(plu);
+      ((pr && pr.insumos) || []).forEach(it => plus.add(String(it.plu)));
+    }
+    if (p.tipo === 'envasado') {
+      plus.add(String(p.granelPlu));
+      Object.values(p.presentaciones || {}).forEach(pr => (pr.componentes || []).forEach(c => plus.add(String(c.plu))));
+    }
   }
   return [...plus].filter(esPlu);
+}
+
+// Variedad validada + lo que la edición no toca: el validado de cada PLU que sigue, creado y margen especial.
+function conservarEnvasado(limpio, previo) {
+  const antes = (previo && previo.presentaciones) || {};
+  const presentaciones = Object.fromEntries(Object.entries(limpio.presentaciones).map(([plu, pr]) =>
+    [plu, antes[plu] && antes[plu].validado ? { ...pr, validado: antes[plu].validado } : pr]));
+  const conservar = Object.fromEntries(['creado', 'margenEspecial'].filter(k => previo && previo[k] != null).map(k => [k, previo[k]]));
+  return { ...limpio, presentaciones, ...conservar };
+}
+
+// Para el editor de envasado: familias usadas (A→Z, sin vacías), dueño de cada PLU de venta (receta o variedad), las
+// variedades (el listado muestra también las que todavía no tienen PLUs) y el precio de materia prima de cada familia
+// (costoKgFamilias, con el nombre de la familia como está en las variedades; sin precio no figura).
+function opcionesEnvasado(productos, familiasCosto = {}) {
+  const lista = Object.entries(productos || {}).filter(([, p]) => p);
+  const variedades = lista.filter(([, p]) => p.tipo === 'envasado')
+    .map(([id, p]) => ({ id, familia: p.familia || '', nombre: p.nombre, granelPlu: p.granelPlu }));
+  const familias = [...new Set(variedades.map(v => v.familia).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const duenios = Object.fromEntries(lista.flatMap(([id, p]) => Object.keys(p.presentaciones || {})
+    .map(plu => [plu, { productoId: id, nombre: produccion.nombreProducto(p) }])));
+  const costoKgFamilias = Object.fromEntries(familias.map(f => [f, produccion.costoFamiliaDe(familiasCosto, f)]).filter(([, c]) => c != null));
+  return { familias, duenios, variedades, costoKgFamilias };
 }
 
 // costoDe(plu) para lib/precios_produccion: el costo de la materia prima en su tab (decisión › manual › sistema, + costos
@@ -412,14 +514,17 @@ function armarCostoDe({ costos, costeo }) {
   };
 }
 
-// Costea cada producto. Las presentaciones sin nombre propio toman el de SIGA.
-function costearTodos({ productos, costos, costeo }) {
+// Costea cada producto. Las presentaciones sin nombre propio toman el de SIGA. familias = precio de materia prima por
+// familia (recetas_produccion.json): un envasado de esa familia lo usa en vez del costo de su granel. costeo.costoHora =
+// costo hora de mano de obra (Configuración › Costos).
+function costearTodos({ productos, costos, costeo, familias = {} }) {
   const cfg = costeo || {};
   const costoDe = armarCostoDe({ costos, costeo: cfg });
   return Object.fromEntries(Object.entries(productos).map(([id, p]) => {
     const presentaciones = Object.fromEntries(Object.entries(p.presentaciones || {}).map(([plu, pr]) =>
       [plu, pr.nombre ? pr : { ...pr, nombre: (costos.get(plu) || {}).nombre || null }]));
-    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct })];
+    const costoKgFamilia = p.tipo === 'envasado' ? produccion.costoFamiliaDe(familias, p.familia) : null;
+    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct, costoKgFamilia, costoHora: cfg.costoHora })];
   }));
 }
 
@@ -608,6 +713,7 @@ function validarPedidoValidar(body) {
 // Aplica los snapshots (snapshotDe) al producto sin mutarlo. Validar una receta también valida las presentaciones que salen
 // de ella ("a revisar" se limpia validando la receta, spec §2.1). Con faltantes no se valida: el pedido puntual es error;
 // el resto (todo, o las presentaciones arrastradas) se omite y se informa en `omitidos`.
+// Una variedad envasada no tiene recetas: valida sus PLUs como presentaciones.
 function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
   const grupos = [['receta', 'recetas'], ['presentacion', 'presentaciones']];
   const puntual = (t, k) => tipo !== 'todo' && t === tipo && k === id;
@@ -632,7 +738,31 @@ function aplicarValidacion(producto, costeado, { tipo, id }, fecha) {
   return { producto: nuevo, validados, omitidos };
 }
 
+// formulaSiga de un PLU de venta → PLU de una variedad envasada. Granel = el granel de la variedad si la fórmula lo usa; si
+// no, el componente que no es empaque con "granel" en el nombre o el de más cantidad (kg por unidad = su cantidad). El resto
+// (envase, tapa, etiqueta, otros) = insumos con su cantidad por unidad. Sin no-empaque: granel vacío y aviso (se elige a
+// mano). granelPlu (el de la variedad) distinto del de la fórmula → avisoGranel (no bloquea: el PLU usa el de la variedad).
+function envasadoDesdeFormula(formula, { granelPlu = null } = {}) {
+  const f = formula || {};
+  if (!f.nombre) fallar('El PLU no existe en SIGA');
+  const comps = f.componentes || [];
+  const candidatos = comps.filter(c => !esEmpaqueSiga(c));
+  const granel = candidatos.find(c => granelPlu != null && String(c.plu) === String(granelPlu))
+    || candidatos.find(c => /granel/i.test(c.nombre || ''))
+    || candidatos.reduce((max, c) => (!max || Number(c.cantPorUnidad) > Number(max.cantPorUnidad) ? c : max), null);
+  const componentes = sumarPorPlu(comps.filter(c => c !== granel).map(c => ({ plu: c.plu, nombre: c.nombre, cantidad: Number(c.cantPorUnidad), costo: c.costo ?? null, tipo: c.tipo })));
+  const mensaje = f.mensaje || (granel ? null : 'La fórmula de SIGA no tiene granel (sólo empaque): elegilo a mano.');
+  const avisoGranel = granel && granelPlu != null && String(granel.plu) !== String(granelPlu)
+    ? `Su fórmula de SIGA usa otro granel (${granel.plu} ${granel.nombre || ''}), no el de la variedad: revisá los kg por unidad.` : null;
+  return {
+    plu: f.plu, nombre: f.nombre, granelPlu: granel ? granel.plu : null, granelNombre: granel ? granel.nombre : null,
+    granelCosto: granel ? granel.costo ?? null : null, kgPorUnidad: granel ? Number(granel.cantPorUnidad) : null, componentes, mensaje, avisoGranel,
+  };
+}
+
 module.exports.slug = slug;
+module.exports.envasadoDesdeFormula = envasadoDesdeFormula;
+module.exports.opcionesEnvasado = opcionesEnvasado;
 module.exports.idUnico = idUnico;
 module.exports.plusUsados = plusUsados;
 module.exports.armarCostoDe = armarCostoDe;

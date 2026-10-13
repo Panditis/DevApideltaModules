@@ -11,7 +11,9 @@
 
 // ── Helpers puros (sin DOM; test/precios_produccion_ui.test.js) ─────────────────
 const ID_PRODUCTO_UI = /^p-[a-z0-9-]{1,48}$/;
-const ESPECIALES = { _receta: 'Receta' };
+const ESPECIALES = { _receta: 'Receta', _manoObra: 'Mano de obra' };
+// Aviso 'costoHora' del costeo (minutos de mano de obra sin costo hora cargado): modal de presentación y editor de envasado.
+const AVISO_COSTO_HORA = 'Falta el costo hora de mano de obra: cargalo en Configuración › Costos (mientras tanto la mano de obra cuenta $ 0).';
 const PLU_PRES_UI = /^(\d{1,12}|n-[a-z0-9-]{1,40})$/; // PLU de SIGA o presentación provisoria
 // '#produccion' → selector; '#produccion/<id>' → detalle (id inválido → selector);
 // '#produccion/<id>/<plu>' → detalle + abrir esa presentación (plu inválido → sólo el detalle); otra cosa → null.
@@ -19,6 +21,8 @@ function parsearHashProduccion(hash) {
   const h = String(hash || '').replace(/^#/, '');
   if (h === 'produccion') return { vista: 'selector' };
   if (h === 'produccion/recetas') return { vista: 'recetas' };
+  if (h === 'produccion/envasado') return { vista: 'envasado' };
+  if (h === 'produccion/envasado/nuevo') return { vista: 'envasadoNuevo' };
   if (!h.startsWith('produccion/')) return null;
   const dec = s => { try { return decodeURIComponent(s); } catch { return ''; } };
   const [id, plu] = h.slice('produccion/'.length).split('/').map(dec);
@@ -30,7 +34,12 @@ function parsearHashProduccion(hash) {
 // entrar a la tab con la última vista elegida en la sesión.
 const VISTA_TOGGLE_PROD = { selector: 'presentaciones', recetas: 'recetas' };
 const vistaToggleProduccion = r => (r && VISTA_TOGGLE_PROD[r.vista]) || null;
-const hashEntradaProduccion = guardada => (guardada === 'recetas' ? '#produccion/recetas' : '#produccion');
+// Sub-tabs "Con receta | Envasado Apidelta" (#prodClases): clase de cada listado (detalle y editor → null: se ocultan). Al
+// entrar a la tab: el último sub-tab de la sesión y, en Con receta, la última vista del toggle.
+const CLASE_PROD = { selector: 'receta', recetas: 'receta', envasado: 'envasado' };
+const claseProduccion = r => (r && CLASE_PROD[r.vista]) || null;
+const hashEntradaProduccion = (guardada, clase = null) => (clase === 'envasado' ? '#produccion/envasado'
+  : guardada === 'recetas' ? '#produccion/recetas' : '#produccion');
 
 // Qué pasos (1..3) arrancan abiertos: sólo el primero incompleto (ni 'ok' ni 'opcional'); si están todos, el 3.
 // elecciones = { paso: bool } que el usuario abrió/cerró a mano en este producto: mandan sobre el default.
@@ -202,7 +211,11 @@ function bodyReceta(ed) {
 }
 
 // Body del PUT de presentación (sin insumos, MO de empaquetado ni corrección: fase 4).
-const bodyPresentacion = ({ recetaId, kgPorUnidad }) => ({ recetaId, kgPorUnidad });
+// Insumos por unidad ({ plu, cantidad }) y minutos por unidad (mano de obra): sólo si hay (vacío = se borran al guardar).
+const bodyPresentacion = ({ recetaId, kgPorUnidad, insumos = [], minutosPorUnidad = null }) => ({
+  recetaId, kgPorUnidad, ...(insumos.length ? { insumos: insumos.map(it => ({ plu: String(it.plu), cantidad: it.cantidad })) } : {}),
+  ...(minutosPorUnidad != null ? { minutosPorUnidad } : {}),
+});
 
 // Opciones del selector "Variedad / receta" de una presentación: bases primero, después cada variedad.
 function opcionesVariedad(recetas) {
@@ -259,8 +272,9 @@ function formatoPeso(kg) {
   const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
   return n < 1 ? `${fmt(n * 1000)} g` : `${fmt(n)} kg`;
 }
-// Firma del formulario de presentación { plu, recetaId, kg, sinSiga, nombreNuevo }.
-const firmaPresentacion = v => JSON.stringify([v.plu || null, v.recetaId || null, v.kg ?? null, !!v.sinSiga, (v.nombreNuevo || '').trim()]);
+// Firma del formulario de presentación { plu, recetaId, kg, sinSiga, nombreNuevo, insumos, minutos } (el nombre del insumo no cuenta).
+const firmaPresentacion = v => JSON.stringify([v.plu || null, v.recetaId || null, v.kg ?? null, !!v.sinSiga, (v.nombreNuevo || '').trim(),
+  (v.insumos || []).map(it => [String(it.plu), it.cantidad ?? null]), v.minutos ?? null]);
 const presentacionSucia = (actual, inicial) => firmaPresentacion(actual) !== firmaPresentacion(inicial);
 // Qué obligatorio falta ('' = se puede guardar). sinPlu: para la vista previa (costea sin PLU elegido).
 function faltaObligatorioPres(v, { sinPlu = false } = {}) {
@@ -268,6 +282,9 @@ function faltaObligatorioPres(v, { sinPlu = false } = {}) {
   if (!sinPlu && !v.sinSiga && !v.plu) return 'Elegí el producto a la venta (PLU de SIGA) en ①, o marcá que todavía no está en SIGA.';
   if (!v.recetaId) return 'Elegí de qué variedad sale en ②.';
   if (!(Number(v.kg) > 0)) return 'Completá "Kg por unidad" en ③ (ej. 0,5).';
+  const sin = (v.insumos || []).find(it => !(Number(it.cantidad) > 0));
+  if (sin) return `Completá la cantidad de ${sin.nombre || sin.plu} en ④ (mayor a 0).`;
+  if (v.minutos != null && !(Number(v.minutos) >= 0)) return 'Los minutos por unidad de ④ no pueden ser negativos.';
   return '';
 }
 
@@ -311,10 +328,10 @@ function montarOrdenPresProd() {
 
 if (typeof module === 'object' && module.exports) {
   module.exports = {
-    parsearHashProduccion, vistaToggleProduccion, hashEntradaProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
+    parsearHashProduccion, vistaToggleProduccion, claseProduccion, hashEntradaProduccion, seccionesAbiertas, firmaAlertas, destinoToast, productosConCambios, plusCambiados, estadoFila, nombreComponente, textoFaltante, textoToast,
     textoRevisar, sugeridoProd, columnasSelectorProd, columnasPresProd,
     mensajeFaltante, progresoProducto, pasosHabilitados, alertasDetalle, formatoPeso, presentacionSucia, faltaObligatorioPres, esProvisoria, claveProvisoria, textoFormulaSiga,
-    escalarCantidades, componentesAIngredientes, esEmpaque,
+    escalarCantidades, componentesAIngredientes, esEmpaque, htmlResultadosSiga,
     slugProd, idRecetaNueva, bodyReceta, bodyPresentacion, opcionesVariedad, rendimientoSugerido,
     ordenarFilas: require('./precios_comun.js').ordenarFilas, siguienteOrden: require('./precios_comun.js').siguienteOrden,
   };
@@ -328,6 +345,7 @@ let prodSoloCambios = false;
 let prodDet = null;            // detalle del producto abierto, tal como vino del server
 let prodSeccionesElegidas = {}; // paso → abierto/cerrado a mano por el usuario (se resetea al cambiar de producto)
 let prodAlertas = { total: 0, items: [] };
+let prodClase = 'receta';      // sub-tab activo: 'receta' | 'envasado' (lo lee precios_listados.js para filtrar el listado)
 const TOAST_KEY = 'precios.produccion.toastCerrado';
 
 const getJson = url => fetch(url).then(r => r.json()).then(j => { if (j && j.error) throw new Error(j.error); return j; });
@@ -405,15 +423,33 @@ function htmlBuscadorSiga(id, placeholder) {
       aria-controls="${id}-lista" class="${campoCls} w-full sm:w-80">
     <div id="${id}-lista" role="listbox" class="bs-lista hidden fixed z-[60] bg-card border border-borde rounded-xl shadow-fluent overflow-y-auto" style="max-height:280px"></div>`;
 }
-function htmlResultadosSiga(rows) {
-  if (!rows.length) return '<div class="px-3 py-3 text-sm text-gris">Sin resultados</div>';
-  return rows.map(r => `<button type="button" role="option" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"
+// multiple: un checkbox por resultado (seleccion = Map plu → nombre, sobrevive a otras búsquedas), "Seleccionar todos los
+// visibles", contador y "Agregar N". deshabilitado(plu) → motivo ("ya está en …") o null: se muestra sin poder elegirlo.
+function htmlResultadosSiga(rows, { multiple = false, seleccion = new Map(), deshabilitado = () => null } = {}) {
+  const cab = multiple ? htmlCabMultiSiga(seleccion.size) : '';
+  if (!rows.length) return cab + '<div class="px-3 py-3 text-sm text-gris">Sin resultados</div>';
+  if (!multiple) {
+    return rows.map(r => `<button type="button" role="option" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"
       class="block w-full text-left px-3 py-1.5 text-sm hover:bg-verde/10 focus:bg-verde/10 focus:outline-none">
       <b class="tabular-nums">${esc(r.plu)}</b> · ${esc(r.producto)} <span class="text-xs text-gris">${esc(r.rubro)}</span></button>`).join('');
+  }
+  return cab + rows.map(r => {
+    const motivo = deshabilitado(String(r.plu));
+    return `<label class="flex items-start gap-2 px-3 py-1.5 text-sm ${motivo ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-verde/10'}">
+      <input type="checkbox" class="mt-0.5 accent-verde" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"${seleccion.has(String(r.plu)) && !motivo ? ' checked' : ''}${motivo ? ' disabled' : ''}>
+      <span><b class="tabular-nums">${esc(r.plu)}</b> · ${esc(r.producto)} <span class="text-xs text-gris">${esc(r.rubro)}</span>${motivo ? ` <span class="text-xs text-warn">${esc(motivo)}</span>` : ''}</span></label>`;
+  }).join('');
 }
-function conectarBuscadorSiga(id, onElegir) {
+const htmlCabMultiSiga = n => `<div class="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-card border-b border-borde">
+    <button type="button" class="bs-todos text-xs text-verde underline underline-offset-2">Seleccionar todos los visibles</button>
+    <span class="bs-conteo ml-auto text-xs text-gris">${n} seleccionado${n === 1 ? '' : 's'}</span>
+    <button type="button" class="bs-agregar ${btnPrim} !py-1 text-xs"${n ? '' : ' disabled'}>Agregar ${n}</button></div>`;
+// opciones.multiple: onElegir recibe [{ plu, nombre }] al tocar "Agregar N" (sin multiple, { plu, nombre } al elegir uno).
+function conectarBuscadorSiga(id, onElegir, { multiple = false, deshabilitado = () => null } = {}) {
   const input = document.getElementById(id), lista = document.getElementById(id + '-lista');
-  let timer = null, seq = 0;
+  let timer = null, seq = 0, filas = [];
+  const seleccion = new Map(); // ponytail: estado de UI del buscador abierto, se muta en el lugar
+  const pintarResultados = () => mostrar(htmlResultadosSiga(filas, { multiple, seleccion, deshabilitado }));
   const mostrar = html => {
     const r = input.getBoundingClientRect();
     lista.innerHTML = html;
@@ -430,26 +466,55 @@ function conectarBuscadorSiga(id, onElegir) {
     timer = setTimeout(async () => {
       const n = ++seq;
       mostrar('<div class="px-3 py-3 text-sm text-gris"><span class="spin"></span> Buscando…</div>');
-      try { const rows = await getJson('/api/siga/buscar?q=' + encodeURIComponent(q)); if (n === seq) mostrar(htmlResultadosSiga(rows)); }
-      catch (e) { if (n === seq) mostrar(`<div class="px-3 py-3 text-sm text-crit">${esc(e.message)}</div>`); }
+      try {
+        const rows = await getJson('/api/siga/buscar?q=' + encodeURIComponent(q));
+        if (n === seq) { filas = rows; pintarResultados(); }
+      } catch (e) { if (n === seq) mostrar(`<div class="px-3 py-3 text-sm text-crit">${esc(e.message)}</div>`); }
     }, BUSCAR_DEBOUNCE_MS);
   });
+  // Contador y botón de la cabecera sin repintar la lista (no pierde el scroll).
+  const actualizarCab = () => {
+    const n = seleccion.size;
+    lista.querySelector('.bs-conteo').textContent = `${n} seleccionado${n === 1 ? '' : 's'}`;
+    const b = lista.querySelector('.bs-agregar');
+    b.textContent = `Agregar ${n}`; b.disabled = !n;
+  };
   lista.addEventListener('click', e => {
+    if (multiple) {
+      if (e.target.closest('.bs-todos')) {
+        lista.querySelectorAll('input[data-plu]:not(:disabled)').forEach(c => { c.checked = true; seleccion.set(c.dataset.plu, c.dataset.nombre); });
+        actualizarCab();
+      } else if (e.target.closest('.bs-agregar') && seleccion.size) {
+        const elegidos = [...seleccion].map(([plu, nombre]) => ({ plu, nombre }));
+        seleccion.clear(); cerrar(); input.value = '';
+        onElegir(elegidos);
+      }
+      return;
+    }
     const b = e.target.closest('[data-plu]');
     if (!b) return;
     cerrar(); input.value = '';
     onElegir({ plu: b.dataset.plu, nombre: b.dataset.nombre });
   });
+  lista.addEventListener('change', e => {
+    const c = e.target.closest('input[data-plu]');
+    if (!multiple || !c) return;
+    if (c.checked) seleccion.set(c.dataset.plu, c.dataset.nombre); else seleccion.delete(c.dataset.plu);
+    actualizarCab();
+  });
+  // Flechas entre los resultados elegibles (botones, o checkboxes en multiple).
+  const items = () => [...lista.querySelectorAll('[data-plu]:not(:disabled)')];
   input.addEventListener('keydown', e => {
     // Con la lista abierta, Escape sólo la cierra (preventDefault: no cierra el diálogo que la contiene).
     if (e.key === 'Escape' && !lista.classList.contains('hidden')) { cerrar(); e.stopPropagation(); e.preventDefault(); }
-    const primero = lista.querySelector('[data-plu]');
+    const primero = items()[0];
     if (e.key === 'ArrowDown' && primero) { e.preventDefault(); primero.focus(); }
   });
   lista.addEventListener('keydown', e => {
     const b = e.target.closest('[data-plu]');
     if (!b) return;
-    const sig = e.key === 'ArrowDown' ? b.nextElementSibling : e.key === 'ArrowUp' ? b.previousElementSibling : null;
+    const todos = items(), i = todos.indexOf(b);
+    const sig = e.key === 'ArrowDown' ? todos[i + 1] : e.key === 'ArrowUp' ? todos[i - 1] : null;
     if (sig) { e.preventDefault(); sig.focus(); }
     if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); cerrar(); input.focus(); }
   });
@@ -458,16 +523,26 @@ function conectarBuscadorSiga(id, onElegir) {
 // ── Ruteo por hash ──────────────────────────────────────────────────────────────
 const tabActiva = () => (document.querySelector('#tabs .navtab.on') || {}).dataset?.tipo;
 const CLAVE_VISTA_PROD = 'precios.produccion.vista';
+const CLAVE_CLASE_PROD = 'precios.produccion.clase';
 const leerVistaProd = () => { try { return sessionStorage.getItem(CLAVE_VISTA_PROD); } catch { return null; } };
-// Marca el toggle y recuerda la vista (sesión); en el detalle de una receta el toggle no se muestra.
+const leerClaseProd = () => { try { return sessionStorage.getItem(CLAVE_CLASE_PROD); } catch { return null; } };
+// Marca un control segmentado (data-<attr>) y lo oculta si no hay valor.
+function marcarSegmento(cajaId, attr, valor) {
+  const caja = document.getElementById(cajaId);
+  if (!caja) return;
+  caja.classList.toggle('hidden', !valor);
+  caja.querySelectorAll(`[data-${attr}]`).forEach(b => b.setAttribute('aria-pressed', String(b.dataset[attr] === valor)));
+}
+// Marca sub-tab y toggle y los recuerda (sesión); en el detalle y el editor no se muestran.
 function marcarToggleProduccion(r) {
-  const vista = vistaToggleProduccion(r);
-  const caja = document.getElementById('prodVistas');
-  if (caja) {
-    caja.classList.toggle('hidden', !vista);
-    caja.querySelectorAll('[data-vista]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.vista === vista)));
-  }
-  if (vista) try { sessionStorage.setItem(CLAVE_VISTA_PROD, vista); } catch { /* sin storage: entra siempre a Presentaciones */ }
+  const vista = vistaToggleProduccion(r), clase = claseProduccion(r);
+  marcarSegmento('prodVistas', 'vista', vista);
+  marcarSegmento('prodClases', 'clase', clase);
+  if (clase) prodClase = clase;
+  try {
+    if (vista) sessionStorage.setItem(CLAVE_VISTA_PROD, vista);
+    if (clase) sessionStorage.setItem(CLAVE_CLASE_PROD, clase);
+  } catch { /* sin storage: entra siempre a Con receta › Presentaciones */ }
 }
 function rutearProduccion() {
   const r = parsearHashProduccion(location.hash);
@@ -476,11 +551,12 @@ function rutearProduccion() {
   marcarToggleProduccion(r);
   if (r.vista === 'detalle') cargarDetalleProduccion(r.id, { abrirPlu: r.plu || null });
   else if (r.vista === 'recetas') cargarSelectorProduccion();
-  else cargarListado('produccion'); // precios_listados.js: precios de Producción con el esquema por canal
+  else if (r.vista === 'envasadoNuevo') abrirEnvasadoNuevo(); // precios_produccion_envasado.js
+  else cargarListado('produccion'); // precios_listados.js: precios de Producción con el esquema por canal (filtra por prodClase)
 }
-// Sin id (entrar a la tab, volver de un borrado) → la última vista del toggle.
+// Sin id (entrar a la tab, volver de un borrado) → el último sub-tab y vista del toggle.
 function irAProduccion(id, plu = null) {
-  const h = id ? '#produccion/' + encodeURIComponent(id) + (plu ? '/' + encodeURIComponent(plu) : '') : hashEntradaProduccion(leerVistaProd());
+  const h = id ? '#produccion/' + encodeURIComponent(id) + (plu ? '/' + encodeURIComponent(plu) : '') : hashEntradaProduccion(leerVistaProd(), leerClaseProd());
   if (location.hash === h) rutearProduccion(); else location.hash = h;
 }
 // Al ir a otra tab se saca el hash (entrada nueva: "atrás" vuelve a Producción).
@@ -626,6 +702,7 @@ async function cargarDetalleProduccion(id, { silencioso = false, abrirPlu = null
     const d = await getJson(urlProd(id));
     const mismo = prodDet && prodDet.id === d.id;
     prodDet = d;
+    if (d.definicion && d.definicion.tipo === 'envasado') { pintarDetalleEnvasado(abrirPlu); return; } // precios_produccion_envasado.js
     if (!mismo) prodSeccionesElegidas = {};
     iniciarEdicionesProd(mismo); // precios_produccion_detalle.js
     pintarDetalleProduccion();
@@ -732,6 +809,10 @@ function iniciarProduccion() {
   document.getElementById('prodVistas').addEventListener('click', e => {
     const b = e.target.closest('[data-vista]');
     if (b) location.hash = b.dataset.vista === 'recetas' ? '#produccion/recetas' : '#produccion';
+  });
+  document.getElementById('prodClases').addEventListener('click', e => {
+    const b = e.target.closest('[data-clase]');
+    if (b) location.hash = hashEntradaProduccion(leerVistaProd(), b.dataset.clase);
   });
   // Scroll de la página (no de la propia lista) → cerrar listas flotantes del buscador SIGA.
   window.addEventListener('scroll', e => document.querySelectorAll('.bs-lista').forEach(l => {

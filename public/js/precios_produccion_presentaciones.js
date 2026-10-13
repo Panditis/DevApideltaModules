@@ -51,7 +51,8 @@ function htmlFilaPresentacion(p, nombres) {
     <td class="num g-final">${m ? htmlSemaforoPres(m.estado, m.deltaPct) : '<span class="text-gris">—</span>'}</td>
     ${htmlFechaPrecio(p.fechaPrecio, 'g-final')}
     <td>${badgeEstadoProd(p, nombres)}${esProvisoria(p.plu) ? ' ' + chip('Pendiente de alta en SIGA', 'bg-amarillo/30 text-ink') : ''}
-      ${(p.avisos || []).includes('variedad') ? ' ' + chip('Elegí una variedad', 'bg-warn/15 text-warn') : ''}</td>
+      ${(p.avisos || []).includes('variedad') ? ' ' + chip('Elegí una variedad', 'bg-warn/15 text-warn') : ''}
+      ${(p.avisos || []).includes('costoHora') ? ' ' + `<span title="${esc(AVISO_COSTO_HORA)}">${chip('Sin costo hora', 'bg-warn/15 text-warn')}</span>` : ''}</td>
     <td>${esProvisoria(p.plu) ? '' : `<button type="button" class="pr-precios cfg-btn2" data-plu="${esc(p.plu)}">Precios</button>`}</td></tr>`;
 }
 // Filas en el orden elegido por header (ordenarPresProd, precios_produccion.js); re-pintar sólo el tbody conserva el foco del header.

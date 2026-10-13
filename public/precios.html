@@ -357,10 +357,17 @@
 
   <!-- Producción: #produccion = listado (/js/precios_listados.js); #produccion/recetas = selector de recetas y #produccion/<id> = detalle (/js/precios_produccion*.js). -->
   <div id="panel-produccion" class="tab-panel hidden">
-    <!-- Toggle rápido entre el listado de presentaciones y las recetas (precios_produccion.js marcarToggleProduccion). -->
-    <div id="prodVistas" class="seg seg-sub mb-3" role="group" aria-label="Vista de Producción">
+    <!-- Sub-tabs: Con receta (pepas, granola…) y Envasado Apidelta (granel + envase, tapa, etiqueta: mieles). El toggle
+         Presentaciones | Recetas es sólo de Con receta (precios_produccion.js marcarToggleProduccion). -->
+    <div class="flex items-center gap-3 flex-wrap mb-3">
+    <div id="prodClases" class="seg seg-sub" role="group" aria-label="Tipo de producto de Producción">
+      <button type="button" class="seg-opt" data-clase="receta" aria-pressed="true">Con receta</button>
+      <button type="button" class="seg-opt" data-clase="envasado" aria-pressed="false">Envasado Apidelta</button>
+    </div>
+    <div id="prodVistas" class="seg seg-sub" role="group" aria-label="Vista de Con receta">
       <button type="button" class="seg-opt" data-vista="presentaciones" aria-pressed="true">Presentaciones</button>
       <button type="button" class="seg-opt" data-vista="recetas" aria-pressed="false">Recetas</button>
+    </div>
     </div>
     <div id="prodContenido"></div>
   </div>
@@ -441,6 +448,7 @@
 <script src="/js/precios_produccion_presentaciones.js"></script>
 <script src="/js/precios_produccion_modal.js"></script>
 <script src="/js/precios_produccion_formula.js"></script>
+<script src="/js/precios_produccion_envasado.js"></script>
 <script src="/js/precios_pack_bulto.js"></script>
 <script src="/js/precios_esquema.js"></script>
 <script src="/js/precios_config_esquema.js"></script>

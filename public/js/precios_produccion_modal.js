@@ -2,14 +2,15 @@
 // Script clásico, cargado después de los otros precios_produccion*.js: usa sus globales (prodDet,
 // guardarProd, validarProd, urlProd, conectarBuscadorSiga, htmlBuscadorSiga, badgeEstadoProd,
 // bodyPresentacion, opcionesVariedad, formatoPeso, presentacionSucia, faltaObligatorioPres, fmtNum,
-// btnCls/btnPrim/campoCls, nombresProd, htmlNotas, htmlCambios, REQ, ayuda, textoFuente, sugeridoProd) y los de
+// btnCls/btnPrim/campoCls, nombresProd, htmlNotas, htmlCambios, REQ, ayuda, sugeridoProd, AVISO_COSTO_HORA), conceptosCosto
+// (precios_modal_esquema.js), campoU (precios_config.js) y los de
 // precios.html (esc, fmtMoney, fmtPrecio, fmtPct, chip, numOrNull, claseDelta, avisar,
-// confirmar, pedirJson). Layout: formulario en bloques ①–③ a la izquierda y resumen de costo a la derecha
+// confirmar, pedirJson). Layout: formulario en bloques ①–④ a la izquierda y resumen de costo a la derecha
 // (≥ 900 px); apilado debajo con el sugerido en el pie. El resumen sale SIEMPRE del server: lo guardado
 // o POST …/preview (costea en memoria, no escribe). Nunca se recalculan fórmulas acá.
 
 const PREVIEW_MS = 300;
-// presEd = { plu, nombrePlu, recetaId, kg, sinSiga, nombreNuevo,
+// presEd = { plu, nombrePlu, recetaId, kg, sinSiga, nombreNuevo, insumos [{ plu, nombre, cantidad }], minutos (por unidad),
 //            inicial (lo guardado, para el "sin guardar"), preview, errorPreview, calculando }
 let presEd = null;
 let previewTimer = null, previewSeq = 0;
@@ -57,14 +58,19 @@ function estadoInicialPres(plu) {
     plu: plu || null, recetaId: def.recetaId || (variedades[0] || [''])[0], kg: def.kgPorUnidad ?? null,
     // Decisión 13: presentación que todavía no está en SIGA (clave n-…): nombre propio en vez de PLU.
     sinSiga: esProvisoria(plu), nombreNuevo: esProvisoria(plu) ? def.nombre || '' : '',
+    // ④ Insumos (nombre del costeo guardado) y minutos por unidad de mano de obra.
+    insumos: (def.insumos || []).map(it => ({ plu: String(it.plu), cantidad: it.cantidad, nombre: nombreInsumoPres(plu, it.plu) })),
+    minutos: def.minutosPorUnidad ?? null,
   };
   return { ...v, nombrePlu: null, inicial: v, preview: null, errorPreview: '', calculando: false };
 }
 const guardadaPres = () => (presEd.plu && prodDet.presentaciones[presEd.plu]) || null;
+const nombreInsumoPres = (plu, insumo) => ((((plu && prodDet.presentaciones[plu]) || {}).componentes || []).find(c => c.plu === String(insumo)) || {}).nombre || null;
 const suciaPres = () => presentacionSucia(presEd, presEd.inicial);
 // Lo que muestra el resumen: con cambios, la vista previa; sin cambios, lo guardado.
 const datosResumen = () => (suciaPres() ? presEd.preview : presEd.preview || guardadaPres());
-const bodyDe = v => ({ ...bodyPresentacion({ recetaId: v.recetaId, kgPorUnidad: v.kg }), ...(v.sinSiga ? { nombre: (v.nombreNuevo || '').trim() } : {}) });
+const bodyDe = v => ({ ...bodyPresentacion({ recetaId: v.recetaId, kgPorUnidad: v.kg, insumos: v.insumos, minutosPorUnidad: v.minutos }),
+  ...(v.sinSiga ? { nombre: (v.nombreNuevo || '').trim() } : {}) });
 
 function abrirPresentacion(plu) {
   presEd = estadoInicialPres(plu);
@@ -135,6 +141,7 @@ function htmlBannersPres() {
   }
   if (r && r.faltantes && r.faltantes.length) partes.push(htmlNotas({ faltantes: r.faltantes }, nombres, presEd.plu));
   if (r && (r.avisos || []).includes('variedad')) partes.push(`<p class="text-xs text-warn">⚠ ${esc(mensajeFaltante('variedad').texto)} en ②.</p>`);
+  if (r && (r.avisos || []).includes('costoHora')) partes.push(`<p class="text-xs text-warn">⚠ ${esc(AVISO_COSTO_HORA)}</p>`);
   return `<div id="dpBanners" class="space-y-2 mb-4">${partes.join('')}</div>`;
 }
 function conectarBanners() {
@@ -143,7 +150,7 @@ function conectarBanners() {
 }
 
 // ── Formulario en bloques ①–③ ────────────────────────────────────────────────────
-const NUM_BLOQUE = ['①', '②', '③'];
+const NUM_BLOQUE = ['①', '②', '③', '④'];
 function bloquePres(n, titulo, cuerpo, opcional = false) {
   return `<section class="mb-5"><h4 class="flex items-center gap-2 text-sm font-semibold ${opcional ? 'text-gris' : 'text-ink'}">
     <span class="text-lg leading-none ${opcional ? 'text-gris' : 'text-verde'}" aria-hidden="true">${NUM_BLOQUE[n - 1]}</span>${titulo}
@@ -190,10 +197,22 @@ function htmlBloqueCantidad() {
         class="${campoCls} w-32 text-right tabular-nums"><span id="dpGramos" class="text-sm text-ink font-semibold">${g ? '= ' + g : ''}</span></span></label>
     ${ayuda('Cuánta receta lleva cada unidad vendida.')}`;
 }
+// ④ Insumos por unidad (envase, etiqueta, bolsa, caja…: el mismo buscador múltiple de Envasado) y minutos de mano de obra.
+function htmlBloqueInsumosPres() {
+  const filas = presEd.insumos.map((it, j) => `<tr><td class="tabular-nums">${esc(it.plu)}</td><td class="text-left">${esc(it.nombre || '')}</td>
+      <td class="num">${campoU(`<input type="number" min="0" step="any" class="dp-ins-cant" data-j="${j}" value="${esc(it.cantidad ?? '')}" aria-label="Cantidad de ${esc(it.nombre || it.plu)} por unidad">`, 'u', { w: 'w-24' })}</td>
+      <td class="text-right"><button type="button" class="dp-ins-quitar btn-quitar" data-j="${j}" aria-label="Quitar ${esc(it.nombre || it.plu)}">✕</button></td></tr>`).join('');
+  const tabla = filas ? `<table class="pr-tabla pr-tabla-in mb-2"><thead><tr><th>PLU</th><th class="text-left">Insumo</th><th class="num">Por unidad</th><th class="w-10"></th></tr></thead><tbody>${filas}</tbody></table>` : '';
+  return `${tabla}${htmlBuscadorSiga('dpIns', 'Buscar insumos en SIGA: envase, etiqueta, bolsa, caja… (podés tildar varios)')}
+    <label class="text-xs text-gris block mt-3">Minutos por unidad (mano de obra)
+      <span class="flex items-center gap-2 mt-1">${campoU(`<input id="dpMin" type="number" step="any" min="0" placeholder="ej. 2" value="${esc(presEd.minutos ?? '')}">`, 'min', { w: 'w-24' })}</span></label>
+    ${ayuda('Tiempo estimado para producir una unidad; se multiplica por el costo hora de Configuración › Costos.')}`;
+}
 function htmlFormPres(p) {
   return bloquePres(1, 'Producto a la venta', htmlBloquePlu(p))
     + bloquePres(2, '¿De qué variedad?', htmlBloqueVariedad())
-    + bloquePres(3, '¿Cuánto lleva?', htmlBloqueCantidad());
+    + bloquePres(3, '¿Cuánto lleva?', htmlBloqueCantidad())
+    + bloquePres(4, 'Insumos y mano de obra', htmlBloqueInsumosPres(), true);
 }
 function setPres(cambio) {
   presEd = { ...presEd, ...cambio };
@@ -203,6 +222,8 @@ function setPres(cambio) {
 function conectarFormPres() {
   const num = (id, campo) => { const el = document.getElementById(id); if (el) el.addEventListener('input', () => setPres({ [campo]: numOrNull(el.value) })); };
   num('dpKg', 'kg');
+  num('dpMin', 'minutos');
+  conectarInsumosPres();
   const receta = document.getElementById('dpReceta');
   if (receta) receta.addEventListener('change', e => { setPres({ recetaId: e.target.value }); pintarBannersSolo(); });
   document.querySelectorAll('#dpForm input[name=dpModoPlu]').forEach(r => r.addEventListener('change', () => {
@@ -216,6 +237,21 @@ function conectarFormPres() {
   if (document.getElementById('dpPlu')) conectarBuscadorSiga('dpPlu', elegirPluPres);
   conectarBanners();
 }
+// Insumos de ④: cantidad sin repintar (no pierde el foco); agregar/quitar repinta el formulario.
+function conectarInsumosPres() {
+  const insumosCon = insumos => { presEd = { ...presEd, insumos }; pintarModalPresentacion(); programarPreview(); };
+  document.querySelectorAll('#dpForm .dp-ins-cant').forEach(inp => inp.addEventListener('input', () => {
+    const j = Number(inp.dataset.j);
+    setPres({ insumos: presEd.insumos.map((it, k) => (k === j ? { ...it, cantidad: numOrNull(inp.value) } : it)) });
+  }));
+  document.querySelectorAll('#dpForm .dp-ins-quitar').forEach(b => b.onclick = () => insumosCon(presEd.insumos.filter((_, k) => k !== Number(b.dataset.j))));
+  if (!document.getElementById('dpIns')) return;
+  const motivo = plu => (plu === String(presEd.plu) ? 'es esta presentación' : presEd.insumos.some(it => it.plu === plu) ? 'ya está' : null);
+  conectarBuscadorSiga('dpIns', items => {
+    const nuevos = items.filter(it => !motivo(String(it.plu))).map(it => ({ plu: String(it.plu), nombre: it.nombre || null, cantidad: 1 }));
+    if (nuevos.length) insumosCon([...presEd.insumos, ...nuevos]);
+  }, { multiple: true, deshabilitado: motivo });
+}
 const pintarBannersSolo = () => { const b = document.getElementById('dpBanners'); if (b) { b.outerHTML = htmlBannersPres(); conectarBanners(); } };
 function elegirPluPres({ plu, nombre }) {
   if (prodDet.presentaciones[plu]) { avisar(`El PLU ${plu} ya es una presentación de este producto: abrila desde la tabla.`); return; }
@@ -228,12 +264,6 @@ function elegirPluPres({ plu, nombre }) {
 const filaRes = (op, txt, val, cls = '') => `<div class="flex items-baseline gap-2 py-1 text-sm ${cls}">
   <span class="w-3 shrink-0 text-gris" aria-hidden="true">${op}</span><span class="flex-1 min-w-0">${txt}</span><span class="tabular-nums whitespace-nowrap">${val}</span></div>`;
 const plataRes = v => (v == null ? '<span class="text-crit text-xs">falta</span>' : '$ ' + fmtMoney(v));
-function filaComponente(c, i) {
-  const op = i ? '+' : '';
-  const sub = t => ` <span class="block text-[11px] text-gris">${t}</span>`;
-  if (c.plu === '_receta') return filaRes(op, `Receta ${esc(c.nombre || '')}${sub(`${fmtNum(c.cantidad)} kg × ${plataRes(c.costoUnit)}/kg`)}`, plataRes(c.importe));
-  return filaRes(op, `${esc(c.nombre || c.plu)}${sub(`${fmtNum(c.cantidad)} × ${plataRes(c.costoUnit)} · ${textoFuente(c.fuente)}`)}`, plataRes(c.importe));
-}
 function htmlPrecioRes(r) {
   const m = sugeridoProd(r);
   return `<div class="flex flex-wrap items-end gap-x-6 gap-y-2">
@@ -241,11 +271,22 @@ function htmlPrecioRes(r) {
     <div><div class="lbl">Vigente SIGA</div><div class="text-lg font-semibold text-ink/70 tabular-nums">${r.precioVigente != null ? '$ ' + fmtPrecio(r.precioVigente) : '—'}</div></div>
     <div><div class="lbl">Diferencia</div><span class="font-semibold tabular-nums ${claseDelta(m && m.estado)}">${m ? fmtPct(m.deltaPct) : '—'}</span></div></div>`;
 }
+// Costo real = mercadería (receta × kg, con cada materia prima por unidad) + insumos + mano de obra (conceptosCosto,
+// precios_modal_esquema.js).
 function htmlEcuacionRes(r) {
+  const { insumos, mo } = conceptosCosto(r.componentes);
+  const receta = r.componentes.find(c => c.plu === '_receta') || {};
+  const sub = t => `<span class="block text-[11px] text-gris">${t}</span>`;
+  const mercaderia = [`Receta ${esc(receta.nombre || '')}: ${fmtNum(receta.cantidad)} kg × ${plataRes(receta.costoUnit)}/kg`,
+    ...(r.materiasPrimas || []).map(l => `· ${esc(l.nombre || l.plu)} ${fmtNum(l.cantidad)} kg × ${plataRes(l.costoUnit)}`)];
+  const lineasIns = insumos.lineas.length ? insumos.lineas.map(l => `· ${esc(l.nombre || l.plu)} ${fmtNum(l.cantidad)} × ${plataRes(l.costoUnit)}`) : ['sin insumos cargados (④)'];
+  const textoMo = !mo ? 'sin minutos cargados (④)' : `${fmtNum(mo.cantidad)} min × ${mo.costoUnit == null ? 'sin costo hora' : `${plataRes(mo.costoUnit)}/h`}`;
   return `<div class="mt-4 rounded-lg border border-borde bg-card px-3 py-2" role="group" aria-label="Cálculo del costo">
-    ${r.componentes.map(filaComponente).join('')}
-    ${filaRes('=', '<b>Costo por unidad</b>', `<b>${plataRes(r.costoUnidad)}</b>`, 'border-t border-borde mt-1 pt-2')}
-    <p class="text-[11px] text-gris pt-1">Sólo materias primas (cada una con el costo de su tab). Pack, bulto y el desglose: botón «Precios» de la tabla.</p></div>`;
+    ${filaRes('', `Mercadería${mercaderia.map(sub).join('')}`, plataRes(receta.importe))}
+    ${filaRes('+', `Insumos${lineasIns.map(sub).join('')}`, plataRes(insumos.subtotal))}
+    ${filaRes('+', `Mano de obra${sub(textoMo)}`, plataRes(mo ? mo.importe : 0))}
+    ${filaRes('=', '<b>Costo real por unidad</b>', `<b>${plataRes(r.costoUnidad)}</b>`, 'border-t border-borde mt-1 pt-2')}
+    <p class="text-[11px] text-gris pt-1">Cada materia prima e insumo con el costo de su tab; la mano de obra con el costo hora de Configuración. Pack, bulto y el desglose: botón «Precios» de la tabla.</p></div>`;
 }
 function pintarResumenPres() {
   const el = document.getElementById('dpResumen');
