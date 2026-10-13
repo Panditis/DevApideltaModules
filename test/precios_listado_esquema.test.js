@@ -143,9 +143,10 @@ test('listadoProduccion: tipoProduccion (receta por defecto | envasado) y el cos
     { plu: '6334', nombre: 'Envase', cantidad: 1, costoUnit: 180, importe: 180, rol: 'empaque' }];
   const filas = L.listadoProduccion({ presentaciones: [
     { productoId: 'p-g', plu: '6319', nombre: 'Granola', costoUnidad: 1000 },
-    { productoId: 'p-m', plu: '9001', nombre: 'Miel 500', costoUnidad: 1580, tipoProduccion: 'envasado', componentesCosto: lineas },
+    { productoId: 'p-m', plu: '9001', nombre: 'Miel 500', costoUnidad: 1580, tipoProduccion: 'envasado', componentesCosto: lineas, familia: 'Miel', variedad: 'Pradera' },
   ], vigentes: new Map(), mayoristasDe: md, costeo: {}, cfg: CFG });
-  assert.deepStrictEqual(filas.map(f => [f.plu, f.tipoProduccion]), [['6319', 'receta'], ['9001', 'envasado']]);
+  assert.deepStrictEqual(filas.map(f => [f.plu, f.tipoProduccion, f.familia, f.variedad]), [['6319', 'receta', undefined, undefined], ['9001', 'envasado', 'Miel', 'Pradera']]);
+  assert.deepStrictEqual([L.filaPublica(filas[1]).familia, L.filaPublica(filas[1]).variedad], ['Miel', 'Pradera']); // agrupan el listado: van sin permiso
   assert.strictEqual(filas[0].componentesCosto, undefined);
   assert.deepStrictEqual(filas[1].componentesCosto, lineas);
   assert.strictEqual(L.filaPublica(filas[1]).componentesCosto, undefined); // estructura de costos: sólo con precios-config

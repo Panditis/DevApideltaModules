@@ -643,20 +643,30 @@ test('PUT margen-especial: valida, guarda en el producto (vacío lo borra) y el 
   }
 });
 
-// ── Envasado Apidelta ────────────────────────────────────────────────────────
+// ── Envasado Apidelta: Familia › Variedad › PLUs ─────────────────────────────
 
-const { envasadoDesdeFormula } = rutas;
-const MIEL_ENV = { nombre: 'Miel 500', tipo: 'envasado', plu: '6319', granelPlu: '7067', kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] };
+const { envasadoDesdeFormula, opcionesEnvasado } = rutas;
+// Variedad con un PLU (6319: 0,5 kg de granel 7067 + envase 6334).
+const MIEL_ENV = { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera', granelPlu: '7067',
+  presentaciones: { 6319: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] } } };
 
-test('plusUsados: un envasado aporta su granel y su empaque', () => {
-  assert.deepStrictEqual(plusUsados({ 'p-miel': MIEL_ENV }).sort(), ['6334', '7067']);
+test('plusUsados: una variedad envasada aporta su granel, sus PLUs y los insumos de cada uno', () => {
+  assert.deepStrictEqual(plusUsados({ 'p-miel': MIEL_ENV }).sort(), ['6319', '6334', '7067']);
 });
 
-test('envasadoDesdeFormula: granel = el no-empaque (por nombre "granel" o el de más cantidad); el resto, empaque con su cantidad', () => {
+test('normalizarDatos: migra al leer los envasados viejos de un solo PLU (idempotente)', () => {
+  const viejo = { nombre: 'Miel 500', tipo: 'envasado', plu: '6319', granelPlu: '7067', kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 1 }] };
+  const d = normalizarDatos({ productos: { 'p-miel': viejo, 'p-granola': PRODUCTO } });
+  assert.deepStrictEqual(d.productos['p-miel'], { ...MIEL_ENV, nombre: 'Miel 500' });
+  assert.strictEqual(d.productos['p-granola'], PRODUCTO);
+  assert.deepStrictEqual(normalizarDatos(d), d);
+});
+
+test('envasadoDesdeFormula: granel = el no-empaque (por nombre "granel" o el de más cantidad); el resto, insumos con su cantidad', () => {
   const comp = (plu, nombre, cantPorUnidad, tipo, costo = null) => ({ plu, nombre, cantPorUnidad, tipo, costo, fuente: costo == null ? null : 'sistema' });
   const f = envasadoDesdeFormula({ plu: '6319', nombre: 'MIEL 500G', mensaje: null, componentes: [
     comp('6334', 'ENVASE 500', 1, 'envase', 180), comp('77', 'CAJA', 1, 'otro'), comp('7067', 'MIEL GRANEL', 0.5, 'otro', 2800), comp('812', 'ETIQUETA', 2, 'etiqueta')] });
-  assert.deepStrictEqual([f.plu, f.nombre, f.granelPlu, f.granelNombre, f.kgPorUnidad], ['6319', 'MIEL 500G', '7067', 'MIEL GRANEL', 0.5]);
+  assert.deepStrictEqual([f.plu, f.nombre, f.granelPlu, f.granelNombre, f.kgPorUnidad, f.avisoGranel], ['6319', 'MIEL 500G', '7067', 'MIEL GRANEL', 0.5, null]);
   assert.deepStrictEqual(f.componentes.map(c => [c.plu, c.cantidad, c.costo]), [['6334', 1, 180], ['77', 1, null], ['812', 2, null]]);
   // Sin "granel" en el nombre: el no-empaque de más cantidad. Sin no-empaque: granel vacío (se elige a mano).
   const sinNombre = envasadoDesdeFormula({ plu: '1', nombre: 'X', componentes: [comp('5', 'MIEL', 0.25, 'otro'), comp('6', 'POLEN', 0.01, 'otro')] });
@@ -670,18 +680,43 @@ test('envasadoDesdeFormula: granel = el no-empaque (por nombre "granel" o el de 
   assert.throws(() => envasadoDesdeFormula({ plu: '1', nombre: null, componentes: [] }), /no existe/);
 });
 
-test('aplicarValidacion: envasado guarda el snapshot en el producto; con faltantes no valida', () => {
+test('envasadoDesdeFormula con el granel de la variedad: si la fórmula lo usa es el granel; si usa otro, aviso (no bloquea)', () => {
+  const comp = (plu, nombre, cantPorUnidad, tipo) => ({ plu, nombre, cantPorUnidad, tipo, costo: null });
+  const formula = { plu: '9002', nombre: 'MIEL AZAHAR 1KG', componentes: [comp('5', 'MIEL PRADERA GRANEL', 0.2, 'otro'), comp('6', 'MIEL AZAHAR', 1, 'otro'), comp('7', 'TAPA', 1, 'tapa')] };
+  const mismo = envasadoDesdeFormula(formula, { granelPlu: '6' });
+  assert.deepStrictEqual([mismo.granelPlu, mismo.kgPorUnidad, mismo.avisoGranel, mismo.componentes.map(c => c.plu)], ['6', 1, null, ['5', '7']]);
+  const otro = envasadoDesdeFormula(formula, { granelPlu: '99' });
+  assert.deepStrictEqual([otro.granelPlu, otro.kgPorUnidad, otro.componentes.map(c => c.plu)], ['5', 0.2, ['6', '7']]);
+  assert.match(otro.avisoGranel, /otro granel.*5.*MIEL PRADERA GRANEL/);
+  // Sin granel en la fórmula no hay con qué comparar: queda el mensaje de siempre, sin aviso de granel.
+  assert.strictEqual(envasadoDesdeFormula({ plu: '1', nombre: 'X', componentes: [comp('7', 'TAPA', 1, 'tapa')] }, { granelPlu: '6' }).avisoGranel, null);
+});
+
+test('opcionesEnvasado: familias (sin repetir, A→Z), dueño de cada PLU de venta y las variedades', () => {
+  const o = opcionesEnvasado({ 'p-granola': PRODUCTO, 'p-miel': MIEL_ENV, 'p-azahar': { ...MIEL_ENV, nombre: 'Azahar', presentaciones: {} },
+    'p-dulce': { ...MIEL_ENV, familia: 'Dulces', nombre: 'Leche', presentaciones: {} }, 'p-x': { ...MIEL_ENV, familia: '', nombre: 'Sin familia', presentaciones: {} } });
+  assert.deepStrictEqual(o.familias, ['Dulces', 'Miel']);
+  assert.deepStrictEqual(o.duenios, { 6319: { productoId: 'p-miel', nombre: 'Miel Pradera' } });
+  assert.deepStrictEqual(o.variedades.map(v => [v.id, v.familia, v.nombre]),
+    [['p-miel', 'Miel', 'Pradera'], ['p-azahar', 'Miel', 'Azahar'], ['p-dulce', 'Dulces', 'Leche'], ['p-x', '', 'Sin familia']]);
+  // Los PLUs de receta también tienen dueño (no se pueden agregar a una variedad).
+  assert.deepStrictEqual(opcionesEnvasado({ 'p-granola': { ...PRODUCTO, presentaciones: { 6319: {} } } }).duenios, { 6319: { productoId: 'p-granola', nombre: 'Granola' } });
+});
+
+test('aplicarValidacion: variedad envasada valida cada PLU (todo o uno); con faltantes no valida', () => {
   const c = costearTodos({ productos: { 'p-miel': MIEL_ENV }, costos: COSTOS, costeo: COSTEO })['p-miel'];
   assert.strictEqual(c.presentaciones['6319'].costoUnidad, 1580); // 0,5 × 2800 + 180
   const r = aplicarValidacion(MIEL_ENV, c, { tipo: 'todo' }, '2026-10-13');
-  assert.deepStrictEqual(r.producto.validado, { fecha: '2026-10-13', costoUnidad: 1580, costos: { 7067: 2800, 6334: 180 } });
+  assert.deepStrictEqual(r.producto.presentaciones['6319'].validado, { fecha: '2026-10-13', costoUnidad: 1580, costos: { 7067: 2800, 6334: 180 } });
   assert.deepStrictEqual(r.validados, [{ tipo: 'presentacion', id: '6319' }]);
-  assert.strictEqual(MIEL_ENV.validado, undefined); // no muta
+  assert.strictEqual(MIEL_ENV.presentaciones['6319'].validado, undefined); // no muta
+  assert.deepStrictEqual(aplicarValidacion(MIEL_ENV, c, { tipo: 'presentacion', id: '6319' }, 'f').validados, [{ tipo: 'presentacion', id: '6319' }]);
   const sinEnvase = costearTodos({ productos: { 'p-miel': MIEL_ENV }, costos: new Map([...COSTOS].filter(([k]) => k !== '6334')), costeo: COSTEO })['p-miel'];
-  assert.throws(() => aplicarValidacion(MIEL_ENV, sinEnvase, { tipo: 'todo' }, 'f'), /faltantes: 6334/);
+  assert.throws(() => aplicarValidacion(MIEL_ENV, sinEnvase, { tipo: 'presentacion', id: '6319' }, 'f'), /faltantes: 6334/);
+  assert.deepStrictEqual(aplicarValidacion(MIEL_ENV, sinEnvase, { tipo: 'todo' }, 'f').omitidos, [{ tipo: 'presentacion', id: '6319', faltantes: ['6334'] }]);
 });
 
-test('router envasado: precarga desde la fórmula SIGA, alta, vista previa, edición, validar, alertas y fuera de Recetas', async () => {
+test('router envasado: opciones, precarga con granel, alta de la variedad, PLUs, vista previa, edición, validar y alertas', async () => {
   const FORMULA_6319 = [
     { plu: '7067', nombre: 'MIEL GRANEL', cantPorUnidad: 0.5, rubro: 'MATERIA PRIMA' },
     { plu: '6334', nombre: 'ENVASE PET 500', cantPorUnidad: 1, rubro: 'ENVASES' },
@@ -695,47 +730,55 @@ test('router envasado: precarga desde la fórmula SIGA, alta, vista previa, edic
     method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
   })).json();
   try {
-    const pre = await pedir('GET', '/envasado/precarga/6319');
-    assert.deepStrictEqual([pre.nombre, pre.granelPlu, pre.kgPorUnidad, pre.componentes.map(c => [c.plu, c.cantidad, c.costo])],
-      ['MIEL 500G', '7067', 0.5, [['6334', 1, 180]]]);
+    const pre = await pedir('GET', '/envasado/precarga/6319?granel=7067');
+    assert.deepStrictEqual([pre.nombre, pre.granelPlu, pre.kgPorUnidad, pre.avisoGranel, pre.componentes.map(c => [c.plu, c.cantidad, c.costo])],
+      ['MIEL 500G', '7067', 0.5, null, [['6334', 1, 180]]]);
+    assert.match((await pedir('GET', '/envasado/precarga/6319?granel=300')).avisoGranel, /otro granel/);
+    assert.match((await pedir('GET', '/envasado/precarga/6319?granel=x')).error, /granel/);
     assert.match((await pedir('GET', '/envasado/precarga/5555')).error, /no existe/);
 
-    const body = { nombre: pre.nombre, plu: '6319', granelPlu: pre.granelPlu, kgPorUnidad: pre.kgPorUnidad, componentes: pre.componentes };
+    // Alta de la variedad sin PLUs (después se agregan).
     const archivo = path.join(dir, 'recetas_produccion.json');
-    const pv = await pedir('POST', '/envasado/preview', body);
-    assert.deepStrictEqual([pv.costoUnidad, pv.precioVigente, pv.esquema.plu, pv.estado], [1580, 1000, '6319', 'sin-validar']);
-    assert.ok(!fs.existsSync(archivo)); // la vista previa no escribe
-    assert.match((await pedir('POST', '/envasado', { ...body, plu: '5555' })).error, /no existe en SIGA/);
-    assert.match((await pedir('POST', '/envasado', { ...body, kgPorUnidad: -1 })).error, /kgPorUnidad/);
+    const variedad = { familia: 'Miel', nombre: 'Pradera', granelPlu: '7067' };
+    assert.match((await pedir('POST', '/envasado', { ...variedad, granelPlu: '5555' })).error, /no existe en SIGA/);
+    const alta = await pedir('POST', '/envasado', variedad);
+    assert.strictEqual(alta.id, 'p-miel-pradera');
+    assert.deepStrictEqual(alta.producto.presentaciones, {});
 
-    const alta = await pedir('POST', '/envasado', body);
-    assert.strictEqual(alta.id, 'p-miel-500g');
-    assert.deepStrictEqual(alta.producto.componentes, [{ plu: '6334', cantidad: 1 }]);
-    assert.match((await pedir('POST', '/envasado', body)).error, /ya pertenece/); // el PLU de venta es de un solo producto
-    // Una presentación de receta tampoco puede usar ese PLU.
+    const body = { ...variedad, presentaciones: { 6319: { kgPorUnidad: pre.kgPorUnidad, componentes: pre.componentes } } };
+    const pv = await pedir('POST', '/envasado/preview', { ...body, id: alta.id });
+    assert.deepStrictEqual([pv['6319'].costoUnidad, pv['6319'].precioVigente, pv['6319'].esquema.plu, pv['6319'].estado], [1580, 1000, '6319', 'sin-validar']);
+    assert.ok(!JSON.parse(fs.readFileSync(archivo, 'utf8')).productos[alta.id].presentaciones['6319']); // la vista previa no escribe
+    assert.match((await pedir('PUT', `/productos/${alta.id}/envasado`, { ...body, presentaciones: { 5555: { kgPorUnidad: 1 } } })).error, /no existe en SIGA/);
+    const ed = await pedir('PUT', `/productos/${alta.id}/envasado`, body);
+    assert.deepStrictEqual(ed.producto.presentaciones['6319'].componentes, [{ plu: '6334', cantidad: 1 }]);
+    // Otra variedad no puede usar el mismo PLU; una presentación de receta tampoco.
+    assert.match((await pedir('POST', '/envasado', { ...body, nombre: 'Azahar' })).error, /Miel Pradera/);
     await pedir('POST', '/productos', { nombre: 'Granola' });
     await pedir('PUT', '/productos/p-granola/recetas/base', PRODUCTO.recetas.base);
-    assert.match((await pedir('PUT', '/productos/p-granola/presentaciones/6319', { recetaId: 'granola', kgPorUnidad: 1 })).error, /MIEL 500G/);
+    assert.match((await pedir('PUT', '/productos/p-granola/presentaciones/6319', { recetaId: 'granola', kgPorUnidad: 1 })).error, /Miel Pradera/);
 
-    // "Recetas" no lo muestra; el detalle sí (con su definición).
+    const op = await pedir('GET', '/envasado/opciones');
+    assert.deepStrictEqual([op.familias, op.duenios['6319'], op.variedades.map(v => v.id)], [['Miel'], { productoId: alta.id, nombre: 'Miel Pradera' }, [alta.id]]);
+    // "Recetas" no la muestra; el detalle sí (con su definición).
     assert.deepStrictEqual((await pedir('GET', '/productos')).map(p => p.id), ['p-granola']);
-    const det = await pedir('GET', '/productos/p-miel-500g');
-    assert.deepStrictEqual([det.definicion.tipo, det.presentaciones['6319'].costoUnidad, det.presentaciones['6319'].componentes.map(c => c.rol)],
-      ['envasado', 1580, ['granel', 'empaque']]);
+    const det = await pedir('GET', `/productos/${alta.id}`);
+    assert.deepStrictEqual([det.definicion.familia, det.presentaciones['6319'].costoUnidad, det.presentaciones['6319'].nombre, det.presentaciones['6319'].componentes.map(c => c.rol)],
+      ['Miel', 1580, 'GRANOLA 500G', ['granel', 'empaque']]);
 
-    const v = await pedir('POST', '/productos/p-miel-500g/validar', { tipo: 'todo' });
+    const v = await pedir('POST', `/productos/${alta.id}/validar`, { tipo: 'presentacion', id: '6319' });
     assert.deepStrictEqual(v.validados, [{ tipo: 'presentacion', id: '6319' }]);
-    // Editar no re-valida (conserva validado y creado); "a revisar" compara costos unitarios: 2 envases no es alerta.
-    const ed = await pedir('PUT', '/productos/p-miel-500g/envasado', { ...body, componentes: [{ plu: '6334', cantidad: 2 }] });
-    assert.ok(ed.producto.validado && ed.producto.creado);
+    // Editar no re-valida (conserva el validado de cada PLU, creado y margen); "a revisar" compara costos unitarios: 2 envases no es alerta.
+    const ed2 = await pedir('PUT', `/productos/${alta.id}/envasado`, { ...body, presentaciones: { 6319: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 2 }] } } });
+    assert.ok(ed2.producto.presentaciones['6319'].validado && ed2.producto.creado);
     assert.match((await pedir('PUT', '/productos/p-granola/envasado', body)).error, /no es de envasado/);
     assert.strictEqual((await pedir('GET', '/alertas')).total, 0);
-    // Sube el envase en su tab (costo manual): alerta del envasado con el envase antes → ahora.
+    // Sube el envase en su tab (costo manual): alerta del PLU con el envase antes → ahora.
     fs.writeFileSync(path.join(dir, 'costeo.json'), JSON.stringify({ ...COSTEO, costoPorProducto: { 6334: 200 } }));
     const al = await pedir('GET', '/alertas');
-    const it = al.items.find(i => i.productoId === 'p-miel-500g');
-    assert.deepStrictEqual(it.componentes, [{ plu: '6334', nombre: 'ENVASE PET 500', antes: 180, ahora: 200 }]);
-    assert.ok((await pedir('DELETE', '/productos/p-miel-500g')).borrado);
+    const it = al.items.find(i => i.productoId === alta.id);
+    assert.deepStrictEqual([it.id, it.componentes], ['6319', [{ plu: '6334', nombre: 'ENVASE PET 500', antes: 180, ahora: 200 }]]);
+    assert.ok((await pedir('DELETE', `/productos/${alta.id}`)).borrado);
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
