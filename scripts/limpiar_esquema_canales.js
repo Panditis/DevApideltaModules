@@ -4,7 +4,8 @@
 // (la vieja volvería a escribir claves muertas):
 //   node scripts/limpiar_esquema_canales.js [carpeta data]
 // Saca de costeo.json y recetas_produccion.json lo que el código ya no lee (listas exactas: lib/precios_config_esquema
-// CLAVES_MUERTAS_COSTEO y lib/precios_produccion limpiarRecetas). Idempotente. Backup <archivo>.bak-limpieza-esquema
+// CLAVES_MUERTAS_COSTEO y lib/precios_produccion limpiarRecetas; desde 2026-10-13 conserva costoHora y los insumos/minutos
+// por unidad de las presentaciones, que volvieron con la mano de obra de Producción). Idempotente. Backup <archivo>.bak-limpieza-esquema
 // (si ya existe no se pisa: es el original). Escritura atómica (tmp + rename). Conviene correrlo sin nadie editando.
 const fs = require('fs');
 const path = require('path');

@@ -460,15 +460,18 @@ function idUnico(base, existentes) {
 
 const esPlu = clave => PLU.test(String(clave));
 
-// PLUs SIGA que hay que consultar: materias primas, extras y PLUs de presentación; de una variedad envasada, el granel y
-// los insumos de cada PLU.
+// PLUs SIGA que hay que consultar: materias primas, extras, PLUs de presentación y sus insumos; de una variedad envasada, el
+// granel y los insumos de cada PLU.
 function plusUsados(productos) {
   const plus = new Set();
   for (const p of Object.values(productos || {})) {
     for (const r of Object.values(p.recetas || {})) {
       for (const it of [...(r.materiasPrimas || []), ...(r.extras || [])]) plus.add(String(it.plu));
     }
-    for (const plu of Object.keys(p.presentaciones || {})) plus.add(plu);
+    for (const [plu, pr] of Object.entries(p.presentaciones || {})) {
+      plus.add(plu);
+      ((pr && pr.insumos) || []).forEach(it => plus.add(String(it.plu)));
+    }
     if (p.tipo === 'envasado') {
       plus.add(String(p.granelPlu));
       Object.values(p.presentaciones || {}).forEach(pr => (pr.componentes || []).forEach(c => plus.add(String(c.plu))));
@@ -512,7 +515,8 @@ function armarCostoDe({ costos, costeo }) {
 }
 
 // Costea cada producto. Las presentaciones sin nombre propio toman el de SIGA. familias = precio de materia prima por
-// familia (recetas_produccion.json): un envasado de esa familia lo usa en vez del costo de su granel.
+// familia (recetas_produccion.json): un envasado de esa familia lo usa en vez del costo de su granel. costeo.costoHora =
+// costo hora de mano de obra (Configuración › Costos).
 function costearTodos({ productos, costos, costeo, familias = {} }) {
   const cfg = costeo || {};
   const costoDe = armarCostoDe({ costos, costeo: cfg });
@@ -520,7 +524,7 @@ function costearTodos({ productos, costos, costeo, familias = {} }) {
     const presentaciones = Object.fromEntries(Object.entries(p.presentaciones || {}).map(([plu, pr]) =>
       [plu, pr.nombre ? pr : { ...pr, nombre: (costos.get(plu) || {}).nombre || null }]));
     const costoKgFamilia = p.tipo === 'envasado' ? produccion.costoFamiliaDe(familias, p.familia) : null;
-    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct, costoKgFamilia })];
+    return [id, produccion.costearProducto({ producto: { ...p, presentaciones }, costoDe, toleranciaPct: cfg.toleranciaPct, costoKgFamilia, costoHora: cfg.costoHora })];
   }));
 }
 

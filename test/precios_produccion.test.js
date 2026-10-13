@@ -83,7 +83,7 @@ test('recetaEfectiva: variante de variante o base inexistente → error', () => 
 // ── costearPresentacion ──────────────────────────────────────────────────────
 
 const PRES = { recetaId: 'base', kgPorUnidad: 0.5 };
-const presentar = (extra = {}) => costearPresentacion({ plu: '6319', nombre: 'Granola 500g', presentacion: PRES, recetaCosteada: costear(BASE), ...extra });
+const presentar = (extra = {}) => costearPresentacion({ plu: '6319', nombre: 'Granola 500g', presentacion: PRES, recetaCosteada: costear(BASE), costoDe, ...extra });
 
 test('costearPresentacion: costo por unidad = costo/kg de la receta × kg por unidad, sin precio', () => {
   const p = presentar();
@@ -93,8 +93,8 @@ test('costearPresentacion: costo por unidad = costo/kg de la receta × kg por un
   assert.deepStrictEqual(p.costos, { 300: 400, 7067: 2800 }); // los de la receta
   assert.deepStrictEqual([p.plu, p.nombre, p.recetaId], ['6319', 'Granola 500g', 'base']);
   for (const k of ['precioConIva', 'precioNeto', 'markupPct', 'desglose']) assert.ok(!(k in p), k);
-  // insumos, MO de empaquetado y corrección guardados de antes no suman
-  assert.strictEqual(presentar({ presentacion: { ...PRES, insumos: [{ plu: '6334', cantidad: 1 }], minutosEmpaquetado: 1, correccionPct: 5 } }).costoUnidad, 310);
+  // MO de empaquetado y corrección guardados de antes no suman (los insumos y minutosPorUnidad sí: ver más abajo)
+  assert.strictEqual(presentar({ presentacion: { ...PRES, minutosEmpaquetado: 1, correccionPct: 5 } }).costoUnidad, 310);
 });
 
 test('costearPresentacion: materias primas de la receta llevadas a UNA unidad (kg por unidad ÷ kg útiles de la tanda)', () => {
@@ -284,10 +284,10 @@ test('validarBorrarReceta: base con variantes o receta usada por una presentaci�
 });
 
 test('validarPresentacion: válida devuelve sólo claves conocidas', () => {
-  // insumos, MO de empaquetado y corrección del body no salen
+  // MO de empaquetado y corrección del body no salen (los insumos sí, desde 2026-10-13)
   const body = { ...PRESV, hack: 1, minutosEmpaquetado: 0.6, correccionPct: 5, insumos: [{ plu: '6334', cantidad: 1 }] };
   assert.deepStrictEqual(validarPresentacion(body, PRODUCTO, { 'p-granola': PRODUCTO }, { plu: '6319', productoId: 'p-granola' }), {
-    recetaId: 'pasas', kgPorUnidad: 0.5,
+    recetaId: 'pasas', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }],
   });
 });
 
@@ -407,13 +407,13 @@ test('costearProducto: presentación sobre la base (dato viejo) se costea igual,
   assert.deepStrictEqual(c.presentaciones['2'].avisos, []);
 });
 
-test('formulaParaSiga: por unidad vendida = cantidad / rendimiento efectivo × kg por unidad (sin insumos)', () => {
+test('formulaParaSiga: por unidad vendida = cantidad / rendimiento efectivo × kg por unidad (+ insumos de la presentación en u)', () => {
   const producto = { recetas: RECETAS, presentaciones: { 7001: { recetaId: 'pasas', kgPorUnidad: 0.55, insumos: [{ plu: '6334', cantidad: 1 }] } } };
   // rendimiento efectivo 11 kg: 300 → 5/11×0.55 = 0.25 · 7067 → 1.5/11×0.55 = 0.075 · 812 → 1/11×0.55 = 0.05
   assert.deepStrictEqual(formulaParaSiga(producto, '7001'), [
     { plu: '300', cantidad: 0.25, unidad: 'kg', origen: 'ingrediente' },
     { plu: '7067', cantidad: 0.075, unidad: 'kg', origen: 'ingrediente' },
-    { plu: '812', cantidad: 0.05, unidad: 'kg', origen: 'ingrediente' },
+    { plu: '812', cantidad: 0.05, unidad: 'kg', origen: 'ingrediente' }, { plu: '6334', cantidad: 1, unidad: 'u', origen: 'insumo' },
   ]);
   assert.deepStrictEqual(formulaParaSiga({ recetas: RECETAS, presentaciones: {} }, '1'), []);
 });
@@ -439,7 +439,8 @@ test('limpiarRecetas: saca insumos, máquinas, MO y corrección; snapshots sólo
   assert.deepStrictEqual(r.datos, { productos: { 'p-a': { nombre: 'A',
     recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '1', cantidad: 5 }], validado: { fecha: 'f', costos: { 1: 100 } } },
       v: { nombre: 'V', varianteDe: 'base', extras: [{ plu: '2', cantidad: 1 }] } },
-    presentaciones: { 7: { recetaId: 'v', kgPorUnidad: 0.5, validado: { fecha: 'f', costos: { 1: 100, 2: 20 } } } } } } });
+    // insumos de la presentación: volvieron (2026-10-13), se conservan con su costo en el snapshot
+    presentaciones: { 7: { recetaId: 'v', kgPorUnidad: 0.5, insumos: [{ plu: '9', cantidad: 1 }], validado: { fecha: 'f', costos: { 1: 100, 2: 20, 9: 15 } } } } } } });
   assert.ok(r.quitadas.includes('archivo.insumosManuales') && r.quitadas.includes('presentacion.validado.costos'));
   assert.ok(r.quitadas.includes('receta.validado.costoKg') && r.quitadas.includes('presentacion.validado.costoUnidad'));
   assert.strictEqual(limpiarRecetas(r.datos), null);
@@ -629,4 +630,109 @@ test('plusVentaProduccion: presentaciones de recetas y PLUs envasados (también 
   };
   assert.deepStrictEqual([...plusVentaProduccion(productos)].sort(), ['2280', '2290', '6319', '6320']);
   assert.deepStrictEqual([...plusVentaProduccion(undefined)], []);
+});
+
+// ── Insumos y mano de obra (2026-10-13): costo real = mercadería + insumos + MO (minutos por unidad × costo hora ÷ 60) ──
+const { validarCostoHora } = require('../lib/precios_config_esquema'); // Configuración › Costos
+
+test('costearPresentacion: insumos por unidad (costo de su tab) + MO suman al costo; líneas con rol', () => {
+  const p = presentar({ presentacion: { ...PRES, insumos: [{ plu: '6334', cantidad: 1 }, { plu: '6320', cantidad: 2 }], minutosPorUnidad: 2 }, costoHora: 6000 });
+  // 310 receta + 180 + 2 × 45 + 2 min × 6000/h ÷ 60 = 200
+  assert.strictEqual(p.costoUnidad, 780);
+  assert.deepStrictEqual(p.componentes.map(l => [l.rol || null, l.plu, l.cantidad, l.costoUnit, l.importe]),
+    [[null, '_receta', 0.5, 620, 310], ['insumo', '6334', 1, 180, 180], ['insumo', '6320', 2, 45, 90], ['mo', '_manoObra', 2, 6000, 200]]);
+  assert.deepStrictEqual(p.faltantes, []);
+  assert.deepStrictEqual(p.avisos || [], []);
+  // snapshot: MP de la receta + costo unitario de cada insumo + importe de MO usado
+  assert.deepStrictEqual(p.costos, { 300: 400, 7067: 2800, 6334: 180, 6320: 45, _manoObra: 200 });
+});
+
+test('costearPresentacion: sin costo hora → MO 0 con aviso costoHora (no faltante); sin minutos no hay línea de MO', () => {
+  const p = presentar({ presentacion: { ...PRES, minutosPorUnidad: 3 } });
+  assert.strictEqual(p.costoUnidad, 310);
+  assert.deepStrictEqual(p.faltantes, []);
+  assert.deepStrictEqual(p.avisos, ['costoHora']);
+  const mo = p.componentes.find(l => l.rol === 'mo');
+  assert.deepStrictEqual([mo.importe, mo.costoUnit, mo.sinCostoHora], [0, null, true]);
+  assert.strictEqual(p.costos._manoObra, 0);
+  assert.ok(!presentar({ costoHora: 6000 }).componentes.some(l => l.rol === 'mo'));
+  assert.ok(!('_manoObra' in presentar({ costoHora: 6000 }).costos)); // sin minutos: el snapshot viejo no cambia
+});
+
+test('costearPresentacion: insumo sin costo → faltante con su PLU (nunca 0)', () => {
+  const p = presentar({ presentacion: { ...PRES, insumos: [{ plu: '4444', cantidad: 1 }] } });
+  assert.deepStrictEqual([p.costoUnidad, p.faltantes], [null, ['4444']]);
+  assert.strictEqual(p.componentes[1].importe, null);
+});
+
+test('costearEnvasado: MO por PLU suma al costo y entra al snapshot; sin costo hora → 0 con aviso', () => {
+  const c = costearEnvasado({ producto: { ...MIEL, minutosPorUnidad: 1.5 }, costoDe, costoHora: 8000 });
+  assert.strictEqual(c.costoUnidad, 1825); // 1625 + 1,5 × 8000 ÷ 60
+  assert.deepStrictEqual(c.componentes.at(-1), { plu: '_manoObra', nombre: 'Mano de obra', cantidad: 1.5, costoUnit: 8000, importe: 200, fuente: 'config', rol: 'mo', sinCostoHora: false });
+  assert.strictEqual(c.costos._manoObra, 200);
+  const sin = costearEnvasado({ producto: { ...MIEL, minutosPorUnidad: 1.5 }, costoDe });
+  assert.deepStrictEqual([sin.costoUnidad, sin.faltantes, sin.avisos], [1625, [], ['costoHora']]);
+});
+
+test('costearProducto: cambiar el costo hora o un insumo marca "a revisar" la presentación validada (antes → ahora)', () => {
+  const pres = { recetaId: 'pasas', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }], minutosPorUnidad: 2 };
+  const producto = { nombre: 'Granola', recetas: RECETAS, presentaciones: { 6319: pres } };
+  const c0 = costearProducto({ producto, costoDe, toleranciaPct: 3, costoHora: 6000 });
+  const v = snapshotDe(c0.presentaciones['6319'], 'f');
+  const validada = { ...producto, presentaciones: { 6319: { ...pres, validado: v } } };
+  assert.strictEqual(costearProducto({ producto: validada, costoDe, toleranciaPct: 3, costoHora: 6000 }).presentaciones['6319'].estado, 'ok');
+  const subioHora = costearProducto({ producto: validada, costoDe, toleranciaPct: 3, costoHora: 9000 }).presentaciones['6319'];
+  assert.strictEqual(subioHora.estado, 'cambio');
+  assert.deepStrictEqual(subioHora.revisar, [{ plu: '_manoObra', nombre: 'Mano de obra', antes: 200, ahora: 300 }]);
+  const subioEnvase = costearProducto({ producto: validada, costoDe: costosDe({ ...COSTOS, 6334: 250 }), toleranciaPct: 3, costoHora: 6000 }).presentaciones['6319'];
+  assert.deepStrictEqual(subioEnvase.revisar, [{ plu: '6334', nombre: 'N6334', antes: 180, ahora: 250 }]);
+  // envasado: MO validada con costo hora → cambiarlo también avisa
+  const env = { ...PRADERA, presentaciones: { 9002: { ...PRADERA.presentaciones['9002'], minutosPorUnidad: 1 } } };
+  const e0 = costearProducto({ producto: env, costoDe, toleranciaPct: 3, costoHora: 6000 });
+  const envVal = { ...env, presentaciones: { 9002: { ...env.presentaciones['9002'], validado: snapshotDe(e0.presentaciones['9002'], 'f') } } };
+  assert.strictEqual(costearProducto({ producto: envVal, costoDe, toleranciaPct: 3, costoHora: 7200 }).presentaciones['9002'].estado, 'cambio');
+});
+
+test('validarPresentacion: insumos [{ plu, cantidad > 0 }] sin repetir y minutosPorUnidad ≥ 0 (opcionales)', () => {
+  const prod = { recetas: RECETAS, presentaciones: {} };
+  const val = b => validarPresentacion({ recetaId: 'pasas', kgPorUnidad: 0.5, ...b }, prod, {}, { plu: '6319' });
+  assert.deepStrictEqual(val({ insumos: [{ plu: 6334, cantidad: 1, nombre: 'x' }], minutosPorUnidad: 2.5 }),
+    { recetaId: 'pasas', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }], minutosPorUnidad: 2.5 });
+  assert.deepStrictEqual(val({ insumos: [], minutosPorUnidad: null }), { recetaId: 'pasas', kgPorUnidad: 0.5 });
+  assert.deepStrictEqual(val({ minutosPorUnidad: 0 }), { recetaId: 'pasas', kgPorUnidad: 0.5, minutosPorUnidad: 0 });
+  assert.throws(() => val({ minutosPorUnidad: -1 }), /minutosPorUnidad/);
+  assert.throws(() => val({ minutosPorUnidad: '2' }), /minutosPorUnidad/);
+  assert.throws(() => val({ insumos: [{ plu: '6334', cantidad: 0 }] }), /insumos\[0\]\.cantidad/);
+  assert.throws(() => val({ insumos: [{ plu: '6334', cantidad: 1 }, { plu: '6334', cantidad: 1 }] }), /repetido/);
+  assert.throws(() => val({ insumos: [{ plu: '6319', cantidad: 1 }] }), /mismo PLU/);
+  assert.throws(() => val({ insumos: {} }), /insumos/);
+});
+
+test('validarEnvasado: minutosPorUnidad por PLU (opcional, ≥ 0)', () => {
+  const conPres = pr => ({ ...PRADERA, presentaciones: { 9001: pr } });
+  assert.strictEqual(validarEnvasado(conPres({ kgPorUnidad: 1, minutosPorUnidad: 1.5 }), {}, {}).presentaciones['9001'].minutosPorUnidad, 1.5);
+  assert.ok(!('minutosPorUnidad' in validarEnvasado(conPres({ kgPorUnidad: 1, minutosPorUnidad: null }), {}, {}).presentaciones['9001']));
+  assert.throws(() => validarEnvasado(conPres({ kgPorUnidad: 1, minutosPorUnidad: -2 }), {}, {}), /presentaciones\.9001\.minutosPorUnidad/);
+});
+
+test('validarCostoHora: número finito ≥ 0; null/vacío = sin costo hora', () => {
+  assert.deepStrictEqual(validarCostoHora({ costoHora: 8268 }), { costoHora: 8268 });
+  assert.deepStrictEqual(validarCostoHora({ costoHora: 0 }), { costoHora: 0 });
+  assert.deepStrictEqual(validarCostoHora({ costoHora: null }), { costoHora: null });
+  assert.deepStrictEqual(validarCostoHora({ costoHora: '' }), { costoHora: null });
+  for (const v of [-1, '8268', Infinity, NaN]) assert.throws(() => validarCostoHora({ costoHora: v }), /costoHora/);
+  assert.throws(() => validarCostoHora({}), /costoHora/);
+});
+
+test('formulaParaSiga: suma los insumos de la presentación (por unidad, en u)', () => {
+  const producto = { recetas: RECETAS, presentaciones: { 6319: { recetaId: 'pasas', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }] } } };
+  assert.deepStrictEqual(formulaParaSiga(producto, '6319').filter(f => f.origen === 'insumo'), [{ plu: '6334', cantidad: 1, unidad: 'u', origen: 'insumo' }]);
+});
+
+test('limpiarRecetas: conserva insumos, minutosPorUnidad y el MO/insumos del snapshot de la presentación', () => {
+  const pr = { recetaId: 'v', kgPorUnidad: 0.5, insumos: [{ plu: '9', cantidad: 1 }], minutosPorUnidad: 2,
+    validado: { fecha: 'f', costos: { 1: 100, 9: 15, _manoObra: 200 } } };
+  const datos = { productos: { 'p-a': { nombre: 'A', recetas: { base: { nombre: 'Base', rendimientoKg: 10, materiasPrimas: [{ plu: '1', cantidad: 5 }] },
+    v: { nombre: 'V', varianteDe: 'base', extras: [] } }, presentaciones: { 7: pr } } } };
+  assert.strictEqual(limpiarRecetas(datos), null);
 });

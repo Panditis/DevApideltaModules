@@ -266,3 +266,38 @@ test('Reventa sin los PLUs de venta de Producción: ni listado, ni decisión com
     assert.strictEqual(p.costoSistema, 330.58); // la materia prima 300 sigue con su costo
   } finally { a.cerrar(); }
 });
+
+// ── Insumos y mano de obra de Producción (2026-10-13) ──
+test('config esquema: PUT costo-hora valida antes de escribir; el GET lo devuelve (sin cargar → null)', async () => {
+  const a = appCon(MIGRADO);
+  try {
+    assert.strictEqual((await a.pedir('GET', '/api/precios/config/esquema')).costoHora, null);
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/costo-hora', { costoHora: -5 })).error, /costoHora/);
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/costo-hora', { costoHora: '8268' })).error, /costoHora/);
+    assert.ok(!('costoHora' in a.leer()));
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/config/esquema/costo-hora', { costoHora: 8268 })).costoHora, 8268);
+    assert.strictEqual(a.leer().costoHora, 8268);
+    assert.strictEqual(a.leer().toleranciaPct, 3); // no pisa lo demás
+  } finally { a.cerrar(); }
+});
+
+test('detalle Producción: el costo suma insumos + mano de obra (costo hora de Configuración); desglose sólo con el permiso', async () => {
+  const recetas = JSON.parse(JSON.stringify(RECETAS_ENV));
+  recetas.productos['p-mezcla'].presentaciones['6319'] = { recetaId: 'base', kgPorUnidad: 1, insumos: [{ plu: '6334', cantidad: 2 }], minutosPorUnidad: 3 };
+  recetas.productos['p-miel'].presentaciones['2280'].minutosPorUnidad = 1;
+  for (const sinConfig of [false, true]) {
+    const a = appCon({ ...MIGRADO, costoHora: 6000 }, { query: sigaEnv, sinConfig, archivos: { ...ARCHIVOS_FALSOS, 'recetas_produccion.json': recetas } });
+    try {
+      const r = await a.pedir('GET', '/api/precios/esquema/detalle/6319?tipo=produccion');
+      // Harina 330,58 + 2 × frasco 300 + 3 min × $6000/h = 300
+      assert.strictEqual(r.costoSistema, 1230.58);
+      const e = await a.pedir('GET', '/api/precios/esquema/detalle/2280?tipo=produccion');
+      if (sinConfig) {
+        assert.ok(!('componentesCosto' in r) && !('componentesCosto' in e));
+        continue;
+      }
+      assert.deepStrictEqual(r.componentesCosto.map(c => [c.rol, c.plu, c.importe]), [['mp', '300', 330.58], ['insumo', '6334', 600], ['mo', '_manoObra', 300]]);
+      assert.deepStrictEqual(e.componentesCosto.map(c => [c.rol, c.plu, c.importe]), [['granel', '9710', 1000], ['empaque', '6334', 300], ['mo', '_manoObra', 100]]);
+    } finally { a.cerrar(); }
+  }
+});

@@ -29,7 +29,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
 
   // Presentaciones de Producción con su costo por unidad y "a revisar" (el mismo costearTodos que la tab Producción).
   // Cada PLU de una variedad envasada es una presentación más, marcada tipoProduccion 'envasado', con granel + insumos y su
-  // familia › variedad (grupo del listado). Las de receta llevan sus materias primas por unidad ("Ver detalle" del modal).
+  // familia › variedad (grupo del listado). Las de receta llevan sus materias primas por unidad + sus insumos + la mano de obra
+  // ("Ver detalle" del modal; el envasado ya trae granel + insumos + MO en componentes). filaPublica lo saca sin el permiso.
   async function presentacionesProduccion(costeo) {
     const datos = normalizarDatos(leerJSON(RECETAS_PATH, {}));
     const costos = await consultas.costosPorPlu(plusUsados(datos.productos));
@@ -38,7 +39,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       .map(([plu, p]) => ({ productoId, plu, nombre: p.nombre || c.nombre, costoUnidad: p.costoUnidad, aRevisar: p.revisar,
         margenExtra: datos.productos[productoId].margenEspecial || null,
         ...(c.tipo === 'envasado' ? { tipoProduccion: 'envasado', componentesCosto: p.componentes, familia: datos.productos[productoId].familia || '', variedad: c.nombre }
-          : { componentesCosto: p.materiasPrimas }) })));
+          : { componentesCosto: [...p.materiasPrimas, ...p.componentes.filter(l => l.rol === 'insumo' || l.rol === 'mo')] }) })));
   }
 
   // Valida con validar(req) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir).
@@ -54,6 +55,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   router.get('/api/precios/config/esquema', apiRoute(async () => cfgEsq.configEsquemaDe(leerCosteo())));
   router.put('/api/precios/config/esquema/costos', guardarCon(req => cfgEsq.validarCostos(cuerpo(req))));
   router.put('/api/precios/config/esquema/precio', guardarCon(req => cfgEsq.validarPrecio(cuerpo(req))));
+  // Costo hora de mano de obra de Producción ($/h): minutos por unidad × costo hora ÷ 60 (lib/precios_produccion).
+  router.put('/api/precios/config/esquema/costo-hora', guardarCon(req => cfgEsq.validarCostoHora(cuerpo(req))));
   // Las 3 tablas por canal (+ ajuste por peso de Fraccionado) reemplazan a margenes entero.
   router.put('/api/precios/config/esquema/margenes', guardarCon(req => ({ margenes: cfgEsq.validarMargenes(cuerpo(req)) })));
 

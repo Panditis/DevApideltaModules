@@ -832,3 +832,39 @@ test('precio de materia prima por familia: PUT guarda/borra/rechaza, opciones lo
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Insumos y mano de obra (2026-10-13) ──
+test('plusUsados: también los insumos de cada presentación de receta', () => {
+  const productos = { 'p-a': { nombre: 'A', recetas: {}, presentaciones: { 6319: { recetaId: 'x', kgPorUnidad: 1, insumos: [{ plu: '6334', cantidad: 1 }] } } } };
+  assert.deepStrictEqual(plusUsados(productos).sort(), ['6319', '6334']);
+});
+
+test('router presentación: insumos + minutos por unidad se guardan y suman al costo con el costo hora de costeo.json', async () => {
+  const { server, dir, base } = await montar();
+  const pedir = async (metodo, url, body) => (await fetch(base + url, {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  })).json();
+  try {
+    await pedir('POST', '/productos', { nombre: 'Granola' });
+    await pedir('PUT', '/productos/p-granola/recetas/base', PRODUCTO.recetas.base);
+    const body = { recetaId: 'granola', kgPorUnidad: 0.5, insumos: [{ plu: '6334', cantidad: 1 }], minutosPorUnidad: 2 };
+    // Sin costo hora: MO 0 con aviso (no faltante).
+    const sin = await pedir('POST', '/productos/p-granola/presentaciones/6319/preview', body);
+    assert.deepStrictEqual([sin.faltantes, sin.avisos], [[], ['costoHora']]);
+    fs.writeFileSync(path.join(dir, 'costeo.json'), JSON.stringify({ ...COSTEO, costoHora: 6000 }));
+    const put = await pedir('PUT', '/productos/p-granola/presentaciones/6319', body);
+    assert.deepStrictEqual([put.presentacion.insumos, put.presentacion.minutosPorUnidad], [[{ plu: '6334', cantidad: 1 }], 2]);
+    const p = (await pedir('GET', '/productos/p-granola')).presentaciones['6319'];
+    const imp = rol => p.componentes.filter(l => (l.rol || 'receta') === rol).map(l => l.importe);
+    assert.deepStrictEqual([imp('insumo'), imp('mo')], [[180], [200]]);
+    assert.strictEqual(p.costoUnidad, Math.round((imp('receta')[0] + 180 + 200) * 100) / 100);
+    assert.deepStrictEqual(p.avisos, []);
+    // Insumo sin fila en SIGA → faltante con su PLU, sin costo.
+    const falta = await pedir('POST', '/productos/p-granola/presentaciones/6319/preview', { ...body, insumos: [{ plu: '9999', cantidad: 1 }] });
+    assert.deepStrictEqual([falta.costoUnidad, falta.faltantes], [null, ['9999']]);
+    assert.match((await pedir('PUT', '/productos/p-granola/presentaciones/6319', { ...body, minutosPorUnidad: -1 })).error, /minutosPorUnidad/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
