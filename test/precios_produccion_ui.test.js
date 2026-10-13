@@ -392,7 +392,7 @@ test('sub-tabs de Producción: rutas de Envasado, clase de cada vista y entrada 
   assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion')), 'receta');
   assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/recetas')), 'receta');
   assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/envasado')), 'envasado');
-  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/envasado/nuevo')), null); // editor: sin sub-tabs
+  assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/envasado/nuevo')), 'envasado'); // alta: listado de Envasado + modal
   assert.strictEqual(ui.claseProduccion(ui.parsearHashProduccion('#produccion/p-miel')), null); // detalle: sin sub-tabs
   assert.strictEqual(ui.vistaToggleProduccion(ui.parsearHashProduccion('#produccion/envasado')), null); // sin Presentaciones | Recetas
   assert.strictEqual(ui.hashEntradaProduccion('recetas', 'envasado'), '#produccion/envasado');
@@ -418,13 +418,13 @@ test('envasado: body de la variedad (presentaciones por PLU) y qué falta para g
   assert.match(env.faltaObligatorioEnvasado({ ...ED, presentaciones: [{ ...ED.presentaciones[0], componentes: [{ plu: '6334', nombre: 'Envase', cantidad: 0 }] }] }), /cantidad de Envase/);
 });
 
-test('envasado: edición desde el detalle del server (nombres del costeo, granel de cualquier PLU)', () => {
-  const det = { id: 'p-miel', definicion: { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera', granelPlu: '7067', presentaciones: {
+test('envasado: variedad editable desde GET /envasado/base (nombres del costeo y del granel)', () => {
+  const v = { id: 'p-miel', nombre: 'Pradera', granelPlu: '7067', granelNombre: 'MIEL GRANEL', definicion: { tipo: 'envasado', familia: 'Miel', nombre: 'Pradera', granelPlu: '7067', presentaciones: {
     6319: { kgPorUnidad: 0.5, componentes: [{ plu: '6334', cantidad: 2 }], validado: {} } } },
   presentaciones: { 6319: { nombre: 'MIEL 500', componentes: [{ plu: '7067', nombre: 'MIEL GRANEL', rol: 'granel' }, { plu: '6334', nombre: 'ENVASE', rol: 'empaque' }] } } };
-  assert.deepStrictEqual(env.edicionEnvasado(det), { id: 'p-miel', familia: 'Miel', nombre: 'Pradera', granelPlu: '7067', granelNombre: 'MIEL GRANEL',
+  assert.deepStrictEqual(env.variedadEditable(v), { key: 'p-miel', id: 'p-miel', nombre: 'Pradera', granelPlu: '7067', granelNombre: 'MIEL GRANEL',
     presentaciones: [{ plu: '6319', nombre: 'MIEL 500', kgPorUnidad: 0.5, minutosPorUnidad: null, componentes: [{ plu: '6334', nombre: 'ENVASE', cantidad: 2 }] }] });
-  const vacia = env.edicionEnvasado({ id: 'p-x', definicion: { tipo: 'envasado', familia: '', nombre: 'X', granelPlu: '7067', presentaciones: {} }, presentaciones: {} });
+  const vacia = env.variedadEditable({ id: 'p-x', nombre: 'X', granelPlu: '7067', granelNombre: null, definicion: { tipo: 'envasado', familia: '', nombre: 'X', granelPlu: '7067', presentaciones: {} }, presentaciones: {} });
   assert.deepStrictEqual([vacia.granelNombre, vacia.presentaciones], [null, []]);
 });
 
@@ -447,15 +447,70 @@ test('envasado: insumos agregados con cantidad 1 a un PLU o a todos, sin repetir
   assert.deepStrictEqual(ED.presentaciones[1].componentes, []); // no muta
 });
 
-test('envasado: PLU de venta ya ocupado (en esta variedad, el granel u otro producto) → motivo para deshabilitarlo', () => {
-  const duenios = { 6319: { productoId: 'p-miel', nombre: 'Miel Pradera' }, 8104: { productoId: 'p-pepas', nombre: 'Pepas' } };
-  const ed = { ...ED, id: 'p-miel', presentaciones: [ED.presentaciones[1]] }; // 6319 se quitó sin guardar: se puede volver a agregar
-  assert.strictEqual(env.motivoPluOcupado('6320', ed, duenios), 'ya está en esta variedad');
-  assert.strictEqual(env.motivoPluOcupado('7067', ed, duenios), 'es el granel');
-  assert.strictEqual(env.motivoPluOcupado('8104', ed, duenios), 'ya está en Pepas');
-  assert.strictEqual(env.motivoPluOcupado('6319', ed, duenios), null);
-  assert.strictEqual(env.motivoPluOcupado('6319', { ...ed, id: null }, duenios), 'ya está en Miel Pradera');
-  assert.strictEqual(env.motivoPluOcupado('5555', ed, {}), null);
+test('envasado: código ocupado (granel, otra variedad en edición, otro producto) → motivo; lo quitado del producto base se puede volver a agregar', () => {
+  const duenios = { 6319: { productoId: 'p-miel', nombre: 'Miel Pradera' }, 8104: { productoId: 'p-pepas', nombre: 'Pepas' }, 7000: { productoId: 'p-monte', nombre: 'Miel Monte' } };
+  const base = { ids: ['p-miel', 'p-monte'], variedades: [{ key: 'p-miel', id: 'p-miel', nombre: 'Pradera', granelPlu: '7067', presentaciones: [ED.presentaciones[1]] },
+    { key: 'n1', id: null, nombre: 'Azahar', granelPlu: '7068', presentaciones: [{ plu: '6400', componentes: [] }] }] }; // Monte se quitó sin guardar
+  assert.strictEqual(env.motivoCodigoOcupado('6320', base, 'p-miel', duenios), 'ya está en esta variedad');
+  assert.strictEqual(env.motivoCodigoOcupado('6400', base, 'p-miel', duenios), 'ya está en Azahar');
+  assert.strictEqual(env.motivoCodigoOcupado('7067', base, 'p-miel', duenios), 'es el granel');
+  assert.strictEqual(env.motivoCodigoOcupado('8104', base, 'p-miel', duenios), 'ya está en Pepas');
+  assert.strictEqual(env.motivoCodigoOcupado('6319', base, 'n1', duenios), null); // quitado de Pradera sin guardar
+  assert.strictEqual(env.motivoCodigoOcupado('7000', base, 'n1', duenios), null); // de una variedad quitada
+  assert.strictEqual(env.motivoCodigoOcupado('6319', { ...base, ids: [] }, 'n1', duenios), 'ya está en Miel Pradera'); // alta: lo guardado es de otro
+});
+
+test('envasado: body y faltantes del producto base entero', () => {
+  const ed = { familia: ' Miel ', variedades: [{ ...ED, key: 'p-miel', id: 'p-miel' }, { key: 'n1', id: null, nombre: 'Monte', granelPlu: '7068', presentaciones: [] }] };
+  assert.deepStrictEqual(env.bodyBase(ed), { familia: 'Miel', variedades: [
+    { id: 'p-miel', nombre: 'Pradera', granelPlu: '7067', presentaciones: env.bodyEnvasado(ED).presentaciones },
+    { id: null, nombre: 'Monte', granelPlu: '7068', presentaciones: {} }] });
+  assert.strictEqual(env.faltaBase(ed), '');
+  assert.match(env.faltaBase({ ...ed, familia: ' ' }), /producto base/);
+  assert.match(env.faltaBase({ ...ed, variedades: [] }), /al menos una variedad/);
+  assert.match(env.faltaBase({ ...ed, variedades: [ed.variedades[0], { ...ed.variedades[1], granelPlu: null }] }), /granel de Monte/);
+  assert.match(env.faltaBase({ ...ed, variedades: [ed.variedades[0], { ...ed.variedades[1], presentaciones: [ED.presentaciones[0]] }] }), /6319 está en Pradera y en Monte/);
+});
+
+test('envasado: estado de cada código y conteos del encabezado del modal', () => {
+  assert.strictEqual(env.estadoCodigo(null), 'pendiente');
+  assert.strictEqual(env.estadoCodigo({ faltantes: ['6334'], estado: 'cambio' }), 'faltante');
+  assert.strictEqual(env.estadoCodigo({ faltantes: [], estado: 'cambio' }), 'revisar');
+  assert.strictEqual(env.estadoCodigo({ faltantes: [], estado: 'ok' }), 'validado');
+  assert.strictEqual(env.estadoCodigo({ faltantes: [], estado: 'sin-validar' }), 'sin-validar');
+  const vs = [{ key: 'a', presentaciones: [{ plu: '1' }, { plu: '2' }, { plu: '3' }] }, { key: 'b', presentaciones: [{ plu: '4' }] }, { key: 'c', presentaciones: [] }];
+  const costos = { a: { 1: { faltantes: [], estado: 'cambio' }, 2: { faltantes: [], estado: 'ok' }, 3: { faltantes: ['x'], estado: 'ok' } }, b: { 4: { faltantes: [], estado: 'ok' } } };
+  assert.deepStrictEqual(env.resumenBase(vs, costos), { variedades: 3, codigos: 4, aRevisar: 1, faltantes: 1, validados: 2 });
+});
+
+test('envasado: filas de Pack / Bulto por código (sólo los que tienen vínculos), con sin/con IVA, Δ% y margen', () => {
+  const esquema = { nombre: 'MIEL 500', mayoristas: [{ plu: '9001', nombre: 'PACK X6', tipo: 'pack', unidades: 6, vigente: 9000 }, { plu: '9002', nombre: 'BULTO X24', tipo: 'bulto', unidades: 24, vigente: null }],
+    sugeridos: { sistema: { error: null, minorista: {}, mayoristas: [{ plu: '9001', neto: 7000, conIva: 8470, deltaPct: -5.9, estado: 'bajar', margenTotalNetoPct: 40, margenTotalIvaPct: 69.4 }, { plu: '9002', faltante: 'unidades', neto: null, conIva: null }] } } };
+  const vs = [{ key: 'a', nombre: 'Pradera', presentaciones: [{ plu: '6319', nombre: 'MIEL 500' }, { plu: '6320', nombre: 'MIEL 1KG' }] }];
+  const g = env.filasPackBulto(vs, { a: { 6319: { esquema }, 6320: { esquema: { mayoristas: [] } } } });
+  assert.deepStrictEqual(g.map(x => [x.plu, x.variedad, x.filas.map(r => r.plu)]), [['6319', 'Pradera', ['9001', '9002']]]);
+  assert.deepStrictEqual(g[0].filas[0], { plu: '9001', nombre: 'PACK X6', tipo: 'pack', unidades: 6, vigente: 9000, neto: 7000, conIva: 8470, deltaPct: -5.9, estado: 'bajar',
+    margenNetoPct: 40, margenIvaPct: 69.4, faltante: null });
+  assert.deepStrictEqual([g[0].filas[1].conIva, g[0].filas[1].faltante], [null, 'unidades']);
+  assert.deepStrictEqual(env.filasPackBulto(vs, {}), []);
+  // Error del motor (sin márgenes): las filas igual salen, sin precios.
+  const sinMargen = env.filasPackBulto(vs, { a: { 6319: { esquema: { ...esquema, sugeridos: { sistema: { error: 'margen' } } } } } });
+  assert.deepStrictEqual(sinMargen[0].filas.map(r => r.neto), [null, null]);
+});
+
+test('envasado: una tarjeta por producto base (A→Z, sin producto base al final) con conteos y búsqueda por base, variedad, código o nombre', () => {
+  const fila = (plu, productoId, familia, variedad, extra = {}) => ({ plu, productoId, familia, variedad, nombre: `MIEL ${plu}`, costoSistema: 100, decision: null, aRevisar: null, ...extra });
+  const filas = [fila('1', 'p-pr', 'Miel', 'Pradera', { decision: { fuente: 'sistema' } }), fila('2', 'p-pr', 'miel ', 'Pradera', { aRevisar: [{ plu: '7067' }] }),
+    fila('3', 'p-mo', 'Miel', 'Monte', { costoSistema: null }), fila('9', 'p-x', '', 'Suelta'), fila('5', 'p-dl', 'Dulces', 'Leche')];
+  const variedades = [{ id: 'p-pr', familia: 'Miel', nombre: 'Pradera' }, { id: 'p-mo', familia: 'Miel', nombre: 'Monte' }, { id: 'p-az', familia: 'Miel', nombre: 'Azahar' },
+    { id: 'p-dl', familia: 'Dulces', nombre: 'Leche' }, { id: 'p-x', familia: '', nombre: 'Suelta' }, { id: 'p-pro', familia: 'Propóleos', nombre: 'Gotas' }];
+  const r = env.resumenBases(filas, variedades, { MIEL: 3000 });
+  assert.deepStrictEqual(r.map(b => [b.familia, b.costoKg, b.variedades, b.codigos, b.aRevisar, b.decididos, b.sinCosto]), [
+    ['Dulces', null, 1, 1, 0, 0, 0], ['Miel', 3000, 3, 3, 1, 1, 1], ['Propóleos', null, 1, 0, 0, 0, 0], ['', null, 1, 1, 0, 0, 0]]);
+  assert.deepStrictEqual(env.resumenBases(filas, variedades, {}, 'azahar').map(b => [b.familia, b.coincidencias]), [['Miel', []]]); // por variedad
+  assert.deepStrictEqual(env.resumenBases(filas, variedades, {}, 'propoleos').map(b => b.familia), ['Propóleos']); // sin acentos
+  assert.deepStrictEqual(env.resumenBases(filas, variedades, {}, 'MIEL 3').map(b => [b.familia, b.coincidencias]), [['Miel', ['3']]]); // por nombre del código
+  assert.deepStrictEqual(env.resumenBases(filas, variedades, {}, 'nada'), []);
 });
 
 test('buscador SIGA: selección múltiple con checkboxes, contador, "todos los visibles" y deshabilitados con su motivo', () => {

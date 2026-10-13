@@ -250,7 +250,7 @@ const textoManoObraMd = mo => `${cantMd(mo.cantidad)} min × ${mo.costoUnit == n
 function htmlCostoEnvasadoMd(f) {
   const unit = c => (c.costoUnit == null ? 'sin costo' : `$ ${fmtMoney(c.costoUnit)}`);
   const linea = c => ['', `· ${c.rol === 'granel'
-    ? `${c.fuente === 'familia' ? `${c.familia || 'Familia'} (precio de familia)` : `Granel ${c.nombre || c.plu}`} ${cantMd(c.cantidad)} kg × ${unit(c)}/kg`
+    ? `${c.fuente === 'familia' ? `${c.familia || 'Producto base'} (precio del producto base)` : `Granel ${c.nombre || c.plu}`} ${cantMd(c.cantidad)} kg × ${unit(c)}/kg`
     : `${c.nombre || c.plu} ${cantMd(c.cantidad)}${c.rol === 'mp' ? ' kg' : ''} × ${unit(c)}`}`, c.importe];
   const { mercaderia, insumos, mo } = conceptosCosto(f.componentesCosto);
   return htmlPasos('Costo real por unidad', [
