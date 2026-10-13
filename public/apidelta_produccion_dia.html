@@ -3760,14 +3760,12 @@ async function exportTerminadosCSV(fecha) {
 async function generarCSVProduccion(items, fecha) {
   if (!items.length) { showSnack('Sin registros para exportar'); return; }
 
-  // Ignorar tareas extra y órdenes sin el rol "Envasado" cargado
-  const exportables = items.filter(r => {
-    if (r.plu === 'ACT') return false;
-    const roles = Array.isArray(r.roles) ? r.roles
-                : (Array.isArray(r.responsables) ? r.responsables : []);
-    return roles.some(x => /envasad/i.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
-  });
-  if (!exportables.length) { showSnack('Sin órdenes con rol Envasado cargado para exportar'); return; }
+  // Rol con alguien asignado. Envasado = alta + graneles + envase/tapa; Etiquetado = etiqueta.
+  // Una carga sólo con Etiquetado entra al CSV pero sólo mueve la etiqueta.
+  const tieneRol = (r, re) => (Array.isArray(r.roles) ? r.roles : (Array.isArray(r.responsables) ? r.responsables : []))
+    .some(x => re.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
+  const exportables = items.filter(r => r.plu !== 'ACT' && (tieneRol(r, /envasad/i) || tieneRol(r, /etiquetad/i)));
+  if (!exportables.length) { showSnack('Sin órdenes con rol Envasado o Etiquetado cargado para exportar'); return; }
 
   // Buscar IDs de componentes por PLU en SIGA para todos los productos únicos
   const plusUnicos = [...new Set(exportables.map(r => r.plu).filter(Boolean))];
@@ -3812,6 +3810,11 @@ async function generarCSVProduccion(items, fecha) {
     const plu = r.plu || '';
     const nombre = nom(plu, r.nombre || r.producto);
     const cant = _parseNum(r.cantFraccionada ?? r.cantidad);
+    // La etiqueta sólo se descuenta si la carga tiene la tarea Etiquetado con alguien asignado.
+    const et = tieneRol(r, /etiquetad/i) ? etiquetaMap[plu] : null;
+    const filaEtiqueta = () => { if (et) rows.push([1, esc(et.id), esc(nom(et.id, et.nombre)), -_parseNum(cant * et.factor), 1, esc(et.id)].join(SEP)); };
+    // Sólo Etiquetado (sin Envasado): no hay alta ni consumo de granel/envase/tapa, sólo la etiqueta.
+    if (!tieneRol(r, /envasad/i)) { filaEtiqueta(); return; }
     rows.push([1, esc(plu), esc(nombre), cant, 1, esc(plu)].join(SEP));
     const graneles = Array.isArray(r.graneles) && r.graneles.length
       ? r.graneles
@@ -3828,8 +3831,7 @@ async function generarCSVProduccion(items, fecha) {
     // Van como consumo (cantidad negativa) para descontar stock, 1 por unidad.
     if (r.envase) rows.push([1, esc(r.envase), esc(nom(r.envase, r.envaseNombre || envaseLabel(r.envase))), -cant, 1, esc(r.envase)].join(SEP));
     if (r.tapa)   rows.push([1, esc(r.tapa),   esc(nom(r.tapa,   r.tapaNombre   || tapaLabel(r.tapa))),       -cant, 1, esc(r.tapa)].join(SEP));
-    const et = etiquetaMap[plu];
-    if (et) rows.push([1, esc(et.id), esc(nom(et.id, et.nombre)), -_parseNum(cant * et.factor), 1, esc(et.id)].join(SEP));
+    filaEtiqueta();
   });
 
   const bom = '﻿';
