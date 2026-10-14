@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -94,4 +94,12 @@ test('conceptosCosto: líneas de Producción en mercadería / insumos / mano de 
   const falta = conceptosCosto([{ rol: 'granel', importe: 10 }, { rol: 'empaque', importe: null }]);
   assert.deepStrictEqual([falta.mercaderia.subtotal, falta.insumos.subtotal, falta.mo], [10, null, null]);
   assert.deepStrictEqual(conceptosCosto(undefined).insumos, { lineas: [], subtotal: 0 });
+});
+
+test('pasosAjusteMd: "Ver detalle" explica especial y ajuste del producto dentro del margen; general en el último renglón; sin ajustes → nada', () => {
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 30 }), []);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 40, margenProductoPct: 10 }).map(p => p[1]), ['incluye ajuste del producto +10 % (general 30 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 32, margenEspecialPct: 5, margenProductoPct: -3 }).map(p => p[1]),
+    ['incluye margen especial del producto +5 %', 'incluye ajuste del producto -3 % (general 30 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 35, margenEspecialPct: 5 }).map(p => p[1]), ['incluye margen especial del producto +5 % (general 30 %)']);
 });

@@ -105,7 +105,7 @@ function conceptosCosto(lineas) {
   return { mercaderia: { lineas: mercaderia, subtotal: sub(mercaderia) }, insumos: { lineas: insumos, subtotal: sub(insumos) }, mo: de('mo')[0] || null };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto };
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -238,10 +238,15 @@ function htmlTablaCanales(f) {
 // Paso con v null = renglón aclaratorio sin importe (ej. el margen especial incluido en el margen del canal).
 const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.filter(Boolean).map(([op, txt, v]) =>
   `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">${v == null ? '' : '$ ' + fmtMoney(v)}</span></div>`).join('')}</div>`;
-// Margen especial del producto (Producción): ya está sumado en margenPct; se muestra aparte para explicar el total.
-const pasoEspecialMd = c => (c.margenEspecialPct
-  ? ['', `incluye margen especial del producto ${c.margenEspecialPct > 0 ? '+' : ''}${pctMd(c.margenEspecialPct)} (general ${pctMd(c.margenPct - c.margenEspecialPct)})`, null]
-  : null);
+// Margen especial del producto (Producción) y ajuste del producto (costeo.margenProducto): ya están sumados en margenPct; se
+// muestran aparte para explicar el total, con el general en el último renglón. Sin ninguno → [].
+const signoPctMd = n => `${n > 0 ? '+' : ''}${pctMd(n)}`;
+function pasosAjusteMd(c) {
+  const esp = c.margenEspecialPct || 0, prod = c.margenProductoPct || 0;
+  const general = ` (general ${pctMd(c.margenPct - esp - prod)})`;
+  return [esp ? ['', `incluye margen especial del producto ${signoPctMd(esp)}${prod ? '' : general}`, null] : null,
+    prod ? ['', `incluye ajuste del producto ${signoPctMd(prod)}${general}`, null] : null].filter(Boolean);
+}
 // Producción: de dónde sale el costo real por unidad, en tres conceptos (conceptosCosto): mercadería (envasado: granel × kg;
 // receta: cada materia prima llevada a una unidad, rol 'mp'), insumos y mano de obra. Sólo viene con el permiso.
 const cantMd = n => (n == null ? '—' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n)); // MP por unidad: 4 decimales
@@ -267,12 +272,12 @@ function htmlDesgloseEsq(f) {
     const d = s.desglose, m = d.minorista;
     if (titulo) bloques.push(htmlPasos(titulo, [
       ['', 'Costo de mercadería', d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
-      ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], pasoEspecialMd(m), ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
+      ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ...pasosAjusteMd(m), ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
       ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]]));
     for (const v of fila.mayoristas || []) {
       const c = d.porVinculo[v.plu];
       if (c) bloques.push(htmlPasos(`${TIPO_CANAL[v.tipo]} ${v.plu} (× ${c.unidades})`, [
-        ['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], pasoEspecialMd(c), ['×', `${c.unidades} unidades`, c.exactoNeto],
+        ['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], ...pasosAjusteMd(c), ['×', `${c.unidades} unidades`, c.exactoNeto],
         ['=', 'Sin IVA redondeado', c.neto], ['×', 'IVA', c.exactoIva], ['=', 'Con IVA redondeado', c.conIva]]));
     }
   };
@@ -311,6 +316,21 @@ function htmlEdicionCostos(f) {
     ${htmlVentasPesablesMd(f)}
     <p id="mdMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
+// Ajuste de margen de este producto (sólo con el permiso): puntos % por canal que se suman al margen general (Producción:
+// también al especial). Se guarda en el PLU de la fila (Fraccionado: el granel, vale para todas sus presentaciones).
+const CANALES_AJUSTE_MD = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
+function htmlMargenProductoMd(f) {
+  if (preciosSinConfig || f.plu == null) return '';
+  const m = f.margenProducto || {};
+  const ayuda = `Puntos % por canal: se suman al margen general${mdEsq.tipo === 'produccion' ? ' y al margen especial' : ''}.`
+    + (mdEsq.tipo === 'fraccionado' ? ' Aplica a todas las presentaciones del granel.' : '') + ' Vacío o 0 = sin ajuste.';
+  const campos = CANALES_AJUSTE_MD.map(([c, t]) => `<label class="flex items-center gap-1 text-sm">${t}
+    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="0" aria-label="Ajuste de margen ${t} en puntos %">`, '+ pts %', { w: 'w-32' })}</label>`).join('');
+  return `<section class="md-margen-prod"><h4 class="md-h">Margen de este producto</h4><p class="md-ayuda">${esc(ayuda)}</p>
+    <div class="flex flex-wrap items-center gap-3">${campos}<button type="button" id="mdMargenGuardar" class="cfg-btn2">Guardar</button></div>
+    <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></section>`;
+}
+
 function htmlVerDetalle(f) {
   if (preciosSinConfig) return '';
   return `<div class="md-det"><button type="button" id="mdVerDetalle" class="md-det-btn" aria-expanded="${mdDetalle}" aria-controls="mdDetCuerpo">
@@ -322,7 +342,7 @@ function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
   const ops = opcionesCosto(f, tipo);
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}
-    ${htmlTablaCanales(f)}${htmlVerDetalle(f)}`;
+    ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
   conectarModalEsquema();
 }
 
@@ -380,17 +400,20 @@ function conectarModalEsquema() {
     if (mdDetalle) ver.scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
   if (document.getElementById('mdManualGuardar')) conectarEdicionCostos();
+  const margen = document.getElementById('mdMargenGuardar');
+  if (margen) margen.onclick = () => guardarCostoEsq(`/api/precios/config/esquema/margen-producto/${encodeURIComponent(mdEsq.fila.plu)}`,
+    Object.fromEntries([...document.querySelectorAll('#mDetBody .md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)])), 'PUT', 'mdMargenMsg');
 }
 
-// Guarda costo manual / costos extra / venta de pack/bulto con las rutas de siempre y recarga modal (con el detalle
-// abierto) y listado.
-async function guardarCostoEsq(url, body, metodo = 'PUT') {
-  const msg = document.getElementById('mdMsg');
+// Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal
+// (con el detalle como estaba) y listado. msgId = dónde mostrar el error.
+async function guardarCostoEsq(url, body, metodo = 'PUT', msgId = 'mdMsg') {
+  const msg = document.getElementById(msgId);
   try {
     await pedirJson(metodo, url, body); // precios_comun.js: tira con el error del server
     refrescarAlertasProduccion(); // precios_produccion.js: el costo pudo mover "a revisar" (no tira, va antes de recargar el modal)
     const { tipo, fila } = mdEsq;
-    await abrirModalEsquema(tipo, fila.plu, { detalle: true });
+    await abrirModalEsquema(tipo, fila.plu, { detalle: mdDetalle });
     cargarListado(tipo);
   } catch (e) { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = e.message; }
 }

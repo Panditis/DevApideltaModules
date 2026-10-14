@@ -143,6 +143,33 @@ test('listadoProduccion: el margen especial del producto (margenExtra) sube el p
   assert.ok(con.mayoristas[0].conIva > sin.mayoristas[0].conIva);
 });
 
+test('margenProducto: suma puntos al canal en Reventa (por PLU), Fraccionado (el del granel, a todas sus presentaciones) y Producción (encima del especial)', () => {
+  const md = L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES });
+  const reventa = costeo => L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: VIGENTES, mayoristasDe: md, costeo, cfg: CFG })[0];
+  const sin = reventa({}), con = reventa({ margenProducto: { 1: { minorista: 10, bulto: -5 } } });
+  assert.deepStrictEqual(con.margenProducto, { minorista: 10, bulto: -5 });
+  assert.strictEqual('margenProducto' in sin, false);
+  const d = con.sugeridos.sistema.desglose;
+  assert.deepStrictEqual([sin.sugeridos.sistema.desglose.minorista.margenPct, d.minorista.margenPct, d.minorista.margenProductoPct], [30, 40, 10]);
+  assert.deepStrictEqual([d.porVinculo['50'].margenPct, d.porVinculo['50'].margenProductoPct], [25, -5]);
+  assert.ok(con.sugeridos.sistema.minorista.precio > sin.sugeridos.sistema.minorista.precio);
+  // filaPublica (listado / sin permiso) no lleva el desglose con margenProductoPct; la fila sí (CLAVES_OCULTAS la saca sin permiso).
+  assert.ok(!JSON.stringify(L.filaPublica(con)).includes('margenProductoPct'));
+
+  const grupos = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }];
+  const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]);
+  const fracc = costeo => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: md, costeo, cfg: CFG })[0];
+  const gSin = fracc({}), gCon = fracc({ margenProducto: { 100: { minorista: 10 }, 101: { minorista: 50 } } }); // el de la presentación no cuenta
+  const pct = g => g.presentaciones[0].sugeridos.sistema.desglose.minorista.margenPct;
+  assert.strictEqual(pct(gCon) - pct(gSin), 10);
+  assert.deepStrictEqual(gCon.margenProducto, { minorista: 10 });
+
+  const prod = costeo => L.listadoProduccion({ presentaciones: [{ productoId: 'p', plu: '6319', nombre: 'G', costoUnidad: 1000, margenExtra: { minorista: 5 } }],
+    vigentes: new Map(), mayoristasDe: md, costeo, cfg: CFG })[0].sugeridos.sistema.desglose.minorista;
+  const m = prod({ margenProducto: { 6319: { minorista: 10 } } });
+  assert.deepStrictEqual([prod({}).margenPct, m.margenPct, m.margenEspecialPct, m.margenProductoPct], [35, 45, 5, 10]);
+});
+
 test('listadoProduccion: tipoProduccion (receta por defecto | envasado) y el costeo del envasado sólo con desglose', () => {
   const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
   const lineas = [{ plu: '7067', nombre: 'Miel granel', cantidad: 0.5, costoUnit: 2800, importe: 1400, rol: 'granel' },

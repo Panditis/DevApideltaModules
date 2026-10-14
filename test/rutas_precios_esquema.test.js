@@ -8,8 +8,10 @@ const path = require('path');
 const express = require('express');
 const crearRutas = require('../routes/rutas_precios_esquema');
 const { migrarEsquemaCanales } = require('../lib/precios_config_esquema');
+const { crearGuardPrecios } = require('../lib/precios_permisos');
 
-function appCon(costeo, { query = async () => [], sinConfig = false, archivos = {}, usuario = null } = {}) {
+// guard = el guardPrecios real (403 en config y sin CLAVES_OCULTAS sin permiso) en vez de sólo marcar preciosSinConfig.
+function appCon(costeo, { query = async () => [], sinConfig = false, archivos = {}, usuario = null, guard = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'esq-rutas-'));
   const archivo = path.join(dir, 'costeo.json');
   if (costeo) fs.writeFileSync(archivo, JSON.stringify(costeo));
@@ -20,6 +22,7 @@ function appCon(costeo, { query = async () => [], sinConfig = false, archivos = 
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.preciosSinConfig = sinConfig; if (usuario) req.session = { user: { usuario } }; next(); });
+  if (guard) app.use(crearGuardPrecios({ tienePermiso: () => !sinConfig }));
   app.use(crearRutas({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR: dir, LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1' }));
   let server;
   const pedir = async (metodo, ruta, body) => {
@@ -300,4 +303,47 @@ test('detalle Producción: el costo suma insumos + mano de obra (costo hora de C
       assert.deepStrictEqual(e.componentesCosto.map(c => [c.rol, c.plu, c.importe]), [['granel', '9710', 1000], ['empaque', '6334', 300], ['mo', '_manoObra', 100]]);
     } finally { a.cerrar(); }
   }
+});
+
+test('margen del producto: PUT guarda/quita por PLU decidible (granel en Fraccionado), mueve el precio del listado; inválido no escribe', async () => {
+  const a = appCon({ ...MIGRADO, margenProducto: { 999: { minorista: 1 } } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const poner = (plu, body) => a.pedir('PUT', `/api/precios/config/esquema/margen-producto/${plu}`, body);
+  const precio = async (tipo, plu) => {
+    const f = await a.pedir('GET', `/api/precios/esquema/detalle/${plu}?tipo=${tipo}`);
+    return (f.presentaciones ? f.presentaciones[0] : f).sugeridos.sistema.minorista.precio;
+  };
+  try {
+    const antes = { almacen: await precio('almacen', '1'), fraccionado: await precio('fraccionado', '50'), produccion: await precio('produccion', '6319') };
+    assert.match((await poner('777', { minorista: 5 })).error, /no está en ningún listado/);
+    assert.match((await poner('51', { minorista: 5 })).error, /presentación de Fraccionado.*PLU 50/);
+    assert.match((await poner('1', { minorista: -100 })).error, /margenProducto\.minorista: El margen/);
+    assert.match((await poner('1', { mayorista: 5 })).error, /canal desconocido/);
+    assert.deepStrictEqual(a.leer().margenProducto, { 999: { minorista: 1 } }); // ningún rechazo escribió
+    for (const plu of ['1', '50', '6319']) assert.deepStrictEqual((await poner(plu, { minorista: 20, pack: 0 })).margenProducto, { minorista: 20 }, plu);
+    assert.deepStrictEqual(Object.keys(a.leer().margenProducto).sort(), ['1', '50', '6319', '999']);
+    for (const [tipo, plu] of [['almacen', '1'], ['fraccionado', '50'], ['produccion', '6319']]) {
+      assert.ok(await precio(tipo, plu) > antes[tipo], tipo);
+    }
+    const l = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+    assert.deepStrictEqual(l.filas[0].margenProducto, { minorista: 20 }); // con permiso: el badge del listado
+    assert.strictEqual((await poner('999', {})).margenProducto, null); // vacío borra (aunque el PLU ya no esté)
+    assert.strictEqual((await poner('1', { minorista: 0 })).margenProducto, null);
+    assert.deepStrictEqual(Object.keys(a.leer().margenProducto).sort(), ['50', '6319']);
+    assert.strictEqual(await precio('almacen', '1'), antes.almacen);
+  } finally { a.cerrar(); }
+});
+
+test('margen del producto: sin precios-config → 403 al guardar y ni listado ni detalle lo traen (tampoco margenProductoPct)', async () => {
+  const costeo = { ...MIGRADO, margenProducto: { 1: { minorista: 20 }, 50: { minorista: 5 }, 6319: { minorista: 3 } } };
+  const a = appCon(costeo, { query: sigaFalso, archivos: ARCHIVOS_FALSOS, sinConfig: true, guard: true });
+  try {
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/margen-producto/1', { minorista: 1 })).error, /Sin permiso/);
+    assert.deepStrictEqual(a.leer().margenProducto, costeo.margenProducto);
+    for (const tipo of ['almacen', 'fraccionado', 'produccion']) {
+      const txt = JSON.stringify([await a.pedir('GET', `/api/precios/esquema/listado?tipo=${tipo}`),
+        await a.pedir('GET', `/api/precios/esquema/detalle/${{ almacen: '1', fraccionado: '50', produccion: '6319' }[tipo]}?tipo=${tipo}`)]);
+      assert.ok(!txt.includes('margenProducto'), tipo);
+      assert.ok(txt.includes('"precio"'), tipo); // el precio (ya con el ajuste) sí viaja
+    }
+  } finally { a.cerrar(); }
 });

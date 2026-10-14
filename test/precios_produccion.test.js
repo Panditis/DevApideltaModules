@@ -241,6 +241,10 @@ test('validarMargenEspecial: canales opcionales > −100 sin tope; 0/null se omi
   assert.throws(() => validarMargenEspecial({ mayorista: 5 }), /canal desconocido/);
   assert.deepStrictEqual(validarMargenEspecial({ minorista: 5000, pack: -99.9 }), { minorista: 5000, pack: -99.9 });
   for (const v of [-100, -150, '5', NaN, Infinity]) assert.throws(() => validarMargenEspecial({ pack: v }), /margenEspecial\.pack: El margen debe ser mayor a −100 %/);
+  // Mismo validador para el ajuste de margen del producto (costeo.margenProducto): sólo cambia el nombre en el error.
+  assert.deepStrictEqual(validarMargenEspecial({ minorista: -5, bulto: 0, pack: null }, 'margenProducto'), { minorista: -5 });
+  assert.throws(() => validarMargenEspecial({ otro: 1 }, 'margenProducto'), /margenProducto: canal desconocido "otro"/);
+  assert.throws(() => validarMargenEspecial({ bulto: -100 }, 'margenProducto'), /margenProducto\.bulto: El margen/);
 });
 
 // Las presentaciones eligen una VARIEDAD (decisión 14), no la base.
