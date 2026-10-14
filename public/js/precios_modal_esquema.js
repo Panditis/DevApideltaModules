@@ -105,7 +105,42 @@ function conceptosCosto(lineas) {
   return { mercaderia: { lineas: mercaderia, subtotal: sub(mercaderia) }, insumos: { lineas: insumos, subtotal: sub(insumos) }, mo: de('mo')[0] || null };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd };
+// "Igualar a SIGA": margen fijo por canal con el que el precio queda en el vigente de SIGA (motor: margenParaPrecio). Costo = el
+// elegido en el modal (No cambiar → sistema; fuente sin desglose → sistema). Usa el desglose (sólo viene con el permiso): costo
+// con gastos, extras e IVA. Varios vigentes en un canal (presentaciones de Fraccionado, varios pack/bulto vinculados) → la
+// mediana, con una nota del Δ aprox. con que quedan. Canal sin vigente → sin valor (queda el general).
+// → { valores: { canal: margen }, notas: [texto], motivo (por qué no se puede, o null), fuente (la usada) }.
+const PE_MD = typeof module === 'object' && module.exports ? require('../../lib/precios_esquema') : PreciosEsquema;
+const QUIENES_IGUALAR_MD = { minorista: 'las presentaciones', pack: 'los pack vinculados', bulto: 'los bulto vinculados' };
+const pct1Md = n => `${n > 0 ? '+' : ''}${(Math.round(n * 10) / 10 || 0).toFixed(1).replace('.', ',')} %`;
+function medianaMd(xs) {
+  const s = [...xs].sort((a, b) => a - b), k = Math.floor(s.length / 2);
+  return s.length % 2 ? s[k] : Math.round(((s[k - 1] + s[k]) / 2) * 100) / 100;
+}
+function igualarSigaMd(fila, tipo, fuente) {
+  const des = fu => ((fila.sugeridos || {})[fu] || {}).desglose || null;
+  const usada = des(fuente) ? fuente : 'sistema';
+  const d = des(usada);
+  if (!d) return { valores: {}, notas: [], motivo: 'Sin costo para calcular el margen', fuente: usada };
+  const cfg = { extrasMinorista: [{ pct: d.minorista.extrasPct, tipos: { [tipo]: true } }], ivaVentaPct: d.minorista.ivaPct };
+  const margen = (canal, vigente, unidades) => PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+  const filas = [fila, ...(fila.presentaciones || [])];
+  const necesarios = {
+    minorista: filas.filter(f => f.vigente > 0).map(f => margen('minorista', f.vigente)),
+    ...Object.fromEntries(['pack', 'bulto'].map(c => [c, filas.flatMap(f => f.mayoristas || [])
+      .filter(m => m.tipo === c && m.vigente > 0).map(m => margen(c, m.vigente, m.unidades))])),
+  };
+  const canales = Object.entries(necesarios).map(([c, ms]) => [c, ms.filter(m => m != null)]).filter(([, ms]) => ms.length);
+  if (!canales.length) return { valores: {}, notas: [], motivo: 'Sin precios vigentes en SIGA para igualar', fuente: usada };
+  const valores = Object.fromEntries(canales.map(([c, ms]) => [c, medianaMd(ms)]));
+  const notas = canales.filter(([, ms]) => new Set(ms).size > 1).map(([c, ms]) => {
+    const deltas = ms.map(m => ((1 + valores[c] / 100) / (1 + m / 100) - 1) * 100);
+    return `${CANALES_AJUSTE_MD.find(x => x[0] === c)[1]} aprox.: ${QUIENES_IGUALAR_MD[c]} quedan con Δ entre ${pct1Md(Math.min(...deltas))} y ${pct1Md(Math.max(...deltas))} (margen = la mediana).`;
+  });
+  return { valores, notas, motivo: null, fuente: usada };
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -355,8 +390,27 @@ function htmlMargenProductoMd(f) {
   return `<section class="md-margen-prod"><div class="flex flex-wrap items-center gap-3"><h4 class="md-h">Margen de este producto</h4>
     <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modo('fijo', 'Margen fijo')}${modo('ajuste', 'Ajuste ±')}</div></div>
     <p class="md-ayuda">${esc(ayudaMargenProductoMd(fijo))}</p>
-    <div class="flex flex-wrap items-center gap-3">${campos}<button type="button" id="mdMargenGuardar" class="cfg-btn2">Guardar</button></div>
+    <div class="flex flex-wrap items-center gap-3">${campos}<button type="button" id="mdMargenGuardar" class="cfg-btn2">Guardar</button>
+      ${htmlIgualarSigaMd(f)}</div>
     <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></section>`;
+}
+// Botón "Igualar a SIGA": deshabilitado con el motivo en el title si no hay costo o vigentes para calcular.
+function htmlIgualarSigaMd(f) {
+  const { motivo } = igualarSigaMd(f, mdEsq.tipo, mdFuente);
+  return `<button type="button" id="mdMargenIgualar" class="cfg-btn2"${motivo ? ` disabled title="${esc(motivo)}"` : ' title="Margen fijo por canal para que el precio quede igual al vigente de SIGA"'}>Igualar a SIGA</button>`;
+}
+// Pasa a "Margen fijo" y llena cada canal con vigente con el margen que lo iguala (sin vigente: vacío). No guarda.
+function igualarSigaClickMd() {
+  const r = igualarSigaMd(mdEsq.fila, mdEsq.tipo, mdFuente);
+  mdMpModo = 'fijo';
+  document.querySelector('#mDetBody .md-margen-prod').outerHTML = htmlMargenProductoMd(mdEsq.fila);
+  conectarMargenProductoMd();
+  document.querySelectorAll('#mDetBody .md-mp-in').forEach(i => { i.value = r.valores[i.dataset.canal] ?? ''; });
+  const msg = document.getElementById('mdMargenMsg');
+  msg.className = 'text-sm mt-1';
+  const con = mdEsq.tipo === 'produccion' ? 'Con el costo de la receta.' : `Con ${(TXT_OPCION[r.fuente] || r.fuente).toLowerCase()}.`;
+  msg.textContent = [con, ...r.notas, 'Revisá y tocá Guardar.'].join(' ');
+  document.getElementById('mdMargenGuardar').focus();
 }
 function conectarMargenProductoMd() {
   const sec = document.querySelector('#mDetBody .md-margen-prod');
@@ -368,6 +422,7 @@ function conectarMargenProductoMd() {
     conectarMargenProductoMd();
     document.querySelector(`#mDetBody .md-mp-modo[data-modo="${mdMpModo}"]`).focus();
   });
+  document.getElementById('mdMargenIgualar').onclick = igualarSigaClickMd;
   document.getElementById('mdMargenGuardar').onclick = () => guardarCostoEsq(`/api/precios/config/esquema/margen-producto/${encodeURIComponent(mdEsq.fila.plu)}`,
     { modo: mdMpModo, ...Object.fromEntries([...sec.querySelectorAll('.md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)])) }, 'PUT', 'mdMargenMsg');
 }
