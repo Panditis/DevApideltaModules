@@ -5,7 +5,7 @@ const cfgEsq = require('../lib/precios_config_esquema');
 const { rangoDesdeCostos } = require('../lib/precios_esquema');
 const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
-const { plusVentaProduccion, validarMargenEspecial } = require('../lib/precios_produccion');
+const { plusVentaProduccion, validarMargenProducto } = require('../lib/precios_produccion');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
 const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
 
@@ -139,14 +139,14 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { plu, decision: decisiones[plu] || null };
   }));
 
-  // Ajuste de margen de un producto: body { minorista?, pack?, bulto? } en puntos % que se suman al margen del canal (y en
-  // Producción al margen especial). Clave: PLU de Reventa, granel de Fraccionado (alcanza a sus presentaciones) o presentación
-  // de Producción, como la decisión. Vacío / todo en 0 → se borra (pasa siempre: limpia PLUs que ya no están). Es
+  // Margen de un producto: body { modo, minorista?, pack?, bulto? } (validarMargenProducto). modo 'fijo' = el valor es el margen
+  // del canal; 'ajuste' (o sin modo) = puntos % que se suman al margen del canal (y en Producción al especial). Clave: PLU de Reventa, granel de Fraccionado (alcanza a sus presentaciones) o presentación
+  // de Producción, como la decisión. Sin valores → se borra (pasa siempre: limpia PLUs que ya no están). Es
   // configuración: va bajo /config/ (RUTAS_CONFIG) y margenProducto está en CLAVES_OCULTAS.
   router.put('/api/precios/config/esquema/margen-producto/:plu', apiRoute(async (req) => {
     const plu = String(req.params.plu || '').trim();
     let margen;
-    try { margen = validarMargenEspecial(cuerpo(req), 'margenProducto'); } catch (err) { return { error: err.message }; }
+    try { margen = validarMargenProducto(cuerpo(req)); } catch (err) { return { error: err.message }; }
     if (margen) {
       const costeo = await costeoVigente();
       const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));

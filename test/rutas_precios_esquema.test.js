@@ -319,13 +319,19 @@ test('margen del producto: PUT guarda/quita por PLU decidible (granel en Fraccio
     assert.match((await poner('1', { minorista: -100 })).error, /margenProducto\.minorista: El margen/);
     assert.match((await poner('1', { mayorista: 5 })).error, /canal desconocido/);
     assert.deepStrictEqual(a.leer().margenProducto, { 999: { minorista: 1 } }); // ningún rechazo escribió
-    for (const plu of ['1', '50', '6319']) assert.deepStrictEqual((await poner(plu, { minorista: 20, pack: 0 })).margenProducto, { minorista: 20 }, plu);
+    for (const plu of ['1', '50', '6319']) assert.deepStrictEqual((await poner(plu, { minorista: 20, pack: 0 })).margenProducto, { modo: 'ajuste', minorista: 20 }, plu);
     assert.deepStrictEqual(Object.keys(a.leer().margenProducto).sort(), ['1', '50', '6319', '999']);
     for (const [tipo, plu] of [['almacen', '1'], ['fraccionado', '50'], ['produccion', '6319']]) {
       assert.ok(await precio(tipo, plu) > antes[tipo], tipo);
     }
     const l = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
-    assert.deepStrictEqual(l.filas[0].margenProducto, { minorista: 20 }); // con permiso: el badge del listado
+    assert.deepStrictEqual(l.filas[0].margenProducto, { modo: 'ajuste', minorista: 20 }); // con permiso: el badge del listado
+    // Modo fijo: el valor es el margen (0 vale); modo desconocido → error sin escribir.
+    assert.match((await poner('1', { modo: 'otro', minorista: 5 })).error, /margenProducto\.modo/);
+    assert.deepStrictEqual((await poner('1', { modo: 'fijo', minorista: 55, pack: 0, bulto: null })).margenProducto, { modo: 'fijo', minorista: 55, pack: 0 });
+    const fijo = (await a.pedir('GET', '/api/precios/esquema/detalle/1?tipo=almacen')).sugeridos.sistema.desglose.minorista;
+    assert.deepStrictEqual([fijo.margenPct, fijo.margenProductoModo, fijo.margenGeneralPct], [55, 'fijo', 43.33]);
+    assert.strictEqual((await poner('1', { modo: 'fijo', minorista: 20 })).margenProducto.minorista, 20);
     assert.strictEqual((await poner('999', {})).margenProducto, null); // vacío borra (aunque el PLU ya no esté)
     assert.strictEqual((await poner('1', { minorista: 0 })).margenProducto, null);
     assert.deepStrictEqual(Object.keys(a.leer().margenProducto).sort(), ['50', '6319']);

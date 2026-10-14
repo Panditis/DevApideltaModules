@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   recetaEfectiva, costearReceta, costearPresentacion, costearProducto, detectarCambios, resumenAlertas, snapshotDe,
-  validarProducto, validarMargenEspecial, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
+  validarProducto, validarMargenEspecial, validarMargenProducto, validarReceta, validarPresentacion, validarBorrarReceta, escalarVariantes, formulaParaSiga, revisionDe,
   limpiarRecetas, plusVentaProduccion,
 } = require('../lib/precios_produccion');
 
@@ -245,6 +245,16 @@ test('validarMargenEspecial: canales opcionales > −100 sin tope; 0/null se omi
   assert.deepStrictEqual(validarMargenEspecial({ minorista: -5, bulto: 0, pack: null }, 'margenProducto'), { minorista: -5 });
   assert.throws(() => validarMargenEspecial({ otro: 1 }, 'margenProducto'), /margenProducto: canal desconocido "otro"/);
   assert.throws(() => validarMargenEspecial({ bulto: -100 }, 'margenProducto'), /margenProducto\.bulto: El margen/);
+});
+
+test('validarMargenProducto: modo fijo (0 vale) | ajuste (0 se omite; sin modo = ajuste, como el dato viejo); otro modo, canal o valor → error; sin valores → null', () => {
+  assert.deepStrictEqual(validarMargenProducto({ modo: 'fijo', minorista: 55, pack: 0, bulto: null }), { modo: 'fijo', minorista: 55, pack: 0 });
+  assert.deepStrictEqual(validarMargenProducto({ modo: 'ajuste', minorista: -5, pack: 0 }), { modo: 'ajuste', minorista: -5 });
+  assert.deepStrictEqual(validarMargenProducto({ minorista: 3 }), { modo: 'ajuste', minorista: 3 });
+  for (const body of [{}, null, { modo: 'fijo' }, { modo: 'fijo', minorista: null }, { modo: 'ajuste', pack: 0 }]) assert.strictEqual(validarMargenProducto(body), null);
+  assert.throws(() => validarMargenProducto({ modo: 'otro', minorista: 1 }), /margenProducto\.modo/);
+  assert.throws(() => validarMargenProducto({ modo: 'fijo', mayorista: 1 }), /margenProducto: canal desconocido/);
+  assert.throws(() => validarMargenProducto({ modo: 'fijo', bulto: -100 }), /margenProducto\.bulto: El margen/);
 });
 
 // Las presentaciones eligen una VARIEDAD (decisión 14), no la base.

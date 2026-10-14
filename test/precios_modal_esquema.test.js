@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -102,4 +102,23 @@ test('pasosAjusteMd: "Ver detalle" explica especial y ajuste del producto dentro
   assert.deepStrictEqual(pasosAjusteMd({ margenPct: 32, margenEspecialPct: 5, margenProductoPct: -3 }).map(p => p[1]),
     ['incluye margen especial del producto +5 %', 'incluye ajuste del producto -3 % (general 30 %)']);
   assert.deepStrictEqual(pasosAjusteMd({ margenPct: 35, margenEspecialPct: 5 }).map(p => p[1]), ['incluye margen especial del producto +5 % (general 30 %)']);
+});
+
+test('pasosAjusteMd: margen fijo del producto → un renglón con el general que reemplazó (sin el especial)', () => {
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 55, margenProductoPct: 55, margenProductoModo: 'fijo', margenGeneralPct: 43.33 }).map(p => p[1]),
+    ['margen fijo del producto 55 % (general 43,33 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 40, margenProductoPct: 10, margenProductoModo: 'ajuste' }).map(p => p[1]), ['incluye ajuste del producto +10 % (general 30 %)']);
+});
+
+test('generalesCanalMd: margen general por canal (sin el del producto) desde el desglose de la fuente; sin dato → null', () => {
+  const des = (minorista, porVinculo = {}) => ({ sistema: { desglose: { minorista, porVinculo } } });
+  const fila = { sugeridos: des({ margenPct: 55, margenProductoPct: 55, margenProductoModo: 'fijo', margenGeneralPct: 43.33 },
+    { 60: { margenPct: 30, margenProductoPct: 5, margenProductoModo: 'ajuste' } }),
+  mayoristas: [{ plu: '60', tipo: 'pack' }, { plu: '70', tipo: 'bulto' }] };
+  assert.deepStrictEqual(generalesCanalMd(fila, 'sistema'), { minorista: 43.33, pack: 25, bulto: null });
+  assert.deepStrictEqual(generalesCanalMd({ sugeridos: {} }, 'sistema'), { minorista: null, pack: null, bulto: null });
+  // Fraccionado: pack/bulto vinculados a una presentación.
+  const fracc = { sugeridos: des({ margenPct: 30 }), mayoristas: [],
+    presentaciones: [{ sugeridos: des({ margenPct: 40 }, { 80: { margenPct: 27 } }), mayoristas: [{ plu: '80', tipo: 'bulto' }] }] };
+  assert.deepStrictEqual(generalesCanalMd(fracc, 'sistema'), { minorista: 30, pack: null, bulto: 27 });
 });

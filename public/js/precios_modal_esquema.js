@@ -105,12 +105,13 @@ function conceptosCosto(lineas) {
   return { mercaderia: { lineas: mercaderia, subtotal: sub(mercaderia) }, insumos: { lineas: insumos, subtotal: sub(insumos) }, mo: de('mo')[0] || null };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd };
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
 let mdFuente = 'sistema';  // fuente cuyos precios se muestran (la decidida; sistema si "No cambiar")
 let mdDetalle = false;     // "Ver detalle" abierto
+let mdMpModo = 'fijo';     // modo del bloque "Margen de este producto": el guardado; 'fijo' si no tiene
 
 const TXT_TIPO_MD = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion: 'Producción' };
 const fmtSug = n => (Number.isInteger(n) ? fmtPrecio(n) : fmtMoney(n));
@@ -131,6 +132,7 @@ async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
     mdEsq = { tipo, fila };
     mdFuente = fila.decision ? fila.decision.fuente : 'sistema';
     mdDetalle = detalle;
+    mdMpModo = fila.margenProducto ? fila.margenProducto.modo || 'ajuste' : 'fijo'; // sin modo = dato viejo (ajuste)
     document.getElementById('mDetTitulo').textContent = fila.nombre || plu;
     document.getElementById('mDetSub').innerHTML = `<span class="md-tipo">${esc(TXT_TIPO_MD[tipo] || tipo)}</span>
       <span class="tabular-nums">PLU ${esc(fila.plu)}</span>${tipo === 'fraccionado' ? '<span>· precios por kg</span>' : ''}`;
@@ -239,13 +241,24 @@ function htmlTablaCanales(f) {
 const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-1">${esc(titulo)}</div>${pasos.filter(Boolean).map(([op, txt, v]) =>
   `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">${v == null ? '' : '$ ' + fmtMoney(v)}</span></div>`).join('')}</div>`;
 // Margen especial del producto (Producción) y ajuste del producto (costeo.margenProducto): ya están sumados en margenPct; se
-// muestran aparte para explicar el total, con el general en el último renglón. Sin ninguno → [].
+// muestran aparte para explicar el total, con el general en el último renglón. Margen fijo del producto: reemplaza todo, un
+// renglón con el general que reemplazó. Sin ninguno → [].
 const signoPctMd = n => `${n > 0 ? '+' : ''}${pctMd(n)}`;
 function pasosAjusteMd(c) {
+  if (c.margenProductoModo === 'fijo') return [['', `margen fijo del producto ${pctMd(c.margenPct)} (general ${pctMd(c.margenGeneralPct)})`, null]];
   const esp = c.margenEspecialPct || 0, prod = c.margenProductoPct || 0;
   const general = ` (general ${pctMd(c.margenPct - esp - prod)})`;
   return [esp ? ['', `incluye margen especial del producto ${signoPctMd(esp)}${prod ? '' : general}`, null] : null,
     prod ? ['', `incluye ajuste del producto ${signoPctMd(prod)}${general}`, null] : null].filter(Boolean);
+}
+// Margen general de cada canal (sin el del producto, con el especial) en la fuente: placeholder del margen fijo. Pack/bulto: el
+// primer vínculo de ese tipo (Fraccionado: también los de sus presentaciones). Sin desglose → null.
+function generalesCanalMd(fila, fuente) {
+  const des = f => { const s = (f.sugeridos || {})[fuente]; return (s && s.desglose) || null; };
+  const general = c => (!c ? null : c.margenProductoModo === 'fijo' ? c.margenGeneralPct : Math.round((c.margenPct - (c.margenProductoPct || 0)) * 100) / 100);
+  const vinculos = [fila, ...(fila.presentaciones || [])].flatMap(f => (f.mayoristas || []).map(m => ({ m, d: des(f) })));
+  const mayor = tipo => { const v = vinculos.find(x => x.m.tipo === tipo && x.d && x.d.porVinculo[x.m.plu]); return v ? general(v.d.porVinculo[v.m.plu]) : null; };
+  return { minorista: general((des(fila) || {}).minorista), pack: mayor('pack'), bulto: mayor('bulto') };
 }
 // Producción: de dónde sale el costo real por unidad, en tres conceptos (conceptosCosto): mercadería (envasado: granel × kg;
 // receta: cada materia prima llevada a una unidad, rol 'mp'), insumos y mano de obra. Sólo viene con el permiso.
@@ -316,19 +329,47 @@ function htmlEdicionCostos(f) {
     ${htmlVentasPesablesMd(f)}
     <p id="mdMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
-// Ajuste de margen de este producto (sólo con el permiso): puntos % por canal que se suman al margen general (Producción:
-// también al especial). Se guarda en el PLU de la fila (Fraccionado: el granel, vale para todas sus presentaciones).
+// Margen de este producto (sólo con el permiso), por canal y en uno de dos modos: 'fijo' = el margen % final del canal
+// (reemplaza general, ajuste por peso y especial; vacío = general) o 'ajuste' = puntos % que se suman. Se guarda en el PLU de
+// la fila (Fraccionado: el granel, vale para todas sus presentaciones). Los valores guardados se ven sólo en su modo.
 const CANALES_AJUSTE_MD = [['minorista', 'Minorista'], ['pack', 'Pack'], ['bulto', 'Bulto']];
+const numMd = n => String(+(+n).toFixed(2)).replace('.', ',');
+function ayudaMargenProductoMd(fijo) {
+  const { tipo } = mdEsq;
+  const txt = fijo
+    ? `Margen % final de cada canal: reemplaza al margen general${tipo === 'fraccionado' ? ' y al ajuste por peso' : ''}${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío = margen general.`
+    : `Puntos % por canal: se suman al margen general${tipo === 'produccion' ? ' y al margen especial' : ''}. Vacío o 0 = sin ajuste.`;
+  return txt + (tipo === 'fraccionado' ? ' Aplica a todas las presentaciones del granel.' : '');
+}
 function htmlMargenProductoMd(f) {
   if (preciosSinConfig || f.plu == null) return '';
-  const m = f.margenProducto || {};
-  const ayuda = `Puntos % por canal: se suman al margen general${mdEsq.tipo === 'produccion' ? ' y al margen especial' : ''}.`
-    + (mdEsq.tipo === 'fraccionado' ? ' Aplica a todas las presentaciones del granel.' : '') + ' Vacío o 0 = sin ajuste.';
+  const fijo = mdMpModo === 'fijo';
+  const guardado = f.margenProducto || {};
+  const m = (guardado.modo || 'ajuste') === mdMpModo ? guardado : {};
+  const gen = generalesCanalMd(f, mdFuente);
+  const ph = c => (!fijo ? '0' : gen[c] == null ? 'general' : `${numMd(gen[c])} (general)`);
+  const modo = (v, t) => `<button type="button" class="seg-opt md-mp-modo" data-modo="${v}" aria-pressed="${mdMpModo === v}">${t}</button>`;
   const campos = CANALES_AJUSTE_MD.map(([c, t]) => `<label class="flex items-center gap-1 text-sm">${t}
-    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="0" aria-label="Ajuste de margen ${t} en puntos %">`, '+ pts %', { w: 'w-32' })}</label>`).join('');
-  return `<section class="md-margen-prod"><h4 class="md-h">Margen de este producto</h4><p class="md-ayuda">${esc(ayuda)}</p>
+    ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="${esc(ph(c))}" aria-label="${fijo ? `Margen ${t} en %` : `Ajuste de margen ${t} en puntos %`}">`,
+    fijo ? 'Margen %' : '+ pts %', { w: fijo ? 'w-44' : 'w-32' })}</label>`).join('');
+  return `<section class="md-margen-prod"><div class="flex flex-wrap items-center gap-3"><h4 class="md-h">Margen de este producto</h4>
+    <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modo('fijo', 'Margen fijo')}${modo('ajuste', 'Ajuste ±')}</div></div>
+    <p class="md-ayuda">${esc(ayudaMargenProductoMd(fijo))}</p>
     <div class="flex flex-wrap items-center gap-3">${campos}<button type="button" id="mdMargenGuardar" class="cfg-btn2">Guardar</button></div>
     <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></section>`;
+}
+function conectarMargenProductoMd() {
+  const sec = document.querySelector('#mDetBody .md-margen-prod');
+  if (!sec) return;
+  sec.querySelectorAll('.md-mp-modo').forEach(b => b.onclick = () => {
+    if (b.dataset.modo === mdMpModo) return;
+    mdMpModo = b.dataset.modo;
+    sec.outerHTML = htmlMargenProductoMd(mdEsq.fila);
+    conectarMargenProductoMd();
+    document.querySelector(`#mDetBody .md-mp-modo[data-modo="${mdMpModo}"]`).focus();
+  });
+  document.getElementById('mdMargenGuardar').onclick = () => guardarCostoEsq(`/api/precios/config/esquema/margen-producto/${encodeURIComponent(mdEsq.fila.plu)}`,
+    { modo: mdMpModo, ...Object.fromEntries([...sec.querySelectorAll('.md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)])) }, 'PUT', 'mdMargenMsg');
 }
 
 function htmlVerDetalle(f) {
@@ -400,9 +441,7 @@ function conectarModalEsquema() {
     if (mdDetalle) ver.scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
   if (document.getElementById('mdManualGuardar')) conectarEdicionCostos();
-  const margen = document.getElementById('mdMargenGuardar');
-  if (margen) margen.onclick = () => guardarCostoEsq(`/api/precios/config/esquema/margen-producto/${encodeURIComponent(mdEsq.fila.plu)}`,
-    Object.fromEntries([...document.querySelectorAll('#mDetBody .md-mp-in')].map(i => [i.dataset.canal, numOrNull(i.value)])), 'PUT', 'mdMargenMsg');
+  conectarMargenProductoMd();
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal
@@ -415,7 +454,17 @@ async function guardarCostoEsq(url, body, metodo = 'PUT', msgId = 'mdMsg') {
     const { tipo, fila } = mdEsq;
     await abrirModalEsquema(tipo, fila.plu, { detalle: mdDetalle });
     cargarListado(tipo);
+    if (tipo === 'produccion') refrescarPanelProduccionMd();
   } catch (e) { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = e.message; }
+}
+// El modal pudo abrirse encima del modal del producto base (Envasado) o del panel de presentaciones de una receta: también
+// se recargan sus precios. ebEd / recargarBase / pintarBase (precios_produccion_envasado.js), prodDet / recargarDetalleProd
+// (precios_produccion.js). Para abrir el modal desde el producto base no puede haber cambios sin guardar: recargar no pisa nada.
+function refrescarPanelProduccionMd() {
+  const base = document.getElementById('mBase');
+  if (typeof ebEd !== 'undefined' && ebEd && base && !base.classList.contains('hidden')) {
+    recargarBase(ebEd.familia).then(pintarBase).catch(e => avisar(`No se pudieron recargar los precios del producto base: ${e.message}`)); // precios_config.js
+  } else if (typeof prodDet !== 'undefined' && prodDet && document.getElementById('prPres')) recargarDetalleProd();
 }
 function conectarEdicionCostos() {
   const plu = encodeURIComponent(mdEsq.fila.plu);

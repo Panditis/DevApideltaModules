@@ -212,6 +212,32 @@ test('preciosCanales: margenExtra (margen especial de Producción) se suma al ma
   assert.ok(!('margenEspecialPct' in base.minorista));
 });
 
+test('preciosCanales: margenProducto modo ajuste (o sin modo, dato viejo) suma puntos encima; modo fijo reemplaza el margen del canal', () => {
+  const sinGastos = { ...CFG, gastosVenta: [], extrasMinorista: [] };
+  const canales = (tipo, extra = {}) => E.preciosCanales({ tipo, costo: 2000, pesoG: 100, unidades: { pack: 1, bulto: 1 }, cfg: sinGastos, ...extra });
+  const base = canales('almacen');
+  // Ajuste (con o sin modo): +10 en minorista, informa modo y puntos.
+  for (const mp of [{ minorista: 10 }, { modo: 'ajuste', minorista: 10 }]) {
+    const a = canales('almacen', { margenProducto: mp });
+    assert.deepStrictEqual([a.minorista.margenPct, a.minorista.margenProductoPct, a.minorista.margenProductoModo], [base.minorista.margenPct + 10, 10, 'ajuste']);
+    assert.ok(!('margenProductoModo' in a.pack));
+  }
+  // Fijo: el valor ES el margen (0 vale); canal vacío → margen general; informa el general reemplazado.
+  const f = canales('almacen', { margenProducto: { modo: 'fijo', minorista: 55, bulto: 0 } });
+  assert.deepStrictEqual([f.minorista.margenPct, f.minorista.margenProductoPct, f.minorista.margenProductoModo, f.minorista.margenGeneralPct],
+    [55, 55, 'fijo', base.minorista.margenPct]);
+  assert.deepStrictEqual([f.bulto.margenPct, f.bulto.margenProductoModo, f.bulto.margenGeneralPct], [0, 'fijo', base.bulto.margenPct]);
+  assert.deepStrictEqual(f.pack, base.pack); // vacío: el general, sin marcas
+  assert.strictEqual(f.minorista.neto, 2000 * 1.55);
+  // Fraccionado: el fijo ignora el ajuste por peso (100 g → +10 en el general).
+  const fr = canales('fraccionado', { margenProducto: { modo: 'fijo', minorista: 55 } });
+  assert.deepStrictEqual([fr.minorista.margenPct, fr.minorista.margenGeneralPct], [55, 50]);
+  // Producción: el fijo ignora el margen especial (no informa margenEspecialPct en ese canal); el general lo incluye.
+  const pr = canales('produccion', { margenExtra: { minorista: 5, pack: 5 }, margenProducto: { modo: 'fijo', minorista: 55 } });
+  assert.deepStrictEqual([pr.minorista.margenPct, pr.minorista.margenGeneralPct, 'margenEspecialPct' in pr.minorista], [55, base.minorista.margenPct + 5, false]);
+  assert.deepStrictEqual([pr.pack.margenPct, pr.pack.margenEspecialPct], [E.r2(base.pack.margenPct + 5), 5]);
+});
+
 test('preciosCanales: gastos solo del tipo y modo "precio"', () => {
   const cfg = { ...CFG, modoGastos: 'precio',
     gastosVenta: [{ id: 'g', concepto: 'x', pct: 20, tipos: { almacen: false, produccion: true } }] };
