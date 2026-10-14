@@ -72,9 +72,19 @@ function celdaUltima(f) {
 const celdaDeltaUltima = f => (f.deltaUltimaPct == null ? '<span class="text-gris">—</span>'
   : `<span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`);
 const badgeDecision = (f, tipo) => { const t = etiquetaDecision(f, tipo); return t ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-verde/15 text-verde whitespace-nowrap" title="Decidido: se exporta">${esc(t)}</span>` : ''; };
+// Margen del producto (sólo llega con el permiso de Configuración: CLAVES_OCULTAS lo saca sin él). "m=" margen fijo, "±m"
+// ajuste (sin modo = dato viejo, ajuste).
+const TXT_CANAL_LST = { minorista: 'Minorista', pack: 'Pack', bulto: 'Bulto' };
+const badgeMargenProducto = f => {
+  if (preciosSinConfig || !f.margenProducto) return '';
+  const { modo = 'ajuste', ...canales } = f.margenProducto;
+  const fijo = modo === 'fijo';
+  const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${!fijo && v > 0 ? '+' : ''}${fmtNum(v)} %`).join(' · ');
+  return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${fijo ? 'Margen fijo' : 'Ajuste de margen'} del producto: ${esc(t)}">${fijo ? 'm=' : '±m'}</span>`;
+};
 // Clic en el nombre = modal del producto, donde se elige el costo (y con eso la decisión). Producción además tiene el botón
 // "Precios" a la vista (el nombre solo no se veía clickeable).
-const botonNombre = (f, tipo) => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeDecision(f, tipo)}`;
+const botonNombre = (f, tipo) => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeDecision(f, tipo)}${badgeMargenProducto(f)}`;
 
 function filaHtml(f, tipo) {
   const marca = f.decision ? ' class="bg-verde/5"' : '';

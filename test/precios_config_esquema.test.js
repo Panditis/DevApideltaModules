@@ -141,7 +141,8 @@ test('migrarEsquemaCanales: archivo mínimo → márgenes de respaldo, listas va
 
 test('limpiarCosteo: saca las claves muertas, los descuentos pack/bulto y listas de los gastos; conserva lo vivo; idempotente', () => {
   const vivo = { toleranciaPct: 3, ivaVentaPct: 21, modoGastos: 'costo', extrasMinorista: [], margenes: {}, redondeo: {},
-    costoPorProducto: { 1: 9 }, costosExtraFraccionado: {}, decisiones: {}, costoHora: 4500 }; // costoHora volvió (MO de Producción, 2026-10-13)
+    costoPorProducto: { 1: 9 }, costosExtraFraccionado: {}, decisiones: {}, costoHora: 4500, // costoHora volvió (MO de Producción, 2026-10-13)
+    margenProducto: { 1: { minorista: 5 } } }; // ajuste de margen por producto (2026-10-14)
   const viejo = { ...vivo, margenPorProducto: { 1: 20 }, fuenteCosto: { 1: 'ultimaCompra' }, marcadosExportar: {},
     curvaGanancia: {}, metodoGanancia: 'curva', departamentos: [], ventaBase: {}, conceptosGanancia: [], conceptosPrecioFinal: [],
     presentacionesTemporales: {}, recetas: {},

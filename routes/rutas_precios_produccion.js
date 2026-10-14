@@ -93,6 +93,7 @@ module.exports = function crearRutasPreciosProduccion(deps) {
       const esquemaDe = (plu, costoUnidad, nombre) => L.filaPublica(L.filaProducto({
         plu, nombre, tipo: 'produccion', costos: { sistema: costoUnidad > 0 ? costoUnidad : null, ultimaCompra: null, manual: null },
         vigente: vigentes.has(plu) ? vigentes.get(plu) : null, mayoristas: mayoristasDe(plu), cfg, margenExtra,
+        margenProducto: L.margenProductoDe(costeo, plu), // ajuste del producto (por PLU de la presentación)
       }), conDesglose);
       return [id, armarDetalle({ id, datos, costeado: costeados[id], vigentes, fechas, esquemaDe })];
     }));

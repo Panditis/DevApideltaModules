@@ -634,6 +634,9 @@ test('PUT margen-especial: valida, guarda en el producto (vacío lo borra) y el 
     assert.deepStrictEqual(r, { id: 'p-granola', margenEspecial: { minorista: 5 } });
     assert.deepStrictEqual(archivo().margenEspecial, { minorista: 5 });
     assert.deepStrictEqual([(await margenMin()).margenPct, (await margenMin()).margenEspecialPct], [35, 5]);
+    // Ajuste del producto (costeo.margenProducto, por PLU de la presentación): encima del especial.
+    fs.writeFileSync(path.join(dir, 'costeo.json'), JSON.stringify({ ...COSTEO, margenes: CFG.margenes, margenProducto: { 6319: { minorista: 2 } } }));
+    assert.deepStrictEqual([(await margenMin()).margenPct, (await margenMin()).margenProductoPct], [37, 2]);
     // Renombrar conserva el margen especial; vacío lo borra.
     await pedir('PUT', '/productos/p-granola', { nombre: 'Granola 2' });
     assert.deepStrictEqual(archivo().margenEspecial, { minorista: 5 });

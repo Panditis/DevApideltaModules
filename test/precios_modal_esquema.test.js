@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -94,4 +94,63 @@ test('conceptosCosto: líneas de Producción en mercadería / insumos / mano de 
   const falta = conceptosCosto([{ rol: 'granel', importe: 10 }, { rol: 'empaque', importe: null }]);
   assert.deepStrictEqual([falta.mercaderia.subtotal, falta.insumos.subtotal, falta.mo], [10, null, null]);
   assert.deepStrictEqual(conceptosCosto(undefined).insumos, { lineas: [], subtotal: 0 });
+});
+
+test('pasosAjusteMd: "Ver detalle" explica especial y ajuste del producto dentro del margen; general en el último renglón; sin ajustes → nada', () => {
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 30 }), []);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 40, margenProductoPct: 10 }).map(p => p[1]), ['incluye ajuste del producto +10 % (general 30 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 32, margenEspecialPct: 5, margenProductoPct: -3 }).map(p => p[1]),
+    ['incluye margen especial del producto +5 %', 'incluye ajuste del producto -3 % (general 30 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 35, margenEspecialPct: 5 }).map(p => p[1]), ['incluye margen especial del producto +5 % (general 30 %)']);
+});
+
+test('pasosAjusteMd: margen fijo del producto → un renglón con el general que reemplazó (sin el especial)', () => {
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 55, margenProductoPct: 55, margenProductoModo: 'fijo', margenGeneralPct: 43.33 }).map(p => p[1]),
+    ['margen fijo del producto 55 % (general 43,33 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 40, margenProductoPct: 10, margenProductoModo: 'ajuste' }).map(p => p[1]), ['incluye ajuste del producto +10 % (general 30 %)']);
+});
+
+test('generalesCanalMd: margen general por canal (sin el del producto) desde el desglose de la fuente; sin dato → null', () => {
+  const des = (minorista, porVinculo = {}) => ({ sistema: { desglose: { minorista, porVinculo } } });
+  const fila = { sugeridos: des({ margenPct: 55, margenProductoPct: 55, margenProductoModo: 'fijo', margenGeneralPct: 43.33 },
+    { 60: { margenPct: 30, margenProductoPct: 5, margenProductoModo: 'ajuste' } }),
+  mayoristas: [{ plu: '60', tipo: 'pack' }, { plu: '70', tipo: 'bulto' }] };
+  assert.deepStrictEqual(generalesCanalMd(fila, 'sistema'), { minorista: 43.33, pack: 25, bulto: null });
+  assert.deepStrictEqual(generalesCanalMd({ sugeridos: {} }, 'sistema'), { minorista: null, pack: null, bulto: null });
+  // Fraccionado: pack/bulto vinculados a una presentación.
+  const fracc = { sugeridos: des({ margenPct: 30 }), mayoristas: [],
+    presentaciones: [{ sugeridos: des({ margenPct: 40 }, { 80: { margenPct: 27 } }), mayoristas: [{ plu: '80', tipo: 'bulto' }] }] };
+  assert.deepStrictEqual(generalesCanalMd(fracc, 'sistema'), { minorista: 30, pack: null, bulto: 27 });
+});
+
+test('igualarSigaMd Reventa: margen fijo por canal con vigente; guardado como fijo, el precio queda igual al de SIGA', () => {
+  const vig = new Map([['1', 1830], ['60', 1650]]);
+  const md = L.crearMayoristasDe({ vinculos: [{ plu: '60', nombre: 'Arroz Pack x6', basePlu: '1', cantidad: 6, tipo: 'pack' }], vigentes: vig });
+  const armar = costeo => L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: vig, mayoristasDe: md, costeo, cfg: CFG })[0], true);
+  // "No cambiar" (mdFuente = sistema) y fuente sin costo (ultimaCompra) → usa el costo sistema.
+  for (const fuente of ['sistema', 'ultimaCompra']) {
+    const r = igualarSigaMd(armar({}), 'almacen', fuente);
+    assert.deepStrictEqual([Object.keys(r.valores).sort(), r.notas, r.motivo, r.fuente], [['minorista', 'pack'], [], null, 'sistema']);
+    const f = armar({ margenProducto: { 1: { modo: 'fijo', ...r.valores } } });
+    assert.deepStrictEqual([f.sugeridos.sistema.minorista.precio, f.sugeridos.sistema.mayoristas[0].conIva], [1830, f.mayoristas[0].vigente]);
+  }
+  // Sin desglose (usuario sin permiso) o sin vigentes → no se puede, con el motivo.
+  const sinPermiso = L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: vig, mayoristasDe: md, costeo: {}, cfg: CFG })[0]);
+  assert.match(igualarSigaMd(sinPermiso, 'almacen', 'sistema').motivo, /costo/);
+  const sinVig = L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: new Map(), mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo: {}, cfg: CFG })[0], true);
+  assert.match(igualarSigaMd(sinVig, 'almacen', 'sistema').motivo, /vigente/);
+});
+
+test('igualarSigaMd Fraccionado: presentaciones con distinto margen necesario → la mediana y nota con el rango de Δ', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const [g] = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }, { plu: '103', nombre: 'Almendras 2Kg' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: new Map([['101', 1950], ['102', 1800], ['103', 1500]]), mayoristasDe: md, costeo: {}, cfg: CFG,
+  });
+  const r = igualarSigaMd(L.filaPublica(g, true), 'fraccionado', 'sistema');
+  const solo = v => igualarSigaMd({ ...L.filaPublica(g, true), presentaciones: L.filaPublica(g, true).presentaciones.filter(p => p.vigente === v) }, 'fraccionado', 'sistema').valores.minorista;
+  assert.strictEqual(r.valores.minorista, solo(1800)); // mediana de las tres
+  assert.ok(solo(1950) > r.valores.minorista && r.valores.minorista > solo(1500));
+  assert.strictEqual(r.notas.length, 1);
+  assert.match(r.notas[0], /^Minorista aprox\.: las presentaciones quedan con Δ entre -\d+,\d % y \+\d+,\d %/);
 });

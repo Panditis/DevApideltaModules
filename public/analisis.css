@@ -107,6 +107,12 @@ th.col-total{border-top:2px solid var(--green)}
 tr:last-child td.col-total{border-bottom:2px solid var(--green)}
 /* Pérdida que no incluye alguna sucursal en quiebre todo el rango (sin día con stock para estimar). */
 .sin-estimar{color:var(--warn);cursor:help}
+/* Pestaña Rotación: el puntaje va en una píldora verde que se intensifica con el valor y las
+   celdas de sucursal se pintan por script (intensidad del peso del producto en esa sucursal). */
+.rot-pill{display:inline-block;min-width:34px;padding:1px 8px;border-radius:9px;font-weight:700;text-align:center}
+.rot-porc{font-size:12px;color:var(--muted)}
+/* Siete sucursales no siempre entran en 1200px: la tabla scrollea dentro de la card. */
+#tblRotacion-rot{overflow-x:auto}
 /* Productos de marca propia: se remarcan en el detalle del cliente para leer de un
    vistazo cuánto de lo que compró es Apidelta y cuánto es reventa. */
 tr.cli-det.propio>td.pres{font-weight:600}
