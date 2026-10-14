@@ -762,6 +762,15 @@ const PANELES = {
     validar: () => sel.size ? '' : 'Seleccioná al menos una sucursal.',
     pintar: d => quiPintar(d),
   },
+  // Rotación: puntaje de disparidad de venta entre las sucursales tildadas. Render en
+  // analisis_rotacion.js; el endpoint cuelga de /api/analisis-ventas (mismo permiso).
+  rotacion: {
+    pref: 'rot', ref: 'analisis-ventas',
+    url: (desde, hasta) => `/api/analisis-ventas/rotacion?desde=${desde}&hasta=${hasta}`
+      + `&sucursales=${[...sel].join(',')}`,
+    validar: () => sel.size ? '' : 'Seleccioná al menos una sucursal.',
+    pintar: d => rotPintar(d),
+  },
 };
 
 const NOMBRE_POR_PREF = Object.fromEntries(Object.entries(PANELES).map(([k, p]) => [p.pref, k]));
@@ -770,7 +779,7 @@ const NOMBRE_POR_PREF = Object.fromEntries(Object.entries(PANELES).map(([k, p]) 
 // Cambiar de pestaña no vuelve a consultar si ya tiene los datos del filtro vigente: la
 // consulta es pesada y el usuario suele ir y volver comparando.
 let tabActivo = 'sucursales';
-const cargado = { sucursales: '', central: '', familias: '', familiasManuales: '', quiebres: '' };
+const cargado = { sucursales: '', central: '', familias: '', familiasManuales: '', quiebres: '', rotacion: '' };
 
 // El chip de la central entra en la clave: sacarlo cambia el consolidado y hay que
 // reconsultar, aunque el rango y las sucursales sigan iguales.
@@ -779,7 +788,7 @@ function claveRango(){
 }
 
 // Qué pestañas usan el filtro de sucursales. La central tiene alcance fijo por definición.
-const CON_CHIPS = ['sucursales', 'familias', 'familiasManuales', 'quiebres'];
+const CON_CHIPS = ['sucursales', 'familias', 'familiasManuales', 'quiebres', 'rotacion'];
 
 function mostrarTab(nombre){
   if (!PANELES[nombre]) return;
@@ -903,6 +912,7 @@ async function init(){
       fam: e => buscarEnFamilias(e.target.value),
       fmn: e => famBuscarEnLista(e.target.value),
       qui: e => quiBuscar(e.target.value),
+      rot: e => rotBuscar(e.target.value),
     };
     $(`buscTop-${p.pref}`).oninput = BUSCADOR[p.pref] || (e => buscarEnTop(p.pref, e.target.value));
     [`filtQuiebre-${p.pref}`, `filtRubro-${p.pref}`].forEach(id => {
