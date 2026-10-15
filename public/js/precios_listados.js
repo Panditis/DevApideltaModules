@@ -45,7 +45,14 @@ const ordenSinNulo = (previo, o) => o || { clave: previo.clave, dir: 'asc' };
 // clase null (otras tabs) → todas.
 const filasDeClase = (filas, clase) => (clase ? filas.filter(f => (f.tipoProduccion || 'receta') === clase) : filas);
 
-if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase };
+// Export: las 5 listas del server (en este orden) con su etiqueta y cuántas filas trae cada una (sin el encabezado).
+const ETIQUETA_LISTA = { minorista: 'Minorista', packNeto: 'Pack s/IVA', packIva: 'Pack c/IVA', bultoNeto: 'Bulto s/IVA', bultoIva: 'Bulto c/IVA' };
+const resumenExport = listas => Object.keys(ETIQUETA_LISTA).map(lista => {
+  const filas = (listas || {})[lista] || [];
+  return { lista, etiqueta: ETIQUETA_LISTA[lista], filas: Math.max(filas.length - 1, 0) };
+});
+
+if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -231,22 +238,48 @@ async function quitarDecisiones() {
 }
 
 // Una planilla por lista con filas (minorista, pack/bulto sin y con IVA), en el formato que importa SIGA hoy.
+// Un botón por archivo: Chrome deja pasar UNA descarga automática por clic y frenaba las demás (sólo salía una lista);
+// cada clic es un gesto del usuario, así que cada archivo baja. Las listas vacías se informan, no se omiten en silencio.
 async function exportarDecididos() {
   try {
     const j = await (await fetch('/api/precios/esquema/export')).json();
     if (j.error) throw new Error(j.error);
-    const conFilas = Object.entries(j.listas).filter(([, filas]) => filas.length > 1);
-    if (!conFilas.length) { avisar('No hay productos decididos con precio sugerido para exportar.'); return; }
+    const resumen = resumenExport(j.listas);
+    if (!resumen.some(r => r.filas)) { avisar('No hay productos decididos con precio sugerido para exportar.'); return; }
     const d = new Date();
     const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    for (const [lista, filas] of conFilas) {
+    const descargar = lista => {
       const ws = XLSX.utils.aoa_to_sheet([]);
-      XLSX.utils.sheet_add_aoa(ws, filas, { origin: `A${FILA_ENCABEZADOS}` });
+      XLSX.utils.sheet_add_aoa(ws, j.listas[lista], { origin: `A${FILA_ENCABEZADOS}` });
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, HOJA_EXPORTACION);
       // SIGA importa Excel 97-2003 (.xls, BIFF8), igual que el export de siempre.
       XLSX.writeFile(wb, `precios_${NOMBRE_LISTA[lista]}_${fecha}.xls`, { bookType: 'biff8' });
-    }
-    if (j.omitidos) avisar(`${j.omitidos} producto(s) decidido(s) sin precio con la fuente elegida quedaron fuera de los archivos.`);
+    };
+    dialogoExport(resumen, descargar, j.omitidos);
   } catch (e) { avisar(e.message); }
+}
+
+// Diálogo con una fila por lista: "Minorista · 12 productos [Descargar]"; vacía → "sin productos" y sin botón.
+function dialogoExport(resumen, descargar, omitidos) {
+  let d = document.getElementById('dlgExport');
+  if (!d) {
+    d = document.createElement('dialog');
+    d.id = 'dlgExport';
+    d.className = 'rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,460px)] bg-card text-ink backdrop:bg-ink/40';
+    document.body.appendChild(d);
+  }
+  d.innerHTML = `<form method="dialog" class="p-5">
+    <p class="text-sm font-semibold mb-3">Exportar decididos: un archivo por lista</p>
+    <ul class="text-sm divide-y divide-borde">${resumen.map(r => `<li class="flex items-center justify-between gap-3 py-2">
+      <span>${esc(r.etiqueta)} · ${r.filas ? `${r.filas} producto(s)` : '<span class="text-ink/60">sin productos</span>'}</span>
+      ${r.filas ? `<button type="button" data-lista="${esc(r.lista)}" class="px-3 py-1 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Descargar</button>` : ''}
+    </li>`).join('')}</ul>
+    ${omitidos ? `<p class="text-xs text-ink/70 mt-3">${omitidos} producto(s) decidido(s) sin precio con la fuente elegida quedaron fuera de los archivos.</p>` : ''}
+    <div class="flex justify-end mt-4"><button value="ok" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cerrar</button></div>
+  </form>`;
+  d.querySelectorAll('button[data-lista]').forEach(b => {
+    b.onclick = () => { descargar(b.dataset.lista); b.textContent = 'Descargado ✓'; };
+  });
+  d.showModal();
 }

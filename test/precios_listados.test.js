@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase } = require('../public/js/precios_listados.js');
+const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport } = require('../public/js/precios_listados.js');
 
 test('etiquetaDecision: badge de la fila decidida con su fuente; sin decisión → null; Producción = aumentar', () => {
   assert.strictEqual(etiquetaDecision({ decision: null }, 'almacen'), null);
@@ -111,3 +111,12 @@ test('filasDeClase: Producción separa Con receta (default) y Envasado Apidelta;
   assert.strictEqual(filasDeClase(filas, null), filas);
 });
 
+
+test('resumenExport: las 5 listas en orden con su etiqueta y cuántas filas (sin encabezado); las vacías quedan con 0', () => {
+  const E = ['Codigo', 'Nombre', 'Costo', 'Venta'];
+  const listas = { minorista: [E, ['1', 'A', 1, 2], ['2', 'B', 1, 2]], packNeto: [E], packIva: [E], bultoNeto: [E, ['9', 'A x10', 1, 2]], bultoIva: [E, ['9', 'A x10', 1, 2]] };
+  const r = resumenExport(listas);
+  assert.deepStrictEqual(r.map(x => [x.lista, x.filas]), [['minorista', 2], ['packNeto', 0], ['packIva', 0], ['bultoNeto', 1], ['bultoIva', 1]]);
+  assert.deepStrictEqual(r.map(x => x.etiqueta), ['Minorista', 'Pack s/IVA', 'Pack c/IVA', 'Bulto s/IVA', 'Bulto c/IVA']);
+  assert.strictEqual(resumenExport({}).every(x => x.filas === 0), true); // lista faltante = vacía
+});
