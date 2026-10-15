@@ -72,6 +72,23 @@ function opcionesCosto(fila, tipo) {
   })];
 }
 
+// <select> de decisión de los listados (precios_listados.js y la tabla de códigos de Envasado): las mismas opciones, precios y Δ%
+// que el modal (opcionesCosto) con texto compacto: "No cambiar", "Sistema · $ 1.800 (+3.2%)" (Fraccionado: "Sistema · prom. +3.2%",
+// el promedio de las presentaciones; Producción: "Aumentar · …"). Sin precio → "Última compra · Sin compras registradas" y
+// deshabilitada (salvo la decisión guardada, que se ve aunque ya no tenga precio). → [{ valor, texto, disabled }].
+const ETIQUETA_SELECT = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
+const FMT_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js') : { fmtPrecio, fmtPct };
+function textoOpcionSelect(o, tipo, fracc) {
+  if (o.valor === '') return 'No cambiar';
+  const nombre = tipo === 'produccion' ? o.texto : ETIQUETA_SELECT[o.valor] || o.texto;
+  if (!o.disponible || o.motivo) return `${nombre} · ${o.motivo || 'Sin precio'}`;
+  const delta = o.deltaPct == null ? null : FMT_MD.fmtPct(o.deltaPct);
+  if (fracc) return `${nombre} · ${delta == null ? 'sin vigente' : `prom. ${delta}`}`;
+  return `${nombre} · $ ${FMT_MD.fmtPrecio(o.precio)}${delta == null ? '' : ` (${delta})`}`;
+}
+const opcionesSelect = (fila, tipo) => opcionesCosto(fila, tipo)
+  .map(o => ({ valor: o.valor, texto: textoOpcionSelect(o, tipo, Array.isArray(fila.presentaciones)), disabled: !o.disponible }));
+
 // Primer error del motor en la fila (granel o presentaciones), por cualquier fuente: 'margen' | 'gastos' | 'costo' | null.
 function errorMotor(fila) {
   const filas = [fila, ...(fila.presentaciones || [])];
@@ -140,7 +157,7 @@ function igualarSigaMd(fila, tipo, fuente) {
   return { valores, notas, motivo: null, fuente: usada };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
+if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle

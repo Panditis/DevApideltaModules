@@ -6,8 +6,8 @@
 // Sin el permiso de Configuración el server manda el costo sin desglose (sólo el total): acá no se muestra.
 // Script clásico, cargado después de precios_produccion*.js: usa sus globales (prodDet, getJson, urlProd, API_PROD,
 // htmlBuscadorSiga, conectarBuscadorSiga, sugeridoProd, textoRevisar, textoFaltante, fmtNum, campoU, avisoExito,
-// marcarToggleProduccion, AVISO_COSTO_HORA), los de precios_listados.js (cargarListado, lstDatos), de
-// precios_modal_esquema.js (abrirModalEsquema, htmlCostoEnvasadoMd) y de precios.html (esc, fmtMoney, fmtPrecio, fmtPct,
+// marcarToggleProduccion, AVISO_COSTO_HORA), los de precios_listados.js (cargarListado, lstDatos, htmlSelectDecision,
+// cambiarDecisionLst), de precios_modal_esquema.js (abrirModalEsquema, htmlCostoEnvasadoMd, opcionesSelect) y de precios.html (esc, fmtMoney, fmtPrecio, fmtPct,
 // claseDelta, chip, numOrNull, pedirJson, avisar, confirmar, refrescarAlertasProduccion).
 // Rutas: #produccion/envasado = listado · #produccion/envasado/nuevo y #produccion/<id>[/<plu>] de una variedad = el
 // listado con el modal abierto (alta, o el producto base de esa variedad).
@@ -197,7 +197,7 @@ function pintarBases(cuerpo, filas, variedades, costos, texto) {
   const nuevo = '<button type="button" class="eb-tarjeta eb-t-nueva lst-nuevo"><span class="eb-tc-mas" aria-hidden="true">+</span>Nuevo producto base</button>';
   cuerpo.innerHTML = bases.length ? bases.map(htmlTarjetaBase).join('') + (String(texto || '').trim() ? '' : nuevo)
     : `<div class="eb-vacio">${String(texto || '').trim() ? 'Ningún producto base coincide con la búsqueda.' : 'Todavía no hay productos base: creá el primero (ej. Miel).'}</div>${String(texto || '').trim() ? '' : nuevo}`;
-  if (ebEd) pintarCeldasBase(); // modal abierto: badges de decisión al día (la decisión se toma en el modal de precios)
+  if (ebEd) pintarCeldasBase(); // modal abierto: selects y chips de decisión al día (la decisión se toma ahí o en el modal de precios)
   return `${bases.length} producto${bases.length === 1 ? '' : 's'} base · ${(filas || []).length} códigos · ${(filas || []).filter(f => f.decision).length} decididos`;
 }
 
@@ -355,7 +355,8 @@ function htmlCabBase() {
 
 // ── Tab "Variedades y códigos" ──
 const plataEb = v => (v == null ? '<span class="text-crit text-xs">sin costo</span>' : '$ ' + fmtMoney(v));
-const decisionDeCodigo = plu => ((typeof lstDatos === 'object' && lstDatos.produccion) || []).find(f => f.plu === plu && f.decision) || null;
+const filaDeCodigo = plu => ((typeof lstDatos === 'object' && lstDatos.produccion) || []).find(f => f.plu === plu) || null; // fila del listado de Producción
+const decisionDeCodigo = plu => { const f = filaDeCodigo(plu); return f && f.decision ? f : null; };
 const ESTADO_EB = { faltante: ['eb-e-falta', 'Faltante'], revisar: ['eb-e-rev', 'A revisar'], validado: ['eb-e-ok', 'Validado'], 'sin-validar': ['eb-e-sv', 'Sin validar'], pendiente: ['text-gris', '—'] };
 function htmlVariedades() {
   const vs = ebEd.variedades.map(htmlVariedadEb).join('');
@@ -401,12 +402,19 @@ function celdaEb(que, key, plu) {
   if (que === 'sugerido') return s ? `<b class="eb-sug">$ ${fmtPrecio(s.precio)}</b>` : '<span class="text-gris">—</span>';
   if (que === 'vigente') return c && c.precioVigente != null ? '$ ' + fmtPrecio(c.precioVigente) : '<span class="text-gris">—</span>';
   if (que === 'delta') return s && s.deltaPct != null ? `<span class="${claseDelta(s.estado)}">${fmtPct(s.deltaPct)}</span>` : '<span class="text-gris">—</span>';
-  if (que === 'decision') return decisionDeCodigo(plu) ? '<span class="eb-dec" title="Se exporta con el aumento">↑ aumentar</span>' : '<span class="text-gris text-xs">no cambia</span>';
+  if (que === 'decision') return celdaDecisionEb(plu);
   if (que === 'desglose') return htmlDesgloseEb(c);
   const e = estadoCodigo(c); // con cambios sin guardar: el de la vista previa (compara contra lo validado)
   const [cls, txt] = ESTADO_EB[e];
   const tip = e === 'faltante' ? ` title="${esc('Falta: ' + c.faltantes.map(k => textoFaltante(k)).join(', '))}"` : e === 'revisar' && c.revisar ? ` title="${esc(textoRevisar(c.revisar))}"` : '';
   return `<span class="eb-e ${cls}"${tip}>${txt}${e === 'revisar' && c.cambios && c.cambios.deltaPct != null ? ' ' + fmtPct(c.cambios.deltaPct) : ''}</span>`;
+}
+// Decisión del código: select "No cambiar" / "Aumentar · $X (Δ%)" (htmlSelectDecision, precios_listados.js; opcionesSelect, precios_modal_esquema.js)
+// con el precio de lo guardado. Con cambios sin guardar queda deshabilitado, igual que "Precios"; sin fila en el listado todavía, un guión.
+function celdaDecisionEb(plu) {
+  const f = filaDeCodigo(plu);
+  if (!f) return '<span class="text-gris text-xs">—</span>';
+  return htmlSelectDecision(f, opcionesSelect(f, 'produccion'), ebEd.sucio ? { deshabilitado: true, titulo: 'Guardá los cambios para decidir el precio' } : {});
 }
 // Costo final: total; con el permiso, el tooltip con los tres conceptos (el desglose completo va en la fila desplegada).
 function htmlCostoCeldaEb(c) {
@@ -624,6 +632,7 @@ function conectarCodigosEb(caja) {
       editarCodEb(k, i, p => ({ ...p, componentes: p.componentes.map((c, x) => (x === j ? { ...c, cantidad: numOrNull(t.value) } : c)) }));
     }
   };
+  cuerpo.onchange = e => { const s = e.target.closest('.lst-decision'); if (s) cambiarDecisionLst('produccion', s); }; // precios_listados.js
   cuerpo.onclick = e => {
     const b = e.target.closest('button');
     if (!b || !cuerpo.contains(b)) return;

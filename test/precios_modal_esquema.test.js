@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../lib/precios_listado_esquema');
-const { filasCanales, ventaPayload, opcionesCosto, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd } = require('../public/js/precios_modal_esquema.js');
+const { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd } = require('../public/js/precios_modal_esquema.js');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
@@ -52,6 +52,45 @@ test('opcionesCosto: Producción = No cambiar / Aumentar; Fraccionado resume el 
   });
   const sis = opcionesCosto(L.filaPublica(g), 'fraccionado')[1];
   assert.deepStrictEqual([sis.costo, sis.precio, sis.deltaPct], [1000, null, 10]); // (0 + 20) / 2
+});
+
+test('opcionesSelect: texto compacto con precio y Δ% (mismos números que el modal); sin precio → deshabilitada con su motivo', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes });
+  const pub = o => L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes, mayoristasDe: md, costeo: {}, cfg: CFG, ...o })[0]);
+  const ops = opcionesSelect(pub(), 'almacen');
+  assert.deepStrictEqual(ops.map(o => [o.valor, o.texto, o.disabled]), [
+    ['', 'No cambiar', false], ['sistema', 'Sistema · $ 1.800 (0.0%)', false], ['ultimaCompra', 'Última compra · Sin compras registradas', true]]);
+  // Mismas cifras que opcionesCosto (la fuente del modal): precio y Δ% de cada opción.
+  const modal = opcionesCosto(pub(), 'almacen');
+  assert.deepStrictEqual(ops.map(o => o.valor), modal.map(o => o.valor));
+  assert.deepStrictEqual(ops.map(o => o.disabled), modal.map(o => !o.disponible));
+  // Con costo manual aparece "Manual" con su precio; el precio nuevo y el Δ% contra el vigente salen del sugerido de esa fuente.
+  const conManual = opcionesSelect(pub({ costeo: { costoPorProducto: { 1: 2000 } } }), 'almacen');
+  assert.deepStrictEqual(conManual.map(o => o.valor), ['', 'sistema', 'ultimaCompra', 'manual']);
+  assert.match(conManual[3].texto, /^Manual · \$ [\d.]+ \(\+\d+\.\d%\)$/);
+  assert.strictEqual(conManual[3].disabled, false);
+});
+
+test('opcionesSelect: la decisión guardada sin precio sigue seleccionable (con el motivo); Producción dice "Aumentar"', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes });
+  const [f] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes, mayoristasDe: md, costeo: {}, cfg: CFG });
+  const guardada = { ...L.filaPublica(f), decision: { fuente: 'ultimaCompra' } }; // la última compra ya no existe
+  const uc = opcionesSelect(guardada, 'almacen')[2];
+  assert.deepStrictEqual([uc.texto, uc.disabled], ['Última compra · Sin compras registradas', false]);
+  const [p, sin] = L.listadoProduccion({ presentaciones: [{ plu: '6319', nombre: 'Mezcla', costoUnidad: 1000 }, { plu: '6320', nombre: 'Sin costo', costoUnidad: 0 }],
+    vigentes: new Map([['6319', 1500]]), mayoristasDe: md, costeo: {}, cfg: CFG });
+  const aum = opcionesSelect(L.filaPublica(p), 'produccion');
+  assert.deepStrictEqual(aum.map(o => o.valor), ['', 'sistema']);
+  assert.match(aum[1].texto, /^Aumentar · \$ [\d.]+ \([+-]?\d+\.\d%\)$/);
+  assert.deepStrictEqual(opcionesSelect(L.filaPublica(sin), 'produccion').map(o => [o.texto, o.disabled]), [['No cambiar', false], ['Aumentar · La receta no tiene costo', true]]);
+});
+
+test('opcionesSelect Fraccionado: el Δ% es el promedio de las presentaciones ("prom."); sin vigentes no hay Δ%', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const grupos = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }] }];
+  const fracc = v => L.filaPublica(L.listadoFraccionado({ grupos, costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: v, mayoristasDe: md, costeo: {}, cfg: CFG })[0]);
+  assert.strictEqual(opcionesSelect(fracc(new Map([['101', 1950], ['102', 1500]])), 'fraccionado')[1].texto, 'Sistema · prom. +10.0%'); // (0 + 20) / 2
+  assert.strictEqual(opcionesSelect(fracc(new Map()), 'fraccionado')[1].texto, 'Sistema · sin vigente');
 });
 
 test('ventaPayload: por kg → DELETE (vuelve al default); por paquete exige kg > 0 y ≤ 1000', () => {

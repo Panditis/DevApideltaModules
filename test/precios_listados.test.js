@@ -1,14 +1,27 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport } = require('../public/js/precios_listados.js');
+const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport } = require('../public/js/precios_listados.js');
 
-test('etiquetaDecision: badge de la fila decidida con su fuente; sin decisión → null; Producción = aumentar', () => {
-  assert.strictEqual(etiquetaDecision({ decision: null }, 'almacen'), null);
-  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'ultimaCompra' } }, 'almacen'), '↑ última compra');
-  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'sistema' } }, 'fraccionado'), '↑ sistema');
-  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'manual' } }, 'almacen'), '↑ manual');
-  assert.strictEqual(etiquetaDecision({ decision: { fuente: 'sistema' } }, 'produccion'), '↑ aumentar');
+test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
+  const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
+    { valor: 'ultimaCompra', texto: 'Última compra · Sin compras registradas', disabled: true }];
+  const sin = htmlSelectDecision({ plu: '7', nombre: 'Arroz "Gallo" <1kg>', decision: null }, ops);
+  assert.match(sin, /<select class="lst-decision num-in text-left" data-plu="7" data-actual="" aria-label="Decisión de precio: Arroz &quot;Gallo&quot; &lt;1kg&gt;">/);
+  assert.match(sin, /<option value="" selected>No cambiar<\/option>/);
+  assert.match(sin, /<option value="ultimaCompra" disabled>Última compra · Sin compras registradas<\/option>/);
+  assert.doesNotMatch(sin, /<option value="sistema"[^>]*(selected|disabled)/);
+  assert.match(sin, /class="lst-dec-msg[^"]*" role="alert"/);
+  const con = htmlSelectDecision({ plu: '7', nombre: 'Arroz', decision: { fuente: 'sistema' } }, ops);
+  assert.match(con, /class="lst-decision num-in text-left on" data-plu="7" data-actual="sistema"/);
+  assert.match(con, /<option value="sistema" selected>Sistema · \$ 1\.800 \(\+2\.0%\)<\/option>/);
+  assert.doesNotMatch(con, /<option value=""[^>]* selected/);
+});
+
+test('htmlSelectDecision: deshabilitado entero (cambios sin guardar) con su título', () => {
+  const html = htmlSelectDecision({ plu: '7', nombre: 'Arroz', decision: null }, [{ valor: '', texto: 'No cambiar', disabled: false }],
+    { deshabilitado: true, titulo: 'Guardá los cambios' });
+  assert.match(html, /aria-label="Decisión de precio: Arroz" disabled title="Guardá los cambios">/);
 });
 
 test('filtrarFilas: texto en PLU/nombre (y presentaciones), sólo decididos, última compra más cara', () => {
