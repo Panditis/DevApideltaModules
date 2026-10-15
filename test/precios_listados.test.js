@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase } = require('../public/js/precios_listados.js');
+const { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport } = require('../public/js/precios_listados.js');
 
 test('etiquetaDecision: badge de la fila decidida con su fuente; sin decisión → null; Producción = aumentar', () => {
   assert.strictEqual(etiquetaDecision({ decision: null }, 'almacen'), null);
@@ -22,6 +22,22 @@ test('filtrarFilas: texto en PLU/nombre (y presentaciones), sólo decididos, úl
   assert.deepStrictEqual(filtrarFilas(filas, { soloDecididos: true }).map(f => f.plu), ['1']);
   assert.deepStrictEqual(filtrarFilas(filas, { ultimaMasCara: true }).map(f => f.plu), ['1']);
   assert.strictEqual(filtrarFilas(filas).length, 3);
+});
+
+test('filtrarFilas: soloHoy deja sólo las filas con ingresoHoy y se combina con los otros filtros', () => {
+  const filas = [
+    { plu: '1', nombre: 'Azúcar', ingresoHoy: true, decision: { fuente: 'sistema' }, costoSistema: 100, costoUltimaCompra: 120 },
+    { plu: '2', nombre: 'Arroz', ingresoHoy: true, decision: null, costoSistema: 100, costoUltimaCompra: 90 },
+    { plu: '3', nombre: 'Almendras', ingresoHoy: false, decision: { fuente: 'sistema' }, costoSistema: 100, costoUltimaCompra: 150 },
+    { plu: '4', nombre: 'Sal' }, // sin el campo (fila vieja / Producción): no cuenta como cargada hoy
+  ];
+  const plus = o => filtrarFilas(filas, o).map(f => f.plu);
+  assert.deepStrictEqual(plus({ soloHoy: true }), ['1', '2']);
+  assert.deepStrictEqual(plus({ soloHoy: false }), ['1', '2', '3', '4']);
+  assert.deepStrictEqual(plus({ soloHoy: true, soloDecididos: true }), ['1']);
+  assert.deepStrictEqual(plus({ soloHoy: true, ultimaMasCara: true }), ['1']);
+  assert.deepStrictEqual(plus({ soloHoy: true, texto: 'arroz' }), ['2']);
+  assert.deepStrictEqual(plus({ soloHoy: true, texto: 'almendras' }), []);
 });
 
 const nombres = filas => filas.map(f => f.nombre);
@@ -95,3 +111,12 @@ test('filasDeClase: Producción separa Con receta (default) y Envasado Apidelta;
   assert.strictEqual(filasDeClase(filas, null), filas);
 });
 
+
+test('resumenExport: las 5 listas en orden con su etiqueta y cuántas filas (sin encabezado); las vacías quedan con 0', () => {
+  const E = ['Codigo', 'Nombre', 'Costo', 'Venta'];
+  const listas = { minorista: [E, ['1', 'A', 1, 2], ['2', 'B', 1, 2]], packNeto: [E], packIva: [E], bultoNeto: [E, ['9', 'A x10', 1, 2]], bultoIva: [E, ['9', 'A x10', 1, 2]] };
+  const r = resumenExport(listas);
+  assert.deepStrictEqual(r.map(x => [x.lista, x.filas]), [['minorista', 2], ['packNeto', 0], ['packIva', 0], ['bultoNeto', 1], ['bultoIva', 1]]);
+  assert.deepStrictEqual(r.map(x => x.etiqueta), ['Minorista', 'Pack s/IVA', 'Pack c/IVA', 'Bulto s/IVA', 'Bulto c/IVA']);
+  assert.strictEqual(resumenExport({}).every(x => x.filas === 0), true); // lista faltante = vacía
+});

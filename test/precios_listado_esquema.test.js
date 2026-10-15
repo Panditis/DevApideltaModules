@@ -77,6 +77,14 @@ test('listadoReventa: costo manual agrega la fuente manual; sin costos → sin s
   assert.deepStrictEqual(b.sugeridos, {});
 });
 
+test('listadoReventa: ingresoHoy (compra cargada hoy en SIGA) viaja en la fila, también en la pública; sin dato → false', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const universo = [{ plu: '1', nombre: 'A', costoSistema: 1000, ingresoHoy: true }, { plu: '2', nombre: 'B', costoSistema: 1000, ingresoHoy: false }, { plu: '3', nombre: 'C', costoSistema: 1000 }];
+  const filas = L.listadoReventa({ universo, vigentes: new Map(), mayoristasDe: md, costeo: {}, cfg: CFG });
+  assert.deepStrictEqual(filas.map(f => f.ingresoHoy), [true, false, false]);
+  assert.deepStrictEqual(filas.map(f => L.filaPublica(f).ingresoHoy), [true, false, false]); // no es costo: lo ven todos
+});
+
 test('filaPublica: sin desglose ni costos con extras (también en presentaciones); con permiso, la fila entera', () => {
   const md = L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES });
   const [f] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: VIGENTES, mayoristasDe: md,
@@ -117,6 +125,19 @@ test('listadoFraccionado: costo $/kg del granel en todas sus presentaciones, aju
   assert.deepStrictEqual(g.decision, { fuente: 'sistema', fecha: 'x' });
   assert.strictEqual(g.costoSistema, 1000);
   assert.deepStrictEqual([sin.plu, sin.decision, sin.presentaciones[0].sugeridos], [null, null, {}]);
+});
+
+test('listadoFraccionado: ingresoHoy es del granel (su compra cargada hoy); "Sin granel" nunca', () => {
+  const grupos = [
+    { plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] },
+    { plu: '200', nombre: 'Nueces', presentaciones: [] },
+    { plu: null, nombre: 'Sin granel asignado', presentaciones: [{ plu: '104', nombre: 'Rara 50G' }] },
+  ];
+  const costos = new Map([['100', { plu: '100', costoSistema: 1000, ingresoHoy: true }], ['200', { plu: '200', costoSistema: 900, ingresoHoy: false }]]);
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const filas = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: md, costeo: {}, cfg: CFG });
+  assert.deepStrictEqual(filas.map(g => g.ingresoHoy), [true, false, false]);
+  assert.strictEqual(L.filaPublica(filas[0]).ingresoHoy, true);
 });
 
 test('listadoProduccion: sólo PLUs SIGA, costo por unidad de la receta como fuente sistema, ordenado por nombre', () => {

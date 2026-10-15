@@ -353,3 +353,19 @@ test('margen del producto: sin precios-config → 403 al guardar y ni listado ni
     }
   } finally { a.cerrar(); }
 });
+
+test('export: Reventa decidida con bulto vinculado → su PLU en minorista y el bulto en las dos listas de bulto', async () => {
+  const query = async sql => {
+    if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
+    if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: 1800 }, { IdProducto: '2', Precio: 16000 }];
+    return sigaFalso(sql);
+  };
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  try {
+    assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'sistema' })).decision.fuente, 'sistema');
+    const { listas, omitidos } = await a.pedir('GET', '/api/precios/esquema/export');
+    assert.strictEqual(omitidos, 0);
+    assert.deepStrictEqual(listas.minorista.slice(1).map(r => r[0]), ['1']);
+    assert.deepStrictEqual([listas.bultoNeto, listas.bultoIva].map(l => l.slice(1).map(r => r[0])), [['2'], ['2']]);
+  } finally { a.cerrar(); }
+});

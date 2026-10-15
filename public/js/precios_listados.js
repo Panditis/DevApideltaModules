@@ -14,12 +14,13 @@ function etiquetaDecision(fila, tipo) {
   return tipo === 'produccion' ? '↑ aumentar' : ETIQUETA_DECISION[fila.decision.fuente] || `↑ ${fila.decision.fuente}`;
 }
 
-// Filtros del listado: texto (PLU/nombre, también presentaciones), sólo decididos, última compra más cara que sistema.
-function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false } = {}) {
+// Filtros del listado: texto (PLU/nombre, también presentaciones), sólo decididos, última compra más cara que sistema y
+// cargados hoy (ingresoHoy: compra cargada hoy en SIGA; en Fraccionado, la del granel).
+function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false } = {}) {
   const t = normL(texto.trim());
   const coincide = f => !t || normL(`${f.plu ?? ''} ${f.nombre}`).includes(t)
     || (f.presentaciones || []).some(p => normL(`${p.plu} ${p.nombre}`).includes(t));
-  return filas.filter(f => coincide(f) && (!soloDecididos || !!f.decision)
+  return filas.filter(f => coincide(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
 
@@ -44,7 +45,14 @@ const ordenSinNulo = (previo, o) => o || { clave: previo.clave, dir: 'asc' };
 // clase null (otras tabs) → todas.
 const filasDeClase = (filas, clase) => (clase ? filas.filter(f => (f.tipoProduccion || 'receta') === clase) : filas);
 
-if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase };
+// Export: las 5 listas del server (en este orden) con su etiqueta y cuántas filas trae cada una (sin el encabezado).
+const ETIQUETA_LISTA = { minorista: 'Minorista', packNeto: 'Pack s/IVA', packIva: 'Pack c/IVA', bultoNeto: 'Bulto s/IVA', bultoIva: 'Bulto c/IVA' };
+const resumenExport = listas => Object.keys(ETIQUETA_LISTA).map(lista => {
+  const filas = (listas || {})[lista] || [];
+  return { lista, etiqueta: ETIQUETA_LISTA[lista], filas: Math.max(filas.length - 1, 0) };
+});
+
+if (typeof module === 'object' && module.exports) module.exports = { etiquetaDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -65,9 +73,11 @@ function celdaPrecio(s) {
   const m = s.minorista;
   return `<b>$ ${fmtPrecio(m.precio)}</b>${m.deltaPct == null ? '' : ` <span class="text-xs ${claseDelta(m.estado)}">${fmtPct(m.deltaPct)}</span>`}`;
 }
+// Chip "hoy": hay una compra del producto cargada hoy en SIGA (puede no ser la última por fecha de factura).
+const chipHoy = f => (f.ingresoHoy ? ' <span class="px-1.5 rounded-full text-[11px] font-semibold bg-ok/15 text-ok" title="Compra cargada hoy en SIGA">hoy</span>' : '');
 function celdaUltima(f) {
-  if (f.costoUltimaCompra == null) return '<span class="text-gris">—</span>';
-  return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}</div>`;
+  if (f.costoUltimaCompra == null) return `<span class="text-gris">—</span>${chipHoy(f)}`;
+  return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${chipHoy(f)}</div>`;
 }
 const celdaDeltaUltima = f => (f.deltaUltimaPct == null ? '<span class="text-gris">—</span>'
   : `<span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`);
@@ -121,6 +131,7 @@ function htmlMarcoListado(tipo) {
     <input type="search" class="lst-buscar px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72" placeholder="Buscar por PLU o nombre…" value="${esc(f.texto || '')}">
     ${toggle('lst-decididos', 'soloDecididos', 'Sólo decididos')}
     ${prod ? '' : toggle('lst-mascara', 'ultimaMasCara', 'Última compra más cara')}
+    ${prod ? '' : toggle('lst-hoy', 'soloHoy', 'Cargados hoy <span class="fbtn-n lst-hoy-n"></span>')}
     <span class="lst-conteo text-sm text-gris"></span>
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
@@ -137,7 +148,7 @@ function conectarListado(tipo, cont) {
   const f = filtrosLst(tipo);
   cont.querySelector('.lst-recargar').onclick = () => cargarListado(tipo);
   cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; renderListado(tipo); };
-  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara']].forEach(([sel, k]) => {
+  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy']].forEach(([sel, k]) => {
     const b = cont.querySelector(sel);
     if (b) b.onclick = () => { f[k] = !f[k]; b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
   });
@@ -197,6 +208,8 @@ function renderListado(tipo) {
     return;
   }
   const filas = ordenarListado(filtrarFilas(todas, filtrosLst(tipo)), lstOrden[tipo]);
+  const nHoy = cont.querySelector('.lst-hoy-n'); // filas del tab con compra cargada hoy (vacío = badge oculto)
+  if (nHoy) nHoy.textContent = todas.filter(f => f.ingresoHoy).length || '';
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   cuerpo.innerHTML = filas.length ? filas.map(fl => filaHtml(fl, tipo)).join('') : htmlSinFilas(tipo);
@@ -225,22 +238,48 @@ async function quitarDecisiones() {
 }
 
 // Una planilla por lista con filas (minorista, pack/bulto sin y con IVA), en el formato que importa SIGA hoy.
+// Un botón por archivo: Chrome deja pasar UNA descarga automática por clic y frenaba las demás (sólo salía una lista);
+// cada clic es un gesto del usuario, así que cada archivo baja. Las listas vacías se informan, no se omiten en silencio.
 async function exportarDecididos() {
   try {
     const j = await (await fetch('/api/precios/esquema/export')).json();
     if (j.error) throw new Error(j.error);
-    const conFilas = Object.entries(j.listas).filter(([, filas]) => filas.length > 1);
-    if (!conFilas.length) { avisar('No hay productos decididos con precio sugerido para exportar.'); return; }
+    const resumen = resumenExport(j.listas);
+    if (!resumen.some(r => r.filas)) { avisar('No hay productos decididos con precio sugerido para exportar.'); return; }
     const d = new Date();
     const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    for (const [lista, filas] of conFilas) {
+    const descargar = lista => {
       const ws = XLSX.utils.aoa_to_sheet([]);
-      XLSX.utils.sheet_add_aoa(ws, filas, { origin: `A${FILA_ENCABEZADOS}` });
+      XLSX.utils.sheet_add_aoa(ws, j.listas[lista], { origin: `A${FILA_ENCABEZADOS}` });
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, HOJA_EXPORTACION);
       // SIGA importa Excel 97-2003 (.xls, BIFF8), igual que el export de siempre.
       XLSX.writeFile(wb, `precios_${NOMBRE_LISTA[lista]}_${fecha}.xls`, { bookType: 'biff8' });
-    }
-    if (j.omitidos) avisar(`${j.omitidos} producto(s) decidido(s) sin precio con la fuente elegida quedaron fuera de los archivos.`);
+    };
+    dialogoExport(resumen, descargar, j.omitidos);
   } catch (e) { avisar(e.message); }
+}
+
+// Diálogo con una fila por lista: "Minorista · 12 productos [Descargar]"; vacía → "sin productos" y sin botón.
+function dialogoExport(resumen, descargar, omitidos) {
+  let d = document.getElementById('dlgExport');
+  if (!d) {
+    d = document.createElement('dialog');
+    d.id = 'dlgExport';
+    d.className = 'rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,460px)] bg-card text-ink backdrop:bg-ink/40';
+    document.body.appendChild(d);
+  }
+  d.innerHTML = `<form method="dialog" class="p-5">
+    <p class="text-sm font-semibold mb-3">Exportar decididos: un archivo por lista</p>
+    <ul class="text-sm divide-y divide-borde">${resumen.map(r => `<li class="flex items-center justify-between gap-3 py-2">
+      <span>${esc(r.etiqueta)} · ${r.filas ? `${r.filas} producto(s)` : '<span class="text-ink/60">sin productos</span>'}</span>
+      ${r.filas ? `<button type="button" data-lista="${esc(r.lista)}" class="px-3 py-1 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Descargar</button>` : ''}
+    </li>`).join('')}</ul>
+    ${omitidos ? `<p class="text-xs text-ink/70 mt-3">${omitidos} producto(s) decidido(s) sin precio con la fuente elegida quedaron fuera de los archivos.</p>` : ''}
+    <div class="flex justify-end mt-4"><button value="ok" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cerrar</button></div>
+  </form>`;
+  d.querySelectorAll('button[data-lista]').forEach(b => {
+    b.onclick = () => { descargar(b.dataset.lista); b.textContent = 'Descargado ✓'; };
+  });
+  d.showModal();
 }

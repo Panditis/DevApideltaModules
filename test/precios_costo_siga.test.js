@@ -56,3 +56,9 @@ test('filaCostos: última compra por cotización → neto tal cual, tipo "cotiza
   assert.strictEqual(g.costoMercaderia, null);
   assert.strictEqual(g.tipoComprobanteUltimaCompra, null);
 });
+
+test('filaCostos: ingresoHoy = IngresoHoy 1 del SQL (compra cargada hoy en SIGA); 0 o ausente → false', () => {
+  assert.strictEqual(filaCostos({ IdProducto: 1, IngresoHoy: 1 }).ingresoHoy, true);
+  assert.strictEqual(filaCostos({ IdProducto: 1, IngresoHoy: 0 }).ingresoHoy, false);
+  assert.strictEqual(filaCostos({ IdProducto: 1 }).ingresoHoy, false);
+});
