@@ -42,6 +42,11 @@
   .num-in{padding:4px 8px;border-radius:8px;border:1px solid rgba(26,28,24,.16);background:#fff;text-align:right;font-variant-numeric:tabular-nums}
   .num-in:hover{border-color:rgba(26,28,24,.32)}
   .num-in:focus{outline:none;border-color:#405936;box-shadow:0 0 0 3px rgba(64,89,54,.18)}
+  /* Select de decisión de los listados (ancho fijo: el texto trae precio y Δ%); verde = la fila se exporta. */
+  .lst-decision{width:17.5rem;max-width:100%}
+  .lst-decision.on{border-color:#405936;background:rgba(64,89,54,.08);font-weight:600}
+  .lst-decision:disabled{opacity:.6;cursor:not-allowed}
+  .eb-tabla .lst-decision{width:14.5rem}
   #mDet button:focus-visible,#mDet input[type=checkbox]:focus-visible{outline:2px solid #405936;outline-offset:2px}
   #mDetCaja:focus{outline:none}
   #mDet input[type=number]{-moz-appearance:textfield}
@@ -428,7 +433,6 @@
   .eb-e{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
   .eb-e-falta{background:rgba(164,38,44,.1);color:#a4262c}.eb-e-rev{background:rgba(138,93,0,.13);color:#8a5d00}
   .eb-e-ok{background:rgba(14,112,14,.12);color:#0e700e}.eb-e-sv{background:rgba(92,95,82,.1);color:#5c5f52}
-  .eb-dec{font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:6px;background:rgba(64,89,54,.12);color:#405936;white-space:nowrap}
   .eb-link{font-size:12px;font-weight:600;color:#405936;text-decoration:underline;text-underline-offset:2px}
   .eb-sin{padding:18px;text-align:center;color:#5c5f52}
   .eb-ayuda{font-size:12.5px;color:#5c5f52;margin:12px 0}
