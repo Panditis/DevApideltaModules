@@ -24,6 +24,22 @@ test('filtrarFilas: texto en PLU/nombre (y presentaciones), sólo decididos, úl
   assert.strictEqual(filtrarFilas(filas).length, 3);
 });
 
+test('filtrarFilas: soloHoy deja sólo las filas con ingresoHoy y se combina con los otros filtros', () => {
+  const filas = [
+    { plu: '1', nombre: 'Azúcar', ingresoHoy: true, decision: { fuente: 'sistema' }, costoSistema: 100, costoUltimaCompra: 120 },
+    { plu: '2', nombre: 'Arroz', ingresoHoy: true, decision: null, costoSistema: 100, costoUltimaCompra: 90 },
+    { plu: '3', nombre: 'Almendras', ingresoHoy: false, decision: { fuente: 'sistema' }, costoSistema: 100, costoUltimaCompra: 150 },
+    { plu: '4', nombre: 'Sal' }, // sin el campo (fila vieja / Producción): no cuenta como cargada hoy
+  ];
+  const plus = o => filtrarFilas(filas, o).map(f => f.plu);
+  assert.deepStrictEqual(plus({ soloHoy: true }), ['1', '2']);
+  assert.deepStrictEqual(plus({ soloHoy: false }), ['1', '2', '3', '4']);
+  assert.deepStrictEqual(plus({ soloHoy: true, soloDecididos: true }), ['1']);
+  assert.deepStrictEqual(plus({ soloHoy: true, ultimaMasCara: true }), ['1']);
+  assert.deepStrictEqual(plus({ soloHoy: true, texto: 'arroz' }), ['2']);
+  assert.deepStrictEqual(plus({ soloHoy: true, texto: 'almendras' }), []);
+});
+
 const nombres = filas => filas.map(f => f.nombre);
 const conPlu = nombres => nombres.map((nombre, i) => ({ plu: String(i + 1), nombre }));
 const sug = precio => ({ minorista: { precio } });

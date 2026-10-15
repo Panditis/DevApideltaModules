@@ -14,12 +14,13 @@ function etiquetaDecision(fila, tipo) {
   return tipo === 'produccion' ? '↑ aumentar' : ETIQUETA_DECISION[fila.decision.fuente] || `↑ ${fila.decision.fuente}`;
 }
 
-// Filtros del listado: texto (PLU/nombre, también presentaciones), sólo decididos, última compra más cara que sistema.
-function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false } = {}) {
+// Filtros del listado: texto (PLU/nombre, también presentaciones), sólo decididos, última compra más cara que sistema y
+// cargados hoy (ingresoHoy: compra cargada hoy en SIGA; en Fraccionado, la del granel).
+function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false } = {}) {
   const t = normL(texto.trim());
   const coincide = f => !t || normL(`${f.plu ?? ''} ${f.nombre}`).includes(t)
     || (f.presentaciones || []).some(p => normL(`${p.plu} ${p.nombre}`).includes(t));
-  return filas.filter(f => coincide(f) && (!soloDecididos || !!f.decision)
+  return filas.filter(f => coincide(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
 
@@ -65,9 +66,11 @@ function celdaPrecio(s) {
   const m = s.minorista;
   return `<b>$ ${fmtPrecio(m.precio)}</b>${m.deltaPct == null ? '' : ` <span class="text-xs ${claseDelta(m.estado)}">${fmtPct(m.deltaPct)}</span>`}`;
 }
+// Chip "hoy": hay una compra del producto cargada hoy en SIGA (puede no ser la última por fecha de factura).
+const chipHoy = f => (f.ingresoHoy ? ' <span class="px-1.5 rounded-full text-[11px] font-semibold bg-ok/15 text-ok" title="Compra cargada hoy en SIGA">hoy</span>' : '');
 function celdaUltima(f) {
-  if (f.costoUltimaCompra == null) return '<span class="text-gris">—</span>';
-  return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}</div>`;
+  if (f.costoUltimaCompra == null) return `<span class="text-gris">—</span>${chipHoy(f)}`;
+  return `$ ${fmtMoney(f.costoUltimaCompra)}<div class="text-xs text-gris">${esc(fmtFechaPrecio(f.fechaUltimaCompra) || '')}${chipHoy(f)}</div>`;
 }
 const celdaDeltaUltima = f => (f.deltaUltimaPct == null ? '<span class="text-gris">—</span>'
   : `<span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`);
@@ -121,6 +124,7 @@ function htmlMarcoListado(tipo) {
     <input type="search" class="lst-buscar px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72" placeholder="Buscar por PLU o nombre…" value="${esc(f.texto || '')}">
     ${toggle('lst-decididos', 'soloDecididos', 'Sólo decididos')}
     ${prod ? '' : toggle('lst-mascara', 'ultimaMasCara', 'Última compra más cara')}
+    ${prod ? '' : toggle('lst-hoy', 'soloHoy', 'Cargados hoy <span class="fbtn-n lst-hoy-n"></span>')}
     <span class="lst-conteo text-sm text-gris"></span>
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
@@ -137,7 +141,7 @@ function conectarListado(tipo, cont) {
   const f = filtrosLst(tipo);
   cont.querySelector('.lst-recargar').onclick = () => cargarListado(tipo);
   cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; renderListado(tipo); };
-  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara']].forEach(([sel, k]) => {
+  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy']].forEach(([sel, k]) => {
     const b = cont.querySelector(sel);
     if (b) b.onclick = () => { f[k] = !f[k]; b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
   });
@@ -197,6 +201,8 @@ function renderListado(tipo) {
     return;
   }
   const filas = ordenarListado(filtrarFilas(todas, filtrosLst(tipo)), lstOrden[tipo]);
+  const nHoy = cont.querySelector('.lst-hoy-n'); // filas del tab con compra cargada hoy (vacío = badge oculto)
+  if (nHoy) nHoy.textContent = todas.filter(f => f.ingresoHoy).length || '';
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   cuerpo.innerHTML = filas.length ? filas.map(fl => filaHtml(fl, tipo)).join('') : htmlSinFilas(tipo);
