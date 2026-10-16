@@ -42,17 +42,16 @@ const MARCA = (cambios = {}) => ({
   ...cambios,
 });
 
-// fallaGuardar: nombres de archivo cuya escritura tira error (disco lleno, permisos) DESPUÉS de armar el escenario.
-function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [] } = {}) {
+// fallaGuardar: archivos cuya escritura falla (un directorio ocupa el <archivo>.tmp de la escritura atómica).
+// crudos: contenido literal de archivos (p. ej. un json corrupto).
+function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [], crudos = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compras-siga-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const escribir = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
   escribir(path.join(dir, 'pedidos_comprobantes.json'), vinculos);
   if (estado) escribir(path.join(dir, 'compras_siga_estado.json'), estado);
-  const guardarJSON = (p, d) => {
-    if (fallaGuardar.includes(path.basename(p))) throw new Error('EACCES: permiso denegado');
-    escribir(p, d);
-  };
+  for (const [nombre, texto] of Object.entries(crudos)) fs.writeFileSync(path.join(dir, nombre), texto);
+  for (const nombre of fallaGuardar) fs.mkdirSync(path.join(dir, `${nombre}.tmp`));
   const grabados = [];
   const contextos = [];
   const repo = {
@@ -64,7 +63,7 @@ function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = 
   const app = express();
   app.use(express.json());
   app.use(require('../routes/rutas_compras_siga')({
-    leerJSON, guardarJSON, DATA_DIR: dir, leerPedidosCompra: () => [PEDIDO],
+    DATA_DIR: dir, leerPedidosCompra: () => [PEDIDO],
     usuarioCompras: () => 'adriel.compras', repo, ahora: () => AHORA,
   }));
   return new Promise(ok => {
@@ -104,7 +103,10 @@ test('GET borrador: líneas entregadas + extra, descartadas, cabecera sugerida y
     assert.strictEqual(data.borrador.fecha, '2026-10-16');
     assert.strictEqual(data.borrador.idUbicacion, 1);
     assert.deepStrictEqual(data.catalogos, CATALOGOS);
-    assert.strictEqual((await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-9999/borrador')).status, 404);
+    assert.deepStrictEqual(await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-9999/borrador'), { status: 404, data: { ok: false, error: 'No existe el pedido.' } });
+    // El número de la URL no se refleja en la respuesta.
+    const raro = await pedir(ctx.base, 'GET', `/api/compras-siga/pedidos/${encodeURIComponent('<b>x</b>')}/borrador`);
+    assert.deepStrictEqual(raro, { status: 404, data: { ok: false, error: 'No existe el pedido.' } });
   } finally { cerrar(ctx); }
 });
 
@@ -239,7 +241,7 @@ test('POST grabar OK pero falla el vínculo: aviso + pedido "a verificar" (motiv
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.data.ok, true);
     assert.strictEqual(r.data.vinculado, false);
-    assert.match(r.data.avisoVinculo, /Se grabó en SIGA pero no se pudo vincular al pedido/);
+    assert.strictEqual(r.data.avisoVinculo, 'Se grabó en SIGA pero no se pudo vincular al pedido. Vinculalo desde Control de compras.');
     assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
       motivo: 'vinculo', usuario: 'adriel.compras',
       historial: [{ evento: 'a_verificar', motivo: 'vinculo', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel.compras', ts: TS }],
@@ -260,6 +262,7 @@ test('POST grabar OK y fallan vínculo y estado: log con pedido y comprobante, y
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.data.vinculado, false);
     assert.match(r.data.avisoVinculo, /no se pudo vincular/);
+    assert.ok(!JSON.stringify(r.data).includes(path.basename(ctx.dir)), 'el aviso no filtra rutas del disco');
     assert.deepStrictEqual(estadoDe(ctx), {});
     const lineas = log.mock.calls.map(c => c.arguments.join(' '));
     assert.ok(lineas.some(l => /a verificar/.test(l) && /P-0007/.test(l) && /1\|FACTCOM\|A\|5007\|1071364/.test(l)), lineas.join('\n'));
@@ -308,6 +311,7 @@ test('liberar-verificacion cargado sin poder vincular: 500 con mensaje y la marc
     assert.strictEqual(r.status, 500);
     assert.strictEqual(r.data.ok, false);
     assert.match(r.data.error, /No se pudo vincular el comprobante 1\|FACTCOM\|A\|5007\|1071364 al pedido P-0007/);
+    assert.ok(!r.data.error.includes(path.basename(ctx.dir)), 'el error no filtra rutas del disco');
     assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA());
   } finally { cerrar(ctx); }
 });
@@ -317,7 +321,7 @@ test('liberar-verificacion: sin marca → 404; resultado inválido → 400', asy
   try {
     const sin = await liberar(ctx, { resultado: 'cargado' });
     assert.strictEqual(sin.status, 404);
-    assert.deepStrictEqual(sin.data, { ok: false, error: 'El pedido P-0007 no tiene una grabación a verificar.' });
+    assert.deepStrictEqual(sin.data, { ok: false, error: 'El pedido no tiene una grabación a verificar.' });
     for (const body of [{ resultado: 'quizas' }, {}, undefined]) {
       const mal = await liberar(ctx, body);
       assert.strictEqual(mal.status, 400);
@@ -360,5 +364,49 @@ test('POST grabar: un segundo pedido de grabación simultáneo recibe 409 y el l
     // Liberado en finally aunque el primero haya fallado: el tercero vuelve a llegar a repo.grabar.
     assert.strictEqual((await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo())).status, 422);
     assert.strictEqual(llamadas, 2);
+  } finally { cerrar(ctx); }
+});
+
+test('json de vínculos corrupto: 500 con log, no graba y no reescribe el archivo', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ crudos: { 'pedidos_comprobantes.json': '{"P-0001": ["1|FACTCOM|A|1|1"], ' } });
+  const archivo = path.join(ctx.dir, 'pedidos_comprobantes.json');
+  try {
+    for (const [metodo, url, body] of [
+      ['GET', '/api/compras-siga/pedidos/P-0007/borrador'], ['POST', '/api/compras-siga/validar', cuerpo()],
+      ['POST', '/api/compras-siga/grabar', cuerpo()],
+    ]) {
+      const r = await pedir(ctx.base, metodo, url, body);
+      assert.strictEqual(r.status, 500, url);
+      assert.deepStrictEqual(r.data, { ok: false, error: 'pedidos_comprobantes.json ilegible: no se graba para no perder vínculos.' });
+    }
+    assert.strictEqual(ctx.grabados.length, 0);
+    assert.strictEqual(fs.readFileSync(archivo, 'utf8'), '{"P-0001": ["1|FACTCOM|A|1|1"], ');
+    assert.ok(log.mock.callCount() >= 3);
+  } finally { cerrar(ctx); }
+});
+
+test('json de estado corrupto: grabar y liberar-verificacion dan 500 sin reescribirlo', async t => {
+  t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ crudos: { 'compras_siga_estado.json': 'no es json' } });
+  const archivo = path.join(ctx.dir, 'compras_siga_estado.json');
+  try {
+    const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
+    assert.deepStrictEqual(g, { status: 500, data: { ok: false, error: 'compras_siga_estado.json ilegible: no se graba para no perder vínculos.' } });
+    const l = await liberar(ctx, { resultado: 'no_cargado' });
+    assert.strictEqual(l.status, 500);
+    assert.strictEqual(fs.readFileSync(archivo, 'utf8'), 'no es json');
+    assert.strictEqual(ctx.grabados.length, 0);
+  } finally { cerrar(ctx); }
+});
+
+test('escritura atómica: el vínculo se suma a los existentes, el archivo queda completo y sin .tmp', async () => {
+  const ctx = await montar({ vinculos: { 'P-0001': ['1|FACTCOM|A|1|1'] } });
+  try {
+    assert.strictEqual((await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo())).status, 200);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'pedidos_comprobantes.json'), 'utf8')), {
+      'P-0001': ['1|FACTCOM|A|1|1'], 'P-0007': ['1|FACTCOM|A|5007|1071364'],
+    });
+    assert.deepStrictEqual(fs.readdirSync(ctx.dir).filter(n => n.endsWith('.tmp')), []);
   } finally { cerrar(ctx); }
 });

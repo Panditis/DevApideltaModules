@@ -370,3 +370,42 @@ test('grabar: si SQL Server ya abortó la transacción (evento rollback de mssql
   assert.deepStrictEqual(secuencia(falso.registro).slice(-2), ['COMPRAS', 'ROLLBACK']);
   assert.strictEqual(falso.registro.filter(e => e.texto === 'ROLLBACK').length, 1);
 });
+
+// COMMIT rechazado (timeout, conexión caída): el driver no dice si quedó. rollbackFalla simula que el COMMIT sí
+// llegó al servidor (ya no hay transacción que deshacer).
+function grabarConCommitRechazado(responder = RESPUESTAS, { rollbackFalla = false } = {}) {
+  const falso = crearSqlFalso(responder);
+  falso.sql.Transaction.prototype.commit = async function commitRechazado() {
+    falso.registro.push({ texto: 'COMMIT', params: {}, pool: this.etiqueta });
+    throw new Error('Connection lost - read ECONNRESET');
+  };
+  if (rollbackFalla) {
+    falso.sql.Transaction.prototype.rollback = async () => { throw new Error('No transaction is active'); };
+  }
+  return { falso, promesa: crearRepo(falso).grabar(filasDe()) };
+}
+
+test('grabar: COMMIT rechazado pero la relectura encuentra la compra → éxito con el resultado normal', async () => {
+  const { falso, promesa } = grabarConCommitRechazado(RESPUESTAS, { rollbackFalla: true });
+  const r = await promesa;
+  assert.strictEqual(r.clave.NumeroComprobante, 1071364);
+  assert.strictEqual(r.numeroMovimiento, 42);
+  assert.deepStrictEqual(secuencia(falso.registro).slice(-2), ['COMMIT', 'VERIFICAR']);
+});
+
+test('grabar: COMMIT rechazado y la compra no está → rollback (sin importar su error) y SIGA_SIN_CONFIRMAR con la clave', async () => {
+  const responder = texto => (/^SELECT 1 AS Existe FROM Compras/.test(texto) ? { recordset: [] } : RESPUESTAS(texto));
+  const { falso, promesa } = grabarConCommitRechazado(responder);
+  await assert.rejects(promesa, err => err instanceof ErrorSiga && err.code === 'SIGA_SIN_CONFIRMAR'
+    && /ECONNRESET/.test(err.message) && err.clave.NumeroComprobante === 1071364);
+  assert.deepStrictEqual(secuencia(falso.registro).slice(-3), ['COMMIT', 'ROLLBACK', 'VERIFICAR']);
+  const otro = grabarConCommitRechazado(responder, { rollbackFalla: true });
+  await assert.rejects(otro.promesa, err => err.code === 'SIGA_SIN_CONFIRMAR');
+});
+
+test('grabar: COMMIT rechazado y la relectura falla → SIGA_SIN_CONFIRMAR con la clave', async () => {
+  const responder = texto => { if (/^SELECT 1 AS Existe FROM Compras/.test(texto)) throw new Error('timeout'); return RESPUESTAS(texto); };
+  const { promesa } = grabarConCommitRechazado(responder);
+  await assert.rejects(promesa, err => err instanceof ErrorSiga && err.code === 'SIGA_SIN_CONFIRMAR'
+    && /ECONNRESET/.test(err.message) && /timeout/.test(err.message) && err.clave.IdProveedor === 328);
+});

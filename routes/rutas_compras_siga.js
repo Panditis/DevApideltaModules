@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const { claveComprobante } = require('../lib/compras_control');
 const desdePedido = require('../lib/siga_compras/desde_pedido');
@@ -19,13 +20,44 @@ const MENSAJE_INTERNO = 'Error interno al procesar el comprobante para SIGA. Avi
 
 const esErrorSiga = err => !!err && (err.name === 'ErrorSiga' || err.code === 'SIGA_CONFIG' || err.code === SIN_CONFIRMAR);
 
+// Los dos json de este router (vínculos y marcas) se leen ESTRICTO: ausente → {}; existe pero no parsea → error.
+// leerJSON de server.js devolvería {} y la siguiente escritura borraría todos los vínculos o marcas.
+const archivoIlegible = ruta => Object.assign(
+  new Error(`${path.basename(ruta)} ilegible: no se graba para no perder vínculos.`), { code: 'ARCHIVO_ILEGIBLE' });
+
+function leerMapa(ruta) {
+  let texto;
+  try {
+    texto = fs.readFileSync(ruta, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw Object.assign(archivoIlegible(ruta), { causa: err.message });
+  }
+  let datos = null;
+  try { datos = JSON.parse(texto.replace(/^﻿/, '')); } catch (_) { /* queda null → ilegible */ }
+  if (!datos || typeof datos !== 'object' || Array.isArray(datos)) throw archivoIlegible(ruta);
+  return datos;
+}
+
+// Escritura atómica: .tmp en el mismo directorio + rename; un corte a mitad nunca deja el json truncado.
+function guardarMapa(ruta, datos) {
+  const tmp = `${ruta}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(datos, null, 2), 'utf8');
+    fs.renameSync(tmp, ruta);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch (_) { /* puede no existir */ }
+    throw err;
+  }
+}
+
 const comprobanteDe = clave => ({
   idSucursal: clave.IdSucursal, tipoComprobante: clave.IdTipoComprobante, letra: clave.Letra,
   centroEmisor: clave.CentroEmisor, numeroComprobante: clave.NumeroComprobante, idProveedor: clave.IdProveedor,
 });
 
 module.exports = function crearRutasComprasSiga(deps) {
-  const { leerJSON, guardarJSON, DATA_DIR, leerPedidosCompra, usuarioCompras, repo } = deps;
+  const { DATA_DIR, leerPedidosCompra, usuarioCompras, repo } = deps;
   const ahora = deps.ahora || (() => new Date());
   const router = express.Router();
 
@@ -33,13 +65,17 @@ module.exports = function crearRutasComprasSiga(deps) {
   const VINCULOS_PATH = path.join(DATA_DIR, 'pedidos_comprobantes.json');
   // Pedidos con una grabación que hizo COMMIT pero no se pudo confirmar: { [numeroPedido]: { estado: 'a_verificar', … } }.
   const ESTADO_PATH = path.join(DATA_DIR, 'compras_siga_estado.json');
-  const leerVinculos = () => leerJSON(VINCULOS_PATH, {}) || {};
-  const leerEstado = () => leerJSON(ESTADO_PATH, {}) || {};
+  const leerVinculos = () => leerMapa(VINCULOS_PATH);
+  const leerEstado = () => leerMapa(ESTADO_PATH);
   // ponytail: lock en memoria por pedido contra el doble clic; alcanza con un solo proceso Node.
   const grabando = new Set();
 
   function responderError(res, err, donde, numero) {
     if (esErrorSiga(err)) return res.status(err.code === SIN_CONFIRMAR ? 409 : 422).json({ ok: false, error: err.message });
+    if (err && err.code === 'ARCHIVO_ILEGIBLE') {
+      console.error(`[compras-siga] ${donde} pedido ${numero}: ${err.message}`, err.causa || '');
+      return res.status(500).json({ ok: false, error: err.message });
+    }
     console.error(`[compras-siga] ${donde} pedido ${numero}:`, (err && err.stack) || err);
     return res.status(500).json({ ok: false, error: MENSAJE_INTERNO });
   }
@@ -79,14 +115,14 @@ module.exports = function crearRutasComprasSiga(deps) {
   function guardarVinculo(numero, clave) {
     const vinculos = leerVinculos();
     const previas = Array.isArray(vinculos[numero]) ? vinculos[numero] : [];
-    guardarJSON(VINCULOS_PATH, { ...vinculos, [numero]: [...new Set([...previas, clave])] });
+    guardarMapa(VINCULOS_PATH, { ...vinculos, [numero]: [...new Set([...previas, clave])] });
   }
 
   // Estado del pedido: campos actuales arriba y la traza completa en historial (nunca se borra).
   function registrarEstado(numero, cambios, evento) {
     const estado = leerEstado();
     const previa = estado[numero] || {};
-    guardarJSON(ESTADO_PATH, {
+    guardarMapa(ESTADO_PATH, {
       ...estado,
       [numero]: { ...previa, numeroPedido: numero, ...cambios, historial: [...(previa.historial || []), evento] },
     });
@@ -113,7 +149,7 @@ module.exports = function crearRutasComprasSiga(deps) {
     } catch (err) {
       console.error(`[compras-siga] vincular pedido ${numero} (comprobante ${clave}):`, err.message);
       marcarAVerificar(numero, { motivo: 'vinculo', clave, usuario });
-      return { vinculado: false, avisoVinculo: `Se grabó en SIGA pero no se pudo vincular al pedido (${err.message}). Vinculalo desde Control de compras.` };
+      return { vinculado: false, avisoVinculo: 'Se grabó en SIGA pero no se pudo vincular al pedido. Vinculalo desde Control de compras.' };
     }
   }
 
@@ -122,7 +158,7 @@ module.exports = function crearRutasComprasSiga(deps) {
   router.get('/api/compras-siga/pedidos/:numero/borrador', async (req, res) => {
     try {
       const encontrado = pedidoYBorrador(req.params.numero);
-      if (!encontrado) return res.status(404).json({ ok: false, error: `No existe el pedido ${req.params.numero}` });
+      if (!encontrado) return res.status(404).json({ ok: false, error: 'No existe el pedido.' });
       const catalogos = await repo.catalogos({ idProveedor: encontrado.base.idProveedor });
       const cabecera = desdePedido.cabeceraSugerida({ catalogos, hoyISO: fechaLocalISO(ahora()), numeroPedido: encontrado.pedido.numero });
       return res.json({ ok: true, borrador: { ...encontrado.base, ...cabecera }, catalogos });
@@ -134,7 +170,7 @@ module.exports = function crearRutasComprasSiga(deps) {
   router.post('/api/compras-siga/validar', async (req, res) => {
     try {
       const r = await evaluar(req.body);
-      if (!r) return res.status(404).json({ ok: false, error: 'No existe el pedido' });
+      if (!r) return res.status(404).json({ ok: false, error: 'No existe el pedido.' });
       return res.json({ ok: true, ...vista(r) });
     } catch (err) {
       return responderError(res, err, 'validar', req.body && req.body.pedido);
@@ -149,7 +185,7 @@ module.exports = function crearRutasComprasSiga(deps) {
     const usuario = usuarioCompras(req);
     try {
       const r = await evaluar(req.body);
-      if (!r) return res.status(404).json({ ok: false, error: `No existe el pedido ${numero}` });
+      if (!r) return res.status(404).json({ ok: false, error: 'No existe el pedido.' });
       if (r.errores.length) return res.status(400).json({ ok: false, error: 'El comprobante tiene errores.', ...vista(r) });
       // armarComprobante trunca el usuario a C.LARGO_USUARIO (10), como el grabador viejo.
       filas = armarComprobante(r.borrador, r.contexto, r.calculo, { ahora: r.momento, usuario });
@@ -179,7 +215,7 @@ module.exports = function crearRutasComprasSiga(deps) {
     try {
       const marca = leerEstado()[numero];
       if (!marca || marca.estado !== 'a_verificar') {
-        return res.status(404).json({ ok: false, error: `El pedido ${numero} no tiene una grabación a verificar.` });
+        return res.status(404).json({ ok: false, error: 'El pedido no tiene una grabación a verificar.' });
       }
       if (resultado === 'cargado') {
         try {
@@ -188,7 +224,7 @@ module.exports = function crearRutasComprasSiga(deps) {
         } catch (err) {
           console.error(`[compras-siga] liberar-verificacion pedido ${numero} (comprobante ${marca.clave}):`, err.message);
           return res.status(500).json({
-            ok: false, error: `No se pudo vincular el comprobante ${marca.clave} al pedido ${numero} (${err.message}). La marca sigue: reintentá o vinculalo desde Control de compras.`,
+            ok: false, error: `No se pudo vincular el comprobante ${marca.clave} al pedido ${numero}. La marca sigue: reintentá o vinculalo desde Control de compras.`,
           });
         }
       }
