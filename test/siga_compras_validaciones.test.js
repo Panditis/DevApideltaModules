@@ -111,14 +111,19 @@ test('líneas: cantidad o precio no numéricos se rechazan antes de redondear (N
   const con = linea => borradorFactcom({ lineas: [linea] });
   const ok = { orden: 1, plu: '1001', nombre: 'Harina', cantidad: 1, precio: 10 };
   const cantidadInvalida = ['La cantidad no es un número válido.'];
-  for (const cantidad of [NaN, undefined, null, '', 'abc', '12abc', true, Infinity, [], {}]) {
+  for (const cantidad of [NaN, 'abc', '12abc', true, Infinity, [], {}]) {
     assert.deepStrictEqual(mensajes(con({ ...ok, cantidad }), ctx), cantidadInvalida, String(cantidad));
   }
+  // SiGA (ValidarInsertaProducto L24298-24302): cantidad vacía tiene su propio mensaje, después del de precio.
+  for (const cantidad of [undefined, null, '', '   ']) {
+    assert.deepStrictEqual(mensajes(con({ ...ok, cantidad }), ctx), ['No puede ingresar sin cantidad.'], JSON.stringify(cantidad));
+  }
+  assert.deepStrictEqual(mensajes(con({ ...ok, precio: 0, cantidad: null }), ctx), ['No puede ingresar un producto con precio cero.']);
   const precioInvalido = ['El precio no es un número válido.'];
   for (const precio of [NaN, 'abc', '10,5x', true, Infinity, [], {}]) {
     assert.deepStrictEqual(mensajes(con({ ...ok, precio }), ctx), precioInvalido, String(precio));
   }
-  for (const precio of [undefined, null, '', 0, -5, '0']) {
+  for (const precio of [undefined, null, '', '  ', 0, -5, '0']) {
     assert.deepStrictEqual(mensajes(con({ ...ok, precio }), ctx), ['No puede ingresar un producto con precio cero.'], String(precio));
   }
   // Números escritos como texto siguen siendo válidos (calcularLinea hace Number()).
@@ -176,6 +181,16 @@ test('percepciones: importe no numérico o negativo se rechaza', () => {
   assert.deepStrictEqual(mensajes(con([null]), ctx), ['v1: hay una percepción vacía o inválida.']);
   assert.deepStrictEqual(mensajes(con([{ tipo: 'PIVA', importe: '955.19' }]), ctx), []);
   assert.deepStrictEqual(mensajes(con([{ tipo: 'PIVA', importe: 0 }]), ctx), []);
+});
+
+test('entradas rotas cortan con un error claro en vez de tirar TypeError', () => {
+  const ctx = contextoFactcom();
+  for (const lineas of [undefined, null, 'x', {}]) {
+    assert.deepStrictEqual(mensajes(borradorFactcom({ lineas }), ctx), ['v1: el comprobante no tiene líneas.'], String(lineas));
+  }
+  assert.deepStrictEqual(mensajes(borradorFactcom({ lineas: [null] }), ctx), ['v1: hay una línea vacía o inválida.']);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, duplicado: null }), []);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, duplicado: undefined }), []);
 });
 
 test('modoNumeracion (DOC Parte I §3.2) y cuitValido', () => {
