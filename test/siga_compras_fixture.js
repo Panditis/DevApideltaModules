@@ -67,4 +67,39 @@ function contextoFactcom(cambios = {}) {
   };
 }
 
-module.exports = { borradorFactcom, contextoFactcom, AHORA };
+// Filas crudas tal como las devolvería SIGA (SELECT *, char con espacios a la derecha) para el mismo caso:
+// mapeadas con lib/siga_compras/mapeos.js tienen que dar exactamente contextoFactcom().
+const FILAS_SIGA = {
+  Proveedores: [{
+    IdProveedor: 328, NombreProveedor: 'PROVEEDOR RI ', CuitProveedor: '20-12345678-6', IdCategoriaFiscal: 2,
+    IdRubroCompra: 1, IdFormasPago: 3, DescuentoRecargoPorc: 0, IdTipoComprobante: 'FACTCOM   ',
+  }],
+  Sucursales: [{ IdSucursal: 1, IdEmpresa: 1, Nombre: 'Casa Central' }],
+  Parametros: [{ IdParametro: 'CATEGORIAFISCALEMPRESA', ValorParametro: '2' }],
+  CategoriasFiscales: [{
+    IdCategoriaFiscal: 2, NombreCategoriaFiscal: 'Responsable Inscripto', IvaDiscriminado: true, UtilizaImpuestos: true, LetraFiscalCompra: 'A',
+  }],
+  TiposComprobantes: [{
+    IdTipoComprobante: 'FACTCOM   ', Descripcion: 'Factura de compra', Tipo: 'COMPRAS', GrabaLibro: true, InformaLibroIva: true,
+    NumeracionAutomatica: false, LetrasHabilitadas: 'ABCEIM', CoeficienteStock: 1, CoeficienteValores: 1, ActualizaCtaCte: true,
+    AfectaCaja: true, UtilizaImpuestos: true, EsComercial: true, GeneraContabilidad: false, ImporteMinimo: 0,
+  }],
+  VentasFormasPago: [{ IdFormasPago: 3, DescripcionFormasPago: ' Cta. Cte.', Dias: 30 }],
+  Productos: [
+    {
+      IdProducto: '1001      ', NombreProducto: 'HARINA 000 X 25', Activo: true, EsDeCompras: true, Alicuota: 21, AfectaStock: true,
+      Embalaje: 0, PrecioPorEmbalaje: false, IdUnidadDeMedida: 'UN', IdUnidadDeMedidaCompra: 'UN', ConceptoCompras: null, IdMoneda: 1,
+    },
+    {
+      IdProducto: '1002      ', NombreProducto: 'HUEVOS X 30', Activo: true, EsDeCompras: true, Alicuota: 0, AfectaStock: true,
+      Embalaje: 0, PrecioPorEmbalaje: false, IdUnidadDeMedida: 'UN', IdUnidadDeMedidaCompra: 'UN', ConceptoCompras: null, IdMoneda: 1,
+    },
+  ],
+  SucursalesUbicaciones: [{ IdSucursal: 1, IdDeposito: 1, IdUbicacion: 1 }],
+  TiposMovimientos: [{ IdTipoMovimiento: 'COMPRA    ', CoeficienteStock: 1 }],
+  Monedas: [{ FactorConversion: 1450 }],
+  PeriodosFiscales: [{ PeriodoFiscal: 202610, FechaCierre: null }],
+  Provincias: [{ IdProvincia: 'SF', NombreProvincia: 'Santa Fe' }],
+};
+
+module.exports = { borradorFactcom, contextoFactcom, AHORA, FILAS_SIGA };
