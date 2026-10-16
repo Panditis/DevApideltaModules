@@ -110,8 +110,13 @@ test('líneas: PLU nuevo, producto inexistente o inactivo, UM distinta, precio y
     ['v1: el producto 1001 está inactivo en SIGA.']);
   assert.deepStrictEqual(mensajes(con(ok), { ...ctx, productos: { 1001: { ...ctx.productos['1001'], idUnidadDeMedidaCompra: 'KG' } } }),
     ['v1: el producto 1001 tiene unidad de compra distinta de la de stock; cargalo en SiGA.']);
-  assert.deepStrictEqual(mensajes(con(ok), { ...ctx, productos: { 1001: { ...ctx.productos['1001'], precioPorEmbalaje: true, embalaje: 0 } } }),
-    ['v1: el producto 1001 tiene PrecioPorEmbalaje sin embalaje cargado.']);
+  assert.deepStrictEqual(mensajes(con(ok), { ...ctx, productos: { 1001: { ...ctx.productos['1001'], esDeCompras: false } } }),
+    ['El producto 1001 no está habilitado para compras (EsDeCompras).']);
+  // El pedido trae unidades de stock y SiGA, con PrecioPorEmbalaje, toma la cantidad en embalajes: se bloquea siempre.
+  for (const embalaje of [0, 12]) {
+    assert.deepStrictEqual(mensajes(con(ok), { ...ctx, productos: { 1001: { ...ctx.productos['1001'], precioPorEmbalaje: true, embalaje } } }),
+      ['v1: el producto 1001 se compra por embalaje (PrecioPorEmbalaje); cargalo desde SiGA.'], String(embalaje));
+  }
   assert.deepStrictEqual(mensajes(con({ ...ok, precio: null }), ctx), ['No puede ingresar un producto con precio cero.']);
   assert.deepStrictEqual(mensajes(con({ ...ok, cantidad: 0 }), ctx), ['La cantidad debe ser distinta de cero.']);
   assert.deepStrictEqual(mensajes(con({ ...ok, cantidad: -1 }), ctx), ['La cantidad debe ser mayor a cero.']);
