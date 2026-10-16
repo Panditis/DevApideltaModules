@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { calcularLinea } = require('../lib/siga_compras/lineas');
 const {
-  filasImpuestos, totalesCabecera, importeTotal, percepcionesCabecera, proporcionalImp, montoSaldo,
+  filasImpuestos, filasImpuestosTodas, totalesCabecera, importeTotal, percepcionesCabecera, proporcionalImp, montoSaldo,
 } = require('../lib/siga_compras/impuestos');
 
 const lineaA = (precio, porcentajeIVA) => calcularLinea({ cantidad: 1, precio, porcentajeIVA, discrimina: true });
@@ -81,4 +81,37 @@ test('orden IVA, PIIBB, PGANA, PIVA, PVAR, IMINT; IMINT es INTERNO y no suma a T
   assert.deepStrictEqual(percepcionesCabecera(percepciones), {
     percepcionIVA: 10, percepcionIB: 25, percepcionGanancias: 7, percepcionVarias: 0, impuestosInternos: 50,
   });
+});
+
+test('importeTotal redondea LEJOS DEL CERO como el formato "#,##0.00" de SiGA (no al par)', () => {
+  const t = (totalNeto) => ({ totalNeto, totalIVA: 0, totalPercepciones: 0, impuestosInternos: 0 });
+  assert.strictEqual(importeTotal(t(100.005), 2), 100.01);
+  assert.strictEqual(importeTotal(t(100.015), 2), 100.02);
+  assert.strictEqual(importeTotal(t(-100.005), 2), -100.01);
+  assert.strictEqual(importeTotal(t(-100.015), 2), -100.02);
+});
+
+test('los totales se calculan sobre todas las filas: la fila en 0 suma al TotalBruto pero no se graba', () => {
+  // Descuento general -100%: base 0, IVA 0, bruto 100.
+  const linea = calcularLinea({ cantidad: 1, precio: 100, porcentajeIVA: 21, porcDescRecGeneral: -100, discrimina: true });
+  const todas = filasImpuestosTodas({ lineas: [linea], percepciones: [] });
+  assert.strictEqual(todas.length, 1);
+  assert.strictEqual(totalesCabecera(todas).totalBruto, 100);
+  assert.deepStrictEqual(filasImpuestos({ lineas: [linea], percepciones: [] }), []);
+});
+
+test('PGANA, PIVA, PVAR e IMINT son una fila por tipo (se suman); PIIBB una por provincia', () => {
+  const percepciones = [
+    { tipo: 'PIVA', importe: 10 },
+    { tipo: 'PIVA', importe: 5 },
+    { tipo: 'PIIBB', idProvincia: 'SF', baseImponible: 1000, alicuota: 2.5, importe: 25 },
+    { tipo: 'PIIBB', idProvincia: 'BA', baseImponible: 500, alicuota: 3, importe: 15 },
+    { tipo: 'PIIBB', idProvincia: 'SF', baseImponible: 200, alicuota: 2.5, importe: 5 },
+    { tipo: 'PVAR', importe: 1 },
+    { tipo: 'PVAR', importe: 2 },
+  ];
+  const filas = filasImpuestos({ lineas: [], percepciones });
+  assert.deepStrictEqual(filas.map(f => [f.idTipoImpuesto, f.idProvincia, f.baseImponible, f.importe]), [
+    ['PIIBB', 'SF', 1200, 30], ['PIIBB', 'BA', 500, 15], ['PIVA', null, 0, 15], ['PVAR', null, 0, 3],
+  ]);
 });
