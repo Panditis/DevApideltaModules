@@ -53,6 +53,20 @@ test('filtrarFilas: soloHoy deja sólo las filas con ingresoHoy y se combina con
   assert.deepStrictEqual(plus({ soloHoy: true, texto: 'almendras' }), []);
 });
 
+test('filtrarFilas: proveedor — con la opción el texto también busca en el proveedor (sin tildes); sin ella, no', () => {
+  const filas = [
+    { plu: '1', nombre: 'Azúcar', proveedor: 'Distribuidora Sur' },
+    { plu: '2', nombre: 'Arroz', proveedor: 'Molino Ñandú' },
+    { plu: '3', nombre: 'Sal', proveedor: null },
+  ];
+  const plus = o => filtrarFilas(filas, o).map(f => f.plu);
+  assert.deepStrictEqual(plus({ texto: 'distribuidora', proveedor: true }), ['1']);
+  assert.deepStrictEqual(plus({ texto: 'nandu', proveedor: true }), ['2']);
+  assert.deepStrictEqual(plus({ texto: 'sal', proveedor: true }), ['3'], 'sigue buscando por nombre; el proveedor null no rompe');
+  assert.deepStrictEqual(plus({ texto: 'distribuidora' }), [], 'Fraccionado/Producción: el proveedor no entra en la búsqueda');
+  assert.deepStrictEqual(plus({ texto: 'null', proveedor: true }), [], 'un proveedor vacío no se busca como texto "null"');
+});
+
 const nombres = filas => filas.map(f => f.nombre);
 const conPlu = nombres => nombres.map((nombre, i) => ({ plu: String(i + 1), nombre }));
 const sug = precio => ({ minorista: { precio } });
@@ -89,6 +103,12 @@ test('ordenarListado: última compra y Δ% (negativos como número); nombre desc
   assert.deepStrictEqual(nombres(ordenarListado(filas, { clave: 'deltaUltima', dir: 'asc' })), ['c', 'a', 'b']);
   assert.deepStrictEqual(nombres(ordenarListado(filas, { clave: 'deltaUltima', dir: 'desc' })), ['a', 'c', 'b']);
   assert.deepStrictEqual(nombres(ordenarListado(filas, { clave: 'nombre', dir: 'desc' })), ['c', 'b', 'a']);
+});
+
+test('ordenarListado: proveedor como texto (es, sin mayúsculas ni acentos); vacíos al final en asc y en desc', () => {
+  const filas = [{ nombre: 'a', proveedor: 'zeta' }, { nombre: 'b', proveedor: null }, { nombre: 'c', proveedor: 'Ángel' }, { nombre: 'd', proveedor: 'ñandú' }, { nombre: 'e', proveedor: '' }, { nombre: 'f', proveedor: 'Bolsa' }];
+  assert.deepStrictEqual(nombres(ordenarListado(filas, { clave: 'proveedor', dir: 'asc' })), ['c', 'f', 'd', 'a', 'b', 'e']);
+  assert.deepStrictEqual(nombres(ordenarListado(filas, { clave: 'proveedor', dir: 'desc' })), ['a', 'd', 'f', 'c', 'b', 'e']);
 });
 
 test('ordenarListado: Fraccionado ordena los granel y deja cada presentación bajo el suyo; Sin granel siempre al final', () => {
@@ -137,15 +157,24 @@ test('resumenExport: las 5 listas en orden con su etiqueta y cuántas filas (sin
 // ── Exportar listado (.xlsx, reporte) ──
 test('filasExportListado Reventa: encabezado + una fila por producto, números reales y Δ% como fracción; sin dato → null', () => {
   const aoa = filasExportListado([
-    { plu: '540', nombre: 'Arroz', costoSistema: 1000, costoUltimaCompra: 1100, fechaUltimaCompra: '2026-10-01', vigente: 2000,
+    { plu: '540', nombre: 'Arroz', costoSistema: 1000, costoUltimaCompra: 1100, fechaUltimaCompra: '2026-10-01', proveedor: 'Distribuidora Sur', vigente: 2000,
       sugeridos: { sistema: sug(2500), ultimaCompra: sug(2600) } },
     { plu: '7', nombre: 'Sal', costoSistema: null, costoUltimaCompra: null, vigente: null, sugeridos: { sistema: { error: 'x' }, ultimaCompra: null } },
   ], 'almacen');
-  assert.deepStrictEqual(aoa[0], ['PLU', 'Nombre', 'Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra',
+  assert.deepStrictEqual(aoa[0], ['PLU', 'Nombre', 'Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra', 'Proveedor',
     'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)']);
-  assert.deepStrictEqual(aoa[1], [540, 'Arroz', 1000, 1100, 0.1, '2026-10-01', 2000, 2500, 0.25, 2600, 0.3]);
-  assert.deepStrictEqual(aoa[2], [7, 'Sal', null, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[1], [540, 'Arroz', 1000, 1100, 0.1, '2026-10-01', 'Distribuidora Sur', 2000, 2500, 0.25, 2600, 0.3]);
+  assert.deepStrictEqual(aoa[2], [7, 'Sal', null, null, null, null, null, null, null, null, null, null]);
   assert.strictEqual(aoa.length, 3);
+});
+
+test('filasExportListado: el Proveedor es sólo de Reventa; Fraccionado (aunque el granel traiga proveedor) y Producción no lo llevan', () => {
+  const fracc = filasExportListado([{ plu: '50', nombre: 'Almendra granel', proveedor: 'Frutos SA', presentaciones: [{ plu: '51', nombre: 'Almendra 500G', sugeridos: {} }] }], 'fraccionado');
+  const prod = filasExportListado([{ plu: '6319', nombre: 'Pepas', proveedor: 'Frutos SA', sugeridos: {} }], 'produccion');
+  assert.strictEqual(fracc[0].includes('Proveedor'), false);
+  assert.strictEqual(prod[0].includes('Proveedor'), false);
+  assert.strictEqual(fracc[1].includes('Frutos SA'), false);
+  assert.strictEqual(prod[1].includes('Frutos SA'), false);
 });
 
 test('filasExportListado Fraccionado: una fila por presentación con los costos $/kg de su granel; granel sin presentaciones → su fila sin precios', () => {
