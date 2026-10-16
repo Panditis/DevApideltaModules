@@ -13,6 +13,7 @@ const filasDe = (b = borradorFactcom(), ctx = contextoFactcom()) =>
 const RESPUESTAS = texto => {
   if (/^SELECT ISNULL\(MAX/.test(texto)) return { recordset: [{ Siguiente: 51 }] };
   if (/^SELECT Numero FROM MovimientosNumeros/.test(texto)) return { recordset: [{ Numero: 41 }] };
+  if (/^SELECT 1 AS Existe FROM Compras/.test(texto)) return { recordset: [{ Existe: 1 }] };
   return { recordset: [], rowsAffected: [1] };
 };
 
@@ -46,18 +47,23 @@ const ETIQUETAS = [
   ['PP', /^IF EXISTS \(SELECT 1 FROM ProductosProveedores WITH \(UPDLOCK, HOLDLOCK\)/],
   ['CCP', /^INSERT INTO CuentasCorrientesProv \(/],
   ['CCPP', /^INSERT INTO CuentasCorrientesProvPagos \(/],
+  ['TIPO_DEPOSITO', /^SELECT TipoDeposito FROM SucursalesDepositos WHERE/],
+  ['VERIFICAR', /^SELECT 1 AS Existe FROM Compras WHERE/],
 ];
 const etiqueta = texto => (ETIQUETAS.find(([, re]) => re.test(texto)) || ['?'])[0];
 const secuencia = registro => registro.map(e => etiqueta(e.texto));
 const buscar = (registro, nombre) => registro.filter(e => etiqueta(e.texto) === nombre);
 
+// Orden de locks de SiGA: Compras y PeriodosFiscales antes de MovimientosNumeros (C L628, C L2075-2078, ME L370-374);
+// el duplicado de cta. cte. justo antes de escribirla. Después del COMMIT se relee Compras con el pool de lectura.
 const SECUENCIA_FACTCOM = [
-  'BEGIN', 'DUP_COMPRAS', 'DUP_CTACTE', 'VN_G1', 'MN_LEER', 'COMPRAS', 'PF_TOTALES', 'PF_POSICION', 'CP', 'CP',
-  'CI', 'CI', 'CI', 'MN_INSERT', 'MN_UPDATE', 'MS',
+  'BEGIN', 'DUP_COMPRAS', 'VN_G1', 'COMPRAS', 'PF_TOTALES', 'PF_POSICION', 'CP', 'CP',
+  'CI', 'CI', 'CI', 'MN_LEER', 'MN_INSERT', 'MN_UPDATE', 'MS',
   'MSP', 'PS', 'PD', 'PU', 'PP',
   'MSP', 'PS', 'PD', 'PU', 'PP',
-  'CCP', 'CCPP', 'COMMIT',
+  'DUP_CTACTE', 'CCP', 'CCPP', 'COMMIT', 'VERIFICAR',
 ];
+const transaccion = registro => registro.filter(e => e.pool === 'stock');
 
 test('grabar: una transacción con la secuencia exacta de SiGA (DOC Parte II §1.3)', async () => {
   const { falso, promesa } = grabarCon();
@@ -67,7 +73,8 @@ test('grabar: una transacción con la secuencia exacta de SiGA (DOC Parte II §1
     numeroMovimiento: 42,
   });
   assert.deepStrictEqual(secuencia(falso.registro), SECUENCIA_FACTCOM);
-  assert.ok(falso.registro.every(e => e.pool === 'stock'), 'todo con getPoolStock');
+  assert.ok(falso.registro.slice(0, -1).every(e => e.pool === 'stock'), 'todo con getPoolStock');
+  assert.strictEqual(falso.registro.at(-1).pool, 'lectura');
 });
 
 test('grabar: todo parametrizado (sin comillas en el SQL) y con la clave definitiva', async () => {
@@ -152,11 +159,34 @@ test('grabar: ubicación con sucursal asociada repite el stock allá, en el orde
   assert.deepStrictEqual(buscar(falso.registro, 'PU')[1].params, { idSucursal: 2, idDeposito: 7, idUbicacion: 9, idProducto: '1001', cantidad: 1 });
 });
 
-test('grabar: ProductosSucursales_UStock sin fila afectada → ErrorSiga y rollback', async () => {
-  const { falso, promesa } = grabarCon(texto => (/^UPDATE PS SET Stock/.test(texto) ? { rowsAffected: [0] } : RESPUESTAS(texto)));
+const sinFilaEnSucursal = tipoDeposito => texto => {
+  if (/^UPDATE PS SET Stock/.test(texto)) return { rowsAffected: [0] };
+  if (/^SELECT TipoDeposito FROM SucursalesDepositos/.test(texto)) return { recordset: tipoDeposito ? [{ TipoDeposito: tipoDeposito }] : [] };
+  return RESPUESTAS(texto);
+};
+
+test('grabar: UStock con 0 filas en un depósito OPERATIVO (falta ProductosSucursales) → ErrorSiga y rollback', async () => {
+  const { falso, promesa } = grabarCon(sinFilaEnSucursal('OPERATIVO      '));
   await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message
-    === 'ProductosSucursales no tiene fila para el producto 1001 en la sucursal 1 con el depósito 1 OPERATIVO.');
-  assert.deepStrictEqual(secuencia(falso.registro).slice(-2), ['PS', 'ROLLBACK']);
+    === 'ProductosSucursales no tiene fila para el producto 1001 en la sucursal 1.');
+  assert.deepStrictEqual(secuencia(falso.registro).slice(-3), ['PS', 'TIPO_DEPOSITO', 'ROLLBACK']);
+  const [tipo] = buscar(falso.registro, 'TIPO_DEPOSITO');
+  assert.deepStrictEqual(tipo.params, { idSucursal: 1, idDeposito: 1 });
+  assert.strictEqual(tipo.pool, 'stock');
+});
+
+test('grabar: UStock con 0 filas en un depósito NO operativo sigue, como SiGA: solo mueve depósito y ubicación', async () => {
+  const { falso, promesa } = grabarCon(sinFilaEnSucursal('RESERVADO'));
+  await promesa;
+  const tramo = secuencia(falso.registro).filter(s => ['MSP', 'PS', 'TIPO_DEPOSITO', 'PD', 'PU', 'PP'].includes(s));
+  assert.deepStrictEqual(tramo, ['MSP', 'PS', 'TIPO_DEPOSITO', 'PD', 'PU', 'PP', 'MSP', 'PS', 'TIPO_DEPOSITO', 'PD', 'PU', 'PP']);
+  assert.strictEqual(secuencia(transaccion(falso.registro)).at(-1), 'COMMIT');
+});
+
+test('grabar: UStock con 0 filas y el depósito no existe en SucursalesDepositos → ErrorSiga', async () => {
+  const { falso, promesa } = grabarCon(sinFilaEnSucursal(null));
+  await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message === 'No existe el depósito 1 en la sucursal 1 (SucursalesDepositos).');
+  assert.strictEqual(falso.registro.at(-1).texto, 'ROLLBACK');
 });
 
 test('grabar: último precio = ActualizaPrecioUltimaCompra si existe, si no el MERGE de ProductosProveedores_I', async () => {
@@ -207,7 +237,7 @@ test('grabar: con Dias = 0 (sin cta. cte. en las filas) no escribe CuentasCorrie
   assert.strictEqual(filas.ctaCte, null);
   const { falso, promesa } = grabarCon(RESPUESTAS, filas);
   await promesa;
-  assert.deepStrictEqual(secuencia(falso.registro).slice(-3), ['PU', 'PP', 'COMMIT']);
+  assert.deepStrictEqual(secuencia(falso.registro).slice(-5), ['PU', 'PP', 'DUP_CTACTE', 'COMMIT', 'VERIFICAR']);
   assert.strictEqual(falso.registro.filter(e => /CuentasCorrientesProv/.test(e.texto) && /^INSERT/.test(e.texto)).length, 0);
 });
 
@@ -225,16 +255,16 @@ test('grabar: rechaza el duplicado en Compras aunque el contexto previo dijera "
   assert.deepStrictEqual([dup.params.idProveedor, dup.params.numeroComprobante, dup.params.idEmpresa], [328, 1071364, 1]);
 });
 
-test('grabar: duplicado en cta. cte. de la misma sucursal (Existe con IdSucursal > 0, sin filtro de empresa) → rollback', async () => {
+test('grabar: duplicado en cta. cte. como la pantalla (Existe(0, …): cualquier sucursal, InformaLibroIVA o empresa) → rollback', async () => {
   const { falso, promesa } = grabarCon(texto => (
-    /FROM CuentasCorrientesProv CCP/.test(texto) ? { recordset: [{ IdSucursal: 1 }] } : RESPUESTAS(texto)));
+    /FROM CuentasCorrientesProv CCP/.test(texto) ? { recordset: [{ IdSucursal: 11 }] } : RESPUESTAS(texto)));
   await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message === 'Este comprobante ya EXISTE en Cuentas Corrientes de Proveedores');
-  assert.deepStrictEqual(secuencia(falso.registro), ['BEGIN', 'DUP_COMPRAS', 'DUP_CTACTE', 'ROLLBACK']);
+  assert.deepStrictEqual(secuencia(falso.registro), [...SECUENCIA_FACTCOM.slice(0, SECUENCIA_FACTCOM.indexOf('DUP_CTACTE') + 1), 'ROLLBACK']);
   const [dup] = buscar(falso.registro, 'DUP_CTACTE');
-  assert.match(dup.texto, /WHERE CCP\.IdSucursal = @idSucursal AND CCP\.IdProveedor = @idProveedor/);
-  assert.doesNotMatch(dup.texto, /IdEmpresa/);
+  assert.match(dup.texto, /WHERE CCP\.IdSucursal > 0 AND CCP\.IdProveedor = @idProveedor/);
+  assert.match(dup.texto, /\(TC\.InformaLibroIVA = 1 OR S\.IdEmpresa = @idEmpresa\)/);
   assert.deepStrictEqual(dup.params, {
-    idSucursal: 1, idProveedor: 328, idTipoComprobante: 'FACTCOM', letra: 'A', centroEmisor: 5007, numeroComprobante: 1071364,
+    idProveedor: 328, idTipoComprobante: 'FACTCOM', letra: 'A', centroEmisor: 5007, numeroComprobante: 1071364, idEmpresa: 1,
   });
 });
 
@@ -242,7 +272,7 @@ test('grabar: numeración compartida con ventas (VentasNumeros_G1) detectada ade
   const { falso, promesa } = grabarCon(texto => (
     /FROM VentasNumeros VN/.test(texto) ? { recordset: [{ IdTipoComprobante: 'FACTCOM' }] } : RESPUESTAS(texto)));
   await assert.rejects(promesa, err => err instanceof ErrorSiga && /comparten numeración con ventas/.test(err.message));
-  assert.deepStrictEqual(secuencia(falso.registro), ['BEGIN', 'DUP_COMPRAS', 'DUP_CTACTE', 'VN_G1', 'ROLLBACK']);
+  assert.deepStrictEqual(secuencia(falso.registro), ['BEGIN', 'DUP_COMPRAS', 'VN_G1', 'ROLLBACK']);
   assert.deepStrictEqual(buscar(falso.registro, 'VN_G1')[0].params, { idEmpresa: 1, idTipoComprobante: 'FACTCOM', letra: 'A', centroEmisor: 5007 });
 });
 
@@ -254,7 +284,7 @@ test('grabar: numeración automática por proveedor = MAX + 1 con lock; el núme
   const { falso, promesa } = grabarCon(RESPUESTAS, filas);
   const r = await promesa;
   assert.strictEqual(r.clave.NumeroComprobante, 51);
-  assert.deepStrictEqual(secuencia(falso.registro).slice(0, 5), ['BEGIN', 'MAX', 'VN_G1', 'MN_LEER', 'COMPRAS']);
+  assert.deepStrictEqual(secuencia(falso.registro).slice(0, 4), ['BEGIN', 'MAX', 'VN_G1', 'COMPRAS']);
   assert.ok(!secuencia(falso.registro).some(s => ['DUP_COMPRAS', 'DUP_CTACTE', 'PF_TOTALES', 'PF_POSICION'].includes(s)));
   const [max] = buscar(falso.registro, 'MAX');
   assert.match(max.texto, /WHERE C\.IdProveedor = @idProveedor AND C\.IdSucursal = @idSucursal AND C\.IdTipoComprobante = @idTipoComprobante/);
@@ -285,8 +315,39 @@ test('grabar: PK duplicada de Compras → mensaje de SiGA (Reglas.Compras L633-6
   assert.strictEqual(falso.registro.at(-1).texto, 'ROLLBACK');
 });
 
+test('grabar: PK duplicada en otra tabla (MovimientosStock) se re-lanza tal cual, sin "ya existe"', async () => {
+  const pk = "Violation of PRIMARY KEY constraint 'PK_MovimientosStock'. Cannot insert duplicate key in object 'dbo.MovimientosStock'.";
+  const { falso, promesa } = grabarCon(texto => {
+    if (/^INSERT INTO MovimientosStock \(/.test(texto)) throw new Error(pk);
+    return RESPUESTAS(texto);
+  });
+  await assert.rejects(promesa, err => !(err instanceof ErrorSiga) && err.message === pk && !/ya existe/.test(err.message));
+  assert.strictEqual(falso.registro.at(-1).texto, 'ROLLBACK');
+});
+
+test('grabar: después del COMMIT relee Compras por su clave con el pool de lectura; si no está → ErrorSiga', async () => {
+  const ok = grabarCon();
+  await ok.promesa;
+  const [verificar] = buscar(ok.falso.registro, 'VERIFICAR');
+  assert.strictEqual(verificar.pool, 'lectura');
+  assert.match(verificar.texto, /WHERE IdSucursal = @idSucursal AND IdTipoComprobante = @idTipoComprobante AND Letra = @letra AND CentroEmisor = @centroEmisor AND NumeroComprobante = @numeroComprobante AND IdProveedor = @idProveedor$/);
+  assert.deepStrictEqual(verificar.params, {
+    idSucursal: 1, idTipoComprobante: 'FACTCOM', letra: 'A', centroEmisor: 5007, numeroComprobante: 1071364, idProveedor: 328,
+  });
+  const MENSAJE = 'No se pudo confirmar la grabación del comprobante en SIGA: verificá en SiGA antes de reintentar.';
+  for (const responder of [
+    texto => (/^SELECT 1 AS Existe FROM Compras/.test(texto) ? { recordset: [] } : RESPUESTAS(texto)),
+    texto => { if (/^SELECT 1 AS Existe FROM Compras/.test(texto)) throw new Error('timeout'); return RESPUESTAS(texto); },
+  ]) {
+    const { falso, promesa } = grabarCon(responder);
+    await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message.startsWith(MENSAJE));
+    assert.deepStrictEqual(secuencia(falso.registro).slice(-2), ['COMMIT', 'VERIFICAR']);
+    assert.strictEqual(falso.registro.filter(e => e.texto === 'ROLLBACK').length, 0);
+  }
+});
+
 test('grabar: un error en CUALQUIER paso N hace rollback, no hace commit y no ejecuta nada después', async () => {
-  const total = SECUENCIA_FACTCOM.length - 2; // sin BEGIN ni COMMIT
+  const total = SECUENCIA_FACTCOM.length - 3; // sentencias de la transacción: sin BEGIN, COMMIT ni VERIFICAR
   for (let n = 1; n <= total; n += 1) {
     let llamadas = 0;
     const { falso, promesa } = grabarCon(texto => {
