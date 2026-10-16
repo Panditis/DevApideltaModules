@@ -3534,7 +3534,7 @@ async function cargarOrdenesFrac() {
   st.innerHTML = '<div class="spinner"></div><div>Cargando órdenes…</div>';
   try {
     const all = await fetch('/api/mayoristas/ordenes-fraccionado').then(r => r.json());
-    ordenesFrac = (Array.isArray(all) ? all : []).filter(o => o.estado === 'pendiente');
+    ordenesFrac = (Array.isArray(all) ? all : []).filter(o => o.estado === 'pendiente' && !o.archivada);
     renderOrdenesFrac();
   } catch(e) {
     ordenesFrac = [];
