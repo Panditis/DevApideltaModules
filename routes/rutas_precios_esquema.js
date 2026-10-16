@@ -182,7 +182,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const costeo = await costeoVigente();
     const [almacen, fraccionado, produccion] = await Promise.all(TIPOS_LISTADO.map(t => listado(t, costeo)));
     const { items, omitidos } = L.itemsDecididos({ almacen, fraccionado, produccion });
-    return { listas: L.listasExport(items, cfgEsq.configEsquemaDe(costeo).ivaVentaPct), omitidos };
+    return { listas: L.listasExport(items), omitidos };
   }));
 
   return router;

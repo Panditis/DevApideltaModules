@@ -388,11 +388,11 @@ test('export: con la última compra decidida, Costo y Venta salen de ella (no de
     const arroz = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).filas[0];
     const almendra = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas[0].presentaciones[0];
     assert.notStrictEqual(arroz.sugeridos.ultimaCompra.minorista.precio, arroz.sugeridos.sistema.minorista.precio);
-    // Costo = 1500 (última compra) con IVA 21 %, no 1000 de sistema; Venta = el sugerido con la última compra.
-    assert.deepStrictEqual(listas.minorista[1], [1, 'Arroz', 1815, arroz.sugeridos.ultimaCompra.minorista.precio]);
-    assert.deepStrictEqual(listas.minorista[2], [51, 'Almendra 500G', 18150, almendra.sugeridos.ultimaCompra.minorista.precio]);
-    // Bulto vinculado a Reventa: por unidad (1) del costo de la última compra, sin y con IVA.
-    assert.deepStrictEqual([listas.bultoNeto[1].slice(0, 3), listas.bultoIva[1].slice(0, 3)], [[2, 'Arroz BULTO x10', 1500], [2, 'Arroz BULTO x10', 1815]]);
+    // Costo = 1500 (última compra) tal cual, sin IVA, no 1000 de sistema; Venta = el sugerido con la última compra.
+    assert.deepStrictEqual(listas.minorista[1], [1, 'Arroz', 1500, arroz.sugeridos.ultimaCompra.minorista.precio]);
+    assert.deepStrictEqual(listas.minorista[2], [51, 'Almendra 500G', 15000, almendra.sugeridos.ultimaCompra.minorista.precio]);
+    // Bulto vinculado a Reventa: por unidad (1) del costo de la última compra, igual en las listas sin y con IVA.
+    assert.deepStrictEqual([listas.bultoNeto[1].slice(0, 3), listas.bultoIva[1].slice(0, 3)], [[2, 'Arroz BULTO x10', 1500], [2, 'Arroz BULTO x10', 1500]]);
     assert.strictEqual(listas.bultoNeto[1][3], arroz.sugeridos.ultimaCompra.mayoristas[0].neto); // Venta del bulto = su sugerido con la última compra
   } finally { a.cerrar(); }
 });
