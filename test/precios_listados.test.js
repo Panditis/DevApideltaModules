@@ -157,14 +157,14 @@ test('resumenExport: las 5 listas en orden con su etiqueta y cuántas filas (sin
 // ── Exportar listado (.xlsx, reporte) ──
 test('filasExportListado Reventa: encabezado + una fila por producto, números reales y Δ% como fracción; sin dato → null', () => {
   const aoa = filasExportListado([
-    { plu: '540', nombre: 'Arroz', costoSistema: 1000, costoUltimaCompra: 1100, fechaUltimaCompra: '2026-10-01', proveedor: 'Distribuidora Sur', vigente: 2000,
+    { plu: '540', nombre: 'Arroz', costoSistema: 1000, costoUltimaCompra: 1100, fechaUltimaCompra: '2026-10-01', proveedor: 'Distribuidora Sur', tipoProveedor: 'distribuidor', vigente: 2000,
       sugeridos: { sistema: sug(2500), ultimaCompra: sug(2600) } },
     { plu: '7', nombre: 'Sal', costoSistema: null, costoUltimaCompra: null, vigente: null, sugeridos: { sistema: { error: 'x' }, ultimaCompra: null } },
   ], 'almacen');
-  assert.deepStrictEqual(aoa[0], ['PLU', 'Nombre', 'Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra', 'Proveedor',
+  assert.deepStrictEqual(aoa[0], ['PLU', 'Nombre', 'Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra', 'Proveedor', 'Tipo proveedor',
     'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)']);
-  assert.deepStrictEqual(aoa[1], [540, 'Arroz', 1000, 1100, 0.1, '2026-10-01', 'Distribuidora Sur', 2000, 2500, 0.25, 2600, 0.3]);
-  assert.deepStrictEqual(aoa[2], [7, 'Sal', null, null, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[1], [540, 'Arroz', 1000, 1100, 0.1, '2026-10-01', 'Distribuidora Sur', 'Distribuidor', 2000, 2500, 0.25, 2600, 0.3]);
+  assert.deepStrictEqual(aoa[2], [7, 'Sal', null, null, null, null, null, null, null, null, null, null, null]);
   assert.strictEqual(aoa.length, 3);
 });
 
@@ -206,4 +206,25 @@ test('filasExportListado: la columna PLU es un número en los tres tipos; un có
     { plu: '60', nombre: 'H', presentaciones: [] },
     { plu: null, nombre: 'Sin granel', presentaciones: [] },
   ], 'fraccionado')), [51, 60, null]);
+});
+
+test('filtrarFilas: clasificacion (Reventa) — con = sólo las que tienen tipoProveedor, sin = sólo las sin clasificar; sin la opción, todas', () => {
+  const filas = [{ plu: '1', nombre: 'A', tipoProveedor: 'directo' }, { plu: '2', nombre: 'B', tipoProveedor: 'distribuidor' }, { plu: '3', nombre: 'C', tipoProveedor: null }, { plu: '4', nombre: 'D' }];
+  const plus = o => filtrarFilas(filas, o).map(f => f.plu);
+  assert.deepStrictEqual(plus({ clasificacion: 'con' }), ['1', '2']);
+  assert.deepStrictEqual(plus({ clasificacion: 'sin' }), ['3', '4']);
+  assert.deepStrictEqual(plus({}), ['1', '2', '3', '4']);
+  assert.deepStrictEqual(plus({ clasificacion: 'sin', texto: 'd' }), ['4']);
+});
+
+test('ordenarListado: por tipoProveedor (Directo antes que Distribuidor, sin clasificar al final)', () => {
+  const filas = [{ plu: '1', nombre: 'A', tipoProveedor: 'distribuidor' }, { plu: '2', nombre: 'B', tipoProveedor: null }, { plu: '3', nombre: 'C', tipoProveedor: 'directo' }];
+  assert.deepStrictEqual(ordenarListado(filas, { clave: 'tipoProveedor', dir: 'asc' }).map(f => f.plu), ['3', '1', '2']);
+});
+
+test('filasExportListado: Tipo proveedor sólo en Reventa', () => {
+  const fracc = filasExportListado([{ plu: '50', nombre: 'Almendra granel', tipoProveedor: 'directo', presentaciones: [] }], 'fraccionado');
+  const prod = filasExportListado([{ plu: '6319', nombre: 'Pepas', sugeridos: {} }], 'produccion');
+  assert.strictEqual(fracc[0].includes('Tipo proveedor'), false);
+  assert.strictEqual(prod[0].includes('Tipo proveedor'), false);
 });

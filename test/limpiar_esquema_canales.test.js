@@ -60,3 +60,9 @@ test('limpiar: conserva lo que volvió el 2026-10-13 (costoHora, insumos y minut
   assert.deepStrictEqual(leer(dir, 'recetas_produccion.json'), recetas);
   assert.strictEqual(leer(dir, 'costeo.json').costoHora, 8268);
 });
+
+test('limpiar: conserva tipoProveedor (Reventa directo/distribuidor)', () => {
+  const dir = dirCon({ 'costeo.json': { ...MIGRADO, tipoProveedor: { 1: 'directo' }, curvaGanancia: {} } });
+  main(dir);
+  assert.deepStrictEqual(leer(dir, 'costeo.json').tipoProveedor, { 1: 'directo' });
+});

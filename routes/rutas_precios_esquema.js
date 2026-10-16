@@ -162,6 +162,19 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { plu, margenProducto: margen };
   }));
 
+  // Tipo de proveedor de un producto de Reventa: body { tipo: 'directo' | 'distribuidor' | null } (null quita). Cualquier
+  // usuario del módulo (como el costo manual): no es configuración. Sólo PLUs del listado de Reventa; quitar pasa siempre.
+  router.put('/api/precios/tipo-proveedor/:plu', apiRoute(async (req) => {
+    const plu = String(req.params.plu || '').trim();
+    const tipo = cuerpo(req).tipo;
+    const error = L.validarTipoProveedor(plu, tipo);
+    if (error) return { error };
+    if (tipo != null && !(await listado('almacen', leerCosteo())).some(f => f.plu === plu)) return { error: `El PLU ${plu} no es un producto de Reventa` };
+    const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
+    guardarJSON(COSTEO_PATH, { ...costeo, tipoProveedor: L.aplicarTipoProveedor(costeo.tipoProveedor, plu, tipo) });
+    return { plu, tipoProveedor: tipo };
+  }));
+
   router.delete('/api/precios/decisiones', apiRoute(async () => {
     guardarJSON(COSTEO_PATH, { ...leerCosteo(), decisiones: {} });
     return { decisiones: {} };

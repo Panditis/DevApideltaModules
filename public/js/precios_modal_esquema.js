@@ -261,6 +261,42 @@ function htmlOpcionesCosto(f, ops) {
     <div id="mdDecMsg" class="md-msg" role="status" aria-live="polite"></div></fieldset>`;
 }
 
+// Reventa: a quién se le compra (Directo / Distribuidor). Elegir guarda en el momento (guardarTipoProveedor,
+// precios_listados.js); sin clasificar = ninguno elegido. msg = texto del estado tras guardar (o el error).
+const TXT_TIPO_PROV_MD = [['directo', 'Directo'], ['distribuidor', 'Distribuidor']];
+function htmlTipoProveedorMd(f, msg = '') {
+  if (mdEsq.tipo !== 'almacen') return '';
+  const b = ([v, t]) => `<button type="button" class="seg-opt md-tp" data-tipo="${v}" aria-pressed="${f.tipoProveedor === v}">${t}</button>`;
+  return `<div id="mdTipoProv" class="flex flex-wrap items-center gap-3 mt-3"><span class="md-h">Proveedor</span>
+    <div class="seg seg-sub" role="group" aria-label="Tipo de proveedor">${TXT_TIPO_PROV_MD.map(b).join('')}</div>
+    ${f.tipoProveedor ? '' : '<span class="text-sm text-warn">Sin clasificar: no aparece en el listado por defecto</span>'}
+    <span id="mdTipoProvMsg" class="text-sm" role="status" aria-live="polite">${msg}</span></div>`;
+}
+function pintarTipoProveedorMd(msg) {
+  const el = document.getElementById('mdTipoProv');
+  if (!el) return;
+  el.outerHTML = htmlTipoProveedorMd(mdEsq.fila, msg);
+  conectarTipoProveedorMd();
+}
+function conectarTipoProveedorMd() {
+  document.querySelectorAll('#mdTipoProv .md-tp').forEach(b => b.onclick = async () => {
+    const tipo = b.dataset.tipo, { fila: f } = mdEsq;
+    if (f.tipoProveedor === tipo) return;
+    document.querySelectorAll('#mdTipoProv .md-tp').forEach(x => { x.disabled = true; });
+    document.getElementById('mdTipoProvMsg').innerHTML = '<span class="spin"></span> Guardando…';
+    try {
+      const nuevo = await guardarTipoProveedor(f.plu, tipo); // precios_listados.js
+      mdEsq = { ...mdEsq, fila: { ...f, tipoProveedor: nuevo } };
+      renderListado('almacen');
+      pintarTipoProveedorMd('<span class="text-ok">✓ Guardado</span>');
+    } catch (e) {
+      pintarTipoProveedorMd(`<span class="text-crit">No se pudo guardar: ${esc(e.message)}</span>`); // queda el valor anterior
+    }
+    const sel = document.querySelector(`#mdTipoProv .md-tp[data-tipo="${CSS.escape(mdEsq.fila.tipoProveedor || tipo)}"]`);
+    if (sel) sel.focus();
+  });
+}
+
 // Tabla por canal: minorista arriba (Fraccionado: una por presentación) y cada pack/bulto agrupado bajo su PLU y nombre.
 function htmlTablaCanales(f) {
   const filas = filasCanales(f, mdFuente);
@@ -454,7 +490,7 @@ function htmlVerDetalle(f) {
 function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
   const ops = opcionesCosto(f, tipo);
-  document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}
+  document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlTipoProveedorMd(f)}
     ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
   conectarModalEsquema();
 }
@@ -514,6 +550,7 @@ function conectarModalEsquema() {
   };
   if (document.getElementById('mdManualGuardar')) conectarEdicionCostos();
   conectarMargenProductoMd();
+  conectarTipoProveedorMd();
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal

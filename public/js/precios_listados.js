@@ -10,12 +10,15 @@ const normL = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 
 // Filtros del listado: texto (PLU/nombre, también presentaciones), sólo decididos, última compra más cara que sistema y
 // cargados hoy (ingresoHoy: compra cargada hoy en SIGA; en Fraccionado, la del granel). proveedor: el texto también busca en el
-// proveedor de la última compra (sólo Reventa, que es donde se muestra esa columna).
-function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false, proveedor = false } = {}) {
+// proveedor de la última compra (sólo Reventa, que es donde se muestra esa columna). clasificacion (sólo Reventa): 'con' = sólo
+// las que tienen tipoProveedor (directo/distribuidor; las demás son marca Apidelta o afines), 'sin' = sólo las sin clasificar
+// (toggle "Sin clasificar", para clasificar productos nuevos de SIGA desde el modal); null = todas.
+function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false, proveedor = false, clasificacion = null } = {}) {
   const t = normL(texto.trim());
   const coincide = f => !t || normL(`${f.plu ?? ''} ${f.nombre}${proveedor ? ` ${f.proveedor ?? ''}` : ''}`).includes(t)
     || (f.presentaciones || []).some(p => normL(`${p.plu} ${p.nombre}`).includes(t));
-  return filas.filter(f => coincide(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
+  const clase = f => !clasificacion || (clasificacion === 'con') === !!f.tipoProveedor;
+  return filas.filter(f => coincide(f) && clase(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
 
@@ -29,7 +32,7 @@ const precioSugerido = s => (s && s.minorista ? s.minorista.precio : null);
 const COLUMNAS_LST = {
   plu: f => f.plu,
   nombre: f => (f.plu == null ? null : f.nombre), // "Sin granel asignado" (plu null) siempre al final
-  costoSistema: f => f.costoSistema, ultimaCompra: f => f.costoUltimaCompra, deltaUltima: f => f.deltaUltimaPct, proveedor: f => f.proveedor, vigente: f => f.vigente,
+  costoSistema: f => f.costoSistema, ultimaCompra: f => f.costoUltimaCompra, deltaUltima: f => f.deltaUltimaPct, proveedor: f => f.proveedor, tipoProveedor: f => f.tipoProveedor || null, vigente: f => f.vigente,
   sugeridoSistema: f => precioSugerido((f.sugeridos || {}).sistema), sugeridoUltima: f => precioSugerido((f.sugeridos || {}).ultimaCompra),
 };
 const ordenarListado = (filas, orden) => ORDENAR_LST(filas, orden || ORDEN_LST_DEFECTO, COLUMNAS_LST);
@@ -60,6 +63,7 @@ function htmlSelectDecision(fila, ops, { deshabilitado = false, titulo = '' } = 
 // decididas). Devuelve la planilla como array de filas con encabezado: números reales (null = vacío) y Δ% como fracción
 // (formato 0.0 % en Excel). Precio nuevo = el minorista sugerido de cada fuente (el mismo de la pantalla). Fraccionado: una
 // fila por presentación con el costo $/kg de su granel; Producción: el costo es el de la receta/envasado, sin última compra.
+const TXT_TIPO_PROVEEDOR = { directo: 'Directo', distribuidor: 'Distribuidor' };
 const deltaFrac = (nuevo, base) => (nuevo != null && base > 0 ? Math.round(((nuevo - base) / base) * 10000) / 10000 : null);
 // PLU de la planilla = número (como el Codigo del export a SIGA, lib/precios_listado_esquema codigoNumerico); no numérico/null quedan como están.
 const pluXlsx = plu => (/^\d+$/.test(String(plu)) ? Number(plu) : plu);
@@ -76,9 +80,9 @@ function filasExportListado(filas, tipo) {
       ...filas.map(f => [pluXlsx(f.plu), f.nombre, f.costoSistema ?? null, ...precios(f, false)])];
   }
   const costos = f => [f.costoSistema ?? null, f.costoUltimaCompra ?? null, deltaFrac(f.costoUltimaCompra, f.costoSistema), f.fechaUltimaCompra || null];
-  // Reventa: el proveedor de la última compra va justo después de su fecha.
-  if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, 'Proveedor', ...ENC_PRECIOS_XLSX],
-    ...filas.map(f => [pluXlsx(f.plu), f.nombre, ...costos(f), f.proveedor || null, ...precios(f)])];
+  // Reventa: el proveedor de la última compra va justo después de su fecha, y a continuación su tipo (Directo/Distribuidor).
+  if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, 'Proveedor', 'Tipo proveedor', ...ENC_PRECIOS_XLSX],
+    ...filas.map(f => [pluXlsx(f.plu), f.nombre, ...costos(f), f.proveedor || null, TXT_TIPO_PROVEEDOR[f.tipoProveedor] || null, ...precios(f)])];
   const granel = g => (g.plu == null ? g.nombre : `${g.plu} · ${g.nombre}`);
   return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.flatMap(g => ((g.presentaciones || []).length
     ? g.presentaciones.map(p => [pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p)])
@@ -89,7 +93,7 @@ if (typeof module === 'object' && module.exports) module.exports = { htmlSelectD
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
-const lstCols = tipo => (tipo === 'produccion' ? 8 : tipo === 'almacen' ? 10 : 9); // Reventa suma Proveedor
+const lstCols = tipo => (tipo === 'produccion' ? 8 : tipo === 'almacen' ? 11 : 9); // Reventa suma Proveedor y Tipo
 let lstDatos = {};                                                  // tipo → filas del server
 let lstVariedadesEnv = [];                                          // variedades envasadas (tarjetas de producto base, resumenBases)
 let lstCostoFamiliaEnv = {};                                        // producto base → precio de materia prima $/kg (GET /envasado/opciones)
@@ -98,7 +102,8 @@ const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {}, envasado: {} 
 // Producción: los dos sub-tabs comparten datos y orden, pero cada uno tiene su búsqueda (prodClase, precios_produccion.js).
 const claseLst = tipo => (tipo === 'produccion' ? prodClase : null);
 const filtrosLst = tipo => lstFiltros[claseLst(tipo) === 'envasado' ? 'envasado' : tipo];
-const filtrosBusqueda = tipo => ({ ...filtrosLst(tipo), proveedor: tipo === 'almacen' }); // lo que recibe filtrarFilas
+const filtrosBusqueda = tipo => ({ ...filtrosLst(tipo), proveedor: tipo === 'almacen', // lo que recibe filtrarFilas
+  clasificacion: tipo !== 'almacen' ? null : filtrosLst(tipo).sinClasificar ? 'sin' : 'con' });
 const NOMBRE_LISTA = { minorista: 'minorista', packNeto: 'pack_sin_iva', packIva: 'pack_con_iva', bultoNeto: 'bulto_sin_iva', bultoIva: 'bulto_con_iva' };
 
 const vigenteTxt = v => (v == null ? '<span class="text-gris">—</span>' : '$ ' + fmtPrecio(v));
@@ -117,6 +122,9 @@ const celdaDeltaUltima = f => (f.deltaUltimaPct == null ? '<span class="text-gri
   : `<span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)}</span>`);
 // Proveedor de la última compra (Reventa): truncado, con el nombre completo en el tooltip.
 const celdaProveedor = f => `<td class="p-2 max-w-[180px] truncate"${f.proveedor ? ` title="${esc(f.proveedor)}"` : ''}>${f.proveedor ? esc(f.proveedor) : '<span class="text-gris">—</span>'}</td>`;
+// Tipo de proveedor (Reventa): chip compacto; sin clasificar → "—".
+const celdaTipoProveedor = f => `<td class="p-2">${f.tipoProveedor ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap ${
+  f.tipoProveedor === 'directo' ? 'bg-verde/10 text-verde' : 'bg-ink/10 text-ink'}">${TXT_TIPO_PROVEEDOR[f.tipoProveedor]}</span>` : '<span class="text-gris">—</span>'}</td>`;
 // Margen del producto (sólo llega con el permiso de Configuración: CLAVES_OCULTAS lo saca sin él). "m=" margen fijo, "±m"
 // ajuste (sin modo = dato viejo, ajuste).
 const TXT_CANAL_LST = { minorista: 'Minorista', pack: 'Pack', bulto: 'Bulto' };
@@ -150,7 +158,7 @@ function filaHtml(f, tipo) {
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
   return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
-    <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) : ''}
+    <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
     <td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.sistema)}</td><td class="p-2 num">${fracc ? '' : celdaPrecio(f.sugeridos.ultimaCompra)}</td>
     <td class="p-2">${celdaDecision(f, tipo)}</td></tr>${subfilas}`;
@@ -162,7 +170,7 @@ function htmlMarcoListado(tipo) {
   // [texto, clave de orden]. En Fraccionado vigente y sugeridos son de las presentaciones, no del granel: no se ordenan.
   const ths = prod ? [['Código', 'plu'], ['Producto', 'nombre'], ['Costo', 'costoSistema'], ['Vigente', 'vigente'], ['Sugerido', 'sugeridoSistema'], ['A revisar'], ['Decisión'], ['']]
     : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'], ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
-      ...(alm ? [['Proveedor', 'proveedor']] : []), ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima'], ['Decisión']];
+      ...(alm ? [['Proveedor', 'proveedor'], ['Tipo', 'tipoProveedor']] : []), ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima'], ['Decisión']];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
   <div class="flex items-center gap-2 mb-3 flex-wrap">
@@ -171,6 +179,7 @@ function htmlMarcoListado(tipo) {
     ${toggle('lst-decididos', 'soloDecididos', 'Sólo decididos')}
     ${prod ? '' : toggle('lst-mascara', 'ultimaMasCara', 'Última compra más cara')}
     ${prod ? '' : toggle('lst-hoy', 'soloHoy', 'Cargados hoy <span class="fbtn-n lst-hoy-n"></span>')}
+    ${alm ? toggle('lst-sinclas', 'sinClasificar', 'Sin clasificar <span class="fbtn-n lst-sinclas-n"></span>') : ''}
     <span class="lst-conteo text-sm text-gris"></span>
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
@@ -179,7 +188,7 @@ function htmlMarcoListado(tipo) {
     ${prod ? '<button type="button" class="lst-nuevo cfg-btn" title="Producto con receta (ej. pepas, granola)">+ Nuevo</button>' : ''}
   </div>
   <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
-    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
+    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
     <tbody class="lst-cuerpo"><tr><td colspan="${lstCols(tipo)}" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody></table></div>`;
 }
 
@@ -188,7 +197,7 @@ function conectarListado(tipo, cont) {
   const f = filtrosLst(tipo);
   cont.querySelector('.lst-recargar').onclick = () => cargarListado(tipo);
   cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; renderListado(tipo); };
-  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy']].forEach(([sel, k]) => {
+  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy'], ['.lst-sinclas', 'sinClasificar']].forEach(([sel, k]) => {
     const b = cont.querySelector(sel);
     if (b) b.onclick = () => { f[k] = !f[k]; b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
   });
@@ -252,6 +261,8 @@ function renderListado(tipo) {
   const filas = ordenarListado(filtrarFilas(todas, filtrosBusqueda(tipo)), lstOrden[tipo]);
   const nHoy = cont.querySelector('.lst-hoy-n'); // filas del tab con compra cargada hoy (vacío = badge oculto)
   if (nHoy) nHoy.textContent = todas.filter(f => f.ingresoHoy).length || '';
+  const nSin = cont.querySelector('.lst-sinclas-n'); // Reventa: productos sin tipo de proveedor (fuera del listado por defecto)
+  if (nSin) nSin.textContent = todas.filter(f => !f.tipoProveedor).length || '';
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   cuerpo.innerHTML = filas.length ? filas.map(fl => filaHtml(fl, tipo)).join('') : htmlSinFilas(tipo);
@@ -267,6 +278,12 @@ async function guardarDecision(plu, fuente) {
   lstDatos = Object.fromEntries(Object.entries(lstDatos).map(([t, filas]) => [t, filas.map(f => (f.plu === plu ? { ...f, decision: j.decision } : f))]));
   refrescarAlertasProduccion(); // precios_produccion.js: la decisión cambia el costo en uso → toast/badge "a revisar"
   return j.decision;
+}
+// PUT del tipo de proveedor (Reventa, desde el modal) y actualización local de la fila. Tira con el error del server.
+async function guardarTipoProveedor(plu, tipo) {
+  const j = await pedirJson('PUT', `/api/precios/tipo-proveedor/${encodeURIComponent(plu)}`, { tipo }); // precios_comun.js
+  lstDatos = { ...lstDatos, almacen: (lstDatos.almacen || []).map(f => (f.plu === plu ? { ...f, tipoProveedor: j.tipoProveedor } : f)) };
+  return j.tipoProveedor;
 }
 // Cambio de decisión desde un select (listado o tabla de códigos de Envasado): guarda igual que el modal, repinta el listado
 // (fila resaltada, contadores, celdas de Envasado) y devuelve el foco al select nuevo. Mientras guarda se bloquean todos los

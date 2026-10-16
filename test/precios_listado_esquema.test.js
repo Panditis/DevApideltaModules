@@ -408,3 +408,27 @@ test('podarDecisiones: saca sólo las vencidas (objeto nuevo); sin vencidas devu
   assert.deepStrictEqual(Object.keys(costeo.decisiones), ['1', '2']); // no muta
   assert.strictEqual(L.podarDecisiones(r.costeo, vig).costeo, r.costeo);
 });
+
+// ── Tipo de proveedor (Reventa): directo | distribuidor, costeo.tipoProveedor[plu] ──
+test('listadoReventa: tipoProveedor viaja en la fila (también en la pública); sin dato o inválido → null', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const universo = [{ plu: '1', nombre: 'A', costoSistema: 1000 }, { plu: '2', nombre: 'B', costoSistema: 1000 }, { plu: '3', nombre: 'C' }, { plu: '4', nombre: 'D' }];
+  const costeo = { tipoProveedor: { 1: 'directo', 2: 'distribuidor', 3: 'otro' } };
+  const filas = L.listadoReventa({ universo, vigentes: new Map(), mayoristasDe: md, costeo, cfg: CFG });
+  assert.deepStrictEqual(filas.map(f => f.tipoProveedor), ['directo', 'distribuidor', null, null]);
+  assert.deepStrictEqual(filas.map(f => L.filaPublica(f).tipoProveedor), ['directo', 'distribuidor', null, null]);
+});
+
+test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicarTipoProveedor devuelve un mapa nuevo (null quita)', () => {
+  assert.strictEqual(L.validarTipoProveedor('1', 'directo'), null);
+  assert.strictEqual(L.validarTipoProveedor('1', 'distribuidor'), null);
+  assert.strictEqual(L.validarTipoProveedor('1', null), null);
+  assert.match(L.validarTipoProveedor('1', 'Directo'), /tipo inválido/);
+  assert.match(L.validarTipoProveedor('1', undefined), /tipo inválido/);
+  assert.match(L.validarTipoProveedor('abc', 'directo'), /PLU inválido/);
+  const mapa = { 1: 'directo' };
+  assert.deepStrictEqual(L.aplicarTipoProveedor(mapa, '2', 'distribuidor'), { 1: 'directo', 2: 'distribuidor' });
+  assert.deepStrictEqual(L.aplicarTipoProveedor(mapa, '1', null), {});
+  assert.deepStrictEqual(L.aplicarTipoProveedor(undefined, '1', 'directo'), { 1: 'directo' });
+  assert.deepStrictEqual(mapa, { 1: 'directo' });
+});

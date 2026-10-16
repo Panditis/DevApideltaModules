@@ -396,3 +396,23 @@ test('export: con la última compra decidida, Costo y Venta salen de ella (no de
     assert.strictEqual(listas.bultoNeto[1][3], arroz.sugeridos.ultimaCompra.mayoristas[0].neto); // Venta del bulto = su sugerido con la última compra
   } finally { a.cerrar(); }
 });
+
+test('tipo de proveedor: PUT guarda/cambia/quita en una fila de Reventa; rechaza tipo inválido y PLU fuera de Reventa sin escribir', async () => {
+  const a = appCon({ ...MIGRADO, tipoProveedor: { 999: 'directo' } }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS, guard: true, sinConfig: true });
+  const poner = (plu, tipo) => a.pedir('PUT', `/api/precios/tipo-proveedor/${plu}`, { tipo });
+  try {
+    assert.deepStrictEqual(await poner('1', 'distribuidor'), { plu: '1', tipoProveedor: 'distribuidor' }); // sin precios-config: igual que el costo manual
+    assert.deepStrictEqual(a.leer().tipoProveedor, { 999: 'directo', 1: 'distribuidor' });
+    assert.strictEqual((await poner('1', 'directo')).tipoProveedor, 'directo');
+    assert.match((await poner('1', 'mayorista')).error, /tipo inválido/);
+    assert.match((await a.pedir('PUT', '/api/precios/tipo-proveedor/1', {})).error, /tipo inválido/);
+    assert.match((await poner('50', 'directo')).error, /no es un producto de Reventa/); // granel de Fraccionado
+    assert.match((await poner('777', 'directo')).error, /no es un producto de Reventa/);
+    assert.deepStrictEqual(a.leer().tipoProveedor, { 999: 'directo', 1: 'directo' });
+    const j = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+    assert.strictEqual(j.filas.find(f => f.plu === '1').tipoProveedor, 'directo');
+    assert.strictEqual((await poner('999', null)).tipoProveedor, null); // quitar pasa siempre (PLU que ya no está)
+    assert.strictEqual((await poner('1', null)).tipoProveedor, null);
+    assert.deepStrictEqual(a.leer().tipoProveedor, {});
+  } finally { a.cerrar(); }
+});
