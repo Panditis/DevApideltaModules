@@ -6,13 +6,14 @@ const {
   filasImpuestos, filasImpuestosTodas, totalesCabecera, importeTotal, percepcionesCabecera, proporcionalImp, montoSaldo,
 } = require('../lib/siga_compras/impuestos');
 
-const lineaA = (precio, porcentajeIVA) => calcularLinea({ cantidad: 1, precio, porcentajeIVA, discrimina: true });
+const lineaA = (precio, porcentajeIVA) => calcularLinea({ cantidad: 1, precio, porcentajeIVA, discrimina: true, decimalesPrecio: 2 });
+// Parámetros explícitos (decimalesPrecio 2, los de la base del DOC; el default de SiGA es 4).
 // DOC: FACTCOM A 5007-1071364 — IVA 21 base 31.839,64 + IVA 0 base 3.184,01 + PIVA 955,19 = 42.665,16.
 const LINEAS_1071364 = [lineaA(31839.64, 21), lineaA(3184.01, 0)];
 const PIVA = [{ tipo: 'PIVA', importe: 955.19 }];
 
 test('FACTCOM A 1071364: filas de ComprasImpuestos del DOC', () => {
-  assert.deepStrictEqual(filasImpuestos({ lineas: LINEAS_1071364, percepciones: PIVA }), [
+  assert.deepStrictEqual(filasImpuestos({ lineas: LINEAS_1071364, percepciones: PIVA, decimalesPrecio: 2 }), [
     { idTipoImpuesto: 'IVA', tipoTipoImpuesto: 'IVA', idProvincia: null, alicuota: 21, bruto: 31839.64, baseImponible: 31839.64, importe: 6686.32, orden: 1 },
     { idTipoImpuesto: 'IVA', tipoTipoImpuesto: 'IVA', idProvincia: null, alicuota: 0, bruto: 3184.01, baseImponible: 3184.01, importe: 0, orden: 2 },
     { idTipoImpuesto: 'PIVA', tipoTipoImpuesto: 'PERCEPCION', idProvincia: null, alicuota: 0, bruto: 0, baseImponible: 0, importe: 955.19, orden: 3 },
@@ -20,7 +21,7 @@ test('FACTCOM A 1071364: filas de ComprasImpuestos del DOC', () => {
 });
 
 test('FACTCOM A 1071364: totales de cabecera = 42.665,16', () => {
-  const totales = totalesCabecera(filasImpuestos({ lineas: LINEAS_1071364, percepciones: PIVA }));
+  const totales = totalesCabecera(filasImpuestos({ lineas: LINEAS_1071364, percepciones: PIVA, decimalesPrecio: 2 }));
   assert.deepStrictEqual(totales, {
     totalBruto: 35023.65, totalNeto: 35023.65, totalIVA: 6686.32, totalPercepciones: 955.19, impuestosInternos: 0,
   });

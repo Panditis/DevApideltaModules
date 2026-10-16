@@ -29,17 +29,31 @@ test('si falta una columna SIGA-INFERIDO, el error dice cuál (no se inventa un 
 
 test('mapearParametros: valores de la tabla y defaults SIGA-INFERIDO', () => {
   assert.deepStrictEqual(M.mapearParametros([]), {
-    categoriaFiscalEmpresa: null, decimalesTotal: 2, decimalesPrecio: 2, pasajeIncluyeImpuestos: false,
+    categoriaFiscalEmpresa: 2, decimalesTotal: 2, decimalesPrecio: 4, pasajeIncluyeImpuestos: true,
   });
   assert.deepStrictEqual(M.mapearParametros([
     { IdParametro: 'CATEGORIAFISCALEMPRESA', ValorParametro: '2' },
     { IdParametro: 'COMPRASDECIMALESENTOTALGENERAL ', ValorParametro: '3' },
-    { IdParametro: 'PASAJECOMPRASINCLUYEIMPUESTOS', ValorParametro: 'True' },
-  ]), { categoriaFiscalEmpresa: 2, decimalesTotal: 3, decimalesPrecio: 2, pasajeIncluyeImpuestos: true });
+    { IdParametro: 'COMPRASDECIMALESREDONDEOENPRECIO', ValorParametro: '2' },
+    { IdParametro: 'EXPENSASPASAJECOMPRASINCLUYEIMPUESTOS', ValorParametro: 'False' },
+  ]), { categoriaFiscalEmpresa: 2, decimalesTotal: 3, decimalesPrecio: 2, pasajeIncluyeImpuestos: false });
 });
 
 test('booleanos de SIGA: bit, "True", "1", "S"', () => {
   const tipo = valor => M.mapearTipoComprobante({ ...FILAS_SIGA.TiposComprobantes[0], GrabaLibro: valor }).grabaLibro;
   assert.deepStrictEqual([true, 1, 'True', '1', 'S', false, 0, 'False', null].map(tipo),
     [true, true, true, true, true, false, false, false, false]);
+});
+
+test('requerido busca la columna sin distinguir mayúsculas (SQL Server no distingue)', () => {
+  const fila = { ...FILAS_SIGA.TiposComprobantes[0] };
+  fila.informalibroiva = fila.InformaLibroIVA;
+  delete fila.InformaLibroIVA;
+  assert.strictEqual(M.mapearTipoComprobante(fila).informaLibroIva, true);
+});
+
+test('el mensaje de columna faltante no dice SIGA-INFERIDO', () => {
+  const { Tipo, ...sinTipo } = FILAS_SIGA.TiposComprobantes[0];
+  assert.throws(() => M.mapearTipoComprobante(sinTipo), /^Error: Falta la columna TiposComprobantes\.Tipo en SIGA\.$/);
+  assert.ok(Tipo);
 });

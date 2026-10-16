@@ -80,7 +80,7 @@ const FILAS_SIGA = {
     IdCategoriaFiscal: 2, NombreCategoriaFiscal: 'Responsable Inscripto', IvaDiscriminado: true, UtilizaImpuestos: true, LetraFiscalCompra: 'A',
   }],
   TiposComprobantes: [{
-    IdTipoComprobante: 'FACTCOM   ', Descripcion: 'Factura de compra', Tipo: 'COMPRAS', GrabaLibro: true, InformaLibroIva: true,
+    IdTipoComprobante: 'FACTCOM   ', Descripcion: 'Factura de compra', Tipo: 'COMPRAS', GrabaLibro: true, InformaLibroIVA: true,
     NumeracionAutomatica: false, LetrasHabilitadas: 'ABCEIM', CoeficienteStock: 1, CoeficienteValores: 1, ActualizaCtaCte: true,
     AfectaCaja: true, UtilizaImpuestos: true, EsComercial: true, GeneraContabilidad: false, ImporteMinimo: 0,
   }],
