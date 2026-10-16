@@ -28,7 +28,7 @@
   const DEBOUNCE_MS = 400;
   const estado = {
     borrador: null, catalogos: null, precios: {}, percepciones: [], errores: [],
-    validando: false, grabando: false, grabado: false, aVerificar: false, incierto: false, secuencia: 0, avisosBase: [],
+    grabacionHabilitada: false, validando: false, grabando: false, grabado: false, aVerificar: false, incierto: false, secuencia: 0, avisosBase: [],
   };
   let temporizador = null;
 
@@ -156,7 +156,7 @@
   }
 
   function actualizarBotonGrabar() {
-    $('#btnGrabar').disabled = estado.grabado || estado.grabando || estado.incierto || estado.validando || estado.aVerificar || estado.errores.length > 0;
+    $('#btnGrabar').disabled = !estado.grabacionHabilitada || estado.grabado || estado.grabando || estado.incierto || estado.validando || estado.aVerificar || estado.errores.length > 0;
   }
 
   // Errores junto al control de la cabecera (si tiene uno) y todos en la lista de abajo.
@@ -188,11 +188,12 @@
       const l = porOrden.get(tr.dataset.orden);
       tr.querySelectorAll('[data-c]').forEach(td => { td.textContent = l ? n2(l[td.dataset.c]) : ''; });
     });
-    // DOC decisión 15: el precio editable es el de la grilla de SiGA.
-    $('#thPrecio').textContent = r.discrimina ? 'Precio s/IVA' : 'Precio c/IVA';
-    $('#notaPrecio').textContent = r.discrimina
-      ? 'Precios SIN IVA: letra A, proveedor y empresa discriminan IVA.'
-      : 'Precios CON IVA incluido: letra B/C, no se discrimina IVA.';
+    // DOC decisión 15: el precio editable es el de la grilla de SiGA. Ni discrimina ni incluye IVA = comprobante sin
+    // impuestos (p. ej. interno): el precio va tal cual, sin letra fiscal de por medio.
+    $('#thPrecio').textContent = r.discrimina ? 'Precio s/IVA' : r.incluyeIVA ? 'Precio c/IVA' : 'Precio';
+    $('#notaPrecio').textContent = r.discrimina ? 'Precios SIN IVA: letra A, proveedor y empresa discriminan IVA.'
+      : r.incluyeIVA ? 'Precios CON IVA incluido: letra B/C, no se discrimina IVA.'
+        : 'Precios tal como los cargás (comprobante sin discriminación de IVA).';
     const t = r.totales || {};
     [['#totBruto', 'totalBruto'], ['#totNeto', 'totalNeto'], ['#totIVA', 'totalIVA'], ['#totPercep', 'totalPercepciones'], ['#totImpInt', 'impuestosInternos'], ['#totTotal', 'importeTotal']]
       .forEach(([id, k]) => { $(id).textContent = n2(t[k]); });
@@ -361,6 +362,9 @@
     if (!ok) { mostrarAviso('error', datos.error || `No se pudo cargar el pedido (error ${status}).`); return; }
     estado.borrador = datos.borrador;
     estado.catalogos = datos.catalogos;
+    // COMPRAS_SIGA_GRABAR del servidor: sin ella la pantalla es solo vista previa (el servidor igual rechaza con 403).
+    estado.grabacionHabilitada = datos.grabacionHabilitada === true;
+    $('#avisoVistaPrevia').style.display = estado.grabacionHabilitada ? 'none' : '';
     cargarCabecera(datos.borrador);
     cargarLineas(datos.borrador.lineas, datos.borrador.descartadas);
     pintarPercepciones();

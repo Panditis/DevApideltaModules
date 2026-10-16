@@ -218,3 +218,13 @@ test('armarComprobante: descuento general -100% → TotalBruto 100 y ninguna fil
   assert.strictEqual(f.compras.ImporteTotal, 0);
   assert.deepStrictEqual(f.comprasImpuestos, []);
 });
+
+test('calcularComprobante: incluyeIVA solo cuando todos usan impuestos y alguno no discrimina (B/C)', () => {
+  const ctx = contextoFactcom();
+  const conProveedor = cf => ({ ...ctx, proveedor: { ...ctx.proveedor, categoriaFiscal: { ...ctx.proveedor.categoriaFiscal, ...cf } } });
+  const de = c => { const r = calcularComprobante(borradorFactcom(), c); return [r.discrimina, r.incluyeIVA]; };
+  assert.deepStrictEqual(de(ctx), [true, false]);
+  assert.deepStrictEqual(de(conProveedor({ ivaDiscriminado: false })), [false, true]);
+  // Comprobante interno sin impuestos: ni discrimina ni lleva IVA en el precio.
+  assert.deepStrictEqual(de({ ...ctx, tipo: { ...ctx.tipo, utilizaImpuestos: false } }), [false, false]);
+});

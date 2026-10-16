@@ -44,7 +44,8 @@ const MARCA = (cambios = {}) => ({
 
 // fallaGuardar: archivos cuya escritura falla (un directorio ocupa el <archivo>.tmp de la escritura atómica).
 // crudos: contenido literal de archivos (p. ej. un json corrupto).
-function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [], crudos = {} } = {}) {
+// sesion: false = request sin usuario logueado; grabacionHabilitada: la bandera COMPRAS_SIGA_GRABAR del servidor.
+function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [], crudos = {}, sesion = true, grabacionHabilitada = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compras-siga-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const escribir = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
@@ -62,9 +63,10 @@ function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = 
   };
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => { req.session = sesion ? { user: { username: 'adriel.compras' } } : {}; next(); });
   app.use(require('../routes/rutas_compras_siga')({
     DATA_DIR: dir, leerPedidosCompra: () => [PEDIDO],
-    usuarioCompras: () => 'adriel.compras', repo, ahora: () => AHORA,
+    usuarioCompras: () => 'adriel.compras', repo, ahora: () => AHORA, grabacionHabilitada,
   }));
   return new Promise(ok => {
     const server = app.listen(0, () => ok({ server, dir, grabados, contextos, leerJSON, base: `http://127.0.0.1:${server.address().port}` }));
@@ -104,6 +106,7 @@ test('GET borrador: líneas entregadas + extra, descartadas, cabecera sugerida y
     assert.strictEqual(data.borrador.idUbicacion, 1);
     assert.deepStrictEqual(data.catalogos, CATALOGOS);
     assert.strictEqual(data.aVerificar, false);
+    assert.strictEqual(data.grabacionHabilitada, true);
     assert.deepStrictEqual(await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-9999/borrador'), { status: 404, data: { ok: false, error: 'No existe el pedido.' } });
     // El número de la URL no se refleja en la respuesta.
     const raro = await pedir(ctx.base, 'GET', `/api/compras-siga/pedidos/${encodeURIComponent('<b>x</b>')}/borrador`);
@@ -119,6 +122,7 @@ test('POST validar: recalcula del lado del servidor y devuelve los errores de Si
     assert.deepStrictEqual(ok.data.errores, []);
     assert.strictEqual(ok.data.totales.importeTotal, 42665.16);
     assert.deepStrictEqual(ok.data.lineas.map(l => l.proporcionalImp), [878.7748, 76.4152]);
+    assert.deepStrictEqual([ok.data.discrimina, ok.data.incluyeIVA], [true, false]);
     const mal = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo({ cabecera: { ...CABECERA, numeroComprobante: '' } }));
     assert.strictEqual(mal.status, 200);
     assert.deepStrictEqual(mal.data.errores, [{ campo: 'numeroComprobante', mensaje: 'Debe cargar un el número del comprobante.' }]);
@@ -410,5 +414,35 @@ test('escritura atómica: el vínculo se suma a los existentes, el archivo queda
       'P-0001': ['1|FACTCOM|A|1|1'], 'P-0007': ['1|FACTCOM|A|5007|1071364'],
     });
     assert.deepStrictEqual(fs.readdirSync(ctx.dir).filter(n => n.endsWith('.tmp')), []);
+  } finally { cerrar(ctx); }
+});
+
+test('sin sesión: grabar y liberar-verificacion dan 401 sin tocar el repo ni la marca', async () => {
+  const ctx = await montar({ sesion: false, estado: { 'P-0007': MARCA() } });
+  const NO_SESION = { status: 401, data: { ok: false, error: 'Tenés que iniciar sesión para grabar en SIGA.' } };
+  try {
+    assert.deepStrictEqual(await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo()), NO_SESION);
+    assert.deepStrictEqual(await liberar(ctx, { resultado: 'no_cargado' }), NO_SESION);
+    assert.strictEqual(ctx.grabados.length, 0);
+    assert.strictEqual(ctx.contextos.length, 0);
+    assert.deepStrictEqual(estadoDe(ctx), { 'P-0007': MARCA() });
+  } finally { cerrar(ctx); }
+});
+
+test('grabación deshabilitada (COMPRAS_SIGA_GRABAR): grabar da 403 sin llamar al repo; borrador y validar siguen', async () => {
+  const ctx = await montar({ grabacionHabilitada: false });
+  try {
+    assert.deepStrictEqual(await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo()), {
+      status: 403, data: { ok: false, error: 'La grabación en SIGA está deshabilitada en este servidor (COMPRAS_SIGA_GRABAR).' },
+    });
+    assert.strictEqual(ctx.grabados.length, 0);
+    assert.strictEqual(ctx.contextos.length, 0);
+    assert.deepStrictEqual(vinculosDe(ctx), {});
+    const borrador = await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-0007/borrador');
+    assert.strictEqual(borrador.status, 200);
+    assert.strictEqual(borrador.data.grabacionHabilitada, false);
+    const validar = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo());
+    assert.strictEqual(validar.status, 200);
+    assert.deepStrictEqual(validar.data.errores, []);
   } finally { cerrar(ctx); }
 });

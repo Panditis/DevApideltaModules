@@ -16,7 +16,12 @@ const { fechaLocalISO } = require('../lib/siga_compras/fechas');
 const SIN_CONFIRMAR = 'SIGA_SIN_CONFIRMAR';
 const RESULTADOS_VERIFICACION = ['cargado', 'no_cargado'];
 const MENSAJE_A_VERIFICAR = 'El pedido tiene una grabación sin confirmar: verificá en SiGA si el comprobante quedó cargado antes de reintentar.';
+const MENSAJE_SIN_SESION = 'Tenés que iniciar sesión para grabar en SIGA.';
+const MENSAJE_DESHABILITADA = 'La grabación en SIGA está deshabilitada en este servidor (COMPRAS_SIGA_GRABAR).';
 const MENSAJE_INTERNO = 'Error interno al procesar el comprobante para SIGA. Avisá a sistemas (el detalle quedó en el log del servidor).';
+
+// Mismo criterio de sesión que el middleware de auth de server.js.
+const conSesion = req => !!(req.session && req.session.user);
 
 const esErrorSiga = err => !!err && (err.name === 'ErrorSiga' || err.code === 'SIGA_CONFIG' || err.code === SIN_CONFIRMAR);
 
@@ -59,6 +64,8 @@ const comprobanteDe = clave => ({
 module.exports = function crearRutasComprasSiga(deps) {
   const { DATA_DIR, leerPedidosCompra, usuarioCompras, repo } = deps;
   const ahora = deps.ahora || (() => new Date());
+  // Bandera por servidor (COMPRAS_SIGA_GRABAR, ver server.js): sin ella borrador y validar quedan como vista previa.
+  const grabacionHabilitada = deps.grabacionHabilitada === true;
   const router = express.Router();
 
   // Mismo archivo que el Control de compras (routes/rutas_compras_control.js): pedido → claves de comprobante.
@@ -109,7 +116,7 @@ module.exports = function crearRutasComprasSiga(deps) {
 
   const vista = ({ calculo, errores }) => ({
     lineas: calculo.lineas, filasImpuestos: calculo.filasImpuestos, totales: calculo.totales,
-    discrimina: calculo.discrimina, errores,
+    discrimina: calculo.discrimina, incluyeIVA: calculo.incluyeIVA, errores,
   });
 
   function guardarVinculo(numero, clave) {
@@ -162,7 +169,7 @@ module.exports = function crearRutasComprasSiga(deps) {
       const catalogos = await repo.catalogos({ idProveedor: encontrado.base.idProveedor });
       const cabecera = desdePedido.cabeceraSugerida({ catalogos, hoyISO: fechaLocalISO(ahora()), numeroPedido: encontrado.pedido.numero });
       // aVerificar: la pantalla muestra el panel de liberar-verificacion en vez de dejar reintentar.
-      return res.json({ ok: true, borrador: { ...encontrado.base, ...cabecera }, catalogos, aVerificar: encontrado.aVerificar });
+      return res.json({ ok: true, borrador: { ...encontrado.base, ...cabecera }, catalogos, aVerificar: encontrado.aVerificar, grabacionHabilitada });
     } catch (err) {
       return responderError(res, err, 'borrador', req.params.numero);
     }
@@ -179,6 +186,8 @@ module.exports = function crearRutasComprasSiga(deps) {
   });
 
   router.post('/api/compras-siga/grabar', async (req, res) => {
+    if (!conSesion(req)) return res.status(401).json({ ok: false, error: MENSAJE_SIN_SESION });
+    if (!grabacionHabilitada) return res.status(403).json({ ok: false, error: MENSAJE_DESHABILITADA });
     const numero = String((req.body && req.body.pedido) || '');
     if (grabando.has(numero)) return res.status(409).json({ ok: false, error: 'Ya se está grabando este pedido.' });
     grabando.add(numero);
@@ -208,6 +217,7 @@ module.exports = function crearRutasComprasSiga(deps) {
 
   // Después de mirar en SiGA: 'cargado' vincula la clave guardada en la marca; 'no_cargado' solo libera.
   router.post('/api/compras-siga/pedidos/:numero/liberar-verificacion', (req, res) => {
+    if (!conSesion(req)) return res.status(401).json({ ok: false, error: MENSAJE_SIN_SESION });
     const numero = req.params.numero;
     const resultado = req.body && req.body.resultado;
     if (!RESULTADOS_VERIFICACION.includes(resultado)) {

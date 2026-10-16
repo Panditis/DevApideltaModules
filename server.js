@@ -2728,9 +2728,12 @@ app.use(require('./routes/rutas_compras_control')({
 // Los json propios (pedidos_comprobantes.json, compras_siga_estado.json) los lee y escribe el router
 // (estricto y atómico), por eso no recibe leerJSON/guardarJSON.
 // Ninguna ruta que quedó en server.js solapa con /compras/siga ni /api/compras-siga.
+// COMPRAS_SIGA_GRABAR=1 (variable de entorno) habilita grabar en SIGA en este servidor. Sin ella (o con otro valor)
+// POST /api/compras-siga/grabar responde 403 y la pantalla queda como vista previa (borrador y validar andan igual).
 app.use(require('./routes/rutas_compras_siga')({
   DATA_DIR, leerPedidosCompra,
   usuarioCompras: comprasRouter.usuarioCompras,
+  grabacionHabilitada: process.env.COMPRAS_SIGA_GRABAR === '1',
   repo: require('./lib/siga_compras/repo')({ sql, getPool, getPoolStock }),
 }));
 
