@@ -196,3 +196,22 @@ test('integración: percepción "abc" y "1.234,56" dan el mensaje de número inv
     assert.ok(msgs.includes('El importe de la percepción PIVA no es un número válido.'), `${malo}: ${msgs}`);
   }
 });
+
+test('el separador de miles argentino ("1.500") no se lee como decimal: pasa crudo; "1.5" y "0.25" siguen numéricos', () => {
+  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), { precios: { 1001: '1.500', 1002: '1.5', 1006: '12.345.678' } });
+  assert.strictEqual(ed.lineas[0].precio, '1.500');
+  assert.strictEqual(ed.lineas[1].precio, 1.5);
+  assert.strictEqual(ed.lineas[2].precio, '12.345.678');
+  const [miles, decimal, cuarto, entero] = percepcionesDe(['1.500', '1.5', '0.25', '1500'].map(i => percepcion('PIVA', i)));
+  assert.strictEqual(miles.importe, '1.500');
+  assert.deepStrictEqual([decimal.importe, cuarto.importe, entero.importe], [1.5, 0.25, 1500]);
+});
+
+test('integración: precio y percepción "1.500" dan el mensaje de número inválido', () => {
+  const b = aplicarEdicion(borradorFactcom(), {
+    cabecera: borradorFactcom(), precios: { 1001: '1.500' }, percepciones: [{ tipo: 'PIVA', importe: '1.500' }],
+  });
+  const msgs = validarComprobante(b, contextoFactcom(), CALCULO).map(e => e.mensaje);
+  assert.ok(msgs.includes('El importe de la percepción PIVA no es un número válido.'), String(msgs));
+  assert.ok(msgs.includes('El precio no es un número válido.'), String(msgs));
+});
