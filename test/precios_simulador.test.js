@@ -25,3 +25,9 @@ test('simularCanales: faltantes de entrada y errores del motor como texto', () =
   assert.match(simularCanales(CFG, { costo: 100, tipo: 'fraccionado', pesoG: 0 }).faltantes[0], /peso/);
   assert.match(simularCanales({ ...CFG, margenes: {} }, { costo: 100 }).faltantes[0], /Márgenes/);
 });
+
+test('simularCanales: "Distribuidor" aplica el descuento al margen sólo en Reventa', () => {
+  const cfg = { ...CFG, margenes: { ...CFG.margenes, descuentoDistribuidorPct: 5 } };
+  assert.deepStrictEqual([simularCanales(cfg, { costo: 1000, distribuidor: true }).r.minorista.margenPct, simularCanales(cfg, { costo: 1000 }).r.minorista.margenPct], [25, 30]);
+  assert.strictEqual(simularCanales(cfg, { costo: 1000, tipo: 'produccion', distribuidor: true }).r.minorista.margenPct, 30);
+});

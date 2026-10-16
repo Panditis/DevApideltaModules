@@ -285,9 +285,10 @@ function conectarTipoProveedorMd() {
     document.querySelectorAll('#mdTipoProv .md-tp').forEach(x => { x.disabled = true; });
     document.getElementById('mdTipoProvMsg').innerHTML = '<span class="spin"></span> Guardando…';
     try {
-      const nuevo = await guardarTipoProveedor(f.plu, tipo); // precios_listados.js
-      mdEsq = { ...mdEsq, fila: { ...f, tipoProveedor: nuevo } };
-      renderListado('almacen');
+      await guardarTipoProveedor(f.plu, tipo); // precios_listados.js
+      // Distribuidor lleva el descuento al margen (Configuración › Márgenes): los precios cambian → recarga modal y listado.
+      await abrirModalEsquema('almacen', f.plu, { detalle: mdDetalle });
+      cargarListado('almacen');
       pintarTipoProveedorMd('<span class="text-ok">✓ Guardado</span>');
     } catch (e) {
       pintarTipoProveedorMd(`<span class="text-crit">No se pudo guardar: ${esc(e.message)}</span>`); // queda el valor anterior
@@ -330,20 +331,23 @@ const htmlPasos = (titulo, pasos) => `<div class="md-bloque"><div class="lbl mb-
   `<div class="ec"><span class="ec-op" aria-hidden="true">${op}</span><span>${esc(txt)}</span><span class="ec-val">${v == null ? '' : '$ ' + fmtMoney(v)}</span></div>`).join('')}</div>`;
 // Margen especial del producto (Producción) y ajuste del producto (costeo.margenProducto): ya están sumados en margenPct; se
 // muestran aparte para explicar el total, con el general en el último renglón. Margen fijo del producto: reemplaza todo, un
-// renglón con el general que reemplazó. Sin ninguno → [].
+// renglón con el general que reemplazó. Descuento distribuidor (Reventa): ya restado en margenPct; renglón con el margen antes
+// y después. Sin ninguno → [].
 const signoPctMd = n => `${n > 0 ? '+' : ''}${pctMd(n)}`;
 function pasosAjusteMd(c) {
   if (c.margenProductoModo === 'fijo') return [['', `margen fijo del producto ${pctMd(c.margenPct)} (general ${pctMd(c.margenGeneralPct)})`, null]];
-  const esp = c.margenEspecialPct || 0, prod = c.margenProductoPct || 0;
-  const general = ` (general ${pctMd(c.margenPct - esp - prod)})`;
+  const esp = c.margenEspecialPct || 0, prod = c.margenProductoPct || 0, dto = c.descuentoDistribuidorPct || 0;
+  const general = ` (general ${pctMd(c.margenPct - esp - prod + dto)})`;
   return [esp ? ['', `incluye margen especial del producto ${signoPctMd(esp)}${prod ? '' : general}`, null] : null,
-    prod ? ['', `incluye ajuste del producto ${signoPctMd(prod)}${general}`, null] : null].filter(Boolean);
+    prod ? ['', `incluye ajuste del producto ${signoPctMd(prod)}${general}`, null] : null,
+    dto ? ['', `incluye descuento distribuidor −${pctMd(dto)} (margen ${pctMd(c.margenPct + dto)} → ${pctMd(c.margenPct)})`, null] : null].filter(Boolean);
 }
 // Margen general de cada canal (sin el del producto, con el especial) en la fuente: placeholder del margen fijo. Pack/bulto: el
 // primer vínculo de ese tipo (Fraccionado: también los de sus presentaciones). Sin desglose → null.
 function generalesCanalMd(fila, fuente) {
   const des = f => { const s = (f.sugeridos || {})[fuente]; return (s && s.desglose) || null; };
-  const general = c => (!c ? null : c.margenProductoModo === 'fijo' ? c.margenGeneralPct : Math.round((c.margenPct - (c.margenProductoPct || 0)) * 100) / 100);
+  const general = c => (!c ? null : c.margenProductoModo === 'fijo' ? c.margenGeneralPct
+    : Math.round((c.margenPct - (c.margenProductoPct || 0) + (c.descuentoDistribuidorPct || 0)) * 100) / 100);
   const vinculos = [fila, ...(fila.presentaciones || [])].flatMap(f => (f.mayoristas || []).map(m => ({ m, d: des(f) })));
   const mayor = tipo => { const v = vinculos.find(x => x.m.tipo === tipo && x.d && x.d.porVinculo[x.m.plu]); return v ? general(v.d.porVinculo[v.m.plu]) : null; };
   return { minorista: general((des(fila) || {}).minorista), pack: mayor('pack'), bulto: mayor('bulto') };

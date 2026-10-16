@@ -94,7 +94,7 @@ test('guard: sin permiso las demás rutas de /api/precios responden sin las clav
     // El margen especial de un producto de Producción (definicion del detalle) tampoco sale sin el permiso.
     assert.deepStrictEqual(permisos.sinClavesOcultas({ definicion: { nombre: 'G', margenEspecial: { minorista: 5 } } }), { definicion: { nombre: 'G' } });
     // Ni el ajuste de margen de un producto (fila) ni su parte en el desglose.
-    assert.deepStrictEqual(permisos.sinClavesOcultas({ filas: [{ plu: '1', margenProducto: { minorista: 5 }, minorista: { margenProductoPct: 5, margenProductoModo: 'fijo', margenGeneralPct: 30, precio: 1 } }] }),
+    assert.deepStrictEqual(permisos.sinClavesOcultas({ filas: [{ plu: '1', margenProducto: { minorista: 5 }, minorista: { margenProductoPct: 5, margenProductoModo: 'fijo', margenGeneralPct: 30, descuentoDistribuidorPct: 5, precio: 1 } }] }),
       { filas: [{ plu: '1', minorista: { precio: 1 } }] });
     // Otros módulos no pasan por el guard.
     const prov = await pedir('GET', '/api/precios-proveedores/listado', 'sin');

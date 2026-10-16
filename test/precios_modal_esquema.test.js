@@ -149,6 +149,14 @@ test('pasosAjusteMd: margen fijo del producto → un renglón con el general que
   assert.deepStrictEqual(pasosAjusteMd({ margenPct: 40, margenProductoPct: 10, margenProductoModo: 'ajuste' }).map(p => p[1]), ['incluye ajuste del producto +10 % (general 30 %)']);
 });
 
+test('pasosAjusteMd / generalesCanalMd: descuento distribuidor en "Ver detalle" y fuera del general', () => {
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 45, descuentoDistribuidorPct: 5 }).map(p => p[1]), ['incluye descuento distribuidor −5 % (margen 50 % → 45 %)']);
+  assert.deepStrictEqual(pasosAjusteMd({ margenPct: 35, margenProductoPct: 10, descuentoDistribuidorPct: 5 }).map(p => p[1]),
+    ['incluye ajuste del producto +10 % (general 30 %)', 'incluye descuento distribuidor −5 % (margen 40 % → 35 %)']);
+  const fila = { sugeridos: { sistema: { desglose: { minorista: { margenPct: 45, descuentoDistribuidorPct: 5 }, porVinculo: {} } } }, mayoristas: [] };
+  assert.strictEqual(generalesCanalMd(fila, 'sistema').minorista, 50);
+});
+
 test('generalesCanalMd: margen general por canal (sin el del producto) desde el desglose de la fuente; sin dato → null', () => {
   const des = (minorista, porVinculo = {}) => ({ sistema: { desglose: { minorista, porVinculo } } });
   const fila = { sugeridos: des({ margenPct: 55, margenProductoPct: 55, margenProductoModo: 'fijo', margenGeneralPct: 43.33 },

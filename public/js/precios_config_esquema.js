@@ -239,6 +239,11 @@ function htmlMargenesEsq(m) {
       <span class="esq-msg text-sm" role="status" aria-live="polite"></span>
       <button type="button" class="esq-guardar cfg-btn ml-auto">Guardar márgenes</button></div>
     <div class="grid grid-cols-3 gap-4">${Object.keys(CANALES_ESQ).map(c => htmlTablaMargenEsq(c, m[c] || {})).join('')}</div>
+    <div class="cfg-card mt-4">
+      <div class="cfg-campo"><label for="esqDtoDistrib">Descuento al margen para distribuidores</label>
+        ${campoU(`<input id="esqDtoDistrib" type="number" step="any" min="0" max="99" value="${esc(m.descuentoDistribuidorPct ?? '')}" placeholder="0">`, 'puntos %', { w: 'w-28' })}</div>
+      <p class="cfg-ayuda">Reventa con proveedor distribuidor: se resta del margen de los tres canales (ej. margen 50 % y descuento 5 → 45 %),
+        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>
     <h3 class="cfg-h mt-4">Fraccionado <span class="cfg-nota">costo por kg del granel</span></h3>
     ${htmlAjustesPesoEsq(m.ajustesPeso)}</section>`;
 }
@@ -273,6 +278,7 @@ function pintarMargenesEsq(panel, cfg) {
   sec.querySelector('.esq-guardar').onclick = () => {
     const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
     const aj = leerAjustesPesoEsq(sec);
-    guardarBloqueEsq(sec, `${API_ESQ}/margenes`, aj ? { ...tablas, ajustesPeso: aj } : tablas, cargarMargenesEsq);
+    const descuentoDistribuidorPct = numOrNull(sec.querySelector('#esqDtoDistrib').value);
+    guardarBloqueEsq(sec, `${API_ESQ}/margenes`, { ...tablas, ...(aj ? { ajustesPeso: aj } : {}), descuentoDistribuidorPct }, cargarMargenesEsq);
   };
 }

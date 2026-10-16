@@ -14,7 +14,8 @@ const SIM_ERRORES = {
 };
 
 // Costo de compra (con o sin IVA) → costo neto → preciosCanales. { faltantes: [texto] } si no se puede calcular.
-function simularCanales(cfg, { costo, tipo = 'almacen', conIva = false, ivaCompraPct = SIM_IVA_COMPRA_DEFAULT, pesoG = SIM_PESO_DEFAULT_G } = {}) {
+// distribuidor: Reventa con proveedor distribuidor (descuento al margen de Márgenes; el motor lo ignora en otros tipos).
+function simularCanales(cfg, { costo, tipo = 'almacen', conIva = false, ivaCompraPct = SIM_IVA_COMPRA_DEFAULT, pesoG = SIM_PESO_DEFAULT_G, distribuidor = false } = {}) {
   const fracc = tipo === 'fraccionado';
   const faltantes = [];
   if (!(costo > 0)) faltantes.push('Cargá el costo de compra (mayor a 0).');
@@ -22,7 +23,7 @@ function simularCanales(cfg, { costo, tipo = 'almacen', conIva = false, ivaCompr
   if (fracc && !(pesoG > 0)) faltantes.push('Cargá el peso de la presentación (g).');
   if (faltantes.length) return { faltantes };
   const costoNeto = conIva ? PE_SIM.r2(costo / (1 + ivaCompraPct / 100)) : costo;
-  const r = PE_SIM.preciosCanales({ tipo, costo: costoNeto, pesoG: fracc ? pesoG : null, unidades: SIM_UNIDADES, cfg });
+  const r = PE_SIM.preciosCanales({ tipo, costo: costoNeto, pesoG: fracc ? pesoG : null, unidades: SIM_UNIDADES, cfg, distribuidor });
   if (r.error) return { faltantes: [SIM_ERRORES[r.error] || r.error] };
   return { faltantes: [], tipo, fracc, costoCompra: costo, conIva, ivaCompraPct, ivaCompra: conIva ? PE_SIM.r2(costo - costoNeto) : 0, costoNeto, r };
 }
@@ -48,6 +49,8 @@ function htmlSimuladorForm() {
       ${campoU(`<input id="simCosto" type="number" min="0" step="any" inputmode="decimal" placeholder="0,00" class="text-lg font-semibold">`, '$', { pre: true, w: 'w-full' })}
       <div class="text-sm font-semibold mt-4 mb-1" id="simTipoLbl">Tipo</div>
       <div id="simTipo" class="seg seg-sub" role="group" aria-labelledby="simTipoLbl">${tipos}</div>
+      <label id="simDistribFila" class="flex items-center gap-2 text-sm mt-4 cursor-pointer"><input id="simDistrib" type="checkbox" class="accent-verde"> Distribuidor
+        <span class="cfg-nota">descuento al margen de Márgenes</span></label>
       <label class="flex items-center gap-2 text-sm mt-4 cursor-pointer"><input id="simConIva" type="checkbox" class="accent-verde"> El costo incluye IVA</label>
       <div class="flex items-center justify-between gap-2 text-sm text-gris mt-2 ml-6"><label for="simIvaCompra">Alícuota de compra</label>
         ${campoU(`<input id="simIvaCompra" type="number" min="0" max="100" step="any" value="${SIM_IVA_COMPRA_DEFAULT}" disabled>`, '%', { w: 'w-24' })}</div>
@@ -65,17 +68,18 @@ function htmlSimuladorForm() {
   </div>`;
 }
 
+const dtoSim = c => (c.descuentoDistribuidorPct ? ` (con descuento distribuidor −${pctSim(c.descuentoDistribuidorPct)})` : '');
 function htmlCanalesSim(s) {
   const r = s.r, m = r.minorista, kg = s.fracc ? ' /kg' : '';
   const minorista = `<div class="cfg-card min-w-0"><h4 class="font-semibold text-sm mb-1">Minorista${kg}</h4>
     ${simPaso('', 'Costo con gastos', r.costoConGastos)}
-    ${simPaso('×', `Margen ${pctSim(m.margenPct)}`, m.neto)}
+    ${simPaso('×', `Margen ${pctSim(m.margenPct)}${dtoSim(m)}`, m.neto)}
     ${simPaso('×', `Extras minoristas ${pctSim(m.extrasPct)}`, m.conExtras)}
     ${simPaso('×', `IVA ${pctSim(m.ivaPct)}`, m.exacto)}
     ${simPaso('=', 'Precio redondeado', m.precio, true)}</div>`;
   const mayorista = (titulo, c) => `<div class="cfg-card min-w-0"><h4 class="font-semibold text-sm mb-1">${titulo} (por unidad${kg})</h4>
     ${simPaso('', 'Costo con gastos', r.costoConGastos)}
-    ${simPaso('×', `Margen ${pctSim(c.margenPct)}`, c.netoUnidad)}
+    ${simPaso('×', `Margen ${pctSim(c.margenPct)}${dtoSim(c)}`, c.netoUnidad)}
     ${simPaso('=', 'Sin IVA redondeado', c.neto, true)}
     ${simPaso('×', 'IVA', c.exactoIva)}
     ${simPaso('=', 'Con IVA redondeado', c.conIva, true)}</div>`;
@@ -93,7 +97,8 @@ function htmlResultadoSim(s) {
 
 function entradaSim() {
   const val = id => numOrNull(document.getElementById(id).value);
-  return { costo: val('simCosto'), tipo: simTipo, conIva: document.getElementById('simConIva').checked, ivaCompraPct: val('simIvaCompra'), pesoG: val('simPeso') };
+  return { costo: val('simCosto'), tipo: simTipo, conIva: document.getElementById('simConIva').checked, ivaCompraPct: val('simIvaCompra'), pesoG: val('simPeso'),
+    distribuidor: document.getElementById('simDistrib').checked };
 }
 function recalcularSim() {
   if (simCfg) document.getElementById('simResultado').innerHTML = htmlResultadoSim(simularCanales(simCfg, entradaSim()));
@@ -102,10 +107,12 @@ function conectarSimulador() {
   const panel = document.getElementById('panel-simulador');
   panel.addEventListener('input', e => { if (['simCosto', 'simIvaCompra', 'simPeso'].includes(e.target.id)) recalcularSim(); });
   document.getElementById('simConIva').addEventListener('change', e => { document.getElementById('simIvaCompra').disabled = !e.target.checked; recalcularSim(); });
+  document.getElementById('simDistrib').addEventListener('change', recalcularSim);
   document.querySelectorAll('#simTipo .seg-opt').forEach(b => b.addEventListener('click', () => {
     simTipo = b.dataset.tipo;
     document.querySelectorAll('#simTipo .seg-opt').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
     document.getElementById('simPesoFila').classList.toggle('hidden', simTipo !== 'fraccionado');
+    document.getElementById('simDistribFila').classList.toggle('hidden', simTipo !== 'almacen'); // sólo Reventa
     document.getElementById('simCostoLbl').textContent = simTipo === 'fraccionado' ? 'Costo de compra ($/kg)' : 'Costo de compra ($)';
     recalcularSim();
   }));

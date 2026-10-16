@@ -308,3 +308,45 @@ test('UMD: sin module, se publica como global PreciosEsquema', () => {
   vm.runInNewContext(src, ctx);
   assert.strictEqual(typeof ctx.self.PreciosEsquema.preciosCanales, 'function');
 });
+
+// ── Descuento al margen para distribuidores (cfg.margenes.descuentoDistribuidorPct) ──
+// Fixture común: margen plano 30 % en los 3 canales, gastos 10 % (costo 1000 → con gastos 1100).
+const FIX = require('./precios_esquema_fixture').CFG;
+test('preciosCanales: descuento distribuidor resta puntos al margen de los 3 canales, sólo Reventa con distribuidor', () => {
+  const cfg = { ...FIX, margenes: { ...FIX.margenes, descuentoDistribuidorPct: 5 } };
+  const canales = (extra = {}) => E.preciosCanales({ tipo: 'almacen', costo: 1000, unidades: { pack: 1, bulto: 1 }, cfg, ...extra });
+  const d = canales({ distribuidor: true });
+  for (const c of ['minorista', 'pack', 'bulto']) assert.deepStrictEqual([d[c].margenPct, d[c].descuentoDistribuidorPct], [25, 5], c);
+  assert.strictEqual(d.minorista.neto, 1375); // 1100 × 1,25: después siguen extras, IVA y redondeo
+  // Directo / sin clasificar, u otros tipos con distribuidor: sin descuento ni marca.
+  for (const p of [canales(), canales({ distribuidor: false }),
+    E.preciosCanales({ tipo: 'fraccionado', costo: 1000, pesoG: 1000, unidades: { pack: 1 }, cfg, distribuidor: true }),
+    E.preciosCanales({ tipo: 'produccion', costo: 1000, unidades: { pack: 1 }, cfg, distribuidor: true })]) {
+    assert.deepStrictEqual([p.minorista.margenPct, 'descuentoDistribuidorPct' in p.minorista, 'descuentoDistribuidorPct' in p.pack], [30, false, false]);
+  }
+  // Sin descuento configurado (o 0): nada cambia.
+  assert.deepStrictEqual(E.preciosCanales({ tipo: 'almacen', costo: 1000, cfg: FIX, distribuidor: true }), E.preciosCanales({ tipo: 'almacen', costo: 1000, cfg: FIX }));
+});
+
+test('preciosCanales: descuento distribuidor después del ajuste del producto; el fijo no lo lleva; margen resultante ≤ −100 → error margen', () => {
+  const cfg = { ...FIX, margenes: { ...FIX.margenes, descuentoDistribuidorPct: 5 } };
+  const p = E.preciosCanales({ tipo: 'almacen', costo: 1000, unidades: { pack: 1 }, cfg, distribuidor: true,
+    margenProducto: { modo: 'ajuste', minorista: 20, pack: -3 } });
+  assert.deepStrictEqual([p.minorista.margenPct, p.minorista.margenProductoPct, p.minorista.descuentoDistribuidorPct], [45, 20, 5]);
+  assert.strictEqual(p.pack.margenPct, 22);
+  const f = E.preciosCanales({ tipo: 'almacen', costo: 1000, unidades: { pack: 1 }, cfg, distribuidor: true, margenProducto: { modo: 'fijo', minorista: 50 } });
+  assert.deepStrictEqual([f.minorista.margenPct, 'descuentoDistribuidorPct' in f.minorista, f.minorista.margenGeneralPct], [50, false, 30]);
+  assert.deepStrictEqual([f.pack.margenPct, f.pack.descuentoDistribuidorPct], [25, 5]); // canal sin fijo: general − descuento
+  const malo = E.preciosCanales({ tipo: 'almacen', costo: 1000, cfg: { ...FIX, margenes: { ...FIX.margenes, descuentoDistribuidorPct: 130 } }, distribuidor: true });
+  assert.strictEqual(malo.error, 'margen');
+});
+
+test('margenParaPrecio: el fijo de "Igualar a SIGA" reproduce el vigente también en un distribuidor (el fijo no lleva descuento)', () => {
+  const cfg = { ...FIX, margenes: { ...FIX.margenes, descuentoDistribuidorPct: 5 } };
+  const vigentes = { minorista: 3990, pack: 21000, bulto: 39530 };
+  const unidades = { pack: 6, bulto: 12 };
+  const mp = { modo: 'fijo' };
+  for (const canal of ['minorista', 'pack', 'bulto']) mp[canal] = E.margenParaPrecio({ tipo: 'almacen', canal, costo: 2000, precioObjetivo: vigentes[canal], unidades: unidades[canal], cfg });
+  const p = E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades, vigentes, cfg, distribuidor: true, margenProducto: mp });
+  assert.deepStrictEqual([p.minorista.precio, p.pack.conIva, p.bulto.conIva], [3990, 21000, 39530]);
+});

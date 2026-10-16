@@ -419,6 +419,19 @@ test('listadoReventa: tipoProveedor viaja en la fila (también en la pública); 
   assert.deepStrictEqual(filas.map(f => L.filaPublica(f).tipoProveedor), ['directo', 'distribuidor', null, null]);
 });
 
+test('listadoReventa: el descuento distribuidor baja el margen sólo de los productos con tipoProveedor distribuidor', () => {
+  const cfg = { ...CFG, margenes: { ...CFG.margenes, descuentoDistribuidorPct: 5 } };
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const universo = ['1', '2', '3'].map(plu => ({ plu, nombre: plu, costoSistema: 1000 }));
+  const filas = L.listadoReventa({ universo, vigentes: new Map(), mayoristasDe: md, costeo: { tipoProveedor: { 1: 'directo', 2: 'distribuidor' } }, cfg });
+  const des = f => f.sugeridos.sistema.desglose.minorista;
+  assert.deepStrictEqual(filas.map(f => [des(f).margenPct, des(f).descuentoDistribuidorPct]), [[30, undefined], [25, 5], [30, undefined]]);
+  // 1100 × 1,25 = 1375 → × 1,05 × 1,21 = 1746,94 → 1750 (directo: 1800).
+  assert.deepStrictEqual(filas.map(f => f.sugeridos.sistema.minorista.precio), [1800, 1750, 1800]);
+  // Pública: precio final con el descuento, sin el desglose.
+  assert.deepStrictEqual([L.filaPublica(filas[1]).sugeridos.sistema.minorista.precio, 'desglose' in L.filaPublica(filas[1]).sugeridos.sistema], [1750, false]);
+});
+
 test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicarTipoProveedor devuelve un mapa nuevo (null quita)', () => {
   assert.strictEqual(L.validarTipoProveedor('1', 'directo'), null);
   assert.strictEqual(L.validarTipoProveedor('1', 'distribuidor'), null);

@@ -55,6 +55,14 @@ test('validarMargenes: errores con canal y campo', () => {
   assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [100], puntos: [200] } }), /puntos/);
 });
 
+test('validarMargenes: descuentoDistribuidorPct opcional (número ≥ 0 y < 100); null/vacío = sin descuento', () => {
+  const tres = { minorista: TABLA, pack: TABLA, bulto: TABLA };
+  assert.deepStrictEqual(C.validarMargenes({ ...tres, descuentoDistribuidorPct: 5 }), { ...tres, descuentoDistribuidorPct: 5 });
+  assert.deepStrictEqual(C.validarMargenes({ ...tres, descuentoDistribuidorPct: 0 }), { ...tres, descuentoDistribuidorPct: 0 });
+  for (const v of [null, '', undefined]) assert.deepStrictEqual(C.validarMargenes({ ...tres, descuentoDistribuidorPct: v }), tres);
+  for (const v of [-1, 100, '5', NaN]) assert.throws(() => C.validarMargenes({ ...tres, descuentoDistribuidorPct: v }), /descuentoDistribuidorPct/);
+});
+
 test('validarPrecio: IVA, tolerancia y los 5 redondeos (descarta claves de más)', () => {
   const red = { minorista: 50, packNeto: 0, packIva: 50, bultoNeto: 0, bultoIva: 100 };
   assert.deepStrictEqual(C.validarPrecio({ ivaVentaPct: 21, toleranciaPct: 3, redondeo: red, otro: 1 }), { ivaVentaPct: 21, toleranciaPct: 3, redondeo: red });
