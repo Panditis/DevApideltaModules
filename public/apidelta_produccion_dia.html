@@ -2178,12 +2178,11 @@ function renderHistorial(registros) {
                 : (c.fechaHora ? new Date(c.fechaHora).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—');
               const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${escEnv(c.observacion)}</div>` : '';
               // Dropdown por producto: componentes que quedaron guardados en la carga —los graneles
-              // con sus kg, y el envase/tapa usados (sin cantidad: la carga no la registra).
+              // con sus kg, y envase/tapa/etiqueta en unidades (ver _packagingDeCarga).
               const comps = (Array.isArray(c.graneles) ? c.graneles : [])
                 .filter(g => g && (g.nombreGranel || g.granelConsumido))
                 .map(g => ({ nom: g.nombreGranel || 'Granel', cant: `${fmtN(g.granelConsumido || 0)} kg` }));
-              if (c.envaseNombre) comps.push({ nom: c.envaseNombre, cant: '—' });
-              if (c.tapaNombre)   comps.push({ nom: c.tapaNombre,   cant: '—' });
+              _packagingDeCarga(c).forEach(k => comps.push({ nom: k.nom, cant: _fmtPackCant(k.cant) }));
               const compId = `comp-h${idx}-${ci}`;
               const filaComp = `<tr id="${compId}" style="display:none;background:#FAFAFA">
                 <td colspan="7" style="padding:8px 22px 12px">
@@ -2472,7 +2471,47 @@ function fmtN(n) {
 // Cada presentación de una orden es un producto distinto con su propia fórmula, así que
 // los componentes editables van por elemento (índice eidx), no en una lista compartida.
 let _pfOrden = null, _pfFactoresPorElem = [], _pfEncargados = [], _pfElementos = [];
+// Fórmula completa (comps de /api/formula) + sugerido de /api/plan/packaging, por elemento:
+// de ahí sale el CantPorUnidad de envase/tapa/etiqueta que se guarda en la carga.
+let _pfPackPorElem = [];
 function _pfFactoresDe(eidx){ return _pfFactoresPorElem[Number(eidx)] || []; }
+
+// Rol con alguien asignado (roles = clave nueva, responsables = la vieja). Envasado = alta +
+// graneles + envase/tapa; Etiquetado = etiqueta (con o sin Envasado).
+function _tieneRolCarga(r, re) {
+  return (Array.isArray(r && r.roles) ? r.roles : (Array.isArray(r && r.responsables) ? r.responsables : []))
+    .some(x => re.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
+}
+const _esEtiquetaComp = c => String((c && c.Rubro) || '').toUpperCase().includes('ETIQUET') || /^\s*etiquetas?\b/i.test(String((c && c.Componente) || ''));
+// Cantidades de packaging que se guardan en la carga. Factor = CantPorUnidad del componente de la
+// fórmula con ese código; si lo elegido no está en la fórmula, el del componente que reemplaza
+// (el sugerido de /api/plan/packaging, como aplicarSeleccionPackaging en el server); si no, 1.
+// La etiqueta sólo si hay alguien en Etiquetado. Misma regla que lib/produccion_packaging.js.
+function _pfPackagingGuardado(el, cant, roles) {
+  const { comps = [], sugerido = null } = _pfPackPorElem[el.eidx] || {};
+  const factorDe = cod => { const c = comps.find(x => String(x.IdComponente) === String(cod)); return c ? (parseFloat(c.CantPorUnidad) || 1) : null; };
+  const out = {};
+  for (const [tipo, campo] of [['envase', 'cantEnvase'], ['tapa', 'cantTapa']]) {
+    if (!el[tipo]) continue;
+    const f = factorDe(el[tipo]) ?? (sugerido && sugerido[tipo] ? factorDe(sugerido[tipo].codigo) : null) ?? 1;
+    out[campo] = +(cant * f).toFixed(4);
+  }
+  const et = _tieneRolCarga({ roles }, /etiquetad/i) ? comps.find(_esEtiquetaComp) : null;
+  if (et) Object.assign(out, { etiqueta: String(et.IdComponente), etiquetaNombre: et.Componente || '', cantEtiqueta: +(cant * (parseFloat(et.CantPorUnidad) || 1)).toFixed(4) });
+  return out;
+}
+// Packaging de una carga para mostrar (Historial / Terminados), en unidades. Cargas viejas sin
+// cantidades guardadas: envase/tapa = 1 por unidad producida; etiqueta "no registrada" si hubo Etiquetado.
+function _packagingDeCarga(r) {
+  const cant = _parseNum(r.cantFraccionada ?? r.cantidad);
+  const out = [];
+  if (r.envase || r.envaseNombre) out.push({ nom: r.envaseNombre || envaseLabel(r.envase), cant: r.cantEnvase ?? cant });
+  if (r.tapa || r.tapaNombre)     out.push({ nom: r.tapaNombre   || tapaLabel(r.tapa),     cant: r.cantTapa   ?? cant });
+  if (r.cantEtiqueta != null) out.push({ nom: r.etiquetaNombre || `Etiqueta ${r.etiqueta || ''}`.trim(), cant: r.cantEtiqueta });
+  else if (_tieneRolCarga(r, /etiquetad/i)) out.push({ nom: 'Etiqueta', cant: null });
+  return out;
+}
+const _fmtPackCant = q => q == null ? 'no registrada' : `${fmtN(q)} u`;
 
 function closeProdFinalModal() {
   document.getElementById('prodFinalModal').classList.remove('open');
@@ -2678,6 +2717,7 @@ async function openProdFinalModal(id, presIndex = null) {
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   // Editables por elemento: todos los componentes salvo envase/tapa/etiqueta.
   const editablesDe = el => compsDe(el).filter(c => !_pfSeDescuentaAparte(c, packagingPorPlu[el.plu]));
+  _pfPackPorElem = _pfElementos.map(el => ({ comps: compsDe(el), sugerido: packagingPorPlu[el.plu] || null }));
   _pfFactoresPorElem = _pfElementos.map(el => editablesDe(el)
     .map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' })));
 
@@ -2766,6 +2806,7 @@ async function guardarProduccionFinal(ev) {
     })).filter(g => g.nombreGranel);
     return {
       cant,
+      eidx: Number(blk.dataset.eidx),
       presIndex: Number(blk.dataset.presindex),
       presentacion: blk.dataset.presentacion || '',
       plu: blk.dataset.plu || '',
@@ -2804,6 +2845,8 @@ async function guardarProduccionFinal(ev) {
         envaseNombre:    el.envase ? envaseLabel(el.envase) : '',
         tapa:            el.tapa,
         tapaNombre:      el.tapa ? tapaLabel(el.tapa) : '',
+        // cantEnvase/cantTapa/etiqueta/etiquetaNombre/cantEtiqueta: lo que descuenta la carga.
+        ..._pfPackagingGuardado(el, el.cant, roles),
       };
       const res = await fetch(`${SERVER_URL}/api/produccion/registros`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -2938,7 +2981,7 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
       const listaGraneles = Array.isArray(r.graneles) && r.graneles.length
         ? r.graneles
         : (r.nombreGranel ? [{ nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }] : []);
-      _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles, plu: String(r.plu || ''), presentacion: String(r.presentacion || '') };
+      _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles, packaging: _packagingDeCarga(r), plu: String(r.plu || ''), presentacion: String(r.presentacion || '') };
       const ordenReg = r.ordenId != null ? ordenesById[r.ordenId] : null;
       const badgeSinConciliar = ordenReg && ordenReg.sinConciliar
         ? `<span class="badge-sin-conciliar" title="La reserva de stock de esta orden todavía no fue conciliada en SiGA">⚠ sin conciliar</span>`
@@ -3144,6 +3187,7 @@ async function openProdFinalModalManual(nombre, codigo, tambor) {
   _pfEnriquecerNombres(allComps);
   _pfEncargados = (Array.isArray(respData) ? respData : []).map(r => typeof r === 'string' ? r : r.nombre || '').filter(Boolean);
   // Editables: todos los componentes salvo packaging (envase/tapa/etiqueta), no solo los graneles.
+  _pfPackPorElem = [{ comps: allComps, sugerido: sugerido || null }];
   _pfFactoresPorElem = [compsVisibles.map(c => ({ id: c.IdComponente, nombre: c.Componente, factorPorUnidad: parseFloat(c.CantPorUnidad) || 0, unidad: c.Unidad || 'kg' }))];
 
   const respRolesHTML = _pfRespRolesHTML();
@@ -3700,7 +3744,7 @@ async function registrarMovimientoProduccion() {
     // Sólo lo pendiente: los ya registrados no se vuelven a dar de alta.
     const prods = (d.productos || []).filter(p => !p.excluido && !p.yaRegistrado);
     const comps = d.componentes || [];
-    if (!prods.length && !comps.length) { showSnack('No hay nada pendiente para registrar'); return; }
+    if (!prods.length && !comps.length && !(d.componentesManual || []).length) { showSnack('No hay nada pendiente para registrar'); return; }
 
     const sinPlu = comps.filter(c => !c.plu);
     const nSuc   = sucursalProdActual();
@@ -3798,6 +3842,7 @@ async function generarCSVProduccion(items, fecha) {
     if (r.tapa)   codigos.add(String(r.tapa));
     const et = etiquetaMap[r.plu];
     if (et && et.id) codigos.add(String(et.id));
+    if (r.etiqueta) codigos.add(String(r.etiqueta));
   });
   let nombreSiga = {};
   try { nombreSiga = await api('GET', `/api/productos/nombres?plus=${encodeURIComponent([...codigos].join(','))}`) || {}; } catch(_) {}
@@ -3811,8 +3856,11 @@ async function generarCSVProduccion(items, fecha) {
     const nombre = nom(plu, r.nombre || r.producto);
     const cant = _parseNum(r.cantFraccionada ?? r.cantidad);
     // La etiqueta sólo se descuenta si la carga tiene la tarea Etiquetado con alguien asignado.
-    const et = tieneRol(r, /etiquetad/i) ? etiquetaMap[plu] : null;
-    const filaEtiqueta = () => { if (et) rows.push([1, esc(et.id), esc(nom(et.id, et.nombre)), -_parseNum(cant * et.factor), 1, esc(et.id)].join(SEP)); };
+    // Cargas nuevas: la etiqueta y su cantidad quedaron guardadas; las viejas usan la fórmula actual.
+    const et = !tieneRol(r, /etiquetad/i) ? null
+      : (r.cantEtiqueta != null && r.etiqueta) ? { id: r.etiqueta, nombre: r.etiquetaNombre, cant: _parseNum(r.cantEtiqueta) }
+      : (etiquetaMap[plu] ? { ...etiquetaMap[plu], cant: _parseNum(cant * etiquetaMap[plu].factor) } : null);
+    const filaEtiqueta = () => { if (et) rows.push([1, esc(et.id), esc(nom(et.id, et.nombre)), -et.cant, 1, esc(et.id)].join(SEP)); };
     // Sólo Etiquetado (sin Envasado): no hay alta ni consumo de granel/envase/tapa, sólo la etiqueta.
     if (!tieneRol(r, /envasad/i)) { filaEtiqueta(); return; }
     rows.push([1, esc(plu), esc(nombre), cant, 1, esc(plu)].join(SEP));
@@ -3828,9 +3876,9 @@ async function generarCSVProduccion(items, fecha) {
       rows.push([1, esc(gid), esc(nom(gid, g.nombreGranel)), gcant, 1, esc(gid)].join(SEP));
     });
     // Insumos de packaging: envase/tapa (seleccionados en la carga) y etiqueta (de la fórmula).
-    // Van como consumo (cantidad negativa) para descontar stock, 1 por unidad.
-    if (r.envase) rows.push([1, esc(r.envase), esc(nom(r.envase, r.envaseNombre || envaseLabel(r.envase))), -cant, 1, esc(r.envase)].join(SEP));
-    if (r.tapa)   rows.push([1, esc(r.tapa),   esc(nom(r.tapa,   r.tapaNombre   || tapaLabel(r.tapa))),       -cant, 1, esc(r.tapa)].join(SEP));
+    // Van como consumo (cantidad negativa): lo guardado en la carga, o 1 por unidad si es vieja.
+    if (r.envase) rows.push([1, esc(r.envase), esc(nom(r.envase, r.envaseNombre || envaseLabel(r.envase))), -_parseNum(r.cantEnvase ?? cant), 1, esc(r.envase)].join(SEP));
+    if (r.tapa)   rows.push([1, esc(r.tapa),   esc(nom(r.tapa,   r.tapaNombre   || tapaLabel(r.tapa))),       -_parseNum(r.cantTapa   ?? cant), 1, esc(r.tapa)].join(SEP));
     filaEtiqueta();
   });
 
@@ -3849,14 +3897,17 @@ function openRcCompModal(idx) {
   document.getElementById('rcCompTitle').textContent = d.nombre;
   document.getElementById('rcCompSubtitle').textContent = `${d.cant} unidades producidas`;
   const body = document.getElementById('rcCompBody');
-  if (!d.graneles.length) {
+  // Graneles en kg + envase/tapa/etiqueta en unidades.
+  const filas = [...d.graneles.map(g => ({ nom: g.nombreGranel || 'Granel', cant: fmtN(g.granelConsumido), uni: 'kg' })),
+                 ...(d.packaging || []).map(k => ({ nom: k.nom, cant: k.cant == null ? 'no registrada' : fmtN(k.cant), uni: k.cant == null ? '' : 'u' }))];
+  if (!filas.length) {
     body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:14px">Sin componentes registrados</div>';
   } else {
     body.innerHTML = `<table style="width:100%;border-collapse:collapse">
-      ${d.graneles.map(g => `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:12px 4px;font-size:15px">${g.nombreGranel||'Granel'}</td>
-        <td style="text-align:right;padding:12px 4px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:22px;color:var(--green-dark)">${fmtN(g.granelConsumido)}</td>
-        <td style="padding:12px 4px 12px 6px;font-size:13px;color:var(--text-muted)">kg</td>
+      ${filas.map(f => `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:12px 4px;font-size:15px">${escEnv(f.nom)}</td>
+        <td style="text-align:right;padding:12px 4px;font-family:system-ui,'Segoe UI',sans-serif;font-weight:800;font-size:${f.uni ? 22 : 14}px;color:var(--green-dark)">${f.cant}</td>
+        <td style="padding:12px 4px 12px 6px;font-size:13px;color:var(--text-muted)">${f.uni}</td>
       </tr>`).join('')}
     </table>`;
   }
