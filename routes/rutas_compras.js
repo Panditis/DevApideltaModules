@@ -575,18 +575,9 @@ router.get('/api/compras/producto/:plu/uso', apiRoute(async (req) => {
 }));
 
 
-// ── Importación de facturas de compra — BANCO DE PRUEBAS ───────────────────────
-// Parsea el xlsx y resuelve los productos contra SIGA para la previsualización.
-// La grabación real (stock, cta cte y comprobante en SIGA) la hace
-// POST /api/compras-import/grabar en routes/rutas_compras_grabar.js.
-// El mapeo de las 12 tablas está relevado en docs/compras_siga_mapeo.md
-router.get('/compras/importar-prueba', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'compras_import_prueba.html')));
-
-// Busca la hoja por nombre sin distinguir mayúsculas ni espacios sobrantes.
-function hojaCompra(wb, nombre) {
-  const clave = wb.SheetNames.find(n => String(n).trim().toLowerCase() === nombre);
-  return clave ? wb.Sheets[clave] : null;
-}
+// ── Resolución de productos de compra contra SIGA ──────────────────────────────
+// La usa /api/compras/armado/importar-pedido. La carga de comprobantes en SIGA vive en
+// routes/rutas_compras_siga.js (lib/siga_compras/).
 
 // SELECT ... IN (...) con parámetros: nunca interpola los valores en el SQL.
 async function selectEnLista(sqlTexto, valores, extras = []) {
@@ -707,106 +698,6 @@ async function resolverProductosCompra(idProveedor, lineas) {
   });
 }
 
-// Toma lo que devolvió el parser y lo contrasta con SIGA: proveedor, productos,
-// sucursal y comprobante duplicado. La usan tanto la subida del xlsx como la
-// revalidación de los datos editados a mano en la pantalla.
-async function armarVistaCompra(parsed, archivo) {
-  const errores = [...parsed.errores];
-  const cab = parsed.cabecera;
-  let proveedor = null;
-  let lineas = parsed.lineas;
-  let duplicado = null;
-
-  // Sin proveedor válido no tiene sentido resolver códigos: se corta acá.
-  if (cab.IdProveedor != null) {
-    const pool = await getPool();
-    const rp = await pool.request().input('id', cab.IdProveedor)
-      .query('SELECT IdProveedor, NombreProveedor, CuitProveedor, IdCategoriaFiscal FROM Proveedores WHERE IdProveedor = @id');
-    proveedor = rp.recordset[0] || null;
-    if (!proveedor) errores.push(`El proveedor ${cab.IdProveedor} no existe en SIGA.`);
-  }
-
-  if (proveedor && lineas.length) {
-    lineas = await resolverProductosCompra(cab.IdProveedor, lineas);
-    const sinResolver = lineas.filter(l => l.estado !== 'ok');
-    if (sinResolver.length) {
-      errores.push(`${sinResolver.length} de ${lineas.length} ítem(s) no se pudieron identificar en SIGA. No se cargaría nada.`);
-    }
-  }
-
-  // Numeración automática: sólo comprobantes internos (cotizaciones). Se consulta
-  // el último usado para esa sucursal + tipo + letra + punto de venta. Es
-  // provisorio: el definitivo se resuelve al grabar, porque otro usuario puede
-  // cargar un comprobante en el medio.
-  let numeroAsignado = false;
-  if (cab.numeroAutomatico && cab.IdSucursal != null && cab.TipoComprobante && cab.Letra && cab.PuntoVenta != null) {
-    const pool = await getPool();
-    const rn = await pool.request()
-      .input('suc', cab.IdSucursal).input('tipo', cab.TipoComprobante)
-      .input('letra', cab.Letra).input('emisor', cab.PuntoVenta)
-      .query(`SELECT MAX(NumeroComprobante) AS ultimo FROM Compras
-               WHERE IdSucursal = @suc AND IdTipoComprobante = @tipo
-                 AND Letra = @letra AND CentroEmisor = @emisor`);
-    const ultimo = rn.recordset[0] && rn.recordset[0].ultimo != null ? Number(rn.recordset[0].ultimo) : 0;
-    cab.NumeroComprobante = ultimo + 1;
-    cab.numeroUltimoUsado = ultimo || null;
-    numeroAsignado = true;
-  }
-
-  // Comprobante ya cargado: la PK de Compras es sucursal+tipo+letra+emisor+número.
-  // Si el número lo asignamos nosotros no hace falta: es nuevo por construcción.
-  if (!numeroAsignado && cab.IdSucursal != null && cab.TipoComprobante && cab.Letra && cab.PuntoVenta != null && cab.NumeroComprobante != null) {
-    const pool = await getPool();
-    const rd = await pool.request()
-      .input('suc', cab.IdSucursal).input('tipo', cab.TipoComprobante).input('letra', cab.Letra)
-      .input('emisor', cab.PuntoVenta).input('nro', cab.NumeroComprobante)
-      .query(`SELECT CONVERT(varchar(10), Fecha, 23) AS Fecha, ImporteTotal, Usuario, NombreProveedor
-                FROM Compras
-               WHERE IdSucursal = @suc AND IdTipoComprobante = @tipo AND Letra = @letra
-                 AND CentroEmisor = @emisor AND NumeroComprobante = @nro`);
-    duplicado = rd.recordset[0] || null;
-    if (duplicado) errores.push(`Ese comprobante ya está cargado en SIGA (${duplicado.Fecha}, ${duplicado.NombreProveedor}).`);
-  }
-
-  let sucursal = null;
-  if (cab.IdSucursal != null) {
-    const pool = await getPool();
-    const rs = await pool.request().input('id', cab.IdSucursal)
-      .query('SELECT IdSucursal, Nombre FROM Sucursales WHERE IdSucursal = @id');
-    sucursal = rs.recordset[0] || null;
-    if (!sucursal) errores.push(`La sucursal ${cab.IdSucursal} no existe.`);
-  }
-
-  return {
-    archivo,
-    cabecera: cab,
-    proveedor,
-    sucursal,
-    duplicado,
-    lineas,
-    totales: parsed.totales,
-    avisos: parsed.avisos,
-    errores,
-    numeroAsignado,
-    // Catálogo para los selects de la pantalla: una sola fuente de verdad.
-    tiposComprobante: comprasImport.TIPOS_COMPRA,
-    valido: errores.length === 0,
-    // Recordatorio explícito: este módulo no escribe. La carga real está sin implementar.
-    grabaEnSiga: false,
-  };
-}
-
-// Revalida la compra después de editarla en pantalla. Se reconstruye la misma
-// matriz plana que produce el xlsx y se la pasa por el parser: así lo editado
-// atraviesa exactamente las mismas validaciones que el archivo, sin confiar
-// en lo que manda el navegador. matrizDesdeBody es la misma que usa
-// /api/compras-import/grabar (routes/rutas_compras_grabar.js) — no duplicar.
-router.post('/api/compras-import/revalidar', express.json({ limit: '2mb' }), apiRoute(async (req) => {
-  const matriz = comprasImport.matrizDesdeBody(req.body);
-  const parsed = comprasImport.parsearCompra({ matriz });
-  return armarVistaCompra(parsed, req.body && req.body.archivo);
-}));
-
 // Buscador de productos, para agregar ítems a mano sin saber el PLU de memoria.
 router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   const q = String(req.query.q || '').trim();
@@ -837,24 +728,5 @@ router.get('/api/compras-import/buscar-producto', apiRoute(async (req) => {
   };
 }));
 
-// La planilla ahora sólo trae productos (PLU/CodigoProveedor/CodigoBarras, Cantidad,
-// PrecioUnitario, PorcentajeIVA, Descripcion) — la cabecera del comprobante se arma
-// en pantalla (a mano o abriendo un pedido), nunca desde el archivo. Por eso acá
-// sólo se corre parsearDetalle: sin cabecera que validar, no hace falta pasar por
-// parsearCompra/armarVistaCompra (eso ya lo hace /revalidar sobre lo que quede en pantalla).
-router.post('/api/compras-import/preview', uploadCompraXlsx.single('archivo'), apiRoute(async (req) => {
-  if (!req.file) throw new Error('No llegó ningún archivo.');
-
-  const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
-  const opciones = { header: 1, raw: true, defval: '' };
-  const hoja = hojaCompra(wb, 'detalle') || hojaCompra(wb, 'compra') || wb.Sheets[wb.SheetNames[0]];
-  if (!hoja) throw new Error('El archivo no tiene ninguna hoja.');
-
-  const { lineas, errores } = comprasImport.parsearDetalle(XLSX.utils.sheet_to_json(hoja, opciones));
-  if (errores.length) throw new Error(errores.join(' | '));
-
-  return { archivo: req.file.originalname, lineas };
-}));
-
-  return { router, armarVistaCompra, resolverProductosCompra, usuarioCompras };
+  return { router, usuarioCompras };
 };

@@ -18,7 +18,6 @@ const auth     = require('./lib/auth');
 const compras = require('./lib/compras');
 const preciosProv = require('./lib/precios_proveedores');
 const preciosFacturador = require('./lib/precios_facturador');
-const comprasImport = require('./lib/compras_import');
 const pdfParse = require('pdf-parse');
 const { calcularFaltantesFraccionado } = require('./lib/fraccionado_faltantes');
 const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPlu } = require('./lib/producto_carga');
@@ -2532,16 +2531,6 @@ const comprasRouter = require('./routes/rutas_compras')({
   DISCONTINUADOS_COMPRA_PATH, FORMULA_ACTIVA_SQL,
 });
 app.use(comprasRouter.router);
-// Grabación real de compras en SIGA (transacción de 14 escrituras, ver
-// docs/compras_siga_mapeo.md y routes/rutas_compras_grabar.js). Reutiliza
-// armarVistaCompra/resolverProductosCompra/usuarioCompras del router de arriba
-// en vez de duplicarlas.
-app.use(require('./routes/rutas_compras_grabar')({
-  apiRoute, getPool, getPoolStock, sql, comprasImport,
-  armarVistaCompra: comprasRouter.armarVistaCompra,
-  resolverProductosCompra: comprasRouter.resolverProductosCompra,
-  usuarioCompras: comprasRouter.usuarioCompras,
-}));
 
 // Dashboard de consumo: apiRoute, leerJSON, guardarJSON y query son funciones y se
 // hoistean, y cfg/DATA_DIR son const declarados bien antes de donde estaban estas
