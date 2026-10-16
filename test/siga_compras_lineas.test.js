@@ -28,6 +28,14 @@ test('redondear replica decimal.Round de .NET (al par en el punto medio)', () =>
   assert.strictEqual(sinRuido(955.19 * 0.92), 878.7748);
 });
 
+test('redondear: importes grandes no confunden un valor cercano con el punto medio', () => {
+  assert.strictEqual(redondear(500000.31 * 21 / 100, 2), 105000.07);
+  assert.strictEqual(redondear(105000.0651, 2), 105000.07);
+  assert.strictEqual(redondear(123456.7851, 2), 123456.79);
+  assert.strictEqual(redondear(10000000.127, 2), 10000000.13);
+  assert.strictEqual(sinRuido(1000.0000014), 1000.000001);
+});
+
 test('letrasDe acepta string, array y separadores', () => {
   assert.deepStrictEqual(letrasDe('ABCEIM'), ['A', 'B', 'C', 'E', 'I', 'M']);
   assert.deepStrictEqual(letrasDe('a, b'), ['A', 'B']);
