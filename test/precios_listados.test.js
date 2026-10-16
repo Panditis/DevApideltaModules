@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport } = require('../public/js/precios_listados.js');
+const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -132,4 +132,38 @@ test('resumenExport: las 5 listas en orden con su etiqueta y cuántas filas (sin
   assert.deepStrictEqual(r.map(x => [x.lista, x.filas]), [['minorista', 2], ['packNeto', 0], ['packIva', 0], ['bultoNeto', 1], ['bultoIva', 1]]);
   assert.deepStrictEqual(r.map(x => x.etiqueta), ['Minorista', 'Pack s/IVA', 'Pack c/IVA', 'Bulto s/IVA', 'Bulto c/IVA']);
   assert.strictEqual(resumenExport({}).every(x => x.filas === 0), true); // lista faltante = vacía
+});
+
+// ── Exportar listado (.xlsx, reporte) ──
+test('filasExportListado Reventa: encabezado + una fila por producto, números reales y Δ% como fracción; sin dato → null', () => {
+  const aoa = filasExportListado([
+    { plu: '540', nombre: 'Arroz', costoSistema: 1000, costoUltimaCompra: 1100, fechaUltimaCompra: '2026-10-01', vigente: 2000,
+      sugeridos: { sistema: sug(2500), ultimaCompra: sug(2600) } },
+    { plu: '7', nombre: 'Sal', costoSistema: null, costoUltimaCompra: null, vigente: null, sugeridos: { sistema: { error: 'x' }, ultimaCompra: null } },
+  ], 'almacen');
+  assert.deepStrictEqual(aoa[0], ['PLU', 'Nombre', 'Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra',
+    'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)']);
+  assert.deepStrictEqual(aoa[1], ['540', 'Arroz', 1000, 1100, 0.1, '2026-10-01', 2000, 2500, 0.25, 2600, 0.3]);
+  assert.deepStrictEqual(aoa[2], ['7', 'Sal', null, null, null, null, null, null, null, null, null]);
+  assert.strictEqual(aoa.length, 3);
+});
+
+test('filasExportListado Fraccionado: una fila por presentación con los costos $/kg de su granel; granel sin presentaciones → su fila sin precios', () => {
+  const aoa = filasExportListado([
+    { plu: '50', nombre: 'Almendra granel', costoSistema: 10000, costoUltimaCompra: 9000, fechaUltimaCompra: '2026-10-02', presentaciones: [
+      { plu: '51', nombre: 'Almendra 500G', vigente: 20000, sugeridos: { sistema: sug(22000), ultimaCompra: sug(20000) } }] },
+    { plu: '60', nombre: 'Nuez granel', costoSistema: 8000, costoUltimaCompra: null, presentaciones: [] },
+    { plu: null, nombre: 'Sin granel asignado', costoSistema: null, presentaciones: [{ plu: '70', nombre: 'Pasas 1Kg', vigente: 5000, sugeridos: { sistema: null, ultimaCompra: null } }] },
+  ], 'fraccionado');
+  assert.deepStrictEqual(aoa[0].slice(0, 4), ['PLU', 'Nombre', 'Granel', 'Costo actual (sistema)']);
+  assert.strictEqual(aoa[0].length, 12);
+  assert.deepStrictEqual(aoa[1], ['51', 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0]);
+  assert.deepStrictEqual(aoa[2], ['60', 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[3], ['70', 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null]);
+});
+
+test('filasExportListado Producción: costo de receta/envasado, sin columnas de última compra', () => {
+  const aoa = filasExportListado([{ plu: '6319', nombre: 'Pepas', costoSistema: 330.58, vigente: 1000, sugeridos: { sistema: sug(900) } }], 'produccion');
+  assert.deepStrictEqual(aoa, [['PLU', 'Nombre', 'Costo actual (receta/envasado)', 'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)'],
+    ['6319', 'Pepas', 330.58, 1000, 900, -0.1]]);
 });

@@ -55,7 +55,32 @@ function htmlSelectDecision(fila, ops, { deshabilitado = false, titulo = '' } = 
     ops.map(o => `<option value="${ESC_LST(o.valor)}"${o.valor === actual ? ' selected' : ''}${o.disabled ? ' disabled' : ''}>${ESC_LST(o.texto)}</option>`).join('')}</select><div class="lst-dec-msg text-xs text-crit" role="alert"></div>`;
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport };
+// "Exportar listado (.xlsx)": reporte (no el formato de SIGA) de las filas YA filtradas y ordenadas del tab, todas (no sólo
+// decididas). Devuelve la planilla como array de filas con encabezado: números reales (null = vacío) y Δ% como fracción
+// (formato 0.0 % en Excel). Precio nuevo = el minorista sugerido de cada fuente (el mismo de la pantalla). Fraccionado: una
+// fila por presentación con el costo $/kg de su granel; Producción: el costo es el de la receta/envasado, sin última compra.
+const deltaFrac = (nuevo, base) => (nuevo != null && base > 0 ? Math.round(((nuevo - base) / base) * 10000) / 10000 : null);
+const ENC_COSTOS_XLSX = ['Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra'];
+const ENC_PRECIOS_XLSX = ['Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)'];
+function filasExportListado(filas, tipo) {
+  const precios = (p, conUltima = true) => {
+    const vig = p ? p.vigente ?? null : null, sug = p ? p.sugeridos || {} : {};
+    const sis = precioSugerido(sug.sistema) ?? null, ult = precioSugerido(sug.ultimaCompra) ?? null;
+    return [vig, sis, deltaFrac(sis, vig), ...(conUltima ? [ult, deltaFrac(ult, vig)] : [])];
+  };
+  if (tipo === 'produccion') {
+    return [['PLU', 'Nombre', 'Costo actual (receta/envasado)', ...ENC_PRECIOS_XLSX.slice(0, 3)],
+      ...filas.map(f => [f.plu, f.nombre, f.costoSistema ?? null, ...precios(f, false)])];
+  }
+  const costos = f => [f.costoSistema ?? null, f.costoUltimaCompra ?? null, deltaFrac(f.costoUltimaCompra, f.costoSistema), f.fechaUltimaCompra || null];
+  if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.map(f => [f.plu, f.nombre, ...costos(f), ...precios(f)])];
+  const granel = g => (g.plu == null ? g.nombre : `${g.plu} · ${g.nombre}`);
+  return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.flatMap(g => ((g.presentaciones || []).length
+    ? g.presentaciones.map(p => [p.plu, p.nombre, granel(g), ...costos(g), ...precios(p)])
+    : [[g.plu, g.nombre, granel(g), ...costos(g), ...precios(null)]]))];
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -141,6 +166,7 @@ function htmlMarcoListado(tipo) {
     <span class="lst-conteo text-sm text-gris"></span>
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
+    <button type="button" class="lst-exportar-listado px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white" title="Todas las filas de la pestaña con los filtros y el orden actuales (reporte, no el formato de SIGA)">Exportar listado (.xlsx)</button>
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
     ${prod ? '<button type="button" class="lst-nuevo cfg-btn" title="Producto con receta (ej. pepas, granola)">+ Nuevo</button>' : ''}
   </div>
@@ -160,6 +186,7 @@ function conectarListado(tipo, cont) {
   });
   montarOrdenListado(tipo, cont);
   cont.querySelector('.lst-exportar').onclick = exportarDecididos;
+  cont.querySelector('.lst-exportar-listado').onclick = () => exportarListado(tipo);
   cont.querySelector('.lst-quitar').onclick = quitarDecisiones;
   const nuevo = cont.querySelector('.lst-nuevo'); // precios_produccion.js / precios_produccion_envasado.js
   if (nuevo) nuevo.onclick = () => (prodClase === 'envasado' ? abrirBaseNueva() : nuevoProducto());
@@ -265,6 +292,32 @@ async function quitarDecisiones() {
   } catch (e) { avisar(e.message); }
 }
 
+const fechaHoyLst = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Planilla .xlsx del tab visible (Producción: del sub-tab) con sus filtros y orden (filasExportListado). Formato de número
+// por encabezado (Δ% → 0.0 %, costos y precios → 2 decimales), anchos por contenido y autofiltro en el encabezado.
+// ponytail: SheetJS community (CDN 0.18.5) no escribe negrita ni paneles inmovilizados; si hacen falta, otra librería.
+const NOMBRE_TAB_XLSX = { almacen: 'reventa', fraccionado: 'fraccionado', receta: 'produccion', envasado: 'envasado' };
+function exportarListado(tipo) {
+  const clase = claseLst(tipo);
+  const filas = ordenarListado(filtrarFilas(filasDeClase(lstDatos[tipo] || [], clase), filtrosLst(tipo)), lstOrden[tipo]);
+  if (!filas.length) { avisar('No hay filas para exportar con estos filtros.'); return; }
+  const aoa = filasExportListado(filas, tipo);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  aoa[0].forEach((enc, c) => {
+    const z = enc.startsWith('Δ%') ? '0.0%' : /^(Costo|Precio)/.test(enc) ? '#,##0.00' : null;
+    for (let r = 1; z && r < aoa.length; r++) {
+      const celda = ws[XLSX.utils.encode_cell({ r, c })];
+      if (celda && celda.t === 'n') celda.z = z;
+    }
+  });
+  ws['!cols'] = aoa[0].map((_, c) => ({ wch: Math.min(50, Math.max(...aoa.map(r => String(r[c] ?? '').length)) + 2) }));
+  ws['!autofilter'] = { ref: ws['!ref'] };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Listado');
+  XLSX.writeFile(wb, `precios_${NOMBRE_TAB_XLSX[clase || tipo]}_${fechaHoyLst()}.xlsx`);
+}
+
 // Una planilla por lista con filas (minorista, pack/bulto sin y con IVA), en el formato que importa SIGA hoy.
 // Un botón por archivo: Chrome deja pasar UNA descarga automática por clic y frenaba las demás (sólo salía una lista);
 // cada clic es un gesto del usuario, así que cada archivo baja. Las listas vacías se informan, no se omiten en silencio.
@@ -274,8 +327,7 @@ async function exportarDecididos() {
     if (j.error) throw new Error(j.error);
     const resumen = resumenExport(j.listas);
     if (!resumen.some(r => r.filas)) { avisar('No hay productos decididos con precio sugerido para exportar.'); return; }
-    const d = new Date();
-    const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const fecha = fechaHoyLst();
     const descargar = lista => {
       const ws = XLSX.utils.aoa_to_sheet([]);
       XLSX.utils.sheet_add_aoa(ws, j.listas[lista], { origin: `A${FILA_ENCABEZADOS}` });
