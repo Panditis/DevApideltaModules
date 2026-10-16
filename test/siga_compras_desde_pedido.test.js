@@ -2,6 +2,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { borradorDesdePedido, aplicarEdicion, cabeceraSugerida } = require('../lib/siga_compras/desde_pedido');
+const { validarComprobante } = require('../lib/siga_compras/validaciones');
+const { filasImpuestosTodas } = require('../lib/siga_compras/impuestos');
+const { borradorFactcom, contextoFactcom } = require('./siga_compras_fixture');
 
 const PEDIDO = {
   numero: 'P-0007', idProveedor: 328, proveedor: 'PROVEEDOR RI', fecha: '2026-10-01', estado: 'CERRADO',
@@ -113,4 +116,83 @@ test('cabeceraSugerida: sin tipo del proveedor usa FACTCOM; período de hoy no a
   assert.strictEqual(c.periodoFiscal, 202609);
   assert.strictEqual(c.idDeposito, null);
   assert.strictEqual(c.idUbicacion, null);
+});
+
+const percepcion = (tipo, importe, extra = {}) => ({ tipo, importe, ...extra });
+const percepcionesDe = ps => aplicarEdicion(borradorDesdePedido(PEDIDO), { percepciones: ps }).percepciones;
+
+test('aplicarEdicion: coma decimal inequívoca se convierte; lo inválido pasa crudo; vacío es null', () => {
+  const lista = percepcionesDe([
+    percepcion('PIVA', '955,19'), percepcion('PIVA', '1.234,56'), percepcion('PIVA', 'abc'),
+    percepcion('PIVA', ''), percepcion('PIVA', ' 12.5 '), percepcion('PIIBB', '10', { baseImponible: '1,5', alicuota: 'x' }),
+  ]);
+  assert.strictEqual(lista.length, 5); // la percepción sin ningún monto se ignora
+  const [coma, miles, basura, num, base] = lista;
+  assert.strictEqual(coma.importe, 955.19);
+  assert.strictEqual(miles.importe, '1.234,56');
+  assert.strictEqual(basura.importe, 'abc');
+  assert.strictEqual(num.importe, 12.5);
+  assert.strictEqual(base.baseImponible, 1.5);
+  assert.strictEqual(base.alicuota, 'x');
+});
+
+test('aplicarEdicion: percepción con base pero sin importe conserva importe null (la validación lo reclama)', () => {
+  const [p] = percepcionesDe([percepcion('PIIBB', '', { baseImponible: '100', idProvincia: 'B' })]);
+  assert.strictEqual(p.importe, null);
+  assert.strictEqual(p.baseImponible, 100);
+});
+
+test('aplicarEdicion: el precio también acepta coma decimal y deja pasar lo inválido crudo', () => {
+  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), { precios: { 1001: '250,5', 1002: 'abc', 1006: '' } });
+  assert.strictEqual(ed.lineas[0].precio, 250.5);
+  assert.strictEqual(ed.lineas[1].precio, 'abc');
+  assert.strictEqual(ed.lineas[2].precio, null);
+});
+
+test('borradorDesdePedido(null/undefined) devuelve un bloqueo claro, no tira TypeError', () => {
+  for (const vacio of [null, undefined]) {
+    const b = borradorDesdePedido(vacio);
+    assert.deepStrictEqual(b.lineas, []);
+    assert.deepStrictEqual(b.bloqueos, [{ tipo: 'estado', mensaje: 'No se encontró el pedido.' }]);
+  }
+});
+
+test('aplicarEdicion: no aplica totales, bloqueos, IVA ni cantidades del navegador, ni líneas ajenas al pedido', () => {
+  const base = borradorDesdePedido(PEDIDO);
+  const ed = aplicarEdicion(base, {
+    cabecera: { importeTotal: 1, totalNeto: 1, bloqueos: [], descartadas: [] },
+    bloqueos: [], descartadas: [], importeTotal: 1, idProveedor: 1,
+    precios: { 9999: 5, 1001: 10 },
+    lineas: [{ plu: '1001', cantidad: 999, iva: 0, porcentajeIVA: 0, precio: 1 }, { plu: '9999', cantidad: 1, precio: 1 }],
+  });
+  assert.strictEqual(ed.importeTotal, undefined);
+  assert.strictEqual(ed.totalNeto, undefined);
+  assert.deepStrictEqual(ed.bloqueos, base.bloqueos);
+  assert.deepStrictEqual(ed.descartadas, base.descartadas);
+  assert.deepStrictEqual(ed.lineas.map(l => l.plu), base.lineas.map(l => l.plu));
+  assert.deepStrictEqual(ed.lineas.map(l => l.cantidad), base.lineas.map(l => l.cantidad));
+  assert.ok(ed.lineas.every(l => l.iva === undefined && l.porcentajeIVA === undefined));
+  assert.strictEqual(ed.lineas[0].precio, 10);
+});
+
+// Integración liviana con validaciones e impuestos: la percepción tipeada con coma llega a la fila PIVA.
+const editarFactcom = percepciones => aplicarEdicion(
+  { ...borradorFactcom(), percepciones: undefined },
+  { cabecera: { ...borradorFactcom(), porcDescRecGeneral: 0 }, percepciones },
+);
+const CALCULO = { totales: { importeTotal: 42665.16 }, lineas: [{ porcentajeIVA: 21 }, { porcentajeIVA: 0 }] };
+
+test('integración: percepción "955,19" valida sin error de importe y llega a la fila PIVA con 955.19', () => {
+  const b = editarFactcom([{ tipo: 'piva', importe: '955,19' }]);
+  const msgs = validarComprobante(b, contextoFactcom(), CALCULO).map(e => e.mensaje);
+  assert.deepStrictEqual(msgs, []);
+  const piva = filasImpuestosTodas({ lineas: [], percepciones: b.percepciones }).find(f => f.idTipoImpuesto === 'PIVA');
+  assert.strictEqual(piva.importe, 955.19);
+});
+
+test('integración: percepción "abc" y "1.234,56" dan el mensaje de número inválido', () => {
+  for (const malo of ['abc', '1.234,56']) {
+    const msgs = validarComprobante(editarFactcom([{ tipo: 'PIVA', importe: malo }]), contextoFactcom(), CALCULO).map(e => e.mensaje);
+    assert.ok(msgs.includes('El importe de la percepción PIVA no es un número válido.'), `${malo}: ${msgs}`);
+  }
 });
