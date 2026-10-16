@@ -150,8 +150,8 @@ function montar(consultaExtra = () => undefined) {
     const ids = [...sql.matchAll(/'(\d+)'/g)].map(m => m[1]);
     return ids.filter(id => COSTOS.has(id)).map(id => {
       const f = COSTOS.get(id);
-      // PrecioCosto de SIGA viene CON IVA y filaCostos lo divide por (1 + alícuota): el mock lo arma desde el neto del módulo.
-      return { IdProducto: id, NombreProducto: f.nombre, CostoSistema: f.costoSistema == null ? null : f.costoSistema * 1.21, IvaCompraPct: 21, Rubro: f.rubro };
+      // PrecioCosto de SIGA = costo de sistema del módulo tal cual (filaCostos no lo toca).
+      return { IdProducto: id, NombreProducto: f.nombre, CostoSistema: f.costoSistema, IvaCompraPct: 21, Rubro: f.rubro };
     });
   };
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
