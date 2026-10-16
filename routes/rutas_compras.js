@@ -4,6 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const compras = require('../lib/compras');
+const { formulasPesables } = require('../lib/formulas_pesables');
 const comprasImport = require('../lib/compras_import');
 // Se declara acá (y no junto al resto de la importación de facturas más abajo) porque
 // /api/compras/armado/importar-pedido también la necesita y va antes en el archivo.
@@ -33,7 +34,7 @@ module.exports = function crearRutasCompras(deps) {
     // los helpers de disco quedan en server.js y llegan por acá a los dos routers.
     leerPedidosCompra, guardarPedidosCompra,
     PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH, PRESENTACIONES_COMPRA_PATH,
-    DISCONTINUADOS_COMPRA_PATH,
+    DISCONTINUADOS_COMPRA_PATH, FORMULA_ACTIVA_SQL,
   } = deps;
   const router = express.Router();
 
@@ -251,7 +252,7 @@ router.get('/api/compras/armado', exigirIdProveedor, apiRoute(async (req) => {
   // Se compra el granel pero en sucursales se vende fraccionado: el stock y las ventas
   // se consultan también para las presentaciones y se convierten a kg de granel.
   const pesLis = leerJSON(PESABLES_LISTAS_PATH, {}) || {};
-  const formulas = pesLis.formulas || {};
+  const formulas = await formulasPesables({ query, FORMULA_ACTIVA_SQL, respaldo: pesLis.formulas });
   const pesosGranel = pesLis.pesosGranel || {};
   const fracPorPlu = new Map(plus.map(plu => [plu, compras.fraccionadosDe(formulas, plu)]));
   const plusConFrac = [...new Set([...plus, ...[...fracPorPlu.values()].flat().map(f => f.plu)])];
