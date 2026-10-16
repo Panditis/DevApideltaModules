@@ -35,13 +35,24 @@ const CABECERA = {
 const cuerpo = (cambios = {}) => ({ pedido: 'P-0007', cabecera: CABECERA, precios: {}, percepciones: [{ tipo: 'PIVA', importe: 955.19 }], ...cambios });
 const MENSAJE_SIN_CONFIRMAR = 'No se pudo confirmar la grabación del comprobante en SIGA: verificá en SiGA antes de reintentar.';
 const MENSAJE_A_VERIFICAR = 'El pedido tiene una grabación sin confirmar: verificá en SiGA si el comprobante quedó cargado antes de reintentar.';
+const TS = AHORA.toISOString();
+const MARCA = (cambios = {}) => ({
+  numeroPedido: 'P-0007', estado: 'a_verificar', motivo: 'sin_confirmar', clave: '1|FACTCOM|A|5007|1071364', ts: TS, usuario: 'adriel',
+  historial: [{ evento: 'a_verificar', motivo: 'sin_confirmar', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel', ts: TS }],
+  ...cambios,
+});
 
-function montar({ vinculos = {}, estado, repo: repoParcial = {} } = {}) {
+// fallaGuardar: nombres de archivo cuya escritura tira error (disco lleno, permisos) DESPUÉS de armar el escenario.
+function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compras-siga-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
-  const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
-  guardarJSON(path.join(dir, 'pedidos_comprobantes.json'), vinculos);
-  if (estado) guardarJSON(path.join(dir, 'compras_siga_estado.json'), estado);
+  const escribir = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
+  escribir(path.join(dir, 'pedidos_comprobantes.json'), vinculos);
+  if (estado) escribir(path.join(dir, 'compras_siga_estado.json'), estado);
+  const guardarJSON = (p, d) => {
+    if (fallaGuardar.includes(path.basename(p))) throw new Error('EACCES: permiso denegado');
+    escribir(p, d);
+  };
   const grabados = [];
   const contextos = [];
   const repo = {
@@ -203,9 +214,115 @@ test('POST grabar sin confirmar (SIGA_SIN_CONFIRMAR): 409, no vincula y deja el 
     assert.strictEqual(r.status, 409);
     assert.deepStrictEqual(r.data, { ok: false, error: MENSAJE_SIN_CONFIRMAR, aVerificar: true });
     assert.deepStrictEqual(vinculosDe(ctx), {});
-    const { ts, ...entrada } = estadoDe(ctx)['P-0007'];
-    assert.deepStrictEqual(entrada, { numeroPedido: 'P-0007', estado: 'a_verificar', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel.compras' });
-    assert.ok(!Number.isNaN(Date.parse(ts)));
+    const usuario = 'adriel.compras';
+    assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
+      usuario, historial: [{ ...MARCA().historial[0], usuario }],
+    }));
+  } finally { cerrar(ctx); }
+});
+
+test('POST grabar sin confirmar con numeración automática: la marca guarda la clave definitiva que trae el error', async () => {
+  const clave = { IdSucursal: 1, IdTipoComprobante: 'FACTCOM', Letra: 'A', CentroEmisor: 1, NumeroComprobante: 77, IdProveedor: 328 };
+  const err = Object.assign(new ErrorSiga(MENSAJE_SIN_CONFIRMAR, 'SIGA_SIN_CONFIRMAR'), { clave });
+  const ctx = await montar({ repo: { grabar: async () => { throw err; } } });
+  try {
+    assert.strictEqual((await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo())).status, 409);
+    assert.strictEqual(estadoDe(ctx)['P-0007'].clave, '1|FACTCOM|A|1|77');
+  } finally { cerrar(ctx); }
+});
+
+test('POST grabar OK pero falla el vínculo: aviso + pedido "a verificar" (motivo vinculo) y el reintento queda bloqueado', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ fallaGuardar: ['pedidos_comprobantes.json'] });
+  try {
+    const r = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.ok, true);
+    assert.strictEqual(r.data.vinculado, false);
+    assert.match(r.data.avisoVinculo, /Se grabó en SIGA pero no se pudo vincular al pedido/);
+    assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
+      motivo: 'vinculo', usuario: 'adriel.compras',
+      historial: [{ evento: 'a_verificar', motivo: 'vinculo', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel.compras', ts: TS }],
+    }));
+    const otra = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
+    assert.strictEqual(otra.status, 400);
+    assert.deepStrictEqual(otra.data.errores, [{ campo: 'pedido', mensaje: MENSAJE_A_VERIFICAR }]);
+    assert.strictEqual(ctx.grabados.length, 1);
+    assert.ok(log.mock.callCount() >= 1);
+  } finally { cerrar(ctx); }
+});
+
+test('POST grabar OK y fallan vínculo y estado: log con pedido y comprobante, y el aviso igual', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ fallaGuardar: ['pedidos_comprobantes.json', 'compras_siga_estado.json'] });
+  try {
+    const r = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.vinculado, false);
+    assert.match(r.data.avisoVinculo, /no se pudo vincular/);
+    assert.deepStrictEqual(estadoDe(ctx), {});
+    const lineas = log.mock.calls.map(c => c.arguments.join(' '));
+    assert.ok(lineas.some(l => /a verificar/.test(l) && /P-0007/.test(l) && /1\|FACTCOM\|A\|5007\|1071364/.test(l)), lineas.join('\n'));
+  } finally { cerrar(ctx); }
+});
+
+const liberar = (ctx, body, numero = 'P-0007') => pedir(ctx.base, 'POST', `/api/compras-siga/pedidos/${numero}/liberar-verificacion`, body);
+
+test('liberar-verificacion no_cargado: borra la marca con traza y el pedido se puede volver a grabar', async () => {
+  const ctx = await montar({ estado: { 'P-0007': MARCA() } });
+  try {
+    const r = await liberar(ctx, { resultado: 'no_cargado' });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.data, { ok: true, numeroPedido: 'P-0007', resultado: 'no_cargado', vinculado: false });
+    const marca = estadoDe(ctx)['P-0007'];
+    assert.strictEqual(marca.estado, 'liberado');
+    assert.deepStrictEqual(marca.historial, [...MARCA().historial, { evento: 'liberado', resultado: 'no_cargado', usuario: 'adriel.compras', ts: TS }]);
+    assert.deepStrictEqual(vinculosDe(ctx), {});
+    assert.deepStrictEqual((await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-0007/borrador')).data.borrador.bloqueos, []);
+    assert.strictEqual((await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo())).status, 200);
+    // Ya liberada: no hay marca a verificar.
+    assert.strictEqual((await liberar(ctx, { resultado: 'no_cargado' })).status, 404);
+  } finally { cerrar(ctx); }
+});
+
+test('liberar-verificacion cargado: vincula la clave guardada y borra la marca con traza', async () => {
+  const ctx = await montar({ estado: { 'P-0007': MARCA() } });
+  try {
+    const r = await liberar(ctx, { resultado: 'cargado' });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.data, { ok: true, numeroPedido: 'P-0007', resultado: 'cargado', vinculado: true });
+    assert.deepStrictEqual(vinculosDe(ctx), { 'P-0007': ['1|FACTCOM|A|5007|1071364'] });
+    const marca = estadoDe(ctx)['P-0007'];
+    assert.strictEqual(marca.estado, 'liberado');
+    assert.deepStrictEqual(marca.historial.at(-1), { evento: 'liberado', resultado: 'cargado', usuario: 'adriel.compras', ts: TS });
+    const b = await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-0007/borrador');
+    assert.deepStrictEqual(b.data.borrador.bloqueos, [{ tipo: 'estado', mensaje: 'El pedido ya está vinculado a un comprobante de SIGA.' }]);
+  } finally { cerrar(ctx); }
+});
+
+test('liberar-verificacion cargado sin poder vincular: 500 con mensaje y la marca sigue', async t => {
+  t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ estado: { 'P-0007': MARCA() }, fallaGuardar: ['pedidos_comprobantes.json'] });
+  try {
+    const r = await liberar(ctx, { resultado: 'cargado' });
+    assert.strictEqual(r.status, 500);
+    assert.strictEqual(r.data.ok, false);
+    assert.match(r.data.error, /No se pudo vincular el comprobante 1\|FACTCOM\|A\|5007\|1071364 al pedido P-0007/);
+    assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA());
+  } finally { cerrar(ctx); }
+});
+
+test('liberar-verificacion: sin marca → 404; resultado inválido → 400', async () => {
+  const ctx = await montar();
+  try {
+    const sin = await liberar(ctx, { resultado: 'cargado' });
+    assert.strictEqual(sin.status, 404);
+    assert.deepStrictEqual(sin.data, { ok: false, error: 'El pedido P-0007 no tiene una grabación a verificar.' });
+    for (const body of [{ resultado: 'quizas' }, {}, undefined]) {
+      const mal = await liberar(ctx, body);
+      assert.strictEqual(mal.status, 400);
+      assert.deepStrictEqual(mal.data, { ok: false, error: "El resultado tiene que ser 'cargado' o 'no_cargado'." });
+    }
   } finally { cerrar(ctx); }
 });
 

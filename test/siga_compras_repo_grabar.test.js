@@ -340,7 +340,8 @@ test('grabar: después del COMMIT relee Compras por su clave con el pool de lect
     texto => { if (/^SELECT 1 AS Existe FROM Compras/.test(texto)) throw new Error('timeout'); return RESPUESTAS(texto); },
   ]) {
     const { falso, promesa } = grabarCon(responder);
-    await assert.rejects(promesa, err => err instanceof ErrorSiga && err.code === 'SIGA_SIN_CONFIRMAR' && err.message.startsWith(MENSAJE));
+    await assert.rejects(promesa, err => err instanceof ErrorSiga && err.code === 'SIGA_SIN_CONFIRMAR' && err.message.startsWith(MENSAJE)
+      && err.clave && err.clave.NumeroComprobante === 1071364 && err.clave.IdProveedor === 328);
     assert.deepStrictEqual(secuencia(falso.registro).slice(-2), ['COMMIT', 'VERIFICAR']);
     assert.strictEqual(falso.registro.filter(e => e.texto === 'ROLLBACK').length, 0);
   }

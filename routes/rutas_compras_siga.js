@@ -13,6 +13,7 @@ const { fechaLocalISO } = require('../lib/siga_compras/fechas');
 // líneas desde el pedido y recalcula todo. repo llega inyectado (lib/siga_compras/repo.js en server.js; uno falso
 // en los tests).
 const SIN_CONFIRMAR = 'SIGA_SIN_CONFIRMAR';
+const RESULTADOS_VERIFICACION = ['cargado', 'no_cargado'];
 const MENSAJE_A_VERIFICAR = 'El pedido tiene una grabación sin confirmar: verificá en SiGA si el comprobante quedó cargado antes de reintentar.';
 const MENSAJE_INTERNO = 'Error interno al procesar el comprobante para SIGA. Avisá a sistemas (el detalle quedó en el log del servidor).';
 
@@ -75,27 +76,44 @@ module.exports = function crearRutasComprasSiga(deps) {
     discrimina: calculo.discrimina, errores,
   });
 
-  // El comprobante ya está en SIGA: si falla el disco no se revierte nada, se avisa para vincularlo a mano.
-  function vincular(numero, comprobante) {
+  function guardarVinculo(numero, clave) {
+    const vinculos = leerVinculos();
+    const previas = Array.isArray(vinculos[numero]) ? vinculos[numero] : [];
+    guardarJSON(VINCULOS_PATH, { ...vinculos, [numero]: [...new Set([...previas, clave])] });
+  }
+
+  // Estado del pedido: campos actuales arriba y la traza completa en historial (nunca se borra).
+  function registrarEstado(numero, cambios, evento) {
+    const estado = leerEstado();
+    const previa = estado[numero] || {};
+    guardarJSON(ESTADO_PATH, {
+      ...estado,
+      [numero]: { ...previa, numeroPedido: numero, ...cambios, historial: [...(previa.historial || []), evento] },
+    });
+  }
+
+  // Pedido "a verificar": bloquea borrador/validar/grabar hasta liberar-verificacion. Motivos: 'sin_confirmar'
+  // (no se sabe si quedó en SIGA) y 'vinculo' (quedó, pero no se pudo vincular): en los dos un reintento duplicaría
+  // el comprobante en numeración automática.
+  function marcarAVerificar(numero, { motivo, clave, usuario }) {
+    const ts = ahora().toISOString();
     try {
-      const vinculos = leerVinculos();
-      const previas = Array.isArray(vinculos[numero]) ? vinculos[numero] : [];
-      guardarJSON(VINCULOS_PATH, { ...vinculos, [numero]: [...new Set([...previas, claveComprobante(comprobante)])] });
-      return { vinculado: true };
+      registrarEstado(numero, { estado: 'a_verificar', motivo, clave, ts, usuario }, { evento: 'a_verificar', motivo, clave, usuario, ts });
     } catch (err) {
-      console.error(`[compras-siga] vincular pedido ${numero}:`, err.message);
-      return { vinculado: false, avisoVinculo: `Se grabó en SIGA pero no se pudo vincular al pedido (${err.message}). Vinculalo desde Control de compras.` };
+      console.error(`[compras-siga] no se pudo marcar a verificar el pedido ${numero} (comprobante ${clave}):`, err.message);
     }
   }
 
-  // Grabación sin confirmar: no se vincula (no se sabe si quedó) y se bloquea el reintento, que en numeración
-  // automática duplicaría el comprobante.
-  function marcarAVerificar(numero, clave, usuario) {
+  // El comprobante ya está en SIGA: si falla el disco no se revierte nada; se avisa y el pedido queda a verificar.
+  function vincular(numero, comprobante, usuario) {
+    const clave = claveComprobante(comprobante);
     try {
-      const entrada = { numeroPedido: numero, estado: 'a_verificar', clave: clave ? claveComprobante(comprobanteDe(clave)) : null, ts: ahora().toISOString(), usuario };
-      guardarJSON(ESTADO_PATH, { ...leerEstado(), [numero]: entrada });
+      guardarVinculo(numero, clave);
+      return { vinculado: true };
     } catch (err) {
-      console.error(`[compras-siga] marcar a verificar pedido ${numero}:`, err.message);
+      console.error(`[compras-siga] vincular pedido ${numero} (comprobante ${clave}):`, err.message);
+      marcarAVerificar(numero, { motivo: 'vinculo', clave, usuario });
+      return { vinculado: false, avisoVinculo: `Se grabó en SIGA pero no se pudo vincular al pedido (${err.message}). Vinculalo desde Control de compras.` };
     }
   }
 
@@ -137,15 +155,49 @@ module.exports = function crearRutasComprasSiga(deps) {
       filas = armarComprobante(r.borrador, r.contexto, r.calculo, { ahora: r.momento, usuario });
       const { clave, numeroMovimiento } = await repo.grabar(filas);
       const comprobante = comprobanteDe(clave);
-      return res.json({ ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, ...vincular(numero, comprobante) });
+      return res.json({ ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, ...vincular(numero, comprobante, usuario) });
     } catch (err) {
       if (err && err.code === SIN_CONFIRMAR) {
-        marcarAVerificar(numero, filas && filas.clave, usuario);
+        // grabar.js adjunta la clave definitiva; la de filas tiene número 0 en numeración automática.
+        const clave = err.clave || (filas && filas.clave);
+        marcarAVerificar(numero, { motivo: 'sin_confirmar', clave: clave ? claveComprobante(comprobanteDe(clave)) : null, usuario });
         return res.status(409).json({ ok: false, error: err.message, aVerificar: true });
       }
       return responderError(res, err, 'grabar', numero);
     } finally {
       grabando.delete(numero);
+    }
+  });
+
+  // Después de mirar en SiGA: 'cargado' vincula la clave guardada en la marca; 'no_cargado' solo libera.
+  router.post('/api/compras-siga/pedidos/:numero/liberar-verificacion', (req, res) => {
+    const numero = req.params.numero;
+    const resultado = req.body && req.body.resultado;
+    if (!RESULTADOS_VERIFICACION.includes(resultado)) {
+      return res.status(400).json({ ok: false, error: "El resultado tiene que ser 'cargado' o 'no_cargado'." });
+    }
+    try {
+      const marca = leerEstado()[numero];
+      if (!marca || marca.estado !== 'a_verificar') {
+        return res.status(404).json({ ok: false, error: `El pedido ${numero} no tiene una grabación a verificar.` });
+      }
+      if (resultado === 'cargado') {
+        try {
+          if (!marca.clave) throw new Error('la marca no tiene la clave del comprobante');
+          guardarVinculo(numero, marca.clave);
+        } catch (err) {
+          console.error(`[compras-siga] liberar-verificacion pedido ${numero} (comprobante ${marca.clave}):`, err.message);
+          return res.status(500).json({
+            ok: false, error: `No se pudo vincular el comprobante ${marca.clave} al pedido ${numero} (${err.message}). La marca sigue: reintentá o vinculalo desde Control de compras.`,
+          });
+        }
+      }
+      const usuario = usuarioCompras(req);
+      const ts = ahora().toISOString();
+      registrarEstado(numero, { estado: 'liberado', resultado, usuario, ts }, { evento: 'liberado', resultado, usuario, ts });
+      return res.json({ ok: true, numeroPedido: numero, resultado, vinculado: resultado === 'cargado' });
+    } catch (err) {
+      return responderError(res, err, 'liberar-verificacion', numero);
     }
   });
 
