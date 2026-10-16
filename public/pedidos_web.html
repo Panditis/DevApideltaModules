@@ -656,7 +656,8 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
     </div>
     <div class="flex gap-1 mt-3">
       <button id="subtab-carrito" class="btn btn-tonal btn-sm" onclick="switchSubFracc('carrito')">Carrito</button>
-      <button id="subtab-ordenes" class="btn btn-ghost btn-sm" onclick="switchSubFracc('ordenes')">Órdenes generadas</button>
+      <button id="subtab-ordenes" class="btn btn-ghost btn-sm" onclick="switchSubFracc('ordenes')">Órdenes activas</button>
+      <button id="subtab-historial" class="btn btn-ghost btn-sm" onclick="switchSubFracc('historial')">Historial</button>
     </div>
   </div>
 
@@ -691,8 +692,8 @@ thead th.sort-asc .sd,thead th.sort-desc .sa{display:none}
   <div class="main" style="padding-top:8px;display:none" id="sub-ordenes">
     <div class="card">
       <div class="px-5 py-3.5 bg-white border-b border-borde rounded-t-xl">
-        <h3 class="font-semibold text-sm text-ink leading-tight">Órdenes generadas</h3>
-        <p class="text-xs text-verde leading-tight">Historial de órdenes de fraccionado emitidas desde mayoristas.</p>
+        <h3 class="font-semibold text-sm text-ink leading-tight" id="ordenes-titulo">Órdenes activas</h3>
+        <p class="text-xs text-verde leading-tight" id="ordenes-subtitulo">Órdenes de fraccionado con líneas todavía pendientes.</p>
       </div>
       <div class="tbl-wrap" id="tabla-ordenes-fracc"><div class="state state-loading">Cargando…</div></div>
     </div>
@@ -1758,11 +1759,17 @@ var plusOrdenados = {};
 function switchSubFracc(sub){
   subFraccActiva = sub;
   $('sub-carrito').style.display = sub==='carrito' ? '' : 'none';
-  $('sub-ordenes').style.display = sub==='ordenes' ? '' : 'none';
-  $('subtab-carrito').className = 'btn btn-sm ' + (sub==='carrito' ? 'btn-tonal' : 'btn-ghost');
-  $('subtab-ordenes').className = 'btn btn-sm ' + (sub==='ordenes' ? 'btn-tonal' : 'btn-ghost');
+  // Activas e Historial comparten el mismo panel y la misma tabla: sólo cambia el filtro.
+  $('sub-ordenes').style.display = sub==='carrito' ? 'none' : '';
+  $('subtab-carrito').className   = 'btn btn-sm ' + (sub==='carrito'   ? 'btn-tonal' : 'btn-ghost');
+  $('subtab-ordenes').className   = 'btn btn-sm ' + (sub==='ordenes'   ? 'btn-tonal' : 'btn-ghost');
+  $('subtab-historial').className = 'btn btn-sm ' + (sub==='historial' ? 'btn-tonal' : 'btn-ghost');
+  $('ordenes-titulo').textContent    = sub==='historial' ? 'Historial' : 'Órdenes activas';
+  $('ordenes-subtitulo').textContent = sub==='historial'
+    ? 'Órdenes de fraccionado terminadas, aplicadas o anuladas.'
+    : 'Órdenes de fraccionado con líneas todavía pendientes.';
   actualizarBarraFracc();
-  if(sub==='ordenes') cargarOrdenesFracc();
+  if(sub!=='carrito') cargarOrdenesFracc();
 }
 
 // ── Persistencia del carrito ──────────────────────────────────────────────────
@@ -2838,14 +2845,17 @@ function abrirModalOrden(){
 function cerrarModalOrden(){ $('modal-fracc').style.display = 'none'; }
 
 // Reemplazo de confirm(): devuelve una promesa que resuelve true (Aceptar) o false (Cancelar,
-// ✕ del fondo o Escape). Los handlers se asignan acá y no al cargar la página porque el markup
+// ✕ del fondo o Escape). Con `textoAlt` aparece un tercer botón que resuelve 'alt'. Los handlers se asignan acá y no al cargar la página porque el markup
 // del modal vive después de este <script>: al parsear todavía no existe en el DOM.
-function confirmarModal(titulo, mensaje, textoOk, peligro){
+function confirmarModal(titulo, mensaje, textoOk, peligro, textoAlt){
   $('modal-confirm-titulo').textContent = titulo;
   $('modal-confirm-msg').textContent = mensaje;
   var ok = $('modal-confirm-ok');
   ok.textContent = textoOk || 'Aceptar';
   ok.style.background = peligro ? '#b91c1c' : '';
+  var alt = $('modal-confirm-alt');
+  alt.textContent = textoAlt || '';
+  alt.style.display = textoAlt ? '' : 'none';
   $('modal-confirm').style.display = 'flex';
   ok.focus();
   return new Promise(function(resolve){
@@ -2856,6 +2866,7 @@ function confirmarModal(titulo, mensaje, textoOk, peligro){
     };
     var porTecla = function(ev){ if(ev.key === 'Escape') cerrar(false); };
     ok.onclick = function(){ cerrar(true); };
+    alt.onclick = function(){ cerrar('alt'); };
     $('modal-confirm-no').onclick = function(){ cerrar(false); };
     $('modal-confirm').onclick = function(ev){ if(ev.target === $('modal-confirm')) cerrar(false); };
     document.addEventListener('keydown', porTecla);
@@ -2901,6 +2912,14 @@ function guardarOrdenFracc(){
 // dentro de un onclick: así no hay forma de romper el HTML con comillas que vengan del server.
 var ordenesFraccCache = [];
 
+// Una orden pasa al historial cuando ya no queda nada por hacer: se archivó al borrarla,
+// Distribución la marcó aplicada, se anuló, o todas sus líneas están resueltas (cargada, preparada o sin stock).
+function esOrdenHistorial(o){
+  if(o.archivada || o.estado === 'aplicada' || o.estado === 'anulada') return true;
+  var p = progresoOrdenFracc(o);
+  return p.total > 0 && p.pendientes === 0;
+}
+
 function cargarOrdenesFracc(){
   $('tabla-ordenes-fracc').innerHTML = '<div class="state state-loading">Cargando órdenes…</div>';
   // Devuelve la promesa para que quien recarga (p. ej. la edición de una línea) pueda volver a
@@ -2912,10 +2931,13 @@ function cargarOrdenesFracc(){
         '<br><button class="btn btn-tonal btn-sm" style="margin-top:12px" onclick="cargarOrdenesFracc()">Reintentar</button></div>';
       return;
     }
-    var arr = Array.isArray(data) ? data : [];
-    ordenesFraccCache = arr;
+    // La cache guarda todas: la edición de una línea la busca por id sin importar la vista.
+    ordenesFraccCache = Array.isArray(data) ? data : [];
+    var historial = subFraccActiva === 'historial';
+    var arr = ordenesFraccCache.filter(function(o){ return esOrdenHistorial(o) === historial; });
     if(!arr.length){
-      $('tabla-ordenes-fracc').innerHTML = '<div class="state state-empty" style="padding:32px;text-align:center">Todavía no se generó ninguna orden de fraccionado.</div>';
+      $('tabla-ordenes-fracc').innerHTML = '<div class="state state-empty" style="padding:32px;text-align:center">'+
+        (historial ? 'Todavía no hay órdenes en el historial.' : 'No hay órdenes de fraccionado activas.')+'</div>';
       return;
     }
     $('tabla-ordenes-fracc').innerHTML =
@@ -2924,7 +2946,7 @@ function cargarOrdenesFracc(){
       arr.map(function(o){
         return '<tr>'+
           '<td>'+escHtml(o.fecha)+'</td>'+
-          '<td>'+escHtml(o.estado)+'</td>'+
+          '<td>'+escHtml(o.estado)+(o.archivada ? ' · archivada' : '')+'</td>'+
           '<td class="num">'+o.totales.lineas+'</td>'+
           '<td class="num">'+o.totales.unidades+'</td>'+
           '<td class="num">'+o.totales.kgGranel+'</td>'+
@@ -2934,7 +2956,7 @@ function cargarOrdenesFracc(){
             '<button class="btn btn-ghost btn-sm" onclick="borrarOrdenFracc('+o.id+')">Borrar</button>'+
           '</td></tr>'+
           '<tr id="ord-'+o.id+'" style="display:none"><td colspan="7" style="background:#fafaf9">'+
-            o.lineas.map(function(l, i){ return lineaOrdenFracc(o.id, l, i); }).join('')+
+            o.lineas.map(function(l, i){ return lineaOrdenFracc(o.id, l, i, o.archivada); }).join('')+
           '</td></tr>';
       }).join('')+'</tbody></table>';
   });
@@ -2988,7 +3010,7 @@ function toggleDetalleOrden(id){
 // Una línea del detalle de una orden: producto + cantidad + kg, y el desglose de clientes
 // desplegable. La orden va consolidada por producto, pero la encargada necesita ver para
 // quién es lo que fracciona.
-function lineaOrdenFracc(idOrden, l, indice){
+function lineaOrdenFracc(idOrden, l, indice, archivada){
   // El mismo PLU puede estar en dos órdenes: la clave del desplegable combina las dos.
   var clave = idOrden + '-' + escHtml(l.plu).replace(/'/g,'&#39;');
   var clientes = l.clientes || [];
@@ -3047,7 +3069,8 @@ function lineaOrdenFracc(idOrden, l, indice){
   // Sólo se edita lo pendiente: el server rechaza las líneas ya resueltas (cargada, preparada o
   // sin stock), así que ni se ofrece el botón. Al handler viajan sólo números: el resto se busca
   // en ordenesFraccCache para no meter texto del server dentro de un onclick.
-  var btnEditar = estado === 'pendiente'
+  // Una orden archivada queda congelada: el server también rechaza editarla.
+  var btnEditar = (estado === 'pendiente' && !archivada)
     ? ' <button class="btn btn-ghost btn-sm" onclick="abrirModalEditarLinea('+idOrden+','+indice+')">Editar</button>'
     : '';
 
@@ -3147,16 +3170,27 @@ function guardarEdicionLinea(){
     .catch(function(e){ errorEdicionLinea(e.message); });
 }
 
+// Desde Órdenes activas se ofrece guardarla en el historial (archivada, en el estado en que
+// está) en vez de perderla. Desde Historial el borrado es definitivo, como siempre.
 function borrarOrdenFracc(id){
-  confirmarModal('Borrar la orden',
-                 'Se borra esta orden de fraccionado y no se puede deshacer. Sus productos vuelven a quedar disponibles para el carrito.',
-                 'Borrar orden', true).then(function(ok){
+  var enHistorial = subFraccActiva === 'historial';
+  var pregunta = enHistorial
+    ? confirmarModal('Borrar la orden',
+        'Se borra esta orden del historial y no se puede deshacer.',
+        'Borrar orden', true)
+    : confirmarModal('Borrar la orden',
+        '¿Querés guardarla antes en el historial, en el estado en que está? En los dos casos sale de '+
+        'las órdenes activas y sus productos vuelven a quedar disponibles para el carrito.',
+        'Borrar sin guardar', true, 'Guardar en historial');
+  pregunta.then(function(ok){
     if(!ok) return;
-    return fetch('/api/mayoristas/ordenes-fraccionado/'+id, {method:'DELETE'})
+    var archivar = ok === 'alt';
+    return fetch('/api/mayoristas/ordenes-fraccionado/'+id+(archivar ? '/archivar' : ''),
+                 {method: archivar ? 'POST' : 'DELETE'})
       .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
       .then(function(res){
         if(!res.ok){ snack('⚠ '+(res.body.error||'No se pudo borrar'), true); return; }
-        snack('Orden borrada');
+        snack(archivar ? 'Orden guardada en el historial' : 'Orden borrada');
         cargarOrdenesFracc();
         // Sus productos vuelven a estar disponibles para el carrito.
         cargarPlusOrdenados();
@@ -3762,6 +3796,7 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
     <p class="text-sm text-verde" id="modal-confirm-msg" style="margin:8px 0 20px"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost btn-sm" id="modal-confirm-no">Cancelar</button>
+      <button class="btn btn-tonal btn-sm" id="modal-confirm-alt" style="display:none"></button>
       <button class="btn btn-filled btn-sm" id="modal-confirm-ok">Aceptar</button>
     </div>
   </div>

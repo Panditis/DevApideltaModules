@@ -909,3 +909,37 @@ test('plusEnOrdenesActivas junta los PLU de todas las ordenes no anuladas', () =
   // Assert
   assert.deepStrictEqual([...plus].sort(), ['1', '2', '3']);
 });
+
+// ── Ordenes archivadas: "Borrar" guardando en el historial ──────────────────────────────────
+// Una orden archivada queda en el archivo tal cual estaba, pero sale de juego igual que si se
+// hubiese borrado: libera sus PLU y ya no se le puede marcar ni editar ninguna linea.
+
+test('plusEnOrdenesActivas ignora las ordenes archivadas', () => {
+  // Arrange
+  const ordenes = [
+    { estado: 'pendiente', lineas: [{ plu: '1' }] },
+    { estado: 'pendiente', archivada: true, lineas: [{ plu: '2' }] },
+  ];
+
+  // Act
+  const plus = plusEnOrdenesActivas(ordenes);
+
+  // Assert
+  assert.deepStrictEqual([...plus], ['1']);
+});
+
+test('marcarLineaOrden y editarLineaOrden rechazan una orden archivada', () => {
+  // Arrange
+  const orden = { id: 1, estado: 'pendiente', archivada: true,
+                  lineas: [{ plu: '30000', cantidad: 10, estado: 'pendiente' }] };
+
+  // Act
+  const marcar = marcarLineaOrden(orden, '30000', { estado: 'sin_stock' });
+  const editar = editarLineaOrden(orden, '30000', { cantidad: 5 });
+
+  // Assert
+  assert.strictEqual(marcar.orden, null);
+  assert.match(marcar.error, /archivada/);
+  assert.strictEqual(editar.orden, null);
+  assert.match(editar.error, /archivada/);
+});

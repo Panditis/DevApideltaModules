@@ -206,7 +206,7 @@ router.get('/api/mayoristas/ordenes-fraccionado/plus-activos', apiRoute(async ()
 // y la cantidad de líneas, nunca las líneas enteras.
 router.get('/api/mayoristas/ordenes-fraccionado/novedades', apiRoute(async () =>
   leerJSON(ORD_FRACC_PATH, [])
-    .filter(o => o && o.estado === 'pendiente')
+    .filter(o => o && o.estado === 'pendiente' && !o.archivada)
     .map(o => {
       // Las órdenes guardadas antes de estos campos no los tienen, pero el id ES un Date.now():
       // alcanza para que el polling detecte un alta vieja sin tener que migrar el archivo.
@@ -326,6 +326,20 @@ router.put('/api/mayoristas/ordenes-fraccionado/:id', (req, res) => {
   // si el cliente reenvía la orden entera.
   arr[i] = { ...arr[i], ...cambios, id: arr[i].id, fecha: arr[i].fecha,
              lineas, totales: totalesOrdenFraccionado(lineas), progreso: undefined };
+  guardarJSON(ORD_FRACC_PATH, arr);
+  res.json(conProgreso(arr[i]));
+});
+
+// "Borrar guardando en el historial": la orden queda en el archivo tal cual estaba (estado y
+// avance de las líneas), pero marcada archivada. Desde ahí sale de juego igual que si se hubiese
+// borrado: libera sus PLU (compromisosPorPlu), desaparece de Distribución y no se puede editar.
+router.post('/api/mayoristas/ordenes-fraccionado/:id/archivar', (req, res) => {
+  const arr = leerJSON(ORD_FRACC_PATH, []);
+  const i = arr.findIndex(o => String(o.id) === String(req.params.id));
+  if (i < 0) return res.status(404).json({ error: 'Orden no encontrada' });
+  if (arr[i].archivada) return res.status(409).json({ error: 'La orden ya está en el historial' });
+  const ahora = Date.now();
+  arr[i] = { ...arr[i], archivada: true, archivadaEn: ahora, actualizadoEn: ahora };
   guardarJSON(ORD_FRACC_PATH, arr);
   res.json(conProgreso(arr[i]));
 });
