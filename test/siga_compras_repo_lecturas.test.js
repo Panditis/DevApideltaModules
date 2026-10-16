@@ -81,6 +81,22 @@ test('contexto: VentasNumeros_G1 (empresa, tipo, letra, emisor) marca numeració
   assert.strictEqual(ctx2.numeracionCompartidaConVentas, false);
 });
 
+test('contexto: numeración automática por proveedor consulta VentasNumeros_G1 con emisor 1 y sin número (Win L22998)', async () => {
+  const automatico = [{ ...FILAS_SIGA.TiposComprobantes[0], NumeracionAutomatica: true }];
+  const b = borradorFactcom({ centroEmisor: 0, numeroComprobante: 0 });
+  for (const [filasVN, esperado] of [[[{ IdTipoComprobante: 'FACTCOM' }], true], [[], false]]) {
+    const falso = crearSqlFalso(porTabla({
+      TiposComprobantes: () => ({ recordset: automatico }),
+      VentasNumeros: texto => ({ recordset: /IdTipoComprobanteRelacionado/.test(texto) ? [] : filasVN }),
+    }));
+    const ctx = await crearRepo(falso).contexto(b, { hoy: '2026-10-16' });
+    assert.strictEqual(ctx.numeracionCompartidaConVentas, esperado);
+    const g1 = falso.registro.find(e => /FROM VentasNumeros VN/.test(e.texto) && !/Relacionado/.test(e.texto));
+    assert.deepStrictEqual([g1.params.idEmpresa, g1.params.idTipoComprobante, g1.params.letra, g1.params.centroEmisor], [1, 'FACTCOM', 'A', 1]);
+    assert.strictEqual(falso.registro.findIndex(e => /FROM Compras C/.test(e.texto)), -1);
+  }
+});
+
 test('contexto: duplicado por proveedor en cualquier sucursal, sin lock (el lock va en grabar)', async () => {
   const falso = crearSqlFalso(porTabla({ Compras: () => ({ recordset: [{ IdSucursal: 11 }] }) }));
   const ctx = await crearRepo(falso).contexto(borradorFactcom(), { hoy: '2026-10-16' });

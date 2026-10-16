@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const M = require('../lib/siga_compras/mapeos');
+const { ErrorSiga } = require('../lib/siga_compras/sql_comun');
 const { contextoFactcom, FILAS_SIGA } = require('./siga_compras_fixture');
 
 test('las filas crudas de SIGA mapean exactamente al contexto del fixture', () => {
@@ -58,6 +59,7 @@ test('requerido busca la columna sin distinguir mayúsculas (SQL Server no disti
 
 test('el mensaje de columna faltante no dice SIGA-INFERIDO', () => {
   const { Tipo, ...sinTipo } = FILAS_SIGA.TiposComprobantes[0];
-  assert.throws(() => M.mapearTipoComprobante(sinTipo), /^Error: Falta la columna TiposComprobantes\.Tipo en SIGA\.$/);
+  assert.throws(() => M.mapearTipoComprobante(sinTipo), err => err instanceof ErrorSiga && err.code === 'SIGA_CONFIG'
+    && err.message === 'Falta la columna TiposComprobantes.Tipo en SIGA.');
   assert.ok(Tipo);
 });

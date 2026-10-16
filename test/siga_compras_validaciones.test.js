@@ -45,6 +45,17 @@ test('numeración manual: emisor y número obligatorios, mayores a cero y sin du
     ['Este comprobante ya EXISTE en Cuentas Corrientes de Proveedores']);
   assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, numeracionCompartidaConVentas: true }),
     ['v1: el tipo, letra y punto de venta comparten numeración con ventas (VentasNumeros); cargalo desde SiGA.']);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, numeracionCompartidaConVentas: true, duplicado: { enCompras: true, enCtaCte: false } }),
+    ['Este comprobante ya fue INGRESADO con ANTERIORIDAD']);
+});
+
+test('numeración automática por proveedor: la numeración compartida con ventas bloquea igual (Win L22998)', () => {
+  const ctx = contextoFactcom();
+  const automatico = { ...ctx, tipo: { ...ctx.tipo, numeracionAutomatica: true } };
+  const b = borradorFactcom({ centroEmisor: 0, numeroComprobante: 0 });
+  assert.deepStrictEqual(mensajes(b, { ...automatico, numeracionCompartidaConVentas: true }),
+    ['v1: el tipo, letra y punto de venta comparten numeración con ventas (VentasNumeros); cargalo desde SiGA.']);
+  assert.deepStrictEqual(mensajes(b, automatico), []);
 });
 
 test('numeración automática: no pide emisor ni número', () => {
