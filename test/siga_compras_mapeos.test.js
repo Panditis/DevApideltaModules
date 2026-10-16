@@ -27,7 +27,11 @@ test('si falta una columna SIGA-INFERIDO, el error dice cuál (no se inventa un 
   assert.ok(GrabaLibro && IvaDiscriminado && Alicuota);
 });
 
-test('mapearParametros: valores de la tabla y defaults SIGA-INFERIDO', () => {
+test('mapearParametros: las filas de Parametros del fixture dan los parámetros del contexto', () => {
+  assert.deepStrictEqual(M.mapearParametros(FILAS_SIGA.Parametros), contextoFactcom().parametros);
+});
+
+test('mapearParametros: valores de la tabla y defaults de SiGA', () => {
   assert.deepStrictEqual(M.mapearParametros([]), {
     categoriaFiscalEmpresa: 2, decimalesTotal: 2, decimalesPrecio: 4, pasajeIncluyeImpuestos: true,
   });

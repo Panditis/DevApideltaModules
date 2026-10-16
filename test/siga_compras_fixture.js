@@ -61,7 +61,7 @@ function contextoFactcom(cambios = {}) {
     periodo: { periodoFiscal: 202610, fechaCierre: null },
     duplicado: { enCompras: false, enCtaCte: false },
     ventasNumerosRelacionado: false,
-    parametros: { decimalesTotal: 2, decimalesPrecio: 2, pasajeIncluyeImpuestos: false },
+    parametros: { categoriaFiscalEmpresa: 2, decimalesTotal: 2, decimalesPrecio: 2, pasajeIncluyeImpuestos: false },
     cotizacionDolar: 1450,
     ...cambios,
   };
@@ -75,7 +75,13 @@ const FILAS_SIGA = {
     IdRubroCompra: 1, IdFormasPago: 3, DescuentoRecargoPorc: 0, IdTipoComprobante: 'FACTCOM   ',
   }],
   Sucursales: [{ IdSucursal: 1, IdEmpresa: 1, Nombre: 'Casa Central' }],
-  Parametros: [{ IdParametro: 'CATEGORIAFISCALEMPRESA', ValorParametro: '2' }],
+  Parametros: [
+    { IdParametro: 'CATEGORIAFISCALEMPRESA', ValorParametro: '2' },
+    { IdParametro: 'COMPRASDECIMALESENTOTALGENERAL', ValorParametro: '2' },
+    // SIGA-INFERIDO: la base real tendría COMPRASDECIMALESREDONDEOENPRECIO=2 (deducido de 6.686,32 del caso 1071364)
+    { IdParametro: 'COMPRASDECIMALESREDONDEOENPRECIO', ValorParametro: '2' },
+    { IdParametro: 'EXPENSASPASAJECOMPRASINCLUYEIMPUESTOS', ValorParametro: 'False' },
+  ],
   CategoriasFiscales: [{
     IdCategoriaFiscal: 2, NombreCategoriaFiscal: 'Responsable Inscripto', IvaDiscriminado: true, UtilizaImpuestos: true, LetraFiscalCompra: 'A',
   }],
