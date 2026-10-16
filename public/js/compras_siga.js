@@ -8,7 +8,7 @@
   const pedido = new URLSearchParams(location.search).get('pedido') || '';
   const N2 = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const n2 = v => N2.format(Number(v) || 0);
-  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   // input type=number: '' (vacío o inválido) → null; si no, número (nunca texto con separadores).
   const num = v => (v === '' || v == null ? null : Number(v));
   const el = (tag, clase, texto) => {
@@ -28,14 +28,15 @@
   const DEBOUNCE_MS = 400;
   const estado = {
     borrador: null, catalogos: null, precios: {}, percepciones: [], errores: [],
-    validando: false, grabando: false, grabado: false, aVerificar: false, secuencia: 0,
+    validando: false, grabando: false, grabado: false, aVerificar: false, incierto: false, secuencia: 0, avisosBase: [],
   };
   let temporizador = null;
 
   async function api(url, opciones) {
     const r = await fetch(url, opciones);
-    const datos = await r.json().catch(() => ({}));
-    return { ok: r.ok, status: r.status, datos };
+    let esJSON = true;
+    const datos = await r.json().catch(() => { esJSON = false; return {}; });
+    return { ok: r.ok, status: r.status, datos, esJSON };
   }
   const postJSON = (url, cuerpo) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
 
@@ -45,6 +46,15 @@
     const caja = $('#aviso');
     caja.className = `rounded-lg border bg-white px-4 py-3 text-sm ${tonos[tono] || tonos.info}`;
     caja.replaceChildren(...partes);
+  }
+
+  // Vuelve al aviso fijo del borrador (bloqueos y avisos de catálogos) o lo oculta: borra errores ya superados.
+  function limpiarAviso() {
+    if (estado.incierto) return; // "No se sabe si se grabó" queda a la vista hasta recargar
+    if (!estado.avisosBase.length) { $('#aviso').className = 'hidden'; $('#aviso').replaceChildren(); return; }
+    const lista = el('ul', 'list-disc pl-5');
+    lista.replaceChildren(...estado.avisosBase.map(a => el('li', null, a)));
+    mostrarAviso('error', lista);
   }
 
   // ── Modal propio de confirmación ────────────────────────────────────────────
@@ -146,7 +156,7 @@
   }
 
   function actualizarBotonGrabar() {
-    $('#btnGrabar').disabled = estado.grabado || estado.grabando || estado.validando || estado.aVerificar || estado.errores.length > 0;
+    $('#btnGrabar').disabled = estado.grabado || estado.grabando || estado.incierto || estado.validando || estado.aVerificar || estado.errores.length > 0;
   }
 
   // Errores junto al control de la cabecera (si tiene uno) y todos en la lista de abajo.
@@ -200,6 +210,7 @@
       const { ok, status, datos } = await postJSON('/api/compras-siga/validar', cuerpo());
       if (yo !== estado.secuencia) return;
       if (!ok) { mostrarAviso('error', datos.error || `No se pudo validar (error ${status}).`); return; }
+      limpiarAviso();
       pintarResultado(datos);
     } catch (e) {
       if (yo === estado.secuencia) mostrarAviso('error', `No se pudo validar: ${e.message}`);
@@ -236,6 +247,14 @@
     if (!datos.vinculado) mostrarVerificar();
   }
 
+  // Corte de red o respuesta ilegible al grabar: no se sabe si quedó en SIGA. Grabar queda trabado hasta recargar
+  // (nunca se reintenta solo: en numeración automática duplicaría el comprobante).
+  function quedoIncierto() {
+    estado.incierto = true;
+    actualizarBotonGrabar();
+    mostrarAviso('error', 'No se sabe si se grabó: revisá en SiGA antes de reintentar y recargá la página.');
+  }
+
   async function grabar() {
     const c = cuerpo().cabecera;
     const t = tipoElegido();
@@ -251,7 +270,8 @@
     actualizarBotonGrabar();
     mostrarAviso('info', 'Grabando en SIGA…');
     try {
-      const { ok, status, datos } = await postJSON('/api/compras-siga/grabar', cuerpo());
+      const { ok, status, datos, esJSON } = await postJSON('/api/compras-siga/grabar', cuerpo());
+      if (!esJSON) { quedoIncierto(); return; }
       if (status === 400 && datos.errores) {
         pintarResultado(datos);
         mostrarAviso('error', 'SIGA no aceptó el comprobante: revisá los errores.');
@@ -261,8 +281,7 @@
       if (!ok) { mostrarAviso('error', datos.error || `Error ${status}`); return; }
       bloquearPantalla(datos);
     } catch (e) {
-      // Sin respuesta no se sabe si el servidor llegó a grabar: antes de reintentar hay que mirar SiGA.
-      mostrarAviso('error', `No llegó la respuesta del servidor (${e.message}). Antes de reintentar, revisá en SiGA si el comprobante quedó cargado y recargá la página.`);
+      quedoIncierto();
     } finally {
       estado.grabando = false;
       actualizarBotonGrabar();
@@ -314,7 +333,9 @@
       if (!tr || !k) return;
       const i = Number(tr.dataset.i);
       const valor = k === 'tipo' || k === 'idProvincia' ? e.target.value : num(e.target.value);
-      estado.percepciones = estado.percepciones.map((p, j) => (j === i ? { ...p, [k]: valor } : p));
+      // Provincia, base y alícuota son solo de PIIBB: al cambiar a otro tipo se limpian y no viajan.
+      const limpiar = k === 'tipo' && valor !== 'PIIBB' ? { idProvincia: '', baseImponible: null, alicuota: null } : {};
+      estado.percepciones = estado.percepciones.map((p, j) => (j === i ? { ...p, [k]: valor, ...limpiar } : p));
       if (k === 'tipo') pintarPercepciones();
       programarValidacion();
     });
@@ -345,18 +366,24 @@
     pintarPercepciones();
     if (datos.aVerificar) mostrarVerificar();
     const avisos = [...datos.borrador.bloqueos.map(b => b.mensaje), ...(datos.catalogos.avisos || [])];
-    if (avisos.length) {
-      const lista = el('ul', 'list-disc pl-5');
-      lista.replaceChildren(...avisos.map(a => el('li', null, a)));
-      mostrarAviso('error', lista);
-    }
+    estado.avisosBase = avisos;
+    limpiarAviso();
     enlazarEventos();
     await validar();
   }
 
   $('#modalCancelar').addEventListener('click', () => cerrarModal(false));
   $('#modalAceptar').addEventListener('click', () => cerrarModal(true));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && resolverModal) cerrarModal(false); });
+  document.addEventListener('keydown', e => {
+    if (!resolverModal) return;
+    if (e.key === 'Escape') { cerrarModal(false); return; }
+    if (e.key !== 'Tab') return;
+    // Foco atrapado en el modal: Tab / Shift+Tab ciclan entre sus dos botones.
+    const botones = [$('#modalCancelar'), $('#modalAceptar')];
+    const i = botones.indexOf(document.activeElement);
+    e.preventDefault();
+    botones[(i + (e.shiftKey ? botones.length - 1 : 1)) % botones.length].focus();
+  });
   document.querySelectorAll('[data-verif]').forEach(b => b.addEventListener('click', () => liberarVerificacion(b.dataset.verif)));
 
   iniciar().catch(e => mostrarAviso('error', `Error al iniciar: ${e.message}`));

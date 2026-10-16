@@ -19,6 +19,20 @@ test('compras_siga.js parsea y la pantalla no usa alert/confirm/prompt', () => {
   }
 });
 
+test('esc() escapa & < > " y la comilla simple', () => {
+  const m = /const esc = (s => [^\n]*);\n/.exec(JS);
+  assert.ok(m, 'no se encontró esc() en compras_siga.js');
+  const esc = vm.runInNewContext(`(${m[1]})`);
+  assert.strictEqual(esc(`<a href='x' title="y">&</a>`), '&lt;a href=&#39;x&#39; title=&quot;y&quot;&gt;&amp;&lt;/a&gt;');
+  assert.strictEqual(esc(null), '');
+});
+
+test('si se corta la red al grabar, Grabar queda trabado hasta recargar (sin reintento)', () => {
+  assert.match(JS, /estado\.incierto = true;/);
+  assert.match(JS, /\$\('#btnGrabar'\)\.disabled = [^;]*estado\.incierto/);
+  assert.match(JS, /No se sabe si se grabó: revisá en SiGA antes de reintentar y recargá la página\./);
+});
+
 test('cada #id que usa compras_siga.js existe en compras_siga.html', () => {
   const ids = new Set([...JS.matchAll(/'#([A-Za-z][\w-]*)'/g)].map(m => m[1]));
   const faltan = [...ids].filter(id => !HTML.includes(`id="${id}"`));
