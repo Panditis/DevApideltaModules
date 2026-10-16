@@ -60,6 +60,8 @@ function htmlSelectDecision(fila, ops, { deshabilitado = false, titulo = '' } = 
 // (formato 0.0 % en Excel). Precio nuevo = el minorista sugerido de cada fuente (el mismo de la pantalla). Fraccionado: una
 // fila por presentación con el costo $/kg de su granel; Producción: el costo es el de la receta/envasado, sin última compra.
 const deltaFrac = (nuevo, base) => (nuevo != null && base > 0 ? Math.round(((nuevo - base) / base) * 10000) / 10000 : null);
+// PLU de la planilla = número (como el Codigo del export a SIGA, lib/precios_listado_esquema codigoNumerico); no numérico/null quedan como están.
+const pluXlsx = plu => (/^\d+$/.test(String(plu)) ? Number(plu) : plu);
 const ENC_COSTOS_XLSX = ['Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra'];
 const ENC_PRECIOS_XLSX = ['Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)'];
 function filasExportListado(filas, tipo) {
@@ -70,14 +72,14 @@ function filasExportListado(filas, tipo) {
   };
   if (tipo === 'produccion') {
     return [['PLU', 'Nombre', 'Costo actual (receta/envasado)', ...ENC_PRECIOS_XLSX.slice(0, 3)],
-      ...filas.map(f => [f.plu, f.nombre, f.costoSistema ?? null, ...precios(f, false)])];
+      ...filas.map(f => [pluXlsx(f.plu), f.nombre, f.costoSistema ?? null, ...precios(f, false)])];
   }
   const costos = f => [f.costoSistema ?? null, f.costoUltimaCompra ?? null, deltaFrac(f.costoUltimaCompra, f.costoSistema), f.fechaUltimaCompra || null];
-  if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.map(f => [f.plu, f.nombre, ...costos(f), ...precios(f)])];
+  if (tipo !== 'fraccionado') return [['PLU', 'Nombre', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.map(f => [pluXlsx(f.plu), f.nombre, ...costos(f), ...precios(f)])];
   const granel = g => (g.plu == null ? g.nombre : `${g.plu} · ${g.nombre}`);
   return [['PLU', 'Nombre', 'Granel', ...ENC_COSTOS_XLSX, ...ENC_PRECIOS_XLSX], ...filas.flatMap(g => ((g.presentaciones || []).length
-    ? g.presentaciones.map(p => [p.plu, p.nombre, granel(g), ...costos(g), ...precios(p)])
-    : [[g.plu, g.nombre, granel(g), ...costos(g), ...precios(null)]]))];
+    ? g.presentaciones.map(p => [pluXlsx(p.plu), p.nombre, granel(g), ...costos(g), ...precios(p)])
+    : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null)]]))];
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado };
