@@ -83,7 +83,7 @@ test('config esquema: PUT costos guarda modo, gastos (sin listas) y extras', asy
 });
 
 test('config esquema: Recalcular rango = percentiles de los costos de sistema; sin costos → error; no guarda', async () => {
-  const filas = [121, 1210, 12100].map((c, i) => ({ IdProducto: String(i + 1), NombreProducto: `P${i}`, CostoSistema: c, IvaCompraPct: 21 }));
+  const filas = [100, 1000, 10000].map((c, i) => ({ IdProducto: String(i + 1), NombreProducto: `P${i}`, CostoSistema: c, IvaCompraPct: 21 }));
   const a = appCon(MIGRADO, { query: async sql => (sql.includes('UcPrecioNeto') ? filas : []) });
   try {
     assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 100, hasta: 10000 }, n: 3 });
@@ -97,9 +97,10 @@ test('config esquema: Recalcular rango = percentiles de los costos de sistema; s
 
 // SIGA falso con un producto en cada listado: Reventa (1 Arroz), Fraccionado (granel 50 con su presentación 51) y
 // Producción (presentación 6319 de una receta con la materia prima 300).
-const COSTOS_FALSOS = { 1: ['Arroz', 1210], 50: ['Almendra granel', 12100], 300: ['Harina', 400] };
+// CostoSistema = PrecioCosto de SIGA, que el módulo usa tal cual (sin dividir por la alícuota).
+const COSTOS_FALSOS = { 1: ['Arroz', 1000], 50: ['Almendra granel', 10000], 300: ['Harina', 330.58] };
 const sigaFalso = async (sql) => {
-  if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1210, IvaCompraPct: 21 }];
+  if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1000, IvaCompraPct: 21 }];
   if (sql.includes("NombreRubro = 'Pesables Deposito'")) return [{ IdProducto: '50', NombreProducto: 'Almendra granel' }];
   if (sql.includes("NombreRubro = 'Pesables Fraccionado'")) return [{ IdProducto: '51', NombreProducto: 'Almendra 500G' }];
   const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
@@ -116,7 +117,7 @@ const ARCHIVOS_FALSOS = {
 test('config esquema: Recalcular rango junta los costos de los tres tipos (Reventa, granel $/kg, Producción)', async () => {
   const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   try {
-    // Reventa 1210/1,21 = 1000; granel 12100/1,21 = 10000 $/kg; Producción 1 kg de harina 400/1,21 = 330,58
+    // Reventa 1000; granel 10000 $/kg; Producción 1 kg de harina 330,58
     assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 10000 }, n: 3 });
   } finally { a.cerrar(); }
 });
@@ -195,7 +196,7 @@ test('listado Producción: "A revisar" con la materia prima que se movió desde 
   try {
     const { filas } = await a.pedir('GET', '/api/precios/esquema/listado?tipo=produccion');
     const f = filas.find(x => x.plu === '6319');
-    // Harina: sistema 400 con IVA 21 % → 330,58 neto (filaCostos) vs 300 validado
+    // Harina: sistema 330,58 vs 300 validado
     assert.deepStrictEqual(f.aRevisar, [{ plu: '300', nombre: 'Harina', antes: 300, ahora: 330.58 }]);
   } finally { a.cerrar(); }
 });
@@ -230,7 +231,7 @@ test('decisión: DELETE /decisiones/mias borra sólo las del usuario de la sesi�
 });
 
 // ── Producción en el modal: el detalle resuelve PLUs de receta y de envasado (granel + insumos) ──
-const COSTOS_ENV = { ...COSTOS_FALSOS, 9710: ['Miel granel', 2420], 6334: ['Frasco 500', 363] };
+const COSTOS_ENV = { ...COSTOS_FALSOS, 9710: ['Miel granel', 2000], 6334: ['Frasco 500', 300] };
 const sigaEnv = async (sql) => {
   const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
   if (ids) return ids.match(/\w+/g).filter(id => COSTOS_ENV[id]).map(id => ({ IdProducto: id, NombreProducto: COSTOS_ENV[id][0], CostoSistema: COSTOS_ENV[id][1], IvaCompraPct: 21 }));
@@ -255,7 +256,7 @@ test('detalle Producción: PLU de receta y PLU envasado con sugerido; el envasad
 
 test('Reventa sin los PLUs de venta de Producción: ni listado, ni decisión como Reventa, ni export doble; la MP sigue costeando', async () => {
   // 6319 (presentación de receta) y 2280 (envasado) también están en el rubro Almacen de SIGA; 300 (materia prima) también.
-  const almacen = ['1', '6319', '2280', '300'].map(id => ({ IdProducto: id, NombreProducto: `P${id}`, CostoSistema: 1210, IvaCompraPct: 21 }));
+  const almacen = ['1', '6319', '2280', '300'].map(id => ({ IdProducto: id, NombreProducto: `P${id}`, CostoSistema: 1000, IvaCompraPct: 21 }));
   const query = async sql => (sql.includes("NombreRubro = 'Almacen'") ? almacen : sigaEnv(sql));
   const a = appCon(MIGRADO, { query, archivos: { ...ARCHIVOS_FALSOS, 'recetas_produccion.json': RECETAS_ENV } });
   try {

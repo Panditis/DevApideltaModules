@@ -174,6 +174,7 @@ function htmlMarcoBases(f) {
     <input type="search" class="lst-buscar px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-96" placeholder="Buscar producto base, variedad, código o nombre…" aria-label="Buscar producto base, variedad, código o nombre" value="${esc(f.texto || '')}">
     <span class="lst-conteo text-sm text-gris"></span><span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
+    <button type="button" class="lst-exportar-listado px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white" title="Todas las filas de la pestaña con los filtros y el orden actuales (reporte, no el formato de SIGA)">Exportar listado (.xlsx)</button>
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
     <button type="button" class="lst-nuevo cfg-btn" title="Producto base (ej. Miel) con sus variedades y códigos">+ Nuevo producto base</button>
   </div>

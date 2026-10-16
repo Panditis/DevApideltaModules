@@ -26,7 +26,7 @@ test('universoFraccionado: graneles, presentaciones (VD sin fórmula con su gran
   assert.deepStrictEqual(u.presentaciones.map(p => [p.plu, !!p.ventaDirecta, p.granelSiga ?? null]),
     [['101', false, null], ['102', true, null], ['103', true, '200']]);
   assert.deepStrictEqual([...u.costos.keys()].sort(), ['100', '200']);
-  assert.strictEqual(u.costos.get('100').costoSistema, 1000);
+  assert.strictEqual(u.costos.get('100').costoSistema, 1210); // PrecioCosto de SIGA tal cual
 });
 
 test('universoAlmacen: productos activos del rubro Almacen con sus costos', async () => {
@@ -34,7 +34,7 @@ test('universoAlmacen: productos activos del rubro Almacen con sus costos', asyn
   const { universoAlmacen } = crearConsultasPrecios({ ...deps, query: async sql => { sqls.push(sql); return [{ IdProducto: '7', NombreProducto: 'Arroz', CostoSistema: 1210, IvaCompraPct: 21 }]; } });
   const filas = await universoAlmacen();
   assert.match(sqls[0], /r\.NombreRubro = 'Almacen'/);
-  assert.deepStrictEqual(filas.map(f => [f.plu, f.costoSistema]), [['7', 1000]]);
+  assert.deepStrictEqual(filas.map(f => [f.plu, f.costoSistema]), [['7', 1210]]);
 });
 
 test('granelDePresentacion: fórmula › fórmula SIGA › nombre del granel › propio PLU (sólo venta directa)', () => {

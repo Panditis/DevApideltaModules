@@ -8,6 +8,7 @@ const { calcularPesables, ultimoFraccionadoPorPlu } = require('../lib/pesables')
 const productividad = require('../lib/productividad');
 const { universoLista, universoPesables } = require('../lib/listas_universo');
 const { pesoTokenKg } = require('../lib/producto_carga');
+const { formulasPesables } = require('../lib/formulas_pesables');
 const { computeA8020, calcularRankingPorSucursal, calcularRankingGlobal, roundDec, aplicarManualA8020, asegurarBrechaMinS,
         calcularConsumoReal, esProductoApidelta, boostDePlu, BOOST_APIDELTA_DEFAULT, RUBRO_ALMACEN_BULTO,
         a8020Vencido } = require('../lib/a8020');
@@ -228,12 +229,13 @@ router.get('/api/distribucion/sucursales', apiRoute(async () =>
 // ── Distribución de pesables/granel (réplica hoja "Pesables") ───────────────────
 // IdSucursal Siga → clave motor pesables. Logia(8) SÍ se reparte en pesables; Savio(6) no.
 const PES_SUC_MAP = { 5:'riv', 2:'urq', 3:'nacion', 4:'chaca', 10:'pergamino', 7:'sanpedro', 8:'logia', 9:'ramallo', 11:'sucu11' };   // central resuelta por idCentral (config)
+// Fórmulas presentación → granel recalculadas desde Siga en cada cálculo (el JSON es respaldo).
+const formulasVigentes = (pesLis) => formulasPesables({ query, FORMULA_ACTIVA_SQL, respaldo: (pesLis || {}).formulas });
 async function calcularDistribucionPesables(aplicarOcultar = true) {
   const a8020   = leerJSON(A8020_PATH, {});
   const pesLis  = leerJSON(PESABLES_LISTAS_PATH, {});
   const ed = leerListasDistrib();
   const impViva = (leerJSON(A8020_CALC_PATH, {}) || {}).impFacturacion || {};
-  const formulas = pesLis.formulas || {};
   const ocultosLista = aplicarOcultar ? ed.ocultarPesable : [];   // checkbox "Ocultar códigos" en Pesables
   const distLis = { noEnvasa: ed.noEnvasa, restringidos: ed.restringidos, importanciaMinorista: impViva };
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto, r.NombreRubro
@@ -243,6 +245,8 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
   const basePlus = rubroRows.map(r => r.IdProducto);
   const plus = universoPesables(basePlus, ed.siemprePesable, ed.noEnvasa, ocultosLista);
   if (!plus.length) throw new Error('Sin productos activos de rubro "Pesables Fraccionado" en Siga.');
+  const formulas = await formulasVigentes(pesLis);
+  const pesLisV = { ...pesLis, formulas };
   const quote = arr => arr.map(p => `'${String(p).replace(/'/g, "''")}'`).join(',');
   // Códigos granel únicos (stock central de granel sale del depósito GRANEL, por código componente).
   const granelCodes = [...new Set(plus.map(p => (formulas[p] || {}).granel).filter(g => g != null).map(String))];
@@ -327,7 +331,7 @@ async function calcularDistribucionPesables(aplicarOcultar = true) {
     muPorPluP[plu] = SUC_MU.reduce((s, k) => s + ((d[k] && Number(d[k].mu)) || 0), 0);
   const presPorPlu = {};
   for (const plu of plus) presPorPlu[String(plu)] = pesoPresentacionKg(nombreMap.get(String(plu)) || '', (formulas[String(plu)] || {}).cantFormula);
-  const filas = calcularPesables(productos, a8020, pesLis, distLis,
+  const filas = calcularPesables(productos, a8020, pesLisV, distLis,
     { corregirBugs: true, prioPesos: pesParams.prioPesos, granelCap: pesParams.granelCap,
       empujePresencia: empPes.presencia, empujePresenciaFactorS: empPes.presenciaFactorS,
       presenciaPorClase: empPes.presenciaPorClase, presenciaPorPresentacion: empPes.presenciaPorPresentacion, abcPorPlu: abcPorPluP, presPorPlu,
@@ -966,7 +970,7 @@ async function recalcularA8020() {
 
   // Consumo real (informativo): rastrea la venta hasta el producto que sale del stock —
   // bultos → componentes de la fórmula, fraccionado → kg del granel.
-  const { consumo, consumoOrigen } = await consumoRealA8020(statRows, sucById, rubroDePlu, pesLis.formulas || {});
+  const { consumo, consumoOrigen } = await consumoRealA8020(statRows, sucById, rubroDePlu, await formulasVigentes(pesLis));
   // Un granel puede recibir consumo sin tener niveles propios (no se vende suelto en ninguna
   // sucursal): igual entra en `plus` para que la tabla le arme la fila y muestre su nombre.
   const plus = [...new Set([...Object.keys(mins), ...Object.keys(consumo)])];
@@ -1138,8 +1142,9 @@ async function recalcularConsumoMensual() {
     celda[campo] = Math.round((celda[campo] + cantidad) * 100) / 100;
     celda.total = Math.round((celda.ventas + celda.produccion) * 100) / 100;
   };
+  const formulasPesables = await formulasVigentes(pesLis);
   for (const [mes, filas] of Object.entries(porMes)) {
-    const { consumo } = calcularConsumoReal(filas, sucById, rubroDePlu, pesLis.formulas || {}, compsPorBulto);
+    const { consumo } = calcularConsumoReal(filas, sucById, rubroDePlu, formulasPesables, compsPorBulto);
     for (const [plu, porSuc] of Object.entries(consumo)) {
       anotar(plu, mes, 'ventas', Object.values(porSuc).reduce((s, v) => s + (Number(v) || 0), 0));
     }
@@ -1147,7 +1152,6 @@ async function recalcularConsumoMensual() {
   // El producto de compra consumido en producción: si mp.IdProducto es una presentación
   // fraccionada, el consumo real es de su granel (misma imputación que usa calcularConsumoReal
   // para ventas); si no tiene fórmula, ya es el producto de compra y se cuenta tal cual.
-  const formulasPesables = pesLis.formulas || {};
   for (const r of prodRows) {
     const pluCrudo = String(r.IdProducto).trim();
     const cant = Number(r.Cant) || 0;

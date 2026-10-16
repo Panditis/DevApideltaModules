@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const { RE_ROL_ENVASADO, tieneRol, esSoloEtiquetado, packagingDeRegistro } = require('../lib/produccion_packaging');
 
 // ── Rutas de Reservas del plan + Conciliación de producción con SiGA ───────────
 // El motor que ata movimientos de stock reales en SiGA con la planificación de
@@ -16,7 +17,7 @@ const express = require('express');
 //   · RE_ROL_ENVASADO / RE_NOMBRE_ETIQUETA — regexes que sólo usan los helpers
 //     de conciliación de acá abajo.
 //   · plusDeRegistro, tieneRolEnvasado, esRegistroManual, motivoExclusionRegistro,
-//     granelesDeRegistro, pluComponentePorNombre, etiquetaDeFormula,
+//     granelesDeRegistro, pluComponentePorNombre,
 //     tipoComponentePorNombre, filaComponente, consumoRealDeRegistros,
 //     productosDeConciliacion, conciliacionProduccion — el motor de conciliación
 //     completo: sólo lo llaman GET /api/produccion/:fecha/conciliacion y POST
@@ -508,8 +509,7 @@ router.post('/api/plan/:fecha/reserva/devolver', apiRoute(async req => {
 // ES SÓLO LECTURA: no ejecuta ningún movimiento. Lo único que escribe es la
 // sincronización de la reserva con el log, igual que GET /api/plan/:fecha/reserva.
 
-const RE_ROL_ENVASADO    = /envasad/i;
-const RE_ROL_ETIQUETADO  = /etiquetad/i;
+// RE_ROL_ENVASADO / tieneRol / etiquetaDeFormula / la regla del packaging: lib/produccion_packaging.js.
 const RE_NOMBRE_ETIQUETA = /^\s*etiquetas?\b/i;
 
 // Un registro puede traer varios PLU juntos ("2892, 2891"): se separan y se sanitizan.
@@ -518,13 +518,6 @@ function plusDeRegistro(valor) {
   return String(valor ?? '').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean);
 }
 
-// Mismo criterio que el CSV de producción (exportTerminadosCSV): el rol tiene que ser
-// de envasado Y tener a alguien cargado. roles es la clave nueva; responsables, la vieja.
-function tieneRol(reg, re) {
-  const roles = Array.isArray(reg && reg.roles) ? reg.roles
-              : (Array.isArray(reg && reg.responsables) ? reg.responsables : []);
-  return roles.some(x => re.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
-}
 function tieneRolEnvasado(reg) { return tieneRol(reg, RE_ROL_ENVASADO); }
 
 // Carga manual: producción que se cargó a mano, sin orden del plan detrás (ordenId null). Por
@@ -560,14 +553,6 @@ function pluComponentePorNombre(comps, nombre) {
   return c ? c.plu : '';
 }
 
-// Etiqueta de la fórmula, con la misma regla que usa el CSV: rubro que contenga ETIQUET
-// o nombre que empiece con "Etiqueta".
-function etiquetaDeFormula(comps) {
-  return (comps || []).find(c =>
-    String(c.rubro || '').toUpperCase().includes('ETIQUET') || RE_NOMBRE_ETIQUETA.test(String(c.nombre || ''))
-  ) || null;
-}
-
 // Tipo de un componente que quedó reservado y no se usó: no pasó por ningún registro de
 // producción, así que sólo se lo puede clasificar por el nombre. null = no se pudo.
 function tipoComponentePorNombre(nombre) {
@@ -586,7 +571,8 @@ function filaComponente(plu, nombre, tipo, reservado, usado) {
            falta: diferencia > 0, sobra: diferencia < 0 };
 }
 
-// Consumo real declarado por los registros que entran al alta, agregado por componente.
+// Consumo real declarado por los registros que entran al alta (y los sólo-Etiquetado, que
+// aportan nada más que su etiqueta), agregado por componente.
 // formulas es el Map padre → componentes de fórmula activa (puede venir vacío si SiGA no
 // respondió: en ese caso no hay etiquetas y los graneles sin PLU quedan sin resolver).
 // Devuelve { componentes: Map, avisos: [] }.
@@ -604,12 +590,12 @@ function consumoRealDeRegistros(incluidos, formulas) {
   };
 
   for (const reg of incluidos) {
-    const cant     = Number(reg.cantFraccionada) || 0;
     const pluProd  = plusDeRegistro(reg.plu)[0] || null;
     const comps    = (pluProd && formulas.get(pluProd)) || [];
     const etiqueta = String(reg.nombre || reg.plu || 'sin nombre');
 
-    for (const g of granelesDeRegistro(reg)) {
+    // Sin Envasado (carga sólo de Etiquetado) no hay granel que consumir.
+    for (const g of (tieneRolEnvasado(reg) ? granelesDeRegistro(reg) : [])) {
       const consumido    = Number(g && g.granelConsumido) || 0;
       const nombreGranel = String((g && g.nombreGranel) || '').trim();
       if (!consumido) continue;
@@ -621,15 +607,11 @@ function consumoRealDeRegistros(incluidos, formulas) {
       sumar(pluGranel || null, nombreGranel || 'Granel sin identificar', 'granel', consumido);
     }
 
-    // Envase y tapa se eligen al cargar la producción: 1 por unidad producida.
-    if (reg.envase) sumar(String(reg.envase).replace(/\D/g, '') || null, reg.envaseNombre || `PLU ${reg.envase}`, 'envase', cant);
-    if (reg.tapa)   sumar(String(reg.tapa).replace(/\D/g, '')   || null, reg.tapaNombre   || `PLU ${reg.tapa}`,   'tapa',   cant);
-
-    // La etiqueta sólo se consume si la carga tiene la tarea Etiquetado con alguien asignado.
-    if (!tieneRol(reg, RE_ROL_ETIQUETADO)) continue;
-    const et = etiquetaDeFormula(comps);
-    if (et) sumar(et.plu, et.nombre, 'etiqueta', redondear4(cant * (Number(et.cantPorUnidad) || 1)));
-    else if (comps.length) avisos.push(`La fórmula de ${etiqueta} no tiene etiqueta: no se descuenta ninguna.`);
+    // Envase/tapa (con Envasado) y etiqueta (con Etiquetado): cantidades guardadas en la carga,
+    // o el cálculo viejo si el registro es anterior a guardarlas (ver packagingDeRegistro).
+    const pack = packagingDeRegistro(reg, comps);
+    for (const l of pack.lineas) sumar(l.plu, l.nombre, l.tipo, l.cantidad);
+    if (pack.sinEtiqueta && comps.length) avisos.push(`La fórmula de ${etiqueta} no tiene etiqueta: no se descuenta ninguna.`);
   }
   return { componentes: usados, avisos };
 }
@@ -705,10 +687,15 @@ async function conciliacionProduccion(fecha, idSucursal) {
   }
 
   const incluidos = registros.filter(r => !motivoExclusionRegistro(r) && !estaRegistrado(r));
+  // Sólo Etiquetado: fuera del alta, pero su etiqueta SÍ se descuenta. Mismo criterio de
+  // "ya registrado" que el resto: el asiento guarda sus ids y no se vuelven a mover.
+  const soloEtiqueta = registros.filter(r => esSoloEtiquetado(r) && !estaRegistrado(r) && plusDeRegistro(r.plu)[0]);
+  const consumen  = [...incluidos, ...soloEtiqueta];
   const extras    = registros.filter(r => motivoExclusionRegistro(r) === 'tarea-extra').length;
   const sinRol    = registros.filter(r => motivoExclusionRegistro(r) === 'sin-rol-envasado').length;
   if (extras) avisos.push(`${extras} registro(s) son tareas extra (ACT): no dan de alta ningún producto.`);
-  if (sinRol) avisos.push(`${sinRol} registro(s) no tienen el rol Envasado cargado y quedan fuera del alta.`);
+  if (sinRol) avisos.push(`${sinRol} registro(s) no tienen el rol Envasado cargado y quedan fuera del alta`
+                        + (soloEtiqueta.length ? ` (${soloEtiqueta.length} con Etiquetado: sólo descuentan la etiqueta).` : '.'));
   for (const p of productos) {
     if (p.plus.length > 1) {
       avisos.push(`El producto "${p.nombre || p.pluTexto}" tiene varios PLU cargados (${p.pluTexto}): `
@@ -722,7 +709,7 @@ async function conciliacionProduccion(fecha, idSucursal) {
   // PLU de los graneles cargados sólo por nombre. Si SiGA no responde la pantalla igual
   // se arma, con un aviso: el resto de la conciliación no depende de la base.
   let formulas = new Map();
-  const plusFormula = [...new Set(incluidos.map(r => plusDeRegistro(r.plu)[0]).filter(Boolean))];
+  const plusFormula = [...new Set(consumen.map(r => plusDeRegistro(r.plu)[0]).filter(Boolean))];
   if (plusFormula.length) {
     try { formulas = await componentesFormulaPorPadre(plusFormula); }
     catch (e) { avisos.push(`No se pudo consultar la fórmula en SiGA (${e.message}): las etiquetas quedaron fuera de la conciliación.`); }
@@ -731,8 +718,8 @@ async function conciliacionProduccion(fecha, idSucursal) {
   // El consumo se parte en dos: lo planificado (se concilia contra la reserva) y la carga
   // manual (no tiene reserva detrás: se resuelve en el depósito de recepción). Si se mezclaran,
   // el consumo manual se comería la reserva de las órdenes planificadas del mismo PLU.
-  const incluidosPlan   = incluidos.filter(r => !esRegistroManual(r));
-  const incluidosManual = incluidos.filter(r =>  esRegistroManual(r));
+  const incluidosPlan   = consumen.filter(r => !esRegistroManual(r));
+  const incluidosManual = consumen.filter(r =>  esRegistroManual(r));
   const consumo       = consumoRealDeRegistros(incluidosPlan, formulas);
   const consumoManual = consumoRealDeRegistros(incluidosManual, formulas);
   avisos.push(...consumo.avisos, ...consumoManual.avisos);
@@ -904,7 +891,11 @@ async function conciliacionProduccion(fecha, idSucursal) {
     if (parciales.length)     avisos.push(`${parciales.length} producto(s) tienen parte ya registrada${compTxt}: sólo se registrará lo pendiente.`);
   }
   // Hay algo pendiente si algún producto NO excluido todavía no quedó totalmente registrado.
-  const pendienteDeRegistrar = productos.some(p => !p.excluido && !p.yaRegistrado);
+  // Los sólo-Etiquetado cuentan si su etiqueta se pudo resolver (si no, no habría línea que mover
+  // y la fecha quedaría pendiente para siempre).
+  const soloEtiquetaPendientes = soloEtiqueta.filter(r =>
+    packagingDeRegistro(r, formulas.get(plusDeRegistro(r.plu)[0]) || []).lineas.length);
+  const pendienteDeRegistrar = productos.some(p => !p.excluido && !p.yaRegistrado) || soloEtiquetaPendientes.length > 0;
 
   // Depósitos de la sucursal en la que está parada la pantalla: el modal elige de dónde salen
   // los componentes no reservados (y a dónde vuelve el sobrante) y a dónde entran los
@@ -1030,6 +1021,9 @@ async function conciliacionProduccion(fecha, idSucursal) {
     produccionRegistrada: (plan && plan.produccionRegistrada) || null,
     // false = todo lo de la fecha ya fue registrado: la pantalla bloquea exportar y registrar.
     pendienteDeRegistrar,
+    // Ids de las cargas sólo-Etiquetado que este registro descuenta: /registrar-movimiento las
+    // suma al asiento para que no se vuelvan a mover.
+    registrosSoloEtiqueta: soloEtiquetaPendientes.map(r => r.id),
     totales: {
       productos:          productos.filter(p => !p.excluido).length,
       productosExcluidos: productos.filter(p =>  p.excluido).length,
@@ -1158,7 +1152,7 @@ router.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req =>
 
   const c = await conciliacionProduccion(fecha, cr.idSucursal);
   const hayProductos = (c.productos || []).some(p => !p.excluido);
-  if (!hayProductos && !(c.componentes || []).length) {
+  if (!hayProductos && !(c.componentes || []).length && !(c.componentesManual || []).length) {
     return { error: `No hay producción cargada para el ${fecha}: no hay nada que registrar` };
   }
   // Trabajo pendiente = producción sin registrar O ajustes de reserva sin conciliar. Con la
@@ -1177,8 +1171,10 @@ router.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req =>
   // guardan en el asiento para que la reversión devuelva sólo estos a "pendiente".
   const registrosFecha  = leerJSON(PROD_REG_PATH, []).filter(r => r && r.fecha === fecha);
   const yaAsentados     = registrosYaRegistrados(planPrevio, registrosFecha);
+  const soloEtiquetaIds = new Set((c.registrosSoloEtiqueta || []).map(String));
   const idsRegistrados  = registrosFecha
-    .filter(r => !motivoExclusionRegistro(r) && !yaAsentados.has(String(r.id)) && plusDeRegistro(r.plu)[0])
+    .filter(r => (!motivoExclusionRegistro(r) || soloEtiquetaIds.has(String(r.id)))
+              && !yaAsentados.has(String(r.id)) && plusDeRegistro(r.plu)[0])
     .map(r => r.id);
   // Un movimiento en 'pendiente' significa que no se sabe si llegó a ejecutarse en SiGA:
   // registrar encima duplicaría el consumo.
@@ -1338,7 +1334,8 @@ router.post('/api/produccion/:fecha/registrar-movimiento', apiRoute(async req =>
     };
     const asientos = [...asientosProduccion(planActual), asientoNuevo];
     const produccionRegistrada = { ...asientoNuevo, asientos };
-    const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id));
+    // Las cargas sólo-Etiquetado van en el asiento pero no producen el ítem: no lo sellan.
+    const registrosDelAsiento = registrosFecha.filter(rr => idsRegistrados.includes(rr.id) && !motivoExclusionRegistro(rr));
     const plusProducidos = new Set(registrosDelAsiento.flatMap(rr => plusDeRegistro(rr.plu)));
     const sello = { numeroMovimiento: rc.numeroMovimiento, fecha: asientoNuevo.fecha, idRegistro: rc.idRegistro };
     const items = (planActual.items || []).map(it => {

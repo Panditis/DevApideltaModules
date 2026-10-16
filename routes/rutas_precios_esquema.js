@@ -5,6 +5,7 @@ const cfgEsq = require('../lib/precios_config_esquema');
 const { rangoDesdeCostos } = require('../lib/precios_esquema');
 const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
+const { formulasPesables } = require('../lib/formulas_pesables');
 const { plusVentaProduccion, validarMargenProducto } = require('../lib/precios_produccion');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
 const { costearTodos, plusUsados, normalizarDatos } = require('./rutas_precios_produccion');
@@ -21,7 +22,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   const consultas = crearConsultasPrecios(deps);
   const leerCosteo = () => leerJSON(COSTEO_PATH, {}) || {};
   const cuerpo = req => (req.body && typeof req.body === 'object' ? req.body : {});
-  const formulasPesables = () => ((leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas) || {};
+  const formulasVigentes = () => formulasPesables({ query: deps.query, FORMULA_ACTIVA_SQL: deps.FORMULA_ACTIVA_SQL,
+    respaldo: (leerJSON(path.join(DATA_DIR, 'pesables_listas.json'), {}) || {}).formulas });
   // Costeo sin las decisiones vencidas (SIGA cambió el precio decidido, spec §3); las poda del archivo una vez por carga.
   // ponytail: repite la consulta de vigentes que después hace contexto(); compartirla si pesa.
   const costeoVigente = () => L.leerCosteoVigente({ leerCosteo, guardarCosteo: c => guardarJSON(COSTEO_PATH, c), preciosVigentes: consultas.preciosVigentesAlmacen });
@@ -79,7 +81,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       return L.listadoReventa({ universo, costeo, excluir, ...ctx });
     }
     if (tipo === 'fraccionado') {
-      const formulas = formulasPesables();
+      const formulas = await formulasVigentes();
       const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo), consultas.universoFraccionado(formulas)]);
       return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, ...ctx });
     }

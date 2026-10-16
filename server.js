@@ -2528,7 +2528,7 @@ const comprasRouter = require('./routes/rutas_compras')({
   sqlStockPorPlu, sqlStockDistribucion, _ventasJoin,
   leerPedidosCompra, guardarPedidosCompra,
   PESABLES_LISTAS_PATH, DISTRIB_CONFIG_PATH, CONSUMO_MENSUAL_PATH, A8020_CALC_PATH, PRESENTACIONES_COMPRA_PATH,
-  DISCONTINUADOS_COMPRA_PATH,
+  DISCONTINUADOS_COMPRA_PATH, FORMULA_ACTIVA_SQL,
 });
 app.use(comprasRouter.router);
 // Grabación real de compras en SIGA (transacción de 14 escrituras, ver
