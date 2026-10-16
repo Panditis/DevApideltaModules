@@ -2488,6 +2488,7 @@ function renderSeguimiento() {
     <span id="segDirty" class="ant-tag ant-tag-warning${segDirty ? '' : ' hidden'}">● Cambios sin guardar</span>
     <span id="segAviso" class="t-12 t-ter"></span>
     <div class="ml-auto flex gap-2">
+      <button type="button" id="btnImportarSiga" class="ant-btn" title="Graba lo entregado como comprobante de compra en SIGA. Hace falta tener todas las líneas resueltas y guardadas.">Importar a SIGA</button>
       <button type="button" id="btnReimprimir" class="ant-btn">Reimprimir</button>
       <button type="button" id="btnAnular" class="ant-btn ant-btn-danger" ${dis}>Anular</button>
       <button type="button" id="btnCerrar" class="ant-btn ant-btn-success">Cerrar pedido</button>
@@ -2515,6 +2516,8 @@ function actualizarResumen() {
   const cnt = { todas: c.pedidas, pedido: c.pedido, entregado: c.entregado, faltante: c.faltante };
   document.querySelectorAll('#segFiltroLineas [data-cnt]').forEach(s => { s.textContent = cnt[s.dataset.cnt]; });
   if ($('#btnMarcarTodas')) $('#btnMarcarTodas').disabled = c.pedido === 0;
+  // Mismos bloqueos de estado que lib/siga_compras/desde_pedido.js (el servidor igual los revalida).
+  if ($('#btnImportarSiga')) $('#btnImportarSiga').disabled = c.pedido > 0 || segDirty || pedidoSel.estado === 'ANULADO';
   actualizarBotonCerrar();
 }
 
@@ -2534,6 +2537,7 @@ function aplicarFiltroLineas() {
 function marcarDirty() {
   segDirty = true;
   if ($('#segDirty')) $('#segDirty').classList.remove('hidden');
+  if ($('#btnImportarSiga')) $('#btnImportarSiga').disabled = true;
 }
 
 // Toggle de resultado: tocar el activo lo deshace y la línea vuelve a 'pedido'.
@@ -2636,6 +2640,7 @@ const ACCIONES_SEG = {
   btnCerrar: () => enviarSeguimiento('CERRADO'),
   btnAnular: anularPedido,
   btnReimprimir: () => imprimirPedido(pedidoSel),
+  btnImportarSiga: () => { location.href = '/compras/siga?pedido=' + encodeURIComponent(pedidoSel.numero); },
 };
 $('#segDetalle').addEventListener('click', e => {
   if (!pedidoSel) return;

@@ -88,7 +88,7 @@ module.exports = function crearRutasComprasSiga(deps) {
     const base = desdePedido.borradorDesdePedido(pedido, { vinculado });
     const aVerificar = (leerEstado()[pedido.numero] || {}).estado === 'a_verificar';
     return {
-      pedido,
+      pedido, aVerificar,
       base: aVerificar ? { ...base, bloqueos: [...base.bloqueos, { tipo: 'estado', mensaje: MENSAJE_A_VERIFICAR }] } : base,
     };
   }
@@ -161,7 +161,8 @@ module.exports = function crearRutasComprasSiga(deps) {
       if (!encontrado) return res.status(404).json({ ok: false, error: 'No existe el pedido.' });
       const catalogos = await repo.catalogos({ idProveedor: encontrado.base.idProveedor });
       const cabecera = desdePedido.cabeceraSugerida({ catalogos, hoyISO: fechaLocalISO(ahora()), numeroPedido: encontrado.pedido.numero });
-      return res.json({ ok: true, borrador: { ...encontrado.base, ...cabecera }, catalogos });
+      // aVerificar: la pantalla muestra el panel de liberar-verificacion en vez de dejar reintentar.
+      return res.json({ ok: true, borrador: { ...encontrado.base, ...cabecera }, catalogos, aVerificar: encontrado.aVerificar });
     } catch (err) {
       return responderError(res, err, 'borrador', req.params.numero);
     }

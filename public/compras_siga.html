@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Importar a SIGA · Compras · Apidelta</title>
+<link rel="icon" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+/* Solo escritorio (sin responsive). Colores del theme compartido (apidelta-theme.js/.css). */
+.campo{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5c5f52}
+.campo input,.campo select{border:1px solid rgba(26,28,24,.16);border-radius:6px;padding:6px 8px;font-size:14px;color:#242423;background:#fff}
+.campo input:disabled,.campo select:disabled{background:#f3f4f1;color:#5c5f52}
+.campo .msg-error{color:#a4262c;font-size:12px}
+.campo-error input,.campo-error select{border-color:#a4262c;box-shadow:0 0 0 1px #a4262c}
+.tabla{width:100%;border-collapse:collapse;font-size:13px}
+.tabla th{font-size:11px;color:#5c5f52;text-align:left;padding:6px 8px;border-bottom:1px solid rgba(26,28,24,.16)}
+.tabla td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.tabla .num{text-align:right;font-variant-numeric:tabular-nums}
+.tabla input,.tabla select{border:1px solid rgba(26,28,24,.16);border-radius:6px;padding:4px 6px;font-size:13px}
+.tabla input[type=number]{width:120px;text-align:right}
+.fila-error td{background:#fdf3f4}
+.btn{border-radius:6px;padding:7px 14px;font-size:14px;font-weight:600;border:1px solid rgba(26,28,24,.16);background:#fff;color:#242423;cursor:pointer}
+.btn-primario{background:#405936;border-color:#405936;color:#fff}
+.btn-primario:hover{background:#4f6e42}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.total dt{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#5c5f52}
+.total dd{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-10 border-b px-6 py-3 flex items-center gap-4">
+  <a href="/compras" class="text-sm">← Compras</a>
+  <h1 class="text-lg font-bold">Importar pedido a SIGA</h1>
+  <span id="titPedido" class="text-sm"></span>
+</header>
+
+<main class="max-w-6xl mx-auto p-6 flex flex-col gap-4">
+  <div id="aviso" class="hidden"></div>
+
+  <div id="panelVerificar" class="rounded-lg border border-warn bg-white px-4 py-3 text-sm" style="display:none" role="alert">
+    <strong class="text-warn">Pedido a verificar en SiGA.</strong>
+    <p class="mt-1">Hubo una grabación en SIGA que no se pudo confirmar (o no se pudo vincular al pedido).
+      Antes de reintentar, buscá el comprobante en SiGA y contá qué pasó: si se reintenta y ya estaba cargado, queda duplicado.</p>
+    <div class="flex gap-2 mt-3">
+      <button type="button" id="btnVerifCargado" class="btn btn-primario" data-verif="cargado">Quedó cargado en SiGA</button>
+      <button type="button" id="btnVerifNoCargado" class="btn" data-verif="no_cargado">No quedó cargado</button>
+    </div>
+  </div>
+
+  <section class="bg-card border border-borde rounded-xl p-4 shadow-fluent">
+    <h2 class="font-semibold mb-3">Comprobante</h2>
+    <div class="grid grid-cols-6 gap-3">
+      <label class="campo col-span-2">Tipo de comprobante<select id="cTipo"></select></label>
+      <label class="campo">Letra<select id="cLetra"></select></label>
+      <label class="campo">Punto de venta<input id="cEmisor" type="number" min="1" max="32767" step="1"></label>
+      <label class="campo col-span-2">Número<input id="cNumero" type="number" min="1" step="1"></label>
+      <label class="campo">Fecha<input id="cFecha" type="date"></label>
+      <label class="campo">Período fiscal<select id="cPeriodo"></select></label>
+      <label class="campo">Sucursal<select id="cSucursal"></select></label>
+      <label class="campo col-span-2">Depósito / ubicación<select id="cUbicacion"></select></label>
+      <label class="campo">Forma de pago<select id="cFormaPago"></select></label>
+      <label class="campo">Desc./rec. general % (negativo = descuento)<input id="cDescGral" type="number" step="0.01"></label>
+      <label class="campo col-span-5">Observación<input id="cObs" maxlength="100"></label>
+    </div>
+  </section>
+
+  <section class="bg-card border border-borde rounded-xl p-4 shadow-fluent">
+    <div class="flex items-baseline gap-3 mb-2">
+      <h2 class="font-semibold">Productos</h2>
+      <span id="notaPrecio" class="text-xs font-semibold"></span>
+    </div>
+    <table class="tabla">
+      <thead><tr>
+        <th>PLU</th><th>Producto</th><th class="num">Cantidad</th><th class="num" id="thPrecio">Precio</th><th class="num">IVA %</th>
+        <th class="num">Importe</th><th class="num">IVA</th><th class="num">Neto c/desc.</th>
+      </tr></thead>
+      <tbody id="tLineas"></tbody>
+    </table>
+    <p id="descartadas" class="text-xs text-gris mt-2"></p>
+  </section>
+
+  <section id="secPercep" class="bg-card border border-borde rounded-xl p-4 shadow-fluent">
+    <div class="flex items-center gap-3 mb-2">
+      <h2 class="font-semibold">Percepciones e impuestos internos</h2>
+      <button type="button" id="btnAgregarPercep" class="btn ml-auto">+ Agregar</button>
+    </div>
+    <table class="tabla">
+      <thead><tr>
+        <th>Tipo</th><th>Provincia (PIIBB)</th><th class="num">Base imponible</th><th class="num">Alícuota %</th><th class="num">Importe</th><th></th>
+      </tr></thead>
+      <tbody id="tbPercep"></tbody>
+    </table>
+    <datalist id="dlProvincias"></datalist>
+  </section>
+
+  <section class="bg-card border border-borde rounded-xl p-4 shadow-fluent">
+    <dl class="grid grid-cols-6 gap-3 total">
+      <div><dt>Bruto</dt><dd id="totBruto">—</dd></div>
+      <div><dt>Neto</dt><dd id="totNeto">—</dd></div>
+      <div><dt>IVA</dt><dd id="totIVA">—</dd></div>
+      <div><dt>Percepciones</dt><dd id="totPercep">—</dd></div>
+      <div><dt>Imp. internos</dt><dd id="totImpInt">—</dd></div>
+      <div><dt>Total</dt><dd id="totTotal" class="text-verde">—</dd></div>
+    </dl>
+    <div id="cajaErrores" class="mt-4 rounded-lg border border-crit px-4 py-3 text-sm text-crit" style="display:none">
+      <strong>No se puede grabar:</strong>
+      <ul id="errores" class="list-disc pl-5 mt-1"></ul>
+    </div>
+  </section>
+
+  <div class="flex justify-end gap-2">
+    <a href="/compras" class="btn">Cancelar</a>
+    <button type="button" id="btnGrabar" class="btn btn-primario" disabled>Grabar en SIGA</button>
+  </div>
+</main>
+
+<div id="modal" class="fixed inset-0 z-50 items-center justify-center bg-black/40" style="display:none"
+     role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
+  <div class="bg-card rounded-xl p-6 shadow-fluent" style="width:480px">
+    <h3 id="modalTitulo" class="font-semibold text-lg mb-2"></h3>
+    <p id="modalTexto" class="text-sm mb-4"></p>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="modalCancelar" class="btn">Cancelar</button>
+      <button type="button" id="modalAceptar" class="btn btn-primario"></button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/compras_siga.js"></script>
+</body>
+</html>

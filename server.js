@@ -689,6 +689,7 @@ app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname
 // Motor del esquema por canal: el mismo archivo UMD del server (lib/), global PreciosEsquema en el navegador.
 app.get('/js/precios_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'precios_esquema.js')));
 app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_esquema.js')));
+app.get('/js/compras_siga.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'compras_siga.js')));
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
 
@@ -2730,6 +2731,18 @@ app.use(require('./routes/rutas_facturador')({ apiRoute, query, LISTA_PRECIOS_VE
 // Ninguna ruta que quedó en server.js solapa con ese prefijo.
 app.use(require('./routes/rutas_compras_control')({
   apiRoute, leerJSON, guardarJSON, getPool, sql, DATA_DIR, leerPedidosCompra,
+}));
+
+// Importación de pedidos de compra como comprobantes en SIGA (lib/siga_compras/, spec
+// docs/superpowers/specs/2026-10-15-compras-siga-importacion-design.md). Va al final por DATA_DIR y
+// comprasRouter. Lecturas con getPool (solo lectura); la grabación con getPoolStock en una transacción.
+// Los json propios (pedidos_comprobantes.json, compras_siga_estado.json) los lee y escribe el router
+// (estricto y atómico), por eso no recibe leerJSON/guardarJSON.
+// Ninguna ruta que quedó en server.js solapa con /compras/siga ni /api/compras-siga.
+app.use(require('./routes/rutas_compras_siga')({
+  DATA_DIR, leerPedidosCompra,
+  usuarioCompras: comprasRouter.usuarioCompras,
+  repo: require('./lib/siga_compras/repo')({ sql, getPool, getPoolStock }),
 }));
 
 // Produccion: va al final porque PROD_REG_PATH y PROD_HIST_PATH son const declarados

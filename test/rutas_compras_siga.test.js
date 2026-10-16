@@ -103,6 +103,7 @@ test('GET borrador: líneas entregadas + extra, descartadas, cabecera sugerida y
     assert.strictEqual(data.borrador.fecha, '2026-10-16');
     assert.strictEqual(data.borrador.idUbicacion, 1);
     assert.deepStrictEqual(data.catalogos, CATALOGOS);
+    assert.strictEqual(data.aVerificar, false);
     assert.deepStrictEqual(await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-9999/borrador'), { status: 404, data: { ok: false, error: 'No existe el pedido.' } });
     // El número de la URL no se refleja en la respuesta.
     const raro = await pedir(ctx.base, 'GET', `/api/compras-siga/pedidos/${encodeURIComponent('<b>x</b>')}/borrador`);
@@ -337,6 +338,7 @@ test('pedido "a verificar": borrador lo muestra bloqueado y grabar/validar no ll
     const b = await pedir(ctx.base, 'GET', '/api/compras-siga/pedidos/P-0007/borrador');
     assert.strictEqual(b.status, 200);
     assert.deepStrictEqual(b.data.borrador.bloqueos, [{ tipo: 'estado', mensaje: MENSAJE_A_VERIFICAR }]);
+    assert.strictEqual(b.data.aVerificar, true); // la pantalla muestra el panel de verificación
     const v = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo());
     assert.deepStrictEqual(v.data.errores, [{ campo: 'pedido', mensaje: MENSAJE_A_VERIFICAR }]);
     const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
