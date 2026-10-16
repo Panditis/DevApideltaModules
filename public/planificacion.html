@@ -5269,8 +5269,9 @@ async function postReserva(ruta, body) {
 // viendo y el resumen de reservas queda accesible para revertir.
 const MOV_STOCK_LS_KEY = 'planif_mov_stock_on';
 function movStockHabilitado() {
-  try { return localStorage.getItem(MOV_STOCK_LS_KEY) !== '0'; }
-  catch (e) { return true; }
+  // Apagado por default: hay que prenderlo a mano en cada equipo.
+  try { return localStorage.getItem(MOV_STOCK_LS_KEY) === '1'; }
+  catch (e) { return false; }
 }
 
 function aplicarEstadoBotonReserva() {
