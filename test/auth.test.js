@@ -151,3 +151,9 @@ test('cambiarPasswordPropia exige la actual, valida la nueva y la deja aplicada'
     eliminarUsuario(require('../lib/auth').buscarPorUsuario(uname).id);
   }
 });
+
+test('la importación a SIGA (/compras/siga y /api/compras-siga) queda bajo el módulo compras', () => {
+  assert.strictEqual(moduloDeRuta('/compras/siga'), 'compras');
+  assert.strictEqual(moduloDeRuta('/api/compras-siga/grabar'), 'compras');
+  assert.strictEqual(moduloDeRuta('/api/compras-siga/pedidos/P-0001/borrador'), 'compras');
+});
