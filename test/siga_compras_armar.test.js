@@ -53,7 +53,7 @@ test('armarComprobante: ComprasProductos (43 columnas) y ComprasImpuestos', () =
   assert.strictEqual(f.comprasProductos.length, 2);
   assert.strictEqual(Object.keys({ ...f.clave, ...f.comprasProductos[0] }).length, 43);
   const [p1] = f.comprasProductos;
-  assert.deepStrictEqual({ ...p1, IVA: Number(p1.IVA.toFixed(4)) }, {
+  assert.deepStrictEqual(p1, {
     Orden: 1, IdProducto: '1001', NombreProducto: 'HARINA 000 X 25', Cantidad: 1, Precio: 31839.64,
     DescRecGeneral: 0, DescRecGeneralProducto: 0, DescuentoRecargo: 0, DescuentoRecargoProducto: 0, DescuentoRecargoPorc: 0,
     PrecioNeto: 31839.64, ImporteTotal: 31839.64, ImporteTotalNeto: 31839.64, PorcentajeIVA: 21, IVA: 6686.3244,
@@ -85,22 +85,65 @@ test('armarComprobante: libro IVA, movimiento de stock, último precio y cuenta 
     { Orden: 1, IdSucursal: 1, IdDeposito: 1, IdUbicacion: 1, IdProducto: '1001', Cantidad: 1 },
     { Orden: 2, IdSucursal: 1, IdDeposito: 1, IdUbicacion: 1, IdProducto: '1002', Cantidad: 1 },
   ]);
+  // SqlServer.ProductosProveedores_I (MERGE, L20-34) y ActualizaPrecioUltimaCompra (L85-97).
+  const pp = (id, precio) => ({
+    CodigoProductoProveedor: id, UltimoPrecioCompra: precio, UltimaFechaCompra: '20261010 14:47:06', UltimoPrecioFabrica: precio,
+    DescuentoRecargoPorc1: 0, DescuentoRecargoPorc2: 0, DescuentoRecargoPorc3: 0, DescuentoRecargoPorc4: 0, DescuentoRecargoPorc5: 0, DescuentoRecargoPorc6: 0,
+  });
   assert.deepStrictEqual(f.productosProveedores, [
-    { Orden: 1, IdProducto: '1001', Precio: 31839.64, Fecha: '20261010 14:47:06' },
-    { Orden: 2, IdProducto: '1002', Precio: 3184.01, Fecha: '20261010 14:47:06' },
+    { Orden: 1, IdProducto: '1001', ...pp('1001', 31839.64) },
+    { Orden: 2, IdProducto: '1002', ...pp('1002', 3184.01) },
   ]);
-  const cc = f.ctaCte.cabecera;
-  assert.strictEqual(cc.Fecha, '20261010 14:47:06');
-  assert.strictEqual(cc.FechaVencimiento, '20261109 14:47:06');
-  assert.strictEqual(cc.ImporteTotal, 42665.16);
-  assert.strictEqual(cc.Saldo, 42665.16);
-  assert.strictEqual(cc.CantidadCuotas, 1);
-  assert.strictEqual(cc.IdEstadoComprobante, 'NORMAL');
-  assert.strictEqual(cc.IdUsuario, 'adriel-con');
-  assert.deepStrictEqual(f.ctaCte.cuotas, [{
+});
+
+test('armarComprobante: cta. cte. con las columnas exactas de CuentasCorrientesProv_I y CuentasCorrientesProvPagos_I', () => {
+  const f = armar();
+  // SqlServer.CuentasCorrientesProv_I L20-167: 37 columnas en este orden (menos las 6 de la clave).
+  assert.deepStrictEqual(Object.keys(f.ctaCte.cabecera), [
+    'Fecha', 'FechaVencimiento', 'ImporteTotal', 'IdFormasPago', 'Observacion', 'RefProveedor', 'Saldo', 'CantidadCuotas',
+    'importePesos', 'importeDolares', 'ImporteTickets', 'importeTransfBancaria', 'importeCheques', 'importeEuros',
+    'idCuentaBancaria', 'importeRetenciones', 'ImporteTarjetas', 'IdEstadoComprobante', 'IdUsuario', 'FechaActualizacion',
+    'MetodoGrabacion', 'IdFuncion', 'ImprimeSaldos', 'CotizacionDolar', 'FechaTransferencia', 'PromedioDiasPago',
+    'SaldoCtaCte', 'NumeroOrdenCompra', 'FechaPromedioPago', 'FechaPromedioEmision', 'DiasPromedioEmision',
+  ]);
+  assert.strictEqual(Object.keys({ ...f.clave, ...f.ctaCte.cabecera }).length, 37);
+  assert.deepStrictEqual(f.ctaCte.cabecera, {
+    Fecha: '20261010 14:47:06', FechaVencimiento: '20261109 14:47:06', ImporteTotal: 42665.16, IdFormasPago: 3,
+    Observacion: 'Pedido P-0007', RefProveedor: '', Saldo: 42665.16, CantidadCuotas: 1,
+    importePesos: 0, importeDolares: 0, ImporteTickets: 0, importeTransfBancaria: 0, importeCheques: 0, importeEuros: 0,
+    idCuentaBancaria: null, importeRetenciones: 0, ImporteTarjetas: 0, IdEstadoComprobante: 'NORMAL', IdUsuario: 'adriel-con',
+    FechaActualizacion: '20261016 14:47:06', MetodoGrabacion: 'M', IdFuncion: 'MovimientosDeComprasV2', ImprimeSaldos: null,
+    CotizacionDolar: 1450, FechaTransferencia: null, PromedioDiasPago: 0, SaldoCtaCte: null, NumeroOrdenCompra: null,
+    FechaPromedioPago: null, FechaPromedioEmision: null, DiasPromedioEmision: null,
+  });
+  // SqlServer.CuentasCorrientesProvPagos_I: 20 columnas en este orden (menos las 6 de la clave); la cuota de una
+  // factura se apunta a sí misma en las columnas "2" (Reglas.CuentasCorrientesProvPagos L76-90).
+  assert.strictEqual(f.ctaCte.cuotas.length, 1);
+  assert.deepStrictEqual(Object.keys(f.ctaCte.cuotas[0]), [
+    'CuotaNumero', 'Fecha', 'FechaVencimiento', 'ImporteCuota', 'SaldoCuota', 'IdFormasPago', 'Observacion',
+    'IdTipoComprobante2', 'NumeroComprobante2', 'CentroEmisor2', 'CuotaNumero2', 'Letra2', 'DescuentoRecargoPorc', 'DescuentoRecargo',
+  ]);
+  assert.strictEqual(Object.keys({ ...f.clave, ...f.ctaCte.cuotas[0] }).length, 20);
+  assert.deepStrictEqual(f.ctaCte.cuotas[0], {
     CuotaNumero: 1, Fecha: '20261010 14:47:06', FechaVencimiento: '20261109 14:47:06', ImporteCuota: 42665.16,
-    SaldoCuota: 42665.16, IdFormasPago: 3, Observacion: 'Pedido P-0007', DescuentoRecargo: 0, DescuentoRecargoPorc: 0,
-  }]);
+    SaldoCuota: 42665.16, IdFormasPago: 3, Observacion: 'Pedido P-0007',
+    IdTipoComprobante2: 'FACTCOM', NumeroComprobante2: 1071364, CentroEmisor2: 5007, CuotaNumero2: 1, Letra2: 'A',
+    DescuentoRecargoPorc: 0, DescuentoRecargo: 0,
+  });
+  // Comprobante de hoy: la cta. cte. y la cuota llevan la hora real (Reglas.CuentasCorrientesProv L235-238).
+  const hoy = armar(borradorFactcom({ fecha: '2026-10-16' }));
+  assert.strictEqual(hoy.ctaCte.cabecera.Fecha, '20261016 14:47:06');
+  assert.strictEqual(hoy.ctaCte.cuotas[0].Fecha, '20261016 14:47:06');
+});
+
+test('armarComprobante: cotización del dólar a 2 decimales lejos del cero (N2) en Compras, cta. cte. y último precio', () => {
+  const ctx = contextoFactcom({ cotizacionDolar: 1450.445 });
+  const enDolares = { ...ctx.productos, 1001: { ...ctx.productos['1001'], idMoneda: 2 } };
+  const f = armar(borradorFactcom(), { ...ctx, productos: enDolares });
+  assert.strictEqual(f.compras.CotizacionDolar, 1450.45);
+  assert.strictEqual(f.ctaCte.cabecera.CotizacionDolar, 1450.45);
+  assert.strictEqual(f.productosProveedores[0].UltimoPrecioCompra, 31839.64 / 1450.45);
+  assert.strictEqual(f.productosProveedores[1].UltimoPrecioCompra, 3184.01);
 });
 
 test('armarComprobante: sin cta. cte. con Dias = 0 o sin ActualizaCtaCte; sin libro IVA sin GrabaLibro o sin discriminar', () => {
@@ -136,10 +179,10 @@ test('armarComprobante: último precio con descuento general y en dólares', () 
   assert.strictEqual(f.compras.DescuentoRecargo, -10);
   assert.strictEqual(f.compras.DescuentoRecargoPorc, -10);
   assert.strictEqual(f.comprasProductos[0].PrecioNeto, 28655.68);
-  assert.strictEqual(f.productosProveedores[0].Precio, 28655.68);
+  assert.strictEqual(f.productosProveedores[0].UltimoPrecioCompra, 28655.68);
   const enDolares = { ...ctx.productos, 1001: { ...ctx.productos['1001'], idMoneda: 2 } };
   const g = armar(borradorFactcom(), { ...ctx, productos: enDolares });
-  assert.ok(Math.abs(g.productosProveedores[0].Precio - 31839.64 / 1450) < 1e-12);
+  assert.strictEqual(g.productosProveedores[0].UltimoPrecioCompra, 31839.64 / 1450);
 });
 
 test('armarComprobante: COTIZACIONCOM numera por proveedor (emisor 1, número al grabar), sin libro y sin caja', () => {

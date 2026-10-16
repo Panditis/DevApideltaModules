@@ -202,3 +202,15 @@ test('modoNumeracion (DOC Parte I §3.2) y cuitValido', () => {
   assert.strictEqual(cuitValido('20123456780'), false);
   assert.strictEqual(cuitValido('123'), false);
 });
+
+test('cotización del dólar cero o no numérica con productos en dólares: bloquea (ME L745-748 divide sin control)', () => {
+  const ctx = contextoFactcom();
+  const productos = { ...ctx.productos, 1001: { ...ctx.productos['1001'], idMoneda: 2 } };
+  const msg = 'v1: la cotización del dólar es cero y hay productos en dólares.';
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, productos, cotizacionDolar: 0 }), [msg]);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, productos, cotizacionDolar: 'abc' }), [msg]);
+  // SiGA la toma de FactorConversion.ToString("N2"): 0,004 queda en 0,00.
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, productos, cotizacionDolar: 0.004 }), [msg]);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, productos }), []);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, cotizacionDolar: 0 }), [], 'sin productos en dólares no importa');
+});
