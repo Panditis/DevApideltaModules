@@ -143,8 +143,8 @@ test('filasExportListado Reventa: encabezado + una fila por producto, números r
   ], 'almacen');
   assert.deepStrictEqual(aoa[0], ['PLU', 'Nombre', 'Costo actual (sistema)', 'Costo última compra', 'Δ% costo (última vs actual)', 'Fecha última compra',
     'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)', 'Precio nuevo con costo última compra', 'Δ% (vs precio actual)']);
-  assert.deepStrictEqual(aoa[1], ['540', 'Arroz', 1000, 1100, 0.1, '2026-10-01', 2000, 2500, 0.25, 2600, 0.3]);
-  assert.deepStrictEqual(aoa[2], ['7', 'Sal', null, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[1], [540, 'Arroz', 1000, 1100, 0.1, '2026-10-01', 2000, 2500, 0.25, 2600, 0.3]);
+  assert.deepStrictEqual(aoa[2], [7, 'Sal', null, null, null, null, null, null, null, null, null]);
   assert.strictEqual(aoa.length, 3);
 });
 
@@ -157,13 +157,24 @@ test('filasExportListado Fraccionado: una fila por presentación con los costos 
   ], 'fraccionado');
   assert.deepStrictEqual(aoa[0].slice(0, 4), ['PLU', 'Nombre', 'Granel', 'Costo actual (sistema)']);
   assert.strictEqual(aoa[0].length, 12);
-  assert.deepStrictEqual(aoa[1], ['51', 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0]);
-  assert.deepStrictEqual(aoa[2], ['60', 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null]);
-  assert.deepStrictEqual(aoa[3], ['70', 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null]);
+  assert.deepStrictEqual(aoa[1], [51, 'Almendra 500G', '50 · Almendra granel', 10000, 9000, -0.1, '2026-10-02', 20000, 22000, 0.1, 20000, 0]);
+  assert.deepStrictEqual(aoa[2], [60, 'Nuez granel', '60 · Nuez granel', 8000, null, null, null, null, null, null, null, null]);
+  assert.deepStrictEqual(aoa[3], [70, 'Pasas 1Kg', 'Sin granel asignado', null, null, null, null, 5000, null, null, null, null]);
 });
 
 test('filasExportListado Producción: costo de receta/envasado, sin columnas de última compra', () => {
   const aoa = filasExportListado([{ plu: '6319', nombre: 'Pepas', costoSistema: 330.58, vigente: 1000, sugeridos: { sistema: sug(900) } }], 'produccion');
   assert.deepStrictEqual(aoa, [['PLU', 'Nombre', 'Costo actual (receta/envasado)', 'Precio actual', 'Precio nuevo con costo actual', 'Δ% (vs precio actual)'],
-    ['6319', 'Pepas', 330.58, 1000, 900, -0.1]]);
+    [6319, 'Pepas', 330.58, 1000, 900, -0.1]]);
+});
+
+test('filasExportListado: la columna PLU es un número en los tres tipos; un código no numérico o el granel sin PLU quedan como están', () => {
+  const plu = aoa => aoa.slice(1).map(f => f[0]);
+  assert.deepStrictEqual(plu(filasExportListado([{ plu: '540', nombre: 'A', sugeridos: {} }, { plu: 'AB-1', nombre: 'B', sugeridos: {} }], 'almacen')), [540, 'AB-1']);
+  assert.deepStrictEqual(plu(filasExportListado([{ plu: '6319', nombre: 'P', sugeridos: {} }], 'produccion')), [6319]);
+  assert.deepStrictEqual(plu(filasExportListado([
+    { plu: '50', nombre: 'G', presentaciones: [{ plu: '51', nombre: 'G 500G', sugeridos: {} }] },
+    { plu: '60', nombre: 'H', presentaciones: [] },
+    { plu: null, nombre: 'Sin granel', presentaciones: [] },
+  ], 'fraccionado')), [51, 60, null]);
 });

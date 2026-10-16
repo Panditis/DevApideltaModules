@@ -265,7 +265,7 @@ test('Reventa sin los PLUs de venta de Producción: ni listado, ni decisión com
     assert.match((await a.pedir('GET', '/api/precios/esquema/detalle/6319?tipo=almacen')).error, /no encontrado/);
     assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/6319', { fuente: 'sistema' })).decision.fuente, 'sistema'); // como Producción
     const e = await a.pedir('GET', '/api/precios/esquema/export');
-    assert.strictEqual(e.listas.minorista.filter(r => r[0] === '6319').length, 1); // una sola vez
+    assert.strictEqual(e.listas.minorista.filter(r => r[0] === 6319).length, 1); // una sola vez
     const p = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=produccion')).filas.find(f => f.plu === '6319');
     assert.strictEqual(p.costoSistema, 330.58); // la materia prima 300 sigue con su costo
   } finally { a.cerrar(); }
@@ -366,7 +366,33 @@ test('export: Reventa decidida con bulto vinculado → su PLU en minorista y el 
     assert.strictEqual((await a.pedir('PUT', '/api/precios/decision/1', { fuente: 'sistema' })).decision.fuente, 'sistema');
     const { listas, omitidos } = await a.pedir('GET', '/api/precios/esquema/export');
     assert.strictEqual(omitidos, 0);
-    assert.deepStrictEqual(listas.minorista.slice(1).map(r => r[0]), ['1']);
-    assert.deepStrictEqual([listas.bultoNeto, listas.bultoIva].map(l => l.slice(1).map(r => r[0])), [['2'], ['2']]);
+    assert.deepStrictEqual(listas.minorista.slice(1).map(r => r[0]), [1]);
+    assert.deepStrictEqual([listas.bultoNeto, listas.bultoIva].map(l => l.slice(1).map(r => r[0])), [[2], [2]]);
+  } finally { a.cerrar(); }
+});
+
+test('export: con la última compra decidida, Costo y Venta salen de ella (no de sistema) en Reventa, su bulto vinculado y Fraccionado; Codigo numérico', async () => {
+  const ultima = { 1: 1500, 50: 15000 }; // última compra neta de factura (sistema: 1000 y 10000)
+  const query = async sql => {
+    if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
+    if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: 1800 }, { IdProducto: '2', Precio: 16000 }];
+    if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1000, UcPrecioNeto: ultima[1], UcTipo: 'FACTCOM', IvaCompraPct: 21 }];
+    const ids = (sql.match(/p\.IdProducto IN \(([^)]*)\)/) || [])[1];
+    if (ids) return ids.match(/\w+/g).filter(id => COSTOS_FALSOS[id]).map(id => ({ IdProducto: id, NombreProducto: COSTOS_FALSOS[id][0], CostoSistema: COSTOS_FALSOS[id][1], UcPrecioNeto: ultima[id], UcTipo: 'FACTCOM', IvaCompraPct: 21 }));
+    return sigaFalso(sql);
+  };
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  try {
+    for (const plu of ['1', '50']) assert.strictEqual((await a.pedir('PUT', `/api/precios/decision/${plu}`, { fuente: 'ultimaCompra' })).decision.fuente, 'ultimaCompra');
+    const { listas } = await a.pedir('GET', '/api/precios/esquema/export');
+    const arroz = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).filas[0];
+    const almendra = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas[0].presentaciones[0];
+    assert.notStrictEqual(arroz.sugeridos.ultimaCompra.minorista.precio, arroz.sugeridos.sistema.minorista.precio);
+    // Costo = 1500 (última compra) tal cual, sin IVA, no 1000 de sistema; Venta = el sugerido con la última compra.
+    assert.deepStrictEqual(listas.minorista[1], [1, 'Arroz', 1500, arroz.sugeridos.ultimaCompra.minorista.precio]);
+    assert.deepStrictEqual(listas.minorista[2], [51, 'Almendra 500G', 15000, almendra.sugeridos.ultimaCompra.minorista.precio]);
+    // Bulto vinculado a Reventa: por unidad (1) del costo de la última compra, igual en las listas sin y con IVA.
+    assert.deepStrictEqual([listas.bultoNeto[1].slice(0, 3), listas.bultoIva[1].slice(0, 3)], [[2, 'Arroz BULTO x10', 1500], [2, 'Arroz BULTO x10', 1500]]);
+    assert.strictEqual(listas.bultoNeto[1][3], arroz.sugeridos.ultimaCompra.mayoristas[0].neto); // Venta del bulto = su sugerido con la última compra
   } finally { a.cerrar(); }
 });

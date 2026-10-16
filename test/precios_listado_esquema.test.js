@@ -260,13 +260,104 @@ test('itemsDecididos + listasExport: una lista por canal; Fraccionado alcanza a 
   });
   const { items, omitidos } = L.itemsDecididos({ almacen, fraccionado, produccion: [] });
   assert.strictEqual(omitidos, 1); // Sal: decidida con última compra, que no tiene
-  const listas = L.listasExport(items, 21);
+  const listas = L.listasExport(items);
   const enc = ['Codigo', 'Nombre', 'Costo', 'Venta'];
-  assert.deepStrictEqual(listas.minorista, [enc, ['1', 'Arroz', 1210, 1800], ['101', 'Almendras 500G', 1210, 1950], ['102', 'Almendras 1Kg', 1210, 1800]]);
-  // Pack/bulto por unidad: Costo = costo unitario (1000; con IVA 1210), Venta = 1430 neto / 1750 con IVA.
-  assert.deepStrictEqual(listas.bultoNeto, [enc, ['50', 'Arroz Bulto x6', 1000, 1430]]);
-  assert.deepStrictEqual(listas.bultoIva, [enc, ['50', 'Arroz Bulto x6', 1210, 1750]]);
+  assert.deepStrictEqual(listas.minorista, [enc, [1, 'Arroz', 1000, 1800], [101, 'Almendras 500G', 1000, 1950], [102, 'Almendras 1Kg', 1000, 1800]]);
+  // Pack/bulto por unidad: Costo = costo unitario (1000) en ambas listas, Venta = 1430 neto / 1750 con IVA.
+  assert.deepStrictEqual(listas.bultoNeto, [enc, [50, 'Arroz Bulto x6', 1000, 1430]]);
+  assert.deepStrictEqual(listas.bultoIva, [enc, [50, 'Arroz Bulto x6', 1000, 1750]]);
   assert.deepStrictEqual([listas.packNeto, listas.packIva], [[enc], [enc]]);
+});
+
+// El Costo del archivo es el de la fuente decidida tal cual se ve en pantalla, nunca el de sistema, y SIN IVA en ninguna lista.
+// Pack/bulto: × unidades (1 salvo pesable por paquete: × kg).
+test('listasExport Reventa: Costo y Venta de la fuente decidida (sistema 1000, última compra 1500, manual 800); pack/bulto × unidades', () => {
+  const esperado = { // [Costo minorista, Venta minorista, bulto s/IVA, bulto c/IVA]
+    sistema: [1000, 1800, [1000, 1430], [1000, 1750]],
+    ultimaCompra: [1500, 2750, [1500, 2145], [1500, 2600]],
+    manual: [800, 1450, [800, 1144], [800, 1400]],
+  };
+  for (const [fuente, [costoMin, ventaMin, bultoNeto, bultoIva]] of Object.entries(esperado)) {
+    const almacen = L.listadoReventa({
+      universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000, costoMercaderia: 1500 }],
+      vigentes: VIGENTES, mayoristasDe: L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES }),
+      costeo: { costoPorProducto: { 1: 800 }, decisiones: { 1: { fuente } } }, cfg: CFG,
+    });
+    const listas = L.listasExport(L.itemsDecididos({ almacen }).items);
+    assert.deepStrictEqual(listas.minorista[1], [1, 'Arroz', costoMin, ventaMin], fuente);
+    assert.strictEqual(listas.minorista[1][3], almacen[0].sugeridos[fuente].minorista.precio, fuente); // Venta = sugerido de la fuente
+    assert.deepStrictEqual(listas.bultoNeto[1], [50, 'Arroz Bulto x6', ...bultoNeto], fuente);
+    assert.deepStrictEqual(listas.bultoIva[1], [50, 'Arroz Bulto x6', ...bultoIva], fuente);
+  }
+});
+
+test('listasExport Fraccionado: la decisión del granel pone su costo $/kg de esa fuente en cada presentación y en los pack/bulto (pesable por paquete × kg)', () => {
+  const esperado = { // [Costo minorista, Venta 500G, Venta 1Kg, pack s/IVA, pack c/IVA]
+    sistema: [1000, 1950, 1800, [1000, 1430], [1000, 1750]],
+    ultimaCompra: [1500, 2950, 2750, [1500, 2145], [1500, 2600]],
+    manual: [800, 1550, 1450, [800, 1144], [800, 1400]],
+  };
+  for (const [fuente, [costoMin, venta500, venta1k, packNeto, packIva]] of Object.entries(esperado)) {
+    const fraccionado = L.listadoFraccionado({
+      grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }] }],
+      costos: new Map([['100', { costoSistema: 1000, costoMercaderia: 1500 }]]), vigentes: new Map(),
+      mayoristasDe: L.crearMayoristasDe({ vigentes: new Map(), vinculos: [{ plu: '110', nombre: 'Almendras Pack', basePlu: '102', cantidad: 5, tipo: 'pack' }] }),
+      costeo: { costoPorProducto: { 100: 800 }, decisiones: { 100: { fuente } } }, cfg: CFG,
+    });
+    const listas = L.listasExport(L.itemsDecididos({ fraccionado }).items);
+    assert.deepStrictEqual(listas.minorista.slice(1), [[101, 'Almendras 500G', costoMin, venta500], [102, 'Almendras 1Kg', costoMin, venta1k]], fuente);
+    assert.deepStrictEqual(listas.packNeto[1], [110, 'Almendras Pack', ...packNeto], fuente);
+    assert.deepStrictEqual(listas.packIva[1], [110, 'Almendras Pack', ...packIva], fuente);
+  }
+  // Pack pesable por paquete de 5 kg: Costo = costo $/kg de la fuente × 5.
+  const fraccionado = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '102', nombre: 'Almendras 1Kg' }] }],
+    costos: new Map([['100', { costoSistema: 1000, costoMercaderia: 1500 }]]), vigentes: new Map(),
+    mayoristasDe: L.crearMayoristasDe({ vigentes: new Map(), ventaPesable: { 110: { modo: 'paquete', pesoKg: 5 } },
+      vinculos: [{ plu: '110', nombre: 'Almendras Caja 5kg', basePlu: '102', cantidad: 5, tipo: 'pack' }] }),
+    costeo: { decisiones: { 100: { fuente: 'ultimaCompra' } } }, cfg: CFG,
+  });
+  const listas = L.listasExport(L.itemsDecididos({ fraccionado }).items);
+  assert.deepStrictEqual([listas.packNeto[1].slice(0, 3), listas.packIva[1].slice(0, 3)],
+    [[110, 'Almendras Caja 5kg', 7500], [110, 'Almendras Caja 5kg', 7500]]);
+});
+
+test('listasExport: el Costo es el que se ve en pantalla (sin costos extra), aunque la Venta se calcule con ellos; la presentación toma el del granel', () => {
+  const costeo = { costosExtraFraccionado: { 1: [{ concepto: 'Flete', tipo: 'pct', valor: 10 }], 100: [{ concepto: 'Flete', tipo: 'pct', valor: 10 }] },
+    decisiones: { 1: { fuente: 'sistema' }, 100: { fuente: 'sistema' } } };
+  const almacen = L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: VIGENTES,
+    mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: VIGENTES }), costeo, cfg: CFG });
+  const fraccionado = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: new Map(), mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo, cfg: CFG,
+  });
+  assert.strictEqual(almacen[0].costos.sistema, 1100); // el sugerido sí usa costo + extras
+  const listas = L.listasExport(L.itemsDecididos({ almacen, fraccionado }).items);
+  assert.deepStrictEqual(listas.minorista.slice(1).map(f => f[2]), [1000, 1000]);
+});
+
+test('listasExport Producción (Aumentar): Costo = costo de la receta/envasado por unidad', () => {
+  const produccion = L.listadoProduccion({
+    presentaciones: [{ productoId: 'p', plu: '6319', nombre: 'Mezcla 1kg', costoUnidad: 400 }],
+    vigentes: new Map(), mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }),
+    costeo: { decisiones: { 6319: { fuente: 'sistema' } } }, cfg: CFG,
+  });
+  const fila = L.listasExport(L.itemsDecididos({ produccion }).items).minorista[1];
+  assert.deepStrictEqual(fila.slice(0, 3), [6319, 'Mezcla 1kg', 400]); // costo por unidad, sin IVA
+  assert.strictEqual(fila[3], produccion[0].sugeridos.sistema.minorista.precio);
+});
+
+test('listasExport: Codigo (PLU) numérico en todas las listas; un código no numérico queda como texto', () => {
+  const items = [
+    { costo: 10, minorista: { plu: '6319', nombre: 'A', precio: 100 }, mayoristas: [{ plu: '50', nombre: 'B', tipo: 'bulto', unidades: 1, neto: 130, conIva: 160 }, { plu: '60', nombre: 'P', tipo: 'pack', unidades: 1, neto: 120, conIva: 150 }] },
+    { costo: 10, minorista: { plu: 'X-1', nombre: 'C', precio: 100 }, mayoristas: [] },
+  ];
+  const listas = L.listasExport(items);
+  for (const lista of ['minorista', 'packNeto', 'packIva', 'bultoNeto', 'bultoIva']) {
+    for (const fila of listas[lista].slice(1)) assert.ok(typeof fila[0] === 'number' || fila[0] === 'X-1', `${lista}: ${typeof fila[0]}`);
+  }
+  assert.deepStrictEqual(listas.minorista.slice(1).map(f => f[0]), [6319, 'X-1']);
+  assert.deepStrictEqual([listas.packNeto[1][0], listas.bultoIva[1][0]], [60, 50]);
 });
 
 // ── Materias primas de Producción (fase 4) ───────────────────────────────────
