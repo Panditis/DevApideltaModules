@@ -2,7 +2,11 @@
 // mssql FALSO para los tests de lib/siga_compras/repo.js. PROHIBIDO conectarse a SIGA desde los tests: este
 // doble reemplaza a mssql entero. Registra cada sentencia con sus parámetros y el pool que la ejecutó
 // ('lectura' = getPool, 'stock' = getPoolStock / transacción) y responde con responder(texto, params).
+// Transaction imita a mssql: es un EventEmitter que emite 'rollback' (aborted = true si lo abortó el servidor;
+// el responder lo simula tirando un error con abortaTransaccion: true) y rollback() sobre una transacción ya
+// terminada falla como en mssql.
 const assert = require('node:assert');
+const { EventEmitter } = require('node:events');
 
 function crearSqlFalso(responder = () => ({})) {
   const registro = [];
@@ -11,6 +15,7 @@ function crearSqlFalso(responder = () => ({})) {
   class Request {
     constructor(origen) {
       this.origen = origen && origen.etiqueta ? origen.etiqueta : 'stock';
+      this.tx = origen instanceof Transaction ? origen : null;
       this.params = {};
     }
 
@@ -22,16 +27,42 @@ function crearSqlFalso(responder = () => ({})) {
 
     async query(texto) {
       registro.push({ texto, params: this.params, pool: this.origen });
-      const r = (await responder(texto, this.params)) || {};
-      return { recordset: r.recordset || [], rowsAffected: r.rowsAffected || [1] };
+      try {
+        const r = (await responder(texto, this.params)) || {};
+        return { recordset: r.recordset || [], rowsAffected: r.rowsAffected || [1] };
+      } catch (err) {
+        if (err && err.abortaTransaccion && this.tx) this.tx.terminar(true);
+        throw err;
+      }
     }
   }
 
-  class Transaction {
-    constructor(pool) { this.etiqueta = pool.etiqueta; }
+  class Transaction extends EventEmitter {
+    constructor(pool) {
+      super();
+      this.etiqueta = pool.etiqueta;
+      this.terminada = false;
+    }
+
     async begin() { registro.push({ texto: 'BEGIN TRAN', params: {}, pool: this.etiqueta }); }
-    async commit() { registro.push({ texto: 'COMMIT', params: {}, pool: this.etiqueta }); }
-    async rollback() { registro.push({ texto: 'ROLLBACK', params: {}, pool: this.etiqueta }); }
+
+    async commit() {
+      if (this.terminada) throw new Error('Transaction has been aborted.');
+      this.terminada = true;
+      registro.push({ texto: 'COMMIT', params: {}, pool: this.etiqueta });
+      this.emit('commit');
+    }
+
+    async rollback() {
+      if (this.terminada) throw new Error('Transaction has been aborted.');
+      this.terminar(false);
+    }
+
+    terminar(abortada) {
+      this.terminada = true;
+      registro.push({ texto: 'ROLLBACK', params: {}, pool: this.etiqueta });
+      this.emit('rollback', abortada);
+    }
   }
 
   const crearPool = etiqueta => ({ etiqueta, request: () => new Request({ etiqueta }) });
