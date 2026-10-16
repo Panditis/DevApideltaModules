@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const crearRepo = require('../lib/siga_compras/repo');
 const { SQL_CATEGORIA_FISCAL } = require('../lib/siga_compras/mapeos');
+const { ErrorSiga } = require('../lib/siga_compras/sql_comun');
 const { crearSqlFalso, assertParametrizado } = require('./siga_compras_sql_falso');
 const { borradorFactcom, contextoFactcom, FILAS_SIGA } = require('./siga_compras_fixture');
 
@@ -35,14 +36,49 @@ test('contexto: categoría fiscal del proveedor y de la empresa con SQL_CATEGORI
   assert.strictEqual(parametros.params.idEmpresa, 1);
 });
 
-test('contexto: sin CATEGORIAFISCALEMPRESA (o NULL) en Parametros corta con error claro', async () => {
+test('contexto y catalogos: sin CATEGORIAFISCALEMPRESA (o NULL) en Parametros cortan con ErrorSiga SIGA_CONFIG', async () => {
   const sinFila = FILAS_SIGA.Parametros.filter(f => f.IdParametro !== 'CATEGORIAFISCALEMPRESA');
   const conNull = [...sinFila, { IdParametro: 'CATEGORIAFISCALEMPRESA', ValorParametro: null }];
+  const esConfig = err => err instanceof ErrorSiga && err.code === 'SIGA_CONFIG'
+    && err.message === 'Falta el parámetro CATEGORIAFISCALEMPRESA en SIGA para la empresa 1.';
   for (const filas of [sinFila, conNull]) {
-    const falso = crearSqlFalso(porTabla({ Parametros: () => ({ recordset: filas }) }));
-    await assert.rejects(crearRepo(falso).contexto(borradorFactcom(), { hoy: '2026-10-16' }),
-      /^Error: Falta el parámetro CATEGORIAFISCALEMPRESA en SIGA para la empresa 1\.$/);
+    const repo = crearRepo(crearSqlFalso(porTabla({ Parametros: () => ({ recordset: filas }) })));
+    await assert.rejects(repo.contexto(borradorFactcom(), { hoy: '2026-10-16' }), esConfig);
+    await assert.rejects(repo.catalogos({ idProveedor: 328 }), esConfig);
   }
+});
+
+test('contexto: tipo de movimiento como TiposMovimientos.GetUnoPorComprobanteAsociado (split exacto, gana la última)', async () => {
+  const filas = [
+    { IdTipoMovimiento: 'AJUSTE', ComprobantesAsociados: 'FACTCOMX', CoeficienteStock: -1 },
+    { IdTipoMovimiento: 'COMPRA', ComprobantesAsociados: 'REMCOM,FACTCOM', CoeficienteStock: 1 },
+    { IdTipoMovimiento: 'COMPRA2', ComprobantesAsociados: 'FACTCOM,NCCOM', CoeficienteStock: 2 },
+    { IdTipoMovimiento: 'OTRO', ComprobantesAsociados: '', CoeficienteStock: 3 },
+  ];
+  const falso = crearSqlFalso(porTabla({ TiposMovimientos: () => ({ recordset: filas }) }));
+  const ctx = await crearRepo(falso).contexto(borradorFactcom(), { hoy: '2026-10-16' });
+  assert.deepStrictEqual(ctx.tipoMovimiento, { idTipoMovimiento: 'COMPRA2', coeficienteStock: 2 });
+  const q = falso.registro.find(e => /FROM TiposMovimientos/.test(e.texto));
+  assert.match(q.texto, /ComprobantesAsociados IS NOT NULL/);
+  assert.match(q.texto, /ORDER BY IdTipoMovimiento$/);
+  assert.doesNotMatch(q.texto, /LIKE/);
+  const sinCoincidencia = crearSqlFalso(porTabla({ TiposMovimientos: () => ({ recordset: [filas[0]] }) }));
+  assert.strictEqual((await crearRepo(sinCoincidencia).contexto(borradorFactcom(), { hoy: '2026-10-16' })).tipoMovimiento, null);
+});
+
+test('contexto: VentasNumeros_G1 (empresa, tipo, letra, emisor) marca numeración compartida con ventas', async () => {
+  const ventasNumeros = texto => ({ recordset: /IdTipoComprobanteRelacionado/.test(texto) ? [] : [{ IdTipoComprobante: 'FACTCOM' }] });
+  const falso = crearSqlFalso(porTabla({ VentasNumeros: ventasNumeros }));
+  const ctx = await crearRepo(falso).contexto(borradorFactcom(), { hoy: '2026-10-16' });
+  assert.strictEqual(ctx.numeracionCompartidaConVentas, true);
+  assert.strictEqual(ctx.ventasNumerosRelacionado, false);
+  const g1 = falso.registro.find(e => /FROM VentasNumeros VN/.test(e.texto) && !/Relacionado/.test(e.texto));
+  assert.match(g1.texto, /VN\.LetraFiscal = @letra AND VN\.CentroEmisor = @centroEmisor/);
+  assert.deepStrictEqual([g1.params.idEmpresa, g1.params.idTipoComprobante, g1.params.letra, g1.params.centroEmisor], [1, 'FACTCOM', 'A', 5007]);
+  assertParametrizado(falso.registro);
+  const sinEmisor = crearSqlFalso(porTabla({ VentasNumeros: ventasNumeros }));
+  const ctx2 = await crearRepo(sinEmisor).contexto(borradorFactcom({ centroEmisor: 0 }), { hoy: '2026-10-16' });
+  assert.strictEqual(ctx2.numeracionCompartidaConVentas, false);
 });
 
 test('contexto: duplicado por proveedor en cualquier sucursal, sin lock (el lock va en grabar)', async () => {
@@ -54,6 +90,12 @@ test('contexto: duplicado por proveedor en cualquier sucursal, sin lock (el lock
   assert.match(dup.texto, /\(TC\.InformaLibroIVA = 1 OR S\.IdEmpresa = @idEmpresa\)/);
   assert.doesNotMatch(dup.texto, /C\.IdSucursal =/);
   assert.doesNotMatch(dup.texto, /UPDLOCK/);
+  const cc = falso.registro.find(e => /FROM CuentasCorrientesProv CCP/.test(e.texto));
+  assert.match(cc.texto, /INNER JOIN TiposComprobantes TC ON TC\.IdTipoComprobante = CCP\.IdTipoComprobante/);
+  assert.match(cc.texto, /INNER JOIN Sucursales S ON S\.IdSucursal = CCP\.IdSucursal/);
+  assert.match(cc.texto, /WHERE CCP\.IdSucursal > 0 AND CCP\.IdProveedor = @idProveedor/);
+  assert.match(cc.texto, /\(TC\.InformaLibroIVA = 1 OR S\.IdEmpresa = @idEmpresa\)/);
+  assert.doesNotMatch(cc.texto, /UPDLOCK/);
   assert.deepStrictEqual(
     [dup.params.idProveedor, dup.params.idTipoComprobante, dup.params.letra, dup.params.centroEmisor, dup.params.numeroComprobante, dup.params.idEmpresa],
     [328, 'FACTCOM', 'A', 5007, 1071364, 1]);

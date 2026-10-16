@@ -43,6 +43,8 @@ test('numeración manual: emisor y número obligatorios, mayores a cero y sin du
     ['Este comprobante ya fue INGRESADO con ANTERIORIDAD']);
   assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, duplicado: { enCompras: false, enCtaCte: true } }),
     ['Este comprobante ya EXISTE en Cuentas Corrientes de Proveedores']);
+  assert.deepStrictEqual(mensajes(borradorFactcom(), { ...ctx, numeracionCompartidaConVentas: true }),
+    ['v1: el tipo, letra y punto de venta comparten numeración con ventas (VentasNumeros); cargalo desde SiGA.']);
 });
 
 test('numeración automática: no pide emisor ni número', () => {
