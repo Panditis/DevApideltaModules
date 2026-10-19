@@ -21,6 +21,11 @@
 .tabla input,.tabla select{border:1px solid rgba(26,28,24,.16);border-radius:6px;padding:4px 6px;font-size:13px}
 .tabla input[type=number]{width:120px;text-align:right}
 .fila-error td{background:#fdf3f4}
+.lista-resultados{max-height:240px;overflow:auto;margin-top:4px;border:1px solid rgba(26,28,24,.16);border-radius:6px}
+.lista-resultados:empty{display:none}
+.lista-resultados li{padding:6px 8px;font-size:13px}
+.lista-resultados li:hover{background:#f3f4f1}
+.lista-resultados button{display:block;width:100%;text-align:left;background:none;border:0;cursor:pointer;font-size:13px}
 .btn{border-radius:6px;padding:7px 14px;font-size:14px;font-weight:600;border:1px solid rgba(26,28,24,.16);background:#fff;color:#242423;cursor:pointer}
 .btn-primario{background:#405936;border-color:#405936;color:#fff}
 .btn-primario:hover{background:#4f6e42}
@@ -67,14 +72,20 @@
   </section>
 
   <section class="bg-card border border-borde rounded-xl p-4 shadow-fluent">
-    <div class="flex items-baseline gap-3 mb-2">
+    <div class="flex items-center gap-3 mb-2">
       <h2 class="font-semibold">Productos</h2>
       <span id="notaPrecio" class="text-xs font-semibold"></span>
+      <button type="button" id="btnAgregarProducto" class="btn ml-auto">+ Agregar producto</button>
+    </div>
+    <div id="panelBuscar" class="mb-3" style="display:none">
+      <label class="campo">Buscar producto por nombre, PLU o código de barras (solo los habilitados para compras)
+        <input id="buscarProducto" type="search" autocomplete="off" placeholder="Al menos 2 letras"></label>
+      <ul id="resultadosBuscar" class="lista-resultados"></ul>
     </div>
     <table class="tabla">
       <thead><tr>
         <th>PLU</th><th>Producto</th><th class="num">Cantidad</th><th class="num" id="thPrecio">Precio</th><th class="num">IVA %</th>
-        <th class="num">Importe</th><th class="num">IVA</th><th class="num">Neto c/desc.</th>
+        <th class="num">Importe</th><th class="num">IVA</th><th class="num">Neto c/desc.</th><th></th>
       </tr></thead>
       <tbody id="tLineas"></tbody>
     </table>

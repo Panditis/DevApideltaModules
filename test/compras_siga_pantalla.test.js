@@ -110,3 +110,36 @@ test('punto de venta: datalist con los CentroEmisor de la sucursal que tienen el
   assert.deepStrictEqual(JSON.parse(JSON.stringify(puntosVentaDe(impresoras, 1, 'FACTCOM'))), [[3, 'FISCAL1']]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(puntosVentaDe(undefined, 1, 'FACTCOM'))), []);
 });
+
+test('productos editables: cantidad y precio type=number, ✕ con el modal propio y cuerpo() manda lineas', () => {
+  const m = /function pintarLineas\(\) \{[\s\S]*?\n {2}\}\n/.exec(JS);
+  assert.ok(m, 'no se encontró pintarLineas() en compras_siga.js');
+  const fila = m[0];
+  assert.match(fila, /<input type="number" step="any" min="0" data-k="cantidad"/);
+  assert.match(fila, /<input type="number" step="0\.01" min="0" data-k="precio"/);
+  assert.match(fila, /data-quitar-linea="\$\{i\}"[^>]*>✕</);
+  // Todo lo interpolado en el innerHTML de la tabla pasa por esc() (salvo el índice de la fila).
+  const sinEscapar = [...fila.matchAll(/\$\{([^}]*)\}/g)].map(x => x[1]).filter(x => !/^esc\(/.test(x) && x !== 'i');
+  assert.deepStrictEqual(sinEscapar, []);
+  assert.match(JS, /await confirmar\(\{\s*titulo: 'Quitar producto'/);
+  assert.match(JS, /lineas: estado\.lineas\.map\(\(\{ plu, cantidad, precio \}\) => \(\{ plu, cantidad, precio \}\)\)/);
+  assert.doesNotMatch(JS, /precios/, 'el body ya no manda precios');
+  assert.match(JS, /estado\.lineas = datos\.borrador\.lineas\.map\(/);
+  assert.ok(JS.includes("'Producto repetido en otra línea'"), 'falta el aviso de PLU repetido');
+});
+
+test('agregar producto: botón, buscador con soloCompras=1 y resultados por textContent', () => {
+  assert.match(HTML, /<button type="button" id="btnAgregarProducto" class="btn[^"]*">\+ Agregar producto<\/button>/);
+  assert.match(HTML, /<input id="buscarProducto" type="search"/);
+  assert.match(HTML, /<ul id="resultadosBuscar"/);
+  assert.ok(JS.includes('`/api/compras-import/buscar-producto?q=${encodeURIComponent(q)}&soloCompras=1`'));
+  const m = /function mostrarResultados\([\s\S]*?\n {2}\}\n/.exec(JS);
+  assert.ok(m, 'no se encontró mostrarResultados() en compras_siga.js');
+  assert.doesNotMatch(m[0], /innerHTML/, 'los resultados del buscador van por textContent');
+  assert.match(JS, /cantidad: 1, precio: p\.costoSistema \?\? null/);
+});
+
+test('el permiso del módulo compras cubre el buscador de productos (/api/compras-import)', () => {
+  const auth = leer('lib/auth.js');
+  assert.match(auth, /ref: 'compras',[^\n]*apiPrefijos: \[[^\]]*'\/api\/compras-import'/);
+});

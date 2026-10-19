@@ -26,8 +26,10 @@
     percepciones: [null, 'Percepciones'], idProveedor: [null, 'Proveedor'], pedido: [null, 'Pedido'], total: [null, 'Total'],
   };
   const DEBOUNCE_MS = 400;
+  const BUSQUEDA_MIN = 2; // /api/compras-import/buscar-producto no busca con menos
   const estado = {
-    borrador: null, catalogos: null, precios: {}, percepciones: [], errores: [],
+    // lineas: { plu, nombre, cantidad, precio } en el orden del comprobante (Orden = posición + 1, lo pone el servidor).
+    borrador: null, catalogos: null, lineas: [], percepciones: [], errores: [], busqueda: 0,
     grabacionHabilitada: false, validando: false, grabando: false, grabado: false, aVerificar: false, incierto: false, secuencia: 0, avisosBase: [],
     proximoNumero: null, // número propuesto con numeración automática (lo devuelve /validar)
   };
@@ -145,15 +147,75 @@
     $('#dlProvincias').innerHTML = (c.provincias || []).map(p => `<option value="${esc(p.idProvincia)}">${esc(p.nombre)}</option>`).join('');
   }
 
-  // Se arma una sola vez: al validar solo se actualizan las celdas calculadas (no se pierde el foco del precio).
-  function cargarLineas(lineas, descartadas) {
-    $('#tLineas').innerHTML = lineas.map(l => `<tr data-orden="${esc(l.orden)}">
-      <td>${esc(l.plu)}</td><td>${esc(l.nombre)}</td><td class="num">${n2(l.cantidad)}</td>
-      <td class="num"><input type="number" step="0.01" min="0" data-plu="${esc(l.plu)}" value="${esc(l.precio ?? '')}" aria-label="Precio de ${esc(l.nombre)}"></td>
+  // Se redibuja solo al agregar o quitar una línea: al tipear se actualizan las celdas (no se pierde el foco).
+  // Un PLU repetido es otra línea, como en SiGA (W L24769-24781): solo se avisa, no bloquea.
+  function pintarLineas() {
+    const plus = estado.lineas.map(l => l.plu);
+    const repetido = l => (plus.indexOf(l.plu) !== plus.lastIndexOf(l.plu) ? 'Producto repetido en otra línea' : '');
+    $('#tLineas').innerHTML = estado.lineas.map((l, i) => `<tr data-i="${i}">
+      <td>${esc(l.plu)}</td><td><span data-nombre>${esc(l.nombre)}</span> <span class="text-xs text-warn">${esc(repetido(l))}</span></td>
+      <td class="num"><input type="number" step="any" min="0" data-k="cantidad" value="${esc(l.cantidad ?? '')}" aria-label="Cantidad de ${esc(l.nombre)}"></td>
+      <td class="num"><input type="number" step="0.01" min="0" data-k="precio" value="${esc(l.precio ?? '')}" aria-label="Precio de ${esc(l.nombre)}"></td>
       <td class="num" data-c="porcentajeIVA"></td><td class="num" data-c="importeTotal"></td>
-      <td class="num" data-c="iva"></td><td class="num" data-c="importeTotalNeto"></td></tr>`).join('');
-    $('#descartadas').textContent = descartadas.length
-      ? `No se importan (no entregadas): ${descartadas.map(d => `${d.nombre} (${d.estado})`).join(', ')}.` : '';
+      <td class="num" data-c="iva"></td><td class="num" data-c="importeTotalNeto"></td>
+      <td><button type="button" class="btn" data-quitar-linea="${i}" aria-label="Quitar ${esc(l.nombre)}">✕</button></td></tr>`).join('')
+      || '<tr><td colspan="9" class="text-gris">Sin productos: agregá al menos uno.</td></tr>';
+  }
+
+  async function quitarLinea(i) {
+    const l = estado.lineas[i];
+    if (!l) return;
+    const aceptado = await confirmar({
+      titulo: 'Quitar producto', texto: `Se quita ${l.nombre} (PLU ${l.plu}) del comprobante.`, aceptar: 'Quitar',
+    });
+    if (!aceptado) return;
+    estado.lineas = estado.lineas.filter((_, j) => j !== i);
+    pintarLineas();
+    programarValidacion();
+  }
+
+  // ── Agregar producto (buscador de routes/rutas_compras.js, solo los habilitados para compras) ──
+  function agregarLinea(p) {
+    estado.lineas = [...estado.lineas, { plu: p.plu, nombre: p.nombre, cantidad: 1, precio: p.costoSistema ?? null }];
+    pintarLineas();
+    $('#buscarProducto').value = '';
+    $('#resultadosBuscar').replaceChildren();
+    $('#panelBuscar').style.display = 'none';
+    programarValidacion();
+  }
+
+  // Los resultados vienen de SIGA: van por textContent.
+  function mostrarResultados(productos) {
+    const items = productos.map(p => {
+      const b = el('button', null, `${p.plu} · ${p.nombre}${p.activo ? '' : ' (inactivo)'}`);
+      b.type = 'button';
+      b.addEventListener('click', () => agregarLinea(p));
+      const li = el('li');
+      li.append(b);
+      return li;
+    });
+    $('#resultadosBuscar').replaceChildren(...(items.length ? items : [el('li', 'text-gris', 'Sin resultados.')]));
+  }
+
+  // busqueda: como secuencia en validar, solo se pinta la respuesta de lo último tipeado.
+  async function buscarProducto() {
+    const q = $('#buscarProducto').value.trim();
+    const yo = ++estado.busqueda;
+    if (q.length < BUSQUEDA_MIN) { $('#resultadosBuscar').replaceChildren(); return; }
+    try {
+      const { ok, status, datos } = await api(`/api/compras-import/buscar-producto?q=${encodeURIComponent(q)}&soloCompras=1`);
+      if (yo !== estado.busqueda) return;
+      if (!ok) { $('#resultadosBuscar').replaceChildren(el('li', 'text-crit', datos.error || `No se pudo buscar (error ${status}).`)); return; }
+      mostrarResultados(datos.productos || []);
+    } catch (e) {
+      if (yo === estado.busqueda) $('#resultadosBuscar').replaceChildren(el('li', 'text-crit', `No se pudo buscar: ${e.message}`));
+    }
+  }
+
+  function alternarBuscador() {
+    const panel = $('#panelBuscar');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel.style.display === '') $('#buscarProducto').focus();
   }
 
   function pintarPercepciones() {
@@ -172,7 +234,8 @@
     const [idDeposito, idUbicacion] = ($('#cUbicacion').value || '|').split('|');
     const numero = num($('#cNumero').value);
     return {
-      pedido, precios: estado.precios, percepciones: estado.percepciones,
+      pedido, percepciones: estado.percepciones,
+      lineas: estado.lineas.map(({ plu, cantidad, precio }) => ({ plu, cantidad, precio })),
       cabecera: {
         idTipoComprobante: $('#cTipo').value, letra: $('#cLetra').value, centroEmisor: num($('#cEmisor').value),
         // Número propuesto sin tocar → null: grabar asigna el siguiente libre con lock aunque otro haya grabado en el medio.
@@ -193,7 +256,7 @@
   function pintarErrores() {
     document.querySelectorAll('.msg-error').forEach(n => n.remove());
     document.querySelectorAll('.campo-error').forEach(n => n.classList.remove('campo-error'));
-    const lineas = estado.borrador.lineas;
+    const lineas = estado.lineas;
     const items = estado.errores.map(e => {
       const m = /^lineas\[(\d+)\]$/.exec(e.campo || '');
       if (m) return el('li', null, lineas[Number(m[1])] ? `${lineas[Number(m[1])].nombre}: ${e.mensaje}` : e.mensaje);
@@ -207,16 +270,21 @@
     });
     $('#errores').replaceChildren(...items);
     $('#cajaErrores').style.display = items.length ? '' : 'none';
-    document.querySelectorAll('#tLineas tr[data-orden]').forEach((tr, i) => {
-      tr.classList.toggle('fila-error', estado.errores.some(e => e.campo === `lineas[${i}]`));
+    document.querySelectorAll('#tLineas tr[data-i]').forEach(tr => {
+      tr.classList.toggle('fila-error', estado.errores.some(e => e.campo === `lineas[${tr.dataset.i}]`));
     });
   }
 
   function pintarResultado(r) {
-    const porOrden = new Map((r.lineas || []).map(l => [String(l.orden), l]));
-    document.querySelectorAll('#tLineas tr[data-orden]').forEach(tr => {
-      const l = porOrden.get(tr.dataset.orden);
+    // Línea i de la respuesta = fila i (Orden = posición). El nombre que se muestra pasa a ser el de SIGA; con otra
+    // cantidad de líneas (respuesta de antes de agregar/quitar) no se toca la tabla.
+    const lineas = r.lineas || [];
+    const coincide = lineas.length === estado.lineas.length;
+    if (coincide) estado.lineas = estado.lineas.map((l, i) => ({ ...l, nombre: lineas[i].nombre || l.nombre }));
+    document.querySelectorAll('#tLineas tr[data-i]').forEach(tr => {
+      const l = coincide ? lineas[Number(tr.dataset.i)] : null;
       tr.querySelectorAll('[data-c]').forEach(td => { td.textContent = l ? n2(l[td.dataset.c]) : ''; });
+      if (l && l.nombre) tr.querySelector('[data-nombre]').textContent = l.nombre;
     });
     // DOC decisión 15: el precio editable es el de la grilla de SiGA. Ni discrimina ni incluye IVA = comprobante sin
     // impuestos (p. ej. interno): el precio va tal cual, sin letra fiscal de por medio. Sin libro de IVA (p. ej.
@@ -255,6 +323,7 @@
 
   function programarValidacion() {
     clearTimeout(temporizador);
+    estado.secuencia++; // descarta la validación en vuelo: la tabla pudo cambiar
     estado.validando = true;
     actualizarBotonGrabar();
     temporizador = setTimeout(validar, DEBOUNCE_MS);
@@ -358,10 +427,22 @@
     ['#cLetra', '#cEmisor', '#cNumero', '#cFecha', '#cPeriodo', '#cUbicacion', '#cFormaPago', '#cDescGral', '#cObs']
       .forEach(id => $(id).addEventListener('input', programarValidacion));
     $('#tLineas').addEventListener('input', e => {
-      const plu = e.target.dataset.plu;
-      if (!plu) return;
-      estado.precios = { ...estado.precios, [plu]: num(e.target.value) };
+      const tr = e.target.closest('tr[data-i]');
+      const k = e.target.dataset.k;
+      if (!tr || !k) return;
+      const i = Number(tr.dataset.i);
+      estado.lineas = estado.lineas.map((l, j) => (j === i ? { ...l, [k]: num(e.target.value) } : l));
       programarValidacion();
+    });
+    $('#tLineas').addEventListener('click', e => {
+      const b = e.target.closest('[data-quitar-linea]');
+      if (b) quitarLinea(Number(b.dataset.quitarLinea));
+    });
+    $('#btnAgregarProducto').addEventListener('click', alternarBuscador);
+    let temporizadorBusqueda = null;
+    $('#buscarProducto').addEventListener('input', () => {
+      clearTimeout(temporizadorBusqueda);
+      temporizadorBusqueda = setTimeout(buscarProducto, DEBOUNCE_MS);
     });
     $('#tbPercep').addEventListener('input', e => {
       const tr = e.target.closest('tr[data-i]');
@@ -401,7 +482,11 @@
     estado.grabacionHabilitada = datos.grabacionHabilitada === true;
     $('#avisoVistaPrevia').style.display = estado.grabacionHabilitada ? 'none' : '';
     cargarCabecera(datos.borrador);
-    cargarLineas(datos.borrador.lineas, datos.borrador.descartadas);
+    estado.lineas = datos.borrador.lineas.map(({ plu, nombre, cantidad, precio }) => ({ plu, nombre, cantidad, precio }));
+    pintarLineas();
+    const { descartadas } = datos.borrador;
+    $('#descartadas').textContent = descartadas.length
+      ? `No se importan (no entregadas): ${descartadas.map(d => `${d.nombre} (${d.estado})`).join(', ')}.` : '';
     pintarPercepciones();
     if (datos.aVerificar) mostrarVerificar();
     const avisos = [...datos.borrador.bloqueos.map(b => b.mensaje), ...(datos.catalogos.avisos || [])];
