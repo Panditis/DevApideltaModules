@@ -246,3 +246,14 @@ test('calcularComprobante: COTIZACIONCOM (sin libro de IVA) con proveedor RI →
   assert.ok(f.comprasProductos.every(p => p.PorcentajeIVA === 0 && p.IVA === 0));
   assert.strictEqual(calcularComprobante(borradorFactcom(), contextoFactcom()).sinLibroIVA, false); // FACTCOM A sigue igual
 });
+
+test('armarComprobante: numeración automática con emisor y número editables (vacío/propuesto → al grabar; otro → ese número)', () => {
+  const ctx = contextoFactcom();
+  const auto = { ...ctx, tipo: { ...ctx.tipo, numeracionAutomatica: true }, proximoNumero: 51 };
+  const clave = cambios => { const f = armar(borradorFactcom(cambios), auto); return [f.numeracion.modo, f.clave.CentroEmisor, f.clave.NumeroComprobante]; };
+  assert.deepStrictEqual(clave({ centroEmisor: null, numeroComprobante: null }), ['proveedor', 1, 0]);
+  assert.deepStrictEqual(clave({ centroEmisor: 3, numeroComprobante: 51 }), ['proveedor', 3, 0]);
+  assert.deepStrictEqual(clave({ centroEmisor: null, numeroComprobante: 77 }), ['manual', 1, 77]);
+  assert.deepStrictEqual(clave({ centroEmisor: 3, numeroComprobante: 77 }), ['manual', 3, 77]);
+  assert.strictEqual(armar(borradorFactcom({ centroEmisor: 3, numeroComprobante: 77 }), auto).ctaCte.cuotas[0].NumeroComprobante2, 77);
+});

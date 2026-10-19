@@ -62,6 +62,7 @@ function contextoFactcom(cambios = {}) {
     duplicado: { enCompras: false, enCtaCte: false },
     ventasNumerosRelacionado: false,
     numeracionCompartidaConVentas: false,
+    proximoNumero: null,
     parametros: { categoriaFiscalEmpresa: 2, decimalesTotal: 2, decimalesPrecio: 2, pasajeIncluyeImpuestos: false },
     cotizacionDolar: 1450,
     ...cambios,

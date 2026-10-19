@@ -122,7 +122,7 @@ test('POST validar: recalcula del lado del servidor y devuelve los errores de Si
     assert.deepStrictEqual(ok.data.errores, []);
     assert.strictEqual(ok.data.totales.importeTotal, 42665.16);
     assert.deepStrictEqual(ok.data.lineas.map(l => l.proporcionalImp), [878.7748, 76.4152]);
-    assert.deepStrictEqual([ok.data.discrimina, ok.data.incluyeIVA, ok.data.sinLibroIVA], [true, false, false]);
+    assert.deepStrictEqual([ok.data.discrimina, ok.data.incluyeIVA, ok.data.sinLibroIVA, ok.data.proximoNumero], [true, false, false, null]);
     const mal = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo({ cabecera: { ...CABECERA, numeroComprobante: '' } }));
     assert.strictEqual(mal.status, 200);
     assert.deepStrictEqual(mal.data.errores, [{ campo: 'numeroComprobante', mensaje: 'Debe cargar un el número del comprobante.' }]);
@@ -165,6 +165,22 @@ test('POST grabar: arma las filas desde el pedido, graba con el usuario de la se
     assert.strictEqual(ctx.grabados[0].compras.Usuario, 'adriel.com');
     assert.deepStrictEqual(vinculosDe(ctx), { 'P-0007': ['1|FACTCOM|A|5007|1071364'] });
   } finally { cerrar(ctx); }
+});
+
+test('validar y grabar con numeración automática: devuelve el número propuesto; vacío o propuesto → al grabar, otro → ese', async () => {
+  const ctxAuto = () => { const c = contextoFactcom(); return { ...c, tipo: { ...c.tipo, numeracionAutomatica: true }, proximoNumero: 51 }; };
+  const conNumero = numeroComprobante => cuerpo({ cabecera: { ...CABECERA, centroEmisor: 1, numeroComprobante } });
+  // Cada grabación vincula el pedido: un servidor nuevo por caso.
+  for (const [n, esperado] of [[null, ['proveedor', 1, 0]], [51, ['proveedor', 1, 0]], [77, ['manual', 1, 77]]]) {
+    const ctx = await montar({ repo: { contexto: async () => ctxAuto() } });
+    try {
+      const v = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', conNumero(n));
+      assert.deepStrictEqual([v.status, v.data.proximoNumero, v.data.errores], [200, 51, []]);
+      assert.strictEqual((await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', conNumero(n))).status, 200);
+      const [f] = ctx.grabados;
+      assert.deepStrictEqual([f.numeracion.modo, f.clave.CentroEmisor, f.clave.NumeroComprobante], esperado, String(n));
+    } finally { cerrar(ctx); }
+  }
 });
 
 test('POST grabar rechazado: con errores (o pedido ya vinculado) no llama a repo.grabar', async () => {

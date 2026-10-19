@@ -114,9 +114,11 @@ module.exports = function crearRutasComprasSiga(deps) {
     return { borrador, contexto, calculo, errores, momento };
   }
 
-  const vista = ({ calculo, errores }) => ({
+  // proximoNumero: el que propone la pantalla con numeración automática (repo.contexto, sin lock); null si no aplica.
+  const vista = ({ calculo, errores, contexto }) => ({
     lineas: calculo.lineas, filasImpuestos: calculo.filasImpuestos, totales: calculo.totales,
     discrimina: calculo.discrimina, incluyeIVA: calculo.incluyeIVA, sinLibroIVA: calculo.sinLibroIVA, errores,
+    proximoNumero: contexto.proximoNumero ?? null,
   });
 
   function guardarVinculo(numero, clave) {

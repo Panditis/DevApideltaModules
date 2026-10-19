@@ -297,6 +297,48 @@ test('grabar: numeración automática por proveedor = MAX + 1 con lock; el núme
   assert.deepStrictEqual([pago.NumeroComprobante, pago.NumeroComprobante2, pago.CentroEmisor2], [51, 51, 1]);
 });
 
+// Número editable en numeración automática (validaciones.numeracionDe): el contexto propuso 51.
+function filasAutomaticas(numeroComprobante) {
+  const ctx = contextoFactcom();
+  const tipo = { ...ctx.tipo, idTipoComprobante: 'COTIZACIONCOM', grabaLibro: false, numeracionAutomatica: true, letrasHabilitadas: ['X'], esComercial: false };
+  return filasDe(borradorFactcom({ idTipoComprobante: 'COTIZACIONCOM', letra: 'X', centroEmisor: 1, numeroComprobante }), { ...ctx, tipo, proximoNumero: 51 });
+}
+
+test('grabar: número automático vacío → MAX + 1 con lock', async () => {
+  const { falso, promesa } = grabarCon(RESPUESTAS, filasAutomaticas(null));
+  assert.strictEqual((await promesa).clave.NumeroComprobante, 51);
+  assert.strictEqual(buscar(falso.registro, 'MAX').length, 1);
+});
+
+test('grabar: número propuesto y otro grabó en el medio → sale el siguiente libre (MAX + 1 con lock)', async () => {
+  const otroGrabo = texto => (/^SELECT ISNULL\(MAX/.test(texto) ? { recordset: [{ Siguiente: 52 }] } : RESPUESTAS(texto));
+  const { falso, promesa } = grabarCon(otroGrabo, filasAutomaticas(51));
+  const r = await promesa;
+  assert.strictEqual(r.clave.NumeroComprobante, 52);
+  assert.strictEqual(buscar(falso.registro, 'COMPRAS')[0].params.NumeroComprobante, 52);
+  assert.ok(!secuencia(falso.registro).includes('DUP_COMPRAS'));
+});
+
+test('grabar: número tipeado libre en numeración automática → se graba ese, con el control de duplicado de manual', async () => {
+  const { falso, promesa } = grabarCon(RESPUESTAS, filasAutomaticas(77));
+  const r = await promesa;
+  assert.deepStrictEqual([r.clave.CentroEmisor, r.clave.NumeroComprobante], [1, 77]);
+  const pasos = secuencia(falso.registro);
+  assert.deepStrictEqual(pasos.slice(0, 4), ['BEGIN', 'DUP_COMPRAS', 'VN_G1', 'COMPRAS']);
+  assert.ok(!pasos.includes('MAX'));
+  assert.ok(pasos.includes('DUP_CTACTE'));
+  assert.deepStrictEqual(buscar(falso.registro, 'DUP_COMPRAS')[0].params,
+    { idProveedor: 328, idTipoComprobante: 'COTIZACIONCOM', letra: 'X', centroEmisor: 1, numeroComprobante: 77, idEmpresa: 1 });
+  assert.strictEqual(buscar(falso.registro, 'COMPRAS')[0].params.NumeroComprobante, 77);
+});
+
+test('grabar: número tipeado duplicado en numeración automática → error de duplicado y rollback', async () => {
+  const duplicado = texto => (/^SELECT TOP 1 C\.IdSucursal FROM Compras C/.test(texto) ? { recordset: [{ IdSucursal: 1 }] } : RESPUESTAS(texto));
+  const { falso, promesa } = grabarCon(duplicado, filasAutomaticas(77));
+  await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message === 'Este comprobante ya fue INGRESADO con ANTERIORIDAD');
+  assert.deepStrictEqual(secuencia(falso.registro), ['BEGIN', 'DUP_COMPRAS', 'ROLLBACK']);
+});
+
 test('grabar: numeración que la v1 no soporta → ErrorSiga antes de escribir', async () => {
   const filas = { ...filasDe(), numeracion: { ...filasDe().numeracion, modo: 'comprasNumeros' } };
   const { falso, promesa } = grabarCon(RESPUESTAS, filas);

@@ -215,3 +215,11 @@ test('integración: precio y percepción "1.500" dan el mensaje de número invá
   assert.ok(msgs.includes('El importe de la percepción PIVA no es un número válido.'), String(msgs));
   assert.ok(msgs.includes('El precio no es un número válido.'), String(msgs));
 });
+
+test('cabeceraSugerida: con numeración automática el emisor arranca en 1 (Win L22755) y el número vacío', () => {
+  const c = cabeceraSugerida({
+    catalogos: { ...CATALOGOS, proveedor: { ...CATALOGOS.proveedor, idTipoComprobante: 'COTIZACIONCOM' } },
+    hoyISO: '2026-10-16', numeroPedido: 'P-0007',
+  });
+  assert.deepStrictEqual([c.idTipoComprobante, c.letra, c.centroEmisor, c.numeroComprobante], ['COTIZACIONCOM', 'X', 1, null]);
+});

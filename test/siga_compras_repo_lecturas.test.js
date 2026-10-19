@@ -93,8 +93,36 @@ test('contexto: numeración automática por proveedor consulta VentasNumeros_G1 
     assert.strictEqual(ctx.numeracionCompartidaConVentas, esperado);
     const g1 = falso.registro.find(e => /FROM VentasNumeros VN/.test(e.texto) && !/Relacionado/.test(e.texto));
     assert.deepStrictEqual([g1.params.idEmpresa, g1.params.idTipoComprobante, g1.params.letra, g1.params.centroEmisor], [1, 'FACTCOM', 'A', 1]);
-    assert.strictEqual(falso.registro.findIndex(e => /FROM Compras C/.test(e.texto)), -1);
+    assert.strictEqual(falso.registro.findIndex(e => /^SELECT TOP 1 C\.IdSucursal FROM Compras C/.test(e.texto)), -1);
   }
+});
+
+test('contexto: numeración automática por proveedor → proximoNumero = MAX + 1 sin lock, con emisor vacío = 1', async () => {
+  const automatico = [{ ...FILAS_SIGA.TiposComprobantes[0], NumeracionAutomatica: true }];
+  const falso = crearSqlFalso(porTabla({
+    TiposComprobantes: () => ({ recordset: automatico }),
+    Compras: texto => ({ recordset: /MAX\(/.test(texto) ? [{ Siguiente: 51 }] : [] }),
+  }));
+  const ctx = await crearRepo(falso).contexto(borradorFactcom({ centroEmisor: null, numeroComprobante: null }), { hoy: '2026-10-16' });
+  assert.strictEqual(ctx.proximoNumero, 51);
+  const max = falso.registro.find(e => /MAX\(C\.NumeroComprobante\)/.test(e.texto));
+  assert.doesNotMatch(max.texto, /UPDLOCK/);
+  assert.deepStrictEqual(max.params, { idProveedor: 328, idSucursal: 1, idTipoComprobante: 'FACTCOM', letra: 'A', centroEmisor: 1 });
+  assertParametrizado(falso.registro);
+  // Número tipeado: el aviso de duplicado se pide con el emisor efectivo (1).
+  const tipeado = crearSqlFalso(porTabla({ TiposComprobantes: () => ({ recordset: automatico }) }));
+  await crearRepo(tipeado).contexto(borradorFactcom({ centroEmisor: null, numeroComprobante: 77 }), { hoy: '2026-10-16' });
+  const dup = tipeado.registro.find(e => /^SELECT TOP 1 C\.IdSucursal FROM Compras C/.test(e.texto));
+  assert.deepStrictEqual([dup.params.centroEmisor, dup.params.numeroComprobante], [1, 77]);
+  // Manual (FACTCOM) o con VentasNumeros relacionado: no hay número propuesto.
+  const manual = crearSqlFalso(porTabla());
+  assert.strictEqual((await crearRepo(manual).contexto(borradorFactcom(), { hoy: '2026-10-16' })).proximoNumero, null);
+  assert.strictEqual(manual.registro.findIndex(e => /MAX\(/.test(e.texto)), -1);
+  const relacionado = crearSqlFalso(porTabla({
+    TiposComprobantes: () => ({ recordset: automatico }),
+    VentasNumeros: texto => ({ recordset: /IdTipoComprobanteRelacionado/.test(texto) ? [{ IdTipoComprobante: 'FACTCOM' }] : [] }),
+  }));
+  assert.strictEqual((await crearRepo(relacionado).contexto(borradorFactcom({ numeroComprobante: null }), { hoy: '2026-10-16' })).proximoNumero, null);
 });
 
 test('contexto: duplicado por proveedor en cualquier sucursal, sin lock (el lock va en grabar)', async () => {

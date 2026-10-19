@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { validarComprobante, modoNumeracion, cuitValido } = require('../lib/siga_compras/validaciones');
+const { validarComprobante, modoNumeracion, numeracionDe, emisorDe, cuitValido } = require('../lib/siga_compras/validaciones');
 const { borradorFactcom, contextoFactcom } = require('./siga_compras_fixture');
 
 // Lo único del cálculo que miran las validaciones: el total y el IVA de cada línea.
@@ -63,6 +63,37 @@ test('numeración automática: no pide emisor ni número', () => {
   const cotizacion = { ...ctx.tipo, idTipoComprobante: 'COTIZACIONCOM', numeracionAutomatica: true, letrasHabilitadas: ['X'], grabaLibro: false };
   const b = borradorFactcom({ idTipoComprobante: 'COTIZACIONCOM', letra: 'X', centroEmisor: null, numeroComprobante: null });
   assert.deepStrictEqual(mensajes(b, { ...ctx, tipo: cotizacion }), []);
+});
+
+test('numeración automática: número vacío, 0 o el propuesto → automático; otro número → manual para ese comprobante', () => {
+  const ctx = contextoFactcom();
+  const auto = { ...ctx, tipo: { ...ctx.tipo, numeracionAutomatica: true }, proximoNumero: 51 };
+  for (const n of [null, 0, 51]) assert.strictEqual(numeracionDe(borradorFactcom({ numeroComprobante: n }), auto), 'proveedor', String(n));
+  assert.strictEqual(numeracionDe(borradorFactcom({ numeroComprobante: 77 }), auto), 'manual');
+  assert.strictEqual(numeracionDe(borradorFactcom({ numeroComprobante: 77 }), { ...auto, proximoNumero: null }), 'manual');
+  assert.strictEqual(numeracionDe(borradorFactcom(), ctx), 'manual');
+  assert.strictEqual(numeracionDe(borradorFactcom({ numeroComprobante: null }), { ...auto, ventasNumerosRelacionado: true }), 'ventasNumeros');
+  // Tipeado libre: se acepta; tipeado duplicado: el aviso de manual.
+  assert.deepStrictEqual(mensajes(borradorFactcom({ centroEmisor: 1, numeroComprobante: 77 }), auto), []);
+  assert.deepStrictEqual(mensajes(borradorFactcom({ centroEmisor: 1, numeroComprobante: 77 }), { ...auto, duplicado: { enCompras: true, enCtaCte: false } }),
+    ['Este comprobante ya fue INGRESADO con ANTERIORIDAD']);
+  assert.deepStrictEqual(mensajes(borradorFactcom({ centroEmisor: 1, numeroComprobante: -3 }), auto), ['El Número no puede ser cero.']);
+  // El duplicado no cuenta cuando el número lo asigna grabar.
+  assert.deepStrictEqual(mensajes(borradorFactcom({ numeroComprobante: 51 }), { ...auto, duplicado: { enCompras: true, enCtaCte: false } }), []);
+});
+
+test('numeración automática: emisor vacío = 1; si se tipea, entero de 1 a 32767', () => {
+  const ctx = contextoFactcom();
+  const auto = { ...ctx, tipo: { ...ctx.tipo, numeracionAutomatica: true }, proximoNumero: 51 };
+  const conEmisor = e => mensajes(borradorFactcom({ centroEmisor: e, numeroComprobante: null }), auto);
+  for (const e of [null, 0, 1, 32767]) assert.deepStrictEqual(conEmisor(e), [], String(e));
+  assert.deepStrictEqual(conEmisor(-1), ['El Emisor no puede ser cero.']);
+  for (const e of [1.5, 32768]) assert.deepStrictEqual(conEmisor(e), ['v1: el punto de venta tiene que ser un entero de hasta 32767.'], String(e));
+  // Número tipeado con emisor vacío: también va con emisor 1.
+  assert.deepStrictEqual(mensajes(borradorFactcom({ centroEmisor: null, numeroComprobante: 77 }), auto), []);
+  assert.strictEqual(emisorDe(borradorFactcom({ centroEmisor: null }), auto.tipo), 1);
+  assert.strictEqual(emisorDe(borradorFactcom({ centroEmisor: 3 }), auto.tipo), 3);
+  assert.strictEqual(emisorDe(borradorFactcom(), ctx.tipo), 5007);
 });
 
 test('fecha, período fiscal, importe mínimo y CUIT (#8-#13)', () => {
