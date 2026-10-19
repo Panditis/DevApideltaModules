@@ -7,6 +7,7 @@ const desdePedido = require('../lib/siga_compras/desde_pedido');
 const { calcularComprobante, armarComprobante } = require('../lib/siga_compras/armar_comprobante');
 const { validarComprobante } = require('../lib/siga_compras/validaciones');
 const { fechaLocalISO } = require('../lib/siga_compras/fechas');
+const { aplicarGrabadoAPedido } = require('../lib/siga_compras/al_pedido');
 
 // ── Importación de pedidos de compra como comprobantes en SIGA ──────────────────
 // Spec: docs/superpowers/specs/2026-10-15-compras-siga-importacion-design.md. Reglas en lib/siga_compras/.
@@ -19,6 +20,7 @@ const RESULTADOS_VERIFICACION = ['cargado', 'no_cargado'];
 const MENSAJE_A_VERIFICAR = 'El pedido tiene una grabación sin confirmar: verificá en SiGA si el comprobante quedó cargado antes de reintentar.';
 const MENSAJE_SIN_SESION = 'Tenés que iniciar sesión para grabar en SIGA.';
 const MENSAJE_DESHABILITADA = 'La grabación en SIGA está deshabilitada en este servidor (COMPRAS_SIGA_GRABAR).';
+const AVISO_PEDIDO = 'Se grabó en SIGA pero no se pudo actualizar el pedido; revisá el seguimiento a mano.';
 const MENSAJE_INTERNO = 'Error interno al procesar el comprobante para SIGA. Avisá a sistemas (el detalle quedó en el log del servidor).';
 
 // Mismo criterio de sesión que el middleware de auth de server.js.
@@ -63,7 +65,7 @@ const comprobanteDe = clave => ({
 });
 
 module.exports = function crearRutasComprasSiga(deps) {
-  const { DATA_DIR, leerPedidosCompra, usuarioCompras, repo } = deps;
+  const { DATA_DIR, leerPedidosCompra, guardarPedidosCompra, usuarioCompras, repo } = deps;
   const ahora = deps.ahora || (() => new Date());
   // Bandera por servidor (COMPRAS_SIGA_GRABAR, ver server.js): sin ella borrador y validar quedan como vista previa.
   const grabacionHabilitada = deps.grabacionHabilitada === true;
@@ -115,8 +117,11 @@ module.exports = function crearRutasComprasSiga(deps) {
     return { borrador, contexto, calculo, errores, momento };
   }
 
-  // Lo grabado por línea, para actualizar después el pedido con las ediciones (Parte C).
-  const lineasGrabadas = calculo => calculo.lineas.map(({ orden, plu, cantidad, precio }) => ({ orden, plu, cantidad, precio }));
+  // Lo grabado por línea y el nombre de SIGA de cada PLU: con eso se actualiza el pedido (Parte C, al_pedido.js).
+  const grabadoDe = calculo => ({
+    lineas: calculo.lineas.map(({ orden, plu, cantidad, precio }) => ({ orden, plu, cantidad, precio })),
+    nombres: Object.fromEntries(calculo.lineas.map(l => [l.plu, l.nombre])),
+  });
 
   // proximoNumero: el que propone la pantalla con numeración automática (repo.contexto, sin lock); null si no aplica.
   const vista = ({ calculo, errores, contexto }) => ({
@@ -144,25 +149,44 @@ module.exports = function crearRutasComprasSiga(deps) {
   // Pedido "a verificar": bloquea borrador/validar/grabar hasta liberar-verificacion. Motivos: 'sin_confirmar'
   // (no se sabe si quedó en SIGA) y 'vinculo' (quedó, pero no se pudo vincular): en los dos un reintento duplicaría
   // el comprobante en numeración automática.
-  function marcarAVerificar(numero, { motivo, clave, usuario }) {
+  // grabado (lineas + nombres) queda en la marca: liberar 'cargado' lo vuelca al pedido.
+  function marcarAVerificar(numero, { motivo, clave, usuario, grabado }) {
     const ts = ahora().toISOString();
     try {
-      registrarEstado(numero, { estado: 'a_verificar', motivo, clave, ts, usuario }, { evento: 'a_verificar', motivo, clave, usuario, ts });
+      registrarEstado(numero, { estado: 'a_verificar', motivo, clave, ts, usuario, ...grabado }, { evento: 'a_verificar', motivo, clave, usuario, ts });
     } catch (err) {
       console.error(`[compras-siga] no se pudo marcar a verificar el pedido ${numero} (comprobante ${clave}):`, err.message);
     }
   }
 
   // El comprobante ya está en SIGA: si falla el disco no se revierte nada; se avisa y el pedido queda a verificar.
-  function vincular(numero, comprobante, usuario) {
-    const clave = claveComprobante(comprobante);
+  function vincular(numero, clave, usuario, grabado) {
     try {
       guardarVinculo(numero, clave);
       return { vinculado: true };
     } catch (err) {
       console.error(`[compras-siga] vincular pedido ${numero} (comprobante ${clave}):`, err.message);
-      marcarAVerificar(numero, { motivo: 'vinculo', clave, usuario });
+      marcarAVerificar(numero, { motivo: 'vinculo', clave, usuario, grabado });
       return { vinculado: false, avisoVinculo: 'Se grabó en SIGA pero no se pudo vincular al pedido. Vinculalo desde Control de compras.' };
+    }
+  }
+
+  // Parte C: vuelca lo grabado al seguimiento del pedido. SIGA y el vínculo ya están bien: si falla, NO se marca
+  // "a verificar" (un reintento no hace falta), solo se avisa. leerPedidosCompra de server.js devuelve [] con el json
+  // ilegible: el pedido no aparece y no se escribe nada.
+  function actualizarPedido(numero, grabado, { clave, usuario }) {
+    try {
+      if (!grabado || !Array.isArray(grabado.lineas)) throw new Error('no hay líneas grabadas para aplicar');
+      const pedidos = leerPedidosCompra();
+      const i = pedidos.findIndex(p => String(p.numero) === String(numero));
+      if (i < 0) throw new Error('no se encontró el pedido');
+      const ts = ahora().toISOString();
+      const nuevo = aplicarGrabadoAPedido(pedidos[i], grabado.lineas, { clave, usuario, ts, nombres: grabado.nombres || {} });
+      guardarPedidosCompra(pedidos.map((p, j) => (j === i ? nuevo : p)));
+      return { pedidoActualizado: true };
+    } catch (err) {
+      console.error(`[compras-siga] actualizar pedido ${numero} con lo grabado (comprobante ${clave}):`, (err && err.stack) || err);
+      return { pedidoActualizado: false, avisoPedido: AVISO_PEDIDO };
     }
   }
 
@@ -198,24 +222,28 @@ module.exports = function crearRutasComprasSiga(deps) {
     if (grabando.has(numero)) return res.status(409).json({ ok: false, error: 'Ya se está grabando este pedido.' });
     grabando.add(numero);
     let filas = null;
+    let r = null;
     const usuario = usuarioCompras(req);
     try {
-      const r = await evaluar(req.body);
+      r = await evaluar(req.body);
       if (!r) return res.status(404).json({ ok: false, error: 'No existe el pedido.' });
       if (r.errores.length) return res.status(400).json({ ok: false, error: 'El comprobante tiene errores.', ...vista(r) });
       // armarComprobante trunca el usuario a C.LARGO_USUARIO (10), como el grabador viejo.
       filas = armarComprobante(r.borrador, r.contexto, r.calculo, { ahora: r.momento, usuario });
       const { clave, numeroMovimiento } = await repo.grabar(filas);
       const comprobante = comprobanteDe(clave);
-      return res.json({
-        ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, lineas: lineasGrabadas(r.calculo),
-        ...vincular(numero, comprobante, usuario),
-      });
+      const claveTexto = claveComprobante(comprobante);
+      const grabado = grabadoDe(r.calculo);
+      const vinculo = vincular(numero, claveTexto, usuario, grabado);
+      const pedido = actualizarPedido(numero, grabado, { clave: claveTexto, usuario });
+      return res.json({ ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, lineas: grabado.lineas, ...vinculo, ...pedido });
     } catch (err) {
       if (err && err.code === SIN_CONFIRMAR) {
         // grabar.js adjunta la clave definitiva; la de filas tiene número 0 en numeración automática.
         const clave = err.clave || (filas && filas.clave);
-        marcarAVerificar(numero, { motivo: 'sin_confirmar', clave: clave ? claveComprobante(comprobanteDe(clave)) : null, usuario });
+        marcarAVerificar(numero, {
+          motivo: 'sin_confirmar', clave: clave ? claveComprobante(comprobanteDe(clave)) : null, usuario, grabado: grabadoDe(r.calculo),
+        });
         return res.status(409).json({ ok: false, error: err.message, aVerificar: true });
       }
       return responderError(res, err, 'grabar', numero);
@@ -224,7 +252,8 @@ module.exports = function crearRutasComprasSiga(deps) {
     }
   });
 
-  // Después de mirar en SiGA: 'cargado' vincula la clave guardada en la marca; 'no_cargado' solo libera.
+  // Después de mirar en SiGA: 'cargado' vincula la clave guardada en la marca y vuelca al pedido las líneas grabadas que
+  // guardó la marca (mismo manejo de error que /grabar); 'no_cargado' solo libera y no toca el pedido.
   router.post('/api/compras-siga/pedidos/:numero/liberar-verificacion', (req, res) => {
     if (!conSesion(req)) return res.status(401).json({ ok: false, error: MENSAJE_SIN_SESION });
     const numero = req.params.numero;
@@ -251,7 +280,8 @@ module.exports = function crearRutasComprasSiga(deps) {
       const usuario = usuarioCompras(req);
       const ts = ahora().toISOString();
       registrarEstado(numero, { estado: 'liberado', resultado, usuario, ts }, { evento: 'liberado', resultado, usuario, ts });
-      return res.json({ ok: true, numeroPedido: numero, resultado, vinculado: resultado === 'cargado' });
+      const pedido = resultado === 'cargado' ? actualizarPedido(numero, marca, { clave: marca.clave, usuario }) : {};
+      return res.json({ ok: true, numeroPedido: numero, resultado, vinculado: resultado === 'cargado', ...pedido });
     } catch (err) {
       return responderError(res, err, 'liberar-verificacion', numero);
     }

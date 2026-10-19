@@ -2731,7 +2731,7 @@ app.use(require('./routes/rutas_compras_control')({
 // COMPRAS_SIGA_GRABAR=1 (variable de entorno) habilita grabar en SIGA en este servidor. Sin ella (o con otro valor)
 // POST /api/compras-siga/grabar responde 403 y la pantalla queda como vista previa (borrador y validar andan igual).
 app.use(require('./routes/rutas_compras_siga')({
-  DATA_DIR, leerPedidosCompra,
+  DATA_DIR, leerPedidosCompra, guardarPedidosCompra,
   usuarioCompras: comprasRouter.usuarioCompras,
   grabacionHabilitada: process.env.COMPRAS_SIGA_GRABAR === '1',
   repo: require('./lib/siga_compras/repo')({ sql, getPool, getPoolStock }),

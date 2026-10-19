@@ -41,11 +41,24 @@ const MARCA = (cambios = {}) => ({
   historial: [{ evento: 'a_verificar', motivo: 'sin_confirmar', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel', ts: TS }],
   ...cambios,
 });
+// Lo que /grabar guarda en la marca para volcarlo al pedido al liberar 'cargado' (Parte C).
+const GRABADO = {
+  lineas: [{ orden: 1, plu: '1001', cantidad: 1, precio: 31839.64 }, { orden: 2, plu: '1002', cantidad: 1, precio: 3184.01 }],
+  nombres: { 1001: 'HARINA 000 X 25', 1002: 'HUEVOS X 30' },
+};
+const AVISO_PEDIDO = 'Se grabó en SIGA pero no se pudo actualizar el pedido; revisá el seguimiento a mano.';
 
 // fallaGuardar: archivos cuya escritura falla (un directorio ocupa el <archivo>.tmp de la escritura atómica).
 // crudos: contenido literal de archivos (p. ej. un json corrupto).
 // sesion: false = request sin usuario logueado; grabacionHabilitada: la bandera COMPRAS_SIGA_GRABAR del servidor.
-function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [], crudos = {}, sesion = true, grabacionHabilitada = true } = {}) {
+// pedido: el de data/pedidos_compra.json (en memoria); fallaGuardarPedido: guardarPedidosCompra tira.
+function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = [], crudos = {}, sesion = true, grabacionHabilitada = true,
+  pedido = PEDIDO, fallaGuardarPedido = false } = {}) {
+  let pedidos = [structuredClone(pedido)];
+  const guardarPedidosCompra = lista => {
+    if (fallaGuardarPedido) throw new Error('EACCES: pedidos_compra.json');
+    pedidos = lista;
+  };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compras-siga-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const escribir = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
@@ -65,11 +78,11 @@ function montar({ vinculos = {}, estado, repo: repoParcial = {}, fallaGuardar = 
   app.use(express.json());
   app.use((req, _res, next) => { req.session = sesion ? { user: { username: 'adriel.compras' } } : {}; next(); });
   app.use(require('../routes/rutas_compras_siga')({
-    DATA_DIR: dir, leerPedidosCompra: () => [PEDIDO],
+    DATA_DIR: dir, leerPedidosCompra: () => pedidos, guardarPedidosCompra,
     usuarioCompras: () => 'adriel.compras', repo, ahora: () => AHORA, grabacionHabilitada,
   }));
   return new Promise(ok => {
-    const server = app.listen(0, () => ok({ server, dir, grabados, contextos, leerJSON, base: `http://127.0.0.1:${server.address().port}` }));
+    const server = app.listen(0, () => ok({ server, dir, grabados, contextos, leerJSON, pedido: () => pedidos[0], base: `http://127.0.0.1:${server.address().port}` }));
   });
 }
 
@@ -209,6 +222,7 @@ test('POST grabar: arma las filas desde el pedido, graba con el usuario de la se
     assert.deepStrictEqual(r.data.comprobante, { idSucursal: 1, tipoComprobante: 'FACTCOM', letra: 'A', centroEmisor: 5007, numeroComprobante: 1071364, idProveedor: 328 });
     assert.strictEqual(r.data.numeroMovimiento, 42);
     assert.strictEqual(r.data.vinculado, true);
+    assert.strictEqual(r.data.pedidoActualizado, true);
     assert.strictEqual(ctx.grabados.length, 1);
     assert.strictEqual(ctx.grabados[0].compras.Usuario, 'adriel.com');
     assert.deepStrictEqual(vinculosDe(ctx), { 'P-0007': ['1|FACTCOM|A|5007|1071364'] });
@@ -287,8 +301,9 @@ test('POST grabar sin confirmar (SIGA_SIN_CONFIRMAR): 409, no vincula y deja el 
     assert.deepStrictEqual(vinculosDe(ctx), {});
     const usuario = 'adriel.compras';
     assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
-      usuario, historial: [{ ...MARCA().historial[0], usuario }],
+      usuario, ...GRABADO, historial: [{ ...MARCA().historial[0], usuario }],
     }));
+    assert.deepStrictEqual(ctx.pedido(), PEDIDO, 'sin confirmar no toca el pedido');
   } finally { cerrar(ctx); }
 });
 
@@ -312,7 +327,7 @@ test('POST grabar OK pero falla el vínculo: aviso + pedido "a verificar" (motiv
     assert.strictEqual(r.data.vinculado, false);
     assert.strictEqual(r.data.avisoVinculo, 'Se grabó en SIGA pero no se pudo vincular al pedido. Vinculalo desde Control de compras.');
     assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
-      motivo: 'vinculo', usuario: 'adriel.compras',
+      motivo: 'vinculo', usuario: 'adriel.compras', ...GRABADO,
       historial: [{ evento: 'a_verificar', motivo: 'vinculo', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel.compras', ts: TS }],
     }));
     const otra = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
@@ -346,6 +361,7 @@ test('liberar-verificacion no_cargado: borra la marca con traza y el pedido se p
     const r = await liberar(ctx, { resultado: 'no_cargado' });
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(r.data, { ok: true, numeroPedido: 'P-0007', resultado: 'no_cargado', vinculado: false });
+    assert.deepStrictEqual(ctx.pedido(), PEDIDO, "'no_cargado' no toca el pedido");
     const marca = estadoDe(ctx)['P-0007'];
     assert.strictEqual(marca.estado, 'liberado');
     assert.deepStrictEqual(marca.historial, [...MARCA().historial, { evento: 'liberado', resultado: 'no_cargado', usuario: 'adriel.compras', ts: TS }]);
@@ -357,12 +373,18 @@ test('liberar-verificacion no_cargado: borra la marca con traza y el pedido se p
   } finally { cerrar(ctx); }
 });
 
-test('liberar-verificacion cargado: vincula la clave guardada y borra la marca con traza', async () => {
+test('liberar-verificacion cargado: vincula la clave guardada y borra la marca con traza', async t => {
+  const log = t.mock.method(console, 'error', () => {});
   const ctx = await montar({ estado: { 'P-0007': MARCA() } });
   try {
     const r = await liberar(ctx, { resultado: 'cargado' });
     assert.strictEqual(r.status, 200);
-    assert.deepStrictEqual(r.data, { ok: true, numeroPedido: 'P-0007', resultado: 'cargado', vinculado: true });
+    // Marca de antes de la Parte C (sin líneas grabadas): se libera igual y se avisa que el pedido no se actualizó.
+    assert.deepStrictEqual(r.data, {
+      ok: true, numeroPedido: 'P-0007', resultado: 'cargado', vinculado: true, pedidoActualizado: false, avisoPedido: AVISO_PEDIDO,
+    });
+    assert.deepStrictEqual(ctx.pedido(), PEDIDO);
+    assert.strictEqual(log.mock.callCount(), 1);
     assert.deepStrictEqual(vinculosDe(ctx), { 'P-0007': ['1|FACTCOM|A|5007|1071364'] });
     const marca = estadoDe(ctx)['P-0007'];
     assert.strictEqual(marca.estado, 'liberado');
@@ -508,5 +530,66 @@ test('grabación deshabilitada (COMPRAS_SIGA_GRABAR): grabar da 403 sin llamar a
     const validar = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo());
     assert.strictEqual(validar.status, 200);
     assert.deepStrictEqual(validar.data.errores, []);
+  } finally { cerrar(ctx); }
+});
+
+test('POST grabar con línea quitada, agregada y cantidad cambiada: el pedido queda con lo grabado', async () => {
+  const ctx = await montar({ repo: { contexto: async () => conProducto2001() } });
+  try {
+    const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo({ lineas: [{ plu: '1001', cantidad: 0.5, precio: 30000 }, { plu: '2001', cantidad: 2, precio: 50.5 }] }));
+    assert.strictEqual(g.status, 200);
+    assert.deepStrictEqual([g.data.vinculado, g.data.pedidoActualizado, g.data.avisoPedido], [true, true, undefined]);
+    const p = ctx.pedido();
+    assert.deepStrictEqual(p.items, [
+      { ...PEDIDO.items[0], cantidadEntregada: 0.5, precioUnitario: 30000 },
+      PEDIDO.items[1],
+      { plu: '2001', nombre: 'AZUCAR X 50', unidad: 'UN', cantidad: 0, precioUnitario: 50.5, cantidadEntregada: 2, estado: 'extra', obs: '' },
+    ]);
+    assert.strictEqual(p.estado, 'CERRADO');
+    assert.strictEqual(p.total, 34500); // 1×30000 + 5×900; los extras suman 0
+    assert.deepStrictEqual(p.historial.at(-1), {
+      ts: TS, usuario: 'adriel.compras', accion: 'importado a SIGA', comprobante: '1|FACTCOM|A|5007|1071364',
+      cambios: ['1001: 1 a $31839.64 → 0.5 a $30000', '1002: 1 a $3184.01 → quitado', '2001: no estaba → 2 a $50.5'],
+    });
+  } finally { cerrar(ctx); }
+});
+
+test('POST grabar OK pero falla guardar el pedido: 200 con pedidoActualizado:false y aviso, sin marcar "a verificar"', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ fallaGuardarPedido: true });
+  try {
+    const r = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual([r.data.ok, r.data.vinculado, r.data.pedidoActualizado, r.data.avisoPedido], [true, true, false, AVISO_PEDIDO]);
+    assert.deepStrictEqual(vinculosDe(ctx), { 'P-0007': ['1|FACTCOM|A|5007|1071364'] });
+    assert.deepStrictEqual(estadoDe(ctx), {});
+    assert.deepStrictEqual(ctx.pedido(), PEDIDO);
+    const lineas = log.mock.calls.map(c => c.arguments.join(' '));
+    assert.ok(lineas.some(l => /P-0007/.test(l) && /EACCES/.test(l)), lineas.join('\n'));
+  } finally { cerrar(ctx); }
+});
+
+test('liberar-verificacion cargado: aplica al pedido las líneas grabadas guardadas en la marca', async () => {
+  const marca = MARCA({ lineas: [{ orden: 1, plu: '1001', cantidad: 0.5, precio: 30000 }], nombres: { 1001: 'HARINA 000 X 25' } });
+  const ctx = await montar({ estado: { 'P-0007': marca } });
+  try {
+    const r = await liberar(ctx, { resultado: 'cargado' });
+    assert.deepStrictEqual([r.status, r.data.vinculado, r.data.pedidoActualizado], [200, true, true]);
+    assert.deepStrictEqual(ctx.pedido().items, [{ ...PEDIDO.items[0], cantidadEntregada: 0.5, precioUnitario: 30000 }, PEDIDO.items[1]]);
+    assert.deepStrictEqual(ctx.pedido().historial.at(-1), {
+      ts: TS, usuario: 'adriel.compras', accion: 'importado a SIGA', comprobante: '1|FACTCOM|A|5007|1071364',
+      cambios: ['1001: 1 a $31839.64 → 0.5 a $30000', '1002: 1 a $3184.01 → quitado'],
+    });
+    assert.strictEqual(estadoDe(ctx)['P-0007'].estado, 'liberado');
+  } finally { cerrar(ctx); }
+});
+
+test('liberar-verificacion cargado y falla guardar el pedido: se libera igual con el aviso', async t => {
+  t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ estado: { 'P-0007': MARCA(GRABADO) }, fallaGuardarPedido: true });
+  try {
+    const r = await liberar(ctx, { resultado: 'cargado' });
+    assert.deepStrictEqual([r.status, r.data.vinculado, r.data.pedidoActualizado, r.data.avisoPedido], [200, true, false, AVISO_PEDIDO]);
+    assert.strictEqual(estadoDe(ctx)['P-0007'].estado, 'liberado');
   } finally { cerrar(ctx); }
 });

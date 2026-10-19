@@ -52,7 +52,7 @@ test('server.js sirve /js/compras_siga.js y registra el router con repo de lib/s
   const registro = /app\.use\(require\('\.\/routes\/rutas_compras_siga'\)\(\{([\s\S]*?)\}\)\);/.exec(SERVER);
   assert.ok(registro, 'falta registrar routes/rutas_compras_siga');
   const deps = registro[1];
-  for (const d of ['DATA_DIR', 'leerPedidosCompra', 'usuarioCompras: comprasRouter.usuarioCompras',
+  for (const d of ['DATA_DIR', 'leerPedidosCompra', 'guardarPedidosCompra', 'usuarioCompras: comprasRouter.usuarioCompras',
     "repo: require('./lib/siga_compras/repo')({ sql, getPool, getPoolStock })",
     "grabacionHabilitada: process.env.COMPRAS_SIGA_GRABAR === '1'"]) {
     assert.ok(deps.includes(d), `falta ${d} en las deps del router`);
