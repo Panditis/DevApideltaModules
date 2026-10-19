@@ -123,7 +123,7 @@ test('productos editables: cantidad y precio type=number, ✕ con el modal propi
   assert.deepStrictEqual(sinEscapar, []);
   assert.match(JS, /await confirmar\(\{\s*titulo: 'Quitar producto'/);
   assert.match(JS, /lineas: estado\.lineas\.map\(\(\{ plu, cantidad, precio \}\) => \(\{ plu, cantidad, precio \}\)\)/);
-  assert.doesNotMatch(JS, /precios/, 'el body ya no manda precios');
+  assert.doesNotMatch(JS, /precios\s*:/, 'el body ya no manda precios');
   assert.match(JS, /estado\.lineas = datos\.borrador\.lineas\.map\(/);
   assert.ok(JS.includes("'Producto repetido en otra línea'"), 'falta el aviso de PLU repetido');
 });
@@ -168,4 +168,15 @@ test('nombre de la fila: el de SIGA; si SIGA no lo tiene (viene el PLU), el del 
   for (const trozo of ["setAttribute('aria-label', `Cantidad de ${nombre}`)", "setAttribute('aria-label', `Precio de ${nombre}`)", "setAttribute('aria-label', `Quitar ${nombre}`)"]) {
     assert.ok(JS.includes(trozo), `falta: ${trozo}`);
   }
+});
+
+test('confirmación de grabado: dice si el pedido se actualizó con lo grabado o muestra avisoPedido', () => {
+  const bloquear = /function bloquearPantalla\(datos\) \{([\s\S]*?)\n  \}\n/.exec(JS);
+  assert.ok(bloquear, 'no se encontró bloquearPantalla');
+  assert.match(bloquear[1], /datos\.pedidoActualizado \? 'Pedido actualizado con las cantidades y precios grabados\. ' : `\$\{datos\.avisoPedido \|\| ''\} `/);
+  assert.match(bloquear[1], /mostrarAviso\(datos\.vinculado && datos\.pedidoActualizado \? 'ok' : 'error'/);
+  // Liberar 'cargado' sin poder actualizar el pedido: el aviso se muestra en vez de recargar (que lo borraría).
+  const liberar = /async function liberarVerificacion\(resultado\) \{([\s\S]*?)\n  \}\n/.exec(JS);
+  assert.ok(liberar, 'no se encontró liberarVerificacion');
+  assert.match(liberar[1], /if \(datos\.avisoPedido\) \{[^}]*mostrarAviso\('error', datos\.avisoPedido\)/);
 });

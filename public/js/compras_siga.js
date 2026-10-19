@@ -351,10 +351,12 @@
     const c = datos.comprobante || {};
     const volver = el('a', 'underline', 'Volver a Compras');
     volver.href = '/compras';
-    mostrarAviso(datos.vinculado ? 'ok' : 'error',
+    mostrarAviso(datos.vinculado && datos.pedidoActualizado ? 'ok' : 'error',
       el('strong', null, 'Comprobante grabado en SIGA: '),
       `${c.tipoComprobante} ${c.letra} ${c.centroEmisor}-${c.numeroComprobante} · movimiento de stock ${datos.numeroMovimiento}. `,
       datos.vinculado ? 'Quedó vinculado al pedido. ' : `${datos.avisoVinculo || ''} `,
+      // Las cantidades y precios grabados se vuelcan al seguimiento del pedido (Parte C).
+      datos.pedidoActualizado ? 'Pedido actualizado con las cantidades y precios grabados. ' : `${datos.avisoPedido || ''} `,
       volver);
     // Sin vínculo el pedido quedó "a verificar" en el servidor: se libera con "Quedó cargado en SiGA".
     if (!datos.vinculado) mostrarVerificar();
@@ -427,6 +429,8 @@
     try {
       const { ok, status, datos } = await postJSON(`/api/compras-siga/pedidos/${encodeURIComponent(pedido)}/liberar-verificacion`, { resultado });
       if (!ok) { mostrarAviso('error', datos.error || `Error ${status}`); return; }
+      // 'cargado' sin poder actualizar el pedido: el aviso queda a la vista (recargar lo borraría); la marca ya se liberó.
+      if (datos.avisoPedido) { $('#panelVerificar').style.display = 'none'; mostrarAviso('error', datos.avisoPedido); return; }
       location.reload(); // vuelve a pedir el borrador con el estado nuevo
     } catch (e) {
       mostrarAviso('error', `No se pudo registrar la verificación: ${e.message}`);
