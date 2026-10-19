@@ -182,3 +182,18 @@ test('catalogos: combos para la pantalla; si falla Provincias, avisa y sigue', a
   assert.deepStrictEqual(ok.provincias, [{ idProvincia: 'SF', nombre: 'Santa Fe' }]);
   assert.deepStrictEqual(ok.avisos, []);
 });
+
+test('catalogos: puntos de venta de Impresoras (S.Impresoras L25-29); si la tabla o una columna no existe, lista vacía y aviso', async () => {
+  const falso = crearSqlFalso(porTabla());
+  const cat = await crearRepo(falso).catalogos({ idProveedor: 328 });
+  assert.deepStrictEqual(cat.impresoras, [
+    { idSucursal: 1, idImpresora: 'FISCAL1', centroEmisor: 3, comprobantesHabilitados: ['FACTCOM', 'COTIZACIONCOM'] },
+    { idSucursal: 1, idImpresora: 'MANUAL', centroEmisor: 7, comprobantesHabilitados: [] },
+  ]);
+  const q = falso.registro.find(e => /FROM Impresoras/.test(e.texto));
+  assert.strictEqual(q.texto, 'SELECT IdSucursal, IdImpresora, CentroEmisor, ComprobantesHabilitados FROM Impresoras ORDER BY IdSucursal, CentroEmisor');
+  const sinColumna = crearSqlFalso(porTabla({ Impresoras: () => { throw new Error("Invalid column name 'ComprobantesHabilitados'."); } }));
+  const mal = await crearRepo(sinColumna).catalogos({ idProveedor: 328 });
+  assert.deepStrictEqual(mal.impresoras, []);
+  assert.match(mal.avisos.join(' '), /Impresoras.*punto de venta se tipea a mano/);
+});

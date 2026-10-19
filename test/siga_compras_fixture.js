@@ -108,6 +108,10 @@ const FILAS_SIGA = {
   Monedas: [{ FactorConversion: 1450 }],
   PeriodosFiscales: [{ PeriodoFiscal: 202610, FechaCierre: null }],
   Provincias: [{ IdProvincia: 'SF', NombreProvincia: 'Santa Fe' }],
+  Impresoras: [
+    { IdSucursal: 1, IdImpresora: 'FISCAL1   ', CentroEmisor: 3, ComprobantesHabilitados: 'FACTCOM, COTIZACIONCOM' },
+    { IdSucursal: 1, IdImpresora: 'MANUAL', CentroEmisor: 7, ComprobantesHabilitados: null },
+  ],
 };
 
 module.exports = { borradorFactcom, contextoFactcom, AHORA, FILAS_SIGA };
