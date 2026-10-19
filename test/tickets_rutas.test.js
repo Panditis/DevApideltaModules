@@ -6,24 +6,31 @@ const os = require('node:os');
 const path = require('node:path');
 const express = require('express');
 
-// Router real sobre un express efímero, DATA_DIR temporal y usuarios falsos. La sesión
-// se simula con un middleware que fija req.session.user.
-const USUARIOS = [
-  { id: 1, usuario: 'ana', nombre: 'Ana', esAdmin: true, activo: true },
-  { id: 2, usuario: 'beto', nombre: 'Beto', activo: true },
-  { id: 3, usuario: 'viejo', nombre: 'Viejo', activo: false },
+// Router real sobre un express efímero, DATA_DIR temporal y un `query` falso que imita la
+// tabla Usuarios de SIGA. La sesión se simula con un middleware que fija req.session.user.
+const FILAS_SIGA = [
+  { Id: 'Adriel ', Nombre: ' Adriel Sanabria' },
+  { Id: 'beto', Nombre: null },
 ];
 
-function montar() {
+// sql.falla = true hace que la próxima query reviente (SIGA caído).
+function montar({ ttlMs } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tickets-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
+  const sql = { falla: false, llamadas: 0 };
+  const query = async q => {
+    sql.llamadas++;
+    assert.match(q, /SELECT Id, Nombre FROM Usuarios WHERE Activo = 1/);
+    if (sql.falla) throw new Error('SIGA caído');
+    return FILAS_SIGA;
+  };
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => { req.session = { user: { usuario: 'ana', nombre: 'Ana' } }; next(); });
-  app.use(require('../routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR: dir, listarUsuarios: () => USUARIOS }));
+  app.use((req, _res, next) => { req.session = { user: { usuario: 'adriel', nombre: 'Adriel S.' } }; next(); });
+  app.use(require('../routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR: dir, query, ttlMs }));
   return new Promise(ok => {
-    const server = app.listen(0, () => ok({ server, dir, base: `http://127.0.0.1:${server.address().port}/api/tickets` }));
+    const server = app.listen(0, () => ok({ server, dir, sql, base: `http://127.0.0.1:${server.address().port}/api/tickets` }));
   });
 }
 
@@ -42,16 +49,23 @@ function cerrar({ server, dir }) {
 
 const NUEVO = { tarea: 'Exportar xlsx', prioridad: 'media', area: 'Precios', descripcion: '', destinatarios: ['beto'] };
 
-test('meta devuelve catálogos, usuarios activos y el usuario de sesión', async () => {
+test('meta mapea usuarios de SIGA (trim, Nombre||Id) y resuelve yo case-insensitive', async () => {
   const ctx = await montar();
   try {
     const { status, data } = await pedir(ctx.base, 'GET', '/meta');
     assert.strictEqual(status, 200);
-    assert.deepStrictEqual(data.usuarios, [{ usuario: 'ana', nombre: 'Ana' }, { usuario: 'beto', nombre: 'Beto' }]);
-    assert.strictEqual(data.yo, 'ana');
+    assert.deepStrictEqual(data.usuarios, [
+      { usuario: 'Adriel', nombre: 'Adriel Sanabria' },
+      { usuario: 'beto', nombre: 'beto' },
+    ]);
+    assert.strictEqual(data.yo, 'Adriel');
+    assert.strictEqual(data.yoNombre, 'Adriel S.');
     assert.strictEqual(data.prioridades.length, 4);
     assert.strictEqual(data.estados.length, 6);
     assert.ok(data.areas.includes('Compras'));
+    // Segunda llamada dentro del TTL: no vuelve a consultar SIGA.
+    await pedir(ctx.base, 'GET', '/meta');
+    assert.strictEqual(ctx.sql.llamadas, 1);
   } finally { cerrar(ctx); }
 });
 
@@ -61,10 +75,10 @@ test('alta, listado, PATCH de estado + nota y errores', async () => {
   try {
     assert.deepStrictEqual((await pedir(base, 'GET', '')).data, []);
 
-    const alta = await pedir(base, 'POST', '', NUEVO);
+    const alta = await pedir(base, 'POST', '', { ...NUEVO, destinatarios: ['beto', 'Adriel'] });
     assert.strictEqual(alta.status, 201);
     assert.strictEqual(alta.data.id, 1);
-    assert.strictEqual(alta.data.creadoPor, 'ana');
+    assert.strictEqual(alta.data.creadoPor, 'adriel');
 
     const invalido = await pedir(base, 'POST', '', { ...NUEVO, destinatarios: ['viejo'] });
     assert.strictEqual(invalido.status, 400);
@@ -82,5 +96,30 @@ test('alta, listado, PATCH de estado + nota y errores', async () => {
     assert.strictEqual((await pedir(base, 'PATCH', '/99', { estado: 'terminado' })).status, 404);
     assert.strictEqual((await pedir(base, 'PATCH', '/abc', { estado: 'terminado' })).status, 400);
     assert.strictEqual((await pedir(base, 'PATCH', '/0', { estado: 'terminado' })).status, 400);
+  } finally { cerrar(ctx); }
+});
+
+test('SIGA caído sin caché → 503 en meta y POST, sin escribir tickets', async () => {
+  const ctx = await montar();
+  ctx.sql.falla = true;
+  try {
+    const meta = await pedir(ctx.base, 'GET', '/meta');
+    assert.strictEqual(meta.status, 503);
+    assert.strictEqual(meta.data.error, 'No se pudieron leer los usuarios de SIGA.');
+    assert.strictEqual((await pedir(ctx.base, 'POST', '', NUEVO)).status, 503);
+    assert.deepStrictEqual((await pedir(ctx.base, 'GET', '')).data, []);
+  } finally { cerrar(ctx); }
+});
+
+test('SIGA caído con caché vieja → usa la caché', async () => {
+  const ctx = await montar({ ttlMs: 0 }); // TTL 0: cada pedido intenta SIGA de nuevo
+  try {
+    assert.strictEqual((await pedir(ctx.base, 'GET', '/meta')).status, 200);
+    ctx.sql.falla = true;
+    const meta = await pedir(ctx.base, 'GET', '/meta');
+    assert.strictEqual(meta.status, 200);
+    assert.strictEqual(meta.data.usuarios.length, 2);
+    assert.strictEqual((await pedir(ctx.base, 'POST', '', NUEVO)).status, 201);
+    assert.strictEqual(ctx.sql.llamadas, 3);
   } finally { cerrar(ctx); }
 });
