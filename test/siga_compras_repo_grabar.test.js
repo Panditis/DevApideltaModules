@@ -284,8 +284,12 @@ test('grabar: numeración automática por proveedor = MAX + 1 con lock; el núme
   const { falso, promesa } = grabarCon(RESPUESTAS, filas);
   const r = await promesa;
   assert.strictEqual(r.clave.NumeroComprobante, 51);
-  assert.deepStrictEqual(secuencia(falso.registro).slice(0, 4), ['BEGIN', 'MAX', 'VN_G1', 'COMPRAS']);
-  assert.ok(!secuencia(falso.registro).some(s => ['DUP_COMPRAS', 'DUP_CTACTE', 'PF_TOTALES', 'PF_POSICION'].includes(s)));
+  // Win L22998-23009: SiGA controla duplicado en cualquier modo; acá sobre el número asignado, con lock.
+  assert.deepStrictEqual(secuencia(falso.registro).slice(0, 5), ['BEGIN', 'MAX', 'DUP_COMPRAS', 'VN_G1', 'COMPRAS']);
+  assert.ok(!secuencia(falso.registro).some(s => ['PF_TOTALES', 'PF_POSICION'].includes(s)));
+  assert.deepStrictEqual(secuencia(falso.registro).slice(-5), ['DUP_CTACTE', 'CCP', 'CCPP', 'COMMIT', 'VERIFICAR']);
+  assert.strictEqual(buscar(falso.registro, 'DUP_COMPRAS')[0].params.numeroComprobante, 51);
+  assert.strictEqual(buscar(falso.registro, 'DUP_CTACTE')[0].params.numeroComprobante, 51);
   const [max] = buscar(falso.registro, 'MAX');
   assert.match(max.texto, /WHERE C\.IdProveedor = @idProveedor AND C\.IdSucursal = @idSucursal AND C\.IdTipoComprobante = @idTipoComprobante/);
   assert.deepStrictEqual(max.params, { idProveedor: 328, idSucursal: 1, idTipoComprobante: 'COTIZACIONCOM', letra: 'X', centroEmisor: 1 });
@@ -316,7 +320,26 @@ test('grabar: número propuesto y otro grabó en el medio → sale el siguiente 
   const r = await promesa;
   assert.strictEqual(r.clave.NumeroComprobante, 52);
   assert.strictEqual(buscar(falso.registro, 'COMPRAS')[0].params.NumeroComprobante, 52);
-  assert.ok(!secuencia(falso.registro).includes('DUP_COMPRAS'));
+  assert.strictEqual(buscar(falso.registro, 'DUP_COMPRAS')[0].params.numeroComprobante, 52);
+});
+
+test('grabar: número automático asignado que ya existe en otra sucursal de la misma empresa → duplicado y rollback', async () => {
+  const enOtraSucursal = texto => (/^SELECT TOP 1 C\.IdSucursal FROM Compras C/.test(texto) ? { recordset: [{ IdSucursal: 11 }] } : RESPUESTAS(texto));
+  const { falso, promesa } = grabarCon(enOtraSucursal, filasAutomaticas(null));
+  await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message === 'Este comprobante ya fue INGRESADO con ANTERIORIDAD');
+  assert.deepStrictEqual(secuencia(falso.registro), ['BEGIN', 'MAX', 'DUP_COMPRAS', 'ROLLBACK']);
+  const [dup] = buscar(falso.registro, 'DUP_COMPRAS');
+  assert.deepStrictEqual(dup.params, { idProveedor: 328, idTipoComprobante: 'COTIZACIONCOM', letra: 'X', centroEmisor: 1, numeroComprobante: 51, idEmpresa: 1 });
+  assert.match(dup.texto, /WITH \(UPDLOCK, HOLDLOCK\)/);
+});
+
+test('grabar: número automático asignado que choca en cta. cte. → ErrorSiga claro y rollback antes de escribirla', async () => {
+  const enCtaCte = texto => (/FROM CuentasCorrientesProv CCP/.test(texto) ? { recordset: [{ IdSucursal: 11 }] } : RESPUESTAS(texto));
+  const { falso, promesa } = grabarCon(enCtaCte, filasAutomaticas(null));
+  await assert.rejects(promesa, err => err instanceof ErrorSiga && err.message === 'Este comprobante ya EXISTE en Cuentas Corrientes de Proveedores');
+  assert.deepStrictEqual(secuencia(falso.registro).slice(-2), ['DUP_CTACTE', 'ROLLBACK']);
+  assert.ok(!secuencia(falso.registro).includes('CCP'));
+  assert.strictEqual(buscar(falso.registro, 'DUP_CTACTE')[0].params.numeroComprobante, 51);
 });
 
 test('grabar: número tipeado libre en numeración automática → se graba ese, con el control de duplicado de manual', async () => {
