@@ -591,6 +591,8 @@ function buildCatalogoMaps(catalogo) {
 
 // ── Express app ────────────────────────────────────────────────────────────────
 const app = express();
+// Importar planilla de Precios (Reventa): hasta 5000 filas no entran en los 100 kB por defecto; el parser global la saltea (ya parseada).
+app.use('/api/precios/esquema/importar-decisiones', express.json({ limit: '2mb' }));
 app.use(express.json());
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');

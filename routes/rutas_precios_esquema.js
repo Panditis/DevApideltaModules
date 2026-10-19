@@ -198,9 +198,21 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { listas: L.listasExport(items), omitidos };
   }));
 
-  // "Pack/Bulto según SIGA" (Reventa): las 4 listas pack/bulto con la fuente de cada producto inferida del minorista que
-  // está HOY en SIGA (L.packBultoSiga); no usa ni poda las decisiones. Cualquier usuario del módulo, como el export.
-  router.get('/api/precios/esquema/export-pack-bulto-siga', apiRoute(async () => L.packBultoSiga(await listado('almacen', leerCosteo()))));
+  // "Importar planilla" (Reventa): body { filas: [{ codigo, costo, precio, nombre? }] } (el front lee el Excel que se subió a
+  // SIGA). Marca cada producto con la fuente que coincide (L.cruzarPlanilla), como PUT /decision: usuario de la sesión y foto
+  // de los vigentes; todas en UNA escritura. Cualquier usuario del módulo.
+  router.post('/api/precios/esquema/importar-decisiones', apiRoute(async (req) => {
+    const { filas, error } = L.validarFilasPlanilla(cuerpo(req).filas);
+    if (error) return { error };
+    const almacen = await listado('almacen', await costeoVigente());
+    const { decisiones: nuevas, ...resultado } = L.cruzarPlanilla(almacen, filas, plusVentaProduccion(normalizarDatos(leerJSON(RECETAS_PATH, {})).productos));
+    const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
+    const fecha = hoyISO(), usuario = usuarioDe(req);
+    // misma forma que L.aplicarDecision, de una vez (reduce con aplicarDecision copia el mapa por fila: cuadrático)
+    const decisiones = { ...costeo.decisiones, ...Object.fromEntries(nuevas.map(n => [n.plu, { fuente: n.fuente, fecha, usuario, vigente: L.vigentesDeFila(n.fila) }])) };
+    if (nuevas.length) guardarJSON(COSTEO_PATH, { ...costeo, decisiones });
+    return resultado;
+  }));
 
   return router;
 };

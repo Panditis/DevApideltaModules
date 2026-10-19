@@ -446,55 +446,73 @@ test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicar
   assert.deepStrictEqual(mapa, { 1: 'directo' });
 });
 
-// ── Pack/Bulto según SIGA (2026-10-19): la fuente sale del minorista que ya está en SIGA ──
-// Fila mínima de Reventa: sugeridos { fuente: [minorista, conIva del pack] } y un pack vinculado.
-const filaInferir = (vigente, precios, mayoristas = [{ plu: '60', nombre: 'Pack', tipo: 'pack', unidades: 1 }]) => ({
-  plu: '1', nombre: 'Arroz', vigente, mayoristas, costoSistema: 1000, costoUltimaCompra: 1500, costoManual: null,
-  sugeridos: Object.fromEntries(Object.entries(precios).map(([f, [min, pack]]) => [f, { error: null, minorista: { precio: min },
-    mayoristas: mayoristas.map(m => ({ plu: m.plu, neto: pack == null ? null : pack / 1.21, conIva: pack })) }])),
+// ── Importar planilla (2026-10-19): la fuente sale del Costo (o del Precio) que el usuario subió a SIGA ──
+// Fila mínima de Reventa: costos en pantalla y sugeridos { fuente: minorista }.
+const filaPlanilla = (precios, costos = {}, extra = {}) => ({
+  plu: '1', nombre: 'Arroz', tipoProveedor: 'directo', costoSistema: 1000, costoUltimaCompra: 1500, costoManual: null, ...costos, ...extra,
+  sugeridos: Object.fromEntries(Object.entries(precios).map(([f, min]) => [f, { error: null, minorista: { precio: min }, mayoristas: [] }])),
 });
 
-test('inferirFuente: la fuente cuyo minorista coincide con SIGA (±0,50); varias con el mismo pack/bulto → sistema; si no, revisar', () => {
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(2750, { sistema: [1800, 900], ultimaCompra: [2750, 1300] })), { fuente: 'ultimaCompra' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800.4, { sistema: [1800, 900], ultimaCompra: [2750, 1300] })), { fuente: 'sistema' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1450, { sistema: [1800, 900], manual: [1450, 700] })), { fuente: 'manual' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, { sistema: [1800, 900], ultimaCompra: [1800, 900] })), { fuente: 'sistema' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, { ultimaCompra: [1800, 900], manual: [1800, 900] })), { fuente: 'ultimaCompra' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, { sistema: [1800, 900], ultimaCompra: [1800, 950] })), { revisar: 'ambiguo' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1999, { sistema: [1800, 900], ultimaCompra: [2750, 1300] })), { revisar: 'ninguno' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800.5, { sistema: [1800, 900] })), { revisar: 'ninguno' }); // tolerancia estricta
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(null, { sistema: [1800, 900] })), { revisar: 'sinVigente' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(0, { sistema: [1800, 900] })), { revisar: 'sinVigente' });
-  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, {})), { revisar: 'sinPrecio' });
-  const conError = filaInferir(1800, { sistema: [1800, 900] });
-  assert.deepStrictEqual(L.inferirFuente({ ...conError, sugeridos: { sistema: { error: 'margen', minorista: null, mayoristas: [] } } }), { revisar: 'sinPrecio' });
+test('emparejarFila: por Costo (costo en pantalla de cada fuente, ±0,50 estricto)', () => {
+  const fila = filaPlanilla({ sistema: 1800, ultimaCompra: 2750 });
+  assert.deepStrictEqual(L.emparejarFila(fila, { costo: 1000.4, precio: 9999 }), { fuente: 'sistema' });
+  assert.deepStrictEqual(L.emparejarFila(fila, { costo: 1500, precio: null }), { fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.emparejarFila(filaPlanilla({ sistema: 1800, manual: 2100 }, { costoManual: 1200 }), { costo: 1200, precio: 1 }), { fuente: 'manual' });
+  assert.deepStrictEqual(L.emparejarFila(fila, { costo: 1000.5, precio: null }), { motivo: 'Ningún costo ni precio coincide' });
+  // costo de una fuente sin sugerido: no es candidata
+  assert.deepStrictEqual(L.emparejarFila(filaPlanilla({ sistema: 1800 }), { costo: 1500, precio: 1800 }), { fuente: 'sistema' });
 });
 
-test('packBultoSiga: listas pack/bulto con Costo (en pantalla × unidades) y Venta de la fuente inferida; sin pack/bulto → afuera; revisar con sus sugeridos', () => {
-  const mayoristasDe = L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES });
-  const universo = [{ plu: '1', nombre: 'Arroz', costoSistema: 1000, costoMercaderia: 1500 }, { plu: '2', nombre: 'Sin bulto', costoSistema: 1000 },
-    { plu: '3', nombre: 'Fideos', costoSistema: 1000, costoMercaderia: 1500 }, { plu: '4', nombre: 'Yerba', costoSistema: 1000 }];
-  const vincs = [...VINCULOS, { plu: '70', nombre: 'Fideos Pack x2', basePlu: '3', cantidad: 2, tipo: 'pack' }, { plu: '80', nombre: 'Yerba Bulto', basePlu: '4', cantidad: 10, tipo: 'bulto' }];
-  const vigentes = new Map([['1', 2750], ['2', 1800], ['3', 1999], ['50', 1750]]); // 4 sin precio en SIGA
-  const almacen = L.listadoReventa({ universo, vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos: vincs, vigentes }), costeo: {}, cfg: CFG });
-  const r = L.packBultoSiga(almacen);
-  assert.strictEqual(r.total, 3); // el 2 no tiene pack/bulto
-  assert.deepStrictEqual(r.resueltos, { sistema: 0, ultimaCompra: 1, manual: 0 });
-  const arroz = almacen[0].sugeridos.ultimaCompra.mayoristas[0];
-  assert.deepStrictEqual(r.listas.bultoNeto, [['Codigo', 'Nombre', 'Costo', 'Venta'], [50, 'Arroz Bulto x6', 1500, arroz.neto]]);
-  assert.deepStrictEqual(r.listas.bultoIva, [['Codigo', 'Nombre', 'Costo', 'Venta'], [50, 'Arroz Bulto x6', 1500, arroz.conIva]]);
-  assert.deepStrictEqual([r.listas.packNeto.length, r.listas.packIva.length], [1, 1]); // sólo encabezado
-  assert.ok(!('minorista' in r.listas));
-  assert.deepStrictEqual(r.revisar, [
-    { plu: '3', nombre: 'Fideos', vigente: 1999, sugeridoSistema: almacen[2].sugeridos.sistema.minorista.precio,
-      sugeridoUltimaCompra: almacen[2].sugeridos.ultimaCompra.minorista.precio, motivo: 'ninguno' },
-    { plu: '4', nombre: 'Yerba', vigente: null, sugeridoSistema: almacen[3].sugeridos.sistema.minorista.precio, sugeridoUltimaCompra: null, motivo: 'sinVigente' },
-  ]);
-  assert.strictEqual(mayoristasDe('1').length, 1);
+test('emparejarFila: empate por Costo → mismo minorista = la primera (sistema → ultimaCompra → manual); distinto → decide el Precio', () => {
+  const igual = filaPlanilla({ sistema: 1800, ultimaCompra: 1800 }, { costoUltimaCompra: 1000 });
+  assert.deepStrictEqual(L.emparejarFila(igual, { costo: 1000, precio: null }), { fuente: 'sistema' });
+  const ultManual = filaPlanilla({ ultimaCompra: 1800, manual: 1800 }, { costoManual: 1500 });
+  assert.deepStrictEqual(L.emparejarFila(ultManual, { costo: 1500, precio: null }), { fuente: 'ultimaCompra' });
+  const distinto = filaPlanilla({ sistema: 1800, ultimaCompra: 1900 }, { costoUltimaCompra: 1000 });
+  assert.deepStrictEqual(L.emparejarFila(distinto, { costo: 1000, precio: 1900.3 }), { fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.emparejarFila(distinto, { costo: 1000, precio: 2000 }), { motivo: 'Coinciden varios con precios distintos' });
+  assert.deepStrictEqual(L.emparejarFila(distinto, { costo: 1000, precio: null }), { motivo: 'Coinciden varios con precios distintos' });
 });
 
-test('packBultoSiga: pesable por paquete multiplica el Costo por los kg (como listasExport)', () => {
-  const fila = { ...filaInferir(1800, { sistema: [1800, 9000] }, [{ plu: '60', nombre: 'Granel x5kg', tipo: 'bulto', unidades: 5 }]) };
-  const r = L.packBultoSiga([fila]);
-  assert.deepStrictEqual(r.listas.bultoIva[1], [60, 'Granel x5kg', 5000, 9000]);
+test('emparejarFila: sin Costo que coincida decide el Precio (minorista sugerido ±0,50); nada → motivo; sin sugerido', () => {
+  const fila = filaPlanilla({ sistema: 1800, ultimaCompra: 2750 });
+  assert.deepStrictEqual(L.emparejarFila(fila, { costo: 1234, precio: 2750.2 }), { fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.emparejarFila(fila, { costo: null, precio: 1799.6 }), { fuente: 'sistema' });
+  assert.deepStrictEqual(L.emparejarFila(fila, { costo: 1234, precio: 1999 }), { motivo: 'Ningún costo ni precio coincide' });
+  assert.deepStrictEqual(L.emparejarFila(filaPlanilla({ sistema: 1800, ultimaCompra: 1800.3 }), { costo: 1, precio: 1800.1 }),
+    { motivo: 'Coinciden varios con precios distintos' });
+  assert.deepStrictEqual(L.emparejarFila(filaPlanilla({}), { costo: 1000, precio: 1800 }), { motivo: 'Sin sugerido' });
+  const conError = { ...fila, sugeridos: { sistema: { error: 'margen', minorista: null, mayoristas: [] } } };
+  assert.deepStrictEqual(L.emparejarFila(conError, { costo: 1000, precio: 1800 }), { motivo: 'Sin sugerido' });
+});
+
+test('validarFilasPlanilla: código numérico (número o texto), costo/precio número o null; si no, error', () => {
+  assert.deepStrictEqual(L.validarFilasPlanilla([{ codigo: 123, costo: 10, precio: null, nombre: 'A' }, { codigo: ' 45 ', costo: null, precio: 20 }]),
+    { filas: [{ codigo: '123', nombre: 'A', costo: 10, precio: null }, { codigo: '45', nombre: '', costo: null, precio: 20 }] });
+  assert.match(L.validarFilasPlanilla([]).error, /no tiene filas/);
+  assert.match(L.validarFilasPlanilla('x').error, /no tiene filas/);
+  assert.match(L.validarFilasPlanilla(Array(5001).fill({ codigo: 1, costo: 1, precio: 1 })).error, /más de 5000/);
+  assert.match(L.validarFilasPlanilla([{ codigo: 'ABC', costo: 1, precio: 1 }]).error, /Fila 1/);
+  assert.match(L.validarFilasPlanilla([{ codigo: 1, costo: 1, precio: 1 }, { codigo: 2, costo: '10', precio: 1 }]).error, /Fila 2/);
+  assert.match(L.validarFilasPlanilla([null]).error, /Fila 1/);
+});
+
+test('cruzarPlanilla: marca por fuente (también sin clasificar), sin coincidencia con sus costos/sugeridos, no encontrados y Producción', () => {
+  const almacen = [
+    filaPlanilla({ sistema: 1800, ultimaCompra: 2750 }),
+    { ...filaPlanilla({ sistema: 900, ultimaCompra: 950 }, { costoSistema: 500, costoUltimaCompra: 520 }), plu: '2', nombre: 'Yerba', tipoProveedor: null },
+    { ...filaPlanilla({ sistema: 700 }, { costoSistema: 400, costoUltimaCompra: null }), plu: '3', nombre: 'Fideos', tipoProveedor: null },
+  ];
+  const r = L.cruzarPlanilla(almacen, [
+    { codigo: '1', nombre: 'x', costo: 1000, precio: 1800 }, { codigo: '1', nombre: 'x', costo: 1500, precio: 2750 }, // repetido: vale la última
+    { codigo: '2', nombre: 'Yerba', costo: 520, precio: 950 }, { codigo: '3', nombre: 'F', costo: 1, precio: 1 },
+    { codigo: '9', nombre: 'Nuevo', costo: 1, precio: 2 }, { codigo: '6319', nombre: 'Pepas', costo: 1, precio: 2 },
+  ], new Set(['6319']));
+  assert.deepStrictEqual(r.decisiones.map(d => [d.plu, d.fuente, d.fila.nombre]), [['1', 'ultimaCompra', 'Arroz'], ['2', 'ultimaCompra', 'Yerba']]);
+  assert.deepStrictEqual(r.marcados, { sistema: 0, ultimaCompra: 2, manual: 0 });
+  assert.deepStrictEqual([r.sinClasificar, r.total], [1, 6]);
+  assert.deepStrictEqual(r.sinCoincidencia, [{ codigo: '3', nombre: 'Fideos', costo: 1, precio: 1, costoSistema: 400, costoUltimaCompra: null,
+    sugeridoSistema: 700, sugeridoUltimaCompra: null, motivo: 'Ningún costo ni precio coincide · Sin clasificar (no aparece en el listado)' }]);
+  assert.deepStrictEqual(r.noEncontrados.map(n => [n.codigo, n.nombre, n.motivo]),
+    [['9', 'Nuevo', 'Código no encontrado en Reventa'], ['6319', 'Pepas', 'Es de Producción (se decide en Producción)']]);
 });

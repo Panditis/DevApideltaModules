@@ -229,20 +229,43 @@ test('filasExportListado: Tipo proveedor sólo en Reventa', () => {
   assert.strictEqual(prod[0].includes('Tipo proveedor'), false);
 });
 
-test('Pack/Bulto según SIGA: resumen de resueltos por costo y planilla a revisar (PLU numérico, motivo en castellano)', () => {
-  const { textoResumenPackBulto, filasRevisarPackBulto } = require('../public/js/precios_listados.js');
-  assert.strictEqual(textoResumenPackBulto({ resueltos: { sistema: 3, ultimaCompra: 2, manual: 0 }, revisar: [{}] }),
-    '5 productos resueltos (3 con costo sistema, 2 con última compra) · 1 a revisar');
-  assert.strictEqual(textoResumenPackBulto({ resueltos: { sistema: 1, ultimaCompra: 0, manual: 2 }, revisar: [] }),
-    '3 productos resueltos (1 con costo sistema, 0 con última compra, 2 con costo manual) · 0 a revisar');
-  const revisar = ['ninguno', 'ambiguo', 'sinVigente', 'sinPrecio'].map((motivo, i) => ({ plu: String(10 + i), nombre: `P${i}`, vigente: i === 2 ? null : 100,
-    sugeridoSistema: 90, sugeridoUltimaCompra: i === 3 ? null : 110, motivo }));
-  assert.deepStrictEqual(filasRevisarPackBulto([...revisar, { plu: 'X1', nombre: 'Raro', vigente: 5, sugeridoSistema: null, sugeridoUltimaCompra: null, motivo: 'ninguno' }]), [
-    ['PLU', 'Nombre', 'Precio SIGA', 'Sugerido sistema', 'Sugerido última compra', 'Motivo'],
-    [10, 'P0', 100, 90, 110, 'Ningún costo coincide'],
-    [11, 'P1', 100, 90, 110, 'Coinciden los dos con precios distintos'],
-    [12, 'P2', null, 90, 110, 'Sin precio en SIGA'],
-    [13, 'P3', 100, 90, null, 'Sin sugerido'],
-    ['X1', 'Raro', 5, null, null, 'Ningún costo coincide'],
+test('parsearPlanillaDecisiones: encabezado en la fila 1, columnas en cualquier orden, código número o texto', () => {
+  const { parsearPlanillaDecisiones } = require('../public/js/precios_listados.js');
+  assert.deepStrictEqual(parsearPlanillaDecisiones([['Precio', 'CÓDIGO ', 'Nombre', 'Costo'], [1800, 123, 'Arroz', 1000], [null, '045', 'Yerba', '1.234,50'], [], [2750.5, ' 7 ', null, null]]), {
+    filas: [{ codigo: '123', nombre: 'Arroz', costo: 1000, precio: 1800, fila: 2 }, { codigo: '45', nombre: 'Yerba', costo: 1234.5, precio: null, fila: 3 },
+      { codigo: '7', nombre: '', costo: null, precio: 2750.5, fila: 5 }],
+    errores: [],
+  });
+});
+
+test('parsearPlanillaDecisiones: encabezado en la fila 4 (formato SIGA, "Venta" = Precio); filas malas → errores con su nro de fila', () => {
+  const { parsearPlanillaDecisiones } = require('../public/js/precios_listados.js');
+  const hoja = [['Lista de precios'], [], [], ['Codigo', 'Nombre', 'Costo', 'Venta'], [10, 'A', 100, 180], ['ABC', 'Mal', 1, 1], [11, 'Texto', 'caro', 1],
+    [12, 'Vacío', null, ''], [12.5, 'Decimal', 1, 1], [null, null, null, null], [13, 'B', '$ 200', null]];
+  assert.deepStrictEqual(parsearPlanillaDecisiones(hoja), {
+    filas: [{ codigo: '10', nombre: 'A', costo: 100, precio: 180, fila: 5 }, { codigo: '13', nombre: 'B', costo: 200, precio: null, fila: 11 }],
+    errores: [{ fila: 6, codigo: 'ABC', nombre: 'Mal', motivo: 'Código inválido' }, { fila: 7, codigo: '11', nombre: 'Texto', motivo: 'Costo o precio no numérico' },
+      { fila: 8, codigo: '12', nombre: 'Vacío', motivo: 'Sin costo ni precio' }, { fila: 9, codigo: '12.5', nombre: 'Decimal', motivo: 'Código inválido' }],
+  });
+  assert.strictEqual(parsearPlanillaDecisiones(hoja.slice(3), 4).filas[0].fila, 5); // la hoja empieza en la fila 4 (!ref)
+  assert.match(parsearPlanillaDecisiones([['PLU', 'Nombre'], [1, 'x']]).error, /encabezado/);
+  assert.match(parsearPlanillaDecisiones(null).error, /encabezado/);
+});
+
+test('Importar planilla: resumen de marcados por costo y planilla de no marcados (PLU numérico)', () => {
+  const { textoResumenImportacion, filasNoMarcados } = require('../public/js/precios_listados.js');
+  const j = { marcados: { sistema: 3, ultimaCompra: 2, manual: 0 }, sinCoincidencia: [{}], noEncontrados: [{}, {}] };
+  assert.strictEqual(textoResumenImportacion(j), '5 marcados (3 con costo sistema, 2 con última compra) · 1 sin coincidencia · 2 códigos no encontrados');
+  assert.strictEqual(textoResumenImportacion({ ...j, marcados: { sistema: 1, ultimaCompra: 0, manual: 2 } }, 4),
+    '3 marcados (1 con costo sistema, 0 con última compra, 2 manual) · 1 sin coincidencia · 2 códigos no encontrados · 4 filas con error');
+  assert.deepStrictEqual(filasNoMarcados([
+    { codigo: '10', nombre: 'Arroz', costo: 1, precio: 2, costoSistema: 1000, costoUltimaCompra: null, sugeridoSistema: 1800, sugeridoUltimaCompra: null, motivo: 'Ningún costo ni precio coincide' },
+    { codigo: '777', nombre: '', costo: 5, precio: null, motivo: 'Código no encontrado en Reventa' },
+    { codigo: 'ABC', nombre: 'Mal', motivo: 'Código inválido (fila 6)' },
+  ]), [
+    ['PLU', 'Nombre', 'Costo planilla', 'Precio planilla', 'Costo sistema', 'Costo última compra', 'Sugerido sistema', 'Sugerido última compra', 'Motivo'],
+    [10, 'Arroz', 1, 2, 1000, null, 1800, null, 'Ningún costo ni precio coincide'],
+    [777, null, 5, null, null, null, null, null, 'Código no encontrado en Reventa'],
+    ['ABC', 'Mal', null, null, null, null, null, null, 'Código inválido (fila 6)'],
   ]);
 });

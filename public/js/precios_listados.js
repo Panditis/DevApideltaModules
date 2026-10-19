@@ -89,19 +89,51 @@ function filasExportListado(filas, tipo) {
     : [[pluXlsx(g.plu), g.nombre, granel(g), ...costos(g), ...precios(null)]]))];
 }
 
-// "Pack/Bulto según SIGA" (Reventa): resumen de cuántos productos se resolvieron con cada costo (inferido del minorista de
-// SIGA, lib/precios_listado_esquema packBultoSiga) y la planilla de los que hay que revisar a mano.
-function textoResumenPackBulto({ resueltos = {}, revisar = [] }) {
-  const { sistema = 0, ultimaCompra = 0, manual = 0 } = resueltos;
-  return `${sistema + ultimaCompra + manual} productos resueltos (${sistema} con costo sistema, ${ultimaCompra} con última compra${
-    manual ? `, ${manual} con costo manual` : ''}) · ${revisar.length} a revisar`;
+// "Importar planilla" (Reventa): la planilla Codigo/Nombre/Costo/Precio que se subió a SIGA. rows = la hoja como array de
+// filas (XLSX sheet_to_json header:1); primeraFila = nro de fila de Excel de rows[0]. Encabezado = la primera fila con
+// "codigo" y "costo"/"precio" (fila 1, o 4 como el formato SIGA), columnas en cualquier orden; "Venta" (formato del export a
+// SIGA) vale como Precio. → { filas: [{ codigo, nombre, costo, precio, fila }], errores: [{ fila, codigo, nombre, motivo }] } o { error }.
+const ENC_PLANILLA = { codigo: ['codigo'], nombre: ['nombre'], costo: ['costo'], precio: ['precio', 'venta'] };
+// Celda → número, null (vacía) o NaN. Texto "1.234,56" o "$ 1234.5" también.
+const numPlanilla = v => {
+  if (typeof v === 'number') return v;
+  const t = String(v ?? '').replace(/[$\s]/g, '');
+  return t === '' ? null : Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+};
+function parsearPlanillaDecisiones(rows, primeraFila = 1) {
+  const hoja = Array.isArray(rows) ? rows : [];
+  const celdas = r => (Array.isArray(r) ? r.map(c => normL(c).trim()) : []);
+  const idx = hoja.findIndex(r => { const c = celdas(r); return c.includes('codigo') && ['costo', 'precio', 'venta'].some(k => c.includes(k)); });
+  if (idx < 0) return { error: 'No se encontró el encabezado (Codigo, Nombre, Costo, Precio)' };
+  const enc = celdas(hoja[idx]);
+  const col = Object.fromEntries(Object.entries(ENC_PLANILLA).map(([k, nombres]) => [k, enc.findIndex(e => nombres.includes(e))]));
+  const filas = [], errores = [];
+  hoja.slice(idx + 1).forEach((r, i) => {
+    if (!Array.isArray(r) || r.every(v => String(v ?? '').trim() === '')) return; // fila vacía
+    const celda = k => (col[k] < 0 ? null : r[col[k]] ?? null);
+    const fila = primeraFila + idx + 1 + i;
+    const codigo = String(celda('codigo') ?? '').trim().replace(/^0+(?=\d)/, ''), nombre = String(celda('nombre') ?? '').trim();
+    const costo = numPlanilla(celda('costo')), precio = numPlanilla(celda('precio'));
+    const motivo = !/^\d{1,12}$/.test(codigo) ? 'Código inválido' : Number.isNaN(costo) || Number.isNaN(precio) ? 'Costo o precio no numérico'
+      : costo == null && precio == null ? 'Sin costo ni precio' : null;
+    if (motivo) errores.push({ fila, codigo, nombre, motivo });
+    else filas.push({ codigo, nombre, costo, precio, fila });
+  });
+  return { filas, errores };
 }
-const MOTIVO_REVISAR = { ninguno: 'Ningún costo coincide', ambiguo: 'Coinciden los dos con precios distintos', sinVigente: 'Sin precio en SIGA', sinPrecio: 'Sin sugerido' };
-const filasRevisarPackBulto = revisar => [['PLU', 'Nombre', 'Precio SIGA', 'Sugerido sistema', 'Sugerido última compra', 'Motivo'],
-  ...revisar.map(r => [pluXlsx(r.plu), r.nombre, r.vigente ?? null, r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, MOTIVO_REVISAR[r.motivo] || r.motivo])];
+// Resultado del POST importar-decisiones (+ filas con error de la planilla) → la línea de resumen del diálogo.
+function textoResumenImportacion({ marcados = {}, sinCoincidencia = [], noEncontrados = [] }, errores = 0) {
+  const { sistema = 0, ultimaCompra = 0, manual = 0 } = marcados;
+  return `${sistema + ultimaCompra + manual} marcados (${sistema} con costo sistema, ${ultimaCompra} con última compra${manual ? `, ${manual} manual` : ''})`
+    + ` · ${sinCoincidencia.length} sin coincidencia · ${noEncontrados.length} códigos no encontrados${errores ? ` · ${errores} filas con error` : ''}`;
+}
+// Planilla "no marcados": sin coincidencia, no encontrados y filas con error (PLU numérico como el resto de los .xlsx).
+const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio planilla', 'Costo sistema', 'Costo última compra', 'Sugerido sistema', 'Sugerido última compra', 'Motivo'],
+  ...lista.map(r => [pluXlsx(r.codigo), r.nombre || null, r.costo ?? null, r.precio ?? null, r.costoSistema ?? null, r.costoUltimaCompra ?? null,
+    r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado,
-  textoResumenPackBulto, filasRevisarPackBulto };
+  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -196,7 +228,7 @@ function htmlMarcoListado(tipo) {
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
     <button type="button" class="lst-exportar-listado px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white" title="Todas las filas de la pestaña con los filtros y el orden actuales (reporte, no el formato de SIGA)">Exportar listado (.xlsx)</button>
-    ${alm ? '<button type="button" class="lst-packbulto-siga px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white" title="Listas pack/bulto para SIGA con el costo que coincide con el precio minorista que ya está en SIGA">Pack/Bulto según SIGA</button>' : ''}
+    ${alm ? '<button type="button" class="lst-importar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white" title="Planilla Codigo/Nombre/Costo/Precio que se subió a SIGA: marca cada producto con el costo que coincide">Importar planilla</button><input type="file" class="lst-importar-archivo hidden" accept=".xls,.xlsx">' : ''}
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
     ${prod ? '<button type="button" class="lst-nuevo cfg-btn" title="Producto con receta (ej. pepas, granola)">+ Nuevo</button>' : ''}
   </div>
@@ -217,8 +249,11 @@ function conectarListado(tipo, cont) {
   montarOrdenListado(tipo, cont);
   cont.querySelector('.lst-exportar').onclick = exportarDecididos;
   cont.querySelector('.lst-exportar-listado').onclick = () => exportarListado(tipo);
-  const pb = cont.querySelector('.lst-packbulto-siga');
-  if (pb) pb.onclick = exportarPackBultoSiga;
+  const imp = cont.querySelector('.lst-importar'), archivo = cont.querySelector('.lst-importar-archivo');
+  if (imp) {
+    imp.onclick = () => archivo.click();
+    archivo.onchange = () => { const f = archivo.files[0]; archivo.value = ''; if (f) importarPlanilla(f); };
+  }
   cont.querySelector('.lst-quitar').onclick = quitarDecisiones;
   const nuevo = cont.querySelector('.lst-nuevo'); // precios_produccion.js / precios_produccion_envasado.js
   if (nuevo) nuevo.onclick = () => (prodClase === 'envasado' ? abrirBaseNueva() : nuevoProducto());
@@ -381,28 +416,50 @@ function descargarListaSiga(filas, nombre) {
   XLSX.writeFile(wb, `${nombre}_${fechaHoyLst()}.xls`, { bookType: 'biff8' });
 }
 
-// "Pack/Bulto según SIGA" (Reventa): las 4 listas pack/bulto con el costo que coincide con el minorista que ya está en SIGA
-// (el usuario lo eligió en Excel y lo cargó a mano). Prefijo packbulto_siga_ para no pisar los de Exportar decididos. Los
-// que no se pudieron inferir bajan aparte en un .xlsx de reporte.
-async function exportarPackBultoSiga() {
+// "Importar planilla" (Reventa): lee el Excel en el navegador (la primera hoja con encabezado), el server marca las decisiones
+// (POST importar-decisiones) y se recarga el listado para ver los selects. Diálogo con el resumen, los no marcados y el export.
+async function importarPlanilla(archivo) {
   try {
-    const j = await (await fetch('/api/precios/esquema/export-pack-bulto-siga')).json();
-    if (j.error) throw new Error(j.error);
-    if (!j.total) { avisar('No hay productos de Reventa con pack/bulto vinculado.'); return; }
-    const resumen = resumenExport(j.listas).filter(r => r.lista !== 'minorista');
-    const revisar = () => {
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filasRevisarPackBulto(j.revisar)), 'A revisar');
-      XLSX.writeFile(wb, `packbulto_siga_revisar_${fechaHoyLst()}.xlsx`);
-    };
-    dialogoExport(resumen, lista => descargarListaSiga(j.listas[lista], `packbulto_siga_${NOMBRE_LISTA[lista]}`), 0,
-      { titulo: 'Pack/Bulto según SIGA: un archivo por lista', nota: textoResumenPackBulto(j), revisar: j.revisar.length ? revisar : null });
-  } catch (e) { avisar(e.message); }
+    const wb = XLSX.read(await archivo.arrayBuffer(), { type: 'array' });
+    const leida = wb.SheetNames.map(n => wb.Sheets[n]).filter(ws => ws['!ref'])
+      .map(ws => parsearPlanillaDecisiones(XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true }), XLSX.utils.decode_range(ws['!ref']).s.r + 1))
+      .find(p => !p.error);
+    if (!leida) throw new Error('No se encontró el encabezado (Codigo, Nombre, Costo, Precio).');
+    if (!leida.filas.length) throw new Error('La planilla no tiene filas con código y costo o precio.');
+    const j = await pedirJson('POST', '/api/precios/esquema/importar-decisiones', { filas: leida.filas.map(({ fila: _f, ...f }) => f) }); // precios_comun.js
+    await cargarListado('almacen');
+    dialogoImportacion(j, leida.errores.map(e => ({ ...e, motivo: `${e.motivo} (fila ${e.fila})` })));
+  } catch (e) { avisar(`No se pudo importar la planilla: ${e.message}`); }
+}
+function dialogoImportacion(j, errores) {
+  let d = document.getElementById('dlgImportar');
+  if (!d) {
+    d = document.createElement('dialog');
+    d.id = 'dlgImportar';
+    d.className = 'rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,560px)] bg-card text-ink backdrop:bg-ink/40';
+    document.body.appendChild(d);
+  }
+  const noMarcados = [...j.sinCoincidencia, ...j.noEncontrados, ...errores];
+  d.innerHTML = `<form method="dialog" class="p-5">
+    <p class="text-sm font-semibold mb-3">Importar planilla</p>
+    <p class="text-sm">${esc(textoResumenImportacion(j, errores.length))}</p>
+    ${j.sinClasificar ? `<p class="text-xs text-ink/70 mt-2">${j.sinClasificar} marcado(s) sin clasificar: no aparecen en el listado (filtro «Sin clasificar») pero se exportan igual.</p>` : ''}
+    <p class="text-sm text-warn mt-3">Exportá sin recargar la página: las decisiones se borran al recargar y vencen si cambia el precio en SIGA.</p>
+    <div class="flex justify-end gap-2 mt-4">${noMarcados.length ? '<button type="button" class="dlg-nomarcados px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Descargar no marcados (.xlsx)</button>' : ''}<button value="ok" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cerrar</button><button type="button" class="dlg-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button></div>
+  </form>`;
+  const bn = d.querySelector('.dlg-nomarcados');
+  if (bn) bn.onclick = () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filasNoMarcados(noMarcados)), 'No marcados');
+    XLSX.writeFile(wb, `precios_no_marcados_${fechaHoyLst()}.xlsx`);
+    bn.textContent = 'Descargado ✓';
+  };
+  d.querySelector('.dlg-exportar').onclick = () => { d.close(); exportarDecididos(); };
+  d.showModal();
 }
 
 // Diálogo con una fila por lista: "Minorista · 12 productos [Descargar]"; vacía → "sin productos" y sin botón.
-// extra (Pack/Bulto según SIGA): titulo, nota (texto bajo las listas) y revisar (botón "Descargar lista a revisar").
-function dialogoExport(resumen, descargar, omitidos, { titulo = 'Exportar decididos: un archivo por lista', nota = '', revisar = null } = {}) {
+function dialogoExport(resumen, descargar, omitidos) {
   let d = document.getElementById('dlgExport');
   if (!d) {
     d = document.createElement('dialog');
@@ -411,19 +468,16 @@ function dialogoExport(resumen, descargar, omitidos, { titulo = 'Exportar decidi
     document.body.appendChild(d);
   }
   d.innerHTML = `<form method="dialog" class="p-5">
-    <p class="text-sm font-semibold mb-3">${esc(titulo)}</p>
+    <p class="text-sm font-semibold mb-3">Exportar decididos: un archivo por lista</p>
     <ul class="text-sm divide-y divide-borde">${resumen.map(r => `<li class="flex items-center justify-between gap-3 py-2">
       <span>${esc(r.etiqueta)} · ${r.filas ? `${r.filas} producto(s)` : '<span class="text-ink/60">sin productos</span>'}</span>
       ${r.filas ? `<button type="button" data-lista="${esc(r.lista)}" class="px-3 py-1 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Descargar</button>` : ''}
     </li>`).join('')}</ul>
     ${omitidos ? `<p class="text-xs text-ink/70 mt-3">${omitidos} producto(s) decidido(s) sin precio con la fuente elegida quedaron fuera de los archivos.</p>` : ''}
-    ${nota ? `<p class="text-sm text-ink/80 mt-3">${esc(nota)}</p>` : ''}
-    <div class="flex justify-end gap-2 mt-4">${revisar ? '<button type="button" class="dlg-revisar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Descargar lista a revisar (.xlsx)</button>' : ''}<button value="ok" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cerrar</button></div>
+    <div class="flex justify-end mt-4"><button value="ok" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cerrar</button></div>
   </form>`;
   d.querySelectorAll('button[data-lista]').forEach(b => {
     b.onclick = () => { descargar(b.dataset.lista); b.textContent = 'Descargado ✓'; };
   });
-  const br = d.querySelector('.dlg-revisar');
-  if (br) br.onclick = () => { revisar(); br.textContent = 'Descargado ✓'; };
   d.showModal();
 }

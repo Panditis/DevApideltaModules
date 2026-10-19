@@ -17,7 +17,8 @@ function appCon(costeo, { query = async () => [], sinConfig = false, archivos = 
   if (costeo) fs.writeFileSync(archivo, JSON.stringify(costeo));
   for (const [nombre, datos] of Object.entries(archivos)) fs.writeFileSync(path.join(dir, nombre), JSON.stringify(datos));
   const leerJSON = (p, def) => { try { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def; } catch { return def; } };
-  const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
+  let escrituras = 0;
+  const guardarJSON = (p, d) => { escrituras++; fs.writeFileSync(p, JSON.stringify(d, null, 2)); };
   const apiRoute = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { res.status(500).json({ error: err.message }); } };
   const app = express();
   app.use(express.json());
@@ -31,7 +32,7 @@ function appCon(costeo, { query = async () => [], sinConfig = false, archivos = 
       { method: metodo, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return res.json();
   };
-  return { pedir, leer: () => JSON.parse(fs.readFileSync(archivo, 'utf8')), cerrar: () => server && server.close() };
+  return { pedir, leer: () => JSON.parse(fs.readFileSync(archivo, 'utf8')), cerrar: () => server && server.close(), escrituras: () => escrituras };
 }
 
 const MIGRADO = migrarEsquemaCanales({ toleranciaPct: 3, gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 1, listas: ['sucursal'] }] }).costeo;
@@ -417,23 +418,34 @@ test('tipo de proveedor: PUT guarda/cambia/quita en una fila de Reventa; rechaza
   } finally { a.cerrar(); }
 });
 
-test('export pack/bulto según SIGA: infiere la fuente del minorista vigente (sin decisiones) y arma las listas pack/bulto', async () => {
-  const vigentes = { 1: 1750 }; // Arroz: sistema 1000 → sugerido 1750 = SIGA
+test('importar planilla: marca por Costo/Precio con usuario y foto de vigentes (también sin clasificar) en una escritura; informa no encontrados', async () => {
   const query = async sql => {
     if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
-    if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: vigentes[1] }, { IdProducto: '2', Precio: 16000 }];
+    if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: 1800 }, { IdProducto: '2', Precio: 16000 }];
+    if (sql.includes("NombreRubro = 'Almacen'")) return [{ IdProducto: '1', NombreProducto: 'Arroz', CostoSistema: 1000, UcPrecioNeto: 1500, UcTipo: 'FACTCOM', IvaCompraPct: 21 },
+      { IdProducto: '4', NombreProducto: 'Yerba', CostoSistema: 2000, IvaCompraPct: 21 }, { IdProducto: '5', NombreProducto: 'Fideos', CostoSistema: 300, IvaCompraPct: 21 }];
     return sigaFalso(sql);
   };
-  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  const a = appCon({ ...MIGRADO, tipoProveedor: { 1: 'directo', 5: 'directo' } }, { query, archivos: ARCHIVOS_FALSOS, usuario: 'ana' });
   try {
-    const r = await a.pedir('GET', '/api/precios/esquema/export-pack-bulto-siga');
-    assert.deepStrictEqual([r.total, r.resueltos, r.revisar], [1, { sistema: 1, ultimaCompra: 0, manual: 0 }, []]);
-    assert.deepStrictEqual([r.listas.bultoNeto, r.listas.bultoIva].map(l => l.slice(1).map(x => [x[0], x[2]])), [[[2, 1000]], [[2, 1000]]]);
-    assert.deepStrictEqual(Object.keys(r.listas), ['packNeto', 'packIva', 'bultoNeto', 'bultoIva']);
-    vigentes[1] = 2222; // SIGA cambió el minorista: ya no coincide (lee SIGA fresco)
-    const r2 = await a.pedir('GET', '/api/precios/esquema/export-pack-bulto-siga');
-    assert.deepStrictEqual(r2.revisar.map(x => [x.plu, x.vigente, x.motivo]), [['1', 2222, 'ninguno']]);
-    assert.strictEqual(r2.listas.bultoIva.length, 1);
-    assert.ok(!('decisiones' in a.leer()) || !Object.keys(a.leer().decisiones).length); // no toca decisiones
+    const { filas } = await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+    const arroz = filas.find(f => f.plu === '1');
+    assert.match((await a.pedir('POST', '/api/precios/esquema/importar-decisiones', { filas: [{ codigo: 'x', costo: 1, precio: 1 }] })).error, /Fila 1/);
+    const antes = a.escrituras();
+    const r = await a.pedir('POST', '/api/precios/esquema/importar-decisiones', { filas: [
+      { codigo: 1, nombre: 'Arroz', costo: 1, precio: arroz.sugeridos.ultimaCompra.minorista.precio }, // por Precio
+      { codigo: '4', nombre: 'Yerba', costo: 2000, precio: null }, // sin clasificar: igual se marca
+      { codigo: 5, nombre: 'Fideos', costo: 1, precio: 1 }, { codigo: 777, nombre: 'Nuevo', costo: 1, precio: 1 }, { codigo: 6319, nombre: 'Mezcla', costo: 1, precio: 1 },
+    ] });
+    assert.strictEqual(a.escrituras() - antes, 1);
+    assert.deepStrictEqual([r.marcados, r.sinClasificar, r.total], [{ sistema: 1, ultimaCompra: 1, manual: 0 }, 1, 5]);
+    assert.deepStrictEqual(r.sinCoincidencia.map(x => [x.codigo, x.nombre, x.costoSistema, x.motivo]), [['5', 'Fideos', 300, 'Ningún costo ni precio coincide']]);
+    assert.deepStrictEqual(r.noEncontrados.map(x => [x.codigo, x.motivo]), [['777', 'Código no encontrado en Reventa'], ['6319', 'Es de Producción (se decide en Producción)']]);
+    const d = a.leer().decisiones;
+    assert.deepStrictEqual(Object.keys(d).sort(), ['1', '4']);
+    assert.deepStrictEqual([d[1].fuente, d[1].usuario, d[1].vigente, d[4].fuente, d[4].vigente], ['ultimaCompra', 'ana', { 1: 1800, 2: 16000 }, 'sistema', { 4: null }]);
+    const { listas } = await a.pedir('GET', '/api/precios/esquema/export'); // las decisiones sobreviven a la poda y exportan
+    assert.deepStrictEqual(listas.minorista.slice(1).map(x => [x[0], x[2]]), [[1, 1500], [4, 2000]]);
+    assert.deepStrictEqual(listas.bultoIva.slice(1).map(x => x[0]), [2]);
   } finally { a.cerrar(); }
 });
