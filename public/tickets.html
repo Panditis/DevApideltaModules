@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tickets de Desarrollo · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+/* Solo escritorio (sin responsive). Colores del theme compartido (apidelta-theme.js/.css);
+   prioridades y estados llevan su propia escala porque el dato tiene más de 3 categorías. */
+.ctl{border:1px solid rgba(26,28,24,.16);border-radius:8px;padding:7px 10px;font-size:14px;color:#242423;background:#fff}
+.ctl:focus{outline:2px solid #405936;outline-offset:-1px}
+.ctl[aria-invalid=true]{border-color:#a4262c;box-shadow:0 0 0 1px #a4262c}
+.lbl{display:block;font-size:12px;font-weight:600;color:#5c5f52;margin-bottom:4px}
+.ayuda{font-size:12px;color:#5c5f52}
+.btn{border-radius:8px;padding:7px 14px;font-size:14px;font-weight:600;border:1px solid rgba(26,28,24,.16);background:#fff;color:#242423;cursor:pointer}
+.btn:hover{background:#f5f8f1}
+.btn-primario{background:#405936;border-color:#405936;color:#fff}
+.btn-primario:hover{background:#4f6e42}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.chip-user{background:#eef2e9;color:#2e4027;font-weight:500}
+.chip-user button{border:0;background:none;color:inherit;cursor:pointer;font-size:11px;padding:0 0 0 2px;line-height:1}
+.chip-user button:hover{color:#a4262c}
+
+.pri-baja{background:#f0f0ee;color:#5c5f52}
+.pri-media{background:#e6f4ff;color:#0958d9}
+.pri-alta{background:#fff4ce;color:#8a5d00}
+.pri-urgente{background:#fde7e9;color:#a4262c}
+
+.est-pendiente{background:#f0f0ee;color:#5c5f52}
+.est-en_proceso{background:#e6f4ff;color:#0958d9}
+.est-falta_aprobacion{background:#fff4ce;color:#8a5d00}
+.est-stand_by{background:#f1ebfa;color:#6b3fa0}
+.est-terminado{background:#dff6dd;color:#0e700e}
+.est-cancelado{background:#fbeff0;color:#a4262c;text-decoration:line-through}
+tr.cancelado td{opacity:.65}
+
+/* Select de estado con la pinta de un chip. */
+.sel-estado{border:1px solid transparent;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.sel-estado:hover{border-color:rgba(26,28,24,.25)}
+.sel-estado:disabled{cursor:wait;opacity:.6}
+.sel-estado option{background:#fff;color:#242423;text-decoration:none}
+
+/* Prioridad: control segmentado (radios). */
+.seg{display:inline-flex;border:1px solid rgba(26,28,24,.16);border-radius:8px;overflow:hidden;background:#fff}
+.seg label{position:relative;cursor:pointer}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:flex;align-items:center;gap:6px;padding:7px 16px;font-size:14px;color:#5c5f52;border-right:1px solid rgba(26,28,24,.12)}
+.seg label:last-child span{border-right:0}
+.seg span::before{content:'';width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.8}
+.seg input:focus-visible + span{outline:2px solid #405936;outline-offset:-2px}
+.seg input:checked + span{font-weight:700}
+
+.lista-usuarios{max-height:220px;overflow:auto;border:1px solid rgba(26,28,24,.16);border-radius:8px;background:#fff}
+.lista-usuarios[aria-invalid=true]{border-color:#a4262c;box-shadow:0 0 0 1px #a4262c}
+.lista-usuarios label{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:14px;cursor:pointer}
+.lista-usuarios label:hover{background:#f5f8f1}
+.lista-usuarios .u{color:#5c5f52;font-size:12px}
+
+.tabla{width:100%;border-collapse:collapse;font-size:14px}
+.tabla th{color:#5c5f52;font-weight:600;font-size:12px;text-align:left;padding:8px 10px;border-bottom:1px solid rgba(26,28,24,.16);background:rgba(64,89,54,.05)}
+.tabla td{padding:8px 10px;border-bottom:1px solid rgba(26,28,24,.10);vertical-align:top}
+.tabla td.num,.tabla th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tabla tbody tr{cursor:pointer}
+.tabla tbody tr:focus-visible{outline:2px solid #405936;outline-offset:-2px}
+.flecha{font-size:10px;margin-left:3px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+
+.error{background:#fde7e9;color:#a4262c;border:1px solid #f6c6c2;padding:10px 12px;border-radius:8px;font-size:14px}
+.ok{background:#dff6dd;color:#0e700e;border:1px solid #b7e2b4;padding:10px 12px;border-radius:8px;font-size:14px}
+.empty{color:#5c5f52;padding:16px;text-align:center;font-size:14px}
+
+/* Panel lateral de detalle. */
+#velo{background:rgba(36,36,35,.35)}
+#panel{width:620px;max-width:100vw}
+.hist li{border-left:2px solid rgba(64,89,54,.25);padding:0 0 12px 12px;position:relative}
+.hist li::before{content:'';position:absolute;left:-5px;top:5px;width:8px;height:8px;border-radius:50%;background:#405936}
+.texto-libre{white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3">
+    <h1 class="font-disp text-2xl font-bold">TICKETS DE DESARROLLO</h1>
+    <span class="text-sm">Pedidos al equipo de sistemas</span>
+    <div class="ml-auto flex items-center gap-3">
+      <span id="yo" class="text-sm"></span>
+      <button id="btnRecargar" type="button" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm">Recargar</button>
+      <a href="/" class="text-sm">← Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+  <div class="flex gap-1 border-b border-borde" role="tablist" aria-label="Secciones">
+    <button type="button" class="tab on" role="tab" id="tab-nuevo" aria-controls="panel-nuevo" aria-selected="true" data-tab="nuevo">Nuevo ticket</button>
+    <button type="button" class="tab" role="tab" id="tab-seguimiento" aria-controls="panel-seguimiento" aria-selected="false" data-tab="seguimiento">Seguimiento</button>
+  </div>
+
+  <div id="aviso" class="hidden mt-4" role="alert"></div>
+
+  <!-- ── Nuevo ticket ─────────────────────────────────────────────────────── -->
+  <section id="panel-nuevo" class="tab-panel bg-card border border-borde border-t-0 rounded-b-xl shadow-fluent p-6" role="tabpanel" aria-labelledby="tab-nuevo">
+    <form id="form" novalidate class="grid grid-cols-2 gap-x-8 gap-y-5 max-w-[1100px]">
+      <div class="col-span-2">
+        <label class="lbl" for="fTarea">Tarea <span class="text-crit">*</span></label>
+        <input id="fTarea" class="ctl w-full" maxlength="150" required autocomplete="off" placeholder="Qué hay que hacer, en una línea">
+        <div class="ayuda mt-1"><span id="fTareaCont">0</span>/150</div>
+      </div>
+
+      <div>
+        <span class="lbl" id="lblPrioridad">Prioridad <span class="text-crit">*</span></span>
+        <div id="fPrioridad" class="seg" role="radiogroup" aria-labelledby="lblPrioridad"></div>
+      </div>
+
+      <div>
+        <label class="lbl" for="fArea">Área de trabajo <span class="text-crit">*</span></label>
+        <div class="flex gap-2">
+          <select id="fArea" class="ctl w-64" required></select>
+          <input id="fAreaOtra" class="ctl flex-1 hidden" maxlength="80" placeholder="Escribí el área" aria-label="Otra área">
+        </div>
+      </div>
+
+      <div class="col-span-2">
+        <label class="lbl" for="fDesc">Descripción</label>
+        <textarea id="fDesc" class="ctl w-full" rows="7" maxlength="5000" placeholder="Contexto, pasos, qué se espera ver al terminar…"></textarea>
+        <div class="ayuda mt-1"><span id="fDescCont">0</span>/5000</div>
+      </div>
+
+      <div class="col-span-2">
+        <span class="lbl" id="lblDest">Destinatarios <span class="text-crit">*</span></span>
+        <div id="fDest" class="max-w-[640px]" aria-labelledby="lblDest"></div>
+      </div>
+
+      <div id="fErrores" class="col-span-2 hidden error" role="alert"></div>
+
+      <div class="col-span-2 flex items-center gap-3">
+        <button id="fCrear" type="submit" class="btn btn-primario">Crear ticket</button>
+        <button id="fLimpiar" type="button" class="btn">Limpiar</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ── Seguimiento ──────────────────────────────────────────────────────── -->
+  <section id="panel-seguimiento" class="tab-panel hidden pt-4" role="tabpanel" aria-labelledby="tab-seguimiento">
+    <div id="kpis" class="kpis mb-4"></div>
+
+    <div class="flex gap-3 mb-3 items-end bg-card border border-borde rounded-xl px-4 py-3">
+      <div><label class="lbl" for="flBuscar">Buscar</label>
+        <input id="flBuscar" type="search" class="ctl w-64" placeholder="Tarea, descripción o #id"></div>
+      <div><label class="lbl" for="flEstado">Estado</label><select id="flEstado" class="ctl"></select></div>
+      <div><label class="lbl" for="flPrioridad">Prioridad</label><select id="flPrioridad" class="ctl"></select></div>
+      <div><label class="lbl" for="flArea">Área</label><select id="flArea" class="ctl"></select></div>
+      <div><label class="lbl" for="flDest">Destinatario</label><select id="flDest" class="ctl"></select></div>
+      <label class="text-sm flex items-center gap-2 pb-2"><input type="checkbox" id="flMios"> Solo asignados a mí</label>
+      <span id="conteo" class="ml-auto text-sm text-gris pb-2"></span>
+    </div>
+
+    <div class="rounded-xl border border-borde shadow-fluent bg-card overflow-hidden">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th class="sortable num" data-col="id" scope="col">#</th>
+            <th class="sortable" data-col="tarea" scope="col">Tarea</th>
+            <th class="sortable" data-col="prioridad" scope="col">Prioridad</th>
+            <th class="sortable" data-col="area" scope="col">Área</th>
+            <th scope="col">Destinatarios</th>
+            <th class="sortable" data-col="estado" scope="col">Estado</th>
+            <th class="sortable" data-col="creadoEn" scope="col">Creado por</th>
+            <th class="sortable" data-col="actualizadoEn" scope="col">Última actualización</th>
+          </tr>
+        </thead>
+        <tbody id="cuerpo">
+          <tr><td colspan="8" class="empty"><span class="spin"></span> Cargando tickets…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<!-- Detalle de un ticket: panel lateral. -->
+<div id="velo" class="hidden fixed inset-0 z-40"></div>
+<aside id="panel" class="hidden fixed top-0 right-0 bottom-0 z-50 bg-card border-l border-borde shadow-fluent flex-col fade-in"
+       role="dialog" aria-modal="true" aria-labelledby="dTitulo">
+  <div class="px-5 py-4 border-b border-borde flex items-start gap-3">
+    <div class="min-w-0">
+      <div id="dId" class="text-sm text-gris"></div>
+      <h2 id="dTitulo" class="font-disp text-xl font-bold text-verde break-words"></h2>
+    </div>
+    <button id="dCerrar" type="button" class="ml-auto text-gris hover:text-ink text-lg leading-none" aria-label="Cerrar detalle">✕</button>
+  </div>
+  <div id="dCuerpo" class="px-5 py-4 overflow-y-auto flex-1 text-sm"></div>
+</aside>
+
+<script src="/js/tickets.js"></script>
+</body>
+</html>
