@@ -71,7 +71,7 @@ test('una línea entregado con cantidad 0 se descarta', () => {
   assert.deepStrictEqual(b.descartadas, [{ plu: '1001', nombre: 'Harina', estado: 'entregado' }]);
 });
 
-test('aplicarEdicion: solo toma lo editable; líneas, cantidades y proveedor salen del pedido', () => {
+test('aplicarEdicion: cabecera editable; sin lineas en el body quedan las del pedido; el proveedor sale del pedido', () => {
   const base = borradorDesdePedido(PEDIDO);
   const ed = aplicarEdicion(base, {
     cabecera: {
@@ -79,9 +79,7 @@ test('aplicarEdicion: solo toma lo editable; líneas, cantidades y proveedor sal
       periodoFiscal: '202610', idSucursal: '1', idDeposito: '1', idUbicacion: '1', idFormasPago: '3',
       porcDescRecGeneral: '', observacion: 'x'.repeat(150), idProveedor: 999,
     },
-    precios: { 1002: '250.5', 9999: 1 },
     percepciones: [{ tipo: 'piva', importe: '955.19' }],
-    lineas: [{ plu: '1001', cantidad: 999 }],
   });
   assert.strictEqual(ed.idTipoComprobante, 'FACTCOM');
   assert.strictEqual(ed.letra, 'A');
@@ -92,11 +90,33 @@ test('aplicarEdicion: solo toma lo editable; líneas, cantidades y proveedor sal
   assert.strictEqual(ed.porcDescRecGeneral, 0);
   assert.strictEqual(ed.observacion.length, 100);
   assert.strictEqual(ed.idProveedor, 328);
-  assert.strictEqual(ed.lineas.length, 4);
-  assert.strictEqual(ed.lineas[0].cantidad, 1);
-  assert.strictEqual(ed.lineas[1].precio, 250.5);
+  assert.deepStrictEqual(ed.lineas, base.lineas);
   assert.deepStrictEqual(ed.percepciones, [{ tipo: 'PIVA', importe: 955.19, baseImponible: 0, alicuota: 0, idProvincia: null }]);
+});
+
+test('aplicarEdicion: lineas del body agregan, quitan y cambian cantidad y precio; Orden = posición', () => {
+  const base = borradorDesdePedido(PEDIDO);
+  const ed = aplicarEdicion(base, {
+    lineas: [
+      { plu: '1002', cantidad: '12', precio: '250.5' },
+      { plu: ' 2001 ', cantidad: 1, precio: 10 },
+      { plu: '1002', cantidad: 2.5, precio: 300 },
+      { plu: 'NUEVO-ab12', cantidad: 2, precio: 100 },
+    ],
+  });
+  assert.deepStrictEqual(ed.lineas, [
+    { orden: 1, plu: '1002', nombre: 'Huevos', cantidad: 12, precio: 250.5 },
+    { orden: 2, plu: '2001', nombre: '2001', cantidad: 1, precio: 10 },
+    { orden: 3, plu: '1002', nombre: 'Huevos', cantidad: 2.5, precio: 300 },
+    { orden: 4, plu: 'NUEVO-ab12', nombre: 'Té nuevo', cantidad: 2, precio: 100, nuevo: true },
+  ]);
   assert.strictEqual(base.lineas[1].precio, null); // no muta el borrador base
+  assert.deepStrictEqual(aplicarEdicion(base, { lineas: [] }).lineas, []);
+});
+
+test('aplicarEdicion: línea del body vacía o inválida → PLU vacío (la validación lo reclama)', () => {
+  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), { lineas: [null, 'x', { cantidad: 1 }] });
+  assert.deepStrictEqual(ed.lineas.map(l => [l.orden, l.plu, l.cantidad, l.precio]), [[1, '', null, null], [2, '', null, null], [3, '', 1, null]]);
 });
 
 test('cabeceraSugerida: datos del proveedor, hoy, sucursal 1 y su primera ubicación', () => {
@@ -142,11 +162,11 @@ test('aplicarEdicion: percepción con base pero sin importe conserva importe nul
   assert.strictEqual(p.baseImponible, 100);
 });
 
-test('aplicarEdicion: el precio también acepta coma decimal y deja pasar lo inválido crudo', () => {
-  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), { precios: { 1001: '250,5', 1002: 'abc', 1006: '' } });
-  assert.strictEqual(ed.lineas[0].precio, 250.5);
-  assert.strictEqual(ed.lineas[1].precio, 'abc');
-  assert.strictEqual(ed.lineas[2].precio, null);
+test('aplicarEdicion: precio y cantidad también aceptan coma decimal y deja pasar lo inválido crudo', () => {
+  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), {
+    lineas: [{ plu: '1001', cantidad: '2,5', precio: '250,5' }, { plu: '1002', cantidad: 'abc', precio: 'abc' }, { plu: '1006', cantidad: '', precio: '' }],
+  });
+  assert.deepStrictEqual(ed.lineas.map(l => [l.cantidad, l.precio]), [[2.5, 250.5], ['abc', 'abc'], [null, null]]);
 });
 
 test('borradorDesdePedido(null/undefined) devuelve un bloqueo claro, no tira TypeError', () => {
@@ -157,22 +177,24 @@ test('borradorDesdePedido(null/undefined) devuelve un bloqueo claro, no tira Typ
   }
 });
 
-test('aplicarEdicion: no aplica totales, bloqueos, IVA ni cantidades del navegador, ni líneas ajenas al pedido', () => {
+test('aplicarEdicion: no aplica totales, bloqueos ni IVA/importes por línea del navegador; de cada línea solo plu, cantidad y precio', () => {
   const base = borradorDesdePedido(PEDIDO);
   const ed = aplicarEdicion(base, {
     cabecera: { importeTotal: 1, totalNeto: 1, bloqueos: [], descartadas: [] },
     bloqueos: [], descartadas: [], importeTotal: 1, idProveedor: 1,
-    precios: { 9999: 5, 1001: 10 },
-    lineas: [{ plu: '1001', cantidad: 999, iva: 0, porcentajeIVA: 0, precio: 1 }, { plu: '9999', cantidad: 1, precio: 1 }],
+    lineas: [
+      { plu: '1001', cantidad: 999, iva: 0, porcentajeIVA: 0, precio: 1, importeTotal: 1, orden: 77, nombre: '<b>x</b>', nuevo: true },
+      { plu: '9999', cantidad: 1, precio: 1 },
+    ],
   });
   assert.strictEqual(ed.importeTotal, undefined);
   assert.strictEqual(ed.totalNeto, undefined);
   assert.deepStrictEqual(ed.bloqueos, base.bloqueos);
   assert.deepStrictEqual(ed.descartadas, base.descartadas);
-  assert.deepStrictEqual(ed.lineas.map(l => l.plu), base.lineas.map(l => l.plu));
-  assert.deepStrictEqual(ed.lineas.map(l => l.cantidad), base.lineas.map(l => l.cantidad));
-  assert.ok(ed.lineas.every(l => l.iva === undefined && l.porcentajeIVA === undefined));
-  assert.strictEqual(ed.lineas[0].precio, 10);
+  assert.deepStrictEqual(ed.lineas, [
+    { orden: 1, plu: '1001', nombre: 'Harina', cantidad: 999, precio: 1 },
+    { orden: 2, plu: '9999', nombre: '9999', cantidad: 1, precio: 1 },
+  ]);
 });
 
 // Integración liviana con validaciones e impuestos: la percepción tipeada con coma llega a la fila PIVA.
@@ -198,10 +220,13 @@ test('integración: percepción "abc" y "1.234,56" dan el mensaje de número inv
 });
 
 test('el separador de miles argentino ("1.500") no se lee como decimal: pasa crudo; "1.5" y "0.25" siguen numéricos', () => {
-  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), { precios: { 1001: '1.500', 1002: '1.5', 1006: '12.345.678' } });
+  const ed = aplicarEdicion(borradorDesdePedido(PEDIDO), {
+    lineas: [{ plu: '1001', cantidad: 1, precio: '1.500' }, { plu: '1002', cantidad: 1, precio: '1.5' }, { plu: '1006', cantidad: '1.500', precio: '12.345.678' }],
+  });
   assert.strictEqual(ed.lineas[0].precio, '1.500');
   assert.strictEqual(ed.lineas[1].precio, 1.5);
   assert.strictEqual(ed.lineas[2].precio, '12.345.678');
+  assert.strictEqual(ed.lineas[2].cantidad, '1.500');
   const [miles, decimal, cuarto, entero] = percepcionesDe(['1.500', '1.5', '0.25', '1500'].map(i => percepcion('PIVA', i)));
   assert.strictEqual(miles.importe, '1.500');
   assert.deepStrictEqual([decimal.importe, cuarto.importe, entero.importe], [1.5, 0.25, 1500]);
@@ -209,7 +234,7 @@ test('el separador de miles argentino ("1.500") no se lee como decimal: pasa cru
 
 test('integración: precio y percepción "1.500" dan el mensaje de número inválido', () => {
   const b = aplicarEdicion(borradorFactcom(), {
-    cabecera: borradorFactcom(), precios: { 1001: '1.500' }, percepciones: [{ tipo: 'PIVA', importe: '1.500' }],
+    cabecera: borradorFactcom(), lineas: [{ plu: '1001', cantidad: 1, precio: '1.500' }, { plu: '1002', cantidad: 1, precio: 3184.01 }], percepciones: [{ tipo: 'PIVA', importe: '1.500' }],
   });
   const msgs = validarComprobante(b, contextoFactcom(), CALCULO).map(e => e.mensaje);
   assert.ok(msgs.includes('El importe de la percepción PIVA no es un número válido.'), String(msgs));
