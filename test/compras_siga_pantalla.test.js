@@ -85,3 +85,28 @@ test('nota de precios: A sin IVA, B/C con IVA y comprobante sin impuestos sin ha
     "'Precios tal como los cargás. IVA 0 (comprobante sin libro de IVA).'",
   ]) assert.ok(JS.includes(trozo), `falta en compras_siga.js: ${trozo}`);
 });
+
+test('numeración automática: emisor y número habilitados, número propuesto con ayuda y sin tocar viaja vacío', () => {
+  assert.doesNotMatch(JS, /\$\(id\)\.disabled = automatico/, 'emisor/número no se deshabilitan en automático');
+  assert.match(HTML, /<label class="campo col-span-2">Número<input id="cNumero"[^>]*><span id="ayudaNumero"/);
+  assert.ok(JS.includes('`Próximo número libre: ${proximo} (se recalcula al grabar)`'));
+  // Sin tocar (igual al propuesto) → null: grabar asigna el siguiente libre con lock.
+  assert.ok(JS.includes('numeroComprobante: numero === estado.proximoNumero ? null : numero,'));
+});
+
+test('punto de venta: datalist con los CentroEmisor de la sucursal que tienen el tipo habilitado (texto libre)', () => {
+  assert.match(HTML, /<input id="cEmisor" type="number" min="1" max="32767" step="1" list="dlPuntosVenta">/);
+  assert.match(HTML, /<datalist id="dlPuntosVenta"><\/datalist>/);
+  const m = /function puntosVentaDe\([\s\S]*?\n  }\n/.exec(JS);
+  assert.ok(m, 'no se encontró puntosVentaDe() en compras_siga.js');
+  const puntosVentaDe = vm.runInNewContext(`(${m[0]})`);
+  const impresoras = [
+    { idSucursal: 1, idImpresora: 'FISCAL1', centroEmisor: 3, comprobantesHabilitados: ['FACTCOM', 'COTIZACIONCOM'] },
+    { idSucursal: 1, idImpresora: 'FISCAL2', centroEmisor: 3, comprobantesHabilitados: ['COTIZACIONCOM'] },
+    { idSucursal: 1, idImpresora: 'MANUAL', centroEmisor: 7, comprobantesHabilitados: ['COTIZACIONCOM'] },
+    { idSucursal: 2, idImpresora: 'OTRA', centroEmisor: 9, comprobantesHabilitados: ['COTIZACIONCOM'] },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(puntosVentaDe(impresoras, 1, 'COTIZACIONCOM'))), [[3, 'FISCAL1'], [7, 'MANUAL']]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(puntosVentaDe(impresoras, 1, 'FACTCOM'))), [[3, 'FISCAL1']]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(puntosVentaDe(undefined, 1, 'FACTCOM'))), []);
+});

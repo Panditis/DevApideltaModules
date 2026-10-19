@@ -54,8 +54,8 @@
     <div class="grid grid-cols-6 gap-3">
       <label class="campo col-span-2">Tipo de comprobante<select id="cTipo"></select></label>
       <label class="campo">Letra<select id="cLetra"></select></label>
-      <label class="campo">Punto de venta<input id="cEmisor" type="number" min="1" max="32767" step="1"></label>
-      <label class="campo col-span-2">Número<input id="cNumero" type="number" min="1" step="1"></label>
+      <label class="campo">Punto de venta<input id="cEmisor" type="number" min="1" max="32767" step="1" list="dlPuntosVenta"></label>
+      <label class="campo col-span-2">Número<input id="cNumero" type="number" min="1" step="1"><span id="ayudaNumero" class="text-xs"></span></label>
       <label class="campo">Fecha<input id="cFecha" type="date"></label>
       <label class="campo">Período fiscal<select id="cPeriodo"></select></label>
       <label class="campo">Sucursal<select id="cSucursal"></select></label>
@@ -93,6 +93,7 @@
       <tbody id="tbPercep"></tbody>
     </table>
     <datalist id="dlProvincias"></datalist>
+    <datalist id="dlPuntosVenta"></datalist>
   </section>
 
   <section class="bg-card border border-borde rounded-xl p-4 shadow-fluent">

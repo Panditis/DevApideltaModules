@@ -29,6 +29,7 @@
   const estado = {
     borrador: null, catalogos: null, precios: {}, percepciones: [], errores: [],
     grabacionHabilitada: false, validando: false, grabando: false, grabado: false, aVerificar: false, incierto: false, secuencia: 0, avisosBase: [],
+    proximoNumero: null, // número propuesto con numeración automática (lo devuelve /validar)
   };
   let temporizador = null;
 
@@ -81,8 +82,9 @@
 
   const tipoElegido = () => (estado.catalogos.tipos || []).find(t => t.idTipoComprobante === $('#cTipo').value) || null;
 
-  // DOC Parte I §3.1-§3.2: la letra depende del tipo; con numeración automática no se tipea emisor ni número;
-  // el período fiscal solo se elige si el tipo graba libro.
+  // DOC Parte I §3.1-§3.2: la letra depende del tipo; el período fiscal solo se elige si el tipo graba libro.
+  // Al cambiar de tipo, como CargarProximoNumeroProveedor: con numeración automática emisor "1" y el número lo
+  // propone /validar (los dos editables); en manual quedan vacíos.
   function aplicarTipo(letraPreferida) {
     const t = tipoElegido();
     const letras = t ? t.letrasHabilitadas : [];
@@ -90,9 +92,33 @@
     const sugerida = letras.length === 1 ? letras[0] : (letras.includes(letraPreferida) ? letraPreferida : prov.letraFiscalCompra);
     llenarSelect($('#cLetra'), letras.map(l => [l, l]), sugerida);
     const automatico = !!(t && t.numeracionAutomatica);
-    ['#cEmisor', '#cNumero'].forEach(id => { $(id).disabled = automatico; if (automatico) $(id).value = ''; });
+    $('#cEmisor').value = automatico ? '1' : '';
+    $('#cNumero').value = '';
     $('#cNumero').placeholder = automatico ? 'Se asigna al grabar' : '';
+    mostrarNumeroPropuesto(null);
     $('#cPeriodo').disabled = !(t && t.grabaLibro);
+    aplicarPuntosVenta();
+  }
+
+  // Número propuesto (numeración automática): si el número está vacío o sigue igual al propuesto anterior se pone el
+  // nuevo; si el usuario tipeó otro se respeta (se graba ese, con control de duplicado).
+  function mostrarNumeroPropuesto(proximo) {
+    const actual = $('#cNumero').value;
+    if (proximo != null && (actual === '' || Number(actual) === estado.proximoNumero)) $('#cNumero').value = String(proximo);
+    estado.proximoNumero = proximo ?? null;
+    $('#ayudaNumero').textContent = proximo != null ? `Próximo número libre: ${proximo} (se recalcula al grabar)` : '';
+  }
+
+  // [CentroEmisor, IdImpresora] de la sucursal con el tipo en ComprobantesHabilitados, sin repetir el emisor.
+  function puntosVentaDe(impresoras, idSucursal, idTipo) {
+    const delTipo = (impresoras || []).filter(i => i.idSucursal === idSucursal && i.comprobantesHabilitados.includes(idTipo));
+    return delTipo.filter((i, k) => delTipo.findIndex(j => j.centroEmisor === i.centroEmisor) === k).map(i => [i.centroEmisor, i.idImpresora]);
+  }
+
+  // Sugerencias de Impresoras para el punto de venta, que sigue siendo libre (en FACTCOM es el del proveedor).
+  function aplicarPuntosVenta() {
+    const puntos = puntosVentaDe(estado.catalogos.impresoras, Number($('#cSucursal').value), $('#cTipo').value);
+    $('#dlPuntosVenta').innerHTML = puntos.map(([c, imp]) => `<option value="${esc(c)}">${esc(imp)}</option>`).join('');
   }
 
   function aplicarSucursal(idDeposito, idUbicacion) {
@@ -100,6 +126,7 @@
     const ubicaciones = (estado.catalogos.ubicaciones || []).filter(u => u.idSucursal === suc);
     llenarSelect($('#cUbicacion'), ubicaciones.map(u => [`${u.idDeposito}|${u.idUbicacion}`, u.nombre]),
       idDeposito != null ? `${idDeposito}|${idUbicacion}` : null);
+    aplicarPuntosVenta();
   }
 
   function cargarCabecera(b) {
@@ -143,11 +170,14 @@
 
   function cuerpo() {
     const [idDeposito, idUbicacion] = ($('#cUbicacion').value || '|').split('|');
+    const numero = num($('#cNumero').value);
     return {
       pedido, precios: estado.precios, percepciones: estado.percepciones,
       cabecera: {
         idTipoComprobante: $('#cTipo').value, letra: $('#cLetra').value, centroEmisor: num($('#cEmisor').value),
-        numeroComprobante: num($('#cNumero').value), fecha: $('#cFecha').value, periodoFiscal: num($('#cPeriodo').value),
+        // Número propuesto sin tocar → null: grabar asigna el siguiente libre con lock aunque otro haya grabado en el medio.
+        numeroComprobante: numero === estado.proximoNumero ? null : numero,
+        fecha: $('#cFecha').value, periodoFiscal: num($('#cPeriodo').value),
         idSucursal: num($('#cSucursal').value), idDeposito: num(idDeposito), idUbicacion: num(idUbicacion),
         idFormasPago: num($('#cFormaPago').value), porcDescRecGeneral: num($('#cDescGral').value) ?? 0,
         observacion: $('#cObs').value,
@@ -199,6 +229,7 @@
     const t = r.totales || {};
     [['#totBruto', 'totalBruto'], ['#totNeto', 'totalNeto'], ['#totIVA', 'totalIVA'], ['#totPercep', 'totalPercepciones'], ['#totImpInt', 'impuestosInternos'], ['#totTotal', 'importeTotal']]
       .forEach(([id, k]) => { $(id).textContent = n2(t[k]); });
+    mostrarNumeroPropuesto(r.proximoNumero);
     estado.errores = r.errores || [];
     pintarErrores();
     actualizarBotonGrabar();
@@ -261,7 +292,9 @@
   async function grabar() {
     const c = cuerpo().cabecera;
     const t = tipoElegido();
-    const numero = t && t.numeracionAutomatica ? `${c.letra} (número automático)` : `${c.letra} ${c.centroEmisor}-${c.numeroComprobante}`;
+    const numero = t && t.numeracionAutomatica && c.numeroComprobante == null
+      ? `${c.letra} ${c.centroEmisor || 1}-${estado.proximoNumero ?? '?'} (número automático: si otro lo usó antes, se graba el siguiente libre)`
+      : `${c.letra} ${c.centroEmisor}-${c.numeroComprobante}`;
     const aceptado = await confirmar({
       titulo: 'Confirmar grabación en SIGA',
       texto: `Se va a grabar en SIGA el comprobante ${c.idTipoComprobante} ${numero} por $ ${$('#totTotal').textContent}, `
