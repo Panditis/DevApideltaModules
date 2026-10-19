@@ -301,7 +301,7 @@ test('POST grabar sin confirmar (SIGA_SIN_CONFIRMAR): 409, no vincula y deja el 
     assert.deepStrictEqual(vinculosDe(ctx), {});
     const usuario = 'adriel.compras';
     assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
-      usuario, ...GRABADO, historial: [{ ...MARCA().historial[0], usuario }],
+      usuario, ...GRABADO, pedidoActualizado: false, historial: [{ ...MARCA().historial[0], usuario }],
     }));
     assert.deepStrictEqual(ctx.pedido(), PEDIDO, 'sin confirmar no toca el pedido');
   } finally { cerrar(ctx); }
@@ -327,7 +327,7 @@ test('POST grabar OK pero falla el vínculo: aviso + pedido "a verificar" (motiv
     assert.strictEqual(r.data.vinculado, false);
     assert.strictEqual(r.data.avisoVinculo, 'Se grabó en SIGA pero no se pudo vincular al pedido. Vinculalo desde Control de compras.');
     assert.deepStrictEqual(estadoDe(ctx)['P-0007'], MARCA({
-      motivo: 'vinculo', usuario: 'adriel.compras', ...GRABADO,
+      motivo: 'vinculo', usuario: 'adriel.compras', ...GRABADO, pedidoActualizado: true,
       historial: [{ evento: 'a_verificar', motivo: 'vinculo', clave: '1|FACTCOM|A|5007|1071364', usuario: 'adriel.compras', ts: TS }],
     }));
     const otra = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo());
@@ -591,5 +591,21 @@ test('liberar-verificacion cargado y falla guardar el pedido: se libera igual co
     const r = await liberar(ctx, { resultado: 'cargado' });
     assert.deepStrictEqual([r.status, r.data.vinculado, r.data.pedidoActualizado, r.data.avisoPedido], [200, true, false, AVISO_PEDIDO]);
     assert.strictEqual(estadoDe(ctx)['P-0007'].estado, 'liberado');
+  } finally { cerrar(ctx); }
+});
+
+test('vínculo fallido con el pedido ya actualizado: liberar cargado no lo vuelve a aplicar (una sola entrada en el historial)', async t => {
+  t.mock.method(console, 'error', () => {});
+  const ctx = await montar({ fallaGuardar: ['pedidos_comprobantes.json'] });
+  try {
+    const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo({ lineas: [{ plu: '1001', cantidad: 0.5, precio: 30000 }] }));
+    assert.deepStrictEqual([g.status, g.data.vinculado, g.data.pedidoActualizado], [200, false, true]);
+    assert.strictEqual(estadoDe(ctx)['P-0007'].pedidoActualizado, true);
+    fs.rmSync(path.join(ctx.dir, 'pedidos_comprobantes.json.tmp'), { recursive: true });
+    const antes = structuredClone(ctx.pedido());
+    const r = await liberar(ctx, { resultado: 'cargado' });
+    assert.deepStrictEqual([r.status, r.data.vinculado, r.data.pedidoActualizado, r.data.avisoPedido], [200, true, true, undefined]);
+    assert.deepStrictEqual(ctx.pedido(), antes);
+    assert.strictEqual(ctx.pedido().historial.filter(h => h.accion === 'importado a SIGA').length, 1);
   } finally { cerrar(ctx); }
 });

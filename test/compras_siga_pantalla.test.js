@@ -180,3 +180,10 @@ test('confirmación de grabado: dice si el pedido se actualizó con lo grabado o
   assert.ok(liberar, 'no se encontró liberarVerificacion');
   assert.match(liberar[1], /if \(datos\.avisoPedido\) \{[^}]*mostrarAviso\('error', datos\.avisoPedido\)/);
 });
+
+test('aviso: anunciado (role=status, aria-live) y llevado a la vista al mostrarse', () => {
+  assert.match(HTML, /<div id="aviso" class="hidden" role="status" aria-live="polite"><\/div>/);
+  const m = /function mostrarAviso\(tono, \.\.\.partes\) \{([\s\S]*?)\n  \}\n/.exec(JS);
+  assert.ok(m, 'no se encontró mostrarAviso');
+  assert.match(m[1], /caja\.scrollIntoView\(\{ block: 'start' \}\)/);
+});

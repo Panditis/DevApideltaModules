@@ -149,24 +149,25 @@ module.exports = function crearRutasComprasSiga(deps) {
   // Pedido "a verificar": bloquea borrador/validar/grabar hasta liberar-verificacion. Motivos: 'sin_confirmar'
   // (no se sabe si quedó en SIGA) y 'vinculo' (quedó, pero no se pudo vincular): en los dos un reintento duplicaría
   // el comprobante en numeración automática.
-  // grabado (lineas + nombres) queda en la marca: liberar 'cargado' lo vuelca al pedido.
-  function marcarAVerificar(numero, { motivo, clave, usuario, grabado }) {
+  // grabado (lineas + nombres) queda en la marca y liberar 'cargado' lo vuelca al pedido solo si pedidoActualizado es
+  // false: con el vínculo fallido /grabar ya lo actualizó, y reaplicarlo duplicaría el historial y pisaría ediciones.
+  function marcarAVerificar(numero, { motivo, clave, usuario, grabado, pedidoActualizado }) {
     const ts = ahora().toISOString();
+    const cambios = { estado: 'a_verificar', motivo, clave, ts, usuario, ...grabado, pedidoActualizado };
     try {
-      registrarEstado(numero, { estado: 'a_verificar', motivo, clave, ts, usuario, ...grabado }, { evento: 'a_verificar', motivo, clave, usuario, ts });
+      registrarEstado(numero, cambios, { evento: 'a_verificar', motivo, clave, usuario, ts });
     } catch (err) {
       console.error(`[compras-siga] no se pudo marcar a verificar el pedido ${numero} (comprobante ${clave}):`, err.message);
     }
   }
 
-  // El comprobante ya está en SIGA: si falla el disco no se revierte nada; se avisa y el pedido queda a verificar.
-  function vincular(numero, clave, usuario, grabado) {
+  // El comprobante ya está en SIGA: si falla el disco no se revierte nada; se avisa y /grabar deja el pedido a verificar.
+  function vincular(numero, clave) {
     try {
       guardarVinculo(numero, clave);
       return { vinculado: true };
     } catch (err) {
       console.error(`[compras-siga] vincular pedido ${numero} (comprobante ${clave}):`, err.message);
-      marcarAVerificar(numero, { motivo: 'vinculo', clave, usuario, grabado });
       return { vinculado: false, avisoVinculo: 'Se grabó en SIGA pero no se pudo vincular al pedido. Vinculalo desde Control de compras.' };
     }
   }
@@ -234,8 +235,11 @@ module.exports = function crearRutasComprasSiga(deps) {
       const comprobante = comprobanteDe(clave);
       const claveTexto = claveComprobante(comprobante);
       const grabado = grabadoDe(r.calculo);
-      const vinculo = vincular(numero, claveTexto, usuario, grabado);
+      const vinculo = vincular(numero, claveTexto);
       const pedido = actualizarPedido(numero, grabado, { clave: claveTexto, usuario });
+      if (!vinculo.vinculado) {
+        marcarAVerificar(numero, { motivo: 'vinculo', clave: claveTexto, usuario, grabado, pedidoActualizado: pedido.pedidoActualizado });
+      }
       return res.json({ ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, lineas: grabado.lineas, ...vinculo, ...pedido });
     } catch (err) {
       if (err && err.code === SIN_CONFIRMAR) {
@@ -243,6 +247,7 @@ module.exports = function crearRutasComprasSiga(deps) {
         const clave = err.clave || (filas && filas.clave);
         marcarAVerificar(numero, {
           motivo: 'sin_confirmar', clave: clave ? claveComprobante(comprobanteDe(clave)) : null, usuario, grabado: grabadoDe(r.calculo),
+          pedidoActualizado: false,
         });
         return res.status(409).json({ ok: false, error: err.message, aVerificar: true });
       }
@@ -280,7 +285,9 @@ module.exports = function crearRutasComprasSiga(deps) {
       const usuario = usuarioCompras(req);
       const ts = ahora().toISOString();
       registrarEstado(numero, { estado: 'liberado', resultado, usuario, ts }, { evento: 'liberado', resultado, usuario, ts });
-      const pedido = resultado === 'cargado' ? actualizarPedido(numero, marca, { clave: marca.clave, usuario }) : {};
+      const pedido = resultado !== 'cargado' ? {}
+        : marca.pedidoActualizado === true ? { pedidoActualizado: true }
+          : actualizarPedido(numero, marca, { clave: marca.clave, usuario });
       return res.json({ ok: true, numeroPedido: numero, resultado, vinculado: resultado === 'cargado', ...pedido });
     } catch (err) {
       return responderError(res, err, 'liberar-verificacion', numero);

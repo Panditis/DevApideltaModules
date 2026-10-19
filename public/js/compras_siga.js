@@ -52,6 +52,7 @@
     const caja = $('#aviso');
     caja.className = `rounded-lg border bg-white px-4 py-3 text-sm ${tonos[tono] || tonos.info}`;
     caja.replaceChildren(...partes);
+    caja.scrollIntoView({ block: 'start' }); // el resultado de grabar queda a la vista aunque se haya bajado en la tabla
   }
 
   // Vuelve al aviso fijo del borrador (bloqueos y avisos de catálogos) o lo oculta: borra errores ya superados.

@@ -106,3 +106,8 @@ test('no muta el pedido ni las líneas recibidas', () => {
   assert.notStrictEqual(p.items, pedido.items);
   assert.notStrictEqual(p.historial, pedido.historial);
 });
+
+test('nombre de SIGA: solo propiedades propias de nombres (un PLU como "constructor" no toma nada heredado)', () => {
+  const p = aplicarGrabadoAPedido(PEDIDO, [linea('constructor', 1, 5), linea('toString', 1, 5)], { ...OPC, nombres: {} });
+  assert.deepStrictEqual(p.items.slice(-2).map(l => l.nombre), ['constructor', 'toString']);
+});
