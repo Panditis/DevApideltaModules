@@ -157,6 +157,19 @@ test('contexto: los PLU NUEVO- no van a SQL y sin emisor no se controla duplicad
   assert.strictEqual(falso.registro.findIndex(e => /FROM Compras C/.test(e.texto)), -1);
 });
 
+test('contexto: PLU repetidos van una sola vez a SQL y nunca más de 200 parámetros', async () => {
+  const linea = (plu, i) => ({ orden: i + 1, plu, nombre: plu, cantidad: 1, precio: 1 });
+  const falso = crearSqlFalso(porTabla());
+  await crearRepo(falso).contexto(borradorFactcom({ lineas: ['1001', '1002', '1001'].map(linea) }), { hoy: '2026-10-16' });
+  const productos = falso.registro.find(e => /FROM Productos WHERE/.test(e.texto));
+  assert.deepStrictEqual(Object.values(productos.params), ['1001', '1002']);
+  const muchos = crearSqlFalso(porTabla());
+  const plus = Array.from({ length: 2500 }, (_, i) => String(5000 + i));
+  await crearRepo(muchos).contexto(borradorFactcom({ lineas: plus.map(linea) }), { hoy: '2026-10-16' });
+  const consulta = muchos.registro.find(e => /FROM Productos WHERE/.test(e.texto));
+  assert.strictEqual(Object.keys(consulta.params).length, 200);
+});
+
 test('catalogos: combos para la pantalla; si falla Provincias, avisa y sigue', async () => {
   const falso = crearSqlFalso(porTabla({ Provincias: () => { throw new Error("Invalid object name 'Provincias'."); } }));
   const cat = await crearRepo(falso).catalogos({ idProveedor: 328 });

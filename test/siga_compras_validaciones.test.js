@@ -155,6 +155,24 @@ test('líneas: PLU nuevo, producto inexistente o inactivo, UM distinta, precio y
   assert.strictEqual(validarComprobante(con({ ...ok, plu: '9999' }), ctx, CALCULO)[0].campo, 'lineas[0]');
 });
 
+test('líneas: PLU vacío pide el producto; PLU repetido se permite (SiGA lo agrega como otra línea)', () => {
+  const ctx = contextoFactcom();
+  const ok = { orden: 1, plu: '1001', nombre: 'Harina', cantidad: 1, precio: 10 };
+  for (const plu of ['', '  ', undefined]) {
+    assert.deepStrictEqual(mensajes(borradorFactcom({ lineas: [{ ...ok, plu, nombre: '' }] }), ctx), ['v1: falta el producto.'], String(plu));
+  }
+  assert.deepStrictEqual(mensajes(borradorFactcom({ lineas: [ok, { ...ok, orden: 2, cantidad: 3 }] }), ctx), []);
+});
+
+test('líneas: más de 200 cortan con un solo error (leerProductos usa un parámetro por PLU)', () => {
+  const ctx = contextoFactcom();
+  const ok = { plu: '1001', nombre: 'Harina', cantidad: 1, precio: 10 };
+  const lineas = n => Array.from({ length: n }, (_, i) => ({ ...ok, orden: i + 1 }));
+  assert.deepStrictEqual(mensajes(borradorFactcom({ lineas: lineas(200) }), ctx), []);
+  assert.deepStrictEqual(validarComprobante(borradorFactcom({ lineas: lineas(201) }), ctx, CALCULO),
+    [{ campo: 'lineas', mensaje: 'v1: el comprobante supera las 200 líneas.' }]);
+});
+
 test('líneas: cantidad o precio no numéricos se rechazan antes de redondear (NaN pasaría a 0)', () => {
   const ctx = contextoFactcom();
   const con = linea => borradorFactcom({ lineas: [linea] });
