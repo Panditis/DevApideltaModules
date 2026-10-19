@@ -416,3 +416,24 @@ test('tipo de proveedor: PUT guarda/cambia/quita en una fila de Reventa; rechaza
     assert.deepStrictEqual(a.leer().tipoProveedor, {});
   } finally { a.cerrar(); }
 });
+
+test('export pack/bulto según SIGA: infiere la fuente del minorista vigente (sin decisiones) y arma las listas pack/bulto', async () => {
+  const vigentes = { 1: 1750 }; // Arroz: sistema 1000 → sugerido 1750 = SIGA
+  const query = async sql => {
+    if (sql.includes("'Almacen Bultos/Cajas'")) return [{ plu: '2', nombre: 'Arroz BULTO x10', basePlu: '1', cantidad: 10, baseNombre: 'Arroz', baseRubro: 'Almacen' }];
+    if (sql.includes('ProductosSucursalesPrecios')) return [{ IdProducto: '1', Precio: vigentes[1] }, { IdProducto: '2', Precio: 16000 }];
+    return sigaFalso(sql);
+  };
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  try {
+    const r = await a.pedir('GET', '/api/precios/esquema/export-pack-bulto-siga');
+    assert.deepStrictEqual([r.total, r.resueltos, r.revisar], [1, { sistema: 1, ultimaCompra: 0, manual: 0 }, []]);
+    assert.deepStrictEqual([r.listas.bultoNeto, r.listas.bultoIva].map(l => l.slice(1).map(x => [x[0], x[2]])), [[[2, 1000]], [[2, 1000]]]);
+    assert.deepStrictEqual(Object.keys(r.listas), ['packNeto', 'packIva', 'bultoNeto', 'bultoIva']);
+    vigentes[1] = 2222; // SIGA cambió el minorista: ya no coincide (lee SIGA fresco)
+    const r2 = await a.pedir('GET', '/api/precios/esquema/export-pack-bulto-siga');
+    assert.deepStrictEqual(r2.revisar.map(x => [x.plu, x.vigente, x.motivo]), [['1', 2222, 'ninguno']]);
+    assert.strictEqual(r2.listas.bultoIva.length, 1);
+    assert.ok(!('decisiones' in a.leer()) || !Object.keys(a.leer().decisiones).length); // no toca decisiones
+  } finally { a.cerrar(); }
+});

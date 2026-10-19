@@ -445,3 +445,56 @@ test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicar
   assert.deepStrictEqual(L.aplicarTipoProveedor(undefined, '1', 'directo'), { 1: 'directo' });
   assert.deepStrictEqual(mapa, { 1: 'directo' });
 });
+
+// ── Pack/Bulto según SIGA (2026-10-19): la fuente sale del minorista que ya está en SIGA ──
+// Fila mínima de Reventa: sugeridos { fuente: [minorista, conIva del pack] } y un pack vinculado.
+const filaInferir = (vigente, precios, mayoristas = [{ plu: '60', nombre: 'Pack', tipo: 'pack', unidades: 1 }]) => ({
+  plu: '1', nombre: 'Arroz', vigente, mayoristas, costoSistema: 1000, costoUltimaCompra: 1500, costoManual: null,
+  sugeridos: Object.fromEntries(Object.entries(precios).map(([f, [min, pack]]) => [f, { error: null, minorista: { precio: min },
+    mayoristas: mayoristas.map(m => ({ plu: m.plu, neto: pack == null ? null : pack / 1.21, conIva: pack })) }])),
+});
+
+test('inferirFuente: la fuente cuyo minorista coincide con SIGA (±0,50); varias con el mismo pack/bulto → sistema; si no, revisar', () => {
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(2750, { sistema: [1800, 900], ultimaCompra: [2750, 1300] })), { fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800.4, { sistema: [1800, 900], ultimaCompra: [2750, 1300] })), { fuente: 'sistema' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1450, { sistema: [1800, 900], manual: [1450, 700] })), { fuente: 'manual' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, { sistema: [1800, 900], ultimaCompra: [1800, 900] })), { fuente: 'sistema' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, { ultimaCompra: [1800, 900], manual: [1800, 900] })), { fuente: 'ultimaCompra' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, { sistema: [1800, 900], ultimaCompra: [1800, 950] })), { revisar: 'ambiguo' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1999, { sistema: [1800, 900], ultimaCompra: [2750, 1300] })), { revisar: 'ninguno' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800.5, { sistema: [1800, 900] })), { revisar: 'ninguno' }); // tolerancia estricta
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(null, { sistema: [1800, 900] })), { revisar: 'sinVigente' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(0, { sistema: [1800, 900] })), { revisar: 'sinVigente' });
+  assert.deepStrictEqual(L.inferirFuente(filaInferir(1800, {})), { revisar: 'sinPrecio' });
+  const conError = filaInferir(1800, { sistema: [1800, 900] });
+  assert.deepStrictEqual(L.inferirFuente({ ...conError, sugeridos: { sistema: { error: 'margen', minorista: null, mayoristas: [] } } }), { revisar: 'sinPrecio' });
+});
+
+test('packBultoSiga: listas pack/bulto con Costo (en pantalla × unidades) y Venta de la fuente inferida; sin pack/bulto → afuera; revisar con sus sugeridos', () => {
+  const mayoristasDe = L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: VIGENTES });
+  const universo = [{ plu: '1', nombre: 'Arroz', costoSistema: 1000, costoMercaderia: 1500 }, { plu: '2', nombre: 'Sin bulto', costoSistema: 1000 },
+    { plu: '3', nombre: 'Fideos', costoSistema: 1000, costoMercaderia: 1500 }, { plu: '4', nombre: 'Yerba', costoSistema: 1000 }];
+  const vincs = [...VINCULOS, { plu: '70', nombre: 'Fideos Pack x2', basePlu: '3', cantidad: 2, tipo: 'pack' }, { plu: '80', nombre: 'Yerba Bulto', basePlu: '4', cantidad: 10, tipo: 'bulto' }];
+  const vigentes = new Map([['1', 2750], ['2', 1800], ['3', 1999], ['50', 1750]]); // 4 sin precio en SIGA
+  const almacen = L.listadoReventa({ universo, vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos: vincs, vigentes }), costeo: {}, cfg: CFG });
+  const r = L.packBultoSiga(almacen);
+  assert.strictEqual(r.total, 3); // el 2 no tiene pack/bulto
+  assert.deepStrictEqual(r.resueltos, { sistema: 0, ultimaCompra: 1, manual: 0 });
+  const arroz = almacen[0].sugeridos.ultimaCompra.mayoristas[0];
+  assert.deepStrictEqual(r.listas.bultoNeto, [['Codigo', 'Nombre', 'Costo', 'Venta'], [50, 'Arroz Bulto x6', 1500, arroz.neto]]);
+  assert.deepStrictEqual(r.listas.bultoIva, [['Codigo', 'Nombre', 'Costo', 'Venta'], [50, 'Arroz Bulto x6', 1500, arroz.conIva]]);
+  assert.deepStrictEqual([r.listas.packNeto.length, r.listas.packIva.length], [1, 1]); // sólo encabezado
+  assert.ok(!('minorista' in r.listas));
+  assert.deepStrictEqual(r.revisar, [
+    { plu: '3', nombre: 'Fideos', vigente: 1999, sugeridoSistema: almacen[2].sugeridos.sistema.minorista.precio,
+      sugeridoUltimaCompra: almacen[2].sugeridos.ultimaCompra.minorista.precio, motivo: 'ninguno' },
+    { plu: '4', nombre: 'Yerba', vigente: null, sugeridoSistema: almacen[3].sugeridos.sistema.minorista.precio, sugeridoUltimaCompra: null, motivo: 'sinVigente' },
+  ]);
+  assert.strictEqual(mayoristasDe('1').length, 1);
+});
+
+test('packBultoSiga: pesable por paquete multiplica el Costo por los kg (como listasExport)', () => {
+  const fila = { ...filaInferir(1800, { sistema: [1800, 9000] }, [{ plu: '60', nombre: 'Granel x5kg', tipo: 'bulto', unidades: 5 }]) };
+  const r = L.packBultoSiga([fila]);
+  assert.deepStrictEqual(r.listas.bultoIva[1], [60, 'Granel x5kg', 5000, 9000]);
+});

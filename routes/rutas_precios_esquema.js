@@ -198,6 +198,10 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return { listas: L.listasExport(items), omitidos };
   }));
 
+  // "Pack/Bulto según SIGA" (Reventa): las 4 listas pack/bulto con la fuente de cada producto inferida del minorista que
+  // está HOY en SIGA (L.packBultoSiga); no usa ni poda las decisiones. Cualquier usuario del módulo, como el export.
+  router.get('/api/precios/esquema/export-pack-bulto-siga', apiRoute(async () => L.packBultoSiga(await listado('almacen', leerCosteo()))));
+
   return router;
 };
 

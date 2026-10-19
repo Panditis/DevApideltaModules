@@ -228,3 +228,21 @@ test('filasExportListado: Tipo proveedor sólo en Reventa', () => {
   assert.strictEqual(fracc[0].includes('Tipo proveedor'), false);
   assert.strictEqual(prod[0].includes('Tipo proveedor'), false);
 });
+
+test('Pack/Bulto según SIGA: resumen de resueltos por costo y planilla a revisar (PLU numérico, motivo en castellano)', () => {
+  const { textoResumenPackBulto, filasRevisarPackBulto } = require('../public/js/precios_listados.js');
+  assert.strictEqual(textoResumenPackBulto({ resueltos: { sistema: 3, ultimaCompra: 2, manual: 0 }, revisar: [{}] }),
+    '5 productos resueltos (3 con costo sistema, 2 con última compra) · 1 a revisar');
+  assert.strictEqual(textoResumenPackBulto({ resueltos: { sistema: 1, ultimaCompra: 0, manual: 2 }, revisar: [] }),
+    '3 productos resueltos (1 con costo sistema, 0 con última compra, 2 con costo manual) · 0 a revisar');
+  const revisar = ['ninguno', 'ambiguo', 'sinVigente', 'sinPrecio'].map((motivo, i) => ({ plu: String(10 + i), nombre: `P${i}`, vigente: i === 2 ? null : 100,
+    sugeridoSistema: 90, sugeridoUltimaCompra: i === 3 ? null : 110, motivo }));
+  assert.deepStrictEqual(filasRevisarPackBulto([...revisar, { plu: 'X1', nombre: 'Raro', vigente: 5, sugeridoSistema: null, sugeridoUltimaCompra: null, motivo: 'ninguno' }]), [
+    ['PLU', 'Nombre', 'Precio SIGA', 'Sugerido sistema', 'Sugerido última compra', 'Motivo'],
+    [10, 'P0', 100, 90, 110, 'Ningún costo coincide'],
+    [11, 'P1', 100, 90, 110, 'Coinciden los dos con precios distintos'],
+    [12, 'P2', null, 90, 110, 'Sin precio en SIGA'],
+    [13, 'P3', 100, 90, null, 'Sin sugerido'],
+    ['X1', 'Raro', 5, null, null, 'Ningún costo coincide'],
+  ]);
+});
