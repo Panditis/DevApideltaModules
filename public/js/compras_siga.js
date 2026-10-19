@@ -189,9 +189,11 @@
       tr.querySelectorAll('[data-c]').forEach(td => { td.textContent = l ? n2(l[td.dataset.c]) : ''; });
     });
     // DOC decisión 15: el precio editable es el de la grilla de SiGA. Ni discrimina ni incluye IVA = comprobante sin
-    // impuestos (p. ej. interno): el precio va tal cual, sin letra fiscal de por medio.
-    $('#thPrecio').textContent = r.discrimina ? 'Precio s/IVA' : r.incluyeIVA ? 'Precio c/IVA' : 'Precio';
-    $('#notaPrecio').textContent = r.discrimina ? 'Precios SIN IVA: letra A, proveedor y empresa discriminan IVA.'
+    // impuestos (p. ej. interno): el precio va tal cual, sin letra fiscal de por medio. Sin libro de IVA (p. ej.
+    // COTIZACIONCOM) la v1 fija IVA 0 en todas las líneas (armar_comprobante.js, calcularComprobante).
+    $('#thPrecio').textContent = r.sinLibroIVA ? 'Precio' : r.discrimina ? 'Precio s/IVA' : r.incluyeIVA ? 'Precio c/IVA' : 'Precio';
+    $('#notaPrecio').textContent = r.sinLibroIVA ? 'Precios tal como los cargás. IVA 0 (comprobante sin libro de IVA).'
+      : r.discrimina ? 'Precios SIN IVA: letra A, proveedor y empresa discriminan IVA.'
       : r.incluyeIVA ? 'Precios CON IVA incluido: letra B/C, no se discrimina IVA.'
         : 'Precios tal como los cargás (comprobante sin discriminación de IVA).';
     const t = r.totales || {};

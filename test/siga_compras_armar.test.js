@@ -197,7 +197,7 @@ test('armarComprobante: COTIZACIONCOM numera por proveedor (emisor 1, número al
   assert.strictEqual(f.numeracion.modo, 'proveedor');
   assert.strictEqual(f.compras.PeriodoFiscal, null);
   assert.strictEqual(f.compras.IdEmpresa, null);
-  assert.strictEqual(f.compras.ImportePesos, 42665.16);
+  assert.strictEqual(f.compras.ImportePesos, 35978.84); // sin libro de IVA: neto 35.023,65 + PIVA 955,19, IVA 0
   assert.strictEqual(f.periodoFiscal, null);
   assert.strictEqual(f.ctaCte, null);
 });
@@ -227,4 +227,22 @@ test('calcularComprobante: incluyeIVA solo cuando todos usan impuestos y alguno 
   assert.deepStrictEqual(de(conProveedor({ ivaDiscriminado: false })), [false, true]);
   // Comprobante interno sin impuestos: ni discrimina ni lleva IVA en el precio.
   assert.deepStrictEqual(de({ ...ctx, tipo: { ...ctx.tipo, utilizaImpuestos: false } }), [false, false]);
+});
+
+test('calcularComprobante: COTIZACIONCOM (sin libro de IVA) con proveedor RI → IVA 0 en todas las líneas', () => {
+  const ctx = contextoFactcom();
+  const tipo = { ...ctx.tipo, idTipoComprobante: 'COTIZACIONCOM', grabaLibro: false, numeracionAutomatica: true, letrasHabilitadas: ['X'] };
+  const b = borradorFactcom({ idTipoComprobante: 'COTIZACIONCOM', letra: 'X', percepciones: [] });
+  const c = calcularComprobante(b, { ...ctx, tipo });
+  assert.strictEqual(c.sinLibroIVA, true);
+  assert.deepStrictEqual(c.lineas.map(l => [l.porcentajeIVA, l.iva]), [[0, 0], [0, 0]]);
+  assert.strictEqual(c.totales.totalIVA, 0);
+  assert.strictEqual(c.totales.importeTotal, 35023.65);
+  // Una sola fila IVA, alícuota 0 y base = neto; el precio va tal como se tipea.
+  assert.deepStrictEqual(c.filasImpuestos.map(f => [f.idTipoImpuesto, f.alicuota, f.baseImponible, f.importe]), [['IVA', 0, 35023.65, 0]]);
+  const f = armarComprobante(b, { ...ctx, tipo }, c, { ahora: AHORA, usuario: 'adriel' });
+  assert.strictEqual(f.compras.TotalIVA, 0);
+  assert.strictEqual(f.compras.PorcentajeIVA, 21); // Reglas.Compras L248: la cabecera sigue en 21
+  assert.ok(f.comprasProductos.every(p => p.PorcentajeIVA === 0 && p.IVA === 0));
+  assert.strictEqual(calcularComprobante(borradorFactcom(), contextoFactcom()).sinLibroIVA, false); // FACTCOM A sigue igual
 });

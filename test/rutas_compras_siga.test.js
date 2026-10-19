@@ -122,7 +122,7 @@ test('POST validar: recalcula del lado del servidor y devuelve los errores de Si
     assert.deepStrictEqual(ok.data.errores, []);
     assert.strictEqual(ok.data.totales.importeTotal, 42665.16);
     assert.deepStrictEqual(ok.data.lineas.map(l => l.proporcionalImp), [878.7748, 76.4152]);
-    assert.deepStrictEqual([ok.data.discrimina, ok.data.incluyeIVA], [true, false]);
+    assert.deepStrictEqual([ok.data.discrimina, ok.data.incluyeIVA, ok.data.sinLibroIVA], [true, false, false]);
     const mal = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo({ cabecera: { ...CABECERA, numeroComprobante: '' } }));
     assert.strictEqual(mal.status, 200);
     assert.deepStrictEqual(mal.data.errores, [{ campo: 'numeroComprobante', mensaje: 'Debe cargar un el número del comprobante.' }]);

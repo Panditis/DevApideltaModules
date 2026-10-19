@@ -116,7 +116,7 @@ module.exports = function crearRutasComprasSiga(deps) {
 
   const vista = ({ calculo, errores }) => ({
     lineas: calculo.lineas, filasImpuestos: calculo.filasImpuestos, totales: calculo.totales,
-    discrimina: calculo.discrimina, incluyeIVA: calculo.incluyeIVA, errores,
+    discrimina: calculo.discrimina, incluyeIVA: calculo.incluyeIVA, sinLibroIVA: calculo.sinLibroIVA, errores,
   });
 
   function guardarVinculo(numero, clave) {

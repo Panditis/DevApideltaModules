@@ -82,5 +82,6 @@ test('nota de precios: A sin IVA, B/C con IVA y comprobante sin impuestos sin ha
     "'Precios SIN IVA: letra A, proveedor y empresa discriminan IVA.'",
     "r.incluyeIVA ? 'Precios CON IVA incluido: letra B/C, no se discrimina IVA.'",
     "'Precios tal como los cargás (comprobante sin discriminación de IVA).'",
+    "'Precios tal como los cargás. IVA 0 (comprobante sin libro de IVA).'",
   ]) assert.ok(JS.includes(trozo), `falta en compras_siga.js: ${trozo}`);
 });
