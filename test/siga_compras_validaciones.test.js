@@ -164,6 +164,14 @@ test('líneas: PLU vacío pide el producto; PLU repetido se permite (SiGA lo agr
   assert.deepStrictEqual(mensajes(borradorFactcom({ lineas: [ok, { ...ok, orden: 2, cantidad: 3 }] }), ctx), []);
 });
 
+test('líneas: PLU con nombre de propiedad de Object (__proto__, constructor) da "no existe", no "inactivo"', () => {
+  const ctx = contextoFactcom();
+  for (const plu of ['__proto__', 'constructor', 'toString']) {
+    assert.deepStrictEqual(mensajes(borradorFactcom({ lineas: [{ orden: 1, plu, nombre: plu, cantidad: 1, precio: 10 }] }), ctx),
+      [`v1: el producto ${plu} no existe en SIGA.`], plu);
+  }
+});
+
 test('líneas: más de 200 cortan con un solo error (leerProductos usa un parámetro por PLU)', () => {
   const ctx = contextoFactcom();
   const ok = { plu: '1001', nombre: 'Harina', cantidad: 1, precio: 10 };

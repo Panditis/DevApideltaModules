@@ -143,3 +143,29 @@ test('el permiso del módulo compras cubre el buscador de productos (/api/compra
   const auth = leer('lib/auth.js');
   assert.match(auth, /ref: 'compras',[^\n]*apiPrefijos: \[[^\]]*'\/api\/compras-import'/);
 });
+
+test('mientras graba: tabla, buscador y cabecera quedan deshabilitados y una respuesta vieja no se pinta', () => {
+  assert.match(HTML, /<fieldset id="fsEdicion"[^>]*>[\s\S]*id="cTipo"[\s\S]*id="buscarProducto"[\s\S]*id="tLineas"[\s\S]*id="tbPercep"[\s\S]*<\/fieldset>/);
+  const m = /async function grabar\(\) \{[\s\S]*?\n {2}\}\n/.exec(JS);
+  assert.ok(m, 'no se encontró grabar()');
+  assert.ok(m[0].includes("$('#fsEdicion').disabled = true;"), 'grabar no deshabilita la edición');
+  assert.ok(m[0].includes("$('#fsEdicion').disabled = estado.grabado;"), 'grabar no rehabilita la edición al terminar');
+  assert.ok(m[0].includes('if (yo === estado.secuencia) pintarResultado(datos);'), 'grabar pinta sin chequear la secuencia');
+});
+
+test('los avisos "dato" del borrador no quedan fijos: los errores por línea los da /validar', () => {
+  assert.ok(JS.includes("datos.borrador.bloqueos.filter(b => b.tipo !== 'dato')"));
+});
+
+test('nombre de la fila: el de SIGA; si SIGA no lo tiene (viene el PLU), el del buscador o el pedido; aria-label al día', () => {
+  const m = /const nombreAMostrar = ([^\n]*);\n/.exec(JS);
+  assert.ok(m, 'no se encontró nombreAMostrar en compras_siga.js');
+  const nombreAMostrar = vm.runInNewContext(`(${m[1]})`);
+  const l = { plu: '2001', nombre: 'Azúcar del buscador' };
+  assert.strictEqual(nombreAMostrar('AZUCAR X 50', l), 'AZUCAR X 50');
+  assert.strictEqual(nombreAMostrar('2001', l), 'Azúcar del buscador');
+  assert.strictEqual(nombreAMostrar(undefined, l), 'Azúcar del buscador');
+  for (const trozo of ["setAttribute('aria-label', `Cantidad de ${nombre}`)", "setAttribute('aria-label', `Precio de ${nombre}`)", "setAttribute('aria-label', `Quitar ${nombre}`)"]) {
+    assert.ok(JS.includes(trozo), `falta: ${trozo}`);
+  }
+});

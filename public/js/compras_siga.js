@@ -27,6 +27,9 @@
   };
   const DEBOUNCE_MS = 400;
   const BUSQUEDA_MIN = 2; // /api/compras-import/buscar-producto no busca con menos
+  // Nombre de la fila: el de SIGA. Si SIGA no tiene el producto el servidor devuelve el PLU (nunca acepta el nombre
+  // del navegador): se deja el que traía la fila (buscador o pedido).
+  const nombreAMostrar = (deServidor, l) => (deServidor && deServidor !== l.plu ? deServidor : l.nombre);
   const estado = {
     // lineas: { plu, nombre, cantidad, precio } en el orden del comprobante (Orden = posición + 1, lo pone el servidor).
     borrador: null, catalogos: null, lineas: [], percepciones: [], errores: [], busqueda: 0,
@@ -275,16 +278,23 @@
     });
   }
 
+  function ponerNombre(tr, nombre) {
+    tr.querySelector('[data-nombre]').textContent = nombre;
+    tr.querySelector('[data-k="cantidad"]').setAttribute('aria-label', `Cantidad de ${nombre}`);
+    tr.querySelector('[data-k="precio"]').setAttribute('aria-label', `Precio de ${nombre}`);
+    tr.querySelector('[data-quitar-linea]').setAttribute('aria-label', `Quitar ${nombre}`);
+  }
+
   function pintarResultado(r) {
     // Línea i de la respuesta = fila i (Orden = posición). El nombre que se muestra pasa a ser el de SIGA; con otra
     // cantidad de líneas (respuesta de antes de agregar/quitar) no se toca la tabla.
     const lineas = r.lineas || [];
     const coincide = lineas.length === estado.lineas.length;
-    if (coincide) estado.lineas = estado.lineas.map((l, i) => ({ ...l, nombre: lineas[i].nombre || l.nombre }));
+    if (coincide) estado.lineas = estado.lineas.map((l, i) => ({ ...l, nombre: nombreAMostrar(lineas[i].nombre, l) }));
     document.querySelectorAll('#tLineas tr[data-i]').forEach(tr => {
       const l = coincide ? lineas[Number(tr.dataset.i)] : null;
       tr.querySelectorAll('[data-c]').forEach(td => { td.textContent = l ? n2(l[td.dataset.c]) : ''; });
-      if (l && l.nombre) tr.querySelector('[data-nombre]').textContent = l.nombre;
+      if (l) ponerNombre(tr, estado.lineas[Number(tr.dataset.i)].nombre);
     });
     // DOC decisión 15: el precio editable es el de la grilla de SiGA. Ni discrimina ni incluye IVA = comprobante sin
     // impuestos (p. ej. interno): el precio va tal cual, sin letra fiscal de por medio. Sin libro de IVA (p. ej.
@@ -372,13 +382,16 @@
     });
     if (!aceptado) return;
     estado.grabando = true;
+    // Nada editable mientras graba: lo que se ve tiene que ser lo que se mandó.
+    $('#fsEdicion').disabled = true;
     actualizarBotonGrabar();
     mostrarAviso('info', 'Grabando en SIGA…');
+    const yo = estado.secuencia;
     try {
       const { ok, status, datos, esJSON } = await postJSON('/api/compras-siga/grabar', cuerpo());
       if (!esJSON) { quedoIncierto(); return; }
       if (status === 400 && datos.errores) {
-        pintarResultado(datos);
+        if (yo === estado.secuencia) pintarResultado(datos);
         mostrarAviso('error', 'SIGA no aceptó el comprobante: revisá los errores.');
         return;
       }
@@ -389,6 +402,7 @@
       quedoIncierto();
     } finally {
       estado.grabando = false;
+      $('#fsEdicion').disabled = estado.grabado;
       actualizarBotonGrabar();
     }
   }
@@ -489,7 +503,9 @@
       ? `No se importan (no entregadas): ${descartadas.map(d => `${d.nombre} (${d.estado})`).join(', ')}.` : '';
     pintarPercepciones();
     if (datos.aVerificar) mostrarVerificar();
-    const avisos = [...datos.borrador.bloqueos.map(b => b.mensaje), ...(datos.catalogos.avisos || [])];
+    // Los bloqueos 'dato' (artículo nuevo, sin precio) no van al aviso fijo: /validar los da por línea y se van
+    // apenas se corrigen (o se quita la línea).
+    const avisos = [...datos.borrador.bloqueos.filter(b => b.tipo !== 'dato').map(b => b.mensaje), ...(datos.catalogos.avisos || [])];
     estado.avisosBase = avisos;
     limpiarAviso();
     enlazarEventos();
