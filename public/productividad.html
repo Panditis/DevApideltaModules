@@ -88,6 +88,14 @@ h1,h2,h3{font-family:system-ui,"Segoe UI",sans-serif;margin:0;letter-spacing:-.0
 .btn:hover:not(:disabled){background:var(--verde-claro);transform:translateY(-1px)}
 .btn:disabled{opacity:.45;cursor:default}
 .nota{color:var(--suave);font-size:12.5px;margin:-14px 0 26px}
+/* Medidas cortas separadas por un punto: la línea bajo los KPIs y el resumen de un período se
+   leen igual, de un vistazo. Lo largo (la cobertura, la referencia) vive en el title. */
+.medidas{display:flex;flex-wrap:wrap;gap:4px 0;font-variant-numeric:tabular-nums}
+.medidas .medida+.medida::before{content:"·";margin:0 9px;color:var(--tenue)}
+.medidas .aviso{color:var(--oro);font-weight:600}
+.nota.medidas{cursor:help}
+/* La intro de la sala: una línea chica, el tablero arranca enseguida. */
+.intro{margin:0 0 12px;font-size:12.5px;color:var(--suave)}
 
 /* ── KPIs ───────────────────────────────────────────────────────────────────
    Franja verde con los números en amarillo: es el bloque que da el tono de la
@@ -98,17 +106,31 @@ h1,h2,h3{font-family:system-ui,"Segoe UI",sans-serif;margin:0;letter-spacing:-.0
 .kpi{background:var(--panel);padding:18px 20px;flex:1 1 auto;min-width:0;
   border:1px solid var(--linea-fuerte);border-radius:var(--radio);cursor:default}
 .kpi:hover{box-shadow:none}
-.kpi .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--suave);font-weight:700}
+/* Rótulo en minúscula de oración: "$ por hora de sala" se lee como una frase, en mayúsculas
+   espaciadas era una sigla más. */
+.kpi .lbl{font-size:12.5px;color:var(--suave);font-weight:600}
 .kpi .val{font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;font-size:34px;line-height:1.1;
   margin-top:6px;color:var(--verde);font-variant-numeric:tabular-nums}
+/* Lo producido en plata es EL número del tablero: los demás KPIs lo explican. Va en la franja
+   verde con la cifra en amarillo y pide el doble de ancho que sus vecinos. */
+.kpi.destacado{background:var(--verde);border-color:var(--verde-hondo);flex-grow:2}
+.kpi.destacado .lbl{color:rgba(255,255,255,.82)}
+/* Cifras proporcionales en el número grande: tabular le da a cada dígito el ancho de un 0 y a
+   este tamaño el número se ve flojo. Las tabulares quedan para las columnas. */
+.kpi.destacado .val{color:var(--amarillo);font-size:48px;font-variant-numeric:normal;letter-spacing:-.01em}
 
 /* ── Secciones ──────────────────────────────────────────────────────────── */
 .sec{margin-bottom:36px}
 .sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:8px}
 .sec-head h2{font-size:23px;font-weight:700;color:var(--verde-hondo);
   padding-left:12px;border-left:4px solid var(--amarillo);line-height:1.1}
-.sec .desc{color:var(--suave);font-size:12.5px;max-width:78ch;margin:0 0 16px}
-.sec .desc code{background:var(--sup2);border:1px solid var(--linea);border-radius:5px;
+/* La sección protagonista de las salas de producción: título un escalón más grande y más aire
+   debajo, para que se lea antes que cualquier otra cosa del tablero. */
+.sec.principal{margin-bottom:30px}
+.sec.principal>.sec-head{margin-bottom:14px}
+.sec.principal>.sec-head h2{font-size:27px}
+.sec .desc, .modal-cuerpo .desc{color:var(--suave);font-size:12.5px;max-width:78ch;margin:0 0 16px}
+.sec .desc code, .intro code{background:var(--sup2);border:1px solid var(--linea);border-radius:5px;
   padding:1px 5px;font-size:11.5px}
 .buscador{margin-left:auto;font-family:inherit;font-size:13px;padding:8px 16px;min-width:190px;
   border:1px solid var(--linea-fuerte);border-radius:999px;background:var(--panel);color:var(--tinta)}
@@ -149,30 +171,7 @@ h1,h2,h3{font-family:system-ui,"Segoe UI",sans-serif;margin:0;letter-spacing:-.0
 .dia .cifra{margin-left:auto;font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;
   font-size:21px;font-variant-numeric:tabular-nums}
 .dia .cifra.ok{color:var(--verde)} .dia .cifra.parcial{color:var(--oro)} .dia .cifra.nada{color:var(--tenue)}
-/* Riel de cumplimiento al pie del encabezado: el ancho es el dato, sin números extra. */
-.riel{height:3px;background:var(--linea-fuerte);margin:14px -20px 0;position:relative}
-.riel i{position:absolute;left:0;top:0;bottom:0;background:var(--verde);transition:width .3s ease}
-.riel.parcial i{background:var(--amarillo)} .riel.nada i{background:var(--rojo);opacity:.4}
 .dia .cuerpo{padding:14px 20px 18px}
-/* Jornada dentro de una semana: mismo componente, un escalón más adentro y sin sombra propia
-   para que no compita con la tarjeta que la contiene. Lo mismo para los períodos, que cuelgan
-   del plegable de la sección. */
-.plegable .cuerpo .dia{box-shadow:none}
-.dia .dia.sub{border-radius:var(--radio-sm);box-shadow:none;margin-bottom:8px}
-.dia .dia.sub:hover{box-shadow:none;border-color:var(--verde)}
-.dia .dia.sub>summary{padding:11px 16px 0;background:var(--panel)}
-.dia .dia.sub[open]>summary{background:var(--sup1)}
-.dia .dia.sub .fecha{font-size:17px}
-.dia .dia.sub .cifra{font-size:18px}
-.dia .dia.sub .cuerpo{padding:10px 16px 14px}
-.dia .dia.sub .cuerpo table{border:1px solid var(--linea);border-radius:var(--radio-sm)}
-/* La tabla de lotes trae trece columnas y vive tres niveles adentro (sección → período →
-   jornada): entre padding y padding el ancho que sobra no alcanza y las celdas se apretaban.
-   Los cuerpos anidados aflojan el margen lateral y la tabla toma el ancho de su contenido,
-   scrolleando dentro de su jornada en vez de encogerse. */
-.plegable .cuerpo{padding-left:12px;padding-right:12px}
-.dia .dia.sub .cuerpo{padding:10px 12px 14px;overflow-x:auto}
-.dia .dia.sub .cuerpo table{width:max-content;min-width:100%}
 /* Alternador chico para día/semana, dentro del encabezado de sección. */
 .segment.chico{margin-left:auto}
 .segment.chico button{padding:6px 15px;font-size:12.5px}
@@ -185,9 +184,6 @@ h1,h2,h3{font-family:system-ui,"Segoe UI",sans-serif;margin:0;letter-spacing:-.0
 .dos-col.tres{grid-template-columns:1fr 1fr 1fr}
 @media(max-width:1100px){.dos-col.tres{grid-template-columns:1fr 1fr}}
 @media(max-width:900px){.dos-col,.dos-col.tres{grid-template-columns:1fr}}
-.quienes{margin-top:14px;font-size:12.5px;color:var(--suave);display:flex;flex-wrap:wrap;
-  gap:8px 18px;align-items:center;padding-top:12px;border-top:1px solid var(--linea)}
-.quienes .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:700}
 
 /* ── Chips de personas ──────────────────────────────────────────────────── */
 .tag{display:inline-flex;align-items:center;gap:5px;padding:2px 10px 2px 8px;border-radius:999px;
@@ -215,12 +211,6 @@ td.clave{font-weight:600;white-space:normal;min-width:190px;color:var(--verde-ho
 th.orden{cursor:pointer;user-select:none}
 th.orden:hover{background:var(--verde-claro)}
 th.orden.activa{color:var(--amarillo)}
-.mini-riel{display:flex;align-items:center;gap:8px;justify-content:flex-end;min-width:104px}
-.mini-riel .via{flex:1;height:4px;border-radius:2px;background:var(--linea-fuerte);position:relative;min-width:40px}
-.mini-riel .via i{position:absolute;inset:0 auto 0 0;border-radius:2px;background:var(--verde)}
-.mini-riel.parcial .via i{background:var(--amarillo)}
-.mini-riel.nada .via i{background:var(--rojo);opacity:.4}
-.mini-riel span{font-variant-numeric:tabular-nums;font-weight:600;font-size:12.5px}
 .apagado{color:var(--tenue)}
 /* Paginador en el pie de la tabla. Gana al rayado par/impar y al hover de fila. */
 td.pag, tbody tr:nth-child(even) td.pag, tbody tr:hover td.pag{
@@ -237,6 +227,77 @@ td.pag button:disabled{opacity:.35;cursor:default}
 .filtros-cmp select{font-family:inherit;font-size:13.5px;padding:8px 14px;border-radius:999px;
   border:1px solid var(--linea-fuerte);background:var(--panel);color:var(--tinta);max-width:340px}
 .filtros-cmp select:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px rgba(64,89,54,.12)}
+.filtros-cmp label{font-size:12.5px;color:var(--suave);font-weight:600}
+
+/* ── Qué se produjo en el período elegido ───────────────────────────────────
+   Sin tarjeta propia: lo abre la barra elegida del gráfico de arriba y se lee como su detalle.
+   Una tarjeta con la tabla-tarjeta adentro duplicaba bordes y sombras. */
+.produjo .sec-head h3{font-size:20px;font-weight:700;color:var(--verde-hondo);text-wrap:balance}
+/* El período en peso normal al lado del rótulo: "qué se produjo" es fijo, el período es el dato. */
+.produjo .sec-head h3 .periodo{font-weight:500;color:var(--tinta);margin-left:4px}
+.acciones{margin-left:auto;display:flex;gap:8px}
+.sin-precio{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
+  color:var(--oro);background:#FFF4CC;border:1px solid #F2DC8A}
+/* El resumen del período a la izquierda y contra qué se compara a la derecha, en un renglón:
+   el Δ del resumen es contra lo que dice ese selector. */
+.fila-resumen{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;margin:0 0 12px}
+.resumen{margin:0;font-size:14px;color:var(--suave)}
+.resumen b{color:var(--tinta)}
+.produjo .filtros-cmp{margin:0 0 0 auto}
+.fila-resumen select{font-size:12.5px;padding:6px 12px}
+/* El día de la lista del modal es un botón: el teclado llega a él y el click en cualquier parte
+   del renglón hace lo mismo. */
+.lnk-per{background:none;border:0;padding:0;font:inherit;color:var(--verde-hondo);cursor:pointer;
+  text-align:left;text-decoration:underline dotted;text-underline-offset:3px}
+.lnk-per:hover{color:var(--verde)}
+.lnk-per:focus-visible{outline:2px solid var(--verde);outline-offset:2px;border-radius:3px}
+.filas-clic tbody tr{cursor:pointer}
+
+/* ── Botones secundarios ────────────────────────────────────────────────────
+   Tres escalones: .btn (aplicar) lleno, .btn-sec (abrir un detalle) con borde verde, .btn-lim
+   (herramientas de la barra) gris. Mismo pill en los tres. */
+.btn-sec{background:var(--panel);color:var(--verde-hondo);border:1px solid var(--verde);border-radius:999px;
+  padding:7px 16px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;
+  transition:background .15s ease,color .15s ease}
+.btn-sec:hover{background:var(--verde);color:#fff}
+.btn-sec:active{background:var(--verde-hondo);color:#fff}
+.btn-sec:focus-visible, .btn-lim:focus-visible, .lnk:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+/* "Tiempos de la línea": análisis secundario, así que va al pie y como enlace, no como sección. */
+.pie-vista{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;padding-top:16px;
+  border-top:1px solid var(--linea-fuerte);font-size:12.5px;color:var(--suave)}
+.lnk{background:none;border:0;padding:0;font:inherit;font-size:13.5px;font-weight:700;color:var(--verde-hondo);
+  cursor:pointer;text-decoration:underline;text-decoration-color:var(--verde-cont);text-underline-offset:4px}
+.lnk:hover{color:var(--verde);text-decoration-color:currentColor}
+
+/* ── Modal ──────────────────────────────────────────────────────────────────
+   <dialog> nativo: el navegador atrapa el foco, cierra con Esc y deja inerte lo de atrás. El
+   fondo del cuerpo es el de la página, así las tablas blancas se despegan igual que afuera. */
+.modal{width:min(1100px,92vw);max-width:none;max-height:85vh;padding:0;border:0;
+  border-radius:var(--radio);background:var(--fondo);color:var(--tinta);overflow:hidden;
+  box-shadow:0 24px 64px -24px rgba(20,28,18,.6)}
+.modal[open]{display:flex;flex-direction:column;animation:modal-entra .2s cubic-bezier(.25,1,.5,1)}
+.modal::backdrop{background:rgba(22,30,19,.55)}
+.modal[open]::backdrop{animation:fundido .2s ease-out}
+.modal:focus{outline:none}
+.modal-cab{display:flex;align-items:center;gap:14px;padding:14px 18px 14px 24px;background:var(--panel);
+  border-bottom:1px solid var(--linea-fuerte)}
+.modal-cab h2{flex:1;min-width:0;font-size:20px;font-weight:700;color:var(--verde-hondo);text-wrap:balance}
+/* "jueves, 15 de octubre" llega en minúscula de toLocaleDateString: la mayúscula va sólo al inicio. */
+.modal-cab h2::first-letter{text-transform:uppercase}
+.modal-x{flex:none;width:34px;height:34px;border-radius:50%;border:0;background:none;cursor:pointer;
+  font-size:22px;line-height:1;color:var(--suave);transition:background .15s ease,color .15s ease}
+.modal-x:hover{background:var(--sup2);color:var(--verde-hondo)}
+.modal-x:focus-visible{outline:2px solid var(--verde);outline-offset:1px}
+/* El cuerpo scrollea solo y no arrastra el scroll de la página de atrás al llegar al final. */
+.modal-cuerpo{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px 24px 26px}
+.modal-cuerpo h3{margin:26px 0 8px;font-size:17px;font-weight:700;color:var(--verde-hondo)}
+.modal-cuerpo .sec-head{margin:26px 0 8px}
+.modal-cuerpo .sec-head h3{margin:0}
+.modal-cuerpo>:first-child{margin-top:0}
+.modal-cuerpo .resumen{margin-bottom:14px}
+@keyframes modal-entra{from{opacity:0;transform:translateY(10px) scale(.985)}}
+@keyframes fundido{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.modal[open],.modal[open]::backdrop{animation:none}}
 
 /* ── Buscador de producción (historial) ─────────────────────────────────────
    Acota TODO el tablero a un producto o una persona, así que va arriba de los
@@ -258,8 +319,7 @@ td.pag button:disabled{opacity:.35;cursor:default}
    de cada tarea contra la más larga, que es la lectura que importa. */
 .roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:20px}
 .rol{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
-  padding:16px 18px 16px 22px;box-shadow:var(--sombra);position:relative;overflow:hidden}
-.rol::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--amarillo)}
+  padding:16px 18px;box-shadow:none;position:relative;overflow:hidden}
 .rol .nom{font-family:system-ui,"Segoe UI",sans-serif;font-weight:700;font-size:19px;
   color:var(--verde-hondo);text-transform:uppercase;letter-spacing:.05em}
 .rol .horas{font-family:system-ui,"Segoe UI",sans-serif;font-weight:800;font-size:32px;line-height:1.1;
@@ -271,24 +331,33 @@ td.pag button:disabled{opacity:.35;cursor:default}
   font-variant-numeric:tabular-nums}
 .rol .pie b{color:var(--verde-hondo);font-weight:700}
 
-/* Serie de barras con su línea de referencia. La usan la producción semanal y el envasado lote
-   por lote: meter una librería de gráficos para dos series de barras costaba más que dibujarlas.
-   Scrollea a lo ancho cuando sobran columnas, así ninguna se afina hasta desaparecer. */
+/* Serie de barras con su línea de referencia. La usan la valorización por período y el envasado
+   lote por lote: meter una librería de gráficos para dos series de barras costaba más que dibujarlas.
+   Scrollea a lo ancho cuando las columnas no entran, así ninguna se afina hasta desaparecer. */
 .graf{background:var(--panel);border:1px solid var(--linea-fuerte);border-radius:var(--radio);
-  padding:18px 18px 14px}
+  padding:16px 18px 12px}
 .graf .area{position:relative}
-.graf .cols{display:flex;align-items:flex-end;gap:6px;overflow-x:auto}
-/* Ancho fijo, no repartido: con cuatro lotes las barras salían anchísimas y el gráfico parecía
-   otra cosa. Ahora la barra siempre mide igual y el gráfico ocupa lo que su serie necesite. */
-.graf .col{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px}
+.graf .cols{display:flex;align-items:flex-end;overflow-x:auto}
+/* Las columnas se reparten el ancho (con un mínimo que pasa el script en --min) y la barra de
+   adentro tiene tope (--barra): con cuatro semanas el gráfico ya no queda pegado a la izquierda
+   con medio panel en blanco, y tampoco aparecen barras anchísimas que parecen otra cosa. La
+   columna entera es la zona de click y de hover, no sólo los píxeles pintados. */
+.graf .col{flex:1 0 var(--min,40px);display:flex;flex-direction:column;align-items:center;gap:4px;
+  border-radius:6px;outline:none}
 /* Los dos altos son fijos y viven también en el script (ALTO_SOBRE y ALTO_GRAF): de ellos sale,
    en píxeles, dónde va la línea de referencia. Con textos arriba y abajo comiendo espacio, un
    porcentaje del alto total ya no cae donde corresponde. */
-.graf .col b{height:18px;line-height:18px;font-size:11px;color:var(--verde-hondo);
-  font-variant-numeric:tabular-nums}
-.graf .riel-graf{height:150px;width:100%;display:flex;align-items:flex-end}
-.graf .col i{width:100%;min-height:2px;border-radius:3px 3px 0 0;
-  background:linear-gradient(180deg,var(--verde-claro),var(--verde));transition:height .3s ease}
+.graf .col b{height:18px;line-height:18px;font-size:11px;font-weight:600;color:var(--suave);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+/* La línea de base es una sombra interna y no un borde: un borde le restaría un píxel al riel y la
+   línea de referencia, que se ubica en píxeles, quedaría corrida. Las columnas van pegadas (sin
+   gap) para que la base se lea como una sola línea; el aire entre barras lo da su tope de ancho. */
+.graf .riel-graf{height:150px;width:100%;display:flex;align-items:flex-end;justify-content:center;
+  box-shadow:inset 0 -1px 0 var(--linea-fuerte)}
+/* Punta redondeada y base recta: la barra crece desde la línea de base. Color liso, sin
+   degradé: en un gráfico la única tinta que habla es el dato. */
+.graf .col i{width:var(--barra,100%);max-width:100%;min-height:2px;border-radius:4px 4px 0 0;
+  background:var(--verde);transition:height .25s cubic-bezier(.22,1,.36,1),background .15s ease}
 .graf .col:hover i{background:var(--verde-hondo)}
 /* Cuánto se hizo en esa barra, escrito de costado: con barras de 12 px es la única forma de que
    el dato entre sin tapar al vecino. */
@@ -302,12 +371,39 @@ td.pag button:disabled{opacity:.35;cursor:default}
 .graf .col u.bien{color:var(--verde-hondo)}
 .graf .col u.mal{color:var(--rojo)}
 .graf.ancho .col span{writing-mode:horizontal-tb;font-size:10.5px}
-.graf .prom{position:absolute;left:0;right:0;border-top:2px dashed var(--amarillo);pointer-events:none}
-.graf .prom span{position:absolute;right:0;top:-9px;writing-mode:horizontal-tb;font-size:11px;
-  font-weight:700;color:var(--verde-hondo);background:var(--panel);padding:0 6px}
+/* Barras que eligen período: una sola serie, así que el color no distingue nada salvo la
+   selección. Todas en un verde apagado y la elegida en el verde pleno: es el mismo período que
+   se ve abierto abajo. Van después del :hover general para ganarle con el mouse encima. */
+/* El apagado queda cerca de 3:1 contra el blanco: se distingue del fondo sin competir con la
+   elegida, y su cifra sigue en el tooltip y en el resumen de abajo. */
+.graf.clic .col{cursor:pointer}
+.graf.clic .col i{background:#8AA07B}
+.graf.clic .col:hover i{background:#6F8762}
+.graf.clic .col.sel i{background:var(--verde)}
+.graf .col.sel b, .graf .col.sel em{font-weight:800;color:var(--verde-hondo)}
+.graf .col:focus-visible{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--verde)}
+/* La referencia es el amarillo de la marca bajado a ocre: el #FFCC00 sobre blanco no llega a 2:1
+   y una línea de 2 px así no se ve. Punteada porque es una vara, no un dato. */
+.graf{--ref:#B58500}
+.graf .prom{position:absolute;left:0;right:0;border-top:2px dashed var(--ref);pointer-events:none}
+/* Renglón de arriba del área: a la izquierda qué hacer con el gráfico, a la derecha la clave de la
+   línea. Escrita al final de la línea tapaba la barra de la punta, que siempre está ahí. */
+.graf .cabeza-graf{display:flex;align-items:center;gap:16px;margin:0 0 6px;font-size:11.5px;
+  color:var(--suave);font-variant-numeric:tabular-nums}
+.graf .clave-ref{display:flex;align-items:center;gap:8px;margin-left:auto}
+.graf .clave-ref[title]{cursor:help}
+.graf .clave-ref::before{content:"";width:22px;border-top:2px dashed var(--ref)}
+/* Tooltip de la barra: el valor manda, el rótulo acompaña. Uno solo por gráfico, se mueve. */
+.graf .tip{position:absolute;z-index:3;pointer-events:none;transform:translate(-50%,-100%);
+  background:var(--verde-hondo);color:#fff;border-radius:8px;padding:7px 11px;font-size:12px;
+  line-height:1.35;white-space:nowrap;box-shadow:var(--sombra-alta)}
+.graf .tip strong{display:block;font-size:14px;font-weight:800;color:var(--amarillo);
+  font-variant-numeric:tabular-nums}
+.graf .tip span{color:rgba(255,255,255,.85)}
+@media (prefers-reduced-motion:reduce){.graf .col i{transition:none}}
 .pie-graf{margin-top:12px;font-size:12px;color:var(--suave);font-variant-numeric:tabular-nums}
 .vacio{padding:34px;text-align:center;color:var(--tenue);font-size:13.5px;background:var(--panel)}
-.error{background:#FDECEA;color:#8C1D18;border:1px solid #F0C8C4;border-left:4px solid var(--rojo);
+.error{background:#FDECEA;color:#8C1D18;border:1px solid #F0C8C4;
   padding:14px 16px;border-radius:var(--radio-sm);margin-bottom:20px}
 .cargando{padding:34px;text-align:center;color:var(--suave);background:var(--panel);
   border:1px solid var(--linea-fuerte);border-radius:var(--radio);margin-bottom:20px}
@@ -353,135 +449,9 @@ td.pag button:disabled{opacity:.35;cursor:default}
   <div id="cargando" class="cargando" hidden>Cargando…</div>
 
   <!-- ── Sala: Producción ─────────────────────────────────────────────────── -->
-  <section id="pane-prod">
-    <div id="cargando-prod" class="cargando" hidden>Midiendo…</div>
-    <p class="desc">Lo que se viene cargando por el sistema en la sala de producción. Cada
-      lote trae sus tres tareas con quién la hizo y en qué horario, así que se mide igual que el
-      archivo viejo: cuánto se produjo en plata, cuánto tardó cada tarea y cuánto se desvía un
-      lote del promedio. Los resúmenes anteriores a estos registros viven en su propia solapa.</p>
-
-    <!-- Buscar la producción de un producto o de una persona. No esconde filas: el tablero
-         entero se vuelve a medir sobre ese subconjunto. -->
-    <div class="busca">
-      <span class="rot">Medir</span>
-      <select id="tipo-prod">
-        <option value="">Toda la sala</option>
-        <option value="producto">Un producto</option>
-        <option value="persona">Una persona</option>
-      </select>
-      <select id="item-prod" hidden></select>
-      <button class="btn-lim" id="limpiar-prod" type="button" hidden>Limpiar</button>
-      <!-- Salida de emergencia: un rango que deja la pantalla vacía se deshace de un click. -->
-      <button class="btn-lim" id="todo-prod" type="button">Todo el historial</button>
-      <!-- La vara de los gráficos se recalcula a mano: es una foto del archivo entero y tiene
-           que quedarse quieta mientras se mide contra ella. -->
-      <button class="btn-lim" id="recalc-prod" type="button">Recalcular referencia</button>
-      <span class="chip-filtro" id="chip-prod" hidden></span>
-    </div>
-    <p class="nota" id="nota-ref-prod"></p>
-
-    <div class="kpis" id="kpis-prod"></div>
-    <p class="nota" id="nota-prod"></p>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Producción semanal</h2>
-        <div class="segment chico" id="per-prod" role="tablist" aria-label="Período">
-          <button type="button" data-u="semana" aria-selected="true">Por semana</button>
-          <button type="button" data-u="mes" aria-selected="false">Por mes</button>
-        </div>
-      </div>
-      <p class="desc">Cada semana valorizada a precio de venta de lista menos 40 %: es lo que permite
-        comparar una semana con otra sin que los kilos mientan (100 g de polen y 10 kg de mix
-        pesan distinto y valen distinto por kilo). Abrí la semana para ver día por día qué se
-        produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
-        pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
-      <div class="graf" id="graf-prod"></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Desglose por semana y por día</h2>
-        <div class="segment chico" id="det-prod" role="tablist" aria-label="Nivel de detalle">
-          <button type="button" data-u="dia" aria-selected="true">Día por semana</button>
-          <button type="button" data-u="semana" aria-selected="false">Semana por mes</button>
-        </div>
-      </div>
-      <p class="desc">Cada período abierto, con lo que se produjo adentro. <b>Día por semana</b> lo
-        separa en jornadas; <b>Semana por mes</b> muestra de una todos los registros del período en
-        una sola tabla, para ordenarlos y compararlos entre sí sin abrir jornada por jornada.</p>
-      <!-- La lista período por período se pliega entera: son decenas de tarjetas y empujaban al
-           resto del tablero fuera de la pantalla. El gráfico de arriba queda siempre visible. -->
-      <details class="dia plegable">
-        <summary>
-          <div class="linea1">
-            <span class="caret">&#9654;</span>
-            <span class="fecha">Detalle período por período</span>
-            <span class="met" id="cnt-per-prod"></span>
-          </div>
-        </summary>
-        <div class="cuerpo"><div id="periodos-prod"></div></div>
-      </details>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Comparar semanas</h2>
-        <div class="segment chico" id="cmp-per-prod" role="tablist" aria-label="Período">
-          <button type="button" data-u="semana" aria-selected="true">Semana</button>
-          <button type="button" data-u="mes" aria-selected="false">Mes</button>
-        </div>
-      </div>
-      <p class="desc">El total producido período contra período, en plata. La columna
-        <b>&#916;</b> compara con el período anterior. <b>$/h de sala</b> es ese mismo total
-        dividido por las horas que la sala estuvo ocupada: dice si una semana floja lo fue por
-        producir menos o por trabajar menos horas.</p>
-      <div class="panel"><table id="t-cmp-prod"></table></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head"><h2>Tiempo por tarea de la línea</h2></div>
-      <p class="desc">Cada lote trae las tres tareas con su encargado y su horario propio:
-        envasado, etiquetado y empaquetado. Acá se ve cuánto tiempo se llevó cada una y cuánto
-        tarda en promedio por lote. Sumadas dan más que las horas de sala porque muchas veces
-        pasan a la vez; un lote sin las dos horas cargadas suma al conteo pero no al promedio.</p>
-      <div class="roles" id="roles-prod"></div>
-      <div class="panel"><table id="t-roles-prod"></table></div>
-    </div>
-
-    <div class="sec" id="sec-env-prod" hidden>
-      <div class="sec-head">
-        <h2>Envasado lote por lote</h2>
-        <select id="sel-env-prod" aria-label="Producto"></select>
-      </div>
-      <p class="desc">Cada lote envasado del producto elegido, en orden de fecha, contra la línea
-        de referencia. El promedio solo no dice si el producto es parejo o si hay lotes que se
-        van al doble: acá se ve la dispersión, que es lo que sirve para estimar una jornada.</p>
-      <div class="graf ancho" id="graf-env-prod"></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Tiempo promedio por producto</h2>
-        <input class="buscador" id="q-tprod-prod" placeholder="Buscar producto o PLU">
-      </div>
-      <p class="desc">Cuánto lleva cada producto en cada tarea, promediado sobre los lotes que
-        tienen ese horario cargado: el lote al que le falta la hora de etiquetado no entra al
-        promedio de etiquetado, pero sí al de las tareas que sí registró.</p>
-      <div class="panel"><table id="t-tprod-prod"></table></div>
-    </div>
-
-    <div class="sec" id="sec-tareas-prod" hidden>
-      <div class="sec-head">
-        <h2>Tareas extras</h2>
-        <input class="buscador" id="q-tareas-prod" placeholder="Buscar persona o tarea">
-      </div>
-      <p class="desc">Trabajo de sala que no produce unidades (limpieza, preparación): lo que se
-        carga con el botón <b>Tarea extra</b>. Va aparte: sumaría horas sin producción y hundiría
-        el ritmo de todos.</p>
-      <div class="panel"><table id="t-tareas-prod"></table></div>
-    </div>
-  </section>
+  <!-- El contenido lo arma htmlVista() al cargar: es el mismo tablero que el Historial de sala,
+       y escrito dos veces se desparejaba cada vez que se tocaba uno solo. -->
+  <section id="pane-prod"></section>
 
   <!-- ── Sala: Fraccionado ────────────────────────────────────────────────── -->
   <section id="pane-frac" hidden>
@@ -565,135 +535,21 @@ td.pag button:disabled{opacity:.35;cursor:default}
   </section>
 
   <!-- ── Historial de sala (resúmenes .xlsx) ──────────────────────────────── -->
-  <section id="pane-hist" hidden>
-    <div id="cargando-hist" class="cargando" hidden>Midiendo…</div>
-    <p class="desc">Los resúmenes de sala archivados en <code>data/resumenes</code>, enteros y sin
-      filtro de fechas: son archivos cerrados y se leen completos. Es la única fuente con el
-      dato que los registros nuevos no guardan — quién hizo cada tarea de la línea y en qué
-      horario.</p>
-
-    <!-- Buscar la producción de un producto o de una persona. No esconde filas: el tablero
-         entero se vuelve a medir sobre ese subconjunto. -->
-    <div class="busca">
-      <span class="rot">Medir</span>
-      <select id="tipo-hist">
-        <option value="">Toda la sala</option>
-        <option value="producto">Un producto</option>
-        <option value="persona">Una persona</option>
-      </select>
-      <select id="item-hist" hidden></select>
-      <button class="btn-lim" id="limpiar-hist" type="button" hidden>Limpiar</button>
-      <!-- Salida de emergencia: un rango que deja la pantalla vacía se deshace de un click. -->
-      <button class="btn-lim" id="todo-hist" type="button">Todo el historial</button>
-      <!-- La vara de los gráficos se recalcula a mano: es una foto del archivo entero y tiene
-           que quedarse quieta mientras se mide contra ella. -->
-      <button class="btn-lim" id="recalc-hist" type="button">Recalcular referencia</button>
-      <span class="chip-filtro" id="chip-hist" hidden></span>
-    </div>
-    <p class="nota" id="nota-ref-hist"></p>
-
-    <div class="kpis" id="kpis-hist"></div>
-    <p class="nota" id="nota-hist"></p>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Producción semanal</h2>
-        <div class="segment chico" id="per-hist" role="tablist" aria-label="Período">
-          <button type="button" data-u="semana" aria-selected="true">Por semana</button>
-          <button type="button" data-u="mes" aria-selected="false">Por mes</button>
-        </div>
-      </div>
-      <p class="desc">Cada semana valorizada a precio de venta de lista menos 40 %: es lo que permite
-        comparar una semana con otra sin que los kilos mientan (100 g de polen y 10 kg de mix
-        pesan distinto y valen distinto por kilo). Abrí la semana para ver día por día qué se
-        produjo, con quién hizo cada tarea y en qué horario. <b>Horas de sala</b> es el reloj de
-        pared: los lotes y las tareas simultáneas se cuentan una sola vez.</p>
-      <div class="graf" id="graf-hist"></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Desglose por semana y por día</h2>
-        <div class="segment chico" id="det-hist" role="tablist" aria-label="Nivel de detalle">
-          <button type="button" data-u="dia" aria-selected="true">Día por día</button>
-          <button type="button" data-u="semana" aria-selected="false">Todo junto</button>
-        </div>
-      </div>
-      <p class="desc">Cada período abierto, con lo que se produjo adentro. <b>Día por día</b> lo
-        separa en jornadas; <b>Todo junto</b> muestra de una todos los registros del período en
-        una sola tabla, para ordenarlos y compararlos entre sí sin abrir jornada por jornada.</p>
-      <!-- La lista período por período se pliega entera: son decenas de tarjetas y empujaban al
-           resto del tablero fuera de la pantalla. El gráfico de arriba queda siempre visible. -->
-      <details class="dia plegable">
-        <summary>
-          <div class="linea1">
-            <span class="caret">&#9654;</span>
-            <span class="fecha">Detalle período por período</span>
-            <span class="met" id="cnt-per-hist"></span>
-          </div>
-        </summary>
-        <div class="cuerpo"><div id="periodos-hist"></div></div>
-      </details>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Comparar semanas</h2>
-        <div class="segment chico" id="cmp-per-hist" role="tablist" aria-label="Período">
-          <button type="button" data-u="semana" aria-selected="true">Semana</button>
-          <button type="button" data-u="mes" aria-selected="false">Mes</button>
-        </div>
-      </div>
-      <p class="desc">El total producido período contra período, en plata. La columna
-        <b>&#916;</b> compara con el período anterior. <b>$/h de sala</b> es ese mismo total
-        dividido por las horas que la sala estuvo ocupada: dice si una semana floja lo fue por
-        producir menos o por trabajar menos horas.</p>
-      <div class="panel"><table id="t-cmp-hist"></table></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head"><h2>Tiempo por tarea de la línea</h2></div>
-      <p class="desc">Cada lote trae las tres tareas con su encargado y su horario propio:
-        envasado, etiquetado y empaquetado. Acá se ve cuánto tiempo se llevó cada una y cuánto
-        tarda en promedio por lote. Sumadas dan más que las horas de sala porque muchas veces
-        pasan a la vez; un lote sin las dos horas cargadas suma al conteo pero no al promedio.</p>
-      <div class="roles" id="roles-hist"></div>
-      <div class="panel"><table id="t-roles-hist"></table></div>
-    </div>
-
-    <div class="sec" id="sec-env-hist" hidden>
-      <div class="sec-head">
-        <h2>Envasado lote por lote</h2>
-        <select id="sel-env-hist" aria-label="Producto"></select>
-      </div>
-      <p class="desc">Cada lote envasado del producto elegido, en orden de fecha, contra la línea
-        de referencia. El promedio solo no dice si el producto es parejo o si hay lotes que se
-        van al doble: acá se ve la dispersión, que es lo que sirve para estimar una jornada.</p>
-      <div class="graf ancho" id="graf-env-hist"></div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-head">
-        <h2>Tiempo promedio por producto</h2>
-        <input class="buscador" id="q-tprod-hist" placeholder="Buscar producto o PLU">
-      </div>
-      <p class="desc">Cuánto lleva cada producto en cada tarea, promediado sobre los lotes que
-        tienen ese horario cargado: el lote al que le falta la hora de etiquetado no entra al
-        promedio de etiquetado, pero sí al de las tareas que sí registró.</p>
-      <div class="panel"><table id="t-tprod-hist"></table></div>
-    </div>
-
-    <div class="sec" id="sec-tareas-hist" hidden>
-      <div class="sec-head">
-        <h2>Tareas extras</h2>
-        <input class="buscador" id="q-tareas-hist" placeholder="Buscar persona o tarea">
-      </div>
-      <p class="desc">Trabajo de sala que no produce unidades (limpieza, preparación). Va
-        aparte: sumaría horas sin producción y hundiría el ritmo de todos.</p>
-      <div class="panel"><table id="t-tareas-hist"></table></div>
-    </div>
-  </section>
+  <!-- Mismo tablero que Producción: lo arma htmlVista() al cargar. -->
+  <section id="pane-hist" hidden></section>
 </div>
+
+<!-- Un solo diálogo para las dos salas medidas lote por lote: el detalle (por día, lotes,
+     tiempos de la línea) se abre encima del tablero en vez de estirarlo hacia abajo. El
+     contenido lo pinta el script según qué se abrió. -->
+<dialog id="modal" class="modal" aria-labelledby="modal-tit" tabindex="-1">
+  <div class="modal-cab">
+    <button type="button" class="btn-lim" id="modal-volver" hidden></button>
+    <h2 id="modal-tit"></h2>
+    <button type="button" class="modal-x" id="modal-cerrar" aria-label="Cerrar">&times;</button>
+  </div>
+  <div class="modal-cuerpo" id="modal-cuerpo"></div>
+</dialog>
 
 <script>
 'use strict';
@@ -714,9 +570,6 @@ const fechaLarga = f => {
   return new Date(+p[0], +p[1] - 1, +p[2])
     .toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long' });
 };
-// Verde cumplido, oro a medias, rojo apagado cuando no se produjo nada.
-const nivel = pct => pct == null ? 'nada' : (pct >= 99.5 ? 'ok' : (pct > 0 ? 'parcial' : 'nada'));
-
 let datos = null;
 // Historial de sala: se pide una sola vez, al abrir su tab. Son 156 archivos y no cambian.
 
@@ -746,8 +599,10 @@ function pintarTabla(tabla, cols, filas, filtro, porPagina) {
   // Al cambiar el filtro se vuelve a la primera página: la 7 del listado viejo ya no existe.
   if (q !== st.q) { st.q = q; st.pag = 0; }
   const datosFila = (q ? filas.filter(f => coincide(f, cols, q)) : filas).slice();
-  if (st.k) {
-    const col = cols.find(c => c.k === st.k);
+  // La columna ordenada puede ya no estar: "Qué se produjo" saca las de comparación cuando se
+  // deja de comparar. Sin este control el sort leía una columna inexistente y la tabla rompía.
+  const col = st.k && cols.find(c => c.k === st.k);
+  if (col) {
     datosFila.sort((a, b) => {
       const va = valorCrudo(a, col), vb = valorCrudo(b, col);
       // Los nulos (sin ritmo, sin horas) van siempre al final, ordene como ordene.
@@ -786,11 +641,14 @@ function pintarTabla(tabla, cols, filas, filtro, porPagina) {
   });
 }
 
-const kpi = (lbl, val) => `<div class="kpi"><div class="lbl">${escHtml(lbl)}</div><div class="val">${val}</div></div>`;
+// `cls` opcional ('destacado') para el KPI que tiene que leerse primero.
+const kpi = (lbl, val, cls) => `<div class="kpi${cls ? ' ' + cls : ''}"><div class="lbl">${escHtml(lbl)}</div><div class="val">${val}</div></div>`;
 const listaTags = (arr, gris) => (arr && arr.length)
   ? arr.map(n => `<span class="tag${gris ? ' gris' : ''}">${escHtml(n)}</span>`).join('') : '<span class="apagado">—</span>';
-const miniRiel = pct => pct == null ? '<span class="apagado">—</span>'
-  : `<div class="mini-riel ${nivel(pct)}"><span class="via"><i style="width:${Math.min(100, pct)}%"></i></span><span>${nf(pct, 0)}%</span></div>`;
+// "1 lote" / "3 lotes": en el resumen de un día el uno es frecuente y "1 lotes" se lee como error.
+const plural = (n, uno, varios) => (Number(n) === 1 ? uno : varios);
+// Una medida de una línea de .medidas. Recibe HTML: quien la llama escapa lo que viene de datos.
+const medida = (html, aviso) => (html ? `<span class="medida${aviso ? ' aviso' : ''}">${html}</span>` : '');
 
 // ── Columnas ──────────────────────────────────────────────────────────────────
 const COLS_PERSONAS = [
@@ -848,20 +706,8 @@ const COLS_PROD_HIST = [
   { k: 'minEtiquetado', t: 'Etiquetado (min)', num: true, dec: 0 },
   { k: 'minEmpaquetado', t: 'Empaquetado (min)', num: true, dec: 0 },
 ];
-const COLS_ROLES = [
-  { k: 'rol', t: 'Tarea', clave: true },
-  { k: 'cargas', t: 'Lotes', num: true },
-  { k: 'minPromedio', t: 'Min/lote', num: true, dec: 0 },
-  { k: 'horas', t: 'Horas', num: true, dec: 1 },
-  { k: 'personas', t: 'Personas', num: true },
-  { k: 'productos', t: 'Productos', num: true },
-  { k: 'dias', t: 'Jornadas', num: true },
-  { k: 'sinHorario', t: 'Sin hora', num: true },
-];
-// Detalle de un día: una fila por lote. Ya no tiene columna de fecha porque vive dentro del
-// desplegable de su jornada.
-// Los mismos lotes, pero con la fecha adelante: en la tabla de todo el período los renglones
-// vienen de días distintos y sin la fecha no se ubican.
+// Una fila por lote, con la fecha adelante: en la tabla del período los renglones vienen de
+// días distintos y sin la fecha no se ubican.
 const colsHistConFecha = () => [{ k: 'fecha', t: 'Fecha', html: f => escHtml(dm(f.fecha)) }, ...COLS_HIST];
 const COLS_HIST = [
   { k: 'producto', t: 'Producto', clave: true },
@@ -1092,7 +938,7 @@ function elegirEnSegmento(cont, boton) {
 // igual que el historial. De este payload sólo queda vivo el fraccionado.
 function pintar() {
   if (!datos) return;
-  const p = datos.produccion, f = datos.fraccionado;
+  const f = datos.fraccionado;
   $('kpis-frac').innerHTML = [
     kpi('Productos', nf((f.productos || []).length)),
     kpi('Tandas', nf(f.totales.cargas)),
@@ -1110,7 +956,6 @@ function pintar() {
   const tareasFrac = f.tareas || [];
   $('sec-tareas-frac').hidden = !tareasFrac.length;
   if (tareasFrac.length) pintarTabla($('t-tareas-frac'), COLS_TAREAS, tareasFrac);
-  $('nota').textContent = `${p.totales.cargas} cargas de producción · ${f.totales.cargas} tandas de fraccionado`;
 }
 
 // ── Salas medidas lote por lote ───────────────────────────────────────────────
@@ -1120,19 +965,131 @@ function pintar() {
 // tablero se escribe una vez y se instancia dos veces. `suf` es el sufijo de los ids del pane.
 const VISTAS = {
   prod: { suf: 'prod', url: '/api/productividad/historial-produccion',
-          rot: 'la producción cargada' },
-  hist: { suf: 'hist', url: '/api/productividad/historial', rot: 'el archivo de resúmenes' },
+          rot: 'la producción cargada',
+          intro: 'Lo que se carga por el sistema en la sala de producción, lote por lote. '
+               + 'Lo anterior vive en <b>Historial de sala</b>.' },
+  hist: { suf: 'hist', url: '/api/productividad/historial', rot: 'el archivo de resúmenes',
+          intro: 'Los resúmenes de sala archivados en <code>data/resumenes</code>, leídos completos.' },
 };
 for (const V of Object.values(VISTAS)) {
-  Object.assign(V, { datos: null, ref: null, opciones: null, unidad: 'semana', unidadCmp: 'semana',
-                     // 'dia' abre el período en jornadas; 'semana', en una sola tabla con todo.
-                     detalle: 'dia', filtro: { tipo: '', valor: '' }, plu: '' });
+  // `unidad` ('semana' | 'mes') gobierna el gráfico y el listado. `selA`/`selB` son las claves de
+  // los dos períodos que se comparan: null = todavía no se eligió, se toman los de por defecto;
+  // '' en selB = se eligió no comparar.
+  Object.assign(V, { datos: null, ref: null, opciones: null, unidad: 'semana', selA: null, selB: null,
+                     filtro: { tipo: '', valor: '' }, plu: '' });
 }
 const $v = (V, base) => $(`${base}-${V.suf}`);
-const periodosV = (V, unidad) => ((unidad === 'mes' ? V.datos.porMes : V.datos.porSemana) || []);
+
+// ── Plantilla del tablero ─────────────────────────────────────────────────────
+// El markup de las dos salas, una sola vez. `suf` e `intro` son constantes de VISTAS (no datos
+// del servidor), por eso van sin escapar: la intro trae su propio <b>/<code>.
+// La página queda corta a propósito: números, gráfico y qué se produjo. El detalle por día, los
+// lotes y los tiempos de la línea se abren en el modal.
+function htmlVista(suf, intro) {
+  const id = base => `${base}-${suf}`;
+  return `
+    <div id="${id('cargando')}" class="cargando" hidden>Midiendo…</div>
+    <p class="intro">${intro}</p>
+
+    <!-- Buscar la producción de un producto o de una persona. No esconde filas: el tablero
+         entero se vuelve a medir sobre ese subconjunto. -->
+    <div class="busca">
+      <span class="rot">Medir</span>
+      <select id="${id('tipo')}">
+        <option value="">Toda la sala</option>
+        <option value="producto">Un producto</option>
+        <option value="persona">Una persona</option>
+      </select>
+      <select id="${id('item')}" hidden></select>
+      <button class="btn-lim" id="${id('limpiar')}" type="button" hidden>Limpiar</button>
+      <!-- Salida de emergencia: un rango que deja la pantalla vacía se deshace de un click. -->
+      <button class="btn-lim" id="${id('todo')}" type="button">Todo el historial</button>
+      <!-- La vara de los gráficos se recalcula a mano: es una foto del archivo entero y tiene
+           que quedarse quieta mientras se mide contra ella. -->
+      <button class="btn-lim" id="${id('recalc')}" type="button">Recalcular referencia</button>
+      <span class="chip-filtro" id="${id('chip')}" hidden></span>
+    </div>
+
+    <div class="kpis" id="${id('kpis')}"></div>
+    <!-- Cómo sale la plata, en una línea: reemplaza la caja de pasos, que ocupaba más que el dato. -->
+    <p class="nota medidas" id="${id('nota')}"></p>
+
+    <div class="sec principal">
+      <div class="sec-head">
+        <h2 id="${id('tit-graf')}">Producido por semana</h2>
+        <!-- Un solo alternador para el gráfico y el listado: no se puede estar mirando semanas
+             arriba y meses abajo. El día no está acá: se abre por modal desde el listado. -->
+        <div class="segment chico" id="${id('uni')}" role="tablist" aria-label="Período">
+          <button type="button" data-u="semana" aria-selected="true">Semana</button>
+          <button type="button" data-u="mes" aria-selected="false">Mes</button>
+        </div>
+      </div>
+      <div class="graf clic" id="${id('graf')}"></div>
+    </div>
+
+    <div class="sec produjo" id="${id('produjo')}" hidden>
+      <div class="sec-head">
+        <h3 id="${id('tit-a')}"></h3>
+        <div class="acciones">
+          <button type="button" class="btn-sec" id="${id('btn-dias')}" aria-haspopup="dialog">Ver por día</button>
+          <button type="button" class="btn-sec" id="${id('btn-lotes')}" aria-haspopup="dialog">Ver lotes</button>
+        </div>
+      </div>
+      <!-- El resumen del período reemplaza la tabla de períodos: el gráfico ya los muestra a
+           todos, y lo que falta saber del elegido entra en un renglón. -->
+      <div class="fila-resumen">
+        <p class="resumen medidas" id="${id('resumen')}"></p>
+        <div class="filtros-cmp">
+          <label for="${id('sel-b')}">Comparar con</label>
+          <select id="${id('sel-b')}"></select>
+        </div>
+      </div>
+      <div class="panel"><table id="${id('t-prodper')}"></table></div>
+    </div>
+
+    <div class="pie-vista">
+      <button type="button" class="lnk" id="${id('btn-tiempos')}" aria-haspopup="dialog">Tiempos de la línea</button>
+      <span>cuánto tarda cada tarea y cada producto, para planificar</span>
+    </div>`;
+}
+
+// Los tiempos de la línea son para afinar la planificación, no para leer cuánto se produjo: van
+// en el modal para que no compitan con la valorización. Los ids llevan el sufijo de la sala
+// porque los pintores ($v) son los mismos de siempre.
+function htmlTiempos(suf) {
+  const id = base => `${base}-${suf}`;
+  return `
+    <p class="desc">Sobre el rango de fechas elegido arriba.</p>
+    <h3>Tiempo por tarea de la línea</h3>
+    <p class="desc">Cuánto se llevó cada tarea y cuánto tarda en promedio por lote. Sumadas dan más
+      que las horas de sala porque muchas veces pasan a la vez; un lote sin las dos horas cargadas
+      suma al conteo pero no al promedio.</p>
+    <div class="roles" id="${id('roles')}"></div>
+
+    <div id="${id('sec-env')}" hidden>
+      <div class="sec-head">
+        <h3>Envasado lote por lote</h3>
+        <select id="${id('sel-env')}" aria-label="Producto"></select>
+      </div>
+      <p class="desc">Cada lote envasado del producto elegido, en orden de fecha, contra la línea de
+        referencia. El promedio solo no dice si el producto es parejo o si hay lotes que se van al
+        doble: acá se ve la dispersión, que es lo que sirve para estimar una jornada.</p>
+      <div class="graf ancho" id="${id('graf-env')}"></div>
+    </div>
+
+    <div class="sec-head">
+      <h3>Tiempo promedio por producto</h3>
+      <input class="buscador" id="${id('q-tprod')}" placeholder="Buscar producto o PLU" aria-label="Buscar producto o PLU">
+    </div>
+    <p class="desc">Cuánto lleva cada producto en cada tarea, promediado sobre los lotes que tienen
+      ese horario cargado: el lote al que le falta la hora de etiquetado no entra al promedio de
+      etiquetado, pero sí al de las tareas que sí registró.</p>
+    <div class="panel"><table id="${id('t-tprod')}"></table></div>`;
+}
 
 // Tarjeta por tarea de la línea. La barra compara las horas de cada tarea contra la más larga:
-// es la lectura de un vistazo (envasar se lleva el doble que empaquetar).
+// es la lectura de un vistazo (envasar se lleva el doble que empaquetar). Los lotes sin hora
+// van al pie: sin ese dato el promedio parece salir de todos los lotes.
 function pintarRolesV(V) {
   const lista = V.datos.roles || [];
   const tope = Math.max(1, ...lista.map(r => r.horas || 0));
@@ -1145,14 +1102,14 @@ function pintarRolesV(V) {
         <span><b>${nf(r.minPromedio, 0)}</b> min/lote</span>
         <span><b>${nf(r.cargas)}</b> lotes</span>
         <span><b>${nf(r.personas)}</b> personas</span>
+        ${r.sinHorario > 0 ? `<span><b>${nf(r.sinHorario)}</b> sin hora</span>` : ''}
       </div>
     </div>`).join('') || '<div class="panel"><div class="vacio">Sin tareas registradas</div></div>';
-  pintarTabla($v(V, 't-roles'), COLS_ROLES, lista);
 }
 
 // ── Gráficos de barras ────────────────────────────────────────────────────────
 // Componente único: una serie de barras y una línea de referencia horizontal. Lo comparten la
-// producción semanal y el envasado lote por lote; lo único que cambia entre las dos es qué dice
+// valorización por período y el envasado lote por lote; lo único que cambia entre las dos es qué dice
 // cada barra. Alturas en píxeles (no en %) porque la línea se ubica en la misma escala y con los
 // textos de arriba y de abajo comiendo espacio un porcentaje ya no cae donde corresponde.
 const ALTO_GRAF = 150;    // alto del riel de cada barra — igual que .riel-graf en el CSS
@@ -1169,31 +1126,66 @@ const textoDif = p => `${p < 0 ? '−' : '+'}${nf(Math.abs(p), Math.abs(p) < 10 
 const claseDif = (p, menosMejor) => (Math.abs(p) < 0.5 ? ''
   : (p > 0) === !menosMejor ? ' class="bien"' : ' class="mal"');
 
-// barras: [{ v, sobre, pie, rot, tip }] · ref: { v, texto } o null si no hay contra qué comparar.
-// menosMejor invierte el color del apartamiento (series donde conviene la barra más baja).
-function grafBarras(cont, barras, ref, ancho, menosMejor) {
+// barras: [{ v, sobre, pie, rot, tipValor, tipRot }] · ref: { v, texto, title? } o null si no hay
+// contra qué comparar. `ancho` es el ancho MÍNIMO de cada columna: si sobra lugar se reparten el panel.
+// opc: { menosMejor } invierte el color del apartamiento (series donde conviene la barra más baja);
+// { sinDif } no escribe el apartamiento bajo la barra (la valorización lo dice en su resumen, y dos
+// porcentajes distintos para la misma barra confunden); { barra } es el tope de ancho de la barra;
+// { foco } hace a cada columna enfocable con teclado, para las series que se eligen; { ayuda } es
+// el renglón que dice qué se puede hacer con el gráfico.
+function grafBarras(cont, barras, ref, ancho, opc = {}) {
   // La escala también contempla la referencia: si la línea quedara por encima del lote más alto
   // se dibujaría fuera del área y no se vería.
   const max = Math.max(1, ...barras.map(b => b.v || 0), (ref && ref.v) || 0);
   const alto = v => Math.max(1, Math.round((v || 0) / max * ALTO_GRAF));
+  const difs = barras.map(b => (opc.sinDif ? null : difRef(b.v, ref)));
+  const estilo = `--min:${ancho}px${opc.barra ? `;--barra:${opc.barra}px` : ''}`;
+  const clave = !ref ? ''
+    : `<span class="clave-ref"${ref.title ? ` title="${escHtml(ref.title)}"` : ''}>${escHtml(ref.texto)}</span>`;
   cont.innerHTML = `
+    ${!ref && !opc.ayuda ? '' : `<div class="cabeza-graf">${opc.ayuda ? `<span>${escHtml(opc.ayuda)}</span>` : ''}${clave}</div>`}
     <div class="area">
-      ${!ref ? '' : `<div class="prom" style="top:${ALTO_SOBRE + ALTO_GRAF - alto(ref.v)}px">
-        <span>${escHtml(ref.texto)}</span></div>`}
-      <div class="cols">${barras.map(b => {
-        const dif = difRef(b.v, ref);
-        const tip = (b.tip || '') + (dif == null ? ''
-          : ` · ${textoDif(dif)} contra ${ref.texto}`);
-        return `
-        <div class="col" style="width:${ancho}px" title="${escHtml(tip)}">
+      ${!ref ? '' : `<div class="prom" style="top:${ALTO_SOBRE + ALTO_GRAF - alto(ref.v)}px"></div>`}
+      <div class="cols">${barras.map((b, i) => `
+        <div class="col" style="${estilo}"${opc.foco ? ` tabindex="0" role="button" aria-label="${escHtml(`${b.tipRot}: ${b.tipValor}`)}"` : ''}>
           <b>${b.sobre == null ? '' : escHtml(b.sobre)}</b>
           <div class="riel-graf"><i style="height:${alto(b.v)}px"></i></div>
-          ${dif == null ? '' : `<u${claseDif(dif, menosMejor)}>${escHtml(textoDif(dif))}</u>`}
+          ${difs[i] == null ? '' : `<u${claseDif(difs[i], opc.menosMejor)}>${escHtml(textoDif(difs[i]))}</u>`}
           ${b.pie == null ? '' : `<span>${escHtml(b.pie)}</span>`}
           ${b.rot == null ? '' : `<em>${escHtml(b.rot)}</em>`}
-        </div>`;
-      }).join('')}</div>
+        </div>`).join('')}</div>
+      <div class="tip" hidden><strong></strong><span></span></div>
     </div>`;
+  engancharTip(cont, barras.map((b, i) => ({
+    valor: b.tipValor || '',
+    rot: (b.tipRot || '') + (difs[i] == null ? '' : ` · ${textoDif(difs[i])} contra ${ref.texto}`),
+  })));
+}
+
+// Un tooltip por gráfico que sigue a la columna bajo el mouse o con el foco. Se llena con
+// textContent: los rótulos son nombres de producto y fechas que vienen de los datos.
+function engancharTip(cont, tips) {
+  const area = cont.querySelector('.area');
+  const tip = area.querySelector('.tip');
+  const mostrar = (col, i) => {
+    tip.querySelector('strong').textContent = tips[i].valor;
+    tip.querySelector('span').textContent = tips[i].rot;
+    tip.hidden = false;
+    const ra = area.getBoundingClientRect(), rb = col.querySelector('i').getBoundingClientRect();
+    // Centrado sobre la barra pero sin salirse del área por los costados.
+    const medio = tip.offsetWidth / 2;
+    const x = Math.min(ra.width - medio, Math.max(medio, rb.left + rb.width / 2 - ra.left));
+    tip.style.left = `${x}px`;
+    tip.style.top = `${rb.top - ra.top - 8}px`;
+  };
+  const ocultar = () => { tip.hidden = true; };
+  area.querySelectorAll('.col').forEach((col, i) => {
+    col.onpointerenter = () => mostrar(col, i);
+    col.onfocus = () => mostrar(col, i);
+    col.onpointerleave = ocultar;
+    col.onblur = ocultar;
+  });
+  area.querySelector('.cols').onscroll = ocultar;
 }
 
 const plataCorta = v => {
@@ -1203,137 +1195,220 @@ const plataCorta = v => {
   return plata(v);
 };
 // "2026-W32" → "S32"; "2026-08" → "ago 26". El título largo va en el tooltip de la columna.
-const rotuloCorto = p => (/^\d{4}-W/.test(p.clave)
-  ? `S${p.clave.slice(6)}`
+const rotuloCorto = p => (/^\d{4}-W/.test(p.clave) ? `S${p.clave.slice(6)}`
   : new Date(+p.clave.slice(0, 4), +p.clave.slice(5, 7) - 1, 1)
       .toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }));
+// "Semana 32" o "agosto de 2026": cómo se nombra el período contra el que se compara.
+const nombrePeriodo = p => (/^\d{4}-W/.test(p.clave) ? `Semana ${p.clave.slice(6)}` : tituloPeriodo(p));
 
-function pintarGrafPeriodos(V, lista) {
-  // Del más viejo al más nuevo: la serie se lee de izquierda a derecha aunque las tarjetas de
-  // abajo muestren primero lo último.
-  const serie = lista.slice().reverse();
-  // Sin períodos el marco vacío parece un gráfico roto: se esconde y habla la tarjeta de abajo.
-  $v(V, 'graf').hidden = !serie.length;
-  if (!serie.length) return;
-  // La vara es la semana promedio de TODO el archivo, no la de las semanas que quedaron en
-  // pantalla: mover el filtro de fechas no tiene que mover contra qué se compara. Por mes la
-  // referencia semanal no aplica, así que ahí no se dibuja línea.
-  const ref = V.ref && V.unidad === 'semana' && V.ref.semanal.valor
-    ? { v: V.ref.semanal.valor, texto: `semana promedio ${plataCorta(V.ref.semanal.valor)}` }
-    : null;
-  grafBarras($v(V, 'graf'), serie.map(p => ({
-    v: p.valor,
-    sobre: plataCorta(p.valor),
-    rot: rotuloCorto(p),
-    tip: `${tituloPeriodo(p)} · ${plata(p.valor)}`,
-  })), ref, 62);
+// ── Valorización por período ──────────────────────────────────────────────────
+// Semana y mes vienen armados del servidor. El día no: se arma acá desde los lotes, que ya
+// traen su valor, con la misma forma que los otros dos para que el modal "por día" no distinga.
+const enRango = (f, p) => f >= p.desde && f <= p.hasta;
+
+function periodosDia(V) {
+  const horas = V.datos.horasPorDia || {};
+  const dias = new Map();
+  for (const r of V.datos.registros || []) {
+    const d = dias.get(r.fecha) || { valor: 0, cargas: 0, sinPrecio: 0 };
+    d.valor += r.valor || 0;
+    d.cargas += 1;
+    if (r.valor == null) d.sinPrecio += 1;
+    dias.set(r.fecha, d);
+  }
+  return [...dias.entries()].sort((a, b) => String(b[0]).localeCompare(String(a[0]))).map(([f, d]) => {
+    const horasSala = horas[f] ?? null;
+    return { clave: f, desde: f, hasta: f, valor: d.valor, cargas: d.cargas,
+             horasSala, sinPrecio: d.sinPrecio,
+             valorPorHora: horasSala > 0 ? d.valor / horasSala : null };
+  });
 }
+// Del más nuevo al más viejo, como vienen del servidor.
+const periodosV = V => ((V.unidad === 'mes' ? V.datos.porMes : V.datos.porSemana) || []);
 
-// ── Producción semanal ────────────────────────────────────────────────────────
-// Cada período abre en sus jornadas y cada jornada, en sus lotes: el detalle vive al lado del
-// total del que forma parte, y la lista entera se pliega para no empujar al resto del tablero.
-function pintarPeriodosV(V) {
-  const lista = periodosV(V, V.unidad);
-  const cont = $v(V, 'periodos');
-  pintarGrafPeriodos(V, lista);
-  $v(V, 'cnt-per').textContent = V.unidad === 'mes'
-    ? `${nf(lista.length)} ${lista.length === 1 ? 'mes' : 'meses'}`
-    : `${nf(lista.length)} ${lista.length === 1 ? 'semana' : 'semanas'}`;
-  if (!lista.length) {
-    cont.innerHTML = '<div class="panel"><div class="vacio">Sin producción en el rango elegido</div></div>';
+// Por defecto se mira el último período contra el anterior. Si el elegido ya no existe (otro
+// filtro, otro rango) se vuelve a los de por defecto en vez de mostrar un panel vacío.
+function resolverSeleccion(V, lista) {
+  const i = lista.findIndex(p => p.clave === V.selA);
+  if (i < 0) {
+    V.selA = lista[0] ? lista[0].clave : null;
+    V.selB = lista[1] ? lista[1].clave : '';
     return;
   }
-  // El trabajo de todos sumado: cada persona fusionada consigo misma y después sumadas entre
-  // sí. Cuatro personas una hora son 4 h-persona.
-  const horasPersDia = V.datos.horasPersonaPorDia || {};
-  // Los lotes se agrupan una sola vez por fecha y de ahí salen todos los períodos.
-  const porFecha = new Map();
-  for (const r of V.datos.registros || []) {
-    if (!porFecha.has(r.fecha)) porFecha.set(r.fecha, []);
-    porFecha.get(r.fecha).push(r);
+  if (V.selB == null || (V.selB && !lista.some(p => p.clave === V.selB))) {
+    V.selB = lista[i + 1] ? lista[i + 1].clave : '';
   }
-  // Las tareas extra viven fuera de la lista de lotes (no producen unidades), pero la jornada
-  // se lee mal sin ellas: una mañana entera de limpieza aparecía como un día en blanco.
-  const tareasFecha = new Map();
-  for (const t of V.datos.tareas || []) {
-    if (!tareasFecha.has(t.fecha)) tareasFecha.set(t.fecha, []);
-    tareasFecha.get(t.fecha).push(t);
+}
+
+// El período que se está mirando (A) y contra cuál se compara (B, null = sin comparar). Lo leen
+// el listado y los modales, así hablan siempre del mismo período.
+function periodosElegidos(V) {
+  const lista = periodosV(V);
+  const A = lista.find(p => p.clave === V.selA) || null;
+  const B = (V.selB && lista.find(p => p.clave === V.selB)) || null;
+  return { lista, A, B };
+}
+
+// Al elegir otro período se lo compara con el inmediato anterior: es la pregunta de siempre
+// ("¿y la semana pasada?"). El selector deja cambiarlo después.
+function elegirPeriodo(V, clave) {
+  const lista = periodosV(V);
+  const i = lista.findIndex(p => p.clave === clave);
+  if (i < 0) return;
+  V.selA = clave;
+  V.selB = lista[i + 1] ? lista[i + 1].clave : '';
+  pintarValorizacion(V);
+}
+
+// La vara de la semana es la semana promedio de TODO el archivo, no la de las semanas en
+// pantalla: mover el filtro de fechas no tiene que mover contra qué se compara. El mes no lleva
+// línea: no hay referencia mensual guardada. De dónde sale la vara va en el title de su clave.
+function refValor(V) {
+  const r = V.ref;
+  const v = V.unidad === 'semana' && r && r.semanal && r.semanal.valor;
+  if (!v) return null;
+  const title = (r.semanas ? `Promedio de ${nf(r.semanas)} semanas, del ${fechaLarga(r.desde)} al ${fechaLarga(r.hasta)}` : 'Semana promedio del archivo')
+    + `: ${plata(v)}` + (r.calculadoEl ? ` · calculada el ${fechaLarga(r.calculadoEl.slice(0, 10))}` : '')
+    + ' · se mueve sólo con «Recalcular referencia»';
+  return { v, texto: `semana promedio ${plataCorta(v)}`, title };
+}
+
+function pintarGrafValor(V, lista) {
+  // Del más viejo al más nuevo: la serie se lee de izquierda a derecha.
+  const serie = lista.slice().reverse();
+  const cont = $v(V, 'graf');
+  // Un vacío que enseña la salida, no un marco de gráfico sin barras que parece roto.
+  if (!serie.length) {
+    cont.innerHTML = '<div class="vacio">Sin producción en el rango elegido. «Todo el historial» lo estira al archivo completo.</div>';
+    return;
   }
-  // Un día con tareas y sin un solo lote también abre su renglón: si no, se pierde del detalle.
-  const diasDe = p => [...new Set([...porFecha.keys(), ...tareasFecha.keys()])]
-    .filter(f => f >= p.desde && f <= p.hasta).sort().reverse();
-  // El período suma las horas-persona de sus jornadas: cada día ya viene fusionado por persona y
-  // entre días no hay solape posible. No se usa el `horas` que trae el período porque ese no
-  // cuenta las tareas extra, y el renglón del día sí: quedarían dos cifras que no cierran.
-  const horasPersDe = p => Object.keys(horasPersDia)
-    .filter(f => f >= p.desde && f <= p.hasta)
-    .reduce((s, f) => s + horasPersDia[f], 0);
-  // Lo que cae dentro del período, sin pasar por las jornadas: es lo que ve el modo "todo junto".
-  const enPeriodo = (p, f) => f >= p.desde && f <= p.hasta;
-  const lotesDe = p => diasDe(p).slice().reverse().flatMap(f => porFecha.get(f) || []);
-  const tareasDe = p => (V.datos.tareas || []).filter(t => enPeriodo(p, t.fecha));
-
-  cont.innerHTML = lista.map((p, i) => `
-    <details class="dia" ${i === 0 ? 'open' : ''}>
-      <summary>
-        <div class="linea1">
-          <span class="caret">&#9654;</span>
-          <span class="fecha">${escHtml(tituloPeriodo(p))}</span>
-          <span class="met"><b>${nf(p.cargas)}</b> lotes</span>
-          <span class="met"><b>${nf(p.productosDistintos)}</b> productos</span>
-          <span class="met"><b>${nf(p.personasTotal)}</b> personas</span>
-          <span class="met"><b>${nf(horasPersDe(p), 1)}</b> h-persona</span>
-          ${!p.tareas ? '' : `<span class="met"><b>${nf(p.tareas)}</b> tareas extra${
-            p.horasTareas ? ` (${nf(p.horasTareas, 1)} h)` : ''}</span>`}
-          ${p.sinPrecio ? `<span class="met apagado">${nf(p.sinPrecio)} sin precio</span>` : ''}
-          <span class="cifra ok">${plata(p.valor)}</span>
-        </div>
-      </summary>
-      <div class="cuerpo">
-        ${V.detalle !== 'semana' ? '' : `
-        <table data-todo="${escHtml(p.clave)}"></table>
-        ${!tareasDe(p).length ? '' : `<h4>Tareas extras</h4><table data-todotareas="${escHtml(p.clave)}"></table>`}`}
-        ${V.detalle === 'semana' ? '' : diasDe(p).map(f => {
-          const lotes = porFecha.get(f) || [];
-          const tareas = tareasFecha.get(f) || [];
-          const valor = lotes.reduce((s, r) => s + (r.valor || 0), 0);
-          return `
-        <details class="dia sub">
-          <summary>
-            <div class="linea1">
-              <span class="caret">&#9654;</span>
-              <span class="fecha">${escHtml(fechaLarga(f))}</span>
-              <span class="met"><b>${nf(lotes.length)}</b> lotes</span>
-              ${horasPersDia[f] == null ? '' : `<span class="met"><b>${nf(horasPersDia[f], 1)}</b> h-persona</span>`}
-              ${!tareas.length ? '' : `<span class="met"><b>${nf(tareas.length)}</b> tareas extra</span>`}
-              <span class="cifra ok">${plata(valor)}</span>
-            </div>
-          </summary>
-          <div class="cuerpo">
-            ${!lotes.length ? '' : `<table data-lotes="${escHtml(f)}"></table>`}
-            ${!tareas.length ? '' : `<h4>Tareas extras</h4><table data-tareas="${escHtml(f)}"></table>`}
-          </div>
-        </details>`;
-        }).join('')}
-      </div>
-    </details>`).join('');
-
-  // Las tablas se pintan después de insertar el markup: cada una guarda su propio orden.
-  lista.forEach(p => {
-    // Todo junto: una tabla con los registros del período entero, ordenable y paginada como
-    // cualquier otra. Las jornadas quedan afuera; el renglón de arriba ya trae sus totales.
-    const t = cont.querySelector(`table[data-todo="${p.clave}"]`);
-    if (t) pintarTabla(t, colsHistConFecha(), lotesDe(p), '', 25);
-    const tt = cont.querySelector(`table[data-todotareas="${p.clave}"]`);
-    if (tt) pintarTabla(tt, COLS_TAREAS, tareasDe(p));
-    diasDe(p).forEach(f => {
-      const td = cont.querySelector(`table[data-lotes="${f}"]`);
-      if (td) pintarTabla(td, COLS_HIST, porFecha.get(f) || []);
-      const tdt = cont.querySelector(`table[data-tareas="${f}"]`);
-      // Sin la columna Fecha: la dice el renglón de la jornada que la contiene.
-      if (tdt) pintarTabla(tdt, COLS_TAREAS.slice(1), tareasFecha.get(f) || []);
-    });
+  // Cifra arriba de la barra sólo donde se lee: con pocas barras todas; con muchas la elegida, la
+  // más alta y la última. El resto está en el tooltip y en el resumen de abajo.
+  const tope = Math.max(...serie.map(p => p.valor || 0));
+  const conCifra = (p, i) => serie.length <= 8 || p.clave === V.selA
+    || i === serie.length - 1 || (p.valor || 0) === tope;
+  // Barra de 24 px como tope: con cinco semanas en el panel, una barra que llena su columna se
+  // lee como un bloque y no como un dato. La columna entera sigue siendo la zona de click.
+  grafBarras(cont, serie.map((p, i) => ({
+    v: p.valor,
+    sobre: conCifra(p, i) ? plataCorta(p.valor) : null,
+    rot: rotuloCorto(p),
+    tipValor: plata(p.valor),
+    tipRot: `${tituloPeriodo(p)} · ${nf(p.cargas)} lotes`,
+  })), refValor(V), 62, { sinDif: true, barra: 24, foco: true,
+    ayuda: `Tocá una barra para ver qué se produjo ${V.unidad === 'mes' ? 'ese mes' : 'esa semana'}` });
+  // grafBarras no sabe de períodos (también dibuja el envasado): la clave y la marca de la barra
+  // elegida se agregan después, por índice. El click lo atiende el contenedor.
+  cont.querySelectorAll('.col').forEach((el, i) => {
+    const sel = serie[i].clave === V.selA;
+    el.dataset.clave = serie[i].clave;
+    el.classList.toggle('sel', sel);
+    el.setAttribute('aria-pressed', String(sel));
   });
+}
+
+// ── Qué se produjo en el período ──────────────────────────────────────────────
+const lotesDelPeriodo = (V, p) => (!p ? [] : (V.datos.registros || [])
+  .filter(r => enRango(r.fecha, p))
+  .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))));
+
+// Lo producido sumado por producto. La clave es el PLU: dos lotes del mismo producto con el
+// nombre escrito distinto siguen siendo el mismo producto.
+function porProducto(lotes) {
+  const m = new Map();
+  for (const r of lotes) {
+    const k = r.plu || r.producto;
+    const x = m.get(k) || { plu: r.plu, producto: r.producto, lotes: 0, unidades: 0, valor: 0, sinPrecio: 0 };
+    m.set(k, { ...x, lotes: x.lotes + 1, unidades: x.unidades + (r.unidades || 0),
+               valor: x.valor + (r.valor || 0), sinPrecio: x.sinPrecio + (r.valor == null ? 1 : 0) });
+  }
+  return m;
+}
+
+// Estado de lo producido de un producto en un período: no si no se hizo, sin si se hizo pero
+// ningún lote tiene precio de lista (no es un cero: es plata que no se puede contar), ok si hay.
+const estadoValor = x => (!x ? 'no' : (x.valor === 0 && x.sinPrecio > 0 ? 'sin' : 'ok'));
+const SIN_PRECIO = '<span class="sin-precio" title="Ningún lote tiene precio de lista: queda fuera del total">sin precio</span>';
+const NO_PRODUJO = '<span class="apagado">no se produjo</span>';
+const GUION = '<span class="apagado">—</span>';
+const celdaValor = (estado, v) => (estado === 'sin' ? SIN_PRECIO : estado === 'no' ? NO_PRODUJO : plata(v));
+const difPlata = d => (!d ? GUION
+  : `<span class="delta ${d > 0 ? 'sube' : 'baja'}">${d > 0 ? '+' : '−'}${plata(Math.abs(d))}</span>`);
+
+// Una fila por producto de A o de B. Lotes y unidades son de A: es el período que se está
+// mirando; B sólo aporta su plata para la diferencia. Sin precio de un lado la diferencia no se
+// calcula: restar contra un cero que no es cero inventaría una caída. Sin B (un día del modal),
+// es el listado de lo que se hizo y nada más.
+function filasQueSeProdujo(V, A, B) {
+  const pa = porProducto(lotesDelPeriodo(V, A));
+  const pb = porProducto(lotesDelPeriodo(V, B));
+  return [...new Set([...pa.keys(), ...pb.keys()])].map(k => {
+    const a = pa.get(k), b = pb.get(k);
+    const base = a || b;
+    const estA = estadoValor(a), estB = estadoValor(b);
+    const valorA = a ? a.valor : 0, valorB = b ? b.valor : 0;
+    return { producto: base.producto, plu: base.plu, lotes: a ? a.lotes : 0,
+             unidades: a ? a.unidades : 0, valorA, valorB, estA, estB,
+             dif: estA === 'sin' || estB === 'sin' ? null : valorA - valorB };
+  // Lo que más plata hizo arriba. Entre los que no suman plata, primero lo que se hizo sin precio
+  // y al final lo que no se produjo, que sólo está porque el período comparado lo tuvo.
+  }).sort((x, y) => y.valorA - x.valorA || Math.sign(y.lotes) - Math.sign(x.lotes) || y.valorB - x.valorB);
+}
+
+// Con comparación, las dos columnas de plata llevan el nombre corto de su período: "Producido" y
+// "Producido (comparado)" obligaban a mirar el selector para saber cuál era cuál.
+function colsQueSeProdujo(A, B) {
+  return [
+    { k: 'producto', t: 'Producto', clave: true },
+    { k: 'lotes', t: 'Lotes', num: true, html: f => (f.lotes ? nf(f.lotes) : GUION) },
+    { k: 'unidades', t: 'Unidades', num: true, html: f => (f.lotes ? nf(f.unidades) : GUION) },
+    { k: 'valorA', t: B ? `Producido ${rotuloCorto(A)}` : 'Producido', num: true, html: f => celdaValor(f.estA, f.valorA) },
+    ...(!B ? [] : [
+      { k: 'valorB', t: `Producido ${rotuloCorto(B)}`, num: true, html: f => celdaValor(f.estB, f.valorB) },
+      { k: 'dif', t: 'Diferencia', num: true, html: f => difPlata(f.dif) },
+    ]),
+  ];
+}
+
+// El resumen de un período (o de un día) en una línea: lo mismo que dicen los KPIs, pero de ese
+// período. `comp` es contra qué se compara (null = sin comparar) y `rotComp` cómo se lo nombra.
+// Contra un cero no hay variación que calcular: se omite en vez de escribir un guion suelto.
+function htmlResumen(p, comp, rotComp) {
+  const porHora = p.horasSala > 0 ? p.valor / p.horasSala : null;
+  return [
+    medida(`Producido <b>${plata(p.valor)}</b>`),
+    medida(`<b>${nf(p.cargas)}</b> ${plural(p.cargas, 'lote', 'lotes')}`),
+    medida(p.horasSala == null ? '' : `<b>${nf(p.horasSala, 1)}</b> h de sala`),
+    medida(porHora == null ? '' : `<b>${plata(porHora)}</b> por hora de sala`),
+    medida(comp && comp.valor ? `${deltaHtml(p.valor, comp.valor)} vs ${escHtml(rotComp)}` : ''),
+    medida(p.sinPrecio ? `${nf(p.sinPrecio)} ${plural(p.sinPrecio, 'lote', 'lotes')} sin precio, fuera del total` : '', true),
+  ].join('');
+}
+
+// Las listas de una semana entran en una pantalla; la de un mes con muchos productos se pagina
+// para que la página siga corta.
+const POR_PAGINA_PRODUJO = 15;
+
+function pintarQueSeProdujo(V) {
+  const { lista, A, B } = periodosElegidos(V);
+  $v(V, 'produjo').hidden = !A;
+  if (!A) return;
+  $v(V, 'tit-a').innerHTML = `Qué se produjo <span class="periodo">${escHtml(tituloPeriodo(A))}</span>`;
+  $v(V, 'resumen').innerHTML = htmlResumen(A, B, B && nombrePeriodo(B));
+  $v(V, 'sel-b').innerHTML = '<option value="">— sin comparar —</option>' + lista.filter(p => p !== A)
+    .map(p => `<option value="${escHtml(p.clave)}"${p === B ? ' selected' : ''}>${escHtml(tituloPeriodo(p))}</option>`)
+    .join('');
+  pintarTabla($v(V, 't-prodper'), colsQueSeProdujo(A, B), filasQueSeProdujo(V, A, B), '', POR_PAGINA_PRODUJO);
+}
+
+// Gráfico y listado salen de la misma lista de períodos: hablan siempre de lo mismo y la barra
+// elegida es el período del listado.
+function pintarValorizacion(V) {
+  const lista = periodosV(V);
+  resolverSeleccion(V, lista);
+  $v(V, 'tit-graf').textContent = V.unidad === 'mes' ? 'Producido por mes' : 'Producido por semana';
+  pintarGrafValor(V, lista);
+  pintarQueSeProdujo(V);
 }
 
 // ── Envasado lote por lote ────────────────────────────────────────────────────
@@ -1385,9 +1460,9 @@ function pintarGrafEnvasado(V) {
     sobre: nf(r.minEnvasado, 0),
     pie: cantidadLote(r),
     rot: conFecha ? dm(r.fecha) : null,
-    tip: `${fechaLarga(r.fecha)}${r.lote ? ' · lote ' + r.lote : ''} · ${nf(r.minEnvasado, 0)} min`
-       + ` · ${nf(r.unidades)} u · ${nf(r.kilos, 1)} kg`,
-  })), ref, 38, true);
+    tipValor: `${nf(r.minEnvasado, 0)} min`,
+    tipRot: `${fechaLarga(r.fecha)}${r.lote ? ' · lote ' + r.lote : ''} · ${nf(r.unidades)} u · ${nf(r.kilos, 1)} kg`,
+  })), ref, 38, { menosMejor: true, barra: 26 });
   cont.insertAdjacentHTML('beforeend',
     `<div class="pie-graf">${nf(lotes.length)} lotes envasados · del ${fechaLarga(lotes[0].fecha)} al `
     + `${fechaLarga(lotes[lotes.length - 1].fecha)} · promedio de lo que se está viendo, `
@@ -1395,50 +1470,11 @@ function pintarGrafEnvasado(V) {
     + `${nf(Math.min(...minutos), 0)} min</div>`);
 }
 
-// ── Comparar períodos por lo producido en plata ───────────────────────────────
-// No compara un producto contra sí mismo como el de fraccionado: compara el total de un período
-// contra el anterior, que es la lectura de "esta semana hicimos 700k contra 1M".
-const COLS_CMP_VALOR = [
-  { k: 'titulo', t: 'Período', clave: true },
-  { k: 'valor', t: 'Producido', num: true, html: f => plata(f.valor) },
-  { k: 'delta', t: 'Δ', num: true, v: f => f.deltaVal, html: f => deltaHtml(f.valor, f.previo) },
-  { k: 'cargas', t: 'Lotes', num: true },
-  { k: 'productosDistintos', t: 'Productos', num: true },
-  { k: 'horasSala', t: 'H de sala', num: true, dec: 1 },
-  { k: 'valorPorHora', t: '$/h de sala', num: true, html: f => plata(f.valorPorHora) },
-  { k: 'personasTotal', t: 'Personas', num: true },
-  { k: 'sinPrecio', t: 'Sin precio', num: true },
-];
-
-function pintarCmpValor(V) {
-  // Los períodos vienen del más nuevo al más viejo; para comparar con "el anterior" se recorre
-  // al revés y después se da vuelta la serie.
-  const periodos = periodosV(V, V.unidadCmp).slice().reverse();
-  let previo = null;
-  const serie = periodos.map(p => {
-    const fila = { ...p, titulo: tituloPeriodo(p), previo,
-                   deltaVal: previo ? ((p.valor - previo) / previo) * 100 : null };
-    previo = p.valor;
-    return fila;
-  });
-  pintarTabla($v(V, 't-cmp'), COLS_CMP_VALOR, serie.reverse());
-}
-
 // ── Referencia ────────────────────────────────────────────────────────────────
 // Los promedios del archivo entero, calculados una vez y guardados en el servidor. Es la vara
 // de los gráficos: se mira contra lo que la sala viene haciendo siempre, no contra los períodos
 // que quedaron dentro del filtro. Se recalcula a mano, con el botón, cuando se quiere mover.
-function pintarNotaRef(V) {
-  const r = V.ref;
-  $v(V, 'nota-ref').textContent = r && r.semanas
-    ? `Referencia: ${nf(r.semanas)} semanas del ${fechaLarga(r.desde)} al ${fechaLarga(r.hasta)}`
-      + ` · semana promedio ${plata(r.semanal.valor)}`
-      + ` · envasado ${nf(r.tareas.Envasado, 0)} min, etiquetado ${nf(r.tareas.Etiquetado, 0)} min,`
-      + ` empaquetado ${nf(r.tareas.Empaquetado, 0)} min por lote`
-      + (r.calculadoEl ? ` · calculada el ${fechaLarga(r.calculadoEl.slice(0, 10))}` : '')
-    : 'Sin referencia calculada todavía.';
-}
-
+// En pantalla se nombra sólo en la clave de la línea; el detalle va en su title.
 async function recalcularRef(V) {
   const btn = $v(V, 'recalc');
   btn.disabled = true;
@@ -1448,10 +1484,10 @@ async function recalcularRef(V) {
     const r = await fetch(V.url + '/referencia', { method: 'POST' });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
     V.ref = await r.json();
-    pintarNotaRef(V);
-    // Los gráficos se rehacen con la vara nueva; el resto del tablero no cambió.
-    pintarPeriodosV(V);
-    pintarGrafEnvasado(V);
+    // Los gráficos se rehacen con la vara nueva; el resto del tablero no cambió. El de envasado
+    // sólo existe mientras el modal de tiempos está abierto.
+    pintarValorizacion(V);
+    if (modalDe(V, 'tiempos')) pintarGrafEnvasado(V);
   } catch (e) {
     $('error').textContent = 'No se pudo recalcular la referencia: ' + e.message;
     $('error').hidden = false;
@@ -1486,47 +1522,207 @@ function pintarBusqueda(V) {
   $v(V, 'chip').hidden = !rot;
 }
 
+// ── Cómo se valoriza ──────────────────────────────────────────────────────────
+// Bajo los KPIs, una sola línea: cómo sale la plata y, si hay, cuántos lotes quedaron afuera por
+// no tener precio (si no, el total parece completo). La cobertura — sobre cuántas jornadas y lotes
+// sale todo, y si el rango deja archivo afuera — queda en el title para quien la busque: un
+// promedio no dice nada sin saber sobre cuántos lotes sale, pero tampoco hace falta leerlo siempre.
+function pintarLeyenda(V) {
+  const c = V.datos.cobertura, t = V.datos.totales;
+  const total = V.datos.rangoTotal || {};
+  const recortado = (total.desde && c.desde && c.desde > total.desde)
+    || (total.hasta && c.hasta && c.hasta < total.hasta);
+  const nota = $v(V, 'nota');
+  if (!c.jornadas) {
+    nota.textContent = 'Sin jornadas en el rango elegido';
+    nota.title = '';
+    return;
+  }
+  nota.innerHTML = medida('Producido = unidades × precio de venta de lista − 40 %')
+    + medida(t.sinPrecio ? `${nf(t.sinPrecio)} ${plural(t.sinPrecio, 'lote', 'lotes')} sin precio, fuera del total` : '', true);
+  nota.title = `${nf(c.jornadas)} jornadas · del ${fechaLarga(c.desde)} al ${fechaLarga(c.hasta)} · `
+    + `${nf(c.medibles)} de ${nf(c.cargas)} lotes con horario medible`
+    + (c.sinHorario ? ` · ${nf(c.sinHorario)} sin horario` : '')
+    + (c.tareas ? ` · ${nf(c.tareas)} tareas sin producto` : '')
+    + ` · ${nf(t.personas)} personas`
+    + (t.sinPrecio ? ` · ${nf(t.sinPrecio)} lotes sin precio de lista, fuera del total` : '')
+    + (recortado ? ` — el archivo completo va del ${fechaLarga(total.desde)} al ${fechaLarga(total.hasta)}` : '');
+}
+
 // ── Render de la vista ────────────────────────────────────────────────────────
 function pintarVista(V) {
   if (!V.datos) return;
   const c = V.datos.cobertura, t = V.datos.totales;
+  // Sin KPI de unidades: sumar frascos de miel con bolsas de polen no da un número que diga
+  // algo, que es justamente por qué la producción se valoriza.
   $v(V, 'kpis').innerHTML = [
-    kpi('Jornadas', nf(c.jornadas)),
-    kpi('Lotes', nf(c.cargas)),
-    kpi('Producido', plata(t.valor)),
-    kpi('Unidades', nf(t.unidades)),
+    kpi('Producido', plata(t.valor), 'destacado'),
+    kpi('$ por hora de sala', plata(t.horasSala > 0 ? t.valor / t.horasSala : null)),
     kpi('Horas de sala', nf(t.horasSala, 0)),
-    kpi('$ por hora', plata(t.horasSala > 0 ? t.valor / t.horasSala : null)),
+    kpi('Lotes', nf(c.cargas)),
   ].join('');
-  // Cuánto del archivo se puede medir: un promedio no dice nada sin saber sobre cuántos lotes
-  // sale ni cuántos quedaron sin horario cargado. Si el rango elegido deja archivo afuera se
-  // avisa: si no, un total chico parece un dato faltante cuando es el filtro haciendo su trabajo.
-  const total = V.datos.rangoTotal || {};
-  const recortado = (total.desde && c.desde && c.desde > total.desde)
-    || (total.hasta && c.hasta && c.hasta < total.hasta);
-  $v(V, 'nota').textContent = (c.jornadas
-    ? `${nf(c.jornadas)} jornadas · del ${fechaLarga(c.desde)} al ${fechaLarga(c.hasta)} · `
-      + `${nf(c.medibles)} de ${nf(c.cargas)} lotes con horario medible`
-      + (c.sinHorario ? ` · ${nf(c.sinHorario)} sin horario` : '')
-      + (c.tareas ? ` · ${nf(c.tareas)} tareas sin producto` : '')
-      + ` · ${nf(t.personas)} personas`
-      // Sin precio de lista no hay plata: se avisa para que el total no parezca completo.
-      + (t.sinPrecio ? ` · ${nf(t.sinPrecio)} lotes sin precio de lista, fuera del total` : '')
-    : 'Sin jornadas en el rango elegido')
-    + (recortado ? ` — el archivo completo va del ${fechaLarga(total.desde)} al ${fechaLarga(total.hasta)}` : '');
-  pintarNotaRef(V);
-  pintarRolesV(V);
-  pintarPeriodosV(V);
-  pintarCmpValor(V);
-  pintarTabla($v(V, 't-tprod'), COLS_PROD_HIST, V.datos.productos || [], $v(V, 'q-tprod').value, 10);
-  pintarGrafEnvasado(V);
-  // Las tareas sin producto sólo existen en los resúmenes viejos: la sección aparece si hay.
-  const tareas = V.datos.tareas || [];
-  if ($v(V, 'sec-tareas')) {
-    $v(V, 'sec-tareas').hidden = !tareas.length;
-    if (tareas.length) pintarTabla($v(V, 't-tareas'), COLS_TAREAS, tareas, $v(V, 'q-tareas').value);
-  }
+  pintarLeyenda(V);
+  pintarValorizacion(V);
+  // Una medición que llega con el modal abierto (se pidió antes de abrirlo) lo rehace con los
+  // datos nuevos: si no, el modal mostraría un período que el tablero de atrás ya no tiene.
+  if (modalDe(V)) pintarModal();
 }
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+// Un solo <dialog> para las dos salas. `vista`: 'dias' (los días del período elegido), 'dia'
+// (uno de esos días), 'lotes' (los lotes del período) o 'tiempos' (tiempos de la línea).
+// `fecha` es el día abierto; `origen`, el botón al que vuelve el foco al cerrar.
+const MODAL = $('modal');
+const M = { V: null, vista: '', fecha: '', origen: null, desdeFondo: false };
+const modalDe = (V, vista) => MODAL.open && M.V === V && (!vista || M.vista === vista);
+const VISTAS_MODAL = { dias: pintarModalDias, dia: pintarModalDia, lotes: pintarModalLotes, tiempos: pintarModalTiempos };
+
+function abrirModal(V, vista, origen) {
+  if (!V.datos) return;
+  Object.assign(M, { V, vista, fecha: '', origen });
+  pintarModal();
+  MODAL.showModal();
+  // El foco va al diálogo y no al primer botón: el lector anuncia el título, y un Enter de más
+  // no dispara "Volver" ni cierra.
+  MODAL.focus();
+}
+
+function pintarModal() {
+  $('modal-volver').hidden = M.vista !== 'dia';
+  $('modal-volver').textContent = M.V.unidad === 'mes' ? '← Volver al mes' : '← Volver a la semana';
+  $('modal-cuerpo').scrollTop = 0;
+  VISTAS_MODAL[M.vista](M.V);
+}
+
+const modalVacio = (titulo, texto) => {
+  $('modal-tit').textContent = titulo;
+  $('modal-cuerpo').innerHTML = `<div class="panel"><div class="vacio">${escHtml(texto)}</div></div>`;
+};
+
+// Las tareas extra no producen unidades, pero el período se lee mal sin ellas: una mañana
+// entera de limpieza explica una semana floja.
+const htmlTareas = tareas => (!tareas.length ? '' : `
+  <h3>Tareas extras</h3>
+  <p class="desc">Trabajo de sala que no produce unidades.</p>
+  <div class="panel"><table id="m-t-tareas"></table></div>`);
+const COLS_TAREAS_DIA = COLS_TAREAS.filter(c => c.k !== 'fecha');
+
+// Los días del período, cada uno con su variación contra el día anterior CON producción: el
+// lunes se compara con el viernes de la semana pasada, no con un domingo vacío. Por eso la
+// variación se calcula sobre todos los días del rango y recién después se recorta al período.
+const COLS_DIAS = [
+  { k: 'clave', t: 'Día', clave: true,
+    html: f => `<button type="button" class="lnk-per" data-fecha="${escHtml(f.clave)}">${escHtml(fechaLarga(f.clave))}</button>` },
+  { k: 'cargas', t: 'Lotes', num: true },
+  { k: 'valor', t: 'Producido', num: true, html: f => plata(f.valor) },
+  { k: 'horasSala', t: 'H de sala', num: true, dec: 1 },
+  { k: 'valorPorHora', t: '$ por hora', num: true, html: f => plata(f.valorPorHora) },
+  { k: 'delta', t: 'Δ vs día anterior', num: true, v: f => f.deltaVal, html: f => deltaHtml(f.valor, f.previo) },
+];
+function filasDias(V, A) {
+  const dias = periodosDia(V);   // nuevo → viejo, sólo días con lotes
+  return dias.map((d, i) => {
+    const previo = dias[i + 1] ? dias[i + 1].valor : null;
+    return { ...d, previo, deltaVal: previo ? (d.valor - previo) / previo * 100 : null };
+  }).filter(d => enRango(d.clave, A)).reverse();   // la semana se lee de lunes a viernes
+}
+// Un mes entra entero en una página: el foco al volver tiene que encontrar el día de donde vino.
+const POR_PAGINA_DIAS = 31;
+
+function pintarModalDias(V) {
+  const { A, B } = periodosElegidos(V);
+  if (!A) return modalVacio('Por día', 'Sin producción en el período elegido');
+  $('modal-tit').textContent = `Por día · ${tituloPeriodo(A)}`;
+  $('modal-cuerpo').innerHTML = `
+    <p class="resumen medidas">${htmlResumen(A, B, B && nombrePeriodo(B))}</p>
+    <p class="desc">Tocá un día para ver qué se produjo y quién hizo cada lote.</p>
+    <div class="panel"><table id="m-t-dias" class="filas-clic"></table></div>`;
+  pintarTabla($('m-t-dias'), COLS_DIAS, filasDias(V, A), '', POR_PAGINA_DIAS);
+}
+
+function pintarModalDia(V) {
+  const dias = periodosDia(V);
+  const i = dias.findIndex(d => d.clave === M.fecha);
+  if (i < 0) return modalVacio(fechaLarga(M.fecha), 'Sin producción ese día');
+  const d = dias[i], previo = dias[i + 1] || null;
+  const tareas = (V.datos.tareas || []).filter(t => t.fecha === d.clave);
+  $('modal-tit').textContent = fechaLarga(d.clave);
+  $('modal-cuerpo').innerHTML = `
+    <p class="resumen medidas">${htmlResumen(d, previo, previo && `el ${dm(previo.clave)}`)}</p>
+    <h3>Qué se produjo</h3>
+    <div class="panel"><table id="m-t-prod"></table></div>
+    <h3>Lotes del día</h3>
+    <p class="desc">Quién hizo cada tarea y en qué horario.</p>
+    <div class="panel"><table id="m-t-lotes"></table></div>
+    ${htmlTareas(tareas)}`;
+  pintarTabla($('m-t-prod'), colsQueSeProdujo(d, null), filasQueSeProdujo(V, d, null));
+  pintarTabla($('m-t-lotes'), COLS_HIST, lotesDelPeriodo(V, d));
+  if (tareas.length) pintarTabla($('m-t-tareas'), COLS_TAREAS_DIA, tareas);
+}
+
+function pintarModalLotes(V) {
+  const { A } = periodosElegidos(V);
+  if (!A) return modalVacio('Lotes', 'Sin producción en el período elegido');
+  const lotes = lotesDelPeriodo(V, A);
+  const tareas = (V.datos.tareas || []).filter(t => enRango(t.fecha, A));
+  $('modal-tit').textContent = `Lotes · ${tituloPeriodo(A)}`;
+  $('modal-cuerpo').innerHTML = `
+    <p class="desc">${nf(lotes.length)} ${plural(lotes.length, 'lote', 'lotes')} en orden de fecha: quién hizo cada tarea y en qué horario.</p>
+    <div class="panel"><table id="m-t-lotes"></table></div>
+    ${htmlTareas(tareas)}`;
+  pintarTabla($('m-t-lotes'), colsHistConFecha(), lotes, '', 25);
+  if (tareas.length) pintarTabla($('m-t-tareas'), COLS_TAREAS, tareas);
+}
+
+const pintarTablaTiempos = V => pintarTabla(
+  $v(V, 't-tprod'), COLS_PROD_HIST, V.datos.productos || [], $v(V, 'q-tprod').value, 10);
+
+function pintarModalTiempos(V) {
+  $('modal-tit').textContent = 'Tiempos de la línea';
+  $('modal-cuerpo').innerHTML = htmlTiempos(V.suf);
+  pintarRolesV(V);
+  pintarGrafEnvasado(V);
+  pintarTablaTiempos(V);
+  // El contenido es nuevo en cada apertura: los controles se enganchan acá y no al cargar.
+  $v(V, 'sel-env').onchange = e => { V.plu = e.target.value; pintarGrafEnvasado(V); };
+  $v(V, 'q-tprod').oninput = () => pintarTablaTiempos(V);
+}
+
+function verDia(fecha) {
+  M.vista = 'dia';
+  M.fecha = fecha;
+  pintarModal();
+  // El botón que se tocó ya no existe: el foco va a "Volver", que es lo próximo que se busca.
+  $('modal-volver').focus();
+}
+
+function volverADias() {
+  const fecha = M.fecha;
+  M.vista = 'dias';
+  pintarModal();
+  // El foco vuelve al día del que se venía: con el teclado se recorre la semana día por día.
+  const b = $('modal-cuerpo').querySelector(`[data-fecha="${CSS.escape(fecha)}"]`);
+  (b || MODAL).focus();
+}
+
+$('modal-cerrar').onclick = () => MODAL.close();
+$('modal-volver').onclick = volverADias;
+// Click en el fondo cierra. Se mira dónde empezó el click: arrastrar una selección de texto
+// desde la tabla hasta afuera termina sobre el fondo y no tiene que cerrar.
+MODAL.onpointerdown = e => { M.desdeFondo = e.target === MODAL; };
+MODAL.onclick = e => { if (M.desdeFondo && e.target === MODAL) MODAL.close(); };
+// Esc lo cierra el navegador; acá sólo se limpia y se devuelve el foco a quien lo abrió.
+MODAL.onclose = () => {
+  $('modal-cuerpo').innerHTML = '';
+  if (M.origen && M.origen.isConnected) M.origen.focus();
+  M.V = null;
+};
+// Cualquier parte del renglón de un día lo abre; el botón de la primera celda es para el teclado.
+$('modal-cuerpo').onclick = e => {
+  const fila = M.vista === 'dias' && e.target.closest('tbody tr');
+  const b = fila && fila.querySelector('[data-fecha]');
+  if (b) verDia(b.dataset.fecha);
+};
 
 // Se pide de nuevo con cada filtro. El servidor cachea los archivos, así que lo único que se
 // rehace es la medición.
@@ -1556,19 +1752,38 @@ async function cargarVista(V, forzar) {
 }
 
 // Los controles de las dos vistas se enganchan iguales: mismo pane, distinto sufijo.
+// El markup se inyecta primero: todo lo de abajo busca ids que recién existen después de esto.
 for (const V of Object.values(VISTAS)) {
-  $v(V, 'per').querySelectorAll('button').forEach(b => b.onclick = () => {
-    V.unidad = elegirEnSegmento($v(V, 'per'), b);
-    if (V.datos) pintarPeriodosV(V);
+  $('pane-' + V.suf).innerHTML = htmlVista(V.suf, V.intro);
+  // Otra unidad, otros períodos: la selección vuelve a "el último contra el anterior".
+  $v(V, 'uni').querySelectorAll('button').forEach(b => b.onclick = () => {
+    V.unidad = elegirEnSegmento($v(V, 'uni'), b);
+    V.selA = null; V.selB = null;
+    if (V.datos) pintarValorizacion(V);
   });
-  $v(V, 'det').querySelectorAll('button').forEach(b => b.onclick = () => {
-    V.detalle = elegirEnSegmento($v(V, 'det'), b);
-    if (V.datos) pintarPeriodosV(V);
-  });
-  $v(V, 'cmp-per').querySelectorAll('button').forEach(b => b.onclick = () => {
-    V.unidadCmp = elegirEnSegmento($v(V, 'cmp-per'), b);
-    if (V.datos) pintarCmpValor(V);
-  });
+  // Clicks delegados en el contenedor: las barras se repintan con innerHTML y un onclick puesto
+  // en cada una se perdería en el próximo repintado.
+  $v(V, 'graf').onclick = e => {
+    const col = e.target.closest('.col[data-clave]');
+    if (col && V.datos) elegirPeriodo(V, col.dataset.clave);
+  };
+  // Enter o espacio sobre una barra enfocada la elige, igual que el click; el foco vuelve a la
+  // barra elegida porque el repintado reemplaza las columnas.
+  $v(V, 'graf').onkeydown = e => {
+    const col = e.target.closest('.col[data-clave]');
+    if (!col || !V.datos || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    elegirPeriodo(V, col.dataset.clave);
+    const sel = $v(V, 'graf').querySelector('.col.sel');
+    if (sel) sel.focus();
+  };
+  $v(V, 'sel-b').onchange = e => {
+    V.selB = e.target.value;
+    if (V.datos) pintarQueSeProdujo(V);
+  };
+  $v(V, 'btn-dias').onclick = e => abrirModal(V, 'dias', e.currentTarget);
+  $v(V, 'btn-lotes').onclick = e => abrirModal(V, 'lotes', e.currentTarget);
+  $v(V, 'btn-tiempos').onclick = e => abrirModal(V, 'tiempos', e.currentTarget);
   $v(V, 'tipo').onchange = e => {
     V.filtro.tipo = e.target.value;
     // Al cambiar de tipo arranca en la primera opción; sin tipo, se mide toda la sala.
@@ -1595,13 +1810,6 @@ for (const V of Object.values(VISTAS)) {
     recargarTodo();
   };
   $v(V, 'recalc').onclick = () => recalcularRef(V);
-  $v(V, 'sel-env').onchange = e => { V.plu = e.target.value; pintarGrafEnvasado(V); };
-  $v(V, 'q-tprod').oninput = () => V.datos && pintarTabla(
-    $v(V, 't-tprod'), COLS_PROD_HIST, V.datos.productos || [], $v(V, 'q-tprod').value, 10);
-  if ($v(V, 'q-tareas')) {
-    $v(V, 'q-tareas').oninput = () => V.datos && pintarTabla(
-      $v(V, 't-tareas'), COLS_TAREAS, V.datos.tareas || [], $v(V, 'q-tareas').value);
-  }
 }
 
 // El rango vale para las tres salas: al cambiarlo se recarga fraccionado y las vistas por lote
@@ -1613,6 +1821,10 @@ function recargarTodo() {
 
 async function cargar() {
   const qs = new URLSearchParams({ desde: $('desde').value, hasta: $('hasta').value });
+  // Al lado del título va el período que se está mirando: es lo primero que hay que saber para
+  // leer cualquier número de abajo, y vale para las tres salas.
+  $('nota').textContent = $('desde').value && $('hasta').value
+    ? `Del ${fechaLarga($('desde').value)} al ${fechaLarga($('hasta').value)}` : 'Todo el archivo';
   $('error').hidden = true;
   $('cargando').hidden = false;
   $('btnAplicar').disabled = true;
