@@ -32,7 +32,7 @@ const CABECERA = {
   periodoFiscal: 202610, idSucursal: 1, idDeposito: 1, idUbicacion: 1, idFormasPago: 3, porcDescRecGeneral: 0,
   observacion: 'Pedido P-0007',
 };
-const cuerpo = (cambios = {}) => ({ pedido: 'P-0007', cabecera: CABECERA, precios: {}, percepciones: [{ tipo: 'PIVA', importe: 955.19 }], ...cambios });
+const cuerpo = (cambios = {}) => ({ pedido: 'P-0007', cabecera: CABECERA, percepciones: [{ tipo: 'PIVA', importe: 955.19 }], ...cambios });
 const MENSAJE_SIN_CONFIRMAR = 'No se pudo confirmar la grabación del comprobante en SIGA: verificá en SiGA antes de reintentar.';
 const MENSAJE_A_VERIFICAR = 'El pedido tiene una grabación sin confirmar: verificá en SiGA si el comprobante quedó cargado antes de reintentar.';
 const TS = AHORA.toISOString();
@@ -130,25 +130,73 @@ test('POST validar: recalcula del lado del servidor y devuelve los errores de Si
   } finally { cerrar(ctx); }
 });
 
-test('POST validar y grabar: importes, cantidades, líneas y proveedor del navegador se ignoran', async () => {
+test('POST validar y grabar: importes, IVA por línea, totales y proveedor del navegador se ignoran', async () => {
   const ctx = await montar();
   try {
     const inyectado = cuerpo({
       idProveedor: 999, importeTotal: 1, iva: 0, totales: { importeTotal: 1, iva: 0 },
-      lineas: [{ plu: '1001', cantidad: 999, precio: 1, importeTotal: 1 }, { plu: '9999', cantidad: 5, precio: 1 }],
+      lineas: [
+        { plu: '1001', cantidad: 1, precio: 31839.64, importeTotal: 1, iva: 0, porcentajeIVA: 0, importeTotalNeto: 1, orden: 9, nombre: 'x' },
+        { plu: '1002', cantidad: 1, precio: 3184.01, alicuota: 21 },
+      ],
       cabecera: { ...CABECERA, idProveedor: 999, importeTotal: 1, iva: 0 },
     });
     const v = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', inyectado);
     assert.strictEqual(v.status, 200);
+    assert.deepStrictEqual(v.data.errores, []);
     assert.strictEqual(v.data.totales.importeTotal, 42665.16);
-    assert.deepStrictEqual(v.data.lineas.map(l => [l.plu, l.cantidad, l.precio]), [['1001', 1, 31839.64], ['1002', 1, 3184.01]]);
+    assert.deepStrictEqual(v.data.lineas.map(l => [l.orden, l.plu, l.porcentajeIVA]), [[1, '1001', 21], [2, '1002', 0]]);
+    // El nombre que se muestra es el de SIGA, no el del navegador ni el del pedido.
+    assert.deepStrictEqual(v.data.lineas.map(l => l.nombre), ['HARINA 000 X 25', 'HUEVOS X 30']);
     assert.strictEqual(ctx.contextos[0].idProveedor, 328);
     const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', inyectado);
     assert.strictEqual(g.status, 200);
     const filas = ctx.grabados[0];
-    assert.deepStrictEqual(filas.comprasProductos.map(p => [p.IdProducto, p.Cantidad]), [['1001', 1], ['1002', 1]]);
+    assert.deepStrictEqual(filas.comprasProductos.map(p => [p.Orden, p.IdProducto, p.Cantidad]), [[1, '1001', 1], [2, '1002', 1]]);
     assert.strictEqual(filas.compras.ImporteTotal, 42665.16);
     assert.strictEqual(filas.clave.IdProveedor, 328);
+  } finally { cerrar(ctx); }
+});
+
+const PRODUCTO_2001 = {
+  idProducto: '2001', nombre: 'AZUCAR X 50', activo: true, esDeCompras: true, alicuota: 21, afectaStock: true,
+  embalaje: 0, precioPorEmbalaje: false, idUnidadDeMedida: 'UN', idUnidadDeMedidaCompra: 'UN', conceptoCompras: null, idMoneda: 1,
+};
+const conProducto2001 = () => { const c = contextoFactcom(); return { ...c, productos: { ...c.productos, 2001: PRODUCTO_2001 } }; };
+
+test('POST grabar: agrega un PLU que no está en el pedido, quita otro y cambia la cantidad; responde las líneas grabadas', async () => {
+  const ctx = await montar({ repo: { contexto: async b => { ctx.contextos.push(b); return conProducto2001(); } } });
+  try {
+    const editado = cuerpo({ lineas: [{ plu: '1001', cantidad: '3', precio: 100 }, { plu: '2001', cantidad: 2, precio: '50,5' }, { plu: '1001', cantidad: 1, precio: 90 }] });
+    const v = await pedir(ctx.base, 'POST', '/api/compras-siga/validar', editado);
+    assert.deepStrictEqual(v.data.errores, []);
+    assert.deepStrictEqual(ctx.contextos[0].lineas.map(l => [l.orden, l.plu, l.nombre, l.cantidad, l.precio]),
+      [[1, '1001', 'Harina', 3, 100], [2, '2001', '2001', 2, 50.5], [3, '1001', 'Harina', 1, 90]]);
+    assert.deepStrictEqual(v.data.lineas.map(l => l.nombre), ['HARINA 000 X 25', 'AZUCAR X 50', 'HARINA 000 X 25']);
+    const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', editado);
+    assert.strictEqual(g.status, 200);
+    assert.deepStrictEqual(ctx.grabados[0].comprasProductos.map(p => [p.Orden, p.IdProducto, p.NombreProducto, p.Cantidad, p.Precio]),
+      [[1, '1001', 'HARINA 000 X 25', 3, 100], [2, '2001', 'AZUCAR X 50', 2, 50.5], [3, '1001', 'HARINA 000 X 25', 1, 90]]);
+    // Para la Parte C (actualizar el pedido con lo grabado).
+    assert.deepStrictEqual(g.data.lineas, [
+      { orden: 1, plu: '1001', cantidad: 3, precio: 100 }, { orden: 2, plu: '2001', cantidad: 2, precio: 50.5 }, { orden: 3, plu: '1001', cantidad: 1, precio: 90 },
+    ]);
+  } finally { cerrar(ctx); }
+});
+
+test('POST validar y grabar con líneas editadas: PLU inexistente, sin producto, sin líneas o más de 200 → errores y no graba', async () => {
+  const ctx = await montar();
+  try {
+    const errores = async lineas => (await pedir(ctx.base, 'POST', '/api/compras-siga/validar', cuerpo({ lineas }))).data.errores;
+    assert.deepStrictEqual(await errores([{ plu: '9999', cantidad: 1, precio: 1 }]), [{ campo: 'lineas[0]', mensaje: 'v1: el producto 9999 no existe en SIGA.' }]);
+    assert.deepStrictEqual(await errores([{ plu: '', cantidad: 1, precio: 1 }]), [{ campo: 'lineas[0]', mensaje: 'v1: falta el producto.' }]);
+    assert.deepStrictEqual(await errores([{ plu: '1001', cantidad: 0, precio: 1 }]), [{ campo: 'lineas[0]', mensaje: 'La cantidad debe ser distinta de cero.' }]);
+    assert.deepStrictEqual(await errores([]), [{ campo: 'lineas', mensaje: 'Debe cargar como minimo un producto.' }]);
+    const muchas = Array.from({ length: 201 }, () => ({ plu: '1001', cantidad: 1, precio: 1 }));
+    assert.ok((await errores(muchas)).some(e => e.mensaje === 'v1: el comprobante supera las 200 líneas.'));
+    const g = await pedir(ctx.base, 'POST', '/api/compras-siga/grabar', cuerpo({ lineas: muchas }));
+    assert.strictEqual(g.status, 400);
+    assert.strictEqual(ctx.grabados.length, 0);
   } finally { cerrar(ctx); }
 });
 

@@ -10,8 +10,9 @@ const { fechaLocalISO } = require('../lib/siga_compras/fechas');
 
 // ── Importación de pedidos de compra como comprobantes en SIGA ──────────────────
 // Spec: docs/superpowers/specs/2026-10-15-compras-siga-importacion-design.md. Reglas en lib/siga_compras/.
-// El servidor NUNCA usa importes del navegador: recibe solo lo editable (desde_pedido.aplicarEdicion), rearma las
-// líneas desde el pedido y recalcula todo. repo llega inyectado (lib/siga_compras/repo.js en server.js; uno falso
+// El servidor NUNCA usa importes del navegador: recibe solo lo editable (desde_pedido.aplicarEdicion: cabecera,
+// percepciones y líneas con plu, cantidad y precio; sin `lineas` en el body, las del pedido), revalida cada PLU
+// contra SIGA y recalcula todo. repo llega inyectado (lib/siga_compras/repo.js en server.js; uno falso
 // en los tests).
 const SIN_CONFIRMAR = 'SIGA_SIN_CONFIRMAR';
 const RESULTADOS_VERIFICACION = ['cargado', 'no_cargado'];
@@ -114,6 +115,9 @@ module.exports = function crearRutasComprasSiga(deps) {
     return { borrador, contexto, calculo, errores, momento };
   }
 
+  // Lo grabado por línea, para actualizar después el pedido con las ediciones (Parte C).
+  const lineasGrabadas = calculo => calculo.lineas.map(({ orden, plu, cantidad, precio }) => ({ orden, plu, cantidad, precio }));
+
   // proximoNumero: el que propone la pantalla con numeración automática (repo.contexto, sin lock); null si no aplica.
   const vista = ({ calculo, errores, contexto }) => ({
     lineas: calculo.lineas, filasImpuestos: calculo.filasImpuestos, totales: calculo.totales,
@@ -203,7 +207,10 @@ module.exports = function crearRutasComprasSiga(deps) {
       filas = armarComprobante(r.borrador, r.contexto, r.calculo, { ahora: r.momento, usuario });
       const { clave, numeroMovimiento } = await repo.grabar(filas);
       const comprobante = comprobanteDe(clave);
-      return res.json({ ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, ...vincular(numero, comprobante, usuario) });
+      return res.json({
+        ok: true, comprobante, numeroMovimiento, totales: r.calculo.totales, lineas: lineasGrabadas(r.calculo),
+        ...vincular(numero, comprobante, usuario),
+      });
     } catch (err) {
       if (err && err.code === SIN_CONFIRMAR) {
         // grabar.js adjunta la clave definitiva; la de filas tiene número 0 en numeración automática.
