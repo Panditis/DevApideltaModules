@@ -2179,7 +2179,7 @@ function renderHistorial(registros) {
               const obs = c.observacion ? `<div style="font-size:12px;color:#7c3aed;margin-top:2px;font-style:italic">${escEnv(c.observacion)}</div>` : '';
               // Dropdown por producto: componentes que quedaron guardados en la carga —los graneles
               // con sus kg, y envase/tapa/etiqueta en unidades (ver _packagingDeCarga).
-              const comps = (Array.isArray(c.graneles) ? c.graneles : [])
+              const comps = (Array.isArray(c.graneles) && !_esSoloEtiquetado(c) ? c.graneles : [])
                 .filter(g => g && (g.nombreGranel || g.granelConsumido))
                 .map(g => ({ nom: g.nombreGranel || 'Granel', cant: `${fmtN(g.granelConsumido || 0)} kg` }));
               _packagingDeCarga(c).forEach(k => comps.push({ nom: k.nom, cant: _fmtPackCant(k.cant) }));
@@ -2482,6 +2482,9 @@ function _tieneRolCarga(r, re) {
   return (Array.isArray(r && r.roles) ? r.roles : (Array.isArray(r && r.responsables) ? r.responsables : []))
     .some(x => re.test((x && x.rol) || '') && String((x && x.nombre) || '').trim());
 }
+// Carga sólo de Etiquetado: consume la etiqueta y nada más. Misma regla que esSoloEtiquetado.
+const _esSoloEtiquetado = r => String((r && r.plu) || '').trim().toUpperCase() !== 'ACT'
+  && !_tieneRolCarga(r, /envasad/i) && _tieneRolCarga(r, /etiquetad/i);
 const _esEtiquetaComp = c => String((c && c.Rubro) || '').toUpperCase().includes('ETIQUET') || /^\s*etiquetas?\b/i.test(String((c && c.Componente) || ''));
 // Cantidades de packaging que se guardan en la carga. Factor = CantPorUnidad del componente de la
 // fórmula con ese código; si lo elegido no está en la fórmula, el del componente que reemplaza
@@ -2491,8 +2494,9 @@ function _pfPackagingGuardado(el, cant, roles) {
   const { comps = [], sugerido = null } = _pfPackPorElem[el.eidx] || {};
   const factorDe = cod => { const c = comps.find(x => String(x.IdComponente) === String(cod)); return c ? (parseFloat(c.CantPorUnidad) || 1) : null; };
   const out = {};
+  const conEnvasado = _tieneRolCarga({ roles }, /envasad/i);
   for (const [tipo, campo] of [['envase', 'cantEnvase'], ['tapa', 'cantTapa']]) {
-    if (!el[tipo]) continue;
+    if (!conEnvasado || !el[tipo]) continue;
     const f = factorDe(el[tipo]) ?? (sugerido && sugerido[tipo] ? factorDe(sugerido[tipo].codigo) : null) ?? 1;
     out[campo] = +(cant * f).toFixed(4);
   }
@@ -2505,8 +2509,10 @@ function _pfPackagingGuardado(el, cant, roles) {
 function _packagingDeCarga(r) {
   const cant = _parseNum(r.cantFraccionada ?? r.cantidad);
   const out = [];
-  if (r.envase || r.envaseNombre) out.push({ nom: r.envaseNombre || envaseLabel(r.envase), cant: r.cantEnvase ?? cant });
-  if (r.tapa || r.tapaNombre)     out.push({ nom: r.tapaNombre   || tapaLabel(r.tapa),     cant: r.cantTapa   ?? cant });
+  // Las cargas sólo-Etiquetado viejas guardaban envase/tapa sin consumirlos: no se muestran.
+  const conEnvTapa = !_esSoloEtiquetado(r);
+  if (conEnvTapa && (r.envase || r.envaseNombre)) out.push({ nom: r.envaseNombre || envaseLabel(r.envase), cant: r.cantEnvase ?? cant });
+  if (conEnvTapa && (r.tapa || r.tapaNombre))     out.push({ nom: r.tapaNombre   || tapaLabel(r.tapa),     cant: r.cantTapa   ?? cant });
   if (r.cantEtiqueta != null) out.push({ nom: r.etiquetaNombre || `Etiqueta ${r.etiqueta || ''}`.trim(), cant: r.cantEtiqueta });
   else if (_tieneRolCarga(r, /etiquetad/i)) out.push({ nom: 'Etiqueta', cant: null });
   return out;
@@ -2787,6 +2793,8 @@ async function guardarProduccionFinal(ev) {
 
   // Datos compartidos (una sola vez para toda la orden).
   const roles = _pfLeerRoles();
+  // Sin Envasado (sólo Etiquetado) la carga no consume granel/envase/tapa: no se guardan.
+  const conEnvasado = _tieneRolCarga({ roles }, /envasad/i);
   const desdeVals = roles.map(r => r.desde).filter(Boolean).sort();
   const hastaVals = roles.map(r => r.hasta).filter(Boolean).sort();
   const desde = desdeVals[0] || '';
@@ -2811,9 +2819,9 @@ async function guardarProduccionFinal(ev) {
       presentacion: blk.dataset.presentacion || '',
       plu: blk.dataset.plu || '',
       cargado: blk.dataset.cargado === '1',
-      envase: blk.querySelector('.pf-elem-envase')?.value || '',
-      tapa:   blk.querySelector('.pf-elem-tapa')?.value || '',
-      graneles,
+      envase: conEnvasado ? (blk.querySelector('.pf-elem-envase')?.value || '') : '',
+      tapa:   conEnvasado ? (blk.querySelector('.pf-elem-tapa')?.value || '') : '',
+      graneles: conEnvasado ? graneles : [],
     };
   }).filter(e => !e.cargado && !isNaN(e.cant) && e.cant > 0);
 
@@ -2978,7 +2986,8 @@ function renderRegistrosCargados(registros, ordenesById = {}) {
         ? r.responsables.map(x => x.rol ? `${x.nombre} (${x.rol})` : x.nombre).join(', ')
         : (r.empleado || r.responsable || '—');
       const hora = r.desde ? `${r.desde}–${r.hasta||'?'}` : '—';
-      const listaGraneles = Array.isArray(r.graneles) && r.graneles.length
+      const listaGraneles = _esSoloEtiquetado(r) ? []
+        : Array.isArray(r.graneles) && r.graneles.length
         ? r.graneles
         : (r.nombreGranel ? [{ nombreGranel: r.nombreGranel, granelConsumido: r.granelConsumido }] : []);
       _rcData[idx] = { id: r.id, ordenId: r.ordenId, nombre, cant, graneles: listaGraneles, packaging: _packagingDeCarga(r), plu: String(r.plu || ''), presentacion: String(r.presentacion || '') };
