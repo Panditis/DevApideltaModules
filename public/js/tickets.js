@@ -28,8 +28,9 @@
     prioridades: [{ valor: 'baja', etiqueta: 'Baja' }, { valor: 'media', etiqueta: 'Media' }, { valor: 'alta', etiqueta: 'Alta' }, { valor: 'urgente', etiqueta: 'Urgente' }],
     estados: [{ valor: 'pendiente', etiqueta: 'Pendiente' }, { valor: 'en_proceso', etiqueta: 'En proceso' }, { valor: 'falta_aprobacion', etiqueta: 'Falta aprobación' },
       { valor: 'stand_by', etiqueta: 'Stand by' }, { valor: 'terminado', etiqueta: 'Terminado' }, { valor: 'cancelado', etiqueta: 'Cancelado' }],
-    areas: [], usuarios: [], yo: null, yoNombre: null,
+    areas: [], usuarios: [], yo: null, yoNombre: null, login: null, puedeGestionar: false,
   };
+  const SIN_PERMISO = 'Necesitás el permiso Tickets · Gestión';
   const AVATAR_TONOS = [['#e3ecda', '#2e4027'], ['#e0ecf8', '#0b4f9c'], ['#fbecd0', '#7a5200'], ['#efe4f7', '#5b3391'],
     ['#fde4e1', '#9c2b2b'], ['#dcf0ec', '#1d6157'], ['#ece9e2', '#4d4a40'], ['#e6e9f8', '#3a4699']];
   // Íconos (trazos de lucide, ISC) inline: constantes, nunca datos de usuario.
@@ -44,6 +45,7 @@
     texto: '<path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     alerta: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+    candado: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     historial: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
@@ -122,6 +124,9 @@
   const buscarTicket = id => estado.tickets.find(t => String(t.id) === String(id)) || null;
   const reemplazarTicket = (id, nuevo) => { estado.tickets = estado.tickets.map(x => (String(x.id) === String(id) ? nuevo : x)); };
   const notasDe = t => (t.historial || []).filter(h => h.tipo === 'nota').length;
+  // Espejo de lo que valida el server: estados sólo con 'tickets-gestion'; destinatarios también el creador.
+  const puedeGestionar = () => estado.meta.puedeGestionar === true;
+  const puedeEditarDest = t => puedeGestionar() || mismoUsuario(t.creadoPor, estado.meta.login);
 
   // ── Avatares ────────────────────────────────────────────────────────────────
   function iniciales(nombre) {
@@ -155,7 +160,8 @@
   const badgeEstado = v => `<span class="inline-flex items-center gap-1.5 font-semibold e-${esc(v)}" style="color:var(--e-fg)"><span class="dot"></span>${esc(etiqueta('estados', v))}</span>`;
   function selectEstado(t, id) {
     const ops = estado.meta.estados.map(e => `<option value="${esc(e.valor)}"${e.valor === t.estado ? ' selected' : ''}>${esc(e.etiqueta)}</option>`).join('');
-    return `<select class="sel-estado e-${esc(t.estado)}"${id ? ` id="${id}"` : ''} data-estado-id="${esc(t.id)}" aria-label="Estado del ticket #${esc(t.id)}">${ops}</select>`;
+    const bloqueo = puedeGestionar() ? '' : ` disabled title="${esc(SIN_PERMISO)}" aria-description="${esc(SIN_PERMISO)}"`;
+    return `<select class="sel-estado e-${esc(t.estado)}"${id ? ` id="${id}"` : ''} data-estado-id="${esc(t.id)}" aria-label="Estado del ticket #${esc(t.id)}"${bloqueo}>${ops}</select>`;
   }
 
   // ── Selector de usuarios (alta y detalle): chips con avatar + buscador + lista con checkboxes ──
@@ -443,8 +449,9 @@
   // ── Tablero ─────────────────────────────────────────────────────────────────
   function tarjeta(t) {
     const notas = notasDe(t);
-    const clases = `tarjeta p-${esc(t.prioridad)} e-${esc(t.estado)}${estado.guardando.has(String(t.id)) ? ' guardando' : ''}`;
-    return `<article class="${clases}" draggable="true" tabindex="0" data-id="${esc(t.id)}"
+    const mover = puedeGestionar();
+    const clases = `tarjeta p-${esc(t.prioridad)} e-${esc(t.estado)}${estado.guardando.has(String(t.id)) ? ' guardando' : ''}${mover ? '' : ' fija'}`;
+    return `<article class="${clases}" draggable="${mover}" tabindex="0" data-id="${esc(t.id)}"
       aria-label="Ticket #${esc(t.id)}: ${esc(t.tarea)}. Prioridad ${esc(etiqueta('prioridades', t.prioridad))}, ${esc(etiqueta('estados', t.estado))}.">
       <div class="fila1"><span class="num">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}
         <span class="ml-auto" title="Creado el ${esc(fecha(t.creadoEn))}">${esc(haceCuanto(t.creadoEn))}</span></div>
@@ -455,7 +462,7 @@
   }
 
   function columna(e, tickets) {
-    const cuerpo = tickets.length ? tickets.map(tarjeta).join('') : '<div class="col-vacia">Soltá un ticket acá</div>';
+    const cuerpo = tickets.length ? tickets.map(tarjeta).join('') : `<div class="col-vacia">${puedeGestionar() ? 'Soltá un ticket acá' : 'Sin tickets'}</div>`;
     return `<section class="col e-${esc(e.valor)}" data-estado="${esc(e.valor)}" aria-label="${esc(e.etiqueta)}: ${tickets.length} tickets">
       <div class="col-cab"><span class="dot"></span>${esc(e.etiqueta)}<span class="n">${tickets.length}</span></div>
       <div class="col-cuerpo">${cuerpo}</div></section>`;
@@ -480,12 +487,14 @@
   }
 
   // Drag & drop nativo: soltar en una columna cambia el estado. Alternativa por teclado: el select del detalle.
+  // Sin permiso de gestión las tarjetas no son draggable y las columnas no aceptan drop (dragover sin preventDefault).
   function enlazarArrastre() {
     const tab = $('#tablero');
     const limpiarSobre = () => tab.querySelectorAll('.col.sobre').forEach(c => c.classList.remove('sobre'));
     tab.addEventListener('dragstart', e => {
       const card = e.target.closest('.tarjeta');
       if (!card) return;
+      if (!puedeGestionar()) { e.preventDefault(); return; }
       e.dataTransfer.setData('text/plain', card.dataset.id);
       e.dataTransfer.effectAllowed = 'move';
       requestAnimationFrame(() => card.classList.add('arrastrando'));
@@ -493,7 +502,7 @@
     tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); });
     tab.addEventListener('dragover', e => {
       const col = e.target.closest('.col');
-      if (!col) return;
+      if (!col || !puedeGestionar()) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       if (!col.classList.contains('sobre')) { limpiarSobre(); col.classList.add('sobre'); }
@@ -504,7 +513,7 @@
     });
     tab.addEventListener('drop', e => {
       const col = e.target.closest('.col');
-      if (!col) return;
+      if (!col || !puedeGestionar()) return;
       e.preventDefault();
       limpiarSobre();
       moverEstado(e.dataTransfer.getData('text/plain'), col.dataset.estado);
@@ -668,9 +677,11 @@
     const raiz = el('div');
     caja.append(raiz);
     const inicial = comoLista(t.destinatarios);
-    if (!estado.metaOk) {
+    const motivo = !estado.metaOk ? 'No se pueden editar ahora: no hay conexión con SIGA.'
+      : (puedeEditarDest(t) ? '' : 'Los cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión.');
+    if (motivo) {
       crearSelectorUsuarios(raiz, { seleccion: inicial, soloLectura: true });
-      caja.append(el('p', 'ayuda mt-2', 'No se pueden editar ahora: no hay conexión con SIGA.'));
+      caja.append(el('p', 'ayuda mt-2', motivo));
       return caja;
     }
     const mismos = v => v.length === inicial.length && v.every(u => inicial.includes(u));
@@ -872,6 +883,9 @@
       $('#btnNuevo').disabled = true;
       $('#btnNuevo').title = 'No disponible: no se pudieron traer los usuarios de SIGA';
     }
+    // Sin SIGA no se sabe el permiso: el aviso de error ya explica qué no se puede hacer.
+    $('#avisoPermiso').classList.toggle('hidden', !estado.metaOk || puedeGestionar());
+    $('#avisoPermiso').insertAdjacentHTML('afterbegin', ico('candado', 'ico w-3.5 h-3.5'));
   }
 
   async function iniciar() {

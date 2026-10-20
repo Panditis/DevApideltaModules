@@ -9,16 +9,34 @@ const tickets = require('../lib/tickets');
 // async (usuarios de SIGA) se resuelve ANTES de leer el JSON.
 // Los destinatarios son los usuarios activos de SIGA (tabla Usuarios); `query` entra por
 // deps (en server.js es el pool de lectura) para poder testear el router sin SQL.
+// Permisos: con el módulo se ve todo, se crea y se agregan notas. Cambiar el estado pide el permiso fino
+// 'tickets-gestion' (tienePermiso entra por deps, es auth.tienePermiso); los destinatarios los cambia el
+// creador del ticket o quien tenga ese permiso.
 const USUARIOS_TTL_MS = 5 * 60 * 1000;
 const SQL_USUARIOS = 'SELECT Id, Nombre FROM Usuarios WHERE Activo = 1 ORDER BY Nombre';
+const PERMISO_GESTION = 'tickets-gestion';
 
 module.exports = function crearRutasTickets(deps) {
-  const { leerJSON, guardarJSON, DATA_DIR, query, ttlMs = USUARIOS_TTL_MS } = deps;
+  const { leerJSON, guardarJSON, DATA_DIR, query, tienePermiso, ttlMs = USUARIOS_TTL_MS } = deps;
   const router = express.Router();
   const TICKETS_PATH = path.join(DATA_DIR, 'tickets.json');
 
   const leerTickets = () => leerJSON(TICKETS_PATH, []);
   const usuarioSesion = req => (req.session && req.session.user && req.session.user.usuario) || 'anonimo';
+  const userSesion = req => (req.session && req.session.user) || null;
+  // Sin sesión (o sin tienePermiso inyectado) → sin permiso.
+  const puedeGestionar = req => !!(userSesion(req) && tienePermiso && tienePermiso(userSesion(req), PERMISO_GESTION));
+  const prohibido = msg => Object.assign(new Error(msg), { status: 403 });
+
+  // 403 si el body pide algo que la sesión no puede hacer sobre `ticket`. Ticket inexistente: lo resuelve actualizarTicket (404).
+  function autorizarCambios(req, ticket, cambios) {
+    if (!ticket || puedeGestionar(req)) return;
+    if (cambios.estado !== undefined) throw prohibido('No tenés permiso para cambiar el estado de los tickets.');
+    const login = String((userSesion(req) || {}).usuario || '').toLowerCase();
+    if (cambios.destinatarios !== undefined && (!login || String(ticket.creadoPor || '').toLowerCase() !== login)) {
+      throw prohibido('Solo el creador del ticket o quien tenga el permiso de gestión puede cambiar los destinatarios.');
+    }
+  }
 
   // ponytail: caché en memoria de 5 min: un alta/baja en SIGA tarda hasta 5 min en verse.
   // Si SIGA no responde se sirve la caché vieja; sin caché, 503.
@@ -66,6 +84,8 @@ module.exports = function crearRutasTickets(deps) {
       usuarios,
       yo: yo ? yo.usuario : null,
       yoNombre: user.nombre || user.usuario || null,
+      login: user.usuario || null,
+      puedeGestionar: puedeGestionar(req),
     };
   }));
 
@@ -82,7 +102,9 @@ module.exports = function crearRutasTickets(deps) {
     if (!Number.isInteger(id) || id <= 0) throw Object.assign(new Error('Id de ticket inválido.'), { status: 400 });
     const validos = (await usuariosSiga()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
-    const { lista, ticket } = tickets.actualizarTicket(leerTickets(), id, req.body, usuarioSesion(req), validos, new Date().toISOString());
+    const actuales = leerTickets();
+    autorizarCambios(req, actuales.find(t => Number(t.id) === id), req.body || {});
+    const { lista, ticket } = tickets.actualizarTicket(actuales, id, req.body, usuarioSesion(req), validos, new Date().toISOString());
     guardarJSON(TICKETS_PATH, lista);
     return ticket;
   }));

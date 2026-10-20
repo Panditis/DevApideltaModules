@@ -110,6 +110,7 @@
 .tarjeta:active{cursor:grabbing}
 .tarjeta.arrastrando{opacity:.4;transform:scale(.98)}
 .tarjeta.guardando{opacity:.65;pointer-events:none}
+.tarjeta.fija,.tarjeta.fija:active{cursor:pointer}
 .tarjeta .fila1{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--gris)}
 .tarjeta .num{font-weight:600;font-variant-numeric:tabular-nums;color:#8a8d80}
 .tarjeta .tit{margin:6px 0 8px;font-size:14px;font-weight:600;line-height:1.35;color:var(--ink);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
@@ -244,6 +245,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
     <select id="flDest" class="ctl ctl-sm max-w-[170px]" aria-label="Filtrar por destinatario"></select>
     <label class="switch"><input type="checkbox" id="flMios" role="switch"> Solo asignados a mí</label>
     <span id="conteo" class="text-sm text-gris tabular-nums"></span>
+    <span id="avisoPermiso" class="hidden inline-flex items-center gap-1.5 text-xs text-gris">Solo lectura de estados · pedí el permiso Tickets · Gestión</span>
    </div>
     <div class="flex items-center gap-3 shrink-0">
       <div class="pills" role="group" aria-label="Vista">

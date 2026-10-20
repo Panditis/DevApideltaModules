@@ -14,7 +14,8 @@ const FILAS_SIGA = [
 ];
 
 // sql.falla = true hace que la próxima query reviente (SIGA caído).
-function montar({ ttlMs } = {}) {
+// sesion.user y sesion.permiso se pueden cambiar entre pedidos (otro usuario / sin permiso de gestión).
+function montar({ ttlMs, permiso = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tickets-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
@@ -25,12 +26,14 @@ function montar({ ttlMs } = {}) {
     if (sql.falla) throw new Error('SIGA caído');
     return FILAS_SIGA;
   };
+  const sesion = { user: { usuario: 'adriel', nombre: 'Adriel S.' }, permiso };
+  const tienePermiso = (user, ref) => !!user && ref === 'tickets-gestion' && sesion.permiso;
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => { req.session = { user: { usuario: 'adriel', nombre: 'Adriel S.' } }; next(); });
-  app.use(require('../routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR: dir, query, ttlMs }));
+  app.use((req, _res, next) => { req.session = sesion.user ? { user: sesion.user } : {}; next(); });
+  app.use(require('../routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR: dir, query, ttlMs, tienePermiso }));
   return new Promise(ok => {
-    const server = app.listen(0, () => ok({ server, dir, sql, base: `http://127.0.0.1:${server.address().port}/api/tickets` }));
+    const server = app.listen(0, () => ok({ server, dir, sql, sesion, base: `http://127.0.0.1:${server.address().port}/api/tickets` }));
   });
 }
 
@@ -121,5 +124,62 @@ test('SIGA caído con caché vieja → usa la caché', async () => {
     assert.strictEqual(meta.data.usuarios.length, 2);
     assert.strictEqual((await pedir(ctx.base, 'POST', '', NUEVO)).status, 201);
     assert.strictEqual(ctx.sql.llamadas, 3);
+  } finally { cerrar(ctx); }
+});
+
+test('PERMISOS_EXTRA trae tickets-gestion asignable desde /admin', () => {
+  const p = require('../lib/auth').PERMISOS_EXTRA.find(x => x.ref === 'tickets-gestion');
+  assert.deepStrictEqual(p, { ref: 'tickets-gestion', titulo: 'Tickets · Gestión', modulo: 'tickets' });
+});
+
+test('meta informa puedeGestionar y login de la sesión', async () => {
+  const ctx = await montar({ permiso: false });
+  try {
+    let { data } = await pedir(ctx.base, 'GET', '/meta');
+    assert.strictEqual(data.puedeGestionar, false);
+    assert.strictEqual(data.login, 'adriel');
+    ctx.sesion.permiso = true;
+    ({ data } = await pedir(ctx.base, 'GET', '/meta'));
+    assert.strictEqual(data.puedeGestionar, true);
+    ctx.sesion.user = null; // sin sesión: sin permiso aunque el fake diría que sí
+    ({ data } = await pedir(ctx.base, 'GET', '/meta'));
+    assert.strictEqual(data.puedeGestionar, false);
+    assert.strictEqual(data.login, null);
+  } finally { cerrar(ctx); }
+});
+
+test('sin permiso de gestión: no cambia estado; destinatarios solo el creador; notas sí', async () => {
+  const ctx = await montar({ permiso: false });
+  const { base } = ctx;
+  const leer = () => JSON.parse(fs.readFileSync(path.join(ctx.dir, 'tickets.json'), 'utf8'))[0];
+  try {
+    assert.strictEqual((await pedir(base, 'POST', '', NUEVO)).status, 201); // creado por 'adriel'
+
+    const est = await pedir(base, 'PATCH', '/1', { estado: 'terminado', nota: 'listo' });
+    assert.strictEqual(est.status, 403);
+    assert.strictEqual(est.data.error, 'No tenés permiso para cambiar el estado de los tickets.');
+    assert.strictEqual(leer().estado, 'pendiente');
+    assert.strictEqual(leer().historial.length, 1); // ni la nota del mismo body se guardó
+
+    ctx.sesion.user = { usuario: 'ADRIEL' }; // el creador, con otra capitalización
+    const propio = await pedir(base, 'PATCH', '/1', { destinatarios: ['Adriel'] });
+    assert.strictEqual(propio.status, 200);
+    assert.deepStrictEqual(propio.data.destinatarios, ['Adriel']);
+
+    ctx.sesion.user = { usuario: 'beto' };
+    const ajeno = await pedir(base, 'PATCH', '/1', { destinatarios: ['beto'] });
+    assert.strictEqual(ajeno.status, 403);
+    assert.strictEqual(ajeno.data.error, 'Solo el creador del ticket o quien tenga el permiso de gestión puede cambiar los destinatarios.');
+    assert.deepStrictEqual(leer().destinatarios, ['Adriel']);
+
+    const nota = await pedir(base, 'PATCH', '/1', { nota: 'una duda' });
+    assert.strictEqual(nota.status, 200);
+    assert.strictEqual((await pedir(base, 'PATCH', '/99', { estado: 'terminado' })).status, 404);
+
+    ctx.sesion.permiso = true; // con permiso: estado y destinatarios de un ticket ajeno
+    const gestion = await pedir(base, 'PATCH', '/1', { estado: 'en_proceso', destinatarios: ['beto'] });
+    assert.strictEqual(gestion.status, 200);
+    assert.strictEqual(gestion.data.estado, 'en_proceso');
+    assert.deepStrictEqual(gestion.data.destinatarios, ['beto']);
   } finally { cerrar(ctx); }
 });

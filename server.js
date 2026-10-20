@@ -2689,7 +2689,7 @@ app.use(require('./routes/rutas_cuentas_corrientes')({ apiRoute, query }));
 app.use(require('./routes/rutas_ventas_hora')({ apiRoute, query, safeDate }));
 app.use(require('./routes/rutas_cruce_bancario')({ query }));
 // Tickets de Desarrollo: persiste en data/tickets.json; los destinatarios válidos son los usuarios activos de SIGA.
-app.use(require('./routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR, query }));
+app.use(require('./routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso }));
 
 
 // Precios históricos: LISTA_PRECIOS_VENTA es un const declarado miles de líneas después del
