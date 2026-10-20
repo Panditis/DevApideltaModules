@@ -7,11 +7,11 @@ const tickets = require('../lib/tickets');
 // Persistencia en data/tickets.json (array). Cada escritura es leer-modificar-guardar
 // síncrono dentro del handler, sin await en el medio: en Node eso es atómico. Lo único
 // async (usuarios de SIGA) se resuelve ANTES de leer el JSON.
-// Los destinatarios son los usuarios activos de SIGA (tabla Usuarios); `query` entra por
-// deps (en server.js es el pool de lectura) para poder testear el router sin SQL.
+// Los destinatarios son usuarios activos de SIGA (tabla Usuarios; el Id se normaliza) o nombres
+// libres de externos; `query` entra por deps (en server.js es el pool de lectura) para poder testear el router sin SQL.
 // Permisos: con el módulo se ve todo, se crea y se agregan notas. Cambiar el estado pide el permiso fino
 // 'tickets-gestion' (tienePermiso entra por deps, es auth.tienePermiso); los destinatarios los cambia el
-// creador del ticket o quien tenga ese permiso.
+// creador del ticket o quien tenga ese permiso. Las etapas (alta, cambio, baja) también piden 'tickets-gestion'.
 const USUARIOS_TTL_MS = 5 * 60 * 1000;
 const SQL_USUARIOS = 'SELECT Id, Nombre FROM Usuarios WHERE Activo = 1 ORDER BY Nombre';
 const PERMISO_GESTION = 'tickets-gestion';
@@ -36,6 +36,12 @@ module.exports = function crearRutasTickets(deps) {
     if (cambios.destinatarios !== undefined && (!login || String(ticket.creadoPor || '').toLowerCase() !== login)) {
       throw prohibido('Solo el creador del ticket o quien tenga el permiso de gestión puede cambiar los destinatarios.');
     }
+  }
+
+  function idValido(valor, que) {
+    const id = Number(valor);
+    if (!Number.isInteger(id) || id <= 0) throw Object.assign(new Error(`Id de ${que} inválido.`), { status: 400 });
+    return id;
   }
 
   // ponytail: caché en memoria de 5 min: un alta/baja en SIGA tarda hasta 5 min en verse.
@@ -80,6 +86,7 @@ module.exports = function crearRutasTickets(deps) {
     return {
       prioridades: tickets.PRIORIDADES,
       estados: tickets.ESTADOS,
+      estadosEtapa: tickets.ESTADOS_ETAPA,
       areas: tickets.AREAS,
       usuarios,
       yo: yo ? yo.usuario : null,
@@ -98,8 +105,7 @@ module.exports = function crearRutasTickets(deps) {
   }, 201));
 
   router.patch('/api/tickets/:id', manejar(async req => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) throw Object.assign(new Error('Id de ticket inválido.'), { status: 400 });
+    const id = idValido(req.params.id, 'ticket');
     const validos = (await usuariosSiga()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
     const actuales = leerTickets();
@@ -108,6 +114,19 @@ module.exports = function crearRutasTickets(deps) {
     guardarJSON(TICKETS_PATH, lista);
     return ticket;
   }));
+
+  // Etapas: sin SIGA de por medio, todo sincrónico (leer → modificar → guardar). Responden el ticket completo.
+  const operarEtapa = (fn, ok) => manejar(req => {
+    if (!puedeGestionar(req)) throw prohibido('No tenés permiso para gestionar etapas.');
+    const id = idValido(req.params.id, 'ticket');
+    const etapaId = req.params.etapaId === undefined ? null : idValido(req.params.etapaId, 'etapa');
+    const { lista, ticket } = fn(leerTickets(), id, etapaId, req.body || {}, usuarioSesion(req), new Date().toISOString());
+    guardarJSON(TICKETS_PATH, lista);
+    return ticket;
+  }, ok);
+  router.post('/api/tickets/:id/etapas', operarEtapa((l, id, _e, body, u, ahora) => tickets.agregarEtapa(l, id, body, u, ahora), 201));
+  router.patch('/api/tickets/:id/etapas/:etapaId', operarEtapa((l, id, e, body, u, ahora) => tickets.actualizarEtapa(l, id, e, body, u, ahora)));
+  router.delete('/api/tickets/:id/etapas/:etapaId', operarEtapa((l, id, e, _b, u, ahora) => tickets.eliminarEtapa(l, id, e, u, ahora)));
 
   return router;
 };

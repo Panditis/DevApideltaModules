@@ -28,9 +28,15 @@
     prioridades: [{ valor: 'baja', etiqueta: 'Baja' }, { valor: 'media', etiqueta: 'Media' }, { valor: 'alta', etiqueta: 'Alta' }, { valor: 'urgente', etiqueta: 'Urgente' }],
     estados: [{ valor: 'pendiente', etiqueta: 'Pendiente' }, { valor: 'en_proceso', etiqueta: 'En proceso' }, { valor: 'falta_aprobacion', etiqueta: 'Falta aprobación' },
       { valor: 'stand_by', etiqueta: 'Stand by' }, { valor: 'terminado', etiqueta: 'Terminado' }, { valor: 'cancelado', etiqueta: 'Cancelado' }],
+    estadosEtapa: [{ valor: 'pendiente', etiqueta: 'Pendiente' }, { valor: 'en_proceso', etiqueta: 'En proceso' }, { valor: 'terminado', etiqueta: 'Terminado' }],
     areas: [], usuarios: [], yo: null, yoNombre: null, login: null, puedeGestionar: false,
   };
   const SIN_PERMISO = 'Necesitás el permiso Tickets · Gestión';
+  const REQUIEREN_ETAPAS = ['falta_aprobacion', 'terminado']; // estados del ticket que piden todas las etapas terminadas
+  const MAX_DEST = 20; // topes de lib/tickets.js
+  const MAX_DEST_LARGO = 60;
+  const MAX_ETAPA = 120;
+  const EXTERNO = 'Externo (no es usuario de SIGA)';
   const AVATAR_TONOS = [['#e3ecda', '#2e4027'], ['#e0ecf8', '#0b4f9c'], ['#fbecd0', '#7a5200'], ['#efe4f7', '#5b3391'],
     ['#fde4e1', '#9c2b2b'], ['#dcf0ec', '#1d6157'], ['#ece9e2', '#4d4a40'], ['#e6e9f8', '#3a4699']];
   // Íconos (trazos de lucide, ISC) inline: constantes, nunca datos de usuario.
@@ -47,6 +53,11 @@
     alerta: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
     candado: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     historial: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    etapa: '<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+    lapiz: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+    papelera: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+    externo: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+    mas: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
 
@@ -56,7 +67,10 @@
     filtroEstado: ACTIVOS, filtroPrioridad: TODOS,
     orden: { col: null, dir: 1 }, // col null = orden default (prioridad desc, creadoEn asc)
     abierto: null, // id del ticket del panel de detalle
-    borrador: null, // { id, dest: [..] | null, nota } — edición sin guardar del detalle, sobrevive a los repintados
+    // Edición sin guardar del detalle, sobrevive a los repintados:
+    // { id, dest: [..] | null, nota, etapaNueva, etapaEdit: { id, valor } | null, etapaBorrar: id | null, etapaOcupada }
+    borrador: null,
+    focoDetalle: null, // id del control a enfocar en el próximo pintarDetalle (una sola vez)
     guardando: new Set(), // ids con un cambio de estado en vuelo
   };
   let selectorNuevo = null;
@@ -124,6 +138,11 @@
   const buscarTicket = id => estado.tickets.find(t => String(t.id) === String(id)) || null;
   const reemplazarTicket = (id, nuevo) => { estado.tickets = estado.tickets.map(x => (String(x.id) === String(id) ? nuevo : x)); };
   const notasDe = t => (t.historial || []).filter(h => h.tipo === 'nota').length;
+  const etapasDe = t => (Array.isArray(t.etapas) ? t.etapas : []);
+  const abiertasDe = t => etapasDe(t).filter(e => e.estado !== 'terminado').length;
+  const faltanTexto = n => (n === 1 ? 'falta 1 etapa' : `faltan ${n} etapas`);
+  // Destinatario que no es usuario de SIGA (nombre libre). Sin meta (SIGA caído) no se sabe: no se marca.
+  const esExterno = u => estado.metaOk && !usuarioMeta(u);
   // Espejo de lo que valida el server: estados sólo con 'tickets-gestion'; destinatarios también el creador.
   const puedeGestionar = () => estado.meta.puedeGestionar === true;
   const puedeEditarDest = t => puedeGestionar() || mismoUsuario(t.creadoPor, estado.meta.login);
@@ -143,9 +162,11 @@
   // decorativo: el nombre ya está escrito al lado, el avatar no se lee dos veces.
   function avatar(u, clase = '', decorativo = false) {
     const nombre = nombreDe(u);
+    const ext = esExterno(u);
     const [bg, fg] = tono(u);
-    const a11y = decorativo ? 'aria-hidden="true"' : `role="img" aria-label="${esc(nombre)}" title="${esc(nombre)}"`;
-    return `<span class="av ${clase}" style="background:${bg};color:${fg}" ${a11y}>${esc(iniciales(nombre))}</span>`;
+    const leyenda = ext ? `${nombre} (externo)` : nombre;
+    const a11y = decorativo ? 'aria-hidden="true"' : `role="img" aria-label="${esc(leyenda)}" title="${esc(leyenda)}"`;
+    return `<span class="av ${ext ? 'av-ext ' : ''}${clase}" style="background:${bg};color:${fg}" ${a11y}>${esc(iniciales(nombre))}</span>`;
   }
   function pilaAvatares(lista) {
     const dest = comoLista(lista);
@@ -157,77 +178,151 @@
   }
 
   const badgePrioridad = p => `<span class="badge-p p-${esc(p)}">${esc(etiqueta('prioridades', p))}</span>`;
-  const badgeEstado = v => `<span class="inline-flex items-center gap-1.5 font-semibold e-${esc(v)}" style="color:var(--e-fg)"><span class="dot"></span>${esc(etiqueta('estados', v))}</span>`;
+  const badgeEstado = (v, lista = 'estados') => `<span class="inline-flex items-center gap-1.5 font-semibold e-${esc(v)}" style="color:var(--e-fg)"><span class="dot"></span>${esc(etiqueta(lista, v))}</span>`;
+  // Con etapas abiertas, Falta aprobación y Terminado no se eligen a mano (el server también lo rechaza).
   function selectEstado(t, id) {
-    const ops = estado.meta.estados.map(e => `<option value="${esc(e.valor)}"${e.valor === t.estado ? ' selected' : ''}>${esc(e.etiqueta)}</option>`).join('');
+    const faltan = abiertasDe(t);
+    const ops = estado.meta.estados.map(e => {
+      const bloq = faltan > 0 && REQUIEREN_ETAPAS.includes(e.valor) && e.valor !== t.estado;
+      return `<option value="${esc(e.valor)}"${e.valor === t.estado ? ' selected' : ''}${bloq ? ' disabled' : ''}>${esc(e.etiqueta)}${bloq ? ` (${faltanTexto(faltan)})` : ''}</option>`;
+    }).join('');
     const bloqueo = puedeGestionar() ? '' : ` disabled title="${esc(SIN_PERMISO)}" aria-description="${esc(SIN_PERMISO)}"`;
     return `<select class="sel-estado e-${esc(t.estado)}"${id ? ` id="${id}"` : ''} data-estado-id="${esc(t.id)}" aria-label="Estado del ticket #${esc(t.id)}"${bloqueo}>${ops}</select>`;
   }
 
-  // ── Selector de usuarios (alta y detalle): chips con avatar + buscador + lista con checkboxes ──
-  // ponytail: la lista son sólo los usuarios activos de meta; un destinatario dado de baja queda como chip con su Id.
-  function crearSelectorUsuarios(raiz, { seleccion: inicial = [], alCambiar = null, soloLectura = false } = {}) {
+  // ── Selector de destinatarios (alta y detalle): chips + campo con autocompletado (combobox ARIA) ──
+  // Tipeás → sugerencias de usuarios de SIGA (nombre o Id); lo que no es nadie de SIGA se agrega como persona
+  // externa (nombre libre). Flechas/Enter eligen, Esc cierra la lista, Backspace con el campo vacío quita el último chip.
+  // `id` fijo por pantalla: pintarDetalle devuelve el foco por id después de repintar.
+  function chipDestinatario(u, alQuitar) {
+    const ext = esExterno(u);
+    const c = el('span', `chip-u${ext ? ' ext' : ''}`);
+    c.innerHTML = ext ? `<span class="av av-ext-ico" aria-hidden="true">${ico('externo')}</span>` : avatar(u, '', true);
+    c.append(el('span', null, nombreDe(u)));
+    if (ext) { c.title = EXTERNO; c.append(el('span', 'sr-only', ' (externo, no es usuario de SIGA)')); }
+    if (!alQuitar) return c;
+    const quitar = el('button');
+    quitar.type = 'button';
+    quitar.innerHTML = ico('x');
+    quitar.setAttribute('aria-label', `Quitar a ${nombreDe(u)}`);
+    quitar.addEventListener('click', () => alQuitar(u));
+    c.append(quitar);
+    return c;
+  }
+
+  function crearSelectorUsuarios(raiz, { id = 'selU', seleccion: inicial = [], alCambiar = null, soloLectura = false } = {}) {
     let seleccion = [...inicial];
+    let opciones = []; // [{ tipo: 'siga' | 'externo', valor, nombre }]
+    let activa = -1;
+    let abierta = false; // false tras Esc/blur/elegir: ni sugerencias ni "sin coincidencias"
     const caja = el('div', 'sel-u');
-    const chips = el('div', 'chips');
-    const buscador = el('div', 'buscar');
-    const buscar = el('input', 'ctl');
-    buscar.type = 'search';
-    buscar.placeholder = 'Buscar por nombre o usuario…';
-    buscar.setAttribute('aria-label', 'Buscar destinatario');
-    buscador.innerHTML = ico('usuarios');
-    buscador.append(buscar);
-    const lista = el('div', 'lista');
-    lista.setAttribute('role', 'group');
-    lista.setAttribute('aria-label', 'Usuarios de SIGA');
+    const campo = el('div', 'cbx');
+    const input = el('input', 'cbx-in');
+    const lista = el('ul', 'cbx-lista hidden');
+    lista.id = `${id}-lista`;
+    lista.setAttribute('role', 'listbox');
+    lista.setAttribute('aria-label', 'Sugerencias de destinatarios');
+    Object.assign(input, { type: 'text', id: `${id}-campo`, maxLength: MAX_DEST_LARGO, autocomplete: 'off', spellcheck: false });
+    [['role', 'combobox'], ['aria-autocomplete', 'list'], ['aria-expanded', 'false'], ['aria-controls', lista.id],
+      ['aria-label', 'Agregar destinatario: usuario de SIGA o nombre de una persona externa']].forEach(([k, v]) => input.setAttribute(k, v));
 
-    const cambiar = nueva => { seleccion = nueva; pintarChips(); pintarLista(); if (alCambiar) alCambiar([...seleccion]); };
-    const alternar = u => cambiar(seleccion.includes(u) ? seleccion.filter(x => x !== u) : [...seleccion, u]);
-
-    function chip(u) {
-      const c = el('span', 'chip-u');
-      c.innerHTML = avatar(u, '', true);
-      c.append(el('span', null, nombreDe(u)));
-      if (soloLectura) return c;
-      const quitar = el('button');
-      quitar.type = 'button';
-      quitar.innerHTML = ico('x');
-      quitar.setAttribute('aria-label', `Quitar a ${nombreDe(u)}`);
-      quitar.addEventListener('click', () => alternar(u));
-      c.append(quitar);
-      return c;
+    const yaEsta = v => seleccion.some(x => mismoUsuario(x, v));
+    const cambiar = nueva => { seleccion = nueva; pintarChips(); if (alCambiar) alCambiar([...seleccion]); };
+    function agregar(v) {
+      if (!v || yaEsta(v) || seleccion.length >= MAX_DEST) return;
+      input.value = '';
+      cerrar();
+      cambiar([...seleccion, v]);
     }
-    function pintarChips() {
-      chips.replaceChildren(...(seleccion.length ? seleccion.map(chip) : [el('span', 'ayuda', 'Ningún destinatario elegido.')]));
+    const quitar = u => { cambiar(seleccion.filter(x => x !== u)); input.focus(); };
+
+    // Usuarios de SIGA no elegidos que coinciden + "agregar como externo" si lo tipeado no es exactamente nadie de SIGA.
+    function calcular() {
+      const q = input.value.trim();
+      const ql = q.toLowerCase();
+      const usuarios = estado.meta.usuarios || [];
+      const ops = usuarios.filter(u => !yaEsta(u.usuario) && (!ql || `${u.nombre} ${u.usuario}`.toLowerCase().includes(ql)))
+        .map(u => ({ tipo: 'siga', valor: u.usuario, nombre: u.nombre || u.usuario }));
+      const exacto = usuarios.some(u => mismoUsuario(u.usuario, q) || mismoUsuario(u.nombre, q));
+      if (q && !exacto && !yaEsta(q)) ops.push({ tipo: 'externo', valor: q, nombre: q });
+      return ops;
+    }
+    function abrir() {
+      if (seleccion.length >= MAX_DEST) return;
+      abierta = true;
+      opciones = calcular();
+      activa = opciones.length ? 0 : -1;
+      pintarLista();
+    }
+    function cerrar() { abierta = false; opciones = []; activa = -1; pintarLista(); }
+    function opcion(o, i) {
+      const li = el('li', `cbx-op${o.tipo === 'externo' ? ' ext' : ''}`);
+      li.id = `${id}-op${i}`;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', String(i === activa));
+      if (o.tipo === 'siga') {
+        li.innerHTML = avatar(o.valor, '', true);
+        li.append(el('span', 'n', o.nombre), el('span', 'u', o.valor));
+      } else {
+        li.innerHTML = `<span class="av av-ext-ico" aria-hidden="true">${ico('mas')}</span>`;
+        li.append(el('span', 'n', `Agregar «${o.valor}» como persona externa`));
+      }
+      li.addEventListener('mousedown', e => e.preventDefault()); // el foco se queda en el campo
+      li.addEventListener('click', () => agregar(o.valor));
+      return li;
     }
     function pintarLista() {
-      const q = buscar.value.trim().toLowerCase();
-      const visibles = (estado.meta.usuarios || []).filter(x => !q || `${x.nombre} ${x.usuario}`.toLowerCase().includes(q));
-      if (!visibles.length) { lista.replaceChildren(el('div', 'ayuda p-3 text-center', 'Sin usuarios que coincidan.')); return; }
-      lista.replaceChildren(...visibles.map(x => {
-        const fila = el('label');
-        const cb = el('input');
-        cb.type = 'checkbox';
-        cb.checked = seleccion.includes(x.usuario);
-        cb.addEventListener('change', () => alternar(x.usuario));
-        const av = el('span');
-        av.innerHTML = avatar(x.usuario, '', true);
-        fila.append(cb, av.firstChild, el('span', null, x.nombre || x.usuario), el('span', 'u', x.usuario));
-        return fila;
-      }));
+      const q = input.value.trim();
+      const items = opciones.map(opcion);
+      if (!items.length && q && abierta) {
+        items.push(el('li', 'cbx-vacio', yaEsta(q) ? `«${q}» ya está en la lista.` : 'Sin coincidencias.'));
+      }
+      const recienAbierta = items.length > 0 && lista.classList.contains('hidden');
+      lista.replaceChildren(...items);
+      lista.classList.toggle('hidden', !items.length);
+      if (recienAbierta) lista.scrollIntoView({ block: 'nearest' }); // dentro del form con scroll, que se vea entera
+      input.setAttribute('aria-expanded', String(opciones.length > 0));
+      if (activa >= 0) {
+        input.setAttribute('aria-activedescendant', `${id}-op${activa}`);
+        lista.children[activa].scrollIntoView({ block: 'nearest' });
+      } else input.removeAttribute('aria-activedescendant');
+    }
+    function mover(paso) {
+      if (!opciones.length) { abrir(); return; }
+      activa = (activa + paso + opciones.length) % opciones.length;
+      pintarLista();
     }
 
-    // Enter en el buscador no tiene que mandar el formulario de alta.
-    buscar.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
-    buscar.addEventListener('input', pintarLista);
-    caja.append(chips);
-    if (!soloLectura) caja.append(buscador, lista);
+    input.addEventListener('input', abrir);
+    input.addEventListener('blur', cerrar);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); mover(e.key === 'ArrowDown' ? 1 : -1); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (activa >= 0) agregar(opciones[activa].valor); } // Enter nunca manda el form
+      else if (e.key === 'Escape' && !lista.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); cerrar(); }
+      else if (e.key === 'Backspace' && !input.value && seleccion.length) cambiar(seleccion.slice(0, -1));
+    });
+    campo.addEventListener('click', e => { if (e.target === campo) input.focus(); });
+
+    // Los chips van en su propio contenedor (display:contents) para no sacar del DOM al campo con foco.
+    const chips = el('span', 'cbx-chips');
+    function pintarChips() {
+      const lista = seleccion.map(u => chipDestinatario(u, soloLectura ? null : quitar));
+      chips.replaceChildren(...(lista.length || !soloLectura ? lista : [el('span', 'ayuda', 'Sin destinatarios.')]));
+      if (soloLectura) return;
+      const lleno = seleccion.length >= MAX_DEST;
+      input.disabled = lleno;
+      input.placeholder = lleno ? `Máximo ${MAX_DEST} destinatarios` : (seleccion.length ? 'Agregar otro…' : 'Escribí un nombre o usuario de SIGA…');
+    }
+
+    campo.append(chips);
+    if (!soloLectura) campo.append(input);
+    caja.append(campo);
+    if (!soloLectura) caja.append(lista);
     raiz.replaceChildren(caja);
     pintarChips();
-    if (!soloLectura) pintarLista();
     return {
       valor: () => [...seleccion],
-      reiniciar: v => { buscar.value = ''; cambiar([...v]); },
+      reiniciar: v => { input.value = ''; cerrar(); cambiar([...v]); },
       marcarError: hay => caja.setAttribute('aria-invalid', hay ? 'true' : 'false'),
     };
   }
@@ -248,7 +343,7 @@
     // "Otra" la agrega la pantalla (texto libre): si la lista fija ya la trae, no se repite.
     const areas = m.areas.filter(a => String(a).trim().toLowerCase() !== 'otra').map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
     $('#fArea').innerHTML = `<option value="">Elegí un área…</option>${areas}<option value="${OTRA}">Otra…</option>`;
-    selectorNuevo = crearSelectorUsuarios($('#fDest'), { alCambiar: revalidar });
+    selectorNuevo = crearSelectorUsuarios($('#fDest'), { id: 'fDest', alCambiar: revalidar });
   }
 
   function abrirNuevo() {
@@ -346,14 +441,16 @@
     armarFiltrosDinamicos();
   }
 
-  // Áreas y destinatarios: los de meta + los que aparezcan en los tickets (áreas "Otra", usuarios dados de baja).
+  // Áreas y destinatarios: los de meta + los que aparezcan en los tickets (áreas "Otra", externos, usuarios dados de baja).
   function armarFiltrosDinamicos() {
     const ordenar = v => [...new Set(v.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es'));
     const areas = ordenar([...estado.meta.areas, ...estado.tickets.map(t => t.area)]);
     rellenarSelect('#flArea', areas.map(a => [a, a]), 'Todas las áreas');
     const conocidos = (estado.meta.usuarios || []).map(u => u.usuario);
-    const extra = estado.tickets.flatMap(t => comoLista(t.destinatarios)).filter(u => !conocidos.some(c => mismoUsuario(c, u)));
-    const dest = [...conocidos, ...new Set(extra)].map(u => [u, nombreDe(u)]).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+    const extra = estado.tickets.flatMap(t => comoLista(t.destinatarios))
+      .reduce((acc, u) => ([...conocidos, ...acc].some(c => mismoUsuario(c, u)) ? acc : [...acc, u]), []);
+    const dest = [...conocidos, ...extra].map(u => [u, `${nombreDe(u)}${esExterno(u) ? ' (externo)' : ''}`])
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'));
     rellenarSelect('#flDest', dest, 'Todos los destinatarios');
   }
   function rellenarSelect(sel, items, todos) {
@@ -367,7 +464,7 @@
     if (estado.filtroPrioridad && t.prioridad !== estado.filtroPrioridad) return false;
     if ($('#flArea').value && t.area !== $('#flArea').value) return false;
     const dest = comoLista(t.destinatarios);
-    if ($('#flDest').value && !dest.includes($('#flDest').value)) return false;
+    if ($('#flDest').value && !dest.some(u => mismoUsuario(u, $('#flDest').value))) return false;
     if ($('#flMios').checked && !dest.some(u => mismoUsuario(u, estado.meta.yo))) return false;
     const q = $('#flBuscar').value.trim().toLowerCase();
     if (!q) return true;
@@ -446,6 +543,17 @@
     pintarSeguimiento();
   }
 
+  // Mini barra "2/4" de etapas terminadas (tarjeta y fila); vacío si el ticket no tiene etapas.
+  function miniProgreso(t) {
+    const total = etapasDe(t).length;
+    if (!total) return '';
+    const hechas = total - abiertasDe(t);
+    const txt = `${hechas} de ${total} etapas terminadas`;
+    return `<span class="mini-prog${hechas === total ? ' ok' : ''}" role="img" aria-label="${txt}" title="${txt}">`
+      + `<span class="mp-barra" aria-hidden="true"><i style="width:${Math.round((hechas * 100) / total)}%"></i></span>`
+      + `<span aria-hidden="true">${hechas}/${total}</span></span>`;
+  }
+
   // ── Tablero ─────────────────────────────────────────────────────────────────
   function tarjeta(t) {
     const notas = notasDe(t);
@@ -457,7 +565,7 @@
         <span class="ml-auto" title="Creado el ${esc(fecha(t.creadoEn))}">${esc(haceCuanto(t.creadoEn))}</span></div>
       <div class="tit">${esc(t.tarea)}</div>
       <div class="fila3">${t.area ? `<span class="tag-area" title="${esc(t.area)}">${esc(t.area)}</span>` : ''}
-        <div class="meta">${notas ? `<span title="${notas} nota${notas === 1 ? '' : 's'}">${ico('msg')}${notas}</span>` : ''}${pilaAvatares(t.destinatarios)}</div></div>
+        <div class="meta">${miniProgreso(t)}${notas ? `<span title="${notas} nota${notas === 1 ? '' : 's'}">${ico('msg')}${notas}</span>` : ''}${pilaAvatares(t.destinatarios)}</div></div>
     </article>`;
   }
 
@@ -488,28 +596,36 @@
 
   // Drag & drop nativo: soltar en una columna cambia el estado. Alternativa por teclado: el select del detalle.
   // Sin permiso de gestión las tarjetas no son draggable y las columnas no aceptan drop (dragover sin preventDefault).
+  // Una columna que pide etapas terminadas (con etapas abiertas en el ticket arrastrado) se pinta en rojo; si se suelta
+  // igual, moverEstado avisa y no manda nada.
   function enlazarArrastre() {
     const tab = $('#tablero');
-    const limpiarSobre = () => tab.querySelectorAll('.col.sobre').forEach(c => c.classList.remove('sobre'));
+    let arrastrado = null;
+    const limpiarSobre = () => tab.querySelectorAll('.col.sobre').forEach(c => c.classList.remove('sobre', 'sobre-no'));
     tab.addEventListener('dragstart', e => {
       const card = e.target.closest('.tarjeta');
       if (!card) return;
       if (!puedeGestionar()) { e.preventDefault(); return; }
+      arrastrado = buscarTicket(card.dataset.id);
       e.dataTransfer.setData('text/plain', card.dataset.id);
       e.dataTransfer.effectAllowed = 'move';
       requestAnimationFrame(() => card.classList.add('arrastrando'));
     });
-    tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); });
+    tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); arrastrado = null; });
     tab.addEventListener('dragover', e => {
       const col = e.target.closest('.col');
       if (!col || !puedeGestionar()) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      if (!col.classList.contains('sobre')) { limpiarSobre(); col.classList.add('sobre'); }
+      if (!col.classList.contains('sobre')) {
+        limpiarSobre();
+        const bloq = arrastrado && abiertasDe(arrastrado) > 0 && REQUIEREN_ETAPAS.includes(col.dataset.estado) && arrastrado.estado !== col.dataset.estado;
+        col.classList.add('sobre', ...(bloq ? ['sobre-no'] : []));
+      }
     });
     tab.addEventListener('dragleave', e => {
       const col = e.target.closest('.col');
-      if (col && !col.contains(e.relatedTarget)) col.classList.remove('sobre');
+      if (col && !col.contains(e.relatedTarget)) col.classList.remove('sobre', 'sobre-no');
     });
     tab.addEventListener('drop', e => {
       const col = e.target.closest('.col');
@@ -524,7 +640,7 @@
   function filaTicket(t) {
     return `<tr data-id="${esc(t.id)}" tabindex="0" class="e-${esc(t.estado)}">
       <td class="num text-gris pri p-${esc(t.prioridad)}">${esc(t.id)}</td>
-      <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}</td>
+      <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}${etapasDe(t).length ? `<div class="mt-1 font-normal">${miniProgreso(t)}</div>` : ''}</td>
       <td>${badgePrioridad(t.prioridad)}</td>
       <td>${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : '—'}</td>
       <td>${pilaAvatares(t.destinatarios)}</td>
@@ -602,6 +718,11 @@
     const t = buscarTicket(id);
     if (!t || !nuevo || t.estado === nuevo || estado.guardando.has(String(t.id))) return;
     const destino = avisoActual();
+    const faltan = abiertasDe(t);
+    if (faltan && REQUIEREN_ETAPAS.includes(nuevo)) {
+      mostrarAviso('error', `El ticket #${t.id} no puede pasar a ${etiqueta('estados', nuevo)}: ${faltanTexto(faltan)} por terminar.`, destino);
+      return;
+    }
     reemplazarTicket(id, { ...t, estado: nuevo });
     estado.guardando.add(String(t.id));
     pintarTodo();
@@ -624,7 +745,7 @@
     if (!buscarTicket(id)) return;
     focoPrevio = document.activeElement;
     estado.abierto = id;
-    estado.borrador = { id: String(id), dest: null, nota: '' };
+    estado.borrador = { id: String(id), dest: null, nota: '', etapaNueva: '', etapaEdit: null, etapaBorrar: null, etapaOcupada: false };
     ocultarAviso('#dAviso');
     pintarDetalle();
     $('#dlgDetalle').showModal();
@@ -647,14 +768,16 @@
   function pintarDetalle() {
     const t = buscarTicket(estado.abierto);
     if (!t) { $('#dlgDetalle').close(); mostrarAviso('error', 'El ticket ya no está en el listado.'); return; }
-    const focoId = $('#dlgDetalle').contains(document.activeElement) ? document.activeElement.id : '';
+    const focoId = estado.focoDetalle || ($('#dlgDetalle').contains(document.activeElement) ? document.activeElement.id : '');
+    estado.focoDetalle = null;
     $('#dCab').innerHTML = `<span class="text-sm font-semibold text-gris tabular-nums">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}${selectEstado(t, 'dEstado')}`;
     $('#dTitulo').textContent = t.tarea;
     $('#dMeta').innerHTML = `${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : ''}
       <span>Creado por <b class="text-ink font-semibold">${esc(nombreDe(t.creadoPor))}</b> · ${esc(fecha(t.creadoEn))}</span>
       <span class="inline-flex items-center gap-1">${ico('reloj', 'ico w-3.5 h-3.5')}Actualizado ${esc(haceCuanto(t.actualizadoEn))}</span>`;
-    $('#dCuerpo').replaceChildren(seccionDescripcion(t), seccionDestinatarios(t), seccionNota(t), seccionHistorial(t));
-    if (focoId) document.getElementById(focoId)?.focus();
+    $('#dCuerpo').replaceChildren(seccionDescripcion(t), seccionEtapas(t), seccionDestinatarios(t), seccionNota(t), seccionHistorial(t));
+    const foco = focoId ? document.getElementById(focoId) : null;
+    if (foco) { foco.focus(); if (foco.dataset.seleccionar) foco.select(); }
   }
 
   function seccion(titulo, icono) {
@@ -672,6 +795,172 @@
     return caja;
   }
 
+  // ── Etapas (detalle) ────────────────────────────────────────────────────────
+  // Solo con 'tickets-gestion' y ticket abierto se editan; si no, solo lectura. Renombrar y eliminar viven en
+  // estado.borrador (etapaEdit / etapaBorrar) para sobrevivir a los repintados; confirmación en la UI, sin confirm().
+  function seccionEtapas(t) {
+    const caja = seccion('Etapas', 'etapa');
+    const etapas = etapasDe(t);
+    const cerrado = CERRADOS.includes(t.estado);
+    const editable = puedeGestionar() && !cerrado;
+    if (etapas.length) {
+      const hechas = etapas.length - abiertasDe(t);
+      const prog = el('div', 'et-prog');
+      prog.innerHTML = `<span class="et-prog-txt"><b>${hechas} de ${etapas.length}</b> terminadas</span>
+        <span class="et-prog-barra" role="progressbar" aria-label="Etapas terminadas" aria-valuemin="0" aria-valuemax="${etapas.length}"
+          aria-valuenow="${hechas}" aria-valuetext="${hechas} de ${etapas.length}"><i style="width:${Math.round((hechas * 100) / etapas.length)}%"></i></span>`;
+      const ul = el('ul', 'etapas');
+      ul.setAttribute('aria-label', 'Etapas del ticket');
+      ul.replaceChildren(...etapas.map(e => filaEtapa(t, e, editable)));
+      caja.append(prog, ul);
+    } else {
+      caja.append(el('p', 'ayuda mb-2', editable ? 'Sin etapas. Dividí el trabajo en pasos para seguir el avance.' : 'Sin etapas.'));
+    }
+    if (editable) caja.append(altaEtapa(t));
+    else if (cerrado && puedeGestionar()) caja.append(el('p', 'ayuda', `El ticket está ${etiqueta('estados', t.estado).toLowerCase()}: las etapas son de solo lectura.`));
+    else if (!puedeGestionar() && estado.metaOk) caja.append(el('p', 'ayuda', 'Las etapas las gestiona quien tenga el permiso Tickets · Gestión.'));
+    if (estado.borrador.etapaOcupada) caja.querySelectorAll('button, select, input').forEach(c => { c.disabled = true; });
+    return caja;
+  }
+
+  function botonIco(icono, etiquetaA11y, id, alClic) {
+    const b = el('button', 'btn-ico');
+    b.type = 'button';
+    b.id = id;
+    b.innerHTML = ico(icono);
+    b.title = etiquetaA11y;
+    b.setAttribute('aria-label', etiquetaA11y);
+    b.addEventListener('click', alClic);
+    return b;
+  }
+  function boton(texto, clase, id, alClic) {
+    const b = el('button', `btn btn-sm ${clase}`, texto);
+    b.type = 'button';
+    b.id = id;
+    b.addEventListener('click', alClic);
+    return b;
+  }
+
+  function filaEtapa(t, e, editable) {
+    const li = el('li', `etapa e-${e.estado}`);
+    const b = estado.borrador;
+    if (editable) {
+      const sel = el('select', `sel-estado e-${e.estado}`);
+      sel.id = `dEtEst-${e.id}`;
+      sel.setAttribute('aria-label', `Estado de la etapa ${e.nombre}`);
+      sel.innerHTML = estado.meta.estadosEtapa.map(o => `<option value="${esc(o.valor)}"${o.valor === e.estado ? ' selected' : ''}>${esc(o.etiqueta)}</option>`).join('');
+      sel.addEventListener('change', () => operarEtapa(t.id, 'PATCH', e.id, { estado: sel.value }, { foco: sel.id, ok: 'Etapa actualizada.' }));
+      li.append(sel);
+    } else {
+      li.insertAdjacentHTML('beforeend', `<span class="et-badge e-${esc(e.estado)}">${esc(etiqueta('estadosEtapa', e.estado))}</span>`);
+    }
+    if (editable && b.etapaEdit && b.etapaEdit.id === e.id) { li.append(...edicionEtapa(t, e)); return li; }
+    const nombre = el('span', 'et-nombre', e.nombre);
+    li.append(nombre);
+    if (!editable) return li;
+    nombre.title = 'Doble clic para renombrar';
+    nombre.addEventListener('dblclick', () => editarEtapa(e));
+    const acc = el('span', 'et-acc');
+    if (b.etapaBorrar === e.id) {
+      acc.className = 'et-confirm';
+      acc.setAttribute('role', 'group');
+      acc.setAttribute('aria-label', `Confirmar eliminación de la etapa ${e.nombre}`);
+      acc.append(el('span', null, '¿Eliminar?'),
+        boton('Sí', 'btn-peligro', `dEtSi-${e.id}`, () => operarEtapa(t.id, 'DELETE', e.id, null,
+          { foco: 'dEtNueva', ok: 'Etapa eliminada.', alOk: () => { estado.borrador.etapaBorrar = null; } })),
+        boton('No', '', `dEtNo-${e.id}`, () => pedirBorrar(null, `dEtDel-${e.id}`)));
+      acc.addEventListener('keydown', ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); pedirBorrar(null, `dEtDel-${e.id}`); } });
+    } else {
+      acc.append(botonIco('lapiz', `Renombrar etapa ${e.nombre}`, `dEtRen-${e.id}`, () => editarEtapa(e)),
+        botonIco('papelera', `Eliminar etapa ${e.nombre}`, `dEtDel-${e.id}`, () => pedirBorrar(e.id, `dEtNo-${e.id}`)));
+    }
+    li.append(acc);
+    return li;
+  }
+
+  // Campo de renombrar + Guardar/Cancelar (Enter guarda, Esc cancela sin cerrar el panel).
+  function edicionEtapa(t, e) {
+    const b = estado.borrador;
+    const inp = el('input', 'ctl ctl-sm et-input');
+    Object.assign(inp, { id: `dEtNombre-${e.id}`, maxLength: MAX_ETAPA, value: b.etapaEdit.valor });
+    inp.dataset.seleccionar = '1';
+    inp.setAttribute('aria-label', `Nuevo nombre de la etapa ${e.nombre}`);
+    const cancelar = () => { b.etapaEdit = null; estado.focoDetalle = `dEtRen-${e.id}`; ocultarAviso('#dAviso'); pintarDetalle(); };
+    const guardar = () => {
+      const nombre = inp.value.trim();
+      if (!nombre) { inp.setAttribute('aria-invalid', 'true'); mostrarAviso('error', 'El nombre de la etapa no puede quedar vacío.', '#dAviso'); inp.focus(); return; }
+      if (nombre === e.nombre) { cancelar(); return; }
+      operarEtapa(t.id, 'PATCH', e.id, { nombre }, { foco: `dEtRen-${e.id}`, ok: 'Etapa renombrada.', alOk: () => { estado.borrador.etapaEdit = null; } });
+    };
+    inp.addEventListener('input', () => { b.etapaEdit.valor = inp.value; inp.removeAttribute('aria-invalid'); });
+    inp.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); guardar(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cancelar(); }
+    });
+    const acc = el('span', 'flex gap-1.5');
+    acc.append(boton('Guardar', 'btn-primario', `dEtGuardar-${e.id}`, guardar), boton('Cancelar', '', `dEtCancelar-${e.id}`, cancelar));
+    return [inp, acc];
+  }
+
+  function editarEtapa(e) {
+    Object.assign(estado.borrador, { etapaEdit: { id: e.id, valor: e.nombre }, etapaBorrar: null });
+    estado.focoDetalle = `dEtNombre-${e.id}`;
+    pintarDetalle();
+  }
+  function pedirBorrar(etapaId, foco) {
+    Object.assign(estado.borrador, { etapaBorrar: etapaId, etapaEdit: null });
+    estado.focoDetalle = foco;
+    pintarDetalle();
+  }
+
+  function altaEtapa(t) {
+    const fila = el('div', 'et-alta');
+    const inp = el('input', 'ctl flex-1 min-w-0');
+    Object.assign(inp, { id: 'dEtNueva', maxLength: MAX_ETAPA, placeholder: 'Nueva etapa (Enter para agregar)…', value: estado.borrador.etapaNueva });
+    inp.setAttribute('aria-label', 'Nombre de la nueva etapa');
+    const agregar = () => {
+      const nombre = inp.value.trim();
+      if (!nombre) { inp.setAttribute('aria-invalid', 'true'); mostrarAviso('error', 'Escribí el nombre de la etapa.', '#dAviso'); inp.focus(); return; }
+      operarEtapa(t.id, 'POST', null, { nombre }, { foco: 'dEtNueva', ok: 'Etapa agregada.', alOk: () => { estado.borrador.etapaNueva = ''; } });
+    };
+    inp.addEventListener('input', () => { estado.borrador.etapaNueva = inp.value; inp.removeAttribute('aria-invalid'); });
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); agregar(); } });
+    const btn = el('button', 'btn');
+    btn.type = 'button';
+    btn.id = 'dEtAgregar';
+    btn.innerHTML = ico('mas');
+    btn.append('Agregar etapa');
+    btn.addEventListener('click', agregar);
+    fila.append(inp, btn);
+    return fila;
+  }
+
+  // Alta / cambio / baja de una etapa. El server responde el ticket entero; si cambió el estado general
+  // (todas terminadas o se reabrió una), el toast lo cuenta en vez del mensaje de éxito.
+  async function operarEtapa(id, metodo, etapaId, cuerpo, { foco = null, ok = '', alOk = null } = {}) {
+    const antes = buscarTicket(id);
+    const focoAntes = document.activeElement && document.activeElement.id;
+    const url = `/api/tickets/${encodeURIComponent(id)}/etapas${etapaId == null ? '' : `/${encodeURIComponent(etapaId)}`}`;
+    estado.borrador.etapaOcupada = true;
+    pintarDetalle();
+    try {
+      const t = await enviarJSON(metodo, url, cuerpo || undefined);
+      reemplazarTicket(id, t);
+      if (estado.borrador) { if (alOk) alOk(); estado.focoDetalle = foco; }
+      ocultarAviso('#dAviso');
+      if (antes && t.estado !== antes.estado) {
+        mostrarToast(t.estado === 'falta_aprobacion' ? 'Todas las etapas terminadas: el ticket pasó a Falta aprobación'
+          : `Se reabrió una etapa: el ticket volvió a ${etiqueta('estados', t.estado)}`);
+      } else if (ok) mostrarToast(ok);
+    } catch (e) {
+      if (estado.borrador) estado.focoDetalle = focoAntes;
+      mostrarAviso('error', `No se pudo guardar la etapa: ${e.message}`, '#dAviso');
+    } finally {
+      if (estado.borrador) estado.borrador.etapaOcupada = false;
+      pintarTodo();
+    }
+  }
+
   function seccionDestinatarios(t) {
     const caja = seccion('Destinatarios', 'usuarios');
     const raiz = el('div');
@@ -680,7 +969,7 @@
     const motivo = !estado.metaOk ? 'No se pueden editar ahora: no hay conexión con SIGA.'
       : (puedeEditarDest(t) ? '' : 'Los cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión.');
     if (motivo) {
-      crearSelectorUsuarios(raiz, { seleccion: inicial, soloLectura: true });
+      crearSelectorUsuarios(raiz, { id: 'dDest', seleccion: inicial, soloLectura: true });
       caja.append(el('p', 'ayuda mt-2', motivo));
       return caja;
     }
@@ -691,6 +980,7 @@
     const borrador = estado.borrador.dest;
     guardar.disabled = !borrador;
     const sel = crearSelectorUsuarios(raiz, {
+      id: 'dDest',
       seleccion: borrador || inicial,
       alCambiar: v => { estado.borrador.dest = mismos(v) ? null : v; guardar.disabled = !estado.borrador.dest; },
     });
@@ -775,23 +1065,37 @@
     const quien = `<b class="font-semibold">${esc(nombreDe(h.usuario))}</b>`;
     const nombres = v => esc(comoLista(v).map(nombreDe).join(', ') || 'nadie');
     if (h.tipo === 'creado') return [`${quien} creó el ticket`];
+    if (h.tipo === 'estado' && h.auto) {
+      return [`Estado actualizado por las etapas: ${badgeEstado(h.de)} <span class="text-gris">→</span> ${badgeEstado(h.a)}
+        <span class="chip-auto" title="Lo cambió el sistema tras una acción de ${esc(nombreDe(h.usuario))}">automático</span>`];
+    }
     if (h.tipo === 'estado') return [`${quien} cambió el estado: ${badgeEstado(h.de)} <span class="text-gris">→</span> ${badgeEstado(h.a)}`];
+    if (h.tipo === 'etapa') {
+      const n = `<b class="font-semibold">«${esc(h.etapa)}»</b>`;
+      if (h.accion === 'agregada') return [`${quien} agregó la etapa ${n}`];
+      if (h.accion === 'eliminada') return [`${quien} eliminó la etapa ${n}`];
+      if (h.accion === 'renombrada') return [`${quien} renombró la etapa <span class="text-gris">«${esc(h.de)}»</span> → ${n}`];
+      if (h.accion === 'estado') {
+        return [`${quien} cambió la etapa ${n}: ${badgeEstado(h.de, 'estadosEtapa')} <span class="text-gris">→</span> ${badgeEstado(h.a, 'estadosEtapa')}`];
+      }
+    }
     if (h.tipo === 'nota') return [`${quien} agregó una nota`, h.nota || ''];
     if (h.tipo === 'destinatarios') return [`${quien} cambió los destinatarios: <span class="text-gris">${nombres(h.de)}</span> → ${nombres(h.a)}`];
     return [`${quien}: ${esc(h.tipo || 'cambio')}`];
   }
-  const ICONO_EVENTO = { creado: 'creado', estado: 'estado', nota: 'msg', destinatarios: 'usuarios' };
+  const ICONO_EVENTO = { creado: 'creado', estado: 'estado', nota: 'msg', destinatarios: 'usuarios', etapa: 'etapa' };
 
   function seccionHistorial(t) {
     const caja = seccion('Historial', 'historial');
-    const eventos = [...(t.historial || [])].sort((a, b) => tiempo(b.fecha) - tiempo(a.fecha));
+    // reverse antes del sort (estable): con la misma fecha, lo último registrado (p. ej. el cambio automático) va arriba.
+    const eventos = [...(t.historial || [])].reverse().sort((a, b) => tiempo(b.fecha) - tiempo(a.fecha));
     if (!eventos.length) { caja.append(el('div', 'ayuda', 'Sin movimientos.')); return caja; }
     const ul = el('ul', 'hist');
     ul.replaceChildren(...eventos.map(h => {
       const [frase, nota] = describirEvento(h);
       const li = el('li');
       const tipo = ICONO_EVENTO[h.tipo] ? h.tipo : 'creado';
-      li.innerHTML = `<span class="hi h-${tipo}">${ico(ICONO_EVENTO[tipo])}</span>`;
+      li.innerHTML = `<span class="hi h-${tipo}${h.auto ? ' h-auto' : ''}">${ico(ICONO_EVENTO[tipo])}</span>`;
       const cuerpo = el('div', 'min-w-0 flex-1 pt-1');
       const linea = el('div', 'leading-snug');
       linea.innerHTML = frase;

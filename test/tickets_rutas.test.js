@@ -83,9 +83,9 @@ test('alta, listado, PATCH de estado + nota y errores', async () => {
     assert.strictEqual(alta.data.id, 1);
     assert.strictEqual(alta.data.creadoPor, 'adriel');
 
-    const invalido = await pedir(base, 'POST', '', { ...NUEVO, destinatarios: ['viejo'] });
+    const invalido = await pedir(base, 'POST', '', { ...NUEVO, destinatarios: [] });
     assert.strictEqual(invalido.status, 400);
-    assert.match(invalido.data.error, /viejo/);
+    assert.match(invalido.data.error, /destinatario/);
 
     const patch = await pedir(base, 'PATCH', '/1', { estado: 'terminado', nota: 'listo' });
     assert.strictEqual(patch.status, 200);
@@ -181,5 +181,101 @@ test('sin permiso de gestión: no cambia estado; destinatarios solo el creador; 
     assert.strictEqual(gestion.status, 200);
     assert.strictEqual(gestion.data.estado, 'en_proceso');
     assert.deepStrictEqual(gestion.data.destinatarios, ['beto']);
+  } finally { cerrar(ctx); }
+});
+
+test('destinatarios: Id de SIGA sin distinguir mayúsculas se normaliza y un nombre libre se acepta como externo', async () => {
+  const ctx = await montar();
+  try {
+    const alta = await pedir(ctx.base, 'POST', '', { ...NUEVO, destinatarios: ['BETO', ' Proveedor X '] });
+    assert.strictEqual(alta.status, 201);
+    assert.deepStrictEqual(alta.data.destinatarios, ['beto', 'Proveedor X']);
+    const rep = await pedir(ctx.base, 'POST', '', { ...NUEVO, destinatarios: ['Pepe', 'pepe'] });
+    assert.strictEqual(rep.status, 400);
+    assert.match(rep.data.error, /repetido/i);
+  } finally { cerrar(ctx); }
+});
+
+test('meta trae los estados de etapa', async () => {
+  const ctx = await montar();
+  try {
+    const { data } = await pedir(ctx.base, 'GET', '/meta');
+    assert.deepStrictEqual(data.estadosEtapa, [
+      { valor: 'pendiente', etiqueta: 'Pendiente' },
+      { valor: 'en_proceso', etiqueta: 'En proceso' },
+      { valor: 'terminado', etiqueta: 'Terminado' },
+    ]);
+  } finally { cerrar(ctx); }
+});
+
+test('etapas: alta 201, cambio 200, auto falta_aprobacion, bloqueo manual 400, reapertura, baja 200 y 404', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    assert.strictEqual((await pedir(base, 'POST', '', NUEVO)).status, 201);
+    const a = await pedir(base, 'POST', '/1/etapas', { nombre: 'Relevar' });
+    assert.strictEqual(a.status, 201);
+    assert.deepStrictEqual(a.data.etapas.map(e => [e.id, e.nombre, e.estado]), [[1, 'Relevar', 'pendiente']]);
+    assert.strictEqual((await pedir(base, 'POST', '/1/etapas', { nombre: 'Programar' })).status, 201);
+
+    const manual = await pedir(base, 'PATCH', '/1', { estado: 'terminado' });
+    assert.strictEqual(manual.status, 400);
+    assert.strictEqual(manual.data.error, 'Faltan 2 etapas por terminar.');
+
+    const e1 = await pedir(base, 'PATCH', '/1/etapas/1', { estado: 'terminado' });
+    assert.strictEqual(e1.status, 200);
+    assert.strictEqual(e1.data.estado, 'pendiente');
+    const e2 = await pedir(base, 'PATCH', '/1/etapas/2', { estado: 'terminado', nombre: 'Programar y probar' });
+    assert.strictEqual(e2.status, 200);
+    assert.strictEqual(e2.data.estado, 'falta_aprobacion');
+    assert.strictEqual(e2.data.etapas[1].nombre, 'Programar y probar');
+    const auto = e2.data.historial[e2.data.historial.length - 1];
+    assert.deepStrictEqual([auto.tipo, auto.de, auto.a, auto.auto, auto.usuario], ['estado', 'pendiente', 'falta_aprobacion', true, 'adriel']);
+
+    const reabre = await pedir(base, 'PATCH', '/1/etapas/2', { estado: 'en_proceso' });
+    assert.strictEqual(reabre.data.estado, 'en_proceso');
+    const sinCambio = await pedir(base, 'PATCH', '/1/etapas/2', { estado: 'en_proceso' });
+    assert.strictEqual(sinCambio.status, 400);
+
+    const baja = await pedir(base, 'DELETE', '/1/etapas/2');
+    assert.strictEqual(baja.status, 200);
+    assert.strictEqual(baja.data.estado, 'falta_aprobacion'); // quedó sólo la terminada
+    assert.deepStrictEqual(baja.data.etapas.map(e => e.id), [1]);
+
+    assert.strictEqual((await pedir(base, 'PATCH', '/1/etapas/2', { estado: 'terminado' })).status, 404);
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/etapas/2')).status, 404);
+    assert.strictEqual((await pedir(base, 'POST', '/9/etapas', { nombre: 'X' })).status, 404);
+    assert.strictEqual((await pedir(base, 'PATCH', '/1/etapas/abc', { estado: 'terminado' })).status, 400);
+    assert.strictEqual((await pedir(base, 'POST', '/1/etapas', { nombre: ' ' })).status, 400);
+
+    // Persistido en disco.
+    const disco = JSON.parse(fs.readFileSync(path.join(ctx.dir, 'tickets.json'), 'utf8'))[0];
+    assert.strictEqual(disco.estado, 'falta_aprobacion');
+    assert.strictEqual(disco.etapas.length, 1);
+
+    // Ticket cerrado: no se agregan ni cambian etapas.
+    assert.strictEqual((await pedir(base, 'PATCH', '/1', { estado: 'terminado' })).status, 200);
+    const cerrado = await pedir(base, 'POST', '/1/etapas', { nombre: 'Tarde' });
+    assert.strictEqual(cerrado.status, 400);
+    assert.match(cerrado.data.error, /terminado/i);
+    assert.strictEqual((await pedir(base, 'PATCH', '/1/etapas/1', { estado: 'pendiente' })).status, 400);
+  } finally { cerrar(ctx); }
+});
+
+test('etapas sin permiso de gestión → 403 y nada se escribe', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    assert.strictEqual((await pedir(base, 'POST', '', NUEVO)).status, 201);
+    assert.strictEqual((await pedir(base, 'POST', '/1/etapas', { nombre: 'Relevar' })).status, 201);
+    ctx.sesion.permiso = false;
+    const msg = 'No tenés permiso para gestionar etapas.';
+    for (const [metodo, url, body] of [['POST', '/1/etapas', { nombre: 'X' }], ['PATCH', '/1/etapas/1', { estado: 'terminado' }], ['DELETE', '/1/etapas/1'], ['POST', '/9/etapas', { nombre: 'X' }]]) {
+      const r = await pedir(base, metodo, url, body);
+      assert.strictEqual(r.status, 403, `${metodo} ${url}`);
+      assert.strictEqual(r.data.error, msg);
+    }
+    const disco = JSON.parse(fs.readFileSync(path.join(ctx.dir, 'tickets.json'), 'utf8'))[0];
+    assert.deepStrictEqual(disco.etapas.map(e => [e.nombre, e.estado]), [['Relevar', 'pendiente']]);
   } finally { cerrar(ctx); }
 });
