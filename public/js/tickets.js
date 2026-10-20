@@ -40,6 +40,7 @@
     areas: [], usuarios: [], yo: null, yoNombre: null, login: null, puedeGestionar: false,
   };
   const SIN_PERMISO = 'Necesitás el permiso Tickets · Gestión';
+  const SOLO_CREADOR_PRI = 'La cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión';
   const REQUIEREN_ETAPAS = ['falta_aprobacion', 'terminado']; // estados del ticket que piden todas las etapas terminadas
   const MAX_DEST = 20; // topes de lib/tickets.js
   const MAX_DEST_LARGO = 60;
@@ -66,6 +67,7 @@
     papelera: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
     externo: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
     mas: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    bandera: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     campana: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
@@ -134,9 +136,9 @@
   const avisoActual = () => (estado.abierto != null ? '#dAviso' : '#aviso');
 
   // Avisos apilados abajo a la derecha (máx. MAX_TOASTS, se van solos). Con `id` es un botón que abre el ticket.
-  function agregarToast({ texto, icono = 'check', destacado = false, id = null, ms = TOAST_MS }) {
+  function agregarToast({ texto, icono = 'check', destacado = false, urgente = false, id = null, ms = TOAST_MS }) {
     const caja = $('#toasts');
-    const t = el(id != null ? 'button' : 'div', `tst${destacado ? ' tst-mio' : ''}`);
+    const t = el(id != null ? 'button' : 'div', `tst${destacado ? ' tst-mio' : ''}${urgente ? ' tst-urg' : ''}`);
     if (id != null) {
       t.type = 'button';
       t.title = 'Abrir el ticket';
@@ -179,9 +181,9 @@
   const faltanTexto = n => (n === 1 ? 'falta 1 etapa' : `faltan ${n} etapas`);
   // Destinatario que no es usuario de SIGA (nombre libre). Sin meta (SIGA caído) no se sabe: no se marca.
   const esExterno = u => estado.metaOk && !usuarioMeta(u);
-  // Espejo de lo que valida el server: estados sólo con 'tickets-gestion'; destinatarios también el creador.
+  // Espejo de lo que valida el server: estados sólo con 'tickets-gestion'; destinatarios y prioridad también el creador.
   const puedeGestionar = () => estado.meta.puedeGestionar === true;
-  const puedeEditarDest = t => puedeGestionar() || mismoUsuario(t.creadoPor, estado.meta.login);
+  const puedeEditarTicket = t => puedeGestionar() || mismoUsuario(t.creadoPor, estado.meta.login);
 
   // ── Avatares ────────────────────────────────────────────────────────────────
   function iniciales(nombre) {
@@ -213,7 +215,7 @@
     return `<span class="pila">${dest.slice(0, MAX_AVATARES).map(u => avatar(u)).join('')}${mas}</span>`;
   }
 
-  const badgePrioridad = p => `<span class="badge-p p-${esc(p)}">${esc(etiqueta('prioridades', p))}</span>`;
+  const badgePrioridad = (p, title = '') => `<span class="badge-p p-${esc(p)}"${title ? ` title="${esc(title)}"` : ''}>${esc(etiqueta('prioridades', p))}</span>`;
   const badgeEstado = (v, lista = 'estados') => `<span class="inline-flex items-center gap-1.5 font-semibold e-${esc(v)}" style="color:var(--e-fg)"><span class="dot"></span>${esc(etiqueta(lista, v))}</span>`;
   // Con etapas abiertas, Falta aprobación y Terminado no se eligen a mano (el server también lo rechaza).
   function selectEstado(t, id) {
@@ -224,6 +226,14 @@
     }).join('');
     const bloqueo = puedeGestionar() ? '' : ` disabled title="${esc(SIN_PERMISO)}" aria-description="${esc(SIN_PERMISO)}"`;
     return `<select class="sel-estado e-${esc(t.estado)}"${id ? ` id="${id}"` : ''} data-estado-id="${esc(t.id)}" aria-label="Estado del ticket #${esc(t.id)}"${bloqueo}>${ops}</select>`;
+  }
+
+  // Prioridad editable (detalle y lista) para el creador o quien gestiona; si no, el badge con el porqué en el title.
+  function controlPrioridad(t, id) {
+    if (!estado.metaOk) return badgePrioridad(t.prioridad);
+    if (!puedeEditarTicket(t)) return badgePrioridad(t.prioridad, SOLO_CREADOR_PRI);
+    const ops = estado.meta.prioridades.map(p => `<option value="${esc(p.valor)}"${p.valor === t.prioridad ? ' selected' : ''}>${esc(p.etiqueta)}</option>`).join('');
+    return `<select class="sel-estado sel-pri p-${esc(t.prioridad)}"${id ? ` id="${id}"` : ''} data-prioridad-id="${esc(t.id)}" aria-label="Prioridad del ticket #${esc(t.id)}">${ops}</select>`;
   }
 
   // ── Selector de destinatarios (alta y detalle): chips + campo con autocompletado (combobox ARIA) ──
@@ -685,7 +695,7 @@
     return `<tr data-id="${esc(t.id)}" tabindex="0" class="e-${esc(t.estado)}${nl ? ' no-leido' : ''}">
       <td class="num text-gris pri p-${esc(t.prioridad)}">${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span><span class="sr-only">Con novedades: </span>' : ''}${esc(t.id)}</td>
       <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}${etapasDe(t).length ? `<div class="mt-1 font-normal">${miniProgreso(t)}</div>` : ''}</td>
-      <td>${badgePrioridad(t.prioridad)}</td>
+      <td>${controlPrioridad(t)}</td>
       <td>${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : '—'}</td>
       <td>${pilaAvatares(t.destinatarios)}</td>
       <td>${selectEstado(t)}</td>
@@ -755,31 +765,48 @@
     return t;
   }
 
-  // Cambio de estado optimista (drag & drop o select): se ve al instante y, si falla, vuelve atrás y avisa.
-  async function moverEstado(id, nuevo) {
+  // Cambio optimista de un campo (estado, prioridad): se ve al instante y, si falla, vuelve atrás y avisa.
+  // repintarConservando: la fila puede moverse (orden por prioridad) y el foco sigue en su select.
+  const ocupado = t => !t || estado.guardando.has(String(t.id));
+  async function cambiarCampo(t, campo, nuevo, { destino, ok, error }) {
+    reemplazarTicket(t.id, { ...t, [campo]: nuevo });
+    estado.guardando.add(String(t.id));
+    repintarConservando();
+    try {
+      await actualizar(t.id, { [campo]: nuevo });
+      ocultarAviso(destino);
+      mostrarToast(ok);
+    } catch (e) {
+      const actual = buscarTicket(t.id);
+      if (actual) reemplazarTicket(t.id, { ...actual, [campo]: t[campo] });
+      mostrarAviso('error', `${error}: ${e.message}`, destino);
+    } finally {
+      estado.guardando.delete(String(t.id));
+      repintarConservando();
+    }
+  }
+
+  // Estado por drag & drop o select.
+  function moverEstado(id, nuevo) {
     const t = buscarTicket(id);
-    if (!t || !nuevo || t.estado === nuevo || estado.guardando.has(String(t.id))) return;
+    if (ocupado(t) || !nuevo || t.estado === nuevo) return;
     const destino = avisoActual();
     const faltan = abiertasDe(t);
     if (faltan && REQUIEREN_ETAPAS.includes(nuevo)) {
       mostrarAviso('error', `El ticket #${t.id} no puede pasar a ${etiqueta('estados', nuevo)}: ${faltanTexto(faltan)} por terminar.`, destino);
       return;
     }
-    reemplazarTicket(id, { ...t, estado: nuevo });
-    estado.guardando.add(String(t.id));
-    pintarTodo();
-    try {
-      await actualizar(id, { estado: nuevo });
-      ocultarAviso(destino);
-      mostrarToast(`#${t.id} pasó a ${etiqueta('estados', nuevo)}.`);
-    } catch (e) {
-      const actual = buscarTicket(id);
-      if (actual) reemplazarTicket(id, { ...actual, estado: t.estado });
-      mostrarAviso('error', `No se pudo cambiar el estado del ticket #${t.id}: ${e.message}`, destino);
-    } finally {
-      estado.guardando.delete(String(t.id));
-      pintarTodo();
-    }
+    cambiarCampo(t, 'estado', nuevo, { destino, ok: `#${t.id} pasó a ${etiqueta('estados', nuevo)}.`, error: `No se pudo cambiar el estado del ticket #${t.id}` });
+  }
+
+  function cambiarPrioridad(id, nueva) {
+    const t = buscarTicket(id);
+    if (ocupado(t) || !nueva || t.prioridad === nueva) return;
+    cambiarCampo(t, 'prioridad', nueva, {
+      destino: avisoActual(),
+      ok: `Prioridad actualizada: #${t.id} ahora es ${etiqueta('prioridades', nueva)}.`,
+      error: `No se pudo cambiar la prioridad del ticket #${t.id}`,
+    });
   }
 
   // ── Panel de detalle ────────────────────────────────────────────────────────
@@ -813,7 +840,7 @@
     marcarVisto(t);
     const focoId = estado.focoDetalle || ($('#dlgDetalle').contains(document.activeElement) ? document.activeElement.id : '');
     estado.focoDetalle = null;
-    $('#dCab').innerHTML = `<span class="text-sm font-semibold text-gris tabular-nums">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}${selectEstado(t, 'dEstado')}`;
+    $('#dCab').innerHTML = `<span class="text-sm font-semibold text-gris tabular-nums">#${esc(t.id)}</span>${controlPrioridad(t, 'dPrioridad')}${selectEstado(t, 'dEstado')}`;
     $('#dTitulo').textContent = t.tarea;
     $('#dMeta').innerHTML = `${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : ''}
       <span>Creado por <b class="text-ink font-semibold">${esc(nombreDe(t.creadoPor))}</b> · ${esc(fecha(t.creadoEn))}</span>
@@ -1010,7 +1037,7 @@
     caja.append(raiz);
     const inicial = comoLista(t.destinatarios);
     const motivo = !estado.metaOk ? 'No se pueden editar ahora: no hay conexión con SIGA.'
-      : (puedeEditarDest(t) ? '' : 'Los cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión.');
+      : (puedeEditarTicket(t) ? '' : 'Los cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión.');
     if (motivo) {
       crearSelectorUsuarios(raiz, { id: 'dDest', seleccion: inicial, soloLectura: true });
       caja.append(el('p', 'ayuda mt-2', motivo));
@@ -1122,11 +1149,12 @@
         return [`${quien} cambió la etapa ${n}: ${badgeEstado(h.de, 'estadosEtapa')} <span class="text-gris">→</span> ${badgeEstado(h.a, 'estadosEtapa')}`];
       }
     }
+    if (h.tipo === 'prioridad') return [`${quien} cambió la prioridad: ${badgePrioridad(h.de)} <span class="text-gris">→</span> ${badgePrioridad(h.a)}`];
     if (h.tipo === 'nota') return [`${quien} agregó una nota`, h.nota || ''];
     if (h.tipo === 'destinatarios') return [`${quien} cambió los destinatarios: <span class="text-gris">${nombres(h.de)}</span> → ${nombres(h.a)}`];
     return [`${quien}: ${esc(h.tipo || 'cambio')}`];
   }
-  const ICONO_EVENTO = { creado: 'creado', estado: 'estado', nota: 'msg', destinatarios: 'usuarios', etapa: 'etapa' };
+  const ICONO_EVENTO = { creado: 'creado', estado: 'estado', nota: 'msg', destinatarios: 'usuarios', etapa: 'etapa', prioridad: 'bandera' };
 
   function seccionHistorial(t) {
     const caja = seccion('Historial', 'historial');
@@ -1205,7 +1233,7 @@
     const act = document.activeElement;
     const tipeando = act && /^(INPUT|TEXTAREA)$/.test(act.tagName) && act.id ? [act.id, act.value, act.selectionStart, act.selectionEnd] : null;
     const item = act && act.closest ? act.closest('#tablero [data-id], #cuerpo [data-id]') : null;
-    const focoItem = item && `#${item.closest('#tablero, #cuerpo').id} [data-id="${CSS.escape(item.dataset.id)}"]${act.matches('select') ? ' select' : ''}`;
+    const focoItem = item && `#${item.closest('#tablero, #cuerpo').id} [data-id="${CSS.escape(item.dataset.id)}"]${act.matches('select') ? (act.matches('[data-prioridad-id]') ? ' select[data-prioridad-id]' : ' select[data-estado-id]') : ''}`;
     const scrolls = [...document.querySelectorAll('#tablero .col')].map(c => [c.dataset.estado, c.querySelector('.col-cuerpo')?.scrollTop || 0]);
     const scrollDetalle = $('#dCuerpo').scrollTop;
     armarFiltrosDinamicos();
@@ -1245,10 +1273,13 @@
       texto = h.a === 'falta_aprobacion' ? `${n} pasó a ${etiqueta('estados', h.a)} (todas las etapas terminadas)`
         : `${n} volvió a ${etiqueta('estados', h.a)} (se reabrió una etapa)`;
     } else if (h.tipo === 'estado') texto = `${n} cambió a ${etiqueta('estados', h.a)} · ${quien}`;
+    else if (h.tipo === 'prioridad') texto = `${n} prioridad: ${etiqueta('prioridades', h.de)} → ${etiqueta('prioridades', h.a)} · ${quien}`;
     else if (h.tipo === 'nota') texto = `${n} nueva nota · ${quien}`;
     else if (h.tipo === 'destinatarios') texto = `${n} destinatarios actualizados · ${quien}`;
     else if (h.tipo === 'etapa') texto = `${n} ${textoEtapa(h)} · ${quien}`;
-    return { id: t.id, texto, mio: asignado || meInvolucra(t) };
+    const mio = asignado || meInvolucra(t);
+    // Subió a Urgente y me involucra: aviso en rojo, más que el destacado común.
+    return { id: t.id, texto, mio, urgente: mio && !!previo && h.tipo === 'prioridad' && h.a === 'urgente' };
   }
 
   // Muchos cambios juntos → un solo aviso agrupado. Pestaña oculta + avisos de escritorio activos → notificación nativa.
@@ -1258,7 +1289,7 @@
       id: null, mio: mios > 0,
       texto: `${cambios.length} tickets actualizados${mios ? ` · ${mios === 1 ? '1 te involucra' : `${mios} te involucran`}` : ''}`,
     }];
-    avisos.forEach(c => agregarToast({ texto: c.texto, icono: c.mio ? 'campana' : 'historial', destacado: c.mio, id: c.id, ms: AVISO_MS }));
+    avisos.forEach(c => agregarToast({ texto: c.texto, icono: c.urgente ? 'alerta' : (c.mio ? 'campana' : 'historial'), destacado: c.mio, urgente: c.urgente, id: c.id, ms: AVISO_MS }));
     if (document.hidden && escritorioActivo()) avisos.forEach(notificar);
   }
 
@@ -1273,7 +1304,7 @@
   const escritorioActivo = () => prefEscritorio && soportaEscritorio() && Notification.permission === 'granted';
   function notificar(c) {
     try {
-      const n = new Notification(c.mio ? 'Tickets · te involucra' : 'Tickets de Desarrollo',
+      const n = new Notification(c.urgente ? 'Tickets · urgente' : (c.mio ? 'Tickets · te involucra' : 'Tickets de Desarrollo'),
         { body: c.texto, tag: c.id != null ? `ticket-${c.id}` : 'tickets', icon: '/favicon.png' });
       n.onclick = () => { window.focus(); n.close(); if (c.id != null) abrirDesdeAviso(c.id); };
     } catch (_) { /* navegador que sólo notifica vía service worker: quedan el toast y la marca */ }
@@ -1387,8 +1418,11 @@
       if (b && b.dataset.accion === 'nuevo') abrirNuevo();
       if (b && b.dataset.accion === 'limpiar-filtros') limpiarFiltros();
     });
-    // Selects de estado de la lista y del detalle: delegado en document.
-    document.addEventListener('change', e => { if (e.target.matches('select[data-estado-id]')) moverEstado(e.target.dataset.estadoId, e.target.value); });
+    // Selects de estado y prioridad de la lista y del detalle: delegado en document.
+    document.addEventListener('change', e => {
+      if (e.target.matches('select[data-estado-id]')) moverEstado(e.target.dataset.estadoId, e.target.value);
+      if (e.target.matches('select[data-prioridad-id]')) cambiarPrioridad(e.target.dataset.prioridadId, e.target.value);
+    });
     enlazarDialogo($('#dlgDetalle'), alCerrarDetalle);
     $('#btnAvisos').addEventListener('click', alternarEscritorio);
     // Al volver a la pestaña se consulta en el momento; al irse, el próximo sondeo se espacia.

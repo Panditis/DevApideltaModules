@@ -57,6 +57,7 @@
 .sel-estado:hover{border-color:rgba(26,28,24,.22)}
 .sel-estado:disabled{cursor:not-allowed;opacity:.6}
 .sel-estado option{background:#fff;color:var(--ink)}
+.sel-estado.sel-pri{background-color:var(--p-bg);color:var(--p-fg)}
 .tag-area{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:1px 8px;border-radius:6px;font-size:11.5px;font-weight:500;color:#3b4a33;background:#eef2e9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ── Avatares ──────────────────────────────────────────────────────────── */
@@ -152,6 +153,8 @@ button.tst{cursor:pointer}
 button.tst:hover{background:#34342f}
 .tst-mio{box-shadow:var(--sh-3),inset 4px 0 0 #FFCC00}
 .tst-mio .ico{color:#FFCC00}
+.tst-urg{box-shadow:var(--sh-3),inset 4px 0 0 #ff6b6b}
+.tst-urg .ico{color:#ff8a8a}
 @keyframes toast{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 /* No leído: punto azul + realce en tarjeta y fila. */
 .pto-nl{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2f7de1;box-shadow:0 0 0 3px rgba(47,125,225,.18);flex:none}
@@ -265,6 +268,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 .h-nota{--h-bg:#fff4ce;--h-fg:#8a5d00}
 .h-destinatarios{--h-bg:#f1ebfa;--h-fg:#6b3fa0}
 .h-etapa{--h-bg:#dff6dd;--h-fg:#0e700e}
+.h-prioridad{--h-bg:#fde7e9;--h-fg:#a4262c}
 .h-auto{box-shadow:0 0 0 2px #fff,0 0 0 3.5px #c9b3e3}
 .hist .cuando{font-size:12px;color:#8a8d80;margin-top:1px}
 .burbuja{margin-top:6px;padding:9px 12px;border-radius:4px 12px 12px 12px;background:#f7f8f4;border:1px solid var(--borde-s);font-size:14px}

@@ -279,3 +279,35 @@ test('etapas sin permiso de gestión → 403 y nada se escribe', async () => {
     assert.deepStrictEqual(disco.etapas.map(e => [e.nombre, e.estado]), [['Relevar', 'pendiente']]);
   } finally { cerrar(ctx); }
 });
+
+test('prioridad: el creador sin permiso la cambia (case-insensitive); otro sin permiso 403 sin escribir; con permiso 200', async () => {
+  const ctx = await montar({ permiso: false });
+  const { base } = ctx;
+  const leer = () => JSON.parse(fs.readFileSync(path.join(ctx.dir, 'tickets.json'), 'utf8'))[0];
+  try {
+    assert.strictEqual((await pedir(base, 'POST', '', NUEVO)).status, 201); // creado por 'adriel', prioridad media
+
+    ctx.sesion.user = { usuario: 'ADRIEL' };
+    const propio = await pedir(base, 'PATCH', '/1', { prioridad: 'urgente' });
+    assert.strictEqual(propio.status, 200);
+    assert.strictEqual(propio.data.prioridad, 'urgente');
+    const h = propio.data.historial[propio.data.historial.length - 1];
+    assert.deepStrictEqual([h.tipo, h.de, h.a, h.usuario], ['prioridad', 'media', 'urgente', 'ADRIEL']);
+
+    ctx.sesion.user = { usuario: 'beto' };
+    const ajeno = await pedir(base, 'PATCH', '/1', { prioridad: 'baja', nota: 'de paso' });
+    assert.strictEqual(ajeno.status, 403);
+    assert.strictEqual(ajeno.data.error, 'Solo el creador del ticket o quien tenga el permiso de gestión puede cambiar la prioridad.');
+    assert.strictEqual(leer().prioridad, 'urgente');
+    assert.strictEqual(leer().historial.length, 2); // ni la nota del mismo body se guardó
+
+    ctx.sesion.permiso = true;
+    const gestion = await pedir(base, 'PATCH', '/1', { prioridad: 'baja' });
+    assert.strictEqual(gestion.status, 200);
+    assert.strictEqual(leer().prioridad, 'baja');
+    assert.strictEqual((await pedir(base, 'PATCH', '/1', { prioridad: 'baja' })).status, 400); // misma: sin cambios
+    const invalida = await pedir(base, 'PATCH', '/1', { prioridad: 'altísima' });
+    assert.strictEqual(invalida.status, 400);
+    assert.match(invalida.data.error, /prioridad/);
+  } finally { cerrar(ctx); }
+});

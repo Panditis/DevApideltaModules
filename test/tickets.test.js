@@ -265,6 +265,7 @@ test('toda operación actualiza actualizadoEn y deja entrada en el historial con
   const pasos = [
     ['estado', l => actualizarTicket(l, 1, { estado: 'en_proceso' }, 'beto', USUARIOS, T1)],
     ['nota', l => actualizarTicket(l, 1, { nota: 'hola' }, 'beto', USUARIOS, T1)],
+    ['prioridad', l => actualizarTicket(l, 1, { prioridad: 'baja' }, 'beto', USUARIOS, T1)],
     ['destinatarios', l => actualizarTicket(l, 1, { destinatarios: ['caro'] }, 'beto', USUARIOS, T1)],
     ['etapa agregada', l => agregarEtapa(l, 1, { nombre: 'A' }, 'beto', T1)],
     ['etapa renombrada', l => actualizarEtapa(agregarEtapa(l, 1, { nombre: 'A' }, 'beto', T0).lista, 1, 1, { nombre: 'B' }, 'beto', T1)],
@@ -279,4 +280,25 @@ test('toda operación actualiza actualizadoEn y deja entrada en el historial con
   }
   const { ticket } = crear();
   assert.strictEqual(ticket.historial[ticket.historial.length - 1].fecha, ticket.actualizadoEn);
+});
+
+// ── Prioridad editable ──────────────────────────────────────────────────────
+test('actualizarTicket: prioridad cambia con historial; misma es no-op; inválida 400; ticket cerrado se puede', () => {
+  const { lista: l0 } = crear(); // nace en 'alta'
+  const copia = JSON.parse(JSON.stringify(l0));
+  const { lista, ticket } = actualizarTicket(l0, 1, { prioridad: 'urgente' }, 'beto', USUARIOS, T1);
+  assert.strictEqual(ticket.prioridad, 'urgente');
+  assert.strictEqual(ticket.actualizadoEn, T1);
+  assert.deepStrictEqual(ultimo(ticket), { fecha: T1, usuario: 'beto', tipo: 'prioridad', de: 'alta', a: 'urgente' });
+  assert.deepStrictEqual(lista, [ticket]);
+  assert.deepStrictEqual(l0, copia, 'no muta la entrada');
+  falla(() => actualizarTicket(l0, 1, { prioridad: 'alta' }, 'beto', USUARIOS, T1), 400, /cambio/i);
+  falla(() => actualizarTicket(l0, 1, { prioridad: 'altísima' }, 'beto', USUARIOS, T1), 400, /prioridad/i);
+  falla(() => actualizarTicket(l0, 1, { prioridad: null }, 'beto', USUARIOS, T1), 400, /prioridad/i);
+  const { ticket: t2 } = actualizarTicket(l0, 1, { prioridad: 'alta', nota: 'igual' }, 'beto', USUARIOS, T1);
+  assert.deepStrictEqual(t2.historial.map(h => h.tipo), ['creado', 'nota'], 'misma prioridad no deja historial');
+  for (const e of ['terminado', 'cancelado']) {
+    const { ticket: t3 } = actualizarTicket([{ ...l0[0], estado: e }], 1, { prioridad: 'baja' }, 'beto', USUARIOS, T1);
+    assert.deepStrictEqual([t3.prioridad, t3.estado], ['baja', e]);
+  }
 });

@@ -10,7 +10,7 @@ const tickets = require('../lib/tickets');
 // Los destinatarios son usuarios activos de SIGA (tabla Usuarios; el Id se normaliza) o nombres
 // libres de externos; `query` entra por deps (en server.js es el pool de lectura) para poder testear el router sin SQL.
 // Permisos: con el módulo se ve todo, se crea y se agregan notas. Cambiar el estado pide el permiso fino
-// 'tickets-gestion' (tienePermiso entra por deps, es auth.tienePermiso); los destinatarios los cambia el
+// 'tickets-gestion' (tienePermiso entra por deps, es auth.tienePermiso); destinatarios y prioridad los cambia el
 // creador del ticket o quien tenga ese permiso. Las etapas (alta, cambio, baja) también piden 'tickets-gestion'.
 const USUARIOS_TTL_MS = 5 * 60 * 1000;
 const SQL_USUARIOS = 'SELECT Id, Nombre FROM Usuarios WHERE Activo = 1 ORDER BY Nombre';
@@ -33,8 +33,12 @@ module.exports = function crearRutasTickets(deps) {
     if (!ticket || puedeGestionar(req)) return;
     if (cambios.estado !== undefined) throw prohibido('No tenés permiso para cambiar el estado de los tickets.');
     const login = String((userSesion(req) || {}).usuario || '').toLowerCase();
-    if (cambios.destinatarios !== undefined && (!login || String(ticket.creadoPor || '').toLowerCase() !== login)) {
+    if (login && String(ticket.creadoPor || '').toLowerCase() === login) return;
+    if (cambios.destinatarios !== undefined) {
       throw prohibido('Solo el creador del ticket o quien tenga el permiso de gestión puede cambiar los destinatarios.');
+    }
+    if (cambios.prioridad !== undefined) {
+      throw prohibido('Solo el creador del ticket o quien tenga el permiso de gestión puede cambiar la prioridad.');
     }
   }
 
