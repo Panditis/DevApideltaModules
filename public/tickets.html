@@ -143,9 +143,26 @@ tr.e-cancelado .tit{text-decoration:line-through}
 @keyframes sk{from{background-position:100% 0}to{background-position:-100% 0}}
 .error{display:flex;gap:10px;align-items:flex-start;background:#fdf3f4;color:var(--crit);border:1px solid #f3cdd0;padding:10px 14px;border-radius:10px;font-size:14px}
 .ok{display:flex;gap:10px;align-items:flex-start;background:#eef8ec;color:#0e700e;border:1px solid #c5e6c1;padding:10px 14px;border-radius:10px;font-size:14px}
-#toast{position:fixed;right:24px;bottom:24px;z-index:80;display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:10px;background:#242423;color:#fff;font-size:14px;box-shadow:var(--sh-3);animation:toast 220ms ease}
-#toast .ico{color:#9fd88f}
+.info{display:flex;gap:10px;align-items:flex-start;background:#eef5ff;color:#0b4f9c;border:1px solid #c7dcf7;padding:10px 14px;border-radius:10px;font-size:14px}
+/* Avisos apilados (propios y novedades de otros). Los que me involucran llevan el filo amarillo del sistema. */
+#toasts{position:fixed;right:24px;bottom:24px;z-index:80;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:440px}
+.tst{display:flex;align-items:center;gap:10px;padding:11px 16px;border:0;border-radius:10px;background:#242423;color:#fff;font-size:14px;line-height:1.35;text-align:left;box-shadow:var(--sh-3);animation:toast 220ms ease}
+.tst .ico{color:#9fd88f}
+button.tst{cursor:pointer}
+button.tst:hover{background:#34342f}
+.tst-mio{box-shadow:var(--sh-3),inset 4px 0 0 #FFCC00}
+.tst-mio .ico{color:#FFCC00}
 @keyframes toast{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* No leído: punto azul + realce en tarjeta y fila. */
+.pto-nl{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2f7de1;box-shadow:0 0 0 3px rgba(47,125,225,.18);flex:none}
+.tarjeta.no-leido{box-shadow:var(--sh-1),inset 0 0 0 1.5px rgba(47,125,225,.55)}
+.tarjeta.no-leido:hover{box-shadow:var(--sh-2),inset 0 0 0 1.5px rgba(47,125,225,.55)}
+.tarjeta.no-leido .tit{color:#0b2f5c}
+tr.no-leido td{background:#f3f8ff}
+tr.no-leido .pto-nl{margin-right:6px;vertical-align:1px}
+header.acrylic #btnAvisos[aria-pressed=true],header.acrylic #btnAvisos[aria-pressed=true] span{background:#FFCC00;border-color:#FFCC00;color:#1a1c18}
+header.acrylic #btnAvisos:disabled{opacity:.6;cursor:not-allowed}
+header.acrylic #conexion{color:#FFCC00;font-weight:600}
 
 /* ── Diálogos (nativos: foco atrapado, Esc y fondo inerte los da <dialog>) ── */
 dialog{padding:0;border:0;color:var(--ink);background:#fff}
@@ -254,7 +271,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 
 @media (prefers-reduced-motion:reduce){
   .tarjeta,.col,.switch input,.switch input::after,.ctl,.sel-u,.et-prog-barra i,.et-acc{transition:none!important}
-  .sk,#toast,#dlgNuevo[open],#dlgDetalle[open]{animation:none!important}
+  .sk,.tst,#dlgNuevo[open],#dlgDetalle[open]{animation:none!important}
   .tarjeta:hover{transform:none}
 }
 </style>
@@ -265,7 +282,10 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
     <h1 class="font-disp text-2xl font-bold">TICKETS DE DESARROLLO</h1>
     <span class="text-sm">Pedidos al equipo de sistemas</span>
     <div class="ml-auto flex items-center gap-4">
+      <span id="conexion" class="hidden text-xs" role="status"></span>
       <span id="yo" class="text-sm flex items-center gap-2"></span>
+      <button id="btnAvisos" type="button" class="px-3 py-1.5 rounded-lg border text-sm inline-flex items-center gap-1.5" aria-pressed="false">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="txt">Avisos de escritorio</span></button>
       <button id="btnRecargar" type="button" class="px-3 py-1.5 rounded-lg border text-sm">Recargar</button>
       <a href="/" class="text-sm">← Inicio</a>
     </div>
@@ -391,7 +411,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
   </div>
 </dialog>
 
-<div id="toast" class="hidden" role="status" aria-live="polite"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
 
 <script src="/js/tickets.js"></script>
 </body>

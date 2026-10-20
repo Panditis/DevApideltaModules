@@ -258,3 +258,25 @@ test('regla 4 y recalcularEstado puro: sin etapas nada cambia; no toca terminado
   const sinEtapas = { ...t, etapas: [], estado: 'falta_aprobacion' };
   assert.strictEqual(recalcularEstado(sinEtapas, 'beto', T1), sinEtapas);
 });
+
+// El front detecta cambios por actualizadoEn y describe el aviso con la última entrada del historial:
+// toda operación tiene que mover ambos.
+test('toda operación actualiza actualizadoEn y deja entrada en el historial con esa fecha', () => {
+  const pasos = [
+    ['estado', l => actualizarTicket(l, 1, { estado: 'en_proceso' }, 'beto', USUARIOS, T1)],
+    ['nota', l => actualizarTicket(l, 1, { nota: 'hola' }, 'beto', USUARIOS, T1)],
+    ['destinatarios', l => actualizarTicket(l, 1, { destinatarios: ['caro'] }, 'beto', USUARIOS, T1)],
+    ['etapa agregada', l => agregarEtapa(l, 1, { nombre: 'A' }, 'beto', T1)],
+    ['etapa renombrada', l => actualizarEtapa(agregarEtapa(l, 1, { nombre: 'A' }, 'beto', T0).lista, 1, 1, { nombre: 'B' }, 'beto', T1)],
+    ['etapa terminada (auto)', l => actualizarEtapa(agregarEtapa(l, 1, { nombre: 'A' }, 'beto', T0).lista, 1, 1, { estado: 'terminado' }, 'beto', T1)],
+    ['etapa eliminada', l => eliminarEtapa(agregarEtapa(l, 1, { nombre: 'A' }, 'beto', T0).lista, 1, 1, 'beto', T1)],
+  ];
+  for (const [nombre, fn] of pasos) {
+    const { ticket } = fn(crear().lista);
+    const ultima = ticket.historial[ticket.historial.length - 1];
+    assert.strictEqual(ticket.actualizadoEn, T1, nombre);
+    assert.deepStrictEqual([ultima.fecha, ultima.usuario], [T1, 'beto'], nombre);
+  }
+  const { ticket } = crear();
+  assert.strictEqual(ticket.historial[ticket.historial.length - 1].fecha, ticket.actualizadoEn);
+});

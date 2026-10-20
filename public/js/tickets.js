@@ -22,6 +22,14 @@
   const MAX_AVATARES = 3;
   const TOAST_MS = 3500;
   const CLAVE_VISTA = 'tickets.vista';
+  // Novedades (ver sondear): cada cuánto se consulta la lista, cuánto dura un aviso y cuántos se apilan.
+  const SONDEO_MS = 15000; // pestaña visible
+  const SONDEO_OCULTA_MS = 60000; // pestaña en segundo plano
+  const AVISO_MS = 6000;
+  const MAX_TOASTS = 3;
+  const CLAVE_VISTOS = 'tickets.vistos'; // + login: { id: actualizadoEn } que ya vio
+  const CLAVE_ESCRITORIO = 'tickets.avisosEscritorio';
+  const TITULO = document.title;
   const FMT_FECHA = new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   // ponytail: copia de lib/tickets.js, sólo para seguir mostrando tickets si /meta responde 503 (SIGA caído).
   const META_RESPALDO = {
@@ -58,6 +66,7 @@
     papelera: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
     externo: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
     mas: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    campana: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
 
@@ -75,7 +84,15 @@
   };
   let selectorNuevo = null;
   let focoPrevio = null;
-  let timerToast = null;
+  // Sondeo: un cambio propio en vuelo (enVuelo) o que respondió durante un sondeo (versionLocal) deja vieja esa foto.
+  let timerSondeo = null;
+  let sondeando = false;
+  let arrastrando = false;
+  let sondeoPendiente = false; // tocaba sondear con un drag en curso: se consulta al soltar
+  let enVuelo = 0;
+  let versionLocal = 0;
+  let vistos = null; // { id: actualizadoEn } que este usuario ya vio (localStorage)
+  let prefEscritorio = false;
 
   // ── Utilidades ──────────────────────────────────────────────────────────────
   async function api(url, opciones) {
@@ -83,20 +100,31 @@
     try {
       r = await fetch(url, opciones);
     } catch (_) {
-      throw new Error('No se pudo conectar con el servidor. Revisá la red y probá de nuevo.');
+      throw Object.assign(new Error('No se pudo conectar con el servidor. Revisá la red y probá de nuevo.'), { red: true });
     }
     const datos = await r.json().catch(() => null);
     if (r.status === 401) throw new Error('La sesión venció: volvé a iniciar sesión.');
     if (!r.ok) throw new Error((datos && datos.error) || `Error del servidor (${r.status}).`);
     return datos;
   }
-  const enviarJSON = (metodo, url, cuerpo) => api(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  // Todo cambio propio pasa por acá: mientras hay uno en vuelo el sondeo no pisa la lista.
+  async function enviarJSON(metodo, url, cuerpo) {
+    enVuelo += 1;
+    try {
+      return await api(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+    } finally {
+      enVuelo -= 1;
+      versionLocal += 1;
+    }
+  }
 
+  const ICONO_AVISO = { ok: 'check', info: 'historial', error: 'alerta' };
   function mostrarAviso(tono, texto, destino = '#aviso') {
     const caja = $(destino);
     if (!caja) return;
-    caja.className = `${tono === 'ok' ? 'ok' : 'error'} ${destino === '#aviso' ? 'mb-4' : 'mx-6 mt-4'}`;
-    caja.innerHTML = ico(tono === 'ok' ? 'check' : 'alerta', 'ico mt-0.5');
+    const clase = ICONO_AVISO[tono] ? tono : 'error';
+    caja.className = `${clase} ${destino === '#aviso' ? 'mb-4' : 'mx-6 mt-4'}`;
+    caja.innerHTML = ico(ICONO_AVISO[clase], 'ico mt-0.5');
     caja.append(el('span', null, texto));
   }
   function ocultarAviso(destino = '#aviso') {
@@ -105,14 +133,22 @@
   }
   const avisoActual = () => (estado.abierto != null ? '#dAviso' : '#aviso');
 
-  function mostrarToast(texto) {
-    const t = $('#toast');
-    t.innerHTML = ico('check');
+  // Avisos apilados abajo a la derecha (máx. MAX_TOASTS, se van solos). Con `id` es un botón que abre el ticket.
+  function agregarToast({ texto, icono = 'check', destacado = false, id = null, ms = TOAST_MS }) {
+    const caja = $('#toasts');
+    const t = el(id != null ? 'button' : 'div', `tst${destacado ? ' tst-mio' : ''}`);
+    if (id != null) {
+      t.type = 'button';
+      t.title = 'Abrir el ticket';
+      t.addEventListener('click', () => { t.remove(); abrirDesdeAviso(id); });
+    }
+    t.innerHTML = ico(icono);
     t.append(el('span', null, texto));
-    t.classList.remove('hidden');
-    clearTimeout(timerToast);
-    timerToast = setTimeout(() => t.classList.add('hidden'), TOAST_MS);
+    caja.append(t);
+    while (caja.children.length > MAX_TOASTS) caja.firstElementChild.remove();
+    setTimeout(() => t.remove(), ms);
   }
+  const mostrarToast = texto => agregarToast({ texto });
 
   const tiempo = iso => new Date(iso).getTime() || 0;
   const fecha = iso => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : FMT_FECHA.format(d); };
@@ -558,10 +594,11 @@
   function tarjeta(t) {
     const notas = notasDe(t);
     const mover = puedeGestionar();
-    const clases = `tarjeta p-${esc(t.prioridad)} e-${esc(t.estado)}${estado.guardando.has(String(t.id)) ? ' guardando' : ''}${mover ? '' : ' fija'}`;
+    const nl = noLeido(t);
+    const clases = `tarjeta p-${esc(t.prioridad)} e-${esc(t.estado)}${estado.guardando.has(String(t.id)) ? ' guardando' : ''}${mover ? '' : ' fija'}${nl ? ' no-leido' : ''}`;
     return `<article class="${clases}" draggable="${mover}" tabindex="0" data-id="${esc(t.id)}"
-      aria-label="Ticket #${esc(t.id)}: ${esc(t.tarea)}. Prioridad ${esc(etiqueta('prioridades', t.prioridad))}, ${esc(etiqueta('estados', t.estado))}.">
-      <div class="fila1"><span class="num">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}
+      aria-label="${nl ? 'Con novedades. ' : ''}Ticket #${esc(t.id)}: ${esc(t.tarea)}. Prioridad ${esc(etiqueta('prioridades', t.prioridad))}, ${esc(etiqueta('estados', t.estado))}.">
+      <div class="fila1">${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span>' : ''}<span class="num">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}
         <span class="ml-auto" title="Creado el ${esc(fecha(t.creadoEn))}">${esc(haceCuanto(t.creadoEn))}</span></div>
       <div class="tit">${esc(t.tarea)}</div>
       <div class="fila3">${t.area ? `<span class="tag-area" title="${esc(t.area)}">${esc(t.area)}</span>` : ''}
@@ -606,12 +643,13 @@
       const card = e.target.closest('.tarjeta');
       if (!card) return;
       if (!puedeGestionar()) { e.preventDefault(); return; }
+      arrastrando = true;
       arrastrado = buscarTicket(card.dataset.id);
       e.dataTransfer.setData('text/plain', card.dataset.id);
       e.dataTransfer.effectAllowed = 'move';
       requestAnimationFrame(() => card.classList.add('arrastrando'));
     });
-    tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); arrastrado = null; });
+    tab.addEventListener('dragend', e => { e.target.closest('.tarjeta')?.classList.remove('arrastrando'); limpiarSobre(); arrastrado = null; finArrastre(); });
     tab.addEventListener('dragover', e => {
       const col = e.target.closest('.col');
       if (!col || !puedeGestionar()) return;
@@ -633,13 +671,19 @@
       e.preventDefault();
       limpiarSobre();
       moverEstado(e.dataTransfer.getData('text/plain'), col.dataset.estado);
+      finArrastre(); // moverEstado repinta: la tarjeta original sale del DOM y su dragend ya no llega al tablero
     });
+  }
+  function finArrastre() {
+    arrastrando = false;
+    if (sondeoPendiente) { sondeoPendiente = false; sondear(); }
   }
 
   // ── Lista ───────────────────────────────────────────────────────────────────
   function filaTicket(t) {
-    return `<tr data-id="${esc(t.id)}" tabindex="0" class="e-${esc(t.estado)}">
-      <td class="num text-gris pri p-${esc(t.prioridad)}">${esc(t.id)}</td>
+    const nl = noLeido(t);
+    return `<tr data-id="${esc(t.id)}" tabindex="0" class="e-${esc(t.estado)}${nl ? ' no-leido' : ''}">
+      <td class="num text-gris pri p-${esc(t.prioridad)}">${nl ? '<span class="pto-nl" title="Novedades desde que lo viste"></span><span class="sr-only">Con novedades: </span>' : ''}${esc(t.id)}</td>
       <td class="tit font-semibold max-w-[420px] break-words">${esc(t.tarea)}${etapasDe(t).length ? `<div class="mt-1 font-normal">${miniProgreso(t)}</div>` : ''}</td>
       <td>${badgePrioridad(t.prioridad)}</td>
       <td>${t.area ? `<span class="tag-area">${esc(t.area)}</span>` : '—'}</td>
@@ -689,10 +733,8 @@
     btn.disabled = true;
     try {
       const lista = await api('/api/tickets');
-      estado.tickets = Array.isArray(lista) ? lista : [];
-      estado.cargado = true;
-      armarFiltrosDinamicos();
-      pintarTodo();
+      marcarConexion(null);
+      aplicarLista(Array.isArray(lista) ? lista : []);
     } catch (e) {
       mostrarAviso('error', `No se pudieron cargar los tickets: ${e.message}`);
       if (!estado.cargado) {
@@ -768,6 +810,7 @@
   function pintarDetalle() {
     const t = buscarTicket(estado.abierto);
     if (!t) { $('#dlgDetalle').close(); mostrarAviso('error', 'El ticket ya no está en el listado.'); return; }
+    marcarVisto(t);
     const focoId = estado.focoDetalle || ($('#dlgDetalle').contains(document.activeElement) ? document.activeElement.id : '');
     estado.focoDetalle = null;
     $('#dCab').innerHTML = `<span class="text-sm font-semibold text-gris tabular-nums">#${esc(t.id)}</span>${badgePrioridad(t.prioridad)}${selectEstado(t, 'dEstado')}`;
@@ -1108,6 +1151,185 @@
     return caja;
   }
 
+  // ── Novedades: sondeo, marcas de no leído y avisos ──────────────────────────
+  // Se compara la lista nueva con la anterior por id: nuevo (id no visto) o actualizado (otro actualizadoEn). El aviso
+  // describe la última entrada del historial; lo hecho por mí (historial.usuario == login) no avisa ni marca.
+  const ultimoEvento = t => { const h = t.historial || []; return h[h.length - 1] || {}; };
+  const esMio = h => mismoUsuario(h.usuario, estado.meta.login);
+  const soyYo = u => mismoUsuario(u, estado.meta.yo) || mismoUsuario(u, estado.meta.login);
+  const meInvolucra = t => comoLista(t.destinatarios).some(soyYo) || soyYo(t.creadoPor);
+  const noLeido = t => !!vistos && vistos[t.id] !== t.actualizadoEn && !esMio(ultimoEvento(t));
+  const claveVistos = () => `${CLAVE_VISTOS}.${String(estado.meta.login || '').toLowerCase()}`;
+
+  // Primera vez (sin nada guardado): todo cuenta como visto, para no inundar de marcas.
+  function iniciarVistos() {
+    try { const v = JSON.parse(localStorage.getItem(claveVistos())); if (v && typeof v === 'object') vistos = v; } catch (_) { /* sin storage */ }
+    if (!vistos) vistos = Object.fromEntries(estado.tickets.map(t => [t.id, t.actualizadoEn]));
+    guardarVistos();
+  }
+  function guardarVistos() {
+    const ids = new Set(estado.tickets.map(t => String(t.id)));
+    vistos = Object.fromEntries(Object.entries(vistos).filter(([id]) => ids.has(id)));
+    try { localStorage.setItem(claveVistos(), JSON.stringify(vistos)); } catch (_) { /* sin storage: las marcas duran lo que la pestaña */ }
+  }
+  function marcarVisto(t) {
+    if (!vistos || vistos[t.id] === t.actualizadoEn) return;
+    vistos = { ...vistos, [t.id]: t.actualizadoEn };
+    guardarVistos();
+    pintarVista();
+    actualizarTitulo();
+  }
+  function actualizarTitulo() {
+    const n = estado.tickets.filter(noLeido).length;
+    document.title = n ? `(${n}) ${TITULO}` : TITULO;
+  }
+
+  // Reemplaza la lista por la del server y avisa lo que cambiaron otros (la primera carga no avisa).
+  function aplicarLista(lista) {
+    const previos = new Map(estado.tickets.map(t => [String(t.id), t]));
+    const cambiados = lista.filter(t => { const p = previos.get(String(t.id)); return !p || p.actualizadoEn !== t.actualizadoEn; });
+    const primera = !estado.cargado;
+    estado.tickets = lista;
+    estado.cargado = true;
+    if (!vistos) iniciarVistos();
+    if (!primera && !cambiados.length) return;
+    const ajenos = primera ? [] : cambiados.filter(t => !esMio(ultimoEvento(t)));
+    const abierto = ajenos.find(t => String(t.id) === String(estado.abierto));
+    repintarConservando();
+    if (abierto && estado.abierto != null) mostrarAviso('info', `Este ticket se actualizó · por ${nombreDe(ultimoEvento(abierto).usuario)}`, '#dAviso');
+    if (ajenos.length) avisarCambios(ajenos.map(t => describirCambio(t, previos.get(String(t.id)))));
+  }
+
+  // Repinta tablero/lista y detalle sin perder scroll de las columnas, foco ni texto a medio escribir.
+  function repintarConservando() {
+    const act = document.activeElement;
+    const tipeando = act && /^(INPUT|TEXTAREA)$/.test(act.tagName) && act.id ? [act.id, act.value, act.selectionStart, act.selectionEnd] : null;
+    const item = act && act.closest ? act.closest('#tablero [data-id], #cuerpo [data-id]') : null;
+    const focoItem = item && `#${item.closest('#tablero, #cuerpo').id} [data-id="${CSS.escape(item.dataset.id)}"]${act.matches('select') ? ' select' : ''}`;
+    const scrolls = [...document.querySelectorAll('#tablero .col')].map(c => [c.dataset.estado, c.querySelector('.col-cuerpo')?.scrollTop || 0]);
+    const scrollDetalle = $('#dCuerpo').scrollTop;
+    armarFiltrosDinamicos();
+    pintarTodo();
+    actualizarTitulo();
+    scrolls.forEach(([e, top]) => {
+      const c = document.querySelector(`#tablero .col[data-estado="${CSS.escape(e)}"] .col-cuerpo`);
+      if (c) c.scrollTop = top;
+    });
+    $('#dCuerpo').scrollTop = scrollDetalle;
+    if (focoItem) document.querySelector(focoItem)?.focus();
+    const nuevo = tipeando && document.getElementById(tipeando[0]);
+    if (nuevo && nuevo !== act) {
+      nuevo.value = tipeando[1];
+      nuevo.focus();
+      try { nuevo.setSelectionRange(tipeando[2], tipeando[3]); } catch (_) { /* input sin selección de texto */ }
+    }
+  }
+
+  function textoEtapa(h) {
+    const e = `etapa «${h.etapa}»`;
+    if (h.accion === 'estado') return h.a === 'terminado' ? `${e} terminada` : `${e} pasó a ${etiqueta('estadosEtapa', h.a)}`;
+    return `${e} ${['agregada', 'eliminada', 'renombrada'].includes(h.accion) ? h.accion : 'actualizada'}`;
+  }
+  // { id, texto, mio } de un ticket nuevo/actualizado. ponytail: sólo la última entrada del historial;
+  // si entre dos sondeos pasaron varias cosas, se cuenta la última (el detalle muestra todo).
+  function describirCambio(t, previo) {
+    const h = ultimoEvento(t);
+    const quien = nombreDe(h.usuario);
+    const n = `#${t.id}`;
+    const asignado = previo ? h.tipo === 'destinatarios' && comoLista(h.a).some(soyYo) && !comoLista(h.de).some(soyYo)
+      : comoLista(t.destinatarios).some(soyYo);
+    let texto = `${n} se actualizó · ${quien}`;
+    if (asignado) texto = `Te asignaron ${previo ? '' : 'un ticket nuevo: '}${n} «${t.tarea}» · por ${quien}`;
+    else if (!previo) texto = `Nuevo ticket ${n} «${t.tarea}» · por ${quien}`;
+    else if (h.tipo === 'estado' && h.auto) {
+      texto = h.a === 'falta_aprobacion' ? `${n} pasó a ${etiqueta('estados', h.a)} (todas las etapas terminadas)`
+        : `${n} volvió a ${etiqueta('estados', h.a)} (se reabrió una etapa)`;
+    } else if (h.tipo === 'estado') texto = `${n} cambió a ${etiqueta('estados', h.a)} · ${quien}`;
+    else if (h.tipo === 'nota') texto = `${n} nueva nota · ${quien}`;
+    else if (h.tipo === 'destinatarios') texto = `${n} destinatarios actualizados · ${quien}`;
+    else if (h.tipo === 'etapa') texto = `${n} ${textoEtapa(h)} · ${quien}`;
+    return { id: t.id, texto, mio: asignado || meInvolucra(t) };
+  }
+
+  // Muchos cambios juntos → un solo aviso agrupado. Pestaña oculta + avisos de escritorio activos → notificación nativa.
+  function avisarCambios(cambios) {
+    const mios = cambios.filter(c => c.mio).length;
+    const avisos = cambios.length <= MAX_TOASTS ? cambios : [{
+      id: null, mio: mios > 0,
+      texto: `${cambios.length} tickets actualizados${mios ? ` · ${mios === 1 ? '1 te involucra' : `${mios} te involucran`}` : ''}`,
+    }];
+    avisos.forEach(c => agregarToast({ texto: c.texto, icono: c.mio ? 'campana' : 'historial', destacado: c.mio, id: c.id, ms: AVISO_MS }));
+    if (document.hidden && escritorioActivo()) avisos.forEach(notificar);
+  }
+
+  // No se pisa lo que el usuario está haciendo: con un diálogo abierto sólo se enfoca la pestaña.
+  function abrirDesdeAviso(id) {
+    if ($('#dlgNuevo').open || $('#dlgDetalle').open) return;
+    abrirDetalle(id);
+  }
+
+  // ── Avisos de escritorio (Notification API): opcionales, el permiso se pide sólo al hacer clic ──
+  const soportaEscritorio = () => 'Notification' in window;
+  const escritorioActivo = () => prefEscritorio && soportaEscritorio() && Notification.permission === 'granted';
+  function notificar(c) {
+    try {
+      const n = new Notification(c.mio ? 'Tickets · te involucra' : 'Tickets de Desarrollo',
+        { body: c.texto, tag: c.id != null ? `ticket-${c.id}` : 'tickets', icon: '/favicon.png' });
+      n.onclick = () => { window.focus(); n.close(); if (c.id != null) abrirDesdeAviso(c.id); };
+    } catch (_) { /* navegador que sólo notifica vía service worker: quedan el toast y la marca */ }
+  }
+  function pintarBotonAvisos() {
+    const b = $('#btnAvisos');
+    const permiso = soportaEscritorio() ? Notification.permission : 'no';
+    const activo = escritorioActivo();
+    b.disabled = permiso === 'no' || permiso === 'denied';
+    b.setAttribute('aria-pressed', String(activo));
+    b.querySelector('.txt').textContent = { no: 'Avisos de escritorio: no disponibles', denied: 'Avisos de escritorio: bloqueados' }[permiso]
+      || `Avisos de escritorio${activo ? ': sí' : ''}`;
+    b.title = { no: 'Este navegador (o una conexión sin https) no permite avisos de escritorio.',
+      denied: 'Los bloqueaste para este sitio: habilitalos desde el candado de la barra de direcciones.' }[permiso]
+      || (activo ? 'Clic para desactivarlos.' : 'Aviso del sistema cuando cambia un ticket y estás en otra pestaña.');
+  }
+  async function alternarEscritorio() {
+    if (!soportaEscritorio() || Notification.permission === 'denied') return;
+    prefEscritorio = Notification.permission === 'granted' ? !prefEscritorio : (await Notification.requestPermission()) === 'granted';
+    try { localStorage.setItem(CLAVE_ESCRITORIO, prefEscritorio ? '1' : '0'); } catch (_) { /* sin storage: dura la pestaña */ }
+    pintarBotonAvisos();
+  }
+
+  // ── Sondeo ──
+  // ponytail: polling de GET /api/tickets (JSON chico, un archivo). Techo: unas decenas de pestañas abiertas; con
+  // muchos usuarios, pasar a SSE (el server empuja cada cambio) o a /api/tickets?desde=<actualizadoEn>.
+  // window.__TICKETS_POLL_MS (si existe) acorta el intervalo para probar sin esperar.
+  function programarSondeo() {
+    clearTimeout(timerSondeo);
+    timerSondeo = setTimeout(sondear, Number(window.__TICKETS_POLL_MS) || (document.hidden ? SONDEO_OCULTA_MS : SONDEO_MS));
+  }
+  async function sondear() {
+    clearTimeout(timerSondeo);
+    if (sondeando) return; // el que está en vuelo reprograma
+    if (arrastrando) { sondeoPendiente = true; return; }
+    sondeando = true;
+    const version = versionLocal;
+    try {
+      const lista = await api('/api/tickets');
+      marcarConexion(null);
+      // Un cambio propio en vuelo o que respondió mientras tanto deja vieja esta foto: se usa la próxima.
+      if (!enVuelo && version === versionLocal && Array.isArray(lista)) aplicarLista(lista);
+    } catch (e) {
+      marcarConexion(e);
+    } finally {
+      sondeando = false;
+      programarSondeo();
+    }
+  }
+  // Discreto y sin apilar alertas: se va solo cuando un sondeo vuelve a andar.
+  function marcarConexion(error) {
+    const c = $('#conexion');
+    c.classList.toggle('hidden', !error);
+    c.textContent = !error ? '' : (error.red ? 'Sin conexión, reintentando…' : `${error.message} Reintentando…`);
+  }
+
   // ── Eventos ─────────────────────────────────────────────────────────────────
   function enlazarDialogo(dlg, alCerrar) {
     dlg.querySelectorAll('[data-cerrar]').forEach(b => b.addEventListener('click', () => dlg.close()));
@@ -1168,6 +1390,9 @@
     // Selects de estado de la lista y del detalle: delegado en document.
     document.addEventListener('change', e => { if (e.target.matches('select[data-estado-id]')) moverEstado(e.target.dataset.estadoId, e.target.value); });
     enlazarDialogo($('#dlgDetalle'), alCerrarDetalle);
+    $('#btnAvisos').addEventListener('click', alternarEscritorio);
+    // Al volver a la pestaña se consulta en el momento; al irse, el próximo sondeo se espacia.
+    document.addEventListener('visibilitychange', () => { if (document.hidden) programarSondeo(); else sondear(); });
   }
 
   function pintarYo() {
@@ -1193,7 +1418,11 @@
   }
 
   async function iniciar() {
-    try { if (localStorage.getItem(CLAVE_VISTA) === 'lista') estado.vista = 'lista'; } catch (_) { /* sin storage: vista default */ }
+    try {
+      if (localStorage.getItem(CLAVE_VISTA) === 'lista') estado.vista = 'lista';
+      prefEscritorio = localStorage.getItem(CLAVE_ESCRITORIO) === '1';
+    } catch (_) { /* sin storage: vista default y sin avisos de escritorio */ }
+    pintarBotonAvisos();
     cambiarVista(estado.vista);
     pintarCargando();
     enlazarGenerales();
@@ -1204,6 +1433,7 @@
     enlazarFormulario();
     enlazarSeguimiento();
     await cargarTickets();
+    programarSondeo();
   }
 
   iniciar();
