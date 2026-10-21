@@ -224,3 +224,13 @@ test('igualarSigaMd Fraccionado con costeo: cada presentación usa su propio cos
   const r = igualarSigaMd(armar({}, vigentes), 'fraccionado', 'sistema');
   assert.strictEqual(r.notas.length, 1); // los dos necesitan margen distinto: mediana + nota "aprox."
 });
+
+test('igualarSigaMd Fraccionado: todas las presentaciones con vigente sin costo real (insumos sin costo) → motivo propio, no "sin vigentes"', () => {
+  const md = L.crearMayoristasDe({ vinculos: [], vigentes: new Map() });
+  const grupos = [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }] }];
+  const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]);
+  const costeoF = FCx.normalizarCosteoFraccionado({ insumosPresentacion: { 101: [{ plu: '901', cantidad: 1 }], 102: [{ plu: '901', cantidad: 1 }] } }); // 901 no existe
+  const armar = vigentes => L.filaPublica(L.listadoFraccionado({ grupos, costos, vigentes, mayoristasDe: md, costeo: {}, cfg: CFG, costeoF })[0], true);
+  assert.match(igualarSigaMd(armar(new Map([['101', 2100], ['102', 1800]])), 'fraccionado', 'sistema').motivo, /^Falta el costo real de las presentaciones \(insumos sin costo\)$/);
+  assert.match(igualarSigaMd(armar(new Map()), 'fraccionado', 'sistema').motivo, /Sin precios vigentes en SIGA/); // sin vigentes sigue igual
+});

@@ -9,9 +9,11 @@ const FACIL_MD = { facil: 'Fácil', medio: 'Medio', dificil: 'Difícil' };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
 // componentesCosto de una presentación (lib/precios_fraccionado_costo) por concepto. fuente = la elegida en el modal;
-// mercaderiaKg = $/kg del granel con esa fuente (con sus costos extra); costoKg = el de la presentación con esa fuente.
+// mercaderiaKg = $/kg del granel con esa fuente (con sus costos extra); costoKg = el de la presentación con esa fuente; los
+// dos también por unidad (× kg de la presentación; null sin costo o sin peso).
 function resumenCosteoFraccMd(p, fuente, costosGranel) {
   const lineas = p.componentesCosto || [];
+  const porUnidad = kgCosto => (kgCosto == null || !(p.pesoG > 0) ? null : Math.round(kgCosto * (p.pesoG / 1000) * 100) / 100);
   const insumos = lineas.filter(l => l.rol === 'insumo');
   const c = p.costeoPresentacion || {};
   return {
@@ -20,6 +22,7 @@ function resumenCosteoFraccMd(p, fuente, costosGranel) {
     mo: lineas.find(l => l.rol === 'mo') || null, maquina: lineas.find(l => l.rol === 'maquina') || null,
     porUnidad: c.porUnidad ?? null, extraKg: c.extraKg ?? null,
     mercaderiaKg: (costosGranel || {})[fuente] ?? null, costoKg: (p.costos || {})[fuente] ?? null,
+    mercaderiaUnidad: porUnidad((costosGranel || {})[fuente]), costoUnidad: porUnidad((p.costos || {})[fuente]),
   };
 }
 // Elegidos del buscador al borrador de insumos propios: cantidad 1, sin repetir.
@@ -28,14 +31,25 @@ const conInsumosMd = (lista, elegidos) => [...lista,
 const opcionesMaquinaMd = (maquinas, actual) => `<option value="">Sin máquina</option>${(maquinas || [])
   .map(m => `<option value="${ESC_FR_MD(m.id)}"${m.id === actual ? ' selected' : ''}>${ESC_FR_MD(m.nombre)}</option>`).join('')}`;
 
-if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, conInsumosMd, opcionesMaquinaMd };
+const minMd = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
+// "minutos = base del tramo × factor de la facilidad": c = costeoPresentacion, minutos = los de la línea (MO o máquina).
+const formulaMinutosMd = (c, minutos) => (c.minutosBase == null ? `${minMd(minutos)} min` : `${minMd(c.minutosBase)} × ${minMd(c.factor ?? 1)} = ${minMd(minutos)} min`);
+// Línea de MO o máquina que no tiene importe: sin tiempos cargados (o minutos 0) → "sin minutos"; con minutos y sin máquina → "sin asignar".
+const SIN_MINUTOS_MD = 'sin minutos (cargá los tiempos en Configuración › Costeo Fraccionado)';
+const textoSinTiempoMd = (rol, avisos) => (rol === 'maquina'
+  ? `Máquina — ${(avisos || []).includes('sinMaquina') && !(avisos || []).includes('sinTiempos') ? 'sin asignar' : SIN_MINUTOS_MD}`
+  : `Mano de obra — ${SIN_MINUTOS_MD}`);
+
+if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, conInsumosMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd };
 
 // ── DOM ──
 let mdFrEdit = null;     // { plu, insumos: [{ plu, nombre, cantidad }] }: la presentación con el editor de insumos propios abierto
 let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden una vez por carga de página)
 
-const minMd = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
-const textoMinutosMd = (l, falta) => `${minMd(l.cantidad)} min × ${l.costoUnit == null ? `sin costo hora (${falta})` : `$ ${fmtMoney(l.costoUnit)}/h`}`;
+// La llama cerrarDetalle (precios_comun.js): un borrador sin guardar no sobrevive a cerrar el modal.
+function descartarBorradorFraccMd() { mdFrEdit = null; }
+
+const textoMinutosMd = (l, falta, c) => `${formulaMinutosMd(c, l.cantidad)} × ${l.costoUnit == null ? `sin costo hora (${falta})` : `$ ${fmtMoney(l.costoUnit)}/h`}`;
 
 function htmlCosteoFraccMd(f) {
   if (!f.costeoGranel) return ''; // sin migrar o "sin granel"
@@ -58,13 +72,15 @@ function htmlPresFraccMd(p, f) {
   if ((p.avisosCosto || []).includes('sinPeso')) return htmlPasos(p.nombre, [['', 'Sin peso en el nombre: sólo mercadería', null], ['=', 'Costo $/kg', (p.costos || {})[mdFuente]]]);
   const r = resumenCosteoFraccMd(p, mdFuente, f.costos);
   const linea = l => ['', `· ${l.nombre || l.plu} ${minMd(l.cantidad)} × ${l.costoUnit == null ? 'sin costo' : `$ ${fmtMoney(l.costoUnit)}`}`, l.importe];
-  const origen = (p.costeoPresentacion || {}).origenInsumos === 'propios' ? 'propios' : 'regla del subrubro';
+  const c = p.costeoPresentacion || {}, avisos = p.avisosCosto || [], kg = minMd(p.pesoG / 1000);
+  const origen = c.origenInsumos === 'propios' ? 'propios' : 'regla del subrubro';
   return htmlPasos(p.nombre, [
-    ['', r.insumos.length ? `Insumos (${origen})` : 'Insumos — sin cargar', r.subtotalInsumos], ...r.insumos.map(linea),
-    ['+', r.mo ? `Mano de obra · ${textoMinutosMd(r.mo, 'cargalo en Costos con el switch en Fraccionado')}` : 'Mano de obra — sin minutos', r.mo ? r.mo.importe : 0],
-    ['+', r.maquina ? `Máquina ${r.maquina.nombre} · ${textoMinutosMd(r.maquina, 'cargalo en la máquina')}` : 'Máquina — sin asignar', r.maquina ? r.maquina.importe : 0],
-    ['=', r.porUnidad == null ? 'Extra por unidad — falta el costo de un insumo' : 'Extra por unidad', r.porUnidad],
-    ['÷', `${minMd(p.pesoG / 1000)} kg`, r.extraKg], ['+', 'Mercadería $/kg', r.mercaderiaKg], ['=', 'Costo real $/kg', r.costoKg],
+    ['', `Mercadería · ${kg} kg × ${r.mercaderiaKg == null ? 'sin costo' : `$ ${fmtMoney(r.mercaderiaKg)}/kg`}`, r.mercaderiaUnidad],
+    ['+', r.insumos.length ? `Insumos (${origen})` : 'Insumos — sin cargar', r.subtotalInsumos], ...r.insumos.map(linea),
+    ['+', r.mo ? `Mano de obra · ${textoMinutosMd(r.mo, 'cargalo en Costos con el switch en Fraccionado', c)}` : textoSinTiempoMd('mo', avisos), r.mo ? r.mo.importe : 0],
+    ['+', r.maquina ? `Máquina ${r.maquina.nombre} · ${textoMinutosMd(r.maquina, 'cargalo en la máquina', c)}` : textoSinTiempoMd('maquina', avisos), r.maquina ? r.maquina.importe : 0],
+    ['=', r.porUnidad == null ? 'Costo real por unidad — falta el costo de un insumo' : 'Costo real por unidad', r.costoUnidad],
+    ['÷', `${kg} kg de la presentación`, null], ['=', 'Costo real $/kg', r.costoKg],
   ]) + htmlInsumosPropiosMd(p);
 }
 

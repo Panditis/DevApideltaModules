@@ -52,6 +52,7 @@ function cerrarDetalle(){
   const modal = document.getElementById('mDet');
   if (modal.classList.contains('hidden')) return;
   modal.classList.add('hidden'); modal.classList.remove('flex');
+  if (typeof descartarBorradorFraccMd === 'function') descartarBorradorFraccMd(); // precios_modal_fraccionado.js
   if (detFocoPrevio && document.contains(detFocoPrevio)) detFocoPrevio.focus();
 }
 // Tab no se escapa del modal abierto: del último control vuelve al primero y viceversa.

@@ -153,7 +153,12 @@ function igualarSigaMd(fila, tipo, fuente) {
       .filter(([, m]) => m.tipo === c && m.vigente > 0).map(([f, m]) => margen(f, c, m.vigente, m.unidades))])),
   };
   const canales = Object.entries(necesarios).map(([c, ms]) => [c, ms.filter(m => m != null)]).filter(([, ms]) => ms.length);
-  if (!canales.length) return { valores: {}, notas: [], motivo: 'Sin precios vigentes en SIGA para igualar', fuente: usada };
+  if (!canales.length) {
+    // Hay vigentes pero ninguna fila con vigente tiene costo real (Fraccionado: insumos sin costo): no es que falten precios.
+    const conVigente = filas.filter(f => f.vigente > 0 || (f.mayoristas || []).some(m => m.vigente > 0));
+    const faltaCosto = conVigente.length > 0 && conVigente.every(f => !des(f, usada));
+    return { valores: {}, notas: [], motivo: faltaCosto ? 'Falta el costo real de las presentaciones (insumos sin costo)' : 'Sin precios vigentes en SIGA para igualar', fuente: usada };
+  }
   const valores = Object.fromEntries(canales.map(([c, ms]) => [c, medianaMd(ms)]));
   const notas = canales.filter(([, ms]) => new Set(ms).size > 1).map(([c, ms]) => {
     const deltas = ms.map(m => ((1 + valores[c] / 100) / (1 + m / 100) - 1) * 100);
@@ -595,18 +600,22 @@ function conectarModalEsquema() {
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal
-// (con el detalle como estaba) y listado. msgId = dónde mostrar el error. → true si guardó, false si falló.
+// (con el detalle como estaba) y listado. msgId = dónde mostrar el error. → true si el pedido guardó (aunque después falle
+// la recarga), false si no se guardó (quien tenga un borrador lo conserva).
 async function guardarCostoEsq(url, body, metodo = 'PUT', msgId = 'mdMsg') {
   const msg = document.getElementById(msgId);
+  const error = txt => { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = txt; };
   try {
     await pedirJson(metodo, url, body); // precios_comun.js: tira con el error del server
+  } catch (e) { error(e.message); return false; }
+  try {
     refrescarAlertasProduccion(); // precios_produccion.js: el costo pudo mover "a revisar" (no tira, va antes de recargar el modal)
     const { tipo, fila } = mdEsq;
     await abrirModalEsquema(tipo, fila.plu, { detalle: mdDetalle });
     cargarListado(tipo);
     if (tipo === 'produccion') refrescarPanelProduccionMd();
-    return true;
-  } catch (e) { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = e.message; return false; }
+  } catch (e) { error(`Se guardó, pero no se pudo recargar: ${e.message}`); }
+  return true;
 }
 // El modal pudo abrirse encima del modal del producto base (Envasado) o del panel de presentaciones de una receta: también
 // se recargan sus precios. ebEd / recargarBase / pintarBase (precios_produccion_envasado.js), prodDet / recargarDetalleProd

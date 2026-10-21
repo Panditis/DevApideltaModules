@@ -40,6 +40,7 @@ test('costearPresentacion: 500 g → insumos de la regla + MO + máquina con min
   const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: CF, costoDe });
   // minutos = 1 (tramo 1000 g) × 1,25 = 1,25 → MO 125, máquina 62,5; insumo 900 = 20 → 207,5 por unidad ÷ 0,5 kg = 415
   assert.strictEqual(r.minutos, 1.25);
+  assert.deepStrictEqual([r.minutosBase, r.factor], [1, 1.25]); // minutos = base del tramo × factor de la facilidad
   assert.deepStrictEqual(r.lineas.map(l => [l.plu, l.rol, l.importe]), [['900', 'insumo', 20], ['_manoObra', 'mo', 125], ['_maquina', 'maquina', 62.5]]);
   assert.deepStrictEqual([r.porUnidad, r.extraKg, r.origenInsumos, r.avisos, r.faltantes], [207.5, 415, 'regla', [], []]);
 });
@@ -67,9 +68,11 @@ test('costearPresentacion: lo que falta en el granel o en la config va en 0 con 
   // Granel 200 sin facilidad ni máquina, subrubro 8 sin regla: factor 1 → 1 min → sólo MO 100
   const r = FC.costearPresentacion({ plu: '201', pesoG: 500, granel: { plu: '200', subrubroId: '8' }, cf: CF, costoDe });
   assert.deepStrictEqual([r.avisos, r.porUnidad, r.extraKg], [['sinFacilidad', 'sinMaquina', 'sinInsumos'], 100, 200]);
+  assert.deepStrictEqual([r.minutosBase, r.factor], [1, 1]); // sin facilidad: factor 1
   // Config vacía: sin tiempos no hay minutos (ni MO ni máquina ni aviso de costo hora)
   const vacia = FC.costearPresentacion({ plu: '201', pesoG: 500, granel: GRANEL, cf: FC.normalizarCosteoFraccionado({}), costoDe });
   assert.deepStrictEqual([vacia.avisos, vacia.porUnidad], [['sinFacilidad', 'sinTiempos', 'sinMaquina', 'sinInsumos'], 0]);
+  assert.deepStrictEqual([vacia.minutosBase, vacia.factor, vacia.minutos], [0, 1, 0]);
   // Con tiempos y sin costo hora: MO en 0 + aviso costoHora
   const sinHora = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: { ...CF, costoHora: null }, costoDe });
   assert.ok(sinHora.avisos.includes('costoHora'));
@@ -79,6 +82,7 @@ test('costearPresentacion: lo que falta en el granel o en la config va en 0 con 
 test('costearPresentacion: sin peso en el nombre → sólo mercadería (extra 0) con aviso sinPeso', () => {
   const r = FC.costearPresentacion({ plu: '106', pesoG: null, granel: GRANEL, cf: CF, costoDe });
   assert.deepStrictEqual([r.avisos, r.lineas, r.extraKg], [['sinPeso'], [], 0]);
+  assert.deepStrictEqual([r.minutosBase, r.factor], [0, 1]);
 });
 
 test('sumarExtraKg: suma el extra a cada fuente con costo; extra null (faltante) → ninguna', () => {

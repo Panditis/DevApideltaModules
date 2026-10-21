@@ -539,7 +539,7 @@ test('listadoFraccionado con costeoF: cada presentación suma insumos + MO + má
   assert.strictEqual(p.costos.sistema, 1240);
   assert.strictEqual(p.sugeridos.sistema.minorista.precio,
     L.preciosDeCosto({ cfg: CFG, tipo: 'fraccionado', costo: 1240, pesoG: 500 }).minorista.precio);
-  assert.deepStrictEqual(p.costeoPresentacion, { minutos: 1, porUnidad: 120, extraKg: 240, origenInsumos: 'regla' });
+  assert.deepStrictEqual(p.costeoPresentacion, { minutos: 1, minutosBase: 1, factor: 1, porUnidad: 120, extraKg: 240, origenInsumos: 'regla' });
   // Spec §3: granel (mercadería por unidad = $/kg × kg), insumo, mo (maquina si hay)
   assert.deepStrictEqual(p.componentesCosto.map(l => l.rol), ['granel', 'insumo', 'mo']);
   assert.deepStrictEqual(p.componentesCosto[0], { plu: '100', nombre: 'Almendras', rol: 'granel', cantidad: 0.5, costoUnit: 1000, importe: 500, fuente: 'sistema' });
