@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carteles Pesables · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+/* Las medidas del cartel salen de las constantes de calibración del script (custom properties
+   seteadas al cargar): acá no hay números del cartel. */
+.lista-scroll { max-height: 460px; overflow-y: auto; }
+.fila-prod { cursor: pointer; }
+.fila-prod:focus { outline: 2px solid #405936; outline-offset: -2px; }
+.fila-prod.ya td { color: #5c5f52; }
+body.tipo-almacen .col-peso { display: none; }
+#switchTipo button[aria-pressed="true"] { background: #405936; color: #fff; }
+
+#carteles { display: flex; flex-direction: column; gap: 16px; }
+.hoja { display: grid; grid-template-columns: repeat(2, max-content); gap: var(--separacion-a4); align-content: start; }
+body.modo-ticket .hoja { grid-template-columns: max-content; }
+
+.cartel {
+  box-sizing: content-box;
+  width: var(--ancho-cartel);
+  height: calc(var(--alto-nombre) + 2 * var(--alto-fila));
+  border: var(--borde) solid #000;
+  background: #fff; color: #000;
+  display: grid;
+  grid-template-columns: var(--columnas);
+  grid-template-rows: var(--alto-nombre) var(--alto-fila) var(--alto-fila);
+  font-family: Arial, Helvetica, sans-serif;
+  /* Tamaño fijo: cada cartel es raíz de layout, así el ajuste de fuente (miles de reflows) no recalcula la página. */
+  contain: strict;
+  break-inside: avoid; page-break-inside: avoid;
+}
+.c-nombre {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-weight: bold; line-height: 1.1; padding: 0 4pt; overflow: hidden;
+}
+.c-ref { grid-column: 1; grid-row: 2; align-self: end; padding-left: 4pt; font-size: var(--fuente-chica); font-weight: bold; white-space: nowrap; }
+.c-flecha { grid-column: 2; grid-row: 2; align-self: end; font-size: var(--fuente-chica); font-weight: bold; }
+.c-datos { grid-column: 1 / 3; grid-row: 3; align-self: start; padding-left: 4pt; font-size: var(--fuente-chica); line-height: 1.25; white-space: nowrap; overflow: hidden; }
+.c-precio {
+  grid-column: 3; grid-row: 2 / 4;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Arial Black", Arial, sans-serif; white-space: nowrap; overflow: hidden;
+}
+
+@media print {
+  body { background: #fff !important; }
+  .no-print { display: none !important; }
+  main { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  #previa { border: 0 !important; box-shadow: none !important; padding: 0 !important; background: none !important; }
+  #carteles { display: block; }
+  body.modo-a4 .hoja { break-after: page; page-break-after: always; }
+  body.modo-a4 .hoja:last-child { break-after: auto; page-break-after: auto; }
+  /* Comandera: un cartel por página; el driver corta entre páginas, así cada cartel es un ticket. */
+  body.modo-ticket .hoja { display: block; }
+  body.modo-ticket .cartel-wrap { break-after: page; page-break-after: always; }
+  body.modo-ticket .cartel-wrap:last-child { break-after: auto; page-break-after: auto; }
+  body.modo-ticket .cartel { margin: 0 auto; }
+}
+</style>
+<style id="page-style"></style>
+</head>
+<body class="font-body text-ink modo-a4">
+<header class="acrylic sticky top-0 z-20 shadow-fluent no-print">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3">
+    <h1 class="font-disp text-2xl font-bold text-verde">CARTELES PESABLES</h1>
+    <span class="text-sm text-ink/60">Precio de la bolsa por sucursal</span>
+    <span id="meta" class="text-xs text-ink/50"></span>
+    <div class="ml-auto flex items-center gap-2">
+      <button id="btnA4" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm">Imprimir A4</button>
+      <button id="btnTicket" class="px-3 py-1.5 rounded-lg border border-borde text-sm" title="Todo el listado en una tanda: un cartel por página, la comandera corta entre cada uno">Imprimir comandera</button>
+      <a href="/" class="text-sm text-verde hover:text-verdeHover">← Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+  <div class="grid grid-cols-[3fr_2fr] gap-4 mb-4 no-print">
+    <!-- Productos de la sucursal -->
+    <section class="bg-card rounded-xl border border-borde shadow-fluent p-4">
+      <div class="flex gap-2 items-center mb-3">
+        <div id="switchTipo" class="inline-flex rounded-lg border border-borde overflow-hidden text-sm" role="group" aria-label="Tipo de cartel">
+          <button data-tipo="pesables" class="px-3 py-2">Pesables</button>
+          <button data-tipo="almacen" class="px-3 py-2 border-l border-borde">Almacén</button>
+        </div>
+        <label class="text-sm text-gris" for="sucursal">Sucursal</label>
+        <select id="sucursal" class="px-3 py-2 rounded-lg border border-borde bg-white"></select>
+        <input id="buscar" placeholder="Buscar por nombre o PLU… (Enter agrega el primero)" class="px-3 py-2 rounded-lg border border-borde flex-1" autocomplete="off">
+        <button id="btnTodos" class="px-3 py-2 rounded-lg border border-borde text-sm hover:bg-bg">Agregar todos los filtrados</button>
+      </div>
+      <div class="text-xs text-gris mb-2" id="conteo"></div>
+      <div class="lista-scroll rounded-lg border border-borde">
+        <table class="w-full text-sm">
+          <thead class="bg-white text-verde sticky top-0 z-10 shadow-sm">
+            <tr class="bg-verde/5"><th class="text-left p-2">Producto</th><th class="p-2">PLU</th><th class="p-2 text-right col-peso">Precio/kg</th><th class="p-2 text-right col-peso">Peso bolsa</th><th class="p-2 text-right" id="thPrecio">Precio bolsa</th></tr>
+          </thead>
+          <tbody id="lista"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Seleccionados -->
+    <section class="bg-card rounded-xl border border-borde shadow-fluent p-4 flex flex-col">
+      <div class="flex items-center mb-3">
+        <h2 class="font-semibold text-verde">Seleccionados <span id="cantSel" class="text-gris font-normal"></span></h2>
+        <button id="btnLimpiar" class="ml-auto px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-bg">Limpiar</button>
+      </div>
+      <ul id="seleccionados" class="lista-scroll text-sm divide-y divide-black/5"></ul>
+    </section>
+  </div>
+
+  <section id="previa" class="bg-card rounded-xl border border-borde shadow-fluent p-4">
+    <h2 class="font-semibold text-verde mb-3 no-print">Vista previa <span id="modoPrevia" class="text-gris font-normal text-sm"></span></h2>
+    <div id="carteles"></div>
+  </section>
+</main>
+
+<script>
+// ── Calibración (tocar solo acá, como la hoja de parámetros del Excel) ────────────
+const ANCHO_TICKET_MM = 70;          // ancho del cartel en la comandera (papel de 80 mm)
+const ANCHO_A4_PT = 250;             // ancho de cada cartel en A4 (2 por fila)
+const CARTELES_POR_HOJA_A4 = 10;     // 5 filas × 2
+const SEPARACION_A4_PT = 6;          // aire entre carteles en A4 (para cortar)
+const MARGEN_A4 = '1cm';
+const ALTO_NOMBRE_PT = 60;           // fila 1 de la plantilla
+const ALTO_FILA_PRECIO_PT = 30;      // filas 2 y 3 de la plantilla
+const PROPORCION_COLUMNAS = [14, 2.3, 30.9]; // texto : flecha : precio
+const BORDE_PT = 1.5;                // borde "medio" de Excel
+const FUENTE_NOMBRE_MAX_PT = 24, FUENTE_NOMBRE_MIN_PT = 12;
+const FUENTE_PRECIO_PT = 36, FUENTE_PRECIO_MIN_PT = 14;
+const FUENTE_CHICA_PT = 9;
+const SUCURSAL_DEFAULT = 5;
+// ─────────────────────────────────────────────────────────────────────────────────
+
+const CLAVE_SUCURSAL = 'cartelesPesables.sucursal';
+const CLAVE_TIPO = 'cartelesPesables.tipo';
+// Pesables guarda en la clave histórica (sin sufijo) para no perder selecciones ya hechas.
+const claveSeleccion = id => `cartelesPesables.seleccion.${id}${tipo === 'almacen' ? '.almacen' : ''}`;
+
+const raiz = document.documentElement.style;
+raiz.setProperty('--alto-nombre', ALTO_NOMBRE_PT + 'pt');
+raiz.setProperty('--alto-fila', ALTO_FILA_PRECIO_PT + 'pt');
+raiz.setProperty('--columnas', PROPORCION_COLUMNAS.map(n => n + 'fr').join(' '));
+raiz.setProperty('--borde', BORDE_PT + 'pt');
+raiz.setProperty('--fuente-chica', FUENTE_CHICA_PT + 'pt');
+raiz.setProperty('--separacion-a4', SEPARACION_A4_PT + 'pt');
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const miles = n => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const pesos = n => '$' + miles(n);
+const fechaCorta = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : '-'; };
+const pesoBolsa = kg => kg >= 1 ? `${String(kg).replace('.', ',')} kg` : `${Math.round(kg * 1000)} g`;
+function leerLS(clave, def) { try { const v = localStorage.getItem(clave); return v == null ? def : JSON.parse(v); } catch { return def; } }
+function guardarLS(clave, valor) { try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* sin storage: la selección vive sólo en esta pestaña */ } }
+
+let productos = [];        // los de la sucursal actual, como vienen de la API
+let porPlu = new Map();
+let seleccion = [];        // PLUs en el orden en que se agregaron
+let idSucursal = null;
+let modo = 'a4';
+let tipo = leerLS(CLAVE_TIPO, 'pesables') === 'almacen' ? 'almacen' : 'pesables';
+let pedidoActual = 0;      // descarta respuestas viejas si se cambia de sucursal rápido
+
+// ── Carga ───────────────────────────────────────────────────────────────────────
+async function pedirJSON(url) {
+  const r = await fetch(url);
+  let j = null;
+  try { j = await r.json(); } catch { /* cuerpo no JSON */ }
+  if (!r.ok || (j && j.error)) throw new Error((j && j.error) || `Error ${r.status}`);
+  return j;
+}
+
+function mensajeLista(html) { $('lista').innerHTML = `<tr><td colspan="5" class="p-8 text-center text-ink/60">${html}</td></tr>`; }
+
+async function cargarSucursales() {
+  let sucursales;
+  try { sucursales = await pedirJSON('/api/sucursales'); }
+  catch (e) { mensajeLista(`No pude leer las sucursales: ${esc(e.message)}`); return; }
+  if (!Array.isArray(sucursales) || !sucursales.length) { mensajeLista('No hay sucursales activas.'); return; }
+  $('sucursal').innerHTML = sucursales.map(s => `<option value="${esc(s.id)}">${esc(s.nombre)}</option>`).join('');
+  const guardada = leerLS(CLAVE_SUCURSAL, null);
+  const existe = id => sucursales.some(s => String(s.id) === String(id));
+  const elegida = existe(guardada) ? guardada
+    : existe(SUCURSAL_DEFAULT) ? SUCURSAL_DEFAULT
+    : (sucursales.find(s => !s.central) || sucursales[0]).id;
+  $('sucursal').value = String(elegida);
+  await cargarProductos(String(elegida));
+}
+
+async function cargarProductos(id) {
+  const n = ++pedidoActual;
+  idSucursal = id;
+  guardarLS(CLAVE_SUCURSAL, id);
+  productos = []; porPlu = new Map(); seleccion = [];
+  $('meta').textContent = '';
+  mensajeLista('<span class="spin"></span> Leyendo precios de SIGA…');
+  renderSeleccion(); renderCarteles();
+  let datos;
+  try { datos = await pedirJSON(`/api/carteles-pesables?idSucursal=${encodeURIComponent(id)}&tipo=${tipo}`); }
+  catch (e) { if (n === pedidoActual) mensajeLista(`No pude cargar los productos: ${esc(e.message)}`); return; }
+  if (n !== pedidoActual) return;
+  productos = Array.isArray(datos) ? datos : [];
+  porPlu = new Map(productos.map(p => [p.plu, p]));
+  // La selección guardada se re-resuelve con los datos frescos: los PLUs que ya no vienen se descartan.
+  seleccion = leerLS(claveSeleccion(id), []).filter(plu => porPlu.has(plu));
+  guardarLS(claveSeleccion(id), seleccion);
+  $('meta').textContent = `${productos.length} productos`;
+  renderLista(); renderSeleccion(); renderCarteles();
+}
+
+// ── Lista y selección ─────────────────────────────────────────────────────────
+function filtrados() {
+  const q = $('buscar').value.trim().toLowerCase();
+  if (!q) return productos;
+  return productos.filter(p => p.nombre.toLowerCase().includes(q) || p.plu.toLowerCase().includes(q));
+}
+
+function renderLista() {
+  if (!productos.length) { mensajeLista(`La sucursal no tiene productos de ${tipo === 'almacen' ? 'almacén' : 'pesables fraccionados'} con precio.`); $('conteo').textContent = ''; return; }
+  const lista = filtrados();
+  const elegidos = new Set(seleccion);
+  $('conteo').textContent = `${lista.length} de ${productos.length} productos`;
+  if (!lista.length) { mensajeLista('Nada coincide con la búsqueda.'); return; }
+  $('lista').innerHTML = lista.map(p => `
+    <tr class="fila-prod${elegidos.has(p.plu) ? ' ya' : ''}" tabindex="0" data-plu="${esc(p.plu)}">
+      <td class="p-2">${elegidos.has(p.plu) ? '✓ ' : ''}${esc(p.nombre)}</td>
+      <td class="p-2 text-center tabular-nums">${esc(p.plu)}</td>
+      <td class="p-2 text-right tabular-nums col-peso">${pesos(p.precioKg)}</td>
+      <td class="p-2 text-right tabular-nums col-peso">${pesoBolsa(p.multiplicador)}</td>
+      <td class="p-2 text-right tabular-nums font-semibold">${pesos(p.precio)}</td>
+    </tr>`).join('');
+}
+
+function cambiarSeleccion(nueva) {
+  seleccion = nueva;
+  guardarLS(claveSeleccion(idSucursal), seleccion);
+  renderLista(); renderSeleccion(); renderCarteles();
+}
+const agregar = plus => cambiarSeleccion([...seleccion, ...plus.filter((plu, i) => !seleccion.includes(plu) && plus.indexOf(plu) === i)]);
+
+function renderSeleccion() {
+  $('cantSel').textContent = seleccion.length ? `(${seleccion.length})` : '';
+  if (!seleccion.length) { $('seleccionados').innerHTML = '<li class="p-4 text-center text-ink/50">Clic en un producto para sumarlo.</li>'; return; }
+  $('seleccionados').innerHTML = seleccion.map(plu => { const p = porPlu.get(plu); return `
+    <li class="py-1.5 flex items-center gap-2">
+      <span class="text-gris tabular-nums w-14">${esc(plu)}</span>
+      <span class="flex-1 truncate">${esc(p.nombre)}</span>
+      <span class="tabular-nums">${pesos(p.precio)}</span>
+      <button class="px-2 rounded hover:bg-bg text-crit" data-quitar="${esc(plu)}" title="Quitar">✕</button>
+    </li>`; }).join('');
+}
+
+// ── Carteles ───────────────────────────────────────────────────────────────────
+function htmlCartel(p) {
+  return `<div class="cartel-wrap" data-plu="${esc(p.plu)}">
+  <div class="cartel">
+    <div class="c-nombre"><span>${esc(p.nombre)}</span></div>
+    <div class="c-ref">Precio Ref.</div>
+    <div class="c-flecha">►</div>
+    <div class="c-datos">PLU: ${esc(p.plu)}<br>Act.: ${esc(fechaCorta(p.fechaActualizacion))}</div>
+    <div class="c-precio">${esc(pesos(p.precio))}</div>
+  </div></div>`;
+}
+
+// Achica la fuente de a 1 pt mientras el texto no entre en su celda (como el autoajuste de la macro).
+function ajustarFuente(el, maxPt, minPt) {
+  let pt = maxPt;
+  el.style.fontSize = pt + 'pt';
+  while (pt > minPt && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)) {
+    pt -= 1;
+    el.style.fontSize = pt + 'pt';
+  }
+}
+
+function renderCarteles() {
+  document.body.classList.toggle('modo-a4', modo === 'a4');
+  document.body.classList.toggle('modo-ticket', modo === 'ticket');
+  raiz.setProperty('--ancho-cartel', modo === 'a4' ? ANCHO_A4_PT + 'pt' : ANCHO_TICKET_MM + 'mm');
+  $('modoPrevia').textContent = modo === 'a4' ? `· A4, ${CARTELES_POR_HOJA_A4} por hoja` : `· comandera, cartel de ${ANCHO_TICKET_MM} mm, uno por corte`;
+  const cont = $('carteles');
+  const items = seleccion.map(plu => porPlu.get(plu)).filter(Boolean);
+  if (!items.length) { cont.innerHTML = '<p class="text-sm text-ink/50">Todavía no hay carteles: elegí productos de la lista.</p>'; return; }
+  // En A4 cada .hoja lleva CARTELES_POR_HOJA_A4 carteles y el salto de página va entre hojas.
+  const porHoja = modo === 'a4' ? CARTELES_POR_HOJA_A4 : items.length;
+  const hojas = [];
+  for (let i = 0; i < items.length; i += porHoja) hojas.push(items.slice(i, i + porHoja));
+  cont.innerHTML = hojas.map(h => `<div class="hoja">${h.map(htmlCartel).join('')}</div>`).join('');
+  cont.querySelectorAll('.c-nombre').forEach(el => ajustarFuente(el, FUENTE_NOMBRE_MAX_PT, FUENTE_NOMBRE_MIN_PT));
+  cont.querySelectorAll('.c-precio').forEach(el => ajustarFuente(el, FUENTE_PRECIO_PT, FUENTE_PRECIO_MIN_PT));
+}
+
+// @page es estático: se reescribe según el modo antes de imprimir.
+function prepararModo(nuevoModo) {
+  if (modo === nuevoModo && $('page-style').textContent) return;
+  modo = nuevoModo;
+  $('page-style').textContent = modo === 'a4'
+    ? `@page { size: A4; margin: ${MARGEN_A4}; }`
+    // Sin size: con cualquier size el navegador esconde "Diseño" y un 80×48 lo mandaba apaisado.
+    // Así usa el papel del driver (rollo 80 mm) y se elige Vertical en el diálogo; el largo lo recorta el driver.
+    : `@page { margin: 0; }`;
+  renderCarteles();
+}
+
+// Un diálogo por tanda: se elige la impresora una vez y sale todo el listado.
+// A4: 10 carteles por hoja. Comandera: un cartel por página (un ticket por corte).
+function imprimir(nuevoModo) {
+  if (!seleccion.length) { alert('No hay carteles seleccionados.'); return; }
+  prepararModo(nuevoModo);
+  window.print();
+}
+
+// Pesables ↔ Almacén: cambia el rubro que se consulta y oculta las columnas de peso.
+function aplicarTipo() {
+  document.body.classList.toggle('tipo-almacen', tipo === 'almacen');
+  $('switchTipo').querySelectorAll('[data-tipo]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tipo === tipo)));
+  $('thPrecio').textContent = tipo === 'almacen' ? 'Precio' : 'Precio bolsa';
+}
+function cambiarTipo(nuevo) {
+  if (nuevo === tipo) return;
+  tipo = nuevo;
+  guardarLS(CLAVE_TIPO, tipo);
+  aplicarTipo();
+  if (idSucursal) cargarProductos(idSucursal);
+}
+
+// ── Eventos ────────────────────────────────────────────────────────────────────
+$('switchTipo').addEventListener('click', e => { const b = e.target.closest('[data-tipo]'); if (b) cambiarTipo(b.dataset.tipo); });
+$('sucursal').addEventListener('change', e => cargarProductos(e.target.value));
+$('buscar').addEventListener('input', renderLista);
+$('buscar').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const primero = filtrados()[0];
+  if (primero) agregar([primero.plu]);
+});
+$('lista').addEventListener('click', e => { const tr = e.target.closest('tr[data-plu]'); if (tr) agregar([tr.dataset.plu]); });
+$('lista').addEventListener('keydown', e => {
+  const tr = e.target.closest('tr[data-plu]');
+  if (tr && e.key === 'Enter') { agregar([tr.dataset.plu]); $('lista').querySelector(`tr[data-plu="${CSS.escape(tr.dataset.plu)}"]`)?.focus(); }
+});
+$('btnTodos').addEventListener('click', () => agregar(filtrados().map(p => p.plu)));
+$('seleccionados').addEventListener('click', e => { const b = e.target.closest('[data-quitar]'); if (b) cambiarSeleccion(seleccion.filter(plu => plu !== b.dataset.quitar)); });
+$('btnLimpiar').addEventListener('click', () => cambiarSeleccion([]));
+$('btnA4').addEventListener('click', () => imprimir('a4'));
+$('btnTicket').addEventListener('click', () => imprimir('ticket'));
+
+aplicarTipo();
+cargarSucursales();
+</script>
+</body>
+</html>
