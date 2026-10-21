@@ -69,8 +69,8 @@ function renderPlan() {
         <td>${(it.responsables || []).map(escHtml).join(', ') || '—'}</td>
         <td>${escHtml(pack) || '—'}</td>
         <td>${escHtml(cliente) || '—'}</td>
-        <td><span class="estado-chip active" data-estado="${escHtml(ESTADO_REG_CHIP[estado] || estado)}">${escHtml(estado.replace('_', ' '))}</span></td>
-        <td>${estado === 'pendiente' || estado === 'sin orden'
+        <td><span class="estado-chip active" data-estado="${escHtml(ESTADO_REG_CHIP[estado] || estado)}"${estado === 'sin orden' ? ' title="No hay orden en Producción del Día: puede haberse cerrado el día o producido ya"' : ''}>${escHtml(estado.replace('_', ' '))}</span></td>
+        <td>${estado === 'pendiente'
           ? `<button class="btn btn-danger btn-sm" onclick="anularItem(${it.id})">Anular</button>` : ''}</td>
       </tr>`;
     }).join('')}
@@ -176,13 +176,17 @@ const BUSCAR_VACIO_HTML =
 const BUSCAR_SIN_RESULTADOS_HTML =
   '<div class="buscar-empty"><span class="be-icon">🫙</span>Sin resultados para esa búsqueda.</div>';
 
+// Los resultados quedan en un array: el onclick lleva solo el índice (nada del resultado va al HTML).
+let resultadosBusqueda = [];
+
 async function buscarProductos(q) {
   if (q.length < 2) { document.getElementById('resultadosBuscar').innerHTML = BUSCAR_VACIO_HTML; return; }
   try {
     const res = await api('GET', `/api/plan/sugerencias?q=${encodeURIComponent(q)}`);
-    const html = res.slice(0, 20).map(r => `
-      <div class="search-result" onclick='agregarDesdeModal(${JSON.stringify(r)})'>
-        <span class="badge ${r.semaforo}" style="flex-shrink:0">${semLabel(r.semaforo)}</span>
+    resultadosBusqueda = res.slice(0, 20);
+    const html = resultadosBusqueda.map((r, i) => `
+      <div class="search-result" onclick="agregarDesdeModal(${i})">
+        <span class="badge ${escHtml(r.semaforo)}" style="flex-shrink:0">${escHtml(semLabel(r.semaforo))}</span>
         <span class="prod-name">${escHtml(r.producto)}</span>
         <span class="prod-rubro">${escHtml(r.rubro)}</span>
         ${r.cantSugerida > 0 ? `<span class="prod-sug">Sug: ${r.cantSugerida}</span>` : ''}
@@ -213,7 +217,9 @@ function sugToItem(s) {
 }
 
 // Búsqueda manual: el producto elegido va al carrito (que pide la fecha si todavía no tiene).
-function agregarDesdeModal(sug) {
+function agregarDesdeModal(i) {
+  const sug = resultadosBusqueda[i];
   document.getElementById('overlayBuscar').classList.remove('open');
+  if (!sug) return;
   agregarGrupoItems(sug.rubro || sug.producto, [sugToItem(sug)]);
 }

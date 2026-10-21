@@ -531,8 +531,11 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   .ag-barra { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 /* ── CARRITO DE PLANIFICACIÓN: panel lateral; z-index bajo los overlays (200) para que los modales queden encima ── */
-.carrito-panel{position:fixed;top:56px;right:0;bottom:0;width:min(1100px,70vw);background:var(--card,#fff);box-shadow:-4px 0 16px rgba(0,0,0,.15);z-index:150;display:flex;flex-direction:column}
+/* top = app-bar (56px) + tab-nav (48px): las tabs quedan clickeables con el carrito abierto */
+.carrito-panel{position:fixed;top:104px;right:0;bottom:0;width:min(1100px,70vw);background:var(--card,#fff);box-shadow:-4px 0 16px rgba(0,0,0,.15);z-index:150;display:flex;flex-direction:column}
 .carrito-panel[hidden]{display:none}
+/* .notas-box trae flex:0 1 520px (pensado para fila): en la columna del panel inflaría la altura */
+.carrito-panel .notas-box{flex:none}
 #carritoBadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--md-primary);color:#fff;font-size:11px;text-align:center}
 </style>
 <!-- Módulo puro de cálculo de bloques: va ANTES del script principal, que lo lee como window.BloquesTareas -->

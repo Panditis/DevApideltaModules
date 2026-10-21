@@ -7,6 +7,7 @@ const CARRITO_KEY = 'planif_carrito_v1';
 const CARRITO_VACIO = Object.freeze({ fecha: null, lineas: [], notas: '' });
 let _lineaSeq = Date.now();
 let carrito = CARRITO_VACIO;
+let _enviandoCarrito = false; // envío en curso: evita el doble envío
 
 // ── Día picker: pide la fecha del carrito ────────────────────────
 let semDiaPicker   = lunesDeEstaFecha(HOY);
@@ -107,13 +108,15 @@ async function prefetchPackagingCarrito() {
     try { Object.assign(packagingCache, await api('GET', `/api/plan/packaging?plus=${encodeURIComponent(faltan.join(','))}`)); }
     catch { /* sin packaging: se elige a mano */ }
   }
+  // Una sola vez por línea (_pkOk): lo que el usuario vacíe a propósito después no se vuelve a llenar.
   carrito = { ...carrito, lineas: carrito.lineas.map(l => {
+    if (l._pkOk) return l;
     const pk = packagingCache[String(l.idProducto)];
-    if (!pk || l.esGranel) return l;
+    if (!pk || l.esGranel) return { ...l, _pkOk: true };
     const envase = l.envase || (pk.envase ? pk.envase.codigo : '');
     const validas = tapasParaEnvase(opcionesPack(envasesReg, pk.envase), opcionesPack(tapasReg, pk.tapa), envase);
     const tapa = l.tapa || (pk.tapa && validas.some(t => String(t.codigo) === String(pk.tapa.codigo)) ? pk.tapa.codigo : '');
-    return { ...l, envase, tapa };
+    return { ...l, envase, tapa, _pkOk: true };
   }) };
 }
 
@@ -169,7 +172,7 @@ function renderCarrito() {
   document.getElementById('carritoFecha').textContent = carrito.fecha ? formatFecha(carrito.fecha) : 'sin fecha';
   const notasEl = document.getElementById('carritoNotas');
   if (document.activeElement !== notasEl) notasEl.value = carrito.notas || '';
-  document.getElementById('btnCarritoEnviar').disabled = !carrito.lineas.length;
+  document.getElementById('btnCarritoEnviar').disabled = !carrito.lineas.length || _enviandoCarrito;
   const cont = document.getElementById('carritoTabla');
   if (!carrito.lineas.length) {
     cont.innerHTML = '<div class="loading">Vacío. Agregá productos desde el Resumen con "+".</div>';
@@ -217,14 +220,24 @@ async function avisosCarrito(items) {
     </div>`;
 }
 
+// Guarda de re-entrada: cubre todo el trayecto (avisos, resumen MP, POST) hasta que termina o falla.
 async function revisarYEnviarCarrito() {
-  if (!carrito.fecha || !carrito.lineas.length) return;
+  if (_enviandoCarrito || !carrito.fecha || !carrito.lineas.length) return;
+  _enviandoCarrito = true;
+  document.getElementById('btnCarritoEnviar').disabled = true;
+  try { await enviarCarrito(); }
+  finally { _enviandoCarrito = false; renderCarrito(); }
+}
+
+async function enviarCarrito() {
+  await cargarGruposCfgSiVacio(); // esItemMiel (tambor) depende del catálogo de grupos
   const sinCant = carrito.lineas.filter(l => !(l.cantConfirmada > 0));
   if (sinCant.length) {
     toast(`Cantidad 0: ${sinCant.map(l => l.presentacion || l.producto).join(', ')}. Completala o quitá la línea.`, true);
     return;
   }
-  const items = carrito.lineas.map(({ _id, ...it }, i) => ({ ...it, prioridad: i + 1 }));
+  // _id y _pkOk son del carrito: no viajan al servidor.
+  const items = carrito.lineas.map(({ _id, _pkOk, ...it }, i) => ({ ...it, prioridad: i + 1 }));
   const fecha = carrito.fecha;
   const ok = await mostrarMPResumen(`📤 Enviar a producción · ${formatFecha(fecha)}`, items, await avisosCarrito(items));
   if (!ok) return;
@@ -260,6 +273,8 @@ document.getElementById('btnCarritoFecha').addEventListener('click', async () =>
 document.getElementById('btnCarritoEnviar').addEventListener('click', revisarYEnviarCarrito);
 carrito = cargarCarrito();
 renderCarrito();
+// esItemMiel lee el catálogo de grupos, que carga perezosamente: se redibuja cuando llega.
+cargarGruposCfgSiVacio().then(renderCarrito).catch(() => {});
 
 // ══════════════════ MULTI-RESPONSABLE WIDGET ══════════════════════
 

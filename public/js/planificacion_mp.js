@@ -46,11 +46,23 @@ async function calcularMPParaItems(items) {
 }
 
 // avisosHtml: bloque HTML opcional que se antepone a la tabla (avisos del carrito).
+// Resuelve true/false según el botón que se toque. La promesa se arma antes de calcular: cerrar el
+// modal mientras dice "Calculando…" cancela (false) en vez de dejar al llamador colgado, y el botón
+// de confirmar queda deshabilitado hasta tener el resumen a la vista.
 async function mostrarMPResumen(titulo, items, avisosHtml = '') {
+  if (_mpResumenResolve) _mpResumenResolve(false); // un resumen anterior sin resolver cuenta como cancelado
+  const decision = new Promise(resolve => { _mpResumenResolve = resolve; });
+  const btnOk = document.getElementById('btnMPResumenContinuar');
+  btnOk.disabled = true;
   document.getElementById('mpResumenTitulo').textContent = titulo;
   document.getElementById('mpResumenBody').innerHTML = '<div style="color:var(--muted);font-size:13px">Calculando…</div>';
   document.getElementById('overlayMPResumen').classList.add('open');
+  try { await renderMPResumen(items, avisosHtml); }
+  finally { btnOk.disabled = false; }
+  return decision;
+}
 
+async function renderMPResumen(items, avisosHtml) {
   const mpList = await calcularMPParaItems(items);
   const body = document.getElementById('mpResumenBody');
 
@@ -90,6 +102,4 @@ async function mostrarMPResumen(titulo, items, avisosHtml = '') {
       }).join('')}
       </tbody></table>`;
   }
-
-  return new Promise(resolve => { _mpResumenResolve = resolve; });
 }
