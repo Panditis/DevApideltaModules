@@ -685,6 +685,7 @@ app.get('/js/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dir
 app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_simulador.js')));
 app.get('/js/precios_listados.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_listados.js')));
 app.get('/js/precios_modal_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_modal_esquema.js')));
+app.get('/js/precios_modal_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_modal_fraccionado.js')));
 app.get('/js/precios_comun.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_comun.js')));
 app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config.js')));
 // Motor del esquema por canal: el mismo archivo UMD del server (lib/), global PreciosEsquema en el navegador.

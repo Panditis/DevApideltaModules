@@ -518,7 +518,7 @@ function htmlVerDetalle(f) {
   if (preciosSinConfig) return '';
   return `<div class="md-det"><button type="button" id="mdVerDetalle" class="md-det-btn" aria-expanded="${mdDetalle}" aria-controls="mdDetCuerpo">
       <span class="md-caret" aria-hidden="true">▸</span>Ver detalle del cálculo y editar costos</button>
-    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${htmlEdicionCostos(f)}</div></div>`;
+    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${mdEsq.tipo === 'fraccionado' ? htmlCosteoFraccMd(f) : ''}${htmlEdicionCostos(f)}</div></div>`;
 }
 
 function pintarModalEsquema() {
@@ -587,10 +587,11 @@ function conectarModalEsquema() {
   conectarManualDecMd();
   conectarMargenProductoMd();
   conectarTipoProveedorMd();
+  if (mdEsq.tipo === 'fraccionado') conectarCosteoFraccMd(); // precios_modal_fraccionado.js
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal
-// (con el detalle como estaba) y listado. msgId = dónde mostrar el error.
+// (con el detalle como estaba) y listado. msgId = dónde mostrar el error. → true si guardó, false si falló.
 async function guardarCostoEsq(url, body, metodo = 'PUT', msgId = 'mdMsg') {
   const msg = document.getElementById(msgId);
   try {
@@ -600,7 +601,8 @@ async function guardarCostoEsq(url, body, metodo = 'PUT', msgId = 'mdMsg') {
     await abrirModalEsquema(tipo, fila.plu, { detalle: mdDetalle });
     cargarListado(tipo);
     if (tipo === 'produccion') refrescarPanelProduccionMd();
-  } catch (e) { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = e.message; }
+    return true;
+  } catch (e) { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = e.message; return false; }
 }
 // El modal pudo abrirse encima del modal del producto base (Envasado) o del panel de presentaciones de una receta: también
 // se recargan sus precios. ebEd / recargarBase / pintarBase (precios_produccion_envasado.js), prodDet / recargarDetalleProd
