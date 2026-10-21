@@ -12,6 +12,8 @@ let responsablesCache = [];
 // Un responsable puede ser string (legado) u objeto {nombre, corto}. Mostrar SOLO el nombre.
 const respNombre = r => (typeof r === 'string' ? r : (r && r.nombre) || '');
 const respCorto  = r => (typeof r === 'string' ? '' : (r && (r.corto || r.abrev)) || '');
+// Nombre de un ítem del carrito o del plan: "250G" solo no dice qué producto es; el nombre completo (baseNombre) ya trae la presentación.
+const nombreLinea = l => l.producto || l.presentacion || '';
 let planCache = null;
 // ── Agenda de bloques ───────────────────────────────────────────
 let plantillasTareas = [];   // data/plantillas_tareas.json

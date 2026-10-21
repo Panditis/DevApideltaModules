@@ -81,8 +81,6 @@ function guardarCarrito() {
 // en orden de alta (el sort es estable).
 const _posLinea = l => l.rankingPos || Number.MAX_SAFE_INTEGER;
 const lineasOrdenadas = () => [...carrito.lineas].sort((a, b) => _posLinea(a) - _posLinea(b));
-// "250G" solo no dice qué producto es: el nombre completo (baseNombre) ya trae la presentación.
-const nombreLinea = l => l.producto || l.presentacion || '';
 const claveLinea = it => `${it.esGranel ? 'G' : 'F'}|${it.idProducto ?? it.producto}`;
 const pedirFechaCarrito = titulo => new Promise(res => abrirDiaPicker(titulo, res));
 
@@ -337,11 +335,12 @@ function renderRespMulti(it, bloqueado) {
       <div class="resp-multi-display resp-multi-bloq" title="Orden reservada: anulá la reserva para cambiarlo">${chips}</div>
     </div>`;
   }
-  const opts = responsablesCache.map(r => {
+  // El índice (no el nombre) viaja en el handler: sin strings interpolados en el HTML.
+  const opts = responsablesCache.map((r, i) => {
     const nom = respNombre(r);
     return `<label style="display:flex;align-items:center;gap:7px;padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0;hover:background:#f5f5f5">
       <input type="checkbox" ${resps.includes(nom)?'checked':''} style="accent-color:var(--md-primary)"
-        onchange="toggleResp(${it.id},'${escHtml(nom).replace(/'/g,"\\'")}')">
+        onchange="toggleResp(${it.id},${i})">
       ${escHtml(nom)}
     </label>`;
   }).join('');
@@ -386,9 +385,10 @@ document.addEventListener('click', () => {
   }
 });
 
-function toggleResp(lineaId, nombre) {
+function toggleResp(lineaId, idx) {
   const l = carrito.lineas.find(x => x._id === lineaId);
-  if (!l) return;
+  const nombre = respNombre(responsablesCache[idx]);
+  if (!l || !nombre) return;
   const resps = l.responsables.includes(nombre) ? l.responsables.filter(r => r !== nombre) : [...l.responsables, nombre];
   editarLinea(lineaId, 'responsables', resps, false); // sin redibujar: el desplegable sigue abierto
   const sum = document.getElementById(`csum-${lineaId}`);

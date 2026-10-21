@@ -63,7 +63,7 @@ function renderPlan() {
       const cliente = clientesReg.find(c => String(c.id) === String(it.cliente))?.nombre || '';
       const pack = [nomOpc(envasesReg, it.envase), nomOpc(tapasReg, it.tapa)].filter(Boolean).join(' / ');
       return `<tr>
-        <td>${escHtml(it.presentacion || it.producto)}${it.presentacion ? `<div class="text-sm">${escHtml(it.producto)}</div>` : ''}${it.tambor ? `<div class="text-sm">Tambor ${escHtml(it.tambor)}</div>` : ''}</td>
+        <td>${escHtml(nombreLinea(it))}${it.tambor ? `<div class="text-sm">Tambor ${escHtml(it.tambor)}</div>` : ''}</td>
         <td>${cantidad}</td>
         <td>${it.cantConfirmada ?? it.cantSugerida ?? 0}</td>
         <td>${(it.responsables || []).map(escHtml).join(', ') || '—'}</td>
@@ -80,7 +80,7 @@ function renderPlan() {
 function anularItem(id) {
   const it = (planCache?.items || []).find(x => String(x.id) === String(id));
   if (!it) return;
-  confirmarModal('Anular', `Se saca <strong>${escHtml(it.presentacion || it.producto)}</strong> (todo el día) del plan y de Producción del Día. Para corregir, anulá y volvé a enviar.`,
+  confirmarModal('Anular', `Se saca <strong>${escHtml(nombreLinea(it))}</strong> (todo el día) del plan y de Producción del Día. Para corregir, anulá y volvé a enviar.`,
     'Anular', async () => {
       try { await api('DELETE', `/api/plan/${fechaPlanActual}/item/${id}`); toast('Anulado'); }
       catch (e) { toast('No se pudo anular: ' + mensajeApiError(e), true); }
