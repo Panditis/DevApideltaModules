@@ -50,7 +50,7 @@ function renderGrupos() {
     if (g.esGranel) {
       return `<tr class="grupo-row granel-row">
         <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
-        <td class="text-sm" style="color:var(--muted)" title="Los grupos granel no tienen cálculo de urgencia">—</td>
+        <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias)}</td>
         <td class="nombre-col font-bold">
           ${escHtml(g.productoRef)}
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>

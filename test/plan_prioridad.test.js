@@ -67,3 +67,22 @@ test('compararUrgencia: urgencia (URGENTE > PRONTO > OK), después rankingPos; s
   assert.deepStrictEqual([...pres].sort(compararUrgencia).map(p => p.facturacionMensual), [1, 500, 10]);
   assert.strictEqual(compararUrgencia(g('OK', 3), g('OK', 3)), 0);
 });
+
+const { calcularCobertura } = require('../lib/plan_prioridad');
+
+test('calcularCobertura: stock ÷ venta diaria en días, sin redondear; negativo se trunca en 0', () => {
+  assert.strictEqual(calcularCobertura(10, 2), 5);
+  assert.strictEqual(calcularCobertura(1, 3), 1 / 3);
+  assert.strictEqual(calcularCobertura(0, 3), 0);
+  assert.strictEqual(calcularCobertura(-4, 2), 0);       // stock negativo en SiGA
+  assert.strictEqual(calcularCobertura(null, 2), 0);     // sin stock cargado
+});
+
+test('calcularCobertura: sin venta (0, negativa, null o no numérica) no hay cobertura', () => {
+  assert.strictEqual(calcularCobertura(5, 0), null);
+  assert.strictEqual(calcularCobertura(5, -1), null);
+  assert.strictEqual(calcularCobertura(5, null), null);
+  assert.strictEqual(calcularCobertura(5, undefined), null);
+  assert.strictEqual(calcularCobertura(5, 'x'), null);
+  assert.strictEqual(calcularCobertura(5, Infinity), null);
+});

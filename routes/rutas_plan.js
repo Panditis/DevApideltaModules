@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
-const { puntajePrioridad, clasesABC, nivelUrgencia, compararUrgencia } = require('../lib/plan_prioridad');
+const { puntajePrioridad, clasesABC, nivelUrgencia, compararUrgencia, calcularCobertura } = require('../lib/plan_prioridad');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -359,6 +359,7 @@ async function calcularSugerenciasCatalogo(params) {
       const pluBase = bInfo.pluBase;
       const prom = consumoBaseUse.get(base) || 0, pend = pendBase.get(base) || 0, stock = stockBase.get(base) || 0;
       const stockSucursales = Math.round((stockSucBase.get(base) || 0) * 100) / 100; // stock en sucursales (no central)
+      const ventaDiariaUrg = Math.round((consumoBaseVentana.get(base) || 0) * 10000) / 10000; // venta de la ventana ÷ ventana: solo para la cobertura/urgencia (promDiario puede ir ÷días-con-venta)
       const stockEfectivo = Math.round(stock * incStock * 100) / 100; // stock que cuenta en el sugerido (incidencia config)
       const bom = pluBase ? bomRaw.get(pluBase) : null;
       const customGPlu = cfgGranelPlu(gruposCfg, refInfo.productoRef);
@@ -376,7 +377,7 @@ async function calcularSugerenciasCatalogo(params) {
       const urgenciaScore = (isFinite(diasStock) ? -diasStock : 0) + (pend / Math.max(prom, 0.001))
                       + (semaforo === 'RED' ? 1000 : semaforo === 'YELLOW' ? 100 : 0) + (!granelOk ? 50 : 0);
       presentaciones.push({ plu: pluBase, plus: [pluBase], baseNombre: base, presentacion: bInfo.presentacion,
-        stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
+        stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, ventaDiariaUrg, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
         diasStock: isFinite(diasStock) ? Math.round(diasStock * 10) / 10 : 9999,
         semaforo, pendientes: pend, cantSugerida, idGranel, nombreGranel: nomGranel, cantPorUnidad: cantPU,
         granelNecesario: granelNec, granelDisponible: granelDisp !== null ? Math.round(granelDisp * 100) / 100 : null,
@@ -392,6 +393,7 @@ async function calcularSugerenciasCatalogo(params) {
         m.stockActual += p.stockActual; m.stockEfectivo = Math.round((m.stockEfectivo + p.stockEfectivo) * 100) / 100;
         m.stockSucursales = Math.round((m.stockSucursales + p.stockSucursales) * 100) / 100;
         m.facturacionMensual = Math.round((m.facturacionMensual + p.facturacionMensual) * 100) / 100;
+        m.ventaDiariaUrg += p.ventaDiariaUrg;
         m.promDiario = Math.round((m.promDiario + p.promDiario) * 100) / 100;
         m.promMes = Math.round((m.promMes + p.promMes) * 10) / 10; m.pendientes += p.pendientes;
         m.cantSugerida += p.cantSugerida; m.granelNecesario += p.granelNecesario;
@@ -420,9 +422,10 @@ async function calcularSugerenciasCatalogo(params) {
       const facturMensualG = Math.round(facturGrupoG * (30 / ventana) * 100) / 100;
       const stockSucGrupo = Math.round([...refInfo.bases.keys()].reduce((s, base) => s + (stockSucBase.get(base) || 0), 0) * 100) / 100;
       const plusGrupo = [...refInfo.bases.values()].map(b => b.pluBase).filter(Boolean).map(String);
+      const ventaDiariaUrgG = Math.round(presFinal.reduce((s, p) => s + p.ventaDiariaUrg, 0) * 10000) / 10000;
       grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
-        plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo,
+        plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, ventaDiariaUrg: ventaDiariaUrgG,
         facturacionMensual: facturMensualG, presentaciones: [] });
       continue;
     }
@@ -439,22 +442,29 @@ async function calcularSugerenciasCatalogo(params) {
   }
   const byRanking = [...grupos].sort((a, b) => b.rankingScore - a.rankingScore);
   byRanking.forEach((g, i) => { g.rankingPos = i + 1; });
-  // Urgencia de producción: cobertura = (stock central + stock sucursales) / venta diaria de la red. El
-  // umbral depende de la clase ABC del grupo (config urgenciaDias). Sin materia prima ni granel: eso se
-  // revisa en el resumen de insumos al enviar. Los grupos granel no exponen presentaciones: quedan OK.
+  // Urgencia de producción: cobertura = (stock central + stock sucursales) / venta diaria de la red, con
+  // la venta de la ventana ÷ ventana (ventaDiariaUrg; no toca promDiario ni el sugerido). El umbral
+  // depende de la clase ABC del grupo (config urgenciaDias). Sin materia prima: eso se revisa en el
+  // resumen de insumos al enviar. Grupo granel (sin presentaciones): stock = granel central + sucursales.
   const clases = clasesABC(grupos.map(g => g.rankingScore));
   const redondear1 = n => Math.round(n * 10) / 10;
   grupos.forEach((g, i) => {
     g.claseABC = clases[i];
     for (const p of g.presentaciones) {
-      const cobertura = p.promDiario > 0 ? Math.max(0, ((p.stockActual || 0) + (p.stockSucursales || 0)) / p.promDiario) : null;
+      const cobertura = calcularCobertura((p.stockActual || 0) + (p.stockSucursales || 0), p.ventaDiariaUrg);
       p.coberturaDias = cobertura === null ? null : redondear1(cobertura);
       p.urgencia = nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
     }
     g.presentaciones.sort(compararUrgencia);
-    const coberturas = g.presentaciones.map(p => p.coberturaDias).filter(x => x !== null);
-    g.coberturaDias = coberturas.length ? Math.min(...coberturas) : null;
-    g.urgencia = g.presentaciones.length ? g.presentaciones[0].urgencia : 'OK';
+    if (g.presentaciones.length) {
+      const coberturas = g.presentaciones.map(p => p.coberturaDias).filter(x => x !== null);
+      g.coberturaDias = coberturas.length ? Math.min(...coberturas) : null;
+      g.urgencia = g.presentaciones[0].urgencia;
+    } else {
+      const cobertura = calcularCobertura((g.granelStockGrupo || 0) + (g.stockSucGrupo || 0), g.ventaDiariaUrg);
+      g.coberturaDias = cobertura === null ? null : redondear1(cobertura);
+      g.urgencia = nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
+    }
   });
   grupos.sort(compararUrgencia);
   let out = grupos;
