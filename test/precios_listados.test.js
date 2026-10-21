@@ -270,9 +270,10 @@ test('Importar planilla: resumen de marcados por costo y planilla de no marcados
   ]);
 });
 
-test('textoAvisosCosto / textoCosteoGranel: avisos legibles y "facilidad · máquina" del granel', () => {
-  assert.deepStrictEqual(textoAvisosCosto(['sinMaquina', 'raro']), ['granel sin máquina', 'raro']);
+test('textoAvisosCosto / textoCosteoGranel: avisos legibles y "subrubro · máquina" del granel', () => {
+  assert.deepStrictEqual(textoAvisosCosto(['sinTiempo', 'raro']), ['presentación sin tiempo (× 1)', 'raro']);
   assert.deepStrictEqual(textoAvisosCosto(undefined), []);
-  assert.strictEqual(textoCosteoGranel({ facilidad: 'medio', maquina: 'Envasadora' }), 'Medio · Envasadora');
-  assert.strictEqual(textoCosteoGranel({ facilidad: null, maquina: null }), 'sin facilidad · sin máquina');
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', maquina: 'Envasadora', maquinaOrigen: 'subrubro' }), 'Frutos secos · Envasadora');
+  assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', maquina: 'Selladora', maquinaOrigen: 'granel' }), 'Frutos secos · Selladora (propia del granel)');
+  assert.strictEqual(textoCosteoGranel({ subrubro: null, maquina: null }), 'sin subrubro · sin máquina');
 });

@@ -37,6 +37,8 @@
   .seg-opt:not(:disabled):not([aria-pressed="true"]):hover{background:rgba(64,89,54,.08)}
   .seg-opt:disabled{opacity:.4;cursor:not-allowed}
   .seg.hidden,.seg-opt.hidden,.cfg-tab.hidden{display:none} /* ajustarTiposSim (precios_simulador.js), #cfgTipo en General y el sub-tab Costeo Fraccionado: el display de arriba le gana a .hidden de Tailwind */
+  .fp-chip{display:inline-block;padding:0 6px;margin:1px 0;border-radius:9999px;background:#eef1ea;white-space:nowrap} /* insumos de una presentación (tab Fraccionado) */
+  .fp-pend{background:rgba(234,179,8,.10)} /* celda con un cambio sin guardar */
   /* Sub-tabs de Configuración: el mismo control segmentado, con texto de botón. */
   .seg-sub .seg-opt{font-size:13px;font-weight:600;padding:6px 16px}
   .seg-sub .seg-opt:focus-visible{outline:2px solid #405936;outline-offset:2px}
@@ -579,6 +581,21 @@
     </div>
   </form>
 </dialog>
+<!-- Insumos por unidad de una presentación de Fraccionado (o de varias en lote): /js/precios_fraccionado_presentaciones.js editarInsumosFP. -->
+<dialog id="dlgFP" class="rounded-xl border border-borde shadow-fluent p-0 w-[min(92vw,560px)] bg-card text-ink backdrop:bg-ink/40" aria-labelledby="dlgFPTitulo">
+  <div class="p-5">
+    <h3 id="dlgFPTitulo" class="fp-dlg-titulo text-sm font-semibold"></h3>
+    <p class="text-xs text-gris mt-1">Insumos por unidad (bolsa, etiqueta…). Reemplazan a los que tenga cargados; "Sin insumos" los saca.</p>
+    <table class="w-full text-sm mt-3"><tbody class="fp-dlg-filas"></tbody></table>
+    <div class="fp-dlg-bus mt-2"></div>
+    <p class="fp-dlg-msg text-sm text-crit mt-2" role="alert"></p>
+    <div class="flex justify-end gap-2 mt-5">
+      <button type="button" class="fp-dlg-vaciar mr-auto text-sm text-gris hover:text-crit">Sin insumos</button>
+      <button type="button" class="fp-dlg-cancelar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Cancelar</button>
+      <button type="button" class="fp-dlg-ok px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Aplicar</button>
+    </div>
+  </div>
+</dialog>
 <script src="/js/precios_produccion.js"></script>
 <script src="/js/precios_produccion_detalle.js"></script>
 <script src="/js/precios_produccion_presentaciones.js"></script>
@@ -591,6 +608,7 @@
 <script src="/js/precios_simulador.js"></script>
 <script src="/js/precios_config_fraccionado.js"></script>
 <script src="/js/precios_listados.js"></script>
+<script src="/js/precios_fraccionado_presentaciones.js"></script>
 <script src="/js/precios_modal_esquema.js"></script>
 <script src="/js/precios_modal_fraccionado.js"></script>
 </body>
