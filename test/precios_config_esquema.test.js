@@ -199,3 +199,13 @@ test('tipoConfig: almacen por defecto, fraccionado, cualquier otro → null', ()
   assert.deepStrictEqual([C.tipoConfig(undefined), C.tipoConfig(''), C.tipoConfig('almacen'), C.tipoConfig('fraccionado'), C.tipoConfig('produccion'), C.tipoConfig('x')],
     ['almacen', 'almacen', 'almacen', 'fraccionado', null, null]);
 });
+
+// validarGastosVenta devuelve `listas` (todas por defecto): se descarta como en Reventa.
+test('validarCostos fraccionado: gastos y extras sin tildes ni listas (la tabla ya es sólo de Fraccionado)', () => {
+  const r = C.validarCostos({ modoGastos: 'costo',
+    gastosVenta: [{ concepto: 'Flete', pct: 2, tipos: SOLO_FRACC }],
+    extrasMinorista: [{ concepto: 'IIBB', pct: 5 }] }, 'fraccionado');
+  assert.deepStrictEqual(r, { modoGastos: 'costo', gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 2 }],
+    extrasMinorista: [{ id: 'iibb', concepto: 'IIBB', pct: 5 }] });
+  assert.throws(() => C.validarCostos({ modoGastos: 'costo', gastosVenta: [{ concepto: 'A', pct: 100 }], extrasMinorista: [] }, 'fraccionado'), /gastosVenta/);
+});
