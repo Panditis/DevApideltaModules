@@ -326,9 +326,7 @@ document.getElementById('btnConfirmarGranel').addEventListener('click', () => {
     nombreGranel:  g.nombreGranelGrupo || '', cantPorUnidad: 0,
     granelNecesario: 0, granelDisponible: null, granelOk: true
   };
-  abrirDiaPicker(`+ ${escHtml(g.productoRef)} — ${cant} ${unidad}`, fecha =>
-    finalizarAgregado(g.productoRef, fecha, [item],
-      `"${g.productoRef}" → plan ${formatFecha(fecha)} — ${cant} ${unidad}`));
+  agregarAlCarrito([item]);
 });
 
 document.getElementById('granelCantidad').addEventListener('keydown', e => {

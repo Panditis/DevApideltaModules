@@ -371,7 +371,6 @@ function renderDiaSelector() {
 function seleccionarDia(fecha) {
   fechaPlanActual = fecha;
   renderDiaSelector();
-  document.getElementById('btnAgregarProducto').disabled = false;
   document.getElementById('btnBorrarPlan').disabled = false;
   document.getElementById('planFooter').style.display = '';
   cargarPlan(fecha);
@@ -454,7 +453,7 @@ async function guardarOrden() {
 }
 
 // ── Modal buscar ─────────────────────────────────────────────────
-document.getElementById('btnAgregarProducto').addEventListener('click', () => {
+document.getElementById('btnCarritoBuscar').addEventListener('click', () => {
   document.getElementById('overlayBuscar').classList.add('open');
   document.getElementById('inputBuscar').value = '';
   document.getElementById('resultadosBuscar').innerHTML = BUSCAR_VACIO_HTML;
@@ -512,13 +511,8 @@ function sugToItem(s) {
   };
 }
 
-async function agregarDesdeModal(sug) {
+// Búsqueda manual: el producto elegido va al carrito (que pide la fecha si todavía no tiene).
+function agregarDesdeModal(sug) {
   document.getElementById('overlayBuscar').classList.remove('open');
-  if (!fechaPlanActual) { toast('Seleccioná un día primero', true); return; }
-  const items = [sugToItem(sug)];
-  const graneles = await itemGranelPrevio(sug.rubro || sug.producto, items);
-  if (graneles === false) return;
-  await agregarItemsConCheck(fechaPlanActual, [...graneles, ...items],
-    `"${sug.producto}" agregado al plan`);
+  agregarGrupoItems(sug.rubro || sug.producto, [sugToItem(sug)]);
 }
-

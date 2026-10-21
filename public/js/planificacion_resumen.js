@@ -267,26 +267,25 @@ function agregarPresAlPlan(gi, pi) {
   const g = gruposSorted[gi], p = g.presentaciones[pi];
   const cant = leerCantSug(gi, pi, p.cantSugerida);
   if (cant <= 0) { toast('Ingresá una cantidad mayor a 0', true); return; }
-  const item = presToItem(p, g.productoRef);
-  item.cantConfirmada = cant;
-  abrirDiaPicker(`+ ${escHtml(p.presentacion)}`, fecha =>
-    finalizarAgregado(g.productoRef, fecha, [item],
-      `"${p.presentacion}" → plan ${formatFecha(fecha)}`));
+  agregarGrupoItems(g.productoRef, [{ ...presToItem(p, g.productoRef), cantConfirmada: cant }]);
 }
 
-async function agregarGrupoAlPlan(gi) {
+function agregarGrupoAlPlan(gi) {
   const g = gruposSorted[gi];
-  const items = [];
-  g.presentaciones.forEach((p, pi) => {
-    const cant = leerCantSug(gi, pi, p.cantSugerida);
-    if (cant > 0) { const it = presToItem(p, g.productoRef); it.cantConfirmada = cant; items.push(it); }
-  });
+  const items = g.presentaciones
+    .map((p, pi) => ({ ...presToItem(p, g.productoRef), cantConfirmada: leerCantSug(gi, pi, p.cantSugerida) }))
+    .filter(it => it.cantConfirmada > 0);
   if (!items.length) { toast('No hay cantidades para agregar (escribí una cantidad > 0)', true); return; }
-  const ok = await mostrarMPResumen(`📦 ${g.productoRef}`, items);
-  if (!ok) return;
-  abrirDiaPicker(`+ Todo: ${escHtml(g.productoRef)}`, fecha =>
-    finalizarAgregado(g.productoRef, fecha, items,
-      `${items.length} pres. de "${g.productoRef}" → plan ${formatFecha(fecha)}`));
+  agregarGrupoItems(g.productoRef, items);
+}
+
+// Granel previo: sus órdenes de granel entran al carrito junto con las presentaciones, que quedan
+// marcadas (granelAparte): su granel se fabrica en la orden aparte, así que en Producción no vuelven
+// a pedir el alta del granel (solo consumen).
+async function agregarGrupoItems(productoRef, items) {
+  const graneles = await itemGranelPrevio(productoRef, items);
+  if (graneles === false) return;
+  agregarAlCarrito([...graneles, ...items.map(it => (graneles.length ? { ...it, granelAparte: true } : it))]);
 }
 
 // ¿La referencia es una variedad de miel del catálogo? Usa el flag esMiel (default: nombre arranca con "Miel").
@@ -300,8 +299,7 @@ function esItemMiel(it) {
 }
 
 // Grupos marcados "granel previo": las presentaciones se hacen a partir de un granel
-// (pepas → masa) que hay que fabricar primero. Devuelve el ítem de la orden de granel,
-// null si el grupo no lo requiere, o false si el usuario canceló el aviso.
+// (pepas → masa) que hay que fabricar primero.
 const _nombrePluCache = {};
 async function nombreDePlu(plu) {
   if (plu in _nombrePluCache) return _nombrePluCache[plu];
@@ -331,7 +329,8 @@ function resolverRefGrupo(ref, items) {
 }
 
 // Devuelve los ítems de las órdenes de granel (uno por granel del catálogo), [] si el grupo no
-// los requiere, o false si el usuario canceló el aviso.
+// los requiere, o false si el grupo está marcado pero no tiene graneles cargados (ya se avisó).
+// No pide confirmación: los graneles entran al carrito como líneas editables.
 async function itemGranelPrevio(productoRef, items) {
   await cargarGruposCfgSiVacio();
   productoRef = resolverRefGrupo(productoRef, items);
@@ -368,20 +367,6 @@ async function itemGranelPrevio(productoRef, items) {
       || `Granel PLU ${plu}`;
     graneles.push({ plu, nombre, cant: necDe(plu) });
   }
-  const filas = graneles.map(g =>
-    `<li style="margin-top:3px"><strong>${escHtml(g.nombre)}</strong>
-       <span style="opacity:.7">(PLU ${escHtml(g.plu)})</span> — <strong>${g.cant || 0}</strong> kg</li>`).join('');
-  const sinCant = graneles.some(g => !g.cant);
-  const ok = await confirmarModalAsync('⚠ Requiere granel previo',
-    `<div>"<strong>${escHtml(productoRef)}</strong>" se hace en presentaciones, pero primero hay que fabricar ${graneles.length > 1 ? 'los graneles' : 'el granel'} del catálogo.</div>
-     <div style="margin-top:8px">Se agrega${graneles.length > 1 ? 'n' : ''} como orden${graneles.length > 1 ? 'es' : ''} aparte:</div>
-     <ul style="margin:6px 0 0 18px;padding:0;font-size:13px">${filas}</ul>
-     ${sinCant ? '<div style="margin-top:6px;color:var(--muted);font-size:12px">Los que quedan en 0 no tienen fórmula cargada: la cantidad se edita en el plan.</div>' : ''}`,
-    `Agregar granel${graneles.length > 1 ? 'es' : ''} + presentaciones`);
-  if (!ok) return false;
-  // Las presentaciones quedan marcadas: su granel se fabrica en la orden aparte, así que en
-  // Producción no vuelven a pedir el alta del granel (solo consumen).
-  items.forEach(it => { it.granelAparte = true; });
   return graneles.map(g => ({
     idProducto: g.plu, producto: g.nombre, rubro: 'Granel', esGranel: true,
     cantSugerida: 0, cantConfirmada: g.cant, unidadGranel: 'kg',
@@ -390,21 +375,6 @@ async function itemGranelPrevio(productoRef, items) {
     granelNecesario: 0, granelDisponible: null, granelOk: true,
     granelPrevioDe: productoRef
   }));
-}
-
-// Tras elegir el día: si es miel pide el número de tambor, luego agrega al plan
-function finalizarAgregado(productoRef, fecha, items, labelOk) {
-  const aplicar = async tambor => {
-    if (tambor) {
-      items.forEach(it => it.tambor = tambor);
-      labelOk += ` — tambor ${tambor}`;
-    }
-    const graneles = await itemGranelPrevio(productoRef, items);
-    if (graneles === false) return;
-    agregarItemsConCheck(fecha, [...graneles, ...items], labelOk);
-  };
-  if (esVariedadMiel(productoRef)) pedirTambor(productoRef, aplicar);
-  else aplicar(null);
 }
 
 document.getElementById('filtroQ').addEventListener('input', () => {
