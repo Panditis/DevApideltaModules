@@ -506,3 +506,28 @@ test('config por tipo: Fraccionado usa sus márgenes; Reventa y Producción sigu
     assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).toleranciaPct, 3);
   } finally { a.cerrar(); }
 });
+
+test('listado Fraccionado: la presentación suma insumos propios + MO de costeo.fraccionado; el desglose sólo en el detalle', async () => {
+  // Harina (300, 330,58) como insumo de 51 "Almendra 500G"; 1 min × 6000/60 = 100 de MO → 430,58 por unidad ÷ 0,5 kg = 861,16
+  const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, tiempos: [{ hastaG: 1000, minutos: 1 }],
+    porGranel: { 50: { facilidad: 'facil', maquinaId: null } }, insumosPresentacion: { 51: [{ plu: '300', cantidad: 1 }] } };
+  const a = appCon({ ...CON_FRACC, fraccionado }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.strictEqual(det.presentaciones[0].costos.sistema, 10861.16);
+    assert.strictEqual(det.costos.sistema, 10000); // el granel sigue con su mercadería
+    // granel (mercadería por unidad: 10000 $/kg × 0,5 kg), insumo y mano de obra
+    assert.deepStrictEqual(det.presentaciones[0].componentesCosto.map(l => [l.plu, l.rol, l.importe]),
+      [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 100]]);
+    const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
+    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [['sinMaquina'], undefined]);
+  } finally { a.cerrar(); }
+});
+
+test('listado Fraccionado sin costeo.fraccionado: como antes (sin avisos ni costeo)', async () => {
+  const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.deepStrictEqual([det.presentaciones[0].costos.sistema, det.avisosCosto], [10000, undefined]);
+  } finally { a.cerrar(); }
+});

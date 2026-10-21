@@ -5,6 +5,7 @@ const cfgEsq = require('../lib/precios_config_esquema');
 const { rangoDesdeCostos } = require('../lib/precios_esquema');
 const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
+const { normalizarCosteoFraccionado, plusInsumos } = require('../lib/precios_fraccionado_costo');
 const { formulasPesables } = require('../lib/formulas_pesables');
 const { plusVentaProduccion, validarMargenProducto } = require('../lib/precios_produccion');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
@@ -97,9 +98,12 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       return L.listadoReventa({ universo, costeo, excluir, ...ctx });
     }
     if (tipo === 'fraccionado') {
+      // costeo.fraccionado (Configuración › Costeo Fraccionado): sin migrar → null y el listado queda como antes.
+      const costeoF = costeo.fraccionado ? normalizarCosteoFraccionado(costeo.fraccionado) : null;
       const formulas = await formulasVigentes();
-      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo), consultas.universoFraccionado(formulas)]);
-      return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, ...ctx });
+      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
+        consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);
+      return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, costeoF, ...ctx });
     }
     const [ctx, presentaciones] = await Promise.all([contexto(costeo, tipo), presentacionesProduccion(costeo)]);
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
