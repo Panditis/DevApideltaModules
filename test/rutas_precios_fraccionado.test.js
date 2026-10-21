@@ -82,18 +82,41 @@ test('escalas: se guardan validadas', async () => {
   } finally { a.cerrar(); }
 });
 
+// SIGA falso con el universo de Fraccionado: presentaciones 101 y 102 (rubro Fraccionado) y 103 (Venta Directa).
+const queryUniverso = async sql => {
+  if (sql.includes("'Pesables Fraccionado'")) return [{ IdProducto: '101', NombreProducto: 'Almendra 500G' }, { IdProducto: '102', NombreProducto: 'Almendra 1K' }];
+  if (sql.includes("'Pesables Venta Directa'")) return [{ IdProducto: '103', NombreProducto: 'Nuez 250G' }];
+  return [];
+};
+
 test('presentaciones: lote sin permiso de Configuración (no es /config), responde sin la configuración; lo viejo pasa a la forma nueva', async () => {
   const viejo = { ...FRACC, maquinas: [{ id: 'env', nombre: 'Envasadora', costoHora: 3000 }], facilidades: { facil: 1, medio: 1.3, dificil: 2 },
     tiempos: [{ hastaG: 1, minutos: 1 }], insumosPresentacion: { 102: [{ plu: '900', cantidad: 1 }] } };
-  const a = appCon({ fraccionado: viejo }, { guard: true, sinConfig: true });
+  const a = appCon({ fraccionado: viejo }, { guard: true, sinConfig: true, query: queryUniverso });
   try {
-    const r = await a.pedir('PUT', API_P, { cambios: [{ plu: '101', facilidad: 'normal', tiempo: 'lento' }, { plu: '102', tiempo: 'rapido' }] });
+    const r = await a.pedir('PUT', API_P, { cambios: [{ plu: '101', facilidad: 'normal', tiempo: 'lento' }, { plu: '102', tiempo: 'rapido' }, { plu: '103', facilidad: 'facil' }] });
     assert.deepStrictEqual(r, { status: 200, ok: true });
     const f = a.leer().fraccionado;
-    assert.deepStrictEqual(f.presentaciones, { 101: { facilidad: 'normal', tiempo: 'lento' }, 102: { insumos: [{ plu: '900', cantidad: 1 }], tiempo: 'rapido' } });
+    assert.deepStrictEqual(f.presentaciones, { 101: { facilidad: 'normal', tiempo: 'lento' }, 102: { insumos: [{ plu: '900', cantidad: 1 }], tiempo: 'rapido' }, 103: { facilidad: 'facil' } });
     assert.deepStrictEqual([f.escalas.facilidad.normal, 'facilidades' in f, 'tiempos' in f, 'insumosPresentacion' in f], [1.3, false, false, false]);
     assert.match((await a.pedir('PUT', API_P, { cambios: [{ plu: '101', facilidad: 'medio' }] })).error, /facilidad/);
   } finally { a.cerrar(); }
+});
+
+test('presentaciones: un PLU que no es una presentación de Fraccionado rechaza todo el lote, lo nombra y no escribe', async () => {
+  const a = appCon({ fraccionado: FRACC }, { query: queryUniverso });
+  try {
+    const r = await a.pedir('PUT', API_P, { cambios: [{ plu: '101', tiempo: 'lento' }, { plu: '999999999999', facilidad: 'facil' }, { plu: '555', tiempo: null }] });
+    assert.match(r.error, /no es una presentación de Fraccionado: 999999999999, 555/);
+    assert.strictEqual(a.leer().fraccionado.presentaciones, undefined);
+  } finally { a.cerrar(); }
+  // un error de SIGA no se confunde con PLUs desconocidos: sube como error del servidor y tampoco escribe
+  const caida = appCon({ fraccionado: FRACC }, { query: async () => { throw new Error('timeout SIGA'); } });
+  try {
+    const c = await caida.pedir('PUT', API_P, { cambios: [{ plu: '101', tiempo: 'lento' }] });
+    assert.deepStrictEqual([c.status, c.error], [500, 'timeout SIGA']);
+    assert.strictEqual(caida.leer().fraccionado.presentaciones, undefined);
+  } finally { caida.cerrar(); }
 });
 
 test('GET costeo: config + productos por subrubro (graneles con sus presentaciones) y los sin subrubro', async () => {

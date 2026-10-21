@@ -32,6 +32,15 @@ test('normalizarCosteoFraccionado: lee la forma vieja (facilidades con medio, in
   assert.strictEqual(FC.normalizarCosteoFraccionado({ facilidades: { medio: 1.3 }, escalas: { facilidad: { normal: 1.1 } } }).escalas.facilidad.normal, 1.1);
 });
 
+test('normalizarCosteoFraccionado: escalas sólo con los ids conocidos y números > 0; el resto cae al default (o a lo viejo)', () => {
+  const e = FC.normalizarCosteoFraccionado({ escalas: { facilidad: { facil: '2', normal: 0, dificil: -1, medio: 3, otro: 1 }, tiempo: { rapido: NaN, normal: null, lento: 2 } } }).escalas;
+  assert.deepStrictEqual(e, { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 }, tiempo: { rapido: 0.75, normal: 1, lento: 2 } });
+  assert.deepStrictEqual(Object.keys(e.facilidad), ['facil', 'normal', 'dificil']);
+  // la forma vieja inválida tampoco pasa; la válida sí, y la nueva inválida cae a la vieja válida
+  const v = FC.normalizarCosteoFraccionado({ facilidades: { facil: 'x', medio: 1.3, dificil: Infinity }, escalas: { facilidad: { normal: -2 } } }).escalas.facilidad;
+  assert.deepStrictEqual(v, { facil: 1, normal: 1.3, dificil: 1.5 });
+});
+
 test('tramoDe: primer tramo que cubre el peso, arriba del último el último; sin tramos o sin peso null', () => {
   const ts = [{ hastaG: 250, minutos: 0.5 }, { hastaG: 1000, minutos: 1 }];
   assert.deepStrictEqual([FC.tramoDe(ts, 250).minutos, FC.tramoDe(ts, 251).minutos, FC.tramoDe(ts, 5000).minutos], [0.5, 1, 1]);
@@ -63,12 +72,17 @@ test('costearPresentacion: sin facilidad ni tiempo → factor 1 con aviso; sin i
 
 test('costearPresentacion: granel sin subrubro → sin minutos (aviso sinSubrubro); los insumos de la presentación igual suman', () => {
   const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: { plu: '100', subrubroId: null }, cf: CF, costoDe });
-  assert.deepStrictEqual([r.minutos, r.porUnidad, r.extraKg, r.avisos], [0, 20, 40, ['sinSubrubro', 'sinMaquina']]);
+  assert.deepStrictEqual([r.minutos, r.porUnidad, r.extraKg, r.avisos], [0, 20, 40, ['sinSubrubro']]); // sin minutos no avisa tiempo/facilidad/máquina
+  const sin = FC.costearPresentacion({ plu: '102', pesoG: 500, granel: { plu: '100', subrubroId: null }, cf: CF, costoDe });
+  assert.deepStrictEqual(sin.avisos, ['sinSubrubro', 'sinInsumos']);
 });
 
 test('costearPresentacion: subrubro sin tramos → aviso sinTramos; sin costo hora → aviso costoHora (MO en 0)', () => {
   const sinTramos = { ...CF, subrubros: { 7: { maquinaId: 'env', tramos: [] } } };
   assert.deepStrictEqual(FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: sinTramos, costoDe }).avisos, ['sinTramos']);
+  // sin tramo no hay minutos: tampoco se avisa el tiempo / la facilidad / la máquina que faltan (ruido)
+  const sinNada = FC.costearPresentacion({ plu: '102', pesoG: 500, granel: GRANEL, cf: { ...sinTramos, subrubros: { 7: { tramos: [] } } }, costoDe });
+  assert.deepStrictEqual(sinNada.avisos, ['sinTramos', 'sinInsumos']);
   const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: { ...CF, costoHora: null }, costoDe });
   assert.deepStrictEqual([r.avisos, r.lineas[1].importe], [['costoHora'], 0]);
 });

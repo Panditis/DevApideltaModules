@@ -36,12 +36,17 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
       maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0, subrubros: 0 } })) };
   }
 
-  // calcular(req, cf) → cambios para costeo.fraccionado (o tira). Sin await entre leer y escribir. responder(fraccionado nuevo).
-  const guardarFracc = (calcular, responder = f => ({ migrado: true, ...vista(f) })) => apiRoute(async (req) => {
+  // calcular(req, cf, contexto) → cambios para costeo.fraccionado (o tira). Sin await entre leer y escribir. responder(fraccionado
+  // nuevo). preparar() (opcional, async: pide algo a SIGA) corre antes de leer el archivo, y sólo si ya está migrado; su
+  // resultado es el contexto de calcular. Si falla sube como error del servidor y no se escribe nada.
+  const sinMigrar = costeo => !cfgEsq.fraccionadoMigrado(costeo);
+  const guardarFracc = (calcular, responder = f => ({ migrado: true, ...vista(f) }), preparar = null) => apiRoute(async (req) => {
+    if (preparar && sinMigrar(leerCosteo())) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
+    const contexto = preparar ? await preparar() : null;
     const costeo = leerCosteo();
-    if (!cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
+    if (sinMigrar(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
     let cambios;
-    try { cambios = calcular(req, FC.normalizarCosteoFraccionado(costeo.fraccionado)); } catch (err) { return { error: err.message }; }
+    try { cambios = calcular(req, FC.normalizarCosteoFraccionado(costeo.fraccionado), contexto); } catch (err) { return { error: err.message }; }
     const fraccionado = CF.fraccionadoConCambios(costeo.fraccionado, cambios);
     guardarJSON(COSTEO_PATH, { ...costeo, fraccionado });
     return responder(fraccionado);
@@ -68,9 +73,15 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   router.put(`${BASE}/subrubros/:id`, guardarFracc((req, cf) => ({ subrubros: CF.aplicarSubrubro(cf.subrubros, idDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: no se valida que el PLU sea un granel del listado (sería pedir SIGA); una entrada de un PLU que no está no costea nada.
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
-  // Trabajo: responde sólo ok (sin la configuración: lo usa quien no tiene precios-config). ponytail: tampoco se valida que
-  // cada PLU sea una presentación de Fraccionado.
-  router.put(API_PRESENTACIONES, guardarFracc((req, cf) => ({ presentaciones: CF.aplicarPresentaciones(cf.presentaciones, cuerpo(req)) }), () => ({ ok: true })));
+  // Trabajo: responde sólo ok (sin la configuración: lo usa quien no tiene precios-config). Cualquier usuario de Precios la usa:
+  // cada PLU tiene que ser una presentación del universo de Fraccionado (el mismo del listado), el lote entero se rechaza si no.
+  // ponytail: arma el universo entero (con costos) sólo para tener los PLUs; una consulta liviana de presentaciones si pesa.
+  const plusPresentaciones = async () => {
+    const { presentaciones } = await consultas.universoFraccionado(await formulasVigentes());
+    return new Set(presentaciones.map(p => String(p.plu)));
+  };
+  router.put(API_PRESENTACIONES, guardarFracc((req, cf, permitidos) => ({ presentaciones: CF.aplicarPresentaciones(cf.presentaciones, cuerpo(req), permitidos) }),
+    () => ({ ok: true }), plusPresentaciones));
 
   return router;
 };

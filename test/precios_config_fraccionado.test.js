@@ -62,7 +62,19 @@ test('aplicarPresentaciones: lote de cambios; campo ausente no toca, null saca, 
   assert.throws(() => CF.aplicarPresentaciones({}, { cambios: [{ plu: 'x' }] }), /PLU/);
   assert.throws(() => CF.aplicarPresentaciones({}, { cambios: [{ plu: '1', insumos: [{ plu: '9', cantidad: 0 }] }] }), /cantidad/);
   assert.throws(() => CF.aplicarPresentaciones({}, { cambios: [] }), /vacío/);
+  assert.throws(() => CF.aplicarPresentaciones({}, { cambios: Array.from({ length: 501 }, (_, i) => ({ plu: String(i + 1), tiempo: 'lento' })) }), /cambios: máximo 500/);
+  assert.strictEqual(Object.keys(CF.aplicarPresentaciones({}, { cambios: Array.from({ length: 500 }, (_, i) => ({ plu: String(i + 1), tiempo: 'lento' })) })).length, 500);
   assert.throws(() => CF.aplicarPresentaciones({}, {}), /lista/);
+});
+
+test('aplicarPresentaciones: con permitidos, un PLU que no es del universo rechaza todo el lote y los nombra', () => {
+  const permitidos = new Set(['101', '102']);
+  assert.deepStrictEqual(CF.aplicarPresentaciones({}, { cambios: [{ plu: '101', tiempo: 'lento' }] }, permitidos), { 101: { tiempo: 'lento' } });
+  assert.throws(() => CF.aplicarPresentaciones({}, { cambios: [{ plu: '101', tiempo: 'lento' }, { plu: '777' }, { plu: '888', tiempo: null }, { plu: '777' }] }, permitidos),
+    /no es una presentación de Fraccionado: 777, 888$/);
+  const muchos = Array.from({ length: 15 }, (_, i) => ({ plu: String(900 + i) }));
+  assert.throws(() => CF.aplicarPresentaciones({}, { cambios: muchos }, permitidos), /900.*909 y 5 más$/);
+  assert.throws(() => CF.aplicarPresentaciones({}, { cambios: [{ plu: 'x' }] }, permitidos), /PLU/); // el formato inválido sigue siendo su error
 });
 
 test('fraccionadoConCambios: escribe la forma nueva (sin claves viejas) sin perder los datos viejos', () => {
