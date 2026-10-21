@@ -1,24 +1,5 @@
 'use strict';
 // ── Modal responsables ────────────────────────────────────────────
-// ── Panel envases ─────────────────────────────────────────────────
-async function cargarEnvases() {
-  try {
-    const data = await api('GET', '/api/envases');
-    const html = data.map(e => {
-      const warn = e.StockActual <= 0;
-      return `<div class="granel-row${warn ? ' warn' : ''}">
-        <div class="g-nombre">${warn ? '⚠ ' : ''}${escHtml(e.NombreProducto)}</div>
-        <div class="g-stock">Stock: <strong>${e.StockActual}</strong></div>
-      </div>`;
-    }).join('');
-    document.getElementById('panelEnvases').innerHTML =
-      html || '<div class="loading">Sin envases registrados.</div>';
-  } catch (e) {
-    document.getElementById('panelEnvases').innerHTML =
-      `<div class="loading" style="color:red">Error: ${escHtml(e.message)}</div>`;
-  }
-}
-
 // ── Tab Envases (registro persistente con autocompletar Siga) ────
 let envasesReg = [];
 async function cargarEnvasesReg() {

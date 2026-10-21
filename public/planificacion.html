@@ -308,7 +308,6 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 #overlayBuscar .buscar-empty .be-icon { font-size: 34px; display: block; margin-bottom: 8px; opacity: .5; }
 
 /* ── RESUMEN LAYOUT ── */
-.resumen-layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
 .granel-panel { display: flex; flex-direction: column; gap: 8px; }
 .granel-row { background: var(--card); border: 1px solid var(--md-outline-variant); border-radius: var(--radius); padding: 12px 14px; }
 .granel-row.warn { border-color: var(--red-border); background: var(--red-bg); }
@@ -367,8 +366,6 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 .mov-chip { margin-top:4px; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; cursor:help; }
 .expand-btn { background:none; border:none; cursor:pointer; color:var(--muted); font-size:11px; padding:2px 4px; }
 .grupo-row:hover { background:rgba(64,89,54,.05) !important; }
-.sort-th { cursor:pointer; user-select:none; white-space:nowrap; }
-.sort-th:hover { background:rgba(64,89,54,.08); color:var(--verde); }
 #tablaSugerencias thead th { position:sticky; top:0; z-index:2; background:var(--md-surface-1); box-shadow:0 1px 0 var(--md-outline-variant); }
 .col-sug { background:rgba(64,89,54,.07); border-left:2px solid rgba(64,89,54,.18); }
 thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde); font-weight:700; }
@@ -419,7 +416,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 @keyframes md-ripple { to { transform:scale(2.2); opacity:0; } }
 
 @media (max-width: 900px) {
-  .resumen-layout { grid-template-columns: 1fr; }
   .metrics-row    { grid-template-columns: repeat(2, 1fr); }
   .cal-grid       { grid-template-columns: repeat(7, 1fr); gap: 6px; }
 }
@@ -568,11 +564,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   <div class="filter-bar">
     <label>Buscar:</label>
     <input type="text" id="filtroQ" placeholder="producto o rubro…" style="width:200px">
-    <label class="toggle-label">
-      <input type="checkbox" id="filtroSoloRojos"> Solo críticos (Alto)
-    </label>
-    <button class="btn btn-secondary btn-sm" id="btnSortRanking" onclick="setSort('ranking')" title="Ordenar por ranking (facturación + cantidad)">🏆 Ranking</button>
-    <button class="btn btn-secondary btn-sm" id="btnSortUrgencia" onclick="setSort('urgencia')" title="Ordenar por urgencia de stock">🚨 Urgencia</button>
     <span class="sep"></span>
     <button class="btn btn-secondary btn-sm" id="btnRecargar">Recargar</button>
     <label class="btn btn-secondary btn-sm" id="btnImportarCatalogo" title="Actualizar catálogo desde Excel" style="cursor:pointer;margin-left:4px">
@@ -581,28 +572,13 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
     </label>
   </div>
 
-  <div class="metrics-row">
-    <div class="metric-card red"><div class="m-val" id="mRed">—</div><div class="m-lbl">Críticos (Alto)</div></div>
-    <div class="metric-card amb"><div class="m-val" id="mAmb">—</div><div class="m-lbl">Próximos (Medio)</div></div>
-    <div class="metric-card red"><div class="m-val" id="mGranel">—</div><div class="m-lbl">Riesgo materia prima</div></div>
-    <div class="metric-card">    <div class="m-val" id="mPend" style="color:#1e40af">—</div><div class="m-lbl">Ped. mayoristas (7d)</div></div>
-  </div>
-
-  <div class="resumen-layout">
-    <div class="card" id="cardSugerencias">
-      <div class="card-header">
-        Productos que necesitan producción
-        <span class="spacer"></span>
-        <span id="countSugerencias" class="text-sm" style="opacity:0.8"></span>
-      </div>
-      <div id="tablaSugerencias"><div class="loading">Cargando datos desde Siga…</div></div>
+  <div class="card" id="cardSugerencias">
+    <div class="card-header">
+      Productos que necesitan producción
+      <span class="spacer"></span>
+      <span id="countSugerencias" class="text-sm" style="opacity:0.8"></span>
     </div>
-    <div>
-      <div class="card">
-        <div class="card-header">Envases</div>
-        <div id="panelEnvases" style="max-height:600px;overflow-y:auto"><div class="loading">Cargando…</div></div>
-      </div>
-    </div>
+    <div id="tablaSugerencias"><div class="loading">Cargando datos desde Siga…</div></div>
   </div>
 </div>
 
@@ -794,12 +770,12 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL DETALLE DE STOCK -->
 <div class="overlay" id="overlayStockDet">
-  <div class="modal" style="width:min(880px,94vw)">
+  <div class="modal" style="width:auto;max-width:90vw">
     <div class="modal-header">
-      <span>📊 Detalle de stock — <span id="stockDetTitulo"></span></span>
+      <span>🔍 Stock en sucursales · <span id="stockDetTitulo"></span></span>
       <span class="close" onclick="document.getElementById('overlayStockDet').classList.remove('open')">✕</span>
     </div>
-    <div style="padding:18px 20px;overflow:auto" id="stockDetBody">
+    <div style="padding:18px 20px;overflow-x:hidden;overflow-y:auto" id="stockDetBody">
       <div class="loading">Cargando…</div>
     </div>
   </div>
