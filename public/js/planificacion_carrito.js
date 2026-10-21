@@ -161,19 +161,17 @@ function cambiarCantLinea(id, delta) {
 }
 
 // ── Render ───────────────────────────────────────────────────────
-const CARRITO_SEL_STYLE = 'width:100%;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:system-ui,sans-serif';
-
 function selectPack(l, campo) {
   const pk = packagingCache[String(l.idProducto)] || {};
   const envOpts = opcionesPack(envasesReg, pk.envase);
   const opts = campo === 'envase' ? envOpts : tapasParaEnvase(envOpts, opcionesPack(tapasReg, pk.tapa), l.envase);
-  return `<select style="${CARRITO_SEL_STYLE}" onchange="editarLinea(${l._id},'${campo}',this.value)"${campo === 'tapa' && !l.envase ? ' disabled' : ''}>
+  return `<select class="cart-sel" onchange="editarLinea(${l._id},'${campo}',this.value)"${campo === 'tapa' && !l.envase ? ' disabled' : ''}>
     <option value="">—</option>
     ${opts.map(o => `<option value="${escHtml(String(o.codigo))}" ${String(o.codigo) === String(l[campo] || '') ? 'selected' : ''}>${escHtml(o.nombre || o.codigo)}</option>`).join('')}
   </select>`;
 }
 function selectCliente(l) {
-  return `<select style="${CARRITO_SEL_STYLE}" onchange="editarLinea(${l._id},'cliente',this.value)">
+  return `<select class="cart-sel" onchange="editarLinea(${l._id},'cliente',this.value)">
     <option value="">—</option>
     ${clientesReg.map(c => `<option value="${escHtml(String(c.id))}" ${String(c.id) === String(l.cliente || '') ? 'selected' : ''}>${escHtml(c.nombre)}</option>`).join('')}
   </select>`;
