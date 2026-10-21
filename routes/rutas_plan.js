@@ -5,6 +5,7 @@ const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
 const { puntajePrioridad, clasesABC, nivelUrgencia, compararUrgencia, calcularCobertura } = require('../lib/plan_prioridad');
+const { filtrarSucursalesReales, sqlExcluirSucursales } = require('../lib/sucursales_no_reales');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -104,13 +105,13 @@ INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdT
 INNER JOIN Sucursales s ON s.IdSucursal=v.IdSucursal
 INNER JOIN Productos p ON p.IdProducto=vp.IdProducto
 WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND s.SoyLaCentral=1 AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' ${rubros ? `AND p.IdRubro IN (${rubros})` : ''}
+  AND s.SoyLaCentral=1 AND ${sqlExcluirSucursales('v.IdSucursal')} AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' ${rubros ? `AND p.IdRubro IN (${rubros})` : ''}
 GROUP BY vp.IdProducto`;
 }
 function sqlPendientes() {
   return `SELECT pp.IdProducto, SUM(pp.CantPendiente) AS UnidPendientes
 FROM PedidosProductos pp INNER JOIN Pedidos ped ON ped.IdSucursal=pp.IdSucursal AND ped.NumeroPedido=pp.NumeroPedido
-WHERE pp.CantPendiente>0 AND ped.FechaPedido >= DATEADD(DAY,-7,CAST(GETDATE() AS DATE))
+WHERE pp.CantPendiente>0 AND ped.FechaPedido >= DATEADD(DAY,-7,CAST(GETDATE() AS DATE)) AND ${sqlExcluirSucursales('ped.IdSucursal')}
 GROUP BY pp.IdProducto`;
 }
 
@@ -196,6 +197,7 @@ FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.
   AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
 LEFT  JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT  JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
 WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
+  AND ${sqlExcluirSucursales('v.IdSucursal')}
   AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
@@ -204,19 +206,20 @@ function sqlStockTodosDepositos(pluList) {
   return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
 INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
 INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-WHERE s.SoyLaCentral=1 AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
+WHERE s.SoyLaCentral=1 AND ${sqlExcluirSucursales('pd.IdSucursal')} AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
 }
 function sqlStockSucursales(pluList) {
   // Stock en sucursales (todas menos Casa Central): SoyLaCentral=0
   return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
 INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
 INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-WHERE s.SoyLaCentral=0 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
+WHERE s.SoyLaCentral=0 AND ${sqlExcluirSucursales('pd.IdSucursal')} AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
 }
 function sqlPendientesPorPlu(pluList) {
   return `SELECT pp.IdProducto, SUM(pp.CantPendiente) AS UnidPendientes FROM PedidosProductos pp
 INNER JOIN Pedidos ped ON ped.IdSucursal=pp.IdSucursal AND ped.NumeroPedido=pp.NumeroPedido
 WHERE pp.CantPendiente>0 AND ped.FechaPedido >= DATEADD(DAY,-7,CAST(GETDATE() AS DATE))
+  AND ${sqlExcluirSucursales('ped.IdSucursal')}
   AND pp.IdProducto IN (${pluList.join(',')}) GROUP BY pp.IdProducto`;
 }
 function sqlFacturacionPorPlu(pluList, ventana) {
@@ -225,6 +228,7 @@ FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.
   AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
 LEFT JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
 WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
+  AND ${sqlExcluirSucursales('v.IdSucursal')}
   AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
@@ -508,7 +512,7 @@ router.get('/api/plan/stock-detalle', apiRoute(async req => {
     sucursalesSiga(),
   ]);
   const nomMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
-  const sucursales = sucs.map(sucursalPublica);
+  const sucursales = filtrarSucursalesReales(sucs).map(sucursalPublica);
   // Granel: mismo criterio que granelMap en calcularSugerenciasCatalogo (sqlStockTodosDepositos) —
   // por PLU en todos los depósitos de la central, sin filtrar por nombre de depósito (el LIKE
   // '%GRANEL%' devuelve otra cosa: ningún depósito de Siga se llama así). Antes este endpoint usaba
@@ -519,6 +523,7 @@ router.get('/api/plan/stock-detalle', apiRoute(async req => {
     INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
     INNER JOIN Sucursales s ON s.IdSucursal=sd.IdSucursal
     WHERE ${soloGranel ? `s.SoyLaCentral=1` : `sd.DisponibleVenta=1`}
+      AND ${sqlExcluirSucursales('pd.IdSucursal')}
       AND CAST(pd.IdProducto AS VARCHAR) IN (${quote(ids)})
     GROUP BY pd.IdProducto, pd.IdSucursal`) : [];
   const [presRows, granRows] = await Promise.all([stockPorSuc(plus, false), stockPorSuc(graneles, true)]);
