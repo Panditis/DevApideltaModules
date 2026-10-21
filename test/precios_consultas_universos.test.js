@@ -57,7 +57,8 @@ test('graneles con subrubro: lo trae de SubRubros; sin la tabla cae a sin subrub
       { IdProducto: 102, NombreProducto: 'Sal', IdSubRubro: null, NombreSubRubro: null }]
     : []);
   const c = crearConsultasPrecios({ ...deps, query: conSub });
-  assert.deepStrictEqual(await c.subrubrosGraneles(), [{ id: '7', nombre: 'Frutos secos', graneles: 2 }]);
+  assert.deepStrictEqual((await c.universoFraccionado({})).graneles.map(g => [g.plu, g.subrubroId, g.subrubro]),
+    [['100', '7', 'Frutos secos'], ['101', '7', 'Frutos secos'], ['102', null, null]]);
 
   let conSubRubros = 0;
   const sinTabla = async sql => {
@@ -65,10 +66,10 @@ test('graneles con subrubro: lo trae de SubRubros; sin la tabla cae a sin subrub
     return sql.includes("'Pesables Deposito'") ? [{ IdProducto: 100, NombreProducto: 'Almendras' }] : [];
   };
   const s = crearConsultasPrecios({ ...deps, query: sinTabla });
-  assert.deepStrictEqual(await s.subrubrosGraneles(), []);
   assert.deepStrictEqual((await s.universoFraccionado({})).graneles, [{ plu: '100', nombre: 'Almendras', subrubroId: null, subrubro: null }]);
+  await s.universoFraccionado({});
   assert.strictEqual(conSubRubros, 1); // se recuerda: no se vuelve a probar
 
   const caida = crearConsultasPrecios({ ...deps, query: async () => { throw new Error('timeout'); } });
-  await assert.rejects(caida.subrubrosGraneles(), /timeout/);
+  await assert.rejects(caida.universoFraccionado({}), /timeout/);
 });

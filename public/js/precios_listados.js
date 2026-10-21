@@ -132,22 +132,21 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
   ...lista.map(r => [pluXlsx(r.codigo), r.nombre || null, r.costo ?? null, r.precio ?? null, r.costoSistema ?? null, r.costoUltimaCompra ?? null,
     r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
-// Costeo de Fraccionado (spec 2026-10-21 §3.1): textos de los avisos que no bloquean el precio (se completan en Configuración ›
-// Costeo Fraccionado o en el modal del granel) y "facilidad · máquina" del granel.
-const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinFacilidad: 'granel sin facilidad (factor 1)',
-  sinMaquina: 'granel sin máquina', sinTiempos: 'sin tiempos por peso cargados', costoHora: 'sin costo hora de Fraccionado',
-  sinInsumos: 'sin insumos (regla del subrubro o propios)' };
-const TXT_FACILIDAD_LST = { facil: 'Fácil', medio: 'Medio', dificil: 'Difícil' };
+// Costeo de Fraccionado (spec 2026-10-21 §9.2): textos de los avisos que no bloquean el precio (se completan en la tab
+// Fraccionado — facilidad, tiempo, insumos — o en Configuración › Costeo Fraccionado) y "subrubro · máquina" del granel.
+const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinSubrubro: 'granel sin subrubro en SIGA (sin mano de obra ni máquina)',
+  sinTramos: 'su subrubro no tiene tiempos por peso', sinTiempo: 'presentación sin tiempo (× 1)', sinFacilidad: 'presentación sin facilidad (× 1)',
+  sinMaquina: 'sin máquina (ni del subrubro ni del granel)', costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'presentación sin insumos' };
 const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
 // costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS).
-const textoCosteoGranel = c => `${TXT_FACILIDAD_LST[c.facilidad] || 'sin facilidad'} · ${c.maquina || 'sin máquina'}`;
+const textoCosteoGranel = c => `${c.subrubro || 'sin subrubro'} · ${c.maquina ? `${c.maquina}${c.maquinaOrigen === 'granel' ? ' (propia del granel)' : ''}` : 'sin máquina'}`;
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
-const lstCols = tipo => (tipo === 'produccion' ? 8 : tipo === 'almacen' ? 11 : 9); // Reventa suma Proveedor y Tipo
+const lstCols = tipo => (tipo === 'produccion' ? 8 : tipo === 'almacen' ? 11 : 13); // Reventa suma Proveedor y Tipo; Fraccionado, selección + facilidad, tiempo e insumos
 let lstDatos = {};                                                  // tipo → filas del server
 let lstVariedadesEnv = [];                                          // variedades envasadas (tarjetas de producto base, resumenBases)
 let lstCostoFamiliaEnv = {};                                        // producto base → precio de materia prima $/kg (GET /envasado/opciones)
@@ -189,7 +188,7 @@ const badgeMargenProducto = f => {
   const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${!fijo && v > 0 ? '+' : ''}${fmtNum(v)} %`).join(' · ');
   return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${fijo ? 'Margen fijo' : 'Ajuste de margen'} del producto: ${esc(t)}">${fijo ? 'm=' : '±m'}</span>`;
 };
-// Avisos del costeo (⚠ n, detalle en el title) + facilidad · máquina del granel. avisosCosto es público; costeoGranel no.
+// Avisos del costeo (⚠ n, detalle en el title) + subrubro · máquina del granel. avisosCosto es público; costeoGranel no.
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length
   ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')
   + (f.costeoGranel ? ` <span class="text-xs text-gris font-normal">${ESC_LST(textoCosteoGranel(f.costeoGranel))}</span>` : '');
@@ -215,9 +214,9 @@ function filaHtml(f, tipo) {
   }
   const fracc = tipo === 'fraccionado';
   const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
-    <td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
+    ${celdasFP(p, pendFP, selFP)}<td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>${fracc ? CELDAS_VACIAS_FP : ''}
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
@@ -230,7 +229,8 @@ function htmlMarcoListado(tipo) {
   if (claseLst(tipo) === 'envasado') return htmlMarcoBases(f); // precios_produccion_envasado.js: tarjetas de producto base
   // [texto, clave de orden]. En Fraccionado vigente y sugeridos son de las presentaciones, no del granel: no se ordenan.
   const ths = prod ? [['Código', 'plu'], ['Producto', 'nombre'], ['Costo', 'costoSistema'], ['Vigente', 'vigente'], ['Sugerido', 'sugeridoSistema'], ['A revisar'], ['Decisión'], ['']]
-    : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'], ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
+    : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'],
+      ...(fracc ? [['<span class="sr-only">Selección</span>', null, 'fp-col'], ['Facilidad', null, 'fp-col'], ['Tiempo', null, 'fp-col'], ['Insumos', null, 'fp-col']] : []), ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
       ...(alm ? [['Proveedor', 'proveedor'], ['Tipo', 'tipoProveedor']] : []), ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima'], ['Decisión']];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
@@ -249,8 +249,9 @@ function htmlMarcoListado(tipo) {
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
     ${prod ? '<button type="button" class="lst-nuevo cfg-btn" title="Producto con receta (ej. pepas, granola)">+ Nuevo</button>' : ''}
   </div>
-  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
-    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
+  ${fracc ? htmlBarraFP() : ''}
+  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm${fracc ? ' fp-sin-cols' : ''}">
+    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k, c = ''], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''} ${c}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
     <tbody class="lst-cuerpo"><tr><td colspan="${lstCols(tipo)}" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody></table></div>`;
 }
 
@@ -281,6 +282,7 @@ function conectarListado(tipo, cont) {
     // Envasado Apidelta: tarjeta de producto base → su modal; la tarjeta "Nuevo producto base" → alta.
     const t = e.target.closest('.eb-tarjeta'); if (t) (t.classList.contains('lst-nuevo') ? abrirBaseNueva() : abrirBaseEnvasado(t.dataset.familia));
   });
+  if (tipo === 'fraccionado') conectarFP(cont); // precios_fraccionado_presentaciones.js
 }
 
 // Headers del tab; el clic guarda el orden, re-monta los headers (▲/▼, aria-sort) y re-pinta sólo el tbody.
@@ -333,6 +335,7 @@ function renderListado(tipo) {
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   cuerpo.innerHTML = filas.length ? filas.map(fl => filaHtml(fl, tipo)).join('') : htmlSinFilas(tipo);
+  if (tipo === 'fraccionado') actualizarBarraFP(cont); // precios_fraccionado_presentaciones.js
 }
 const htmlSinFilas = tipo => `<tr><td colspan="${lstCols(tipo)}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
 // PUT de la decisión y actualización local (sin recargar SIGA). La usan el modal y los selects de decisión.
