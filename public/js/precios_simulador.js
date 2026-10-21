@@ -136,6 +136,6 @@ async function cargarSimulador() {
   const el = document.getElementById('simResultado');
   el.innerHTML = '<span class="spin"></span> Cargando configuración…';
   document.getElementById('simCosto').focus();
-  try { simCfg = await leerCfgEsq(); recalcularSim(); } // precios_config_esquema.js
+  try { const cfg = await leerCfgEsq(); if (!cfg) return; simCfg = cfg; recalcularSim(); } // precios_config_esquema.js; null = cambió el tipo, recarga el nuevo
   catch (e) { simCfg = null; el.innerHTML = `<p class="text-crit">No se pudo cargar la configuración: ${esc(e.message)}</p>`; }
 }

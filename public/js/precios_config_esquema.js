@@ -22,8 +22,12 @@ async function pedirEsq(method, url, body) {
   return j;
 }
 // La comparten Costos, Márgenes, Precio y el Simulador. Sin migrar: aviso arriba de Configuración.
+// null si el tipo del switch cambió mientras tanto: manda la carga del tipo nuevo (sin carreras al alternar rápido).
 async function leerCfgEsq() {
-  cfgEsq = await pedirEsq('GET', urlEsq());
+  const tipo = tipoCfgEsq;
+  const cfg = await pedirEsq('GET', urlEsq());
+  if (tipo !== tipoCfgEsq) return null;
+  cfgEsq = cfg;
   document.getElementById('cfgEsqAviso').classList.toggle('hidden', cfgEsq.migrado);
   document.getElementById('cfgFraccAviso').classList.toggle('hidden', !esFraccCfg() || cfgEsq.fraccionadoMigrado);
   return cfgEsq;
@@ -34,7 +38,7 @@ const pctEsq = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
 async function cargarPanelEsq(id, pintar) {
   const panel = document.getElementById(id);
   panel.innerHTML = '<div class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>';
-  try { pintar(panel, await leerCfgEsq()); }
+  try { const cfg = await leerCfgEsq(); if (cfg) pintar(panel, cfg); }
   catch (e) { panel.innerHTML = `<p class="text-sm text-crit py-4">No se pudo cargar: ${esc(e.message)}</p>`; }
 }
 const cargarCostosEsq = () => cargarPanelEsq('panel-costos', pintarCostosEsq);

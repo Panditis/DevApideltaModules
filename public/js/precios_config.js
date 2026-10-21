@@ -72,6 +72,10 @@ function activarSubConfig(sub){
     x.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll('#panel-configuracion .cfg-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'panel-' + sub));
+  // El switch Reventa | Fraccionado no aplica a General (pack/bulto). El aviso de Fraccionado: oculto en General y en Reventa;
+  // en Fraccionado lo decide leerCfgEsq (precios_config_esquema.js) al cargar.
+  document.getElementById('cfgTipo').classList.toggle('hidden', sub === 'general');
+  if (sub === 'general' || !esFraccCfg()) document.getElementById('cfgFraccAviso').classList.add('hidden');
   try { sessionStorage.setItem(CLAVE_SUBCONFIG, sub); } catch { /* sin storage: queda Costos la próxima vez */ }
   CARGA_SUBCONFIG[sub]();
 }

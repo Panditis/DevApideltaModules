@@ -36,7 +36,7 @@
   .seg-opt[aria-pressed="true"] b{color:#405936}
   .seg-opt:not(:disabled):not([aria-pressed="true"]):hover{background:rgba(64,89,54,.08)}
   .seg-opt:disabled{opacity:.4;cursor:not-allowed}
-  .seg-opt.hidden{display:none} /* ajustarTiposSim (precios_simulador.js): el display:flex de arriba le gana a .hidden de Tailwind */
+  .seg.hidden,.seg-opt.hidden{display:none} /* ajustarTiposSim (precios_simulador.js) y #cfgTipo en General: el display de arriba le gana a .hidden de Tailwind */
   /* Sub-tabs de Configuración: el mismo control segmentado, con texto de botón. */
   .seg-sub .seg-opt{font-size:13px;font-weight:600;padding:6px 16px}
   .seg-sub .seg-opt:focus-visible{outline:2px solid #405936;outline-offset:2px}
