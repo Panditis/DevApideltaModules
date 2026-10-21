@@ -501,8 +501,8 @@ async function confirmarEnviarProduccion() {
   }
 }
 
-document.getElementById('btnEnviarProd').addEventListener('click', abrirModalEnviar);
-document.getElementById('btnResumenMP').addEventListener('click', () => {
+document.getElementById('btnEnviarProd')?.addEventListener('click', abrirModalEnviar);
+document.getElementById('btnResumenMP')?.addEventListener('click', () => {
   const items = planCache?.items || [];
   if (!items.length) return;
   mostrarMPResumen(`📦 Materia Prima — ${fechaPlanActual || 'plan'}`, items);

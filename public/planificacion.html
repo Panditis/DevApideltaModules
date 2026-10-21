@@ -616,23 +616,13 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   <!-- Acciones -->
   <div class="filter-bar">
     <button class="btn btn-secondary btn-sm" id="btnGestionResp">Responsables</button>
-    <button class="btn btn-danger btn-sm"    id="btnBorrarPlan"    disabled>🗑 Borrar todo</button>
-    <button class="btn btn-secondary btn-sm" id="btnResumenMP"     disabled title="Ver resumen de materia prima del plan">📦 Resumen MP</button>
-    <button class="btn btn-secondary btn-sm" id="btnReservaMerc"  disabled title="Reservar los componentes de fórmula del plan">🔒 Reservar mercadería</button>
-    <button class="btn btn-secondary btn-sm" id="btnMovStock" title="Ver el resumen de reservas del plan y revertirlas">🧾 Resumen de reservas</button>
-    <label id="lblMovStockOn" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin:0"
-           title="Si se desactiva, este equipo no manda movimientos de stock a SiGA: el plan sigue funcionando pero sin reservar mercadería">
-      <input type="checkbox" id="chkMovStockOn" style="margin:0" checked> Carga a SiGA
-    </label>
-    <button class="btn btn-enviar"           id="btnEnviarProd"    disabled title="Enviar plan a Producción del Día">📤 Enviar a Producción</button>
+    <button class="btn btn-secondary btn-sm" id="btnMovStock" title="Movimientos de stock del plan">🧾 Movimientos</button>
+    <a class="btn btn-secondary btn-sm" href="/produccion">Ir a Producción del día →</a>
   </div>
 
   <div class="card" id="cardPlan">
     <div class="card-header">
       <span id="tituloPlan" style="flex:1">Seleccioná un día</span>
-      <span id="chipReservaPlan" class="estado-chip active" data-estado="listo"
-            style="display:none;cursor:pointer" title="Ver la reserva de mercadería"
-            onclick="abrirModalReserva()"></span>
       <span id="resumePlan" class="text-sm" style="opacity:0.8"></span>
     </div>
     <div id="tablaPlan">
@@ -1241,7 +1231,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <script src="/js/planificacion_estado.js"></script>
 <script src="/js/planificacion_resumen.js"></script>
-<script src="/js/planificacion_plan.js"></script>
+<script src="/js/planificacion_registro.js"></script>
 <script src="/js/planificacion_registros.js"></script>
 <script src="/js/planificacion_envio.js"></script>
 <script src="/js/planificacion_catalogo.js"></script>

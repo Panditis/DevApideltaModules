@@ -692,7 +692,7 @@ app.get('/js/precios_esquema.js', (_req, res) => res.sendFile(path.join(__dirnam
 app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_esquema.js')));
 app.get('/js/compras_siga.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'compras_siga.js')));
 // Whitelist explícita: el proyecto no usa express.static.
-for (const n of ['estado', 'resumen', 'plan', 'registros', 'envio', 'catalogo', 'agenda', 'init', 'formulas', 'mp', 'carrito', 'reserva', 'movimientos']) {
+for (const n of ['estado', 'resumen', 'registro', 'registros', 'envio', 'catalogo', 'agenda', 'init', 'formulas', 'mp', 'carrito', 'reserva', 'movimientos']) {
   app.get(`/js/planificacion_${n}.js`, (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', `planificacion_${n}.js`)));
 }
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));

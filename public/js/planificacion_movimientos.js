@@ -343,8 +343,8 @@ async function revertirMovStock(idx) {
 }
 
 const chkMovStockOn = document.getElementById('chkMovStockOn');
-chkMovStockOn.checked = movStockHabilitado();
-chkMovStockOn.addEventListener('change', () => {
+if (chkMovStockOn) chkMovStockOn.checked = movStockHabilitado();
+chkMovStockOn?.addEventListener('change', () => {
   try { localStorage.setItem(MOV_STOCK_LS_KEY, chkMovStockOn.checked ? '1' : '0'); } catch (e) {}
   aplicarEstadoBotonReserva();
   toast(chkMovStockOn.checked

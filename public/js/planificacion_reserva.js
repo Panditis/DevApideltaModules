@@ -998,7 +998,7 @@ async function anularReserva() {
   catch (e) { toast('Error al refrescar el plan: ' + e.message, true); }
 }
 
-document.getElementById('btnReservaMerc').addEventListener('click', abrirModalReserva);
+document.getElementById('btnReservaMerc')?.addEventListener('click', abrirModalReserva);
 document.getElementById('cerrarReserva').addEventListener('click', cerrarModalReserva);
 document.getElementById('btnCerrarReservaFooter').addEventListener('click', cerrarModalReserva);
 document.getElementById('btnConfirmarReserva').addEventListener('click', onClickBotonReserva);
