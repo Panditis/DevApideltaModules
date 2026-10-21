@@ -18,6 +18,12 @@ test('claveItem: granel por producto, fraccionado por rubro (fallback producto)'
 test('claveOrden coincide con claveItem del ítem que la generó', () => {
   assert.strictEqual(pe.claveOrden({ producto: 'Miel', presentaciones: [] }), 'F|miel');
   assert.strictEqual(pe.claveOrden({ producto: 'Miel Granel' }), 'G|miel granel');
+  const granel = { esGranel: true, producto: 'Miel Granel ', idGranel: '900', cantConfirmada: 5 };
+  const fracc = { producto: 'Miel 500g', rubro: 'Miel ', cantConfirmada: 5 };
+  const opts = { fecha: 'F', ahora: 1, ...resolvers };
+  for (const it of [granel, fracc]) {
+    assert.strictEqual(pe.claveItem(it), pe.claveOrden(pe.construirOrdenes([it], opts)[0]));
+  }
 });
 
 test('validarItemsEnvio rechaza vacío, sin producto y cantidad <= 0', () => {
@@ -140,6 +146,7 @@ test('sincronizarOrdenes: actualiza conservando id/estado/Urgente, agrega nuevas
     { id: 100, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 30, estado: 'pendiente', criticidad: 'Media' },
     { id: 101, fecha: 'F', producto: 'Granel Y', cantidad: 8, estado: 'pendiente', criticidad: 'Alta' },
   ];
+  const snapshot = JSON.parse(JSON.stringify(ordenes));
   const claves = new Set(['F|miel', 'F|coco', 'G|granel y']);
   const r = pe.sincronizarOrdenes(ordenes, armadas, { fecha: 'F', claves, protegida });
   assert.strictEqual(r.actualizadas, 1);
@@ -151,7 +158,7 @@ test('sincronizarOrdenes: actualiza conservando id/estado/Urgente, agrega nuevas
   assert.ok(r.ordenes.some(o => o.id === 3));
   assert.ok(r.ordenes.some(o => o.id === 4));
   assert.ok(r.ordenes.some(o => o.id === 101));
-  assert.strictEqual(ordenes[0].cantidad, 10); // no muta
+  assert.deepStrictEqual(ordenes, snapshot); // no muta
 });
 
 test('sincronizarOrdenes: protegida no se toca ni se duplica', () => {
@@ -160,4 +167,104 @@ test('sincronizarOrdenes: protegida no se toca ni se duplica', () => {
   const r = pe.sincronizarOrdenes(ordenes, armadas, { fecha: 'F', claves: new Set(['F|miel']), protegida });
   assert.deepStrictEqual(r.ordenes, ordenes);
   assert.strictEqual(r.nuevas + r.actualizadas + r.borradas, 0);
+});
+
+test('construirOrdenes: rubros que sólo difieren en mayúsculas/espacios son una sola orden', () => {
+  const ordenes = pe.construirOrdenes([
+    { producto: 'Miel 500g', rubro: 'Miel', cantConfirmada: 10 },
+    { producto: 'Miel 1kg', rubro: 'miel ', cantConfirmada: 20 },
+  ], { fecha: 'F', ahora: 1, ...resolvers });
+  assert.strictEqual(ordenes.length, 1);
+  assert.strictEqual(ordenes[0].producto, 'Miel');
+  assert.strictEqual(ordenes[0].cantidad, 30);
+  assert.strictEqual(pe.claveOrden(ordenes[0]), 'F|miel');
+});
+
+test('construirOrdenes: cantidades numéricas como string se suman como número', () => {
+  const [o] = pe.construirOrdenes([
+    { producto: 'A', rubro: 'R', cantConfirmada: '5' },
+    { producto: 'B', rubro: 'R', cantConfirmada: '3' },
+  ], { fecha: 'F', ahora: 1, ...resolvers });
+  assert.strictEqual(o.cantidad, 8);
+});
+
+test('construirOrdenes: reservaMovimientos = movimientos únicos sellados en sus ítems', () => {
+  const ordenes = pe.construirOrdenes([
+    { producto: 'A', rubro: 'R', cantConfirmada: 1, reservaMovimiento: { numeroMovimiento: 7 } },
+    { producto: 'B', rubro: 'R', cantConfirmada: 1, reservaMovimiento: { numeroMovimiento: 7 } },
+    { producto: 'C', rubro: 'R', cantConfirmada: 1, reservaMovimiento: { numeroMovimiento: 8 } },
+    { producto: 'D', rubro: 'R', cantConfirmada: 1, reservaMovimiento: null },
+    { producto: 'Granel', esGranel: true, cantConfirmada: 1, reservaMovimiento: { numeroMovimiento: 9 } },
+    { producto: 'Libre', rubro: 'L', cantConfirmada: 1 },
+  ], { fecha: 'F', ahora: 1, ...resolvers });
+  const por = n => ordenes.find(o => o.producto === n).reservaMovimientos;
+  assert.deepStrictEqual(por('R'), [7, 8]);
+  assert.deepStrictEqual(por('Granel'), [9]);
+  assert.deepStrictEqual(por('L'), []);
+});
+
+test('fusionarEnvioEnPlan: vacío ([] / false / "" / null) no pisa lo ya cargado', () => {
+  const previo = { fecha: 'F', items: [
+    { id: 1, producto: 'X', cantConfirmada: 1, responsables: ['Ana'], granelAparte: true, envase: 'E1', cliente: 7 },
+  ] };
+  const plan = pe.fusionarEnvioEnPlan(previo,
+    [{ producto: 'X', cantConfirmada: 1, responsables: [], granelAparte: false, envase: '', cliente: null }],
+    { fecha: 'F', envioId: 2, hora: 'h', usuario: 'u' });
+  const it = plan.items[0];
+  assert.deepStrictEqual(it.responsables, ['Ana']);
+  assert.strictEqual(it.granelAparte, true);
+  assert.strictEqual(it.envase, 'E1');
+  assert.strictEqual(it.cliente, 7);
+});
+
+test('fusionarEnvioEnPlan: cantidades string se suman como número', () => {
+  const plan = pe.fusionarEnvioEnPlan({ fecha: 'F', items: [{ id: 1, producto: 'X', cantConfirmada: '5' }] },
+    [{ producto: 'X', cantConfirmada: '3' }], { fecha: 'F', envioId: 2, hora: 'h', usuario: 'u' });
+  assert.strictEqual(plan.items[0].cantConfirmada, 8);
+  assert.deepStrictEqual(plan.items[0].envios.map(e => e.cantidad), [5, 3]);
+});
+
+test('validarItemsEnvio rechaza cantidad no numérica', () => {
+  assert.strictEqual(pe.validarItemsEnvio([{ producto: 'X', cantConfirmada: 'abc' }]).length, 1);
+});
+
+test('fusionarEnvioEnPlan: campos del servidor que vengan en el ítem no se guardan', () => {
+  const forjado = {
+    producto: 'X', cantConfirmada: 2, produccionMovimiento: { numeroMovimiento: 1 },
+    reservaMovimiento: { numeroMovimiento: 2 }, reservaDevuelta: { numeroMovimiento: 3 },
+    reservaError: 'x', envios: [{ id: 99 }], id: 77, estado: 'listo',
+  };
+  const plan = pe.fusionarEnvioEnPlan(undefined, [forjado], { fecha: 'F', envioId: 5, hora: 'h', usuario: 'u' });
+  const it = plan.items[0];
+  for (const k of ['produccionMovimiento', 'reservaMovimiento', 'reservaDevuelta', 'reservaError']) {
+    assert.ok(!(k in it), `${k} no debería guardarse`);
+  }
+  assert.strictEqual(it.id, 5);
+  assert.strictEqual(it.estado, 'pendiente');
+  assert.deepStrictEqual(it.envios.map(e => e.id), [5]);
+});
+
+test('sincronizarOrdenes: la orden actualizada une los movimientos previos con los del plan', () => {
+  const ordenes = [{ id: 1, fecha: 'F', producto: 'Miel', presentaciones: [], reservaMovimientos: [7] }];
+  const armadas = [{ id: 9, fecha: 'F', producto: 'Miel', presentaciones: [], reservaMovimientos: [7, 8] }];
+  const r = pe.sincronizarOrdenes(ordenes, armadas, { fecha: 'F', claves: new Set(['F|miel']), protegida });
+  assert.deepStrictEqual(r.ordenes[0].reservaMovimientos, [7, 8]);
+});
+
+test('sincronizarOrdenes: la orden nueva conserva los movimientos que trae', () => {
+  const armadas = [{ id: 9, fecha: 'F', producto: 'Miel', presentaciones: [], reservaMovimientos: [8] }];
+  const r = pe.sincronizarOrdenes([], armadas, { fecha: 'F', claves: new Set(['F|miel']), protegida });
+  assert.deepStrictEqual(r.ordenes[0].reservaMovimientos, [8]);
+});
+
+test('sincronizarOrdenes: duplicadas del día con la misma clave: actualiza la primera y borra el resto', () => {
+  const ordenes = [
+    { id: 1, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 1, estado: 'pendiente' },
+    { id: 2, fecha: 'F', producto: 'miel ', presentaciones: [], cantidad: 2, estado: 'pendiente' },
+  ];
+  const armadas = [{ id: 9, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 30 }];
+  const r = pe.sincronizarOrdenes(ordenes, armadas, { fecha: 'F', claves: new Set(['F|miel']), protegida });
+  assert.strictEqual(r.ordenes.length, 1);
+  assert.deepStrictEqual([r.ordenes[0].id, r.ordenes[0].cantidad], [1, 30]);
+  assert.deepStrictEqual([r.actualizadas, r.nuevas, r.borradas], [1, 0, 1]);
 });
