@@ -353,6 +353,15 @@ function textoResultado(cobertura, umbral, nivel) {
   return `${c} ≥ ${2 * umbral} → ${nombre}`;
 }
 
+// Qué ventas no cuentan: lo hecho por Casa Central, las sucursales no reales y las ventas internas a sucursales.
+function textoExclusiones(g, mayuscula) {
+  const partes = [];
+  if (g.excluyeCentral) partes.push('ventas de Casa Central');
+  if ((g.sucursalesExcluidas || []).length) partes.push(`sucursales ${listaY(g.sucursalesExcluidas.map(String))}`);
+  partes.push('ventas internas a sucursales');
+  return `${mayuscula ? 'Excluye' : 'excluye'} ${listaY(partes)}`;
+}
+
 function lineaImportancia(g) {
   return `puesto #${escHtml(String(g.rankingPos ?? '—'))} · clase ${escHtml(String(g.claseABC))} <span class="text-sm">(Pareto de facturación: A = primer 80 %, B = siguiente 15 %, C = resto)</span>`;
 }
@@ -363,7 +372,7 @@ function lineaUmbral(g) {
 
 function htmlCalculoPresentacion(g, p) {
   const d = datosUrgencia(g, p), unidad = g.esGranel ? 'kg' : 'u';
-  const excluye = (g.sucursalesExcluidas || []).length ? `excluye sucursales ${escHtml(listaY(g.sucursalesExcluidas.map(String)))} y ventas internas a sucursales` : 'excluye ventas internas a sucursales';
+  const excluye = textoExclusiones(g);
   const fila = (etq, valor) => `<tr><td>${etq}</td><td>${valor}</td></tr>`;
   const filas = [
     fila('Ventas en la ventana', `${nfAR(d.ventas, 2)} ${unidad} en ${nfAR(g.ventanaDias, 0)} días <span class="text-sm">(${excluye})</span>`),
@@ -395,7 +404,7 @@ function htmlCalculoGrupo(g) {
   return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
     <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th><th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th><th class="num">Cobertura</th><th>Nivel</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
-    <div class="urg-nota text-sm">${peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.'} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. Excluye ${escHtml((g.sucursalesExcluidas || []).length ? 'sucursales ' + listaY(g.sucursalesExcluidas.map(String)) + ' y ' : '')}ventas internas a sucursales.</div>`;
+    <div class="urg-nota text-sm">${peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.'} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. ${escHtml(textoExclusiones(g, true))}.</div>`;
 }
 
 // pi = índice de la presentación dentro del grupo, o -1 para la fila del grupo.

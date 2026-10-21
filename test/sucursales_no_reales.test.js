@@ -27,3 +27,13 @@ test('sqlExcluirSucursales: fragmento NOT IN con la lista; rechaza columnas que 
     assert.throws(() => sqlExcluirSucursales(mala), /columna/, String(mala));
   }
 });
+
+const { sqlExcluirCentral } = require('../lib/sucursales_no_reales');
+
+test('sqlExcluirCentral: excluye las ventas hechas por la sucursal central; rechaza columnas que no sean un identificador', () => {
+  assert.strictEqual(sqlExcluirCentral('v.IdSucursal'), 'v.IdSucursal NOT IN (SELECT IdSucursal FROM Sucursales WHERE SoyLaCentral=1)');
+  assert.strictEqual(sqlExcluirCentral('IdSucursal'), 'IdSucursal NOT IN (SELECT IdSucursal FROM Sucursales WHERE SoyLaCentral=1)');
+  for (const mala of ['', 'x; DROP TABLE y', "a' OR '1'='1", 'a b', null, undefined, 5]) {
+    assert.throws(() => sqlExcluirCentral(mala), /columna/, String(mala));
+  }
+});

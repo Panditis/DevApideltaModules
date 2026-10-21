@@ -5,7 +5,7 @@ const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
 const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura } = require('../lib/plan_prioridad');
-const { SUCURSALES_NO_REALES, filtrarSucursalesReales, sqlExcluirSucursales } = require('../lib/sucursales_no_reales');
+const { SUCURSALES_NO_REALES, filtrarSucursalesReales, sqlExcluirSucursales, sqlExcluirCentral } = require('../lib/sucursales_no_reales');
 const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_params');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
@@ -200,7 +200,7 @@ FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.
   AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
 LEFT  JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT  JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
 WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND ${sqlExcluirSucursales('v.IdSucursal')}
+  AND ${sqlExcluirSucursales('v.IdSucursal')} AND ${sqlExcluirCentral('v.IdSucursal')}
   AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
@@ -231,7 +231,7 @@ FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.
   AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
 LEFT JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
 WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND ${sqlExcluirSucursales('v.IdSucursal')}
+  AND ${sqlExcluirSucursales('v.IdSucursal')} AND ${sqlExcluirCentral('v.IdSucursal')}
   AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
   AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
 }
@@ -462,6 +462,7 @@ async function calcularSugerenciasCatalogo(params) {
     g.ventanaDias = ventana;                                  // para explicar el cálculo en el Resumen
     g.umbralUrgencia = umbralDeClase(g.claseABC, c.urgenciaDias);
     g.sucursalesExcluidas = SUCURSALES_NO_REALES;
+    g.excluyeCentral = true; // las ventas de Casa Central no cuentan en este análisis (ver sqlExcluirCentral)
     for (const p of g.presentaciones) {
       const cobertura = calcularCobertura((p.stockActual || 0) + (p.stockSucursales || 0), p.ventaDiariaUrg);
       p.coberturaDias = cobertura === null ? null : redondear1(cobertura);
