@@ -62,8 +62,9 @@ async function cargarCosteoFracc() {
 // Guardar un bloque: la respuesta del PUT es la config nueva (sin los productos, que no cambian) y se mezcla en cfFr; después
 // se repinta sólo lo guardado (repintar devuelve el bloque nuevo). Las otras tarjetas y su data-sucio quedan como están.
 async function guardarFr(bloque, ruta, body, repintar) {
-  const msg = bloque.querySelector('.esq-msg');
+  const msg = bloque.querySelector('.esq-msg'), boton = bloque.querySelector('.fr-guardar');
   msgEsq(msg, 'Guardando…');
+  boton.disabled = true; // un segundo click mientras se guarda mandaría el mismo PUT dos veces
   try {
     cfFr = { ...cfFr, ...(await pedirEsq('PUT', `${API_FR}${ruta}`, body)) };
     avisoFr(cfFr.migrado);
@@ -71,7 +72,7 @@ async function guardarFr(bloque, ruta, body, repintar) {
     const nuevo = repintar();
     msgEsq(nuevo && nuevo.querySelector('.esq-msg'), 'Guardado', 'text-ok');
     actualizarUsosMaquinasFr();
-  } catch (e) { msgEsq(msg, e.message, 'text-crit'); }
+  } catch (e) { msgEsq(msg, e.message, 'text-crit'); } finally { boton.disabled = false; }
 }
 function repintarFr(id, html, conectar) {
   const viejo = document.getElementById(id);
@@ -139,12 +140,22 @@ function actualizarUsosMaquinasFr() {
 }
 const opcionesMaquinaFr = actual => `<option value="">Sin máquina</option>${cfFr.maquinas
   .map(m => `<option value="${esc(m.id)}"${m.id === actual ? ' selected' : ''}>${esc(m.nombre)}</option>`).join('')}`;
-// Máquinas nuevas o renombradas en los selects de los subrubros, sin tocar lo elegido (guardado o no).
+const textoResumenSubFr = id => `· ${resumenSubrubroFr(cfFr.subrubros[id], cfFr.maquinas)}`;
+const textoPropiaFr = nombre => `· máquina propia: ${nombre}`;
+// Máquinas nuevas o renombradas en los selects de los subrubros, en el resumen de cada subrubro y en las "máquina propia" de
+// sus productos, sin tocar lo elegido (guardado o no) ni lo que se esté tipeando.
 function actualizarSelectsMaquinaFr() {
   document.querySelectorAll('#frSubrubros .fr-sub-maquina').forEach(sel => {
     const v = sel.value;
     sel.innerHTML = opcionesMaquinaFr(v);
     sel.value = cfFr.maquinas.some(m => m.id === v) ? v : '';
+  });
+  document.querySelectorAll('#frSubrubros details[data-sub]').forEach(det => {
+    det.querySelector('.fr-resumen').textContent = textoResumenSubFr(det.dataset.sub);
+  });
+  document.querySelectorAll('#frSubrubros .fr-propia').forEach(el => {
+    const m = cfFr.maquinas.find(x => x.id === el.dataset.maq);
+    if (m) el.textContent = textoPropiaFr(m.nombre);
   });
 }
 
@@ -175,7 +186,7 @@ function htmlProductoFr(g) {
   const propia = (cfFr.porGranel[g.plu] || {}).maquinaId;
   const nombreMaq = propia && (cfFr.maquinas.find(m => m.id === propia) || {}).nombre;
   return `<li data-q="${esc(`${g.nombre} ${pres}`)}">${esc(g.nombre)}${pres ? ` <span class="text-gris">(${esc(pres)})</span>` : ''}${
-    nombreMaq ? ` <span class="text-xs text-gris">· máquina propia: ${esc(nombreMaq)}</span>` : ''}</li>`;
+    nombreMaq ? ` <span class="fr-propia text-xs text-gris" data-maq="${esc(propia)}">${esc(textoPropiaFr(nombreMaq))}</span>` : ''}</li>`;
 }
 function htmlProductosFr(s) {
   const buscador = s.graneles.length > PRODUCTOS_PARA_BUSCAR
@@ -192,7 +203,7 @@ function htmlSubrubroFr(s) {
     : '<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ok/15 text-ok">✔ completo</span>';
   return `<details class="border border-borde rounded-lg mt-2" id="${idDomFr(s.id)}" data-sub="${esc(s.id)}" data-guardable data-nombre="Subrubro ${esc(s.nombre)}"${abiertosFr.has(s.id) ? ' open' : ''}>
     <summary class="cursor-pointer px-3 py-2 text-sm flex flex-wrap items-center gap-2"><b>${esc(s.nombre)}</b>
-      <span class="text-gris">${esc(cuentaProductosFr(s))}</span><span class="text-gris">· ${esc(resumenSubrubroFr(conf, cfFr.maquinas))}</span>
+      <span class="text-gris">${esc(cuentaProductosFr(s))}</span><span class="fr-resumen text-gris">${esc(textoResumenSubFr(s.id))}</span>
       <span class="ml-auto">${estado}</span></summary>
     <div class="px-3 pb-3">
       ${htmlProductosFr(s)}
