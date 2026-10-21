@@ -562,16 +562,25 @@ test('listadoFraccionado con costeoF: insumo sin costo → la presentación qued
   assert.deepStrictEqual([g.presentaciones[0].sugeridos, g.presentaciones[0].faltantesCosto], [{}, ['901']]);
 });
 
-test('listadoFraccionado con costeoF: granel sin costo en la fuente decidida → su PLU es faltante de cada presentación', () => {
+test('listadoFraccionado con costeoF: granel sin costo en una fuente → sin sugerido en esa fuente, sin faltante si otra fuente lo tiene', () => {
   const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1KG' }] }];
   const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: null }]]);
   const costeoF = FCx.normalizarCosteoFraccionado({ insumosPresentacion: { 102: [{ plu: '901', cantidad: 1 }] } });
   const costeo = { decisiones: { 100: { fuente: 'ultimaCompra' } } }; // decidió última compra y el granel no tiene
   const [g] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo, cfg: CFG, costeoF });
   const [p500, p1kg] = g.presentaciones;
-  assert.deepStrictEqual([p500.componentesCosto[0].importe, p500.faltantesCosto], [null, ['100']]);
-  assert.deepStrictEqual(p1kg.faltantesCosto, ['100', '901']);
+  // la línea del granel queda sin importe, pero la presentación sigue con el sugerido de sistema y sin badge "sin costo"
+  assert.deepStrictEqual([p500.componentesCosto[0].importe, p500.faltantesCosto, Object.keys(p500.sugeridos)], [null, [], ['sistema']]);
+  assert.deepStrictEqual([p1kg.faltantesCosto, Object.keys(p1kg.sugeridos)], [['901'], []]); // el insumo sin costo sí la deja sin sugerido
   // con costo en la fuente decidida no hay faltante
   const [ok] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
   assert.deepStrictEqual(ok.presentaciones[0].faltantesCosto, []);
+  // sólo última compra (sin costo de sistema): sugerido de última compra, sin faltante
+  const soloUlt = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: null, costoMercaderia: 900 }]]);
+  const [u] = L.listadoFraccionado({ grupos, costos: soloUlt, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
+  assert.deepStrictEqual([Object.keys(u.presentaciones[0].sugeridos), u.presentaciones[0].faltantesCosto], [['ultimaCompra'], []]);
+  // granel sin ningún costo: ninguna presentación tiene sugerido
+  const sinCosto = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: null, costoMercaderia: null }]]);
+  const [s] = L.listadoFraccionado({ grupos, costos: sinCosto, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
+  assert.deepStrictEqual(s.presentaciones.map(p => Object.keys(p.sugeridos)), [[], []]);
 });

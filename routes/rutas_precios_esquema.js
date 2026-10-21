@@ -54,11 +54,11 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   };
 
   // Valida con validar(req, tipo) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir); en
-  // Fraccionado dentro de costeo.fraccionado (sin migrar → error, no escribe). tipoFijo: rutas que son de un solo tipo
-  // (las de /config/esquema/fraccionado/… del plan B). Devuelve la vista nueva para que la UI redibuje con lo guardado.
-  const guardarCon = (validar, tipoFijo = null) => apiRoute(async (req) => {
+  // Fraccionado dentro de costeo.fraccionado (sin migrar → error, no escribe). Devuelve la vista nueva para que la UI
+  // redibuje con lo guardado.
+  const guardarCon = validar => apiRoute(async (req) => {
     let cambios, tipo;
-    try { tipo = tipoFijo || tipoDe(req); cambios = validar(req, tipo); } catch (err) { return { error: err.message }; }
+    try { tipo = tipoDe(req); cambios = validar(req, tipo); } catch (err) { return { error: err.message }; }
     const costeo = leerCosteo();
     if (tipo === 'fraccionado' && !cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
     const nuevo = tipo === 'fraccionado' ? { ...costeo, fraccionado: { ...costeo.fraccionado, ...cambios } } : { ...costeo, ...cambios };

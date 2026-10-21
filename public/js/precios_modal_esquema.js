@@ -414,8 +414,9 @@ function htmlDesgloseEsq(f) {
     const s = (fila.sugeridos || {})[mdFuente];
     if (!s || !s.desglose) return;
     const d = s.desglose, m = d.minorista;
+    const costoTxt = mdEsq.tipo === 'fraccionado' && fila.componentesCosto ? 'Costo real' : 'Costo de mercadería'; // presentación costeada = mercadería + insumos + MO + máquina
     if (titulo) bloques.push(htmlPasos(titulo, [
-      ['', 'Costo de mercadería', d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
+      ['', costoTxt, d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
       ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ...pasosAjusteMd(m), ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
       ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]]));
     for (const v of fila.mayoristas || []) {

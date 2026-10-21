@@ -193,7 +193,7 @@ const badgeMargenProducto = f => {
 const badgeAvisosCosto = f => ((f.avisosCosto || []).length
   ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')
   + (f.costeoGranel ? ` <span class="text-xs text-gris font-normal">${ESC_LST(textoCosteoGranel(f.costeoGranel))}</span>` : '');
-// faltantesCosto = PLUs sin costo (insumos, o el granel si su fuente decidida no tiene): la presentación queda sin sugerido.
+// faltantesCosto = PLUs de insumos sin costo: la presentación queda sin sugerido.
 const badgeFaltanteCosto = p => ((p.faltantesCosto || []).length
   ? ` <span class="ml-1 text-[11px] text-crit" title="Sin costo: la presentación no tiene sugerido">sin costo: PLU ${ESC_LST(p.faltantesCosto.join(', '))}</span>` : '');
 // Clic en el nombre = modal del producto (detalle del cálculo, costos, márgenes). La decisión rápida es el select de la fila
