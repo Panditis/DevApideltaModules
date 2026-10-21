@@ -40,7 +40,9 @@ async function puedeSalirConfig(){
   return true;
 }
 const panelCfg = document.getElementById('panel-configuracion');
-panelCfg.addEventListener('input', e => marcarSucio(e.target.closest('[data-guardable]')));
+// El buscador SIGA (htmlBuscadorSiga: caja type=search y checkboxes de su lista .bs-lista) no es un dato de la tarjeta: tipear o tildar ahí no la ensucia.
+const esBuscadorSiga = el => el.type === 'search' || !!el.closest('.bs-lista');
+panelCfg.addEventListener('input', e => { if (!esBuscadorSiga(e.target)) marcarSucio(e.target.closest('[data-guardable]')); });
 panelCfg.addEventListener('click', e => { if (e.target.closest('[data-edita]')) marcarSucio(e.target.closest('[data-guardable]')); });
 new MutationObserver(pintarPuntosSucio).observe(panelCfg, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-sucio'] });
 window.addEventListener('beforeunload', e => { if (panelCfg.querySelector('[data-guardable][data-sucio]')) e.preventDefault(); });

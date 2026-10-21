@@ -43,14 +43,39 @@ function mostrarCosteoFracc(tipo) {
   document.getElementById('tab-costeo-fracc').classList.toggle('hidden', tipo !== 'fraccionado');
 }
 
+// Relee GET /costeo en cfFr. Sin migrar: el aviso de arriba de Configuración (#cfgFraccAviso, el mismo de Costos/Márgenes/Precio).
+async function leerCosteoFr() {
+  cfFr = await pedirEsq('GET', `${API_FR}/costeo`);
+  document.getElementById('cfgFraccAviso').classList.toggle('hidden', !esFraccCfg() || cfFr.migrado);
+}
+
 async function cargarCosteoFracc() {
   const panel = document.getElementById('panel-costeo-fracc');
   panel.innerHTML = '<div class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>';
   try {
-    cfFr = await pedirEsq('GET', `${API_FR}/costeo`);
+    await leerCosteoFr();
     insFr = structuredClone(cfFr.insumosSubrubro);
     pintarCosteoFracc(panel);
   } catch (e) { panel.innerHTML = `<p class="text-sm text-crit py-4">No se pudo cargar: ${esc(e.message)}</p>`; }
+}
+
+// Tras guardar una tarjeta se relee cfFr pero se repinta sólo ella: lo que las otras tengan sin guardar (y su data-sucio) queda
+// como está. El panel se vuelve a pintar entero sólo al entrar al sub-tab (cargarCosteoFracc).
+async function recargarFr(repintar) { await leerCosteoFr(); repintar(); }
+function repintarTarjetaFr(id, html, conectar) {
+  const vieja = document.getElementById(id);
+  if (!vieja) return; // mientras se guardaba, el panel se recargó entero
+  vieja.outerHTML = html();
+  conectar(document.getElementById(id));
+}
+const repintarMaquinasFr = () => repintarTarjetaFr('frMaquinas', htmlMaquinasFr, conectarMaquinasFr);
+const repintarTiemposFr = () => repintarTarjetaFr('frTiempos', htmlTiemposFr, conectarTiemposFr);
+function repintarInsumosFr() {
+  const caja = document.getElementById('frInsumosCard');
+  if (!caja) return;
+  insFr = structuredClone(cfFr.insumosSubrubro); // lo recién guardado
+  caja.innerHTML = htmlInsumosFr();
+  conectarInsumosFr();
 }
 
 const pieFr = txt => `<div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span><button type="button" class="fr-guardar cfg-btn">${txt}</button></div>`;
@@ -58,13 +83,16 @@ function pintarCosteoFracc(panel) {
   panel.innerHTML = `<p class="cfg-cab"><b>Costeo de Fraccionado</b> — insumos, mano de obra y máquina de cada presentación, sumados al $/kg del granel.
       Minutos por unidad = tiempo del tramo de peso × factor de la facilidad del granel. La facilidad y la máquina de cada granel se eligen en su modal (Ver detalle).
       El costo hora de mano de obra está en Costos.</p>
-    ${cfFr.migrado ? '' : '<p class="mb-4 p-3 rounded-lg bg-warn/10 text-warn text-sm">Fraccionado todavía usa la configuración de Reventa: corré <code>node scripts/migrar_config_fraccionado.js</code> para poder guardar.</p>'}
     <div class="grid gap-4 xl:grid-cols-2">${htmlMaquinasFr()}${htmlTiemposFr()}</div>
     <div class="mt-4" id="frInsumosCard">${htmlInsumosFr()}</div>`;
-  conectarTablaFr(panel.querySelector('#frMaquinas'), htmlFilaMaqFr, card => guardarBloqueEsq(card, `${API_FR}/maquinas`, { maquinas: leerMaquinasFr(card) }, cargarCosteoFracc));
-  conectarTablaFr(panel.querySelector('#frTiempos'), htmlFilaTiempoFr, card => guardarBloqueEsq(card, `${API_FR}/tiempos`, leerTiemposFr(card), cargarCosteoFracc));
+  conectarMaquinasFr(panel.querySelector('#frMaquinas'));
+  conectarTiemposFr(panel.querySelector('#frTiempos'));
   conectarInsumosFr();
 }
+const conectarMaquinasFr = card => conectarTablaFr(card, htmlFilaMaqFr, () =>
+  guardarBloqueEsq(card, `${API_FR}/maquinas`, { maquinas: leerMaquinasFr(card) }, () => recargarFr(repintarMaquinasFr)));
+const conectarTiemposFr = card => conectarTablaFr(card, htmlFilaTiempoFr, () =>
+  guardarBloqueEsq(card, `${API_FR}/tiempos`, leerTiemposFr(card), () => recargarFr(repintarTiemposFr)));
 
 // Tarjeta con tabla de filas: + Agregar, ✕ y Guardar.
 function conectarTablaFr(card, htmlFila, guardar) {
@@ -171,6 +199,6 @@ function conectarInsumosFr() {
   });
   card.querySelector('.fr-guardar').onclick = () => {
     sincronizarInsumosFr(card);
-    guardarBloqueEsq(card, `${API_FR}/insumos-subrubro`, { insumosSubrubro: insFr }, cargarCosteoFracc);
+    guardarBloqueEsq(card, `${API_FR}/insumos-subrubro`, { insumosSubrubro: insFr }, () => recargarFr(repintarInsumosFr));
   };
 }
