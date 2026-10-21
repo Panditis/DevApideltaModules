@@ -39,6 +39,7 @@
   .seg.hidden,.seg-opt.hidden,.cfg-tab.hidden{display:none} /* ajustarTiposSim (precios_simulador.js), #cfgTipo en General y el sub-tab Costeo Fraccionado: el display de arriba le gana a .hidden de Tailwind */
   .fp-chip{display:inline-block;padding:0 6px;margin:1px 0;border-radius:9999px;background:#eef1ea;white-space:nowrap} /* insumos de una presentación (tab Fraccionado) */
   .fp-pend{background:rgba(234,179,8,.10)} /* celda con un cambio sin guardar */
+  .fp-sin-cols .fp-col{display:none} /* Fraccionado sin migrar: sin columnas Selección/Facilidad/Tiempo/Insumos (actualizarBarraFP); celdas y encabezados juntos, la tabla sigue alineada */
   /* Sub-tabs de Configuración: el mismo control segmentado, con texto de botón. */
   .seg-sub .seg-opt{font-size:13px;font-weight:600;padding:6px 16px}
   .seg-sub .seg-opt:focus-visible{outline:2px solid #405936;outline-offset:2px}

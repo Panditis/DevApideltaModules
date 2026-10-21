@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { valorFP, conCambioFP, cambiosFP, celdasFP, conInsumosFP, trozosFP, errorInsumosFP } = require('../public/js/precios_fraccionado_presentaciones.js');
+const { valorFP, conCambioFP, cambiosFP, celdasFP, conInsumosFP, trozosFP, errorInsumosFP, cambioLoteFP, sinGuardadosFP, soloVisiblesFP, textoSelFP, htmlBarraFP } = require('../public/js/precios_fraccionado_presentaciones.js');
 
 const P = { plu: '101', nombre: 'Almendra <500G>', fraccPresentacion: { facilidad: 'dificil', tiempo: null, insumos: [{ plu: '900', cantidad: 1, nombre: 'Bolsa "A"' }] } };
 
@@ -31,7 +31,8 @@ test('celdasFP: selects con lo elegido, chips escapados, selección y marca de p
   assert.match(html, /aria-label="Facilidad de Almendra &lt;500G&gt;"/);
   assert.doesNotMatch(html, /fp-pend/);
   assert.match(celdasFP(P, { 101: { tiempo: 'lento' } }, new Set()), /fp-pend/);
-  assert.strictEqual(celdasFP({ plu: '1' }, {}, new Set()), '<td></td><td></td><td></td><td></td>');
+  assert.strictEqual(celdasFP({ plu: '1' }, {}, new Set()), '<td class="fp-col"></td><td class="fp-col"></td><td class="fp-col"></td><td class="fp-col"></td>');
+  assert.strictEqual(html.match(/<td class="[^"]*fp-col/g).length, 4); // las 4 columnas se ocultan juntas si no está migrado
 });
 
 test('conInsumosFP: agrega los elegidos con cantidad 1 sin repetir', () => {
@@ -55,4 +56,35 @@ test('errorInsumosFP: cantidad mayor que 0 en cada insumo', () => {
   assert.match(errorInsumosFP([{ plu: '900', nombre: 'Bolsa "A"', cantidad: null }]), /Bolsa "A"/);
   assert.notStrictEqual(errorInsumosFP([{ plu: '900', cantidad: 0 }]), null);
   assert.notStrictEqual(errorInsumosFP([{ plu: '900', cantidad: -1 }]), null);
+});
+
+test('cambioLoteFP: "no cambiar" no entra, "sacar" borra (null) y el valor se asigna', () => {
+  assert.deepStrictEqual(cambioLoteFP('', ''), {});
+  assert.deepStrictEqual(cambioLoteFP('facil', ''), { facilidad: 'facil' });
+  assert.deepStrictEqual(cambioLoteFP('sacar', 'lento'), { facilidad: null, tiempo: 'lento' });
+  assert.deepStrictEqual(conCambioFP({ 101: { tiempo: 'lento' } }, ['101'], cambioLoteFP('', 'sacar')), { 101: { tiempo: null } });
+});
+
+test('sinGuardadosFP: sale lo guardado; lo editado durante el guardado sigue pendiente', () => {
+  const foto = { 101: { facilidad: 'facil' }, 102: { tiempo: 'lento' }, 103: { insumos: [{ plu: '900', cantidad: 1, nombre: 'Bolsa' }] } };
+  const ahora = { ...foto, 101: { facilidad: 'dificil' }, 104: { tiempo: 'rapido' } }; // 101 se volvió a editar y 104 es nuevo
+  assert.deepStrictEqual(sinGuardadosFP(ahora, foto, ['101', '102', '103']), { 101: { facilidad: 'dificil' }, 104: { tiempo: 'rapido' } });
+  assert.deepStrictEqual(sinGuardadosFP(foto, foto, ['101']), { 102: foto[102], 103: foto[103] }); // sólo el trozo guardado
+  assert.deepStrictEqual(sinGuardadosFP(foto, foto, []), foto);
+  assert.deepStrictEqual(foto[101], { facilidad: 'facil' }); // no muta
+});
+
+test('soloVisiblesFP / textoSelFP: el lote alcanza sólo a las seleccionadas que se ven', () => {
+  assert.deepStrictEqual(soloVisiblesFP(new Set(['101', '103', '999']), ['101', '102', '103']), ['101', '103']);
+  assert.deepStrictEqual(soloVisiblesFP(new Set(), ['101']), []);
+  assert.strictEqual(textoSelFP(1), '1 seleccionada visible');
+  assert.strictEqual(textoSelFP(3), '3 seleccionadas visibles');
+});
+
+test('htmlBarraFP: los selects del lote distinguen "no cambiar" de "Sacar"; los botones dicen a cuántas aplican', () => {
+  const html = htmlBarraFP();
+  assert.match(html, /<select class="fp-lote-facilidad[^>]*><option value="">no cambiar<[/]option>[^]*<option value="sacar">Sacar<[/]option><[/]select>/);
+  assert.match(html, /<select class="fp-lote-tiempo[^>]*><option value="">no cambiar<[/]option>[^]*<option value="sacar">Sacar<[/]option><[/]select>/);
+  assert.match(html, /Aplicar a 0 seleccionadas visibles/);
+  assert.match(html, /Insumos a 0 seleccionadas visibles…/);
 });

@@ -216,7 +216,7 @@ function filaHtml(f, tipo) {
   const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
     ${celdasFP(p, pendFP, selFP)}<td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>${fracc ? '<td></td><td></td><td></td><td></td>' : ''}
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>${fracc ? CELDAS_VACIAS_FP : ''}
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
@@ -230,7 +230,7 @@ function htmlMarcoListado(tipo) {
   // [texto, clave de orden]. En Fraccionado vigente y sugeridos son de las presentaciones, no del granel: no se ordenan.
   const ths = prod ? [['Código', 'plu'], ['Producto', 'nombre'], ['Costo', 'costoSistema'], ['Vigente', 'vigente'], ['Sugerido', 'sugeridoSistema'], ['A revisar'], ['Decisión'], ['']]
     : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'],
-      ...(fracc ? [['<span class="sr-only">Selección</span>'], ['Facilidad'], ['Tiempo'], ['Insumos']] : []), ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
+      ...(fracc ? [['<span class="sr-only">Selección</span>', null, 'fp-col'], ['Facilidad', null, 'fp-col'], ['Tiempo', null, 'fp-col'], ['Insumos', null, 'fp-col']] : []), ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
       ...(alm ? [['Proveedor', 'proveedor'], ['Tipo', 'tipoProveedor']] : []), ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima'], ['Decisión']];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
@@ -250,8 +250,8 @@ function htmlMarcoListado(tipo) {
     ${prod ? '<button type="button" class="lst-nuevo cfg-btn" title="Producto con receta (ej. pepas, granola)">+ Nuevo</button>' : ''}
   </div>
   ${fracc ? htmlBarraFP() : ''}
-  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
-    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
+  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm${fracc ? ' fp-sin-cols' : ''}">
+    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k, c = ''], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''} ${c}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
     <tbody class="lst-cuerpo"><tr><td colspan="${lstCols(tipo)}" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody></table></div>`;
 }
 
