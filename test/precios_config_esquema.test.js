@@ -209,3 +209,23 @@ test('validarCostos fraccionado: gastos y extras sin tildes ni listas (la tabla 
     extrasMinorista: [{ id: 'iibb', concepto: 'IIBB', pct: 5 }] });
   assert.throws(() => C.validarCostos({ modoGastos: 'costo', gastosVenta: [{ concepto: 'A', pct: 100 }], extrasMinorista: [] }, 'fraccionado'), /gastosVenta/);
 });
+
+test('migrarConfigFraccionado: copia la raíz (gastos/extras tildados para Fraccionado, sin tildes; márgenes sin descuento distribuidor) + defaults propios', () => {
+  const raiz = { ...RAIZ,
+    gastosVenta: [{ id: 'op', concepto: 'Op', pct: 7, tipos: TODOS }, { id: 'rv', concepto: 'Sólo Reventa', pct: 1, tipos: { ...TODOS, fraccionado: false } }],
+    extrasMinorista: [{ id: 'ib', concepto: 'IIBB', pct: 5, tipos: TODOS }],
+    margenes: { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100], puntos: [5] }, descuentoDistribuidorPct: 5 } };
+  const { costeo, claves } = C.migrarConfigFraccionado(raiz);
+  assert.deepStrictEqual(claves, ['fraccionado']);
+  const f = costeo.fraccionado;
+  assert.deepStrictEqual(f.gastosVenta, [{ id: 'op', concepto: 'Op', pct: 7 }]);
+  assert.deepStrictEqual(f.extrasMinorista, [{ id: 'ib', concepto: 'IIBB', pct: 5 }]);
+  assert.deepStrictEqual(f.margenes, { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100], puntos: [5] } });
+  assert.deepStrictEqual([f.ivaVentaPct, f.toleranciaPct, f.modoGastos, f.costoHora, f.redondeo.minorista], [21, 3, 'costo', 8000, 10]);
+  assert.deepStrictEqual([f.maquinas, f.tiempos, f.facilidades], [[], [], { facil: 1, medio: 1.25, dificil: 1.5 }]);
+  f.margenes.minorista.minPct = 1; // copia profunda: no toca la raíz
+  assert.strictEqual(raiz.margenes.minorista.minPct, TABLA.minPct);
+  assert.deepStrictEqual(costeo.gastosVenta, raiz.gastosVenta); // la raíz queda igual
+  assert.strictEqual(C.migrarConfigFraccionado(costeo), null); // idempotente
+  assert.throws(() => C.migrarConfigFraccionado({}), /migrar_esquema_canales/); // sin esquema por canal no hay qué copiar
+});
