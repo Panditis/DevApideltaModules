@@ -4,10 +4,13 @@
 
 let gruposCache = [];
 let gruposSorted = [];
-// Orden fijo: prioridad (rankingPos, ver lib/plan_prioridad.js); sin dato al final.
-const _posPrioridad = x => x.rankingPos || Number.MAX_SAFE_INTEGER;
-function ordenarPorPrioridad(lista) {
-  return [...lista].sort((a, b) => _posPrioridad(a) - _posPrioridad(b));
+// El orden (urgencia y, dentro de cada nivel, rankingPos) lo da el servidor: gruposSorted lo conserva
+// porque los botones identifican el grupo por su posición (gi).
+const URGENCIA_CHIP = { URGENTE: ['RED', '🔴 Urgente'], PRONTO: ['YELLOW', '🟡 Pronto'], OK: ['GREEN', '🟢 OK'] };
+function urgenciaCell(urgencia, cobertura) {
+  const [clase, txt] = URGENCIA_CHIP[urgencia] || URGENCIA_CHIP.OK;
+  const cob = Number.isFinite(cobertura) ? `${cobertura} d` : '—';
+  return `<span title="Cobertura: (stock central + sucursales) ÷ venta diaria"><span class="badge ${clase}">${txt}</span> <span class="text-sm" style="white-space:nowrap">${cob}</span></span>`;
 }
 
 async function cargarSugerencias() {
@@ -41,12 +44,13 @@ function renderGrupos() {
     ? `${suma} <button class="btn-add btn-sm" title="Ver stock por sucursal" onclick="event.stopPropagation();abrirStockDetalle(${gi})">🔍</button>`
     : '—';
 
-  gruposSorted = ordenarPorPrioridad(grupos);
+  gruposSorted = grupos;
   const rows = gruposSorted.map((g, gi) => {
     // ── MODO GRANEL: fila única, cantidad manual ─────────────────────────────
     if (g.esGranel) {
       return `<tr class="grupo-row granel-row">
         <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
+        <td class="text-sm" style="color:var(--muted)" title="Los grupos granel no tienen cálculo de urgencia">—</td>
         <td class="nombre-col font-bold">
           ${escHtml(g.productoRef)}
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
@@ -63,6 +67,7 @@ function renderGrupos() {
     const _stockSucGrupo = redondear((g.presentaciones||[]).reduce((s,p)=>s+(p.stockSucursales||0),0));
     const grupoRow = `<tr class="grupo-row" data-gi="${gi}" style="cursor:pointer" onclick="toggleGrupo(${gi})">
       <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
+      <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias)}</td>
       <td class="nombre-col font-bold"><span class="expand-btn" id="ebtn-${gi}">▶</span> ${escHtml(g.productoRef)}</td>
       <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
       <td class="text-right text-sm" title="Cuenta al 60% en el sugerido: ${redondear(_stockGrupo*0.6)}">${_stockGrupo>0?_stockGrupo:'—'}</td>
@@ -73,7 +78,7 @@ function renderGrupos() {
     </tr>`;
 
     const headerRow = `<tr class="sub-${gi} sub-header" style="display:none;background:#dde8d8">
-      <td></td>
+      <td></td><td></td>
       <td style="padding-left:28px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.4px">PRESENTACIÓN</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">SUGERIDO</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK CENTRAL</td>
@@ -83,12 +88,12 @@ function renderGrupos() {
 
     const subRows = g.presentaciones.map((p, pi) => {
       const _pProm = p.promMes ?? Math.round((p.promDiario||0)*30*10)/10;
-      const _dias = p.diasStock>=9999?'∞':(p.diasStock+'d');
       return `<tr class="sub-${gi}" style="display:none;background:#f7faf6">
         <td></td>
+        <td style="white-space:nowrap">${urgenciaCell(p.urgencia, p.coberturaDias)}</td>
         <td class="nombre-col" style="padding-left:28px;font-size:13px">
           ${escHtml(p.presentacion)}
-          <div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">cob: ${_dias}${_pProm?` · prom: ${_pProm}/mes`:''}</div>
+          ${_pProm ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">prom: ${_pProm}/mes</div>` : ''}
         </td>
         <td class="text-right col-sug" style="white-space:nowrap"><input class="sug-input" id="sug-${gi}-${pi}" type="number" min="0" step="1" value="${p.cantSugerida||0}" title="Sugerido por el sistema: ${p.cantSugerida}"><button class="btn-formula" onclick="event.stopPropagation();abrirFormulaView('${p.plu}','${escHtml(p.baseNombre).replace(/'/g,"\\'")}',parseFloat(document.getElementById('sug-${gi}-${pi}').value)||0)" title="Ver fórmula">📋</button></td>
         <td class="text-right" title="Cuenta al 60% en el sugerido: ${p.stockEfectivo ?? Math.round((p.stockActual||0)*0.6*100)/100}">${p.stockActual||0}</td>
@@ -106,6 +111,7 @@ function renderGrupos() {
     <div style="overflow-x:auto"><table>
       <thead><tr>
         <th class="text-right" style="width:40px" title="Prioridad por facturación">#</th>
+        <th title="Cobertura en días (stock central + sucursales ÷ venta diaria); el umbral depende de la clase del grupo">Urgencia</th>
         <th>Producto</th>
         <th class="text-right col-sug">Sugerido</th>
         <th class="text-right" title="Stock de presentaciones en Casa Central (en planificación cuenta al 60%)" style="font-size:11px">STOCK CENTRAL</th>
