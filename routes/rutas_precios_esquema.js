@@ -105,12 +105,15 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
   }
 
-  // Propuesta de rango (percentiles 5–95, rangoDesdeCostos) sobre los costos de sistema (+ costos extra) de los TRES
-  // tipos, porque las tablas son por canal: Reventa por producto, Fraccionado $/kg por granel, Producción por
-  // presentación. NO guarda: la UI la carga en las tres tablas y se guarda con Márgenes.
-  router.post('/api/precios/config/esquema/rango', apiRoute(async () => {
+  // Propuesta de rango (percentiles 5–95, rangoDesdeCostos) sobre los costos de sistema (+ costos extra) de los tipos que
+  // usan las tablas: Reventa (por producto) + Producción (por presentación) con la config de la raíz; ?tipo=fraccionado =
+  // $/kg de mercadería por granel. NO guarda: la UI la carga en las tres tablas y se guarda con Márgenes.
+  router.post('/api/precios/config/esquema/rango', apiRoute(async (req) => {
+    let tipo;
+    try { tipo = tipoDe(req); } catch (err) { return { error: err.message }; }
     const costeo = await costeoVigente();
-    const listados = await Promise.all(cfgEsq.TIPOS.map(t => listado(t, costeo)));
+    const tipos = tipo === 'fraccionado' ? ['fraccionado'] : ['almacen', 'produccion'];
+    const listados = await Promise.all(tipos.map(t => listado(t, costeo)));
     const costos = listados.flat().map(f => f.costos.sistema).filter(c => c > 0);
     const rango = rangoDesdeCostos(costos);
     return rango ? { rango, n: costos.length } : { error: 'No hay suficientes costos de sistema para calcular el rango' };

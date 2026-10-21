@@ -115,11 +115,14 @@ const ARCHIVOS_FALSOS = {
     presentaciones: { 6319: { recetaId: 'base', kgPorUnidad: 1, insumos: [] } } } } },
 };
 
-test('config esquema: Recalcular rango junta los costos de los tres tipos (Reventa, granel $/kg, Producción)', async () => {
+test('config esquema: Recalcular rango por tipo — Reventa con Producción; Fraccionado sólo el $/kg de sus graneles', async () => {
   const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   try {
-    // Reventa 1000; granel 10000 $/kg; Producción 1 kg de harina 330,58
-    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 10000 }, n: 3 });
+    // Reventa 1000 + Producción 1 kg de harina 330,58 (el granel de 10000 $/kg no entra)
+    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 1000 }, n: 2 });
+    // Fraccionado: un solo granel → no alcanza para percentiles
+    assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=fraccionado')).error, /suficientes costos/);
+    assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=x')).error, /tipo inválido/);
   } finally { a.cerrar(); }
 });
 
