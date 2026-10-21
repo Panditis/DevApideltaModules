@@ -577,6 +577,7 @@
       <button id="btn-ocultos" style="display:none;background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="abrirModalOcultos()">👁 <span id="oc-count">0</span> ocultos</button>
       <button class="primary" id="reload">↻ Recalcular</button>
       <button id="btn-a8020" onclick="location.href='/distribucion/a8020'" title="Ver mínimos A8020">📊 A8020</button>
+      <button id="btn-presentaciones" onclick="abrirModalPresentaciones()" title="Presentaciones por caja: Almacén envía cajas cerradas; más de 20 u se toma como 10">📦 Presentaciones</button>
       <div id="pesablesModoTog" style="display:none;margin-left:auto;align-items:center;gap:4px">
         <span style="font-size:11px;color:var(--muted)">Modo:</span>
         <button class="suc-tog on" data-modo="sala" onclick="setPesablesModo('sala')" title="Habilita el modal de carga de producción">🏭 Sala</button>
@@ -802,6 +803,41 @@
   </div>
 
   <!-- Modal overrides manuales -->
+  <div class="modal-bg" id="modal-presentaciones">
+    <div class="modal" style="min-width:640px;max-width:860px">
+      <div class="modal-head"><h3>Presentaciones por caja</h3><button class="modal-close" onclick="cerrarModalPresentaciones()">✕</button></div>
+      <form id="pres-form" onsubmit="event.preventDefault();guardarPresentacion()" style="padding:14px 24px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)">
+        <label>PLU<br><input id="pres-plu" list="pres-plus" required maxlength="30" autocomplete="off" oninput="mostrarProductoPres()" style="width:110px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:13px;outline:none"></label>
+        <label>Presentación<br><select id="pres-nombre" style="font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:13px;outline:none"><option>Caja</option><option>Pack</option><option>Bulto</option><option>Bolsa</option></select></label>
+        <label>Unidades por caja<br><input id="pres-unidades" type="number" min="0.001" step="any" required style="width:110px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:13px;outline:none"></label>
+        <button class="primary" type="submit">Guardar</button>
+        <span id="pres-prod" style="flex-basis:100%;min-height:16px"></span>
+        <datalist id="pres-plus"></datalist>
+      </form>
+      <div style="padding:10px 24px 0;display:flex;gap:10px;align-items:center">
+        <input type="search" id="pres-filtro" placeholder="Buscar PLU o nombre…" oninput="renderPresentaciones()" style="width:240px;font-family:var(--body);background:var(--surface1);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:13px;outline:none">
+        <span id="pres-resumen" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div style="padding:8px 24px 16px;overflow-y:auto;max-height:50vh">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="border-bottom:2px solid var(--border)">
+            <th class="l" style="padding:6px 8px">PLU</th>
+            <th class="l" style="padding:6px 8px">Producto</th>
+            <th class="l" style="padding:6px 8px">Presentación</th>
+            <th style="padding:6px 8px">Unidades</th>
+            <th style="padding:6px 8px" title="Más de 20 u por caja: distribución toma 10">En distribución</th>
+            <th style="padding:6px 8px"></th>
+          </tr></thead>
+          <tbody id="pres-body"></tbody>
+        </table>
+        <p id="pres-empty" style="text-align:center;color:var(--muted);padding:24px 0;display:none">Sin presentaciones</p>
+      </div>
+      <div style="padding:12px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">
+        <span>Se aplica a los envíos de Almacén al <b>Recalcular</b>. Es la misma lista que usa Compras para pedir por bultos. <a href="/compras#presentaciones" target="_blank" style="color:var(--info)">Abrir en Compras ↗</a></span>
+        <button onclick="cerrarModalPresentaciones()">Cerrar</button>
+      </div>
+    </div>
+  </div>
   <div class="modal-bg" id="modal-overrides">
     <div class="modal" style="min-width:500px;max-width:700px">
       <div class="modal-head"><h3>Envíos manuales</h3><button class="modal-close" onclick="cerrarModalOverrides()">✕</button></div>
@@ -2195,7 +2231,10 @@ function render() {
       if (esMicro(r, k)) { const mi = microInfo(r, k); return `${stkTd}<td class="env micro" title="Calculado: ${fmtA(mi.qty)}, MinEnvio: ${fmtA(mi.umbral)}, S: ${fmtA(mi.S)}, StockMin: ${fmtA(mi.min)}"><span style="background:rgba(128,128,128,.18);color:var(--muted);font-weight:700;padding:2px 7px;border-radius:5px;border:1px dashed var(--muted);display:inline-block">${fmtA(mi.qty)}</span></td>`; }
       const n = v || 0;
       const isOvr = (r.enviarOverride || {})[k];
-      const tip = id > 0 ? `title="ideal ${fmtA(id)}${n > 0 && id > n ? ' · racionado' : ''}"` : '';
+      // Presentación de compra: el server ya mandó cajas cerradas (mín 1); el tooltip las cuenta.
+      const pr = r.presentacion && r.presentacion.unidadesPorBulto > 1 ? r.presentacion : null;
+      const cajaTxt = pr && n > 0 ? ` · ${Math.floor(n / pr.unidadesPorBulto)} ${pr.nombre} x${pr.unidadesPorBulto}${n % pr.unidadesPorBulto ? ` + ${fmtA(n % pr.unidadesPorBulto)} sueltas` : ''}` : '';
+      const tip = (id > 0 || cajaTxt) ? `title="ideal ${fmtA(id)}${!pr && n > 0 && id > n ? ' · racionado' : ''}${cajaTxt}"` : '';
       return stkTd + `<td class="env ${n > 0 ? 'pos' : ''}${isOvr ? ' override' : ''}" ${tip} data-plu="${r.plu}" data-suc="${k}" data-tipo="almacen">${n > 0 ? `<span style="background:var(--verde-cont);color:var(--verde-on-cont);font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block">${fmtA(n)}</span>` : '<span>·</span>'}</td>`; }).join('');
     const impN = impNormDisplay(r);
     const impPct = impN * 100;
@@ -2685,6 +2724,94 @@ async function actualizarBadgeOverrides() {
   document.getElementById('ovr-count').textContent = total;
   btn.style.display = (total > 0 && tabActual !== 'prioritarios') ? '' : 'none';
 }
+// ── Presentaciones por caja ─────────────────────────────────────────────────────
+// Mismo archivo que Compras (compras_presentaciones.json) vía /api/distribucion/presentaciones.
+// PRES_DISTRIB_*: espejo de presentacionDistribucion (lib/distribucion.js), sólo para mostrar.
+const PRES_DISTRIB_MAX = 20, PRES_DISTRIB_REEMPLAZO = 10;
+const PRES_API = '/api/distribucion/presentaciones';
+let presCargadas = {};
+const nombreProdPres = (plu) => { const r = datos.find(x => String(x.plu) === String(plu)) || datosP.find(x => String(x.plu) === String(plu)); return r ? r.nombre : ''; };
+async function fetchPres(url, opts) {
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+function avisoPres(txt, esError) {
+  const el = document.getElementById('pres-prod');
+  el.textContent = txt;
+  el.style.color = esError ? 'var(--error)' : 'var(--muted)';
+}
+async function abrirModalPresentaciones() {
+  document.getElementById('pres-plus').innerHTML = datos.map(r => `<option value="${escHtml(r.plu)}">${escHtml(r.nombre)}</option>`).join('');
+  document.getElementById('modal-presentaciones').classList.add('open');
+  avisoPres('');
+  try { presCargadas = await fetchPres(PRES_API); renderPresentaciones(); }
+  catch (e) { avisoPres('No se pudieron cargar las presentaciones: ' + e.message, true); }
+}
+function cerrarModalPresentaciones() { document.getElementById('modal-presentaciones').classList.remove('open'); }
+function mostrarProductoPres() {
+  const plu = document.getElementById('pres-plu').value.trim();
+  const p = presCargadas[plu];
+  avisoPres(plu ? (nombreProdPres(plu) || 'PLU fuera de la lista de Almacén') + (p ? ` · cargada: ${p.nombre} x${p.unidadesPorBulto}` : '') : '');
+}
+function renderPresentaciones() {
+  const q = document.getElementById('pres-filtro').value.trim().toLowerCase();
+  const filas = Object.entries(presCargadas)
+    .map(([plu, p]) => ({ plu, ...p, producto: nombreProdPres(plu) }))
+    .filter(f => !q || f.plu.toLowerCase().includes(q) || f.producto.toLowerCase().includes(q))
+    .sort((a, b) => (Number(a.plu) || 0) - (Number(b.plu) || 0) || a.plu.localeCompare(b.plu));
+  document.getElementById('pres-resumen').textContent = `${filas.length} de ${Object.keys(presCargadas).length}`;
+  document.getElementById('pres-empty').style.display = filas.length ? 'none' : '';
+  const sinNombre = '<span style="color:var(--faint)">—</span>';
+  document.getElementById('pres-body').innerHTML = filas.map(f => {
+    const tope = f.unidadesPorBulto > PRES_DISTRIB_MAX;
+    return `<tr style="border-bottom:1px solid var(--border)">
+    <td class="l" style="padding:5px 8px">${escHtml(f.plu)}</td>
+    <td class="l" style="padding:5px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(f.producto)}">${f.producto ? escHtml(f.producto) : sinNombre}</td>
+    <td class="l" style="padding:5px 8px">${escHtml(f.nombre)}</td>
+    <td style="padding:5px 8px;text-align:right">${fmt(f.unidadesPorBulto)}</td>
+    <td style="padding:5px 8px;text-align:right;${tope ? 'color:#b45309;font-weight:700' : ''}" ${tope ? 'title="Más de 20 u: distribución toma 10"' : ''}>${fmt(tope ? PRES_DISTRIB_REEMPLAZO : f.unidadesPorBulto)}</td>
+    <td style="padding:5px 8px;text-align:center;white-space:nowrap">
+      <button style="font-size:11px;padding:2px 8px" data-plu="${escHtml(f.plu)}" onclick="editarPresentacion(this.dataset.plu)" title="Editar">✎</button>
+      <button style="font-size:11px;padding:2px 8px" data-plu="${escHtml(f.plu)}" onclick="borrarPresentacion(this.dataset.plu)" title="Borrar">✕</button>
+    </td></tr>`;
+  }).join('');
+}
+function editarPresentacion(plu) {
+  const p = presCargadas[plu]; if (!p) return;
+  document.getElementById('pres-plu').value = plu;
+  const sel = document.getElementById('pres-nombre');
+  if (![...sel.options].some(o => o.value === p.nombre)) sel.add(new Option(p.nombre));
+  sel.value = p.nombre;
+  document.getElementById('pres-unidades').value = p.unidadesPorBulto;
+  mostrarProductoPres();
+  document.getElementById('pres-unidades').focus();
+}
+async function guardarPresentacion() {
+  const plu = document.getElementById('pres-plu').value.trim();
+  const body = { nombre: document.getElementById('pres-nombre').value, unidadesPorBulto: Number(document.getElementById('pres-unidades').value) };
+  try {
+    const r = await fetchPres(`${PRES_API}/${encodeURIComponent(plu)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    presCargadas = { ...presCargadas, [plu]: r.presentacion };
+    document.getElementById('pres-form').reset();
+    renderPresentaciones();
+    avisoPres(`Guardado PLU ${plu}: ${r.presentacion.nombre} x${r.presentacion.unidadesPorBulto}. Se aplica al Recalcular.`);
+  } catch (e) { avisoPres('No se pudo guardar: ' + e.message, true); }
+}
+function borrarPresentacion(plu) {
+  const prod = nombreProdPres(plu);
+  abrirConfirmDel('Borrar presentación', `¿Borrar la presentación del PLU ${plu}${prod ? ' (' + prod + ')' : ''}? También deja de usarse en Compras.`, async () => {
+    try {
+      await fetchPres(`${PRES_API}/${encodeURIComponent(plu)}`, { method: 'DELETE' });
+      const { [plu]: _borrada, ...resto } = presCargadas;
+      presCargadas = resto;
+      renderPresentaciones();
+      avisoPres(`Borrada la presentación del PLU ${plu}. Se aplica al Recalcular.`);
+    } catch (e) { avisoPres('No se pudo borrar: ' + e.message, true); }
+  });
+}
+
 async function abrirModalOverrides() {
   const d = await fetch('/api/distribucion/envios-manuales').then(r=>r.json()).catch(()=>({almacen:{},pesable:{}}));
   const rows = [];

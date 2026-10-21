@@ -2552,7 +2552,7 @@ app.use(require('./routes/rutas_distribucion')({
   PESABLES_LISTAS_PATH, sqlStockDistribucion, DISTRIB_CONFIG_PATH, A8020_CALC_PATH,
   _ventasJoin, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL, componentesFormulaPorPadre,
   CONSUMO_MENSUAL_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
-  TOP20_PRIORITARIOS_PATH, generarTop20Prioritarios,
+  TOP20_PRIORITARIOS_PATH, generarTop20Prioritarios, PRESENTACIONES_COMPRA_PATH,
 }));
 
 // Mismo criterio para el cruce de terminales: sus deps (leerJSON, guardarJSON,

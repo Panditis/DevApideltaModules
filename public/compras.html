@@ -915,6 +915,12 @@ document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click
   if (btn.dataset.tab === 'presentaciones') cargarCatalogoPresentaciones();
   if (btn.dataset.tab === 'discontinuados') renderDiscontinuados();
 }));
+// Acceso directo a una pestaña por URL (ej. /compras#presentaciones desde Distribución). Espera a
+// DOMContentLoaded: el handler de la pestaña usa variables declaradas más abajo en este script.
+document.addEventListener('DOMContentLoaded', () => {
+  const tabDeHash = location.hash && document.querySelector(`.tab-btn[data-tab="${CSS.escape(location.hash.slice(1))}"]`);
+  if (tabDeHash) tabDeHash.click();
+});
 
 // ═══ Tab 1: armar pedido ══════════════════════════════════════════════════════
 let provSel = null;

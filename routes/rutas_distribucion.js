@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const XLSX = require('xlsx');
 const insumos = require('../lib/insumos');
-const { calcularAlmacen } = require('../lib/distribucion');
+const { calcularAlmacen, presentacionDistribucion } = require('../lib/distribucion');
 const { calcularPesables, ultimoFraccionadoPorPlu } = require('../lib/pesables');
 const productividad = require('../lib/productividad');
 const { universoLista, universoPesables } = require('../lib/listas_universo');
@@ -47,7 +47,7 @@ module.exports = function crearRutasDistribucion(deps) {
     PESABLES_LISTAS_PATH, sqlStockDistribucion, DISTRIB_CONFIG_PATH, A8020_CALC_PATH,
     _ventasJoin, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL, componentesFormulaPorPadre,
     CONSUMO_MENSUAL_PATH, FRAC_REG_PATH, HISTORIAL_PATH,
-    TOP20_PRIORITARIOS_PATH, generarTop20Prioritarios,
+    TOP20_PRIORITARIOS_PATH, generarTop20Prioritarios, PRESENTACIONES_COMPRA_PATH,
   } = deps;
   const router = express.Router();
 
@@ -109,6 +109,10 @@ async function calcularDistribucionAlmacen() {
   const muPorPlu = muPorPluDesdeDetalle(a8020Calc.detalle || {});
   const sinEmpujeCaroLento = (distCfg.empujeDeposito || {}).sinEmpujeCaroLento || null;
   const ed = leerListasDistrib();
+  // Presentación de compra (caja de N) → el motor manda cajas cerradas, mínimo 1 (ver racionarPorCajas).
+  const presentaciones = Object.fromEntries(Object.entries(leerJSON(PRESENTACIONES_COMPRA_PATH, {}) || {})
+    .map(([plu, p]) => [plu, presentacionDistribucion(p)]));
+  const cajaPorPlu = Object.fromEntries(Object.entries(presentaciones).map(([plu, p]) => [plu, p.unidadesPorBulto]));
   const rubroRows = await query(`SELECT CAST(p.IdProducto AS VARCHAR) AS IdProducto
     FROM Productos p JOIN Rubros r ON r.IdRubro=p.IdRubro
     WHERE p.Activo=1 AND r.NombreRubro='Almacen'`);
@@ -163,7 +167,7 @@ async function calcularDistribucionAlmacen() {
       if (fact.factByKey[fk] && fact.factByKey[fk].has(Number(plu))) set.add(ALM_FACT_KEY_INTERNO[ek]);
     if (set.size) factGatePorPlu.set(plu, set);
   }
-  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, pisosNuevo, factGatePorPlu });
+  const filas = calcularAlmacen(productos, a8020, listas, { corregirBugs: true, empujePresencia, empujePresenciaFactorS, presenciaPorClase, abcPorPlu, muPorPlu, sinEmpujeCaroLento, importancia: importanciaCfg, umbralMicroEnvio, pesosRacionado: distCfg.pesosRacionado, esNuevoSet, pisosNuevo, factGatePorPlu, cajaPorPlu });
   // Fact en vivo: lo ya facturado a la sucursal desde su última recepción no se reenvía (enviar→0).
   for (const f of filas) {
     f.factSucs = [];
@@ -214,7 +218,8 @@ async function calcularDistribucionAlmacen() {
     const primera = primeraCompraMap.get(String(f.plu));
     return { plu: f.plu, nombre: nombreMap.get(String(f.plu)) || '', rubro: rubroMapA.get(String(f.plu)) || '', central: f.central,
       enviar: f.enviar, enviarOverride: f.enviarOverride || {}, enviarTexto: f.enviarTexto, enviarMicro: f.enviarMicro, ideal: f.ideal, factSucs: f.factSucs, pideTotal: f.pideTotal, importancia: f.importancia, impSuc: f.impSuc, impNorm, meses: f.meses, stkSuc, minSuc, sSuc,
-      esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null };
+      esNuevo, primeraCompra: primera ? new Date(primera).toISOString().slice(0, 10) : null,
+      presentacion: presentaciones[String(f.plu)] || null };
   });
 }
 router.get('/distribucion', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'distribucion.html')));

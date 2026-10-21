@@ -434,7 +434,9 @@ function pluDeRuta(req) {
   if (!plu || plu.length > 30) throw new Error('PLU inválido');
   return plu;
 }
-router.get('/api/compras/presentaciones', apiRoute(async () => leerPresentaciones()));
+// Mismos handlers bajo /api/distribucion: el modal de Distribución carga presentaciones sin exigir
+// permiso al módulo Compras (las APIs de distribución sólo piden login). Un solo archivo de datos.
+router.get(['/api/compras/presentaciones', '/api/distribucion/presentaciones'], apiRoute(async () => leerPresentaciones()));
 // Catálogo de la pestaña Presentaciones: todo lo comprado en 24 meses (a cualquier
 // proveedor) con su último proveedor, más los PLUs con presentación que no entran
 // en la ventana — si no, una presentación cargada quedaría invisible.
@@ -468,7 +470,7 @@ router.get('/api/compras/presentaciones/productos', apiRoute(async () => {
     .map(plu => ({ plu, nombre: plu, activo: null, unidad: '', proveedor: null, ultimaFecha: null }));
   return [...productos, ...fueraDeVentana];
 }));
-router.put('/api/compras/presentaciones/:plu', (req, res) => {
+router.put(['/api/compras/presentaciones/:plu', '/api/distribucion/presentaciones/:plu'], (req, res) => {
   try {
     const plu = pluDeRuta(req);
     const presentacion = compras.normalizarPresentacion(req.body || {});
@@ -478,7 +480,7 @@ router.put('/api/compras/presentaciones/:plu', (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
-router.delete('/api/compras/presentaciones/:plu', (req, res) => {
+router.delete(['/api/compras/presentaciones/:plu', '/api/distribucion/presentaciones/:plu'], (req, res) => {
   try {
     const plu = pluDeRuta(req);
     const { [plu]: _borrada, ...resto } = leerPresentaciones();
