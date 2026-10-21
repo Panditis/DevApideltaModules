@@ -8,7 +8,7 @@ const CARRITO_VACIO = Object.freeze({ fecha: null, lineas: [], notas: '' });
 let _lineaSeq = Date.now();
 let carrito = CARRITO_VACIO;
 let _enviandoCarrito = false; // envío en curso: evita el doble envío
-const _detalleAbierto = new Set(); // _id de las líneas con el ⚙ desplegado: solo UI, en memoria
+let _lineaAbierta = null; // _id de la línea con el detalle desplegado (de a una): solo UI, en memoria
 
 // ── Día picker: pide la fecha del carrito ────────────────────────
 let semDiaPicker   = lunesDeEstaFecha(HOY);
@@ -81,6 +81,8 @@ function guardarCarrito() {
 // en orden de alta (el sort es estable).
 const _posLinea = l => l.rankingPos || Number.MAX_SAFE_INTEGER;
 const lineasOrdenadas = () => [...carrito.lineas].sort((a, b) => _posLinea(a) - _posLinea(b));
+// "250G" solo no dice qué producto es: el nombre completo (baseNombre) ya trae la presentación.
+const nombreLinea = l => l.producto || l.presentacion || '';
 const claveLinea = it => `${it.esGranel ? 'G' : 'F'}|${it.idProducto ?? it.producto}`;
 const pedirFechaCarrito = titulo => new Promise(res => abrirDiaPicker(titulo, res));
 
@@ -142,16 +144,26 @@ function editarLinea(id, campo, valor, rerender = true) {
 }
 function quitarLinea(id) {
   carrito = { ...carrito, lineas: carrito.lineas.filter(l => l._id !== id) };
-  _detalleAbierto.delete(id);
   guardarCarrito();
 }
-function toggleDetalleLinea(id) {
-  if (!_detalleAbierto.delete(id)) _detalleAbierto.add(id);
+function toggleLineaCarrito(id) {
+  _lineaAbierta = _lineaAbierta === id ? null : id;
   renderCarrito();
+}
+// Cantidad: sin redibujar (el foco queda en el input); nada más en pantalla depende de ella.
+function setCantLinea(id, valor) {
+  const v = Math.max(0, parseFloat(valor) || 0);
+  editarLinea(id, 'cantConfirmada', v, false);
+  const inp = document.getElementById(`cq-${id}`);
+  if (inp) inp.value = v;
+}
+function cambiarCantLinea(id, delta) {
+  const l = carrito.lineas.find(x => x._id === id);
+  if (l) setCantLinea(id, Math.round(((l.cantConfirmada || 0) + delta) * 100) / 100);
 }
 
 // ── Render ───────────────────────────────────────────────────────
-const CARRITO_SEL_STYLE = 'max-width:160px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:system-ui,sans-serif';
+const CARRITO_SEL_STYLE = 'width:100%;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:system-ui,sans-serif';
 
 function selectPack(l, campo) {
   const pk = packagingCache[String(l.idProducto)] || {};
@@ -169,44 +181,74 @@ function selectCliente(l) {
   </select>`;
 }
 
+// Segunda línea de cada ítem: resumen de lo que tiene cargado (el detalle completo se edita al desplegar).
+function resumenLinea(l) {
+  const pk = packagingCache[String(l.idProducto)] || {};
+  const resps = l.responsables || [];
+  const partes = [resps.length ? escHtml(resps.join(', ')) : '<span class="cart-warn">⚠ sin responsable</span>'];
+  if (!l.esGranel) {
+    const pack = [nomOpc(opcionesPack(envasesReg, pk.envase), l.envase), nomOpc(opcionesPack(tapasReg, pk.tapa), l.tapa)].filter(Boolean).join(' / ');
+    if (pack) partes.push(escHtml(pack));
+  }
+  const cli = clientesReg.find(c => String(c.id) === String(l.cliente || ''));
+  if (cli) partes.push(escHtml(cli.nombre));
+  if (esItemMiel(l) && l.tambor) partes.push(`Tambor ${escHtml(l.tambor)}`);
+  if (l.granelPrevioDe) partes.push(`granel previo de ${escHtml(l.granelPrevioDe)}`);
+  return partes.join(' · ');
+}
+
+function detalleLinea(l) {
+  const campo = (titulo, html) => `<div class="cart-f"><span>${titulo}</span>${html}</div>`;
+  return `<div class="cart-detail">
+    ${campo('Responsables', renderRespMulti({ ...l, id: l._id }))}
+    ${l.esGranel ? '' : campo('Envase', selectPack(l, 'envase')) + campo('Tapa', selectPack(l, 'tapa'))}
+    ${campo('Cliente', selectCliente(l))}
+    ${esItemMiel(l) ? campo('Tambor', `<input type="text" value="${escHtml(l.tambor || '')}" placeholder="—" onchange="editarLinea(${l._id},'tambor',this.value.trim())">`) : ''}
+  </div>`;
+}
+
+// Un ítem = dos líneas (nombre + cantidad, resumen); al hacer click se despliega el detalle debajo.
+function filaCarrito(l) {
+  const id = l._id, abierta = id === _lineaAbierta;
+  return `<div class="cart-line${abierta ? ' abierta' : ''}">
+    <div class="cart-main" onclick="toggleLineaCarrito(${id})">
+      <div class="cart-row1">
+        <span class="cart-name" title="${escHtml(nombreLinea(l))}">${escHtml(nombreLinea(l))}</span>
+        <span class="cart-qty" onclick="event.stopPropagation()">
+          <button class="cart-step" title="Menos" onclick="cambiarCantLinea(${id},-1)">−</button>
+          <input id="cq-${id}" type="number" min="0" step="any" value="${l.cantConfirmada || 0}" onchange="setCantLinea(${id},this.value)">
+          <button class="cart-step" title="Más" onclick="cambiarCantLinea(${id},1)">+</button>
+          ${l.esGranel ? escHtml(l.unidadGranel || 'kg') : ''}
+        </span>
+        <button class="cart-x" title="Quitar" onclick="event.stopPropagation();quitarLinea(${id})">✕</button>
+      </div>
+      <div class="cart-row2" id="csum-${id}">${resumenLinea(l)}</div>
+    </div>
+    ${abierta ? detalleLinea(l) : ''}
+  </div>`;
+}
+
 function renderCarrito() {
-  document.getElementById('carritoBadge').textContent = carrito.lineas.length;
+  const n = carrito.lineas.length;
+  if (!carrito.lineas.some(l => l._id === _lineaAbierta)) _lineaAbierta = null;
+  document.getElementById('carritoBadge').textContent = n;
   document.getElementById('carritoFecha').textContent = carrito.fecha ? formatFecha(carrito.fecha) : 'sin fecha';
   const notasEl = document.getElementById('carritoNotas');
   if (document.activeElement !== notasEl) notasEl.value = carrito.notas || '';
-  document.getElementById('btnCarritoEnviar').disabled = !carrito.lineas.length || _enviandoCarrito;
-  const cont = document.getElementById('carritoTabla');
-  if (!carrito.lineas.length) {
-    cont.innerHTML = '<div class="loading">Vacío. Agregá productos desde el Resumen con "+".</div>';
-    return;
-  }
-  const filaDetalle = l => `<tr style="background:var(--md-surface-1)">
-      <td colspan="6" style="padding:6px 12px">
-        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;font-size:12px">
-          ${l.esGranel ? '' : `<label>Envase ${selectPack(l, 'envase')}</label><label>Tapa ${selectPack(l, 'tapa')}</label>`}
-          <label>Cliente ${selectCliente(l)}</label>
-        </div>
-      </td></tr>`;
-  cont.innerHTML = `<table><thead><tr>
-      <th>Producto</th><th>Cant.</th><th>Responsables</th><th>Tambor</th><th></th><th></th>
-    </tr></thead><tbody>
-    ${lineasOrdenadas().map(l => `<tr>
-      <td>${escHtml(l.presentacion || l.producto)}${l.presentacion ? `<div class="text-sm">${escHtml(l.producto)}</div>` : ''}${l.granelPrevioDe ? `<div class="text-sm">granel previo de ${escHtml(l.granelPrevioDe)}</div>` : ''}</td>
-      <td style="white-space:nowrap"><input type="number" min="0" step="any" value="${l.cantConfirmada || 0}" style="width:80px"
-           onchange="editarLinea(${l._id},'cantConfirmada',Math.max(0,parseFloat(this.value)||0))"> ${l.esGranel ? escHtml(l.unidadGranel || 'kg') : ''}</td>
-      <td>${renderRespMulti({ ...l, id: l._id })}</td>
-      <td>${esItemMiel(l) ? `<input type="text" value="${escHtml(l.tambor || '')}" placeholder="—" style="width:70px" onchange="editarLinea(${l._id},'tambor',this.value.trim())">` : ''}</td>
-      <td><button class="btn ${_detalleAbierto.has(l._id) ? 'btn-primary' : 'btn-secondary'} btn-sm" title="Envase, tapa y cliente" onclick="toggleDetalleLinea(${l._id})">⚙</button></td>
-      <td><button class="btn btn-danger btn-sm" onclick="quitarLinea(${l._id})">✕</button></td>
-    </tr>${_detalleAbierto.has(l._id) ? filaDetalle(l) : ''}`).join('')}
-    </tbody></table>`;
+  const btnEnviar = document.getElementById('btnCarritoEnviar');
+  btnEnviar.disabled = !n || _enviandoCarrito;
+  btnEnviar.textContent = n ? `Enviar ${n} producto${n !== 1 ? 's' : ''} →` : 'Enviar a producción';
+  document.getElementById('btnCarritoVaciar').hidden = !n;
+  document.getElementById('carritoTabla').innerHTML = n
+    ? lineasOrdenadas().map(filaCarrito).join('')
+    : '<div class="loading">Agregá productos desde el Resumen con +</div>';
 }
 
 // ── Revisar y enviar ─────────────────────────────────────────────
 // Avisos que antes eran 6 confirms encadenados: se muestran todos juntos en el resumen de MP.
 async function avisosCarrito(items) {
   const avisos = [];
-  const nombre = it => escHtml(it.presentacion || it.producto);
+  const nombre = it => escHtml(nombreLinea(it));
   const sinResp = items.filter(it => !(it.responsables || []).length).map(nombre);
   if (sinResp.length) avisos.push(`Sin responsable: ${sinResp.join(', ')}`);
   const sinCod = items.filter(it => (it.esGranel ? !it.idGranel : it.idProducto == null)).map(nombre);
@@ -239,7 +281,7 @@ async function enviarCarrito() {
   await cargarGruposCfgSiVacio(); // esItemMiel (tambor) depende del catálogo de grupos
   const sinCant = carrito.lineas.filter(l => !(l.cantConfirmada > 0));
   if (sinCant.length) {
-    toast(`Cantidad 0: ${sinCant.map(l => l.presentacion || l.producto).join(', ')}. Completala o quitá la línea.`, true);
+    toast(`Cantidad 0: ${sinCant.map(nombreLinea).join(', ')}. Completala o quitá la línea.`, true);
     return;
   }
   // _id, _pkOk y rankingPos son del carrito (UI/orden): no viajan al servidor. prioridad = lugar en el orden mostrado.
@@ -349,6 +391,8 @@ function toggleResp(lineaId, nombre) {
   if (!l) return;
   const resps = l.responsables.includes(nombre) ? l.responsables.filter(r => r !== nombre) : [...l.responsables, nombre];
   editarLinea(lineaId, 'responsables', resps, false); // sin redibujar: el desplegable sigue abierto
+  const sum = document.getElementById(`csum-${lineaId}`);
+  if (sum) sum.innerHTML = resumenLinea(carrito.lineas.find(x => x._id === lineaId));
   const dsp = document.getElementById(`rdsp-${lineaId}`);
   if (dsp) dsp.innerHTML = (resps.length ? resps.map(r => `<span class="resp-chip-sm">${escHtml(r)}</span>`).join('')
     : `<span style="color:var(--muted);font-size:11px">Sin asignar</span>`) + '<span class="rm-arrow">▾</span>';

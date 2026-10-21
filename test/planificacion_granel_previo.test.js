@@ -246,6 +246,7 @@ test('grupo marcado sin graneles cargados: no agrega nada al carrito', async () 
 function carritoEnvioEntorno(lineas) {
   const posts = [];
   const src = [
+    constDe('nombreLinea'),
     constDe('_posLinea'),
     constDe('lineasOrdenadas'),
     fuenteDe('enviarCarrito'),
