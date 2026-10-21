@@ -561,3 +561,17 @@ test('listadoFraccionado con costeoF: insumo sin costo → la presentación qued
   const [g] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
   assert.deepStrictEqual([g.presentaciones[0].sugeridos, g.presentaciones[0].faltantesCosto], [{}, ['901']]);
 });
+
+test('listadoFraccionado con costeoF: granel sin costo en la fuente decidida → su PLU es faltante de cada presentación', () => {
+  const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1KG' }] }];
+  const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: null }]]);
+  const costeoF = FCx.normalizarCosteoFraccionado({ insumosPresentacion: { 102: [{ plu: '901', cantidad: 1 }] } });
+  const costeo = { decisiones: { 100: { fuente: 'ultimaCompra' } } }; // decidió última compra y el granel no tiene
+  const [g] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo, cfg: CFG, costeoF });
+  const [p500, p1kg] = g.presentaciones;
+  assert.deepStrictEqual([p500.componentesCosto[0].importe, p500.faltantesCosto], [null, ['100']]);
+  assert.deepStrictEqual(p1kg.faltantesCosto, ['100', '901']);
+  // con costo en la fuente decidida no hay faltante
+  const [ok] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
+  assert.deepStrictEqual(ok.presentaciones[0].faltantesCosto, []);
+});

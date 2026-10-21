@@ -99,7 +99,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     }
     if (tipo === 'fraccionado') {
       // costeo.fraccionado (Configuración › Costeo Fraccionado): sin migrar → null y el listado queda como antes.
-      const costeoF = costeo.fraccionado ? normalizarCosteoFraccionado(costeo.fraccionado) : null;
+      const costeoF = cfgEsq.configEsquemaDe(costeo).fraccionadoMigrado ? normalizarCosteoFraccionado(costeo.fraccionado) : null;
       const formulas = await formulasVigentes();
       const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
         consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);

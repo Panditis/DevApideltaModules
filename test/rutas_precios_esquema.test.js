@@ -531,3 +531,13 @@ test('listado Fraccionado sin costeo.fraccionado: como antes (sin avisos ni cost
     assert.deepStrictEqual([det.presentaciones[0].costos.sistema, det.avisosCosto], [10000, undefined]);
   } finally { a.cerrar(); }
 });
+
+test('listado Fraccionado con costeo.fraccionado que no es un bloque (lista o número): no activa el costeo', async () => {
+  for (const basura of [[], 5, 'x']) {
+    const a = appCon({ ...MIGRADO, fraccionado: basura }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+    try {
+      const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+      assert.deepStrictEqual([det.presentaciones[0].costos.sistema, det.avisosCosto], [10000, undefined], JSON.stringify(basura));
+    } finally { a.cerrar(); }
+  }
+});
