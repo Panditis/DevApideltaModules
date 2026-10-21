@@ -690,6 +690,7 @@ app.get('/js/precios_config.js', (_req, res) => res.sendFile(path.join(__dirname
 // Motor del esquema por canal: el mismo archivo UMD del server (lib/), global PreciosEsquema en el navegador.
 app.get('/js/precios_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'precios_esquema.js')));
 app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_esquema.js')));
+app.get('/js/precios_config_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_fraccionado.js')));
 app.get('/js/compras_siga.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'compras_siga.js')));
 // Whitelist explícita: el proyecto no usa express.static.
 for (const n of ['estado', 'resumen', 'registro', 'registros', 'envio', 'catalogo', 'agenda', 'init', 'formulas', 'mp', 'carrito', 'reserva', 'movimientos']) {

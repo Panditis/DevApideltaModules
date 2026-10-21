@@ -60,12 +60,16 @@ const CARGA_SUBCONFIG = {
   precio: () => cargarPrecioEsq(),   // precios_config_esquema.js
   simulador: () => cargarSimulador(), // precios_simulador.js
   general: () => cargarConfiguracion(),
+  'costeo-fracc': () => cargarCosteoFracc(), // precios_config_fraccionado.js (sólo con el switch en Fraccionado)
 };
 const CLAVE_SUBCONFIG = 'precios.subConfig';
 function ultimoSubConfig(){
   try { const s = sessionStorage.getItem(CLAVE_SUBCONFIG); return CARGA_SUBCONFIG[s] ? s : 'costos'; } catch { return 'costos'; }
 }
-function activarSubConfig(sub){
+function activarSubConfig(pedido){
+  // Costeo Fraccionado sólo existe con el switch en Fraccionado (precios_config_fraccionado.js); pasar a Reventa estando ahí vuelve a Costos.
+  mostrarCosteoFracc(tipoCfgEsq);
+  const sub = pedido === 'costeo-fracc' && !esFraccCfg() ? 'costos' : pedido;
   document.querySelectorAll('#subtabsConfig .cfg-tab').forEach(x => {
     const on = x.dataset.sub === sub;
     x.setAttribute('aria-selected', String(on));
@@ -79,7 +83,7 @@ function activarSubConfig(sub){
   try { sessionStorage.setItem(CLAVE_SUBCONFIG, sub); } catch { /* sin storage: queda Costos la próxima vez */ }
   CARGA_SUBCONFIG[sub]();
 }
-const tabsConfig = () => [...document.querySelectorAll('#subtabsConfig .cfg-tab')];
+const tabsConfig = () => [...document.querySelectorAll('#subtabsConfig .cfg-tab:not(.hidden)')]; // sin el sub-tab oculto (Costeo Fraccionado en Reventa)
 document.getElementById('subtabsConfig').addEventListener('click', async e => {
   const b = e.target.closest('.cfg-tab');
   if (!b || b.getAttribute('aria-selected') === 'true') return;
