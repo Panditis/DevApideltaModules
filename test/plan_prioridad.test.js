@@ -86,3 +86,17 @@ test('calcularCobertura: sin venta (0, negativa, null o no numérica) no hay cob
   assert.strictEqual(calcularCobertura(5, 'x'), null);
   assert.strictEqual(calcularCobertura(5, Infinity), null);
 });
+
+const { umbralDeClase } = require('../lib/plan_prioridad');
+
+test('umbralDeClase: días de la clase; config pisa el default clave por clave; inválido o clase desconocida cae al default', () => {
+  assert.strictEqual(umbralDeClase('A'), 7);
+  assert.strictEqual(umbralDeClase('B'), 5);
+  assert.strictEqual(umbralDeClase('C'), 3);
+  assert.strictEqual(umbralDeClase('B', { B: 10 }), 10);
+  assert.strictEqual(umbralDeClase('A', { B: 10 }), 7);
+  assert.strictEqual(umbralDeClase('A', { A: 'x' }), 7);
+  assert.strictEqual(umbralDeClase('A', { A: 0 }), 7);
+  assert.strictEqual(umbralDeClase('Z', { C: 4 }), 4);        // clase desconocida = C
+  assert.strictEqual(umbralDeClase(undefined), 3);
+});

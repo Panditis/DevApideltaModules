@@ -574,6 +574,19 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 .mp-avisos{margin-bottom:8px;font-size:12px;line-height:1.4}
 .mp-aviso{color:var(--red-text)}
 .mp-reserva{display:flex;gap:6px;align-items:center;margin-top:3px;color:var(--muted)}
+/* ── Modal con el cálculo de la urgencia (click en el chip del Resumen) ── */
+.urg-click{cursor:pointer;border-radius:var(--radius-sm)}
+.urg-click:hover{background:rgba(64,89,54,.10)}
+.urg-tabla{width:100%;border-collapse:collapse;font-size:13px}
+.urg-tabla td,.urg-tabla th{padding:6px 8px;border-bottom:1px solid var(--md-outline-variant);vertical-align:top}
+.urg-tabla th{font-size:11px;color:var(--muted);text-align:left;white-space:nowrap}
+.urg-tabla td:first-child{color:var(--muted);white-space:nowrap}
+.urg-grupo td:first-child{color:inherit;font-weight:600;white-space:normal}
+.urg-tabla .num{text-align:right;white-space:nowrap}
+.urg-tabla th.num{text-align:right}
+.urg-tabla tr.urg-peor td{background:var(--amb-bg)}
+.urg-nota{font-size:13px;margin:0 0 10px;line-height:1.5}
+.urg-nota.text-sm{margin:10px 0 0}
 #carritoBadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--md-primary);color:#fff;font-size:11px;text-align:center}
 </style>
 <!-- Módulo puro de cálculo de bloques: va ANTES del script principal, que lo lee como window.BloquesTareas -->
@@ -820,6 +833,17 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
     <div style="padding:18px 20px;overflow-x:hidden;overflow-y:auto" id="stockDetBody">
       <div class="loading">Cargando…</div>
     </div>
+  </div>
+</div>
+
+<!-- MODAL CÁLCULO DE LA URGENCIA -->
+<div class="overlay" id="overlayUrgencia">
+  <div class="modal" style="width:auto;min-width:min(560px,92vw);max-width:min(900px,94vw)">
+    <div class="modal-header">
+      <span>Urgencia · <span id="urgenciaTitulo"></span></span>
+      <span class="close" id="cerrarUrgencia">✕</span>
+    </div>
+    <div id="urgenciaBody" style="padding:14px 18px;overflow-x:hidden;overflow-y:auto"></div>
   </div>
 </div>
 

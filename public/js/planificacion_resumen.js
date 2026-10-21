@@ -7,10 +7,11 @@ let gruposSorted = [];
 // El orden (urgencia y, dentro de cada nivel, rankingPos) lo da el servidor: gruposSorted lo conserva
 // porque los botones identifican el grupo por su posición (gi).
 const URGENCIA_CHIP = { URGENTE: ['RED', '🔴 Urgente'], PRONTO: ['YELLOW', '🟡 Pronto'], OK: ['GREEN', '🟢 OK'] };
-function urgenciaCell(urgencia, cobertura) {
+// gi/pi (índices; pi -1 = fila del grupo): el chip abre el modal con el cálculo (abrirUrgenciaDetalle).
+function urgenciaCell(urgencia, cobertura, gi, pi) {
   const [clase, txt] = URGENCIA_CHIP[urgencia] || URGENCIA_CHIP.OK;
   const cob = Number.isFinite(cobertura) ? `${cobertura} d` : '—';
-  return `<span title="Cobertura: (stock central + sucursales) ÷ venta diaria"><span class="badge ${clase}">${txt}</span> <span class="text-sm" style="white-space:nowrap">${cob}</span></span>`;
+  return `<span class="urg-click" title="Ver cómo se calcula la urgencia" onclick="event.stopPropagation();abrirUrgenciaDetalle(${gi},${pi})"><span class="badge ${clase}">${txt}</span> <span class="text-sm" style="white-space:nowrap">${cob}</span></span>`;
 }
 
 async function cargarSugerencias() {
@@ -50,7 +51,7 @@ function renderGrupos() {
     if (g.esGranel) {
       return `<tr class="grupo-row granel-row">
         <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
-        <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias)}</td>
+        <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias, gi, -1)}</td>
         <td class="nombre-col font-bold">
           ${escHtml(g.productoRef)}
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
@@ -67,7 +68,7 @@ function renderGrupos() {
     const _stockSucGrupo = redondear((g.presentaciones||[]).reduce((s,p)=>s+(p.stockSucursales||0),0));
     const grupoRow = `<tr class="grupo-row" data-gi="${gi}" style="cursor:pointer" onclick="toggleGrupo(${gi})">
       <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
-      <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias)}</td>
+      <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias, gi, -1)}</td>
       <td class="nombre-col font-bold"><span class="expand-btn" id="ebtn-${gi}">▶</span> ${escHtml(g.productoRef)}</td>
       <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
       <td class="text-right text-sm" title="Cuenta al 60% en el sugerido: ${redondear(_stockGrupo*0.6)}">${_stockGrupo>0?_stockGrupo:'—'}</td>
@@ -90,7 +91,7 @@ function renderGrupos() {
       const _pProm = p.promMes ?? Math.round((p.promDiario||0)*30*10)/10;
       return `<tr class="sub-${gi}" style="display:none;background:#f7faf6">
         <td></td>
-        <td style="white-space:nowrap">${urgenciaCell(p.urgencia, p.coberturaDias)}</td>
+        <td style="white-space:nowrap">${urgenciaCell(p.urgencia, p.coberturaDias, gi, pi)}</td>
         <td class="nombre-col" style="padding-left:28px;font-size:13px">
           ${escHtml(p.presentacion)}
           ${_pProm ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">prom: ${_pProm}/mes</div>` : ''}
@@ -318,6 +319,103 @@ async function itemGranelPrevio(productoRef, items) {
     granelPrevioDe: productoRef
   }));
 }
+
+// ── CÁLCULO DE LA URGENCIA (modal al hacer click en el chip) ──────────────
+const nfAR = (n, dec = 1) => Number(n).toLocaleString('es-AR', { maximumFractionDigits: dec });
+const listaY = arr => (arr.length > 1 ? arr.slice(0, -1).join(', ') + ' y ' + arr[arr.length - 1] : arr.join(''));
+const chipUrgencia = nivel => { const [clase, txt] = URGENCIA_CHIP[nivel] || URGENCIA_CHIP.OK; return `<span class="badge ${clase}">${txt}</span>`; };
+
+// Cobertura en días con 1 decimal; si el redondeo cae justo en un corte (7 → "7" cuando era 6,96) usa 2.
+function fmtDias(c, ...cortes) {
+  const r1 = Math.round(c * 10) / 10;
+  return nfAR(c, cortes.includes(r1) && r1 !== c ? 2 : 1);
+}
+
+// Valores del cálculo de una presentación, o del grupo entero si es granel (p = null).
+function datosUrgencia(g, p) {
+  const central = p ? (p.stockActual || 0) : (g.granelStockGrupo || 0);
+  const suc = p ? (p.stockSucursales || 0) : (g.stockSucGrupo || 0);
+  const diaria = (p ? p.ventaDiariaUrg : g.ventaDiariaUrg) || 0;
+  return {
+    ventas: (p ? p.ventasVentana : g.ventasVentana) || 0, diaria, central, suc, total: central + suc,
+    cobertura: diaria > 0 ? Math.max(0, (central + suc) / diaria) : null,
+    nivel: p ? p.urgencia : g.urgencia,
+  };
+}
+
+// "4,2 < 7 → Urgente": la comparación con el umbral de la clase, escrita.
+function textoResultado(cobertura, umbral, nivel) {
+  const nombre = (URGENCIA_CHIP[nivel] || URGENCIA_CHIP.OK)[1].replace(/^\S+\s/, '');
+  if (cobertura === null) return `Sin ventas en la ventana → sin urgencia (${nombre})`;
+  const c = fmtDias(cobertura, umbral, 2 * umbral);
+  if (cobertura < umbral) return `${c} < ${umbral} → ${nombre}`;
+  if (cobertura < 2 * umbral) return `${umbral} ≤ ${c} < ${2 * umbral} → ${nombre}`;
+  return `${c} ≥ ${2 * umbral} → ${nombre}`;
+}
+
+function lineaImportancia(g) {
+  return `puesto #${escHtml(String(g.rankingPos ?? '—'))} · clase ${escHtml(String(g.claseABC))} <span class="text-sm">(Pareto de facturación: A = primer 80 %, B = siguiente 15 %, C = resto)</span>`;
+}
+function lineaUmbral(g) {
+  const u = g.umbralUrgencia;
+  return `urgente &lt; ${nfAR(u)} días · pronto &lt; ${nfAR(2 * u)} días`;
+}
+
+function htmlCalculoPresentacion(g, p) {
+  const d = datosUrgencia(g, p), unidad = g.esGranel ? 'kg' : 'u';
+  const excluye = (g.sucursalesExcluidas || []).length ? `excluye sucursales ${escHtml(listaY(g.sucursalesExcluidas.map(String)))} y ventas internas a sucursales` : 'excluye ventas internas a sucursales';
+  const fila = (etq, valor) => `<tr><td>${etq}</td><td>${valor}</td></tr>`;
+  const filas = [
+    fila('Ventas en la ventana', `${nfAR(d.ventas, 2)} ${unidad} en ${nfAR(g.ventanaDias, 0)} días <span class="text-sm">(${excluye})</span>`),
+    fila('Venta diaria', `${nfAR(d.ventas, 2)} ÷ ${nfAR(g.ventanaDias, 0)} = <strong>${nfAR(d.diaria, 2)} ${unidad}/día</strong>`),
+    fila('Stock', `central ${nfAR(d.central, 2)} + sucursales ${nfAR(d.suc, 2)} = <strong>${nfAR(d.total, 2)} ${unidad}</strong>`),
+  ];
+  if (d.cobertura !== null) filas.push(fila('Cobertura', `${nfAR(d.total, 2)} ÷ ${nfAR(d.diaria, 2)} = <strong>${fmtDias(d.cobertura)} días</strong>`));
+  filas.push(
+    fila('Importancia', lineaImportancia(g)),
+    fila(`Umbral clase ${escHtml(String(g.claseABC))}`, lineaUmbral(g)),
+    fila('Resultado', `<strong>${escHtml(textoResultado(d.cobertura, g.umbralUrgencia, d.nivel))}</strong> ${chipUrgencia(d.nivel)}`),
+  );
+  return `<table class="urg-tabla"><tbody>${filas.join('')}</tbody></table>`;
+}
+
+function htmlCalculoGrupo(g) {
+  const unidad = g.esGranel ? 'kg' : 'u';
+  const lineas = g.esGranel
+    ? [{ nombre: 'Grupo granel', detalle: `granel central ${nfAR(g.granelStockGrupo || 0, 2)} + sucursales ${nfAR(g.stockSucGrupo || 0, 2)}`, d: datosUrgencia(g, null) }]
+    : (g.presentaciones || []).map(p => ({ nombre: p.presentacion || p.baseNombre, detalle: '', d: datosUrgencia(g, p) }));
+  // El grupo toma la presentación de menor cobertura (la que se muestra en su fila).
+  const conCob = lineas.filter(l => l.d.cobertura !== null);
+  const peor = conCob.length ? conCob.reduce((a, b) => (b.d.cobertura < a.d.cobertura ? b : a)) : null;
+  const cuerpo = lineas.map(l => `<tr${l === peor ? ' class="urg-peor"' : ''}>
+      <td>${escHtml(l.nombre)}${l.detalle ? `<div class="text-sm">${escHtml(l.detalle)}</div>` : ''}</td>
+      <td class="num">${nfAR(l.d.ventas, 2)} ${unidad}</td><td class="num">${nfAR(l.d.diaria, 2)} ${unidad}/día</td>
+      <td class="num">${nfAR(l.d.total, 2)} ${unidad}</td>
+      <td class="num">${l.d.cobertura === null ? '—' : fmtDias(l.d.cobertura) + ' d'}</td><td>${chipUrgencia(l.d.nivel)}</td></tr>`).join('');
+  return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th><th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th><th class="num">Cobertura</th><th>Nivel</th></tr></thead>
+    <tbody>${cuerpo}</tbody></table>
+    <div class="urg-nota text-sm">${peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.'} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. Excluye ${escHtml((g.sucursalesExcluidas || []).length ? 'sucursales ' + listaY(g.sucursalesExcluidas.map(String)) + ' y ' : '')}ventas internas a sucursales.</div>`;
+}
+
+// pi = índice de la presentación dentro del grupo, o -1 para la fila del grupo.
+function abrirUrgenciaDetalle(gi, pi) {
+  const g = gruposSorted[gi];
+  if (!g) return;
+  const p = pi >= 0 ? (g.presentaciones || [])[pi] : null;
+  if (pi >= 0 && !p) return;
+  const ok = Number.isFinite(g.umbralUrgencia) && Number.isFinite(g.ventanaDias);
+  const nivel = p ? p.urgencia : g.urgencia;
+  document.getElementById('urgenciaTitulo').innerHTML = `${escHtml(p ? (p.baseNombre || g.productoRef) : g.productoRef)} · ${chipUrgencia(nivel)}`;
+  document.getElementById('urgenciaBody').innerHTML = !ok
+    ? '<div style="padding:10px;color:var(--muted)">Faltan datos del cálculo: recargá la página (y reiniciá el servidor si acaba de actualizarse).</div>'
+    : (p ? htmlCalculoPresentacion(g, p) : htmlCalculoGrupo(g));
+  document.getElementById('overlayUrgencia').classList.add('open');
+}
+document.getElementById('cerrarUrgencia').addEventListener('click', () => document.getElementById('overlayUrgencia').classList.remove('open'));
+document.getElementById('overlayUrgencia').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
 
 document.getElementById('filtroQ').addEventListener('input', () => {
   clearTimeout(buscarDebounce); buscarDebounce = setTimeout(cargarSugerencias, 400);
