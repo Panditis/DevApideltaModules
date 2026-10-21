@@ -1,3 +1,4 @@
+'use strict';
 
 // ── Agenda de bloques: carga y guardado ──────────────────────────
 // Los bloques viven dentro del plan del día, así que la agenda se lee del mismo GET del plan.

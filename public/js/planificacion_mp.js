@@ -26,7 +26,10 @@ async function calcularMPParaItems(items) {
   for (const it of items) {
     const cant = it.cantConfirmada ?? it.cantSugerida ?? 0;
     if (cant <= 0) continue;
-    const plu = String(it.idProducto);
+    // Granel manual: no tiene idProducto, su fórmula se busca por el PLU del granel.
+    const pluRaw = it.idProducto ?? (it.esGranel ? it.idGranel : null);
+    if (pluRaw == null || pluRaw === '') continue;
+    const plu = String(pluRaw);
     if (!formulasAllCache[plu]) {
       try {
         const bom = await api('GET', `/api/bom/producto/${plu}`);
@@ -42,7 +45,8 @@ async function calcularMPParaItems(items) {
   return Object.entries(mpMap).map(([plu, v]) => ({ plu, ...v }));
 }
 
-async function mostrarMPResumen(titulo, items) {
+// avisosHtml: bloque HTML opcional que se antepone a la tabla (avisos del carrito).
+async function mostrarMPResumen(titulo, items, avisosHtml = '') {
   document.getElementById('mpResumenTitulo').textContent = titulo;
   document.getElementById('mpResumenBody').innerHTML = '<div style="color:var(--muted);font-size:13px">Calculando…</div>';
   document.getElementById('overlayMPResumen').classList.add('open');
@@ -51,7 +55,7 @@ async function mostrarMPResumen(titulo, items) {
   const body = document.getElementById('mpResumenBody');
 
   if (!mpList.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin fórmulas definidas para estas presentaciones.</div>';
+    body.innerHTML = avisosHtml + '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin fórmulas definidas para estas presentaciones.</div>';
   } else {
     const stockMap = new Map();
     try {
@@ -59,7 +63,7 @@ async function mostrarMPResumen(titulo, items) {
       for (const r of rows) stockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
     } catch(e) {}
 
-    body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    body.innerHTML = avisosHtml + `<table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f1f5f9">
         <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Componente</th>
         <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Necesario</th>
@@ -88,84 +92,4 @@ async function mostrarMPResumen(titulo, items) {
   }
 
   return new Promise(resolve => { _mpResumenResolve = resolve; });
-}
-
-// ══════════════════ MULTI-RESPONSABLE WIDGET ══════════════════════
-
-// bloqueado = orden reservada: se ven los responsables asignados pero no se abre el desplegable.
-function renderRespMulti(it, bloqueado) {
-  const resps = Array.isArray(it.responsables) ? it.responsables : (it.responsable ? [it.responsable] : []);
-  const chips = resps.length
-    ? resps.map(r => `<span class="resp-chip-sm">${escHtml(r)}</span>`).join('')
-    : `<span style="color:var(--muted);font-size:11px">Sin asignar</span>`;
-  if (bloqueado) {
-    return `<div class="resp-multi" onclick="event.stopPropagation()">
-      <div class="resp-multi-display resp-multi-bloq" title="Orden reservada: anulá la reserva para cambiarlo">${chips}</div>
-    </div>`;
-  }
-  const opts = responsablesCache.map(r => {
-    const nom = respNombre(r);
-    return `<label style="display:flex;align-items:center;gap:7px;padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0;hover:background:#f5f5f5">
-      <input type="checkbox" ${resps.includes(nom)?'checked':''} style="accent-color:var(--md-primary)"
-        onchange="toggleResp(${it.id},'${escHtml(nom).replace(/'/g,"\\'")}')">
-      ${escHtml(nom)}
-    </label>`;
-  }).join('');
-  return `<div class="resp-multi" onclick="event.stopPropagation()">
-    <div class="resp-multi-display" id="rdsp-${it.id}" onclick="toggleRespDrop('rmd-${it.id}')">
-      ${chips}<span class="rm-arrow">▾</span>
-    </div>
-    <div class="resp-dropdown" id="rmd-${it.id}" style="display:none">
-      ${opts || '<div style="padding:8px 10px;color:var(--muted);font-size:12px">Sin responsables cargados.</div>'}
-    </div>
-  </div>`;
-}
-
-let _openRespDrop = null;
-function toggleRespDrop(id) {
-  if (_openRespDrop && _openRespDrop !== id) {
-    const prev = document.getElementById(_openRespDrop);
-    if (prev) prev.style.display = 'none';
-  }
-  const dd = document.getElementById(id);
-  if (!dd) return;
-  const show = dd.style.display === 'none';
-  if (show) {
-    const trigger = document.getElementById(id.replace('rmd-', 'rdsp-'));
-    if (trigger) {
-      const r = trigger.getBoundingClientRect();
-      dd.style.top  = (r.bottom + 2) + 'px';
-      dd.style.left = r.left + 'px';
-      dd.style.minWidth = r.width + 'px';
-    }
-    dd.style.display = 'block';
-  } else {
-    dd.style.display = 'none';
-  }
-  _openRespDrop = show ? id : null;
-}
-document.addEventListener('click', () => {
-  if (_openRespDrop) {
-    const el = document.getElementById(_openRespDrop);
-    if (el) el.style.display = 'none';
-    _openRespDrop = null;
-  }
-});
-
-function toggleResp(itemId, nombre) {
-  const item = planCache?.items?.find(i => i.id === itemId);
-  if (!item) return;
-  if (!Array.isArray(item.responsables)) item.responsables = item.responsable ? [item.responsable] : [];
-  const idx = item.responsables.indexOf(nombre);
-  if (idx >= 0) item.responsables.splice(idx, 1); else item.responsables.push(nombre);
-  actualizarItem(itemId, 'responsables', [...item.responsables]);
-  // Actualizar solo el display (sin cerrar el dropdown)
-  const dsp = document.getElementById(`rdsp-${itemId}`);
-  if (dsp) {
-    const resps = item.responsables;
-    const chips = resps.length
-      ? resps.map(r => `<span class="resp-chip-sm">${escHtml(r)}</span>`).join('')
-      : `<span style="color:var(--muted);font-size:11px">Sin asignar</span>`;
-    dsp.innerHTML = chips + '<span class="rm-arrow">▾</span>';
-  }
 }

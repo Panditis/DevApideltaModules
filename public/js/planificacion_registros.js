@@ -1,3 +1,4 @@
+'use strict';
 // ── Modal responsables ────────────────────────────────────────────
 // ── Panel envases ─────────────────────────────────────────────────
 async function cargarEnvases() {

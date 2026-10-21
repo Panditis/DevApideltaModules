@@ -1,3 +1,4 @@
+'use strict';
 
 // ── Modal de confirmación genérico ───────────────────────────────
 // Es el ÚNICO camino para pedir confirmación en esta pantalla: confirm() y alert() nativos
@@ -120,53 +121,6 @@ async function agregarItemsConCheck(fecha, items, labelOk) {
     <div style="margin-top:12px;color:var(--muted);font-size:13px">¿Agregar igual? Se sumará la cantidad nueva a la que ya está cargada.</div>`;
   confirmarModal('⚠ Producto ya en el plan', msg, 'Agregar y sumar', aplicar);
 }
-
-// ── Día Picker (selector rápido antes de agregar al plan) ────────
-let semDiaPicker  = lunesDeEstaFecha(HOY);
-let diaPicCallback = null;
-
-function abrirDiaPicker(titulo, callback) {
-  semDiaPicker   = lunesDeEstaFecha(fechaPlanActual || HOY);
-  diaPicCallback = callback;
-  document.getElementById('diaPicTitulo').textContent = titulo;
-  renderDiaPicker();
-  document.getElementById('overlayDiaPicker').classList.add('open');
-}
-
-function renderDiaPicker() {
-  const chips = document.getElementById('diaPickerChips');
-  let html = '';
-  for (let i = 0; i < 7; i++) {
-    const fecha = addDias(semDiaPicker, i);
-    const dd    = parseInt(fecha.split('-')[2]);
-    const esHoy = fecha === HOY;
-    const sel   = fecha === fechaPlanActual;
-    html += `<button class="dia-chip${esHoy?' hoy':''}${sel?' active':''}${i>=5?' fin-semana':''}"
-        onclick="seleccionarDiaPicker('${fecha}')">
-      <span class="dia-nom">${DIAS_NOM[i]}</span>
-      <span class="dia-num">${dd}</span>
-      ${esHoy ? '<span class="dia-hoy">HOY</span>' : ''}
-    </button>`;
-  }
-  chips.innerHTML = html;
-}
-
-function seleccionarDiaPicker(fecha) {
-  document.getElementById('overlayDiaPicker').classList.remove('open');
-  if (diaPicCallback) { const cb = diaPicCallback; diaPicCallback = null; cb(fecha); }
-}
-
-document.getElementById('btnDiaPicAnt').addEventListener('click', () => {
-  semDiaPicker = addDias(semDiaPicker, -7); renderDiaPicker();
-});
-document.getElementById('btnDiaPicSig').addEventListener('click', () => {
-  semDiaPicker = addDias(semDiaPicker, 7); renderDiaPicker();
-});
-document.getElementById('cerrarDiaPicker').addEventListener('click', () =>
-  document.getElementById('overlayDiaPicker').classList.remove('open'));
-document.getElementById('overlayDiaPicker').addEventListener('click', e => {
-  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
-});
 
 // ── Número de tambor (solo mieles) ───────────────────────────────
 let tamborCallback = null;
