@@ -500,6 +500,16 @@
     La configuración todavía no está migrada al esquema por canal: hay que correr
     <code>node scripts/migrar_esquema_canales.js</code> en el servidor (sin márgenes no hay precios sugeridos).
   </div>
+  <!-- Switch de la configuración (spec 2026-10-21 §2.4): Costos, Márgenes, Precio y Simulador muestran y guardan el tipo
+       elegido (precios_config_esquema.js tipoCfgEsq). Producción usa la de Reventa. General es común. -->
+  <div id="cfgTipo" class="seg mb-3" role="group" aria-label="Configuración de">
+    <button type="button" class="seg-opt" data-tipo-cfg="almacen" aria-pressed="true">Reventa <span class="cfg-nota">y Producción</span></button>
+    <button type="button" class="seg-opt" data-tipo-cfg="fraccionado" aria-pressed="false">Fraccionado</button>
+  </div>
+  <div id="cfgFraccAviso" class="hidden mb-4 p-3 rounded-lg bg-warn/10 text-warn text-sm" role="status">
+    Fraccionado todavía usa la configuración de Reventa: hay que correr <code>node scripts/migrar_config_fraccionado.js</code>
+    en el servidor. Hasta entonces no se puede guardar en esta vista.
+  </div>
 
   <nav id="subtabsConfig" class="cfg-sub" role="tablist" aria-label="Secciones de Configuración">
     <span class="cfg-grupo" aria-hidden="true">Pasos del precio</span>
