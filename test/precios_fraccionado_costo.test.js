@@ -89,3 +89,18 @@ test('sumarExtraKg: suma el extra a cada fuente con costo; extra null (faltante)
 test('plusInsumos: PLUs de reglas y de propios, sin repetir', () => {
   assert.deepStrictEqual(FC.plusInsumos(CF).sort(), ['900', '901', '902']);
 });
+
+test('costearPresentacion: extraKg sale de la suma SIN redondear (presentaciones chicas no amplifican el redondeo)', () => {
+  // 10 g, insumo 1,234: sin redondear = 1,234 + MO 62,5 + máquina 31,25 = 94,984 → ÷ 0,01 kg = 9498,4 (con redondeo previo daba 9498)
+  const r = FC.costearPresentacion({ plu: '107', pesoG: 10, granel: GRANEL, cf: CF, costoDe: plu => (plu === '900' ? { costo: 1.234, nombre: 'Bolsita' } : null) });
+  assert.deepStrictEqual([r.porUnidad, r.extraKg], [94.98, 9498.4]);
+  assert.strictEqual(r.lineas[0].importe, 1.23);
+});
+
+test('costearPresentacion: costo de insumo que llega como texto se convierte; no numérico o ≤ 0 → faltante', () => {
+  const con = costo => FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: CF, costoDe: () => ({ costo, nombre: 'X' }) });
+  const ok = con('20');
+  assert.strictEqual(ok.lineas[0].costoUnit, 20);
+  assert.deepStrictEqual([ok.lineas[0].importe, ok.porUnidad], [20, 207.5]);
+  for (const malo of ['abc', '', null, 0, '0', -5, Infinity]) assert.deepStrictEqual([con(malo).faltantes, con(malo).extraKg], [['900'], null], `costo ${String(malo)}`);
+});

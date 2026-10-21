@@ -67,3 +67,36 @@ test('aplicarInsumosPresentacion: lista válida la guarda; vacía vuelve a la re
   assert.deepStrictEqual(CF.aplicarInsumosPresentacion({ 101: [{ plu: '902', cantidad: 3 }] }, '101', { insumos: [] }), {});
   assert.throws(() => CF.aplicarInsumosPresentacion({}, '101', { insumos: [{ plu: 'abc', cantidad: 1 }] }), /insumos\[0\]\.plu/);
 });
+
+test('validarInsumosSubrubro: null, lista o texto NO borran las reglas (error), sólo un objeto', () => {
+  for (const malo of [null, [], 'x', 5]) {
+    assert.throws(() => CF.validarInsumosSubrubro({ insumosSubrubro: malo }), /insumosSubrubro: debe ser un objeto/);
+  }
+  assert.deepStrictEqual(CF.validarInsumosSubrubro({ insumosSubrubro: {} }), { insumosSubrubro: {} });
+});
+
+test('los demás validadores tampoco aceptan null ni no-listas como "vacío" (maquinas, tiempos, facilidades, insumos, granel)', () => {
+  for (const malo of [null, {}, 'x']) {
+    assert.throws(() => CF.validarMaquinas({ maquinas: malo }), /maquinas: debe ser una lista/);
+    assert.throws(() => CF.validarTiempos({ tiempos: malo, facilidades: { facil: 1, medio: 1, dificil: 1 } }), /tiempos: debe ser una lista/);
+    assert.throws(() => CF.aplicarInsumosPresentacion({}, '101', { insumos: malo }), /insumos: debe ser una lista/);
+  }
+  assert.throws(() => CF.validarTiempos({ tiempos: [], facilidades: null }), /facilidades\.facil/);
+  for (const malo of [null, [], 'x', 5]) {
+    assert.throws(() => CF.aplicarGranel({ 100: { facilidad: 'medio', maquinaId: null } }, '100', malo, []), /body: debe ser un objeto/);
+  }
+});
+
+test('validarMaquinas: el id que manda el cliente debe ser [a-z0-9-]{1,60}; el generado siempre lo cumple (también nombres largos)', () => {
+  for (const malo of ['Env', 'a b', 'ñ', 'x'.repeat(61), 7, {}]) {
+    assert.throws(() => CF.validarMaquinas({ maquinas: [{ id: malo, nombre: 'X', costoHora: 1 }] }), /maquinas\[0\]\.id/);
+  }
+  // id vacío o ausente = máquina nueva → se genera
+  assert.strictEqual(CF.validarMaquinas({ maquinas: [{ id: '', nombre: 'Nueva', costoHora: 1 }] }).maquinas[0].id, 'nueva');
+  // 60 caracteres de nombre repetidos: los ids generados caben en 60 y vuelven a pasar por el validador
+  const largo = 'a'.repeat(60);
+  const { maquinas } = CF.validarMaquinas({ maquinas: [{ nombre: largo, costoHora: 1 }, { nombre: largo, costoHora: 2 }] });
+  assert.ok(maquinas.every(m => /^[a-z0-9-]{1,60}$/.test(m.id)));
+  assert.strictEqual(new Set(maquinas.map(m => m.id)).size, 2);
+  assert.doesNotThrow(() => CF.validarMaquinas({ maquinas }));
+});
