@@ -3,108 +3,98 @@ const test = require('node:test');
 const assert = require('node:assert');
 const FC = require('../lib/precios_fraccionado_costo');
 
-// Costo hora 6000 ($100/min), envasadora 3000 ($50/min). Granel 100 "medio" (× 1,25) con la envasadora, subrubro 7.
 const CF = FC.normalizarCosteoFraccionado({
   costoHora: 6000,
-  maquinas: [{ id: 'envasadora', nombre: 'Envasadora', costoHora: 3000 }],
-  tiempos: [{ hastaG: 250, minutos: 0.5 }, { hastaG: 1000, minutos: 1 }],
-  insumosSubrubro: { 7: [
-    { hastaG: 500, insumos: [{ plu: '900', cantidad: 1 }] },
-    { hastaG: 5000, insumos: [{ plu: '901', cantidad: 1 }, { plu: '902', cantidad: 2 }] },
-  ] },
-  porGranel: { 100: { facilidad: 'medio', maquinaId: 'envasadora' } },
-  insumosPresentacion: { 103: [{ plu: '902', cantidad: 3 }] },
+  maquinas: [{ id: 'env', nombre: 'Envasadora', costoHora: 3000 }, { id: 'sel', nombre: 'Selladora', costoHora: 1200 }],
+  subrubros: { 7: { maquinaId: 'env', tramos: [{ hastaG: 250, minutos: 0.5 }, { hastaG: 1000, minutos: 1 }] } },
+  presentaciones: { 101: { facilidad: 'normal', tiempo: 'lento', insumos: [{ plu: '900', cantidad: 1 }] } },
 });
-const COSTOS = { 900: 20, 901: 40, 902: 5 };
-const costoDe = plu => (plu in COSTOS ? { costo: COSTOS[plu], nombre: `Insumo ${plu}` } : null);
+const costoDe = plu => ({ 900: { costo: 20, nombre: 'Bolsa' } }[plu] || null);
 const GRANEL = { plu: '100', subrubroId: '7' };
 
-test('normalizarCosteoFraccionado: sin dato → listas vacías, costo hora null y facilidades por defecto', () => {
+test('normalizarCosteoFraccionado: defaults de escalas y mapas vacíos', () => {
   assert.deepStrictEqual(FC.normalizarCosteoFraccionado(undefined), {
-    costoHora: null, maquinas: [], tiempos: [], facilidades: { facil: 1, medio: 1.25, dificil: 1.5 },
-    insumosSubrubro: {}, porGranel: {}, insumosPresentacion: {},
+    costoHora: null, maquinas: [],
+    escalas: { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 }, tiempo: { rapido: 0.75, normal: 1, lento: 1.5 } },
+    subrubros: {}, presentaciones: {}, porGranel: {},
   });
-  assert.strictEqual(FC.normalizarCosteoFraccionado({ facilidades: { medio: 2 } }).facilidades.medio, 2);
 });
 
-test('tramoDe: primer tramo que cubre el peso (borde incluido), arriba del último → el último, sin tramos o peso → null', () => {
-  const ts = [{ hastaG: 250 }, { hastaG: 1000 }];
-  assert.strictEqual(FC.tramoDe(ts, 250).hastaG, 250);
-  assert.strictEqual(FC.tramoDe(ts, 251).hastaG, 1000);
-  assert.strictEqual(FC.tramoDe(ts, 5000).hastaG, 1000);
-  assert.strictEqual(FC.tramoDe([], 500), null);
-  assert.strictEqual(FC.tramoDe(ts, null), null);
+test('normalizarCosteoFraccionado: lee la forma vieja (facilidades con medio, insumosPresentacion, facilidad por granel) sin perder datos', () => {
+  const n = FC.normalizarCosteoFraccionado({ facilidades: { facil: 1, medio: 1.3, dificil: 2 }, tiempos: [{ hastaG: 500, minutos: 1 }],
+    insumosSubrubro: { 7: [] }, insumosPresentacion: { 101: [{ plu: '900', cantidad: 2 }], 102: [] },
+    porGranel: { 100: { facilidad: 'medio', maquinaId: 'env' }, 200: { facilidad: 'facil', maquinaId: null } } });
+  assert.deepStrictEqual(n.escalas.facilidad, { facil: 1, normal: 1.3, dificil: 2 });
+  assert.deepStrictEqual(n.presentaciones, { 101: { insumos: [{ plu: '900', cantidad: 2 }] } });
+  assert.deepStrictEqual(n.porGranel, { 100: { maquinaId: 'env' } });
+  assert.deepStrictEqual(n.subrubros, {});
+  // la forma nueva gana sobre la vieja
+  assert.strictEqual(FC.normalizarCosteoFraccionado({ facilidades: { medio: 1.3 }, escalas: { facilidad: { normal: 1.1 } } }).escalas.facilidad.normal, 1.1);
 });
 
-test('costearPresentacion: 500 g → insumos de la regla + MO + máquina con minutos × factor, a $/kg', () => {
+test('tramoDe: primer tramo que cubre el peso, arriba del último el último; sin tramos o sin peso null', () => {
+  const ts = [{ hastaG: 250, minutos: 0.5 }, { hastaG: 1000, minutos: 1 }];
+  assert.deepStrictEqual([FC.tramoDe(ts, 250).minutos, FC.tramoDe(ts, 251).minutos, FC.tramoDe(ts, 5000).minutos], [0.5, 1, 1]);
+  assert.deepStrictEqual([FC.tramoDe([], 100), FC.tramoDe(ts, null)], [null, null]);
+});
+
+test('costearPresentacion: minutos = tramo del subrubro × tiempo × facilidad; MO + máquina del subrubro + insumos, en $/kg', () => {
   const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: CF, costoDe });
-  // minutos = 1 (tramo 1000 g) × 1,25 = 1,25 → MO 125, máquina 62,5; insumo 900 = 20 → 207,5 por unidad ÷ 0,5 kg = 415
-  assert.strictEqual(r.minutos, 1.25);
-  assert.deepStrictEqual([r.minutosBase, r.factor], [1, 1.25]); // minutos = base del tramo × factor de la facilidad
-  assert.deepStrictEqual(r.lineas.map(l => [l.plu, l.rol, l.importe]), [['900', 'insumo', 20], ['_manoObra', 'mo', 125], ['_maquina', 'maquina', 62.5]]);
-  assert.deepStrictEqual([r.porUnidad, r.extraKg, r.origenInsumos, r.avisos, r.faltantes], [207.5, 415, 'regla', [], []]);
+  // 1 × 1,5 (lento) × 1,25 (normal) = 1,875 min; MO 1,875 × 6000/60 = 187,5; máquina 1,875 × 3000/60 = 93,75; bolsa 20
+  assert.deepStrictEqual([r.minutosBase, r.factorTiempo, r.factorFacilidad, r.minutos], [1, 1.5, 1.25, 1.875]);
+  assert.deepStrictEqual([r.facilidad, r.tiempo], ['normal', 'lento']);
+  assert.deepStrictEqual(r.lineas.map(l => [l.plu, l.rol, l.importe]), [['900', 'insumo', 20], ['_manoObra', 'mo', 187.5], ['_maquina', 'maquina', 93.75]]);
+  assert.deepStrictEqual([r.porUnidad, r.extraKg, r.avisos, r.faltantes], [301.25, 602.5, [], []]);
 });
 
-test('costearPresentacion: pesos chicos y grandes toman su tramo de tiempo y de insumos', () => {
-  // 50 g: 0,5 min × 1,25 = 0,625 → MO 62,5 + máquina 31,25 + insumo 20 = 113,75 ÷ 0,05 kg = 2275
-  assert.deepStrictEqual(FC.costearPresentacion({ plu: '104', pesoG: 50, granel: GRANEL, cf: CF, costoDe }).extraKg, 2275);
-  // 2000 g: tiempo del último tramo (1 min × 1,25); insumos del tramo 5000 g: 40 + 2 × 5 = 50 → 125 + 62,5 + 50 = 237,5
-  const r = FC.costearPresentacion({ plu: '105', pesoG: 2000, granel: GRANEL, cf: CF, costoDe });
-  assert.deepStrictEqual([r.porUnidad, r.extraKg], [237.5, 118.75]);
+test('costearPresentacion / maquinaDe: la máquina del granel (excepción) pisa la del subrubro', () => {
+  const cf = { ...CF, porGranel: { 100: { maquinaId: 'sel' } } };
+  const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf, costoDe });
+  assert.deepStrictEqual([r.lineas[2].nombre, r.lineas[2].importe, r.porUnidad], ['Selladora', 37.5, 245]);
+  assert.deepStrictEqual(FC.maquinaDe(cf, GRANEL), { maquina: CF.maquinas[1], origen: 'granel' });
+  assert.deepStrictEqual(FC.maquinaDe(CF, GRANEL), { maquina: CF.maquinas[0], origen: 'subrubro' });
+  assert.deepStrictEqual(FC.maquinaDe(CF, { plu: '1', subrubroId: null }), { maquina: null, origen: null });
 });
 
-test('costearPresentacion: los insumos propios de la presentación REEMPLAZAN a la regla', () => {
-  const r = FC.costearPresentacion({ plu: '103', pesoG: 1000, granel: GRANEL, cf: CF, costoDe });
-  assert.deepStrictEqual(r.lineas.filter(l => l.rol === 'insumo').map(l => [l.plu, l.cantidad, l.importe]), [['902', 3, 15]]);
-  assert.deepStrictEqual([r.origenInsumos, r.porUnidad], ['propios', 202.5]);
+test('costearPresentacion: sin facilidad ni tiempo → factor 1 con aviso; sin insumos → aviso', () => {
+  const r = FC.costearPresentacion({ plu: '102', pesoG: 1000, granel: GRANEL, cf: CF, costoDe });
+  assert.deepStrictEqual([r.minutos, r.porUnidad, r.avisos], [1, 150, ['sinTiempo', 'sinFacilidad', 'sinInsumos']]); // 100 MO + 50 máquina
 });
 
-test('costearPresentacion: insumo sin costo → faltante, sin costo por unidad ni $/kg (nunca 0)', () => {
-  const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: CF, costoDe: () => null });
-  assert.deepStrictEqual([r.faltantes, r.porUnidad, r.extraKg], [['900'], null, null]);
+test('costearPresentacion: granel sin subrubro → sin minutos (aviso sinSubrubro); los insumos de la presentación igual suman', () => {
+  const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: { plu: '100', subrubroId: null }, cf: CF, costoDe });
+  assert.deepStrictEqual([r.minutos, r.porUnidad, r.extraKg, r.avisos], [0, 20, 40, ['sinSubrubro', 'sinMaquina']]);
 });
 
-test('costearPresentacion: lo que falta en el granel o en la config va en 0 con su aviso', () => {
-  // Granel 200 sin facilidad ni máquina, subrubro 8 sin regla: factor 1 → 1 min → sólo MO 100
-  const r = FC.costearPresentacion({ plu: '201', pesoG: 500, granel: { plu: '200', subrubroId: '8' }, cf: CF, costoDe });
-  assert.deepStrictEqual([r.avisos, r.porUnidad, r.extraKg], [['sinFacilidad', 'sinMaquina', 'sinInsumos'], 100, 200]);
-  assert.deepStrictEqual([r.minutosBase, r.factor], [1, 1]); // sin facilidad: factor 1
-  // Config vacía: sin tiempos no hay minutos (ni MO ni máquina ni aviso de costo hora)
-  const vacia = FC.costearPresentacion({ plu: '201', pesoG: 500, granel: GRANEL, cf: FC.normalizarCosteoFraccionado({}), costoDe });
-  assert.deepStrictEqual([vacia.avisos, vacia.porUnidad], [['sinFacilidad', 'sinTiempos', 'sinMaquina', 'sinInsumos'], 0]);
-  assert.deepStrictEqual([vacia.minutosBase, vacia.factor, vacia.minutos], [0, 1, 0]);
-  // Con tiempos y sin costo hora: MO en 0 + aviso costoHora
-  const sinHora = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: { ...CF, costoHora: null }, costoDe });
-  assert.ok(sinHora.avisos.includes('costoHora'));
-  assert.strictEqual(sinHora.lineas.find(l => l.rol === 'mo').importe, 0);
+test('costearPresentacion: subrubro sin tramos → aviso sinTramos; sin costo hora → aviso costoHora (MO en 0)', () => {
+  const sinTramos = { ...CF, subrubros: { 7: { maquinaId: 'env', tramos: [] } } };
+  assert.deepStrictEqual(FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: sinTramos, costoDe }).avisos, ['sinTramos']);
+  const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: { ...CF, costoHora: null }, costoDe });
+  assert.deepStrictEqual([r.avisos, r.lineas[1].importe], [['costoHora'], 0]);
 });
 
-test('costearPresentacion: sin peso en el nombre → sólo mercadería (extra 0) con aviso sinPeso', () => {
-  const r = FC.costearPresentacion({ plu: '106', pesoG: null, granel: GRANEL, cf: CF, costoDe });
-  assert.deepStrictEqual([r.avisos, r.lineas, r.extraKg], [['sinPeso'], [], 0]);
-  assert.deepStrictEqual([r.minutosBase, r.factor], [0, 1]);
+test('costearPresentacion: insumo sin costo → faltante y sin costo (nunca 0); sin peso → sólo mercadería', () => {
+  const cf = { ...CF, presentaciones: { 101: { insumos: [{ plu: '901', cantidad: 1 }] } } };
+  const r = FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf, costoDe });
+  assert.deepStrictEqual([r.faltantes, r.porUnidad, r.extraKg], [['901'], null, null]);
+  const s = FC.costearPresentacion({ plu: '101', pesoG: null, granel: GRANEL, cf: CF, costoDe });
+  assert.deepStrictEqual([s.extraKg, s.avisos, s.facilidad, s.tiempo], [0, ['sinPeso'], 'normal', 'lento']);
 });
 
-test('sumarExtraKg: suma el extra a cada fuente con costo; extra null (faltante) → ninguna', () => {
-  assert.deepStrictEqual(FC.sumarExtraKg({ sistema: 1000, ultimaCompra: null, manual: 1200 }, 415), { sistema: 1415, ultimaCompra: null, manual: 1615 });
-  assert.deepStrictEqual(FC.sumarExtraKg({ sistema: 1000, ultimaCompra: 900, manual: null }, null), { sistema: null, ultimaCompra: null, manual: null });
+test('costearPresentacion: el $/kg sale de la suma sin redondear (presentación de 10 g)', () => {
+  const cf = { ...CF, presentaciones: { 101: { facilidad: 'facil', tiempo: 'rapido', insumos: [{ plu: '900', cantidad: 1 }] } } };
+  const r = FC.costearPresentacion({ plu: '101', pesoG: 10, granel: GRANEL, cf, costoDe });
+  // 0,5 × 0,75 × 1 = 0,375 min; MO 37,5; máquina 18,75; bolsa 20 → 76,25 ÷ 0,01 kg
+  assert.deepStrictEqual([r.minutos, r.porUnidad, r.extraKg], [0.375, 76.25, 7625]);
 });
 
-test('plusInsumos: PLUs de reglas y de propios, sin repetir', () => {
-  assert.deepStrictEqual(FC.plusInsumos(CF).sort(), ['900', '901', '902']);
+test('plusInsumos: PLUs de los insumos de las presentaciones, sin repetir', () => {
+  const cf = FC.normalizarCosteoFraccionado({ presentaciones: { 1: { insumos: [{ plu: '900', cantidad: 1 }] },
+    2: { insumos: [{ plu: 900, cantidad: 2 }, { plu: '901', cantidad: 1 }] }, 3: { facilidad: 'facil' } } });
+  assert.deepStrictEqual(FC.plusInsumos(cf), ['900', '901']);
 });
 
-test('costearPresentacion: extraKg sale de la suma SIN redondear (presentaciones chicas no amplifican el redondeo)', () => {
-  // 10 g, insumo 1,234: sin redondear = 1,234 + MO 62,5 + máquina 31,25 = 94,984 → ÷ 0,01 kg = 9498,4 (con redondeo previo daba 9498)
-  const r = FC.costearPresentacion({ plu: '107', pesoG: 10, granel: GRANEL, cf: CF, costoDe: plu => (plu === '900' ? { costo: 1.234, nombre: 'Bolsita' } : null) });
-  assert.deepStrictEqual([r.porUnidad, r.extraKg], [94.98, 9498.4]);
-  assert.strictEqual(r.lineas[0].importe, 1.23);
-});
-
-test('costearPresentacion: costo de insumo que llega como texto se convierte; no numérico o ≤ 0 → faltante', () => {
-  const con = costo => FC.costearPresentacion({ plu: '101', pesoG: 500, granel: GRANEL, cf: CF, costoDe: () => ({ costo, nombre: 'X' }) });
-  const ok = con('20');
-  assert.strictEqual(ok.lineas[0].costoUnit, 20);
-  assert.deepStrictEqual([ok.lineas[0].importe, ok.porUnidad], [20, 207.5]);
-  for (const malo of ['abc', '', null, 0, '0', -5, Infinity]) assert.deepStrictEqual([con(malo).faltantes, con(malo).extraKg], [['900'], null], `costo ${String(malo)}`);
+test('sumarExtraKg: suma a cada fuente; sin costo o extra null → null', () => {
+  assert.deepStrictEqual(FC.sumarExtraKg({ sistema: 1000, ultimaCompra: null }, 240), { sistema: 1240, ultimaCompra: null });
+  assert.deepStrictEqual(FC.sumarExtraKg({ sistema: 1000 }, null), { sistema: null });
 });

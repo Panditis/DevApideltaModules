@@ -469,7 +469,7 @@ test('config por tipo: GET ?tipo=fraccionado lee su bloque (o la raíz sin migra
   const a = appCon(MIGRADO);
   try {
     const sin = await a.pedir('GET', '/api/precios/config/esquema?tipo=fraccionado');
-    assert.deepStrictEqual([sin.fraccionadoMigrado, sin.maquinas, sin.facilidades.medio], [false, [], 1.25]);
+    assert.deepStrictEqual([sin.fraccionadoMigrado, sin.maquinas, sin.escalas.facilidad.normal], [false, [], 1.25]);
     assert.match((await a.pedir('GET', '/api/precios/config/esquema?tipo=produccion')).error, /tipo inválido/);
     assert.match((await a.pedir('PUT', '/api/precios/config/esquema/precio?tipo=fraccionado', { ivaVentaPct: 10, toleranciaPct: 3, redondeo: RED })).error, /migrar_config_fraccionado/);
     assert.deepStrictEqual(a.leer(), MIGRADO); // sin migrar no escribe
