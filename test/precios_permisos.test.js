@@ -16,6 +16,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'post /api/precios/config/esquema/rango',
   'put /api/precios/config/esquema/margen-producto/:plu',
   'put /api/precios/produccion/productos/:id/margen-especial',
+  'put /api/precios/costos-extra/:plu',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).
@@ -38,7 +39,7 @@ test('cada ruta de config de los routers de precios está protegida y ninguna ot
     assert.strictEqual(permisos.esRutaConfig(concreta(r.split(' ')[1])), esperado, `${r} → ${esperado ? 'config' : 'permitida'}`);
   }
   // Las de trabajo de precios siguen permitidas (lista no exhaustiva, las que pidió el usuario).
-  for (const r of ['/api/precios/costo-producto/1', '/api/precios/costos-extra/1', '/api/precios/config/publica',
+  for (const r of ['/api/precios/costo-producto/1', '/api/precios/config/publica',
     '/api/precios/produccion/productos', '/api/precios/esquema/listado', '/api/precios/esquema/detalle/1', '/api/precios/esquema/export',
     '/api/precios/decision/1', '/api/precios/decisiones', '/api/precios/pack-bulto/vinculos']) {
     assert.strictEqual(permisos.esRutaConfig(r), false, r);
