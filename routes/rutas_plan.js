@@ -6,6 +6,7 @@ const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
 const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura } = require('../lib/plan_prioridad');
 const { SUCURSALES_NO_REALES, filtrarSucursalesReales, sqlExcluirSucursales } = require('../lib/sucursales_no_reales');
+const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_params');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -72,6 +73,8 @@ module.exports = function crearRutasPlan(deps) {
 const RESP_PATH      = path.join(DATA_DIR, 'responsables.json');
 const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
 const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,nombre,cantPorUnidad}] }
+// Parámetros compartidos de planificación (hoy: días a cubrir del sugerido). Ver lib/plan_params.js.
+const PLAN_PARAMS_PATH = path.join(DATA_DIR, 'planificacion_params.json');
 // Qué tareas lleva cada producto o rubro y cuánto dura cada una. Va en su propio archivo y no
 // dentro del plan: las plantillas son la receta, valen para todos los días y no se pisan al
 // cambiar de fecha.
@@ -243,7 +246,7 @@ async function calcularSugerenciasCatalogo(params) {
   const catalogo  = catalogoCompleto.filter(item => cfgActivo(gruposCfg, item.productoRef));
   const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
-  const diasObj = parseInt(params.diasObjetivo) || c.diasObjetivo;
+  const diasObj = parseInt(params.diasObjetivo) || resolverDiasObjetivo(leerJSON(PLAN_PARAMS_PATH, {}), c);
   const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido (0.6 = 60%)
   const rubrosG = c.rubrosGranel.join(',');
   const { pluToBase, baseMap, refMap } = buildCatalogoMaps(catalogo);
@@ -559,6 +562,17 @@ router.get('/api/bom/producto/:plu', apiRoute(async req => {
 }));
 router.get('/api/plan/sugerencias',        apiRoute(async req => calcularSugerencias(req.query)));
 router.get('/api/plan/sugerencias-grupos', apiRoute(async req => calcularSugerenciasCatalogo(req.query)));
+// Parámetros compartidos (todos los usuarios ven y usan el mismo). Va antes de /api/plan/:fecha.
+const configPlan = () => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
+router.get('/api/plan/params', (_req, res) => {
+  res.json({ diasObjetivo: resolverDiasObjetivo(leerJSON(PLAN_PARAMS_PATH, {}), configPlan()) });
+});
+router.put('/api/plan/params', (req, res) => {
+  const diasObjetivo = validarDiasObjetivo((req.body || {}).diasObjetivo);
+  if (diasObjetivo === null) return res.status(400).json({ error: 'Los días a cubrir deben ser un número entero de 1 a 180' });
+  guardarJSON(PLAN_PARAMS_PATH, { ...leerJSON(PLAN_PARAMS_PATH, {}), diasObjetivo });
+  res.json({ diasObjetivo });
+});
 router.get('/api/plan/packaging', apiRoute(async req => {
   const plus = String(req.query.plus || '').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean);
   if (!plus.length) return {};

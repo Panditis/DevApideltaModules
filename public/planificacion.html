@@ -619,6 +619,8 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   <div class="filter-bar">
     <label>Buscar:</label>
     <input type="text" id="filtroQ" placeholder="producto o rubro…" style="width:200px">
+    <label for="inputDiasCubrir" title="Cuántos días de venta tiene que cubrir el sugerido. Se guarda y vale para todos los usuarios.">Días a cubrir:</label>
+    <input type="number" id="inputDiasCubrir" min="1" max="180" step="1" style="width:70px" title="Entero de 1 a 180. Se guarda y vale para todos los usuarios.">
     <span class="sep"></span>
     <button class="btn btn-secondary btn-sm" id="btnRecargar">Recargar</button>
     <label class="btn btn-secondary btn-sm" id="btnImportarCatalogo" title="Actualizar catálogo desde Excel" style="cursor:pointer;margin-left:4px">

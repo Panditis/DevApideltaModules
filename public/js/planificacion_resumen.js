@@ -422,3 +422,26 @@ document.getElementById('filtroQ').addEventListener('input', () => {
 });
 document.getElementById('btnRecargar').addEventListener('click', cargarSugerencias);
 
+// Días a cubrir: parámetro compartido (lo guarda el servidor); cambiarlo recalcula los sugeridos.
+let _diasCubrirActual = null;
+async function cargarDiasCubrir() {
+  try {
+    const r = await api('GET', '/api/plan/params');
+    _diasCubrirActual = r.diasObjetivo;
+    document.getElementById('inputDiasCubrir').value = r.diasObjetivo;
+  } catch { /* sin valor a la vista: el servidor igual usa el suyo para calcular */ }
+}
+document.getElementById('inputDiasCubrir').addEventListener('change', async e => {
+  const inp = e.target, n = Number(inp.value);
+  const restaurar = () => { inp.value = _diasCubrirActual ?? ''; };
+  if (!Number.isInteger(n) || n < 1 || n > 180) { toast('Días a cubrir: un número entero de 1 a 180', true); restaurar(); return; }
+  if (n === _diasCubrirActual) return;
+  try {
+    await api('PUT', '/api/plan/params', { diasObjetivo: n });
+    _diasCubrirActual = n;
+    toast(`Días a cubrir: ${n}`);
+    cargarSugerencias();
+  } catch (err) { toast('No se pudo guardar los días a cubrir: ' + mensajeApiError(err), true); restaurar(); }
+});
+cargarDiasCubrir();
+
