@@ -375,7 +375,7 @@ async function calcularSugerenciasCatalogo(params) {
       const facturacionMensual = Math.round((facturBase.get(base) || 0) * (30 / ventana) * 100) / 100; // facturación mensual de la presentación (base + variantes)
       const urgencia  = (isFinite(diasStock) ? -diasStock : 0) + (pend / Math.max(prom, 0.001))
                       + (semaforo === 'RED' ? 1000 : semaforo === 'YELLOW' ? 100 : 0) + (!granelOk ? 50 : 0);
-      presentaciones.push({ plu: pluBase, baseNombre: base, presentacion: bInfo.presentacion,
+      presentaciones.push({ plu: pluBase, plus: [pluBase], baseNombre: base, presentacion: bInfo.presentacion,
         stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
         diasStock: isFinite(diasStock) ? Math.round(diasStock * 10) / 10 : 9999,
         semaforo, pendientes: pend, cantSugerida, idGranel, nombreGranel: nomGranel, cantPorUnidad: cantPU,
@@ -386,8 +386,9 @@ async function calcularSugerenciasCatalogo(params) {
     const mergeMap = new Map();
     for (const p of presentaciones) {
       const key = p.presentacion;
-      if (!mergeMap.has(key)) { mergeMap.set(key, { ...p }); } else {
+      if (!mergeMap.has(key)) { mergeMap.set(key, { ...p, plus: [...p.plus] }); } else {
         const m = mergeMap.get(key);
+        m.plus.push(...p.plus); // plu = el de la primera base; plus = todos los fusionados (el stock se suma sobre todos)
         m.stockActual += p.stockActual; m.stockEfectivo = Math.round((m.stockEfectivo + p.stockEfectivo) * 100) / 100;
         m.stockSucursales = Math.round((m.stockSucursales + p.stockSucursales) * 100) / 100;
         m.facturacionMensual = Math.round((m.facturacionMensual + p.facturacionMensual) * 100) / 100;

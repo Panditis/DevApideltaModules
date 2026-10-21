@@ -7,4 +7,5 @@ test('puntajePrioridad: Σx²/Σx, ignora no numéricos y negativos, 0 sin venta
   assert.strictEqual(puntajePrioridad([]), 0);
   assert.strictEqual(puntajePrioridad([0, 0]), 0);
   assert.strictEqual(puntajePrioridad([10, null, 'x', -5, 10]), 10);
+  assert.strictEqual(puntajePrioridad([1, 2]), 1.67);
 });

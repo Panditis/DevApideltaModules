@@ -238,3 +238,53 @@ test('grupo marcado sin graneles cargados: no agrega nada al carrito', async () 
 
   assert.deepStrictEqual(llamadas, []);
 });
+
+// ── carrito: orden por rankingPos y payload del envío ─────────────────────────
+
+// Arma lineasOrdenadas y enviarCarrito sobre `lineas`, con los bordes (API, MP, toast, picker)
+// stubbeados. `carrito` es un parámetro porque el fuente lo reasigna (let en el navegador).
+function carritoEnvioEntorno(lineas) {
+  const posts = [];
+  const src = [
+    constDe('_posLinea'),
+    constDe('lineasOrdenadas'),
+    fuenteDe('enviarCarrito'),
+    'return { lineasOrdenadas, enviarCarrito };',
+  ].join('\n');
+  const api = new Function(
+    'carrito', 'CARRITO_VACIO', 'cargarGruposCfgSiVacio', 'mostrarMPResumen', 'avisosCarrito',
+    'api', 'guardarCarrito', 'document', 'formatFecha', 'toast', 'irAlDia', 'mensajeApiError', src
+  )(
+    { fecha: '2026-10-22', lineas, notas: '' }, { fecha: null, lineas: [], notas: '' },
+    async () => {}, async () => true, async () => '',
+    async (metodo, url, body) => { posts.push({ metodo, url, body }); return { nuevas: 1, actualizadas: 0, omitidos: [] }; },
+    () => {}, { getElementById: () => ({}) }, f => f, () => {}, () => {}, e => String(e),
+  );
+  return { ...api, posts };
+}
+
+test('el carrito se ordena por rankingPos: sin rankingPos al final, empates en orden de alta', () => {
+  const { lineasOrdenadas } = carritoEnvioEntorno([
+    { _id: 1 }, { _id: 2, rankingPos: 3 }, { _id: 3, rankingPos: 1 }, { _id: 4 }, { _id: 5, rankingPos: 3 },
+  ]);
+
+  assert.deepStrictEqual(lineasOrdenadas().map(l => l._id), [3, 2, 5, 1, 4]);
+});
+
+test('el envío manda las líneas en ese orden con prioridad = lugar + 1 y sin campos de UI', async () => {
+  const { enviarCarrito, posts } = carritoEnvioEntorno([
+    { _id: 11, _pkOk: true, producto: 'Manual', cantConfirmada: 2 },
+    { _id: 12, _pkOk: true, rankingPos: 5, producto: 'Zeta', cantConfirmada: 1 },
+    { _id: 13, _pkOk: true, rankingPos: 2, producto: 'Apimani', cantConfirmada: 4 },
+  ]);
+
+  await enviarCarrito();
+
+  assert.strictEqual(posts.length, 1);
+  assert.strictEqual(posts[0].url, '/api/plan/2026-10-22/envio');
+  assert.deepStrictEqual(posts[0].body.items, [
+    { producto: 'Apimani', cantConfirmada: 4, prioridad: 1 },
+    { producto: 'Zeta', cantConfirmada: 1, prioridad: 2 },
+    { producto: 'Manual', cantConfirmada: 2, prioridad: 3 },
+  ]);
+});

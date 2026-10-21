@@ -128,7 +128,7 @@ function toggleGrupo(gi) {
 async function abrirStockDetalle(gi) {
   const g = gruposSorted[gi];
   if (!g) return;
-  const plus = (g.esGranel ? (g.plus || []) : (g.presentaciones || []).map(p => p.plu)).map(String);
+  const plus = [...new Set((g.esGranel ? (g.plus || []) : (g.presentaciones || []).flatMap(p => p.plus || [p.plu])).map(String))];
   document.getElementById('stockDetTitulo').textContent = g.productoRef;
   document.getElementById('stockDetBody').innerHTML = '<div class="loading">Cargando…</div>';
   document.getElementById('overlayStockDet').classList.add('open');
@@ -140,24 +140,36 @@ async function abrirStockDetalle(gi) {
   }
 }
 
-// Nombre corto de la columna: la presentación del catálogo; si no está, el nombre del producto sin el del grupo.
-function nombreCortoPres(r, g) {
-  const pres = (g.presentaciones || []).find(p => String(p.plu) === String(r.plu));
-  if (pres && pres.presentacion) return pres.presentacion;
-  const nom = String(r.nombre || r.plu), ref = String(g.productoRef || '');
-  return nom.toLowerCase().startsWith(ref.toLowerCase()) ? (nom.slice(ref.length).trim() || nom) : nom;
+// Columnas del modal. Grupo con presentaciones: una por presentación, sumando el stock de todos sus
+// PLUs (p.plus: las bases fusionadas), igual que la columna "Stock suc.". Granel: una por PLU, con el
+// nombre del producto sin el del grupo.
+function columnasStock(data, g) {
+  const filas = data.presentaciones || [];
+  if ((g.presentaciones || []).length) {
+    return g.presentaciones.map(p => {
+      const plus = (p.plus || [p.plu]).map(String), porSuc = {};
+      for (const r of filas.filter(f => plus.includes(String(f.plu))))
+        for (const [id, v] of Object.entries(r.porSuc)) porSuc[id] = (porSuc[id] || 0) + v;
+      return { nombre: p.presentacion || p.baseNombre, porSuc };
+    });
+  }
+  const ref = String(g.productoRef || '');
+  return filas.map(r => {
+    const nom = String(r.nombre || r.plu);
+    return { nombre: nom.toLowerCase().startsWith(ref.toLowerCase()) ? (nom.slice(ref.length).trim() || nom) : nom, porSuc: r.porSuc };
+  });
 }
 
 // Filas = sucursales (sin Casa Central) con stock en alguna presentación; columnas = presentaciones + Total.
 function renderStockDetalle(data, g) {
-  const pres = data.presentaciones || [];
+  const pres = columnasStock(data, g);
   const sucs = (data.sucursales || []).filter(s => !s.central && pres.some(r => r.porSuc[s.id] > 0));
   if (!sucs.length) return '<div style="padding:10px;color:var(--muted)">Sin stock en sucursales.</div>';
   const fmt = n => Math.round(n * 100) / 100;
   const num = 'text-align:right;white-space:nowrap;padding:5px 10px';
   const cell = v => v ? `<td style="${num}">${fmt(v)}</td>` : `<td style="${num};color:var(--border)">·</td>`;
   const th = 'font-size:11px;color:var(--muted);padding:4px 10px';
-  const head = pres.map(r => `<th style="${th};text-align:right">${escHtml(nombreCortoPres(r, g))}</th>`).join('');
+  const head = pres.map(r => `<th style="${th};text-align:right">${escHtml(r.nombre)}</th>`).join('');
   const body = sucs.map(s => {
     const total = pres.reduce((t, r) => t + (r.porSuc[s.id] || 0), 0);
     return `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 10px;white-space:nowrap">${escHtml(s.nombre)}</td>${pres.map(r => cell(r.porSuc[s.id])).join('')}<td class="font-bold" style="${num}">${fmt(total)}</td></tr>`;
