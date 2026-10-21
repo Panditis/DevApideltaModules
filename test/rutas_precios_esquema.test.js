@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const express = require('express');
 const crearRutas = require('../routes/rutas_precios_esquema');
-const { migrarEsquemaCanales } = require('../lib/precios_config_esquema');
+const { migrarEsquemaCanales, migrarConfigFraccionado } = require('../lib/precios_config_esquema');
 const { crearGuardPrecios } = require('../lib/precios_permisos');
 
 // guard = el guardPrecios real (403 en config y sin CLAVES_OCULTAS sin permiso) en vez de sólo marcar preciosSinConfig.
@@ -447,5 +447,41 @@ test('importar planilla: marca por Costo/Precio con usuario y foto de vigentes (
     const { listas } = await a.pedir('GET', '/api/precios/esquema/export'); // las decisiones sobreviven a la poda y exportan
     assert.deepStrictEqual(listas.minorista.slice(1).map(x => [x[0], x[2]]), [[1, 1500], [4, 2000]]);
     assert.deepStrictEqual(listas.bultoIva.slice(1).map(x => x[0]), [2]);
+  } finally { a.cerrar(); }
+});
+
+// ── Configuración por tipo (spec 2026-10-21 §2.3) ──
+const CON_FRACC = migrarConfigFraccionado(MIGRADO).costeo;
+const T_FRACC = { minPct: 80, maxPct: 120, escalones: 5, rango: { desde: 50, hasta: 50000 } };
+
+test('config por tipo: GET ?tipo=fraccionado lee su bloque (o la raíz sin migrar); tipo inválido → error', async () => {
+  const a = appCon(MIGRADO);
+  try {
+    const sin = await a.pedir('GET', '/api/precios/config/esquema?tipo=fraccionado');
+    assert.deepStrictEqual([sin.fraccionadoMigrado, sin.maquinas, sin.facilidades.medio], [false, [], 1.25]);
+    assert.match((await a.pedir('GET', '/api/precios/config/esquema?tipo=produccion')).error, /tipo inválido/);
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/precio?tipo=fraccionado', { ivaVentaPct: 10, toleranciaPct: 3, redondeo: RED })).error, /migrar_config_fraccionado/);
+    assert.deepStrictEqual(a.leer(), MIGRADO); // sin migrar no escribe
+  } finally { a.cerrar(); }
+});
+
+test('config por tipo: PUT ?tipo=fraccionado guarda en costeo.fraccionado y no toca la raíz (precio, costos, márgenes, costo hora)', async () => {
+  const a = appCon(CON_FRACC);
+  const url = r => `/api/precios/config/esquema/${r}?tipo=fraccionado`;
+  try {
+    assert.strictEqual((await a.pedir('PUT', url('precio'), { ivaVentaPct: 10.5, toleranciaPct: 3, redondeo: RED })).ivaVentaPct, 10.5);
+    const tipos = { almacen: false, fraccionado: true, produccion: false };
+    const c = await a.pedir('PUT', url('costos'), { modoGastos: 'precio', gastosVenta: [{ concepto: 'Flete', pct: 2, tipos }], extrasMinorista: [] });
+    assert.deepStrictEqual(c.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2, tipos }]); // la vista con tilde sólo Fraccionado
+    await a.pedir('PUT', url('margenes'), { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC });
+    await a.pedir('PUT', url('costo-hora'), { costoHora: 5000 });
+    const d = a.leer();
+    assert.deepStrictEqual([d.fraccionado.ivaVentaPct, d.fraccionado.modoGastos, d.fraccionado.costoHora], [10.5, 'precio', 5000]);
+    assert.deepStrictEqual(d.fraccionado.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2 }]); // guardado sin tildes
+    assert.deepStrictEqual(d.fraccionado.margenes.minorista, T_FRACC);
+    assert.deepStrictEqual(d.fraccionado.maquinas, []); // lo propio se conserva
+    for (const k of ['ivaVentaPct', 'modoGastos', 'gastosVenta', 'margenes', 'costoHora']) assert.deepStrictEqual(d[k], CON_FRACC[k], k);
+    const g = await a.pedir('GET', '/api/precios/config/esquema');
+    assert.deepStrictEqual([g.fraccionadoMigrado, g.margenes], [true, CON_FRACC.margenes]);
   } finally { a.cerrar(); }
 });

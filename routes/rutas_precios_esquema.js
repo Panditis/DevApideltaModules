@@ -44,22 +44,37 @@ module.exports = function crearRutasPreciosEsquema(deps) {
           : { componentesCosto: [...p.materiasPrimas, ...p.componentes.filter(l => l.rol === 'insumo' || l.rol === 'mo')] }) })));
   }
 
-  // Valida con validar(req) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir).
-  // Devuelve la vista nueva para que la UI redibuje con lo guardado.
-  const guardarCon = validar => apiRoute(async (req) => {
-    let cambios;
-    try { cambios = validar(req); } catch (err) { return { error: err.message }; }
-    const nuevo = { ...leerCosteo(), ...cambios };
+  // ?tipo= de Configuración (switch Reventa | Fraccionado, spec 2026-10-21 §2.3): vacío/almacen = la raíz (Reventa y
+  // Producción); fraccionado = costeo.fraccionado. Inválido → throw (los handlers lo devuelven como { error }).
+  const tipoDe = req => {
+    const t = cfgEsq.tipoConfig(req.query.tipo);
+    if (!t) throw new Error(`tipo inválido (${cfgEsq.TIPOS_CONFIG.join(', ')})`);
+    return t;
+  };
+
+  // Valida con validar(req, tipo) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir); en
+  // Fraccionado dentro de costeo.fraccionado (sin migrar → error, no escribe). tipoFijo: rutas que son de un solo tipo
+  // (las de /config/esquema/fraccionado/… del plan B). Devuelve la vista nueva para que la UI redibuje con lo guardado.
+  const guardarCon = (validar, tipoFijo = null) => apiRoute(async (req) => {
+    let cambios, tipo;
+    try { tipo = tipoFijo || tipoDe(req); cambios = validar(req, tipo); } catch (err) { return { error: err.message }; }
+    const costeo = leerCosteo();
+    if (tipo === 'fraccionado' && !cfgEsq.configEsquemaDe(costeo).fraccionadoMigrado) {
+      return { error: 'Fraccionado todavía usa la configuración de Reventa: corré node scripts/migrar_config_fraccionado.js' };
+    }
+    const nuevo = tipo === 'fraccionado' ? { ...costeo, fraccionado: { ...costeo.fraccionado, ...cambios } } : { ...costeo, ...cambios };
     guardarJSON(COSTEO_PATH, nuevo);
-    return cfgEsq.configEsquemaDe(nuevo);
+    return cfgEsq.configEsquemaDe(nuevo, tipo);
   });
 
-  router.get('/api/precios/config/esquema', apiRoute(async () => cfgEsq.configEsquemaDe(leerCosteo())));
-  router.put('/api/precios/config/esquema/costos', guardarCon(req => cfgEsq.validarCostos(cuerpo(req))));
+  router.get('/api/precios/config/esquema', apiRoute(async (req) => {
+    try { return cfgEsq.configEsquemaDe(leerCosteo(), tipoDe(req)); } catch (err) { return { error: err.message }; }
+  }));
+  router.put('/api/precios/config/esquema/costos', guardarCon((req, tipo) => cfgEsq.validarCostos(cuerpo(req), tipo)));
   router.put('/api/precios/config/esquema/precio', guardarCon(req => cfgEsq.validarPrecio(cuerpo(req))));
-  // Costo hora de mano de obra de Producción ($/h): minutos por unidad × costo hora ÷ 60 (lib/precios_produccion).
+  // Costo hora de mano de obra ($/h): Producción (raíz) y Fraccionado (su bloque); minutos × costo hora ÷ 60.
   router.put('/api/precios/config/esquema/costo-hora', guardarCon(req => cfgEsq.validarCostoHora(cuerpo(req))));
-  // Las 3 tablas por canal (+ ajuste por peso de Fraccionado) reemplazan a margenes entero.
+  // Las 3 tablas por canal (+ ajuste por peso, que sólo usa Fraccionado) reemplazan a margenes entero del tipo.
   router.put('/api/precios/config/esquema/margenes', guardarCon(req => ({ margenes: cfgEsq.validarMargenes(cuerpo(req)) })));
 
   const TIPOS_LISTADO = cfgEsq.TIPOS;
