@@ -103,25 +103,36 @@ function entradaSim() {
 function recalcularSim() {
   if (simCfg) document.getElementById('simResultado').innerHTML = htmlResultadoSim(simularCanales(simCfg, entradaSim()));
 }
+function elegirTipoSim(t) {
+  simTipo = t;
+  document.querySelectorAll('#simTipo .seg-opt').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.tipo === t)));
+  document.getElementById('simPesoFila').classList.toggle('hidden', t !== 'fraccionado');
+  document.getElementById('simDistribFila').classList.toggle('hidden', t !== 'almacen'); // sólo Reventa
+  document.getElementById('simCostoLbl').textContent = t === 'fraccionado' ? 'Costo de compra ($/kg)' : 'Costo de compra ($)';
+  recalcularSim();
+}
+// Tipos según el switch de Configuración (tipoCfgEsq, precios_config_esquema.js): en Fraccionado sólo Fraccionado; en
+// Reventa, Reventa y Producción (las dos usan la configuración de Reventa).
+function ajustarTiposSim() {
+  const fracc = tipoCfgEsq === 'fraccionado';
+  document.querySelectorAll('#simTipo .seg-opt').forEach(x => x.classList.toggle('hidden', (x.dataset.tipo === 'fraccionado') !== fracc));
+  if (fracc !== (simTipo === 'fraccionado')) elegirTipoSim(fracc ? 'fraccionado' : 'almacen');
+}
 function conectarSimulador() {
   const panel = document.getElementById('panel-simulador');
   panel.addEventListener('input', e => { if (['simCosto', 'simIvaCompra', 'simPeso'].includes(e.target.id)) recalcularSim(); });
   document.getElementById('simConIva').addEventListener('change', e => { document.getElementById('simIvaCompra').disabled = !e.target.checked; recalcularSim(); });
   document.getElementById('simDistrib').addEventListener('change', recalcularSim);
-  document.querySelectorAll('#simTipo .seg-opt').forEach(b => b.addEventListener('click', () => {
-    simTipo = b.dataset.tipo;
-    document.querySelectorAll('#simTipo .seg-opt').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    document.getElementById('simPesoFila').classList.toggle('hidden', simTipo !== 'fraccionado');
-    document.getElementById('simDistribFila').classList.toggle('hidden', simTipo !== 'almacen'); // sólo Reventa
-    document.getElementById('simCostoLbl').textContent = simTipo === 'fraccionado' ? 'Costo de compra ($/kg)' : 'Costo de compra ($)';
-    recalcularSim();
-  }));
+  document.querySelectorAll('#simTipo .seg-opt').forEach(b => b.addEventListener('click', () => elegirTipoSim(b.dataset.tipo)));
   panel.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', irASubConfig)); // precios_config.js
 }
-// La llama activarSubConfig (precios_config.js). El formulario se arma una vez; la config se relee en cada entrada.
+// La llama activarSubConfig (precios_config.js). El formulario se arma una vez; la config (del tipo del switch) se relee
+// en cada entrada.
 async function cargarSimulador() {
   const panel = document.getElementById('panel-simulador');
   if (!document.getElementById('simCosto')) { panel.innerHTML = htmlSimuladorForm(); conectarSimulador(); }
+  simCfg = null; // hasta leer la del tipo actual, ajustarTiposSim no recalcula con la del otro
+  ajustarTiposSim();
   const el = document.getElementById('simResultado');
   el.innerHTML = '<span class="spin"></span> Cargando configuración…';
   document.getElementById('simCosto').focus();
