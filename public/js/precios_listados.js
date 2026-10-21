@@ -132,8 +132,18 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
   ...lista.map(r => [pluXlsx(r.codigo), r.nombre || null, r.costo ?? null, r.precio ?? null, r.costoSistema ?? null, r.costoUltimaCompra ?? null,
     r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
+// Costeo de Fraccionado (spec 2026-10-21 §3.1): textos de los avisos que no bloquean el precio (se completan en Configuración ›
+// Costeo Fraccionado o en el modal del granel) y "facilidad · máquina" del granel.
+const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinFacilidad: 'granel sin facilidad (factor 1)',
+  sinMaquina: 'granel sin máquina', sinTiempos: 'sin tiempos por peso cargados', costoHora: 'sin costo hora de Fraccionado',
+  sinInsumos: 'sin insumos (regla del subrubro o propios)' };
+const TXT_FACILIDAD_LST = { facil: 'Fácil', medio: 'Medio', dificil: 'Difícil' };
+const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
+// costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS).
+const textoCosteoGranel = c => `${TXT_FACILIDAD_LST[c.facilidad] || 'sin facilidad'} · ${c.maquina || 'sin máquina'}`;
+
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado,
-  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados };
+  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -179,6 +189,13 @@ const badgeMargenProducto = f => {
   const t = Object.entries(canales).map(([c, v]) => `${TXT_CANAL_LST[c] || c} ${!fijo && v > 0 ? '+' : ''}${fmtNum(v)} %`).join(' · ');
   return ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap" title="${fijo ? 'Margen fijo' : 'Ajuste de margen'} del producto: ${esc(t)}">${fijo ? 'm=' : '±m'}</span>`;
 };
+// Avisos del costeo (⚠ n, detalle en el title) + facilidad · máquina del granel. avisosCosto es público; costeoGranel no.
+const badgeAvisosCosto = f => ((f.avisosCosto || []).length
+  ? ` <span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn whitespace-nowrap" title="${ESC_LST(textoAvisosCosto(f.avisosCosto).join('\n'))}">⚠ ${f.avisosCosto.length}</span>` : '')
+  + (f.costeoGranel ? ` <span class="text-xs text-gris font-normal">${ESC_LST(textoCosteoGranel(f.costeoGranel))}</span>` : '');
+// faltantesCosto = PLUs sin costo (insumos, o el granel si su fuente decidida no tiene): la presentación queda sin sugerido.
+const badgeFaltanteCosto = p => ((p.faltantesCosto || []).length
+  ? ` <span class="ml-1 text-[11px] text-crit" title="Sin costo: la presentación no tiene sugerido">sin costo: PLU ${ESC_LST(p.faltantesCosto.join(', '))}</span>` : '');
 // Clic en el nombre = modal del producto (detalle del cálculo, costos, márgenes). La decisión rápida es el select de la fila
 // (Fraccionado: en el granel, vale para sus presentaciones; el "sin granel" no tiene). Producción además tiene el botón
 // "Precios" a la vista (el nombre solo no se veía clickeable).
@@ -197,10 +214,10 @@ function filaHtml(f, tipo) {
       <td class="p-2 whitespace-nowrap"><button type="button" class="lst-abrir cfg-btn2 mr-2" data-plu="${esc(f.plu)}">Precios</button><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
   }
   const fracc = tipo === 'fraccionado';
-  const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}</td>
+  const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
     <td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
