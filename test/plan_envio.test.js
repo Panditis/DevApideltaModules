@@ -115,3 +115,49 @@ test('fusionarEnvioEnPlan: granel y fraccionado del mismo nombre son ítems dist
   ], { fecha: 'F', envioId: 1, hora: 'h', usuario: 'u' });
   assert.strictEqual(plan.items.length, 2);
 });
+
+const protegida = o => o.terminado === true || o.estado === 'listo';
+
+test('clavesBloqueadas: órdenes protegidas del día e ítems recepcionados', () => {
+  const ordenes = [
+    { fecha: 'F', producto: 'Miel', presentaciones: [], estado: 'listo' },
+    { fecha: 'F', producto: 'Coco', presentaciones: [], estado: 'pendiente' },
+    { fecha: 'OTRA', producto: 'Nuez', presentaciones: [], estado: 'listo' },
+  ];
+  const plan = { items: [{ esGranel: true, producto: 'Granel X', produccionMovimiento: { numeroMovimiento: 3 } }] };
+  const s = pe.clavesBloqueadas(ordenes, plan, { fecha: 'F', protegida });
+  assert.deepStrictEqual([...s].sort(), ['F|miel', 'G|granel x']);
+});
+
+test('sincronizarOrdenes: actualiza conservando id/estado/Urgente, agrega nuevas, borra vacías, respeta otras', () => {
+  const ordenes = [
+    { id: 1, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 10, estado: 'en_proceso', criticidad: 'Urgente', reservaMovimientos: [7] },
+    { id: 2, fecha: 'F', producto: 'Coco', presentaciones: [], cantidad: 5, estado: 'pendiente' },
+    { id: 3, fecha: 'OTRA', producto: 'Miel', presentaciones: [], cantidad: 1, estado: 'pendiente' },
+    { id: 4, fecha: 'F', producto: 'Nuez', presentaciones: [], cantidad: 2, estado: 'pendiente' },
+  ];
+  const armadas = [
+    { id: 100, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 30, estado: 'pendiente', criticidad: 'Media' },
+    { id: 101, fecha: 'F', producto: 'Granel Y', cantidad: 8, estado: 'pendiente', criticidad: 'Alta' },
+  ];
+  const claves = new Set(['F|miel', 'F|coco', 'G|granel y']);
+  const r = pe.sincronizarOrdenes(ordenes, armadas, { fecha: 'F', claves, protegida });
+  assert.strictEqual(r.actualizadas, 1);
+  assert.strictEqual(r.nuevas, 1);
+  assert.strictEqual(r.borradas, 1);
+  const miel = r.ordenes.find(o => o.fecha === 'F' && o.producto === 'Miel');
+  assert.deepStrictEqual([miel.id, miel.cantidad, miel.estado, miel.criticidad, miel.reservaMovimientos], [1, 30, 'en_proceso', 'Urgente', [7]]);
+  assert.ok(!r.ordenes.some(o => o.producto === 'Coco'));
+  assert.ok(r.ordenes.some(o => o.id === 3));
+  assert.ok(r.ordenes.some(o => o.id === 4));
+  assert.ok(r.ordenes.some(o => o.id === 101));
+  assert.strictEqual(ordenes[0].cantidad, 10); // no muta
+});
+
+test('sincronizarOrdenes: protegida no se toca ni se duplica', () => {
+  const ordenes = [{ id: 1, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 10, estado: 'listo' }];
+  const armadas = [{ id: 9, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 99 }];
+  const r = pe.sincronizarOrdenes(ordenes, armadas, { fecha: 'F', claves: new Set(['F|miel']), protegida });
+  assert.deepStrictEqual(r.ordenes, ordenes);
+  assert.strictEqual(r.nuevas + r.actualizadas + r.borradas, 0);
+});
