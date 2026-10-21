@@ -153,3 +153,56 @@ test('DELETE /item: 409 si producción ya empezó la orden o el ítem ya se rece
     assert.match(r.data.error, /#55/);
   } finally { cerrar(ctx); }
 });
+
+// Mismo PLU que el fracc ya enviado, pero el carrito lo manda sin rubro: el ítem del plan conserva
+// su rubro 'Miel', así que la orden afectada es la de 'Miel', no una 'Miel 500g' inexistente.
+const fraccSinRubro = { producto: 'Miel 500g', presentacion: 'Miel 500g', idProducto: 101, cantConfirmada: 10 };
+
+test('POST /envio: mismo PLU sin rubro actualiza la orden del rubro del plan', async () => {
+  const ctx = await montar();
+  try {
+    await pedir(ctx.base, 'POST', `/${F}/envio`, { items: [fracc] });
+    const r = await pedir(ctx.base, 'POST', `/${F}/envio`, { items: [fraccSinRubro] });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.actualizadas, 1);
+    assert.strictEqual(ctx.planes()[F].items[0].cantConfirmada, 50);
+    const ords = ctx.ordenes();
+    assert.deepStrictEqual(ords.map(o => o.producto), ['Miel']);
+    assert.strictEqual(ords[0].cantidad, 50);
+  } finally { cerrar(ctx); }
+});
+
+test('POST /envio: mismo PLU sin rubro no esquiva la protección de la orden del rubro', async () => {
+  const ctx = await montar();
+  try {
+    await pedir(ctx.base, 'POST', `/${F}/envio`, { items: [fracc] });
+    ctx.guardarOrdenes(ctx.ordenes().map(o => ({ ...o, estado: 'listo' })));
+    const r = await pedir(ctx.base, 'POST', `/${F}/envio`, { items: [fraccSinRubro] });
+    assert.strictEqual(r.status, 409);
+    assert.deepStrictEqual(r.data.omitidos, ['Miel 500g']);
+    assert.strictEqual(ctx.planes()[F].items[0].cantConfirmada, 40);
+    assert.strictEqual(ctx.ordenes()[0].cantidad, 40);
+  } finally { cerrar(ctx); }
+});
+
+test('DELETE /item: anular no crea una orden que no existía', async () => {
+  const ctx = await montar();
+  try {
+    await pedir(ctx.base, 'POST', `/${F}/envio`, { items: [granel, fracc, fracc2] });
+    ctx.guardarOrdenes(ctx.ordenes().filter(o => o.producto !== 'Miel')); // la orden del rubro se borró a mano
+    const id1 = ctx.planes()[F].items.find(i => i.producto === 'Miel 500g').id;
+    assert.strictEqual((await pedir(ctx.base, 'DELETE', `/${F}/item/${id1}`)).status, 200);
+    assert.deepStrictEqual(ctx.ordenes().map(o => o.producto), ['Miel Granel']);
+    assert.deepStrictEqual(ctx.planes()[F].items.map(i => i.producto).sort(), ['Miel 1kg', 'Miel Granel']);
+  } finally { cerrar(ctx); }
+});
+
+test('DELETE /item: un error al leer el plan responde 500 en JSON', async () => {
+  const ctx = await montar();
+  try {
+    fs.writeFileSync(path.join(ctx.dir, 'planes.json'), '{roto');
+    const r = await pedir(ctx.base, 'DELETE', `/${F}/item/1`);
+    assert.strictEqual(r.status, 500);
+    assert.ok(r.data.error);
+  } finally { cerrar(ctx); }
+});

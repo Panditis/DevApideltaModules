@@ -2754,17 +2754,17 @@ app.use(require('./routes/rutas_produccion')({
   leerRegistros, guardarRegistros,
 }));
 
-// Planificación: va al final porque sucursalesSiga, sucursalPublica, leerPlanReservas,
-// saldoItemReserva, ejecutarDevolucionReserva y conLogError son const/function declarados
-// miles de líneas después de donde estaban estas rutas. Las rutas de reservas del plan
-// (/api/plan/:fecha/reserva*, reservar, reserva/actualizar, reserva/devolver) quedaron en
-// server.js: exigen un segmento extra fijo detrás de :fecha, así que ninguna ruta de este
-// router las captura y el orden de registro no cambia a qué handler llega cada request.
+// Planificación: va al final porque sucursalesSiga, sucursalPublica y leerPlanReservas
+// son const/function declarados miles de líneas después de donde estaban estas rutas. Las
+// rutas de reservas del plan (/api/plan/:fecha/reserva*, reservar, reserva/actualizar,
+// reserva/devolver) quedaron en server.js: exigen un segmento extra fijo detrás de :fecha,
+// así que ninguna ruta de este router las captura y el orden de registro no cambia a qué
+// handler llega cada request.
 app.use(require('./routes/rutas_plan')({
   apiRoute, leerJSON, guardarJSON, query, DATA_DIR,
   PLANES_PATH, PROD_REG_PATH, CATALOGO_PATH, GRUPOS_CFG_PATH,
-  safeDate, leerPlanReservas, saldoItemReserva, ejecutarDevolucionReserva,
-  leerOrdenes, guardarOrdenes, conLogError,
+  safeDate, leerPlanReservas,
+  leerOrdenes, guardarOrdenes,
   tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
   sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
   buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,

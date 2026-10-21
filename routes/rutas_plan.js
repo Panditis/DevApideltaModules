@@ -573,7 +573,7 @@ router.get('/api/diag/bom-source', apiRoute(async () => {
 }));
 // ── Planes ─────────────────────────────────────────────────────────────────────
 // Con saneo de sellos: la UI dibuja el candado y deshabilita el ✕ mirando reservaMovimiento,
-// así que tiene que ver lo mismo que las guardas de PUT y DELETE.
+// así que tiene que ver lo mismo que la guarda de DELETE (anular).
 router.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha); const { plan } = leerPlanReservas(fecha); res.json(plan || { fecha, notas: '', items: [] }); });
 
 // Envío del carrito a Producción del Día. Fusiona los ítems en el plan (un ítem por producto,
@@ -593,13 +593,16 @@ router.post('/api/plan/:fecha/envio', (req, res) => {
     const ordenes = leerOrdenes();
     const protegida = protegidaFn();
     const bloqueadas = planEnvio.clavesBloqueadas(ordenes, plan, { fecha, protegida });
-    const aceptados = items.filter(it => !bloqueadas.has(planEnvio.claveItem(it)));
-    const omitidos = items.filter(it => bloqueadas.has(planEnvio.claveItem(it))).map(it => it.producto);
+    // Clave de la orden que de verdad toca cada ítem: si el producto ya está en el plan manda el
+    // rubro del ítem del plan (el merge lo conserva), no el que venga en el carrito.
+    const clavesItems = planEnvio.clavesDeEnvio(plan, items);
+    const aceptados = items.filter((_, i) => !bloqueadas.has(clavesItems[i]));
+    const omitidos = items.filter((_, i) => bloqueadas.has(clavesItems[i])).map(it => it.producto);
     if (!aceptados.length) return res.status(409).json({ error: 'Todo lo enviado ya está en producción para ese día.', omitidos });
     const envioId = Date.now();
     const usuario = (req.session && req.session.user && req.session.user.usuario) || '';
     const nuevoPlan = planEnvio.fusionarEnvioEnPlan(plan, aceptados, { fecha, envioId, hora: horaLocal(), usuario, notas: notas || '' });
-    const claves = new Set(aceptados.map(planEnvio.claveItem));
+    const claves = new Set(clavesItems.filter(k => !bloqueadas.has(k)));
     const armadas = planEnvio.construirOrdenes(nuevoPlan.items.filter(it => claves.has(planEnvio.claveItem(it))),
       { fecha, ...resolversOrdenes() });
     const r = planEnvio.sincronizarOrdenes(ordenes, armadas, { fecha, claves, protegida });
@@ -660,18 +663,18 @@ router.post('/api/plan/:fecha/bloques', (req, res) => {
 // o última presentación del rubro borran la orden). Bloqueado si producción ya lo tomó.
 router.delete('/api/plan/:fecha/item/:id', (req, res) => {
   const fecha = safeDate(req.params.fecha), id = String(req.params.id);
-  // leerPlanReservas suelta de paso los sellos huérfanos (movimiento ya revertido).
-  const { planes, plan } = leerPlanReservas(fecha);
-  if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
-  const item = (plan.items || []).find(it => String(it.id) === id);
-  if (!item) return res.status(404).json({ error: 'Ítem no encontrado' });
-  if (item.produccionMovimiento && item.produccionMovimiento.numeroMovimiento != null) {
-    return res.status(409).json({ error: `Ya fue producido (movimiento #${item.produccionMovimiento.numeroMovimiento}): no se puede anular.` });
-  }
-  if (item.reservaMovimiento && item.reservaMovimiento.numeroMovimiento != null) {
-    return res.status(409).json({ error: `Está reservado (movimiento #${item.reservaMovimiento.numeroMovimiento}). Anulá esa reserva primero.` });
-  }
   try {
+    // leerPlanReservas suelta de paso los sellos huérfanos (movimiento ya revertido).
+    const { planes, plan } = leerPlanReservas(fecha);
+    if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+    const item = (plan.items || []).find(it => String(it.id) === id);
+    if (!item) return res.status(404).json({ error: 'Ítem no encontrado' });
+    if (item.produccionMovimiento && item.produccionMovimiento.numeroMovimiento != null) {
+      return res.status(409).json({ error: `Ya fue producido (movimiento #${item.produccionMovimiento.numeroMovimiento}): no se puede anular.` });
+    }
+    if (item.reservaMovimiento && item.reservaMovimiento.numeroMovimiento != null) {
+      return res.status(409).json({ error: `Está reservado (movimiento #${item.reservaMovimiento.numeroMovimiento}). Anulá esa reserva primero.` });
+    }
     const ordenes = leerOrdenes();
     const protegida = protegidaFn();
     const clave = planEnvio.claveItem(item);
@@ -681,7 +684,8 @@ router.delete('/api/plan/:fecha/item/:id', (req, res) => {
     const items = plan.items.filter(it => String(it.id) !== id);
     const claves = new Set([clave]);
     const armadas = planEnvio.construirOrdenes(items.filter(it => planEnvio.claveItem(it) === clave), { fecha, ...resolversOrdenes() });
-    const r = planEnvio.sincronizarOrdenes(ordenes, armadas, { fecha, claves, protegida });
+    // soloExistentes: anular nunca crea órdenes (si la del día ya no está, no se resucita).
+    const r = planEnvio.sincronizarOrdenes(ordenes, armadas, { fecha, claves, protegida, soloExistentes: true });
     guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...plan, items } });
     guardarOrdenes(r.ordenes);
     res.json({ ok: true });

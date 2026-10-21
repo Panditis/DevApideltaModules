@@ -268,3 +268,42 @@ test('sincronizarOrdenes: duplicadas del día con la misma clave: actualiza la p
   assert.deepStrictEqual([r.ordenes[0].id, r.ordenes[0].cantidad], [1, 30]);
   assert.deepStrictEqual([r.actualizadas, r.nuevas, r.borradas], [1, 0, 1]);
 });
+
+test('clavesDeEnvio: la clave de un ítem ya en el plan es la del ítem del plan (su rubro), no la del entrante', () => {
+  const plan = { items: [{ id: 1, producto: 'Miel 500g', rubro: 'Miel', idProducto: 101, cantConfirmada: 40 }] };
+  const entrantes = [
+    { producto: 'Miel 500g', idProducto: 101, cantConfirmada: 10 },      // mismo PLU sin rubro
+    { producto: 'Coco 1kg', rubro: 'Coco', idProducto: 300, cantConfirmada: 5 },
+    { producto: 'Coco 250g', idProducto: 300, cantConfirmada: 5 },       // mismo PLU nuevo, dentro del mismo envío
+  ];
+  assert.deepStrictEqual(pe.clavesDeEnvio(plan, entrantes), ['F|miel', 'F|coco', 'F|coco']);
+  assert.deepStrictEqual(pe.clavesDeEnvio(null, [entrantes[0]]), ['F|miel 500g']);
+});
+
+test('claveItemPlan: PLU si lo tiene, si no el nombre; granel y fraccionado separados', () => {
+  assert.strictEqual(pe.claveItemPlan({ producto: 'Miel 500g', idProducto: 101 }), 'F|101');
+  assert.strictEqual(pe.claveItemPlan({ esGranel: true, producto: ' Miel Granel ' }), 'G|miel granel');
+});
+
+test('fusionarEnvioEnPlan: el id de un ítem nuevo nunca choca con los del plan', () => {
+  const plan = { fecha: 'F', notas: '', items: [{ id: 5000, producto: 'Viejo', idProducto: 1, cantConfirmada: 1 }, { id: 5001, producto: 'Viejo2', idProducto: 2, cantConfirmada: 1 }] };
+  const r = pe.fusionarEnvioEnPlan(plan,
+    [{ producto: 'A', idProducto: 10, cantConfirmada: 1 }, { producto: 'B', idProducto: 11, cantConfirmada: 1 }],
+    { fecha: 'F', envioId: 5000, hora: '09:00', usuario: 'u' });
+  const ids = r.items.map(i => i.id);
+  assert.strictEqual(new Set(ids).size, ids.length);
+  assert.deepStrictEqual(ids, [5000, 5001, 5002, 5003]);
+  // sin choque se mantiene envioId + i, y el id del envío sigue siendo envioId
+  const sin = pe.fusionarEnvioEnPlan(undefined, [{ producto: 'A', idProducto: 10, cantConfirmada: 1 }], { fecha: 'F', envioId: 7000, hora: 'h', usuario: 'u' });
+  assert.strictEqual(sin.items[0].id, 7000);
+  assert.strictEqual(sin.items[0].envios[0].id, 7000);
+});
+
+test('sincronizarOrdenes: soloExistentes actualiza o borra pero no crea órdenes', () => {
+  const armadas = [{ id: 9, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 30 }];
+  const opts = { fecha: 'F', claves: new Set(['F|miel']), protegida, soloExistentes: true };
+  const sin = pe.sincronizarOrdenes([], armadas, opts);
+  assert.deepStrictEqual([sin.ordenes.length, sin.nuevas], [0, 0]);
+  const con = pe.sincronizarOrdenes([{ id: 1, fecha: 'F', producto: 'Miel', presentaciones: [], cantidad: 1, estado: 'pendiente' }], armadas, opts);
+  assert.deepStrictEqual([con.ordenes.length, con.ordenes[0].cantidad, con.actualizadas], [1, 30, 1]);
+});
