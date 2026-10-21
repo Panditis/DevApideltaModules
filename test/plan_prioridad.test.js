@@ -100,3 +100,57 @@ test('umbralDeClase: días de la clase; config pisa el default clave por clave; 
   assert.strictEqual(umbralDeClase('Z', { C: 4 }), 4);        // clase desconocida = C
   assert.strictEqual(umbralDeClase(undefined), 3);
 });
+
+const { urgenciaGrupoPorPeso, umbralPesoGrupo, UMBRAL_PESO_DEFAULT } = require('../lib/plan_prioridad');
+
+const pres = (urgencia, facturacionMensual, ventasVentana) => ({ urgencia, facturacionMensual, ventasVentana });
+
+test('urgenciaGrupoPorPeso: Mieles, 5 % de la facturación urgente (60/35/5) no alcanza → OK', () => {
+  const r = urgenciaGrupoPorPeso([pres('OK', 60), pres('OK', 35), pres('URGENTE', 5)]);
+  assert.strictEqual(r.urgencia, 'OK');
+  assert.strictEqual(r.pesoUrgente, 0.05);
+  assert.strictEqual(r.pesoUrgentePronto, 0.05);
+});
+
+test('urgenciaGrupoPorPeso: urgente desde el umbral (20 % justo cuenta); PRONTO si lo urgente + lo pronto llega', () => {
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('URGENTE', 20), pres('OK', 80)]).urgencia, 'URGENTE');            // exactamente 20 %
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('URGENTE', 19.99), pres('OK', 80.01)]).urgencia, 'OK');
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('URGENTE', 90), pres('OK', 10)]).urgencia, 'URGENTE');
+  const r = urgenciaGrupoPorPeso([pres('URGENTE', 10), pres('PRONTO', 15), pres('OK', 75)]);
+  assert.deepStrictEqual(r, { urgencia: 'PRONTO', pesoUrgente: 0.1, pesoUrgentePronto: 0.25 });
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('PRONTO', 50), pres('OK', 50)]).urgencia, 'PRONTO');
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('OK', 50), pres('OK', 50)]).urgencia, 'OK');
+});
+
+test('urgenciaGrupoPorPeso: umbral propio; inválido cae al 20 %', () => {
+  assert.strictEqual(UMBRAL_PESO_DEFAULT, 0.2);
+  const ps = [pres('URGENTE', 30), pres('OK', 70)];
+  assert.strictEqual(urgenciaGrupoPorPeso(ps, 0.5).urgencia, 'OK');
+  assert.strictEqual(urgenciaGrupoPorPeso(ps, 0.3).urgencia, 'URGENTE');
+  assert.strictEqual(urgenciaGrupoPorPeso(ps, 1).urgencia, 'OK');
+  for (const malo of [0, -1, 1.5, 'x', null, undefined, NaN]) assert.strictEqual(urgenciaGrupoPorPeso(ps, malo).urgencia, 'URGENTE', String(malo));
+});
+
+test('urgenciaGrupoPorPeso: sin facturación usa las unidades vendidas; si tampoco hay ventas, OK', () => {
+  const r = urgenciaGrupoPorPeso([pres('URGENTE', 0, 30), pres('OK', 0, 70)]);
+  assert.deepStrictEqual(r, { urgencia: 'URGENTE', pesoUrgente: 0.3, pesoUrgentePronto: 0.3 });
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('URGENTE', 0, 5), pres('OK', 0, 95)]).urgencia, 'OK');
+  assert.deepStrictEqual(urgenciaGrupoPorPeso([pres('URGENTE', 0, 0), pres('OK', 0, 0)]), { urgencia: 'OK', pesoUrgente: 0, pesoUrgentePronto: 0 });
+  // con alguna facturación se pesa solo por facturación, aunque haya unidades
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('URGENTE', 0, 1000), pres('OK', 100, 1)]).urgencia, 'OK');
+});
+
+test('urgenciaGrupoPorPeso: vacío, nulos y valores raros no rompen', () => {
+  const vacio = { urgencia: 'OK', pesoUrgente: 0, pesoUrgentePronto: 0 };
+  assert.deepStrictEqual(urgenciaGrupoPorPeso([]), vacio);
+  assert.deepStrictEqual(urgenciaGrupoPorPeso(undefined), vacio);
+  assert.deepStrictEqual(urgenciaGrupoPorPeso(null, 0.2), vacio);
+  assert.strictEqual(urgenciaGrupoPorPeso([pres('URGENTE', -5), pres('URGENTE', 'x'), pres('OK', 100)]).urgencia, 'OK');   // facturación negativa o inválida no pesa
+  assert.strictEqual(urgenciaGrupoPorPeso([pres(undefined, 100)]).urgencia, 'OK');
+});
+
+test('umbralPesoGrupo: valor de config entre 0 (exclusivo) y 1; si no, 0.20', () => {
+  assert.strictEqual(umbralPesoGrupo(0.35), 0.35);
+  assert.strictEqual(umbralPesoGrupo(1), 1);
+  for (const malo of [0, -0.1, 1.01, 'x', null, undefined, NaN]) assert.strictEqual(umbralPesoGrupo(malo), 0.2, String(malo));
+});

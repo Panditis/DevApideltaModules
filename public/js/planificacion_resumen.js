@@ -7,11 +7,18 @@ let gruposSorted = [];
 // El orden (urgencia y, dentro de cada nivel, rankingPos) lo da el servidor: gruposSorted lo conserva
 // porque los botones identifican el grupo por su posición (gi).
 const URGENCIA_CHIP = { URGENTE: ['RED', '🔴 Urgente'], PRONTO: ['YELLOW', '🟡 Pronto'], OK: ['GREEN', '🟢 OK'] };
+const textoCobertura = c => (Number.isFinite(c) ? `${c} d` : '—');
+// Fila de un grupo con presentaciones: el % de su facturación que está en falta (el que decidió el nivel);
+// OK no muestra nada. Grupo granel: su cobertura en días.
+function textoUrgenciaGrupo(g) {
+  if (!Number.isFinite(g.pesoUrgente)) return textoCobertura(g.coberturaDias);
+  const peso = g.urgencia === 'URGENTE' ? g.pesoUrgente : g.urgencia === 'PRONTO' ? g.pesoUrgentePronto : null;
+  return peso === null ? '—' : `${Math.round(peso * 100)}% en falta`;
+}
 // gi/pi (índices; pi -1 = fila del grupo): el chip abre el modal con el cálculo (abrirUrgenciaDetalle).
-function urgenciaCell(urgencia, cobertura, gi, pi) {
+function urgenciaCell(urgencia, texto, gi, pi) {
   const [clase, txt] = URGENCIA_CHIP[urgencia] || URGENCIA_CHIP.OK;
-  const cob = Number.isFinite(cobertura) ? `${cobertura} d` : '—';
-  return `<span class="urg-click" title="Ver cómo se calcula la urgencia" onclick="event.stopPropagation();abrirUrgenciaDetalle(${gi},${pi})"><span class="badge ${clase}">${txt}</span> <span class="text-sm" style="white-space:nowrap">${cob}</span></span>`;
+  return `<span class="urg-click" title="Ver cómo se calcula la urgencia" onclick="event.stopPropagation();abrirUrgenciaDetalle(${gi},${pi})"><span class="badge ${clase}">${txt}</span> <span class="text-sm" style="white-space:nowrap">${texto}</span></span>`;
 }
 
 async function cargarSugerencias() {
@@ -51,7 +58,7 @@ function renderGrupos() {
     if (g.esGranel) {
       return `<tr class="grupo-row granel-row">
         <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
-        <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias, gi, -1)}</td>
+        <td style="white-space:nowrap">${urgenciaCell(g.urgencia, textoUrgenciaGrupo(g), gi, -1)}</td>
         <td class="nombre-col font-bold">
           ${escHtml(g.productoRef)}
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
@@ -68,7 +75,7 @@ function renderGrupos() {
     const _stockSucGrupo = redondear((g.presentaciones||[]).reduce((s,p)=>s+(p.stockSucursales||0),0));
     const grupoRow = `<tr class="grupo-row" data-gi="${gi}" style="cursor:pointer" onclick="toggleGrupo(${gi})">
       <td class="text-right text-sm" style="color:var(--muted)">${g.rankingPos || ''}</td>
-      <td style="white-space:nowrap">${urgenciaCell(g.urgencia, g.coberturaDias, gi, -1)}</td>
+      <td style="white-space:nowrap">${urgenciaCell(g.urgencia, textoUrgenciaGrupo(g), gi, -1)}</td>
       <td class="nombre-col font-bold"><span class="expand-btn" id="ebtn-${gi}">▶</span> ${escHtml(g.productoRef)}</td>
       <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
       <td class="text-right text-sm" title="Cuenta al 60% en el sugerido: ${redondear(_stockGrupo*0.6)}">${_stockGrupo>0?_stockGrupo:'—'}</td>
@@ -91,7 +98,7 @@ function renderGrupos() {
       const _pProm = p.promMes ?? Math.round((p.promDiario||0)*30*10)/10;
       return `<tr class="sub-${gi}" style="display:none;background:#f7faf6">
         <td></td>
-        <td style="white-space:nowrap">${urgenciaCell(p.urgencia, p.coberturaDias, gi, pi)}</td>
+        <td style="white-space:nowrap">${urgenciaCell(p.urgencia, textoCobertura(p.coberturaDias), gi, pi)}</td>
         <td class="nombre-col" style="padding-left:28px;font-size:13px">
           ${escHtml(p.presentacion)}
           ${_pProm ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">prom: ${_pProm}/mes</div>` : ''}
@@ -390,21 +397,37 @@ function htmlCalculoPresentacion(g, p) {
 
 function htmlCalculoGrupo(g) {
   const unidad = g.esGranel ? 'kg' : 'u';
+  const conPeso = Number.isFinite(g.pesoUrgente) && Number.isFinite(g.umbralPeso);
+  // Peso de cada presentación en el grupo: por facturación; si el grupo no factura, por unidades vendidas.
+  const presentaciones = g.presentaciones || [];
+  const positivo = x => (Number.isFinite(Number(x)) && Number(x) > 0 ? Number(x) : 0);
+  const usarFact = presentaciones.some(p => positivo(p.facturacionMensual) > 0);
+  const baseDe = p => positivo(usarFact ? p.facturacionMensual : p.ventasVentana);
+  const totalBase = presentaciones.reduce((t, p) => t + baseDe(p), 0);
   const lineas = g.esGranel
     ? [{ nombre: 'Grupo granel', detalle: `granel central ${nfAR(g.granelStockGrupo || 0, 2)} + sucursales ${nfAR(g.stockSucGrupo || 0, 2)}`, d: datosUrgencia(g, null) }]
-    : (g.presentaciones || []).map(p => ({ nombre: p.presentacion || p.baseNombre, detalle: '', d: datosUrgencia(g, p) }));
-  // El grupo toma la presentación de menor cobertura (la que se muestra en su fila).
+    : presentaciones.map(p => ({ nombre: p.presentacion || p.baseNombre, detalle: '', d: datosUrgencia(g, p), peso: totalBase > 0 ? baseDe(p) / totalBase : null }));
+  // Resaltadas: las que cuentan para el nivel del grupo (urgentes si es Urgente; urgentes y pronto si es Pronto).
+  // Granel (una sola fila): la de menor cobertura, como antes.
+  const cuenta = l => (g.urgencia === 'URGENTE' ? l.d.nivel === 'URGENTE' : g.urgencia === 'PRONTO' && (l.d.nivel === 'URGENTE' || l.d.nivel === 'PRONTO'));
   const conCob = lineas.filter(l => l.d.cobertura !== null);
   const peor = conCob.length ? conCob.reduce((a, b) => (b.d.cobertura < a.d.cobertura ? b : a)) : null;
-  const cuerpo = lineas.map(l => `<tr${l === peor ? ' class="urg-peor"' : ''}>
+  const resaltar = l => (conPeso ? cuenta(l) : l === peor);
+  const pct = x => nfAR(Math.round(x * 100), 0);
+  const cuerpo = lineas.map(l => `<tr${resaltar(l) ? ' class="urg-peor"' : ''}>
       <td>${escHtml(l.nombre)}${l.detalle ? `<div class="text-sm">${escHtml(l.detalle)}</div>` : ''}</td>
+      ${conPeso ? `<td class="num">${l.peso === null ? '—' : pct(l.peso) + ' %'}</td>` : ''}
       <td class="num">${nfAR(l.d.ventas, 2)} ${unidad}</td><td class="num">${nfAR(l.d.diaria, 2)} ${unidad}/día</td>
       <td class="num">${nfAR(l.d.total, 2)} ${unidad}</td>
       <td class="num">${l.d.cobertura === null ? '—' : fmtDias(l.d.cobertura) + ' d'}</td><td>${chipUrgencia(l.d.nivel)}</td></tr>`).join('');
+  const sino = cond => (cond ? 'sí' : 'no');
+  const regla = conPeso
+    ? `El grupo es <strong>Urgente</strong> si lo urgente suma ≥ ${pct(g.umbralPeso)} % de su ${usarFact ? 'facturación' : 'venta en unidades (sin facturación)'} (acá: ${pct(g.pesoUrgente)} % → ${sino(g.urgencia === 'URGENTE')}). Es <strong>Pronto</strong> si lo urgente y lo pronto suman ≥ ${pct(g.umbralPeso)} % (acá: ${pct(g.pesoUrgentePronto)} % → ${sino(g.urgencia !== 'OK')}).`
+    : (peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.');
   return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
-    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th><th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th><th class="num">Cobertura</th><th>Nivel</th></tr></thead>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th><th class="num">Cobertura</th><th>Nivel</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
-    <div class="urg-nota text-sm">${peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.'} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. ${escHtml(textoExclusiones(g, true))}.</div>`;
+    <div class="urg-nota text-sm">${regla} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. ${escHtml(textoExclusiones(g, true))}.</div>`;
 }
 
 // pi = índice de la presentación dentro del grupo, o -1 para la fila del grupo.

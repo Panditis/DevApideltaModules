@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
-const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura } = require('../lib/plan_prioridad');
+const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura, urgenciaGrupoPorPeso, umbralPesoGrupo } = require('../lib/plan_prioridad');
 const { SUCURSALES_NO_REALES, filtrarSucursalesReales, sqlExcluirSucursales, sqlExcluirCentral } = require('../lib/sucursales_no_reales');
 const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_params');
 
@@ -457,6 +457,7 @@ async function calcularSugerenciasCatalogo(params) {
   // resumen de insumos al enviar. Grupo granel (sin presentaciones): stock = granel central + sucursales.
   const clases = clasesABC(grupos.map(g => g.rankingScore));
   const redondear1 = n => Math.round(n * 10) / 10;
+  const umbralPeso = umbralPesoGrupo(c.urgenciaPesoGrupo); // config urgenciaPesoGrupo (0 < x <= 1), default 0.20
   grupos.forEach((g, i) => {
     g.claseABC = clases[i];
     g.ventanaDias = ventana;                                  // para explicar el cálculo en el Resumen
@@ -472,7 +473,12 @@ async function calcularSugerenciasCatalogo(params) {
     if (g.presentaciones.length) {
       const coberturas = g.presentaciones.map(p => p.coberturaDias).filter(x => x !== null);
       g.coberturaDias = coberturas.length ? Math.min(...coberturas) : null;
-      g.urgencia = g.presentaciones[0].urgencia;
+      // El grupo es tan urgente como lo que pesan, en facturación, sus presentaciones urgentes (ver lib).
+      const peso = urgenciaGrupoPorPeso(g.presentaciones, umbralPeso);
+      g.urgencia = peso.urgencia;
+      g.pesoUrgente = peso.pesoUrgente;
+      g.pesoUrgentePronto = peso.pesoUrgentePronto;
+      g.umbralPeso = umbralPeso;
     } else {
       const cobertura = calcularCobertura((g.granelStockGrupo || 0) + (g.stockSucGrupo || 0), g.ventaDiariaUrg);
       g.coberturaDias = cobertura === null ? null : redondear1(cobertura);
