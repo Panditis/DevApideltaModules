@@ -5,8 +5,9 @@
 let gruposCache = [];
 let gruposSorted = [];
 // Orden fijo: prioridad (rankingPos, ver lib/plan_prioridad.js); sin dato al final.
+const _posPrioridad = x => x.rankingPos || Number.MAX_SAFE_INTEGER;
 function ordenarPorPrioridad(lista) {
-  return [...lista].sort((a, b) => (a.rankingPos || Infinity) - (b.rankingPos || Infinity));
+  return [...lista].sort((a, b) => _posPrioridad(a) - _posPrioridad(b));
 }
 
 async function cargarSugerencias() {
@@ -168,8 +169,8 @@ function renderStockDetalle(data, g) {
     <tbody>${body}${pie}</tbody></table>`;
 }
 
-function presToItem(p, productoRef) {
-  return { idProducto: p.plu, producto: p.baseNombre, presentacion: p.presentacion, rubro: productoRef,
+function presToItem(p, productoRef, rankingPos) {
+  return { idProducto: p.plu, producto: p.baseNombre, presentacion: p.presentacion, rubro: productoRef, rankingPos,
     stockActual: p.stockActual, promDiario: p.promDiario, diasStock: p.diasStock,
     semaforo: p.semaforo, pendientes: p.pendientes, cantSugerida: p.cantSugerida,
     cantConfirmada: p.cantSugerida, idGranel: p.idGranel, nombreGranel: p.nombreGranel,
@@ -188,13 +189,13 @@ function agregarPresAlPlan(gi, pi) {
   const g = gruposSorted[gi], p = g.presentaciones[pi];
   const cant = leerCantSug(gi, pi, p.cantSugerida);
   if (cant <= 0) { toast('Ingresá una cantidad mayor a 0', true); return; }
-  agregarGrupoItems(g.productoRef, [{ ...presToItem(p, g.productoRef), cantConfirmada: cant }]);
+  agregarGrupoItems(g.productoRef, [{ ...presToItem(p, g.productoRef, g.rankingPos), cantConfirmada: cant }]);
 }
 
 function agregarGrupoAlPlan(gi) {
   const g = gruposSorted[gi];
   const items = g.presentaciones
-    .map((p, pi) => ({ ...presToItem(p, g.productoRef), cantConfirmada: leerCantSug(gi, pi, p.cantSugerida) }))
+    .map((p, pi) => ({ ...presToItem(p, g.productoRef, g.rankingPos), cantConfirmada: leerCantSug(gi, pi, p.cantSugerida) }))
     .filter(it => it.cantConfirmada > 0);
   if (!items.length) { toast('No hay cantidades para agregar (escribí una cantidad > 0)', true); return; }
   agregarGrupoItems(g.productoRef, items);
@@ -206,7 +207,9 @@ function agregarGrupoAlPlan(gi) {
 async function agregarGrupoItems(productoRef, items) {
   const graneles = await itemGranelPrevio(productoRef, items);
   if (graneles === false) return;
-  agregarAlCarrito([...graneles, ...items.map(it => (graneles.length ? { ...it, granelAparte: true } : it))]);
+  // Los graneles previos heredan la prioridad del grupo (el carrito se ordena por rankingPos).
+  const rankingPos = items[0]?.rankingPos;
+  agregarAlCarrito([...graneles.map(gr => ({ ...gr, rankingPos })), ...items.map(it => (graneles.length ? { ...it, granelAparte: true } : it))]);
 }
 
 // ¿La referencia es una variedad de miel del catálogo? Usa el flag esMiel (default: nombre arranca con "Miel").

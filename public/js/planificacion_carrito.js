@@ -8,6 +8,7 @@ const CARRITO_VACIO = Object.freeze({ fecha: null, lineas: [], notas: '' });
 let _lineaSeq = Date.now();
 let carrito = CARRITO_VACIO;
 let _enviandoCarrito = false; // envío en curso: evita el doble envío
+const _detalleAbierto = new Set(); // _id de las líneas con el ⚙ desplegado: solo UI, en memoria
 
 // ── Día picker: pide la fecha del carrito ────────────────────────
 let semDiaPicker   = lunesDeEstaFecha(HOY);
@@ -76,6 +77,10 @@ function guardarCarrito() {
   persistirCarrito();
   renderCarrito();
 }
+// Orden del carrito (mostrado y enviado): prioridad del grupo en el Resumen; sin rankingPos al final,
+// en orden de alta (el sort es estable).
+const _posLinea = l => l.rankingPos || Number.MAX_SAFE_INTEGER;
+const lineasOrdenadas = () => [...carrito.lineas].sort((a, b) => _posLinea(a) - _posLinea(b));
 const claveLinea = it => `${it.esGranel ? 'G' : 'F'}|${it.idProducto ?? it.producto}`;
 const pedirFechaCarrito = titulo => new Promise(res => abrirDiaPicker(titulo, res));
 
@@ -137,15 +142,12 @@ function editarLinea(id, campo, valor, rerender = true) {
 }
 function quitarLinea(id) {
   carrito = { ...carrito, lineas: carrito.lineas.filter(l => l._id !== id) };
+  _detalleAbierto.delete(id);
   guardarCarrito();
 }
-function moverLinea(id, dir) {
-  const i = carrito.lineas.findIndex(l => l._id === id), j = i + dir;
-  if (i < 0 || j < 0 || j >= carrito.lineas.length) return;
-  const lineas = [...carrito.lineas];
-  [lineas[i], lineas[j]] = [lineas[j], lineas[i]];
-  carrito = { ...carrito, lineas };
-  guardarCarrito();
+function toggleDetalleLinea(id) {
+  if (!_detalleAbierto.delete(id)) _detalleAbierto.add(id);
+  renderCarrito();
 }
 
 // ── Render ───────────────────────────────────────────────────────
@@ -178,21 +180,25 @@ function renderCarrito() {
     cont.innerHTML = '<div class="loading">Vacío. Agregá productos desde el Resumen con "+".</div>';
     return;
   }
+  const filaDetalle = l => `<tr style="background:var(--md-surface-1)">
+      <td colspan="6" style="padding:6px 12px">
+        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;font-size:12px">
+          ${l.esGranel ? '' : `<label>Envase ${selectPack(l, 'envase')}</label><label>Tapa ${selectPack(l, 'tapa')}</label>`}
+          <label>Cliente ${selectCliente(l)}</label>
+        </div>
+      </td></tr>`;
   cont.innerHTML = `<table><thead><tr>
-      <th></th><th>Producto</th><th>Cant.</th><th>Responsables</th><th>Envase</th><th>Tapa</th><th>Cliente</th><th>Tambor</th><th></th>
+      <th>Producto</th><th>Cant.</th><th>Responsables</th><th>Tambor</th><th></th><th></th>
     </tr></thead><tbody>
-    ${carrito.lineas.map(l => `<tr>
-      <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="moverLinea(${l._id},-1)">▲</button> <button class="btn btn-secondary btn-sm" onclick="moverLinea(${l._id},1)">▼</button></td>
+    ${lineasOrdenadas().map(l => `<tr>
       <td>${escHtml(l.presentacion || l.producto)}${l.presentacion ? `<div class="text-sm">${escHtml(l.producto)}</div>` : ''}${l.granelPrevioDe ? `<div class="text-sm">granel previo de ${escHtml(l.granelPrevioDe)}</div>` : ''}</td>
       <td style="white-space:nowrap"><input type="number" min="0" step="any" value="${l.cantConfirmada || 0}" style="width:80px"
            onchange="editarLinea(${l._id},'cantConfirmada',Math.max(0,parseFloat(this.value)||0))"> ${l.esGranel ? escHtml(l.unidadGranel || 'kg') : ''}</td>
       <td>${renderRespMulti({ ...l, id: l._id })}</td>
-      <td>${l.esGranel ? '' : selectPack(l, 'envase')}</td>
-      <td>${l.esGranel ? '' : selectPack(l, 'tapa')}</td>
-      <td>${selectCliente(l)}</td>
       <td>${esItemMiel(l) ? `<input type="text" value="${escHtml(l.tambor || '')}" placeholder="—" style="width:70px" onchange="editarLinea(${l._id},'tambor',this.value.trim())">` : ''}</td>
+      <td><button class="btn ${_detalleAbierto.has(l._id) ? 'btn-primary' : 'btn-secondary'} btn-sm" title="Envase, tapa y cliente" onclick="toggleDetalleLinea(${l._id})">⚙</button></td>
       <td><button class="btn btn-danger btn-sm" onclick="quitarLinea(${l._id})">✕</button></td>
-    </tr>`).join('')}
+    </tr>${_detalleAbierto.has(l._id) ? filaDetalle(l) : ''}`).join('')}
     </tbody></table>`;
 }
 
@@ -236,8 +242,8 @@ async function enviarCarrito() {
     toast(`Cantidad 0: ${sinCant.map(l => l.presentacion || l.producto).join(', ')}. Completala o quitá la línea.`, true);
     return;
   }
-  // _id y _pkOk son del carrito: no viajan al servidor.
-  const items = carrito.lineas.map(({ _id, _pkOk, ...it }, i) => ({ ...it, prioridad: i + 1 }));
+  // _id, _pkOk y rankingPos son del carrito (UI/orden): no viajan al servidor. prioridad = lugar en el orden mostrado.
+  const items = lineasOrdenadas().map(({ _id, _pkOk, rankingPos, ...it }, i) => ({ ...it, prioridad: i + 1 }));
   const fecha = carrito.fecha;
   const ok = await mostrarMPResumen(`📤 Enviar a producción · ${formatFecha(fecha)}`, items, await avisosCarrito(items));
   if (!ok) return;

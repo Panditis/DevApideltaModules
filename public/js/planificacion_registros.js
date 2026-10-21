@@ -295,6 +295,7 @@ document.getElementById('btnConfirmarGranel').addEventListener('click', () => {
   const item = {
     idProducto:    null,
     producto:      g.productoRef,
+    rankingPos:    g.rankingPos,
     rubro:         'Granel',
     esGranel:      true,
     cantSugerida:  0,
