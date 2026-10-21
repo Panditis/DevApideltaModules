@@ -37,6 +37,9 @@ test('opcionesCosto: No cambiar + cada costo con su precio minorista y Δ%; manu
     ['', 'No cambiar', null, 1800, null, true],
     ['sistema', 'Costo sistema', 1000, 1800, 0, true],
     ['ultimaCompra', 'Última compra', null, null, null, false]]);
+  // Modal de Reventa: la tarjeta manual siempre (se carga ahí), deshabilitada sin costo.
+  const man = opcionesCosto(L.filaPublica(f), 'almacen', { manualSiempre: true })[3];
+  assert.deepStrictEqual([man.valor, man.disponible, man.motivo], ['manual', false, 'Sin costo manual']);
   const [m] = L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes, mayoristasDe: md,
     costeo: { costoPorProducto: { 1: 2000 } }, cfg: CFG });
   assert.deepStrictEqual(opcionesCosto(L.filaPublica(m), 'almacen').map(o => o.valor), ['', 'sistema', 'ultimaCompra', 'manual']);

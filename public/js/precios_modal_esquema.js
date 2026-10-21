@@ -57,10 +57,11 @@ function resumenMinorista(fila, fuente) {
   const s = okDe(fila);
   return { precio: s ? s.minorista.precio : null, deltaPct: s ? s.minorista.deltaPct : null, estado: s ? s.minorista.estado : null, ok: !!s, error, n: null };
 }
-function opcionesCosto(fila, tipo) {
+// manualSiempre: el modal de Reventa muestra la opción manual aunque no haya costo (se carga en su tarjeta).
+function opcionesCosto(fila, tipo, { manualSiempre = false } = {}) {
   const actual = fila.decision ? fila.decision.fuente : null;
   const fuentes = tipo === 'produccion' ? ['sistema']
-    : ['sistema', 'ultimaCompra', ...(fila.costoManual != null || actual === 'manual' ? ['manual'] : [])];
+    : ['sistema', 'ultimaCompra', ...(manualSiempre || fila.costoManual != null || actual === 'manual' ? ['manual'] : [])];
   const noCambiar = { valor: '', texto: 'No cambiar', costo: null, precio: fila.vigente ?? null, deltaPct: null, estado: null, disponible: true, motivo: null };
   return [noCambiar, ...fuentes.map(f => {
     const r = resumenMinorista(fila, f);
@@ -233,6 +234,7 @@ function htmlOpcionMd(o, f, actual) {
   const fracc = Array.isArray(f.presentaciones);
   let costo = '';
   if (o.valor === '') costo = 'Deja el precio como está';
+  else if (o.valor === 'manual' && mdEsq.tipo === 'almacen') costo = htmlManualDecMd(f);
   else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>`;
   let extra = '';
   if (o.valor === 'ultimaCompra' && f.costoUltimaCompra != null) {
@@ -259,6 +261,34 @@ function htmlOpcionesCosto(f, ops) {
     <p class="md-ayuda">Al elegir se guarda solo. ${prod ? '"Aumentar"' : 'Un costo'} marca el producto para exportar; "No cambiar" lo desmarca.${f.presentaciones ? ' La decisión vale para todas las presentaciones.' : ''}</p>
     <div id="mdCostos" class="md-opcs" style="--n:${ops.length}">${ops.map(o => htmlOpcionMd(o, f, actual)).join('')}</div>
     <div id="mdDecMsg" class="md-msg" role="status" aria-live="polite"></div></fieldset>`;
+}
+
+// Reventa: la tarjeta "Costo manual" (siempre está) trae el campo para cargarlo (cualquier usuario del módulo). "Usar"
+// guarda el costo y elige la decisión 'manual'; "Quitar" lo borra (el server limpia la decisión manual). Los controles
+// dentro del <label> no marcan el radio (son contenido interactivo). Fraccionado lo sigue cargando en "Ver detalle".
+const htmlManualDecMd = f => `<span class="md-opc-manual">
+    ${campoU(`<input id="mdManualDec" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-full' })}
+    <span class="flex items-center gap-2"><button type="button" id="mdManualUsar" class="cfg-btn2">Usar</button>
+    ${f.costoManual != null ? '<button type="button" id="mdManualDecQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</span></span>`;
+async function guardarManualDecMd(body) {
+  const { tipo, fila: f } = mdEsq;
+  msgDecisionMd('', '<span class="spin"></span> Guardando…');
+  try {
+    await pedirJson('PUT', `/api/precios/costo-producto/${encodeURIComponent(f.plu)}`, body); // precios_comun.js
+    if (body.fuente === 'manual') await guardarDecision(f.plu, 'manual'); // precios_listados.js
+    await abrirModalEsquema(tipo, f.plu, { detalle: mdDetalle });
+    cargarListado(tipo);
+    msgDecisionMd('text-ok', `✓ Guardado · ${esc(estadoDecision(mdEsq.fila, tipo).texto.toLowerCase())}`);
+  } catch (e) { msgDecisionMd('text-crit', `No se pudo guardar: ${esc(e.message)}`); }
+}
+function conectarManualDecMd() {
+  const usar = document.getElementById('mdManualUsar');
+  if (!usar) return;
+  const input = document.getElementById('mdManualDec');
+  usar.onclick = () => guardarManualDecMd({ fuente: 'manual', costo: numOrNull(input.value) });
+  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); usar.click(); } };
+  const quitar = document.getElementById('mdManualDecQuitar');
+  if (quitar) quitar.onclick = () => guardarManualDecMd({ fuente: 'sistema' });
 }
 
 // Reventa: a quién se le compra (Directo / Distribuidor). Elegir guarda en el momento (guardarTipoProveedor,
@@ -409,12 +439,12 @@ function htmlVentasPesablesMd(f) {
 }
 function htmlEdicionCostos(f) {
   if (mdEsq.tipo === 'produccion') return '';
-  return `<div class="md-edicion">
-    <div class="lbl mb-1">Costo manual</div>
-    <div class="flex items-center gap-2">${campoU(`<input id="mdManual" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-36' })}
+  const manual = mdEsq.tipo === 'almacen' ? '' : `<div class="lbl mb-1">Costo manual</div>
+    <div class="flex items-center gap-2 mb-4">${campoU(`<input id="mdManual" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-36' })}
       <button type="button" id="mdManualGuardar" class="cfg-btn2">Guardar</button>
-      ${f.costoManual != null ? '<button type="button" id="mdManualQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</div>
-    <div class="lbl mt-4 mb-1">Costos extra (${mdEsq.tipo === 'fraccionado' ? '$/kg' : '$'} o % del costo)</div>
+      ${f.costoManual != null ? '<button type="button" id="mdManualQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</div>`;
+  return `<div class="md-edicion">${manual}
+    <div class="lbl mb-1">Costos extra (${mdEsq.tipo === 'fraccionado' ? '$/kg' : '$'} o % del costo)</div>
     <table class="w-full text-sm"><tbody id="mdExtras">${(f.costosExtra || []).map(htmlFilaExtraMd).join('')}</tbody></table>
     <div class="flex gap-2 mt-1"><button type="button" id="mdExtraAgregar" class="cfg-btn2">+ Agregar</button>
       <button type="button" id="mdExtrasGuardar" class="cfg-btn2">Guardar costos extra</button></div>
@@ -493,7 +523,7 @@ function htmlVerDetalle(f) {
 
 function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
-  const ops = opcionesCosto(f, tipo);
+  const ops = opcionesCosto(f, tipo, { manualSiempre: tipo === 'almacen' });
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlTipoProveedorMd(f)}
     ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
   conectarModalEsquema();
@@ -501,6 +531,7 @@ function pintarModalEsquema() {
 
 function msgDecisionMd(cls, html) {
   const msg = document.getElementById('mdDecMsg');
+  if (!msg) return; // el modal no se pudo recargar: ya muestra el error
   msg.className = `md-msg ${cls}`; msg.innerHTML = html;
 }
 // Elegir un costo guarda la decisión en el momento (No cambiar = sin decisión) y refresca la fila del listado;
@@ -529,7 +560,7 @@ async function guardarOpcionMd(valor) {
 
 function conectarModalEsquema() {
   const grupo = document.getElementById('mdCostos');
-  grupo.onchange = e => guardarOpcionMd(e.target.value);
+  grupo.onchange = e => { if (e.target.name === 'mdCosto') guardarOpcionMd(e.target.value); }; // no el campo del costo manual
   // Flechas: mueven el foco entre opciones habilitadas SIN elegir (elegir guarda); Espacio o Enter eligen.
   grupo.onkeydown = e => {
     const radios = [...grupo.querySelectorAll('input:not(:disabled)')];
@@ -552,7 +583,8 @@ function conectarModalEsquema() {
     cuerpo.hidden = !mdDetalle;
     if (mdDetalle) ver.scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
-  if (document.getElementById('mdManualGuardar')) conectarEdicionCostos();
+  if (document.getElementById('mdExtrasGuardar')) conectarEdicionCostos();
+  conectarManualDecMd();
   conectarMargenProductoMd();
   conectarTipoProveedorMd();
 }
@@ -582,7 +614,8 @@ function refrescarPanelProduccionMd() {
 function conectarEdicionCostos() {
   const plu = encodeURIComponent(mdEsq.fila.plu);
   const tbody = document.getElementById('mdExtras');
-  document.getElementById('mdManualGuardar').onclick = () =>
+  const guardar = document.getElementById('mdManualGuardar'); // Reventa lo carga en la selección de costo (htmlManualDecMd)
+  if (guardar) guardar.onclick = () =>
     guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'manual', costo: numOrNull(document.getElementById('mdManual').value) });
   const quitar = document.getElementById('mdManualQuitar');
   // fuente 'sistema' borra el costo manual.
