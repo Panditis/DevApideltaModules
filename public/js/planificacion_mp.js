@@ -62,44 +62,45 @@ async function mostrarMPResumen(titulo, items, avisosHtml = '') {
   return decision;
 }
 
+// Más de tantas filas: la tabla se parte en dos columnas lado a lado para que entre sin scroll vertical.
+const MP_FILAS_UNA_COLUMNA = 12;
+
+function tablaMP(filas) {
+  const th = (txt, izq) => `<th style="text-align:${izq ? 'left' : 'right'};padding:4px 8px;font-size:11px;color:var(--muted)">${txt}</th>`;
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:var(--md-surface-1)">${th('Componente', true)}${th('Necesario')}${th('Stock')}${th('Dif.')}</tr></thead>
+    <tbody>${filas.map(({ r, stock, diff, falta }) => `<tr style="border-bottom:1px solid var(--md-outline-variant)${falta ? ';background:var(--red-bg)' : ''}">
+      <td style="padding:4px 8px${falta ? ';font-weight:600' : ''}">
+        ${falta ? '<span style="color:var(--red-text);margin-right:4px">⚠</span>' : ''}${escHtml(r.nombre)}
+        <span style="font-size:10px;color:var(--muted);margin-left:4px">PLU ${escHtml(String(r.plu))}</span>
+      </td>
+      <td style="text-align:right;padding:4px 8px;font-family:system-ui,sans-serif;font-weight:700;white-space:nowrap">${r.total}</td>
+      <td style="text-align:right;padding:4px 8px;white-space:nowrap;color:${stock === null ? 'var(--muted)' : falta ? 'var(--red-text)' : 'var(--verde)'}">${stock !== null ? stock : '—'}</td>
+      <td style="text-align:right;padding:4px 8px;white-space:nowrap;font-weight:700;color:${diff === null ? 'var(--muted)' : falta ? 'var(--red-text)' : 'var(--verde)'}">${diff !== null ? (diff >= 0 ? '+' : '') + diff : '—'}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
 async function renderMPResumen(items, avisosHtml) {
   const mpList = await calcularMPParaItems(items);
   const body = document.getElementById('mpResumenBody');
 
   if (!mpList.length) {
     body.innerHTML = avisosHtml + '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sin fórmulas definidas para estas presentaciones.</div>';
-  } else {
-    const stockMap = new Map();
-    try {
-      const rows = await api('GET', `/api/stock/plus?ids=${mpList.map(r => r.plu).join(',')}`);
-      for (const r of rows) stockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
-    } catch(e) {}
-
-    body.innerHTML = avisosHtml + `<table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="background:#f1f5f9">
-        <th style="text-align:left;padding:5px 8px;font-size:11px;color:var(--muted)">Componente</th>
-        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Necesario</th>
-        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Stock</th>
-        <th style="text-align:right;padding:5px 8px;font-size:11px;color:var(--muted)">Dif.</th>
-      </tr></thead><tbody>
-      ${mpList.map(r => {
-        const stock = stockMap.has(r.plu) ? stockMap.get(r.plu) : null;
-        const diff  = stock !== null ? Math.round((stock - r.total) * 10000) / 10000 : null;
-        const falta = diff !== null && diff < 0;
-        return `<tr style="border-bottom:1px solid var(--md-outline-variant)${falta ? ';background:#fff5f5' : ''}">
-          <td style="padding:6px 8px${falta ? ';font-weight:600' : ''}">
-            ${falta ? '<span style="color:var(--red-text);margin-right:4px">⚠</span>' : ''}${escHtml(r.nombre)}
-            <span style="font-size:10px;color:var(--muted);margin-left:4px">PLU ${escHtml(String(r.plu))}</span>
-          </td>
-          <td style="text-align:right;padding:6px 8px;font-family:system-ui,sans-serif;font-weight:700">${r.total}</td>
-          <td style="text-align:right;padding:6px 8px;color:${stock === null ? 'var(--muted)' : falta ? 'var(--red-text)' : 'var(--verde)'}">
-            ${stock !== null ? stock : '—'}
-          </td>
-          <td style="text-align:right;padding:6px 8px;font-weight:700;color:${diff === null ? 'var(--muted)' : falta ? 'var(--red-text)' : 'var(--verde)'}">
-            ${diff !== null ? (diff >= 0 ? '+' : '') + diff : '—'}
-          </td>
-        </tr>`;
-      }).join('')}
-      </tbody></table>`;
+    return;
   }
+  const stockMap = new Map();
+  try {
+    const rows = await api('GET', `/api/stock/plus?ids=${mpList.map(r => r.plu).join(',')}`);
+    for (const r of rows) stockMap.set(String(r.IdProducto), parseFloat(r.StockActual));
+  } catch(e) {}
+
+  const filas = mpList.map(r => {
+    const stock = stockMap.has(r.plu) ? stockMap.get(r.plu) : null;
+    const diff  = stock !== null ? Math.round((stock - r.total) * 10000) / 10000 : null;
+    return { r, stock, diff, falta: diff !== null && diff < 0 };
+  });
+  const mitad = Math.ceil(filas.length / 2);
+  body.innerHTML = avisosHtml + (filas.length > MP_FILAS_UNA_COLUMNA
+    ? `<div class="mp-cols">${tablaMP(filas.slice(0, mitad))}${tablaMP(filas.slice(mitad))}</div>`
+    : tablaMP(filas));
 }

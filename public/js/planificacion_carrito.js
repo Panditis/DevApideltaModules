@@ -255,10 +255,9 @@ async function avisosCarrito(items) {
     const plan = await api('GET', `/api/plan/${carrito.fecha}`);
     if ((plan.items || []).length) avisos.push(`Ya hay ${plan.items.length} producto(s) enviados para ese día: lo repetido se suma.`);
   } catch { /* sin plan previo */ }
-  return `<div style="margin-bottom:10px">
-      ${avisos.map(a => `<div style="color:var(--red-text);font-size:13px">⚠ ${a}</div>`).join('')}
-      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:6px;color:var(--muted)"
-             title="Deshabilitado: la reserva de mercadería en SiGA está apagada">
+  return `<div class="mp-avisos">
+      ${avisos.map(a => `<div class="mp-aviso">⚠ ${a}</div>`).join('')}
+      <label class="mp-reserva" title="Deshabilitado: la reserva de mercadería en SiGA está apagada">
         <input type="checkbox" disabled> Reservar mercadería en SiGA (deshabilitado)
       </label>
     </div>`;
