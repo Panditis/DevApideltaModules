@@ -57,7 +57,8 @@ function htmlCosteoFraccMd(f) {
   return `<div class="md-edicion" id="mdFr">
     <div class="lbl mb-1">Costeo del granel · ${g.subrubro ? `subrubro ${esc(g.subrubro)}` : 'sin subrubro en SIGA'}</div>
     <div class="flex flex-wrap items-center gap-2">
-      <label class="text-sm">Máquina <select id="mdFrMaquina" class="num-in">${opcionesMaquinaMd(maquinas, g.maquinaId, g.maquinaSubrubro)}</select></label>
+      <label class="text-sm">Máquina <select id="mdFrMaquina" class="num-in"${g.subrubro ? '' : ' disabled'}>${opcionesMaquinaMd(maquinas, g.maquinaId, g.maquinaSubrubro)}</select></label>
+      ${g.subrubro ? '' : `<span class="text-xs text-gris">${esc('sin subrubro: no suma minutos')}</span>`}
       <button type="button" id="mdFrGuardar" class="cfg-btn2">Guardar</button></div>
     <p class="text-xs text-gris mt-1">Facilidad, tiempo e insumos de cada presentación: tab Fraccionado. Tiempos por peso y máquina del subrubro: Configuración › Costeo Fraccionado.</p>
     <p id="mdFrMsg" class="text-sm mt-1" role="status" aria-live="polite"></p>
@@ -86,7 +87,10 @@ function conectarCosteoFraccMd() {
   getJson(API_FR).then(cfg => {
     mdFrMaquinas = cfg.maquinas.map(({ id, nombre }) => ({ id, nombre }));
     const sel = document.getElementById('mdFrMaquina');
-    if (sel) sel.innerHTML = opcionesMaquinaMd(mdFrMaquinas, g.maquinaId, g.maquinaSubrubro);
+    if (!sel) return;
+    const v = sel.value;
+    sel.innerHTML = opcionesMaquinaMd(mdFrMaquinas, g.maquinaId, g.maquinaSubrubro);
+    if ([...sel.options].some(o => o.value === v)) sel.value = v;
   }).catch(e => { const m = document.getElementById('mdFrMsg'); if (m) { m.className = 'text-sm mt-1 text-crit'; m.textContent = `No se pudieron leer las máquinas: ${e.message}`; } });
   document.getElementById('mdFrGuardar').onclick = () => guardarCostoEsq(`${API_FR}/granel/${encodeURIComponent(mdEsq.fila.plu)}`,
     { maquinaId: document.getElementById('mdFrMaquina').value || null }, 'PUT', 'mdFrMsg');

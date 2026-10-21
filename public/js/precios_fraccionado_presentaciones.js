@@ -100,7 +100,7 @@ let pendFP = {};         // cambios sin guardar por PLU de presentación
 const selFP = new Set(); // ponytail: selección de UI, se muta en el lugar
 let guardandoFP = false; // mientras guarda, seguir editando no borra el "Guardando…"
 // Lo pendiente vive sólo en memoria: F5 o cerrar la pestaña lo pierde, así que el navegador pregunta (como Configuración).
-if (typeof window !== 'undefined') window.addEventListener('beforeunload', e => { if (Object.keys(pendFP).length) e.preventDefault(); }); // typeof: el test lo carga en Node
+if (typeof window !== 'undefined') window.addEventListener('beforeunload', e => { if (Object.keys(pendFP).length) { e.preventDefault(); e.returnValue = ''; } }); // typeof: el test lo carga en Node
 const presentacionFP = plu => (lstDatos.fraccionado || []).flatMap(g => g.presentaciones || []).find(p => p.plu === plu);
 
 const migradoFP = () => (lstDatos.fraccionado || []).some(g => (g.presentaciones || []).some(p => p.fraccPresentacion));
