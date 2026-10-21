@@ -17,7 +17,7 @@ const path = require('path');
 //   - PROD_REG_PATH / PROD_HIST_PATH: los leen el cierre de día, la conciliación
 //     y rutas_productividad.js.
 //   - leerOrdenes / guardarOrdenes: además de acá las usa archivarRegistros()
-//     (server.js), /api/enviar-produccion (rutas_plan.js) y, de sólo lectura,
+//     (server.js), /api/plan/:fecha/envio (rutas_plan.js) y, de sólo lectura,
 //     rutas_productividad.js.
 //   - leerRegistros / guardarRegistros (registros.json, el historial de cierres
 //     que lista Historial — no confundir con PROD_REG_PATH/PROD_HIST_PATH de

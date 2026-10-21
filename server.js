@@ -2009,7 +2009,7 @@ function reservasActivasDeOrden(orden, cache) {
   if (!activas.size) return [];
 
   const nums = new Set((Array.isArray(orden.reservaMovimientos) ? orden.reservaMovimientos : []).map(String));
-  // Mismo criterio de match que enviar-produccion: granel matchea por producto y fraccionado
+  // Mismo criterio de match que /api/plan/:fecha/envio: granel matchea por producto y fraccionado
   // por rubro (con fallback a producto cuando el ítem no trae rubro).
   for (const it of (plan.items || [])) {
     if (!it || !it.reservaMovimiento || it.reservaMovimiento.numeroMovimiento == null) continue;

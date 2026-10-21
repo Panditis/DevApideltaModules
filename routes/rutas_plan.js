@@ -3,6 +3,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
+const planEnvio = require('../lib/plan_envio');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -25,9 +26,8 @@ const bloquesTareas = require('../lib/bloques_tareas');
 //     dominio claro, se quedan donde estaban.
 //   · GET /api/plan/:fecha/reserva*, POST /api/plan/:fecha/reservar|actualizar|
 //     devolver — motor de reservas, entero en rutas_reservas.js: no es parte de
-//     este corte. PUT /api/plan/:fecha/item/:id llama a saldoItemReserva y
-//     ejecutarDevolucionReserva (ese motor), y POST /api/enviar-produccion llama
-//     a leerPlanReservas/leerOrdenes/guardarOrdenes: esas funciones siguen
+//     este corte. POST /api/plan/:fecha/envio y DELETE /api/plan/:fecha/item/:id
+//     llaman a leerPlanReservas/leerOrdenes/guardarOrdenes: esas funciones siguen
 //     enteras en server.js y se reciben por deps.
 //
 // Lo que SÍ se movió entero porque no tiene uso fuera de este router (confirmado
@@ -37,8 +37,8 @@ const bloquesTareas = require('../lib/bloques_tareas');
 //     sqlBOMGranel), pesoEnKg, sqlConsumoCatalogo, sqlStockTodosDepositos,
 //     sqlStockSucursales, sqlPendientesPorPlu, sqlFacturacionPorPlu,
 //     sqlBOMPorPlu, RUBRO_MANUAL_EXCLUIDO_RE, PRODUCTO_SAVONA_RE. Las llaman
-//     tanto /api/plan/sugerencias* como /api/plan/:fecha/desde-sugerencias*, y
-//     ambos grupos de rutas viven acá, así que no hay acoplamiento cruzado.
+//     /api/plan/sugerencias* (antes también /api/plan/:fecha/desde-sugerencias*,
+//     ya eliminadas), que viven acá, así que no hay acoplamiento cruzado.
 //   · FORMULAS_PATH, RESP_PATH, CLIENTES_PATH, PLANTILLAS_TAREAS_PATH — sin uso
 //     en ningún otro rutas_*.js.
 //   · bloquesTareas (bloques_tareas.js) pasa a requerirse directo acá: sólo lo
@@ -52,15 +52,14 @@ const bloquesTareas = require('../lib/bloques_tareas');
 // CATALOGO_PATH/GRUPOS_CFG_PATH (rutas_catalogo.js), PROD_REG_PATH
 // (rutas_distribucion.js/rutas_produccion.js/rutas_productividad.js),
 // leerOrdenes/guardarOrdenes (rutas_produccion.js, y leerOrdenes también
-// rutas_productividad.js), conLogError (rutas_mayoristas.js/rutas_stock.js),
-// safeDate (varios), leerPlanReservas (rutas_stock.js) y tiposPackaging (además
+// rutas_productividad.js), safeDate (varios), leerPlanReservas (rutas_stock.js) y tiposPackaging (además
 // usada por el motor de reservas de stock, aplicarSeleccionPackaging).
 module.exports = function crearRutasPlan(deps) {
   const {
     apiRoute, leerJSON, guardarJSON, query, DATA_DIR,
     PLANES_PATH, PROD_REG_PATH, CATALOGO_PATH, GRUPOS_CFG_PATH,
-    safeDate, leerPlanReservas, saldoItemReserva, ejecutarDevolucionReserva,
-    leerOrdenes, guardarOrdenes, conLogError,
+    safeDate, leerPlanReservas,
+    leerOrdenes, guardarOrdenes,
     tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
     sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
     buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
@@ -75,6 +74,25 @@ const FORMULAS_PATH  = path.join(DATA_DIR, 'formulas.json'); // { "plu": [{plu,n
 // dentro del plan: las plantillas son la receta, valen para todos los días y no se pisan al
 // cambiar de fecha.
 const PLANTILLAS_TAREAS_PATH = path.join(DATA_DIR, 'plantillas_tareas.json');
+
+  // Órdenes que producción ya empezó: no se pisan ni se borran desde planificación.
+  const protegidaFn = () => {
+    const trabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
+    return o => o.terminado === true || o.estado === 'listo' || trabajadas.has(String(o.id));
+  };
+  // Datos que construirOrdenes necesita y que en el front salían de globales.
+  // ponytail: el código de granel sale del ítem o de grupos_config; el granelId del catálogo
+  // (que el front miraba en gruposSorted) no se consulta — los ítems del carrito ya traen idGranel.
+  const resolversOrdenes = () => {
+    const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
+    const clientes = leerJSON(CLIENTES_PATH, []);
+    return {
+      codigoGranel: it => String(it.idGranel || it.granelId || cfgGranelPlu(gruposCfg, it.producto) || ''),
+      requiereGranel: ref => { const v = gruposCfg[ref]; return !!(v && typeof v === 'object' && v.reqGranel === true); },
+      nombreCliente: id => (clientes.find(c => String(c.id) === String(id)) || {}).nombre || '',
+    };
+  };
+  const horaLocal = () => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 function sqlConsumo(ventana, rubros) {
   return `SELECT vp.IdProducto, SUM(vp.Cantidad) AS UnidVendidas,
@@ -554,27 +572,51 @@ router.get('/api/diag/bom-source', apiRoute(async () => {
   return { ProductosComponentes: comp[0].Total, tieneProductosFormulas: tablaFormulas[0].Total > 0 };
 }));
 // ── Planes ─────────────────────────────────────────────────────────────────────
-router.get('/api/planes', (_req, res) => {
-  const planes = leerJSON(PLANES_PATH, {});
-  res.json(Object.keys(planes).sort().reverse().map(fecha => ({ fecha, totalItems: planes[fecha].items.length, totalUnidades: planes[fecha].items.reduce((s, i) => s + (i.cantConfirmada ?? i.cantSugerida ?? 0), 0), creado: planes[fecha].creado })));
-});
 // Con saneo de sellos: la UI dibuja el candado y deshabilita el ✕ mirando reservaMovimiento,
 // así que tiene que ver lo mismo que las guardas de PUT y DELETE.
 router.get('/api/plan/:fecha', (req, res) => { const fecha = safeDate(req.params.fecha); const { plan } = leerPlanReservas(fecha); res.json(plan || { fecha, notas: '', items: [] }); });
 
-router.post('/api/plan/:fecha', (req, res) => {
-  const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  const prev = planes[fecha];
-  // Las notas se pisan con cualquier string, incluido '' (borrarlas): con `||` una nota vacía
-  // caía al valor anterior y el texto viejo volvía al recargar.
-  const notas = typeof req.body.notas === 'string' ? req.body.notas : (prev?.notas || '');
-  // Los ítems solo se reemplazan si el cuerpo los trae. Guardar una nota mandaba el cache del
-  // navegador y pisaba los ítems (con sus sellos de reserva/producción) por una versión vieja.
-  const items = Array.isArray(req.body.items) ? req.body.items : (prev?.items || []);
-  // `...prev` conserva el resto del plan (plan.reserva, el ledger de reservas), que antes se
-  // perdía porque el objeto se reconstruía desde cero en cada guardado de notas.
-  planes[fecha] = { ...prev, fecha, notas, creado: prev?.creado || new Date().toISOString(), items };
-  guardarJSON(PLANES_PATH, planes); res.json(planes[fecha]);
+// Envío del carrito a Producción del Día. Fusiona los ítems en el plan (un ítem por producto,
+// con historial `envios`) y regenera desde el plan las órdenes de las claves tocadas. Lo que ya
+// está en producción (orden protegida o ítem recepcionado) se omite y se informa.
+// ponytail: planes.json y ordenes.json se escriben uno tras otro, sin transacción; un corte entre
+// ambos deja el plan adelantado — reenviar el mismo día re-sincroniza las órdenes.
+router.post('/api/plan/:fecha/envio', (req, res) => {
+  const fecha = safeDate(req.params.fecha);
+  const items = req.body && req.body.items;
+  const notas = req.body && req.body.notas;
+  const errores = planEnvio.validarItemsEnvio(items);
+  if (notas != null && typeof notas !== 'string') errores.push('Las notas deben ser texto');
+  if (errores.length) return res.status(400).json({ error: errores[0], errores });
+  try {
+    const { planes, plan } = leerPlanReservas(fecha);
+    const ordenes = leerOrdenes();
+    const protegida = protegidaFn();
+    const bloqueadas = planEnvio.clavesBloqueadas(ordenes, plan, { fecha, protegida });
+    const aceptados = items.filter(it => !bloqueadas.has(planEnvio.claveItem(it)));
+    const omitidos = items.filter(it => bloqueadas.has(planEnvio.claveItem(it))).map(it => it.producto);
+    if (!aceptados.length) return res.status(409).json({ error: 'Todo lo enviado ya está en producción para ese día.', omitidos });
+    const envioId = Date.now();
+    const usuario = (req.session && req.session.user && req.session.user.usuario) || '';
+    const nuevoPlan = planEnvio.fusionarEnvioEnPlan(plan, aceptados, { fecha, envioId, hora: horaLocal(), usuario, notas: notas || '' });
+    const claves = new Set(aceptados.map(planEnvio.claveItem));
+    const armadas = planEnvio.construirOrdenes(nuevoPlan.items.filter(it => claves.has(planEnvio.claveItem(it))),
+      { fecha, ...resolversOrdenes() });
+    const r = planEnvio.sincronizarOrdenes(ordenes, armadas, { fecha, claves, protegida });
+    guardarJSON(PLANES_PATH, { ...planes, [fecha]: nuevoPlan });
+    guardarOrdenes(r.ordenes);
+    res.json({ ok: true, envioId, nuevas: r.nuevas, actualizadas: r.actualizadas, omitidos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/api/plan/:fecha/notas', (req, res) => {
+  const fecha = safeDate(req.params.fecha);
+  const notas = req.body && req.body.notas;
+  if (typeof notas !== 'string') return res.status(400).json({ error: 'Las notas deben ser texto' });
+  const planes = leerJSON(PLANES_PATH, {});
+  const prev = planes[fecha] || { fecha, creado: new Date().toISOString(), items: [] };
+  guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...prev, notas } });
+  res.json({ ok: true });
 });
 
 // ── Agenda de bloques de tareas ────────────────────────────────────────────────
@@ -592,10 +634,9 @@ router.post('/api/plantillas-tareas', (req, res) => {
   res.json(lista);
 });
 
-// Los bloques viven dentro del plan del día, pero NO se pueden guardar por POST /api/plan/:fecha:
-// ese handler arma el plan como { ...prev, fecha, notas, creado, items } y descarta cualquier
-// campo extra del body. Endpoint aparte, que además sólo toca jornadaInicio y bloques: los
-// items y el ledger de reservas quedan intactos aunque el navegador tenga un cache viejo.
+// Los bloques viven dentro del plan del día, pero van por un endpoint aparte que sólo toca
+// jornadaInicio y bloques: los items y el ledger de reservas quedan intactos aunque el
+// navegador tenga un cache viejo.
 router.post('/api/plan/:fecha/bloques', (req, res) => {
   const fecha = safeDate(req.params.fecha);
   const errores = bloquesTareas.validarBloquesBody(req.body);
@@ -615,129 +656,36 @@ router.post('/api/plan/:fecha/bloques', (req, res) => {
   res.json({ jornadaInicio, bloques: planes[fecha].bloques });
 });
 
-router.post('/api/plan/:fecha/desde-sugerencias', apiRoute(async req => {
-  const fecha = safeDate(req.params.fecha), sugs = await calcularSugerencias({});
-  const ts = Date.now();
-  const items = sugs.filter(s => (s.semaforo === 'RED' || s.semaforo === 'YELLOW') && s.cantSugerida > 0).map((s, i) => ({
-    id: ts + i, idProducto: s.idProducto, producto: s.producto, rubro: s.rubro, stockActual: s.stockActual,
-    promDiario: s.promDiario, diasStock: s.diasStock, semaforo: s.semaforo, pendientes: s.pendientes,
-    cantSugerida: s.cantSugerida, cantConfirmada: s.cantSugerida, responsable: '', prioridad: i + 1, estado: 'pendiente',
-    idGranel: s.idGranel, nombreGranel: s.nombreGranel, cantPorUnidad: s.cantPorUnidad,
-    granelNecesario: s.granelNecesario, granelDisponible: s.granelDisponible, granelOk: s.granelOk
-  }));
-  const planes = leerJSON(PLANES_PATH, {});
-  planes[fecha] = { fecha, notas: planes[fecha]?.notas || '', creado: planes[fecha]?.creado || new Date().toISOString(), items };
-  guardarJSON(PLANES_PATH, planes); return planes[fecha];
-}));
-router.post('/api/plan/:fecha/desde-sugerencias-catalogo', apiRoute(async req => {
-  const fecha = safeDate(req.params.fecha), grupos = await calcularSugerenciasCatalogo({});
-  const ts = Date.now(); let idx = 0; const items = [];
-  for (const g of grupos) {
-    if (g.semaforo === 'GREEN') continue;
-    for (const p of g.presentaciones) {
-      if (p.cantSugerida <= 0) continue;
-      items.push({ id: ts + idx++, idProducto: p.plu, producto: p.baseNombre, rubro: g.productoRef, stockActual: p.stockActual,
-        promDiario: p.promDiario, diasStock: p.diasStock, semaforo: p.semaforo, pendientes: p.pendientes,
-        cantSugerida: p.cantSugerida, cantConfirmada: p.cantSugerida, responsable: '', prioridad: idx, estado: 'pendiente',
-        idGranel: p.idGranel, nombreGranel: p.nombreGranel, cantPorUnidad: p.cantPorUnidad,
-        granelNecesario: p.granelNecesario, granelDisponible: p.granelDisponible, granelOk: p.granelOk });
-    }
-  }
-  const planes = leerJSON(PLANES_PATH, {});
-  planes[fecha] = { fecha, notas: planes[fecha]?.notas || '', creado: planes[fecha]?.creado || new Date().toISOString(), items };
-  guardarJSON(PLANES_PATH, planes); return planes[fecha];
-}));
-router.post('/api/plan/:fecha/item', apiRoute(async req => {
-  const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  if (!planes[fecha]) planes[fecha] = { fecha, notas: '', creado: new Date().toISOString(), items: [] };
-  const nuevoItem = { responsable: '', estado: 'pendiente', ...req.body, id: Date.now(), cantConfirmada: req.body.cantConfirmada ?? req.body.cantSugerida ?? 0, prioridad: planes[fecha].items.length + 1 };
-  planes[fecha].items.push(nuevoItem); guardarJSON(PLANES_PATH, planes); return nuevoItem;
-}));
-router.put('/api/plan/:fecha/item/:id', apiRoute(async req => {
-  const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id);
-  // Igual que al eliminar: se lee con saneo de sellos para no bloquear por una reserva muerta.
-  const { planes, plan } = leerPlanReservas(fecha);
-  if (!plan) return { error: 'Plan no encontrado' };
-  const idx = (plan.items || []).findIndex(i => i.id === id); if (idx === -1) return { error: 'Ítem no encontrado' };
-  const actual = plan.items[idx], body = req.body || {};
-  // Ya trabajado en producción: no se modifica (la página pudo quedar desactualizada).
-  if (actual.produccionMovimiento && actual.produccionMovimiento.numeroMovimiento != null) {
-    return { error: `La orden ya fue trabajada en producción (movimiento #${actual.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede modificar.`, yaProducido: true };
-  }
-  // Reservada: no se cambian cantidades ni producto (desincronizaría la reserva). El cambio de
-  // estado (que dispara la devolución al terminar) sí se permite.
-  if (actual.reservaMovimiento && actual.reservaMovimiento.numeroMovimiento != null) {
-    // envase/tapa entran acá porque sustituyen a los de la fórmula al calcular la reserva:
-    // cambiarlos con la reserva sellada dejaría apartado un packaging que ya no corresponde.
-    const cambiaContenido = ['cantConfirmada','cantSugerida','idProducto','producto','presentaciones','cantidad','idGranel','envase','tapa']
-      .some(k => k in body && JSON.stringify(body[k]) !== JSON.stringify(actual[k]));
-    if (cambiaContenido) {
-      return { error: `La orden está reservada (movimiento #${actual.reservaMovimiento.numeroMovimiento}). Anulá la reserva antes de modificar cantidades o producto.`, yaReservado: true };
-    }
-  }
-  const pasaAListo = body.estado === 'listo' && actual.estado !== 'listo';
-  plan.items[idx] = { ...plan.items[idx], ...req.body, id };
-
-  // Devolución automática: al terminar un ítem vuelve al depósito principal sólo su
-  // porción de la reserva. Si el traslado falla el cambio de estado NO se pierde: se
-  // guarda igual y el error viaja en reservaError para que la UI lo muestre.
-  let reservaError = null, logError = null;
-  if (pasaAListo && plan.reserva && plan.reserva.estado === 'activa' && saldoItemReserva(plan.reserva, id).length) {
-    try {
-      const r = await ejecutarDevolucionReserva(plan, id);
-      if (r.error) reservaError = r.error;
-      else {
-        logError = r.logError || null;
-        plan.reserva = r.reserva;
-        plan.items[idx] = { ...plan.items[idx], reservaDevuelta: { numeroMovimiento: r.numeroMovimiento, fecha: new Date().toISOString(), idRegistro: r.idRegistro ?? null, depOrigen: r.depOrigen, depDestino: r.depDestino } };
-      }
-    } catch (e) { reservaError = e.message; }
-  }
-
-  guardarJSON(PLANES_PATH, { ...planes, [fecha]: plan });
-  const item = reservaError ? { ...plan.items[idx], reservaError } : plan.items[idx];
-  return conLogError(item, logError);
-}));
+// Anular: saca el ítem del plan y regenera su orden (fraccionado pierde la presentación; granel
+// o última presentación del rubro borran la orden). Bloqueado si producción ya lo tomó.
 router.delete('/api/plan/:fecha/item/:id', (req, res) => {
-  const fecha = safeDate(req.params.fecha), id = parseInt(req.params.id);
-  // leerPlanReservas (y no leerJSON pelado) porque de paso suelta los sellos huérfanos: si el
-  // movimiento que reservaba la orden ya se revirtió, la guarda de abajo no tiene que frenarla.
+  const fecha = safeDate(req.params.fecha), id = String(req.params.id);
+  // leerPlanReservas suelta de paso los sellos huérfanos (movimiento ya revertido).
   const { planes, plan } = leerPlanReservas(fecha);
   if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
-  const itemBloq = (plan.items || []).find(it => String(it.id) === String(id));
-  if (itemBloq && itemBloq.produccionMovimiento && itemBloq.produccionMovimiento.numeroMovimiento != null) {
-    return res.status(409).json({ error: `La orden ya fue trabajada en producción (movimiento #${itemBloq.produccionMovimiento.numeroMovimiento}). Recargá la planificación: no se puede eliminar.` });
+  const item = (plan.items || []).find(it => String(it.id) === id);
+  if (!item) return res.status(404).json({ error: 'Ítem no encontrado' });
+  if (item.produccionMovimiento && item.produccionMovimiento.numeroMovimiento != null) {
+    return res.status(409).json({ error: `Ya fue producido (movimiento #${item.produccionMovimiento.numeroMovimiento}): no se puede anular.` });
   }
-  if (itemBloq && itemBloq.reservaMovimiento && itemBloq.reservaMovimiento.numeroMovimiento != null) {
-    return res.status(409).json({ error: `La orden está reservada (movimiento #${itemBloq.reservaMovimiento.numeroMovimiento}) y no se puede eliminar. Anulá esa reserva primero.` });
+  if (item.reservaMovimiento && item.reservaMovimiento.numeroMovimiento != null) {
+    return res.status(409).json({ error: `Está reservado (movimiento #${item.reservaMovimiento.numeroMovimiento}). Anulá esa reserva primero.` });
   }
-  const items = (plan.items || []).filter(i => i.id !== id);
-  guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...plan, items } });
-  res.json({ ok: true });
-});
-router.delete('/api/plan/:fecha', (req, res) => {
-  const fecha = safeDate(req.params.fecha), planes = leerJSON(PLANES_PATH, {});
-  let conservadas = 0, porReserva = 0, porProduccion = 0;
-  if (planes[fecha]) {
-    // No se borran ni las órdenes reservadas ni las ya recepcionadas: las primeras tienen
-    // mercadería apartada en SiGA y las segundas ya cerraron su circuito. Borrarlas dejaría
-    // movimientos vivos apuntando a un ítem inexistente. Se elimina sólo el resto.
-    // Antes sólo se miraba reservaMovimiento, así que un ítem recepcionado SIN reserva viva
-    // (producido sin reservar, o con su reserva revertida desde el historial) se borraba.
-    const items = planes[fecha].items || [];
-    const tieneMov = (it, campo) => !!(it && it[campo] && it[campo].numeroMovimiento != null);
-    const conservar = items.filter(it => tieneMov(it, 'reservaMovimiento') || tieneMov(it, 'produccionMovimiento'));
-    porReserva    = conservar.filter(it => tieneMov(it, 'reservaMovimiento')).length;
-    porProduccion = conservar.filter(it => tieneMov(it, 'produccionMovimiento') && !tieneMov(it, 'reservaMovimiento')).length;
-    conservadas = conservar.length;
-    planes[fecha].items = conservar;
-    guardarJSON(PLANES_PATH, planes);
-  }
-  const partes = [];
-  if (porReserva)    partes.push(`${porReserva} reservada(s): anulá su reserva para poder eliminarlas`);
-  if (porProduccion) partes.push(`${porProduccion} ya recepcionada(s): su circuito ya cerró y no se pueden eliminar`);
-  res.json({ ok: true, conservadas, porReserva, porProduccion,
-    ...(conservadas ? { aviso: `Se conservaron ${conservadas} orden(es) — ${partes.join('; ')}.` } : {}) });
+  try {
+    const ordenes = leerOrdenes();
+    const protegida = protegidaFn();
+    const clave = planEnvio.claveItem(item);
+    if (planEnvio.clavesBloqueadas(ordenes, plan, { fecha, protegida }).has(clave)) {
+      return res.status(409).json({ error: 'Producción ya empezó esa orden: no se puede anular desde planificación.' });
+    }
+    const items = plan.items.filter(it => String(it.id) !== id);
+    const claves = new Set([clave]);
+    const armadas = planEnvio.construirOrdenes(items.filter(it => planEnvio.claveItem(it) === clave), { fecha, ...resolversOrdenes() });
+    const r = planEnvio.sincronizarOrdenes(ordenes, armadas, { fecha, claves, protegida });
+    guardarJSON(PLANES_PATH, { ...planes, [fecha]: { ...plan, items } });
+    guardarOrdenes(r.ordenes);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.get('/api/calendario', (req, res) => {
   const desde = safeDate(req.query.desde), dias = Math.min(parseInt(req.query.dias) || 7, 42);
@@ -748,127 +696,6 @@ router.get('/api/calendario', (req, res) => {
     result[f] = { totalItems: plan.items.length, totalUnidades: plan.items.reduce((s, it) => s + (it.cantConfirmada ?? it.cantSugerida ?? 0), 0), tieneRiesgoGranel: plan.items.some(it => it.granelOk === false), items: plan.items };
   }
   res.json(result);
-});
-router.post('/api/enviar-produccion', (req, res) => {
-  // Body admite el array de siempre (comportamiento sin cambios) o
-  // { ordenes, modo } cuando el usuario elige cómo resolver un día con
-  // pedidos ya cargados: 'reemplazar' (borra los del día y deja sólo los
-  // nuevos) o 'sumar' (suma cantidad a la orden existente en vez de pisarla).
-  const esEnvoltorio = !Array.isArray(req.body) && req.body && Array.isArray(req.body.ordenes);
-  const nuevas = esEnvoltorio ? req.body.ordenes : req.body;
-  const modo = esEnvoltorio ? req.body.modo : null;
-  if (!Array.isArray(nuevas) || !nuevas.length) return res.status(400).json({ error: 'Sin órdenes' });
-  try {
-    // Dedup por (fecha + producto): si ya existe la orden ese día se sobreescriben
-    // los datos con los nuevos, preservando id (link con lo cargado), estado y la
-    // escalada manual a 'Urgente'. Las que no existen se agregan al final.
-    const arr = leerOrdenes();
-    // El granel y el fraccionado de un mismo producto pueden llamarse igual (el rubro del
-    // fraccionado cae en el nombre del producto cuando no hay rubro explícito, igual que el
-    // producto del granel) — sin el tipo en la clave, la orden fraccionada del envío pisaba a
-    // la granel silenciosamente. `presentaciones` sólo lo arma el fraccionado (construirOrdenes
-    // en planificacion.html), así que sirve de discriminador sin agregar campos nuevos.
-    const tipoOrden = o => Array.isArray(o.presentaciones) ? 'F' : 'G';
-    const keyOf = o => `${o.fecha || ''}|${tipoOrden(o)}|${(o.producto || '').trim().toLowerCase()}`;
-    const idx = new Map(arr.map((o, i) => [keyOf(o), i]));
-    // Cada orden hereda los números de movimiento de reserva de los ítems del plan que la
-    // componen: granel es 1 ítem por orden (match por producto); fraccionado agrupa varios
-    // ítems por rubro (match por rubro, con fallback a producto si no hay rubro explícito) —
-    // misma clave que arma construirOrdenes() en planificacion.html. Cache por fecha para no
-    // releer planes.json por cada orden del envío.
-    const planItemsPorFecha = new Map();
-    const itemsDeOrden = n => {
-      if (!planItemsPorFecha.has(n.fecha)) {
-        const { plan } = leerPlanReservas(n.fecha);
-        planItemsPorFecha.set(n.fecha, (plan && plan.items) || []);
-      }
-      return planItemsPorFecha.get(n.fecha).filter(it =>
-        it && (it.producto === n.producto || (it.rubro || it.producto) === n.producto));
-    };
-    const movimientosDeOrden = n => [...new Set(itemsDeOrden(n)
-      .filter(it => it.reservaMovimiento && it.reservaMovimiento.numeroMovimiento != null)
-      .map(it => it.reservaMovimiento.numeroMovimiento))];
-    // Un ítem con produccionMovimiento ya se produjo Y se recepcionó como artículo final: su
-    // circuito cerró y la orden no se puede volver a enviar.
-    // ordenesTrabajadas NO alcanza para detectarlo: al conciliar, los registros se mueven de
-    // produccion_registros.json a produccion_historial.json, así que el Set queda vacío para
-    // esas órdenes y volvían a ser re-enviables justo después de conciliar.
-    const numeroRecepcion = n => {
-      const it = itemsDeOrden(n).find(x =>
-        x.produccionMovimiento && x.produccionMovimiento.numeroMovimiento != null);
-      return it ? it.produccionMovimiento.numeroMovimiento : null;
-    };
-    // Órdenes ya trabajadas (con algún registro de producción cargado): no se pisan aunque
-    // todavía no estén en 'listo'/terminado, para no borrar lo que producción ya cargó.
-    const ordenesTrabajadas = new Set(leerJSON(PROD_REG_PATH, []).map(r => String(r && r.ordenId)).filter(v => v && v !== 'undefined'));
-    const protegida = o => o.terminado === true || o.estado === 'listo' || ordenesTrabajadas.has(String(o.id));
-
-    // modo 'reemplazar': el usuario ya vio que había pedidos cargados para ese día y eligió
-    // vaciarlo antes de cargar los nuevos. Se borran todos los de esas fechas salvo los
-    // protegidos (terminados/trabajados en producción), que sobreviven igual que en
-    // DELETE /api/plan/:fecha — su circuito ya está en curso en SiGA y borrarlos dejaría
-    // movimientos vivos apuntando a una orden inexistente.
-    let reemplazadas = 0;
-    if (modo === 'reemplazar') {
-      const fechasNuevas = new Set(nuevas.map(n => n.fecha));
-      const conservar = arr.filter(o => !(fechasNuevas.has(o.fecha) && !protegida(o)));
-      reemplazadas = arr.length - conservar.length;
-      arr.length = 0; arr.push(...conservar);
-      idx.clear();
-      arr.forEach((o, i) => idx.set(keyOf(o), i));
-    }
-
-    // modo 'sumar': misma clave (fecha+producto) → se suma la cantidad nueva a la ya
-    // cargada en vez de pisarla. Fraccionado suma por presentación (match por PLU); granel
-    // sólo tiene un total, así que se reconstruye el string de presentación con la cantidad
-    // sumada y la unidad/tambor de la orden nueva.
-    const fusionarOrdenes = (prev, n) => {
-      const cantidad = (prev.cantidad || 0) + (n.cantidad || 0);
-      const base = { ...n, id: prev.id, estado: prev.estado, terminado: prev.terminado,
-        criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad, cantidad };
-      if (!Array.isArray(prev.presentaciones) && !Array.isArray(n.presentaciones)) {
-        const m = /^[\d.,]+\s*(.*)$/.exec(n.presentacion || '');
-        return { ...base, presentacion: m ? `${cantidad} ${m[1]}` : `${cantidad}` };
-      }
-      const porClave = new Map((prev.presentaciones || []).map(p => [p.plu || p.presentacion, { ...p }]));
-      for (const p of (n.presentaciones || [])) {
-        const clave = p.plu || p.presentacion, ex = porClave.get(clave);
-        if (ex) ex.cantidad = (ex.cantidad || 0) + (p.cantidad || 0); else porClave.set(clave, { ...p });
-      }
-      const presentaciones = [...porClave.values()];
-      const presentacion = presentaciones.map(p => `${p.presentacion}: ${p.cantidad}`).join(' / ')
-        + (n.tambor ? ` · Tambor ${n.tambor}` : '');
-      return { ...base, presentaciones, presentacion };
-    };
-
-    let sobre = 0, nue = 0, completas = 0;
-    const recepcionadas = [];
-    for (const n of nuevas) {
-      // Se corta ANTES del alta o la sobreescritura: la orden ya cerró su circuito en SiGA.
-      const numRecep = numeroRecepcion(n);
-      if (numRecep != null) {
-        recepcionadas.push({ producto: n.producto, numeroMovimiento: numRecep });
-        continue;
-      }
-      const k = keyOf(n), i = idx.get(k);
-      const reservaMovimientos = movimientosDeOrden(n);
-      const nueva = { ...n, reservaMovimientos };
-      if (i != null) {
-        const prev = arr[i];
-        // Si la orden previa ya está completa o fue trabajada en producción, se mantiene:
-        // no se sobreescribe (preserva registro cargado, estado 'listo' y terminado).
-        if (protegida(prev)) { completas++; continue; }
-        arr[i] = modo === 'sumar' ? fusionarOrdenes(prev, nueva)
-          : { ...nueva, id: prev.id, estado: prev.estado, terminado: prev.terminado, criticidad: prev.criticidad === 'Urgente' ? 'Urgente' : n.criticidad };
-        sobre++;
-      } else {
-        arr.push(nueva); idx.set(k, arr.length - 1); nue++;
-      }
-    }
-    guardarOrdenes(arr);
-    res.json({ ok: true, enviadas: nuevas.length, sobrescritas: sobre, nuevas: nue,
-               completasOmitidas: completas, recepcionadasOmitidas: recepcionadas, reemplazadas });
-  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
   return router;
