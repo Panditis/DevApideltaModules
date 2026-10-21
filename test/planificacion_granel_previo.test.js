@@ -9,11 +9,14 @@ const path = require('path');
 // las órdenes de granel como órdenes aparte, con la cantidad sacada de la fórmula. Esto
 // reemplazó a la carga "solo granel" que vivía en Producción (commit 194bf24).
 //
-// Las funciones viven inline en planificacion.html (no hay módulo que requerir): se extraen por
-// nombre y se evalúan inyectando los bordes (API, modal de confirmación, toast) como stubs.
-// La config de grupos y la resolución del ref son las reales.
+// Las funciones viven en public/js/planificacion_*.js (scripts del navegador, no hay módulo que
+// requerir): se extraen por nombre y se evalúan inyectando los bordes (API, carrito, toast) como
+// stubs. La config de grupos y la resolución del ref son las reales.
+// Ya no hay confirmación: los graneles entran al carrito como líneas editables.
 
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'public', 'planificacion.html'), 'utf8');
+const JS_DIR = path.join(__dirname, '..', 'public', 'js');
+const HTML = fs.readdirSync(JS_DIR).filter(f => /^planificacion_.*\.js$/.test(f))
+  .map(f => fs.readFileSync(path.join(JS_DIR, f), 'utf8')).join('\n');
 
 // Corta el fuente de una función balanceando llaves desde `function nombre(`, para que sirva
 // tanto con las de una línea (cfgGetReqGranel) como con las de varias (itemGranelPrevio).
@@ -37,7 +40,7 @@ function constDe(nombre) {
 
 // Devuelve { resolverRefGrupo, itemGranelPrevio } sobre la config y los stubs dados.
 // `mp` es lo que devolvería calcularMPParaItems: [{plu, nombre, total}].
-function entorno({ cfg = {}, mp = [], confirma = true, nombres = {} } = {}) {
+function entorno({ cfg = {}, mp = [], nombres = {} } = {}) {
   const toasts = [];
   const src = [
     constDe('PRES_RE_JS'),
@@ -49,15 +52,12 @@ function entorno({ cfg = {}, mp = [], confirma = true, nombres = {} } = {}) {
     'return { resolverRefGrupo, itemGranelPrevio };',
   ].join('\n');
   const api = new Function(
-    'gruposCfgLocal', 'cargarGruposCfgSiVacio', 'calcularMPParaItems', 'nombreDePlu',
-    'confirmarModalAsync', 'escHtml', 'toast', src
+    'gruposCfgLocal', 'cargarGruposCfgSiVacio', 'calcularMPParaItems', 'nombreDePlu', 'toast', src
   )(
     cfg,
     async () => {},
     async () => mp,
     async plu => nombres[String(plu)] || '',
-    async () => confirma,
-    s => String(s),
     (msg, err) => toasts.push({ msg, err: !!err }),
   );
   return { ...api, toasts };
@@ -118,7 +118,7 @@ test('si lo que se agrega ya es la orden de granel no se genera otra', async () 
   assert.deepStrictEqual(await itemGranelPrevio('Yogurt Batido', items), []);
 });
 
-test('un granel: la cantidad sale de la fórmula y la presentación queda marcada', async () => {
+test('un granel: la cantidad sale de la fórmula', async () => {
   const { itemGranelPrevio } = entorno({
     cfg: CFG,
     mp: [{ plu: '8104', nombre: 'Masa Pepas DEPOSITO GRANEL x Kg', total: 128.456 }],
@@ -137,8 +137,8 @@ test('un granel: la cantidad sale de la fórmula y la presentación queda marcad
   assert.strictEqual(g.cantConfirmada, 128.46);          // redondeado a 2 decimales
   assert.strictEqual(g.unidadGranel, 'kg');
   assert.strictEqual(g.granelPrevioDe, 'Pepas Apidelta Integrales Membrillo y Batata');
-  // Las presentaciones consumen el granel, no lo dan de alta: Producción no vuelve a pedirlo.
-  assert.strictEqual(items[0].granelAparte, true);
+  // El marcado granelAparte lo hace agregarGrupoItems sin mutar: itemGranelPrevio no toca los ítems.
+  assert.strictEqual(items[0].granelAparte, undefined);
 });
 
 test('un grupo con dos graneles genera una orden por cada uno, con su propio total', async () => {
@@ -172,17 +172,6 @@ test('el granel sin fórmula cae al granelNecesario que traen las presentaciones
   assert.strictEqual(graneles[0].producto, 'Masa Pepas DEPOSITO GRANEL');
 });
 
-test('cancelar el aviso devuelve false y no marca las presentaciones', async () => {
-  const { itemGranelPrevio } = entorno({
-    cfg: CFG, confirma: false,
-    mp: [{ plu: '9610', nombre: 'Yogur Base', total: 344 }],
-  });
-  const items = [presentacion()];
-
-  assert.strictEqual(await itemGranelPrevio('Yogurt Batido', items), false);
-  assert.strictEqual(items[0].granelAparte, undefined);
-});
-
 test('marcado como granel previo pero sin graneles cargados: avisa y corta', async () => {
   const env = entorno({ cfg: CFG });
   const items = [presentacion({ producto: 'Apimani Clasico 150G', rubro: 'apimani clasico' })];
@@ -206,4 +195,46 @@ test('el alta desde "Agregar producto" dispara el granel aunque llegue el rubro 
 
   assert.deepStrictEqual(graneles.map(g => g.idProducto), ['8104']);
   assert.strictEqual(graneles[0].granelPrevioDe, 'Pepas Apidelta Integrales Membrillo y Batata');
+});
+
+// ── agregarGrupoItems: del granel previo al carrito ───────────────────────────
+
+// Arma agregarGrupoItems con itemGranelPrevio y agregarAlCarrito stubbeados; `llamadas` junta lo
+// que llegó al carrito.
+function carritoEntorno(granelPrevio) {
+  const llamadas = [];
+  const { agregarGrupoItems } = new Function('itemGranelPrevio', 'agregarAlCarrito',
+    `${fuenteDe('agregarGrupoItems')}\nreturn { agregarGrupoItems };`
+  )(async () => granelPrevio, items => llamadas.push(items));
+  return { agregarGrupoItems, llamadas };
+}
+
+test('con granel previo: al carrito van los graneles y las presentaciones marcadas, sin mutar las originales', async () => {
+  const granel = { idProducto: '8104', esGranel: true, cantConfirmada: 128 };
+  const { agregarGrupoItems, llamadas } = carritoEntorno([granel]);
+  const items = [presentacion()];
+
+  await agregarGrupoItems('Yogurt Batido', items);
+
+  assert.strictEqual(llamadas.length, 1);
+  assert.deepStrictEqual(llamadas[0].map(it => [it.idProducto, !!it.granelAparte]), [['8104', false], ['1968', true]]);
+  assert.strictEqual(items[0].granelAparte, undefined);
+});
+
+test('sin granel previo: al carrito van las presentaciones tal cual', async () => {
+  const { agregarGrupoItems, llamadas } = carritoEntorno([]);
+  const items = [presentacion()];
+
+  await agregarGrupoItems('Miel Acacia', items);
+
+  assert.deepStrictEqual(llamadas, [items]);
+  assert.strictEqual(llamadas[0][0].granelAparte, undefined);
+});
+
+test('grupo marcado sin graneles cargados: no agrega nada al carrito', async () => {
+  const { agregarGrupoItems, llamadas } = carritoEntorno(false);
+
+  await agregarGrupoItems('Apimani Clasico', [presentacion()]);
+
+  assert.deepStrictEqual(llamadas, []);
 });
