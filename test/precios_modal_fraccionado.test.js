@@ -1,10 +1,10 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { resumenCosteoFraccMd, conInsumosMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd } = require('../public/js/precios_modal_fraccionado.js');
+const { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd, textoElegidoMd } = require('../public/js/precios_modal_fraccionado.js');
 
 test('resumenCosteoFraccMd: insumos, MO y máquina por unidad, extra $/kg, mercadería y costo real de la fuente elegida', () => {
-  const p = { costos: { sistema: 1415, ultimaCompra: 1615 }, costeoPresentacion: { porUnidad: 207.5, extraKg: 415, origenInsumos: 'regla' },
+  const p = { costos: { sistema: 1415, ultimaCompra: 1615 }, costeoPresentacion: { porUnidad: 207.5, extraKg: 415 },
     componentesCosto: [{ plu: '900', rol: 'insumo', cantidad: 1, costoUnit: 20, importe: 20 }, { plu: '_manoObra', rol: 'mo', cantidad: 1.25, costoUnit: 6000, importe: 125 },
       { plu: '_maquina', rol: 'maquina', nombre: 'Envasadora', cantidad: 1.25, costoUnit: 3000, importe: 62.5 }] };
   const r = resumenCosteoFraccMd(p, 'ultimaCompra', { sistema: 1000, ultimaCompra: 1200 });
@@ -12,17 +12,6 @@ test('resumenCosteoFraccMd: insumos, MO y máquina por unidad, extra $/kg, merca
     [1, 20, 125, 'Envasadora', 207.5, 415, 1200, 1615]);
   const faltante = resumenCosteoFraccMd({ componentesCosto: [{ plu: '9', rol: 'insumo', importe: null }] }, 'sistema', {});
   assert.deepStrictEqual([faltante.subtotalInsumos, faltante.mo, faltante.costoKg], [null, null, null]);
-});
-
-test('conInsumosMd: agrega los elegidos con cantidad 1 sin repetir', () => {
-  assert.deepStrictEqual(conInsumosMd([{ plu: '900', nombre: 'Bolsa', cantidad: 2 }], [{ plu: 900, nombre: 'Bolsa' }, { plu: '901', nombre: 'Etiqueta' }]),
-    [{ plu: '900', nombre: 'Bolsa', cantidad: 2 }, { plu: '901', nombre: 'Etiqueta', cantidad: 1 }]);
-});
-
-test('opcionesMaquinaMd: "Sin máquina" + cada máquina, la del granel seleccionada y escapada', () => {
-  const html = opcionesMaquinaMd([{ id: 'env', nombre: 'Envasadora <A>' }], 'env');
-  assert.match(html, /<option value="">Sin máquina<\/option>/);
-  assert.match(html, /<option value="env" selected>Envasadora &lt;A&gt;<\/option>/);
 });
 
 test('resumenCosteoFraccMd: mercadería y costo real también por unidad (= $/kg × kg de la presentación, con la fuente del modal)', () => {
@@ -34,16 +23,25 @@ test('resumenCosteoFraccMd: mercadería y costo real también por unidad (= $/kg
   assert.strictEqual(resumenCosteoFraccMd({ ...p, pesoG: null }, 'sistema', { sistema: 1000 }).costoUnidad, null);
 });
 
-test('formulaMinutosMd: "base × factor = minutos"; sin base (dato viejo) sólo los minutos', () => {
-  assert.strictEqual(formulaMinutosMd({ minutosBase: 1, factor: 1.25 }, 1.25), '1 × 1,25 = 1,25 min');
-  assert.strictEqual(formulaMinutosMd({ minutosBase: 0.5, factor: 1 }, 0.5), '0,5 × 1 = 0,5 min');
+test('opcionesMaquinaMd: "Del subrubro (X)" + cada máquina como excepción, la del granel seleccionada y escapada', () => {
+  const html = opcionesMaquinaMd([{ id: 'env', nombre: 'Envasadora <A>' }], 'env', 'Selladora');
+  assert.match(html, /<option value="">Del subrubro \(Selladora\)<\/option>/);
+  assert.match(html, /<option value="env" selected>Envasadora &lt;A&gt;<\/option>/);
+  assert.match(opcionesMaquinaMd([], null, null), /Del subrubro \(sin máquina\)/);
+});
+
+test('formulaMinutosMd: "base × tiempo × facilidad = minutos"; sin base (dato viejo) sólo los minutos', () => {
+  assert.strictEqual(formulaMinutosMd({ minutosBase: 1, factorTiempo: 1.5, factorFacilidad: 1.25 }, 1.875), '1 × 1,5 (tiempo) × 1,25 (facilidad) = 1,875 min');
   assert.strictEqual(formulaMinutosMd({}, 2), '2 min');
 });
 
-test('textoSinTiempoMd: sin tiempos → "sin minutos" en MO y máquina; sin máquina asignada (con minutos) → "sin asignar"', () => {
-  const sinTiempos = ['sinTiempos', 'sinMaquina'];
-  assert.match(textoSinTiempoMd('mo', sinTiempos), /^Mano de obra — sin minutos \(cargá los tiempos en Configuración › Costeo Fraccionado\)$/);
-  assert.match(textoSinTiempoMd('maquina', sinTiempos), /^Máquina — sin minutos \(cargá los tiempos/);
-  assert.strictEqual(textoSinTiempoMd('maquina', ['sinMaquina']), 'Máquina — sin asignar');
-  assert.match(textoSinTiempoMd('maquina', []), /sin minutos/); // máquina asignada pero minutos 0
+test('textoSinTiempoMd: sin subrubro / sin tramos → sin minutos; con minutos y sin máquina → sin asignar', () => {
+  assert.match(textoSinTiempoMd('mo', ['sinTramos']), /^Mano de obra — sin minutos \(cargá los tiempos por peso del subrubro en Configuración › Costeo Fraccionado\)$/);
+  assert.strictEqual(textoSinTiempoMd('maquina', ['sinSubrubro', 'sinMaquina']), 'Máquina — sin minutos: el granel no tiene subrubro en SIGA');
+  assert.strictEqual(textoSinTiempoMd('maquina', ['sinMaquina']), 'Máquina — sin asignar (ni del subrubro ni del granel)');
+});
+
+test('textoElegidoMd: facilidad y tiempo elegidos en la tab Fraccionado', () => {
+  assert.strictEqual(textoElegidoMd({ facilidad: 'normal', tiempo: 'lento' }), 'Normal · Lento');
+  assert.strictEqual(textoElegidoMd(undefined), 'sin facilidad · sin tiempo');
 });
