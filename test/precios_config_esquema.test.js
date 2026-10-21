@@ -164,3 +164,68 @@ test('limpiarCosteo: saca las claves muertas, los descuentos pack/bulto y listas
   assert.strictEqual(C.limpiarCosteo(r.datos), null);
   assert.strictEqual(viejo.costoHora, 4500); // no muta
 });
+
+// ── Configuración por tipo (spec 2026-10-21-precios-fraccionado-costeo-design §2) ──
+const SOLO_FRACC = { almacen: false, fraccionado: true, produccion: false };
+const RAIZ = { ivaVentaPct: 21, toleranciaPct: 3, modoGastos: 'costo', costoHora: 8000,
+  gastosVenta: [{ id: 'op', concepto: 'Op', pct: 7, tipos: TODOS }], extrasMinorista: [],
+  margenes: { minorista: TABLA, pack: TABLA, bulto: TABLA }, redondeo: { minorista: 10 } };
+
+test('configEsquemaDe: Reventa/Producción leen la raíz y dicen si Fraccionado ya tiene la suya', () => {
+  const r = C.configEsquemaDe(RAIZ);
+  assert.deepStrictEqual([r.ivaVentaPct, r.costoHora, r.fraccionadoMigrado, 'maquinas' in r], [21, 8000, false, false]);
+  assert.deepStrictEqual(C.configEsquemaDe(RAIZ, 'produccion'), r);
+  assert.strictEqual(C.configEsquemaDe({ ...RAIZ, fraccionado: {} }, 'almacen').fraccionadoMigrado, true);
+});
+
+test('configEsquemaDe fraccionado: sin migrar → la raíz (como antes) + defaults de lo propio; migrado → su bloque con tilde sólo Fraccionado', () => {
+  const sin = C.configEsquemaDe(RAIZ, 'fraccionado');
+  assert.deepStrictEqual([sin.fraccionadoMigrado, sin.ivaVentaPct, sin.gastosVenta], [false, 21, RAIZ.gastosVenta]);
+  assert.deepStrictEqual([sin.maquinas, sin.tiempos, sin.insumosSubrubro, sin.porGranel, sin.insumosPresentacion], [[], [], {}, {}, {}]);
+  assert.deepStrictEqual(sin.facilidades, { facil: 1, medio: 1.25, dificil: 1.5 });
+  const fracc = { ivaVentaPct: 10.5, costoHora: 5000, modoGastos: 'precio', gastosVenta: [{ id: 'fl', concepto: 'Flete', pct: 2 }],
+    extrasMinorista: [{ id: 'ib', concepto: 'IIBB', pct: 5 }], margenes: { minorista: TABLA }, redondeo: { minorista: 0 },
+    maquinas: [{ id: 'm1', nombre: 'Envasadora', costoHora: 900 }], facilidades: { medio: 1.3 } };
+  const f = C.configEsquemaDe({ ...RAIZ, fraccionado: fracc }, 'fraccionado');
+  assert.deepStrictEqual([f.fraccionadoMigrado, f.migrado, f.ivaVentaPct, f.costoHora, f.modoGastos, f.redondeo.minorista, f.redondeo.packIva],
+    [true, true, 10.5, 5000, 'precio', 0, 50]);
+  assert.deepStrictEqual(f.gastosVenta, [{ id: 'fl', concepto: 'Flete', pct: 2, tipos: SOLO_FRACC }]);
+  assert.deepStrictEqual(f.extrasMinorista, [{ id: 'ib', concepto: 'IIBB', pct: 5, tipos: SOLO_FRACC }]);
+  assert.deepStrictEqual(f.maquinas, fracc.maquinas);
+  assert.deepStrictEqual(f.facilidades, { facil: 1, medio: 1.3, dificil: 1.5 });
+});
+
+test('tipoConfig: almacen por defecto, fraccionado, cualquier otro → null', () => {
+  assert.deepStrictEqual([C.tipoConfig(undefined), C.tipoConfig(''), C.tipoConfig('almacen'), C.tipoConfig('fraccionado'), C.tipoConfig('produccion'), C.tipoConfig('x')],
+    ['almacen', 'almacen', 'almacen', 'fraccionado', null, null]);
+});
+
+// validarGastosVenta devuelve `listas` (todas por defecto): se descarta como en Reventa.
+test('validarCostos fraccionado: gastos y extras sin tildes ni listas (la tabla ya es sólo de Fraccionado)', () => {
+  const r = C.validarCostos({ modoGastos: 'costo',
+    gastosVenta: [{ concepto: 'Flete', pct: 2, tipos: SOLO_FRACC }],
+    extrasMinorista: [{ concepto: 'IIBB', pct: 5 }] }, 'fraccionado');
+  assert.deepStrictEqual(r, { modoGastos: 'costo', gastosVenta: [{ id: 'flete', concepto: 'Flete', pct: 2 }],
+    extrasMinorista: [{ id: 'iibb', concepto: 'IIBB', pct: 5 }] });
+  assert.throws(() => C.validarCostos({ modoGastos: 'costo', gastosVenta: [{ concepto: 'A', pct: 100 }], extrasMinorista: [] }, 'fraccionado'), /gastosVenta/);
+});
+
+test('migrarConfigFraccionado: copia la raíz (gastos/extras tildados para Fraccionado, sin tildes; márgenes sin descuento distribuidor) + defaults propios', () => {
+  const raiz = { ...RAIZ,
+    gastosVenta: [{ id: 'op', concepto: 'Op', pct: 7, tipos: TODOS }, { id: 'rv', concepto: 'Sólo Reventa', pct: 1, tipos: { ...TODOS, fraccionado: false } }],
+    extrasMinorista: [{ id: 'ib', concepto: 'IIBB', pct: 5, tipos: TODOS }],
+    margenes: { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100], puntos: [5] }, descuentoDistribuidorPct: 5 } };
+  const { costeo, claves } = C.migrarConfigFraccionado(raiz);
+  assert.deepStrictEqual(claves, ['fraccionado']);
+  const f = costeo.fraccionado;
+  assert.deepStrictEqual(f.gastosVenta, [{ id: 'op', concepto: 'Op', pct: 7 }]);
+  assert.deepStrictEqual(f.extrasMinorista, [{ id: 'ib', concepto: 'IIBB', pct: 5 }]);
+  assert.deepStrictEqual(f.margenes, { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100], puntos: [5] } });
+  assert.deepStrictEqual([f.ivaVentaPct, f.toleranciaPct, f.modoGastos, f.costoHora, f.redondeo.minorista], [21, 3, 'costo', 8000, 10]);
+  assert.deepStrictEqual([f.maquinas, f.tiempos, f.facilidades], [[], [], { facil: 1, medio: 1.25, dificil: 1.5 }]);
+  f.margenes.minorista.minPct = 1; // copia profunda: no toca la raíz
+  assert.strictEqual(raiz.margenes.minorista.minPct, TABLA.minPct);
+  assert.deepStrictEqual(costeo.gastosVenta, raiz.gastosVenta); // la raíz queda igual
+  assert.strictEqual(C.migrarConfigFraccionado(costeo), null); // idempotente
+  assert.throws(() => C.migrarConfigFraccionado({}), /migrar_esquema_canales/); // sin esquema por canal no hay qué copiar
+});

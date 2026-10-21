@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado } = require('../public/js/precios_listados.js');
+const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado, textoAvisosCosto, textoCosteoGranel } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -268,4 +268,11 @@ test('Importar planilla: resumen de marcados por costo y planilla de no marcados
     [777, null, 5, null, null, null, null, null, 'Código no encontrado en Reventa'],
     ['ABC', 'Mal', null, null, null, null, null, null, 'Código inválido (fila 6)'],
   ]);
+});
+
+test('textoAvisosCosto / textoCosteoGranel: avisos legibles y "facilidad · máquina" del granel', () => {
+  assert.deepStrictEqual(textoAvisosCosto(['sinMaquina', 'raro']), ['granel sin máquina', 'raro']);
+  assert.deepStrictEqual(textoAvisosCosto(undefined), []);
+  assert.strictEqual(textoCosteoGranel({ facilidad: 'medio', maquina: 'Envasadora' }), 'Medio · Envasadora');
+  assert.strictEqual(textoCosteoGranel({ facilidad: null, maquina: null }), 'sin facilidad · sin máquina');
 });

@@ -16,6 +16,14 @@ const RUTAS_CONFIG_ESPERADAS = [
   'post /api/precios/config/esquema/rango',
   'put /api/precios/config/esquema/margen-producto/:plu',
   'put /api/precios/produccion/productos/:id/margen-especial',
+  'put /api/precios/costos-extra/:plu',
+  'get /api/precios/config/esquema/fraccionado',
+  'get /api/precios/config/esquema/fraccionado/costeo',
+  'put /api/precios/config/esquema/fraccionado/maquinas',
+  'put /api/precios/config/esquema/fraccionado/tiempos',
+  'put /api/precios/config/esquema/fraccionado/insumos-subrubro',
+  'put /api/precios/config/esquema/fraccionado/granel/:plu',
+  'put /api/precios/config/esquema/fraccionado/insumos-presentacion/:plu',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).
@@ -24,7 +32,7 @@ function rutasDeLosRouters() {
     apiRoute: fn => fn, query: async () => [], leerJSON: (_p, def) => def, guardarJSON: () => {},
     DATA_DIR: require('os').tmpdir(), LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FORMULA_GENERICO_SQL: '1=1', tiposPackaging: [],
   };
-  const routers = ['rutas_precios', 'rutas_precios_produccion', 'rutas_precios_pack_bulto', 'rutas_precios_esquema'].map(r => require(`../routes/${r}`)(deps));
+  const routers = ['rutas_precios', 'rutas_precios_produccion', 'rutas_precios_pack_bulto', 'rutas_precios_esquema', 'rutas_precios_fraccionado'].map(r => require(`../routes/${r}`)(deps));
   return routers.flatMap(r => r.stack.filter(l => l.route).flatMap(l =>
     Object.keys(l.route.methods).map(m => `${m} ${l.route.path}`)));
 }
@@ -38,7 +46,7 @@ test('cada ruta de config de los routers de precios está protegida y ninguna ot
     assert.strictEqual(permisos.esRutaConfig(concreta(r.split(' ')[1])), esperado, `${r} → ${esperado ? 'config' : 'permitida'}`);
   }
   // Las de trabajo de precios siguen permitidas (lista no exhaustiva, las que pidió el usuario).
-  for (const r of ['/api/precios/costo-producto/1', '/api/precios/costos-extra/1', '/api/precios/config/publica',
+  for (const r of ['/api/precios/costo-producto/1', '/api/precios/config/publica',
     '/api/precios/produccion/productos', '/api/precios/esquema/listado', '/api/precios/esquema/detalle/1', '/api/precios/esquema/export',
     '/api/precios/decision/1', '/api/precios/decisiones', '/api/precios/pack-bulto/vinculos']) {
     assert.strictEqual(permisos.esRutaConfig(r), false, r);
@@ -123,4 +131,10 @@ test('admin asigna precios-config: se guarda en modulos y tienePermiso lo lee fr
     auth.actualizarUsuario(u.id, { esAdmin: false });
     auth.eliminarUsuario(u.id);
   }
+});
+
+test('CLAVES_OCULTAS: la configuración del costeo de Fraccionado no viaja sin el permiso', () => {
+  const fila = { plu: '1', avisosCosto: ['sinMaquina'], costeoGranel: { facilidad: 'medio' },
+    maquinas: [], tiempos: [], facilidades: {}, insumosSubrubro: {}, porGranel: {}, insumosPresentacion: {} };
+  assert.deepStrictEqual(permisos.sinClavesOcultas(fila), { plu: '1', avisosCosto: ['sinMaquina'] });
 });

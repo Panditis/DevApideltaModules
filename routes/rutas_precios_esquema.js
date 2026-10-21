@@ -5,6 +5,7 @@ const cfgEsq = require('../lib/precios_config_esquema');
 const { rangoDesdeCostos } = require('../lib/precios_esquema');
 const L = require('../lib/precios_listado_esquema');
 const { crearConsultasPrecios } = require('../lib/precios_consultas');
+const { normalizarCosteoFraccionado, plusInsumos } = require('../lib/precios_fraccionado_costo');
 const { formulasPesables } = require('../lib/formulas_pesables');
 const { plusVentaProduccion, validarMargenProducto } = require('../lib/precios_produccion');
 // Costeo de Producción (sin el router): costo por unidad de cada presentación.
@@ -44,57 +45,78 @@ module.exports = function crearRutasPreciosEsquema(deps) {
           : { componentesCosto: [...p.materiasPrimas, ...p.componentes.filter(l => l.rol === 'insumo' || l.rol === 'mo')] }) })));
   }
 
-  // Valida con validar(req) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir).
-  // Devuelve la vista nueva para que la UI redibuje con lo guardado.
+  // ?tipo= de Configuración (switch Reventa | Fraccionado, spec 2026-10-21 §2.3): vacío/almacen = la raíz (Reventa y
+  // Producción); fraccionado = costeo.fraccionado. Inválido → throw (los handlers lo devuelven como { error }).
+  const tipoDe = req => {
+    const t = cfgEsq.tipoConfig(req.query.tipo);
+    if (!t) throw new Error(`tipo inválido (${cfgEsq.TIPOS_CONFIG.join(', ')})`);
+    return t;
+  };
+
+  // Valida con validar(req, tipo) → cambios y guarda { ...costeo, ...cambios } releído (sin await entre leer y escribir); en
+  // Fraccionado dentro de costeo.fraccionado (sin migrar → error, no escribe). Devuelve la vista nueva para que la UI
+  // redibuje con lo guardado.
   const guardarCon = validar => apiRoute(async (req) => {
-    let cambios;
-    try { cambios = validar(req); } catch (err) { return { error: err.message }; }
-    const nuevo = { ...leerCosteo(), ...cambios };
+    let cambios, tipo;
+    try { tipo = tipoDe(req); cambios = validar(req, tipo); } catch (err) { return { error: err.message }; }
+    const costeo = leerCosteo();
+    if (tipo === 'fraccionado' && !cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
+    const nuevo = tipo === 'fraccionado' ? { ...costeo, fraccionado: { ...costeo.fraccionado, ...cambios } } : { ...costeo, ...cambios };
     guardarJSON(COSTEO_PATH, nuevo);
-    return cfgEsq.configEsquemaDe(nuevo);
+    return cfgEsq.configEsquemaDe(nuevo, tipo);
   });
 
-  router.get('/api/precios/config/esquema', apiRoute(async () => cfgEsq.configEsquemaDe(leerCosteo())));
-  router.put('/api/precios/config/esquema/costos', guardarCon(req => cfgEsq.validarCostos(cuerpo(req))));
+  router.get('/api/precios/config/esquema', apiRoute(async (req) => {
+    try { return cfgEsq.configEsquemaDe(leerCosteo(), tipoDe(req)); } catch (err) { return { error: err.message }; }
+  }));
+  router.put('/api/precios/config/esquema/costos', guardarCon((req, tipo) => cfgEsq.validarCostos(cuerpo(req), tipo)));
   router.put('/api/precios/config/esquema/precio', guardarCon(req => cfgEsq.validarPrecio(cuerpo(req))));
-  // Costo hora de mano de obra de Producción ($/h): minutos por unidad × costo hora ÷ 60 (lib/precios_produccion).
+  // Costo hora de mano de obra ($/h): Producción (raíz) y Fraccionado (su bloque); minutos × costo hora ÷ 60.
   router.put('/api/precios/config/esquema/costo-hora', guardarCon(req => cfgEsq.validarCostoHora(cuerpo(req))));
-  // Las 3 tablas por canal (+ ajuste por peso de Fraccionado) reemplazan a margenes entero.
+  // Las 3 tablas por canal (+ ajuste por peso, que sólo usa Fraccionado) reemplazan a margenes entero del tipo.
   router.put('/api/precios/config/esquema/margenes', guardarCon(req => ({ margenes: cfgEsq.validarMargenes(cuerpo(req)) })));
 
   const TIPOS_LISTADO = cfgEsq.TIPOS;
   const sinConfig = req => !!(req && req.preciosSinConfig === true); // lo marca guardPrecios (server.js)
 
-  // Lo común a los tres listados: config del motor, vigentes (lista 0) y vínculos pack/bulto con sus unidades.
-  async function contexto(costeo) {
+  // Lo común a los tres listados: config del motor del tipo (Fraccionado la suya; Reventa y Producción la raíz), vigentes
+  // (lista 0) y vínculos pack/bulto con sus unidades.
+  async function contexto(costeo, tipo) {
     const pb = costeo.packBulto || {};
     const [vigentes, { vinculos }] = await Promise.all([consultas.preciosVigentesAlmacen(), consultas.vinculosPackBulto(pb.vinculosManuales || {})]);
-    return { cfg: cfgEsq.configEsquemaDe(costeo), vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} }) };
+    return { cfg: cfgEsq.configEsquemaDe(costeo, tipo), vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} }) };
   }
 
   // Filas completas (con desglose) de un tipo. ponytail: el export arma los tres y cada uno repite vigentes y vínculos
   // (dos consultas de más por tipo); compartir el contexto si el export se pone lento.
   async function listado(tipo, costeo) {
     if (tipo === 'almacen') {
-      const [ctx, universo] = await Promise.all([contexto(costeo), consultas.universoAlmacen()]);
+      const [ctx, universo] = await Promise.all([contexto(costeo, tipo), consultas.universoAlmacen()]);
       const excluir = plusVentaProduccion(normalizarDatos(leerJSON(RECETAS_PATH, {})).productos);
       return L.listadoReventa({ universo, costeo, excluir, ...ctx });
     }
     if (tipo === 'fraccionado') {
+      // costeo.fraccionado (Configuración › Costeo Fraccionado): sin migrar → null y el listado queda como antes.
+      const costeoF = cfgEsq.fraccionadoMigrado(costeo) ? normalizarCosteoFraccionado(costeo.fraccionado) : null;
       const formulas = await formulasVigentes();
-      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo), consultas.universoFraccionado(formulas)]);
-      return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, ...ctx });
+      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
+        consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);
+      return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, costeoF, ...ctx });
     }
-    const [ctx, presentaciones] = await Promise.all([contexto(costeo), presentacionesProduccion(costeo)]);
+    const [ctx, presentaciones] = await Promise.all([contexto(costeo, tipo), presentacionesProduccion(costeo)]);
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
   }
 
-  // Propuesta de rango (percentiles 5–95, rangoDesdeCostos) sobre los costos de sistema (+ costos extra) de los TRES
-  // tipos, porque las tablas son por canal: Reventa por producto, Fraccionado $/kg por granel, Producción por
-  // presentación. NO guarda: la UI la carga en las tres tablas y se guarda con Márgenes.
-  router.post('/api/precios/config/esquema/rango', apiRoute(async () => {
+  // Propuesta de rango (percentiles 5–95, rangoDesdeCostos) sobre los costos de sistema (+ costos extra) de los tipos que
+  // usan las tablas: Reventa (por producto) + Producción (por presentación) con la config de la raíz, más Fraccionado
+  // (por granel) mientras no esté migrado y comparta esas tablas; ?tipo=fraccionado = $/kg de mercadería por granel.
+  // NO guarda: la UI la carga en las tres tablas y se guarda con Márgenes.
+  router.post('/api/precios/config/esquema/rango', apiRoute(async (req) => {
+    let tipo;
+    try { tipo = tipoDe(req); } catch (err) { return { error: err.message }; }
     const costeo = await costeoVigente();
-    const listados = await Promise.all(cfgEsq.TIPOS.map(t => listado(t, costeo)));
+    const tipos = tipo === 'fraccionado' ? ['fraccionado'] : cfgEsq.fraccionadoMigrado(costeo) ? ['almacen', 'produccion'] : TIPOS_LISTADO;
+    const listados = await Promise.all(tipos.map(t => listado(t, costeo)));
     const costos = listados.flat().map(f => f.costos.sistema).filter(c => c > 0);
     const rango = rangoDesdeCostos(costos);
     return rango ? { rango, n: costos.length } : { error: 'No hay suficientes costos de sistema para calcular el rango' };
@@ -105,7 +127,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
     const costeo = await costeoVigente();
     const filas = await listado(tipo, costeo);
-    const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo);
+    const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo, tipo);
     return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
   }));
 

@@ -22,7 +22,7 @@ const deps = { query, LISTA_PRECIOS_VENTA: 0, FORMULA_ACTIVA_SQL: '1=1', SIN_FOR
 
 test('universoFraccionado: graneles, presentaciones (VD sin fórmula con su granel SIGA) y costos de graneles + referenciados', async () => {
   const u = await crearConsultasPrecios(deps).universoFraccionado({ 101: { granel: 100 }, 102: { granel: 100 } });
-  assert.deepStrictEqual(u.graneles, [{ plu: '100', nombre: 'Almendras DEPOSITO GRANEL' }]);
+  assert.deepStrictEqual(u.graneles, [{ plu: '100', nombre: 'Almendras DEPOSITO GRANEL', subrubroId: null, subrubro: null }]);
   assert.deepStrictEqual(u.presentaciones.map(p => [p.plu, !!p.ventaDirecta, p.granelSiga ?? null]),
     [['101', false, null], ['102', true, null], ['103', true, '200']]);
   assert.deepStrictEqual([...u.costos.keys()].sort(), ['100', '200']);
@@ -44,4 +44,31 @@ test('granelDePresentacion: fórmula › fórmula SIGA › nombre del granel ›
   assert.strictEqual(granelDePresentacion({}, { plu: '7', nombre: 'Albahaca 1Kg', ventaDirecta: true }, porNombre), '100');
   assert.strictEqual(granelDePresentacion({}, { plu: '8', nombre: 'Otra 1Kg', ventaDirecta: true }, porNombre), '8');
   assert.strictEqual(granelDePresentacion({}, { plu: '9', nombre: 'Fracc 50G' }, porNombre), null);
+});
+
+test('universoFraccionado: los PLUs extra (insumos de Fraccionado) también traen costo', async () => {
+  const u = await crearConsultasPrecios(deps).universoFraccionado({ 101: { granel: 100 } }, ['900']);
+  assert.ok(u.costos.has('900'));
+});
+
+test('graneles con subrubro: lo trae de SubRubros; sin la tabla cae a sin subrubro una sola vez; otro error sube', async () => {
+  const conSub = async sql => (sql.includes('SubRubros')
+    ? [{ IdProducto: 100, NombreProducto: 'Almendras', IdSubRubro: 7, NombreSubRubro: ' Frutos secos ' }, { IdProducto: 101, NombreProducto: 'Nueces', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' },
+      { IdProducto: 102, NombreProducto: 'Sal', IdSubRubro: null, NombreSubRubro: null }]
+    : []);
+  const c = crearConsultasPrecios({ ...deps, query: conSub });
+  assert.deepStrictEqual(await c.subrubrosGraneles(), [{ id: '7', nombre: 'Frutos secos', graneles: 2 }]);
+
+  let conSubRubros = 0;
+  const sinTabla = async sql => {
+    if (sql.includes('SubRubros')) { conSubRubros++; throw new Error("Invalid object name 'SubRubros'."); }
+    return sql.includes("'Pesables Deposito'") ? [{ IdProducto: 100, NombreProducto: 'Almendras' }] : [];
+  };
+  const s = crearConsultasPrecios({ ...deps, query: sinTabla });
+  assert.deepStrictEqual(await s.subrubrosGraneles(), []);
+  assert.deepStrictEqual((await s.universoFraccionado({})).graneles, [{ plu: '100', nombre: 'Almendras', subrubroId: null, subrubro: null }]);
+  assert.strictEqual(conSubRubros, 1); // se recuerda: no se vuelve a probar
+
+  const caida = crearConsultasPrecios({ ...deps, query: async () => { throw new Error('timeout'); } });
+  await assert.rejects(caida.subrubrosGraneles(), /timeout/);
 });

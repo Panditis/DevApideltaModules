@@ -36,6 +36,7 @@
   .seg-opt[aria-pressed="true"] b{color:#405936}
   .seg-opt:not(:disabled):not([aria-pressed="true"]):hover{background:rgba(64,89,54,.08)}
   .seg-opt:disabled{opacity:.4;cursor:not-allowed}
+  .seg.hidden,.seg-opt.hidden,.cfg-tab.hidden{display:none} /* ajustarTiposSim (precios_simulador.js), #cfgTipo en General y el sub-tab Costeo Fraccionado: el display de arriba le gana a .hidden de Tailwind */
   /* Sub-tabs de Configuración: el mismo control segmentado, con texto de botón. */
   .seg-sub .seg-opt{font-size:13px;font-weight:600;padding:6px 16px}
   .seg-sub .seg-opt:focus-visible{outline:2px solid #405936;outline-offset:2px}
@@ -500,6 +501,16 @@
     La configuración todavía no está migrada al esquema por canal: hay que correr
     <code>node scripts/migrar_esquema_canales.js</code> en el servidor (sin márgenes no hay precios sugeridos).
   </div>
+  <!-- Switch de la configuración (spec 2026-10-21 §2.4): Costos, Márgenes, Precio y Simulador muestran y guardan el tipo
+       elegido (precios_config_esquema.js tipoCfgEsq). Producción usa la de Reventa. General es común. -->
+  <div id="cfgTipo" class="seg mb-3" role="group" aria-label="Configuración de">
+    <button type="button" class="seg-opt" data-tipo-cfg="almacen" aria-pressed="true">Reventa <span class="cfg-nota">y Producción</span></button>
+    <button type="button" class="seg-opt" data-tipo-cfg="fraccionado" aria-pressed="false">Fraccionado</button>
+  </div>
+  <div id="cfgFraccAviso" class="hidden mb-4 p-3 rounded-lg bg-warn/10 text-warn text-sm" role="status">
+    Fraccionado todavía usa la configuración de Reventa: hay que correr <code>node scripts/migrar_config_fraccionado.js</code>
+    en el servidor. Hasta entonces no se puede guardar en esta vista.
+  </div>
 
   <nav id="subtabsConfig" class="cfg-sub" role="tablist" aria-label="Secciones de Configuración">
     <span class="cfg-grupo" aria-hidden="true">Pasos del precio</span>
@@ -516,6 +527,7 @@
     <span class="cfg-grupo" aria-hidden="true">Ajustes</span>
     <div class="cfg-riel cfg-riel-2" role="presentation">
       <button type="button" role="tab" class="cfg-tab" id="tab-general" data-sub="general" aria-controls="panel-general" aria-selected="false" tabindex="-1">General</button>
+      <button type="button" role="tab" class="cfg-tab hidden" id="tab-costeo-fracc" data-sub="costeo-fracc" aria-controls="panel-costeo-fracc" aria-selected="false" tabindex="-1">Costeo Fraccionado</button>
     </div>
   </nav>
 
@@ -534,6 +546,10 @@
       <div id="configPackBulto" class="min-w-0"></div>
     </div>
   </section>
+
+  <!-- Costeo de Fraccionado (máquinas, tiempos, insumos por subrubro): lo pinta /js/precios_config_fraccionado.js. Sólo con el
+       switch de Configuración en Fraccionado (mostrarCosteoFracc). -->
+  <section id="panel-costeo-fracc" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costeo-fracc"></section>
   </div>
 
 </main>
@@ -573,7 +589,9 @@
 <script src="/js/precios_esquema.js"></script>
 <script src="/js/precios_config_esquema.js"></script>
 <script src="/js/precios_simulador.js"></script>
+<script src="/js/precios_config_fraccionado.js"></script>
 <script src="/js/precios_listados.js"></script>
 <script src="/js/precios_modal_esquema.js"></script>
+<script src="/js/precios_modal_fraccionado.js"></script>
 </body>
 </html>

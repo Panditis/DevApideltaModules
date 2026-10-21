@@ -125,8 +125,8 @@ function conceptosCosto(lineas) {
 
 // "Igualar a SIGA": margen fijo por canal con el que el precio queda en el vigente de SIGA (motor: margenParaPrecio). Costo = el
 // elegido en el modal (No cambiar → sistema; fuente sin desglose → sistema). Usa el desglose (sólo viene con el permiso): costo
-// con gastos, extras e IVA. Varios vigentes en un canal (presentaciones de Fraccionado, varios pack/bulto vinculados) → la
-// mediana, con una nota del Δ aprox. con que quedan. Canal sin vigente → sin valor (queda el general).
+// con gastos, extras e IVA, el de cada fila (Fraccionado: cada presentación con su $/kg real; sin desglose, no aporta). Varios
+// vigentes en un canal (presentaciones de Fraccionado, varios pack/bulto vinculados) → la mediana, con una nota del Δ aprox. con que quedan. Canal sin vigente → sin valor (queda el general).
 // → { valores: { canal: margen }, notas: [texto], motivo (por qué no se puede, o null), fuente (la usada) }.
 const PE_MD = typeof module === 'object' && module.exports ? require('../../lib/precios_esquema') : PreciosEsquema;
 const QUIENES_IGUALAR_MD = { minorista: 'las presentaciones', pack: 'los pack vinculados', bulto: 'los bulto vinculados' };
@@ -136,20 +136,29 @@ function medianaMd(xs) {
   return s.length % 2 ? s[k] : Math.round(((s[k - 1] + s[k]) / 2) * 100) / 100;
 }
 function igualarSigaMd(fila, tipo, fuente) {
-  const des = fu => ((fila.sugeridos || {})[fu] || {}).desglose || null;
-  const usada = des(fuente) ? fuente : 'sistema';
-  const d = des(usada);
-  if (!d) return { valores: {}, notas: [], motivo: 'Sin costo para calcular el margen', fuente: usada };
-  const cfg = { extrasMinorista: [{ pct: d.minorista.extrasPct, tipos: { [tipo]: true } }], ivaVentaPct: d.minorista.ivaPct };
-  const margen = (canal, vigente, unidades) => PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+  const des = (f, fu) => ((f.sugeridos || {})[fu] || {}).desglose || null;
+  const usada = des(fila, fuente) ? fuente : 'sistema';
+  if (!des(fila, usada)) return { valores: {}, notas: [], motivo: 'Sin costo para calcular el margen', fuente: usada };
+  // Cada fila (el granel y cada presentación de Fraccionado, que tiene su propio $/kg real) con su propio desglose; sin él, sin margen.
+  const margen = (f, canal, vigente, unidades) => {
+    const d = des(f, usada);
+    if (!d) return null;
+    const cfg = { extrasMinorista: [{ pct: d.minorista.extrasPct, tipos: { [tipo]: true } }], ivaVentaPct: d.minorista.ivaPct };
+    return PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+  };
   const filas = [fila, ...(fila.presentaciones || [])];
   const necesarios = {
-    minorista: filas.filter(f => f.vigente > 0).map(f => margen('minorista', f.vigente)),
-    ...Object.fromEntries(['pack', 'bulto'].map(c => [c, filas.flatMap(f => f.mayoristas || [])
-      .filter(m => m.tipo === c && m.vigente > 0).map(m => margen(c, m.vigente, m.unidades))])),
+    minorista: filas.filter(f => f.vigente > 0).map(f => margen(f, 'minorista', f.vigente)),
+    ...Object.fromEntries(['pack', 'bulto'].map(c => [c, filas.flatMap(f => (f.mayoristas || []).map(m => [f, m]))
+      .filter(([, m]) => m.tipo === c && m.vigente > 0).map(([f, m]) => margen(f, c, m.vigente, m.unidades))])),
   };
   const canales = Object.entries(necesarios).map(([c, ms]) => [c, ms.filter(m => m != null)]).filter(([, ms]) => ms.length);
-  if (!canales.length) return { valores: {}, notas: [], motivo: 'Sin precios vigentes en SIGA para igualar', fuente: usada };
+  if (!canales.length) {
+    // Hay vigentes pero ninguna fila con vigente tiene costo real (Fraccionado: insumos sin costo): no es que falten precios.
+    const conVigente = filas.filter(f => f.vigente > 0 || (f.mayoristas || []).some(m => m.vigente > 0));
+    const faltaCosto = conVigente.length > 0 && conVigente.every(f => !des(f, usada));
+    return { valores: {}, notas: [], motivo: faltaCosto ? 'Falta el costo real de las presentaciones (insumos sin costo)' : 'Sin precios vigentes en SIGA para igualar', fuente: usada };
+  }
   const valores = Object.fromEntries(canales.map(([c, ms]) => [c, medianaMd(ms)]));
   const notas = canales.filter(([, ms]) => new Set(ms).size > 1).map(([c, ms]) => {
     const deltas = ms.map(m => ((1 + valores[c] / 100) / (1 + m / 100) - 1) * 100);
@@ -405,8 +414,9 @@ function htmlDesgloseEsq(f) {
     const s = (fila.sugeridos || {})[mdFuente];
     if (!s || !s.desglose) return;
     const d = s.desglose, m = d.minorista;
+    const costoTxt = mdEsq.tipo === 'fraccionado' && fila.componentesCosto ? 'Costo real' : 'Costo de mercadería'; // presentación costeada = mercadería + insumos + MO + máquina
     if (titulo) bloques.push(htmlPasos(titulo, [
-      ['', 'Costo de mercadería', d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
+      ['', costoTxt, d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
       ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ...pasosAjusteMd(m), ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
       ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]]));
     for (const v of fila.mayoristas || []) {
@@ -518,7 +528,7 @@ function htmlVerDetalle(f) {
   if (preciosSinConfig) return '';
   return `<div class="md-det"><button type="button" id="mdVerDetalle" class="md-det-btn" aria-expanded="${mdDetalle}" aria-controls="mdDetCuerpo">
       <span class="md-caret" aria-hidden="true">▸</span>Ver detalle del cálculo y editar costos</button>
-    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${htmlEdicionCostos(f)}</div></div>`;
+    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${mdEsq.tipo === 'fraccionado' ? htmlCosteoFraccMd(f) : ''}${htmlEdicionCostos(f)}</div></div>`;
 }
 
 function pintarModalEsquema() {
@@ -587,20 +597,26 @@ function conectarModalEsquema() {
   conectarManualDecMd();
   conectarMargenProductoMd();
   conectarTipoProveedorMd();
+  if (mdEsq.tipo === 'fraccionado') conectarCosteoFraccMd(); // precios_modal_fraccionado.js
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal
-// (con el detalle como estaba) y listado. msgId = dónde mostrar el error.
+// (con el detalle como estaba) y listado. msgId = dónde mostrar el error. → true si el pedido guardó (aunque después falle
+// la recarga), false si no se guardó (quien tenga un borrador lo conserva).
 async function guardarCostoEsq(url, body, metodo = 'PUT', msgId = 'mdMsg') {
   const msg = document.getElementById(msgId);
+  const error = txt => { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = txt; };
   try {
     await pedirJson(metodo, url, body); // precios_comun.js: tira con el error del server
+  } catch (e) { error(e.message); return false; }
+  try {
     refrescarAlertasProduccion(); // precios_produccion.js: el costo pudo mover "a revisar" (no tira, va antes de recargar el modal)
     const { tipo, fila } = mdEsq;
     await abrirModalEsquema(tipo, fila.plu, { detalle: mdDetalle });
     cargarListado(tipo);
     if (tipo === 'produccion') refrescarPanelProduccionMd();
-  } catch (e) { msg.className = 'text-sm mt-1 text-crit'; msg.textContent = e.message; }
+  } catch (e) { error(`Se guardó, pero no se pudo recargar: ${e.message}`); }
+  return true;
 }
 // El modal pudo abrirse encima del modal del producto base (Envasado) o del panel de presentaciones de una receta: también
 // se recargan sus precios. ebEd / recargarBase / pintarBase (precios_produccion_envasado.js), prodDet / recargarDetalleProd

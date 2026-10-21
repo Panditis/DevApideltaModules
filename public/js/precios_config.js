@@ -40,7 +40,9 @@ async function puedeSalirConfig(){
   return true;
 }
 const panelCfg = document.getElementById('panel-configuracion');
-panelCfg.addEventListener('input', e => marcarSucio(e.target.closest('[data-guardable]')));
+// El buscador SIGA (htmlBuscadorSiga: caja type=search y checkboxes de su lista .bs-lista) no es un dato de la tarjeta: tipear o tildar ahí no la ensucia.
+const esBuscadorSiga = el => el.type === 'search' || !!el.closest('.bs-lista');
+panelCfg.addEventListener('input', e => { if (!esBuscadorSiga(e.target)) marcarSucio(e.target.closest('[data-guardable]')); });
 panelCfg.addEventListener('click', e => { if (e.target.closest('[data-edita]')) marcarSucio(e.target.closest('[data-guardable]')); });
 new MutationObserver(pintarPuntosSucio).observe(panelCfg, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-sucio'] });
 window.addEventListener('beforeunload', e => { if (panelCfg.querySelector('[data-guardable][data-sucio]')) e.preventDefault(); });
@@ -60,22 +62,30 @@ const CARGA_SUBCONFIG = {
   precio: () => cargarPrecioEsq(),   // precios_config_esquema.js
   simulador: () => cargarSimulador(), // precios_simulador.js
   general: () => cargarConfiguracion(),
+  'costeo-fracc': () => cargarCosteoFracc(), // precios_config_fraccionado.js (sólo con el switch en Fraccionado)
 };
 const CLAVE_SUBCONFIG = 'precios.subConfig';
 function ultimoSubConfig(){
   try { const s = sessionStorage.getItem(CLAVE_SUBCONFIG); return CARGA_SUBCONFIG[s] ? s : 'costos'; } catch { return 'costos'; }
 }
-function activarSubConfig(sub){
+function activarSubConfig(pedido){
+  // Costeo Fraccionado sólo existe con el switch en Fraccionado (precios_config_fraccionado.js); pasar a Reventa estando ahí vuelve a Costos.
+  mostrarCosteoFracc(tipoCfgEsq);
+  const sub = pedido === 'costeo-fracc' && !esFraccCfg() ? 'costos' : pedido;
   document.querySelectorAll('#subtabsConfig .cfg-tab').forEach(x => {
     const on = x.dataset.sub === sub;
     x.setAttribute('aria-selected', String(on));
     x.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll('#panel-configuracion .cfg-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'panel-' + sub));
+  // El switch Reventa | Fraccionado no aplica a General (pack/bulto). El aviso de Fraccionado: oculto en General y en Reventa;
+  // en Fraccionado lo decide leerCfgEsq (precios_config_esquema.js) al cargar.
+  document.getElementById('cfgTipo').classList.toggle('hidden', sub === 'general');
+  if (sub === 'general' || !esFraccCfg()) document.getElementById('cfgFraccAviso').classList.add('hidden');
   try { sessionStorage.setItem(CLAVE_SUBCONFIG, sub); } catch { /* sin storage: queda Costos la próxima vez */ }
   CARGA_SUBCONFIG[sub]();
 }
-const tabsConfig = () => [...document.querySelectorAll('#subtabsConfig .cfg-tab')];
+const tabsConfig = () => [...document.querySelectorAll('#subtabsConfig .cfg-tab:not(.hidden)')]; // sin el sub-tab oculto (Costeo Fraccionado en Reventa)
 document.getElementById('subtabsConfig').addEventListener('click', async e => {
   const b = e.target.closest('.cfg-tab');
   if (!b || b.getAttribute('aria-selected') === 'true') return;

@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const express = require('express');
 const crearRutas = require('../routes/rutas_precios_esquema');
-const { migrarEsquemaCanales } = require('../lib/precios_config_esquema');
+const { migrarEsquemaCanales, migrarConfigFraccionado } = require('../lib/precios_config_esquema');
 const { crearGuardPrecios } = require('../lib/precios_permisos');
 
 // guard = el guardPrecios real (403 en config y sin CLAVES_OCULTAS sin permiso) en vez de sólo marcar preciosSinConfig.
@@ -115,10 +115,21 @@ const ARCHIVOS_FALSOS = {
     presentaciones: { 6319: { recetaId: 'base', kgPorUnidad: 1, insumos: [] } } } } },
 };
 
-test('config esquema: Recalcular rango junta los costos de los tres tipos (Reventa, granel $/kg, Producción)', async () => {
+test('config esquema: Recalcular rango por tipo — Reventa con Producción; Fraccionado sólo el $/kg de sus graneles', async () => {
+  const a = appCon(migrarConfigFraccionado(MIGRADO).costeo, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    // Reventa 1000 + Producción 1 kg de harina 330,58 (el granel de 10000 $/kg no entra: Fraccionado ya tiene su config)
+    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 1000 }, n: 2 });
+    // Fraccionado: un solo granel → no alcanza para percentiles
+    assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=fraccionado')).error, /suficientes costos/);
+    assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=x')).error, /tipo inválido/);
+  } finally { a.cerrar(); }
+});
+
+test('config esquema: Recalcular rango con Fraccionado sin migrar junta los tres tipos (usa las tablas de la raíz)', async () => {
   const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   try {
-    // Reventa 1000; granel 10000 $/kg; Producción 1 kg de harina 330,58
+    // Reventa 1000 + Producción 330,58 + el granel de Fraccionado 10000 $/kg
     assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 10000 }, n: 3 });
   } finally { a.cerrar(); }
 });
@@ -448,4 +459,93 @@ test('importar planilla: marca por Costo/Precio con usuario y foto de vigentes (
     assert.deepStrictEqual(listas.minorista.slice(1).map(x => [x[0], x[2]]), [[1, 1500], [4, 2000]]);
     assert.deepStrictEqual(listas.bultoIva.slice(1).map(x => x[0]), [2]);
   } finally { a.cerrar(); }
+});
+
+// ── Configuración por tipo (spec 2026-10-21 §2.3) ──
+const CON_FRACC = migrarConfigFraccionado(MIGRADO).costeo;
+const T_FRACC = { minPct: 80, maxPct: 120, escalones: 5, rango: { desde: 50, hasta: 50000 } };
+
+test('config por tipo: GET ?tipo=fraccionado lee su bloque (o la raíz sin migrar); tipo inválido → error', async () => {
+  const a = appCon(MIGRADO);
+  try {
+    const sin = await a.pedir('GET', '/api/precios/config/esquema?tipo=fraccionado');
+    assert.deepStrictEqual([sin.fraccionadoMigrado, sin.maquinas, sin.facilidades.medio], [false, [], 1.25]);
+    assert.match((await a.pedir('GET', '/api/precios/config/esquema?tipo=produccion')).error, /tipo inválido/);
+    assert.match((await a.pedir('PUT', '/api/precios/config/esquema/precio?tipo=fraccionado', { ivaVentaPct: 10, toleranciaPct: 3, redondeo: RED })).error, /migrar_config_fraccionado/);
+    assert.deepStrictEqual(a.leer(), MIGRADO); // sin migrar no escribe
+  } finally { a.cerrar(); }
+});
+
+test('config por tipo: PUT ?tipo=fraccionado guarda en costeo.fraccionado y no toca la raíz (precio, costos, márgenes, costo hora)', async () => {
+  const a = appCon(CON_FRACC);
+  const url = r => `/api/precios/config/esquema/${r}?tipo=fraccionado`;
+  try {
+    assert.strictEqual((await a.pedir('PUT', url('precio'), { ivaVentaPct: 10.5, toleranciaPct: 3, redondeo: RED })).ivaVentaPct, 10.5);
+    const tipos = { almacen: false, fraccionado: true, produccion: false };
+    const c = await a.pedir('PUT', url('costos'), { modoGastos: 'precio', gastosVenta: [{ concepto: 'Flete', pct: 2, tipos }], extrasMinorista: [] });
+    assert.deepStrictEqual(c.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2, tipos }]); // la vista con tilde sólo Fraccionado
+    await a.pedir('PUT', url('margenes'), { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC });
+    await a.pedir('PUT', url('costo-hora'), { costoHora: 5000 });
+    const d = a.leer();
+    assert.deepStrictEqual([d.fraccionado.ivaVentaPct, d.fraccionado.modoGastos, d.fraccionado.costoHora], [10.5, 'precio', 5000]);
+    assert.deepStrictEqual(d.fraccionado.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2 }]); // guardado sin tildes
+    assert.deepStrictEqual(d.fraccionado.margenes.minorista, T_FRACC);
+    assert.deepStrictEqual(d.fraccionado.maquinas, []); // lo propio se conserva
+    for (const k of ['ivaVentaPct', 'modoGastos', 'gastosVenta', 'margenes', 'costoHora']) assert.deepStrictEqual(d[k], CON_FRACC[k], k);
+    const g = await a.pedir('GET', '/api/precios/config/esquema');
+    assert.deepStrictEqual([g.fraccionadoMigrado, g.margenes], [true, CON_FRACC.margenes]);
+  } finally { a.cerrar(); }
+});
+
+test('config por tipo: Fraccionado usa sus márgenes; Reventa y Producción siguen con los de la raíz', async () => {
+  const a = appCon(CON_FRACC, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const precio = async (tipo, plu) => {
+    const f = await a.pedir('GET', `/api/precios/esquema/detalle/${plu}?tipo=${tipo}`);
+    return (f.presentaciones ? f.presentaciones[0] : f).sugeridos.sistema.minorista.precio;
+  };
+  try {
+    const antes = { almacen: await precio('almacen', '1'), fraccionado: await precio('fraccionado', '50'), produccion: await precio('produccion', '6319') };
+    await a.pedir('PUT', '/api/precios/config/esquema/margenes?tipo=fraccionado', { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC });
+    assert.ok(await precio('fraccionado', '50') > antes.fraccionado);
+    assert.strictEqual(await precio('almacen', '1'), antes.almacen);
+    assert.strictEqual(await precio('produccion', '6319'), antes.produccion);
+    await a.pedir('PUT', '/api/precios/config/esquema/precio?tipo=fraccionado', { ivaVentaPct: 21, toleranciaPct: 7, redondeo: RED });
+    assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).toleranciaPct, 7);
+    assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).toleranciaPct, 3);
+  } finally { a.cerrar(); }
+});
+
+test('listado Fraccionado: la presentación suma insumos propios + MO de costeo.fraccionado; el desglose sólo en el detalle', async () => {
+  // Harina (300, 330,58) como insumo de 51 "Almendra 500G"; 1 min × 6000/60 = 100 de MO → 430,58 por unidad ÷ 0,5 kg = 861,16
+  const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, tiempos: [{ hastaG: 1000, minutos: 1 }],
+    porGranel: { 50: { facilidad: 'facil', maquinaId: null } }, insumosPresentacion: { 51: [{ plu: '300', cantidad: 1 }] } };
+  const a = appCon({ ...CON_FRACC, fraccionado }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.strictEqual(det.presentaciones[0].costos.sistema, 10861.16);
+    assert.strictEqual(det.costos.sistema, 10000); // el granel sigue con su mercadería
+    // granel (mercadería por unidad: 10000 $/kg × 0,5 kg), insumo y mano de obra
+    assert.deepStrictEqual(det.presentaciones[0].componentesCosto.map(l => [l.plu, l.rol, l.importe]),
+      [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 100]]);
+    const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
+    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [['sinMaquina'], undefined]);
+  } finally { a.cerrar(); }
+});
+
+test('listado Fraccionado sin costeo.fraccionado: como antes (sin avisos ni costeo)', async () => {
+  const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.deepStrictEqual([det.presentaciones[0].costos.sistema, det.avisosCosto], [10000, undefined]);
+  } finally { a.cerrar(); }
+});
+
+test('listado Fraccionado con costeo.fraccionado que no es un bloque (lista o número): no activa el costeo', async () => {
+  for (const basura of [[], 5, 'x']) {
+    const a = appCon({ ...MIGRADO, fraccionado: basura }, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+    try {
+      const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+      assert.deepStrictEqual([det.presentaciones[0].costos.sistema, det.avisosCosto], [10000, undefined], JSON.stringify(basura));
+    } finally { a.cerrar(); }
+  }
 });

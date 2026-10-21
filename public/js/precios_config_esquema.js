@@ -8,6 +8,13 @@ const TIPOS_K = Object.keys(TIPOS_ESQ);
 const REDONDEOS_ESQ = { minorista: 'Minorista', packNeto: 'Pack sin IVA', packIva: 'Pack con IVA', bultoNeto: 'Bulto sin IVA', bultoIva: 'Bulto con IVA' };
 let cfgEsq = null; // última config leída
 
+// Switch Reventa | Fraccionado (spec 2026-10-21 §2.4): cada tipo con sus valores; Producción usa los de Reventa. Se recuerda
+// en la sesión. Los GET/PUT de Configuración van con ?tipo=fraccionado (urlEsq).
+const CLAVE_TIPO_CFG = 'precios.tipoCfg';
+let tipoCfgEsq = (() => { try { return sessionStorage.getItem(CLAVE_TIPO_CFG) === 'fraccionado' ? 'fraccionado' : 'almacen'; } catch { return 'almacen'; } })();
+const esFraccCfg = () => tipoCfgEsq === 'fraccionado';
+const urlEsq = (ruta = '') => `${API_ESQ}${ruta}${esFraccCfg() ? '?tipo=fraccionado' : ''}`;
+
 async function pedirEsq(method, url, body) {
   const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const j = await r.json();
@@ -15,9 +22,14 @@ async function pedirEsq(method, url, body) {
   return j;
 }
 // La comparten Costos, Márgenes, Precio y el Simulador. Sin migrar: aviso arriba de Configuración.
+// null si el tipo del switch cambió mientras tanto: manda la carga del tipo nuevo (sin carreras al alternar rápido).
 async function leerCfgEsq() {
-  cfgEsq = await pedirEsq('GET', API_ESQ);
+  const tipo = tipoCfgEsq;
+  const cfg = await pedirEsq('GET', urlEsq());
+  if (tipo !== tipoCfgEsq) return null;
+  cfgEsq = cfg;
   document.getElementById('cfgEsqAviso').classList.toggle('hidden', cfgEsq.migrado);
+  document.getElementById('cfgFraccAviso').classList.toggle('hidden', !esFraccCfg() || cfgEsq.fraccionadoMigrado);
   return cfgEsq;
 }
 const msgEsq = (el, txt, cls = 'text-ink/50') => { if (el) { el.className = `esq-msg text-sm ${cls}`; el.textContent = txt; } };
@@ -26,7 +38,7 @@ const pctEsq = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
 async function cargarPanelEsq(id, pintar) {
   const panel = document.getElementById(id);
   panel.innerHTML = '<div class="text-sm text-ink/50 py-4"><span class="spin"></span> Cargando…</div>';
-  try { pintar(panel, await leerCfgEsq()); }
+  try { const cfg = await leerCfgEsq(); if (cfg) pintar(panel, cfg); }
   catch (e) { panel.innerHTML = `<p class="text-sm text-crit py-4">No se pudo cargar: ${esc(e.message)}</p>`; }
 }
 const cargarCostosEsq = () => cargarPanelEsq('panel-costos', pintarCostosEsq);
@@ -41,19 +53,26 @@ async function guardarBloqueEsq(bloque, url, body, recargar) {
 }
 
 // ── Costos: gastos variables (+ modo) y extras minoristas, con tilde por tipo ──
-function htmlFilaItemEsq(it = {}) {
+// Fraccionado no tiene tildes (su tabla es sólo suya); Reventa muestra Reventa y Producción, y también Fraccionado mientras
+// no se migre (hasta entonces Fraccionado usa estas tablas). Las columnas ocultas quedan en el DOM (class hidden) para que
+// leerItemsEsq guarde su valor tal cual.
+const tiposVisiblesEsq = cfg => (esFraccCfg() ? [] : cfg.fraccionadoMigrado ? ['almacen', 'produccion'] : TIPOS_K);
+const tildesNuevoEsq = () => (esFraccCfg() ? { almacen: false, fraccionado: true, produccion: false } : { almacen: true, fraccionado: true, produccion: true });
+const ocultaSi = (vis, t) => (vis.includes(t) ? '' : ' hidden');
+
+function htmlFilaItemEsq(it = {}, vis = TIPOS_K) {
   return `<tr data-id="${esc(it.id || '')}">
     <td class="py-1 pr-2"><input class="num-in w-full text-left" data-k="concepto" value="${esc(it.concepto || '')}" aria-label="Concepto"></td>
     <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="0" max="100" data-k="pct" value="${esc(it.pct ?? '')}" aria-label="Porcentaje">`, '%', { w: 'w-24' })}</td>
-    ${TIPOS_K.map(t => `<td class="py-1 text-center"><input type="checkbox" class="accent-verde" data-tipo="${t}"${it.tipos && it.tipos[t] ? ' checked' : ''} aria-label="${TIPOS_ESQ[t]}"></td>`).join('')}
+    ${TIPOS_K.map(t => `<td class="py-1 text-center${ocultaSi(vis, t)}"><input type="checkbox" class="accent-verde" data-tipo="${t}"${it.tipos && it.tipos[t] ? ' checked' : ''} aria-label="${TIPOS_ESQ[t]}"></td>`).join('')}
     <td class="py-1 pl-2"><button type="button" class="esq-quitar text-gris hover:text-crit" data-edita aria-label="Quitar">✕</button></td></tr>`;
 }
-function htmlItemsEsq(lista, titulo, ayuda, items) {
-  return `<div class="cfg-card min-w-0" data-lista="${lista}">
+function htmlItemsEsq(lista, titulo, ayuda, items, vis) {
+  return `<div class="cfg-card min-w-0" data-lista="${lista}" data-vis="${vis.join(',')}">
     <h3 class="cfg-h">${esc(titulo)}</h3><p class="cfg-ayuda">${esc(ayuda)}</p>
     <table class="cfg-tabla w-full mt-2"><thead><tr><th class="text-left">Concepto</th><th class="text-left">%</th>
-      ${TIPOS_K.map(t => `<th>${TIPOS_ESQ[t]}</th>`).join('')}<th></th></tr></thead>
-      <tbody>${items.map(htmlFilaItemEsq).join('')}</tbody></table>
+      ${TIPOS_K.map(t => `<th class="${ocultaSi(vis, t).trim()}">${TIPOS_ESQ[t]}</th>`).join('')}<th></th></tr></thead>
+      <tbody>${items.map(it => htmlFilaItemEsq(it, vis)).join('')}</tbody></table>
     <div class="flex items-center gap-3 mt-2"><button type="button" class="esq-agregar cfg-btn2" data-edita>+ Agregar</button>
       <span class="esq-totales text-xs text-gris"></span></div></div>`;
 }
@@ -65,12 +84,20 @@ function leerItemsEsq(card) {
     tipos: Object.fromEntries(TIPOS_K.map(t => [t, tr.querySelector(`[data-tipo="${t}"]`).checked])),
   }));
 }
+// Total por tipo visible; Fraccionado (sin tildes) un solo total.
 function pintarTotalesEsq(card) {
   const items = leerItemsEsq(card).filter(it => it.pct != null);
-  card.querySelector('.esq-totales').textContent = 'Total: ' + TIPOS_K.map(t => `${TIPOS_ESQ[t]} ${pctEsq(PreciosEsquema.pctItems(items, t))}`).join(' · ');
+  const vis = card.dataset.vis ? card.dataset.vis.split(',') : [];
+  card.querySelector('.esq-totales').textContent = 'Total: ' + (vis.length
+    ? vis.map(t => `${TIPOS_ESQ[t]} ${pctEsq(PreciosEsquema.pctItems(items, t))}`).join(' · ')
+    : pctEsq(PreciosEsquema.pctItems(items, 'fraccionado')));
 }
 function pintarCostosEsq(panel, cfg) {
-  panel.innerHTML = `<p class="cfg-cab"><b>Costos</b> — se suman al costo de mercadería. Los gastos variables valen para los tres canales; los extras, sólo para el minorista. Cada ítem se aplica a los tipos tildados.</p>
+  const vis = tiposVisiblesEsq(cfg);
+  const cab = esFraccCfg()
+    ? '<b>Costos de Fraccionado</b> — se suman al costo $/kg del granel. Los gastos variables valen para los tres canales; los extras, sólo para el minorista.'
+    : '<b>Costos de Reventa y Producción</b> — se suman al costo de mercadería. Los gastos variables valen para los tres canales; los extras, sólo para el minorista. Cada ítem se aplica a los tipos tildados.';
+  panel.innerHTML = `<p class="cfg-cab">${cab}</p>
   <div data-guardable data-nombre="Costos">
     <div class="cfg-card mb-4"><h3 class="cfg-h">Cómo se aplican los gastos variables</h3>
       <div class="seg seg-sub mt-2" role="group" aria-label="Modo de los gastos variables">
@@ -78,8 +105,8 @@ function pintarCostosEsq(panel, cfg) {
         <button type="button" class="seg-opt" data-modo="precio" data-edita aria-pressed="${cfg.modoGastos === 'precio'}">Sobre precio · costo ÷ (1 − %)</button>
       </div></div>
     <div class="cfg-grid">
-      ${htmlItemsEsq('gastosVenta', 'Gastos variables', 'Sobre el costo de mercadería, antes del margen de cada canal.', cfg.gastosVenta)}
-      ${htmlItemsEsq('extrasMinorista', 'Costos extras minoristas', 'Markup sobre el neto minorista, antes del IVA (ej. IIBB, débitos y créditos).', cfg.extrasMinorista)}
+      ${htmlItemsEsq('gastosVenta', 'Gastos variables', 'Sobre el costo de mercadería, antes del margen de cada canal.', cfg.gastosVenta, vis)}
+      ${htmlItemsEsq('extrasMinorista', 'Costos extras minoristas', 'Markup sobre el neto minorista, antes del IVA (ej. IIBB, débitos y créditos).', cfg.extrasMinorista, vis)}
     </div>
     <div class="cfg-pie mt-4"><span class="esq-msg text-sm" role="status" aria-live="polite"></span>
       <button type="button" class="esq-guardar cfg-btn">Guardar costos</button></div>
@@ -93,25 +120,27 @@ function pintarCostosEsq(panel, cfg) {
     const modo = e.target.closest('[data-modo]');
     if (modo) bloque.querySelectorAll('[data-modo]').forEach(b => b.setAttribute('aria-pressed', String(b === modo)));
     const agregar = e.target.closest('.esq-agregar');
-    if (agregar) agregar.closest('[data-lista]').querySelector('tbody')
-      .insertAdjacentHTML('beforeend', htmlFilaItemEsq({ tipos: { almacen: true, fraccionado: true, produccion: true } }));
+    if (agregar) agregar.closest('[data-lista]').querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaItemEsq({ tipos: tildesNuevoEsq() }, vis));
     const quitar = e.target.closest('.esq-quitar');
     if (quitar) { const c = quitar.closest('[data-lista]'); quitar.closest('tr').remove(); pintarTotalesEsq(c); }
   });
   bloque.querySelector('.esq-guardar').onclick = () => {
     const lista = k => leerItemsEsq(bloque.querySelector(`[data-lista="${k}"]`));
-    guardarBloqueEsq(bloque, `${API_ESQ}/costos`, {
+    guardarBloqueEsq(bloque, urlEsq('/costos'), {
       modoGastos: bloque.querySelector('[data-modo][aria-pressed="true"]').dataset.modo,
       gastosVenta: lista('gastosVenta'), extrasMinorista: lista('extrasMinorista'),
     }, cargarCostosEsq);
   };
 }
 
-// ── Costo hora de mano de obra (Producción: minutos por unidad × costo hora ÷ 60). Guardado aparte (PUT …/costo-hora). ──
+// ── Costo hora de mano de obra (minutos × costo hora ÷ 60), del tipo del switch. Guardado aparte (PUT …/costo-hora). ──
 function htmlCostoHoraEsq(cfg) {
+  const ayuda = esFraccCfg()
+    ? 'Fraccionado: los minutos de cada presentación × este costo ÷ 60 se suman a su costo. Vacío = sin mano de obra.'
+    : 'Producción: los minutos por unidad de cada presentación y PLU envasado × este costo ÷ 60 se suman a su costo real (mercadería + insumos + mano de obra). Vacío = sin mano de obra.';
   return `<div class="cfg-grid cfg-grid-angosta mt-4"><div class="cfg-card min-w-0" data-guardable data-nombre="Costo hora" id="esqCostoHoraCard">
     <h3 class="cfg-h">Costo hora de mano de obra</h3>
-    <p class="cfg-ayuda">Producción: los minutos por unidad de cada presentación y PLU envasado × este costo ÷ 60 se suman a su costo real (mercadería + insumos + mano de obra). Vacío = sin mano de obra.</p>
+    <p class="cfg-ayuda">${esc(ayuda)}</p>
     <div class="cfg-campo"><label for="esqCostoHora">Costo hora <span class="cfg-nota">$ por hora de trabajo</span></label>
       ${campoU(`<input id="esqCostoHora" type="number" step="any" min="0" value="${esc(cfg.costoHora ?? '')}" placeholder="ej. 8268">`, '$/h', { w: 'w-32' })}</div>
     <div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span><button type="button" class="esq-guardar-hora cfg-btn">Guardar</button></div>
@@ -119,7 +148,7 @@ function htmlCostoHoraEsq(cfg) {
 }
 function conectarCostoHoraEsq(panel) {
   const card = panel.querySelector('#esqCostoHoraCard');
-  card.querySelector('.esq-guardar-hora').onclick = () => guardarBloqueEsq(card, `${API_ESQ}/costo-hora`,
+  card.querySelector('.esq-guardar-hora').onclick = () => guardarBloqueEsq(card, urlEsq('/costo-hora'),
     { costoHora: numOrNull(card.querySelector('#esqCostoHora').value) }, () => msgEsq(card.querySelector('.esq-msg'), 'Guardado', 'text-ok')); // sin repintar: no pisa los gastos sin guardar
 }
 
@@ -127,7 +156,7 @@ function conectarCostoHoraEsq(panel) {
 function pintarPrecioEsq(panel, cfg) {
   const num = (id, v, u, pre = false, extra = '') =>
     campoU(`<input id="${id}" type="number" step="any" min="0" value="${esc(v ?? '')}" ${extra}>`, u, { pre, w: 'w-32' });
-  panel.innerHTML = `<p class="cfg-cab"><b>Precio</b> — IVA de venta (minorista y listas mayoristas con IVA), redondeo de cada lista y tolerancia del semáforo.</p>
+  panel.innerHTML = `<p class="cfg-cab"><b>Precio${esFraccCfg() ? ' de Fraccionado' : ' de Reventa y Producción'}</b> — IVA de venta (minorista y listas mayoristas con IVA), redondeo de cada lista y tolerancia del semáforo.</p>
   <div class="cfg-grid cfg-grid-angosta"><div class="cfg-card min-w-0" data-guardable data-nombre="Precio">
     <div class="cfg-campo"><label for="esqIva">IVA de venta</label>${num('esqIva', cfg.ivaVentaPct, '%', false, 'max="100"')}</div>
     <div class="cfg-campo"><label for="esqTol">Tolerancia del semáforo <span class="cfg-nota">diferencias dentro de ± este % no se resaltan</span></label>${num('esqTol', cfg.toleranciaPct, '%', false, 'max="100"')}</div>
@@ -137,7 +166,7 @@ function pintarPrecioEsq(panel, cfg) {
   </div></div>`;
   const card = panel.querySelector('[data-guardable]');
   const v = id => numOrNull(document.getElementById(id).value);
-  card.querySelector('.esq-guardar').onclick = () => guardarBloqueEsq(card, `${API_ESQ}/precio`, {
+  card.querySelector('.esq-guardar').onclick = () => guardarBloqueEsq(card, urlEsq('/precio'), {
     ivaVentaPct: v('esqIva'), toleranciaPct: v('esqTol'),
     redondeo: Object.fromEntries(Object.keys(REDONDEOS_ESQ).map(k => [k, v(`esqRed-${k}`)])),
   }, cargarPrecioEsq);
@@ -232,27 +261,33 @@ function clickAjustesPesoEsq(e) {
   else if (e.target.closest('.esq-generar')) generarTramosEsq(caja);
 }
 
-function htmlMargenesEsq(m) {
+// Reventa: descuento al distribuidor; el ajuste por peso sólo mientras Fraccionado use estas tablas (sin migrar).
+// Fraccionado: ajuste por peso, sin descuento al distribuidor.
+function htmlMargenesEsq(m, cfg) {
+  const conAjuste = esFraccCfg() || !cfg.fraccionadoMigrado;
+  const tituloRango = esFraccCfg()
+    ? 'Percentiles 5 y 95 de los costos $/kg de los graneles de Fraccionado (consulta SIGA; no guarda)'
+    : `Percentiles 5 y 95 de los costos de sistema de Reventa y Producción${cfg.fraccionadoMigrado ? '' : ' y Fraccionado'} (consulta SIGA; no guarda)`;
   return `<section class="mb-6" data-guardable data-nombre="Márgenes">
     <div class="flex items-center gap-3 mb-2 flex-wrap">
-      <button type="button" class="esq-rango cfg-btn2" title="Percentiles 5 y 95 de los costos de sistema de Reventa, Fraccionado ($/kg del granel) y Producción (consulta SIGA; no guarda)">Recalcular rango</button>
+      <button type="button" class="esq-rango cfg-btn2" title="${esc(tituloRango)}">Recalcular rango</button>
       <span class="esq-msg text-sm" role="status" aria-live="polite"></span>
       <button type="button" class="esq-guardar cfg-btn ml-auto">Guardar márgenes</button></div>
     <div class="grid grid-cols-3 gap-4">${Object.keys(CANALES_ESQ).map(c => htmlTablaMargenEsq(c, m[c] || {})).join('')}</div>
-    <div class="cfg-card mt-4">
+    ${esFraccCfg() ? '' : `<div class="cfg-card mt-4">
       <div class="cfg-campo"><label for="esqDtoDistrib">Descuento al margen para distribuidores</label>
         ${campoU(`<input id="esqDtoDistrib" type="number" step="any" min="0" max="99" value="${esc(m.descuentoDistribuidorPct ?? '')}" placeholder="0">`, 'puntos %', { w: 'w-28' })}</div>
       <p class="cfg-ayuda">Reventa con proveedor distribuidor: se resta del margen de los tres canales (ej. margen 50 % y descuento 5 → 45 %),
-        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>
-    <h3 class="cfg-h mt-4">Fraccionado <span class="cfg-nota">costo por kg del granel</span></h3>
-    ${htmlAjustesPesoEsq(m.ajustesPeso)}</section>`;
+        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>`}
+    ${conAjuste ? `<h3 class="cfg-h mt-4">Fraccionado <span class="cfg-nota">costo por kg del granel</span></h3>
+    ${htmlAjustesPesoEsq(m.ajustesPeso)}` : ''}</section>`;
 }
 
 async function recalcularRangoEsq(sec) {
   const msg = sec.querySelector('.esq-msg');
   msgEsq(msg, 'Consultando costos en SIGA…');
   try {
-    const { rango, n } = await pedirEsq('POST', `${API_ESQ}/rango`);
+    const { rango, n } = await pedirEsq('POST', urlEsq('/rango'));
     sec.querySelectorAll('[data-canal]').forEach(card => {
       card.querySelector('[data-k="desde"]').value = rango.desde;
       card.querySelector('[data-k="hasta"]').value = rango.hasta;
@@ -265,20 +300,38 @@ async function recalcularRangoEsq(sec) {
 }
 
 function pintarMargenesEsq(panel, cfg) {
-  panel.innerHTML = `<p class="cfg-cab"><b>Márgenes</b> — una tabla por canal, la misma para Reventa, Fraccionado y Producción. El margen
-    baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no
-    son descuentos del minorista: cada canal tiene su margen. En Fraccionado se suma además el ajuste por peso.</p>
-    ${htmlMargenesEsq(cfg.margenes || {})}`;
+  const cab = esFraccCfg()
+    ? '<b>Márgenes de Fraccionado</b> — una tabla por canal sobre el costo $/kg. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica; se suma el ajuste por peso.'
+    : '<b>Márgenes de Reventa y Producción</b> — una tabla por canal. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no son descuentos del minorista: cada canal tiene su margen.';
+  panel.innerHTML = `<p class="cfg-cab">${cab}</p>
+    ${htmlMargenesEsq(cfg.margenes || {}, cfg)}`;
   panel.querySelectorAll('[data-canal]').forEach(pintarQuiebresEsq);
   // oninput (no addEventListener): el panel persiste entre cargas y no hay que acumular listeners.
   panel.oninput = e => { const c = e.target.closest('[data-canal]'); if (c) pintarQuiebresEsq(c); };
   const sec = panel.querySelector('section[data-guardable]');
   sec.querySelector('.esq-rango').onclick = () => recalcularRangoEsq(sec);
-  sec.querySelector('.esq-ajustes').onclick = clickAjustesPesoEsq;
+  const ajustes = sec.querySelector('.esq-ajustes');
+  if (ajustes) ajustes.onclick = clickAjustesPesoEsq;
   sec.querySelector('.esq-guardar').onclick = () => {
     const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
     const aj = leerAjustesPesoEsq(sec);
-    const descuentoDistribuidorPct = numOrNull(sec.querySelector('#esqDtoDistrib').value);
-    guardarBloqueEsq(sec, `${API_ESQ}/margenes`, { ...tablas, ...(aj ? { ajustesPeso: aj } : {}), descuentoDistribuidorPct }, cargarMargenesEsq);
+    const dto = sec.querySelector('#esqDtoDistrib');
+    guardarBloqueEsq(sec, urlEsq('/margenes'), { ...tablas, ...(aj ? { ajustesPeso: aj } : {}),
+      ...(dto ? { descuentoDistribuidorPct: numOrNull(dto.value) } : {}) }, cargarMargenesEsq);
   };
 }
+
+// ── Switch Reventa | Fraccionado (#cfgTipo, precios.html) ──
+// Cambiar de tipo con cambios sin guardar pregunta (puedeSalirConfig) y recarga el sub-tab visible con los valores del tipo.
+function pintarSwitchTipoCfg() {
+  document.querySelectorAll('#cfgTipo [data-tipo-cfg]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tipoCfg === tipoCfgEsq)));
+}
+pintarSwitchTipoCfg();
+document.getElementById('cfgTipo').addEventListener('click', async e => {
+  const b = e.target.closest('[data-tipo-cfg]');
+  if (!b || b.dataset.tipoCfg === tipoCfgEsq || !(await puedeSalirConfig())) return; // precios_config.js
+  tipoCfgEsq = b.dataset.tipoCfg;
+  try { sessionStorage.setItem(CLAVE_TIPO_CFG, tipoCfgEsq); } catch { /* sin storage: vuelve a Reventa al recargar */ }
+  pintarSwitchTipoCfg();
+  activarSubConfig(ultimoSubConfig()); // precios_config.js
+});
