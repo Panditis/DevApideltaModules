@@ -60,9 +60,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     let cambios, tipo;
     try { tipo = tipoFijo || tipoDe(req); cambios = validar(req, tipo); } catch (err) { return { error: err.message }; }
     const costeo = leerCosteo();
-    if (tipo === 'fraccionado' && !cfgEsq.configEsquemaDe(costeo).fraccionadoMigrado) {
-      return { error: 'Fraccionado todavía usa la configuración de Reventa: corré node scripts/migrar_config_fraccionado.js' };
-    }
+    if (tipo === 'fraccionado' && !cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
     const nuevo = tipo === 'fraccionado' ? { ...costeo, fraccionado: { ...costeo.fraccionado, ...cambios } } : { ...costeo, ...cambios };
     guardarJSON(COSTEO_PATH, nuevo);
     return cfgEsq.configEsquemaDe(nuevo, tipo);
@@ -99,7 +97,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     }
     if (tipo === 'fraccionado') {
       // costeo.fraccionado (Configuración › Costeo Fraccionado): sin migrar → null y el listado queda como antes.
-      const costeoF = cfgEsq.configEsquemaDe(costeo).fraccionadoMigrado ? normalizarCosteoFraccionado(costeo.fraccionado) : null;
+      const costeoF = cfgEsq.fraccionadoMigrado(costeo) ? normalizarCosteoFraccionado(costeo.fraccionado) : null;
       const formulas = await formulasVigentes();
       const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
         consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);
