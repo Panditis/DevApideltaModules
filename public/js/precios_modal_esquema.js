@@ -125,8 +125,8 @@ function conceptosCosto(lineas) {
 
 // "Igualar a SIGA": margen fijo por canal con el que el precio queda en el vigente de SIGA (motor: margenParaPrecio). Costo = el
 // elegido en el modal (No cambiar → sistema; fuente sin desglose → sistema). Usa el desglose (sólo viene con el permiso): costo
-// con gastos, extras e IVA. Varios vigentes en un canal (presentaciones de Fraccionado, varios pack/bulto vinculados) → la
-// mediana, con una nota del Δ aprox. con que quedan. Canal sin vigente → sin valor (queda el general).
+// con gastos, extras e IVA, el de cada fila (Fraccionado: cada presentación con su $/kg real; sin desglose, no aporta). Varios
+// vigentes en un canal (presentaciones de Fraccionado, varios pack/bulto vinculados) → la mediana, con una nota del Δ aprox. con que quedan. Canal sin vigente → sin valor (queda el general).
 // → { valores: { canal: margen }, notas: [texto], motivo (por qué no se puede, o null), fuente (la usada) }.
 const PE_MD = typeof module === 'object' && module.exports ? require('../../lib/precios_esquema') : PreciosEsquema;
 const QUIENES_IGUALAR_MD = { minorista: 'las presentaciones', pack: 'los pack vinculados', bulto: 'los bulto vinculados' };
@@ -136,17 +136,21 @@ function medianaMd(xs) {
   return s.length % 2 ? s[k] : Math.round(((s[k - 1] + s[k]) / 2) * 100) / 100;
 }
 function igualarSigaMd(fila, tipo, fuente) {
-  const des = fu => ((fila.sugeridos || {})[fu] || {}).desglose || null;
-  const usada = des(fuente) ? fuente : 'sistema';
-  const d = des(usada);
-  if (!d) return { valores: {}, notas: [], motivo: 'Sin costo para calcular el margen', fuente: usada };
-  const cfg = { extrasMinorista: [{ pct: d.minorista.extrasPct, tipos: { [tipo]: true } }], ivaVentaPct: d.minorista.ivaPct };
-  const margen = (canal, vigente, unidades) => PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+  const des = (f, fu) => ((f.sugeridos || {})[fu] || {}).desglose || null;
+  const usada = des(fila, fuente) ? fuente : 'sistema';
+  if (!des(fila, usada)) return { valores: {}, notas: [], motivo: 'Sin costo para calcular el margen', fuente: usada };
+  // Cada fila (el granel y cada presentación de Fraccionado, que tiene su propio $/kg real) con su propio desglose; sin él, sin margen.
+  const margen = (f, canal, vigente, unidades) => {
+    const d = des(f, usada);
+    if (!d) return null;
+    const cfg = { extrasMinorista: [{ pct: d.minorista.extrasPct, tipos: { [tipo]: true } }], ivaVentaPct: d.minorista.ivaPct };
+    return PE_MD.margenParaPrecio({ tipo, canal, costo: d.costoConGastos, precioObjetivo: vigente, unidades, cfg });
+  };
   const filas = [fila, ...(fila.presentaciones || [])];
   const necesarios = {
-    minorista: filas.filter(f => f.vigente > 0).map(f => margen('minorista', f.vigente)),
-    ...Object.fromEntries(['pack', 'bulto'].map(c => [c, filas.flatMap(f => f.mayoristas || [])
-      .filter(m => m.tipo === c && m.vigente > 0).map(m => margen(c, m.vigente, m.unidades))])),
+    minorista: filas.filter(f => f.vigente > 0).map(f => margen(f, 'minorista', f.vigente)),
+    ...Object.fromEntries(['pack', 'bulto'].map(c => [c, filas.flatMap(f => (f.mayoristas || []).map(m => [f, m]))
+      .filter(([, m]) => m.tipo === c && m.vigente > 0).map(([f, m]) => margen(f, c, m.vigente, m.unidades))])),
   };
   const canales = Object.entries(necesarios).map(([c, ms]) => [c, ms.filter(m => m != null)]).filter(([, ms]) => ms.length);
   if (!canales.length) return { valores: {}, notas: [], motivo: 'Sin precios vigentes en SIGA para igualar', fuente: usada };
