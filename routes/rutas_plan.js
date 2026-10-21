@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
+const { puntajePrioridad } = require('../lib/plan_prioridad');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
@@ -371,10 +372,11 @@ async function calcularSugerenciasCatalogo(params) {
       const granelNec = Math.round(cantSugerida * cantPU * 100) / 100;
       const granelDisp = idGranel ? (granelMap.get(idGranel) || 0) : null;
       const granelOk  = granelNec === 0 || granelDisp === null || granelDisp >= granelNec;
+      const facturacionMensual = Math.round((facturBase.get(base) || 0) * (30 / ventana) * 100) / 100; // facturación mensual de la presentación (base + variantes)
       const urgencia  = (isFinite(diasStock) ? -diasStock : 0) + (pend / Math.max(prom, 0.001))
                       + (semaforo === 'RED' ? 1000 : semaforo === 'YELLOW' ? 100 : 0) + (!granelOk ? 50 : 0);
       presentaciones.push({ plu: pluBase, baseNombre: base, presentacion: bInfo.presentacion,
-        stockActual: stock, stockEfectivo, stockSucursales, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
+        stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
         diasStock: isFinite(diasStock) ? Math.round(diasStock * 10) / 10 : 9999,
         semaforo, pendientes: pend, cantSugerida, idGranel, nombreGranel: nomGranel, cantPorUnidad: cantPU,
         granelNecesario: granelNec, granelDisponible: granelDisp !== null ? Math.round(granelDisp * 100) / 100 : null,
@@ -388,6 +390,7 @@ async function calcularSugerenciasCatalogo(params) {
         const m = mergeMap.get(key);
         m.stockActual += p.stockActual; m.stockEfectivo = Math.round((m.stockEfectivo + p.stockEfectivo) * 100) / 100;
         m.stockSucursales = Math.round((m.stockSucursales + p.stockSucursales) * 100) / 100;
+        m.facturacionMensual = Math.round((m.facturacionMensual + p.facturacionMensual) * 100) / 100;
         m.promDiario = Math.round((m.promDiario + p.promDiario) * 100) / 100;
         m.promMes = Math.round((m.promMes + p.promMes) * 10) / 10; m.pendientes += p.pendientes;
         m.cantSugerida += p.cantSugerida; m.granelNecesario += p.granelNecesario;
@@ -429,13 +432,9 @@ async function calcularSugerenciasCatalogo(params) {
       totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo, graneles: granelesGrupo,
       facturacionMensual: facturMensual, presentaciones: presFinal });
   }
-  // Ranking: score = 0.6*facturNorm + 0.4*cantNorm (facturación + cantidad vendida mensual)
-  const maxFact = Math.max(...grupos.map(g => g.facturacionMensual || 0), 1);
-  const maxProm = Math.max(...grupos.map(g => g.totalPromMes || 0), 1);
+  // Prioridad: Σf²/Σf de la facturación mensual de cada presentación (granel/sin presentaciones: la del grupo)
   for (const g of grupos) {
-    const fNorm = (g.facturacionMensual || 0) / maxFact;
-    const cNorm = (g.totalPromMes       || 0) / maxProm;
-    g.rankingScore = Math.round((0.6 * fNorm + 0.4 * cNorm) * 1000) / 1000;
+    g.rankingScore = puntajePrioridad(g.presentaciones.length ? g.presentaciones.map(p => p.facturacionMensual) : [g.facturacionMensual]);
   }
   const byRanking = [...grupos].sort((a, b) => b.rankingScore - a.rankingScore);
   byRanking.forEach((g, i) => { g.rankingPos = i + 1; });
