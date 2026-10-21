@@ -44,7 +44,7 @@ if (typeof module === 'object' && module.exports) module.exports = { resumenCost
 
 // ── DOM ──
 let mdFrEdit = null;     // { plu, insumos: [{ plu, nombre, cantidad }] }: la presentación con el editor de insumos propios abierto
-let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden una vez por carga de página)
+let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden cada vez que se conecta el modal: una máquina nueva aparece)
 
 // La llama cerrarDetalle (precios_comun.js): un borrador sin guardar no sobrevive a cerrar el modal.
 function descartarBorradorFraccMd() { mdFrEdit = null; }
@@ -104,13 +104,11 @@ function conectarCosteoFraccMd() {
   const caja = document.getElementById('mdFr');
   if (!caja) return;
   const granel = encodeURIComponent(mdEsq.fila.plu);
-  if (!mdFrMaquinas) {
-    getJson(API_FR).then(cfg => {
-      mdFrMaquinas = cfg.maquinas.map(({ id, nombre }) => ({ id, nombre }));
-      const sel = document.getElementById('mdFrMaquina');
-      if (sel) sel.innerHTML = opcionesMaquinaMd(mdFrMaquinas, mdEsq.fila.costeoGranel.maquinaId);
-    }).catch(e => { const m = document.getElementById('mdFrMsg'); if (m) { m.className = 'text-sm mt-1 text-crit'; m.textContent = `No se pudieron leer las máquinas: ${e.message}`; } });
-  }
+  getJson(API_FR).then(cfg => {
+    mdFrMaquinas = cfg.maquinas.map(({ id, nombre }) => ({ id, nombre }));
+    const sel = document.getElementById('mdFrMaquina');
+    if (sel) sel.innerHTML = opcionesMaquinaMd(mdFrMaquinas, mdEsq.fila.costeoGranel.maquinaId);
+  }).catch(e => { const m = document.getElementById('mdFrMsg'); if (m) { m.className = 'text-sm mt-1 text-crit'; m.textContent = `No se pudieron leer las máquinas: ${e.message}`; } });
   document.getElementById('mdFrGuardar').onclick = () => guardarCostoEsq(`${API_FR}/granel/${granel}`,
     { facilidad: document.getElementById('mdFrFacilidad').value || null, maquinaId: document.getElementById('mdFrMaquina').value || null }, 'PUT', 'mdFrMsg');
   // Lo tipeado en las cantidades al borrador (antes de repintar o guardar).

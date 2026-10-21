@@ -267,7 +267,7 @@ function htmlMargenesEsq(m, cfg) {
   const conAjuste = esFraccCfg() || !cfg.fraccionadoMigrado;
   const tituloRango = esFraccCfg()
     ? 'Percentiles 5 y 95 de los costos $/kg de los graneles de Fraccionado (consulta SIGA; no guarda)'
-    : 'Percentiles 5 y 95 de los costos de sistema de Reventa y Producción (consulta SIGA; no guarda)';
+    : `Percentiles 5 y 95 de los costos de sistema de Reventa y Producción${cfg.fraccionadoMigrado ? '' : ' y Fraccionado'} (consulta SIGA; no guarda)`;
   return `<section class="mb-6" data-guardable data-nombre="Márgenes">
     <div class="flex items-center gap-3 mb-2 flex-wrap">
       <button type="button" class="esq-rango cfg-btn2" title="${esc(tituloRango)}">Recalcular rango</button>

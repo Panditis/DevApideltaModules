@@ -116,13 +116,21 @@ const ARCHIVOS_FALSOS = {
 };
 
 test('config esquema: Recalcular rango por tipo — Reventa con Producción; Fraccionado sólo el $/kg de sus graneles', async () => {
-  const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const a = appCon(migrarConfigFraccionado(MIGRADO).costeo, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
   try {
-    // Reventa 1000 + Producción 1 kg de harina 330,58 (el granel de 10000 $/kg no entra)
+    // Reventa 1000 + Producción 1 kg de harina 330,58 (el granel de 10000 $/kg no entra: Fraccionado ya tiene su config)
     assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 1000 }, n: 2 });
     // Fraccionado: un solo granel → no alcanza para percentiles
     assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=fraccionado')).error, /suficientes costos/);
     assert.match((await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=x')).error, /tipo inválido/);
+  } finally { a.cerrar(); }
+});
+
+test('config esquema: Recalcular rango con Fraccionado sin migrar junta los tres tipos (usa las tablas de la raíz)', async () => {
+  const a = appCon(MIGRADO, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  try {
+    // Reventa 1000 + Producción 330,58 + el granel de Fraccionado 10000 $/kg
+    assert.deepStrictEqual(await a.pedir('POST', '/api/precios/config/esquema/rango'), { rango: { desde: 330.58, hasta: 10000 }, n: 3 });
   } finally { a.cerrar(); }
 });
 
