@@ -485,3 +485,21 @@ test('config por tipo: PUT ?tipo=fraccionado guarda en costeo.fraccionado y no t
     assert.deepStrictEqual([g.fraccionadoMigrado, g.margenes], [true, CON_FRACC.margenes]);
   } finally { a.cerrar(); }
 });
+
+test('config por tipo: Fraccionado usa sus márgenes; Reventa y Producción siguen con los de la raíz', async () => {
+  const a = appCon(CON_FRACC, { query: sigaFalso, archivos: ARCHIVOS_FALSOS });
+  const precio = async (tipo, plu) => {
+    const f = await a.pedir('GET', `/api/precios/esquema/detalle/${plu}?tipo=${tipo}`);
+    return (f.presentaciones ? f.presentaciones[0] : f).sugeridos.sistema.minorista.precio;
+  };
+  try {
+    const antes = { almacen: await precio('almacen', '1'), fraccionado: await precio('fraccionado', '50'), produccion: await precio('produccion', '6319') };
+    await a.pedir('PUT', '/api/precios/config/esquema/margenes?tipo=fraccionado', { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC });
+    assert.ok(await precio('fraccionado', '50') > antes.fraccionado);
+    assert.strictEqual(await precio('almacen', '1'), antes.almacen);
+    assert.strictEqual(await precio('produccion', '6319'), antes.produccion);
+    await a.pedir('PUT', '/api/precios/config/esquema/precio?tipo=fraccionado', { ivaVentaPct: 21, toleranciaPct: 7, redondeo: RED });
+    assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).toleranciaPct, 7);
+    assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).toleranciaPct, 3);
+  } finally { a.cerrar(); }
+});

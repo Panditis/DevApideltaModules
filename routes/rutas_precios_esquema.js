@@ -80,27 +80,28 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   const TIPOS_LISTADO = cfgEsq.TIPOS;
   const sinConfig = req => !!(req && req.preciosSinConfig === true); // lo marca guardPrecios (server.js)
 
-  // Lo común a los tres listados: config del motor, vigentes (lista 0) y vínculos pack/bulto con sus unidades.
-  async function contexto(costeo) {
+  // Lo común a los tres listados: config del motor del tipo (Fraccionado la suya; Reventa y Producción la raíz), vigentes
+  // (lista 0) y vínculos pack/bulto con sus unidades.
+  async function contexto(costeo, tipo) {
     const pb = costeo.packBulto || {};
     const [vigentes, { vinculos }] = await Promise.all([consultas.preciosVigentesAlmacen(), consultas.vinculosPackBulto(pb.vinculosManuales || {})]);
-    return { cfg: cfgEsq.configEsquemaDe(costeo), vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} }) };
+    return { cfg: cfgEsq.configEsquemaDe(costeo, tipo), vigentes, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes, ventaPesable: pb.ventaPesable || {} }) };
   }
 
   // Filas completas (con desglose) de un tipo. ponytail: el export arma los tres y cada uno repite vigentes y vínculos
   // (dos consultas de más por tipo); compartir el contexto si el export se pone lento.
   async function listado(tipo, costeo) {
     if (tipo === 'almacen') {
-      const [ctx, universo] = await Promise.all([contexto(costeo), consultas.universoAlmacen()]);
+      const [ctx, universo] = await Promise.all([contexto(costeo, tipo), consultas.universoAlmacen()]);
       const excluir = plusVentaProduccion(normalizarDatos(leerJSON(RECETAS_PATH, {})).productos);
       return L.listadoReventa({ universo, costeo, excluir, ...ctx });
     }
     if (tipo === 'fraccionado') {
       const formulas = await formulasVigentes();
-      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo), consultas.universoFraccionado(formulas)]);
+      const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo), consultas.universoFraccionado(formulas)]);
       return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, ...ctx });
     }
-    const [ctx, presentaciones] = await Promise.all([contexto(costeo), presentacionesProduccion(costeo)]);
+    const [ctx, presentaciones] = await Promise.all([contexto(costeo, tipo), presentacionesProduccion(costeo)]);
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
   }
 
@@ -120,7 +121,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
     const costeo = await costeoVigente();
     const filas = await listado(tipo, costeo);
-    const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo);
+    const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo, tipo);
     return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
   }));
 
