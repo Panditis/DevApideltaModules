@@ -4,13 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const bloquesTareas = require('../lib/bloques_tareas');
 const planEnvio = require('../lib/plan_envio');
-const { puntajePrioridad, clasesABC, umbralDeClase, nivelUrgencia, compararUrgencia, calcularCobertura, urgenciaGrupoPorPeso, umbralPesoGrupo } = require('../lib/plan_prioridad');
-const { SUCURSALES_NO_REALES, filtrarSucursalesReales, sqlExcluirSucursales, sqlExcluirCentral } = require('../lib/sucursales_no_reales');
+const { filtrarSucursalesReales, sqlExcluirSucursales } = require('../lib/sucursales_no_reales');
 const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_params');
 
 // ── Rutas de planificación ───────────────────────────────────────────────────
 // Buscador de productos SIGA, recetas locales (formulas.json), responsables,
-// cálculo de sugerencias de producción (terminados y catálogo), consumo/
+// sugerencias de producción del buscador manual (terminados), consumo/
 // pendientes/BOM y packaging de planificación, clientes de registro rápido, y
 // el CRUD de planes del día (ítems, agenda de bloques de tareas, calendario y
 // envío a producción). Extraídas de server.js sin cambios de comportamiento:
@@ -35,24 +34,21 @@ const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_param
 //
 // Lo que SÍ se movió entero porque no tiene uso fuera de este router (confirmado
 // con grep en server.js y en todos los rutas_*.js antes de mover):
-//   · calcularSugerencias y calcularSugerenciasCatalogo, con los sub-helpers que
-//     sólo ellas usan: sqlConsumo, sqlPendientes, sqlBOM (wrapper de
-//     sqlBOMGranel), pesoEnKg, sqlConsumoCatalogo, sqlStockTodosDepositos,
-//     sqlStockSucursales, sqlPendientesPorPlu, sqlFacturacionPorPlu,
-//     sqlBOMPorPlu, RUBRO_MANUAL_EXCLUIDO_RE, PRODUCTO_SAVONA_RE. Las llaman
-//     /api/plan/sugerencias* (antes también /api/plan/:fecha/desde-sugerencias*,
-//     ya eliminadas), que viven acá, así que no hay acoplamiento cruzado.
+//   · calcularSugerencias, con los sub-helpers que sólo ella usa: sqlConsumo,
+//     sqlPendientes, sqlBOM (wrapper de sqlBOMGranel), RUBRO_MANUAL_EXCLUIDO_RE,
+//     PRODUCTO_SAVONA_RE. La llama /api/plan/sugerencias (buscador manual), que
+//     vive acá. El cálculo por catálogo lo reemplazó el
+//     Tablero (rutas_plan_tablero.js, con los SQL builders de lib/plan_sql.js).
 //   · FORMULAS_PATH, RESP_PATH, CLIENTES_PATH, PLANTILLAS_TAREAS_PATH — sin uso
 //     en ningún otro rutas_*.js.
 //   · bloquesTareas (bloques_tareas.js) pasa a requerirse directo acá: sólo lo
 //     usaban las rutas de plantillas-tareas y /api/plan/:fecha/bloques.
 //
 // Lo que se queda en server.js y viaja por deps porque además lo usan otros
-// routers ya extraídos: sqlStockTerminados/sqlStockGranel/sqlStockPorPlu y
-// sucursalesSiga/sucursalPublica (rutas_stock.js, y sqlStockPorPlu también
-// rutas_compras.js), sqlBOMGranel/FORMULA_ACTIVA_SQL/SIN_FORMULA_GENERICO_SQL
-// (rutas_mayoristas.js), buildCatalogoMaps/cfgActivo/cfgGranelPlu/cfgEsGranel/
-// CATALOGO_PATH/GRUPOS_CFG_PATH (rutas_catalogo.js), PROD_REG_PATH
+// routers ya extraídos: sqlStockTerminados/sqlStockGranel y
+// sucursalesSiga/sucursalPublica (rutas_stock.js), sqlBOMGranel/FORMULA_ACTIVA_SQL/
+// SIN_FORMULA_GENERICO_SQL (rutas_mayoristas.js), cfgGranelPlu/GRUPOS_CFG_PATH
+// (rutas_catalogo.js), PROD_REG_PATH
 // (rutas_distribucion.js/rutas_produccion.js/rutas_productividad.js),
 // leerOrdenes/guardarOrdenes (rutas_produccion.js, y leerOrdenes también
 // rutas_productividad.js), safeDate (varios), leerPlanReservas (rutas_stock.js) y tiposPackaging (además
@@ -60,12 +56,12 @@ const { validarDiasObjetivo, resolverDiasObjetivo } = require('../lib/plan_param
 module.exports = function crearRutasPlan(deps) {
   const {
     apiRoute, leerJSON, guardarJSON, query, DATA_DIR,
-    PLANES_PATH, PROD_REG_PATH, CATALOGO_PATH, GRUPOS_CFG_PATH,
+    PLANES_PATH, PROD_REG_PATH, GRUPOS_CFG_PATH,
     safeDate, leerPlanReservas,
     leerOrdenes, guardarOrdenes,
     tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
-    sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
-    buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
+    sqlStockTerminados, sqlStockGranel, sqlBOMGranel,
+    cfgGranelPlu,
     sucursalesSiga, sucursalPublica,
   } = deps;
   const router = express.Router();
@@ -183,315 +179,6 @@ async function calcularSugerencias(params) {
   return out;
 }
 
-function pesoEnKg(presentacion) {
-  const m = String(presentacion).match(/(\d+(?:[.,]\d+)?)\s*(G|g|Kg|kg|KG)\b/);
-  if (!m) return null;
-  return m[2].toLowerCase() === 'g' ? parseFloat(m[1].replace(',', '.')) / 1000 : parseFloat(m[1].replace(',', '.'));
-}
-function sqlConsumoCatalogo(pluList, ventana) {
-  // PromDiario usa días con ventas como denominador (no ventana fija)
-  // Evita que stockouts depriman el promedio: si vendiste 551kg en 20/30 días → 551/20*30 = 826 real
-  return `SELECT vp.IdProducto,
-       SUM(vp.Cantidad) AS UnidVendidas,
-       COUNT(DISTINCT CAST(v.Fecha AS DATE)) AS DiasConVenta,
-       CAST(SUM(vp.Cantidad) AS DECIMAL(18,4))
-         / NULLIF(COUNT(DISTINCT CAST(v.Fecha AS DATE)), 0) AS PromDiarioPorDia
-FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
-  AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
-LEFT  JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT  JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
-WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND ${sqlExcluirSucursales('v.IdSucursal')} AND ${sqlExcluirCentral('v.IdSucursal')}
-  AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
-  AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
-}
-
-function sqlStockTodosDepositos(pluList) {
-  return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
-INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
-INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-WHERE s.SoyLaCentral=1 AND ${sqlExcluirSucursales('pd.IdSucursal')} AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
-}
-function sqlStockSucursales(pluList) {
-  // Stock en sucursales (todas menos Casa Central): SoyLaCentral=0
-  return `SELECT pd.IdProducto, COALESCE(SUM(pd.Stock),0) AS StockActual FROM ProductosDepositos pd
-INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
-INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
-WHERE s.SoyLaCentral=0 AND ${sqlExcluirSucursales('pd.IdSucursal')} AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${pluList.join(',')}) GROUP BY pd.IdProducto`;
-}
-function sqlPendientesPorPlu(pluList) {
-  return `SELECT pp.IdProducto, SUM(pp.CantPendiente) AS UnidPendientes FROM PedidosProductos pp
-INNER JOIN Pedidos ped ON ped.IdSucursal=pp.IdSucursal AND ped.NumeroPedido=pp.NumeroPedido
-WHERE pp.CantPendiente>0 AND ped.FechaPedido >= DATEADD(DAY,-7,CAST(GETDATE() AS DATE))
-  AND ${sqlExcluirSucursales('ped.IdSucursal')}
-  AND pp.IdProducto IN (${pluList.join(',')}) GROUP BY pp.IdProducto`;
-}
-function sqlFacturacionPorPlu(pluList, ventana) {
-  return `SELECT vp.IdProducto, SUM(vp.ImporteTotal) AS TotalFacturado
-FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
-  AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
-LEFT JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
-WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND ${sqlExcluirSucursales('v.IdSucursal')} AND ${sqlExcluirCentral('v.IdSucursal')}
-  AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO' AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'
-  AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
-}
-function sqlBOMPorPlu(pluList, rubrosG) {
-  return sqlBOMGranel(rubrosG, `\n  AND pc.IdProducto IN (${pluList.join(',')})`);
-}
-
-async function calcularSugerenciasCatalogo(params) {
-  const catalogoCompleto = leerJSON(CATALOGO_PATH, []);
-  if (!catalogoCompleto.length) throw new Error('Catálogo vacío. Importar Excel desde planificación.');
-  const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
-  const catalogo  = catalogoCompleto.filter(item => cfgActivo(gruposCfg, item.productoRef));
-  const c = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
-  const ventana = parseInt(params.ventana) || c.ventanaConsumoDias;
-  const diasObj = parseInt(params.diasObjetivo) || resolverDiasObjetivo(leerJSON(PLAN_PARAMS_PATH, {}), c);
-  const incStock = (typeof c.incidenciaStockPlanif === 'number') ? c.incidenciaStockPlanif : 1; // % del stock que cuenta en el sugerido (0.6 = 60%)
-  const rubrosG = c.rubrosGranel.join(',');
-  const { pluToBase, baseMap, refMap } = buildCatalogoMaps(catalogo);
-  const todosLosPlu = catalogo.map(i => String(i.plu));
-  async function queryEnLotes(sqlFn) {
-    const LOTE = 1000;
-    if (todosLosPlu.length <= LOTE) return query(sqlFn(todosLosPlu));
-    const res = [];
-    for (let i = 0; i < todosLosPlu.length; i += LOTE) res.push(...await query(sqlFn(todosLosPlu.slice(i, i + LOTE))));
-    return res;
-  }
-  // PLUs de granel asignados manualmente en grupos_config. Un grupo puede tener más de uno (ej.
-  // Yogurt Batido: 2 graneles previos a fabricar) — se traen todos, no solo el primero.
-  const customGranelPlus = [...new Set(Object.keys(gruposCfg).flatMap(r=>cfgGranelPlus(gruposCfg,r)))];
-  const quotedGP = customGranelPlus.map(p => `'${p}'`).join(',');
-  const [consumoRows, pendientesRows, stockRows, stockTodosRows, stockSucRows, bomRows, granelRows, customGranelNomRows, facturRows] = await Promise.all([
-    queryEnLotes(l => sqlConsumoCatalogo(l, ventana)), queryEnLotes(l => sqlPendientesPorPlu(l)),
-    queryEnLotes(l => sqlStockPorPlu(l)), queryEnLotes(l => sqlStockTodosDepositos(l)),
-    queryEnLotes(l => sqlStockSucursales(l)),
-    queryEnLotes(l => sqlBOMPorPlu(l, rubrosG)), query(sqlStockGranel(rubrosG)),
-    customGranelPlus.length ? query(`SELECT CAST(IdProducto AS VARCHAR) AS IdProducto, NombreProducto FROM Productos WHERE CAST(IdProducto AS VARCHAR) IN (${quotedGP})`) : Promise.resolve([]),
-    queryEnLotes(l => sqlFacturacionPorPlu(l, ventana)),
-  ]);
-  // Por PLU guardamos total vendido y días con venta. El denominador se decide por grupo:
-  // ÷ventana (demanda real) por defecto; ÷días-con-venta solo si el granel del grupo está sin stock (quiebre).
-  const consumoTotalRaw = new Map(consumoRows.map(r => [String(r.IdProducto), parseFloat(r.UnidVendidas) || 0]));
-  const consumoDiasRaw  = new Map(consumoRows.map(r => [String(r.IdProducto), parseInt(r.DiasConVenta) || 0]));
-  const pendRaw    = new Map(pendientesRows.map(r => [String(r.IdProducto), parseFloat(r.UnidPendientes)]));
-  const stockRaw   = new Map(stockRows.map(r => [String(r.IdProducto), parseFloat(r.StockActual)]));
-  const stockTodosRaw = new Map(stockTodosRows.map(r => [String(r.IdProducto), parseFloat(r.StockActual)]));
-  const stockSucRaw   = new Map(stockSucRows.map(r => [String(r.IdProducto), parseFloat(r.StockActual)]));
-  const bomRaw     = new Map();
-  for (const b of bomRows) { const k = String(b.IdProducto); if (!bomRaw.has(k)) bomRaw.set(k, b); }
-  // Stock del granel: se suman todos los depósitos de la central, sin filtrar por nombre de
-  // depósito. El LIKE '%GRANEL%' de sqlStockGranel devuelve siempre 0 (ningún depósito de Siga se
-  // llama así), así que ese valor solo sirve de fallback. El granel ya es un producto propio
-  // ("X DEPOSITO GRANEL"): alcanza con acotar por PLU, igual que fraccionado y pesables.
-  const granelMap  = new Map(granelRows.map(r => [String(r.IdProducto), parseFloat(r.StockGranel)]));
-  const granelPlusUsados = [...new Set([...customGranelPlus, ...bomRows.map(b => String(b.IdProductoComponente))])].filter(p => /^\d+$/.test(p));
-  for (let i = 0; i < granelPlusUsados.length; i += 1000) {
-    const rows = await query(sqlStockTodosDepositos(granelPlusUsados.slice(i, i + 1000)));
-    for (const r of rows) granelMap.set(String(r.IdProducto), parseFloat(r.StockActual) || 0);
-  }
-  const customGranelNomMap = new Map(customGranelNomRows.map(r=>[String(r.IdProducto), r.NombreProducto]));
-  const facturRaw = new Map(facturRows.map(r => [String(r.IdProducto), parseFloat(r.TotalFacturado) || 0]));
-  // Variantes ≤200g de grupos NO enKg (mixes/FS): Cantidad SQL en unidades → convertir a kg
-  const pluMetaMap = new Map(catalogo.map(i => [String(i.plu), i]));
-  const enKgRefIds = new Set([...refMap.entries()].filter(([,ri]) => (c.gruposGranelEnKg||[]).includes(ri.productoRef)).map(([id]) => id));
-  const consumoBaseVentana = new Map(), consumoBasePorDia = new Map();
-  const stockBase = new Map(), stockBaseAll = new Map(), stockSucBase = new Map(), pendBase = new Map(), facturBase = new Map();
-  for (const [plu, base] of pluToBase) {
-    let total = consumoTotalRaw.get(plu) || 0;
-    const dias = consumoDiasRaw.get(plu) || 0;
-    const meta  = pluMetaMap.get(plu);
-    const bInfo = baseMap.get(base);
-    if (meta && meta.esVariante && bInfo && !enKgRefIds.has(bInfo.refId)) {
-      const w = pesoEnKg(meta.presentacion);
-      if (w !== null && w <= 0.2) total = total * w;
-    }
-    const rateVentana = ventana > 0 ? total / ventana : 0;   // demanda real diaria
-    const ratePorDia  = dias    > 0 ? total / dias    : 0;   // intensidad (días que vendió)
-    consumoBaseVentana.set(base, (consumoBaseVentana.get(base) || 0) + rateVentana);
-    consumoBasePorDia.set(base,  (consumoBasePorDia.get(base)  || 0) + ratePorDia);
-    // Stock SOLO de artículos base (sin check de variante). Las variantes no suman stock.
-    const esVar = !!(meta && meta.esVariante);
-    pendBase.set(base,     (pendBase.get(base)     || 0) + (pendRaw.get(plu)         || 0));
-    stockBase.set(base,    (stockBase.get(base)    || 0) + (esVar ? 0 : (stockRaw.get(plu)      || 0)));
-    stockBaseAll.set(base, (stockBaseAll.get(base) || 0) + (esVar ? 0 : (stockTodosRaw.get(plu) || 0)));
-    stockSucBase.set(base, (stockSucBase.get(base) || 0) + (esVar ? 0 : (stockSucRaw.get(plu)   || 0)));
-    facturBase.set(base,   (facturBase.get(base)   || 0) + (facturRaw.get(plu)       || 0));
-  }
-  // Granel del grupo: solo los PLUs cargados a mano en el catálogo (grupos_config.granelPlu/s)
-  // cuentan como "el granel" del grupo (uno o más: Yogurt Batido tiene 2 graneles previos a
-  // fabricar). Sin eso, el grupo no lleva granel y no muestra ningún valor — no hay fallback a la
-  // fórmula (BOM): cualquier componente con stock granel propio calificaba como "el granel" aunque
-  // fuera un saborizante menor (ej. "Canela En Polvo" en Miel Canela, 0.0042 por unidad).
-  function resolverGranelGrupo(refInfo) {
-    return cfgGranelPlus(gruposCfg, refInfo.productoRef).map(id => ({ id, nombre: customGranelNomMap.get(id) || id }));
-  }
-  const grupos = [];
-  for (const [refId, refInfo] of refMap) {
-    // Stock del granel del grupo (se necesita ANTES de calcular consumo para elegir denominador)
-    const esGranelCheck = cfgEsGranel(gruposCfg, refInfo.productoRef, c.gruposGranel);
-    let granelStockGrupo = 0, nombreGranelGrupo = '', granelIdGrupo = '';
-    // Uno o más graneles del grupo (ej. Yogurt Batido: 2 graneles previos a fabricar). Los campos
-    // granelStockGrupo/nombreGranelGrupo/granelIdGrupo de arriba quedan como el primero (compat:
-    // orden/totalSugerido de grupos esGranel y el resto de la UI que espera un solo valor); el
-    // array completo va en granelesGrupo para mostrarlos todos en la columna STOCK GRANEL.
-    let granelesGrupo = [];
-    const granelRefs = resolverGranelGrupo(refInfo);
-    if (granelRefs.length) {
-      // Sin fila de stock del granel → 0 (quiebre real), no el stock de los terminados.
-      granelesGrupo = granelRefs.map(r => ({ id: r.id, nombre: r.nombre, stock: Math.round((granelMap.get(r.id) || 0) * 100) / 100 }));
-      granelIdGrupo     = granelesGrupo[0].id;
-      nombreGranelGrupo = granelesGrupo[0].nombre;
-      granelStockGrupo  = granelesGrupo[0].stock;
-    } else if (esGranelCheck) {
-      let base10 = null;
-      for (const [base, bInfo] of refInfo.bases) { if (/10\s*kg/i.test(base) && bInfo.pluBase) { base10 = base; granelIdGrupo = String(bInfo.pluBase); break; } }
-      if (base10) {
-        granelStockGrupo = stockBaseAll.get(base10) || 0; nombreGranelGrupo = base10;
-        granelesGrupo = [{ id: granelIdGrupo, nombre: nombreGranelGrupo, stock: granelStockGrupo }];
-      }
-    } else {
-      // Sin granelPlu en el catálogo y sin componente granel en la fórmula (BOM) de ninguna base: el
-      // grupo no lleva granel (ej. Miel Canela). null → "—" en la columna, en vez de reusar el stock
-      // de los terminados como si fuera stock granel (bug histórico: confundía "hay stock" con "no
-      // lleva granel").
-      granelStockGrupo = null;
-    }
-    // Denominador: ÷ventana (demanda real) salvo que el producto esté sin stock → ÷días-con-venta (quiebre de stock)
-    const usarPorDia = granelStockGrupo <= 0;
-    const consumoBaseUse = usarPorDia ? consumoBasePorDia : consumoBaseVentana;
-    const presentaciones = [];
-    for (const [base, bInfo] of refInfo.bases) {
-      if (!bInfo.pluBase) continue; // solo mostrar productos base (esVariante=false)
-      const pluBase = bInfo.pluBase;
-      const prom = consumoBaseUse.get(base) || 0, pend = pendBase.get(base) || 0, stock = stockBase.get(base) || 0;
-      const stockSucursales = Math.round((stockSucBase.get(base) || 0) * 100) / 100; // stock en sucursales (no central)
-      const ventasVentana = Math.round((consumoBaseVentana.get(base) || 0) * ventana * 100) / 100; // total vendido en la ventana (misma base que ventaDiariaUrg)
-      const ventaDiariaUrg = Math.round((consumoBaseVentana.get(base) || 0) * 10000) / 10000; // venta de la ventana ÷ ventana: solo para la cobertura/urgencia (promDiario puede ir ÷días-con-venta)
-      const stockEfectivo = Math.round(stock * incStock * 100) / 100; // stock que cuenta en el sugerido (incidencia config)
-      const bom = pluBase ? bomRaw.get(pluBase) : null;
-      const customGPlu = cfgGranelPlu(gruposCfg, refInfo.productoRef);
-      const idGranel   = bom ? String(bom.IdProductoComponente) : customGPlu;
-      const nomGranel  = bom ? bom.NombreComponente : (customGPlu ? (customGranelNomMap.get(customGPlu)||customGPlu) : '');
-      const cantPU     = bom ? parseFloat(bom.CantPorUnidad || 0) : 0;
-      let diasStock  = prom > 0 ? stock / prom : (stock > 0 ? Infinity : 0);
-      const semaforo = diasStock < c.umbralRojo ? 'RED' : diasStock < c.umbralAmarillo ? 'YELLOW' : 'GREEN';
-      let cantSugerida = 0;
-      if (diasStock < c.minDiasParaSugerir || pend > 0) cantSugerida = Math.max(0, Math.ceil((prom * diasObj) - stockEfectivo + pend));
-      const granelNec = Math.round(cantSugerida * cantPU * 100) / 100;
-      const granelDisp = idGranel ? (granelMap.get(idGranel) || 0) : null;
-      const granelOk  = granelNec === 0 || granelDisp === null || granelDisp >= granelNec;
-      const facturacionMensual = Math.round((facturBase.get(base) || 0) * (30 / ventana) * 100) / 100; // facturación mensual de la presentación (base + variantes)
-      const urgenciaScore = (isFinite(diasStock) ? -diasStock : 0) + (pend / Math.max(prom, 0.001))
-                      + (semaforo === 'RED' ? 1000 : semaforo === 'YELLOW' ? 100 : 0) + (!granelOk ? 50 : 0);
-      presentaciones.push({ plu: pluBase, plus: [pluBase], baseNombre: base, presentacion: bInfo.presentacion,
-        stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, ventasVentana, ventaDiariaUrg, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
-        diasStock: isFinite(diasStock) ? Math.round(diasStock * 10) / 10 : 9999,
-        semaforo, pendientes: pend, cantSugerida, idGranel, nombreGranel: nomGranel, cantPorUnidad: cantPU,
-        granelNecesario: granelNec, granelDisponible: granelDisp !== null ? Math.round(granelDisp * 100) / 100 : null,
-        granelOk, urgenciaScore });
-    }
-    if (!presentaciones.length) continue;
-    const mergeMap = new Map();
-    for (const p of presentaciones) {
-      const key = p.presentacion;
-      if (!mergeMap.has(key)) { mergeMap.set(key, { ...p, plus: [...p.plus] }); } else {
-        const m = mergeMap.get(key);
-        m.plus.push(...p.plus); // plu = el de la primera base; plus = todos los fusionados (el stock se suma sobre todos)
-        m.stockActual += p.stockActual; m.stockEfectivo = Math.round((m.stockEfectivo + p.stockEfectivo) * 100) / 100;
-        m.stockSucursales = Math.round((m.stockSucursales + p.stockSucursales) * 100) / 100;
-        m.facturacionMensual = Math.round((m.facturacionMensual + p.facturacionMensual) * 100) / 100;
-        m.ventaDiariaUrg += p.ventaDiariaUrg; m.ventasVentana = Math.round((m.ventasVentana + p.ventasVentana) * 100) / 100;
-        m.promDiario = Math.round((m.promDiario + p.promDiario) * 100) / 100;
-        m.promMes = Math.round((m.promMes + p.promMes) * 10) / 10; m.pendientes += p.pendientes;
-        m.cantSugerida += p.cantSugerida; m.granelNecesario += p.granelNecesario;
-        const ds = m.promDiario > 0 ? m.stockActual / m.promDiario : (m.stockActual > 0 ? Infinity : 0);
-        m.diasStock = isFinite(ds) ? Math.round(ds * 10) / 10 : 9999;
-        m.semaforo = (m.semaforo === 'RED' || p.semaforo === 'RED') ? 'RED' : (m.semaforo === 'YELLOW' || p.semaforo === 'YELLOW') ? 'YELLOW' : 'GREEN';
-        m.granelOk = m.granelOk && p.granelOk; m.urgenciaScore = Math.max(m.urgenciaScore, p.urgenciaScore);
-      }
-    }
-    const presFinal = [...mergeMap.values()].sort((a, b) => a.presentacion.localeCompare(b.presentacion));
-    const presConDemanda = presFinal.filter(p => p.promDiario > 0 || p.pendientes > 0);
-    if (!presFinal.length) continue; // sin presentaciones reales → saltar
-    const presRef = presConDemanda.length ? presConDemanda : presFinal;
-    const semaforoGrupo = presRef.some(p => p.semaforo === 'RED') ? 'RED' : presRef.some(p => p.semaforo === 'YELLOW') ? 'YELLOW' : 'GREEN';
-    const urgenciaGrupo = presConDemanda.length ? Math.max(...presConDemanda.map(p => p.urgenciaScore)) : 0;
-    const esGranel = esGranelCheck;
-    if (esGranel) {
-      const enKg = (c.gruposGranelEnKg || []).includes(refInfo.productoRef);
-      let totalPromMes, totalPend;
-      // Toda Cantidad en SQL está en kg (corregido en aggregación para pack/bulto ≤200g)
-      totalPromMes = Math.round(presRef.reduce((s, p) => s + p.promMes, 0) * 10) / 10;
-      totalPend    = Math.round(presRef.reduce((s, p) => s + p.pendientes, 0) * 100) / 100;
-      const promDiarioTotal = totalPromMes / 30;
-      const totalSugerido   = Math.max(0, Math.ceil((promDiarioTotal * diasObj) - granelStockGrupo + totalPend));
-      const facturGrupoG = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
-      const facturMensualG = Math.round(facturGrupoG * (30 / ventana) * 100) / 100;
-      const stockSucGrupo = Math.round([...refInfo.bases.keys()].reduce((s, base) => s + (stockSucBase.get(base) || 0), 0) * 100) / 100;
-      const plusGrupo = [...refInfo.bases.values()].map(b => b.pluBase).filter(Boolean).map(String);
-      const ventaDiariaUrgG = Math.round(presFinal.reduce((s, p) => s + p.ventaDiariaUrg, 0) * 10000) / 10000;
-      const ventasVentanaG = Math.round(presFinal.reduce((s, p) => s + p.ventasVentana, 0) * 100) / 100;
-      grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
-        totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
-        plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
-        facturacionMensual: facturMensualG, presentaciones: [] });
-      continue;
-    }
-    const totalSugerido = presFinal.reduce((s, p) => s + p.cantSugerida, 0);
-    const facturGrupo  = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
-    const facturMensual = Math.round(facturGrupo * (30 / ventana) * 100) / 100;
-    grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
-      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo, graneles: granelesGrupo,
-      facturacionMensual: facturMensual, presentaciones: presFinal });
-  }
-  // Prioridad: Σf²/Σf de la facturación mensual de cada presentación (granel/sin presentaciones: la del grupo)
-  for (const g of grupos) {
-    g.rankingScore = puntajePrioridad(g.presentaciones.length ? g.presentaciones.map(p => p.facturacionMensual) : [g.facturacionMensual]);
-  }
-  const byRanking = [...grupos].sort((a, b) => b.rankingScore - a.rankingScore);
-  byRanking.forEach((g, i) => { g.rankingPos = i + 1; });
-  // Urgencia de producción: cobertura = (stock central + stock sucursales) / venta diaria de la red, con
-  // la venta de la ventana ÷ ventana (ventaDiariaUrg; no toca promDiario ni el sugerido). El umbral
-  // depende de la clase ABC del grupo (config urgenciaDias). Sin materia prima: eso se revisa en el
-  // resumen de insumos al enviar. Grupo granel (sin presentaciones): stock = granel central + sucursales.
-  const clases = clasesABC(grupos.map(g => g.rankingScore));
-  const redondear1 = n => Math.round(n * 10) / 10;
-  const umbralPeso = umbralPesoGrupo(c.urgenciaPesoGrupo); // config urgenciaPesoGrupo (0 < x <= 1), default 0.20
-  grupos.forEach((g, i) => {
-    g.claseABC = clases[i];
-    g.ventanaDias = ventana;                                  // para explicar el cálculo en el Resumen
-    g.umbralUrgencia = umbralDeClase(g.claseABC, c.urgenciaDias);
-    g.sucursalesExcluidas = SUCURSALES_NO_REALES;
-    g.excluyeCentral = true; // las ventas de Casa Central no cuentan en este análisis (ver sqlExcluirCentral)
-    for (const p of g.presentaciones) {
-      const cobertura = calcularCobertura((p.stockActual || 0) + (p.stockSucursales || 0), p.ventaDiariaUrg);
-      p.coberturaDias = cobertura === null ? null : redondear1(cobertura);
-      p.urgencia = nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
-    }
-    g.presentaciones.sort(compararUrgencia);
-    if (g.presentaciones.length) {
-      const coberturas = g.presentaciones.map(p => p.coberturaDias).filter(x => x !== null);
-      g.coberturaDias = coberturas.length ? Math.min(...coberturas) : null;
-      // El grupo es tan urgente como lo que pesan, en facturación, sus presentaciones urgentes (ver lib).
-      const peso = urgenciaGrupoPorPeso(g.presentaciones, umbralPeso);
-      g.urgencia = peso.urgencia;
-      g.pesoUrgente = peso.pesoUrgente;
-      g.pesoUrgentePronto = peso.pesoUrgentePronto;
-      g.umbralPeso = umbralPeso;
-    } else {
-      const cobertura = calcularCobertura((g.granelStockGrupo || 0) + (g.stockSucGrupo || 0), g.ventaDiariaUrg);
-      g.coberturaDias = cobertura === null ? null : redondear1(cobertura);
-      g.urgencia = nivelUrgencia(cobertura, g.claseABC, c.urgenciaDias);
-    }
-  });
-  grupos.sort(compararUrgencia);
-  let out = grupos;
-  if (params.soloRojos === '1') out = out.filter(g => g.semaforo === 'RED');
-  if (params.q) { const q = String(params.q).toLowerCase(); out = out.filter(g => g.productoRef.toLowerCase().includes(q) || g.presentaciones.some(p => p.baseNombre.toLowerCase().includes(q))); }
-  return out;
-}
-
 router.get('/api/siga/buscar', apiRoute(async req => {
   const q = (req.query.q || '').trim().replace(/'/g, "''");
   if (q.length < 2) return [];
@@ -528,8 +215,7 @@ router.get('/api/plan/stock-detalle', apiRoute(async req => {
   ]);
   const nomMap = new Map(nombres.map(r => [String(r.IdProducto), r.NombreProducto]));
   const sucursales = filtrarSucursalesReales(sucs).map(sucursalPublica);
-  // Granel: mismo criterio que granelMap en calcularSugerenciasCatalogo (sqlStockTodosDepositos) —
-  // por PLU en todos los depósitos de la central, sin filtrar por nombre de depósito (el LIKE
+  // Granel: por PLU en todos los depósitos de la central, sin filtrar por nombre de depósito (el LIKE
   // '%GRANEL%' devuelve otra cosa: ningún depósito de Siga se llama así). Antes este endpoint usaba
   // el filtro viejo y el total del modal "detalle de stock" no coincidía con el de la tabla.
   const stockPorSuc = async (ids, soloGranel) => ids.length ? query(`
@@ -568,7 +254,6 @@ router.get('/api/bom/producto/:plu', apiRoute(async req => {
     ORDER BY p.NombreProducto`);
 }));
 router.get('/api/plan/sugerencias',        apiRoute(async req => calcularSugerencias(req.query)));
-router.get('/api/plan/sugerencias-grupos', apiRoute(async req => calcularSugerenciasCatalogo(req.query)));
 // Parámetros compartidos (todos los usuarios ven y usan el mismo). Va antes de /api/plan/:fecha.
 const configPlan = () => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
 router.get('/api/plan/params', (_req, res) => {

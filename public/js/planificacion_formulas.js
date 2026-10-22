@@ -152,20 +152,17 @@ function mpQuitarManual(i) {
   cargarBOM();
 }
 
-function parsePeso(str) {
-  if (!str) return 0;
-  const m = str.toUpperCase().match(/(\d+(?:[.,]\d+)?)\s*(KG|G|L|ML)/);
-  if (!m) return 0;
-  let v = parseFloat(m[1].replace(',','.'));
-  if (m[2]==='G'||m[2]==='ML') v /= 1000;
-  return v;
-}
+// Sugerencias del buscador de componentes: la presentación de más kg de cada producto del Tablero.
 function buildDefaultMPList() {
+  const t = tablero || { filas: [], fason: [] };
+  const productos = [...t.filas.flatMap(f => (f.nivel === 'granel' ? f.variedades : [f])), ...t.fason.flatMap(c => c.filas)];
+  const vistos = new Set();
   const res = [];
-  for (const g of (gruposCache||[])) {
-    if (!g.presentaciones?.length) continue;
-    const best = g.presentaciones.reduce((a,b) => parsePeso(b.presentacion) > parsePeso(a.presentacion) ? b : a);
-    if (best.plu) res.push({ plu: best.plu, nombre: best.baseNombre || g.productoRef });
+  for (const g of productos) {
+    if (vistos.has(g.productoRef) || !g.presentaciones.length) continue;
+    vistos.add(g.productoRef);
+    const best = g.presentaciones.reduce((a, b) => (b.pesoKg > a.pesoKg ? b : a));
+    res.push({ plu: best.plu, nombre: best.nombre || g.productoRef });
   }
   return res;
 }

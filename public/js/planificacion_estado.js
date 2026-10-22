@@ -288,6 +288,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'tablero' && !tablero) cargarTablero(); // ya cargado: se refresca con Recargar
     if (btn.dataset.tab === 'plan')       { cargarEnvasesReg(); cargarClientesReg(); cargarTapasReg(); seleccionarDia(fechaPlanActual || HOY); }
     if (btn.dataset.tab === 'agenda')     cargarAgenda();
     if (btn.dataset.tab === 'calendario') cargarCalendario(calMesActual + '-01');
