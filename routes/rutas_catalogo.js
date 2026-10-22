@@ -71,31 +71,6 @@ router.get('/api/catalogo/grupos', (_req, res) => {
   res.json(grupos);
 });
 
-router.post('/api/catalogo/grupos-config', (req, res) => {
-  const cfg = req.body;
-  if (typeof cfg !== 'object' || Array.isArray(cfg))
-    return res.status(400).json({ error: 'Se esperaba un objeto' });
-  // Normalizar: si un entry es {activo:true, granelPlu:''} → true (compactar)
-  const normalizado = {};
-  for (const [k,v] of Object.entries(cfg)) {
-    if (v && typeof v === 'object') {
-      const a = v.activo !== false;
-      // Lista de graneles; granelPlu se mantiene sincronizado con el primero.
-      const gl = [...new Set((Array.isArray(v.granelPlus) ? v.granelPlus : [])
-        .map(x => String(x || '').trim()).filter(Boolean))];
-      const g = gl[0] || String(v.granelPlu||'').trim();
-      const mp = Array.isArray(v.mpManual) ? v.mpManual.filter(x => x && x.nombre) : [];
-      const gd = (typeof v.granelDirecto === 'boolean') ? v.granelDirecto : undefined;
-      const em = (typeof v.esMiel === 'boolean') ? v.esMiel : undefined;
-      const rg = (v.reqGranel === true) ? true : undefined;
-      if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined) { normalizado[k] = a; }
-      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{})}; }
-    } else { normalizado[k] = v; }
-  }
-  guardarJSON(GRUPOS_CFG_PATH, normalizado);
-  res.json({ ok: true });
-});
-
 router.get('/api/catalogo/grupo/:ref', (req, res) => {
   const ref      = req.params.ref;
   const catalogo = leerJSON(CATALOGO_PATH, []);

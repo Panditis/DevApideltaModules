@@ -597,6 +597,12 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 .urg-nota{font-size:13px;margin:0 0 10px;line-height:1.5}
 .urg-nota.text-sm{margin:10px 0 0}
 #carritoBadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--md-primary);color:#fff;font-size:11px;text-align:center}
+.cat-fila { display:grid; grid-template-columns: 2.2fr 1.2fr 1.4fr 1.1fr 1.4fr 1fr 1.5fr .9fr .6fr auto; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--md-outline-variant); font-size:13px; }
+.cat-fila.cat-cab { font-size:11px; color:var(--muted); font-weight:600; border-bottom:2px solid var(--md-outline-variant); }
+.cat-fila.inactivo { opacity:.55; }
+.cat-fila select, .cat-fila input[type=text], .cat-fila input[type=date] { width:100%; font-size:12px; }
+.cat-fila details.resp-picker summary { cursor:pointer; font-size:12px; }
+.cat-fila details.resp-picker label { display:block; font-size:12px; padding:2px 0; }
 </style>
 <!-- Módulo puro de cálculo de bloques: va ANTES del script principal, que lo lee como window.BloquesTareas -->
 <script src="/bloques_tareas.js"></script>
@@ -1240,44 +1246,37 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 <!-- TAB 4: CATÁLOGO -->
 <div class="tab-panel" id="tab-catalogo">
   <div class="filter-bar">
-    <label>Buscar grupo:</label>
-    <input type="text" id="filtroCatalogo" placeholder="nombre…" style="width:200px">
+    <label>Buscar:</label>
+    <input type="text" id="filtroCatalogo" placeholder="producto o granel…" style="width:200px">
+    <span class="sep"></span>
+    <span id="catChips">
+      <button class="btn btn-primary btn-sm" data-filtro="todos">Todos</button>
+      <button class="btn btn-secondary btn-sm" data-filtro="graneles">Graneles base</button>
+      <button class="btn btn-secondary btn-sm" data-filtro="granel">Con granel</button>
+      <button class="btn btn-secondary btn-sm" data-filtro="directo">Directos</button>
+      <button class="btn btn-secondary btn-sm" data-filtro="fason">Fasón</button>
+    </span>
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="catVerDiscontinuados"> Ver discontinuados</label>
     <span class="sep"></span>
     <label class="btn btn-secondary btn-sm" id="btnImportarCatalogoTab" title="Actualizar catálogo desde Excel" style="cursor:pointer">
       📥 Actualizar catálogo
       <input type="file" id="inputCatalogoTab" accept=".xlsx" style="display:none">
     </label>
     <button class="btn btn-secondary btn-sm" id="btnRecargarCatalogo">Recargar</button>
-    <button class="btn btn-primary btn-sm" id="btnNuevoGrupo">➕ Nuevo grupo</button>
+    <button class="btn btn-primary btn-sm" id="btnNuevoGrupo">➕ Producto</button>
+    <button class="btn btn-primary btn-sm" id="btnNuevaVariedadMiel">➕ Variedad de miel</button>
+    <button class="btn btn-primary btn-sm" id="btnNuevoGranelBase">➕ Granel base</button>
   </div>
 
   <div class="metrics-row" style="grid-template-columns:repeat(3,1fr)">
-    <div class="metric-card"><div class="m-val" id="cTotalGrupos">—</div><div class="m-lbl">Grupos totales</div></div>
-    <div class="metric-card"><div class="m-val" id="cActivosGrupos" style="color:var(--verde)">—</div><div class="m-lbl">Grupos activos</div></div>
+    <div class="metric-card"><div class="m-val" id="cTotalGrupos">—</div><div class="m-lbl">Productos</div></div>
+    <div class="metric-card"><div class="m-val" id="cActivosGrupos" style="color:var(--verde)">—</div><div class="m-lbl">Activos</div></div>
     <div class="metric-card"><div class="m-val" id="cTotalPlu">—</div><div class="m-lbl">PLUs en catálogo</div></div>
   </div>
 
-  <!-- Mieles -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-header">
-      Variedades de Miel
-      <span class="spacer"></span>
-      <button class="btn btn-primary btn-sm" id="btnNuevaVariedadMiel" style="font-size:11px">+ Agregar variedad</button>
-      <button class="btn btn-secondary btn-sm" id="btnActivarTodasMieles" style="font-size:11px;margin-left:4px">Activar todas</button>
-      <button class="btn btn-secondary btn-sm" id="btnDesactivarTodasMieles" style="font-size:11px;margin-left:4px">Desactivar todas</button>
-    </div>
-    <div id="tablaMieles"></div>
-  </div>
-
-  <!-- Resto de grupos -->
   <div class="card">
-    <div class="card-header">
-      Otros grupos
-      <span class="spacer"></span>
-      <button class="btn btn-secondary btn-sm" id="btnActivarTodos" style="font-size:11px">Activar todos</button>
-      <button class="btn btn-secondary btn-sm" id="btnDesactivarTodos" style="font-size:11px;margin-left:4px">Desactivar todos</button>
-    </div>
-    <div id="tablaOtros"></div>
+    <div class="card-header">Catálogo de producción</div>
+    <div id="tablaCatalogo"></div>
   </div>
 </div>
 

@@ -278,39 +278,33 @@ async function guardarGrupo() {
   }
 
   // Grupo nuevo: decidir si es variedad de miel (sección Mieles + tambor).
+  let esMielNuevo;
   if (editarGrupoEsNuevo) {
     if (nuevoGrupoEsMiel) {
-      cfgSetEsMiel(editarGrupoRef, true);               // vino del botón "Agregar variedad"
+      esMielNuevo = true;                               // vino del botón "Agregar variedad"
     } else if (/miel/i.test(editarGrupoRef)) {
       const llevar = await preguntarSeccionMiel(editarGrupoRef); // grupo general con "miel" → preguntar
-      cfgSetEsMiel(editarGrupoRef, !!llevar);
+      esMielNuevo = !!llevar;
     }
   }
 
   const btn = document.getElementById('btnGuardarGrupo');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    const _gPlus = granelesData.map(g => g.plu);
+    const _gPlus = granelesData.map(g => String(g.plu));
     const _gPlu  = _gPlus[0] || '';
-    cfgSetGranelPlus(editarGrupoRef, _gPlus);
-    // Persist mpManual into cfg entry (preserves activo + granelPlu already set above)
-    const _cfgEntry = gruposCfgLocal[editarGrupoRef];
-    if (mpManualData.length > 0) {
-      if (_cfgEntry && typeof _cfgEntry === 'object') { _cfgEntry.mpManual = mpManualData; }
-      else { gruposCfgLocal[editarGrupoRef] = { activo: _cfgEntry !== false, mpManual: mpManualData }; }
-    } else if (_cfgEntry && typeof _cfgEntry === 'object') {
-      delete _cfgEntry.mpManual;
-    }
+    // Primero el grupo (el PATCH de meta exige que exista en catalogo.json), después su config.
+    await api('PUT', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}`, items);
     await Promise.all([
-      api('PUT', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}`, items),
-      guardarGruposCfg(),
-      guardarFormulasGrupo()
+      api('PATCH', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}/meta`,
+        { granelPlus: _gPlus, mpManual: mpManualData, ...(esMielNuevo !== undefined ? { esMiel: esMielNuevo } : {}) }),
+      guardarFormulasGrupo(),
     ]);
     toast(`✓ "${editarGrupoRef}" — ${items.length} PLUs${_gPlu ? ' · Granel PLU '+_gPlu : ''}`);
     document.getElementById('overlayEditarGrupo').classList.remove('open');
     cargarCatalogo();
   } catch (e) {
-    toast('Error al guardar: ' + e.message, true);
+    toast('Error al guardar: ' + mensajeApiError(e), true);
   } finally {
     btn.disabled = false; btn.textContent = 'Guardar cambios';
   }
@@ -475,143 +469,179 @@ function cfgRawEsMiel(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='obj
 function cfgGetEsMiel(ref){const o=cfgRawEsMiel(ref);if(o!==null)return o;return /^miel\b/i.test((ref||'').trim());}
 // El grupo se planifica por presentaciones, pero antes hay que fabricar el granel (pepas → masa).
 function cfgGetReqGranel(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.reqGranel===true);}
-function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel;return extra?obj:activo;}
-// Setter genérico: parte de la config actual del grupo y aplica solo los campos del patch.
-function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),...patch});}
-function cfgSetActivo(ref,a){cfgSet(ref,{activo:a});}
-function cfgSetGranelPlus(ref,plus){cfgSet(ref,{granelPlus:plus});}
-function cfgSetGranelDirecto(ref,val){cfgSet(ref,{granelDirecto:val});}
-function cfgSetEsMiel(ref,val){cfgSet(ref,{esMiel:val});}
-function cfgSetReqGranel(ref,val){cfgSet(ref,{reqGranel:val});}
+
+// ── CATÁLOGO DE PRODUCCIÓN (spec 2026-10-22-planificacion-centro §2) ──────
+// Cada cambio de campo se guarda solo con PATCH (grupo: /api/catalogo/grupo/:ref/meta; granel:
+// /api/plan/graneles-base/:plu). Si falla, se avisa y la fila vuelve al valor guardado.
+let granelesBaseCache = [];
+let clientesCatCache = [];
+let catFiltro = 'todos';
+
+function cfgLocalDesdeGrupos(grupos) {
+  const out = {};
+  for (const g of grupos) {
+    const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
+    out[g.productoRef] = {
+      activo: g.activo, ...(gl[0] ? { granelPlu: gl[0] } : {}), ...(gl.length > 1 ? { granelPlus: gl } : {}),
+      ...(Array.isArray(g.mpManual) && g.mpManual.length ? { mpManual: g.mpManual } : {}),
+      ...(typeof g.granelDirecto === 'boolean' ? { granelDirecto: g.granelDirecto } : {}),
+      ...(typeof g.esMiel === 'boolean' ? { esMiel: g.esMiel } : {}),
+      ...(g.reqGranel === true ? { reqGranel: true } : {}),
+    };
+  }
+  return out;
+}
 
 async function cargarCatalogo() {
   try {
-    gruposCatCache = await api('GET', '/api/catalogo/grupos');
-    gruposCfgLocal = {};
-    for (const g of gruposCatCache) {
-      const gp = g.granelPlu || '';
-      const mp = Array.isArray(g.mpManual) ? g.mpManual : [];
-      const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
-      const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
-      const rg = g.reqGranel === true;
-      const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
-      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
-        : g.activo;
-    }
+    const [grupos, graneles, clientes] = await Promise.all([
+      api('GET', '/api/catalogo/grupos'), api('GET', '/api/plan/graneles-base'), api('GET', '/api/clientes-registro'),
+    ]);
+    gruposCatCache = grupos;
+    granelesBaseCache = graneles;
+    clientesCatCache = clientes;
+    gruposCfgLocal = cfgLocalDesdeGrupos(grupos);
     renderCatalogo();
   } catch (e) {
-    toast('Error al cargar catálogo: ' + e.message, true);
+    toast('Error al cargar catálogo: ' + mensajeApiError(e), true);
   }
 }
 
+const opcionesHTML = (pares, valor) => pares.map(([v, t]) => `<option value="${escHtml(v)}" ${String(v) === String(valor ?? '') ? 'selected' : ''}>${escHtml(t)}</option>`).join('');
+const ESTADOS_CAT = [['activo', 'Activo'], ['pausado', 'Pausado'], ['discontinuado', 'Discontinuado']];
+
+function respPickerHTML(sel) {
+  const nombres = (responsablesCache || []).map(respNombre).filter(Boolean);
+  const elegidos = sel || [];
+  return `<details class="resp-picker"><summary>${elegidos.length ? elegidos.map(escHtml).join(', ') : 'Sin responsables'}</summary>
+    ${nombres.map(n => `<label><input type="checkbox" data-campo="responsables" value="${escHtml(n)}" ${elegidos.includes(n) ? 'checked' : ''}> ${escHtml(n)}</label>`).join('')}</details>`;
+}
+
+const celdaMotivo = x => (x.estado === 'pausado'
+  ? `<input type="text" data-campo="motivo" value="${escHtml(x.motivo)}" placeholder="Motivo de la pausa">` : '<span></span>');
+
+function filaGrupoHTML(g) {
+  const gl = g.granelPlus || [];
+  const granel = gl.length > 1
+    ? `<span title="Varios graneles: se editan en Editar">🛢 ${escHtml(gl.join(', '))}</span>`
+    : `<select data-campo="granel" title="Granel base (obligatorio si es con granel; opcional en directos, para ver el stock de MP)">
+        ${opcionesHTML([['', '— sin granel —'], ...granelesBaseCache.map(b => [b.plu, b.nombre])], gl[0] || '')}</select>`;
+  return `<div class="cat-fila${g.estado === 'activo' ? '' : ' inactivo'}" data-ref="${escHtml(g.productoRef)}">
+    <span>${escHtml(g.productoRef)}</span>
+    <select data-campo="tipo">${opcionesHTML([['granel', 'Con granel base'], ['directo', 'Directo']], g.tipo)}</select>
+    ${granel}
+    <select data-campo="estado">${opcionesHTML(ESTADOS_CAT, g.estado)}</select>
+    ${celdaMotivo(g)}
+    <select data-campo="clienteId">${opcionesHTML([['', 'Propio'], ...clientesCatCache.map(c => [c.id, c.nombre])], g.clienteId ?? '')}</select>
+    ${respPickerHTML(g.responsables)}
+    <input type="date" data-campo="proximaFecha" value="${escHtml(g.proximaFecha || '')}">
+    <span style="font-size:11px;color:var(--muted)">${g.presentaciones} pres.</span>
+    <button class="btn btn-secondary btn-sm" data-accion="editar">Editar</button>
+  </div>`;
+}
+
+function filaGranelBaseHTML(b) {
+  return `<div class="cat-fila${b.estado === 'activo' ? '' : ' inactivo'}" data-granel="${escHtml(b.plu)}">
+    <input type="text" data-campo="nombre" value="${escHtml(b.nombre)}" title="PLU ${escHtml(b.plu)}">
+    <span style="font-size:12px">🛢 Granel base · PLU ${escHtml(b.plu)}</span>
+    <span style="font-size:12px;color:var(--muted)" title="Variedades que alimenta">${b.variedades.length ? escHtml(b.variedades.join(', ')) : 'sin variedades'}</span>
+    <select data-campo="estado">${opcionesHTML(ESTADOS_CAT, b.estado)}</select>
+    ${celdaMotivo(b)}
+    <span></span>
+    ${respPickerHTML(b.responsables)}
+    <input type="date" data-campo="proximaFecha" value="${escHtml(b.proximaFecha || '')}">
+    <span></span><span></span>
+  </div>`;
+}
+
+const CAB_CATALOGO = `<div class="cat-fila cat-cab"><span>Producto</span><span>Tipo</span><span>Granel</span><span>Estado</span><span>Motivo</span>
+  <span>Cliente</span><span>Responsables</span><span>Próx. producción</span><span></span><span></span></div>`;
+
 function renderCatalogo() {
   const q = document.getElementById('filtroCatalogo').value.trim().toLowerCase();
-  const filtrado = q
-    ? gruposCatCache.filter(g => g.productoRef.toLowerCase().includes(q))
-    : gruposCatCache;
-
-  const mieles = filtrado.filter(g => cfgGetEsMiel(g.productoRef));
-  const otros  = filtrado.filter(g => !cfgGetEsMiel(g.productoRef));
-
-  const activos   = gruposCatCache.filter(g => cfgGetActivo(g.productoRef)).length;
-  const totalPlu  = gruposCatCache.reduce((s, g) => s + g.totalPlu, 0);
-  document.getElementById('cTotalGrupos').textContent  = gruposCatCache.length;
-  document.getElementById('cActivosGrupos').textContent = activos;
-  document.getElementById('cTotalPlu').textContent      = totalPlu;
-
-  document.getElementById('tablaMieles').innerHTML = renderGrupoRows(mieles) || '<div class="loading">Sin variedades de miel en el catálogo.</div>';
-  document.getElementById('tablaOtros').innerHTML  = renderGrupoRows(otros)  || '<div class="loading">Sin grupos.</div>';
+  const verDisc = document.getElementById('catVerDiscontinuados').checked;
+  const visible = x => (verDisc || x.estado !== 'discontinuado');
+  const texto = s => !q || String(s || '').toLowerCase().includes(q);
+  const grupos = gruposCatCache.filter(g => visible(g) && texto(g.productoRef) && (
+    catFiltro === 'todos' || (catFiltro === 'fason' ? g.clienteId != null : (catFiltro === g.tipo && g.clienteId == null))));
+  const graneles = (catFiltro === 'todos' || catFiltro === 'graneles') ? granelesBaseCache.filter(b => visible(b) && texto(b.nombre)) : [];
+  document.getElementById('cTotalGrupos').textContent = gruposCatCache.length;
+  document.getElementById('cActivosGrupos').textContent = gruposCatCache.filter(g => g.estado === 'activo').length;
+  document.getElementById('cTotalPlu').textContent = gruposCatCache.reduce((s, g) => s + g.totalPlu, 0);
+  document.querySelectorAll('#catChips [data-filtro]').forEach(b => {
+    b.classList.toggle('btn-primary', b.dataset.filtro === catFiltro);
+    b.classList.toggle('btn-secondary', b.dataset.filtro !== catFiltro);
+  });
+  const filas = [...graneles.map(filaGranelBaseHTML), ...(catFiltro === 'graneles' ? [] : grupos.map(filaGrupoHTML))].join('');
+  document.getElementById('tablaCatalogo').innerHTML = filas ? CAB_CATALOGO + filas : '<div class="loading">Sin resultados.</div>';
 }
 
-function renderGrupoRows(grupos) {
-  if (!grupos.length) return '';
-  return grupos.map(g => {
-    const activo = cfgGetActivo(g.productoRef);
-    const gPlu   = cfgGetGranelPlus(g.productoRef).join(', ');
-    const esGranelG = cfgGetGranelDirecto(g.productoRef);
-    const reqGran   = cfgGetReqGranel(g.productoRef);
-    const id     = 'tog-' + g.productoRef.replace(/\W+/g, '_');
-    const idG    = 'tggran-' + g.productoRef.replace(/\W+/g, '_');
-    const idRG   = 'tgreqg-' + g.productoRef.replace(/\W+/g, '_');
-    const ref    = g.productoRef.replace(/'/g, "\\'");
-    return `<div class="grupo-cat-row">
-      <label class="toggle-switch">
-        <input type="checkbox" id="${id}" ${activo ? 'checked' : ''}
-          onchange="toggleGrupoActivo('${ref}', this.checked)">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="grupo-cat-nombre${activo ? '' : ' inactivo'}">${escHtml(g.productoRef)}</span>
-      <div class="grupo-cat-meta">
-        <span title="Presentaciones base">${g.presentaciones} presentaciones</span>
-        <span title="Total PLUs">${g.totalPlu} PLUs</span>
-        ${g.variantes ? `<span title="Packs y bultos">${g.variantes} variantes</span>` : ''}
-        ${gPlu ? `<span title="Granel (MP)" style="color:var(--amb-text);font-weight:700">🛢 ${gPlu}</span>` : ''}
-      </div>
-      <label class="toggle-switch" title="Producir como granel (bulk). Off = planificar por presentaciones." style="transform:scale(.8)">
-        <input type="checkbox" id="${idG}" ${esGranelG ? 'checked' : ''}
-          onchange="toggleGrupoGranel('${ref}', this.checked)">
-        <span class="toggle-slider"></span>
-      </label>
-      <span style="font-size:11px;color:${esGranelG?'#065f46':'var(--muted)'};font-weight:${esGranelG?'700':'400'};margin-right:6px">granel</span>
-      <label style="font-size:11px;display:flex;align-items:center;gap:4px;color:${reqGran?'var(--amb-text)':'var(--muted)'};font-weight:${reqGran?'700':'400'}"
-        title="Se hace en presentaciones pero primero hay que fabricar el granel (ej. pepas → masa). Al agregarlo al plan avisa y suma la orden de granel.">
-        <input type="checkbox" id="${idRG}" ${reqGran ? 'checked' : ''}
-          onchange="toggleGrupoReqGranel('${ref}', this.checked)">
-        granel previo
-      </label>
-      <button class="btn btn-secondary btn-sm" style="font-size:11px;margin-left:8px"
-        onclick="abrirModalGrupo('${ref}')">Ver / Editar</button>
-    </div>`;
-  }).join('');
+function patchDeCambio(el, fila) {
+  const campo = el.dataset.campo;
+  if (campo === 'responsables') return { responsables: [...fila.querySelectorAll('[data-campo=responsables]:checked')].map(x => x.value) };
+  if (campo === 'granel') return { granelPlus: el.value ? [el.value] : [] };
+  if (campo === 'clienteId') return { clienteId: el.value === '' ? null : Number(el.value) };
+  if (campo === 'proximaFecha') return { proximaFecha: el.value || null };
+  if (campo === 'estado' && el.value === 'pausado') {
+    const motivo = (prompt('Motivo de la pausa') || '').trim();
+    return motivo ? { estado: 'pausado', motivo } : null;
+  }
+  return { [campo]: el.value };
 }
 
-async function toggleGrupoActivo(productoRef, activo) {
-  cfgSetActivo(productoRef, activo);
-  renderCatalogo();
-  await guardarGruposCfg();
-}
-
-async function toggleGrupoGranel(productoRef, esGranel) {
-  cfgSetGranelDirecto(productoRef, esGranel);
-  renderCatalogo();
-  await guardarGruposCfg();
-}
-
-async function toggleGrupoReqGranel(productoRef, req) {
-  cfgSetReqGranel(productoRef, req);
-  renderCatalogo();
-  await guardarGruposCfg();
-}
-
-async function guardarGruposCfg() {
+async function guardarMetaCatalogo(fila, patch) {
   try {
-    await api('POST', '/api/catalogo/grupos-config', gruposCfgLocal);
-  } catch (e) { toast('Error al guardar config: ' + e.message, true); }
+    if (fila.dataset.ref != null) {
+      const ref = fila.dataset.ref;
+      const r = await api('PATCH', `/api/catalogo/grupo/${encodeURIComponent(ref)}/meta`, patch);
+      gruposCatCache = gruposCatCache.map(g => (g.productoRef === ref ? { ...g, ...r } : g));
+      gruposCfgLocal = cfgLocalDesdeGrupos(gruposCatCache);
+    } else {
+      const plu = fila.dataset.granel;
+      const r = await api('PATCH', `/api/plan/graneles-base/${encodeURIComponent(plu)}`, patch);
+      granelesBaseCache = granelesBaseCache.map(b => (b.plu === plu ? r : b));
+    }
+    toast('Guardado');
+  } catch (e) {
+    toast('No se guardó: ' + mensajeApiError(e), true);
+  }
+  renderCatalogo();
 }
 
-async function toggleTodasMieles(activo) {
-  for (const g of gruposCatCache)
-    if (cfgGetEsMiel(g.productoRef)) cfgSetActivo(g.productoRef, activo);
+document.getElementById('tablaCatalogo').addEventListener('change', e => {
+  const el = e.target;
+  const fila = el.closest('[data-ref],[data-granel]');
+  if (!el.dataset.campo || !fila) return;
+  const patch = patchDeCambio(el, fila);
+  if (!patch) { renderCatalogo(); return; }
+  guardarMetaCatalogo(fila, patch);
+});
+document.getElementById('tablaCatalogo').addEventListener('click', e => {
+  const btn = e.target.closest('[data-accion=editar]');
+  if (btn) abrirModalGrupo(btn.closest('[data-ref]').dataset.ref);
+});
+document.getElementById('catChips').addEventListener('click', e => {
+  const b = e.target.closest('[data-filtro]');
+  if (!b) return;
+  catFiltro = b.dataset.filtro;
   renderCatalogo();
-  await guardarGruposCfg();
-}
-
-async function toggleTodosOtros(activo) {
-  for (const g of gruposCatCache)
-    if (!cfgGetEsMiel(g.productoRef)) cfgSetActivo(g.productoRef, activo);
-  renderCatalogo();
-  await guardarGruposCfg();
-}
+});
+document.getElementById('catVerDiscontinuados').addEventListener('change', renderCatalogo);
+document.getElementById('btnNuevoGranelBase').addEventListener('click', async () => {
+  const plu = (prompt('PLU de SIGA del granel base') || '').trim();
+  if (!plu) return;
+  try {
+    await api('POST', '/api/plan/graneles-base', { plu });
+    toast(`Granel ${plu} agregado`);
+    catFiltro = 'graneles';
+    cargarCatalogo();
+  } catch (e) { toast('No se pudo agregar: ' + mensajeApiError(e), true); }
+});
 
 document.getElementById('filtroCatalogo').addEventListener('input', renderCatalogo);
 document.getElementById('btnRecargarCatalogo').addEventListener('click', cargarCatalogo);
 document.getElementById('btnNuevoGrupo').addEventListener('click', abrirModalNuevoGrupo);
 document.getElementById('btnNuevaVariedadMiel').addEventListener('click', abrirModalNuevaVariedadMiel);
-document.getElementById('btnActivarTodasMieles').addEventListener('click',    () => toggleTodasMieles(true));
-document.getElementById('btnDesactivarTodasMieles').addEventListener('click', () => toggleTodasMieles(false));
-document.getElementById('btnActivarTodos').addEventListener('click',    () => toggleTodosOtros(true));
-document.getElementById('btnDesactivarTodos').addEventListener('click', () => toggleTodosOtros(false));
 
 // ── Importar catálogo (tab Catálogo) ──────────────────────────────
 document.getElementById('inputCatalogoTab').addEventListener('change', async function () {
@@ -631,31 +661,6 @@ document.getElementById('inputCatalogoTab').addEventListener('change', async fun
     toast('Error al importar: ' + err.message, true);
   } finally {
     document.getElementById('btnImportarCatalogoTab').childNodes[0].textContent = '📥 Actualizar catálogo ';
-    this.value = '';
-    this.disabled = false;
-  }
-});
-
-// ── Importar catálogo ─────────────────────────────────────────────
-document.getElementById('inputCatalogo').addEventListener('change', async function () {
-  const file = this.files[0];
-  if (!file) return;
-  const label = document.getElementById('btnImportarCatalogo');
-  const textoOriginal = '📥 Actualizar catálogo';
-  label.childNodes[0].textContent = '⏳ Importando… ';
-  this.disabled = true;
-  try {
-    const fd = new FormData();
-    fd.append('archivo', file);
-    const res  = await fetch(SERVER_URL + '/api/catalogo/importar', { method: 'POST', body: fd });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || res.statusText);
-    toast(`✓ Catálogo actualizado — ${data.productos} productos`);
-    cargarSugerencias();
-  } catch (err) {
-    toast('Error al importar: ' + err.message, true);
-  } finally {
-    label.childNodes[0].textContent = textoOriginal + ' ';
     this.value = '';
     this.disabled = false;
   }
