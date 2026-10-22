@@ -84,3 +84,20 @@ test('GET /api/catalogo/grupos: incluye tipo, estado, motivo, clienteId, respons
     assert.strictEqual(g.clienteId, null);
   } finally { cerrar(ctx); }
 });
+
+test('PATCH meta: grupo con % en el nombre (el param ya llega decodificado)', async () => {
+  const ctx = await montar();
+  try {
+    const cat = path.join(ctx.dir, 'catalogo.json');
+    const items = JSON.parse(fs.readFileSync(cat, 'utf8'));
+    fs.writeFileSync(cat, JSON.stringify([...items, { plu: 2, producto: 'Cacao 50% 1Kg', baseNombre: 'Cacao 50% 1Kg', presentacion: '1Kg', esVariante: false, refId: 2, productoRef: '50% cacao' }]));
+    const url = `/api/catalogo/grupo/${encodeURIComponent('50% cacao')}`;
+    const r = await pedir(ctx.base, 'PATCH', `${url}/meta`, { estado: 'activo', responsables: ['Ana'] });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.productoRef, '50% cacao');
+    assert.deepStrictEqual(ctx.cfg()['50% cacao'].responsables, ['Ana']);
+    const g = await pedir(ctx.base, 'GET', url);
+    assert.strictEqual(g.status, 200);
+    assert.strictEqual(g.data.length, 1);
+  } finally { cerrar(ctx); }
+});

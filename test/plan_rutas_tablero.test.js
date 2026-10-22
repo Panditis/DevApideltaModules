@@ -98,3 +98,13 @@ test('graneles base: GET con variedades y nombre de SIGA, POST alta, PATCH meta'
     assert.strictEqual((await pedir(ctx.base, 'PATCH', '/api/plan/graneles-base/999', { estado: 'activo' })).status, 404);
   } finally { cerrar(ctx); }
 });
+
+test('graneles base: claves heredadas (constructor, __proto__) no cuentan como existentes', async () => {
+  const ctx = await montar();
+  try {
+    const p = await pedir(ctx.base, 'PATCH', '/api/plan/graneles-base/constructor', { estado: 'activo' });
+    assert.strictEqual(p.status, 404);
+    assert.ok(!Object.hasOwn(ctx.leer('graneles_base.json'), 'constructor'));
+    assert.strictEqual((await pedir(ctx.base, 'PATCH', '/api/plan/graneles-base/__proto__', { estado: 'activo' })).status, 404);
+  } finally { cerrar(ctx); }
+});

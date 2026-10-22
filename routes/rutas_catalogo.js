@@ -97,14 +97,14 @@ router.post('/api/catalogo/grupos-config', (req, res) => {
 });
 
 router.get('/api/catalogo/grupo/:ref', (req, res) => {
-  const ref      = decodeURIComponent(req.params.ref);
+  const ref      = req.params.ref;
   const catalogo = leerJSON(CATALOGO_PATH, []);
   const items    = catalogo.filter(i => i.productoRef === ref);
   res.json(items);
 });
 
 router.put('/api/catalogo/grupo/:ref', (req, res) => {
-  const ref      = decodeURIComponent(req.params.ref);
+  const ref      = req.params.ref;
   const nuevos   = req.body;
   if (!Array.isArray(nuevos)) return res.status(400).json({ error: 'Se esperaba un array' });
   const catalogo = leerJSON(CATALOGO_PATH, []);
@@ -123,7 +123,7 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
 });
 
 router.patch('/api/catalogo/grupo/:ref/meta', (req, res) => {
-  const ref = decodeURIComponent(req.params.ref);
+  const ref = req.params.ref;
   const catalogo = leerJSON(CATALOGO_PATH, []);
   if (!catalogo.some(i => i.productoRef === ref)) return res.status(404).json({ error: `No existe el grupo "${ref}"` });
   const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});

@@ -105,7 +105,7 @@ module.exports = function crearRutasPlanTablero(deps) {
     const plu = String(body.plu || '').trim();
     if (!esPlu(plu)) return res.status(400).json({ error: 'PLU inválido' });
     const graneles = leerGraneles();
-    if (graneles[plu]) return res.status(409).json({ error: `El granel ${plu} ya existe` });
+    if (Object.hasOwn(graneles, plu)) return res.status(409).json({ error: `El granel ${plu} ya existe` });
     try {
       const nuevo = aplicarMetaGranel({}, { nombre: String(body.nombre || '') }, ctxMeta());
       guardarJSON(GRANELES_PATH, { ...graneles, [plu]: nuevo });
@@ -116,7 +116,7 @@ module.exports = function crearRutasPlanTablero(deps) {
   router.patch('/api/plan/graneles-base/:plu', async (req, res) => {
     const plu = String(req.params.plu);
     const graneles = leerGraneles();
-    if (!graneles[plu]) return res.status(404).json({ error: `No existe el granel ${plu}` });
+    if (!esPlu(plu) || !Object.hasOwn(graneles, plu)) return res.status(404).json({ error: `No existe el granel ${plu}` });
     try {
       const nuevo = aplicarMetaGranel(graneles[plu], req.body, ctxMeta());
       guardarJSON(GRANELES_PATH, { ...graneles, [plu]: nuevo });
