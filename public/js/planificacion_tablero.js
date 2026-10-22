@@ -19,6 +19,9 @@ const valorEst = (id, porDefecto) => {
 };
 const SEMAFORO_DE_URGENCIA = { URGENTE: 'RED', PRONTO: 'YELLOW', OK: 'GREEN' };
 const fmtKg = n => (n == null ? '—' : nfAR(n, 1));
+// Filas sin peso (f.unidad === 'u'): los mismos campos *Kg vienen en unidades, se muestran con " u".
+const esUnidades = f => f.unidad === 'u';
+const fmtCant = (n, f) => (n == null ? '—' : `${nfAR(n, 1)}${esUnidades(f) ? ' u' : ''}`);
 const fmtCob = c => (c == null ? '—' : `${nfAR(c, 1)} d`);
 const fmtFechaTablero = f => (f ? formatFecha(f) : '—');
 
@@ -54,6 +57,7 @@ const chipsResp = lista => ((lista || []).length
 function avisosFila(f) {
   const a = [];
   if (f.estado === 'pausado') a.push(`<span class="aviso" title="Pausado">⏸ ${escHtml(f.motivo)}</span>`);
+  if (esUnidades(f)) a.push('<span class="aviso" title="Sin peso: calculado en unidades">en unidades</span>');
   if ((f.sinPeso || []).length) a.push(`<span class="aviso" title="Sin peso: PLU ${escHtml(f.sinPeso.join(', '))}. No suman kg.">⚠ sin peso</span>`);
   if (f.granelSinConfigurar) a.push('<span class="aviso" title="Su granel no está en Graneles base del catálogo">⚠ granel sin configurar</span>');
   return a.join('');
@@ -61,7 +65,7 @@ function avisosFila(f) {
 
 function celdaEstimado(f, id) {
   if (f.estado === 'pausado') return '<td class="num">—</td>';
-  return `<td class="num"><input type="number" min="0" step="0.1" id="est-${id}" value="${valorEst(id, f.estimadoKg ?? 0)}" style="width:80px;text-align:right"> kg</td>`;
+  return `<td class="num"><input type="number" min="0" step="0.1" id="est-${id}" value="${valorEst(id, f.estimadoKg ?? 0)}" style="width:80px;text-align:right"> ${esUnidades(f) ? 'u' : 'kg'}</td>`;
 }
 const celdaMas = (f, id) => (f.estado === 'pausado' ? '<td></td>'
   : `<td><button class="btn btn-primary btn-sm" title="Agregar al carrito" onclick="tableroAgregar('${id}')">+</button></td>`);
@@ -71,9 +75,9 @@ function filaProductoHTML(f, id, sangria) {
     <td>${f.rankingPos ?? ''}</td>
     <td>${f.estado === 'pausado' ? '' : chipUrgencia(f.urgencia)}</td>
     <td style="padding-left:${sangria ? 28 : 8}px">${escHtml(f.productoRef)}${avisosFila(f)}</td>
-    <td class="num">${fmtKg(f.ventaDiaKg)}</td>
-    <td class="num">${fmtKg(f.stockCentralKg)}</td>
-    <td class="num">${fmtKg(f.stockLocalesKg)} <button class="btn-mini" title="Stock por sucursal" onclick="abrirStockTablero('${id}')">🔍</button></td>
+    <td class="num">${fmtCant(f.ventaDiaKg, f)}</td>
+    <td class="num">${fmtCant(f.stockCentralKg, f)}</td>
+    <td class="num">${fmtCant(f.stockLocalesKg, f)} <button class="btn-mini" title="Stock por sucursal" onclick="abrirStockTablero('${id}')">🔍</button></td>
     <td class="num">${sangria ? '—' : fmtKg(f.stockGranelKg)}</td>
     <td class="num">${fmtCob(f.coberturaDias)}</td>
     ${celdaEstimado(f, id)}
@@ -127,12 +131,12 @@ function renderFason() {
   document.getElementById('cardFason').hidden = !tablero.fason.length;
   document.getElementById('tablaFason').innerHTML = tablero.fason.map((g, c) => `
     <div style="padding:8px 10px;font-weight:600">${escHtml(g.cliente)}</div>
-    <table class="tabla-tablero"><thead><tr><th>Producto</th><th class="num">Stock central (kg)</th><th>Próx. producción</th><th>Responsables</th><th class="num">Cantidad (kg)</th><th></th></tr></thead><tbody>
+    <table class="tabla-tablero"><thead><tr><th>Producto</th><th class="num">Stock central (kg)</th><th>Próx. producción</th><th>Responsables</th><th class="num">Cantidad (kg / u)</th><th></th></tr></thead><tbody>
     ${g.filas.map((f, k) => `<tr class="${f.estado === 'pausado' ? 'fila-pausada' : ''}">
-      <td>${escHtml(f.productoRef)}${avisosFila(f)}</td><td class="num">${fmtKg(f.stockCentralKg)}</td>
+      <td>${escHtml(f.productoRef)}${avisosFila(f)}</td><td class="num">${fmtCant(f.stockCentralKg, f)}</td>
       <td>${fmtFechaTablero(f.proximaFecha)}</td><td>${chipsResp(f.responsables)}</td>
       ${f.estado === 'pausado' ? '<td class="num">—</td><td></td>'
-        : `<td class="num"><input type="number" min="0" step="0.1" id="est-f${c}x${k}" value="${valorEst(`f${c}x${k}`, '')}" placeholder="0" style="width:80px;text-align:right"> kg</td>
+        : `<td class="num"><input type="number" min="0" step="0.1" id="est-f${c}x${k}" value="${valorEst(`f${c}x${k}`, '')}" placeholder="0" style="width:80px;text-align:right"> ${esUnidades(f) ? 'u' : 'kg'}</td>
            <td><button class="btn btn-primary btn-sm" onclick="tableroAgregar('f${c}x${k}')">+</button></td>`}
     </tr>`).join('')}</tbody></table>`).join('');
 }

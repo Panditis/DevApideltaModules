@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { pesoPresentacionKg, armarTablero } = require('../lib/plan_tablero');
+const { repartirEnPresentaciones } = require('../lib/plan_reparto');
 
 test('pesoPresentacionKg: texto de la presentación, base, fórmula, enKg', () => {
   assert.strictEqual(pesoPresentacionKg({ presentacion: '250G' }), 0.25);
@@ -97,7 +98,9 @@ test('armarTablero: directo, enKg, sin peso, granel sin configurar', () => {
   assert.strictEqual(f['G. Almendra'].ventaDiaKg, 0.5);         // enKg: 60 kg / 120
   assert.strictEqual(f['G. Almendra'].estimadoKg, 15);
   assert.strictEqual(f['G. Almendra'].urgencia, 'URGENTE');
-  assert.deepStrictEqual(f['Sin Peso'].sinPeso, ['11']);
+  assert.strictEqual(f['Mix Europeo'].unidad, 'kg');
+  assert.strictEqual(f['Sin Peso'].unidad, 'u');                // ningún PLU del grupo tiene peso: se calcula en unidades
+  assert.deepStrictEqual(f['Sin Peso'].sinPeso, []);
   assert.strictEqual(f.Huerfana.granelSinConfigurar, true);
   assert.strictEqual(f['Pausado X'].estado, 'pausado');
   assert.ok(!('Viejo' in f));
@@ -186,4 +189,49 @@ test('armarTablero: el PLU granel del grupo (ej. "10Kg (Precio por kilo)") se ve
   assert.strictEqual(f.stockCentralKg, 50);
   assert.strictEqual(f.presentaciones[0].pesoKg, 1);
   assert.strictEqual(f.presentaciones[0].ventasKg, 240);
+});
+
+// PLU de catálogo para los tests de unidades (nombre sin gramos ni kilos en la presentación)
+const itemDe = (plu, productoRef, presentacion, esVariante = false) => ({ plu, producto: `${productoRef} ${presentacion}`, baseNombre: `${productoRef} ${presentacion}`, presentacion, esVariante, refId: 1, productoRef });
+
+test('armarTablero: grupo sin ningún peso ("x2/x6 Unidades") se calcula en unidades, sin ⚠ sin peso', () => {
+  const d = datos();
+  d.catalogo.push(itemDe(20, 'Apinuez Negro', 'x2 Unidades'), itemDe(21, 'Apinuez Negro', 'x6 Unidades'), itemDe(22, 'Apinuez Negro', 'x6 Unidades', true));
+  d.gruposCfg['Apinuez Negro'] = true;
+  for (const [plu, ventas, central] of [['20', 120, 30], ['21', 240, 10], ['22', 120, 999]]) { d.ventas.set(plu, ventas); d.stockCentral.set(plu, central); }
+  d.stockSuc.set('20', 6);
+  const f = armarTablero(d, opts).filas.find(x => x.productoRef === 'Apinuez Negro');
+  assert.strictEqual(f.unidad, 'u');
+  assert.deepStrictEqual(f.sinPeso, []);
+  assert.strictEqual(f.ventaDiaKg, 4);          // (120 + 240 + 120 de la variante) u / 120 días
+  assert.strictEqual(f.stockCentralKg, 40);     // 30 + 10 u (la variante no suma stock)
+  assert.strictEqual(f.stockLocalesKg, 6);
+  assert.strictEqual(f.estimadoKg, 80);         // 4×30 − 40, en unidades
+  assert.deepStrictEqual(f.presentaciones.map(p => [p.plu, p.pesoKg, p.ventasKg]), [['20', 1, 120], ['21', 1, 360]]);
+  assert.deepStrictEqual(repartirEnPresentaciones(f.estimadoKg, f.presentaciones).map(r => [r.plu, r.unidades]), [['20', 20], ['21', 60]]);
+});
+
+test('armarTablero: grupo con algún PLU con peso sigue en kg y avisa los que no tienen', () => {
+  const d = datos();
+  d.catalogo.push(itemDe(23, 'Mixto', '250G'), itemDe(24, 'Mixto', 'x2 Unidades'));
+  d.gruposCfg.Mixto = true;
+  d.ventas.set('23', 240);
+  d.ventas.set('24', 999);
+  const f = armarTablero(d, opts).filas.find(x => x.productoRef === 'Mixto');
+  assert.strictEqual(f.unidad, 'kg');
+  assert.deepStrictEqual(f.sinPeso, ['24']);
+  assert.strictEqual(f.ventaDiaKg, 0.5);        // solo el PLU con peso: 240 × 0.25 / 120
+});
+
+test('armarTablero: una variedad en unidades no suma a los kg del granel madre', () => {
+  const d = datos();
+  d.catalogo.push(itemDe(30, 'Sin Gramos', 'Unidad'));
+  d.gruposCfg['Sin Gramos'] = { tipo: 'granel', granelPlu: '100', estado: 'activo' };
+  d.ventas.set('30', 600);
+  const g = armarTablero(d, opts).filas.find(x => x.nivel === 'granel');
+  const v = g.variedades.find(x => x.productoRef === 'Sin Gramos');
+  assert.strictEqual(v.unidad, 'u');
+  assert.strictEqual(v.estimadoKg, 150);        // 5 u/día × 30
+  assert.strictEqual(g.granelNecesarioKg, 66);  // igual que sin la variedad en unidades
+  assert.strictEqual(g.ventaDiaKg, 3);
 });
