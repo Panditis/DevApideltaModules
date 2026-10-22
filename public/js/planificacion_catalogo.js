@@ -507,8 +507,18 @@ async function cargarCatalogo() {
   }
 }
 
-const opcionesHTML = (pares, valor) => pares.map(([v, t]) => `<option value="${escHtml(v)}" ${String(v) === String(valor ?? '') ? 'selected' : ''}>${escHtml(t)}</option>`).join('');
+const opcionesHTML = (pares, valor) => pares.map(([v, t]) => `<option value="${escHtml(String(v))}" ${String(v) === String(valor ?? '') ? 'selected' : ''}>${escHtml(t)}</option>`).join('');
 const ESTADOS_CAT = [['activo', 'Activo'], ['pausado', 'Pausado'], ['discontinuado', 'Discontinuado']];
+
+// Pickers de responsables abiertos (clave de fila): el render los vuelve a abrir para poder tildar varios seguidos.
+const respAbiertos = new Set();
+const claveFila = f => (f.dataset.ref != null ? 'r:' + f.dataset.ref : 'g:' + f.dataset.granel);
+document.getElementById('tablaCatalogo').addEventListener('toggle', e => {
+  const d = e.target;
+  if (!d.matches || !d.matches('details.resp-picker')) return;
+  const k = claveFila(d.closest('.cat-fila'));
+  if (d.open) respAbiertos.add(k); else respAbiertos.delete(k);
+}, true);
 
 function respPickerHTML(sel) {
   const nombres = (responsablesCache || []).map(respNombre).filter(Boolean);
@@ -522,10 +532,13 @@ const celdaMotivo = x => (x.estado === 'pausado'
 
 function filaGrupoHTML(g) {
   const gl = g.granelPlus || [];
+  const opcionesGranel = [['', '— sin granel —'], ...granelesBaseCache.map(b => [b.plu, b.nombre])];
+  // Un granel que no está en los graneles base igual se muestra (si no, el select diría "sin granel").
+  if (gl.length === 1 && !opcionesGranel.some(([v]) => String(v) === String(gl[0]))) opcionesGranel.push([gl[0], 'PLU ' + gl[0]]);
   const granel = gl.length > 1
     ? `<span title="Varios graneles: se editan en Editar">🛢 ${escHtml(gl.join(', '))}</span>`
     : `<select data-campo="granel" title="Granel base (obligatorio si es con granel; opcional en directos, para ver el stock de MP)">
-        ${opcionesHTML([['', '— sin granel —'], ...granelesBaseCache.map(b => [b.plu, b.nombre])], gl[0] || '')}</select>`;
+        ${opcionesHTML(opcionesGranel, gl[0] || '')}</select>`;
   return `<div class="cat-fila${g.estado === 'activo' ? '' : ' inactivo'}" data-ref="${escHtml(g.productoRef)}">
     <span>${escHtml(g.productoRef)}</span>
     <select data-campo="tipo">${opcionesHTML([['granel', 'Con granel base'], ['directo', 'Directo']], g.tipo)}</select>
@@ -574,6 +587,14 @@ function renderCatalogo() {
   });
   const filas = [...graneles.map(filaGranelBaseHTML), ...(catFiltro === 'graneles' ? [] : grupos.map(filaGrupoHTML))].join('');
   document.getElementById('tablaCatalogo').innerHTML = filas ? CAB_CATALOGO + filas : '<div class="loading">Sin resultados.</div>';
+  const claves = new Set();
+  document.querySelectorAll('#tablaCatalogo .cat-fila').forEach(f => {
+    const k = claveFila(f);
+    claves.add(k);
+    const picker = respAbiertos.has(k) && f.querySelector('details.resp-picker');
+    if (picker) picker.open = true;
+  });
+  for (const k of [...respAbiertos]) if (!claves.has(k)) respAbiertos.delete(k);
 }
 
 function patchDeCambio(el, fila) {
@@ -590,12 +611,15 @@ function patchDeCambio(el, fila) {
 }
 
 async function guardarMetaCatalogo(fila, patch) {
+  // tipo/granelPlus cambian las variedades de los graneles base: se recarga todo el catálogo.
+  let recargar = false;
   try {
     if (fila.dataset.ref != null) {
       const ref = fila.dataset.ref;
       const r = await api('PATCH', `/api/catalogo/grupo/${encodeURIComponent(ref)}/meta`, patch);
       gruposCatCache = gruposCatCache.map(g => (g.productoRef === ref ? { ...g, ...r } : g));
       gruposCfgLocal = cfgLocalDesdeGrupos(gruposCatCache);
+      recargar = 'tipo' in patch || 'granelPlus' in patch;
     } else {
       const plu = fila.dataset.granel;
       const r = await api('PATCH', `/api/plan/graneles-base/${encodeURIComponent(plu)}`, patch);
@@ -605,7 +629,7 @@ async function guardarMetaCatalogo(fila, patch) {
   } catch (e) {
     toast('No se guardó: ' + mensajeApiError(e), true);
   }
-  renderCatalogo();
+  if (recargar) await cargarCatalogo(); else renderCatalogo();
 }
 
 document.getElementById('tablaCatalogo').addEventListener('change', e => {

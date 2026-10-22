@@ -36,7 +36,12 @@ module.exports = function crearRutasCatalogo(deps) {
   const CLIENTES_PATH = path.join(DATA_DIR, 'clientes.json');
   const RESP_PATH = path.join(DATA_DIR, 'responsables.json');
   // Meta de producción del grupo (spec 2026-10-22 §1.1): lo que edita la lista del Catálogo.
-  const metaPublica = (ref, entrada) => ({ productoRef: ref, ...metaDeEntrada(entrada), granelPlus: granelPlusDe(entrada), activo: metaDeEntrada(entrada).estado !== 'discontinuado' });
+  // reqGranel/granelPlu van también: el front los lee del grupo para granelAparte y codigoGranelItem.
+  const metaPublica = (ref, entrada) => ({
+    productoRef: ref, ...metaDeEntrada(entrada), granelPlus: granelPlusDe(entrada),
+    activo: metaDeEntrada(entrada).estado !== 'discontinuado',
+    reqGranel: entrada.reqGranel === true, granelPlu: granelPlusDe(entrada)[0] || '',
+  });
 
 router.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, [])));
 

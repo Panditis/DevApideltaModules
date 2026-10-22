@@ -195,17 +195,7 @@ async function cargarGruposCfgSiVacio() {
   if (Object.keys(gruposCfgLocal).length) return;
   try {
     const grupos = await api('GET', '/api/catalogo/grupos');
-    gruposCfgLocal = {};
-    for (const g of grupos) {
-      const gp = g.granelPlu || '', mp = Array.isArray(g.mpManual) ? g.mpManual : [];
-      const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
-      const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
-      const rg = g.reqGranel === true;
-      const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
-      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
-        : g.activo;
-    }
+    gruposCfgLocal = cfgLocalDesdeGrupos(grupos);
   } catch (e) { /* silencioso, BOM quedará vacío */ }
 }
 

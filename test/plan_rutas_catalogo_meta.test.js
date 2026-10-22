@@ -49,7 +49,7 @@ test('PATCH meta: guarda, conserva campos viejos y devuelve la meta', async () =
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(r.data, {
       productoRef: 'Pepas', tipo: 'granel', estado: 'pausado', motivo: 'Falta MP', clienteId: 7,
-      responsables: ['Ana'], proximaFecha: '2026-10-30', granelPlus: ['100'], activo: true,
+      responsables: ['Ana'], proximaFecha: '2026-10-30', granelPlus: ['100'], activo: true, reqGranel: true, granelPlu: '100',
     });
     const g = ctx.cfg().Pepas;
     assert.strictEqual(g.esMiel, false);
