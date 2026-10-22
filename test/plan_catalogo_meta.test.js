@@ -64,6 +64,12 @@ test('aplicarMetaGrupo: errores 400 con mensaje', () => {
   err({ activo: false });                     // campo no editable
 });
 
+test('aplicarMetaGrupo: un "con granel" sin granel cargado se puede desactivar; el granel se exige al tocar tipo o granel', () => {
+  assert.strictEqual(aplicarMetaGrupo({ tipo: 'granel', estado: 'activo' }, { estado: 'discontinuado' }, ctx).estado, 'discontinuado');
+  assert.throws(() => aplicarMetaGrupo({ tipo: 'granel', estado: 'activo' }, { tipo: 'granel' }, ctx), e => e.status === 400);
+  assert.throws(() => aplicarMetaGrupo({ tipo: 'granel', granelPlu: '1' }, { granelPlus: [] }, ctx), e => e.status === 400);
+});
+
 test('aplicarMetaGrupo: clienteId acepta el id como texto y "" = propio', () => {
   assert.strictEqual(aplicarMetaGrupo({}, { clienteId: '7' }, ctx).clienteId, 7);
   assert.strictEqual(aplicarMetaGrupo({ clienteId: 7 }, { clienteId: '' }, ctx).clienteId, null);
