@@ -42,6 +42,13 @@ test('moduloDeRuta resuelve páginas HTML por igualdad exacta', () => {
   assert.strictEqual(moduloDeRuta('/planificacion'), 'planificacion');
 });
 
+test('moduloDeRuta resuelve Sucursales y su submódulo Mantenimiento', () => {
+  assert.strictEqual(moduloDeRuta('/sucursales'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/sucursales/mantenimiento'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/api/sucursales/mantenimiento'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/api/sucursales/mantenimiento/3/etapas'), 'sucursales');
+});
+
 test('moduloDeRuta da prioridad a la ruta HTML más específica (/distribucion/a8020)', () => {
   assert.strictEqual(moduloDeRuta('/distribucion/a8020'), 'a8020');
 });

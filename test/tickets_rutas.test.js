@@ -15,7 +15,8 @@ const FILAS_SIGA = [
 
 // sql.falla = true hace que la próxima query reviente (SIGA caído).
 // sesion.user y sesion.permiso se pueden cambiar entre pedidos (otro usuario / sin permiso de gestión).
-function montar({ ttlMs, permiso = true } = {}) {
+// config: opciones extra de la factory (instancia de Mantenimiento); config.permiso es el ref que acepta tienePermiso.
+function montar({ ttlMs, permiso = true, config = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tickets-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
@@ -27,13 +28,14 @@ function montar({ ttlMs, permiso = true } = {}) {
     return FILAS_SIGA;
   };
   const sesion = { user: { usuario: 'adriel', nombre: 'Adriel S.' }, permiso };
-  const tienePermiso = (user, ref) => !!user && ref === 'tickets-gestion' && sesion.permiso;
+  const refGestion = config.permiso || 'tickets-gestion';
+  const tienePermiso = (user, ref) => !!user && ref === refGestion && sesion.permiso;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.session = sesion.user ? { user: sesion.user } : {}; next(); });
-  app.use(require('../routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR: dir, query, ttlMs, tienePermiso }));
+  app.use(require('../routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR: dir, query, ttlMs, tienePermiso, ...config }));
   return new Promise(ok => {
-    const server = app.listen(0, () => ok({ server, dir, sql, sesion, base: `http://127.0.0.1:${server.address().port}/api/tickets` }));
+    const server = app.listen(0, () => ok({ server, dir, sql, sesion, base: `http://127.0.0.1:${server.address().port}${config.api || '/api/tickets'}` }));
   });
 }
 
@@ -310,4 +312,34 @@ test('prioridad: el creador sin permiso la cambia (case-insensitive); otro sin p
     assert.strictEqual(invalida.status, 400);
     assert.match(invalida.data.error, /prioridad/);
   } finally { cerrar(ctx); }
+});
+
+test('instancia de Mantenimiento: datos en mantenimiento.json, sus áreas y su permiso de gestión', async () => {
+  const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
+  const ctx = await montar({ permiso: false, config: {
+    api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
+    areas: AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento',
+  } });
+  const { base } = ctx;
+  try {
+    const meta = await pedir(base, 'GET', '/meta');
+    assert.strictEqual(meta.status, 200);
+    assert.deepStrictEqual(meta.data.areas, AREAS_MANTENIMIENTO);
+    assert.ok(meta.data.areas.includes('Plomería'));
+
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 201);
+    assert.ok(fs.existsSync(path.join(ctx.dir, 'mantenimiento.json')));
+    assert.ok(!fs.existsSync(path.join(ctx.dir, 'tickets.json')));
+
+    assert.strictEqual((await pedir(base, 'PATCH', '/1', { estado: 'en_proceso' })).status, 403);
+    ctx.sesion.permiso = true; // tienePermiso sólo acepta 'mantenimiento-gestion'
+    const ok = await pedir(base, 'PATCH', '/1', { estado: 'en_proceso' });
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento.json'), 'utf8'))[0].estado, 'en_proceso');
+  } finally { cerrar(ctx); }
+});
+
+test('PERMISOS_EXTRA trae mantenimiento-gestion colgado de sucursales', () => {
+  const p = require('../lib/auth').PERMISOS_EXTRA.find(x => x.ref === 'mantenimiento-gestion');
+  assert.deepStrictEqual(p, { ref: 'mantenimiento-gestion', titulo: 'Mantenimiento · Gestión', modulo: 'sucursales' });
 });

@@ -3,8 +3,29 @@
 // alta en un diálogo modal y detalle en un panel lateral (<dialog> nativo: foco atrapado, Esc y fondo inerte).
 // Todo lo que viene del servidor o lo tipeó un usuario (tarea, descripción, área, notas, nombres) se pinta con
 // textContent o pasa por esc() antes de ir a innerHTML. Sin alert/confirm: los errores van a #aviso (role=alert).
+// La misma pantalla sirve a Mantenimiento de sucursales (/sucursales/mantenimiento): CFG sale de la URL y fija la
+// api, los textos y el prefijo de las claves de localStorage (así cada instancia guarda lo suyo).
 (() => {
   const $ = sel => document.querySelector(sel);
+  const CONFIGS = {
+    '/sucursales/mantenimiento': {
+      api: '/api/sucursales/mantenimiento', titulo: 'Mantenimiento de Sucursales', tituloCorto: 'Mantenimiento',
+      bajada: 'Pedidos de mantenimiento de las sucursales', permisoTitulo: 'Mantenimiento · Gestión', clave: 'mantenimiento',
+      volver: '/sucursales', volverTexto: '← Sucursales',
+    },
+  };
+  const CFG = CONFIGS[location.pathname.replace(/\/+$/, '').toLowerCase()] || {
+    api: '/api/tickets', titulo: 'Tickets de Desarrollo', tituloCorto: 'Tickets', permisoTitulo: 'Tickets · Gestión', clave: 'tickets',
+  };
+  if (CFG.clave !== 'tickets') {
+    // El html es el de tickets: se reescriben título, encabezado, aviso de permiso y el link de vuelta.
+    document.title = `${CFG.titulo} · Apidelta`;
+    $('h1').textContent = CFG.titulo.toUpperCase();
+    $('#bajada').textContent = CFG.bajada;
+    $('#avisoPermiso').textContent = `Solo lectura de estados · pedí el permiso ${CFG.permisoTitulo}`;
+    $('#lnkVolver').href = CFG.volver;
+    $('#lnkVolver').textContent = CFG.volverTexto;
+  }
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const el = (tag, clase, texto) => {
     const n = document.createElement(tag);
@@ -21,14 +42,14 @@
   const CERRADOS = ['terminado', 'cancelado'];
   const MAX_AVATARES = 3;
   const TOAST_MS = 3500;
-  const CLAVE_VISTA = 'tickets.vista';
+  const CLAVE_VISTA = `${CFG.clave}.vista`;
   // Novedades (ver sondear): cada cuánto se consulta la lista, cuánto dura un aviso y cuántos se apilan.
   const SONDEO_MS = 15000; // pestaña visible
   const SONDEO_OCULTA_MS = 60000; // pestaña en segundo plano
   const AVISO_MS = 6000;
   const MAX_TOASTS = 3;
-  const CLAVE_VISTOS = 'tickets.vistos'; // + login: { id: actualizadoEn } que ya vio
-  const CLAVE_ESCRITORIO = 'tickets.avisosEscritorio';
+  const CLAVE_VISTOS = `${CFG.clave}.vistos`; // + login: { id: actualizadoEn } que ya vio
+  const CLAVE_ESCRITORIO = `${CFG.clave}.avisosEscritorio`;
   const TITULO = document.title;
   const FMT_FECHA = new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   // ponytail: copia de lib/tickets.js, sólo para seguir mostrando tickets si /meta responde 503 (SIGA caído).
@@ -39,8 +60,8 @@
     estadosEtapa: [{ valor: 'pendiente', etiqueta: 'Pendiente' }, { valor: 'en_proceso', etiqueta: 'En proceso' }, { valor: 'terminado', etiqueta: 'Terminado' }],
     areas: [], usuarios: [], yo: null, yoNombre: null, login: null, puedeGestionar: false,
   };
-  const SIN_PERMISO = 'Necesitás el permiso Tickets · Gestión';
-  const SOLO_CREADOR_PRI = 'La cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión';
+  const SIN_PERMISO = `Necesitás el permiso ${CFG.permisoTitulo}`;
+  const SOLO_CREADOR_PRI = `La cambia quien creó el ticket o quien tenga el permiso ${CFG.permisoTitulo}`;
   const REQUIEREN_ETAPAS = ['falta_aprobacion', 'terminado']; // estados del ticket que piden todas las etapas terminadas
   const MAX_DEST = 20; // topes de lib/tickets.js
   const MAX_DEST_LARGO = 60;
@@ -460,7 +481,7 @@
     btn.disabled = true;
     btn.textContent = 'Creando…';
     try {
-      const t = await enviarJSON('POST', '/api/tickets', datos);
+      const t = await enviarJSON('POST', CFG.api, datos);
       if (t && t.id != null) estado.tickets = [...estado.tickets, t];
       limpiarFormulario();
       $('#dlgNuevo').close();
@@ -742,7 +763,7 @@
     const btn = $('#btnRecargar');
     btn.disabled = true;
     try {
-      const lista = await api('/api/tickets');
+      const lista = await api(CFG.api);
       marcarConexion(null);
       aplicarLista(Array.isArray(lista) ? lista : []);
     } catch (e) {
@@ -760,7 +781,7 @@
   // ── Cambios (PATCH) ─────────────────────────────────────────────────────────
   // Manda el cambio y reemplaza el ticket en el estado con lo que devuelve el server. No repinta.
   async function actualizar(id, cambios) {
-    const t = await enviarJSON('PATCH', `/api/tickets/${encodeURIComponent(id)}`, cambios);
+    const t = await enviarJSON('PATCH', `${CFG.api}/${encodeURIComponent(id)}`, cambios);
     reemplazarTicket(id, t);
     return t;
   }
@@ -888,7 +909,7 @@
     }
     if (editable) caja.append(altaEtapa(t));
     else if (cerrado && puedeGestionar()) caja.append(el('p', 'ayuda', `El ticket está ${etiqueta('estados', t.estado).toLowerCase()}: las etapas son de solo lectura.`));
-    else if (!puedeGestionar() && estado.metaOk) caja.append(el('p', 'ayuda', 'Las etapas las gestiona quien tenga el permiso Tickets · Gestión.'));
+    else if (!puedeGestionar() && estado.metaOk) caja.append(el('p', 'ayuda', `Las etapas las gestiona quien tenga el permiso ${CFG.permisoTitulo}.`));
     if (estado.borrador.etapaOcupada) caja.querySelectorAll('button, select, input').forEach(c => { c.disabled = true; });
     return caja;
   }
@@ -1010,7 +1031,7 @@
   async function operarEtapa(id, metodo, etapaId, cuerpo, { foco = null, ok = '', alOk = null } = {}) {
     const antes = buscarTicket(id);
     const focoAntes = document.activeElement && document.activeElement.id;
-    const url = `/api/tickets/${encodeURIComponent(id)}/etapas${etapaId == null ? '' : `/${encodeURIComponent(etapaId)}`}`;
+    const url = `${CFG.api}/${encodeURIComponent(id)}/etapas${etapaId == null ? '' : `/${encodeURIComponent(etapaId)}`}`;
     estado.borrador.etapaOcupada = true;
     pintarDetalle();
     try {
@@ -1037,7 +1058,7 @@
     caja.append(raiz);
     const inicial = comoLista(t.destinatarios);
     const motivo = !estado.metaOk ? 'No se pueden editar ahora: no hay conexión con SIGA.'
-      : (puedeEditarTicket(t) ? '' : 'Los cambia quien creó el ticket o quien tenga el permiso Tickets · Gestión.');
+      : (puedeEditarTicket(t) ? '' : `Los cambia quien creó el ticket o quien tenga el permiso ${CFG.permisoTitulo}.`);
     if (motivo) {
       crearSelectorUsuarios(raiz, { id: 'dDest', seleccion: inicial, soloLectura: true });
       caja.append(el('p', 'ayuda mt-2', motivo));
@@ -1304,8 +1325,8 @@
   const escritorioActivo = () => prefEscritorio && soportaEscritorio() && Notification.permission === 'granted';
   function notificar(c) {
     try {
-      const n = new Notification(c.urgente ? 'Tickets · urgente' : (c.mio ? 'Tickets · te involucra' : 'Tickets de Desarrollo'),
-        { body: c.texto, tag: c.id != null ? `ticket-${c.id}` : 'tickets', icon: '/favicon.png' });
+      const n = new Notification(c.urgente ? `${CFG.tituloCorto} · urgente` : (c.mio ? `${CFG.tituloCorto} · te involucra` : CFG.titulo),
+        { body: c.texto, tag: c.id != null ? `${CFG.clave}-${c.id}` : CFG.clave, icon: '/favicon.png' });
       n.onclick = () => { window.focus(); n.close(); if (c.id != null) abrirDesdeAviso(c.id); };
     } catch (_) { /* navegador que sólo notifica vía service worker: quedan el toast y la marca */ }
   }
@@ -1343,7 +1364,7 @@
     sondeando = true;
     const version = versionLocal;
     try {
-      const lista = await api('/api/tickets');
+      const lista = await api(CFG.api);
       marcarConexion(null);
       // Un cambio propio en vuelo o que respondió mientras tanto deja vieja esta foto: se usa la próxima.
       if (!enVuelo && version === versionLocal && Array.isArray(lista)) aplicarLista(lista);
@@ -1438,7 +1459,7 @@
   // ── Arranque ────────────────────────────────────────────────────────────────
   async function cargarMeta() {
     try {
-      const m = await api('/api/tickets/meta');
+      const m = await api(`${CFG.api}/meta`);
       estado.meta = { ...META_RESPALDO, ...m };
       estado.metaOk = true;
     } catch (e) {
