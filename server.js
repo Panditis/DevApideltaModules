@@ -674,6 +674,7 @@ app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'publ
 // El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
 app.get('/bloques_tareas.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'bloques_tareas.js')));
+app.get('/js/plan_reparto.js', (_req, res) => res.sendFile(path.join(__dirname, 'lib', 'plan_reparto.js')));
 app.get('/css/apidelta-theme.js',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.js')));
 app.get('/js/precios_produccion.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion.js')));
 app.get('/js/precios_produccion_detalle.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_produccion_detalle.js')));
@@ -695,7 +696,7 @@ app.get('/js/precios_config_esquema.js', (_req, res) => res.sendFile(path.join(_
 app.get('/js/precios_config_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_config_fraccionado.js')));
 app.get('/js/compras_siga.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'compras_siga.js')));
 // Whitelist explícita: el proyecto no usa express.static.
-for (const n of ['estado', 'resumen', 'registro', 'registros', 'envio', 'catalogo', 'agenda', 'init', 'formulas', 'mp', 'carrito', 'reserva', 'movimientos']) {
+for (const n of ['estado', 'resumen', 'registro', 'registros', 'envio', 'catalogo', 'agenda', 'init', 'formulas', 'mp', 'carrito', 'reserva', 'movimientos', 'tablero']) {
   app.get(`/js/planificacion_${n}.js`, (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', `planificacion_${n}.js`)));
 }
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
@@ -2761,6 +2762,14 @@ app.use(require('./routes/rutas_produccion')({
   PROD_REG_PATH, PROD_HIST_PATH, leerOrdenes, guardarOrdenes,
   leerPlanReservas, reservasActivasDeOrden, crearSnapshotsCierre,
   leerRegistros, guardarRegistros,
+}));
+
+// Tablero de planificación y graneles base: va ANTES de rutas_plan porque GET /api/plan/:fecha
+// capturaría /api/plan/tablero y /api/plan/graneles-base.
+app.use(require('./routes/rutas_plan_tablero')({
+  apiRoute, leerJSON, guardarJSON, query, DATA_DIR, CATALOGO_PATH, GRUPOS_CFG_PATH,
+  leerConfig: () => JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')),
+  sqlStockPorPlu, sqlBOMGranel,
 }));
 
 // Planificación: va al final porque sucursalesSiga, sucursalPublica y leerPlanReservas
