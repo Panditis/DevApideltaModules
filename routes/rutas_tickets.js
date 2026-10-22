@@ -12,14 +12,20 @@ const tickets = require('../lib/tickets');
 // Permisos: con el módulo se ve todo, se crea y se agregan notas. Cambiar el estado pide el permiso fino
 // 'tickets-gestion' (tienePermiso entra por deps, es auth.tienePermiso); destinatarios y prioridad los cambia el
 // creador del ticket o quien tenga ese permiso. Las etapas (alta, cambio, baja) también piden 'tickets-gestion'.
+// La misma factory monta otras instancias con datos propios (p. ej. Mantenimiento de sucursales): deps acepta
+// pagina, api, archivo, permiso, areas y etiqueta (logs); los defaults son los de /tickets. El html es siempre tickets.html.
 const USUARIOS_TTL_MS = 5 * 60 * 1000;
 const SQL_USUARIOS = 'SELECT Id, Nombre FROM Usuarios WHERE Activo = 1 ORDER BY Nombre';
-const PERMISO_GESTION = 'tickets-gestion';
 
 module.exports = function crearRutasTickets(deps) {
-  const { leerJSON, guardarJSON, DATA_DIR, query, tienePermiso, ttlMs = USUARIOS_TTL_MS } = deps;
+  const {
+    leerJSON, guardarJSON, DATA_DIR, query, tienePermiso, ttlMs = USUARIOS_TTL_MS,
+    pagina = '/tickets', api = '/api/tickets', archivo = 'tickets.json', permiso = 'tickets-gestion',
+    areas = tickets.AREAS, etiqueta = 'tickets',
+  } = deps;
   const router = express.Router();
-  const TICKETS_PATH = path.join(DATA_DIR, 'tickets.json');
+  const TICKETS_PATH = path.join(DATA_DIR, archivo);
+  const PERMISO_GESTION = permiso;
 
   const leerTickets = () => leerJSON(TICKETS_PATH, []);
   const usuarioSesion = req => (req.session && req.session.user && req.session.user.usuario) || 'anonimo';
@@ -62,7 +68,7 @@ module.exports = function crearRutasTickets(deps) {
       cache = { lista, ts: Date.now() };
       return lista;
     } catch (e) {
-      console.error('[tickets] usuarios SIGA:', e);
+      console.error(`[${etiqueta}] usuarios SIGA:`, e);
       if (cache) return cache.lista;
       throw Object.assign(new Error('No se pudieron leer los usuarios de SIGA.'), { status: 503 });
     }
@@ -72,17 +78,17 @@ module.exports = function crearRutasTickets(deps) {
   const manejar = (fn, ok = 200) => async (req, res) => {
     try { res.status(ok).json(await fn(req)); }
     catch (e) {
-      if (!e.status) console.error('[tickets]', e);
+      if (!e.status) console.error(`[${etiqueta}]`, e);
       res.status(e.status || 500).json({ error: e.message });
     }
   };
 
-  router.get('/tickets', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'tickets.html')));
+  router.get(pagina, (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'tickets.html')));
   router.get('/js/tickets.js', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'js', 'tickets.js')));
 
-  router.get('/api/tickets', manejar(() => leerTickets()));
+  router.get(api, manejar(() => leerTickets()));
 
-  router.get('/api/tickets/meta', manejar(async req => {
+  router.get(`${api}/meta`, manejar(async req => {
     const usuarios = await usuariosSiga();
     const user = (req.session && req.session.user) || {};
     const login = String(user.usuario || '').toLowerCase();
@@ -91,7 +97,7 @@ module.exports = function crearRutasTickets(deps) {
       prioridades: tickets.PRIORIDADES,
       estados: tickets.ESTADOS,
       estadosEtapa: tickets.ESTADOS_ETAPA,
-      areas: tickets.AREAS,
+      areas,
       usuarios,
       yo: yo ? yo.usuario : null,
       yoNombre: user.nombre || user.usuario || null,
@@ -100,7 +106,7 @@ module.exports = function crearRutasTickets(deps) {
     };
   }));
 
-  router.post('/api/tickets', manejar(async req => {
+  router.post(api, manejar(async req => {
     const validos = (await usuariosSiga()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
     const { lista, ticket } = tickets.crearTicket(leerTickets(), req.body, usuarioSesion(req), validos, new Date().toISOString());
@@ -108,7 +114,7 @@ module.exports = function crearRutasTickets(deps) {
     return ticket;
   }, 201));
 
-  router.patch('/api/tickets/:id', manejar(async req => {
+  router.patch(`${api}/:id`, manejar(async req => {
     const id = idValido(req.params.id, 'ticket');
     const validos = (await usuariosSiga()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
@@ -128,9 +134,9 @@ module.exports = function crearRutasTickets(deps) {
     guardarJSON(TICKETS_PATH, lista);
     return ticket;
   }, ok);
-  router.post('/api/tickets/:id/etapas', operarEtapa((l, id, _e, body, u, ahora) => tickets.agregarEtapa(l, id, body, u, ahora), 201));
-  router.patch('/api/tickets/:id/etapas/:etapaId', operarEtapa((l, id, e, body, u, ahora) => tickets.actualizarEtapa(l, id, e, body, u, ahora)));
-  router.delete('/api/tickets/:id/etapas/:etapaId', operarEtapa((l, id, e, _b, u, ahora) => tickets.eliminarEtapa(l, id, e, u, ahora)));
+  router.post(`${api}/:id/etapas`, operarEtapa((l, id, _e, body, u, ahora) => tickets.agregarEtapa(l, id, body, u, ahora), 201));
+  router.patch(`${api}/:id/etapas/:etapaId`, operarEtapa((l, id, e, body, u, ahora) => tickets.actualizarEtapa(l, id, e, body, u, ahora)));
+  router.delete(`${api}/:id/etapas/:etapaId`, operarEtapa((l, id, e, _b, u, ahora) => tickets.eliminarEtapa(l, id, e, u, ahora)));
 
   return router;
 };

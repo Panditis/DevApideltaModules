@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apidelta — Sucursales</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   APIDELTA · SUCURSALES — sub-hub del área. Theme compartido (apidelta-theme.js/.css):
+   navbar verde/amarilla + tokens. El acento de cada tile (--accent/--accent-soft/
+   --accent-ink) es identidad propia del submódulo, no paleta vieja.
+   ═══════════════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-size:14px;line-height:1.55}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .4s cubic-bezier(.2,.7,.2,1) both}
+
+.app-bar-logo{height:34px;width:34px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
+.app-bar-title{font-size:1.02rem;font-weight:700;line-height:1.1}
+.app-bar-sub{font-size:.72rem;opacity:.72;font-weight:500}
+.status-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.12);font-size:.72rem;font-weight:600;color:#fff;text-decoration:none}
+
+/* Migas: vuelta al hub raíz */
+.crumbs{display:flex;align-items:center;gap:7px;font-size:.8rem;color:#5c5f52}
+.crumbs a{color:#405936;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+.crumbs a:hover{text-decoration:underline}
+.crumbs svg{width:14px;height:14px}
+
+/* Encabezado del área */
+.area-head{display:flex;align-items:center;gap:16px}
+.area-icon{
+  width:58px;height:58px;border-radius:16px;display:grid;place-items:center;flex-shrink:0;
+  background:#f1e5d3;color:#3d2b12;
+}
+.area-icon svg{width:29px;height:29px}
+
+/* Tarjeta de submódulo (misma anatomía que las del hub raíz) */
+.tile{
+  position:relative;display:flex;flex-direction:column;gap:14px;
+  background:#fff;border:1px solid rgba(26,28,24,.16);border-radius:18px;
+  padding:22px;text-decoration:none;color:inherit;overflow:hidden;
+  transition:transform .18s cubic-bezier(.2,.7,.2,1),box-shadow .18s ease,border-color .18s ease;
+}
+.tile::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--accent,#FFCC00);opacity:0;transition:opacity .18s ease}
+.tile:hover{transform:translateY(-4px);box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 0.3px 0.9px rgba(26,28,24,.1);border-color:#405936}
+.tile:hover::before{opacity:1}
+.tile:focus-visible{outline:none;border-color:#FFCC00;box-shadow:0 0 0 3px rgba(255,204,0,.35)}
+.tile-icon{width:52px;height:52px;border-radius:13px;display:grid;place-items:center;flex-shrink:0;background:var(--accent-soft,#FFF3B0);color:var(--accent-ink,#1a1200)}
+.tile-icon svg{width:26px;height:26px}
+.tile-title{font-size:1.12rem;font-weight:700;color:#242423;line-height:1.2}
+.tile-desc{font-size:.86rem;color:#5c5f52;line-height:1.5}
+.tile-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px}
+.tile-route{font-family:ui-monospace,monospace;font-size:.74rem;font-weight:600;color:#8a8c78;background:#f4f4ee;border:1px solid #e8e8e0;padding:3px 8px;border-radius:7px}
+.tile-arrow{color:#b9bba2;transition:transform .18s ease,color .18s ease}
+.tile:hover .tile-arrow{transform:translateX(3px);color:#405936}
+.tile-soon{border-style:dashed;border-color:#d3d3cb;background:#fbfbf8;cursor:default;box-shadow:none;min-height:170px}
+.tile-soon:hover{transform:none;box-shadow:none;border-color:#cfcfc6}
+.tile-soon .tile-icon{background:#eeeee7;color:#9a9c86}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:.64rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+.badge-live{background:#e3f0d2;color:#3f5e1f}
+.badge-soon{background:#f0f0ea;color:#8a8c78}
+
+@media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body class="font-body text-ink">
+
+<header class="acrylic sticky top-0 z-20 border-b border-borde shadow-fluent">
+  <div class="max-w-6xl mx-auto px-5 sm:px-8 py-3 flex items-center gap-3 flex-wrap">
+    <a href="/" style="display:flex;align-items:center;gap:14px;color:inherit;text-decoration:none">
+      <svg class="app-bar-logo" viewBox="0 0 32 32" role="img" aria-label="Apidelta">
+        <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#405936"/>
+        <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="none" stroke="#FFCC00" stroke-width="1.4" opacity=".9"/>
+        <text x="16" y="23" font-family="system-ui,'Segoe UI',sans-serif" font-weight="800" font-size="18" text-anchor="middle" fill="#FFCC00">A</text>
+      </svg>
+      <div>
+        <div class="app-bar-title text-white">Apidelta</div>
+        <div class="app-bar-sub text-white/75">Sucursales</div>
+      </div>
+    </a>
+    <div class="ml-auto flex items-center gap-3">
+      <span id="user-chip" class="status-chip hidden" title="Usuario conectado">
+        <i data-lucide="user" style="width:14px;height:14px"></i><span id="user-name">…</span>
+      </span>
+      <a href="/" class="status-chip" title="Volver al centro de operaciones">
+        <i data-lucide="layout-grid" style="width:14px;height:14px"></i><span class="hidden sm:inline">Todos los módulos</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-5 sm:px-8 py-8 sm:py-12">
+
+  <nav class="crumbs fade-up mb-6" aria-label="Ruta">
+    <a href="/"><i data-lucide="arrow-left"></i>Centro de operaciones</a>
+    <span aria-hidden="true">/</span>
+    <span>Sucursales</span>
+  </nav>
+
+  <div class="area-head fade-up mb-8 sm:mb-10">
+    <span class="area-icon" aria-hidden="true"><i data-lucide="store"></i></span>
+    <div>
+      <h1 class="font-disp text-2xl sm:text-3xl font-extrabold text-ink tracking-tight">Sucursales</h1>
+      <p class="mt-1 text-gris text-sm sm:text-[15px] max-w-2xl">
+        Módulos para la gestión de las sucursales.
+      </p>
+    </div>
+  </div>
+
+  <section aria-label="Módulos de Sucursales">
+    <ul id="grid" role="list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5"></ul>
+  </section>
+
+  <footer class="mt-12 pt-6 border-t border-borde text-xs text-gris">
+    Apidelta · Subsistema local · Sucursales
+  </footer>
+</main>
+
+<script>
+// Submódulos del área. Todos comparten el permiso del módulo 'sucursales' (auth.js),
+// así que acá sólo vive la presentación; para sumar uno, agregá su ruta al
+// catálogo de auth.js, su ruta HTML en server.js y una entrada acá.
+const SUBMODULOS = [
+  {
+    titulo: 'Mantenimiento',
+    href: '/sucursales/mantenimiento',
+    icon: 'wrench',
+    desc: 'Pedidos de mantenimiento de las sucursales: tablero por estado, etapas, responsables e historial de cada arreglo.',
+    accent: '#7d5a2f', soft: '#f1e5d3', ink: '#3d2b12',
+  },
+];
+
+const grid = document.getElementById('grid');
+grid.innerHTML = SUBMODULOS.map(m => `
+  <li role="listitem">
+    <a class="tile fade-up h-full" href="${m.href}"
+       style="--accent:${m.accent};--accent-soft:${m.soft};--accent-ink:${m.ink}"
+       aria-label="Abrir ${m.titulo}">
+      <div class="flex items-start justify-between gap-3">
+        <span class="tile-icon" aria-hidden="true"><i data-lucide="${m.icon}"></i></span>
+        <span class="badge badge-live">Activo</span>
+      </div>
+      <div>
+        <h2 class="tile-title">${m.titulo}</h2>
+        <p class="tile-desc mt-1">${m.desc}</p>
+      </div>
+      <div class="tile-foot">
+        <span class="tile-route">${m.href}</span>
+        <span class="tile-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span>
+      </div>
+    </a>
+  </li>`).join('') + `
+  <li role="listitem">
+    <div class="tile tile-soon h-full" aria-label="Próximo módulo de Sucursales">
+      <span class="tile-icon" aria-hidden="true"><i data-lucide="plus"></i></span>
+      <div>
+        <h2 class="tile-title text-[#7a7c68]">Próximamente</h2>
+        <p class="tile-desc mt-1">Inventario, controles y todo lo que sumemos para las sucursales.</p>
+      </div>
+      <span class="badge badge-soon mt-1">En camino</span>
+    </div>
+  </li>`;
+
+[...grid.querySelectorAll('.fade-up')].forEach((el, i) => { el.style.animationDelay = (i * 55) + 'ms'; });
+
+fetch('/api/session').then(r => r.json()).then(s => {
+  if (s && s.user) {
+    document.getElementById('user-name').textContent = s.user.nombre || s.user.usuario;
+    document.getElementById('user-chip').classList.remove('hidden');
+  }
+}).catch(() => {});
+
+if (window.lucide) lucide.createIcons();
+</script>
+</body>
+</html>

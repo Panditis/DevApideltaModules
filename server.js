@@ -2697,6 +2697,13 @@ app.use(require('./routes/rutas_ventas_hora')({ apiRoute, query, safeDate }));
 app.use(require('./routes/rutas_cruce_bancario')({ query }));
 // Tickets de Desarrollo: persiste en data/tickets.json; los destinatarios válidos son los usuarios activos de SIGA.
 app.use(require('./routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso }));
+// Sucursales: sub-hub /sucursales y Mantenimiento = otra instancia del router de tickets con datos en data/mantenimiento.json.
+app.get('/sucursales', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'sucursales.html')));
+app.use(require('./routes/rutas_tickets')({
+  leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso,
+  pagina: '/sucursales/mantenimiento', api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json',
+  permiso: 'mantenimiento-gestion', areas: require('./lib/tickets').AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento',
+}));
 // Carteles Pesables: precio de la bolsa de los pesables fraccionados por sucursal (SIGA sólo lectura).
 app.use(require('./routes/rutas_carteles_pesables')({ apiRoute, query, LISTA_PRECIOS_VENTA }));
 

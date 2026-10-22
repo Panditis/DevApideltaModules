@@ -209,6 +209,7 @@ const ESTILOS = {
   'cuentas-corrientes':  { desc:'Deuda viva de clientes: saldo por cliente, antigüedad y detalle de comprobantes con su saldo pendiente.', accent:'#a03d5c', soft:'#f7dde5', ink:'#4e1a2b' },
   'precios-historico':   { desc:'Qué precio tenía cada producto cada día de un mes: se elige mes y año, sale la planilla por PLU y se descarga en xlsx.', accent:'#7d5c2f', soft:'#f2e6d3', ink:'#3f2e14' },
   'rrhh':                { desc:'Área de Recursos Humanos: relevamiento de ropa de trabajo y lo que vayamos sumando del equipo.', accent:'#4a4f7d', soft:'#e2e4f3', ink:'#22254a' },
+  'sucursales':          { desc:'Gestión de las sucursales: pedidos de mantenimiento y lo que vayamos sumando.', accent:'#7d5a2f', soft:'#f1e5d3', ink:'#3d2b12' },
 };
 const ESTILO_DEFAULT = { desc:'', accent:'#65684C', soft:'#e7e8db', ink:'#2f3122' };
 
@@ -217,6 +218,7 @@ const ESTILO_DEFAULT = { desc:'', accent:'#65684C', soft:'#e7e8db', ink:'#2f3122
 // agregá su ruta al catálogo de auth.js y su nombre acá.
 const SUBMODULOS = {
   'rrhh': [{ titulo:'Relevamiento de Ropa', icon:'shirt' }, { titulo:'Analizador de CV', icon:'file-search' }],
+  'sucursales': [{ titulo:'Mantenimiento', icon:'wrench' }],
 };
 
 function tileHTML(m, logueado){
