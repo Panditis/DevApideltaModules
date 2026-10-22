@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
+const { metaDeEntrada, granelPlusDe, aplicarMetaGrupo } = require('../lib/plan_catalogo_meta');
 
 // ── Rutas del catálogo de grupos ──────────────────────────────────────────────
 // El catálogo es data/catalogo.json (plu → grupo/presentación/variante) más su
@@ -31,6 +32,11 @@ module.exports = function crearRutasCatalogo(deps) {
     cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
   } = deps;
   const router = express.Router();
+  const DATA_DIR = path.dirname(GRUPOS_CFG_PATH);
+  const CLIENTES_PATH = path.join(DATA_DIR, 'clientes.json');
+  const RESP_PATH = path.join(DATA_DIR, 'responsables.json');
+  // Meta de producción del grupo (spec 2026-10-22 §1.1): lo que edita la lista del Catálogo.
+  const metaPublica = (ref, entrada) => ({ productoRef: ref, ...metaDeEntrada(entrada), granelPlus: granelPlusDe(entrada), activo: metaDeEntrada(entrada).estado !== 'discontinuado' });
 
 router.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, [])));
 
@@ -38,7 +44,7 @@ router.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, 
 router.get('/api/catalogo/grupos', (_req, res) => {
   const catalogo  = leerJSON(CATALOGO_PATH, []);
   const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
-  const cCfg      = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
+  const cCfg      = leerJSON(path.join(__dirname, '..', 'config.json'), {});
   const mapa = new Map();
   for (const item of catalogo) {
     const ref = item.productoRef || '';
@@ -59,7 +65,8 @@ router.get('/api/catalogo/grupos', (_req, res) => {
     esGranel:        cfgEsGranel(gruposCfg, g.productoRef, cCfg.gruposGranel),
     granelDirecto:   cfgGranelOverride(gruposCfg, g.productoRef),
     esMiel:          cfgEsMiel(gruposCfg, g.productoRef),
-    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef)
+    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef),
+    ...metaDeEntrada(gruposCfg[g.productoRef]),
   }));
   res.json(grupos);
 });
@@ -113,6 +120,20 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
   const normalizados = nuevos.map(i => ({ ...i, refId, productoRef: ref }));
   guardarJSON(CATALOGO_PATH, [...otros, ...normalizados]);
   res.json({ ok: true, productos: normalizados.length });
+});
+
+router.patch('/api/catalogo/grupo/:ref/meta', (req, res) => {
+  const ref = decodeURIComponent(req.params.ref);
+  const catalogo = leerJSON(CATALOGO_PATH, []);
+  if (!catalogo.some(i => i.productoRef === ref)) return res.status(404).json({ error: `No existe el grupo "${ref}"` });
+  const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
+  try {
+    const entrada = aplicarMetaGrupo(gruposCfg[ref], req.body, { clientes: leerJSON(CLIENTES_PATH, []), responsables: leerJSON(RESP_PATH, []) });
+    guardarJSON(GRUPOS_CFG_PATH, { ...gruposCfg, [ref]: entrada });
+    res.json(metaPublica(ref, entrada));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // ── Importar catálogo desde Excel ─────────────────────────────────────────────
