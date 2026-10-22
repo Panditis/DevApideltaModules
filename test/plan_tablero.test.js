@@ -163,3 +163,27 @@ test('armarTablero: dos PLU base con el mismo baseNombre → una presentación c
   f = fila(armarTablero(d, opts));
   assert.strictEqual(f.presentaciones[0].plu, '13');
 });
+
+test('armarTablero: granelDirecto = primer granelPlu solo si el grupo se produce como granel', () => {
+  const d = datos();
+  d.gruposCfg['Mix Europeo'] = { tipo: 'directo', granelPlu: '1522' };
+  d.gruposCfg['G. Almendra'] = { tipo: 'directo', granelPlus: ['7194', '7195'] };
+  d.gruposCfg['Sin Peso'] = { tipo: 'directo' }; // marcado granel pero sin granelPlu: queda null
+  const dir = () => Object.fromEntries(armarTablero(d, opts).filas.filter(x => x.nivel === 'producto').map(x => [x.productoRef, x.granelDirecto]));
+  assert.deepStrictEqual(dir(), { 'Mix Europeo': null, 'G. Almendra': null, 'Sin Peso': null, Huerfana: null, 'Pausado X': null });
+  d.granelDirectoRefs = new Set(['Mix Europeo', 'G. Almendra', 'Sin Peso']);
+  assert.deepStrictEqual(dir(), { 'Mix Europeo': '1522', 'G. Almendra': '7194', 'Sin Peso': null, Huerfana: null, 'Pausado X': null });
+});
+
+test('armarTablero: el PLU granel del grupo (ej. "10Kg (Precio por kilo)") se vende y stockea por kilo', () => {
+  const d = datos();
+  d.catalogo.push({ plu: 1522, producto: 'Mix Premium 10Kg (Precio por kilo)', baseNombre: 'Mix Premium 10Kg (Precio por kilo)', presentacion: '10Kg', esVariante: false, refId: 1, productoRef: 'Mix Premium' });
+  d.gruposCfg['Mix Premium'] = { tipo: 'directo', granelPlu: '1522' };
+  d.ventas.set('1522', 240);
+  d.stockCentral.set('1522', 50);
+  const f = armarTablero(d, opts).filas.find(x => x.productoRef === 'Mix Premium');
+  assert.strictEqual(f.ventaDiaKg, 2);        // 240 kg / 120 días, no 240×10
+  assert.strictEqual(f.stockCentralKg, 50);
+  assert.strictEqual(f.presentaciones[0].pesoKg, 1);
+  assert.strictEqual(f.presentaciones[0].ventasKg, 240);
+});

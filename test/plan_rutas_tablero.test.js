@@ -7,7 +7,7 @@ const path = require('node:path');
 const express = require('express');
 
 // Router real del tablero con DATA_DIR temporal y un query falso que responde según el SQL.
-function montar({ filasSql = {} } = {}) {
+function montar({ filasSql = {}, gruposGranel = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-tablero-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
@@ -31,7 +31,9 @@ function montar({ filasSql = {} } = {}) {
   app.use(require('../routes/rutas_plan_tablero')({
     apiRoute: fn => async (req, res) => { try { res.json(await fn(req)); } catch (e) { res.status(500).json({ error: e.message }); } },
     leerJSON, guardarJSON, query, DATA_DIR: dir, CATALOGO_PATH, GRUPOS_CFG_PATH,
-    leerConfig: () => ({ ventanaConsumoDias: 120, diasObjetivo: 30, rubrosGranel: [22, 23], gruposGranelEnKg: [] }),
+    leerConfig: () => ({ ventanaConsumoDias: 120, diasObjetivo: 30, rubrosGranel: [22, 23], gruposGranelEnKg: [], gruposGranel }),
+    // Mismo contrato que cfgEsGranel de server.js: override granelDirecto del grupo, si no la lista de config.json.
+    cfgEsGranel: (cfg, ref, lista) => (typeof (cfg[ref] || {}).granelDirecto === 'boolean' ? cfg[ref].granelDirecto : (lista || []).includes(ref)),
     sqlStockPorPlu: l => `STOCKCENTRAL ${l.join(',')}`,
     sqlBOMGranel: (r, f) => `BOMGRANEL ${r}${f}`,
   }));
@@ -106,5 +108,20 @@ test('graneles base: claves heredadas (constructor, __proto__) no cuentan como e
     assert.strictEqual(p.status, 404);
     assert.ok(!Object.hasOwn(ctx.leer('graneles_base.json'), 'constructor'));
     assert.strictEqual((await pedir(ctx.base, 'PATCH', '/api/plan/graneles-base/__proto__', { estado: 'activo' })).status, 404);
+  } finally { cerrar(ctx); }
+});
+
+test('GET /api/plan/tablero: grupos que se producen como granel (override o gruposGranel) traen granelDirecto', async () => {
+  const ctx = await montar({ gruposGranel: ['Mix'] });
+  try {
+    const mix = async () => (await pedir(ctx.base, 'GET', '/api/plan/tablero')).data.filas.find(f => f.productoRef === 'Mix');
+    const cfgPath = path.join(ctx.dir, 'grupos_config.json');
+    const guardar = cfg => fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+    guardar({ Pepas: { tipo: 'granel', granelPlu: '100' }, Mix: { tipo: 'directo', granelPlu: '1522' } });
+    assert.strictEqual((await mix()).granelDirecto, '1522');   // sin override: lo decide config.gruposGranel
+    guardar({ Pepas: { tipo: 'granel', granelPlu: '100' }, Mix: { tipo: 'directo', granelPlu: '1522', granelDirecto: false } });
+    assert.strictEqual((await mix()).granelDirecto, null);     // el override del grupo manda
+    guardar({ Pepas: { tipo: 'granel', granelPlu: '100' }, Mix: true });
+    assert.strictEqual((await mix()).granelDirecto, null);     // en la lista pero sin granelPlu: nada que producir
   } finally { cerrar(ctx); }
 });

@@ -150,6 +150,7 @@ function kgDeFila(id, porDefecto) {
 }
 
 function itemsDeProducto(f, kg) {
+  if (f.granelDirecto && f.tipo === 'directo') return [itemDeGranelDirecto(f, kg)];
   return PlanReparto.repartirEnPresentaciones(kg, f.presentaciones).map(r => ({
     idProducto: r.plu, producto: r.nombre, presentacion: r.presentacion, rubro: f.productoRef, rankingPos: f.rankingPos,
     semaforo: SEMAFORO_DE_URGENCIA[f.urgencia] || 'YELLOW', pendientes: 0,
@@ -172,6 +173,14 @@ function itemDeGranel(g, kg) {
     granelNecesario: 0, granelDisponible: null, granelOk: true,
     responsables: [...(g.responsables || [])],
   };
+}
+
+// Grupo que se produce como granel (granelDirecto, ej. Mix Europeo): UNA orden de granel en kg al PLU granel del
+// grupo, como el viejo "+ Agregar" granel del Resumen. producto = productoRef y sin idProducto: así la línea del
+// carrito (claveLinea) y la clave del plan (claveItemPlan, G|producto) coinciden con las que dejaba el Resumen.
+function itemDeGranelDirecto(f, kg) {
+  const g = { plu: f.granelDirecto, nombre: f.productoRef, urgencia: f.urgencia, rankingPos: f.rankingPos, responsables: f.responsables };
+  return { ...itemDeGranel(g, kg), idProducto: null, ...(f.clienteId != null ? { cliente: f.clienteId } : {}) };
 }
 
 function itemsDeTablero(id) {

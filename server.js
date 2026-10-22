@@ -2769,7 +2769,7 @@ app.use(require('./routes/rutas_produccion')({
 app.use(require('./routes/rutas_plan_tablero')({
   apiRoute, leerJSON, guardarJSON, query, DATA_DIR, CATALOGO_PATH, GRUPOS_CFG_PATH,
   leerConfig: () => JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')),
-  sqlStockPorPlu, sqlBOMGranel,
+  sqlStockPorPlu, sqlBOMGranel, cfgEsGranel,
 }));
 
 // Planificación: va al final porque sucursalesSiga, sucursalPublica y leerPlanReservas

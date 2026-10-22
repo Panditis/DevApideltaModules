@@ -9,12 +9,12 @@ const { sqlConsumoCatalogo, sqlStockTodosDepositos, sqlStockSucursales, sqlFactu
 // ── Tablero de planificación y graneles base ─────────────────────────────────
 // Spec docs/superpowers/specs/2026-10-22-planificacion-centro-design.md §1.2 y §3. Se monta ANTES
 // que rutas_plan.js: GET /api/plan/:fecha capturaría /api/plan/tablero y /api/plan/graneles-base.
-// sqlStockPorPlu y sqlBOMGranel viven en server.js (los usan otros routers) y entran por deps;
+// sqlStockPorPlu, sqlBOMGranel y cfgEsGranel viven en server.js (los usan otros routers) y entran por deps;
 // config.json también, por leerConfig (en los tests no existe).
 module.exports = function crearRutasPlanTablero(deps) {
   const {
     apiRoute, leerJSON, guardarJSON, query, leerConfig, DATA_DIR,
-    CATALOGO_PATH, GRUPOS_CFG_PATH, sqlStockPorPlu, sqlBOMGranel,
+    CATALOGO_PATH, GRUPOS_CFG_PATH, sqlStockPorPlu, sqlBOMGranel, cfgEsGranel,
   } = deps;
   const router = express.Router();
   const GRANELES_PATH = path.join(DATA_DIR, 'graneles_base.json');
@@ -70,8 +70,10 @@ module.exports = function crearRutasPlanTablero(deps) {
       const k = String(b.IdProducto).trim();
       bomGranel.set(k, [...(bomGranel.get(k) || []), { granelPlu: String(b.IdProductoComponente).trim(), cantPorUnidad: parseFloat(b.CantPorUnidad) || 0 }]);
     }
+    // Grupos "producidos como granel" (override granelDirecto del grupo, si no config.gruposGranel): van al carrito como una orden de granel en kg.
+    const granelDirectoRefs = new Set([...new Set(vivos.map(it => String(it.productoRef || '')))].filter(ref => cfgEsGranel(gruposCfg, ref, c.gruposGranel)));
     return armarTablero({
-      catalogo: vivos, gruposCfg, granelesBase, enKgRefs: new Set(c.gruposGranelEnKg || []),
+      catalogo: vivos, gruposCfg, granelesBase, enKgRefs: new Set(c.gruposGranelEnKg || []), granelDirectoRefs,
       ventas: mapa(ventas, 'UnidVendidas'), factur: mapa(factur, 'TotalFacturado'),
       stockCentral: mapa(stockC, 'StockActual'), stockSuc: mapa(stockS, 'StockActual'), stockGranel: mapa(stockG, 'StockActual'),
       bomGranel, nombres, clientes: leerJSON(CLIENTES_PATH, []),

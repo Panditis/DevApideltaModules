@@ -77,14 +77,14 @@ function guardarCarrito() {
   persistirCarrito();
   renderCarrito();
 }
-// Orden del carrito (mostrado y enviado): prioridad del grupo en el Resumen; sin rankingPos al final,
+// Orden del carrito (mostrado y enviado): prioridad del grupo en el Tablero; sin rankingPos al final,
 // en orden de alta (el sort es estable).
 const _posLinea = l => l.rankingPos || Number.MAX_SAFE_INTEGER;
 const lineasOrdenadas = () => [...carrito.lineas].sort((a, b) => _posLinea(a) - _posLinea(b));
 const claveLinea = it => `${it.esGranel ? 'G' : 'F'}|${it.idProducto ?? it.producto}`;
 const pedirFechaCarrito = titulo => new Promise(res => abrirDiaPicker(titulo, res));
 
-// Punto de entrada de todos los "+": Resumen, búsqueda manual y granel manual.
+// Punto de entrada de todos los "+": Tablero y sugerencias del registro.
 async function agregarAlCarrito(items) {
   if (!items.length) return;
   if (!carrito.fecha) {
