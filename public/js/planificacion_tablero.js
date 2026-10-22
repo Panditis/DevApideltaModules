@@ -6,8 +6,17 @@ let tablero = null;
 const tableroAbiertos = new Set(); // plu de graneles desplegados
 // Lo tipeado en "Estimado" por id de fila. Sobrevive a los re-render (filtro, desplegar un granel)
 // y se descarta al recargar el tablero, cuando los estimados cambian.
+// Una variedad con 2+ graneles aparece bajo cada uno: su edición se guarda por productoRef (no por
+// el id posicional) para que todas sus filas compartan el mismo valor.
 const editadosTablero = new Map();
-const valorEst = (id, porDefecto) => (editadosTablero.has(id) ? editadosTablero.get(id) : porDefecto);
+const claveEdicion = id => {
+  const f = /^t\d+v\d+$/.test(id) ? filaPorId(id) : null;
+  return f ? `v:${f.productoRef}` : id;
+};
+const valorEst = (id, porDefecto) => {
+  const k = claveEdicion(id);
+  return editadosTablero.has(k) ? editadosTablero.get(k) : porDefecto;
+};
 const SEMAFORO_DE_URGENCIA = { URGENTE: 'RED', PRONTO: 'YELLOW', OK: 'GREEN' };
 const fmtKg = n => (n == null ? '—' : nfAR(n, 1));
 const fmtCob = c => (c == null ? '—' : `${nfAR(c, 1)} d`);
@@ -65,7 +74,7 @@ function filaProductoHTML(f, id, sangria) {
     <td class="num">${fmtKg(f.ventaDiaKg)}</td>
     <td class="num">${fmtKg(f.stockCentralKg)}</td>
     <td class="num">${fmtKg(f.stockLocalesKg)} <button class="btn-mini" title="Stock por sucursal" onclick="abrirStockTablero('${id}')">🔍</button></td>
-    <td class="num">${f.stockGranelKg == null ? '—' : fmtKg(f.stockGranelKg)}</td>
+    <td class="num">${sangria ? '—' : fmtKg(f.stockGranelKg)}</td>
     <td class="num">${fmtCob(f.coberturaDias)}</td>
     ${celdaEstimado(f, id)}
     <td>${fmtFechaTablero(f.proximaFecha)}</td>
@@ -79,7 +88,7 @@ function filaGranelHTML(g, i) {
   const cab = `<tr class="fila-granel${g.estado === 'pausado' ? ' fila-pausada' : ''}">
     <td>${g.rankingPos ?? ''}</td>
     <td>${g.estado === 'pausado' ? '' : chipUrgencia(g.urgencia)}</td>
-    <td><button class="btn-mini" onclick="toggleGranelTablero('${escHtml(g.plu)}')">${abierto ? '▼' : '▶'}</button>
+    <td><button class="btn-mini" onclick="toggleGranelTablero(${i})">${abierto ? '▼' : '▶'}</button>
       🛢 ${escHtml(g.nombre)} <span style="font-weight:400;color:var(--muted);font-size:11px">${g.variedades.length} variedades</span>${avisosFila(g)}</td>
     <td class="num" title="kg de granel por día que consumen las variedades activas">${fmtKg(g.ventaDiaKg)}</td>
     <td class="num">—</td><td class="num">—</td>
@@ -128,7 +137,8 @@ function renderFason() {
     </tr>`).join('')}</tbody></table>`).join('');
 }
 
-function toggleGranelTablero(plu) {
+function toggleGranelTablero(i) {
+  const plu = tablero.filas[i].plu;
   if (tableroAbiertos.has(plu)) tableroAbiertos.delete(plu); else tableroAbiertos.add(plu);
   renderTablero();
 }
@@ -180,7 +190,13 @@ function tableroAgregar(id) {
 
 function tableroAgregarTodo() {
   if (!tablero) return;
-  const ids = tablero.filas.flatMap((f, i) => [`t${i}`, ...(f.nivel === 'granel' ? f.variedades.map((_, j) => `t${i}v${j}`) : [])]);
+  // Una variedad de 2+ graneles viene repetida (el JSON del servidor la copia en cada granel): una sola vez.
+  const vistas = new Set();
+  const unica = id => {
+    const f = filaPorId(id), k = f.nivel === 'granel' ? `g:${f.plu}` : `p:${f.productoRef}`;
+    return !vistas.has(k) && !!vistas.add(k);
+  };
+  const ids = tablero.filas.flatMap((f, i) => [`t${i}`, ...(f.nivel === 'granel' ? f.variedades.map((_, j) => `t${i}v${j}`) : [])]).filter(unica);
   const items = ids.flatMap(itemsDeTablero);
   if (!items.length) { toast('No hay estimados mayores a 0 para agregar', true); return; }
   agregarAlCarrito(items);
@@ -190,13 +206,13 @@ function tableroAgregarTodo() {
 async function abrirStockTablero(id) {
   const f = filaPorId(id);
   if (!f) return;
-  const g = { productoRef: f.productoRef, presentaciones: f.presentaciones.map(p => ({ plu: p.plu, plus: [p.plu], presentacion: p.presentacion, baseNombre: p.nombre })) };
+  const g = { productoRef: f.productoRef, presentaciones: f.presentaciones.map(p => ({ plu: p.plu, plus: p.plus || [p.plu], presentacion: p.presentacion, baseNombre: p.nombre })) };
   if (!g.presentaciones.length) { toast('Este producto no tiene presentaciones con peso para consultar', true); return; }
   document.getElementById('stockDetTitulo').textContent = f.productoRef;
   document.getElementById('stockDetBody').innerHTML = '<div class="loading">Cargando…</div>';
   document.getElementById('overlayStockDet').classList.add('open');
   try {
-    const data = await api('GET', `/api/plan/stock-detalle?plus=${encodeURIComponent(g.presentaciones.map(p => p.plu).join(','))}`);
+    const data = await api('GET', `/api/plan/stock-detalle?plus=${encodeURIComponent([...new Set(g.presentaciones.flatMap(p => p.plus))].join(','))}`);
     document.getElementById('stockDetBody').innerHTML = renderStockDetalle(data, g);
   } catch (e) {
     document.getElementById('stockDetBody').innerHTML = `<div style="color:var(--red-text);padding:10px">Error: ${escHtml(mensajeApiError(e))}</div>`;
@@ -225,7 +241,13 @@ document.getElementById('inputDiasTablero').addEventListener('change', async e =
   } catch (err) { toast('No se pudo guardar los días a cubrir: ' + mensajeApiError(err), true); restaurar(); }
 });
 document.getElementById('tab-tablero').addEventListener('input', e => {
-  if (e.target.id && e.target.id.startsWith('est-')) editadosTablero.set(e.target.id.slice(4), e.target.value);
+  if (!e.target.id || !e.target.id.startsWith('est-')) return;
+  const k = claveEdicion(e.target.id.slice(4));
+  editadosTablero.set(k, e.target.value);
+  // Misma variedad bajo otro granel desplegado: se ve el mismo valor sin esperar un re-render.
+  document.querySelectorAll('#tab-tablero input[id^="est-"]').forEach(inp => {
+    if (inp !== e.target && claveEdicion(inp.id.slice(4)) === k) inp.value = e.target.value;
+  });
 });
 document.getElementById('filtroTablero').addEventListener('input', renderTablero);
 document.getElementById('btnRecargarTablero').addEventListener('click', cargarTablero);

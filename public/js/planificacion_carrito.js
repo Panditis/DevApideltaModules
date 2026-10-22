@@ -237,7 +237,7 @@ function renderCarrito() {
   document.getElementById('btnCarritoVaciar').hidden = !n;
   document.getElementById('carritoTabla').innerHTML = n
     ? lineasOrdenadas().map(filaCarrito).join('')
-    : '<div class="loading">Agregá productos desde el Resumen con +</div>';
+    : '<div class="loading">Agregá productos desde el Tablero con +</div>';
 }
 
 // ── Revisar y enviar ─────────────────────────────────────────────

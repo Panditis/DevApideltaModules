@@ -72,6 +72,7 @@ test('armarTablero: variedad en kg — venta/día, stock central (sin variantes)
   assert.strictEqual(v.urgencia, 'PRONTO');    // clase A, cobertura (30+10)/3.75 = 10.7 < 14
   assert.strictEqual(v.rankingPos, 1);
   assert.deepStrictEqual(v.presentaciones.map(p => [p.plu, p.pesoKg, p.ventasKg]), [['1', 0.25, 330], ['2', 0.5, 120]]);
+  assert.deepStrictEqual(v.presentaciones.map(p => p.plus), [['1'], ['2']]); // la variante (3) no es PLU base
 });
 
 test('armarTablero: fila de granel — Σ necesario × ratio − stock granel, pausadas no suman', () => {
@@ -151,6 +152,7 @@ test('armarTablero: dos PLU base con el mismo baseNombre → una presentación c
   let f = fila(armarTablero(d, opts));
   assert.strictEqual(f.presentaciones.length, 1);
   assert.strictEqual(f.presentaciones[0].plu, '14');     // 360 u vendidas contra 120
+  assert.deepStrictEqual(f.presentaciones[0].plus, ['13', '14']); // y expone todos los PLU base fusionados
   assert.strictEqual(f.presentaciones[0].pesoKg, 0.2);
   assert.strictEqual(f.presentaciones[0].ventasKg, 96);  // las ventas siguen sumando: (120+360)×0.2
   assert.strictEqual(f.stockCentralKg, 6);                // y el stock también: (10+20)×0.2

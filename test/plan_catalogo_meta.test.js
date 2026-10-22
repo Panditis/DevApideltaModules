@@ -107,6 +107,20 @@ test('migrarPlanificacionCentro: no pisa graneles ni meta ya cargados', () => {
   assert.strictEqual(r.gruposCfg.A.estado, 'pausado');
 });
 
+test('migrarPlanificacionCentro: granelPlu no numérico no crea granel; una clave propia existente se conserva', () => {
+  const r = migrarPlanificacionCentro(
+    {
+      A: { tipo: 'granel', estado: 'activo', granelPlu: 'constructor', reqGranel: true },
+      B: { tipo: 'granel', estado: 'activo', granelPlu: 'abc', reqGranel: true },
+      C: { tipo: 'granel', estado: 'activo', granelPlu: '7', reqGranel: true },
+    },
+    { 7: { nombre: 'Siete', estado: 'activo', motivo: '', responsables: [], proximaFecha: null } });
+  assert.deepStrictEqual(Object.keys(r.granelesBase), ['7']);
+  assert.strictEqual(r.granelesBase['7'].nombre, 'Siete');
+  assert.strictEqual(r.cambios, 0);
+  assert.ok(!Object.hasOwn(r.granelesBase, 'constructor'));
+});
+
 test('aplicarMetaGrupo: solo valida lo editado — responsables y cliente guardados no se tocan', () => {
   const guardada = { tipo: 'directo', estado: 'activo', responsables: ['Ana', 'Baja'], clienteId: 99 };
   // responsables.json ilegible (ctx sin lista) y cliente 99 ya borrado: un PATCH de otro campo pasa igual
