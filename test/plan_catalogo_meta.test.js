@@ -106,3 +106,23 @@ test('migrarPlanificacionCentro: no pisa graneles ni meta ya cargados', () => {
   assert.strictEqual(r.granelesBase['1'].nombre, 'Masa');
   assert.strictEqual(r.gruposCfg.A.estado, 'pausado');
 });
+
+test('aplicarMetaGrupo: solo valida lo editado — responsables y cliente guardados no se tocan', () => {
+  const guardada = { tipo: 'directo', estado: 'activo', responsables: ['Ana', 'Baja'], clienteId: 99 };
+  // responsables.json ilegible (ctx sin lista) y cliente 99 ya borrado: un PATCH de otro campo pasa igual
+  const out = aplicarMetaGrupo(guardada, { proximaFecha: '2026-10-28' }, { clientes: [], responsables: [] });
+  assert.deepStrictEqual(out.responsables, ['Ana', 'Baja']);
+  assert.strictEqual(out.clienteId, 99);
+  assert.strictEqual(out.proximaFecha, '2026-10-28');
+  // si el PATCH los trae, siguen validándose
+  assert.deepStrictEqual(aplicarMetaGrupo(guardada, { responsables: ['Ana', 'Baja'] }, { clientes: [], responsables: ctx.responsables }).responsables, ['Ana']);
+  assert.throws(() => aplicarMetaGrupo(guardada, { clienteId: 99 }, ctx), e => e.status === 400);
+});
+
+test('aplicarMetaGranel: solo valida lo editado — responsables guardados no se tocan', () => {
+  const guardado = { nombre: 'Masa', estado: 'activo', responsables: ['Juan', 'Baja'] };
+  const out = aplicarMetaGranel(guardado, { proximaFecha: '2026-10-28' }, { responsables: [] });
+  assert.deepStrictEqual(out.responsables, ['Juan', 'Baja']);
+  assert.strictEqual(out.proximaFecha, '2026-10-28');
+  assert.deepStrictEqual(aplicarMetaGranel(guardado, { responsables: ['Juan', 'Baja'] }, ctx).responsables, ['Juan']);
+});

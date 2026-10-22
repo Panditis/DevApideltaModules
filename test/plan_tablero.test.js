@@ -128,3 +128,36 @@ test('armarTablero: granel sin nombre usa el de SIGA; stock negativo cuenta 0', 
   assert.strictEqual(g.stockGranelKg, 0);
   assert.strictEqual(g.estimadoKg, 66);
 });
+
+test('armarTablero: el mismo PLU repetido en el catálogo cuenta una sola vez', () => {
+  const d = datos();
+  d.catalogo.push({ ...d.catalogo[0] }); // PLU 1 (250G con peso) duplicado en el mismo productoRef
+  const v = armarTablero(d, opts).filas.find(f => f.nivel === 'granel').variedades[0];
+  assert.strictEqual(v.ventaDiaKg, 3.75);
+  assert.strictEqual(v.stockCentralKg, 30);
+  assert.deepStrictEqual(armarTablero(d, opts), armarTablero(datos(), opts));
+});
+
+test('armarTablero: dos PLU base con el mismo baseNombre → una presentación con el PLU más vendido', () => {
+  const d = datos();
+  const mix = plu => ({ plu, producto: 'Mix Cervecero 200G', baseNombre: 'Mix Cervecero 200G', presentacion: '200G', esVariante: false, refId: 1, productoRef: 'Mix Cervecero' });
+  const fila = t => t.filas.find(f => f.productoRef === 'Mix Cervecero');
+  d.catalogo.push(mix(13), mix(14));
+  d.gruposCfg['Mix Cervecero'] = true;
+  d.stockCentral.set('13', 10);
+  d.stockCentral.set('14', 20);
+  d.ventas.set('13', 120);
+  d.ventas.set('14', 360);
+  let f = fila(armarTablero(d, opts));
+  assert.strictEqual(f.presentaciones.length, 1);
+  assert.strictEqual(f.presentaciones[0].plu, '14');     // 360 u vendidas contra 120
+  assert.strictEqual(f.presentaciones[0].pesoKg, 0.2);
+  assert.strictEqual(f.presentaciones[0].ventasKg, 96);  // las ventas siguen sumando: (120+360)×0.2
+  assert.strictEqual(f.stockCentralKg, 6);                // y el stock también: (10+20)×0.2
+  d.ventas.set('13', 360); // empate → el primero del catálogo
+  assert.strictEqual(fila(armarTablero(d, opts)).presentaciones[0].plu, '13');
+  d.ventas.delete('13');
+  d.ventas.delete('14'); // sin ventas → el primero
+  f = fila(armarTablero(d, opts));
+  assert.strictEqual(f.presentaciones[0].plu, '13');
+});
