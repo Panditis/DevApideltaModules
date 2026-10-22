@@ -559,12 +559,26 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 .mp-reserva{display:flex;gap:6px;align-items:center;margin-top:3px;color:var(--muted)}
 /* ── Modal con el cálculo de la urgencia (click en el chip del Resumen) ── */
 #carritoBadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--md-primary);color:#fff;font-size:11px;text-align:center}
-.cat-fila { display:grid; grid-template-columns: 2.2fr 1.2fr 1.4fr 1.1fr 1.4fr 1fr 1.5fr .9fr .6fr auto; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--md-outline-variant); font-size:13px; }
-.cat-fila.cat-cab { font-size:11px; color:var(--muted); font-weight:600; border-bottom:2px solid var(--md-outline-variant); }
-.cat-fila.inactivo { opacity:.55; }
-.cat-fila select, .cat-fila input[type=text], .cat-fila input[type=date] { width:100%; font-size:12px; }
-.cat-fila details.resp-picker summary { cursor:pointer; font-size:12px; }
-.cat-fila details.resp-picker label { display:block; font-size:12px; padding:2px 0; }
+/* ── Catálogo de producción: lista simple (click en la fila abre el panel de detalle) ── */
+.cat-tabla tbody tr { cursor:pointer; }
+.cat-tabla tr.inactivo td { opacity:.5; }
+.cat-tabla .cat-activo { width:80px; text-align:center; }
+.cat-tabla input[type=checkbox] { width:18px; height:18px; accent-color:var(--md-primary); cursor:pointer; }
+.cat-badge { display:inline-block; margin-left:8px; padding:1px 8px; border-radius:var(--radius-full); font-size:11px; font-weight:600; white-space:nowrap; background:var(--amb-bg); color:var(--amb-text); border:1px solid var(--amb-border); }
+.cat-badge.fason { background:var(--md-info-container); color:var(--md-info); border-color:transparent; }
+.cat-det { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+.cat-det > * { flex-shrink:0; }
+.cat-det [hidden] { display:none; }
+.cat-dos { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+.cat-campo { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:600; color:var(--muted); }
+.cat-campo select, .cat-campo input[type=text], .cat-campo input[type=date] { border:1px solid var(--md-outline-variant); border-radius:var(--radius-sm); padding:8px 10px; font-size:13px; font-weight:400; color:var(--text); background:var(--card); font-family:inherit; }
+.cat-campo select:focus, .cat-campo input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
+.cat-campo .text-sm { font-weight:400; }
+.cat-ro { font-size:13px; font-weight:400; color:var(--text); }
+.cat-resp { display:grid; grid-template-columns:1fr 1fr; gap:2px 12px; max-height:150px; overflow-y:auto; }
+.cat-resp label { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:400; color:var(--text); }
+.cat-pres { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-top:12px; border-top:1px solid var(--md-outline-variant); font-size:13px; color:var(--muted); }
+.cat-error { margin:0 20px 12px; padding:8px 12px; border-radius:var(--radius-sm); background:var(--red-bg); color:var(--red-text); border:1px solid var(--red-border); font-size:13px; flex-shrink:0; }
 </style>
 <!-- Módulo puro de cálculo de bloques: va ANTES del script principal, que lo lee como window.BloquesTareas -->
 <script src="/bloques_tareas.js"></script>
@@ -1006,6 +1020,22 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   </div>
 </div>
 
+<!-- PANEL DETALLE DEL CATÁLOGO (click en una fila del tab Catálogo) -->
+<div class="overlay" id="overlayCatDetalle">
+  <div class="modal" style="width:600px">
+    <div class="modal-header">
+      <span id="catDetTitulo" style="flex:1"></span>
+      <span class="close" id="cerrarCatDet">✕</span>
+    </div>
+    <div class="cat-det" id="catDetBody"></div>
+    <div class="cat-error" id="catDetError" hidden></div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+      <button class="btn btn-secondary" id="btnCatDetCancelar">Cancelar</button>
+      <button class="btn btn-primary" id="btnCatDetGuardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL RESUMEN MP (+ Todo) -->
 <div class="overlay" id="overlayMPResumen">
   <div class="modal mp-modal">
@@ -1143,7 +1173,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
       <button class="btn btn-secondary btn-sm" data-filtro="directo">Directos</button>
       <button class="btn btn-secondary btn-sm" data-filtro="fason">Fasón</button>
     </span>
-    <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="catVerDiscontinuados"> Ver discontinuados</label>
     <span class="sep"></span>
     <label class="btn btn-secondary btn-sm" id="btnImportarCatalogoTab" title="Actualizar catálogo desde Excel" style="cursor:pointer">
       📥 Actualizar catálogo
