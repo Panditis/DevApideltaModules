@@ -236,6 +236,15 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 .resp-multi-bloq { cursor:not-allowed; background:var(--md-surface-variant,#eee); opacity:.6; }
 .resp-multi-bloq:hover { border-color:var(--border); }
 .resp-chip-sm { background:#d1fae5; color:#065f46; font-size:10px; font-weight:700; padding:1px 6px; border-radius:10px; white-space:nowrap; }
+/* Tablero (kg) */
+.tabla-tablero { width:100%; border-collapse:collapse; font-size:13px; }
+.tabla-tablero th { font-size:11px; color:var(--muted); text-align:left; padding:6px 8px; border-bottom:2px solid var(--md-outline-variant); white-space:nowrap; }
+.tabla-tablero td { padding:5px 8px; border-bottom:1px solid var(--md-outline-variant); vertical-align:middle; }
+.tabla-tablero td.num, .tabla-tablero th.num { text-align:right; white-space:nowrap; }
+.tabla-tablero tr.fila-granel td { background:var(--md-surface-container, #f6f7f9); font-weight:600; }
+.tabla-tablero tr.fila-pausada td { opacity:.5; }
+.tabla-tablero .aviso { color:var(--amb-text); font-size:11px; margin-left:6px; }
+.tabla-tablero .btn-mini { background:none; border:0; cursor:pointer; padding:0 4px; }
 .rm-arrow { margin-left:auto; color:var(--muted); font-size:10px; flex-shrink:0; }
 .resp-dropdown { position:fixed; min-width:160px; background:#fff; border:1px solid var(--border); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); z-index:9999; max-height:180px; overflow-y:auto; }
 .resp-select {
@@ -603,7 +612,8 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 </div>
 
 <div class="tab-nav">
-  <button class="tab-btn active" data-tab="resumen">Resumen</button>
+  <button class="tab-btn active" data-tab="tablero">Tablero</button>
+  <button class="tab-btn"        data-tab="resumen">Resumen</button>
   <button class="tab-btn"        data-tab="plan">Plan del día</button>
   <!-- Agenda deshabilitada a pedido: la tab queda oculta, el panel y su código siguen intactos. -->
   <button class="tab-btn"        data-tab="agenda" hidden style="display:none">⏱ Agenda</button>
@@ -614,8 +624,29 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   <button class="tab-btn"        data-tab="clientes">👤 Clientes</button>
 </div>
 
+<!-- TAB: TABLERO (spec 2026-10-22-planificacion-centro §3) -->
+<div class="tab-panel active" id="tab-tablero">
+  <div class="filter-bar">
+    <label>Buscar:</label>
+    <input type="text" id="filtroTablero" placeholder="producto o granel…" style="width:200px">
+    <label for="inputDiasTablero" title="Cuántos días de venta tiene que cubrir el estimado. Se guarda y vale para todos los usuarios.">Días a cubrir:</label>
+    <input type="number" id="inputDiasTablero" min="1" max="180" step="1" style="width:70px">
+    <span class="sep"></span>
+    <button class="btn btn-secondary btn-sm" id="btnRecargarTablero">Recargar</button>
+    <button class="btn btn-primary btn-sm" id="btnTableroTodo" title="Agrega al carrito todo lo activo con estimado mayor a 0 (sin fasón)">+ Todo al carrito</button>
+  </div>
+  <div class="card">
+    <div class="card-header">Productos <span class="spacer"></span><span id="countTablero" class="text-sm" style="opacity:0.8"></span></div>
+    <div id="tablaTablero"><div class="loading">Cargando datos desde Siga…</div></div>
+  </div>
+  <div class="card" id="cardFason" hidden style="margin-top:16px">
+    <div class="card-header">Fasón (producción para clientes)</div>
+    <div id="tablaFason"></div>
+  </div>
+</div>
+
 <!-- TAB 1: RESUMEN -->
-<div class="tab-panel active" id="tab-resumen">
+<div class="tab-panel" id="tab-resumen">
   <div class="filter-bar">
     <label>Buscar:</label>
     <input type="text" id="filtroQ" placeholder="producto o rubro…" style="width:200px">
@@ -1268,6 +1299,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   </div>
 </aside>
 
+<script src="/js/plan_reparto.js"></script>
 <script src="/js/planificacion_estado.js"></script>
 <script src="/js/planificacion_resumen.js"></script>
 <script src="/js/planificacion_registro.js"></script>
@@ -1280,6 +1312,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 <script src="/js/planificacion_formulas.js"></script>
 <script src="/js/planificacion_mp.js"></script>
 <script src="/js/planificacion_carrito.js"></script>
+<script src="/js/planificacion_tablero.js"></script>
 <script src="/js/planificacion_reserva.js"></script>
 <script src="/js/planificacion_movimientos.js"></script>
 </body>
