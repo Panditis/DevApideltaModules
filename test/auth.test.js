@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   CATALOGO_MODULOS,
   hashPassword, verifyPassword,
-  moduloDeRuta, puedeAcceder,
+  moduloDeRuta, puedeAcceder, hubDeUsuario,
   crearUsuario, eliminarUsuario, autenticar, cambiarPasswordPropia,
 } = require('../lib/auth');
 
@@ -163,4 +163,15 @@ test('la importación a SIGA (/compras/siga y /api/compras-siga) queda bajo el m
   assert.strictEqual(moduloDeRuta('/compras/siga'), 'compras');
   assert.strictEqual(moduloDeRuta('/api/compras-siga/grabar'), 'compras');
   assert.strictEqual(moduloDeRuta('/api/compras-siga/pedidos/P-0001/borrador'), 'compras');
+});
+
+// ── hubDeUsuario (permiso 'solo-sucursales') ────────────────────────────────────
+test('hubDeUsuario ata a /sucursales sólo con el permiso + el módulo, y nunca al admin', () => {
+  assert.strictEqual(hubDeUsuario({ modulos: ['sucursales', 'solo-sucursales'] }), '/sucursales');
+  assert.strictEqual(hubDeUsuario({ modulos: ['sucursales'] }), null);
+  // Sin el módulo, /sucursales daría 403 → '/' → loop: no se ata.
+  assert.strictEqual(hubDeUsuario({ modulos: ['solo-sucursales'] }), null);
+  assert.strictEqual(hubDeUsuario({ esAdmin: true, modulos: ['sucursales', 'solo-sucursales'] }), null);
+  assert.strictEqual(hubDeUsuario({ activo: false, modulos: ['sucursales', 'solo-sucursales'] }), null);
+  assert.strictEqual(hubDeUsuario(null), null);
 });

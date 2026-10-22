@@ -667,7 +667,12 @@ app.use(require('./lib/precios_permisos').crearGuardPrecios({ tienePermiso: auth
 // ── Rutas HTML ─────────────────────────────────────────────────────────────────
 app.get('/favicon.png',   (_req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.png')));
 app.get('/favicon.ico',   (_req, res) => res.redirect('/favicon.png'));
-app.get('/',              (_req, res) => res.sendFile(path.join(__dirname, 'public', 'inicio.html')));
+// Usuarios atados a un sub-hub (permiso 'solo-sucursales') no ven el hub principal.
+app.get('/',              (req, res) => {
+  const hub = auth.hubRestringido(req.session && req.session.user);
+  if (hub) return res.redirect(hub);
+  res.sendFile(path.join(__dirname, 'public', 'inicio.html'));
+});
 app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'pedidos_web.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'planificacion.html')));
 app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'insumos.html')));
