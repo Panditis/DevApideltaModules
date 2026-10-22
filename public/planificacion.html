@@ -373,15 +373,6 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
 .pres-chip.MUTED  { background:var(--md-surface-2); color:var(--muted); border:1px solid var(--md-outline-variant); }
 /* Sello del comprobante de SiGA en la fila del plan: chico y sin desbordar la celda. */
 .mov-chip { margin-top:4px; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; cursor:help; }
-.expand-btn { background:none; border:none; cursor:pointer; color:var(--muted); font-size:11px; padding:2px 4px; }
-.grupo-row:hover { background:rgba(64,89,54,.05) !important; }
-#tablaSugerencias thead th { position:sticky; top:0; z-index:2; background:var(--md-surface-1); box-shadow:0 1px 0 var(--md-outline-variant); }
-.col-sug { background:rgba(64,89,54,.07); border-left:2px solid rgba(64,89,54,.18); }
-thead th.col-sug { background:rgba(64,89,54,.12) !important; color:var(--verde); font-weight:700; }
-.sug-input { width:60px; text-align:right; border:1px solid var(--md-outline-variant); border-radius:var(--radius-sm); padding:6px 8px; font-size:13px; font-family:system-ui,"Segoe UI",sans-serif; font-weight:700; background:var(--card); transition:border-color .15s, box-shadow .15s; }
-.sug-input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
-.btn-formula { background:none;border:none;cursor:pointer;font-size:13px;padding:0 2px;opacity:.55;vertical-align:middle;line-height:1; }
-.btn-formula:hover { opacity:1; }
 .prio-badge { display:inline-block; min-width:26px; text-align:center; font-family:system-ui,"Segoe UI",sans-serif; font-weight:800; font-size:12px; padding:2px 8px; border-radius:var(--radius-full); background:var(--md-primary-container); color:var(--md-on-primary-container); margin-right:8px; }
 .prio-badge.RED    { background:var(--red-bg); color:var(--red-text); }
 .prio-badge.YELLOW { background:var(--amb-bg); color:var(--amb-text); }
@@ -402,23 +393,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 .plu-input:focus { outline:none; border-color:var(--md-primary); box-shadow:0 0 0 2px rgba(64,89,54,.25); }
 .plu-input-plu { width:76px; text-align:center; }
 .plu-input-pres { width:100px; }
-
-/* ── SWITCH (MD3) ── */
-.toggle-switch { position:relative; display:inline-block; width:52px; height:32px; flex-shrink:0; }
-.toggle-switch input { opacity:0; width:0; height:0; }
-.toggle-slider { position:absolute; inset:0; background:var(--md-surface-variant); border:2px solid var(--md-outline); border-radius:var(--radius-full); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
-.toggle-slider:before { content:''; position:absolute; width:16px; height:16px; left:6px; top:6px; background:var(--md-outline); border-radius:50%; transition:transform 0.2s, width 0.2s, height 0.2s, left 0.2s, top 0.2s, background 0.2s; }
-.toggle-switch input:checked + .toggle-slider { background:var(--md-primary); border-color:var(--md-primary); }
-.toggle-switch input:checked + .toggle-slider:before { transform:translateX(20px); width:24px; height:24px; left:2px; top:2px; background:#fff; }
-
-/* ── CATÁLOGO ROWS ── */
-.grupo-cat-row { display:flex; align-items:center; gap:12px; padding:11px 16px; border-bottom:1px solid var(--md-outline-variant); }
-.grupo-cat-row:last-child { border-bottom:none; }
-.grupo-cat-row:hover { background:rgba(64,89,54,.05); }
-.grupo-cat-nombre { flex:1; font-weight:500; font-size:14px; }
-.grupo-cat-nombre.inactivo { color:var(--muted); font-weight:400; }
-.grupo-cat-meta { font-size:12px; color:var(--muted); display:flex; gap:14px; }
-.grupo-cat-meta span { white-space:nowrap; }
 
 /* ── RIPPLE ── */
 .md-ripple { position:absolute; border-radius:50%; background:currentColor; opacity:.25; transform:scale(0); animation:md-ripple .55s ease-out; pointer-events:none; }
@@ -584,18 +558,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 .mp-aviso{color:var(--red-text)}
 .mp-reserva{display:flex;gap:6px;align-items:center;margin-top:3px;color:var(--muted)}
 /* ── Modal con el cálculo de la urgencia (click en el chip del Resumen) ── */
-.urg-click{cursor:pointer;border-radius:var(--radius-sm)}
-.urg-click:hover{background:rgba(64,89,54,.10)}
-.urg-tabla{width:100%;border-collapse:collapse;font-size:13px}
-.urg-tabla td,.urg-tabla th{padding:6px 8px;border-bottom:1px solid var(--md-outline-variant);vertical-align:top}
-.urg-tabla th{font-size:11px;color:var(--muted);text-align:left;white-space:nowrap}
-.urg-tabla td:first-child{color:var(--muted);white-space:nowrap}
-.urg-grupo td:first-child{color:inherit;font-weight:600;white-space:normal}
-.urg-tabla .num{text-align:right;white-space:nowrap}
-.urg-tabla th.num{text-align:right}
-.urg-tabla tr.urg-peor td{background:var(--amb-bg)}
-.urg-nota{font-size:13px;margin:0 0 10px;line-height:1.5}
-.urg-nota.text-sm{margin:10px 0 0}
 #carritoBadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--md-primary);color:#fff;font-size:11px;text-align:center}
 .cat-fila { display:grid; grid-template-columns: 2.2fr 1.2fr 1.4fr 1.1fr 1.4fr 1fr 1.5fr .9fr .6fr auto; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--md-outline-variant); font-size:13px; }
 .cat-fila.cat-cab { font-size:11px; color:var(--muted); font-weight:600; border-bottom:2px solid var(--md-outline-variant); }
@@ -619,7 +581,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <div class="tab-nav">
   <button class="tab-btn active" data-tab="tablero">Tablero</button>
-  <button class="tab-btn"        data-tab="resumen">Resumen</button>
   <button class="tab-btn"        data-tab="plan">Plan del día</button>
   <!-- Agenda deshabilitada a pedido: la tab queda oculta, el panel y su código siguen intactos. -->
   <button class="tab-btn"        data-tab="agenda" hidden style="display:none">⏱ Agenda</button>
@@ -648,31 +609,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   <div class="card" id="cardFason" hidden style="margin-top:16px">
     <div class="card-header">Fasón (producción para clientes)</div>
     <div id="tablaFason"></div>
-  </div>
-</div>
-
-<!-- TAB 1: RESUMEN -->
-<div class="tab-panel" id="tab-resumen">
-  <div class="filter-bar">
-    <label>Buscar:</label>
-    <input type="text" id="filtroQ" placeholder="producto o rubro…" style="width:200px">
-    <label for="inputDiasCubrir" title="Cuántos días de venta tiene que cubrir el sugerido. Se guarda y vale para todos los usuarios.">Días a cubrir:</label>
-    <input type="number" id="inputDiasCubrir" min="1" max="180" step="1" style="width:70px" title="Entero de 1 a 180. Se guarda y vale para todos los usuarios.">
-    <span class="sep"></span>
-    <button class="btn btn-secondary btn-sm" id="btnRecargar">Recargar</button>
-    <label class="btn btn-secondary btn-sm" id="btnImportarCatalogo" title="Actualizar catálogo desde Excel" style="cursor:pointer;margin-left:4px">
-      📥 Actualizar catálogo
-      <input type="file" id="inputCatalogo" accept=".xlsx" style="display:none">
-    </label>
-  </div>
-
-  <div class="card" id="cardSugerencias">
-    <div class="card-header">
-      Productos que necesitan producción
-      <span class="spacer"></span>
-      <span id="countSugerencias" class="text-sm" style="opacity:0.8"></span>
-    </div>
-    <div id="tablaSugerencias"><div class="loading">Cargando datos desde Siga…</div></div>
   </div>
 </div>
 
@@ -824,44 +760,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   </div>
 </div>
 
-<!-- MODAL GRANEL (cantidad manual) -->
-<div class="overlay" id="overlayGranel">
-  <div class="modal" style="width:420px">
-    <div class="modal-header">
-      <span id="granelModalTitulo">Agregar producción</span>
-      <span class="close" id="cerrarGranel">✕</span>
-    </div>
-    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-      <div style="background:var(--bg);border-radius:6px;padding:12px;font-size:13px">
-        <div style="color:var(--muted);font-size:11px;margin-bottom:4px">REFERENCIA (últimos 30 días)</div>
-        <div id="granelRefInfo" style="display:flex;gap:16px"></div>
-      </div>
-      <div>
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Cantidad a producir</label>
-        <input type="number" id="granelCantidad" min="0" step="0.1"
-          style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:16px;font-family:system-ui,sans-serif;font-weight:600"
-          placeholder="0">
-      </div>
-      <div>
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Unidad</label>
-        <select id="granelUnidad" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px;font-family:system-ui,sans-serif">
-          <option value="Kg">Kg</option>
-          <option value="unidades">unidades</option>
-          <option value="bolsas">bolsas</option>
-          <option value="bandejas">bandejas</option>
-        </select>
-      </div>
-      <div id="granelBOM" style="display:none;background:var(--bg);border-radius:6px;padding:12px">
-        <div style="color:var(--muted);font-size:11px;margin-bottom:8px;font-weight:700;letter-spacing:.5px">MATERIA PRIMA NECESARIA</div>
-        <div id="granelBOMBody" style="max-height:220px;overflow-y:auto;padding-right:4px"></div>
-      </div>
-      <button class="btn btn-primary" id="btnConfirmarGranel" style="width:100%;padding:10px;font-size:15px">
-        Agregar al plan
-      </button>
-    </div>
-  </div>
-</div>
-
 <!-- MODAL DETALLE DE STOCK -->
 <div class="overlay" id="overlayStockDet">
   <div class="modal" style="width:auto;max-width:90vw">
@@ -872,17 +770,6 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
     <div style="padding:18px 20px;overflow-x:hidden;overflow-y:auto" id="stockDetBody">
       <div class="loading">Cargando…</div>
     </div>
-  </div>
-</div>
-
-<!-- MODAL CÁLCULO DE LA URGENCIA -->
-<div class="overlay" id="overlayUrgencia">
-  <div class="modal" style="width:auto;min-width:min(560px,92vw);max-width:min(900px,94vw)">
-    <div class="modal-header">
-      <span>Urgencia · <span id="urgenciaTitulo"></span></span>
-      <span class="close" id="cerrarUrgencia">✕</span>
-    </div>
-    <div id="urgenciaBody" style="padding:14px 18px;overflow-x:hidden;overflow-y:auto"></div>
   </div>
 </div>
 

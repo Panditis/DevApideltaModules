@@ -22,8 +22,7 @@ const { metaDeEntrada, granelPlusDe, aplicarMetaGrupo } = require('../lib/plan_c
 //     planificacion.html junto a /api/consumo y /api/pendientes.
 //   · /api/productos (el de params(req)) — es del bloque de pedidos.
 //
-// Los helpers cfg* leen grupos_config.json y los usa también
-// calcularSugerenciasCatalogo, que sigue en server.js: entran por deps.
+// Los helpers cfg* leen grupos_config.json y entran por deps.
 module.exports = function crearRutasCatalogo(deps) {
   const {
     leerJSON, guardarJSON,
