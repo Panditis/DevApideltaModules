@@ -18,7 +18,7 @@ body.tipo-almacen .col-peso { display: none; }
 #switchTipo button[aria-pressed="true"] { background: #405936; color: #fff; }
 
 #carteles { display: flex; flex-direction: column; gap: 16px; }
-.hoja { display: grid; grid-template-columns: repeat(2, max-content); gap: var(--separacion-a4); align-content: start; }
+.hoja { display: grid; grid-template-columns: repeat(3, max-content); gap: var(--separacion-a4); align-content: start; }
 body.modo-ticket .hoja { grid-template-columns: max-content; }
 
 .cartel {
@@ -124,8 +124,9 @@ body.modo-ticket .hoja { grid-template-columns: max-content; }
 <script>
 // ── Calibración (tocar solo acá, como la hoja de parámetros del Excel) ────────────
 const ANCHO_TICKET_MM = 70;          // ancho del cartel en la comandera (papel de 80 mm)
-const ANCHO_A4_PT = 250;             // ancho de cada cartel en A4 (2 por fila)
-const CARTELES_POR_HOJA_A4 = 10;     // 5 filas × 2
+const ANCHO_A4_PT = 170;             // ancho de cada cartel en A4 (3 por fila)
+const ESCALA_A4 = ANCHO_A4_PT / 250; // alto y fuentes de abajo están medidos para un cartel de 250 pt: el A4 los achica en proporción
+const CARTELES_POR_HOJA_A4 = 24;     // 8 filas × 3
 const SEPARACION_A4_PT = 6;          // aire entre carteles en A4 (para cortar)
 const MARGEN_A4 = '1cm';
 const ALTO_NOMBRE_PT = 60;           // fila 1 de la plantilla
@@ -144,11 +145,8 @@ const CLAVE_TIPO = 'cartelesPesables.tipo';
 const claveSeleccion = id => `cartelesPesables.seleccion.${id}${tipo === 'almacen' ? '.almacen' : ''}`;
 
 const raiz = document.documentElement.style;
-raiz.setProperty('--alto-nombre', ALTO_NOMBRE_PT + 'pt');
-raiz.setProperty('--alto-fila', ALTO_FILA_PRECIO_PT + 'pt');
 raiz.setProperty('--columnas', PROPORCION_COLUMNAS.map(n => n + 'fr').join(' '));
 raiz.setProperty('--borde', BORDE_PT + 'pt');
-raiz.setProperty('--fuente-chica', FUENTE_CHICA_PT + 'pt');
 raiz.setProperty('--separacion-a4', SEPARACION_A4_PT + 'pt');
 
 const $ = id => document.getElementById(id);
@@ -282,7 +280,11 @@ function ajustarFuente(el, maxPt, minPt) {
 function renderCarteles() {
   document.body.classList.toggle('modo-a4', modo === 'a4');
   document.body.classList.toggle('modo-ticket', modo === 'ticket');
+  const e = modo === 'a4' ? ESCALA_A4 : 1;
   raiz.setProperty('--ancho-cartel', modo === 'a4' ? ANCHO_A4_PT + 'pt' : ANCHO_TICKET_MM + 'mm');
+  raiz.setProperty('--alto-nombre', ALTO_NOMBRE_PT * e + 'pt');
+  raiz.setProperty('--alto-fila', ALTO_FILA_PRECIO_PT * e + 'pt');
+  raiz.setProperty('--fuente-chica', FUENTE_CHICA_PT * e + 'pt');
   $('modoPrevia').textContent = modo === 'a4' ? `· A4, ${CARTELES_POR_HOJA_A4} por hoja` : `· comandera, cartel de ${ANCHO_TICKET_MM} mm, uno por corte`;
   const cont = $('carteles');
   const items = seleccion.map(plu => porPlu.get(plu)).filter(Boolean);
@@ -292,8 +294,8 @@ function renderCarteles() {
   const hojas = [];
   for (let i = 0; i < items.length; i += porHoja) hojas.push(items.slice(i, i + porHoja));
   cont.innerHTML = hojas.map(h => `<div class="hoja">${h.map(htmlCartel).join('')}</div>`).join('');
-  cont.querySelectorAll('.c-nombre').forEach(el => ajustarFuente(el, FUENTE_NOMBRE_MAX_PT, FUENTE_NOMBRE_MIN_PT));
-  cont.querySelectorAll('.c-precio').forEach(el => ajustarFuente(el, FUENTE_PRECIO_PT, FUENTE_PRECIO_MIN_PT));
+  cont.querySelectorAll('.c-nombre').forEach(el => ajustarFuente(el, FUENTE_NOMBRE_MAX_PT * e, FUENTE_NOMBRE_MIN_PT * e));
+  cont.querySelectorAll('.c-precio').forEach(el => ajustarFuente(el, FUENTE_PRECIO_PT * e, FUENTE_PRECIO_MIN_PT * e));
 }
 
 // @page es estático: se reescribe según el modo antes de imprimir.
@@ -309,7 +311,7 @@ function prepararModo(nuevoModo) {
 }
 
 // Un diálogo por tanda: se elige la impresora una vez y sale todo el listado.
-// A4: 10 carteles por hoja. Comandera: un cartel por página (un ticket por corte).
+// A4: 24 carteles por hoja. Comandera: un cartel por página (un ticket por corte).
 function imprimir(nuevoModo) {
   if (!seleccion.length) { alert('No hay carteles seleccionados.'); return; }
   prepararModo(nuevoModo);
