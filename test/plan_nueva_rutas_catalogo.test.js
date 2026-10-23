@@ -59,6 +59,20 @@ test('GET: si SIGA falla devuelve igual el catálogo, con "PLU n"', async () => 
   } finally { cerrar(ctx); }
 });
 
+test('POST y PUT con SIGA caído → 503 genérico y no guardan', async () => {
+  const caido = { 'FROM Productos WHERE': () => { throw new Error('Login failed for user sa'); } };
+  const ctx = await montar({ filasSql: caido, archivos: CON_ALMENDRAS });
+  try {
+    const post = await pedir(ctx.base, 'POST', '/api/plan-nueva/catalogo', { nombre: 'Nueces', plus: ['200'] });
+    assert.strictEqual(post.status, 503);
+    assert.deepStrictEqual(post.data, { error: 'SIGA no disponible' });
+    const put = await pedir(ctx.base, 'PUT', '/api/plan-nueva/catalogo/a', { nombre: 'Almendras', plus: ['100', '101'] });
+    assert.strictEqual(put.status, 503);
+    assert.deepStrictEqual(put.data, { error: 'SIGA no disponible' });
+    assert.deepStrictEqual(ctx.leer('plan_nueva_catalogo.json').categorias, [ALMENDRAS]);
+  } finally { cerrar(ctx); }
+});
+
 test('PUT: renombra y agrega; sólo exige en SIGA los PLU nuevos (555 ya estaba)', async () => {
   const ctx = await montar({ filasSql: SIGA, archivos: CON_ALMENDRAS });
   try {

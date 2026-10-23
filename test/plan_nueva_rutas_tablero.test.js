@@ -43,12 +43,12 @@ test('GET tablero: sin categorías → vacío, params default y sin consultar SI
   } finally { cerrar(ctx); }
 });
 
-test('GET tablero: si SIGA falla → 500 con el mensaje', async () => {
+test('GET tablero: si SIGA falla → 503 genérico, sin el detalle del driver', async () => {
   const ctx = await montar({ archivos: CATALOGO, filasSql: { UnidVendidas: () => { throw new Error('timeout SIGA'); } } });
   try {
     const r = await pedir(ctx.base, 'GET', '/api/plan-nueva/tablero');
-    assert.strictEqual(r.status, 500);
-    assert.match(r.data.error, /timeout SIGA/);
+    assert.strictEqual(r.status, 503);
+    assert.deepStrictEqual(r.data, { error: 'SIGA no disponible' });
   } finally { cerrar(ctx); }
 });
 

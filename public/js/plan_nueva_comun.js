@@ -5,7 +5,7 @@
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // ponytail: mismo normalizar que lib/plan_nueva.js; una línea no justifica servir la lib al navegador.
-const normalizarTexto = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const normalizarTexto = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const fmtNum = n => (n === null || n === undefined ? '—' : Number(n).toLocaleString('es-AR', { maximumFractionDigits: 2 }));
 
 // Nombre de la categoría (distinta de idPropio) que ya tiene el PLU, o null.

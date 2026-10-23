@@ -46,6 +46,18 @@ test('agregarCategoria: plus que no es lista o PLU no numérico → 400', () => 
   assert.throws(() => pn.agregarCategoria(CATS, { nombre: 'Nueces', plus: [''] }, CTX), es(400));
 });
 
+test('agregarCategoria: nombre de más de 80 caracteres o más de 200 presentaciones → 400', () => {
+  assert.doesNotThrow(() => pn.agregarCategoria(CATS, { nombre: 'x'.repeat(80), plus: [] }, CTX));
+  assert.throws(() => pn.agregarCategoria(CATS, { nombre: 'x'.repeat(81), plus: [] }, CTX), es(400));
+  const plus = n => Array.from({ length: n }, (_, i) => String(1000 + i));
+  assert.doesNotThrow(() => pn.agregarCategoria(CATS, { nombre: 'Nueces', plus: plus(200) }, CTX));
+  assert.throws(() => pn.agregarCategoria(CATS, { nombre: 'Nueces', plus: plus(201) }, CTX), es(400));
+});
+
+test('normalizar: la regex de acentos usa escapes y quita cualquier diacrítico combinante', () => {
+  assert.strictEqual(pn.normalizar('Ñandú ÁÉÍÓÚ ü'), 'nandu aeiou u');
+});
+
 test('agregarCategoria: PLU que ya está en otra categoría → 409 con su nombre', () => {
   assert.throws(() => pn.agregarCategoria(CATS, { nombre: 'Nueces', plus: ['101'] }, CTX), e => e.status === 409 && /Almendras/.test(e.message));
 });

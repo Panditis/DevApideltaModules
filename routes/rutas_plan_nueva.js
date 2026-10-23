@@ -30,9 +30,17 @@ module.exports = function crearRutasPlanNueva(deps) {
     }
   };
 
+  // Un fallo de SIGA se loguea con su detalle y se responde 503 genérico (el mensaje del driver no sale al cliente).
+  async function consultarSiga(sql) {
+    try { return await query(sql); } catch (err) {
+      console.error('[plan-nueva] SIGA:', err.message);
+      throw pn.errorHttp(503, 'SIGA no disponible');
+    }
+  }
+
   async function enLotes(plus, sqlFn) {
     const out = [];
-    for (let i = 0; i < plus.length; i += LOTE) out.push(...await query(sqlFn(plus.slice(i, i + LOTE))));
+    for (let i = 0; i < plus.length; i += LOTE) out.push(...await consultarSiga(sqlFn(plus.slice(i, i + LOTE))));
     return out;
   }
 
@@ -60,7 +68,7 @@ module.exports = function crearRutasPlanNueva(deps) {
     const categorias = leerCategorias();
     let nombres = new Map();
     try { nombres = await nombresSiga(categorias.flatMap(c => c.plus)); }
-    catch (err) { console.error('[plan-nueva] nombres SIGA:', err.message); } // sin SIGA se edita igual, con "PLU n"
+    catch (err) { if (err.status !== 503) throw err; } // SIGA caído (ya logueado): se edita igual, con "PLU n"
     return { categorias: categorias.map(c => conPresentaciones(c, nombres)) };
   }));
 
