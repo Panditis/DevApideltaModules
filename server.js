@@ -675,6 +675,7 @@ app.get('/',              (req, res) => {
 });
 app.get('/pedidos',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'pedidos_web.html')));
 app.get('/planificacion', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'planificacion.html')));
+app.get('/planificacion-nueva', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'planificacion_nueva.html')));
 app.get('/insumos',       (_req, res) => res.sendFile(path.join(__dirname, 'public', 'insumos.html')));
 // El cálculo de la agenda de bloques corre igual en el server (validación) y en el browser
 // (recálculo en vivo). El proyecto no usa express.static: el asset lleva su propia ruta.
@@ -703,6 +704,10 @@ app.get('/js/compras_siga.js', (_req, res) => res.sendFile(path.join(__dirname, 
 // Whitelist explícita: el proyecto no usa express.static.
 for (const n of ['estado', 'resumen', 'registro', 'registros', 'envio', 'catalogo', 'agenda', 'init', 'formulas', 'mp', 'carrito', 'reserva', 'movimientos', 'tablero']) {
   app.get(`/js/planificacion_${n}.js`, (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', `planificacion_${n}.js`)));
+}
+// Planificación nueva (/planificacion-nueva): sus scripts, también por whitelist.
+for (const n of ['comun', 'catalogo', 'tablero', 'carrito', 'ordenes']) {
+  app.get(`/js/plan_nueva_${n}.js`, (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', `plan_nueva_${n}.js`)));
 }
 app.get('/css/apidelta-theme.css', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'css', 'apidelta-theme.css')));
 app.get('/diagnostico-quiebre', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'diagnostico_quiebre.html')));
@@ -2800,6 +2805,12 @@ app.use(require('./routes/rutas_plan')({
   buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
   sucursalesSiga, sucursalPublica,
 }));
+
+// Planificación nueva (/planificacion-nueva, spec docs/superpowers/specs/2026-10-22-planificacion-nueva-design.md):
+// catálogo por categoría, tablero de consumo/stock y órdenes propias en data/plan_nueva_*.json. Va al final por
+// DATA_DIR. sqlStockPorPlu viaja por deps (stock Casa Central, el mismo del tablero de /planificacion). Sus rutas
+// (/api/plan-nueva/*) no solapan con /api/plan/:fecha (otro primer segmento).
+app.use(require('./routes/rutas_plan_nueva')({ leerJSON, guardarJSON, query, DATA_DIR, sqlStockPorPlu }));
 
 // Auth y Centro de control: no lleva deps — auth.js y path se requieren directo.
 // Ninguna ruta que quedó en server.js solapa con /login, /admin ni /api/admin/*.
