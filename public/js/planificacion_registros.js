@@ -203,8 +203,9 @@ async function cargarGruposCfgSiVacio() {
       const rg = g.reqGranel === true;
       const vu = g.ventaPorUnidad === true;
       const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
+      const gu = (Array.isArray(g.granelesUnidad) ? g.granelesUnidad : []).map(String).filter(Boolean); // requiere granel (gp)
       gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg || vu)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}) }
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(gu.length?{granelesUnidad:gu}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}) }
         : g.activo;
     }
   } catch (e) { /* silencioso, BOM quedará vacío */ }

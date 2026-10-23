@@ -289,3 +289,67 @@ test('el envío manda las líneas en ese orden con prioridad = lugar + 1 y sin c
     { producto: 'Manual', cantConfirmada: 2, prioridad: 3 },
   ]);
 });
+
+// ── Graneles en unidades (solo visual) ────────────────────────────────────────
+// grupos_config.granelesUnidad: el stock de esos graneles está en unidades, no en kg. No cambia
+// ningún cálculo: solo la unidad con que se muestran (modal de stock central, urgencia, Resumen).
+
+// Evalúa las funciones nombradas con los bordes dados como [nombre, valor]. cfgEntry desestructura
+// en los parámetros (fuenteDe cortaría ahí): es de una línea, se toma la línea entera.
+const lineaDe = nombre => { const ini = HTML.indexOf(`function ${nombre}(`); return HTML.slice(ini, HTML.indexOf('\n', ini)); };
+function fn(nombres, ...deps) {
+  const src = [...nombres.map(n => (n === 'cfgEntry' ? lineaDe(n) : fuenteDe(n))), `return { ${nombres.join(', ')} };`].join('\n');
+  return new Function(...deps.map(d => d[0]), src)(...deps.map(d => d[1]));
+}
+
+test('stock central: cada granel con su unidad y, si se mezclan, el total por unidad', () => {
+  const { renderStockCentral } = fn(['escHtml', 'renderStockCentral']);
+  const html = renderStockCentral({ esGranel: true, desglose: [], graneles: [
+    { id: '901', nombre: 'Masa <A>', stock: 12, enUnidades: false }, { id: '902', nombre: 'Tapas', stock: 30, enUnidades: true }] });
+  assert.ok(html.includes('Masa &lt;A&gt;'), 'el nombre de SIGA va escapado');
+  assert.match(html, /Masa &lt;A&gt;<\/td><td[^>]*>12 kg<\/td>/);
+  assert.match(html, /Tapas<\/td><td[^>]*>30 u<\/td>/);
+  assert.match(html, />12 kg \+ 30 u<\/td>/);
+});
+
+test('stock central: graneles todos en la misma unidad suman un solo total', () => {
+  const { renderStockCentral } = fn(['escHtml', 'renderStockCentral']);
+  const html = renderStockCentral({ esGranel: false, presentaciones: [], graneles: [
+    { id: '901', nombre: 'A', stock: 12, enUnidades: true }, { id: '902', nombre: 'B', stock: 30, enUnidades: true }] });
+  assert.match(html, />42 u<\/td>/);
+  assert.ok(!html.includes(' kg'), html);
+});
+
+test('unidad del grupo: kg en granel, u si su granel está en unidades o si no es granel', () => {
+  const { unidadGrupo } = new Function(`${constDe('unidadGrupo')}\nreturn { unidadGrupo };`)();
+  assert.strictEqual(unidadGrupo({ esGranel: true }), 'kg');
+  assert.strictEqual(unidadGrupo({ esGranel: true, granelEnUnidades: true }), 'u');
+  assert.strictEqual(unidadGrupo({ esGranel: false }), 'u');
+});
+
+test('catálogo: granelesUnidad se guarda con el grupo y quitar el granel lo saca', () => {
+  const cfg = { Mix: { activo: true, granelPlu: '901', granelPlus: ['901', '902'] } };
+  const { cfgSet, cfgGetGranelesUnidad } = fn(
+    ['cfgGetActivo', 'cfgGetGranelPlus', 'cfgGetMpManual', 'cfgRawGranelDirecto', 'cfgRawEsMiel', 'cfgGetReqGranel',
+      'cfgGetVentaPorUnidad', 'cfgGetGranelesUnidad', 'cfgEntry', 'cfgSet'],
+    ['gruposCfgLocal', cfg]);
+  cfgSet('Mix', { granelesUnidad: ['902'] });
+  assert.deepStrictEqual(cfg.Mix, { activo: true, granelPlu: '901', granelPlus: ['901', '902'], granelesUnidad: ['902'] });
+  cfgSet('Mix', { activo: false });                       // otro cambio no lo pierde
+  assert.deepStrictEqual(cfgGetGranelesUnidad('Mix'), ['902']);
+  cfgSet('Mix', { granelPlus: ['901'] });                 // se quitó el 902
+  assert.deepStrictEqual(cfg.Mix, { activo: false, granelPlu: '901' });
+});
+
+test('modal del grupo: cada granel lleva el check "en unidades" con su estado', () => {
+  const lista = { innerHTML: '' };
+  const { renderGraneles } = fn(['escHtml', 'renderGraneles'],
+    ['document', { getElementById: id => (id === 'listaGraneles' ? lista : null) }],
+    ['granelesData', [{ plu: '901', nombre: 'Masa', enUnidades: false }, { plu: '902', nombre: 'Tapas', enUnidades: true }]]);
+  renderGraneles();
+  const checks = lista.innerHTML.match(/<input type="checkbox"[^>]*>/g);
+  assert.strictEqual(checks.length, 2);
+  assert.ok(!/\schecked\s/.test(checks[0]) && /\schecked\s/.test(checks[1]), checks.join('\n'));
+  assert.ok(lista.innerHTML.includes('toggleGranelUnidades(1, this.checked)'));
+  assert.ok(lista.innerHTML.includes('Solo cambia cómo se muestra.'));
+});

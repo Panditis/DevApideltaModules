@@ -29,7 +29,7 @@ module.exports = function crearRutasCatalogo(deps) {
     leerJSON, guardarJSON,
     CATALOGO_PATH, GRUPOS_CFG_PATH,
     cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgMpManual,
-    cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel, cfgVentaPorUnidad,
+    cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel, cfgVentaPorUnidad, cfgGranelesUnidad,
   } = deps;
   const router = express.Router();
 
@@ -62,7 +62,8 @@ router.get('/api/catalogo/grupos', (_req, res) => {
     granelDirecto:   cfgGranelOverride(gruposCfg, g.productoRef),
     esMiel:          cfgEsMiel(gruposCfg, g.productoRef),
     reqGranel:       cfgReqGranel(gruposCfg, g.productoRef),
-    ventaPorUnidad:  cfgVentaPorUnidad(gruposCfg, g.productoRef)
+    ventaPorUnidad:  cfgVentaPorUnidad(gruposCfg, g.productoRef),
+    granelesUnidad:  cfgGranelesUnidad(gruposCfg, g.productoRef)
   }));
   res.json(grupos);
 });
@@ -85,8 +86,12 @@ router.post('/api/catalogo/grupos-config', (req, res) => {
       const em = (typeof v.esMiel === 'boolean') ? v.esMiel : undefined;
       const rg = (v.reqGranel === true) ? true : undefined;
       const vu = (v.ventaPorUnidad === true) ? true : undefined;
+      // Graneles con stock en unidades (solo visual): únicamente los que son graneles del grupo.
+      // Requieren granel, así que el grupo que los tiene nunca se compacta a boolean.
+      const gu = [...new Set((Array.isArray(v.granelesUnidad) ? v.granelesUnidad : [])
+        .map(x => String(x || '').trim()).filter(x => x && (x === g || gl.includes(x))))];
       if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined && vu === undefined) { normalizado[k] = a; }
-      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{})}; }
+      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}), ...(gu.length?{granelesUnidad:gu}:{})}; }
     } else { normalizado[k] = v; }
   }
   guardarJSON(GRUPOS_CFG_PATH, normalizado);
