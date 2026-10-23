@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { conTramoFr, faltaSubrubroFr, cuentaProductosFr, resumenSubrubroFr, textoUsosFr, coincideFr, subrubrosListaFr, conInsumosFr, errorInsumosFr,
-  costoUnidadFr, filasPesosFr, textoPesoFr } = require('../public/js/precios_config_fraccionado.js');
+  costoUnidadFr, filasPesosFr, textoPesoFr, efectoFactorFr, textoEfectoSubFr } = require('../public/js/precios_config_fraccionado.js');
 
 test('conTramoFr: 250 g el primero, después el doble del último; no muta', () => {
   assert.deepStrictEqual(conTramoFr([]), [{ hastaG: 250, minutos: null }]);
@@ -81,4 +81,18 @@ test('textoPesoFr: "250 g · 34 presentaciones", kilos enteros en kg, sin presen
   assert.strictEqual(textoPesoFr({ pesoG: 250, presentaciones: 34 }), '250 g · 34 presentaciones');
   assert.strictEqual(textoPesoFr({ pesoG: 1000, presentaciones: 1 }), '1 kg · 1 presentación');
   assert.strictEqual(textoPesoFr({ pesoG: 1500, presentaciones: 0 }), '1500 g · sin presentaciones');
+});
+
+test('efectoFactorFr: factor y % de minutos que suma o resta', () => {
+  assert.strictEqual(efectoFactorFr(1.5), '× 1,5 (+50% minutos)');
+  assert.strictEqual(efectoFactorFr(0.75), '× 0,75 (−25% minutos)');
+  assert.strictEqual(efectoFactorFr(1), '× 1 (sin cambio)');
+});
+
+test('textoEfectoSubFr: factor combinado de facilidad × tiempo; sin elegir → × 1', () => {
+  const escalas = { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 }, tiempo: { rapido: 0.75, normal: 1, lento: 1.5 } };
+  const t = textoEfectoSubFr(escalas, 'dificil', 'rapido');
+  assert.match(t, /× 1,5 \(difícil\) × 0,75 \(rápido\) = base × 1,125 \(\+12,5% minutos\)/);
+  assert.match(t, /mano de obra y la máquina/);
+  assert.match(textoEfectoSubFr(escalas, '', null), /× 1 \(sin elegir\) × 1 \(sin elegir\) = base × 1 \(sin cambio\)/);
 });

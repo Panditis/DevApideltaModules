@@ -10,6 +10,15 @@
 // msgEsq, esFraccCfg (precios_config_esquema.js), htmlBuscadorSiga, conectarBuscadorSiga (precios_produccion.js).
 const API_FR = '/api/precios/config/esquema/fraccionado';
 const ESCALAS_FR = { facilidad: [['facil', 'Fácil'], ['normal', 'Normal'], ['dificil', 'Difícil']], tiempo: [['rapido', 'Rápido'], ['normal', 'Normal'], ['lento', 'Lento']] };
+// Qué significa cada escala y cada opción (ayuda de Escalas y de los selects del subrubro).
+const SIGNIFICADO_FR = {
+  facilidad: { titulo: 'Facilidad: qué tan cómodo es manipular el producto al fraccionarlo',
+    facil: 'fluye y se pesa sin ajustes', normal: 'pide algo de cuidado al pesar o cerrar',
+    dificil: 'pegajoso, polvoriento o frágil: ajustes de peso, limpieza o cuidado extra' },
+  tiempo: { titulo: 'Tiempo: ritmo de trabajo de la línea para ese subrubro',
+    rapido: 'tandas largas y envasado continuo', normal: 'ritmo habitual',
+    lento: 'tandas cortas, más controles o cierre/etiquetado manual' },
+};
 const TRAMO_INICIAL_G = 250;
 const PRODUCTOS_PARA_BUSCAR = 8; // desde acá la lista de productos de un subrubro trae buscador
 
@@ -62,8 +71,22 @@ const filasPesosFr = (pesos, insumosPorPeso) => {
 const textoPesoFr = ({ pesoG, presentaciones: n }) => `${pesoG % 1000 ? `${pesoG} g` : `${pesoG / 1000} kg`} · ${
   n ? `${n} presentaci${n === 1 ? 'ón' : 'ones'}` : 'sin presentaciones'}`;
 
+// Efecto de un factor sobre los minutos: 1.5 → '× 1,5 (+50% minutos)'; 0.75 → '× 0,75 (−25% minutos)'; 1 → '× 1 (sin cambio)'.
+const fmtFactorFr = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
+function efectoFactorFr(f) {
+  const pct = Math.round((f - 1) * 1000) / 10;
+  return `× ${fmtFactorFr(f)} (${pct ? `${pct > 0 ? '+' : '−'}${fmtFactorFr(Math.abs(pct))}% minutos` : 'sin cambio'})`;
+}
+// Línea viva bajo los selects del subrubro: factor combinado y en qué afecta. Sin elegir → × 1.
+function textoEfectoSubFr(escalas, facilidad, tiempo) {
+  const fF = (escalas.facilidad || {})[facilidad] || 1, fT = (escalas.tiempo || {})[tiempo] || 1;
+  const nombre = (tipo, v) => (etiquetaEscalaFr(tipo, v) || 'sin elegir').toLowerCase();
+  return `Minutos por unidad = base del tramo × ${fmtFactorFr(fF)} (${nombre('facilidad', facilidad)}) × ${fmtFactorFr(fT)} (${nombre('tiempo', tiempo)}) = base ${
+    efectoFactorFr(Math.round(fF * fT * 10000) / 10000)}. Sube o baja la mano de obra y la máquina de cada unidad (no los insumos ni la mercadería), y con eso el costo y el precio.`;
+}
+
 if (typeof module === 'object' && module.exports) module.exports = { conTramoFr, faltaSubrubroFr, cuentaProductosFr, resumenSubrubroFr, textoUsosFr, coincideFr, subrubrosListaFr,
-  conInsumosFr, errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr };
+  conInsumosFr, errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr, efectoFactorFr, textoEfectoSubFr };
 
 // ── DOM ──
 let cfFr = null;              // GET /costeo: config (maquinas, escalas, subrubros, porGranel, insumosPorPeso con nombre y costo)
@@ -194,9 +217,10 @@ function actualizarSelectsMaquinaFr() {
 
 // ── Escalas ──
 const htmlEscalasFr = () => `<div class="cfg-card min-w-0" data-guardable data-nombre="Escalas" id="frEscalas">
-    <h3 class="cfg-h">Escalas</h3><p class="cfg-ayuda">Factores que multiplican los minutos base del tramo: el tiempo y la facilidad se eligen en cada subrubro. Sin elegir → × 1.</p>
-    ${Object.entries(ESCALAS_FR).map(([tipo, ops]) => `<div class="mt-3"><div class="lbl">${tipo === 'facilidad' ? 'Facilidad' : 'Tiempo'}</div>
-      <div class="flex flex-wrap gap-3 mt-1">${ops.map(([k, t]) => `<label class="text-sm">${t} ${campoU(`<input type="number" min="0" step="any" data-escala="${tipo}" data-k="${k}" value="${esc(cfFr.escalas[tipo][k])}" aria-label="Factor ${t} (${tipo})">`, '×', { w: 'w-24' })}</label>`).join('')}</div></div>`).join('')}
+    <h3 class="cfg-h">Escalas</h3><p class="cfg-ayuda">Factores que multiplican los minutos base del tramo; se eligen en cada subrubro (sin elegir → × 1). Más minutos = más mano de obra y máquina por unidad → más costo y precio. Mayor que 1 sube, menor que 1 baja.</p>
+    ${Object.entries(ESCALAS_FR).map(([tipo, ops]) => `<div class="mt-3"><div class="lbl">${esc(SIGNIFICADO_FR[tipo].titulo)}</div>
+      <div class="flex flex-wrap gap-3 mt-1">${ops.map(([k, t]) => `<label class="text-sm" title="${esc(SIGNIFICADO_FR[tipo][k])}">${t} ${campoU(`<input type="number" min="0" step="any" data-escala="${tipo}" data-k="${k}" value="${esc(cfFr.escalas[tipo][k])}" aria-label="Factor ${t} (${tipo})">`, '×', { w: 'w-24' })}</label>`).join('')}</div>
+      <ul class="text-xs text-gris mt-1">${ops.map(([k, t]) => `<li><b>${t}</b> (${esc(efectoFactorFr(cfFr.escalas[tipo][k]))}): ${esc(SIGNIFICADO_FR[tipo][k])}</li>`).join('')}</ul></div>`).join('')}
     ${pieFr('Guardar escalas')}</div>`;
 const leerEscalasFr = card => ({ escalas: Object.fromEntries(Object.entries(ESCALAS_FR).map(([tipo, ops]) =>
   [tipo, Object.fromEntries(ops.map(([k]) => [k, numOrNull(card.querySelector(`[data-escala="${tipo}"][data-k="${k}"]`).value)]))])) });
@@ -247,11 +271,15 @@ function htmlSubrubroFr(s) {
         <tbody>${conf.tramos.map(htmlFilaTramoFr).join('')}</tbody></table>
       <button type="button" class="fr-agregar cfg-btn2 mt-2" data-edita>+ Agregar tramo</button>
       <div class="flex flex-wrap gap-6">${['facilidad', 'tiempo'].map((tipo, i) => `<div><div class="lbl mt-3">${i ? '④ Tiempo' : '③ Facilidad'}</div>
-        <select class="fr-sub-${tipo} num-in text-left mt-1" aria-label="${i ? 'Tiempo' : 'Facilidad'} del subrubro ${esc(s.nombre)}">${opcionesEscalaFr(tipo, conf[tipo])}</select></div>`).join('')}</div>
+        <select class="fr-sub-${tipo} num-in text-left mt-1" aria-label="${i ? 'Tiempo' : 'Facilidad'} del subrubro ${esc(s.nombre)}">${opcionesEscalaFr(tipo, conf[tipo])}</select>
+        <p class="fr-sub-sig-${tipo} text-xs text-gris mt-1 max-w-xs">${esc(textoSignificadoFr(tipo, conf[tipo]))}</p></div>`).join('')}</div>
+      <p class="fr-sub-efecto text-xs text-ink/70 mt-2">${esc(textoEfectoSubFr(cfFr.escalas, conf.facilidad, conf.tiempo))}</p>
       ${pieFr(`Guardar ${esc(s.nombre)}`)}</div></details>`;
 }
-const opcionesEscalaFr = (tipo, actual) => `<option value="">—</option>${ESCALAS_FR[tipo]
-  .map(([k, t]) => `<option value="${k}"${k === actual ? ' selected' : ''}>${t}</option>`).join('')}`;
+// Opción con su factor: "Difícil · × 1,5 (+50% minutos)".
+const opcionesEscalaFr = (tipo, actual) => `<option value="">— (× 1)</option>${ESCALAS_FR[tipo]
+  .map(([k, t]) => `<option value="${k}"${k === actual ? ' selected' : ''}>${t} · ${esc(efectoFactorFr(cfFr.escalas[tipo][k]))}</option>`).join('')}`;
+const textoSignificadoFr = (tipo, v) => (v ? SIGNIFICADO_FR[tipo][v] : SIGNIFICADO_FR[tipo].titulo);
 function htmlSubrubrosFr() {
   const lista = listaSubrubrosFr();
   const filas = lista.length ? lista.map(htmlSubrubroFr).join('')
@@ -270,6 +298,12 @@ function conectarSubrubroFr(det) {
     det.querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaTramoFr(conTramoFr(validos).pop()));
   };
   det.querySelector('tbody').onclick = e => quitarFilaFr(e, det);
+  const fac = det.querySelector('.fr-sub-facilidad'), tie = det.querySelector('.fr-sub-tiempo');
+  fac.onchange = tie.onchange = () => {
+    det.querySelector('.fr-sub-sig-facilidad').textContent = textoSignificadoFr('facilidad', fac.value);
+    det.querySelector('.fr-sub-sig-tiempo').textContent = textoSignificadoFr('tiempo', tie.value);
+    det.querySelector('.fr-sub-efecto').textContent = textoEfectoSubFr(cfFr.escalas, fac.value, tie.value);
+  };
   det.querySelector('.fr-guardar').onclick = () => guardarFr(det, `/subrubros/${encodeURIComponent(id)}`,
     { maquinaId: det.querySelector('.fr-sub-maquina').value || null, tramos: leerTramosFr(det),
       facilidad: det.querySelector('.fr-sub-facilidad').value || null, tiempo: det.querySelector('.fr-sub-tiempo').value || null },
