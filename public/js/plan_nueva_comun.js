@@ -14,6 +14,57 @@ function duenioPlu(categorias, plu, idPropio = null) {
   return c ? c.nombre : null;
 }
 
+// Fecha local AAAA-MM-DD (toISOString sola da la de UTC: a la noche ya sería mañana).
+function hoyISO(d = new Date()) {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+// Tablero filtrado por texto sin acentos: una categoría que coincide entra entera; si no, sólo sus
+// presentaciones que coinciden por nombre o PLU. Las que quedan vacías (y no coinciden por nombre) se van.
+function filtrarTablero(categorias, q) {
+  const t = normalizarTexto(q);
+  if (!t) return categorias;
+  return categorias
+    .map(c => (normalizarTexto(c.nombre).includes(t) ? c : {
+      ...c,
+      presentaciones: c.presentaciones.filter(p => normalizarTexto(p.nombre).includes(t) || String(p.plu).startsWith(t)),
+    }))
+    .filter(c => c.presentaciones.length || normalizarTexto(c.nombre).includes(t));
+}
+
+// ── Carrito: { fecha, notas, lineas: [{ plu, nombre, categoria, cantidad, responsables, notas }] } ──
+const CLAVE_CARRITO = 'planNueva.carrito.v1';
+const carritoVacio = fecha => ({ fecha, notas: '', lineas: [] });
+const enCarrito = (carrito, plu) => carrito.lineas.some(l => l.plu === String(plu));
+
+// Agrega una fila del tablero; la cantidad arranca en el sugerido (o 1 si es 0). Si ya está, devuelve el mismo.
+function agregarAlCarrito(carrito, fila, categoria) {
+  if (enCarrito(carrito, fila.plu)) return carrito;
+  const linea = { plu: String(fila.plu), nombre: fila.nombre, categoria, cantidad: fila.sugerido > 0 ? fila.sugerido : 1, responsables: [], notas: '' };
+  return { ...carrito, lineas: [...carrito.lineas, linea] };
+}
+const editarLinea = (carrito, plu, cambios) => ({ ...carrito, lineas: carrito.lineas.map(l => (l.plu === String(plu) ? { ...l, ...cambios } : l)) });
+const quitarDelCarrito = (carrito, plu) => ({ ...carrito, lineas: carrito.lineas.filter(l => l.plu !== String(plu)) });
+const payloadOrden = carrito => ({
+  fecha: carrito.fecha,
+  notas: carrito.notas,
+  lineas: carrito.lineas.map(({ plu, nombre, cantidad, responsables, notas }) => ({ plu, nombre, cantidad, responsables, notas })),
+});
+
+// Carrito guardado, o uno vacío con fecha `hoy` si no hay, está roto o el storage no responde.
+function leerCarrito(storage, hoy) {
+  try {
+    const c = JSON.parse(storage.getItem(CLAVE_CARRITO));
+    const lineasOk = c && Array.isArray(c.lineas) && c.lineas.every(l => l && typeof l.plu === 'string' && Array.isArray(l.responsables));
+    if (lineasOk && typeof c.fecha === 'string' && typeof c.notas === 'string') return c;
+  } catch { /* storage bloqueado o JSON roto: se arranca vacío */ }
+  return carritoVacio(hoy);
+}
+function guardarCarrito(storage, carrito) {
+  try { storage.setItem(CLAVE_CARRITO, JSON.stringify(carrito)); }
+  catch (e) { console.warn('[plan-nueva] no se pudo guardar el carrito:', e.message); }
+}
+
 async function api(metodo, url, body) {
   const r = await fetch(url, {
     method: metodo,
@@ -48,4 +99,9 @@ function mostrarTab(nombre) {
   if (TABS[tab]) TABS[tab].cargar().catch(e => toast(e.message, 'error'));
 }
 
-if (typeof module !== 'undefined') module.exports = { esc, normalizarTexto, fmtNum, duenioPlu };
+if (typeof module !== 'undefined') {
+  module.exports = {
+    esc, normalizarTexto, fmtNum, duenioPlu, hoyISO, filtrarTablero,
+    carritoVacio, enCarrito, agregarAlCarrito, editarLinea, quitarDelCarrito, payloadOrden, leerCarrito, guardarCarrito,
+  };
+}
