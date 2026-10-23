@@ -158,5 +158,11 @@ module.exports = function crearRutasPlanNueva(deps) {
     return r.orden;
   }));
 
+  router.put('/api/plan-nueva/ordenes/:id/anular', ruta(async req => {
+    const r = pn.anularOrden(leerOrdenes(), String(req.params.id));
+    guardarOrdenes(r.ordenes);
+    return r.orden;
+  }));
+
   return router;
 };

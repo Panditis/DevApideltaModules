@@ -206,3 +206,13 @@ test('calcularFila: stock negativo en SIGA se muestra real pero no infla el suge
   assert.strictEqual(f.stockCentral, -5);
   assert.strictEqual(f.sugerido, 20); // 2/día × 10 − max(0, −5), no 25
 });
+
+test('anularOrden: pasa a anulada sin borrar ni mutar; repetir → 409; inexistente → 404', () => {
+  const ordenes = [{ id: 'o1', numero: 1, estado: 'activa' }, { id: 'o2', numero: 2, estado: 'activa' }];
+  const r = pn.anularOrden(ordenes, 'o1');
+  assert.deepStrictEqual(r.orden, { id: 'o1', numero: 1, estado: 'anulada' });
+  assert.deepStrictEqual(r.ordenes.map(o => o.estado), ['anulada', 'activa']);
+  assert.strictEqual(ordenes[0].estado, 'activa');
+  assert.throws(() => pn.anularOrden(r.ordenes, 'o1'), es(409));
+  assert.throws(() => pn.anularOrden(ordenes, 'zz'), es(404));
+});

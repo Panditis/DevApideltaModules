@@ -84,3 +84,28 @@ test('órdenes: escritura normal deja JSON válido y ningún archivo temporal', 
     assert.deepStrictEqual(fs.readdirSync(ctx.dir).filter(f => f.includes('.tmp')), []);
   } finally { cerrar(ctx); }
 });
+
+test('PUT /api/plan-nueva/ordenes/:id/anular: anula sin borrar; repetir → 409; inexistente → 404', async () => {
+  const ctx = await montar({ archivos: ARCH });
+  try {
+    const { data: creada } = await pedir(ctx.base, 'POST', '/api/plan-nueva/ordenes', BODY);
+    const r = await pedir(ctx.base, 'PUT', `/api/plan-nueva/ordenes/${creada.id}/anular`);
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.estado, 'anulada');
+    const [guardada] = ctx.leer('plan_nueva_ordenes.json').ordenes;
+    assert.strictEqual(guardada.estado, 'anulada');
+    assert.strictEqual(guardada.lineas.length, 1);
+    assert.strictEqual((await pedir(ctx.base, 'PUT', `/api/plan-nueva/ordenes/${creada.id}/anular`)).status, 409);
+    assert.strictEqual((await pedir(ctx.base, 'PUT', '/api/plan-nueva/ordenes/zz/anular')).status, 404);
+  } finally { cerrar(ctx); }
+});
+
+test('PUT anular con el archivo de órdenes corrupto → 500 y no lo toca', async () => {
+  const ctx = await montar({ archivos: ARCH });
+  const archivo = path.join(ctx.dir, 'plan_nueva_ordenes.json');
+  fs.writeFileSync(archivo, TRUNCADO);
+  try {
+    assert.strictEqual((await pedir(ctx.base, 'PUT', '/api/plan-nueva/ordenes/o1/anular')).status, 500);
+    assert.strictEqual(fs.readFileSync(archivo, 'utf8'), TRUNCADO);
+  } finally { cerrar(ctx); }
+});
