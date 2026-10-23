@@ -41,7 +41,7 @@ test('textoSinTiempoMd: sin subrubro / sin tramos → sin minutos; con minutos y
   assert.strictEqual(textoSinTiempoMd('maquina', ['sinMaquina']), 'Máquina — sin asignar (ni del subrubro ni del granel)');
 });
 
-test('textoElegidoMd: facilidad y tiempo elegidos en la tab Fraccionado', () => {
+test('textoElegidoMd: facilidad y tiempo del subrubro (costeoPresentacion)', () => {
   assert.strictEqual(textoElegidoMd({ facilidad: 'normal', tiempo: 'lento' }), 'Normal · Lento');
   assert.strictEqual(textoElegidoMd(undefined), 'sin facilidad · sin tiempo');
 });

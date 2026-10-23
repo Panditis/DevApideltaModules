@@ -23,6 +23,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/config/esquema/fraccionado/escalas',
   'put /api/precios/config/esquema/fraccionado/subrubros/:id',
   'put /api/precios/config/esquema/fraccionado/granel/:plu',
+  'put /api/precios/config/esquema/fraccionado/insumos-peso/:pesoG',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).
@@ -45,7 +46,7 @@ test('cada ruta de config de los routers de precios está protegida y ninguna ot
     assert.strictEqual(permisos.esRutaConfig(concreta(r.split(' ')[1])), esperado, `${r} → ${esperado ? 'config' : 'permitida'}`);
   }
   // Las de trabajo de precios siguen permitidas (lista no exhaustiva, las que pidió el usuario).
-  for (const r of ['/api/precios/costo-producto/1', '/api/precios/fraccionado/presentaciones', '/api/precios/config/publica',
+  for (const r of ['/api/precios/costo-producto/1', '/api/precios/config/publica',
     '/api/precios/produccion/productos', '/api/precios/esquema/listado', '/api/precios/esquema/detalle/1', '/api/precios/esquema/export',
     '/api/precios/decision/1', '/api/precios/decisiones', '/api/precios/pack-bulto/vinculos']) {
     assert.strictEqual(permisos.esRutaConfig(r), false, r);
@@ -132,8 +133,8 @@ test('admin asigna precios-config: se guarda en modulos y tienePermiso lo lee fr
   }
 });
 
-test('CLAVES_OCULTAS: la configuración del costeo de Fraccionado no viaja sin el permiso; lo elegido de la presentación sí', () => {
+test('CLAVES_OCULTAS: la configuración del costeo de Fraccionado no viaja sin el permiso; los avisos sí', () => {
   const fila = { plu: '1', avisosCosto: ['sinMaquina'], costeoGranel: { maquina: 'Envasadora' }, maquinas: [], escalas: {}, porGranel: {},
-    fraccPresentacion: { facilidad: 'normal', tiempo: null, insumos: [] } };
-  assert.deepStrictEqual(permisos.sinClavesOcultas(fila), { plu: '1', avisosCosto: ['sinMaquina'], fraccPresentacion: { facilidad: 'normal', tiempo: null, insumos: [] } });
+    insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
+  assert.deepStrictEqual(permisos.sinClavesOcultas(fila), { plu: '1', avisosCosto: ['sinMaquina'] });
 });

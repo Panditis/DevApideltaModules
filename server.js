@@ -678,7 +678,6 @@ app.get('/js/precios_produccion_envasado.js', (_req, res) => res.sendFile(path.j
 app.get('/js/precios_pack_bulto.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_pack_bulto.js')));
 app.get('/js/precios_simulador.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_simulador.js')));
 app.get('/js/precios_listados.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_listados.js')));
-app.get('/js/precios_fraccionado_presentaciones.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_fraccionado_presentaciones.js')));
 app.get('/js/precios_modal_esquema.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_modal_esquema.js')));
 app.get('/js/precios_modal_fraccionado.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_modal_fraccionado.js')));
 app.get('/js/precios_comun.js', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'js', 'precios_comun.js')));
@@ -2719,7 +2718,7 @@ app.use(require('./routes/rutas_precios_pack_bulto')({ apiRoute, query, leerJSON
 // Precios › esquema por canal: Configuración nueva (Costos, Márgenes, Precio) y, desde la fase 3, listados,
 // decisión y export. Mismos deps que el resto del clúster de precios.
 app.use(require('./routes/rutas_precios_esquema')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
-// Precios › Configuración › Costeo Fraccionado (máquinas, tiempos, insumos por subrubro): /api/precios/config/esquema/fraccionado/*.
+// Precios › Configuración › Costeo Fraccionado (máquinas, escalas, máquina/tramos/facilidad/tiempo por subrubro, insumos por peso): /api/precios/config/esquema/fraccionado/*.
 app.use(require('./routes/rutas_precios_fraccionado')({ apiRoute, query, leerJSON, guardarJSON, DATA_DIR, LISTA_PRECIOS_VENTA, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL }));
 
 // Facturador auxiliar: apiRoute, query y PORT son funciones/const que se hoistean o se

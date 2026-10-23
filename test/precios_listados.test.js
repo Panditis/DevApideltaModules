@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado, textoAvisosCosto, textoCosteoGranel } = require('../public/js/precios_listados.js');
+const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -271,9 +271,36 @@ test('Importar planilla: resumen de marcados por costo y planilla de no marcados
 });
 
 test('textoAvisosCosto / textoCosteoGranel: avisos legibles y "subrubro · máquina" del granel', () => {
-  assert.deepStrictEqual(textoAvisosCosto(['sinTiempo', 'raro']), ['presentación sin tiempo (× 1)', 'raro']);
+  assert.deepStrictEqual(textoAvisosCosto(['sinTiempo', 'sinFacilidad', 'sinInsumos', 'raro']),
+    ['subrubro sin tiempo (× 1)', 'subrubro sin facilidad (× 1)', 'su peso no tiene insumos', 'raro']);
   assert.deepStrictEqual(textoAvisosCosto(undefined), []);
   assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', maquina: 'Envasadora', maquinaOrigen: 'subrubro' }), 'Frutos secos · Envasadora');
   assert.strictEqual(textoCosteoGranel({ subrubro: 'Frutos secos', maquina: 'Selladora', maquinaOrigen: 'granel' }), 'Frutos secos · Selladora (propia del granel)');
   assert.strictEqual(textoCosteoGranel({ subrubro: null, maquina: null }), 'sin subrubro · sin máquina');
+});
+
+test('abiertoLst: cerrado por defecto; lo elegido con ▸/▾ manda; la búsqueda que sólo coincide con una presentación lo abre', () => {
+  const g = { plu: '50', nombre: 'Almendra granel', presentaciones: [{ plu: '51', nombre: 'Almendra 500G' }] };
+  const sin = { plu: null, nombre: 'Sin granel asignado', presentaciones: [{ plu: '70', nombre: 'Pasas 1Kg' }] };
+  assert.deepStrictEqual([claveGrupoLst(g), claveGrupoLst(sin)], ['50', 'sin']);
+  assert.strictEqual(abiertoLst(g, new Map(), ''), false);
+  assert.strictEqual(abiertoLst(g, new Map([['50', true]]), ''), true);
+  assert.strictEqual(abiertoLst(g, new Map(), '500g'), true);           // sólo la presentación coincide
+  assert.strictEqual(abiertoLst(g, new Map(), ' 51 '), true);
+  assert.strictEqual(abiertoLst(g, new Map(), 'almendra'), false);      // coincide el granel: queda como estaba
+  assert.strictEqual(abiertoLst(g, new Map(), 'nuez'), false);
+  assert.strictEqual(abiertoLst(g, new Map([['50', false]]), '500g'), false); // cerrado a mano: se respeta
+  assert.strictEqual(abiertoLst(sin, new Map([['sin', true]])), true);
+  assert.strictEqual(abiertoLst({ plu: '60', nombre: 'Nuez' }, new Map(), 'nuez'), false); // sin presentaciones
+});
+
+test('htmlDesplegarLst: botón ▸/▾ con aria-expanded y aria-label + "N presentaciones"; sin presentaciones → nada', () => {
+  const g = { plu: '50', nombre: 'Almendra <A>', presentaciones: [{ plu: '51' }, { plu: '52' }] };
+  const cerrado = htmlDesplegarLst(g, false);
+  assert.match(cerrado, /class="lst-desplegar[^"]*" data-grupo="50" aria-expanded="false" aria-label="Mostrar las presentaciones de Almendra &lt;A&gt;">▸<\/button>/);
+  assert.match(cerrado, /2 presentaciones/);
+  const abierto = htmlDesplegarLst({ plu: null, nombre: 'Sin granel', presentaciones: [{ plu: '70' }] }, true);
+  assert.match(abierto, /data-grupo="sin" aria-expanded="true" aria-label="Ocultar las presentaciones de Sin granel">▾<\/button>/);
+  assert.match(abierto, /1 presentación</);
+  assert.strictEqual(htmlDesplegarLst({ plu: '60', nombre: 'Nuez', presentaciones: [] }, false), '');
 });

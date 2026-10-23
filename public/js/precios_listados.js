@@ -1,5 +1,5 @@
 // ── Precios · listados Reventa, Fraccionado y Producción con el esquema por canal (spec 2026-10-07 §3.1) ──
-// Script clásico. Una fila por producto (Fraccionado: por granel con sus presentaciones debajo; Producción: por
+// Script clásico. Una fila por producto (Fraccionado: por granel, con sus presentaciones desplegables; Producción: por
 // presentación) con costo sistema, última compra, vigente, sugerido por fuente y un <select> con la DECISIÓN (qué costo usar
 // para el precio nuevo; marca el producto para exportar). Se decide acá, sin abrir el modal, o en el modal (clic en el nombre);
 // las dos vías guardan igual (guardarDecision). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
@@ -132,26 +132,45 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
   ...lista.map(r => [pluXlsx(r.codigo), r.nombre || null, r.costo ?? null, r.precio ?? null, r.costoSistema ?? null, r.costoUltimaCompra ?? null,
     r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
-// Costeo de Fraccionado (spec 2026-10-21 §9.2): textos de los avisos que no bloquean el precio (se completan en la tab
-// Fraccionado — facilidad, tiempo, insumos — o en Configuración › Costeo Fraccionado) y "subrubro · máquina" del granel.
+// Costeo de Fraccionado (spec 2026-10-23 §3): textos de los avisos que no bloquean el precio (se completan en Configuración ›
+// Costeo Fraccionado: facilidad y tiempo en el subrubro, insumos por peso) y "subrubro · máquina" del granel.
 const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinSubrubro: 'granel sin subrubro en SIGA (sin mano de obra ni máquina)',
-  sinTramos: 'su subrubro no tiene tiempos por peso', sinTiempo: 'presentación sin tiempo (× 1)', sinFacilidad: 'presentación sin facilidad (× 1)',
-  sinMaquina: 'sin máquina (ni del subrubro ni del granel)', costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'presentación sin insumos' };
+  sinTramos: 'su subrubro no tiene tiempos por peso', sinTiempo: 'subrubro sin tiempo (× 1)', sinFacilidad: 'subrubro sin facilidad (× 1)',
+  sinMaquina: 'sin máquina (ni del subrubro ni del granel)', costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'su peso no tiene insumos' };
 const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
 // costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS).
 const textoCosteoGranel = c => `${c.subrubro || 'sin subrubro'} · ${c.maquina ? `${c.maquina}${c.maquinaOrigen === 'granel' ? ' (propia del granel)' : ''}` : 'sin máquina'}`;
 
+// Tab Fraccionado: el granel es la fila principal y sus presentaciones se despliegan con ▸/▾ (cerrado por defecto). Clave del
+// grupo = PLU del granel ('sin' para el "sin granel"). abiertos = Map clave → lo elegido con el botón, que manda; sin elegir, se
+// abre sólo si el texto buscado coincide con una presentación y no con el granel (si no, la fila no explicaría por qué está).
+const claveGrupoLst = f => (f.plu == null ? 'sin' : String(f.plu));
+function abiertoLst(f, abiertos, texto = '') {
+  const k = claveGrupoLst(f);
+  if (abiertos.has(k)) return abiertos.get(k);
+  const t = normL(texto.trim()), cae = s => normL(s).includes(t);
+  return !!t && !cae(`${f.plu ?? ''} ${f.nombre}`) && (f.presentaciones || []).some(p => cae(`${p.plu} ${p.nombre}`));
+}
+// Botón ▸/▾ + "N presentaciones", antes del nombre del granel. Sin presentaciones no hay nada que desplegar.
+function htmlDesplegarLst(f, abierto) {
+  const n = (f.presentaciones || []).length;
+  if (!n) return '';
+  return `<button type="button" class="lst-desplegar w-5 text-verde" data-grupo="${ESC_LST(claveGrupoLst(f))}" aria-expanded="${abierto}" aria-label="${abierto ? 'Ocultar' : 'Mostrar'} las presentaciones de ${ESC_LST(f.nombre)}">${abierto ? '▾' : '▸'}</button>`
+    + `<span class="text-xs text-gris font-normal mr-1">${n} presentaci${n === 1 ? 'ón' : 'ones'}</span> `;
+}
+
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado,
-  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel };
+  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
-const lstCols = tipo => (tipo === 'produccion' ? 8 : tipo === 'almacen' ? 11 : 13); // Reventa suma Proveedor y Tipo; Fraccionado, selección + facilidad, tiempo e insumos
+const lstCols = tipo => (tipo === 'produccion' ? 8 : tipo === 'almacen' ? 11 : 9); // Reventa suma Proveedor y Tipo
 let lstDatos = {};                                                  // tipo → filas del server
 let lstVariedadesEnv = [];                                          // variedades envasadas (tarjetas de producto base, resumenBases)
 let lstCostoFamiliaEnv = {};                                        // producto base → precio de materia prima $/kg (GET /envasado/opciones)
 let lstOrden = { almacen: ORDEN_LST_DEFECTO, fraccionado: ORDEN_LST_DEFECTO, produccion: ORDEN_LST_DEFECTO }; // orden por tab (sobrevive recargas y filtros)
 const lstFiltros = { almacen: {}, fraccionado: {}, produccion: {}, envasado: {} }; // estado de los filtros por tab (sobrevive recargas)
+const abiertosLst = new Map(); // ponytail: Fraccionado, grupos abiertos/cerrados con ▸/▾ (abiertoLst); estado de UI que se muta en el lugar
 // Producción: los dos sub-tabs comparten datos y orden, pero cada uno tiene su búsqueda (prodClase, precios_produccion.js).
 const claseLst = tipo => (tipo === 'produccion' ? prodClase : null);
 const filtrosLst = tipo => lstFiltros[claseLst(tipo) === 'envasado' ? 'envasado' : tipo];
@@ -201,7 +220,8 @@ const badgeFaltanteCosto = p => ((p.faltantesCosto || []).length
 const botonNombre = f => `<button type="button" class="lst-abrir text-left hover:text-verde hover:underline" data-plu="${esc(f.plu ?? '')}"${f.plu == null ? ' disabled' : ''}>${esc(f.nombre)}</button>${badgeMargenProducto(f)}`;
 const celdaDecision = (f, tipo) => (f.plu == null ? '' : htmlSelectDecision(f, opcionesSelect(f, tipo))); // opcionesSelect: precios_modal_esquema.js
 
-function filaHtml(f, tipo) {
+// abierto: Fraccionado, si se pintan las presentaciones del granel (abiertoLst).
+function filaHtml(f, tipo, abierto = false) {
   const marca = f.decision ? ' class="bg-verde/5"' : '';
   if (tipo === 'produccion') {
     const rev = textoRevisar(f.aRevisar); // precios_produccion.js
@@ -213,10 +233,10 @@ function filaHtml(f, tipo) {
       <td class="p-2 whitespace-nowrap"><button type="button" class="lst-abrir cfg-btn2 mr-2" data-plu="${esc(f.plu)}">Precios</button><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
   }
   const fracc = tipo === 'fraccionado';
-  const subfilas = (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
-    ${celdasFP(p, pendFP, selFP)}<td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
+  const subfilas = !abierto ? '' : (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2 pl-7">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
+    <td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>${fracc ? CELDAS_VACIAS_FP : ''}
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${fracc ? htmlDesplegarLst(f, abierto) : ''}${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
@@ -230,7 +250,7 @@ function htmlMarcoListado(tipo) {
   // [texto, clave de orden]. En Fraccionado vigente y sugeridos son de las presentaciones, no del granel: no se ordenan.
   const ths = prod ? [['Código', 'plu'], ['Producto', 'nombre'], ['Costo', 'costoSistema'], ['Vigente', 'vigente'], ['Sugerido', 'sugeridoSistema'], ['A revisar'], ['Decisión'], ['']]
     : [['Código', 'plu'], [fracc ? 'Granel / presentación' : 'Producto', 'nombre'],
-      ...(fracc ? [['<span class="sr-only">Selección</span>', null, 'fp-col'], ['Facilidad', null, 'fp-col'], ['Tiempo', null, 'fp-col'], ['Insumos', null, 'fp-col']] : []), ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
+      ['Costo sistema', 'costoSistema'], ['Última compra', 'ultimaCompra'], ['Δ% vs sistema', 'deltaUltima'],
       ...(alm ? [['Proveedor', 'proveedor'], ['Tipo', 'tipoProveedor']] : []), ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima'], ['Decisión']];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
@@ -249,9 +269,8 @@ function htmlMarcoListado(tipo) {
     <button type="button" class="lst-exportar px-3 py-1.5 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Exportar decididos</button>
     ${prod ? '<button type="button" class="lst-nuevo cfg-btn" title="Producto con receta (ej. pepas, granola)">+ Nuevo</button>' : ''}
   </div>
-  ${fracc ? htmlBarraFP() : ''}
-  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm${fracc ? ' fp-sin-cols' : ''}">
-    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k, c = ''], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''} ${c}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
+  <div class="overflow-x-auto rounded-xl border border-borde shadow-fluent bg-card"><table class="w-full text-sm">
+    <thead class="bg-verde/5 text-verde"><tr>${ths.map(([t, k], i) => `<th class="p-2 ${i < 2 || k === 'proveedor' || k === 'tipoProveedor' ? 'text-left' : ''}"${k ? ` data-orden="${k}"` : ''}>${t}</th>`).join('')}</tr></thead>
     <tbody class="lst-cuerpo"><tr><td colspan="${lstCols(tipo)}" class="p-10 text-center text-ink/50"><span class="spin"></span> Cargando…</td></tr></tbody></table></div>`;
 }
 
@@ -278,11 +297,19 @@ function conectarListado(tipo, cont) {
   const cuerpo = cont.querySelector('.lst-cuerpo');
   cuerpo.addEventListener('change', e => { const s = e.target.closest('.lst-decision'); if (s) cambiarDecisionLst(tipo, s); });
   cuerpo.addEventListener('click', e => {
+    const d = e.target.closest('.lst-desplegar'); if (d) desplegarLst(tipo, d);
     const b = e.target.closest('.lst-abrir'); if (b && b.dataset.plu) abrirModalEsquema(tipo, b.dataset.plu);
     // Envasado Apidelta: tarjeta de producto base → su modal; la tarjeta "Nuevo producto base" → alta.
     const t = e.target.closest('.eb-tarjeta'); if (t) (t.classList.contains('lst-nuevo') ? abrirBaseNueva() : abrirBaseEnvasado(t.dataset.familia));
   });
-  if (tipo === 'fraccionado') conectarFP(cont); // precios_fraccionado_presentaciones.js
+}
+// ▸/▾ de un granel de Fraccionado: invierte lo que se ve, repinta y devuelve el foco al botón nuevo.
+function desplegarLst(tipo, boton) {
+  const k = boton.dataset.grupo;
+  abiertosLst.set(k, boton.getAttribute('aria-expanded') !== 'true');
+  renderListado(tipo);
+  const nuevo = document.getElementById(LST_CONT[tipo]).querySelector(`.lst-desplegar[data-grupo="${CSS.escape(k)}"]`);
+  if (nuevo) nuevo.focus();
 }
 
 // Headers del tab; el clic guarda el orden, re-monta los headers (▲/▼, aria-sort) y re-pinta sólo el tbody.
@@ -334,8 +361,8 @@ function renderListado(tipo) {
   if (nSin) nSin.textContent = todas.filter(f => !f.tipoProveedor).length || '';
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
-  cuerpo.innerHTML = filas.length ? filas.map(fl => filaHtml(fl, tipo)).join('') : htmlSinFilas(tipo);
-  if (tipo === 'fraccionado') actualizarBarraFP(cont); // precios_fraccionado_presentaciones.js
+  const texto = filtrosLst(tipo).texto || '';
+  cuerpo.innerHTML = filas.length ? filas.map(fl => filaHtml(fl, tipo, tipo === 'fraccionado' && abiertoLst(fl, abiertosLst, texto))).join('') : htmlSinFilas(tipo);
 }
 const htmlSinFilas = tipo => `<tr><td colspan="${lstCols(tipo)}" class="p-8 text-center text-gris">Sin productos para estos filtros.</td></tr>`;
 // PUT de la decisión y actualización local (sin recargar SIGA). La usan el modal y los selects de decisión.

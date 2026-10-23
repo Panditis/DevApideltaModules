@@ -525,14 +525,14 @@ test('agruparPorGranel: cada grupo lleva el subrubro de su granel', () => {
   assert.deepStrictEqual([g.subrubroId, g.subrubro], ['7', 'Frutos secos']);
 });
 
-test('listadoFraccionado con costeoF: tramo del subrubro × tiempo × facilidad de la presentación, máquina del subrubro, insumos de la presentación', () => {
+test('listadoFraccionado con costeoF: tramo × tiempo × facilidad del subrubro, máquina del subrubro, insumos del peso de la presentación', () => {
   const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', subrubro: 'Frutos secos', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }];
   const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: null }],
     ['900', { plu: '900', nombre: 'Bolsa 500g', costoSistema: 20, costoMercaderia: null }]]);
   const costeoF = FCx.normalizarCosteoFraccionado({
     costoHora: 6000, maquinas: [{ id: 'env', nombre: 'Envasadora', costoHora: 3000 }],
-    subrubros: { 7: { maquinaId: 'env', tramos: [{ hastaG: 1000, minutos: 1 }] } },
-    presentaciones: { 101: { facilidad: 'facil', tiempo: 'normal', insumos: [{ plu: '900', cantidad: 1 }] } },
+    subrubros: { 7: { maquinaId: 'env', tramos: [{ hastaG: 1000, minutos: 1 }], facilidad: 'facil', tiempo: 'normal' } },
+    insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] },
   });
   const armar = (cf, costeo = {}) => L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo, cfg: CFG, costeoF: cf })[0];
   const g = armar(costeoF);
@@ -540,10 +540,10 @@ test('listadoFraccionado con costeoF: tramo del subrubro × tiempo × facilidad 
   // 1 min × 1 × 1: MO 100 + máquina 50 + bolsa 20 = 170 por unidad ÷ 0,5 kg = 340 $/kg → 1000 + 340
   assert.strictEqual(p.costos.sistema, 1340);
   assert.strictEqual(p.sugeridos.sistema.minorista.precio, L.preciosDeCosto({ cfg: CFG, tipo: 'fraccionado', costo: 1340, pesoG: 500 }).minorista.precio);
-  assert.deepStrictEqual(p.costeoPresentacion, { minutos: 1, minutosBase: 1, factorTiempo: 1, factorFacilidad: 1, porUnidad: 170, extraKg: 340 });
+  assert.deepStrictEqual(p.costeoPresentacion, { facilidad: 'facil', tiempo: 'normal', minutos: 1, minutosBase: 1, factorTiempo: 1, factorFacilidad: 1, porUnidad: 170, extraKg: 340 });
   assert.deepStrictEqual(p.componentesCosto.map(l => l.rol), ['granel', 'insumo', 'mo', 'maquina']);
   assert.deepStrictEqual(p.componentesCosto[0], { plu: '100', nombre: 'Almendras', rol: 'granel', cantidad: 0.5, costoUnit: 1000, importe: 500, fuente: 'sistema' });
-  assert.deepStrictEqual(p.fraccPresentacion, { facilidad: 'facil', tiempo: 'normal', insumos: [{ plu: '900', cantidad: 1, nombre: 'Bolsa 500g' }] });
+  assert.deepStrictEqual([p.componentesCosto[1].nombre, 'fraccPresentacion' in p], ['Bolsa 500g', false]);
   assert.deepStrictEqual([p.avisosCosto, g.avisosCosto], [[], []]);
   assert.deepStrictEqual(g.costeoGranel, { maquinaId: null, maquina: 'Envasadora', maquinaOrigen: 'subrubro', maquinaSubrubro: 'Envasadora', subrubroId: '7', subrubro: 'Frutos secos' });
   assert.strictEqual(g.costos.sistema, 1000); // el granel (decisión, rango, pack/bulto del granel) sigue con su mercadería
@@ -554,17 +554,17 @@ test('listadoFraccionado con costeoF: tramo del subrubro × tiempo × facilidad 
   const ge = armar({ ...costeoF, maquinas: [...costeoF.maquinas, { id: 'sel', nombre: 'Selladora', costoHora: 1200 }], porGranel: { 100: { maquinaId: 'sel' } } });
   assert.deepStrictEqual([ge.costeoGranel.maquina, ge.costeoGranel.maquinaOrigen, ge.costeoGranel.maquinaSubrubro, ge.costeoGranel.maquinaId, ge.presentaciones[0].costos.sistema],
     ['Selladora', 'granel', 'Envasadora', 'sel', 1280]);
-  // Listado público: sin costos ni desglose; avisos y lo elegido de la presentación sí
+  // Listado público: sin costos ni desglose; los avisos sí
   const pub = L.filaPublica(g);
-  assert.deepStrictEqual([pub.presentaciones[0].componentesCosto, pub.presentaciones[0].costeoPresentacion, pub.presentaciones[0].fraccPresentacion.tiempo],
-    [undefined, undefined, 'normal']);
+  assert.deepStrictEqual([pub.presentaciones[0].componentesCosto, pub.presentaciones[0].costeoPresentacion, pub.presentaciones[0].avisosCosto],
+    [undefined, undefined, []]);
 });
 
 
 test('listadoFraccionado con costeoF: insumo sin costo → la presentación queda sin sugerido y con el faltante', () => {
   const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }] }];
   const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000 }]]);
-  const costeoF = FCx.normalizarCosteoFraccionado({ insumosPresentacion: { 101: [{ plu: '901', cantidad: 1 }] } });
+  const costeoF = FCx.normalizarCosteoFraccionado({ insumosPorPeso: { 500: [{ plu: '901', cantidad: 1 }] } });
   const [g] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
   assert.deepStrictEqual([g.presentaciones[0].sugeridos, g.presentaciones[0].faltantesCosto], [{}, ['901']]);
 });
@@ -572,7 +572,7 @@ test('listadoFraccionado con costeoF: insumo sin costo → la presentación qued
 test('listadoFraccionado con costeoF: granel sin costo en una fuente → sin sugerido en esa fuente, sin faltante si otra fuente lo tiene', () => {
   const grupos = [{ plu: '100', nombre: 'Almendras', subrubroId: '7', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1KG' }] }];
   const costos = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: 1000, costoMercaderia: null }]]);
-  const costeoF = FCx.normalizarCosteoFraccionado({ insumosPresentacion: { 102: [{ plu: '901', cantidad: 1 }] } });
+  const costeoF = FCx.normalizarCosteoFraccionado({ insumosPorPeso: { 1000: [{ plu: '901', cantidad: 1 }] } });
   const costeo = { decisiones: { 100: { fuente: 'ultimaCompra' } } }; // decidió última compra y el granel no tiene
   const [g] = L.listadoFraccionado({ grupos, costos, vigentes: new Map(), mayoristasDe: () => [], costeo, cfg: CFG, costeoF });
   const [p500, p1kg] = g.presentaciones;

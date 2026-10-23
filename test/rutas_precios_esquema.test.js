@@ -515,12 +515,12 @@ test('config por tipo: Fraccionado usa sus márgenes; Reventa y Producción sigu
   } finally { a.cerrar(); }
 });
 
-test('listado Fraccionado: la presentación suma sus insumos + la MO del tramo de su subrubro; el desglose sólo en el detalle', async () => {
+test('listado Fraccionado: la presentación suma los insumos de su peso + la MO del tramo de su subrubro; el desglose sólo en el detalle', async () => {
   // Harina (300, 330,58) como insumo de 51 "Almendra 500G"; tramo 1 min × 6000/60 = 100 de MO → 430,58 por unidad ÷ 0,5 kg = 861,16
   const conSub = async sql => (sql.includes('SubRubros')
     ? [{ IdProducto: '50', NombreProducto: 'Almendra granel', IdSubRubro: 7, NombreSubRubro: 'Frutos secos' }] : sigaFalso(sql));
   const fraccionado = { ...CON_FRACC.fraccionado, costoHora: 6000, subrubros: { 7: { tramos: [{ hastaG: 1000, minutos: 1 }] } },
-    presentaciones: { 51: { insumos: [{ plu: '300', cantidad: 1 }] } } };
+    insumosPorPeso: { 500: [{ plu: '300', cantidad: 1 }] } };
   const a = appCon({ ...CON_FRACC, fraccionado }, { query: conSub, archivos: ARCHIVOS_FALSOS });
   try {
     const det = await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
@@ -529,8 +529,7 @@ test('listado Fraccionado: la presentación suma sus insumos + la MO del tramo d
     assert.deepStrictEqual(det.presentaciones[0].componentesCosto.map(l => [l.plu, l.rol, l.importe]),
       [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 100]]);
     const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
-    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto, g.presentaciones[0].fraccPresentacion.insumos.length],
-      [['sinTiempo', 'sinFacilidad', 'sinMaquina'], undefined, 1]);
+    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [['sinTiempo', 'sinFacilidad', 'sinMaquina'], undefined]);
   } finally { a.cerrar(); }
 });
 
