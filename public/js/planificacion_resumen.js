@@ -8,12 +8,14 @@ let gruposSorted = [];
 // porque los botones identifican el grupo por su posición (gi).
 const URGENCIA_CHIP = { URGENTE: ['RED', '🔴 Urgente'], PRONTO: ['YELLOW', '🟡 Pronto'], OK: ['GREEN', '🟢 OK'] };
 const textoCobertura = c => (Number.isFinite(c) ? `${c} d` : '—');
-// Fila de un grupo con presentaciones: el % de su facturación que está en falta (el que decidió el nivel);
-// OK no muestra nada. Grupo granel: su cobertura en días.
+// Fila de un grupo con presentaciones: cuántas presentaciones están en falta (las que cuentan para el nivel:
+// urgentes si es Urgente; urgentes y pronto si es Pronto); OK no muestra nada. Grupo granel: su cobertura en días.
 function textoUrgenciaGrupo(g) {
   if (!Number.isFinite(g.pesoUrgente)) return textoCobertura(g.coberturaDias);
-  const peso = g.urgencia === 'URGENTE' ? g.pesoUrgente : g.urgencia === 'PRONTO' ? g.pesoUrgentePronto : null;
-  return peso === null ? '—' : `${Math.round(peso * 100)}% en falta`;
+  const niveles = g.urgencia === 'URGENTE' ? ['URGENTE'] : g.urgencia === 'PRONTO' ? ['URGENTE', 'PRONTO'] : null;
+  if (!niveles) return '—';
+  const pres = g.presentaciones || [];
+  return `${pres.filter(p => niveles.includes(p.urgencia)).length} de ${pres.length} en falta`;
 }
 // gi/pi (índices; pi -1 = fila del grupo): el chip abre el modal con el cálculo (abrirUrgenciaDetalle).
 function urgenciaCell(urgencia, texto, gi, pi) {
