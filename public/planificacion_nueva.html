@@ -17,10 +17,10 @@ dialog::backdrop { background: rgba(26,28,24,.35); }
 <header class="acrylic sticky top-0 z-20 shadow-fluent">
   <div class="filo-amarillo max-w-[1500px] mx-auto px-4 flex items-center gap-6">
     <h1 class="font-disp text-xl font-bold py-3">PLANIFICACIÓN NUEVA</h1>
-    <nav class="flex" aria-label="Secciones">
-      <button type="button" class="navtab" data-tab="planificacion">Planificación</button>
-      <button type="button" class="navtab" data-tab="ordenes">Órdenes</button>
-      <button type="button" class="navtab" data-tab="catalogo">Catálogo</button>
+    <nav class="flex" role="tablist" aria-label="Secciones">
+      <button type="button" class="navtab" role="tab" aria-controls="tab-planificacion" data-tab="planificacion">Planificación</button>
+      <button type="button" class="navtab" role="tab" aria-controls="tab-ordenes" data-tab="ordenes">Órdenes</button>
+      <button type="button" class="navtab" role="tab" aria-controls="tab-catalogo" data-tab="catalogo">Catálogo</button>
     </nav>
     <div class="ml-auto flex items-center gap-3">
       <!-- plan_nueva: boton carrito -->
@@ -73,6 +73,7 @@ dialog::backdrop { background: rgba(26,28,24,.35); }
       <div class="text-sm text-gris mb-1">Presentaciones (<span id="catCuenta">0</span>)</div>
       <ul id="catPresentaciones" class="lista-siga rounded-lg border border-borde divide-y divide-black/5 text-sm"></ul>
     </div>
+    <p id="catError" role="alert" class="hidden text-sm text-crit bg-crit/10 border border-crit/30 rounded-lg px-3 py-2"></p>
     <div class="flex justify-end gap-2">
       <button type="button" id="catCancelar" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-bg">Cancelar</button>
       <button type="submit" id="catGuardar" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-50">Guardar</button>
@@ -88,6 +89,7 @@ dialog::backdrop { background: rgba(26,28,24,.35); }
 <!-- plan_nueva: scripts -->
 <script>
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => mostrarTab(b.dataset.tab)));
+window.addEventListener('hashchange', () => mostrarTab(location.hash.slice(1))); // replaceState de mostrarTab no lo dispara
 mostrarTab(location.hash.slice(1));
 </script>
 </body>

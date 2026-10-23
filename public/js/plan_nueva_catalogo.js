@@ -2,12 +2,12 @@
 // Planificación nueva › Catálogo: categorías con sus presentaciones (PLU de SIGA). Busca con GET /api/siga/buscar
 // (el mismo endpoint que usa /planificacion) y permite elegir varios resultados a la vez.
 
-const BUSCAR_DEBOUNCE_MS = 300;
+const CAT_BUSCAR_DEBOUNCE_MS = 300;
 let catalogoActual = [];   // [{ id, nombre, plus, creado, presentaciones: [{ plu, nombre }] }]
-let edicion = null;        // { id|null, presentaciones: [{ plu, nombre }] } mientras el diálogo está abierto
-let resultadosSiga = [];   // última respuesta del buscador: [{ plu, producto, rubro }]
-let buscarTimer = null;
-let buscarSeq = 0;
+let catEdicion = null;        // { id|null, presentaciones: [{ plu, nombre }] } mientras el diálogo está abierto
+let catResultadosSiga = [];   // última respuesta del buscador: [{ plu, producto, rubro }]
+let catBuscarTimer = null;
+let catBuscarSeq = 0;
 
 async function cargarCatalogo() {
   catalogoActual = (await api('GET', '/api/plan-nueva/catalogo')).categorias;
@@ -33,94 +33,116 @@ function pintarCatalogo() {
       </td></tr>`).join('')}</tbody></table></div>`;
 }
 
+// El toast queda detrás del <dialog> modal: los errores de guardado y de búsqueda se muestran dentro de él.
+function catMostrarError(mensaje) {
+  const el = document.getElementById('catError');
+  el.textContent = mensaje;
+  el.classList.toggle('hidden', !mensaje);
+}
+
 function abrirCategoria(id = null) {
   const c = catalogoActual.find(x => x.id === id);
-  edicion = { id: c ? c.id : null, presentaciones: c ? [...c.presentaciones] : [] };
+  catEdicion = { id: c ? c.id : null, presentaciones: c ? [...c.presentaciones] : [] };
   document.getElementById('dlgCatTitulo').textContent = c ? `Editar “${c.nombre}”` : 'Nueva categoría';
   document.getElementById('catNombre').value = c ? c.nombre : '';
   document.getElementById('catBuscar').value = '';
-  cerrarResultados();
-  pintarPresentacionesEdicion();
+  catCerrarResultados();
+  catMostrarError('');
+  catPintarPresentaciones();
   document.getElementById('dlgCategoria').showModal();
   document.getElementById('catNombre').focus();
 }
 
-function pintarPresentacionesEdicion() {
-  document.getElementById('catCuenta').textContent = edicion.presentaciones.length;
-  document.getElementById('catPresentaciones').innerHTML = edicion.presentaciones.map(p => `<li class="flex items-center gap-2 px-3 py-1.5">
+function catPintarPresentaciones() {
+  document.getElementById('catCuenta').textContent = catEdicion.presentaciones.length;
+  document.getElementById('catPresentaciones').innerHTML = catEdicion.presentaciones.map(p => `<li class="flex items-center gap-2 px-3 py-1.5">
       <b class="tabular-nums">${esc(p.plu)}</b><span class="flex-1">${esc(p.nombre)}</span>
       <button type="button" data-quitar="${esc(p.plu)}" class="text-crit text-xs px-2" aria-label="Quitar ${esc(p.nombre)}">Quitar</button></li>`).join('')
     || '<li class="px-3 py-2 text-gris">Sin presentaciones todavía.</li>';
 }
 
-function cerrarResultados() {
-  resultadosSiga = [];
+function catCerrarResultados() {
+  clearTimeout(catBuscarTimer); // un timer pendiente o una respuesta en vuelo no pueden pintar resultados viejos
+  catBuscarSeq++;
+  catResultadosSiga = [];
   const caja = document.getElementById('catResultados');
   caja.classList.add('hidden');
   caja.innerHTML = '';
-  actualizarBotonAgregar();
+  catActualizarBotonAgregar();
 }
 
 // Por qué un PLU no se puede elegir (ya está en la edición o en otra categoría), o null.
-function motivoNoElegible(plu) {
-  if (edicion.presentaciones.some(p => p.plu === String(plu))) return 'ya agregado';
-  const otra = duenioPlu(catalogoActual, plu, edicion.id);
+function catMotivoNoElegible(plu) {
+  if (catEdicion.presentaciones.some(p => p.plu === String(plu))) return 'ya agregado';
+  const otra = duenioPlu(catalogoActual, plu, catEdicion.id);
   return otra ? `en “${otra}”` : null;
 }
 
-function pintarResultadosSiga() {
+function catPintarResultados() {
   const caja = document.getElementById('catResultados');
   caja.classList.remove('hidden');
-  caja.innerHTML = resultadosSiga.map(r => {
-    const motivo = motivoNoElegible(r.plu);
+  caja.innerHTML = catResultadosSiga.map(r => {
+    const motivo = catMotivoNoElegible(r.plu);
     return `<label class="flex items-start gap-2 px-3 py-1.5 text-sm ${motivo ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-verde/10'}">
       <input type="checkbox" class="mt-0.5 accent-verde" data-plu="${esc(r.plu)}" data-nombre="${esc(r.producto)}"${motivo ? ' disabled' : ''}>
       <span><b class="tabular-nums">${esc(r.plu)}</b> · ${esc(r.producto)} <span class="text-xs text-gris">${esc(r.rubro)}</span>${motivo ? ` <span class="text-xs text-warn">${esc(motivo)}</span>` : ''}</span></label>`;
   }).join('') || '<div class="px-3 py-2 text-gris text-sm">Sin resultados.</div>';
-  actualizarBotonAgregar();
+  catActualizarBotonAgregar();
 }
 
-const seleccionadosSiga = () => [...document.querySelectorAll('#catResultados input[data-plu]:checked')];
-function actualizarBotonAgregar() {
-  const n = seleccionadosSiga().length;
+const catSeleccionados = () => [...document.querySelectorAll('#catResultados input[data-plu]:checked')];
+function catActualizarBotonAgregar() {
+  const n = catSeleccionados().length;
   const boton = document.getElementById('catAgregar');
   boton.disabled = !n;
   boton.textContent = n ? `Agregar ${n}` : 'Agregar seleccionados';
 }
 
-function buscarSiga(texto) {
-  clearTimeout(buscarTimer);
+function catBuscarSiga(texto) {
+  clearTimeout(catBuscarTimer);
   const q = texto.trim();
-  if (q.length < 2) { cerrarResultados(); return; }
-  buscarTimer = setTimeout(async () => {
-    const n = ++buscarSeq;
+  if (q.length < 2) { catCerrarResultados(); return; }
+  catBuscarTimer = setTimeout(async () => {
+    const n = ++catBuscarSeq;
     try {
       const rows = await api('GET', '/api/siga/buscar?q=' + encodeURIComponent(q));
-      if (n === buscarSeq) { resultadosSiga = rows; pintarResultadosSiga(); }
-    } catch (e) { if (n === buscarSeq) toast(e.message, 'error'); }
-  }, BUSCAR_DEBOUNCE_MS);
+      if (n === catBuscarSeq) { catMostrarError(''); catResultadosSiga = rows; catPintarResultados(); }
+    } catch (e) { if (n === catBuscarSeq) catMostrarError(e.message); }
+  }, CAT_BUSCAR_DEBOUNCE_MS);
 }
 
-function agregarSeleccionados() {
-  const nuevos = seleccionadosSiga().map(c => ({ plu: c.dataset.plu, nombre: c.dataset.nombre }));
-  edicion = { ...edicion, presentaciones: [...edicion.presentaciones, ...nuevos] };
-  pintarPresentacionesEdicion();
-  pintarResultadosSiga(); // los recién agregados quedan marcados "ya agregado"
+function catAgregarSeleccionados() {
+  const nuevos = catSeleccionados().map(c => ({ plu: c.dataset.plu, nombre: c.dataset.nombre }));
+  catEdicion = { ...catEdicion, presentaciones: [...catEdicion.presentaciones, ...nuevos] };
+  catPintarPresentaciones();
+  catPintarResultados(); // los recién agregados quedan marcados "ya agregado"
+  document.getElementById('catBuscar').focus(); // el botón Agregar queda deshabilitado: el foco no se pierde
 }
 
 async function guardarCategoria(ev) {
   ev.preventDefault();
   const boton = document.getElementById('catGuardar');
-  const body = { nombre: document.getElementById('catNombre').value, plus: edicion.presentaciones.map(p => p.plu) };
+  const body = { nombre: document.getElementById('catNombre').value, plus: catEdicion.presentaciones.map(p => p.plu) };
+  let guardada = false;
+  catMostrarError('');
   boton.disabled = true;
   try {
-    if (edicion.id) await api('PUT', '/api/plan-nueva/catalogo/' + encodeURIComponent(edicion.id), body);
+    if (catEdicion.id) await api('PUT', '/api/plan-nueva/catalogo/' + encodeURIComponent(catEdicion.id), body);
     else await api('POST', '/api/plan-nueva/catalogo', body);
-    document.getElementById('dlgCategoria').close();
-    toast('Categoría guardada');
-    await cargarCatalogo();
-  } catch (e) { toast(e.message, 'error'); }
+    guardada = true;
+  } catch (e) { catMostrarError(e.message); }
   finally { boton.disabled = false; }
+  if (!guardada) return;
+  document.getElementById('dlgCategoria').close();
+  await catRecargarTrasCambio('Categoría guardada', 'Guardado');
+}
+
+// El cambio ya está hecho en el servidor: si sólo falla la recarga, no se informa como error del cambio.
+async function catRecargarTrasCambio(textoOk, textoHecho) {
+  try {
+    await cargarCatalogo();
+    toast(textoOk);
+  } catch (e) { toast(`${textoHecho}, pero no se pudo recargar: ${e.message}`, 'error'); }
 }
 
 async function confirmarBorrarCategoria(id) {
@@ -128,9 +150,8 @@ async function confirmarBorrarCategoria(id) {
   if (!c || !confirm(`¿Borrar la categoría “${c.nombre}”? Sus presentaciones dejan de planificarse.`)) return;
   try {
     await api('DELETE', '/api/plan-nueva/catalogo/' + encodeURIComponent(id));
-    toast('Categoría borrada');
-    await cargarCatalogo();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { toast(e.message, 'error'); return; }
+  await catRecargarTrasCambio('Categoría borrada', 'Borrada');
 }
 
 document.getElementById('btnNuevaCategoria').addEventListener('click', () => abrirCategoria());
@@ -140,16 +161,17 @@ document.getElementById('catalogo').addEventListener('click', e => {
   if (editar) abrirCategoria(editar.dataset.editar);
   if (borrar) confirmarBorrarCategoria(borrar.dataset.borrar);
 });
-document.getElementById('catBuscar').addEventListener('input', e => buscarSiga(e.target.value));
+document.getElementById('catBuscar').addEventListener('input', e => catBuscarSiga(e.target.value));
 document.getElementById('catBuscar').addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); }); // no envía el form
-document.getElementById('catResultados').addEventListener('change', actualizarBotonAgregar);
-document.getElementById('catAgregar').addEventListener('click', agregarSeleccionados);
+document.getElementById('catResultados').addEventListener('change', catActualizarBotonAgregar);
+document.getElementById('catAgregar').addEventListener('click', catAgregarSeleccionados);
 document.getElementById('catPresentaciones').addEventListener('click', e => {
   const b = e.target.closest('[data-quitar]');
   if (!b) return;
-  edicion = { ...edicion, presentaciones: edicion.presentaciones.filter(p => p.plu !== b.dataset.quitar) };
-  pintarPresentacionesEdicion();
-  if (resultadosSiga.length) pintarResultadosSiga();
+  catEdicion = { ...catEdicion, presentaciones: catEdicion.presentaciones.filter(p => p.plu !== b.dataset.quitar) };
+  catPintarPresentaciones();
+  if (catResultadosSiga.length) catPintarResultados();
+  document.getElementById('catBuscar').focus(); // el botón Quitar se borró del DOM
 });
 document.getElementById('catCancelar').addEventListener('click', () => document.getElementById('dlgCategoria').close());
 document.getElementById('formCategoria').addEventListener('submit', guardarCategoria);

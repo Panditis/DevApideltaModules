@@ -39,7 +39,10 @@ function toast(mensaje, tipo = 'ok') {
 const TABS = {};
 function mostrarTab(nombre) {
   const tab = document.getElementById('tab-' + nombre) ? nombre : 'planificacion';
-  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('[data-tab]').forEach(b => {
+    b.classList.toggle('on', b.dataset.tab === tab);
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+  });
   document.querySelectorAll('.tab-panel').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + tab));
   history.replaceState(null, '', '#' + tab);
   if (TABS[tab]) TABS[tab].cargar().catch(e => toast(e.message, 'error'));
