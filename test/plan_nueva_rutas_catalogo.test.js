@@ -1,6 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const { montar, pedir, cerrar, nombresDe } = require('./plan_nueva_montar');
 
 const SIGA = { 'FROM Productos WHERE': nombresDe({ 100: 'ALMENDRA 500G', 101: 'ALMENDRA 1KG', 200: 'NUEZ 250G' }) };
@@ -95,5 +97,32 @@ test('PUT y DELETE de una categoría inexistente → 404; DELETE borra', async (
     const r = await pedir(ctx.base, 'DELETE', '/api/plan-nueva/catalogo/a');
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(ctx.leer('plan_nueva_catalogo.json').categorias, []);
+  } finally { cerrar(ctx); }
+});
+
+// ── Archivo del catálogo: nunca se pisa si no se pudo leer; escritura atómica ────────────────────
+test('catálogo: archivo corrupto → 500 en GET/POST/PUT/DELETE y el archivo queda intacto', async () => {
+  const ctx = await montar({ filasSql: SIGA });
+  const archivo = path.join(ctx.dir, 'plan_nueva_catalogo.json');
+  const truncado = '{"categorias":[{"id":"a","nombre":"Almen';
+  fs.writeFileSync(archivo, truncado);
+  try {
+    const pedidos = [['GET', '/api/plan-nueva/catalogo'], ['POST', '/api/plan-nueva/catalogo', { nombre: 'N', plus: ['200'] }],
+      ['PUT', '/api/plan-nueva/catalogo/a', { nombre: 'N', plus: ['200'] }], ['DELETE', '/api/plan-nueva/catalogo/a']];
+    for (const [metodo, url, body] of pedidos) {
+      const r = await pedir(ctx.base, metodo, url, body);
+      assert.strictEqual(r.status, 500, `${metodo} ${url}`);
+      assert.match(r.data.error, /^No se pudo leer plan_nueva_catalogo\.json: /);
+    }
+    assert.strictEqual(fs.readFileSync(archivo, 'utf8'), truncado);
+  } finally { cerrar(ctx); }
+});
+
+test('catálogo: escritura normal deja JSON válido y ningún archivo temporal', async () => {
+  const ctx = await montar({ filasSql: SIGA });
+  try {
+    await pedir(ctx.base, 'POST', '/api/plan-nueva/catalogo', { nombre: 'Nueces', plus: ['200'] });
+    assert.strictEqual(ctx.leer('plan_nueva_catalogo.json').categorias.length, 1);
+    assert.deepStrictEqual(fs.readdirSync(ctx.dir).filter(f => f.includes('.tmp')), []);
   } finally { cerrar(ctx); }
 });

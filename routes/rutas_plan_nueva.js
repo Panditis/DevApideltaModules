@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const pn = require('../lib/plan_nueva');
@@ -19,8 +20,27 @@ module.exports = function crearRutasPlanNueva(deps) {
   const RESP_PATH = path.join(DATA_DIR, 'responsables.json');
   const LOTE = 1000;
 
-  const leerCategorias = () => leerJSON(CATALOGO_PATH, { categorias: [] }).categorias || [];
-  const guardarCategorias = categorias => guardarJSON(CATALOGO_PATH, { categorias });
+  // Catálogo y órdenes son datos de producción sin copia: leerJSON de server.js devuelve el default ante un
+  // JSON roto y el próximo guardado pisaría todo. Acá un archivo ausente es lista vacía, pero uno que existe
+  // y no se puede leer tira (500 con el motivo) y no se escribe nada. Se escribe a un temporal y se renombra.
+  function leerLista(archivo, clave) {
+    if (!fs.existsSync(archivo)) return [];
+    try {
+      const lista = JSON.parse(fs.readFileSync(archivo, 'utf8'))[clave];
+      if (!Array.isArray(lista)) throw new Error(`falta la lista "${clave}"`);
+      return lista;
+    } catch (err) {
+      throw new Error(`No se pudo leer ${path.basename(archivo)}: ${err.message}`);
+    }
+  }
+  function guardarLista(archivo, clave, lista) {
+    const tmp = `${archivo}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ [clave]: lista }, null, 2), 'utf8');
+    fs.renameSync(tmp, archivo);
+  }
+
+  const leerCategorias = () => leerLista(CATALOGO_PATH, 'categorias');
+  const guardarCategorias = categorias => guardarLista(CATALOGO_PATH, 'categorias', categorias);
 
   // Como apiRoute de server.js, pero respeta err.status (400/404/409 de lib/plan_nueva.js).
   const ruta = fn => async (req, res) => {
@@ -125,8 +145,8 @@ module.exports = function crearRutasPlanNueva(deps) {
   router.get('/api/plan-nueva/responsables', ruta(async () => pn.nombresResponsables(leerJSON(RESP_PATH, []))));
 
   // ── Órdenes ──
-  const leerOrdenes = () => leerJSON(ORDENES_PATH, { ordenes: [] }).ordenes || [];
-  const guardarOrdenes = ordenes => guardarJSON(ORDENES_PATH, { ordenes });
+  const leerOrdenes = () => leerLista(ORDENES_PATH, 'ordenes');
+  const guardarOrdenes = ordenes => guardarLista(ORDENES_PATH, 'ordenes', ordenes);
   const usuarioSesion = req => (req.session && req.session.user && req.session.user.usuario) || 'anonimo';
 
   router.get('/api/plan-nueva/ordenes', ruta(async () => pn.ordenesRecientes(leerOrdenes())));

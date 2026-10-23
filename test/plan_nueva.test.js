@@ -200,3 +200,9 @@ test('ordenesRecientes: la de número más alto primero, sin mutar', () => {
   assert.deepStrictEqual(pn.ordenesRecientes(lista).map(o => o.numero), [3, 2, 1]);
   assert.deepStrictEqual(lista.map(o => o.numero), [1, 3, 2]);
 });
+
+test('calcularFila: stock negativo en SIGA se muestra real pero no infla el sugerido', () => {
+  const f = pn.calcularFila({ plu: '1', nombre: 'X', unidades: 60, stock: -5 }, { diasConsumo: 30, diasCubrir: 10 });
+  assert.strictEqual(f.stockCentral, -5);
+  assert.strictEqual(f.sugerido, 20); // 2/día × 10 − max(0, −5), no 25
+});
