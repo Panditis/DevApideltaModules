@@ -505,14 +505,24 @@ function htmlDesgloseGranel(g, unidad) {
     if (may.length) return may.join('<br>');
     return d.unidadesVentana != null ? 'sin peso' : '—';
   };
-  const filas = desglose.map(d => `<tr>
+  // Grupo x unidad (unidadesVentana != null): la presentación se muestra en unidades y, abajo en gris, su
+  // equivalente en kg (el que suma al granel). Por kilo: todo en la unidad del grupo.
+  const celda = (d, unidades, kg, sufijo, dec) => {
+    if (d.unidadesVentana == null) return `${nfAR(kg, dec)} ${unidad}${sufijo}`;
+    return `${nfAR(unidades, dec)} u${sufijo}${d.pesoKg ? `<div class="text-sm" style="color:var(--muted)">${nfAR(kg, dec)} kg${sufijo}</div>` : ''}`;
+  };
+  const filas = desglose.map(d => {
+    const kgDia = d.ventaDiariaUrg || 0;
+    const uVentana = d.unidadesVentana || 0, uDia = g.ventanaDias > 0 ? uVentana / g.ventanaDias : 0;
+    return `<tr>
       <td>${escHtml(d.presentacion || d.baseNombre || '')}</td>
       <td class="num">${total > 0 ? nfAR(Math.round((d.ventasVentana || 0) / total * 100), 0) + ' %' : '—'}</td>
       ${conPeso ? `<td class="num">${celdaPeso(d)}</td>` : ''}
-      <td class="num">${nfAR(d.ventasVentana || 0, 2)} ${unidad}</td>
-      <td class="num">${nfAR(d.ventaDiariaUrg || 0, 2)} ${unidad}/día</td>
-      <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td>
-      ${conMin ? `<td class="num">${nfAR(minimoDe(d.ventaDiariaUrg || 0, g), 2)} ${unidad}</td>` : ''}</tr>`).join('');
+      <td class="num">${celda(d, uVentana, d.ventasVentana || 0, '', 2)}</td>
+      <td class="num">${celda(d, uDia, kgDia, '/día', 2)}</td>
+      <td class="num">${celda(d, uDia * 30, kgDia * 30, '/mes', 1)}</td>
+      ${conMin ? `<td class="num">${celda(d, minimoDe(uDia, g), minimoDe(kgDia, g), '', 2)}</td>` : ''}</tr>`;
+  }).join('');
   const sinPeso = g.presentacionesSinPeso || [];
   const aviso = sinPeso.length
     ? `<div class="urg-nota text-sm" style="color:var(--amb-text)">Sin peso en el nombre (se cuentan en unidades, sin pasar a kg): ${sinPeso.map(escHtml).join(', ')}</div>`
