@@ -1,11 +1,13 @@
-// ── Precios · Configuración › Costeo Fraccionado (spec 2026-10-21-precios-fraccionado-costeo-design §9.3) ──
+// ── Precios · Configuración › Costeo Fraccionado (specs 2026-10-21-precios-fraccionado-costeo-design §9.3 y
+// 2026-10-23-precios-fraccionado-peso-subrubro-design §6) ──
 // Script clásico, después de precios_config_esquema.js y precios_produccion.js. Sub-tab sólo con el switch de Configuración en
-// Fraccionado (mostrarCosteoFracc). Máquinas, escalas (factores de facilidad y de tiempo) y, por subrubro de SIGA, su máquina y
-// sus minutos base según el peso. Cada tarjeta / subrubro guarda con su botón (PUT /api/precios/config/esquema/fraccionado/…)
-// y se repinta sólo ella: lo que las otras tengan sin guardar queda. La facilidad, el tiempo y los insumos de cada presentación
-// se eligen en la tab Fraccionado (precios_fraccionado_presentaciones.js); la máquina propia de un granel, en su modal.
-// Globales: esc, numOrNull (precios_comun.js), campoU, marcarSucio, limpiarSucio (precios_config.js), pedirEsq, msgEsq,
-// esFraccCfg (precios_config_esquema.js).
+// Fraccionado (mostrarCosteoFracc). Máquinas, escalas (factores de facilidad y de tiempo), por subrubro de SIGA su máquina, sus
+// minutos base según el peso, su facilidad y su tiempo, y los insumos por peso de presentación (globales: valen para toda
+// presentación de ese peso). Cada tarjeta / subrubro guarda con su botón (PUT /api/precios/config/esquema/fraccionado/…) y se
+// repinta sólo ella: lo que las otras tengan sin guardar queda. Los insumos de un peso se guardan al aceptar su diálogo (#dlgFP).
+// La máquina propia de un granel, en su modal.
+// Globales: esc, numOrNull, fmtMoney (precios_comun.js), campoU, marcarSucio, limpiarSucio (precios_config.js), pedirEsq,
+// msgEsq, esFraccCfg (precios_config_esquema.js), htmlBuscadorSiga, conectarBuscadorSiga (precios_produccion.js).
 const API_FR = '/api/precios/config/esquema/fraccionado';
 const ESCALAS_FR = { facilidad: [['facil', 'Fácil'], ['normal', 'Normal'], ['dificil', 'Difícil']], tiempo: [['rapido', 'Rápido'], ['normal', 'Normal'], ['lento', 'Lento']] };
 const TRAMO_INICIAL_G = 250;
@@ -14,8 +16,11 @@ const PRODUCTOS_PARA_BUSCAR = 8; // desde acá la lista de productos de un subru
 // ── Puros (test/precios_config_fraccionado_ui.test.js) ──
 // Tramo nuevo al final: el doble del último (o 250 g), minutos por cargar.
 const conTramoFr = tramos => [...tramos, { hastaG: tramos.length ? tramos[tramos.length - 1].hastaG * 2 : TRAMO_INICIAL_G, minutos: null }];
-// Lo que le falta a un subrubro para costear (conf = lo guardado): máquina y/o tramos.
-const faltaSubrubroFr = conf => [...(conf && conf.maquinaId ? [] : ['máquina']), ...(conf && (conf.tramos || []).length ? [] : ['tramos'])];
+// Lo que le falta a un subrubro para costear (conf = lo guardado): máquina, tramos, facilidad, tiempo.
+const faltaSubrubroFr = conf => { const c = conf || {};
+  return [[c.maquinaId, 'máquina'], [(c.tramos || []).length, 'tramos'], [c.facilidad, 'facilidad'], [c.tiempo, 'tiempo']].filter(([v]) => !v).map(([, t]) => t); };
+// Etiqueta de un valor de escala ('facil' → 'Fácil'); sin elegir o desconocido → undefined.
+const etiquetaEscalaFr = (tipo, v) => (ESCALAS_FR[tipo].find(([k]) => k === v) || [])[1];
 function cuentaProductosFr(s) {
   const n = s.graneles.length, m = s.graneles.reduce((t, g) => t + g.presentaciones.length, 0);
   return `${n} producto${n === 1 ? '' : 's'} · ${m} presentaci${m === 1 ? 'ón' : 'ones'}`;
@@ -23,7 +28,8 @@ function cuentaProductosFr(s) {
 function resumenSubrubroFr(conf, maquinas) {
   const c = conf || {}, n = (c.tramos || []).length;
   const maq = (maquinas.find(m => m.id === c.maquinaId) || {}).nombre;
-  return `${maq || 'sin máquina'} · ${n ? `${n} tramo${n === 1 ? '' : 's'}` : 'sin tramos'}`;
+  return `${maq || 'sin máquina'} · ${n ? `${n} tramo${n === 1 ? '' : 's'}` : 'sin tramos'} · ${etiquetaEscalaFr('facilidad', c.facilidad) || 'sin facilidad'} · ${
+    etiquetaEscalaFr('tiempo', c.tiempo) || 'sin tiempo'}`;
 }
 const textoUsosFr = u => [u.subrubros ? `${u.subrubros} subrubro${u.subrubros === 1 ? '' : 's'}` : '',
   u.graneles ? `${u.graneles} granel${u.graneles === 1 ? '' : 'es'}` : ''].filter(Boolean).join(' · ') || 'sin uso';
@@ -34,11 +40,34 @@ const coincideFr = (texto, busqueda) => sinTildesFr(busqueda).split(/\s+/).filte
 // máquina quedaría "en uso" para siempre.
 const subrubrosListaFr = (siga, configurados) => [...siga, ...Object.keys(configurados || {}).filter(id => !siga.some(s => s.id === id))
   .map(id => ({ id, nombre: `Subrubro ${id} (ya no tiene productos en SIGA)`, graneles: [] }))];
+// Insumos por peso: elegidos del buscador SIGA a la lista del diálogo, cantidad 1, sin repetir.
+const conInsumosFr = (lista, elegidos) => [...lista,
+  ...elegidos.filter(e => !lista.some(x => x.plu === String(e.plu))).map(e => ({ plu: String(e.plu), nombre: e.nombre, cantidad: 1 }))];
+// El servidor exige cantidad > 0 en cada insumo: se avisa en el diálogo, no con el PUT rechazado.
+const errorInsumosFr = lista => {
+  const malo = lista.find(x => !(x.cantidad > 0));
+  return malo ? `Cantidad mayor que 0 en "${malo.nombre || malo.plu}"` : null;
+};
+// Costo de los insumos por unidad = Σ cantidad × costo (de su tab); null si alguno no tiene costo.
+const costoUnidadFr = insumos => ((insumos || []).some(i => i.costo == null) ? null
+  : Math.round((insumos || []).reduce((s, i) => s + i.cantidad * i.costo, 0) * 100) / 100);
+// Filas de la tarjeta: los pesos del universo (pesos del GET /costeo) + los configurados que ya no tienen presentaciones (0),
+// ascendente, cada uno con sus insumos (insumosPorPeso: claves string).
+const filasPesosFr = (pesos, insumosPorPeso) => {
+  const ipp = insumosPorPeso || {}, n = new Map((pesos || []).map(p => [Number(p.pesoG), p.presentaciones]));
+  return [...new Set([...n.keys(), ...Object.keys(ipp).map(Number)])].sort((a, b) => a - b)
+    .map(pesoG => ({ pesoG, presentaciones: n.get(pesoG) || 0, insumos: ipp[pesoG] || [] }));
+};
+// "250 g · 34 presentaciones"; kilos enteros en kg.
+const textoPesoFr = ({ pesoG, presentaciones: n }) => `${pesoG % 1000 ? `${pesoG} g` : `${pesoG / 1000} kg`} · ${
+  n ? `${n} presentaci${n === 1 ? 'ón' : 'ones'}` : 'sin presentaciones'}`;
 
-if (typeof module === 'object' && module.exports) module.exports = { conTramoFr, faltaSubrubroFr, cuentaProductosFr, resumenSubrubroFr, textoUsosFr, coincideFr, subrubrosListaFr };
+if (typeof module === 'object' && module.exports) module.exports = { conTramoFr, faltaSubrubroFr, cuentaProductosFr, resumenSubrubroFr, textoUsosFr, coincideFr, subrubrosListaFr,
+  conInsumosFr, errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr };
 
 // ── DOM ──
-let cfFr = null;              // GET /costeo: config (maquinas, escalas, subrubros, porGranel) + productos (subrubrosSiga, sinSubrubro)
+let cfFr = null;              // GET /costeo: config (maquinas, escalas, subrubros, porGranel, insumosPorPeso con nombre y costo)
+                              // + productos (subrubrosSiga, sinSubrubro, pesos)
 const abiertosFr = new Set(); // ponytail: subrubros desplegados, estado de UI que se muta en el lugar
 
 // La llama activarSubConfig (precios_config.js), que corre al entrar a Configuración y cada vez que cambia el switch
@@ -60,13 +89,15 @@ async function cargarCosteoFracc() {
 }
 
 // Guardar un bloque: la respuesta del PUT es la config nueva (sin los productos, que no cambian) y se mezcla en cfFr; después
-// se repinta sólo lo guardado (repintar devuelve el bloque nuevo). Las otras tarjetas y su data-sucio quedan como están.
+// se repinta sólo lo guardado (repintar devuelve el bloque nuevo). Las otras tarjetas y su data-sucio quedan como están. Su
+// insumosPorPeso viene crudo (sin nombre ni costo): queda el del GET /costeo.
 async function guardarFr(bloque, ruta, body, repintar) {
   const msg = bloque.querySelector('.esq-msg'), boton = bloque.querySelector('.fr-guardar');
   msgEsq(msg, 'Guardando…');
   boton.disabled = true; // un segundo click mientras se guarda mandaría el mismo PUT dos veces
   try {
-    cfFr = { ...cfFr, ...(await pedirEsq('PUT', `${API_FR}${ruta}`, body)) };
+    const { insumosPorPeso: _crudo, ...vista } = await pedirEsq('PUT', `${API_FR}${ruta}`, body);
+    cfFr = { ...cfFr, ...vista };
     avisoFr(cfFr.migrado);
     limpiarSucio(bloque);
     const nuevo = repintar();
@@ -93,15 +124,17 @@ function quitarFilaFr(e, card) {
 const pieFr = txt => `<div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span><button type="button" class="fr-guardar cfg-btn">${txt}</button></div>`;
 function pintarCosteoFracc(panel) {
   panel.innerHTML = `<p class="cfg-cab"><b>Costeo de Fraccionado</b> — mano de obra, máquina e insumos de cada presentación, sumados al $/kg del granel.
-      Minutos por unidad = minutos del tramo de peso del subrubro × factor del tiempo × factor de la facilidad de la presentación.
-      Facilidad, tiempo e insumos de cada presentación se eligen en la tab Fraccionado; el costo hora de mano de obra está en Costos.</p>
+      Minutos por unidad = minutos del tramo de peso del subrubro × factor del tiempo × factor de la facilidad del subrubro.
+      Facilidad y tiempo se eligen en cada subrubro, los insumos por peso de la presentación; el costo hora de mano de obra está en Costos.</p>
     <div class="grid gap-4 xl:grid-cols-2">${htmlMaquinasFr()}${htmlEscalasFr()}</div>
     <div class="cfg-card min-w-0 mt-4"><h3 class="cfg-h">Subrubros</h3>
-      <p class="cfg-ayuda">Por subrubro de SIGA (rubro Pesables Deposito): ① la máquina con la que se fraccionan sus productos (un granel puede tener otra desde su modal) y ② los minutos base por unidad según el peso de la presentación (el primer tramo que la cubre; más pesada que el último → el último). Cada subrubro se guarda por separado.</p>
-      <div id="frSubrubros">${htmlSubrubrosFr()}</div></div>`;
+      <p class="cfg-ayuda">Por subrubro de SIGA (rubro Pesables Deposito): ① la máquina con la que se fraccionan sus productos (un granel puede tener otra desde su modal), ② los minutos base por unidad según el peso de la presentación (el primer tramo que la cubre; más pesada que el último → el último), ③ la facilidad y ④ el tiempo de sus presentaciones (sin elegir → × 1). Cada subrubro se guarda por separado.</p>
+      <div id="frSubrubros">${htmlSubrubrosFr()}</div></div>
+    ${htmlPesosFr()}`;
   conectarMaquinasFr(panel.querySelector('#frMaquinas'));
   conectarEscalasFr(panel.querySelector('#frEscalas'));
   panel.querySelectorAll('#frSubrubros details[data-sub]').forEach(conectarSubrubroFr);
+  conectarPesosFr(panel.querySelector('#frPesos'));
 }
 
 // ── Máquinas ──
@@ -161,7 +194,7 @@ function actualizarSelectsMaquinaFr() {
 
 // ── Escalas ──
 const htmlEscalasFr = () => `<div class="cfg-card min-w-0" data-guardable data-nombre="Escalas" id="frEscalas">
-    <h3 class="cfg-h">Escalas</h3><p class="cfg-ayuda">Factores que multiplican los minutos base del tramo: el tiempo y la facilidad que se eligen para cada presentación en la tab Fraccionado. Sin elegir → × 1.</p>
+    <h3 class="cfg-h">Escalas</h3><p class="cfg-ayuda">Factores que multiplican los minutos base del tramo: el tiempo y la facilidad se eligen en cada subrubro. Sin elegir → × 1.</p>
     ${Object.entries(ESCALAS_FR).map(([tipo, ops]) => `<div class="mt-3"><div class="lbl">${tipo === 'facilidad' ? 'Facilidad' : 'Tiempo'}</div>
       <div class="flex flex-wrap gap-3 mt-1">${ops.map(([k, t]) => `<label class="text-sm">${t} ${campoU(`<input type="number" min="0" step="any" data-escala="${tipo}" data-k="${k}" value="${esc(cfFr.escalas[tipo][k])}" aria-label="Factor ${t} (${tipo})">`, '×', { w: 'w-24' })}</label>`).join('')}</div></div>`).join('')}
     ${pieFr('Guardar escalas')}</div>`;
@@ -199,7 +232,7 @@ function htmlSubrubroFr(s) {
   const guardado = cfFr.subrubros[s.id];
   const conf = guardado || { maquinaId: null, tramos: [] };
   const falta = faltaSubrubroFr(guardado);
-  const estado = falta.length ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn">⚠ falta ${esc(falta.join(' y '))}</span>`
+  const estado = falta.length ? `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn">⚠ falta ${esc(new Intl.ListFormat('es').format(falta))}</span>`
     : '<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ok/15 text-ok">✔ completo</span>';
   return `<details class="border border-borde rounded-lg mt-2" id="${idDomFr(s.id)}" data-sub="${esc(s.id)}" data-guardable data-nombre="Subrubro ${esc(s.nombre)}"${abiertosFr.has(s.id) ? ' open' : ''}>
     <summary class="cursor-pointer px-3 py-2 text-sm flex flex-wrap items-center gap-2"><b>${esc(s.nombre)}</b>
@@ -213,8 +246,12 @@ function htmlSubrubroFr(s) {
       <table class="cfg-tabla mt-1"><thead><tr><th class="text-left">Hasta</th><th class="text-left">Minutos</th><th></th></tr></thead>
         <tbody>${conf.tramos.map(htmlFilaTramoFr).join('')}</tbody></table>
       <button type="button" class="fr-agregar cfg-btn2 mt-2" data-edita>+ Agregar tramo</button>
+      <div class="flex flex-wrap gap-6">${['facilidad', 'tiempo'].map((tipo, i) => `<div><div class="lbl mt-3">${i ? '④ Tiempo' : '③ Facilidad'}</div>
+        <select class="fr-sub-${tipo} num-in text-left mt-1" aria-label="${i ? 'Tiempo' : 'Facilidad'} del subrubro ${esc(s.nombre)}">${opcionesEscalaFr(tipo, conf[tipo])}</select></div>`).join('')}</div>
       ${pieFr(`Guardar ${esc(s.nombre)}`)}</div></details>`;
 }
+const opcionesEscalaFr = (tipo, actual) => `<option value="">—</option>${ESCALAS_FR[tipo]
+  .map(([k, t]) => `<option value="${k}"${k === actual ? ' selected' : ''}>${t}</option>`).join('')}`;
 function htmlSubrubrosFr() {
   const lista = listaSubrubrosFr();
   const filas = lista.length ? lista.map(htmlSubrubroFr).join('')
@@ -234,7 +271,8 @@ function conectarSubrubroFr(det) {
   };
   det.querySelector('tbody').onclick = e => quitarFilaFr(e, det);
   det.querySelector('.fr-guardar').onclick = () => guardarFr(det, `/subrubros/${encodeURIComponent(id)}`,
-    { maquinaId: det.querySelector('.fr-sub-maquina').value || null, tramos: leerTramosFr(det) },
+    { maquinaId: det.querySelector('.fr-sub-maquina').value || null, tramos: leerTramosFr(det),
+      facilidad: det.querySelector('.fr-sub-facilidad').value || null, tiempo: det.querySelector('.fr-sub-tiempo').value || null },
     () => {
       const s = listaSubrubrosFr().find(x => x.id === id);
       if (s) return repintarFr(det.id, () => htmlSubrubroFr(s), conectarSubrubroFr);
@@ -246,4 +284,78 @@ function filtrarProductosFr(det, texto) {
   const filas = [...det.querySelectorAll('li[data-q]')];
   filas.forEach(li => li.classList.toggle('hidden', !coincideFr(li.dataset.q, texto)));
   det.querySelector('.fr-nada').classList.toggle('hidden', !filas.length || filas.some(li => !li.classList.contains('hidden')));
+}
+
+// ── Insumos por peso ──
+// Una fila por peso: "250 g · 34 presentaciones", sus insumos y el costo por unidad. Editar abre el diálogo (#dlgFP) y al
+// aceptar guarda ese peso (PUT /insumos-peso/:pesoG). La respuesta del PUT es la vista sin nombres ni costos: se recargan
+// pesos e insumosPorPeso del GET /costeo (los costos de los insumos nuevos salen de su tab) y se repinta sólo esta tarjeta.
+const chipsInsumosFr = insumos => (insumos.length
+  ? insumos.map(i => `<span class="fp-chip">${esc(i.nombre || `PLU ${i.plu}`)} × ${esc(i.cantidad)}</span>`).join(' ') : '<span class="text-gris">sin insumos</span>');
+function htmlFilaPesoFr(f) {
+  const costo = costoUnidadFr(f.insumos), txt = textoPesoFr(f);
+  return `<tr data-peso="${f.pesoG}"><td class="py-1 pr-2 whitespace-nowrap${f.presentaciones ? '' : ' text-gris'}">${esc(txt)}</td>
+    <td class="py-1 pr-2 text-xs">${chipsInsumosFr(f.insumos)}</td>
+    <td class="py-1 pr-2 num whitespace-nowrap">${!f.insumos.length ? '<span class="text-gris">—</span>' : costo == null ? '<span class="text-crit">falta costo</span>' : `$ ${fmtMoney(costo)}`}</td>
+    <td class="py-1"><button type="button" class="fr-peso-editar cfg-btn2" data-peso="${f.pesoG}" aria-label="Editar los insumos de ${esc(txt)}">Editar</button></td></tr>`;
+}
+function htmlPesosFr() {
+  const filas = filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso);
+  return `<div class="cfg-card min-w-0 mt-4" id="frPesos"><h3 class="cfg-h">Insumos por peso</h3>
+    <p class="cfg-ayuda">Insumos por unidad (bolsa, etiqueta…) según el peso de la presentación: valen para todas las presentaciones de Fraccionado de ese peso. El costo de cada insumo es el de su tab; costo por unidad = Σ cantidad × costo.</p>
+    ${filas.length ? `<table class="cfg-tabla w-full mt-2"><thead><tr><th class="text-left">Peso</th><th class="text-left">Insumos</th><th>Costo por unidad</th><th></th></tr></thead>
+      <tbody>${filas.map(htmlFilaPesoFr).join('')}</tbody></table>` : '<p class="text-sm text-gris mt-2">Ninguna presentación tiene peso en el nombre.</p>'}
+    <div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span></div></div>`;
+}
+function conectarPesosFr(card) {
+  card.onclick = e => { const b = e.target.closest('.fr-peso-editar'); if (b) editarPesoFr(card, Number(b.dataset.peso)); };
+}
+async function editarPesoFr(card, pesoG) {
+  const fila = filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso).find(f => f.pesoG === pesoG);
+  const lista = await editarInsumosFr(fila.insumos, `Insumos de las presentaciones de ${textoPesoFr(fila)}`);
+  if (!lista) return;
+  const msg = card.querySelector('.esq-msg');
+  msgEsq(msg, 'Guardando…');
+  try {
+    await pedirEsq('PUT', `${API_FR}/insumos-peso/${pesoG}`, { insumos: lista.map(({ plu, cantidad }) => ({ plu, cantidad })) });
+  } catch (e) { msgEsq(msg, e.message, 'text-crit'); return; }
+  try {
+    const { pesos, insumosPorPeso } = await pedirEsq('GET', `${API_FR}/costeo`);
+    cfFr = { ...cfFr, pesos, insumosPorPeso };
+  } catch (e) { msgEsq(msg, `Guardado, pero no se pudo recargar: ${e.message}`, 'text-warn'); return; }
+  const nuevo = repintarFr('frPesos', htmlPesosFr, conectarPesosFr);
+  msgEsq(nuevo && nuevo.querySelector('.esq-msg'), 'Guardado', 'text-ok');
+}
+
+// Diálogo de insumos por unidad (#dlgFP en precios.html) → Promise de la lista elegida o null (Cancelar / Esc).
+function editarInsumosFr(insumos, titulo) {
+  const d = document.getElementById('dlgFP');
+  const filas = d.querySelector('.fp-dlg-filas'), msg = d.querySelector('.fp-dlg-msg');
+  let lista = insumos.map(x => ({ ...x }));
+  const pintar = () => {
+    filas.innerHTML = lista.length ? lista.map(x => `<tr data-plu="${esc(x.plu)}"><td class="py-1 pr-2">${esc(x.nombre || x.plu)} <span class="text-gris text-xs">${esc(x.plu)}</span></td>
+      <td class="py-1 pr-2"><input type="number" min="0" step="any" class="num-in w-20" value="${esc(x.cantidad ?? '')}" aria-label="Cantidad por unidad de ${esc(x.nombre || x.plu)}"></td>
+      <td class="py-1"><button type="button" class="fp-dlg-quitar text-gris hover:text-crit" aria-label="Quitar ${esc(x.nombre || x.plu)}">✕</button></td></tr>`).join('')
+      : '<tr><td class="text-gris py-1">Sin insumos.</td></tr>';
+  };
+  const leer = () => { lista = lista.map(x => ({ ...x, cantidad: numOrNull(filas.querySelector(`tr[data-plu="${CSS.escape(x.plu)}"] input`).value) })); };
+  d.querySelector('.fp-dlg-titulo').textContent = titulo;
+  msg.textContent = '';
+  // El buscador se pinta de nuevo en cada apertura: conectarBuscadorSiga engancha con addEventListener (no se duplica así).
+  d.querySelector('.fp-dlg-bus').innerHTML = htmlBuscadorSiga('fpDlgBus', 'Agregar insumos (nombre o PLU)');
+  conectarBuscadorSiga('fpDlgBus', elegidos => { leer(); lista = conInsumosFr(lista, elegidos); pintar(); },
+    { multiple: true, deshabilitado: plu => (lista.some(x => x.plu === String(plu)) ? 'ya está' : null) });
+  filas.onclick = e => { const b = e.target.closest('.fp-dlg-quitar'); if (b) { leer(); lista = lista.filter(x => x.plu !== b.closest('tr').dataset.plu); pintar(); } };
+  d.querySelector('.fp-dlg-vaciar').onclick = () => { lista = []; pintar(); };
+  d.querySelector('.fp-dlg-ok').onclick = () => {
+    leer();
+    const falla = errorInsumosFr(lista);
+    if (falla) { msg.textContent = falla; return; }
+    d.close('ok');
+  };
+  d.querySelector('.fp-dlg-cancelar').onclick = () => d.close('');
+  pintar();
+  d.returnValue = '';
+  d.showModal();
+  return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok' ? lista : null), { once: true }));
 }
