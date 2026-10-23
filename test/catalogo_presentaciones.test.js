@@ -61,7 +61,7 @@ function plusDe(sql) {
   return m ? m[1].split(',').map(s => s.replace(/'/g, '').trim()) : [];
 }
 
-function montarPlan() {
+function montarPlan({ esGranel = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-pres-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d));
@@ -86,7 +86,7 @@ function montarPlan() {
     GRUPOS_CFG_PATH: path.join(dir, 'grupos_config.json'),
     sqlStockPorPlu: l => `STOCK_CENTRAL IdProducto IN (${l.join(',')})`,
     sqlStockGranel: () => 'GRANEL', sqlBOMGranel: (_r, extra) => `BOM${extra}`,
-    buildCatalogoMaps, cfgActivo: () => true, cfgGranelPlu: () => '', cfgGranelPlus: () => [], cfgEsGranel: () => false,
+    buildCatalogoMaps, cfgActivo: () => true, cfgGranelPlu: () => '', cfgGranelPlus: () => [], cfgEsGranel: () => esGranel,
   }));
   return new Promise(ok => {
     const server = app.listen(0, () => ok({ server, dir, sqls, url: `http://127.0.0.1:${server.address().port}` }));
@@ -118,6 +118,25 @@ test('sugerencias por grupo: las ventas mayoristas suman a su presentación y su
     assert.strictEqual(p500.baseNombre, 'Mix 500G');
     assert.strictEqual(pres['1Kg'].ventasVentana, 6);
     assert.strictEqual(pres['1Kg'].stockActual, 3);
+  } finally { cerrar(ctx); }
+});
+
+test('sugerencias por grupo: un grupo granel lista el consumo de cada presentación en desglose', async () => {
+  const ctx = await montarPlan({ esGranel: true });
+  try {
+    const r = await fetch(`${ctx.url}/api/plan/sugerencias-grupos`);
+    const grupos = await r.json();
+    assert.strictEqual(r.status, 200, JSON.stringify(grupos));
+    const g = grupos[0];
+    assert.strictEqual(g.esGranel, true);
+    assert.deepStrictEqual(g.presentaciones, []);              // el granel se sigue planificando como grupo
+    assert.deepStrictEqual(g.desglose.map(d => d.presentacion), ['1Kg', '500G']);
+    const d500 = g.desglose.find(d => d.presentacion === '500G');
+    assert.strictEqual(d500.ventasVentana, 30 + 15 + 60);
+    assert.strictEqual(d500.ventaDiariaUrg, (30 + 15 + 60) / 30);
+    assert.strictEqual(d500.facturacionMensual, 30 + 15 + 60);
+    // Las presentaciones suman lo mismo que el grupo.
+    assert.strictEqual(g.desglose.reduce((s, d) => s + d.ventasVentana, 0), g.ventasVentana);
   } finally { cerrar(ctx); }
 });
 

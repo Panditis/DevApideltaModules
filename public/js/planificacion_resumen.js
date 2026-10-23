@@ -427,7 +427,24 @@ function htmlCalculoGrupo(g) {
   return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
     <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th><th class="num">Cobertura</th><th>Nivel</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
+    ${g.esGranel ? htmlDesgloseGranel(g, unidad) : ''}
     <div class="urg-nota text-sm">${regla} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. ${escHtml(textoExclusiones(g, true))}.</div>`;
+}
+
+// Grupo granel: consumo de cada presentación (g.desglose), que suma la venta del grupo. Solo informativo.
+function htmlDesgloseGranel(g, unidad) {
+  const desglose = g.desglose || [];
+  if (!desglose.length) return '';
+  const total = desglose.reduce((t, d) => t + (d.ventasVentana || 0), 0);
+  const filas = desglose.map(d => `<tr>
+      <td>${escHtml(d.presentacion || d.baseNombre || '')}</td>
+      <td class="num">${total > 0 ? nfAR(Math.round((d.ventasVentana || 0) / total * 100), 0) + ' %' : '—'}</td>
+      <td class="num">${nfAR(d.ventasVentana || 0, 2)} ${unidad}</td>
+      <td class="num">${nfAR(d.ventaDiariaUrg || 0, 2)} ${unidad}/día</td>
+      <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td></tr>`).join('');
+  return `<div class="urg-nota"><strong>Consumo por presentación</strong></div>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th><th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th></tr></thead>
+    <tbody>${filas}</tbody></table>`;
 }
 
 // pi = índice de la presentación dentro del grupo, o -1 para la fila del grupo.

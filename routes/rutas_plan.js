@@ -435,7 +435,10 @@ async function calcularSugerenciasCatalogo(params) {
       grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
         plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
-        facturacionMensual: facturMensualG, presentaciones: [] });
+        facturacionMensual: facturMensualG, presentaciones: [],
+        // Consumo por presentación solo para mostrar (modal de urgencia): el granel se planifica como grupo.
+        desglose: presFinal.map(p => ({ presentacion: p.presentacion, baseNombre: p.baseNombre, ventasVentana: p.ventasVentana,
+          ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual })) });
       continue;
     }
     const totalSugerido = presFinal.reduce((s, p) => s + p.cantSugerida, 0);
