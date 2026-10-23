@@ -436,15 +436,22 @@ function htmlDesgloseGranel(g, unidad) {
   const desglose = g.desglose || [];
   if (!desglose.length) return '';
   const total = desglose.reduce((t, d) => t + (d.ventasVentana || 0), 0);
+  // Grupo "x unidad": las ventas vienen en unidades y el servidor ya las pasó a kg con el peso de la presentación.
+  const conPeso = desglose.some(d => d.pesoKg);
   const filas = desglose.map(d => `<tr>
       <td>${escHtml(d.presentacion || d.baseNombre || '')}</td>
       <td class="num">${total > 0 ? nfAR(Math.round((d.ventasVentana || 0) / total * 100), 0) + ' %' : '—'}</td>
+      ${conPeso ? `<td class="num">${d.pesoKg ? `${nfAR(d.unidadesVentana || 0, 0)} u × ${nfAR(d.pesoKg, 3)} kg` : 'sin peso'}</td>` : ''}
       <td class="num">${nfAR(d.ventasVentana || 0, 2)} ${unidad}</td>
       <td class="num">${nfAR(d.ventaDiariaUrg || 0, 2)} ${unidad}/día</td>
       <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td></tr>`).join('');
+  const sinPeso = g.presentacionesSinPeso || [];
+  const aviso = sinPeso.length
+    ? `<div class="urg-nota text-sm" style="color:var(--amb-text)">Sin peso en el nombre (se cuentan en unidades, sin pasar a kg): ${sinPeso.map(escHtml).join(', ')}</div>`
+    : '';
   return `<div class="urg-nota"><strong>Consumo por presentación</strong></div>
-    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th><th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th></tr></thead>
-    <tbody>${filas}</tbody></table>`;
+    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th>${conPeso ? '<th class="num">Unidades × peso</th>' : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th></tr></thead>
+    <tbody>${filas}</tbody></table>${aviso}`;
 }
 
 // pi = índice de la presentación dentro del grupo, o -1 para la fila del grupo.

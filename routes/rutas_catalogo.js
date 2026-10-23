@@ -29,7 +29,7 @@ module.exports = function crearRutasCatalogo(deps) {
     leerJSON, guardarJSON,
     CATALOGO_PATH, GRUPOS_CFG_PATH,
     cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgMpManual,
-    cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
+    cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel, cfgVentaPorUnidad,
   } = deps;
   const router = express.Router();
 
@@ -61,7 +61,8 @@ router.get('/api/catalogo/grupos', (_req, res) => {
     esGranel:        cfgEsGranel(gruposCfg, g.productoRef, cCfg.gruposGranel),
     granelDirecto:   cfgGranelOverride(gruposCfg, g.productoRef),
     esMiel:          cfgEsMiel(gruposCfg, g.productoRef),
-    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef)
+    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef),
+    ventaPorUnidad:  cfgVentaPorUnidad(gruposCfg, g.productoRef)
   }));
   res.json(grupos);
 });
@@ -83,8 +84,9 @@ router.post('/api/catalogo/grupos-config', (req, res) => {
       const gd = (typeof v.granelDirecto === 'boolean') ? v.granelDirecto : undefined;
       const em = (typeof v.esMiel === 'boolean') ? v.esMiel : undefined;
       const rg = (v.reqGranel === true) ? true : undefined;
-      if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined) { normalizado[k] = a; }
-      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{})}; }
+      const vu = (v.ventaPorUnidad === true) ? true : undefined;
+      if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined && vu === undefined) { normalizado[k] = a; }
+      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{})}; }
     } else { normalizado[k] = v; }
   }
   guardarJSON(GRUPOS_CFG_PATH, normalizado);

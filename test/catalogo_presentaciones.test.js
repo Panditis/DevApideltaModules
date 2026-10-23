@@ -52,22 +52,38 @@ const CONFIG = {
 };
 // Por tipo de query, valor por PLU. Un PLU que no corresponde a la query (ej. un mayorista en la de
 // minoristas) devolvería 999 y rompería las cuentas.
-const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999 };
-const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999 };
+const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999, 301: 100, 303: 40, 305: 7, 302: 999, 304: 999 };
+const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999, 302: 20, 304: 10, 301: 999, 303: 999, 305: 999 };
 const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000 };
+// Solo para el grupo de pepas (los otros tests no los miran).
+const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999 };
+const PEND = { 301: 5, 302: 10, 303: 2 };
+
+// Grupo granel "x unidad" (ej. pepas: la masa es por kilo, las presentaciones se venden por unidad).
+//   · 'Pepas Batata': la presentación no dice el peso → sale del nombre del primer minorista (180G);
+//     el Pack (mayorista) usa ese mismo peso, 1 a 1.
+//   · '150G': peso en la presentación; su mayorista ≤200g es el caso de la regla vieja (×peso).
+//   · 'Surtidas': sin peso en ningún lado → no se convierte y se avisa.
+const PEPAS = [
+  { plu: 301, producto: 'Pepas Batata 180G', baseNombre: 'Pepas Batata 180G', presentacion: 'Pepas Batata', esMayorista: false, refId: 2, productoRef: 'Pepas' },
+  { plu: 302, producto: 'Pepas Batata Pack', baseNombre: 'Pepas Batata Pack', presentacion: 'Pepas Batata', esMayorista: true, refId: 2, productoRef: 'Pepas' },
+  { plu: 303, producto: 'Pepas Membrillo 150G', baseNombre: 'Pepas Membrillo 150G', presentacion: '150G', esMayorista: false, refId: 2, productoRef: 'Pepas' },
+  { plu: 304, producto: 'Pepas Membrillo 150G Bulto', baseNombre: 'Pepas Membrillo 150G Bulto', presentacion: '150G', esMayorista: true, refId: 2, productoRef: 'Pepas' },
+  { plu: 305, producto: 'Pepas Surtidas', baseNombre: 'Pepas Surtidas', presentacion: 'Surtidas', esMayorista: false, refId: 2, productoRef: 'Pepas' },
+];
 
 function plusDe(sql) {
   const m = /IdProducto IN \(([^)]*)\)/.exec(sql);
   return m ? m[1].split(',').map(s => s.replace(/'/g, '').trim()) : [];
 }
 
-function montarPlan({ esGranel = false } = {}) {
+function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATALOGO } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-pres-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d));
   const CATALOGO_PATH = path.join(dir, 'catalogo.json');
   const CONFIG_PATH = path.join(dir, 'config.json');
-  guardarJSON(CATALOGO_PATH, CATALOGO);
+  guardarJSON(CATALOGO_PATH, catalogo);
   guardarJSON(CONFIG_PATH, CONFIG);
   const sqls = [];
   const query = async sql => {
@@ -77,6 +93,8 @@ function montarPlan({ esGranel = false } = {}) {
     if (/UnidVendidas/.test(sql)) return fila(may ? VENTAS_MAY : VENTAS_MIN, 'UnidVendidas');
     if (/TotalFacturado/.test(sql)) return fila(may ? VENTAS_MAY : VENTAS_MIN, 'TotalFacturado');
     if (/^STOCK_CENTRAL/.test(sql)) return fila(STOCK, 'StockActual');
+    if (/SoyLaCentral=0/.test(sql)) return fila(STOCK_SUC, 'StockActual');
+    if (/UnidPendientes/.test(sql)) return fila(PEND, 'UnidPendientes');
     return [];
   };
   const app = express();
@@ -87,6 +105,7 @@ function montarPlan({ esGranel = false } = {}) {
     sqlStockPorPlu: l => `STOCK_CENTRAL IdProducto IN (${l.join(',')})`,
     sqlStockGranel: () => 'GRANEL', sqlBOMGranel: (_r, extra) => `BOM${extra}`,
     buildCatalogoMaps, cfgActivo: () => true, cfgGranelPlu: () => '', cfgGranelPlus: () => [], cfgEsGranel: () => esGranel,
+    cfgVentaPorUnidad: () => ventaPorUnidad,
   }));
   return new Promise(ok => {
     const server = app.listen(0, () => ok({ server, dir, sqls, url: `http://127.0.0.1:${server.address().port}` }));
@@ -137,7 +156,64 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     assert.strictEqual(d500.facturacionMensual, 30 + 15 + 60);
     // Las presentaciones suman lo mismo que el grupo.
     assert.strictEqual(g.desglose.reduce((s, d) => s + d.ventasVentana, 0), g.ventasVentana);
+    // Por kilo (sin "x unidad"): sin peso ni unidades en el desglose.
+    assert.strictEqual(d500.pesoKg, null);
+    assert.strictEqual(d500.unidadesVentana, null);
+    assert.strictEqual(g.presentacionesSinPeso, undefined);
   } finally { cerrar(ctx); }
+});
+
+async function grupoPepas(opts) {
+  const ctx = await montarPlan({ catalogo: PEPAS, ...opts });
+  try {
+    const r = await fetch(`${ctx.url}/api/plan/sugerencias-grupos`);
+    const grupos = await r.json();
+    assert.strictEqual(r.status, 200, JSON.stringify(grupos));
+    const g = grupos[0];
+    return { g, d: Object.fromEntries((g.esGranel ? g.desglose : g.presentaciones).map(x => [x.presentacion, x])) };
+  } finally { cerrar(ctx); }
+}
+
+test('x unidad: un grupo granel pasa ventas, pendientes y stock a kg con el peso de cada presentación', async () => {
+  const { g, d } = await grupoPepas({ esGranel: true, ventaPorUnidad: true });
+  // Batata: peso del nombre del primer minorista (180G); el Pack usa el mismo peso.
+  assert.strictEqual(d['Pepas Batata'].pesoKg, 0.18);
+  assert.strictEqual(d['Pepas Batata'].unidadesVentana, 100 + 20);
+  assert.strictEqual(d['Pepas Batata'].ventasVentana, 21.6);           // 120 u × 0.18
+  // 150G: el mayorista ≤200g se convierte una sola vez (no también por la regla vieja).
+  assert.strictEqual(d['150G'].pesoKg, 0.15);
+  assert.strictEqual(d['150G'].unidadesVentana, 40 + 10);
+  assert.strictEqual(d['150G'].ventasVentana, 7.5);                    // 50 u × 0.15
+  // Sin peso: no se convierte y se avisa.
+  assert.strictEqual(d.Surtidas.pesoKg, null);
+  assert.strictEqual(d.Surtidas.unidadesVentana, 7);
+  assert.strictEqual(d.Surtidas.ventasVentana, 7);
+  assert.deepStrictEqual(g.presentacionesSinPeso, ['Surtidas']);
+  assert.strictEqual(g.ventasVentana, 36.1);
+  assert.strictEqual(g.ventaDiariaUrg, Math.round(36.1 / 30 * 10000) / 10000);
+  // Stock en sucursales (el del mayorista no suma) y pendientes (también los del mayorista), en kg.
+  assert.strictEqual(g.stockSucGrupo, 8.8);                            // 10×0.18 + 20×0.15 + 4
+  assert.strictEqual(g.totalPend, 3);                                  // (5+10)×0.18 + 2×0.15
+  assert.strictEqual(d['150G'].facturacionMensual, 40 + 10);           // facturación ($) no se toca
+});
+
+test('x unidad: sin el check los números del grupo granel quedan como antes', async () => {
+  const { g, d } = await grupoPepas({ esGranel: true, ventaPorUnidad: false });
+  assert.strictEqual(d['Pepas Batata'].ventasVentana, 120);
+  assert.strictEqual(d['150G'].ventasVentana, 41.5);                   // regla vieja: mayorista ≤200g × peso
+  assert.strictEqual(d.Surtidas.ventasVentana, 7);
+  assert.strictEqual(d['150G'].pesoKg, null);
+  assert.strictEqual(d['150G'].unidadesVentana, null);
+  assert.strictEqual(g.presentacionesSinPeso, undefined);
+  assert.strictEqual(g.stockSucGrupo, 34);
+  assert.strictEqual(g.totalPend, 17);
+});
+
+test('x unidad: en un grupo que no es granel el check no cambia nada', async () => {
+  const { d } = await grupoPepas({ esGranel: false, ventaPorUnidad: true });
+  assert.strictEqual(d['Pepas Batata'].ventasVentana, 120);
+  assert.strictEqual(d['150G'].ventasVentana, 41.5);
+  assert.strictEqual(d['150G'].stockSucursales, 20);
 });
 
 test('sugerencias por grupo: la query mayorista mira Casa Central a clientes MAYORISTA, sin anulados ni 6/8/11', async () => {
@@ -176,7 +252,7 @@ function montarCatalogo() {
   app.use(require('../routes/rutas_catalogo')({ leerJSON, guardarJSON, CATALOGO_PATH, GRUPOS_CFG_PATH: path.join(dir, 'g.json') }));
   return new Promise(ok => {
     const server = app.listen(0, () => ok({
-      server, dir, catalogo: () => leerJSON(CATALOGO_PATH, []),
+      server, dir, catalogo: () => leerJSON(CATALOGO_PATH, []), grupos: () => leerJSON(path.join(dir, 'g.json'), null),
       put: async (ref, body) => {
         const r = await fetch(`http://127.0.0.1:${server.address().port}/api/catalogo/grupo/${encodeURIComponent(ref)}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -186,6 +262,22 @@ function montarCatalogo() {
     }));
   });
 }
+
+test('POST grupos-config: conserva ventaPorUnidad y compacta el grupo que no lo tiene', async () => {
+  const ctx = await montarCatalogo();
+  try {
+    const r = await fetch(`http://127.0.0.1:${ctx.server.address().port}/api/catalogo/grupos-config`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Pepas: { activo: true, granelDirecto: true, ventaPorUnidad: true }, Mix: { activo: true, ventaPorUnidad: false }, Solo: { activo: true, ventaPorUnidad: true } }),
+    });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(ctx.grupos(), {
+      Pepas: { activo: true, granelDirecto: true, ventaPorUnidad: true },
+      Mix: true,
+      Solo: { activo: true, ventaPorUnidad: true },
+    });
+  } finally { cerrar(ctx); }
+});
 
 test('PUT grupo: rechaza PLU inválido, presentación vacía o PLU repetido sin tocar el catálogo', async () => {
   const ctx = await montarCatalogo();

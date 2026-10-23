@@ -722,6 +722,8 @@ function cfgMpManual(cfg, ref)  { const v=cfg[ref]; return (v&&typeof v==='objec
 function cfgEsMiel(cfg, ref)    { const v=cfg[ref]; return (v&&typeof v==='object'&&typeof v.esMiel==='boolean')?v.esMiel:null; }
 // El grupo se hace en presentaciones pero antes hay que fabricar el granel (ej. pepas → masa).
 function cfgReqGranel(cfg, ref) { const v=cfg[ref]; return !!(v&&typeof v==='object'&&v.reqGranel===true); }
+// Grupo granel cuyas presentaciones se venden por unidad (ej. pepas): ventas y stock se pasan a kg.
+function cfgVentaPorUnidad(cfg, ref) { const v=cfg[ref]; return !!(v&&typeof v==='object'&&v.ventaPorUnidad===true); }
 // Serie mensual de consumo (24 meses) para la predicción de compra. Se recalcula
 // bajo demanda: es una consulta pesada y el dato cambia una vez por día como mucho.
 const CONSUMO_MENSUAL_PATH = path.join(DATA_DIR, 'consumo_mensual.json');
@@ -2650,7 +2652,7 @@ app.use(require('./routes/rutas_reservas')({
 app.use(require('./routes/rutas_catalogo')({
   leerJSON, guardarJSON, CATALOGO_PATH, GRUPOS_CFG_PATH,
   cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgMpManual,
-  cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
+  cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel, cfgVentaPorUnidad,
 }));
 
 
@@ -2776,7 +2778,7 @@ app.use(require('./routes/rutas_plan')({
   leerOrdenes, guardarOrdenes,
   tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
   sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
-  buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel,
+  buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel, cfgVentaPorUnidad,
   sucursalesSiga, sucursalPublica,
 }));
 
