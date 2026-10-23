@@ -496,6 +496,7 @@ async function calcularSugerenciasCatalogo(params) {
   grupos.forEach((g, i) => {
     g.claseABC = clases[i];
     g.ventanaDias = ventana;                                  // para explicar el cálculo en el Resumen
+    g.diasObjetivo = diasObj;                                 // días a cubrir: stock mínimo del modal de urgencia
     g.umbralUrgencia = umbralDeClase(g.claseABC, c.urgenciaDias);
     g.sucursalesExcluidas = SUCURSALES_NO_REALES;
     g.excluyeCentral = true; // las ventas de Casa Central no cuentan en este análisis (ver sqlExcluirCentral)

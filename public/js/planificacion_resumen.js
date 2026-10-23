@@ -379,6 +379,15 @@ function lineaUmbral(g) {
   return `urgente &lt; ${nfAR(u)} días · pronto &lt; ${nfAR(2 * u)} días`;
 }
 
+// Stock mínimo para cumplir las ventas estimadas: venta diaria × días a cubrir. null si el servidor no manda los días.
+const minimoDe = (diaria, g) => (Number.isFinite(g.diasObjetivo) ? diaria * g.diasObjetivo : null);
+function textoMinimo(d, g, unidad) {
+  const min = minimoDe(d.diaria, g);
+  const falta = min - d.total;
+  return `${nfAR(d.diaria, 2)} × ${nfAR(g.diasObjetivo, 0)} días = <strong>${nfAR(min, 2)} ${unidad}</strong> · `
+    + (falta > 0 ? `tiene ${nfAR(d.total, 2)} → <strong>faltan ${nfAR(falta, 2)} ${unidad}</strong>` : `tiene ${nfAR(d.total, 2)} → alcanza`);
+}
+
 function htmlCalculoPresentacion(g, p) {
   const d = datosUrgencia(g, p), unidad = g.esGranel ? 'kg' : 'u';
   const excluye = textoExclusiones(g);
@@ -389,6 +398,7 @@ function htmlCalculoPresentacion(g, p) {
     fila('Stock', `central ${nfAR(d.central, 2)} + sucursales ${nfAR(d.suc, 2)} = <strong>${nfAR(d.total, 2)} ${unidad}</strong>`),
   ];
   if (d.cobertura !== null) filas.push(fila('Cobertura', `${nfAR(d.total, 2)} ÷ ${nfAR(d.diaria, 2)} = <strong>${fmtDias(d.cobertura)} días</strong>`));
+  if (minimoDe(d.diaria, g) !== null) filas.push(fila('Stock mínimo', textoMinimo(d, g, unidad)));
   filas.push(
     fila('Importancia', lineaImportancia(g)),
     fila(`Umbral clase ${escHtml(String(g.claseABC))}`, lineaUmbral(g)),
@@ -416,21 +426,28 @@ function htmlCalculoGrupo(g) {
   const peor = conCob.length ? conCob.reduce((a, b) => (b.d.cobertura < a.d.cobertura ? b : a)) : null;
   const resaltar = l => (conPeso ? cuenta(l) : l === peor);
   const pct = x => nfAR(Math.round(x * 100), 0);
+  const conMin = Number.isFinite(g.diasObjetivo);
+  // Mínimo = venta diaria × días a cubrir; en rojo lo que falta contra el stock total.
+  const celdaMinimo = (diaria, total) => {
+    const min = minimoDe(diaria, g), falta = min - total;
+    return `${nfAR(min, 2)} ${unidad}${falta > 0 ? `<div class="text-sm" style="color:var(--rojo)">faltan ${nfAR(falta, 2)}</div>` : ''}`;
+  };
   const cuerpo = lineas.map(l => `<tr${resaltar(l) ? ' class="urg-peor"' : ''}>
       <td>${escHtml(l.nombre)}${l.detalle ? `<div class="text-sm">${escHtml(l.detalle)}</div>` : ''}</td>
       ${conPeso ? `<td class="num">${l.peso === null ? '—' : pct(l.peso) + ' %'}</td>` : ''}
       <td class="num">${nfAR(l.d.ventas, 2)} ${unidad}</td><td class="num">${nfAR(l.d.diaria, 2)} ${unidad}/día</td>
       <td class="num">${nfAR(l.d.total, 2)} ${unidad}</td>
+      ${conMin ? `<td class="num">${celdaMinimo(l.d.diaria, l.d.total)}</td>` : ''}
       <td class="num">${l.d.cobertura === null ? '—' : fmtDias(l.d.cobertura) + ' d'}</td><td>${chipUrgencia(l.d.nivel)}</td></tr>`).join('');
   const sino = cond => (cond ? 'sí' : 'no');
   const regla = conPeso
     ? `El grupo es <strong>Urgente</strong> si lo urgente suma ≥ ${pct(g.umbralPeso)} % de su ${usarFact ? 'facturación' : 'venta en unidades (sin facturación)'} (acá: ${pct(g.pesoUrgente)} % → ${sino(g.urgencia === 'URGENTE')}). Es <strong>Pronto</strong> si lo urgente y lo pronto suman ≥ ${pct(g.umbralPeso)} % (acá: ${pct(g.pesoUrgentePronto)} % → ${sino(g.urgencia !== 'OK')}).`
     : (peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.');
   return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
-    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th><th class="num">Cobertura</th><th>Nivel</th></tr></thead>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}<th class="num">Cobertura</th><th>Nivel</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
     ${g.esGranel ? htmlDesgloseGranel(g, unidad) : ''}
-    <div class="urg-nota text-sm">${regla} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria. ${escHtml(textoExclusiones(g, true))}.</div>`;
+    <div class="urg-nota text-sm">${regla} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria${conMin ? `; mínimo = venta diaria × ${nfAR(g.diasObjetivo, 0)} días a cubrir` : ''}. ${escHtml(textoExclusiones(g, true))}.</div>`;
 }
 
 // Grupo granel: consumo de cada presentación (g.desglose), que suma la venta del grupo. Solo informativo.
@@ -453,13 +470,15 @@ function htmlDesgloseGranel(g, unidad) {
       ${conPeso ? `<td class="num">${celdaPeso(d)}</td>` : ''}
       <td class="num">${nfAR(d.ventasVentana || 0, 2)} ${unidad}</td>
       <td class="num">${nfAR(d.ventaDiariaUrg || 0, 2)} ${unidad}/día</td>
-      <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td></tr>`).join('');
+      <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td>
+      ${conMin ? `<td class="num">${nfAR(minimoDe(d.ventaDiariaUrg || 0, g), 2)} ${unidad}</td>` : ''}</tr>`).join('');
+  const conMin = Number.isFinite(g.diasObjetivo);
   const sinPeso = g.presentacionesSinPeso || [];
   const aviso = sinPeso.length
     ? `<div class="urg-nota text-sm" style="color:var(--amb-text)">Sin peso en el nombre (se cuentan en unidades, sin pasar a kg): ${sinPeso.map(escHtml).join(', ')}</div>`
     : '';
   return `<div class="urg-nota"><strong>Consumo por presentación</strong></div>
-    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th>${conPeso ? '<th class="num">Unidades × peso</th>' : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th></tr></thead>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th>${conPeso ? '<th class="num">Unidades × peso</th>' : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}</tr></thead>
     <tbody>${filas}</tbody></table>${aviso}`;
 }
 

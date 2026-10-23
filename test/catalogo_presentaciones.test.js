@@ -171,6 +171,7 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     const g = grupos[0];
     assert.strictEqual(g.esGranel, true);
     assert.deepStrictEqual(g.presentaciones, []);              // el granel se sigue planificando como grupo
+    assert.strictEqual(g.diasObjetivo, 30);                    // días a cubrir: stock mínimo del modal
     assert.deepStrictEqual(g.desglose.map(d => d.presentacion), ['1Kg', '500G']);
     const d500 = g.desglose.find(d => d.presentacion === '500G');
     assert.strictEqual(d500.ventasVentana, 30 + 15 + 60);
