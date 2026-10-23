@@ -92,6 +92,9 @@ body{font-size:14px;line-height:1.55}
       <a href="/" class="status-chip" title="Volver al centro de operaciones">
         <i data-lucide="layout-grid" style="width:14px;height:14px"></i><span class="hidden sm:inline">Todos los módulos</span>
       </a>
+      <button id="btn-logout" type="button" class="status-chip hidden" style="border:none;cursor:pointer;font:inherit" title="Cerrar sesión">
+        <i data-lucide="log-out" style="width:14px;height:14px"></i><span class="hidden sm:inline">Salir</span>
+      </button>
     </div>
   </div>
 </header>
@@ -174,6 +177,7 @@ fetch('/api/session').then(r => r.json()).then(s => {
   if (s && s.user) {
     document.getElementById('user-name').textContent = s.user.nombre || s.user.usuario;
     document.getElementById('user-chip').classList.remove('hidden');
+    document.getElementById('btn-logout').classList.remove('hidden');
     // Atado a este hub (permiso 'solo-sucursales'): sin links al inicio; el server igual redirige '/' acá.
     const m = s.user.modulos || [];
     if (!s.user.esAdmin && m.includes('solo-sucursales') && m.includes('sucursales')) {
@@ -183,6 +187,11 @@ fetch('/api/session').then(r => r.json()).then(s => {
     }
   }
 }).catch(() => {});
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  try { await fetch('/api/logout', { method: 'POST' }); } catch (e) { /* ignorar */ }
+  location.href = '/login';
+});
 
 if (window.lucide) lucide.createIcons();
 </script>
