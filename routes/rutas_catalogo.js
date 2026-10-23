@@ -4,9 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
+const { esMayorista } = require('../lib/catalogo_presentaciones');
 
 // ── Rutas del catálogo de grupos ──────────────────────────────────────────────
-// El catálogo es data/catalogo.json (plu → grupo/presentación/variante) más su
+// El catálogo es data/catalogo.json (plu → grupo/presentación/mayorista) más su
 // config data/grupos_config.json. Extraídas de server.js sin cambios de
 // comportamiento: mismas rutas, mismo orden relativo y mismas queries. Los
 // bloques movidos conservan la indentación original a propósito.
@@ -42,16 +43,17 @@ router.get('/api/catalogo/grupos', (_req, res) => {
   const mapa = new Map();
   for (const item of catalogo) {
     const ref = item.productoRef || '';
-    if (!mapa.has(ref)) mapa.set(ref, { productoRef: ref, total: 0, variantes: 0, bases: new Set() });
+    if (!mapa.has(ref)) mapa.set(ref, { productoRef: ref, total: 0, mayoristas: 0, presentaciones: new Set() });
     const g = mapa.get(ref);
     g.total++;
-    if (item.esVariante) g.variantes++; else g.bases.add(item.baseNombre);
+    g.presentaciones.add(item.presentacion);
+    if (esMayorista(item)) g.mayoristas++;
   }
   const grupos = [...mapa.values()].sort((a, b) => a.productoRef.localeCompare(b.productoRef)).map(g => ({
     productoRef:  g.productoRef,
     totalPlu:     g.total,
-    presentaciones: g.bases.size,
-    variantes:    g.variantes,
+    presentaciones: g.presentaciones.size,
+    mayoristas:   g.mayoristas,
     activo:       cfgActivo(gruposCfg, g.productoRef),
     granelPlu:    cfgGranelPlu(gruposCfg, g.productoRef),
     granelPlus:   cfgGranelPlus(gruposCfg, g.productoRef),
@@ -100,6 +102,16 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
   const ref      = decodeURIComponent(req.params.ref);
   const nuevos   = req.body;
   if (!Array.isArray(nuevos)) return res.status(400).json({ error: 'Se esperaba un array' });
+  // Cada código: PLU entero > 0, con presentación, y una sola vez en el grupo (un PLU en dos
+  // presentaciones contaría sus ventas dos veces).
+  const vistos = new Set();
+  for (const i of nuevos) {
+    const plu = Number(i && i.plu);
+    if (!Number.isInteger(plu) || plu <= 0) return res.status(400).json({ error: `PLU inválido: ${i && i.plu}` });
+    if (!String(i.presentacion ?? '').trim()) return res.status(400).json({ error: `El PLU ${plu} no tiene presentación` });
+    if (vistos.has(plu)) return res.status(400).json({ error: `El PLU ${plu} está repetido en el grupo` });
+    vistos.add(plu);
+  }
   const catalogo = leerJSON(CATALOGO_PATH, []);
   const otros    = catalogo.filter(i => i.productoRef !== ref);
   // refId debe ser 1:1 con productoRef (clave de agrupación en buildCatalogoMaps).
@@ -110,7 +122,7 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
     const maxRef = catalogo.reduce((m, i) => Math.max(m, Number(i.refId) || 0), 0);
     refId = maxRef + 1;
   }
-  const normalizados = nuevos.map(i => ({ ...i, refId, productoRef: ref }));
+  const normalizados = nuevos.map(i => ({ ...i, plu: Number(i.plu), presentacion: String(i.presentacion).trim(), refId, productoRef: ref }));
   guardarJSON(CATALOGO_PATH, [...otros, ...normalizados]);
   res.json({ ok: true, productos: normalizados.length });
 });
@@ -148,9 +160,9 @@ router.post('/api/catalogo/importar', upload.single('archivo'), (req, res) => {
       const nombreOrig   = String(producto).trim();
       const base         = normalizarNombre(nombreOrig);
       const presentacion = extraerPresentacion(base);
-      const esVariante   = /\b(pack|bulto|vid)\b/i.test(nombreOrig);
+      const mayorista    = /\b(pack|bulto|vid)\b/i.test(nombreOrig);
       filas.push({
-        plu: pluInt, producto: nombreOrig, baseNombre: base, presentacion, esVariante,
+        plu: pluInt, producto: nombreOrig, baseNombre: base, presentacion, esMayorista: mayorista,
         refId: refId != null ? parseInt(refId) : null,
         productoRef: productoRef != null ? String(productoRef).trim() : ''
       });

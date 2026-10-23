@@ -226,13 +226,13 @@ function mpAgregarComp() {
 // ══════════════════ FÓRMULAS POR PRESENTACIÓN ══════════════════════
 
 let formulasData       = {};   // { plu: [{plu,nombre,cantPorUnidad}] }
-let formulasPresItems  = [];   // items del grupo actual (no-variante)
+let formulasPresItems  = [];   // items del grupo actual (no mayoristas)
 let formulasActivePlu  = null;
 let formulasSelComp    = null;
 let formulasAllCache   = {};   // cache global para la vista en planificación
 
 async function cargarFormulasGrupo(items) {
-  formulasPresItems = (items || []).filter(i => !i.esVariante && i.plu);
+  formulasPresItems = (items || []).filter(i => !esMayoristaJS(i) && i.plu);
   formulasActivePlu = null;
   formulasData = {};
   try {
