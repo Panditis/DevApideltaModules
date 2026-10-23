@@ -22,7 +22,7 @@
     document.title = `${CFG.titulo} · Apidelta`;
     $('h1').textContent = CFG.titulo.toUpperCase();
     $('#bajada').textContent = CFG.bajada;
-    $('#avisoPermiso').textContent = `Solo lectura de estados · pedí el permiso ${CFG.permisoTitulo}`;
+    $('#avisoPermiso').textContent = `Solo lectura: sin alta ni cambios de estado · pedí el permiso ${CFG.permisoTitulo}`;
     $('#lnkVolver').href = CFG.volver;
     $('#lnkVolver').textContent = CFG.volverTexto;
   }
@@ -206,6 +206,7 @@
   const esExterno = u => estado.metaOk && !usuarioMeta(u);
   // Espejo de lo que valida el server: estados sólo con 'tickets-gestion'; destinatarios y prioridad también el creador.
   const puedeGestionar = () => estado.meta.puedeGestionar === true;
+  const puedeCrear = () => estado.meta.puedeCrear !== false; // false sólo en Mantenimiento sin permiso de gestión
   const puedeEditarTicket = t => puedeGestionar() || mismoUsuario(t.creadoPor, estado.meta.login);
 
   // ── Avatares ────────────────────────────────────────────────────────────────
@@ -416,6 +417,7 @@
   }
 
   function abrirNuevo() {
+    if (!puedeCrear()) return;
     focoPrevio = document.activeElement;
     $('#dlgNuevo').showModal();
     $('#fTarea').focus();
@@ -659,7 +661,7 @@
     return sinTickets
       ? `<div class="vacio bg-card rounded-xl border border-borde"><span class="circ">${ico('vacio')}</span><b>Todavía no hay tickets</b>
           <span>Cuando alguien pida un cambio al sistema, va a aparecer acá.</span>
-          <button type="button" class="btn btn-primario mt-3" data-accion="nuevo"${estado.metaOk ? '' : ' disabled'}>Crear el primero</button></div>`
+          ${puedeCrear() ? `<button type="button" class="btn btn-primario mt-3" data-accion="nuevo"${estado.metaOk ? '' : ' disabled'}>Crear el primero</button>` : ''}</div>`
       : `<div class="vacio"><span class="circ">${ico('vacio')}</span><b>Ningún ticket coincide con los filtros</b>
           <button type="button" class="btn mt-3" data-accion="limpiar-filtros">Limpiar filtros</button></div>`;
   }
@@ -1469,6 +1471,8 @@
       $('#btnNuevo').disabled = true;
       $('#btnNuevo').title = 'No disponible: no se pudieron traer los usuarios de SIGA';
     }
+    // Sin permiso para crear (Mantenimiento): ni botón ni FAB. El server igual responde 403.
+    if (!puedeCrear()) $('#btnNuevo').style.display = 'none';
     // Sin SIGA no se sabe el permiso: el aviso de error ya explica qué no se puede hacer.
     $('#avisoPermiso').classList.toggle('hidden', !estado.metaOk || puedeGestionar());
     $('#avisoPermiso').insertAdjacentHTML('afterbegin', ico('candado', 'ico w-3.5 h-3.5'));

@@ -2698,6 +2698,7 @@ app.use(require('./routes/rutas_tickets')({
   leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso,
   pagina: '/sucursales/mantenimiento', api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json',
   permiso: 'mantenimiento-gestion', areas: require('./lib/tickets').AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento',
+  crearSoloGestion: true, // sin 'mantenimiento-gestion' sólo se ven y comentan pedidos
 }));
 // Carteles Pesables: precio de la bolsa de los pesables fraccionados por sucursal (SIGA sólo lectura).
 app.use(require('./routes/rutas_carteles_pesables')({ apiRoute, query, LISTA_PRECIOS_VENTA }));

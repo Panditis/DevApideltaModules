@@ -68,6 +68,7 @@ test('meta mapea usuarios de SIGA (trim, Nombre||Id) y resuelve yo case-insensit
     assert.strictEqual(data.prioridades.length, 4);
     assert.strictEqual(data.estados.length, 6);
     assert.ok(data.areas.includes('Compras'));
+    assert.strictEqual(data.puedeCrear, true); // /tickets: crear no pide gestión
     // Segunda llamada dentro del TTL: no vuelve a consultar SIGA.
     await pedir(ctx.base, 'GET', '/meta');
     assert.strictEqual(ctx.sql.llamadas, 1);
@@ -318,7 +319,7 @@ test('instancia de Mantenimiento: datos en mantenimiento.json, sus áreas y su p
   const { AREAS_MANTENIMIENTO } = require('../lib/tickets');
   const ctx = await montar({ permiso: false, config: {
     api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json', permiso: 'mantenimiento-gestion',
-    areas: AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento',
+    areas: AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento', crearSoloGestion: true,
   } });
   const { base } = ctx;
   try {
@@ -326,13 +327,21 @@ test('instancia de Mantenimiento: datos en mantenimiento.json, sus áreas y su p
     assert.strictEqual(meta.status, 200);
     assert.deepStrictEqual(meta.data.areas, AREAS_MANTENIMIENTO);
     assert.ok(meta.data.areas.includes('Plomería'));
+    assert.strictEqual(meta.data.puedeCrear, false);
 
+    // Sin permiso de gestión no se da de alta (crearSoloGestion) y no se toca el archivo.
+    assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 403);
+    assert.ok(!fs.existsSync(path.join(ctx.dir, 'mantenimiento.json')));
+
+    ctx.sesion.permiso = true; // tienePermiso sólo acepta 'mantenimiento-gestion'
+    assert.strictEqual((await pedir(base, 'GET', '/meta')).data.puedeCrear, true);
     assert.strictEqual((await pedir(base, 'POST', '', { ...NUEVO, area: 'Plomería' })).status, 201);
     assert.ok(fs.existsSync(path.join(ctx.dir, 'mantenimiento.json')));
     assert.ok(!fs.existsSync(path.join(ctx.dir, 'tickets.json')));
 
+    ctx.sesion.permiso = false;
     assert.strictEqual((await pedir(base, 'PATCH', '/1', { estado: 'en_proceso' })).status, 403);
-    ctx.sesion.permiso = true; // tienePermiso sólo acepta 'mantenimiento-gestion'
+    ctx.sesion.permiso = true;
     const ok = await pedir(base, 'PATCH', '/1', { estado: 'en_proceso' });
     assert.strictEqual(ok.status, 200);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento.json'), 'utf8'))[0].estado, 'en_proceso');

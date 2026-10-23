@@ -22,6 +22,7 @@ module.exports = function crearRutasTickets(deps) {
     leerJSON, guardarJSON, DATA_DIR, query, tienePermiso, ttlMs = USUARIOS_TTL_MS,
     pagina = '/tickets', api = '/api/tickets', archivo = 'tickets.json', permiso = 'tickets-gestion',
     areas = tickets.AREAS, etiqueta = 'tickets',
+    crearSoloGestion = false, // true: dar de alta también pide el permiso de gestión (Mantenimiento)
   } = deps;
   const router = express.Router();
   const TICKETS_PATH = path.join(DATA_DIR, archivo);
@@ -103,10 +104,12 @@ module.exports = function crearRutasTickets(deps) {
       yoNombre: user.nombre || user.usuario || null,
       login: user.usuario || null,
       puedeGestionar: puedeGestionar(req),
+      puedeCrear: !crearSoloGestion || puedeGestionar(req),
     };
   }));
 
   router.post(api, manejar(async req => {
+    if (crearSoloGestion && !puedeGestionar(req)) throw prohibido('No tenés permiso para crear tickets.');
     const validos = (await usuariosSiga()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
     const { lista, ticket } = tickets.crearTicket(leerTickets(), req.body, usuarioSesion(req), validos, new Date().toISOString());
