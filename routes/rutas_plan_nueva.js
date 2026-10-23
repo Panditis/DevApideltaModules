@@ -3,13 +3,15 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const pn = require('../lib/plan_nueva');
+const { sqlConsumoCatalogo } = require('../lib/plan_sql');
 
 // ── Planificación nueva (/planificacion-nueva) ─────────────────────────────────────────────────
 // Spec docs/superpowers/specs/2026-10-22-planificacion-nueva-design.md §5. Datos propios en
 // data/plan_nueva_{catalogo,params,ordenes}.json; responsables de data/responsables.json (el mismo de
 // /planificacion). Cálculos y validaciones en lib/plan_nueva.js; acá sólo I/O.
 module.exports = function crearRutasPlanNueva(deps) {
-  const { leerJSON, guardarJSON, query, DATA_DIR } = deps;
+  // sqlStockPorPlu vive en server.js (lo usan otros routers) y entra por deps, como en rutas_plan_tablero.js.
+  const { leerJSON, guardarJSON, query, DATA_DIR, sqlStockPorPlu } = deps;
   const router = express.Router();
   const CATALOGO_PATH = path.join(DATA_DIR, 'plan_nueva_catalogo.json');
   const PARAMS_PATH = path.join(DATA_DIR, 'plan_nueva_params.json');
@@ -87,6 +89,32 @@ module.exports = function crearRutasPlanNueva(deps) {
     guardarCategorias(pn.borrarCategoria(leerCategorias(), String(req.params.id)));
     return { ok: true };
   }));
+
+  // ── Parámetros, tablero y responsables ──
+  router.get('/api/plan-nueva/params', ruta(async () => pn.leerParams(leerJSON(PARAMS_PATH, {}))));
+  router.put('/api/plan-nueva/params', ruta(async req => {
+    const params = pn.validarParams(req.body);
+    guardarJSON(PARAMS_PATH, params);
+    return params;
+  }));
+
+  // Ventas: sqlConsumoCatalogo (lib/plan_sql.js) ya deja afuera Casa Central y las sucursales no reales 6, 8 y 11
+  // (lib/sucursales_no_reales.js); se usa su UnidVendidas ÷ N, no PromDiarioPorDia. Stock: sqlStockPorPlu de
+  // server.js (Casa Central, depósitos disponibles para venta), el mismo del tablero de /planificacion.
+  const mapa = (rows, col) => new Map(rows.map(r => [String(r.IdProducto).trim(), parseFloat(r[col]) || 0]));
+  router.get('/api/plan-nueva/tablero', ruta(async () => {
+    const params = pn.leerParams(leerJSON(PARAMS_PATH, {}));
+    const categorias = leerCategorias();
+    const plus = [...new Set(categorias.flatMap(c => c.plus))];
+    const [ventas, stock, nombres] = await Promise.all([
+      enLotes(plus, l => sqlConsumoCatalogo(l, params.diasConsumo)),
+      enLotes(plus, sqlStockPorPlu),
+      nombresSiga(plus),
+    ]);
+    return pn.armarTablero({ categorias, nombres, ventas: mapa(ventas, 'UnidVendidas'), stock: mapa(stock, 'StockActual') }, params);
+  }));
+
+  router.get('/api/plan-nueva/responsables', ruta(async () => pn.nombresResponsables(leerJSON(RESP_PATH, []))));
 
   return router;
 };
