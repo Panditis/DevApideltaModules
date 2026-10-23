@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planificación nueva · Apidelta</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/css/apidelta-theme.js"></script>
+<link rel="stylesheet" href="/css/apidelta-theme.css">
+<style>
+dialog::backdrop { background: rgba(26,28,24,.35); }
+.lista-siga { max-height: 260px; overflow-y: auto; }
+#carrito { width: 460px; }
+</style>
+</head>
+<body class="font-body text-ink">
+<header class="acrylic sticky top-0 z-20 shadow-fluent">
+  <div class="filo-amarillo max-w-[1500px] mx-auto px-4 flex items-center gap-6">
+    <h1 class="font-disp text-xl font-bold py-3">PLANIFICACIÓN NUEVA</h1>
+    <nav class="flex" aria-label="Secciones">
+      <button type="button" class="navtab" data-tab="planificacion">Planificación</button>
+      <button type="button" class="navtab" data-tab="ordenes">Órdenes</button>
+      <button type="button" class="navtab" data-tab="catalogo">Catálogo</button>
+    </nav>
+    <div class="ml-auto flex items-center gap-3">
+      <!-- plan_nueva: boton carrito -->
+      <a href="/" class="text-sm">← Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto px-4 py-5">
+  <section id="tab-planificacion" class="tab-panel hidden">
+    <div class="flex flex-wrap items-center gap-4 mb-4 bg-card rounded-xl border border-borde shadow-fluent px-4 py-3">
+      <label class="text-sm text-gris">Consumo: últimos
+        <input id="pDiasConsumo" type="number" min="7" max="365" step="1" class="w-20 mx-1 px-2 py-1 rounded border border-borde text-ink"> días</label>
+      <label class="text-sm text-gris">Días a cubrir
+        <input id="pDiasCubrir" type="number" min="1" max="180" step="1" class="w-20 ml-1 px-2 py-1 rounded border border-borde text-ink"></label>
+      <button type="button" id="btnParams" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">Aplicar</button>
+      <input id="tabBuscar" type="search" placeholder="Buscar categoría o presentación…" autocomplete="off"
+        class="ml-auto w-96 px-3 py-2 rounded-lg border border-borde">
+    </div>
+    <div id="tablero" class="text-sm"></div>
+  </section>
+
+  <section id="tab-ordenes" class="tab-panel hidden">
+    <div id="ordenes" class="bg-card rounded-xl border border-borde shadow-fluent p-4 text-sm"></div>
+  </section>
+
+  <section id="tab-catalogo" class="tab-panel hidden">
+    <div class="flex items-center mb-4">
+      <h2 class="font-semibold text-verde text-lg">Categorías</h2>
+      <button type="button" id="btnNuevaCategoria" class="ml-auto px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover">+ Categoría</button>
+    </div>
+    <div id="catalogo" class="text-sm"></div>
+  </section>
+</main>
+
+<dialog id="dlgCategoria" class="rounded-xl border border-borde shadow-fluent p-0 w-[640px]" aria-labelledby="dlgCatTitulo">
+  <form id="formCategoria" class="p-5 flex flex-col gap-4">
+    <h2 id="dlgCatTitulo" class="font-semibold text-verde text-lg">Nueva categoría</h2>
+    <label class="text-sm text-gris">Nombre
+      <input id="catNombre" required maxlength="100" autocomplete="off" class="block w-full mt-1 px-3 py-2 rounded-lg border border-borde text-ink"></label>
+    <div>
+      <label for="catBuscar" class="text-sm text-gris">Agregar presentaciones de SIGA (nombre o PLU)</label>
+      <div class="flex gap-2 mt-1">
+        <input id="catBuscar" type="search" autocomplete="off" placeholder="Mínimo 2 caracteres…" class="flex-1 px-3 py-2 rounded-lg border border-borde">
+        <button type="button" id="catAgregar" class="px-3 py-2 rounded-lg border border-borde text-sm hover:bg-bg disabled:opacity-50" disabled>Agregar seleccionados</button>
+      </div>
+      <div id="catResultados" class="lista-siga mt-2 rounded-lg border border-borde hidden"></div>
+    </div>
+    <div>
+      <div class="text-sm text-gris mb-1">Presentaciones (<span id="catCuenta">0</span>)</div>
+      <ul id="catPresentaciones" class="lista-siga rounded-lg border border-borde divide-y divide-black/5 text-sm"></ul>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="catCancelar" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-bg">Cancelar</button>
+      <button type="submit" id="catGuardar" class="px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-50">Guardar</button>
+    </div>
+  </form>
+</dialog>
+<!-- plan_nueva: carrito -->
+<!-- plan_nueva: dialogo orden -->
+<div id="toast" class="hidden" role="status" aria-live="polite"></div>
+
+<script src="/js/plan_nueva_comun.js"></script>
+<script src="/js/plan_nueva_catalogo.js"></script>
+<!-- plan_nueva: scripts -->
+<script>
+document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => mostrarTab(b.dataset.tab)));
+mostrarTab(location.hash.slice(1));
+</script>
+</body>
+</html>
