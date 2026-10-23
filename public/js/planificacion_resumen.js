@@ -437,11 +437,18 @@ function htmlDesgloseGranel(g, unidad) {
   if (!desglose.length) return '';
   const total = desglose.reduce((t, d) => t + (d.ventasVentana || 0), 0);
   // Grupo "x unidad": las ventas vienen en unidades y el servidor ya las pasó a kg con el peso de la presentación.
-  const conPeso = desglose.some(d => d.pesoKg);
+  // Grupo por kilo con mayoristas "x unidad" (mayoristasUnidad): sus unidades ya pasadas a kg con el peso de cada código.
+  const conPeso = desglose.some(d => d.pesoKg || (d.mayoristasUnidad || []).length);
+  const celdaPeso = d => {
+    if (d.pesoKg) return `${nfAR(d.unidadesVentana || 0, 0)} u × ${nfAR(d.pesoKg, 3)} kg`;
+    const may = (d.mayoristasUnidad || []).map(m => `${nfAR(m.unidadesVentana || 0, 0)} u × ${m.pesoKg ? `${nfAR(m.pesoKg, 3)} kg` : 'sin peso'} (mayorista)`);
+    if (may.length) return may.join('<br>');
+    return d.unidadesVentana != null ? 'sin peso' : '—';
+  };
   const filas = desglose.map(d => `<tr>
       <td>${escHtml(d.presentacion || d.baseNombre || '')}</td>
       <td class="num">${total > 0 ? nfAR(Math.round((d.ventasVentana || 0) / total * 100), 0) + ' %' : '—'}</td>
-      ${conPeso ? `<td class="num">${d.pesoKg ? `${nfAR(d.unidadesVentana || 0, 0)} u × ${nfAR(d.pesoKg, 3)} kg` : 'sin peso'}</td>` : ''}
+      ${conPeso ? `<td class="num">${celdaPeso(d)}</td>` : ''}
       <td class="num">${nfAR(d.ventasVentana || 0, 2)} ${unidad}</td>
       <td class="num">${nfAR(d.ventaDiariaUrg || 0, 2)} ${unidad}/día</td>
       <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td></tr>`).join('');

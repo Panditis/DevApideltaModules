@@ -52,12 +52,14 @@ const CONFIG = {
 };
 // Por tipo de query, valor por PLU. Un PLU que no corresponde a la query (ej. un mayorista en la de
 // minoristas) devolvería 999 y rompería las cuentas.
-const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999, 301: 100, 303: 40, 305: 7, 302: 999, 304: 999 };
-const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999, 302: 20, 304: 10, 301: 999, 303: 999, 305: 999 };
+const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999, 301: 100, 303: 40, 305: 7, 302: 999, 304: 999,
+  401: 30, 403: 6, 405: 4, 407: 8, 409: 12, 412: 7, 402: 999, 404: 999, 406: 999, 408: 999, 410: 999 };
+const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999, 302: 20, 304: 10, 301: 999, 303: 999, 305: 999,
+  402: 10, 404: 3, 406: 5, 408: 2, 410: 20, 401: 999, 403: 999, 405: 999, 407: 999, 409: 999, 412: 999 };
 const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000 };
 // Solo para el grupo de pepas (los otros tests no los miran).
 const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999 };
-const PEND = { 301: 5, 302: 10, 303: 2 };
+const PEND = { 301: 5, 302: 10, 303: 2, 402: 4 };
 
 // Grupo granel "x unidad" (ej. pepas: la masa es por kilo, las presentaciones se venden por unidad).
 //   · 'Pepas Batata': la presentación no dice el peso → sale del nombre del primer minorista (180G);
@@ -70,6 +72,26 @@ const PEPAS = [
   { plu: 303, producto: 'Pepas Membrillo 150G', baseNombre: 'Pepas Membrillo 150G', presentacion: '150G', esMayorista: false, refId: 2, productoRef: 'Pepas' },
   { plu: 304, producto: 'Pepas Membrillo 150G Bulto', baseNombre: 'Pepas Membrillo 150G Bulto', presentacion: '150G', esMayorista: true, refId: 2, productoRef: 'Pepas' },
   { plu: 305, producto: 'Pepas Surtidas', baseNombre: 'Pepas Surtidas', presentacion: 'Surtidas', esMayorista: false, refId: 2, productoRef: 'Pepas' },
+];
+
+// Grupo granel por kilo (un Mix: los minoristas se venden por kg) con códigos mayoristas que son
+// bolsas cerradas vendidas por unidad (ventaPorUnidad en el código). Peso del código:
+//   · 402: del nombre del código (500G); 404: de la presentación (1Kg); 406: del primer minorista (2Kg);
+//   · 408: sin peso en ningún lado → no se convierte y se avisa;
+//   · 410: mayorista ≤200g (regla vieja): se convierte una sola vez;
+//   · 412: minorista con el check → se ignora.
+const MIX_GRANEL = [
+  { plu: 401, producto: 'Mix 500G', baseNombre: 'Mix 500G', presentacion: '500G', esMayorista: false, refId: 3, productoRef: 'Mix' },
+  { plu: 402, producto: 'Mix 500G Bolsa', baseNombre: 'Mix 500G Bolsa', presentacion: '500G', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
+  { plu: 412, producto: 'Mix 500G Suelto', baseNombre: 'Mix 500G Suelto', presentacion: '500G', esMayorista: false, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
+  { plu: 403, producto: 'Mix 1Kg', baseNombre: 'Mix 1Kg', presentacion: '1Kg', esMayorista: false, refId: 3, productoRef: 'Mix' },
+  { plu: 404, producto: 'Mix Bolsa Cerrada', baseNombre: 'Mix Bolsa Cerrada', presentacion: '1Kg', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
+  { plu: 405, producto: 'Mix Familiar 2Kg', baseNombre: 'Mix Familiar 2Kg', presentacion: 'Familiar', esMayorista: false, refId: 3, productoRef: 'Mix' },
+  { plu: 406, producto: 'Mix Familiar Bolsa', baseNombre: 'Mix Familiar Bolsa', presentacion: 'Familiar', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
+  { plu: 407, producto: 'Mix Suelto', baseNombre: 'Mix Suelto', presentacion: 'Suelto', esMayorista: false, refId: 3, productoRef: 'Mix' },
+  { plu: 408, producto: 'Mix Bolsa', baseNombre: 'Mix Bolsa', presentacion: 'Suelto', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
+  { plu: 409, producto: 'Mix 150G', baseNombre: 'Mix 150G', presentacion: '150G', esMayorista: false, refId: 3, productoRef: 'Mix' },
+  { plu: 410, producto: 'Mix 150G Bulto', baseNombre: 'Mix 150G Bulto', presentacion: '150G', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
 ];
 
 function plusDe(sql) {
@@ -216,6 +238,40 @@ test('x unidad: en un grupo que no es granel el check no cambia nada', async () 
   assert.strictEqual(d['150G'].stockSucursales, 20);
 });
 
+test('mayorista x unidad: en un grupo granel por kilo sus ventas y pendientes pasan a kg con su peso', async () => {
+  const { g, d } = await grupoPepas({ catalogo: MIX_GRANEL, esGranel: true });
+  assert.strictEqual(d['500G'].ventasVentana, 30 + 10 * 0.5 + 7);    // peso del nombre del código; el minorista 412 no se toca
+  assert.deepStrictEqual(d['500G'].mayoristasUnidad, [{ plu: '402', unidadesVentana: 10, pesoKg: 0.5 }]);
+  assert.strictEqual(d['1Kg'].ventasVentana, 6 + 3);                   // peso de la presentación (1Kg)
+  assert.deepStrictEqual(d['1Kg'].mayoristasUnidad, [{ plu: '404', unidadesVentana: 3, pesoKg: 1 }]);
+  assert.strictEqual(d.Familiar.ventasVentana, 4 + 5 * 2);             // peso del primer minorista (2Kg)
+  assert.strictEqual(d['150G'].ventasVentana, 12 + 20 * 0.15);         // ≤200g: una sola conversión
+  // Sin peso: no se convierte y se avisa.
+  assert.strictEqual(d.Suelto.ventasVentana, 8 + 2);
+  assert.deepStrictEqual(d.Suelto.mayoristasUnidad, [{ plu: '408', unidadesVentana: 2, pesoKg: null }]);
+  assert.deepStrictEqual(g.presentacionesSinPeso, ['Suelto']);
+  assert.strictEqual(g.totalPend, 4 * 0.5);                            // pendientes del mayorista, en kg
+  assert.strictEqual(d['500G'].facturacionMensual, 30 + 10 + 7);       // facturación ($) no se toca
+  // Grupo por kilo: sin peso ni unidades de la presentación.
+  assert.strictEqual(d['500G'].pesoKg, null);
+  assert.strictEqual(d['500G'].unidadesVentana, null);
+});
+
+test('mayorista x unidad: en un grupo que no es granel el check no cambia nada', async () => {
+  const { d } = await grupoPepas({ catalogo: MIX_GRANEL, esGranel: false });
+  assert.strictEqual(d['500G'].ventasVentana, 30 + 10 + 7);
+  assert.strictEqual(d.Familiar.ventasVentana, 4 + 5);
+  assert.strictEqual(d['150G'].ventasVentana, 12 + 20 * 0.15);         // la regla vieja ≤200g, igual que hoy
+});
+
+test('mayorista x unidad: en un grupo x unidad manda el peso del grupo y el del código no se aplica', async () => {
+  const { g, d } = await grupoPepas({ catalogo: MIX_GRANEL, esGranel: true, ventaPorUnidad: true });
+  assert.strictEqual(d['500G'].ventasVentana, (30 + 10 + 7) * 0.5);
+  assert.strictEqual(d.Familiar.ventasVentana, (4 + 5) * 2);
+  assert.deepStrictEqual(d['500G'].mayoristasUnidad, []);
+  assert.deepStrictEqual(g.presentacionesSinPeso, ['Suelto']);         // el aviso de siempre del grupo x unidad
+});
+
 test('sugerencias por grupo: la query mayorista mira Casa Central a clientes MAYORISTA, sin anulados ni 6/8/11', async () => {
   const ctx = await montarPlan();
   try {
@@ -297,6 +353,22 @@ test('PUT grupo: rechaza PLU inválido, presentación vacía o PLU repetido sin 
       assert.match(r.data.error, re);
     }
     assert.deepStrictEqual(ctx.catalogo(), CATALOGO);
+  } finally { cerrar(ctx); }
+});
+
+test('PUT grupo: conserva ventaPorUnidad (true) solo en los códigos mayoristas', async () => {
+  const ctx = await montarCatalogo();
+  try {
+    const r = await ctx.put('Mix', [
+      { plu: 101, producto: 'Mix 500G', presentacion: '500G', esMayorista: false, ventaPorUnidad: true },
+      { plu: 201, producto: 'Mix 500G Bolsa', presentacion: '500G', esMayorista: true, ventaPorUnidad: true },
+      { plu: 202, producto: 'Mix 2Kg Bolsa', presentacion: '2Kg', esMayorista: true, ventaPorUnidad: 'si' },
+      { plu: 203, producto: 'Mix 2Kg Bulto', presentacion: '2Kg', esMayorista: true, ventaPorUnidad: false },
+    ]);
+    assert.strictEqual(r.status, 200);
+    const mix = ctx.catalogo().filter(i => i.productoRef === 'Mix');
+    assert.deepStrictEqual(mix.map(i => [i.plu, 'ventaPorUnidad' in i]), [[101, false], [201, true], [202, false], [203, false]]);
+    assert.strictEqual(mix.find(i => i.plu === 201).ventaPorUnidad, true);
   } finally { cerrar(ctx); }
 });
 
