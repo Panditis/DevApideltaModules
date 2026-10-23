@@ -468,7 +468,7 @@ async function calcularSugerenciasCatalogo(params) {
         ...(porUnidadG || sinPeso.length ? { presentacionesSinPeso: sinPeso } : {}),
         // Consumo por presentación solo para mostrar (modal de urgencia): el granel se planifica como grupo.
         desglose: presFinal.map(p => ({ presentacion: p.presentacion, baseNombre: p.baseNombre, ventasVentana: p.ventasVentana,
-          ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual, pesoKg: pesoKgDe(p),
+          ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual, stockCentral: p.stockActual, pesoKg: pesoKgDe(p),
           unidadesVentana: porUnidadG ? Math.round((unidadesBaseVentana.get(claveBase(p)) || 0) * 100) / 100 : null,
           mayoristasUnidad: mayUnidadDe(p) })) });
       continue;

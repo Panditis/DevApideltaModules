@@ -49,10 +49,12 @@ function renderGrupos() {
   }
 
   const redondear = n => Math.round(n * 100) / 100;
-  // Celda "Stock suc.": suma + 🔍 (abre el modal por sucursal) solo si hay stock que mostrar.
-  const stockSucCell = (suma, gi) => suma > 0
-    ? `${suma} <button class="btn-add btn-sm" title="Ver stock por sucursal" onclick="event.stopPropagation();abrirStockDetalle(${gi})">🔍</button>`
-    : '—';
+  // Celda "Stock suc.": suma + 🔍 (abre el modal por sucursal; lista también las sucursales en 0).
+  const stockSucCell = (suma, gi) =>
+    `${suma > 0 ? suma : 0} <button class="btn-add btn-sm" title="Ver stock por sucursal" onclick="event.stopPropagation();abrirStockDetalle(${gi})">🔍</button>`;
+  // Celda "Stock central": valor + 🔍 (abre el stock en Casa Central de cada presentación).
+  const stockCentralCell = (valor, gi) =>
+    `${valor} <button class="btn-add btn-sm" title="Ver stock en Casa Central por presentación" onclick="event.stopPropagation();abrirStockCentral(${gi})">🔍</button>`;
 
   gruposSorted = grupos;
   const rows = gruposSorted.map((g, gi) => {
@@ -66,7 +68,7 @@ function renderGrupos() {
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
         </td>
         <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
-        <td class="text-right text-sm">${g.granelStockGrupo != null ? g.granelStockGrupo : '—'}</td>
+        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(g.granelStockGrupo != null ? g.granelStockGrupo : '—', gi)}</td>
         <td class="text-right text-sm" style="color:var(--muted);white-space:nowrap">${stockSucCell(g.stockSucGrupo, gi)}</td>
         <td style="white-space:nowrap"><button class="btn-add" onclick="abrirModalGranel(${gi})">+ Agregar</button></td>
       </tr>`;
@@ -80,7 +82,7 @@ function renderGrupos() {
       <td style="white-space:nowrap">${urgenciaCell(g.urgencia, textoUrgenciaGrupo(g), gi, -1)}</td>
       <td class="nombre-col font-bold"><span class="expand-btn" id="ebtn-${gi}">▶</span> ${escHtml(g.productoRef)}</td>
       <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
-      <td class="text-right text-sm" title="Cuenta al 60% en el sugerido: ${redondear(_stockGrupo*0.6)}">${_stockGrupo>0?_stockGrupo:'—'}</td>
+      <td class="text-right text-sm" style="white-space:nowrap" title="Cuenta al 60% en el sugerido: ${redondear(_stockGrupo*0.6)}">${stockCentralCell(_stockGrupo>0?_stockGrupo:0, gi)}</td>
       <td class="text-right text-sm" style="color:var(--muted);white-space:nowrap">${stockSucCell(_stockSucGrupo, gi)}</td>
       <td onclick="event.stopPropagation()" style="white-space:nowrap">
         <button class="btn-add" onclick="agregarGrupoAlPlan(${gi})">+ Todo</button>
@@ -145,6 +147,7 @@ async function abrirStockDetalle(gi) {
   const g = gruposSorted[gi];
   if (!g) return;
   const plus = [...new Set((g.esGranel ? (g.plus || []) : (g.presentaciones || []).flatMap(p => p.plus || [p.plu])).map(String))];
+  document.getElementById('stockDetModo').textContent = '🔍 Stock en sucursales';
   document.getElementById('stockDetTitulo').textContent = g.productoRef;
   document.getElementById('stockDetBody').innerHTML = '<div class="loading">Cargando…</div>';
   document.getElementById('overlayStockDet').classList.add('open');
@@ -176,14 +179,14 @@ function columnasStock(data, g) {
   });
 }
 
-// Filas = sucursales (sin Casa Central) con stock en alguna presentación; columnas = presentaciones + Total.
+// Filas = todas las sucursales reales (sin Casa Central), también las que están en 0; columnas = presentaciones + Total.
 function renderStockDetalle(data, g) {
   const pres = columnasStock(data, g);
-  const sucs = (data.sucursales || []).filter(s => !s.central && pres.some(r => r.porSuc[s.id] > 0));
-  if (!sucs.length) return '<div style="padding:10px;color:var(--muted)">Sin stock en sucursales.</div>';
+  const sucs = (data.sucursales || []).filter(s => !s.central);
+  if (!sucs.length) return '<div style="padding:10px;color:var(--muted)">Sin sucursales.</div>';
   const fmt = n => Math.round(n * 100) / 100;
   const num = 'text-align:right;white-space:nowrap;padding:5px 10px';
-  const cell = v => v ? `<td style="${num}">${fmt(v)}</td>` : `<td style="${num};color:var(--border)">·</td>`;
+  const cell = v => (v ? `<td style="${num}">${fmt(v)}</td>` : `<td style="${num};color:var(--muted)">0</td>`);
   const th = 'font-size:11px;color:var(--muted);padding:4px 10px';
   const head = pres.map(r => `<th style="${th};text-align:right">${escHtml(r.nombre)}</th>`).join('');
   const body = sucs.map(s => {
@@ -195,6 +198,39 @@ function renderStockDetalle(data, g) {
   return `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="${th};text-align:left">SUCURSAL</th>${head}<th style="${th};text-align:right">TOTAL</th></tr></thead>
     <tbody>${body}${pie}</tbody></table>`;
+}
+
+// ── STOCK EN CASA CENTRAL POR PRESENTACIÓN (modal 🔍 de la columna Stock central) ──
+// Sale de lo que ya trae el grupo: presentaciones[].stockActual, o en granel graneles[] + desglose[].stockCentral.
+function abrirStockCentral(gi) {
+  const g = gruposSorted[gi];
+  if (!g) return;
+  document.getElementById('stockDetModo').textContent = '🔍 Stock en Casa Central';
+  document.getElementById('stockDetTitulo').textContent = g.productoRef;
+  document.getElementById('stockDetBody').innerHTML = renderStockCentral(g);
+  document.getElementById('overlayStockDet').classList.add('open');
+}
+
+function renderStockCentral(g) {
+  const fmt = n => Math.round((n || 0) * 100) / 100;
+  const num = 'text-align:right;white-space:nowrap;padding:5px 10px';
+  const th = 'font-size:11px;color:var(--muted);padding:4px 10px';
+  const unidad = g.esGranel ? 'kg' : 'u';
+  const tabla = (titulo, filas) => {
+    const total = filas.reduce((t, f) => t + (f.stock || 0), 0);
+    const body = filas.map(f => `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 10px">${escHtml(f.nombre)}</td><td style="${num}${f.stock ? '' : ';color:var(--muted)'}">${fmt(f.stock)} ${unidad}</td></tr>`).join('');
+    return `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
+      <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="${th};text-align:left">${titulo}</th><th style="${th};text-align:right">STOCK CENTRAL</th></tr></thead>
+      <tbody>${body}<tr style="border-top:2px solid var(--md-outline-variant)"><td class="font-bold" style="font-size:13px;padding:5px 10px">Total</td><td class="font-bold" style="${num}">${fmt(total)} ${unidad}</td></tr></tbody></table>`;
+  };
+  if (!g.esGranel) {
+    const pres = (g.presentaciones || []).map(p => ({ nombre: p.presentacion || p.baseNombre || '', stock: p.stockActual }));
+    return pres.length ? tabla('PRESENTACIÓN', pres) : '<div style="padding:10px;color:var(--muted)">Sin presentaciones.</div>';
+  }
+  const graneles = (g.graneles || []).map(x => ({ nombre: x.nombre || x.id, stock: x.stock }));
+  const pres = (g.desglose || []).map(d => ({ nombre: d.presentacion || d.baseNombre || '', stock: d.stockCentral }));
+  return (graneles.length ? tabla('GRANEL', graneles) : '')
+    + (pres.length ? tabla('PRESENTACIÓN (producto terminado)', pres) : '<div style="padding:10px;color:var(--muted)">Sin datos de presentaciones: recargá (y reiniciá el servidor si acaba de actualizarse).</div>');
 }
 
 function presToItem(p, productoRef, rankingPos) {
