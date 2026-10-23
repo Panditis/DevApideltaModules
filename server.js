@@ -20,6 +20,7 @@ const preciosProv = require('./lib/precios_proveedores');
 const preciosFacturador = require('./lib/precios_facturador');
 const pdfParse = require('pdf-parse');
 const { calcularFaltantesFraccionado } = require('./lib/fraccionado_faltantes');
+const { buildCatalogoMaps, esMayorista } = require('./lib/catalogo_presentaciones');
 const { resolverProductoCarga, analizarNombreCarga, pesoTokenKg, sqlNombresPorPlu } = require('./lib/producto_carga');
 const { validarLineasFraccionado, normalizarLineasFraccionado, totalesOrdenFraccionado,
         progresoOrdenFraccionado, marcarLineaOrden, editarLineaOrden, validarLineasNoRepetidas,
@@ -575,18 +576,6 @@ function sqlStockPorPlu(pluList) {
 INNER JOIN SucursalesDepositos sd ON pd.IdDeposito=sd.IdDeposito AND pd.IdSucursal=sd.IdSucursal
 INNER JOIN Sucursales s ON s.IdSucursal=pd.IdSucursal
 WHERE s.SoyLaCentral=1 AND sd.DisponibleVenta=1 AND pd.IdProducto IN (${inList}) GROUP BY pd.IdProducto`;
-}
-function buildCatalogoMaps(catalogo) {
-  const pluToBase = new Map(), baseMap = new Map(), refMap = new Map();
-  for (const item of catalogo) {
-    const plu = String(item.plu), base = item.baseNombre, refId = String(item.refId);
-    pluToBase.set(plu, base);
-    if (!baseMap.has(base)) baseMap.set(base, { refId, productoRef: item.productoRef, presentacion: item.presentacion, pluBase: null, plusVariantes: [] });
-    if (item.esVariante) baseMap.get(base).plusVariantes.push(plu); else baseMap.get(base).pluBase = plu;
-    if (!refMap.has(refId)) refMap.set(refId, { productoRef: item.productoRef, bases: new Map() });
-    if (!refMap.get(refId).bases.has(base)) refMap.get(refId).bases.set(base, baseMap.get(base));
-  }
-  return { pluToBase, baseMap, refMap };
 }
 
 // ── Express app ────────────────────────────────────────────────────────────────
@@ -1181,7 +1170,7 @@ app.get('/api/diag/consumo-grupo', apiRoute(async req => {
   GROUP BY vp.IdProducto, p.NombreProducto ORDER BY TotalVendido DESC`);
   return cat.map(i => {
     const r = rows.find(x => String(x.IdProducto) === String(i.plu));
-    return { plu: i.plu, base: i.baseNombre, pres: i.presentacion, esVariante: i.esVariante,
+    return { plu: i.plu, base: i.baseNombre, pres: i.presentacion, esMayorista: esMayorista(i),
       totalVendido: r ? parseFloat(r.TotalVendido) : 0,
       diasConVenta: r ? r.DiasConVenta : 0,
       promDia: r ? parseFloat(r.PromDia) : 0,
