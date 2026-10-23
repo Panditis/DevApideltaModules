@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const { metaDeEntrada, granelPlusDe, aplicarMetaGrupo } = require('../lib/plan_catalogo_meta');
 
 // ── Rutas del catálogo de grupos ──────────────────────────────────────────────
 // El catálogo es data/catalogo.json (plu → grupo/presentación/variante) más su
@@ -22,7 +21,8 @@ const { metaDeEntrada, granelPlusDe, aplicarMetaGrupo } = require('../lib/plan_c
 //     planificacion.html junto a /api/consumo y /api/pendientes.
 //   · /api/productos (el de params(req)) — es del bloque de pedidos.
 //
-// Los helpers cfg* leen grupos_config.json y entran por deps.
+// Los helpers cfg* leen grupos_config.json y los usa también
+// calcularSugerenciasCatalogo, que sigue en server.js: entran por deps.
 module.exports = function crearRutasCatalogo(deps) {
   const {
     leerJSON, guardarJSON,
@@ -31,16 +31,6 @@ module.exports = function crearRutasCatalogo(deps) {
     cfgEsGranel, cfgGranelOverride, cfgEsMiel, cfgReqGranel,
   } = deps;
   const router = express.Router();
-  const DATA_DIR = path.dirname(GRUPOS_CFG_PATH);
-  const CLIENTES_PATH = path.join(DATA_DIR, 'clientes.json');
-  const RESP_PATH = path.join(DATA_DIR, 'responsables.json');
-  // Meta de producción del grupo (spec 2026-10-22 §1.1): lo que edita la lista del Catálogo.
-  // reqGranel/granelPlu van también: el front los lee del grupo para granelAparte y codigoGranelItem.
-  const metaPublica = (ref, entrada) => ({
-    productoRef: ref, ...metaDeEntrada(entrada), granelPlus: granelPlusDe(entrada),
-    activo: metaDeEntrada(entrada).estado !== 'discontinuado',
-    reqGranel: entrada.reqGranel === true, granelPlu: granelPlusDe(entrada)[0] || '',
-  });
 
 router.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, [])));
 
@@ -48,7 +38,7 @@ router.get('/api/catalogo',     (_req, res) => res.json(leerJSON(CATALOGO_PATH, 
 router.get('/api/catalogo/grupos', (_req, res) => {
   const catalogo  = leerJSON(CATALOGO_PATH, []);
   const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
-  const cCfg      = leerJSON(path.join(__dirname, '..', 'config.json'), {});
+  const cCfg      = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
   const mapa = new Map();
   for (const item of catalogo) {
     const ref = item.productoRef || '';
@@ -69,21 +59,45 @@ router.get('/api/catalogo/grupos', (_req, res) => {
     esGranel:        cfgEsGranel(gruposCfg, g.productoRef, cCfg.gruposGranel),
     granelDirecto:   cfgGranelOverride(gruposCfg, g.productoRef),
     esMiel:          cfgEsMiel(gruposCfg, g.productoRef),
-    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef),
-    ...metaDeEntrada(gruposCfg[g.productoRef]),
+    reqGranel:       cfgReqGranel(gruposCfg, g.productoRef)
   }));
   res.json(grupos);
 });
 
+router.post('/api/catalogo/grupos-config', (req, res) => {
+  const cfg = req.body;
+  if (typeof cfg !== 'object' || Array.isArray(cfg))
+    return res.status(400).json({ error: 'Se esperaba un objeto' });
+  // Normalizar: si un entry es {activo:true, granelPlu:''} → true (compactar)
+  const normalizado = {};
+  for (const [k,v] of Object.entries(cfg)) {
+    if (v && typeof v === 'object') {
+      const a = v.activo !== false;
+      // Lista de graneles; granelPlu se mantiene sincronizado con el primero.
+      const gl = [...new Set((Array.isArray(v.granelPlus) ? v.granelPlus : [])
+        .map(x => String(x || '').trim()).filter(Boolean))];
+      const g = gl[0] || String(v.granelPlu||'').trim();
+      const mp = Array.isArray(v.mpManual) ? v.mpManual.filter(x => x && x.nombre) : [];
+      const gd = (typeof v.granelDirecto === 'boolean') ? v.granelDirecto : undefined;
+      const em = (typeof v.esMiel === 'boolean') ? v.esMiel : undefined;
+      const rg = (v.reqGranel === true) ? true : undefined;
+      if (!g && !mp.length && gd === undefined && em === undefined && rg === undefined) { normalizado[k] = a; }
+      else { normalizado[k] = {activo:a, ...(g?{granelPlu:g}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==undefined?{granelDirecto:gd}:{}), ...(em!==undefined?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{})}; }
+    } else { normalizado[k] = v; }
+  }
+  guardarJSON(GRUPOS_CFG_PATH, normalizado);
+  res.json({ ok: true });
+});
+
 router.get('/api/catalogo/grupo/:ref', (req, res) => {
-  const ref      = req.params.ref;
+  const ref      = decodeURIComponent(req.params.ref);
   const catalogo = leerJSON(CATALOGO_PATH, []);
   const items    = catalogo.filter(i => i.productoRef === ref);
   res.json(items);
 });
 
 router.put('/api/catalogo/grupo/:ref', (req, res) => {
-  const ref      = req.params.ref;
+  const ref      = decodeURIComponent(req.params.ref);
   const nuevos   = req.body;
   if (!Array.isArray(nuevos)) return res.status(400).json({ error: 'Se esperaba un array' });
   const catalogo = leerJSON(CATALOGO_PATH, []);
@@ -99,20 +113,6 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
   const normalizados = nuevos.map(i => ({ ...i, refId, productoRef: ref }));
   guardarJSON(CATALOGO_PATH, [...otros, ...normalizados]);
   res.json({ ok: true, productos: normalizados.length });
-});
-
-router.patch('/api/catalogo/grupo/:ref/meta', (req, res) => {
-  const ref = req.params.ref;
-  const catalogo = leerJSON(CATALOGO_PATH, []);
-  if (!catalogo.some(i => i.productoRef === ref)) return res.status(404).json({ error: `No existe el grupo "${ref}"` });
-  const gruposCfg = leerJSON(GRUPOS_CFG_PATH, {});
-  try {
-    const entrada = aplicarMetaGrupo(gruposCfg[ref], req.body, { clientes: leerJSON(CLIENTES_PATH, []), responsables: leerJSON(RESP_PATH, []) });
-    guardarJSON(GRUPOS_CFG_PATH, { ...gruposCfg, [ref]: entrada });
-    res.json(metaPublica(ref, entrada));
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
 });
 
 // ── Importar catálogo desde Excel ─────────────────────────────────────────────

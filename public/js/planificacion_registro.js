@@ -221,5 +221,5 @@ function agregarDesdeModal(i) {
   const sug = resultadosBusqueda[i];
   document.getElementById('overlayBuscar').classList.remove('open');
   if (!sug) return;
-  agregarAlCarrito([sugToItem(sug)]);
+  agregarGrupoItems(sug.rubro || sug.producto, [sugToItem(sug)]);
 }

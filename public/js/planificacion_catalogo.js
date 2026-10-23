@@ -278,33 +278,39 @@ async function guardarGrupo() {
   }
 
   // Grupo nuevo: decidir si es variedad de miel (sección Mieles + tambor).
-  let esMielNuevo;
   if (editarGrupoEsNuevo) {
     if (nuevoGrupoEsMiel) {
-      esMielNuevo = true;                               // vino del botón "Agregar variedad"
+      cfgSetEsMiel(editarGrupoRef, true);               // vino del botón "Agregar variedad"
     } else if (/miel/i.test(editarGrupoRef)) {
       const llevar = await preguntarSeccionMiel(editarGrupoRef); // grupo general con "miel" → preguntar
-      esMielNuevo = !!llevar;
+      cfgSetEsMiel(editarGrupoRef, !!llevar);
     }
   }
 
   const btn = document.getElementById('btnGuardarGrupo');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    const _gPlus = granelesData.map(g => String(g.plu));
+    const _gPlus = granelesData.map(g => g.plu);
     const _gPlu  = _gPlus[0] || '';
-    // Primero el grupo (el PATCH de meta exige que exista en catalogo.json), después su config.
-    await api('PUT', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}`, items);
+    cfgSetGranelPlus(editarGrupoRef, _gPlus);
+    // Persist mpManual into cfg entry (preserves activo + granelPlu already set above)
+    const _cfgEntry = gruposCfgLocal[editarGrupoRef];
+    if (mpManualData.length > 0) {
+      if (_cfgEntry && typeof _cfgEntry === 'object') { _cfgEntry.mpManual = mpManualData; }
+      else { gruposCfgLocal[editarGrupoRef] = { activo: _cfgEntry !== false, mpManual: mpManualData }; }
+    } else if (_cfgEntry && typeof _cfgEntry === 'object') {
+      delete _cfgEntry.mpManual;
+    }
     await Promise.all([
-      api('PATCH', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}/meta`,
-        { granelPlus: _gPlus, mpManual: mpManualData, ...(esMielNuevo !== undefined ? { esMiel: esMielNuevo } : {}) }),
-      guardarFormulasGrupo(),
+      api('PUT', `/api/catalogo/grupo/${encodeURIComponent(editarGrupoRef)}`, items),
+      guardarGruposCfg(),
+      guardarFormulasGrupo()
     ]);
     toast(`✓ "${editarGrupoRef}" — ${items.length} PLUs${_gPlu ? ' · Granel PLU '+_gPlu : ''}`);
     document.getElementById('overlayEditarGrupo').classList.remove('open');
     cargarCatalogo();
   } catch (e) {
-    toast('Error al guardar: ' + mensajeApiError(e), true);
+    toast('Error al guardar: ' + e.message, true);
   } finally {
     btn.disabled = false; btn.textContent = 'Guardar cambios';
   }
@@ -469,304 +475,143 @@ function cfgRawEsMiel(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='obj
 function cfgGetEsMiel(ref){const o=cfgRawEsMiel(ref);if(o!==null)return o;return /^miel\b/i.test((ref||'').trim());}
 // El grupo se planifica por presentaciones, pero antes hay que fabricar el granel (pepas → masa).
 function cfgGetReqGranel(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.reqGranel===true);}
-
-// ── CATÁLOGO DE PRODUCCIÓN (spec 2026-10-22-planificacion-centro §2) ──────
-// Lista simple: una fila por producto (granel base o grupo) con Tipo, Granel base y el tilde Activo.
-// Lo demás (estado, motivo, fasón, responsables, próxima fecha) se edita en el panel de detalle (click en la fila).
-// Todo se guarda con PATCH (grupo: /api/catalogo/grupo/:ref/meta; granel: /api/plan/graneles-base/:plu).
-let granelesBaseCache = [];
-let clientesCatCache = [];
-let catFiltro = 'todos';
-
-function cfgLocalDesdeGrupos(grupos) {
-  const out = {};
-  for (const g of grupos) {
-    const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
-    out[g.productoRef] = {
-      activo: g.activo, ...(gl[0] ? { granelPlu: gl[0] } : {}), ...(gl.length > 1 ? { granelPlus: gl } : {}),
-      ...(Array.isArray(g.mpManual) && g.mpManual.length ? { mpManual: g.mpManual } : {}),
-      ...(typeof g.granelDirecto === 'boolean' ? { granelDirecto: g.granelDirecto } : {}),
-      ...(typeof g.esMiel === 'boolean' ? { esMiel: g.esMiel } : {}),
-      ...(g.reqGranel === true ? { reqGranel: true } : {}),
-    };
-  }
-  return out;
-}
+function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel;return extra?obj:activo;}
+// Setter genérico: parte de la config actual del grupo y aplica solo los campos del patch.
+function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),...patch});}
+function cfgSetActivo(ref,a){cfgSet(ref,{activo:a});}
+function cfgSetGranelPlus(ref,plus){cfgSet(ref,{granelPlus:plus});}
+function cfgSetGranelDirecto(ref,val){cfgSet(ref,{granelDirecto:val});}
+function cfgSetEsMiel(ref,val){cfgSet(ref,{esMiel:val});}
+function cfgSetReqGranel(ref,val){cfgSet(ref,{reqGranel:val});}
 
 async function cargarCatalogo() {
   try {
-    const [grupos, graneles, clientes] = await Promise.all([
-      api('GET', '/api/catalogo/grupos'), api('GET', '/api/plan/graneles-base'), api('GET', '/api/clientes-registro'),
-    ]);
-    gruposCatCache = grupos;
-    granelesBaseCache = graneles;
-    clientesCatCache = clientes;
-    gruposCfgLocal = cfgLocalDesdeGrupos(grupos);
+    gruposCatCache = await api('GET', '/api/catalogo/grupos');
+    gruposCfgLocal = {};
+    for (const g of gruposCatCache) {
+      const gp = g.granelPlu || '';
+      const mp = Array.isArray(g.mpManual) ? g.mpManual : [];
+      const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
+      const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
+      const rg = g.reqGranel === true;
+      const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
+        : g.activo;
+    }
     renderCatalogo();
   } catch (e) {
-    toast('Error al cargar catálogo: ' + mensajeApiError(e), true);
+    toast('Error al cargar catálogo: ' + e.message, true);
   }
-}
-
-const opcionesHTML = (pares, valor) => pares.map(([v, t]) => `<option value="${escHtml(String(v))}" ${String(v) === String(valor ?? '') ? 'selected' : ''}>${escHtml(t)}</option>`).join('');
-const ESTADOS_CAT = [['activo', 'Activo'], ['pausado', 'Pausado'], ['discontinuado', 'Discontinuado']];
-const CAT_TIPO_TXT = { granel: 'Con granel base', directo: 'Directo' };
-
-const catNombreGranel = plu => (granelesBaseCache.find(b => String(b.plu) === String(plu)) || {}).nombre || 'PLU ' + plu;
-const catNombreCliente = id => (clientesCatCache.find(c => String(c.id) === String(id)) || {}).nombre || 'Cliente ' + id;
-
-// ── Lista ─────────────────────────────────────────────────────────
-// Una fila por granel base y por grupo: { esGranel, clave, nombre, x } (x = objeto del cache).
-// Alfabético; los discontinuados van al final.
-function catFilas() {
-  const q = document.getElementById('filtroCatalogo').value.trim().toLowerCase();
-  const grupoPasa = g => catFiltro === 'todos' || (catFiltro === 'fason' ? g.clienteId != null : (catFiltro === g.tipo && g.clienteId == null));
-  const graneles = (catFiltro === 'todos' || catFiltro === 'graneles')
-    ? granelesBaseCache.map(b => ({ esGranel: true, clave: b.plu, nombre: b.nombre, x: b })) : [];
-  const grupos = catFiltro === 'graneles' ? []
-    : gruposCatCache.filter(grupoPasa).map(g => ({ esGranel: false, clave: g.productoRef, nombre: g.productoRef, x: g }));
-  const disc = f => (f.x.estado === 'discontinuado' ? 1 : 0);
-  return [...graneles, ...grupos].filter(f => !q || f.nombre.toLowerCase().includes(q))
-    .sort((a, b) => disc(a) - disc(b) || a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
-}
-
-function catCeldaGranel(f) {
-  if (f.esGranel) return '—';
-  const gl = f.x.granelPlus || [];
-  if (!gl.length) return f.x.tipo === 'granel' ? '<span class="granel-warn">sin granel</span>' : '—';
-  const txt = escHtml(gl.map(catNombreGranel).join(', '));
-  // En un producto directo el granel es solo la referencia para ver el stock de MP.
-  return f.x.tipo === 'granel' ? txt : `<span class="text-sm" title="Referencia para ver el stock de MP">${txt}</span>`;
-}
-
-function catBadges(f) {
-  const pausa = f.x.estado === 'pausado' ? `<span class="cat-badge" title="${escHtml(f.x.motivo)}">⏸ Pausado</span>` : '';
-  const fason = !f.esGranel && f.x.clienteId != null ? `<span class="cat-badge fason">Fasón · ${escHtml(catNombreCliente(f.x.clienteId))}</span>` : '';
-  return pausa + fason;
-}
-
-function catFilaHTML(f) {
-  const disc = f.x.estado === 'discontinuado';
-  return `<tr ${f.esGranel ? 'data-granel' : 'data-ref'}="${escHtml(f.clave)}"${disc ? ' class="inactivo"' : ''}>
-    <td class="font-bold">${escHtml(f.nombre)}${catBadges(f)}</td>
-    <td>${f.esGranel ? 'Granel base' : escHtml(CAT_TIPO_TXT[f.x.tipo] || '')}</td>
-    <td>${catCeldaGranel(f)}</td>
-    <td class="cat-activo"><input type="checkbox" data-activo title="Activo"${disc ? '' : ' checked'}></td>
-  </tr>`;
 }
 
 function renderCatalogo() {
-  document.getElementById('cTotalGrupos').textContent = gruposCatCache.length;
-  document.getElementById('cActivosGrupos').textContent = gruposCatCache.filter(g => g.estado !== 'discontinuado').length;
-  document.getElementById('cTotalPlu').textContent = gruposCatCache.reduce((s, g) => s + g.totalPlu, 0);
-  document.querySelectorAll('#catChips [data-filtro]').forEach(b => {
-    b.classList.toggle('btn-primary', b.dataset.filtro === catFiltro);
-    b.classList.toggle('btn-secondary', b.dataset.filtro !== catFiltro);
-  });
-  const filas = catFilas();
-  document.getElementById('tablaCatalogo').innerHTML = filas.length
-    ? `<table class="cat-tabla"><thead><tr><th>Producto</th><th>Tipo</th><th>Granel base</th><th class="cat-activo">Activo</th></tr></thead>
-        <tbody>${filas.map(catFilaHTML).join('')}</tbody></table>`
-    : '<div class="loading">Sin resultados.</div>';
+  const q = document.getElementById('filtroCatalogo').value.trim().toLowerCase();
+  const filtrado = q
+    ? gruposCatCache.filter(g => g.productoRef.toLowerCase().includes(q))
+    : gruposCatCache;
+
+  const mieles = filtrado.filter(g => cfgGetEsMiel(g.productoRef));
+  const otros  = filtrado.filter(g => !cfgGetEsMiel(g.productoRef));
+
+  const activos   = gruposCatCache.filter(g => cfgGetActivo(g.productoRef)).length;
+  const totalPlu  = gruposCatCache.reduce((s, g) => s + g.totalPlu, 0);
+  document.getElementById('cTotalGrupos').textContent  = gruposCatCache.length;
+  document.getElementById('cActivosGrupos').textContent = activos;
+  document.getElementById('cTotalPlu').textContent      = totalPlu;
+
+  document.getElementById('tablaMieles').innerHTML = renderGrupoRows(mieles) || '<div class="loading">Sin variedades de miel en el catálogo.</div>';
+  document.getElementById('tablaOtros').innerHTML  = renderGrupoRows(otros)  || '<div class="loading">Sin grupos.</div>';
 }
 
-// Aplica un PATCH a un grupo o a un granel base y actualiza los caches. Devuelve true si hay que
-// recargar todo el catálogo: tipo/granelPlus de un grupo cambian las variedades de los graneles base.
-async function catPatchear(esGranel, clave, patch) {
-  if (esGranel) {
-    const r = await api('PATCH', `/api/plan/graneles-base/${encodeURIComponent(clave)}`, patch);
-    granelesBaseCache = granelesBaseCache.map(b => (b.plu === clave ? r : b));
-    return false;
-  }
-  const r = await api('PATCH', `/api/catalogo/grupo/${encodeURIComponent(clave)}/meta`, patch);
-  gruposCatCache = gruposCatCache.map(g => (g.productoRef === clave ? { ...g, ...r } : g));
-  gruposCfgLocal = cfgLocalDesdeGrupos(gruposCatCache);
-  return 'tipo' in patch || 'granelPlus' in patch;
+function renderGrupoRows(grupos) {
+  if (!grupos.length) return '';
+  return grupos.map(g => {
+    const activo = cfgGetActivo(g.productoRef);
+    const gPlu   = cfgGetGranelPlus(g.productoRef).join(', ');
+    const esGranelG = cfgGetGranelDirecto(g.productoRef);
+    const reqGran   = cfgGetReqGranel(g.productoRef);
+    const id     = 'tog-' + g.productoRef.replace(/\W+/g, '_');
+    const idG    = 'tggran-' + g.productoRef.replace(/\W+/g, '_');
+    const idRG   = 'tgreqg-' + g.productoRef.replace(/\W+/g, '_');
+    const ref    = g.productoRef.replace(/'/g, "\\'");
+    return `<div class="grupo-cat-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="${id}" ${activo ? 'checked' : ''}
+          onchange="toggleGrupoActivo('${ref}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="grupo-cat-nombre${activo ? '' : ' inactivo'}">${escHtml(g.productoRef)}</span>
+      <div class="grupo-cat-meta">
+        <span title="Presentaciones base">${g.presentaciones} presentaciones</span>
+        <span title="Total PLUs">${g.totalPlu} PLUs</span>
+        ${g.variantes ? `<span title="Packs y bultos">${g.variantes} variantes</span>` : ''}
+        ${gPlu ? `<span title="Granel (MP)" style="color:var(--amb-text);font-weight:700">🛢 ${gPlu}</span>` : ''}
+      </div>
+      <label class="toggle-switch" title="Producir como granel (bulk). Off = planificar por presentaciones." style="transform:scale(.8)">
+        <input type="checkbox" id="${idG}" ${esGranelG ? 'checked' : ''}
+          onchange="toggleGrupoGranel('${ref}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span style="font-size:11px;color:${esGranelG?'#065f46':'var(--muted)'};font-weight:${esGranelG?'700':'400'};margin-right:6px">granel</span>
+      <label style="font-size:11px;display:flex;align-items:center;gap:4px;color:${reqGran?'var(--amb-text)':'var(--muted)'};font-weight:${reqGran?'700':'400'}"
+        title="Se hace en presentaciones pero primero hay que fabricar el granel (ej. pepas → masa). Al agregarlo al plan avisa y suma la orden de granel.">
+        <input type="checkbox" id="${idRG}" ${reqGran ? 'checked' : ''}
+          onchange="toggleGrupoReqGranel('${ref}', this.checked)">
+        granel previo
+      </label>
+      <button class="btn btn-secondary btn-sm" style="font-size:11px;margin-left:8px"
+        onclick="abrirModalGrupo('${ref}')">Ver / Editar</button>
+    </div>`;
+  }).join('');
 }
 
-// Tilde Activo: destildar = discontinuado, tildar = activo (un pausado sigue tildado, con su badge).
-document.getElementById('tablaCatalogo').addEventListener('change', async e => {
-  const chk = e.target.closest('input[data-activo]');
-  if (!chk) return;
-  const fila = chk.closest('tr');
-  const esGranel = fila.dataset.granel != null;
-  chk.disabled = true;
-  try {
-    await catPatchear(esGranel, esGranel ? fila.dataset.granel : fila.dataset.ref, { estado: chk.checked ? 'activo' : 'discontinuado' });
-    toast('Guardado');
-  } catch (err) {
-    toast('No se guardó: ' + mensajeApiError(err), true);
-  }
-  renderCatalogo(); // reordena (los discontinuados bajan) y, si falló, vuelve al valor guardado
-});
-document.getElementById('tablaCatalogo').addEventListener('click', e => {
-  const fila = e.target.closest('tbody tr');
-  if (!fila || e.target.closest('.cat-activo')) return;
-  const esGranel = fila.dataset.granel != null;
-  catAbrirDetalle(esGranel, esGranel ? fila.dataset.granel : fila.dataset.ref);
-});
-
-// ── Panel de detalle ──────────────────────────────────────────────
-let catDet = null; // { esGranel, clave, orig } del producto abierto en el panel
-
-function catDetEstadoHTML(x) {
-  return `<div class="cat-dos">
-    <label class="cat-campo">Estado<select data-campo="estado">${opcionesHTML(ESTADOS_CAT, x.estado)}</select></label>
-    <label class="cat-campo" data-motivo${x.estado === 'pausado' ? '' : ' hidden'}>Motivo de la pausa<input type="text" data-campo="motivo" value="${escHtml(x.motivo)}"></label>
-  </div>`;
-}
-
-function catDetRespFechaHTML(x) {
-  // Los responsables ya guardados se listan aunque no estén en la lista actual: así no se pierden al guardar.
-  const nombres = [...new Set([...(responsablesCache || []).map(respNombre).filter(Boolean), ...x.responsables])];
-  const checks = nombres.map(n => `<label><input type="checkbox" data-campo="responsables" value="${escHtml(n)}"${x.responsables.includes(n) ? ' checked' : ''}> ${escHtml(n)}</label>`).join('');
-  return `<div class="cat-campo">Responsables<div class="cat-resp">${checks || '<span class="text-sm">No hay responsables cargados</span>'}</div></div>
-    <label class="cat-campo">Próxima producción<input type="date" data-campo="proximaFecha" value="${escHtml(x.proximaFecha || '')}"></label>`;
-}
-
-function catDetGrupoHTML(g) {
-  const gl = g.granelPlus || [];
-  const opcionesGranel = [['', '— sin granel —'], ...granelesBaseCache.map(b => [b.plu, b.nombre])];
-  // Un granel que no está en los graneles base igual se muestra (si no, el select diría "sin granel").
-  if (gl.length === 1 && !opcionesGranel.some(([v]) => String(v) === String(gl[0]))) opcionesGranel.push([gl[0], 'PLU ' + gl[0]]);
-  const granel = gl.length > 1
-    ? `<div class="cat-campo">Granel base<div class="cat-ro">${escHtml(gl.map(catNombreGranel).join(', '))}</div><span class="text-sm">Varios graneles: se editan en Presentaciones.</span></div>`
-    : `<label class="cat-campo">Granel base<select data-campo="granel">${opcionesHTML(opcionesGranel, gl[0] || '')}</select></label>`;
-  const clientes = [['', 'Propio'], ...clientesCatCache.map(c => [c.id, c.nombre])];
-  return `<div class="cat-dos">
-      <label class="cat-campo">Tipo<select data-campo="tipo">${opcionesHTML(Object.entries(CAT_TIPO_TXT), g.tipo)}</select></label>
-      ${granel}
-    </div>
-    ${catDetEstadoHTML(g)}
-    <label class="cat-campo">Cliente fasón<select data-campo="clienteId">${opcionesHTML(clientes, g.clienteId ?? '')}</select></label>
-    ${catDetRespFechaHTML(g)}
-    <div class="cat-pres"><span>${g.presentaciones} presentaciones · ${g.totalPlu} PLUs</span>
-      <button class="btn btn-secondary btn-sm" data-accion="presentaciones">Editar presentaciones</button></div>`;
-}
-
-function catDetGranelHTML(b) {
-  return `<label class="cat-campo">Nombre<input type="text" data-campo="nombre" value="${escHtml(b.nombre)}"></label>
-    ${catDetEstadoHTML(b)}
-    ${catDetRespFechaHTML(b)}
-    <div class="cat-campo">Alimenta<div class="cat-ro">${b.variedades.length ? escHtml(b.variedades.join(', ')) : 'sin variedades'}</div></div>`;
-}
-
-function catMostrarError(msg) {
-  const el = document.getElementById('catDetError');
-  el.textContent = msg;
-  el.hidden = !msg;
-}
-
-function catAbrirDetalle(esGranel, clave) {
-  const x = esGranel ? granelesBaseCache.find(b => b.plu === clave) : gruposCatCache.find(g => g.productoRef === clave);
-  if (!x) return;
-  catDet = { esGranel, clave, orig: x };
-  document.getElementById('catDetTitulo').textContent = esGranel ? `Granel base · ${x.nombre}` : clave;
-  document.getElementById('catDetBody').innerHTML = esGranel ? catDetGranelHTML(x) : catDetGrupoHTML(x);
-  catMostrarError('');
-  document.getElementById('overlayCatDetalle').classList.add('open');
-}
-
-function catCerrarDetalle() {
-  catDet = null;
-  document.getElementById('overlayCatDetalle').classList.remove('open');
-}
-
-// Valores del formulario del panel; un campo que el panel no muestra queda undefined.
-function catLeerForm() {
-  const body = document.getElementById('catDetBody');
-  const val = c => { const el = body.querySelector(`[data-campo=${c}]`); return el ? el.value : undefined; };
-  return {
-    tipo: val('tipo'), granel: val('granel'), estado: val('estado'), motivo: (val('motivo') || '').trim(),
-    clienteId: val('clienteId'), nombre: val('nombre'), proximaFecha: val('proximaFecha'),
-    responsables: [...body.querySelectorAll('[data-campo=responsables]:checked')].map(x => x.value),
-  };
-}
-
-function catValidarForm(orig, f, esGranel) {
-  if (f.estado === 'pausado' && !f.motivo) return 'Indicá el motivo de la pausa.';
-  if (esGranel) return '';
-  const granel = f.granel !== undefined ? (f.granel ? [f.granel] : []) : (orig.granelPlus || []);
-  if ((f.tipo ?? orig.tipo) === 'granel' && !granel.length) return 'Un producto "Con granel base" necesita su granel base: elegilo en la lista.';
-  return '';
-}
-
-// Compara el formulario con el original y arma el PATCH solo con lo que cambió.
-function catArmarPatch(orig, f) {
-  const patch = {};
-  const motivoOrig = orig.estado === 'pausado' ? orig.motivo : '';
-  const motivoNuevo = f.estado === 'pausado' ? f.motivo : '';
-  if (f.estado !== orig.estado || motivoNuevo !== motivoOrig) Object.assign(patch, { estado: f.estado, motivo: motivoNuevo });
-  if (f.nombre !== undefined && f.nombre.trim() !== orig.nombre) patch.nombre = f.nombre.trim();
-  if (f.tipo !== undefined && f.tipo !== orig.tipo) patch.tipo = f.tipo;
-  if (f.granel !== undefined && f.granel !== String((orig.granelPlus || [])[0] || '')) patch.granelPlus = f.granel ? [f.granel] : [];
-  if (f.clienteId !== undefined && f.clienteId !== String(orig.clienteId ?? '')) patch.clienteId = f.clienteId === '' ? null : Number(f.clienteId);
-  if ([...f.responsables].sort().join('|') !== [...orig.responsables].sort().join('|')) patch.responsables = f.responsables;
-  if ((f.proximaFecha || null) !== (orig.proximaFecha || null)) patch.proximaFecha = f.proximaFecha || null;
-  return patch;
-}
-
-async function catGuardarDetalle() {
-  if (!catDet) return;
-  const { esGranel, clave, orig } = catDet;
-  const f = catLeerForm();
-  const invalido = catValidarForm(orig, f, esGranel);
-  if (invalido) { catMostrarError(invalido); return; }
-  const patch = catArmarPatch(orig, f);
-  if (!Object.keys(patch).length) { catCerrarDetalle(); return; }
-  const btn = document.getElementById('btnCatDetGuardar');
-  btn.disabled = true; btn.textContent = 'Guardando…';
-  try {
-    const recargar = await catPatchear(esGranel, clave, patch);
-    catCerrarDetalle();
-    toast('Guardado');
-    if (recargar) await cargarCatalogo(); else renderCatalogo();
-  } catch (e) {
-    catMostrarError(mensajeApiError(e)); // el panel queda abierto con lo que el usuario escribió
-  } finally {
-    btn.disabled = false; btn.textContent = 'Guardar';
-  }
-}
-
-document.getElementById('catDetBody').addEventListener('change', e => {
-  if (e.target.dataset.campo !== 'estado') return;
-  const motivo = document.querySelector('#catDetBody [data-motivo]');
-  motivo.hidden = e.target.value !== 'pausado';
-  if (!motivo.hidden) motivo.querySelector('input').focus();
-});
-document.getElementById('catDetBody').addEventListener('click', e => {
-  if (!e.target.closest('[data-accion=presentaciones]') || !catDet) return;
-  const ref = catDet.clave;
-  catCerrarDetalle();
-  abrirModalGrupo(ref);
-});
-document.getElementById('btnCatDetGuardar').addEventListener('click', catGuardarDetalle);
-document.getElementById('btnCatDetCancelar').addEventListener('click', catCerrarDetalle);
-document.getElementById('cerrarCatDet').addEventListener('click', catCerrarDetalle);
-document.getElementById('overlayCatDetalle').addEventListener('click', e => { if (e.target === e.currentTarget) catCerrarDetalle(); });
-
-// ── Filtros y altas ───────────────────────────────────────────────
-document.getElementById('catChips').addEventListener('click', e => {
-  const b = e.target.closest('[data-filtro]');
-  if (!b) return;
-  catFiltro = b.dataset.filtro;
+async function toggleGrupoActivo(productoRef, activo) {
+  cfgSetActivo(productoRef, activo);
   renderCatalogo();
-});
-document.getElementById('btnNuevoGranelBase').addEventListener('click', async () => {
-  const plu = (prompt('PLU de SIGA del granel base') || '').trim();
-  if (!plu) return;
+  await guardarGruposCfg();
+}
+
+async function toggleGrupoGranel(productoRef, esGranel) {
+  cfgSetGranelDirecto(productoRef, esGranel);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function toggleGrupoReqGranel(productoRef, req) {
+  cfgSetReqGranel(productoRef, req);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function guardarGruposCfg() {
   try {
-    await api('POST', '/api/plan/graneles-base', { plu });
-    toast(`Granel ${plu} agregado`);
-    catFiltro = 'graneles';
-    cargarCatalogo();
-  } catch (e) { toast('No se pudo agregar: ' + mensajeApiError(e), true); }
-});
+    await api('POST', '/api/catalogo/grupos-config', gruposCfgLocal);
+  } catch (e) { toast('Error al guardar config: ' + e.message, true); }
+}
+
+async function toggleTodasMieles(activo) {
+  for (const g of gruposCatCache)
+    if (cfgGetEsMiel(g.productoRef)) cfgSetActivo(g.productoRef, activo);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function toggleTodosOtros(activo) {
+  for (const g of gruposCatCache)
+    if (!cfgGetEsMiel(g.productoRef)) cfgSetActivo(g.productoRef, activo);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
 
 document.getElementById('filtroCatalogo').addEventListener('input', renderCatalogo);
 document.getElementById('btnRecargarCatalogo').addEventListener('click', cargarCatalogo);
 document.getElementById('btnNuevoGrupo').addEventListener('click', abrirModalNuevoGrupo);
 document.getElementById('btnNuevaVariedadMiel').addEventListener('click', abrirModalNuevaVariedadMiel);
+document.getElementById('btnActivarTodasMieles').addEventListener('click',    () => toggleTodasMieles(true));
+document.getElementById('btnDesactivarTodasMieles').addEventListener('click', () => toggleTodasMieles(false));
+document.getElementById('btnActivarTodos').addEventListener('click',    () => toggleTodosOtros(true));
+document.getElementById('btnDesactivarTodos').addEventListener('click', () => toggleTodosOtros(false));
 
 // ── Importar catálogo (tab Catálogo) ──────────────────────────────
 document.getElementById('inputCatalogoTab').addEventListener('change', async function () {
@@ -786,6 +631,31 @@ document.getElementById('inputCatalogoTab').addEventListener('change', async fun
     toast('Error al importar: ' + err.message, true);
   } finally {
     document.getElementById('btnImportarCatalogoTab').childNodes[0].textContent = '📥 Actualizar catálogo ';
+    this.value = '';
+    this.disabled = false;
+  }
+});
+
+// ── Importar catálogo ─────────────────────────────────────────────
+document.getElementById('inputCatalogo').addEventListener('change', async function () {
+  const file = this.files[0];
+  if (!file) return;
+  const label = document.getElementById('btnImportarCatalogo');
+  const textoOriginal = '📥 Actualizar catálogo';
+  label.childNodes[0].textContent = '⏳ Importando… ';
+  this.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('archivo', file);
+    const res  = await fetch(SERVER_URL + '/api/catalogo/importar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    toast(`✓ Catálogo actualizado — ${data.productos} productos`);
+    cargarSugerencias();
+  } catch (err) {
+    toast('Error al importar: ' + err.message, true);
+  } finally {
+    label.childNodes[0].textContent = textoOriginal + ' ';
     this.value = '';
     this.disabled = false;
   }

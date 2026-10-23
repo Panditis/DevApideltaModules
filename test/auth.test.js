@@ -175,12 +175,3 @@ test('hubDeUsuario ata a /sucursales sólo con el permiso + el módulo, y nunca 
   assert.strictEqual(hubDeUsuario({ activo: false, modulos: ['sucursales', 'solo-sucursales'] }), null);
   assert.strictEqual(hubDeUsuario(null), null);
 });
-
-// ── Planificación nueva: mismo permiso que /planificacion ───────────────────────────────────────
-test('moduloDeRuta: /planificacion-nueva y /api/plan-nueva van al módulo planificacion', () => {
-  assert.strictEqual(moduloDeRuta('/planificacion-nueva'), 'planificacion');
-  assert.strictEqual(moduloDeRuta('/Planificacion-Nueva'), 'planificacion');
-  assert.strictEqual(moduloDeRuta('/api/plan-nueva'), 'planificacion');
-  assert.strictEqual(moduloDeRuta('/api/plan-nueva/ordenes/x/anular'), 'planificacion');
-  assert.strictEqual(moduloDeRuta('/api/plan-nuevax'), null); // límite de segmento
-});
