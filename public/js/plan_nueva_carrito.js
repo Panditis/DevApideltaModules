@@ -2,8 +2,11 @@
 // Planificación nueva › Carrito: panel lateral con lo que se va a producir. Vive en localStorage hasta generar la
 // orden (POST /api/plan-nueva/ordenes). Visible desde cualquier tab con el botón del header.
 
-let carrito = leerCarrito(localStorage, hoyISO());
+// Con los datos del sitio bloqueados, tocar la propiedad localStorage ya tira: sin almacén el carrito dura la pestaña.
+const almacen = (() => { try { return localStorage; } catch { return null; } })();
+let carrito = leerCarrito(almacen, hoyISO());
 let responsablesLista = null; // nombres de data/responsables.json; se piden la primera vez que se abre el panel
+let carGenerando = false;     // POST en vuelo: el botón sigue apagado aunque se agreguen líneas mientras tanto
 
 // Error del servidor (400/409/503…) dentro del panel: el toast solo quedaría tapado por las líneas.
 function carMostrarError(mensaje) {
@@ -15,7 +18,7 @@ function carMostrarError(mensaje) {
 // Guarda y actualiza el contador. repintar=false mientras se escribe en un campo (no pierde el foco).
 function cambiarCarrito(nuevo, { repintar = true } = {}) {
   carrito = nuevo;
-  guardarCarrito(localStorage, carrito);
+  guardarCarrito(almacen, carrito);
   document.getElementById('carritoCuenta').textContent = carrito.lineas.length;
   carMostrarError('');
   if (!repintar) return;
@@ -43,7 +46,7 @@ function lineaCarritoHtml(l) {
       <label class="text-xs text-gris flex-1">Responsables
         <select multiple size="3" data-campo="responsables" class="block w-full mt-1 rounded border border-borde text-ink text-sm">${opciones}</select></label>
     </div>
-    <input data-campo="notas" value="${esc(l.notas)}" maxlength="500" placeholder="Notas de la línea" class="px-2 py-1 rounded border border-borde text-sm">
+    <input data-campo="notas" value="${esc(l.notas)}" maxlength="500" placeholder="Notas de la línea" aria-label="Notas de ${esc(l.nombre)}" class="px-2 py-1 rounded border border-borde text-sm">
   </li>`;
 }
 
@@ -52,15 +55,20 @@ function pintarCarrito() {
   document.getElementById('carNotas').value = carrito.notas;
   document.getElementById('carLineas').innerHTML = carrito.lineas.map(lineaCarritoHtml).join('')
     || '<li class="p-3 text-gris">Vacío. Agregá presentaciones con “+ Planificar”.</li>';
-  document.getElementById('carGenerar').disabled = !carrito.lineas.length;
+  document.getElementById('carGenerar').disabled = carGenerando || !carrito.lineas.length;
 }
 
-async function toggleCarrito() {
-  const panel = document.getElementById('carrito');
-  const abrir = panel.classList.contains('hidden');
-  panel.classList.toggle('hidden', !abrir);
-  document.getElementById('btnCarrito').setAttribute('aria-expanded', String(abrir));
-  if (!abrir) return;
+// El panel abierto tapa la derecha de la pantalla: body.con-carrito le deja ese lugar al contenido (ver el <style>).
+function cerrarCarrito() {
+  document.getElementById('carrito').classList.add('hidden');
+  document.getElementById('btnCarrito').setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('con-carrito');
+}
+
+async function abrirCarrito() {
+  document.getElementById('carrito').classList.remove('hidden');
+  document.getElementById('btnCarrito').setAttribute('aria-expanded', 'true');
+  document.body.classList.add('con-carrito');
   carMostrarError('');
   pintarCarrito();
   if (responsablesLista) return;
@@ -70,20 +78,27 @@ async function toggleCarrito() {
   } catch (e) { carMostrarError(`No se pudo cargar la lista de responsables: ${e.message}`); } // se reintenta al reabrir
 }
 
+const toggleCarrito = () => (document.getElementById('carrito').classList.contains('hidden') ? abrirCarrito() : cerrarCarrito());
+
 async function generarOrden() {
-  const boton = document.getElementById('carGenerar');
-  boton.disabled = true; // evita el doble envío
+  if (carGenerando) return;
+  const enviada = payloadOrden(carrito); // foto de lo que viaja: lo agregado después no se pierde al terminar
+  carGenerando = true;
+  document.getElementById('carGenerar').disabled = true; // evita el doble envío
   carMostrarError('');
   try {
-    const orden = await api('POST', '/api/plan-nueva/ordenes', payloadOrden(carrito));
-    cambiarCarrito(carritoVacio(hoyISO()));
-    await toggleCarrito(); // estaba abierto: lo cierra
+    const orden = await api('POST', '/api/plan-nueva/ordenes', enviada);
+    cambiarCarrito(quitarEnviadas(carrito, enviada, hoyISO()));
+    cerrarCarrito();
     toast(`Orden #${orden.numero} generada`);
     mostrarTab('ordenes');
     await ordAbrir(orden.id); // plan_nueva_ordenes.js: no tira, los errores quedan en la lista
   } catch (e) {
     carMostrarError(e.message);
-    boton.disabled = !carrito.lineas.length;
+    if (document.getElementById('carrito').classList.contains('hidden')) toast(e.message, 'error'); // cerrado durante el envío
+  } finally {
+    carGenerando = false;
+    document.getElementById('carGenerar').disabled = !carrito.lineas.length;
   }
 }
 
@@ -106,6 +121,9 @@ document.getElementById('carVaciar').addEventListener('click', () => {
   if (carrito.lineas.length && confirm('¿Vaciar el carrito?')) cambiarCarrito(carritoVacio(hoyISO()));
 });
 document.getElementById('btnCarrito').addEventListener('click', toggleCarrito);
-document.getElementById('carCerrar').addEventListener('click', toggleCarrito);
+document.getElementById('carCerrar').addEventListener('click', cerrarCarrito);
+document.addEventListener('keydown', e => { // con un <dialog> abierto, Esc es de él
+  if (e.key === 'Escape' && !document.querySelector('dialog[open]')) cerrarCarrito();
+});
 document.getElementById('carGenerar').addEventListener('click', generarOrden);
 document.getElementById('carritoCuenta').textContent = carrito.lineas.length;

@@ -25,7 +25,7 @@ TABS.planificacion = { cargar: cargarTablero };
 
 function filaTableroHtml(p, cat) {
   const accion = enCarrito(carrito, p.plu)
-    ? '<span class="text-xs text-ok">✓ En el carrito</span>'
+    ? `<span tabindex="-1" data-enplan="${esc(p.plu)}" class="text-xs text-ok">✓ En el carrito</span>`
     : `<button type="button" data-planificar="${esc(p.plu)}" data-cat="${esc(cat.id)}" class="px-2 py-1 rounded-lg bg-verde text-white text-xs hover:bg-verdeHover">+ Planificar</button>`;
   return `<tr class="border-t border-borde">
     <td class="p-2">${esc(p.nombre)} <span class="text-xs text-gris tabular-nums">${esc(p.plu)}</span></td>
@@ -43,7 +43,7 @@ function categoriaTableroHtml(c, abierta, diasCubrir) {
     <div class="cuerpo"><table class="w-full text-sm">
       <thead><tr class="text-gris text-xs"><th class="text-left p-2">Presentación</th><th class="text-right p-2">Consumo/día</th>
         <th class="text-right p-2">Consumo/mes</th><th class="text-right p-2">Stock C. Central</th>
-        <th class="text-right p-2" title="consumo/día × ${diasCubrir} − stock, hacia arriba">Sugerido (${diasCubrir} d)</th><th class="p-2"></th></tr></thead>
+        <th class="text-right p-2" title="consumo/día × ${esc(diasCubrir)} − stock, hacia arriba">Sugerido (${esc(diasCubrir)} d)</th><th class="p-2"></th></tr></thead>
       <tbody>${c.presentaciones.map(p => filaTableroHtml(p, c)).join('') || '<tr><td colspan="6" class="p-2 text-gris">Sin presentaciones.</td></tr>'}</tbody>
     </table></div></details>`;
 }
@@ -67,6 +67,7 @@ async function aplicarParams() {
     diasCubrir: Number(document.getElementById('pDiasCubrir').value),
   };
   const boton = document.getElementById('btnParams');
+  if (boton.disabled) return; // ya hay un envío en curso (Enter repetido)
   boton.disabled = true;
   try {
     await api('PUT', '/api/plan-nueva/params', body);
@@ -87,7 +88,14 @@ document.getElementById('tablero').addEventListener('click', e => {
   if (!b || !tableroActual) return;
   const cat = tableroActual.categorias.find(c => c.id === b.dataset.cat);
   const fila = cat && cat.presentaciones.find(p => p.plu === b.dataset.planificar);
-  if (fila) agregarFilaAlCarrito(fila, cat.nombre);
+  if (!fila) return;
+  agregarFilaAlCarrito(fila, cat.nombre);
+  // El botón pulsado se reemplaza por "✓ En el carrito": el foco pasa a esa marca y no se pierde con el repintado.
+  const marca = document.querySelector(`[data-enplan="${CSS.escape(fila.plu)}"]`);
+  if (marca) marca.focus();
 });
 document.getElementById('tabBuscar').addEventListener('input', pintarTablero);
 document.getElementById('btnParams').addEventListener('click', aplicarParams);
+for (const id of ['pDiasConsumo', 'pDiasCubrir']) {
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') aplicarParams(); });
+}

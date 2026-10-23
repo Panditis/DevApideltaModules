@@ -51,16 +51,27 @@ const payloadOrden = carrito => ({
   lineas: carrito.lineas.map(({ plu, nombre, cantidad, responsables, notas }) => ({ plu, nombre, cantidad, responsables, notas })),
 });
 
-// Carrito guardado, o uno vacío con fecha `hoy` si no hay, está roto o el storage no responde.
+// Tras generar la orden: saca sólo las líneas enviadas (lo agregado mientras viajaba el POST queda). Si no queda
+// nada, carrito vacío de `hoy`; si queda, las notas se limpian salvo que se hayan cambiado durante el envío.
+function quitarEnviadas(carrito, enviada, hoy) {
+  const enviados = new Set(enviada.lineas.map(l => l.plu));
+  const lineas = carrito.lineas.filter(l => !enviados.has(l.plu));
+  if (!lineas.length) return carritoVacio(hoy);
+  return { ...carrito, lineas, notas: carrito.notas === enviada.notas ? '' : carrito.notas };
+}
+
+// Carrito guardado, o uno vacío con fecha `hoy` si no hay, está roto o el storage no responde (null = sin storage).
+// Una fecha guardada que ya pasó vuelve a hoy: la orden se genera para hoy salvo que se elija otra a propósito.
 function leerCarrito(storage, hoy) {
   try {
     const c = JSON.parse(storage.getItem(CLAVE_CARRITO));
     const lineasOk = c && Array.isArray(c.lineas) && c.lineas.every(l => l && typeof l.plu === 'string' && Array.isArray(l.responsables));
-    if (lineasOk && typeof c.fecha === 'string' && typeof c.notas === 'string') return c;
+    if (lineasOk && typeof c.fecha === 'string' && typeof c.notas === 'string') return c.fecha < hoy ? { ...c, fecha: hoy } : c;
   } catch { /* storage bloqueado o JSON roto: se arranca vacío */ }
   return carritoVacio(hoy);
 }
 function guardarCarrito(storage, carrito) {
+  if (!storage) return;
   try { storage.setItem(CLAVE_CARRITO, JSON.stringify(carrito)); }
   catch (e) { console.warn('[plan-nueva] no se pudo guardar el carrito:', e.message); }
 }
@@ -102,6 +113,6 @@ function mostrarTab(nombre) {
 if (typeof module !== 'undefined') {
   module.exports = {
     esc, normalizarTexto, fmtNum, duenioPlu, hoyISO, filtrarTablero,
-    carritoVacio, enCarrito, agregarAlCarrito, editarLinea, quitarDelCarrito, payloadOrden, leerCarrito, guardarCarrito,
+    carritoVacio, enCarrito, agregarAlCarrito, editarLinea, quitarDelCarrito, payloadOrden, quitarEnviadas, leerCarrito, guardarCarrito,
   };
 }

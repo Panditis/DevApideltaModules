@@ -81,8 +81,36 @@ test('leerCarrito: nada, roto, forma inválida o storage que tira → vacío de 
   assert.deepStrictEqual(f.leerCarrito(st('{roto'), hoy), f.carritoVacio(hoy));
   assert.deepStrictEqual(f.leerCarrito(st('{"lineas":3}'), hoy), f.carritoVacio(hoy));
   assert.deepStrictEqual(f.leerCarrito({ getItem: () => { throw new Error('bloqueado'); } }, hoy), f.carritoVacio(hoy));
-  const guardado = { fecha: '2026-10-20', notas: 'x', lineas: [] };
+  assert.deepStrictEqual(f.leerCarrito(null, hoy), f.carritoVacio(hoy)); // sin localStorage
+  const guardado = { fecha: '2026-10-25', notas: 'x', lineas: [] };
   assert.deepStrictEqual(f.leerCarrito(st(JSON.stringify(guardado)), hoy), guardado);
+});
+
+test('leerCarrito: una fecha guardada anterior a hoy vuelve a hoy; las líneas y notas se conservan', () => {
+  const linea = { plu: '100', nombre: 'A', categoria: 'C', cantidad: 3, responsables: [], notas: '' };
+  const guardado = { fecha: '2026-10-20', notas: 'x', lineas: [linea] };
+  const r = f.leerCarrito({ getItem: () => JSON.stringify(guardado) }, '2026-10-22');
+  assert.deepStrictEqual(r, { fecha: '2026-10-22', notas: 'x', lineas: [linea] });
+  assert.strictEqual(guardado.fecha, '2026-10-20');
+});
+
+test('quitarEnviadas: saca sólo las líneas enviadas; lo agregado durante el envío sobrevive', () => {
+  const base = f.agregarAlCarrito(f.agregarAlCarrito(f.carritoVacio('2026-10-22'), fila(), 'A'), fila({ plu: '2' }), 'A');
+  const enviada = f.payloadOrden({ ...base, notas: 'lunes' });
+  const durante = f.agregarAlCarrito({ ...base, notas: 'lunes' }, fila({ plu: '3' }), 'A');
+  const r = f.quitarEnviadas(durante, enviada, '2026-10-23');
+  assert.deepStrictEqual(r.lineas.map(l => l.plu), ['3']);
+  assert.strictEqual(r.notas, '');       // las notas eran de la orden enviada
+  assert.strictEqual(r.fecha, '2026-10-22');
+  assert.strictEqual(durante.lineas.length, 3);
+});
+
+test('quitarEnviadas: si no queda nada, carrito vacío de hoy; notas escritas durante el envío se conservan', () => {
+  const base = f.agregarAlCarrito(f.carritoVacio('2026-10-20'), fila(), 'A');
+  const enviada = f.payloadOrden(base);
+  assert.deepStrictEqual(f.quitarEnviadas(base, enviada, '2026-10-22'), f.carritoVacio('2026-10-22'));
+  const conNotaNueva = f.agregarAlCarrito({ ...base, notas: 'nueva' }, fila({ plu: '2' }), 'A');
+  assert.strictEqual(f.quitarEnviadas(conNotaNueva, enviada, '2026-10-22').notas, 'nueva');
 });
 
 test('guardarCarrito escribe en la clave del módulo y no rompe si el storage tira', () => {
@@ -90,6 +118,7 @@ test('guardarCarrito escribe en la clave del módulo y no rompe si el storage ti
   f.guardarCarrito({ setItem: (k, v) => { datos[k] = v; } }, f.carritoVacio('2026-10-22'));
   assert.deepStrictEqual(JSON.parse(datos['planNueva.carrito.v1']), f.carritoVacio('2026-10-22'));
   assert.doesNotThrow(() => f.guardarCarrito({ setItem: () => { throw new Error('lleno'); } }, f.carritoVacio('x')));
+  assert.doesNotThrow(() => f.guardarCarrito(null, f.carritoVacio('x'))); // sin localStorage
 });
 
 test('hoyISO devuelve la fecha local (a las 23:30 sigue siendo hoy)', () => {
