@@ -328,7 +328,7 @@ async function calcularSugerenciasCatalogo(params) {
   // minorista. Sin peso no se convierte (se avisa). En un grupo x unidad ya convierte el peso del grupo.
   const mayUnidadBase = new Map();   // base → [{ plu, unidadesVentana, pesoKg }] (desglose del modal de urgencia)
   const consumoBaseVentana = new Map(), consumoBasePorDia = new Map(), unidadesBaseVentana = new Map();
-  const stockBase = new Map(), stockBaseAll = new Map(), stockSucBase = new Map(), pendBase = new Map(), facturBase = new Map();
+  const stockBase = new Map(), stockUnidBase = new Map(), stockBaseAll = new Map(), stockSucBase = new Map(), pendBase = new Map(), facturBase = new Map();
   for (const [plu, base] of pluToBase) {
     let total = consumoTotalRaw.get(plu) || 0;
     const dias = consumoDiasRaw.get(plu) || 0;
@@ -355,6 +355,7 @@ async function calcularSugerenciasCatalogo(params) {
     // Stock SOLO de los minoristas. Los mayoristas no suman stock.
     pendBase.set(base,     (pendBase.get(base)     || 0) + kg(pendRaw.get(plu)         || 0));
     stockBase.set(base,    (stockBase.get(base)    || 0) + (esMay ? 0 : kg(stockRaw.get(plu)      || 0)));
+    stockUnidBase.set(base, (stockUnidBase.get(base) || 0) + (esMay ? 0 : (stockRaw.get(plu) || 0))); // sin pasar a kg (modal de stock central)
     stockBaseAll.set(base, (stockBaseAll.get(base) || 0) + (esMay ? 0 : kg(stockTodosRaw.get(plu) || 0)));
     stockSucBase.set(base, (stockSucBase.get(base) || 0) + (esMay ? 0 : kg(stockSucRaw.get(plu)   || 0)));
     facturBase.set(base,   (facturBase.get(base)   || 0) + (facturRaw.get(plu)       || 0));
@@ -468,7 +469,9 @@ async function calcularSugerenciasCatalogo(params) {
         ...(porUnidadG || sinPeso.length ? { presentacionesSinPeso: sinPeso } : {}),
         // Consumo por presentación solo para mostrar (modal de urgencia): el granel se planifica como grupo.
         desglose: presFinal.map(p => ({ presentacion: p.presentacion, baseNombre: p.baseNombre, ventasVentana: p.ventasVentana,
-          ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual, stockCentral: p.stockActual, pesoKg: pesoKgDe(p),
+          ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual, // stockCentral como está en SIGA (unidades en un grupo x unidad); stockCentralKg = el pasado a kg (null si no se convirtió).
+          stockCentral: porUnidadG ? Math.round((stockUnidBase.get(claveBase(p)) || 0) * 100) / 100 : p.stockActual,
+          stockCentralKg: pesoKgDe(p) ? p.stockActual : null, pesoKg: pesoKgDe(p),
           unidadesVentana: porUnidadG ? Math.round((unidadesBaseVentana.get(claveBase(p)) || 0) * 100) / 100 : null,
           mayoristasUnidad: mayUnidadDe(p) })) });
       continue;

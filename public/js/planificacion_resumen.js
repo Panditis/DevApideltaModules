@@ -215,22 +215,26 @@ function renderStockCentral(g) {
   const fmt = n => Math.round((n || 0) * 100) / 100;
   const num = 'text-align:right;white-space:nowrap;padding:5px 10px';
   const th = 'font-size:11px;color:var(--muted);padding:4px 10px';
-  const unidad = g.esGranel ? 'kg' : 'u';
-  const tabla = (titulo, filas) => {
+  // f.kg: equivalente en kg de una presentación x unidad (columna extra solo si alguna lo trae).
+  const tabla = (titulo, filas, unidad) => {
     const total = filas.reduce((t, f) => t + (f.stock || 0), 0);
-    const body = filas.map(f => `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 10px">${escHtml(f.nombre)}</td><td style="${num}${f.stock ? '' : ';color:var(--muted)'}">${fmt(f.stock)} ${unidad}</td></tr>`).join('');
+    const conKg = filas.some(f => f.kg != null);
+    const totalKg = filas.reduce((t, f) => t + (f.kg || 0), 0);
+    const body = filas.map(f => `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 10px">${escHtml(f.nombre)}</td><td style="${num}${f.stock ? '' : ';color:var(--muted)'}">${fmt(f.stock)} ${unidad}</td>${conKg ? `<td style="${num};color:var(--muted)">${f.kg != null ? fmt(f.kg) + ' kg' : '—'}</td>` : ''}</tr>`).join('');
     return `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
-      <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="${th};text-align:left">${titulo}</th><th style="${th};text-align:right">STOCK CENTRAL</th></tr></thead>
-      <tbody>${body}<tr style="border-top:2px solid var(--md-outline-variant)"><td class="font-bold" style="font-size:13px;padding:5px 10px">Total</td><td class="font-bold" style="${num}">${fmt(total)} ${unidad}</td></tr></tbody></table>`;
+      <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="${th};text-align:left">${titulo}</th><th style="${th};text-align:right">STOCK CENTRAL</th>${conKg ? `<th style="${th};text-align:right">EN KG</th>` : ''}</tr></thead>
+      <tbody>${body}<tr style="border-top:2px solid var(--md-outline-variant)"><td class="font-bold" style="font-size:13px;padding:5px 10px">Total</td><td class="font-bold" style="${num}">${fmt(total)} ${unidad}</td>${conKg ? `<td class="font-bold" style="${num}">${fmt(totalKg)} kg</td>` : ''}</tr></tbody></table>`;
   };
   if (!g.esGranel) {
     const pres = (g.presentaciones || []).map(p => ({ nombre: p.presentacion || p.baseNombre || '', stock: p.stockActual }));
-    return pres.length ? tabla('PRESENTACIÓN', pres) : '<div style="padding:10px;color:var(--muted)">Sin presentaciones.</div>';
+    return pres.length ? tabla('PRESENTACIÓN', pres, 'u') : '<div style="padding:10px;color:var(--muted)">Sin presentaciones.</div>';
   }
   const graneles = (g.graneles || []).map(x => ({ nombre: x.nombre || x.id, stock: x.stock }));
-  const pres = (g.desglose || []).map(d => ({ nombre: d.presentacion || d.baseNombre || '', stock: d.stockCentral }));
-  return (graneles.length ? tabla('GRANEL', graneles) : '')
-    + (pres.length ? tabla('PRESENTACIÓN (producto terminado)', pres) : '<div style="padding:10px;color:var(--muted)">Sin datos de presentaciones: recargá (y reiniciá el servidor si acaba de actualizarse).</div>');
+  // Grupo x unidad (el desglose trae unidadesVentana): las presentaciones van en unidades, con su equivalente en kg.
+  const porUnidad = (g.desglose || []).some(d => d.unidadesVentana != null);
+  const pres = (g.desglose || []).map(d => ({ nombre: d.presentacion || d.baseNombre || '', stock: d.stockCentral, kg: d.stockCentralKg ?? null }));
+  return (graneles.length ? tabla('GRANEL', graneles, 'kg') : '')
+    + (pres.length ? tabla('PRESENTACIÓN (producto terminado)', pres, porUnidad ? 'u' : 'kg') : '<div style="padding:10px;color:var(--muted)">Sin datos de presentaciones: recargá (y reiniciá el servidor si acaba de actualizarse).</div>');
 }
 
 function presToItem(p, productoRef, rankingPos) {

@@ -56,7 +56,7 @@ const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999, 301: 100, 303
   401: 30, 403: 6, 405: 4, 407: 8, 409: 12, 412: 7, 402: 999, 404: 999, 406: 999, 408: 999, 410: 999 };
 const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999, 302: 20, 304: 10, 301: 999, 303: 999, 305: 999,
   402: 10, 404: 3, 406: 5, 408: 2, 410: 20, 401: 999, 403: 999, 405: 999, 407: 999, 409: 999, 412: 999 };
-const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000 };
+const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000, 301: 50 };
 // Solo para el grupo de pepas (los otros tests no los miran).
 const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999 };
 const PEND = { 301: 5, 302: 10, 303: 2, 402: 4 };
@@ -219,6 +219,10 @@ test('x unidad: un grupo granel pasa ventas, pendientes y stock a kg con el peso
   assert.strictEqual(g.stockSucGrupo, 8.8);                            // 10×0.18 + 20×0.15 + 4
   assert.strictEqual(g.totalPend, 3);                                  // (5+10)×0.18 + 2×0.15
   assert.strictEqual(d['150G'].facturacionMensual, 40 + 10);           // facturación ($) no se toca
+  // Modal de stock central: la presentación va en unidades (como en SIGA) y aparte su equivalente en kg.
+  assert.strictEqual(d['Pepas Batata'].stockCentral, 50);
+  assert.ok(Math.abs(d['Pepas Batata'].stockCentralKg - 50 * 0.18) < 1e-9);
+  assert.strictEqual(d.Surtidas.stockCentralKg, null);                 // sin peso: no hay equivalente en kg
 });
 
 test('x unidad: sin el check los números del grupo granel quedan como antes', async () => {
