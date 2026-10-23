@@ -23,7 +23,7 @@ dialog::backdrop { background: rgba(26,28,24,.35); }
       <button type="button" class="navtab" role="tab" aria-controls="tab-catalogo" data-tab="catalogo">Catálogo</button>
     </nav>
     <div class="ml-auto flex items-center gap-3">
-      <!-- plan_nueva: boton carrito -->
+      <button type="button" id="btnCarrito" class="px-3 py-1.5 rounded-lg border text-sm" aria-controls="carrito" aria-expanded="false">Carrito (<span id="carritoCuenta">0</span>)</button>
       <a href="/" class="text-sm">← Inicio</a>
     </div>
   </div>
@@ -80,12 +80,31 @@ dialog::backdrop { background: rgba(26,28,24,.35); }
     </div>
   </form>
 </dialog>
-<!-- plan_nueva: carrito -->
+<aside id="carrito" class="hidden fixed right-0 top-0 bottom-0 z-30 bg-card border-l border-borde shadow-fluent flex flex-col" aria-label="Carrito de planificación">
+  <div class="flex items-center gap-2 px-4 py-3 border-b border-borde">
+    <h2 class="font-semibold text-verde text-lg">Carrito</h2>
+    <button type="button" id="carCerrar" class="ml-auto px-2 py-1 rounded border border-borde text-sm hover:bg-bg" aria-label="Cerrar carrito">✕</button>
+  </div>
+  <div class="px-4 py-3 flex flex-col gap-2 border-b border-borde">
+    <label class="text-xs text-gris">Fecha de la orden
+      <input id="carFecha" type="date" class="block mt-1 px-2 py-1 rounded border border-borde text-ink text-sm"></label>
+    <label class="text-xs text-gris">Notas de la orden
+      <textarea id="carNotas" rows="2" maxlength="500" class="block w-full mt-1 px-2 py-1 rounded border border-borde text-ink text-sm"></textarea></label>
+  </div>
+  <ul id="carLineas" class="flex-1 overflow-y-auto divide-y divide-black/5 text-sm"></ul>
+  <p id="carError" role="alert" class="hidden mx-4 mt-3 text-sm text-crit bg-crit/10 border border-crit/30 rounded-lg px-3 py-2"></p>
+  <div class="px-4 py-3 border-t border-borde flex gap-2">
+    <button type="button" id="carVaciar" class="px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-bg">Vaciar</button>
+    <button type="button" id="carGenerar" class="ml-auto px-3 py-1.5 rounded-lg bg-verde text-white text-sm hover:bg-verdeHover disabled:opacity-50" disabled>Generar orden</button>
+  </div>
+</aside>
 <!-- plan_nueva: dialogo orden -->
 <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
 <script src="/js/plan_nueva_comun.js"></script>
 <script src="/js/plan_nueva_catalogo.js"></script>
+<script src="/js/plan_nueva_tablero.js"></script>
+<script src="/js/plan_nueva_carrito.js"></script>
 <!-- plan_nueva: scripts -->
 <script>
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => mostrarTab(b.dataset.tab)));
