@@ -79,6 +79,8 @@ async function generarOrden() {
     cambiarCarrito(carritoVacio(hoyISO()));
     await toggleCarrito(); // estaba abierto: lo cierra
     toast(`Orden #${orden.numero} generada`);
+    mostrarTab('ordenes');
+    await ordAbrir(orden.id); // plan_nueva_ordenes.js: no tira, los errores quedan en la lista
   } catch (e) {
     carMostrarError(e.message);
     boton.disabled = !carrito.lineas.length;
