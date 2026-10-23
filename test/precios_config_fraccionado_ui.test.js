@@ -1,8 +1,9 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { conTramoFr, faltaSubrubroFr, cuentaProductosFr, resumenSubrubroFr, textoUsosFr, coincideFr, subrubrosListaFr, conInsumosFr, errorInsumosFr,
-  costoUnidadFr, filasPesosFr, textoPesoFr, efectoFactorFr, textoEfectoSubFr } = require('../public/js/precios_config_fraccionado.js');
+const { conTramoFr, faltaSubrubroFr, cuentaProductosFr, celdasSubrubroFr, subrubrosIncompletosFr, textoUsosFr, coincideFr, subrubrosListaFr, conInsumosFr,
+  errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr, pesoCortoFr, estadoPesosFr, estadoConfigFr, pctMinutosFr, efectoFactorFr,
+  textoEfectoSubFr } = require('../public/js/precios_config_fraccionado.js');
 
 test('conTramoFr: 250 g el primero, después el doble del último; no muta', () => {
   assert.deepStrictEqual(conTramoFr([]), [{ hastaG: 250, minutos: null }]);
@@ -20,14 +21,27 @@ test('faltaSubrubroFr: qué le falta a un subrubro para costear', () => {
   assert.deepStrictEqual(faltaSubrubroFr({ maquinaId: 'env', tramos, facilidad: 'normal', tiempo: 'rapido' }), []);
 });
 
-test('cuentaProductosFr / resumenSubrubroFr / textoUsosFr: textos de la fila del subrubro y de la máquina', () => {
+test('cuentaProductosFr / textoUsosFr: textos de la fila del subrubro y de la máquina', () => {
   assert.strictEqual(cuentaProductosFr({ graneles: [{ presentaciones: [1, 2] }, { presentaciones: [] }] }), '2 productos · 2 presentaciones');
   assert.strictEqual(cuentaProductosFr({ graneles: [{ presentaciones: [1] }] }), '1 producto · 1 presentación');
-  assert.strictEqual(resumenSubrubroFr({ maquinaId: 'env', tramos: [{}, {}], facilidad: 'dificil', tiempo: 'rapido' }, [{ id: 'env', nombre: 'Envasadora' }]),
-    'Envasadora · 2 tramos · Difícil · Rápido');
-  assert.strictEqual(resumenSubrubroFr(undefined, []), 'sin máquina · sin tramos · sin facilidad · sin tiempo');
   assert.strictEqual(textoUsosFr({ graneles: 1, subrubros: 2 }), '2 subrubros · 1 granel');
   assert.strictEqual(textoUsosFr({ graneles: 0, subrubros: 0 }), 'sin uso');
+});
+
+test('celdasSubrubroFr: máquina, tramos, facilidad y tiempo de la fila; lo que falta, marcado', () => {
+  const maquinas = [{ id: 'env', nombre: 'Envasadora' }];
+  assert.deepStrictEqual(celdasSubrubroFr({ maquinaId: 'env', tramos: [{}, {}], facilidad: 'dificil', tiempo: 'rapido' }, maquinas), [
+    { t: 'Envasadora', falta: false }, { t: '2 tramos', falta: false }, { t: 'Difícil', falta: false }, { t: 'Rápido', falta: false }]);
+  assert.deepStrictEqual(celdasSubrubroFr(undefined, []).map(c => [c.t, c.falta]),
+    [['sin máquina', true], ['sin tramos', true], ['sin facilidad', true], ['sin tiempo', true]]);
+  assert.strictEqual(celdasSubrubroFr({ maquinaId: 'env', tramos: [{}], tiempo: 'lento' }, maquinas)[1].t, '1 tramo');
+});
+
+test('subrubrosIncompletosFr: los de la lista a los que les falta algo para costear', () => {
+  const lista = [{ id: '1' }, { id: '2' }, { id: '3' }];
+  const ok = { maquinaId: 'env', tramos: [{ hastaG: 1, minutos: 1 }], facilidad: 'normal', tiempo: 'normal' };
+  assert.deepStrictEqual(subrubrosIncompletosFr(lista, { 1: ok, 2: { ...ok, tiempo: null } }).map(s => s.id), ['2', '3']);
+  assert.strictEqual(subrubrosIncompletosFr(lista, undefined).length, 3);
 });
 
 test('coincideFr: todas las palabras, sin importar mayúsculas ni tildes; vacío coincide con todo', () => {
@@ -77,10 +91,33 @@ test('filasPesosFr: un peso por fila, ascendente, con sus insumos; también los 
   assert.strictEqual(pesos.length, 2); // no muta
 });
 
-test('textoPesoFr: "250 g · 34 presentaciones", kilos enteros en kg, sin presentaciones marcado', () => {
+test('textoPesoFr / pesoCortoFr: "250 g · 34 presentaciones", kilos enteros en kg, sin presentaciones marcado', () => {
   assert.strictEqual(textoPesoFr({ pesoG: 250, presentaciones: 34 }), '250 g · 34 presentaciones');
   assert.strictEqual(textoPesoFr({ pesoG: 1000, presentaciones: 1 }), '1 kg · 1 presentación');
   assert.strictEqual(textoPesoFr({ pesoG: 1500, presentaciones: 0 }), '1500 g · sin presentaciones');
+  assert.deepStrictEqual([pesoCortoFr(250), pesoCortoFr(2000), pesoCortoFr(1500)], ['250 g', '2 kg', '1500 g']);
+});
+
+test('estadoPesosFr: pesos con insumos y pesos con algún insumo sin costo', () => {
+  const filas = [{ pesoG: 250, insumos: [] }, { pesoG: 500, insumos: [{ cantidad: 1, costo: 5 }] }, { pesoG: 1000, insumos: [{ cantidad: 1, costo: null }] }];
+  assert.deepStrictEqual(estadoPesosFr(filas), { total: 3, conInsumos: 2, sinCosto: 1 });
+  assert.deepStrictEqual(estadoPesosFr([]), { total: 0, conInsumos: 0, sinCosto: 0 });
+});
+
+test('estadoConfigFr: máquinas, subrubros e insumos por peso con su estado (ok | falta | info)', () => {
+  const ok = { maquinaId: 'env', tramos: [{ hastaG: 1, minutos: 1 }], facilidad: 'normal', tiempo: 'normal' };
+  const filas = [{ pesoG: 250, insumos: [{ cantidad: 1, costo: 5 }] }, { pesoG: 500, insumos: [] }];
+  const e = estadoConfigFr([{ id: 'env' }], [{ id: '1' }, { id: '2' }], { 1: ok }, filas);
+  assert.deepStrictEqual(e.map(p => [p.id, p.texto, p.estado]), [
+    ['frMaquinas', '1 cargada', 'ok'], ['frSubrubrosCard', '1 de 2 completos', 'falta'], ['frPesos', '1 de 2 pesos con insumos', 'info']]);
+  const vacio = estadoConfigFr([], [], {}, []);
+  assert.deepStrictEqual(vacio.map(p => [p.texto, p.estado]), [['ninguna cargada', 'falta'], ['sin subrubros', 'info'], ['sin pesos', 'info']]);
+  assert.deepStrictEqual(estadoConfigFr([{}, {}], [{ id: '1' }], { 1: ok }, [{ pesoG: 250, insumos: [{ cantidad: 1, costo: null }] }]).map(p => [p.texto, p.estado]),
+    [['2 cargadas', 'ok'], ['1 de 1 completos', 'ok'], ['1 sin costo', 'falta']]);
+});
+
+test('pctMinutosFr: % de minutos que suma o resta un factor', () => {
+  assert.deepStrictEqual([pctMinutosFr(1.5), pctMinutosFr(0.75), pctMinutosFr(1)], ['+50% minutos', '−25% minutos', 'sin cambio']);
 });
 
 test('efectoFactorFr: factor y % de minutos que suma o resta', () => {
@@ -92,7 +129,6 @@ test('efectoFactorFr: factor y % de minutos que suma o resta', () => {
 test('textoEfectoSubFr: factor combinado de facilidad × tiempo; sin elegir → × 1', () => {
   const escalas = { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 }, tiempo: { rapido: 0.75, normal: 1, lento: 1.5 } };
   const t = textoEfectoSubFr(escalas, 'dificil', 'rapido');
-  assert.match(t, /× 1,5 \(difícil\) × 0,75 \(rápido\) = base × 1,125 \(\+12,5% minutos\)/);
-  assert.match(t, /mano de obra y la máquina/);
+  assert.match(t, /× 1,5 \(difícil\) × 0,75 \(rápido\) = base × 1,125 \(\+12,5% minutos\)$/);
   assert.match(textoEfectoSubFr(escalas, '', null), /× 1 \(sin elegir\) × 1 \(sin elegir\) = base × 1 \(sin cambio\)/);
 });
