@@ -457,6 +457,7 @@ function renderGrupoRows(grupos) {
     const gPlu   = cfgGetGranelPlus(g.productoRef).join(', ');
     const esGranelG = cfgGetGranelDirecto(g.productoRef);
     const reqGran   = cfgGetReqGranel(g.productoRef);
+    const esMielG   = cfgGetEsMiel(g.productoRef);
     const id     = 'tog-' + g.productoRef.replace(/\W+/g, '_');
     const idG    = 'tggran-' + g.productoRef.replace(/\W+/g, '_');
     const idRG   = 'tgreqg-' + g.productoRef.replace(/\W+/g, '_');
@@ -486,6 +487,12 @@ function renderGrupoRows(grupos) {
           onchange="toggleGrupoReqGranel('${ref}', this.checked)">
         granel previo
       </label>
+      <label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-left:8px;color:${esMielG?'var(--amb-text)':'var(--muted)'};font-weight:${esMielG?'700':'400'}"
+        title="Variedad de miel: va a la sección Mieles. Destildar lo saca de Mieles.">
+        <input type="checkbox" ${esMielG ? 'checked' : ''}
+          onchange="toggleGrupoEsMiel('${ref}', this.checked)">
+        miel
+      </label>
       <button class="btn btn-secondary btn-sm" style="font-size:11px;margin-left:8px"
         onclick="abrirModalGrupo('${ref}')">Ver / Editar</button>
     </div>`;
@@ -500,6 +507,13 @@ async function toggleGrupoActivo(productoRef, activo) {
 
 async function toggleGrupoGranel(productoRef, esGranel) {
   cfgSetGranelDirecto(productoRef, esGranel);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+// Mueve el grupo entre las secciones Mieles y Otros (override esMiel en grupos_config).
+async function toggleGrupoEsMiel(productoRef, esMiel) {
+  cfgSetEsMiel(productoRef, esMiel);
   renderCatalogo();
   await guardarGruposCfg();
 }
