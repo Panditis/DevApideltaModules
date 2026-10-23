@@ -401,14 +401,17 @@ function cfgRawEsMiel(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='obj
 function cfgGetEsMiel(ref){const o=cfgRawEsMiel(ref);if(o!==null)return o;return /^miel\b/i.test((ref||'').trim());}
 // El grupo se planifica por presentaciones, pero antes hay que fabricar el granel (pepas → masa).
 function cfgGetReqGranel(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.reqGranel===true);}
-function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel;return extra?obj:activo;}
+// Grupo granel cuyas presentaciones se venden por unidad (pepas): el cálculo pasa ventas y stock a kg.
+function cfgGetVentaPorUnidad(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.ventaPorUnidad===true);}
+function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel,ventaPorUnidad}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;if(ventaPorUnidad)obj.ventaPorUnidad=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel||obj.ventaPorUnidad;return extra?obj:activo;}
 // Setter genérico: parte de la config actual del grupo y aplica solo los campos del patch.
-function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),...patch});}
+function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),ventaPorUnidad:cfgGetVentaPorUnidad(ref),...patch});}
 function cfgSetActivo(ref,a){cfgSet(ref,{activo:a});}
 function cfgSetGranelPlus(ref,plus){cfgSet(ref,{granelPlus:plus});}
 function cfgSetGranelDirecto(ref,val){cfgSet(ref,{granelDirecto:val});}
 function cfgSetEsMiel(ref,val){cfgSet(ref,{esMiel:val});}
 function cfgSetReqGranel(ref,val){cfgSet(ref,{reqGranel:val});}
+function cfgSetVentaPorUnidad(ref,val){cfgSet(ref,{ventaPorUnidad:val});}
 
 async function cargarCatalogo() {
   try {
@@ -420,9 +423,10 @@ async function cargarCatalogo() {
       const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
       const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
       const rg = g.reqGranel === true;
+      const vu = g.ventaPorUnidad === true;
       const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
-      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg || vu)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}) }
         : g.activo;
     }
     renderCatalogo();
@@ -458,6 +462,7 @@ function renderGrupoRows(grupos) {
     const esGranelG = cfgGetGranelDirecto(g.productoRef);
     const reqGran   = cfgGetReqGranel(g.productoRef);
     const esMielG   = cfgGetEsMiel(g.productoRef);
+    const porUnidad = cfgGetVentaPorUnidad(g.productoRef);
     const id     = 'tog-' + g.productoRef.replace(/\W+/g, '_');
     const idG    = 'tggran-' + g.productoRef.replace(/\W+/g, '_');
     const idRG   = 'tgreqg-' + g.productoRef.replace(/\W+/g, '_');
@@ -481,6 +486,12 @@ function renderGrupoRows(grupos) {
         <span class="toggle-slider"></span>
       </label>
       <span style="font-size:11px;color:${esGranelG?'#065f46':'var(--muted)'};font-weight:${esGranelG?'700':'400'};margin-right:6px">granel</span>
+      ${esGranelG ? `<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-right:8px;color:${porUnidad?'var(--amb-text)':'var(--muted)'};font-weight:${porUnidad?'700':'400'}"
+        title="Las presentaciones se venden por unidad: sus ventas y stock se pasan a kg con el peso de cada presentación para compararlas con el granel">
+        <input type="checkbox" ${porUnidad ? 'checked' : ''}
+          onchange="toggleGrupoVentaPorUnidad('${ref}', this.checked)">
+        x unidad
+      </label>` : ''}
       <label style="font-size:11px;display:flex;align-items:center;gap:4px;color:${reqGran?'var(--amb-text)':'var(--muted)'};font-weight:${reqGran?'700':'400'}"
         title="Se hace en presentaciones pero primero hay que fabricar el granel (ej. pepas → masa). Al agregarlo al plan avisa y suma la orden de granel.">
         <input type="checkbox" id="${idRG}" ${reqGran ? 'checked' : ''}
@@ -520,6 +531,12 @@ async function toggleGrupoEsMiel(productoRef, esMiel) {
 
 async function toggleGrupoReqGranel(productoRef, req) {
   cfgSetReqGranel(productoRef, req);
+  renderCatalogo();
+  await guardarGruposCfg();
+}
+
+async function toggleGrupoVentaPorUnidad(productoRef, val) {
+  cfgSetVentaPorUnidad(productoRef, val);
   renderCatalogo();
   await guardarGruposCfg();
 }

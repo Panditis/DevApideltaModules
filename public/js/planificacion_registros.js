@@ -201,9 +201,10 @@ async function cargarGruposCfgSiVacio() {
       const gd = (typeof g.granelDirecto === 'boolean') ? g.granelDirecto : null;
       const em = (typeof g.esMiel === 'boolean') ? g.esMiel : null;
       const rg = g.reqGranel === true;
+      const vu = g.ventaPorUnidad === true;
       const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
-      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}) }
+      gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg || vu)
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}) }
         : g.activo;
     }
   } catch (e) { /* silencioso, BOM quedará vacío */ }
