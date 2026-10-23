@@ -131,3 +131,60 @@ test('nombresResponsables: acepta {nombre} y textos, sin repetidos ni vacíos', 
   assert.deepStrictEqual(pn.nombresResponsables([{ nombre: 'Ana', corto: 'ANA' }, 'Beto', { nombre: 'Ana' }, null, {}]), ['Ana', 'Beto']);
   assert.deepStrictEqual(pn.nombresResponsables(undefined), []);
 });
+
+// ── Órdenes ─────────────────────────────────────────────────────────────────────────────────
+const CTXO = { categorias: [{ id: 'a', nombre: 'Almendras', plus: ['1', '2'] }], responsables: [{ nombre: 'Ana', corto: 'ANA' }, 'Beto'] };
+const linea = (x = {}) => ({ plu: '1', nombre: 'ALMENDRA 500G', cantidad: 5, responsables: ['Ana'], notas: '', ...x });
+const orden = (x = {}) => ({ fecha: '2026-10-22', notas: ' urgente ', lineas: [linea()], ...x });
+
+test('validarOrden: fecha, notas recortadas y líneas con la categoría del catálogo (no la del cliente)', () => {
+  const body = orden({ lineas: [linea({ categoria: 'trucha', responsables: ['Ana', 'Beto', 'Ana'], notas: ' tostar ' })] });
+  assert.deepStrictEqual(pn.validarOrden(body, CTXO), {
+    fecha: '2026-10-22', notas: 'urgente',
+    lineas: [{ plu: '1', nombre: 'ALMENDRA 500G', categoria: 'Almendras', cantidad: 5, responsables: ['Ana', 'Beto'], notas: 'tostar' }],
+  });
+});
+
+test('validarOrden: nombre vacío → "PLU n"; responsables vacíos permitidos', () => {
+  const [l] = pn.validarOrden(orden({ lineas: [linea({ nombre: '', responsables: [] })] }), CTXO).lineas;
+  assert.strictEqual(l.nombre, 'PLU 1');
+  assert.deepStrictEqual(l.responsables, []);
+});
+
+test('validarOrden: datos inválidos → 400', () => {
+  const casos = {
+    'fecha inexistente': orden({ fecha: '2026-02-30' }),
+    'fecha con otro formato': orden({ fecha: '22/10/2026' }),
+    'sin fecha': orden({ fecha: undefined }),
+    'sin líneas': orden({ lineas: [] }),
+    'líneas no lista': orden({ lineas: 'x' }),
+    'más de 200 líneas': orden({ lineas: Array.from({ length: 201 }, () => linea()) }),
+    'PLU fuera del catálogo': orden({ lineas: [linea({ plu: '9' })] }),
+    'PLU repetido': orden({ lineas: [linea(), linea()] }),
+    'cantidad 0': orden({ lineas: [linea({ cantidad: 0 })] }),
+    'cantidad decimal': orden({ lineas: [linea({ cantidad: 1.5 })] }),
+    'cantidad texto': orden({ lineas: [linea({ cantidad: '5' })] }),
+    'cantidad null': orden({ lineas: [linea({ cantidad: null })] }),
+    'responsable inexistente': orden({ lineas: [linea({ responsables: ['Zoe'] })] }),
+    'responsables no lista': orden({ lineas: [linea({ responsables: 'Ana' })] }),
+    'notas de la orden largas': orden({ notas: 'x'.repeat(501) }),
+    'notas de línea largas': orden({ lineas: [linea({ notas: 'x'.repeat(501) })] }),
+  };
+  for (const [caso, body] of Object.entries(casos)) assert.throws(() => pn.validarOrden(body, CTXO), es(400), caso);
+});
+
+test('crearOrden: número correlativo, estado activa, usuario y sin mutar', () => {
+  const previas = [{ id: 'x', numero: 7, estado: 'anulada' }];
+  const datos = pn.validarOrden(orden(), CTXO);
+  const r = pn.crearOrden(previas, datos, { id: 'o1', ahora: '2026-10-22T12:00:00.000Z', usuario: 'adriel' });
+  assert.deepStrictEqual(r.orden, { id: 'o1', numero: 8, ...datos, creado: '2026-10-22T12:00:00.000Z', usuario: 'adriel', estado: 'activa' });
+  assert.strictEqual(r.ordenes.length, 2);
+  assert.strictEqual(previas.length, 1);
+  assert.strictEqual(pn.crearOrden([], datos, { id: 'o2', ahora: 'x', usuario: 'u' }).orden.numero, 1);
+});
+
+test('ordenesRecientes: la de número más alto primero, sin mutar', () => {
+  const lista = [{ numero: 1 }, { numero: 3 }, { numero: 2 }];
+  assert.deepStrictEqual(pn.ordenesRecientes(lista).map(o => o.numero), [3, 2, 1]);
+  assert.deepStrictEqual(lista.map(o => o.numero), [1, 3, 2]);
+});
