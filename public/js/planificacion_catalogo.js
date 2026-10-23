@@ -108,7 +108,7 @@ async function abrirModalGrupo(productoRef) {
 // Estado en memoria: se renderiza desde acá y se guarda desde acá (nada se lee del DOM al guardar).
 // Cada presentación junta códigos de SIGA; los mayoristas cuentan solo sus ventas de Casa Central a
 // clientes MAYORISTA y no suman stock (ver lib/catalogo_presentaciones.js).
-let presModal        = [];    // [{ nombre, codigos: [{ plu, producto, esMayorista }] }]
+let presModal        = [];    // [{ nombre, codigos: [{ plu, producto, esMayorista, ventaPorUnidad }] }]
 let presModalCargado = false; // false mientras carga o si falló: no se guarda (pisaría el grupo con nada)
 let presEditando     = null;  // índice de la presentación que se está renombrando
 let resultadosSiga   = {};    // índice de presentación → filas del buscador de SIGA
@@ -125,7 +125,8 @@ function renderModalGrupoBody(items) {
   for (const it of items) {
     const nombre = it.presentacion || '(sin presentación)';
     if (!porPres.has(nombre)) porPres.set(nombre, []);
-    porPres.get(nombre).push({ plu: Number(it.plu), producto: it.producto || it.baseNombre || '', esMayorista: esMayoristaJS(it) });
+    porPres.get(nombre).push({ plu: Number(it.plu), producto: it.producto || it.baseNombre || '', esMayorista: esMayoristaJS(it),
+      ventaPorUnidad: esMayoristaJS(it) && it.ventaPorUnidad === true });
   }
   presModal = [...porPres.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nombre, codigos]) => ({ nombre, codigos }));
   presModalCargado = true;
@@ -142,6 +143,8 @@ function renderPresModal() {
 }
 
 function renderTarjetaPres(p, i) {
+  // "x unidad" por código: solo en grupos granel por kilo (en un grupo x unidad ya se convierte todo).
+  const verMayUnidad = !!editarGrupoRef && cfgGetGranelDirecto(editarGrupoRef) && !cfgGetVentaPorUnidad(editarGrupoRef);
   const titulo = presEditando === i
     ? `<input type="text" class="plu-input pres-renombrar" data-i="${i}" value="${escHtml(p.nombre)}" style="width:180px">`
     : `<span>${escHtml(p.nombre)}</span>`;
@@ -150,6 +153,8 @@ function renderTarjetaPres(p, i) {
       <span class="pres-cod-nombre">${escHtml(c.producto)}${c.esMayorista ? ' <span class="badge-mayorista">Mayorista</span>' : ''}</span>
       <label class="pres-cod-may" title="Sus ventas se cuentan con las de Casa Central a clientes mayoristas; su stock no suma">
         <input type="checkbox" data-acc="mayorista" data-i="${i}" data-j="${j}" ${c.esMayorista ? 'checked' : ''}> Es mayorista</label>
+      ${verMayUnidad && c.esMayorista ? `<label class="pres-cod-may" title="Este código mayorista se vende por unidad: sus ventas se pasan a kg con su peso (del nombre del código o de la presentación)">
+        <input type="checkbox" data-acc="mayunidad" data-i="${i}" data-j="${j}" ${c.ventaPorUnidad ? 'checked' : ''}> x unidad</label>` : ''}
       <button class="btn btn-danger btn-sm pres-btn-mini" data-acc="quitar" data-i="${i}" data-j="${j}" title="Quitar código">✕</button>
     </div>`).join('');
   return `<div class="pres-card">
@@ -252,7 +257,7 @@ function agregarDesdeSiga(i, k) {
 const _bodyGrupo = document.getElementById('editarGrupoBody');
 _bodyGrupo.addEventListener('click', e => {
   const el = e.target.closest('[data-acc]');
-  if (!el || el.dataset.acc === 'mayorista') return;
+  if (!el || el.dataset.acc === 'mayorista' || el.dataset.acc === 'mayunidad') return;
   const i = Number(el.dataset.i), j = Number(el.dataset.j);
   if (el.dataset.acc === 'renombrar') {
     presEditando = i;
@@ -265,9 +270,11 @@ _bodyGrupo.addEventListener('click', e => {
 });
 _bodyGrupo.addEventListener('change', e => {
   const el = e.target;
-  if (el.dataset.acc !== 'mayorista') return;
+  if (el.dataset.acc !== 'mayorista' && el.dataset.acc !== 'mayunidad') return;
   const j = Number(el.dataset.j);
-  cambiarCodigos(Number(el.dataset.i), cs => cs.map((c, x) => x === j ? { ...c, esMayorista: el.checked } : c));
+  // Destildar "Es mayorista" apaga también "x unidad" (solo vale en mayoristas).
+  const patch = el.dataset.acc === 'mayorista' ? { esMayorista: el.checked, ...(el.checked ? {} : { ventaPorUnidad: false }) } : { ventaPorUnidad: el.checked };
+  cambiarCodigos(Number(el.dataset.i), cs => cs.map((c, x) => x === j ? { ...c, ...patch } : c));
   renderPresModal();
 });
 _bodyGrupo.addEventListener('input', e => {
@@ -323,6 +330,7 @@ async function guardarGrupo() {
     baseNombre:   normalizarNombreJS(c.producto),
     presentacion: p.nombre,
     esMayorista:  c.esMayorista,
+    ...(c.esMayorista && c.ventaPorUnidad ? { ventaPorUnidad: true } : {}),
     refId:       editarGrupoRefId,
     productoRef: editarGrupoRef
   })));

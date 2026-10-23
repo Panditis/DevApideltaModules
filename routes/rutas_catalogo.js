@@ -124,7 +124,9 @@ router.put('/api/catalogo/grupo/:ref', (req, res) => {
     const maxRef = catalogo.reduce((m, i) => Math.max(m, Number(i.refId) || 0), 0);
     refId = maxRef + 1;
   }
-  const normalizados = nuevos.map(i => ({ ...i, plu: Number(i.plu), presentacion: String(i.presentacion).trim(), refId, productoRef: ref }));
+  // ventaPorUnidad (mayorista que se vende por unidad) solo vale en mayoristas: true o ausente.
+  const normalizados = nuevos.map(({ ventaPorUnidad, ...i }) => ({ ...i, plu: Number(i.plu), presentacion: String(i.presentacion).trim(), refId, productoRef: ref,
+    ...(ventaPorUnidad === true && esMayorista(i) ? { ventaPorUnidad: true } : {}) }));
   guardarJSON(CATALOGO_PATH, [...otros, ...normalizados]);
   res.json({ ok: true, productos: normalizados.length });
 });

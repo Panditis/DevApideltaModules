@@ -322,6 +322,11 @@ async function calcularSugerenciasCatalogo(params) {
     if (!cfgVentaPorUnidad(gruposCfg, bInfo.productoRef) || !cfgEsGranel(gruposCfg, bInfo.productoRef, c.gruposGranel)) continue;
     pesoUnidadBase.set(base, pesoEnKg(bInfo.presentacion) ?? pesoEnKg(bInfo.baseNombre || ''));
   }
+  // Mayoristas "x unidad" (catalogo.ventaPorUnidad del código) en grupos granel por kilo (ej. un Mix:
+  // los minoristas van por kg y un mayorista es una bolsa cerrada que se vende por unidad): sus ventas
+  // y pendientes pasan a kg con el peso del nombre del código, o de la presentación, o del primer
+  // minorista. Sin peso no se convierte (se avisa). En un grupo x unidad ya convierte el peso del grupo.
+  const mayUnidadBase = new Map();   // base → [{ plu, unidadesVentana, pesoKg }] (desglose del modal de urgencia)
   const consumoBaseVentana = new Map(), consumoBasePorDia = new Map(), unidadesBaseVentana = new Map();
   const stockBase = new Map(), stockBaseAll = new Map(), stockSucBase = new Map(), pendBase = new Map(), facturBase = new Map();
   for (const [plu, base] of pluToBase) {
@@ -331,10 +336,13 @@ async function calcularSugerenciasCatalogo(params) {
     const bInfo = baseMap.get(base);
     const esMay = esMayorista(meta);
     const porUnidad = pesoUnidadBase.has(base);
-    const peso = pesoUnidadBase.get(base);   // undefined = por kilo, null = sin peso
+    const mayUnidad = esMay && meta.ventaPorUnidad === true && !porUnidad && cfgEsGranel(gruposCfg, bInfo.productoRef, c.gruposGranel);
+    const pesoMay = mayUnidad ? (pesoEnKg(meta.producto || '') ?? pesoEnKg(bInfo.presentacion) ?? pesoEnKg(bInfo.baseNombre || '')) : null;
+    if (mayUnidad) mayUnidadBase.set(base, [...(mayUnidadBase.get(base) || []), { plu, unidadesVentana: Math.round(total * 100) / 100, pesoKg: pesoMay }]);
+    const peso = porUnidad ? pesoUnidadBase.get(base) : pesoMay;   // null/undefined = no se convierte
     const kg = n => (peso ? n * peso : n);
-    // Con "x unidad" la conversión ya la hace kg(): la regla vieja convertiría dos veces.
-    if (esMay && bInfo && !enKgRefIds.has(bInfo.refId) && !porUnidad) {
+    // Con "x unidad" (del grupo o del código) la conversión ya la hace kg(): la regla vieja convertiría dos veces.
+    if (esMay && bInfo && !enKgRefIds.has(bInfo.refId) && !porUnidad && !mayUnidad) {
       const w = pesoEnKg(meta.presentacion);
       if (w !== null && w <= 0.2) total = total * w;
     }
@@ -451,15 +459,18 @@ async function calcularSugerenciasCatalogo(params) {
       const claveBase = p => `${refId}|${p.presentacion}`;
       const porUnidadG = presFinal.some(p => pesoUnidadBase.has(claveBase(p)));
       const pesoKgDe = p => pesoUnidadBase.get(claveBase(p)) ?? null;
+      const mayUnidadDe = p => mayUnidadBase.get(claveBase(p)) || [];
+      const sinPeso = presFinal.filter(p => (porUnidadG && pesoKgDe(p) === null) || mayUnidadDe(p).some(m => m.pesoKg === null)).map(p => p.presentacion);
       grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
         plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
         facturacionMensual: facturMensualG, presentaciones: [],
-        ...(porUnidadG ? { presentacionesSinPeso: presFinal.filter(p => pesoKgDe(p) === null).map(p => p.presentacion) } : {}),
+        ...(porUnidadG || sinPeso.length ? { presentacionesSinPeso: sinPeso } : {}),
         // Consumo por presentación solo para mostrar (modal de urgencia): el granel se planifica como grupo.
         desglose: presFinal.map(p => ({ presentacion: p.presentacion, baseNombre: p.baseNombre, ventasVentana: p.ventasVentana,
           ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual, pesoKg: pesoKgDe(p),
-          unidadesVentana: porUnidadG ? Math.round((unidadesBaseVentana.get(claveBase(p)) || 0) * 100) / 100 : null })) });
+          unidadesVentana: porUnidadG ? Math.round((unidadesBaseVentana.get(claveBase(p)) || 0) * 100) / 100 : null,
+          mayoristasUnidad: mayUnidadDe(p) })) });
       continue;
     }
     const totalSugerido = presFinal.reduce((s, p) => s + p.cantSugerida, 0);
