@@ -181,7 +181,7 @@ test('configEsquemaDe: Reventa/Producción leen la raíz y dicen si Fraccionado 
 test('configEsquemaDe fraccionado: sin migrar → la raíz (como antes) + defaults de lo propio; migrado → su bloque con tilde sólo Fraccionado', () => {
   const sin = C.configEsquemaDe(RAIZ, 'fraccionado');
   assert.deepStrictEqual([sin.fraccionadoMigrado, sin.ivaVentaPct, sin.gastosVenta], [false, 21, RAIZ.gastosVenta]);
-  assert.deepStrictEqual([sin.maquinas, sin.subrubros, sin.presentaciones, sin.porGranel], [[], {}, {}, {}]);
+  assert.deepStrictEqual([sin.maquinas, sin.subrubros, sin.insumosPorPeso, sin.porGranel, 'presentaciones' in sin], [[], {}, {}, {}, false]);
   assert.deepStrictEqual(sin.escalas, { facilidad: { facil: 1, normal: 1.25, dificil: 1.5 }, tiempo: { rapido: 0.75, normal: 1, lento: 1.5 } });
   const fracc = { ivaVentaPct: 10.5, costoHora: 5000, modoGastos: 'precio', gastosVenta: [{ id: 'fl', concepto: 'Flete', pct: 2 }],
     extrasMinorista: [{ id: 'ib', concepto: 'IIBB', pct: 5 }], margenes: { minorista: TABLA }, redondeo: { minorista: 0 },
@@ -222,7 +222,7 @@ test('migrarConfigFraccionado: copia la raíz (gastos/extras tildados para Fracc
   assert.deepStrictEqual(f.extrasMinorista, [{ id: 'ib', concepto: 'IIBB', pct: 5 }]);
   assert.deepStrictEqual(f.margenes, { minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100], puntos: [5] } });
   assert.deepStrictEqual([f.ivaVentaPct, f.toleranciaPct, f.modoGastos, f.costoHora, f.redondeo.minorista], [21, 3, 'costo', 8000, 10]);
-  assert.deepStrictEqual([f.maquinas, f.escalas.facilidad.normal, f.escalas.tiempo.lento, f.subrubros, f.presentaciones], [[], 1.25, 1.5, {}, {}]);
+  assert.deepStrictEqual([f.maquinas, f.escalas.facilidad.normal, f.escalas.tiempo.lento, f.subrubros, f.insumosPorPeso], [[], 1.25, 1.5, {}, {}]);
   f.margenes.minorista.minPct = 1; // copia profunda: no toca la raíz
   assert.strictEqual(raiz.margenes.minorista.minPct, TABLA.minPct);
   assert.deepStrictEqual(costeo.gastosVenta, raiz.gastosVenta); // la raíz queda igual
