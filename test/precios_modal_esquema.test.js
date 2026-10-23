@@ -7,8 +7,8 @@ const { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, e
 const { CFG } = require('./precios_esquema_fixture');
 const FCx = require('../lib/precios_fraccionado_costo');
 
-// Pack/bulto en SIGA = precio por unidad (unidades 1): el vigente del bulto es el de 1 unidad.
-const vigentes = new Map([['1', 1800], ['50', 1750]]);
+// Pack/bulto en SIGA = precio por unidad (unidades 1) y SIN IVA: el vigente del bulto es el de 1 unidad, sin IVA (1430; con IVA 1750).
+const vigentes = new Map([['1', 1800], ['50', 1430]]);
 const vinculos = [{ plu: '50', nombre: 'Arroz Bulto x6', basePlu: '1', cantidad: 6, tipo: 'bulto' }];
 
 test('filasCanales: minorista + bulto sin y con IVA de la fuente elegida; fuente sin costo → sin sugeridos', () => {
@@ -16,7 +16,7 @@ test('filasCanales: minorista + bulto sin y con IVA de la fuente elegida; fuente
     mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes }), costeo: {}, cfg: CFG });
   const pub = L.filaPublica(f);
   assert.deepStrictEqual(filasCanales(pub, 'sistema').map(r => [r.canal, r.plu, r.vigente, r.sugerido, r.deltaPct, r.margenTotalPct]), [
-    ['Minorista', '1', 1800, 1800, 0, 80], ['Bulto sin IVA', '50', null, 1430, null, 43], ['Bulto con IVA', '50', 1750, 1750, 0, 75]]);
+    ['Minorista', '1', 1800, 1800, 0, 80], ['Bulto sin IVA', '50', 1430, 1430, 0, 43], ['Bulto con IVA', '50', null, 1750, null, 75]]); // el Δ vs vigente va en la fila sin IVA
   assert.deepStrictEqual(filasCanales(pub, 'ultimaCompra').map(r => r.sugerido), [null, null, null]);
 });
 
@@ -183,7 +183,7 @@ test('igualarSigaMd Reventa: margen fijo por canal con vigente; guardado como fi
     const r = igualarSigaMd(armar({}), 'almacen', fuente);
     assert.deepStrictEqual([Object.keys(r.valores).sort(), r.notas, r.motivo, r.fuente], [['minorista', 'pack'], [], null, 'sistema']);
     const f = armar({ margenProducto: { 1: { modo: 'fijo', ...r.valores } } });
-    assert.deepStrictEqual([f.sugeridos.sistema.minorista.precio, f.sugeridos.sistema.mayoristas[0].conIva], [1830, f.mayoristas[0].vigente]);
+    assert.deepStrictEqual([f.sugeridos.sistema.minorista.precio, f.sugeridos.sistema.mayoristas[0].neto], [1830, f.mayoristas[0].vigente]);
   }
   // Sin desglose (usuario sin permiso) o sin vigentes → no se puede, con el motivo.
   const sinPermiso = L.filaPublica(L.listadoReventa({ universo: [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }], vigentes: vig, mayoristasDe: md, costeo: {}, cfg: CFG })[0]);

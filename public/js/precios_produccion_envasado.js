@@ -486,7 +486,7 @@ function htmlPackBulto() {
       <td class="num" title="Precio sin IVA ÷ costo de mercadería − 1 (con IVA: ${r.margenIvaPct == null ? '—' : String(r.margenIvaPct).replace('.', ',') + ' %'})">${pct(r.margenNetoPct)}</td></tr>`).join('')).join('');
   return `${ebEd.sucio ? '<p class="eb-ayuda text-warn">Con cambios sin guardar: los precios son la vista previa.</p>' : ''}
     <table class="pr-tabla eb-tabla"><thead><tr><th class="text-left">Pack / Bulto</th><th class="text-left">Nombre</th><th class="num">Unidades</th><th class="num">Sugerido sin IVA</th>
-      <th class="num">Sugerido con IVA</th><th class="num">Vigente</th><th class="num">Δ%</th><th class="num">Margen total</th></tr></thead><tbody>${cuerpo}</tbody></table>${donde}`;
+      <th class="num">Sugerido con IVA</th><th class="num" title="El vigente de SIGA de pack/bulto es el precio sin IVA">Vigente sin IVA</th><th class="num" title="Sugerido sin IVA vs vigente">Δ%</th><th class="num">Margen total</th></tr></thead><tbody>${cuerpo}</tbody></table>${donde}`;
 }
 
 function htmlPieBase() {

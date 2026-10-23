@@ -174,11 +174,12 @@ test('preciosCanales: pack y bulto NO dependen del precio minorista (solo compar
   assert.deepStrictEqual(p.pack, base.pack);
 });
 
-test('preciosCanales: alinea con el vigente SIGA si difiere menos de $0,50', () => {
+test('preciosCanales: alinea con el vigente SIGA si difiere menos de $0,50 (pack/bulto: contra el neto)', () => {
+  const vigPack = E.r2(E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades: { pack: 6 }, cfg: CFG }).pack.exactoNeto + 0.3);
   const p = E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades: { pack: 6 },
-    vigentes: { minorista: 3913, pack: 20231.5 }, cfg: CFG });
+    vigentes: { minorista: 3913, pack: vigPack }, cfg: CFG });
   assert.strictEqual(p.minorista.precio, 3913);
-  assert.strictEqual(p.pack.conIva, 20231.5);
+  assert.strictEqual(p.pack.neto, vigPack);
 });
 
 test('preciosCanales Fraccionado: escalón por costo/kg del granel + ajuste por peso', () => {
@@ -249,7 +250,7 @@ test('margenParaPrecio: ida y vuelta — el margen fijo devuelto reproduce el vi
       assert.ok(typeof mp[canal] === 'number', `${tipo} ${canal}`);
     }
     const p = E.preciosCanales({ tipo, costo: 2000, pesoG: 100, unidades, vigentes, cfg: CFG, margenExtra: { minorista: 7 }, margenProducto: mp });
-    assert.deepStrictEqual([p.minorista.precio, p.pack.conIva, p.bulto.conIva], [3990, 21000, 39530], tipo);
+    assert.deepStrictEqual([p.minorista.precio, p.pack.neto, p.bulto.neto], [3990, 21000, 39530], tipo); // pack/bulto: vigente SIN IVA
   }
   // 2 decimales cuando alcanza (costo 2200 con gastos, extras 5 %, IVA 21 %).
   assert.strictEqual(E.margenParaPrecio({ tipo: 'almacen', canal: 'minorista', costo: 2000, precioObjetivo: 3913.14, cfg: CFG }), 40);
@@ -264,7 +265,7 @@ test('margenParaPrecio: precios altos (más decimales si 2 no alcanzan) y gastos
   const mp = E.margenParaPrecio({ tipo: 'almacen', canal: 'pack', costo: 2000, precioObjetivo: 20010, unidades: 6, cfg: cfgP });
   const pp = E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades: { pack: 6 }, vigentes: { pack: 20010 }, cfg: cfgP, margenProducto: { modo: 'fijo', pack: mp } });
   assert.strictEqual(pp.costoConGastos, 2222.22);
-  assert.strictEqual(pp.pack.conIva, 20010);
+  assert.strictEqual(pp.pack.neto, 20010);
 });
 
 test('margenParaPrecio: entrada inválida → null', () => {
@@ -348,5 +349,20 @@ test('margenParaPrecio: el fijo de "Igualar a SIGA" reproduce el vigente tambié
   const mp = { modo: 'fijo' };
   for (const canal of ['minorista', 'pack', 'bulto']) mp[canal] = E.margenParaPrecio({ tipo: 'almacen', canal, costo: 2000, precioObjetivo: vigentes[canal], unidades: unidades[canal], cfg });
   const p = E.preciosCanales({ tipo: 'almacen', costo: 2000, unidades, vigentes, cfg, distribuidor: true, margenProducto: mp });
-  assert.deepStrictEqual([p.minorista.precio, p.pack.conIva, p.bulto.conIva], [3990, 21000, 39530]);
+  assert.deepStrictEqual([p.minorista.precio, p.pack.neto, p.bulto.neto], [3990, 21000, 39530]);
+});
+
+// El vigente de SIGA de pack/bulto es el precio SIN IVA: el neto se alinea con él y el con IVA sólo se redondea.
+// Fixture: costo 1000 → neto 1430 (sin redondeo comercial) / con IVA exacto 1730,30 (paso 50 → 1750).
+test('preciosCanales: el vigente de pack/bulto alinea el neto (no el con IVA)', () => {
+  const base = { tipo: 'almacen', costo: 1000, unidades: { bulto: 1 }, cfg: FIX };
+  const sinIva = E.preciosCanales({ ...base, vigentes: { bulto: 1430.3 } }).bulto;
+  assert.deepStrictEqual([sinIva.neto, sinIva.conIva], [1430.3, 1750]);
+  const cercaDelConIva = E.preciosCanales({ ...base, vigentes: { bulto: 1730.3 } }).bulto; // ya no alinea el con IVA
+  assert.deepStrictEqual([cercaDelConIva.neto, cercaDelConIva.conIva], [1430, 1750]);
+});
+
+test('margenParaPrecio pack/bulto: el objetivo es el precio SIN IVA (ida y vuelta contra el neto)', () => {
+  const m = E.margenParaPrecio({ tipo: 'almacen', canal: 'pack', costo: 1000, precioObjetivo: 8580, unidades: 6, cfg: FIX });
+  assert.strictEqual(m, 30); // 1100 × 1,30 × 6 = 8580 sin IVA
 });

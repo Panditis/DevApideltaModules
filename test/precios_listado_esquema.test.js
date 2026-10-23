@@ -5,7 +5,7 @@ const L = require('../lib/precios_listado_esquema');
 const { CFG } = require('./precios_esquema_fixture');
 
 // Precio del pack/bulto en SIGA = por unidad (respuesta del usuario 2026-10-07): el vigente del bulto es el de 1 unidad.
-const VIGENTES = new Map([['1', 1800], ['50', 1750]]);
+const VIGENTES = new Map([['1', 1800], ['50', 1430]]); // el vigente de pack/bulto en SIGA es SIN IVA (1430; con IVA serían 1750)
 const VINCULOS = [{ plu: '50', nombre: 'Arroz Bulto x6', basePlu: '1', cantidad: 6, tipo: 'bulto' }];
 
 test('costosFuentes: suma los costos extra a cada fuente; sin costo (o ≤ 0) → null', () => {
@@ -26,7 +26,7 @@ test('unidadesVinculo: base no pesable = 1 (precio por unidad); pesable por kg =
 
 test('preciosDeCosto: minorista y cada pack/bulto con sus unidades y margen total; sin unidades → faltante; vigente en otra unidad → revisar', () => {
   const r = L.preciosDeCosto({ cfg: CFG, tipo: 'almacen', costo: 1000, vigente: 1800, mayoristas: [
-    { plu: '50', tipo: 'bulto', unidades: 1, vigente: 1750 },
+    { plu: '50', tipo: 'bulto', unidades: 1, vigente: 1430 },
     { plu: '51', tipo: 'pack', unidades: null, vigente: 900 }, // pesable por paquete sin kg
     { plu: '52', tipo: 'pack', unidades: 1, vigente: 10400 }, // cargado por caja
   ] });
@@ -56,7 +56,7 @@ test('listadoReventa: un sugerido por fuente con costo, pack/bulto vinculados, �
   assert.deepStrictEqual(Object.keys(f.sugeridos), ['sistema', 'ultimaCompra']);
   assert.strictEqual(f.sugeridos.sistema.minorista.precio, 1800);
   assert.deepStrictEqual(f.sugeridos.ultimaCompra.minorista, { precio: 3650, margenTotalPct: 82.5, deltaPct: 102.8, estado: 'subir' });
-  assert.deepStrictEqual(f.mayoristas, [{ plu: '50', nombre: 'Arroz Bulto x6', tipo: 'bulto', unidades: 1, vigente: 1750, venta: null }]);
+  assert.deepStrictEqual(f.mayoristas, [{ plu: '50', nombre: 'Arroz Bulto x6', tipo: 'bulto', unidades: 1, vigente: 1430, venta: null }]);
   assert.strictEqual(f.sugeridos.sistema.mayoristas[0].conIva, 1750);
   assert.deepStrictEqual([f.costoSistema, f.costoUltimaCompra, f.deltaUltimaPct, f.proveedor], [1000, 2000, 100, 'Molino']);
   assert.deepStrictEqual(f.decision, { fuente: 'ultimaCompra', fecha: '2026-10-07' });
@@ -245,6 +245,20 @@ test('validarDecisionContraFilas: sólo filas decidibles y fuentes con sugerido;
   assert.match(v('1', 'manual'), /disponibles: sistema, ultimaCompra/);
   assert.strictEqual(v('999', null), null);
   assert.strictEqual(v('101', null), null);
+});
+
+test('listadoReventa: el Δ% de pack/bulto es contra el vigente SIN IVA (el con IVA no se compara)', () => {
+  const universo = [{ plu: '1', nombre: 'Arroz', costoSistema: 1000 }];
+  const bulto = vigenteBulto => {
+    const vig = new Map([['1', 1800], ['50', vigenteBulto]]);
+    const [f] = L.listadoReventa({ universo, vigentes: vig, mayoristasDe: L.crearMayoristasDe({ vinculos: VINCULOS, vigentes: vig }), costeo: {}, cfg: CFG });
+    return f.sugeridos.sistema.mayoristas[0];
+  };
+  const igual = bulto(1430); // = neto sugerido: ok. Con IVA (1750) ya no se mira
+  assert.deepStrictEqual([igual.neto, igual.conIva, igual.deltaPct, igual.estado, igual.revisarUnidad], [1430, 1750, 0, 'ok', false]);
+  const bajo = bulto(1300); // neto 1430 vs 1300 = +10 % → subir (tolerancia 5 %)
+  assert.deepStrictEqual([bajo.deltaPct, bajo.estado], [10, 'subir']);
+  assert.strictEqual(bulto(600).revisarUnidad, true); // 600 / 1430 < 0,5: parece en otra unidad
 });
 
 test('itemsDecididos + listasExport: una lista por canal; Fraccionado alcanza a todas sus presentaciones; sin precio → omitido', () => {

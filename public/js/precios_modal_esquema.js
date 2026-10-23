@@ -9,7 +9,7 @@
 const TIPO_CANAL = { pack: 'Pack', bulto: 'Bulto' };
 
 // Filas de la tabla por canal para una fuente. Fraccionado: una fila minorista por presentación ($/kg); el granel sólo
-// aporta sus pack/bulto. Pack/bulto: sin IVA (sin vigente: el de SIGA es con IVA) y con IVA (contra el vigente).
+// aporta sus pack/bulto. Pack/bulto: sin IVA (contra el vigente: SIGA lo guarda sin IVA) y con IVA (sin vigente ni Δ).
 // tipo = 'minorista' | 'pack' | 'bulto'; conIva = null en minorista.
 function filasCanales(fila, fuente) {
   const filas = [];
@@ -24,10 +24,10 @@ function filasCanales(fila, fuente) {
     for (const m of f.mayoristas || []) {
       const p = ok ? ok.mayoristas.find(x => x.plu === m.plu) : null;
       const base = { tipo: m.tipo, plu: m.plu, nombre: m.nombre, unidades: m.unidades, faltante: p ? p.faltante : null };
-      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, conIva: false, vigente: null, sugerido: p ? p.neto : null, deltaPct: null, estado: null,
-        margenTotalPct: p ? p.margenTotalNetoPct : null });
-      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} con IVA`, conIva: true, vigente: m.vigente ?? null, sugerido: p ? p.conIva : null,
-        deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad), margenTotalPct: p ? p.margenTotalIvaPct : null });
+      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} sin IVA`, conIva: false, vigente: m.vigente ?? null, sugerido: p ? p.neto : null,
+        deltaPct: p ? p.deltaPct : null, estado: p ? p.estado : null, revisarUnidad: !!(p && p.revisarUnidad), margenTotalPct: p ? p.margenTotalNetoPct : null });
+      filas.push({ ...base, canal: `${TIPO_CANAL[m.tipo]} con IVA`, conIva: true, vigente: null, sugerido: p ? p.conIva : null, deltaPct: null, estado: null,
+        margenTotalPct: p ? p.margenTotalIvaPct : null });
     }
   };
   if (Array.isArray(fila.presentaciones)) {
@@ -345,7 +345,7 @@ function htmlTablaCanales(f) {
   const avisos = r => (r.faltante === 'unidades' ? ' <span class="md-warn">sin unidades</span>' : '')
     + (r.revisarUnidad ? ' <span class="md-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
   const celdas = r => `<td class="num">${pesosMd(r.vigente)}</td><td class="num md-nuevo">${pesosMd(r.sugerido)}</td>
-    <td class="num">${r.vigente == null && r.conIva === false ? '' : chipDelta(r.deltaPct, r.estado)}</td>
+    <td class="num">${r.conIva === true ? '' : chipDelta(r.deltaPct, r.estado)}</td>
     <td class="num">${r.margenTotalPct == null ? '<span class="md-nd">—</span>' : pctMd(r.margenTotalPct)}</td>`;
   let previo = null, conMinorista = false; // Fraccionado: los pack/bulto antes de la primera presentación son del granel
   const cuerpo = filas.map(r => {
