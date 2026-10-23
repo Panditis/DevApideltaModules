@@ -225,11 +225,13 @@ function renderStockCentral(g) {
       <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="${th};text-align:left">${titulo}</th><th style="${th};text-align:right">STOCK CENTRAL</th>${conKg ? `<th style="${th};text-align:right">EN KG</th>` : ''}</tr></thead>
       <tbody>${body}<tr style="border-top:2px solid var(--md-outline-variant)"><td class="font-bold" style="font-size:13px;padding:5px 10px">Total</td><td class="font-bold" style="${num}">${fmt(total)} ${unidad}</td>${conKg ? `<td class="font-bold" style="${num}">${fmt(totalKg)} kg</td>` : ''}</tr></tbody></table>`;
   };
+  // Graneles cargados en el catálogo (granelPlu/s): también en grupos que se planifican por presentación (granel previo).
+  const graneles = (g.graneles || []).map(x => ({ nombre: x.nombre || x.id, stock: x.stock }));
   if (!g.esGranel) {
     const pres = (g.presentaciones || []).map(p => ({ nombre: p.presentacion || p.baseNombre || '', stock: p.stockActual }));
-    return pres.length ? tabla('PRESENTACIÓN', pres, 'u') : '<div style="padding:10px;color:var(--muted)">Sin presentaciones.</div>';
+    return (graneles.length ? tabla('GRANEL', graneles, 'kg') : '')
+      + (pres.length ? tabla('PRESENTACIÓN', pres, 'u') : '<div style="padding:10px;color:var(--muted)">Sin presentaciones.</div>');
   }
-  const graneles = (g.graneles || []).map(x => ({ nombre: x.nombre || x.id, stock: x.stock }));
   // Grupo x unidad (el desglose trae unidadesVentana): las presentaciones van en unidades, con su equivalente en kg.
   const porUnidad = (g.desglose || []).some(d => d.unidadesVentana != null);
   const pres = (g.desglose || []).map(d => ({ nombre: d.presentacion || d.baseNombre || '', stock: d.stockCentral, kg: d.stockCentralKg ?? null }));
