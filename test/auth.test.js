@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const {
   CATALOGO_MODULOS,
   hashPassword, verifyPassword,
-  moduloDeRuta, puedeAcceder, hubDeUsuario,
+  moduloDeRuta, puedeAcceder, hubDeUsuario, usuariosDelModulo,
   crearUsuario, eliminarUsuario, autenticar, cambiarPasswordPropia,
 } = require('../lib/auth');
 
@@ -42,11 +42,13 @@ test('moduloDeRuta resuelve páginas HTML por igualdad exacta', () => {
   assert.strictEqual(moduloDeRuta('/planificacion'), 'planificacion');
 });
 
-test('moduloDeRuta resuelve Sucursales y su submódulo Mantenimiento', () => {
+test('moduloDeRuta resuelve Sucursales y sus submódulos Mantenimiento y Carteles Pesables', () => {
   assert.strictEqual(moduloDeRuta('/sucursales'), 'sucursales');
   assert.strictEqual(moduloDeRuta('/sucursales/mantenimiento'), 'sucursales');
   assert.strictEqual(moduloDeRuta('/api/sucursales/mantenimiento'), 'sucursales');
   assert.strictEqual(moduloDeRuta('/api/sucursales/mantenimiento/3/etapas'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/carteles-pesables'), 'sucursales');
+  assert.strictEqual(moduloDeRuta('/api/carteles-pesables'), 'sucursales');
 });
 
 test('moduloDeRuta da prioridad a la ruta HTML más específica (/distribucion/a8020)', () => {
@@ -163,6 +165,23 @@ test('la importación a SIGA (/compras/siga y /api/compras-siga) queda bajo el m
   assert.strictEqual(moduloDeRuta('/compras/siga'), 'compras');
   assert.strictEqual(moduloDeRuta('/api/compras-siga/grabar'), 'compras');
   assert.strictEqual(moduloDeRuta('/api/compras-siga/pedidos/P-0001/borrador'), 'compras');
+});
+
+// ── usuariosDelModulo (destinatarios de Mantenimiento) ──────────────────────────
+test('usuariosDelModulo trae sólo cuentas activas, no admin, con el módulo, sin salt ni hash', () => {
+  const lista = [
+    { usuario: 'SucursalNacion', nombre: 'Nacion', modulos: ['sucursales', 'solo-sucursales'], salt: 's', hash: 'h' },
+    { usuario: 'sinNombre', nombre: '', modulos: ['sucursales'] },
+    { usuario: 'baja', nombre: 'Baja', activo: false, modulos: ['sucursales'] },
+    { usuario: 'jefe', nombre: 'Jefe', esAdmin: true, modulos: ['sucursales'] },
+    { usuario: 'ventas', nombre: 'Ventas', modulos: ['pedidos'] },
+    { usuario: 'sinModulos', nombre: 'X' },
+  ];
+  assert.deepStrictEqual(usuariosDelModulo(lista, 'sucursales'), [
+    { usuario: 'SucursalNacion', nombre: 'Nacion' },
+    { usuario: 'sinNombre', nombre: 'sinNombre' },
+  ]);
+  assert.deepStrictEqual(usuariosDelModulo(null, 'sucursales'), []);
 });
 
 // ── hubDeUsuario (permiso 'solo-sucursales') ────────────────────────────────────

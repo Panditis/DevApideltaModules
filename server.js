@@ -2695,9 +2695,11 @@ app.use(require('./routes/rutas_cruce_bancario')({ query }));
 // Tickets de Desarrollo: persiste en data/tickets.json; los destinatarios válidos son los usuarios activos de SIGA.
 app.use(require('./routes/rutas_tickets')({ leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso }));
 // Sucursales: sub-hub /sucursales y Mantenimiento = otra instancia del router de tickets con datos en data/mantenimiento.json.
+// Sus destinatarios son las cuentas de la app con acceso a Sucursales (no los usuarios de SIGA).
 app.get('/sucursales', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'sucursales.html')));
 app.use(require('./routes/rutas_tickets')({
-  leerJSON, guardarJSON, DATA_DIR, query, tienePermiso: auth.tienePermiso,
+  leerJSON, guardarJSON, DATA_DIR, tienePermiso: auth.tienePermiso,
+  usuarios: () => auth.usuariosDelModulo(auth.listarUsuarios(), 'sucursales'),
   pagina: '/sucursales/mantenimiento', api: '/api/sucursales/mantenimiento', archivo: 'mantenimiento.json',
   permiso: 'mantenimiento-gestion', areas: require('./lib/tickets').AREAS_MANTENIMIENTO, etiqueta: 'mantenimiento',
   crearSoloGestion: true, // sin 'mantenimiento-gestion' sólo se ven y comentan pedidos

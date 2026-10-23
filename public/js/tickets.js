@@ -294,7 +294,8 @@
     lista.setAttribute('aria-label', 'Sugerencias de destinatarios');
     Object.assign(input, { type: 'text', id: `${id}-campo`, maxLength: MAX_DEST_LARGO, autocomplete: 'off', spellcheck: false });
     [['role', 'combobox'], ['aria-autocomplete', 'list'], ['aria-expanded', 'false'], ['aria-controls', lista.id],
-      ['aria-label', 'Agregar destinatario: usuario de SIGA o nombre de una persona externa']].forEach(([k, v]) => input.setAttribute(k, v));
+      ['aria-label', estado.meta.soloUsuarios ? 'Agregar destinatario: usuario de una sucursal'
+        : 'Agregar destinatario: usuario de SIGA o nombre de una persona externa']].forEach(([k, v]) => input.setAttribute(k, v));
 
     const yaEsta = v => seleccion.some(x => mismoUsuario(x, v));
     const cambiar = nueva => { seleccion = nueva; pintarChips(); if (alCambiar) alCambiar([...seleccion]); };
@@ -314,7 +315,7 @@
       const ops = usuarios.filter(u => !yaEsta(u.usuario) && (!ql || `${u.nombre} ${u.usuario}`.toLowerCase().includes(ql)))
         .map(u => ({ tipo: 'siga', valor: u.usuario, nombre: u.nombre || u.usuario }));
       const exacto = usuarios.some(u => mismoUsuario(u.usuario, q) || mismoUsuario(u.nombre, q));
-      if (q && !exacto && !yaEsta(q)) ops.push({ tipo: 'externo', valor: q, nombre: q });
+      if (q && !exacto && !yaEsta(q) && !estado.meta.soloUsuarios) ops.push({ tipo: 'externo', valor: q, nombre: q });
       return ops;
     }
     function abrir() {
@@ -518,7 +519,7 @@
     const areas = ordenar([...estado.meta.areas, ...estado.tickets.map(t => t.area)]);
     rellenarSelect('#flArea', areas.map(a => [a, a]), 'Todas las áreas');
     const conocidos = (estado.meta.usuarios || []).map(u => u.usuario);
-    const extra = estado.tickets.flatMap(t => comoLista(t.destinatarios))
+    const extra = (estado.meta.soloUsuarios ? [] : estado.tickets.flatMap(t => comoLista(t.destinatarios)))
       .reduce((acc, u) => ([...conocidos, ...acc].some(c => mismoUsuario(c, u)) ? acc : [...acc, u]), []);
     const dest = [...conocidos, ...extra].map(u => [u, `${nombreDe(u)}${esExterno(u) ? ' (externo)' : ''}`])
       .sort((a, b) => a[1].localeCompare(b[1], 'es'));

@@ -69,6 +69,7 @@ test('meta mapea usuarios de SIGA (trim, Nombre||Id) y resuelve yo case-insensit
     assert.strictEqual(data.estados.length, 6);
     assert.ok(data.areas.includes('Compras'));
     assert.strictEqual(data.puedeCrear, true); // /tickets: crear no pide gestión
+    assert.strictEqual(data.soloUsuarios, false); // /tickets sigue aceptando externos
     // Segunda llamada dentro del TTL: no vuelve a consultar SIGA.
     await pedir(ctx.base, 'GET', '/meta');
     assert.strictEqual(ctx.sql.llamadas, 1);
@@ -345,6 +346,23 @@ test('instancia de Mantenimiento: datos en mantenimiento.json, sus áreas y su p
     const ok = await pedir(base, 'PATCH', '/1', { estado: 'en_proceso' });
     assert.strictEqual(ok.status, 200);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ctx.dir, 'mantenimiento.json'), 'utf8'))[0].estado, 'en_proceso');
+  } finally { cerrar(ctx); }
+});
+
+test('instancia con `usuarios` propios: destinatarios y "yo" salen de esa lista y SIGA no se consulta', async () => {
+  const cuentas = [{ usuario: 'SucursalUrquiza', nombre: 'Urquiza' }, { usuario: 'Mantenimiento', nombre: 'Mantenimiento' }];
+  const ctx = await montar({ config: { usuarios: () => cuentas } });
+  const { base } = ctx;
+  try {
+    ctx.sesion.user = { usuario: 'sucursalurquiza', nombre: 'Urquiza' };
+    const meta = await pedir(base, 'GET', '/meta');
+    assert.deepStrictEqual(meta.data.usuarios, cuentas);
+    assert.strictEqual(meta.data.soloUsuarios, true);
+    assert.strictEqual(meta.data.yo, 'SucursalUrquiza');
+    const ok = await pedir(base, 'POST', '', { ...NUEVO, destinatarios: ['SucursalUrquiza'] });
+    assert.strictEqual(ok.status, 201);
+    assert.deepStrictEqual(ok.data.destinatarios, ['SucursalUrquiza']);
+    assert.strictEqual(ctx.sql.llamadas, 0);
   } finally { cerrar(ctx); }
 });
 

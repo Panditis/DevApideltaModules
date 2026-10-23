@@ -13,7 +13,8 @@ const tickets = require('../lib/tickets');
 // 'tickets-gestion' (tienePermiso entra por deps, es auth.tienePermiso); destinatarios y prioridad los cambia el
 // creador del ticket o quien tenga ese permiso. Las etapas (alta, cambio, baja) también piden 'tickets-gestion'.
 // La misma factory monta otras instancias con datos propios (p. ej. Mantenimiento de sucursales): deps acepta
-// pagina, api, archivo, permiso, areas y etiqueta (logs); los defaults son los de /tickets. El html es siempre tickets.html.
+// pagina, api, archivo, permiso, areas, etiqueta (logs) y usuarios (destinatarios propios, sin SIGA); los defaults son los
+// de /tickets. El html es siempre tickets.html.
 const USUARIOS_TTL_MS = 5 * 60 * 1000;
 const SQL_USUARIOS = 'SELECT Id, Nombre FROM Usuarios WHERE Activo = 1 ORDER BY Nombre';
 
@@ -23,6 +24,7 @@ module.exports = function crearRutasTickets(deps) {
     pagina = '/tickets', api = '/api/tickets', archivo = 'tickets.json', permiso = 'tickets-gestion',
     areas = tickets.AREAS, etiqueta = 'tickets',
     crearSoloGestion = false, // true: dar de alta también pide el permiso de gestión (Mantenimiento)
+    usuarios: fuenteUsuarios, // () => [{ usuario, nombre }] (sync o async): destinatarios propios en vez de los de SIGA
   } = deps;
   const router = express.Router();
   const TICKETS_PATH = path.join(DATA_DIR, archivo);
@@ -75,6 +77,9 @@ module.exports = function crearRutasTickets(deps) {
     }
   }
 
+  // Destinatarios válidos: los que inyecta la instancia (Mantenimiento: cuentas de la app) o, si no, los de SIGA.
+  const listarUsuarios = async () => (fuenteUsuarios ? fuenteUsuarios() : usuariosSiga());
+
   // Corre `fn` (sync o async) y responde; los errores con e.status (400/404/503) salen tal cual.
   const manejar = (fn, ok = 200) => async (req, res) => {
     try { res.status(ok).json(await fn(req)); }
@@ -90,7 +95,7 @@ module.exports = function crearRutasTickets(deps) {
   router.get(api, manejar(() => leerTickets()));
 
   router.get(`${api}/meta`, manejar(async req => {
-    const usuarios = await usuariosSiga();
+    const usuarios = await listarUsuarios();
     const user = (req.session && req.session.user) || {};
     const login = String(user.usuario || '').toLowerCase();
     const yo = login ? usuarios.find(u => u.usuario.toLowerCase() === login) : null;
@@ -100,6 +105,7 @@ module.exports = function crearRutasTickets(deps) {
       estadosEtapa: tickets.ESTADOS_ETAPA,
       areas,
       usuarios,
+      soloUsuarios: !!fuenteUsuarios, // true: sólo se eligen cuentas de la lista (sin externos ni nombres libres en la UI)
       yo: yo ? yo.usuario : null,
       yoNombre: user.nombre || user.usuario || null,
       login: user.usuario || null,
@@ -110,7 +116,7 @@ module.exports = function crearRutasTickets(deps) {
 
   router.post(api, manejar(async req => {
     if (crearSoloGestion && !puedeGestionar(req)) throw prohibido('No tenés permiso para crear tickets.');
-    const validos = (await usuariosSiga()).map(u => u.usuario);
+    const validos = (await listarUsuarios()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
     const { lista, ticket } = tickets.crearTicket(leerTickets(), req.body, usuarioSesion(req), validos, new Date().toISOString());
     guardarJSON(TICKETS_PATH, lista);
@@ -119,7 +125,7 @@ module.exports = function crearRutasTickets(deps) {
 
   router.patch(`${api}/:id`, manejar(async req => {
     const id = idValido(req.params.id, 'ticket');
-    const validos = (await usuariosSiga()).map(u => u.usuario);
+    const validos = (await listarUsuarios()).map(u => u.usuario);
     // Desde acá sincrónico: leer → modificar → guardar.
     const actuales = leerTickets();
     autorizarCambios(req, actuales.find(t => Number(t.id) === id), req.body || {});
