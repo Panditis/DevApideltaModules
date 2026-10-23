@@ -66,7 +66,7 @@ module.exports = function crearRutasPlan(deps) {
     leerOrdenes, guardarOrdenes,
     tiposPackaging, FORMULA_ACTIVA_SQL, SIN_FORMULA_GENERICO_SQL,
     sqlStockTerminados, sqlStockGranel, sqlBOMGranel, sqlStockPorPlu,
-    buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel, cfgVentaPorUnidad,
+    buildCatalogoMaps, cfgActivo, cfgGranelPlu, cfgGranelPlus, cfgEsGranel, cfgVentaPorUnidad, cfgGranelesUnidad,
     sucursalesSiga, sucursalPublica,
     CONFIG_PATH = path.join(__dirname, '..', 'config.json'), // los tests pasan uno propio
   } = deps;
@@ -365,8 +365,10 @@ async function calcularSugerenciasCatalogo(params) {
   // fabricar). Sin eso, el grupo no lleva granel y no muestra ningún valor — no hay fallback a la
   // fórmula (BOM): cualquier componente con stock granel propio calificaba como "el granel" aunque
   // fuera un saborizante menor (ej. "Canela En Polvo" en Miel Canela, 0.0042 por unidad).
+  // enUnidades (grupos_config.granelesUnidad): el stock de ese granel está en unidades; solo cambia cómo se muestra.
   function resolverGranelGrupo(refInfo) {
-    return cfgGranelPlus(gruposCfg, refInfo.productoRef).map(id => ({ id, nombre: customGranelNomMap.get(id) || id }));
+    const enUnidades = new Set(cfgGranelesUnidad(gruposCfg, refInfo.productoRef));
+    return cfgGranelPlus(gruposCfg, refInfo.productoRef).map(id => ({ id, nombre: customGranelNomMap.get(id) || id, enUnidades: enUnidades.has(id) }));
   }
   const grupos = [];
   for (const [refId, refInfo] of refMap) {
@@ -381,7 +383,7 @@ async function calcularSugerenciasCatalogo(params) {
     const granelRefs = resolverGranelGrupo(refInfo);
     if (granelRefs.length) {
       // Sin fila de stock del granel → 0 (quiebre real), no el stock de los terminados.
-      granelesGrupo = granelRefs.map(r => ({ id: r.id, nombre: r.nombre, stock: Math.round((granelMap.get(r.id) || 0) * 100) / 100 }));
+      granelesGrupo = granelRefs.map(r => ({ id: r.id, nombre: r.nombre, stock: Math.round((granelMap.get(r.id) || 0) * 100) / 100, enUnidades: r.enUnidades }));
       granelIdGrupo     = granelesGrupo[0].id;
       nombreGranelGrupo = granelesGrupo[0].nombre;
       granelStockGrupo  = granelesGrupo[0].stock;
@@ -390,7 +392,7 @@ async function calcularSugerenciasCatalogo(params) {
       for (const [base, bInfo] of refInfo.bases) { if (bInfo.pluBase && /10\s*kg/i.test(bInfo.baseNombre || '')) { base10 = base; nombreGranelGrupo = bInfo.baseNombre; granelIdGrupo = String(bInfo.pluBase); break; } }
       if (base10) {
         granelStockGrupo = stockBaseAll.get(base10) || 0;
-        granelesGrupo = [{ id: granelIdGrupo, nombre: nombreGranelGrupo, stock: granelStockGrupo }];
+        granelesGrupo = [{ id: granelIdGrupo, nombre: nombreGranelGrupo, stock: granelStockGrupo, enUnidades: false }];
       }
     } else {
       // Sin granelPlu en el catálogo y sin componente granel en la fórmula (BOM) de ninguna base: el
@@ -399,6 +401,8 @@ async function calcularSugerenciasCatalogo(params) {
       // lleva granel").
       granelStockGrupo = null;
     }
+    // El del primer granel (el de granelStockGrupo): la unidad con que se muestra el granel del grupo.
+    const granelEnUnidades = !!(granelesGrupo[0] && granelesGrupo[0].enUnidades);
     // Denominador: ÷ventana (demanda real) salvo que el producto esté sin stock → ÷días-con-venta (quiebre de stock)
     const usarPorDia = granelStockGrupo <= 0;
     const consumoBaseUse = usarPorDia ? consumoBasePorDia : consumoBaseVentana;
@@ -464,7 +468,7 @@ async function calcularSugerenciasCatalogo(params) {
       const sinPeso = presFinal.filter(p => (porUnidadG && pesoKgDe(p) === null) || mayUnidadDe(p).some(m => m.pesoKg === null)).map(p => p.presentacion);
       grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
-        plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
+        plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, granelEnUnidades, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
         facturacionMensual: facturMensualG, presentaciones: [],
         ...(porUnidadG || sinPeso.length ? { presentacionesSinPeso: sinPeso } : {}),
         // Consumo por presentación solo para mostrar (modal de urgencia): el granel se planifica como grupo.
@@ -480,7 +484,7 @@ async function calcularSugerenciasCatalogo(params) {
     const facturGrupo  = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
     const facturMensual = Math.round(facturGrupo * (30 / ventana) * 100) / 100;
     grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
-      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo, graneles: granelesGrupo,
+      totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, granelEnUnidades,
       facturacionMensual: facturMensual, presentaciones: presFinal });
   }
   // Prioridad: Σf²/Σf de la facturación mensual de cada presentación (granel/sin presentaciones: la del grupo)

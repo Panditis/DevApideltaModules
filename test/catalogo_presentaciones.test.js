@@ -60,6 +60,8 @@ const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000, 301: 50 };
 // Solo para el grupo de pepas (los otros tests no los miran).
 const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999 };
 const PEND = { 301: 5, 302: 10, 303: 2, 402: 4 };
+// Stock de los graneles cargados a mano en el catálogo (grupos_config.granelPlus).
+const STOCK_GRANEL = { 901: 12, 902: 30 };
 
 // Grupo granel "x unidad" (ej. pepas: la masa es por kilo, las presentaciones se venden por unidad).
 //   · 'Pepas Batata': la presentación no dice el peso → sale del nombre del primer minorista (180G);
@@ -99,7 +101,7 @@ function plusDe(sql) {
   return m ? m[1].split(',').map(s => s.replace(/'/g, '').trim()) : [];
 }
 
-function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATALOGO } = {}) {
+function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATALOGO, gruposCfg = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-pres-'));
   const leerJSON = (p, def) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def);
   const guardarJSON = (p, d) => fs.writeFileSync(p, JSON.stringify(d));
@@ -107,6 +109,7 @@ function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATAL
   const CONFIG_PATH = path.join(dir, 'config.json');
   guardarJSON(CATALOGO_PATH, catalogo);
   guardarJSON(CONFIG_PATH, CONFIG);
+  guardarJSON(path.join(dir, 'grupos_config.json'), gruposCfg);
   const sqls = [];
   const query = async sql => {
     sqls.push(sql);
@@ -117,6 +120,7 @@ function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATAL
     if (/^STOCK_CENTRAL/.test(sql)) return fila(STOCK, 'StockActual');
     if (/SoyLaCentral=0/.test(sql)) return fila(STOCK_SUC, 'StockActual');
     if (/UnidPendientes/.test(sql)) return fila(PEND, 'UnidPendientes');
+    if (/SoyLaCentral=1/.test(sql)) return fila(STOCK_GRANEL, 'StockActual');
     return [];
   };
   const app = express();
@@ -126,8 +130,8 @@ function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATAL
     GRUPOS_CFG_PATH: path.join(dir, 'grupos_config.json'),
     sqlStockPorPlu: l => `STOCK_CENTRAL IdProducto IN (${l.join(',')})`,
     sqlStockGranel: () => 'GRANEL', sqlBOMGranel: (_r, extra) => `BOM${extra}`,
-    buildCatalogoMaps, cfgActivo: () => true, cfgGranelPlu: () => '', cfgGranelPlus: () => [], cfgEsGranel: () => esGranel,
-    cfgVentaPorUnidad: () => ventaPorUnidad,
+    buildCatalogoMaps, cfgActivo: () => true, cfgGranelPlu: () => '', cfgGranelPlus: (cfg, ref) => (cfg[ref] || {}).granelPlus || [], cfgEsGranel: () => esGranel,
+    cfgVentaPorUnidad: () => ventaPorUnidad, cfgGranelesUnidad: (cfg, ref) => (cfg[ref] || {}).granelesUnidad || [],
   }));
   return new Promise(ok => {
     const server = app.listen(0, () => ok({ server, dir, sqls, url: `http://127.0.0.1:${server.address().port}` }));
@@ -186,6 +190,38 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     assert.strictEqual(g.presentacionesSinPeso, undefined);
   } finally { cerrar(ctx); }
 });
+
+// Graneles en unidades: solo marca enUnidades/granelEnUnidades; ningún número cambia.
+async function grupoMix(opts) {
+  const ctx = await montarPlan(opts);
+  try {
+    const r = await fetch(`${ctx.url}/api/plan/sugerencias-grupos`);
+    const grupos = await r.json();
+    assert.strictEqual(r.status, 200, JSON.stringify(grupos));
+    return grupos[0];
+  } finally { cerrar(ctx); }
+}
+const sinMarcasDeUnidad = g => JSON.parse(JSON.stringify({ ...g, granelEnUnidades: undefined,
+  graneles: g.graneles.map(({ enUnidades, ...x }) => x) }));
+
+for (const esGranel of [true, false]) {
+  test(`graneles en unidades (${esGranel ? 'grupo granel' : 'granel previo'}): marca cada granel y el grupo toma el del primero, sin cambiar números`, async () => {
+    const cfg = granelesUnidad => ({ Mix: { activo: true, granelPlu: '901', granelPlus: ['901', '902'], ...(granelesUnidad ? { granelesUnidad } : {}) } });
+    const base = await grupoMix({ esGranel, gruposCfg: cfg() });
+    const segundo = await grupoMix({ esGranel, gruposCfg: cfg(['902']) });
+    const primero = await grupoMix({ esGranel, gruposCfg: cfg(['901']) });
+    assert.deepStrictEqual(base.graneles, [
+      { id: '901', nombre: '901', stock: 12, enUnidades: false }, { id: '902', nombre: '902', stock: 30, enUnidades: false }]);
+    assert.strictEqual(base.granelEnUnidades, false);
+    assert.deepStrictEqual(segundo.graneles.map(x => x.enUnidades), [false, true]);
+    assert.strictEqual(segundo.granelEnUnidades, false);
+    assert.deepStrictEqual(primero.graneles.map(x => x.enUnidades), [true, false]);
+    assert.strictEqual(primero.granelEnUnidades, true);
+    assert.strictEqual(primero.granelStockGrupo, 12);
+    assert.deepStrictEqual(sinMarcasDeUnidad(segundo), sinMarcasDeUnidad(base));
+    assert.deepStrictEqual(sinMarcasDeUnidad(primero), sinMarcasDeUnidad(base));
+  });
+}
 
 async function grupoPepas(opts) {
   const ctx = await montarPlan({ catalogo: PEPAS, ...opts });
@@ -337,6 +373,28 @@ test('POST grupos-config: conserva ventaPorUnidad y compacta el grupo que no lo 
       Pepas: { activo: true, granelDirecto: true, ventaPorUnidad: true },
       Mix: true,
       Solo: { activo: true, ventaPorUnidad: true },
+    });
+  } finally { cerrar(ctx); }
+});
+
+test('POST grupos-config: granelesUnidad queda solo con los graneles del grupo, sin vacíos ni repetidos', async () => {
+  const ctx = await montarCatalogo();
+  try {
+    const r = await fetch(`http://127.0.0.1:${ctx.server.address().port}/api/catalogo/grupos-config`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        Mix: { activo: true, granelPlu: '901', granelPlus: ['901', '902'], granelesUnidad: ['902', ' 902 ', '', null, '999'] },
+        Uno: { activo: true, granelPlu: '901', granelesUnidad: ['901'] },
+        Nada: { activo: true, granelPlu: '901', granelesUnidad: ['999'] },
+        Sin: { activo: true, granelesUnidad: ['901'] },
+      }),
+    });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(ctx.grupos(), {
+      Mix: { activo: true, granelPlu: '901', granelPlus: ['901', '902'], granelesUnidad: ['902'] },
+      Uno: { activo: true, granelPlu: '901', granelesUnidad: ['901'] },
+      Nada: { activo: true, granelPlu: '901' },
+      Sin: true,
     });
   } finally { cerrar(ctx); }
 });

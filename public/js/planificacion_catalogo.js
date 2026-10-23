@@ -73,7 +73,8 @@ async function abrirModalGrupo(productoRef) {
   document.getElementById('editarGrupoTitulo').textContent    = productoRef;
   document.getElementById('editarGrupoTitulo').style.display  = '';
   document.getElementById('inputGranelPlu').value = '';
-  granelesData = cfgGetGranelPlus(productoRef).map(plu => ({ plu, nombre: '' }));
+  const _gUnid = cfgGetGranelesUnidad(productoRef);
+  granelesData = cfgGetGranelPlus(productoRef).map(plu => ({ plu, nombre: '', enUnidades: _gUnid.includes(plu) }));
   renderGraneles();
   // Los nombres no se guardan en la config: se resuelven contra SiGA al abrir el modal.
   granelesData.forEach(async g => {
@@ -352,7 +353,7 @@ async function guardarGrupo() {
   try {
     const _gPlus = granelesData.map(g => g.plu);
     const _gPlu  = _gPlus[0] || '';
-    cfgSetGranelPlus(editarGrupoRef, _gPlus);
+    cfgSet(editarGrupoRef, { granelPlus: _gPlus, granelesUnidad: granelesData.filter(g => g.enUnidades).map(g => g.plu) });
     // Persist mpManual into cfg entry (preserves activo + granelPlu already set above)
     const _cfgEntry = gruposCfgLocal[editarGrupoRef];
     if (mpManualData.length > 0) {
@@ -411,11 +412,12 @@ function cfgGetEsMiel(ref){const o=cfgRawEsMiel(ref);if(o!==null)return o;return
 function cfgGetReqGranel(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.reqGranel===true);}
 // Grupo granel cuyas presentaciones se venden por unidad (pepas): el cálculo pasa ventas y stock a kg.
 function cfgGetVentaPorUnidad(ref){const v=gruposCfgLocal[ref];return !!(v&&typeof v==='object'&&v.ventaPorUnidad===true);}
-function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel,ventaPorUnidad}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;if(ventaPorUnidad)obj.ventaPorUnidad=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel||obj.ventaPorUnidad;return extra?obj:activo;}
+// Graneles del grupo cuyo stock está en unidades, no en kg (solo cambia cómo se muestra).
+function cfgGetGranelesUnidad(ref){const v=gruposCfgLocal[ref];return(v&&typeof v==='object'&&Array.isArray(v.granelesUnidad))?v.granelesUnidad.map(String):[];}
+function cfgEntry(ref,{activo,granelPlu,granelPlus,mpManual,granelDirecto,esMiel,reqGranel,ventaPorUnidad,granelesUnidad}){const obj={activo};const _gl=[...new Set((granelPlus||[]).map(x=>String(x||'').trim()).filter(Boolean))];const _g1=_gl[0]||granelPlu||'';if(_g1)obj.granelPlu=_g1;if(_gl.length>1)obj.granelPlus=_gl;const _gu=(granelesUnidad||[]).filter(x=>x===_g1||_gl.includes(x));if(_gu.length)obj.granelesUnidad=_gu;if(mpManual&&mpManual.length)obj.mpManual=mpManual;if(granelDirecto!==null&&granelDirecto!==undefined)obj.granelDirecto=granelDirecto;if(esMiel!==null&&esMiel!==undefined)obj.esMiel=esMiel;if(reqGranel)obj.reqGranel=true;if(ventaPorUnidad)obj.ventaPorUnidad=true;const extra=obj.granelPlu||obj.mpManual||obj.granelDirecto!==undefined||obj.esMiel!==undefined||obj.reqGranel||obj.ventaPorUnidad;return extra?obj:activo;}
 // Setter genérico: parte de la config actual del grupo y aplica solo los campos del patch.
-function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),ventaPorUnidad:cfgGetVentaPorUnidad(ref),...patch});}
+function cfgSet(ref,patch){gruposCfgLocal[ref]=cfgEntry(ref,{activo:cfgGetActivo(ref),granelPlus:cfgGetGranelPlus(ref),mpManual:cfgGetMpManual(ref),granelDirecto:cfgRawGranelDirecto(ref),esMiel:cfgRawEsMiel(ref),reqGranel:cfgGetReqGranel(ref),ventaPorUnidad:cfgGetVentaPorUnidad(ref),granelesUnidad:cfgGetGranelesUnidad(ref),...patch});}
 function cfgSetActivo(ref,a){cfgSet(ref,{activo:a});}
-function cfgSetGranelPlus(ref,plus){cfgSet(ref,{granelPlus:plus});}
 function cfgSetGranelDirecto(ref,val){cfgSet(ref,{granelDirecto:val});}
 function cfgSetEsMiel(ref,val){cfgSet(ref,{esMiel:val});}
 function cfgSetReqGranel(ref,val){cfgSet(ref,{reqGranel:val});}
@@ -433,8 +435,9 @@ async function cargarCatalogo() {
       const rg = g.reqGranel === true;
       const vu = g.ventaPorUnidad === true;
       const gl = (Array.isArray(g.granelPlus) ? g.granelPlus : []).map(String).filter(Boolean);
+      const gu = (Array.isArray(g.granelesUnidad) ? g.granelesUnidad : []).map(String).filter(Boolean); // requiere granel (gp)
       gruposCfgLocal[g.productoRef] = (gp || mp.length || gd !== null || em !== null || rg || vu)
-        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}) }
+        ? { activo: g.activo, ...(gp?{granelPlu:gp}:{}), ...(gl.length>1?{granelPlus:gl}:{}), ...(gu.length?{granelesUnidad:gu}:{}), ...(mp.length?{mpManual:mp}:{}), ...(gd!==null?{granelDirecto:gd}:{}), ...(em!==null?{esMiel:em}:{}), ...(rg?{reqGranel:true}:{}), ...(vu?{ventaPorUnidad:true}:{}) }
         : g.activo;
     }
     renderCatalogo();

@@ -68,7 +68,7 @@ function renderGrupos() {
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
         </td>
         <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
-        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(g.granelStockGrupo != null ? g.granelStockGrupo : '—', gi)}</td>
+        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(g.granelStockGrupo != null ? g.granelStockGrupo + (g.granelEnUnidades ? ' u' : '') : '—', gi)}</td>
         <td class="text-right text-sm" style="color:var(--muted);white-space:nowrap">${stockSucCell(g.stockSucGrupo, gi)}</td>
         <td style="white-space:nowrap"><button class="btn-add" onclick="abrirModalGranel(${gi})">+ Agregar</button></td>
       </tr>`;
@@ -216,17 +216,20 @@ function renderStockCentral(g) {
   const num = 'text-align:right;white-space:nowrap;padding:5px 10px';
   const th = 'font-size:11px;color:var(--muted);padding:4px 10px';
   // f.kg: equivalente en kg de una presentación x unidad (columna extra solo si alguna lo trae).
+  // f.unidad: la de esa fila (graneles en unidades); si no, la de la tabla. Mezcladas, el total va por unidad ("12 kg + 30 u").
   const tabla = (titulo, filas, unidad) => {
-    const total = filas.reduce((t, f) => t + (f.stock || 0), 0);
+    const uDe = f => f.unidad || unidad;
+    const totales = filas.reduce((t, f) => ({ ...t, [uDe(f)]: (t[uDe(f)] || 0) + (f.stock || 0) }), {});
+    const total = Object.entries(totales).map(([u, t]) => `${fmt(t)} ${u}`).join(' + ');
     const conKg = filas.some(f => f.kg != null);
     const totalKg = filas.reduce((t, f) => t + (f.kg || 0), 0);
-    const body = filas.map(f => `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 10px">${escHtml(f.nombre)}</td><td style="${num}${f.stock ? '' : ';color:var(--muted)'}">${fmt(f.stock)} ${unidad}</td>${conKg ? `<td style="${num};color:var(--muted)">${f.kg != null ? fmt(f.kg) + ' kg' : '—'}</td>` : ''}</tr>`).join('');
+    const body = filas.map(f => `<tr style="border-bottom:1px solid var(--md-outline-variant)"><td style="font-size:13px;padding:5px 10px">${escHtml(f.nombre)}</td><td style="${num}${f.stock ? '' : ';color:var(--muted)'}">${fmt(f.stock)} ${uDe(f)}</td>${conKg ? `<td style="${num};color:var(--muted)">${f.kg != null ? fmt(f.kg) + ' kg' : '—'}</td>` : ''}</tr>`).join('');
     return `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
       <thead><tr style="border-bottom:2px solid var(--md-outline-variant)"><th style="${th};text-align:left">${titulo}</th><th style="${th};text-align:right">STOCK CENTRAL</th>${conKg ? `<th style="${th};text-align:right">EN KG</th>` : ''}</tr></thead>
-      <tbody>${body}<tr style="border-top:2px solid var(--md-outline-variant)"><td class="font-bold" style="font-size:13px;padding:5px 10px">Total</td><td class="font-bold" style="${num}">${fmt(total)} ${unidad}</td>${conKg ? `<td class="font-bold" style="${num}">${fmt(totalKg)} kg</td>` : ''}</tr></tbody></table>`;
+      <tbody>${body}<tr style="border-top:2px solid var(--md-outline-variant)"><td class="font-bold" style="font-size:13px;padding:5px 10px">Total</td><td class="font-bold" style="${num}">${total}</td>${conKg ? `<td class="font-bold" style="${num}">${fmt(totalKg)} kg</td>` : ''}</tr></tbody></table>`;
   };
   // Graneles cargados en el catálogo (granelPlu/s): también en grupos que se planifican por presentación (granel previo).
-  const graneles = (g.graneles || []).map(x => ({ nombre: x.nombre || x.id, stock: x.stock }));
+  const graneles = (g.graneles || []).map(x => ({ nombre: x.nombre || x.id, stock: x.stock, unidad: x.enUnidades ? 'u' : 'kg' }));
   if (!g.esGranel) {
     const pres = (g.presentaciones || []).map(p => ({ nombre: p.presentacion || p.baseNombre || '', stock: p.stockActual }));
     return (graneles.length ? tabla('GRANEL', graneles, 'kg') : '')
@@ -430,8 +433,11 @@ function textoMinimo(d, g, unidad) {
     + (falta > 0 ? `tiene ${nfAR(d.total, 2)} → <strong>faltan ${nfAR(falta, 2)} ${unidad}</strong>` : `tiene ${nfAR(d.total, 2)} → alcanza`);
 }
 
+// Unidad del grupo: kg en granel, salvo que su granel tenga el stock en unidades (granelEnUnidades, solo visual).
+const unidadGrupo = g => (g.esGranel && !g.granelEnUnidades ? 'kg' : 'u');
+
 function htmlCalculoPresentacion(g, p) {
-  const d = datosUrgencia(g, p), unidad = g.esGranel ? 'kg' : 'u';
+  const d = datosUrgencia(g, p), unidad = unidadGrupo(g);
   const excluye = textoExclusiones(g);
   const fila = (etq, valor) => `<tr><td>${etq}</td><td>${valor}</td></tr>`;
   const filas = [
@@ -450,7 +456,7 @@ function htmlCalculoPresentacion(g, p) {
 }
 
 function htmlCalculoGrupo(g) {
-  const unidad = g.esGranel ? 'kg' : 'u';
+  const unidad = unidadGrupo(g);
   const conPeso = Number.isFinite(g.pesoUrgente) && Number.isFinite(g.umbralPeso);
   // Peso de cada presentación en el grupo: por facturación; si el grupo no factura, por unidades vendidas.
   const presentaciones = g.presentaciones || [];

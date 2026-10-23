@@ -1,7 +1,7 @@
 // ── Panel Granel MP (modal catálogo) ────────────────────────────
 // Un grupo puede tener varios graneles (una masa por variedad). El primero de la lista es el
 // que usa el resto del sistema (BOM del panel MP, sugerencias).
-let granelesData = [];   // [{plu, nombre}]
+let granelesData = [];   // [{plu, nombre, enUnidades}] — enUnidades: su stock está en unidades (solo visual)
 function renderGraneles() {
   const c = document.getElementById('listaGraneles');
   if (!c) return;
@@ -13,6 +13,8 @@ function renderGraneles() {
     <strong style="font-family:system-ui,sans-serif;color:var(--amb-text)">${escHtml(g.plu)}</strong>
     <span>${escHtml(g.nombre || '')}</span>
     ${i === 0 && granelesData.length > 1 ? '<span style="font-size:10px;color:var(--muted)">principal</span>' : ''}
+    <label title="El stock de este granel está en unidades, no en kg. Solo cambia cómo se muestra." style="display:inline-flex;align-items:center;gap:3px;font-size:11px;cursor:pointer;color:${g.enUnidades ? 'var(--amb-text)' : 'var(--muted)'};font-weight:${g.enUnidades ? '700' : '400'}">
+      <input type="checkbox" ${g.enUnidades ? 'checked' : ''} onchange="toggleGranelUnidades(${i}, this.checked)"> en unidades</label>
     <button onclick="quitarGranel(${i})" title="Quitar" style="border:none;background:none;color:var(--red-text);cursor:pointer;font-size:13px;line-height:1">✕</button>
   </span>`).join('');
 }
@@ -20,7 +22,7 @@ async function agregarGranel(plu, nombre) {
   const p = String(plu || '').trim();
   if (!p) { toast('Escribí el PLU del granel', true); return; }
   if (granelesData.some(g => g.plu === p)) { toast('Ese granel ya está en la lista', true); return; }
-  granelesData = [...granelesData, { plu: p, nombre: nombre || '' }];
+  granelesData = [...granelesData, { plu: p, nombre: nombre || '', enUnidades: false }];
   renderGraneles();
   document.getElementById('inputGranelPlu').value = '';
   document.getElementById('resultadosGranelPlu').style.display = 'none';
@@ -30,6 +32,12 @@ async function agregarGranel(plu, nombre) {
     const it = granelesData.find(g => g.plu === p);
     if (it && nom) { it.nombre = nom; renderGraneles(); }
   }
+}
+// Se muta el item (como g.nombre al resolver el nombre) para no cortar esa resolución en curso.
+function toggleGranelUnidades(i, val) {
+  if (!granelesData[i]) return;
+  granelesData[i].enUnidades = val;
+  renderGraneles();
 }
 function quitarGranel(i) {
   const eraPrincipal = i === 0;
