@@ -36,7 +36,7 @@ module.exports = function crearRutasPlanNueva(deps) {
   function guardarLista(archivo, clave, lista) {
     const tmp = `${archivo}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ [clave]: lista }, null, 2), 'utf8');
-    fs.renameSync(tmp, archivo);
+    try { fs.renameSync(tmp, archivo); } catch (err) { fs.rmSync(tmp, { force: true }); throw err; } // el original queda intacto
   }
 
   const leerCategorias = () => leerLista(CATALOGO_PATH, 'categorias');
