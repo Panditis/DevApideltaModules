@@ -30,14 +30,12 @@ function abrirModalNuevoGrupo() {
   document.getElementById('editarGrupoTitulo').style.display  = 'none';
   document.getElementById('inputNombreGrupo').style.display   = '';
   document.getElementById('inputNombreGrupo').value           = '';
-  document.getElementById('editarGrupoMeta').textContent      = '0 presentaciones · 0 PLUs';
-  document.getElementById('editarGrupoBody').innerHTML =
-    '<div class="loading" style="padding:32px">Escribí el nombre del grupo arriba y buscá productos en Siga para agregarlos.</div>';
+  presModal = []; presModalCargado = true; presEditando = null;
+  renderPresModal();
   document.getElementById('inputNuevaPres').value = '';
   document.getElementById('inputGranelPlu').value = '';
   granelesData = [];
   renderGraneles();
-  document.getElementById('panelBuscarSiga').style.display = 'none';
   document.getElementById('overlayEditarGrupo').classList.add('open');
   setTimeout(() => document.getElementById('inputNombreGrupo').focus(), 80);
 }
@@ -90,10 +88,10 @@ async function abrirModalGrupo(productoRef) {
   document.getElementById('mpInputCant').value = '';
   setModalTab('pres');
   document.getElementById('inputNombreGrupo').style.display   = 'none';
+  presModal = []; presModalCargado = false; presEditando = null;
   document.getElementById('editarGrupoMeta').textContent      = 'Cargando…';
   document.getElementById('editarGrupoBody').innerHTML        = '<div class="loading">Cargando…</div>';
   document.getElementById('inputNuevaPres').value             = '';
-  document.getElementById('panelBuscarSiga').style.display    = 'none';
   document.getElementById('overlayEditarGrupo').classList.add('open');
   try {
     const items = await api('GET', `/api/catalogo/grupo/${encodeURIComponent(productoRef)}`);
@@ -106,142 +104,201 @@ async function abrirModalGrupo(productoRef) {
   }
 }
 
-function buildTablaHTML(bodyRows) {
-  return `<table class="plu-tabla" style="min-width:520px">
-    <thead><tr>
-      <th style="width:86px">PLU</th>
-      <th>Nombre en Siga</th>
-      <th style="width:118px">Presentación</th>
-      <th style="width:56px;text-align:center">Variante</th>
-      <th style="width:38px"></th>
-    </tr></thead>
-    <tbody>${bodyRows}</tbody>
-  </table>`;
+// ── Presentaciones del grupo (tab Presentaciones) ─────────────────
+// Estado en memoria: se renderiza desde acá y se guarda desde acá (nada se lee del DOM al guardar).
+// Cada presentación junta códigos de SIGA; los mayoristas cuentan solo sus ventas de Casa Central a
+// clientes MAYORISTA y no suman stock (ver lib/catalogo_presentaciones.js).
+let presModal        = [];    // [{ nombre, codigos: [{ plu, producto, esMayorista }] }]
+let presModalCargado = false; // false mientras carga o si falló: no se guarda (pisaría el grupo con nada)
+let presEditando     = null;  // índice de la presentación que se está renombrando
+let resultadosSiga   = {};    // índice de presentación → filas del buscador de SIGA
+let buscarSigaTimer  = null;
+const MAYORISTA_SUGERIDO_RE = /\b(pack|bulto|vid)\b/i;
+
+// Misma regla que lib/catalogo_presentaciones.js: sin esMayorista escrito, el esVariante viejo es mayorista.
+function esMayoristaJS(item) {
+  return !!item && (item.esMayorista === true || (item.esMayorista === undefined && item.esVariante === true));
 }
 
 function renderModalGrupoBody(items) {
-  const porPres = {};
-  for (const item of items) {
-    const p = item.presentacion || '(sin presentación)';
-    if (!porPres[p]) porPres[p] = [];
-    porPres[p].push(item);
+  const porPres = new Map();
+  for (const it of items) {
+    const nombre = it.presentacion || '(sin presentación)';
+    if (!porPres.has(nombre)) porPres.set(nombre, []);
+    porPres.get(nombre).push({ plu: Number(it.plu), producto: it.producto || it.baseNombre || '', esMayorista: esMayoristaJS(it) });
   }
-  const presentaciones = Object.keys(porPres).sort((a, b) => a.localeCompare(b));
-  document.getElementById('editarGrupoMeta').textContent =
-    `${presentaciones.length} presentaciones · ${items.length} PLUs`;
-
-  if (!items.length) {
-    document.getElementById('editarGrupoBody').innerHTML =
-      '<div class="loading" style="padding:32px">Sin PLUs. Usá "+ Presentación" para agregar.</div>';
-    return;
-  }
-
-  const bodyRows = presentaciones.flatMap(p => {
-    const its  = porPres[p];
-    const safe = p.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-    return [
-      `<tr class="pres-group-row" data-group="${escHtml(p)}">
-        <td colspan="3">${escHtml(p)}
-          <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px">${its.length} PLU${its.length!==1?'s':''}</span>
-        </td>
-        <td></td>
-        <td><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 7px"
-          onclick="agregarFilaPlu('${safe}')">+ PLU</button></td>
-      </tr>`,
-      ...its.map(item => renderFilaPlu(item))
-    ];
-  }).join('');
-
-  document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML(bodyRows);
+  presModal = [...porPres.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nombre, codigos]) => ({ nombre, codigos }));
+  presModalCargado = true;
+  renderPresModal();
 }
 
-function renderFilaPlu(item) {
-  return `<tr data-plu-row>
-    <td><input class="plu-input plu-input-plu" type="number" min="1"
-      value="${item.plu||''}" data-field="plu"></td>
-    <td><input class="plu-input" type="text"
-      value="${escHtml(item.producto||item.baseNombre||'')}" data-field="producto"></td>
-    <td><input class="plu-input plu-input-pres" type="text"
-      value="${escHtml(item.presentacion||'')}" data-field="presentacion"></td>
-    <td style="text-align:center">
-      <input type="checkbox" ${item.esVariante?'checked':''} data-field="esVariante"
-        style="width:16px;height:16px;accent-color:var(--verde)">
-    </td>
-    <td><button class="btn btn-danger btn-sm" style="padding:2px 7px"
-      onclick="this.closest('tr').remove();actualizarMetaModal()">✕</button></td>
-  </tr>`;
+function renderPresModal() {
+  const nCod = presModal.reduce((s, p) => s + p.codigos.length, 0);
+  document.getElementById('editarGrupoMeta').textContent = `${presModal.length} presentaciones · ${nCod} códigos`;
+  resultadosSiga = {};
+  document.getElementById('editarGrupoBody').innerHTML = presModal.length
+    ? presModal.map(renderTarjetaPres).join('')
+    : '<div class="loading" style="padding:32px">Sin presentaciones. Creá una arriba (ej: 500G) y agregale los códigos de SIGA.</div>';
 }
 
-function agregarFilaPlu(presentacion) {
-  let tbody = document.querySelector('#editarGrupoBody tbody');
-  if (!tbody) {
-    document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML('');
-    tbody = document.querySelector('#editarGrupoBody tbody');
-  }
-  let insertAfter = null;
-  for (const tr of tbody.querySelectorAll('tr.pres-group-row')) {
-    if (tr.dataset.group === presentacion) {
-      insertAfter = tr;
-      let next = tr.nextElementSibling;
-      while (next && !next.classList.contains('pres-group-row')) {
-        insertAfter = next;
-        next = next.nextElementSibling;
-      }
-      break;
-    }
-  }
-  const tr = document.createElement('tr');
-  tr.setAttribute('data-plu-row', '');
-  tr.innerHTML = `
-    <td><input class="plu-input plu-input-plu" type="number" min="1" value="" data-field="plu" placeholder="PLU"></td>
-    <td><input class="plu-input" type="text" value="" data-field="producto" placeholder="Nombre del producto"></td>
-    <td><input class="plu-input plu-input-pres" type="text" value="${escHtml(presentacion)}" data-field="presentacion"></td>
-    <td style="text-align:center">
-      <input type="checkbox" data-field="esVariante" style="width:16px;height:16px;accent-color:var(--verde)">
-    </td>
-    <td><button class="btn btn-danger btn-sm" style="padding:2px 7px"
-      onclick="this.closest('tr').remove();actualizarMetaModal()">✕</button></td>`;
-  if (insertAfter) insertAfter.after(tr); else tbody.appendChild(tr);
-  tr.querySelector('[data-field=plu]').focus();
-  actualizarMetaModal();
+function renderTarjetaPres(p, i) {
+  const titulo = presEditando === i
+    ? `<input type="text" class="plu-input pres-renombrar" data-i="${i}" value="${escHtml(p.nombre)}" style="width:180px">`
+    : `<span>${escHtml(p.nombre)}</span>`;
+  const filas = p.codigos.map((c, j) => `<div class="pres-cod-row${c.esMayorista ? ' mayorista' : ''}">
+      <span class="pres-cod-plu">${escHtml(String(c.plu))}</span>
+      <span class="pres-cod-nombre">${escHtml(c.producto)}${c.esMayorista ? ' <span class="badge-mayorista">Mayorista</span>' : ''}</span>
+      <label class="pres-cod-may" title="Sus ventas se cuentan con las de Casa Central a clientes mayoristas; su stock no suma">
+        <input type="checkbox" data-acc="mayorista" data-i="${i}" data-j="${j}" ${c.esMayorista ? 'checked' : ''}> Es mayorista</label>
+      <button class="btn btn-danger btn-sm pres-btn-mini" data-acc="quitar" data-i="${i}" data-j="${j}" title="Quitar código">✕</button>
+    </div>`).join('');
+  return `<div class="pres-card">
+    <div class="pres-card-head">${titulo}
+      <span class="pres-cant">${p.codigos.length} código${p.codigos.length !== 1 ? 's' : ''}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary btn-sm pres-btn-mini" data-acc="renombrar" data-i="${i}" title="Renombrar">✎</button>
+      <button class="btn btn-danger btn-sm pres-btn-mini" data-acc="borrar" data-i="${i}" title="Borrar presentación">🗑</button>
+    </div>
+    ${filas || '<div class="pres-cod-vacio">Sin códigos todavía.</div>'}
+    <div class="pres-buscar">
+      <input type="text" class="plu-input pres-buscar-input" data-i="${i}" placeholder="Agregar código (PLU o nombre)…">
+      <div class="pres-buscar-res" data-i="${i}"></div>
+    </div>
+  </div>`;
 }
 
-function actualizarMetaModal() {
-  const total  = document.querySelectorAll('#editarGrupoBody [data-plu-row]').length;
-  const grupos = document.querySelectorAll('#editarGrupoBody tr.pres-group-row').length;
-  document.getElementById('editarGrupoMeta').textContent = `${grupos} presentaciones · ${total} PLUs`;
+const presExiste = (nombre, salvo) => presModal.some((p, k) => k !== salvo && p.nombre.toLowerCase() === nombre.toLowerCase());
+// Nombre de la presentación del grupo que ya tiene el PLU, o null.
+function presDePlu(plu) {
+  const p = presModal.find(x => x.codigos.some(c => c.plu === Number(plu)));
+  return p ? p.nombre : null;
+}
+const inputBuscarDe = i => document.querySelector(`#editarGrupoBody .pres-buscar-input[data-i="${i}"]`);
+const resultadosDe  = i => document.querySelector(`#editarGrupoBody .pres-buscar-res[data-i="${i}"]`);
+
+function crearPresentacion() {
+  const inp = document.getElementById('inputNuevaPres');
+  const nombre = inp.value.trim();
+  if (!nombre) { inp.focus(); return; }
+  if (presExiste(nombre)) { toast(`Ya existe la presentación "${nombre}"`, true); inp.focus(); return; }
+  presModal = [...presModal, { nombre, codigos: [] }];
+  inp.value = '';
+  presEditando = null;
+  renderPresModal();
+  const nueva = inputBuscarDe(presModal.length - 1);
+  nueva.scrollIntoView({ block: 'center' });
+  nueva.focus();
 }
 
-document.getElementById('btnAgregarPresentacion').addEventListener('click', () => {
-  const nombre = document.getElementById('inputNuevaPres').value.trim();
-  if (!nombre) { document.getElementById('inputNuevaPres').focus(); return; }
-  document.getElementById('inputNuevaPres').value = '';
-
-  let tbody = document.querySelector('#editarGrupoBody tbody');
-  if (!tbody) {
-    document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML('');
-    tbody = document.querySelector('#editarGrupoBody tbody');
+function confirmarRenombre(i, valor) {
+  if (presEditando !== i) return; // ya confirmado (Enter y después blur)
+  presEditando = null;
+  const nombre = valor.trim();
+  if (nombre && nombre !== presModal[i].nombre) {
+    if (presExiste(nombre, i)) toast(`Ya existe la presentación "${nombre}"`, true);
+    else presModal = presModal.map((p, k) => k === i ? { ...p, nombre } : p);
   }
-  const safe = nombre.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-  const tr = document.createElement('tr');
-  tr.className = 'pres-group-row';
-  tr.dataset.group = nombre;
-  tr.innerHTML = `
-    <td colspan="3">${escHtml(nombre)}
-      <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px">0 PLUs</span>
-    </td>
-    <td></td>
-    <td><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 7px"
-      onclick="agregarFilaPlu('${safe}')">+ PLU</button></td>`;
-  tbody.appendChild(tr);
-  agregarFilaPlu(nombre);
+  renderPresModal();
+}
+
+function borrarPresentacion(i) {
+  const p = presModal[i];
+  if (p.codigos.length && !confirm(`¿Borrar la presentación "${p.nombre}" y sus ${p.codigos.length} códigos?`)) return;
+  presModal = presModal.filter((_, k) => k !== i);
+  presEditando = null;
+  renderPresModal();
+}
+
+const cambiarCodigos = (i, fn) => { presModal = presModal.map((p, k) => k === i ? { ...p, codigos: fn(p.codigos) } : p); };
+
+async function buscarEnSiga(i, q) {
+  const cont = resultadosDe(i);
+  try {
+    const rows = await api('GET', `/api/siga/buscar?q=${encodeURIComponent(q)}`);
+    const inp = inputBuscarDe(i);
+    if (!inp || inp.value.trim() !== q) return; // respuesta vieja: ya se escribió otra cosa o se re-renderizó
+    resultadosSiga[i] = rows;
+    cont.innerHTML = rows.length ? rows.map((r, k) => {
+      const donde = presDePlu(r.plu);
+      const cola = donde !== null
+        ? `<span class="pres-res-ya">ya está en "${escHtml(donde)}"</span>`
+        : `<span class="prod-rubro">${escHtml(r.rubro)}</span>`;
+      return `<div class="search-result pres-res${donde !== null ? ' ya' : ''}" ${donde !== null ? '' : `data-acc="agregar" data-i="${i}" data-k="${k}"`}>
+        <span class="pres-cod-plu">${escHtml(String(r.plu))}</span>
+        <span class="prod-name">${escHtml(r.producto)}</span>${cola}
+      </div>`;
+    }).join('') : '<div class="pres-res-msg">Sin resultados.</div>';
+  } catch (e) {
+    if (cont) cont.innerHTML = `<div class="pres-res-msg" style="color:var(--red-text)">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function agregarDesdeSiga(i, k) {
+  const r = (resultadosSiga[i] || [])[k];
+  if (!r) return;
+  const plu = Number(r.plu);
+  if (!Number.isInteger(plu) || plu <= 0) { toast(`El código "${r.plu}" no es un PLU válido`, true); return; }
+  const donde = presDePlu(plu);
+  if (donde !== null) { toast(`El PLU ${plu} ya está en "${donde}"`, true); return; }
+  const producto = String(r.producto || '');
+  // Sugerencia: pack/bulto/vid suele ser mayorista (se puede destildar).
+  cambiarCodigos(i, cs => [...cs, { plu, producto, esMayorista: MAYORISTA_SUGERIDO_RE.test(producto) }]);
+  renderPresModal();
+  inputBuscarDe(i).focus(); // para seguir agregando a la misma presentación
+  toast(`✓ PLU ${plu} agregado en "${presModal[i].nombre}"`);
+}
+
+// Delegación: las tarjetas se re-renderizan enteras, los listeners quedan en el contenedor.
+const _bodyGrupo = document.getElementById('editarGrupoBody');
+_bodyGrupo.addEventListener('click', e => {
+  const el = e.target.closest('[data-acc]');
+  if (!el || el.dataset.acc === 'mayorista') return;
+  const i = Number(el.dataset.i), j = Number(el.dataset.j);
+  if (el.dataset.acc === 'renombrar') {
+    presEditando = i;
+    renderPresModal();
+    const inp = document.querySelector('#editarGrupoBody .pres-renombrar');
+    inp.focus(); inp.select();
+  } else if (el.dataset.acc === 'borrar') borrarPresentacion(i);
+  else if (el.dataset.acc === 'quitar') { cambiarCodigos(i, cs => cs.filter((_, x) => x !== j)); renderPresModal(); }
+  else if (el.dataset.acc === 'agregar') agregarDesdeSiga(i, Number(el.dataset.k));
+});
+_bodyGrupo.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset.acc !== 'mayorista') return;
+  const j = Number(el.dataset.j);
+  cambiarCodigos(Number(el.dataset.i), cs => cs.map((c, x) => x === j ? { ...c, esMayorista: el.checked } : c));
+  renderPresModal();
+});
+_bodyGrupo.addEventListener('input', e => {
+  const el = e.target;
+  if (!el.classList.contains('pres-buscar-input')) return;
+  const i = Number(el.dataset.i), q = el.value.trim(), cont = resultadosDe(i);
+  clearTimeout(buscarSigaTimer);
+  if (q.length < 2) { cont.innerHTML = ''; return; }
+  cont.innerHTML = '<div class="pres-res-msg">Buscando…</div>';
+  buscarSigaTimer = setTimeout(() => buscarEnSiga(i, q), 350);
+});
+_bodyGrupo.addEventListener('keydown', e => {
+  const el = e.target;
+  if (el.classList.contains('pres-renombrar')) {
+    if (e.key === 'Enter') confirmarRenombre(Number(el.dataset.i), el.value);
+    else if (e.key === 'Escape') { e.stopPropagation(); presEditando = null; renderPresModal(); }
+  } else if (el.classList.contains('pres-buscar-input') && e.key === 'Escape') {
+    el.value = ''; resultadosDe(Number(el.dataset.i)).innerHTML = '';
+  }
+});
+_bodyGrupo.addEventListener('focusout', e => {
+  if (e.target.classList.contains('pres-renombrar')) confirmarRenombre(Number(e.target.dataset.i), e.target.value);
 });
 
+document.getElementById('btnAgregarPresentacion').addEventListener('click', crearPresentacion);
 document.getElementById('inputNuevaPres').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('btnAgregarPresentacion').click();
+  if (e.key === 'Enter') crearPresentacion();
 });
 
 async function guardarGrupo() {
+  if (!editarGrupoEsNuevo && !presModalCargado) { toast('El grupo no terminó de cargar: no se guarda', true); return; }
   // Resolver nombre del grupo
   if (editarGrupoEsNuevo) {
     const nombre = document.getElementById('inputNombreGrupo').value.trim();
@@ -259,23 +316,18 @@ async function guardarGrupo() {
     editarGrupoRef = nombre;
   }
 
-  const rows = [...document.getElementById('editarGrupoBody').querySelectorAll('[data-plu-row]')];
-  const items = [];
-  for (const row of rows) {
-    const plu          = parseInt(row.querySelector('[data-field=plu]').value);
-    const producto     = row.querySelector('[data-field=producto]').value.trim();
-    const presentacion = row.querySelector('[data-field=presentacion]').value.trim();
-    const esVariante   = row.querySelector('[data-field=esVariante]').checked;
-    if (!plu || !producto) continue;
-    items.push({
-      plu, producto,
-      baseNombre:   normalizarNombreJS(producto),
-      presentacion: presentacion || extraerPresentacionJS(normalizarNombreJS(producto)),
-      esVariante,
-      refId:       editarGrupoRefId,
-      productoRef: editarGrupoRef
-    });
-  }
+  // Las presentaciones sin códigos no se guardan (en el catálogo una presentación existe por sus códigos).
+  const vacias = presModal.filter(p => !p.codigos.length).map(p => p.nombre);
+  const items = presModal.flatMap(p => p.codigos.map(c => ({
+    plu: c.plu, producto: c.producto,
+    baseNombre:   normalizarNombreJS(c.producto),
+    presentacion: p.nombre,
+    esMayorista:  c.esMayorista,
+    refId:       editarGrupoRefId,
+    productoRef: editarGrupoRef
+  })));
+  if (!items.length && !editarGrupoEsNuevo &&
+      !confirm(`"${editarGrupoRef}" queda sin códigos y sale del catálogo. ¿Guardar igual?`)) return;
 
   // Grupo nuevo: decidir si es variedad de miel (sección Mieles + tambor).
   if (editarGrupoEsNuevo) {
@@ -306,7 +358,8 @@ async function guardarGrupo() {
       guardarGruposCfg(),
       guardarFormulasGrupo()
     ]);
-    toast(`✓ "${editarGrupoRef}" — ${items.length} PLUs${_gPlu ? ' · Granel PLU '+_gPlu : ''}`);
+    toast(`✓ "${editarGrupoRef}" — ${items.length} códigos${_gPlu ? ' · Granel PLU '+_gPlu : ''}` +
+      (vacias.length ? ` · sin guardar (vacías): ${vacias.join(', ')}` : ''));
     document.getElementById('overlayEditarGrupo').classList.remove('open');
     cargarCatalogo();
   } catch (e) {
@@ -314,133 +367,6 @@ async function guardarGrupo() {
   } finally {
     btn.disabled = false; btn.textContent = 'Guardar cambios';
   }
-}
-
-// ── Buscar en Siga ───────────────────────────────────────────────
-let buscarSigaTimer = null;
-
-document.getElementById('btnToggleBuscarSiga').addEventListener('click', () => {
-  const panel = document.getElementById('panelBuscarSiga');
-  const visible = panel.style.display !== 'none';
-  panel.style.display = visible ? 'none' : 'block';
-  if (!visible) {
-    actualizarSelectPres();
-    document.getElementById('inputBuscarSiga').focus();
-  }
-});
-
-function actualizarSelectPres() {
-  const sel = document.getElementById('selectPresBuscar');
-  const grupos = [...document.querySelectorAll('#editarGrupoBody tr.pres-group-row')];
-  sel.innerHTML = '<option value="">Auto-detectar</option>' +
-    grupos.map(g => `<option value="${escHtml(g.dataset.group)}">${escHtml(g.dataset.group)}</option>`).join('');
-}
-
-document.getElementById('inputBuscarSiga').addEventListener('input', function () {
-  clearTimeout(buscarSigaTimer);
-  const q = this.value.trim();
-  if (q.length < 2) { document.getElementById('resultadosBuscarSiga').innerHTML = ''; return; }
-  document.getElementById('resultadosBuscarSiga').innerHTML =
-    '<div style="padding:8px 16px;font-size:12px;color:var(--muted)">Buscando…</div>';
-  buscarSigaTimer = setTimeout(() => buscarEnSiga(q), 350);
-});
-
-document.getElementById('inputBuscarSiga').addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    document.getElementById('panelBuscarSiga').style.display = 'none';
-  }
-});
-
-async function buscarEnSiga(q) {
-  try {
-    const rows = await api('GET', `/api/siga/buscar?q=${encodeURIComponent(q)}`);
-    const enCatalogo = new Set(
-      [...document.querySelectorAll('#editarGrupoBody [data-field=plu]')].map(i => i.value)
-    );
-    if (!rows.length) {
-      document.getElementById('resultadosBuscarSiga').innerHTML =
-        '<div style="padding:8px 16px;font-size:12px;color:var(--muted)">Sin resultados.</div>';
-      return;
-    }
-    const html = rows.map(r => {
-      const yaAgregado = enCatalogo.has(String(r.plu));
-      return `<div class="search-result${yaAgregado?' siga-ya-cargado':''}"
-          style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid #e0eaff;cursor:${yaAgregado?'default':'pointer'};background:${yaAgregado?'#f0fdf4':'#fff'}"
-          ${yaAgregado ? '' : `onclick="agregarDesdeSiga(${r.plu},'${escHtml(r.producto).replace(/'/g,"\\'")}','${escHtml(r.rubro).replace(/'/g,"\\'")}')"`}>
-        <span style="font-family:system-ui,sans-serif;font-weight:700;font-size:13px;color:var(--muted);width:60px;flex-shrink:0">${escHtml(String(r.plu))}</span>
-        <span style="flex:1;font-size:13px;${yaAgregado?'color:var(--grn-text)':''}">${escHtml(r.producto)}${yaAgregado?' <span style="font-size:11px">✓ ya cargado</span>':''}</span>
-        <span style="font-size:11px;color:var(--muted)">${escHtml(r.rubro)}</span>
-      </div>`;
-    }).join('');
-    document.getElementById('resultadosBuscarSiga').innerHTML = html;
-  } catch (e) {
-    document.getElementById('resultadosBuscarSiga').innerHTML =
-      `<div style="padding:8px 16px;font-size:12px;color:red">Error: ${escHtml(e.message)}</div>`;
-  }
-}
-
-function agregarDesdeSiga(plu, producto, rubro) {
-  const base         = normalizarNombreJS(producto);
-  const presDetected = extraerPresentacionJS(base);
-  const presManual   = document.getElementById('selectPresBuscar').value;
-  const presentacion = presManual || presDetected;
-
-  // Buscar o crear el grupo
-  let tbody = document.querySelector('#editarGrupoBody tbody');
-  if (!tbody) {
-    document.getElementById('editarGrupoBody').innerHTML = buildTablaHTML('');
-    tbody = document.querySelector('#editarGrupoBody tbody');
-  }
-
-  let groupHeader = [...tbody.querySelectorAll('tr.pres-group-row')]
-    .find(tr => tr.dataset.group === presentacion);
-
-  if (!groupHeader) {
-    // Crear grupo nuevo
-    const safe = presentacion.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-    const tr = document.createElement('tr');
-    tr.className = 'pres-group-row';
-    tr.dataset.group = presentacion;
-    tr.innerHTML = `
-      <td colspan="3">${escHtml(presentacion)}
-        <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px">0 PLUs</span>
-      </td>
-      <td></td>
-      <td><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 7px"
-        onclick="agregarFilaPlu('${safe}')">+ PLU</button></td>`;
-    tbody.appendChild(tr);
-    groupHeader = tr;
-    actualizarSelectPres();
-  }
-
-  // Insertar PLU después del último row del grupo
-  let insertAfter = groupHeader;
-  let next = groupHeader.nextElementSibling;
-  while (next && !next.classList.contains('pres-group-row')) {
-    insertAfter = next;
-    next = next.nextElementSibling;
-  }
-
-  const esVariante = /\b(pack|bulto|vid)\b/i.test(producto);
-  const tr = document.createElement('tr');
-  tr.setAttribute('data-plu-row', '');
-  tr.innerHTML = `
-    <td><input class="plu-input plu-input-plu" type="number" min="1" value="${plu}" data-field="plu"></td>
-    <td><input class="plu-input" type="text" value="${escHtml(producto)}" data-field="producto"></td>
-    <td><input class="plu-input plu-input-pres" type="text" value="${escHtml(presentacion)}" data-field="presentacion"></td>
-    <td style="text-align:center">
-      <input type="checkbox" ${esVariante?'checked':''} data-field="esVariante"
-        style="width:16px;height:16px;accent-color:var(--verde)">
-    </td>
-    <td><button class="btn btn-danger btn-sm" style="padding:2px 7px"
-      onclick="this.closest('tr').remove();actualizarMetaModal()">✕</button></td>`;
-  insertAfter.after(tr);
-
-  // Marcar como ya cargado en los resultados
-  document.getElementById('inputBuscarSiga').dispatchEvent(new Event('input'));
-  tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  actualizarMetaModal();
-  toast(`✓ PLU ${plu} agregado en "${presentacion}"`);
 }
 
 document.getElementById('btnGuardarGrupo').addEventListener('click', guardarGrupo);
@@ -543,9 +469,9 @@ function renderGrupoRows(grupos) {
       </label>
       <span class="grupo-cat-nombre${activo ? '' : ' inactivo'}">${escHtml(g.productoRef)}</span>
       <div class="grupo-cat-meta">
-        <span title="Presentaciones base">${g.presentaciones} presentaciones</span>
+        <span title="Presentaciones">${g.presentaciones} presentaciones</span>
         <span title="Total PLUs">${g.totalPlu} PLUs</span>
-        ${g.variantes ? `<span title="Packs y bultos">${g.variantes} variantes</span>` : ''}
+        ${g.mayoristas ? `<span title="Códigos mayoristas: cuentan sus ventas de Casa Central a clientes mayoristas">${g.mayoristas} mayoristas</span>` : ''}
         ${gPlu ? `<span title="Granel (MP)" style="color:var(--amb-text);font-weight:700">🛢 ${gPlu}</span>` : ''}
       </div>
       <label class="toggle-switch" title="Producir como granel (bulk). Off = planificar por presentaciones." style="transform:scale(.8)">
