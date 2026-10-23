@@ -116,5 +116,19 @@ module.exports = function crearRutasPlanNueva(deps) {
 
   router.get('/api/plan-nueva/responsables', ruta(async () => pn.nombresResponsables(leerJSON(RESP_PATH, []))));
 
+  // ── Órdenes ──
+  const leerOrdenes = () => leerJSON(ORDENES_PATH, { ordenes: [] }).ordenes || [];
+  const guardarOrdenes = ordenes => guardarJSON(ORDENES_PATH, { ordenes });
+  const usuarioSesion = req => (req.session && req.session.user && req.session.user.usuario) || 'anonimo';
+
+  router.get('/api/plan-nueva/ordenes', ruta(async () => pn.ordenesRecientes(leerOrdenes())));
+
+  router.post('/api/plan-nueva/ordenes', ruta(async req => {
+    const datos = pn.validarOrden(req.body, { categorias: leerCategorias(), responsables: leerJSON(RESP_PATH, []) });
+    const r = pn.crearOrden(leerOrdenes(), datos, { id: crypto.randomUUID(), ahora: new Date().toISOString(), usuario: usuarioSesion(req) });
+    guardarOrdenes(r.ordenes);
+    return r.orden;
+  }));
+
   return router;
 };
