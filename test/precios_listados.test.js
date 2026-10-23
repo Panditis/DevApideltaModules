@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst } = require('../public/js/precios_listados.js');
+const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -152,6 +152,18 @@ test('resumenExport: las 5 listas en orden con su etiqueta y cuántas filas (sin
   assert.deepStrictEqual(r.map(x => [x.lista, x.filas]), [['minorista', 2], ['packNeto', 0], ['packIva', 0], ['bultoNeto', 1], ['bultoIva', 1]]);
   assert.deepStrictEqual(r.map(x => x.etiqueta), ['Minorista', 'Pack s/IVA', 'Pack c/IVA', 'Bulto s/IVA', 'Bulto c/IVA']);
   assert.strictEqual(resumenExport({}).every(x => x.filas === 0), true); // lista faltante = vacía
+});
+
+test('juntarListas / resumenJuntas: minorista + pack s/IVA + bulto s/IVA en un solo archivo (un encabezado, filas en ese orden); no toca las 5 listas', () => {
+  const E = ['Codigo', 'Nombre', 'Costo', 'Venta'];
+  const listas = { minorista: [E, [1, 'A', 1, 2]], packNeto: [E, [5, 'A x6', 1, 9]], packIva: [E, [5, 'A x6', 1, 11]], bultoNeto: [E, [9, 'A x10', 1, 15]], bultoIva: [E] };
+  const copia = JSON.stringify(listas);
+  assert.deepStrictEqual(juntarListas(listas, ['minorista', 'packNeto', 'bultoNeto']), [E, [1, 'A', 1, 2], [5, 'A x6', 1, 9], [9, 'A x10', 1, 15]]);
+  assert.deepStrictEqual(resumenJuntas(listas).map(x => [x.lista, x.filas]), [['minoristaPackBultoNeto', 3]]);
+  assert.match(resumenJuntas(listas)[0].etiqueta, /Minorista \+ Pack s\/IVA \+ Bulto s\/IVA/);
+  assert.strictEqual(resumenJuntas({})[0].filas, 0); // listas faltantes = vacías
+  assert.strictEqual(JSON.stringify(listas), copia);
+  assert.strictEqual(resumenExport(listas).length, 5);
 });
 
 // ── Exportar listado (.xlsx, reporte) ──

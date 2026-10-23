@@ -50,6 +50,12 @@ const resumenExport = listas => Object.keys(ETIQUETA_LISTA).map(lista => {
   return { lista, etiqueta: ETIQUETA_LISTA[lista], filas: Math.max(filas.length - 1, 0) };
 });
 
+// Export "todo junto": varias listas del server en UN archivo (el PLU de minorista, pack y bulto es distinto: las filas no se pisan).
+// Se suman al diálogo como filas de resumen extra; las 5 listas de arriba siguen bajando una por archivo.
+const LISTAS_JUNTAS = { minoristaPackBultoNeto: { etiqueta: 'Todo junto: Minorista + Pack s/IVA + Bulto s/IVA', claves: ['minorista', 'packNeto', 'bultoNeto'], archivo: 'minorista_pack_bulto_sin_iva' } };
+const juntarListas = (listas = {}, claves) => [(listas[claves[0]] || [[]])[0], ...claves.flatMap(c => (listas[c] || []).slice(1))];
+const resumenJuntas = listas => Object.entries(LISTAS_JUNTAS).map(([lista, { etiqueta, claves }]) => ({ lista, etiqueta, filas: juntarListas(listas, claves).length - 1 }));
+
 // <select> de decisión de una fila. ops = opcionesSelect(fila, tipo) (precios_modal_esquema.js: mismas cifras que el modal).
 // La celda de Envasado lo pide deshabilitado mientras el producto base tiene cambios sin guardar. .lst-dec-msg: error inline.
 const ESC_LST = typeof module === 'object' && module.exports ? require('./precios_comun.js').esc : esc;
@@ -159,7 +165,7 @@ function htmlDesplegarLst(f, abierto) {
     + `<span class="text-xs text-gris font-normal mr-1">${n} presentaci${n === 1 ? 'ón' : 'ones'}</span> `;
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, filasExportListado,
+if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
@@ -447,9 +453,12 @@ async function exportarDecididos() {
   try {
     const j = await (await fetch('/api/precios/esquema/export')).json();
     if (j.error) throw new Error(j.error);
-    const resumen = resumenExport(j.listas);
+    const resumen = [...resumenExport(j.listas), ...resumenJuntas(j.listas)];
     if (!resumen.some(r => r.filas)) { avisar('No hay productos decididos con precio sugerido para exportar.'); return; }
-    dialogoExport(resumen, lista => descargarListaSiga(j.listas[lista], `precios_${NOMBRE_LISTA[lista]}`), j.omitidos);
+    dialogoExport(resumen, lista => {
+      const junta = LISTAS_JUNTAS[lista];
+      descargarListaSiga(junta ? juntarListas(j.listas, junta.claves) : j.listas[lista], `precios_${junta ? junta.archivo : NOMBRE_LISTA[lista]}`);
+    }, j.omitidos);
   } catch (e) { avisar(e.message); }
 }
 
@@ -515,7 +524,7 @@ function dialogoExport(resumen, descargar, omitidos) {
     document.body.appendChild(d);
   }
   d.innerHTML = `<form method="dialog" class="p-5">
-    <p class="text-sm font-semibold mb-3">Exportar decididos: un archivo por lista</p>
+    <p class="text-sm font-semibold mb-3">Exportar decididos: un archivo por lista, o todo junto</p>
     <ul class="text-sm divide-y divide-borde">${resumen.map(r => `<li class="flex items-center justify-between gap-3 py-2">
       <span>${esc(r.etiqueta)} · ${r.filas ? `${r.filas} producto(s)` : '<span class="text-ink/60">sin productos</span>'}</span>
       ${r.filas ? `<button type="button" data-lista="${esc(r.lista)}" class="px-3 py-1 rounded-lg bg-verde text-white text-sm font-semibold hover:bg-verdeHover">Descargar</button>` : ''}
