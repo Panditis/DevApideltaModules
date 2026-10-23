@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Tickets de Desarrollo · Apidelta</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/css/apidelta-theme.js"></script>
 <link rel="stylesheet" href="/css/apidelta-theme.css">
 <style>
-/* Solo escritorio (sin responsive). Colores del theme compartido (apidelta-theme.js/.css);
+/* Escritorio por defecto; el teléfono (≤767px) se resuelve en un solo @media al final de este <style>.
+   Colores del theme compartido (apidelta-theme.js/.css);
    prioridades y estados llevan su propia escala porque el dato tiene más de 3 categorías. */
 :root{
   --verde:#405936;--verde-h:#4f6e42;--ink:#242423;--gris:#5c5f52;--borde:rgba(26,28,24,.16);--borde-s:rgba(26,28,24,.09);
@@ -272,6 +273,174 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 .h-auto{box-shadow:0 0 0 2px #fff,0 0 0 3.5px #c9b3e3}
 .hist .cuando{font-size:12px;color:#8a8d80;margin-top:1px}
 .burbuja{margin-top:6px;padding:9px 12px;border-radius:4px 12px 12px 12px;background:#f7f8f4;border:1px solid var(--borde-s);font-size:14px}
+.solo-movil{display:none} /* lo muestra el bloque mobile de abajo */
+
+/* ── Teléfono (≤767px) ─────────────────────────────────────────────────────
+   Un solo breakpoint (= md de Tailwind): todo lo mobile vive acá y escritorio queda como arriba.
+   Criterios: zona táctil ≥44px, campos a 16px (iOS no hace zoom al enfocar), diálogos a pantalla completa con
+   safe-area, barra de estados y tablero deslizan en horizontal con snap, la lista se apila en tarjetas y
+   "Nuevo ticket" pasa a botón flotante abajo a la derecha (el pulgar lo alcanza y no se va al scrollear).
+   Los selectores llevan un ancestro/id de más para ganarle a las utilidades de Tailwind (que se inyectan después). */
+@media (max-width:767px){
+  html{-webkit-text-size-adjust:100%}
+  body{-webkit-tap-highlight-color:rgba(64,89,54,.14)}
+  button,select,.tarjeta,tr[data-id],label{touch-action:manipulation}
+  .solo-movil{display:inline-block}
+
+  /* Controles: 44px de alto y 16px de letra */
+  .ctl,.ctl-sm,#fTarea{min-height:44px;padding:8px 12px;font-size:16px}
+  .btn{min-height:44px;padding:0 16px}
+  .btn-sm{min-height:44px;min-width:44px;justify-content:center;padding:0 14px;font-size:14px}
+  .btn-ico,.et-acc .btn-ico{width:44px;height:44px}
+  .lbl{font-size:13px}
+  .sel-estado{min-height:44px;padding:0 32px 0 14px;font-size:16px;background-position:right 12px center;text-overflow:ellipsis}
+  .pill{flex:1 0 auto;justify-content:center;min-height:44px;padding:0 10px;font-size:14px}
+  .switch{min-height:44px;font-size:14px}
+  .switch input{width:40px;height:24px}
+  .switch input::after{width:18px;height:18px;top:3px;left:3px}
+  .switch input:checked::after{transform:translateX(16px)}
+
+  /* Encabezado: una sola fila (volver · título · usuario · avisos · recargar), pegado arriba y respetando la muesca */
+  header.acrylic{padding-top:env(safe-area-inset-top)}
+  header.acrylic .cab-in{flex-wrap:wrap;gap:4px;padding:6px 12px}
+  header.acrylic .cab-in h1{flex:1 1 0;min-width:0;font-size:14px;line-height:1.15;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  header.acrylic .cab-acc{display:contents}
+  #bajada{display:none}
+  /* "← Inicio" / "← Sucursales": queda sólo la flecha, el texto sigue en el nombre accesible (font-size:0) */
+  #lnkVolver{order:-1;display:inline-grid;place-items:center;width:44px;height:44px;font-size:0}
+  #lnkVolver::before{content:'←';content:'←' / '';font-size:24px;line-height:1}
+  #yo span:not(.av){position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  #btnAvisos,#btnRecargar{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0}
+  #btnAvisos .txt{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  #btnRecargar{font-size:0}
+  #btnAvisos .ico,#btnRecargar .ico{width:20px;height:20px}
+  #conexion{order:9;flex:1 0 100%;padding:0 4px 2px;text-align:center}
+
+  main.pag{padding:16px 16px calc(88px + env(safe-area-inset-bottom))}
+
+  /* Barra de estados: tiras deslizables con snap */
+  .estados{overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:4px;overscroll-behavior-x:contain;scrollbar-width:none}
+  .estados::-webkit-scrollbar{display:none}
+  .est-btn{flex:0 0 auto;min-width:96px;min-height:56px;padding:8px 14px;scroll-snap-align:start}
+  .est-btn .v{font-size:20px}
+  .est-btn[aria-pressed=true]::after{left:12px;right:12px}
+
+  /* Barra de herramientas: los dos grupos se "aplanan" (display:contents) para armar filas con order:
+     [buscador + vista (sólo íconos)] · [prioridad, deslizable] · [área] · [destinatario] · [solo míos + conteo]. */
+  main .barra-herr{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px}
+  main .barra-filtros,main .barra-vista{display:contents}
+  .buscar{order:1;flex:1 1 0;min-width:0}
+  .buscar input{width:100%;padding-left:42px}
+  .buscar .ico{left:14px;width:18px;height:18px}
+  .barra-vista .pills{order:2;flex:none}
+  .barra-vista .pill{flex:none;min-width:48px;padding:0;font-size:0} /* queda el ícono; el texto sigue en el nombre accesible */
+  .barra-vista .pill .ico{width:20px;height:20px}
+  #flPrioridad{order:3;display:flex;flex:1 0 100%;overflow-x:auto;scrollbar-width:none}
+  #flPrioridad::-webkit-scrollbar{display:none}
+  #flArea,#flDest{order:4;flex:1 0 100%;min-width:0;max-width:none}
+  .switch{order:5}
+  #conteo{order:5;margin-left:auto}
+  #avisoPermiso{order:6;flex:1 0 100%}
+  /* Botón flotante: el mismo #btnNuevo (un solo botón y un solo handler) */
+  #btnNuevo{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:40;min-height:56px;padding:0 20px 0 16px;border-radius:16px;font-size:15px;box-shadow:var(--sh-3)}
+  #btnNuevo .ico{width:20px;height:20px}
+  body:has(#flBuscar:focus) #btnNuevo{display:none} /* con el teclado del buscador abierto, no tapa */
+
+  /* Tablero: columnas de ~86% del ancho, se deslizan de a una y la siguiente asoma. Pisa el grid que arma el JS. */
+  #tablero{grid-template-columns:none!important;grid-auto-flow:column;grid-auto-columns:min(86vw,340px);gap:12px;
+    margin-inline:-16px;padding:0 16px 8px;scroll-padding-inline:16px;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+  #tablero::-webkit-scrollbar{display:none}
+  #tablero:has(> .vacio){grid-template-columns:minmax(0,1fr)!important;grid-auto-flow:row;grid-auto-columns:auto;scroll-snap-type:none}
+  .col{scroll-snap-align:start}
+  .col-cuerpo{max-height:none;overflow:visible}
+  .tarjeta .fila1,.tarjeta .meta{font-size:12px}
+  .tarjeta .tit{font-size:15px}
+  .tag-area{font-size:12px}
+
+  /* Lista: cada fila es una tarjeta (sin encabezados: acá no se ordena por columna) */
+  #vistaLista > div{background:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
+  .tabla,.tabla tbody,.tabla tbody tr,.tabla tbody td{display:block}
+  .tabla thead{display:none}
+  .tabla tbody td{padding:0;border:0}
+  .tabla tbody tr[data-id]{position:relative;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px;align-items:center;
+    margin-bottom:10px;padding:12px 14px 12px 17px;background:#fff;border:1px solid var(--borde-s);border-radius:12px;box-shadow:var(--sh-1)}
+  .tabla tbody tr.no-leido{background:#f3f8ff}
+  .tabla tbody tr.no-leido td{background:none}
+  .tabla tbody tr[data-id] td{min-width:0}
+  .tabla tbody tr[data-id] td.pri{box-shadow:none}
+  .tabla tbody tr[data-id] td.pri::after{content:'';position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--p)}
+  .tabla tbody tr[data-id] td:nth-child(1){grid-area:1 / 1 / 2 / 7;display:flex;align-items:center;font-weight:600;text-align:left}
+  .tabla tbody tr[data-id] td:nth-child(1)::before{content:'#'}
+  .tabla tbody tr[data-id] td:nth-child(1) .pto-nl{order:1;margin:0 0 0 8px}
+  .tabla tbody tr[data-id] td:nth-child(8){grid-area:1 / 7 / 2 / 13;text-align:right;font-size:12px}
+  .tabla tbody tr[data-id] td:nth-child(2){grid-area:2 / 1 / 3 / 13;max-width:none;font-size:15px}
+  .tabla tbody tr[data-id] td:nth-child(3){grid-area:3 / 1 / 4 / 6}
+  .tabla tbody tr[data-id] td:nth-child(6){grid-area:3 / 6 / 4 / 13}
+  .tabla tbody tr[data-id] td:nth-child(4){grid-area:4 / 1 / 5 / 9}
+  .tabla tbody tr[data-id] td:nth-child(5){grid-area:4 / 9 / 5 / 13;justify-self:end}
+  .tabla tbody tr[data-id] td:nth-child(7){grid-area:5 / 1 / 6 / 13;font-size:12px;color:var(--gris)}
+  .tabla tbody tr[data-id] td:nth-child(7)::before{content:'Creado por '}
+  .tabla tbody tr[data-id] td:nth-child(7) div{display:inline;margin-left:6px}
+  .tabla td .sel-estado{width:100%}
+
+  /* Diálogos: hojas a pantalla completa */
+  #dlgNuevo,#dlgDetalle{width:100%;max-width:none;height:100vh;height:100dvh;max-height:none;margin:0;border:0;border-radius:0;box-shadow:none}
+  .dlg-cab{padding:calc(12px + env(safe-area-inset-top)) 8px 12px 16px;gap:8px}
+  .dlg-pie{padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+  .dlg-pie .btn-primario{flex:1}
+  .det-sec{padding:16px}
+  #dlgNuevo form{height:100%;max-height:none}
+  #dlgNuevo .cuerpo-form{flex:1 1 auto;min-height:0;grid-template-columns:minmax(0,1fr);gap:16px;padding:16px;overscroll-behavior:contain}
+  #dlgNuevo .cuerpo-form > .col-span-2{grid-column:auto}
+  #dlgNuevo .area-fila{flex-direction:column}
+  #fPrioridad{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .seg span{min-height:44px;padding:0 12px}
+  /* Detalle: todo el panel scrollea (el encabezado con un título largo no se come la pantalla ni deja un hueco
+     diminuto cuando sale el teclado). La × flota arriba a la derecha y un aviso de error queda pegado arriba. */
+  #dlgDetalle > div{overflow-y:auto;overscroll-behavior:contain}
+  #dlgDetalle .dlg-cab{padding-right:60px}
+  #dlgDetalle .dlg-cab > .btn-ico{position:fixed;top:calc(6px + env(safe-area-inset-top));right:8px;z-index:8;border-radius:50%;background:rgba(255,255,255,.94);box-shadow:var(--sh-2)}
+  #dCab{flex-wrap:nowrap}
+  #dCab .sel-estado{min-width:0}
+  #dEstado{flex:1 1 0}
+  #dTitulo{font-size:18px;line-height:1.3}
+  #dCuerpo{flex:none;overflow:visible;padding-bottom:env(safe-area-inset-bottom)}
+  #dAviso{position:sticky;top:0;z-index:7;margin:12px 16px 0}
+  .sel-pri{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235c5f52' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat} /* sin ancestro .e-* el fondo base queda inválido y el select de prioridad no mostraba flecha */
+
+  /* Destinatarios (combobox) */
+  .cbx{min-height:48px;padding:2px 8px}
+  .cbx-in{flex:1 1 120px;min-width:0;min-height:44px;font-size:16px}
+  .cbx-lista{max-height:min(224px,40dvh)}
+  .cbx-op{min-height:44px;padding:6px 10px;font-size:15px}
+  .chip-u{min-height:36px;padding:2px 2px 2px 4px;font-size:14px}
+  .chip-u .av{width:26px;height:26px}
+  .chip-u button{position:relative;width:32px;height:32px}
+  .chip-u button::after{content:'';position:absolute;inset:-6px} /* la zona táctil llega a 44px sin agrandar el chip */
+
+  /* Etapas: nombre arriba (ancho completo) y controles debajo */
+  .etapa{flex-wrap:wrap;gap:8px;padding:8px 10px}
+  .etapa .et-nombre,.etapa .et-input{flex:1 1 100%;order:-1}
+  .etapa .sel-estado{flex:1 1 140px}
+  .et-acc{opacity:1;margin-left:auto}
+  .et-confirm{margin-left:auto}
+  .et-alta{flex-direction:column}
+  #dEtAgregar{justify-content:center}
+
+  /* Notas */
+  .nota-caja textarea{font-size:16px}
+  .nota-caja .barra > .ayuda + .ayuda{display:none} /* "Ctrl+Enter para enviar" no aplica en el teléfono */
+
+  /* Avisos: casi a todo el ancho, por encima del botón flotante */
+  #toasts{left:12px;right:12px;bottom:calc(88px + env(safe-area-inset-bottom));max-width:none;align-items:stretch}
+  .tst{min-height:44px}
+}
+/* Sin hover (táctil): que no quede pegado el realce de "hover" ni los controles apagados */
+@media (hover:none){
+  .tarjeta:hover{transform:none;box-shadow:var(--sh-1)}
+  .tarjeta.no-leido:hover{box-shadow:var(--sh-1),inset 0 0 0 1.5px rgba(47,125,225,.55)}
+  .et-acc{opacity:1}
+}
 
 @media (prefers-reduced-motion:reduce){
   .tarjeta,.col,.switch input,.switch input::after,.ctl,.sel-u,.et-prog-barra i,.et-acc{transition:none!important}
@@ -282,27 +451,28 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 </head>
 <body class="font-body text-ink">
 <header class="acrylic filo-amarillo sticky top-0 z-20 shadow-fluent">
-  <div class="max-w-[1640px] mx-auto px-6 py-3 flex items-center gap-3">
+  <div class="cab-in max-w-[1640px] mx-auto px-6 py-3 flex items-center gap-3">
     <h1 class="font-disp text-2xl font-bold">TICKETS DE DESARROLLO</h1>
     <span id="bajada" class="text-sm">Pedidos al equipo de sistemas</span>
-    <div class="ml-auto flex items-center gap-4">
+    <div class="cab-acc ml-auto flex items-center gap-4">
       <span id="conexion" class="hidden text-xs" role="status"></span>
       <span id="yo" class="text-sm flex items-center gap-2"></span>
       <button id="btnAvisos" type="button" class="px-3 py-1.5 rounded-lg border text-sm inline-flex items-center gap-1.5" aria-pressed="false">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="txt">Avisos de escritorio</span></button>
-      <button id="btnRecargar" type="button" class="px-3 py-1.5 rounded-lg border text-sm">Recargar</button>
+      <button id="btnRecargar" type="button" class="px-3 py-1.5 rounded-lg border text-sm">
+        <svg class="ico solo-movil" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Recargar</button>
       <a id="lnkVolver" href="/" class="text-sm">← Inicio</a>
     </div>
   </div>
 </header>
 
-<main class="max-w-[1640px] mx-auto px-6 py-5">
+<main class="pag max-w-[1640px] mx-auto px-6 py-5">
   <div id="aviso" class="hidden mb-4" role="alert"></div>
 
   <nav id="estados" class="estados mb-4" aria-label="Filtrar por estado"></nav>
 
-  <div class="flex items-start gap-3 mb-4">
-   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 flex-1 min-w-0">
+  <div class="barra-herr flex items-start gap-3 mb-4">
+   <div class="barra-filtros flex flex-wrap items-center gap-x-3 gap-y-2 flex-1 min-w-0">
     <div class="buscar">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input id="flBuscar" type="search" class="ctl" placeholder="Buscar tarea, descripción o #id" aria-label="Buscar tickets">
@@ -314,7 +484,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
     <span id="conteo" class="text-sm text-gris tabular-nums"></span>
     <span id="avisoPermiso" class="hidden inline-flex items-center gap-1.5 text-xs text-gris">Solo lectura de estados · pedí el permiso Tickets · Gestión</span>
    </div>
-    <div class="flex items-center gap-3 shrink-0">
+    <div class="barra-vista flex items-center gap-3 shrink-0">
       <div class="pills" role="group" aria-label="Vista">
         <button type="button" class="pill" data-vista="tablero" aria-pressed="true">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></svg>Tablero</button>
@@ -362,7 +532,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
       <button type="button" class="btn-ico ml-auto" data-cerrar aria-label="Cerrar">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
     </div>
-    <div class="px-6 py-5 overflow-y-auto overflow-x-hidden grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-5">
+    <div class="cuerpo-form px-6 py-5 overflow-y-auto overflow-x-hidden grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-5">
       <div class="col-span-2">
         <label class="lbl" for="fTarea">Tarea <span class="text-crit">*</span></label>
         <input id="fTarea" class="ctl w-full text-[15px]" maxlength="150" required autocomplete="off" placeholder="Qué hay que hacer, en una línea">
@@ -374,7 +544,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
       </div>
       <div class="min-w-0">
         <label class="lbl" for="fArea">Área de trabajo <span class="text-crit">*</span></label>
-        <div class="flex gap-2">
+        <div class="area-fila flex gap-2">
           <select id="fArea" class="ctl flex-1 min-w-0" required></select>
           <input id="fAreaOtra" class="ctl flex-1 min-w-0 hidden" maxlength="80" placeholder="Escribí el área" aria-label="Otra área">
         </div>

@@ -26,6 +26,8 @@
     $('#lnkVolver').href = CFG.volver;
     $('#lnkVolver').textContent = CFG.volverTexto;
   }
+  // Puntero principal táctil (teléfono/tablet): ahí las tarjetas no se arrastran (compite con el scroll); el estado se cambia desde el detalle.
+  const esTactil = () => window.matchMedia('(pointer: coarse)').matches;
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const el = (tag, clase, texto) => {
     const n = document.createElement(tag);
@@ -624,7 +626,7 @@
   // ── Tablero ─────────────────────────────────────────────────────────────────
   function tarjeta(t) {
     const notas = notasDe(t);
-    const mover = puedeGestionar();
+    const mover = puedeGestionar() && !esTactil();
     const nl = noLeido(t);
     const clases = `tarjeta p-${esc(t.prioridad)} e-${esc(t.estado)}${estado.guardando.has(String(t.id)) ? ' guardando' : ''}${mover ? '' : ' fija'}${nl ? ' no-leido' : ''}`;
     return `<article class="${clases}" draggable="${mover}" tabindex="0" data-id="${esc(t.id)}"
@@ -638,7 +640,7 @@
   }
 
   function columna(e, tickets) {
-    const cuerpo = tickets.length ? tickets.map(tarjeta).join('') : `<div class="col-vacia">${puedeGestionar() ? 'Soltá un ticket acá' : 'Sin tickets'}</div>`;
+    const cuerpo = tickets.length ? tickets.map(tarjeta).join('') : `<div class="col-vacia">${puedeGestionar() && !esTactil() ? 'Soltá un ticket acá' : 'Sin tickets'}</div>`;
     return `<section class="col e-${esc(e.valor)}" data-estado="${esc(e.valor)}" aria-label="${esc(e.etiqueta)}: ${tickets.length} tickets">
       <div class="col-cab"><span class="dot"></span>${esc(e.etiqueta)}<span class="n">${tickets.length}</span></div>
       <div class="col-cuerpo">${cuerpo}</div></section>`;
