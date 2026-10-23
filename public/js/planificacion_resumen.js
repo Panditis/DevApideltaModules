@@ -494,6 +494,7 @@ function htmlCalculoGrupo(g) {
 function htmlDesgloseGranel(g, unidad) {
   const desglose = g.desglose || [];
   if (!desglose.length) return '';
+  const conMin = Number.isFinite(g.diasObjetivo);
   const total = desglose.reduce((t, d) => t + (d.ventasVentana || 0), 0);
   // Grupo "x unidad": las ventas vienen en unidades y el servidor ya las pasó a kg con el peso de la presentación.
   // Grupo por kilo con mayoristas "x unidad" (mayoristasUnidad): sus unidades ya pasadas a kg con el peso de cada código.
@@ -512,7 +513,6 @@ function htmlDesgloseGranel(g, unidad) {
       <td class="num">${nfAR(d.ventaDiariaUrg || 0, 2)} ${unidad}/día</td>
       <td class="num">${nfAR((d.ventaDiariaUrg || 0) * 30, 1)} ${unidad}/mes</td>
       ${conMin ? `<td class="num">${nfAR(minimoDe(d.ventaDiariaUrg || 0, g), 2)} ${unidad}</td>` : ''}</tr>`).join('');
-  const conMin = Number.isFinite(g.diasObjetivo);
   const sinPeso = g.presentacionesSinPeso || [];
   const aviso = sinPeso.length
     ? `<div class="urg-nota text-sm" style="color:var(--amb-text)">Sin peso en el nombre (se cuentan en unidades, sin pasar a kg): ${sinPeso.map(escHtml).join(', ')}</div>`
