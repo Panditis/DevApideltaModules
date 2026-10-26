@@ -24,6 +24,7 @@ const RUTAS_CONFIG_ESPERADAS = [
   'put /api/precios/config/esquema/fraccionado/subrubros/:id',
   'put /api/precios/config/esquema/fraccionado/granel/:plu',
   'put /api/precios/config/esquema/fraccionado/insumos-peso/:pesoG',
+  'put /api/precios/config/esquema/fraccionado/ajustes-peso',
 ];
 
 // Todas las rutas registradas por los routers de /precios (deps de prueba: sin SQL ni archivos).

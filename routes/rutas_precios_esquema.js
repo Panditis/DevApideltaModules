@@ -58,8 +58,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   // redibuje con lo guardado.
   const guardarCon = validar => apiRoute(async (req) => {
     let cambios, tipo;
-    try { tipo = tipoDe(req); cambios = validar(req, tipo); } catch (err) { return { error: err.message }; }
     const costeo = leerCosteo();
+    try { tipo = tipoDe(req); cambios = validar(req, tipo, costeo); } catch (err) { return { error: err.message }; }
     if (tipo === 'fraccionado' && !cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
     const nuevo = tipo === 'fraccionado' ? { ...costeo, fraccionado: { ...costeo.fraccionado, ...cambios } } : { ...costeo, ...cambios };
     guardarJSON(COSTEO_PATH, nuevo);
@@ -73,8 +73,10 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   router.put('/api/precios/config/esquema/precio', guardarCon(req => cfgEsq.validarPrecio(cuerpo(req))));
   // Costo hora de mano de obra ($/h): Producción (raíz) y Fraccionado (su bloque); minutos × costo hora ÷ 60.
   router.put('/api/precios/config/esquema/costo-hora', guardarCon(req => cfgEsq.validarCostoHora(cuerpo(req))));
-  // Las 3 tablas por canal (+ ajuste por peso, que sólo usa Fraccionado) reemplazan a margenes entero del tipo.
-  router.put('/api/precios/config/esquema/margenes', guardarCon(req => ({ margenes: cfgEsq.validarMargenes(cuerpo(req)) })));
+  // Las 3 tablas por canal reemplazan a margenes del tipo; el ajuste por peso guardado queda (lo edita Costeo Fraccionado:
+  // PUT .../fraccionado/ajustes-peso) y el del body se ignora.
+  router.put('/api/precios/config/esquema/margenes', guardarCon((req, tipo, costeo) =>
+    ({ margenes: cfgEsq.validarMargenes(cuerpo(req), cfgEsq.configEsquemaDe(costeo, tipo).margenes) })));
 
   const TIPOS_LISTADO = cfgEsq.TIPOS;
   const sinConfig = req => !!(req && req.preciosSinConfig === true); // lo marca guardPrecios (server.js)

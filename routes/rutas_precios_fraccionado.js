@@ -27,21 +27,23 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   const idDe = req => String(req.params.id || '').trim();
   const pesoDe = req => String(req.params.pesoG || '').trim();
 
-  // Lo que pinta Configuración (sin SIGA): máquinas con quién las usa, escalas, subrubros, excepciones por granel e insumos
-  // por peso (crudos: { [pesoG]: [{ plu, cantidad }] }).
+  // Lo que pinta Configuración (sin SIGA): máquinas con quién las usa, escalas, subrubros, excepciones por granel, insumos
+  // por peso (crudos: { [pesoG]: [{ plu, cantidad }] }) y el ajuste por peso del margen (margenes.ajustesPeso o null).
   function vista(f) {
     const cf = FC.normalizarCosteoFraccionado(f);
     const usos = CF.usosMaquinas(cf);
+    const margenes = (f && f.margenes) || {};
     return { costoHora: cf.costoHora, escalas: cf.escalas, subrubros: cf.subrubros, porGranel: cf.porGranel, insumosPorPeso: cf.insumosPorPeso,
-      maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0, subrubros: 0 } })) };
+      maquinas: cf.maquinas.map(m => ({ ...m, usos: usos[m.id] || { graneles: 0, subrubros: 0 } })), ajustesPeso: margenes.ajustesPeso || null };
   }
 
-  // calcular(req, cf) → cambios para costeo.fraccionado (o tira). Sin await entre leer y escribir. Responde la vista.
+  // calcular(req, cf, f) → cambios para costeo.fraccionado (o tira); f = el bloque tal cual. Sin await entre leer y escribir.
+  // Responde la vista.
   const guardarFracc = calcular => apiRoute(async (req) => {
     const costeo = leerCosteo();
     if (!cfgEsq.fraccionadoMigrado(costeo)) return { error: cfgEsq.SIN_MIGRAR_FRACCIONADO };
     let cambios;
-    try { cambios = calcular(req, FC.normalizarCosteoFraccionado(costeo.fraccionado)); } catch (err) { return { error: err.message }; }
+    try { cambios = calcular(req, FC.normalizarCosteoFraccionado(costeo.fraccionado), costeo.fraccionado); } catch (err) { return { error: err.message }; }
     const fraccionado = CF.fraccionadoConCambios(costeo.fraccionado, cambios);
     guardarJSON(COSTEO_PATH, { ...costeo, fraccionado });
     return { migrado: true, ...vista(fraccionado) };
@@ -73,6 +75,9 @@ module.exports = function crearRutasPreciosFraccionado(deps) {
   router.put(`${BASE}/granel/:plu`, guardarFracc((req, cf) => ({ porGranel: CF.aplicarGranel(cf.porGranel, pluDe(req), cuerpo(req), cf.maquinas) })));
   // ponytail: tampoco se valida que el peso tenga presentaciones (sería pedir SIGA); Configuración lo marca "sin presentaciones".
   router.put(`${BASE}/insumos-peso/:pesoG`, guardarFracc((req, cf) => ({ insumosPorPeso: CF.aplicarInsumosPeso(cf.insumosPorPeso, pesoDe(req), cuerpo(req)) })));
+  // Ajuste por peso del margen (antes en Márgenes): body { ajustesPeso: { tramosG, puntos } | null }. Va en margenes.ajustesPeso
+  // del bloque, donde lo lee el motor; las tablas por canal no se tocan.
+  router.put(`${BASE}/ajustes-peso`, guardarFracc((req, _cf, f) => ({ margenes: cfgEsq.margenesConAjustePeso(f.margenes, cuerpo(req)) })));
 
   return router;
 };

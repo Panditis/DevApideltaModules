@@ -38,11 +38,33 @@ test('validarCostos: rechaza modo, tildes incompletos, pct fuera de rango, total
   assert.throws(() => C.validarCostos({ ...ok, gastosVenta: 'x' }), /gastosVenta: items: debe ser una lista/);
 });
 
-test('validarMargenes: 3 tablas por canal, descarta sinConfigurar y claves de más, conserva rangoEstimado; ajuste por peso opcional', () => {
+test('validarMargenes: 3 tablas por canal, descarta sinConfigurar y claves de más, conserva rangoEstimado', () => {
   const r = C.validarMargenes({ minorista: { ...TABLA, rangoEstimado: true }, pack: { ...TABLA, sinConfigurar: true }, bulto: TABLA, almacen: {} });
   assert.deepStrictEqual(r, { minorista: { ...TABLA, rangoEstimado: true }, pack: TABLA, bulto: TABLA });
-  const f = C.validarMargenes({ minorista: TABLA, pack: TABLA, bulto: TABLA, ajustesPeso: { tramosG: [100, 500], puntos: [10, -5] } });
-  assert.deepStrictEqual(f.ajustesPeso, { tramosG: [100, 500], puntos: [10, -5] });
+});
+
+test('validarMargenes: el ajuste por peso del body se ignora y se conserva el guardado (lo edita Costeo Fraccionado)', () => {
+  const tres = { minorista: TABLA, pack: TABLA, bulto: TABLA };
+  const guardado = { ...tres, ajustesPeso: { tramosG: [100, 500], puntos: [10, -5] } };
+  const otro = { tramosG: [200], puntos: [3] };
+  assert.deepStrictEqual(C.validarMargenes({ ...tres, ajustesPeso: otro }, guardado), guardado);
+  assert.deepStrictEqual(C.validarMargenes(tres, guardado), guardado); // sin ajustesPeso en el body: no se borra
+  assert.deepStrictEqual(C.validarMargenes({ ...tres, ajustesPeso: otro }, tres), tres);
+  assert.deepStrictEqual(C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [500, 100], puntos: [1] } }), tres); // inválido: ni se mira
+});
+
+test('margenesConAjustePeso: valida y reemplaza el ajuste; null o sin tramos lo saca; el resto de margenes queda', () => {
+  const tres = { minorista: TABLA, pack: TABLA, bulto: TABLA, descuentoDistribuidorPct: 5 };
+  const aj = { tramosG: [100, 500], puntos: [10, -5] };
+  const conAj = C.margenesConAjustePeso(tres, { ajustesPeso: aj });
+  assert.deepStrictEqual(conAj, { ...tres, ajustesPeso: aj });
+  assert.deepStrictEqual(tres.ajustesPeso, undefined); // no muta
+  assert.deepStrictEqual(C.margenesConAjustePeso(conAj, { ajustesPeso: null }), tres);
+  assert.deepStrictEqual(C.margenesConAjustePeso(conAj, { ajustesPeso: { tramosG: [], puntos: [] } }), tres);
+  assert.throws(() => C.margenesConAjustePeso(tres, {}), /ajustesPeso: falta/);
+  assert.throws(() => C.margenesConAjustePeso(tres, { ajustesPeso: { tramosG: [500, 100], puntos: [1, 2] } }), /tramosG\[1\]/);
+  assert.throws(() => C.margenesConAjustePeso(tres, { ajustesPeso: { tramosG: [100], puntos: [200] } }), /puntos/);
+  assert.throws(() => C.margenesConAjustePeso(tres, { ajustesPeso: { tramosG: Array.from({ length: 21 }, (_, i) => i + 1), puntos: [] } }), /1 a 20/);
 });
 
 test('validarMargenes: errores con canal y campo', () => {
@@ -51,8 +73,6 @@ test('validarMargenes: errores con canal y campo', () => {
   assert.throws(() => C.validarMargenes({ ...tres, bulto: { ...TABLA, minPct: -100 } }), /bulto: El margen debe ser mayor a −100 %/);
   assert.doesNotThrow(() => C.validarMargenes({ ...tres, bulto: { ...TABLA, minPct: -99.9, maxPct: 5000 } })); // sin tope superior
   assert.throws(() => C.validarMargenes({ minorista: TABLA, pack: TABLA }), /bulto: Falta la tabla/);
-  assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [500, 100], puntos: [1, 2] } }), /tramosG\[1\]/);
-  assert.throws(() => C.validarMargenes({ ...tres, ajustesPeso: { tramosG: [100], puntos: [200] } }), /puntos/);
 });
 
 test('validarMargenes: descuentoDistribuidorPct opcional (número ≥ 0 y < 100); null/vacío = sin descuento', () => {

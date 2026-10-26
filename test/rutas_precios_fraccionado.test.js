@@ -108,6 +108,33 @@ test('insumos-peso: guarda la lista del peso y responde la vista; [] la saca; lo
   } finally { a.cerrar(); }
 });
 
+test('ajustes-peso: guarda en costeo.fraccionado.margenes.ajustesPeso (las tablas quedan) y responde la vista; null o sin tramos lo saca; inválido no escribe', async () => {
+  const T = { minPct: 80, maxPct: 120, escalones: 5, rango: { desde: 50, hasta: 50000 } };
+  const margenes = { minorista: T, pack: T, bulto: T };
+  const a = appCon({ margenes: { minorista: T }, fraccionado: { ...FRACC, margenes } });
+  const aj = { tramosG: [100, 1000], puntos: [8, 0] };
+  try {
+    assert.strictEqual((await a.pedir('GET', BASE)).ajustesPeso, null);
+    const r = await a.pedir('PUT', `${BASE}/ajustes-peso`, { ajustesPeso: aj });
+    assert.deepStrictEqual([r.status, r.migrado, r.ajustesPeso, r.maquinas], [200, true, aj, []]);
+    assert.deepStrictEqual(a.leer().fraccionado.margenes, { ...margenes, ajustesPeso: aj });
+    assert.deepStrictEqual(a.leer().margenes, { minorista: T }); // la raíz (Reventa) no se toca
+    assert.deepStrictEqual((await a.pedir('GET', BASE)).ajustesPeso, aj);
+    assert.match((await a.pedir('PUT', `${BASE}/ajustes-peso`, { ajustesPeso: { tramosG: [100], puntos: [200] } })).error, /puntos/);
+    assert.match((await a.pedir('PUT', `${BASE}/ajustes-peso`, {})).error, /ajustesPeso: falta/);
+    assert.deepStrictEqual(a.leer().fraccionado.margenes.ajustesPeso, aj);
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/ajustes-peso`, { ajustesPeso: { tramosG: [], puntos: [] } })).ajustesPeso, null);
+    await a.pedir('PUT', `${BASE}/ajustes-peso`, { ajustesPeso: aj });
+    assert.strictEqual((await a.pedir('PUT', `${BASE}/ajustes-peso`, { ajustesPeso: null })).ajustesPeso, null);
+    assert.deepStrictEqual(a.leer().fraccionado.margenes, margenes);
+  } finally { a.cerrar(); }
+  const sin = appCon({ margenes: { minorista: T, ajustesPeso: aj } });
+  try {
+    assert.match((await sin.pedir('PUT', `${BASE}/ajustes-peso`, { ajustesPeso: null })).error, /migrar_config_fraccionado/);
+    assert.deepStrictEqual(sin.leer().margenes.ajustesPeso, aj);
+  } finally { sin.cerrar(); }
+});
+
 test('PUT /api/precios/fraccionado/presentaciones ya no existe', () => {
   const r = crearRutas({ apiRoute: fn => fn, query: async () => [], leerJSON: (_p, d) => d, guardarJSON: () => {}, DATA_DIR: os.tmpdir() });
   assert.ok(!r.stack.some(l => l.route && l.route.path === '/api/precios/fraccionado/presentaciones'));
@@ -145,7 +172,7 @@ test('sin permiso precios-config: 403 en la configuración', async () => {
   const a = appCon({ fraccionado: FRACC }, { guard: true, sinConfig: true });
   try {
     for (const [m, r] of [['GET', BASE], ['GET', `${BASE}/costeo`], ['PUT', `${BASE}/maquinas`], ['PUT', `${BASE}/escalas`],
-      ['PUT', `${BASE}/subrubros/7`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/insumos-peso/500`]]) {
+      ['PUT', `${BASE}/subrubros/7`], ['PUT', `${BASE}/granel/1`], ['PUT', `${BASE}/insumos-peso/500`], ['PUT', `${BASE}/ajustes-peso`]]) {
       assert.strictEqual((await a.pedir(m, r, m === 'PUT' ? {} : undefined)).status, 403, `${m} ${r}`);
     }
   } finally { a.cerrar(); }

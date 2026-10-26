@@ -58,15 +58,16 @@ test('config esquema: PUT precio valida antes de escribir', async () => {
   } finally { a.cerrar(); }
 });
 
-test('config esquema: PUT márgenes guarda las 3 tablas por canal (+ ajuste por peso) y saca sinConfigurar; inválido no escribe', async () => {
-  const a = appCon(MIGRADO);
+test('config esquema: PUT márgenes guarda las 3 tablas por canal y saca sinConfigurar; el ajuste por peso guardado queda (el del body se ignora); inválido no escribe', async () => {
+  const aj = { tramosG: [100], puntos: [5] };
+  const a = appCon({ ...MIGRADO, margenes: { ...MIGRADO.margenes, ajustesPeso: aj } });
   try {
     const T = { minPct: 20, maxPct: 40, escalones: 5, rango: { desde: 50, hasta: 5000 } };
     assert.match((await a.pedir('PUT', '/api/precios/config/esquema/margenes', { minorista: T, pack: T })).error, /bulto/);
     assert.strictEqual(a.leer().margenes.pack.sinConfigurar, true);
-    const aj = { tramosG: [100], puntos: [5] };
-    const j = await a.pedir('PUT', '/api/precios/config/esquema/margenes', { minorista: T, pack: { ...T, sinConfigurar: true }, bulto: T, ajustesPeso: aj });
+    const j = await a.pedir('PUT', '/api/precios/config/esquema/margenes', { minorista: T, pack: { ...T, sinConfigurar: true }, bulto: T, ajustesPeso: { tramosG: [300], puntos: [9] } });
     assert.deepStrictEqual(j.margenes, { minorista: T, pack: T, bulto: T, ajustesPeso: aj });
+    await a.pedir('PUT', '/api/precios/config/esquema/margenes', { minorista: T, pack: T, bulto: T });
     assert.deepStrictEqual(a.leer().margenes, { minorista: T, pack: T, bulto: T, ajustesPeso: aj });
   } finally { a.cerrar(); }
 });
@@ -484,12 +485,13 @@ test('config por tipo: PUT ?tipo=fraccionado guarda en costeo.fraccionado y no t
     const tipos = { almacen: false, fraccionado: true, produccion: false };
     const c = await a.pedir('PUT', url('costos'), { modoGastos: 'precio', gastosVenta: [{ concepto: 'Flete', pct: 2, tipos }], extrasMinorista: [] });
     assert.deepStrictEqual(c.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2, tipos }]); // la vista con tilde sólo Fraccionado
-    await a.pedir('PUT', url('margenes'), { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC });
+    await a.pedir('PUT', url('margenes'), { minorista: T_FRACC, pack: T_FRACC, bulto: T_FRACC, ajustesPeso: { tramosG: [300], puntos: [9] } });
     await a.pedir('PUT', url('costo-hora'), { costoHora: 5000 });
     const d = a.leer();
     assert.deepStrictEqual([d.fraccionado.ivaVentaPct, d.fraccionado.modoGastos, d.fraccionado.costoHora], [10.5, 'precio', 5000]);
     assert.deepStrictEqual(d.fraccionado.gastosVenta, [{ id: 'flete', concepto: 'Flete', pct: 2 }]); // guardado sin tildes
     assert.deepStrictEqual(d.fraccionado.margenes.minorista, T_FRACC);
+    assert.strictEqual(d.fraccionado.margenes.ajustesPeso, undefined); // el del body se ignora (lo edita Costeo Fraccionado)
     assert.deepStrictEqual(d.fraccionado.maquinas, []); // lo propio se conserva
     for (const k of ['ivaVentaPct', 'modoGastos', 'gastosVenta', 'margenes', 'costoHora']) assert.deepStrictEqual(d[k], CON_FRACC[k], k);
     const g = await a.pedir('GET', '/api/precios/config/esquema');
