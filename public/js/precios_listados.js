@@ -44,8 +44,6 @@ function htmlBadgesActividadLst(f) {
   const badge = (txt, title) => ` <span class="${BADGE_ACT_LST}" title="${ESC_LST(title)}">${txt}</span>`;
   return (f.reefer === true ? badge('REEFER', 'Granel REEFER: depósito especial, sirve de control de stock') : '') + (f.activo === false ? badge('inactivo', textoInactivoLst(f)) : '');
 }
-// avisoActividad del server (falló la consulta de movimientos): franja ámbar arriba del listado.
-const textoAvisoActividad = aviso => (aviso ? `No se pudo calcular la actividad de los graneles (${aviso}): no se ocultan los inactivos.` : '');
 
 // ── Orden ────────────────────────────────────────────────────────────────────────
 // Headers ordenables de precios_comun.js (montarOrden/ordenarCon). Siempre hay un orden: por defecto el nombre A→Z (es, sin
@@ -192,7 +190,7 @@ function htmlDesplegarLst(f, abierto) {
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
   parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
-  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoAvisoActividad };
+  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -373,8 +371,8 @@ async function cargarListado(tipo) {
     if (opciones) { const o = await opciones; lstVariedadesEnv = o.variedades || []; lstCostoFamiliaEnv = o.costoKgFamilias || {}; }
     lstDatos = { ...lstDatos, [tipo]: j.filas };
     cont.querySelector('.lst-aviso').classList.toggle('hidden', j.migrado);
-    const avisoAct = cont.querySelector('.lst-aviso-act'); // sólo Fraccionado
-    if (avisoAct) { avisoAct.textContent = textoAvisoActividad(j.avisoActividad); avisoAct.classList.toggle('hidden', !j.avisoActividad); }
+    const avisoAct = cont.querySelector('.lst-aviso-act'); // sólo Fraccionado: avisoActividad = falló la consulta de movimientos (frase completa del server)
+    if (avisoAct) { avisoAct.textContent = j.avisoActividad || ''; avisoAct.classList.toggle('hidden', !j.avisoActividad); }
     renderListado(tipo);
   } catch (e) {
     const msg = `No se pudo cargar: ${esc(e.message)}`;
