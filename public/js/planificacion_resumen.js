@@ -104,7 +104,7 @@ function renderGrupos() {
         <td></td>
         <td style="white-space:nowrap">${urgenciaCell(p.urgencia, textoCobertura(p.coberturaDias), gi, pi)}</td>
         <td class="nombre-col" style="padding-left:28px;font-size:13px">
-          ${escHtml(p.presentacion)}
+          ${escHtml(p.presentacion)}${p.esMayorista ? ' <span class="badge-mayorista" title="Todos sus códigos son mayoristas: se planifica con el stock de Casa Central">Mayorista</span>' : ''}
           ${_pProm ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">prom: ${_pProm}/mes</div>` : ''}
         </td>
         <td class="text-right col-sug" style="white-space:nowrap"><input class="sug-input" id="sug-${gi}-${pi}" type="number" min="0" step="1" value="${p.cantSugerida||0}" title="Sugerido por el sistema: ${p.cantSugerida}"><button class="btn-formula" onclick="event.stopPropagation();abrirFormulaView('${p.plu}','${escHtml(p.baseNombre).replace(/'/g,"\\'")}',parseFloat(document.getElementById('sug-${gi}-${pi}').value)||0)" title="Ver fórmula">📋</button></td>
@@ -146,7 +146,7 @@ function toggleGrupo(gi) {
 async function abrirStockDetalle(gi) {
   const g = gruposSorted[gi];
   if (!g) return;
-  const plus = [...new Set((g.esGranel ? (g.plus || []) : (g.presentaciones || []).flatMap(p => p.plus || [p.plu])).map(String))];
+  const plus = [...new Set((g.esGranel ? (g.plus || []) : (g.presentaciones || []).filter(p => !p.esMayorista).flatMap(p => p.plus || [p.plu])).map(String))];
   document.getElementById('stockDetModo').textContent = '🔍 Stock en sucursales';
   document.getElementById('stockDetTitulo').textContent = g.productoRef;
   document.getElementById('stockDetBody').innerHTML = '<div class="loading">Cargando…</div>';
@@ -161,11 +161,11 @@ async function abrirStockDetalle(gi) {
 
 // Columnas del modal. Grupo con presentaciones: una por presentación, sumando el stock de todos sus
 // PLUs (p.plus: las bases fusionadas), igual que la columna "Stock suc.". Granel: una por PLU, con el
-// nombre del producto sin el del grupo.
+// nombre del producto sin el del grupo. Las presentaciones mayoristas no van: su stock de sucursal no cuenta.
 function columnasStock(data, g) {
   const filas = data.presentaciones || [];
   if ((g.presentaciones || []).length) {
-    return g.presentaciones.map(p => {
+    return g.presentaciones.filter(p => !p.esMayorista).map(p => {
       const plus = (p.plus || [p.plu]).map(String), porSuc = {};
       for (const r of filas.filter(f => plus.includes(String(f.plu))))
         for (const [id, v] of Object.entries(r.porSuc)) porSuc[id] = (porSuc[id] || 0) + v;
@@ -390,8 +390,11 @@ function datosUrgencia(g, p) {
   const central = p ? (p.stockActual || 0) : (g.granelStockGrupo || 0);
   const suc = p ? (p.stockSucursales || 0) : (g.stockSucGrupo || 0);
   const diaria = (p ? p.ventaDiariaUrg : g.ventaDiariaUrg) || 0;
+  // Parte mayorista de las ventas (Casa Central a clientes MAYORISTA): solo se muestra, no cambia el cálculo.
+  const mayorista = (p ? p.ventasMayoristaVentana : g.ventasMayoristaVentana) || 0;
+  const diariaMay = (p ? p.ventaDiariaMayorista : g.ventaDiariaMayorista) || 0;
   return {
-    ventas: (p ? p.ventasVentana : g.ventasVentana) || 0, diaria, central, suc, total: central + suc,
+    ventas: (p ? p.ventasVentana : g.ventasVentana) || 0, diaria, mayorista, diariaMay, central, suc, total: central + suc,
     cobertura: diaria > 0 ? Math.max(0, (central + suc) / diaria) : null,
     nivel: p ? p.urgencia : g.urgencia,
   };
@@ -442,8 +445,12 @@ function htmlCalculoPresentacion(g, p) {
   const fila = (etq, valor) => `<tr><td>${etq}</td><td>${valor}</td></tr>`;
   const filas = [
     fila('Ventas en la ventana', `${nfAR(d.ventas, 2)} ${unidad} en ${nfAR(g.ventanaDias, 0)} días <span class="text-sm">(${excluye})</span>`),
+    fila('Venta minorista (sucursales)', `${nfAR(d.ventas - d.mayorista, 2)} ${unidad} en la ventana · ${nfAR(d.diaria - d.diariaMay, 2)} ${unidad}/día`),
+    fila('Venta mayorista (Casa Central a mayoristas)', `${nfAR(d.mayorista, 2)} ${unidad} en la ventana · ${nfAR(d.diariaMay, 2)} ${unidad}/día`),
     fila('Venta diaria', `${nfAR(d.ventas, 2)} ÷ ${nfAR(g.ventanaDias, 0)} = <strong>${nfAR(d.diaria, 2)} ${unidad}/día</strong>`),
-    fila('Stock', `central ${nfAR(d.central, 2)} + sucursales ${nfAR(d.suc, 2)} = <strong>${nfAR(d.total, 2)} ${unidad}</strong>`),
+    fila('Stock', p.esMayorista
+      ? `solo Casa Central (presentación mayorista): <strong>${nfAR(d.total, 2)} ${unidad}</strong>`
+      : `central ${nfAR(d.central, 2)} + sucursales ${nfAR(d.suc, 2)} = <strong>${nfAR(d.total, 2)} ${unidad}</strong>`),
   ];
   if (d.cobertura !== null) filas.push(fila('Cobertura', `${nfAR(d.total, 2)} ÷ ${nfAR(d.diaria, 2)} = <strong>${fmtDias(d.cobertura)} días</strong>`));
   if (minimoDe(d.diaria, g) !== null) filas.push(fila('Stock mínimo', textoMinimo(d, g, unidad)));
@@ -483,7 +490,7 @@ function htmlCalculoGrupo(g) {
   const cuerpo = lineas.map(l => `<tr${resaltar(l) ? ' class="urg-peor"' : ''}>
       <td>${escHtml(l.nombre)}${l.detalle ? `<div class="text-sm">${escHtml(l.detalle)}</div>` : ''}</td>
       ${conPeso ? `<td class="num">${l.peso === null ? '—' : pct(l.peso) + ' %'}</td>` : ''}
-      <td class="num">${nfAR(l.d.ventas, 2)} ${unidad}</td><td class="num">${nfAR(l.d.diaria, 2)} ${unidad}/día</td>
+      <td class="num">${nfAR(l.d.ventas, 2)} ${unidad}</td><td class="num">${nfAR(l.d.mayorista, 2)} ${unidad}</td><td class="num">${nfAR(l.d.diaria, 2)} ${unidad}/día</td>
       <td class="num">${nfAR(l.d.total, 2)} ${unidad}</td>
       ${conMin ? `<td class="num">${celdaMinimo(l.d.diaria, l.d.total)}</td>` : ''}
       <td class="num">${l.d.cobertura === null ? '—' : fmtDias(l.d.cobertura) + ' d'}</td><td>${chipUrgencia(l.d.nivel)}</td></tr>`).join('');
@@ -492,7 +499,7 @@ function htmlCalculoGrupo(g) {
     ? `El grupo es <strong>Urgente</strong> si lo urgente suma ≥ ${pct(g.umbralPeso)} % de su ${usarFact ? 'facturación' : 'venta en unidades (sin facturación)'} (acá: ${pct(g.pesoUrgente)} % → ${sino(g.urgencia === 'URGENTE')}). Es <strong>Pronto</strong> si lo urgente y lo pronto suman ≥ ${pct(g.umbralPeso)} % (acá: ${pct(g.pesoUrgentePronto)} % → ${sino(g.urgencia !== 'OK')}).`
     : (peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.');
   return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
-    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Stock total</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}<th class="num">Cobertura</th><th>Nivel</th></tr></thead>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta mayorista</th><th class="num">Venta diaria</th><th class="num">Stock total</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}<th class="num">Cobertura</th><th>Nivel</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
     ${g.esGranel ? htmlDesgloseGranel(g, unidad) : ''}
     <div class="urg-nota text-sm">${regla} Venta diaria = ventas ÷ días de la ventana; cobertura = stock total ÷ venta diaria${conMin ? `; mínimo = venta diaria × ${nfAR(g.diasObjetivo, 0)} días a cubrir` : ''}. ${escHtml(textoExclusiones(g, true))}.</div>`;
@@ -523,10 +530,11 @@ function htmlDesgloseGranel(g, unidad) {
     const kgDia = d.ventaDiariaUrg || 0;
     const uVentana = d.unidadesVentana || 0, uDia = g.ventanaDias > 0 ? uVentana / g.ventanaDias : 0;
     return `<tr>
-      <td>${escHtml(d.presentacion || d.baseNombre || '')}</td>
+      <td>${escHtml(d.presentacion || d.baseNombre || '')}${d.esMayorista ? ' <span class="badge-mayorista">Mayorista</span>' : ''}</td>
       <td class="num">${total > 0 ? nfAR(Math.round((d.ventasVentana || 0) / total * 100), 0) + ' %' : '—'}</td>
       ${conPeso ? `<td class="num">${celdaPeso(d)}</td>` : ''}
       <td class="num">${celda(d, uVentana, d.ventasVentana || 0, '', 2)}</td>
+      <td class="num">${nfAR(d.ventasMayoristaVentana || 0, 2)} ${unidad}</td>
       <td class="num">${celda(d, uDia, kgDia, '/día', 2)}</td>
       <td class="num">${celda(d, uDia * 30, kgDia * 30, '/mes', 1)}</td>
       ${conMin ? `<td class="num">${celda(d, minimoDe(uDia, g), minimoDe(kgDia, g), '', 2)}</td>` : ''}</tr>`;
@@ -536,7 +544,7 @@ function htmlDesgloseGranel(g, unidad) {
     ? `<div class="urg-nota text-sm" style="color:var(--amb-text)">Sin peso en el nombre (se cuentan en unidades, sin pasar a kg): ${sinPeso.map(escHtml).join(', ')}</div>`
     : '';
   return `<div class="urg-nota"><strong>Consumo por presentación</strong></div>
-    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th>${conPeso ? '<th class="num">Unidades × peso</th>' : ''}<th class="num">Ventas ventana</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}</tr></thead>
+    <table class="urg-tabla urg-grupo"><thead><tr><th>Presentación</th><th class="num">% del consumo</th>${conPeso ? '<th class="num">Unidades × peso</th>' : ''}<th class="num">Ventas ventana</th><th class="num">Venta mayorista</th><th class="num">Venta diaria</th><th class="num">Consumo mensual</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}</tr></thead>
     <tbody>${filas}</tbody></table>${aviso}`;
 }
 

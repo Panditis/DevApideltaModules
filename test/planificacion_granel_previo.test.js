@@ -353,3 +353,73 @@ test('modal del grupo: cada granel lleva el check "en unidades" con su estado', 
   assert.ok(lista.innerHTML.includes('toggleGranelUnidades(1, this.checked)'));
   assert.ok(lista.innerHTML.includes('Solo cambia cómo se muestra.'));
 });
+
+// ── Presentación mayorista y venta mayorista (Resumen) ────────────────────────
+// Presentación mayorista (todos sus códigos mayoristas): su stock de sucursal no cuenta, así que no va
+// en el modal 🔍 de sucursales; en el modal de urgencia el stock es solo el de Casa Central. Venta
+// mayorista: la parte de las ventas que vino de Casa Central a clientes MAYORISTA (solo se muestra).
+
+test('stock en sucursales: las presentaciones mayoristas no van como columna', () => {
+  const { renderStockDetalle } = fn(['escHtml', 'columnasStock', 'renderStockDetalle']);
+  const g = { productoRef: 'Miel', presentaciones: [
+    { presentacion: '1Kg', plu: '501', plus: ['501'] },
+    { presentacion: '28Kg', plu: '502', plus: ['502', '503'], esMayorista: true }] };
+  const data = { sucursales: [{ id: 1, nombre: 'Suc A' }, { id: 0, nombre: 'Central', central: true }],
+    presentaciones: [{ plu: '501', porSuc: { 1: 3 } }, { plu: '502', porSuc: { 1: 9 } }, { plu: '503', porSuc: { 1: 4 } }] };
+  const html = renderStockDetalle(data, g);
+  assert.ok(html.includes('>1Kg</th>'), html);
+  assert.ok(!html.includes('28Kg'), html);
+  assert.ok(!/>(9|13|16)</.test(html), 'el stock de sucursal de la presentación mayorista no suma');
+  assert.match(html, /Suc A<\/td><td[^>]*>3<\/td><td[^>]*>3<\/td>/);
+});
+
+// Funciones del modal de urgencia, con sus constantes de una línea.
+function urgenciaFns() {
+  const src = [
+    ...['URGENCIA_CHIP', 'nfAR', 'listaY', 'chipUrgencia', 'minimoDe', 'unidadGrupo'].map(constDe),
+    ...['escHtml', 'fmtDias', 'datosUrgencia', 'textoResultado', 'textoExclusiones', 'lineaImportancia', 'lineaUmbral',
+      'textoMinimo', 'htmlCalculoPresentacion', 'htmlCalculoGrupo', 'htmlDesgloseGranel'].map(fuenteDe),
+    'return { htmlCalculoPresentacion, htmlCalculoGrupo };',
+  ].join('\n');
+  return new Function(src)();
+}
+const grupoUrg = extra => ({ productoRef: 'Miel', esGranel: false, ventanaDias: 30, diasObjetivo: 10, umbralUrgencia: 7,
+  claseABC: 'A', rankingPos: 1, excluyeCentral: true, sucursalesExcluidas: [6, 8, 11], ...extra });
+
+test('urgencia de una presentación: separa la venta minorista de la mayorista', () => {
+  const { htmlCalculoPresentacion } = urgenciaFns();
+  const p = { presentacion: '500G', ventasVentana: 90, ventaDiariaUrg: 3, ventasMayoristaVentana: 30, ventaDiariaMayorista: 1,
+    stockActual: 20, stockSucursales: 10, urgencia: 'URGENTE' };
+  const html = htmlCalculoPresentacion(grupoUrg(), p);
+  assert.match(html, /Venta minorista \(sucursales\)<\/td><td>60 u en la ventana · 2 u\/día/);
+  assert.match(html, /Venta mayorista \(Casa Central a mayoristas\)<\/td><td>30 u en la ventana · 1 u\/día/);
+  assert.ok(html.indexOf('Ventas en la ventana') < html.indexOf('Venta minorista'), 'debajo de "Ventas en la ventana"');
+  assert.match(html, /central 20 \+ sucursales 10/);
+});
+
+test('urgencia de una presentación mayorista: el stock es solo el de Casa Central', () => {
+  const { htmlCalculoPresentacion } = urgenciaFns();
+  const p = { presentacion: '28Kg', esMayorista: true, ventasVentana: 30, ventaDiariaUrg: 1, ventasMayoristaVentana: 30,
+    ventaDiariaMayorista: 1, stockActual: 6, stockSucursales: 0, urgencia: 'URGENTE' };
+  const html = htmlCalculoPresentacion(grupoUrg(), p);
+  assert.match(html, /<td>Stock<\/td><td>solo Casa Central \(presentación mayorista\): <strong>6 u<\/strong>/);
+  assert.ok(!html.includes('+ sucursales'), html);
+  assert.match(html, /Venta minorista \(sucursales\)<\/td><td>0 u en la ventana · 0 u\/día/);
+});
+
+test('urgencia del grupo: columna "Venta mayorista" en la tabla y en el consumo por presentación de granel', () => {
+  const { htmlCalculoGrupo } = urgenciaFns();
+  const conPres = htmlCalculoGrupo(grupoUrg({ urgencia: 'OK', presentaciones: [
+    { presentacion: '500G', ventasVentana: 90, ventaDiariaUrg: 3, ventasMayoristaVentana: 30, stockActual: 20, stockSucursales: 10, urgencia: 'OK' }] }));
+  assert.match(conPres, /<th class="num">Ventas ventana<\/th><th class="num">Venta mayorista<\/th>/);
+  assert.match(conPres, /<td class="num">90 u<\/td><td class="num">30 u<\/td>/);
+  const granel = htmlCalculoGrupo(grupoUrg({ esGranel: true, urgencia: 'OK', granelStockGrupo: 100, stockSucGrupo: 0,
+    ventasVentana: 60, ventaDiariaUrg: 2, ventasMayoristaVentana: 30, presentaciones: [], desglose: [
+      { presentacion: '1Kg', ventasVentana: 30, ventaDiariaUrg: 1, ventasMayoristaVentana: 0, unidadesVentana: null },
+      { presentacion: '28Kg', esMayorista: true, ventasVentana: 30, ventaDiariaUrg: 1, ventasMayoristaVentana: 30, unidadesVentana: null }] }));
+  assert.match(granel, /<td class="num">60 kg<\/td><td class="num">30 kg<\/td>/);       // fila del grupo
+  const desglose = granel.slice(granel.indexOf('Consumo por presentación'));
+  assert.match(desglose, /<th class="num">Ventas ventana<\/th><th class="num">Venta mayorista<\/th>/);
+  assert.match(desglose, /28Kg <span class="badge-mayorista">Mayorista<\/span><\/td>/);
+  assert.match(desglose, /<td class="num">30 kg<\/td>\s*<td class="num">30 kg<\/td>/);
+});

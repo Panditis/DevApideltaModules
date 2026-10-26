@@ -328,6 +328,7 @@ async function calcularSugerenciasCatalogo(params) {
   // minorista. Sin peso no se convierte (se avisa). En un grupo x unidad ya convierte el peso del grupo.
   const mayUnidadBase = new Map();   // base → [{ plu, unidadesVentana, pesoKg }] (desglose del modal de urgencia)
   const consumoBaseVentana = new Map(), consumoBasePorDia = new Map(), unidadesBaseVentana = new Map();
+  const consumoMayVentana = new Map(); // base → venta diaria (÷ventana) de los mayoristas: desglose del total, no entra en ningún cálculo
   const stockBase = new Map(), stockUnidBase = new Map(), stockBaseAll = new Map(), stockSucBase = new Map(), pendBase = new Map(), facturBase = new Map();
   for (const [plu, base] of pluToBase) {
     let total = consumoTotalRaw.get(plu) || 0;
@@ -342,21 +343,27 @@ async function calcularSugerenciasCatalogo(params) {
     const peso = porUnidad ? pesoUnidadBase.get(base) : pesoMay;   // null/undefined = no se convierte
     const kg = n => (peso ? n * peso : n);
     // Con "x unidad" (del grupo o del código) la conversión ya la hace kg(): la regla vieja convertiría dos veces.
+    let wVieja = 1;
     if (esMay && bInfo && !enKgRefIds.has(bInfo.refId) && !porUnidad && !mayUnidad) {
       const w = pesoEnKg(meta.presentacion);
-      if (w !== null && w <= 0.2) total = total * w;
+      if (w !== null && w <= 0.2) wVieja = w;
     }
+    total = total * wVieja;
     if (porUnidad) unidadesBaseVentana.set(base, (unidadesBaseVentana.get(base) || 0) + total);
     total = kg(total);
     const rateVentana = ventana > 0 ? total / ventana : 0;   // demanda real diaria
     const ratePorDia  = dias    > 0 ? total / dias    : 0;   // intensidad (días que vendió)
     consumoBaseVentana.set(base, (consumoBaseVentana.get(base) || 0) + rateVentana);
     consumoBasePorDia.set(base,  (consumoBasePorDia.get(base)  || 0) + ratePorDia);
-    // Stock SOLO de los minoristas. Los mayoristas no suman stock.
+    if (esMay) consumoMayVentana.set(base, (consumoMayVentana.get(base) || 0) + rateVentana);
+    // Stock de los minoristas. Los mayoristas no suman stock, salvo en una presentación mayorista (sin
+    // minoristas): ahí cuenta su stock de Casa Central, convertido igual que sus ventas; el de sucursales no.
+    const sumaStock = !esMay || bInfo.esMayorista;
+    const stockKg = raw => (sumaStock ? kg((raw.get(plu) || 0) * wVieja) : 0);
     pendBase.set(base,     (pendBase.get(base)     || 0) + kg(pendRaw.get(plu)         || 0));
-    stockBase.set(base,    (stockBase.get(base)    || 0) + (esMay ? 0 : kg(stockRaw.get(plu)      || 0)));
-    stockUnidBase.set(base, (stockUnidBase.get(base) || 0) + (esMay ? 0 : (stockRaw.get(plu) || 0))); // sin pasar a kg (modal de stock central)
-    stockBaseAll.set(base, (stockBaseAll.get(base) || 0) + (esMay ? 0 : kg(stockTodosRaw.get(plu) || 0)));
+    stockBase.set(base,    (stockBase.get(base)    || 0) + stockKg(stockRaw));
+    stockUnidBase.set(base, (stockUnidBase.get(base) || 0) + (sumaStock ? (stockRaw.get(plu) || 0) : 0)); // sin pasar a kg (modal de stock central)
+    stockBaseAll.set(base, (stockBaseAll.get(base) || 0) + stockKg(stockTodosRaw));
     stockSucBase.set(base, (stockSucBase.get(base) || 0) + (esMay ? 0 : kg(stockSucRaw.get(plu)   || 0)));
     facturBase.set(base,   (facturBase.get(base)   || 0) + (facturRaw.get(plu)       || 0));
   }
@@ -389,7 +396,7 @@ async function calcularSugerenciasCatalogo(params) {
       granelStockGrupo  = granelesGrupo[0].stock;
     } else if (esGranelCheck) {
       let base10 = null;
-      for (const [base, bInfo] of refInfo.bases) { if (bInfo.pluBase && /10\s*kg/i.test(bInfo.baseNombre || '')) { base10 = base; nombreGranelGrupo = bInfo.baseNombre; granelIdGrupo = String(bInfo.pluBase); break; } }
+      for (const [base, bInfo] of refInfo.bases) { if (bInfo.pluBase && !bInfo.esMayorista && /10\s*kg/i.test(bInfo.baseNombre || '')) { base10 = base; nombreGranelGrupo = bInfo.baseNombre; granelIdGrupo = String(bInfo.pluBase); break; } }
       if (base10) {
         granelStockGrupo = stockBaseAll.get(base10) || 0;
         granelesGrupo = [{ id: granelIdGrupo, nombre: nombreGranelGrupo, stock: granelStockGrupo, enUnidades: false }];
@@ -408,12 +415,14 @@ async function calcularSugerenciasCatalogo(params) {
     const consumoBaseUse = usarPorDia ? consumoBasePorDia : consumoBaseVentana;
     const presentaciones = [];
     for (const [base, bInfo] of refInfo.bases) {
-      if (!bInfo.pluBase) continue; // presentación sin minoristas (solo mayoristas): no se muestra
-      const pluBase = bInfo.pluBase;
+      const pluBase = bInfo.pluBase; // en una presentación mayorista (sin minoristas), el primer mayorista
       const prom = consumoBaseUse.get(base) || 0, pend = pendBase.get(base) || 0, stock = stockBase.get(base) || 0;
       const stockSucursales = Math.round((stockSucBase.get(base) || 0) * 100) / 100; // stock en sucursales (no central)
       const ventasVentana = Math.round((consumoBaseVentana.get(base) || 0) * ventana * 100) / 100; // total vendido en la ventana (misma base que ventaDiariaUrg)
       const ventaDiariaUrg = Math.round((consumoBaseVentana.get(base) || 0) * 10000) / 10000; // venta de la ventana ÷ ventana: solo para la cobertura/urgencia (promDiario puede ir ÷días-con-venta)
+      // Parte de lo anterior que vino del canal mayorista (Casa Central a clientes MAYORISTA): solo se muestra.
+      const ventasMayoristaVentana = Math.round((consumoMayVentana.get(base) || 0) * ventana * 100) / 100;
+      const ventaDiariaMayorista = Math.round((consumoMayVentana.get(base) || 0) * 10000) / 10000;
       const stockEfectivo = Math.round(stock * incStock * 100) / 100; // stock que cuenta en el sugerido (incidencia config)
       const bom = pluBase ? bomRaw.get(pluBase) : null;
       const customGPlu = cfgGranelPlu(gruposCfg, refInfo.productoRef);
@@ -431,7 +440,8 @@ async function calcularSugerenciasCatalogo(params) {
       const urgenciaScore = (isFinite(diasStock) ? -diasStock : 0) + (pend / Math.max(prom, 0.001))
                       + (semaforo === 'RED' ? 1000 : semaforo === 'YELLOW' ? 100 : 0) + (!granelOk ? 50 : 0);
       presentaciones.push({ plu: pluBase, plus: [...bInfo.plusBase], baseNombre: bInfo.baseNombre, presentacion: bInfo.presentacion,
-        stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, ventasVentana, ventaDiariaUrg, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
+        ...(bInfo.esMayorista ? { esMayorista: true } : {}),
+        stockActual: stock, stockEfectivo, stockSucursales, facturacionMensual, ventasVentana, ventaDiariaUrg, ventasMayoristaVentana, ventaDiariaMayorista, promDiario: Math.round(prom * 100) / 100, promMes: Math.round(prom * 30 * 10) / 10,
         diasStock: isFinite(diasStock) ? Math.round(diasStock * 10) / 10 : 9999,
         semaforo, pendientes: pend, cantSugerida, idGranel, nombreGranel: nomGranel, cantPorUnidad: cantPU,
         granelNecesario: granelNec, granelDisponible: granelDisp !== null ? Math.round(granelDisp * 100) / 100 : null,
@@ -457,9 +467,12 @@ async function calcularSugerenciasCatalogo(params) {
       const facturGrupoG = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
       const facturMensualG = Math.round(facturGrupoG * (30 / ventana) * 100) / 100;
       const stockSucGrupo = Math.round([...refInfo.bases.keys()].reduce((s, base) => s + (stockSucBase.get(base) || 0), 0) * 100) / 100;
-      const plusGrupo = [...refInfo.bases.values()].flatMap(b => b.plusBase);
+      // Modal 🔍 de sucursales: sin los códigos de presentaciones mayoristas (su stock de sucursal no cuenta).
+      const plusGrupo = [...refInfo.bases.values()].filter(b => !b.esMayorista).flatMap(b => b.plusBase);
       const ventaDiariaUrgG = Math.round(presFinal.reduce((s, p) => s + p.ventaDiariaUrg, 0) * 10000) / 10000;
       const ventasVentanaG = Math.round(presFinal.reduce((s, p) => s + p.ventasVentana, 0) * 100) / 100;
+      const ventasMayoristaVentanaG = Math.round(presFinal.reduce((s, p) => s + p.ventasMayoristaVentana, 0) * 100) / 100;
+      const ventaDiariaMayoristaG = Math.round(presFinal.reduce((s, p) => s + p.ventaDiariaMayorista, 0) * 10000) / 10000;
       // "x unidad": peso y unidades vendidas de cada presentación (null = por kilo).
       const claveBase = p => `${refId}|${p.presentacion}`;
       const porUnidadG = presFinal.some(p => pesoUnidadBase.has(claveBase(p)));
@@ -469,10 +482,12 @@ async function calcularSugerenciasCatalogo(params) {
       grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
         plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, granelEnUnidades, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
+        ventasMayoristaVentana: ventasMayoristaVentanaG, ventaDiariaMayorista: ventaDiariaMayoristaG,
         facturacionMensual: facturMensualG, presentaciones: [],
         ...(porUnidadG || sinPeso.length ? { presentacionesSinPeso: sinPeso } : {}),
         // Consumo por presentación solo para mostrar (modal de urgencia): el granel se planifica como grupo.
-        desglose: presFinal.map(p => ({ presentacion: p.presentacion, baseNombre: p.baseNombre, ventasVentana: p.ventasVentana,
+        desglose: presFinal.map(p => ({ presentacion: p.presentacion, baseNombre: p.baseNombre, ...(p.esMayorista ? { esMayorista: true } : {}),
+          ventasVentana: p.ventasVentana, ventasMayoristaVentana: p.ventasMayoristaVentana, ventaDiariaMayorista: p.ventaDiariaMayorista,
           ventaDiariaUrg: p.ventaDiariaUrg, facturacionMensual: p.facturacionMensual, // stockCentral como está en SIGA (unidades en un grupo x unidad); stockCentralKg = el pasado a kg (null si no se convirtió).
           stockCentral: porUnidadG ? Math.round((stockUnidBase.get(claveBase(p)) || 0) * 100) / 100 : p.stockActual,
           stockCentralKg: pesoKgDe(p) ? p.stockActual : null, pesoKg: pesoKgDe(p),

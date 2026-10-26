@@ -40,9 +40,22 @@ test('buildCatalogoMaps agrupa por presentación del grupo aunque los códigos t
     refId: '1', productoRef: 'Mix', presentacion: '500G', baseNombre: 'Mix 500G',
     pluBase: '101', plusBase: ['101', '102'], plusVariantes: ['201'],
   });
-  // Presentación sin minoristas: sin pluBase (el cálculo la saltea).
-  assert.strictEqual(bases.get('1|2Kg').pluBase, null);
-  assert.deepStrictEqual(bases.get('1|2Kg').plusVariantes, ['202']);
+  // Presentación sin minoristas (presentación mayorista): toma el primer mayorista y se marca.
+  assert.deepStrictEqual(bases.get('1|2Kg'), {
+    refId: '1', productoRef: 'Mix', presentacion: '2Kg', baseNombre: 'Solo Mayorista 2Kg',
+    pluBase: '202', plusBase: ['202'], plusVariantes: ['202'], esMayorista: true,
+  });
+});
+
+test('buildCatalogoMaps: con un minorista después de los mayoristas la presentación sigue siendo mixta', () => {
+  const { baseMap } = buildCatalogoMaps([
+    { plu: 7, producto: 'X Bulto', baseNombre: 'X Bulto', presentacion: '1Kg', esMayorista: true, refId: 9, productoRef: 'X' },
+    { plu: 8, producto: 'X 1Kg', baseNombre: 'X 1Kg', presentacion: '1Kg', esMayorista: false, refId: 9, productoRef: 'X' },
+  ]);
+  assert.deepStrictEqual(baseMap.get('9|1Kg'), {
+    refId: '9', productoRef: 'X', presentacion: '1Kg', baseNombre: 'X 1Kg',
+    pluBase: '8', plusBase: ['8'], plusVariantes: ['7'],
+  });
 });
 
 // ── Cálculo de sugerencias por grupo con el router real y SQL falso ─────────────────────────────
@@ -53,12 +66,14 @@ const CONFIG = {
 // Por tipo de query, valor por PLU. Un PLU que no corresponde a la query (ej. un mayorista en la de
 // minoristas) devolvería 999 y rompería las cuentas.
 const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999, 301: 100, 303: 40, 305: 7, 302: 999, 304: 999,
-  401: 30, 403: 6, 405: 4, 407: 8, 409: 12, 412: 7, 402: 999, 404: 999, 406: 999, 408: 999, 410: 999 };
+  401: 30, 403: 6, 405: 4, 407: 8, 409: 12, 412: 7, 402: 999, 404: 999, 406: 999, 408: 999, 410: 999,
+  501: 30, 502: 999, 503: 999 };
 const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999, 302: 20, 304: 10, 301: 999, 303: 999, 305: 999,
-  402: 10, 404: 3, 406: 5, 408: 2, 410: 20, 401: 999, 403: 999, 405: 999, 407: 999, 409: 999, 412: 999 };
-const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000, 301: 50 };
-// Solo para el grupo de pepas (los otros tests no los miran).
-const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999 };
+  402: 10, 404: 3, 406: 5, 408: 2, 410: 20, 401: 999, 403: 999, 405: 999, 407: 999, 409: 999, 412: 999,
+  502: 20, 503: 10, 501: 999 };
+const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000, 301: 50, 304: 20, 501: 10, 502: 4, 503: 2 };
+// Solo para los grupos de pepas y miel (los otros tests no los miran). El de los mayoristas no debe sumar.
+const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999, 501: 6, 502: 999, 503: 999 };
 const PEND = { 301: 5, 302: 10, 303: 2, 402: 4 };
 // Stock de los graneles cargados a mano en el catálogo (grupos_config.granelPlus).
 const STOCK_GRANEL = { 901: 12, 902: 30 };
@@ -94,6 +109,14 @@ const MIX_GRANEL = [
   { plu: 408, producto: 'Mix Bolsa', baseNombre: 'Mix Bolsa', presentacion: 'Suelto', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
   { plu: 409, producto: 'Mix 150G', baseNombre: 'Mix 150G', presentacion: '150G', esMayorista: false, refId: 3, productoRef: 'Mix' },
   { plu: 410, producto: 'Mix 150G Bulto', baseNombre: 'Mix 150G Bulto', presentacion: '150G', esMayorista: true, ventaPorUnidad: true, refId: 3, productoRef: 'Mix' },
+];
+
+// Presentación mayorista (todos sus códigos mayoristas, ej. Miel 28Kg que sale de Casa Central): se
+// planifica con sus ventas mayoristas y el stock central de sus códigos; el de sucursales no cuenta.
+const MIEL = [
+  { plu: 501, producto: 'Miel 1Kg', baseNombre: 'Miel 1Kg', presentacion: '1Kg', esMayorista: false, refId: 5, productoRef: 'Miel' },
+  { plu: 502, producto: 'Miel 28Kg', baseNombre: 'Miel 28Kg', presentacion: '28Kg', esMayorista: true, refId: 5, productoRef: 'Miel' },
+  { plu: 503, producto: 'Miel Balde 28Kg', baseNombre: 'Miel Balde 28Kg', presentacion: '28Kg', esMayorista: true, refId: 5, productoRef: 'Miel' },
 ];
 
 function plusDe(sql) {
@@ -152,8 +175,10 @@ test('sugerencias por grupo: las ventas mayoristas suman a su presentación y su
     assert.strictEqual(r.status, 200, JSON.stringify(grupos));
     assert.strictEqual(grupos.length, 1);
     const pres = Object.fromEntries(grupos[0].presentaciones.map(p => [p.presentacion, p]));
-    // 2Kg solo tiene mayoristas: no aparece (igual que antes una base sin código base).
-    assert.deepStrictEqual(Object.keys(pres).sort(), ['1Kg', '500G']);
+    // 2Kg solo tiene mayoristas: es una presentación mayorista y se muestra.
+    assert.deepStrictEqual(Object.keys(pres).sort(), ['1Kg', '2Kg', '500G']);
+    assert.strictEqual(pres['2Kg'].esMayorista, true);
+    assert.strictEqual(pres['500G'].esMayorista, undefined);       // mixta: igual que antes
     const p500 = pres['500G'];
     assert.strictEqual(p500.ventasVentana, 30 + 15 + 60);         // minoristas + mayorista, 1 a 1
     assert.strictEqual(p500.facturacionMensual, 30 + 15 + 60);
@@ -163,7 +188,63 @@ test('sugerencias por grupo: las ventas mayoristas suman a su presentación y su
     assert.strictEqual(p500.baseNombre, 'Mix 500G');
     assert.strictEqual(pres['1Kg'].ventasVentana, 6);
     assert.strictEqual(pres['1Kg'].stockActual, 3);
+    // Venta mayorista: la parte del total que vino de Casa Central a clientes MAYORISTA.
+    assert.strictEqual(p500.ventasMayoristaVentana, 60);
+    assert.strictEqual(p500.ventaDiariaMayorista, 2);
+    assert.strictEqual(pres['1Kg'].ventasMayoristaVentana, 0);
+    assert.strictEqual(pres['1Kg'].ventaDiariaMayorista, 0);
   } finally { cerrar(ctx); }
+});
+
+test('presentación mayorista: se planifica con el stock central de sus códigos, sin el de sucursales', async () => {
+  const { g, d } = await grupoPepas({ catalogo: MIEL });
+  const p = d['28Kg'];
+  assert.strictEqual(p.esMayorista, true);
+  assert.strictEqual(p.plu, '502');
+  assert.strictEqual(p.baseNombre, 'Miel 28Kg');
+  assert.deepStrictEqual(p.plus, ['502', '503']);
+  assert.strictEqual(p.ventasVentana, 30);                          // solo sus ventas mayoristas
+  assert.strictEqual(p.ventasMayoristaVentana, 30);
+  assert.strictEqual(p.ventaDiariaUrg, 1);
+  assert.strictEqual(p.ventaDiariaMayorista, 1);
+  assert.strictEqual(p.stockActual, 4 + 2);                         // stock de Casa Central de sus códigos
+  assert.strictEqual(p.stockSucursales, 0);                         // el de sucursales no cuenta
+  assert.strictEqual(p.coberturaDias, 6);                           // 6 ÷ 1, solo con el central
+  // Sin granel: promedio ÷ días con venta (3/día); 2 días de stock → sugerido = 3 × 30 − 6.
+  assert.strictEqual(p.promDiario, 3);
+  assert.strictEqual(p.cantSugerida, 84);
+  // El minorista del mismo grupo, como siempre.
+  assert.strictEqual(d['1Kg'].esMayorista, undefined);
+  assert.strictEqual(d['1Kg'].stockSucursales, 6);
+  assert.strictEqual(d['1Kg'].ventasMayoristaVentana, 0);
+  assert.strictEqual(g.totalSugerido, d['1Kg'].cantSugerida + 84);
+});
+
+test('presentación mayorista ≤200g (regla vieja): ventas y stock pasan a kg con el mismo peso', async () => {
+  const { d } = await grupoPepas({ catalogo: [PEPAS[2], { ...PEPAS[3], presentacion: 'Bulto 150G' }] });
+  const p = d['Bulto 150G'];
+  assert.strictEqual(p.esMayorista, true);
+  assert.strictEqual(p.ventasVentana, 1.5);                         // 10 u × 0.15
+  assert.strictEqual(p.ventasMayoristaVentana, 1.5);
+  assert.strictEqual(p.stockActual, 3);                             // 20 u × 0.15: misma unidad que las ventas
+  assert.strictEqual(p.stockSucursales, 0);
+});
+
+test('presentación mayorista en un grupo granel: entra al desglose y al total, sin stock de sucursales', async () => {
+  const { g, d } = await grupoPepas({ catalogo: MIEL, esGranel: true });
+  assert.deepStrictEqual(Object.keys(d).sort(), ['1Kg', '28Kg']);
+  assert.strictEqual(d['28Kg'].esMayorista, true);
+  assert.strictEqual(d['28Kg'].ventasVentana, 30);
+  assert.strictEqual(d['28Kg'].ventasMayoristaVentana, 30);
+  assert.strictEqual(d['28Kg'].ventaDiariaMayorista, 1);
+  assert.strictEqual(d['28Kg'].stockCentral, 6);
+  assert.strictEqual(d['1Kg'].esMayorista, undefined);
+  assert.strictEqual(g.ventasVentana, 30 + 30);
+  assert.strictEqual(g.ventasMayoristaVentana, 30);
+  assert.strictEqual(g.ventaDiariaMayorista, 1);
+  assert.strictEqual(g.totalPromMes, (30 / 10 + 30 / 10) * 30);     // sin granel: ÷ días con venta
+  assert.strictEqual(g.stockSucGrupo, 6);                           // solo el minorista
+  assert.deepStrictEqual(g.plus, ['501']);                          // modal 🔍 de sucursales sin los mayoristas
 });
 
 test('sugerencias por grupo: un grupo granel lista el consumo de cada presentación en desglose', async () => {
@@ -177,11 +258,13 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     assert.deepStrictEqual(g.presentaciones, []);              // el granel se sigue planificando como grupo
     assert.strictEqual(g.diasObjetivo, 30);                    // días a cubrir: stock mínimo del modal
     assert.strictEqual(g.desglose.find(d => d.presentacion === "500G").stockCentral, 10 + 5); // stock central de la presentación (solo minoristas)
-    assert.deepStrictEqual(g.desglose.map(d => d.presentacion), ['1Kg', '500G']);
+    assert.deepStrictEqual(g.desglose.map(d => d.presentacion), ['1Kg', '2Kg', '500G']);
     const d500 = g.desglose.find(d => d.presentacion === '500G');
     assert.strictEqual(d500.ventasVentana, 30 + 15 + 60);
     assert.strictEqual(d500.ventaDiariaUrg, (30 + 15 + 60) / 30);
     assert.strictEqual(d500.facturacionMensual, 30 + 15 + 60);
+    assert.strictEqual(d500.ventasMayoristaVentana, 60);
+    assert.strictEqual(d500.ventaDiariaMayorista, 2);
     // Las presentaciones suman lo mismo que el grupo.
     assert.strictEqual(g.desglose.reduce((s, d) => s + d.ventasVentana, 0), g.ventasVentana);
     // Por kilo (sin "x unidad"): sin peso ni unidades en el desglose.
@@ -259,12 +342,19 @@ test('x unidad: un grupo granel pasa ventas, pendientes y stock a kg con el peso
   assert.strictEqual(d['Pepas Batata'].stockCentral, 50);
   assert.ok(Math.abs(d['Pepas Batata'].stockCentralKg - 50 * 0.18) < 1e-9);
   assert.strictEqual(d.Surtidas.stockCentralKg, null);                 // sin peso: no hay equivalente en kg
+  // Venta mayorista, en la misma unidad que ventasVentana (ya en kg).
+  assert.strictEqual(d['Pepas Batata'].ventasMayoristaVentana, 3.6);  // 20 u × 0.18
+  assert.strictEqual(d['150G'].ventasMayoristaVentana, 1.5);          // 10 u × 0.15
+  assert.strictEqual(d.Surtidas.ventasMayoristaVentana, 0);
+  assert.strictEqual(g.ventasMayoristaVentana, 5.1);
 });
 
 test('x unidad: sin el check los números del grupo granel quedan como antes', async () => {
   const { g, d } = await grupoPepas({ esGranel: true, ventaPorUnidad: false });
   assert.strictEqual(d['Pepas Batata'].ventasVentana, 120);
   assert.strictEqual(d['150G'].ventasVentana, 41.5);                   // regla vieja: mayorista ≤200g × peso
+  assert.strictEqual(d['Pepas Batata'].ventasMayoristaVentana, 20);    // sin conversión
+  assert.strictEqual(d['150G'].ventasMayoristaVentana, 1.5);
   assert.strictEqual(d.Surtidas.ventasVentana, 7);
   assert.strictEqual(d['150G'].pesoKg, null);
   assert.strictEqual(d['150G'].unidadesVentana, null);
@@ -294,6 +384,8 @@ test('mayorista x unidad: en un grupo granel por kilo sus ventas y pendientes pa
   assert.deepStrictEqual(g.presentacionesSinPeso, ['Suelto']);
   assert.strictEqual(g.totalPend, 4 * 0.5);                            // pendientes del mayorista, en kg
   assert.strictEqual(d['500G'].facturacionMensual, 30 + 10 + 7);       // facturación ($) no se toca
+  assert.strictEqual(d['500G'].ventasMayoristaVentana, 10 * 0.5);     // mayorista x unidad, ya en kg
+  assert.strictEqual(d['150G'].ventasMayoristaVentana, 20 * 0.15);    // una sola conversión
   // Grupo por kilo: sin peso ni unidades de la presentación.
   assert.strictEqual(d['500G'].pesoKg, null);
   assert.strictEqual(d['500G'].unidadesVentana, null);
