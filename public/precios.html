@@ -150,9 +150,6 @@
   .md-fr-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px;align-items:start}
   .md-fr-col{min-width:0}
   .md-fr-detalle{margin:16px 0 0}
-  .md-fr-detalle > summary{padding:10px 14px}
-  .md-fr-detalle .cuerpo{padding:0 14px 14px}
-  .md-fr-detalle .ec{padding:.3rem 0}
   /* ── Fraccionado didáctico (sólo escritorio): pasos numerados, tarjetas de costo por fuente y el resultado a la derecha ──────────
      Todo va bajo .md-doble (#mDetCaja lo lleva sólo en Fraccionado), #mDetDer o clases que sólo pinta Fraccionado (md-fr, md-paso, md-f): Reventa y
      Producción no cambian. Cada paso es un panel con borde, encabezado teñido con su número (contador CSS: sin precios-config el estado pasa a ser el paso 2),
@@ -221,8 +218,57 @@
   .md-der-cab{background:#e8ebe7;border-bottom:1.5px solid rgba(26,28,24,.16);border-radius:12px 12px 0 0}
   .md-res-tag{flex:none;margin-left:auto;padding:2px 10px;border-radius:999px;background:#405936;color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.02em}
   .md-der-leyenda{margin:6px 0 0;font-size:12.5px;line-height:1.4;color:#5c5f52}
+  /* Acordeón "Cómo se conforma el costo y el precio" (.md-fr-detalle, sólo para revisar): panel con el lenguaje de los pasos — encabezado teñido con su
+     título y para qué sirve, el caret en el círculo verde donde los pasos llevan su número y la marca "Detalle" a la derecha — y adentro dos
+     apartados (A costo real, B precio), cada uno con su banda y una mini-tarjeta por presentación. Cada tarjeta es una cuenta: operador | concepto
+     (con su detalle debajo) | importe; los subtotales con línea y el total, el resultado, en negrita sobre fondo tenue. Detalles y renglones sin
+     dato en #5c5f52 (≥ 4,9:1 sobre blanco, #f2f5ee, #e8ebe7 y #dde1db, el hover del encabezado). */
   .md-doble .md-fr-detalle{border:1.5px solid rgba(26,28,24,.22)}
   .md-doble .md-fr-detalle[open]{border-color:#405936}
+  .md-doble .md-fr-detalle > summary{min-height:46px;padding:10px 14px;background:#e8ebe7}
+  .md-doble .md-fr-detalle > summary:hover{background:#dde1db}
+  .md-doble .md-fr-detalle[open] > summary{background:#e8ebe7;border-bottom:1.5px solid rgba(26,28,24,.16)}
+  .md-doble .md-fr-detalle > summary:focus-visible{outline:2px solid #405936;outline-offset:-3px}
+  .md-doble .md-fr-detalle .caret,.md-doble .md-fr-detalle[open] .caret{width:26px;height:26px;background:#405936;color:#fff;font-size:11px}
+  .md-doble .md-fr-detalle .cuerpo{padding:0}
+  .md-det-tit{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .md-det-tit .md-h{font-size:15px;line-height:22px}
+  .md-det-para{font-size:12.5px;line-height:1.4;color:#5c5f52}
+  .md-det-tag{flex:none;display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border:1.5px solid rgba(26,28,24,.3);border-radius:999px;background:#fff;font-size:11.5px;font-weight:700;color:#3d4136}
+  .md-dt-sec + .md-dt-sec{border-top:1.5px solid rgba(26,28,24,.22)}
+  .md-dt-sec-cab{display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;row-gap:2px;padding:9px 14px;background:#f2f5ee;border-bottom:1.5px solid rgba(26,28,24,.12)}
+  .md-dt-letra{flex:none;width:22px;height:22px;display:grid;place-items:center;border-radius:6px;background:#405936;color:#fff;font-size:12.5px;font-weight:700}
+  .md-dt-sec-cab .md-h{font-size:14.5px;line-height:22px}
+  .md-dt-para{flex-basis:100%;margin:0;padding-left:32px;font-size:12.5px;line-height:1.4;color:#5c5f52}
+  .md-dt-sec-cab:not(:has(.md-dt-letra)) .md-dt-para{padding-left:0}
+  .md-dt-sec-cuerpo{padding:14px}
+  .md-dt-lista{list-style:none;margin:0 0 -12px;padding:0;columns:2;column-gap:12px}
+  .md-dt-vacio{margin:0;font-size:12.5px;color:#5c5f52}
+  .md-dt-card{min-width:0;margin-bottom:12px;break-inside:avoid;border:1.5px solid rgba(26,28,24,.22);border-radius:12px;background:#fff;overflow:hidden}
+  .md-dt-card.md-dt-granel{border-color:rgba(64,89,54,.5)}
+  .md-dt-cab{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:9px 12px 0;line-height:1.35}
+  .md-dt-cab b{font-size:14px}
+  .md-dt-cab .md-chip-0{flex:none}
+  .md-dt-sub{padding:0 12px 8px;border-bottom:1px solid rgba(26,28,24,.12)}
+  .md-dt-card > .md-dt-vacio{padding:10px 12px}
+  .md-dt-canal{padding:7px 12px;border-top:1.5px solid rgba(26,28,24,.16);border-bottom:1px solid rgba(26,28,24,.12);background:#e8ebe7;font-size:13px;line-height:1.4;color:#242423}
+  .md-dt-canal-nom{font-size:12px;line-height:1.35;color:#5c5f52}
+  .md-cu{padding:4px 12px;font-variant-numeric:tabular-nums}
+  .md-cu-f{display:grid;grid-template-columns:1.1rem minmax(0,1fr) auto;column-gap:.5rem;align-items:baseline;padding:3px 0;font-size:13.5px;line-height:1.4;color:#242423}
+  .md-cu-op{text-align:center;font-weight:700;color:#5c5f52}
+  .md-cu-t{min-width:0}
+  .md-cu-d{display:block;font-size:12px;line-height:1.35;font-weight:400;color:#5c5f52}
+  .md-cu-v{text-align:right;white-space:nowrap}
+  .md-cu-vnd{color:#5c5f52}
+  .md-cu-sub{padding:1px 0;font-size:12.5px;color:#3d4136}
+  .md-cu-sub .md-cu-t{padding-left:1.1rem}
+  .md-cu-sub .md-cu-d{display:inline;margin-left:6px}
+  .md-cu-nota{font-size:12px;color:#5c5f52}
+  .md-cu-nota .md-cu-t{padding-left:1.1rem}
+  .md-cu-nd,.md-cu-nd .md-cu-v{color:#5c5f52}
+  .md-cu-sub-r{margin-top:4px;padding-top:6px;border-top:1px solid rgba(26,28,24,.3);font-weight:600}
+  .md-cu-tot{margin:6px -12px -4px;padding:8px 12px;border-top:1.5px solid rgba(26,28,24,.16);background:#f2f5ee;font-size:15px;font-weight:700}
+  .md-cu-tot .md-cu-op{color:#405936}
   /* Tarjeta de precios: una tarjeta por presentación (nombre y Δ % arriba, PLU y peso, precios). Sus pack/bulto van adentro, en un pie
      "Códigos mayoristas" (divisor + fondo tenue) que llega a los bordes de la tarjeta; al final, la tarjeta de los mayoristas del granel,
      toda con fondo tenue y su título. */

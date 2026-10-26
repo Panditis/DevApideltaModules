@@ -181,7 +181,7 @@ const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug
 // "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
 const textoFuenteMd = (fila, fuente) => (fila.decision ? `con ${(TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar');
 
-if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
+if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, pasosMinoristaMd, pasosMayoristaMd, generalesCanalMd, igualarSigaMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -418,6 +418,17 @@ function pasosAjusteMd(c) {
     prod ? ['', `incluye ajuste del producto ${signoPctMd(prod)}${general}`, null] : null,
     dto ? ['', `incluye descuento distribuidor −${pctMd(dto)} (margen ${pctMd(c.margenPct + dto)} → ${pctMd(c.margenPct)})`, null] : null].filter(Boolean);
 }
+// Pasos del precio minorista (d = desglose de la fuente; costoTxt = rótulo del primer renglón) y de un pack/bulto (c = d.porVinculo[plu]):
+// [operador, texto, importe tras el paso]. Reventa/Producción los pintan con htmlPasos; Fraccionado, con su propia cuenta (precios_modal_fraccionado.js).
+function pasosMinoristaMd(d, costoTxt) {
+  const m = d.minorista;
+  return [['', costoTxt, d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos], ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ...pasosAjusteMd(m),
+    ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras], ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]];
+}
+function pasosMayoristaMd(d, c) {
+  return [['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], ...pasosAjusteMd(c), ['×', `${c.unidades} unidades`, c.exactoNeto],
+    ['=', 'Sin IVA redondeado', c.neto], ['×', 'IVA', c.exactoIva], ['=', 'Con IVA redondeado', c.conIva]];
+}
 // Margen general de cada canal (sin el del producto, con el especial) en la fuente: placeholder del margen fijo. Pack/bulto: el
 // primer vínculo de ese tipo (Fraccionado: también los de sus presentaciones). Sin desglose → null.
 function generalesCanalMd(fila, fuente) {
@@ -447,24 +458,15 @@ function htmlCostoEnvasadoMd(f) {
 }
 function htmlDesgloseEsq(f) {
   const bloques = Array.isArray(f.componentesCosto) && f.componentesCosto.length ? [htmlCostoEnvasadoMd(f)] : [];
-  const de = (fila, titulo) => {
-    const s = (fila.sugeridos || {})[mdFuente];
-    if (!s || !s.desglose) return;
-    const d = s.desglose, m = d.minorista;
-    const costoTxt = mdEsq.tipo === 'fraccionado' && fila.componentesCosto ? 'Costo real' : 'Costo de mercadería'; // presentación costeada = mercadería + insumos + MO + máquina
-    if (titulo) bloques.push(htmlPasos(titulo, [
-      ['', costoTxt, d.costo], ['+', `Gastos variables ${pctMd(d.gastosPct)}`, d.costoConGastos],
-      ['×', `Margen ${pctMd(m.margenPct)}`, m.neto], ...pasosAjusteMd(m), ['×', `Extras minoristas ${pctMd(m.extrasPct)}`, m.conExtras],
-      ['×', `IVA ${pctMd(m.ivaPct)}`, m.exacto], ['=', 'Precio redondeado', m.precio]]));
-    for (const v of fila.mayoristas || []) {
+  const s = (f.sugeridos || {})[mdFuente];
+  if (s && s.desglose) {
+    const d = s.desglose;
+    bloques.push(htmlPasos('Minorista', pasosMinoristaMd(d, 'Costo de mercadería')));
+    for (const v of f.mayoristas || []) {
       const c = d.porVinculo[v.plu];
-      if (c) bloques.push(htmlPasos(`${TIPO_CANAL[v.tipo]} ${v.plu} (× ${c.unidades})`, [
-        ['', 'Costo con gastos', d.costoConGastos], ['×', `Margen ${pctMd(c.margenPct)}`, c.netoUnidad], ...pasosAjusteMd(c), ['×', `${c.unidades} unidades`, c.exactoNeto],
-        ['=', 'Sin IVA redondeado', c.neto], ['×', 'IVA', c.exactoIva], ['=', 'Con IVA redondeado', c.conIva]]));
+      if (c) bloques.push(htmlPasos(`${TIPO_CANAL[v.tipo]} ${v.plu} (× ${c.unidades})`, pasosMayoristaMd(d, c)));
     }
-  };
-  if (Array.isArray(f.presentaciones)) { de(f, null); f.presentaciones.forEach(p => de(p, `Minorista · ${p.nombre}`)); }
-  else de(f, 'Minorista');
+  }
   return bloques.length ? `<div class="md-desglose">${bloques.join('')}</div>` : '<p class="text-gris mt-3">Sin desglose para esta fuente.</p>';
 }
 

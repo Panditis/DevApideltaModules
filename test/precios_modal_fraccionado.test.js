@@ -306,3 +306,120 @@ test('htmlColumnasFraccMd: con dos bloques los pone en dos columnas; con uno (si
   assert.strictEqual(htmlColumnasFraccMd('<i>a</i>', ''), '<i>a</i>');
   assert.strictEqual(htmlColumnasFraccMd('', ''), '');
 });
+
+// ── Acordeón "Cómo se conforma el costo y el precio": cuentas alineadas (concepto a la izquierda, importe a la derecha, operadores en columna) ──
+const { motivoSinTiempoMd, filasCostoPresFraccMd, htmlCuentaFraccMd, cuentasPrecioFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+
+// Presentación costeada de 500 g como la arma el server: mercadería (granel) + 2 insumos + mano de obra + máquina.
+const presCosteada = (extra = {}) => ({ plu: '101', nombre: 'Almendra <500G>', pesoG: 500, costos: { sistema: 1618.5 },
+  costeoPresentacion: { facilidad: 'normal', tiempo: 'lento', minutosBase: 1, factorTiempo: 1.5, factorFacilidad: 1.25, minutos: 1.875, porUnidad: 309.25, extraKg: 0 }, avisosCosto: [],
+  componentesCosto: [
+    { plu: '900', nombre: 'Bolsa 500g', rol: 'insumo', cantidad: 1, costoUnit: 20, importe: 20 }, { plu: '901', nombre: 'Etiqueta 500g', rol: 'insumo', cantidad: 1, costoUnit: 8, importe: 8 },
+    { plu: '_manoObra', rol: 'mo', cantidad: 1.875, costoUnit: 6000, importe: 187.5 }, { plu: '_maquina', rol: 'maquina', nombre: 'Envasadora', cantidad: 1.875, costoUnit: 3000, importe: 93.75 }], ...extra });
+const COSTOS_GRANEL = { sistema: 1000 };
+
+test('motivoSinTiempoMd: sólo el motivo; textoSinTiempoMd = concepto — motivo (sin cambios)', () => {
+  assert.strictEqual(motivoSinTiempoMd('mo', ['sinSubrubro']), 'sin minutos: el granel no tiene subrubro en SIGA');
+  assert.strictEqual(motivoSinTiempoMd('maquina', ['sinMaquina']), 'sin asignar (ni del subrubro ni del granel)');
+  assert.strictEqual(textoSinTiempoMd('mo', ['sinTramos']), `Mano de obra — ${motivoSinTiempoMd('mo', ['sinTramos'])}`);
+});
+
+test('filasCostoPresFraccMd: mercadería + insumos (con su desglose) + mano de obra + máquina = costo real por unidad ÷ peso = costo real $/kg', () => {
+  const filas = filasCostoPresFraccMd(presCosteada(), 'sistema', COSTOS_GRANEL);
+  assert.deepStrictEqual(filas.map(r => [r.op || '', r.tipo || '', r.txt, r.det || '', r.v ?? r.u ?? null]), [
+    ['', '', 'Mercadería', '0,5 kg × $\u00a01.000,00/kg', 500],
+    ['+', '', 'Insumos', '', 28],
+    ['', 'sub', 'Bolsa 500g', '1 × $\u00a020,00', 20],
+    ['', 'sub', 'Etiqueta 500g', '1 × $\u00a08,00', 8],
+    ['+', '', 'Mano de obra', '1 × 1,5 (tiempo) × 1,25 (facilidad) = 1,875 min × $\u00a06.000,00/h', 187.5],
+    ['+', '', 'Máquina Envasadora', '1 × 1,5 (tiempo) × 1,25 (facilidad) = 1,875 min × $\u00a03.000,00/h', 93.75],
+    ['=', '', 'Costo real por unidad', '', 809.25],
+    ['÷', '', 'Peso de la presentación', '', '0,5 kg'],
+    ['=', '', 'Costo real $/kg', '', 1618.5]]);
+});
+
+test('filasCostoPresFraccMd: sin insumos / sin minutos / sin máquina → renglón gris (nd) con su motivo, importe 0; sin tocar el total', () => {
+  const p = presCosteada({ componentesCosto: [], avisosCosto: ['sinInsumos', 'sinTramos'], costeoPresentacion: { facilidad: 'normal', tiempo: 'normal', porUnidad: 0 } });
+  const filas = filasCostoPresFraccMd(p, 'sistema', COSTOS_GRANEL);
+  const por = txt => filas.find(r => r.txt === txt);
+  assert.deepStrictEqual([por('Insumos').tipo, por('Insumos').det, por('Insumos').v], ['nd', 'sin cargar (Configuración › Costeo Fraccionado › Insumos por peso)', 0]);
+  assert.deepStrictEqual([por('Mano de obra').tipo, por('Mano de obra').det, por('Mano de obra').v], ['nd', motivoSinTiempoMd('mo', p.avisosCosto), 0]);
+  assert.deepStrictEqual([por('Máquina').tipo, por('Máquina').det, por('Máquina').v], ['nd', motivoSinTiempoMd('maquina', p.avisosCosto), 0]);
+  assert.strictEqual(filas.find(r => r.txt === 'Costo real $/kg').v, 1618.5);
+});
+
+test('filasCostoPresFraccMd: insumo sin costo → costo por unidad sin dato y con su motivo; la mercadería sin costo del granel también', () => {
+  const sinCosto = presCosteada({ costeoPresentacion: { facilidad: 'normal', tiempo: 'lento', porUnidad: null }, costos: { sistema: null },
+    componentesCosto: [{ plu: '900', nombre: 'Bolsa', rol: 'insumo', cantidad: 1, costoUnit: null, importe: null }] });
+  const filas = filasCostoPresFraccMd(sinCosto, 'sistema', { sistema: null });
+  assert.deepStrictEqual(filas.find(r => r.txt === 'Mercadería'), { txt: 'Mercadería', det: '0,5 kg × sin costo', v: null });
+  assert.deepStrictEqual(filas.find(r => r.txt === 'Insumos'), { op: '+', txt: 'Insumos', v: null });
+  assert.deepStrictEqual(filas.find(r => r.txt === 'Bolsa'), { tipo: 'sub', txt: 'Bolsa', det: '1 × sin costo', v: null });
+  const unidad = filas.find(r => r.txt === 'Costo real por unidad');
+  assert.deepStrictEqual([unidad.det, unidad.v], ['falta el costo de un insumo', null]);
+  assert.strictEqual(filas.at(-1).v, null);
+});
+
+test('filasCostoPresFraccMd: presentación sin peso en el nombre → sólo mercadería: una nota y el costo $/kg', () => {
+  const filas = filasCostoPresFraccMd(presCosteada({ pesoG: null, avisosCosto: ['sinPeso'] }), 'sistema', COSTOS_GRANEL);
+  assert.deepStrictEqual(filas, [{ tipo: 'nota', txt: 'Sin peso en el nombre: sólo mercadería' }, { op: '=', txt: 'Costo $/kg', v: 1618.5 }]);
+});
+
+test('htmlCuentaFraccMd: operadores en su columna, concepto + detalle, importes con $; el último "=" es el total y los demás subtotales', () => {
+  const html = htmlCuentaFraccMd(filasCostoPresFraccMd(presCosteada(), 'sistema', COSTOS_GRANEL));
+  assert.match(html, /^<div class="md-cu">/);
+  assert.match(html, /<div class="md-cu-f"><span class="md-cu-op" aria-hidden="true"><\/span><span class="md-cu-t">Mercadería<span class="md-cu-d">0,5 kg × \$\u00a01\.000,00\/kg<\/span><\/span><span class="md-cu-v">\$ 500,00<\/span><\/div>/);
+  assert.match(html, /<div class="md-cu-f md-cu-sub"><span class="md-cu-op" aria-hidden="true"><\/span><span class="md-cu-t">Bolsa 500g<span class="md-cu-d">1 × \$\u00a020,00<\/span><\/span><span class="md-cu-v">\$ 20,00<\/span><\/div>/);
+  assert.match(html, /<div class="md-cu-f md-cu-sub-r"><span class="md-cu-op" aria-hidden="true">=<\/span><span class="md-cu-t">Costo real por unidad<\/span><span class="md-cu-v">\$ 809,25<\/span><\/div>/);
+  assert.match(html, /<div class="md-cu-f"><span class="md-cu-op" aria-hidden="true">÷<\/span><span class="md-cu-t">Peso de la presentación<\/span><span class="md-cu-v">0,5 kg<\/span><\/div>/);
+  assert.match(html, /<div class="md-cu-f md-cu-tot"><span class="md-cu-op" aria-hidden="true">=<\/span><span class="md-cu-t">Costo real \$\/kg<\/span><span class="md-cu-v">\$ 1\.618,50<\/span><\/div><\/div>$/);
+  assert.strictEqual((html.match(/md-cu-tot/g) || []).length, 1);
+});
+
+test('htmlCuentaFraccMd: sin dato → "—" gris; renglón nd con su motivo; nota sin importe; escapa lo que viene del server', () => {
+  const html = htmlCuentaFraccMd([{ txt: 'A <b>', det: 'x & y', v: null }, { op: '+', txt: 'Insumos', det: 'sin cargar', tipo: 'nd', v: 0 }, { tipo: 'nota', txt: 'incluye ajuste' }, { op: '=', txt: 'Total', v: 5 }]);
+  assert.match(html, /<span class="md-cu-t">A &lt;b&gt;<span class="md-cu-d">x &amp; y<\/span><\/span><span class="md-cu-v md-cu-vnd">—<\/span>/);
+  assert.match(html, /<div class="md-cu-f md-cu-nd"><span class="md-cu-op" aria-hidden="true">\+<\/span><span class="md-cu-t">Insumos<span class="md-cu-d">sin cargar<\/span><\/span><span class="md-cu-v">\$ 0,00<\/span><\/div>/);
+  assert.match(html, /<div class="md-cu-f md-cu-nota"><span class="md-cu-op" aria-hidden="true"><\/span><span class="md-cu-t">incluye ajuste<\/span><span class="md-cu-v"><\/span><\/div>/);
+  assert.doesNotMatch(html, /A <b>/);
+});
+
+// Presentación con el desglose del precio por fuente (sólo con permiso) y un bulto propio; el granel, con otro bulto.
+const desgloseFr = (costo = 1000) => ({ error: null, costo, gastosPct: 10, costoConGastos: costo * 1.1,
+  minorista: { margenPct: 40, neto: 1540, extrasPct: 5, conExtras: 1617, ivaPct: 21, exacto: 1956.57, precio: 1950 },
+  porVinculo: { 201: { margenPct: 40, netoUnidad: 1540, unidades: 6, exactoNeto: 9240, neto: 9240, exactoIva: 11180.4, conIva: 11200 }, 203: { margenPct: 30, netoUnidad: 1430, unidades: 1, exactoNeto: 1430, neto: 1430, exactoIva: 1730.3, conIva: 1750 } } });
+const presConPrecio = (extra = {}) => presCosteada({ nombre: 'Almendra 500G', sugeridos: { sistema: { desglose: desgloseFr() } },
+  mayoristas: [{ tipo: 'bulto', plu: '201', nombre: 'Almendra Bulto x6', unidades: 6 }], ...extra });
+
+test('cuentasPrecioFraccMd: el minorista y cada pack/bulto con su cuenta; sin desglose de la fuente → null', () => {
+  const c = cuentasPrecioFraccMd(presConPrecio(), 'sistema');
+  assert.deepStrictEqual(c.minorista.map(r => [r.op || '', r.txt, r.v ?? null]), [
+    ['', 'Costo real', 1000], ['+', 'Gastos variables 10 %', 1100], ['×', 'Margen 40 %', 1540], ['×', 'Extras minoristas 5 %', 1617], ['×', 'IVA 21 %', 1956.57], ['=', 'Precio redondeado', 1950]]);
+  assert.deepStrictEqual(c.mayoristas.map(m => [m.tipo, m.plu, m.unidades, m.filas.at(-1).txt, m.filas.at(-1).v]), [['bulto', '201', 6, 'Con IVA redondeado', 11200]]);
+  assert.strictEqual(cuentasPrecioFraccMd(presConPrecio(), 'ultimaCompra'), null);
+  assert.strictEqual(cuentasPrecioFraccMd({ nombre: 'sin' }, 'sistema'), null);
+  // presentación sin costeo (sin componentes): "Costo de mercadería"
+  assert.strictEqual(cuentasPrecioFraccMd(presConPrecio({ componentesCosto: undefined }), 'sistema').minorista[0].txt, 'Costo de mercadería');
+});
+
+test('cuentasPrecioFraccMd: el granel no tiene minorista propio (sólo sus pack/bulto); los ajustes del margen salen como notas debajo', () => {
+  const granelFila = { plu: '100', nombre: 'Almendras', sugeridos: { sistema: { desglose: desgloseFr() } }, mayoristas: [{ tipo: 'bulto', plu: '203', nombre: 'Bulto 25 kg', unidades: 1 }] };
+  const c = cuentasPrecioFraccMd(granelFila, 'sistema', { minorista: false });
+  assert.strictEqual(c.minorista, null);
+  assert.deepStrictEqual(c.mayoristas.map(m => [m.plu, m.filas.length]), [['203', 6]]);
+  const d = desgloseFr(); d.minorista = { ...d.minorista, margenEspecialPct: 5 };
+  const conAjuste = cuentasPrecioFraccMd({ ...presConPrecio(), sugeridos: { sistema: { desglose: d } } }, 'sistema').minorista;
+  assert.match(conAjuste.find(r => r.tipo === 'nota').txt, /^incluye margen especial del producto \+5 %/);
+});
+
+test('htmlTarjetaCostoFraccMd / htmlTarjetaPrecioFraccMd: una mini-tarjeta por presentación con su cabecera (nombre, PLU, peso, facilidad · tiempo) y la cuenta', () => {
+  const costo = htmlTarjetaCostoFraccMd(presCosteada(), 'sistema', COSTOS_GRANEL);
+  assert.match(costo, /^<li class="md-dt-card"><div class="md-dt-cab"><b>Almendra &lt;500G&gt;<\/b><span class="md-chip-0" title="Facilidad y tiempo del subrubro con que se costeó">Normal · Lento<\/span><\/div><div class="md-sub md-dt-sub">PLU 101 · 500 g<\/div><div class="md-cu">/);
+  assert.match(costo, /md-cu-tot/);
+  const precio = htmlTarjetaPrecioFraccMd(presConPrecio(), 'sistema');
+  assert.match(precio, /^<li class="md-dt-card"><div class="md-dt-cab"><b>Almendra 500G<\/b><\/div><div class="md-sub md-dt-sub">Minorista · PLU 101 · 500 g<\/div><div class="md-cu">/);
+  assert.match(precio, /<div class="md-dt-canal"><b>Bulto<\/b> <span class="md-sub">PLU 201 · × 6<\/span><div class="md-dt-canal-nom">Almendra Bulto x6<\/div><\/div><div class="md-cu">/);
+  assert.match(precio, /Precio redondeado/);
+  assert.match(precio, /Con IVA redondeado/);
+  assert.match(htmlTarjetaPrecioFraccMd(presConPrecio(), 'ultimaCompra'), /Sin desglose para esta fuente\./);
+});

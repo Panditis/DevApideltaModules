@@ -248,3 +248,59 @@ test('Reventa y Producción no cambian: tabla por canal con "Minorista", "Ver de
 test('deltaPesosMd: vigente 0 cuenta como sin vigente, igual que el Δ %', () => {
   assert.strictEqual(deltaPesosMd(0, 1950), null);
 });
+
+// Acordeón "Cómo se conforma el costo y el precio": panel con el lenguaje de los pasos (encabezado con su título, para qué sirve y la marca "Detalle") y dos
+// apartados, A costo real y B precio, cada uno con su banda y una mini-tarjeta por presentación.
+test('Fraccionado: el acordeón es un panel con dos apartados (A costo real, B precio) y una mini-tarjeta con su cuenta por presentación', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }), { detalle: true });
+  const html = dom.cuerpo(), det = html.slice(html.indexOf('<details id="mdDetCuerpo"'));
+  assert.match(det, /<summary><span class="caret" aria-hidden="true">▶<\/span><span class="md-det-tit"><span class="md-h">Cómo se conforma el costo y el precio<\/span>/);
+  assert.match(det, /<span class="md-det-para">Sólo para revisar, no cambia nada: /);
+  assert.match(det, /<span class="md-det-tag"><svg[^>]*aria-hidden="true">.*<\/svg>Detalle<\/span><\/summary>/);
+  const aps = [...det.matchAll(/<section class="md-dt-sec" aria-labelledby="(\w+)"><div class="md-dt-sec-cab"><span class="md-dt-letra" aria-hidden="true">(\w)<\/span><h5 id="\1" class="md-h">(.*?)<\/h5><p class="md-dt-para">(.*?)<\/p>/g)];
+  assert.deepStrictEqual(aps.map(m => [m[2], m[3]]), [['A', 'Costo real por presentación'], ['B', 'Cómo se calcula el precio']]);
+  assert.ok(aps.every(m => m[4].length > 30 && m[4].length < 140), 'una línea corta de para qué sirve en cada apartado');
+  const [a, b] = det.split('<section class="md-dt-sec"').slice(1);
+  const tarjetas = h => [...h.matchAll(/<li class="md-dt-card[^"]*"><div class="md-dt-cab"><b>(.*?)<\/b>/g)].map(m => m[1]);
+  assert.deepStrictEqual(tarjetas(a), ['Almendras 500G', 'Almendras 1Kg']);        // costo: una por presentación
+  assert.deepStrictEqual(tarjetas(b), ['Almendras 500G', 'Almendras 1Kg']);        // precio: una por presentación (el bulto del fixture es de la 500G, no del granel)
+  assert.match(a, /<div class="md-cu-f md-cu-tot"><span class="md-cu-op" aria-hidden="true">=<\/span><span class="md-cu-t">Costo real \$\/kg<\/span>/);
+  assert.match(b, /<div class="md-cu-f md-cu-tot"><span class="md-cu-op" aria-hidden="true">=<\/span><span class="md-cu-t">Precio redondeado<\/span>/);
+  assert.match(b, /<div class="md-dt-canal"><b>Bulto<\/b> <span class="md-sub">PLU 201 · × 1<\/span>/); // × unidades que vende el bulto (en el fixture, 1 por kg)
+  assert.match(b, /Con IVA redondeado/);
+  assert.doesNotMatch(det, /class="md-paso|<h4|<table|class="ec"/);               // no es un paso numerado (el contador CSS no lo cuenta) ni usa los renglones planos de antes
+  assert.strictEqual(typeof dom.el('mdDetCuerpo').ontoggle, 'function');
+});
+
+test('Fraccionado: sin costeo del granel el acordeón sólo trae el precio (sin letra) y con otra fuente sin desglose lo avisa', () => {
+  const dom = crearContexto();
+  const fila = granel({ conPermiso: true });
+  abrir(dom, 'fraccionado', { ...fila, costeoGranel: undefined }, { detalle: true });
+  const det = dom.cuerpo().slice(dom.cuerpo().indexOf('<details id="mdDetCuerpo"'));
+  assert.doesNotMatch(det, /Costo real por presentación|md-dt-letra/);
+  assert.match(det, /<h5 id="mdDetPrecioH" class="md-h">Cómo se calcula el precio<\/h5>/);
+  dom.correr("mdFuente = 'ultimaCompra'; pintarModalEsquema()");
+  const sin = dom.cuerpo().slice(dom.cuerpo().indexOf('<details id="mdDetCuerpo"'));
+  assert.match(sin, /<p class="md-dt-vacio">Sin desglose para esta fuente\.<\/p>/);
+  assert.doesNotMatch(sin, /md-dt-card/);
+});
+
+test('Reventa y Producción: el "Ver detalle" sigue con sus bloques de pasos (Minorista, pack/bulto) y sin cuentas de Fraccionado', () => {
+  const des = { error: null, costo: 800, gastosPct: 10, costoConGastos: 880, pack: null, bulto: null,
+    minorista: { margenPct: 40, neto: 1232, extrasPct: 5, conExtras: 1293.6, ivaPct: 21, exacto: 1565.26, precio: 1550 },
+    porVinculo: { 501: { margenPct: 30, netoUnidad: 1144, unidades: 6, exactoNeto: 6864, neto: 6850, exactoIva: 8288.5, conIva: 8300 } } };
+  const fila = { plu: '500', nombre: 'Yerba', vigente: 1000, costoSistema: 800, mayoristas: [{ tipo: 'pack', plu: '501', nombre: 'Yerba x6', unidades: 6, vigente: 8000 }],
+    sugeridos: { sistema: { minorista: { precio: 1550, deltaPct: 55, estado: 'subir', margenTotalPct: 40 },
+      mayoristas: [{ plu: '501', neto: 6850, conIva: 8300, deltaPct: 5, estado: 'subir', margenTotalNetoPct: 30, margenTotalIvaPct: 35 }], desglose: des } } };
+  for (const tipo of ['almacen', 'produccion']) {
+    const dom = crearContexto();
+    abrir(dom, tipo, fila);
+    const cuerpo = dom.cuerpo(), bloque = t => cuerpo.match(new RegExp(`<div class="md-bloque"><div class="lbl mb-1">${t}</div>(.*?)</div></div>(?=<div class="md-bloque">|</div>)`, 's'));
+    assert.match(cuerpo, /<div class="md-desglose">/, tipo);
+    assert.deepStrictEqual([...cuerpo.matchAll(/<div class="lbl mb-1">(.*?)<\/div>/g)].map(m => m[1]).filter(t => !/Costos extra/.test(t)), ['Minorista', 'Pack 501 (× 6)'], tipo);
+    assert.match(bloque('Minorista')[0], /Costo de mercadería.*Gastos variables 10 %.*Margen 40 %.*Extras minoristas 5 %.*IVA 21 %.*Precio redondeado/s, tipo);
+    assert.match(bloque('Pack 501 \\(× 6\\)')[0], /Costo con gastos.*Margen 30 %.*6 unidades.*Sin IVA redondeado.*Con IVA redondeado/s, tipo);
+    assert.doesNotMatch(cuerpo, /md-cu|md-dt-/, tipo);
+  }
+});
