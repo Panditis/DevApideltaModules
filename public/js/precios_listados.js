@@ -162,9 +162,9 @@ const filasNoMarcados = lista => [['PLU', 'Nombre', 'Costo planilla', 'Precio pl
     r.sugeridoSistema ?? null, r.sugeridoUltimaCompra ?? null, r.motivo])];
 
 // Costeo de Fraccionado (spec 2026-10-23 §3): textos de los avisos que no bloquean el precio (se completan en Configuración ›
-// Costeo Fraccionado: facilidad y tiempo en el subrubro, insumos por peso) y "subrubro · máquina" del granel.
+// Costeo Fraccionado: facilidad en el subrubro, insumos por peso) y "subrubro · máquina" del granel.
 const TXT_AVISO_COSTO = { sinPeso: 'presentación sin peso en el nombre (sólo mercadería)', sinSubrubro: 'granel sin subrubro en SIGA (sin mano de obra ni máquina)',
-  sinTramos: 'su subrubro no tiene tiempos por peso', sinTiempo: 'subrubro sin tiempo (× 1)', sinFacilidad: 'subrubro sin facilidad (× 1)',
+  sinTramos: 'su subrubro no tiene tiempos por peso', sinFacilidad: 'subrubro sin facilidad (× 1)',
   sinMaquina: 'sin máquina (ni del subrubro ni del granel)', costoHora: 'sin costo hora de Fraccionado', sinInsumos: 'su peso no tiene insumos' };
 const textoAvisosCosto = avisos => (avisos || []).map(a => TXT_AVISO_COSTO[a] || a);
 // costeoGranel sólo llega con el permiso de Configuración (CLAVES_OCULTAS).

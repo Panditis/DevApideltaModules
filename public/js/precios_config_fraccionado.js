@@ -2,8 +2,8 @@
 // 2026-10-23-precios-fraccionado-peso-subrubro-design §6) ──
 // Script clásico, después de precios_config_esquema.js y precios_produccion.js. Sub-tab sólo con el switch de Configuración en
 // Fraccionado (mostrarCosteoFracc). Arriba una barra de estado (qué falta: máquinas, subrubros, insumos) que lleva a cada tarjeta;
-// después Máquinas, Escalas (factores de facilidad y de tiempo), los subrubros de SIGA (fila-tabla desplegable: su máquina, sus
-// minutos base según el peso, su facilidad y su tiempo, con sus productos al lado) y los insumos por peso de presentación
+// después Máquinas, Escalas (factor de cada nivel de facilidad), los subrubros de SIGA (fila-tabla desplegable: su máquina, sus
+// minutos según el peso y su facilidad, con sus productos al lado) y los insumos por peso de presentación
 // (globales: valen para toda presentación de ese peso) y el ajuste por peso (puntos de margen de los tres canales según el peso de la
 // presentación; se editaba en Márgenes). Cada tarjeta / subrubro guarda con su botón (PUT
 // /api/precios/config/esquema/fraccionado/…) y se repinta sólo ella: lo que las otras tengan sin guardar queda. Los insumos de
@@ -13,15 +13,12 @@
 // msgEsq, esFraccCfg (precios_config_esquema.js), htmlBuscadorSiga, conectarBuscadorSiga (precios_produccion.js), PreciosEsquema
 // (/js/precios_esquema.js: generarAjustesPeso, AJUSTES_PESO_MAX).
 const API_FR = '/api/precios/config/esquema/fraccionado';
-const ESCALAS_FR = { facilidad: [['facil', 'Fácil'], ['normal', 'Normal'], ['dificil', 'Difícil']], tiempo: [['rapido', 'Rápido'], ['normal', 'Normal'], ['lento', 'Lento']] };
-// Qué significa cada escala y cada opción (ayuda de Escalas y de los selects del subrubro).
+const ESCALAS_FR = { facilidad: [['facil', 'Fácil'], ['normal', 'Normal'], ['dificil', 'Difícil']] };
+// Qué significa la escala y cada opción (ayuda de Escalas y del select del subrubro).
 const SIGNIFICADO_FR = {
   facilidad: { nombre: 'Facilidad', titulo: 'qué tan cómodo es manipular el producto al fraccionarlo',
     facil: 'fluye y se pesa sin ajustes', normal: 'pide algo de cuidado al pesar o cerrar',
     dificil: 'pegajoso, polvoriento o frágil: ajustes de peso, limpieza o cuidado extra' },
-  tiempo: { nombre: 'Tiempo', titulo: 'ritmo de trabajo de la línea para ese subrubro',
-    rapido: 'tandas largas y envasado continuo', normal: 'ritmo habitual',
-    lento: 'tandas cortas, más controles o cierre/etiquetado manual' },
 };
 const TRAMO_INICIAL_G = 250;
 const PRODUCTOS_PARA_BUSCAR = 8; // desde acá la lista de productos de un subrubro trae buscador
@@ -29,22 +26,22 @@ const PRODUCTOS_PARA_BUSCAR = 8; // desde acá la lista de productos de un subru
 // ── Puros (test/precios_config_fraccionado_ui.test.js) ──
 // Tramo nuevo al final: el doble del último (o 250 g), minutos por cargar.
 const conTramoFr = tramos => [...tramos, { hastaG: tramos.length ? tramos[tramos.length - 1].hastaG * 2 : TRAMO_INICIAL_G, minutos: null }];
-// Lo que le falta a un subrubro para costear (conf = lo guardado): máquina, tramos, facilidad, tiempo.
+// Lo que le falta a un subrubro para costear (conf = lo guardado): máquina, tramos, facilidad.
 const faltaSubrubroFr = conf => { const c = conf || {};
-  return [[c.maquinaId, 'máquina'], [(c.tramos || []).length, 'tramos'], [c.facilidad, 'facilidad'], [c.tiempo, 'tiempo']].filter(([v]) => !v).map(([, t]) => t); };
+  return [[c.maquinaId, 'máquina'], [(c.tramos || []).length, 'tramos'], [c.facilidad, 'facilidad']].filter(([v]) => !v).map(([, t]) => t); };
 // Etiqueta de un valor de escala ('facil' → 'Fácil'); sin elegir o desconocido → undefined.
 const etiquetaEscalaFr = (tipo, v) => (ESCALAS_FR[tipo].find(([k]) => k === v) || [])[1];
 function cuentaProductosFr(s) {
   const n = s.graneles.length, m = s.graneles.reduce((t, g) => t + g.presentaciones.length, 0);
   return `${n} producto${n === 1 ? '' : 's'} · ${m} presentaci${m === 1 ? 'ón' : 'ones'}`;
 }
-// Celdas de la fila de un subrubro (conf = lo guardado): máquina, tramos, facilidad, tiempo; falta = sin dato (se pinta en aviso).
+// Celdas de la fila de un subrubro (conf = lo guardado): máquina, tramos, facilidad; falta = sin dato (se pinta en aviso).
 function celdasSubrubroFr(conf, maquinas) {
   const c = conf || {}, n = (c.tramos || []).length;
   const maq = (maquinas.find(m => m.id === c.maquinaId) || {}).nombre;
-  const fac = etiquetaEscalaFr('facilidad', c.facilidad), tie = etiquetaEscalaFr('tiempo', c.tiempo);
+  const fac = etiquetaEscalaFr('facilidad', c.facilidad);
   return [{ t: maq || 'sin máquina', falta: !maq }, { t: n ? `${n} tramo${n === 1 ? '' : 's'}` : 'sin tramos', falta: !n },
-    { t: fac || 'sin facilidad', falta: !fac }, { t: tie || 'sin tiempo', falta: !tie }];
+    { t: fac || 'sin facilidad', falta: !fac }];
 }
 // Subrubros de la lista a los que les falta algo para costear (configurados = lo guardado por id).
 const subrubrosIncompletosFr = (lista, configurados) => lista.filter(s => faltaSubrubroFr((configurados || {})[s.id]).length);
@@ -102,12 +99,10 @@ function pctMinutosFr(f) {
   return pct ? `${pct > 0 ? '+' : '−'}${fmtFactorFr(Math.abs(pct))}% minutos` : 'sin cambio';
 }
 const efectoFactorFr = f => `× ${fmtFactorFr(f)} (${pctMinutosFr(f)})`;
-// Línea viva bajo los selects del subrubro: factor combinado de facilidad × tiempo. Sin elegir → × 1.
-function textoEfectoSubFr(escalas, facilidad, tiempo) {
-  const fF = (escalas.facilidad || {})[facilidad] || 1, fT = (escalas.tiempo || {})[tiempo] || 1;
-  const nombre = (tipo, v) => (etiquetaEscalaFr(tipo, v) || 'sin elegir').toLowerCase();
-  return `Minutos por unidad = base del tramo × ${fmtFactorFr(fF)} (${nombre('facilidad', facilidad)}) × ${fmtFactorFr(fT)} (${nombre('tiempo', tiempo)}) = base ${
-    efectoFactorFr(Math.round(fF * fT * 10000) / 10000)}`;
+// Línea viva bajo el select de facilidad del subrubro: minutos del tramo × su factor. Sin elegir → × 1.
+function textoEfectoSubFr(escalas, facilidad) {
+  const f = (escalas.facilidad || {})[facilidad] || 1, nombre = (etiquetaEscalaFr('facilidad', facilidad) || 'sin elegir').toLowerCase();
+  return `Minutos por unidad = minutos del tramo × ${fmtFactorFr(f)} (facilidad ${nombre}: ${pctMinutosFr(f)})`;
 }
 const NOTA_EFECTO_FR = 'Sube o baja la mano de obra y la máquina de cada unidad (no los insumos ni la mercadería), y con eso el costo y el precio.';
 
@@ -175,7 +170,7 @@ function quitarFilaFr(e, card) {
 const pieFr = txt => `<div class="cfg-pie"><span class="esq-msg text-sm" role="status" aria-live="polite"></span><button type="button" class="fr-guardar cfg-btn">${txt}</button></div>`;
 function pintarCosteoFracc(panel) {
   panel.innerHTML = `<p class="cfg-cab"><b>Costeo de Fraccionado</b> — mano de obra, máquina e insumos de cada presentación, sumados al $/kg del granel.
-      Minutos por unidad = minutos base del tramo de peso del subrubro × factor de facilidad × factor de tiempo; el costo hora de mano de obra está en Costos.</p>
+      Minutos por unidad = minutos del tramo de peso del subrubro × factor de facilidad; el costo hora de mano de obra está en Costos.</p>
     <div id="frEstado" class="fr-barra" role="group" aria-label="Estado de la configuración">${htmlEstadoFr()}</div>
     <div class="grid gap-4 xl:grid-cols-2">${htmlMaquinasFr()}${htmlEscalasFr()}</div>
     ${htmlSubrubrosCardFr()}
@@ -266,18 +261,18 @@ function actualizarSelectsMaquinaFr() {
 }
 
 // ── Escalas ──
-// Una tabla por escala: el factor de cada opción, cuánto suma o resta a los minutos y qué significa. El % se actualiza al tipear.
+// La tabla de la escala: el factor de cada opción, cuánto suma o resta a los minutos y qué significa. El % se actualiza al tipear.
 const htmlEscalaFr = ([tipo, ops]) => {
   const sig = SIGNIFICADO_FR[tipo];
-  return `<div class="fr-escala" role="group" aria-labelledby="frEscT-${tipo}"><div id="frEscT-${tipo}" class="fr-escala-t"><b>${esc(sig.nombre)}</b> · ${esc(sig.titulo)}</div>
+  return `<div class="fr-escala" role="group" aria-label="Factor de cada nivel de ${esc(sig.nombre.toLowerCase())}">
     <table class="cfg-tabla fr-filas w-full"><tbody>${ops.map(([k, t]) => `<tr><td class="w-20"><label for="frEsc-${tipo}-${k}" class="font-semibold">${t}</label></td>
       <td class="w-32">${campoU(`<input id="frEsc-${tipo}-${k}" type="number" min="0" step="any" data-escala="${tipo}" data-k="${k}" value="${esc(cfFr.escalas[tipo][k])}">`, '×', { w: 'w-24' })}</td>
       <td class="fr-esc-efecto w-40 whitespace-nowrap">${esc(pctMinutosFr(cfFr.escalas[tipo][k]))}</td>
       <td class="text-xs text-gris">${esc(sig[k])}</td></tr>`).join('')}</tbody></table></div>`;
 };
-const htmlEscalasFr = () => `<div class="cfg-card fr-card fr-ancla min-w-0" data-guardable data-nombre="Escalas" id="frEscalas"><div class="fr-cuerpo">
-    <h3 class="cfg-h">Escalas</h3><p class="cfg-ayuda">Factores que multiplican los minutos base del tramo; se eligen en cada subrubro (sin elegir → × 1). Mayor que 1 suma minutos (más mano de obra y máquina por unidad, más costo y precio); menor que 1 los resta.</p>
-    ${Object.entries(ESCALAS_FR).map(htmlEscalaFr).join('')}</div>${pieFr('Guardar escalas')}</div>`;
+const htmlEscalasFr = () => `<div class="cfg-card fr-card fr-ancla min-w-0" data-guardable data-nombre="Facilidad" id="frEscalas"><div class="fr-cuerpo">
+    <h3 class="cfg-h">Facilidad</h3><p class="cfg-ayuda">Qué tan cómodo es manipular el producto al fraccionarlo. Cada nivel es un factor que multiplica los minutos del tramo; se elige en cada subrubro (sin elegir → × 1). Mayor que 1 suma minutos (más mano de obra y máquina por unidad, más costo y precio); menor que 1 los resta.</p>
+    ${Object.entries(ESCALAS_FR).map(htmlEscalaFr).join('')}</div>${pieFr('Guardar facilidad')}</div>`;
 const leerEscalasFr = card => ({ escalas: Object.fromEntries(Object.entries(ESCALAS_FR).map(([tipo, ops]) =>
   [tipo, Object.fromEntries(ops.map(([k]) => [k, numOrNull(card.querySelector(`[data-escala="${tipo}"][data-k="${k}"]`).value)]))])) });
 function conectarEscalasFr(card) {
@@ -324,7 +319,7 @@ const textoSignificadoFr = (tipo, v) => (v ? SIGNIFICADO_FR[tipo][v] : SIGNIFICA
 const htmlEscalaSubFr = (tipo, n, conf, dom) => `<div class="fr-paso">${cabPasoFr(n, SIGNIFICADO_FR[tipo].nombre, { para: `${dom}-${tipo}` })}
   <select id="${dom}-${tipo}" class="fr-sub-${tipo} num-in text-left w-full">${opcionesEscalaFr(tipo, conf[tipo])}</select>
   <p class="fr-sub-sig-${tipo} fr-hint">${esc(textoSignificadoFr(tipo, conf[tipo]))}</p></div>`;
-// Celdas de la fila (máquina, tramos, facilidad, tiempo) de lo guardado; las que faltan, en aviso.
+// Celdas de la fila (máquina, tramos, facilidad) de lo guardado; las que faltan, en aviso.
 const htmlCeldasFr = id => celdasSubrubroFr(cfFr.subrubros[id], cfFr.maquinas)
   .map(c => `<span class="fr-cel"${c.falta ? ' data-falta' : ''} title="${esc(c.t)}">${esc(c.t)}</span>`).join('');
 function htmlSubrubroFr(s) {
@@ -349,8 +344,8 @@ function htmlSubrubroFr(s) {
           <p class="fr-vacio">Sin tramos: agregá al menos uno para costear este subrubro.</p>
           <button type="button" class="fr-agregar cfg-btn2 mt-2" data-edita>+ Agregar tramo</button></div>
       </div>
-      <div>${htmlEscalaSubFr('facilidad', 3, conf, dom)}${htmlEscalaSubFr('tiempo', 4, conf, dom)}
-        <div class="fr-efecto"><div class="lbl">Efecto en los minutos</div><p class="fr-sub-efecto" aria-live="polite">${esc(textoEfectoSubFr(cfFr.escalas, conf.facilidad, conf.tiempo))}</p>
+      <div>${htmlEscalaSubFr('facilidad', 3, conf, dom)}
+        <div class="fr-efecto"><div class="lbl">Efecto en los minutos</div><p class="fr-sub-efecto" aria-live="polite">${esc(textoEfectoSubFr(cfFr.escalas, conf.facilidad))}</p>
           <p class="fr-efecto-nota">${esc(NOTA_EFECTO_FR)}</p></div></div>
       <div>${htmlProductosFr(s)}</div>
     </div>
@@ -361,9 +356,9 @@ function htmlSubrubrosCardFr() {
   const faltan = faltanSubrubrosFr();
   return `<div class="cfg-card fr-ancla min-w-0 mt-4" id="frSubrubrosCard">
     <div class="fr-card-cab"><div><h3 class="cfg-h">Subrubros</h3>
-      <p class="cfg-ayuda">Cada subrubro de SIGA (rubro Pesables Deposito) se costea con su máquina, sus minutos base según el peso de la presentación, su facilidad y su tiempo; sin elegir, el factor es × 1. Se guarda subrubro por subrubro.</p></div>
+      <p class="cfg-ayuda">Cada subrubro de SIGA (rubro Pesables Deposito) se costea con su máquina, sus minutos según el peso de la presentación y su facilidad; sin elegir la facilidad, el factor es × 1. Se guarda subrubro por subrubro.</p></div>
       <label class="fr-filtro"><input type="checkbox" id="frSoloFalta"> Solo los que faltan <span id="frFaltan" class="fr-faltan" data-n="${faltan}">${faltan}</span></label></div>
-    <div class="fr-cols fr-cols-cab" aria-hidden="true"><span></span><span>Subrubro</span><span>Productos</span><span>Máquina</span><span>Tramos</span><span>Facilidad</span><span>Tiempo</span><span>Estado</span></div>
+    <div class="fr-cols fr-cols-cab" aria-hidden="true"><span></span><span>Subrubro</span><span>Productos</span><span>Máquina</span><span>Tramos</span><span>Facilidad</span><span>Estado</span></div>
     <div id="frSubrubros">${htmlSubrubrosFr()}</div></div>`;
 }
 function htmlSubrubrosFr() {
@@ -384,15 +379,14 @@ function conectarSubrubroFr(det) {
     det.querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaTramoFr(conTramoFr(validos).pop()));
   };
   det.querySelector('tbody').onclick = e => quitarFilaFr(e, det);
-  const fac = det.querySelector('.fr-sub-facilidad'), tie = det.querySelector('.fr-sub-tiempo');
-  fac.onchange = tie.onchange = () => {
+  const fac = det.querySelector('.fr-sub-facilidad');
+  fac.onchange = () => {
     det.querySelector('.fr-sub-sig-facilidad').textContent = textoSignificadoFr('facilidad', fac.value);
-    det.querySelector('.fr-sub-sig-tiempo').textContent = textoSignificadoFr('tiempo', tie.value);
-    det.querySelector('.fr-sub-efecto').textContent = textoEfectoSubFr(cfFr.escalas, fac.value, tie.value);
+    det.querySelector('.fr-sub-efecto').textContent = textoEfectoSubFr(cfFr.escalas, fac.value);
   };
   det.querySelector('.fr-guardar').onclick = () => guardarFr(det, `/subrubros/${encodeURIComponent(id)}`,
     { maquinaId: det.querySelector('.fr-sub-maquina').value || null, tramos: leerTramosFr(det),
-      facilidad: det.querySelector('.fr-sub-facilidad').value || null, tiempo: det.querySelector('.fr-sub-tiempo').value || null },
+      facilidad: det.querySelector('.fr-sub-facilidad').value || null },
     () => {
       const s = listaSubrubrosFr().find(x => x.id === id);
       if (s) return repintarFr(det.id, () => htmlSubrubroFr(s), conectarSubrubroFr);
