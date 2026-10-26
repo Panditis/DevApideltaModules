@@ -236,6 +236,6 @@ test('htmlPreciosFraccMd: sin sugerido (error del motor) → "—", sin Δ; sin 
   assert.doesNotMatch(html, /text-crit|text-warn/);
   assert.match(html, /<span class="md-chip-0">3 sin precio<\/span>/);
   const vacia = htmlPreciosFraccMd({ plu: '100', nombre: 'Granel', presentaciones: [], mayoristas: [], sugeridos: {} }, 'sistema');
-  assert.match(vacia, /<p class="empty">Sin precios para mostrar\.<\/p>/);
+  assert.match(vacia, /<p class="text-gris mt-3">Sin precios para mostrar\.<\/p>/);
   assert.doesNotMatch(vacia, /<table/);
 });

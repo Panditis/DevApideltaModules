@@ -80,7 +80,7 @@ function opcionesCosto(fila, tipo, { manualSiempre = false } = {}) {
 // el promedio de las presentaciones; Producción: "Aumentar · …"). Sin precio → "Última compra · Sin compras registradas" y
 // deshabilitada (salvo la decisión guardada, que se ve aunque ya no tenga precio). → [{ valor, texto, disabled }].
 const ETIQUETA_SELECT = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
-const FMT_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js') : { fmtPrecio, fmtPct };
+const FMT_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js') : { fmtMoney, fmtPrecio, fmtPct };
 function textoOpcionSelect(o, tipo, fracc) {
   if (o.valor === '') return 'No cambiar';
   const nombre = tipo === 'produccion' ? o.texto : ETIQUETA_SELECT[o.valor] || o.texto;
@@ -175,7 +175,13 @@ function igualarSigaMd(fila, tipo, fuente) {
   return { valores, notas, motivo: null, fuente: usada };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
+// Precio en pesos: enteros sin decimales, el resto con centavos; null → "—". Compartidos con la columna de precios de Fraccionado.
+const fmtSug = n => (Number.isInteger(n) ? FMT_MD.fmtPrecio(n) : FMT_MD.fmtMoney(n));
+const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug(n)}`);
+// "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
+const textoFuenteMd = (fila, fuente) => (fila.decision ? `con ${(TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar');
+
+if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -184,8 +190,6 @@ let mdDetalle = false;     // "Ver detalle" abierto
 let mdMpModo = 'fijo';     // modo del bloque "Margen de este producto": el guardado; 'fijo' si no tiene
 
 const TXT_TIPO_MD = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion: 'Producción' };
-const fmtSug = n => (Number.isInteger(n) ? fmtPrecio(n) : fmtMoney(n));
-const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug(n)}`);
 // Chip de Δ% contra el vigente: flecha por el signo, color por el semáforo (fuera de tolerancia = subir/bajar).
 function chipDelta(deltaPct, estado, sufijo = '') {
   if (deltaPct == null) return '<span class="md-nd">—</span>';
@@ -362,7 +366,7 @@ function htmlTablaCanales(f) {
     previo = r.plu;
     return `${cab}<tr class="md-may"><td>${r.conIva ? 'Con IVA' : 'Sin IVA'}</td>${celdas(r)}</tr>`;
   }).join('');
-  const txt = mdEsq.fila.decision ? `con ${(TXT_OPCION[mdFuente] || mdFuente).toLowerCase()}` : 'con costo sistema, para comparar';
+  const txt = textoFuenteMd(mdEsq.fila, mdFuente);
   return `<section class="md-canales"><h4 class="md-h">Precios por canal <span class="md-sub">${esc(mdEsq.tipo !== 'produccion' ? txt : mdEsq.fila.decision ? 'con el aumento' : 'con el costo de la receta, para comparar')}</span></h4>
     <table class="md-tabla"><thead><tr><th class="text-left">Canal</th><th>Vigente</th><th>Nuevo</th><th>Δ vs vigente</th>
       <th title="Precio final ÷ costo de mercadería (con sus extras) − 1">Margen total</th></tr></thead><tbody>${cuerpo}</tbody></table></section>`;

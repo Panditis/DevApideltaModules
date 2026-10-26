@@ -150,6 +150,6 @@ test('Reventa y Producción no cambian: tabla por canal con "Minorista", "Ver de
 
 // Vigente 0 en SIGA: el server lo toma como "sin vigente" (compararConVigente: Δ % null, estado null) y el resumen lo cuenta así,
 // pero el Δ $ muestra el sugerido entero ("+$ 1.950").
-test('deltaPesosMd: vigente 0 cuenta como sin vigente, igual que el Δ %', { todo: 'precios_modal_fraccionado.js:100 resta contra 0' }, () => {
+test('deltaPesosMd: vigente 0 cuenta como sin vigente, igual que el Δ %', () => {
   assert.strictEqual(deltaPesosMd(0, 1950), null);
 });
