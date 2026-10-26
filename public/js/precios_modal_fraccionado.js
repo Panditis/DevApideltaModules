@@ -1,11 +1,11 @@
-// ── Precios · modal de Fraccionado: layout a dos columnas, costo real por presentación y máquina del granel (spec 2026-10-21-precios-fraccionado-costeo-design §9.3) ──
+// ── Precios · modal de Fraccionado: dos tarjetas lado a lado, costo real por presentación y máquina del granel (spec 2026-10-21-precios-fraccionado-costeo-design §9.3) ──
 // Script clásico después de precios_modal_esquema.js y precios_config_fraccionado.js. pintarModalEsquema le deja el pintado
-// (pintarModalFraccionadoMd) y conectarModalEsquema lo conecta (conectarModalFraccionadoMd). Dos columnas:
+// (pintarModalFraccionadoMd) y conectarModalEsquema lo conecta (conectarModalFraccionadoMd). Dos tarjetas (#mDetCaja y #mDetDer):
 //  · izquierda = configuración del granel: costo elegido (tarjetas), costo del granel (costo manual, costos extra, máquina), cómo
 //    se conforma el costo y el precio por presentación (mercadería + insumos + mano de obra + máquina), margen del producto y
 //    estado. Todo salvo las tarjetas y el estado va sólo con precios-config (sin él el server no manda el desglose ni los extras).
-//  · derecha = precios de las presentaciones (htmlPreciosFraccMd): vigente, sugerido con la fuente elegida, Δ $ y Δ %, por canal.
-// Elegir un costo o guardar un margen repinta el modal entero (guardarOpcionMd / guardarCostoEsq): la columna derecha siempre
+//  · derecha = precios de las presentaciones (htmlPreciosFraccMd, bajo el título "Precios de las presentaciones" y el subtítulo "por kg · con <fuente>"): vigente, sugerido con la fuente elegida, Δ $ y Δ %, por canal.
+// Elegir un costo o guardar un margen repinta el modal entero (guardarOpcionMd / guardarCostoEsq): la tarjeta derecha siempre
 // refleja lo elegido a la izquierda. La facilidad y el tiempo son los del subrubro del granel y los insumos los del peso de la
 // presentación (Configuración › Costeo Fraccionado, precios_config_fraccionado.js): acá se ven. Globales: esc, fmtMoney, fmtFechaPrecio,
 // fmtPct, claseDelta (precios_comun.js), mdEsq, mdFuente, mdDetalle, guardarCostoEsq, htmlPasos, htmlResumenMd, htmlAvisoMd,
@@ -133,13 +133,14 @@ function celdasPreciosFraccMd(r) {
     + `<td class="num">${delta(r.deltaPesos, textoDeltaPesosMd(r.deltaPesos))}</td><td class="num">${delta(r.deltaPct, FMT_FR_MD.fmtPct(r.deltaPct))}</td>`
     + `<td class="num">${r.margenTotalPct == null ? '<span class="md-nd">—</span>' : ESQ_FR_MD.pctMd(r.margenTotalPct)}</td>`;
 }
-// Tabla: una fila por presentación (nombre, PLU y peso) y, debajo de cada una, sus pack/bulto (sin IVA con Δ, con IVA sin Δ). Los
-// pack/bulto del granel mismo (antes de la primera presentación) van arriba bajo "Granel".
+// Cuerpo de la tarjeta derecha (#mDetDer; su título y su subtítulo —subtituloPreciosFraccMd— los pone pintarModalFraccionadoMd): los chips del
+// resumen de variación y la tabla: una fila por presentación (nombre, PLU y peso) y, debajo de cada una, sus pack/bulto (sin IVA con Δ, con
+// IVA sin Δ). Los pack/bulto del granel mismo (antes de la primera presentación) van arriba bajo "Granel".
 function htmlPreciosFraccMd(f, fuente) {
   const filas = filasPreciosFraccMd(f, fuente);
   const chips = chipsVariacionFraccMd(resumenVariacionFraccMd(filas)).map(chipFrMd).join('');
-  const cab = `<div class="md-fr-cab"><h4 class="md-h">Precios de las presentaciones <span class="md-sub">${ESC_FR_MD(subtituloPreciosFraccMd(f, fuente))}</span></h4>${chips ? `<div class="md-fr-chips">${chips}</div>` : ''}</div>`;
-  if (!filas.length) return `${cab}<p class="text-gris mt-3">Sin precios para mostrar.</p>`;
+  const cab = chips ? `<div class="md-fr-chips">${chips}</div>` : '';
+  if (!filas.length) return `${cab}<p class="text-gris">Sin precios para mostrar.</p>`;
   let previo = null, conMinorista = false;
   const cuerpo = filas.map(r => {
     if (r.tipo === 'minorista') {
@@ -196,7 +197,7 @@ function htmlPresFraccMd(p, f) {
   ]);
 }
 
-// ── Layout a dos columnas ──
+// ── Layout a dos tarjetas ──
 // "Costo del granel" (sólo con precios-config): máquina, costo manual, costos extra y venta de pack/bulto pesables.
 const htmlCostoGranelMd = f => (preciosSinConfig ? '' : `<section class="md-fr-sec" aria-labelledby="mdCostoH">
   <h4 id="mdCostoH" class="md-h">Costo del granel <span class="md-sub">· $/kg</span></h4>${htmlMaquinaGranelMd(f)}${htmlEdicionCostos(f)}</section>`);
@@ -212,14 +213,14 @@ function htmlDetalleFraccMd(f) {
       <div class="lbl mt-4">Cálculo del precio</div>${htmlDesgloseEsq(f)}</div></details>`;
 }
 
-// Izquierda: decisión del costo, costo del granel, cómo se conforma, margen del producto y estado. Derecha: precios de las
-// presentaciones con la fuente elegida (mdFuente), pegada arriba mientras se recorre la izquierda.
+// Dos tarjetas con su propio scroll (precios.html: #mDetCaja y #mDetDer). Izquierda (#mDetBody): decisión del costo, costo del granel,
+// cómo se conforma, margen del producto y estado. Derecha (#mDetDerBody): precios de las presentaciones con la fuente elegida (mdFuente).
 function pintarModalFraccionadoMd() {
   const { tipo, fila: f } = mdEsq;
   const ops = opcionesCosto(f, tipo);
-  document.getElementById('mDetBody').innerHTML = `<div class="md-fr">
-    <div class="md-fr-conf">${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlCostoGranelMd(f)}${htmlDetalleFraccMd(f)}${htmlMargenProductoMd(f)}${htmlEstadoActivoMd(f)}</div>
-    <aside class="md-fr-precios" aria-label="Precios de las presentaciones">${htmlPreciosFraccMd(f, mdFuente)}</aside></div>`;
+  document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlCostoGranelMd(f)}${htmlDetalleFraccMd(f)}${htmlMargenProductoMd(f)}${htmlEstadoActivoMd(f)}`;
+  document.getElementById('mDetDerSub').textContent = subtituloPreciosFraccMd(f, mdFuente);
+  document.getElementById('mDetDerBody').innerHTML = htmlPreciosFraccMd(f, mdFuente);
   conectarModalEsquema(); // precios_modal_esquema.js: tarjetas, edición de costos y margen; llama a conectarModalFraccionadoMd
 }
 

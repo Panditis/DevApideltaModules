@@ -217,11 +217,10 @@ test('htmlPreciosFraccMd: pack/bulto de la presentación agrupados (sin IVA con 
   assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris/);                // sin vigente ni Δ
 });
 
-test('htmlPreciosFraccMd: encabezado con el costo usado, resumen de variación y las filas escapadas', () => {
+test('htmlPreciosFraccMd: resumen de variación (el título y el subtítulo son del header de la tarjeta) y las filas escapadas', () => {
+  assert.strictEqual(subtituloPreciosFraccMd(granelPrecios({ decision: { fuente: 'sistema' } }), 'sistema'), 'por kg · con costo sistema');
   const html = htmlPreciosFraccMd(granelPrecios({ decision: { fuente: 'sistema' } }), 'sistema');
-  assert.match(html, /Precios de las presentaciones/);
-  assert.match(html, /por kg · con costo sistema/);
-  assert.doesNotMatch(html, /para comparar/);
+  assert.doesNotMatch(html, /Precios de las presentaciones|por kg/);
   assert.match(html, /<span class="pr-sem sem-subir">1 para subir<\/span>/);
   assert.match(html, /<span class="pr-sem sem-ok">1 sin cambio<\/span>/);
   assert.match(html, /<span class="md-chip-0">1 sin vigente<\/span>/);
@@ -236,6 +235,6 @@ test('htmlPreciosFraccMd: sin sugerido (error del motor) → "—", sin Δ; sin 
   assert.doesNotMatch(html, /text-crit|text-warn/);
   assert.match(html, /<span class="md-chip-0">3 sin precio<\/span>/);
   const vacia = htmlPreciosFraccMd({ plu: '100', nombre: 'Granel', presentaciones: [], mayoristas: [], sugeridos: {} }, 'sistema');
-  assert.match(vacia, /<p class="text-gris mt-3">Sin precios para mostrar\.<\/p>/);
+  assert.match(vacia, /<p class="text-gris">Sin precios para mostrar\.<\/p>/);
   assert.doesNotMatch(vacia, /<table/);
 });

@@ -1,7 +1,8 @@
 'use strict';
 // Modal del producto con los scripts del front cargados como en el navegador (scripts clásicos que comparten globales) sobre un
-// DOM mínimo: el layout a dos columnas de Fraccionado (con y sin precios-config), los ids que conectan cada guardado, el ancho
-// 'doble' de abrirModal y que Reventa / Producción siguen con la tabla por canal y "Ver detalle".
+// DOM mínimo: las dos tarjetas de Fraccionado (izquierda #mDetBody con la configuración, derecha #mDetDerBody con los precios; con y sin
+// precios-config), los ids que conectan cada guardado, el ancho 'doble' de abrirModal y que Reventa / Producción siguen con la tabla por
+// canal y "Ver detalle" y sin tarjeta derecha.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -15,21 +16,22 @@ const clases = ini => {
   const s = new Set(ini);
   return { add: c => s.add(c), remove: c => s.delete(c), contains: c => s.has(c), toggle: (c, on = !s.has(c)) => { if (on) s.add(c); else s.delete(c); return on; } };
 };
-// getElementById sólo encuentra los ids fijos de precios.html y los que haya en el HTML pintado en #mDetBody (como el navegador).
+// getElementById sólo encuentra los ids fijos de precios.html y los que haya en el HTML pintado en #mDetBody / #mDetDerBody (como el navegador).
 function crearContexto() {
   const elementos = new Map();
   const el = id => {
     if (!elementos.has(id)) {
       elementos.set(id, { id, innerHTML: '', textContent: '', value: '', options: [], hidden: false, open: false,
-        classList: clases(id === 'mDetCaja' ? ['max-w-2xl'] : id === 'mDet' ? ['hidden'] : []),
+        classList: clases(id === 'mDetCaja' ? ['max-w-2xl'] : id === 'mDet' || id === 'mDetDer' ? ['hidden'] : []),
         focus() {}, setAttribute() {}, addEventListener() {}, scrollIntoView() {}, insertAdjacentHTML() {},
         querySelector: () => el(`${id}>*`), querySelectorAll: () => [] });
     }
     return elementos.get(id);
   };
-  const FIJOS = ['mDet', 'mDetCaja', 'mDetTitulo', 'mDetSub', 'mDetBody', 'mDetX'];
+  const FIJOS = ['mDet', 'mDetPar', 'mDetCaja', 'mDetTitulo', 'mDetSub', 'mDetBody', 'mDetX', 'mDetDer', 'mDetDerTitulo', 'mDetDerSub', 'mDetDerBody'];
   const cuerpo = () => el('mDetBody').innerHTML;
-  const ids = () => [...cuerpo().matchAll(/\sid="([^"]+)"/g)].map(m => m[1]);
+  const cuerpoDer = () => el('mDetDerBody').innerHTML;
+  const ids = () => [...(cuerpo() + cuerpoDer()).matchAll(/\sid="([^"]+)"/g)].map(m => m[1]);
   const document = {
     activeElement: null,
     contains: () => true,
@@ -52,7 +54,7 @@ function crearContexto() {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js', f), 'utf8'), ctx, { filename: path.basename(f) });
   }
   const correr = src => vm.runInContext(src, ctx);
-  return { ctx, el, ids, cuerpo, correr, llamadas };
+  return { ctx, el, ids, cuerpo, cuerpoDer, correr, llamadas };
 }
 
 // Granel con dos presentaciones (una con bulto pesable) tal como lo arma el server; conPermiso = fila entera + costeoGranel.
@@ -74,28 +76,36 @@ const abrir = (dom, tipo, fila, { sinConfig = false, detalle = false } = {}) => 
 };
 const repetidos = ids => ids.filter((id, i) => ids.indexOf(id) !== i);
 
-test('abrirModal: "doble" pone el ancho de dos columnas; el siguiente modal sin "doble" vuelve al suyo', () => {
+test('abrirModal: "doble" muestra la tarjeta derecha y el ancho de dos tarjetas; el siguiente modal sin "doble" vuelve al suyo y la oculta', () => {
   const dom = crearContexto();
-  const caja = dom.el('mDetCaja').classList;
+  const caja = dom.el('mDetCaja').classList, der = dom.el('mDetDer').classList;
+  const estado = () => [caja.contains('md-doble'), caja.contains('max-w-3xl'), caja.contains('max-w-2xl'), der.contains('hidden')];
   dom.correr("abrirModal('Fraccionado', 'doble')");
-  assert.deepStrictEqual([caja.contains('md-doble'), caja.contains('max-w-3xl'), caja.contains('max-w-2xl')], [true, true, false]);
+  assert.deepStrictEqual(estado(), [true, true, false, false]);
+  assert.match(dom.cuerpoDer(), /Cargando/); // las dos tarjetas cargan a la vez: no salta el layout al pintar
   dom.correr("abrirModal('Reventa', true)");
-  assert.deepStrictEqual([caja.contains('md-doble'), caja.contains('max-w-3xl'), caja.contains('max-w-2xl')], [false, true, false]);
+  assert.deepStrictEqual(estado(), [false, true, false, true]);
+  assert.strictEqual(dom.cuerpoDer(), '');
   dom.correr("abrirModal('Fraccionado', 'doble'); abrirModal('Angosto')");
-  assert.deepStrictEqual([caja.contains('md-doble'), caja.contains('max-w-3xl'), caja.contains('max-w-2xl')], [false, false, true]);
+  assert.deepStrictEqual(estado(), [false, false, true, true]);
 });
 
-test('Fraccionado con precios-config: dos columnas con todos los bloques, ids únicos y cada guardado conectado', () => {
+test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids únicos y cada guardado conectado', () => {
   const dom = crearContexto();
   abrir(dom, 'fraccionado', granel({ conPermiso: true }));
-  const html = dom.cuerpo();
-  assert.match(html, /^<div class="md-fr">/);
+  const html = dom.cuerpo(), der = dom.cuerpoDer();
   assert.deepStrictEqual(repetidos(dom.ids()), []);
-  // Izquierda en orden: tarjetas → costo del granel (máquina + costos) → cómo se conforma → margen → estado; derecha: precios.
-  const pos = ['id="mdCostos"', 'id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdVentas"', 'id="mdDetCuerpo"', 'class="md-margen-prod"', 'id="mdAct"', 'class="md-fr-precios"']
+  // Izquierda (#mDetBody) en orden: resumen → tarjetas → costo del granel (máquina + costos) → cómo se conforma → margen → estado.
+  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdVentas"', 'id="mdDetCuerpo"', 'class="md-margen-prod"', 'id="mdAct"']
     .map(t => { const i = html.indexOf(t); assert.ok(i >= 0, `falta ${t}`); return i; });
   assert.deepStrictEqual(pos, [...pos].sort((a, b) => a - b));
-  assert.doesNotMatch(html, /id="mdVerDetalle"|Precios por canal/); // sin el botón ni la tabla por canal de Reventa/Producción
+  assert.doesNotMatch(html, /id="mdVerDetalle"|Precios por canal|md-fr-tabla/); // ni el botón ni la tabla por canal de Reventa/Producción, ni los precios (van a la derecha)
+  // Derecha (#mDetDerBody): chips de variación y tabla de presentaciones; el título y el subtítulo son del header de la tarjeta.
+  assert.match(der, /^<div class="md-fr-chips">/);
+  assert.match(der, /<table class="md-tabla md-fr-tabla">/);
+  assert.match(der, /Almendras 1Kg/);
+  assert.doesNotMatch(der, /id="mdCostos"|id="mdAct"|<h4/);
+  assert.strictEqual(dom.el('mDetDerSub').textContent, 'por kg · con costo sistema, para comparar');
   const fn = (id, prop = 'onclick') => typeof dom.el(id)[prop];
   assert.deepStrictEqual([fn('mdCostos', 'onchange'), fn('mdFrGuardar'), fn('mdManualGuardar'), fn('mdManualQuitar'), fn('mdExtrasGuardar'),
     fn('mdExtraAgregar'), fn('mdVentas'), fn('mdVentas', 'onchange'), fn('mdMargenGuardar'), fn('mdMargenIgualar'), fn('mdActGuardar'), fn('mdDetCuerpo', 'ontoggle')],
@@ -120,7 +130,8 @@ test('Fraccionado sin precios-config: tarjetas, estado y precios; sin bloques de
   assert.ok(!('costeoGranel' in fila) && !('costosExtra' in fila));
   abrir(dom, 'fraccionado', fila, { sinConfig: true });
   const html = dom.cuerpo();
-  for (const t of ['id="mdCostos"', 'id="mdAct"', 'id="mdActGuardar"', 'class="md-fr-precios"', 'Almendras 1Kg']) assert.ok(html.includes(t), `falta ${t}`);
+  for (const t of ['id="mdCostos"', 'id="mdAct"', 'id="mdActGuardar"']) assert.ok(html.includes(t), `falta ${t}`);
+  assert.ok(dom.cuerpoDer().includes('Almendras 1Kg'), 'faltan los precios en la tarjeta derecha');
   for (const t of ['id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdDetCuerpo"', 'md-margen-prod', 'Costo del granel']) assert.ok(!html.includes(t), `sobra ${t}`);
   assert.deepStrictEqual([typeof dom.el('mdCostos').onchange, typeof dom.el('mdActGuardar').onclick], ['function', 'function']);
 });
@@ -144,6 +155,7 @@ test('Reventa y Producción no cambian: tabla por canal con "Minorista", "Ver de
     assert.match(html, /<b>Minorista<\/b> <span class="md-sub">PLU 500<\/span>/, tipo);
     assert.match(html, /id="mdVerDetalle"/, tipo);
     assert.doesNotMatch(html, /md-fr|Granel ·|mdAct/, tipo);
+    assert.strictEqual(dom.cuerpoDer(), '', tipo); // sin tarjeta derecha
     assert.strictEqual(typeof dom.el('mdVerDetalle').onclick, 'function', tipo);
   }
 });

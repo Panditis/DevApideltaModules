@@ -70,7 +70,7 @@
   .s-final{--sec-c:#405936;--sec-bg:rgba(64,89,54,.1)}
   .sec-tit{color:var(--sec-c)}
   /* ── Modal del producto (precios_modal_esquema.js): resumen → decisión en tarjetas → tabla por canal → detalle ── */
-  #mDetSub{display:flex;align-items:center;gap:8px;margin-top:4px}
+  #mDetSub,#mDetDerSub{display:flex;align-items:center;gap:8px;margin-top:4px;min-height:18px}
   .md-tipo{padding:1px 8px;border-radius:999px;background:rgba(64,89,54,.1);color:#405936;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase}
   .md-resumen{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:12px 16px;margin-bottom:14px;border-radius:12px;background:#f5f8f1;border:1px solid rgba(26,28,24,.08)}
   .md-vig-l,.md-opc-l{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#5c5f52}
@@ -139,14 +139,14 @@
   /* Bloque "Estado" del granel (activo / inactivo / automático): visible para cualquier usuario, fuera de "Ver detalle". */
   .md-activo{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   .md-act-mov{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:#5c5f52}
-  /* ── Modal de Fraccionado a dos columnas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): izquierda = configuración del
-     granel (costo, estado, márgenes); derecha = precios de las presentaciones y su variación, pegada arriba al recorrer la izquierda.
-     #mDetCaja.md-doble lo pone abrirModal(…, 'doble') y le gana al max-w-* de Tailwind. Sólo escritorio. */
-  #mDetCaja.md-doble{max-width:min(78rem,100%)}
-  .md-fr{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:24px;align-items:start}
-  .md-fr-conf{min-width:0}
-  .md-fr .md-opcs{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .md-fr .md-desglose{grid-template-columns:minmax(0,1fr)}
+  /* ── Modal de Fraccionado en dos tarjetas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): #mDetCaja (izquierda) = configuración
+     del granel (costo, estado, márgenes); #mDetDer (derecha) = precios de las presentaciones y su variación. Cada una con su header y su
+     scroll; #mDetPar las iguala en altura (stretch, tope 90vh) y el overlay se ve en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble')
+     y le gana al max-w-* de Tailwind. Sólo escritorio. */
+  #mDetCaja.md-doble{flex:5 1 0;min-width:0;max-width:36rem}
+  #mDetDer{flex:6 1 0;min-width:0;max-width:44rem}
+  #mDetCaja.md-doble .md-opcs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #mDetCaja.md-doble .md-desglose{grid-template-columns:minmax(0,1fr)}
   .md-fr-sec{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   .md-fr-sec .md-edicion{margin-top:10px;padding-top:0;border-top:0}
   .md-fr-sec .md-edicion + .md-edicion{padding-top:10px;border-top:1px dashed rgba(26,28,24,.16)}
@@ -154,11 +154,9 @@
   .md-fr-detalle > summary{padding:10px 14px}
   .md-fr-detalle .cuerpo{padding:0 14px 14px}
   .md-fr-detalle .ec{padding:.3rem 0}
-  .md-fr-precios{position:sticky;top:0;max-height:calc(90vh - 6.5rem);overflow-y:auto;padding:14px 16px 10px;border:1px solid rgba(26,28,24,.16);border-radius:12px;
-                 background:#fff;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
-  .md-fr-cab{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px}
   .md-fr-chips{display:flex;flex-wrap:wrap;gap:6px}
-  .md-fr-tabla{margin-top:10px}
+  .md-fr-tabla{margin-top:0}
+  .md-fr-chips + .md-fr-tabla{margin-top:10px}
   .md-fr-tabla th,.md-fr-tabla td{padding-left:8px;padding-right:8px}
   .md-fr-tabla th{white-space:nowrap}
   .md-fr-tabla td:first-child{min-width:10rem}
@@ -667,15 +665,25 @@
 
 <!-- Modal compartido (abrirModal/cerrarDetalle de /js/precios_comun.js): lo llenan el modal del esquema y Producción. -->
 <div id="mDet" class="hidden fixed inset-0 z-50 items-end sm:items-center justify-center bg-ink/40 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="mDetTitulo">
-  <div id="mDetCaja" tabindex="-1" class="fade-in bg-card rounded-t-xl sm:rounded-xl shadow-fluent w-full max-w-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col">
-    <div class="px-5 pt-4 pb-2 flex items-start gap-3">
-      <div class="min-w-0">
-        <h3 id="mDetTitulo" class="font-disp text-lg font-bold text-ink leading-snug">Detalle</h3>
-        <div id="mDetSub" class="text-xs text-gris mt-0.5"></div>
+  <!-- #mDetPar: una o dos tarjetas lado a lado, a la misma altura. #mDetDer (precios de las presentaciones) sólo se muestra con abrirModal(…, 'doble'). -->
+  <div id="mDetPar" class="flex w-full justify-center items-stretch gap-5 max-h-[94vh] sm:max-h-[90vh]">
+    <div id="mDetCaja" tabindex="-1" class="fade-in bg-card rounded-t-xl sm:rounded-xl shadow-fluent w-full max-w-2xl flex flex-col">
+      <div class="px-5 pt-4 pb-2 flex items-start gap-3">
+        <div class="min-w-0">
+          <h3 id="mDetTitulo" class="font-disp text-lg font-bold text-ink leading-snug">Detalle</h3>
+          <div id="mDetSub" class="text-xs text-gris mt-0.5"></div>
+        </div>
+        <button id="mDetX" class="ml-auto -mr-2 w-8 h-8 shrink-0 rounded-lg text-gris hover:bg-bg hover:text-ink" aria-label="Cerrar">✕</button>
       </div>
-      <button id="mDetX" class="ml-auto -mr-2 w-8 h-8 shrink-0 rounded-lg text-gris hover:bg-bg hover:text-ink" aria-label="Cerrar">✕</button>
+      <div id="mDetBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
     </div>
-    <div id="mDetBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
+    <section id="mDetDer" class="hidden fade-in bg-card rounded-xl shadow-fluent flex flex-col" aria-labelledby="mDetDerTitulo">
+      <div class="px-5 pt-4 pb-2">
+        <h3 id="mDetDerTitulo" class="font-disp text-lg font-bold text-ink leading-snug">Precios de las presentaciones</h3>
+        <div id="mDetDerSub" class="text-xs text-gris mt-0.5"></div>
+      </div>
+      <div id="mDetDerBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
+    </section>
   </div>
 </div>
 

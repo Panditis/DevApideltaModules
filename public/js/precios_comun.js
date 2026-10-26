@@ -35,8 +35,10 @@ const FILA_ENCABEZADOS = 4;
 const numOrNull = v => { const s = String(v ?? '').trim(); if (s === '') return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
 const chip = (txt, cls) => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold ${cls}">${txt}</span>`;
 const inputCls = 'px-2 py-1 rounded-lg border border-borde text-right tabular-nums focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
-// Abre el modal compartido #mDet en estado "cargando". ancho = true para tablas anchas; 'doble' = dos columnas (el modal de
-// Fraccionado: .md-doble en precios.html pisa el max-width, así un modal que lo abre después sin 'doble' vuelve al ancho normal).
+// Abre el modal compartido #mDet en estado "cargando". ancho = true para tablas anchas; 'doble' = dos tarjetas lado a lado (el modal de
+// Fraccionado: #mDetCaja a la izquierda y #mDetDer a la derecha; .md-doble en precios.html pisa el max-width, así un modal que lo abre
+// después sin 'doble' vuelve al ancho normal y oculta la tarjeta derecha).
+const CARGANDO_MD = '<div class="py-10 text-center text-gris"><span class="spin"></span> Cargando…</div>';
 let detFocoPrevio = null; // foco antes de abrir, se devuelve al cerrar
 function abrirModal(titulo, ancho){
   const modal = document.getElementById('mDet');
@@ -45,7 +47,10 @@ function abrirModal(titulo, ancho){
   caja.classList.toggle('max-w-2xl', !ancho); caja.classList.toggle('max-w-3xl', !!ancho); caja.classList.toggle('md-doble', ancho === 'doble');
   document.getElementById('mDetTitulo').textContent = titulo;
   document.getElementById('mDetSub').textContent = '';
-  document.getElementById('mDetBody').innerHTML = '<div class="py-10 text-center text-gris"><span class="spin"></span> Cargando…</div>';
+  document.getElementById('mDetBody').innerHTML = CARGANDO_MD;
+  document.getElementById('mDetDer').classList.toggle('hidden', ancho !== 'doble');
+  document.getElementById('mDetDerSub').textContent = '';
+  document.getElementById('mDetDerBody').innerHTML = ancho === 'doble' ? CARGANDO_MD : '';
   modal.classList.remove('hidden'); modal.classList.add('flex');
   caja.focus();
 }
@@ -66,7 +71,9 @@ function atraparFocoModal(e){
 }
 if (typeof document !== 'undefined') {
   document.getElementById('mDetX').onclick = cerrarDetalle;
-  document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet') cerrarDetalle(); });
+  // Clic en el overlay, fuera de las tarjetas (también el gap entre las dos: #mDetPar). Por id y no con closest(): si el clic repinta el modal
+  // el target ya salió del DOM y closest() daría null (cerraría de más).
+  document.getElementById('mDet').addEventListener('click', e => { if (e.target.id === 'mDet' || e.target.id === 'mDetPar') cerrarDetalle(); });
 }
 
 // ── Orden de tablas ────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 // costo (radios reales: No cambiar / Costo sistema / Última compra / Costo manual; Producción: No cambiar / Aumentar)
 // que GUARDAN la decisión al elegir. Debajo, la tabla por canal (vigente, nuevo, Δ%, margen total) del costo elegido.
 // "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos extra):
-// desglose por canal + costo manual + costos extra + venta de pesables. Fraccionado arma su propio layout a dos columnas
+// desglose por canal + costo manual + costos extra + venta de pesables. Fraccionado arma su propio layout a dos tarjetas
 // (pintarModalFraccionadoMd, precios_modal_fraccionado.js: configuración del granel a la izquierda, precios de las
 // presentaciones y su variación a la derecha) con estas mismas piezas. Globales: el modal compartido #mDet (abrirModal,
 // cerrarDetalle) y formato/pedidos de precios_comun.js; de precios_listados.js: guardarDecision, renderListado,
@@ -100,7 +100,7 @@ function errorMotor(fila) {
 }
 
 // Porcentaje con coma y hasta 2 decimales ("35,5 %") y avisos de un canal pack/bulto (sin unidades vinculadas, o vigente de SIGA
-// que parece estar en otra unidad). Los usan la tabla por canal y la columna de precios de Fraccionado.
+// que parece estar en otra unidad). Los usan la tabla por canal y la tarjeta de precios de Fraccionado.
 const pctMd = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
 const avisosCanalMd = r => (r.faltante === 'unidades' ? ' <span class="md-warn">sin unidades</span>' : '')
   + (r.revisarUnidad ? ' <span class="md-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
@@ -175,7 +175,7 @@ function igualarSigaMd(fila, tipo, fuente) {
   return { valores, notas, motivo: null, fuente: usada };
 }
 
-// Precio en pesos: enteros sin decimales, el resto con centavos; null → "—". Compartidos con la columna de precios de Fraccionado.
+// Precio en pesos: enteros sin decimales, el resto con centavos; null → "—". Compartidos con la tarjeta de precios de Fraccionado.
 const fmtSug = n => (Number.isInteger(n) ? FMT_MD.fmtPrecio(n) : FMT_MD.fmtMoney(n));
 const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug(n)}`);
 // "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
@@ -198,7 +198,7 @@ function chipDelta(deltaPct, estado, sufijo = '') {
 }
 
 async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
-  abrirModal('Cargando…', tipo === 'fraccionado' ? 'doble' : true); // precios_comun.js (Fraccionado: dos columnas)
+  abrirModal('Cargando…', tipo === 'fraccionado' ? 'doble' : true); // precios_comun.js (Fraccionado: dos tarjetas)
   try {
     const fila = await (await fetch(`/api/precios/esquema/detalle/${encodeURIComponent(plu)}?tipo=${encodeURIComponent(tipo)}`)).json();
     if (fila.error) throw new Error(fila.error);
@@ -212,6 +212,7 @@ async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
     pintarModalEsquema();
     if (!detalle) enfocarOpcionMd();
   } catch (e) {
+    document.getElementById('mDetDer').classList.add('hidden'); // el error ocupa sólo la tarjeta izquierda
     document.getElementById('mDetBody').innerHTML = `<p class="py-6 text-crit">No se pudo cargar: ${esc(e.message)}</p>`;
   }
 }
@@ -285,7 +286,7 @@ function htmlOpcionesCosto(f, ops) {
 
 // Reventa: la tarjeta "Costo manual" (siempre está) trae el campo para cargarlo (cualquier usuario del módulo). "Usar"
 // guarda el costo y elige la decisión 'manual'; "Quitar" lo borra (el server limpia la decisión manual). Los controles
-// dentro del <label> no marcan el radio (son contenido interactivo). Fraccionado lo carga en "Costo del granel" (columna izquierda).
+// dentro del <label> no marcan el radio (son contenido interactivo). Fraccionado lo carga en "Costo del granel" (tarjeta izquierda).
 const htmlManualDecMd = f => `<span class="md-opc-manual">
     ${campoU(`<input id="mdManualDec" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-full' })}
     <span class="flex items-center gap-2"><button type="button" id="mdManualUsar" class="cfg-btn2">Usar</button>
@@ -349,7 +350,7 @@ function conectarTipoProveedorMd() {
 }
 
 // Tabla por canal: minorista arriba y cada pack/bulto agrupado bajo su PLU y nombre. (Fraccionado no pasa por acá: tiene su
-// propia columna de precios por presentación, htmlPreciosFraccMd en precios_modal_fraccionado.js.)
+// propia tarjeta de precios por presentación, htmlPreciosFraccMd en precios_modal_fraccionado.js.)
 function htmlTablaCanales(f) {
   const filas = filasCanales(f, mdFuente);
   if (!filas.length) return '<p class="text-gris mt-3">Sin canales para mostrar.</p>';
@@ -541,7 +542,7 @@ function htmlVerDetalle(f) {
 
 function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
-  if (tipo === 'fraccionado') return pintarModalFraccionadoMd(); // dos columnas (precios_modal_fraccionado.js)
+  if (tipo === 'fraccionado') return pintarModalFraccionadoMd(); // dos tarjetas (precios_modal_fraccionado.js)
   const ops = opcionesCosto(f, tipo, { manualSiempre: tipo === 'almacen' });
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlTipoProveedorMd(f)}
     ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
