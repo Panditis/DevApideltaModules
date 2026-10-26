@@ -413,7 +413,7 @@ function textoResultado(cobertura, umbral, nivel) {
 // Qué ventas no cuentan: lo hecho por Casa Central, las sucursales no reales y las ventas internas a sucursales.
 function textoExclusiones(g, mayuscula) {
   const partes = [];
-  if (g.excluyeCentral) partes.push('ventas de Casa Central');
+  if (g.excluyeCentral) partes.push('ventas minoristas de Casa Central (las mayoristas sí cuentan)');
   if ((g.sucursalesExcluidas || []).length) partes.push(`sucursales ${listaY(g.sucursalesExcluidas.map(String))}`);
   partes.push('ventas internas a sucursales');
   return `${mayuscula ? 'Excluye' : 'excluye'} ${listaY(partes)}`;
