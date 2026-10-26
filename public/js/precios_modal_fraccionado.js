@@ -14,7 +14,7 @@
 //    angosta, así que sin columnas: una tarjeta por presentación con vigente → sugerido con la fuente elegida, Δ % como chip, Δ $ y margen en
 //    segunda línea y, adentro, el sub-bloque "Códigos mayoristas" con sus pack/bulto; al final, la tarjeta de los pack/bulto del granel.
 // Elegir un costo o guardar un margen repinta el modal entero (guardarOpcionMd / guardarCostoEsq): la tarjeta derecha siempre
-// refleja lo elegido a la izquierda. La facilidad y el tiempo son los del subrubro del granel y los insumos los del peso de la
+// refleja lo elegido a la izquierda. La facilidad es la del subrubro del granel y los insumos los del peso de la
 // presentación (Configuración › Costeo Fraccionado, precios_config_fraccionado.js): acá se ven. Globales: esc, fmtMoney, fmtFechaPrecio,
 // claseDelta (precios_comun.js), mdEsq, mdFuente, mdDetalle, guardarCostoEsq, htmlResumenMd, htmlAvisoMd, htmlOpcionesCosto,
 // opcionesCosto, manualEnTarjetaMd, htmlMargenProductoMd, htmlEdicionCostos, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd,
@@ -28,7 +28,6 @@ const { esc: ESC_FR_MD, fmtMoney: MONEY_FR_MD, fmtFechaPrecio: FECHA_FR_MD } = F
 const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, pctMd, avisosCanalMd, filasCanales, fmtSug, pesosMd, textoFuenteMd, chipDelta, pasosMinoristaMd, pasosMayoristaMd };
 const ACT_FR_MD = NODE_FR_MD ? require('./precios_listados.js') : { textoMotivosActividad };
 const FACIL_MD = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
-const TIEMPO_MD = { rapido: 'Rápido', normal: 'Normal', lento: 'Lento' };
 
 // ── Puros (test/precios_modal_fraccionado.test.js) ──
 // componentesCosto de una presentación (lib/precios_fraccionado_costo) por concepto. fuente = la elegida en el modal;
@@ -52,19 +51,19 @@ function resumenCosteoFraccMd(p, fuente, costosGranel) {
 const opcionesMaquinaMd = (maquinas, actual, delSubrubro) => `<option value="">Del subrubro (${ESC_FR_MD(delSubrubro || 'sin máquina')})</option>${(maquinas || [])
   .map(m => `<option value="${ESC_FR_MD(m.id)}"${m.id === actual ? ' selected' : ''}>${ESC_FR_MD(m.nombre)}</option>`).join('')}`;
 const minMd = n => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 }).format(n);
-// "base del tramo × factor del tiempo × factor de la facilidad = minutos" (c = costeoPresentacion); sin base (dato viejo) sólo los minutos.
+// "minutos del tramo × factor de la facilidad = minutos" (c = costeoPresentacion); sin base (dato viejo) sólo los minutos.
 const formulaMinutosMd = (c, minutos) => (c.minutosBase == null ? `${minMd(minutos)} min`
-  : `${minMd(c.minutosBase)} × ${minMd(c.factorTiempo ?? 1)} (tiempo) × ${minMd(c.factorFacilidad ?? 1)} (facilidad) = ${minMd(minutos)} min`);
+  : `${minMd(c.minutosBase)} × ${minMd(c.factorFacilidad ?? 1)} (facilidad) = ${minMd(minutos)} min`);
 // Línea de MO o máquina sin importe: sin minutos (granel sin subrubro o subrubro sin tramos) o, con minutos, sin máquina.
 const SIN_MINUTOS_MD = 'sin minutos (cargá los tiempos por peso del subrubro en Configuración › Costeo Fraccionado)';
-function motivoSinTiempoMd(rol, avisos) {
+function motivoSinMinutosMd(rol, avisos) {
   const a = avisos || [];
   if (rol === 'maquina' && a.includes('sinMaquina') && !a.includes('sinSubrubro') && !a.includes('sinTramos')) return 'sin asignar (ni del subrubro ni del granel)';
   return a.includes('sinSubrubro') ? 'sin minutos: el granel no tiene subrubro en SIGA' : SIN_MINUTOS_MD;
 }
-const textoSinTiempoMd = (rol, avisos) => `${rol === 'maquina' ? 'Máquina' : 'Mano de obra'} — ${motivoSinTiempoMd(rol, avisos)}`;
-// "Normal · Lento": facilidad y tiempo del subrubro con que se costeó la presentación (c = costeoPresentacion).
-const textoElegidoMd = c => `${FACIL_MD[(c || {}).facilidad] || 'sin facilidad'} · ${TIEMPO_MD[(c || {}).tiempo] || 'sin tiempo'}`;
+const textoSinMinutosMd = (rol, avisos) => `${rol === 'maquina' ? 'Máquina' : 'Mano de obra'} — ${motivoSinMinutosMd(rol, avisos)}`;
+// "Facilidad normal": facilidad del subrubro con que se costeó la presentación (c = costeoPresentacion).
+const textoElegidoMd = c => { const f = FACIL_MD[(c || {}).facilidad]; return f ? `Facilidad ${f.toLowerCase()}` : 'sin facilidad'; };
 
 // ── Estado del granel en el listado: activo / inactivo fijado a mano, o automático (movimientos de los últimos 6 meses) ──
 // Valor del <select> y activoManual del server (null = automático).
@@ -223,7 +222,7 @@ function filasCostoPresFraccMd(p, fuente, costosGranel) {
   const r = resumenCosteoFraccMd(p, fuente, costosGranel), c = p.costeoPresentacion || {}, avisos = p.avisosCosto || [], kg = minMd(p.pesoG / 1000);
   const insumo = l => ({ tipo: 'sub', txt: l.nombre || l.plu, det: `${minMd(l.cantidad)} × ${l.costoUnit == null ? 'sin costo' : dineroDetFrMd(l.costoUnit)}`, v: l.importe });
   const conMinutos = (rol, l, txt, falta) => (l ? { op: '+', txt, det: textoMinutosMd(l, falta, c), v: l.importe }
-    : { op: '+', txt, det: motivoSinTiempoMd(rol, avisos), tipo: 'nd', v: 0 });
+    : { op: '+', txt, det: motivoSinMinutosMd(rol, avisos), tipo: 'nd', v: 0 });
   return [
     { txt: 'Mercadería', det: `${kg} kg × ${r.mercaderiaKg == null ? 'sin costo' : `${dineroDetFrMd(r.mercaderiaKg)}/kg`}`, v: r.mercaderiaUnidad },
     r.insumos.length ? { op: '+', txt: 'Insumos', v: r.subtotalInsumos }
@@ -268,7 +267,7 @@ function htmlCuentaFraccMd(filas) {
 // Mini-tarjetas (como las de la derecha): cabecera con el nombre y, abajo, PLU y peso; después la cuenta.
 const subTarjetaFraccMd = (p, prefijo = '') => `<div class="md-sub md-dt-sub">${prefijo}PLU ${ESC_FR_MD(p.plu)}${textoPesoMd(p.pesoG) ? ` · ${textoPesoMd(p.pesoG)}` : ''}</div>`;
 const htmlTarjetaCostoFraccMd = (p, fuente, costosGranel) => `<li class="md-dt-card"><div class="md-dt-cab"><b>${ESC_FR_MD(p.nombre)}</b>`
-  + `<span class="md-chip-0" title="Facilidad y tiempo del subrubro con que se costeó">${ESC_FR_MD(textoElegidoMd(p.costeoPresentacion))}</span></div>`
+  + `<span class="md-chip-0" title="Facilidad del subrubro con que se costeó">${ESC_FR_MD(textoElegidoMd(p.costeoPresentacion))}</span></div>`
   + `${subTarjetaFraccMd(p)}${htmlCuentaFraccMd(filasCostoPresFraccMd(p, fuente, costosGranel))}</li>`;
 // Un pack/bulto dentro de la tarjeta de su dueño: banda con su tipo, PLU y unidades (y su nombre) y su cuenta.
 const htmlCanalFraccMd = m => `<div class="md-dt-canal"><b>${ESC_FR_MD(ESQ_FR_MD.TIPO_CANAL[m.tipo] || m.tipo)}</b> `
@@ -301,10 +300,10 @@ function htmlCuerpoDetalleFraccMd(f, fuente) {
       precio ? `<ul class="md-dt-lista">${precio}</ul>` : `<p class="md-dt-vacio">${SIN_DESGLOSE_FR_MD}</p>`);
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd, textoElegidoMd,
+if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinMinutosMd, textoElegidoMd,
   textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd,
   deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd,
-  motivoSinTiempoMd, filasCostoPresFraccMd, cuentasPrecioFraccMd, htmlCuentaFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd, htmlCuerpoDetalleFraccMd };
+  motivoSinMinutosMd, filasCostoPresFraccMd, cuentasPrecioFraccMd, htmlCuentaFraccMd, htmlTarjetaCostoFraccMd, htmlTarjetaPrecioFraccMd, htmlCuerpoDetalleFraccMd };
 
 // ── DOM ──
 let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden cada vez que se conecta el modal: una máquina nueva aparece)
@@ -321,7 +320,7 @@ function htmlMaquinaGranelMd(f) {
       <label for="mdFrMaquina" class="sr-only">Máquina</label><select id="mdFrMaquina" class="num-in"${g.subrubro ? '' : ' disabled'}>${opcionesMaquinaMd(maquinas, g.maquinaId, g.maquinaSubrubro)}</select>
       ${g.subrubro ? '' : `<span class="text-xs text-gris">${esc('sin subrubro: no suma minutos')}</span>`}
       <button type="button" id="mdFrGuardar" class="cfg-btn2">Guardar</button></div>
-    <p class="md-sb-ayuda mt-1">Tiempos por peso, facilidad, tiempo e insumos se cargan en Configuración › Costeo Fraccionado.</p>
+    <p class="md-sb-ayuda mt-1">Tiempos por peso, facilidad e insumos se cargan en Configuración › Costeo Fraccionado.</p>
     <p id="mdFrMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
 

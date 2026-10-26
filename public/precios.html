@@ -360,7 +360,7 @@
   /* ── Configuración › Costeo Fraccionado (public/js/precios_config_fraccionado.js) ──────────────────────────────
      Barra de estado arriba (cada parte lleva a su tarjeta), tarjetas Máquinas/Escalas del mismo alto con el Guardar alineado,
      y los subrubros como filas-tabla desplegables: .fr-cols da las mismas columnas al encabezado y a cada fila; abierto, el
-     subrubro se reparte en 3 columnas (máquina y tramos | facilidad, tiempo y efecto | productos). */
+     subrubro se reparte en 3 columnas (máquina y tramos | facilidad y efecto | productos). */
   .fr-ancla{scroll-margin-top:190px} /* debajo del header y de la franja de sub-tabs, que son sticky */
   .fr-barra{display:flex;align-items:center;gap:4px;margin-bottom:16px}
   .fr-est{display:flex;align-items:center;gap:10px;padding:8px 16px 8px 12px;border:1px solid rgba(26,28,24,.16);border-radius:10px;background:#fff;text-align:left;
@@ -379,10 +379,7 @@
   table:has(>tbody:empty)+.fr-vacio{display:block} /* tabla sin filas: el texto de "todavía no hay" y sin encabezado */
   table:has(>tbody:empty)>thead{display:none}
   .btn-quitar:disabled:hover{color:#5c5f52;background:transparent;cursor:not-allowed}
-  /* Escalas: una tabla por escala (opción | factor | efecto | significado) */
-  .fr-escala+.fr-escala{margin-top:18px}
-  .fr-escala-t{font-size:12.5px;color:#5c5f52;margin-bottom:2px}
-  .fr-escala-t b{font-size:13.5px;color:#242423}
+  /* Facilidad: una tabla (opción | factor | efecto | significado) */
   .fr-filas th{font-size:11px;font-weight:600;color:#5c5f52;padding:0 12px 6px 0}
   .fr-filas td{padding:7px 12px 7px 0;font-size:13px}
   .fr-filas tbody tr+tr td{border-top:1px solid rgba(26,28,24,.08)}
@@ -393,7 +390,7 @@
   .fr-filtro input{accent-color:#405936;width:15px;height:15px}
   .fr-faltan{min-width:22px;padding:0 6px;border-radius:11px;background:rgba(138,93,0,.14);color:#8a5d00;font-size:11.5px;line-height:20px;text-align:center}
   .fr-faltan[data-n="0"]{background:#eef1ea;color:#5c5f52}
-  .fr-cols{display:grid;grid-template-columns:16px minmax(9rem,1.4fr) minmax(11rem,1.3fr) minmax(7rem,1fr) 5.5rem 6.5rem 6.5rem 6.5rem;column-gap:14px;align-items:center}
+  .fr-cols{display:grid;grid-template-columns:16px minmax(9rem,1.4fr) minmax(11rem,1.3fr) minmax(7rem,1fr) 5.5rem 6.5rem 6.5rem;column-gap:14px;align-items:center}
   .fr-cols-cab{padding:0 13px 6px;font-size:11px;font-weight:600;color:#5c5f52}
   .fr-sub{margin-top:6px;border:1px solid rgba(26,28,24,.16);border-radius:10px;background:#fff;transition:border-color 140ms ease}
   .fr-sub:hover{border-color:rgba(26,28,24,.32)}
@@ -796,7 +793,7 @@
     </div>
   </section>
 
-  <!-- Costeo de Fraccionado (máquinas, escalas, máquina y tiempos por subrubro): lo pinta /js/precios_config_fraccionado.js. Sólo con el
+  <!-- Costeo de Fraccionado (máquinas, facilidad, y por subrubro máquina, tramos y facilidad): lo pinta /js/precios_config_fraccionado.js. Sólo con el
        switch de Configuración en Fraccionado (mostrarCosteoFracc). -->
   <section id="panel-costeo-fracc" class="cfg-panel hidden" role="tabpanel" aria-labelledby="tab-costeo-fracc"></section>
   </div>
