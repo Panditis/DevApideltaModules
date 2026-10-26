@@ -113,7 +113,7 @@ test('textoGuardadoActivoMd: cómo quedó el granel; inactivo avisa que el lista
 const L = require('../lib/precios_listado_esquema');
 const { CFG } = require('./precios_esquema_fixture');
 const { deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd,
-  subtituloPreciosFraccMd, htmlPreciosFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+  subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd } = require('../public/js/precios_modal_fraccionado.js');
 
 // Granel con tres presentaciones (250G sin vigente, 500G igual al vigente con un bulto vinculado, 1Kg que sube) → fila como la manda el detalle.
 const granelPrecios = ({ vigentes, decision } = {}) => {
@@ -186,35 +186,38 @@ test('subtituloPreciosFraccMd: "por kg" y con qué costo se calculó (sin decisi
   assert.strictEqual(subtituloPreciosFraccMd(granelPrecios({ decision: { fuente: 'ultimaCompra' } }), 'ultimaCompra'), 'por kg · con última compra');
 });
 
-test('htmlPreciosFraccMd: tabla con Vigente / Sugerido / Δ $ / Δ % por presentación, peso, PLU y color de suba/baja del listado', () => {
+test('htmlPreciosFraccMd: lista (sin tabla ancha) con nombre, PLU y peso arriba, vigente → sugerido con el Δ % como chip y Δ $ y margen aparte', () => {
   const html = htmlPreciosFraccMd(granelPrecios(), 'sistema');
-  for (const t of ['Presentación', 'Vigente', 'Sugerido', 'Δ \\$', 'Δ %', 'Margen total']) assert.match(html, new RegExp(`<th[^>]*>${t}</th>`));
-  const fila = plu => html.match(new RegExp(`<tr class="md-min">(?:(?!</tr>).)*PLU ${plu}(?:(?!</tr>).)*</tr>`))[0];
-  const kilo = fila('102');
+  assert.doesNotMatch(html, /<table|<th/); // la tarjeta derecha es angosta: sin columnas
+  const item = plu => html.match(new RegExp(`<li class="md-min">(?:(?!</li>).)*PLU ${plu}(?:(?!</li>).)*</li>`, 's'))[0];
+  const kilo = item('102');
   assert.match(kilo, /<b>Almendras 1Kg<\/b>/);
   assert.match(kilo, /PLU 102 · 1 kg/);
-  assert.match(kilo, /\$ 1\.500/);                                              // vigente
-  assert.match(kilo, /\$ 1\.800/);                                              // sugerido
-  assert.match(kilo, /<span class="font-semibold text-crit">\+\$ 300<\/span>/);  // Δ $ sube (claseDelta del listado)
-  assert.match(kilo, /<span class="font-semibold text-crit">\+20\.0%<\/span>/);  // Δ %
-  const igual = fila('101');
+  assert.match(kilo, /<span class="sr-only">Vigente <\/span>\$ 1\.500/);                       // vigente, con su rótulo para lector de pantalla
+  assert.match(kilo, /<span class="sr-only">Sugerido <\/span><b class="md-nuevo">\$ 1\.800<\/b>/);
+  assert.match(kilo, /<span class="pr-sem sem-subir md-chip"><span aria-hidden="true">▲<\/span>\+20\.0%<\/span>/); // Δ % = chip (el del listado)
+  assert.match(kilo, /<span class="font-semibold text-crit">\+\$ 300<\/span>/);                // Δ $ sube (claseDelta del listado)
+  assert.match(kilo, /\+\$ 300<\/span> · margen 80 %/);                                          // margen total en la segunda línea
+  const igual = item('101');
   assert.match(igual, /<span class="text-gris">\$ 0<\/span>/);
-  assert.match(igual, /<span class="text-gris">0\.0%<\/span>/);
-  const sinVig = fila('103');
+  assert.match(igual, /sem-ok md-chip"><span aria-hidden="true">=<\/span>0\.0%/);
+  const sinVig = item('103');
   assert.match(sinVig, /PLU 103 · 250 g/);
-  assert.doesNotMatch(sinVig, /text-crit|text-warn/);                          // sin vigente no hay semáforo
+  assert.doesNotMatch(sinVig, /text-crit|text-warn|md-chip/);                                // sin vigente no hay semáforo ni chip
+  assert.match(sinVig, /<span class="sr-only">Vigente <\/span><span class="md-nd">—<\/span>/);
 });
 
 test('htmlPreciosFraccMd: pack/bulto de la presentación agrupados (sin IVA con Δ, con IVA sin Δ); baja en color de baja', () => {
   const html = htmlPreciosFraccMd(granelPrecios(), 'sistema');
-  const grupo = html.match(/<tr class="md-grp">(?:(?!<\/tr>).)*Bulto(?:(?!<\/tr>).)*<\/tr>/)[0];
+  const grupo = html.match(/<li class="md-grp">(?:(?!<\/li>).)*Bulto(?:(?!<\/li>).)*<\/li>/s)[0];
   assert.match(grupo, /PLU 201 · Almendras Bulto x6 · × 1/);
-  const sinIva = html.match(/<tr class="md-may"><td>Sin IVA<\/td>.*?<\/tr>/)[0];
+  const sinIva = html.match(/<li class="md-may"><span class="md-fr-iva">Sin IVA<\/span>.*?<\/li>/s)[0];
   assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 7\.460<\/span>/);
-  assert.match(sinIva, /<span class="font-semibold text-warn">-82\.9%<\/span>/);
-  const conIva = html.match(/<tr class="md-may"><td>Con IVA<\/td>.*?<\/tr>/)[0];
+  assert.match(sinIva, /sem-bajar md-chip"><span aria-hidden="true">▼<\/span>-82\.9%/);
+  const conIva = html.match(/<li class="md-may"><span class="md-fr-iva">Con IVA<\/span>.*?<\/li>/s)[0];
   assert.match(conIva, /\$ 1\.850/);
-  assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris/);                // sin vigente ni Δ
+  assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris|md-chip/);                      // sin vigente ni Δ
+  assert.ok(html.indexOf('PLU 201') < html.indexOf('Almendras 1Kg')); // el bulto del granel/presentación 500G va antes de la 1Kg
 });
 
 test('htmlPreciosFraccMd: resumen de variación (el título y el subtítulo son del header de la tarjeta) y las filas escapadas', () => {
@@ -236,5 +239,13 @@ test('htmlPreciosFraccMd: sin sugerido (error del motor) → "—", sin Δ; sin 
   assert.match(html, /<span class="md-chip-0">3 sin precio<\/span>/);
   const vacia = htmlPreciosFraccMd({ plu: '100', nombre: 'Granel', presentaciones: [], mayoristas: [], sugeridos: {} }, 'sistema');
   assert.match(vacia, /<p class="text-gris">Sin precios para mostrar\.<\/p>/);
-  assert.doesNotMatch(vacia, /<table/);
+  assert.doesNotMatch(vacia, /<ul/);
+});
+
+// ── Columna izquierda: lo de abajo de las tarjetas de costo va en dos columnas si hay dos bloques ──
+test('htmlColumnasFraccMd: con dos bloques los pone en dos columnas; con uno (sin configuración sólo queda el estado) a ancho completo; sin ninguno, vacío', () => {
+  assert.strictEqual(htmlColumnasFraccMd('<i>a</i>', '<i>b</i>'), '<div class="md-fr-cols"><div class="md-fr-col"><i>a</i></div><div class="md-fr-col"><i>b</i></div></div>');
+  assert.strictEqual(htmlColumnasFraccMd('', '<i>b</i>'), '<i>b</i>');
+  assert.strictEqual(htmlColumnasFraccMd('<i>a</i>', ''), '<i>a</i>');
+  assert.strictEqual(htmlColumnasFraccMd('', ''), '');
 });

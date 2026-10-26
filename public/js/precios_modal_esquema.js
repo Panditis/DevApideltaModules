@@ -3,9 +3,9 @@
 // costo (radios reales: No cambiar / Costo sistema / Última compra / Costo manual; Producción: No cambiar / Aumentar)
 // que GUARDAN la decisión al elegir. Debajo, la tabla por canal (vigente, nuevo, Δ%, margen total) del costo elegido.
 // "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos extra):
-// desglose por canal + costo manual + costos extra + venta de pesables. Fraccionado arma su propio layout a dos tarjetas
-// (pintarModalFraccionadoMd, precios_modal_fraccionado.js: configuración del granel a la izquierda, precios de las
-// presentaciones y su variación a la derecha) con estas mismas piezas. Globales: el modal compartido #mDet (abrirModal,
+// desglose por canal + costos extra + venta de pesables (el costo manual se carga en su tarjeta de decisión). Fraccionado arma su propio
+// layout a dos tarjetas (pintarModalFraccionadoMd, precios_modal_fraccionado.js: configuración del granel a la izquierda, ~70 %,
+// precios de las presentaciones y su variación a la derecha, ~30 %) con estas mismas piezas. Globales: el modal compartido #mDet (abrirModal,
 // cerrarDetalle) y formato/pedidos de precios_comun.js; de precios_listados.js: guardarDecision, renderListado,
 // cargarListado; de precios_config.js: activarTab; de precios_produccion.js: salirDeProduccion, refrescarAlertasProduccion.
 const TIPO_CANAL = { pack: 'Pack', bulto: 'Bulto' };
@@ -80,7 +80,7 @@ function opcionesCosto(fila, tipo, { manualSiempre = false } = {}) {
 // el promedio de las presentaciones; Producción: "Aumentar · …"). Sin precio → "Última compra · Sin compras registradas" y
 // deshabilitada (salvo la decisión guardada, que se ve aunque ya no tenga precio). → [{ valor, texto, disabled }].
 const ETIQUETA_SELECT = { sistema: 'Sistema', ultimaCompra: 'Última compra', manual: 'Manual' };
-const FMT_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js') : { fmtMoney, fmtPrecio, fmtPct };
+const FMT_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js') : { esc, fmtMoney, fmtPrecio, fmtPct };
 function textoOpcionSelect(o, tipo, fracc) {
   if (o.valor === '') return 'No cambiar';
   const nombre = tipo === 'produccion' ? o.texto : ETIQUETA_SELECT[o.valor] || o.texto;
@@ -181,7 +181,7 @@ const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug
 // "con última compra" (con decisión: la fuente elegida) o "con costo sistema, para comparar" (sin decisión: nada se exporta).
 const textoFuenteMd = (fila, fuente) => (fila.decision ? `con ${(TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar');
 
-if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
+if (typeof module === 'object' && module.exports) module.exports = { fmtSug, pesosMd, textoFuenteMd, TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, chipDelta, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -194,7 +194,7 @@ const TXT_TIPO_MD = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion
 function chipDelta(deltaPct, estado, sufijo = '') {
   if (deltaPct == null) return '<span class="md-nd">—</span>';
   const flecha = deltaPct > 0 ? '▲' : deltaPct < 0 ? '▼' : '=';
-  return `<span class="pr-sem sem-${esc(estado || 'ok')} md-chip"><span aria-hidden="true">${flecha}</span>${fmtPct(deltaPct)}${sufijo}</span>`;
+  return `<span class="pr-sem sem-${FMT_MD.esc(estado || 'ok')} md-chip"><span aria-hidden="true">${flecha}</span>${FMT_MD.fmtPct(deltaPct)}${sufijo}</span>`;
 }
 
 async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
@@ -255,7 +255,7 @@ function htmlOpcionMd(o, f, actual) {
   const fracc = Array.isArray(f.presentaciones);
   let costo = '';
   if (o.valor === '') costo = 'Deja el precio como está';
-  else if (o.valor === 'manual' && mdEsq.tipo === 'almacen') costo = htmlManualDecMd(f);
+  else if (o.valor === 'manual' && manualEnTarjetaMd(mdEsq.tipo)) costo = htmlManualDecMd(f);
   else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>`;
   let extra = '';
   if (o.valor === 'ultimaCompra' && f.costoUltimaCompra != null) {
@@ -284,13 +284,22 @@ function htmlOpcionesCosto(f, ops) {
     <div id="mdDecMsg" class="md-msg" role="status" aria-live="polite"></div></fieldset>`;
 }
 
-// Reventa: la tarjeta "Costo manual" (siempre está) trae el campo para cargarlo (cualquier usuario del módulo). "Usar"
-// guarda el costo y elige la decisión 'manual'; "Quitar" lo borra (el server limpia la decisión manual). Los controles
-// dentro del <label> no marcan el radio (son contenido interactivo). Fraccionado lo carga en "Costo del granel" (tarjeta izquierda).
-const htmlManualDecMd = f => `<span class="md-opc-manual">
-    ${campoU(`<input id="mdManualDec" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-full' })}
-    <span class="flex items-center gap-2"><button type="button" id="mdManualUsar" class="cfg-btn2">Usar</button>
-    ${f.costoManual != null ? '<button type="button" id="mdManualDecQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</span></span>`;
+// La tarjeta "Costo manual" trae el campo para cargarlo y elegirlo desde ahí. Reventa: siempre (cualquier usuario del módulo); "Usar" guarda
+// el costo y elige la decisión 'manual'; "Quitar" lo borra (el server limpia la decisión manual). Fraccionado: sólo con precios-config (como el
+// resto de sus costos); "Guardar" sólo guarda el costo (después se elige la tarjeta) con el mismo pedido de siempre (conectarEdicionCostos).
+// Los controles dentro del <label> no marcan el radio (son contenido interactivo); un clic en el resto del campo tampoco (conectarModalEsquema).
+const manualEnTarjetaMd = tipo => tipo === 'almacen' || (tipo === 'fraccionado' && !preciosSinConfig);
+const MANUAL_TARJETA_MD = {
+  almacen: { input: 'mdManualDec', guardar: 'mdManualUsar', texto: 'Usar', quitar: 'mdManualDecQuitar' },
+  fraccionado: { input: 'mdManual', guardar: 'mdManualGuardar', texto: 'Guardar', quitar: 'mdManualQuitar' },
+};
+function htmlManualDecMd(f) {
+  const m = MANUAL_TARJETA_MD[mdEsq.tipo];
+  return `<span class="md-opc-manual">
+    ${campoU(`<input id="${m.input}" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-full' })}
+    <span class="flex items-center gap-2"><button type="button" id="${m.guardar}" class="cfg-btn2">${m.texto}</button>
+    ${f.costoManual != null ? `<button type="button" id="${m.quitar}" class="text-sm text-gris hover:text-crit">Quitar</button>` : ''}</span></span>`;
+}
 async function guardarManualDecMd(body) {
   const { tipo, fila: f } = mdEsq;
   msgDecisionMd('', '<span class="spin"></span> Guardando…');
@@ -458,11 +467,7 @@ function htmlVentasPesablesMd(f) {
 }
 function htmlEdicionCostos(f) {
   if (mdEsq.tipo === 'produccion') return '';
-  const manual = mdEsq.tipo === 'almacen' ? '' : `<div class="lbl mb-1">Costo manual</div>
-    <div class="flex items-center gap-2 mb-4">${campoU(`<input id="mdManual" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-36' })}
-      <button type="button" id="mdManualGuardar" class="cfg-btn2">Guardar</button>
-      ${f.costoManual != null ? '<button type="button" id="mdManualQuitar" class="text-sm text-gris hover:text-crit">Quitar</button>' : ''}</div>`;
-  return `<div class="md-edicion">${manual}
+  return `<div class="md-edicion">
     <div class="lbl mb-1">Costos extra (${mdEsq.tipo === 'fraccionado' ? '$/kg' : '$'} o % del costo)</div>
     <table class="w-full text-sm"><tbody id="mdExtras">${(f.costosExtra || []).map(htmlFilaExtraMd).join('')}</tbody></table>
     <div class="flex gap-2 mt-1"><button type="button" id="mdExtraAgregar" class="cfg-btn2">+ Agregar</button>
@@ -581,6 +586,8 @@ async function guardarOpcionMd(valor) {
 function conectarModalEsquema() {
   const grupo = document.getElementById('mdCostos');
   grupo.onchange = e => { if (e.target.name === 'mdCosto') guardarOpcionMd(e.target.value); }; // no el campo del costo manual
+  // Un clic en el campo del costo manual (el "$", el hueco entre el campo y los botones) activaría el <label> y elegiría la tarjeta: se cancela.
+  grupo.addEventListener('click', e => { if (e.target.closest('.md-opc-manual')) e.preventDefault(); });
   // Flechas: mueven el foco entre opciones habilitadas SIN elegir (elegir guarda); Espacio o Enter eligen.
   grupo.onkeydown = e => {
     const radios = [...grupo.querySelectorAll('input:not(:disabled)')];
@@ -640,12 +647,15 @@ function refrescarPanelProduccionMd() {
 function conectarEdicionCostos() {
   const plu = encodeURIComponent(mdEsq.fila.plu);
   const tbody = document.getElementById('mdExtras');
-  const guardar = document.getElementById('mdManualGuardar'); // Reventa lo carga en la selección de costo (htmlManualDecMd)
-  if (guardar) guardar.onclick = () =>
-    guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'manual', costo: numOrNull(document.getElementById('mdManual').value) });
+  // El costo manual de Fraccionado vive en su tarjeta de decisión (htmlManualDecMd; Reventa usa conectarManualDecMd): el error sale debajo de las tarjetas.
+  const guardar = document.getElementById('mdManualGuardar');
+  if (guardar) {
+    guardar.onclick = () => guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'manual', costo: numOrNull(document.getElementById('mdManual').value) }, 'PUT', 'mdDecMsg');
+    document.getElementById('mdManual').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); guardar.click(); } };
+  }
   const quitar = document.getElementById('mdManualQuitar');
   // fuente 'sistema' borra el costo manual.
-  if (quitar) quitar.onclick = () => guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'sistema' });
+  if (quitar) quitar.onclick = () => guardarCostoEsq(`/api/precios/costo-producto/${plu}`, { fuente: 'sistema' }, 'PUT', 'mdDecMsg');
   document.getElementById('mdExtraAgregar').onclick = () => tbody.insertAdjacentHTML('beforeend', htmlFilaExtraMd());
   tbody.onclick = e => { const b = e.target.closest('.md-extra-quitar'); if (b) b.closest('tr').remove(); };
   document.getElementById('mdExtrasGuardar').onclick = () => guardarCostoEsq(`/api/precios/costos-extra/${plu}`, {

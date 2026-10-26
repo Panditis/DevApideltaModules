@@ -1,8 +1,8 @@
 'use strict';
 // Modal del producto con los scripts del front cargados como en el navegador (scripts clásicos que comparten globales) sobre un
 // DOM mínimo: las dos tarjetas de Fraccionado (izquierda #mDetBody con la configuración, derecha #mDetDerBody con los precios; con y sin
-// precios-config), los ids que conectan cada guardado, el ancho 'doble' de abrirModal y que Reventa / Producción siguen con la tabla por
-// canal y "Ver detalle" y sin tarjeta derecha.
+// precios-config), el costo manual cargado desde su tarjeta de decisión, los ids que conectan cada guardado, el ancho 'doble' de abrirModal
+// y que Reventa / Producción siguen con la tabla por canal y "Ver detalle" y sin tarjeta derecha.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -94,22 +94,60 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   const dom = crearContexto();
   abrir(dom, 'fraccionado', granel({ conPermiso: true }));
   const html = dom.cuerpo(), der = dom.cuerpoDer();
-  assert.deepStrictEqual(repetidos(dom.ids()), []);
-  // Izquierda (#mDetBody) en orden: resumen → tarjetas → costo del granel (máquina + costos) → cómo se conforma → margen → estado.
-  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdVentas"', 'id="mdDetCuerpo"', 'class="md-margen-prod"', 'id="mdAct"']
+  assert.deepStrictEqual(repetidos(dom.ids()), []); // el costo manual está una sola vez (en su tarjeta), no también en "Costo del granel"
+  // Izquierda (#mDetBody) en orden: resumen → tarjetas (con el costo manual adentro) → costo del granel (máquina + costos) → margen → estado → cómo se conforma.
+  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdManual"', 'id="mdFr"', 'id="mdExtras"', 'id="mdVentas"', 'class="md-margen-prod"', 'id="mdAct"', 'id="mdDetCuerpo"']
     .map(t => { const i = html.indexOf(t); assert.ok(i >= 0, `falta ${t}`); return i; });
   assert.deepStrictEqual(pos, [...pos].sort((a, b) => a - b));
-  assert.doesNotMatch(html, /id="mdVerDetalle"|Precios por canal|md-fr-tabla/); // ni el botón ni la tabla por canal de Reventa/Producción, ni los precios (van a la derecha)
-  // Derecha (#mDetDerBody): chips de variación y tabla de presentaciones; el título y el subtítulo son del header de la tarjeta.
+  assert.match(html, /<div class="md-fr-cols"><div class="md-fr-col"><section class="md-fr-sec"/); // debajo de las tarjetas: dos columnas
+  assert.doesNotMatch(html, /id="mdVerDetalle"|Precios por canal|<table class="md-tabla md-fr-tabla/); // ni el botón ni la tabla por canal de Reventa/Producción, ni los precios (van a la derecha)
+  // Derecha (#mDetDerBody): chips de variación y lista de presentaciones; el título y el subtítulo son del header de la tarjeta.
   assert.match(der, /^<div class="md-fr-chips">/);
-  assert.match(der, /<table class="md-tabla md-fr-tabla">/);
+  assert.match(der, /<ul class="md-fr-lista">/);
   assert.match(der, /Almendras 1Kg/);
-  assert.doesNotMatch(der, /id="mdCostos"|id="mdAct"|<h4/);
+  assert.doesNotMatch(der, /id="mdCostos"|id="mdAct"|<h4|<table/);
   assert.strictEqual(dom.el('mDetDerSub').textContent, 'por kg · con costo sistema, para comparar');
   const fn = (id, prop = 'onclick') => typeof dom.el(id)[prop];
   assert.deepStrictEqual([fn('mdCostos', 'onchange'), fn('mdFrGuardar'), fn('mdManualGuardar'), fn('mdManualQuitar'), fn('mdExtrasGuardar'),
     fn('mdExtraAgregar'), fn('mdVentas'), fn('mdVentas', 'onchange'), fn('mdMargenGuardar'), fn('mdMargenIgualar'), fn('mdActGuardar'), fn('mdDetCuerpo', 'ontoggle')],
   Array(12).fill('function'));
+});
+
+// El costo manual se carga y se elige desde la misma tarjeta de decisión (antes el campo estaba en "Costo del granel").
+const tarjetaManual = html => html.match(/<label class="md-opc[^"]*">(?:(?!<\/label>).)*value="manual"(?:(?!<\/label>).)*<\/label>/s)[0];
+
+test('Fraccionado con precios-config: la tarjeta "Costo manual" trae el campo y Guardar; Quitar sólo si ya hay costo manual', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', granel({ conPermiso: true })); // costoManual 1100
+  let tj = tarjetaManual(dom.cuerpo());
+  assert.match(tj, /<input id="mdManual" type="number"[^>]*value="1100"/);
+  assert.match(tj, /id="mdManualGuardar"[^>]*>Guardar<\/button>/);
+  assert.match(tj, /id="mdManualQuitar"/);
+  assert.match(dom.cuerpo(), /id="mdCostos" class="md-opcs" style="--n:4"/);
+  assert.strictEqual(typeof dom.el('mdManual').onkeydown, 'function'); // Enter guarda
+  // Sin costo manual la tarjeta sigue estando (campo vacío para cargarlo), sin Quitar y sin poder elegirse todavía.
+  const dom2 = crearContexto();
+  abrir(dom2, 'fraccionado', { ...granel({ conPermiso: true }), costoManual: null });
+  tj = tarjetaManual(dom2.cuerpo());
+  assert.match(tj, /<input id="mdManual" type="number"[^>]*value=""/);
+  assert.match(tj, /id="mdManualGuardar"/);
+  assert.doesNotMatch(tj, /mdManualQuitar/);
+  assert.match(tj, /<input type="radio" name="mdCosto" value="manual" disabled>/);
+  assert.match(dom2.cuerpo(), /style="--n:4"/);
+  assert.deepStrictEqual(repetidos(dom2.ids()), []);
+  assert.strictEqual(typeof dom2.el('mdManualGuardar').onclick, 'function');
+});
+
+test('Fraccionado sin precios-config: la tarjeta "Costo manual" no trae el campo (sólo el valor si ya hay uno); sin costo manual no hay tarjeta', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', { ...granel({ conPermiso: false }), costoManual: 1100 }, { sinConfig: true });
+  const tj = tarjetaManual(dom.cuerpo());
+  assert.match(tj, /Costo <b class="tabular-nums">\$ 1\.100,00<\/b>/);
+  assert.doesNotMatch(dom.cuerpo(), /id="mdManual|<input id="mdManual/);
+  const sin = crearContexto();
+  abrir(sin, 'fraccionado', granel({ conPermiso: false }), { sinConfig: true });
+  assert.doesNotMatch(sin.cuerpo(), /value="manual"|id="mdManual/);
+  assert.match(sin.cuerpo(), /style="--n:3"/);
 });
 
 test('Fraccionado: el acordeón respeta mdDetalle al repintar y lo actualiza al abrirse', () => {
@@ -132,7 +170,7 @@ test('Fraccionado sin precios-config: tarjetas, estado y precios; sin bloques de
   const html = dom.cuerpo();
   for (const t of ['id="mdCostos"', 'id="mdAct"', 'id="mdActGuardar"']) assert.ok(html.includes(t), `falta ${t}`);
   assert.ok(dom.cuerpoDer().includes('Almendras 1Kg'), 'faltan los precios en la tarjeta derecha');
-  for (const t of ['id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdDetCuerpo"', 'md-margen-prod', 'Costo del granel']) assert.ok(!html.includes(t), `sobra ${t}`);
+  for (const t of ['id="mdFr"', 'id="mdManual"', 'id="mdExtras"', 'id="mdDetCuerpo"', 'md-margen-prod', 'Costo del granel', 'md-fr-cols']) assert.ok(!html.includes(t), `sobra ${t}`);
   assert.deepStrictEqual([typeof dom.el('mdCostos').onchange, typeof dom.el('mdActGuardar').onclick], ['function', 'function']);
 });
 

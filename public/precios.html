@@ -105,6 +105,7 @@
   .md-opc-costo{font-size:12.5px;color:#5c5f52;min-height:1.2em}
   .md-opc-costo b{color:#242423;font-weight:600}
   .md-opc-manual{display:flex;flex-direction:column;gap:6px;cursor:auto}
+  .md-opc.off:has(.md-opc-manual){background:#fff;cursor:auto}
   .md-opc-extra{font-size:11.5px;color:#5c5f52;line-height:1.35}
   .md-opc-res{margin-top:auto;padding-top:8px;border-top:1px solid rgba(26,28,24,.08)}
   .md-opc-precio{font-size:22px;font-weight:700;line-height:1.15;color:#242423;font-variant-numeric:tabular-nums}
@@ -139,15 +140,15 @@
   /* Bloque "Estado" del granel (activo / inactivo / automático): visible para cualquier usuario, fuera de "Ver detalle". */
   .md-activo{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   .md-act-mov{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:#5c5f52}
-  /* ── Modal de Fraccionado en dos tarjetas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): #mDetCaja (izquierda) = configuración
-     del granel (costo, estado, márgenes); #mDetDer (derecha) = precios de las presentaciones y su variación. Cada una con su header y su
-     scroll; #mDetCaja estira a la altura de #mDetPar (tope 90vh) y #mDetDer toma el alto de su contenido (alineada arriba, tope 90vh y scroll
-     propio sólo si lo supera); el overlay se ve en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble')
-     y le gana al max-w-* de Tailwind. Sólo escritorio. */
-  #mDetCaja.md-doble{flex:5 1 0;min-width:0;max-width:36rem}
-  #mDetDer{flex:6 1 0;min-width:0;max-width:44rem;align-self:flex-start;max-height:90vh}
-  #mDetCaja.md-doble .md-opcs{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #mDetCaja.md-doble .md-desglose{grid-template-columns:minmax(0,1fr)}
+  /* ── Modal de Fraccionado en dos tarjetas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): #mDetCaja (izquierda, 7 de cada 10 partes del
+     ancho libre ≈ 70 % de la pantalla) = configuración del granel (costo, estado, márgenes); #mDetDer (derecha, 3 de 10 ≈ 30 %) = precios de las
+     presentaciones y su variación, en lista y sin columnas porque es angosta. Cada una con su header y su scroll; #mDetCaja estira a la altura de
+     #mDetPar (tope 90vh) y #mDetDer toma el alto de su contenido (alineada arriba, tope 90vh y scroll propio sólo si lo supera); el overlay se ve
+     en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble') y le gana al max-w-* de Tailwind. Sólo escritorio. */
+  #mDetCaja.md-doble{flex:7 1 0;min-width:0;max-width:none}
+  #mDetDer{flex:3 1 0;min-width:0;align-self:flex-start;max-height:90vh}
+  .md-fr-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;align-items:start}
+  .md-fr-col{min-width:0}
   .md-fr-sec{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   .md-fr-sec .md-edicion{margin-top:10px;padding-top:0;border-top:0}
   .md-fr-sec .md-edicion + .md-edicion{padding-top:10px;border-top:1px dashed rgba(26,28,24,.16)}
@@ -155,13 +156,26 @@
   .md-fr-detalle > summary{padding:10px 14px}
   .md-fr-detalle .cuerpo{padding:0 14px 14px}
   .md-fr-detalle .ec{padding:.3rem 0}
+  /* Tarjeta de precios: un ítem por presentación (nombre y Δ % arriba, PLU y peso, precios) y sus pack/bulto sangrados debajo. */
   .md-fr-chips{display:flex;flex-wrap:wrap;gap:6px}
-  .md-fr-tabla{margin-top:0}
-  .md-fr-chips + .md-fr-tabla{margin-top:10px}
-  .md-fr-tabla th,.md-fr-tabla td{padding-left:8px;padding-right:8px}
-  .md-fr-tabla th{white-space:nowrap}
-  .md-fr-tabla td:first-child{min-width:10rem}
-  .md-fr-tabla tr.md-min td:first-child .md-sub{display:block}
+  .md-fr-lista{list-style:none;margin:0;padding:0}
+  .md-fr-chips + .md-fr-lista{margin-top:6px}
+  .md-fr-lista > li{padding:3px 2px}
+  .md-fr-lista > li.md-min{padding:8px 2px 7px;border-top:1px solid rgba(26,28,24,.14)}
+  .md-fr-lista > li:first-child{border-top:0}
+  .md-fr-lista > li.md-grp{padding:6px 2px 0 14px;font-size:12.5px;font-weight:600;color:#405936}
+  .md-fr-lista > li.md-grp:first-child{padding-top:2px}
+  .md-fr-lista > li.md-may{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 8px;padding:3px 2px 3px 14px;font-size:13px;color:#3d4136;font-variant-numeric:tabular-nums}
+  .md-fr-iva{flex:none;width:3.6rem}
+  .md-fr-lista > li.md-may .md-fr-res{margin-left:auto}
+  .md-fr-lista > li.md-may .md-chip{margin-left:auto}
+  .md-fr-lista > li.md-may .md-chip + .md-fr-res{flex-basis:100%;text-align:right}
+  .md-fr-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;line-height:1.35}
+  .md-fr-l1 .md-chip,.md-fr-l1 .md-nd{flex:none}
+  .md-fr-l3{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 10px;margin-top:2px;font-variant-numeric:tabular-nums}
+  .md-fr-l3 .md-nuevo{font-weight:700}
+  .md-fr-flecha{margin:0 1px;color:#5c5f52}
+  .md-fr-res{font-size:12px;color:#5c5f52;white-space:nowrap}
   /* Listado de Fraccionado: granel inactivo visible (con "Ver inactivos") atenuado. */
   tr.lst-inactivo>td{opacity:.75}
   /* ── Configuración ─────────────────────────────────────────────────────────────────────────────
