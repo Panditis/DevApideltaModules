@@ -256,6 +256,8 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     assert.strictEqual(g.esGranel, true);
     assert.deepStrictEqual(g.presentaciones, []);              // el granel se sigue planificando como grupo
     assert.strictEqual(g.diasObjetivo, 30);                    // días a cubrir: stock mínimo del modal
+    assert.strictEqual(g.minDiasParaSugerir, CONFIG.minDiasParaSugerir); // regla del sugerido, para el modal
+    assert.strictEqual(typeof g.promPorDiasConVenta, "boolean");
     assert.strictEqual(g.desglose.find(d => d.presentacion === "500G").stockCentral, 10 + 5); // stock central de la presentación (solo minoristas)
     assert.deepStrictEqual(g.desglose.map(d => d.presentacion), ['1Kg', '2Kg', '500G']);
     const d500 = g.desglose.find(d => d.presentacion === '500G');

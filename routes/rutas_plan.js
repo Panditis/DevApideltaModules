@@ -480,7 +480,7 @@ async function calcularSugerenciasCatalogo(params) {
       const pesoKgDe = p => pesoUnidadBase.get(claveBase(p)) ?? null;
       const mayUnidadDe = p => mayUnidadBase.get(claveBase(p)) || [];
       const sinPeso = presFinal.filter(p => (porUnidadG && pesoKgDe(p) === null) || mayUnidadDe(p).some(m => m.pesoKg === null)).map(p => p.presentacion);
-      grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
+      grupos.push({ refId, productoRef: refInfo.productoRef, promPorDiasConVenta: usarPorDia, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
         totalSugerido, esGranel: true, enKg, totalPromMes, totalPend, granelStockGrupo, nombreGranelGrupo, stockSucGrupo,
         plus: plusGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, granelEnUnidades, ventaDiariaUrg: ventaDiariaUrgG, ventasVentana: ventasVentanaG,
         ventasMayoristaVentana: ventasMayoristaVentanaG, ventaDiariaMayorista: ventaDiariaMayoristaG,
@@ -499,7 +499,7 @@ async function calcularSugerenciasCatalogo(params) {
     const totalSugerido = presFinal.reduce((s, p) => s + p.cantSugerida, 0);
     const facturGrupo  = [...refInfo.bases.keys()].reduce((s, base) => s + (facturBase.get(base) || 0), 0);
     const facturMensual = Math.round(facturGrupo * (30 / ventana) * 100) / 100;
-    grupos.push({ refId, productoRef: refInfo.productoRef, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
+    grupos.push({ refId, productoRef: refInfo.productoRef, promPorDiasConVenta: usarPorDia, semaforo: semaforoGrupo, urgenciaScore: urgenciaGrupo,
       totalSugerido, esGranel: false, granelStockGrupo, nombreGranelGrupo, granelId: granelIdGrupo, graneles: granelesGrupo, granelEnUnidades,
       facturacionMensual: facturMensual, presentaciones: presFinal });
   }
@@ -520,6 +520,8 @@ async function calcularSugerenciasCatalogo(params) {
     g.claseABC = clases[i];
     g.ventanaDias = ventana;                                  // para explicar el cálculo en el Resumen
     g.diasObjetivo = diasObj;                                 // días a cubrir: stock mínimo del modal de urgencia
+    g.incidenciaStock = incStock;                             // % del stock central que cuenta en el sugerido
+    g.minDiasParaSugerir = c.minDiasParaSugerir;              // con más días de stock (y sin pendientes) no sugiere
     g.umbralUrgencia = umbralDeClase(g.claseABC, c.urgenciaDias);
     g.sucursalesExcluidas = SUCURSALES_NO_REALES;
     g.excluyeCentral = true; // las ventas de Casa Central no cuentan en este análisis (ver sqlExcluirCentral)

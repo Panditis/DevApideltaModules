@@ -439,11 +439,34 @@ function textoMinimo(d, g, unidad) {
 // Unidad del grupo: kg en granel, salvo que su granel tenga el stock en unidades (granelEnUnidades, solo visual).
 const unidadGrupo = g => (g.esGranel && !g.granelEnUnidades ? 'kg' : 'u');
 
+// Período de las ventas: de hoy − ventana a ayer (la consulta toma v.Fecha < hoy).
+function textoPeriodo(g) {
+  const dia = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.toLocaleDateString('es-AR'); };
+  return `del ${dia(g.ventanaDias)} al ${dia(1)} (${nfAR(g.ventanaDias, 0)} días)`;
+}
+
+// Cuenta del sugerido de una presentación, como la hace el servidor: promedio × días a cubrir − stock central ×
+// incidencia + pendientes; solo si el stock central alcanza para menos de minDiasParaSugerir o hay pendientes.
+function textoSugerido(g, p, unidad) {
+  if (!Number.isFinite(g.diasObjetivo)) return null;
+  const inc = Number.isFinite(g.incidenciaStock) ? g.incidenciaStock : 1;
+  const promedio = g.promPorDiasConVenta
+    ? `<div class="text-sm">Promedio = ventas ÷ días con venta: el granel está sin stock y se toma la venta de los días que hubo (quiebre).</div>`
+    : '';
+  const minDias = g.minDiasParaSugerir;
+  if (Number.isFinite(minDias) && !(p.diasStock < minDias || (p.pendientes || 0) > 0))
+    return `no sugiere: el stock central alcanza para ${nfAR(p.diasStock, 1)} días (≥ ${nfAR(minDias, 0)}) y no hay pendientes${promedio}`;
+  return `${nfAR(p.promDiario || 0, 2)} ${unidad}/día × ${nfAR(g.diasObjetivo, 0)} días − stock central ${nfAR(p.stockActual || 0, 2)} × ${nfAR(inc * 100, 0)} % (${nfAR(p.stockEfectivo ?? (p.stockActual || 0) * inc, 2)})`
+    + ` + pendientes ${nfAR(p.pendientes || 0, 2)} = <strong>${nfAR(p.cantSugerida || 0, 0)} ${unidad}</strong>`
+    + `<div class="text-sm">Redondeado para arriba, nunca negativo.${Number.isFinite(minDias) ? ` Solo sugiere si el stock central cubre menos de ${nfAR(minDias, 0)} días o hay pendientes.` : ''}</div>${promedio}`;
+}
+
 function htmlCalculoPresentacion(g, p) {
   const d = datosUrgencia(g, p), unidad = unidadGrupo(g);
   const excluye = textoExclusiones(g);
   const fila = (etq, valor) => `<tr><td>${etq}</td><td>${valor}</td></tr>`;
   const filas = [
+    fila('Período de datos', `<strong>${textoPeriodo(g)}</strong> <span class="text-sm">(promedio y sugerido salen de este período)</span>`),
     fila('Ventas en la ventana', `${nfAR(d.ventas, 2)} ${unidad} en ${nfAR(g.ventanaDias, 0)} días <span class="text-sm">(${excluye})</span>`),
     fila('Venta minorista (sucursales)', `${nfAR(d.ventas - d.mayorista, 2)} ${unidad} en la ventana · ${nfAR(d.diaria - d.diariaMay, 2)} ${unidad}/día`),
     fila('Venta mayorista (Casa Central a mayoristas)', `${nfAR(d.mayorista, 2)} ${unidad} en la ventana · ${nfAR(d.diariaMay, 2)} ${unidad}/día`),
@@ -454,6 +477,8 @@ function htmlCalculoPresentacion(g, p) {
   ];
   if (d.cobertura !== null) filas.push(fila('Cobertura', `${nfAR(d.total, 2)} ÷ ${nfAR(d.diaria, 2)} = <strong>${fmtDias(d.cobertura)} días</strong>`));
   if (minimoDe(d.diaria, g) !== null) filas.push(fila('Stock mínimo', textoMinimo(d, g, unidad)));
+  const sug = textoSugerido(g, p, unidad);
+  if (sug) filas.push(fila(`Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir)`, sug));
   filas.push(
     fila('Importancia', lineaImportancia(g)),
     fila(`Umbral clase ${escHtml(String(g.claseABC))}`, lineaUmbral(g)),
@@ -498,7 +523,12 @@ function htmlCalculoGrupo(g) {
   const regla = conPeso
     ? `El grupo es <strong>Urgente</strong> si lo urgente suma ≥ ${pct(g.umbralPeso)} % de su ${usarFact ? 'facturación' : 'venta en unidades (sin facturación)'} (acá: ${pct(g.pesoUrgente)} % → ${sino(g.urgencia === 'URGENTE')}). Es <strong>Pronto</strong> si lo urgente y lo pronto suman ≥ ${pct(g.umbralPeso)} % (acá: ${pct(g.pesoUrgentePronto)} % → ${sino(g.urgencia !== 'OK')}).`
     : (peor ? 'El grupo toma la peor: la presentación resaltada.' : 'Sin ventas en la ventana: el grupo no tiene urgencia.');
-  return `<div class="urg-nota">Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)} · ventana de ${nfAR(g.ventanaDias, 0)} días</div>
+  // Sugerido del grupo: granel = promedio mensual ÷ 30 × días a cubrir − stock del granel + pendientes; si no, la suma de sus presentaciones.
+  const conDias = Number.isFinite(g.diasObjetivo);
+  const lineaSugerido = !conDias ? '' : g.esGranel
+    ? `<br>Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir): ${nfAR(g.totalPromMes || 0, 1)} ${unidad}/mes ÷ 30 × ${nfAR(g.diasObjetivo, 0)} − granel ${nfAR(g.granelStockGrupo || 0, 2)} + pendientes ${nfAR(g.totalPend || 0, 2)} = <strong>${nfAR(g.totalSugerido || 0, 0)} ${unidad}</strong>${g.promPorDiasConVenta ? ' <span class="text-sm">(granel sin stock: promedio = ventas ÷ días con venta)</span>' : ''}`
+    : `<br>Sugerido (${nfAR(g.diasObjetivo, 0)} días a cubrir): suma de las presentaciones = <strong>${nfAR(g.totalSugerido || 0, 0)} ${unidad}</strong> <span class="text-sm">(la cuenta de cada una, en su chip)</span>`;
+  return `<div class="urg-nota">Período de datos: <strong>${textoPeriodo(g)}</strong>${lineaSugerido}<br>Importancia: ${lineaImportancia(g)}<br>Umbral clase ${escHtml(String(g.claseABC))}: ${lineaUmbral(g)}</div>
     <table class="urg-tabla urg-grupo"><thead><tr><th>${g.esGranel ? 'Grupo' : 'Presentación'}</th>${conPeso ? `<th class="num">${usarFact ? '% facturación' : '% unidades'}</th>` : ''}<th class="num">Ventas ventana</th><th class="num">Venta mayorista</th><th class="num">Venta diaria</th><th class="num">Stock total</th>${conMin ? `<th class="num">Mínimo (${nfAR(g.diasObjetivo, 0)} d)</th>` : ''}<th class="num">Cobertura</th><th>Nivel</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
     ${g.esGranel ? htmlDesgloseGranel(g, unidad) : ''}

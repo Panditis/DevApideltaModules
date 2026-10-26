@@ -378,7 +378,7 @@ function urgenciaFns() {
   const src = [
     ...['URGENCIA_CHIP', 'nfAR', 'listaY', 'chipUrgencia', 'minimoDe', 'unidadGrupo'].map(constDe),
     ...['escHtml', 'fmtDias', 'datosUrgencia', 'textoResultado', 'textoExclusiones', 'lineaImportancia', 'lineaUmbral',
-      'textoMinimo', 'htmlCalculoPresentacion', 'htmlCalculoGrupo', 'htmlDesgloseGranel'].map(fuenteDe),
+      'textoMinimo', 'textoPeriodo', 'textoSugerido', 'htmlCalculoPresentacion', 'htmlCalculoGrupo', 'htmlDesgloseGranel'].map(fuenteDe),
     'return { htmlCalculoPresentacion, htmlCalculoGrupo };',
   ].join('\n');
   return new Function(src)();
