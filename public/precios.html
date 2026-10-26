@@ -141,10 +141,11 @@
   .md-act-mov{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:#5c5f52}
   /* ── Modal de Fraccionado en dos tarjetas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): #mDetCaja (izquierda) = configuración
      del granel (costo, estado, márgenes); #mDetDer (derecha) = precios de las presentaciones y su variación. Cada una con su header y su
-     scroll; #mDetPar las iguala en altura (stretch, tope 90vh) y el overlay se ve en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble')
+     scroll; #mDetCaja estira a la altura de #mDetPar (tope 90vh) y #mDetDer toma el alto de su contenido (alineada arriba, tope 90vh y scroll
+     propio sólo si lo supera); el overlay se ve en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble')
      y le gana al max-w-* de Tailwind. Sólo escritorio. */
   #mDetCaja.md-doble{flex:5 1 0;min-width:0;max-width:36rem}
-  #mDetDer{flex:6 1 0;min-width:0;max-width:44rem}
+  #mDetDer{flex:6 1 0;min-width:0;max-width:44rem;align-self:flex-start;max-height:90vh}
   #mDetCaja.md-doble .md-opcs{grid-template-columns:repeat(2,minmax(0,1fr))}
   #mDetCaja.md-doble .md-desglose{grid-template-columns:minmax(0,1fr)}
   .md-fr-sec{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
@@ -665,7 +666,7 @@
 
 <!-- Modal compartido (abrirModal/cerrarDetalle de /js/precios_comun.js): lo llenan el modal del esquema y Producción. -->
 <div id="mDet" class="hidden fixed inset-0 z-50 items-end sm:items-center justify-center bg-ink/40 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="mDetTitulo">
-  <!-- #mDetPar: una o dos tarjetas lado a lado, a la misma altura. #mDetDer (precios de las presentaciones) sólo se muestra con abrirModal(…, 'doble'). -->
+  <!-- #mDetPar: una o dos tarjetas lado a lado; #mDetCaja estira a la más alta y #mDetDer (precios de las presentaciones) toma su propio alto, alineada arriba. #mDetDer sólo se muestra con abrirModal(…, 'doble'). -->
   <div id="mDetPar" class="flex w-full justify-center items-stretch gap-5 max-h-[94vh] sm:max-h-[90vh]">
     <div id="mDetCaja" tabindex="-1" class="fade-in bg-card rounded-t-xl sm:rounded-xl shadow-fluent w-full max-w-2xl flex flex-col">
       <div class="px-5 pt-4 pb-2 flex items-start gap-3">
