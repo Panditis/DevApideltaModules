@@ -531,7 +531,7 @@ test('listado Fraccionado: la presentación suma los insumos de su peso + la MO 
     assert.deepStrictEqual(det.presentaciones[0].componentesCosto.map(l => [l.plu, l.rol, l.importe]),
       [['50', 'granel', 5000], ['300', 'insumo', 330.58], ['_manoObra', 'mo', 100]]);
     const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
-    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [['sinTiempo', 'sinFacilidad', 'sinMaquina'], undefined]);
+    assert.deepStrictEqual([g.avisosCosto, g.presentaciones[0].componentesCosto], [['sinFacilidad', 'sinMaquina'], undefined]);
   } finally { a.cerrar(); }
 });
 

@@ -21,10 +21,10 @@ test('validarMaquinas / usosMaquinas: no deja sacar una máquina que usa un subr
   assert.throws(() => CF.validarMaquinas({ maquinas: [] }, prev), /Envasadora la usan 2 subrubros y 1 granel/);
 });
 
-test('validarEscalas: 3 factores de facilidad y 3 de tiempo, > 0 y hasta 10', () => {
-  const escalas = { facilidad: { facil: 1, normal: 1.2, dificil: 2 }, tiempo: { rapido: 0.5, normal: 1, lento: 2 } };
+test('validarEscalas: 3 factores de facilidad, > 0 y hasta 10; el tiempo (sacado) se ignora', () => {
+  const escalas = { facilidad: { facil: 1, normal: 1.2, dificil: 2 } };
   assert.deepStrictEqual(CF.validarEscalas({ escalas }), { escalas });
-  assert.throws(() => CF.validarEscalas({ escalas: { ...escalas, tiempo: { rapido: 0, normal: 1, lento: 1 } } }), /escalas\.tiempo\.rapido/);
+  assert.deepStrictEqual(CF.validarEscalas({ escalas: { ...escalas, tiempo: { rapido: 0, normal: 1, lento: 1 } } }), { escalas });
   assert.throws(() => CF.validarEscalas({ escalas: { ...escalas, facilidad: { facil: 1, normal: 'x', dificil: 1 } } }), /escalas\.facilidad\.normal/);
   assert.throws(() => CF.validarEscalas({}), /escalas\.facilidad\.facil/);
 });
@@ -49,14 +49,15 @@ test('aplicarGranel: excepción de máquina del granel; null la saca', () => {
   assert.throws(() => CF.aplicarGranel({}, '100', null, MAQ), /objeto/);
 });
 
-test('aplicarSubrubro: facilidad y tiempo del subrubro (válidos o null); sólo facilidad / tiempo también es una entrada', () => {
+test('aplicarSubrubro: facilidad del subrubro (válida o null); sólo facilidad también es una entrada; el tiempo (sacado) se ignora', () => {
   const s = CF.aplicarSubrubro({}, '7', { maquinaId: 'env', tramos: [], facilidad: 'dificil', tiempo: 'lento' }, MAQ);
-  assert.deepStrictEqual(s, { 7: { maquinaId: 'env', tramos: [], facilidad: 'dificil', tiempo: 'lento' } });
+  assert.deepStrictEqual(s, { 7: { maquinaId: 'env', tramos: [], facilidad: 'dificil' } });
   assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [], facilidad: 'facil', tiempo: null }, MAQ),
     { 7: { maquinaId: null, tramos: [], facilidad: 'facil' } });
   assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [], facilidad: null }, MAQ), {});
   assert.throws(() => CF.aplicarSubrubro({}, '7', { facilidad: 'medio' }, MAQ), /facilidad/);
-  assert.throws(() => CF.aplicarSubrubro({}, '7', { tiempo: 'x' }, MAQ), /tiempo/);
+  assert.deepStrictEqual(CF.aplicarSubrubro(s, '7', { maquinaId: null, tramos: [], tiempo: 'lento' }, MAQ), {}); // sólo tiempo = vacío
+  assert.deepStrictEqual(CF.aplicarSubrubro({}, '7', { tiempo: 'x' }, MAQ), {});
   assert.strictEqual(s[7].facilidad, 'dificil'); // no muta
 });
 
@@ -81,14 +82,16 @@ test('insumosConCosto: nombre y costo (en su tab) de cada insumo; sin fila en SI
     { 500: [{ plu: '900', cantidad: 1, nombre: 'Bolsa', costo: 20 }, { plu: '901', cantidad: 2, nombre: null, costo: null }] });
 });
 
-test('fraccionadoConCambios: escribe la forma nueva (sin claves viejas) sin perder los datos viejos', () => {
+test('fraccionadoConCambios: escribe la forma nueva (sin claves viejas ni el tiempo de escalas / subrubros) sin perder los datos viejos', () => {
   const viejo = { costoHora: 6000, ivaVentaPct: 21, facilidades: { facil: 1, medio: 1.3, dificil: 2 }, tiempos: [{ hastaG: 500, minutos: 1 }],
+    escalas: { tiempo: { rapido: 0.5, normal: 1, lento: 2 } }, subrubros: { 7: { maquinaId: null, tramos: [], facilidad: 'facil', tiempo: 'lento' } },
     insumosSubrubro: {}, insumosPresentacion: { 101: [{ plu: '900', cantidad: 1 }] }, presentaciones: { 101: { facilidad: 'facil' } },
     porGranel: { 100: { facilidad: 'medio', maquinaId: 'env' } }, maquinas: MAQ, insumosPorPeso: { 500: [{ plu: '900', cantidad: 1 }] } };
   const f = CF.fraccionadoConCambios(viejo, { maquinas: [] });
   assert.deepStrictEqual(Object.keys(f).sort(), ['costoHora', 'escalas', 'insumosPorPeso', 'ivaVentaPct', 'maquinas', 'porGranel', 'subrubros']);
   assert.deepStrictEqual([f.maquinas, f.escalas.facilidad.normal, f.insumosPorPeso, f.porGranel, f.ivaVentaPct],
     [[], 1.3, { 500: [{ plu: '900', cantidad: 1 }] }, { 100: { maquinaId: 'env' } }, 21]);
+  assert.deepStrictEqual([Object.keys(f.escalas), f.subrubros], [['facilidad'], { 7: { maquinaId: null, tramos: [], facilidad: 'facil' } }]);
 });
 
 test('productosPorSubrubro: graneles con sus presentaciones (y su peso) por subrubro (A→Z), los sin subrubro aparte y los pesos', () => {

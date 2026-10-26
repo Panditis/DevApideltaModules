@@ -71,21 +71,21 @@ test('máquinas: alta, en un subrubro y como excepción de un granel; no se borr
   } finally { a.cerrar(); }
 });
 
-test('escalas: se guardan validadas', async () => {
+test('escalas: se guardan validadas (sólo facilidad; el tiempo se ignora)', async () => {
   const a = appCon({ fraccionado: FRACC });
   try {
-    const escalas = { facilidad: { facil: 1, normal: 1.2, dificil: 2 }, tiempo: { rapido: 0.5, normal: 1, lento: 2 } };
-    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/escalas`, { escalas })).escalas, escalas);
-    assert.match((await a.pedir('PUT', `${BASE}/escalas`, { escalas: { ...escalas, tiempo: { rapido: 0, normal: 1, lento: 1 } } })).error, /tiempo\.rapido/);
+    const escalas = { facilidad: { facil: 1, normal: 1.2, dificil: 2 } };
+    assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/escalas`, { escalas: { ...escalas, tiempo: { rapido: 0, normal: 1, lento: 1 } } })).escalas, escalas);
+    assert.match((await a.pedir('PUT', `${BASE}/escalas`, { escalas: { facilidad: { ...escalas.facilidad, facil: 0 } } })).error, /facilidad\.facil/);
     assert.deepStrictEqual(a.leer().fraccionado.escalas, escalas);
   } finally { a.cerrar(); }
 });
 
-test('subrubros: facilidad y tiempo se guardan con la máquina y los tramos; inválidos → error', async () => {
+test('subrubros: la facilidad se guarda con la máquina y los tramos (el tiempo se ignora); inválida → error', async () => {
   const a = appCon({ fraccionado: FRACC });
   try {
     const s = await a.pedir('PUT', `${BASE}/subrubros/7`, { maquinaId: null, tramos: [], facilidad: 'dificil', tiempo: 'rapido' });
-    assert.deepStrictEqual(s.subrubros, { 7: { maquinaId: null, tramos: [], facilidad: 'dificil', tiempo: 'rapido' } });
+    assert.deepStrictEqual(s.subrubros, { 7: { maquinaId: null, tramos: [], facilidad: 'dificil' } });
     assert.match((await a.pedir('PUT', `${BASE}/subrubros/7`, { facilidad: 'medio' })).error, /facilidad/);
     assert.deepStrictEqual((await a.pedir('PUT', `${BASE}/subrubros/7`, { maquinaId: null, tramos: [], facilidad: null, tiempo: null })).subrubros, {});
   } finally { a.cerrar(); }

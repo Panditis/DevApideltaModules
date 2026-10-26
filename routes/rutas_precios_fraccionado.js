@@ -9,8 +9,8 @@ const FC = require('../lib/precios_fraccionado_costo');
 const CF = require('../lib/precios_config_fraccionado');
 
 // ── Precios · costeo de Fraccionado (spec 2026-10-21-precios-fraccionado-costeo-design §9; 2026-10-23-…-peso-subrubro §4) ──
-// Todo bajo /api/precios/config/ (permiso precios-config por RUTAS_CONFIG): máquinas, escalas de facilidad y tiempo, máquina +
-// tramos + facilidad + tiempo por subrubro, la excepción de máquina por granel y los insumos por peso. Escribe sólo dentro de
+// Todo bajo /api/precios/config/ (permiso precios-config por RUTAS_CONFIG): máquinas, escala de facilidad, máquina +
+// tramos + facilidad por subrubro, la excepción de máquina por granel y los insumos por peso. Escribe sólo dentro de
 // costeo.fraccionado (lo crea scripts/migrar_config_fraccionado.js), siempre con la forma nueva (CF.fraccionadoConCambios).
 const BASE = '/api/precios/config/esquema/fraccionado';
 
