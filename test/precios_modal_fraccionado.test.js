@@ -108,3 +108,134 @@ test('textoGuardadoActivoMd: cómo quedó el granel; inactivo avisa que el lista
   assert.strictEqual(textoGuardadoActivoMd({ activoManual: true, activo: true }), 'Guardado · fijado a mano: activo.');
   assert.match(textoGuardadoActivoMd({ activoManual: false, activo: false }), /^Guardado · fijado a mano: inactivo, el listado lo oculta salvo con "Ver inactivos"\.$/);
 });
+
+// ── Columna derecha del modal de Fraccionado: precios de las presentaciones y su variación ──
+const L = require('../lib/precios_listado_esquema');
+const { CFG } = require('./precios_esquema_fixture');
+const { deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd,
+  subtituloPreciosFraccMd, htmlPreciosFraccMd } = require('../public/js/precios_modal_fraccionado.js');
+
+// Granel con tres presentaciones (250G sin vigente, 500G igual al vigente con un bulto vinculado, 1Kg que sube) → fila como la manda el detalle.
+const granelPrecios = ({ vigentes, decision } = {}) => {
+  const vinculos = [{ plu: '201', nombre: 'Almendras Bulto x6', basePlu: '101', cantidad: 6, tipo: 'bulto' }];
+  const v = vigentes || new Map([['101', 1950], ['102', 1500], ['201', 9000]]);
+  const [g] = L.listadoFraccionado({
+    grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }, { plu: '103', nombre: 'Almendras 250G' }] }],
+    costos: new Map([['100', { costoSistema: 1000 }]]), vigentes: v, mayoristasDe: L.crearMayoristasDe({ vinculos, vigentes: v }), costeo: {}, cfg: CFG,
+  });
+  return { ...L.filaPublica(g), ...(decision ? { decision } : {}) };
+};
+
+test('deltaPesosMd: sugerido − vigente en $ (2 decimales); sin alguno de los dos → null', () => {
+  assert.strictEqual(deltaPesosMd(1500, 1800), 300);
+  assert.strictEqual(deltaPesosMd(1950, 1950), 0);
+  assert.strictEqual(deltaPesosMd(1800, 1500), -300);
+  assert.strictEqual(deltaPesosMd(1000.1, 1000.35), 0.25); // sin ruido de punto flotante
+  assert.deepStrictEqual([deltaPesosMd(null, 1800), deltaPesosMd(1500, null), deltaPesosMd(undefined, undefined)], [null, null, null]);
+});
+
+test('textoDeltaPesosMd: signo explícito, enteros sin decimales, centavos con dos; 0 sin signo; null → "—"', () => {
+  assert.strictEqual(textoDeltaPesosMd(300), '+$ 300');
+  assert.strictEqual(textoDeltaPesosMd(-7460), '-$ 7.460');
+  assert.strictEqual(textoDeltaPesosMd(0.25), '+$ 0,25');
+  assert.strictEqual(textoDeltaPesosMd(0), '$ 0');
+  assert.strictEqual(textoDeltaPesosMd(null), '—');
+});
+
+test('textoPesoMd: gramos hasta 999, kg desde 1000 (con coma decimal); sin peso → vacío', () => {
+  assert.deepStrictEqual([250, 500, 999, 1000, 1500, 2000].map(textoPesoMd), ['250 g', '500 g', '999 g', '1 kg', '1,5 kg', '2 kg']);
+  assert.deepStrictEqual([null, undefined, 0].map(textoPesoMd), ['', '', '']);
+});
+
+test('filasPreciosFraccMd: filas por canal con el peso de la presentación y el Δ $ (sólo donde hay vigente y sugerido)', () => {
+  const filas = filasPreciosFraccMd(granelPrecios(), 'sistema');
+  assert.deepStrictEqual(filas.map(r => [r.canal, r.plu, r.pesoG ?? null, r.vigente, r.sugerido, r.deltaPesos, r.deltaPct]), [
+    ['Minorista · Almendras 250G', '103', 250, null, 1950, null, null],       // sin vigente: sin Δ
+    ['Minorista · Almendras 500G', '101', 500, 1950, 1950, 0, 0],
+    ['Bulto sin IVA', '201', null, 9000, 1540, -7460, -82.9],                 // el Δ vs vigente va en la fila sin IVA
+    ['Bulto con IVA', '201', null, null, 1850, null, null],                   // con IVA no tiene vigente: sin Δ
+    ['Minorista · Almendras 1Kg', '102', 1000, 1500, 1800, 300, 20]]);
+});
+
+test('filasPreciosFraccMd: fuente sin costo → sin sugeridos ni Δ $; no muta la fila del server', () => {
+  const g = granelPrecios();
+  const antes = JSON.stringify(g);
+  const filas = filasPreciosFraccMd(g, 'ultimaCompra');
+  assert.ok(filas.every(r => r.sugerido == null && r.deltaPesos == null));
+  assert.strictEqual(JSON.stringify(g), antes);
+});
+
+test('resumenVariacionFraccMd: cuenta presentaciones por semáforo; sin vigente y sin precio aparte; los pack/bulto no cuentan', () => {
+  const r = resumenVariacionFraccMd(filasPreciosFraccMd(granelPrecios(), 'sistema'));
+  assert.deepStrictEqual(r, { n: 3, suben: 1, bajan: 0, iguales: 1, sinVigente: 1, sinPrecio: 0 });
+  const sinCosto = resumenVariacionFraccMd(filasPreciosFraccMd(granelPrecios(), 'ultimaCompra'));
+  assert.deepStrictEqual([sinCosto.n, sinCosto.sinPrecio, sinCosto.suben], [3, 3, 0]);
+  assert.deepStrictEqual(resumenVariacionFraccMd([]), { n: 0, suben: 0, bajan: 0, iguales: 0, sinVigente: 0, sinPrecio: 0 });
+});
+
+test('chipsVariacionFraccMd: un chip por grupo no vacío, en orden subir / bajar / sin cambio / sin vigente / sin precio', () => {
+  assert.deepStrictEqual(chipsVariacionFraccMd({ n: 5, suben: 2, bajan: 1, iguales: 0, sinVigente: 1, sinPrecio: 1 }), [
+    { estado: 'subir', texto: '2 para subir' }, { estado: 'bajar', texto: '1 para bajar' },
+    { estado: 'nd', texto: '1 sin vigente' }, { estado: 'nd', texto: '1 sin precio' }]);
+  assert.deepStrictEqual(chipsVariacionFraccMd({ n: 1, suben: 0, bajan: 0, iguales: 1, sinVigente: 0, sinPrecio: 0 }), [{ estado: 'ok', texto: '1 sin cambio' }]);
+  assert.deepStrictEqual(chipsVariacionFraccMd({ n: 0, suben: 0, bajan: 0, iguales: 0, sinVigente: 0, sinPrecio: 0 }), []);
+});
+
+test('subtituloPreciosFraccMd: "por kg" y con qué costo se calculó (sin decisión: costo sistema, para comparar)', () => {
+  assert.strictEqual(subtituloPreciosFraccMd(granelPrecios(), 'sistema'), 'por kg · con costo sistema, para comparar');
+  assert.strictEqual(subtituloPreciosFraccMd(granelPrecios({ decision: { fuente: 'ultimaCompra' } }), 'ultimaCompra'), 'por kg · con última compra');
+});
+
+test('htmlPreciosFraccMd: tabla con Vigente / Sugerido / Δ $ / Δ % por presentación, peso, PLU y color de suba/baja del listado', () => {
+  const html = htmlPreciosFraccMd(granelPrecios(), 'sistema');
+  for (const t of ['Presentación', 'Vigente', 'Sugerido', 'Δ \\$', 'Δ %', 'Margen total']) assert.match(html, new RegExp(`<th[^>]*>${t}</th>`));
+  const fila = plu => html.match(new RegExp(`<tr class="md-min">(?:(?!</tr>).)*PLU ${plu}(?:(?!</tr>).)*</tr>`))[0];
+  const kilo = fila('102');
+  assert.match(kilo, /<b>Almendras 1Kg<\/b>/);
+  assert.match(kilo, /PLU 102 · 1 kg/);
+  assert.match(kilo, /\$ 1\.500/);                                              // vigente
+  assert.match(kilo, /\$ 1\.800/);                                              // sugerido
+  assert.match(kilo, /<span class="font-semibold text-crit">\+\$ 300<\/span>/);  // Δ $ sube (claseDelta del listado)
+  assert.match(kilo, /<span class="font-semibold text-crit">\+20\.0%<\/span>/);  // Δ %
+  const igual = fila('101');
+  assert.match(igual, /<span class="text-gris">\$ 0<\/span>/);
+  assert.match(igual, /<span class="text-gris">0\.0%<\/span>/);
+  const sinVig = fila('103');
+  assert.match(sinVig, /PLU 103 · 250 g/);
+  assert.doesNotMatch(sinVig, /text-crit|text-warn/);                          // sin vigente no hay semáforo
+});
+
+test('htmlPreciosFraccMd: pack/bulto de la presentación agrupados (sin IVA con Δ, con IVA sin Δ); baja en color de baja', () => {
+  const html = htmlPreciosFraccMd(granelPrecios(), 'sistema');
+  const grupo = html.match(/<tr class="md-grp">(?:(?!<\/tr>).)*Bulto(?:(?!<\/tr>).)*<\/tr>/)[0];
+  assert.match(grupo, /PLU 201 · Almendras Bulto x6 · × 1/);
+  const sinIva = html.match(/<tr class="md-may"><td>Sin IVA<\/td>.*?<\/tr>/)[0];
+  assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 7\.460<\/span>/);
+  assert.match(sinIva, /<span class="font-semibold text-warn">-82\.9%<\/span>/);
+  const conIva = html.match(/<tr class="md-may"><td>Con IVA<\/td>.*?<\/tr>/)[0];
+  assert.match(conIva, /\$ 1\.850/);
+  assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris/);                // sin vigente ni Δ
+});
+
+test('htmlPreciosFraccMd: encabezado con el costo usado, resumen de variación y las filas escapadas', () => {
+  const html = htmlPreciosFraccMd(granelPrecios({ decision: { fuente: 'sistema' } }), 'sistema');
+  assert.match(html, /Precios de las presentaciones/);
+  assert.match(html, /por kg · con costo sistema/);
+  assert.doesNotMatch(html, /para comparar/);
+  assert.match(html, /<span class="pr-sem sem-subir">1 para subir<\/span>/);
+  assert.match(html, /<span class="pr-sem sem-ok">1 sin cambio<\/span>/);
+  assert.match(html, /<span class="md-chip-0">1 sin vigente<\/span>/);
+  const g = granelPrecios();
+  const mala = { ...g, presentaciones: g.presentaciones.map((p, i) => (i === 0 ? { ...p, nombre: 'Pres <img src=x>' } : p)) };
+  assert.doesNotMatch(htmlPreciosFraccMd(mala, 'sistema'), /<img/);
+  assert.match(htmlPreciosFraccMd(mala, 'sistema'), /Pres &lt;img src=x&gt;/);
+});
+
+test('htmlPreciosFraccMd: sin sugerido (error del motor) → "—", sin Δ; sin presentaciones ni canales → mensaje vacío', () => {
+  const html = htmlPreciosFraccMd(granelPrecios(), 'ultimaCompra');
+  assert.doesNotMatch(html, /text-crit|text-warn/);
+  assert.match(html, /<span class="md-chip-0">3 sin precio<\/span>/);
+  const vacia = htmlPreciosFraccMd({ plu: '100', nombre: 'Granel', presentaciones: [], mayoristas: [], sugeridos: {} }, 'sistema');
+  assert.match(vacia, /<p class="empty">Sin precios para mostrar\.<\/p>/);
+  assert.doesNotMatch(vacia, /<table/);
+});

@@ -3,21 +3,23 @@
 // costo (radios reales: No cambiar / Costo sistema / Última compra / Costo manual; Producción: No cambiar / Aumentar)
 // que GUARDAN la decisión al elegir. Debajo, la tabla por canal (vigente, nuevo, Δ%, margen total) del costo elegido.
 // "Ver detalle" sólo existe con el permiso precios-config (y sólo entonces el server manda desglose y costos extra):
-// desglose por canal + costo manual + costos extra + venta de pesables. Globales: el modal compartido #mDet (abrirModal,
+// desglose por canal + costo manual + costos extra + venta de pesables. Fraccionado arma su propio layout a dos columnas
+// (pintarModalFraccionadoMd, precios_modal_fraccionado.js: configuración del granel a la izquierda, precios de las
+// presentaciones y su variación a la derecha) con estas mismas piezas. Globales: el modal compartido #mDet (abrirModal,
 // cerrarDetalle) y formato/pedidos de precios_comun.js; de precios_listados.js: guardarDecision, renderListado,
 // cargarListado; de precios_config.js: activarTab; de precios_produccion.js: salirDeProduccion, refrescarAlertasProduccion.
 const TIPO_CANAL = { pack: 'Pack', bulto: 'Bulto' };
 
 // Filas de la tabla por canal para una fuente. Fraccionado: una fila minorista por presentación ($/kg); el granel sólo
 // aporta sus pack/bulto. Pack/bulto: sin IVA (contra el vigente: SIGA lo guarda sin IVA) y con IVA (sin vigente ni Δ).
-// tipo = 'minorista' | 'pack' | 'bulto'; conIva = null en minorista.
+// tipo = 'minorista' | 'pack' | 'bulto'; conIva = null en minorista; pesoG = gramos de la presentación (null sin peso).
 function filasCanales(fila, fuente) {
   const filas = [];
   const sumar = (f, etiqueta) => {
     const s = (f.sugeridos || {})[fuente];
     const ok = s && !s.error ? s : null;
     if (etiqueta) {
-      filas.push({ canal: etiqueta, tipo: 'minorista', conIva: null, plu: f.plu, nombre: f.nombre, vigente: f.vigente ?? null,
+      filas.push({ canal: etiqueta, tipo: 'minorista', conIva: null, plu: f.plu, nombre: f.nombre, pesoG: f.pesoG ?? null, vigente: f.vigente ?? null,
         sugerido: ok ? ok.minorista.precio : null, deltaPct: ok ? ok.minorista.deltaPct : null, estado: ok ? ok.minorista.estado : null,
         margenTotalPct: ok ? ok.minorista.margenTotalPct : null });
     }
@@ -97,6 +99,12 @@ function errorMotor(fila) {
   return null;
 }
 
+// Porcentaje con coma y hasta 2 decimales ("35,5 %") y avisos de un canal pack/bulto (sin unidades vinculadas, o vigente de SIGA
+// que parece estar en otra unidad). Los usan la tabla por canal y la columna de precios de Fraccionado.
+const pctMd = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
+const avisosCanalMd = r => (r.faltante === 'unidades' ? ' <span class="md-warn">sin unidades</span>' : '')
+  + (r.revisarUnidad ? ' <span class="md-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
+
 // Estado de la decisión para el encabezado y el aviso de guardado: { exporta, texto }.
 function estadoDecision(fila, tipo) {
   if (!fila.decision) return { exporta: false, texto: 'Sin cambios · no se exporta' };
@@ -167,7 +175,7 @@ function igualarSigaMd(fila, tipo, fuente) {
   return { valores, notas, motivo: null, fuente: usada };
 }
 
-if (typeof module === 'object' && module.exports) module.exports = { filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
+if (typeof module === 'object' && module.exports) module.exports = { TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales, ventaPayload, opcionesCosto, opcionesSelect, errorMotor, estadoDecision, conceptosCosto, pasosAjusteMd, generalesCanalMd, igualarSigaMd };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 let mdEsq = null;          // { tipo, fila } tal como vino del detalle
@@ -177,7 +185,6 @@ let mdMpModo = 'fijo';     // modo del bloque "Margen de este producto": el guar
 
 const TXT_TIPO_MD = { almacen: 'Reventa', fraccionado: 'Fraccionado', produccion: 'Producción' };
 const fmtSug = n => (Number.isInteger(n) ? fmtPrecio(n) : fmtMoney(n));
-const pctMd = n => `${String(+(+n).toFixed(2)).replace('.', ',')} %`;
 const pesosMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${fmtSug(n)}`);
 // Chip de Δ% contra el vigente: flecha por el signo, color por el semáforo (fuera de tolerancia = subir/bajar).
 function chipDelta(deltaPct, estado, sufijo = '') {
@@ -187,7 +194,7 @@ function chipDelta(deltaPct, estado, sufijo = '') {
 }
 
 async function abrirModalEsquema(tipo, plu, { detalle = false } = {}) {
-  abrirModal('Cargando…', true); // precios_comun.js
+  abrirModal('Cargando…', tipo === 'fraccionado' ? 'doble' : true); // precios_comun.js (Fraccionado: dos columnas)
   try {
     const fila = await (await fetch(`/api/precios/esquema/detalle/${encodeURIComponent(plu)}?tipo=${encodeURIComponent(tipo)}`)).json();
     if (fila.error) throw new Error(fila.error);
@@ -274,7 +281,7 @@ function htmlOpcionesCosto(f, ops) {
 
 // Reventa: la tarjeta "Costo manual" (siempre está) trae el campo para cargarlo (cualquier usuario del módulo). "Usar"
 // guarda el costo y elige la decisión 'manual'; "Quitar" lo borra (el server limpia la decisión manual). Los controles
-// dentro del <label> no marcan el radio (son contenido interactivo). Fraccionado lo sigue cargando en "Ver detalle".
+// dentro del <label> no marcan el radio (son contenido interactivo). Fraccionado lo carga en "Costo del granel" (columna izquierda).
 const htmlManualDecMd = f => `<span class="md-opc-manual">
     ${campoU(`<input id="mdManualDec" type="number" min="0" step="any" value="${esc(f.costoManual ?? '')}" aria-label="Costo manual">`, '$', { pre: true, w: 'w-full' })}
     <span class="flex items-center gap-2"><button type="button" id="mdManualUsar" class="cfg-btn2">Usar</button>
@@ -337,24 +344,21 @@ function conectarTipoProveedorMd() {
   });
 }
 
-// Tabla por canal: minorista arriba (Fraccionado: una por presentación) y cada pack/bulto agrupado bajo su PLU y nombre.
+// Tabla por canal: minorista arriba y cada pack/bulto agrupado bajo su PLU y nombre. (Fraccionado no pasa por acá: tiene su
+// propia columna de precios por presentación, htmlPreciosFraccMd en precios_modal_fraccionado.js.)
 function htmlTablaCanales(f) {
   const filas = filasCanales(f, mdFuente);
   if (!filas.length) return '<p class="text-gris mt-3">Sin canales para mostrar.</p>';
-  const fracc = Array.isArray(f.presentaciones);
-  const avisos = r => (r.faltante === 'unidades' ? ' <span class="md-warn">sin unidades</span>' : '')
-    + (r.revisarUnidad ? ' <span class="md-warn" title="El vigente de SIGA parece estar en otra unidad">revisar unidad</span>' : '');
   const celdas = r => `<td class="num">${pesosMd(r.vigente)}</td><td class="num md-nuevo">${pesosMd(r.sugerido)}</td>
     <td class="num">${r.conIva === true ? '' : chipDelta(r.deltaPct, r.estado)}</td>
     <td class="num">${r.margenTotalPct == null ? '<span class="md-nd">—</span>' : pctMd(r.margenTotalPct)}</td>`;
-  let previo = null, conMinorista = false; // Fraccionado: los pack/bulto antes de la primera presentación son del granel
+  let previo = null;
   const cuerpo = filas.map(r => {
     if (r.tipo === 'minorista') {
-      previo = null; conMinorista = true;
-      const t = fracc ? `<b>${esc(r.nombre)}</b> <span class="md-sub">PLU ${esc(r.plu)} · por kg</span>` : `<b>Minorista</b> <span class="md-sub">PLU ${esc(r.plu)}</span>`;
-      return `<tr class="md-min"><td>${t}</td>${celdas(r)}</tr>`;
+      previo = null;
+      return `<tr class="md-min"><td><b>Minorista</b> <span class="md-sub">PLU ${esc(r.plu)}</span></td>${celdas(r)}</tr>`;
     }
-    const cab = r.plu !== previo ? `<tr class="md-grp"><td colspan="5">${fracc && !conMinorista ? 'Granel · ' : ''}${esc(TIPO_CANAL[r.tipo] || r.tipo)} <span class="md-sub">PLU ${esc(r.plu)} · ${esc(r.nombre || '')}${r.unidades ? ` · × ${esc(r.unidades)}` : ''}</span>${avisos(r)}</td></tr>` : '';
+    const cab = r.plu !== previo ? `<tr class="md-grp"><td colspan="5">${esc(TIPO_CANAL[r.tipo] || r.tipo)} <span class="md-sub">PLU ${esc(r.plu)} · ${esc(r.nombre || '')}${r.unidades ? ` · × ${esc(r.unidades)}` : ''}</span>${avisosCanalMd(r)}</td></tr>` : '';
     previo = r.plu;
     return `${cab}<tr class="md-may"><td>${r.conIva ? 'Con IVA' : 'Sin IVA'}</td>${celdas(r)}</tr>`;
   }).join('');
@@ -528,14 +532,15 @@ function htmlVerDetalle(f) {
   if (preciosSinConfig) return '';
   return `<div class="md-det"><button type="button" id="mdVerDetalle" class="md-det-btn" aria-expanded="${mdDetalle}" aria-controls="mdDetCuerpo">
       <span class="md-caret" aria-hidden="true">▸</span>Ver detalle del cálculo y editar costos</button>
-    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${mdEsq.tipo === 'fraccionado' ? htmlCosteoFraccMd(f) : ''}${htmlEdicionCostos(f)}</div></div>`;
+    <div id="mdDetCuerpo"${mdDetalle ? '' : ' hidden'}>${htmlDesgloseEsq(f)}${htmlEdicionCostos(f)}</div></div>`;
 }
 
 function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
+  if (tipo === 'fraccionado') return pintarModalFraccionadoMd(); // dos columnas (precios_modal_fraccionado.js)
   const ops = opcionesCosto(f, tipo, { manualSiempre: tipo === 'almacen' });
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlTipoProveedorMd(f)}
-    ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${tipo === 'fraccionado' ? htmlEstadoActivoMd(f) : ''}${htmlVerDetalle(f)}`; // htmlEstadoActivoMd (precios_modal_fraccionado.js): para cualquier usuario
+    ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
   conectarModalEsquema();
 }
 
@@ -597,7 +602,7 @@ function conectarModalEsquema() {
   conectarManualDecMd();
   conectarMargenProductoMd();
   conectarTipoProveedorMd();
-  if (mdEsq.tipo === 'fraccionado') { conectarCosteoFraccMd(); conectarEstadoActivoMd(); } // precios_modal_fraccionado.js
+  if (mdEsq.tipo === 'fraccionado') conectarModalFraccionadoMd(); // precios_modal_fraccionado.js
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal

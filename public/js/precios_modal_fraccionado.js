@@ -1,15 +1,24 @@
-// ── Precios · modal de Fraccionado: costo real por presentación y máquina del granel (spec 2026-10-21-precios-fraccionado-costeo-design §9.3) ──
-// Script clásico después de precios_modal_esquema.js y precios_config_fraccionado.js. Va dentro de "Ver detalle" (sólo con
-// precios-config): htmlVerDetalle llama a htmlCosteoFraccMd y conectarModalEsquema a conectarCosteoFraccMd. La facilidad y
-// el tiempo son los del subrubro del granel y los insumos los del peso de la presentación (Configuración › Costeo Fraccionado,
-// precios_config_fraccionado.js): acá se ven. Globales: esc, fmtMoney (precios_comun.js), mdEsq, mdFuente, guardarCostoEsq,
-// htmlPasos (precios_modal_esquema.js), API_FR (precios_config_fraccionado.js), getJson (precios_produccion.js).
-// Además el bloque "Estado" del granel (activo / inactivo / automático, spec 2026-10-26 §4): va FUERA de "Ver detalle", visible
-// para cualquier usuario de Precios (pintarModalEsquema llama a htmlEstadoActivoMd, conectarModalEsquema a conectarEstadoActivoMd).
-// Globales de ese bloque: guardarActivoManual, conActivoManual, renderListado (precios_listados.js).
-const ESC_FR_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js').esc : esc;
-const FECHA_FR_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js').fmtFechaPrecio : fmtFechaPrecio;
-const ACT_FR_MD = typeof module === 'object' && module.exports ? require('./precios_listados.js') : { textoMotivosActividad };
+// ── Precios · modal de Fraccionado: layout a dos columnas, costo real por presentación y máquina del granel (spec 2026-10-21-precios-fraccionado-costeo-design §9.3) ──
+// Script clásico después de precios_modal_esquema.js y precios_config_fraccionado.js. pintarModalEsquema le deja el pintado
+// (pintarModalFraccionadoMd) y conectarModalEsquema lo conecta (conectarModalFraccionadoMd). Dos columnas:
+//  · izquierda = configuración del granel: costo elegido (tarjetas), costo del granel (costo manual, costos extra, máquina), cómo
+//    se conforma el costo y el precio por presentación (mercadería + insumos + mano de obra + máquina), margen del producto y
+//    estado. Todo salvo las tarjetas y el estado va sólo con precios-config (sin él el server no manda el desglose ni los extras).
+//  · derecha = precios de las presentaciones (htmlPreciosFraccMd): vigente, sugerido con la fuente elegida, Δ $ y Δ %, por canal.
+// Elegir un costo o guardar un margen repinta el modal entero (guardarOpcionMd / guardarCostoEsq): la columna derecha siempre
+// refleja lo elegido a la izquierda. La facilidad y el tiempo son los del subrubro del granel y los insumos los del peso de la
+// presentación (Configuración › Costeo Fraccionado, precios_config_fraccionado.js): acá se ven. Globales: esc, fmtMoney, fmtPrecio,
+// fmtPct, claseDelta (precios_comun.js), mdEsq, mdFuente, mdDetalle, guardarCostoEsq, htmlPasos, htmlResumenMd, htmlAvisoMd,
+// htmlOpcionesCosto, htmlMargenProductoMd, htmlEdicionCostos, htmlDesgloseEsq, filasCanales (precios_modal_esquema.js), API_FR
+// (precios_config_fraccionado.js), getJson (precios_produccion.js).
+// El bloque "Estado" del granel (activo / inactivo / automático, spec 2026-10-26 §4) lo ve cualquier usuario de Precios:
+// globales guardarActivoManual, conActivoManual, renderListado (precios_listados.js).
+const NODE_FR_MD = typeof module === 'object' && module.exports;
+const ESC_FR_MD = NODE_FR_MD ? require('./precios_comun.js').esc : esc;
+const FECHA_FR_MD = NODE_FR_MD ? require('./precios_comun.js').fmtFechaPrecio : fmtFechaPrecio;
+const FMT_FR_MD = NODE_FR_MD ? require('./precios_comun.js') : { fmtMoney, fmtPrecio, fmtPct, claseDelta };
+const ESQ_FR_MD = NODE_FR_MD ? require('./precios_modal_esquema.js') : { TIPO_CANAL, TXT_OPCION, pctMd, avisosCanalMd, filasCanales };
+const ACT_FR_MD = NODE_FR_MD ? require('./precios_listados.js') : { textoMotivosActividad };
 const FACIL_MD = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
 const TIEMPO_MD = { rapido: 'Rápido', normal: 'Normal', lento: 'Lento' };
 
@@ -86,27 +95,90 @@ function htmlEstadoActivoMd(f, msg = '') {
     <p id="mdActMsg" class="md-msg" role="status" aria-live="polite">${msg}</p></section>`;
 }
 
+// ── Columna derecha: precios de las presentaciones y su variación contra el vigente ──
+// Δ $ = sugerido − vigente, a centavos (sin el ruido del punto flotante); null si falta alguno de los dos (sin vigente o sin precio).
+const deltaPesosMd = (vigente, sugerido) => (vigente == null || sugerido == null ? null : Math.round((sugerido - vigente) * 100) / 100);
+// "+$ 300" / "-$ 7.460" / "+$ 0,25" / "$ 0": signo explícito (el color solo no alcanza), enteros sin decimales como los precios.
+function textoDeltaPesosMd(n) {
+  if (n == null) return '—';
+  if (n === 0) return '$ 0';
+  const abs = Math.abs(n);
+  return `${n > 0 ? '+' : '-'}$ ${Number.isInteger(abs) ? FMT_FR_MD.fmtPrecio(abs) : FMT_FR_MD.fmtMoney(abs)}`;
+}
+// Peso de la presentación: "500 g", "1 kg", "1,5 kg"; sin peso (nombre sin gramaje) → ''.
+const textoPesoMd = pesoG => (!(pesoG > 0) ? '' : pesoG >= 1000 ? `${minMd(pesoG / 1000)} kg` : `${minMd(pesoG)} g`);
+// Las filas por canal de la fuente (filasCanales) con el Δ $ de cada una; la fila con IVA y las sin vigente quedan sin Δ.
+const filasPreciosFraccMd = (fila, fuente) => ESQ_FR_MD.filasCanales(fila, fuente).map(r => ({ ...r, deltaPesos: deltaPesosMd(r.vigente, r.sugerido) }));
+// Cuántas presentaciones suben / bajan / quedan igual (el semáforo del server, con su tolerancia), cuántas no tienen vigente con qué
+// comparar y cuántas no tienen precio. Sólo cuenta las filas minoristas (una por presentación): los pack/bulto no.
+function resumenVariacionFraccMd(filas) {
+  const min = filas.filter(r => r.tipo === 'minorista');
+  const conDelta = min.filter(r => r.sugerido != null && r.deltaPct != null);
+  return { n: min.length, suben: conDelta.filter(r => r.estado === 'subir').length, bajan: conDelta.filter(r => r.estado === 'bajar').length,
+    iguales: conDelta.filter(r => r.estado !== 'subir' && r.estado !== 'bajar').length,
+    sinVigente: min.filter(r => r.sugerido != null && r.deltaPct == null).length, sinPrecio: min.filter(r => r.sugerido == null).length };
+}
+// Chips del resumen: { estado: 'subir' | 'bajar' | 'ok' | 'nd', texto } sólo para los grupos con presentaciones.
+const chipsVariacionFraccMd = r => [['subir', r.suben, 'para subir'], ['bajar', r.bajan, 'para bajar'], ['ok', r.iguales, 'sin cambio'],
+  ['nd', r.sinVigente, 'sin vigente'], ['nd', r.sinPrecio, 'sin precio']].filter(([, n]) => n > 0).map(([estado, n, txt]) => ({ estado, texto: `${n} ${txt}` }));
+// "por kg · con última compra" (con decisión) o "por kg · con costo sistema, para comparar" (sin decisión: nada se exporta).
+const subtituloPreciosFraccMd = (fila, fuente) => `por kg · ${fila.decision ? `con ${(ESQ_FR_MD.TXT_OPCION[fuente] || fuente).toLowerCase()}` : 'con costo sistema, para comparar'}`;
+
+const pesosFrMd = n => (n == null ? '<span class="md-nd">—</span>' : `$ ${Number.isInteger(n) ? FMT_FR_MD.fmtPrecio(n) : FMT_FR_MD.fmtMoney(n)}`);
+const chipFrMd = c => (c.estado === 'nd' ? `<span class="md-chip-0">${c.texto}</span>` : `<span class="pr-sem sem-${c.estado}">${c.texto}</span>`);
+// Celdas de una fila: vigente, sugerido, Δ $, Δ % (color de suba/baja del listado: claseDelta) y margen total. La fila con IVA no tiene
+// vigente ni Δ (SIGA guarda los pack/bulto sin IVA): celdas de Δ vacías; sin vigente o sin precio, "—".
+function celdasPreciosFraccMd(r) {
+  const delta = (valor, txt) => (r.conIva === true ? '' : valor == null ? '<span class="md-nd">—</span>' : `<span class="${FMT_FR_MD.claseDelta(r.estado)}">${txt}</span>`);
+  return `<td class="num">${pesosFrMd(r.vigente)}</td><td class="num md-nuevo">${pesosFrMd(r.sugerido)}</td>`
+    + `<td class="num">${delta(r.deltaPesos, textoDeltaPesosMd(r.deltaPesos))}</td><td class="num">${delta(r.deltaPct, FMT_FR_MD.fmtPct(r.deltaPct))}</td>`
+    + `<td class="num">${r.margenTotalPct == null ? '<span class="md-nd">—</span>' : ESQ_FR_MD.pctMd(r.margenTotalPct)}</td>`;
+}
+// Tabla: una fila por presentación (nombre, PLU y peso) y, debajo de cada una, sus pack/bulto (sin IVA con Δ, con IVA sin Δ). Los
+// pack/bulto del granel mismo (antes de la primera presentación) van arriba bajo "Granel".
+function htmlPreciosFraccMd(f, fuente) {
+  const filas = filasPreciosFraccMd(f, fuente);
+  const chips = chipsVariacionFraccMd(resumenVariacionFraccMd(filas)).map(chipFrMd).join('');
+  const cab = `<div class="md-fr-cab"><h4 class="md-h">Precios de las presentaciones <span class="md-sub">${ESC_FR_MD(subtituloPreciosFraccMd(f, fuente))}</span></h4>${chips ? `<div class="md-fr-chips">${chips}</div>` : ''}</div>`;
+  if (!filas.length) return `${cab}<p class="empty">Sin precios para mostrar.</p>`;
+  let previo = null, conMinorista = false;
+  const cuerpo = filas.map(r => {
+    if (r.tipo === 'minorista') {
+      previo = null; conMinorista = true;
+      const peso = textoPesoMd(r.pesoG);
+      return `<tr class="md-min"><td><b>${ESC_FR_MD(r.nombre)}</b> <span class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</span></td>${celdasPreciosFraccMd(r)}</tr>`;
+    }
+    const grupo = r.plu !== previo ? `<tr class="md-grp"><td colspan="6">${conMinorista ? '' : 'Granel · '}${ESC_FR_MD(ESQ_FR_MD.TIPO_CANAL[r.tipo] || r.tipo)} <span class="md-sub">PLU ${ESC_FR_MD(r.plu)} · ${ESC_FR_MD(r.nombre || '')}${r.unidades ? ` · × ${ESC_FR_MD(r.unidades)}` : ''}</span>${ESQ_FR_MD.avisosCanalMd(r)}</td></tr>` : '';
+    previo = r.plu;
+    return `${grupo}<tr class="md-may"><td>${r.conIva ? 'Con IVA' : 'Sin IVA'}</td>${celdasPreciosFraccMd(r)}</tr>`;
+  }).join('');
+  return `${cab}<table class="md-tabla md-fr-tabla"><thead><tr><th class="text-left">Presentación</th><th>Vigente</th><th>Sugerido</th>`
+    + `<th title="Sugerido menos vigente, en pesos">Δ $</th><th title="Sugerido contra vigente, en %">Δ %</th>`
+    + `<th title="Precio final ÷ costo de mercadería (con sus extras) − 1">Margen total</th></tr></thead><tbody>${cuerpo}</tbody></table>`;
+}
+
 if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd, textoElegidoMd,
-  textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd };
+  textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd,
+  deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd };
 
 // ── DOM ──
 let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden cada vez que se conecta el modal: una máquina nueva aparece)
 
 const textoMinutosMd = (l, falta, c) => `${formulaMinutosMd(c, l.cantidad)} × ${l.costoUnit == null ? `sin costo hora (${falta})` : `$ ${fmtMoney(l.costoUnit)}/h`}`;
 
-function htmlCosteoFraccMd(f) {
-  if (!f.costeoGranel) return ''; // sin migrar o "sin granel"
+// Máquina del granel (excepción a la de su subrubro). Sin costeoGranel (sin migrar o "sin granel") no hay nada que mostrar.
+function htmlMaquinaGranelMd(f) {
+  if (!f.costeoGranel) return '';
   const g = f.costeoGranel;
   const maquinas = mdFrMaquinas || (g.maquinaId ? [{ id: g.maquinaId, nombre: g.maquina || g.maquinaId }] : []);
   return `<div class="md-edicion" id="mdFr">
-    <div class="lbl mb-1">Costeo del granel · ${g.subrubro ? `subrubro ${esc(g.subrubro)}` : 'sin subrubro en SIGA'}</div>
+    <div class="lbl mb-1">Máquina · ${g.subrubro ? `subrubro ${esc(g.subrubro)}` : 'sin subrubro en SIGA'}</div>
     <div class="flex flex-wrap items-center gap-2">
       <label class="text-sm">Máquina <select id="mdFrMaquina" class="num-in"${g.subrubro ? '' : ' disabled'}>${opcionesMaquinaMd(maquinas, g.maquinaId, g.maquinaSubrubro)}</select></label>
       ${g.subrubro ? '' : `<span class="text-xs text-gris">${esc('sin subrubro: no suma minutos')}</span>`}
       <button type="button" id="mdFrGuardar" class="cfg-btn2">Guardar</button></div>
     <p class="text-xs text-gris mt-1">Máquina, tiempos por peso, facilidad y tiempo del subrubro, e insumos por peso: Configuración › Costeo Fraccionado.</p>
-    <p id="mdFrMsg" class="text-sm mt-1" role="status" aria-live="polite"></p>
-    ${(f.presentaciones || []).map(p => htmlPresFraccMd(p, f)).join('')}</div>`;
+    <p id="mdFrMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
 
 function htmlPresFraccMd(p, f) {
@@ -124,6 +196,48 @@ function htmlPresFraccMd(p, f) {
     ['÷', `${kg} kg de la presentación`, null], ['=', 'Costo real $/kg', r.costoKg],
   ]);
 }
+
+// ── Layout a dos columnas ──
+// "Costo del granel" (sólo con precios-config): máquina, costo manual, costos extra y venta de pack/bulto pesables.
+const htmlCostoGranelMd = f => (preciosSinConfig ? '' : `<section class="md-fr-sec" aria-labelledby="mdCostoH">
+  <h4 id="mdCostoH" class="md-h">Costo del granel <span class="md-sub">· $/kg</span></h4>${htmlMaquinaGranelMd(f)}${htmlEdicionCostos(f)}</section>`);
+
+// Cómo se conforma el costo (mercadería + insumos + mano de obra + máquina, por presentación) y el precio (costo → margen → IVA →
+// redondeo, por presentación y pack/bulto). Acordeón del theme, cerrado salvo que ya estuviera abierto (mdDetalle sobrevive a repintados).
+function htmlDetalleFraccMd(f) {
+  if (preciosSinConfig) return '';
+  const costo = f.costeoGranel ? (f.presentaciones || []).map(p => htmlPresFraccMd(p, f)).join('') : '';
+  return `<details id="mdDetCuerpo" class="acordeon md-fr-detalle"${mdDetalle ? ' open' : ''}>
+    <summary><span class="caret" aria-hidden="true">▶</span><span class="md-h">Cómo se conforma el costo y el precio</span></summary>
+    <div class="cuerpo">${costo ? `<div class="lbl mt-3">Costo real por presentación</div>${costo}` : ''}
+      <div class="lbl mt-4">Cálculo del precio</div>${htmlDesgloseEsq(f)}</div></details>`;
+}
+
+// Izquierda: decisión del costo, costo del granel, cómo se conforma, margen del producto y estado. Derecha: precios de las
+// presentaciones con la fuente elegida (mdFuente), pegada arriba mientras se recorre la izquierda.
+function pintarModalFraccionadoMd() {
+  const { tipo, fila: f } = mdEsq;
+  const ops = opcionesCosto(f, tipo);
+  document.getElementById('mDetBody').innerHTML = `<div class="md-fr">
+    <div class="md-fr-conf">${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlCostoGranelMd(f)}${htmlDetalleFraccMd(f)}${htmlMargenProductoMd(f)}${htmlEstadoActivoMd(f)}</div>
+    <aside class="md-fr-precios" aria-label="Precios de las presentaciones">${htmlPreciosFraccMd(f, mdFuente)}</aside></div>`;
+  conectarModalEsquema(); // precios_modal_esquema.js: tarjetas, edición de costos y margen; llama a conectarModalFraccionadoMd
+}
+
+// Recuerda si el acordeón está abierto (los repintados lo respetan). Al abrirlo con un clic lo lleva arriba; el evento toggle del
+// atributo open inicial (repintado) no es del usuario y no mueve el scroll.
+function conectarDetalleFraccMd() {
+  const det = document.getElementById('mdDetCuerpo');
+  if (!det) return;
+  let delUsuario = false;
+  det.querySelector('summary').addEventListener('click', () => { delUsuario = true; });
+  det.ontoggle = () => {
+    mdDetalle = det.open;
+    if (delUsuario && det.open) det.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    delUsuario = false;
+  };
+}
+function conectarModalFraccionadoMd() { conectarCosteoFraccMd(); conectarEstadoActivoMd(); conectarDetalleFraccMd(); }
 
 function conectarCosteoFraccMd() {
   if (!document.getElementById('mdFr')) return;

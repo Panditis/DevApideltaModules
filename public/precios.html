@@ -139,6 +139,30 @@
   /* Bloque "Estado" del granel (activo / inactivo / automático): visible para cualquier usuario, fuera de "Ver detalle". */
   .md-activo{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   .md-act-mov{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:#5c5f52}
+  /* ── Modal de Fraccionado a dos columnas (pintarModalFraccionadoMd, precios_modal_fraccionado.js): izquierda = configuración del
+     granel (costo, estado, márgenes); derecha = precios de las presentaciones y su variación, pegada arriba al recorrer la izquierda.
+     #mDetCaja.md-doble lo pone abrirModal(…, 'doble') y le gana al max-w-* de Tailwind. Sólo escritorio. */
+  #mDetCaja.md-doble{max-width:min(78rem,100%)}
+  .md-fr{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:24px;align-items:start}
+  .md-fr-conf{min-width:0}
+  .md-fr .md-opcs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .md-fr .md-desglose{grid-template-columns:minmax(0,1fr)}
+  .md-fr-sec{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
+  .md-fr-sec .md-edicion{margin-top:10px;padding-top:0;border-top:0}
+  .md-fr-sec .md-edicion + .md-edicion{padding-top:10px;border-top:1px dashed rgba(26,28,24,.16)}
+  .md-fr-detalle{margin:16px 0 0}
+  .md-fr-detalle > summary{padding:10px 14px}
+  .md-fr-detalle .cuerpo{padding:0 14px 14px}
+  .md-fr-detalle .ec{padding:.3rem 0}
+  .md-fr-precios{position:sticky;top:0;max-height:calc(90vh - 6.5rem);overflow-y:auto;padding:14px 16px 10px;border:1px solid rgba(26,28,24,.16);border-radius:12px;
+                 background:#fff;box-shadow:0 1.6px 3.6px rgba(26,28,24,.13),0 .3px .9px rgba(26,28,24,.1)}
+  .md-fr-cab{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px}
+  .md-fr-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .md-fr-tabla{margin-top:10px}
+  .md-fr-tabla th,.md-fr-tabla td{padding-left:8px;padding-right:8px}
+  .md-fr-tabla th{white-space:nowrap}
+  .md-fr-tabla td:first-child{min-width:10rem}
+  .md-fr-tabla tr.md-min td:first-child .md-sub{display:block}
   /* Listado de Fraccionado: granel inactivo visible (con "Ver inactivos") atenuado. */
   tr.lst-inactivo>td{opacity:.75}
   /* ── Configuración ─────────────────────────────────────────────────────────────────────────────

@@ -35,13 +35,14 @@ const FILA_ENCABEZADOS = 4;
 const numOrNull = v => { const s = String(v ?? '').trim(); if (s === '') return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
 const chip = (txt, cls) => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold ${cls}">${txt}</span>`;
 const inputCls = 'px-2 py-1 rounded-lg border border-borde text-right tabular-nums focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20';
-// Abre el modal compartido #mDet en estado "cargando". ancho = true para tablas anchas.
+// Abre el modal compartido #mDet en estado "cargando". ancho = true para tablas anchas; 'doble' = dos columnas (el modal de
+// Fraccionado: .md-doble en precios.html pisa el max-width, así un modal que lo abre después sin 'doble' vuelve al ancho normal).
 let detFocoPrevio = null; // foco antes de abrir, se devuelve al cerrar
 function abrirModal(titulo, ancho){
   const modal = document.getElementById('mDet');
   const caja = document.getElementById('mDetCaja');
   if (modal.classList.contains('hidden')) detFocoPrevio = document.activeElement;
-  caja.classList.toggle('max-w-2xl', !ancho); caja.classList.toggle('max-w-3xl', !!ancho);
+  caja.classList.toggle('max-w-2xl', !ancho); caja.classList.toggle('max-w-3xl', !!ancho); caja.classList.toggle('md-doble', ancho === 'doble');
   document.getElementById('mDetTitulo').textContent = titulo;
   document.getElementById('mDetSub').textContent = '';
   document.getElementById('mDetBody').innerHTML = '<div class="py-10 text-center text-gris"><span class="spin"></span> Cargando…</div>';
@@ -167,5 +168,5 @@ const pedirJson = (method, url, body) => fetch(url, { method, headers: { 'Conten
   .then(r => r.json()).then(j => { if (j && j.error) throw new Error(j.error); return j; });
 
 if (typeof module === 'object' && module.exports) {
-  module.exports = { esc, fmtPrecio, fmtPct, ordenarFilas, siguienteOrden, ordenarCon, rango, fmtFechaPrecio, esPrecioViejo, rangoFechas, fechaMasAntigua, DIAS_PRECIO_VIEJO };
+  module.exports = { esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, ordenarFilas, siguienteOrden, ordenarCon, rango, fmtFechaPrecio, esPrecioViejo, rangoFechas, fechaMasAntigua, DIAS_PRECIO_VIEJO };
 }
