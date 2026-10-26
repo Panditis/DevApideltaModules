@@ -90,7 +90,8 @@ test('lineasEstadoMd: motivos del automático, último movimiento del granel y p
 
 test('htmlEstadoActivoMd: bloque con label, select, Guardar y estado; escapa; sin PLU (sin granel) → nada; REEFER lo aclara', () => {
   const html = htmlEstadoActivoMd(granelAct({ nombre: 'Almendra <A>', presentaciones: [{ plu: '51', nombre: 'Pres <b>', movReciente: true }] }));
-  assert.match(html, /<section id="mdAct" class="md-activo"/);
+  assert.match(html, /<section id="mdAct" class="md-activo md-paso"/);
+  assert.match(html, /<p class="md-paso-para">No cambia ningún precio: sólo define si el granel aparece en el listado\.<\/p>/); // para qué sirve el paso
   assert.match(html, /<label for="mdActSel"[^>]*>/);
   assert.match(html, /<select id="mdActSel"[^>]*>.*<\/select>/);
   assert.match(html, /<button type="button" id="mdActGuardar"/);

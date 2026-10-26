@@ -147,25 +147,94 @@
      en el gap. #mDetCaja.md-doble lo pone abrirModal(…, 'doble') y le gana al max-w-* de Tailwind. Sólo escritorio. */
   #mDetCaja.md-doble{flex:7 1 0;min-width:0;max-width:none}
   #mDetDer{flex:3 1 0;min-width:0;align-self:flex-start;max-height:90vh}
-  .md-fr-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;align-items:start}
+  .md-fr-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px;align-items:start}
   .md-fr-col{min-width:0}
-  .md-fr-sec{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
-  .md-fr-sec .md-edicion{margin-top:10px;padding-top:0;border-top:0}
-  .md-fr-sec .md-edicion + .md-edicion{padding-top:10px;border-top:1px dashed rgba(26,28,24,.16)}
   .md-fr-detalle{margin:16px 0 0}
   .md-fr-detalle > summary{padding:10px 14px}
   .md-fr-detalle .cuerpo{padding:0 14px 14px}
   .md-fr-detalle .ec{padding:.3rem 0}
+  /* ── Fraccionado didáctico (sólo escritorio): pasos numerados, tarjetas de costo por fuente y el resultado a la derecha ──────────
+     Todo va bajo .md-doble (#mDetCaja lo lleva sólo en Fraccionado), #mDetDer o clases que sólo pinta Fraccionado (md-fr, md-paso, md-f): Reventa y
+     Producción no cambian. Cada paso es un panel con borde, encabezado teñido con su número (contador CSS: sin precios-config el estado pasa a ser el paso 2),
+     título y una línea de para qué sirve. Las 4 tarjetas de costo tienen acento propio (gris = no cambiar, azul de info del theme = costo
+     sistema, ámbar = última compra, violeta = costo manual) con tres franjas (fuente · dato · resultado); la elegida lleva marco verde grueso y
+     "Elegida". Texto de ayuda #5c5f52 (≥ 5,4:1 sobre cada fondo), título > dato > ayuda. */
+  .md-doble{counter-reset:md-paso}
+  .md-doble .md-resumen{margin-bottom:0;align-items:center;gap:20px}
+  .md-doble .md-guia{flex:1;margin:0;padding-left:20px;border-left:1.5px solid rgba(26,28,24,.16);font-size:13px;line-height:1.4;color:#5c5f52}
+  .md-doble .md-aviso{margin-top:14px;margin-bottom:0;border:1px solid rgba(138,93,0,.45)}
+  .md-doble .md-paso,#mDet fieldset.md-dec.md-paso{margin-top:16px;padding:0;border:1.5px solid rgba(26,28,24,.22);border-radius:12px;background:#fff}
+  .md-doble .md-paso-cab{position:relative;display:flex;flex-wrap:wrap;align-items:center;column-gap:12px;row-gap:2px;min-height:46px;padding:10px 14px 10px 52px;
+    background:#e8ebe7;border-bottom:1.5px solid rgba(26,28,24,.16);border-radius:10px 10px 0 0}
+  .md-doble .md-paso-cab::before{counter-increment:md-paso;content:counter(md-paso);content:counter(md-paso) / "";position:absolute;left:14px;top:10px;
+    width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#405936;color:#fff;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+  .md-doble .md-paso-cab .md-h{font-size:15px;line-height:26px}
+  .md-doble .md-paso-para{flex-basis:100%;margin:0;font-size:12.5px;line-height:1.4;color:#5c5f52}
+  .md-doble .md-paso-cab .seg{margin-left:auto;background:#fff;border:1px solid rgba(26,28,24,.18)}
+  .md-doble .md-paso-cab .seg-sub .seg-opt{padding:4px 10px;font-size:12.5px}
+  .md-doble .md-paso-cab .seg-opt[aria-pressed="true"]{background:rgba(64,89,54,.14);box-shadow:inset 0 0 0 1px #405936}
+  .md-doble .md-paso-cuerpo{padding:14px}
+  .md-doble .md-paso .md-edicion{margin:0;padding:0;border:0}
+  .md-doble .md-paso .md-edicion + .md-edicion,.md-doble .md-sb-sep{margin-top:14px;padding-top:12px;border-top:1.5px dashed rgba(26,28,24,.2)}
+  .md-sb-t{font-size:13.5px;font-weight:700;color:#242423}
+  .md-sb-t .md-sub{margin-left:2px}
+  .md-sb-ayuda{margin:1px 0 8px;font-size:12.5px;line-height:1.4;color:#5c5f52}
+  .md-doble .md-ayuda{font-size:12.5px}
+  .md-doble .md-act-mov{font-size:12.5px}
+  .md-doble .md-nd,#mDetDer .md-nd{color:#6f7264}
+  .md-doble .md-mp-in::placeholder{color:#6b6e62;opacity:1}
+  /* Tarjetas de decisión del costo */
+  .md-doble .md-opcs{gap:12px;align-items:stretch;padding-top:8px}
+  .md-doble .md-opc{--ac:#5c5f52;--ac-bd:rgba(92,95,82,.45);--ac-bg:#f6f7f3;--ac-cab:#e7e9e2;--ac-ink:#3d4136;
+    gap:0;padding:0;border:1.5px solid var(--ac-bd);background:var(--ac-bg)}
+  .md-doble .md-f-sistema{--ac:#0958d9;--ac-bd:rgba(9,88,217,.4);--ac-bg:#f1f6ff;--ac-cab:#dde9fc;--ac-ink:#0a47ad}
+  .md-doble .md-f-ultimaCompra{--ac:#8a5d00;--ac-bd:rgba(138,93,0,.45);--ac-bg:#fff9e8;--ac-cab:#fbeab8;--ac-ink:#6a4600}
+  .md-doble .md-f-manual{--ac:#6b3fa0;--ac-bd:rgba(107,63,160,.42);--ac-bg:#f7f2fc;--ac-cab:#eadff6;--ac-ink:#57308a}
+  .md-doble .md-opc:hover{border-color:var(--ac);box-shadow:0 2px 6px rgba(26,28,24,.14)}
+  .md-doble .md-opc.sel{border-color:#405936;box-shadow:0 0 0 1.5px #405936,0 6px 16px rgba(64,89,54,.28)}
+  .md-doble .md-opc.off{border-style:dashed;border-color:rgba(92,95,82,.45);background:#f6f7f3}
+  .md-doble .md-opc.off:hover{box-shadow:none}
+  .md-doble .md-opc.off:has(.md-opc-manual){border-style:solid;border-color:var(--ac-bd);background:var(--ac-bg);cursor:auto}
+  .md-doble .md-opc-cab{padding:8px 10px;border-radius:10px 10px 0 0;background:var(--ac-cab);border-bottom:1.5px solid var(--ac-bd)}
+  .md-doble .md-opc.off .md-opc-cab{background:#eceee8;border-bottom-style:dashed}
+  .md-doble .md-opc.off:has(.md-opc-manual) .md-opc-cab{background:var(--ac-cab);border-bottom-style:solid}
+  .md-doble .md-opc-cab input{accent-color:var(--ac)}
+  .md-doble .md-opc.sel .md-opc-cab input{accent-color:#405936}
+  .md-doble .md-opc-t,.md-doble .md-opc.sel .md-opc-t{font-size:14px;color:var(--ac-ink)}
+  .md-doble .md-opc.off .md-opc-t{color:#5c5f52}
+  .md-doble .md-opc.off:has(.md-opc-manual) .md-opc-t{color:var(--ac-ink)}
+  /* "Elegida": etiqueta a caballo del borde de arriba (no ocupa lugar en el encabezado, que mide lo mismo en las cuatro tarjetas) */
+  .md-doble .md-opc-ok{position:absolute;top:-12px;right:12px;z-index:1;width:auto;height:auto;margin:0;padding:2px 10px;border:2px solid #fff;border-radius:999px;font-size:11.5px;white-space:nowrap}
+  .md-doble .md-msg{min-height:20px;margin-top:6px}
+  .md-doble .md-opc-costo{padding:10px 12px 0;font-size:12.5px;color:#5c5f52}
+  .md-doble .md-opc-costo:empty{display:none}
+  .md-doble .md-opc-costo b{font-size:19px;line-height:1.2;font-weight:700;color:#242423}
+  .md-doble .md-u{margin-left:2px;font-size:12.5px;color:#5c5f52}
+  .md-doble .md-opc-extra{padding:3px 12px 0;font-size:12px;color:#5c5f52}
+  .md-doble .md-opc-cuando{padding:8px 12px 12px;font-size:12.5px;line-height:1.4;color:#5c5f52}
+  .md-doble .md-opc-res{margin-top:auto;padding:9px 12px 10px;border-top:1.5px solid var(--ac-bd);border-radius:0 0 10px 10px;background:#fff}
+  .md-doble .md-opc.off .md-opc-res{border-top-style:dashed}
+  .md-doble .md-opc.off:has(.md-opc-manual) .md-opc-res{border-top-style:solid}
+  .md-doble .md-opc-l{text-transform:none;letter-spacing:0;font-size:12px;color:#5c5f52}
+  .md-doble .md-opc-motivo{padding:2px 0}
+  /* Tarjeta derecha: es el resultado de los pasos de la izquierda */
+  .md-der-cab{background:#e8ebe7;border-bottom:1.5px solid rgba(26,28,24,.16);border-radius:12px 12px 0 0}
+  .md-res-tag{flex:none;margin-left:auto;padding:2px 10px;border-radius:999px;background:#405936;color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.02em}
+  .md-der-leyenda{margin:6px 0 0;font-size:12.5px;line-height:1.4;color:#5c5f52}
+  .md-doble .md-fr-detalle{border:1.5px solid rgba(26,28,24,.22)}
+  .md-doble .md-fr-detalle[open]{border-color:#405936}
   /* Tarjeta de precios: un ítem por presentación (nombre y Δ % arriba, PLU y peso, precios) y sus pack/bulto sangrados debajo. */
   .md-fr-chips{display:flex;flex-wrap:wrap;gap:6px}
   .md-fr-lista{list-style:none;margin:0;padding:0}
   .md-fr-chips + .md-fr-lista{margin-top:6px}
   .md-fr-lista > li{padding:3px 2px}
-  .md-fr-lista > li.md-min{padding:8px 2px 7px;border-top:1px solid rgba(26,28,24,.14)}
+  .md-fr-lista > li.md-min{padding:10px 2px 9px;border-top:1.5px solid rgba(26,28,24,.2)}
   .md-fr-lista > li:first-child{border-top:0}
-  .md-fr-lista > li.md-grp{padding:6px 2px 0 14px;font-size:12.5px;font-weight:600;color:#405936}
-  .md-fr-lista > li.md-grp:first-child{padding-top:2px}
-  .md-fr-lista > li.md-may{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 8px;padding:3px 2px 3px 14px;font-size:13px;color:#3d4136;font-variant-numeric:tabular-nums}
+  .md-fr-lista > li.md-grp{margin-top:4px;padding:6px 8px 2px 10px;border-radius:8px 8px 0 0;background:#f2f5ee;font-size:12.5px;font-weight:600;color:#405936}
+  .md-fr-lista > li.md-grp:first-child{margin-top:0}
+  .md-fr-lista > li.md-may{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 8px;padding:3px 8px 3px 10px;background:#f2f5ee;font-size:13px;color:#3d4136;font-variant-numeric:tabular-nums}
+  .md-fr-lista > li.md-may:not(:has(+ li.md-may)){padding-bottom:6px;border-radius:0 0 8px 8px}
+  .md-fr-l1 b{font-size:14px}
   .md-fr-iva{flex:none;width:3.6rem}
   .md-fr-lista > li.md-may .md-fr-res{margin-left:auto}
   .md-fr-lista > li.md-may .md-chip{margin-left:auto}
@@ -173,7 +242,7 @@
   .md-fr-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;line-height:1.35}
   .md-fr-l1 .md-chip,.md-fr-l1 .md-nd{flex:none}
   .md-fr-l3{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 10px;margin-top:2px;font-variant-numeric:tabular-nums}
-  .md-fr-l3 .md-nuevo{font-weight:700}
+  .md-fr-l3 .md-nuevo{font-size:15px;font-weight:700}
   .md-fr-flecha{margin:0 1px;color:#5c5f52}
   .md-fr-res{font-size:12px;color:#5c5f52;white-space:nowrap}
   /* Listado de Fraccionado: granel inactivo visible (con "Ver inactivos") atenuado. */
@@ -693,11 +762,15 @@
       <div id="mDetBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
     </div>
     <section id="mDetDer" class="hidden fade-in bg-card rounded-xl shadow-fluent flex flex-col" aria-labelledby="mDetDerTitulo">
-      <div class="px-5 pt-4 pb-2">
-        <h3 id="mDetDerTitulo" class="font-disp text-lg font-bold text-ink leading-snug">Precios de las presentaciones</h3>
+      <div class="md-der-cab px-5 pt-4 pb-3">
+        <div class="flex items-start gap-2">
+          <h3 id="mDetDerTitulo" class="font-disp text-lg font-bold text-ink leading-snug">Precios de las presentaciones</h3>
+          <span class="md-res-tag mt-1">Resultado</span>
+        </div>
         <div id="mDetDerSub" class="text-xs text-gris mt-0.5"></div>
+        <p class="md-der-leyenda">De cada presentación: precio vigente → sugerido, cuánto cambia y el margen.</p>
       </div>
-      <div id="mDetDerBody" class="px-5 pb-4 overflow-y-auto text-sm"></div>
+      <div id="mDetDerBody" class="px-5 pt-3 pb-4 overflow-y-auto text-sm"></div>
     </section>
   </div>
 </div>

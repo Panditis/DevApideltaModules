@@ -96,10 +96,10 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   const html = dom.cuerpo(), der = dom.cuerpoDer();
   assert.deepStrictEqual(repetidos(dom.ids()), []); // el costo manual está una sola vez (en su tarjeta), no también en "Costo del granel"
   // Izquierda (#mDetBody) en orden: resumen → tarjetas (con el costo manual adentro) → costo del granel (máquina + costos) → margen → estado → cómo se conforma.
-  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdManual"', 'id="mdFr"', 'id="mdExtras"', 'id="mdVentas"', 'class="md-margen-prod"', 'id="mdAct"', 'id="mdDetCuerpo"']
+  const pos = ['class="md-resumen"', 'id="mdCostos"', 'id="mdManual"', 'id="mdFr"', 'id="mdExtras"', 'id="mdVentas"', 'class="md-margen-prod md-paso"', 'id="mdAct"', 'id="mdDetCuerpo"']
     .map(t => { const i = html.indexOf(t); assert.ok(i >= 0, `falta ${t}`); return i; });
   assert.deepStrictEqual(pos, [...pos].sort((a, b) => a - b));
-  assert.match(html, /<div class="md-fr-cols"><div class="md-fr-col"><section class="md-fr-sec"/); // debajo de las tarjetas: dos columnas
+  assert.match(html, /<div class="md-fr-cols"><div class="md-fr-col"><section class="md-fr-sec md-paso"/); // debajo de las tarjetas: dos columnas
   assert.doesNotMatch(html, /id="mdVerDetalle"|Precios por canal|<table class="md-tabla md-fr-tabla/); // ni el botón ni la tabla por canal de Reventa/Producción, ni los precios (van a la derecha)
   // Derecha (#mDetDerBody): chips de variación y lista de presentaciones; el título y el subtítulo son del header de la tarjeta.
   assert.match(der, /^<div class="md-fr-chips">/);
@@ -111,6 +111,49 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   assert.deepStrictEqual([fn('mdCostos', 'onchange'), fn('mdFrGuardar'), fn('mdManualGuardar'), fn('mdManualQuitar'), fn('mdExtrasGuardar'),
     fn('mdExtraAgregar'), fn('mdVentas'), fn('mdVentas', 'onchange'), fn('mdMargenGuardar'), fn('mdMargenIgualar'), fn('mdActGuardar'), fn('mdDetCuerpo', 'ontoggle')],
   Array(12).fill('function'));
+});
+
+// Modal didáctico (spec 2026-10-26): cada bloque es un paso con su título y una línea de para qué sirve; los números los pone un contador CSS
+// (sin precios-config el estado pasa a ser el paso 2), así que acá se prueba el orden y que cada encabezado traiga su propósito.
+const pasos = html => [...html.matchAll(/<div class="md-paso-cab[^"]*">.*?<h4[^>]*>(.*?)<\/h4>.*?<p class="md-paso-para">(.*?)<\/p>/gs)].map(m => [m[1].replace(/<[^>]+>/g, '').trim(), m[2]]);
+
+test('Fraccionado con precios-config: 4 pasos en orden, cada uno con título y para qué sirve; la tarjeta derecha es el resultado', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', granel({ conPermiso: true }));
+  const p = pasos(dom.cuerpo());
+  assert.deepStrictEqual(p.map(([t]) => t), ['¿Con qué costo calculo el precio nuevo?', 'Costo del granel · $/kg', 'Margen de este producto', 'Estado en el listado']);
+  assert.ok(p.every(([, para]) => para.length > 20 && para.length < 140), 'una línea corta de para qué sirve en cada paso');
+  assert.match(p[1][1], /costo elegido en el paso 1/);
+  assert.match(p[3][1], /No cambia ningún precio/);
+  assert.match(dom.cuerpo(), /<fieldset class="md-dec md-paso"><legend class="sr-only">¿Con qué costo calculo el precio nuevo\?<\/legend>/); // el grupo de radios sigue con su leyenda
+  assert.match(dom.cuerpo(), /<p class="md-guia">Seguí los pasos en orden\./);
+  // Costo del granel: cada bloque con su subtítulo y su ayuda
+  for (const t of ['>Máquina <span', '>Costos extra<', '>Venta de pack/bulto pesables<']) assert.ok(dom.cuerpo().includes(t), `falta ${t}`);
+  assert.strictEqual((dom.cuerpo().match(/class="md-sb-ayuda/g) || []).length, 4); // máquina (para qué sirve y dónde se cargan los tiempos), costos extra, venta de pack/bulto
+  assert.match(dom.cuerpo(), /<label for="mdFrMaquina" class="sr-only">Máquina<\/label>/);
+});
+
+test('Fraccionado sin precios-config: sólo dos pasos (costo y estado) y el estado es el segundo', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', granel({ conPermiso: false }), { sinConfig: true });
+  assert.deepStrictEqual(pasos(dom.cuerpo()).map(([t]) => t), ['¿Con qué costo calculo el precio nuevo?', 'Estado en el listado']);
+  assert.doesNotMatch(dom.cuerpo(), /md-fr-cols|md-margen-prod/);
+});
+
+test('Fraccionado: cada tarjeta de costo lleva su acento, el cuándo conviene y el costo por kg; sólo la elegida dice "Elegida"', () => {
+  const dom = crearContexto();
+  abrir(dom, 'fraccionado', { ...granel({ conPermiso: true }), decision: { fuente: 'sistema' } });
+  const tarjetas = [...dom.cuerpo().matchAll(/<label class="md-opc([^"]*)">((?:(?!<\/label>).)*)<\/label>/gs)].map(m => ({ clases: m[1], html: m[2] }));
+  assert.deepStrictEqual(tarjetas.map(t => t.clases.trim().split(' ')[0]), ['md-f-ninguna', 'md-f-sistema', 'md-f-ultimaCompra', 'md-f-manual']);
+  for (const t of tarjetas) assert.match(t.html, /<span class="md-opc-cuando">Conviene si /);
+  assert.match(tarjetas[1].html, /Costo <b class="tabular-nums">\$ 1\.000,00<\/b><span class="md-u">\/kg<\/span>/);
+  assert.deepStrictEqual(tarjetas.map(t => /✓ Elegida/.test(t.html)), [false, true, false, false]);
+  assert.match(tarjetas[1].clases, /\bsel\b/);
+  assert.match(tarjetas[1].html, /Cambio promedio en 2 presentaciones/); // el chip no repite "prom." (lo dice la leyenda)
+  assert.doesNotMatch(tarjetas[1].html, /prom\./);
+  const una = crearContexto(), fila = granel({ conPermiso: true });
+  abrir(una, 'fraccionado', { ...fila, presentaciones: fila.presentaciones.slice(0, 1) });
+  assert.match(una.cuerpo(), /Cambio promedio en 1 presentación</); // singular
 });
 
 // El costo manual se carga y se elige desde la misma tarjeta de decisión (antes el campo estaba en "Costo del granel").
@@ -193,6 +236,8 @@ test('Reventa y Producción no cambian: tabla por canal con "Minorista", "Ver de
     assert.match(html, /<b>Minorista<\/b> <span class="md-sub">PLU 500<\/span>/, tipo);
     assert.match(html, /id="mdVerDetalle"/, tipo);
     assert.doesNotMatch(html, /md-fr|Granel ·|mdAct/, tipo);
+    assert.doesNotMatch(html, /md-paso|md-f-|md-opc-cuando|md-guia|md-sb-|Elegida|sr-only/, tipo); // el modal didáctico es sólo de Fraccionado
+    assert.match(html, /<fieldset class="md-dec"><legend class="md-h">/, tipo); // la decisión sigue con su leyenda visible
     assert.strictEqual(dom.cuerpoDer(), '', tipo); // sin tarjeta derecha
     assert.strictEqual(typeof dom.el('mdVerDetalle').onclick, 'function', tipo);
   }

@@ -226,10 +226,12 @@ function enfocarOpcionMd() {
 // Encabezado del cuerpo: precio vigente grande (Fraccionado: cuántas presentaciones) y estado de la decisión.
 function htmlResumenMd(f, tipo) {
   const est = estadoDecision(f, tipo);
-  const vig = Array.isArray(f.presentaciones)
+  const fracc = Array.isArray(f.presentaciones);
+  const vig = fracc
     ? `<div class="md-vig-l">Presentaciones</div><div class="md-vig-v">${f.presentaciones.length}</div>`
     : `<div class="md-vig-l">Precio vigente</div><div class="md-vig-v">${f.vigente == null ? '<span class="md-nd">sin precio</span>' : '$ ' + fmtPrecio(f.vigente)}</div>`;
-  return `<div class="md-resumen"><div>${vig}</div>
+  const guia = fracc ? '<p class="md-guia">Seguí los pasos en orden. A la derecha ves cómo quedan los precios.</p>' : ''; // sólo Fraccionado
+  return `<div class="md-resumen"><div>${vig}</div>${guia}
     <span id="mdEstado" class="md-estado${est.exporta ? ' on' : ''}"><span class="md-dot" aria-hidden="true"></span>${esc(est.texto)}</span></div>`;
 }
 
@@ -249,14 +251,21 @@ function htmlAvisoMd(f, ops) {
   return '';
 }
 
+// Fraccionado: cuándo conviene cada costo (una línea gris chica en la tarjeta) y el acento de color de cada fuente (clase md-f-*, precios.html).
+const CUANDO_MD = { '': 'Conviene si hoy no querés tocar este producto.', sistema: 'Conviene si el costo cargado en SIGA está al día.',
+  ultimaCompra: 'Conviene si la última compra refleja lo que te cuesta hoy.', manual: 'Conviene si sabés el costo real y SIGA no lo tiene.' };
+const CLASE_FUENTE_MD = { '': 'md-f-ninguna', sistema: 'md-f-sistema', ultimaCompra: 'md-f-ultimaCompra', manual: 'md-f-manual' };
+const presentacionesMd = n => `${n} ${n === 1 ? 'presentación' : 'presentaciones'}`;
+
 // Una tarjeta por opción: toda la tarjeta es el <label> del radio. Muestra costo, precio nuevo grande y Δ% vs vigente.
+// Fraccionado además lleva "Elegida" en la elegida, el costo por kg, el cuándo conviene y el acento por fuente; Reventa y Producción, el de siempre.
 function htmlOpcionMd(o, f, actual) {
   const sel = actual === o.valor;
   const fracc = Array.isArray(f.presentaciones);
   let costo = '';
-  if (o.valor === '') costo = 'Deja el precio como está';
+  if (o.valor === '') costo = fracc ? '' : 'Deja el precio como está';
   else if (o.valor === 'manual' && manualEnTarjetaMd(mdEsq.tipo)) costo = htmlManualDecMd(f);
-  else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>`;
+  else if (o.costo != null) costo = `Costo <b class="tabular-nums">$ ${fmtMoney(o.costo)}</b>${fracc ? '<span class="md-u">/kg</span>' : ''}`;
   let extra = '';
   if (o.valor === 'ultimaCompra' && f.costoUltimaCompra != null) {
     const d = f.deltaUltimaPct == null ? '' : ` · <span class="${f.deltaUltimaPct > 0 ? 'text-crit' : 'text-ok'}">${fmtPct(f.deltaUltimaPct)} vs sistema</span>`;
@@ -266,22 +275,32 @@ function htmlOpcionMd(o, f, actual) {
   if (!o.disponible || (o.valor !== '' && o.motivo)) precio = `<div class="md-opc-motivo">${esc(o.motivo || 'Sin precio')}</div>`;
   else if (o.valor === '') precio = fracc || o.precio == null ? '<div class="md-opc-l">Mantiene los precios actuales</div>'
     : `<div class="md-opc-l">Queda en</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta"><span class="md-chip md-chip-0">sin cambio</span></div>`;
-  else if (fracc) precio = `<div class="md-opc-l">Promedio de ${o.n} presentaciones</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.deltaPct > 0 ? 'subir' : o.deltaPct < 0 ? 'bajar' : 'ok', ' prom.')}</div>`;
+  else if (fracc) precio = `<div class="md-opc-l">Cambio promedio en ${presentacionesMd(o.n)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.deltaPct > 0 ? 'subir' : o.deltaPct < 0 ? 'bajar' : 'ok')}</div>`;
   else precio = `<div class="md-opc-l">Precio nuevo</div><div class="md-opc-precio">$ ${fmtPrecio(o.precio)}</div><div class="md-opc-delta">${chipDelta(o.deltaPct, o.estado)}</div>`;
-  return `<label class="md-opc${sel ? ' sel' : ''}${o.disponible ? '' : ' off'}">
+  const cuando = fracc ? `<span class="md-opc-cuando">${esc(CUANDO_MD[o.valor] || '')}</span>` : '';
+  return `<label class="md-opc${fracc ? ` ${CLASE_FUENTE_MD[o.valor] || ''}` : ''}${sel ? ' sel' : ''}${o.disponible ? '' : ' off'}">
     <span class="md-opc-cab"><input type="radio" name="mdCosto" value="${esc(o.valor)}"${sel ? ' checked' : ''}${o.disponible ? '' : ' disabled'}>
-      <span class="md-opc-t">${esc(o.texto)}</span>${sel ? '<span class="md-opc-ok" aria-hidden="true">✓</span>' : ''}</span>
-    <span class="md-opc-costo">${costo}</span>${extra}
+      <span class="md-opc-t">${esc(o.texto)}</span>${sel ? `<span class="md-opc-ok" aria-hidden="true">${fracc ? '✓ Elegida' : '✓'}</span>` : ''}</span>
+    <span class="md-opc-costo">${costo}</span>${extra}${cuando}
     <span class="md-opc-res">${precio}</span></label>`;
 }
 
+// Fraccionado: es el paso 1 (encabezado con el número y para qué sirve, precios.html .md-paso); la leyenda del grupo queda para el lector de pantalla.
+const TITULO_COSTO_FR_MD = '¿Con qué costo calculo el precio nuevo?';
+const PARA_COSTO_FR_MD = 'Elegir un costo marca el producto para exportar; “No cambiar” lo desmarca. Se guarda al elegir y vale para todas las presentaciones.';
 function htmlOpcionesCosto(f, ops) {
   const actual = f.decision ? f.decision.fuente : '';
   const prod = mdEsq.tipo === 'produccion';
-  return `<fieldset class="md-dec"><legend class="md-h">${prod ? '¿Aumentar el precio con el costo de la receta?' : '¿Con qué costo calculo el precio nuevo?'}</legend>
-    <p class="md-ayuda">Al elegir se guarda solo. ${prod ? '"Aumentar"' : 'Un costo'} marca el producto para exportar; "No cambiar" lo desmarca.${f.presentaciones ? ' La decisión vale para todas las presentaciones.' : ''}</p>
-    <div id="mdCostos" class="md-opcs" style="--n:${ops.length}">${ops.map(o => htmlOpcionMd(o, f, actual)).join('')}</div>
-    <div id="mdDecMsg" class="md-msg" role="status" aria-live="polite"></div></fieldset>`;
+  const grupo = `<div id="mdCostos" class="md-opcs" style="--n:${ops.length}">${ops.map(o => htmlOpcionMd(o, f, actual)).join('')}</div>
+    <div id="mdDecMsg" class="md-msg" role="status" aria-live="polite"></div>`;
+  if (Array.isArray(f.presentaciones)) {
+    return `<fieldset class="md-dec md-paso"><legend class="sr-only">${TITULO_COSTO_FR_MD}</legend>
+    <div class="md-paso-cab"><h4 class="md-h" aria-hidden="true">${TITULO_COSTO_FR_MD}</h4><p class="md-paso-para">${PARA_COSTO_FR_MD}</p></div>
+    <div class="md-paso-cuerpo">${grupo}</div></fieldset>`;
+  }
+  return `<fieldset class="md-dec"><legend class="md-h">${prod ? '¿Aumentar el precio con el costo de la receta?' : TITULO_COSTO_FR_MD}</legend>
+    <p class="md-ayuda">Al elegir se guarda solo. ${prod ? '"Aumentar"' : 'Un costo'} marca el producto para exportar; "No cambiar" lo desmarca.</p>
+    ${grupo}</fieldset>`;
 }
 
 // La tarjeta "Costo manual" trae el campo para cargarlo y elegirlo desde ahí. Reventa: siempre (cualquier usuario del módulo); "Usar" guarda
@@ -462,13 +481,17 @@ const htmlVentaMd = m => `<tr><td class="py-1 pr-2">${esc(TIPO_CANAL[m.tipo] || 
   <td class="py-1"><button type="button" class="md-venta-guardar cfg-btn2" data-plu="${esc(m.plu)}">Guardar</button></td></tr>`;
 function htmlVentasPesablesMd(f) {
   const ms = mdEsq.tipo === 'fraccionado' ? ventasPesablesMd(f) : [];
-  return ms.length ? `<div class="lbl mt-4 mb-1">Venta de pack/bulto pesables</div>
-    <table class="w-full text-sm"><tbody id="mdVentas">${ms.map(htmlVentaMd).join('')}</tbody></table>` : '';
+  return ms.length ? `<div class="md-sb-sep"><div class="md-sb-t">Venta de pack/bulto pesables</div>
+    <p class="md-sb-ayuda">Cómo se vende cada uno: por kg o por paquete (con su peso en kg).</p>
+    <table class="w-full text-sm"><tbody id="mdVentas">${ms.map(htmlVentaMd).join('')}</tbody></table></div>` : '';
 }
 function htmlEdicionCostos(f) {
   if (mdEsq.tipo === 'produccion') return '';
+  const cab = mdEsq.tipo === 'fraccionado' // Fraccionado: subtítulo y para qué sirve (dentro del paso "Costo del granel")
+    ? '<div class="md-sb-t">Costos extra</div><p class="md-sb-ayuda">Se suman al costo del granel: un importe por kg ($) o un % del costo.</p>'
+    : '<div class="lbl mb-1">Costos extra ($ o % del costo)</div>';
   return `<div class="md-edicion">
-    <div class="lbl mb-1">Costos extra (${mdEsq.tipo === 'fraccionado' ? '$/kg' : '$'} o % del costo)</div>
+    ${cab}
     <table class="w-full text-sm"><tbody id="mdExtras">${(f.costosExtra || []).map(htmlFilaExtraMd).join('')}</tbody></table>
     <div class="flex gap-2 mt-1"><button type="button" id="mdExtraAgregar" class="cfg-btn2">+ Agregar</button>
       <button type="button" id="mdExtrasGuardar" class="cfg-btn2">Guardar costos extra</button></div>
@@ -498,12 +521,14 @@ function htmlMargenProductoMd(f) {
   const campos = CANALES_AJUSTE_MD.map(([c, t]) => `<label class="flex items-center gap-1 text-sm">${t}
     ${campoU(`<input type="number" step="any" class="md-mp-in" data-canal="${c}" value="${esc(m[c] ?? '')}" placeholder="${esc(ph(c))}" aria-label="${fijo ? `Margen ${t} en %` : `Ajuste de margen ${t} en puntos %`}">`,
     fijo ? 'Margen %' : '+ pts %', { w: fijo ? 'w-44' : 'w-32' })}</label>`).join('');
-  return `<section class="md-margen-prod"><div class="flex flex-wrap items-center gap-3"><h4 class="md-h">Margen de este producto</h4>
-    <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modo('fijo', 'Margen fijo')}${modo('ajuste', 'Ajuste ±')}</div></div>
-    <p class="md-ayuda">${esc(ayudaMargenProductoMd(fijo))}</p>
+  const fr = mdEsq.tipo === 'fraccionado'; // Fraccionado: paso numerado (encabezado con para qué sirve + cuerpo); el resto, como siempre
+  const cab = `<div class="${fr ? 'md-paso-cab ' : ''}flex flex-wrap items-center gap-3"><h4 class="md-h">Margen de este producto</h4>
+    <div class="seg seg-sub" role="group" aria-label="Cómo se define el margen de este producto">${modo('fijo', 'Margen fijo')}${modo('ajuste', 'Ajuste ±')}</div>${fr ? '<p class="md-paso-para">Cuánto se gana sobre el costo, canal por canal.</p>' : ''}</div>`;
+  const cuerpo = `<p class="md-ayuda">${esc(ayudaMargenProductoMd(fijo))}</p>
     <div class="flex flex-wrap items-center gap-3">${campos}<button type="button" id="mdMargenGuardar" class="cfg-btn2">Guardar</button>
       ${htmlIgualarSigaMd(f)}</div>
-    <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></section>`;
+    <p id="mdMargenMsg" class="text-sm mt-1" role="status" aria-live="polite"></p>`;
+  return fr ? `<section class="md-margen-prod md-paso">${cab}<div class="md-paso-cuerpo">${cuerpo}</div></section>` : `<section class="md-margen-prod">${cab}${cuerpo}</section>`;
 }
 // Botón "Igualar a SIGA": deshabilitado con el motivo en el title si no hay costo o vigentes para calcular.
 function htmlIgualarSigaMd(f) {

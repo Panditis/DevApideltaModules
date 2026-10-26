@@ -2,9 +2,11 @@
 // Script clásico después de precios_modal_esquema.js y precios_config_fraccionado.js. pintarModalEsquema le deja el pintado
 // (pintarModalFraccionadoMd) y conectarModalEsquema lo conecta (conectarModalFraccionadoMd). Dos tarjetas (#mDetCaja, ~70 % del ancho, y
 // #mDetDer, ~30 %):
-//  · izquierda = configuración del granel: costo elegido (tarjetas, una fila de cuatro; la de costo manual trae el campo para cargarlo),
-//    debajo en dos columnas el costo del granel (máquina, costos extra, venta de pack/bulto) y el margen del producto con el estado, y al
-//    final cómo se conforma el costo y el precio por presentación (mercadería + insumos + mano de obra + máquina). Todo salvo las tarjetas
+//  · izquierda = configuración del granel, en pasos numerados (cada uno es un panel .md-paso con su encabezado: título + para qué sirve; el
+//    número lo pone un contador CSS en precios.html, así que sin precios-config el estado es el paso 2): 1 costo elegido (tarjetas, una fila de
+//    cuatro, cada una con su acento, su "cuándo conviene" y, la elegida, "Elegida"; la de costo manual trae el campo para cargarlo), debajo en dos
+//    columnas 2 el costo del granel (máquina, costos extra, venta de pack/bulto) y 3 el margen del producto con 4 el estado, y al final cómo se
+//    conforma el costo y el precio por presentación (mercadería + insumos + mano de obra + máquina), sólo para revisar. Todo salvo las tarjetas
 //    y el estado va sólo con precios-config (sin él el server no manda el desglose ni los extras, y el costo manual no se carga acá).
 //  · derecha = precios de las presentaciones (htmlPreciosFraccMd, bajo el título "Precios de las presentaciones" y el subtítulo "por kg · con <fuente>"):
 //    angosta, así que sin columnas: por presentación vigente → sugerido con la fuente elegida, Δ % como chip, y Δ $ y margen en segunda línea.
@@ -87,14 +89,15 @@ const textoGuardadoActivoMd = f => `Guardado · ${f.activoManual == null ? 'auto
 function htmlEstadoActivoMd(f, msg = '') {
   if (f.plu == null) return '';
   const reefer = f.reefer === true ? ' <span class="md-sub">· REEFER: el listado lo oculta salvo con "Ver REEFER", sea cual sea su estado</span>' : '';
-  return `<section id="mdAct" class="md-activo" aria-labelledby="mdActH">
-    <h4 id="mdActH" class="md-h">Estado en el listado${reefer}</h4>
-    <p class="md-ayuda">Los graneles inactivos no se muestran en el listado salvo con "Ver inactivos". Automático decide por los movimientos de stock de los últimos 6 meses.</p>
+  return `<section id="mdAct" class="md-activo md-paso" aria-labelledby="mdActH">
+    <div class="md-paso-cab"><h4 id="mdActH" class="md-h">Estado en el listado${reefer}</h4>
+      <p class="md-paso-para">No cambia ningún precio: sólo define si el granel aparece en el listado.</p></div>
+    <div class="md-paso-cuerpo"><p class="md-ayuda">Los graneles inactivos no se muestran en el listado salvo con "Ver inactivos". Automático decide por los movimientos de stock de los últimos 6 meses.</p>
     <div class="flex flex-wrap items-center gap-2"><label for="mdActSel" class="text-sm">Mostrar como</label>
       <select id="mdActSel" class="num-in text-left">${htmlOpcionesActivoMd(f)}</select>
       <button type="button" id="mdActGuardar" class="cfg-btn2">Guardar</button></div>
     <ul class="md-act-mov">${lineasEstadoMd(f).map(l => `<li>${ESC_FR_MD(l)}</li>`).join('')}</ul>
-    <p id="mdActMsg" class="md-msg" role="status" aria-live="polite">${msg}</p></section>`;
+    <p id="mdActMsg" class="md-msg" role="status" aria-live="polite">${msg}</p></div></section>`;
 }
 
 // ── Columna derecha: precios de las presentaciones y su variación contra el vigente ──
@@ -187,12 +190,13 @@ function htmlMaquinaGranelMd(f) {
   const g = f.costeoGranel;
   const maquinas = mdFrMaquinas || (g.maquinaId ? [{ id: g.maquinaId, nombre: g.maquina || g.maquinaId }] : []);
   return `<div class="md-edicion" id="mdFr">
-    <div class="lbl mb-1">Máquina · ${g.subrubro ? `subrubro ${esc(g.subrubro)}` : 'sin subrubro en SIGA'}</div>
+    <div class="md-sb-t">Máquina <span class="md-sub">· ${g.subrubro ? `subrubro ${esc(g.subrubro)}` : 'sin subrubro en SIGA'}</span></div>
+    <p class="md-sb-ayuda">Suma el costo de usar la máquina en cada presentación. Por defecto es la del subrubro: elegí otra sólo si este granel usa una distinta.</p>
     <div class="flex flex-wrap items-center gap-2">
-      <label class="text-sm">Máquina <select id="mdFrMaquina" class="num-in"${g.subrubro ? '' : ' disabled'}>${opcionesMaquinaMd(maquinas, g.maquinaId, g.maquinaSubrubro)}</select></label>
+      <label for="mdFrMaquina" class="sr-only">Máquina</label><select id="mdFrMaquina" class="num-in"${g.subrubro ? '' : ' disabled'}>${opcionesMaquinaMd(maquinas, g.maquinaId, g.maquinaSubrubro)}</select>
       ${g.subrubro ? '' : `<span class="text-xs text-gris">${esc('sin subrubro: no suma minutos')}</span>`}
       <button type="button" id="mdFrGuardar" class="cfg-btn2">Guardar</button></div>
-    <p class="text-xs text-gris mt-1">Máquina, tiempos por peso, facilidad y tiempo del subrubro, e insumos por peso: Configuración › Costeo Fraccionado.</p>
+    <p class="md-sb-ayuda mt-1">Tiempos por peso, facilidad, tiempo e insumos se cargan en Configuración › Costeo Fraccionado.</p>
     <p id="mdFrMsg" class="text-sm mt-1" role="status" aria-live="polite"></p></div>`;
 }
 
@@ -214,8 +218,10 @@ function htmlPresFraccMd(p, f) {
 
 // ── Layout a dos tarjetas ──
 // "Costo del granel" (sólo con precios-config): máquina, costos extra y venta de pack/bulto pesables. (El costo manual se carga en su tarjeta de decisión.)
-const htmlCostoGranelMd = f => (preciosSinConfig ? '' : `<section class="md-fr-sec" aria-labelledby="mdCostoH">
-  <h4 id="mdCostoH" class="md-h">Costo del granel <span class="md-sub">· $/kg</span></h4>${htmlMaquinaGranelMd(f)}${htmlEdicionCostos(f)}</section>`);
+const htmlCostoGranelMd = f => (preciosSinConfig ? '' : `<section class="md-fr-sec md-paso" aria-labelledby="mdCostoH">
+  <div class="md-paso-cab"><h4 id="mdCostoH" class="md-h">Costo del granel <span class="md-sub">· $/kg</span></h4>
+    <p class="md-paso-para">Se suma al costo elegido en el paso 1 y cambia el precio de todas las presentaciones.</p></div>
+  <div class="md-paso-cuerpo">${htmlMaquinaGranelMd(f)}${htmlEdicionCostos(f)}</div></section>`);
 
 // Cómo se conforma el costo (mercadería + insumos + mano de obra + máquina, por presentación) y el precio (costo → margen → IVA →
 // redondeo, por presentación y pack/bulto). Acordeón del theme, cerrado salvo que ya estuviera abierto (mdDetalle sobrevive a repintados).
@@ -223,7 +229,7 @@ function htmlDetalleFraccMd(f) {
   if (preciosSinConfig) return '';
   const costo = f.costeoGranel ? (f.presentaciones || []).map(p => htmlPresFraccMd(p, f)).join('') : '';
   return `<details id="mdDetCuerpo" class="acordeon md-fr-detalle"${mdDetalle ? ' open' : ''}>
-    <summary><span class="caret" aria-hidden="true">▶</span><span class="md-h">Cómo se conforma el costo y el precio</span></summary>
+    <summary><span class="caret" aria-hidden="true">▶</span><span class="md-h">Cómo se conforma el costo y el precio</span><span class="md-sub">· sólo para revisar, no cambia nada</span></summary>
     <div class="cuerpo">${costo ? `<div class="lbl mt-3">Costo real por presentación</div>${costo}` : ''}
       <div class="lbl mt-4">Cálculo del precio</div>${htmlDesgloseEsq(f)}</div></details>`;
 }
