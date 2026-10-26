@@ -264,7 +264,11 @@ tr.drag-over { border-top: 2px solid var(--md-primary); }
    entre en la altura máxima scrollea solo. Los bloques que ya traen overflow inline lo
    conservan (el estilo inline gana sobre esta regla). */
 .modal > .modal-header { flex-shrink: 0; }
-.modal > *:not(.modal-header):not(.modal-search) { min-height: 0; overflow-y: auto; }
+.modal > *:not(.modal-header):not(.modal-search) { min-height: 0; overflow: auto; }
+/* Modales con contenido variable: crecen con lo que muestran (el ancho inline queda como mínimo) hasta 96vw × 92vh;
+   si igual no entra, el cuerpo scrollea. Los textos largos no estiran el modal. */
+.modal.modal-auto { width: fit-content !important; max-width: 96vw !important; max-height: 92vh !important; }
+.modal.modal-auto .urg-nota, .modal.modal-auto p { max-width: 820px; }
 .search-result { padding: 12px 18px; border-bottom: 1px solid var(--md-outline-variant); cursor: pointer; display: flex; align-items: center; gap: 10px; transition:background .12s; }
 .search-result:hover { background: rgba(64,89,54,.06); }
 .search-result .prod-name { font-weight: 500; flex: 1; }
@@ -800,7 +804,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL GRANEL (cantidad manual) -->
 <div class="overlay" id="overlayGranel">
-  <div class="modal" style="width:420px">
+  <div class="modal modal-auto" style="min-width:min(420px,96vw)">
     <div class="modal-header">
       <span id="granelModalTitulo">Agregar producción</span>
       <span class="close" id="cerrarGranel">✕</span>
@@ -838,12 +842,12 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL DETALLE DE STOCK -->
 <div class="overlay" id="overlayStockDet">
-  <div class="modal" style="width:auto;max-width:90vw">
+  <div class="modal modal-auto" style="min-width:min(420px,96vw)">
     <div class="modal-header">
       <span><span id="stockDetModo">🔍 Stock en sucursales</span> · <span id="stockDetTitulo"></span></span>
       <span class="close" onclick="document.getElementById('overlayStockDet').classList.remove('open')">✕</span>
     </div>
-    <div style="padding:18px 20px;overflow-x:hidden;overflow-y:auto" id="stockDetBody">
+    <div style="padding:18px 20px;overflow:auto" id="stockDetBody">
       <div class="loading">Cargando…</div>
     </div>
   </div>
@@ -851,7 +855,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL CÁLCULO DE LA URGENCIA -->
 <div class="overlay" id="overlayUrgencia">
-  <div class="modal" style="width:auto;min-width:min(560px,92vw);max-width:min(900px,94vw)">
+  <div class="modal modal-auto" style="min-width:min(560px,96vw)">
     <div class="modal-header">
       <span>Urgencia · <span id="urgenciaTitulo"></span></span>
       <span class="close" id="cerrarUrgencia">✕</span>
@@ -955,7 +959,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL ENVIAR A PRODUCCIÓN -->
 <div class="overlay" id="overlayEnviar">
-  <div class="modal" style="width:600px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal modal-auto" style="min-width:min(600px,96vw);display:flex;flex-direction:column">
     <div class="modal-header" style="background:#1e40af">
       📤 Enviar a Producción del Día
       <span class="close" id="cerrarEnviar">✕</span>
@@ -988,7 +992,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL EDITAR GRUPO -->
 <div class="overlay" id="overlayEditarGrupo">
-  <div class="modal" style="width:760px;max-height:90vh;display:flex;flex-direction:column">
+  <div class="modal modal-auto" style="min-width:min(760px,96vw);display:flex;flex-direction:column">
     <div class="modal-header">
       <span id="editarGrupoTitulo" style="flex:1"></span>
       <input type="text" id="inputNombreGrupo" placeholder="Nombre del grupo (ej: Miel pradera)…"
@@ -1100,7 +1104,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL RESERVA DE MERCADERÍA -->
 <div class="overlay" id="overlayReserva">
-  <div class="modal" style="width:720px;max-height:86vh;display:flex;flex-direction:column">
+  <div class="modal modal-auto" style="min-width:min(720px,96vw);display:flex;flex-direction:column">
     <div class="modal-header" style="background:var(--md-primary)">
       <span id="reservaTitulo">🔒 Reserva de mercadería</span>
       <span class="close" id="cerrarReserva">✕</span>
@@ -1143,7 +1147,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL HISTORIAL DE MOVIMIENTOS DE STOCK -->
 <div class="overlay" id="overlayMovStock">
-  <div class="modal" style="width:920px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal modal-auto" style="min-width:min(920px,96vw);display:flex;flex-direction:column">
     <div class="modal-header" style="background:var(--md-primary)">
       <span id="movStockTitulo">🧾 Resumen de reservas del plan</span>
       <span class="close" id="cerrarMovStock">✕</span>
@@ -1172,7 +1176,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL VER FÓRMULA (planificación) -->
 <div class="overlay" id="overlayFormulaView">
-  <div class="modal" style="width:440px">
+  <div class="modal modal-auto" style="min-width:min(440px,96vw)">
     <div class="modal-header">
       <span id="fvTitulo">Fórmula</span>
       <span class="close" id="cerrarFormulaView">✕</span>
@@ -1188,7 +1192,7 @@ tr.orden-reservada .btn-danger:disabled { opacity:.35; cursor:not-allowed; }
 
 <!-- MODAL PLANTILLAS DE TAREAS (agenda) -->
 <div class="overlay no-print" id="overlayPlantillas">
-  <div class="modal" style="width:min(900px,96vw);max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal modal-auto" style="min-width:min(900px,96vw);display:flex;flex-direction:column">
     <div class="modal-header">
       📋 Plantillas de tareas
       <span class="close" id="btnPlCerrar">✕</span>
