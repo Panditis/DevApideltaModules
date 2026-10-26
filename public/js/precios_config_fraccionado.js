@@ -4,12 +4,14 @@
 // Fraccionado (mostrarCosteoFracc). Arriba una barra de estado (qué falta: máquinas, subrubros, insumos) que lleva a cada tarjeta;
 // después Máquinas, Escalas (factores de facilidad y de tiempo), los subrubros de SIGA (fila-tabla desplegable: su máquina, sus
 // minutos base según el peso, su facilidad y su tiempo, con sus productos al lado) y los insumos por peso de presentación
-// (globales: valen para toda presentación de ese peso). Cada tarjeta / subrubro guarda con su botón (PUT
+// (globales: valen para toda presentación de ese peso) y el ajuste por peso (puntos de margen de los tres canales según el peso de la
+// presentación; se editaba en Márgenes). Cada tarjeta / subrubro guarda con su botón (PUT
 // /api/precios/config/esquema/fraccionado/…) y se repinta sólo ella: lo que las otras tengan sin guardar queda. Los insumos de
 // un peso se guardan al aceptar su diálogo (#dlgFP). La máquina propia de un granel, en su modal. Estilos: bloque
 // "Costeo Fraccionado" de precios.html (.fr-*).
 // Globales: esc, numOrNull, fmtMoney (precios_comun.js), campoU, marcarSucio, limpiarSucio (precios_config.js), pedirEsq,
-// msgEsq, esFraccCfg (precios_config_esquema.js), htmlBuscadorSiga, conectarBuscadorSiga (precios_produccion.js).
+// msgEsq, esFraccCfg (precios_config_esquema.js), htmlBuscadorSiga, conectarBuscadorSiga (precios_produccion.js), PreciosEsquema
+// (/js/precios_esquema.js: generarAjustesPeso, AJUSTES_PESO_MAX).
 const API_FR = '/api/precios/config/esquema/fraccionado';
 const ESCALAS_FR = { facilidad: [['facil', 'Fácil'], ['normal', 'Normal'], ['dificil', 'Difícil']], tiempo: [['rapido', 'Rápido'], ['normal', 'Normal'], ['lento', 'Lento']] };
 // Qué significa cada escala y cada opción (ayuda de Escalas y de los selects del subrubro).
@@ -80,13 +82,16 @@ const textoPesoFr = ({ pesoG, presentaciones: n }) => `${pesoCortoFr(pesoG)} · 
 // Estado de los pesos (filas de filasPesosFr): cuántos tienen insumos y a cuántos les falta el costo de algún insumo.
 const estadoPesosFr = filas => ({ total: filas.length, conInsumos: filas.filter(f => f.insumos.length).length,
   sinCosto: filas.filter(f => f.insumos.length && costoUnidadFr(f.insumos) == null).length });
-// Las tres partes de la barra de arriba: id de su tarjeta, texto y estado (ok | falta | info).
-function estadoConfigFr(maquinas, lista, configurados, filas) {
+// Ajuste por peso ({ tramosG, puntos } | null): "2 tramos" o "sin ajuste".
+const textoAjustesPesoFr = aj => { const n = aj && Array.isArray(aj.tramosG) ? aj.tramosG.length : 0; return n ? `${n} tramo${n === 1 ? '' : 's'}` : 'sin ajuste'; };
+// Las cuatro partes de la barra de arriba: id de su tarjeta, texto y estado (ok | falta | info).
+function estadoConfigFr(maquinas, lista, configurados, filas, ajustesPeso) {
   const faltan = subrubrosIncompletosFr(lista, configurados).length, p = estadoPesosFr(filas), s = lista.length;
   return [
     { id: 'frMaquinas', titulo: 'Máquinas', texto: maquinas.length ? `${maquinas.length} cargada${maquinas.length === 1 ? '' : 's'}` : 'ninguna cargada', estado: maquinas.length ? 'ok' : 'falta' },
     { id: 'frSubrubrosCard', titulo: 'Subrubros', texto: s ? `${s - faltan} de ${s} completos` : 'sin subrubros', estado: !s ? 'info' : faltan ? 'falta' : 'ok' },
     { id: 'frPesos', titulo: 'Insumos por peso', texto: !p.total ? 'sin pesos' : p.sinCosto ? `${p.sinCosto} sin costo` : `${p.conInsumos} de ${p.total} pesos con insumos`, estado: p.sinCosto ? 'falta' : 'info' },
+    { id: 'frAjustes', titulo: 'Ajuste por peso', texto: textoAjustesPesoFr(ajustesPeso), estado: 'info' },
   ];
 }
 
@@ -108,7 +113,7 @@ const NOTA_EFECTO_FR = 'Sube o baja la mano de obra y la máquina de cada unidad
 
 if (typeof module === 'object' && module.exports) module.exports = { conTramoFr, faltaSubrubroFr, cuentaProductosFr, celdasSubrubroFr, subrubrosIncompletosFr, textoUsosFr,
   coincideFr, subrubrosListaFr, conInsumosFr, errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr, pesoCortoFr, estadoPesosFr, estadoConfigFr, pctMinutosFr,
-  efectoFactorFr, textoEfectoSubFr };
+  efectoFactorFr, textoEfectoSubFr, textoAjustesPesoFr };
 
 // ── DOM ──
 let cfFr = null;              // GET /costeo: config (maquinas, escalas, subrubros, porGranel, insumosPorPeso con nombre y costo)
@@ -174,7 +179,8 @@ function pintarCosteoFracc(panel) {
     <div id="frEstado" class="fr-barra" role="group" aria-label="Estado de la configuración">${htmlEstadoFr()}</div>
     <div class="grid gap-4 xl:grid-cols-2">${htmlMaquinasFr()}${htmlEscalasFr()}</div>
     ${htmlSubrubrosCardFr()}
-    ${htmlPesosFr()}`;
+    ${htmlPesosFr()}
+    ${htmlAjustesPesoFr()}`;
   panel.querySelector('#frEstado').onclick = e => { const b = e.target.closest('[data-ancla]'); if (b) irAnclaFr(b.dataset.ancla); };
   const solo = panel.querySelector('#frSoloFalta');
   solo.onchange = () => panel.querySelector('#frSubrubros').classList.toggle('solo-falta', solo.checked);
@@ -182,11 +188,12 @@ function pintarCosteoFracc(panel) {
   conectarEscalasFr(panel.querySelector('#frEscalas'));
   panel.querySelectorAll('#frSubrubros details[data-sub]').forEach(conectarSubrubroFr);
   conectarPesosFr(panel.querySelector('#frPesos'));
+  conectarAjustesPesoFr(panel.querySelector('#frAjustes'));
 }
 
 // ── Barra de estado: qué falta de cada parte; cada una lleva a su tarjeta ──
 const ICONO_ESTADO_FR = { ok: '✔', falta: '⚠', info: '–' };
-const estadoActualFr = () => estadoConfigFr(cfFr.maquinas, listaSubrubrosFr(), cfFr.subrubros, filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso));
+const estadoActualFr = () => estadoConfigFr(cfFr.maquinas, listaSubrubrosFr(), cfFr.subrubros, filasPesosFr(cfFr.pesos, cfFr.insumosPorPeso), cfFr.ajustesPeso);
 const htmlEstadoFr = () => estadoActualFr().map(p => `<button type="button" class="fr-est" data-ancla="${p.id}" data-estado="${p.estado}">
   <span class="fr-est-ico" aria-hidden="true">${ICONO_ESTADO_FR[p.estado]}</span><span><b>${esc(p.titulo)}</b><span class="fr-est-txt">${esc(p.texto)}</span></span></button>`)
   .join('<span class="cfg-chev" aria-hidden="true">›</span>');
@@ -472,4 +479,62 @@ function editarInsumosFr(insumos, titulo) {
   d.returnValue = '';
   d.showModal();
   return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok' ? lista : null), { once: true }));
+}
+
+// ── Ajuste por peso ──
+// Puntos de margen que se suman a los tres canales según el peso de la presentación (antes se editaba en Márgenes). Tabla editable
+// (siempre visible, vacía = sin ajuste) + generador de tramos que sólo llena la tabla. Guarda con PUT /ajustes-peso
+// { ajustesPeso: { tramosG, puntos } | null }; la respuesta trae ajustesPeso y guardarFr lo mezcla en cfFr.
+const htmlFilaAjusteFr = (g = '', p = '') => `<tr class="fr-tramo">
+    <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="1" data-k="g" value="${esc(g)}" aria-label="Hasta (g)">`, 'g', { w: 'w-24' })}</td>
+    <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="-100" max="100" data-k="p" value="${esc(p)}" aria-label="Ajuste en puntos de margen">`, 'pts', { w: 'w-24' })}</td>
+    <td class="py-1"><button type="button" class="fr-quitar-tramo btn-quitar" data-edita aria-label="Quitar tramo">✕</button></td></tr>`;
+const campoGenFr = (k, v, u, extra = '') => `<label class="flex flex-col gap-1 text-xs text-gris">${k}
+    ${campoU(`<input type="number" step="any" data-gen="${k}" value="${v}" ${extra}>`, u, { w: 'w-24' })}</label>`;
+function htmlAjustesPesoFr() {
+  const aj = cfFr.ajustesPeso, tramos = aj && Array.isArray(aj.tramosG) ? aj.tramosG : [];
+  return `<div class="cfg-card fr-card fr-ancla min-w-0 mt-4" data-guardable data-nombre="Ajuste por peso" id="frAjustes"><div class="fr-cuerpo">
+    <h3 class="cfg-h">Ajuste por peso</h3>
+    <p class="cfg-ayuda">Puntos de margen que se suman a los tres canales según el peso de la presentación. Se usa el primer tramo cuyo "hasta" es mayor o igual al peso;
+      más pesado que el último usa el último; una presentación sin peso cuenta como 1000 g. Sin tramos = sin ajuste.</p>
+    <div class="flex gap-10 items-start flex-wrap mt-2">
+      <div><table class="cfg-tabla"><thead><tr><th class="text-left">Hasta (g)</th><th class="text-left">Ajuste</th><th><span class="sr-only">Quitar</span></th></tr></thead>
+        <tbody>${tramos.map((g, i) => htmlFilaAjusteFr(g, aj.puntos[i])).join('')}</tbody></table>
+        <p class="fr-vacio">Sin tramos: no se ajusta el margen por peso.</p>
+        <button type="button" class="fr-agregar-tramo cfg-btn2 mt-2" data-edita>+ Agregar tramo</button></div>
+      <div class="fr-generador"><h4 class="font-semibold text-sm mb-1">Generar tramos</h4>
+        <p class="fr-hint mb-2">Cortes en escala logarítmica; el ajuste baja lineal del más liviano al más pesado. Llena la tabla: se aplica al guardar.</p>
+        <div class="flex gap-3 flex-wrap items-end">
+          ${campoGenFr('Desde', 100, 'g', 'min="1"')}${campoGenFr('Hasta', 5000, 'g', 'min="1"')}
+          ${campoGenFr('Tramos', 6, '#', `min="2" max="${PreciosEsquema.AJUSTES_PESO_MAX}" step="1"`)}
+          ${campoGenFr('Más liviano', 15, 'pts', 'min="-100" max="100"')}${campoGenFr('Más pesado', -10, 'pts', 'min="-100" max="100"')}
+          <button type="button" class="fr-generar cfg-btn2">Generar</button></div>
+        <p class="fr-gen-msg text-xs text-crit mt-1" role="status" aria-live="polite"></p></div>
+    </div></div>${pieFr('Guardar ajuste por peso')}</div>`;
+}
+// Tabla vacía → null (sin ajuste). Ordenada por gramos; lo inválido (repetidos, vacíos, fuera de rango) lo rechaza el server.
+function leerAjustesPesoFr(card) {
+  const filas = [...card.querySelectorAll('.fr-tramo')].map(tr => ({ g: numOrNull(tr.querySelector('[data-k="g"]').value), p: numOrNull(tr.querySelector('[data-k="p"]').value) }))
+    .sort((a, b) => (a.g ?? 0) - (b.g ?? 0));
+  return filas.length ? { tramosG: filas.map(f => f.g), puntos: filas.map(f => f.p) } : null;
+}
+function generarAjustesFr(card) {
+  const v = k => numOrNull(card.querySelector(`[data-gen="${k}"]`).value);
+  const gen = PreciosEsquema.generarAjustesPeso({ desdeG: v('Desde'), hastaG: v('Hasta'), tramos: v('Tramos'), livianoPct: v('Más liviano'), pesadoPct: v('Más pesado') });
+  const msg = card.querySelector('.fr-gen-msg');
+  msg.textContent = gen ? '' : `Revisá los datos: desde > 0, hasta > desde, de 2 a ${PreciosEsquema.AJUSTES_PESO_MAX} tramos (enteros) y ajustes entre −100 y 100.`;
+  if (!gen) return;
+  const tbody = card.querySelector('tbody');
+  if (tbody.children.length && !confirm('¿Reemplazar los tramos actuales por los generados?')) return;
+  tbody.innerHTML = gen.tramosG.map((g, i) => htmlFilaAjusteFr(g, gen.puntos[i])).join('');
+  marcarSucio(card);
+}
+function conectarAjustesPesoFr(card) {
+  card.onclick = e => { // onclick, no addEventListener: la tarjeta se repinta al guardar
+    if (e.target.closest('.fr-agregar-tramo')) card.querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaAjusteFr());
+    else if (e.target.closest('.fr-quitar-tramo')) { e.target.closest('tr').remove(); marcarSucio(card); } // ya sacada: el listener de data-edita no encuentra la tarjeta
+    else if (e.target.closest('.fr-generar')) generarAjustesFr(card);
+  };
+  card.querySelector('.fr-guardar').onclick = () => guardarFr(card, '/ajustes-peso', { ajustesPeso: leerAjustesPesoFr(card) },
+    () => repintarFr('frAjustes', htmlAjustesPesoFr, conectarAjustesPesoFr));
 }

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { conTramoFr, faltaSubrubroFr, cuentaProductosFr, celdasSubrubroFr, subrubrosIncompletosFr, textoUsosFr, coincideFr, subrubrosListaFr, conInsumosFr,
   errorInsumosFr, costoUnidadFr, filasPesosFr, textoPesoFr, pesoCortoFr, estadoPesosFr, estadoConfigFr, pctMinutosFr, efectoFactorFr,
-  textoEfectoSubFr } = require('../public/js/precios_config_fraccionado.js');
+  textoEfectoSubFr, textoAjustesPesoFr } = require('../public/js/precios_config_fraccionado.js');
 
 test('conTramoFr: 250 g el primero, después el doble del último; no muta', () => {
   assert.deepStrictEqual(conTramoFr([]), [{ hastaG: 250, minutos: null }]);
@@ -104,16 +104,25 @@ test('estadoPesosFr: pesos con insumos y pesos con algún insumo sin costo', () 
   assert.deepStrictEqual(estadoPesosFr([]), { total: 0, conInsumos: 0, sinCosto: 0 });
 });
 
-test('estadoConfigFr: máquinas, subrubros e insumos por peso con su estado (ok | falta | info)', () => {
+test('textoAjustesPesoFr: cuántos tramos tiene el ajuste por peso; null o sin tramos → sin ajuste', () => {
+  assert.strictEqual(textoAjustesPesoFr(null), 'sin ajuste');
+  assert.strictEqual(textoAjustesPesoFr(undefined), 'sin ajuste');
+  assert.strictEqual(textoAjustesPesoFr({ tramosG: [], puntos: [] }), 'sin ajuste');
+  assert.strictEqual(textoAjustesPesoFr({ tramosG: [1000], puntos: [0] }), '1 tramo');
+  assert.strictEqual(textoAjustesPesoFr({ tramosG: [100, 1000], puntos: [8, 0] }), '2 tramos');
+});
+
+test('estadoConfigFr: máquinas, subrubros, insumos por peso y ajuste por peso con su estado (ok | falta | info)', () => {
   const ok = { maquinaId: 'env', tramos: [{ hastaG: 1, minutos: 1 }], facilidad: 'normal', tiempo: 'normal' };
   const filas = [{ pesoG: 250, insumos: [{ cantidad: 1, costo: 5 }] }, { pesoG: 500, insumos: [] }];
-  const e = estadoConfigFr([{ id: 'env' }], [{ id: '1' }, { id: '2' }], { 1: ok }, filas);
+  const e = estadoConfigFr([{ id: 'env' }], [{ id: '1' }, { id: '2' }], { 1: ok }, filas, { tramosG: [100, 1000], puntos: [8, 0] });
   assert.deepStrictEqual(e.map(p => [p.id, p.texto, p.estado]), [
-    ['frMaquinas', '1 cargada', 'ok'], ['frSubrubrosCard', '1 de 2 completos', 'falta'], ['frPesos', '1 de 2 pesos con insumos', 'info']]);
+    ['frMaquinas', '1 cargada', 'ok'], ['frSubrubrosCard', '1 de 2 completos', 'falta'], ['frPesos', '1 de 2 pesos con insumos', 'info'],
+    ['frAjustes', '2 tramos', 'info']]);
   const vacio = estadoConfigFr([], [], {}, []);
-  assert.deepStrictEqual(vacio.map(p => [p.texto, p.estado]), [['ninguna cargada', 'falta'], ['sin subrubros', 'info'], ['sin pesos', 'info']]);
-  assert.deepStrictEqual(estadoConfigFr([{}, {}], [{ id: '1' }], { 1: ok }, [{ pesoG: 250, insumos: [{ cantidad: 1, costo: null }] }]).map(p => [p.texto, p.estado]),
-    [['2 cargadas', 'ok'], ['1 de 1 completos', 'ok'], ['1 sin costo', 'falta']]);
+  assert.deepStrictEqual(vacio.map(p => [p.texto, p.estado]), [['ninguna cargada', 'falta'], ['sin subrubros', 'info'], ['sin pesos', 'info'], ['sin ajuste', 'info']]);
+  assert.deepStrictEqual(estadoConfigFr([{}, {}], [{ id: '1' }], { 1: ok }, [{ pesoG: 250, insumos: [{ cantidad: 1, costo: null }] }], null).map(p => [p.texto, p.estado]),
+    [['2 cargadas', 'ok'], ['1 de 1 completos', 'ok'], ['1 sin costo', 'falta'], ['sin ajuste', 'info']]);
 });
 
 test('pctMinutosFr: % de minutos que suma o resta un factor', () => {

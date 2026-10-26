@@ -172,7 +172,8 @@ function pintarPrecioEsq(panel, cfg) {
   }, cargarPrecioEsq);
 }
 
-// ── Márgenes: 3 tablas (una por canal, para los tres tipos) + grilla de quiebres en vivo + rango desde SIGA + ajuste por peso (Fraccionado) ──
+// ── Márgenes: 3 tablas (una por canal, para los tres tipos) + grilla de quiebres en vivo + rango desde SIGA ──
+// (El ajuste por peso de Fraccionado se edita en Costeo Fraccionado: precios_config_fraccionado.js.)
 const CANALES_ESQ = { minorista: 'Minorista', pack: 'Mayorista pack', bulto: 'Mayorista bulto' };
 const cargarMargenesEsq = () => cargarPanelEsq('panel-margenes', pintarMargenesEsq);
 const chipEsq = (txt, title = '') => `<span class="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-warn/15 text-warn"${title ? ` title="${esc(title)}"` : ''}>${esc(txt)}</span>`;
@@ -207,64 +208,8 @@ function pintarQuiebresEsq(card) {
         <td class="text-right tabular-nums">${pctEsq(q.margenPct)}</td></tr>`).join('')}</tbody></table>`;
 }
 
-// Ajuste por peso: tabla editable (siempre visible, vacía = sin ajuste) + generador de tramos que sólo llena la tabla.
-const htmlFilaTramoEsq = (g = '', p = '') => `<tr class="esq-tramo">
-    <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="1" data-k="g" value="${esc(g)}" aria-label="Hasta (g)">`, 'g', { w: 'w-24' })}</td>
-    <td class="py-1 pr-2">${campoU(`<input type="number" step="any" min="-100" max="100" data-k="p" value="${esc(p)}" aria-label="Ajuste %">`, '%', { w: 'w-20' })}</td>
-    <td class="py-1"><button type="button" class="esq-quitar-tramo text-gris hover:text-crit" data-edita aria-label="Quitar tramo">✕</button></td></tr>`;
-const numGenEsq = (k, v, u, extra = '') => `<label class="text-xs text-gris">${k}
-    ${campoU(`<input type="number" step="any" data-gen="${k}" value="${v}" ${extra}>`, u, { w: 'w-20' })}</label>`;
-function htmlAjustesPesoEsq(aj) {
-  const tramos = aj && Array.isArray(aj.tramosG) ? aj.tramosG : [];
-  return `<div class="cfg-card mt-4 esq-ajustes">
-    <h4 class="font-semibold text-sm mb-1">Ajuste por peso <span class="cfg-nota">se suma al margen de los tres canales según el peso de la presentación</span></h4>
-    <p class="cfg-ayuda">Se usa el primer tramo cuyo "hasta" es mayor o igual al peso; más pesado que el último usa el último;
-      una presentación sin peso cuenta como 1000 g. Sin tramos = sin ajuste.</p>
-    <div class="flex gap-8 items-start flex-wrap">
-      <div><table class="cfg-tabla"><thead><tr><th class="text-left">Hasta (g)</th><th class="text-left">Ajuste %</th><th></th></tr></thead>
-        <tbody>${tramos.map((g, i) => htmlFilaTramoEsq(g, aj.puntos[i])).join('')}</tbody></table>
-        <button type="button" class="esq-agregar-tramo cfg-btn2 mt-2" data-edita>＋ Agregar tramo</button></div>
-      <div class="esq-generador"><h5 class="font-semibold text-xs mb-1">Generar tramos <span class="cfg-nota">cortes en escala log; el % baja lineal. Se aplica al guardar.</span></h5>
-        <div class="flex gap-3 flex-wrap items-end">
-          ${numGenEsq('Desde', 100, 'g', 'min="1"')}${numGenEsq('Hasta', 5000, 'g', 'min="1"')}
-          ${numGenEsq('Tramos', 6, '#', `min="2" max="${PreciosEsquema.AJUSTES_PESO_MAX}" step="1"`)}
-          ${numGenEsq('Más liviano', 15, '%', 'min="-100" max="100"')}${numGenEsq('Más pesado', -10, '%', 'min="-100" max="100"')}
-          <button type="button" class="esq-generar cfg-btn2">Generar</button></div>
-        <p class="esq-gen-msg text-xs text-crit mt-1" role="status" aria-live="polite"></p></div>
-    </div></div>`;
-}
-// Tabla vacía → null (no se manda ajustesPeso = sin ajuste). Ordenada por gramos; lo inválido lo rechaza el server.
-function leerAjustesPesoEsq(sec) {
-  const filas = [...sec.querySelectorAll('.esq-tramo')].map(tr => ({ g: numOrNull(tr.querySelector('[data-k="g"]').value), p: numOrNull(tr.querySelector('[data-k="p"]').value) }))
-    .sort((a, b) => (a.g ?? 0) - (b.g ?? 0));
-  return filas.length ? { tramosG: filas.map(f => f.g), puntos: filas.map(f => f.p) } : null;
-}
-function generarTramosEsq(caja) {
-  const v = k => numOrNull(caja.querySelector(`[data-gen="${k}"]`).value);
-  const gen = PreciosEsquema.generarAjustesPeso({ desdeG: v('Desde'), hastaG: v('Hasta'), tramos: v('Tramos'), livianoPct: v('Más liviano'), pesadoPct: v('Más pesado') });
-  const msg = caja.querySelector('.esq-gen-msg');
-  msg.textContent = gen ? '' : `Revisá los datos: desde > 0, hasta > desde, de 2 a ${PreciosEsquema.AJUSTES_PESO_MAX} tramos (enteros) y % entre −100 y 100.`;
-  if (!gen) return;
-  const tbody = caja.querySelector('tbody');
-  if (tbody.children.length && !confirm('Reemplazar los tramos actuales por los generados?')) return;
-  tbody.innerHTML = gen.tramosG.map((g, i) => htmlFilaTramoEsq(g, gen.puntos[i])).join('');
-  marcarSucio(caja.closest('[data-guardable]'));
-}
-// Clicks de la tarjeta (onclick, no addEventListener: se repinta en cada carga).
-function clickAjustesPesoEsq(e) {
-  const caja = e.currentTarget;
-  if (e.target.closest('.esq-agregar-tramo')) caja.querySelector('tbody').insertAdjacentHTML('beforeend', htmlFilaTramoEsq());
-  else if (e.target.closest('.esq-quitar-tramo')) { // ya sacada, el listener de data-edita no encuentra el bloque: se marca acá
-    e.target.closest('tr').remove();
-    marcarSucio(caja.closest('[data-guardable]'));
-  }
-  else if (e.target.closest('.esq-generar')) generarTramosEsq(caja);
-}
-
-// Reventa: descuento al distribuidor; el ajuste por peso sólo mientras Fraccionado use estas tablas (sin migrar).
-// Fraccionado: ajuste por peso, sin descuento al distribuidor.
+// Reventa: descuento al distribuidor. Fraccionado: sólo las tres tablas (sin descuento al distribuidor).
 function htmlMargenesEsq(m, cfg) {
-  const conAjuste = esFraccCfg() || !cfg.fraccionadoMigrado;
   const tituloRango = esFraccCfg()
     ? 'Percentiles 5 y 95 de los costos $/kg de los graneles de Fraccionado (consulta SIGA; no guarda)'
     : `Percentiles 5 y 95 de los costos de sistema de Reventa y Producción${cfg.fraccionadoMigrado ? '' : ' y Fraccionado'} (consulta SIGA; no guarda)`;
@@ -278,9 +223,7 @@ function htmlMargenesEsq(m, cfg) {
       <div class="cfg-campo"><label for="esqDtoDistrib">Descuento al margen para distribuidores</label>
         ${campoU(`<input id="esqDtoDistrib" type="number" step="any" min="0" max="99" value="${esc(m.descuentoDistribuidorPct ?? '')}" placeholder="0">`, 'puntos %', { w: 'w-28' })}</div>
       <p class="cfg-ayuda">Reventa con proveedor distribuidor: se resta del margen de los tres canales (ej. margen 50 % y descuento 5 → 45 %),
-        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>`}
-    ${conAjuste ? `<h3 class="cfg-h mt-4">Fraccionado <span class="cfg-nota">costo por kg del granel</span></h3>
-    ${htmlAjustesPesoEsq(m.ajustesPeso)}` : ''}</section>`;
+        después del ajuste del producto y antes de extras, IVA y redondeo. No aplica a un margen fijo del producto. Vacío = sin descuento.</p></div>`}</section>`;
 }
 
 async function recalcularRangoEsq(sec) {
@@ -301,7 +244,7 @@ async function recalcularRangoEsq(sec) {
 
 function pintarMargenesEsq(panel, cfg) {
   const cab = esFraccCfg()
-    ? '<b>Márgenes de Fraccionado</b> — una tabla por canal sobre el costo $/kg. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica; se suma el ajuste por peso.'
+    ? '<b>Márgenes de Fraccionado</b> — una tabla por canal sobre el costo $/kg. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. El ajuste por peso de la presentación se configura en Costeo Fraccionado.'
     : '<b>Márgenes de Reventa y Producción</b> — una tabla por canal. El margen baja en escalones del máximo (costos bajos) al mínimo (costos altos) entre "desde" y "hasta", en escala logarítmica. Pack y bulto no son descuentos del minorista: cada canal tiene su margen.';
   panel.innerHTML = `<p class="cfg-cab">${cab}</p>
     ${htmlMargenesEsq(cfg.margenes || {}, cfg)}`;
@@ -310,14 +253,10 @@ function pintarMargenesEsq(panel, cfg) {
   panel.oninput = e => { const c = e.target.closest('[data-canal]'); if (c) pintarQuiebresEsq(c); };
   const sec = panel.querySelector('section[data-guardable]');
   sec.querySelector('.esq-rango').onclick = () => recalcularRangoEsq(sec);
-  const ajustes = sec.querySelector('.esq-ajustes');
-  if (ajustes) ajustes.onclick = clickAjustesPesoEsq;
   sec.querySelector('.esq-guardar').onclick = () => {
     const tablas = Object.fromEntries([...sec.querySelectorAll('[data-canal]')].map(c => [c.dataset.canal, leerTablaEsq(c)]));
-    const aj = leerAjustesPesoEsq(sec);
     const dto = sec.querySelector('#esqDtoDistrib');
-    guardarBloqueEsq(sec, urlEsq('/margenes'), { ...tablas, ...(aj ? { ajustesPeso: aj } : {}),
-      ...(dto ? { descuentoDistribuidorPct: numOrNull(dto.value) } : {}) }, cargarMargenesEsq);
+    guardarBloqueEsq(sec, urlEsq('/margenes'), { ...tablas, ...(dto ? { descuentoDistribuidorPct: numOrNull(dto.value) } : {}) }, cargarMargenesEsq);
   };
 }
 
