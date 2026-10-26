@@ -4,7 +4,12 @@
 // el tiempo son los del subrubro del granel y los insumos los del peso de la presentación (Configuración › Costeo Fraccionado,
 // precios_config_fraccionado.js): acá se ven. Globales: esc, fmtMoney (precios_comun.js), mdEsq, mdFuente, guardarCostoEsq,
 // htmlPasos (precios_modal_esquema.js), API_FR (precios_config_fraccionado.js), getJson (precios_produccion.js).
+// Además el bloque "Estado" del granel (activo / inactivo / automático, spec 2026-10-26 §4): va FUERA de "Ver detalle", visible
+// para cualquier usuario de Precios (pintarModalEsquema llama a htmlEstadoActivoMd, conectarModalEsquema a conectarEstadoActivoMd).
+// Globales de ese bloque: guardarActivoManual, conActivoManual, renderListado (precios_listados.js).
 const ESC_FR_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js').esc : esc;
+const FECHA_FR_MD = typeof module === 'object' && module.exports ? require('./precios_comun.js').fmtFechaPrecio : fmtFechaPrecio;
+const ACT_FR_MD = typeof module === 'object' && module.exports ? require('./precios_listados.js') : { textoMotivosActividad };
 const FACIL_MD = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
 const TIEMPO_MD = { rapido: 'Rápido', normal: 'Normal', lento: 'Lento' };
 
@@ -43,7 +48,46 @@ function textoSinTiempoMd(rol, avisos) {
 // "Normal · Lento": facilidad y tiempo del subrubro con que se costeó la presentación (c = costeoPresentacion).
 const textoElegidoMd = c => `${FACIL_MD[(c || {}).facilidad] || 'sin facilidad'} · ${TIEMPO_MD[(c || {}).tiempo] || 'sin tiempo'}`;
 
-if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd, textoElegidoMd };
+// ── Estado del granel en el listado: activo / inactivo fijado a mano, o automático (movimientos de los últimos 6 meses) ──
+// Valor del <select> y activoManual del server (null = automático).
+const valorSelectActivoMd = f => (f.activoManual === true ? 'activo' : f.activoManual === false ? 'inactivo' : 'auto');
+const activoManualDeValorMd = v => (v === 'activo' ? true : v === 'inactivo' ? false : null);
+// Opción "Automático": lo que decidiría el automático hoy (los motivos van aparte, en lineasEstadoMd: así el select no se ensancha).
+const textoAutomaticoMd = f => (f.actividad ? `Automático (hoy: ${f.actividad.auto === 'inactivo' ? 'inactivo' : 'activo'})` : 'Automático (sin datos de actividad)');
+const htmlOpcionesActivoMd = f => [['auto', textoAutomaticoMd(f)], ['activo', 'Activo'], ['inactivo', 'Inactivo']]
+  .map(([v, t]) => `<option value="${v}"${v === valorSelectActivoMd(f) ? ' selected' : ''}>${ESC_FR_MD(t)}</option>`).join('');
+// Renglones informativos: por qué el automático lo deja inactivo, último movimiento del granel y presentaciones con movimiento
+// (movReciente true; null = sin datos y no cuenta).
+function lineasEstadoMd(f) {
+  const a = f.actividad;
+  if (!a) return ['Sin datos de movimientos: no se pudo consultar SIGA, no se oculta por inactivo.'];
+  const pres = f.presentaciones || [], con = pres.filter(p => p.movReciente === true);
+  const motivos = a.auto === 'inactivo' ? ACT_FR_MD.textoMotivosActividad(a.motivos) : '';
+  return [
+    ...(motivos ? [`Inactivo en automático: ${motivos}.`] : []),
+    `Último movimiento del granel: ${a.ultimoMovGranel ? FECHA_FR_MD(a.ultimoMovGranel) : 'ninguno en los últimos 6 meses'}.`,
+    pres.length ? `Presentaciones con movimiento en los últimos 6 meses: ${con.length} de ${pres.length}${con.length ? ` (${con.map(p => p.nombre).join(', ')})` : ''}.`
+      : 'Sin presentaciones en el listado.',
+  ];
+}
+// Mensaje tras guardar (fila ya actualizada): cómo quedó y, si quedó inactivo, que el listado lo oculta.
+const textoGuardadoActivoMd = f => `Guardado · ${f.activoManual == null ? 'automático' : 'fijado a mano'}: ${f.activo ? 'activo' : 'inactivo, el listado lo oculta salvo con "Ver inactivos"'}.`;
+// Sin PLU (el grupo "sin granel") no hay estado que fijar. msg = HTML ya armado del estado (guardado / error).
+function htmlEstadoActivoMd(f, msg = '') {
+  if (f.plu == null) return '';
+  const reefer = f.reefer === true ? ' <span class="md-sub">· REEFER: el listado lo oculta salvo con "Ver REEFER", sea cual sea su estado</span>' : '';
+  return `<section id="mdAct" class="md-activo" aria-labelledby="mdActH">
+    <h4 id="mdActH" class="md-h">Estado en el listado${reefer}</h4>
+    <p class="md-ayuda">Los graneles inactivos no se muestran en el listado salvo con "Ver inactivos". Automático decide por los movimientos de stock de los últimos 6 meses.</p>
+    <div class="flex flex-wrap items-center gap-2"><label for="mdActSel" class="text-sm">Mostrar como</label>
+      <select id="mdActSel" class="num-in text-left">${htmlOpcionesActivoMd(f)}</select>
+      <button type="button" id="mdActGuardar" class="cfg-btn2">Guardar</button></div>
+    <ul class="md-act-mov">${lineasEstadoMd(f).map(l => `<li>${ESC_FR_MD(l)}</li>`).join('')}</ul>
+    <p id="mdActMsg" class="md-msg" role="status" aria-live="polite">${msg}</p></section>`;
+}
+
+if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd, textoElegidoMd,
+  textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd };
 
 // ── DOM ──
 let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden cada vez que se conecta el modal: una máquina nueva aparece)
@@ -94,4 +138,34 @@ function conectarCosteoFraccMd() {
   }).catch(e => { const m = document.getElementById('mdFrMsg'); if (m) { m.className = 'text-sm mt-1 text-crit'; m.textContent = `No se pudieron leer las máquinas: ${e.message}`; } });
   document.getElementById('mdFrGuardar').onclick = () => guardarCostoEsq(`${API_FR}/granel/${encodeURIComponent(mdEsq.fila.plu)}`,
     { maquinaId: document.getElementById('mdFrMaquina').value || null }, 'PUT', 'mdFrMsg');
+}
+
+// ── Estado del granel: Guardar -> PUT (guardarActivoManual) -> fila local actualizada -> listado y bloque repintados, sin recargar SIGA ──
+function pintarEstadoActivoMd(msg) {
+  const el = document.getElementById('mdAct');
+  if (!el) return;
+  el.outerHTML = htmlEstadoActivoMd(mdEsq.fila, msg);
+  conectarEstadoActivoMd();
+}
+function conectarEstadoActivoMd() {
+  const guardar = document.getElementById('mdActGuardar');
+  if (!guardar) return;
+  guardar.onclick = async () => {
+    const sel = document.getElementById('mdActSel'), msg = document.getElementById('mdActMsg');
+    const { tipo, fila } = mdEsq;
+    guardar.disabled = true; sel.disabled = true;
+    msg.className = 'md-msg'; msg.innerHTML = '<span class="spin"></span> Guardando…';
+    try {
+      const activoManual = await guardarActivoManual(fila.plu, activoManualDeValorMd(sel.value)); // precios_listados.js
+      mdEsq = { tipo, fila: conActivoManual(fila, activoManual) };
+      renderListado(tipo); // el granel puede salir del listado (inactivo / REEFER): sin recargar SIGA
+      pintarEstadoActivoMd(`<span class="text-ok">✓ ${ESC_FR_MD(textoGuardadoActivoMd(mdEsq.fila))}</span>`);
+    } catch (e) {
+      guardar.disabled = false; sel.disabled = false; // queda lo elegido para reintentar
+      msg.className = 'md-msg text-crit'; msg.textContent = `No se pudo guardar: ${e.message}`;
+      sel.focus();
+      return;
+    }
+    document.getElementById('mdActSel').focus(); // el repintado reemplazó el select: sin foco el teclado quedaría en el <body>
+  };
 }

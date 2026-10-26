@@ -136,6 +136,11 @@
   .md-bloque{margin-top:10px}
   .md-edicion{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
   #mDet fieldset.md-dec{border:0;margin:0;padding:0;min-width:0}
+  /* Bloque "Estado" del granel (activo / inactivo / automático): visible para cualquier usuario, fuera de "Ver detalle". */
+  .md-activo{margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,28,24,.1)}
+  .md-act-mov{margin:6px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:#5c5f52}
+  /* Listado de Fraccionado: granel inactivo visible (con "Ver inactivos") atenuado. */
+  tr.lst-inactivo>td{opacity:.75}
   /* ── Configuración ─────────────────────────────────────────────────────────────────────────────
      Sub-tabs (.cfg-tab, role=tab): franja propia pegada bajo el header (sticky, top = alto del header como --pr-top).
      Izquierda los 4 pasos del precio en un riel segmentado unido por chevrons (.cfg-chev); a la derecha, aparte, General.

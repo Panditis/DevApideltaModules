@@ -3,6 +3,7 @@
 // presentación) con costo sistema, última compra, vigente, sugerido por fuente y un <select> con la DECISIÓN (qué costo usar
 // para el precio nuevo; marca el producto para exportar). Se decide acá, sin abrir el modal, o en el modal (clic en el nombre);
 // las dos vías guardan igual (guardarDecision). Todo viene calculado del server (GET /api/precios/esquema/listado): acá sólo se filtra y pinta.
+// Fraccionado además oculta los graneles REEFER e inactivos (toggles) y el estado manual se fija desde el modal (guardarActivoManual).
 // Globales: esc, fmtMoney, fmtPrecio, fmtPct, claseDelta, HOJA_EXPORTACION, FILA_ENCABEZADOS, fmtFechaPrecio,
 // montarOrden, ordenarCon (precios_comun.js), avisar, confirmar (precios_config.js), abrirModalEsquema, opcionesSelect
 // (precios_modal_esquema.js), textoRevisar (precios_produccion.js), XLSX (CDN).
@@ -13,14 +14,38 @@ const normL = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 // proveedor de la última compra (sólo Reventa, que es donde se muestra esa columna). clasificacion (sólo Reventa): 'con' = sólo
 // las que tienen tipoProveedor (directo/distribuidor; las demás son marca Apidelta o afines), 'sin' = sólo las sin clasificar
 // (toggle "Sin clasificar", para clasificar productos nuevos de SIGA desde el modal); null = todas.
-function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false, proveedor = false, clasificacion = null } = {}) {
+// Fraccionado (spec 2026-10-26): los graneles REEFER (control de stock) y los inactivos se ocultan salvo verReefer / verInactivos.
+// REEFER no depende de la actividad (rige verReefer aunque esté inactivo); el "sin granel" (plu null) siempre se ve.
+function filtrarFilas(filas, { texto = '', soloDecididos = false, ultimaMasCara = false, soloHoy = false, proveedor = false, clasificacion = null, verReefer = false, verInactivos = false } = {}) {
   const t = normL(texto.trim());
   const coincide = f => !t || normL(`${f.plu ?? ''} ${f.nombre}${proveedor ? ` ${f.proveedor ?? ''}` : ''}`).includes(t)
     || (f.presentaciones || []).some(p => normL(`${p.plu} ${p.nombre}`).includes(t));
   const clase = f => !clasificacion || (clasificacion === 'con') === !!f.tipoProveedor;
-  return filas.filter(f => coincide(f) && clase(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
+  const oculta = f => f.plu != null && (f.reefer === true ? !verReefer : f.activo === false && !verInactivos);
+  return filas.filter(f => coincide(f) && clase(f) && !oculta(f) && (!soloDecididos || !!f.decision) && (!soloHoy || f.ingresoHoy === true)
     && (!ultimaMasCara || (f.costoSistema > 0 && f.costoUltimaCompra > f.costoSistema)));
 }
+
+// Actividad de los graneles de Fraccionado. Cuántos hay de cada tipo oculto-able (los números de los toggles; inactivos = no REEFER).
+const contarOcultables = filas => ({ reefer: filas.filter(f => f.reefer === true).length, inactivos: filas.filter(f => f.reefer !== true && f.activo === false).length });
+// Fila con el estado manual nuevo (true | false | null = automático), sin mutar: activo = manual ?? automático (sin datos de actividad → activo).
+const conActivoManual = (f, activoManual) => ({ ...f, activoManual, activo: activoManual ?? (f.actividad ? f.actividad.auto === 'activo' : true) });
+const TXT_MOTIVO_ACTIVIDAD = { sinMovGranel: 'el granel no tuvo movimientos en 6 meses', sinPresentaciones: 'no tiene presentaciones en el listado',
+  sinMovPresentaciones: 'ninguna presentación tuvo movimientos en 6 meses' };
+const textoMotivosActividad = motivos => (motivos || []).map(m => TXT_MOTIVO_ACTIVIDAD[m] || m).join('; ');
+// Title del badge "inactivo": lo fijado a mano gana sobre los motivos del automático.
+function textoInactivoLst(f) {
+  if (f.activoManual === false) return 'Fijado a mano como inactivo';
+  const motivos = textoMotivosActividad((f.actividad || {}).motivos);
+  return motivos ? `Inactivo: ${motivos}` : 'Inactivo';
+}
+const BADGE_ACT_LST = 'ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-ink/10 text-ink whitespace-nowrap';
+function htmlBadgesActividadLst(f) {
+  const badge = (txt, title) => ` <span class="${BADGE_ACT_LST}" title="${ESC_LST(title)}">${txt}</span>`;
+  return (f.reefer === true ? badge('REEFER', 'Granel REEFER: depósito especial, sirve de control de stock') : '') + (f.activo === false ? badge('inactivo', textoInactivoLst(f)) : '');
+}
+// avisoActividad del server (falló la consulta de movimientos): franja ámbar arriba del listado.
+const textoAvisoActividad = aviso => (aviso ? `No se pudo calcular la actividad de los graneles (${aviso}): no se ocultan los inactivos.` : '');
 
 // ── Orden ────────────────────────────────────────────────────────────────────────
 // Headers ordenables de precios_comun.js (montarOrden/ordenarCon). Siempre hay un orden: por defecto el nombre A→Z (es, sin
@@ -166,7 +191,8 @@ function htmlDesplegarLst(f, abierto) {
 }
 
 if (typeof module === 'object' && module.exports) module.exports = { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado,
-  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst };
+  parsearPlanillaDecisiones, textoResumenImportacion, filasNoMarcados, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
+  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoAvisoActividad };
 
 // ── DOM ─────────────────────────────────────────────────────────────────────────
 const LST_CONT = { almacen: 'lstAlmacen', fraccionado: 'lstFracc', produccion: 'prodContenido' };
@@ -228,7 +254,10 @@ const celdaDecision = (f, tipo) => (f.plu == null ? '' : htmlSelectDecision(f, o
 
 // abierto: Fraccionado, si se pintan las presentaciones del granel (abiertoLst).
 function filaHtml(f, tipo, abierto = false) {
-  const marca = f.decision ? ' class="bg-verde/5"' : '';
+  const fracc = tipo === 'fraccionado';
+  // lst-inactivo: granel inactivo visible (con "Ver inactivos") atenuado; bg-verde/5: tiene decisión.
+  const clases = [f.decision ? 'bg-verde/5' : '', fracc && f.activo === false ? 'lst-inactivo' : ''].filter(Boolean).join(' ');
+  const marca = clases ? ` class="${clases}"` : '';
   if (tipo === 'produccion') {
     const rev = textoRevisar(f.aRevisar); // precios_produccion.js
     return `<tr${marca}><td class="p-2">${esc(f.plu)}</td><td class="p-2">${botonNombre(f)}</td>
@@ -238,11 +267,10 @@ function filaHtml(f, tipo, abierto = false) {
       <td class="p-2">${celdaDecision(f, tipo)}</td>
       <td class="p-2 whitespace-nowrap"><button type="button" class="lst-abrir cfg-btn2 mr-2" data-plu="${esc(f.plu)}">Precios</button><a class="text-xs text-verde underline underline-offset-2" href="#produccion/${encodeURIComponent(f.productoId)}">Receta</a></td></tr>`;
   }
-  const fracc = tipo === 'fraccionado';
   const subfilas = !abierto ? '' : (f.presentaciones || []).map(p => `<tr class="text-ink/80"><td class="p-2 pl-6 text-gris">${esc(p.plu)}</td><td class="p-2 pl-7">↳ ${esc(p.nombre)}${badgeFaltanteCosto(p)}</td>
     <td></td><td></td><td></td><td class="p-2 num">${vigenteTxt(p.vigente)}</td>
     <td class="p-2 num">${celdaPrecio(p.sugeridos.sistema)}</td><td class="p-2 num">${celdaPrecio(p.sugeridos.ultimaCompra)}</td><td></td></tr>`).join('');
-  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${fracc ? htmlDesplegarLst(f, abierto) : ''}${botonNombre(f)}${fracc ? badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
+  return `<tr${marca}><td class="p-2">${esc(f.plu ?? '—')}</td><td class="p-2 font-semibold">${fracc ? htmlDesplegarLst(f, abierto) : ''}${botonNombre(f)}${fracc ? htmlBadgesActividadLst(f) + badgeAvisosCosto(f) : ''}${f.plu == null ? ' <span class="text-gris text-xs font-normal">sin granel</span>' : ''}</td>
     <td class="p-2 num">${f.costoSistema == null ? '<span class="text-gris">—</span>' : '$ ' + fmtMoney(f.costoSistema)}</td>
     <td class="p-2 num">${celdaUltima(f)}</td><td class="p-2 num">${celdaDeltaUltima(f)}</td>${tipo === 'almacen' ? celdaProveedor(f) + celdaTipoProveedor(f) : ''}
     <td class="p-2 num">${fracc ? '' : vigenteTxt(f.vigente)}</td>
@@ -260,6 +288,7 @@ function htmlMarcoListado(tipo) {
       ...(alm ? [['Proveedor', 'proveedor'], ['Tipo', 'tipoProveedor']] : []), ['Vigente', !fracc && 'vigente'], ['Sugerido con sistema', !fracc && 'sugeridoSistema'], ['Sugerido con última compra', !fracc && 'sugeridoUltima'], ['Decisión']];
   const toggle = (cls, k, txt) => `<button type="button" class="fbtn ${cls}${f[k] ? ' on' : ''}" aria-pressed="${!!f[k]}">${txt}</button>`;
   return `<div class="lst-aviso hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm">Falta migrar la configuración al esquema por canal: sin márgenes no hay sugeridos.</div>
+  ${fracc ? '<div class="lst-aviso-act hidden mb-3 p-3 rounded-lg bg-warn/10 text-warn text-sm" role="status"></div>' : ''}
   <div class="flex items-center gap-2 mb-3 flex-wrap">
     <button type="button" class="lst-recargar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Recargar</button>
     <input type="search" class="lst-buscar px-3 py-1.5 rounded-lg border border-borde bg-bg/60 text-sm w-72" placeholder="Buscar por PLU, nombre${alm ? ' o proveedor' : ''}…" value="${esc(f.texto || '')}">
@@ -267,6 +296,7 @@ function htmlMarcoListado(tipo) {
     ${prod ? '' : toggle('lst-mascara', 'ultimaMasCara', 'Última compra más cara')}
     ${prod ? '' : toggle('lst-hoy', 'soloHoy', 'Cargados hoy <span class="fbtn-n lst-hoy-n"></span>')}
     ${alm ? toggle('lst-sinclas', 'sinClasificar', 'Sin clasificar <span class="fbtn-n lst-sinclas-n"></span>') : ''}
+    ${fracc ? toggle('lst-reefer', 'verReefer', 'Ver REEFER <span class="fbtn-n lst-reefer-n"></span>') + toggle('lst-inactivos', 'verInactivos', 'Ver inactivos <span class="fbtn-n lst-inactivos-n"></span>') : ''}
     <span class="lst-conteo text-sm text-gris"></span>
     <span class="ml-auto"></span>
     <button type="button" class="lst-quitar px-3 py-1.5 rounded-lg border border-borde text-sm hover:bg-white">Quitar decisiones</button>
@@ -285,7 +315,7 @@ function conectarListado(tipo, cont) {
   const f = filtrosLst(tipo);
   cont.querySelector('.lst-recargar').onclick = () => cargarListado(tipo);
   cont.querySelector('.lst-buscar').oninput = e => { f.texto = e.target.value; renderListado(tipo); };
-  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy'], ['.lst-sinclas', 'sinClasificar']].forEach(([sel, k]) => {
+  [['.lst-decididos', 'soloDecididos'], ['.lst-mascara', 'ultimaMasCara'], ['.lst-hoy', 'soloHoy'], ['.lst-sinclas', 'sinClasificar'], ['.lst-reefer', 'verReefer'], ['.lst-inactivos', 'verInactivos']].forEach(([sel, k]) => {
     const b = cont.querySelector(sel);
     if (b) b.onclick = () => { f[k] = !f[k]; b.classList.toggle('on', f[k]); b.setAttribute('aria-pressed', String(f[k])); renderListado(tipo); };
   });
@@ -343,6 +373,8 @@ async function cargarListado(tipo) {
     if (opciones) { const o = await opciones; lstVariedadesEnv = o.variedades || []; lstCostoFamiliaEnv = o.costoKgFamilias || {}; }
     lstDatos = { ...lstDatos, [tipo]: j.filas };
     cont.querySelector('.lst-aviso').classList.toggle('hidden', j.migrado);
+    const avisoAct = cont.querySelector('.lst-aviso-act'); // sólo Fraccionado
+    if (avisoAct) { avisoAct.textContent = textoAvisoActividad(j.avisoActividad); avisoAct.classList.toggle('hidden', !j.avisoActividad); }
     renderListado(tipo);
   } catch (e) {
     const msg = `No se pudo cargar: ${esc(e.message)}`;
@@ -365,6 +397,10 @@ function renderListado(tipo) {
   if (nHoy) nHoy.textContent = todas.filter(f => f.ingresoHoy).length || '';
   const nSin = cont.querySelector('.lst-sinclas-n'); // Reventa: productos sin tipo de proveedor (fuera del listado por defecto)
   if (nSin) nSin.textContent = todas.filter(f => !f.tipoProveedor).length || '';
+  const oc = contarOcultables(todas); // Fraccionado: graneles REEFER / inactivos (los números de sus toggles; vacío = badge oculto)
+  const nReefer = cont.querySelector('.lst-reefer-n'), nInact = cont.querySelector('.lst-inactivos-n');
+  if (nReefer) nReefer.textContent = oc.reefer || '';
+  if (nInact) nInact.textContent = oc.inactivos || '';
   cont.querySelector('.lst-conteo').textContent = `${filas.length} de ${todas.length} · ${todas.filter(f => f.decision).length} decididos`;
   // ponytail: pinta todo de una vez (mismo volumen que el listado viejo); paginar si se pone lento.
   const texto = filtrosLst(tipo).texto || '';
@@ -387,6 +423,13 @@ async function guardarTipoProveedor(plu, tipo) {
   const j = await pedirJson('PUT', `/api/precios/tipo-proveedor/${encodeURIComponent(plu)}`, { tipo }); // precios_comun.js
   lstDatos = { ...lstDatos, almacen: (lstDatos.almacen || []).map(f => (f.plu === plu ? { ...f, tipoProveedor: j.tipoProveedor } : f)) };
   return j.tipoProveedor;
+}
+// PUT del estado manual de un granel de Fraccionado (true | false | null = automático) y actualización local de la fila
+// (activoManual y activo); el que llama repinta el listado. Tira con el error del server.
+async function guardarActivoManual(plu, activo) {
+  const j = await pedirJson('PUT', `/api/precios/fraccionado/activo/${encodeURIComponent(plu)}`, { activo }); // precios_comun.js
+  lstDatos = { ...lstDatos, fraccionado: (lstDatos.fraccionado || []).map(f => (f.plu === plu ? conActivoManual(f, j.activoManual) : f)) };
+  return j.activoManual;
 }
 // Cambio de decisión desde un select (listado o tabla de códigos de Envasado): guarda igual que el modal, repinta el listado
 // (fila resaltada, contadores, celdas de Envasado) y devuelve el foco al select nuevo. Mientras guarda se bloquean todos los

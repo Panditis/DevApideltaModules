@@ -535,7 +535,7 @@ function pintarModalEsquema() {
   const { tipo, fila: f } = mdEsq;
   const ops = opcionesCosto(f, tipo, { manualSiempre: tipo === 'almacen' });
   document.getElementById('mDetBody').innerHTML = `${htmlResumenMd(f, tipo)}${htmlAvisoMd(f, ops)}${htmlOpcionesCosto(f, ops)}${htmlTipoProveedorMd(f)}
-    ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${htmlVerDetalle(f)}`;
+    ${htmlTablaCanales(f)}${htmlMargenProductoMd(f)}${tipo === 'fraccionado' ? htmlEstadoActivoMd(f) : ''}${htmlVerDetalle(f)}`; // htmlEstadoActivoMd (precios_modal_fraccionado.js): para cualquier usuario
   conectarModalEsquema();
 }
 
@@ -597,7 +597,7 @@ function conectarModalEsquema() {
   conectarManualDecMd();
   conectarMargenProductoMd();
   conectarTipoProveedorMd();
-  if (mdEsq.tipo === 'fraccionado') conectarCosteoFraccMd(); // precios_modal_fraccionado.js
+  if (mdEsq.tipo === 'fraccionado') { conectarCosteoFraccMd(); conectarEstadoActivoMd(); } // precios_modal_fraccionado.js
 }
 
 // Guarda costo manual / costos extra / venta de pack/bulto / ajuste de margen con las rutas de siempre y recarga modal

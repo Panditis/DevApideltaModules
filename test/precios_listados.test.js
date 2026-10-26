@@ -1,7 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst } = require('../public/js/precios_listados.js');
+const { htmlSelectDecision, filtrarFilas, ordenarListado, ordenSinNulo, filasDeClase, resumenExport, juntarListas, resumenJuntas, filasExportListado, textoAvisosCosto, textoCosteoGranel, claveGrupoLst, abiertoLst, htmlDesplegarLst,
+  contarOcultables, conActivoManual, textoMotivosActividad, textoInactivoLst, htmlBadgesActividadLst, textoAvisoActividad } = require('../public/js/precios_listados.js');
 
 test('htmlSelectDecision: una opción por entrada, la decisión guardada seleccionada, sin precio deshabilitada, aria-label con el producto', () => {
   const ops = [{ valor: '', texto: 'No cambiar', disabled: false }, { valor: 'sistema', texto: 'Sistema · $ 1.800 (+2.0%)', disabled: false },
@@ -315,4 +316,70 @@ test('htmlDesplegarLst: botón ▸/▾ con aria-expanded y aria-label + "N prese
   assert.match(abierto, /data-grupo="sin" aria-expanded="true" aria-label="Ocultar las presentaciones de Sin granel">▾<\/button>/);
   assert.match(abierto, /1 presentación</);
   assert.strictEqual(htmlDesplegarLst({ plu: '60', nombre: 'Nuez', presentaciones: [] }, false), '');
+});
+
+// ── Graneles REEFER e inactivos (spec 2026-10-26 §4) ──
+const granel = (plu, extra = {}) => ({ plu, nombre: `Granel ${plu}`, reefer: false, activo: true, activoManual: null,
+  actividad: { auto: 'activo', motivos: [] }, presentaciones: [], ...extra });
+const inactivo = (plu, motivos = ['sinMovGranel'], extra = {}) => granel(plu, { activo: false, actividad: { auto: 'inactivo', motivos }, ...extra });
+
+test('filtrarFilas: REEFER e inactivos se ocultan salvo toggle; REEFER no depende de la actividad; el "sin granel" siempre se ve', () => {
+  const filas = [granel('1'), granel('2', { reefer: true }), inactivo('3'), inactivo('4', ['sinMovGranel'], { reefer: true }),
+    granel('5', { activoManual: false, activo: false }), { plu: null, nombre: 'Sin granel asignado', presentaciones: [], activo: false }];
+  const ver = o => filtrarFilas(filas, o).map(f => f.plu);
+  assert.deepStrictEqual(ver({}), ['1', null]);
+  assert.deepStrictEqual(ver({ verReefer: true }), ['1', '2', '4', null]);           // REEFER inactivo aparece con sólo "Ver REEFER"
+  assert.deepStrictEqual(ver({ verInactivos: true }), ['1', '3', '5', null]);
+  assert.deepStrictEqual(ver({ verReefer: true, verInactivos: true }), ['1', '2', '3', '4', '5', null]);
+  // Combina con el texto y las otras tabs (filas sin reefer/activo) no se tocan
+  assert.deepStrictEqual(filtrarFilas(filas, { texto: 'granel 3' }).map(f => f.plu), []);
+  assert.deepStrictEqual(filtrarFilas(filas, { texto: 'granel 3', verInactivos: true }).map(f => f.plu), ['3']);
+  assert.strictEqual(filtrarFilas([{ plu: '9', nombre: 'Reventa' }]).length, 1);
+});
+
+test('contarOcultables: cuántos REEFER y cuántos inactivos (no REEFER) hay en el tab', () => {
+  const filas = [granel('1'), granel('2', { reefer: true }), inactivo('3'), inactivo('4', ['sinMovGranel'], { reefer: true }), inactivo('5')];
+  assert.deepStrictEqual(contarOcultables(filas), { reefer: 2, inactivos: 2 });
+  assert.deepStrictEqual(contarOcultables([]), { reefer: 0, inactivos: 0 });
+});
+
+test('conActivoManual: devuelve una fila nueva con activoManual y activo = manual ?? automático (sin datos de actividad → activo)', () => {
+  const ina = inactivo('3', ['sinMovGranel', 'sinMovPresentaciones']);
+  const fijoActivo = conActivoManual(ina, true);
+  assert.deepStrictEqual([fijoActivo.activoManual, fijoActivo.activo, ina.activoManual, ina.activo], [true, true, null, false]); // no muta
+  assert.deepStrictEqual([conActivoManual(granel('1'), false).activo, conActivoManual(granel('1'), false).activoManual], [false, false]);
+  assert.strictEqual(conActivoManual({ ...ina, activoManual: false }, null).activo, false);       // vuelve al automático: inactivo
+  assert.strictEqual(conActivoManual(granel('1', { activoManual: false, activo: false }), null).activo, true);
+  assert.strictEqual(conActivoManual(granel('1', { actividad: null }), null).activo, true);       // consulta caída: nadie se oculta
+});
+
+test('textoMotivosActividad / textoInactivoLst: motivos legibles; fijado a mano gana sobre el automático', () => {
+  assert.strictEqual(textoMotivosActividad(['sinMovGranel']), 'el granel no tuvo movimientos en 6 meses');
+  assert.match(textoMotivosActividad(['sinPresentaciones', 'sinMovPresentaciones']), /no tiene presentaciones en el listado; ninguna presentación tuvo movimientos en 6 meses/);
+  assert.strictEqual(textoMotivosActividad(undefined), '');
+  assert.strictEqual(textoMotivosActividad(['otro']), 'otro');
+  assert.strictEqual(textoInactivoLst(inactivo('3', ['sinMovGranel'])), 'Inactivo: el granel no tuvo movimientos en 6 meses');
+  assert.strictEqual(textoInactivoLst(inactivo('3', ['sinMovGranel'], { activoManual: false })), 'Fijado a mano como inactivo');
+  assert.strictEqual(textoInactivoLst({ activo: false }), 'Inactivo');
+});
+
+test('htmlBadgesActividadLst: badge REEFER y/o inactivo (con title); activo común → nada; escapa el title', () => {
+  assert.strictEqual(htmlBadgesActividadLst(granel('1')), '');
+  assert.strictEqual(htmlBadgesActividadLst({ plu: '1', nombre: 'x' }), '');
+  const ree = htmlBadgesActividadLst(granel('2', { reefer: true }));
+  assert.match(ree, />REEFER<\/span>/);
+  assert.doesNotMatch(ree, /inactivo/);
+  const ina = htmlBadgesActividadLst(inactivo('3', ['sinMovGranel']));
+  assert.match(ina, /title="Inactivo: el granel no tuvo movimientos en 6 meses">inactivo<\/span>/);
+  assert.doesNotMatch(ina, /REEFER/);
+  const ambos = htmlBadgesActividadLst(inactivo('4', ['otro"<'], { reefer: true }));
+  assert.match(ambos, />REEFER<\/span>.*>inactivo<\/span>/);
+  assert.match(ambos, /title="Inactivo: otro&quot;&lt;"/);
+});
+
+test('textoAvisoActividad: sin aviso → vacío; con aviso → texto para la franja ámbar', () => {
+  assert.strictEqual(textoAvisoActividad(undefined), '');
+  assert.strictEqual(textoAvisoActividad(''), '');
+  assert.match(textoAvisoActividad('timeout'), /timeout/);
+  assert.match(textoAvisoActividad('timeout'), /inactivos/);
 });
