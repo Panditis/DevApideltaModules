@@ -73,3 +73,21 @@ test('graneles con subrubro: lo trae de SubRubros; sin la tabla cae a sin subrub
   const caida = crearConsultasPrecios({ ...deps, query: async () => { throw new Error('timeout'); } });
   await assert.rejects(caida.universoFraccionado({}), /timeout/);
 });
+
+test('movimientosRecientes: Map plu → { n, ultimo } desde la fecha, en tandas de 500, sin sucursales ficticias ni PLUs inválidos', async () => {
+  const sqls = [];
+  const { movimientosRecientes } = crearConsultasPrecios({ ...deps, query: async sql => {
+    sqls.push(sql);
+    return sqls.length === 1 ? [{ IdProducto: '100 ', N: 3, Ultimo: '2026-10-01' }] : [];
+  } });
+  const plus = [...Array.from({ length: 600 }, (_, i) => String(i + 1)), "1'; DROP", 'abc', '1'];
+  const m = await movimientosRecientes(plus, '2026-04-26');
+  assert.deepStrictEqual([...m.entries()], [['100', { n: 3, ultimo: '2026-10-01' }]]);
+  assert.strictEqual(sqls.length, 2); // 600 PLUs únicos válidos → 500 + 100
+  assert.match(sqls[0], /m\.FechaMovimiento >= '2026-04-26 00:00:00'/);
+  assert.match(sqls[0], /m\.IdSucursal NOT IN \(6,8,11\)/);
+  assert.match(sqls[0], /m\.NumeroMovimiento = d\.NumeroMovimiento/);
+  assert.ok(!sqls.join().includes('DROP') && !sqls.join().includes('abc'));
+  assert.deepStrictEqual((await movimientosRecientes([], '2026-04-26')).size, 0);
+  await assert.rejects(movimientosRecientes(['1'], "2026-04-26' OR 1=1"), /fecha inválida/);
+});

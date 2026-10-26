@@ -101,10 +101,26 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       const formulas = await formulasVigentes();
       const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
         consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);
-      return L.listadoFraccionado({ grupos: L.agruparPorGranel({ graneles, presentaciones, formulas, costos }), costos, costeo, costeoF, ...ctx });
+      const grupos = L.agruparPorGranel({ graneles, presentaciones, formulas, costos });
+      return L.listadoFraccionado({ grupos, costos, costeo, costeoF, movimientos: await movimientosFraccionado(grupos), ...ctx });
     }
     const [ctx, presentaciones] = await Promise.all([contexto(costeo, tipo), presentacionesProduccion(costeo)]);
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
+  }
+
+  // Movimientos de los últimos 6 meses de graneles y presentaciones (actividad, spec 2026-10-26). Si la consulta falla →
+  // null: el listado sale igual, sin actividad (nadie inactivo salvo a mano) y GET listado avisa con AVISO_ACTIVIDAD.
+  // ponytail: la decisión, el export y el rango también arman Fraccionado y pagan esta consulta; separarla si pesa.
+  async function movimientosFraccionado(grupos) {
+    const plus = grupos.flatMap(g => [g.plu, ...g.presentaciones.map(p => p.plu)]).filter(p => p != null);
+    const desde = new Date();
+    desde.setMonth(desde.getMonth() - MESES_ACTIVIDAD);
+    try {
+      return await consultas.movimientosRecientes(plus, isoDe(desde));
+    } catch (err) {
+      console.error('[precios] movimientos de Fraccionado (actividad de graneles):', err.message);
+      return null;
+    }
   }
 
   // Propuesta de rango (percentiles 5–95, rangoDesdeCostos) sobre los costos de sistema (+ costos extra) de los tipos que
@@ -128,7 +144,8 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const costeo = await costeoVigente();
     const filas = await listado(tipo, costeo);
     const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo, tipo);
-    return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)) };
+    const sinActividad = tipo === 'fraccionado' && filas.some(f => f.plu != null && f.actividad === null);
+    return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)), ...(sinActividad ? { avisoActividad: AVISO_ACTIVIDAD } : {}) };
   }));
 
   // Una fila (Fraccionado: un granel con sus presentaciones). Desglose y costos extra sólo con el permiso.
@@ -193,8 +210,22 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     if (error) return { error };
     if (tipo != null && !(await listado('almacen', leerCosteo())).some(f => f.plu === plu)) return { error: `El PLU ${plu} no es un producto de Reventa` };
     const costeo = leerCosteo(); // releído tras los await: sin await entre leer y escribir
-    guardarJSON(COSTEO_PATH, { ...costeo, tipoProveedor: L.aplicarTipoProveedor(costeo.tipoProveedor, plu, tipo) });
+    guardarJSON(COSTEO_PATH, { ...costeo, tipoProveedor: L.aplicarPorPlu(costeo.tipoProveedor, plu, tipo) });
     return { plu, tipoProveedor: tipo };
+  }));
+
+  // Activo de un granel de Fraccionado: body { activo: true | false | null } (null = automático por movimientos). Cualquier
+  // usuario del módulo, como la decisión; activoGranel no va en CLAVES_OCULTAS (lo ve el operario).
+  // ponytail: no verifica que el PLU sea un granel del listado (armarlo pide SIGA); la UI sólo manda graneles.
+  router.put('/api/precios/fraccionado/activo/:plu', apiRoute(async (req) => {
+    const plu = String(req.params.plu || '').trim();
+    const body = cuerpo(req);
+    if (!('activo' in body)) return { error: 'falta activo (true, false o null)' };
+    const error = L.validarActivoGranel(plu, body.activo);
+    if (error) return { error };
+    const costeo = leerCosteo();
+    guardarJSON(COSTEO_PATH, { ...costeo, activoGranel: L.aplicarPorPlu(costeo.activoGranel, plu, body.activo) });
+    return { ok: true, activoManual: body.activo };
   }));
 
   router.delete('/api/precios/decisiones', apiRoute(async () => {
@@ -239,7 +270,10 @@ module.exports = function crearRutasPreciosEsquema(deps) {
   return router;
 };
 
-function hoyISO() {
-  const d = new Date();
+const MESES_ACTIVIDAD = 6;
+const AVISO_ACTIVIDAD = 'No se pudieron consultar los movimientos de stock: no se ocultan graneles inactivos (sólo los fijados a mano).';
+
+const hoyISO = () => isoDe(new Date());
+function isoDe(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

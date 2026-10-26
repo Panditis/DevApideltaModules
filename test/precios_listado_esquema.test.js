@@ -446,7 +446,7 @@ test('listadoReventa: el descuento distribuidor baja el margen sólo de los prod
   assert.deepStrictEqual([L.filaPublica(filas[1]).sugeridos.sistema.minorista.precio, 'desglose' in L.filaPublica(filas[1]).sugeridos.sistema], [1750, false]);
 });
 
-test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicarTipoProveedor devuelve un mapa nuevo (null quita)', () => {
+test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicarPorPlu devuelve un mapa nuevo (null quita)', () => {
   assert.strictEqual(L.validarTipoProveedor('1', 'directo'), null);
   assert.strictEqual(L.validarTipoProveedor('1', 'distribuidor'), null);
   assert.strictEqual(L.validarTipoProveedor('1', null), null);
@@ -454,9 +454,9 @@ test('validarTipoProveedor: PLU de SIGA y directo | distribuidor | null; aplicar
   assert.match(L.validarTipoProveedor('1', undefined), /tipo inválido/);
   assert.match(L.validarTipoProveedor('abc', 'directo'), /PLU inválido/);
   const mapa = { 1: 'directo' };
-  assert.deepStrictEqual(L.aplicarTipoProveedor(mapa, '2', 'distribuidor'), { 1: 'directo', 2: 'distribuidor' });
-  assert.deepStrictEqual(L.aplicarTipoProveedor(mapa, '1', null), {});
-  assert.deepStrictEqual(L.aplicarTipoProveedor(undefined, '1', 'directo'), { 1: 'directo' });
+  assert.deepStrictEqual(L.aplicarPorPlu(mapa, '2', 'distribuidor'), { 1: 'directo', 2: 'distribuidor' });
+  assert.deepStrictEqual(L.aplicarPorPlu(mapa, '1', null), {});
+  assert.deepStrictEqual(L.aplicarPorPlu(undefined, '1', 'directo'), { 1: 'directo' });
   assert.deepStrictEqual(mapa, { 1: 'directo' });
 });
 
@@ -604,4 +604,49 @@ test('listadoFraccionado con costeoF: granel sin costo en una fuente → sin sug
   const sinCosto = new Map([['100', { plu: '100', nombre: 'Almendras', costoSistema: null, costoMercaderia: null }]]);
   const [s] = L.listadoFraccionado({ grupos, costos: sinCosto, vigentes: new Map(), mayoristasDe: () => [], costeo: {}, cfg: CFG, costeoF });
   assert.deepStrictEqual(s.presentaciones.map(p => Object.keys(p.sugeridos)), [[], []]);
+});
+
+// Actividad de Fraccionado (spec 2026-10-26): REEFER por nombre; activo automático = granel y alguna presentación con
+// movimientos; activoGranel manual gana; sin consulta (movimientos null) nadie queda inactivo salvo a mano.
+const GRUPOS_ACT = [
+  { plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }] },
+  { plu: '200', nombre: 'Nueces REEFER', presentaciones: [] },
+  { plu: '300', nombre: 'Pasas Reefers', presentaciones: [{ plu: '301', nombre: 'Pasas 500G' }] },
+  { plu: '400', nombre: 'Maní', presentaciones: [{ plu: '401', nombre: 'Maní 500G' }] },
+  { plu: null, nombre: 'Sin granel asignado', presentaciones: [{ plu: '104', nombre: 'Rara 50G' }] },
+];
+const fraccAct = (movimientos, activoGranel) => L.listadoFraccionado({ grupos: GRUPOS_ACT, costos: new Map(), vigentes: new Map(),
+  mayoristasDe: L.crearMayoristasDe({ vinculos: [], vigentes: new Map() }), costeo: activoGranel ? { activoGranel } : {}, cfg: CFG, movimientos });
+
+test('listadoFraccionado actividad: REEFER, auto con motivos, manual gana, "Sin granel" siempre activo; movReciente por presentación', () => {
+  const mov = new Map([['100', { n: 3, ultimo: '2026-10-01' }], ['101', { n: 1, ultimo: '2026-09-01' }], ['200', { n: 2, ultimo: '2026-08-01' }], ['401', { n: 1, ultimo: '2026-07-01' }]]);
+  const [alm, nue, pas, man, sin] = fraccAct(mov, { 300: true, 100: false, 999: 'x' });
+  assert.deepStrictEqual(alm.actividad, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-01', presentacionesActivas: 1 });
+  assert.deepStrictEqual([alm.reefer, alm.activoManual, alm.activo], [false, false, false]); // fijado inactivo a mano
+  const almP = Object.fromEntries(alm.presentaciones.map(p => [p.plu, p.movReciente]));
+  assert.deepStrictEqual(almP, { 101: true, 102: false });
+  assert.deepStrictEqual([nue.reefer, nue.actividad.auto, nue.actividad.motivos, nue.activo], [true, 'inactivo', ['sinPresentaciones'], false]);
+  assert.deepStrictEqual([pas.reefer, pas.actividad.motivos, pas.activoManual, pas.activo], [false, ['sinMovGranel', 'sinMovPresentaciones'], true, true]);
+  assert.deepStrictEqual([man.actividad.motivos, man.actividad.ultimoMovGranel, man.activoManual, man.activo], [['sinMovGranel'], null, null, false]);
+  assert.deepStrictEqual([sin.reefer, sin.actividad, sin.activoManual, sin.activo, sin.presentaciones[0].movReciente], [false, null, null, true, false]);
+  // viajan a todos los usuarios (filaPublica no los saca)
+  const pub = L.filaPublica(alm);
+  assert.deepStrictEqual([pub.reefer, pub.activo, pub.activoManual, pub.actividad.auto, pub.presentaciones[0].movReciente], [false, false, false, 'activo', true]);
+});
+
+test('listadoFraccionado actividad sin movimientos (consulta caída): actividad null, activo salvo fijado a mano; REEFER igual', () => {
+  const [alm, nue, pas] = fraccAct(null, { 100: false, 300: true });
+  assert.deepStrictEqual([alm.actividad, alm.activo, alm.presentaciones[0].movReciente], [null, false, null]);
+  assert.deepStrictEqual([nue.reefer, nue.actividad, nue.activoManual, nue.activo], [true, null, null, true]);
+  assert.strictEqual(pas.activo, true);
+});
+
+test('validarActivoGranel: PLU de SIGA y true | false | null; aplicarPorPlu con booleanos (false queda, null quita)', () => {
+  assert.strictEqual(L.validarActivoGranel('100', true), null);
+  assert.strictEqual(L.validarActivoGranel('100', false), null);
+  assert.strictEqual(L.validarActivoGranel('100', null), null);
+  for (const v of [undefined, 'true', 1, 0]) assert.match(L.validarActivoGranel('100', v), /activo inválido/, String(v));
+  assert.match(L.validarActivoGranel('abc', true), /PLU inválido/);
+  assert.deepStrictEqual(L.aplicarPorPlu({ 1: true }, '2', false), { 1: true, 2: false });
+  assert.deepStrictEqual(L.aplicarPorPlu({ 1: true }, '1', null), {});
 });

@@ -551,3 +551,62 @@ test('listado Fraccionado con costeo.fraccionado que no es un bloque (lista o n�
     } finally { a.cerrar(); }
   }
 });
+
+// ── Actividad de Fraccionado (spec 2026-10-26-precios-fraccionado-activos-reefer) ─────────────
+const conMovimientos = filas => async sql => (sql.includes('MovimientosStockProductos') ? filas : sigaFalso(sql));
+
+test('listado Fraccionado: actividad del granel con los movimientos de 6 meses (granel + presentaciones); detalle igual', async () => {
+  const sqls = [];
+  const query = async sql => { sqls.push(sql); return conMovimientos([{ IdProducto: '50', N: 4, Ultimo: '2026-10-20' }, { IdProducto: '51', N: 1, Ultimo: '2026-09-02' }])(sql); };
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  try {
+    const j = await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado');
+    const [g] = j.filas;
+    assert.strictEqual(j.avisoActividad, undefined);
+    assert.deepStrictEqual([g.reefer, g.activoManual, g.activo, g.actividad, g.presentaciones[0].movReciente],
+      [false, null, true, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-20', presentacionesActivas: 1 }, true]);
+    const sqlMov = sqls.find(s => s.includes('MovimientosStockProductos'));
+    assert.match(sqlMov, /'50','51'|'51','50'/);
+    const d = new Date(); d.setMonth(d.getMonth() - 6);
+    const desde = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    assert.ok(sqlMov.includes(`'${desde} 00:00:00'`), sqlMov);
+    assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado')).actividad.auto, 'activo');
+    // Reventa no consulta movimientos
+    sqls.length = 0;
+    await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
+    assert.ok(!sqls.some(s => s.includes('MovimientosStockProductos')));
+  } finally { a.cerrar(); }
+});
+
+test('listado Fraccionado: si la consulta de movimientos falla, avisoActividad y nadie inactivo (el listado no se cae)', async () => {
+  const query = async sql => { if (sql.includes('MovimientosStockProductos')) throw new Error('timeout'); return sigaFalso(sql); };
+  const a = appCon({ ...MIGRADO, activoGranel: { 50: false } }, { query, archivos: ARCHIVOS_FALSOS });
+  const error = console.error;
+  console.error = () => {};
+  try {
+    const j = await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado');
+    assert.match(j.avisoActividad, /movimientos/);
+    assert.deepStrictEqual([j.filas[0].actividad, j.filas[0].activoManual, j.filas[0].activo, j.filas[0].presentaciones[0].movReciente], [null, false, false, null]);
+    assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen')).avisoActividad, undefined);
+  } finally { console.error = error; a.cerrar(); }
+});
+
+test('activo del granel: PUT guarda true/false, null vuelve a automático; inválido no escribe; sin precios-config también puede', async () => {
+  const a = appCon({ ...MIGRADO, activoGranel: { 7: true } }, { query: conMovimientos([]), archivos: ARCHIVOS_FALSOS, sinConfig: true, guard: true });
+  const fijar = (plu, body) => a.pedir('PUT', `/api/precios/fraccionado/activo/${plu}`, body);
+  try {
+    assert.deepStrictEqual(await fijar('50', { activo: true }), { ok: true, activoManual: true });
+    assert.deepStrictEqual(a.leer().activoGranel, { 7: true, 50: true });
+    const [g] = (await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado')).filas;
+    assert.deepStrictEqual([g.actividad.auto, g.activoManual, g.activo], ['inactivo', true, true]); // sin movimientos, fijado a mano
+    assert.deepStrictEqual(await fijar('50', { activo: false }), { ok: true, activoManual: false });
+    assert.deepStrictEqual(a.leer().activoGranel, { 7: true, 50: false });
+    const escrituras = a.escrituras();
+    assert.match((await fijar('50', {})).error, /activo/);
+    assert.match((await fijar('50', { activo: 'no' })).error, /activo inválido/);
+    assert.match((await fijar('5x', { activo: true })).error, /PLU inválido/);
+    assert.strictEqual(a.escrituras(), escrituras);
+    assert.deepStrictEqual(await fijar('50', { activo: null }), { ok: true, activoManual: null });
+    assert.deepStrictEqual(a.leer().activoGranel, { 7: true });
+  } finally { a.cerrar(); }
+});
