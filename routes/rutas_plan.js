@@ -38,8 +38,8 @@ const { esMayorista } = require('../lib/catalogo_presentaciones');
 // con grep en server.js y en todos los rutas_*.js antes de mover):
 //   · calcularSugerencias y calcularSugerenciasCatalogo, con los sub-helpers que
 //     sólo ellas usan: sqlConsumo, sqlPendientes, sqlBOM (wrapper de
-//     sqlBOMGranel), pesoEnKg, sqlConsumoCatalogo, sqlStockTodosDepositos,
-//     sqlStockSucursales, sqlPendientesPorPlu, sqlFacturacionPorPlu,
+//     sqlBOMGranel), pesoEnKg, sqlVentasCatalogo, sqlStockTodosDepositos,
+//     sqlStockSucursales, sqlPendientesPorPlu,
 //     sqlBOMPorPlu, RUBRO_MANUAL_EXCLUIDO_RE, PRODUCTO_SAVONA_RE. Las llaman
 //     /api/plan/sugerencias* (antes también /api/plan/:fecha/desde-sugerencias*,
 //     ya eliminadas), que viven acá, así que no hay acoplamiento cruzado.
@@ -71,6 +71,7 @@ module.exports = function crearRutasPlan(deps) {
     CONFIG_PATH = path.join(__dirname, '..', 'config.json'), // los tests pasan uno propio
   } = deps;
   const router = express.Router();
+  const cacheVentas = new Map(); // ventas del catálogo por día (ver ventasDeCanal en calcularSugerenciasCatalogo)
 
 const RESP_PATH      = path.join(DATA_DIR, 'responsables.json');
 const CLIENTES_PATH    = path.join(DATA_DIR, 'clientes.json');          // [{id,nombre}]
@@ -197,14 +198,13 @@ function filtroCanalSql(mayorista) {
     ? `v.IdSucursal IN (SELECT IdSucursal FROM Sucursales WHERE SoyLaCentral=1) AND UPPER(ISNULL(cat.NombreCategoria,'')) = 'MAYORISTA'`
     : `${sqlExcluirCentral('v.IdSucursal')} AND UPPER(ISNULL(cat.NombreCategoria,'')) != 'SUCURSAL'`;
 }
-function sqlConsumoCatalogo(pluList, ventana, mayorista) {
-  // PromDiario usa días con ventas como denominador (no ventana fija)
-  // Evita que stockouts depriman el promedio: si vendiste 551kg en 20/30 días → 551/20*30 = 826 real
+// Ventas del catálogo por PLU y canal en una sola pasada: unidades, días con venta y facturación.
+// DiasConVenta sirve de denominador cuando el granel está en quiebre (ver consumoBasePorDia).
+function sqlVentasCatalogo(pluList, ventana, mayorista) {
   return `SELECT vp.IdProducto,
        SUM(vp.Cantidad) AS UnidVendidas,
        COUNT(DISTINCT CAST(v.Fecha AS DATE)) AS DiasConVenta,
-       CAST(SUM(vp.Cantidad) AS DECIMAL(18,4))
-         / NULLIF(COUNT(DISTINCT CAST(v.Fecha AS DATE)), 0) AS PromDiarioPorDia
+       SUM(vp.ImporteTotal) AS TotalFacturado
 FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
   AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
 LEFT  JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT  JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
@@ -234,16 +234,6 @@ WHERE pp.CantPendiente>0 AND ped.FechaPedido >= DATEADD(DAY,-7,CAST(GETDATE() AS
   AND ${sqlExcluirSucursales('ped.IdSucursal')}
   AND pp.IdProducto IN (${pluList.join(',')}) GROUP BY pp.IdProducto`;
 }
-function sqlFacturacionPorPlu(pluList, ventana, mayorista) {
-  return `SELECT vp.IdProducto, SUM(vp.ImporteTotal) AS TotalFacturado
-FROM VentasProductos vp INNER JOIN Ventas v ON v.IdSucursal=vp.IdSucursal AND v.IdTipoComprobante=vp.IdTipoComprobante
-  AND v.Letra=vp.Letra AND v.CentroEmisor=vp.CentroEmisor AND v.NumeroComprobante=vp.NumeroComprobante
-LEFT JOIN Clientes c ON c.IdCliente=v.IdCliente LEFT JOIN Categorias cat ON cat.IdCategoria=c.IdCategoria
-WHERE v.Fecha >= DATEADD(DAY,-${ventana},CAST(GETDATE() AS DATE)) AND v.Fecha < CAST(GETDATE() AS DATE)
-  AND ${sqlExcluirSucursales('v.IdSucursal')} AND ${filtroCanalSql(mayorista)}
-  AND ISNULL(v.IdEstadoComprobante,'') != 'ANULADO'
-  AND vp.IdProducto IN (${pluList.join(',')}) GROUP BY vp.IdProducto`;
-}
 function sqlBOMPorPlu(pluList, rubrosG) {
   return sqlBOMGranel(rubrosG, `\n  AND pc.IdProducto IN (${pluList.join(',')})`);
 }
@@ -272,22 +262,33 @@ async function calcularSugerenciasCatalogo(params) {
     for (let i = 0; i < plus.length; i += LOTE) res.push(...await query(sqlFn(plus.slice(i, i + LOTE))));
     return res;
   }
-  const ventasPorCanal = async sqlFn => [
-    ...await queryEnLotes(l => sqlFn(l, ventana, false), plusMinoristas),
-    ...await queryEnLotes(l => sqlFn(l, ventana, true), plusMayoristas),
-  ];
+  // Las ventas van hasta ayer (v.Fecha < hoy): en el día no cambian, se cachean por día/ventana/canal/PLUs.
+  // ponytail: caché en memoria del proceso, sin tope; se vacía al cambiar el día o reiniciar el server.
+  const ventasDeCanal = mayorista => {
+    const plus = mayorista ? plusMayoristas : plusMinoristas;
+    const hoy = new Date().toLocaleDateString('sv');
+    const clave = `${hoy}|${ventana}|${mayorista}|${plus.join(',')}`;
+    for (const k of cacheVentas.keys()) if (!k.startsWith(hoy + '|')) cacheVentas.delete(k);
+    if (!cacheVentas.has(clave)) {
+      const p = queryEnLotes(l => sqlVentasCatalogo(l, ventana, mayorista), plus);
+      p.catch(() => cacheVentas.delete(clave)); // un error no queda cacheado
+      cacheVentas.set(clave, p);
+    }
+    return cacheVentas.get(clave);
+  };
+  const ventasPorCanal = async () => (await Promise.all([ventasDeCanal(false), ventasDeCanal(true)])).flat();
   // PLUs de granel asignados manualmente en grupos_config. Un grupo puede tener más de uno (ej.
   // Yogurt Batido: 2 graneles previos a fabricar) — se traen todos, no solo el primero.
   const customGranelPlus = [...new Set(Object.keys(gruposCfg).flatMap(r=>cfgGranelPlus(gruposCfg,r)))];
   const quotedGP = customGranelPlus.map(p => `'${p}'`).join(',');
-  const [consumoRows, pendientesRows, stockRows, stockTodosRows, stockSucRows, bomRows, granelRows, customGranelNomRows, facturRows] = await Promise.all([
-    ventasPorCanal(sqlConsumoCatalogo), queryEnLotes(l => sqlPendientesPorPlu(l)),
+  const [ventasRows, pendientesRows, stockRows, stockTodosRows, stockSucRows, bomRows, granelRows, customGranelNomRows] = await Promise.all([
+    ventasPorCanal(), queryEnLotes(l => sqlPendientesPorPlu(l)),
     queryEnLotes(l => sqlStockPorPlu(l)), queryEnLotes(l => sqlStockTodosDepositos(l)),
     queryEnLotes(l => sqlStockSucursales(l)),
     queryEnLotes(l => sqlBOMPorPlu(l, rubrosG)), query(sqlStockGranel(rubrosG)),
     customGranelPlus.length ? query(`SELECT CAST(IdProducto AS VARCHAR) AS IdProducto, NombreProducto FROM Productos WHERE CAST(IdProducto AS VARCHAR) IN (${quotedGP})`) : Promise.resolve([]),
-    ventasPorCanal(sqlFacturacionPorPlu),
   ]);
+  const consumoRows = ventasRows, facturRows = ventasRows;
   // Por PLU guardamos total vendido y días con venta. El denominador se decide por grupo:
   // ÷ventana (demanda real) por defecto; ÷días-con-venta solo si el granel del grupo está sin stock (quiebre).
   const consumoTotalRaw = new Map(consumoRows.map(r => [String(r.IdProducto), parseFloat(r.UnidVendidas) || 0]));

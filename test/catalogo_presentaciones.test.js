@@ -138,8 +138,7 @@ function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATAL
     sqls.push(sql);
     const fila = (tabla, col) => plusDe(sql).filter(p => p in tabla).map(p => ({ IdProducto: p, [col]: tabla[p], DiasConVenta: 10 }));
     const may = /'MAYORISTA'/.test(sql);
-    if (/UnidVendidas/.test(sql)) return fila(may ? VENTAS_MAY : VENTAS_MIN, 'UnidVendidas');
-    if (/TotalFacturado/.test(sql)) return fila(may ? VENTAS_MAY : VENTAS_MIN, 'TotalFacturado');
+    if (/UnidVendidas/.test(sql)) return fila(may ? VENTAS_MAY : VENTAS_MIN, 'UnidVendidas').map(r => ({ ...r, TotalFacturado: r.UnidVendidas }));
     if (/^STOCK_CENTRAL/.test(sql)) return fila(STOCK, 'StockActual');
     if (/SoyLaCentral=0/.test(sql)) return fila(STOCK_SUC, 'StockActual');
     if (/UnidPendientes/.test(sql)) return fila(PEND, 'UnidPendientes');
@@ -406,6 +405,17 @@ test('mayorista x unidad: en un grupo x unidad manda el peso del grupo y el del 
   assert.deepStrictEqual(g.presentacionesSinPeso, ['Suelto']);         // el aviso de siempre del grupo x unidad
 });
 
+test('sugerencias por grupo: las ventas se cachean en el día (la segunda carga no vuelve a consultarlas)', async () => {
+  const ctx = await montarPlan();
+  try {
+    const r1 = await (await fetch(`${ctx.url}/api/plan/sugerencias-grupos`)).json();
+    const r2 = await (await fetch(`${ctx.url}/api/plan/sugerencias-grupos`)).json();
+    assert.deepStrictEqual(r2, r1);
+    assert.strictEqual(ctx.sqls.filter(s => /UnidVendidas/.test(s)).length, 2);   // minorista + mayorista, una vez
+    assert.ok(ctx.sqls.filter(s => /^STOCK_CENTRAL/.test(s)).length >= 2);        // el stock sí se consulta en cada carga
+  } finally { cerrar(ctx); }
+});
+
 test('sugerencias por grupo: la query mayorista mira Casa Central a clientes MAYORISTA, sin anulados ni 6/8/11', async () => {
   const ctx = await montarPlan();
   try {
@@ -413,8 +423,9 @@ test('sugerencias por grupo: la query mayorista mira Casa Central a clientes MAY
     const ventas = ctx.sqls.filter(s => /UnidVendidas|TotalFacturado/.test(s));
     const may = ventas.filter(s => /'MAYORISTA'/.test(s));
     const min = ventas.filter(s => !/'MAYORISTA'/.test(s));
-    assert.strictEqual(may.length, 2);  // consumo + facturación
-    assert.strictEqual(min.length, 2);
+    assert.strictEqual(may.length, 1);  // unidades, días y facturación en una sola query por canal
+    assert.strictEqual(min.length, 1);
+    assert.match(may[0], /TotalFacturado/);
     for (const s of may) {
       assert.match(s, /v\.IdSucursal IN \(SELECT IdSucursal FROM Sucursales WHERE SoyLaCentral=1\)/);
       assert.match(s, /UPPER\(ISNULL\(cat\.NombreCategoria,''\)\) = 'MAYORISTA'/);
