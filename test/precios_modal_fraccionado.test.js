@@ -113,12 +113,11 @@ test('textoGuardadoActivoMd: cómo quedó el granel; inactivo avisa que el lista
 // ── Columna derecha del modal de Fraccionado: precios de las presentaciones y su variación ──
 const L = require('../lib/precios_listado_esquema');
 const { CFG } = require('./precios_esquema_fixture');
-const { deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd,
+const { deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd,
   subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd } = require('../public/js/precios_modal_fraccionado.js');
 
 // Granel con tres presentaciones (250G sin vigente, 500G igual al vigente con un bulto vinculado, 1Kg que sube) → fila como la manda el detalle.
-const granelPrecios = ({ vigentes, decision } = {}) => {
-  const vinculos = [{ plu: '201', nombre: 'Almendras Bulto x6', basePlu: '101', cantidad: 6, tipo: 'bulto' }];
+const granelPrecios = ({ vigentes, decision, vinculos = [{ plu: '201', nombre: 'Almendras Bulto x6', basePlu: '101', cantidad: 6, tipo: 'bulto' }] } = {}) => {
   const v = vigentes || new Map([['101', 1950], ['102', 1500], ['201', 9000]]);
   const [g] = L.listadoFraccionado({
     grupos: [{ plu: '100', nombre: 'Almendras', presentaciones: [{ plu: '101', nombre: 'Almendras 500G' }, { plu: '102', nombre: 'Almendras 1Kg' }, { plu: '103', nombre: 'Almendras 250G' }] }],
@@ -187,11 +186,43 @@ test('subtituloPreciosFraccMd: "por kg" y con qué costo se calculó (sin decisi
   assert.strictEqual(subtituloPreciosFraccMd(granelPrecios({ decision: { fuente: 'ultimaCompra' } }), 'ultimaCompra'), 'por kg · con última compra');
 });
 
+// Una tarjeta por presentación (<li class="md-fr-card md-fr-pres">) y, al final, la de los mayoristas del granel (md-fr-granel): se cortan por su apertura.
+const cartas = html => html.split('<li class="md-fr-card ').slice(1);
+const cartaPres = (html, nombre) => cartas(html).find(c => c.startsWith('md-fr-pres">') && c.includes(`<b>${nombre}</b>`));
+const cartaGranel = html => cartas(html).find(c => c.startsWith('md-fr-granel">'));
+// Granel con tres presentaciones: la 500G con dos códigos mayoristas (un bulto y un pack), la 1Kg y la 250G sin ninguno, y un bulto del granel mismo.
+const VINCULOS_VARIOS = [
+  { plu: '201', nombre: 'Almendras Bulto x6', basePlu: '101', cantidad: 6, tipo: 'bulto' },
+  { plu: '202', nombre: 'Almendras Pack x2', basePlu: '101', cantidad: 2, tipo: 'pack' },
+  { plu: '203', nombre: 'Almendras Bulto 25 kg', basePlu: '100', cantidad: 25, tipo: 'bulto' }];
+const VIGENTES_VARIOS = new Map([['101', 1950], ['102', 1500], ['201', 9000], ['202', 3000], ['203', 1100]]);
+const granelVarios = () => granelPrecios({ vinculos: VINCULOS_VARIOS, vigentes: VIGENTES_VARIOS });
+
+test('agruparPreciosFraccMd: cada pack/bulto con su presentación (sin IVA + con IVA juntos); los de antes de la primera presentación son del granel; orden por peso', () => {
+  const g = agruparPreciosFraccMd(filasPreciosFraccMd(granelVarios(), 'sistema'));
+  assert.deepStrictEqual(g.presentaciones.map(p => [p.minorista.plu, p.mayoristas.map(m => [m.tipo, m.plu])]), [
+    ['103', []], ['101', [['bulto', '201'], ['pack', '202']]], ['102', []]]);          // 250G, 500G, 1Kg: orden del server (por peso)
+  assert.deepStrictEqual(g.granel.map(m => [m.tipo, m.plu, m.nombre, m.unidades]), [['bulto', '203', 'Almendras Bulto 25 kg', 1]]);
+  const [bulto] = g.presentaciones[1].mayoristas;
+  assert.deepStrictEqual(bulto.filas.map(r => r.conIva), [false, true]);                // la fila sin IVA primero (lleva vigente y Δ), la con IVA después
+  assert.ok(g.presentaciones.every(p => p.minorista.tipo === 'minorista'));
+});
+
+test('agruparPreciosFraccMd: sin pack/bulto ni presentaciones → grupos vacíos; no muta las filas', () => {
+  const filas = filasPreciosFraccMd(granelPrecios({ vinculos: [] }), 'sistema');
+  assert.deepStrictEqual(agruparPreciosFraccMd(filas).granel, []);
+  assert.ok(agruparPreciosFraccMd(filas).presentaciones.every(p => p.mayoristas.length === 0));
+  assert.deepStrictEqual(agruparPreciosFraccMd([]), { granel: [], presentaciones: [] });
+  const antes = JSON.stringify(filas);
+  agruparPreciosFraccMd(filas);
+  assert.strictEqual(JSON.stringify(filas), antes);
+});
+
 test('htmlPreciosFraccMd: lista (sin tabla ancha) con nombre, PLU y peso arriba, vigente → sugerido con el Δ % como chip y Δ $ y margen aparte', () => {
   const html = htmlPreciosFraccMd(granelPrecios(), 'sistema');
   assert.doesNotMatch(html, /<table|<th/); // la tarjeta derecha es angosta: sin columnas
-  const item = plu => html.match(new RegExp(`<li class="md-min">(?:(?!</li>).)*PLU ${plu}(?:(?!</li>).)*</li>`, 's'))[0];
-  const kilo = item('102');
+  const item = nombre => cartaPres(html, nombre);
+  const kilo = item('Almendras 1Kg');
   assert.match(kilo, /<b>Almendras 1Kg<\/b>/);
   assert.match(kilo, /PLU 102 · 1 kg/);
   assert.match(kilo, /<span class="sr-only">Vigente <\/span>\$ 1\.500/);                       // vigente, con su rótulo para lector de pantalla
@@ -199,26 +230,51 @@ test('htmlPreciosFraccMd: lista (sin tabla ancha) con nombre, PLU y peso arriba,
   assert.match(kilo, /<span class="pr-sem sem-subir md-chip"><span aria-hidden="true">▲<\/span>\+20\.0%<\/span>/); // Δ % = chip (el del listado)
   assert.match(kilo, /<span class="font-semibold text-crit">\+\$ 300<\/span>/);                // Δ $ sube (claseDelta del listado)
   assert.match(kilo, /\+\$ 300<\/span> · margen 80 %/);                                          // margen total en la segunda línea
-  const igual = item('101');
+  const igual = item('Almendras 500G');
   assert.match(igual, /<span class="text-gris">\$ 0<\/span>/);
   assert.match(igual, /sem-ok md-chip"><span aria-hidden="true">=<\/span>0\.0%/);
-  const sinVig = item('103');
+  const sinVig = item('Almendras 250G');
   assert.match(sinVig, /PLU 103 · 250 g/);
   assert.doesNotMatch(sinVig, /text-crit|text-warn|md-chip/);                                // sin vigente no hay semáforo ni chip
   assert.match(sinVig, /<span class="sr-only">Vigente <\/span><span class="md-nd">—<\/span>/);
 });
 
-test('htmlPreciosFraccMd: pack/bulto de la presentación agrupados (sin IVA con Δ, con IVA sin Δ); baja en color de baja', () => {
+test('htmlPreciosFraccMd: los pack/bulto van DENTRO de la tarjeta de su presentación, en el sub-bloque "Códigos mayoristas" (sin IVA con Δ, con IVA sin Δ); baja en color de baja', () => {
   const html = htmlPreciosFraccMd(granelPrecios(), 'sistema');
-  const grupo = html.match(/<li class="md-grp">(?:(?!<\/li>).)*Bulto(?:(?!<\/li>).)*<\/li>/s)[0];
-  assert.match(grupo, /PLU 201 · Almendras Bulto x6 · × 1/);
-  const sinIva = html.match(/<li class="md-may"><span class="md-fr-iva">Sin IVA<\/span>.*?<\/li>/s)[0];
+  const medio = cartaPres(html, 'Almendras 500G');
+  assert.match(medio, /<div class="md-fr-mays-t">Códigos mayoristas<\/div>/);
+  assert.ok(medio.indexOf('md-fr-l3') < medio.indexOf('md-fr-mays'));                      // primero la presentación, después lo subordinado
+  const codigo = medio.match(/<li class="md-fr-cod">.*?<\/li>/s)[0];
+  assert.match(codigo, /<b>Bulto<\/b> <span class="md-sub">PLU 201 · × 1<\/span>/);       // tipo, PLU y unidades
+  assert.match(codigo, /<span class="md-warn" title="[^"]*">revisar unidad<\/span>/);       // el aviso queda junto al código
+  assert.match(codigo, /<div class="md-fr-cod-nom">Almendras Bulto x6<\/div>/);
+  const sinIva = codigo.match(/<div class="md-fr-fila"><span class="md-fr-iva">Sin IVA<\/span>.*?<\/div>(?=<div class="md-fr-fila">|<\/li>)/s)[0];
   assert.match(sinIva, /<span class="font-semibold text-warn">-\$ 7\.460<\/span>/);
   assert.match(sinIva, /sem-bajar md-chip"><span aria-hidden="true">▼<\/span>-82\.9%/);
-  const conIva = html.match(/<li class="md-may"><span class="md-fr-iva">Con IVA<\/span>.*?<\/li>/s)[0];
+  const conIva = codigo.match(/<div class="md-fr-fila"><span class="md-fr-iva">Con IVA<\/span>.*?<\/div>/s)[0];
   assert.match(conIva, /\$ 1\.850/);
   assert.doesNotMatch(conIva, /text-crit|text-warn|text-gris|md-chip/);                      // sin vigente ni Δ
-  assert.ok(html.indexOf('PLU 201') < html.indexOf('Almendras 1Kg')); // el bulto del granel/presentación 500G va antes de la 1Kg
+  assert.ok(html.indexOf('PLU 201') < html.indexOf('Almendras 1Kg'));                        // el bulto de la 500G está en su tarjeta, antes que la 1Kg
+});
+
+test('htmlPreciosFraccMd: una presentación sin pack/bulto no muestra el sub-bloque; varios códigos de una presentación van en su misma tarjeta', () => {
+  const html = htmlPreciosFraccMd(granelVarios(), 'sistema');
+  assert.strictEqual(cartas(html).filter(c => c.startsWith('md-fr-pres">')).length, 3);      // una tarjeta por presentación
+  for (const sin of ['Almendras 250G', 'Almendras 1Kg']) assert.doesNotMatch(cartaPres(html, sin), /md-fr-mays|Códigos mayoristas|PLU 20/);
+  const medio = cartaPres(html, 'Almendras 500G');
+  assert.deepStrictEqual([...medio.matchAll(/<li class="md-fr-cod">.*?<b>(Bulto|Pack)<\/b> <span class="md-sub">PLU (\d+)/gs)].map(m => [m[1], m[2]]), [['Bulto', '201'], ['Pack', '202']]);
+  assert.match(medio, /<ul class="md-fr-cods" aria-label="Códigos mayoristas de Almendras 500G">/); // el lector de pantalla sabe de quién son
+});
+
+test('htmlPreciosFraccMd: los pack/bulto del granel van en su propia tarjeta, titulada y al final; ninguna presentación los lleva', () => {
+  const html = htmlPreciosFraccMd(granelVarios(), 'sistema');
+  const granel = cartaGranel(html);
+  assert.match(granel, /<h4 class="md-fr-card-t">Mayoristas del granel <span class="md-sub">· venta por kg<\/span><\/h4>/);
+  assert.match(granel, /<b>Bulto<\/b> <span class="md-sub">PLU 203 · × 1<\/span>/);
+  assert.match(granel, /Almendras Bulto 25 kg/);
+  assert.ok(cartas(html).at(-1).startsWith('md-fr-granel">'));                                // al final, después de todas las presentaciones
+  assert.ok(cartas(html).filter(c => c.startsWith('md-fr-pres">')).every(c => !c.includes('PLU 203')));
+  assert.doesNotMatch(htmlPreciosFraccMd(granelPrecios(), 'sistema'), /md-fr-granel|Mayoristas del granel/); // sin pack/bulto del granel no hay tarjeta
 });
 
 test('htmlPreciosFraccMd: resumen de variación (el título y el subtítulo son del header de la tarjeta) y las filas escapadas', () => {

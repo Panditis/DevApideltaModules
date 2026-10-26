@@ -9,7 +9,8 @@
 //    conforma el costo y el precio por presentación (mercadería + insumos + mano de obra + máquina), sólo para revisar. Todo salvo las tarjetas
 //    y el estado va sólo con precios-config (sin él el server no manda el desglose ni los extras, y el costo manual no se carga acá).
 //  · derecha = precios de las presentaciones (htmlPreciosFraccMd, bajo el título "Precios de las presentaciones" y el subtítulo "por kg · con <fuente>"):
-//    angosta, así que sin columnas: por presentación vigente → sugerido con la fuente elegida, Δ % como chip, y Δ $ y margen en segunda línea.
+//    angosta, así que sin columnas: una tarjeta por presentación con vigente → sugerido con la fuente elegida, Δ % como chip, Δ $ y margen en
+//    segunda línea y, adentro, el sub-bloque "Códigos mayoristas" con sus pack/bulto; al final, la tarjeta de los pack/bulto del granel.
 // Elegir un costo o guardar un margen repinta el modal entero (guardarOpcionMd / guardarCostoEsq): la tarjeta derecha siempre
 // refleja lo elegido a la izquierda. La facilidad y el tiempo son los del subrubro del granel y los insumos los del peso de la
 // presentación (Configuración › Costeo Fraccionado, precios_config_fraccionado.js): acá se ven. Globales: esc, fmtMoney, fmtFechaPrecio,
@@ -145,29 +146,57 @@ function partesPreciosFraccMd(r) {
 }
 // Δ % contra el vigente como chip (el del modal de Reventa); sin vigente o sin precio no hay chip.
 const chipDeltaFrMd = r => (r.deltaPct == null ? '' : ESQ_FR_MD.chipDelta(r.deltaPct, r.estado));
+// Reparte las filas por canal (filasPreciosFraccMd, ya en orden por peso) entre sus dueños: cada presentación con los pack/bulto que le siguen
+// (hasta la próxima presentación) y, aparte, los del granel mismo (los que vienen antes de la primera presentación). Un pack/bulto =
+// { tipo, plu, nombre, unidades, filas: [sin IVA, con IVA] }: sus dos filas, juntas, para pintarlas como una unidad.
+function agruparPreciosFraccMd(filas) {
+  const granel = [], presentaciones = [];
+  let dueno = granel;
+  for (const r of filas) {
+    if (r.tipo === 'minorista') {
+      dueno = [];
+      presentaciones.push({ minorista: r, mayoristas: dueno });
+      continue;
+    }
+    const ultimo = dueno[dueno.length - 1];
+    if (ultimo && ultimo.plu === r.plu) ultimo.filas.push(r);
+    else dueno.push({ tipo: r.tipo, plu: r.plu, nombre: r.nombre, unidades: r.unidades, filas: [r] });
+  }
+  return { granel, presentaciones };
+}
+// Fila de precios de un pack/bulto: "Sin IVA" (con vigente y Δ) o "Con IVA" (sin ellos) + vigente → sugerido, Δ % como chip, Δ $ y margen.
+const htmlFilaPreciosFraccMd = r => {
+  const { precios, detalle } = partesPreciosFraccMd(r);
+  return `<div class="md-fr-fila"><span class="md-fr-iva">${r.conIva ? 'Con IVA' : 'Sin IVA'}</span>${precios}${chipDeltaFrMd(r)}${detalle}</div>`;
+};
+// Un pack/bulto: tipo en negrita con su PLU y sus unidades (y el aviso "revisar unidad" si corresponde), el nombre debajo y sus dos filas.
+const htmlCodigoMayoristaFraccMd = m => `<li class="md-fr-cod"><div class="md-fr-cod-cab"><b>${ESC_FR_MD(ESQ_FR_MD.TIPO_CANAL[m.tipo] || m.tipo)}</b> `
+  + `<span class="md-sub">PLU ${ESC_FR_MD(m.plu)}${m.unidades ? ` · × ${ESC_FR_MD(m.unidades)}` : ''}</span>${ESQ_FR_MD.avisosCanalMd(m.filas[0])}</div>`
+  + `${m.nombre ? `<div class="md-fr-cod-nom">${ESC_FR_MD(m.nombre)}</div>` : ''}${m.filas.map(htmlFilaPreciosFraccMd).join('')}</li>`;
+const htmlCodigosMayoristasFraccMd = (mayoristas, etiqueta) => `<ul class="md-fr-cods" aria-label="${ESC_FR_MD(etiqueta)}">${mayoristas.map(htmlCodigoMayoristaFraccMd).join('')}</ul>`;
+// Tarjeta de una presentación: nombre y Δ % arriba, PLU y peso, precios y, si tiene pack/bulto, su sub-bloque "Códigos mayoristas" adentro.
+function htmlTarjetaPresentacionFraccMd({ minorista: r, mayoristas }) {
+  const peso = textoPesoMd(r.pesoG);
+  const { precios, detalle } = partesPreciosFraccMd(r);
+  const mays = mayoristas.length ? `<div class="md-fr-mays"><div class="md-fr-mays-t">Códigos mayoristas</div>`
+    + `${htmlCodigosMayoristasFraccMd(mayoristas, `Códigos mayoristas de ${r.nombre}`)}</div>` : '';
+  return `<li class="md-fr-card md-fr-pres"><div class="md-fr-l1"><b>${ESC_FR_MD(r.nombre)}</b>${chipDeltaFrMd(r)}</div>`
+    + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div><div class="md-fr-l3">${precios}${detalle}</div>${mays}</li>`;
+}
+// Tarjeta de los pack/bulto del granel mismo (no de una presentación); sin ellos no hay tarjeta.
+const htmlTarjetaGranelFraccMd = mayoristas => (!mayoristas.length ? '' : `<li class="md-fr-card md-fr-granel"><h4 class="md-fr-card-t">Mayoristas del granel `
+  + `<span class="md-sub">· venta por kg</span></h4>${htmlCodigosMayoristasFraccMd(mayoristas, 'Códigos mayoristas del granel')}</li>`);
 // Cuerpo de la tarjeta derecha (#mDetDer; su título y su subtítulo —subtituloPreciosFraccMd— los pone pintarModalFraccionadoMd): los chips del
-// resumen de variación y una lista: un ítem por presentación (nombre y Δ % arriba, PLU y peso, precios) y, debajo de cada una, sus pack/bulto
-// (sin IVA con Δ, con IVA sin Δ). Los pack/bulto del granel mismo (antes de la primera presentación) van arriba bajo "Granel".
+// resumen de variación y una lista de tarjetas: una por presentación, en orden por peso, con sus pack/bulto adentro (sin IVA con Δ, con IVA
+// sin Δ), y al final la de los pack/bulto del granel. Al final y no arriba: el título y los chips hablan de las presentaciones, y los del
+// granel (que no tienen peso) no deben leerse como una más de la secuencia por peso.
 function htmlPreciosFraccMd(f, fuente) {
   const filas = filasPreciosFraccMd(f, fuente);
   const chips = chipsVariacionFraccMd(resumenVariacionFraccMd(filas)).map(chipFrMd).join('');
   const cab = chips ? `<div class="md-fr-chips">${chips}</div>` : '';
   if (!filas.length) return `${cab}<p class="text-gris">Sin precios para mostrar.</p>`;
-  let previo = null, conMinorista = false;
-  const cuerpo = filas.map(r => {
-    if (r.tipo === 'minorista') {
-      previo = null; conMinorista = true;
-      const peso = textoPesoMd(r.pesoG);
-      const { precios, detalle } = partesPreciosFraccMd(r);
-      return `<li class="md-min"><div class="md-fr-l1"><b>${ESC_FR_MD(r.nombre)}</b>${chipDeltaFrMd(r)}</div>`
-        + `<div class="md-sub">PLU ${ESC_FR_MD(r.plu)}${peso ? ` · ${peso}` : ''}</div><div class="md-fr-l3">${precios}${detalle}</div></li>`;
-    }
-    const grupo = r.plu !== previo ? `<li class="md-grp">${conMinorista ? '' : 'Granel · '}${ESC_FR_MD(ESQ_FR_MD.TIPO_CANAL[r.tipo] || r.tipo)} <span class="md-sub">PLU ${ESC_FR_MD(r.plu)} · ${ESC_FR_MD(r.nombre || '')}${r.unidades ? ` · × ${ESC_FR_MD(r.unidades)}` : ''}</span>${ESQ_FR_MD.avisosCanalMd(r)}</li>` : '';
-    previo = r.plu;
-    const { precios, detalle } = partesPreciosFraccMd(r);
-    return `${grupo}<li class="md-may"><span class="md-fr-iva">${r.conIva ? 'Con IVA' : 'Sin IVA'}</span>${precios}${chipDeltaFrMd(r)}${detalle}</li>`;
-  }).join('');
-  return `${cab}<ul class="md-fr-lista">${cuerpo}</ul>`;
+  const { granel, presentaciones } = agruparPreciosFraccMd(filas);
+  return `${cab}<ul class="md-fr-lista">${presentaciones.map(htmlTarjetaPresentacionFraccMd).join('')}${htmlTarjetaGranelFraccMd(granel)}</ul>`;
 }
 // Debajo de las tarjetas de costo: un bloque por columna cuando hay dos; con uno solo (sin configuración sólo queda el estado) a ancho completo.
 function htmlColumnasFraccMd(...bloques) {
@@ -177,7 +206,7 @@ function htmlColumnasFraccMd(...bloques) {
 
 if (typeof module === 'object' && module.exports) module.exports = { resumenCosteoFraccMd, opcionesMaquinaMd, formulaMinutosMd, textoSinTiempoMd, textoElegidoMd,
   textoAutomaticoMd, valorSelectActivoMd, activoManualDeValorMd, htmlOpcionesActivoMd, lineasEstadoMd, textoGuardadoActivoMd, htmlEstadoActivoMd,
-  deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd };
+  deltaPesosMd, textoDeltaPesosMd, textoPesoMd, filasPreciosFraccMd, agruparPreciosFraccMd, resumenVariacionFraccMd, chipsVariacionFraccMd, subtituloPreciosFraccMd, htmlPreciosFraccMd, htmlColumnasFraccMd };
 
 // ── DOM ──
 let mdFrMaquinas = null; // máquinas de Configuración › Costeo Fraccionado (se piden cada vez que se conecta el modal: una máquina nueva aparece)

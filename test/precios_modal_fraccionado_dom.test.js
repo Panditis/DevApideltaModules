@@ -105,7 +105,7 @@ test('Fraccionado con precios-config: dos tarjetas con todos los bloques, ids ú
   assert.match(der, /^<div class="md-fr-chips">/);
   assert.match(der, /<ul class="md-fr-lista">/);
   assert.match(der, /Almendras 1Kg/);
-  assert.doesNotMatch(der, /id="mdCostos"|id="mdAct"|<h4|<table/);
+  assert.doesNotMatch(der, /id="mdCostos"|id="mdAct"|<h3|<table/); // (h4 sí: la tarjeta de los mayoristas del granel lleva su título)
   assert.strictEqual(dom.el('mDetDerSub').textContent, 'por kg · con costo sistema, para comparar');
   const fn = (id, prop = 'onclick') => typeof dom.el(id)[prop];
   assert.deepStrictEqual([fn('mdCostos', 'onchange'), fn('mdFrGuardar'), fn('mdManualGuardar'), fn('mdManualQuitar'), fn('mdExtrasGuardar'),

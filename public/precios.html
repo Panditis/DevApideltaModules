@@ -223,22 +223,32 @@
   .md-der-leyenda{margin:6px 0 0;font-size:12.5px;line-height:1.4;color:#5c5f52}
   .md-doble .md-fr-detalle{border:1.5px solid rgba(26,28,24,.22)}
   .md-doble .md-fr-detalle[open]{border-color:#405936}
-  /* Tarjeta de precios: un ítem por presentación (nombre y Δ % arriba, PLU y peso, precios) y sus pack/bulto sangrados debajo. */
+  /* Tarjeta de precios: una tarjeta por presentación (nombre y Δ % arriba, PLU y peso, precios). Sus pack/bulto van adentro, en un pie
+     "Códigos mayoristas" (divisor + fondo tenue) que llega a los bordes de la tarjeta; al final, la tarjeta de los mayoristas del granel,
+     toda con fondo tenue y su título. */
   .md-fr-chips{display:flex;flex-wrap:wrap;gap:6px}
-  .md-fr-lista{list-style:none;margin:0;padding:0}
-  .md-fr-chips + .md-fr-lista{margin-top:6px}
-  .md-fr-lista > li{padding:3px 2px}
-  .md-fr-lista > li.md-min{padding:10px 2px 9px;border-top:1.5px solid rgba(26,28,24,.2)}
-  .md-fr-lista > li:first-child{border-top:0}
-  .md-fr-lista > li.md-grp{margin-top:4px;padding:6px 8px 2px 10px;border-radius:8px 8px 0 0;background:#f2f5ee;font-size:12.5px;font-weight:600;color:#405936}
-  .md-fr-lista > li.md-grp:first-child{margin-top:0}
-  .md-fr-lista > li.md-may{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 8px;padding:3px 8px 3px 10px;background:#f2f5ee;font-size:13px;color:#3d4136;font-variant-numeric:tabular-nums}
-  .md-fr-lista > li.md-may:not(:has(+ li.md-may)){padding-bottom:6px;border-radius:0 0 8px 8px}
+  .md-fr-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+  .md-fr-chips + .md-fr-lista{margin-top:12px}
+  .md-fr-card{padding:10px 12px;border:1.5px solid rgba(26,28,24,.22);border-radius:12px;background:#fff}
+  .md-fr-card.md-fr-granel{background:#f2f5ee;border-color:rgba(64,89,54,.5)}
+  .md-fr-card-t{margin:-10px -12px 4px;padding:8px 12px;border-bottom:1.5px solid rgba(64,89,54,.4);border-radius:10px 10px 0 0;background:#e8ebe7;font-size:14px;font-weight:700;line-height:1.35;color:#242423}
+  .md-fr-mays{margin:10px -12px -10px;padding:8px 12px 6px;border-top:1.5px solid rgba(26,28,24,.16);border-radius:0 0 10px 10px;background:#f2f5ee}
+  .md-fr-mays-t{font-size:12px;font-weight:700;color:#405936}
+  .md-fr-cods{list-style:none;margin:0;padding:0}
+  .md-fr-cod{padding:6px 0}
+  .md-fr-cod + .md-fr-cod{border-top:1px dashed rgba(26,28,24,.25)}
+  .md-fr-cod-cab{font-size:13px;line-height:1.4;color:#242423}
+  .md-fr-cod-nom{margin-bottom:2px;font-size:12px;line-height:1.35;color:#5c5f52}
+  .md-fr-fila{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 8px;padding:2px 0;font-size:13px;color:#3d4136;font-variant-numeric:tabular-nums}
+  .md-fr-fila .md-fr-res,.md-fr-fila .md-chip{margin-left:auto}
+  .md-fr-fila .md-chip + .md-fr-res{flex-basis:100%;text-align:right}
+  /* Sobre el fondo tenue (#f2f5ee) el "—" y el chip ámbar de baja bajarían de 4,5:1: gris más oscuro y chips con el fondo que tendrían sobre blanco. */
+  #mDetDer .md-fr-mays .md-nd,#mDetDer .md-fr-granel .md-nd{color:#5c5f52}
+  #mDetDer .md-fr-mays .pr-sem.sem-bajar,#mDetDer .md-fr-granel .pr-sem.sem-bajar{background:#f0eade}
+  #mDetDer .md-fr-mays .pr-sem.sem-subir,#mDetDer .md-fr-granel .pr-sem.sem-subir{background:#f4e5e6}
+  #mDetDer .md-fr-mays .pr-sem.sem-ok,#mDetDer .md-fr-granel .pr-sem.sem-ok{background:#e2eee2}
   .md-fr-l1 b{font-size:14px}
   .md-fr-iva{flex:none;width:3.6rem}
-  .md-fr-lista > li.md-may .md-fr-res{margin-left:auto}
-  .md-fr-lista > li.md-may .md-chip{margin-left:auto}
-  .md-fr-lista > li.md-may .md-chip + .md-fr-res{flex-basis:100%;text-align:right}
   .md-fr-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;line-height:1.35}
   .md-fr-l1 .md-chip,.md-fr-l1 .md-nd{flex:none}
   .md-fr-l3{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 10px;margin-top:2px;font-variant-numeric:tabular-nums}
