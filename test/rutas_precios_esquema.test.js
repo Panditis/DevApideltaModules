@@ -567,7 +567,7 @@ test('listado Fraccionado: actividad del granel con los movimientos de 6 meses (
       [false, null, true, { auto: 'activo', motivos: [], ultimoMovGranel: '2026-10-20', presentacionesActivas: 1 }, true]);
     const sqlMov = sqls.find(s => s.includes('MovimientosStockProductos'));
     assert.match(sqlMov, /'50','51'|'51','50'/);
-    const d = new Date(); d.setMonth(d.getMonth() - 6);
+    const d = crearRutas.restarMeses(new Date(), 6);
     const desde = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     assert.ok(sqlMov.includes(`'${desde} 00:00:00'`), sqlMov);
     assert.strictEqual((await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado')).actividad.auto, 'activo');
@@ -576,6 +576,41 @@ test('listado Fraccionado: actividad del granel con los movimientos de 6 meses (
     await a.pedir('GET', '/api/precios/esquema/listado?tipo=almacen');
     assert.ok(!sqls.some(s => s.includes('MovimientosStockProductos')));
   } finally { a.cerrar(); }
+});
+
+test('actividad: sólo GET listado y detalle de Fraccionado consultan movimientos; decisión, margen, export y rango no', async () => {
+  let movs = 0;
+  const query = async sql => { if (sql.includes('MovimientosStockProductos')) movs++; return conMovimientos([])(sql); };
+  const a = appCon(MIGRADO, { query, archivos: ARCHIVOS_FALSOS });
+  const sinMovimientos = async (nombre, pedido) => {
+    const antes = movs;
+    const j = await pedido();
+    assert.strictEqual(j.error, undefined, `${nombre}: ${j.error}`);
+    assert.strictEqual(movs, antes, nombre);
+  };
+  try {
+    await sinMovimientos('decisión', () => a.pedir('PUT', '/api/precios/decision/50', { fuente: 'sistema' }));
+    await sinMovimientos('margen', () => a.pedir('PUT', '/api/precios/config/esquema/margen-producto/50', { minorista: 5 }));
+    await sinMovimientos('export', () => a.pedir('GET', '/api/precios/esquema/export'));
+    const antes = movs;
+    await a.pedir('POST', '/api/precios/config/esquema/rango?tipo=fraccionado'); // un granel: error de percentiles, da igual
+    assert.strictEqual(movs, antes, 'rango');
+    await a.pedir('GET', '/api/precios/esquema/listado?tipo=fraccionado');
+    assert.strictEqual(movs, antes + 1, 'listado');
+    await a.pedir('GET', '/api/precios/esquema/detalle/50?tipo=fraccionado');
+    assert.strictEqual(movs, antes + 2, 'detalle');
+  } finally { a.cerrar(); }
+});
+
+test('restarMeses: fija el día al último del mes si no existe, cruza años y no muta la fecha', () => {
+  const iso = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  const casos = [[[2026, 7, 31], 6, '2026-2-28'], [[2024, 7, 31], 6, '2024-2-29'], [[2026, 9, 26], 6, '2026-4-26'],
+    [[2026, 2, 31], 1, '2026-2-28'], [[2026, 0, 15], 6, '2025-7-15'], [[2026, 11, 31], 6, '2026-6-30']];
+  for (const [[y, m, dia], meses, esperado] of casos) {
+    const d = new Date(y, m, dia);
+    assert.strictEqual(iso(crearRutas.restarMeses(d, meses)), esperado);
+    assert.strictEqual(iso(d), `${y}-${m + 1}-${dia}`);
+  }
 });
 
 test('listado Fraccionado: si la consulta de movimientos falla, avisoActividad y nadie inactivo (el listado no se cae)', async () => {

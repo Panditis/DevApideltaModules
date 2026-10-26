@@ -89,7 +89,9 @@ module.exports = function crearRutasPreciosEsquema(deps) {
 
   // Filas completas (con desglose) de un tipo. ponytail: el export arma los tres y cada uno repite vigentes y vínculos
   // (dos consultas de más por tipo); compartir el contexto si el export se pone lento.
-  async function listado(tipo, costeo) {
+  // conActividad: sólo GET listado y detalle de Fraccionado consultan los movimientos (≈2 s en SIGA); el resto (decisión,
+  // margen, export, rango) arma la fila con actividad null y no mira activo.
+  async function listado(tipo, costeo, { conActividad = false } = {}) {
     if (tipo === 'almacen') {
       const [ctx, universo] = await Promise.all([contexto(costeo, tipo), consultas.universoAlmacen()]);
       const excluir = plusVentaProduccion(normalizarDatos(leerJSON(RECETAS_PATH, {})).productos);
@@ -102,7 +104,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
       const [ctx, { graneles, presentaciones, costos }] = await Promise.all([contexto(costeo, tipo),
         consultas.universoFraccionado(formulas, costeoF ? plusInsumos(costeoF) : [])]);
       const grupos = L.agruparPorGranel({ graneles, presentaciones, formulas, costos });
-      return L.listadoFraccionado({ grupos, costos, costeo, costeoF, movimientos: await movimientosFraccionado(grupos), ...ctx });
+      return L.listadoFraccionado({ grupos, costos, costeo, costeoF, movimientos: conActividad ? await movimientosFraccionado(grupos) : null, ...ctx });
     }
     const [ctx, presentaciones] = await Promise.all([contexto(costeo, tipo), presentacionesProduccion(costeo)]);
     return L.listadoProduccion({ presentaciones, costeo, ...ctx });
@@ -110,13 +112,10 @@ module.exports = function crearRutasPreciosEsquema(deps) {
 
   // Movimientos de los últimos 6 meses de graneles y presentaciones (actividad, spec 2026-10-26). Si la consulta falla →
   // null: el listado sale igual, sin actividad (nadie inactivo salvo a mano) y GET listado avisa con AVISO_ACTIVIDAD.
-  // ponytail: la decisión, el export y el rango también arman Fraccionado y pagan esta consulta; separarla si pesa.
   async function movimientosFraccionado(grupos) {
     const plus = grupos.flatMap(g => [g.plu, ...g.presentaciones.map(p => p.plu)]).filter(p => p != null);
-    const desde = new Date();
-    desde.setMonth(desde.getMonth() - MESES_ACTIVIDAD);
     try {
-      return await consultas.movimientosRecientes(plus, isoDe(desde));
+      return await consultas.movimientosRecientes(plus, isoDe(restarMeses(new Date(), MESES_ACTIVIDAD)));
     } catch (err) {
       console.error('[precios] movimientos de Fraccionado (actividad de graneles):', err.message);
       return null;
@@ -142,7 +141,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const tipo = String(req.query.tipo || '');
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
     const costeo = await costeoVigente();
-    const filas = await listado(tipo, costeo);
+    const filas = await listado(tipo, costeo, { conActividad: true });
     const { migrado, toleranciaPct } = cfgEsq.configEsquemaDe(costeo, tipo);
     const sinActividad = tipo === 'fraccionado' && filas.some(f => f.plu != null && f.actividad === null);
     return { migrado, toleranciaPct, filas: filas.map(f => L.filaPublica(f)), ...(sinActividad ? { avisoActividad: AVISO_ACTIVIDAD } : {}) };
@@ -154,7 +153,7 @@ module.exports = function crearRutasPreciosEsquema(deps) {
     const tipo = String(req.query.tipo || '');
     if (!TIPOS_LISTADO.includes(tipo)) return { error: `tipo inválido (${TIPOS_LISTADO.join(', ')})` };
     const plu = String(req.params.plu || '').trim();
-    const fila = (await listado(tipo, await costeoVigente())).find(f => f.plu === plu);
+    const fila = (await listado(tipo, await costeoVigente(), { conActividad: true })).find(f => f.plu === plu);
     return fila ? L.filaPublica(fila, !sinConfig(req)) : { error: `PLU ${plu} no encontrado en ${tipo}` };
   }));
 
@@ -272,6 +271,13 @@ module.exports = function crearRutasPreciosEsquema(deps) {
 
 const MESES_ACTIVIDAD = 6;
 const AVISO_ACTIVIDAD = 'No se pudieron consultar los movimientos de stock: no se ocultan graneles inactivos (sólo los fijados a mano).';
+
+// Fecha nueva meses atrás; si el día no existe en ese mes, el último (31/08 − 6 → 28/02, no el 03/03 de setMonth).
+function restarMeses(d, meses) {
+  const ultimo = new Date(d.getFullYear(), d.getMonth() - meses + 1, 0).getDate();
+  return new Date(d.getFullYear(), d.getMonth() - meses, Math.min(d.getDate(), ultimo));
+}
+module.exports.restarMeses = restarMeses;
 
 const hoyISO = () => isoDe(new Date());
 function isoDe(d) {
