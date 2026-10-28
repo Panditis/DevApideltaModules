@@ -512,14 +512,14 @@ function leerAjustesPesoFr(card) {
     .sort((a, b) => (a.g ?? 0) - (b.g ?? 0));
   return filas.length ? { tramosG: filas.map(f => f.g), puntos: filas.map(f => f.p) } : null;
 }
-function generarAjustesFr(card) {
+async function generarAjustesFr(card) {
   const v = k => numOrNull(card.querySelector(`[data-gen="${k}"]`).value);
   const gen = PreciosEsquema.generarAjustesPeso({ desdeG: v('Desde'), hastaG: v('Hasta'), tramos: v('Tramos'), livianoPct: v('Más liviano'), pesadoPct: v('Más pesado') });
   const msg = card.querySelector('.fr-gen-msg');
   msg.textContent = gen ? '' : `Revisá los datos: desde > 0, hasta > desde, de 2 a ${PreciosEsquema.AJUSTES_PESO_MAX} tramos (enteros) y ajustes entre −100 y 100.`;
   if (!gen) return;
   const tbody = card.querySelector('tbody');
-  if (tbody.children.length && !confirm('¿Reemplazar los tramos actuales por los generados?')) return;
+  if (tbody.children.length && !(await confirmar('¿Reemplazar los tramos actuales por los generados?', { textoOk: 'Reemplazar' }))) return; // precios_config.js
   tbody.innerHTML = gen.tramosG.map((g, i) => htmlFilaAjusteFr(g, gen.puntos[i])).join('');
   marcarSucio(card);
 }

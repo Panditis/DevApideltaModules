@@ -291,7 +291,7 @@ function exportarTop(pref){
   const st = tops[pref];
   if (!st) return;
   const filas = filasTop(pref);
-  if (!filas.length){ alert('No hay productos para exportar con los filtros actuales.'); return; }
+  if (!filas.length){ apdAvisar('No hay productos para exportar con los filtros actuales.'); return; }
   const encabezado = ['#', 'Código', 'Producto', 'Rubro', 'Facturación', 'Unidades', 'Quiebres (días)', 'Días evaluados', 'Quiebres %'];
   const vacioSiNull = v => (v === null || v === undefined ? '' : v);
   const cuerpo = filas.map(r => [

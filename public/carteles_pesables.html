@@ -121,6 +121,7 @@ body.modo-ticket .hoja { grid-template-columns: max-content; }
   </section>
 </main>
 
+<script src="/js/apd-dialogo.js"></script>
 <script>
 // ── Calibración (tocar solo acá, como la hoja de parámetros del Excel) ────────────
 const ANCHO_TICKET_MM = 70;          // ancho del cartel en la comandera (papel de 80 mm)
@@ -313,7 +314,7 @@ function prepararModo(nuevoModo) {
 // Un diálogo por tanda: se elige la impresora una vez y sale todo el listado.
 // A4: 24 carteles por hoja. Comandera: un cartel por página (un ticket por corte).
 function imprimir(nuevoModo) {
-  if (!seleccion.length) { alert('No hay carteles seleccionados.'); return; }
+  if (!seleccion.length) { apdAvisar('No hay carteles seleccionados.'); return; }
   prepararModo(nuevoModo);
   window.print();
 }

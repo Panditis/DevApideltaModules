@@ -138,6 +138,7 @@ h3.seccion{font-size:14px;color:var(--gris-600);margin:18px 0 8px}
 
 <datalist id="catalogoSiga"></datalist>
 
+<script src="/js/apd-dialogo.js"></script>
 <script>
 'use strict';
 // ── Estado ──────────────────────────────────────────────────────────────────
@@ -308,7 +309,7 @@ async function agregarProveedor(idSiga, nombre) {
 
 async function quitarProveedor(id) {
   const prov = CONFIG.proveedores.find(p => p.id === id);
-  if (!prov || !confirm(`¿Quitar la tab de ${prov.nombre}? Se pierde su lista cargada.`)) return;
+  if (!prov || !(await apdConfirmar(`¿Quitar la tab de ${prov.nombre}? Se pierde su lista cargada.`, { titulo: 'Quitar proveedor', aceptar: 'Quitar', peligro: true }))) return;
   try {
     await api(`/api/precios-proveedores/proveedores/${id}`, { method: 'DELETE' });
     CONFIG.proveedores = CONFIG.proveedores.filter(p => p.id !== id);
@@ -335,7 +336,7 @@ function subirPdf(id) {
 
 async function cargarUrl(id) {
   const prov = CONFIG.proveedores.find(p => p.id === id);
-  const url = prompt('URL de la lista de precios del proveedor:', prov?.url || 'https://');
+  const url = await apdPedir('URL de la lista de precios del proveedor:', prov?.url || 'https://', { titulo: 'Cargar desde URL', tipo: 'url' });
   if (!url) return;
   try {
     const r = await api('/api/precios-proveedores/parse-url', {

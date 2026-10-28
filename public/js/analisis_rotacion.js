@@ -109,7 +109,7 @@ function rotTabla(){
 // Números sin formatear para que Excel pueda sumarlos.
 function rotExportar(){
   const filas = rotFilas();
-  if (!filas.length){ alert('No hay productos para exportar con la búsqueda actual.'); return; }
+  if (!filas.length){ apdAvisar('No hay productos para exportar con la búsqueda actual.'); return; }
   const encabezado = ['Producto', 'Rubro', 'Puntaje', 'Se vende más en',
     ...rot.sucursales.map(s => `${rotNombreSuc(s)} unidades`)];
   const cuerpo = filas.map(r => [

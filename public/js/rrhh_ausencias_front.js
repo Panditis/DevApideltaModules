@@ -528,14 +528,15 @@ function renderImportaciones() {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.borrar;
       const imp = DOC.importaciones.find(x => x.id === id);
-      if (!confirm(`¿Deshacer la importación de "${imp ? imp.archivo : id}"?\nSe borran del histórico sus ${imp ? imp.cantidad : ''} registros.`)) return;
+      if (!(await apdConfirmar(`¿Deshacer la importación de "${imp ? imp.archivo : id}"?\nSe borran del histórico sus ${imp ? imp.cantidad : ''} registros.`,
+        { titulo: 'Deshacer importación', aceptar: 'Deshacer', peligro: true }))) return;
       btn.disabled = true;
       try {
         DOC = await api(`/api/rrhh/ausencias/importaciones/${encodeURIComponent(id)}`, { method: 'DELETE' });
         refrescarTodo();
       } catch (err) {
         btn.disabled = false;
-        alert(err.message);
+        apdAvisar(err.message);
       }
     });
   });
