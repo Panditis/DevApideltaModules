@@ -19,7 +19,7 @@ const { esMayorista } = require('../lib/catalogo_presentaciones');
 //   · /api/producto, /api/productos/*, /api/formula[/schema] — lookups directos
 //     a SIGA que consumen producción, distribución y análisis.
 //   · /api/bom[/producto/:plu] — planificación: sale de rubrosGranel y lo lee
-//     planificacion.html junto a /api/consumo y /api/pendientes.
+//     planificacion.html junto a /api/consumo.
 //   · /api/productos (el de params(req)) — es del bloque de pedidos.
 //
 // Los helpers cfg* leen grupos_config.json y los usa también

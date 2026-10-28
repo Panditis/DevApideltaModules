@@ -207,7 +207,6 @@ function sugToItem(s) {
     promMes:       s.promMes ?? Math.round((s.promDiario || 0) * 30 * 10) / 10,
     diasStock:     s.diasStock ?? 0,
     semaforo:      s.semaforo || 'GREEN',
-    pendientes:    s.pendientes ?? 0,
     cantSugerida:  s.cantSugerida ?? 0,
     cantConfirmada: s.cantSugerida ?? 0,
     idGranel:      s.idGranel ?? '', nombreGranel: s.nombreGranel ?? '',

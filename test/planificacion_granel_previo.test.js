@@ -423,3 +423,20 @@ test('urgencia del grupo: columna "Venta mayorista" en la tabla y en el consumo 
   assert.match(desglose, /28Kg <span class="badge-mayorista">Mayorista<\/span><\/td>/);
   assert.match(desglose, /<td class="num">30 kg<\/td>\s*<td class="num">30 kg<\/td>/);
 });
+
+test('cuenta del sugerido: sin pendientes ni "días con venta", solo promedio × días − stock × incidencia', () => {
+  const { htmlCalculoPresentacion, htmlCalculoGrupo } = urgenciaFns();
+  const p = { presentacion: '500G', ventasVentana: 90, ventaDiariaUrg: 3, ventasMayoristaVentana: 0, promDiario: 3,
+    stockActual: 20, stockSucursales: 0, diasStock: 6, cantSugerida: 22, urgencia: 'URGENTE' };
+  const g = grupoUrg({ incidenciaStock: 0.6, minDiasParaSugerir: 10, promPorDiasConVenta: true, totalPend: 5 });
+  const html = htmlCalculoPresentacion(g, { ...p, pendientes: 5 });
+  assert.match(html, /3 u\/día × 10 días − stock central 20 × 60 % \(12\) = <strong>22 u<\/strong>/);
+  assert.ok(!/pendiente|días con venta/i.test(html), html);
+  const noSugiere = htmlCalculoPresentacion(g, { ...p, diasStock: 12, pendientes: 5 });
+  assert.match(noSugiere, /no sugiere: el stock central alcanza para 12 días \(≥ 10\)<\/td>/);
+  assert.ok(!/pendiente|días con venta/i.test(noSugiere), noSugiere);
+  const grupo = htmlCalculoGrupo(grupoUrg({ esGranel: true, urgencia: 'OK', totalPromMes: 90, totalSugerido: 30, stockPresCentral: 10,
+    granelStockGrupo: 20, promPorDiasConVenta: true, totalPend: 5, presentaciones: [], desglose: [] }));
+  assert.match(grupo, /90 kg\/mes ÷ 30 × 10 − presentaciones en central 10 − granel 20 = <strong>30 kg<\/strong>/);
+  assert.ok(!/pendiente|días con venta/i.test(grupo), grupo);
+});

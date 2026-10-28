@@ -217,8 +217,7 @@ async function abrirModalGranel(gi) {
   const g = gruposSorted[gi];
   document.getElementById('granelModalTitulo').textContent = g.productoRef;
   document.getElementById('granelRefInfo').innerHTML = `
-    <span><strong>${g.totalPromMes||0}</strong> <span style="color:var(--muted)">prom/mes</span></span>
-    <span><strong>${g.totalPend||0}</strong> <span style="color:var(--muted)">ped. mayoristas</span></span>`;
+    <span><strong>${g.totalPromMes||0}</strong> <span style="color:var(--muted)">prom/mes</span></span>`;
   document.getElementById('granelCantidad').value = '';
   document.getElementById('granelBOM').style.display = 'none';
   document.getElementById('granelBOMBody').innerHTML = '';
@@ -304,7 +303,6 @@ document.getElementById('btnConfirmarGranel').addEventListener('click', () => {
     cantConfirmada: cant,
     unidadGranel:  unidad,
     semaforo:      g.semaforo,
-    pendientes:    g.totalPend || 0,
     promMes:       g.totalPromMes || 0,
     idGranel:      g.granelId ? String(g.granelId) : '',
     nombreGranel:  g.nombreGranelGrupo || '', cantPorUnidad: 0,

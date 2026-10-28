@@ -67,14 +67,13 @@ const CONFIG = {
 // minoristas) devolvería 999 y rompería las cuentas.
 const VENTAS_MIN = { 101: 30, 102: 15, 103: 6, 201: 999, 202: 999, 301: 100, 303: 40, 305: 7, 302: 999, 304: 999,
   401: 30, 403: 6, 405: 4, 407: 8, 409: 12, 412: 7, 402: 999, 404: 999, 406: 999, 408: 999, 410: 999,
-  501: 30, 502: 999, 503: 999 };
+  501: 30, 502: 999, 503: 999, 601: 24 };
 const VENTAS_MAY = { 201: 60, 202: 40, 101: 999, 102: 999, 103: 999, 302: 20, 304: 10, 301: 999, 303: 999, 305: 999,
   402: 10, 404: 3, 406: 5, 408: 2, 410: 20, 401: 999, 403: 999, 405: 999, 407: 999, 409: 999, 412: 999,
   502: 20, 503: 10, 501: 999 };
 const STOCK = { 101: 10, 102: 5, 103: 3, 201: 1000, 202: 1000, 301: 50, 304: 20, 501: 10, 502: 4, 503: 2 };
 // Solo para los grupos de pepas y miel (los otros tests no los miran). El de los mayoristas no debe sumar.
 const STOCK_SUC = { 301: 10, 303: 20, 305: 4, 302: 999, 501: 6, 502: 999, 503: 999 };
-const PEND = { 301: 5, 302: 10, 303: 2, 402: 4 };
 // Stock de los graneles cargados a mano en el catálogo (grupos_config.granelPlus).
 const STOCK_GRANEL = { 901: 12, 902: 30 };
 
@@ -136,12 +135,13 @@ function montarPlan({ esGranel = false, ventaPorUnidad = false, catalogo = CATAL
   const sqls = [];
   const query = async sql => {
     sqls.push(sql);
-    const fila = (tabla, col) => plusDe(sql).filter(p => p in tabla).map(p => ({ IdProducto: p, [col]: tabla[p], DiasConVenta: 10 }));
+    // DiasConVenta: 2 a propósito (venta concentrada en pocos días): el sugerido no lo usa; si el promedio
+    // volviera a ir ÷ días con venta, los números de los tests se inflarían y fallarían.
+    const fila = (tabla, col) => plusDe(sql).filter(p => p in tabla).map(p => ({ IdProducto: p, [col]: tabla[p], DiasConVenta: 2 }));
     const may = /'MAYORISTA'/.test(sql);
     if (/UnidVendidas/.test(sql)) return fila(may ? VENTAS_MAY : VENTAS_MIN, 'UnidVendidas').map(r => ({ ...r, TotalFacturado: r.UnidVendidas }));
     if (/^STOCK_CENTRAL/.test(sql)) return fila(STOCK, 'StockActual');
     if (/SoyLaCentral=0/.test(sql)) return fila(STOCK_SUC, 'StockActual');
-    if (/UnidPendientes/.test(sql)) return fila(PEND, 'UnidPendientes');
     if (/SoyLaCentral=1/.test(sql)) return fila(STOCK_GRANEL, 'StockActual');
     return [];
   };
@@ -209,14 +209,46 @@ test('presentación mayorista: se planifica con el stock central de sus códigos
   assert.strictEqual(p.stockActual, 4 + 2);                         // stock de Casa Central de sus códigos
   assert.strictEqual(p.stockSucursales, 0);                         // el de sucursales no cuenta
   assert.strictEqual(p.coberturaDias, 6);                           // 6 ÷ 1, solo con el central
-  // Sin granel: promedio ÷ días con venta (3/día); 2 días de stock → sugerido = 3 × 30 − 6.
-  assert.strictEqual(p.promDiario, 3);
-  assert.strictEqual(p.cantSugerida, 84);
+  // Promedio = venta de la ventana ÷ ventana (30 ÷ 30 = 1/día); 6 días de stock → sugerido = 1 × 30 − 6.
+  assert.strictEqual(p.promDiario, 1);
+  assert.strictEqual(p.cantSugerida, 24);
   // El minorista del mismo grupo, como siempre.
   assert.strictEqual(d['1Kg'].esMayorista, undefined);
   assert.strictEqual(d['1Kg'].stockSucursales, 6);
   assert.strictEqual(d['1Kg'].ventasMayoristaVentana, 0);
-  assert.strictEqual(g.totalSugerido, d['1Kg'].cantSugerida + 84);
+  assert.strictEqual(g.totalSugerido, d['1Kg'].cantSugerida + 24);
+});
+
+// Grupo sin granel con venta concentrada en pocos días (caso real: Miel Pago De Los Arroyos sugería
+// 1117 en vez de ~94 porque el promedio iba ÷ días con venta).
+test('grupo sin granel: el promedio diario es la venta de la ventana ÷ ventana, no ÷ días con venta', async () => {
+  const ctx = await montarPlan({ catalogo: [{ plu: 601, producto: 'Miel PDLA 1Kg', baseNombre: 'Miel PDLA 1Kg', presentacion: '1Kg', esMayorista: false, refId: 6, productoRef: 'Miel PDLA' }] });
+  try {
+    const r = await fetch(`${ctx.url}/api/plan/sugerencias-grupos?ventana=120`);
+    const grupos = await r.json();
+    assert.strictEqual(r.status, 200, JSON.stringify(grupos));
+    const g = grupos[0], p = g.presentaciones[0];
+    assert.strictEqual(g.granelStockGrupo, null);                   // no lleva granel
+    assert.strictEqual(p.promDiario, 0.2);                          // 24 ÷ 120, no 24 ÷ 2 = 12
+    assert.strictEqual(p.cantSugerida, 6);                          // 0.2 × 30 − 0 de stock
+    assert.strictEqual(g.totalSugerido, 6);
+  } finally { cerrar(ctx); }
+});
+
+test('sugerido sin pendientes: no consulta pedidos de SIGA ni devuelve pendientes/totalPend', async () => {
+  for (const esGranel of [false, true]) {
+    const ctx = await montarPlan({ catalogo: PEPAS, esGranel });
+    try {
+      const grupos = await (await fetch(`${ctx.url}/api/plan/sugerencias-grupos`)).json();
+      assert.ok(!ctx.sqls.some(s => /PedidosProductos|CantPendiente/.test(s)), 'no debe consultar pendientes');
+      const g = grupos[0];
+      assert.strictEqual(g.totalPend, undefined);
+      for (const p of g.presentaciones) assert.strictEqual(p.pendientes, undefined);
+      // Sin el término de pendientes: ceil(prom × 30 días − stock efectivo).
+      if (!esGranel) assert.deepStrictEqual(Object.fromEntries(g.presentaciones.map(p => [p.presentacion, p.cantSugerida])),
+        { 'Pepas Batata': 70, '150G': 42, Surtidas: 7 });           // 120/30×30 − 50; 41.5/30×30 − 0; 7/30×30 − 0
+    } finally { cerrar(ctx); }
+  }
 });
 
 test('presentación mayorista ≤200g (regla vieja): ventas y stock pasan a kg con el mismo peso', async () => {
@@ -241,7 +273,7 @@ test('presentación mayorista en un grupo granel: entra al desglose y al total, 
   assert.strictEqual(g.ventasVentana, 30 + 30);
   assert.strictEqual(g.ventasMayoristaVentana, 30);
   assert.strictEqual(g.ventaDiariaMayorista, 1);
-  assert.strictEqual(g.totalPromMes, (30 / 10 + 30 / 10) * 30);     // sin granel: ÷ días con venta
+  assert.strictEqual(g.totalPromMes, (30 / 30 + 30 / 30) * 30);     // granel sin stock: igual ÷ ventana
   assert.strictEqual(g.stockSucGrupo, 6);                           // solo el minorista
   assert.deepStrictEqual(g.plus, ['501']);                          // modal 🔍 de sucursales sin los mayoristas
 });
@@ -257,7 +289,8 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     assert.deepStrictEqual(g.presentaciones, []);              // el granel se sigue planificando como grupo
     assert.strictEqual(g.diasObjetivo, 30);                    // días a cubrir: stock mínimo del modal
     assert.strictEqual(g.minDiasParaSugerir, CONFIG.minDiasParaSugerir); // regla del sugerido, para el modal
-    assert.strictEqual(typeof g.promPorDiasConVenta, "boolean");
+    assert.strictEqual(g.promPorDiasConVenta, undefined);      // el promedio es siempre ÷ ventana
+    assert.strictEqual(g.totalPend, undefined);                // los pendientes ya no entran
     assert.strictEqual(g.desglose.find(d => d.presentacion === "500G").stockCentral, 10 + 5); // stock central de la presentación (solo minoristas)
     assert.deepStrictEqual(g.desglose.map(d => d.presentacion), ['1Kg', '2Kg', '500G']);
     const d500 = g.desglose.find(d => d.presentacion === '500G');
@@ -273,8 +306,8 @@ test('sugerencias por grupo: un grupo granel lista el consumo de cada presentaci
     const stockPres = g.desglose.reduce((s, d) => s + d.stockCentral, 0);
     assert.strictEqual(g.stockPresCentral, stockPres);
     assert.ok(stockPres > 0);
-    assert.ok(g.totalPromMes - (g.granelStockGrupo || 0) + g.totalPend > g.totalSugerido); // el stock de presentaciones bajó el sugerido
-    assert.strictEqual(g.totalSugerido, Math.max(0, Math.ceil(g.totalPromMes / 30 * 30 - stockPres - (g.granelStockGrupo || 0) + g.totalPend)));
+    assert.ok(g.totalPromMes - (g.granelStockGrupo || 0) > g.totalSugerido); // el stock de presentaciones bajó el sugerido
+    assert.strictEqual(g.totalSugerido, Math.max(0, Math.ceil(g.totalPromMes / 30 * 30 - stockPres - (g.granelStockGrupo || 0))));
     assert.strictEqual(g.coberturaDias, Math.round((stockPres + g.stockSucGrupo) / g.ventaDiariaUrg * 10) / 10);
     // Por kilo (sin "x unidad"): sin peso ni unidades en el desglose.
     assert.strictEqual(d500.pesoKg, null);
@@ -326,7 +359,7 @@ async function grupoPepas(opts) {
   } finally { cerrar(ctx); }
 }
 
-test('x unidad: un grupo granel pasa ventas, pendientes y stock a kg con el peso de cada presentación', async () => {
+test('x unidad: un grupo granel pasa ventas y stock a kg con el peso de cada presentación', async () => {
   const { g, d } = await grupoPepas({ esGranel: true, ventaPorUnidad: true });
   // Batata: peso del nombre del primer minorista (180G); el Pack usa el mismo peso.
   assert.strictEqual(d['Pepas Batata'].pesoKg, 0.18);
@@ -343,9 +376,8 @@ test('x unidad: un grupo granel pasa ventas, pendientes y stock a kg con el peso
   assert.deepStrictEqual(g.presentacionesSinPeso, ['Surtidas']);
   assert.strictEqual(g.ventasVentana, 36.1);
   assert.strictEqual(g.ventaDiariaUrg, Math.round(36.1 / 30 * 10000) / 10000);
-  // Stock en sucursales (el del mayorista no suma) y pendientes (también los del mayorista), en kg.
+  // Stock en sucursales (el del mayorista no suma), en kg.
   assert.strictEqual(g.stockSucGrupo, 8.8);                            // 10×0.18 + 20×0.15 + 4
-  assert.strictEqual(g.totalPend, 3);                                  // (5+10)×0.18 + 2×0.15
   assert.strictEqual(d['150G'].facturacionMensual, 40 + 10);           // facturación ($) no se toca
   // Modal de stock central: la presentación va en unidades (como en SIGA) y aparte su equivalente en kg.
   assert.strictEqual(d['Pepas Batata'].stockCentral, 50);
@@ -369,7 +401,6 @@ test('x unidad: sin el check los números del grupo granel quedan como antes', a
   assert.strictEqual(d['150G'].unidadesVentana, null);
   assert.strictEqual(g.presentacionesSinPeso, undefined);
   assert.strictEqual(g.stockSucGrupo, 34);
-  assert.strictEqual(g.totalPend, 17);
 });
 
 test('x unidad: en un grupo que no es granel el check no cambia nada', async () => {
@@ -379,7 +410,7 @@ test('x unidad: en un grupo que no es granel el check no cambia nada', async () 
   assert.strictEqual(d['150G'].stockSucursales, 20);
 });
 
-test('mayorista x unidad: en un grupo granel por kilo sus ventas y pendientes pasan a kg con su peso', async () => {
+test('mayorista x unidad: en un grupo granel por kilo sus ventas pasan a kg con su peso', async () => {
   const { g, d } = await grupoPepas({ catalogo: MIX_GRANEL, esGranel: true });
   assert.strictEqual(d['500G'].ventasVentana, 30 + 10 * 0.5 + 7);    // peso del nombre del código; el minorista 412 no se toca
   assert.deepStrictEqual(d['500G'].mayoristasUnidad, [{ plu: '402', unidadesVentana: 10, pesoKg: 0.5 }]);
@@ -391,7 +422,6 @@ test('mayorista x unidad: en un grupo granel por kilo sus ventas y pendientes pa
   assert.strictEqual(d.Suelto.ventasVentana, 8 + 2);
   assert.deepStrictEqual(d.Suelto.mayoristasUnidad, [{ plu: '408', unidadesVentana: 2, pesoKg: null }]);
   assert.deepStrictEqual(g.presentacionesSinPeso, ['Suelto']);
-  assert.strictEqual(g.totalPend, 4 * 0.5);                            // pendientes del mayorista, en kg
   assert.strictEqual(d['500G'].facturacionMensual, 30 + 10 + 7);       // facturación ($) no se toca
   assert.strictEqual(d['500G'].ventasMayoristaVentana, 10 * 0.5);     // mayorista x unidad, ya en kg
   assert.strictEqual(d['150G'].ventasMayoristaVentana, 20 * 0.15);    // una sola conversión
@@ -433,7 +463,7 @@ test('sugerencias por grupo: la query mayorista mira Casa Central a clientes MAY
     const ventas = ctx.sqls.filter(s => /UnidVendidas|TotalFacturado/.test(s));
     const may = ventas.filter(s => /'MAYORISTA'/.test(s));
     const min = ventas.filter(s => !/'MAYORISTA'/.test(s));
-    assert.strictEqual(may.length, 1);  // unidades, días y facturación en una sola query por canal
+    assert.strictEqual(may.length, 1);  // unidades y facturación en una sola query por canal
     assert.strictEqual(min.length, 1);
     assert.match(may[0], /TotalFacturado/);
     for (const s of may) {
