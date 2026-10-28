@@ -52,9 +52,13 @@ function renderGrupos() {
   // Celda "Stock suc.": suma + 🔍 (abre el modal por sucursal; lista también las sucursales en 0).
   const stockSucCell = (suma, gi) =>
     `${suma > 0 ? suma : 0} <button class="btn-add btn-sm" title="Ver stock por sucursal" onclick="event.stopPropagation();abrirStockDetalle(${gi})">🔍</button>`;
-  // Celda "Stock central": valor + 🔍 (abre el stock en Casa Central de cada presentación).
+  // "Stock central" se parte en dos: Granel (la masa, si el grupo la tiene cargada) y Presentaciones (+ 🔍 con el detalle de ambos).
   const stockCentralCell = (valor, gi) =>
-    `${valor} <button class="btn-add btn-sm" title="Ver stock en Casa Central por presentación" onclick="event.stopPropagation();abrirStockCentral(${gi})">🔍</button>`;
+    `${valor} <button class="btn-add btn-sm" title="Ver stock en Casa Central por presentación y granel" onclick="event.stopPropagation();abrirStockCentral(${gi})">🔍</button>`;
+  const granelCell = g => (g.granelStockGrupo != null
+    ? `${redondear(g.granelStockGrupo)} <span style="color:var(--muted)">${g.granelEnUnidades ? 'u' : 'kg'}</span>`
+    : '<span style="color:var(--muted)">—</span>');
+  const tituloIncidencia = g => `Cuenta al ${Math.round((Number.isFinite(g.incidenciaStock) ? g.incidenciaStock : 1) * 100)}% en el sugerido`;
 
   gruposSorted = grupos;
   const rows = gruposSorted.map((g, gi) => {
@@ -68,7 +72,8 @@ function renderGrupos() {
           <span style="display:inline-block;font-size:10px;font-weight:700;font-family:system-ui,sans-serif;padding:1px 7px;border-radius:var(--radius-full);background:#d1fae5;color:#065f46;margin-left:8px;vertical-align:middle">GRANEL</span>
         </td>
         <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
-        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(`${redondear(g.stockPresCentral || 0)}${g.granelStockGrupo != null ? ` <span class="text-sm" style="color:var(--muted)" title="Stock del granel (masa)">· granel ${g.granelStockGrupo}${g.granelEnUnidades ? ' u' : ''}</span>` : ''}`, gi)}</td>
+        <td class="text-right text-sm col-granel" style="white-space:nowrap">${granelCell(g)}</td>
+        <td class="text-right text-sm" style="white-space:nowrap">${stockCentralCell(redondear(g.stockPresCentral || 0), gi)}</td>
         <td class="text-right text-sm" style="color:var(--muted);white-space:nowrap">${stockSucCell(g.stockSucGrupo, gi)}</td>
         <td style="white-space:nowrap"><button class="btn-add" onclick="abrirModalGranel(${gi})">+ Agregar</button></td>
       </tr>`;
@@ -82,7 +87,8 @@ function renderGrupos() {
       <td style="white-space:nowrap">${urgenciaCell(g.urgencia, textoUrgenciaGrupo(g), gi, -1)}</td>
       <td class="nombre-col font-bold"><span class="expand-btn" id="ebtn-${gi}">▶</span> ${escHtml(g.productoRef)}</td>
       <td class="text-right font-bold col-sug" style="color:var(--verde)">${g.totalSugerido||'—'}</td>
-      <td class="text-right text-sm" style="white-space:nowrap" title="Cuenta al 60% en el sugerido: ${redondear(_stockGrupo*0.6)}">${stockCentralCell(_stockGrupo>0?_stockGrupo:0, gi)}</td>
+      <td class="text-right text-sm col-granel" style="white-space:nowrap">${granelCell(g)}</td>
+      <td class="text-right text-sm" style="white-space:nowrap" title="${tituloIncidencia(g)}">${stockCentralCell(_stockGrupo>0?_stockGrupo:0, gi)}</td>
       <td class="text-right text-sm" style="color:var(--muted);white-space:nowrap">${stockSucCell(_stockSucGrupo, gi)}</td>
       <td onclick="event.stopPropagation()" style="white-space:nowrap">
         <button class="btn-add" onclick="agregarGrupoAlPlan(${gi})">+ Todo</button>
@@ -93,6 +99,7 @@ function renderGrupos() {
       <td></td><td></td>
       <td style="padding-left:28px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.4px">PRESENTACIÓN</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">SUGERIDO</td>
+      <td class="col-granel"></td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK CENTRAL</td>
       <td class="text-right" style="font-size:11px;font-weight:700;color:var(--muted)">STOCK SUC.</td>
       <td></td>
@@ -108,7 +115,8 @@ function renderGrupos() {
           ${_pProm ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">prom: ${_pProm}/mes</div>` : ''}
         </td>
         <td class="text-right col-sug" style="white-space:nowrap"><input class="sug-input" id="sug-${gi}-${pi}" type="number" min="0" step="1" value="${p.cantSugerida||0}" title="Sugerido por el sistema: ${p.cantSugerida}"><button class="btn-formula" onclick="event.stopPropagation();abrirFormulaView('${p.plu}','${escHtml(p.baseNombre).replace(/'/g,"\\'")}',parseFloat(document.getElementById('sug-${gi}-${pi}').value)||0)" title="Ver fórmula">📋</button></td>
-        <td class="text-right" title="Cuenta al 60% en el sugerido: ${p.stockEfectivo ?? Math.round((p.stockActual||0)*0.6*100)/100}">${p.stockActual||0}</td>
+        <td class="col-granel"></td>
+        <td class="text-right" title="${tituloIncidencia(g)}: ${p.stockEfectivo ?? p.stockActual ?? 0}">${p.stockActual||0}</td>
         <td class="text-right" style="color:var(--muted)">${p.stockSucursales||0}</td>
         <td onclick="event.stopPropagation()">
           <button class="btn-add btn-sm" onclick="agregarPresAlPlan(${gi},${pi})">+</button>
@@ -122,13 +130,16 @@ function renderGrupos() {
   document.getElementById('tablaSugerencias').innerHTML = `
     <div style="overflow-x:auto"><table>
       <thead><tr>
-        <th class="text-right" style="width:40px" title="Prioridad por facturación">#</th>
-        <th title="Cobertura en días (stock central + sucursales ÷ venta diaria); el umbral depende de la clase del grupo">Urgencia</th>
-        <th>Producto</th>
-        <th class="text-right col-sug">Sugerido</th>
-        <th class="text-right" title="Stock de presentaciones en Casa Central (en planificación cuenta al 60%)" style="font-size:11px">STOCK CENTRAL</th>
-        <th class="text-right" title="Stock en sucursales (todas menos Casa Central)" style="font-size:11px">STOCK SUC.</th>
-        <th></th>
+        <th rowspan="2" class="text-right" style="width:40px" title="Prioridad por facturación">#</th>
+        <th rowspan="2" title="Cobertura en días (stock central + sucursales ÷ venta diaria); el umbral depende de la clase del grupo">Urgencia</th>
+        <th rowspan="2">Producto</th>
+        <th rowspan="2" class="text-right col-sug">Sugerido</th>
+        <th colspan="2" class="th-stock-central" style="font-size:11px;text-align:center">STOCK CENTRAL</th>
+        <th rowspan="2" class="text-right" title="Stock de las presentaciones en sucursales (todas menos Casa Central)" style="font-size:11px">STOCK SUC.</th>
+        <th rowspan="2"></th>
+      </tr><tr>
+        <th class="text-right col-granel" title="Stock de la masa (granel) en Casa Central, si el grupo la tiene cargada" style="font-size:10px">Granel</th>
+        <th class="text-right" title="Stock de las presentaciones en Casa Central" style="font-size:10px">Presentaciones</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
