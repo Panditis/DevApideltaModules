@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const {
   PRIORIDADES, ESTADOS, ESTADOS_ETAPA, AREAS, crearTicket, actualizarTicket,
   agregarEtapa, actualizarEtapa, eliminarEtapa, recalcularEstado,
+  validarArchivos, agregarAdjuntos, quitarAdjunto, ubicarAdjunto, ocultarRutas, verificarDestino,
 } = require('../lib/tickets');
 
 const USUARIOS = ['ana', 'beto', 'caro'];
@@ -28,7 +29,7 @@ test('crearTicket arma el ticket con estado pendiente e historial de creación',
   const { lista, ticket } = crear([], { tarea: '  Arreglar export  ', area: ' Compras ' });
   assert.deepStrictEqual(ticket, {
     id: 1, tarea: 'Arreglar export', prioridad: 'alta', area: 'Compras', descripcion: 'Detalle',
-    destinatarios: ['beto'], estado: 'pendiente', creadoPor: 'ana', creadoEn: T0, actualizadoEn: T0, etapas: [],
+    destinatarios: ['beto'], estado: 'pendiente', creadoPor: 'ana', creadoEn: T0, actualizadoEn: T0, etapas: [], adjuntos: [],
     historial: [{ fecha: T0, usuario: 'ana', tipo: 'creado' }],
   });
   assert.deepStrictEqual(lista, [ticket]);
@@ -301,4 +302,131 @@ test('actualizarTicket: prioridad cambia con historial; misma es no-op; inválid
     const { ticket: t3 } = actualizarTicket([{ ...l0[0], estado: e }], 1, { prioridad: 'baja' }, 'beto', USUARIOS, T1);
     assert.deepStrictEqual([t3.prioridad, t3.estado], ['baja', e]);
   }
+});
+
+// ── Adjuntos ────────────────────────────────────────────────────────────────
+const ARCHIVO = (nombre = 'captura.png') => ({
+  nombre, mime: 'image/png', tamano: 1234, subidoPor: 'ana', subidoEn: T1, archivo: `u-${nombre}`,
+});
+
+test('validarArchivos: acepta la lista blanca y arma nombre, mime, tamaño y extensión', () => {
+  const r = validarArchivos([{ originalname: 'C:\\fotos\\Captura 1.PNG', size: 500 }, { originalname: 'planilla.xlsx', size: 10 }]);
+  assert.deepStrictEqual(r, [
+    { nombre: 'Captura 1.PNG', mime: 'image/png', tamano: 500, ext: 'png' },
+    { nombre: 'planilla.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', tamano: 10, ext: 'xlsx' },
+  ]);
+});
+
+test('validarArchivos rechaza con 400: sin archivos, demasiados, extensión, vacío, pesado, sin nombre', () => {
+  const f = (n, size = 10) => ({ originalname: n, size });
+  falla(() => validarArchivos([]), 400, /archivo/i);
+  falla(() => validarArchivos(undefined), 400, /archivo/i);
+  falla(() => validarArchivos(Array.from({ length: 6 }, (_, i) => f(`a${i}.png`))), 400, /5 archivos/);
+  falla(() => validarArchivos([f('virus.exe')]), 400, /virus\.exe/);
+  falla(() => validarArchivos([f('sin_extension')]), 400, /sin_extension/);
+  falla(() => validarArchivos([f('constructor')]), 400, /constructor/);
+  falla(() => validarArchivos([f('a.png', 0)]), 400, /vacío/);
+  falla(() => validarArchivos([f('a.png', 10 * 1024 * 1024 + 1)]), 400, /10 MB/);
+  falla(() => validarArchivos([f('   ')]), 400, /nombre/);
+});
+
+test('validarArchivos recorta nombres largos conservando la extensión', () => {
+  const [a] = validarArchivos([{ originalname: `${'x'.repeat(200)}.pdf`, size: 1 }]);
+  assert.strictEqual(a.nombre.length, 120);
+  assert.ok(a.nombre.endsWith('.pdf'));
+});
+
+test('agregarAdjuntos a la descripción: ids, evento y lista de entrada intacta', () => {
+  const { lista } = crear();
+  const copia = JSON.parse(JSON.stringify(lista));
+  const r = agregarAdjuntos(lista, 1, {}, [ARCHIVO('a.png'), ARCHIVO('b.pdf')], 'ana', T1);
+  assert.deepStrictEqual(r.ticket.adjuntos.map(a => [a.id, a.nombre]), [[1, 'a.png'], [2, 'b.pdf']]);
+  assert.deepStrictEqual(r.adjuntos.map(a => a.id), [1, 2]);
+  assert.strictEqual(r.ticket.actualizadoEn, T1);
+  assert.deepStrictEqual(r.ticket.historial.slice(1), [
+    { fecha: T1, usuario: 'ana', tipo: 'adjunto', accion: 'agregado', nombre: 'a.png' },
+    { fecha: T1, usuario: 'ana', tipo: 'adjunto', accion: 'agregado', nombre: 'b.pdf' },
+  ]);
+  assert.deepStrictEqual(lista, copia);
+});
+
+test('actualizarTicket: una nota con archivos (con o sin texto) guarda los adjuntos en el evento', () => {
+  const { lista } = crear();
+  const conTexto = actualizarTicket(lista, 1, { nota: 'mirá', adjuntos: [ARCHIVO('a.png')] }, 'beto', USUARIOS, T1);
+  const evento = conTexto.ticket.historial[1];
+  assert.strictEqual(evento.tipo, 'nota');
+  assert.strictEqual(evento.nota, 'mirá');
+  assert.deepStrictEqual(evento.adjuntos.map(a => a.id), [1]);
+  const soloArchivo = actualizarTicket(conTexto.lista, 1, { adjuntos: [ARCHIVO('b.png')] }, 'beto', USUARIOS, T1);
+  const e2 = soloArchivo.ticket.historial[2];
+  assert.strictEqual(e2.nota, '');
+  assert.deepStrictEqual(e2.adjuntos.map(a => a.id), [2]); // el id sigue contando los de la nota anterior
+  falla(() => actualizarTicket(lista, 1, { nota: '   ' }, 'beto', USUARIOS, T1), 400, /nota/i);
+});
+
+test('agregarAdjuntos a una nota existente: usa el índice del historial y deja el evento', () => {
+  const { lista } = crear();
+  const conNota = actualizarTicket(lista, 1, { nota: 'hola' }, 'beto', USUARIOS, T1).lista;
+  const r = agregarAdjuntos(conNota, 1, { nota: 1 }, [ARCHIVO('a.png')], 'caro', T1);
+  assert.deepStrictEqual(r.ticket.historial[1].adjuntos.map(a => a.nombre), ['a.png']);
+  assert.deepStrictEqual(r.ticket.adjuntos, []);
+  assert.deepStrictEqual(r.ticket.historial[2], { fecha: T1, usuario: 'caro', tipo: 'adjunto', accion: 'agregado', nombre: 'a.png', nota: 1 });
+  falla(() => agregarAdjuntos(conNota, 1, { nota: 0 }, [ARCHIVO()], 'ana', T1), 404, /nota/i); // 0 es el evento "creado"
+  falla(() => agregarAdjuntos(conNota, 1, { nota: 9 }, [ARCHIVO()], 'ana', T1), 404, /nota/i);
+  falla(() => agregarAdjuntos(conNota, 99, {}, [ARCHIVO()], 'ana', T1), 404, /ticket/i);
+  falla(() => agregarAdjuntos(conNota, 1, {}, [], 'ana', T1), 400, /archivo/i);
+});
+
+test('ubicarAdjunto y quitarAdjunto: de la descripción y de una nota, con evento y el adjunto quitado en la respuesta', () => {
+  const { lista } = crear();
+  const a = agregarAdjuntos(lista, 1, {}, [ARCHIVO('a.png')], 'ana', T0).lista; // historial: [creado, adjunto]
+  const b = actualizarTicket(a, 1, { nota: 'x', adjuntos: [ARCHIVO('b.png')] }, 'beto', USUARIOS, T0).lista; // nota en índice 2
+  assert.strictEqual(ubicarAdjunto(b[0], 1).nota, undefined);
+  assert.strictEqual(ubicarAdjunto(b[0], 2).nota, 2);
+  falla(() => ubicarAdjunto(b[0], 99), 404, /adjunto/i);
+
+  const r1 = quitarAdjunto(b, 1, 1, 'ana', T1);
+  assert.strictEqual(r1.adjunto.nombre, 'a.png');
+  assert.strictEqual(r1.adjunto.archivo, 'u-a.png');
+  assert.deepStrictEqual(r1.ticket.adjuntos, []);
+  assert.deepStrictEqual(r1.ticket.historial.at(-1), { fecha: T1, usuario: 'ana', tipo: 'adjunto', accion: 'quitado', nombre: 'a.png' });
+
+  const r2 = quitarAdjunto(b, 1, 2, 'beto', T1);
+  assert.deepStrictEqual(r2.ticket.historial[2].adjuntos, []);
+  assert.deepStrictEqual(r2.ticket.historial.at(-1), { fecha: T1, usuario: 'beto', tipo: 'adjunto', accion: 'quitado', nombre: 'b.png', nota: 2 });
+  assert.strictEqual(r2.ticket.adjuntos.length, 1); // el de la descripción sigue
+  falla(() => quitarAdjunto(b, 1, 99, 'ana', T1), 404, /adjunto/i);
+  falla(() => quitarAdjunto(b, 99, 1, 'ana', T1), 404, /ticket/i);
+});
+
+test('ocultarRutas saca el nombre en disco de los adjuntos (ticket suelto, lista, descripción y notas) sin mutar', () => {
+  const { lista } = crear();
+  const a = agregarAdjuntos(lista, 1, {}, [ARCHIVO('a.png')], 'ana', T0).lista;
+  const b = actualizarTicket(a, 1, { nota: 'x', adjuntos: [ARCHIVO('b.png')] }, 'beto', USUARIOS, T0).lista;
+  const [pub] = ocultarRutas(b);
+  assert.ok(!('archivo' in pub.adjuntos[0]));
+  assert.ok(!('archivo' in pub.historial[2].adjuntos[0]));
+  assert.strictEqual(pub.adjuntos[0].nombre, 'a.png');
+  assert.ok('archivo' in b[0].adjuntos[0]);
+  assert.ok(!('archivo' in ocultarRutas(b[0]).adjuntos[0]));
+  assert.deepStrictEqual(ocultarRutas({ prioridades: [] }), { prioridades: [] });
+});
+
+test('validarArchivos saca de los nombres los caracteres de control y de formato (RTLO, ancho cero, separadores de línea)', () => {
+  const nombre = n => validarArchivos([{ originalname: n, size: 1 }])[0].nombre;
+  assert.strictEqual(nombre('factura‮gnp.png'), 'facturagnp.png'); // RTLO invierte lo que sigue: disfraza la extensión
+  assert.strictEqual(nombre('a​b﻿c d e.pdf'), 'abcde.pdf');
+  assert.strictEqual(nombre('tab\there.png'), 'tabhere.png');
+  falla(() => nombre('‮​'), 400, /nombre/);
+});
+
+test('verificarDestino: 404 si no existe el ticket o la nota de destino; devuelve el índice del ticket', () => {
+  const { lista } = crear();
+  const conNota = actualizarTicket(lista, 1, { nota: 'hola' }, 'beto', USUARIOS, T1).lista;
+  assert.strictEqual(verificarDestino(conNota, 1, {}), 0);
+  assert.strictEqual(verificarDestino(conNota, 1, { nota: 1 }), 0);
+  falla(() => verificarDestino(conNota, 99, {}), 404, /ticket/i);
+  falla(() => verificarDestino(conNota, 1, { nota: 0 }), 404, /nota/i); // 0 es el evento "creado"
+  falla(() => verificarDestino(conNota, 1, { nota: 9 }), 404, /nota/i);
+  falla(() => verificarDestino(conNota, 1, { nota: 1.5 }), 404, /nota/i);
 });

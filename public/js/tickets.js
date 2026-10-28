@@ -5,6 +5,7 @@
 // textContent o pasa por esc() antes de ir a innerHTML. Sin alert/confirm: los errores van a #aviso (role=alert).
 // La misma pantalla sirve a Mantenimiento de sucursales (/sucursales/mantenimiento): CFG sale de la URL y fija la
 // api, los textos y el prefijo de las claves de localStorage (así cada instancia guarda lo suyo).
+// Adjuntos (descripción y notas): la UI vive en public/js/tickets_adjuntos.js; acá se integra en el alta, el detalle y el historial.
 (() => {
   const $ = sel => document.querySelector(sel);
   const CONFIGS = {
@@ -92,8 +93,11 @@
     mas: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     bandera: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     campana: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+    clip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
+    archivo: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   };
   const ico = (nombre, clase = 'ico') => `<svg class="${clase}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre]}</svg>`;
+  const AdjUI = window.TicketsAdjuntos.crearUI({ ico, el }); // public/js/tickets_adjuntos.js
 
   const estado = {
     meta: META_RESPALDO, metaOk: false, tickets: [], cargado: false,
@@ -102,7 +106,8 @@
     orden: { col: null, dir: 1 }, // col null = orden default (prioridad desc, creadoEn asc)
     abierto: null, // id del ticket del panel de detalle
     // Edición sin guardar del detalle, sobrevive a los repintados:
-    // { id, dest: [..] | null, nota, etapaNueva, etapaEdit: { id, valor } | null, etapaBorrar: id | null, etapaOcupada }
+    // { id, dest: [..] | null, nota, etapaNueva, etapaEdit: { id, valor } | null, etapaBorrar: id | null, etapaOcupada,
+    //   archivosNota: File[] de la nota en curso, adjBorrar: id del adjunto con la confirmación a la vista, adjOcupado }
     borrador: null,
     focoDetalle: null, // id del control a enfocar en el próximo pintarDetalle (una sola vez)
     guardando: new Set(), // ids con un cambio de estado en vuelo
@@ -133,15 +138,18 @@
     return datos;
   }
   // Todo cambio propio pasa por acá: mientras hay uno en vuelo el sondeo no pisa la lista.
-  async function enviarJSON(metodo, url, cuerpo) {
+  async function enviar(url, opciones) {
     enVuelo += 1;
     try {
-      return await api(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+      return await api(url, opciones);
     } finally {
       enVuelo -= 1;
       versionLocal += 1;
     }
   }
+  const enviarJSON = (metodo, url, cuerpo) => enviar(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  // Multipart (archivos): sin Content-Type propio, el navegador agrega el boundary.
+  const enviarForm = (metodo, url, formData) => enviar(url, { method: metodo, body: formData });
 
   const ICONO_AVISO = { ok: 'check', info: 'historial', error: 'alerta' };
   function mostrarAviso(tono, texto, destino = '#aviso') {
@@ -415,6 +423,36 @@
     const areas = m.areas.filter(a => String(a).trim().toLowerCase() !== 'otra').map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
     $('#fArea').innerHTML = `<option value="">Elegí un área…</option>${areas}<option value="${OTRA}">Otra…</option>`;
     selectorNuevo = crearSelectorUsuarios($('#fDest'), { id: 'fDest', alCambiar: revalidar });
+    pintarArchivosNuevo();
+  }
+
+  // ── Adjuntos del alta (descripción) ─────────────────────────────────────────
+  // Se eligen antes de crear; al crear, el ticket se da de alta por JSON y después se suben (POST …/adjuntos).
+  let archivosNuevo = [];
+  function elegirArchivosNuevo(elegidos) {
+    const { validos, errores } = AdjUI.validar(elegidos, archivosNuevo);
+    archivosNuevo = [...archivosNuevo, ...validos];
+    pintarArchivosNuevo(errores);
+    $('#fAdjBtn').focus(); // el botón se reconstruyó: sin esto el foco cae al body
+  }
+  function pintarArchivosNuevo(errores = []) {
+    const partes = [AdjUI.botonAdjuntar({ id: 'fAdjBtn', texto: 'Adjuntar archivos', alElegir: elegirArchivosNuevo })];
+    if (archivosNuevo.length) {
+      partes.push(AdjUI.chipsArchivos(archivosNuevo, i => {
+        archivosNuevo = archivosNuevo.filter((_, j) => j !== i);
+        pintarArchivosNuevo();
+        $('#fAdjBtn').focus();
+      }, 'fAdj'));
+    }
+    if (errores.length) partes.push(AdjUI.listaErrores(errores));
+    $('#fAdj').replaceChildren(...partes);
+  }
+  // Sube archivos a la descripción (o a una nota si se pasa su índice del historial). Responde el ticket entero.
+  function subirAdjuntos(id, archivos, notaIdx = null) {
+    const fd = new FormData();
+    if (notaIdx != null) fd.append('nota', String(notaIdx));
+    archivos.forEach(f => fd.append('archivos', f, f.name));
+    return enviarForm('POST', `${CFG.api}/${encodeURIComponent(id)}/adjuntos`, fd);
   }
 
   function abrirNuevo() {
@@ -473,6 +511,8 @@
     $('#fTareaCont').textContent = '0';
     $('#fDescCont').textContent = '0';
     selectorNuevo.reiniciar([]);
+    archivosNuevo = [];
+    pintarArchivosNuevo();
     mostrarErrores([]);
   }
 
@@ -486,13 +526,20 @@
     btn.disabled = true;
     btn.textContent = 'Creando…';
     try {
-      const t = await enviarJSON('POST', CFG.api, datos);
+      let t = await enviarJSON('POST', CFG.api, datos);
+      let falloAdjuntos = '';
+      if (t && t.id != null && archivosNuevo.length) {
+        try { t = await subirAdjuntos(t.id, archivosNuevo); } catch (e) { falloAdjuntos = e.message; }
+      }
       if (t && t.id != null) estado.tickets = [...estado.tickets, t];
       limpiarFormulario();
       $('#dlgNuevo').close();
       armarFiltrosDinamicos();
       pintarSeguimiento();
       mostrarToast(`Ticket #${t && t.id != null ? t.id : ''} creado.`);
+      if (falloAdjuntos) {
+        mostrarAviso('error', `El ticket #${t.id} se creó, pero no se pudieron subir los adjuntos: ${falloAdjuntos.replace(/[.\s]+$/, '')}. Abrilo y adjuntalos de nuevo.`);
+      }
     } catch (e) {
       mostrarErrores([{ campo: null, msg: e.message }], 'No se pudo crear el ticket:');
     } finally {
@@ -840,7 +887,10 @@
     if (!buscarTicket(id)) return;
     focoPrevio = document.activeElement;
     estado.abierto = id;
-    estado.borrador = { id: String(id), dest: null, nota: '', etapaNueva: '', etapaEdit: null, etapaBorrar: null, etapaOcupada: false };
+    estado.borrador = {
+      id: String(id), dest: null, nota: '', etapaNueva: '', etapaEdit: null, etapaBorrar: null, etapaOcupada: false,
+      archivosNota: [], adjBorrar: null, adjOcupado: false,
+    };
     ocultarAviso('#dAviso');
     pintarDetalle();
     $('#dlgDetalle').showModal();
@@ -888,7 +938,80 @@
   function seccionDescripcion(t) {
     const caja = seccion('Descripción', 'texto');
     caja.append(el('div', `texto-libre leading-relaxed ${t.descripcion ? '' : 'text-gris italic'}`, t.descripcion || 'Sin descripción.'));
+    const adjuntos = bloqueAdjuntos(t, { adjuntos: adjuntosDe(t), notaIdx: null, puedeCambiar: puedeEditarTicket(t) });
+    if (adjuntos) caja.append(adjuntos);
     return caja;
+  }
+
+  // ── Adjuntos (detalle) ──────────────────────────────────────────────────────
+  // Descripción: los cambia el creador o quien gestiona. Nota: su autor o quien gestiona (el server también lo exige).
+  const adjuntosDe = t => (Array.isArray(t.adjuntos) ? t.adjuntos : []);
+  const adjuntosDeNota = h => (Array.isArray(h.adjuntos) ? h.adjuntos : []);
+  const puedeEditarNota = h => puedeGestionar() || mismoUsuario(h.usuario, estado.meta.login);
+  const urlAdjunto = (t, a) => `${CFG.api}/${encodeURIComponent(t.id)}/adjuntos/${encodeURIComponent(a.id)}`;
+
+  // Lista de adjuntos + botón "Adjuntar" de la descripción (notaIdx null) o de una nota (índice en t.historial). null si no hay nada que mostrar.
+  function bloqueAdjuntos(t, { adjuntos, notaIdx, puedeCambiar }) {
+    if (!adjuntos.length && !puedeCambiar) return null;
+    const idBase = notaIdx == null ? 'dAdj' : `dAdjN${notaIdx}`;
+    const ocupado = estado.borrador.adjOcupado;
+    const caja = el('div', 'adj-bloque');
+    if (adjuntos.length) {
+      caja.append(AdjUI.listaAdjuntos(adjuntos, {
+        idBase,
+        urlDe: a => urlAdjunto(t, a),
+        leyenda: a => `${nombreDe(a.subidoPor)} · ${fecha(a.subidoEn)}`,
+        quitable: puedeCambiar,
+        ocupado,
+        pendiente: estado.borrador.adjBorrar,
+        alPedirQuitar: a => pedirQuitarAdjunto(a.id, `${idBase}-no-${a.id}`),
+        alCancelar: a => pedirQuitarAdjunto(null, `${idBase}-del-${a.id}`),
+        alConfirmar: a => quitarAdjunto(t.id, a, `${idBase}-btn`),
+      }));
+    }
+    if (puedeCambiar) {
+      const fila = el('div', adjuntos.length ? 'mt-2' : '');
+      fila.append(AdjUI.botonAdjuntar({ id: `${idBase}-btn`, alElegir: f => adjuntarAhora(t.id, notaIdx, f), deshabilitado: ocupado }));
+      caja.append(fila);
+    }
+    return caja;
+  }
+
+  function pedirQuitarAdjunto(adjId, foco) {
+    estado.borrador.adjBorrar = adjId;
+    estado.focoDetalle = foco;
+    pintarDetalle();
+  }
+
+  const quitarAdjunto = (id, a, foco) => operarAdjuntos(id, () => enviarJSON('DELETE', `${CFG.api}/${encodeURIComponent(id)}/adjuntos/${encodeURIComponent(a.id)}`),
+    { ok: 'Archivo quitado.', error: 'No se pudo quitar el archivo', foco });
+
+  // Adjuntar a algo que ya existe (descripción o nota): se sube al elegir, sin paso de "guardar".
+  function adjuntarAhora(id, notaIdx, elegidos) {
+    const { validos, errores } = AdjUI.validar(elegidos);
+    if (errores.length) mostrarAviso('error', errores.join(' '), '#dAviso');
+    if (!validos.length) return Promise.resolve();
+    return operarAdjuntos(id, () => subirAdjuntos(id, validos, notaIdx), {
+      ok: validos.length === 1 ? 'Archivo adjuntado.' : 'Archivos adjuntados.', error: 'No se pudo adjuntar',
+      foco: `${notaIdx == null ? 'dAdj' : `dAdjN${notaIdx}`}-btn`, conservarAviso: errores.length > 0,
+    });
+  }
+
+  // Un cambio de adjuntos a la vez (los controles se deshabilitan mientras tanto). El server responde el ticket entero.
+  async function operarAdjuntos(id, accion, { ok, error, foco, conservarAviso = false }) {
+    estado.borrador.adjOcupado = true;
+    pintarDetalle();
+    try {
+      reemplazarTicket(id, await accion());
+      if (estado.borrador) estado.borrador.adjBorrar = null;
+      if (!conservarAviso) ocultarAviso('#dAviso');
+      mostrarToast(ok);
+    } catch (e) {
+      mostrarAviso('error', `${error}: ${e.message}`, '#dAviso');
+    } finally {
+      if (estado.borrador) { estado.borrador.adjOcupado = false; estado.focoDetalle = foco; }
+      pintarTodo();
+    }
   }
 
   // ── Etapas (detalle) ────────────────────────────────────────────────────────
@@ -1106,6 +1229,32 @@
     }
   }
 
+  // Archivos de la nota en curso (sobreviven a los repintados en estado.borrador.archivosNota): chips + botón "Adjuntar".
+  function controlesArchivosNota() {
+    const lista = el('div', 'nota-adj');
+    const pintar = (errores = []) => {
+      const b = estado.borrador;
+      lista.replaceChildren(
+        ...(b.archivosNota.length ? [AdjUI.chipsArchivos(b.archivosNota, i => {
+          b.archivosNota = b.archivosNota.filter((_, j) => j !== i);
+          pintar();
+          $('#dNotaAdj').focus();
+        }, 'dNotaAdj')] : []),
+        ...(errores.length ? [AdjUI.listaErrores(errores)] : []),
+      );
+    };
+    const boton = AdjUI.botonAdjuntar({
+      id: 'dNotaAdj',
+      alElegir: elegidos => {
+        const { validos, errores } = AdjUI.validar(elegidos, estado.borrador.archivosNota);
+        estado.borrador.archivosNota = [...estado.borrador.archivosNota, ...validos];
+        pintar(errores);
+      },
+    });
+    pintar();
+    return { lista, boton };
+  }
+
   function seccionNota(t) {
     const caja = seccion('Agregar nota', 'msg');
     const fila = el('div', 'nota-caja');
@@ -1118,6 +1267,7 @@
     txt.placeholder = 'Avance, pregunta, decisión…';
     txt.setAttribute('aria-label', 'Nota de seguimiento');
     txt.value = estado.borrador.nota;
+    const { lista: adjuntos, boton: botonAdjuntar } = controlesArchivosNota();
     const barra = el('div', 'barra');
     const cont = el('span', 'ayuda tabular-nums', `${txt.value.length}/${MAX_NOTA}`);
     const btn = el('button', 'btn btn-primario ml-auto', 'Agregar nota');
@@ -1131,21 +1281,44 @@
     // Ctrl+Enter agrega la nota sin ir al botón.
     txt.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) agregarNota(t.id, txt, btn); });
     btn.addEventListener('click', () => agregarNota(t.id, txt, btn));
-    barra.append(cont, el('span', 'ayuda', '· Ctrl+Enter para enviar'), btn);
-    cmp.append(txt, barra);
+    barra.append(cont, el('span', 'ayuda', '· Ctrl+Enter para enviar'), botonAdjuntar, btn);
+    cmp.append(txt, adjuntos, barra);
     fila.append(cmp);
     caja.append(fila);
     return caja;
   }
 
+  // Nota con archivos: PATCH multipart (nota + archivos[]); el server responde el ticket entero.
+  async function actualizarConArchivos(id, nota, archivos) {
+    const fd = new FormData();
+    fd.append('nota', nota);
+    archivos.forEach(f => fd.append('archivos', f, f.name));
+    const t = await enviarForm('PATCH', `${CFG.api}/${encodeURIComponent(id)}`, fd);
+    reemplazarTicket(id, t);
+    return t;
+  }
+
   async function agregarNota(id, txt, btn) {
+    if (btn.disabled) return; // Ctrl+Enter no pasa por el botón: con un envío en vuelo no se duplica la nota
     const nota = txt.value.trim();
-    if (!nota) { txt.setAttribute('aria-invalid', 'true'); mostrarAviso('error', 'Escribí la nota antes de agregarla.', '#dAviso'); txt.focus(); return; }
+    const archivos = estado.borrador.archivosNota;
+    if (!nota && !archivos.length) {
+      txt.setAttribute('aria-invalid', 'true');
+      mostrarAviso('error', 'Escribí la nota o adjuntá un archivo antes de agregarla.', '#dAviso');
+      txt.focus();
+      return;
+    }
+    const enviados = [...archivos];
     btn.disabled = true;
     btn.textContent = 'Agregando…';
     try {
-      await actualizar(id, { nota });
-      estado.borrador.nota = '';
+      if (enviados.length) await actualizarConArchivos(id, nota, enviados); else await actualizar(id, { nota });
+      // Mientras se enviaba el usuario pudo seguir escribiendo o sumar archivos: se descarta solo lo que ya se mandó.
+      const b = estado.borrador;
+      if (b && b.id === String(id)) { // si cerró el detalle y abrió otro ticket, ese borrador no se toca
+        if (b.nota.trim() === nota) b.nota = '';
+        b.archivosNota = b.archivosNota.filter(f => !enviados.includes(f));
+      }
       ocultarAviso('#dAviso');
       pintarTodo();
       mostrarToast('Nota agregada.');
@@ -1177,18 +1350,23 @@
     }
     if (h.tipo === 'prioridad') return [`${quien} cambió la prioridad: ${badgePrioridad(h.de)} <span class="text-gris">→</span> ${badgePrioridad(h.a)}`];
     if (h.tipo === 'nota') return [`${quien} agregó una nota`, h.nota || ''];
+    if (h.tipo === 'adjunto') {
+      const donde = h.nota === undefined ? 'de la descripción' : 'de una nota';
+      return [`${quien} ${h.accion === 'quitado' ? 'quitó' : 'agregó'} el archivo <b class="font-semibold">«${esc(h.nombre)}»</b> ${donde}`];
+    }
     if (h.tipo === 'destinatarios') return [`${quien} cambió los destinatarios: <span class="text-gris">${nombres(h.de)}</span> → ${nombres(h.a)}`];
     return [`${quien}: ${esc(h.tipo || 'cambio')}`];
   }
-  const ICONO_EVENTO = { creado: 'creado', estado: 'estado', nota: 'msg', destinatarios: 'usuarios', etapa: 'etapa', prioridad: 'bandera' };
+  const ICONO_EVENTO = { creado: 'creado', estado: 'estado', nota: 'msg', destinatarios: 'usuarios', etapa: 'etapa', prioridad: 'bandera', adjunto: 'clip' };
 
   function seccionHistorial(t) {
     const caja = seccion('Historial', 'historial');
     // reverse antes del sort (estable): con la misma fecha, lo último registrado (p. ej. el cambio automático) va arriba.
-    const eventos = [...(t.historial || [])].reverse().sort((a, b) => tiempo(b.fecha) - tiempo(a.fecha));
+    // Se conserva el índice original del evento: es el que usa el server para identificar la nota.
+    const eventos = (t.historial || []).map((h, i) => ({ h, i })).reverse().sort((a, b) => tiempo(b.h.fecha) - tiempo(a.h.fecha));
     if (!eventos.length) { caja.append(el('div', 'ayuda', 'Sin movimientos.')); return caja; }
     const ul = el('ul', 'hist');
-    ul.replaceChildren(...eventos.map(h => {
+    ul.replaceChildren(...eventos.map(({ h, i }) => {
       const [frase, nota] = describirEvento(h);
       const li = el('li');
       const tipo = ICONO_EVENTO[h.tipo] ? h.tipo : 'creado';
@@ -1197,7 +1375,11 @@
       const linea = el('div', 'leading-snug');
       linea.innerHTML = frase;
       cuerpo.append(linea, el('div', 'cuando', `${fecha(h.fecha)} · ${haceCuanto(h.fecha)}`));
-      if (nota != null) cuerpo.append(el('div', 'burbuja texto-libre', nota));
+      if (nota) cuerpo.append(el('div', 'burbuja texto-libre', nota));
+      if (h.tipo === 'nota') {
+        const adj = bloqueAdjuntos(t, { adjuntos: adjuntosDeNota(h), notaIdx: i, puedeCambiar: puedeEditarNota(h) });
+        if (adj) cuerpo.append(adj);
+      }
       li.append(cuerpo);
       return li;
     }));
@@ -1301,6 +1483,7 @@
     } else if (h.tipo === 'estado') texto = `${n} cambió a ${etiqueta('estados', h.a)} · ${quien}`;
     else if (h.tipo === 'prioridad') texto = `${n} prioridad: ${etiqueta('prioridades', h.de)} → ${etiqueta('prioridades', h.a)} · ${quien}`;
     else if (h.tipo === 'nota') texto = `${n} nueva nota · ${quien}`;
+    else if (h.tipo === 'adjunto') texto = `${n} ${h.accion === 'quitado' ? 'se quitó un archivo' : 'nuevo archivo adjunto'} · ${quien}`;
     else if (h.tipo === 'destinatarios') texto = `${n} destinatarios actualizados · ${quien}`;
     else if (h.tipo === 'etapa') texto = `${n} ${textoEtapa(h)} · ${quien}`;
     const mio = asignado || meInvolucra(t);

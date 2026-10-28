@@ -260,8 +260,8 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 .nota-caja textarea{display:block;width:100%;border:0;resize:vertical;padding:10px 12px;font-size:14px;border-radius:10px;min-height:64px;outline:none;background:none}
 .nota-caja .barra{display:flex;align-items:center;gap:8px;padding:6px 8px 8px 12px}
 .hist{position:relative;list-style:none;margin:0;padding:0}
-.hist li{position:relative;display:flex;gap:12px;padding-bottom:16px}
-.hist li:not(:last-child)::before{content:'';position:absolute;left:13px;top:28px;bottom:2px;width:2px;background:#e6e9e1;border-radius:2px}
+.hist>li{position:relative;display:flex;gap:12px;padding-bottom:16px} /* hijo directo: las listas de adjuntos de una nota también son <li> dentro de .hist */
+.hist>li:not(:last-child)::before{content:'';position:absolute;left:13px;top:28px;bottom:2px;width:2px;background:#e6e9e1;border-radius:2px}
 .hist .hi{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;flex:none;background:var(--h-bg);color:var(--h-fg)}
 .hist .hi .ico{width:14px;height:14px}
 .h-creado{--h-bg:#eef2e9;--h-fg:#405936}
@@ -273,6 +273,23 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 .h-auto{box-shadow:0 0 0 2px #fff,0 0 0 3.5px #c9b3e3}
 .hist .cuando{font-size:12px;color:#8a8d80;margin-top:1px}
 .burbuja{margin-top:6px;padding:9px 12px;border-radius:4px 12px 12px 12px;background:#f7f8f4;border:1px solid var(--borde-s);font-size:14px}
+.h-adjunto{--h-bg:#e6f0ff;--h-fg:#0958d9}
+.adj-bloque{margin-top:8px}
+.adj-boton{display:inline-flex}
+.adj-chips,.adj-lista{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.adj-chip,.adj-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--borde-s);border-radius:8px;background:#fff;min-width:0}
+.adj-chip .ico,.adj-icono .ico{width:16px;height:16px;flex:none;color:var(--gris)}
+.adj-chip .adj-nombre{flex:1}
+.adj-enlace{display:flex;align-items:center;gap:10px;min-width:0;flex:1;color:inherit;text-decoration:none}
+.adj-enlace:hover .adj-nombre{text-decoration:underline}
+.adj-thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--borde-s);flex:none;background:#f7f8f4}
+.adj-icono{display:grid;place-items:center;width:44px;height:44px;border-radius:6px;background:#f7f8f4;flex:none}
+.adj-texto{display:flex;flex-direction:column;min-width:0}
+.adj-nombre{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adj-peso{font-size:12px;color:var(--gris);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adj-confirm{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.adj-errores{margin:6px 0 0;padding:0;list-style:none;font-size:12px;color:var(--crit)}
+.nota-adj{padding:0 12px}
 .solo-movil{display:none} /* lo muestra el bloque mobile de abajo */
 
 /* ── Teléfono (≤767px) ─────────────────────────────────────────────────────
@@ -553,6 +570,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
         <label class="lbl" for="fDesc">Descripción</label>
         <textarea id="fDesc" class="ctl w-full" rows="5" maxlength="5000" placeholder="Contexto, pasos, qué se espera ver al terminar…"></textarea>
         <div class="ayuda mt-1 text-right"><span id="fDescCont">0</span>/5000</div>
+        <div id="fAdj" class="adj-bloque"></div>
       </div>
       <div class="col-span-2">
         <span class="lbl" id="lblDest">Destinatarios <span class="text-crit">*</span></span>
@@ -587,6 +605,7 @@ dialog::backdrop{background:rgba(26,28,24,.38);backdrop-filter:blur(2px)}
 
 <div id="toasts" role="status" aria-live="polite"></div>
 
+<script src="/js/tickets_adjuntos.js"></script>
 <script src="/js/tickets.js"></script>
 </body>
 </html>

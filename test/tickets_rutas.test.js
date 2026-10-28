@@ -370,3 +370,481 @@ test('PERMISOS_EXTRA trae mantenimiento-gestion colgado de sucursales', () => {
   const p = require('../lib/auth').PERMISOS_EXTRA.find(x => x.ref === 'mantenimiento-gestion');
   assert.deepStrictEqual(p, { ref: 'mantenimiento-gestion', titulo: 'Mantenimiento · Gestión', modulo: 'sucursales' });
 });
+
+// ── Adjuntos ────────────────────────────────────────────────────────────────
+// multipart real: FormData/Blob globales de Node. `archivos` = [{ nombre, datos }]; `campos` = campos de texto.
+async function subir(base, metodo, url, archivos, campos = {}) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(campos)) fd.append(k, v);
+  for (const a of archivos) fd.append('archivos', new Blob([a.datos || 'x']), a.nombre);
+  const r = await fetch(base + url, { method: metodo, body: fd });
+  return { status: r.status, data: await r.json() };
+}
+const PNG = { nombre: 'captura.png', datos: Buffer.from([0x89, 0x50, 0x4e, 0x47]) };
+const archivosEn = (ctx, carpeta = 'tickets_adjuntos') => {
+  const d = path.join(ctx.dir, carpeta);
+  return fs.existsSync(d) ? fs.readdirSync(d) : [];
+};
+
+test('adjuntos de la descripción: subir, listar sin ruta interna, descargar y quitar', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    const subido = await subir(base, 'POST', '/1/adjuntos', [PNG, { nombre: 'señal Ñandú.pdf', datos: '%PDF-1' }]);
+    assert.strictEqual(subido.status, 201);
+    assert.deepStrictEqual(subido.data.adjuntos.map(a => [a.id, a.nombre, a.mime, a.subidoPor]), [
+      [1, 'captura.png', 'image/png', 'adriel'],
+      [2, 'señal Ñandú.pdf', 'application/pdf', 'adriel'],
+    ]);
+    assert.ok(subido.data.adjuntos.every(a => !('archivo' in a)));
+    assert.strictEqual(subido.data.historial.at(-1).tipo, 'adjunto');
+    assert.strictEqual(archivosEn(ctx).length, 2);
+    assert.ok((await pedir(base, 'GET', '')).data[0].adjuntos.every(a => !('archivo' in a)));
+
+    const png = await fetch(`${base}/1/adjuntos/1`);
+    assert.strictEqual(png.status, 200);
+    assert.strictEqual(png.headers.get('content-type'), 'image/png');
+    assert.strictEqual(png.headers.get('content-disposition'), 'inline; filename="captura.png"'); // inline, pero con nombre
+    assert.strictEqual(png.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepStrictEqual([...new Uint8Array(await png.arrayBuffer())], [0x89, 0x50, 0x4e, 0x47]);
+    const pdf = await fetch(`${base}/1/adjuntos/2`);
+    assert.match(pdf.headers.get('content-disposition'), /^attachment;/);
+    // Express: un nombre solo-Latin-1 va en `filename` (header en latin1); `filename*` aparece recién con caracteres fuera de Latin-1.
+    assert.strictEqual(pdf.headers.get('content-disposition'), 'attachment; filename="señal Ñandú.pdf"');
+    await pdf.arrayBuffer();
+
+    const quitado = await pedir(base, 'DELETE', '/1/adjuntos/1');
+    assert.strictEqual(quitado.status, 200);
+    assert.deepStrictEqual(quitado.data.adjuntos.map(a => a.id), [2]);
+    assert.strictEqual(archivosEn(ctx).length, 1);
+    assert.strictEqual((await fetch(`${base}/1/adjuntos/1`)).status, 404);
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/1')).status, 404);
+  } finally { cerrar(ctx); }
+});
+
+test('adjuntos: rechaza extensión no permitida, más de 5, más de 10 MB y pedidos sin archivos', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    const exe = await subir(base, 'POST', '/1/adjuntos', [{ nombre: 'virus.exe', datos: 'MZ' }]);
+    assert.strictEqual(exe.status, 400);
+    assert.match(exe.data.error, /virus\.exe/);
+    const seis = await subir(base, 'POST', '/1/adjuntos', Array.from({ length: 6 }, (_, i) => ({ nombre: `a${i}.png`, datos: 'x' })));
+    assert.strictEqual(seis.status, 400);
+    assert.match(seis.data.error, /5 archivos/);
+    const pesado = await subir(base, 'POST', '/1/adjuntos', [{ nombre: 'grande.pdf', datos: Buffer.alloc(10 * 1024 * 1024 + 1) }]);
+    assert.strictEqual(pesado.status, 400);
+    assert.match(pesado.data.error, /10 MB/);
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [])).status, 400);
+    assert.strictEqual((await pedir(base, 'POST', '/1/adjuntos', {})).status, 400); // JSON sin archivos
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: 'abc' })).status, 400);
+    assert.strictEqual((await subir(base, 'POST', '/99/adjuntos', [PNG])).status, 404);
+    assert.strictEqual(archivosEn(ctx).length, 0); // nada quedó en disco
+  } finally { cerrar(ctx); }
+});
+
+test('PATCH multipart: nota con archivo (con o sin texto), rollback si la nota es inválida e ignora adjuntos falsos del JSON', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    const conTexto = await subir(base, 'PATCH', '/1', [PNG], { nota: 'adjunto la captura' });
+    assert.strictEqual(conTexto.status, 200);
+    const evento = conTexto.data.historial.at(-1);
+    assert.strictEqual(evento.nota, 'adjunto la captura');
+    assert.deepStrictEqual(evento.adjuntos.map(a => [a.id, a.nombre]), [[1, 'captura.png']]);
+    assert.ok(!('archivo' in evento.adjuntos[0]));
+
+    const soloArchivo = await subir(base, 'PATCH', '/1', [PNG], {});
+    assert.strictEqual(soloArchivo.status, 200);
+    assert.strictEqual(soloArchivo.data.historial.at(-1).nota, '');
+    assert.strictEqual(archivosEn(ctx).length, 2);
+
+    const largo = await subir(base, 'PATCH', '/1', [PNG], { nota: 'x'.repeat(2001) });
+    assert.strictEqual(largo.status, 400);
+    assert.strictEqual(archivosEn(ctx).length, 2); // el archivo de la nota rechazada no queda en disco
+
+    const sinArchivos = await pedir(base, 'PATCH', '/1', { nota: 'sin archivos' });
+    assert.strictEqual(sinArchivos.status, 200);
+    assert.strictEqual(sinArchivos.data.historial.at(-1).adjuntos, undefined);
+
+    const falso = await pedir(base, 'PATCH', '/1', { nota: 'x', adjuntos: [{ nombre: 'a.png', archivo: '../../etc/passwd' }] });
+    assert.strictEqual(falso.status, 200);
+    assert.strictEqual(falso.data.historial.at(-1).adjuntos, undefined); // el cliente no puede inyectar metadatos
+  } finally { cerrar(ctx); }
+});
+
+test('adjuntos: descripción para creador o gestión; nota para su autor o gestión; descargar, cualquiera', async () => {
+  const ctx = await montar();
+  const { base, sesion } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO); // creador: adriel
+    sesion.user = { usuario: 'beto' };
+    sesion.permiso = false;
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG])).status, 403);
+    const nota = await subir(base, 'PATCH', '/1', [PNG], { nota: 'mirá' }); // notas: cualquiera con el módulo
+    assert.strictEqual(nota.status, 200);
+    const idxNota = nota.data.historial.findIndex(h => h.tipo === 'nota');
+    assert.strictEqual(idxNota, 1);
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: String(idxNota) })).status, 201); // su autor
+
+    sesion.user = { usuario: 'caro' };
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: String(idxNota) })).status, 403);
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/1')).status, 403);
+    const descarga = await fetch(`${base}/1/adjuntos/1`);
+    assert.strictEqual(descarga.status, 200);
+    await descarga.arrayBuffer();
+
+    sesion.permiso = true; // gestión
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/1')).status, 200);
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG])).status, 201);
+  } finally { cerrar(ctx); }
+});
+
+test('la instancia de Mantenimiento guarda sus adjuntos en mantenimiento_adjuntos', async () => {
+  const ctx = await montar({ config: {
+    api: '/api/sucursales/mantenimiento', pagina: '/sucursales/mantenimiento', archivo: 'mantenimiento.json',
+    permiso: 'mantenimiento-gestion', etiqueta: 'mantenimiento',
+  } });
+  try {
+    await pedir(ctx.base, 'POST', '', NUEVO);
+    assert.strictEqual((await subir(ctx.base, 'POST', '/1/adjuntos', [PNG])).status, 201);
+    assert.strictEqual(archivosEn(ctx, 'mantenimiento_adjuntos').length, 1);
+    assert.strictEqual(archivosEn(ctx).length, 0);
+  } finally { cerrar(ctx); }
+});
+
+test('sirve el JS de adjuntos del front', async () => {
+  const ctx = await montar();
+  try {
+    const r = await fetch(`${ctx.base.replace('/api/tickets', '')}/js/tickets_adjuntos.js`);
+    assert.strictEqual(r.status, 200);
+    await r.text();
+  } finally { cerrar(ctx); }
+});
+
+test('adjuntos: si guardarJSON falla, los archivos recién escritos se borran del disco (POST y PATCH multipart)', async () => {
+  let discoLleno = false;
+  const guardarJSON = (p, d) => {
+    if (discoLleno) throw new Error('disco lleno');
+    fs.writeFileSync(p, JSON.stringify(d, null, 2));
+  };
+  const ctx = await montar({ config: { guardarJSON } });
+  const { base } = ctx;
+  const consolaError = console.error;
+  console.error = () => {}; // el router loguea el 500; acá es lo esperado
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    discoLleno = true;
+    const post = await subir(base, 'POST', '/1/adjuntos', [PNG, { nombre: 'b.pdf', datos: '%PDF-1' }]);
+    assert.strictEqual(post.status, 500);
+    assert.strictEqual(archivosEn(ctx).length, 0);
+    const patch = await subir(base, 'PATCH', '/1', [PNG], { nota: 'con archivo' });
+    assert.strictEqual(patch.status, 500);
+    assert.strictEqual(archivosEn(ctx).length, 0);
+
+    discoLleno = false; // el ticket quedó como estaba: sin adjuntos ni eventos nuevos
+    const [ticket] = (await pedir(base, 'GET', '')).data;
+    assert.deepStrictEqual(ticket.adjuntos, []);
+    assert.strictEqual(ticket.historial.length, 1);
+  } finally { console.error = consolaError; cerrar(ctx); }
+});
+
+test('GET de un adjunto cuyo archivo ya no está en disco → 404 con mensaje claro', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    await subir(base, 'POST', '/1/adjuntos', [PNG, { nombre: 'a.pdf', datos: '%PDF-1' }]);
+    for (const f of archivosEn(ctx)) fs.rmSync(path.join(ctx.dir, 'tickets_adjuntos', f)); // alguien limpió la carpeta a mano
+    for (const adjId of [1, 2]) { // imagen (inline) y no imagen (attachment)
+      const r = await fetch(`${base}/1/adjuntos/${adjId}`);
+      assert.strictEqual(r.status, 404);
+      assert.deepStrictEqual(await r.json(), { error: 'El archivo ya no está en el servidor.' });
+    }
+    // El metadato sigue: quitarlo con el archivo ya perdido anda igual (force: true en el borrado).
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/1')).status, 200);
+  } finally { cerrar(ctx); }
+});
+
+test('adjuntos con nombre fuera de Latin-1 (emoji, raya larga): suben bien y la descarga trae filename*=UTF-8', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    const subido = await subir(base, 'POST', '/1/adjuntos', [
+      { nombre: 'emoji 😀.png', datos: Buffer.from([0x89, 0x50]) },
+      { nombre: 'título —.pdf', datos: '%PDF-1' },
+      { nombre: 'emoji 😀.txt', datos: 'hola' },
+    ]);
+    assert.strictEqual(subido.status, 201);
+    assert.deepStrictEqual(subido.data.adjuntos.map(a => a.nombre), ['emoji 😀.png', 'título —.pdf', 'emoji 😀.txt']);
+    assert.strictEqual(archivosEn(ctx).length, 3);
+
+    const pdf = await fetch(`${base}/1/adjuntos/2`);
+    assert.strictEqual(pdf.status, 200);
+    assert.match(pdf.headers.get('content-disposition'), /^attachment; /);
+    assert.match(pdf.headers.get('content-disposition'), /filename\*=UTF-8''t%C3%ADtulo%20%E2%80%94\.pdf$/);
+    await pdf.arrayBuffer();
+    const txt = await fetch(`${base}/1/adjuntos/3`);
+    assert.match(txt.headers.get('content-disposition'), /filename\*=UTF-8''emoji%20%F0%9F%98%80\.txt$/);
+    assert.strictEqual(await txt.text(), 'hola');
+    const png = await fetch(`${base}/1/adjuntos/1`); // las imágenes van inline, con el nombre igual (guardar como)
+    assert.strictEqual(png.status, 200);
+    assert.match(png.headers.get('content-disposition'), /^inline; .*filename\*=UTF-8''emoji%20%F0%9F%98%80\.png$/);
+    await png.arrayBuffer();
+  } finally { cerrar(ctx); }
+});
+
+test('PATCH multipart con estado o prioridad: sin gestión y sin ser el creador → 403 y nada queda en disco', async () => {
+  const ctx = await montar();
+  const { base, sesion } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO); // creador: adriel
+    sesion.user = { usuario: 'beto' };
+    sesion.permiso = false;
+    const estado = await subir(base, 'PATCH', '/1', [PNG], { estado: 'en_proceso', nota: 'x' });
+    assert.strictEqual(estado.status, 403);
+    const prioridad = await subir(base, 'PATCH', '/1', [PNG], { prioridad: 'alta' });
+    assert.strictEqual(prioridad.status, 403);
+    assert.strictEqual(archivosEn(ctx).length, 0);
+    const [intacto] = (await pedir(base, 'GET', '')).data;
+    assert.deepStrictEqual([intacto.estado, intacto.prioridad, intacto.historial.length], ['pendiente', 'media', 1]);
+
+    // El creador sin gestión sí cambia la prioridad (con archivo), pero no el estado.
+    sesion.user = { usuario: 'adriel' };
+    assert.strictEqual((await subir(base, 'PATCH', '/1', [PNG], { estado: 'en_proceso' })).status, 403);
+    assert.strictEqual(archivosEn(ctx).length, 0);
+    const propia = await subir(base, 'PATCH', '/1', [PNG], { prioridad: 'alta' });
+    assert.strictEqual(propia.status, 200);
+    assert.strictEqual(propia.data.prioridad, 'alta');
+    assert.strictEqual(archivosEn(ctx).length, 1);
+  } finally { cerrar(ctx); }
+});
+
+test('adjuntos: el creador sin gestión quita los de la descripción; los de una nota ajena no', async () => {
+  const ctx = await montar({ permiso: false });
+  const { base, sesion } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO); // creador: adriel, sin permiso de gestión
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG])).status, 201);
+    assert.strictEqual(archivosEn(ctx).length, 1);
+
+    sesion.user = { usuario: 'beto' }; // ni creador ni gestión
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/1')).status, 403);
+    assert.strictEqual(archivosEn(ctx).length, 1);
+    const nota = await subir(base, 'PATCH', '/1', [PNG], { nota: 'de beto' }); // adjunto 2, en la nota del índice 2
+    assert.strictEqual(nota.status, 200);
+
+    sesion.user = { usuario: 'adriel' };
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/2')).status, 403); // ser creador no da derechos sobre la nota de otro
+    const quitado = await pedir(base, 'DELETE', '/1/adjuntos/1');
+    assert.strictEqual(quitado.status, 200);
+    assert.deepStrictEqual(quitado.data.adjuntos, []);
+    assert.strictEqual(quitado.data.historial.at(-1).accion, 'quitado');
+    assert.strictEqual(archivosEn(ctx).length, 1); // solo queda el de la nota de beto
+  } finally { cerrar(ctx); }
+});
+
+// ── Endurecimiento de la subida ─────────────────────────────────────────────
+const sinCarpeta = ctx => !fs.existsSync(path.join(ctx.dir, 'tickets_adjuntos'));
+
+test('multipart con campos de más (3 campos, nombre largo, valor de 20 KB) → 400 y nada en disco; la subida legítima sigue andando', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    const tres = await subir(base, 'POST', '/1/adjuntos', [PNG], { a: '1', b: '2', c: '3' });
+    assert.strictEqual(tres.status, 400);
+    assert.match(tres.data.error, /pedido no es válido/);
+    for (const campo of ['a[4294967294]', 'a[1234567]']) { // el patrón del advisory de multer y uno de 10 caracteres (tope: 9)
+      const nombreLargo = await subir(base, 'POST', '/1/adjuntos', [PNG], { [campo]: 'x' });
+      assert.strictEqual(nombreLargo.status, 400, campo);
+      assert.match(nombreLargo.data.error, /pedido no es válido/);
+    }
+    const grande = await subir(base, 'PATCH', '/1', [PNG], { nota: 'x'.repeat(20 * 1024) });
+    assert.strictEqual(grande.status, 400);
+    assert.match(grande.data.error, /pedido no es válido/);
+    assert.ok(sinCarpeta(ctx), 'ningún pedido rechazado escribió en disco');
+
+    const conNota = await subir(base, 'PATCH', '/1', [PNG], { nota: 'va con archivo' }); // nota + archivo
+    assert.strictEqual(conNota.status, 200);
+    const idx = conNota.data.historial.findIndex(h => h.tipo === 'nota');
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: String(idx) })).status, 201); // índice de nota + archivo
+    assert.strictEqual(archivosEn(ctx).length, 2);
+  } finally { cerrar(ctx); }
+});
+
+test('los 500 devuelven un mensaje genérico, sin rutas ni nombres del servidor (POST, PATCH y descarga)', async () => {
+  const roto = { guardar: false, leer: false };
+  const leerJSON = (p, def) => {
+    if (roto.leer) throw new Error(`EPERM: operation not permitted, open '${p}'`);
+    return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : def;
+  };
+  const guardarJSON = (p, d) => {
+    if (roto.guardar) throw new Error(`ENOSPC: no space left on device, write '${p}'`);
+    fs.writeFileSync(p, JSON.stringify(d, null, 2));
+  };
+  const ctx = await montar({ config: { leerJSON, guardarJSON } });
+  const { base } = ctx;
+  const consolaError = console.error;
+  console.error = () => {}; // el router loguea el detalle; acá es lo esperado
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    await subir(base, 'POST', '/1/adjuntos', [PNG]);
+    const GENERICO = { error: 'Error interno del servidor.' };
+
+    roto.guardar = true;
+    const post = await subir(base, 'POST', '/1/adjuntos', [PNG]);
+    assert.strictEqual(post.status, 500);
+    assert.deepStrictEqual(post.data, GENERICO);
+    const patch = await pedir(base, 'PATCH', '/1', { nota: 'x' });
+    assert.strictEqual(patch.status, 500);
+    assert.deepStrictEqual(patch.data, GENERICO);
+    roto.guardar = false;
+
+    roto.leer = true;
+    const descarga = await pedir(base, 'GET', '/1/adjuntos/1');
+    assert.strictEqual(descarga.status, 500);
+    assert.deepStrictEqual(descarga.data, GENERICO);
+    assert.ok(![post, patch, descarga].some(r => JSON.stringify(r.data).includes(ctx.dir)));
+  } finally { console.error = consolaError; cerrar(ctx); }
+});
+
+test('descarga: Cache-Control privado, CSP que bloquea todo, imagen inline con nombre y 404 de archivo faltante como JSON', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    await subir(base, 'POST', '/1/adjuntos', [PNG, { nombre: 'a.pdf', datos: '%PDF-1' }]);
+    const png = await fetch(`${base}/1/adjuntos/1`);
+    const pdf = await fetch(`${base}/1/adjuntos/2`);
+    for (const r of [png, pdf]) {
+      assert.strictEqual(r.status, 200);
+      assert.strictEqual(r.headers.get('cache-control'), 'private, no-cache');
+      assert.strictEqual(r.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+      assert.strictEqual(r.headers.get('x-content-type-options'), 'nosniff');
+      await r.arrayBuffer();
+    }
+    assert.match(png.headers.get('content-disposition'), /^inline; filename="captura\.png"$/);
+    assert.match(pdf.headers.get('content-disposition'), /^attachment; filename="a\.pdf"$/);
+
+    for (const f of archivosEn(ctx)) fs.rmSync(path.join(ctx.dir, 'tickets_adjuntos', f));
+    for (const adjId of [1, 2]) {
+      const r = await fetch(`${base}/1/adjuntos/${adjId}`);
+      assert.strictEqual(r.status, 404);
+      assert.match(r.headers.get('content-type'), /^application\/json/);
+      assert.strictEqual(r.headers.get('content-disposition'), null);
+      assert.deepStrictEqual(await r.json(), { error: 'El archivo ya no está en el servidor.' });
+    }
+  } finally { cerrar(ctx); }
+});
+
+test('404 temprano: ticket o nota inexistente no escribe nada en disco (ni crea la carpeta)', async () => {
+  const ctx = await montar();
+  const { base, sesion } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    assert.strictEqual((await subir(base, 'POST', '/99/adjuntos', [PNG])).status, 404);
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: '9' })).status, 404); // fuera de rango
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: '0' })).status, 404); // el evento 0 es "creado", no una nota
+    assert.strictEqual((await subir(base, 'PATCH', '/99', [PNG], { nota: 'x' })).status, 404);
+    sesion.user = { usuario: 'beto' };
+    sesion.permiso = false;
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG], { nota: '9' })).status, 404); // sin permisos tampoco cambia
+    assert.ok(sinCarpeta(ctx));
+  } finally { cerrar(ctx); }
+});
+
+test('multipart con Sec-Fetch-Site de otro origen → 403 sin escribir; same-origin y sin el header pasan', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  const enviar = async (metodo, url, sitio, campos = {}) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.append(k, v);
+    fd.append('archivos', new Blob(['x']), 'a.png');
+    const r = await fetch(base + url, { method: metodo, body: fd, headers: sitio ? { 'Sec-Fetch-Site': sitio } : {} });
+    return { status: r.status, data: await r.json() };
+  };
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    for (const sitio of ['cross-site', 'same-site', 'none']) {
+      const post = await enviar('POST', '/1/adjuntos', sitio);
+      assert.strictEqual(post.status, 403, `POST con ${sitio}`);
+      assert.deepStrictEqual(post.data, { error: 'Pedido de otro origen rechazado.' });
+      assert.strictEqual((await enviar('PATCH', '/1', sitio, { nota: 'x' })).status, 403, `PATCH con ${sitio}`);
+    }
+    assert.ok(sinCarpeta(ctx));
+    assert.strictEqual((await enviar('POST', '/1/adjuntos', 'same-origin')).status, 201);
+    assert.strictEqual((await enviar('PATCH', '/1', 'same-origin', { nota: 'x' })).status, 200);
+    assert.strictEqual((await enviar('POST', '/1/adjuntos', null)).status, 201);
+    assert.strictEqual(archivosEn(ctx).length, 3);
+  } finally { cerrar(ctx); }
+});
+
+test('PATCH multipart sin archivos (solo la nota) con Sec-Fetch-Site de otro origen → 403; el mismo pedido same-origin anda', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  const patch = async sitio => {
+    const fd = new FormData();
+    fd.append('nota', 'sin archivos');
+    const r = await fetch(`${base}/1`, { method: 'PATCH', body: fd, headers: { 'Sec-Fetch-Site': sitio } });
+    return { status: r.status, data: await r.json() };
+  };
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    for (const sitio of ['cross-site', 'same-site']) {
+      const r = await patch(sitio);
+      assert.strictEqual(r.status, 403, sitio);
+      assert.deepStrictEqual(r.data, { error: 'Pedido de otro origen rechazado.' });
+    }
+    assert.strictEqual((await pedir(base, 'GET', '')).data[0].historial.length, 1); // la nota rechazada no se guardó
+    const ok = await patch('same-origin');
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(ok.data.historial.at(-1).nota, 'sin archivos');
+    assert.strictEqual(ok.data.historial.at(-1).adjuntos, undefined);
+  } finally { cerrar(ctx); }
+});
+
+test('DELETE de adjuntos: ticket o adjunto inexistente → 404 (también sin permisos), id inválido → 400, nada cambia', async () => {
+  const ctx = await montar({ permiso: false });
+  const { base, sesion } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO); // creador: adriel
+    assert.strictEqual((await subir(base, 'POST', '/1/adjuntos', [PNG])).status, 201);
+    assert.strictEqual((await pedir(base, 'DELETE', '/99/adjuntos/1')).status, 404);
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/99')).status, 404);
+    for (const url of ['/1/adjuntos/abc', '/1/adjuntos/0', '/x/adjuntos/1']) {
+      assert.strictEqual((await pedir(base, 'DELETE', url)).status, 400, url);
+    }
+    sesion.user = { usuario: 'beto' }; // ni creador ni gestión: lo inexistente es 404, no 403
+    assert.strictEqual((await pedir(base, 'DELETE', '/99/adjuntos/1')).status, 404);
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/99')).status, 404);
+    assert.strictEqual((await pedir(base, 'DELETE', '/1/adjuntos/1')).status, 403);
+    const [ticket] = (await pedir(base, 'GET', '')).data;
+    assert.deepStrictEqual([ticket.adjuntos.length, ticket.historial.length, archivosEn(ctx).length], [1, 2, 1]);
+  } finally { cerrar(ctx); }
+});
+
+test('los multipart que arma el front en su tope (5 archivos, nota vacía, nota de 2000 caracteres de 3 bytes, índice de nota) no chocan con los límites de multer', async () => {
+  const ctx = await montar();
+  const { base } = ctx;
+  try {
+    await pedir(base, 'POST', '', NUEVO);
+    const cinco = prefijo => Array.from({ length: 5 }, (_, i) => ({ nombre: `${prefijo}${i}.png`, datos: 'x' }));
+    const alta = await subir(base, 'POST', '/1/adjuntos', cinco('alta')); // alta: solo `archivos` x5
+    assert.strictEqual(alta.status, 201);
+    const soloArchivos = await subir(base, 'PATCH', '/1', cinco('nota'), { nota: '' }); // nota solo con archivos: `nota` vacía + x5
+    assert.strictEqual(soloArchivos.status, 200);
+    assert.strictEqual(soloArchivos.data.historial.at(-1).adjuntos.length, 5);
+    const larga = await subir(base, 'PATCH', '/1', [PNG], { nota: '€'.repeat(2000) }); // 6000 bytes en UTF-8
+    assert.strictEqual(larga.status, 200);
+    assert.strictEqual(larga.data.historial.at(-1).nota.length, 2000);
+    const idx = soloArchivos.data.historial.findIndex(h => h.tipo === 'nota');
+    const aNota = await subir(base, 'POST', '/1/adjuntos', cinco('extra'), { nota: String(idx) }); // adjuntar a una nota: `nota` (índice) + x5
+    assert.strictEqual(aNota.status, 201);
+    assert.strictEqual(archivosEn(ctx).length, 16);
+  } finally { cerrar(ctx); }
+});
