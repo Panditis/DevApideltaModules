@@ -2254,11 +2254,13 @@ function guardarCarritoRes(){
 
 function vaciarCarritoRes(){
   if(!carritoRes.length){ snack('El carrito ya está vacío'); return; }
-  if(!confirm('¿Vaciar el carrito de reserva entero?')) return;
-  carritoRes = [];
-  guardarCarritoRes();
-  renderCarritoRes();
-  marcarAgregadosResumen();
+  confirmarModal('Vaciar el carrito', '¿Vaciar el carrito de reserva entero?', 'Vaciar carrito', true).then(function(ok){
+    if(!ok) return;
+    carritoRes = [];
+    guardarCarritoRes();
+    renderCarritoRes();
+    marcarAgregadosResumen();
+  });
 }
 
 function switchSubRes(sub){
@@ -2705,19 +2707,22 @@ document.addEventListener('click', function(ev){
   var tipo = b.getAttribute('data-tipo');
   var cant = Number(b.getAttribute('data-cant'));
   var t = AJUSTE_TXT[tipo] || { verbo:'Ajustar', detalle:'' };
-  if(!confirm(t.verbo+' '+numFmt.format(cant)+' de "'+b.getAttribute('data-nombre')+'" '+t.detalle+'.\n\n'
-             +'Emite un movimiento en SiGA. ¿Confirmás?')) return;
-  b.disabled = true;
-  api('/api/mayoristas/reservas/ajuste', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    // El ajuste emite el movimiento en la MISMA sucursal y depósitos que la tabla que lo
-    // propuso: con el fallback de config movía stock en una sucursal que no es la reservada.
-    body: JSON.stringify(Object.assign(
-      { plu: b.getAttribute('data-plu'), tipo: tipo, cantidad: cant }, contextoReserva()))
-  }).then(function(d){
-    if(!d || d.error){ snack('Error: '+((d&&d.error)||'sin respuesta'), true); b.disabled = false; return; }
-    snack('Ajuste emitido · movimiento #'+d.numeroMovimiento);
-    cargarSaldosReserva();
+  confirmarModal('Emitir ajuste',
+                 t.verbo+' '+numFmt.format(cant)+' de "'+b.getAttribute('data-nombre')+'" '+t.detalle+'.\n\n'
+                 +'Emite un movimiento en SiGA. ¿Confirmás?', 'Emitir ajuste').then(function(ok){
+    if(!ok) return;
+    b.disabled = true;
+    api('/api/mayoristas/reservas/ajuste', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      // El ajuste emite el movimiento en la MISMA sucursal y depósitos que la tabla que lo
+      // propuso: con el fallback de config movía stock en una sucursal que no es la reservada.
+      body: JSON.stringify(Object.assign(
+        { plu: b.getAttribute('data-plu'), tipo: tipo, cantidad: cant }, contextoReserva()))
+    }).then(function(d){
+      if(!d || d.error){ snack('Error: '+((d&&d.error)||'sin respuesta'), true); b.disabled = false; return; }
+      snack('Ajuste emitido · movimiento #'+d.numeroMovimiento);
+      cargarSaldosReserva();
+    });
   });
 });
 
@@ -3793,7 +3798,7 @@ fetch('/api/state').then(function(r){ return r.json(); }).then(function(s){
 <div id="modal-confirm" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45);align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;max-width:420px;width:92%;padding:24px">
     <h3 class="font-disp font-bold text-lg text-ink" id="modal-confirm-titulo">Confirmar</h3>
-    <p class="text-sm text-verde" id="modal-confirm-msg" style="margin:8px 0 20px"></p>
+    <p class="text-sm text-verde" id="modal-confirm-msg" style="margin:8px 0 20px;white-space:pre-line"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost btn-sm" id="modal-confirm-no">Cancelar</button>
       <button class="btn btn-tonal btn-sm" id="modal-confirm-alt" style="display:none"></button>

@@ -207,9 +207,10 @@ function confirmarRenombre(i, valor) {
   renderPresModal();
 }
 
-function borrarPresentacion(i) {
+async function borrarPresentacion(i) {
   const p = presModal[i];
-  if (p.codigos.length && !confirm(`¿Borrar la presentación "${p.nombre}" y sus ${p.codigos.length} códigos?`)) return;
+  if (p.codigos.length && !(await confirmarModalAsync('Borrar presentación',
+    `¿Borrar la presentación "${escHtml(p.nombre)}" y sus ${p.codigos.length} códigos?`, 'Borrar', true))) return;
   presModal = presModal.filter((_, k) => k !== i);
   presEditando = null;
   renderPresModal();
@@ -336,7 +337,8 @@ async function guardarGrupo() {
     productoRef: editarGrupoRef
   })));
   if (!items.length && !editarGrupoEsNuevo &&
-      !confirm(`"${editarGrupoRef}" queda sin códigos y sale del catálogo. ¿Guardar igual?`)) return;
+      !(await confirmarModalAsync('Grupo sin códigos',
+        `"${escHtml(editarGrupoRef)}" queda sin códigos y sale del catálogo. ¿Guardar igual?`, 'Guardar igual', true))) return;
 
   // Grupo nuevo: decidir si es variedad de miel (sección Mieles + tambor).
   if (editarGrupoEsNuevo) {

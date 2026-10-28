@@ -381,7 +381,8 @@ function modalIndumentaria() {
     if (borrar) {
       const id = borrar.dataset.id;
       const prenda = doc.prendas.find(p => p.id === id);
-      if (!confirm(`¿Eliminar "${prenda ? prenda.nombre : id}" del relevamiento? Se pierden los talles cargados de esa prenda.`)) return;
+      if (!(await apdConfirmar(`¿Eliminar "${prenda ? prenda.nombre : id}" del relevamiento? Se pierden los talles cargados de esa prenda.`,
+        { titulo: 'Eliminar prenda', aceptar: 'Eliminar', peligro: true }))) return;
       if (await cargar(`${API}/prendas/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Prenda eliminada.')) {
         modalIndumentaria();
       }
@@ -415,7 +416,7 @@ $('#tbody').addEventListener('click', async ev => {
   const borrar = ev.target.closest('.js-borrar');
   if (borrar) {
     const e = doc.empleados.find(x => x.id === borrar.dataset.id);
-    if (!e || !confirm(`¿Eliminar a ${e.nombre} del relevamiento?`)) return;
+    if (!e || !(await apdConfirmar(`¿Eliminar a ${e.nombre} del relevamiento?`, { titulo: 'Eliminar empleado', aceptar: 'Eliminar', peligro: true }))) return;
     await cargar(`${API}/empleados/${encodeURIComponent(e.id)}`, { method: 'DELETE' }, 'Empleado eliminado.');
     return;
   }

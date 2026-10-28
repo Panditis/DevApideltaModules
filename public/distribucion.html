@@ -955,6 +955,7 @@
 
 <div id="prodFilterDrop" style="display:none"></div>
 
+<script src="/js/apd-dialogo.js"></script>
 <script>
 // Sucursales por vista (Pesables incluye Logia; Almacen no la despacha).
 const SUC_A = [
@@ -2524,7 +2525,7 @@ async function exportarXlsxSinFrac() {
     const url = URL.createObjectURL(await res.blob());
     const a = Object.assign(document.createElement('a'), { href: url, download: `sin_fraccionar_${new Date().toISOString().slice(0,10)}.xlsx` });
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  } catch (e) { alert('No se pudo generar el xlsx: ' + e.message); }
+  } catch (e) { apdAvisar('No se pudo generar el xlsx: ' + e.message); }
 }
 document.getElementById('pdfSf').onclick = exportarPDFSinFrac;
 document.getElementById('xlsxSf').onclick = exportarXlsxSinFrac;

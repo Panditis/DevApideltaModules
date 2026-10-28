@@ -285,6 +285,7 @@ body{color:var(--on-surf);font-size:14px;line-height:1.55}
   </div>
 </div>
 
+<script src="/js/apd-dialogo.js"></script>
 <script>
 'use strict';
 // ── Estado en memoria (inmutable en cada refresh; se reemplaza, no se muta) ───
@@ -535,7 +536,7 @@ form.addEventListener('submit', async (ev) => {
 
 // ── Resetear contraseña ───────────────────────────────────────────────────────
 async function resetearPassword(u) {
-  const nueva = window.prompt('Nueva contraseña para "' + u.usuario + '":', '');
+  const nueva = await apdPedir('Nueva contraseña para "' + u.usuario + '":', '', { titulo: 'Resetear contraseña', tipo: 'password' });
   if (nueva === null) return;            // cancelado
   if (!nueva.trim()) { mostrarBanner('La contraseña no puede estar vacía.', 'err'); return; }
   try {
@@ -551,7 +552,7 @@ async function resetearPassword(u) {
 
 // ── Eliminar usuario ──────────────────────────────────────────────────────────
 async function eliminarUsuario(u) {
-  if (!window.confirm('¿Eliminar al usuario "' + u.usuario + '"? Esta acción no se puede deshacer.')) return;
+  if (!(await apdConfirmar('¿Eliminar al usuario "' + u.usuario + '"? Esta acción no se puede deshacer.', { titulo: 'Eliminar usuario', aceptar: 'Eliminar', peligro: true }))) return;
   try {
     await api('/api/admin/usuarios/' + u.id, { method: 'DELETE' });
     mostrarBanner('Usuario "' + u.usuario + '" eliminado.', 'ok');
